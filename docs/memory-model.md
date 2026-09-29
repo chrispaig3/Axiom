@@ -4853,19 +4853,52 @@ channel serves both lowerings without the program choosing.
   (`MM-PAR-9`, edge 4). Between threads, that orders any plain memory
   the sender wrote before the send. Between processes, the only shared
   memory is the mapping, so the edge carries the word.
-- **Waiting is the kernel's.** A waiter sleeps in `sysWaitWord` on a
-  counter that every change bumps. On Linux that is `futex` without
-  `FUTEX_PRIVATE_FLAG`, and on Darwin `__ulock_wait` with the 64-bit shared
-  compare. The waiter reads the counter under the lock, so a change
-  between its release and its sleep is seen on entry, and no wake is
-  lost. One caveat, on Linux only: `futex` compares the counter's low
-  32 bits, so a waiter preempted across exactly a multiple of 2^32
-  changes would sleep through them. FreeBSD has no blocking wait wired
-  (`waitWordKind` 0) and spins, which is correct and costs a core.
-- **The lock is cheap uncontended.** It is a three-state futex mutex,
-  so an uncontended acquire and release make no syscall.
-- **Retained memory is the mapping.** Nothing is allocated per word.
-  Peak RSS is the same at 60,000 and 600,000 words.
+- **Waiting is the kernel's.** A waiter sleeps in `sysWaitWordTimeout`
+  on a counter that every change bumps, in slices of at most 100 ms. On
+  Linux that is `futex` without `FUTEX_PRIVATE_FLAG`, and on Darwin
+  `__ulock_wait` with the 64-bit shared compare. The waiter reads the
+  counter under the lock, so a change between its release and its sleep
+  is seen on entry, and no wake is lost. One caveat, on Linux only:
+  `futex` compares the counter's low 32 bits, so a waiter preempted
+  across exactly a multiple of 2^32 changes would sleep through them.
+  FreeBSD has no blocking wait wired (`waitWordKind` 0) and spins, which
+  is correct and costs a core.
+- **The lock names its holder.** Word 0 is the mutex's word
+  (`MM-PAR-11`): 0 when free, otherwise the holder's pid shifted left
+  twice, with bit 0 set when someone waits. The compare-and-swap that
+  takes the lock writes the pid, so the word names the holder at every
+  instant the lock is held. An uncontended acquire and release are one
+  compare-and-swap each, with no wait or wake. Each public call asks
+  `getpid` once for the mark.
+- **A holder that dies poisons the channel.** A binding can die between
+  taking the lock and letting it go, for example a forked binding that
+  `MM-PAR-7`'s sweep killed. When a slice of a lock wait runs out, the
+  waiter asks `kill(pid, 0)` about the pid the word names, and `waitid`
+  with `WNOWAIT` too when that pid is its own child. `ESRCH`, or a child
+  that has exited unreaped, means the holder died holding the lock. One
+  compare-and-swap then takes the word from that holder's mark to the
+  poison mark, so it lands only while the word still names the dead
+  holder, and every waiter on the lock or the ring is woken.
+- **A poisoned channel answers as closed and drained.** It never hands
+  the lock on, because a holder that died published nothing and its
+  plain stores to the ring are in no order anyone can rely on. Every
+  call answers at once and touches no ring word:
+
+  | Call | Answer |
+  |---|---|
+  | `chanSend`, `chanTrySend` | `False` |
+  | `chanRecv`, `chanTryRecv` | `None` |
+  | `chanSendTimeout`, `chanRecvTimeout` | `Err` with code `chanOwnerDead` (1004, the mutex's `syncOwnerDead`) |
+  | `chanClose` | 0, and changes nothing |
+  | `chanClosed` | `True` |
+  | `chanLen` | 0 |
+  | `chanPoisoned` | `True`: a holder died holding the lock |
+  | `chanFree` | frees it: it takes no lock |
+
+  A binding already asleep, on the lock or on the ring, answers within
+  one slice of the holder being found dead.
+- **Retained memory is the mapping.** Nothing is kept per word. A
+  wait that sleeps takes a scratch block and gives it back.
 
 *Limits.*
 
@@ -4878,16 +4911,16 @@ channel serves both lowerings without the program choosing.
   asserting them.
 - No priority inheritance.
 - Not usable from a signal handler, because the lock doesn't re-enter.
-- No survival of a binding that dies holding the lock. `MM-PAR-7`'s
-  sweep sends `SIGKILL` to a forked sibling wherever it is. One killed
-  between `chanLock` and `chanUnlock` leaves the lock word held for
-  good, and the next call on that channel blocks forever. An
-  independent review saw it hang in 6 of 10 trap-and-recover runs.
-  After a sweep, the only safe call on a channel the swept bindings
-  used is `chanFree`, which takes no lock. The channel's lock doesn't
-  notice a dead owner. The mutex of `MM-PAR-11` does, because its lock
-  word names its holder. A channel guarded by that kind of lock is
-  future work.
+- A dead holder is found only once the kernel says it is gone. One that
+  is dead but not yet reaped, a zombie its parent hasn't joined, looks
+  alive to every binding but that parent. A pid that an unrelated
+  process has taken makes a dead holder look alive for good. In both
+  cases the untimed calls wait and the timed ones answer `sysTimedOut`.
+- The mark costs a `getpid` system call per public call, which is most
+  of an uncontended send and receive (`scripts/bench-concurrency.sh`).
+- A binding killed while it waits leaves its announcement in word 2
+  and its bit in word 0, so later changes make a wake call nobody
+  needs. That costs time, not correctness.
 
 *Program obligations.* What crosses a channel is an `Int`. A heap value
 would name memory the receiver doesn't own: a forked child's arena, or
@@ -4910,7 +4943,9 @@ trusted encapsulations (`MM-EXEC-9d`), so `Unsafe` stops at them and
 the public functions' rows don't carry it (`docs/stdlib-api.md`). The
 two timed forms say `effect(unsafe)` themselves, because they hand
 back a scratch block, and they are trusted too. That trust rests on the
-handle obligation above, which the type `Int` can't express.
+handle obligation above, which the type `Int` can't express. The rows
+of the calls that lock carry `Alloc`, because a lock wait takes a
+scratch block.
 
 *Evidence.*
 
@@ -4924,15 +4959,31 @@ handle obligation above, which the type `Int` can't express.
   at 2 s. The lock and the wake are each ablated on a copy of the
   standard library, and each turns the load test red. RSS stays flat
   over ten times the words.
+- `scripts/check-chan.sh` §6 kills a holder in both lowerings
+  (`tests/litmus/chan-dead.ax`). A binding asleep on the ring and one
+  asleep on the lock each answer `None`, poisoned, about 100 ms after
+  the kill, and a timed receive beside the live holder answers
+  `sysTimedOut` no sooner than asked. A zombie holder's parent finds it
+  dead. Recovered traps whose sweep kills a binding in the middle of
+  its calls leave the lock held in about one round in 200, and every
+  round answers. Ablating the dead-holder test, or the look at the
+  waiter's own child, leaves the probe with no answer.
+- `tests/stdlib/590-chan-dead-holder.ax`: every call's answer on a
+  poisoned channel, at every `--opt`.
 - `scripts/check-platform-constants.sh`: the library's `mmap` and
   `munmap` numbers agree with the runtime's on all six targets.
 - `scripts/check-protocol-model.sh`: the protocol, transcribed step by
   step in `scripts/lib/protocol-model.py`, is clean in every
   interleaving of two and three bindings at capacities 1 and 2 with
-  one to three words: exactly once, FIFO per sender, close and drain,
-  and no lost wakeup or deadlock. A waiter that parks after releasing
-  the lock, or a release or notify that wakes nobody, is found with its
-  schedule. A run recorded on an instrumented copy of this library
+  one to four words, and under one pid as threads have: exactly once,
+  FIFO per sender, close and drain, and no lost wakeup or deadlock. A
+  sender, receiver or timed sender killed at any step, with the lock
+  held or not, leaves every other binding able to finish, and the
+  channel is poisoned only by a holder that died holding it.
+- The same gate plants defects in the model, and finds each with a
+  schedule: a waiter that parks after releasing the lock, a release or
+  notify that wakes nobody, and each part of the dead-holder rule taken
+  back in turn. A run recorded on an instrumented copy of this library
   replays through the model operation by operation. Two bindings each
   waiting to receive from the other time out under `chanRecvTimeout`
   and stay blocked under `chanRecv`.
@@ -5088,8 +5139,10 @@ about the word.
 `mutexLockTimeout` and a task's deadline (`MM-PAR-13`) answer `Err`
 with code `sysTimedOut` (1001) when their time runs out. By then they
 have taken nothing out of the channel, put nothing in, and acquired
-nothing. 1001 isn't an errno, because `ETIMEDOUT` is 60 on Darwin and
-110 on Linux.
+nothing. A channel's timed call counts its wait for the channel's lock
+against the same time, so a holder that never lets go costs it its
+deadline and no more. 1001 isn't an errno, because `ETIMEDOUT` is 60 on
+Darwin and 110 on Linux.
 
 These calls wait in slices of at most 100 ms. A slice costs the whole
 slice when the kernel timed it out, and otherwise the clock's step
@@ -5276,7 +5329,22 @@ isolation is what makes a task's captures its own.
   kill reads, the child look, the result slot, the byte limit, the
   cancellation's kill, the saturating microseconds conversion and the
   exit wait, each on a copy of the library, and each turns its check
-  red. §8 ablates the runtime's kill list and Darwin's libSystem fork
+  red.
+- `scripts/check-protocol-model.sh` explores the pool, transcribed in
+  `scripts/lib/task_model.py`, in every interleaving of two and three
+  tasks at widths 1 to 3. Each task's body answers, answers over the
+  limit, traps, exits unanswered, runs for ever, cannot exit after
+  answering, or answers after a while, beside deadlines, a
+  cancellation from a sibling, fail-fast and no look at a child. The
+  model's clock moves only while the pool waits and nothing else can
+  step.
+- In every state of that model, every task is delivered once, in
+  submit order, as what happened to it. At most `width` children and
+  handles exist, and nothing starts once a cancellation is seen. The
+  pool never sleeps past a running task's deadline or the grace's end,
+  and every child is reaped when it returns. Nine planted defects, among
+  them the deadline's kill, the exit wait and the result slot above,
+  are each found with a schedule. §8 ablates the runtime's kill list and Darwin's libSystem fork
   in copies of the compiler. §7 builds and runs the three programs in
   `examples/concurrency/`, which check themselves, in both lowerings.
 
