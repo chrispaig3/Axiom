@@ -3399,6 +3399,13 @@ When two imported modules export the same name, a bare reference to it
 is `AX3014`. The compiler suggests both qualified spellings, and either
 one resolves it.
 
+Your entry file may declare a function with an imported name, such as
+its own `strLen`. Your file's references then reach your function. A
+module's references never do, because a module can't import your
+file, so `println` still measures strings with `Str`'s `strLen`.
+
+Tested by `tests/stdlib/573-entry-name-shadows-import.ax`.
+
 Type names follow their own lookup. A bare type name such as `Config`
 means, in order:
 

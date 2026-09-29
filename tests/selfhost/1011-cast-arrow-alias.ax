@@ -1,0 +1,18 @@
+; expect 42
+; A cast's target type is expanded like a signature's (AN-53).
+; `(cast Step f)` with `Step` an alias of an arrow answered `Step`
+; unexpanded, so `asStep`'s signature, which names the same arrow
+; through the alias, refused it with AX3004.
+(type Step = (-> Int Int))
+
+(:: asStep (-> Step Step))
+(fn (asStep f)
+  (cast Step f))
+
+(:: inc (-> Int Int))
+(fn (inc x)
+  (+ x 1))
+
+(:: main Int)
+(fn (main)
+  ((asStep inc) 41))

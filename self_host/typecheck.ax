@@ -4333,12 +4333,55 @@
         (if (== (memGetWord tc 19) 0)
           (let ((e (fnEntExact tc name)))
             (if (!= e 0)
-              e
+              (if (== (fnEntOutOfModuleScope tc m name e) 0)
+                e
+                (let ((s (fnEntSuffix tc name)))
+                  (if (!= s 0)
+                    s
+                    e)))
               (fnEntSuffix tc name)))
           (let ((e (fnEntVisibleExact tc (memGetWordVec tc 27) name (memGetWordStr tc 16))))
             (if (!= e 0)
-              e
+              (if (== (fnEntOutOfModuleScope tc m name e) 0)
+                e
+                (let ((s (fnEntVisibleSuffix tc (memGetWordVec tc 27) name (memGetWordStr tc 16))))
+                  (if (!= s 0)
+                    s
+                    e)))
               (fnEntVisibleSuffix tc (memGetWordVec tc 27) name (memGetWordStr tc 16)))))))))
+
+; 1 when `e`, the exact match for a BARE reference made inside module
+; `m`, may be the entry file's declaration, which no module can see
+; (AN-52). A module can't import the entry file, so an entry-file
+; `strLen` must not answer `IO`'s call to `Str`'s: the lookup then
+; asks the suffix pass for a module's `Mod$name` and keeps `e` only
+; when there is none. A builtin and an effect operation are never the
+; entry file's, and a module's `extern` item or effect operation is
+; also registered as `Mod$name`, so the suffix pass answers the same
+; declaration for them. `mangledForCg` makes the same choice, through
+; the module view `mangleRecordModuleView` records.
+(pub :: fnEntOutOfModuleScope (-> Int Int String Int Int))
+;@axiom:effect(unsafe)
+(pub fn (fnEntOutOfModuleScope tc m name e)
+  (if (== m 0)
+    0
+    (if (!= (memGetWord e 3) 0)
+      0
+      (if (!= (memGetWord e 4) 0)
+        0
+        (if (== (nameHasDollar name 0) 1)
+          0
+          1)))))
+
+; Does `s` contain `$` (36) at or after `i`? Asked without building a
+; string.
+(pub :: nameHasDollar (-> String Int Int))
+(pub fn (nameHasDollar s i)
+  (if (>= i (strLen s))
+    0
+    (if (== (strByte s i) 36)
+      1
+      (nameHasDollar s (+ i 1)))))
 
 ; The same question asked of the whole table rather than of the
 ; visible part of it: used only to tell "there is no such name" from
@@ -6773,10 +6816,13 @@
 
 ; The `(fn (name ...) body)` for `name`, or 0.
 ;
-; A linear scan, and it stays one: the set it is asked about is the
-; result-only-tyvar signatures, of which this whole repository has a
-; single digit. An index would be machinery for a list that fits on
-; one screen.
+; A linear scan. It was asked about the result-only-tyvar signatures
+; alone, a single-digit set, until R-B6's forging rule began asking the
+; divergence walk about every cast that may forge (`castNoteForge`),
+; and each call head there is a scan. The scan compares names in place
+; (`bareNameIs`): it built `bareOf` of every declaration it passed,
+; which was 11.6% of `check self_host/main.ax` and most of the 15% that
+; check lost that day.
 (pub :: findFnDecl (-> (Vec Int) String Int))
 (pub fn (findFnDecl decls name)
   (let (
@@ -6788,7 +6834,7 @@
       (while (< i n)
         (let ((d (vecGet decls i)))
           {
-            (if (&& (== (nodeTag d) TAG_D_FN) (strEq (bareOf (nodeAName d)) name))
+            (if (&& (== (nodeTag d) TAG_D_FN) (== (bareNameIs (nodeAName d) name) 1))
               {
                 (set hit d)
                 (set i n)
@@ -6798,6 +6844,25 @@
           }))
       hit
     }))
+
+; `(strEq (bareOf full) name)`, without building the bare name. A
+; bare name holds no `$`, so `full` answers to it when it IS `name`, or
+; ends in `$` and `name`: the last `$` then sits just before `name`.
+(pub :: bareNameIs (-> String String Int))
+(pub fn (bareNameIs full name)
+  (if (== (nameHasDollar name 0) 1)
+    0
+    (let (
+      (m (strLen full))
+      (n (strLen name))
+    )
+      (if (== m n)
+        (strEqAt full 0 name 0)
+        (if (< m (+ n 1))
+          0
+          (if (== (strByte full (- (- m n) 1)) 36)
+            (strEqAt full (- m n) name 0)
+            0))))))
 
 (pub :: findFnBody (-> (Vec Int) String Int))
 (pub fn (findFnBody decls name)
@@ -12549,7 +12614,7 @@
 ; from a declaration with no tag.
 (pub :: castMayForge (-> Int Int Int Int))
 (pub fn (castMayForge tc tgt src)
-  (let ((k (castTyClass tc tgt)))
+  (let ((k (castTyClass tc (tyExpandedAliases tc tgt))))
     (if (|| (== k 0) (== k 3))
       0
       (if (== (tyIsErr (tyResolve src)) 1)
@@ -12690,15 +12755,17 @@
                 "an unconvertible shape here used to answer a silent wildcard, which unifies with everything: the cast was performed, the result had no type anyone could object to, and a function returning it satisfied any declaration") "not a type"))
               (mkNode TAG_T_ERR 0 0 0)
             }
-            (let ((targetTy (exprToType (vecGet args 0))))
+            (let ((targetTy (castTargetTy tc (vecGet args 0))))
               (let ((subBase 
                 (if (&& (!= targetTy 0) (== (nodeTag targetTy) TAG_T_CON))
                   (tySubtypeBase tc targetTy)
                   0)))
                 (if (== subBase 0)
                   {
+                    ; the target as written, so AX3073 names the alias
+                    ; the program spelled; `castMayForge` expands it
                     (if (>= (vecLen args) 2)
-                      (castNoteForge tc e targetTy srcTy (vecGet args 1))
+                      (castNoteForge tc e (exprToType (vecGet args 0)) srcTy (vecGet args 1))
                       0)
                     targetTy
                   }
@@ -12832,6 +12899,21 @@
 ; literal, an `if`, a lambda, or a literal nested as an argument, as in
 ; `(:: e (Vec 2))`. The wildcard unifies with everything, so each of
 ; those typed a value as anything at all.
+; A cast's target type, with its aliases expanded as a signature's
+; are. `(cast Step f)` under `(type Step = (-> Int Int))` answered
+; `Step` itself, which no arrow unifies with, so a signature naming
+; the alias's arrow refused the cast with AX3004 (AN-53).
+(pub :: castTargetTy (-> Int Int Int))
+(pub fn (castTargetTy tc e)
+  (tyExpandedAliases tc (exprToType e)))
+
+; `t` with its aliases expanded, or `t` itself when it names none.
+(pub :: tyExpandedAliases (-> Int Int Int))
+(pub fn (tyExpandedAliases tc t)
+  (if (== (tyHasAliasCon tc t) 1)
+    (tyExpandAliases tc t 0)
+    t))
+
 (pub :: castTypeBadPart (-> Int Int))
 (pub fn (castTypeBadPart e)
   (if (== e 0)

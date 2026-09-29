@@ -1,0 +1,40 @@
+; An imported module's bare call reaches the name its own module
+; scope resolves, never an entry-file function of the same name
+; (AN-52). A module can't import the entry file, so nothing the entry
+; file declares is in a module's scope.
+;
+; `IO`'s `println` calls `Str`'s `strLen` and `strData`. This file
+; declares its own `strLen` at the same type, answering 0: before the
+; fix the program checked OK, `println` measured every string as 0
+; bytes long, and nothing was printed. It declares `strData` at a
+; different type, which caught the checker too: `IO.ax`'s own call was
+; typed against this file's `strData` and refused with `AX3004`.
+;
+; The entry file's own references still reach the entry file's
+; functions, as the last two lines show.
+(import IO)
+(import Str)
+(import Vec)
+(import Fmt)
+
+(:: strLen (-> String Int))
+(fn (strLen s)
+  0)
+
+(:: strData (-> Int Int))
+(fn (strData n)
+  (* n 2))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((v (:: vecNew (Vec Int))))
+    {
+      (println "abcd")
+      (vecPush v 7)
+      (vecPush v 8)
+      (println (strConcat "second element: " (fmtInt (vecGet v 1))))
+      (println (strConcat "this file's strLen: " (fmtInt (strLen "abcd"))))
+      (println (strConcat "this file's strData: " (fmtInt (strData 21))))
+      0
+    }))

@@ -1,0 +1,16 @@
+; A `main` answering `(Result Int Error)` renders its `Err` with
+; `Err`'s own `errorText`, whatever the entry file declares under that
+; name (ERR-REC-4, AN-52). This file declares an `errorText` of
+; another type. The dispatch used to look the name up from the entry
+; file, find this one, decide no rendering was in scope and answer the
+; `Result`'s address as the exit status. The `.err` golden holds the
+; sentence and the status is 70, as in 491-main-result-err.ax.
+(import Err)
+
+(:: errorText (-> Int Int))
+(fn (errorText n)
+  (+ n 1))
+
+(:: main (Result Int Error))
+(fn (main)
+  (withContext (Err (mkError (errorText 6) "disk full")) "saving records"))

@@ -161,13 +161,48 @@
         0
       })
     (if (mangleIdxHas idx bares bare)
-      0
+      (mangleRecordModuleView idx bares fulls bare full)
       {
         (vecPush bares bare)
         (vecPush fulls full)
         0
       })
   })
+
+; What a bare reference made inside a MODULE reaches when the entry
+; file holds the bare slot (AN-52). A module can't import the entry
+; file, so the entry's claim is never in a module's scope, and the
+; bare slot's winner is the wrong answer there: `IO`'s `println` calls
+; `strLen`, and an entry file declaring its own `strLen` used to
+; capture that call, at check time and at run time.
+;
+; The module view is recorded under `$bare`, a key no reference can
+; spell, because a name never contains `$` until mangling puts it
+; there. It is written only when the slot's holder maps the name to
+; itself, which is the entry file's shape (`recordEntryFns` records
+; `name -> name`); a slot another module won keeps first-writer-wins,
+; and two modules exporting one name are AX3014 wherever it's used.
+; The first module to record wins the view as well, in the same
+; resolution order. `mangledForCg` asks for `$bare` only inside a
+; module, and only when the bare slot answers the name unchanged.
+(pub :: mangleRecordModuleView (-> Int (Vec String) (Vec String) String String Int))
+(pub fn (mangleRecordModuleView idx bares fulls bare full)
+  (if (strEq bare full)
+    0
+    (match (mangleIdxIndexOf idx bares bare)
+      ((Some i)
+        (if (strEq (vecGet fulls i) bare)
+          (let ((key (strConcat "$" bare)))
+            (if (mangleIdxHas idx bares key)
+              0
+              {
+                (vecPush bares key)
+                (vecPush fulls full)
+                0
+              }))
+          0)
+      )
+      ((None) 0))))
 
 ; The entry file's claim on a bare name, which OVERRIDES whatever an
 ; import recorded. `mangleRecord` gives the entry file the bare slot by
@@ -194,6 +229,20 @@
     )
     ((Some i)
       {
+        ; The module that held the slot keeps its view (see
+        ; `mangleRecordModuleView`): a generated entry declaration
+        ; must no more capture a module's calls than a written one.
+        (let ((held (vecGet fulls i)))
+          (if (strEq held name)
+            0
+            (let ((key (strConcat "$" name)))
+              (if (mangleIdxHas idx bares key)
+                0
+                {
+                  (vecPush bares key)
+                  (vecPush fulls (strDup held))
+                  0
+                }))))
         (vecSet fulls i name)
         0
       }
