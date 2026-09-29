@@ -208,6 +208,7 @@
 ; have given up.
 (:: inverted (-> Int Mutex Mutex Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (inverted k first second bar ms)
   (let ((buf (memAlloc 16)))
     (match (mutexLock first)
@@ -291,6 +292,7 @@
 ; each waits for the other. Timed when `ms` > 0.
 (:: waitFor (-> Int Chan Chan Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (waitFor k mine theirs ms)
   (let ((buf (memAlloc 16)))
     (if (> ms 0)

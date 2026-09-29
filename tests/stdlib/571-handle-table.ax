@@ -82,6 +82,9 @@
             (say "a word no generation matches, status" (trapped 0 9 5))
             (say "the live word still answers" (getH 9 fresh))
             (getH 9 old)
-            (printlnLit (strCStr "UNREACHABLE: the trap returned"))
+            ; `writeStr` and not `println`: `verify-stdlib-out.py` reads a
+            ; `println` literal as a line the program prints, and it cannot see
+            ; that the call above traps.
+            (writeStr stdout "UNREACHABLE: the trap returned\n")
           }))
     }))

@@ -87,6 +87,7 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   ; --- a directory is never empty ---------------------------------
   (let (

@@ -35,8 +35,8 @@
 ;@axiom:effect(io)
 (fn (say okFlag label)
   (if (== okFlag 1)
-    (printlnLit (strCStr (strConcat "ok   " label)))
-    (printlnLit (strCStr (strConcat "FAIL " label)))))
+    (println (strConcat "ok   " label))
+    (println (strConcat "FAIL " label))))
 
 ; Accept, allowing for the connection not having landed on the queue
 ; yet. A loopback `connect` on a BLOCKING socket returns once the kernel

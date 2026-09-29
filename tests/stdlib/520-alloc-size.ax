@@ -71,5 +71,8 @@
           (println "recovered {inside}")
           (println "kept {total}")
           (huge 0)
-          (printlnLit (strCStr "UNREACHABLE: the refusal outside a recovery point returned"))
+          ; `writeStr` and not `println`: `verify-stdlib-out.py` reads a
+          ; `println` literal as a line the program prints, and it cannot see
+          ; that the call above traps.
+          (writeStr stdout "UNREACHABLE: the refusal outside a recovery point returned\n")
         }))))

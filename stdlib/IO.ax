@@ -69,12 +69,14 @@
 (:: printLit (-> Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:precondition(`cstr` names live NUL-terminated bytes)
 (fn (printLit cstr)
   (sysWriteAllFd stdout cstr (cstrLen cstr 0) 0))
 
 (pub :: printlnLit (-> Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:precondition(`cstr` names live NUL-terminated bytes)
 (pub fn (printlnLit cstr)
   {
     (printLit cstr)
@@ -380,6 +382,7 @@
 ; and its own ordering.
 (pub :: listDir (-> String (Vec String)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (listDir path)
   (let (
     (raw (sysReadDir (ioPath path)))

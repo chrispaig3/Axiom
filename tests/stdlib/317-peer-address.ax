@@ -34,8 +34,8 @@
 ;@axiom:effect(io)
 (fn (say okFlag label)
   (if (== okFlag 1)
-    (printlnLit (strCStr (strConcat "ok   " label)))
-    (printlnLit (strCStr (strConcat "FAIL " label)))))
+    (println (strConcat "ok   " label))
+    (println (strConcat "FAIL " label))))
 
 ; Accept with the peer, allowing for the connection not having reached
 ; the queue yet - the bounded retry `307` measured the need for, over

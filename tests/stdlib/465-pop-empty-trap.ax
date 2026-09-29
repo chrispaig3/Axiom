@@ -73,5 +73,8 @@
       ; the trap rather than from its last expression. It is also the
       ; tripwire for the trap being removed - if `vecPop` ever starts
       ; answering 0 again, this line runs and the golden says so.
-      (printlnLit (strCStr "UNREACHABLE: the empty pop returned"))
+      ; `writeStr` and not `println`: `verify-stdlib-out.py` reads a
+      ; `println` literal as a line the program prints, and it cannot see
+      ; that the call above traps.
+      (writeStr stdout "UNREACHABLE: the empty pop returned\n")
     }))

@@ -75,5 +75,8 @@
       ; case's exit status from `main`'s tail when that tail is one,
       ; and this status is the trap's. If the trap ever returns, this
       ; line runs and the golden says so (`464-index-trap.ax`'s shape).
-      (printlnLit (strCStr "UNREACHABLE: the trap returned"))
+      ; `writeStr` and not `println`: `verify-stdlib-out.py` reads a
+      ; `println` literal as a line the program prints, and it cannot see
+      ; that the call above traps.
+      (writeStr stdout "UNREACHABLE: the trap returned\n")
     }))

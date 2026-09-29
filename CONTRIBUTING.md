@@ -221,7 +221,7 @@ only what it declares.
 
 Run `axiom fmt` over every file you touch. Don't assume the tree is
 already in the formatter's normal form: `axiom fmt --check` passes 748
-of the 802 `.ax` files in the repository and flags 54. It checks one
+of the 804 `.ax` files in the repository and flags 56. It checks one
 file at a time, so this lists the ones that need formatting:
 
 ```bash
@@ -242,7 +242,7 @@ Four of those files stay as they are:
 - `examples/batch-fallible/batch-fallible.ax` waits until someone next
   edits it.
 
-The other 49 arrived or changed without a formatting pass. Format one
+The other 52 arrived or changed without a formatting pass. Format one
 when you're editing it anyway, rather than in a bulk whitespace change
 nobody can review. Leave `tests/fmt/parity/*.axp` and the `*.axbad`
 refusal cases alone: they are inputs the formatter must refuse.

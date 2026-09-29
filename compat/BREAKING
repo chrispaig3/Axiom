@@ -784,3 +784,13 @@
 0.7.7  F  listDir         (-> String (Vec Int)) -> (-> String (Vec String)): the names are Strings (MM-EXEC-9d)
 0.7.7  F  sysReadDir      (-> Int (Vec Int)) -> (-> Int (Vec String)): the names are Strings (MM-EXEC-9d)
 0.7.7  F  axsymParseFrom  (-> (Vec Int) Int (Vec Sym) (Vec Sym)) -> (-> (Vec String) Int (Vec Sym) (Vec Sym)): the lines are Strings (MM-EXEC-9d)
+
+# 0.7.7 - R-B10, MM-EXEC-9e: a struct whose fields a trusted function
+# hands to the kernel is private to its module. `KeyIn`'s `Int` fields
+# are buffers the kernel writes, and `HttpReader`'s `buf` and `filled`
+# bound the address `httpFill` reads into, so a caller that could build
+# one or set a field could aim a `read` anywhere. Both names are still
+# usable in a signature; only `mkKeyIn` and `httpReaderWith` build one,
+# and only their own module reads or sets a field.
+0.7.7  S  KeyIn       sealed: only Tui.Term builds one or reads a field (MM-EXEC-9e)
+0.7.7  S  HttpReader  sealed: only Http builds one or reads a field (MM-EXEC-9e)

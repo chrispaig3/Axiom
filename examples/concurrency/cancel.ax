@@ -143,6 +143,7 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   (match (sysMapShared 4096)
     ((Ok idle)

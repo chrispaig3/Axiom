@@ -38,7 +38,7 @@
 ;@axiom:effect(io)
 (fn (main)
   {
-    (printlnLit (strCStr "asking for more than the address space holds"))
+    (println "asking for more than the address space holds")
     (memAlloc 1152921504606846976)
     ; NOT REACHED, and this line is deliberately the TAIL of `main`.
     ; `verify-stdlib-out.py` models a case's exit status from that tail
@@ -52,5 +52,8 @@
     ; allocator ever starts ANSWERING instead of exiting - which needs a
     ; primitive and therefore a moved seed - this line runs, stdout gains
     ; a line, and the golden says so.
-    (printlnLit (strCStr "UNREACHABLE: the allocation was satisfied"))
+    ; `writeStr` and not `println`: `verify-stdlib-out.py` reads a
+    ; `println` literal as a line the program prints, and it cannot see
+    ; that the call above traps.
+    (writeStr stdout "UNREACHABLE: the allocation was satisfied\n")
   })

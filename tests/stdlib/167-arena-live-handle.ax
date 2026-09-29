@@ -101,5 +101,8 @@
     ; and this line is the tripwire for the check being removed - if a
     ; reset past a live handle is ever accepted again, this runs and
     ; the golden says so.
-    (printlnLit (strCStr "UNREACHABLE: the reset past a live handle was accepted"))
+    ; `writeStr` and not `println`: `verify-stdlib-out.py` reads a
+    ; `println` literal as a line the program prints, and it cannot see
+    ; that the call above traps.
+    (writeStr stdout "UNREACHABLE: the reset past a live handle was accepted\n")
   })
