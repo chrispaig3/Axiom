@@ -20,8 +20,11 @@
 ;   dead       a forked binding takes the lock and is SIGKILLed and
 ;              reaped holding it. Prints what a timed and an untimed
 ;              lock answer afterwards, and when.
-;   misuse     unlock a free mutex, unlock with a sibling's guard,
-;              unlock twice: each must be refused with `syncNotHeld`.
+;   misuse     unlock a free mutex, unlock with another mutex's live
+;              guard, with a guard a `cast` made from 0, and twice: each
+;              must be refused with `syncNotHeld`. A guard is a
+;              `MutexGuard`, which safe code gets only from a lock call,
+;              so the zero guard is the unsafe layer's.
 ;              Then the window a stale unlock can land in, built
 ;              exactly: a lock and unlock leave guard G stale, the lock
 ;              word is taken the way a new holder's compare-and-swap
@@ -64,7 +67,7 @@
     0
   })
 
-(:: codeOf (-> (Result Int Error) Int))
+(:: codeOf (-> (Result a Error) Int))
 (fn (codeOf r)
   (match r
     ((Ok g) 0)
@@ -446,18 +449,36 @@
     0
     1))
 
+; A guard made from a word, which only the unsafe layer can do.
+(:: forged (-> Int MutexGuard))
+;@axiom:effect(unsafe)
+(fn (forged w)
+  (cast MutexGuard w))
+
+; A live guard of a second mutex: a real guard, and not `m`'s.
+(:: foreignGuard MutexGuard)
+;@axiom:effect(io)
+(fn (foreignGuard)
+  (match (mutexNew)
+    ((Ok o)
+      (match (mutexTryLock o)
+        ((Some g) g)
+        ((None) (forged 7)))
+    )
+    ((Err e) (forged 7))))
+
 (:: misuse Int)
 ;@axiom:effect(io)
 (fn (misuse)
   (match (mutexNew)
     ((Ok m)
       {
-        (say "free" (codeOf (mutexUnlock m 1)))
+        (say "free" (codeOf (mutexUnlock m foreignGuard)))
         (match (mutexLock m)
           ((Ok g)
             {
-              (say "wrong-guard" (codeOf (mutexUnlock m (+ g 1))))
-              (say "zero-guard" (codeOf (mutexUnlock m 0)))
+              (say "wrong-guard" (codeOf (mutexUnlock m foreignGuard)))
+              (say "zero-guard" (codeOf (mutexUnlock m (forged 0))))
               (say "right" (codeOf (mutexUnlock m g)))
               (say "twice" (codeOf (mutexUnlock m g)))
               (takeWord m)

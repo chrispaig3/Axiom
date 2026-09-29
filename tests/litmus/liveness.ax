@@ -58,7 +58,7 @@
     0
   })
 
-(:: codeOf (-> (Result Int Error) Int))
+(:: codeOf (-> (Result a Error) Int))
 (fn (codeOf r)
   (match r
     ((Ok g) 0)
@@ -195,7 +195,7 @@
 
 ; ---- inversion -------------------------------------------------------------
 ; Lock `m` within `ms` milliseconds, or wait for ever when `ms` is 0.
-(:: lockWithin (-> Mutex Int (Result Int Error)))
+(:: lockWithin (-> Mutex Int (Result MutexGuard Error)))
 ;@axiom:effect(io)
 (fn (lockWithin m ms)
   (if (> ms 0)

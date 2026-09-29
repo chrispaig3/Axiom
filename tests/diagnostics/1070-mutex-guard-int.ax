@@ -1,0 +1,38 @@
+; A mutex's guard is a `MutexGuard` (docs/memory-model.md MM-PAR-8,
+; MM-PAR-11), which only a lock call answers. So an `Int` passed as the
+; guard is AX3004, and so are the mutex itself and a channel: each
+; handle is its own sealed type. A guard used as an `Int` is AX3004 the
+; other way. The unlock with the lock's own guard is the control.
+(import Chan)
+(import Sync)
+(import Err)
+
+(:: done (-> (Result Int Error) Int))
+(fn (done r)
+  (match r
+    ((Ok z) 0)
+    ((Err e) 1)))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (match (mutexNew)
+    ((Ok m)
+      (match (chanNew 1)
+        ((Ok c)
+          (match (mutexLock m)
+            ((Ok g)
+              {
+                (done (mutexUnlock m 1))
+                (done (mutexUnlock m m))
+                (done (mutexUnlock m c))
+                (+ g 1)
+                (done (mutexUnlock m g))
+                0
+              }
+            )
+            ((Err e) 3))
+        )
+        ((Err e) 2))
+    )
+    ((Err e) 1)))

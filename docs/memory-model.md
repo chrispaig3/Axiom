@@ -4711,6 +4711,13 @@ The same table carries the standard library's handles: a channel
 so a freed, forged or other-kind handle traps 85, and so does a second
 free.
 
+A mutex's guard is a word struct too, `MutexGuard`, which only a lock
+call answers. It isn't in the table and isn't `shared`. Safe code can't
+pass an `Int`, a `Mutex` or another handle as a guard (`AX3004`), build
+one (`AX3085`) or hand one to a concurrent binding (`AX3064`). A stale
+guard, or another mutex's, is still a real `MutexGuard`, and the
+unlock's compare-and-swap refuses it at run time (`MM-PAR-11`).
+
 *The table.* A handle word is `(generation << 16) | index`. A slot
 holds a state, the generation with a live bit and a kind, and the
 address it names. A get reads the state on both sides of the address
@@ -4732,7 +4739,9 @@ fork is (78), and a library call answers `EMFILE`.
 `tests/stdlib/571-handle-table.ax` and
 `tests/stdlib/572-spawn-joined-twice.ax`, at every `--opt`;
 `tests/diagnostics/1060-handle-int-for-chan.ax` to
-`tests/diagnostics/1066-spawn-handle.ax`; `scripts/check-handles.sh`:
+`tests/diagnostics/1066-spawn-handle.ax`. The guard's refusals are
+`tests/diagnostics/1070-mutex-guard-int.ax` and
+`tests/diagnostics/1071-mutex-guard-sealed.ax`. `scripts/check-handles.sh`:
 both lowerings, 80,000 handles made and freed by four bindings at once,
 racing frees, both kinds of spawn handle, the capture rule under
 `build --threads`, a single-bit fault at each of a live handle's 64
@@ -5051,16 +5060,19 @@ waits until the caller holds the mutex. `mutexTryLock` doesn't wait,
   half Linux's `futex` compares. The compare-and-swap that takes the
   lock also writes the pid, so the word names the holder at every
   instant the lock is held.
-- **Misuse is refused.** Every acquisition draws a *guard* from a
+- **The guard is typed.** Every acquisition draws a *guard* from a
   counter and publishes it as the holder's, right after its
-  compare-and-swap takes the lock word. `mutexUnlock` claims the
-  published guard with one compare-and-swap, from the guard to 0,
-  before it touches the lock word. An unlock of a free mutex, with a
-  stale guard (a double unlock), or with any guard but the holder's
-  fails that compare-and-swap, answers `Err` code `syncNotHeld` (1005),
-  and changes nothing. That includes a stale guard that lands between
-  a new holder's lock and its publication, because the published word
-  holds 0 then.
+  compare-and-swap takes the lock word. The lock call answers it as a
+  `MutexGuard`, a word struct only `Sync` builds or opens, so safe code
+  can't offer an `Int` or another handle as one (`MM-PAR-8`).
+- **Misuse is refused.** `mutexUnlock` claims the published guard with
+  one compare-and-swap, from the guard to 0, before it touches the lock
+  word. An unlock of a free mutex, with a stale guard (a double
+  unlock), with another mutex's guard or with any guard but the
+  holder's fails that compare-and-swap, answers `Err` code
+  `syncNotHeld` (1005), and changes nothing. That includes a stale guard that lands between a new
+  holder's lock and its publication, because the published word holds 0
+  then.
 - **The guard is the check**, because every binding has the same pid
   under `--threads`. Each mutex's counter starts at its page number
   times 2^24, so the guards of two live mutexes differ unless one has
@@ -5097,18 +5109,24 @@ waits until the caller holds the mutex. `mutexTryLock` doesn't wait,
 *Program obligations.* The handle is a `Mutex`, as `Chan`'s is a
 `Chan`: every call on a freed mutex, and a second `mutexFree`, traps
 with status 85. Call `mutexFree` only once no binding can reach the
-mutex; a free that races a lock call is a data race (`MM-PAR-9`). The
-guard is an `Int`, so a guard read out of the page through the unsafe
-layer, or guessed from one this binding held before, isn't refused. What the lock protects is protected
-only if every access to it happens under the lock. A plain access
-outside it is a data race (`MM-PAR-9`).
+mutex; a free that races a lock call is a data race (`MM-PAR-9`). A
+guard made with a `cast` is the unsafe layer's (`MM-VAL-22`): the
+unlock still refuses it unless its word is the holder's current guard,
+which a program can read out of the page only through that layer too.
+What the lock protects is protected only if every access to it happens
+under the lock. A plain access outside it is a data race (`MM-PAR-9`).
 
 *Evidence.*
 
 - `tests/stdlib/541-sync-mutex.ax`: every answer above, one binding at
-  a time; two forked bindings making 3,000 increments each, exact; and
-  a holder killed and reaped while holding the lock. Its `.optstable`
-  pins `--opt` 0 to 3.
+  a time, another mutex's live guard and a guard made by a `cast` among
+  the refused unlocks; two forked bindings making 3,000 increments
+  each, exact; and a holder killed and reaped while holding the lock.
+  Its `.optstable` pins `--opt` 0 to 3.
+- `tests/diagnostics/1070-mutex-guard-int.ax` and
+  `tests/diagnostics/1071-mutex-guard-sealed.ax`: an `Int`, the mutex
+  and a channel refused as a guard, a guard refused as an `Int`, and a
+  guard built, opened or captured by a concurrent binding refused.
 - `scripts/check-task.sh` §1: four bindings each add 1 to one plain
   shared word 100,000 times under the mutex, exact in both lowerings at
   `--opt` 0 and 2. Beside each run, an unlocked control must lose

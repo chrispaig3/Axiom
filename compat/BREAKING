@@ -794,3 +794,15 @@
 # and only their own module reads or sets a field.
 0.7.7  S  KeyIn       sealed: only Tui.Term builds one or reads a field (MM-EXEC-9e)
 0.7.7  S  HttpReader  sealed: only Http builds one or reads a field (MM-EXEC-9e)
+
+# 0.7.7 - R-C6, MM-PAR-8 and MM-PAR-11: a mutex's guard is a
+# `MutexGuard`, a word struct only `Sync` builds or opens, where it was
+# an `Int` any word could stand in for. Safe code can no longer pass an
+# `Int`, the mutex or another handle to `mutexUnlock`; a stale guard, or
+# another mutex's, is still refused at run time with `syncNotHeld`.
+# `Sync` is not in the 0.7.6 surface, so no baseline row moves; these
+# rows record the change for code written against the unreleased module.
+0.7.7  F  mutexLock         (-> Mutex (Result Int Error)) -> (-> Mutex (Result MutexGuard Error)): the guard is sealed (MM-PAR-11)
+0.7.7  F  mutexTryLock      (-> Mutex (Option Int)) -> (-> Mutex (Option MutexGuard)): the guard is sealed (MM-PAR-11)
+0.7.7  F  mutexLockTimeout  (-> Mutex Int (Result Int Error)) -> (-> Mutex Int (Result MutexGuard Error)): the guard is sealed (MM-PAR-11)
+0.7.7  F  mutexUnlock       (-> Mutex Int (Result Int Error)) -> (-> Mutex MutexGuard (Result Int Error)): the guard is sealed (MM-PAR-11)

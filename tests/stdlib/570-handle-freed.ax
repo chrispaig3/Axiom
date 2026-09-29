@@ -22,7 +22,7 @@
     1
     0))
 
-(:: okBit (-> (Result Int Error) Int))
+(:: okBit (-> (Result a Error) Int))
 (fn (okBit r)
   (match r
     ((Ok v) 1)
@@ -95,6 +95,14 @@
                       "cap"
                       "free")))))))))))
 
+; A guard for the unlock below. Any one does: the call asks the table
+; for the freed mutex and traps before it reads the guard. A guard is
+; sealed, so a word becomes one only through a `cast`, the unsafe layer's.
+(:: someGuard MutexGuard)
+;@axiom:effect(unsafe)
+(fn (someGuard)
+  (cast MutexGuard 1))
+
 ; Operation `k` on mutex `m`.
 (:: mutexOp (-> Int Mutex Int))
 ;@axiom:effect(io)
@@ -108,7 +116,7 @@
       (if (== k 2)
         (okBit (mutexLockTimeout m 1000))
         (if (== k 3)
-          (okBit (mutexUnlock m 1))
+          (okBit (mutexUnlock m someGuard))
           (if (== k 4)
             (bit (mutexOwnerDead m))
             (okBit (mutexFree m))))))))

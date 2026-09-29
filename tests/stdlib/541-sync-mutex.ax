@@ -4,6 +4,9 @@
 ; refusing a second try and timing out a timed lock (the mutex is not
 ; reentrant, so the holder waits for itself until the time runs out),
 ; and every unlock the holder did not earn refused with `syncNotHeld`.
+; A guard is a `MutexGuard`, which safe code gets only from a lock call,
+; so the unearned ones are another mutex's live guard, a guard made by a
+; `cast` (the unsafe layer), and this mutex's own guard once spent.
 ; Then two forked bindings add to one plain word in a shared mapping
 ; 3,000 times each under the lock - the total is exact. Then a holder
 ; that dies: a forked binding takes the lock and is SIGKILLed and
@@ -25,23 +28,35 @@
     1
     0))
 
-(:: codeOf (-> (Result Int Error) Int))
+(:: codeOf (-> (Result a Error) Int))
 (fn (codeOf r)
   (match r
     ((Ok g) 0)
     ((Err e) (errCode e))))
 
-(:: guardOf (-> (Result Int Error) Int))
-(fn (guardOf r)
-  (match r
-    ((Ok g) g)
-    ((Err e) 0)))
-
-(:: tryCode (-> (Option Int) Int))
+(:: tryCode (-> (Option MutexGuard) Int))
 (fn (tryCode o)
   (match o
     ((Some g) 0)
     ((None) 1)))
+
+; A guard made from a word, which only the unsafe layer can do.
+(:: forged (-> Int MutexGuard))
+;@axiom:effect(unsafe)
+(fn (forged w)
+  (cast MutexGuard w))
+
+; A live guard of a second mutex: a real guard, and not this mutex's.
+(:: foreignGuard MutexGuard)
+;@axiom:effect(io)
+(fn (foreignGuard)
+  (match (mutexNew)
+    ((Ok o)
+      (match (mutexTryLock o)
+        ((Some g) g)
+        ((None) (forged 7)))
+    )
+    ((Err e) (forged 7))))
 
 (:: bump (-> Mutex Int Int Int))
 ;@axiom:effect(io)
@@ -90,22 +105,28 @@
       {
         (println syncNotHeld)  ; 1005
         (println syncOwnerDead)  ; 1004
-        (println (codeOf (mutexUnlock m 1)))  ; 1005
-        (let ((g (guardOf (mutexLock m))))
-          {
-            (println (bit (> g 0)))  ; 1
-            (println (tryCode (mutexTryLock m)))  ; 1
-            (println (codeOf (mutexLockTimeout m 30000000)))  ; 1001
-            (println (codeOf (mutexUnlock m (+ g 1))))  ; 1005
-            (println (codeOf (mutexUnlock m 0)))  ; 1005
-            (println (codeOf (mutexUnlock m g)))  ; 0
-            (println (codeOf (mutexUnlock m g)))  ; 1005
-          })
-        (let ((g2 (guardOf (mutexLockTimeout m 30000000))))
-          {
-            (println (bit (> g2 0)))  ; 1
-            (println (codeOf (mutexUnlock m g2)))  ; 0
-          })
+        (println (codeOf (mutexUnlock m foreignGuard)))  ; 1005
+        (match (mutexLock m)
+          ((Ok g)
+            {
+              (println 1)  ; 1
+              (println (tryCode (mutexTryLock m)))  ; 1
+              (println (codeOf (mutexLockTimeout m 30000000)))  ; 1001
+              (println (codeOf (mutexUnlock m foreignGuard)))  ; 1005
+              (println (codeOf (mutexUnlock m (forged 0))))  ; 1005
+              (println (codeOf (mutexUnlock m g)))  ; 0
+              (println (codeOf (mutexUnlock m g)))  ; 1005
+            }
+          )
+          ((Err e) (println "no lock")))
+        (match (mutexLockTimeout m 30000000)
+          ((Ok g2)
+            {
+              (println 1)  ; 1
+              (println (codeOf (mutexUnlock m g2)))  ; 0
+            }
+          )
+          ((Err e) (println "no timed lock")))
         (match (mutexTryLock m)
           ((Some g3) (println (codeOf (mutexUnlock m g3))))
           ; 0
