@@ -22,6 +22,45 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+## 0.7.6 — 2026-09-29
+
+Axiom 0.7.6 tightens what safe code can do with memory and threads, and
+records the evidence for each change in `docs/assurance/`. Nothing here
+is certified or approved: each entry below names the tests that hold it,
+and the scorecard lists what they don't show.
+
+- Safe code can't hand the kernel an arbitrary address. A raw syscall
+  is an unsafe operation, every `Sys` call that takes a caller's address
+  is a precondition interface, and `IO`'s typed forms (`readInto`,
+  `writeSlice`, `openPath`, `randomBytes` and the terminal calls) check
+  their ranges before the kernel sees them (AN-58, MM-EXEC-9e).
+- A `parallel` binding may borrow a `String` its parent holds, in either
+  lowering: the string's count is frozen until the last join (MM-PAR-6b).
+- A pure parallel computation answers the same at every width and in
+  both lowerings, float sums included (MM-PAR-14), and `__floatToInt`
+  saturates instead of answering an undefined value.
+- Concurrency gains a sealed `MutexGuard`, timed waits, cancellation and
+  typed task results, and a channel whose holder dies is poisoned rather
+  than stuck.
+- Bare metal runs with the MMU on and a guard below the stack, and
+  `;@axiom:isr(fault)` binds your own fault policy.
+- Inline assembly (`asm`), the `!` operator and `for ... in`.
+- The language server shows a `let` value's type, reads fields and walks
+  the type hierarchy, and a fuzzer drives it on every push; the four
+  defects it found are fixed.
+- `axiom fmt` prints negative literal patterns, and `axiom symbols`
+  numbers fresh type variables per row.
+
+Breaking: a function that makes a raw syscall must say
+`;@axiom:effect(unsafe)`, the `Sys` calls that take an address are
+precondition interfaces, and every `isr` implies
+`restrict(no-recursion)`. `compat/BREAKING` lists each changed name.
+
+Thanks to @JessicaTemplet for expected-to-fail tests and
+`assertFloatNear` in the test runner (PR #33).
+
+<!-- release-notes: end of highlights -->
+
 ### A `parallel` binding may borrow its parent's `String` — MM-PAR-6b - 2026-09-29
 
 A binding could share only a word with its parent, so reading the
@@ -2059,8 +2098,6 @@ and `_` stay quiet via `lspSkipHintName`, and anything the shape
 cannot resolve stays hintless rather than a guess. Held by
 `scripts/check-lsp-selfhost.sh` (44 checks, the exact 13-hint derived
 list over the VIEW document).
-
-## 0.7.6 — 2026-09-25
 
 ### Hover shows a `let` value's type — `tests/lsp/drive.py`
 
