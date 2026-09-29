@@ -586,6 +586,31 @@
 # twin's gain. The stdlib view the same way, 209 rows naming `IO` in
 # both, with `strSplit`, `listDir` and `sysReadDir` now `(Vec String)`.
 #
+# RE-PINNED 2026-09-29, at the assurance session's merges (AN-37, AN-59,
+# MM-PAR-6b, MM-PAR-14, MM-EXEC-19 and the LSP fuzzer). Compiler view, 43
+# rows added, one removed and one moved (diffed `symbols --calls` rows for
+# f6852954 and this tree with ONE compiler): exactly `Alloc,Mut` 1535 to
+# 1550 (`capBorrowLend`, `capNotBorrowed`, `capReportFor`,
+# `capSpawnBorrows`, `checkIsrWaits`, `emitBaremetalTrapExit`,
+# `emitFaultHookFns`, `emitIsrWaits`, `emitMmuTables`,
+# `emitParBorrowRuntime`, `isrVectorOf`, `lspJsonAppend`, `lspLintRaw`,
+# `symFreshIndex`, `symFreshNames`), `Alloc,IO,Mut` 182 to 184
+# (`emitPrimParBorrow`, and `rpcRead`, which lost `Unsafe` when it became a
+# wrapper over `rpcReadMsg`), `Alloc,Mut,Unsafe` 932 to 938 (seven added -
+# `baremetalFaultHandler`, `capBorrowBlock`, `capSpawnBorrowId`,
+# `checkParLends`, `isrFaultSigOk`, `isrVectorIn`, `isrVectorNames` - and
+# `isrIrqNames` removed), `Alloc,IO,Mut,Unsafe` 240 to 242 (`emitParLends`,
+# `emitPrimParBorrowOne`, `rpcReadMsg` added, `rpcRead` gone to the bucket
+# above), `Alloc,Unsafe` 9 to 10 (`fpFusedAtom`), pure 1343 to 1359 (sixteen
+# predicates and tables: `capBlockNames`, `capTyBorrowable`,
+# `isParBorrowName`, `isrIntArrows`, `isrIsInt`, the seven `mmu*` helpers
+# and `symDigitsValue`, `symFreshEnd`, `symFreshOpens`, `symNameByte`). The
+# IO-naming buckets move by new emission and runtime rows and by `rpcRead`
+# giving up `Unsafe`, no row gains or loses `IO`, so the required/ambient
+# line holds. The stdlib view moves by `stdlib/Rpc.ax` alone: `rpcRead`
+# into `Alloc,IO,Mut` (71 to 72), and `rpcReadMsg` into the
+# `Alloc,IO,Mut,Unsafe` place it left.
+#
 # RE-PINNED 2026-09-29: inline assembly (MM-FFI-9), the `!` operator
 # and `for...in`. Compiler view only, 42 rows added and none moved or
 # removed (diffed `symbols --calls` rows for 1b985ddf and this tree
@@ -739,22 +764,22 @@ echo "== compiler view: symbols --calls self_host/main.ax =="
 rows="$(grep -c '^F ' "$work/main.axsym" || true)"
 (( rows >= 4000 )) && ok "$rows functions listed (floor 4000)" \
   || fail "only $rows functions listed; the floor is 4000 (the corpus moved or the read broke)"
-have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 1535 "exactly Alloc,Mut"
-have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut')" 182 "Alloc,IO,Mut"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 1550 "exactly Alloc,Mut"
+have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut')" 184 "Alloc,IO,Mut"
 have "$(bucket "$work/main.axsym" 'Mut')" 33 "exactly Mut"
 have "$(bucket "$work/main.axsym" 'Alloc')" 112 "exactly Alloc"
 have "$(bucket "$work/main.axsym" 'Alloc,IO')" 36 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 23 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 0 "IO,Mut"
-have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 932 "Alloc,Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 938 "Alloc,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Unsafe')" 489 "exactly Unsafe"
-have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 240 "Alloc,IO,Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 242 "Alloc,IO,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Mut,Unsafe')" 98 "Mut,Unsafe"
-have "$(bucket "$work/main.axsym" 'Alloc,Unsafe')" 9 "Alloc,Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,Unsafe')" 10 "Alloc,Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Unsafe')" 8 "Alloc,IO,Unsafe"
 have "$(bucket "$work/main.axsym" 'IO,Mut,Unsafe')" 4 "IO,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'IO,Unsafe')" 1 "IO,Unsafe"
-have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 1343 "pure (neither row nor mark)"
+have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 1359 "pure (neither row nor mark)"
 have "$(grep -c '#effects-incomplete' "$work/main.axsym" || true)" 0 "incomplete rows"
 have "$(grep -c '#effect-params' "$work/main.axsym" || true)" 7 "effect-params rows"
 
@@ -779,7 +804,7 @@ lrows="$(grep -c '^F ' "$work/lib.axsym" || true)"
 (( lrows >= 300 )) && ok "$lrows stdlib functions listed (floor 300)" \
   || fail "only $lrows stdlib functions listed; the floor is 300"
 have "$(bucket "$work/lib.axsym" 'Alloc,Mut')" 110 "exactly Alloc,Mut"
-have "$(bucket "$work/lib.axsym" 'Alloc,IO,Mut')" 71 "Alloc,IO,Mut"
+have "$(bucket "$work/lib.axsym" 'Alloc,IO,Mut')" 72 "Alloc,IO,Mut"
 have "$(bucket "$work/lib.axsym" 'Mut')" 13 "exactly Mut"
 have "$(bucket "$work/lib.axsym" 'Alloc')" 39 "exactly Alloc"
 have "$(bucket "$work/lib.axsym" 'Alloc,IO')" 32 "Alloc,IO"

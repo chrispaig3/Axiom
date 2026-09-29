@@ -55,6 +55,16 @@ echo "--- 1. user-level cast count does not grow ---"
 # program can build, and `556-count-balance.ax`'s control releases a
 # string's handle by hand through `(cast Int s)`: in both the cast is
 # the subject under test, the MM-VAL-23 reason.
+# Baseline 439 measured 2026-09-29 at the assurance session's merges: six
+# arrived. Two read a string's count word through its address,
+# `(cast Int s)` in `tests/stdlib/630-parallel-borrow.ax` and
+# `tests/litmus/borrow-load.ax`, whose subject is that no binding's
+# retain or release reached the count (MM-PAR-6b): the MM-VAL-23 reason.
+# Four are a `Float` carried as its bits and back, `(cast Int x)` and
+# `(cast Float w)` in `tests/stdlib/620-par-float-order.ax` and
+# `tests/litmus/par-determinism.ax`: a join carries one word, so a float
+# answer crosses as its bits, which is what MM-PAR-14 tells a program to
+# send when it compares answers bit for bit.
 # Baseline 433 measured 2026-09-29 at the Track C merge: seven arrived.
 # Four are `stdlib/Task.ax`'s and `stdlib/Par.ax`'s spawn handle carried
 # through the recovery point around a spawn, which answers a word, so
@@ -134,10 +144,10 @@ echo "--- 1. user-level cast count does not grow ---"
 cast_count="$(git -C "$repo_root" grep -h -o '(cast ' -- stdlib tests examples ':!tests/fuzz' | wc -l | tr -d ' ')"
 if [ "$cast_count" -eq 0 ]; then
   bad "user-level: the cast count read 0 - the measurement is broken, not the tree clean"
-elif [ "$cast_count" -le 433 ]; then
-  ok "user-level (cast count $cast_count <= 433)"
+elif [ "$cast_count" -le 439 ]; then
+  ok "user-level (cast count $cast_count <= 439)"
 else
-  bad "user-level (cast count $cast_count > 433): new casts need a MM-VAL-23 reason and a baseline bump"
+  bad "user-level (cast count $cast_count > 439): new casts need a MM-VAL-23 reason and a baseline bump"
 fi
 
 echo "--- 2. arg-root cast still leaks (does not free early) ---"

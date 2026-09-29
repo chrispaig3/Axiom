@@ -398,7 +398,8 @@ routeNotFound Http.ax Mut
 routeStatic Http.ax Alloc,Mut
 routerNew Http.ax Alloc,IO,Mut
 rpcPut Rpc.ax Alloc,IO
-rpcRead Rpc.ax Alloc,IO,Mut,Unsafe
+rpcRead Rpc.ax Alloc,IO,Mut
+rpcReadMsg Rpc.ax Alloc,IO,Mut,Unsafe
 rpcWrite Rpc.ax Alloc,IO,Mut
 shlChecked Err.ax Alloc
 shrChecked Err.ax Alloc
