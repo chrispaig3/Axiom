@@ -1,0 +1,23 @@
+# Minimized reproducers of what the language-server fuzzer
+# (scripts/lib/lspfuzz.py, scripts/check-fuzz.sh section 7) found.
+# Tab-separated:
+#
+#   file  status  stage  signature  what
+#
+# status    `fixed`: section 7 replays the session and it must now pass
+#           every oracle (no signal, no hang, well-formed frames and
+#           JSON-RPC, every request answered, the right exit status) - a
+#           regression test. `open`: it must still fail, at `stage`, with
+#           the oracle's reason matching `signature` (an extended regex);
+#           an open row that stops failing, or fails differently, turns
+#           the gate red.
+# stage     signal | hang | frame | jsonrpc | answer | exit (`-` for a
+#           fixed row).
+#
+# A `.lspfuzz` file is the session itself, JSON Lines, with the tree
+# named `@ROOT@` so it replays on any host; `lspfuzz.py run --transcript`
+# prints what it sends and what comes back.
+empty-body.lspfuzz	fixed	-	-	a frame whose body is empty (`Content-Length: 0`) ended the session: `rpcRead` answered "" for it and for the end of the stream alike, so the server read it as the client hanging up and exited 1 with every request behind it unanswered. `rpcReadMsg` answers `Some ""` for the frame and `None` for the end (fixed in stdlib/Rpc.ax, self_host/lsp.ax)
+lint-dag.lspfuzz	fixed	-	-	a 219-byte document hung the server for good: a macro that uses its parameter twice, nested 40 deep, expands to a DAG with 2^40 paths, and the editor-only lints walked the EXPANDED tree - `expandProgram` rewrites `decls` in place - on every publish and every code action, though `lspLintDoc` promised the written one. The lints now run over the written tree, taken before expansion (fixed in self_host/lsp.ax `lspCheckDoc`, `lspCodeAction`)
+fmt-effect-empty-op.lspfuzz	fixed	-	-	`formatting` of `(effect Console ())` killed the server with 77: `fpDeclEffect` read an operation's name before asking whether the empty `()` had one. `axiom fmt` trapped the same way; it now refuses (fixed in self_host/format.ax; tests/fmt/parity/240-effect-empty-op-refused.axp)
+fmt-bare-pub.lspfuzz	fixed	-	-	`formatting` of a buffer holding `(pub` - a declaration being typed - killed the server with 77: `fmtPrint` read the head after `pub` before asking whether there was one. `axiom fmt` trapped the same way; it now refuses (fixed in self_host/format.ax; tests/fmt/parity/241-bare-pub-refused.axp)

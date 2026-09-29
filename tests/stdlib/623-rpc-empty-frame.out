@@ -1,0 +1,4 @@
+first, empty: Some, 0 bytes: []
+second: Some, 2 bytes: [{}]
+third, empty and last: Some, 0 bytes: []
+end of the stream: None

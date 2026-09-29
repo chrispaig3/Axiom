@@ -17,7 +17,9 @@
 # of REPS (the distribution is one-sided), process startup measured
 # separately with a program that does nothing and subtracted. Work
 # sizes are fixed in the programs, not argv - these are baselines,
-# not a scaling study.
+# not a scaling study. The scaling study, widths 1 to 8 in both
+# lowerings against the sequential program, is the second half of
+# `scripts/bench-concurrency.sh`.
 #
 # COMPARING AGAINST THESE FIGURES has one rule: interleave. Time the
 # old and new binaries round-robin, one repetition each in turn, and

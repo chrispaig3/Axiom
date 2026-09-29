@@ -1,0 +1,160 @@
+; A float reduction over tasks and bindings answers the bits of the
+; sequential sum with the same association, at any width
+; (docs/memory-model.md MM-PAR-14). The golden pins the bits, and the
+; `.optstable` beside this file holds them at every `--opt` level.
+;
+; Term `i` is a Float computed from `i` alone: a mantissa in [1, 2),
+; a power of two between 2^-31 and 2^32 and a sign, drawn from a hash
+; of `i`. Added in another order, or grouped another way, the terms
+; round differently, and the lines marked "differs" show it.
+(import IO)
+(import Vec)
+(import Fmt)
+(import Str)
+(import Err)
+(import Par)
+(import Task)
+
+(:: bitsOf (-> Float Int))
+(fn (bitsOf x)
+  (cast Int x))
+
+(:: floatOf (-> Int Float))
+(fn (floatOf w)
+  (cast Float w))
+
+(:: mixHash (-> Int Int))
+(fn (mixHash i)
+  (let ((z (+ (* i 7046029254386353131) 1442695040888963407)))
+    (let ((a (* (^ z (>> z 30)) 5573014789349097917)))
+      (let ((b (* (^ a (>> a 27)) 1181783497276652981)))
+        (^ b (>> b 31))))))
+
+(:: pow2 (-> Int Float))
+(fn (pow2 e)
+  (let ((mut x 1.0))
+    {
+      (if (>= e 0)
+        (for k 0 e
+          (set x (* x 2.0)))
+        (for k 0 (- 0 e)
+          (set x (* x 0.5))))
+      x
+    }))
+
+(:: term (-> Int Float))
+(fn (term i)
+  (let (
+    (h (mixHash i))
+    (frac (/ (__intToFloat (& h 1048575)) 1048576.0))
+    (tail (/ 1.0 (__intToFloat (+ i 3))))
+    (e (- (& (>> h 20) 63) 31))
+  )
+    (let ((mag (* (+ 1.0 (+ frac tail)) (pow2 e))))
+      (if (== (& (>> h 40) 1) 1)
+        (- 0.0 mag)
+        mag))))
+
+(:: add2 (-> Int Int Int))
+(fn (add2 a b)
+  (bitsOf (+ (floatOf a) (floatOf b))))
+
+(:: seqSum (-> Int Int Int))
+(fn (seqSum lo hi)
+  (let ((mut acc 0))
+    {
+      (for i lo hi
+        (set acc (add2 acc (bitsOf (term i)))))
+      acc
+    }))
+
+(:: revSum (-> Int Int))
+(fn (revSum n)
+  (let (
+    (mut acc 0)
+    (mut i (- n 1))
+  )
+    {
+      (while (>= i 0)
+        {
+          (set acc (add2 acc (bitsOf (term i))))
+          (set i (- i 1))
+        })
+      acc
+    }))
+
+(:: addText (-> Int (Result String Error) Int))
+(fn (addText acc r)
+  (match r
+    ((Ok s)
+      (match (strParseInt s)
+        ((Some w) (add2 acc w))
+        ((None) 0))
+    )
+    ((Err e) 0)))
+
+(:: verdict (-> String Int Int Int))
+;@axiom:effect(io)
+(fn (verdict what got want)
+  (if (== got want)
+    (println "{what}: the same bits")
+    (println "{what}: differs, {got}")))
+
+(:: main Int)
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (main)
+  (let (
+    (n 300)
+    (s (seqSum 0 300))
+    (third 100)
+  )
+    {
+      (println "index order {s}")
+      (let ((r (revSum n)))
+        (if (== r s)
+          (println "reversed: the same bits, so this data cannot see an order")
+          (println "reversed differs: {r}")))
+      (for w 1 5
+        (verdict
+          (strConcat "taskFold at width " (fmtInt w))
+          (taskFold
+            (lambda (i) (fmtInt (bitsOf (term i))))
+            n
+            (taskOpts w 32)
+            0
+            (lambda (acc i r) (addText acc r)))
+          s))
+      (let (
+        (ws (parMapWords
+          (lambda (i) (bitsOf (term i)))
+          n
+          8))
+        (mut acc 0)
+      )
+        {
+          (for i 0 n
+            (set acc (add2 acc (vecGet ws i))))
+          (verdict "parMapWords at width 8" acc s)
+        })
+      ; Three chunks, summed beside each other and added in the order
+      ; written: the same association as the three sums made in turn,
+      ; and a different one from the index-order sum.
+      (let ((grouped (add2 (add2 (add2 0 (seqSum 0 third)) (seqSum third (* 2 third))) (seqSum (* 2 third) n))))
+        {
+          (println "three chunks {grouped}")
+          (verdict
+            "three parallel bindings"
+            (parallel p (
+              (a (seqSum 0 third))
+              (b (seqSum third (* 2 third)))
+              (c (seqSum (* 2 third) n))
+            )
+              (add2 (add2 (add2 0 a) b) c))
+            grouped)
+          (if (== grouped s)
+            (println "three chunks: the same bits as index order")
+            (println "three chunks differ from index order"))
+        })
+      0
+    }))

@@ -20494,6 +20494,16 @@
           cg1
         }))))
 
+; `__floatToInt` truncates toward zero and SATURATES: a NaN answers 0,
+; a value at or above 2^63 the largest `Int`, and one below -2^63 the
+; smallest. A bare `fptosi` answers poison for all three, and poison
+; is whatever the optimiser makes of it: `(__floatToInt (/ 0.0 0.0))`
+; answered 0 at `--opt 0`, 2 at 1 and 2, and 21 at 3, one program on
+; one machine (docs/memory-model.md MM-PAR-14). The selects make every
+; input's answer the same at every level and on every target; the
+; `fptosi` feeding them is poison only where a select discards it.
+; AArch64's `fcvtzs` already saturates this way, so there the three
+; selects fold into the one instruction.
 (pub :: emitPrimFloatToInt (-> (Vec Int) Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
@@ -20506,11 +20516,23 @@
     )
       (let (
         (dr (tmpStr "d" dn))
+        (tr (tmpStr "fti" dn))
+        (hi (tmpStr "fth" dn))
+        (lo (tmpStr "ftl" dn))
+        (nan (tmpStr "ftn" dn))
+        (sa (tmpStr "fta" dn))
+        (sb (tmpStr "ftb" dn))
         (r (regStr rn))
       )
         {
           (emitLine cg1 (strConcat (strConcat "  " dr) (strConcat " = bitcast i64 " (strConcat v " to double"))))
-          (emitLine cg1 (strConcat (strConcat "  " r) (strConcat " = fptosi double " (strConcat dr " to i64"))))
+          (emitLine cg1 (strConcat (strConcat "  " tr) (strConcat " = fptosi double " (strConcat dr " to i64"))))
+          (emitLine cg1 (strConcat (strConcat "  " hi) (strConcat " = fcmp oge double " (strConcat dr ", 0x43E0000000000000"))))
+          (emitLine cg1 (strConcat (strConcat "  " lo) (strConcat " = fcmp olt double " (strConcat dr ", 0xC3E0000000000000"))))
+          (emitLine cg1 (strConcat (strConcat "  " nan) (strConcat " = fcmp uno double " (strConcat dr ", 0.0"))))
+          (emitLine cg1 (strConcat (strConcat "  " sa) (strConcat (strConcat " = select i1 " hi) (strConcat ", i64 9223372036854775807, i64 " tr))))
+          (emitLine cg1 (strConcat (strConcat "  " sb) (strConcat (strConcat " = select i1 " lo) (strConcat ", i64 -9223372036854775808, i64 " sa))))
+          (emitLine cg1 (strConcat (strConcat "  " r) (strConcat (strConcat " = select i1 " nan) (strConcat ", i64 0, i64 " sb))))
           (memSetWord cg1 2 r)
           (memSetWord cg1 14 0)
           cg1

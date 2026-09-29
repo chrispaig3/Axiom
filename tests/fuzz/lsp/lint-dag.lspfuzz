@@ -1,0 +1,7 @@
+{"k": "frame", "t": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"capabilities\":{}}}", "x": "answer"}
+{"k": "frame", "t": "{\"jsonrpc\":\"2.0\",\"method\":\"initialized\",\"params\":{}}", "x": "none"}
+{"k": "frame", "t": "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/didOpen\",\"params\":{\"textDocument\":{\"uri\":\"file://@ROOT@/tests/fuzz/lsp/lint-dag.ax\",\"languageId\":\"axiom\",\"version\":1,\"text\":\"(macro (g x) (+ 1 (+ x x)))\\n\\n(:: main Int)\\n(fn (main)\\n  (g (g (g (g (g (g (g (g (g (g (g (g (g (g (g (g (g (g (g (g (g (g (g (g (g (g (g (g (g (g (g (g (g (g (g (g (g (g (g (g 0)))))))))))))))))))))))))))))))))))))))))\\n\"}}}", "x": "none"}
+{"k": "frame", "t": "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"textDocument/codeAction\",\"params\":{\"textDocument\":{\"uri\":\"file://@ROOT@/tests/fuzz/lsp/lint-dag.ax\"},\"range\":{\"start\":{\"line\":0,\"character\":0},\"end\":{\"line\":5,\"character\":0}},\"context\":{\"diagnostics\":[]}}}", "x": "answer"}
+{"k": "frame", "t": "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"textDocument/hover\",\"params\":{\"textDocument\":{\"uri\":\"file://@ROOT@/tests/fuzz/lsp/lint-dag.ax\"},\"position\":{\"line\":0,\"character\":1}}}", "x": "answer"}
+{"k": "frame", "t": "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"shutdown\"}", "x": "answer"}
+{"k": "frame", "t": "{\"jsonrpc\":\"2.0\",\"method\":\"exit\"}", "x": "none"}

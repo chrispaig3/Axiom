@@ -11,7 +11,7 @@
 # this gate puts them under load, against the clock, against ablated
 # copies of the library, and checks the processes the pool leaves.
 #
-# NINE SECTIONS.
+# TEN SECTIONS.
 #
 #   1. Mutual exclusion. tests/litmus/sync-load.ax: four bindings,
 #      released together, add 1 to one PLAIN shared word N times each
@@ -107,6 +107,25 @@
 #      keep their slabs again), the cancellation a refusal starts (the
 #      pool never ends), and the checked pool's kill (its joins never
 #      end).
+#  10. Determinism (MM-PAR-14). tests/litmus/par-determinism.ax adds
+#      2,000 Float terms whose sum rounds differently in any other
+#      order, through `taskFold`, `taskMap`, `parMapWords` and
+#      `parMapWordsChecked` at widths 1, 2, 3, 4 and 8, in both
+#      lowerings, with tasks made to finish out of submit order: every
+#      answer must be the sequential sum's bits, which a Python
+#      recomputation in IEEE doubles must agree with. `parallel`
+#      bindings (1 to 8) must answer the chunked association computed
+#      in turn. Controls: the reverse-order, pairwise and chunked sums
+#      must each differ from index order. Several failures: the
+#      raising pool must raise the lowest failing index's status in
+#      every run at every width, and the per-slot pools must answer
+#      each failure in its slot. The emitted IR must carry no fast-math
+#      mark, and after opt and llc -O3 no fused multiply-add or
+#      vectorised sum, beside controls whose IR asks for each and must
+#      show it. Two ablations: a pool delivering in completion order
+#      must answer other bits, and a raising pool joining newest first
+#      must raise another status. failFast's answers are reported,
+#      because they are the clock's.
 #
 # WHAT THE NUMBERS ARE. Peak RSS (`max_rss_kb`), in KiB, of the whole
 # program. Times are the programs' own `sysTimeoutMicros` readings -
@@ -521,6 +540,13 @@ cuts = {
   "parkill": [("Par.ax", "(parKill (vecGet hs (% k w)))", "0")],
   # The microseconds conversion rounds without saturating.
   "micros": [("Task.ax", "    (if (> nanos 9223372036854774808)\n      9223372036854776\n      (/ (+ nanos 999) 1000))", "    (/ (+ nanos 999) 1000)")],
+  # Section 10. The pool delivers each answer when it joins the task,
+  # in the order it finds them ended, and not in submit order: the
+  # completion-order fold MM-PAR-14 rules out.
+  "completion": [("Task.ax", "                        {\n                          (set progress 1)\n                          (if (&& (== r 1) opts.failFast)", "                        {\n                          (taskDeliver sink scoped st s slab slotBytes)\n                          (set progress 1)\n                          (if (&& (== r 1) opts.failFast)"),
+                 ("Task.ax", "                (taskDeliver\n                  sink\n                  scoped\n                  st\n                  (% head w)\n                  slab\n                  slotBytes)\n", "                0\n")],
+  # Section 10. The raising pool's drain joins newest first.
+  "drain": [("Par.ax", "      (while (< joined n)\n        {\n          (vecPush out (__proc_join (vecGet hs (% joined w))))", "      (while (< joined n)\n        {\n          (vecPush out (__proc_join (vecGet hs (% (- n (+ joined 1)) w))))")],
 }[kind]
 for f, old, new in cuts:
     p = os.path.join(root, f)
@@ -855,6 +881,263 @@ if run_ablation parkill "$refuse" 10 "$work/abl-parkill/prog" checked 2 4 4 0; t
   pkill -KILL -f "$work/abl-parkill/prog" 2>/dev/null || true
 fi
 
+# ---------------------------------------------------------------------
+echo "== 10. determinism: ordered answers, float reductions, the first failure (MM-PAR-14) =="
+# tests/litmus/par-determinism.ax adds 2,000 Float terms whose sum
+# rounds differently in any other order. Each task sleeps up to 7 x J
+# microseconds first, so at widths above 1 the tasks finish out of
+# submit order; the ordered answers must not notice, and the
+# completion-order ablation below must.
+det="$repo_root/tests/litmus/par-determinism.ax"
+DN=2000
+DJ=100
+DD=100000
+for lowering in processes threads; do
+  flags=(); [[ "$lowering" == threads ]] && flags=(--threads)
+  build "$work/det-$lowering" "$det" ${flags[@]+"${flags[@]}"} --opt 2 \
+    || { bad "$lowering: par-determinism did not build"; sed 's/^/    /' "$work/det-$lowering.build" | head -8; }
+done
+build "$work/det-O0" "$det" --opt 0 || bad "par-determinism did not build at --opt 0"
+seqline=""
+[[ -x "$work/det-processes" ]] && seqline="$(gate_timeout 60 "$work/det-processes" seq "$DN" 2>/dev/null)"
+read -r _ dseq _ drev _ dtree <<< "$seqline"
+# A second implementation of the terms and the sums, in Python's IEEE
+# doubles: the bits are IEEE 754's answer, not only this compiler's.
+pyref="$(python3 - "$DN" "$DD" <<'PY'
+import struct, sys
+M = (1 << 64) - 1
+def s64(x):
+    x &= M
+    return x - (1 << 64) if x >> 63 else x
+def sar(x, k):
+    return s64(x) >> k
+def mix(i):
+    z = s64(i * 7046029254386353131 + 1442695040888963407)
+    a = s64((z ^ sar(z, 30)) * 5573014789349097917)
+    b = s64((a ^ sar(a, 27)) * 1181783497276652981)
+    return s64(b ^ sar(b, 31))
+def pow2(e):
+    x = 1.0
+    for _ in range(abs(e)):
+        x *= 2.0 if e > 0 else 0.5
+    return x
+def term(i):
+    h = mix(i)
+    mag = (1.0 + (float(h & 1048575) / 1048576.0 + 1.0 / float(i + 3))) * pow2((sar(h, 20) & 63) - 31)
+    return (0.0 - mag) if (sar(h, 40) & 1) == 1 else mag
+def bits(x):
+    return struct.unpack('<q', struct.pack('<d', x))[0]
+n = int(sys.argv[1])
+def chunked(parts):
+    acc = 0.0
+    for k in range(parts):
+        part = 0.0
+        for i in range(n * k // parts, n * (k + 1) // parts):
+            part = part + term(i)
+        acc = acc + part
+    return acc
+acc = 0.0
+for i in range(n - 1, -1, -1):
+    acc = acc + term(i)
+dot = 0.0
+for i in range(int(sys.argv[2])):
+    dot = float(i) * 1.0000001 + dot
+print(bits(chunked(1)), bits(acc), *[bits(chunked(k)) for k in (2, 3, 4, 8)], bits(dot))
+PY
+)"
+read -r pseq prev pc2 pc3 pc4 pc8 pdot <<< "$pyref"
+if [[ -n "$dseq" && "$dseq" == "$pseq" && "$drev" == "$prev" ]]; then
+  ok "the index-order sum of $DN terms is $dseq and the reverse-order sum $drev, as Python's IEEE doubles compute them"
+else
+  bad "sequential sums: the program says '$seqline', Python says index $pseq reverse $prev"
+fi
+if [[ -n "$dseq" && "$drev" != "$dseq" && "$dtree" != "$dseq" ]]; then
+  ok "control: the reverse-order ($drev) and pairwise ($dtree) sums differ from index order - the data can see an order"
+else
+  bad "control: '$seqline' - the reverse or pairwise sum equals the index-order one, so no check below could see a reordering"
+fi
+# A multiply feeding an add, 100,000 times: the shape contraction would
+# fuse and reassociation would split, which the controls below allow.
+dots="$( [[ -x "$work/det-processes" ]] && gate_timeout 60 "$work/det-processes" dot "$DD" 2>/dev/null) / $( [[ -x "$work/det-O0" ]] && gate_timeout 60 "$work/det-O0" dot "$DD" 2>/dev/null)"
+if [[ -n "$pdot" && "$dots" == "dot $pdot / dot $pdot" ]]; then
+  ok "the sum of i x 1.0000001 over $DD terms is $pdot at --opt 0 and --opt 2, as Python computes it: one rounding per operation, in order"
+else
+  bad "the multiply-add sum answered '$dots', Python says $pdot"
+fi
+if [[ -x "$work/det-O0" && -n "$dseq" ]]; then
+  got="$(gate_timeout 60 "$work/det-O0" seq "$DN" 2>/dev/null) / $(gate_timeout 120 "$work/det-O0" fold "$DN" 3 "$DJ" 2>/dev/null)"
+  if [[ "$got" == "$seqline / fold $dseq" ]]; then
+    ok "--opt 0 answers the same bits as --opt 2, sequentially and through taskFold at width 3"
+  else
+    bad "--opt 0 answered '$got', --opt 2 '$seqline'"
+  fi
+fi
+# Every ordered answer, at every width, in both lowerings.
+for lowering in processes threads; do
+  bin="$work/det-$lowering"
+  [[ -x "$bin" && -n "$dseq" ]] || continue
+  for mode in fold map words checked; do
+    wrong=""
+    for w in 1 2 3 4 8; do
+      j="$DJ"; (( w == 1 )) && j=0
+      rc=0; out="$(gate_timeout 120 "$bin" "$mode" "$DN" "$w" "$j" 2>/dev/null)" || rc=$?
+      [[ "$rc" == 0 && "$out" == "$mode $dseq" ]] || wrong="$wrong w$w:'$out'($rc)"
+    done
+    if [[ -z "$wrong" ]]; then
+      ok "$lowering $mode: $DN answers added in submit order are the sequential sum's bits at widths 1, 2, 3, 4 and 8"
+    else
+      bad "$lowering $mode: not the sequential sum $dseq at$wrong"
+    fi
+  done
+done
+# `parallel` bindings: the same association as the sequential chunked
+# sum, and a different one from index order when there are two or more.
+for lowering in processes threads; do
+  bin="$work/det-$lowering"
+  [[ -x "$bin" ]] || continue
+  wrong="" same=""
+  for k in 1 2 3 4 8; do
+    b="$(gate_timeout 60 "$bin" bind "$k" "$DN" 2>/dev/null)"
+    c="$(gate_timeout 60 "$bin" chunked "$k" "$DN" 2>/dev/null)"
+    want="$pseq"
+    case "$k" in 2) want="$pc2" ;; 3) want="$pc3" ;; 4) want="$pc4" ;; 8) want="$pc8" ;; esac
+    [[ "$b" == "bind $want" && "$c" == "chunked $want" ]] || wrong="$wrong K$k:'$b','$c' want $want"
+    (( k > 1 )) && [[ "$want" == "$pseq" ]] && same="$same $k"
+  done
+  if [[ -z "$wrong" ]]; then
+    ok "$lowering: 1, 2, 3, 4 and 8 bindings each answer the bits of the same chunked association computed in turn (and in Python)"
+  else
+    bad "$lowering bindings:$wrong"
+  fi
+done
+if [[ -n "$pc2" && -z "$same" ]]; then
+  ok "control: every chunked association of 2, 3, 4 and 8 parts differs from index order ($pc2, $pc3, $pc4, $pc8 against $pseq) - a different association is a different answer"
+else
+  bad "control: a chunked sum over parts [$same ] equals the index-order sum, so the bindings check cannot tell associations apart"
+fi
+# Several failures: the raising pool raises the lowest index's, every
+# run and every width; the per-slot pools answer each in its slot.
+want_fail='10 err 77
+12 err 72
+14 err 82
+ok 37'
+for lowering in processes threads; do
+  bin="$work/det-$lowering"
+  [[ -x "$bin" ]] || continue
+  got=""
+  for w in 1 2 3 4 8; do
+    for _ in 1 2 3; do
+      rc=0; gate_timeout 60 "$bin" fail-words 40 "$w" > /dev/null 2>&1 || rc=$?
+      got="$got $rc"
+    done
+  done
+  if [[ "$(printf '%s\n' $got | LC_ALL=C sort -u | tr -d '\n')" == 77 ]]; then
+    ok "$lowering parMapWords: tasks 10 (77, last), 12 (72) and 14 (82) fail; the pool raised 77, the lowest index's, in all 15 runs at widths 1 to 8"
+  else
+    bad "$lowering parMapWords: exit statuses [${got# }], wanted 77 every time"
+  fi
+  for mode in fail-checked fail-tasks; do
+    wrong=""
+    for w in 1 3 8; do
+      for _ in 1 2; do
+        out="$(gate_timeout 60 "$bin" "$mode" 40 "$w" 2>/dev/null)"
+        [[ "$out" == "$want_fail" ]] || wrong="$wrong w$w:'$(tr '\n' ';' <<< "$out")'"
+      done
+    done
+    if [[ -z "$wrong" ]]; then
+      ok "$lowering $mode: each of the three failures in its own slot with its own status, the 37 others their terms, in all 6 runs"
+    else
+      bad "$lowering $mode:$wrong"
+    fi
+  done
+done
+# failFast is the clock's: reported, not asserted.
+bin="$work/det-processes"
+if [[ -x "$bin" ]]; then
+  : > "$work/ff.all"
+  for _ in 1 2 3 4 5 6 7 8; do
+    gate_timeout 60 "$bin" fail-fast 40 8 2>/dev/null | tr '\n' ';' >> "$work/ff.all"; echo >> "$work/ff.all"
+  done
+  echo "info fail-fast: 8 runs gave $(LC_ALL=C sort -u "$work/ff.all" | wc -l | tr -d ' ') distinct answers - which slots a cancellation reaches is the clock's (MM-PAR-14, not checked)"
+fi
+# The floating-point half: what the emitter writes, what opt keeps and
+# what llc makes of it. A contracted multiply-add or a reassociated sum
+# is a different answer, and none may appear unless the IR asks.
+ird="$work/det-ir"; mkdir -p "$ird"
+case "$(uname -m)" in
+  arm64|aarch64) fused='fmadd|fmsub|fnmadd|fnmsub|fmla|fmls'; vsum='faddp|fadd[[:space:]]+v[0-9]+\.2d|fadd\.2d'; mattr="" ;;
+  *) fused='vfmadd|vfmsub|vfnmadd|vfnmsub'; vsum='addpd|haddpd'; mattr="-mattr=+fma" ;;
+esac
+if (cd "$repo_root" && "$axc" emit-llvm "$det" -o "$ird/det.ll") > /dev/null 2>&1; then
+  nflag="$(grep -cE '= f(add|sub|mul|div|rem|neg) (fast|reassoc|contract|nnan|ninf|nsz|arcp|afn)|llvm\.fmuladd|llvm\.fma\.|-fp-math"="true"' "$ird/det.ll")"
+  nfadd="$(grep -cE '= f(add|mul|div) double' "$ird/det.ll")"
+  if [[ "$nflag" == 0 ]] && (( nfadd >= 10 )); then
+    ok "the emitted IR has $nfadd float adds, multiplies and divides and not one fast-math flag, fmuladd or fp-math attribute"
+  else
+    bad "the emitted IR: $nflag fast-math marks over $nfadd float operations"
+  fi
+  held=1
+  for lvl in 1 2 3; do
+    opt -O"$lvl" "$ird/det.ll" -S -o "$ird/det.O$lvl.ll" 2>/dev/null || { held=0; bad "opt -O$lvl refused the IR"; continue; }
+    n="$(grep -cE '= f(add|sub|mul|div|rem|neg)( [a-z]+)* (fast|reassoc|contract|arcp|afn)|llvm\.fmuladd|llvm\.fma\.' "$ird/det.O$lvl.ll")"
+    [[ "$n" == 0 ]] || { held=0; bad "opt -O$lvl wrote $n reassociating or contracting marks"; }
+  done
+  llc -O3 $mattr "$ird/det.O3.ll" -o "$ird/det.s" 2>/dev/null || held=0
+  nf="$(grep -cE "$fused" "$ird/det.s")"; nv="$(grep -cE "$vsum" "$ird/det.s")"
+  if (( held )) && [[ "$nf" == 0 && "$nv" == 0 ]]; then
+    ok "opt -O1 to -O3 added no reassociating or contracting mark (nnan, ninf and nsz may be inferred where proved), and llc -O3 fused no multiply-add and vectorised no sum"
+  else
+    bad "after opt and llc -O3: $nf fused multiply-adds, $nv vector or pairwise adds"
+  fi
+  # Controls: the same IR asking for contraction, then reassociation,
+  # must show each in the machine code, or the counts above are blind.
+  for mark in contract reassoc; do
+    sed -E "s/= (fadd|fmul) double/= \1 $mark double/" "$ird/det.ll" > "$ird/det.$mark.ll"
+    opt -O3 "$ird/det.$mark.ll" -S -o "$ird/det.$mark.O3.ll" 2>/dev/null \
+      && llc -O3 $mattr "$ird/det.$mark.O3.ll" -o "$ird/det.$mark.s" 2>/dev/null
+    pat="$fused"; [[ "$mark" == reassoc ]] && pat="$vsum"
+    n="$(grep -cE "$pat" "$ird/det.$mark.s" 2>/dev/null || true)"
+    if [[ "$n" =~ ^[0-9]+$ ]] && (( n > 0 )); then
+      ok "control: the IR marked '$mark' shows $n $([[ "$mark" == contract ]] && echo fused multiply-adds || echo vector or pairwise adds) - the count above can see it"
+    else
+      bad "control: the IR marked '$mark' shows none (${n:-?}) - the machine-code check is blind to it"
+    fi
+  done
+else
+  bad "par-determinism would not emit IR"
+fi
+# Ablations. A pool that delivers in completion order must answer a
+# different sum at some width above 1 (rounds repeat, since a width
+# whose tasks happened to finish in order shows nothing).
+if ablate completion "$det"; then
+  seen=""
+  for round in 1 2 3; do
+    for w in 2 3 4 8; do
+      out="$(gate_timeout 120 "$work/abl-completion/prog" fold "$DN" "$w" "$DJ" 2>/dev/null)"
+      [[ -n "$out" && "$out" != "fold $dseq" ]] && seen="$seen w$w:${out#fold }"
+    done
+    [[ -n "$seen" ]] && break
+  done
+  if [[ -n "$seen" ]]; then
+    ok "completion: red - delivered in completion order, taskFold answered other bits ($seen) against $dseq"
+  else
+    bad "completion: three rounds of a completion-order fold all answered $dseq - the check cannot see a reordering"
+  fi
+  pkill -KILL -f "$work/abl-completion/prog" 2>/dev/null || true
+else
+  bad "completion: the ablation did not apply or build"; sed 's/^/    /' "$work/abl-completion/build.log" 2>/dev/null | head -6
+fi
+if ablate drain "$det"; then
+  rc=0; gate_timeout 60 "$work/abl-drain/prog" fail-words 16 8 > /dev/null 2>&1 || rc=$?
+  if [[ "$rc" != 77 ]]; then
+    ok "drain: red - joined newest first, the raising pool raised $rc, not the lowest index's 77"
+  else
+    bad "drain: the reversed drain still raised 77 - the check cannot see the join order"
+  fi
+else
+  bad "drain: the ablation did not apply or build"; sed 's/^/    /' "$work/abl-drain/build.log" 2>/dev/null | head -6
+fi
+
 echo
 if (( failed > 0 )); then
   echo "check-task: $failed failed, $checks passed"
@@ -862,4 +1145,5 @@ if (( failed > 0 )); then
 fi
 echo "check-task: $checks checks - the mutex excludes in both lowerings, timed waits"
 echo "            keep time, every task failure is a value in its slot, no child"
-echo "            outlives the pool, memory is flat, and every ablation turns it red"
+echo "            outlives the pool, memory is flat, ordered answers and float"
+echo "            reductions are the sequential bits, and every ablation turns it red"

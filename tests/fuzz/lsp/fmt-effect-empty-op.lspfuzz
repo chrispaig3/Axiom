@@ -1,0 +1,7 @@
+{"k": "frame", "t": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"capabilities\":{}}}", "x": "answer"}
+{"k": "frame", "t": "{\"jsonrpc\":\"2.0\",\"method\":\"initialized\",\"params\":{}}", "x": "none"}
+{"k": "frame", "t": "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/didOpen\",\"params\":{\"textDocument\":{\"uri\":\"file://@ROOT@/tests/fuzz/lsp/fmt-effect-empty-op.ax\",\"languageId\":\"axiom\",\"version\":1,\"text\":\"(effect Console\\n  ())\\n\"}}}", "x": "none"}
+{"k": "frame", "t": "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"textDocument/formatting\",\"params\":{\"textDocument\":{\"uri\":\"file://@ROOT@/tests/fuzz/lsp/fmt-effect-empty-op.ax\"},\"options\":{\"tabSize\":2,\"insertSpaces\":true}}}", "x": "answer"}
+{"k": "frame", "t": "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"textDocument/hover\",\"params\":{\"textDocument\":{\"uri\":\"file://@ROOT@/tests/fuzz/lsp/fmt-effect-empty-op.ax\"},\"position\":{\"line\":0,\"character\":1}}}", "x": "answer"}
+{"k": "frame", "t": "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"shutdown\"}", "x": "answer"}
+{"k": "frame", "t": "{\"jsonrpc\":\"2.0\",\"method\":\"exit\"}", "x": "none"}

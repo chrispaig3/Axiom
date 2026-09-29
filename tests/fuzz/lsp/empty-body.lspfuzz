@@ -1,0 +1,7 @@
+{"k": "frame", "t": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"capabilities\":{}}}", "x": "answer"}
+{"k": "frame", "t": "{\"jsonrpc\":\"2.0\",\"method\":\"initialized\",\"params\":{}}", "x": "none"}
+{"k": "frame", "t": "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/didOpen\",\"params\":{\"textDocument\":{\"uri\":\"file://@ROOT@/tests/fuzz/lsp/empty-body.ax\",\"languageId\":\"axiom\",\"version\":1,\"text\":\"(:: main Int)\\n(fn (main)\\n  0)\\n\"}}}", "x": "none"}
+{"k": "frame", "t": "", "x": "maybe"}
+{"k": "frame", "t": "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"textDocument/hover\",\"params\":{\"textDocument\":{\"uri\":\"file://@ROOT@/tests/fuzz/lsp/empty-body.ax\"},\"position\":{\"line\":0,\"character\":1}}}", "x": "answer"}
+{"k": "frame", "t": "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"shutdown\"}", "x": "answer"}
+{"k": "frame", "t": "{\"jsonrpc\":\"2.0\",\"method\":\"exit\"}", "x": "none"}

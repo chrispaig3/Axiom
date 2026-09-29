@@ -1,0 +1,12 @@
+parMapWordsChecked: slot 10 failed with 77
+parMapWordsChecked: slot 12 failed with 72
+parMapWordsChecked: slot 14 failed with 82
+parMapWordsChecked: 17 slots answered
+taskMap: slot 10 failed with 77
+taskMap: slot 12 failed with 72
+taskMap: slot 14 failed with 82
+taskMap: 17 slots answered
+parMapWords at width 2: raised 77
+parMapWords at width 4: raised 77
+parMapWords at width 6: raised 77
+parMapWords at width 8: raised 77

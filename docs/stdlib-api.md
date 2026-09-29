@@ -395,7 +395,7 @@ two differ.
 
 ## `Rpc`
 
-`stdlib/Rpc.ax` — 7 public names
+`stdlib/Rpc.ax` — 8 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -404,7 +404,8 @@ two differ.
 | `rdFilled` | value | `(-> Int Int)` | `Unsafe` |  |
 | `rdConsumed` | value | `(-> Int Int)` | `Unsafe` |  |
 | `rdReseat` | value | `(-> Int Int Int Int)` | `Alloc,Mut,Unsafe` | Re-seat a reader on freshly allocated storage, carrying `u` bytes of not-yet-consumed input from `addr`. |
-| `rpcRead` | value | `(-> Int String)` | `Alloc,IO,Mut,Unsafe` | Read one whole message and answer its body. An empty Str means the stream ended or broke - the caller stops, which is what an LSP does when its client goes away without saying `exit`. |
+| `rpcReadMsg` | value | `(-> Int (Option String))` | `Alloc,IO,Mut,Unsafe` | Read one whole message: `Some` its body, or `None` when the stream ended or broke - the caller stops, which is what an LSP does when its client goes away without saying `exit`. |
+| `rpcRead` | value | `(-> Int String)` | `Alloc,IO,Mut` | Read one whole message and answer its body, or "" when the stream ended or broke. A zero-length message answers "" too, so a caller that must tell the two apart reads with `rpcReadMsg`. |
 | `rpcWrite` | value | `(-> Int String Int)` | `Alloc,IO,Mut` | Frame `body` and write it. |
 
 ## `Str`

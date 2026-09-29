@@ -4661,6 +4661,12 @@
 ; bounds through the expression printer. A lower-only range prints
 ; with no `..`; anything else shaped is a refusal, as a malformed
 ; `type` is.
+;
+; The bounds are read as EXPRESSION elements, so a `-` touching the
+; number after it is one negative literal, as the parser reads it. The
+; reader keeps them two atoms, and counting atoms made `range -1 .. 10`
+; one element too long: `check` accepted the declaration and `fmt`
+; refused it with no code (P4, scripts/check-fuzz.sh).
 (pub :: fpDeclSubtype (-> Int Int Int))
 (pub fn (fpDeclSubtype p n)
   (let (
@@ -4681,33 +4687,34 @@
           false
           true))
         (fpBad p)
-        {
-          (fpP p "(")
-          (fpVis p n)
-          (fpP p "subtype ")
-          (fpP p (fnText src (fnKid n (+ b 1))))
-          (fpP p " is ")
-          (fpType p (fnKid n (+ b 3)))
-          (fpP p " range ")
-          (fpExpr p (fnKid n (+ b 5)))
-          (if (== (fnLen n) (+ b 6))
-            (fpP p ")")
-            (if (||
-              (!= (fnLen n) (+ b 9))
-              (||
-                (if (fpIsAtomText src (fnKid n (+ b 6)) ".")
-                  false
-                  true)
-                (if (fpIsAtomText src (fnKid n (+ b 7)) ".")
-                  false
-                  true)))
-              (fpBad p)
-              {
-                (fpP p " .. ")
-                (fpExpr p (fnKid n (+ b 8)))
-                (fpP p ")")
-              }))
-        }))))
+        (let ((bounds (fpExprElems n (+ b 5))))
+          {
+            (fpP p "(")
+            (fpVis p n)
+            (fpP p "subtype ")
+            (fpP p (fnText src (fnKid n (+ b 1))))
+            (fpP p " is ")
+            (fpType p (fnKid n (+ b 3)))
+            (fpP p " range ")
+            (fpExpr p (vecGet bounds 0))
+            (if (== (vecLen bounds) 1)
+              (fpP p ")")
+              (if (||
+                (!= (vecLen bounds) 4)
+                (||
+                  (if (fpIsAtomText src (vecGet bounds 1) ".")
+                    false
+                    true)
+                  (if (fpIsAtomText src (vecGet bounds 2) ".")
+                    false
+                    true)))
+                (fpBad p)
+                {
+                  (fpP p " .. ")
+                  (fpExpr p (vecGet bounds 3))
+                  (fpP p ")")
+                }))
+          })))))
 
 (pub :: fpDeclSig (-> Int Int Int))
 (pub fn (fpDeclSig p n)
@@ -5010,25 +5017,31 @@
                   (if (||
                     (!= (fnKind op) FN_PAREN)
                     (||
-                      (if (fpIsIdentAtom (fnKid op 0))
-                        ; An operation is `(name :: TYPE)` or, as the parser also
-                        ; reads it, a bare `(name)` - the checker refuses that one
-                        ; (AX3055) and a type it cannot read is the same field
-                        ; left at 0, so `(name :: 5)` parses too. The formatter
-                        ; follows the parser: both print as written, through the
-                        ; expression printer where the type printer would refuse,
-                        ; and the checker keeps the refusal. This used to `fpBad`
-                        ; both shapes, which made the fixture that pins AX3055
-                        ; unformattable (check-fmt, 2026-08-29).
-                        false
-                        true)
-                      (if (== (fnLen op) 1)
-                        false
-                        (||
-                          (!= (fnLen op) 3)
-                          (if (fpIsDColonAtom (fnKid op 1))
-                            false
-                            true)))))
+                      (== (fnLen op) 0)
+                      (||
+                        (if (fpIsIdentAtom (fnKid op 0))
+                          ; An empty `()` has no kid 0 to read: it is refused before
+                          ; the name is asked for. Reading it first trapped with 77
+                          ; and took `axiom fmt` and the language server's
+                          ; `formatting` down with it (scripts/lib/lspfuzz.py).
+                          ; An operation is `(name :: TYPE)` or, as the parser also
+                          ; reads it, a bare `(name)` - the checker refuses that one
+                          ; (AX3055) and a type it cannot read is the same field
+                          ; left at 0, so `(name :: 5)` parses too. The formatter
+                          ; follows the parser: both print as written, through the
+                          ; expression printer where the type printer would refuse,
+                          ; and the checker keeps the refusal. This used to `fpBad`
+                          ; both shapes, which made the fixture that pins AX3055
+                          ; unformattable (check-fmt, 2026-08-29).
+                          false
+                          true)
+                        (if (== (fnLen op) 1)
+                          false
+                          (||
+                            (!= (fnLen op) 3)
+                            (if (fpIsDColonAtom (fnKid op 1))
+                              false
+                              true))))))
                     {
                       (fpBad p)
                       (set i (fnLen n))
@@ -5361,10 +5374,18 @@
                         ; 2026-08-14 (TAG_D_MACROCALL). A
                         ; non-identifier head (`(1 2)`) stays
                         ; a refusal, as it is in the parser.
+                        ; A bare `(pub)` has no head at all, so
+                        ; the length is asked before the kid is
+                        ; read: reading it trapped with 77, and
+                        ; `(pub` at the end of a buffer being
+                        ; typed took the language server's
+                        ; `formatting` down (scripts/lib/lspfuzz.py).
                         (if (||
                           (fpIsDeclHead h)
-                          (let ((hk (fnKid f (fpDeclBase src f))))
-                            (|| (fpIsIdentAtom hk) (== (fnKind hk) FN_QUAL))))
+                          (&&
+                            (> (fnLen f) (fpDeclBase src f))
+                            (let ((hk (fnKid f (fpDeclBase src f))))
+                              (|| (fpIsIdentAtom hk) (== (fnKind hk) FN_QUAL)))))
                           ; a qualified head - `Pre::when`
                           ; - is one FN_QUAL node here
                           {

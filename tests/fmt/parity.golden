@@ -1,13 +1,21 @@
 # The refusal bank: what `axiom fmt` does to each tests/fmt/parity/*.axp case.
 #
 # One `### <case> (exit N)` line per case, followed by the formatted bytes when
-# it formatted at all. 65 cases: 37 rewrites and 28 refusals, which is why this
+# it formatted at all. 67 cases: 37 rewrites and 30 refusals, which is why this
 # file can tell a formatter that always succeeds from one that always refuses -
 # check-fmt-selfhost.sh requires both outcomes to be present.
 #
 # 092 FORMATS since 2026-09-29 (AN-59): a negative literal pattern checks and
 # runs, so refusing it, as the retired stage0 parser did, refused a program the
 # compiler accepts.
+# TWO CASES WERE ADDED on 2026-09-29, found by the language server's fuzzer
+# (scripts/lib/lspfuzz.py) through `textDocument/formatting`. Both KILLED the
+# formatter - `axiom fmt` exited 77, vector index out of range, and the server
+# died with it. 240 is an effect whose operation is an empty `()`, where
+# `fpDeclEffect` read the operation's name before asking whether it had one;
+# 241 is a bare `(pub` - an editor buffer mid-keystroke - where `fmtPrint`
+# read the head after `pub` before asking whether there was one. Both now
+# refuse, exit 1, and write nothing.
 #
 # THREE CASES WERE ADDED on 2026-09-04, one per layout defect fixed that day,
 # and each is a case the previous formatter FORMATTED - exit 0 both before and
@@ -358,3 +366,5 @@
 ### 230-backtick-refused.axp (exit 1)
 ### 231-comma-refused.axp (exit 1)
 ### 232-quote-refused.axp (exit 1)
+### 240-effect-empty-op-refused.axp (exit 1)
+### 241-bare-pub-refused.axp (exit 1)

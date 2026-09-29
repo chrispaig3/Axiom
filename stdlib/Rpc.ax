@@ -319,13 +319,20 @@
         len
       })))
 
-; Read one whole message and answer its body. An empty Str means the
-; stream ended or broke - the caller stops, which is what an LSP does
-; when its client goes away without saying `exit`.
-(pub :: rpcRead (-> Int String))
+; Read one whole message: `Some` its body, or `None` when the stream
+; ended or broke - the caller stops, which is what an LSP does when its
+; client goes away without saying `exit`.
+;
+; A body may be EMPTY. `Content-Length: 0` is a whole frame, and its
+; body is the empty string, which the caller refuses the way it refuses
+; any other body that is not JSON. `rpcRead` below answered "" for both
+; that frame and the end of the stream, so the server read a peer's
+; zero-length message as the peer hanging up and exited with every
+; request behind it unanswered (found by `scripts/lib/lspfuzz.py`).
+(pub :: rpcReadMsg (-> Int (Option String)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
-(pub fn (rpcRead r)
+(pub fn (rpcReadMsg r)
   ; 1. A complete header block.
   (let (
     (mut hdr (- 0 1))
@@ -342,10 +349,10 @@
             0)
         })
       (if (== dead 1)
-        ""
+        None
         (let ((n (rdContentLength r hdr)))
           (if (< n 0)
-            ""
+            None
             ; 2. Enough bytes for the body. Growing here is why
             ; `rdCompact` exists: a message larger than the
             ; buffer must still arrive. Every offset below is
@@ -382,7 +389,7 @@
                     (set dead 1)
                     0))
                 (if (== dead 1)
-                  ""
+                  None
                   ; `strDup`, not `strSlice`: a slice would SHARE
                   ; the reader's buffer, and the next compaction
                   ; memcpys within that same allocation - so a
@@ -393,10 +400,20 @@
                   (let ((body (strDup (strSlice (rdBuf r) (+ (rdConsumed r) bodyRel) n))))
                     {
                       (memSetWord r 3 (+ (+ (rdConsumed r) bodyRel) n))
-                      body
+                      (Some body)
                     }))
               }))))
     }))
+
+; Read one whole message and answer its body, or "" when the stream
+; ended or broke. A zero-length message answers "" too, so a caller
+; that must tell the two apart reads with `rpcReadMsg`.
+(pub :: rpcRead (-> Int String))
+;@axiom:effect(io)
+(pub fn (rpcRead r)
+  (match (rpcReadMsg r)
+    ((Some body) body)
+    ((None) "")))
 
 ; Write all of `s`. The short-write loop - a single `write` may
 ; transfer fewer bytes than asked, and treating that as success is how

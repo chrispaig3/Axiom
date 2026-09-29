@@ -755,6 +755,13 @@ return a `Result`: `addChecked`, `subChecked`, `mulChecked`,
 `Int` with a `Float` is `AX3004`, so convert first with `__intToFloat`.
 `%`, the bitwise operators and the shifts take `Int`s only.
 
+Float arithmetic is IEEE 754 double precision, with nothing fused or
+reordered, so the same operations in the same order give the same bits
+at every `--opt` level. `__floatToInt` truncates toward zero. A NaN
+converts to 0, and a value beyond `Int`'s range to the nearest end.
+
+Tested by `tests/stdlib/622-float-to-int.ax`.
+
 `==` and `!=` on two `String`s compare their contents, so
 `(== "ab" (strConcat "a" "b"))` is `true`. The orderings `<`, `>`,
 `<=` and `>=` don't take strings. Use `strCmp` from `Str` instead.
@@ -5423,6 +5430,28 @@ pool of any length runs in flat memory.
 Tested by `tests/stdlib/542-task-codec.ax` and
 `tests/stdlib/543-task-failures.ax`.
 
+### What stays the same from run to run
+
+When every binding and task computes from its own inputs alone, the
+answer doesn't depend on which one finished first:
+
+- Answers come back in the order written or submitted, at every width
+  and in both lowerings.
+- `taskFold` combines them in that order too, so a `Float` sum over
+  tasks has the same bits as a loop adding the same values in turn. A
+  sum grouped another way, in chunks say, rounds differently.
+- When several tasks fail, `parMapWords` raises the lowest-numbered
+  task's status. `parMapWordsChecked` and `taskMap` answer every
+  failure in its own slot.
+
+What can change between runs is anything a clock decides (a deadline,
+a cancellation, `failFast`), which trap wins when two bindings fail
+under `--threads`, and the order of what the tasks print. MM-PAR-14 in
+[memory-model.md](memory-model.md) has the full rule.
+
+Tested by `tests/stdlib/620-par-float-order.ax` and
+`tests/stdlib/621-par-first-failure.ax`.
+
 ### Where `parallel` is available
 
 - **Linux and darwin** have both lowerings.
@@ -5651,7 +5680,7 @@ regenerates it on every run to keep it exact.
 | `IO` | The `println` and `eprintln` macros ([Printing and formatting](#printing-and-formatting)), `writeStr` (bytes as given, with no newline and no rendering), `readLine` and `readAll`, the [filesystem](#work-with-files-and-directories) calls, the raw-address `printlnLit`/`readFileLit`, `exit`, `die` and `todo`. |
 | `Ffi` | Helpers a generated Rust binding needs: `ffiHandleNew`/`ffiHandlePtr`/`ffiHandleClose`, the out-cell (`ffiCellNew`, `ffiCellWord`, `ffiCellFree`) and the `Vec` conversions ([ffi.md](ffi.md)). |
 | `Json` | `jsonParse`, `jsonWrite`, and the constructors and accessors between them. Written for JSON-RPC. |
-| `Rpc` | The LSP base protocol's framing over a file descriptor: `rpcRead`, `rpcWrite`, and the reader `rdNew`/`rdBuf`/`rdFilled`. |
+| `Rpc` | The LSP base protocol's framing over a file descriptor: `rpcReadMsg` (`None` once the stream ends, `Some` every whole frame, an empty one included), `rpcRead`, `rpcWrite`, and the reader `rdNew`/`rdBuf`/`rdFilled`. |
 | `Par` | `parMapWords`, a bounded pool of concurrent tasks joined in submit order. `parRunAll` is the same pool over external commands, and `parRunOne`/`parArgvVector` are the pieces underneath. |
 | `Chan` | `chanNew`, a bounded channel of words between [`parallel`](#parallel--bindings-that-run-beside-the-caller) bindings, in shared memory so forked children and threads both see it. The channel is a `Chan`, a handle only this module makes, and a call on a freed one exits with status 85. `chanSend`/`chanRecv` block while it is full or empty, and `chanClose` ends the stream. Also `chanTrySend`, `chanTryRecv`, `chanLen`, `chanClosed`, `chanCap`, `chanFree`. `chanSendTimeout`/`chanRecvTimeout` wait at most a given time and answer `Err` code `sysTimedOut` when it runs out ([memory-model.md](memory-model.md) `MM-PAR-10`, `MM-PAR-12`). |
 | `Sync` | `mutexNew`, a mutex between [`parallel`](#parallel--bindings-that-run-beside-the-caller) bindings in a shared word, in both lowerings. The mutex is a `Mutex`, a handle only this module makes, and a call on a freed one exits with status 85. `mutexLock`/`mutexTryLock`/`mutexLockTimeout` answer a guard that `mutexUnlock` takes back (an unlock the caller did not earn is `Err` `syncNotHeld`), a holder found dead poisons it (`syncOwnerDead`, `mutexOwnerDead`), `mutexFree`. No fairness, no priority inheritance, not reentrant ([memory-model.md](memory-model.md) `MM-PAR-11`). |

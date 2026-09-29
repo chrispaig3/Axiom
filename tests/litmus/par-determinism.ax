@@ -1,0 +1,447 @@
+; What a parallel computation answers, and what it does not, for
+; `scripts/check-task.sh` §10 (docs/memory-model.md MM-PAR-14). One
+; mode per run, chosen by the first argument.
+;
+; THE DATA. Term `i` is a Float computed from `i` alone with `+`, `*`
+; and `/`: a mantissa in [1, 2), a power of two between 2^-31 and 2^32
+; and a sign, all drawn from a hash of `i`. Summed in different orders
+; the terms round differently, so an answer that depends on the order
+; of the additions shows it in its bits. Every answer prints a Float as
+; the Int of its bits, which is exact.
+;
+; JITTER. A task sleeps `(hash & 7) * J` microseconds before it
+; answers, so with J above 0 the tasks finish out of submit order. The
+; ordered answers must not notice; the gate's completion-order ablation
+; must.
+;
+;   seq N         the sequential sum of terms 0 .. N in index order, in
+;                 reverse order, and pairwise: `seq S rev R tree T`.
+;   dot N         the sum of i * 1.0000001 over 0 .. N: `dot S`.
+;   fold N W J    `taskFold` over N tasks at width W, each answering its
+;                 term's bits as text, added in the step: `fold S`.
+;   map N W J     `taskMap` the same way, the answers then added in
+;                 index order: `map S`.
+;   words N W J   `parMapWords`, each task answering its term's bits as
+;                 a word: `words S`.
+;   checked N W J `parMapWordsChecked` the same way: `checked S`.
+;   bind K N      one `parallel` form of K bindings (1, 2, 3, 4 or 8),
+;                 binding k summing the k-th contiguous chunk, and the
+;                 body adding the chunk sums in the order written:
+;                 `bind S`.
+;   chunked K N   the same association with no binding at all:
+;                 `chunked S`.
+;   fail-words N W    N tasks through `parMapWords`: task 10 traps with
+;                 77 after 150 ms, task 12 with 72 and task 14 with 82
+;                 at once. The pool raises one status and the program
+;                 exits with it.
+;   fail-checked N W  the same tasks through `parMapWordsChecked`: one
+;                 line per failed slot, `I err C`, then `ok K` for the
+;                 count of slots that answered their term.
+;   fail-tasks N W    the same through `taskMap`: the same lines.
+;   fail-fast N W     the same through `taskMapWith` with `failFast`:
+;                 the slots in order as `I ok`, `I err C`. Which slots
+;                 answer 1002 is the clock's, and the gate only reports
+;                 how many distinct answers it saw.
+(import IO)
+(import Sys)
+(import Str)
+(import Mem)
+(import Vec)
+(import Fmt)
+(import Err)
+(import Par)
+(import Task)
+
+(:: argInt (-> Int Int))
+;@axiom:effect(io)
+(fn (argInt i)
+  (match (strParseInt (sysArg i))
+    ((Some v) v)
+    ((None) 0)))
+
+; A Float's bits as an Int, and back. `cast` reinterprets the word and
+; changes nothing, so the round trip is exact.
+(:: bitsOf (-> Float Int))
+(fn (bitsOf x)
+  (cast Int x))
+
+(:: floatOf (-> Int Float))
+(fn (floatOf w)
+  (cast Float w))
+
+; A quiet NaN with a payload: what a step answers for a task that
+; failed, so a failure can never pass for an ordered sum.
+(:: poisonBits Int)
+(fn (poisonBits)
+  9221120237041090561)
+
+; splitmix64's finaliser over `i`; `*` and `+` wrap.
+(:: mixHash (-> Int Int))
+(fn (mixHash i)
+  (let ((z (+ (* i 7046029254386353131) 1442695040888963407)))
+    (let ((a (* (^ z (>> z 30)) 5573014789349097917)))
+      (let ((b (* (^ a (>> a 27)) 1181783497276652981)))
+        (^ b (>> b 31))))))
+
+; 2^e for e in -31 .. 32.
+(:: pow2 (-> Int Float))
+(fn (pow2 e)
+  (let ((mut x 1.0))
+    {
+      (if (>= e 0)
+        (for k 0 e
+          (set x (* x 2.0)))
+        (for k 0 (- 0 e)
+          (set x (* x 0.5))))
+      x
+    }))
+
+(:: term (-> Int Float))
+(fn (term i)
+  (let (
+    (h (mixHash i))
+    (frac (/ (__intToFloat (& h 1048575)) 1048576.0))
+    (tail (/ 1.0 (__intToFloat (+ i 3))))
+    (e (- (& (>> h 20) 63) 31))
+  )
+    (let ((mag (* (+ 1.0 (+ frac tail)) (pow2 e))))
+      (if (== (& (>> h 40) 1) 1)
+        (- 0.0 mag)
+        mag))))
+
+; Sleep `us` microseconds on a word of its own that nobody changes.
+(:: nap (-> Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (nap us)
+  (if (> us 0)
+    (let ((idle (memAlloc 8)))
+      {
+        (memSetWord idle 0 0)
+        (sysWaitWordTimeout idle 0 (* us 1000))
+        0
+      })
+    0))
+
+; Task `i`'s answer, after its jitter: its term's bits.
+(:: taskWord (-> Int Int Int))
+;@axiom:effect(io)
+(fn (taskWord jitter i)
+  {
+    (nap (* (& (mixHash (+ i 977)) 7) jitter))
+    (bitsOf (term i))
+  })
+
+(:: taskText (-> Int Int String))
+;@axiom:effect(io)
+(fn (taskText jitter i)
+  (fmtInt (taskWord jitter i)))
+
+; `acc + the term an answer carries`, as bits.
+(:: addText (-> Int (Result String Error) Int))
+(fn (addText acc r)
+  (match r
+    ((Ok s)
+      (match (strParseInt s)
+        ((Some w) (bitsOf (+ (floatOf acc) (floatOf w))))
+        ((None) poisonBits))
+    )
+    ((Err e) poisonBits)))
+
+(:: addWord (-> Int (Result Int Error) Int))
+(fn (addWord acc r)
+  (match r
+    ((Ok w) (bitsOf (+ (floatOf acc) (floatOf w))))
+    ((Err e) poisonBits)))
+
+; ---- the sequential answers ---------------------------------------------
+(:: seqSum (-> Int Int Int))
+(fn (seqSum lo hi)
+  (let ((mut acc 0.0))
+    {
+      (for i lo hi
+        (set acc (+ acc (term i))))
+      (bitsOf acc)
+    }))
+
+; The sum of i * 1.0000001 for i in 0 .. n: a multiply feeding an add,
+; the shape a contracting backend fuses into one rounding and a
+; reassociating one splits across vector lanes. The gate's controls
+; mark this IR to allow each and must see it happen.
+(:: dotSum (-> Int Int))
+(fn (dotSum n)
+  (let ((mut acc 0.0))
+    {
+      (for i 0 n
+        (set acc (+ (* (__intToFloat i) 1.0000001) acc)))
+      (bitsOf acc)
+    }))
+
+(:: revSum (-> Int Int))
+(fn (revSum n)
+  (let (
+    (mut acc 0.0)
+    (mut i (- n 1))
+  )
+    {
+      (while (>= i 0)
+        {
+          (set acc (+ acc (term i)))
+          (set i (- i 1))
+        })
+      (bitsOf acc)
+    }))
+
+(:: treeSum (-> Int Int Float))
+(fn (treeSum lo hi)
+  (if (<= (- hi lo) 1)
+    (if (== (- hi lo) 1)
+      (term lo)
+      0.0)
+    (let ((mid (+ lo (/ (- hi lo) 2))))
+      (+ (treeSum lo mid) (treeSum mid hi)))))
+
+; Chunk `k` of `K` over `0 .. n`: `n * k / K` to `n * (k + 1) / K`.
+(:: chunkLo (-> Int Int Int Int))
+(fn (chunkLo n parts k)
+  (/ (* n k) parts))
+
+(:: chunkSum (-> Int Int Int Int))
+(fn (chunkSum n parts k)
+  (seqSum (chunkLo n parts k) (chunkLo n parts (+ k 1))))
+
+; The chunk sums added in index order, from 0.0 like every other sum.
+(:: chunked (-> Int Int Int))
+(fn (chunked n parts)
+  (let ((mut acc 0.0))
+    {
+      (for k 0 parts
+        (set acc (+ acc (floatOf (chunkSum n parts k)))))
+      (bitsOf acc)
+    }))
+
+(:: add2 (-> Int Int Int))
+(fn (add2 a b)
+  (bitsOf (+ (floatOf a) (floatOf b))))
+
+; One `parallel` form per width. Each body starts from 0.0, as
+; `chunked` does, so the two associate identically.
+(:: bind (-> Int Int Int))
+;@axiom:effect(io)
+(fn (bind parts n)
+  (if (== parts 1)
+    (parallel p ((a (chunkSum n 1 0)))
+      (add2 0 a))
+    (if (== parts 2)
+      (parallel p (
+        (a (chunkSum n 2 0))
+        (b (chunkSum n 2 1))
+      )
+        (add2 (add2 0 a) b))
+      (if (== parts 3)
+        (parallel p (
+          (a (chunkSum n 3 0))
+          (b (chunkSum n 3 1))
+          (c (chunkSum n 3 2))
+        )
+          (add2 (add2 (add2 0 a) b) c))
+        (if (== parts 4)
+          (parallel p (
+            (a (chunkSum n 4 0))
+            (b (chunkSum n 4 1))
+            (c (chunkSum n 4 2))
+            (d (chunkSum n 4 3))
+          )
+            (add2 (add2 (add2 (add2 0 a) b) c) d))
+          (parallel p (
+            (a (chunkSum n 8 0))
+            (b (chunkSum n 8 1))
+            (c (chunkSum n 8 2))
+            (d (chunkSum n 8 3))
+            (e (chunkSum n 8 4))
+            (f (chunkSum n 8 5))
+            (g (chunkSum n 8 6))
+            (h (chunkSum n 8 7))
+          )
+            (add2 (add2 (add2 (add2 (add2 (add2 (add2 (add2 0 a) b) c) d) e) f) g) h)))))))
+
+; ---- failures -----------------------------------------------------------
+; Task 10 traps last, with 77 (an index out of range), after 150 ms;
+; task 12 at once with 72 (division by zero); task 14 at once with 82
+; (a misaligned atomic). Every other task answers its term's bits.
+(:: failWord (-> Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (failWord i)
+  (if (== i 10)
+    {
+      (nap 150000)
+      (let ((v vecNew))
+        {
+          (vecPush v 1)
+          (vecGet v (+ i 5))
+        })
+    }
+    (if (== i 12)
+      (/ i (- i 12))
+      (if (== i 14)
+        (__atomic_load (+ (memAlloc 16) 4))
+        (bitsOf (term i))))))
+
+(:: failText (-> Int String))
+;@axiom:effect(io)
+(fn (failText i)
+  (fmtInt (failWord i)))
+
+; One line per failed slot, then how many slots answered their term.
+(:: showWords (-> (Vec (Result Int Error)) Int))
+;@axiom:effect(io)
+(fn (showWords rs)
+  (let ((mut good 0))
+    {
+      (for i 0 (vecLen rs)
+        (match (vecGet rs i)
+          ((Ok w)
+            (if (== w (bitsOf (term i)))
+              (set good (+ good 1))
+              (println "{i} wrong {w}"))
+          )
+          ((Err e)
+            (let ((c (errCode e)))
+              (println "{i} err {c}"))
+          )))
+      (println "ok {good}")
+      0
+    }))
+
+(:: showTexts (-> (Vec (Result String Error)) Int))
+;@axiom:effect(io)
+(fn (showTexts rs)
+  (let ((mut good 0))
+    {
+      (for i 0 (vecLen rs)
+        (match (vecGet rs i)
+          ((Ok s)
+            (if (strEq s (fmtInt (bitsOf (term i))))
+              (set good (+ good 1))
+              (println "{i} wrong {s}"))
+          )
+          ((Err e)
+            (let ((c (errCode e)))
+              (println "{i} err {c}"))
+          )))
+      (println "ok {good}")
+      0
+    }))
+
+(:: say (-> String Int Int))
+;@axiom:effect(io)
+(fn (say what v)
+  {
+    (println "{what} {v}")
+    0
+  })
+
+(:: main Int)
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (main)
+  (let (
+    (mode (sysArg 1))
+    (n (argInt 2))
+    (w (argInt 3))
+    (jit (argInt 4))
+  )
+    {
+      (if (strEq mode "seq")
+        (let (
+          (s (seqSum 0 n))
+          (r (revSum n))
+          (t (bitsOf (treeSum 0 n)))
+        )
+          (println "seq {s} rev {r} tree {t}"))
+        (if (strEq mode "dot")
+          (say "dot" (dotSum n))
+          (if (strEq mode "fold")
+            (say
+              "fold"
+              (taskFold
+                (lambda (i) (taskText jit i))
+                n
+                (taskOpts w 32)
+                0
+                (lambda (acc i r) (addText acc r))))
+            (if (strEq mode "map")
+              (let (
+                (rs (taskMap
+                  (lambda (i) (taskText jit i))
+                  n
+                  w
+                  32))
+                (mut acc 0)
+              )
+                {
+                  (for i 0 (vecLen rs)
+                    (set acc (addText acc (vecGet rs i))))
+                  (say "map" acc)
+                })
+              (if (strEq mode "words")
+                (let (
+                  (ws (parMapWords
+                    (lambda (i) (taskWord jit i))
+                    n
+                    w))
+                  (mut acc 0)
+                )
+                  {
+                    (for i 0 (vecLen ws)
+                      (set acc (add2 acc (vecGet ws i))))
+                    (say "words" acc)
+                  })
+                (if (strEq mode "checked")
+                  (let (
+                    (rs (parMapWordsChecked
+                      (lambda (i) (taskWord jit i))
+                      n
+                      w))
+                    (mut acc 0)
+                  )
+                    {
+                      (for i 0 (vecLen rs)
+                        (set acc (addWord acc (vecGet rs i))))
+                      (say "checked" acc)
+                    })
+                  (if (strEq mode "bind")
+                    ; `bind K N`: the width is argument 2 here.
+                    (say "bind" (bind n w))
+                    (if (strEq mode "chunked")
+                      (say "chunked" (chunked w n))
+                      (if (strEq mode "fail-words")
+                        (let ((ws 
+                          (parMapWords
+                            (lambda (i) (failWord i))
+                            n
+                            w)))
+                          (say "unreachable" (vecLen ws)))
+                        (if (strEq mode "fail-checked")
+                          (showWords
+                            (parMapWordsChecked
+                              (lambda (i) (failWord i))
+                              n
+                              w))
+                          (if (strEq mode "fail-tasks")
+                            (showTexts
+                              (taskMap
+                                (lambda (i) (failText i))
+                                n
+                                w
+                                32))
+                            (if (strEq mode "fail-fast")
+                              (showTexts
+                                (taskMapWith
+                                  (lambda (i) (failText i))
+                                  n
+                                  (taskWithGrace (taskWithFailFast (taskOpts w 32) true) 1000000)))
+                              (println "usage: par-determinism seq N | dot N | fold|map|words|checked N W J | bind|chunked K N | fail-words|fail-checked|fail-tasks|fail-fast N W")))))))))))))
+      0
+    }))

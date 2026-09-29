@@ -121,6 +121,83 @@ fixed pause and showed nothing on linux-aarch64 at `-O1` and `-O2`. Its
 R2 now loads `x` first and waits for `z`, as WRC's does, and shows the
 outcome in about three quarters of the rounds on H3.
 
+### The language server is fuzzed — R-E1 - 2026-09-29
+
+`scripts/lib/lspfuzz.py` drives `axiom lsp` with seeded sessions:
+documents from the tracked corpus, often mutated, then every request
+the server advertises at random and impossible positions, edits,
+messages that are not JSON or not JSON-RPC, broken framing, and a
+shutdown. A session passes when the server never dies by a signal or
+hangs, writes only well-formed frames and JSON-RPC, answers every
+request once, and exits with the status `shutdown` and `exit` call
+for. `scripts/check-fuzz.sh` section 7 runs 200 sessions per push and
+2,000 with `--long`, beside a planted crash and a planted broken frame
+that must each be reported. It found four defects, fixed below, and
+replays each as a regression from `tests/fuzz/lsp/`.
+
+### `axiom fmt` formats a negative `subtype` bound - 2026-09-29
+
+`(subtype Positive is Int range -1 .. 10)` checked OK and `axiom fmt`
+refused it with no code, because the formatter counted `-` and `1` as
+two atoms. It reads the bounds as the parser does now. Tested by
+`tests/fuzz/subtype-negative-bound.axfuzz`.
+
+### `axiom fmt` refuses `(pub` and an empty effect operation - 2026-09-29
+
+`axiom fmt` on a file holding a bare `(pub`, or an effect with an empty
+`()` operation, trapped with 77 and took the server's `formatting`
+down with it. Both are refusals now, exit 1, with the file untouched.
+Tested by `tests/fmt/parity/240-effect-empty-op-refused.axp` and
+`241-bare-pub-refused.axp`.
+
+### The server's lints read the code you wrote - 2026-09-29
+
+The editor-only lints walked the tree after macro expansion, which
+rewrites it in place. A macro that uses its parameter twice, nested 40
+deep, expands to a graph with 2^40 paths, so a 219-byte document hung
+the server on open and on every code action while `axiom check`
+answered at once. The lints now read the written tree, as they always
+claimed to. Tested by `tests/fuzz/lsp/lint-dag.lspfuzz`.
+
+### An empty message no longer ends a language-server session - 2026-09-29
+
+A frame with `Content-Length: 0` made the server exit as if the editor
+had gone away, leaving every request behind it unanswered. `rpcRead`
+answered "" for that frame and for the end of the stream alike. The
+new `rpcReadMsg` answers `Some ""` for the frame and `None` for the
+end, and the server drops the empty message like any other that isn't
+JSON. `rpcRead` keeps its behaviour. Tested by
+`tests/stdlib/623-rpc-empty-frame.ax` and
+`tests/fuzz/lsp/empty-body.lspfuzz`.
+
+### What a parallel run keeps the same — MM-PAR-14 - 2026-09-29
+
+A new rule says what is reproducible about a pure parallel computation.
+Answers come back in the order written or submitted, and `taskFold`
+combines them in that order, so a `Float` sum over 2,000 tasks has the
+bits of the loop that adds the same terms in turn, at widths 1 to 8 and
+in both lowerings. No library fold combines in completion order.
+`parMapWords` raises the lowest failing task's status however soon the
+others failed, and the checked pools answer every failure in its slot.
+What stays the clock's is stated too: deadlines, cancellation,
+`failFast`, which trap wins under `--threads`, and every side effect.
+Tested by `tests/stdlib/620-par-float-order.ax`,
+`621-par-first-failure.ax` and `scripts/check-task.sh` §10, which
+recomputes the sums in Python and turns red on a completion-order pool.
+
+### `__floatToInt` saturates - 2026-09-29
+
+`__floatToInt` of a NaN, an infinity or a value beyond `Int`'s range
+answered LLVM poison, which the optimiser was free to make anything.
+`(__floatToInt (/ 0.0 0.0))` printed 0 at `--opt 0` and 2, 10 or 21
+above it, and a folded 2^64 printed a word that looked like a heap
+address. It now truncates toward zero and saturates: a NaN answers 0
+and an out-of-range value the nearest end of `Int`, at every level
+and on both instruction sets. AArch64 already did this at run time. On
+x86-64 a positive overflow and a NaN answered the smallest `Int`, and
+now answer the largest and 0. Tested by
+`tests/stdlib/622-float-to-int.ax`.
+
 ### A refused spawn is an answer in its slot — R-B2 - 2026-09-29
 
 A spawn the kernel refuses, or one the handle table has no slot for,
