@@ -58,7 +58,8 @@
 ; 2+2w swaps each thread's two stores, and iriw gives each reader its
 ; own copy of the other writer's word, stored after a pause, so W0
 ; reaches R2 first and W1 reaches R3 first. wrc's R2 loads x first and
-; y after a pause, and isa2's W stores y first and x after a pause. A
+; y once R1 has stored it, and isa2's W stores y first and x after a
+; pause. A
 ; `reorder` run that never shows the outcome means this harness could
 ; not see it happen.
 ;
@@ -530,6 +531,23 @@
 (fn (pauseSpins)
   64)
 
+; How many loads `reorder`'s wrc reader spends waiting for the relay.
+(:: waitSpins Int)
+(fn (waitSpins)
+  4096)
+
+; Load `w` until it is non-zero, at most `k` times. Answers the loads
+; made.
+(:: waitStored (-> Int Int Int))
+;@axiom:effect(unsafe)
+(fn (waitStored w k)
+  (let ((mut j 0))
+    {
+      (while (&& (< j k) (== (__atomic_load w) 0))
+        (set j (+ j 1)))
+      j
+    }))
+
 ; Spin `k` atomic loads of `w`, which the optimiser cannot remove.
 (:: pause (-> Int Int Int))
 ;@axiom:effect(unsafe)
@@ -751,7 +769,11 @@
     }))
 
 ; Loads round i's word of `first` into rf[i], then `second`'s into
-; rs[i]. `reorder` loads `second` first, pauses, then loads `first`.
+; rs[i]. `reorder` loads `second` first, then waits for `first` to be
+; stored, for at most `waitSpins` loads, and loads it. Waiting for the
+; store rather than pausing a fixed time keeps the control's outcome
+; visible on a host whose relay is slower than a fixed pause: with a
+; 64-load pause, linux-aarch64 at -O2 showed wrc's in none of 5 runs.
 (:: chainReader (-> Int Int Int Int Int Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
@@ -770,7 +792,7 @@
             (if (== mode 3)
               (let ((b (__atomic_load (+ second (* 8 i)))))
                 {
-                  (pause ctr pauseSpins)
+                  (waitStored (+ first (* 8 i)) waitSpins)
                   (__store64 rf i (__atomic_load (+ first (* 8 i))))
                   (__store64 rs i b)
                 })
