@@ -1,0 +1,77 @@
+; A recovery point's thunk is an extent an abort reclaims, so it is
+; checked as a region is. `grows` grows a `Vec` built before the point:
+; the grown block is allocated inside the extent, and after a trap the
+; vector would hold a reclaimed block (AX3060). `held` and `given` pass
+; a thunk whose body was never walked here (AX3090). The last five are
+; the shapes a recovery point is for, and stay silent: allocating
+; inside and answering a word, reading data from outside, a top-level
+; function, a vector built inside, and a word stored into an outside
+; vector without growing it.
+(import Vec)
+
+(:: work (-> Int Int))
+(fn (work x)
+  (vecLen (vecWithCapacity 8)))
+
+(:: grows (-> (Vec Int) Int))
+(fn (grows outer)
+  (__axiom_recover
+    __axiom_arena_mark
+    (lambda (x)
+      {
+        (vecPush outer 7)
+        (/ 1 0)
+      }
+    )))
+
+(:: held Int)
+(fn (held)
+  (let ((t 
+    (lambda (x) (work x))))
+    (__axiom_recover __axiom_arena_mark t)))
+
+(:: given (-> (-> Int Int) Int))
+(fn (given t)
+  (__axiom_recover __axiom_arena_mark t))
+
+(:: local Int)
+(fn (local)
+  (__axiom_recover
+    __axiom_arena_mark
+    (lambda (x)
+      (let ((v (vecWithCapacity 4)))
+        {
+          (vecPush v 1)
+          (vecPush v 2)
+          (vecLen v)
+        })
+    )))
+
+(:: reads (-> (Vec Int) Int))
+(fn (reads outer)
+  (__axiom_recover
+    __axiom_arena_mark
+    (lambda (x) (+ (vecGet outer 0) (vecLen outer)))))
+
+(:: named Int)
+(fn (named)
+  (__axiom_recover __axiom_arena_mark work))
+
+(:: sets (-> (Vec Int) Int))
+(fn (sets outer)
+  (__axiom_recover
+    __axiom_arena_mark
+    (lambda (x)
+      {
+        (vecSet outer 0 9)
+        0
+      }
+    )))
+
+(:: main Int)
+(fn (main)
+  (let ((v (vecWithCapacity 4)))
+    {
+      (vecPush v 1)
+      (+ (local) (+ (reads v) (+ (named) (sets v))))
+    }))

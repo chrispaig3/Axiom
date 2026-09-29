@@ -9793,10 +9793,19 @@
             (if (== headIsVar 1)
               (nodeAName head)
               "")))
-            (let ((_cap 
-              (if (&& (== headIsVar 1) (&& (== (capSpawnHead hname) 1) (== (spineArgs e 0) 2)))
-                (checkSpawnCaptures tc (nodeB (nodeA e)))
-                0)))
+            (let (
+              (_cap 
+                (if (&& (== headIsVar 1) (&& (== (capSpawnHead hname) 1) (== (spineArgs e 0) 2)))
+                  (checkSpawnCaptures tc (nodeB (nodeA e)))
+                  0))
+              ; A recovery point is an extent an abort reclaims, so the
+              ; region pass has to run over it (`rgnRecoverForm`), as it
+              ; runs for a `region` form (TC word 39).
+              (_rec 
+                (if (&& (== headIsVar 1) (strEq hname "__axiom_recover"))
+                  (memSetWord tc 39 1)
+                  0))
+            )
               (if (&& (== inHead 0) (&& (== headIsVar 1) (== (checkSaturation tc e head hname) 1)))
                 (mkNode TAG_T_ERR 0 0 0)
                 (if (&& (== headIsVar 1) (== (isNumericTwoArg e hname) 1))
@@ -22751,7 +22760,10 @@
       "this function's own region (its caller's current region)"
       (if (<= rid m)
         (strConcat (strConcat "region `@" (vecGetStr (rgnRegionNames rc) (- rid 1))) "`")
-        (strConcat (strConcat "region `" (vecGetStr (rgnFormNames rc) (- rid (+ m 1)))) "`")))))
+        (let ((nm (vecGetStr (rgnFormNames rc) (- rid (+ m 1)))))
+          (if (strEq nm "#recover")
+            "the recovery point (reclaimed on abort)"
+            (strConcat (strConcat "region `" nm) "`")))))))
 
 (pub :: rgnOriginText (-> Int Int String))
 (pub fn (rgnOriginText rc bit)
@@ -23365,6 +23377,14 @@
 ; form's value is PROMOTED into the enclosing region, shallowly.
 (pub :: rgnRegionForm (-> Int Int Int))
 (pub fn (rgnRegionForm rc e)
+  (rgnFormWalk rc (nodeB e) (nodeAName e)))
+
+; One lexical extent reclaimed as a whole: `body` is walked with a fresh
+; region bit current, so what it allocates carries the bit and a store
+; of it anywhere older is MM-RGN-3's refusal. A `(region r ...)` form
+; and a recovery point's thunk (`rgnRecoverForm`) both come here.
+(pub :: rgnFormWalk (-> Int Int String Int))
+(pub fn (rgnFormWalk rc body name)
   (let (
     (n (memGetWord rc 3))
     (k (vecLen (rgnFormParents rc)))
@@ -23372,14 +23392,14 @@
     (savedRid (memGetWord rc 8))
   )
     (if (>= (+ n k) 61)
-      (rgnExpr rc (nodeB e))
+      (rgnExpr rc body)
       (let ((bit (<< 1 (+ (+ n 1) k))))
         {
           (vecPush (rgnFormParents rc) savedRid)
-          (vecPushStr (rgnFormNames rc) (nodeAName e))
+          (vecPushStr (rgnFormNames rc) name)
           (memSetWord rc 7 bit)
           (memSetWord rc 8 (+ (+ (vecLen (rgnRegionNames rc)) 1) k))
-          (let ((v (rgnExpr rc (nodeB e))))
+          (let ((v (rgnExpr rc body)))
             {
               (memSetWord rc 7 savedBit)
               (memSetWord rc 8 savedRid)
@@ -23388,6 +23408,44 @@
                 v)
             })
         }))))
+
+; A recovery point, `(__axiom_recover mark thunk)`: an abort resets the
+; arena to `mark`, reclaiming everything the thunk allocated, so the
+; thunk is an extent reclaimed as a whole, exactly as a region is, and
+; it is walked as one. What it allocates may be stored nowhere older:
+; the reclamation audit's probe grew a `Vec` built before the point
+; inside the thunk, trapped, and read the reclaimed block afterwards
+; through the safe surface (AN-42; `tests/diagnostics/1033-recover-escape.ax`).
+; A normal return keeps the allocations, but a trap can come after any
+; store, so the rule is the region's.
+;
+; The walk needs the thunk's body. A lambda written at the call has it;
+; a top-level function captures nothing and is handed only an `Int`;
+; anything else - a `let`-bound closure, a parameter - is a thunk this
+; check can't see, and is AX3090. The answer is the status or the
+; thunk's word, so it carries no origin.
+(pub :: rgnRecoverForm (-> Int (Vec Int) Int Int))
+(pub fn (rgnRecoverForm rc args span)
+  (let ((thunk (vecGet args 1)))
+    {
+      (rgnExpr rc (vecGet args 0))
+      (if (== (nodeTag thunk) TAG_E_LAM)
+        (rgnFormWalk rc thunk "#recover")
+        (if (&& (== (nodeTag thunk) TAG_E_VAR) (&& (< (rgnEnvFind rc (nodeAName thunk)) 0) (!= (findFnEnt (rgnTc rc) (nodeAName thunk)) 0)))
+          0
+          (if (|| (== span 0) (== (rgnReport rc) 0))
+            0
+            (emitDiag (rgnTc rc) (mkDiag
+              SEV_ERROR
+              "AX3090"
+              "recover-thunk-unseen"
+              span
+              "a recovery point's thunk has to be a lambda written at the call, or a top-level function"
+              0
+              0
+              "an abort reclaims everything the thunk allocated, so the thunk is held to storing none of it anywhere older; that is checked on a lambda written here, and a top-level function captures nothing. Write the lambda at the call")))))
+      0
+    }))
 
 ; ---- calls ----
 (pub :: rgnApp (-> Int Int Int))
@@ -23405,6 +23463,8 @@
       (let ((n (nodeAName head)))
         (if (>= (rgnEnvFind rc n) 0)
           (rgnUnknownCall rc args (spanOf e))
+          (if (&& (strEq n "__axiom_recover") (== (vecLen args) 2))
+            (rgnRecoverForm rc args (spanOf e))
           (if (== (isCastLike n) 1)
             (rgnLastArg rc args)
             (if (!= (findCtor tc n) 0)
@@ -23429,7 +23489,7 @@
                             n
                             args
                             (spanOf e)
-                            e))))))))))))))
+                            e)))))))))))))))
 
 (pub :: rgnLastArg (-> Int (Vec Int) Int))
 (pub fn (rgnLastArg rc args)
