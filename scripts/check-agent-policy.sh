@@ -641,7 +641,7 @@ if [[ -z "$forged_row" ]]; then
   echo "FAIL negative: no row for the forged-claim probe"
   exit 1
 fi
-if ! printf '%s\n' "$forged_row" | grep -q -E '#effect=iohazard( |$)'; then
+if ! grep -q -E '#effect=iohazard( |$)' <<< "$forged_row"; then
   echo "FAIL negative: the AXTAG value no longer reaches the meta verbatim,"
   echo "               so this probe is not testing the anchoring any more"
   printf '     %s\n' "$forged_row"

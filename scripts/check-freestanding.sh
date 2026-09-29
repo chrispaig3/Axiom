@@ -175,7 +175,7 @@ for case_file in tests/stdlib/*.ax; do
 
   imports="$(imports_of "$exe")"
 
-  if printf '%s\n' "$imports" | grep -qE "^($libc_names)$"; then
+  if grep -qE "^($libc_names)$" <<< "$imports"; then
     echo "FAIL $name: executable imports libc symbols"
     printf '%s\n' "$imports" | grep -E "^($libc_names)$" | sed 's/^/    /'
     status=1

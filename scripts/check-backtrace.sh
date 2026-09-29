@@ -453,7 +453,7 @@ for pair in "oom:70:__axiom_out_of_memory" "ue:71:__axiom_unhandled_effect"; do
   [[ "$first" == "$sym" ]] \
     && ok "$name: the deepest frame is $sym" \
     || bad "$name: the deepest frame is \`$first\`, expected $sym"
-  printf '%s\n' "$trace" | grep -q "^  at main$" \
+  grep -q "^  at main$" <<< "$trace" \
     && ok "$name: the trace reaches main" \
     || bad "$name: the trace never reaches main"
 done
@@ -521,9 +521,9 @@ fp_probe() { # fp_probe <target> <ir> -> prints "kept" or "omitted"
   # attribute.
   body="$(awk '/^_?b2:/{f=1;next} f&&/^_?[A-Za-z_.]+:/{exit} f' "$work/fp.s")"
   if [[ "$1" == *aarch64 ]]; then
-    printf '%s\n' "$body" | grep -qE 'mov[[:space:]]+x29, sp' && echo kept || echo omitted
+    grep -qE 'mov[[:space:]]+x29, sp' <<< "$body" && echo kept || echo omitted
   else
-    printf '%s\n' "$body" | grep -qE 'movq[[:space:]]+%rsp, %rbp' && echo kept || echo omitted
+    grep -qE 'movq[[:space:]]+%rsp, %rbp' <<< "$body" && echo kept || echo omitted
   fi
 }
 

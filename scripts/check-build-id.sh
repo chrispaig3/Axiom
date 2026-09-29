@@ -150,14 +150,14 @@ else
 fi
 # `check-version.sh`'s extractor, run here rather than described, so a
 # banner change that breaks it fails in the commit that made it.
-if printf '%s' "$plain" | grep -qE 'Axiom [0-9]+\.[0-9]+\.[0-9]+ \(build'; then
+if grep -qE 'Axiom [0-9]+\.[0-9]+\.[0-9]+ \(build' <<< "$plain"; then
   ok "check-version.sh's own pattern still matches the banner"
 else
   bad "check-version.sh's pattern no longer matches: $plain"
 fi
 # The build id must not itself look like a version, or the greps above
 # would have two candidates and the answer would depend on order.
-if printf '%s' "$id1" | grep -qE '[0-9]+\.[0-9]+\.[0-9]+'; then
+if grep -qE '[0-9]+\.[0-9]+\.[0-9]+' <<< "$id1"; then
   bad "the build id contains something shaped like a semver: $id1"
 else
   ok "the build id contains nothing shaped like a semver"

@@ -225,7 +225,7 @@ added_t="$(comm -13 "$work/plain.imports" "$work/t470.imports")"
 # (MM-PAR-7, `parLibcFork`).
 thread_syms='pthread_create|pthread_join|fork|__tlv_bootstrap|_tlv_bootstrap|__tls_get_addr|__tlsdesc_resolve'
 stray="$(printf '%s\n' "$added_t" | grep -vE "^($thread_syms)$" | grep . || true)"
-if [[ -z "$stray" ]] && printf '%s\n' "$added_t" | grep -q '^pthread_create$'; then
+if [[ -z "$stray" ]] && grep -q '^pthread_create$' <<< "$added_t"; then
   ok "threads: the lowering adds only the thread's own symbols: $(printf '%s\n' "$added_t" | tr '\n' ' ')"
 else
   bad "threads: expected pthread_create (and pthread_join, plus the TLS bootstrap on Darwin), got: $(printf '%s\n' "$added_t" | tr '\n' ' ')"

@@ -473,7 +473,11 @@ fi
 bad_sev=0
 while read -r code; do
   [[ -n "$code" ]] || continue
-  if ! printf '%s\n' "$warn_ok" | grep -qx "$code"; then
+  # A here-string, not `printf | grep -q`: `grep -q` exits at its first
+  # match, `printf` then dies of SIGPIPE, and under `pipefail` a code the
+  # policy lists read as missing. It fired under the full battery's load
+  # for AX3038, which the policy lists.
+  if ! grep -qx "$code" <<< "$warn_ok"; then
     echo "FAIL severity: $code renders as a WARNING in a golden but is not in $policy"
     grep -l "^W $code " tests/diagnostics/*.axdl | sed 's/^/     /'
     bad_sev=$((bad_sev + 1))
@@ -490,7 +494,7 @@ else
                | awk '{print $2}' | sort | uniq -d | tr '\n' ' ')"
   if [[ -n "${demotable// /}" ]]; then
     for c in $demotable; do
-      printf '%s\n' "$warn_ok" | grep -qx "$c" || {
+      grep -qx "$c" <<< "$warn_ok" || {
         echo "FAIL severity: $c appears as both E and W, and is not in $policy"
         failed=$((failed + 1)); }
     done

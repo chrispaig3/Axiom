@@ -99,7 +99,7 @@ shipped="$(sed -n 's/^ *- name: \([a-z0-9_]*-[a-z0-9_]*\) *$/\1/p' "$release_yml
   echo "      list to know whether the host ships, and an empty read would make"
   echo "      it silently skip every case below"; exit 1; }
 
-if ! printf '%s\n' "$shipped" | grep -qx "$target"; then
+if ! grep -qx "$target" <<< "$shipped"; then
   echo "== this host's target ships no archive; the refusal is what is checked =="
   echo "   shipped: $(printf '%s ' $shipped)"
   set +e
