@@ -165,6 +165,7 @@
 
 (:: syncScratchDone (-> Int Int))
 ;@axiom:effect(unsafe)
+;@axiom:precondition(`b` is a block `syncScratch` answered, handed back once and not used after)
 (fn (syncScratchDone b)
   {
     (__release b)
@@ -369,6 +370,7 @@
 ; non-positive `nanos` is `mutexTryLock` with a reason.
 (pub :: mutexLockTimeout (-> Int Int (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (mutexLockTimeout m nanos)
   (if (== (syncLoad m 3) 1)
     (Err (mkError syncOwnerDead "mutexLockTimeout: the holder died holding it"))

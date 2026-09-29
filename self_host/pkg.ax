@@ -1296,7 +1296,7 @@
       0
       depth)))
 
-(pub :: pkgWalkEntries (-> (Vec Int) String String (Vec Int) Int Int Int))
+(pub :: pkgWalkEntries (-> (Vec Int) String String (Vec String) Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 (pub fn (pkgWalkEntries out root rel entries i depth)

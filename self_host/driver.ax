@@ -771,7 +771,6 @@
 ; the package name without a leading `axiom-`.
 (pub :: crateModuleName (-> String String String))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (crateModuleName dir pkg)
   (let (
     (entries (sysReadDir (strCStr (strConcat dir "axiom"))))
@@ -1182,7 +1181,6 @@
 
 (pub :: addAxiomPathDirs (-> (Vec Int) (Vec Int) String Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (addAxiomPathDirs v dirs list)
   (let (
     (parts (strSplit list 58))

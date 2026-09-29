@@ -260,6 +260,7 @@
 
 (:: taskScratchDone (-> Int Int))
 ;@axiom:effect(unsafe)
+;@axiom:precondition(`b` is a block `taskScratch` answered, handed back once and not used after)
 (fn (taskScratchDone b)
   {
     (__release b)
@@ -908,6 +909,7 @@
 (pub :: taskFold (-> (-> Int String) Int TaskOpts Int (-> Int Int (Result String Error) Int) Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:precondition(`step` keeps only what its `Int` accumulator carries: an answer or anything it allocates is reclaimed when it returns)
 (pub fn (taskFold f n opts init step)
   (let ((acc (taskScratch 16)))
     {

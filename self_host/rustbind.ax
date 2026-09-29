@@ -837,6 +837,12 @@
                     (let ((fty (rbSpellType (vecGet tys k))))
                       {
                         (set out (strConcat out (strConcat "(pub :: axh_" (strConcat m (strConcat (strConcat "_" (strConcat cn (strConcat "_" (fmtInt k)))) (strConcat " (-> " (strConcat ts (strConcat " " (strConcat fty "))\n")))))))))
+                        ; A field of a `data` value is read only after its
+                        ; tag, so a value of another constructor has no
+                        ; field to answer: the arm traps (status 77), as
+                        ; `vecGet` does past the end. It used to answer
+                        ; `(cast T 0)`, a forged null reference whenever `T`
+                        ; is one (R-B6).
                         (if (== isStruct 1)
                           (set out (strConcat
                             out
@@ -848,7 +854,7 @@
                                 " v) v."
                                 (strConcat (cast String (vecGet (rbCtorNames c) k))
                                 ")\n")))))))
-                          (set out (strConcat out (strConcat "(pub fn (axh_" (strConcat m (strConcat (strConcat "_" (strConcat cn (strConcat "_" (fmtInt k)))) (strConcat " v) (match v ((" (strConcat cn (strConcat (rbBinders (vecLen tys)) (strConcat ") a" (strConcat (fmtInt k) (strConcat ") (_ (cast " (strConcat fty " 0))))\n")))))))))))))
+                          (set out (strConcat out (strConcat "(pub fn (axh_" (strConcat m (strConcat (strConcat "_" (strConcat cn (strConcat "_" (fmtInt k)))) (strConcat " v) (match v ((" (strConcat cn (strConcat (rbBinders (vecLen tys)) (strConcat ") a" (strConcat (fmtInt k) ") (_ __indexTrap)))\n")))))))))))
                       })
                     (set k (+ k 1))
                   })

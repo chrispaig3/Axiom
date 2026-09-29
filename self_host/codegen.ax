@@ -5145,7 +5145,7 @@
       (pushDirs v dirs (+ i 1))
     }))
 
-(pub :: pushPathParts (-> (Vec Int) (Vec Int) Int Int))
+(pub :: pushPathParts (-> (Vec Int) (Vec String) Int Int))
 ;@axiom:effect(unsafe)
 (pub fn (pushPathParts v parts i)
   (if (>= i (vecLen parts))

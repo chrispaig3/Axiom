@@ -450,7 +450,7 @@
 ; Splitting
 ; ------------------------------------------------------------------
 ; Every segment of `s` between occurrences of `byte`, in order, as a
-; Vec of Str handles. Empty segments are KEPT: a `PATH` entry of ""
+; `(Vec String)`. Empty segments are KEPT: a `PATH` entry of ""
 ; means the working directory, and a caller that wants them dropped
 ; can drop them, while a caller that needs them cannot get them back.
 ; `strSplit "" 58` answers one empty segment, and `strSplit "a:" 58`
@@ -463,7 +463,7 @@
 ; string - the two call sites this replaced both did that already, and
 ; for that reason.
 ;@axiom:restrict(no-io,no-foreign)
-(pub :: strSplit (-> String Int (Vec Int)))
+(pub :: strSplit (-> String Int (Vec String)))
 (pub fn (strSplit s byte)
   (let ((out vecNew))
     {
@@ -472,22 +472,18 @@
     }))
 
 ;@axiom:restrict(no-io,no-foreign)
-(pub :: strSplitFrom (-> String Int Int (Vec Int) Int))
+(pub :: strSplitFrom (-> String Int Int (Vec String) Int))
 (pub fn (strSplitFrom s byte from out)
   (match (strFindByte s byte from)
     ((None)
       {
-        (vecPush
-          out
-          (cast Int (strSlice s from (- (strLen s) from))))
+        (vecPush out (strSlice s from (- (strLen s) from)))
         0
       }
     )
     ((Some cut)
       {
-        (vecPush
-          out
-          (cast Int (strSlice s from (- cut from))))
+        (vecPush out (strSlice s from (- cut from)))
         (strSplitFrom s byte (+ cut 1) out)
       }
     )))

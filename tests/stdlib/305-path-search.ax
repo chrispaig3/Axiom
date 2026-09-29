@@ -74,10 +74,9 @@
 ; name a search takes, naming the file the search would find.
 (pub :: selfName String)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (selfName)
   (let ((parts (strSplit (sysArg 0) 47)))
-    (vecGetStr parts (- (vecLen parts) 1))))
+    (vecGet parts (- (vecLen parts) 1))))
 
 ; Run one child under an environment of this case's choosing and let it
 ; report. The label goes out first and stays first: `println` is a

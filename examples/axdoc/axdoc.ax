@@ -208,8 +208,7 @@
     true
     (isTagLine line)))
 
-(:: docAbove (-> (Vec Int) Int String))
-;@axiom:effect(unsafe)
+(:: docAbove (-> (Vec String) Int String))
 (fn (docAbove lines i)
   ; Walk UP to the top of the contiguous comment block.
   (let (
@@ -218,7 +217,7 @@
   )
     {
       (while (if (>= start 0)
-        (isBlockLine (vecGetStr lines start))
+        (isBlockLine (vecGet lines start))
         false)
         (set start (- start 1)))
       (set start (+ start 1))
@@ -233,9 +232,9 @@
           false
           (< j i))
           {
-            (if (isTagLine (vecGetStr lines j))
+            (if (isTagLine (vecGet lines j))
               0
-              (let ((t (commentText (vecGetStr lines j))))
+              (let ((t (commentText (vecGet lines j))))
                 (if (== (strLen t) 0)
                   {
                     (set stop true)
@@ -266,8 +265,7 @@
 ; both in the standard library and both would work; neither earns its
 ; place here, and a reference that reached for them would be teaching
 ; the wrong lesson in the file people read as an example.
-(:: effectsOf (-> (Vec Int) String String))
-;@axiom:effect(unsafe)
+(:: effectsOf (-> (Vec String) String String))
 (fn (effectsOf axsym name)
   (let (
     (n (vecLen axsym))
@@ -276,7 +274,7 @@
   )
     {
       (while (< i n)
-        (let ((line (vecGetStr axsym i)))
+        (let ((line (vecGet axsym i)))
           {
             (if (&& (strStartsWith line "F ") (strEq (identAt line 2) name))
               {
@@ -379,9 +377,8 @@
       (strSlice p 0 (- (strLen p) 1))
       p)))
 
-(:: renderModule (-> String (Vec Int) String))
+(:: renderModule (-> String (Vec String) String))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (renderModule path axsym)
   ; The `mut` bindings are in two `let`s, split by TYPE, and that
   ; is not a style choice: with `(mut count 0)` and `(mut rows "")`
@@ -401,7 +398,7 @@
         (let ((mut rows ""))
           {
             (while (< i n)
-              (let ((line (vecGetStr lines i)))
+              (let ((line (vecGet lines i)))
                 {
                   (let ((kind (kindOf line)))
                     (if (== (strLen kind) 0)
