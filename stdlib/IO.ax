@@ -13,6 +13,7 @@
 ; inferred `#effects=` either way.
 (import Sys)
 (import Err)
+(import Mem)
 (import Str)
 (import Vec)
 (import Fmt)
@@ -41,6 +42,34 @@
 ;@axiom:effect(io)
 (pub fn (writeStr fd s)
   (sysWriteAllFd fd (strData s) (strLen s) 0))
+
+; Write the `len` bytes of `s` that start at byte `start`, all of them,
+; returning the number written or a negative errno - `writeStr` over a
+; part of a string, with no copy.
+;
+; The range is checked before anything is written: a `start` or `len`
+; that is negative, or one that runs past the end of `s`, stops the
+; program with status 77, the index trap `vecGet` raises. The kernel
+; is only ever handed bytes `s` holds.
+(pub :: writeSlice (-> Int String Int Int Int))
+;@axiom:effect(io)
+(pub fn (writeSlice fd s start len)
+  (if (ioOutside s start len)
+    __indexTrap
+    (sysWriteAllFd fd (+ (strData s) start) len 0)))
+
+; True when `[start, start + len)` is not inside `s`. Written so that no
+; sum can overflow: `start` is known to be in range before `len` is
+; compared with what is left after it.
+(:: ioOutside (-> String Int Int Bool))
+(fn (ioOutside s start len)
+  (if (< start 0)
+    true
+    (if (< len 0)
+      true
+      (if (> start (strLen s))
+        true
+        (> len (- (strLen s) start))))))
 
 ; ------------------------------------------------------------------
 ; Printing is MACROS AND NO FUNCTIONS.
@@ -244,6 +273,30 @@
 (pub fn (renamePath old new)
   (ioResult (sysRename (ioPath old) (ioPath new)) "renamePath" old))
 
+; Open `path` with `flags` (`oRdonly`, `oWronlyCreateTrunc`, ...):
+; `(Ok fd)`, or `(Err e)` whose code is the errno. New files get mode
+; 0644. The descriptor is the caller's to close with `sysCloseFd`.
+(pub :: openPath (-> String Int (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (openPath path flags)
+  (ioResult (sysOpenPath (ioPath path) flags) "openPath" path))
+
+; Open `rel` for reading inside the directory `root`, following no
+; symbolic link below it: `(Ok fd)`, or `(Err e)`. `rel` must be
+; relative, with no `..` segment; see `Sys.sysOpenBeneath` for the
+; rules and why it walks one segment at a time.
+(pub :: openBeneath (-> String String (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (openBeneath root rel)
+  (ioResult (sysOpenBeneath (ioPath root) rel) "openBeneath" rel))
+
+; Create the symbolic link `link` whose content is `target`. Answers
+; `(Ok 0)`, or `(Err e)` - EEXIST when `link` is already there.
+(pub :: makeSymlink (-> String String (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (makeSymlink target link)
+  (ioResult (sysSymlink (ioPath target) (ioPath link)) "makeSymlink" link))
+
 ; Copy `src` onto `dst`, answering `(Ok bytes)` or `(Err e)`. `dst` is
 ; created or truncated.
 ;
@@ -302,6 +355,14 @@
 ;@axiom:effect(io)
 (pub fn (makeDir path)
   (ioResult (sysMkdir (ioPath path) sysDirMode) "makeDir" path))
+
+; Create the directory `path` with the permission bits `mode`, such as
+; 448 (0700) for a directory only its owner may enter. Answers `(Ok 0)`,
+; or `(Err e)`.
+(pub :: makeDirMode (-> String Int (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (makeDirMode path mode)
+  (ioResult (sysMkdir (ioPath path) mode) "makeDirMode" path))
 
 ; Create `path` and every missing directory above it. Answers 0, or
 ; the negative errno of the first component that could not be made.
@@ -565,3 +626,116 @@
 (:: ioFdError (-> Int String Int Error))
 (fn (ioFdError code op fd)
   (mkError code (strConcat (strConcat (strConcat op ": fd ") (fmtInt fd)) (strConcat ": errno " (fmtInt code)))))
+
+; One `read(2)` of at most `count` bytes from `fd` into the bytes of
+; `buf` that start at byte `at`: `(Ok n)` with `n` the bytes read, `(Ok
+; 0)` at end of input, or `(Err e)` whose code is the errno.
+;
+; This is the reader for a program that keeps its own buffer: a
+; `String` from `strAlloc`, filled a piece at a time. The range is
+; checked before the call, and one outside `buf` stops the program
+; with status 77, so the kernel only ever writes bytes `buf` holds.
+; `readAll` and `readLine` are the forms that answer a fresh string.
+(pub :: readInto (-> Int String Int Int (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (readInto fd buf at count)
+  (if (ioOutside buf at count)
+    __indexTrap
+    (sysReadFd fd (+ (strData buf) at) count)))
+
+; ------------------------------------------------------------------
+; Entropy
+; ------------------------------------------------------------------
+; `n` bytes of kernel entropy as a fresh string: `(Ok bytes)`, or
+; `(Err e)` whose code is the errno. The bytes are for keys, nonces
+; and seeds; `strByte` reads them one at a time. A negative `n` stops
+; the program with status 77.
+(pub :: randomBytes (-> Int (Result String Error)))
+;@axiom:effect(io)
+(pub fn (randomBytes n)
+  (if (< n 0)
+    __indexTrap
+    (let ((s (strAlloc n)))
+      (match (sysRandomBytes (strData s) n)
+        ((Ok _) (Ok s))
+        ((Err e) (Err e))))))
+
+; ------------------------------------------------------------------
+; Terminals
+;
+; A terminal's saved state lives in a `TermState`, which only this
+; module builds or opens: the bytes the kernel wrote are never handed
+; back as an address, so nothing can aim a restore at the wrong
+; memory. `Tui.Term` is the line editor built on the same calls.
+; ------------------------------------------------------------------
+; A descriptor and the terminal attributes saved from it.
+(struct TermState
+  (fd : Int)
+  (save : Int))
+
+; A terminal's size in character cells. A terminal that was never
+; sized reports 0 for both; treat 0 as unknown and fall back to 80x24.
+(pub struct TermSize
+  (rows : Int)
+  (cols : Int))
+
+; The attributes of the terminal on `fd`, saved: `(Ok state)` to hand
+; to `termRestore` later, or `(Err e)` - ENOTTY when `fd` is not a
+; terminal.
+(pub :: termSave (-> Int (Result TermState Error)))
+;@axiom:effect(io)
+(pub fn (termSave fd)
+  (let ((st (TermState fd (memAlloc (ioTermStateCap)))))
+    (ioTermAnswer (sysTermSave fd st.save) st "termSave")))
+
+; Put the terminal on `fd` into raw mode, saving what it was first:
+; `(Ok state)` to restore it with, or `(Err e)`. With `keepSignals`
+; true, ^C still raises SIGINT; see `Sys.sysTermRaw` for every flag
+; raw mode changes.
+(pub :: termRaw (-> Int Bool (Result TermState Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (termRaw fd keepSignals)
+  (let ((st (TermState fd (memAlloc (ioTermStateCap)))))
+    (ioTermAnswer
+      (sysTermRaw
+        fd
+        st.save
+        (if keepSignals
+          1
+          0))
+      st
+      "termRaw")))
+
+; Put back the attributes `st` saved, on the descriptor they came from:
+; `(Ok 0)`, or `(Err e)`.
+(pub :: termRestore (-> TermState (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (termRestore st)
+  (sysResult "termRestore" (sysTermRestore st.fd st.save)))
+
+; The size of the terminal on `fd`: `(Ok size)`, or `(Err e)` - ENOTTY
+; when `fd` is not a terminal.
+(pub :: termSize (-> Int (Result TermSize Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (termSize fd)
+  (let ((ws (memAlloc sysTermSizeBytes)))
+    (let ((rc (sysTermSize fd ws)))
+      (if (< rc 0)
+        (Err (mkError (- 0 rc) "termSize"))
+        (Ok (TermSize (sysTermRows ws) (sysTermCols ws)))))))
+
+; The saved state's size, never 0: a target with no terminal control
+; answers `sysTermStateBytes` 0, and its calls never touch the block.
+(:: ioTermStateCap Int)
+(fn (ioTermStateCap)
+  (if (< sysTermStateBytes 8)
+    8
+    sysTermStateBytes))
+
+(:: ioTermAnswer (-> Int TermState String (Result TermState Error)))
+(fn (ioTermAnswer rc st op)
+  (if (< rc 0)
+    (Err (mkError (- 0 rc) op))
+    (Ok st)))

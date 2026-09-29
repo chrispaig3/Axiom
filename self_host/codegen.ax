@@ -6,6 +6,7 @@
 (import Fmt)
 (import Vec)
 (import Sys)
+(import IO (fileExists readFile writeStr))
 (import Path)
 (import parser)
 (import namespace)
@@ -4870,7 +4871,7 @@
   (let ((p (moduleSrcPath name tcode entryDir)))
     (if (== (strLen p) 0)
       None
-      (Some (sysReadFile (strCStr p))))))
+      (Some (readFile p)))))
 
 ; The same read, defaulted - for a call site that needs a String
 ; inline. One read, not two.
@@ -5145,7 +5146,7 @@
           (let ((d (vecGetStr parts i)))
             (if (> (strLen d) 0)
               (let ((dir (pathWithSlash d)))
-                (if (sysFileExists (strCStr (strConcat dir name)))
+                (if (fileExists (strConcat dir name))
                   {
                     (set found dir)
                     0
@@ -5264,7 +5265,7 @@
     (let ((cand (strConcat (vecGetStr dirs i) base)))
       (if (!=
         (strLen
-          (cast String (sysReadFile (strCStr cand))))
+          (cast String (readFile cand)))
         0)
         cand
         (searchDirsFor dirs base (+ i 1))))))
@@ -5281,9 +5282,9 @@
 ;@axiom:effect(io)
 (pub fn (dieImport msg name)
   {
-    (sysWriteAllFd 2 (strData msg) (strLen msg) 0)
-    (sysWriteAllFd 2 (strData name) (strLen name) 0)
-    (sysWriteAllFd 2 (strData "\n") (strLen "\n") 0)
+    (writeStr 2 msg)
+    (writeStr 2 name)
+    (writeStr 2 "\n")
     ; Exit 3 is this compiler's import-failure code - except under
     ; `symbols`, where stage0 folds EVERY failure into exit 1 and the
     ; parity gate compares statuses. The subcommand is re-derived from
@@ -5335,7 +5336,7 @@
           (cast String 0))))
       (let ((out 
         (cast String (renderDiagsFormat diagFormatFromArgv ds units))))
-        (sysWriteAllFd 2 (strData out) (strLen out) 0))
+        (writeStr 2 out))
       (sysExitWith
         (if (strEq (firstOperandArg 1) "symbols")
           1
@@ -7703,7 +7704,7 @@
           (cast String 0))))
       (let ((out 
         (cast String (renderDiagsFormat diagFormatFromArgv ds units))))
-        (sysWriteAllFd 2 (strData out) (strLen out) 0))
+        (writeStr 2 out))
       ; Exit 1, stage0's code for this failure. The old 3 had exactly
       ; two consumers, both gates, both updated in this commit; the
       ; `symbols` fold to 1 is now the rule rather than the exception.
@@ -7750,9 +7751,9 @@
           (cast String 0))))
       (let ((out 
         (cast String (renderDiagsFormat diagFormatFromArgv ds units))))
-        (sysWriteAllFd 2 (strData out) (strLen out) 0))
+        (writeStr 2 out))
       (let ((tr (renderFailTrailer 1)))
-        (sysWriteAllFd 2 (strData tr) (strLen tr) 0))
+        (writeStr 2 tr))
       ; Exit 1, the status every other diagnostic exits with and the
       ; one `dieImportDiag` moved to when AX5001 became a real
       ; diagnostic. The old 3 said "import machinery" about what is
@@ -13026,7 +13027,7 @@
     (let ((p (entryInputPath)))
       (if (== (strLen p) 0)
         ""
-        (sysReadFile (strCStr p))))
+        (readFile p)))
     (readModuleSrcOr modname (memGetWord cg 26) (pathDir (entryInputPath)) "")))
 
 ; First-sight index of a path in `files`, appending. Linear, like

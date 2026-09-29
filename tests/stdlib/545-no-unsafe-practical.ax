@@ -5,6 +5,14 @@
 ; functions is a trusted encapsulation, whose raw loads and stores are
 ; its own and not its caller's.
 ;
+; It also talks to the kernel, through `IO`'s typed calls (MM-EXEC-9e):
+; `fileRound` writes a file, reads it back into a buffer and whole, and
+; removes it, all by a `String` path; `randomCount` asks for entropy as
+; a fresh string; `termText` asks for the terminal's size. The raw
+; `Sys` calls under them hand the kernel addresses, and a `no-unsafe`
+; function calling one is refused; these hand it only bytes a `String`
+; holds, so the restriction holds through them too.
+;
 ; `firstByte` is a trusted wrapper written here. Its body calls
 ; `memGetByte`, a precondition interface, and makes the precondition
 ; true itself by checking the length first, so it says `effect(unsafe)`
@@ -18,6 +26,7 @@
 (import Err)
 (import Chan)
 (import Task)
+(import Sys)
 
 (:: firstByte (-> String Int))
 ;@axiom:effect(unsafe)
@@ -73,6 +82,52 @@
       out
     }))
 
+; A file written, read back into a buffer and read whole, then removed.
+(:: fileRound (-> String String String))
+;@axiom:effect(io)
+(fn (fileRound path text)
+  (match (writeFile path text)
+    ((Err e) "write failed")
+    ((Ok n)
+      (match (openPath path oRdonly)
+        ((Err e) "open failed")
+        ((Ok fd)
+          (let (
+            (buf (strAlloc n))
+            (got (readInto fd buf 0 n))
+            (_ (sysCloseFd fd))
+            (whole (readFile path))
+            (_r (removeFile path))
+          )
+            (match got
+              ((Err e) "read failed")
+              ((Ok k)
+                (if (fileExists path)
+                  "not removed"
+                  (if (&& (== k n) (&& (strEq buf text) (strEq whole text)))
+                    "round trip"
+                    "mismatch"))
+              )))
+        ))
+    )))
+
+; How many bytes of entropy arrived, or -1.
+(:: randomCount (-> Int Int))
+;@axiom:effect(io)
+(fn (randomCount n)
+  (match (randomBytes n)
+    ((Ok s) (strLen s))
+    ((Err e) (- 0 1))))
+
+; Whether `fd` answered a size. Under the test runner it is a pipe or
+; `/dev/null`, never a terminal.
+(:: termText (-> Int String))
+;@axiom:effect(io)
+(fn (termText fd)
+  (match (termSize fd)
+    ((Ok sz) "a terminal")
+    ((Err e) "not a terminal")))
+
 (:: work (-> Int Int))
 ;@axiom:restrict(no-unsafe)
 ;@axiom:effect(io)
@@ -110,6 +165,12 @@
         (println "channel sum {sum}"))
       (let ((answers (taskText (taskMap square 4 2 64))))
         (println "tasks {answers}"))
+      (let (
+        (file (fileRound "axiom-545.tmp" "typed bytes\n"))
+        (random (randomCount 32))
+        (term (termText 0))
+      )
+        (println "file {file}, random {random}, fd 0 {term}"))
       0
     }))
 

@@ -38,6 +38,7 @@
 (import Str)
 (import Fmt)
 (import Sys)
+(import IO (readInto writeStr))
 
 (:: rdCap Int)
 (fn (rdCap)
@@ -183,7 +184,7 @@
       (rdCompact r)
       0)
     (let ((n 
-      (match (sysReadFd (rdFd r) (+ (strData (rdBuf r)) (rdFilled r)) (- (strLen (rdBuf r)) (rdFilled r)))
+      (match (readInto (rdFd r) (rdBuf r) (rdFilled r) (- (strLen (rdBuf r)) (rdFilled r)))
         ((Ok k) k)
         ((Err e) (- 0 (errCode e))))))
       {
@@ -400,11 +401,12 @@
 
 ; Write all of `s`. The short-write loop - a single `write` may
 ; transfer fewer bytes than asked, and treating that as success is how
-; a reply gets silently truncated - is `Sys`'s, stated once there.
+; a reply gets silently truncated - is `IO.writeStr`'s, stated once
+; in `Sys.sysWriteAllFd`.
 (:: rpcPut (-> Int String Int))
 ;@axiom:effect(io)
 (fn (rpcPut fd s)
-  (sysWriteAllFd fd (strData s) (strLen s) 0))
+  (writeStr fd s))
 
 ; Frame `body` and write it.
 (pub :: rpcWrite (-> Int String Int))

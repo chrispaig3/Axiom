@@ -1,0 +1,97 @@
+; exit 77 (see .exit)
+;
+; `IO`'s typed descriptor calls check their range before the kernel
+; sees it (docs/memory-model.md MM-EXEC-9e). `writeSlice` and `readInto`
+; take a `String` and a range inside it, and `randomBytes` a length; a
+; range that is negative or runs past the string's end is the index
+; trap, status 77, the one `vecGet` raises. It fires BEFORE the syscall,
+; and that is what the checks below pin, not only the status:
+;
+;   - a refused `writeSlice` writes nothing: stdout holds only the lines
+;     `println` wrote, and the golden has no stray `cdef`;
+;   - a refused `readInto` reads nothing: the next read of the same
+;     descriptor still answers the file from its first byte;
+;   - the edges answer rather than trap: an empty range at the very end
+;     of a string, and a read that fills a buffer exactly.
+;
+; Each refusal runs inside a recovery point, which answers 77. The last
+; one is not recovered: the program prints the trap's sentence and exits
+; 77, and nothing after it runs.
+(import IO)
+(import Sys)
+(import Str)
+(import Err)
+
+(:: sliceStatus (-> Int Int Int))
+;@axiom:effect(io)
+(fn (sliceStatus start len)
+  (__axiom_recover
+    __axiom_arena_mark
+    (lambda (x) (writeSlice 1 "abcdef" start len))))
+
+(:: readStatus (-> Int String Int Int Int))
+;@axiom:effect(io)
+(fn (readStatus fd buf at count)
+  (__axiom_recover
+    __axiom_arena_mark
+    (lambda (x)
+      (match (readInto fd buf at count)
+        ((Ok n) n)
+        ((Err e) (- 0 (errCode e))))
+    )))
+
+(:: randomStatus (-> Int Int))
+;@axiom:effect(io)
+(fn (randomStatus n)
+  (__axiom_recover
+    __axiom_arena_mark
+    (lambda (x)
+      (match (randomBytes n)
+        ((Ok s) (strLen s))
+        ((Err e) (- 0 (errCode e))))
+    )))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (a (sliceStatus 2 10))
+    (b (sliceStatus (- 0 1) 2))
+    (c (sliceStatus 2 (- 0 1)))
+    (d (sliceStatus 7 0))
+  )
+    {
+      (println "past the end {a}, negative start {b}, negative length {c}, start past the end {d}")
+      (let ((e (sliceStatus 6 0)))
+        (println "an empty range at the end writes {e} bytes"))
+      (let ((_ (writeFile "axiom-610.tmp" "0123456789")))
+        0)
+      (match (openPath "axiom-610.tmp" oRdonly)
+        ((Err e) (println "open failed"))
+        ((Ok fd)
+          (let ((buf (strAlloc 4)))
+            {
+              (let (
+                (f (readStatus fd buf 2 3))
+                (g (readStatus fd buf (- 0 1) 1))
+                (h (readStatus fd buf 0 4))
+              )
+                (println "read past the buffer {f}, at a negative offset {g}, the whole buffer {h}: {buf}"))
+              (let ((_ (sysCloseFd fd)))
+                0)
+            })
+        ))
+      (let ((_ (removeFile "axiom-610.tmp")))
+        0)
+      (let (
+        (i (randomStatus (- 0 1)))
+        (j (randomStatus 0))
+      )
+        (println "random of -1 bytes {i}, of 0 bytes {j}"))
+      (writeSlice 1 "abcdef" 2 10)
+      ; Not reached, and not a bare numeral, for the reasons
+      ; `544-misaligned-atomic.ax` gives: the stdlib gate reads a tail
+      ; numeral as the exit status, and a `println` literal as a line
+      ; the program prints.
+      (writeStr stdout "UNREACHABLE: the trap returned\n")
+    }))

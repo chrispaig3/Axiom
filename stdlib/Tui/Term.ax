@@ -47,6 +47,7 @@
 (import Str)
 (import Vec)
 (import Sys)
+(import IO (readInto writeStr))
 (import Err)
 (import Tui.Keys)
 (import Tui.Edit)
@@ -224,7 +225,7 @@
           (if (== ready 0)
             0
             (let ((n 
-              (match (sysReadFd kin.fd (+ (strData kin.buf) kin.len) (- (strLen kin.buf) kin.len))
+              (match (readInto kin.fd kin.buf kin.len (- (strLen kin.buf) kin.len))
                 ((Ok k) k)
                 ((Err e) (- 0 (errCode e))))))
               (if (<= n 0)
@@ -368,7 +369,7 @@
     0
     (let ((s (tuiCat out)))
       {
-        (sysWriteAllFd 1 (strData s) (strLen s) 0)
+        (writeStr 1 s)
         (vecClear out)
         0
       })))

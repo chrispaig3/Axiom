@@ -85,15 +85,15 @@
 ;
 ; WRITING. `httpRespond` writes the status line, `Content-Type`,
 ; `Content-Length` (the body's `strLen`, in bytes), `Connection:
-; close`, the blank line and the body, through `Sys.sysWriteAllFd` -
-; never `sysWriteFd`, because a short write on a socket is normal and
+; close`, the blank line and the body, through `IO.writeStr` - a
+; loop over `write`, because a short write on a socket is normal and
 ; a writer that took one for success would truncate the reply. No
 ; `Date` header: it would make every golden non-reproducible, and a
-; server with no cache does not need one. `httpRespondRaw` takes an
-; address and a length rather than a `String` for one reason:
-; `strCStr` stops at the first NUL, so a `.png` served through any
-; C-string path is silently corrupt. Binary bodies go out as
-; `(strData s)` and `(strLen s)`.
+; server with no cache does not need one. A `String` carries its
+; length, so a binary body - a `.png` with NUL bytes in it - goes out
+; whole through `httpRespond`. `httpRespondRaw` takes an address and a
+; length instead, for bytes a program holds outside any `String`; it
+; is the raw layer's, and it says what its caller must make true.
 ;
 ; ROUTING. A router holds exact `(method, path)` routes with a
 ; handler each, static prefixes mapped to directories, and a
@@ -158,6 +158,7 @@
 (import Vec)
 (import Fmt)
 (import Sys)
+(import IO (openBeneath readInto writeStr))
 (import Path)
 (import Err)
 (import Sys.Platform (eIsDir))
@@ -291,7 +292,7 @@
     (if (>= r.filled (strLen r.buf))
       (- 0 2)
       (let ((n 
-        (match (sysReadFd r.fd (+ (strData r.buf) r.filled) (- (strLen r.buf) r.filled))
+        (match (readInto r.fd r.buf r.filled (- (strLen r.buf) r.filled))
           ((Ok k) k)
           ((Err e) (- 0 (errCode e))))))
         {
@@ -932,7 +933,7 @@
       (set got have)
       (while (&& (< got n) (== dead 0))
         (let ((k 
-          (match (sysReadFd r.fd (+ (strData body) got) (- n got))
+          (match (readInto r.fd body got (- n got))
             ((Ok k) k)
             ((Err e) (- 0 (errCode e))))))
           (if (< k 1)
@@ -1113,31 +1114,30 @@
     }))
 
 ; Write a whole response to `fd`: the head for `status` and `ctype`
-; with `Content-Length: len`, then the `len` bytes at `addr`. Every
-; write goes through `sysWriteAllFd`. Takes an address and a length
-; rather than a String so that a body holding a NUL byte - a PNG - is
-; written whole; `strCStr` would stop at the NUL. Answers what the
-; body's `sysWriteAllFd` answered, the head's when that one failed.
+; with `Content-Length: len`, then the `len` bytes at `addr`. The raw
+; form of `httpRespond`, for bytes held outside any `String`: the body
+; goes to `sysWriteAllFd` as the address it is given. Answers what the
+; body's write answered, the head's when that one failed.
 (pub :: httpRespondRaw (-> Int Int String Int Int Int))
 ;@axiom:effect(io)
 (pub fn (httpRespondRaw fd status ctype addr len)
   (let ((head (httpHead status ctype len)))
-    (let ((w (sysWriteAllFd fd (strData head) (strLen head) 0)))
+    (let ((w (writeStr fd head)))
       (if (< w (strLen head))
         w
         (sysWriteAllFd fd addr len 0)))))
 
-; Write a whole response whose body is the String `body`:
-; `httpRespondRaw` over its bytes and its byte count.
+; Write a whole response whose body is the String `body`: the head,
+; then every byte of `body`, a NUL included. Answers what the body's
+; write answered, the head's when that one failed.
 (pub :: httpRespond (-> Int Int String String Int))
 ;@axiom:effect(io)
 (pub fn (httpRespond fd status ctype body)
-  (httpRespondRaw
-    fd
-    status
-    ctype
-    (strData body)
-    (strLen body)))
+  (let ((head (httpHead status ctype (strLen body))))
+    (let ((w (writeStr fd head)))
+      (if (< w (strLen head))
+        w
+        (writeStr fd body)))))
 
 ; A plain-text refusal or error page: `status` with its reason phrase
 ; and `why` as the body, so a curl user reads the reason on the
@@ -1324,7 +1324,7 @@
     (let ((rest (strSlice req.path (strLen prefix) (- (strLen req.path) (strLen prefix)))))
       (if (== (strLen rest) 0)
         (httpFail fd 404 "no file named")
-        (match (sysOpenBeneath (strCStr (strDup dir)) rest)
+        (match (openBeneath dir rest)
           ((Err _) (httpFail fd 404 "no such file"))
           ((Ok file)
             (let ((got (sysReadAllFd file)))
@@ -1336,14 +1336,7 @@
                       (httpFail fd 404 "that is a directory")
                       (httpFail fd 404 "no such file"))
                   )
-                  ((Ok bytes)
-                    (httpRespondRaw
-                      fd
-                      200
-                      (httpContentType rest)
-                      (strData bytes)
-                      (strLen bytes))
-                  ))
+                  ((Ok bytes) (httpRespond fd 200 (httpContentType rest) bytes)))
               })
           ))))
     (httpFail fd 400 "unsafe path")))

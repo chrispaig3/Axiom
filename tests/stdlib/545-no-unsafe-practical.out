@@ -3,3 +3,4 @@ map 6 at 4: 16
 hello, world 12 104 1
 channel sum 15
 tasks 0 1 4 9 
+file round trip, random 32, fd 0 not a terminal

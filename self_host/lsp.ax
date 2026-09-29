@@ -57,6 +57,7 @@
 (import Vec)
 (import Utf8)
 (import Sys)
+(import IO (isDir readFile))
 (import Err)
 (import Path)
 (import Json)
@@ -11059,7 +11060,7 @@
                           entryDir
                           found
                           seen)))
-                    (if (&& (< depth 3) (&& (lspFixIsSegment nm) (sysIsDir (strCStr full))))
+                    (if (&& (< depth 3) (&& (lspFixIsSegment nm) (isDir full)))
                       (lspFixScanDir
                         dir
                         (strConcat rel (strConcat nm "/"))
@@ -11119,7 +11120,7 @@
 (pub fn (lspFixConsider full mod name path tcode entryDir found seen)
   (if (|| (strEq full path) (>= (strVecIdx seen mod) 0))
     0
-    (let ((text (sysReadFile (strCStr full))))
+    (let ((text (readFile full)))
       (if (lspFixHasWord text name)
         (if (strEq (moduleSrcPath mod tcode entryDir) full)
           {

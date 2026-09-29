@@ -68,7 +68,7 @@
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 (fn (frontend path)
-  (let ((src (sysReadFile (strCStr path))))
+  (let ((src (readFile path)))
     (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
       (if (== (memGetWord pr 0) 0)
         vecNew
@@ -121,7 +121,7 @@
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 (fn (parseOnly path)
-  (let ((src (sysReadFile (strCStr path))))
+  (let ((src (readFile path)))
     (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
       (if (== (memGetWord pr 0) 0)
         vecNew

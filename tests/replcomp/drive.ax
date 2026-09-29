@@ -281,8 +281,8 @@
 ;@axiom:effect(io)
 (fn (main)
   (let (
-    (declsSrc (sysReadFile (strCStr (sysArg 1))))
-    (pending (sysReadFile (strCStr (sysArg 2))))
+    (declsSrc (readFile (sysArg 1)))
+    (pending (readFile (sysArg 2)))
     (buf (sysArg 3))
     (cur (argInt 4))
     (mode (sysArg 5))

@@ -4331,11 +4331,11 @@ The format-string rules are specified in
 
 ## Terminals
 
-`Sys` gives you the low-level terminal control a line editor or a
-full-screen program is built on. It tells you whether a descriptor is a
-terminal, switches it to raw mode, puts it back exactly as it was, and
-reports its size. Key decoding, escape sequences and history aren't
-included. Build those on top.
+`IO` gives you the terminal control a line editor or a full-screen
+program is built on. It tells you whether a descriptor is a terminal,
+switches it to raw mode, puts it back exactly as it was, and reports
+its size. Key decoding, escape sequences and history aren't included.
+Build those on top.
 
 This program reads one key without waiting for Return, then restores
 the terminal:
@@ -4343,24 +4343,26 @@ the terminal:
 ```scheme
 (import IO)
 (import Sys)
-(import Mem)
+(import Str)
 
-(:: readKey (-> Int Int))
+(:: readKey (-> TermState Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (readKey saved)
-  (let ((key (memAlloc 1)))
-    (match (sysReadFd stdin key 1)
-      ((Ok _) { (sysTermRestore stdin saved) (memGetByte key 0) })
-      ((Err _) { (sysTermRestore stdin saved) -1 }))))
+  (let (
+    (key (strAlloc 1))
+    (got (readInto stdin key 0 1))
+    (back (termRestore saved))
+  )
+    (match got
+      ((Ok n) (if (== n 1) (strByte key 0) -1))
+      ((Err _) -1))))
 
 (:: main Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (main)
-  (let ((saved (memAlloc sysTermStateBytes)))
-    (if (< (sysTermRaw stdin saved 1) 0)       ; 1 keeps ^C as SIGINT
-      { (println "stdin is not a terminal") 1 }
+  (match (termRaw stdin true)                 ; true keeps ^C as SIGINT
+    ((Err _) { (println "stdin is not a terminal") 1 })
+    ((Ok saved)
       (let ((code (readKey saved)))
         { (println "you pressed byte {code}") 0 }))))
 ```
@@ -4376,34 +4378,39 @@ With its input piped from somewhere else, it prints
 
 ### The functions
 
-`sysTermSave`, `sysTermRaw`, `sysTermRestore` and `sysTermSize` answer
-0 on success or a negative result.
+`termSave`, `termRaw`, `termRestore` and `termSize` answer a `Result`,
+and an `Err` carries the errno: `ENOTTY` for a descriptor that isn't a
+terminal.
 
 | Call | Does |
 |---|---|
 | `(sysIsatty fd)` | `true` when `fd` is a terminal |
-| `(sysTermSave fd buf)` | copies `fd`'s current settings into `buf` |
-| `(sysTermRaw fd buf keepSignals)` | saves the current settings into `buf`, then switches `fd` to raw mode |
-| `(sysTermRestore fd buf)` | puts back the settings saved in `buf` |
-| `(sysTermSize fd buf)` | reads the window size into `buf` |
-| `(sysTermRows buf)`, `(sysTermCols buf)` | read the rows and columns out of that buffer |
-| `sysTermStateBytes` | how large a saved-settings buffer must be on this target |
-| `sysTermSizeBytes` | how large a window-size buffer must be |
+| `(termSave fd)` | `(Ok state)`, a `TermState` holding `fd`'s current settings |
+| `(termRaw fd keepSignals)` | saves the current settings, then switches `fd` to raw mode, and answers `(Ok state)` to restore them with |
+| `(termRestore state)` | puts back the settings `state` holds, on the descriptor they came from |
+| `(termSize fd)` | `(Ok size)`, a `TermSize` whose `rows` and `cols` fields are the window size |
+
+A `TermState` is sealed: only `IO` builds one or reads its bytes, so a
+restore can only ever put back settings a save took.
+
+`Sys` has the same calls over buffers you allocate yourself:
+`sysTermSave`, `sysTermRaw`, `sysTermRestore` and `sysTermSize`, which
+answer 0 or a negative result, with `sysTermRows` and `sysTermCols` to
+read a size back. Size those buffers with `sysTermStateBytes` and
+`sysTermSizeBytes`, never by hand: `struct termios` is 72 bytes on
+Darwin, 36 on Linux and 44 on FreeBSD, and a size picked by hand can
+round-trip on the machine you tested it on and still be wrong on
+another.
 
 ### Save and restore
 
-Size the saved-settings buffer with `sysTermStateBytes`, never by hand.
-`struct termios` is 72 bytes on Darwin, 36 on Linux and 44 on FreeBSD.
-A size picked by hand can round-trip on the machine you tested it on
-and still be wrong on another platform.
-
-`sysTermRaw` fills your buffer, then edits a private copy. It never
-writes to your saved bytes again, so `sysTermRestore` always puts back
-the original settings. Restore before every exit: a program that leaves
+`termRaw` saves the settings, then edits a private copy. It never
+writes to the saved bytes again, so `termRestore` always puts back the
+original settings. Restore before every exit: a program that leaves
 the terminal in raw mode hands the user a shell with no echo and no
 line editing.
 
-`sysTermRaw` and `sysTermRestore` let pending output drain and discard
+Entering and leaving raw mode let pending output drain and discard
 unread input before the change takes effect. Type-ahead meant for the
 old mode never arrives as keystrokes.
 
@@ -4421,17 +4428,17 @@ Raw mode clears `ECHO`, `ICANON` and `IEXTEN`; `IXON`, `ICRNL`,
   terminal.
 - Output isn't processed, so write `"\r\n"` where you want a new line.
 
-`ISIG` is your choice, through `sysTermRaw`'s third argument. Pass 1
-and ^C still raises `SIGINT`, which a REPL usually wants. Pass 0 and ^C
-arrives as byte 3 for your program to bind, which suits a full-screen
-editor. `c_cflag` isn't touched.
+`ISIG` is your choice, through `termRaw`'s second argument. Pass
+`true` and ^C still raises `SIGINT`, which a REPL usually wants. Pass
+`false` and ^C arrives as byte 3 for your program to bind, which suits
+a full-screen editor. `c_cflag` isn't touched.
 
 ### Window size
 
-Pass `sysTermSize` a buffer of `sysTermSizeBytes` bytes, then read it
-with `sysTermRows` and `sysTermCols`. A terminal may answer 0 rows and
-0 columns and still report success, as an unsized pty or some CI
-runners do. Treat 0 as unknown and fall back to 80 by 24.
+`termSize` answers the rows and columns together. A terminal may
+answer 0 rows and 0 columns and still report success, as an unsized
+pty or some CI runners do. Treat 0 as unknown and fall back to 80 by
+24.
 
 ### Targets
 
@@ -4441,9 +4448,9 @@ Terminal control works on `darwin-aarch64`, `darwin-x86_64`,
 It isn't available on `windows-x86_64`, which has no `termios` and no
 `ioctl`. The Windows console works through `GetConsoleMode` and
 `SetConsoleMode` on a handle, which this library doesn't implement.
-There, `sysIsatty` answers `false`, `sysTermStateBytes` is 0, and
-`sysTermSave`, `sysTermRaw`, `sysTermRestore` and `sysTermSize` answer
-a negative result, never a plausible one.
+There, `sysIsatty` answers `false`, `termSave`, `termRaw`,
+`termRestore` and `termSize` answer an `Err`, and the `Sys` forms a
+negative result, never a plausible one.
 `stdlib/Sys/Platform.windows.ax` records the mechanism a Windows port
 would need.
 
@@ -5376,7 +5383,7 @@ regenerates it on every run to keep it exact.
 | `Intern` | A string interner: `internNew`, `internFree`, `internIntern`, `internFind`, `internLookup`, `internCount`. |
 | `Sys` | The syscall layer: `sysWriteFd`, `sysReadFd`, `sysWriteAllFd`, `sysReadAllFd`, `sysReadLineFd`, `sysOpenPath`, `sysCloseFd`, `sysExitWith`, `sysFailed`, `sysErrno`, `stdin`/`stdout`/`stderr`. The [filesystem](#work-with-files-and-directories) calls, and processes: `sysSpawn`, `sysRun`, `sysRunPath`, `sysWaitPid`, `sysEnv`, `sysArgc`, `sysArg`, `sysGetPid`, `sysNowMicros`. Shared memory and waiting on it: `sysMapShared`/`sysUnmapShared`, `sysWaitWord`/`sysWakeWord`, the timed `sysWaitWordTimeout` (0 woken, 1 timed out, 2 changed) with `sysTimeoutMicros` and `sysTimedOut`, and `sysChildExited`, which looks at a child without reaping it. |
 | `Path` | Path strings, with no syscalls: `pathDir`, `pathBase`, `pathExt`, `pathStem`, `pathJoin`, `pathReplaceExt`, `pathWithSlash`, `pathIsAbsolute`, `pathLastSlash`, `pathExtIndex`, `pathClean`. |
-| `IO` | The `println` and `eprintln` macros ([Printing and formatting](#printing-and-formatting)), `writeStr` (bytes as given, with no newline and no rendering), `readLine` and `readAll`, the [filesystem](#work-with-files-and-directories) calls, the raw-address `printlnLit`/`readFileLit`, `exit`, `die` and `todo`. |
+| `IO` | The `println` and `eprintln` macros ([Printing and formatting](#printing-and-formatting)), `writeStr` and `writeSlice` (bytes as given, with no newline and no rendering), `readLine`, `readAll` and `readInto`, the [filesystem](#work-with-files-and-directories) calls, `randomBytes`, the [terminal](#terminals) calls, the raw-address `printlnLit`/`readFileLit`, `exit`, `die` and `todo`. |
 | `Ffi` | Helpers a generated Rust binding needs: `ffiHandleNew`/`ffiHandlePtr`/`ffiHandleClose`, the out-cell (`ffiCellNew`, `ffiCellWord`, `ffiCellFree`) and the `Vec` conversions ([ffi.md](ffi.md)). |
 | `Json` | `jsonParse`, `jsonWrite`, and the constructors and accessors between them. Written for JSON-RPC. |
 | `Rpc` | The LSP base protocol's framing over a file descriptor: `rpcRead`, `rpcWrite`, and the reader `rdNew`/`rdBuf`/`rdFilled`. |
@@ -5455,9 +5462,13 @@ kernel unterminated. Reach for `IO`.
 
 | Task | `IO` (takes a `Str`) | `Sys` (takes a `char*`) |
 |---|---|---|
+| open one, for a descriptor | `openPath` | `sysOpenPath` |
+| open one inside a directory, following no link | `openBeneath` | `sysOpenBeneath` |
 | read a whole file | `readFile` | `sysReadFile` |
 | read one line of a descriptor | `readLine` | `sysReadLineFd` |
 | read a descriptor to end of input | `readAll` | `sysReadAllFd` |
+| read what a descriptor has into a buffer | `readInto` | `sysReadFd` |
+| write a string, or part of one, to a descriptor | `writeStr`, `writeSlice` | `sysWriteAllFd` |
 | write one, truncating | `writeFile` | `sysWriteFile` |
 | add to the end of one | `appendFile` | `sysAppendFile` |
 | duplicate one | `copyFile` | — |
@@ -5467,15 +5478,22 @@ kernel unterminated. Reach for `IO`.
 | is it a directory? | `isDir` | `sysIsDir` |
 | how big? | `fileSize` | `sysFileSize` |
 | *why* can it not be read? | `readErrno` | `sysReadErrno` |
-| make a directory | `makeDir` | `sysMkdir` |
+| make a directory | `makeDir`, `makeDirMode` | `sysMkdir` |
 | make it and its parents | `makeDirAll` | — |
+| make a symbolic link | `makeSymlink` | `sysSymlink` |
 | remove an empty directory | `removeDir` | `sysRmdir` |
 | what is in a directory? | `listDir` | `sysReadDir` |
 | where am I? | `cwd` | `sysGetCwd` |
+| random bytes | `randomBytes` | `sysRandomBytes` |
 
-The two descriptor readers take an `Int` in both layers: `stdin`, or
-what `sysOpenPath` answered. Both answer a `Result`, with end of input
-inside the `Ok`: `(Ok None)` for a line, `(Ok "")` for the rest. A read
+The descriptor calls take an `Int` in both layers: `stdin`, or what
+`openPath` answered. `readInto` fills a range of a `String` buffer you
+made with `strAlloc`, and `writeSlice` writes a range of a string. A
+range that runs outside the string stops the program with status 77,
+the index trap, before the kernel sees it.
+
+`readLine` and `readAll` answer a `Result`, with end of input inside
+the `Ok`: `(Ok None)` for a line, `(Ok "")` for the rest. A read
 that fails isn't an input that ended, and you can't ask a stream
 `readErrno` afterwards. `readLine` makes one `read(2)` call per byte so
 it never takes a byte it doesn't return. `stdlib/Sys.ax` notes the cost

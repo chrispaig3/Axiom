@@ -710,6 +710,22 @@
 # four new rows that name `IO` are new functions, so the
 # required/ambient line holds.
 #
+# RE-PINNED for R-B10 step 3, first half (AN-58): `IO` gains the typed
+# companions the raw `Sys` layer lacked, and the compiler's own callers
+# move onto them. Diffed `symbols --calls` rows for f6852954 and this
+# tree with ONE compiler: in both views 14 added, none removed, none
+# changed - so moving `self_host/`'s 91 raw path and descriptor
+# calls onto `readFile`, `writeStr` and their siblings moved no row. The
+# added: `openPath`, `openBeneath`, `makeSymlink`, `makeDirMode` and
+# `randomBytes` read `Alloc,IO,Mut` (182 to 187 and 71 to 76);
+# `writeSlice`, `readInto`, `termSave` and `termRestore` `Alloc,IO` (36
+# to 40 and 32 to 36); `termRaw` `Alloc,IO,Mut,Unsafe` (240 to 241 and
+# 53 to 54); `termSize` `Alloc,IO,Unsafe` (8 to 9 and 10 to 11);
+# `ioTermAnswer` exactly `Alloc` (112 to 113 and 39 to 40); and
+# `ioOutside` and `ioTermStateCap` pure (1343 to 1345 and 404 to 406).
+# Every new row naming `IO` declares `effect(io)`, so the
+# required/ambient line holds.
+#
 # Every bucket is pinned exactly. A refactor that moves functions
 # between buckets fails here, and the failure is a conversation about
 # whether the required/ambient line still sits where it was measured -
@@ -740,21 +756,21 @@ rows="$(grep -c '^F ' "$work/main.axsym" || true)"
 (( rows >= 4000 )) && ok "$rows functions listed (floor 4000)" \
   || fail "only $rows functions listed; the floor is 4000 (the corpus moved or the read broke)"
 have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 1535 "exactly Alloc,Mut"
-have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut')" 182 "Alloc,IO,Mut"
+have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut')" 187 "Alloc,IO,Mut"
 have "$(bucket "$work/main.axsym" 'Mut')" 33 "exactly Mut"
-have "$(bucket "$work/main.axsym" 'Alloc')" 112 "exactly Alloc"
-have "$(bucket "$work/main.axsym" 'Alloc,IO')" 36 "Alloc,IO"
+have "$(bucket "$work/main.axsym" 'Alloc')" 113 "exactly Alloc"
+have "$(bucket "$work/main.axsym" 'Alloc,IO')" 40 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 23 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 0 "IO,Mut"
 have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 932 "Alloc,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Unsafe')" 489 "exactly Unsafe"
-have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 240 "Alloc,IO,Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 241 "Alloc,IO,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Mut,Unsafe')" 98 "Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,Unsafe')" 9 "Alloc,Unsafe"
-have "$(bucket "$work/main.axsym" 'Alloc,IO,Unsafe')" 8 "Alloc,IO,Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,IO,Unsafe')" 9 "Alloc,IO,Unsafe"
 have "$(bucket "$work/main.axsym" 'IO,Mut,Unsafe')" 4 "IO,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'IO,Unsafe')" 1 "IO,Unsafe"
-have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 1343 "pure (neither row nor mark)"
+have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 1345 "pure (neither row nor mark)"
 have "$(grep -c '#effects-incomplete' "$work/main.axsym" || true)" 0 "incomplete rows"
 have "$(grep -c '#effect-params' "$work/main.axsym" || true)" 7 "effect-params rows"
 
@@ -779,25 +795,25 @@ lrows="$(grep -c '^F ' "$work/lib.axsym" || true)"
 (( lrows >= 300 )) && ok "$lrows stdlib functions listed (floor 300)" \
   || fail "only $lrows stdlib functions listed; the floor is 300"
 have "$(bucket "$work/lib.axsym" 'Alloc,Mut')" 110 "exactly Alloc,Mut"
-have "$(bucket "$work/lib.axsym" 'Alloc,IO,Mut')" 71 "Alloc,IO,Mut"
+have "$(bucket "$work/lib.axsym" 'Alloc,IO,Mut')" 76 "Alloc,IO,Mut"
 have "$(bucket "$work/lib.axsym" 'Mut')" 13 "exactly Mut"
-have "$(bucket "$work/lib.axsym" 'Alloc')" 39 "exactly Alloc"
-have "$(bucket "$work/lib.axsym" 'Alloc,IO')" 32 "Alloc,IO"
+have "$(bucket "$work/lib.axsym" 'Alloc')" 40 "exactly Alloc"
+have "$(bucket "$work/lib.axsym" 'Alloc,IO')" 36 "Alloc,IO"
 have "$(bucket "$work/lib.axsym" 'IO')" 35 "exactly IO"
 have "$(bucket "$work/lib.axsym" 'Alloc,Assert,IO,Mut')" 7 "Alloc,Assert,IO,Mut"
 have "$(bucket "$work/lib.axsym" 'IO,Mut')" 5 "IO,Mut"
 have "$(bucket "$work/lib.axsym" 'Alloc,Mut,Unsafe')" 75 "Alloc,Mut,Unsafe"
 have "$(bucket "$work/lib.axsym" 'Unsafe')" 89 "exactly Unsafe"
-have "$(bucket "$work/lib.axsym" 'Alloc,IO,Mut,Unsafe')" 53 "Alloc,IO,Mut,Unsafe"
+have "$(bucket "$work/lib.axsym" 'Alloc,IO,Mut,Unsafe')" 54 "Alloc,IO,Mut,Unsafe"
 have "$(bucket "$work/lib.axsym" 'Mut,Unsafe')" 59 "Mut,Unsafe"
 have "$(bucket "$work/lib.axsym" 'Alloc,Unsafe')" 7 "Alloc,Unsafe"
-have "$(bucket "$work/lib.axsym" 'Alloc,IO,Unsafe')" 10 "Alloc,IO,Unsafe"
+have "$(bucket "$work/lib.axsym" 'Alloc,IO,Unsafe')" 11 "Alloc,IO,Unsafe"
 have "$(bucket "$work/lib.axsym" 'Alloc,Assert,IO,Mut,Unsafe')" 0 "Alloc,Assert,IO,Mut,Unsafe"
 have "$(bucket "$work/lib.axsym" 'IO,Mut,Unsafe')" 8 "IO,Mut,Unsafe"
 have "$(bucket "$work/lib.axsym" 'IO,Unsafe')" 2 "IO,Unsafe"
 have "$(bucket "$work/lib.axsym" 'Fallible')" 1 "exactly Fallible"
 have "$(bucket "$work/lib.axsym" 'Assert')" 1 "exactly Assert"
-have "$(grep '^F ' "$work/lib.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 404 "pure (neither row nor mark)"
+have "$(grep '^F ' "$work/lib.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 406 "pure (neither row nor mark)"
 have "$(grep -c '#effects-incomplete' "$work/lib.axsym" || true)" 5 "incomplete rows"
 have "$(grep -c '#effect-params' "$work/lib.axsym" || true)" 19 "effect-params rows"
 

@@ -22,6 +22,22 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### `IO` opens, reads, writes and asks the terminal by value — R-B10, AN-58 - 2026-09-29
+
+`IO` has a typed form of each `Sys` file, descriptor, entropy and
+terminal call that takes an address. `openPath`, `openBeneath`, `makeSymlink` and `makeDirMode` take a
+`String` path. `readInto` reads into a range of a `String` buffer,
+`writeSlice` writes a range of a string, and `randomBytes` answers
+entropy as a fresh string. A range outside its string stops the
+program with the index trap, status 77, before the kernel sees it.
+`termSave`, `termRaw`, `termRestore` and `termSize` keep a terminal's
+saved settings in a sealed `TermState` and answer a `Result`. The
+compiler's own file and descriptor calls use them, and so do `Http`,
+`Rpc` and `Tui.Term`. `httpRespond` writes its body as a `String`, NUL
+bytes included, rather than through `httpRespondRaw`. Tested by
+`tests/stdlib/610-typed-io-bounds.ax` and
+`tests/stdlib/545-no-unsafe-practical.ax`.
+
 ### A refused spawn is an answer in its slot — R-B2 - 2026-09-29
 
 A spawn the kernel refuses, or one the handle table has no slot for,

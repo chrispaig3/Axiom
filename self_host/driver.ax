@@ -42,6 +42,7 @@
 (import Str)
 (import Vec)
 (import Sys)
+(import IO (fileExists readFile removeFile writeFile writeStr))
 (import Path)
 (import parser)
 (import codegen)
@@ -267,7 +268,7 @@
           ""
           (cast String 0))))
       (let ((out (renderDiagsFormat diagFormatFromArgv ds units)))
-        (sysWriteAllFd 2 (strData out) (strLen out) 0))
+        (writeStr 2 out))
       exitToolFailed
     }))
 
@@ -445,7 +446,7 @@
               (if cgStaticlib
                 (toolFailDiag "`--emit-staticlib` is not supported for baremetal-aarch64 yet" "the baremetal link is ld.lld's and `ar` has no place in it; an archive for a device host is a later phase of the baremetal track")
                 (let ((ldPath (strConcat outPath ".ld")))
-                  (if (isErr (sysWriteFile (strCStr ldPath) (baremetalLinkScript)))
+                  (if (isErr (writeFile ldPath (baremetalLinkScript)))
                     (toolFailDiag "could not write linker script" "check that the output directory exists and is writable")
                     (let ((ldArgs 
                       (let ((v vecNew))
@@ -470,7 +471,7 @@
                         })))
                       (let ((rcl (runTool "ld.lld" ldArgs)))
                         {
-                          (unwrapOr (sysUnlink (strCStr ldPath)) 0)
+                          (unwrapOr (removeFile ldPath) 0)
                           (if (!= rcl 0)
                             (toolFailDiag
                               (if (< rcl 0)
@@ -500,7 +501,7 @@
                       v
                     })))
                   {
-                    (unwrapOr (sysUnlink (strCStr outPath)) 0)
+                    (unwrapOr (removeFile outPath) 0)
                     (let ((rc3 (runTool "ar" arArgs)))
                       (if (!= rc3 0)
                         (toolFailDiag
@@ -588,7 +589,7 @@
           (module (crateModuleName dir pkg))
         )
           {
-            (if (sysFileExists (strCStr (strConcat dir "src")))
+            (if (fileExists (strConcat dir "src"))
               (refreshBindings dir stem module)
               0)
             ; A cargo staticlib is `lib<stem>.a` on every host this
@@ -732,8 +733,8 @@
 (pub :: cargoPackageName (-> String String))
 ;@axiom:effect(io)
 (pub fn (cargoPackageName path)
-  (if (sysFileExists (strCStr path))
-    (let ((text (sysReadFile (strCStr path))))
+  (if (fileExists path)
+    (let ((text (readFile path)))
       (let ((at (strFindSub text "[package]" 0)))
         (if (< at 0)
           ""
@@ -920,7 +921,7 @@
           ""
           (cast String 0))))
       (let ((out (renderDiagsFormat diagFormatFromArgv ds units)))
-        (sysWriteAllFd 2 (strData out) (strLen out) 0))
+        (writeStr 2 out))
       exitToolFailed
     }))
 
@@ -1164,7 +1165,7 @@
           (let ((d 
             (cast String (vecGet parts i))))
             (if (&& (> (strLen d) 0) (== (strIndexIn dirs d) (- 0 1)))
-              (if (sysFileExists (strCStr d))
+              (if (fileExists d)
                 {
                   (vecPush
                     v
@@ -1207,7 +1208,7 @@
 ;@axiom:effect(io)
 (pub fn (addOneDir v dirs d)
   (if (== (strIndexIn dirs d) (- 0 1))
-    (if (sysFileExists (strCStr d))
+    (if (fileExists d)
       {
         (vecPush
           v
@@ -1226,12 +1227,7 @@
 (pub fn (libExistsIn dirs lib i isWin)
   (if (>= i (vecLen dirs))
     false
-    (if (sysFileExists
-      (strCStr
-        (archivePathIn
-          (cast String (vecGet dirs i))
-          lib
-          isWin)))
+    (if (fileExists (archivePathIn (cast String (vecGet dirs i)) lib isWin))
       true
       (libExistsIn dirs lib (+ i 1) isWin))))
 
@@ -1251,9 +1247,7 @@
         {
           (vecPush
             out
-            (cast Int (sysReadFile
-              (strCStr
-                (cast String (vecGet paths i))))))
+            (cast Int (readFile (cast String (vecGet paths i)))))
           (set i (+ i 1))
         })
       out
@@ -1510,9 +1504,7 @@
     {
       (while (< i (vecLen paths))
         {
-          (if (sysFileExists
-            (strCStr
-              (cast String (vecGet paths i))))
+          (if (fileExists (cast String (vecGet paths i)))
             (vecPush out (vecGet paths i))
             (cast (Vec Int) 0))
           (set i (+ i 1))
@@ -1595,7 +1587,7 @@
                             uv
                           })
                         units))))
-                    (sysWriteAllFd 2 (strData out) (strLen out) 0))
+                    (writeStr 2 out))
                   exitToolFailed
                 }))))
         ; the item's span is in ITS module's unit - an
@@ -1653,7 +1645,7 @@
                           u
                         })
                       units))))
-                  (sysWriteAllFd 2 (strData out) (strLen out) 0))
+                  (writeStr 2 out))
                 exitToolFailed
               })))))))
 
@@ -1900,12 +1892,12 @@
           (if (&& isWin (!= (endsWithExe outPath) 1))
             (strConcat outPath ".exe")
             outPath)))
-          (if (isErr (sysWriteFile (strCStr llPath) ir))
+          (if (isErr (writeFile llPath ir))
             (toolFailDiag "could not write LLVM IR" "check that the output directory exists and is writable")
             (let ((toAssemble (runOpt llPath optLevel optPath)))
               (if (== (strLen toAssemble) 0)
                 {
-                  (unwrapOr (sysUnlink (strCStr llPath)) 0)
+                  (unwrapOr (removeFile llPath) 0)
                   (toolFailDiag "opt failed" "`opt` is optional - a PATH without it warns and builds - so this is a failure of the one that is installed")
                 }
                 (let ((rc (assembleAndLink
@@ -1917,12 +1909,12 @@
                   isWin
                   isBaremetal)))
                   {
-                    (unwrapOr (sysUnlink (strCStr objPath)) 0)
+                    (unwrapOr (removeFile objPath) 0)
                     (if (!= (strCmp toAssemble llPath) 0)
-                      (unwrapOr (sysUnlink (strCStr optPath)) 0)
+                      (unwrapOr (removeFile optPath) 0)
                       0)
                     (if (== keepLl 0)
-                      (unwrapOr (sysUnlink (strCStr llPath)) 0)
+                      (unwrapOr (removeFile llPath) 0)
                       0)
                     rc
                   })))))))))
@@ -1942,7 +1934,7 @@
 ; full pipe is the silent truncation `sysWriteAllFd`'s header names.
 ;@axiom:effect(io)
 (pub fn (writeStderrStr s)
-  (sysWriteAllFd 2 (strData s) (strLen s) 0))
+  (writeStr 2 s))
 
 ; Decimal rendering of a small non-negative int, for `-O<n>`.
 ;
