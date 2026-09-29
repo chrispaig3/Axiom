@@ -6816,10 +6816,13 @@
 
 ; The `(fn (name ...) body)` for `name`, or 0.
 ;
-; A linear scan, and it stays one: the set it is asked about is the
-; result-only-tyvar signatures, of which this whole repository has a
-; single digit. An index would be machinery for a list that fits on
-; one screen.
+; A linear scan. It was asked about the result-only-tyvar signatures
+; alone, a single-digit set, until R-B6's forging rule began asking the
+; divergence walk about every cast that may forge (`castNoteForge`),
+; and each call head there is a scan. The scan compares names in place
+; (`bareNameIs`): it built `bareOf` of every declaration it passed,
+; which was 11.6% of `check self_host/main.ax` and most of the 15% that
+; check lost that day.
 (pub :: findFnDecl (-> (Vec Int) String Int))
 (pub fn (findFnDecl decls name)
   (let (
@@ -6831,7 +6834,7 @@
       (while (< i n)
         (let ((d (vecGet decls i)))
           {
-            (if (&& (== (nodeTag d) TAG_D_FN) (strEq (bareOf (nodeAName d)) name))
+            (if (&& (== (nodeTag d) TAG_D_FN) (== (bareNameIs (nodeAName d) name) 1))
               {
                 (set hit d)
                 (set i n)
@@ -6841,6 +6844,25 @@
           }))
       hit
     }))
+
+; `(strEq (bareOf full) name)`, without building the bare name. A
+; bare name holds no `$`, so `full` answers to it when it IS `name`, or
+; ends in `$` and `name`: the last `$` then sits just before `name`.
+(pub :: bareNameIs (-> String String Int))
+(pub fn (bareNameIs full name)
+  (if (== (nameHasDollar name 0) 1)
+    0
+    (let (
+      (m (strLen full))
+      (n (strLen name))
+    )
+      (if (== m n)
+        (strEqAt full 0 name 0)
+        (if (< m (+ n 1))
+          0
+          (if (== (strByte full (- (- m n) 1)) 36)
+            (strEqAt full (- m n) name 0)
+            0))))))
 
 (pub :: findFnBody (-> (Vec Int) String Int))
 (pub fn (findFnBody decls name)
@@ -12592,7 +12614,7 @@
 ; from a declaration with no tag.
 (pub :: castMayForge (-> Int Int Int Int))
 (pub fn (castMayForge tc tgt src)
-  (let ((k (castTyClass tc tgt)))
+  (let ((k (castTyClass tc (tyExpandedAliases tc tgt))))
     (if (|| (== k 0) (== k 3))
       0
       (if (== (tyIsErr (tyResolve src)) 1)
@@ -12740,8 +12762,10 @@
                   0)))
                 (if (== subBase 0)
                   {
+                    ; the target as written, so AX3073 names the alias
+                    ; the program spelled; `castMayForge` expands it
                     (if (>= (vecLen args) 2)
-                      (castNoteForge tc e targetTy srcTy (vecGet args 1))
+                      (castNoteForge tc e (exprToType (vecGet args 0)) srcTy (vecGet args 1))
                       0)
                     targetTy
                   }
@@ -12881,10 +12905,14 @@
 ; the alias's arrow refused the cast with AX3004 (AN-53).
 (pub :: castTargetTy (-> Int Int Int))
 (pub fn (castTargetTy tc e)
-  (let ((t (exprToType e)))
-    (if (== (tyHasAliasCon tc t) 1)
-      (tyExpandAliases tc t 0)
-      t)))
+  (tyExpandedAliases tc (exprToType e)))
+
+; `t` with its aliases expanded, or `t` itself when it names none.
+(pub :: tyExpandedAliases (-> Int Int Int))
+(pub fn (tyExpandedAliases tc t)
+  (if (== (tyHasAliasCon tc t) 1)
+    (tyExpandAliases tc t 0)
+    t))
 
 (pub :: castTypeBadPart (-> Int Int))
 (pub fn (castTypeBadPart e)
