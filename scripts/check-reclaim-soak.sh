@@ -527,7 +527,7 @@ cat > "$work/res.ax" <<'AX'
 (:: openFd Int)
 ;@axiom:effect(io)
 (fn (openFd)
-  (match (sysOpenPath (strCStr "/dev/null") 0)
+  (match (openPath "/dev/null" 0)
     ((Ok fd) fd)
     ((Err e) -1)))
 

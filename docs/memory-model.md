@@ -489,7 +489,7 @@ mechanism today. An `effect(pure)` tag doesn't cover the calls in
 
 **MM-EXEC-9c (H). `Unsafe` is every primitive that reads, writes, frees
 or calls through a word the type system does not bound.** There are
-twenty-six:
+thirty-six:
 
 - `__load8`, `__store8`, `__store8v`, `__load64`, `__store64`,
   `__alloc` and `__addr`;
@@ -498,7 +498,12 @@ twenty-six:
 - `__call_word`, which calls it;
 - the four atomics, which dereference it;
 - `__axiom_arena_reset` and `__axiom_arena_reset_keeping`, which rewind
-  the allocator to it (`MM-ALLOC-16`).
+  the allocator to it (`MM-ALLOC-16`);
+- `__handle_new`, `__handle_get` and `__handle_free`, which take or
+  answer an address their caller dereferences (`MM-PAR-8`);
+- `__syscall0` to `__syscall6`, whose arguments the kernel reads and
+  writes through: `read` fills the buffer it is handed, `open` reads
+  the path, and `munmap` frees the range;
 - the ten device primitives (`MM-FFI-8`): the eight volatile accesses
   `__vload8`…`__vstore64`, which load or store at an arbitrary word,
   and the cache operations `__arm_dc_cvac`/`__arm_dc_civac`, which
@@ -516,9 +521,14 @@ lowers to a primitive of its own, and the diagnostics name it `asm`
 forge references. `MM-EXEC-9d` defines where a declaration must state
 its unsafe boundary.
 
-Tested by `tests/diagnostics/1010-unsafe-primitives.ax` (the sixteen) and `tests/diagnostics/1020-unsafe-device-primitives.ax` (the ten device primitives). Every row
-draws `AX3073` beside its `AX3049`, except the `pure` row, which draws
-`AX3010`, and the controls (`__fence`, `__retainref`, `__axiom_arena_mark`, and 1020's `fenced` and `slot`), which stay silent under every rule.
+Tested by `tests/diagnostics/1010-unsafe-primitives.ax` (the sixteen),
+`tests/diagnostics/1080-unsafe-syscalls.ax` (the seven syscalls and the
+handle table's three) and `tests/diagnostics/1020-unsafe-device-primitives.ax`
+(the ten device primitives). Every row draws `AX3073` beside its
+`AX3049`, except the `pure` rows, which draw `AX3010`, and the controls
+(`__fence`, `__retainref`, `__axiom_arena_mark`, 1020's `fenced` and
+`slot`, and 1080's tagged `declared` and its `no-unsafe` caller), which
+stay silent under every rule.
 
 **MM-EXEC-9d (H).** A declaration that performs an unsafe operation
 **MUST** say `;@axiom:effect(unsafe)`. There are three unsafe
@@ -606,7 +616,7 @@ Tested by `tests/diagnostics/1040-forging-cast.ax` to
 `restrict(no-unsafe)` over `Vec`, `Map`, `Str`, `Chan` and `Task`, keep
 the trusted side compiling.
 
-**MM-EXEC-9e (P). No safe interface hands a caller's word to the
+**MM-EXEC-9e (H). No safe interface hands a caller's word to the
 kernel, or to a primitive, as an address.** A declaration that passes
 a word it didn't make to an address argument of a `__syscallN`, of a
 platform function or of an `Unsafe` primitive **MUST** be a
@@ -619,20 +629,48 @@ way **MUST** be private to its module, so that only the module builds
 one or reads or sets a field. Another module can still name the type
 in a signature.
 
-Today the socket-address readers, the poll and signal calls,
-`sysTermRaw`, `sysTimeoutMicros`, `sysSpawn` and the `sysRun` family,
-`sysReadDir`, `netBind`, `netConnect`, `printLit`, `printlnLit`,
-`rdReseat` and `Fmt`'s digit writers are precondition interfaces, and
-`KeyIn` and `HttpReader` are private. A body that calls a syscall
-supports an `effect(unsafe)` claim, because the kernel reads and
-writes through the call's arguments
-(`tests/stdlib/580-kernel-precondition.ax`). Not yet: `__syscallN` is
-outside `MM-EXEC-9c`'s set, so a syscall needs no tag. The descriptor
-reads and writes, the path calls, `sysRandomBytes` and the terminal
-calls are still untagged, and `restrict(no-unsafe)` accepts a direct
-`(__syscall3 sysRandomNum 4096 64 0)`. The modules that hand out raw
-`Int` handles to records they allocate (`Json`, `Intern` and `Rpc`'s
-reader) are outside this stage as well.
+Every `Sys` call that hands the kernel an address to read or write is
+a precondition interface. That covers the descriptor reads and writes
+(`sysReadFd`, `sysWriteFd`, `sysWriteAllFd`), every call taking a
+NUL-terminated path (`sysOpenPath`, `sysReadFile`, `sysWriteFile`,
+`sysRename`, `sysFileExists` and the rest), `sysRandomBytes` and the
+terminal calls. It covers the socket-address readers, the poll and
+signal calls, the clock reads, `sysChildExited`, `sysSpawn` and the
+`sysRun` family, `sysUnmapShared` and the word waits too. So are `IO`'s `readFileLit` and `printlnLit`, `Http`'s
+`httpRespondRaw`, `rdReseat` and `Fmt`'s digit writers. `KeyIn`,
+`HttpReader` and `IO`'s `TermState` are private. A syscall is an unsafe
+operation of its own (`MM-EXEC-9c`), so a function that makes one says
+`effect(unsafe)`, and `restrict(no-unsafe)` refuses
+`(__syscall3 sysRandomNum 4096 64 0)`.
+
+Ordinary code uses `IO`'s typed calls instead, which are trusted
+encapsulations. Every path is a `String`. `writeStr` and `writeSlice`
+write a string or a range of one, `readInto` reads into a range of a
+`String` buffer, and `readLine`, `readAll` and `randomBytes` answer
+fresh strings. `termSave`, `termRaw`, `termRestore` and `termSize` keep
+a terminal's saved settings in a `TermState`. A range outside its
+string is the index trap, status 77, before the kernel is called
+(`tests/stdlib/610-typed-io-bounds.ax`).
+
+What the kernel does with the word decides three calls. `sysWakeWord`
+is trusted: `futex(FUTEX_WAKE)` and `__ulock_wake` use the address only
+to find a wait queue and never read or write it, and a wake that
+reaches another waiter is a spurious wake, which every waiter already
+tolerates. `sysMapShared` is trusted, because the kernel chooses the
+address it answers. `sysWaitWord` is a precondition interface, because
+the kernel reads the word.
+
+Out of scope: the modules that hand out raw `Int` handles to records
+they allocate, `Json`, `Intern` and `Rpc`'s reader. A handle is forged
+without a cast, so the functions that read one trust their caller
+without a tag saying so.
+
+Tested by `tests/diagnostics/1081-sys-buffer-calls.ax`, which refuses
+an untagged call to each descriptor, path, entropy, terminal, unmap and
+wait interface and accepts the typed calls under `restrict(no-unsafe)`,
+`tests/stdlib/580-kernel-precondition.ax`
+and `tests/stdlib/545-no-unsafe-practical.ax`, which does file,
+entropy and terminal work under `restrict(no-unsafe)`.
 
 **MM-EXEC-10 (H).** Handlers for a declared effect are installed by
 `handle` and dispatch through a per-effect evidence slot:

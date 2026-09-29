@@ -1403,11 +1403,11 @@ cat > "$work/orphan.ax" <<'ORPHAN'
 ; Record this process's pid, then spin on the CLOCK for two minutes -
 ; a syscall per turn, which no optimiser can fold the way it folds a
 ; counting loop to its final value. Only a kill ends it in time.
-(:: sleeper (-> Int Int))
+(:: sleeper (-> String Int))
 ;@axiom:effect(io)
 (fn (sleeper path)
   {
-    (match (sysWriteFile path (fmtInt sysGetPid))
+    (match (writeFile path (fmtInt sysGetPid))
       ((Ok n) n)
       ((Err e) 0))
     (let (
@@ -1429,7 +1429,7 @@ cat > "$work/orphan.ax" <<'ORPHAN'
 ; Wait until the child has actually published its pid. Requiring that
 ; file prevents an unstarted child from making the sweep check vacuous.
 ; Five seconds bounds a startup failure; the shell checks its status.
-(:: started (-> Int Bool))
+(:: started (-> String Bool))
 ;@axiom:effect(io)
 (fn (started path)
   (let (
@@ -1438,16 +1438,16 @@ cat > "$work/orphan.ax" <<'ORPHAN'
   )
     {
       (while (&&
-        (== (region r (strLen (sysReadFile path))) 0)
+        (== (region r (strLen (readFile path))) 0)
         (< (- (nowUs buf) start) 5000000))
         0)
-      (> (strLen (sysReadFile path)) 0)
+      (> (strLen (readFile path)) 0)
     }))
 
 ; Join the failing child while its sibling is live. A parallel form
 ; whose FIRST binding sleeps would wait two minutes before observing
 ; the second child's trap, so that cannot test a prompt failure sweep.
-(:: failWithSibling (-> Int Int))
+(:: failWithSibling (-> String Int))
 ;@axiom:effect(io)
 (fn (failWithSibling path)
   {
@@ -1458,23 +1458,22 @@ cat > "$work/orphan.ax" <<'ORPHAN'
   })
 
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (main)
   (let ((mode (sysArg 1)))
     (if (strEq mode "abort")
       {
         (let ((st (__axiom_recover
           __axiom_arena_mark
-          (lambda (x) (failWithSibling (__addr "pid-abort"))))))
+          (lambda (x) (failWithSibling "pid-abort")))))
           (println "recovered {st}"))
         0
       }
       (if (strEq mode "trap")
-        (failWithSibling (__addr "pid-trap"))
+        (failWithSibling "pid-trap")
         ; main returns with a live child and a handle nobody joined.
         {
-          (__proc_spawn (lambda (x) (sleeper (__addr "pid-main"))) 0)
-          (if (started (__addr "pid-main"))
+          (__proc_spawn (lambda (x) (sleeper "pid-main")) 0)
+          (if (started "pid-main")
             { (println "main returns") 0 }
             99)
         }))))

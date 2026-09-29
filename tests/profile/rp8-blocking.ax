@@ -5,6 +5,7 @@
 ; the read may suspend it until another party writes.
 ;@axiom:isr
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (tick)
   (__syscall3 sysRead 0 0 0))
 

@@ -12,12 +12,12 @@
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX4009` for a full explanation
 
 [1;31merror[AX4009][0m[1m: `onFault` is bound by `isr(fault)` and reaches a system call, where every blocking library call ends, and baremetal-aarch64 has no kernel to answer it: onFault -> note -> __syscall1[0m
-  [1;34m--> [0m1091-isr-waits.ax:31:6
+  [1;34m--> [0m1091-isr-waits.ax:32:6
 [1;34m   |[0m
-[1;34m25 |[0m (fn (note)
+[1;34m26 |[0m (fn (note)
 [1;34m   |[0m      [1;36m---- note[0m
 [1;34m...[0m
-[1;34m31 |[0m (fn (onFault status vector esr elr far)
+[1;34m32 |[0m (fn (onFault status vector esr elr far)
 [1;34m   |[0m      [1;31m^^^^^^^[0m
 [1;34m   |[0m
   [1;34m = [0m[1mnote: [0m__syscall1 (no declaration to point at)

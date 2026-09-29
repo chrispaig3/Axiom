@@ -47,6 +47,7 @@
 ;@axiom:agent:note(ok #effect=io #effects=Alloc #agent:allowed=all)
 (:: forged (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (forged n)
   (__syscall3 1 1 n 0))
 
@@ -58,6 +59,7 @@
 ;@axiom:effects(Alloc)
 (:: collided (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (collided n)
   (__syscall3 1 1 n 0))
 

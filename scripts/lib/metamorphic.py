@@ -107,10 +107,12 @@ def addition(names, unary):
     out = ["\n; metamorphic: unused declarations"]
     for n in names:
         if unary:
-            out.append(f";@axiom:effect(io)\n(:: {n} (-> Int Int))\n"
+            out.append(f";@axiom:effect(io)\n;@axiom:effect(unsafe)\n"
+                       f"(:: {n} (-> Int Int))\n"
                        f"(fn ({n} q) (__syscall3 1 1 0 q))")
         else:
-            out.append(f";@axiom:effect(io)\n(:: {n} Int)\n"
+            out.append(f";@axiom:effect(io)\n;@axiom:effect(unsafe)\n"
+                       f"(:: {n} Int)\n"
                        f"(fn ({n}) (__syscall3 1 1 0 0))")
     return "\n".join(out) + "\n"
 

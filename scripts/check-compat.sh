@@ -348,7 +348,7 @@ echo "== the census can still see a sentinel planted in front of it =="
 # cannot be satisfied by the row that was already there.
 checks=$((checks + 1))
 abl="$work/abl"; rm -rf "$abl"; cp -r "$repo_root/stdlib" "$abl"
-printf '\n(pub :: censusProbe (-> Int Int))\n\n;@axiom:effect(io)\n(pub fn (censusProbe fd) (__syscall1 6 fd))\n' >> "$abl/Vec.ax"
+printf '\n(pub :: censusProbe (-> Int Int))\n\n;@axiom:effect(io)\n;@axiom:effect(unsafe)\n(pub fn (censusProbe fd) (__syscall1 6 fd))\n' >> "$abl/Vec.ax"
 probe_out="$(python3 "$helper" sentinels "$axc" "$work" "$abl" 2>&1 || true)"
 if grep -q '^stdlib/Vec\.ax 1 0$' <<<"$probe_out"; then
   ok "a planted raw-syscall return is counted as a failure sentinel"
@@ -439,6 +439,7 @@ probe "an effect row widens" "WIDENED F isErr" Err.ax \
   (match r
     ((Ok x) false)
     ((Err y) true)))' ';@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub :: isErr (-> (Result a e) Bool))
 
 (pub fn (isErr r)

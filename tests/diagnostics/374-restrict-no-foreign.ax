@@ -36,6 +36,7 @@
 ;@axiom:restrict(no-foreign)
 (:: native (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (native n)
   {
     (__syscall3 1 1 0 0)

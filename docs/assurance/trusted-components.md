@@ -68,15 +68,19 @@ What checks the runtime:
 
 ## The unsafe layer
 
-Twenty-six primitives are `Unsafe`. Sixteen are general
-(`isUnsafePrim` in `self_host/typecheck.ax`): `__load8`, `__store8`,
+Thirty-six primitives are `Unsafe` (`isUnsafePrim` in
+`self_host/typecheck.ax`). Sixteen are general: `__load8`, `__store8`,
 `__store8v`, `__load64`, `__store64`, `__alloc`, `__addr`, `__retain`,
 `__release`, `__call_word`, `__atomic_load`, `__atomic_store`,
 `__atomic_add`, `__atomic_cas`, `__axiom_arena_reset` and
-`__axiom_arena_reset_keeping`. Ten are device primitives
-(`isUnsafeDevicePrim`): `__vload8`, `__vload16`, `__vload32`,
-`__vload64`, `__vstore8`, `__vstore16`, `__vstore32`, `__vstore64`,
-`__arm_dc_cvac` and `__arm_dc_civac`.
+`__axiom_arena_reset_keeping`. Three are the handle table's
+(`isUnsafeHandlePrim`): `__handle_new`, `__handle_get` and
+`__handle_free`. Seven are the syscalls (`isSyscallPrim`), `__syscall0`
+to `__syscall6`, because the kernel reads and writes through their
+arguments. Ten are device primitives (`isUnsafeDevicePrim`):
+`__vload8`, `__vload16`, `__vload32`, `__vload64`, `__vstore8`,
+`__vstore16`, `__vstore32`, `__vstore64`, `__arm_dc_cvac` and
+`__arm_dc_civac`.
 
 A declaration that performs an unsafe operation must say
 `;@axiom:effect(unsafe)` (`AX3073`, an error). There are three: one of
@@ -96,8 +100,8 @@ asked. Each is a promise the compiler records and doesn't check:
 
 | Where | Tag lines `effect(unsafe)` | Of those, precondition interfaces | Command |
 |---|---|---|---|
-| `stdlib/` | 280 | 82 | `git grep -hE '^ *;@axiom:(effect\(unsafe\) *$\|precondition\()' -- stdlib \| cut -d'(' -f1 \| sort \| uniq -c` |
-| `self_host/` | 1,525 | 0 | the same, over `self_host` |
+| `stdlib/` | 389 | 148 | `git grep -hE '^ *;@axiom:(effect\(unsafe\) *$\|precondition\()' -- stdlib \| cut -d'(' -f1 \| sort \| uniq -c` |
+| `self_host/` | 1,564 | 0 | the same, over `self_host` |
 
 A program's own trusted set, the standard library's included, is one
 `grep` over `symbols`:
@@ -106,13 +110,20 @@ A program's own trusted set, the standard library's included, is one
 axiom --diagnostic-format=ai symbols main.ax | grep '#unsafe=trusted'
 ```
 
-Over a probe that imports every standard module, that lists 193
-trusted encapsulations and 82 precondition interfaces on
-darwin-aarch64. The other five tag lines are in the baremetal and
-Windows `Sys/Platform` files. The precondition interfaces are the raw layer:
-`Mem`'s words and bytes, `Vec`'s and `Map`'s heterogeneous readers and
-their frees, `Str`'s raw constructors, `Ffi`'s cells and handles,
-`Sys`'s caller buffers, and `Task.taskFold`'s step. Their
+Over a probe that imports every standard module, that lists 239
+trusted encapsulations and 144 precondition interfaces on
+darwin-aarch64. The other six tag lines are in the baremetal and
+Windows `Sys/Platform` files.
+
+The precondition interfaces are the raw layer. They are `Mem`'s words
+and bytes, `Vec`'s and `Map`'s heterogeneous readers and their frees,
+`Str`'s raw constructors, `Ffi`'s cells and handles, and
+`Task.taskFold`'s step. They are also every `Sys` call that hands the
+kernel a caller's address (its buffers, NUL-terminated paths, terminal
+states and word waits), `IO.readFileLit` and `Http.httpRespondRaw`.
+The syscall wrappers that hand the kernel nothing a caller chose, such
+as `sysCloseFd` and `netAccept`, and `IO`'s typed companions, which
+hand it only bytes a `String` holds, are trusted. Their
 preconditions are the memory contract's program obligations, each with
 a disposition in [memory-audit.md](memory-audit.md).
 `scripts/axiom-report.py` lists exactly the reachable subset for a
@@ -122,10 +133,10 @@ In `self_host/` every tag is trusted. The compiler's records and AST
 nodes are `Int` handles made and read only by the compiler, which is
 on the trusted list above.
 
-Two things stay outside the set. A handle or buffer typed `Int`, such
-as a channel handle or a `Sys` buffer address, can be forged without a
-cast, so the interface that reads it trusts its caller without a tag
-saying so (`MM-PAR-8`). And a trusted encapsulation's promise is
+Two things stay outside the set. A record handle typed `Int`, such as
+the ones `Json`, `Intern` and `Rpc`'s reader hand out, can be forged
+without a cast, so the interface that reads it trusts its caller
+without a tag saying so (`MM-PAR-8`). And a trusted encapsulation's promise is
 checked by review, not by the compiler.
 
 ## Evidence tools

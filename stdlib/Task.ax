@@ -324,6 +324,7 @@
 ; Name a fresh page in the handle table, or unmap it and say why not.
 (:: taskTokenNamed (-> Int (Result CancelToken Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (taskTokenNamed page)
   (let ((h (taskTokenName page)))
     (if (== h 0)
@@ -348,6 +349,7 @@
 ; `taskTokenFree` included - traps with status 85.
 (pub :: taskTokenFree (-> CancelToken (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (taskTokenFree t)
   (sysUnmapShared (taskTokenRetire t) 4096))
 
@@ -933,6 +935,7 @@
 ; The pool with its slab mapped around it.
 (:: taskWithSlab (-> (-> Int String) Int TaskOpts (-> (Result String Error) Int) Int Int Int Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (taskWithSlab f n opts sink scoped w limit slotBytes tok)
   (match (sysMapShared (* w slotBytes))
     ((Err e) (taskAllFailed n e sink))

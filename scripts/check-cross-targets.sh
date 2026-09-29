@@ -284,7 +284,7 @@ done
 echo "--- syscall templates declare ~{cc} on every target ---"
 ccwork="$(mktemp -d)"
 trap 'rm -rf "$ccwork"' EXIT
-printf '(import Sys)\n(:: main Int)\n;@axiom:effect(io)\n(fn (main) { (sysWriteFd 1 0 0) 0 })\n' > "$ccwork/cc.ax"
+printf '(import Sys)\n(:: main Int)\n;@axiom:effect(io)\n;@axiom:effect(unsafe)\n(fn (main) { (sysWriteFd 1 0 0) 0 })\n' > "$ccwork/cc.ax"
 export AXIOM_STDLIB="${AXIOM_STDLIB:-$(pwd)/stdlib}"
 # The differential below is between the SEED's templates and the
 # tree's, so it needs both compilers and keeps `$axiom` for one side.
@@ -425,7 +425,7 @@ pework="$(mktemp -d)"
 # before it were never cleaned; this last one names all three.
 trap 'rm -rf "$pework" "$ccwork" "$work"' EXIT
 mkdir -p "$pework/d2" "$pework/d3"
-printf '(import Sys)\n(:: main Int)\n;@axiom:effect(io)\n(fn (main) { (sysWriteFd 1 0 0) 0 })\n' > "$pework/pe.ax"
+printf '(import Sys)\n(:: main Int)\n;@axiom:effect(io)\n;@axiom:effect(unsafe)\n(fn (main) { (sysWriteFd 1 0 0) 0 })\n' > "$pework/pe.ax"
 # `$axc`, not `$axiom`: the question is about `llc` and the object it
 # writes, not about the seed, and only the tree's compiler can emit a
 # target the seed predates. This drove `$axiom` until 2026-08-29, which

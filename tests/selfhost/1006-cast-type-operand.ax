@@ -11,11 +11,13 @@
 (import Vec)
 
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (:: a Int)
 (fn (a)
   (__syscall3 1 1 0 0))
 
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (:: t Int)
 (fn (t)
   (__syscall3 1 1 0 0))

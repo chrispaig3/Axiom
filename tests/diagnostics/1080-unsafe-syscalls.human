@@ -1,0 +1,252 @@
+[1;31merror[AX3049][0m[1m: `s0` claims `restrict(no-unsafe)` and the body performs Unsafe: s0 -> __syscall0[0m
+  [1;34m--> [0m1080-unsafe-syscalls.ax:29:6
+[1;34m   |[0m
+[1;34m29 |[0m (fn (s0 n)
+[1;34m   |[0m      [1;31m^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m__syscall0 (no declaration to point at)
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `s0` touches raw memory and its declaration does not say so[0m
+  [1;34m--> [0m1080-unsafe-syscalls.ax:30:4
+[1;34m   |[0m
+[1;34m30 |[0m   (__syscall0 n))
+[1;34m   |[0m    [1;31m^^^^^^^^^^ __syscall0[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `s1` claims `restrict(no-unsafe)` and the body performs Unsafe: s1 -> __syscall1[0m
+  [1;34m--> [0m1080-unsafe-syscalls.ax:35:6
+[1;34m   |[0m
+[1;34m35 |[0m (fn (s1 n)
+[1;34m   |[0m      [1;31m^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m__syscall1 (no declaration to point at)
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `s1` touches raw memory and its declaration does not say so[0m
+  [1;34m--> [0m1080-unsafe-syscalls.ax:36:4
+[1;34m   |[0m
+[1;34m36 |[0m   (__syscall1 n 0))
+[1;34m   |[0m    [1;31m^^^^^^^^^^ __syscall1[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `s2` claims `restrict(no-unsafe)` and the body performs Unsafe: s2 -> __syscall2[0m
+  [1;34m--> [0m1080-unsafe-syscalls.ax:41:6
+[1;34m   |[0m
+[1;34m41 |[0m (fn (s2 n)
+[1;34m   |[0m      [1;31m^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m__syscall2 (no declaration to point at)
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `s2` touches raw memory and its declaration does not say so[0m
+  [1;34m--> [0m1080-unsafe-syscalls.ax:42:4
+[1;34m   |[0m
+[1;34m42 |[0m   (__syscall2 n 0 0))
+[1;34m   |[0m    [1;31m^^^^^^^^^^ __syscall2[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `s3` claims `restrict(no-unsafe)` and the body performs Unsafe: s3 -> __syscall3[0m
+  [1;34m--> [0m1080-unsafe-syscalls.ax:47:6
+[1;34m   |[0m
+[1;34m47 |[0m (fn (s3 n)
+[1;34m   |[0m      [1;31m^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m__syscall3 (no declaration to point at)
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `s3` touches raw memory and its declaration does not say so[0m
+  [1;34m--> [0m1080-unsafe-syscalls.ax:48:4
+[1;34m   |[0m
+[1;34m48 |[0m   (__syscall3 n 0 0 0))
+[1;34m   |[0m    [1;31m^^^^^^^^^^ __syscall3[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `s4` claims `restrict(no-unsafe)` and the body performs Unsafe: s4 -> __syscall4[0m
+  [1;34m--> [0m1080-unsafe-syscalls.ax:53:6
+[1;34m   |[0m
+[1;34m53 |[0m (fn (s4 n)
+[1;34m   |[0m      [1;31m^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m__syscall4 (no declaration to point at)
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `s4` touches raw memory and its declaration does not say so[0m
+  [1;34m--> [0m1080-unsafe-syscalls.ax:54:4
+[1;34m   |[0m
+[1;34m54 |[0m   (__syscall4
+[1;34m   |[0m    [1;31m^^^^^^^^^^ __syscall4[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `s5` claims `restrict(no-unsafe)` and the body performs Unsafe: s5 -> __syscall5[0m
+  [1;34m--> [0m1080-unsafe-syscalls.ax:64:6
+[1;34m   |[0m
+[1;34m64 |[0m (fn (s5 n)
+[1;34m   |[0m      [1;31m^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m__syscall5 (no declaration to point at)
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `s5` touches raw memory and its declaration does not say so[0m
+  [1;34m--> [0m1080-unsafe-syscalls.ax:65:4
+[1;34m   |[0m
+[1;34m65 |[0m   (__syscall5
+[1;34m   |[0m    [1;31m^^^^^^^^^^ __syscall5[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `s6` claims `restrict(no-unsafe)` and the body performs Unsafe: s6 -> __syscall6[0m
+  [1;34m--> [0m1080-unsafe-syscalls.ax:76:6
+[1;34m   |[0m
+[1;34m76 |[0m (fn (s6 n)
+[1;34m   |[0m      [1;31m^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m__syscall6 (no declaration to point at)
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `s6` touches raw memory and its declaration does not say so[0m
+  [1;34m--> [0m1080-unsafe-syscalls.ax:77:4
+[1;34m   |[0m
+[1;34m77 |[0m   (__syscall6
+[1;34m   |[0m    [1;31m^^^^^^^^^^ __syscall6[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `fillsAt` claims `restrict(no-unsafe)` and the body performs Unsafe: fillsAt -> __syscall3[0m
+  [1;34m--> [0m1080-unsafe-syscalls.ax:89:6
+[1;34m   |[0m
+[1;34m89 |[0m (fn (fillsAt)
+[1;34m   |[0m      [1;31m^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m__syscall3 (no declaration to point at)
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `fillsAt` touches raw memory and its declaration does not say so[0m
+  [1;34m--> [0m1080-unsafe-syscalls.ax:90:4
+[1;34m   |[0m
+[1;34m90 |[0m   (__syscall3 sysRandomNum 4096 64 0))
+[1;34m   |[0m    [1;31m^^^^^^^^^^ __syscall3[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `h0` claims `restrict(no-unsafe)` and the body performs Unsafe: h0 -> __handle_new[0m
+  [1;34m--> [0m1080-unsafe-syscalls.ax:94:6
+[1;34m   |[0m
+[1;34m94 |[0m (fn (h0 w)
+[1;34m   |[0m      [1;31m^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m__handle_new (no declaration to point at)
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `h0` touches raw memory and its declaration does not say so[0m
+  [1;34m--> [0m1080-unsafe-syscalls.ax:95:4
+[1;34m   |[0m
+[1;34m95 |[0m   (__handle_new 1 w))
+[1;34m   |[0m    [1;31m^^^^^^^^^^^^ __handle_new[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `h1` claims `restrict(no-unsafe)` and the body performs Unsafe: h1 -> __handle_get[0m
+  [1;34m--> [0m1080-unsafe-syscalls.ax:99:6
+[1;34m   |[0m
+[1;34m99 |[0m (fn (h1 w)
+[1;34m   |[0m      [1;31m^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m__handle_get (no declaration to point at)
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `h1` touches raw memory and its declaration does not say so[0m
+   [1;34m--> [0m1080-unsafe-syscalls.ax:100:4
+[1;34m    |[0m
+[1;34m100 |[0m   (__handle_get 1 w))
+[1;34m    |[0m    [1;31m^^^^^^^^^^^^ __handle_get[0m
+[1;34m    |[0m
+   [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+            [1;35m;@axiom:effect(unsafe)[0m
+   [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `h2` claims `restrict(no-unsafe)` and the body performs Unsafe: h2 -> __handle_free[0m
+   [1;34m--> [0m1080-unsafe-syscalls.ax:104:6
+[1;34m    |[0m
+[1;34m104 |[0m (fn (h2 w)
+[1;34m    |[0m      [1;31m^^[0m
+[1;34m    |[0m
+   [1;34m = [0m[1mnote: [0m__handle_free (no declaration to point at)
+   [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `h2` touches raw memory and its declaration does not say so[0m
+   [1;34m--> [0m1080-unsafe-syscalls.ax:105:4
+[1;34m    |[0m
+[1;34m105 |[0m   (__handle_free 1 w))
+[1;34m    |[0m    [1;31m^^^^^^^^^^^^^ __handle_free[0m
+[1;34m    |[0m
+   [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+            [1;35m;@axiom:effect(unsafe)[0m
+   [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3010][0m[1m: AXTAG mismatch on `quiet`: `effect(pure)` claim contradicted: body performs IO, Unsafe[0m
+   [1;34m--> [0m1080-unsafe-syscalls.ax:109:6
+[1;34m    |[0m
+[1;34m109 |[0m (fn (quiet n)
+[1;34m    |[0m      [1;31m^^^^^[0m
+[1;34m    |[0m
+   [1;34m = [0m[1;32mhelp: [0man AXTAG is a CLAIM, and this is the compiler answering it: make the body match the tag, or correct the tag to what the body does. Deleting the tag also silences this, and an untagged function is never checked - but that WITHDRAWS the claim rather than answering it, and every reader that trusted the tag loses the guarantee. A claim the walk cannot check is AX3037 and stays a warning; this code fires only where the walk has an answer
+   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3010` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `ioOnly` touches raw memory and its declaration does not say so[0m
+   [1;34m--> [0m1080-unsafe-syscalls.ax:115:4
+[1;34m    |[0m
+[1;34m115 |[0m   (__syscall3 sysWrite fd 0 0))
+[1;34m    |[0m    [1;31m^^^^^^^^^^ __syscall3[0m
+[1;34m    |[0m
+   [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+            [1;35m;@axiom:effect(unsafe)[0m
+   [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+compilation failed due to 24 previous errors

@@ -307,6 +307,7 @@
 ; Name a fresh page in the handle table, or unmap it and say why not.
 (:: syncNamed (-> Int (Result Mutex Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (syncNamed m)
   (let ((h (syncName m)))
     (if (== h 0)
@@ -539,6 +540,7 @@
 ; included - traps with status 85.
 (pub :: mutexFree (-> Mutex (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (mutexFree mx)
   (let ((m (syncRetire mx)))
     (sysUnmapShared m (syncLoad m 4))))

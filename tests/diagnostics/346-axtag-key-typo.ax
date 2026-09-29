@@ -18,6 +18,7 @@
 ;@axiom:efect(pure)
 (:: slipped (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (slipped n)
   (__syscall3 1 1 n 0))
 

@@ -389,6 +389,7 @@
 ; (`emitBaremetalRuntime`), with volatile stores.
 (:: uartWriteLoop (-> Int Int Int))
 ;@axiom:effect(unsafe)
+;@axiom:precondition(`buf` names `count` live bytes)
 (fn (uartWriteLoop buf count)
   (let (
     (u (uartBase))
@@ -407,6 +408,8 @@
 ; the UART and a store there cannot fail, so the answer is always the
 ; whole count; any other descriptor names nothing and is EBADF (9).
 (pub :: platformWriteFd (-> Int Int Int (Result Int Error)))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`buf` names `count` live bytes)
 (pub fn (platformWriteFd fd buf count)
   (if (|| (== fd 1) (== fd 2))
     {

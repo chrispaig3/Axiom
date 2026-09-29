@@ -352,6 +352,7 @@
 
 (pub :: termRawLeave (-> KeyIn Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (termRawLeave kin)
   (sysTermRestore 0 kin.save))
 

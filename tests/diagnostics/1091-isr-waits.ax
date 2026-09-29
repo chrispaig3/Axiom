@@ -22,6 +22,7 @@
 
 (:: note Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (note)
   (__syscall1 20 0))
 

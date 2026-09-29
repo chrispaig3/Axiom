@@ -455,6 +455,7 @@
 (pub :: platformWriteFd (-> Int Int Int (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:precondition(`buf` names `count` live bytes)
 (pub fn (platformWriteFd fd buf count)
   (let ((cell winCell))
     (let ((ok (& (winWriteFile
@@ -474,6 +475,7 @@
 (pub :: platformReadFd (-> Int Int Int (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:precondition(`buf` names `count` live writable bytes)
 (pub fn (platformReadFd fd buf count)
   (let ((cell winCell))
     (let ((ok (& (winReadFile

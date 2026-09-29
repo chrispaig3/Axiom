@@ -43,6 +43,7 @@
 
 (:: shout (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (shout n)
   {
     (__syscall3 1 n 0 0)
