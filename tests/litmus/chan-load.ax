@@ -1,5 +1,5 @@
 ; The channel under load, for `scripts/check-chan.sh` (R-C2, MM-PAR-10).
-; Three modes, chosen by the first argument; each prints one line.
+; Four modes, chosen by the first argument; each prints one line.
 ;
 ;   stress CAP N  three producers send 1..3N through a channel of
 ;                 capacity CAP, three consumers drain it, and each
@@ -19,11 +19,18 @@
 ;                 to. It never returns: the gate runs it under a
 ;                 timeout, under `--threads` so the kill takes every
 ;                 binding with it.
+;   wake          eleven rounds of a receiver asleep on an empty
+;                 channel and a sender that sends one word 20 ms in:
+;                 `wake median M max X`, the microseconds from the send
+;                 to the receive's return. A wake that reaches the
+;                 sleeper takes microseconds; a lost one waits for the
+;                 end of the receiver's 100 ms slice.
 (import IO)
 (import Sys)
 (import Str)
 (import Mem)
 (import Chan)
+(import Vec)
 
 (:: produce (-> Chan Int Int Int))
 ;@axiom:effect(io)
@@ -205,6 +212,84 @@
       }
     )))
 
+; `wake`: when a receive returns after the send that satisfies it,
+; while the receiver sleeps. Each round, a receiver waits on an empty
+; channel beside a sender that sends one word 20 ms after it starts;
+; the receiver answers when the word arrived, the sender when it sent.
+(:: arrivedAt (-> Chan Int))
+;@axiom:effect(io)
+(fn (arrivedAt ch)
+  (match (chanRecv ch)
+    ((Some v) (now (memAlloc 16)))
+    ((None) 0)))
+
+(:: sentAt (-> Chan Int))
+;@axiom:effect(io)
+(fn (sentAt ch)
+  (let (
+    (buf (memAlloc 16))
+    (t0 (now (memAlloc 16)))
+  )
+    {
+      (while (< (- (now buf) t0) 20000)
+        0)
+      (let ((t (now buf)))
+        {
+          (chanSend ch 1)
+          t
+        })
+    }))
+
+(:: wakeRound Int)
+;@axiom:effect(io)
+(fn (wakeRound)
+  (let ((ch (newOr 1)))
+    (parallel p (
+      (got (arrivedAt ch))
+      (sent (sentAt ch))
+    )
+      {
+        (let ((_ (chanFree ch)))
+          (- got sent))
+      })))
+
+; Eleven rounds, sorted in place: the median is the sixth.
+(:: wakeMode Int)
+;@axiom:effect(io)
+(fn (wakeMode)
+  (let (
+    (v (:: vecNew (Vec Int)))
+    (mut i 0)
+  )
+    {
+      (while (< i 11)
+        {
+          (vecPush v wakeRound)
+          (set i (+ i 1))
+        })
+      (set i 1)
+      (while (< i 11)
+        (let (
+          (x (vecGet v i))
+          (mut j i)
+        )
+          {
+            (while (&& (> j 0) (> (vecGet v (- j 1)) x))
+              {
+                (vecSet v j (vecGet v (- j 1)))
+                (set j (- j 1))
+              })
+            (vecSet v j x)
+            (set i (+ i 1))
+          }))
+      (let (
+        (med (vecGet v 5))
+        (worst (vecGet v 10))
+      )
+        (println "wake median {med} max {worst}"))
+      0
+    }))
+
 (:: stuck Int)
 ;@axiom:effect(io)
 (fn (stuck)
@@ -225,7 +310,9 @@
         waitMode
         (if (strEq mode "stuck")
           stuck
-          {
-            (println "usage: chan-load (stress CAP N | wait | stuck)")
-            2
-          })))))
+          (if (strEq mode "wake")
+            wakeMode
+            {
+              (println "usage: chan-load (stress CAP N | wait | stuck | wake)")
+              2
+            }))))))

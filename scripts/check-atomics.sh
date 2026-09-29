@@ -95,6 +95,9 @@
 #                           store. Waiting for the event, as wrc's reader
 #                           does, shows the outcome in nearly every round
 #                           on a host where a fixed pause is too short.
+#                           isa2's R2 does the same beside its writer's
+#                           pause: with the pause alone, linux-aarch64
+#                           showed nothing at -O1 and -O2 in 5 runs.
 #                           For the four coherence families it is the
 #                           only control there can be: x86-64 and AArch64
 #                           keep every aligned access to one word

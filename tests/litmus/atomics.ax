@@ -61,8 +61,8 @@
 ; 2+2w swaps each thread's two stores, and iriw gives each reader its
 ; own copy of the other writer's word, stored after a pause, so W0
 ; reaches R2 first and W1 reaches R3 first. wrc's R2 loads x first and
-; y once R1 has stored it, and isa2's W stores y first and x after a
-; pause. A
+; y once R1 has stored it. isa2's W stores y first and x after a pause,
+; and its R2 loads x first and z once R1 has stored it. A
 ; `reorder` run that never shows the outcome means this harness could
 ; not see it happen.
 ;
@@ -931,7 +931,13 @@
     }))
 
 ; W stores x, then y; R1 loads y, stores z; R2 loads z, then x.
-; `reorder` is W's: it stores y first.
+; `reorder` is W's and R2's: W stores y first and x after a pause, and
+; R2 loads x first and z once R1 has stored it. W's alone raced R1's
+; relay against the pause, and on linux-aarch64, where the relay was
+; slower, the control showed nothing at -O1 and -O2 in 5 runs (CI runs
+; 36570497827 and 36577299489). Either reordering alone lets
+; sequential consistency give the outcome; the control only shows the
+; harness can see it.
 (:: runIsa2 (-> Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
@@ -967,9 +973,7 @@
           r3
           ctr
           n
-          (if (== mode 3)
-            0
-            mode)))
+          mode))
       )
         (+ a (+ b c)))
       (chainTally r1 r2 r3 n)

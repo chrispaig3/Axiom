@@ -22,20 +22,32 @@
 #   2. Blocking. `wait` mode: a binding blocked in `sysWaitWord` while
 #      its sibling spins ~200 ms must make at most three wait calls - a
 #      wait that returned at once would make thousands.
+#   2b. A wake reaches a sleeper. `wake` mode: eleven rounds of a
+#      receiver asleep on an empty channel and a sender that sends one
+#      word 20 ms in; the median time from the send to the receive's
+#      return must be under 20 ms, in both lowerings. Measured in
+#      microseconds on H3. It is the baseline section 4's `notify`
+#      ablation is judged against.
 #   3. A receive nobody can satisfy blocks, and stays blocked: `stuck`
 #      mode must still be running after 2 s, in both lowerings, and the
 #      deadline must leave no process behind. That is the documented
 #      behaviour (no timeout exists), measured separately from the races
 #      in section 1, as deadlock and data race are different failures.
 #   4. Ablations, each on a COPY of the standard library, each required
-#      to turn section 1's load red:
+#      to go red:
 #        lock   - `chanLock` and `chanUnlock` answer 0 without touching
-#                 the lock word: producers overwrite each other's slots.
-#        notify - `chanNotify` wakes a word nobody sleeps on, so a waiter
-#                 on the counter sleeps forever
-#                 so the load hangs. This one is also the proof that a
-#                 waiter really sleeps in the kernel: one that spun would
-#                 re-check the ring and never need the wake.
+#                 the lock word: producers overwrite each other's slots,
+#                 and section 1's load goes red.
+#        notify - `chanNotify` wakes a word nobody sleeps on, so a
+#                 sleeping receiver sees a send only when its 100 ms
+#                 slice ends (`chanSliceNanos`, AN-10's dead-holder
+#                 look): section 2b's median must reach 40 ms. This is
+#                 also the proof that a waiter really sleeps in the
+#                 kernel: one that spun would see the word at once. It
+#                 used to be judged by section 1's load hanging, which
+#                 stopped being true when waits became slices. A lost
+#                 wake is a stall, and on linux-x86_64 the load finished
+#                 inside its 20 s, twice.
 #   5. Retained memory. The --threads load at N and 10N: peak RSS must
 #      not grow by more than 8 MiB while ten times the words go through.
 #   6. A binding that dies holding the lock (AN-10), in both lowerings,
@@ -121,6 +133,31 @@ for lowering in processes threads; do
 done
 
 # ---------------------------------------------------------------------
+echo "== 2b. a send wakes a sleeping receiver =="
+# wake_median <bin>: sets w_med and w_max (microseconds) from `wake`.
+wake_median() {
+  local rc=0 out
+  w_med=""; w_max=""
+  out="$(gate_timeout 30 "$1" wake 2>&1)" || rc=$?
+  w_out="$out"
+  [[ "$rc" == 0 ]] || return 1
+  w_med="$(sed -nE 's/^wake median (-?[0-9]+) max (-?[0-9]+)$/\1/p' <<<"$out")"
+  w_max="$(sed -nE 's/^wake median (-?[0-9]+) max (-?[0-9]+)$/\2/p' <<<"$out")"
+  [[ "$w_med" =~ ^[0-9]+$ && "$w_max" =~ ^[0-9]+$ ]]
+}
+for lowering in processes threads; do
+  bin="$work/load-$lowering-O2"
+  [[ -x "$bin" ]] || { bad "$lowering: no binary for the wake probe"; continue; }
+  if ! wake_median "$bin"; then
+    bad "$lowering: the wake probe gave no reading: '$w_out'"
+  elif (( w_med < 20000 )); then
+    ok "$lowering: a send reaches a sleeping receiver in $w_med us at the median, $w_max us at worst, of 11"
+  else
+    bad "$lowering: a send reached a sleeping receiver in $w_med us at the median - a wake is being lost or delayed"
+  fi
+done
+
+# ---------------------------------------------------------------------
 echo "== 3. a receive nobody can satisfy stays blocked =="
 # Both lowerings. Under processes the blocked receiver is a FORKED child,
 # so this also holds `gate_timeout` to killing the whole process group:
@@ -190,6 +227,16 @@ for kind in lock notify; do
   (cd "$repo_root" && "$axc" emit-llvm "$load" -o "$work/tree-load.ll") > /dev/null 2>&1
   if cmp -s "$work/abl-$kind/load.ll" "$work/tree-load.ll"; then
     bad "$kind: the ablated build emitted the tree's IR - the copy was not what compiled"; continue
+  fi
+  if [[ "$kind" == notify ]]; then
+    if ! wake_median "$work/abl-$kind/load"; then
+      ok "$kind: red - the wake probe gave no answer: '${w_out:0:90}'"
+    elif (( w_med >= 40000 )); then
+      ok "$kind: red - a sleeping receiver saw the send $w_med us later at the median, the slice's end"
+    else
+      bad "$kind: the ablated channel still woke its receiver in $w_med us at the median - section 2b is blind to a lost wake"
+    fi
+    continue
   fi
   rc=0; out="$(gate_timeout 20 "$work/abl-$kind/load" stress 1 "$n" 2>&1)" || rc=$?
   if [[ "$rc" == 0 && "$out" == ok\ * ]]; then
