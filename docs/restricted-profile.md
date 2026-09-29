@@ -195,6 +195,12 @@ The linker script reserves 8 KiB of stack (`baremetalLinkScript`,
 - An interrupt adds one handler's bound on top of the interrupted
   code's (no nesting); the vector stub's register save area is not in
   the object and is not counted.
+- An `isr(fault)` hook is not an interrupt: it runs on the 8 KiB fault
+  stack, never on top of another stack. With a hook bound, the fault
+  exit (`__axiom_cpu_exception`, `__axiom_fault_trap`) is a root of its
+  own and must fit that stack, and a trap's branch to
+  `__axiom_trap_entry`, which switches to it, adds nothing to the
+  stack the trap was raised on.
 - The C runtime (hosted targets) and anything before `_start` are
   outside the object.
 

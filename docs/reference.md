@@ -3100,7 +3100,7 @@ axiom build --input timer.ax --output timer.a --emit-staticlib
 Build successful: timer.a
 ```
 
-The tag makes two promises, and the compiler checks both:
+The tag makes three promises, and the compiler checks all of them:
 
 - No parameters: a parameterised `isr` draws `AX3010` at the
   declaration.
@@ -3109,23 +3109,39 @@ The tag makes two promises, and the compiler checks both:
   `no-alloc`, with the same path, the same `AX3051` warning when the
   walk can't settle it, and the same `strict` behaviour. Writing
   `restrict(no-alloc)` as well is checked once.
+- No recursion: the tag adds `no-recursion` the same way. A handler
+  runs on a stack it doesn't own, so its depth must be one the stack
+  bound can compute.
 
 Only `pub` functions become symbols, but a private `isr` is checked
 too, so the tag protects a helper that nobody calls from C.
 
 **`isr(irq)` binds the function to a vector.** On `baremetal-aarch64`
 every executable carries an exception vector table, and
-`;@axiom:isr(irq)` makes the tagged function the IRQ vector's handler:
-the vector saves the interrupted code's caller-saved registers, calls
-it with IRQs masked and no recovery point armed, restores them and
-`eret`s ([memory-model.md](memory-model.md) MM-EXEC-18 has the rules -
-no nesting, no allocation, state shared only through the unsafe layer
-with the main loop masking around multi-word reads). Every vector that
-is not bound - a synchronous fault, an SError, an unbound IRQ - exits
-with status **81** and the fault's registers on the UART. The binding
-is refused as `AX4008` on any other target, for a vector name other
-than `irq`, and for a second handler: there is one IRQ vector, and a
-handler dispatches on the interrupt id inside it.
+`;@axiom:isr(irq)` makes the tagged function the IRQ vector's handler.
+The vector saves the interrupted code's caller-saved registers and
+calls the handler with IRQs masked and no recovery point armed. Then
+it restores the registers and `eret`s. [memory-model.md](memory-model.md) MM-EXEC-18 has
+the rules: no nesting, no allocation, and state shared only through
+the unsafe layer, with the main loop masking around multi-word reads.
+A handler bound to a vector may not wait: a path to `__arm_wfi` or to
+a system call is `AX4009`. Every vector that isn't bound (a
+synchronous fault, an SError, an unbound IRQ) writes the fault's
+registers on the UART and exits with status **81**.
+
+**`isr(fault)` binds your fault policy.** The tagged function, of type
+`(-> Int Int Int Int Int Int)`, is called once after any unhandled
+CPU exception or unrecovered trap, with the status the fixed exit
+would answer, the vector offset (-1 for a trap), ESR, ELR and FAR. Its
+answer is the exit status, or it never returns: a halt, or a reset.
+It runs on its own stack with interrupts masked, may halt in `wfi`,
+and is refused a system call (`AX4009`) and any other shape
+(`AX3010`). A fault inside it takes the fixed 81 without calling it
+again ([memory-model.md](memory-model.md) MM-EXEC-19).
+
+Each binding is refused as `AX4008` on any other target, for a vector
+name other than `irq` or `fault`, and for a second function bound to
+the same one: a handler dispatches on the interrupt id inside it.
 [embedded-guide.md](embedded-guide.md) is the whole story.
 
 Tested by `tests/diagnostics/651-isr-params.ax` and

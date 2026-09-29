@@ -827,7 +827,7 @@ statuses. A program **MUST NOT** reuse them as a normal result:
 | 78 | `parallel`: the kernel refused the fork or the pthread (`__axiom_par_spawn_failed`) | measured by `scripts/check-parallel.sh` §12d: under a per-user process limit of 1 a `parallel` form's fork answers EAGAIN, a recovery point armed around it answers 78, and the unrecovered spawn prints `axiom: parallel: could not spawn the binding` and exits 78 (processes on every non-root runner, threads too on Linux, where the limit counts threads) |
 | 79 | `parallel` on a target with neither `fork` nor a pthread (windows-x86_64) | emitted, not executed: both primitives compile there to `__axiom_par_unsupported`, which prints `axiom: parallel is not available on this target` and exits 79. The program builds for every target and says at its first spawn what it can't do (`scripts/check-parallel.sh` reads the IR) |
 | 80 | a violated `;@axiom:pre(...)`/`post(...)` contract | measured by `scripts/check-contracts.sh` §1: a violated `pre`/`post` prints ``axiom: precondition failed in `half`: (> n 0)`` to fd 2, prints the backtrace, and exits 80 at every `--opt` level. Inside `__axiom_recover` it answers 80 to the arming call |
-| 81 | an unhandled CPU exception on `baremetal-aarch64` | measured under QEMU (TCG): `tests/embedded/fault.ax` takes an alignment fault; the vector table writes the vector offset, ESR, ELR and FAR to the UART and exits 81 (`MM-EXEC-18`, `scripts/check-embedded.sh` A12). Not recoverable: no armed recovery point is jumped to |
+| 81 | an unhandled CPU exception on `baremetal-aarch64` | measured under QEMU (TCG): `tests/embedded/fault.ax` takes an alignment fault; the vector table writes the vector offset, ESR, ELR and FAR to the UART and exits 81 (`MM-EXEC-18`, `scripts/check-embedded.sh` A12). A stack overflow is one too, reported with a line naming the guard (`tests/embedded/overflow.ax`, A17). Not recoverable: no armed recovery point is jumped to. With an `isr(fault)` hook bound, the hook's answer is the status instead, for this row and for every trap above (`MM-EXEC-19`) |
 | 82 | an atomic whose address is not 8-byte aligned (`emitAtomicAlignGuard`, `MM-PAR-9`) | measured: `tests/stdlib/544-misaligned-atomic.ax` hands each of the four atomics an address 4 bytes into a word inside a recovery point, which answers 82 each time, then prints `axiom: misaligned atomic access` to fd 2 and exits 82, at every `--opt` level |
 | 85 | a handle that isn't live: a freed, forged or other-kind channel, mutex or cancellation token, a second free of one, or a spawn handle joined twice or by the other lowering's join (`@__axiom_handle_dead`, `MM-PAR-8`) | measured: `tests/stdlib/570-handle-freed.ax` runs every channel and mutex operation on a freed handle, a second free, a forged word and a mutex's word used as a channel, each inside a recovery point, which answers 85 each time, then prints `axiom: not a live handle (freed, or never made)` to fd 2 and exits 85, at every `--opt` level. `tests/stdlib/572-spawn-joined-twice.ax` does the same for a second join, the pid of a joined binding and a freed token, and `tests/stdlib/571-handle-table.ax` pins the table: 65,536 live handles, the next refused, and a reused slot under a new generation |
 
@@ -857,7 +857,8 @@ allocation, no recovery, state shared only through the unsafe layer.**
 On `baremetal-aarch64` a function tagged `;@axiom:isr(irq)` is the IRQ
 exception vector's handler (`emitIsrBinding`, `emitBaremetalVectors`);
 the tag is refused as `AX4008` on every other target, for a vector name
-other than `irq`, and for a second handler. The rules:
+other than `irq` or `fault` (`MM-EXEC-19`), and for a second handler.
+The rules:
 
 - **No nesting.** The core masks IRQs on exception entry and `eret`
   restores the interrupted code's mask, and the handler runs with them
@@ -875,6 +876,16 @@ other than `irq`, and for a second handler. The rules:
   allocated while the main loop was mid-allocation would corrupt the
   arena. No `region`, no `parallel`, no `Vec` growth, no string
   building, and no `println` - which builds its line.
+- **No recursion** (implementation obligation, checked). `isr` implies
+  `restrict(no-recursion)` as well, refused as `AX3049`: the handler's
+  frames sit on a stack it doesn't own, so its depth must be one the
+  stack bound (RP-7) can compute.
+- **No waiting** (implementation obligation, checked where it can be).
+  A call path from the handler to `__arm_wfi`, which sleeps with the
+  interrupt that should wake it masked, or to a `__syscallN`, where
+  every blocking library call ends and which traps 74 on this target,
+  is refused as `AX4009` with the path. A loop polling a word is a wait
+  the walk can't see, and stays the program's obligation below.
 - **No recovery across the boundary** (implementation obligation). The
   dispatch clears the recovery slot for the handler's extent and puts
   it back before returning, so a trap inside a handler - a division by
@@ -899,8 +910,91 @@ other than `irq`, and for a second handler. The rules:
 
 *Evidence:* `scripts/check-embedded.sh` A12 holds the table, the entry's
 save/restore and the dispatch in the IR, and the fault exit under QEMU.
-Emulator evidence at most: whether a given part's interrupt latency
-meets a deadline is a hardware question this tree does not answer.
+`scripts/check-isr.sh` §4 holds the recursion and waiting refusals
+(`tests/diagnostics/1091-isr-waits.ax`, `1092-isr-recursion.ax`), each
+with an ablation under which its fixture checks clean. Emulator
+evidence at most: whether a given part's interrupt latency meets a
+deadline is a hardware question this tree does not answer.
+
+**MM-EXEC-19 (H). On `baremetal-aarch64` the memory map turns wild
+accesses into faults, and what a fault ends in is the program's
+choice.** The language can't know a system's safe state. It provides
+the mechanism: a fault that is caught, reported and handed to one
+function. The program supplies the policy. A trap is never by itself a
+safe state.
+
+*The memory map* (implementation obligation). `_start` builds
+identity-mapped stage-1 tables with the MMU off (`emitMmuTables`) and
+then sets `SCTLR_EL1` M, C, I, A, SA and WXN (`mmuEnableAsm`), before
+`main` runs:
+
+- code is read-only and executable at EL1; read-only data is read-only
+  and execute-never; data, `.bss` and both stacks are read-write and
+  execute-never, and WXN makes every writable page execute-never
+  whatever its descriptor says;
+- a 64 KiB guard below the program's stack, and 4 KiB below the fault
+  stack, are not mapped, and neither is anything past the image, the
+  page tables included;
+- below RAM only two 2 MiB Device-nGnRnE blocks are mapped, the GIC
+  (`0x08000000`) and the UART, RTC, `fw_cfg` and GPIO (`0x09000000`);
+  address 0 is not mapped;
+- RAM is Normal memory, inner and outer write-back, inner shareable, so
+  a device that isn't coherent needs `MM-FFI-8`'s cache maintenance;
+- `SCTLR_EL1.A` keeps every misaligned access an alignment fault, which
+  the bare target's `+strict-align` keeps LLVM from writing.
+
+The MMU is always on for this target: there is no opt-out.
+
+*The fault exit* (implementation obligation). Every vector but a bound
+IRQ switches to the fault stack before its first memory access, so a
+fault taken with the stack pointer in the guard is still reported. It
+writes the vector offset, ESR, ELR and FAR, and a second line when the
+fault is a data abort at an address in a stack guard. It never returns
+to the faulting code and never jumps to a recovery point the program
+armed. A fault while the report is written exits 81 without writing.
+
+*The hook.* `;@axiom:isr(fault)` binds one function of type
+`(-> Int Int Int Int Int Int)`. With it bound:
+
+- a CPU exception, after its report line, calls the hook with status
+  81, the vector offset, ESR_EL1, ELR_EL1 and FAR_EL1;
+- a software trap outside any recovery point (`MM-EXEC-16`'s statuses
+  70 to 85), after its sentence, calls the hook with its own status, a
+  vector of -1 and three zeros, having masked D, A, I and F and moved
+  to the fault stack;
+- the hook runs with D, A, I and F masked and no recovery point armed,
+  and its answer is the exit status; it may instead never return (a
+  halt, or a reset);
+- a CPU exception while the hook runs is reported once more, as a
+  fault in the fault handler, and exits 81; a software trap while the
+  hook runs exits with its own status; neither calls the hook again.
+
+The tag implies what `isr` does (`MM-EXEC-18`): `no-alloc` and
+`no-recursion` (`AX3049`), and no path to a system call (`AX4009`).
+Halting in `wfi` is allowed, because never returning is one of the
+answers the hook exists to give. The declaration must be the type
+above (`AX3010`); a second hook, and the tag on any other target, are
+`AX4008`. With no hook bound, every exit is what it was: the report
+and 81, or the trap's own sentence and status.
+
+*What the program must decide* (program obligation). What each status
+means for the system: restart, degrade, or hold a safe state. The hook
+must also be safe with the program's state possibly corrupt. It reads
+only what it needs and follows no pointer the failed code built. On
+hardware it ends in a reset, a halt or a watchdog, because without a
+debugger semihosting's exit is itself an exception.
+
+*Evidence:* `scripts/check-embedded.sh` A16 decodes the descriptors
+from the IR, and reads `SCTLR_EL1`, `TCR_EL1` and `MAIR_EL1` back under
+QEMU. A17 ends `tests/embedded/overflow.ax` in the guard. A18 faults a
+store to code, a branch into data and a read of address 0 where the
+map says. A19 runs the hook after a fault, after a trap and through a
+PSCI reset, and A20 faults inside the hook. Each has a drill that goes
+red (`mmuoff`, `guard`, `excstack`, `codewrite`, `hookoff`, `reenter`).
+`scripts/check-isr.sh` §4 holds the hook's shape
+(`tests/diagnostics/1090-isr-fault-signature.ax`). *Limit:* all of it
+is QEMU TCG, which models no cache, so no run shows a missing cache
+clean or invalidate; nothing here ran on hardware.
 
 ---
 
@@ -5647,11 +5741,11 @@ back, is a wrong program even when every value is right.
 *What it does NOT guarantee*, and each is a program obligation:
 
 - **Alignment.** `a` **MUST** be a multiple of the access width. A
-  misaligned volatile access is undefined in the IR, and on an AArch64
-  core running with the MMU off - the bare-metal port - every data
-  access is Device-nGnRnE memory and a misaligned one is an alignment
-  fault. `stdlib/Mmio.ax` checks alignment once, where a register handle
-  is made.
+  misaligned volatile access is undefined in the IR, and on the
+  bare-metal port, which maps devices Device-nGnRnE and sets
+  `SCTLR_EL1.A` (`MM-EXEC-19`), it is an alignment fault.
+  `stdlib/Mmio.ax` checks alignment once, where a register handle is
+  made.
 - **Ordering against ordinary memory.** The compiler may move a
   non-volatile load or store across a volatile one. Where a device
   reads memory the CPU wrote with ordinary stores - a DMA descriptor -
