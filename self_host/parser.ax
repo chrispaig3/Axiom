@@ -2870,7 +2870,16 @@
                       ; holder does. A builtin for the reason `Foreign` is.
                       (if (strEq n "Handle")
                         "Handle"
-                        (cast String 0)))))))))))))
+                        ; `Spawn` - what a spawn primitive answers and a
+                        ; join takes (docs/memory-model.md MM-PAR-8): one
+                        ; machine word, a slot in the runtime's handle
+                        ; table, never shared between bindings. A builtin
+                        ; for `Foreign`'s reason: the checker, which
+                        ; types the primitives, and the emitter, which
+                        ; must never count one, have to agree about it.
+                        (if (strEq n "Spawn")
+                          "Spawn"
+                          (cast String 0))))))))))))))
 
 (pub :: lexStartsLower (-> String Int))
 (pub fn (lexStartsLower s)
@@ -3687,20 +3696,99 @@
       ; and nothing else; a field is `name : type`. So the group is
       ; read as parameters only when its second token is not a
       ; colon.
+      ;
+      ; REPRESENTATION MARKERS come first, as bare words between the
+      ; name and everything else: `(struct Chan word shared (slot :
+      ; Int))`. Every identifier there is recorded, known or not, and
+      ; the CHECKER decides what each one means (`checkStructMarkers`,
+      ; AX3084) - so this grammar, the formatter's and tree-sitter's
+      ; stay one rule, "names after the struct's name", and a
+      ; misspelled marker is refused by `check` with a message that
+      ; names it rather than by the parser with a bare expectation. A
+      ; bare word there was a syntax error before (`parseFields`
+      ; wanted a `(`), so no program that parsed changes meaning.
       (let (
         (name (memGetWordStr nr 1))
-        (nextPos (memGetWord nr 2))
+        (markers vecNew)
       )
-        (let ((tvs vecNew))
-          (parseFieldsTv
-            tokens
-            (if (== (structGroupIsTyParams tokens nextPos) 1)
-              (collectTyParams tokens nextPos tvs)
-              nextPos)
-            name
-            (tokenSpan (vecGet tokens pos))
-            vecNew
-            tvs))))))
+        (let ((nextPos (collectStructMarkers tokens (memGetWord nr 2) markers)))
+          (let ((tvs vecNew))
+            (let ((r (parseFieldsTv
+              tokens
+              (if (== (structGroupIsTyParams tokens nextPos) 1)
+                (collectTyParams tokens nextPos tvs)
+                nextPos)
+              name
+              (tokenSpan (vecGet tokens pos))
+              vecNew
+              tvs)))
+              ; ONLY when there are markers, for `parseFieldsTv`'s
+              ; reason: a D_STRUCT's word c has been 0 on every struct
+              ; ever written, and an empty vector there would be a
+              ; handle where every copier expects nothing.
+              (if (|| (== (memGetWord r 0) 0) (== (vecLen markers) 0))
+                r
+                {
+                  (memSetWord (memGetWord r 1) 3 markers)
+                  r
+                }))))))))
+
+; The bare words after a struct's name, each as a TAG_E_VAR node that
+; keeps its span for the checker's diagnostic. Answers the position of
+; the first token that is not one.
+(pub :: collectStructMarkers (-> (Vec Int) Int (Vec Int) Int))
+(pub fn (collectStructMarkers tokens pos markers)
+  (if (peekIs tokens pos TK_IDENT)
+    (let ((tok (vecGet tokens pos)))
+      {
+        (vecPush markers (mkEVarAt (tokenLexeme tok) (tokenSpan tok)))
+        (collectStructMarkers tokens (advance pos) markers)
+      })
+    pos))
+
+; A struct declaration's markers - the Vec `collectStructMarkers`
+; built - or an empty vector when it has none.
+(pub :: structMarkers (-> Int (Vec Int)))
+(pub fn (structMarkers d)
+  (if (== (nodeC d) 0)
+    vecNew
+    (nodeCVec d)))
+
+; Does the declaration carry the marker spelled `m`?
+(pub :: structHasMarker (-> Int String Bool))
+(pub fn (structHasMarker d m)
+  (let (
+    (ms (structMarkers d))
+    (mut i 0)
+    (mut found false)
+  )
+    {
+      (while (< i (vecLen ms))
+        {
+          (if (strEq (nodeAName (vecGet ms i)) m)
+            {
+              (set found true)
+              0
+            }
+            0)
+          (set i (+ i 1))
+        })
+      found
+    }))
+
+; A WORD STRUCT (docs/memory-model.md MM-VAL-10a): one machine word,
+; not a heap block. The checker holds the declaration to one `Int`
+; field; codegen classifies the type as a scalar. Every phase asks this
+; one predicate, so the three cannot disagree about which structs are
+; words.
+(pub :: structIsWord (-> Int Bool))
+(pub fn (structIsWord d)
+  (structHasMarker d "word"))
+
+; A word struct a `parallel` binding may capture (MM-PAR-6, AX3064).
+(pub :: structIsShared (-> Int Bool))
+(pub fn (structIsShared d)
+  (structHasMarker d "shared"))
 
 ; `parseFields` with the type parameters carried alongside, so the
 ; node they land on is the one `parseFields` was already building. The

@@ -67,7 +67,7 @@
     }))
 
 ; A child that answers 42 once the word at `w` stops holding 7.
-(:: spawnWaiter (-> Int Int))
+(:: spawnWaiter (-> Int Spawn))
 ;@axiom:effect(io)
 (fn (spawnWaiter w)
   (__proc_spawn
@@ -80,10 +80,10 @@
     )
     41))
 
-(:: handlePid (-> Int Int))
-;@axiom:effect(unsafe)
+; The pid of a forked binding, through its live `Spawn` handle.
+(:: handlePid (-> Spawn Int))
 (fn (handlePid h)
-  (__load64 h 0))
+  (__spawn_pid h))
 
 (:: main Int)
 ;@axiom:effect(io)

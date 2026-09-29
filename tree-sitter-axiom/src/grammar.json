@@ -959,6 +959,17 @@
           }
         },
         {
+          "type": "REPEAT",
+          "content": {
+            "type": "FIELD",
+            "name": "marker",
+            "content": {
+              "type": "SYMBOL",
+              "name": "identifier"
+            }
+          }
+        },
+        {
           "type": "CHOICE",
           "members": [
             {
@@ -3912,6 +3923,10 @@
     [
       "struct_declaration",
       "struct_construction"
+    ],
+    [
+      "struct_declaration",
+      "_expression"
     ],
     [
       "type_parameters",

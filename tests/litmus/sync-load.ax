@@ -29,7 +29,8 @@
 ;              and G is presented. It must be refused
 ;              (`stale-in-window 1005`) and the word must stay held
 ;              (`still-held 1`). This reads `stdlib/Sync.ax`'s layout
-;              (word 0 the lock), which a test may borrow.
+;              (word 0 the lock, and the handle table's kind 3 for a
+;              mutex), which a test may borrow through the unsafe layer.
 ;   stale N    three bindings released together: one locks, adds 1,
 ;              unlocks, and unlocks AGAIN with its now-stale guard, N
 ;              times; two lock, add 1 and unlock N times. A stale
@@ -84,7 +85,7 @@
 (fn (fence w)
   (__atomic_load w))
 
-(:: bump (-> Int Int Int Int Int))
+(:: bump (-> Mutex Int Int Int Int))
 ;@axiom:effect(io)
 (fn (bump m cell n locked)
   {
@@ -106,7 +107,7 @@
     0
   })
 
-(:: excl (-> Int Int Int Int Int))
+(:: excl (-> Mutex Int Int Int Int))
 ;@axiom:effect(io)
 (fn (excl m cell n locked)
   (parallel p (
@@ -153,7 +154,7 @@
     ((Err e) (errCode e))))
 
 ; Hold the lock for `ms`, raising `flag` once it is held.
-(:: holdFor (-> Int Int Int Int Int))
+(:: holdFor (-> Mutex Int Int Int Int))
 ;@axiom:effect(io)
 (fn (holdFor m flag idle ms)
   (match (mutexLock m)
@@ -168,7 +169,7 @@
     ((Err e) 1)))
 
 ; Wait for `flag`, then time a lock that may wait `ms`.
-(:: lockAfter (-> Int Int Int Int Int))
+(:: lockAfter (-> Mutex Int Int Int Int))
 ;@axiom:effect(io)
 (fn (lockAfter m flag ms what)
   (let ((buf (memAlloc 16)))
@@ -191,7 +192,7 @@
             })))
     }))
 
-(:: sendLater (-> Int Int Int Int))
+(:: sendLater (-> Chan Int Int Int))
 ;@axiom:effect(io)
 (fn (sendLater ch idle ms)
   {
@@ -201,7 +202,7 @@
       1)
   })
 
-(:: recvWithin (-> Int Int Int))
+(:: recvWithin (-> Chan Int Int))
 ;@axiom:effect(io)
 (fn (recvWithin ch ms)
   (let ((buf (memAlloc 16)))
@@ -254,7 +255,7 @@
       ((Err e) 1))))
 
 ; ---- dead ----------------------------------------------------------------
-(:: holdForever (-> Int Int Int Int))
+(:: holdForever (-> Mutex Int Int Int))
 ;@axiom:effect(io)
 (fn (holdForever m flag idle)
   (match (mutexLock m)
@@ -269,10 +270,10 @@
     )
     ((Err e) 9)))
 
-(:: handlePid (-> Int Int))
-;@axiom:effect(unsafe)
+; The pid of a forked binding, through its live `Spawn` handle.
+(:: handlePid (-> Spawn Int))
 (fn (handlePid h)
-  (__load64 h 0))
+  (__spawn_pid h))
 
 (:: dead (-> Int Int))
 ;@axiom:effect(io)
@@ -335,7 +336,7 @@
 
 ; Words of `cell`: 0 the count (plain, under the lock), 1 stale unlocks
 ; accepted, 2 own unlocks refused, 3 the barrier.
-(:: staleDoubler (-> Int Int Int Int))
+(:: staleDoubler (-> Mutex Int Int Int))
 ;@axiom:effect(io)
 (fn (staleDoubler m cell n)
   {
@@ -357,7 +358,7 @@
     0
   })
 
-(:: staleUser (-> Int Int Int Int))
+(:: staleUser (-> Mutex Int Int Int))
 ;@axiom:effect(io)
 (fn (staleUser m cell n)
   {
@@ -407,18 +408,28 @@
     ((Err e) 1)))
 
 ; ---- misuse --------------------------------------------------------------
-; Take mutex `m`'s lock word as a new holder's compare-and-swap does,
+; The page a live mutex names, the way `Sync.ax`'s own `syncAt` asks
+; the handle table for it: the handle's word, unwrapped by a cast, and
+; the table's kind for a mutex.
+(:: pageOf (-> Mutex Int))
+;@axiom:effect(unsafe)
+(fn (pageOf mx)
+  (__handle_get
+    3
+    (cast Int mx)))
+
+; Take mutex `mx`'s lock word as a new holder's compare-and-swap does,
 ; publishing no guard: the instant between its lock and its guard.
-(:: takeWord (-> Int Int))
+(:: takeWord (-> Mutex Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
-(fn (takeWord m)
-  (__atomic_cas m 0 (* sysGetPid 4)))
+(fn (takeWord mx)
+  (__atomic_cas (pageOf mx) 0 (* sysGetPid 4)))
 
-(:: heldWord (-> Int Int))
+(:: heldWord (-> Mutex Int))
 ;@axiom:effect(unsafe)
-(fn (heldWord m)
-  (if (== (__atomic_load m) 0)
+(fn (heldWord mx)
+  (if (== (__atomic_load (pageOf mx)) 0)
     0
     1))
 

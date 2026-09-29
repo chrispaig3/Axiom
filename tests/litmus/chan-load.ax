@@ -25,7 +25,7 @@
 (import Mem)
 (import Chan)
 
-(:: produce (-> Int Int Int Int))
+(:: produce (-> Chan Int Int Int))
 ;@axiom:effect(io)
 (fn (produce ch lo hi)
   (let (
@@ -43,7 +43,7 @@
       sent
     }))
 
-(:: feed (-> Int Int Int))
+(:: feed (-> Chan Int Int))
 ;@axiom:effect(io)
 (fn (feed ch n)
   (parallel q (
@@ -58,7 +58,7 @@
 
 ; Drain `ch` to the end; send the sum and the sum of squares to `out`;
 ; answer the count.
-(:: tally (-> Int Int Int))
+(:: tally (-> Chan Chan Int))
 ;@axiom:effect(io)
 (fn (tally ch out)
   (let (
@@ -85,7 +85,7 @@
       count
     }))
 
-(:: recvOr (-> Int Int))
+(:: recvOr (-> Chan Int))
 ;@axiom:effect(io)
 (fn (recvOr ch)
   (match (chanRecv ch)
@@ -99,12 +99,14 @@
     ((Some v) v)
     ((None) d)))
 
-(:: newOr (-> Int Int))
+; A channel of `cap` words; a load run that cannot make one has nothing
+; to measure, and says so on its way out (`todo` never returns).
+(:: newOr (-> Int Chan))
 ;@axiom:effect(io)
 (fn (newOr cap)
   (match (chanNew cap)
     ((Ok ch) ch)
-    ((Err e) 0)))
+    ((Err e) (todo "chanNew failed"))))
 
 (:: stress (-> Int Int Int))
 ;@axiom:effect(io)

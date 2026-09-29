@@ -177,7 +177,7 @@ a `Vec` grown inside an aborted extent keeps a reclaimed block and
 `__axiom_recover` needs no `effect(unsafe)`; AN-43, `vecWithCapacity`
 wraps its byte size at 2^61 elements; AN-44, the resources above;
 AN-45, a closure passed in and returned leaks 32 bytes a call. Calls
-one new gate; the count sites state ninety gates.
+one new gate; the count sites state ninety-one gates.
 
 ### Arming a recovery point allocates nothing — `MM-ALLOC-23`, R-B9 - 2026-09-28
 
@@ -323,7 +323,113 @@ every stdlib module as entry files, nightly. The fixes are pinned by
 `tests/selfhost/1006-cast-type-operand.ax` and
 `tests/selfhost/1007-param-shadows-nullary.ax`, which dies with
 SIGSEGV on the unfixed compiler. Calls one new gate; the count sites
-state ninety gates.
+state ninety-one gates.
+### Spawn handles and cancellation tokens are typed, and a second join traps — `MM-PAR-8` holds - 2026-09-28
+
+**BREAKING.** A spawn primitive answers a `Spawn`, and every join takes
+one. `taskTokenNew` answers a `CancelToken`, which `taskCancel`,
+`taskCancelled`, `taskTokenFree` and `taskWithToken` take, and
+`TaskOpts`'s `token` field is `(Option CancelToken)`. `parallel`,
+`Par` and `taskMap` are unchanged for their callers, and neither the
+primitives nor `Task` has shipped in a release. To migrate a
+hand-written spawn, type the handle `Spawn`, and read a forked child's
+pid with `__spawn_pid` instead of the page's first word:
+
+```scheme
+(:: start (-> Int Spawn))              ; was (-> Int Int)
+(fn (start n)
+  (__proc_spawn (lambda (x) (+ x 1)) n))
+
+(:: pidOf (-> Spawn Int))              ; was (__load64 h 0)
+(fn (pidOf h)
+  (__spawn_pid h))
+```
+
+**A second join traps with status 85.** A spawn names its page in the
+runtime's handle table, the join asks the table for the page before it
+reads it, and the page's end retires the handle on every path. So a
+second join, a checked join after a join, and the pid of a joined
+binding exit 85 instead of reading a page already unmapped. A forked
+binding's handle and a thread's are different kinds: one lowering's
+handle joined by the other's join exits 85, and `__spawn_pid` answers
+only a process's pid. `MM-PAR-8` moves from **P** to **H**: the type
+tracks the handle, a second join traps, and `MM-PAR-7`'s sweep covers a
+handle never joined.
+
+**A binding can't capture a spawn handle** (`AX3064`), because a join
+belongs to the binding that spawned it. A `CancelToken` is declared
+`shared`, so a binding may capture it. `check-parallel.sh` §12c still
+checks the runtime's own refusal of a cross-thread join (78): its
+probes carry the handle's word by `cast`, the unsafe layer.
+
+`Task.ax` reads no page layout any more: the pid comes from
+`__spawn_pid`, so `taskHandlePid` is no longer an unsafe read, and
+`check-task.sh`'s `kill` and `layout` ablations cut the new text. Tested
+by `tests/diagnostics/1066-spawn-handle.ax`,
+`tests/stdlib/572-spawn-joined-twice.ax` and `scripts/check-handles.sh`,
+which now also runs a second join in both lowerings, both cross-kind
+misuses, and a second join under its `get` ablation.
+
+The fuzzer's corpus grew with these fixtures, and its default run then
+reached a `while` with no body, which spins on its condition: `check`
+accepted it and `fmt` refused it with no code. `fpWhile` prints it on
+one line now (AN-50, `tests/fuzz/while-no-body.axfuzz`).
+
+### Channels and mutexes are typed handles, and a freed one traps — `MM-VAL-10a`, `MM-PAR-8`, `AX3084` to `AX3086`, status 85 - 2026-09-28
+
+**BREAKING.** `chanNew` answers a `Chan` and `mutexNew` a `Mutex`,
+where both answered an `Int`, and every function in `stdlib/Chan.ax`
+and `stdlib/Sync.ax` takes the handle. Neither module has shipped in a
+release, so the published surface in `compat/` doesn't move. To
+migrate, change the handle's type in your signatures and nothing else:
+
+```scheme
+(:: produce (-> Int Int Int))    ; before: the channel was an Int
+(:: produce (-> Chan Int Int))   ; now
+```
+
+A program that did arithmetic on the handle, passed a literal as one,
+or answered one from a function declared `Int` is refused with
+`AX3004`. The mutex's guard is still an `Int`.
+
+**A struct can be a sealed word.** `(pub struct Chan word shared (slot
+: Int))` declares a type that is one machine word instead of a heap
+block. Only its own module can build one or read its field (`AX3085`,
+`AX3086`), whatever `pub` says, so no other code can forge a channel.
+A word struct prints as its type's name, `<Chan>`.
+`shared` lets a `parallel` binding capture it, in either lowering; a
+word struct without it is refused (`AX3064`). The markers' shape rules
+are `AX3084`. The formatter, tree-sitter's grammar and the language
+server read the markers, and `axiom symbols` reports `#repr=word` or
+`#repr=word,shared` on the struct's row.
+
+**A freed or forged handle traps with status 85.** A handle's word is a
+slot in a table the runtime owns, with a generation, and every channel
+and mutex operation asks the table before it touches the mapping. So a
+send, receive, lock or unlock on a freed handle exits 85 with `axiom:
+not a live handle (freed, or never made)`, and so do a second free, a
+word the table never issued, and one handle's word used as another
+kind. Before, each read an unmapped page, a segmentation fault or a bus
+error, or whatever the kernel had mapped there since.
+
+The trap is recoverable, like the index trap. The table is per address
+space, like the mappings: a forked binding's free is its own. A module
+that names no handle primitive emits none of it.
+
+The runtime adds three primitives, `__handle_new`, `__handle_get` and
+`__handle_free`, all in the unsafe set. A channel operation costs four
+more atomic loads and no allocation or lock.
+
+`tests/diagnostics/1060` to `1065` pin the refusals in all three
+renderings; `tests/stdlib/570-handle-freed.ax` and
+`571-handle-table.ax` pin the traps at every `--opt`.
+`scripts/check-handles.sh` is new: the traps in both lowerings, the
+table under four bindings at once and under racing frees, the capture
+rule under `build` and `build --threads`, and three ablations that
+each turn it red. The count sites state ninety-one gates.
+`scripts/check-trap-statuses.sh` counts twelve statuses; its docs-table
+ablation read only the `80` row, so it passed without its own rewrite,
+and now reads every `8x` row.
 
 ### Purity is written one way, and a tag must sit where it is checked — `AX3077`, `AX3078` - 2026-09-28
 
@@ -512,7 +618,7 @@ in `docs/assurance/verification.md`.
 action and `scripts/run-gates-linux.sh`'s image install
 `libclang-rt-dev`; CI sets `AXIOM_TSAN_REQUIRED=1`, so a missing
 runtime fails there and skips elsewhere. Calls one new gate; the count
-sites state ninety gates.
+sites state ninety-one gates.
 ### Load buffering, 2+2W and IRIW litmus tests — `tests/litmus/atomics.ax`, R-C3 - 2026-09-28
 
 `scripts/check-atomics.sh` §3 ran three litmus families, store
@@ -836,7 +942,7 @@ as the control); RSS flat from 500 to 5,000 folded tasks beside a
 keeping control that must grow; nine ablations on copies of the
 library each turning it red; and the three new programs in
 `examples/concurrency/`. Fixtures `tests/stdlib/540`-`543`. Calls one
-new gate; the count sites state ninety gates.
+new gate; the count sites state ninety-one gates.
 
 An independent review before landing found six defects, two confirmed
 by probes. The mutex compared an unlock's guard against the guard
@@ -993,7 +1099,7 @@ be, every bound equal to the sum of its path, and the tool's ELF reader
 agreeing with `llvm-readobj --stack-sizes` on every frame; each rule
 ablated in a copy of the tool, and the bound's cycle check ablated
 against the selftest and tree recursion. The count sites state
-ninety gates. Specified in `docs/restricted-profile.md`.
+ninety-one gates. Specified in `docs/restricted-profile.md`.
 
 ### The documentation, rewritten in the website's voice — `.claude/skills/docs-style/SKILL.md`
 
@@ -1061,7 +1167,7 @@ when a diagnostic quotes non-ASCII source (two sites).
 `docs/assurance/verification.md` lists them with the measurements,
 including a compile time that grows faster than quadratically in one
 `let`'s bindings. Calls one new gate; the count sites
-state ninety gates.
+state ninety-one gates.
 
 ### A bounded channel between bindings — `stdlib/Chan.ax`, `scripts/check-chan.sh` - 2026-09-27
 
@@ -1102,7 +1208,7 @@ word handed to a library function that dereferences it. Found on the
 way: on a case-insensitive filesystem a program named `chan.ax` that
 says `(import Chan)` imports ITSELF, because the source's own directory
 is searched first. Calls one new gate; the count sites state
-ninety gates.
+ninety-one gates.
 
 ### What orders memory between bindings — `MM-PAR-9` - 2026-09-27
 
@@ -1151,7 +1257,7 @@ with `ldaxr`/`stlxr` whatever its ordering (so that ablation runs at
 LSE-capable CPU. Scope is stated in the gate and in
 `docs/assurance/requirements.md` R-C3: a litmus zero is evidence on the
 rounds run, not proof. Calls one new gate; the count sites state
-ninety gates.
+ninety-one gates.
 
 ### The S4 verdict measures code, not file bytes - 2026-09-27
 
@@ -1181,7 +1287,7 @@ witness red at a named check. Scope and non-scope are stated in the
 model's docstring and `docs/assurance/verification.md`; a green run
 is agreement on the traces run, at the levels run, on the host it
 ran on — not a proof of anything else. Calls one new gate; the count
-sites state ninety gates.
+sites state ninety-one gates.
 
 ### The count limit traps instead of wrapping - 2026-09-27
 
@@ -1422,7 +1528,7 @@ where scopes would take the for-binding - and must diverge under
 verify while checking clean and answering 41 without it. The corpus
 leg passes by absence and the control leg fails if verify ever goes
 silent, so the gate cannot pass vacuously. Held by the gate itself (2
-checks). Calls one new gate; the count sites state ninety gates.
+checks). Calls one new gate; the count sites state ninety-one gates.
 
 ### S4 verdict: the binary win with the RSS win intact — `scripts/check-region-verdict.sh`
 
@@ -1439,7 +1545,7 @@ full-ablation deltas 18/23/21/24/21/26/10 with identical answers and a
 the stamp system: the §2.5 trailing word was evaluated against the
 runtime and declined in a dated design-note entry, and two slice-era
 "next slice" comments now point at the built slices. Calls one new
-gate; the count sites state ninety gates, and the battery has
+gate; the count sites state ninety-one gates, and the battery has
 ninety-six.
 
 ### Inlay hints read `let` binders' value shapes — `tests/lsp/drive.py`

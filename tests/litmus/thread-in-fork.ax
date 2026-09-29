@@ -25,7 +25,7 @@
 (fn (inner x)
   (+ x 1))
 
-(:: spawnInner (-> Int Int))
+(:: spawnInner (-> Int Spawn))
 ;@axiom:effect(io)
 (fn (spawnInner i)
   (__thread_spawn

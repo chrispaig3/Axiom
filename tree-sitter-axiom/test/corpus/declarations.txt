@@ -104,6 +104,24 @@ struct with a mutable field
       (builtin_type))))
 
 ================================================================
+struct with representation markers
+================================================================
+
+(pub struct Chan word shared
+  (slot : Int))
+
+----------------------------------------------------------------
+
+(source_file
+  (struct_declaration
+    (identifier)
+    (identifier)
+    (identifier)
+    (field_declaration
+      (identifier)
+      (builtin_type))))
+
+================================================================
 type alias
 ================================================================
 

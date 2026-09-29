@@ -441,19 +441,18 @@ import sys, os
 root, kind = sys.argv[1], sys.argv[2]
 cuts = {
   "lock": [("Sync.ax",
-    "  (if (== (syncLoad m 3) 1)\n    (Err (mkError syncOwnerDead \"mutexLock: the holder died holding it\"))\n    (let ((me syncMe))\n      (if (== (syncCas m 0 me) 0)",
-    "  (if (== (syncLoad m 3) 1)\n    (Err (mkError syncOwnerDead \"mutexLock: the holder died holding it\"))\n    (let ((me syncMe))\n      (if (== 0 0)")],
+    "    (if (== (syncLoad m 3) 1)\n      (Err (mkError syncOwnerDead \"mutexLock: the holder died holding it\"))\n      (let ((me syncMe))\n        (if (== (syncCas m 0 me) 0)",
+    "    (if (== (syncLoad m 3) 1)\n      (Err (mkError syncOwnerDead \"mutexLock: the holder died holding it\"))\n      (let ((me syncMe))\n        (if (== 0 0)")],
   "timed": [("Sys.ax", "      (/ (+ nanos 999) 1000))))", "      (/ (+ nanos 999) 10000))))"),
             ("Sys.ax", "(memSetWord ts 0 (/ nanos 1000000000))", "(memSetWord ts 0 (/ (/ nanos 10) 1000000000))"),
             ("Sys.ax", "(memSetWord ts 1 (% nanos 1000000000))", "(memSetWord ts 1 (% (/ nanos 10) 1000000000))")],
   "holder": [("Sync.ax", "(if (== (errCode e) 3)", "(if (== (errCode e) 99999)")],
-  "kill": [("Task.ax", "(sysKill (taskHandlePid (taskSt st s 0)) 9)", "(sysKill (taskHandlePid (taskSt st s 0)) 0)")],
-  # NOT another word of the page: word 1 is an address whose low 32
-  # bits `kill` would read as a pid - possibly 0 or negative, a process
-  # GROUP, this gate's own - and word 2 is a small number naming some
-  # unrelated process. A pid past every kernel's pid_max is the same
-  # miss with nothing to hit.
-  "layout": [("Task.ax", "(fn (taskHandlePid h)\n  (__load64 h 0))", "(fn (taskHandlePid h)\n  (+ (__load64 h 0) 1073741824))")],
+  "kill": [("Task.ax", "(sysKill (taskHandlePid (vecGet hs s)) 9)", "(sysKill (taskHandlePid (vecGet hs s)) 0)")],
+  # The pid `__spawn_pid` reads through the handle, moved past every
+  # kernel's pid_max: the same miss as a wrong word of the page, with
+  # nothing to hit. (Another word would be worse: an address whose low
+  # 32 bits `kill` could read as 0 or negative, a process GROUP.)
+  "layout": [("Task.ax", "(fn (taskHandlePid h)\n  (__spawn_pid h))", "(fn (taskHandlePid h)\n  (+ (__spawn_pid h) 1073741824))")],
   "look": [("Sys.ax", "(Ok (!= (& (memGetWord buf 0) 4294967295) 0))", "(Ok false)")],
   "slot": [("Task.ax", "(let ((slot (+ slab (* (% arg w) slotBytes))))", "(let ((slot (+ slab (* (% (+ arg 1) w) slotBytes))))")],
   "limit": [("Task.ax", "            (if (> len limit)", "            (if (> len (* limit 1000))")],

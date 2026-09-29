@@ -55,7 +55,7 @@
   })
 
 ; Search shard `s`; record this process's pid in word `s` of `pids`.
-(:: shard (-> Int Int Int Int String))
+(:: shard (-> Int Int CancelToken Int String))
 ;@axiom:effect(io)
 (fn (shard pids idle tok s)
   {
@@ -100,7 +100,7 @@
 
 ; The pool: 16 shards, four at a time, on the caller's token, with a
 ; 5 s deadline per shard as the backstop.
-(:: search (-> Int Int Int (Vec (Result String Error))))
+(:: search (-> Int Int CancelToken (Vec (Result String Error))))
 ;@axiom:effect(io)
 (fn (search pids idle tok)
   (taskMapWith

@@ -1,0 +1,42 @@
+; A spawn handle is a `Spawn`, and a cancellation token a `CancelToken`
+; (docs/memory-model.md MM-PAR-8). An `Int` joined, a handle used as an
+; `Int`, a declared `Int` result answering one, and a token passed as a
+; channel are each AX3004; a spawn handle captured by another binding is
+; AX3064, because a join belongs to the binding that spawned it. A
+; captured token is the control: `CancelToken` is declared `shared`.
+(import Chan)
+(import Task)
+(import Err)
+
+(:: handleWord (-> Spawn Int))
+(fn (handleWord h)
+  h)
+
+(:: poll (-> CancelToken Int))
+(fn (poll t)
+  (if (taskCancelled t)
+    1
+    0))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((h 
+    (__par_spawn
+      (lambda (x) (+ x 1))
+      41)))
+    (match taskTokenNew
+      ((Ok t)
+        (+
+          (__par_join 5)
+          (+
+            (+ h 1)
+            (+
+              (chanLen t)
+              (parallel p (
+                (a (__par_join h))
+                (b (poll t))
+              )
+                (+ a b)))))
+      )
+      ((Err e) 1))))

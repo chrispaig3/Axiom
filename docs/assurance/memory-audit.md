@@ -51,10 +51,12 @@ root.
 | A binding shares at most a word with its parent (`MM-PAR-6`) | Static: `AX3064`, over the captures the checker can see, in both lowerings | Diagnostics 642–644, 655 and 656; the §11 opaque-shape probes |
 | A captured `Vec` isn't mutated across `--threads` siblings | Static: `AX3064` refuses class-0 containers with their own message | `tests/diagnostics/656-parallel-container-capture.ax` (direct, aliased, nested and struct-wrapped); `tests/stdlib/471-parallel-trap.ax` builds inside |
 | A spawned child is joined in its scope, and join failures are observed | Dynamic: the registry sweeps on abort, trap, return and end (`MM-PAR-7`), and failures are status 78 | §12b (`kill -0`), §12c (`foreign 78 … answer 42`) |
-| Grandchildren of a killed child, threads that never finish, and unmapped-handle words | Open by statement: the three `MM-PAR-7` limits. `MM-PAR-8` is planned | — |
+| Grandchildren of a killed child, and threads that never finish | Open by statement: the three `MM-PAR-7` limits | — |
+| A spawn handle is joined at most once, by the binding that spawned it (`MM-PAR-8`) | Static and dynamic: `Spawn` is its own type and isn't captured (`AX3004`, `AX3064`); a second join, a join of the other lowering's handle and the pid of a joined binding trap 85; a cross-thread join is 78 (`MM-PAR-7`) | `tests/diagnostics/1066-spawn-handle.ax`; `tests/stdlib/572-spawn-joined-twice.ax`; `scripts/check-handles.sh` §2 |
 | A child spawned inside an aborted recovery extent is ended | Dynamic: the abort sweeps the extent's children before it resets (`MM-PAR-7`) | `scripts/check-reclaim-soak.sh` §5 |
 | Descriptors, shared mappings and locks taken inside a recovery extent are released on every path (`MM-ALLOC-23`) | Open program obligation: an abort runs nothing, and the runtime can't know what the thunk acquired (AN-44) | `scripts/check-reclaim-soak.sh` §5 measures one descriptor leaked per trapped cycle, and none for the control that closes first |
 | A `Foreign` shared with a thread is made safe by the foreign side (`MM-FFI-7`) | Open program obligation | — |
+| A channel, mutex or cancellation token is one its module made, and still live when used (`MM-PAR-8`, `MM-PAR-10`, `MM-PAR-11`, `MM-PAR-13`) | Static and dynamic: the seal (`AX3085`, `AX3086`) and a distinct type (`AX3004`) refuse a forged handle; the handle table traps 85 on a freed, forged or other-kind one. Open: a free that races another binding's use | `tests/diagnostics/1060`-`1063`; `tests/stdlib/570-handle-freed.ax`; `scripts/check-handles.sh` |
 
 ## Unsafe layer and FFI
 

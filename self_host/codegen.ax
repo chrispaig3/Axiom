@@ -68,6 +68,17 @@
 (pub fn (TF_STRUCT)
   1)
 
+; A WORD struct (MM-VAL-10a): one machine word, never a block. Its own
+; kind rather than a flag on TF_STRUCT, so every reader that asks
+; "is this a struct" - thirty-odd, keyed on TF_STRUCT - answers no for
+; it without being taught; the one reader that must answer for it is
+; `fldClass`, which calls it a scalar. The checker lowers every
+; construction and field read of one to the word itself
+; (`wordLowerApply`), so no expression here names it.
+(pub :: TF_WORD Int)
+(pub fn (TF_WORD)
+  2)
+
 (pub :: eNameLen (-> Int Int))
 (pub fn (eNameLen e)
   (memGetWord e 1))
@@ -550,6 +561,11 @@
       ; outermost `mutFlag` call the walk is - the memo is only valid
       ; within one (see `mutFlag`).
       (vecPushVec ps vecNew)
+      (vecPush ps 0)
+      ; slot 13: 1 when the module names a handle primitive or a spawn
+      ; one, so the handle table's runtime is emitted (`parScan`,
+      ; `emitHandleRuntime`, MM-PAR-8); 0 leaves the module byte for
+      ; byte what it was.
       (vecPush ps 0)
       (addTypeNamed
         ts
@@ -4533,20 +4549,23 @@
             (name (nodeAName node))
             (fields (nodeBVec node))
             (types (memGetWordVec cg 3))
+            (kind (if (structIsWord node)
+              TF_WORD
+              TF_STRUCT))
           )
             {
               (memSetWord cg 3 (addQualified
                 (addType
                   types
                   name
-                  TF_STRUCT
+                  kind
                   (vecLen fields)
                   0
                   0
                   fields)
                 (nodeModule node)
                 name
-                TF_STRUCT
+                kind
                 (vecLen fields)
                 0
                 0
@@ -5847,6 +5866,12 @@
     (pairSetSlot cg 5 (parAnyNamed decls))
     (pairSetSlot
       cg
+      13
+      (if (== (parAnyNamed decls) 1)
+        1
+        (handleAnyNamed decls)))
+    (pairSetSlot
+      cg
       10
       (if (&& (== (targetHasThreads (memGetWord cg 26)) 1) (&& (== (declsNamePrim decls "__par_spawn" 0) 1) (argHas "--threads" 1)))
         1
@@ -5983,6 +6008,365 @@
         cg
       })))
 
+; A spawn's page gets its handle (MM-PAR-8), after the thunk and its
+; word are on it and before any child exists: a table with no slot
+; left fails the spawn as a refused fork does (78), through
+; `@__axiom_par_finish`, which returns the thunk's share and the page.
+; The handle goes in word 13 and its kind in word 14, where `finish`
+; retires it. A forked binding's handle is kind 1 and a thread's kind
+; 5, so a join of one lowering's handle by the other's join traps 85
+; instead of reading a pid as a `pthread_t`, and `__spawn_pid` answers
+; only a process's pid.
+(pub :: emitParNameHandle (-> Int Int Int))
+(pub fn (emitParNameHandle cg kind)
+  {
+    (emitLine cg (strConcat "  %hw = call i64 @__axiom_handle_new(i64 " (strConcat (fmtInt kind) ", i64 %page)")))
+    (emitLine cg "  %hnone = icmp eq i64 %hw, 0")
+    (emitLine cg "  br i1 %hnone, label %nohandle, label %named")
+    (emitLine cg "nohandle:")
+    (emitLine cg "  %dnh = call i64 @__axiom_par_finish(i64 %page)")
+    (emitLine cg "  call i64 @__axiom_par_spawn_failed()")
+    (emitLine cg "  unreachable")
+    (emitLine cg "named:")
+    (emitLine cg "  %p13 = getelementptr i64, ptr %hp, i64 13")
+    (emitLine cg "  store i64 %hw, ptr %p13")
+    (emitLine cg "  %p14 = getelementptr i64, ptr %hp, i64 14")
+    (emitLine cg (strConcat "  store i64 " (strConcat (fmtInt kind) ", ptr %p14")))
+    cg
+  })
+
+; A join's first line: the page the handle `%hw` names, as `%h`, or the
+; 85 trap for a handle that is not a live spawn handle of `kind`.
+(pub :: emitParJoinPage (-> Int Int Int))
+(pub fn (emitParJoinPage cg kind)
+  {
+    (emitLine cg (strConcat "  %h = call i64 @__axiom_handle_get(i64 " (strConcat (fmtInt kind) ", i64 %hw)")))
+    cg
+  })
+
+; ------------------------------------------------------------------
+; THE HANDLE TABLE (docs/memory-model.md MM-PAR-8), and status 85.
+;
+; A typed handle - a spawn's, a channel, a mutex, a cancellation token -
+; is a WORD naming a slot in one table, and the table says whether the
+; slot is live. That is where a handle's liveness has to live: not in the object,
+; whose mapping a free unmaps (a check that read it would be the fault
+; it exists to prevent), and not in the word, which is copied freely.
+;
+;   handle word   (generation << 16) | index        generation >= 1
+;   slot state    (generation << 9) | (live << 8) | kind
+;   slot payload  the address it names; while free, the next free
+;                 index + 1
+;
+; `@__axiom_handle_get kind h` answers the payload when the slot's
+; state is exactly what `h` and `kind` say a live slot's is, and traps
+; 85 otherwise: freed (the generation moved on, or the live bit is
+; clear), forged, or another kind's. It reads the state on both sides
+; of the payload, so a free that lands between never hands back the
+; free-list link as an address. It reads nothing the handle's object
+; owns, so a freed object's unmapped pages are never touched.
+; `@__axiom_handle_free` retires the slot with ONE compare-and-swap on
+; the state, so of two frees of one handle exactly one succeeds and the
+; other traps 85, and then pushes the slot on a free list whose head
+; carries a 47-bit tag against ABA. Nothing here takes a lock or
+; allocates: a get is four atomic loads, which is what a channel
+; operation pays for its check.
+;
+; ONE TABLE PER ADDRESS SPACE. The root, `@__axiom_htab`, is a plain
+; global even under `--threads`: every thread must ask the same table,
+; as every thread sees the same mappings. The table is `MAP_PRIVATE`
+; and mapped on first use, so a forked binding inherits a COPY - its
+; handles are the parent's as they were at the fork and its frees are
+; its own, exactly as its mappings are: a child's `munmap` leaves the
+; parent's mapping in place, and the child's table says so. 65,536
+; slots of 16 bytes, one megabyte of address space touched a page at a
+; time; `__handle_new` answers 0 when all are live, which a library
+; answers as an error and a spawn as 78.
+;
+; A MODULE THAT NAMES NO HANDLE OR SPAWN PRIMITIVE EMITS NONE OF THIS
+; (slot 13), so its IR is byte for byte what it was.
+; ------------------------------------------------------------------
+(pub :: handleAnyNamed (-> (Vec Int) Int))
+(pub fn (handleAnyNamed decls)
+  (if (== (declsNamePrim decls "__handle_new" 0) 1)
+    1
+    (if (== (declsNamePrim decls "__handle_get" 0) 1)
+      1
+      (if (== (declsNamePrim decls "__handle_free" 0) 1)
+        1
+        (declsNamePrim decls "__spawn_pid" 0)))))
+
+(pub :: isHandlePrimName (-> String Bool))
+(pub fn (isHandlePrimName nm)
+  (if (strEq nm "__handle_new")
+    true
+    (if (strEq nm "__handle_get")
+      true
+      (if (strEq nm "__handle_free")
+        true
+        (strEq nm "__spawn_pid")))))
+
+; The table's slot count and its mapping's length: a 64-byte header
+; (free-list head, bump index) and 65,536 slots of 16 bytes, rounded up
+; to pages. An index is the handle's low 16 bits, so every index a
+; word can spell is inside the mapping.
+(pub :: handleSlots Int)
+(pub fn (handleSlots)
+  65536)
+
+(pub :: handleTableBytes Int)
+(pub fn (handleTableBytes)
+  1052672)
+
+; `(__handle_new kind addr)`, `(__handle_get kind h)` and
+; `(__handle_free kind h)`: two words in, one word out, each a call to
+; the runtime below. `(__spawn_pid h)`: the pid in word 0 of the page a
+; live process spawn's handle names, asked of the table first.
+(pub :: emitPrimHandle (-> String (Vec Int) Int Int))
+;@axiom:effect(io)
+(pub fn (emitPrimHandle fnName args cg)
+  (if (strEq fnName "__spawn_pid")
+    (let ((cgH (emitExpr (vecGet args 0) cg)))
+      (let (
+        (h (strDup (memGetWordStr cgH 2)))
+        (pg (regStr (allocReg cgH)))
+        (pp (regStr (allocReg cgH)))
+        (r (regStr (allocReg cgH)))
+      )
+        {
+          (emitLine cgH (strConcat "  " (strConcat pg (strConcat " = call i64 @__axiom_handle_get(i64 1, i64 " (strConcat h ")")))))
+          (emitLine cgH (strConcat "  " (strConcat pp (strConcat " = inttoptr i64 " (strConcat pg " to ptr")))))
+          (emitLine cgH (strConcat "  " (strConcat r (strConcat " = load i64, ptr " pp))))
+          (memSetWord cgH 2 r)
+          (memSetWord cgH 14 0)
+          cgH
+        }))
+    (emitPrimHandleCall fnName args cg)))
+
+(pub :: emitPrimHandleCall (-> String (Vec Int) Int Int))
+;@axiom:effect(io)
+(pub fn (emitPrimHandleCall fnName args cg)
+  (let ((cgK (emitExpr (vecGet args 0) cg)))
+    (let ((k (strDup (memGetWordStr cgK 2))))
+      (let ((cgV (emitExpr (vecGet args 1) cgK)))
+        (let (
+          (v (strDup (memGetWordStr cgV 2)))
+          (r (regStr (allocReg cgV)))
+          (fn (if (strEq fnName "__handle_new")
+            "@__axiom_handle_new"
+            (if (strEq fnName "__handle_get")
+              "@__axiom_handle_get"
+              "@__axiom_handle_free")))
+        )
+          {
+            (emitLine cgV (strConcat "  " (strConcat r (strConcat " = call i64 " (strConcat fn (strConcat "(i64 " (strConcat k (strConcat ", i64 " (strConcat v ")")))))))))
+            (memSetWord cgV 2 r)
+            (memSetWord cgV 14 0)
+            cgV
+          })))))
+
+(pub :: emitHandleRuntime (-> Int Int))
+(pub fn (emitHandleRuntime cg)
+  (if (== (pairSlot cg 13) 0)
+    cg
+    (let ((t (memGetWord cg 26)))
+      {
+        (emitLine cg "")
+        (emitLine cg "@__axiom_htab = internal global i64 0")
+        ; Status 85, recoverable as the index trap is: a use of a word
+        ; that is not a live handle of the kind asked for - a freed
+        ; one, a second free of one, a forged one. The declared length
+        ; is the message's byte count exactly, newline included.
+        (emitLine cg "@__axiom_handle_msg = private unnamed_addr constant [48 x i8] c\"axiom: not a live handle (freed, or never made)\\0A\"")
+        (emitLine cg (strConcat "define internal i64 @__axiom_handle_dead() " (strConcat trapFnAttrs " {")))
+        (emitLine cg "entry:")
+        (emitLine cg "  call i64 @__axiom_recover_abort(i64 85)")
+        (emitLine cg "  %hmp = ptrtoint ptr @__axiom_handle_msg to i64")
+        (emitRuntimeWrite cg "%hmp" "48")
+        (emitLine cg "  call void @__axiom_backtrace()")
+        (emitRuntimeExit cg "85")
+        (emitLine cg "  unreachable")
+        (emitLine cg "}")
+        (emitLine cg "")
+        ; The table, mapped on first use and installed with one
+        ; compare-and-swap: of two threads racing to make it, the loser
+        ; unmaps its own and uses the winner's. 0 where no table can be
+        ; mapped - a target with no syscall ABI, or `mmap` refused.
+        (emitLine cg "define internal i64 @__axiom_handle_tab() #0 {")
+        (emitLine cg "entry:")
+        (emitLine cg "  %t = load atomic i64, ptr @__axiom_htab seq_cst, align 8")
+        (emitLine cg "  %have = icmp ne i64 %t, 0")
+        (emitLine cg "  br i1 %have, label %done, label %make")
+        (emitLine cg "make:")
+        (if (== (targetUsesSyscallAsm t) 1)
+          {
+            (emitLine cg (strConcat "  %m = " (parSys cg (fmtInt (targetMmapNum t)) (strConcat "i64 0, i64 " (strConcat (fmtInt handleTableBytes) (strConcat ", i64 3, i64 " (strConcat (fmtInt (targetMapFlags t)) ", i64 -1, i64 0")))))))
+            (emitLine cg "  %low = icmp ult i64 %m, 4096")
+            (emitLine cg "  %neg = icmp slt i64 %m, 0")
+            (emitLine cg "  %bad = or i1 %low, %neg")
+            (emitLine cg "  br i1 %bad, label %none, label %install")
+            (emitLine cg "install:")
+            (emitLine cg "  %cx = cmpxchg ptr @__axiom_htab, i64 0, i64 %m seq_cst seq_cst")
+            (emitLine cg "  %won = extractvalue { i64, i1 } %cx, 1")
+            (emitLine cg "  br i1 %won, label %mine, label %lost")
+            (emitLine cg "mine:")
+            (emitLine cg "  ret i64 %m")
+            (emitLine cg "lost:")
+            (emitLine cg "  %old = extractvalue { i64, i1 } %cx, 0")
+            (emitLine cg (strConcat "  %un = " (parSys cg (fmtInt (targetMunmapNum t)) (strConcat "i64 %m, i64 " (strConcat (fmtInt handleTableBytes) ", i64 0, i64 0, i64 0, i64 0")))))
+            (emitLine cg "  ret i64 %old")
+            0
+          }
+          (emitLine cg "  br label %none"))
+        (emitLine cg "none:")
+        (emitLine cg "  ret i64 0")
+        (emitLine cg "done:")
+        (emitLine cg "  ret i64 %t")
+        (emitLine cg "}")
+        (emitLine cg "")
+        ; A slot's address: the table, its 64-byte header, 16 bytes a slot.
+        (emitLine cg "define internal i64 @__axiom_handle_slot(i64 %t, i64 %idx) #0 {")
+        (emitLine cg "entry:")
+        (emitLine cg "  %off = shl i64 %idx, 4")
+        (emitLine cg "  %base = add i64 %t, 64")
+        (emitLine cg "  %e = add i64 %base, %off")
+        (emitLine cg "  ret i64 %e")
+        (emitLine cg "}")
+        (emitLine cg "")
+        ; A fresh handle naming `%addr`: a slot off the free list, else
+        ; the next never-used one, else 0.
+        (emitLine cg "define internal i64 @__axiom_handle_new(i64 %kind, i64 %addr) #0 {")
+        (emitLine cg "entry:")
+        (emitLine cg "  %t = call i64 @__axiom_handle_tab()")
+        (emitLine cg "  %no = icmp eq i64 %t, 0")
+        (emitLine cg "  br i1 %no, label %full, label %pop")
+        (emitLine cg "pop:")
+        (emitLine cg "  %hp = inttoptr i64 %t to ptr")
+        (emitLine cg "  %head = load atomic i64, ptr %hp seq_cst, align 8")
+        (emitLine cg "  %hidx1 = and i64 %head, 131071")
+        (emitLine cg "  %empty = icmp eq i64 %hidx1, 0")
+        (emitLine cg "  br i1 %empty, label %bump, label %take")
+        (emitLine cg "take:")
+        (emitLine cg "  %tidx = sub i64 %hidx1, 1")
+        (emitLine cg "  %te = call i64 @__axiom_handle_slot(i64 %t, i64 %tidx)")
+        (emitLine cg "  %tl = add i64 %te, 8")
+        (emitLine cg "  %tlp = inttoptr i64 %tl to ptr")
+        (emitLine cg "  %next = load atomic i64, ptr %tlp seq_cst, align 8")
+        (emitLine cg "  %nextm = and i64 %next, 131071")
+        (emitLine cg "  %tag = lshr i64 %head, 17")
+        (emitLine cg "  %tag1 = add i64 %tag, 1")
+        (emitLine cg "  %nh0 = shl i64 %tag1, 17")
+        (emitLine cg "  %nh = or i64 %nh0, %nextm")
+        (emitLine cg "  %cx = cmpxchg ptr %hp, i64 %head, i64 %nh seq_cst seq_cst")
+        (emitLine cg "  %popped = extractvalue { i64, i1 } %cx, 1")
+        (emitLine cg "  br i1 %popped, label %fill, label %pop")
+        (emitLine cg "bump:")
+        (emitLine cg "  %bp = getelementptr i64, ptr %hp, i64 1")
+        (emitLine cg "  %bidx = atomicrmw add ptr %bp, i64 1 seq_cst")
+        (emitLine cg (strConcat "  %over = icmp uge i64 %bidx, " (fmtInt handleSlots)))
+        (emitLine cg "  br i1 %over, label %full, label %fill")
+        (emitLine cg "fill:")
+        (emitLine cg "  %idx = phi i64 [ %tidx, %take ], [ %bidx, %bump ]")
+        (emitLine cg "  %e = call i64 @__axiom_handle_slot(i64 %t, i64 %idx)")
+        (emitLine cg "  %sp = inttoptr i64 %e to ptr")
+        (emitLine cg "  %st = load atomic i64, ptr %sp seq_cst, align 8")
+        (emitLine cg "  %g0 = lshr i64 %st, 9")
+        (emitLine cg "  %g = add i64 %g0, 1")
+        (emitLine cg "  %pa = add i64 %e, 8")
+        (emitLine cg "  %pp = inttoptr i64 %pa to ptr")
+        (emitLine cg "  store atomic i64 %addr, ptr %pp seq_cst, align 8")
+        (emitLine cg "  %km = and i64 %kind, 255")
+        (emitLine cg "  %gs = shl i64 %g, 9")
+        (emitLine cg "  %gl = or i64 %gs, 256")
+        (emitLine cg "  %ns = or i64 %gl, %km")
+        (emitLine cg "  store atomic i64 %ns, ptr %sp seq_cst, align 8")
+        (emitLine cg "  %hg = shl i64 %g, 16")
+        (emitLine cg "  %h = or i64 %hg, %idx")
+        (emitLine cg "  ret i64 %h")
+        (emitLine cg "full:")
+        (emitLine cg "  ret i64 0")
+        (emitLine cg "}")
+        (emitLine cg "")
+        ; The state a live handle `%h` of `%kind` must find in its slot.
+        (emitLine cg "define internal i64 @__axiom_handle_want(i64 %kind, i64 %h) #0 {")
+        (emitLine cg "entry:")
+        (emitLine cg "  %gen = lshr i64 %h, 16")
+        (emitLine cg "  %gs = shl i64 %gen, 9")
+        (emitLine cg "  %gl = or i64 %gs, 256")
+        (emitLine cg "  %km = and i64 %kind, 255")
+        (emitLine cg "  %w = or i64 %gl, %km")
+        (emitLine cg "  ret i64 %w")
+        (emitLine cg "}")
+        (emitLine cg "")
+        (emitLine cg "define internal i64 @__axiom_handle_get(i64 %kind, i64 %h) #0 {")
+        (emitLine cg "entry:")
+        (emitLine cg "  %t = load atomic i64, ptr @__axiom_htab seq_cst, align 8")
+        (emitLine cg "  %no = icmp eq i64 %t, 0")
+        (emitLine cg "  br i1 %no, label %dead, label %look")
+        (emitLine cg "look:")
+        (emitLine cg "  %idx = and i64 %h, 65535")
+        (emitLine cg "  %e = call i64 @__axiom_handle_slot(i64 %t, i64 %idx)")
+        (emitLine cg "  %sp = inttoptr i64 %e to ptr")
+        (emitLine cg "  %want = call i64 @__axiom_handle_want(i64 %kind, i64 %h)")
+        (emitLine cg "  %s1 = load atomic i64, ptr %sp seq_cst, align 8")
+        (emitLine cg "  %ok1 = icmp eq i64 %s1, %want")
+        (emitLine cg "  br i1 %ok1, label %read, label %dead")
+        (emitLine cg "read:")
+        (emitLine cg "  %pa = add i64 %e, 8")
+        (emitLine cg "  %pp = inttoptr i64 %pa to ptr")
+        (emitLine cg "  %v = load atomic i64, ptr %pp seq_cst, align 8")
+        (emitLine cg "  %s2 = load atomic i64, ptr %sp seq_cst, align 8")
+        (emitLine cg "  %ok2 = icmp eq i64 %s2, %want")
+        (emitLine cg "  br i1 %ok2, label %good, label %dead")
+        (emitLine cg "good:")
+        (emitLine cg "  ret i64 %v")
+        (emitLine cg "dead:")
+        (emitLine cg "  %x = call i64 @__axiom_handle_dead()")
+        (emitLine cg "  unreachable")
+        (emitLine cg "}")
+        (emitLine cg "")
+        (emitLine cg "define internal i64 @__axiom_handle_free(i64 %kind, i64 %h) #0 {")
+        (emitLine cg "entry:")
+        (emitLine cg "  %t = load atomic i64, ptr @__axiom_htab seq_cst, align 8")
+        (emitLine cg "  %no = icmp eq i64 %t, 0")
+        (emitLine cg "  br i1 %no, label %dead, label %look")
+        (emitLine cg "look:")
+        (emitLine cg "  %idx = and i64 %h, 65535")
+        (emitLine cg "  %e = call i64 @__axiom_handle_slot(i64 %t, i64 %idx)")
+        (emitLine cg "  %sp = inttoptr i64 %e to ptr")
+        (emitLine cg "  %want = call i64 @__axiom_handle_want(i64 %kind, i64 %h)")
+        (emitLine cg "  %freed = and i64 %want, -257")
+        (emitLine cg "  %cx = cmpxchg ptr %sp, i64 %want, i64 %freed seq_cst seq_cst")
+        (emitLine cg "  %mine = extractvalue { i64, i1 } %cx, 1")
+        (emitLine cg "  br i1 %mine, label %retired, label %dead")
+        (emitLine cg "retired:")
+        (emitLine cg "  %pa = add i64 %e, 8")
+        (emitLine cg "  %pp = inttoptr i64 %pa to ptr")
+        (emitLine cg "  %v = load atomic i64, ptr %pp seq_cst, align 8")
+        (emitLine cg "  %hp = inttoptr i64 %t to ptr")
+        (emitLine cg "  %me = add i64 %idx, 1")
+        (emitLine cg "  br label %push")
+        (emitLine cg "push:")
+        (emitLine cg "  %head = load atomic i64, ptr %hp seq_cst, align 8")
+        (emitLine cg "  %hl = and i64 %head, 131071")
+        (emitLine cg "  store atomic i64 %hl, ptr %pp seq_cst, align 8")
+        (emitLine cg "  %tag = lshr i64 %head, 17")
+        (emitLine cg "  %tag1 = add i64 %tag, 1")
+        (emitLine cg "  %nh0 = shl i64 %tag1, 17")
+        (emitLine cg "  %nh = or i64 %nh0, %me")
+        (emitLine cg "  %cx2 = cmpxchg ptr %hp, i64 %head, i64 %nh seq_cst seq_cst")
+        (emitLine cg "  %pushed = extractvalue { i64, i1 } %cx2, 1")
+        (emitLine cg "  br i1 %pushed, label %done, label %push")
+        (emitLine cg "done:")
+        (emitLine cg "  ret i64 %v")
+        (emitLine cg "dead:")
+        (emitLine cg "  %x = call i64 @__axiom_handle_dead()")
+        (emitLine cg "  unreachable")
+        (emitLine cg "}")
+        (emitLine cg "")
+        cg
+      })))
+
 ; Status 78: the kernel refused the fork or the pthread. Recoverable,
 ; as the index trap is.
 ;
@@ -6053,7 +6437,9 @@
 ; Under threads a process child also uses 10 and 11, its links on the
 ; process-wide kill list, and 12, set while it is linked there; words 16
 ; to 31 are the siginfo buffer its join's `waitid` writes
-; (`emitParKillList`, `emitParJoinUnlist`).
+; (`emitParKillList`, `emitParJoinUnlist`). Words 13 and 14 are the
+; handle the spawn answered and the handle's kind (`emitParNameHandle`,
+; MM-PAR-8): what a program holds is the handle, never the page.
 ;
 ; WHY A REGISTRY (MM-PAR-7). A child was reachable only through the
 ; handle word its parent held, so every path that dropped the handle
@@ -6119,6 +6505,13 @@
       (emitLine cg "  ret i64 %r")
       (emitLine cg "}")
       (emitLine cg "")
+      ; The page's word 13 is the HANDLE the spawn answered and word 14
+      ; its kind (MM-PAR-8), retired here before the page goes: every
+      ; path that ends a child - a join, a sweep, a failed spawn - comes
+      ; through this function, so a handle outlives its page on none of
+      ; them, and a second join of it finds a retired slot and traps 85
+      ; instead of reading the page this unmaps. 0 is a page that never
+      ; got a handle (the table was full, and the spawn is failing).
       (emitLine cg "define internal i64 @__axiom_par_finish(i64 %h) #0 {")
       (emitLine cg "entry:")
       (emitLine cg "  %hp = inttoptr i64 %h to ptr")
@@ -6126,6 +6519,16 @@
       (emitLine cg "  %fn = load i64, ptr %p1")
       (emitLine cg "  %p3 = getelementptr i64, ptr %hp, i64 3")
       (emitLine cg "  %res = load i64, ptr %p3")
+      (emitLine cg "  %p13 = getelementptr i64, ptr %hp, i64 13")
+      (emitLine cg "  %hw = load i64, ptr %p13")
+      (emitLine cg "  %named = icmp ne i64 %hw, 0")
+      (emitLine cg "  br i1 %named, label %retire, label %drop")
+      (emitLine cg "retire:")
+      (emitLine cg "  %p14 = getelementptr i64, ptr %hp, i64 14")
+      (emitLine cg "  %hk = load i64, ptr %p14")
+      (emitLine cg "  %was = call i64 @__axiom_handle_free(i64 %hk, i64 %hw)")
+      (emitLine cg "  br label %drop")
+      (emitLine cg "drop:")
       (emitLine cg "  call void @axiom_release(i64 %fn)")
       (emitLine cg (strConcat "  " (parSys cg (fmtInt (targetMunmapNum t)) "i64 %h, i64 4096, i64 0, i64 0, i64 0, i64 0")))
       (emitLine cg "  ret i64 %res")
@@ -6350,6 +6753,7 @@
       (emitLine cg "  store i64 %fn, ptr %p1")
       (emitLine cg "  %p2 = getelementptr i64, ptr %hp, i64 2")
       (emitLine cg "  store i64 %arg, ptr %p2")
+      (emitParNameHandle cg 1)
       ; Under threads the fork and the kill list's link happen inside the
       ; list's lock, so a trap's sweep (`@__axiom_par_gkill`) never runs
       ; between them: a child either is on the list when the sweep walks
@@ -6413,11 +6817,16 @@
           0
         }
         0)
-      (emitLine cg "  ret i64 %page")
+      (emitLine cg "  ret i64 %hw")
       (emitLine cg "}")
       (emitLine cg "")
-      (emitLine cg "define internal i64 @__axiom_par_join_proc(i64 %h) #0 {")
+      ; Every join takes the HANDLE and asks the table for the page it
+      ; names before anything else (`emitParJoinPage`): a handle already
+      ; joined, or a word no spawn answered, traps 85 there, and the
+      ; page below is only ever one that is still mapped.
+      (emitLine cg "define internal i64 @__axiom_par_join_proc(i64 %hw) #0 {")
       (emitLine cg "entry:")
+      (emitParJoinPage cg 1)
       (emitLine cg "  call void @__axiom_par_check_owner(i64 %h)")
       (emitLine cg "  %hp = inttoptr i64 %h to ptr")
       (emitLine cg "  %pid = load i64, ptr %hp")
@@ -6468,8 +6877,9 @@
       ; one will not be the first. A `wait4` that cannot reach the child
       ; at all stores 78, the lost-join status, rather than the 0 the
       ; kernel never wrote.
-      (emitLine cg "define internal i64 @__axiom_par_join_nr_proc(i64 %h, i64 %cell) #0 {")
+      (emitLine cg "define internal i64 @__axiom_par_join_nr_proc(i64 %hw, i64 %cell) #0 {")
       (emitLine cg "entry:")
+      (emitParJoinPage cg 1)
       (emitLine cg "  call void @__axiom_par_check_owner(i64 %h)")
       (emitLine cg "  %hp = inttoptr i64 %h to ptr")
       (emitLine cg "  %pid = load i64, ptr %hp")
@@ -6727,6 +7137,7 @@
       (emitLine cg "  store i64 %fn, ptr %p1")
       (emitLine cg "  %p2 = getelementptr i64, ptr %hp, i64 2")
       (emitLine cg "  store i64 %arg, ptr %p2")
+      (emitParNameHandle cg 5)
       (emitLine cg "  %rc = call i32 @pthread_create(ptr %hp, ptr null, ptr @__axiom_par_entry, ptr %hp)")
       (emitLine cg "  %bad = icmp ne i32 %rc, 0")
       (emitLine cg "  br i1 %bad, label %fail, label %ok")
@@ -6736,7 +7147,7 @@
       (emitLine cg "  unreachable")
       (emitLine cg "ok:")
       (emitLine cg "  call void @__axiom_par_link(i64 %page, i64 2)")
-      (emitLine cg "  ret i64 %page")
+      (emitLine cg "  ret i64 %hw")
       (emitLine cg "}")
       (emitLine cg "")
       ; A `pthread_join` that fails did not wait for the thread, which
@@ -6744,8 +7155,9 @@
       ; path unlinks and traps and deliberately does NOT finish: an
       ; unmapped page under a live thread is a write into whatever maps
       ; there next, and a leaked page is not.
-      (emitLine cg "define internal i64 @__axiom_par_join_thread(i64 %h) #0 {")
+      (emitLine cg "define internal i64 @__axiom_par_join_thread(i64 %hw) #0 {")
       (emitLine cg "entry:")
+      (emitParJoinPage cg 5)
       (emitLine cg "  call void @__axiom_par_check_owner(i64 %h)")
       (emitLine cg "  %hp = inttoptr i64 %h to ptr")
       (emitLine cg "  %t = load i64, ptr %hp")
@@ -6772,8 +7184,9 @@
       ; 6f pins both halves of that sentence. A failed join answers 0
       ; and leaves the page mapped, for the reason the raising join
       ; gives.
-      (emitLine cg "define internal i64 @__axiom_par_join_nr_thread(i64 %h, i64 %cell) #0 {")
+      (emitLine cg "define internal i64 @__axiom_par_join_nr_thread(i64 %hw, i64 %cell) #0 {")
       (emitLine cg "entry:")
+      (emitParJoinPage cg 5)
       (emitLine cg "  call void @__axiom_par_check_owner(i64 %h)")
       (emitLine cg "  %hp = inttoptr i64 %h to ptr")
       (emitLine cg "  %t = load i64, ptr %hp")
@@ -10691,6 +11104,7 @@
     (emitRecoverRuntime cg)
     (emitStrEqHelper cg)
     (emitContractTrap cg)
+    (emitHandleRuntime cg)
     (emitParRuntime cg)
     cg
   })
@@ -18287,7 +18701,7 @@
                                               ; records for its own omission.
                                               (if (strEq nm "__contract")
                                                 true
-                                                (if (isParPrimName nm)
+                                                (if (|| (isParPrimName nm) (isHandlePrimName nm))
                                                   true
                                                   (if (isAtomicPrimName nm)
                                                     true
@@ -18396,11 +18810,13 @@
                                                   (emitPrimContract args cg)
                                                   (if (isParPrimName fnName)
                                                     (emitPrimPar fnName args cg)
+                                                    (if (isHandlePrimName fnName)
+                                                      (emitPrimHandle fnName args cg)
                                                     (if (isAtomicPrimName fnName)
                                                       (emitPrimAtomic fnName args cg)
                                                       (if (isDevicePrimName fnName)
                                                         (emitPrimDevice fnName args cg)
-                                                        (emitPrimSyscall args cg))))))))))))))))))))))))))))))
+                                                        (emitPrimSyscall args cg)))))))))))))))))))))))))))))))
 
 ; `(__contract cond "message")` - the run-time half of a
 ; `;@axiom:pre(...)` / `;@axiom:post(...)`, and the only thing that
@@ -20650,7 +21066,9 @@
 ; ------------------------------------------------------------------
 (pub :: scalarTyName (-> String Int))
 (pub fn (scalarTyName n)
-  (if (|| (strEq n "Int") (|| (strEq n "Bool") (|| (strEq n "Char") (|| (strEq n "Float") (|| (strEq n "I8") (|| (strEq n "I16") (|| (strEq n "I32") (|| (strEq n "I64") (|| (strEq n "U8") (|| (strEq n "U16") (|| (strEq n "U32") (|| (strEq n "U64") (|| (strEq n "F32") (|| (strEq n "F64") (|| (strEq n "Foreign") (strEq n "Vec"))))))))))))))))
+  (if (|| (strEq n "Int") (|| (strEq n "Bool") (|| (strEq n "Char") (|| (strEq n "Float") (|| (strEq n "I8") (|| (strEq n "I16") (|| (strEq n "I32") (|| (strEq n "I64") (|| (strEq n "U8") (|| (strEq n "U16") (|| (strEq n "U32") (|| (strEq n "U64") (|| (strEq n "F32") (|| (strEq n "F64") (|| (strEq n "Foreign") (|| (strEq n "Vec") (strEq n "Spawn")))))))))))))))))
+    ; `Spawn` - the handle a spawn answers (MM-PAR-8): a word naming a
+    ; slot in the handle table, never a block.
     ; `Vec` - a handle to a counted block that this block does NOT
     ; own. It is here for the same ownership reason `Foreign` is and
     ; not because a vector is a number: `stdlib/Vec.ax` says "a
@@ -20734,7 +21152,14 @@
                         false
                         (== (eKind e) TF_STRUCT))
                         2
-                        1))))))
+                        ; A word struct is a word: no bit, and being
+                        ; CLASSIFIED keeps the enclosing record mapped,
+                        ; the reason `Foreign` is listed above.
+                        (if (if (== e 0)
+                          false
+                          (== (eKind e) TF_WORD))
+                          0
+                          1)))))))
             1))))))
 
 ; The PADDED payload word count - THE one count convention

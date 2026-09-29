@@ -286,7 +286,7 @@
   })
 
 ; ---- grace -----------------------------------------------------------------
-(:: graceWork (-> Int Int Int String))
+(:: graceWork (-> Int CancelToken Int String))
 ;@axiom:effect(io)
 (fn (graceWork idle tok i)
   {
@@ -309,7 +309,7 @@
     ((Err e) 3)))
 
 ; ---- cancel ----------------------------------------------------------------
-(:: cancelWork (-> Int Int Int Int String))
+(:: cancelWork (-> Int Int CancelToken Int String))
 ;@axiom:effect(io)
 (fn (cancelWork page idle tok i)
   (if (== i 0)
@@ -330,7 +330,7 @@
       (stubborn page idle 1)
       (answer i))))
 
-(:: runCancelled (-> Int Int Int Int))
+(:: runCancelled (-> Int Int CancelToken Int))
 ;@axiom:effect(io)
 (fn (runCancelled page idle tok)
   (showAll
@@ -339,7 +339,7 @@
       8
       (taskWithGrace (taskWithToken (taskOpts 2 64) tok) 150000000))))
 
-(:: cancelLater (-> Int Int Int))
+(:: cancelLater (-> Int CancelToken Int))
 ;@axiom:effect(io)
 (fn (cancelLater idle tok)
   {

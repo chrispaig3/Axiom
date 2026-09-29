@@ -158,8 +158,8 @@ refusal paths. About a sixth of its budget reaches code generation.
 
 These came from 10,600 mutants: seed 1 ×1,000 and seed 2 ×3,000 while
 the harness was built, then seed 20260927 ×600 and ×6,000 through the
-gate. P4 and P5 found the last eleven: two on the default run, six on
-the first `--long` run with them, one on the default run after the
+gate. P4 and P5 found the last twelve: two on the default run, six on
+the first `--long` run with them, two on the default runs after the
 corpus grew, and two on the second `--long` run. Each is minimised in `tests/fuzz/` and listed in its `MANIFEST`,
 and the gate replays every one.
 
@@ -181,6 +181,7 @@ and the gate replays every one.
 | `deep-field-chain.axfuzz` | P4: at the nesting limit, the formatter counts each `.name` link as a level and the parser doesn't, so `fmt` refused a file `check` accepted, with no code. | **fixed**: the formatter keeps its count, because its printer recurses per link, and refuses with AX2005 |
 | `axtag-trailing.axfuzz` | P4: a `;@axiom:` tag with no declaration after it was dropped with no word, so a claim such as `restrict(no-alloc)` applied to nothing. | **fixed** (`parseModuleWith`); now AX2001, as stage0 refused it |
 | `operator-param.axfuzz` | P4: a parameter or `let` binder spelled like an operator shadows it, as the reference says, but the formatter printed binders through stage0's pattern rule and refused one. A top-level function spelled like an operator compiled and could never run: every call reached the built-in, while the effect walk charged its effects to every stdlib use of the operator. | **fixed**: the formatter prints such a binder, and the function is AX2001 |
+| `while-no-body.axfuzz` | P4: `(while (< x 40.0))`, a loop with no body that spins on its condition, checked OK, and the formatter wanted a body and refused it with no code. | **fixed** (`fpWhile`): it prints on one line |
 | `operator-name-template.axfuzz` | P4: `=` is a name to this compiler's parser, and an unexpanded macro template isn't resolved, so `(macro (q x) (+ = 100))` checked OK. The formatter refused every operator outside the retired stage0 parser's list. | **fixed**: the formatter prints such a name as itself |
 
 No row is open. An open row would carry a signature, an extended regex

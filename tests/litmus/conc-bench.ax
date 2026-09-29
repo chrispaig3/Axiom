@@ -101,7 +101,7 @@
       })))
 
 ; ---- mutex -------------------------------------------------------------
-(:: bump (-> Int Int Int Int))
+(:: bump (-> Mutex Int Int Int))
 ;@axiom:effect(io)
 (fn (bump m cell n)
   {
@@ -117,7 +117,7 @@
     0
   })
 
-(:: bumpK (-> Int Int Int Int Int))
+(:: bumpK (-> Mutex Int Int Int Int))
 ;@axiom:effect(io)
 (fn (bumpK m cell n k)
   (if (== k 1)
@@ -157,7 +157,7 @@
     ((Err e) 1)))
 
 ; ---- chan --------------------------------------------------------------
-(:: produce (-> Int Int Int))
+(:: produce (-> Chan Int Int))
 ;@axiom:effect(io)
 (fn (produce ch n)
   {
@@ -167,7 +167,7 @@
     0
   })
 
-(:: drain (-> Int Int Int))
+(:: drain (-> Chan Int Int))
 ;@axiom:effect(io)
 (fn (drain ch cell)
   (let (

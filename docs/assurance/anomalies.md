@@ -31,6 +31,7 @@ It isn't a system severity. The integrator assigns that
 | AN-18 | L | On Darwin, timed waits and task deadlines use the realtime clock, so a clock step can move them, by at most one 100 ms slice per wait | `MM-PAR-12` | Keep the clock stepped by slewing only, or run deadline-sensitive work on Linux |
 | AN-44 | L | A descriptor, shared mapping or lock taken inside a recovery extent stays taken when a trap aborts it | `MM-ALLOC-23`; `scripts/check-reclaim-soak.sh` §5 | Acquire outside the point, or release before anything in the extent can trap |
 | AN-45 | L | A closure a function receives as an argument and returns is never released: 32 bytes a call, 64 when it is wrapped once more | A loop of `(keep (lambda (x) (+ x k)))` with `(fn (keep f) f)`, read with `__axiom_mem_stat` | Scope such loops in an arena, or keep the closure in the caller |
+| AN-48 | L | A free that races another binding's operation on the same channel, mutex or cancellation token is a data race: the handle table catches every use ordered after the free, not one already in flight | `MM-PAR-8`, §10.7 of [memory-model.md](../memory-model.md) | Free a handle only after the `parallel` form that used it |
 
 ## Closed
 
@@ -71,6 +72,8 @@ It isn't a system severity. The integrator assigns that
 | AN-35 | The effect walk read `cast`'s type operand as a reference, so an entry file's function `a` gave `Vec`'s element readers its effects, and a program importing `Vec` was refused | The R-A10 commit | `tests/selfhost/1006-cast-type-operand.ax`; `scripts/check-metamorphic.sh` §3 `cast-operand` |
 | AN-36 | The effect walk skipped a named pattern's binders, so `{tag = t}` read `t` as a free name | The R-A10 commit | `tests/selfhost/1006-cast-type-operand.ax`; `scripts/check-metamorphic.sh` §3 `named-pattern` |
 | AN-38 | `scripts/axiom-report.py` read every line opening `E ` as a compiler error, and `E` is also the `symbols` kind of an `effect` declaration, so it refused to report on any program declaring an effect | The trap-enumeration commit | `scripts/check-report.sh` §2's trap program declares `Ask` |
+| AN-49 | A channel, mutex, cancellation token or spawn handle was an `Int`: any word passed as one, a call on a freed one read an unmapped page, a second free unmapped whatever the kernel had mapped there since, and a second join read a page already unmapped | The two typed-handles commits | `tests/stdlib/570-handle-freed.ax`, `572-spawn-joined-twice.ax`; `scripts/check-handles.sh` §1, §2, §6 |
+| AN-50 | A `while` with no body checked OK and `fmt` refused it with no code | The typed-handles commits, when the fuzzer's corpus grew | `tests/fuzz/while-no-body.axfuzz` |
 | AN-C1 | The fuzzing harness read a refusal whose report held a NUL as a codeless one | `61f1e0ef` | `scripts/check-fuzz.sh` §4's NUL control |
 | AN-C2 | Two `check` segmentation faults found by the fuzzer, in the human renderer and the region pass | `878b17be` | `tests/fuzz/render-spanless-cross.axfuzz`, `tests/fuzz/region-nonarrow-sig.axfuzz` |
 | AN-C3 | A forked binding that trapped inside a recovery point ran the parent's continuation (F2) | Milestone A | `tests/stdlib/522-parallel-recover.ax` |

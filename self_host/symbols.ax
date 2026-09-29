@@ -1656,6 +1656,16 @@
                       ; `smTagMetas`.
                       (smTagMetas sm name metas)
                       (vecPush metas (strConcat "fields=" (saJoinComma fparts)))
+                      ; A word struct's representation (MM-VAL-10a): one
+                      ; sealed machine word, and whether a `parallel`
+                      ; binding may capture it. A heap struct has no key.
+                      (if (== (structEntIsWord s) 1)
+                        (vecPush
+                          metas
+                          (if (== (structEntIsShared s) 1)
+                            "repr=word,shared"
+                            "repr=word"))
+                        metas)
                       (vecPush
                         lines
                         (symLine

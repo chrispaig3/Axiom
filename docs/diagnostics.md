@@ -557,6 +557,7 @@ The metadata keys:
 | `ctors` | `D` | Constructor names, comma-separated, e.g. `#ctors=Nothing,Just` |
 | `of` | `C` | The data type the constructor belongs to, e.g. `#of=Maybe` |
 | `fields` | `S` | Each field's name and type, `name:Type,name:Type,...`, e.g. `#fields=x:Int,y:Int` |
+| `repr` | `S` | A word struct's representation: `#repr=word`, or `#repr=word,shared` when a concurrent binding may capture it ([memory-model.md](memory-model.md) `MM-VAL-10a`). Absent on a heap struct |
 | `tyvars` | `A` | Type parameters, comma-separated, e.g. `#tyvars=a,b`. Absent when there are none |
 | `effects` | `F` | The effect row the checker derived by walking the function's calls, sorted and comma-separated, e.g. `#effects=IO`. Absent when the function performs none. An `extern` item carries `#effects=IO` |
 | `effect-params` | `F` | For an effect-polymorphic signature, the parameters the row varies in, by their declared names |

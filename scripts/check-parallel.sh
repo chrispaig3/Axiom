@@ -1501,10 +1501,14 @@ fi
 # Previously the foreign thread successfully waited, then unlink raised
 # 78. Recovering that rejection left the rightful owner unable to join.
 # The non-raising forms also overwrote the out-cell before refusing it.
+# A spawn handle captured by another binding is refused where it is
+# written (AX3064, MM-PAR-8), so the probe carries the handle's word
+# across with `cast` - the unsafe layer - to reach the runtime's own
+# refusal, which stays as the check behind the checker's.
 for kind in proc thread; do
   for form in raising checked; do
-    join_expr="(__${kind}_join h)"
-    [[ "$form" == checked ]] && join_expr="(__${kind}_join_nr h cell)"
+    join_expr="(__${kind}_join (cast Spawn hw))"
+    [[ "$form" == checked ]] && join_expr="(__${kind}_join_nr (cast Spawn hw) cell)"
     tag="owner-$kind-$form"
     cat > "$work/$tag.ax" <<OWNER
 (import IO)
@@ -1516,6 +1520,7 @@ for kind in proc thread; do
     (cell (memAlloc 8))
     (_ (memSetWord cell 0 123))
     (h (__${kind}_spawn (lambda (x) 42) 0))
+    (hw (cast Int h))
     (other (__thread_spawn
       (lambda (x)
         (__axiom_recover __axiom_arena_mark

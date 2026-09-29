@@ -1,0 +1,30 @@
+; A mutex is not a channel, and a channel is not a mutex
+; (docs/memory-model.md MM-PAR-8): each handle is its own sealed type,
+; so passing one where the other is expected is AX3004. The send on the
+; channel is the control.
+(import Chan)
+(import Sync)
+(import Err)
+
+(:: send (-> Chan Int Bool))
+;@axiom:effect(io)
+(fn (send c v)
+  (chanSend c v))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (match (mutexNew)
+    ((Ok m)
+      (match (chanNew 1)
+        ((Ok c)
+          {
+            (send c 1)
+            (send m 1)
+            (mutexOwnerDead c)
+            0
+          }
+        )
+        ((Err e) 2))
+    )
+    ((Err e) 1)))

@@ -13,7 +13,10 @@
 ; when its writers are siblings. What each consumer got depends on the
 ; schedule; their totals do not, and the totals are what is printed.
 ; `scripts/check-chan.sh` runs the same shapes under `--threads`, at
-; more sizes, and against an ablated lock.
+; more sizes, and against an ablated lock. The handle is a `Chan`
+; (MM-PAR-8): the parallel bindings capture it, which AX3064 admits
+; because `Chan` is declared `shared`, and
+; `tests/stdlib/570-handle-freed.ax` holds what a freed one does.
 (import IO)
 (import Chan)
 (import Err)
@@ -31,7 +34,7 @@
     0))
 
 ; Send lo..hi-1; answer how many were accepted.
-(:: produce (-> Int Int Int Int))
+(:: produce (-> Chan Int Int Int))
 ;@axiom:effect(io)
 (fn (produce ch lo hi)
   (let (
@@ -50,7 +53,7 @@
     }))
 
 ; Receive to the end of the stream; answer the sum.
-(:: drain (-> Int Int))
+(:: drain (-> Chan Int))
 ;@axiom:effect(io)
 (fn (drain ch)
   (let (
@@ -69,7 +72,7 @@
       sum
     }))
 
-(:: feed (-> Int Int))
+(:: feed (-> Chan Int))
 ;@axiom:effect(io)
 (fn (feed ch)
   (parallel q (
@@ -83,7 +86,7 @@
     }))
 
 ; 1 if the channel was unmapped, 0 if the kernel refused.
-(:: freedOk (-> Int Int))
+(:: freedOk (-> Chan Int))
 ;@axiom:effect(io)
 (fn (freedOk ch)
   (match (chanFree ch)

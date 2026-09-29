@@ -44,8 +44,8 @@ Every program obligation has a disposition in
 [memory-audit.md](memory-audit.md).
 
 Outside that boundary, correctness is your program's obligation: the
-unsafe layer, `cast`, foreign code, and words shared through
-`MAP_SHARED` pages or `Int` handles. `scripts/axiom-report.py` and
+unsafe layer, `cast`, foreign code, words shared through `MAP_SHARED`
+pages, and a handle freed while another binding still uses it. `scripts/axiom-report.py` and
 [trusted-components.md](trusted-components.md) list where those uses
 are.
 

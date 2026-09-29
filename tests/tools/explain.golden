@@ -91,6 +91,9 @@
   [93mAX3076[0m  an `effect(...)` tag naming more than one effect  (effect-tag-list)
   [93mAX3077[0m  a checked AXTAG key on a declaration that can't carry it  (axtag-misplaced)
   [93mAX3078[0m  purity written any way but `effect(pure)`  (pure-tag-spelling)
+  [93mAX3084[0m  a struct marker that is unknown or does not fit  (struct-marker)
+  [93mAX3085[0m  a word struct built outside its module  (word-struct-sealed)
+  [93mAX3086[0m  a word struct's field read outside its module  (word-struct-sealed-field)
   [93mAX3089[0m  a function with no signature, called before its type is known  (signature-needed)
   [93mAX3090[0m  a recovery point's thunk the region check can't see  (recover-thunk-unseen)
   [93mAX4001[0m  no `main` function  (missing-main)
@@ -2486,16 +2489,22 @@ block's count lose an increment, and the block is freed while a live
 reference still names it. Corruption, not a leak (MM-PAR-6,
 docs/memory-model-v2-design.md section 3.2b).
 
-What a binding may share with its parent is a WORD. Pass the value
+What a binding may share with its parent is a word: a scalar, a
+`Foreign`, or a handle whose module declares it `shared`, such as a
+`Chan`, a `Mutex` or a `CancelToken` (AX3084). Pass anything else
 through the thunk's word argument, or build a copy inside the
-binding; a `Vec` is not refused, because it takes no share of a
-count (`evScalarName`), and neither is anything the compiler can see
-is a scalar. A bare `Foreign` is not refused either: it points
-into memory Axiom never allocated, so the release walk skips it
-and there is no count to race (`tests/ffi/demo/410-
-foreign-not-walked.ax`). A `Handle` IS refused - a counted block
-carrying a destructor - and `tests/diagnostics/655-
-parallel-capture-foreign.ax` pins the two answers side by side.
+binding. A `Vec` is refused though it takes no share of a count: two
+bindings could grow one buffer at once, and a buffer a thread grew is
+unmapped when the thread ends. A word struct its module did not
+declare `shared` is refused too, because the module did not build it
+for use from several bindings at once, and so is a `Spawn`: a join
+belongs to the binding that spawned it. A bare `Foreign` is not
+refused: it points into memory Axiom never allocated, so the release
+walk skips it and there is no count to race. A `Handle` is refused,
+because it is a counted block carrying a destructor.
+`tests/diagnostics/655-parallel-capture-foreign.ax` pins those two
+answers side by side, and `tests/diagnostics/1064-parallel-capture-
+handle.ax` the handles.
 
 The rule is the LANGUAGE's, not a lowering's, so it does not depend
 on `--threads`: the process lowering is merely permitted to be laxer
@@ -2695,6 +2704,62 @@ claim while nothing checked it.
 Write `;@axiom:effect(pure)` above the function, on its `(:: ...)`
 or its `(fn ...)`. The claim is checked as before: a body that
 performs anything draws AX3010.
+
+### explain AX3084
+AX3084 - a struct marker that is unknown or does not fit
+
+A struct can say how it is represented, with markers between its name
+and its fields:
+
+    (pub struct Chan word shared
+      (slot : Int))
+
+`word` makes the struct one machine word instead of a heap block, and
+seals it: only the module that declares it can build one or read its
+field (AX3085, AX3086), so no other code can forge one. `shared` lets a
+`parallel` binding capture it (AX3064), which says every operation the
+module offers on it is safe from several bindings at once.
+
+A word struct is its one field, so it has exactly one, typed `Int`,
+not `mut`, and no type parameters. `shared` needs `word`: a heap struct
+is a counted block, and two bindings touching one count race
+(MM-PAR-6). Any other name in the marker position is refused, and so
+is a marker written twice.
+
+### explain AX3085
+AX3085 - a word struct built outside its module
+
+A struct declared `word` is sealed. Only the module that declares it
+can build one, with `(Chan w)` or `(struct Chan w)`, whether or not the
+struct is `pub`:
+
+    (import Chan)
+    (fn (main) (chanSend (Chan 5) 1))   ; refused
+
+`pub` exports the name, so your signatures can mention the type, and
+the values come from the functions the module provides, such as
+`chanNew`. That is what makes the handle unforgeable: every `Chan` a
+program holds is one `chanNew` made. It names a live slot in the
+runtime's handle table, or a freed one, which traps with status 85
+when it is used (MM-PAR-8).
+
+A `cast` to a sealed type forges a handle. That belongs to the unsafe
+layer (MM-VAL-22), not to ordinary code.
+
+### explain AX3086
+AX3086 - a word struct's field read outside its module
+
+A struct declared `word` is sealed, and only its module can read its
+field:
+
+    (import Chan)
+    (fn (peek c) c.slot)   ; refused
+
+What the word means is the module's business. A channel's word is a
+slot in the runtime's handle table, and code that read it could hand
+the same word to something else. Use the functions the module
+provides. A function declared to answer `Int` can't answer the handle
+itself either: that is AX3004.
 
 ### explain AX3089
 AX3089 - a function with no signature, called before its type is known
@@ -3160,6 +3225,9 @@ run `axiom explain --list` to see all known codes
   [93mAX3076[0m  an `effect(...)` tag naming more than one effect  (effect-tag-list)
   [93mAX3077[0m  a checked AXTAG key on a declaration that can't carry it  (axtag-misplaced)
   [93mAX3078[0m  purity written any way but `effect(pure)`  (pure-tag-spelling)
+  [93mAX3084[0m  a struct marker that is unknown or does not fit  (struct-marker)
+  [93mAX3085[0m  a word struct built outside its module  (word-struct-sealed)
+  [93mAX3086[0m  a word struct's field read outside its module  (word-struct-sealed-field)
   [93mAX3089[0m  a function with no signature, called before its type is known  (signature-needed)
   [93mAX3090[0m  a recovery point's thunk the region check can't see  (recover-thunk-unseen)
   [93mAX4001[0m  no `main` function  (missing-main)
