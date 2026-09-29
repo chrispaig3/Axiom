@@ -1,0 +1,41 @@
+; A `MutexGuard` is sealed to `Sync` (docs/memory-model.md MM-VAL-10a,
+; MM-PAR-11): building one from a word is AX3085 and reading its word is
+; AX3086. It is not declared `shared`, so a concurrent binding that
+; captures one is AX3064: a guard belongs to the binding whose lock call
+; answered it. The unlock in the binding that locked is the control.
+(import Sync)
+(import Err)
+
+(:: done (-> (Result Int Error) Int))
+(fn (done r)
+  (match r
+    ((Ok z) 0)
+    ((Err e) 1)))
+
+(:: unlockIn (-> Mutex Int))
+;@axiom:effect(io)
+(fn (unlockIn m)
+  (match (mutexLock m)
+    ((Ok g) (done (mutexUnlock m g)))
+    ((Err e) 2)))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (match (mutexNew)
+    ((Ok m)
+      (match (mutexLock m)
+        ((Ok g)
+          {
+            (done (mutexUnlock m (MutexGuard 5)))
+            (+ g.serial 1)
+            (parallel p (
+              (a (unlockIn m))
+              (b (done (mutexUnlock m g)))
+            )
+              (+ a b))
+          }
+        )
+        ((Err e) 3))
+    )
+    ((Err e) 1)))

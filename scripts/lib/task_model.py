@@ -44,8 +44,9 @@ WHAT IS CHECKED, in every reachable state and at the end:
 WHAT IT IS NOT. A proof about the model at its bounds (two and three tasks,
 widths one to three, a few units of time), not about Task.ax: the bytes of
 an answer are one word, the sink and the region around it are a delivery
-step, a spawn the kernel refuses (78) and a parent killed from outside are
-outside it, and the clock is the model's.
+step, a spawn that is refused (78, which `taskStart` answers and `taskLoop`
+turns into a cancellation) and a parent killed from outside are outside it,
+and the clock is the model's.
 """
 
 TASK = "Task.ax"
@@ -114,7 +115,7 @@ def install(ns):
         ("pstore", "slot + 1", "0", "(memSetWord slot 1 0)"),
         ("pstore", "slot + 2", "0", "(memSetWord slot 2 0)"),
         ("ghost", "tStart", ["t", "w"]),
-        ("spawn", "h", "t * w + s", "t + 1", "(__proc_spawn wrapper (+ (* t w) s))"),
+        ("spawn", "h", "t * w + s", "t + 1", "(taskSpawn wrapper (+ (* t w) s))"),
         ("if", "t < w", "reuse", "(if (< t w)"),
         ("ghost", "tHandle", ["t", "w"]),
         ("pstore", "hs + t", "h", "(vecPush hs h)"),
@@ -710,6 +711,7 @@ def install(ns):
         (TASK, "taskStoreAt", "(__atomic_store a v)"),
         (TASK, "taskAddAt", "(__atomic_add a v)"),
         (TASK, "taskHandlePid", "(__spawn_pid h)"),
+        (TASK, "taskSpawn", "(__proc_spawn wrapper arg)"),
         (TASK, "taskNapNext", "(if (> (* nap 2) taskPollNanos)\n    taskPollNanos\n    (* nap 2))"),
         (TASK, "taskPollPeriod", "(if (== answered 1)\n    nap\n    taskPollNanos)"),
         (TASK, "taskSleepFor", "(if (> wake now)"),
@@ -726,6 +728,10 @@ def install(ns):
         "taskLoadAt": "the atomic load, in WRAPPERS", "taskStoreAt": "the atomic store, in WRAPPERS",
         "taskAddAt": "the atomic add, in WRAPPERS",
         "taskHandlePid": "the pid a handle names: in the model a handle is its child's pid; in WRAPPERS",
+        "taskSpawn": "the spawn inside its own recovery point, which the model's spawn is; in WRAPPERS",
+        "taskSpawned": "whether taskSpawn answered a handle: the model's spawns are never refused",
+        "taskWordOf": "a handle as the word a recovery point answers: in the model a handle is a pid",
+        "taskHandleOf": "that word back as a handle: in the model a handle is a pid",
         "taskScratch": "a scratch block of the parent's own", "taskScratchDone": "returns a scratch block",
         "taskKind": "a constant, the handle table's kind for a token",
         "taskTokenAt": "the handle table's lookup of a live token's page",

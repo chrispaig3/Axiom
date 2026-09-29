@@ -597,13 +597,18 @@ F("syncTake", ["m"], ["g"], (SYNC, "syncTake"), [
     ("astore", "m + 1", "g", "(syncStore m 1 g)"),
     ("ret", "g"),
 ])
-F("syncHolderDead", ["m", "v", "me"], ["owner", "k", "w"], (SYNC, "syncHolderDead"), [
+F("syncHolderDead", ["m", "v", "me"], ["owner", "k", "w", "e"], (SYNC, "syncHolderDead"), [
     ("set", "owner", "v // 4", "(/ v 4)"),
     ("if", "owner == 0 or owner * 4 == me", "look"),
     ("ret", "0"),
     ("L", "look"),
     ("kill0", "k", "owner", "(sysKill owner 0)"),
     ("if", "k == 0", "gone"),
+    ("call", "e", "syncChildEnded", ["owner"], "(syncChildEnded owner)"),
+    ("if", "e == 1", "alive"),
+    ("aload", "w", "m", "(syncLoad m 0)"),
+    ("ret", "1 if w // 4 == owner else 0"),
+    ("L", "alive"),
     ("ret", "0"),
     ("L", "gone"),
     ("if", "k == 3", "other", "(== (errCode e) 3)"),
@@ -611,6 +616,10 @@ F("syncHolderDead", ["m", "v", "me"], ["owner", "k", "w"], (SYNC, "syncHolderDea
     ("ret", "1 if w // 4 == owner else 0"),
     ("L", "other"),
     ("ret", "0"),
+])
+F("syncChildEnded", ["pid"], ["x"], (SYNC, "syncChildEnded"), [
+    ("look", "x", "pid", "(sysChildExited pid buf)"),
+    ("ret", "x"),
 ])
 F("syncPoison", ["m"], [], (SYNC, "syncPoison"), [
     ("astore", "m + 3", "1", "(syncStore m 3 1)"),
@@ -802,6 +811,8 @@ NOT_MODELLED = {
         "syncCasAt": "the compare-and-swap of word i, checked in WRAPPERS",
         "syncScratch": "the timed lock's private time left, the model's `left`",
         "syncScratchDone": "returns the scratch block", "syncTimeLeft": "reads the private time left",
+        "syncBlock": "a scratch block with a share taken; touches no mutex word",
+        "syncYes": "reads a look's answer: `Ok True` is 1, anything else 0, the model's look",
         "syncTimeSpent": "charges a wait: the model's `choose`", "syncStep": "the charge rule, checked in WRAPPERS",
         "syncOutOfTime": "time left <= 0 for a timed wait, checked in WRAPPERS",
         "syncSlice": "min(time left, the slice), checked in WRAPPERS",
@@ -1313,9 +1324,24 @@ def scenarios(long=False):
     out.append(S("mutex processes: a killable holder, a waiter and a timed waiter", "sync", sync_mem(),
                  [("locker", (0, 1)), ("locker", (0, 1)), ("timedLocker", (0, 1))], killable=(0,),
                  progress=("n", "t", "r")))
+    # The holder is the waiter's own child, which only that waiter could
+    # reap and never does: a zombie `kill(pid, 0)` answers for, which only
+    # the waiter's `waitid` look sees exit (AN-56).
+    out.extend(mutex_parent_scenarios())
     for more in EXTRA_SCENARIOS:
         out.extend(more(long))
     return out
+
+
+def mutex_parent_scenarios():
+    S = Scenario
+    kp = ("n", "t", "r")
+    return [
+        S("mutex processes: a killable holder whose parent waits", "sync", sync_mem(),
+          [("locker", (0, 1)), ("locker", (0, 1))], killable=(0,), parents={0: 1}, progress=kp),
+        S("mutex processes: a killable holder whose parent makes a timed lock", "sync", sync_mem(),
+          [("locker", (0, 1)), ("timedLocker", (0, 2))], killable=(0,), parents={0: 1}, progress=kp),
+    ]
 
 
 def chan_kill_scenarios():
@@ -2358,7 +2384,11 @@ def d_mutex_guard_counter(fns):
 
 def d_mutex_no_reread(fns):
     replace(fns, "syncHolderDead", [("aload", "w", "m", "(syncLoad m 0)"), ("ret", "1 if w // 4 == owner else 0")],
-            [("ret", "1")])
+            [("ret", "1")], count=2)
+
+
+def d_mutex_no_child_look(fns):
+    replace(fns, "syncChildEnded", [("look", "x", "pid", "(sysChildExited pid buf)")], [("set", "x", "0")])
 
 
 def d_mutex_no_mark(fns):
@@ -2436,6 +2466,10 @@ DEFECTS = [
      d_mutex_no_reread, "false poisoning",
      lambda: [Scenario("mutex processes: a killable holder, 1 waiter", "sync", sync_mem(),
                        [("locker", (0, 1)), ("locker", (0, 1))], killable=(0,), progress=("n", "t", "r"))]),
+    ("mutex child look removed",
+     "a waiter never asks waitid about its own child, so a zombie holder looks alive to its parent too (AN-56)",
+     d_mutex_no_child_look, "livelock",
+     lambda: [s for s in mutex_parent_scenarios() if "parent waits" in s.name]),
 ]
 
 

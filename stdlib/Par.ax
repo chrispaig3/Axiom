@@ -69,11 +69,14 @@
 ; THE ONE BEHAVIOUR THAT DIFFERS FROM `Job`, and a caller must know it.
 ; A thunk that TRAPS propagates its status in the PARENT.
 ; `__axiom_par_join_proc` re-raises a non-zero wait status through the
-; parent's recovery point, or exits with it when none is armed. The
-; runtime sweeps outstanding children on that path; the pool's normal
-; scratch cleanup below is bypassed, so reclaiming arena storage after
-; recovery remains the recovery owner's obligation. This pool does not
-; turn spawn failures into per-slot results.
+; parent's recovery point, or exits with it when none is armed. A spawn
+; the kernel refuses, or one the handle table has no slot for, raises
+; 78 the same way. The runtime sweeps outstanding children on that path
+; - MM-PAR-7 SIGKILLs and reaps every child spawned since the recovery
+; point was armed, this pool's included - and the pool holds no mapping,
+; so what the abort skips is its arena storage, which the recovery
+; point's reset reclaims with everything else above its mark.
+; `scripts/check-task.sh` §9 records the pids and requires them gone.
 ;
 ; This does NOT affect `parRunAll`'s contract. An external program that
 ; fails - exits 42, dies of a signal, or does not exist at all - is not
@@ -180,17 +183,80 @@
         (Ok w)
         (Err (mkError st "parallel slot trapped"))))))
 
+; Spawn `f` on `i` inside a recovery point of its own, so a refused
+; spawn comes back here as a status rather than raising past the pool
+; (MM-PAR-7's 78). Answers the handle's word, or the status: 78 when the
+; kernel refused the fork or the handle table was full, 70 when the
+; handle's page could not be mapped. The spawn is all the extent does,
+; and the `region` around it takes back its one allocation, the mark.
+(:: parSpawn (-> (-> Int Int) Int Int))
+;@axiom:effect(io)
+(fn (parSpawn f i)
+  (region r
+    (__axiom_recover
+      __axiom_arena_mark
+      (lambda (x) (parWordOf (__proc_spawn f i))))))
+
+; Whether `parSpawn` answered a handle: a handle's word is its slot's
+; generation, at least 1, times 2^16 plus the slot, and a status is
+; below 256.
+(:: parSpawned (-> Int Bool))
+(fn (parSpawned hw)
+  (>= hw 65536))
+
+; A spawn handle as the word the recovery point can answer, and back.
+; The way back makes a `Spawn` out of a word, so the word must be one
+; `parSpawn` answered and `parSpawned` accepted: a `cast` to `Spawn` is
+; not refused as an unsafe operation today (R-C6's limit), so that
+; obligation is this module's, and this is its one such cast.
+(:: parWordOf (-> Spawn Int))
+(fn (parWordOf h)
+  (cast Int h))
+
+(:: parHandleOf (-> Int Spawn))
+(fn (parHandleOf hw)
+  (cast Spawn hw))
+
+; SIGKILL a running slot's child, through the pid its handle names. A
+; child that has already exited is a zombie, and the signal changes
+; nothing about it.
+(:: parKill (-> Spawn Int))
+;@axiom:effect(io)
+(fn (parKill h)
+  (match (sysKill (__spawn_pid h) 9)
+    ((Ok z) 0)
+    ((Err e) 0)))
+
+; Join a slot `parKill` just signalled: `Ok` its word when it had
+; finished first, and otherwise `Err` its wait status, which is 137.
+(:: parJoinKilled (-> Spawn Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (parJoinKilled h cell)
+  (let ((w (__proc_join_nr h cell)))
+    (let ((st (memGetWord cell 0)))
+      (if (== st 0)
+        (Ok w)
+        (Err (mkError st "parallel slot killed: a later spawn was refused"))))))
+
 ; Run `f i` for every `i` in `0 .. n`, at most `width` at once,
 ; answering one `Result` per slot in SUBMIT order: `Ok` the thunk's
 ; word, `Err` the wait status of a slot whose thunk trapped.
 ;
+; A SPAWN THAT IS REFUSED stops the pool. Its slot and every slot after
+; it answer `Err` with the refusal's status - 78 when the kernel refused
+; the fork or the handle table was full, 70 when no page could be mapped
+; for the handle - and never run. Every slot still running is SIGKILLed
+; and joined, in submit order, and answers what its join saw: `Ok` its
+; word if it finished first, otherwise `Err` 137. So no child outlives
+; the call, and the scratch cell and ring are released on this path
+; too.
+;
 ; The loop is `parMapWords`'s, join for join - the width clamp, the
 ; block-before-spawning, the drain that continues `joined` - and the
-; comments there are not repeated here. What differs is only the join:
-; the non-raising one, so a trapped slot is an `Err` in the answer and
-; not the end of the program. The scratch cell and ring are released on
-; normal completion, including child traps returned as Err. A spawn
-; failure still raises through the runtime and bypasses these releases.
+; comments there are not repeated here. What differs is the join, the
+; non-raising one, so a trapped slot is an `Err` in the answer and not
+; the end of the program, and the spawn, which answers its refusal.
 (pub :: parMapWordsChecked (-> (-> Int Int) Int Int (Vec (Result Int Error))))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
@@ -206,25 +272,45 @@
     (out vecNew)
     (cell (memAlloc 8))
     (mut joined 0)
+    (mut next 0)
+    (mut refused 0)
   )
     {
       (__retain cell)
-      (for i 0 n
+      (while (&& (< next n) (== refused 0))
         {
-          (while (>= (- i joined) w)
+          (while (>= (- next joined) w)
             {
               (vecPush out (parJoinChecked (vecGet hs (% joined w)) cell))
               (set joined (+ joined 1))
             })
-          (let ((h (__proc_spawn f i)))
-            (if (< i w)
-              (vecPush hs h)
-              (vecSet hs (% i w) h)))
+          (let ((hw (parSpawn f next)))
+            (if (parSpawned hw)
+              {
+                (let ((h (parHandleOf hw)))
+                  (if (< next w)
+                    (vecPush hs h)
+                    (vecSet hs (% next w) h)))
+                (set next (+ next 1))
+              }
+              (set refused hw)))
         })
-      (while (< joined n)
+      (if (== refused 0)
+        (while (< joined n)
+          {
+            (vecPush out (parJoinChecked (vecGet hs (% joined w)) cell))
+            (set joined (+ joined 1))
+          })
         {
-          (vecPush out (parJoinChecked (vecGet hs (% joined w)) cell))
-          (set joined (+ joined 1))
+          (for k joined next
+            (parKill (vecGet hs (% k w))))
+          (while (< joined next)
+            {
+              (vecPush out (parJoinKilled (vecGet hs (% joined w)) cell))
+              (set joined (+ joined 1))
+            })
+          (for k next n
+            (vecPush out (Err (mkError refused "parallel slot not started: its spawn was refused"))))
         })
       (vecFree hs)
       (__release cell)

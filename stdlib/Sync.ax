@@ -35,10 +35,21 @@
 ; COUNTER instead accepted exactly that stale unlock and released a
 ; lock someone else held.) Each mutex's counter starts at its page
 ; number times 2^24, so guards of two live mutexes differ unless one of
-; them has been locked 2^24 times. What this cannot refuse is a FORGED
-; guard - a word read out of the page through the unsafe layer, or one
-; guessed from a guard this binding held before - and that is a program
-; obligation.
+; them has been locked 2^24 times.
+;
+; The guard is a `MutexGuard`: a word struct (MM-VAL-10a) only this
+; module can make or read, so safe code can't hand `mutexUnlock` an
+; `Int`, a `Mutex` or any other handle as a guard (AX3004), or build
+; one (AX3085). Every guard a program holds is one a lock call here
+; answered, and the compare-and-swap above is what refuses the stale
+; ones and the other mutex's. It is not in the runtime's handle table:
+; a lock and an unlock are one compare-and-swap each when uncontended,
+; and a table slot per acquisition would add two more and a limit of
+; 65,536 held locks. It is not `shared` either, so a concurrent binding
+; can't capture one (AX3064): a guard belongs to the binding whose lock
+; call answered it. A guard made with a `cast` is the unsafe layer's
+; (MM-VAL-22), and the compare-and-swap still refuses every one but the
+; holder's current guard.
 ;
 ; HAPPENS-BEFORE. The acquire is a seq_cst compare-and-swap and the
 ; release a seq_cst compare-and-swap or store, so an unlock
@@ -51,8 +62,10 @@
 ; `MM-PAR-7`'s sweep SIGKILLs a sibling wherever it is - leaves the word
 ; naming a pid that no longer exists. A waiter looks every time a slice
 ; of its wait runs out (at most `syncProbeNanos`, 100 ms, apart):
-; `kill(pid, 0)` answering ESRCH while the word still names that pid
-; means the holder died holding it. The mutex is then POISONED - word 3
+; `kill(pid, 0)` answering ESRCH, or `waitid` saying that this
+; process's own child of that pid has exited and is not yet reaped,
+; while the word still names that pid, means the holder died holding
+; it - `Chan.ax`'s test. The mutex is then POISONED - word 3
 ; set, every waiter woken - and every lock call on it answers `Err` code
 ; `syncOwnerDead` from then on (`mutexTryLock` answers `None`,
 ; `mutexOwnerDead` says why). The lock is not handed over: what it
@@ -71,10 +84,11 @@
 ;     `mutexLockTimeout`. So it must not be called from a signal handler
 ;     or anything else that can interrupt a holder.
 ;   * A holder that is dead but not yet REAPED - a zombie its parent has
-;     not joined - still answers `kill(pid, 0)`, so it looks alive until
-;     its parent joins it; and a pid reused by an unrelated process
-;     makes a dead holder look alive for good. In both cases
-;     `mutexLockTimeout` answers timed out and `mutexLock` waits.
+;     not joined - still answers `kill(pid, 0)`, so it looks alive to
+;     every binding but that parent, whose `waitid` sees it exit; and a
+;     pid reused by an unrelated process makes a dead holder look alive
+;     for good. In both cases `mutexLockTimeout` answers timed out and
+;     `mutexLock` waits.
 ;   * A holder killed under `--threads` is the whole process: there is
 ;     no dead thread that holds a lock.
 ;
@@ -100,6 +114,12 @@
 ; naming the page.
 (pub struct Mutex word shared
   (slot : Int))
+
+; What a lock call answers and `mutexUnlock` takes back: one word, the
+; serial number the acquisition drew (the module header's "the guard").
+; Only this module makes or reads one, and it is not `shared`.
+(pub struct MutexGuard word
+  (serial : Int))
 
 ; The handle table's kind for a mutex (`Chan.ax`'s is 2): a channel's
 ; handle is not a mutex, even to code that forged one.
@@ -202,9 +222,21 @@
       b
     }))
 
+; A block of `n` bytes with a share taken, and the share given back by
+; `syncScratchDone`: the release files it for reuse (MM-LIFE-2k), so a
+; wait that asks for one on every slice does not grow the arena.
+(:: syncBlock (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (syncBlock n)
+  (let ((b (memAlloc n)))
+    {
+      (__retain b)
+      b
+    }))
+
 (:: syncScratchDone (-> Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`b` is a block `syncScratch` answered, handed back once and not used after)
+;@axiom:precondition(`b` is a block `syncScratch` or `syncBlock` answered, handed back once and not used after)
 (fn (syncScratchDone b)
   {
     (__release b)
@@ -292,7 +324,10 @@
 ; Is the holder named by lock value `v` gone? Only a pid other than this
 ; binding's own can be (a thread's siblings share its pid, and are alive
 ; while it runs), and only if the word STILL names it once the kernel
-; says ESRCH - the holder may have unlocked and exited in between.
+; says so - the holder may have unlocked and exited in between. ESRCH
+; from `kill(pid, 0)` says so; so does `waitid`, for a child of THIS
+; process that has exited and not been reaped - a zombie, which `kill`
+; still answers for.
 (:: syncHolderDead (-> Int Int Int Bool))
 ;@axiom:effect(io)
 (fn (syncHolderDead m v me)
@@ -300,12 +335,37 @@
     (if (|| (== owner 0) (== (* owner 4) me))
       false
       (match (sysKill owner 0)
-        ((Ok r) false)
+        ((Ok r)
+          (if (syncChildEnded owner)
+            (== (/ (syncLoad m 0) 4) owner)
+            false)
+        )
         ((Err e)
           (if (== (errCode e) 3)
             (== (/ (syncLoad m 0) 4) owner)
             false)
         )))))
+
+; Whether `pid` is this process's own child and has exited, unreaped:
+; `Chan.ax`'s `chanChildEnded`. `waitid` with WNOWAIT does not reap it,
+; so the join that follows still owns the child.
+(:: syncChildEnded (-> Int Bool))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (syncChildEnded pid)
+  (let ((buf (syncBlock sysChildPollBytes)))
+    (let ((ended (syncYes (sysChildExited pid buf))))
+      {
+        (syncScratchDone buf)
+        ended
+      })))
+
+; `Ok True`, and nothing else, is yes: a look that failed has seen nothing.
+(:: syncYes (-> (Result Bool Error) Bool))
+(fn (syncYes r)
+  (match r
+    ((Ok b) b)
+    ((Err e) false)))
 
 ; Mark the mutex poisoned and wake every waiter, so each of them sees it.
 (:: syncPoison (-> Int Int))
@@ -389,7 +449,7 @@
 ; Wait until this binding holds the lock. `Ok` the guard `mutexUnlock`
 ; wants back; `Err` code `syncOwnerDead` if the holder is found dead
 ; while this waits, or the mutex was poisoned before.
-(pub :: mutexLock (-> Mutex (Result Int Error)))
+(pub :: mutexLock (-> Mutex (Result MutexGuard Error)))
 ;@axiom:effect(io)
 (pub fn (mutexLock mx)
   (let ((m (syncAt mx)))
@@ -397,15 +457,15 @@
       (Err (mkError syncOwnerDead "mutexLock: the holder died holding it"))
       (let ((me syncMe))
         (if (== (syncCas m 0 me) 0)
-          (Ok (syncTake m))
+          (Ok (MutexGuard (syncTake m)))
           (let ((g (syncAcquire m 0 0)))
             (if (> g 0)
-              (Ok g)
+              (Ok (MutexGuard g))
               (Err (mkError syncOwnerDead "mutexLock: the holder died holding it")))))))))
 
 ; Take the lock if it is free right now: `Some` the guard, `None` if it
 ; is held - or poisoned, which `mutexOwnerDead` tells apart.
-(pub :: mutexTryLock (-> Mutex (Option Int)))
+(pub :: mutexTryLock (-> Mutex (Option MutexGuard)))
 ;@axiom:effect(io)
 (pub fn (mutexTryLock mx)
   (let ((m (syncAt mx)))
@@ -413,7 +473,7 @@
       None
       (let ((me syncMe))
         (if (== (syncCas m 0 me) 0)
-          (Some (syncTake m))
+          (Some (MutexGuard (syncTake m)))
           None)))))
 
 ; `mutexLock`, waiting at most `nanos` nanoseconds. `Ok` the guard;
@@ -422,7 +482,7 @@
 ; holder was found dead. A wait nobody ends is never shorter than
 ; `nanos` on a monotonic clock (MM-PAR-12 states Darwin's bound). A
 ; non-positive `nanos` is `mutexTryLock` with a reason.
-(pub :: mutexLockTimeout (-> Mutex Int (Result Int Error)))
+(pub :: mutexLockTimeout (-> Mutex Int (Result MutexGuard Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 (pub fn (mutexLockTimeout mx nanos)
@@ -431,26 +491,30 @@
       (Err (mkError syncOwnerDead "mutexLockTimeout: the holder died holding it"))
       (let ((me syncMe))
         (if (== (syncCas m 0 me) 0)
-          (Ok (syncTake m))
+          (Ok (MutexGuard (syncTake m)))
           (let ((b (syncScratch nanos)))
             (let ((g (syncAcquire m b 1)))
               {
                 (syncScratchDone b)
                 (if (> g 0)
-                  (Ok g)
+                  (Ok (MutexGuard g))
                   (if (== g (- 0 2))
                     (Err (mkError syncOwnerDead "mutexLockTimeout: the holder died holding it"))
                     (Err (mkError sysTimedOut "mutexLockTimeout: timed out"))))
               })))))))
 
-; Let the next holder in. `guard` must be what this binding's lock call
-; answered: anything else - a free mutex, a stale guard, a sibling's -
-; is `Err` code `syncNotHeld` and leaves the lock as it was. Exactly one
-; unlock per acquisition succeeds, however the calls interleave.
-(pub :: mutexUnlock (-> Mutex Int (Result Int Error)))
+; Let the next holder in. `mg` must be the guard this binding's lock
+; call answered: any other - on a free mutex, a stale one, a sibling's,
+; another mutex's - is `Err` code `syncNotHeld` and leaves the lock as
+; it was. Exactly one unlock per acquisition succeeds, however the calls
+; interleave.
+(pub :: mutexUnlock (-> Mutex MutexGuard (Result Int Error)))
 ;@axiom:effect(io)
-(pub fn (mutexUnlock mx guard)
-  (let ((m (syncAt mx)))
+(pub fn (mutexUnlock mx mg)
+  (let (
+    (m (syncAt mx))
+    (guard mg.serial)
+  )
     (if (|| (<= guard 0) (!= (syncCasAt m 1 guard 0) guard))
       (Err (mkError syncNotHeld "mutexUnlock: this binding does not hold the mutex"))
       (let ((v (syncLoad m 0)))

@@ -679,19 +679,20 @@ two differ.
 
 ## `Sync`
 
-`stdlib/Sync.ax` — 11 public names
+`stdlib/Sync.ax` — 12 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
 | `Mutex` | struct |  |  | A mutex: one word, a slot in the runtime's handle table (MM-PAR-8) naming the page. |
+| `MutexGuard` | struct |  |  | What a lock call answers and `mutexUnlock` takes back: one word, the serial number the acquisition drew (the module header's "the guard"). Only this module makes or reads one, and it is not `shared`. |
 | `syncOwnerDead` | value | `Int` |  | Above 255, like `sysTimedOut` (1001, the timeout every lock call here answers), so none can be mistaken for a wait status. |
 | `syncNotHeld` | value | `Int` |  |  |
 | `syncProbeNanos` | value | `Int` |  | How long a waiter sleeps before it looks at the holder: 100 ms. |
 | `mutexNew` | value | `(Result Mutex Error)` | `Alloc,IO,Mut` | A fresh mutex, free. `Err` the mapping's error, or EMFILE (24) when the handle table has no slot left. |
-| `mutexLock` | value | `(-> Mutex (Result Int Error))` | `Alloc,IO,Mut` | Wait until this binding holds the lock. `Ok` the guard `mutexUnlock` wants back; `Err` code `syncOwnerDead` if the holder is found dead while this waits, or the mutex was poisoned before. |
-| `mutexTryLock` | value | `(-> Mutex (Option Int))` | `IO,Mut` | Take the lock if it is free right now: `Some` the guard, `None` if it is held - or poisoned, which `mutexOwnerDead` tells apart. |
-| `mutexLockTimeout` | value | `(-> Mutex Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | `mutexLock`, waiting at most `nanos` nanoseconds. `Ok` the guard; `Err` code `sysTimedOut` when the time ran out with the lock still held by a holder that looks alive; `Err` code `syncOwnerDead` when the holder was found dead. A wait nobody ends is never shorter than `nanos` on a monotonic clock (MM-PAR-12 states Darwin's bound). A non-positive `nanos` is `mutexTryLock` with a reason. |
-| `mutexUnlock` | value | `(-> Mutex Int (Result Int Error))` | `Alloc,IO,Mut` | Let the next holder in. `guard` must be what this binding's lock call answered: anything else - a free mutex, a stale guard, a sibling's - is `Err` code `syncNotHeld` and leaves the lock as it was. Exactly one unlock per acquisition succeeds, however the calls interleave. |
+| `mutexLock` | value | `(-> Mutex (Result MutexGuard Error))` | `Alloc,IO,Mut` | Wait until this binding holds the lock. `Ok` the guard `mutexUnlock` wants back; `Err` code `syncOwnerDead` if the holder is found dead while this waits, or the mutex was poisoned before. |
+| `mutexTryLock` | value | `(-> Mutex (Option MutexGuard))` | `IO,Mut` | Take the lock if it is free right now: `Some` the guard, `None` if it is held - or poisoned, which `mutexOwnerDead` tells apart. |
+| `mutexLockTimeout` | value | `(-> Mutex Int (Result MutexGuard Error))` | `Alloc,IO,Mut,Unsafe` | `mutexLock`, waiting at most `nanos` nanoseconds. `Ok` the guard; `Err` code `sysTimedOut` when the time ran out with the lock still held by a holder that looks alive; `Err` code `syncOwnerDead` when the holder was found dead. A wait nobody ends is never shorter than `nanos` on a monotonic clock (MM-PAR-12 states Darwin's bound). A non-positive `nanos` is `mutexTryLock` with a reason. |
+| `mutexUnlock` | value | `(-> Mutex MutexGuard (Result Int Error))` | `Alloc,IO,Mut` | Let the next holder in. `mg` must be the guard this binding's lock call answered: any other - on a free mutex, a stale one, a sibling's, another mutex's - is `Err` code `syncNotHeld` and leaves the lock as it was. Exactly one unlock per acquisition succeeds, however the calls interleave. |
 | `mutexOwnerDead` | value | `(-> Mutex Bool)` |  | Whether a holder was found dead holding this mutex (the poisoning in the header). |
 | `mutexFree` | value | `(-> Mutex (Result Int Error))` | `Alloc,IO,Mut` | Unmap the mutex. Only once no binding can still reach it - after the `parallel` form that used it. Takes no lock, so it is also the one safe call on a poisoned mutex. The handle is retired before the page is unmapped, so every call made after this one - a second `mutexFree` included - traps with status 85. |
 

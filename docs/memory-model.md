@@ -4715,6 +4715,13 @@ The same table carries the standard library's handles: a channel
 so a freed, forged or other-kind handle traps 85, and so does a second
 free.
 
+A mutex's guard is a word struct too, `MutexGuard`, which only a lock
+call answers. It isn't in the table and isn't `shared`. Safe code can't
+pass an `Int`, a `Mutex` or another handle as a guard (`AX3004`), build
+one (`AX3085`) or hand one to a concurrent binding (`AX3064`). A stale
+guard, or another mutex's, is still a real `MutexGuard`, and the
+unlock's compare-and-swap refuses it at run time (`MM-PAR-11`).
+
 *The table.* A handle word is `(generation << 16) | index`. A slot
 holds a state, the generation with a live bit and a kind, and the
 address it names. A get reads the state on both sides of the address
@@ -4736,7 +4743,9 @@ fork is (78), and a library call answers `EMFILE`.
 `tests/stdlib/571-handle-table.ax` and
 `tests/stdlib/572-spawn-joined-twice.ax`, at every `--opt`;
 `tests/diagnostics/1060-handle-int-for-chan.ax` to
-`tests/diagnostics/1066-spawn-handle.ax`; `scripts/check-handles.sh`:
+`tests/diagnostics/1066-spawn-handle.ax`. The guard's refusals are
+`tests/diagnostics/1070-mutex-guard-int.ax` and
+`tests/diagnostics/1071-mutex-guard-sealed.ax`. `scripts/check-handles.sh`:
 both lowerings, 80,000 handles made and freed by four bindings at once,
 racing frees, both kinds of spawn handle, the capture rule under
 `build --threads`, a single-bit fault at each of a live handle's 64
@@ -5055,31 +5064,40 @@ waits until the caller holds the mutex. `mutexTryLock` doesn't wait,
   half Linux's `futex` compares. The compare-and-swap that takes the
   lock also writes the pid, so the word names the holder at every
   instant the lock is held.
-- **Misuse is refused.** Every acquisition draws a *guard* from a
+- **The guard is typed.** Every acquisition draws a *guard* from a
   counter and publishes it as the holder's, right after its
-  compare-and-swap takes the lock word. `mutexUnlock` claims the
-  published guard with one compare-and-swap, from the guard to 0,
-  before it touches the lock word. An unlock of a free mutex, with a
-  stale guard (a double unlock), or with any guard but the holder's
-  fails that compare-and-swap, answers `Err` code `syncNotHeld` (1005),
-  and changes nothing. That includes a stale guard that lands between
-  a new holder's lock and its publication, because the published word
-  holds 0 then.
+  compare-and-swap takes the lock word. The lock call answers it as a
+  `MutexGuard`, a word struct only `Sync` builds or opens, so safe code
+  can't offer an `Int` or another handle as one (`MM-PAR-8`).
+- **Misuse is refused.** `mutexUnlock` claims the published guard with
+  one compare-and-swap, from the guard to 0, before it touches the lock
+  word. An unlock of a free mutex, with a stale guard (a double
+  unlock), with another mutex's guard or with any guard but the
+  holder's fails that compare-and-swap, answers `Err` code
+  `syncNotHeld` (1005), and changes nothing. That includes a stale guard that lands between a new
+  holder's lock and its publication, because the published word holds 0
+  then.
 - **The guard is the check**, because every binding has the same pid
   under `--threads`. Each mutex's counter starts at its page number
   times 2^24, so the guards of two live mutexes differ unless one has
   been locked 2^24 times.
 - **A dead holder is found.** When a slice of a wait runs out, the
-  waiter asks `kill(pid, 0)` of the pid the word names. `ESRCH` while
-  the word still names that pid means the holder died holding the lock,
-  for example a forked binding that `MM-PAR-7`'s sweep killed. The mutex
-  is then poisoned: a flag is set and every waiter is woken. From then
-  on every lock call answers `Err` code `syncOwnerDead` (1004),
-  `mutexTryLock` answers `None`, and `mutexOwnerDead` says why. The
-  lock isn't handed over, because what it protected may be half-written
-  and only the program can say whether that is survivable. On H3 a timed
+  waiter asks `kill(pid, 0)` about the pid the word names, and `waitid`
+  with `WNOWAIT` too when that pid is its own process's child, as the
+  channel does (`MM-PAR-10`). `ESRCH`, or a child that has exited
+  unreaped, while the word still names that pid, means the holder died
+  holding the lock: a forked binding that `MM-PAR-7`'s sweep killed, or
+  a child that exited holding it before its parent joined it.
+- **A dead holder poisons it.** The mutex is then poisoned: a flag is
+  set and every waiter is woken. From then on every lock call answers
+  `Err` code `syncOwnerDead` (1004), `mutexTryLock` answers `None`, and
+  `mutexOwnerDead` says why. The lock isn't handed over, because what
+  it protected may be half-written and only the program can say whether
+  that is survivable. On H3 a timed
   lock answered 1004 101 ms after the holder was killed and reaped, and
-  an untimed one at once.
+  an untimed one at once. A parent whose child exited holding the lock
+  answered 1004 101 ms into a 2 s timed lock, in both lowerings, before
+  it joined the child.
 
 *Limits.*
 
@@ -5091,52 +5109,70 @@ waits until the caller holds the mutex. `mutexTryLock` doesn't wait,
 - Not reentrant. A holder that locks again waits for itself, for ever
   with `mutexLock`. So it isn't callable from a signal or interrupt
   handler.
-- A holder that is dead but not yet reaped still answers `kill(pid, 0)`,
-  because a zombie exists until its parent joins it. A pid that an
-  unrelated process has taken looks alive too. In both cases the lock
-  looks held: a timed lock answers timed out and an untimed one waits.
+- A holder that is dead but not yet reaped, a zombie its parent hasn't
+  joined, still answers `kill(pid, 0)`. Only its parent's process can
+  ask `waitid` about it, so it looks alive to every other binding. A pid
+  that an unrelated process has taken looks alive too. In both cases the
+  lock looks held: a timed lock answers timed out and an untimed one
+  waits.
 - A thread can't die holding the lock alone. A trap under `--threads`
   ends the process.
 
 *Program obligations.* The handle is a `Mutex`, as `Chan`'s is a
 `Chan`: every call on a freed mutex, and a second `mutexFree`, traps
 with status 85. Call `mutexFree` only once no binding can reach the
-mutex; a free that races a lock call is a data race (`MM-PAR-9`). The
-guard is an `Int`, so a guard read out of the page through the unsafe
-layer, or guessed from one this binding held before, isn't refused. What the lock protects is protected
-only if every access to it happens under the lock. A plain access
-outside it is a data race (`MM-PAR-9`).
+mutex; a free that races a lock call is a data race (`MM-PAR-9`). A
+guard made with a `cast` is the unsafe layer's (`MM-VAL-22`): the
+unlock still refuses it unless its word is the holder's current guard,
+which a program can read out of the page only through that layer too.
+What the lock protects is protected only if every access to it happens
+under the lock. A plain access outside it is a data race (`MM-PAR-9`).
 
 *Evidence.*
 
 - `tests/stdlib/541-sync-mutex.ax`: every answer above, one binding at
-  a time; two forked bindings making 3,000 increments each, exact; and
-  a holder killed and reaped while holding the lock. Its `.optstable`
-  pins `--opt` 0 to 3.
+  a time, another mutex's live guard and a guard made by a `cast` among
+  the refused unlocks; two forked bindings making 3,000 increments
+  each, exact; and a holder killed and reaped while holding the lock.
+  Its `.optstable` pins `--opt` 0 to 3.
+- `tests/diagnostics/1070-mutex-guard-int.ax` and
+  `tests/diagnostics/1071-mutex-guard-sealed.ax`: an `Int`, the mutex
+  and a channel refused as a guard, a guard refused as an `Int`, and a
+  guard built, opened or captured by a concurrent binding refused.
 - `scripts/check-task.sh` §1: four bindings each add 1 to one plain
   shared word 100,000 times under the mutex, exact in both lowerings at
   `--opt` 0 and 2. Beside each run, an unlocked control must lose
   updates. On H3 the four controls lost 230,071 to 272,503 of 400,000.
-- `scripts/check-task.sh` §2 checks the dead holder and the refused
-  unlocks. One of them is the stale guard presented in the window
+- `tests/stdlib/600-mutex-dead-child.ax`: a child that exits holding
+  the lock, not yet joined, poisons it for its parent's timed lock, at
+  every `--opt`.
+- `scripts/check-task.sh` §2 checks the dead holder, killed and reaped
+  or exited and unreaped, and the refused unlocks. The unreaped holder's
+  parent answers 1004 well inside a 2 s timed lock in both lowerings, and
+  so does a sibling thread under `--threads`, while a sibling process,
+  which can't look, times out. One of the refused unlocks is the stale
+  guard presented in the window
   between a new holder's lock and its publication, built exactly
   rather than raced for. Under load, one binding double-unlocks
   200,000 times beside two correct ones: every stale unlock is refused,
   every earned one accepted, and the count exact, in both lowerings.
 - `scripts/check-task.sh` §6 ablates the lock's compare-and-swap, the
-  dead-holder test and the guard claim (compared against the counter
-  instead, which accepts the stale guard in the window), each on a copy
-  of the library, and each turns its check red.
+  dead-holder test, the look at the waiter's own child and the guard
+  claim (compared against the counter instead, which accepts the stale
+  guard in the window), each on a copy of the library, and each turns
+  its check red.
 
 - `scripts/check-protocol-model.sh` explores the protocol, transcribed
   in `scripts/lib/protocol-model.py`, in every interleaving of two and
   three bindings in both lowerings, with a stale guard, a timed lock, a
-  try-lock and a holder killed at any step. Every state keeps
-  exclusion, refuses the stale guard and poisons only for a dead
-  holder, and no lost wakeup or deadlock is reachable. A lock taken by
-  a plain load and store, a release without its wake, a waiter without
-  its mark, the guard compared with the counter and the dead-holder
-  test without its re-read are each found with a schedule. On the
+  try-lock and a holder killed at any step, reaped by nobody but its
+  parent when a waiter is that parent. Every state keeps exclusion,
+  refuses the stale guard and poisons only for a dead holder, and no
+  lost wakeup or deadlock is reachable. A lock taken by a plain load
+  and store, a release without its wake, a waiter without its mark, the
+  guard compared with the counter, the dead-holder test without its
+  re-read and a waiter that never asks `waitid` about its own child are
+  each found with a schedule. On the
   machine, a lock-order inversion answers `sysTimedOut` on both sides
   under `mutexLockTimeout` and deadlocks under `mutexLock`, and four
   contending bindings' shares and worst waits are measured.
@@ -5286,6 +5322,20 @@ isolation is what makes a task's captures its own.
   delivers each answer inside a `region` (`MM-RGN-1`) and keeps
   nothing. On H3 its peak RSS was 1,888 KiB at 500, 5,000 and 20,000
   tasks of 4 KiB answers.
+- **A refused spawn is a value too.** A spawn the kernel refuses, or
+  one the handle table has no slot for, answers `Err` 78 in its task's
+  slot, or 70 when no page could be mapped for the handle. It cancels
+  the pool as a cancellation does, but leaves the token alone: nothing
+  more starts, the tasks still running get `grace` and are then killed
+  and reaped, and the pool returns through its normal path, which
+  unmaps the slab and frees a private token. The spawn runs inside a
+  recovery point of its own (`taskSpawn`), so the runtime's 78 comes
+  back to the pool instead of unwinding past its cleanup.
+- **`Par`'s pools answer a refusal too.** `stdlib/Par.ax`'s
+  `parMapWordsChecked` answers it in its slots the same way, and kills
+  and joins its running children at once. `parMapWords` raises 78 to
+  its caller as it raises a child's trap, and the runtime's sweep
+  (`MM-PAR-7`) kills and reaps its children.
 - **No child outlives the call** on any path the program has. A normal
   return has joined every child. A trap in the parent in the middle of
   a pool is `MM-PAR-7`'s case: the children are on the spawning
@@ -5318,9 +5368,9 @@ isolation is what makes a task's captures its own.
   can't sweep its own tasks (`MM-PAR-7`'s grandchildren limit). A
   task's own children are the task's responsibility.
 - A raw `sysExitWith` sweeps nothing.
-- A `__proc_spawn` the kernel refuses traps 78 through the runtime, as
-  in `Par.ax`, instead of answering in its slot.
-- A pool's mappings aren't returned on the trap path.
+- A pool's mappings aren't returned when any other trap unwinds
+  through it, such as one in `taskFold`'s step. Its children are still
+  killed and reaped (`MM-PAR-7`).
 - Where no look at a child exists (`sysChildExited` answers `Err`), a
   death without an answer is found at the task's deadline. With no
   deadline, it is found by blocking on the oldest running task's join,
@@ -5362,6 +5412,18 @@ isolation is what makes a task's captures its own.
   sibling thread. A control measures the stated limit: an external
   `SIGKILL` leaves the tasks alive. §5: the fold stays within 1 MiB
   from 500 to 5,000 tasks, and the keeping control must grow by 8 MiB.
+- `tests/stdlib/601-task-spawn-refused.ax` and
+  `tests/stdlib/602-par-spawn-refused.ax`: the third spawn refused,
+  each answer in its slot, the running children gone and every handle
+  slot back, at every `--opt`.
+- `scripts/check-task.sh` §9 refuses a pool's third spawn in both
+  lowerings. The two running tasks' pids are gone while the program
+  still lives, it has no child left, every handle slot comes back, and
+  eight refused rounds with a 128 MiB slab each leave the address space
+  where one round left it. With the recovery point around the spawn
+  taken out, the same eight rounds kept about 900 MiB. The kernel's own
+  refusal is run too: a fold that lowers `RLIMIT_NPROC` mid-pool, and
+  `ulimit -u 1` refusing the first fork.
 - `scripts/check-task.sh` §6 ablates the deadline's kill, the pid the
   kill reads, the child look, the result slot, the byte limit, the
   cancellation's kill, the saturating microseconds conversion and the

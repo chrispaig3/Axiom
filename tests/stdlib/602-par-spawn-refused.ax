@@ -1,0 +1,118 @@
+; Both `Par` pools with their third spawn refused (R-B2). The runtime's
+; handle table is filled but for two slots, so two children start and
+; the third spawn is refused, the path a fork the kernel refuses takes
+; too (78). `parMapWordsChecked` answers it in its slots: the refused
+; slot and the one after it `Err` 78, the two running ones SIGKILLed and
+; joined, `Err` 137. `parMapWords` raises 78 to the caller's recovery
+; point, as a child's trap would, and the runtime's sweep kills and
+; reaps its children. Both hand every handle slot back.
+; `scripts/check-task.sh` §9 runs the same shapes in both lowerings.
+(import IO)
+(import Sys)
+(import Mem)
+(import Vec)
+(import Err)
+(import Par)
+
+(:: newH (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (newH addr)
+  (__handle_new 9 addr))
+
+(:: freeH (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (freeH h)
+  (__handle_free 9 h))
+
+; Take every free slot; answer how many that was.
+(:: fillAll (-> (Vec Int) Int))
+(fn (fillAll hs)
+  (let (
+    (mut added 0)
+    (mut going 1)
+  )
+    {
+      (while (== going 1)
+        (let ((h (newH (* (+ (vecLen hs) 1) 16))))
+          (if (== h 0)
+            (set going 0)
+            {
+              (vecPush hs h)
+              (set added (+ added 1))
+            })))
+      added
+    }))
+
+(:: freeSome (-> (Vec Int) Int Int))
+(fn (freeSome hs k)
+  {
+    (for i 0 k
+      (freeH (vecPop hs)))
+    k
+  })
+
+; Sleep for up to a minute: only a kill ends it in time.
+(:: stubborn (-> Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (stubborn page)
+  {
+    (for k 0 600
+      (sysWaitWordTimeout page 0 100000000))
+    0
+  })
+
+(:: showWord (-> Int (Result Int Error) Int))
+;@axiom:effect(io)
+(fn (showWord i r)
+  (match r
+    ((Ok v) (println "{i} ok {v}"))
+    ((Err e)
+      (let (
+        (c (errCode e))
+        (m (errMessage e))
+      )
+        (println "{i} err {c} {m}"))
+    )))
+
+; The raising pool, passed to the recovery point by name.
+(:: raisingRound (-> Int Int))
+;@axiom:effect(io)
+(fn (raisingRound x)
+  (match (sysMapShared 4096)
+    ((Ok page)
+      (vecLen
+        (parMapWords
+          (lambda (i) (stubborn page))
+          4
+          4))
+    )
+    ((Err e) 2)))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (match (sysMapShared 4096)
+    ((Ok page)
+      (let ((hs (vecWithCapacity 65536)))
+        {
+          (fillAll hs)
+          (freeSome hs 2)
+          (let ((rs 
+            (parMapWordsChecked
+              (lambda (i) (stubborn page))
+              4
+              4)))
+            (for i 0 (vecLen rs)
+              (showWord i (vecGet rs i))))
+          (let ((free (fillAll hs)))
+            (println "checked: handle slots back {free} of 2"))
+          (freeSome hs 2)
+          (let ((st (__axiom_recover __axiom_arena_mark raisingRound)))
+            (println "raising: the recovery point answered {st}"))
+          (let ((free (fillAll hs)))
+            (println "raising: handle slots back {free} of 2"))
+          0
+        })
+    )
+    ((Err e) 1)))
