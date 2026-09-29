@@ -201,6 +201,7 @@
     }))
 
 (:: check3 Int)
+;@axiom:effect(io)
 (fn (check3)
   (let ((keep (memAlloc 8192)))
     {
