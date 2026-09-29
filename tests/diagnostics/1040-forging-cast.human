@@ -42,7 +42,7 @@
   [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
 
-[1;31merror[AX3073][0m[1m: `toFn` forges `Step` out of `Int` with `cast`, and its declaration does not say so[0m
+[1;31merror[AX3073][0m[1m: `toFn` forges `(Int -> Int)` out of `Int` with `cast`, and its declaration does not say so[0m
   [1;34m--> [0m1040-forging-cast.ax:56:6
 [1;34m   |[0m
 [1;34m56 |[0m     (cast Step k)))
