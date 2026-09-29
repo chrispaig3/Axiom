@@ -5078,16 +5078,22 @@ waits until the caller holds the mutex. `mutexTryLock` doesn't wait,
   times 2^24, so the guards of two live mutexes differ unless one has
   been locked 2^24 times.
 - **A dead holder is found.** When a slice of a wait runs out, the
-  waiter asks `kill(pid, 0)` of the pid the word names. `ESRCH` while
-  the word still names that pid means the holder died holding the lock,
-  for example a forked binding that `MM-PAR-7`'s sweep killed. The mutex
-  is then poisoned: a flag is set and every waiter is woken. From then
-  on every lock call answers `Err` code `syncOwnerDead` (1004),
-  `mutexTryLock` answers `None`, and `mutexOwnerDead` says why. The
-  lock isn't handed over, because what it protected may be half-written
-  and only the program can say whether that is survivable. On H3 a timed
+  waiter asks `kill(pid, 0)` about the pid the word names, and `waitid`
+  with `WNOWAIT` too when that pid is its own process's child, as the
+  channel does (`MM-PAR-10`). `ESRCH`, or a child that has exited
+  unreaped, while the word still names that pid, means the holder died
+  holding the lock: a forked binding that `MM-PAR-7`'s sweep killed, or
+  a child that exited holding it before its parent joined it.
+- **A dead holder poisons it.** The mutex is then poisoned: a flag is
+  set and every waiter is woken. From then on every lock call answers
+  `Err` code `syncOwnerDead` (1004), `mutexTryLock` answers `None`, and
+  `mutexOwnerDead` says why. The lock isn't handed over, because what
+  it protected may be half-written and only the program can say whether
+  that is survivable. On H3 a timed
   lock answered 1004 101 ms after the holder was killed and reaped, and
-  an untimed one at once.
+  an untimed one at once. A parent whose child exited holding the lock
+  answered 1004 101 ms into a 2 s timed lock, in both lowerings, before
+  it joined the child.
 
 *Limits.*
 
@@ -5099,10 +5105,12 @@ waits until the caller holds the mutex. `mutexTryLock` doesn't wait,
 - Not reentrant. A holder that locks again waits for itself, for ever
   with `mutexLock`. So it isn't callable from a signal or interrupt
   handler.
-- A holder that is dead but not yet reaped still answers `kill(pid, 0)`,
-  because a zombie exists until its parent joins it. A pid that an
-  unrelated process has taken looks alive too. In both cases the lock
-  looks held: a timed lock answers timed out and an untimed one waits.
+- A holder that is dead but not yet reaped, a zombie its parent hasn't
+  joined, still answers `kill(pid, 0)`. Only its parent's process can
+  ask `waitid` about it, so it looks alive to every other binding. A pid
+  that an unrelated process has taken looks alive too. In both cases the
+  lock looks held: a timed lock answers timed out and an untimed one
+  waits.
 - A thread can't die holding the lock alone. A trap under `--threads`
   ends the process.
 
@@ -5131,26 +5139,36 @@ under the lock. A plain access outside it is a data race (`MM-PAR-9`).
   shared word 100,000 times under the mutex, exact in both lowerings at
   `--opt` 0 and 2. Beside each run, an unlocked control must lose
   updates. On H3 the four controls lost 230,071 to 272,503 of 400,000.
-- `scripts/check-task.sh` §2 checks the dead holder and the refused
-  unlocks. One of them is the stale guard presented in the window
+- `tests/stdlib/600-mutex-dead-child.ax`: a child that exits holding
+  the lock, not yet joined, poisons it for its parent's timed lock, at
+  every `--opt`.
+- `scripts/check-task.sh` §2 checks the dead holder, killed and reaped
+  or exited and unreaped, and the refused unlocks. The unreaped holder's
+  parent answers 1004 well inside a 2 s timed lock in both lowerings, and
+  so does a sibling thread under `--threads`, while a sibling process,
+  which can't look, times out. One of the refused unlocks is the stale
+  guard presented in the window
   between a new holder's lock and its publication, built exactly
   rather than raced for. Under load, one binding double-unlocks
   200,000 times beside two correct ones: every stale unlock is refused,
   every earned one accepted, and the count exact, in both lowerings.
 - `scripts/check-task.sh` §6 ablates the lock's compare-and-swap, the
-  dead-holder test and the guard claim (compared against the counter
-  instead, which accepts the stale guard in the window), each on a copy
-  of the library, and each turns its check red.
+  dead-holder test, the look at the waiter's own child and the guard
+  claim (compared against the counter instead, which accepts the stale
+  guard in the window), each on a copy of the library, and each turns
+  its check red.
 
 - `scripts/check-protocol-model.sh` explores the protocol, transcribed
   in `scripts/lib/protocol-model.py`, in every interleaving of two and
   three bindings in both lowerings, with a stale guard, a timed lock, a
-  try-lock and a holder killed at any step. Every state keeps
-  exclusion, refuses the stale guard and poisons only for a dead
-  holder, and no lost wakeup or deadlock is reachable. A lock taken by
-  a plain load and store, a release without its wake, a waiter without
-  its mark, the guard compared with the counter and the dead-holder
-  test without its re-read are each found with a schedule. On the
+  try-lock and a holder killed at any step, reaped by nobody but its
+  parent when a waiter is that parent. Every state keeps exclusion,
+  refuses the stale guard and poisons only for a dead holder, and no
+  lost wakeup or deadlock is reachable. A lock taken by a plain load
+  and store, a release without its wake, a waiter without its mark, the
+  guard compared with the counter, the dead-holder test without its
+  re-read and a waiter that never asks `waitid` about its own child are
+  each found with a schedule. On the
   machine, a lock-order inversion answers `sysTimedOut` on both sides
   under `mutexLockTimeout` and deadlocks under `mutexLock`, and four
   contending bindings' shares and worst waits are measured.

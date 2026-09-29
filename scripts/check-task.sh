@@ -25,7 +25,13 @@
 #      lateness under load, not on the kernel); a receive and a lock
 #      satisfied at ~100 ms of a 2 s wait must answer then, not at the
 #      timeout. A holder SIGKILLed holding the
-#      mutex must be found dead by the next lock call; every unlock the
+#      mutex must be found dead by the next lock call, and so must a
+#      holder that exits holding it and is not yet reaped - a zombie,
+#      which only its own process's `waitid` sees exit: the parent's
+#      2 s timed lock must answer syncOwnerDead well before 2 s, in both
+#      lowerings, and so must a sibling THREAD's under --threads, while a
+#      sibling PROCESS, which cannot look, times out (the stated limit,
+#      and the control that the look is what decides); every unlock the
 #      caller did not earn must be refused - including a stale guard
 #      presented in the window between a new holder's lock and its
 #      guard's publication, which is built exactly rather than raced
@@ -68,7 +74,8 @@
 #      test, the deadline's kill, the borrowed handle layout (a pid that
 #      is not the child's), the child look (never sees an exit),
 #      the result slot (a task answers into its neighbour's), the byte
-#      limit, the cancellation's kill, the unlock's guard (compared
+#      limit, the cancellation's kill, the mutex's look at its own
+#      zombie child (never asked), the unlock's guard (compared
 #      against the counter again, which accepts the stale guard in
 #      the window), the microseconds conversion (rounding that wraps
 #      a grace of the largest `Int`) and the exit wait (a task joined
@@ -188,6 +195,20 @@ for lowering in processes threads; do
     ok "$lowering: the holder died of SIGKILL (137) and the mutex reads poisoned"
   else
     bad "$lowering: dead mode exit $rc: $(printf '%s' "$out" | tr '\n' ';')"
+  fi
+  # A holder that exits holding the lock and is not reaped (AN-56).
+  rc=0; out="$(gate_timeout 30 "$bin" zombie 2>&1)" || rc=$?
+  if [[ "$lowering" == threads ]]; then
+    within "$lowering: a sibling thread's timed lock, its process's zombie child holding" "$(field "$out" sibling-timed)" 1004 0 1500
+  else
+    within "$lowering: CONTROL - a sibling process's timed lock, a zombie it cannot look at holding" "$(field "$out" sibling-timed)" 1001 300 $((300 + SLACK))
+  fi
+  within "$lowering: the parent's 2 s timed lock, its own zombie child holding" "$(field "$out" zombie-timed)" 1004 0 1500
+  within "$lowering: its untimed lock after that" "$(field "$out" zombie-untimed)" 1004 0 1500
+  if [[ "$rc" == 0 && "$(field "$out" holder-status)" == 0 && "$(field "$out" poisoned)" == 1 ]]; then
+    ok "$lowering: the zombie holder had exited 0 holding the lock, and the mutex reads poisoned"
+  else
+    bad "$lowering: zombie mode exit $rc: $(printf '%s' "$out" | tr '\n' ';')"
   fi
 done
 bin="$work/sync-processes-O2"
@@ -447,6 +468,9 @@ cuts = {
             ("Sys.ax", "(memSetWord ts 0 (/ nanos 1000000000))", "(memSetWord ts 0 (/ (/ nanos 10) 1000000000))"),
             ("Sys.ax", "(memSetWord ts 1 (% nanos 1000000000))", "(memSetWord ts 1 (% (/ nanos 10) 1000000000))")],
   "holder": [("Sync.ax", "(if (== (errCode e) 3)", "(if (== (errCode e) 99999)")],
+  # The mutex never asks `waitid` about its own child: a zombie holder
+  # looks alive to its parent too (AN-56 as it was).
+  "synclook": [("Sync.ax", "          (if (syncChildEnded owner)", "          (if false")],
   "kill": [("Task.ax", "(sysKill (taskHandlePid (vecGet hs s)) 9)", "(sysKill (taskHandlePid (vecGet hs s)) 0)")],
   # The pid `__spawn_pid` reads through the handle, moved past every
   # kernel's pid_max: the same miss as a wrong word of the page, with
@@ -511,6 +535,10 @@ if run_ablation timed "$sync" 30 "$work/abl-timed/prog" timed "$T"; then
 fi
 if run_ablation holder "$sync" 30 "$work/abl-holder/prog" dead; then
   red holder "$([[ "$(field "$out" dead-timed)" == 1004\ * ]] && echo 1 || echo 0)"
+fi
+if run_ablation synclook "$sync" 10 "$work/abl-synclook/prog" zombie; then
+  red synclook "$([[ "$(field "$out" zombie-timed)" == 1004\ * ]] && echo 1 || echo 0)"
+  pkill -KILL -f "$work/abl-synclook/prog" 2>/dev/null || true
 fi
 if run_ablation kill "$task" 20 "$work/abl-kill/prog" deadline; then
   red kill "$([[ "$rc" == 0 && "$(field "$out" gone)" == 2 ]] && echo 1 || echo 0)"

@@ -424,9 +424,11 @@ symAgentTag Tags.ax Alloc,Mut
 symHasAgentTag Tags.ax Alloc,Mut
 syncAcquire Sync.ax Alloc,IO,Mut,Unsafe
 syncAt Sync.ax Unsafe
+syncBlock Sync.ax Alloc,Unsafe
 syncCas Sync.ax Mut,Unsafe
 syncCasAt Sync.ax Mut,Unsafe
-syncHolderDead Sync.ax Alloc,IO
+syncChildEnded Sync.ax Alloc,IO,Mut,Unsafe
+syncHolderDead Sync.ax Alloc,IO,Mut
 syncLoad Sync.ax Unsafe
 syncMarkWaiting Sync.ax Mut
 syncMe Sync.ax IO

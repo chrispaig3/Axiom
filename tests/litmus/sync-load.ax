@@ -20,6 +20,18 @@
 ;   dead       a forked binding takes the lock and is SIGKILLed and
 ;              reaped holding it. Prints what a timed and an untimed
 ;              lock answer afterwards, and when.
+;   zombie     a forked binding takes the lock and exits holding it, and
+;              is NOT reaped: a zombie, which `kill(pid, 0)` still
+;              answers for. First a `parallel` binding makes a 300 ms
+;              timed lock (`sibling-timed`): under `--threads` it is a
+;              thread of the holder's parent and its `waitid` sees the
+;              exit, so it answers 1004; under processes it is the
+;              holder's sibling, which no look can see through, so it
+;              answers 1001 - the stated limit. Then, on a second mutex
+;              and holder, the parent's own timed lock of 2 s
+;              (`zombie-timed`, 1004 within a slice or so) and an untimed
+;              one (`zombie-untimed`), then the holder's status and
+;              whether the mutex reads poisoned.
 ;   misuse     unlock a free mutex, unlock with another mutex's live
 ;              guard, with a guard a `cast` made from 0, and twice: each
 ;              must be refused with `syncNotHeld`. A guard is a
@@ -331,6 +343,99 @@
     )
     ((Err e) 1)))
 
+; ---- zombie --------------------------------------------------------------
+; Take the lock, raise `flag`, and end: the binding exits holding it.
+(:: lockAndExit (-> Mutex Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (lockAndExit m flag)
+  (match (mutexLock m)
+    ((Ok g)
+      {
+        (memSetWord flag 0 1)
+        (sysWakeWord flag)
+        0
+      }
+    )
+    ((Err e) 9)))
+
+; A forked binding that takes `m` and exits holding it.
+(:: spawnExit (-> Mutex Int Spawn))
+;@axiom:effect(io)
+(fn (spawnExit m flag)
+  (__proc_spawn
+    (lambda (x) (lockAndExit m flag))
+    0))
+
+(:: awaitFlag (-> Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (awaitFlag flag)
+  {
+    (while (== (memGetWord flag 0) 0)
+      (sysWaitWordTimeout flag 0 1000000))
+    0
+  })
+
+; A timed lock of `ms` milliseconds, reported as `what`.
+(:: timedLock (-> Mutex Int String Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (timedLock m ms what)
+  (let ((buf (memAlloc 16)))
+    (let ((t0 (sysTimeoutMicros buf)))
+      (let ((r (mutexLockTimeout m (* ms 1000000))))
+        (report what (codeOf r) (elapsedSince buf t0))))))
+
+(:: zombie (-> Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (zombie idle)
+  (match (mutexNew)
+    ((Ok s)
+      (match (mutexNew)
+        ((Ok m)
+          (match (sysMapShared 4096)
+            ((Ok flag)
+              (let (
+                (buf (memAlloc 16))
+                (cell (memAlloc 8))
+              )
+                {
+                  ; A binding beside the parent asks about the zombie.
+                  (let ((h (spawnExit s flag)))
+                    {
+                      (awaitFlag flag)
+                      (parallel p ((a (timedLock s 300 "sibling-timed")))
+                        a)
+                      (__proc_join_nr h cell)
+                    })
+                  (memSetWord flag 0 0)
+                  ; The parent asks about its own zombie child.
+                  (let ((h (spawnExit m flag)))
+                    {
+                      (awaitFlag flag)
+                      (timedLock m 2000 "zombie-timed")
+                      (let ((t0 (sysTimeoutMicros buf)))
+                        (let ((r (mutexLock m)))
+                          (report "zombie-untimed" (codeOf r) (elapsedSince buf t0))))
+                      (__proc_join_nr h cell)
+                      (say "holder-status" (memGetWord cell 0))
+                      (say
+                        "poisoned"
+                        (if (mutexOwnerDead m)
+                          1
+                          0))
+                    })
+                  0
+                })
+            )
+            ((Err e) 3))
+        )
+        ((Err e) 2))
+    )
+    ((Err e) 1)))
+
 ; ---- stale ---------------------------------------------------------------
 (:: arrive3 (-> Int Int))
 ;@axiom:effect(unsafe)
@@ -522,13 +627,15 @@
             (timed idle (argInt 2))
             (if (strEq mode "dead")
               (dead idle)
-              (if (strEq mode "misuse")
-                misuse
-                (if (strEq mode "stale")
-                  (stale (argInt 2))
-                  {
-                    (println "usage: sync-load excl L N | timed MS | dead | misuse | stale N")
-                    2
-                  })))))
+              (if (strEq mode "zombie")
+                (zombie idle)
+                (if (strEq mode "misuse")
+                  misuse
+                  (if (strEq mode "stale")
+                    (stale (argInt 2))
+                    {
+                      (println "usage: sync-load excl L N | timed MS | dead | zombie | misuse | stale N")
+                      2
+                    }))))))
       )
       ((Err e) 1))))

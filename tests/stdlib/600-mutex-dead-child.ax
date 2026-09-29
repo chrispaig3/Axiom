@@ -1,0 +1,78 @@
+; A mutex whose holder is the caller's own child, dead and not yet
+; reaped (docs/memory-model.md MM-PAR-11, AN-56). The child takes the
+; lock and exits holding it, so it is a zombie until its parent joins
+; it, and `kill(pid, 0)` still answers for it. The parent's `waitid`
+; sees it exit, so the parent's timed lock answers `syncOwnerDead`
+; within a slice instead of timing out, and the mutex reads poisoned.
+; `tests/stdlib/541-sync-mutex.ax` has the holder killed and reaped;
+; `scripts/check-task.sh` §2 times this one in both lowerings.
+(import IO)
+(import Sys)
+(import Mem)
+(import Err)
+(import Sync)
+
+(:: bit (-> Bool Int))
+(fn (bit b)
+  (if b
+    1
+    0))
+
+(:: codeOf (-> (Result a Error) Int))
+(fn (codeOf r)
+  (match r
+    ((Ok g) 0)
+    ((Err e) (errCode e))))
+
+(:: tryCode (-> (Option MutexGuard) Int))
+(fn (tryCode o)
+  (match o
+    ((Some g) 0)
+    ((None) 1)))
+
+; Take the lock, raise `flag`, and end: the binding exits holding it.
+(:: lockAndExit (-> Mutex Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (lockAndExit m flag)
+  (match (mutexLock m)
+    ((Ok g)
+      {
+        (memSetWord flag 0 1)
+        (sysWakeWord flag)
+        0
+      }
+    )
+    ((Err e) 9)))
+
+(:: main Int)
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (main)
+  (match (mutexNew)
+    ((Ok m)
+      (match (sysMapShared 4096)
+        ((Ok flag)
+          (let (
+            (cell (memAlloc 8))
+            (h (__proc_spawn
+              (lambda (x) (lockAndExit m flag))
+              0))
+          )
+            {
+              (while (== (memGetWord flag 0) 0)
+                (sysWaitWordTimeout flag 0 1000000))
+              ; Not joined yet: the holder is the caller's zombie child.
+              (println (codeOf (mutexLockTimeout m 2000000000)))  ; 1004
+              (println (bit (mutexOwnerDead m)))  ; 1
+              (println (tryCode (mutexTryLock m)))  ; 1
+              (__proc_join_nr h cell)
+              (println (memGetWord cell 0))  ; 0
+              (println (codeOf (mutexLock m)))  ; 1004
+              (println (codeOf (mutexFree m)))  ; 0
+              0
+            })
+        )
+        ((Err e) 2))
+    )
+    ((Err e) 1)))

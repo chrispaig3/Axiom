@@ -62,8 +62,10 @@
 ; `MM-PAR-7`'s sweep SIGKILLs a sibling wherever it is - leaves the word
 ; naming a pid that no longer exists. A waiter looks every time a slice
 ; of its wait runs out (at most `syncProbeNanos`, 100 ms, apart):
-; `kill(pid, 0)` answering ESRCH while the word still names that pid
-; means the holder died holding it. The mutex is then POISONED - word 3
+; `kill(pid, 0)` answering ESRCH, or `waitid` saying that this
+; process's own child of that pid has exited and is not yet reaped,
+; while the word still names that pid, means the holder died holding
+; it - `Chan.ax`'s test. The mutex is then POISONED - word 3
 ; set, every waiter woken - and every lock call on it answers `Err` code
 ; `syncOwnerDead` from then on (`mutexTryLock` answers `None`,
 ; `mutexOwnerDead` says why). The lock is not handed over: what it
@@ -82,10 +84,11 @@
 ;     `mutexLockTimeout`. So it must not be called from a signal handler
 ;     or anything else that can interrupt a holder.
 ;   * A holder that is dead but not yet REAPED - a zombie its parent has
-;     not joined - still answers `kill(pid, 0)`, so it looks alive until
-;     its parent joins it; and a pid reused by an unrelated process
-;     makes a dead holder look alive for good. In both cases
-;     `mutexLockTimeout` answers timed out and `mutexLock` waits.
+;     not joined - still answers `kill(pid, 0)`, so it looks alive to
+;     every binding but that parent, whose `waitid` sees it exit; and a
+;     pid reused by an unrelated process makes a dead holder look alive
+;     for good. In both cases `mutexLockTimeout` answers timed out and
+;     `mutexLock` waits.
 ;   * A holder killed under `--threads` is the whole process: there is
 ;     no dead thread that holds a lock.
 ;
@@ -219,9 +222,21 @@
       b
     }))
 
+; A block of `n` bytes with a share taken, and the share given back by
+; `syncScratchDone`: the release files it for reuse (MM-LIFE-2k), so a
+; wait that asks for one on every slice does not grow the arena.
+(:: syncBlock (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (syncBlock n)
+  (let ((b (memAlloc n)))
+    {
+      (__retain b)
+      b
+    }))
+
 (:: syncScratchDone (-> Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`b` is a block `syncScratch` answered, handed back once and not used after)
+;@axiom:precondition(`b` is a block `syncScratch` or `syncBlock` answered, handed back once and not used after)
 (fn (syncScratchDone b)
   {
     (__release b)
@@ -309,7 +324,10 @@
 ; Is the holder named by lock value `v` gone? Only a pid other than this
 ; binding's own can be (a thread's siblings share its pid, and are alive
 ; while it runs), and only if the word STILL names it once the kernel
-; says ESRCH - the holder may have unlocked and exited in between.
+; says so - the holder may have unlocked and exited in between. ESRCH
+; from `kill(pid, 0)` says so; so does `waitid`, for a child of THIS
+; process that has exited and not been reaped - a zombie, which `kill`
+; still answers for.
 (:: syncHolderDead (-> Int Int Int Bool))
 ;@axiom:effect(io)
 (fn (syncHolderDead m v me)
@@ -317,12 +335,37 @@
     (if (|| (== owner 0) (== (* owner 4) me))
       false
       (match (sysKill owner 0)
-        ((Ok r) false)
+        ((Ok r)
+          (if (syncChildEnded owner)
+            (== (/ (syncLoad m 0) 4) owner)
+            false)
+        )
         ((Err e)
           (if (== (errCode e) 3)
             (== (/ (syncLoad m 0) 4) owner)
             false)
         )))))
+
+; Whether `pid` is this process's own child and has exited, unreaped:
+; `Chan.ax`'s `chanChildEnded`. `waitid` with WNOWAIT does not reap it,
+; so the join that follows still owns the child.
+(:: syncChildEnded (-> Int Bool))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (syncChildEnded pid)
+  (let ((buf (syncBlock sysChildPollBytes)))
+    (let ((ended (syncYes (sysChildExited pid buf))))
+      {
+        (syncScratchDone buf)
+        ended
+      })))
+
+; `Ok True`, and nothing else, is yes: a look that failed has seen nothing.
+(:: syncYes (-> (Result Bool Error) Bool))
+(fn (syncYes r)
+  (match r
+    ((Ok b) b)
+    ((Err e) false)))
 
 ; Mark the mutex poisoned and wake every waiter, so each of them sees it.
 (:: syncPoison (-> Int Int))

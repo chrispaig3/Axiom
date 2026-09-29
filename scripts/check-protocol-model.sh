@@ -38,7 +38,8 @@
 #      that reads the waiter count before its change, a release or a
 #      notify that wakes nobody, a lock taken by a plain load and store,
 #      a waiter that sleeps without its mark, a guard compared with the
-#      counter, a dead-holder test that does not re-read the word; the
+#      counter, a dead-holder test that does not re-read the word, a
+#      mutex waiter that never asks `waitid` about its own child; the
 #      channel's dead-holder test, its sliced lock wait, its look at the
 #      waiter's own child and its poisoning compare-and-swap each taken
 #      back; and the pool's deadline kill, its wake times, its grace
@@ -99,14 +100,14 @@ bad() { echo "FAIL $*"; failed=$((failed + 1)); }
 
 model="$repo_root/scripts/lib/protocol-model.py"
 if (( long )); then
-  want_scenarios=107; want_states=6900000; budget=3600; trace_n=300; starve_ms=5000
+  want_scenarios=109; want_states=6900000; budget=3600; trace_n=300; starve_ms=5000
 else
-  want_scenarios=84; want_states=1300000; budget=900; trace_n=50; starve_ms=1500
+  want_scenarios=86; want_states=1300000; budget=900; trace_n=50; starve_ms=1500
 fi
 # Every transcribed step the scenarios execute, and the operations the
 # transcription check matches: what they are on the tree today.
-want_reached=579
-want_matched=307
+want_reached=585
+want_matched=310
 
 # ---------------------------------------------------------------------
 echo "== 1. the model: every interleaving of the real protocols =="
@@ -172,7 +173,8 @@ for name in "park after release" "notify reads the announcement before the chang
             "task started after the cancellation" "task handle pushed for every task" \
             "task killed and not joined" "task wake ignores the grace" \
             "mutex release without a wake" "mutex lock by load then store" "mutex waiter without its mark" \
-            "mutex guard compared with the counter" "mutex dead-holder test without its re-read"; do
+            "mutex guard compared with the counter" "mutex dead-holder test without its re-read" \
+            "mutex child look removed"; do
   line="$(grep -F "RED $name:" "$work/defects.txt" | head -1)"
   if [[ -n "$line" ]]; then
     ok "${line#RED }"
