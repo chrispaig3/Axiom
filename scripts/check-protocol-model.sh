@@ -188,8 +188,8 @@ cuts = {
   # mutexUnlock's contended release wakes nobody.
   "wake": ("Sync.ax", "            (syncStore m 0 0)\n            (sysWakeWord m)\n            (Ok 0)", "            (syncStore m 0 0)\n            (Ok 0)", 1),
   # A new function reads the lock word.
-  "new": ("Chan.ax", "(pub :: chanCap (-> Int Int))",
-          "(pub :: chanPeekLock (-> Int Int))\n;@axiom:effect(unsafe)\n(pub fn (chanPeekLock ch)\n  (__atomic_load ch))\n\n(pub :: chanCap (-> Int Int))", 1),
+  "new": ("Chan.ax", "(pub :: chanCap (-> Chan Int))",
+          "(pub :: chanPeekLock (-> Int Int))\n;@axiom:effect(unsafe)\n(pub fn (chanPeekLock ch)\n  (__atomic_load ch))\n\n(pub :: chanCap (-> Chan Int))", 1),
 }
 for kind, (f, old, new, count) in cuts.items():
     d = os.path.join(base, kind)
