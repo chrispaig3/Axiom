@@ -99,6 +99,20 @@ sys.setrecursionlimit(200000)
 threading.stack_size(512 * 1024 * 1024)
 from fuzz import Rng, mix, Corpus, OPS, read_corpus_list  # noqa: E402
 
+
+def loads(text):
+    """`json.loads`, for a body of any depth. Before Python 3.14 the C
+    scanner stops at a fixed depth, under 20,000, that
+    `sys.setrecursionlimit` does not raise; the pure-Python scanner
+    recurses in Python frames, which it does."""
+    try:
+        return json.loads(text)
+    except RecursionError:
+        dec = json.JSONDecoder()
+        dec.scan_once = json.scanner.py_make_scanner(dec)
+        return dec.decode(text)
+
+
 ROOT_MARK = "@ROOT@"
 # A session's documents come from corpus files at most this big: a
 # `didOpen` checks the whole document and a request re-reads it, so a
@@ -622,7 +636,7 @@ def unframe_strict(out):
         if len(body) < length:
             return msgs, "frame %d promises %d bytes and %d follow" % (len(msgs) + 1, length, len(body))
         try:
-            msgs.append(json.loads(body.decode("utf-8")))
+            msgs.append(loads(body.decode("utf-8")))
         except (UnicodeDecodeError, ValueError) as e:
             return msgs, "frame %d's body is not UTF-8 JSON (%s): %r" % (len(msgs) + 1, str(e)[:60], body[:80])
         i = j + 4 + length
@@ -686,7 +700,7 @@ def expectations(chunks, root):
             continue
         data = chunk_data(c, root)
         try:
-            msg = json.loads(data.decode("utf-8"))
+            msg = loads(data.decode("utf-8"))
         except (UnicodeDecodeError, ValueError):
             msg = None
         if not isinstance(msg, dict):
@@ -1018,7 +1032,7 @@ def cmd_planted(args):
     def pump_in():
         def on_frame(hdr, body):
             try:
-                msg = json.loads(body)
+                msg = loads(body)
             except ValueError:
                 msg = None
             if isinstance(msg, dict) and "id" in msg and "method" in msg:
@@ -1042,7 +1056,7 @@ def cmd_planted(args):
     def on_out(hdr, body):
         state["frames"] += 1
         try:
-            msg = json.loads(body)
+            msg = loads(body)
         except ValueError:
             msg = None
         if mode == "frame" and state["frames"] == after:
@@ -1143,6 +1157,16 @@ def cmd_selftest():
     if stage != "answer":
         print("the oracle excused a request before the broken frame going unanswered")
         return 1
+    # A body as deep as `deep_json` sends, and an answer as deep as a
+    # selection range's parent chain, are read like any other.
+    deep = sess[:2] + [chunk("frame", b"[" * 20000 + b"1" + b"]" * 20000, "maybe")] + sess[3:]
+    chain = b'{"jsonrpc":"2.0","id":2,"result":' + b'{"parent":' * 20000 + b"null" + b"}" * 20001
+    for what, s, out in (("a request body nested 20,000 deep", deep, good),
+                         ("an answer nested 20,000 deep", sess, fr(a1) + frame_bytes(chain) + fr(a3))):
+        v, stage, why, _ = judge(s, root, 0, False, out, 5)
+        if v != "ok":
+            print("the oracle refused %s: %s %s" % (what, stage, why))
+            return 1
     # Framing round trip, and @ROOT@ substitution keeps lengths right.
     c = chunk("frame", b'{"uri":"file://@ROOT@/a b"}', "none")
     data = session_input([c], "/x y")
@@ -1150,8 +1174,8 @@ def cmd_selftest():
     if why or msgs != [{"uri": "file:///x%20y/a b"}]:
         print("the framer did not round-trip a substituted root: %r %s" % (msgs, why))
         return 1
-    print("selftest: the pinned-corpus digest %s..., the oracle on %d hand-made outputs "
-          "and a broken-frame session, and the framer" % (d[:12], len(cases)))
+    print("selftest: the pinned-corpus digest %s..., the oracle on %d hand-made outputs, "
+          "a broken-frame session and two bodies nested 20,000 deep, and the framer" % (d[:12], len(cases)))
     return 0
 
 
