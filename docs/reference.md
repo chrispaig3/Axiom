@@ -2319,7 +2319,7 @@ The full contract for the inferred set is `MM-EXEC-9a` in
 | `Alloc` | Heap machinery, which is wider than allocation. Any call that reaches `__alloc` (every `Vec`, `Map` and `Str` growth, every `memAlloc`), the `(alloc T)` keyword, the three arena primitives, and `handle`, which installs its handler's evidence. An arena reset counts because it ends every block allocated since the mark. |
 | `Mut` | Heap state that other code can see: a field store `(set base.field v)`, the `__store8` and `__store64` primitives it lowers to, the atomic writers `__atomic_store`, `__atomic_add` and `__atomic_cas`, and `__fence`. That's why `vecPush` and `mapInsert` carry it. `__atomic_load` is a read and doesn't, just as `__load64` doesn't. A `set` on a `mut` local isn't `Mut`, because nothing outside the function can see it. The eight volatile device accesses carry it (a device read can change device state), as do the `__arm_` barriers, timer writes, interrupt masks, cache maintenance and `__arm_set_tpidr` (MM-FFI-8). |
 | `Div` | Divergence. You can write it, but nothing infers it, so `;@axiom:effect(div)` draws `AX3037` (unverifiable), even over a body that plainly never ends. Inferring it would need a termination analysis the compiler doesn't have. |
-| `Unsafe` | The twenty-six raw primitives (`MM-EXEC-9c`), a call to a precondition interface, or a cast that forges a reference (`MM-EXEC-9d`). A declaration performing one must say `;@axiom:effect(unsafe)` (`AX3073`). A declaration that also says `;@axiom:precondition(...)` passes the obligation to callers; otherwise it is a trusted wrapper. |
+| `Unsafe` | The thirty-six raw primitives (`MM-EXEC-9c`), the seven `__syscallN` among them, a call to a precondition interface, or a cast that forges a reference (`MM-EXEC-9d`). A declaration performing one must say `;@axiom:effect(unsafe)` (`AX3073`). A declaration that also says `;@axiom:precondition(...)` passes the obligation to callers; otherwise it is a trusted wrapper. |
 
 `Err` isn't a built-in effect. A handle list naming it draws `AX3016`,
 as any undeclared name does, and `(effect Err ...)` declares an
@@ -4396,8 +4396,9 @@ restore can only ever put back settings a save took.
 `Sys` has the same calls over buffers you allocate yourself:
 `sysTermSave`, `sysTermRaw`, `sysTermRestore` and `sysTermSize`, which
 answer 0 or a negative result, with `sysTermRows` and `sysTermCols` to
-read a size back. Size those buffers with `sysTermStateBytes` and
-`sysTermSizeBytes`, never by hand: `struct termios` is 72 bytes on
+read a size back. They are precondition interfaces, so a function
+that calls one says `;@axiom:effect(unsafe)`. Size those buffers with
+`sysTermStateBytes` and `sysTermSizeBytes`, never by hand: `struct termios` is 72 bytes on
 Darwin, 36 on Linux and 44 on FreeBSD, and a size picked by hand can
 round-trip on the machine you tested it on and still be wrong on
 another.
@@ -4755,7 +4756,7 @@ stops: every argument and result is an `Int`.
 
 | Primitive | Meaning |
 |---|---|
-| `(__syscall0 n)` ... `(__syscall6 n a1 ... a6)` | Raw system call. Answers the result, or `-errno` on failure, on every platform |
+| `(__syscall0 n)` ... `(__syscall6 n a1 ... a6)` | Raw system call. Answers the result, or `-errno` on failure, on every platform. `IO` and `Unsafe`: the kernel reads and writes through the arguments |
 | `(__load8 base i)` / `(__store8 base i v)` | Byte at `base + i` |
 | `(__store8v base i v)` | Byte at `base + i`, as a volatile store: every store is kept, in order, which `__store8` doesn't promise. Use it for memory-mapped registers. Otherwise the same as `__store8`, effect row included |
 | `(__vload8 a)` / `(__vload16 a)` / `(__vload32 a)` / `(__vload64 a)` | ONE volatile read of 8/16/32/64 bits at the byte address `a` (the address itself, not `base + i`), naturally aligned, zero-extended to the word - a device register at its own width. `Mut` and `Unsafe`: a device read can change device state. `a` MUST be aligned to the width ([memory-model.md](memory-model.md) MM-FFI-8) |
@@ -5459,6 +5460,12 @@ There are two layers over the same syscalls. `Sys` takes a raw
 NUL-terminated `char*`, because it hands one straight to the kernel.
 `IO` takes a `Str` and copies it, so a `strSlice` can't reach the
 kernel unterminated. Reach for `IO`.
+
+`Sys` is the unsafe layer. Each call that hands the kernel an address
+is a precondition interface, so a function that calls one must say
+`;@axiom:effect(unsafe)` (`AX3073`), and `restrict(no-unsafe)` refuses
+it. `IO`'s calls hand the kernel only bytes a `Str` holds, so they need
+no tag and hold under `restrict(no-unsafe)`.
 
 | Task | `IO` (takes a `Str`) | `Sys` (takes a `char*`) |
 |---|---|---|

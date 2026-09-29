@@ -22,6 +22,25 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### A syscall is `Unsafe`, and `Sys`'s address calls say so — R-B10, AN-58 - 2026-09-29
+
+`__syscall0` to `__syscall6` are `Unsafe` primitives. The kernel reads
+and writes through their arguments, so `restrict(no-unsafe)` refuses
+`(__syscall3 sysRandomNum 4096 64 0)` (`AX3049`), `pure` refuses a
+syscall (`AX3010`), and a declaration that makes one says
+`;@axiom:effect(unsafe)` (`AX3073`). Every `Sys` call that hands the
+kernel a caller's address is a precondition interface: the descriptor
+reads and writes, every call taking a NUL-terminated path,
+`sysRandomBytes`, the terminal calls, `sysUnmapShared` and
+`sysWaitWord`. So are `IO.readFileLit` and `Http.httpRespondRaw`. An
+untagged call to one is `AX3073`; `IO`'s typed calls need no tag. The
+wrappers that hand the kernel nothing a caller chose, such as
+`sysCloseFd` and `netAccept`, are trusted, and so is `sysWakeWord`,
+whose address the kernel uses only to find a wait queue.
+`compat/BREAKING` lists the rows. Tested by
+`tests/diagnostics/1080-unsafe-syscalls.ax` and
+`tests/diagnostics/1081-sys-buffer-calls.ax`.
+
 ### `IO` opens, reads, writes and asks the terminal by value — R-B10, AN-58 - 2026-09-29
 
 `IO` has a typed form of each `Sys` file, descriptor, entropy and
