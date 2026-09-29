@@ -1,0 +1,141 @@
+[1;31merror[AX3091][0m[1m: `asm` needs at least one arm, such as `(asm (aarch64 "nop"))`[0m
+  [1;34m--> [0m1044-inline-asm.ax:29:4
+[1;34m   |[0m
+[1;34m29 |[0m   (asm))
+[1;34m   |[0m    [1;31m^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mrun `axiom explain AX3091` for the full form
+  [1;34m = [0m[1;32mhelp: [0man `asm` form is `(asm (ARCH "template" operand...) ...)`, with ARCH `aarch64` or `x86_64` and operands `(in name value)`, `(out name)`, `(inout name value)` and `(clobber "reg"...)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3091` for a full explanation
+
+[1;31merror[AX3091][0m[1m: each `asm` arm is a list: write `(asm (aarch64 "template" operand...))`[0m
+  [1;34m--> [0m1044-inline-asm.ax:34:8
+[1;34m   |[0m
+[1;34m34 |[0m   (asm aarch64 "nop"))
+[1;34m   |[0m        [1;31m^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mrun `axiom explain AX3091` for the full form
+  [1;34m = [0m[1;32mhelp: [0man `asm` form is `(asm (ARCH "template" operand...) ...)`, with ARCH `aarch64` or `x86_64` and operands `(in name value)`, `(out name)`, `(inout name value)` and `(clobber "reg"...)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3091` for a full explanation
+
+[1;31merror[AX3091][0m[1m: `riscv64` is not an architecture `asm` knows; an arm opens with `aarch64` or `x86_64`[0m
+  [1;34m--> [0m1044-inline-asm.ax:39:9
+[1;34m   |[0m
+[1;34m39 |[0m   (asm (riscv64 "nop")))
+[1;34m   |[0m         [1;31m^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mrun `axiom explain AX3091` for the full form
+  [1;34m = [0m[1;32mhelp: [0man `asm` form is `(asm (ARCH "template" operand...) ...)`, with ARCH `aarch64` or `x86_64` and operands `(in name value)`, `(out name)`, `(inout name value)` and `(clobber "reg"...)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3091` for a full explanation
+
+[1;31merror[AX3091][0m[1m: a second `aarch64` arm; a form has at most one arm per architecture[0m
+  [1;34m--> [0m1044-inline-asm.ax:46:6
+[1;34m   |[0m
+[1;34m46 |[0m     (aarch64 "yield")))
+[1;34m   |[0m      [1;31m^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mrun `axiom explain AX3091` for the full form
+  [1;34m = [0m[1;32mhelp: [0man `asm` form is `(asm (ARCH "template" operand...) ...)`, with ARCH `aarch64` or `x86_64` and operands `(in name value)`, `(out name)`, `(inout name value)` and `(clobber "reg"...)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3091` for a full explanation
+
+[1;31merror[AX3091][0m[1m: an `asm` arm's first item after its architecture is the template, a string literal[0m
+  [1;34m--> [0m1044-inline-asm.ax:51:9
+[1;34m   |[0m
+[1;34m51 |[0m   (asm (aarch64 (in a x))))
+[1;34m   |[0m         [1;31m^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mrun `axiom explain AX3091` for the full form
+  [1;34m = [0m[1;32mhelp: [0man `asm` form is `(asm (ARCH "template" operand...) ...)`, with ARCH `aarch64` or `x86_64` and operands `(in name value)`, `(out name)`, `(inout name value)` and `(clobber "reg"...)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3091` for a full explanation
+
+[1;31merror[AX3091][0m[1m: `input` is not an operand kind; the kinds are `in`, `out`, `inout` and `clobber`[0m
+  [1;34m--> [0m1044-inline-asm.ax:56:33
+[1;34m   |[0m
+[1;34m56 |[0m   (asm (aarch64 "mov {a}, {a}" (input a x))))
+[1;34m   |[0m                                 [1;31m^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mrun `axiom explain AX3091` for the full form
+  [1;34m = [0m[1;32mhelp: [0man `asm` form is `(asm (ARCH "template" operand...) ...)`, with ARCH `aarch64` or `x86_64` and operands `(in name value)`, `(out name)`, `(inout name value)` and `(clobber "reg"...)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3091` for a full explanation
+
+[1;31merror[AX3091][0m[1m: the template writes `{b}`, and no operand of this arm has that name; write `{{` and `}}` for literal braces[0m
+  [1;34m--> [0m1044-inline-asm.ax:61:17
+[1;34m   |[0m
+[1;34m61 |[0m   (asm (aarch64 "add {r}, {b}, #1" (out r) (in a x))))
+[1;34m   |[0m                 [1;31m^^^^^^^^^^^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mrun `axiom explain AX3091` for the full form
+  [1;34m = [0m[1;32mhelp: [0man `asm` form is `(asm (ARCH "template" operand...) ...)`, with ARCH `aarch64` or `x86_64` and operands `(in name value)`, `(out name)`, `(inout name value)` and `(clobber "reg"...)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3091` for a full explanation
+
+[1;31merror[AX3091][0m[1m: the template writes `{v0.16b}`, and no operand of this arm has that name; write `{{` and `}}` for literal braces[0m
+  [1;34m--> [0m1044-inline-asm.ax:66:17
+[1;34m   |[0m
+[1;34m66 |[0m   (asm (aarch64 "ld1 {v0.16b}, [{a}]" (in a x) (clobber "v0"))))
+[1;34m   |[0m                 [1;31m^^^^^^^^^^^^^^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mrun `axiom explain AX3091` for the full form
+  [1;34m = [0m[1;32mhelp: [0man `asm` form is `(asm (ARCH "template" operand...) ...)`, with ARCH `aarch64` or `x86_64` and operands `(in name value)`, `(out name)`, `(inout name value)` and `(clobber "reg"...)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3091` for a full explanation
+
+[1;31merror[AX3091][0m[1m: an arm answers at most one value, so it takes one `out` or `inout`[0m
+  [1;34m--> [0m1044-inline-asm.ax:71:32
+[1;34m   |[0m
+[1;34m71 |[0m   (asm (aarch64 "nop" (out r) (out s))))
+[1;34m   |[0m                                [1;31m^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mrun `axiom explain AX3091` for the full form
+  [1;34m = [0m[1;32mhelp: [0man `asm` form is `(asm (ARCH "template" operand...) ...)`, with ARCH `aarch64` or `x86_64` and operands `(in name value)`, `(out name)`, `(inout name value)` and `(clobber "reg"...)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3091` for a full explanation
+
+[1;31merror[AX3091][0m[1m: `rsp` is the stack pointer; an `asm` block must leave it as it found it[0m
+  [1;34m--> [0m1044-inline-asm.ax:76:28
+[1;34m   |[0m
+[1;34m76 |[0m   (asm (x86_64 "nop" (in a "rsp" x))))
+[1;34m   |[0m                            [1;31m^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mrun `axiom explain AX3091` for the full form
+  [1;34m = [0m[1;32mhelp: [0man `asm` form is `(asm (ARCH "template" operand...) ...)`, with ARCH `aarch64` or `x86_64` and operands `(in name value)`, `(out name)`, `(inout name value)` and `(clobber "reg"...)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3091` for a full explanation
+
+[1;31merror[AX3091][0m[1m: `x29` is the frame pointer, which the compiler's frame owns[0m
+  [1;34m--> [0m1044-inline-asm.ax:81:32
+[1;34m   |[0m
+[1;34m81 |[0m   (asm (aarch64 "nop" (clobber "x29"))))
+[1;34m   |[0m                                [1;31m^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mrun `axiom explain AX3091` for the full form
+  [1;34m = [0m[1;32mhelp: [0man `asm` form is `(asm (ARCH "template" operand...) ...)`, with ARCH `aarch64` or `x86_64` and operands `(in name value)`, `(out name)`, `(inout name value)` and `(clobber "reg"...)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3091` for a full explanation
+
+[1;31merror[AX3091][0m[1m: `:k` is not an operand modifier on aarch64; the modifiers are `w` and `x`[0m
+  [1;34m--> [0m1044-inline-asm.ax:86:17
+[1;34m   |[0m
+[1;34m86 |[0m   (asm (aarch64 "mov {a:k}, {a:k}" (inout a x))))
+[1;34m   |[0m                 [1;31m^^^^^^^^^^^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mrun `axiom explain AX3091` for the full form
+  [1;34m = [0m[1;32mhelp: [0man `asm` form is `(asm (ARCH "template" operand...) ...)`, with ARCH `aarch64` or `x86_64` and operands `(in name value)`, `(out name)`, `(inout name value)` and `(clobber "reg"...)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3091` for a full explanation
+
+[1;31merror[AX3091][0m[1m: `x0` is named twice in this arm; an operand's register is its own[0m
+  [1;34m--> [0m1044-inline-asm.ax:91:42
+[1;34m   |[0m
+[1;34m91 |[0m   (asm (aarch64 "nop" (out r "x0") (in a "x0" x))))
+[1;34m   |[0m                                          [1;31m^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mrun `axiom explain AX3091` for the full form
+  [1;34m = [0m[1;32mhelp: [0man `asm` form is `(asm (ARCH "template" operand...) ...)`, with ARCH `aarch64` or `x86_64` and operands `(in name value)`, `(out name)`, `(inout name value)` and `(clobber "reg"...)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3091` for a full explanation
+
+[1;31merror[AX3091][0m[1m: a second operand named `a`; each operand of an arm has its own name[0m
+  [1;34m--> [0m1044-inline-asm.ax:96:36
+[1;34m   |[0m
+[1;34m96 |[0m   (asm (aarch64 "nop" (in a x) (in a x))))
+[1;34m   |[0m                                    [1;31m^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mrun `axiom explain AX3091` for the full form
+  [1;34m = [0m[1;32mhelp: [0man `asm` form is `(asm (ARCH "template" operand...) ...)`, with ARCH `aarch64` or `x86_64` and operands `(in name value)`, `(out name)`, `(inout name value)` and `(clobber "reg"...)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3091` for a full explanation
+
+compilation failed due to 14 previous errors

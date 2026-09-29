@@ -1,0 +1,100 @@
+; A malformed `asm` form is AX3091, one per form, at the part that is
+; wrong (docs/memory-model.md MM-FFI-9). `good` is the control: a
+; well-formed form draws nothing.
+;
+;   `noArm`      `(asm)` with no arm
+;   `flat`       the architecture written without its arm's list
+;   `arch`       an architecture `asm` doesn't know
+;   `twice`      two arms for one architecture
+;   `noTemplate` an arm whose first item isn't a string literal
+;   `kind`       an operand kind that isn't `in`, `out`, `inout` or `clobber`
+;   `unknown`    a template naming an operand the arm doesn't have
+;   `braces`     an AArch64 register list written without `{{`
+;   `twoOuts`    an arm answering two values
+;   `stack`      an operand in the stack pointer
+;   `frame`      a clobbered frame pointer
+;   `modifier`   an x86_64 modifier on aarch64
+;   `sameReg`    one register named by two operands
+;   `dupName`    two operands with one name
+(:: good (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (good x)
+  (asm
+    (aarch64 "add {r}, {a}, #1" (out r) (in a x))
+    (x86_64 "leaq 1({a}), {r}" (out r) (in a x))))
+
+(:: noArm Int)
+;@axiom:effect(unsafe)
+(fn (noArm)
+  (asm))
+
+(:: flat Int)
+;@axiom:effect(unsafe)
+(fn (flat)
+  (asm aarch64 "nop"))
+
+(:: arch Int)
+;@axiom:effect(unsafe)
+(fn (arch)
+  (asm (riscv64 "nop")))
+
+(:: twice Int)
+;@axiom:effect(unsafe)
+(fn (twice)
+  (asm
+    (aarch64 "nop")
+    (aarch64 "yield")))
+
+(:: noTemplate (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (noTemplate x)
+  (asm (aarch64 (in a x))))
+
+(:: kind (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (kind x)
+  (asm (aarch64 "mov {a}, {a}" (input a x))))
+
+(:: unknown (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (unknown x)
+  (asm (aarch64 "add {r}, {b}, #1" (out r) (in a x))))
+
+(:: braces (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (braces x)
+  (asm (aarch64 "ld1 {v0.16b}, [{a}]" (in a x) (clobber "v0"))))
+
+(:: twoOuts Int)
+;@axiom:effect(unsafe)
+(fn (twoOuts)
+  (asm (aarch64 "nop" (out r) (out s))))
+
+(:: stack (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (stack x)
+  (asm (x86_64 "nop" (in a "rsp" x))))
+
+(:: frame Int)
+;@axiom:effect(unsafe)
+(fn (frame)
+  (asm (aarch64 "nop" (clobber "x29"))))
+
+(:: modifier (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (modifier x)
+  (asm (aarch64 "mov {a:k}, {a:k}" (inout a x))))
+
+(:: sameReg (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (sameReg x)
+  (asm (aarch64 "nop" (out r "x0") (in a "x0" x))))
+
+(:: dupName (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (dupName x)
+  (asm (aarch64 "nop" (in a x) (in a x))))
+
+(:: main Int)
+(fn (main)
+  0)

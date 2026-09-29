@@ -586,6 +586,30 @@
 # twin's gain. The stdlib view the same way, 209 rows naming `IO` in
 # both, with `strSplit`, `listDir` and `sysReadDir` now `(Vec String)`.
 #
+# RE-PINNED 2026-09-29: inline assembly (MM-FFI-9), the `!` operator
+# and `for...in`. Compiler view only, 42 rows added and none moved or
+# removed (diffed `symbols --calls` rows for 1b985ddf and this tree
+# with ONE compiler): exactly `Alloc,Mut` 1519 to 1535 (the `asm`
+# expansion and its helpers - `expandAsm`, `expAsmArgv`, `expAsmArm`,
+# `expAsmClobbers`, `expAsmClobberRegWhy`, `expAsmJoin`,
+# `expAsmOperand`, `expAsmOperandRegWhy`, `expAsmPlaceholder`,
+# `expAsmTemplate` - `asmArmAt`, `asmSelect`, the formatter's `fpAsm`,
+# the checker's `tcRegAsmPrims` and the LSP's `lspForArgIndex` and
+# `lspForHasIn`), `Alloc,Mut,Unsafe` 928 to 932 (`expAsmArmBody`,
+# `expAsmBad`, `expAsmConstraints`, `emitAsmRefused`), exactly `Unsafe`
+# 488 to 489 (`expAsmNameAt`), `Alloc,IO,Mut,Unsafe` 238 to 240
+# (`emitAsmArm`, `emitPrimAsm`), pure 1324 to 1343 (the `asm`
+# recognisers and tables - `isAsmPrim`, `isAsmPrimName`,
+# `expAsmMaxValues`, `expAsmArch`, `expAsmA64Gpr`, `expAsmX64Gpr`,
+# `expAsmColon`, `expAsmModifier`, `expAsmNumbered`,
+# `expAsmReservedWhy`, `expAsmFindClose` - `asmDigits`, `asmSemi`,
+# `graphShownName`, the parser's `forSkipIn`, the formatter's
+# `fpAnyAtom` and the LSP's `lspSkipSpace`, `lspSkipItem` and
+# `lspSkipParen`). The only IO-naming bucket that moves is
+# `Alloc,IO,Mut,Unsafe`, by two new emission rows; every other IO
+# bucket holds, so the required/ambient line holds. The stdlib view
+# does not move: no stdlib module changed.
+#
 # RE-PINNED at the R-B10 merge onto trunk b764c91c: both views measured
 # on the merged tree. The compiler view takes notes 33 and 35 on top of
 # the AN-52..54 pins below (note 34's are the same rows): 14 rows gain
@@ -697,22 +721,22 @@ echo "== compiler view: symbols --calls self_host/main.ax =="
 rows="$(grep -c '^F ' "$work/main.axsym" || true)"
 (( rows >= 4000 )) && ok "$rows functions listed (floor 4000)" \
   || fail "only $rows functions listed; the floor is 4000 (the corpus moved or the read broke)"
-have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 1519 "exactly Alloc,Mut"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 1535 "exactly Alloc,Mut"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut')" 182 "Alloc,IO,Mut"
 have "$(bucket "$work/main.axsym" 'Mut')" 33 "exactly Mut"
 have "$(bucket "$work/main.axsym" 'Alloc')" 112 "exactly Alloc"
 have "$(bucket "$work/main.axsym" 'Alloc,IO')" 36 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 23 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 0 "IO,Mut"
-have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 928 "Alloc,Mut,Unsafe"
-have "$(bucket "$work/main.axsym" 'Unsafe')" 488 "exactly Unsafe"
-have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 238 "Alloc,IO,Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 932 "Alloc,Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Unsafe')" 489 "exactly Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 240 "Alloc,IO,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Mut,Unsafe')" 98 "Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,Unsafe')" 9 "Alloc,Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Unsafe')" 8 "Alloc,IO,Unsafe"
 have "$(bucket "$work/main.axsym" 'IO,Mut,Unsafe')" 4 "IO,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'IO,Unsafe')" 1 "IO,Unsafe"
-have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 1324 "pure (neither row nor mark)"
+have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 1343 "pure (neither row nor mark)"
 have "$(grep -c '#effects-incomplete' "$work/main.axsym" || true)" 0 "incomplete rows"
 have "$(grep -c '#effect-params' "$work/main.axsym" || true)" 7 "effect-params rows"
 

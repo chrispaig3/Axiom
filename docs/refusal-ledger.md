@@ -2,13 +2,15 @@
 
 Every error the compiler reports, classified by the invariant it
 protects, and the decisions taken on the refusals in question.
-`explain --list` reports 103 codes: 92 errors and 11 warnings. The
+`explain --list` reports 104 codes: 93 errors and 11 warnings. The
 classes come from probing the compiler, not from reading the code.
 The probes are in the audit work in this file's history, and each
 decided case names the test that pins it.
 
-- **S**: required for soundness, memory safety or valid semantics. 75
-  codes, all retained. The newest are `AX3084` to `AX3086`, each a way
+- **S**: required for soundness, memory safety or valid semantics. 76
+  codes, all retained. The newest is `AX3091`: an `asm` form the
+  compiler can't lower, such as one naming the stack pointer as an
+  operand. Before it came `AX3084` to `AX3086`, each a way
   to forge a handle: a word struct's markers that don't fit its shape,
   and building one or reading its field outside its module. `AX3090` is
   as new: a recovery point's thunk the region check can't walk, which

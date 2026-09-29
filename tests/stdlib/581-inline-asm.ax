@@ -1,0 +1,50 @@
+; Inline assembly (docs/memory-model.md MM-FFI-9). Every form carries an
+; arm for each architecture a runner has, so the file answers the same
+; on aarch64 and x86_64, and at every `--opt` (the `.optstable` beside
+; it). Each function is a trusted encapsulation: it says
+; `effect(unsafe)`, and `main`, which calls them, says nothing.
+;
+;   `add`     two register inputs and an early-clobber output
+;   `low32`   an `inout` operand read through its 32-bit view
+;   `viaRegs` operands in named registers, and a clobbered scratch
+;   `fence`   no operands: a compiler barrier, answering 0
+(import IO)
+
+(:: add (-> Int Int Int))
+;@axiom:effect(unsafe)
+(fn (add x y)
+  (asm
+    (aarch64 "add {r}, {a}, {b}" (out r) (in a x) (in b y))
+    (x86_64 "leaq ({a},{b}), {r}" (out r) (in a x) (in b y))))
+
+(:: low32 (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (low32 x)
+  (asm
+    (aarch64 "mov {v:w}, {v:w}" (inout v x))
+    (x86_64 "movl {v:k}, {v:k}" (inout v x))))
+
+(:: viaRegs (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (viaRegs x)
+  (asm
+    (aarch64 "mov x9, {a}\nadd {r}, x9, #1" (out r "x0") (in a "x8" x) (clobber "x9"))
+    (x86_64 "movq {a}, %rdx\nleaq 1(%rdx), {r}" (out r "rax") (in a "rcx" x) (clobber "rdx"))))
+
+(:: fence Int)
+;@axiom:effect(unsafe)
+(fn (fence)
+  (asm
+    (aarch64 "")
+    (x86_64 "")))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (println (fmtInt (add 40 2)))
+    (println (fmtInt (low32 (+ 4294967296 7))))
+    (println (fmtInt (viaRegs 41)))
+    (println (fmtInt (fence)))
+    0
+  })

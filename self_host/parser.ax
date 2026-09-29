@@ -5023,7 +5023,7 @@
 (pub :: parseForExpr (-> (Vec Int) Int Int Int))
 (pub fn (parseForExpr tokens pos kwSpan)
   (if (peekIs tokens pos TK_IDENT)
-    (parseForOperands tokens (advance pos) 0 (tokenLexeme (vecGet tokens pos)) (tokenSpan (vecGet tokens pos)) "" 0 kwSpan)
+    (parseForOperands tokens (forSkipIn tokens (advance pos)) 0 (tokenLexeme (vecGet tokens pos)) (tokenSpan (vecGet tokens pos)) "" 0 kwSpan)
     (if (peekIs tokens pos TK_LPAREN)
       ; An element-index pair `(x i)`: two identifiers and the close.
       ; Parsed inline - five values do not fit `pOk`'s two slots - so
@@ -5035,11 +5035,22 @@
             (if (peekIs tokens iPos TK_IDENT)
               (let ((endPos (advance iPos)))
                 (if (peekIs tokens endPos TK_RPAREN)
-                  (parseForOperands tokens (advance endPos) 1 (tokenLexeme (vecGet tokens xPos)) (tokenSpan (vecGet tokens xPos)) (tokenLexeme (vecGet tokens iPos)) (tokenSpan (vecGet tokens iPos)) kwSpan)
+                  (parseForOperands tokens (forSkipIn tokens (advance endPos)) 1 (tokenLexeme (vecGet tokens xPos)) (tokenSpan (vecGet tokens xPos)) (tokenLexeme (vecGet tokens iPos)) (tokenSpan (vecGet tokens iPos)) kwSpan)
                   (pErrExp endPos "`)` to close the binder pair: `(for (x i) xs body)` binds the element to `x` and its index to `i`")))
               (pErrExp iPos "the index name: `(for (x i) xs body)` binds the element to `x` and its index to `i`")))
           (pErrExp xPos "the element name: `(for (x i) xs body)` binds the element to `x` and its index to `i`")))
       (pErrExp pos "the name to bind, or an element-index pair `(x i)`"))))
+
+; `in` may follow the binder in every shape: `(for x in xs body)`,
+; `(for (x i) in xs body)`, `(for i in lo hi body)`. It is a word only
+; there, so `in` stays an ordinary name everywhere else (an `asm`
+; operand is `(in name value)`). Right after a binder it is always
+; this word, so a variable named `in` can't be the first operand.
+(pub :: forSkipIn (-> (Vec Int) Int Int))
+(pub fn (forSkipIn tokens pos)
+  (if (&& (peekIs tokens pos TK_IDENT) (strEq (tokenLexeme (vecGet tokens pos)) "in"))
+    (advance pos)
+    pos))
 
 ; The operands after the binder, in every arity. A shortfall AT the
 ; closing paren draws the shape - the operand that is not there is the

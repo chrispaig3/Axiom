@@ -98,6 +98,7 @@
   [93mAX3086[0m  a word struct's field read outside its module  (word-struct-sealed-field)
   [93mAX3089[0m  a function with no signature, called before its type is known  (signature-needed)
   [93mAX3090[0m  a recovery point's thunk the region check can't see  (recover-thunk-unseen)
+  [93mAX3091[0m  an `asm` form the compiler can't lower  (inline-asm)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -2829,6 +2830,28 @@ and is handed only an `Int`. A thunk held in a `let`, a parameter or a
 field is refused, because its body was never walked here. Write the
 lambda at the call.
 
+### explain AX3091
+AX3091 - an `asm` form the compiler can't lower
+
+`asm` runs inline assembly. Each arm names an architecture, a
+template and the template's operands:
+
+    (asm (aarch64 "add {r}, {a}, {b}" (out r) (in a x) (in b y))
+         (x86_64 "leaq ({a},{b}), {r}" (out r) (in a x) (in b y)))
+
+The architectures are `aarch64` and `x86_64`, with at most one arm
+each. The template is a string literal: `{name}` stands for an
+operand's register, `{name:w}` for a view of it, and `{{` and `}}`
+for literal braces. The operands are `(in name value)`, `(out name)`
+and `(inout name value)`, each with an optional register such as
+`(in a "x8" x)`, and `(clobber "x9")` for a register the
+instructions write. An arm answers at most one value. No operand or
+clobber may name the stack pointer, the frame pointer or AArch64's
+`x18`.
+
+The declaration holding an `asm` form says `;@axiom:effect(unsafe)`,
+because the compiler can't see what the instructions do.
+
 ### explain AX4001
 AX4001 - no `main` function
 
@@ -3263,6 +3286,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3086[0m  a word struct's field read outside its module  (word-struct-sealed-field)
   [93mAX3089[0m  a function with no signature, called before its type is known  (signature-needed)
   [93mAX3090[0m  a recovery point's thunk the region check can't see  (recover-thunk-unseen)
+  [93mAX3091[0m  an `asm` form the compiler can't lower  (inline-asm)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)

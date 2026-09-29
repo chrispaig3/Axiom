@@ -2621,6 +2621,10 @@
     "named": false
   },
   {
+    "type": "in",
+    "named": false
+  },
+  {
     "type": "integer_literal",
     "named": true
   },

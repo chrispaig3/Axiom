@@ -186,6 +186,14 @@ ABLATIONS = {
         '\\\\0Aisb',
         "A12 - the vector table being installed",
     ),
+    # An `asm` form's block with an output loses `sideeffect`: the
+    # memory clobber still keeps it here, so the drill is read off the
+    # emitted attributes, which is what the rule promises.
+    "asmfx": (
+        '(strConcat "  " r) " = call i64 asm sideeffect \\"")',
+        '(strConcat "  " r) " = call i64 asm \\"")',
+        "A15 - every inline-asm block being sideeffect",
+    ),
 }
 
 

@@ -15,7 +15,7 @@ keeps those words apart).
    a binding, enter the kernel, end the process with a trap status, or
    wait on another party.
 2. **Does the program keep the restricted profile?** A fixed set of
-   refusals, RP-1 to RP-8, over everything reachable from the program's
+   refusals, RP-1 to RP-9, over everything reachable from the program's
    roots.
 3. **How much stack can it use?** A bound computed from the machine
    code `llc` emits, or the precise reason there is none.
@@ -75,11 +75,13 @@ and any `--root NAME`. Everything reachable from them is held to:
 | RP-6 | a `#calls=` edge that resolves to no row | fail closed: an edge this tool cannot resolve is a refusal, never a silent leaf |
 | RP-7 | with `--stack`: no bound (a non-tail cycle, a dynamic `alloca`, a call into code with no frame size), or a bound over `--stack-budget` counting one interrupt's worth of stack | a stack is either bounded or it is not; "usually small" is not a bound |
 | RP-8 | a call that may block, reachable from an `isr` or from a `--nonblocking NAME` root: a join, or a body passing a blocking syscall number (read, write, open, a child wait, accept, connect, a poll wait, a futex or ulock wait) | an interrupt handler that waits can wait for ever, and "nonblocking" is a claim the graph can check |
+| RP-9 | an `asm` form, except in a function named by `--allow-asm` | the tool can't see whether the instructions allocate, block, trap or use stack, so each one is a reviewed exception ([memory-model.md](memory-model.md) `MM-FFI-9`) |
 
 And it lists, without refusing, the obligations that are the explicit
 trusted boundary rather than defects: every reachable function that
 calls an Unsafe primitive directly (their preconditions are stated in
-[memory-model.md](memory-model.md) `MM-EXEC-9c`), every kernel entry
+[memory-model.md](memory-model.md) `MM-EXEC-9c`), every function holding
+an `asm` form, allowed or not, every kernel entry
 (`__syscallN`; on `baremetal-aarch64` the compiler lowers these to the
 no-syscall trap, status 74), and the stack analysis's own assumptions.
 
@@ -187,9 +189,9 @@ The linker script reserves 8 KiB of stack (`baremetalLinkScript`,
   driver's own object is not the one read.
 - No code pointer is forged from an integer. `__call_word` of an
   arbitrary word breaks that, and `__call_word` is Unsafe.
-- Inline assembly (the trap exits, the recovery point, `_start`)
-  uses no stack beyond its function's frame. Each such function is
-  named in the report.
+- Inline assembly, the compiler's own (the trap exits, the recovery
+  point, `_start`) and a program's `asm` forms, uses no stack beyond
+  its function's frame. Each such function is named in the report.
 - An interrupt adds one handler's bound on top of the interrupted
   code's (no nesting); the vector stub's register save area is not in
   the object and is not counted.
@@ -233,14 +235,14 @@ The linker script reserves 8 KiB of stack (`baremetalLinkScript`,
    statuses and undefined operators of a program with one source of
    each, compared exactly.
 3. The profile: `tests/profile/ok-periodic.ax` passes; each
-   `tests/profile/rpN-*.ax` is refused by exactly RP-N; `--allow-foreign`
-   and a missing `--steady` each lift their refusal.
+   `tests/profile/rpN-*.ax` is refused by exactly RP-N; `--allow-foreign`,
+   `--allow-asm` and a missing `--steady` each lift their refusal.
 4. The stack: `ok-periodic.ax` and `blink.ax` bounded under 8 KiB; tree
    recursion (`rp1-recursion.ax`) unbounded; a 64-byte budget refused;
    each bound equal to the sum of the frames on its own path; and the
    tool's `.stack_sizes` reader agreeing with `llvm-readobj
    --stack-sizes`, an independent parser, on every function.
-5. Ablations: each of RP-1..RP-5 and RP-8 disabled in a copy of the
+5. Ablations: each of RP-1..RP-5, RP-8 and RP-9 disabled in a copy of the
    tool lets its own fixture through. With no trap leaves, the trap
    statuses come out wrong. With no blocking kernel entry,
    `tests/profile/rp8-blocking.ax` passes. With the bound's cycle check

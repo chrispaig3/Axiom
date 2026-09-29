@@ -157,6 +157,11 @@
 #       Drills: a read while the device owns the buffer must trap 80
 #       (the contract), and a transfer never started must end at the
 #       deadline, not hang.
+#   A15 INLINE ASSEMBLY (docs/memory-model.md MM-FFI-9). Every target
+#       emits its own architecture's arm, `sideeffect` with a memory
+#       clobber; `opt -O2` keeps an unread block, and loses it once
+#       both are removed; AX4008 refuses a reached form with no arm;
+#       under QEMU, `tests/embedded/asm-el.ax` reads CurrentEL at EL1.
 #
 # SKIPS. A12-A14's QEMU legs print SKIP, count as skipped and never as
 # ok, and the summary says how many. CI runners have no QEMU, so there
@@ -168,7 +173,7 @@
 # The patch is applied by exact string match by
 # `scripts/lib/embedded-patch.py`, which ABORTS if the string is not
 # there: an ablation that silently does not apply is a drill proving the
-# gate can pass. `--ablations` runs all thirteen and requires each to go red.
+# gate can pass. `--ablations` runs all fourteen and requires each to go red.
 #
 #   chunk     every target answers 4 KiB                   -> A1
 #   literal   `refill:` goes back to the hardcoded 1 MiB   -> A2, A4
@@ -189,6 +194,8 @@
 #             nothing is refused as AX4008                 -> A11
 #   vbar      `_start` no longer points VBAR_EL1 at the
 #             table, so a fault is a hang again            -> A12
+#   asmfx     an `asm` block with an output is emitted
+#             without `sideeffect`                         -> A15
 #
 # WHAT THIS GATE DOES NOT COVER, said here rather than left to be
 # discovered: the board itself. The bare-metal TARGET is in the tree -
@@ -201,7 +208,7 @@
 #
 # Usage:
 #   scripts/check-embedded.sh              # the gate
-#   scripts/check-embedded.sh --ablations  # the thirteen drills, each red
+#   scripts/check-embedded.sh --ablations  # the fourteen drills, each red
 #   AXIOM_ABLATE=literal scripts/check-embedded.sh
 # ---------------------------------------------------------------------
 
@@ -243,7 +250,7 @@ if [[ "${1:-}" == "--ablations" ]]; then
   red=0
   ran=0
   for ab in chunk literal grain strategy cursor oomsig ceiling trapwrite allsilent \
-            volatile barrier refusal vbar; do
+            volatile barrier refusal vbar asmfx; do
     ran=$((ran + 1))
     echo "== ablation: $ab =="
     if AXIOM_ABLATE="$ab" bash "$self" > "/tmp/embedded-ablate-$ab.log" 2>&1; then
@@ -1527,7 +1534,7 @@ fi
 
 # ---------------------------------------------------------------------
 # The QEMU sections below share one runner and one precondition. The
-# runner takes the machine and a timeout: A13-A15 need a GICv2 (`virt`'s
+# runner takes the machine and a timeout: A13 and A14 need a GICv2 (`virt`'s
 # default has moved between QEMU releases, so it is named), and a
 # healthy guest here is out in a second or two, so a hang is 60s rather
 # than A10's 120.
@@ -1849,6 +1856,136 @@ PY
       fi
     fi
   done
+fi
+
+# ---------------------------------------------------------------------
+echo
+echo "== A15. inline assembly: the target's arm, kept, refused where it has none =="
+# MM-FFI-9, on every host: (1) each target's IR holds the arm for its
+# architecture and no other, every block `sideeffect` and clobbering
+# memory, with the constraints the operands give; (2) `opt -O2` keeps a
+# block whose result nothing reads, while the same block made
+# removable - neither attribute, and `nounwind willreturn memory(none)`
+# on the call, which LLVM asks of any call it deletes - is lost: the
+# control showing `opt` would drop a block it could prove inert;
+# (3) a reached form with no arm for the target is AX4008
+# and an unreached one is accepted. Under QEMU, (4) a bare-metal
+# program reads CurrentEL, which only EL1 may, through `asm`.
+# Drill: `asmfx` drops `sideeffect` from the emitter, and (1) goes red.
+asmprog="$repo_root/tests/stdlib/581-inline-asm.ax"
+asmel="$repo_root/tests/embedded/asm-el.ax"
+[[ -f "$asmprog" && -f "$asmel" ]] || abort "an A15 program is gone; A15 has nothing to lower."
+asm_blocks() {  # asm_blocks <ll>: one line per inline-asm call, `fx|template|constraints`
+  python3 - "$1" <<'PY'
+import re, sys
+for line in open(sys.argv[1]):
+    m = re.search(r'call (?:i64|void) asm (sideeffect )?"((?:[^"\\]|\\[0-9A-Fa-f]{2})*)", "([^"]*)"', line)
+    if m:
+        t = re.sub(r'\\([0-9A-Fa-f]{2})', lambda h: chr(int(h.group(1), 16)), m.group(2))
+        print('%s|%s|%s' % ('fx' if m.group(1) else 'nofx', t.replace('\n', '\\n'), m.group(3)))
+PY
+}
+checks=$((checks + 1))
+prob=0
+a64='fx|add ${0}, ${1}, ${2}|=&r,r,r,~{memory},~{cc}
+fx|mov ${0:w}, ${0:w}|=r,0,~{memory},~{cc}
+fx|mov x9, ${1}\nadd ${0}, x9, #1|=&{x0},{x8},~{x9},~{memory},~{cc}
+fx||~{memory},~{cc}'
+x64='fx|leaq (${1},${2}), ${0}|=&r,r,r,~{memory},~{dirflag},~{fpsr},~{flags}
+fx|movl ${0:k}, ${0:k}|=r,0,~{memory},~{dirflag},~{fpsr},~{flags}
+fx|movq ${1}, %rdx\nleaq 1(%rdx), ${0}|=&{rax},{rcx},~{rdx},~{memory},~{dirflag},~{fpsr},~{flags}
+fx||~{memory},~{dirflag},~{fpsr},~{flags}'
+for t in "${targets[@]}" "$bm"; do
+  if ! emit "$axc" "$t" "$asmprog" "$work/asm-$t.ll"; then
+    bad "$t: tests/stdlib/581-inline-asm.ax does not emit:"; head -3 "$work/emit.log" | sed 's/^/       /'; prob=1; continue
+  fi
+  if [[ "$t" == *aarch64* ]]; then want="$a64"; other="$x64"; else want="$x64"; other="$a64"; fi
+  got="$(asm_blocks "$work/asm-$t.ll")"
+  while IFS= read -r row; do
+    grep -qxF -- "$row" <<<"$got" || { bad "$t: no inline-asm block [$row]"; prob=1; }
+  done <<<"$want"
+  while IFS= read -r row; do
+    tpl="${row#*|}"; tpl="${tpl%%|*}"
+    [[ -z "$tpl" ]] && continue
+    ! grep -qF -- "|$tpl|" <<<"$got" || { bad "$t: the other architecture's template [$tpl] was emitted"; prob=1; }
+  done <<<"$other"
+done
+(( prob )) || note "every target emits the four blocks of its own architecture, each sideeffect with a memory clobber and the operands' constraints, and none of the other's"
+checks=$((checks + 1))
+cat > "$work/asm-keep.ax" <<'AX'
+(:: probe Int)
+;@axiom:effect(unsafe)
+(fn (probe)
+  {
+    (asm
+      (aarch64 "mov {r}, #7" (out r))
+      (x86_64 "movq $7, {r}" (out r)))
+    0
+  })
+
+(:: main Int)
+(fn (main)
+  (probe))
+AX
+if ! emit "$axc" "$host_target" "$work/asm-keep.ax" "$work/asm-keep.ll"; then
+  bad "the unused-block probe does not emit:"; head -3 "$work/emit.log" | sed 's/^/       /'
+else
+  python3 - "$work/asm-keep.ll" "$work/asm-keep-bare.ll" <<'PY'
+import re, sys
+out = []
+for line in open(sys.argv[1]):
+    if re.search(r'asm sideeffect "\\6[Dd]\\6[Ff]\\76', line):
+        line = line.replace('asm sideeffect "', 'asm "', 1).replace(',~{memory}', '', 1)
+        # What LLVM needs before it may delete a call at all: no unwind,
+        # a guaranteed return and no memory access.
+        line = re.sub(r'\)\s*$', ') nounwind willreturn memory(none)\n', line)
+    out.append(line)
+open(sys.argv[2], 'w').writelines(out)
+PY
+  opt -O2 -S "$work/asm-keep.ll" -o "$work/asm-keep.O2.ll" 2>"$work/opt.err"
+  opt -O2 -S "$work/asm-keep-bare.ll" -o "$work/asm-keep-bare.O2.ll" 2>>"$work/opt.err"
+  kept=$(grep -cE 'asm sideeffect "mov(q \$\$7, \$\{0\}| \$\{0\}, #7)"' "$work/asm-keep.O2.ll" || true)
+  bare=$(grep -cE 'asm "mov(q \$\$7, \$\{0\}| \$\{0\}, #7)"' "$work/asm-keep-bare.O2.ll" || true)
+  if (( kept >= 1 && bare == 0 )) && [[ -s "$work/asm-keep-bare.O2.ll" ]]; then
+    note "opt -O2 keeps a block whose result nothing reads ($kept kept), and drops the same block once it is marked removable (the control)"
+  else
+    bad "opt -O2 kept $kept block(s) as emitted and $bare marked removable; want at least 1 and 0"
+  fi
+fi
+checks=$((checks + 1))
+prob=0
+other_arch=x86_64; [[ "$host_target" == *x86_64* ]] && other_arch=aarch64
+cat > "$work/asm-noarm.ax" <<AX
+(:: only Int)
+;@axiom:effect(unsafe)
+(fn (only)
+  (asm ($other_arch "nop")))
+
+(:: main Int)
+(fn (main)
+  (only))
+AX
+sed 's/^  (only))$/  0)/' "$work/asm-noarm.ax" > "$work/asm-unreached.ax"
+if emit "$axc" "$host_target" "$work/asm-noarm.ax" "$work/asm-noarm.ll" --diagnostic-format=ai \
+   || ! grep -q "^E AX4008 .*has no \`${host_target##*-}\` arm" "$work/emit.log"; then
+  bad "a reached form with only a $other_arch arm was not refused as AX4008 on $host_target:"; head -3 "$work/emit.log" | sed 's/^/       /'; prob=1
+fi
+if ! emit "$axc" "$host_target" "$work/asm-unreached.ax" "$work/asm-unreached.ll"; then
+  bad "an unreached form with only a $other_arch arm was refused on $host_target:"; head -3 "$work/emit.log" | sed 's/^/       /'; prob=1
+fi
+(( prob )) || note "AX4008 refuses a reached form with no $host_target arm, and a function nothing reaches may hold one"
+if qemu_or_skip "A15 inline assembly at EL1 under QEMU"; then
+  checks=$((checks + 1))
+  if ! build_bm asm-el.bm "$asmel" --target="$bm"; then
+    bad "tests/embedded/asm-el.ax does not build for $bm:"; sed 's/^/       /' "$work/asm-el.bm.build.log" | head -6
+  else
+    st="$(qemu_boot "$work/asm-el.bm" "$work/asm-el.uart" "$work/asm-el.qemu.err")"
+    if [[ "$st" == 41 ]]; then
+      note "a bare-metal program reads CurrentEL through asm and exits 41: it runs at EL1 (QEMU TCG)"
+    else
+      bad "tests/embedded/asm-el.ax exits [$st], not 41 (40 plus EL1)"
+    fi
+  fi
 fi
 
 echo

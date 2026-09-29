@@ -53,10 +53,16 @@ reachable from the roots - `main`, every `#isr` row, and `--root NAME`:
                       body passing one of `BLOCKING_KERNEL`'s syscall
                       numbers (read, write, open, a child wait, accept,
                       connect, a poll wait, a futex or ulock wait).
+  RP-9 inline asm     no `asm` form (MM-FFI-9), except in a function
+                      named by `--allow-asm NAME`. The tool can't see
+                      what the instructions do - whether they allocate,
+                      block, trap or use stack - so each is a reviewed
+                      exception rather than a fact it reads.
 
 and obligations it lists but does not refuse, because they are the
 explicit trusted boundary rather than a defect: every reachable function
-that calls an Unsafe primitive directly (`#effect=unsafe`), every kernel
+that calls an Unsafe primitive directly (`#effect=unsafe`), every function
+holding an `asm` form, every kernel
 entry (`__syscallN`; on baremetal-aarch64 the compiler lowers these to
 the no-syscall trap), IO, the stack analysis's assumptions, each root's
 trap statuses and whether it may block, and every function using an
@@ -114,6 +120,8 @@ import tempfile
 SPAWN_RE = re.compile(r'^__(par|thread|proc)_spawn')
 JOIN_RE = re.compile(r'^__(par|thread|proc)_join')
 KERNEL_RE = re.compile(r'^__syscall[0-6]$')
+# The primitive an `asm` form lowers to (MM-FFI-9): `__asm.N`, N inputs.
+ASM_RE = re.compile(r'^__asm\.[0-9]+$')
 INDIRECT_BUILTINS = {'__call_word'}
 
 # The builtins whose call can end the process with a trap status
@@ -807,6 +815,7 @@ def facts_of(g, q):
         spawn=[l for l in leaves if SPAWN_RE.match(l)],
         join=[l for l in leaves if JOIN_RE.match(l)],
         kernel=[l for l in leaves if KERNEL_RE.match(l)],
+        asm=[l for l in leaves if ASM_RE.match(l)],
         indirect=ind,
         unresolved=g.unresolved.get(q, []),
         restrict=[r for r in str(f.metas.get('restrict', '')).split(',') if r],
@@ -909,6 +918,8 @@ def build_report(args):
                 refuse('RP-4', '%s calls %s' % (q, l), pth + [l])
             for u in fa['unresolved']:
                 refuse('RP-6', '%s calls `%s`, which resolves to no row' % (q, u), pth + [u])
+            if fa['asm'] and fns[q].name not in args.allow_asm and q not in args.allow_asm:
+                refuse('RP-9', '%s holds inline assembly' % q, pth)
         # RP-5
         steady = sorted(set(isrs + [q for q in reach if 'no-alloc' in facts[q]['restrict']] + list(args.steady)))
         for s in steady:
@@ -947,6 +958,8 @@ def build_report(args):
             oblige('unsafe', '%s calls an Unsafe primitive directly (%s): its preconditions are the trusted boundary' % (q, fns[q].loc), g.path(par, q))
         for l in fa['kernel']:
             oblige('kernel', '%s enters the kernel through %s%s' % (q, l, ' (lowered to the no-syscall trap, status 74, on this target)' if args.target == 'baremetal-aarch64' else ''), g.path(par, q) + [l])
+        if fa['asm']:
+            oblige('asm', '%s holds inline assembly (%s): what the instructions do, including any allocation, blocking, trap or stack use, is its declaration\'s to vouch for (MM-FFI-9)' % (q, fns[q].loc), g.path(par, q))
     if stack is None:
         oblige('stack', 'no stack bound computed (run with --stack on an AArch64 or x86-64 ELF target)')
     else:
@@ -964,7 +977,7 @@ def build_report(args):
         if facts[r]['blocks']:
             hit = first_hit(g, [r], lambda q: bool(facts.get(q, {}).get('block_direct')))
             oblige('blocking', '%s may block: %s' % (r, ' -> '.join((hit or [r]) + [facts[hit[-1]]['block_direct'][0]] if hit else [r])), hit or [r])
-    oblige('traps', 'not enumerated: count exhaustion (70, from retains the compiler emits), stack exhaustion (a signal; --stack bounds it), and a CPU fault from an Unsafe access (81 on baremetal-aarch64)')
+    oblige('traps', 'not enumerated: count exhaustion (70, from retains the compiler emits), stack exhaustion (a signal; --stack bounds it), and a CPU fault from an Unsafe access or inline assembly (81 on baremetal-aarch64)')
     undef = sorted(q for q in reach if facts[q]['undefined'])
     if undef:
         oblige('undefined', '%d reachable functions use an operator undefined on part of its domain (%s); `restrict(no-untrapped)` refuses them, and `stdlib/Err.ax` has checked forms: %s%s' % (
@@ -1057,6 +1070,7 @@ def main(argv):
     ap.add_argument('--steady', action='append', default=[])
     ap.add_argument('--nonblocking', action='append', default=[])
     ap.add_argument('--allow-foreign', action='append', default=[])
+    ap.add_argument('--allow-asm', action='append', default=[])
     ap.add_argument('--stack', action='store_true')
     ap.add_argument('--stack-root', action='append', default=[])
     ap.add_argument('--stack-budget', type=int, default=None)

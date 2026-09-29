@@ -5778,6 +5778,12 @@
 (pub fn (expandVarRef e env bs)
   (if (&& (== (expBound bs (nodeAName e)) 1) (== (nodeDefScope e) 0))
     e
+    ; `(asm)` with no arm parses as the bare name.
+    (if (strEq (nodeAName e) "asm")
+      {
+        (expAsmBad env (nodeSpan e) "`asm` needs at least one arm, such as `(asm (aarch64 \"nop\"))`")
+        (mkEInt 0)
+      }
     (let ((mac (expFindMacro env (nodeAName e))))
       (if (== mac 0)
         e
@@ -5810,7 +5816,7 @@
               vecNew
               env
               bs
-              (nodeSpan e))))))))
+              (nodeSpan e)))))))))
 
 ; ------------------------------------------------------------------
 ; An application whose head names a macro.
@@ -5825,15 +5831,648 @@
       ; macro's own helper or self-call, not the caller's variable.
       (if (&& (== (expBound bs (nodeAName head)) 1) (== (nodeDefScope head) 0))
         (expandAppOrHole e env bs)
-        (let ((mac (expFindMacro env (nodeAName head))))
-          (if (== mac 0)
-            (expandAppOrHole e env bs)
-            (expandMacroApp
-              e
-              head
-              mac
-              env
-              bs)))))))
+        ; `asm` is the built-in inline-assembly macro (MM-FFI-9). It is
+        ; asked before the macro table, so no library macro can take
+        ; the name, and after the local binders, as a macro is.
+        (if (strEq (nodeAName head) "asm")
+          (expandAsm e env bs)
+          ; `(! b)` is `(if b false true)`, so every later pass reads a
+          ; form it already knows. Any other use of `!` stays a call,
+          ; and the checker refuses it as it refuses a misused `&&`
+          ; (AX3013), from the `Bool -> Bool` row `tcNew` registers.
+          ; `true` and `false` resolve to the literals whatever the
+          ; caller binds, so the rewrite can't be captured.
+          (if (&& (strEq (nodeAName head) "!") (== (spineArgs e 0) 1))
+            (mkNodeAt
+              TAG_E_IF
+              (expandExpr (nodeB e) env bs)
+              (mkEVarAt "false" (nodeSpan e))
+              (mkEVarAt "true" (nodeSpan e))
+              (nodeSpan e))
+            (let ((mac (expFindMacro env (nodeAName head))))
+              (if (== mac 0)
+                (expandAppOrHole e env bs)
+                (expandMacroApp
+                  e
+                  head
+                  mac
+                  env
+                  bs)))))))))
+
+; ------------------------------------------------------------------
+; INLINE ASSEMBLY (`docs/memory-model.md` MM-FFI-9). `asm` is a
+; built-in macro: the compiler computes its expansion, because a
+; pattern cannot build the operand constraints LLVM needs.
+;
+;   (asm (aarch64 "add {r}, {a}, {b}" (out r) (in a x) (in b y))
+;        (x86_64 "leaq ({a},{b}), {r}" (out r) (in a x) (in b y)))
+;
+; lowers to one call of the primitive `__asm.N`. Its first argument is
+; a string literal describing every arm, and its N further arguments
+; are the arms' input expressions, expanded here. No source can spell
+; the `.` in that name (the lexer refuses it with AX2001), so only this
+; expansion reaches the primitive and the description is always well
+; formed. Every later pass sees an ordinary primitive call: the checker
+; types each input as an `Int` on every target, the effect walk adds
+; `Unsafe` (`isUnsafePrim`), and codegen emits the arm for the
+; target's architecture (`emitPrimAsm`).
+;
+; THE DESCRIPTION, arm after arm with nothing between them:
+;
+;   ARCH;CONSTRAINTS;HASOUT;IDX,IDX,...;LEN;TEMPLATE
+;
+; TEMPLATE comes last and is length-prefixed because it is the one
+; field that may hold any byte. It keeps the literal's source escapes,
+; so the description is itself a valid literal body, and codegen
+; decodes it with `escBody` like any other literal. `{name}` is
+; already `${i}` there, and a `$` the author wrote is `$$`. Each IDX
+; indexes the call's value arguments, in the order the constraints
+; take them, which is the order the arm writes its inputs.
+;
+; A malformed form is one AX3091, at the part that is wrong, and
+; expands to `0` so the checker adds nothing to it.
+; ------------------------------------------------------------------
+
+; The most input operands one form may carry across all its arms. The
+; checker registers `__asm.0` to `__asm.16` (`tcRegAsmPrims`), so the
+; two numbers move together.
+(pub :: expAsmMaxValues Int)
+(pub fn (expAsmMaxValues)
+  16)
+
+(pub :: expandAsm (-> Int Int (Vec Int) Int))
+(pub fn (expandAsm e env bs)
+  (let (
+    (arms (spineArgVec e vecNew))
+    (vals vecNew)
+    (seen vecNew)
+    (mut spec "")
+    (mut bad 0)
+    (mut i 0)
+  )
+    {
+      (if (== (vecLen arms) 0)
+        (set bad (expAsmBad env (nodeSpan e) "`asm` needs at least one arm, such as `(aarch64 \"nop\")`"))
+        0)
+      (while (&& (== bad 0) (< i (vecLen arms)))
+        {
+          (let ((r (expAsmArm (vecGet arms i) env bs vals seen)))
+            (if (== (strLen r) 0)
+              {
+                (set bad 1)
+                0
+              }
+              {
+                (set spec (strConcat spec r))
+                0
+              }))
+          (set i (+ i 1))
+        })
+      (if (&& (== bad 0) (> (vecLen vals) expAsmMaxValues))
+        (set bad (expAsmBad env (nodeSpan e) (strConcat (strConcat "this `asm` form has " (expFmtInt (vecLen vals))) " input operands across its arms, and the limit is 16")))
+        0)
+      (if (== bad 1)
+        (mkNodeAt
+          TAG_E_INT
+          0
+          0
+          0
+          (nodeSpan e))
+        (expBuildSpine
+          (mkEVarAt (strConcat "__asm." (expFmtInt (vecLen vals))) (nodeSpan e))
+          (expAsmArgv (mkNodeAt
+            TAG_E_STR
+            (strConcat (strConcat "\"" spec) "\"")
+            0
+            0
+            (nodeSpan e)) vals)
+          0))
+    }))
+
+; The call's arguments: the description, then the inputs.
+(pub :: expAsmArgv (-> Int (Vec Int) (Vec Int)))
+(pub fn (expAsmArgv desc vals)
+  (let (
+    (out vecNew)
+    (mut i 0)
+  )
+    {
+      (vecPush out desc)
+      (while (< i (vecLen vals))
+        {
+          (vecPush out (vecGet vals i))
+          (set i (+ i 1))
+        })
+      out
+    }))
+
+; One AX3091, stamped with the unit of the declaration being expanded
+; (word 11), as `expandVarRef`'s refusals are. Answers 1, so a caller
+; can record the refusal as it reports it.
+(pub :: expAsmBad (-> Int Int String Int))
+;@axiom:effect(unsafe)
+(pub fn (expAsmBad env sp msg)
+  {
+    (expEmit env (expMarkUnit env (mkDiagNote
+      SEV_ERROR
+      "AX3091"
+      "inline-asm"
+      sp
+      msg
+      0
+      0
+      "an `asm` form is `(asm (ARCH \"template\" operand...) ...)`, with ARCH `aarch64` or `x86_64` and operands `(in name value)`, `(out name)`, `(inout name value)` and `(clobber \"reg\"...)`"
+      "run `axiom explain AX3091` for the full form") (memGetWord env 11)))
+    1
+  })
+
+; One arm: its description, or "" once it has reported what is wrong.
+; `vals` gains the arm's inputs and `seen` its architecture.
+(pub :: expAsmArm (-> Int Int (Vec Int) (Vec Int) (Vec String) String))
+(pub fn (expAsmArm arm env bs vals seen)
+  (let ((head (spineHead arm)))
+    (if (|| (!= (nodeTag arm) TAG_E_APP) (!= (nodeTag head) TAG_E_VAR))
+      {
+        (expAsmBad env (nodeSpan arm) (if (&& (== (nodeTag arm) TAG_E_VAR) (expAsmArch (nodeAName arm)))
+          (strConcat (strConcat "each `asm` arm is a list: write `(asm (" (nodeAName arm)) " \"template\" operand...))`")
+          "each `asm` arm is a list opening with its architecture, such as `(aarch64 \"nop\")`"))
+        ""
+      }
+      (let ((arch (nodeAName head)))
+        (if (if (expAsmArch arch) false true)
+          {
+            (expAsmBad env (nodeSpan head) (strConcat (strConcat "`" arch) "` is not an architecture `asm` knows; an arm opens with `aarch64` or `x86_64`"))
+            ""
+          }
+          (if (>= (expAsmNameAt seen arch 0) 0)
+            {
+              (expAsmBad env (nodeSpan head) (strConcat (strConcat "a second `" arch) "` arm; a form has at most one arm per architecture"))
+              ""
+            }
+            {
+              (vecPush seen arch)
+              (expAsmArmBody arch (spineArgVec arm vecNew) arm env bs vals)
+            }))))))
+
+(pub :: expAsmArch (-> String Bool))
+(pub fn (expAsmArch a)
+  (|| (strEq a "aarch64") (strEq a "x86_64")))
+
+; The arm's template and operands. The state is kept in parallel
+; vectors: `names` and `slots` map an operand name to its `${i}`,
+; `ins` and `inVals` are the input constraints and value nodes in the
+; order written, `regs` every register an operand or clobber names.
+(pub :: expAsmArmBody (-> String (Vec Int) Int Int (Vec Int) (Vec Int) String))
+;@axiom:effect(unsafe)
+(pub fn (expAsmArmBody arch parts arm env bs vals)
+  (if (|| (== (vecLen parts) 0) (!= (nodeTag (vecGet parts 0)) TAG_E_STR))
+    {
+      (expAsmBad env (nodeSpan arm) "an `asm` arm's first item after its architecture is the template, a string literal")
+      ""
+    }
+    (let (
+      (names vecNew)
+      (slots vecNew)
+      (ins vecNew)
+      (inVals vecNew)
+      (inNames vecNew)
+      (regs vecNew)
+      (clobs vecNew)
+      (outc vecNew)
+      (mut bad 0)
+      (mut i 1)
+    )
+      {
+        (while (&& (== bad 0) (< i (vecLen parts)))
+          {
+            (set bad (expAsmOperand arch (vecGet parts i) env names slots ins inVals inNames regs clobs outc))
+            (set i (+ i 1))
+          })
+        (if (== bad 1)
+          ""
+          (let ((nOut (vecLen outc)))
+            {
+              ; `${i}`: the output is operand 0, and the inputs follow
+              ; it in the order written. An `inout` name is the output's.
+              (let ((mut k 0))
+                (while (< k (vecLen inNames))
+                  {
+                    (if (> (strLen (vecGetStr inNames k)) 0)
+                      {
+                        (vecPush names (vecGetStr inNames k))
+                        (vecPush slots (+ nOut k))
+                        0
+                      }
+                      0)
+                    (set k (+ k 1))
+                  }))
+              (let (
+                (errs vecNew)
+                (tmpl (expAsmTemplate (strUnquoteLit (nodeAName (vecGet parts 0))) arch names slots errs))
+              )
+                (if (> (vecLen errs) 0)
+                  {
+                    (expAsmBad env (nodeSpan (vecGet parts 0)) (vecGetStr errs 0))
+                    ""
+                  }
+                  (let (
+                    (mut idxs "")
+                    (mut k 0)
+                  )
+                    {
+                      (while (< k (vecLen inVals))
+                        {
+                          (set idxs (strConcat idxs (strConcat (if (== k 0)
+                            ""
+                            ",") (expFmtInt (vecLen vals)))))
+                          (vecPush vals (expandExpr (vecGet inVals k) env bs))
+                          (set k (+ k 1))
+                        })
+                      (strConcat
+                        (strConcat (strConcat arch ";") (strConcat (expAsmConstraints arch outc ins clobs) ";"))
+                        (strConcat
+                          (strConcat (if (== nOut 0)
+                            "0;"
+                            "1;") (strConcat idxs ";"))
+                          (strConcat (strConcat (expFmtInt (strLen tmpl)) ";") tmpl)))
+                    })))
+            }))
+      })))
+
+; One operand, recorded into the arm's vectors. Answers 1 once it has
+; reported a refusal, else 0.
+;
+; `(out r)` is `=&r`: early-clobber, so the output never shares a
+; register with an input the instructions may still read after writing
+; it. `(inout r v)` is `=r` with its input tied to it (`0`), since the
+; one register is both. A named register is `{x8}` in either place.
+(pub :: expAsmOperand (-> String Int Int (Vec String) (Vec Int) (Vec String) (Vec Int) (Vec String) (Vec String) (Vec String) (Vec String) Int))
+(pub fn (expAsmOperand arch op env names slots ins inVals inNames regs clobs outc)
+  (let ((kh (spineHead op)))
+    (if (|| (!= (nodeTag op) TAG_E_APP) (!= (nodeTag kh) TAG_E_VAR))
+      (expAsmBad env (nodeSpan op) "an operand is `(in name value)`, `(out name)`, `(inout name value)` or `(clobber \"reg\"...)`")
+      (let (
+        (kind (nodeAName kh))
+        (args (spineArgVec op vecNew))
+      )
+        (if (strEq kind "clobber")
+          (expAsmClobbers arch args 0 env regs clobs)
+          (if (if (|| (strEq kind "in") (|| (strEq kind "out") (strEq kind "inout"))) false true)
+            (expAsmBad env (nodeSpan kh) (strConcat (strConcat "`" kind) "` is not an operand kind; the kinds are `in`, `out`, `inout` and `clobber`"))
+            (let (
+              (hasReg (&& (> (vecLen args) 1) (== (nodeTag (vecGet args 1)) TAG_E_STR)))
+              (want (if (strEq kind "out")
+                1
+                2))
+            )
+              (if (|| (== (vecLen args) 0) (!= (nodeTag (vecGet args 0)) TAG_E_VAR))
+                (expAsmBad env (nodeSpan op) (strConcat (strConcat "`(" kind) " ...)` names its operand first, with a bare name the template writes as `{name}`"))
+                (if (!= (vecLen args) (+ want (if hasReg
+                  1
+                  0)))
+                  (expAsmBad env (nodeSpan op) (if (strEq kind "out")
+                    "`(out name)` takes a name and, optionally, a register: `(out r)` or `(out r \"x0\")`"
+                    (strConcat (strConcat (strConcat "`(" kind) " name value)` takes a name, optionally a register, and one value: `(") (strConcat (strConcat kind " a x)` or `(") (strConcat kind " a \"x0\" x)`")))))
+                  (let (
+                    (nm (nodeAName (vecGet args 0)))
+                    (reg (if hasReg
+                      (strUnquoteLit (nodeAName (vecGet args 1)))
+                      ""))
+                  )
+                    (if (|| (>= (expAsmNameAt names nm 0) 0) (>= (expAsmNameAt inNames nm 0) 0))
+                      (expAsmBad env (nodeSpan (vecGet args 0)) (strConcat (strConcat "a second operand named `" nm) "`; each operand of an arm has its own name"))
+                      (if (&& (if (strEq kind "in") false true) (> (vecLen outc) 0))
+                        (expAsmBad env (nodeSpan op) "an arm answers at most one value, so it takes one `out` or `inout`")
+                        (let ((regBad (if hasReg
+                          (expAsmOperandRegWhy arch reg)
+                          "")))
+                          (if (> (strLen regBad) 0)
+                            (expAsmBad env (nodeSpan (vecGet args 1)) regBad)
+                            (if (&& hasReg (>= (expAsmNameAt regs reg 0) 0))
+                              (expAsmBad env (nodeSpan (vecGet args 1)) (strConcat (strConcat "`" reg) "` is named twice in this arm; an operand's register is its own"))
+                              {
+                                (if hasReg
+                                  {
+                                    (vecPush regs reg)
+                                    0
+                                  }
+                                  0)
+                                (if (strEq kind "out")
+                                  {
+                                    (vecPush names nm)
+                                    (vecPush slots 0)
+                                    (vecPush outc (if hasReg
+                                      (strConcat (strConcat "=&{" reg) "}")
+                                      "=&r"))
+                                    0
+                                  }
+                                  (if (strEq kind "inout")
+                                    {
+                                      (vecPush outc (if hasReg
+                                        (strConcat (strConcat "={" reg) "}")
+                                        "=r"))
+                                      (vecPush ins "0")
+                                      (vecPush inNames "")
+                                      (vecPush names nm)
+                                      (vecPush slots 0)
+                                      (vecPush inVals (vecGet args (- (vecLen args) 1)))
+                                      0
+                                    }
+                                    {
+                                      (vecPush ins (if hasReg
+                                        (strConcat (strConcat "{" reg) "}")
+                                        "r"))
+                                      (vecPush inNames nm)
+                                      (vecPush inVals (vecGet args (- (vecLen args) 1)))
+                                      0
+                                    }))
+                                0
+                              })))))))))))))))
+
+; `(clobber "x9" "v0")`: each register the instructions write that no
+; operand names. `memory` and the flags are always clobbered, so naming
+; one is accepted and adds nothing.
+(pub :: expAsmClobbers (-> String (Vec Int) Int Int (Vec String) (Vec String) Int))
+(pub fn (expAsmClobbers arch args i env regs clobs)
+  (if (>= i (vecLen args))
+    0
+    (let ((a (vecGet args i)))
+      (if (!= (nodeTag a) TAG_E_STR)
+        (expAsmBad env (nodeSpan a) "`clobber` names registers as string literals, such as `(clobber \"x9\")`")
+        (let ((r (strUnquoteLit (nodeAName a))))
+          (if (|| (strEq r "memory") (|| (strEq r "cc") (strEq r "flags")))
+            (expAsmClobbers arch args (+ i 1) env regs clobs)
+            (let ((why (expAsmClobberRegWhy arch r)))
+              (if (> (strLen why) 0)
+                (expAsmBad env (nodeSpan a) why)
+                (if (>= (expAsmNameAt regs r 0) 0)
+                  (expAsmBad env (nodeSpan a) (strConcat (strConcat "`" r) "` is named twice in this arm; a clobbered register can't also hold an operand"))
+                  {
+                    (vecPush regs r)
+                    (vecPush clobs r)
+                    (expAsmClobbers arch args (+ i 1) env regs clobs)
+                  })))))))))
+
+; The constraint list: the output, the inputs in the order written,
+; the clobbers, and the clobbers every block carries. Every block is
+; assumed to read and write memory and the flags, so the optimiser
+; moves no load or store across one and keeps no flag live through it.
+(pub :: expAsmConstraints (-> String (Vec String) (Vec String) (Vec String) String))
+;@axiom:effect(unsafe)
+(pub fn (expAsmConstraints arch outc ins clobs)
+  (let (
+    (mut s "")
+    (mut i 0)
+  )
+    {
+      (if (> (vecLen outc) 0)
+        {
+          (set s (vecGetStr outc 0))
+          0
+        }
+        0)
+      (while (< i (vecLen ins))
+        {
+          (set s (expAsmJoin s (vecGetStr ins i)))
+          (set i (+ i 1))
+        })
+      (set i 0)
+      (while (< i (vecLen clobs))
+        {
+          (set s (expAsmJoin s (strConcat (strConcat "~{" (vecGetStr clobs i)) "}")))
+          (set i (+ i 1))
+        })
+      (expAsmJoin s (if (strEq arch "aarch64")
+        "~{memory},~{cc}"
+        "~{memory},~{dirflag},~{fpsr},~{flags}"))
+    }))
+
+(pub :: expAsmJoin (-> String String String))
+(pub fn (expAsmJoin s t)
+  (if (== (strLen s) 0)
+    t
+    (strConcat (strConcat s ",") t)))
+
+; Why `r` can't hold an operand on `arch`, or "" when it can. An
+; operand lives in a general-purpose register the compiler's frame and
+; the platform don't own.
+(pub :: expAsmOperandRegWhy (-> String String String))
+(pub fn (expAsmOperandRegWhy arch r)
+  (let ((why (expAsmReservedWhy arch r)))
+    (if (> (strLen why) 0)
+      why
+      (if (strEq arch "aarch64")
+        (if (&& (expAsmA64Gpr r) (if (strEq r "x30") false true))
+          ""
+          (if (strEq r "x30")
+            "`x30` is the link register; name it in `clobber` if the instructions write it"
+            (strConcat (strConcat "`" r) "` is not a register an aarch64 operand can name; use `x0` to `x28`, except `x18`")))
+        (if (expAsmX64Gpr r)
+          ""
+          (strConcat (strConcat "`" r) "` is not a register an x86_64 operand can name; use `rax`, `rbx`, `rcx`, `rdx`, `rsi`, `rdi` or `r8` to `r15`"))))))
+
+; Why `r` can't be clobbered on `arch`, or "" when it can: a
+; general-purpose register, the link register, or a vector register.
+(pub :: expAsmClobberRegWhy (-> String String String))
+(pub fn (expAsmClobberRegWhy arch r)
+  (let ((why (expAsmReservedWhy arch r)))
+    (if (> (strLen why) 0)
+      why
+      (if (strEq arch "aarch64")
+        (if (|| (expAsmA64Gpr r) (expAsmNumbered r "v" 0 31))
+          ""
+          (strConcat (strConcat "`" r) "` is not a register an aarch64 `clobber` can name; use `x0` to `x30`, except `x18` and `x29`, or `v0` to `v31`"))
+        (if (|| (expAsmX64Gpr r) (expAsmNumbered r "xmm" 0 15))
+          ""
+          (strConcat (strConcat "`" r) "` is not a register an x86_64 `clobber` can name; use a general-purpose register other than `rsp` and `rbp`, or `xmm0` to `xmm15`"))))))
+
+; The registers no block may touch, and why.
+(pub :: expAsmReservedWhy (-> String String String))
+(pub fn (expAsmReservedWhy arch r)
+  (if (strEq arch "aarch64")
+    (if (|| (strEq r "sp") (strEq r "x31"))
+      "`sp` is the stack pointer; an `asm` block must leave it as it found it"
+      (if (strEq r "x29")
+        "`x29` is the frame pointer, which the compiler's frame owns"
+        (if (strEq r "x18")
+          "`x18` is the platform register, reserved on Darwin; use another"
+          "")))
+    (if (strEq r "rsp")
+      "`rsp` is the stack pointer; an `asm` block must leave it as it found it"
+      (if (strEq r "rbp")
+        "`rbp` is the frame pointer, which the compiler's frame owns"
+        ""))))
+
+; `x0` to `x30`: the reserved ones are refused first, by name.
+(pub :: expAsmA64Gpr (-> String Bool))
+(pub fn (expAsmA64Gpr r)
+  (expAsmNumbered r "x" 0 30))
+
+(pub :: expAsmX64Gpr (-> String Bool))
+(pub fn (expAsmX64Gpr r)
+  (if (|| (strEq r "rax") (|| (strEq r "rbx") (|| (strEq r "rcx") (strEq r "rdx"))))
+    true
+    (if (|| (strEq r "rsi") (strEq r "rdi"))
+      true
+      (expAsmNumbered r "r" 8 15))))
+
+; `r` is `prefix` followed by a decimal in [lo, hi], written without a
+; leading zero.
+(pub :: expAsmNumbered (-> String String Int Int Bool))
+(pub fn (expAsmNumbered r prefix lo hi)
+  (let (
+    (p (strLen prefix))
+    (n (strLen r))
+  )
+    (if (|| (<= n p) (|| (> (- n p) 2) (if (strStartsWith r prefix) false true)))
+      false
+      (if (&& (== (- n p) 2) (== (strByte r p) 48))
+        false
+        (let (
+          (mut v 0)
+          (mut ok true)
+          (mut i p)
+        )
+          {
+            (while (< i n)
+              {
+                (let ((c (strByte r i)))
+                  (if (&& (>= c 48) (<= c 57))
+                    {
+                      (set v (+ (* v 10) (- c 48)))
+                      0
+                    }
+                    {
+                      (set ok false)
+                      0
+                    }))
+                (set i (+ i 1))
+              })
+            (&& ok (&& (>= v lo) (<= v hi)))
+          })))))
+
+; The template with `{name}` as `${i}` (or `${i:m}` for `{name:m}`),
+; `{{` and `}}` as braces, and `$` as `$$`, working on the literal's
+; body with its source escapes left in place: a backslash and the byte
+; after it are copied as they stand. A problem is pushed onto `errs`.
+(pub :: expAsmTemplate (-> String String (Vec String) (Vec Int) (Vec String) String))
+(pub fn (expAsmTemplate s arch names slots errs)
+  (let (
+    (mut out "")
+    (mut i 0)
+    (n (strLen s))
+  )
+    {
+      (while (&& (< i n) (== (vecLen errs) 0))
+        (let ((c (strByte s i)))
+          (if (&& (== c 92) (< (+ i 1) n))
+            {
+              (set out (strConcat out (strSlice s i 2)))
+              (set i (+ i 2))
+            }
+            (if (== c 36)
+              {
+                (set out (strConcat out "$$"))
+                (set i (+ i 1))
+              }
+              (if (&& (== c 123) (&& (< (+ i 1) n) (== (strByte s (+ i 1)) 123)))
+                {
+                  (set out (strConcat out "{"))
+                  (set i (+ i 2))
+                }
+                (if (== c 123)
+                  (let ((close (expAsmFindClose s (+ i 1))))
+                    (if (< close 0)
+                      {
+                        (vecPush errs "a `{` in the template opens an operand and nothing closes it; write `{{` for a literal brace")
+                        0
+                      }
+                      {
+                        (set out (strConcat out (expAsmPlaceholder (strSlice s (+ i 1) (- close (+ i 1))) arch names slots errs)))
+                        (set i (+ close 1))
+                      }))
+                  (if (== c 125)
+                    (if (&& (< (+ i 1) n) (== (strByte s (+ i 1)) 125))
+                      {
+                        (set out (strConcat out "}"))
+                        (set i (+ i 2))
+                      }
+                      {
+                        (vecPush errs "a `}` in the template closes nothing; write `}}` for a literal brace")
+                        0
+                      })
+                    {
+                      (set out (strConcat out (strSlice s i 1)))
+                      (set i (+ i 1))
+                    })))))))
+      out
+    }))
+
+(pub :: expAsmFindClose (-> String Int Int))
+(pub fn (expAsmFindClose s i)
+  (if (>= i (strLen s))
+    (- 0 1)
+    (if (== (strByte s i) 125)
+      i
+      (if (== (strByte s i) 123)
+        (- 0 1)
+        (expAsmFindClose s (+ i 1))))))
+
+; `name` or `name:m` inside braces, as `${i}` or `${i:m}`. The
+; modifiers pick a view of the register: `w` and `x` on aarch64, `b`,
+; `h`, `w`, `k` and `q` on x86_64.
+(pub :: expAsmPlaceholder (-> String String (Vec String) (Vec Int) (Vec String) String))
+(pub fn (expAsmPlaceholder body arch names slots errs)
+  (let (
+    (colon (expAsmColon body 0))
+    (nm (if (< colon 0)
+      body
+      (strSlice body 0 colon)))
+    (m (if (< colon 0)
+      ""
+      (strSlice body (+ colon 1) (- (strLen body) (+ colon 1)))))
+    (at (expAsmNameAt names nm 0))
+  )
+    (if (< at 0)
+      {
+        (vecPush errs (strConcat (strConcat "the template writes `{" nm) "}`, and no operand of this arm has that name; write `{{` and `}}` for literal braces"))
+        ""
+      }
+      (if (&& (> (strLen m) 0) (if (expAsmModifier arch m) false true))
+        {
+          (vecPush errs (strConcat (strConcat (strConcat "`:" m) "` is not an operand modifier on ") (strConcat arch (if (strEq arch "aarch64")
+            "; the modifiers are `w` and `x`"
+            "; the modifiers are `b`, `h`, `w`, `k` and `q`"))))
+          ""
+        }
+        (strConcat (strConcat "${" (expFmtInt (vecGet slots at))) (if (> (strLen m) 0)
+          (strConcat (strConcat ":" m) "}")
+          "}"))))))
+
+(pub :: expAsmColon (-> String Int Int))
+(pub fn (expAsmColon s i)
+  (if (>= i (strLen s))
+    (- 0 1)
+    (if (== (strByte s i) 58)
+      i
+      (expAsmColon s (+ i 1)))))
+
+(pub :: expAsmNameAt (-> (Vec String) String Int Int))
+;@axiom:effect(unsafe)
+(pub fn (expAsmNameAt names nm i)
+  (if (>= i (vecLen names))
+    (- 0 1)
+    (if (strEq (vecGetStr names i) nm)
+      i
+      (expAsmNameAt names nm (+ i 1)))))
+
+(pub :: expAsmModifier (-> String String Bool))
+(pub fn (expAsmModifier arch m)
+  (if (strEq arch "aarch64")
+    (|| (strEq m "w") (strEq m "x"))
+    (if (|| (strEq m "b") (|| (strEq m "h") (strEq m "w")))
+      true
+      (|| (strEq m "k") (strEq m "q")))))
 
 (pub :: expandAppPlain (-> Int Int (Vec Int) Int))
 (pub fn (expandAppPlain e env bs)
@@ -6815,7 +7454,9 @@
                                     1
                                     (if (strEq name "||")
                                       1
-                                      0)))))))))))))))))))
+                                      (if (strEq name "!")
+                                        1
+                                        0))))))))))))))))))))
 
 ; One name's canonical key at one module: `D:` plus what the name
 ; resolves to where it stands - the module's own declaration, the

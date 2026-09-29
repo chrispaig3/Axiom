@@ -137,6 +137,22 @@ instruction (`strb`/`strh`/`str w`/`str x` and the loads).
 4. **Read-modify-write atomicity.** One naturally aligned access is
    single-copy atomic; a read, a mask and a write are three accesses.
 
+For an instruction no primitive covers, such as reading `CurrentEL` or
+another system register, write an `asm` form:
+
+```scheme fragment
+(:: currentEl Int)
+;@axiom:effect(unsafe)
+(fn (currentEl)
+  (asm (aarch64 "mrs {e}, CurrentEL" (out e))))
+```
+
+The function says `effect(unsafe)`, because the compiler can't see what
+the instruction does. A form with no arm for the target is `AX4008`,
+like a primitive the target lacks, and the restricted profile refuses
+one unless `--allow-asm` names its function (RP-9). The full form is in
+[Inline assembly](reference.md#inline-assembly).
+
 ## 4. Alignment, endianness, integer width and ABI
 
 - **Endianness.** Little-endian. A device that speaks big-endian (QEMU's
@@ -251,6 +267,8 @@ is not in this port.
 | an alignment fault exiting 81 with its registers | QEMU `virt` (TCG) | A12 |
 | a periodic step on the virtual timer's interrupt through the GICv2, the restricted profile and a stack budget | QEMU `virt` (TCG); the profile and the bound compile-time | A13 |
 | `fw_cfg` DMA under an ownership protocol, a contract stopping a device-owned read, a timer deadline | QEMU `virt` (TCG) | A14 |
+| each target's `asm` arm, `opt -O2` keeping an unread block against a control, AX4008 for a missing arm | compile-only, every host | A15 |
+| `tests/embedded/asm-el.ax` reading `CurrentEL` at EL1 through `asm` | QEMU `virt` (TCG) | A15 |
 | anything on hardware | **nothing** | - |
 
 Where `qemu-system-aarch64` is not on PATH - every CI runner today -

@@ -19036,7 +19036,7 @@
                                                     true
                                                     (if (isDevicePrimName nm)
                                                       true
-                                                      (isSyscallName nm)))))))))))))))))))))))))))))
+                                                      (|| (isAsmPrimName nm) (isSyscallName nm))))))))))))))))))))))))))))))
 
 ; `__syscall0` through `__syscall6`, distinguished only by how many
 ; arguments follow the syscall number.
@@ -19145,7 +19145,9 @@
                                                       (emitPrimAtomic fnName args cg)
                                                       (if (isDevicePrimName fnName)
                                                         (emitPrimDevice fnName args cg)
-                                                        (emitPrimSyscall args cg)))))))))))))))))))))))))))))))
+                                                        (if (isAsmPrimName fnName)
+                                                          (emitPrimAsm args cg)
+                                                          (emitPrimSyscall args cg))))))))))))))))))))))))))))))))
 
 ; `(__contract cond "message")` - the run-time half of a
 ; `;@axiom:pre(...)` / `;@axiom:post(...)`, and the only thing that
@@ -20237,6 +20239,169 @@
           (if (targetIsAArch64 (memGetWord cg 26))
             " runs programs at EL0 - only baremetal-aarch64 runs one at EL1"
             " is not an AArch64 target"))))))
+    (memSetWord cg 2 (constStr 0))
+    cg
+  })
+
+; ------------------------------------------------------------------
+; INLINE ASSEMBLY (MM-FFI-9). `(__asm.N desc v...)` is what an `asm`
+; form expands to (`expandAsm` in expand.ax, which documents the
+; description). This emits the arm for the target's architecture as
+; one `asm sideeffect` call: `sideeffect` so the optimiser never deletes,
+; merges or hoists it, and the description's constraints already clobber
+; memory and the flags. Only that arm's inputs are evaluated, in the
+; order the arm writes them. A target with no arm gets AX4008's marker,
+; so a portable module may carry an arm for each architecture, and a
+; function nothing reaches is never refused.
+; ------------------------------------------------------------------
+(pub :: isAsmPrimName (-> String Bool))
+(pub fn (isAsmPrimName nm)
+  (strStartsWith nm "__asm."))
+
+(pub :: emitPrimAsm (-> (Vec Int) Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (emitPrimAsm args cg)
+  (let (
+    (arch (if (targetIsAArch64 (memGetWord cg 26))
+      "aarch64"
+      "x86_64"))
+    (d (vecGet args 0))
+  )
+    (let ((desc (if (== (nodeTag d) TAG_E_STR)
+      (strUnquoteLit (nodeAName d))
+      "")))
+      (let ((at (asmArmAt desc arch 0)))
+        (if (< at 0)
+          (emitAsmRefused cg arch)
+          (emitAsmArm desc at args cg))))))
+
+; The offset of `arch`'s arm in the description, or -1. Each arm is
+; five `;`-ended fields and a template of the length the fifth gives.
+(pub :: asmArmAt (-> String String Int Int))
+(pub fn (asmArmAt desc arch pos)
+  (if (>= pos (strLen desc))
+    (- 0 1)
+    (let ((f0 (asmSemi desc pos)))
+      (let ((f1 (asmSemi desc (+ f0 1))))
+        (let ((f2 (asmSemi desc (+ f1 1))))
+          (let ((f3 (asmSemi desc (+ f2 1))))
+            (let ((f4 (asmSemi desc (+ f3 1))))
+              (if (|| (< f0 0) (< f4 0))
+                (- 0 1)
+                (if (strEq (strSlice desc pos (- f0 pos)) arch)
+                  pos
+                  (asmArmAt desc arch (+ (+ f4 1) (asmDigits desc f3 f4))))))))))))
+
+; The next `;` at or after `i`, or -1.
+(pub :: asmSemi (-> String Int Int))
+(pub fn (asmSemi s i)
+  (if (|| (< i 0) (>= i (strLen s)))
+    (- 0 1)
+    (if (== (strByte s i) 59)
+      i
+      (asmSemi s (+ i 1)))))
+
+; The decimal between the `;` at `from` and the one at `to`.
+(pub :: asmDigits (-> String Int Int Int))
+(pub fn (asmDigits s from to)
+  (let (
+    (mut v 0)
+    (mut i (+ from 1))
+  )
+    {
+      (while (< i to)
+        {
+          (set v (+ (* v 10) (- (strByte s i) 48)))
+          (set i (+ i 1))
+        })
+      v
+    }))
+
+(pub :: emitAsmArm (-> String Int (Vec Int) Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (emitAsmArm desc at args cg)
+  (let (
+    (f0 (asmSemi desc at))
+  )
+    (let (
+      (f1 (asmSemi desc (+ f0 1)))
+    )
+      (let (
+        (f2 (asmSemi desc (+ f1 1)))
+      )
+        (let (
+          (f3 (asmSemi desc (+ f2 1)))
+        )
+          (let (
+            (f4 (asmSemi desc (+ f3 1)))
+            (cons (strSlice desc (+ f0 1) (- f1 (+ f0 1))))
+            (hasOut (== (strByte desc (+ f1 1)) 49))
+            (sel (asmSelect desc (+ f2 1) f3 args))
+          )
+            (let (
+              (tmpl (strSlice desc (+ f4 1) (asmDigits desc f3 f4)))
+              (cg1 (emitArgsList sel cg 0))
+            )
+              (let (
+                (argText (if (== (strLen (memGetWordStr cg1 9)) 0)
+                  ""
+                  (strConcat "i64 " (memGetWordStr cg1 9))))
+                (body (escBody tmpl 0 (strLen tmpl)))
+              )
+                (if hasOut
+                  (let ((r (regStr (allocReg cg1))))
+                    {
+                      (emitLine cg1 (strConcat (strConcat (strConcat "  " r) " = call i64 asm sideeffect \"") (strConcat (strConcat body "\", \"") (strConcat (strConcat cons "\"(") (strConcat argText ")")))))
+                      (memSetWord cg1 2 r)
+                      cg1
+                    })
+                  {
+                    (emitLine cg1 (strConcat "  call void asm sideeffect \"" (strConcat (strConcat body "\", \"") (strConcat (strConcat cons "\"(") (strConcat argText ")")))))
+                    (memSetWord cg1 2 (constStr 0))
+                    cg1
+                  })))))))))
+
+; The arm's value arguments, picked out of the call's by the indices
+; between `from` and `to`, in the order the constraints take them.
+(pub :: asmSelect (-> String Int Int (Vec Int) (Vec Int)))
+(pub fn (asmSelect desc from to args)
+  (let (
+    (out vecNew)
+    (mut v 0)
+    (mut any false)
+    (mut i from)
+  )
+    {
+      (while (<= i to)
+        {
+          (if (|| (== i to) (== (strByte desc i) 44))
+            {
+              (if any
+                {
+                  (vecPush out (vecGet args (+ v 1)))
+                  0
+                }
+                0)
+              (set v 0)
+              (set any false)
+            }
+            {
+              (set v (+ (* v 10) (- (strByte desc i) 48)))
+              (set any true)
+            })
+          (set i (+ i 1))
+        })
+      out
+    }))
+
+; AX4008's marker for a form with no arm this target runs.
+(pub :: emitAsmRefused (-> Int String Int))
+;@axiom:effect(unsafe)
+(pub fn (emitAsmRefused cg arch)
+  {
+    (emitLine cg (strConcat (strConcat "  ; axiom-device-refused an `asm` form has no `" arch) (strConcat (strConcat "` arm, and " (targetSpelling (memGetWord cg 26))) (strConcat " is an " (strConcat arch " target")))))
     (memSetWord cg 2 (constStr 0))
     cg
   })

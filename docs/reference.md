@@ -383,8 +383,8 @@ Any name `check` accepts also builds and runs. Tested by `scripts/check-symbol-n
 
 These words have grammar rules. None of them is reserved: each is an
 ordinary identifier everywhere except the position its rule claims.
-That position is the head of a form, and for `mut`, the head of a
-`let` binding. So `(let ((match 1)) match)` binds a variable called
+That position is the head of a form, for `mut` the head of a `let`
+binding, and for `in` the word after a `for` loop's binder. So `(let ((match 1)) match)` binds a variable called
 `match`, and `(cast Int x)` is always the cast form, whatever `cast`
 is bound to. Shadowing a keyword is legal, but it makes code hard to
 read.
@@ -399,7 +399,8 @@ read.
 | `set` | Assign to a `mut` binding | [Mutable bindings](#mutable-bindings) |
 | `if` | Conditional expression, variadic: `(if t1 b1 t2 b2 ... els)` | [if](#if) |
 | `while` | Loop while a condition holds | [while loops](#while-loops) |
-| `for` | Loop over a range, `(for i lo hi body)`, with a step, `(for i lo hi step body)`, or over a `(Vec a)`, `(for x xs body)` and `(for (x k) xs body)` | [for loops](#for-loops) |
+| `for` | Loop over a range, `(for i lo hi body)`, with a step, `(for i lo hi step body)`, or over a `(Vec a)`, `(for x in xs body)` and `(for (x k) in xs body)` | [for loops](#for-loops) |
+| `in` | Optional, after a `for` loop's binder: `(for x in xs body)` | [for loops](#for-loops) |
 | `match` | Pattern matching | [Pattern matching](#pattern-matching) |
 | `data` | Algebraic data type | [Algebraic data types](#algebraic-data-types) |
 | `struct` | Product type with named fields | [Structs](#structs) |
@@ -417,6 +418,7 @@ read.
 | `alloc` | `(alloc T)` types as `*mut T` but allocates nothing and evaluates to 0, a known defect (`MM-VAL-21` in [memory-model.md](memory-model.md)). Use `__alloc` for raw memory | [Memory](#memory) |
 | `parallel` | Run bindings beside the caller and join them in the order written: processes by default, threads under `--threads` | [parallel](#parallel--bindings-that-run-beside-the-caller) |
 | `extern` | Declare Rust functions to call | [Calling Rust](#calling-rust) |
+| `asm` | Inline assembly, one arm per architecture. A local binding named `asm` shadows it | [Inline assembly](#inline-assembly) |
 
 `axiom fmt` follows the same rule. It prints a keyword used as a
 parameter, `let` binder, pattern, argument or effect name as the
@@ -703,6 +705,7 @@ what applies to what.
 
 (&& true false)     ; false
 (|| true false)     ; true
+(! true)            ; false
 
 (- 5)               ; -5 (negation, unary)
 ```
@@ -718,7 +721,10 @@ what applies to what.
 `&&` and `||` short-circuit: they evaluate the right operand only when
 the left one doesn't already decide the answer. So a guard means what
 it looks like: `(&& (< i n) (== (strByte s i) c))` never reads `s` at
-`i` unless `i` is in range.
+`i` unless `i` is in range. `!` is the `Bool` its operand is not, so
+`(! (strEq a b))` reads as it sounds.
+
+Tested by `tests/stdlib/582-not.ax`.
 
 ### Integer arithmetic
 
@@ -755,7 +761,7 @@ return a `Result`: `addChecked`, `subChecked`, `mulChecked`,
 
 ### Operator types
 
-The eighteen operators are built in and always available. No import
+The nineteen operators are built in and always available. No import
 brings them in. No declaration can take an operator's name: a
 function, constructor or type spelled `+`, as in `(fn (+ a b) ...)`,
 is `AX2001`, because every use of `+` reaches the built-in. A local
@@ -777,6 +783,7 @@ beside the [memory primitives](#memory-primitives):
 | `&`, `\|`, `^`, `<<`, `>>` | `(Int -> (Int -> Int))`: bitwise and, or, xor, shift left, shift right (arithmetic) |
 | `==`, `!=`, `<`, `>`, `<=`, `>=` | `(Int -> (Int -> Bool))` |
 | `&&`, `\|\|` | `(Bool -> (Bool -> Bool))` |
+| `!` | `(Bool -> Bool)` |
 
 The signatures are curried because that is how the checker holds every
 function type. A call supplies both arguments at once, as the examples
@@ -999,9 +1006,9 @@ Tested by `tests/selfhost/500-while-mut.ax`.
       (println i))
     (for i 3 0 -1              ; 3, 2, 1
       (println i))
-    (for name names            ; each element
+    (for name in names         ; each element
       (println name))
-    (for (name k) names        ; each element with its index
+    (for (name k) in names     ; each element with its index
       (println "{k}: {name}"))
     0))
 ```
@@ -1027,11 +1034,15 @@ grace
 |---|---|
 | `(for i lo hi body)` | once for each `i` from `lo` up to, but not including, `hi` |
 | `(for i lo hi step body)` | stepping by `step`: up while below `hi` when the step is positive, down while above `hi` when it is negative |
-| `(for x xs body)` | once for each element of the `(Vec a)` `xs`, with `x` bound to it at type `a` |
-| `(for (x k) xs body)` | the same, with `k` counting 0, 1, 2 beside the elements |
+| `(for x in xs body)` | once for each element of the `(Vec a)` `xs`, with `x` bound to it at type `a` |
+| `(for (x k) in xs body)` | the same, with `k` counting 0, 1, 2 beside the elements |
 
 The rules:
 
+- `in` after the binder is optional in every shape: `(for x xs body)`
+  and `(for i in 0 5 body)` are the same loops. It is a keyword only
+  there, so a variable named `in` works anywhere else, including as a
+  later operand, `(for i in 0 in body)`.
 - A range whose `hi` is at or below `lo` runs zero times. To count
   down, give a negative step.
 - `lo`, `hi`, the step and the container are each evaluated once,
@@ -4792,6 +4803,74 @@ terminal call there answers a negative result instead of a made-up one.
 See [Terminals](#terminals) for the support matrix. Every
 `Sys/Platform.*.ax` file declares the same public names, so a target
 that lacks a facility gives a declared answer, never a missing symbol.
+
+#### Inline assembly
+
+When no primitive covers an instruction, write it with `asm`. Give one
+arm per architecture your program builds for, and the compiler emits
+the one for the target:
+
+```scheme
+(import IO)
+
+(:: add (-> Int Int Int))
+;@axiom:effect(unsafe)
+(fn (add x y)
+  (asm
+    (aarch64 "add {r}, {a}, {b}" (out r) (in a x) (in b y))
+    (x86_64 "leaq ({a},{b}), {r}" (out r) (in a x) (in b y))))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (println (add 40 2))
+    0
+  })
+```
+
+It prints `42` on either architecture.
+
+An arm is the architecture, `aarch64` or `x86_64`, then the template,
+then its operands:
+
+| Operand | Meaning |
+|---|---|
+| `(in name value)` | `value`, an `Int`, in a register |
+| `(out name)` | a register the form answers when the instructions end |
+| `(inout name value)` | starts as `value` and is answered |
+| `(clobber "reg"...)` | registers the instructions write that no operand names |
+
+In the template, `{name}` is the operand's register and `{name:w}`
+picks a view of it, such as the 32-bit `w` register on aarch64 or `k`
+on x86_64. Write `{{` and `}}` for literal braces. Everything else
+reaches the assembler as written; x86_64 uses AT&T syntax. To put an
+operand in a particular register, name it: `(in a "x8" v)`. An arm
+answers at most one value, and a form with no `out` or `inout` answers
+0.
+
+The compiler can't see what the instructions do, so a function holding
+an `asm` form says `;@axiom:effect(unsafe)`, and vouches for them. Its
+callers need nothing. Every block is kept and ordered as a side effect,
+and clobbers memory and the flags.
+
+What is checked and when:
+
+- A malformed form, such as an unknown operand kind, a template naming
+  no operand, or the stack or frame pointer as a register, is
+  `AX3091`, where it is written.
+- A form with no arm for the target is `AX4008` when the program
+  builds, if a function the program reaches holds it. A function
+  nothing calls may hold an arm for another architecture.
+- The instructions themselves are checked by the target's assembler
+  when the program builds, not by `axiom check`.
+
+Not yet: operands are `Int` words in general-purpose registers, with
+no memory, floating-point or vector operands, and one output. The full
+contract, with what the instructions must leave as they found it, is
+`MM-FFI-9` in [memory-model.md](memory-model.md).
+
+Tested by `tests/stdlib/581-inline-asm.ax` and `tests/diagnostics/1044-inline-asm.ax`.
 
 ## Concurrency
 

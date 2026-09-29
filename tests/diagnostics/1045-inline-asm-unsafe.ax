@@ -1,0 +1,39 @@
+; Inline assembly is an unsafe operation of the declaration that holds
+; it (docs/memory-model.md MM-FFI-9, MM-EXEC-9c): the compiler can't see
+; what the instructions do. `trusted` is the control: it says
+; `effect(unsafe)`, and `main`, which calls it, needs nothing.
+;
+;   `untagged`   no `effect(unsafe)`: AX3073
+;   `restricted` `restrict(no-unsafe)`: AX3049
+;   `claimsPure` `effect(pure)`: AX3010
+(:: trusted Int)
+;@axiom:effect(unsafe)
+(fn (trusted)
+  (asm
+    (aarch64 "nop")
+    (x86_64 "nop")))
+
+(:: untagged Int)
+(fn (untagged)
+  (asm
+    (aarch64 "nop")
+    (x86_64 "nop")))
+
+;@axiom:restrict(no-unsafe)
+(:: restricted Int)
+;@axiom:effect(unsafe)
+(fn (restricted)
+  (asm
+    (aarch64 "nop")
+    (x86_64 "nop")))
+
+(:: claimsPure Int)
+;@axiom:effect(pure)
+(fn (claimsPure)
+  (asm
+    (aarch64 "nop")
+    (x86_64 "nop")))
+
+(:: main Int)
+(fn (main)
+  (trusted))

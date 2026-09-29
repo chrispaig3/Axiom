@@ -508,6 +508,10 @@ twenty-six:
 refuses them with `AX3010`. `__fence`, `__retainref` (a typed value)
 and `__axiom_arena_mark` are outside the set.
 
+Inline assembly is in the set as well: an `asm` form (`MM-FFI-9`)
+lowers to a primitive of its own, and the diagnostics name it `asm`
+(`tests/diagnostics/1045-inline-asm-unsafe.ax`).
+
 `AX3073` also covers calls to precondition interfaces and casts that
 forge references. `MM-EXEC-9d` defines where a declaration must state
 its unsafe boundary.
@@ -5643,6 +5647,96 @@ models neither caches nor the reordering a real memory system does, so
 no execution in this tree can observe a missing barrier; the barriers
 are verified as EMITTED, not as effective on hardware
 (`docs/embedded-guide.md`).
+
+**MM-FFI-9 (H). Inline assembly is an `asm` form, checked where it is
+written and emitted only for the architecture it names.** Use it for
+an instruction no primitive covers:
+
+```scheme
+(:: cycles Int)
+;@axiom:effect(unsafe)
+(fn (cycles)
+  (asm
+    (aarch64 "mrs {t}, cntvct_el0" (out t))
+    (x86_64 "rdtsc\nshlq $32, %rdx\norq %rdx, %rax" (out t "rax") (clobber "rdx"))))
+
+(:: main Int)
+(fn (main)
+  (if (> (cycles) 0)
+    0
+    1))
+```
+
+A form is `(asm ARM...)`, and an arm is `(ARCH "template" operand...)`
+with `ARCH` either `aarch64` or `x86_64`, one arm each at most. The
+operands are:
+
+| Operand | Meaning |
+|---|---|
+| `(in name value)` | `value`, an `Int`, in a general-purpose register |
+| `(out name)` | a register the form answers when the instructions end |
+| `(inout name value)` | starts as `value` and is answered, in one register |
+| `(clobber "reg"...)` | registers the instructions write that no operand names |
+
+Any of the first three may name its register, as in `(in a "x8" v)`.
+An arm answers at most one value; with no `out` or `inout` the form
+answers 0. In the template, `{name}` is the operand's register,
+`{name:m}` a view of it (`w` or `x` on aarch64; `b`, `h`, `w`, `k` or
+`q` on x86_64), and `{{` and `}}` are literal braces. Everything else
+reaches the assembler as written, `$` included. x86_64 templates use
+AT&T syntax.
+
+*What the implementation guarantees.* The compiler **MUST** refuse a
+malformed form where it is written, with `AX3091`. That covers an
+unknown architecture or operand kind, a second arm for one
+architecture, a template naming no operand, a second output, two
+operands in one register, and a register an arm can't name. The stack
+pointer, the frame pointer and AArch64's `x18` are never nameable, and
+`x30` only as a clobber.
+
+It **MUST** emit only the arm for the target's architecture. That arm's
+inputs are evaluated once each, in the order written, before its
+instructions, and no other arm's inputs are evaluated, though every arm
+is type-checked. A form with no arm for the target is `AX4008` when a
+function the program reaches holds it, so a portable module may hold an
+arm per architecture.
+
+Every block is kept and ordered as a side effect (`sideeffect`) and
+clobbers memory and the condition flags, so it moves across no load,
+store or other side effect. An `out` never shares a register with an
+input (`=&r`).
+
+*What it does not guarantee*, each a program obligation:
+
+- **The instructions.** The compiler can't see what they do, so an
+  `asm` form is an unsafe operation of the declaration holding it
+  (`MM-EXEC-9c`). That declaration says `;@axiom:effect(unsafe)` and
+  vouches that the instructions keep every rule of this document,
+  exactly as a trusted encapsulation vouches for a raw access
+  (`MM-EXEC-9d`). Any IO, blocking or trap they perform is the
+  declaration's to state.
+- **The registers and the stack.** The instructions **MUST** leave the
+  stack pointer and the frame pointer as they found them, write no
+  register but the outputs and the clobbers, and use no stack. The
+  stack bound of `restricted-profile.md` rests on that.
+- **Control flow.** The instructions **MUST** end by falling through:
+  no branch out of the block, no return and no exception return.
+- **The assembler.** `check` does not assemble a template. An
+  instruction the target's assembler rejects fails the build with the
+  assembler's message.
+
+*Limits.* Operands are `Int` words in general-purpose registers: no
+memory, floating-point or vector operands, and one output. Vector
+registers may be clobbered.
+
+*Evidence:* `tests/stdlib/581-inline-asm.ax` answers the same on
+aarch64 and x86_64 at every `--opt` (`.optstable`).
+`tests/diagnostics/1044-inline-asm.ax` refuses each malformed shape
+beside a well-formed control, and
+`tests/diagnostics/1045-inline-asm-unsafe.ax` holds the unsafe boundary.
+`scripts/check-embedded.sh` A15 keeps an unused block through
+`opt -O2`, checks the lowering on every target, and draws `AX4008` for
+a reached form with no arm and nothing for an unreached one.
 
 ---
 

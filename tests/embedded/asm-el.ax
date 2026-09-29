@@ -1,0 +1,14 @@
+; Inline assembly at EL1 (docs/memory-model.md MM-FFI-9). `CurrentEL`
+; can be read only at EL1 and above, which only baremetal-aarch64 runs
+; a program at, so no primitive covers it and an `asm` form does.
+; `scripts/check-embedded.sh` A15 boots this under QEMU and requires
+; the exit status 41: 40 plus the exception level, bits 3:2 of the
+; register.
+(:: currentEl Int)
+;@axiom:effect(unsafe)
+(fn (currentEl)
+  (asm (aarch64 "mrs {e}, CurrentEL" (out e))))
+
+(:: main Int)
+(fn (main)
+  (+ 40 (>> (currentEl) 2)))

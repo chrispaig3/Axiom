@@ -1,0 +1,28 @@
+; `in` may follow a `for` loop's binder in every shape, and each loop
+; answers what the same loop without it does. `in` is a word only
+; there: `in` below is also an ordinary variable, used as a bound.
+(import IO)
+(import Vec)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (v (vecNew))
+    (in 3)
+  )
+    {
+      (vecPush v 10)
+      (vecPush v 20)
+      (for x in v
+        (println (fmtInt x)))
+      (for (x k) in v
+        (println (strConcat (fmtInt k) (strConcat ": " (fmtInt x)))))
+      (for i in 0 in
+        (println (fmtInt i)))
+      (for i in 9 0 -4
+        (println (fmtInt i)))
+      (for x v
+        (println (fmtInt x)))
+      0
+    }))

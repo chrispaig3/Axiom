@@ -2731,10 +2731,12 @@
 ; elements after the head is the container form `(for x xs body)` -
 ; with an element-index binder `(for (x i) xs body)`, which is still
 ; one element - four is the range `(for i lo hi body)`, five the
-; stepped range `(for i lo hi step body)`, and nothing else is a
-; `for` - the parser discriminates the shapes by exactly this arity
-; (`self_host/parser.ax`'s `parseForExpr`), and a printer that accepted
-; a sixth element would print something `check` then refuses.
+; stepped range `(for i lo hi step body)`. Each may spell `in` after
+; its binder, `(for x in xs body)`, which adds one element and prints
+; as written. Nothing else is a `for` - the parser discriminates the
+; shapes by exactly this arity (`self_host/parser.ax`'s
+; `parseForExpr`), and a printer that accepted another element would
+; print something `check` then refuses.
 ;
 ; This exists because the formatter is a SEPARATE grammar that never
 ; sees the parser's AST. Measured before it was written: a four-operand
@@ -2744,34 +2746,81 @@
 ; holds the bytes.
 (pub :: fpFor (-> Int Int Int))
 (pub fn (fpFor p n)
-  (let ((elems (fpExprElems n 1)))
-    (if (|| (< (vecLen elems) 3) (> (vecLen elems) 5))
-      (fpBad p)
-      (let ((o (fpOut p)))
+  (let (
+    (elems (fpExprElems n 1))
+    (hasIn (if (> (vecLen elems) 1)
+      (fpIsAtomText (fpSrc p) (vecGet elems 1) "in")
+      false))
+  )
+    (let ((ops (if hasIn
+      (- (vecLen elems) 1)
+      (vecLen elems))))
+      (if (|| (< ops 3) (> ops 5))
+        (fpBad p)
+        (let (
+          (o (fpOut p))
+          (mut i 1)
+        )
+          {
+            (fpP p "(for ")
+            (fpExpr p (vecGet elems 0))
+            (while (< i (- (vecLen elems) 1))
+              {
+                (fpP p " ")
+                (fpExpr p (vecGet elems i))
+                (set i (+ i 1))
+              })
+            (fpP p "\n")
+            (foPushIndent o)
+            (foEmitIndent o)
+            (fpBodyVec p elems (- (vecLen elems) 1))
+            (foPopIndent o)
+            (fpP p ")")
+          })))))
+
+; `asm` prints one arm per line under its head when it has more than
+; one, so each architecture's template and operands read as a unit
+; (MM-FFI-9). One arm stays on the head's line, and so does a form
+; with a bare word where an arm belongs, which AX3091 refuses. An arm
+; prints as any other form does.
+(pub :: fpAnyAtom (-> (Vec Int) Int Bool))
+(pub fn (fpAnyAtom elems i)
+  (if (>= i (vecLen elems))
+    false
+    (if (== (fnKind (vecGet elems i)) FN_ATOM)
+      true
+      (fpAnyAtom elems (+ i 1)))))
+
+(pub :: fpAsm (-> Int Int Int))
+(pub fn (fpAsm p n)
+  (let (
+    (elems (fpExprElems n 1))
+    (o (fpOut p))
+    (mut i 0)
+  )
+    {
+      (fpP p "(asm")
+      (if (|| (< (vecLen elems) 2) (fpAnyAtom elems 0))
+        (while (< i (vecLen elems))
+          {
+            (fpP p " ")
+            (fpExpr p (vecGet elems i))
+            (set i (+ i 1))
+          })
         {
-          (fpP p "(for ")
-          (fpExpr p (vecGet elems 0))
-          (fpP p " ")
-          (fpExpr p (vecGet elems 1))
-          (if (> (vecLen elems) 3)
-            {
-              (fpP p " ")
-              (fpExpr p (vecGet elems 2))
-            }
-            p)
-          (if (> (vecLen elems) 4)
-            {
-              (fpP p " ")
-              (fpExpr p (vecGet elems 3))
-            }
-            p)
-          (fpP p "\n")
           (foPushIndent o)
-          (foEmitIndent o)
-          (fpBodyVec p elems (- (vecLen elems) 1))
+          (while (< i (vecLen elems))
+            {
+              (fpP p "\n")
+              (foEmitIndent o)
+              (fpExpr p (vecGet elems i))
+              (set i (+ i 1))
+            })
           (foPopIndent o)
-          (fpP p ")")
-        }))))
+          0
+        })
+      (fpP p ")")
+    }))
 
 ; `region` prints like `while`: the name on the head line, the one
 ; body on its own indented line. Two elements after the head and
@@ -3317,8 +3366,10 @@
                             (if (strEq h "region")
                               (fpRegion p n)
                               (fpWhile p n))
-                            (if (strEq h "for")
-                              (fpFor p n)
+                            (if (|| (strEq h "for") (strEq h "asm"))
+                              (if (strEq h "for")
+                                (fpFor p n)
+                                (fpAsm p n))
                               (if (strEq h "parallel")
                                 (fpParallel p n)
                                 (if (strEq h "set")

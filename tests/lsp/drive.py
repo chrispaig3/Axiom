@@ -1676,18 +1676,20 @@ for _op in ["==", "!=", "<", ">", "<=", ">="]:
     _SHAPE_WANT[_op] = (["Int", "Int"], "Bool")
 for _op in ["&&", "||"]:
     _SHAPE_WANT[_op] = (["Bool", "Bool"], "Bool")
+# `!` is the one unary operator: one `Bool` in, one `Bool` out.
+_SHAPE_WANT["!"] = (["Bool"], "Bool")
 for _op, _want in _SHAPE_WANT.items():
     if CHECKER_BUILTINS.get(_op) != _want:
         sys.exit(f"FAIL: the checker's row for `{_op}` is "
                  f"{CHECKER_BUILTINS.get(_op)!r}, this file assumes {_want!r}")
-# A binary operator the checker rows and the list above does not name
+# An operator the checker rows and the list above does not name
 # - dunder primitives aside, which no hover spells - is a hover the
 # server answers without a reference, so the extraction refuses it.
 _binshapes = [tuple(p) + (r,) for p, r in _SHAPE_WANT.values()]
 _binop = {n for n, (p, r) in CHECKER_BUILTINS.items()
           if not n.startswith("__") and tuple(p) + (r,) in _binshapes}
 if _binop != set(_SHAPE_WANT):
-    sys.exit(f"FAIL: the checker's binary-operator rows are {sorted(_binop)}, "
+    sys.exit(f"FAIL: the checker's operator rows are {sorted(_binop)}, "
              f"this file assumes {sorted(_SHAPE_WANT)}")
 _lsrc = open(os.path.join(REPO, "self_host", "lsp.ax"), encoding="utf-8").read()
 _lshape = _lsrc[_lsrc.index("(pub fn (lspShapeBuiltinRes"):

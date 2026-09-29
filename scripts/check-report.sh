@@ -23,6 +23,8 @@
 #      tests/profile/rpN-*.ax is refused with exit 1 by exactly the rule
 #      its name gives, and by no other. RP-8 is an interrupt handler that
 #      may block, read off the syscall-number constant its body passes.
+#      RP-9 is a function holding an `asm` form, admitted by
+#      `--allow-asm` and listed as an obligation either way.
 #   4. The stack bound, where llc can build an AArch64 ELF object: the
 #      conforming program and tests/embedded/blink.ax are bounded under
 #      the 8 KiB the baremetal-aarch64 link reserves; tree recursion is
@@ -293,6 +295,8 @@ rp4-spawn.ax||RP-4
 rp5-steady.ax|--steady step|RP-5
 rp5-steady.ax||none
 rp8-blocking.ax||RP-8
+rp9-asm.ax||RP-9
+rp9-asm.ax|--allow-asm spin|none
 ROWS
 
 echo
@@ -489,6 +493,7 @@ RP-3|rp3-foreign.ax|
 RP-4|rp4-spawn.ax|
 RP-5|rp5-steady.ax|--steady step
 RP-8|rp8-blocking.ax|
+RP-9|rp9-asm.ax|
 ROWS
 # The derivations: with no trap leaves the exact statuses above must
 # come out wrong, and with no blocking kernel entry RP-8's fixture must

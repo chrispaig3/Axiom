@@ -22,6 +22,36 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### Inline assembly: `asm` — MM-FFI-9, `AX3091` - 2026-09-29
+
+`asm` runs an instruction no primitive covers. A form gives one arm
+per architecture, `aarch64` or `x86_64`, with a template and its
+operands, `(in name value)`, `(out name)`, `(inout name value)` and
+`(clobber "reg"...)`:
+
+```scheme fragment
+(asm
+  (aarch64 "add {r}, {a}, {b}" (out r) (in a x) (in b y))
+  (x86_64 "leaq ({a},{b}), {r}" (out r) (in a x) (in b y)))
+```
+
+The compiler emits the arm for the target, keeps every block as a side
+effect that clobbers memory and the flags, and refuses a malformed form
+where it is written with the new `AX3091`. A reached form with no arm
+for the target is `AX4008`. The function holding one says
+`effect(unsafe)`, and the restricted profile refuses one unless
+`--allow-asm` names its function (RP-9). Tested by
+`tests/stdlib/581-inline-asm.ax`, `tests/diagnostics/1044-inline-asm.ax`,
+`1045-inline-asm-unsafe.ax`, and `scripts/check-embedded.sh` A15, which
+also boots `tests/embedded/asm-el.ax` under QEMU.
+
+### `!` negates a `Bool`, and `in` may follow a `for` binder - 2026-09-29
+
+`(! b)` is the `Bool` that `b` is not. `(for x in xs body)` reads as it
+sounds, and `in` is optional in every `for` shape, so existing loops
+are unchanged. `in` is a keyword only after a `for` binder. Tested by
+`tests/stdlib/582-not.ax` and `tests/stdlib/583-for-in.ax`.
+
 ### A channel whose holder died is poisoned, and the task pool has a model — AN-10, R-C2, R-E1 - 2026-09-29
 
 A binding killed while holding a channel's lock used to leave it held,

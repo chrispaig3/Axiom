@@ -5896,7 +5896,7 @@
 ; `Bool`, 0 for "not a builtin this table knows". The rows mirror
 ; `tcNew` in self_host/typecheck.ax exactly - same names, same
 ; shapes - and the gate holds the mirror: ten arithmetic and bitwise
-; operators, six comparisons, two logical operators.
+; operators, six comparisons, three logical operators.
 (pub :: lspShapeBuiltinRes (-> String Int))
 (pub fn (lspShapeBuiltinRes h)
   (if (strEq h "+")
@@ -5933,7 +5933,7 @@
                                   2
                                   (if (strEq h "&&")
                                     3
-                                    (if (strEq h "||")
+                                    (if (|| (strEq h "||") (strEq h "!"))
                                       3
                                       0)))))))))))))))))))
 
@@ -11663,7 +11663,7 @@
         (let ((p (vecGet chain (* j 4))))
           {
             (if (== (strByte src p) 40)
-              (if (lspFixArgIsPlain (lspViewHeadAt src p) (vecGet chain (+ (* j 4) 1)))
+              (if (lspFixArgIsPlain (lspViewHeadAt src p) (lspForArgIndex src p (vecGet chain (+ (* j 4) 1))))
                 0
                 {
                   (set ok false)
@@ -11677,6 +11677,70 @@
           }))
       ok
     }))
+
+; The index `lspFixArgIsPlain` reasons about. A `for` that spells `in`
+; after its binder has one more element than the shapes it knows: the
+; word itself, at 2, is not an expression, and every later element sits
+; one place further on (`forSkipIn` in parser.ax).
+(pub :: lspForArgIndex (-> String Int Int Int))
+(pub fn (lspForArgIndex src p k)
+  (if (if (strEq (lspViewHeadAt src p) "for")
+    (lspForHasIn src p)
+    false)
+    (if (== k 2)
+      0
+      (if (> k 2)
+        (- k 1)
+        k))
+    k))
+
+; Does the `for` form at `p` spell `in` after its binder?
+(pub :: lspForHasIn (-> String Int Bool))
+(pub fn (lspForHasIn src p)
+  (let (
+    (n (strLen src))
+    (b (lspSkipSpace src (lspViewHeadEnd src p) (strLen src)))
+  )
+    (let ((w (lspSkipSpace src (lspSkipItem src b n) n)))
+      (if (if (< w n)
+        (isIdentStart (strByte src w))
+        false)
+        (strEq (strSlice src w (- (lspViewIdentEnd src w n) w)) "in")
+        false))))
+
+(pub :: lspSkipSpace (-> String Int Int Int))
+(pub fn (lspSkipSpace src i n)
+  (if (if (< i n)
+    (lspIsSpace (strByte src i))
+    false)
+    (lspSkipSpace src (+ i 1) n)
+    i))
+
+; One past the binder at `i`: a parenthesised pair or an identifier.
+(pub :: lspSkipItem (-> String Int Int Int))
+(pub fn (lspSkipItem src i n)
+  (if (>= i n)
+    i
+    (if (== (strByte src i) 40)
+      (lspSkipParen src (+ i 1) n 1)
+      (if (isIdentStart (strByte src i))
+        (lspViewIdentEnd src i n)
+        i))))
+
+; One past the `)` that closes a group opened before `i`.
+(pub :: lspSkipParen (-> String Int Int Int Int))
+(pub fn (lspSkipParen src i n depth)
+  (if (|| (>= i n) (== depth 0))
+    i
+    (lspSkipParen
+      src
+      (+ i 1)
+      n
+      (if (== (strByte src i) 40)
+        (+ depth 1)
+        (if (== (strByte src i) 41)
+          (- depth 1)
+          depth)))))
 
 (pub :: lspFixArgIsPlain (-> String Int Bool))
 (pub fn (lspFixArgIsPlain head k)

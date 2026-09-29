@@ -1,0 +1,33 @@
+; `(! b)` is the `Bool` that `b` is not. It composes with `&&` and `||`,
+; which short-circuit, and a local binding named `!` shadows it like any
+; other name.
+(import IO)
+
+(:: isOdd (-> Int Bool))
+(fn (isOdd n)
+  (== (% n 2) 1))
+
+(:: same (-> Bool Bool))
+(fn (same b)
+  b)
+
+(:: say (-> Bool String))
+(fn (say b)
+  (if b
+    "true"
+    "false"))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (println (say (! true)))
+    (println (say (! false)))
+    (println (say (! (isOdd 4))))
+    (println (say (&& (! false) (! (== 1 2)))))
+    (println (say (|| (! true) (! (isOdd 3)))))
+    (println (say (! (! true))))
+    (let ((! same))
+      (println (say (! true))))
+    0
+  })

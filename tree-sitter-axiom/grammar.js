@@ -1017,13 +1017,17 @@ module.exports = grammar({
     // one body expression in all (`self_host/parser.ax`'s
     // `parseForExpr`). A fifth is a parse error in the compiler
     // (AX2001, `tests/diagnostics/625-for-shape.axbad`) and is simply
-    // not in this grammar's language either.
+    // not in this grammar's language either. `in` may follow the binder
+    // in every shape (`forSkipIn`). It is a keyword only there: the
+    // `word` rule lexes it as one only where this rule allows it, so
+    // `(in a x)` elsewhere is still an application of an identifier.
     for_expression: $ => seq(
       '(', 'for',
       field('binder', choice(
         $.identifier,
         seq('(', $.identifier, $.identifier, ')'),
       )),
+      optional('in'),
       field('operand', $._expression),
       field('operand', $._expression),
       optional(field('operand', $._expression)),

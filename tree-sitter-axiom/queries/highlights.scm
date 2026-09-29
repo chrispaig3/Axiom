@@ -178,6 +178,7 @@
 [
   "while"
   "for"
+  "in"
 ] @keyword.repeat
 
 [

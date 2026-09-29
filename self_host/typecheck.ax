@@ -2974,6 +2974,22 @@
     0
   })
 
+; `__asm.N`, the primitive an `asm` form lowers to (MM-FFI-9,
+; `expandAsm` in expand.ax): a description literal, then N `Int`
+; inputs, answering an `Int`. The `.` keeps it out of any source's
+; reach, so only the expansion calls it. Its row is `Mut`, because
+; every block clobbers memory, and `isUnsafePrim` adds `Unsafe`: the
+; checker can't see what the instructions do, so the declaration that
+; holds one vouches for them. N runs to `expAsmMaxValues`.
+(pub :: tcRegAsmPrims (-> (Vec Int) Int Int))
+(pub fn (tcRegAsmPrims fns n)
+  (if (> n 16)
+    0
+    {
+      (regFnEff fns (strConcat "__asm." (decStr n)) (mkTArr mkStringTy (mkIntArrow n)) (builtinEff "Mut"))
+      (tcRegAsmPrims fns (+ n 1))
+    }))
+
 (pub :: tcNew (-> (Vec Int) (Vec Int) (Vec Int) Int))
 ;@axiom:effect(unsafe)
 (pub fn (tcNew entryDecls allDecls units)
@@ -3000,6 +3016,7 @@
       (regFn fns ">=" (mkTArr mkIntTy (mkTArr mkIntTy mkBoolTy)))
       (regFn fns "&&" (mkTArr mkBoolTy (mkTArr mkBoolTy mkBoolTy)))
       (regFn fns "||" (mkTArr mkBoolTy (mkTArr mkBoolTy mkBoolTy)))
+      (regFn fns "!" (mkTArr mkBoolTy mkBoolTy))
       (regFn fns "__syscall0" (mkIntArrow 1))
       (regFn fns "__syscall1" (mkIntArrow 2))
       (regFn fns "__syscall2" (mkIntArrow 3))
@@ -3016,6 +3033,7 @@
       ; and row as `__store8` in every other respect.
       (regFnEff fns "__store8v" (mkIntArrow 3) (builtinEff "Mut"))
       (tcRegDevicePrims fns)
+      (tcRegAsmPrims fns 0)
       (regFn fns "__load64" (mkIntArrow 2))
       ; `(__call_word fn arg)`: call a C function `i64 (i64)` by its
       ; ADDRESS - the destructor word of a foreign-form block
@@ -8306,7 +8324,7 @@
                                   1
                                   (if (strEq n "&&")
                                     1
-                                    (if (strEq n "||")
+                                    (if (|| (strEq n "||") (strEq n "!"))
                                       1
                                       (if (strEq n "true")
                                         1
@@ -15125,11 +15143,21 @@
 (pub fn (isUnsafePrim n)
   (if (== (isUnsafeRawPrim n) 1)
     1
+    (if (== (isAsmPrim n) 1)
+      1
     (if (== (isUnsafeWordPrim n) 1)
       1
       (if (== (isUnsafeHandlePrim n) 1)
         1
-        (isUnsafeDevicePrim n)))))
+        (isUnsafeDevicePrim n))))))
+
+; Inline assembly (MM-FFI-9): the instructions may read, write or jump
+; anywhere, which is this set's definition at its widest.
+(pub :: isAsmPrim (-> String Int))
+(pub fn (isAsmPrim n)
+  (if (strStartsWith n "__asm.")
+    1
+    0))
 
 ; The handle table's three (MM-PAR-8). Each takes or answers an
 ; ADDRESS its caller will dereference: the checker cannot see what that
@@ -20602,8 +20630,16 @@
       path
       (+ i 1)
       (if (== i 0)
-        (memGetWordStr (vecGet path i) 0)
-        (strConcat (strConcat acc " -> ") (memGetWordStr (vecGet path i) 0))))))
+        (graphShownName (memGetWordStr (vecGet path i) 0))
+        (strConcat (strConcat acc " -> ") (graphShownName (memGetWordStr (vecGet path i) 0)))))))
+
+; A name as a message shows it: `__asm.N` is the `asm` form the author
+; wrote, since no source can spell the primitive (MM-FFI-9).
+(pub :: graphShownName (-> String String))
+(pub fn (graphShownName n)
+  (if (== (isAsmPrim n) 1)
+    "asm"
+    n))
 
 ; Does the declaration behind `ent` hold a `cast`? The entry is found
 ; back in the declaration list by its resolved name - a lowered impl
@@ -21377,14 +21413,17 @@
 ; One hop's related location. The message is the hop's RESOLVED name,
 ; the spelling `graphRender` puts in the chain and `symbols --calls`
 ; puts in its rows - three places, one spelling, so the field and the
-; prose can be compared hop for hop by a gate that knows neither.
+; prose can be compared hop for hop by a gate that knows neither. The
+; one exception is an `asm` form's primitive, which the prose and this
+; field both show as `asm` (`graphShownName`) and `symbols --calls`
+; keeps as `__asm.N`, since a program may name a function `asm`.
 (pub :: restrictHopSec (-> Int Int Int Int))
 ;@axiom:effect(unsafe)
 (pub fn (restrictHopSec tc dg ent)
   (let ((dd (restrictHopDecl tc ent)))
     (if (== dd 0)
-      (diagAddSecondaryIn dg 0 (memGetWordStr ent 0) 0)
-      (diagAddSecondaryIn dg (nodeSpan dd) (memGetWordStr ent 0) (unitIndexFor (memGetWordVec tc 13) (nodeModule dd))))))
+      (diagAddSecondaryIn dg 0 (graphShownName (memGetWordStr ent 0)) 0)
+      (diagAddSecondaryIn dg (nodeSpan dd) (graphShownName (memGetWordStr ent 0)) (unitIndexFor (memGetWordVec tc 13) (nodeModule dd))))))
 
 ; The declaration behind an entry, or 0. `graphDeclCasts` asks the
 ; same question the same way and for the same reason - a builtin
@@ -22152,7 +22191,9 @@
 (pub :: unsafeOpText (-> Int Int (Vec Int) Int String))
 (pub fn (unsafeOpText site kind forges k)
   (if (== kind 0)
-    "touches raw memory and its declaration does not say so"
+    (if (== (isAsmPrim (nodeAName (spineHead site))) 1)
+      "runs inline assembly and its declaration does not say so"
+      "touches raw memory and its declaration does not say so")
     (if (== kind 1)
       (strConcat (strConcat "calls `" (srcSpelling (nodeAName site))) "`, whose safety depends on its caller, and its declaration does not say so")
       (strConcat (unsafeForgeText forges k) ", and its declaration does not say so"))))
@@ -22160,7 +22201,7 @@
 (pub :: unsafeOpLabel (-> Int Int String))
 (pub fn (unsafeOpLabel site kind)
   (if (== kind 0)
-    (nodeAName (spineHead site))
+    (graphShownName (nodeAName (spineHead site)))
     (if (== kind 1)
       "a precondition interface"
       "forges a reference")))
