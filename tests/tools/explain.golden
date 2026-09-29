@@ -92,6 +92,7 @@
   [93mAX3077[0m  a checked AXTAG key on a declaration that can't carry it  (axtag-misplaced)
   [93mAX3078[0m  purity written any way but `effect(pure)`  (pure-tag-spelling)
   [93mAX3089[0m  a function with no signature, called before its type is known  (signature-needed)
+  [93mAX3090[0m  a recovery point's thunk the region check can't see  (recover-thunk-unseen)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -2715,6 +2716,23 @@ Write the signature above the definition:
 A function called only below its definition, and not by itself,
 needs no signature.
 
+### explain AX3090
+AX3090 - a recovery point's thunk the region check can't see
+
+`(__axiom_recover mark thunk)` runs `thunk`, and a trap inside it
+resets the arena to `mark`: everything the thunk allocated is
+reclaimed. So nothing the thunk allocates may be stored anywhere older:
+a `Vec` built before the point and grown inside it would keep a
+reclaimed block after the trap. The compiler checks that as it checks
+a `region`, which needs the thunk's body in front of it:
+
+    (__axiom_recover __axiom_arena_mark (lambda (x) (work x)))
+
+A top-level function passed by name is fine too: it captures nothing
+and is handed only an `Int`. A thunk held in a `let`, a parameter or a
+field is refused, because its body was never walked here. Write the
+lambda at the call.
+
 ### explain AX4001
 AX4001 - no `main` function
 
@@ -3143,6 +3161,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3077[0m  a checked AXTAG key on a declaration that can't carry it  (axtag-misplaced)
   [93mAX3078[0m  purity written any way but `effect(pure)`  (pure-tag-spelling)
   [93mAX3089[0m  a function with no signature, called before its type is known  (signature-needed)
+  [93mAX3090[0m  a recovery point's thunk the region check can't see  (recover-thunk-unseen)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
