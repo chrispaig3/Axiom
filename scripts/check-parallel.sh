@@ -75,12 +75,10 @@
 #        (d) the pool adds no import over the same `plain.ax` control
 #            arm 2 uses, so `check-freestanding.sh`'s zero holds for it.
 #
-#   7. FREEBSD IS MEASURED, and this is the leg that measures it.
-#      `docs/status.md` said "freebsd is unmeasured" until 2026-09-04
-#      and it was FALSE: `Tests (freebsd-x86_64)` boots FreeBSD 14.4
-#      and runs `run-stdlib-tests.sh`, whose loop is a glob over
-#      `tests/stdlib/`, so all three fixtures EXECUTE there on a real
-#      kernel. This section holds the leg, because the leg IS the claim.
+#   7. FREEBSD IS SOURCE-ONLY, so the process lowering is not
+#      executed there in CI. This section holds the docs to that: no
+#      page may say parallel runs on FreeBSD unless a leg runs the
+#      stdlib there.
 #
 #   8. A BINDING THAT ALLOCATES, which nothing executed before. Every
 #      `parallel` binding this repository ran was arithmetic, so no
@@ -784,60 +782,40 @@ fi
 
 # --------------------------------------------------------------------
 echo
-echo "== 7. freebsd: the process lowering is EXECUTED, and this is the leg that does it =="
+echo "== 7. freebsd: source-only, so no page may say parallel runs there =="
 # --------------------------------------------------------------------
-# `docs/status.md` said "freebsd is unmeasured" until 2026-09-04 and it
-# was FALSE. `Tests (freebsd-x86_64)` boots FreeBSD 14.4 in a VM and
-# runs `scripts/run-stdlib-tests.sh`, whose loop is `for case_file in
-# tests/stdlib/*.ax` with no skip list - so `470-parallel`,
-# `471-parallel-trap` and `476-par-pool` EXECUTE there, on a real
-# kernel, every run. Measured on trunk at run 33914283389, job
-# 101157875183 (2026-09-04): `ok 470-parallel`, `ok 471-parallel-trap`,
-# `ok 476-par-pool`, `109 passed, 0 failed`. That is exactly what
-# README's *Targets* section means by SUPPORTED, and freebsd has been
-# supported since 2026-08-30.
-#
-# What IS unavailable there is the THREAD lowering, and it is refused
-# rather than untried - arm 4 above measures the AX4006.
-#
-# THIS ARM IS THE CLAIM'S GATE. The fact lives in a CI file this gate
-# cannot run, so what is checked here is the thing that would silently
-# take it away: the leg existing, being blocking, and still running the
-# runner. A `continue-on-error:` line or a dropped step would turn
-# "measured on freebsd" back into prose, and nothing else in the tree
-# would notice - `check-release-targets.sh` holds the leg's EXISTENCE
-# for the target list, not what it runs.
+# freebsd-x86_64 is SOURCE-ONLY (README, Targets): its CI job,
+# `Bootstrap from seed (freebsd-x86_64)`, builds the compiler in a
+# FreeBSD 14.4 VM and runs no stdlib case, so `470-parallel`,
+# `471-parallel-trap` and `476-par-pool` are assembled for FreeBSD and
+# not executed there. The process lowering on FreeBSD is therefore
+# unmeasured in CI, and what this arm holds is that nothing says
+# otherwise: a claim that parallel runs on FreeBSD needs a leg that
+# runs the stdlib there, and the first check asks whether one exists.
 ci_yml="$repo_root/.github/workflows/ci.yml"
-runner="$repo_root/scripts/run-stdlib-tests.sh"
-if [[ ! -f "$ci_yml" || ! -f "$runner" ]]; then
-  bad "7: .github/workflows/ci.yml or scripts/run-stdlib-tests.sh is missing"
+if [[ ! -f "$ci_yml" ]]; then
+  bad "7: .github/workflows/ci.yml is missing"
 else
   leg="$(awk '
-    index($0, "name: Tests (freebsd-x86_64)") { found = 1; next }
+    index($0, "(freebsd-x86_64)") && /^    name: / { found = 1; next }
     found && /^  [a-z]/ { exit }
     found { print }
   ' "$ci_yml")"
-  if [[ -z "$leg" ]]; then
-    bad "7: ci.yml has no 'Tests (freebsd-x86_64)' job - nothing executes what the compiler emits for freebsd"
+  if grep -q 'run-stdlib-tests\.sh' <<<"$leg"; then
+    ok "freebsd: a CI leg runs run-stdlib-tests.sh there, so the parallel fixtures execute on FreeBSD"
   else
-    if grep -q 'run-stdlib-tests\.sh' <<<"$leg"; then
-      ok "freebsd: the leg runs run-stdlib-tests.sh, which is what executes the parallel fixtures there"
+    # Read with line breaks folded, since prose wraps a claim across two
+    # lines ("is run on" / "FreeBSD"), and a table cell stops at `|`.
+    claims=""
+    for f in README.md docs/reference.md docs/status.md; do
+      hit="$(tr '\n' ' ' < "$repo_root/$f" | grep -o -i -E 'parallel[^|]{0,120}run on +freebsd' | head -1)"
+      [[ -n "$hit" ]] && claims="$claims $f: '${hit:0:160}'"
+    done
+    if [[ -n "$claims" ]]; then
+      bad "freebsd: no CI leg runs the stdlib there, and a page still says parallel runs on FreeBSD: $claims"
     else
-      bad "freebsd: the leg no longer runs run-stdlib-tests.sh - the process lowering is unexecuted again"
+      ok "freebsd: no CI leg runs the stdlib there, and no page says parallel runs on FreeBSD"
     fi
-    if grep -q 'continue-on-error' <<<"$leg"; then
-      bad "freebsd: the leg is continue-on-error, so it cannot fail the workflow and measures nothing"
-    else
-      ok "freebsd: and the leg is blocking, so a failure there is a failure"
-    fi
-  fi
-  # The runner reaches the three by a GLOB, which is why no fixture has
-  # to be named in it. Asserting the glob is asserting that a fixture
-  # added to `tests/stdlib/` is run on freebsd by construction.
-  if grep -q 'for case_file in tests/stdlib/\*\.ax' "$runner"; then
-    ok "freebsd: the runner's loop is the tests/stdlib/*.ax glob, so 470, 471 and 476 are in it by construction"
-  else
-    bad "freebsd: run-stdlib-tests.sh no longer loops over tests/stdlib/*.ax - which cases the leg runs is now a list somebody maintains"
   fi
 fi
 

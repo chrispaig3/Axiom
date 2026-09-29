@@ -96,32 +96,16 @@ case "$arch" in
 esac
 target="$os_name-$arch_name"
 
-# THE TARGETS WITH NO ARTIFACT, and there are two KINDS of them. Saying
-# which kind plainly is the point; shipping one quietly, or telling a
-# user their platform is unsupported when it is not, are both defects.
+# THE TARGETS WITH NO ARTIFACT are README's SOURCE-ONLY targets:
+# darwin-x86_64, freebsd-aarch64, freebsd-x86_64 and linux-x86_64 here
+# (windows-x86_64 never gets this far - a Windows host dies on
+# `uname -s` above). No CI leg runs the test battery on them, so no
+# archive exists and the platform carries no support promise; the
+# seed is the way to install. CI does build the compiler from the seed
+# on linux-x86_64 and freebsd-x86_64, which the message does not claim
+# for the other two.
 #
-# NOT SUPPORTED. darwin-x86_64 has no runner anywhere, so it has never
-# been executed. The two FreeBSD targets (2026-08-29) have seeds and a
-# CI leg that runs the compiler's output on FreeBSD 14; that leg is
-# advisory until it is green. For these, no artifact exists AND the
-# platform carries no promise.
-#
-# SUPPORTED, NOT SHIPPED. freebsd-x86_64 is a different case and gets
-# a different message. It has a blocking CI leg that runs what the
-# compiler emits there; it has no archive because FreeBSD never had a
-# release job. A user on it is not on unsupported ground - they just
-# have to run one command.
-#
-# SOURCE-ONLY. linux-x86_64 is a third case. CI builds the compiler
-# there from the committed seed on every change (`Bootstrap from seed
-# (linux-x86_64)`), and runs no test battery there, so the build is
-# checked and the target is not supported.
-#
-# freebsd-AARCH64 stays in the not-supported arm below, and the split
-# inside one operating system is the point: same seed, same syscall
-# table, and no leg that runs either.
-#
-# `scripts/check-release-targets.sh` holds these two lists and
+# `scripts/check-release-targets.sh` holds this list and
 # `release.yml`'s build matrix to each other, so a target cannot end up
 # in both or neither.
 build_it() {  # <target> <why>
@@ -140,23 +124,11 @@ NOTE
 }
 
 case "$target" in
-  linux-x86_64)
+  linux-x86_64|freebsd-x86_64|darwin-x86_64|freebsd-aarch64)
     build_it "$target" \
-"It is a source-only target: CI builds the compiler here from the
-  committed seed on every change, but doesn't run the test battery on
-  linux-x86_64, and no prebuilt archive is published for it. Building from that seed
-  is the way to install it here." ;;
-  freebsd-x86_64)
-    build_it "$target" \
-"It is a supported target - CI boots FreeBSD 14.4 in a VM on every
-  change, bootstraps from the committed seed and runs the standard
-  library there - but no release archive is built for it. Building from
-  that same seed is the supported path here, and is what CI does." ;;
-  darwin-x86_64|freebsd-aarch64)
-    build_it "$target" \
-"It is assembled and byte-compared in CI, but no release is built for
-  it, so no artifact is published. Publishing one would imply a support
-  level that does not exist." ;;
+"It is a source-only target: no CI job runs the test battery on
+  $target, and no prebuilt archive is published for it. Building from
+  the committed seed is the way to install it here." ;;
 esac
 
 # ---- the prefix this is allowed to overwrite ------------------------

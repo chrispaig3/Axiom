@@ -41,9 +41,10 @@ lineage/                  the commit list and the one patch a CHAIN row names
 All six seeds are emitted, hashed, regenerated and assembled the same
 way. A seed is not evidence that its target runs, though:
 
-- `freebsd-x86_64` is executed. The `Tests (freebsd-x86_64)` job boots
-  FreeBSD 14.4 in a VM and bootstraps from this seed, so it is a
-  supported target.
+- `linux-x86_64` and `freebsd-x86_64` are built from. CI bootstraps
+  from these seeds on every change, on an x86_64 runner and in a
+  FreeBSD 14.4 VM, but runs no test battery there, so both targets are
+  source-only.
 - `freebsd-aarch64` is not executed, because an aarch64 guest is
   emulated by TCG on every runner GitHub offers.
 - `darwin-x86_64` sits under the same gates and ships no prebuilt

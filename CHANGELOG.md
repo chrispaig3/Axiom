@@ -56,12 +56,13 @@ Breaking: a function that makes a raw syscall must say
 precondition interfaces, and every `isr` implies
 `restrict(no-recursion)`. `compat/BREAKING` lists each changed name.
 
-Targets: `linux-x86_64` is now source-only. CI builds the compiler
-there from the seed on every change and no longer runs the test battery
-on it, so it leaves the supported list. The supported targets are
-`darwin-aarch64`, `darwin-x86_64`, `freebsd-x86_64`, `linux-aarch64` and
-`windows-x86_64`, and prebuilt archives ship for `linux-aarch64` and
-`darwin-aarch64` (README, Targets; `scripts/check-release-targets.sh`).
+Targets: only `darwin-aarch64` and `linux-aarch64` are supported now,
+and both ship prebuilt archives. `darwin-x86_64`, `freebsd-aarch64`,
+`freebsd-x86_64`, `linux-x86_64` and `windows-x86_64` are source-only:
+`--target` still emits for them and CI assembles that code, but no CI
+job runs the test battery there. CI still builds the compiler from the
+seed on `linux-x86_64` and, in a FreeBSD VM, on `freebsd-x86_64`
+(README, Targets; `scripts/check-release-targets.sh`).
 
 Thanks to @JessicaTemplet for expected-to-fail tests and
 `assertFloatNear` in the test runner (PR #33).

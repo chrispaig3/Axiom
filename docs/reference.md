@@ -6451,17 +6451,17 @@ syscall ABI and the standard library's platform modules:
 axiom --target=linux-aarch64 emit-llvm main.ax -o main.ll
 ```
 
-Supported targets: `darwin-aarch64`, `darwin-x86_64`, `freebsd-x86_64`, `linux-aarch64`, `windows-x86_64`. Defaults to the host.
+Supported targets: `darwin-aarch64`, `linux-aarch64`. Defaults to the host.
 
 A target is supported when a CI job executes what the compiler emits there.
-`darwin-x86_64` is the exception: no runner executes it, and README's
-[Targets](../README.md#targets) section explains why it stays on the
-list. `--target` also accepts `freebsd-aarch64`: its output is assembled
-and checked, but no runner executes it, so it isn't supported.
+Both supported targets run the whole test battery on every change.
 
-`linux-x86_64` is source-only. The compiler builds and runs there from
-the seed, and CI checks that build, but no CI job runs the test battery
-on it, so it isn't supported either.
+`darwin-x86_64`, `freebsd-aarch64`, `freebsd-x86_64`, `linux-x86_64` and
+`windows-x86_64` are source-only. `--target` accepts each, and CI
+assembles what the compiler emits for them, but runs no test battery
+there, so none of them is supported. README's
+[Targets](../README.md#targets) section says where CI builds the
+compiler from the seed.
 
 ### Supported is not the same as shipped
 
@@ -6472,17 +6472,15 @@ compiler from source.
 
 ### FreeBSD
 
-On `freebsd-x86_64`, CI boots FreeBSD 14.4 in a VM and runs the
-bootstrap, the whole standard library test corpus and the syscall-table
-checks. That includes the `parallel` tests, such as
-`tests/stdlib/470-parallel.ax` and `tests/stdlib/476-par-pool.ax`, so
-[parallel](#parallel--bindings-that-run-beside-the-caller) is run on
-FreeBSD, not just assembled. FreeBSD 12 is the oldest release the
-syscall numbers support, and the target triple pins 14.
+On `freebsd-x86_64`, CI boots FreeBSD 14.4 in a VM and builds the
+compiler there from the seed. It runs no test battery there, so the
+standard library, [parallel](#parallel--bindings-that-run-beside-the-caller)
+included, is assembled for FreeBSD but not run. FreeBSD 12 is the oldest
+release the syscall numbers support, and the target triple pins 14.
 
-`freebsd-aarch64` shares the seed and the syscall table, but nothing
-runs its output: every runner GitHub offers would have to emulate an
-aarch64 guest, which is too slow for the tests.
+`freebsd-aarch64` shares the seed and the syscall table, but no runner
+builds or runs it: every runner GitHub offers would have to emulate an
+aarch64 guest, which is too slow.
 
 ### Windows
 

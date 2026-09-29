@@ -73,11 +73,9 @@ on:
 # from `bootstrap/`, and runs a script under `scripts/`. None pushes,
 # opens a comment, cuts a release or reads a secret - `grep -nE
 # 'GITHUB_TOKEN|secrets\.|id-token|packages:'` over this file and
-# .github/actions/provision/action.yml matches nothing. The one artifact
-# here - the Windows modules `cross` hands to the `windows` job - moves
-# on the workflow's own run-scoped token and needs no `permissions`
-# entry. Adding a job that needs more should raise the scope on THAT
-# job, not here.
+# .github/actions/provision/action.yml matches nothing, and no job
+# uploads an artifact. Adding a job that needs more should raise the
+# scope on THAT job, not here.
 permissions:
   contents: read
 
@@ -726,9 +724,9 @@ jobs:
       # `install.sh`'s refusal arms. Neither way of disagreeing is loud.
       # A target in both uploads an archive the installer will not
       # fetch; a target in neither hands the user a bare `curl` 404
-      # where a sentence belongs. `freebsd-x86_64` and `windows-x86_64`
-      # are supported and unshipped, and `linux-x86_64` is source-only,
-      # so the installer's refusals carry three different sentences.
+      # where a sentence belongs. Every target but the two shipped ones
+      # is source-only, and the installer refuses each with a
+      # build-from-source sentence.
       - name: The release matrix and the installer's refusals agree
         run: ./scripts/check-release-targets.sh
 
@@ -1422,12 +1420,8 @@ jobs:
       # It runs in the matrix like its neighbours but is not really a
       # per-runner check - it reads all seven targets from whichever
       # host it is on, out of `emit-llvm` rather than out of the
-      # sources, so darwin-x86_64 (which has no runner anywhere in this
-      # file) and freebsd-aarch64 (executed by no runner either) are
-      # covered three times over rather than never. freebsd-x86_64 and
-      # windows-x86_64 no longer belong on that list: since 2026-08-30
-      # both have blocking legs that EXECUTE what the compiler emits,
-      # which is what took them off it. About eight seconds, almost all of it building the
+      # sources, so the source-only targets, which no Tests leg runs,
+      # are covered here rather than never. About eight seconds, almost all of it building the
       # compiler under test, which it must: the codegen table is half of
       # what it compares.
       - name: The two tables of syscall numbers agree
@@ -1631,67 +1625,38 @@ jobs:
         run: cd rust && cargo test --workspace --exclude axiom-host
 
   # ---------------------------------------------------------------
-  # FreeBSD, EXECUTED - and SUPPORTED since 2026-08-30. Every other job
-  # that meets the two FreeBSD targets assembles their IR and compares
-  # bytes; only this one runs it. (The sentence here used to send a
-  # reader to `release.yml` "in its own words" for why assembling is
-  # not support. That file has never mentioned FreeBSD - `grep -ci
-  # freebsd release.yml` answers 0 - so the citation was dangling from
-  # the day it was written. The rule it meant is README's *Targets*
-  # section, which is where it now points.) This
-  # job boots a real FreeBSD 14 kernel in a VM on the Ubuntu runner
-  # (KVM-accelerated - the hosted runners expose /dev/kvm) and runs
-  # what the compiler emits there: the bootstrap from the committed
-  # `bootstrap/axiom-freebsd-x86_64.ll` to the fixpoint, then the gates
-  # that hold `stdlib/Sys/Platform.freebsd.ax`'s 82 numbers and two
-  # struct layouts to the kernel that owns them. `check-net.sh` is the
-  # one that matters most: it opens a real listener on `::1`, which is
-  # what falsifies `afInet6` = 28 and the 64-byte `struct kevent`
-  # stride, and no amount of assembling can.
-  #
-  # SUPPORTED, AND THIS JOB IS WHAT MAKES THAT TRUE. `continue-on-error`
-  # was removed on 2026-08-30 after the leg had been seen green on 13
-  # of the previous 15 runs with no failures - the rule being that the
-  # line comes off AFTER the evidence, not in the commit that adds the
-  # job, which cannot have seen anything. It can fail the workflow now,
-  # which is the whole content of the word.
-  #
-  # freebsd-x86_64 is SUPPORTED and UNSHIPPED: no release archive is
-  # built for it, and `install.sh` gives a FreeBSD x86_64 host a
-  # supported build-from-source paragraph rather than the
-  # not-supported one `darwin-x86_64` gets. freebsd-AARCH64 is
-  # unchanged and still unsupported - it has no leg, for the TCG
-  # reason recorded below.
+  # FreeBSD is SOURCE-ONLY (README, Targets), like linux-x86_64: this
+  # job builds the compiler from `bootstrap/axiom-freebsd-x86_64.ll` on
+  # a real FreeBSD 14 kernel, in a VM on the Ubuntu runner
+  # (KVM-accelerated - the hosted runners expose /dev/kvm), and runs no
+  # test battery there. The bootstrap runs the compiler it builds to a
+  # fixpoint and runs one program with it, which is the whole promise
+  # of the tier; `check-release-targets.sh` requires this leg by name.
   #
   # PINNING, AND WHAT IT DOES NOT PIN. The action is pinned to a commit
   # SHA like every other action in this file, which pins the
   # JavaScript that boots the VM. It does not pin the disk image:
   # vmactions builds its images from the official FreeBSD release VM
   # images and the action fetches them from its own releases at run
-  # time, with `release: "14.4"` naming which. That is one step less
-  # than the tree-sitter binary above, which is checked against a
-  # recorded hash, and it is stated here rather than left implicit:
-  # what runs in this job is FreeBSD 14.4 as vmactions packaged it, and
-  # a compromise of that packaging would reach this job. What the job
-  # can reach is bounded the way every job here is - `permissions:
-  # contents: read`, no secret, no upload, no push.
+  # time, with `release: "14.4"` naming which. What runs in this job is
+  # FreeBSD 14.4 as vmactions packaged it, and a compromise of that
+  # packaging would reach this job. What the job can reach is bounded
+  # the way every job here is - `permissions: contents: read`, no
+  # secret, no upload, no push.
   #
   # `prepare` and `run` execute under sh inside the VM (the action
-  # ignores `usesh` now). The gates are bash, and `llc`/`llvm-readobj`
-  # come from the LLVM package under `/usr/local/llvm*/bin`; `cc` is
-  # the base system's clang, `nm` its ELF Tool Chain one (no `-j`, so
-  # `check-backtrace.sh` falls back to the base `llvm-nm`), and
-  # `check-net.sh` drives its connections with python3. Nothing else
-  # from ports.
+  # ignores `usesh` now). The bootstrap is bash, and `llc` comes from
+  # the LLVM package under `/usr/local/llvm*/bin`; `cc` is the base
+  # system's clang.
   # ---------------------------------------------------------------
   test-freebsd:
-    name: Tests (freebsd-x86_64)
+    name: Bootstrap from seed (freebsd-x86_64)
     needs: grammar
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - name: Bootstrap from the seed and run the gates on FreeBSD 14
+      - name: Bootstrap from the seed on FreeBSD 14
         uses: vmactions/freebsd-vm@f0552d3b69211736abd97f02ff3d4674c56b73b1 # v1.5.5
         with:
           release: "14.4"
@@ -1703,20 +1668,15 @@ jobs:
             export PATH="$(ls -d /usr/local/llvm*/bin | sort -V | tail -1):$PATH"
             uname -a; llc --version | head -2; cc --version | head -1
             ./scripts/bootstrap-from-seed.sh --install .axiom-bin
-            ./scripts/run-stdlib-tests.sh
-            ./scripts/check-freestanding.sh
-            ./scripts/check-net.sh
-            ./scripts/check-platform-constants.sh
-            ./scripts/check-recover.sh
-            ./scripts/check-backtrace.sh
 
   # There is no freebsd-aarch64 job. The action's own documentation
   # says the host for an `arch: aarch64` guest is still the x86_64
   # runner and that `ubuntu-24.04-arm` is slower, so the guest would be
   # TCG-emulated either way - the 10-30x case, a 300-minute budget for
   # a bootstrap plus four gates, measured 2026-08-29 and dropped the
-  # same day. freebsd-aarch64 ships as darwin-x86_64 does: assembled
-  # and relocation-checked by `cross` below, executed by no runner.
+  # same day. freebsd-aarch64 is source-only with no leg, as
+  # darwin-x86_64 is: assembled and relocation-checked by `cross`
+  # below, executed by no runner.
   # Where it HAS executed is a FreeBSD 14.4 arm64 VM under HVF on the
   # maintainer's machine, 2026-08-29 - a measurement, not a leg.
 
@@ -1736,84 +1696,12 @@ jobs:
       - name: Assemble every target from one host
         run: ./scripts/check-cross-targets.sh
 
-      # The Windows hello, emitted here where the tree's compiler runs
-      # and handed to the `windows` job below, which cannot build the
-      # compiler (no seed, no hosting yet) but can assemble, link and
-      # RUN what this one emits. The golden and the allowlist travel
-      # with the modules, so the run compares against this commit's.
-      - name: Emit the Windows hello for the windows job
+      # The Windows hello, emitted where the tree's compiler runs.
+      # windows-x86_64 is source-only (README, Targets): no job links or
+      # runs it, and `check-windows-hello.sh --run` is the half a
+      # Windows machine would take.
+      - name: Emit the Windows hello
         run: ./scripts/check-windows-hello.sh --emit windows-hello
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: windows-hello
-          path: windows-hello
-          if-no-files-found: error
-          retention-days: 3
-
-  # ---------------------------------------------------------------
-  # The Windows leg, and windows-x86_64 is SUPPORTED since 2026-08-30:
-  # README's Targets section defines a supported target as one whose CI
-  # leg executes what the compiler emits there, this job is that leg,
-  # and `continue-on-error` came off after it had been seen green on 13
-  # of the previous 15 runs with no failures.
-  #
-  # WHAT THIS LEG COVERS, AND WHAT IT DOES NOT, because "supported"
-  # must not quietly mean two different amounts. The FreeBSD leg boots
-  # a real kernel, bootstraps from the seed and runs the whole stdlib
-  # corpus plus five gates. THIS ONE RUNS ONE PROGRAM: hello.exe,
-  # executed against `tests/stdlib/010-hello.out`, with its imports
-  # held to an allowlist and a leaky probe proving the allowlist
-  # refuses. That is a real execution and it is what the definition
-  # asks for, but it is one program - so a Windows-only miscompile in
-  # any stdlib module this hello does not touch would not be caught
-  # here. Widening it means linking and running the corpus the `cross`
-  # job already assembles for windows-x86_64, and until that happens
-  # this paragraph is the honest scope of the word.
-  #
-  # SUPPORTED AS A TARGET IS NOT SUPPORTED AS A HOST. The compiler does
-  # not run on Windows - there is no Windows seed in `bootstrap/` and
-  # `install.sh` refuses a Windows host outright. What is supported is
-  # the binary this compiler EMITS for windows-x86_64.
-  #
-  # It cross-builds nothing - there is no Windows seed
-  # and the compiler does not host on Windows yet - so it takes the
-  # modules the `cross` job emitted on Linux, assembles them with
-  # `llc`, links them with `lld-link` against import libraries
-  # `llvm-dlltool` generates (no SDK), holds the imports to
-  # `scripts/platform-allow.windows.txt`, and EXECUTES hello.exe
-  # against `tests/stdlib/010-hello.out`. `.gitattributes` keeps the
-  # golden's bytes LF on checkout.
-  #
-  # LLVM comes from chocolatey rather than the image's preinstalled
-  # copy, because which LLVM the image ships changes under the job and
-  # the log should name the one that ran; `llc --version` prints it.
-  # ---------------------------------------------------------------
-  windows:
-    name: Tests (windows-x86_64)
-    needs: cross
-    runs-on: windows-latest
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      # The Chocolatey `llvm` package is the official Windows release,
-      # which ships clang and lld but NOT `llc` - measured 2026-08-29 on
-      # this leg's first run: LLVM 20.1.8 "already installed", then
-      # `llc: command not found`. MSYS2's mingw-w64 LLVM ships every tool
-      # under one bin/, and the runner image carries MSYS2 at C:\msys64.
-      - name: Install LLVM (llc, lld-link, llvm-dlltool, llvm-readobj)
-        run: |
-          C:/msys64/usr/bin/pacman.exe -S --noconfirm --needed mingw-w64-x86_64-llvm mingw-w64-x86_64-lld
-          echo "C:\\msys64\\mingw64\\bin" >> "$GITHUB_PATH"
-      - name: The toolchain that ran
-        run: llc --version && lld-link --version && command -v llvm-dlltool llvm-readobj
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: windows-hello
-          path: windows-hello
-      - name: A hello world links, imports only kernel32's permitted names, and runs
-        run: ./scripts/check-windows-hello.sh --run windows-hello
 
   bootstrap:
     name: Self-hosting fixpoint

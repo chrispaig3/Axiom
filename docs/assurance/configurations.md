@@ -31,10 +31,11 @@ source change.
 | E1 | All seven `--target` values | Emission and assembly checks only: `check-cross-targets.sh` (position-independent objects from one host), `check-freestanding.sh` (no libc import) and `check-embedded.sh` (allocator constants, a minimal program with 3 syscalls) |
 
 The seven values are darwin-aarch64, darwin-x86_64, linux-aarch64,
-linux-x86_64, freebsd-x86_64, freebsd-aarch64 and windows-x86_64. CI
-doesn't execute any Axiom program on freebsd, windows or darwin-x86_64,
-so execution evidence on those targets is unverified rather than
-passed.
+linux-x86_64, freebsd-x86_64, freebsd-aarch64 and windows-x86_64. All
+but the two aarch64 hosted targets are source-only (README, Targets):
+CI runs no gates on them. It builds the compiler from the seed, and
+runs one program with it, on linux-x86_64 and freebsd-x86_64 only, so
+execution evidence on all five is unverified rather than passed.
 
 <a id="toolchain-measured-2026-09-27-on-h3-class-hardware"></a>
 ## Toolchain

@@ -165,8 +165,9 @@ green. The ones that bite most often:
   - The version banners `Axiom X.Y.Z - REPL` and `Axiom X.Y.Z (build`:
     one each in README, `docs/reference.md` and `docs/status.md`.
   - `SECURITY.md`'s "The supported release is **X.Y.Z**", its
-    `Support window:` paragraph, and the `- **os-arch.** Not a
-    supported target` bullet.
+    `Support window:` paragraph, and its `- **Source-only targets.**`
+    bullet (or a `- **os-arch.** Not a supported target` one), which
+    must name `README.md` and no supported target.
   - The numbers in "N lines of it", "N `.ax` files" and "N-case
     tree-shape corpus".
   - The one paragraph in `docs/agent-harness.md` containing "permitted

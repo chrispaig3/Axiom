@@ -85,27 +85,15 @@ way in CI. See `CONTRIBUTING.md` and `bootstrap/README.md`.
   (`AX2005`) and the macro expander limits expansion size (`AX3024`).
   Beyond those, a program that takes a long time to compile isn't a
   vulnerability.
-- **freebsd-aarch64.** Not a supported target. `README.md`'s Targets
-  section defines supported: a CI job executes what the compiler emits
-  there. This target shares its seed and syscall table with
-  `freebsd-x86_64`, which is supported, but no CI job runs its output,
-  because every runner GitHub offers would have to emulate an aarch64
-  guest. No release archive is published for it, and this policy
-  doesn't cover binaries emitted for it until a CI job runs them.
-- **linux-x86_64.** Not a supported target. `README.md`'s Targets
-  section defines supported: a CI job executes what the compiler emits
-  there. This target is source-only. CI builds the compiler on it from
-  the seed, but no CI job runs the test battery there, and no release
-  archive is published for it. This policy doesn't cover binaries emitted for
-  it until a CI job runs them again.
-- **`darwin-x86_64` binaries.** This target is on the supported list
-  but is executed by no runner. It predates the rule, as README
-  explains, and publishes no archive. Treat binaries emitted for it
-  like the target above until a runner exists.
-- **Windows as a host.** `windows-x86_64` is a supported *target*: the
-  `Tests (windows-x86_64)` CI job links and runs what the compiler
-  emits there. The compiler itself doesn't run on Windows. There is no
-  Windows seed in `bootstrap/`, and `scripts/install.sh` refuses a
+- **Source-only targets.** `darwin-x86_64`, `freebsd-aarch64`,
+  `freebsd-x86_64`, `linux-x86_64` and `windows-x86_64` are not
+  supported targets. `README.md`'s Targets section defines supported: a
+  CI job executes what the compiler emits there. No CI job runs the test
+  battery on these, and no release archive is published for them. This
+  policy doesn't cover binaries emitted for them until a CI job runs
+  them.
+- **Windows as a host.** The compiler doesn't run on Windows. There is
+  no Windows seed in `bootstrap/`, and `scripts/install.sh` refuses a
   Windows host.
 - **`rust/examples/`.** These crates exist to exercise the FFI tests.
   They aren't shipped, and the compiler doesn't depend on them.

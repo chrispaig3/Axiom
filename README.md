@@ -84,22 +84,22 @@ syscall ABI and the standard library's platform modules:
 axiom --target=linux-aarch64 emit-llvm main.ax -o main.ll
 ```
 
-Supported: `darwin-aarch64`, `darwin-x86_64`, `freebsd-x86_64`,
-`linux-aarch64`, `windows-x86_64`. The default is your host.
+Supported: `darwin-aarch64`, `linux-aarch64`. The default is your
+host.
 
 A target is supported when a CI job executes what the compiler emits
-there. There are two exceptions to know about. `darwin-x86_64` predates
-that rule and is executed by no runner, so it ships no prebuilt
-archive. `freebsd-aarch64` is accepted by `--target`, and its output is
-assembled and checked, but it is not supported: every runner GitHub
-offers would have to emulate an aarch64 FreeBSD guest, which is too
-slow to run the tests.
+there. Both supported targets run the whole test battery on every
+change, and each ships a prebuilt archive.
 
-Source-only: `linux-x86_64`. You can build the compiler there from the
-seed in `bootstrap/`, and CI checks that build on every change, down to
-one program the result compiles and runs. CI doesn't run the test
-battery there, so the target isn't supported, and no prebuilt archive
-is published for it.
+Source-only: `darwin-x86_64`, `freebsd-aarch64`, `freebsd-x86_64`,
+`linux-x86_64`, `windows-x86_64`. The compiler emits code for each, and
+CI assembles that code on every change. CI runs the test battery on
+none of them, so they aren't supported, and no prebuilt archive is
+published for them. CI builds the compiler from the seed in
+`bootstrap/` on `linux-x86_64`, and on `freebsd-x86_64` in a FreeBSD
+14.4 VM. No runner builds it on `darwin-x86_64` or `freebsd-aarch64`.
+The compiler doesn't run on Windows, so `windows-x86_64` is a target
+you cross-compile to from Linux or macOS.
 
 ## Quick start
 

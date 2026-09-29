@@ -476,39 +476,19 @@ jobs that need a compiler get it through the same composite action,
 1. **Tree-sitter grammar.** The checked-in grammar parses every `.ax`
    file in the repository.
 2. **Tests.** The gate battery above, on linux-aarch64 and
-   darwin-aarch64. Each job provisions a compiler from `bootstrap/`
-   first. No Tests leg runs on linux-x86_64, which is source-only (see
-   step 8). Two more legs join them:
-   - `Tests (windows-x86_64)`, on `windows-latest`, takes the
-     hello-world modules the cross-target job emits on Linux, then
-     assembles, links and runs them
-     (`scripts/check-windows-hello.sh --run`). It provisions no
-     compiler, because none hosts on Windows yet.
-   - `Tests (freebsd-x86_64)` boots FreeBSD 14.4 in a VM on the Ubuntu
-     runner (`vmactions/freebsd-vm`, pinned by SHA). It runs the
-     bootstrap, the standard library and the syscall-table gates there.
-
-   Neither leg is `continue-on-error`. That's what makes
-   `freebsd-x86_64` and `windows-x86_64` supported, because README's
-   *Targets* section defines a supported target as one with a leg that
-   runs. The two legs cover different amounts, and that section says
-   so: FreeBSD runs the whole corpus, and Windows runs one program.
+   darwin-aarch64, the two supported targets. Each job provisions a
+   compiler from `bootstrap/` first. No Tests leg runs on a source-only
+   target (README's *Targets* section lists them).
    `scripts/check-release-targets.sh` refuses a target that is on the
-   supported list and has an advisory leg.
-
-   `freebsd-aarch64` has no job. An aarch64 guest is emulated (TCG) on
-   every runner GitHub offers, and a run would need a 300-minute
-   budget. So, like darwin-x86_64, it's assembled and
-   relocation-checked but executed by no runner. It's the one FreeBSD
-   target that isn't supported.
+   supported list and has an advisory (`continue-on-error`) leg.
 3. **FFI.** `check-ffi.sh` on darwin-aarch64. The
    `extern` boundary opens exactly the symbols it declares, the
    generated bindings match a fresh generation, and the `rust/`
    workspace's own suites run (`cargo test`).
 4. **Cross-target codegen.** Every target's IR assembles from a single
    host at `--opt` 0, 1 and 2, and all six committed seeds assemble.
-   This job also emits the Windows hello world and hands it to the
-   Windows leg.
+   This job also emits the Windows hello world
+   (`scripts/check-windows-hello.sh --emit`). No job runs it.
 5. **Self-hosting fixpoint.** `check-bootstrap.sh` checks that
    `stage2 == stage3`, byte for byte, with the ladder rooted at the
    committed seed.
@@ -518,13 +498,15 @@ jobs that need a compiler get it through the same composite action,
    `fetch-depth: 0` and takes about five minutes.
 7. **Reproducible build.** Two independent runs produce identical
    bytes.
-8. **Bootstrap from seed**, on linux-x86_64 and darwin-aarch64. A clean
-   checkout builds the compiler from `bootstrap/` with only `llc` and
-   `cc`. This is the job everything rests on: if it fails, nobody can
-   build the repository. The usual cause is a stale seed, which
-   `scripts/reseed.sh` fixes. For linux-x86_64 it's the only leg:
-   README calls that target source-only, and
-   `scripts/check-release-targets.sh` requires this job for it.
+8. **Bootstrap from seed**, on linux-x86_64 and darwin-aarch64, and on
+   freebsd-x86_64 in a FreeBSD 14.4 VM on the Ubuntu runner
+   (`vmactions/freebsd-vm`, pinned by SHA). A clean checkout builds the
+   compiler from `bootstrap/` with only `llc` and `cc`. This is the job
+   everything rests on: if it fails, nobody can build the repository.
+   The usual cause is a stale seed, which `scripts/reseed.sh` fixes.
+   For linux-x86_64 and freebsd-x86_64 it's the only leg: both are
+   source-only, and `scripts/check-release-targets.sh` requires this
+   job for each.
 9. **Seed lineage.** `check-seed-lineage.sh` replays the rows of
    `bootstrap/CHAIN` that `bootstrap/CHAIN.checkpoint` doesn't certify,
    and always at least the newest one: the previous seed compiles the
@@ -598,21 +580,12 @@ path a user's build takes. Before uploading, it unpacks each archive
 somewhere else and compiles a program that imports the standard
 library, calling the compiler by bare name on `PATH`.
 
-There's no `darwin-x86_64` artifact. That target is assembled and
-byte-compared by `check-cross-targets.sh` but executed by no runner, so
-a binary for it would imply support that doesn't exist.
-`scripts/install.sh` says so and points to the seed, which is supported
-there.
-
-The installer refuses the two FreeBSD targets with different messages.
-`freebsd-x86_64` is supported but not shipped, so it gets a message
-saying to build from source. `freebsd-aarch64` isn't supported, so it
-gets the same message as `darwin-x86_64`. Both have a seed and the same
-syscall table, but only `freebsd-x86_64` has a CI leg that runs them.
-
-`linux-x86_64` gets a third message. It's source-only: CI builds the
-compiler there from the seed and doesn't run the test battery on it, so
-the installer says so and points to the seed.
+Every source-only target (`darwin-x86_64`, `freebsd-aarch64`,
+`freebsd-x86_64`, `linux-x86_64`) gets the same message from the
+installer: no archive is published for it, and it points to the seed.
+A binary for one of them would imply support that doesn't exist.
+`windows-x86_64` never reaches that message, because the installer
+refuses a Windows host first.
 
 ---
 

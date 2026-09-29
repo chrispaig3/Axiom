@@ -15,27 +15,19 @@
 # CI already runs, invoked here for the same reason.
 #
 # WHAT IS SHIPPED, AND WHAT IS NOT. Two targets are built and attached:
-# `linux-aarch64` and `darwin-aarch64`. FIVE are left out, for three
-# different reasons, which is why the distinction is written down
-# rather than left to the matrix. `freebsd-x86_64` and `windows-x86_64`
-# are supported, tested on every change, and unshipped by decision.
-# `darwin-x86_64` and `freebsd-aarch64` are executed by no runner.
-# `linux-x86_64` is SOURCE-ONLY: CI builds the compiler there from the
-# seed (`Bootstrap from seed (linux-x86_64)` in ci.yml) and runs no
-# test battery on it, so an archive for it would be a binary the
-# battery never saw.
+# `linux-aarch64` and `darwin-aarch64`, the two README calls supported.
+# The other five are SOURCE-ONLY: no CI leg runs the test battery on
+# them, so an archive for one would be a binary the battery never saw.
 #
-# So the rule this file encodes has two axes. SUPPORTED says whether a
-# CI leg executes what the compiler emits there; SHIPPED says whether a
-# release carries a prebuilt archive. A target can be supported and
-# unshipped, and `scripts/install.sh` must refuse every unshipped
-# target with a build-from-source message rather than a 404.
-# `scripts/check-release-targets.sh` holds this matrix and that
-# script's refusal list to each other, and README's Source-only line
-# to the bootstrap leg, so none of them can drift apart silently.
+# Two axes, then. SUPPORTED says whether a CI leg executes what the
+# compiler emits there; SHIPPED says whether a release carries a
+# prebuilt archive. `scripts/install.sh` must refuse every unshipped
+# target with a build-from-source message rather than a 404, and
+# `scripts/check-release-targets.sh` holds this matrix, that script's
+# refusal list and README's Supported and Source-only lines to each
+# other, so none of them can drift apart silently.
 #
-# The seed remains the supported way to build from source on any host,
-# including both of them.
+# The seed remains the supported way to build from source on any host.
 
 name: Release
 

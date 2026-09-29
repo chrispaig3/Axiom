@@ -154,7 +154,8 @@ under `pipefail`, and four tree-wide pins that the merges moved.
 | `check-metamorphic.sh` | 19 pass |
 | `check-reclaim-soak.sh` | 22 pass |
 
-Execution on freebsd, windows and darwin-x86_64 has narrower evidence
+Execution on the source-only targets (linux-x86_64, freebsd, windows
+and darwin-x86_64) is unverified
 ([configurations.md](configurations.md)). Nothing has run on
 hardware other than the hosted development machines.
 

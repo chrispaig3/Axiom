@@ -1177,8 +1177,8 @@ if readme_list is None or ref_list is None:
     print("FAIL targets: the `Supported:` line is not where this gate looks (README.md's "
           "Targets section, docs/reference.md) - reword the gate with the sentence")
     sys.exit(1)
-if len(readme_list) < 3:
-    print(f"FAIL targets: README lists only {len(readme_list)} supported target(s); the floor is 3")
+if len(readme_list) < 2:
+    print(f"FAIL targets: README lists only {len(readme_list)} supported target(s); the floor is 2")
     bad += 1
 if readme_list != ref_list:
     print(f"FAIL targets: README.md lists {sorted(readme_list)}, docs/reference.md lists "
@@ -1230,9 +1230,15 @@ security = open("SECURITY.md", encoding="utf-8").read()
 # premise had become unsatisfiable, so the key is now the target name
 # itself, which is what the rule was always about.
 bullets = re.findall(r"- \*\*([a-z0-9]+-[a-z0-9_]+)\.\*\* Not a supported target\.?(.*?)(?=\n- |\n\n)", security, re.S)
+# One bullet may name several: `**Source-only targets.**` followed by the
+# names in backticks. Each name is held to the rule as its own bullet is.
+group = re.search(r"- \*\*Source-only targets\.\*\*(.*?)(?=\n- |\n\n)", security, re.S)
+if group:
+    bullets += [(n, group.group(1)) for n in re.findall(r"`([a-z0-9]+-[a-z0-9_]+)`", group.group(1))]
 if not bullets:
-    print("FAIL targets: SECURITY.md has no `**<OS>.** Not a supported target` bullet - the sentence "
-          "this section was written for has moved; reword the gate with it")
+    print("FAIL targets: SECURITY.md has no `**<target>.** Not a supported target` or "
+          "`**Source-only targets.**` bullet - the sentence this section was written for "
+          "has moved; reword the gate with it")
     bad += 1
 for osname, rest in bullets:
     cited = re.findall(r"`([A-Za-z0-9_./-]+\.md)`", rest)
