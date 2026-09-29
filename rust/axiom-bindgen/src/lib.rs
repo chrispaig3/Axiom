@@ -576,6 +576,13 @@ impl Surface {
         // parameter a `Vec` of records flattened into the words the
         // shim chunks. Module-private: the record's shape is this
         // crate's, and two generated modules never see each other's.
+        //
+        // A rebuild loop reads words at an address it is handed, so it
+        // is a precondition interface (MM-EXEC-9d): it says
+        // `effect(unsafe)` and what the address must name, and every
+        // wrapper that calls it declares the unsafe operation itself.
+        let mut unsafe_calls: Vec<String> =
+            PRECONDITION_CALLS.iter().map(|s| s.to_string()).collect();
         for r in &from_words {
             let (sig, body) = record_from_words_loop(r);
             tops.push(format!(
@@ -583,7 +590,11 @@ impl Surface {
                 r.name,
                 r.arity()
             ));
-            tops.push(body);
+            tops.push(format!(
+                ";@axiom:effect(unsafe)\n;@axiom:precondition(`__p` names `__n` * {} live words)\n{body}",
+                r.arity()
+            ));
+            unsafe_calls.push(from_words_name(&r.name));
         }
         for r in &to_words {
             let (sig, body) = record_to_words_loop(r);
@@ -629,14 +640,28 @@ impl Surface {
             // error - so generated bindings that omit this line do not
             // compile at all.
             //
-            // Only these. The `close` wrapper above and the private
-            // marshalling helpers below reach `ffiHandleClose` and
-            // `ffiWordAt`, which move memory without leaving the process;
-            // tagging those would be a FALSE claim and `AX3010` refuses one
-            // of those just as hard.
+            // Only these. The `close` wrapper above reaches
+            // `ffiHandleClose`, which moves memory without leaving the
+            // process; tagging it would be a FALSE claim and `AX3010`
+            // refuses one of those just as hard.
+            //
+            // A wrapper that reads its out-cell, frees it, or builds a
+            // `Handle` calls a precondition interface of `Ffi`'s, which is
+            // an unsafe operation of its own (`AX3073`, MM-EXEC-9d). It
+            // made the cell or holds the pointer Rust just answered, so it
+            // meets the precondition itself and says `effect(unsafe)`
+            // alone: a trusted encapsulation, whose callers declare
+            // nothing. A wrapper that calls none says nothing, for the
+            // `close` wrapper's reason.
+            let body = d.wrapper_body();
+            let unsafe_tag = if performs_unsafe(&body, &unsafe_calls) {
+                ";@axiom:effect(unsafe)\n"
+            } else {
+                ""
+            };
             tops.push(format!(
-                ";@axiom:effect(io)\n{}",
-                sexp::decl_fn(&d.axiom_name, &params, &d.wrapper_body())
+                ";@axiom:effect(io)\n{unsafe_tag}{}",
+                sexp::decl_fn(&d.axiom_name, &params, &body)
             ));
         }
 
@@ -866,6 +891,40 @@ fn record_from_cell(r: &RecordTy, binds: &mut Vec<(String, Ex)>) {
         ctor.push(atom(&w));
     }
     binds.push(("__r".into(), app(ctor)));
+}
+
+/// The `Ffi` functions whose safety depends on their caller. Each says
+/// `;@axiom:precondition(...)` in `stdlib/Ffi.ax`, so a call to one is
+/// an unsafe operation of the caller's (`AX3073`, MM-EXEC-9d).
+const PRECONDITION_CALLS: &[&str] = &[
+    "ffiBytesToStr",
+    "ffiCellFree",
+    "ffiCellWord",
+    "ffiHandleNew",
+    "ffiStrsToVec",
+    "ffiWordAt",
+    "ffiWordListsToVec",
+    "ffiWordsToVec",
+];
+
+/// Does `e` name one of `calls` anywhere - as a head, or as a value
+/// handed on? A name is enough: the checker counts a reference to a
+/// precondition interface as a call to it.
+fn performs_unsafe(e: &Ex, calls: &[String]) -> bool {
+    match e {
+        Ex::Atom(s) => calls.iter().any(|c| c == s),
+        Ex::App(xs) | Ex::Block(xs) => xs.iter().any(|x| performs_unsafe(x, calls)),
+        Ex::Cast(_, x) => performs_unsafe(x, calls),
+        Ex::Let(bs, b) => {
+            bs.iter().any(|(_, x)| performs_unsafe(x, calls)) || performs_unsafe(b, calls)
+        }
+        Ex::If(a, b, c) => {
+            performs_unsafe(a, calls) || performs_unsafe(b, calls) || performs_unsafe(c, calls)
+        }
+        Ex::Match(x, arms) => {
+            performs_unsafe(x, calls) || arms.iter().any(|(_, b)| performs_unsafe(b, calls))
+        }
+    }
 }
 
 /// `__pointFromWords`: the module-private loop that rebuilds a `Vec`

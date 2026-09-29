@@ -87,6 +87,8 @@
 
 ; A `Vec` of `Point` answered by Rust: 2 words per element, rebuilt here.
 (:: __pointFromWords (-> (Vec Point) Int Int Int (Vec Point)))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`__p` names `__n` * 2 live words)
 (fn (__pointFromWords __v __p __n __i)
   (if (>= __i __n)
     __v
@@ -137,6 +139,7 @@
 
 (pub :: bytesOf (-> String String))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (bytesOf s)
   (let (
     (__c ffiCellNew)
@@ -153,6 +156,7 @@
 
 (pub :: charsOf (-> String (Vec Int)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (charsOf s)
   (let (
     (__c ffiCellNew)
@@ -181,6 +185,7 @@
 
 (pub :: counterNew (-> Int Counter))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (counterNew start)
   (let (
     (__p (cast Int (counterNewRaw start)))
@@ -190,6 +195,7 @@
 
 (pub :: counterTryNew (-> Int (Result Counter String)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (counterTryNew start)
   (let (
     (__c ffiCellNew)
@@ -231,6 +237,7 @@
 
 (pub :: flags (-> Int (Vec Int)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (flags n)
   (let (
     (__c ffiCellNew)
@@ -247,6 +254,7 @@
 
 (pub :: fromChars (-> (Vec Int) String))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (fromChars cs)
   (let (
     (__c ffiCellNew)
@@ -265,6 +273,7 @@
 
 (pub :: grid (-> Int (Vec (Vec Int))))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (grid n)
   (let (
     (__c ffiCellNew)
@@ -281,6 +290,7 @@
 
 (pub :: halves (-> Int (Vec Int)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (halves n)
   (let (
     (__c ffiCellNew)
@@ -297,6 +307,7 @@
 
 (pub :: joinWords (-> (Vec String) String))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (joinWords parts)
   (let (
     (__c ffiCellNew)
@@ -315,6 +326,7 @@
 
 (pub :: lookup (-> Int (Option (Result Int String))))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (lookup i)
   (let (
     (__c ffiCellNew)
@@ -341,6 +353,7 @@
 
 (pub :: maybe (-> Int (Option Int)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (maybe n)
   (let (
     (__c ffiCellNew)
@@ -360,6 +373,7 @@
 
 (pub :: maybeParse (-> String (Result (Option Int) String)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (maybeParse s)
   (let (
     (__c ffiCellNew)
@@ -386,6 +400,7 @@
 
 (pub :: parseInt (-> String (Result Int String)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (parseInt text)
   (let (
     (__c ffiCellNew)
@@ -407,6 +422,7 @@
 
 (pub :: pointMaybe (-> Bool (Option Point)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (pointMaybe ok)
   (let (
     (__c (ffiCellNewN 2))
@@ -438,6 +454,7 @@
 
 (pub :: pointOrigin Point)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (pointOrigin)
   (let (
     (__c (ffiCellNewN 2))
@@ -453,6 +470,7 @@
 
 (pub :: pointScale (-> Point Int Point))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (pointScale p k)
   (match p
     ((Point __f0 __f1)
@@ -471,6 +489,7 @@
 
 (pub :: pointTry (-> Bool (Result Point String)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (pointTry ok)
   (let (
     (__c (ffiCellNewN 2))
@@ -495,6 +514,7 @@
 
 (pub :: pointsScale (-> (Vec Point) Int (Vec Point)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (pointsScale ps k)
   (let (
     (__a0 (__pointToWords ps (vecWithCapacity (* (vecLen ps) 2)) 0))
@@ -515,6 +535,7 @@
 
 (pub :: pointsTry (-> (Vec Point) (Result (Vec Point) String)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (pointsTry ps)
   (let (
     (__a0 (__pointToWords ps (vecWithCapacity (* (vecLen ps) 2)) 0))
@@ -541,6 +562,7 @@
 
 (pub :: rangeVec (-> Int (Vec Int)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (rangeVec n)
   (let (
     (__c ffiCellNew)
@@ -557,6 +579,7 @@
 
 (pub :: reentrantNew Reentrant)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (reentrantNew)
   (let (
     (__p (cast Int reentrantNewRaw))
@@ -566,6 +589,7 @@
 
 (pub :: shout (-> String String))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (shout text)
   (let (
     (__c ffiCellNew)
@@ -582,6 +606,7 @@
 
 (pub :: splitWords (-> String (Vec String)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (splitWords text)
   (let (
     (__c ffiCellNew)
