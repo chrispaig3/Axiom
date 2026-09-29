@@ -205,8 +205,8 @@ two differ.
 | `httpRead` | value | `(-> HttpReader (Result HttpReq Error))` | `Alloc,IO,Mut` | Read one whole request from the reader: refill until the head has ended, parse it, then read exactly `Content-Length` bytes of body. The refusals answer an `Error` whose CODE is the HTTP status to write back: 400 for a malformed head or a peer that closed early, 413 for a body above `httpMaxBody` or a length the parser cannot hold, 431 for a head above `httpMaxHead`, 501 for `Transfer-Encoding` (chunked bodies are not read), 505 for a version that is not HTTP/1.x. |
 | `httpStatusText` | value | `(-> Int String)` |  | The reason phrase for a status, or `Unknown` for one this module does not name. |
 | `httpContentType` | value | `(-> String String)` | `Alloc,Mut` | The `Content-Type` for a file name, by its extension: `.html`, `.css`, `.js`, `.svg`, `.png`, `.ico`, `.txt` and `.json` are named, and everything else is `application/octet-stream` - deliberately not `text/html`, which is the stored-XSS route for an unknown file. |
-| `httpRespondRaw` | value | `(-> Int Int String Int Int Int)` | `Alloc,IO,Mut` | Write a whole response to `fd`: the head for `status` and `ctype` with `Content-Length: len`, then the `len` bytes at `addr`. Every write goes through `sysWriteAllFd`. Takes an address and a length rather than a String so that a body holding a NUL byte - a PNG - is written whole; `strCStr` would stop at the NUL. Answers what the body's `sysWriteAllFd` answered, the head's when that one failed. |
-| `httpRespond` | value | `(-> Int Int String String Int)` | `Alloc,IO,Mut` | Write a whole response whose body is the String `body`: `httpRespondRaw` over its bytes and its byte count. |
+| `httpRespondRaw` | value | `(-> Int Int String Int Int Int)` | `Alloc,IO,Mut` | Write a whole response to `fd`: the head for `status` and `ctype` with `Content-Length: len`, then the `len` bytes at `addr`. The raw form of `httpRespond`, for bytes held outside any `String`: the body goes to `sysWriteAllFd` as the address it is given. Answers what the body's write answered, the head's when that one failed. |
+| `httpRespond` | value | `(-> Int Int String String Int)` | `Alloc,IO,Mut` | Write a whole response whose body is the String `body`: the head, then every byte of `body`, a NUL included. Answers what the body's write answered, the head's when that one failed. |
 | `httpFail` | value | `(-> Int Int String Int)` | `Alloc,IO,Mut` | A plain-text refusal or error page: `status` with its reason phrase and `why` as the body, so a curl user reads the reason on the terminal. Answers `status`. |
 | `HttpHandler` | struct |  |  | A handler: a function of the socket and the request, answering an Int the dispatcher passes back. Held in a struct because the router keeps handlers in a `Vec` of words. Written as `(HttpHandler (lambda (fd r) (page fd r)))` around a signed `fn`. |
 | `HttpRouter` | struct |  |  | The routing table: exact routes as three parallel `Vec`s (method, path, handler cell), static prefixes as two (URL prefix, directory), and the handler for a path nothing matched. |
@@ -221,11 +221,12 @@ two differ.
 
 ## `IO`
 
-`stdlib/IO.ax` — 26 public names
+`stdlib/IO.ax` — 38 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
 | `writeStr` | value | `(-> Int String Int)` | `Alloc,IO` | Write all of `s` to `fd`, returning the number of bytes written or a negative errno. |
+| `writeSlice` | value | `(-> Int String Int Int Int)` | `Alloc,IO` | Write the `len` bytes of `s` that start at byte `start`, all of them, returning the number written or a negative errno - `writeStr` over a part of a string, with no copy. |
 | `printlnLit` | value | `(-> Int Int)` | `Alloc,IO,Unsafe` |  |
 | `println` | macro |  |  |  |
 | `eprintln` | macro |  |  |  |
@@ -236,12 +237,16 @@ two differ.
 | `appendFile` | value | `(-> String String (Result Int Error))` | `Alloc,IO,Mut` | Add `s` to the end of `path`, creating it if absent. Answers the `(Ok bytes)`, or `(Err e)` whose code is the errno. |
 | `removeFile` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut` | Remove the file `path`. Answers 0, or a negative errno. |
 | `renamePath` | value | `(-> String String (Result Int Error))` | `Alloc,IO,Mut` | Move `old` to `new`, answering 0 or a negative errno. |
+| `openPath` | value | `(-> String Int (Result Int Error))` | `Alloc,IO,Mut` | Open `path` with `flags` (`oRdonly`, `oWronlyCreateTrunc`, ...): `(Ok fd)`, or `(Err e)` whose code is the errno. New files get mode 0644. The descriptor is the caller's to close with `sysCloseFd`. |
+| `openBeneath` | value | `(-> String String (Result Int Error))` | `Alloc,IO,Mut` | Open `rel` for reading inside the directory `root`, following no symbolic link below it: `(Ok fd)`, or `(Err e)`. `rel` must be relative, with no `..` segment; see `Sys.sysOpenBeneath` for the rules and why it walks one segment at a time. |
+| `makeSymlink` | value | `(-> String String (Result Int Error))` | `Alloc,IO,Mut` | Create the symbolic link `link` whose content is `target`. Answers `(Ok 0)`, or `(Err e)` - EEXIST when `link` is already there. |
 | `copyFile` | value | `(-> String String (Result Int Error))` | `Alloc,IO,Mut` | Copy `src` onto `dst`, answering `(Ok bytes)` or `(Err e)`. `dst` is created or truncated. |
 | `fileExists` | value | `(-> String Bool)` | `Alloc,IO,Mut` | True when `path` names something that can be opened for reading - a directory included. `isDir` separates them. |
 | `isDir` | value | `(-> String Bool)` | `Alloc,IO,Mut` | True when `path` names a directory. |
 | `fileSize` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut` | The size of `path` in bytes, or a negative errno. |
 | `readErrno` | value | `(-> String Int)` | `Alloc,IO,Mut` | 0 when `path` can be read as a file, otherwise the errno saying why not: 2 missing, 13 not permitted, 21 a directory. |
 | `makeDir` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut` | Create the directory `path`, mode 0755. Answers 0, or a negative errno - `-17` (EEXIST) when it is already there. |
+| `makeDirMode` | value | `(-> String Int (Result Int Error))` | `Alloc,IO,Mut` | Create the directory `path` with the permission bits `mode`, such as 448 (0700) for a directory only its owner may enter. Answers `(Ok 0)`, or `(Err e)`. |
 | `makeDirAll` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut` | Create `path` and every missing directory above it. Answers 0, or the negative errno of the first component that could not be made. |
 | `removeDir` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut` | Remove the EMPTY directory `path`. Answers 0, or a negative errno - `-66`/`-39` (ENOTEMPTY) when it still holds entries. Nothing here removes a tree: that is a loop over `listDir`, and it is the caller's to write, because a library that deletes recursively on one call is a library that deletes the wrong subtree once. |
 | `listDir` | value | `(-> String (Vec String))` | `Alloc,IO,Mut,Unsafe` | The entries of the directory `path`, as a Vec of `Str` - sorted by byte, with `.` and `..` removed. |
@@ -251,6 +256,13 @@ two differ.
 | `todo` | value | `(-> String a)` | `Alloc,IO,Mut` | Exit 70 with `todo: <what>` on standard error; types as any result and never returns. |
 | `readLine` | value | `(-> Int (Result (Option String) Error))` | `Alloc,IO,Mut` | One line of `fd` without its newline: `(Ok (Some line))`; `(Ok None)` at end of input when nothing was read; `(Err e)` whose code is the errno, its message `readLine: fd 0: errno 9`. |
 | `readAll` | value | `(-> Int (Result String Error))` | `Alloc,IO,Mut` | Everything left on `fd` to end of input: `(Ok s)`, `(Ok "")` when nothing arrived, or `(Err e)` whose code is the errno. |
+| `readInto` | value | `(-> Int String Int Int (Result Int Error))` | `Alloc,IO` | One `read(2)` of at most `count` bytes from `fd` into the bytes of `buf` that start at byte `at`: `(Ok n)` with `n` the bytes read, `(Ok 0)` at end of input, or `(Err e)` whose code is the errno. |
+| `randomBytes` | value | `(-> Int (Result String Error))` | `Alloc,IO,Mut` | `n` bytes of kernel entropy as a fresh string: `(Ok bytes)`, or `(Err e)` whose code is the errno. The bytes are for keys, nonces and seeds; `strByte` reads them one at a time. A negative `n` stops the program with status 77. |
+| `TermSize` | struct |  |  | A terminal's size in character cells. A terminal that was never sized reports 0 for both; treat 0 as unknown and fall back to 80x24. |
+| `termSave` | value | `(-> Int (Result TermState Error))` | `Alloc,IO` | The attributes of the terminal on `fd`, saved: `(Ok state)` to hand to `termRestore` later, or `(Err e)` - ENOTTY when `fd` is not a terminal. |
+| `termRaw` | value | `(-> Int Bool (Result TermState Error))` | `Alloc,IO,Mut,Unsafe` | Put the terminal on `fd` into raw mode, saving what it was first: `(Ok state)` to restore it with, or `(Err e)`. With `keepSignals` true, ^C still raises SIGINT; see `Sys.sysTermRaw` for every flag raw mode changes. |
+| `termRestore` | value | `(-> TermState (Result Int Error))` | `Alloc,IO` | Put back the attributes `st` saved, on the descriptor they came from: `(Ok 0)`, or `(Err e)`. |
+| `termSize` | value | `(-> Int (Result TermSize Error))` | `Alloc,IO,Unsafe` | The size of the terminal on `fd`: `(Ok size)`, or `(Err e)` - ENOTTY when `fd` is not a terminal. |
 
 ## `Intern`
 

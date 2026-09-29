@@ -48,12 +48,11 @@
 ; make it agree with the bytes that follow.
 (:: frameOne (-> String String String Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (frameOne label header body)
-  (let ((path (__addr "axiom-rpc-framing.tmp")))
+  (let ((path "axiom-rpc-framing.tmp"))
     {
-      (let ((_ (sysWriteFile path (strConcat (strConcat (strConcat "Content-Length: " header) "\r\n\r\n") body)))) 0)
-      (match (sysOpenPath path oRdonly)
+      (let ((_ (writeFile path (strConcat (strConcat (strConcat "Content-Length: " header) "\r\n\r\n") body)))) 0)
+      (match (openPath path oRdonly)
         ((Err e) (die "open for read failed" 1))
         ((Ok fd)
           (let ((r (rdNew fd)))

@@ -145,7 +145,7 @@
                 "ERR accept failed"
                 {
                   (let ((_ (netSetBlocking con))) 0)
-                  (sysWriteAllFd cli (strData request) (strLen request) 0)
+                  (writeStr cli request)
                   (let ((_ (netShutdown cli 1))) 0)
                   (let ((text (resultText (httpRead (httpReaderWith con cap)))))
                     {

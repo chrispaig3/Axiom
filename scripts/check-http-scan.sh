@@ -83,7 +83,7 @@ seam() {
 count_line='          (set cand (+ cand 1))'
 tag_line='(fn (httpHeadEndFrom r from)'
 resume_line='          (set hdr (httpHeadEndFrom r scanned))'
-read_line='        (match (sysReadFd r.fd (+ (strData r.buf) r.filled) (- (strLen r.buf) r.filled))'
+read_line='        (match (readInto r.fd r.buf r.filled (- (strLen r.buf) r.filled))'
 instrument() {
   local dir="$1" mode="${2:-}"
   rm -rf "$dir"; cp -R "$repo_root/stdlib" "$dir"
@@ -96,7 +96,7 @@ instrument() {
     $0 == ENVIRON["COUNT"] {
       print "          (let ((_ (sysWriteFd 2 (__addr \"+\") 1))) 0)"; print; next }
     $0 == ENVIRON["READ"] {
-      print "        (match (sysReadFd r.fd (+ (strData r.buf) r.filled) 1)"; next }
+      print "        (match (readInto r.fd r.buf r.filled 1)"; next }
     ENVIRON["MODE"] == "ablate" && $0 == ENVIRON["RESUME"] {
       print "          (set hdr (httpHeadEndFrom r 0))"; next }
     { print }' "$http" > "$dir/Http.ax"

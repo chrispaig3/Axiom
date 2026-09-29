@@ -177,6 +177,7 @@
 (import Str)
 (import Vec)
 (import Sys)
+(import IO (appendFile fileSize makeDir readFile renamePath writeFile))
 (import Err)
 (import Path)
 (import diag)
@@ -528,12 +529,12 @@
     (let ((g (histDirOf d)))
       {
         (if (> (strLen g) 0)
-          (if (isErr (sysMkdir (strCStr g) sysDirMode))
+          (if (isErr (makeDir g))
             0
             0)
           0)
         (if (> (strLen d) 0)
-          (if (isErr (sysMkdir (strCStr d) sysDirMode))
+          (if (isErr (makeDir d))
             0
             0)
           0)
@@ -622,7 +623,7 @@
         0)
       {
         (histEnsureDir path)
-        (let ((v (histDecode (sysReadFile (strCStr path)) cap)))
+        (let ((v (histDecode (readFile path) cap)))
           (Hist
             v
             path
@@ -681,7 +682,7 @@
               (memSetWord h 0 (histKeepLast v (memGetWord h 2)))
               (histBrowseReset h)
               (if (&& (== (histPersist h) 1) (<= (strLen e) histMaxEntryBytes))
-                (if (isErr (sysAppendFile (strCStr (histPath h)) (histEncode e)))
+                (if (isErr (appendFile (histPath h) (histEncode e)))
                   0
                   0)
                 0)
@@ -711,18 +712,18 @@
 (pub fn (histClose h)
   (if (== (histPersist h) 0)
     0
-    (let ((cp (strCStr (histPath h))))
-      (let ((s0 (unwrapOr (sysFileSize cp) 0)))
+    (let ((cp (histPath h)))
+      (let ((s0 (unwrapOr (fileSize cp) 0)))
         (if (<= s0 histMaxBytes)
           0
-          (let ((v (histDecode (sysReadFile cp) (memGetWord h 2))))
-            (let ((s1 (unwrapOr (sysFileSize cp) (- 0 1))))
+          (let ((v (histDecode (readFile cp) (memGetWord h 2))))
+            (let ((s1 (unwrapOr (fileSize cp) (- 0 1))))
               (if (!= s1 s0)
                 0
                 (let ((tmp (strConcat (strConcat (histPath h) ".tmp-") (decStr sysGetPid))))
-                  (if (isErr (sysWriteFile (strCStr tmp) (histSerialize v)))
+                  (if (isErr (writeFile tmp (histSerialize v)))
                     0
-                    (if (isErr (sysRename (strCStr tmp) cp))
+                    (if (isErr (renamePath tmp cp))
                       0
                       1)))))))))))
 

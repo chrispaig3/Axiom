@@ -145,6 +145,7 @@ internWithCapacity Intern.ax Alloc,Mut
 ioFdError IO.ax Alloc,Mut
 ioPath IO.ax Alloc,Mut
 ioResult IO.ax Alloc,Mut
+ioTermAnswer IO.ax Alloc
 isDir IO.ax Alloc,IO,Mut
 jcBad Json.ax Unsafe
 jcFail Json.ax Mut,Unsafe
@@ -250,7 +251,9 @@ listDirSift IO.ax Mut
 makeDir IO.ax Alloc,IO,Mut
 makeDirAll IO.ax Alloc,IO,Mut
 makeDirAllFrom IO.ax Alloc,IO,Mut
+makeDirMode IO.ax Alloc,IO,Mut
 makeDirOk IO.ax Alloc,IO,Mut
+makeSymlink IO.ax Alloc,IO,Mut
 mapAllocTable Map.ax Alloc,Mut,Unsafe
 mapCollect Map.ax Alloc,Mut
 mapDropVal Map.ax Mut,Unsafe
@@ -345,6 +348,8 @@ netSignalOpenRaw Sys.ax IO,Mut,Unsafe
 netSocketTcp Sys.ax Alloc,IO
 netSocketTcp6 Sys.ax Alloc,IO
 okOr Err.ax Alloc
+openBeneath IO.ax Alloc,IO,Mut
+openPath IO.ax Alloc,IO,Mut
 optMap Err.ax Alloc
 optOr Err.ax Alloc
 parArgvVector Par.ax Alloc,Mut,Unsafe
@@ -372,6 +377,7 @@ platformReadFd Platform.ax Alloc
 platformWriteFd Platform.ax Alloc
 printLit IO.ax Alloc,IO,Unsafe
 printlnLit IO.ax Alloc,IO,Unsafe
+randomBytes IO.ax Alloc,IO,Mut
 rdBuf Rpc.ax Unsafe
 rdCompact Rpc.ax Alloc,Mut,Unsafe
 rdConsumed Rpc.ax Unsafe
@@ -384,6 +390,7 @@ readAll IO.ax Alloc,IO,Mut
 readErrno IO.ax Alloc,IO,Mut
 readFile IO.ax Alloc,IO,Mut
 readFileLit IO.ax Alloc,IO,Mut
+readInto IO.ax Alloc,IO
 readLine IO.ax Alloc,IO,Mut
 remChecked Err.ax Alloc
 removeDir IO.ax Alloc,IO,Mut
@@ -566,9 +573,13 @@ termEditLoop Term.ax Alloc,IO,Mut
 termFlagClear Sys.ax Mut,Unsafe
 termFlagGet Sys.ax Unsafe
 termFlush Term.ax Alloc,IO,Mut
+termRaw IO.ax Alloc,IO,Mut,Unsafe
 termRawEnter Term.ax Alloc,IO,Mut,Unsafe
 termRawLeave Term.ax IO
 termReadSize Term.ax IO,Mut,Unsafe
+termRestore IO.ax Alloc,IO
+termSave IO.ax Alloc,IO
+termSize IO.ax Alloc,IO,Unsafe
 termWsCols Term.ax Unsafe
 termWsRows Term.ax Unsafe
 testFail Test.ax Alloc,Assert,IO,Mut
@@ -608,4 +619,5 @@ vecWithCapacity Vec.ax Alloc,Mut
 vecWithCapacityRef Vec.ax Alloc,Mut
 withContext Err.ax Alloc
 writeFile IO.ax Alloc,IO,Mut
+writeSlice IO.ax Alloc,IO
 writeStr IO.ax Alloc,IO

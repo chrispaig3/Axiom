@@ -114,7 +114,7 @@
       (stepAll (readAll stdin))  ; 0
       ; --- 3. a descriptor this program opened ---
       (let ((_ (writeFile path (strConcat "first line\n" (strConcat long "\nsecond\nlast without newline"))))) 0)
-      (match (sysOpenPath (strCStr path) oRdonly)
+      (match (openPath path oRdonly)
         ((Ok fd)
           {
             (step (readLine fd))  ; 10

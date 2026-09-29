@@ -1,0 +1,4 @@
+past the end 77, negative start 77, negative length 77, start past the end 77
+an empty range at the end writes 0 bytes
+read past the buffer 77, at a negative offset 77, the whole buffer 4: 0123
+random of -1 bytes 77, of 0 bytes 0

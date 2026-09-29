@@ -429,7 +429,7 @@ related fields, shown here one per line, are:
 
 ```text
 ^31:6-17:"readSection"
-^stdlib/IO.ax:42:10-18:"IO$writeStr"
+^stdlib/IO.ax:43:10-18:"IO$writeStr"
 ^stdlib/Sys.ax:210:10-23:"Sys$sysWriteAllFd"
 ^stdlib/Sys.ax:166:10-20:"Sys$sysWriteFd"
 ^-:"__syscall3"
@@ -455,7 +455,7 @@ The other formats show the same hops:
 - The human snippet quotes one source file, so it can't draw a hop in
   another file. A line number from that file would put a caret under
   the wrong text. The hop renders as a note with its own file and
-  position instead, `= note: IO$writeStr (stdlib/IO.ax:42:10-18)`. An
+  position instead, `= note: IO$writeStr (stdlib/IO.ax:43:10-18)`. An
   expansion frame whose file can't be reached is shown the same way.
 - A hop with no location renders as
   `= note: __syscall3 (no declaration to point at)`.

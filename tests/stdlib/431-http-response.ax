@@ -5,9 +5,9 @@
 ; What is pinned: the status line, the header ORDER, `Content-Length`
 ; equal to the body's byte count, `Connection: close`, CRLF CRLF, no
 ; other header; a body holding a NUL byte written WHOLE through
-; `httpRespondRaw` (the strCStr truncation the address-and-length
-; signature exists to prevent - the negative probe routes `httpRespond`
-; through `strCStr` and this check goes red at the NUL); `httpFail`'s
+; `httpRespond`, which writes the `String`'s counted bytes (a writer
+; that stopped at the first NUL, as `strCStr` does, goes red at the
+; NUL); `httpFail`'s
 ; plain-text body; `httpStatusText` for the statuses the parser and
 ; the router answer; and `httpContentType` over every named
 ; extension, a name with none, and an unknown one, which must be
@@ -48,30 +48,28 @@
 ; The bytes `httpRespond` writes for a status, a type and a body.
 (:: captured (-> Int String String String))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (captured status ctype body)
-  (match (sysOpenPath (__addr "resp.tmp") oWronlyCreateTrunc)
+  (match (openPath "resp.tmp" oWronlyCreateTrunc)
     ((Err e) (strConcat "ERR open resp.tmp: " (errMessage e)))
     ((Ok fd)
       {
         (httpRespond fd status ctype body)
         (let ((_ (sysCloseFd fd))) 0)
-        (sysReadFile (__addr "resp.tmp"))
+        (readFile "resp.tmp")
       }
     )))
 
 ; The bytes `httpFail` writes.
 (:: capturedFail (-> Int String String))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (capturedFail status why)
-  (match (sysOpenPath (__addr "fail.tmp") oWronlyCreateTrunc)
+  (match (openPath "fail.tmp" oWronlyCreateTrunc)
     ((Err e) (strConcat "ERR open fail.tmp: " (errMessage e)))
     ((Ok fd)
       {
         (httpFail fd status why)
         (let ((_ (sysCloseFd fd))) 0)
-        (sysReadFile (__addr "fail.tmp"))
+        (readFile "fail.tmp")
       }
     )))
 

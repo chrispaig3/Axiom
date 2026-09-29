@@ -69,7 +69,7 @@
 ; is built by repeated concatenation, so the intermediates are garbage
 ; the instant the next one is made - about 16 KiB of it per call, none
 ; reachable after the write.
-(:: respond (-> Int Int Int Int))
+(:: respond (-> Int String Int Int))
 ;@axiom:effect(io)
 (fn (respond con byte reps)
   (let ((mut s ""))
@@ -85,7 +85,7 @@
         ; this case exists to measure, and writing it would measure the
         ; socket instead. `strLen` is what keeps it from being dead.
         (if (> (strLen s) 0)
-          (sysWriteAllFd con byte 1 0)
+          (writeSlice con byte 0 1)
           0)
       })))
 
@@ -107,7 +107,7 @@
     (let ((setbuf (memAlloc 16)))
       (let ((scratch (memAlloc 256)))
         (let ((buf (memAlloc (netPollBufBytes 64))))
-          (let ((byte (memAlloc 8)))
+          (let ((byte (strAlloc 1)))
             (match netPollCreate
               ((Err e) (sysExitWith 255))
               ((Ok pfd)
@@ -183,7 +183,7 @@
                                                     (println (strConcat "peer " (netAddrTextPort peer)))
                                                     0)
                                                   (if (==
-                                                    (match (sysReadFd con byte 1)
+                                                    (match (readInto con byte 0 1)
                                                       ((Ok k) k)
                                                       ((Err e) (- 0 (errCode e))))
                                                     1)

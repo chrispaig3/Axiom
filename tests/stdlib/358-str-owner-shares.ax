@@ -14,7 +14,8 @@
 ; identical either way - which is exactly why the defect survived
 ; being written.
 ;
-;   32  the file round-trips: 5 bytes back out of sysReadFile
+;   32  the file round-trips: 5 bytes back out of `readFile`, which
+;       is `sysReadFile` over a copy of the path
 ;   16  the answer's owner is a real block (not a literal's 0)
 ;    8  that owner's count word reads 1 - the share the header
 ;       sysReadAll answered holds. It read 2 until 2026-08-21: the
@@ -30,6 +31,7 @@
 ; the two the fix adds. (Both counts are one LOWER than when this was
 ; written, for the reason term 8 states.)
 (import Sys)
+(import IO)
 (import Err)
 (import Str)
 
@@ -48,14 +50,14 @@
 ;@axiom:effect(io)
 (fn (main)
   (let (
-    (f (strCStr "axiom_test_file_358"))
+    (f "axiom_test_file_358")
     (mut acc 0)
     (mut steps 0)
   )
     {
-      (unwrapOr (sysWriteFile f "hello") 0)
+      (unwrapOr (writeFile f "hello") 0)
       (set steps (+ steps 1))
-      (let ((got (sysReadFile f)))
+      (let ((got (readFile f)))
         {
           (if (== (strLen got) 5)
             (set acc (+ acc 32))
@@ -72,7 +74,7 @@
               0))
           (set steps (+ steps 1))
         })
-      (if (isOk (sysUnlink f))
+      (if (isOk (removeFile f))
         (set acc (+ acc 2))
         0)
       (if (== steps 2)

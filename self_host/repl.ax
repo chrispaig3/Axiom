@@ -92,6 +92,7 @@
 (import Str)
 (import Vec)
 (import Sys)
+(import IO (makeDirMode readFile removeDir removeFile writeFile writeStr))
 (import Path)
 (import lexer)
 (import parser)
@@ -114,7 +115,7 @@
 (pub :: replOut (-> String Int))
 ;@axiom:effect(io)
 (pub fn (replOut s)
-  (sysWriteAllFd 1 (strData s) (strLen s) 0))
+  (writeStr 1 s))
 
 ; ------------------------------------------------------------------
 ; Reading a line from fd 0. One byte per read(2): a REPL line is
@@ -1517,7 +1518,7 @@
   (let ((pid sysGetPid))
     (let ((leaf (strConcat (strConcat "axiom-repl-" (decStr pid)) ".d")))
       (let ((dir (pathJoin replTmpRoot leaf)))
-        (if (isErr (sysMkdir (strCStr dir) 448))
+        (if (isErr (makeDirMode dir 448))
           (replOut "Error: could not create a private scratch directory\n")
           (let ((base (pathJoin dir "expr")))
             (let (
@@ -1527,7 +1528,7 @@
               (outf (strConcat base ".out"))
             )
               {
-                (if (isErr (sysWriteFile (strCStr ll) ir))
+                (if (isErr (writeFile ll ir))
                   (replOut "Error: could not write the generated IR\n")
                   (let ((lrc 
                     (runTool
@@ -1583,7 +1584,7 @@
                                   v
                                 }))))
                             (let ((rc (runTool "/bin/sh" (argsOf3 "-c" cmd ""))))
-                              (let ((printed (replTrim (sysReadFile (strData outf)))))
+                              (let ((printed (replTrim (readFile outf))))
                                 (if (> (strLen printed) 0)
                                   (replOut (strConcat (strConcat "result " printed) "\n"))
                                   (if (< rc 0)
@@ -1593,15 +1594,15 @@
                                     ; `fmtIntStr` reported every one
                                     ; of them above 3 as `1`.
                                     (replOut (strConcat (strConcat "result " (decStr rc)) "\n"))))))))))))
-                (unwrapOr (sysUnlink (strCStr ll)) 0)
-                (unwrapOr (sysUnlink (strCStr obj)) 0)
-                (unwrapOr (sysUnlink (strCStr exe)) 0)
-                (unwrapOr (sysUnlink (strCStr outf)) 0)
+                (unwrapOr (removeFile ll) 0)
+                (unwrapOr (removeFile obj) 0)
+                (unwrapOr (removeFile exe) 0)
+                (unwrapOr (removeFile outf) 0)
                 ; The directory goes with the files it held. `sysRmdir`
                 ; only removes an EMPTY one, so a name this function did
                 ; not create and did not empty survives, and the four
                 ; unlinks above are what earn the removal.
-                (unwrapOr (sysRmdir (strCStr dir)) 0)
+                (unwrapOr (removeDir dir) 0)
                 0
               })))))))
 
@@ -1915,7 +1916,7 @@
       (replOut "Error: Usage: :load <filename>\n")
       declsSrc
     }
-    (let ((src (sysReadFile (strData arg))))
+    (let ((src (readFile arg)))
       (if (== (strLen src) 0)
         {
           (replOut (strConcat (strConcat "File error: cannot read '" arg) "'\n"))

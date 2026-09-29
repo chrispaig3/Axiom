@@ -131,6 +131,7 @@
 (import Str)
 (import Vec)
 (import Sys)
+(import IO (fileExists isDir readFile writeStr))
 (import Path)
 (import Fmt)
 
@@ -163,7 +164,7 @@
   (if (> depth 8)
     ""
     (let ((cand (strConcat dir pkgManifestName)))
-      (if (sysFileExists (strCStr cand))
+      (if (fileExists cand)
         cand
         (let ((up (pathWithSlash (strConcat dir ".."))))
           (pkgFindManifestFrom up (+ depth 1)))))))
@@ -341,7 +342,7 @@
   (let ((mf (pkgFindManifest entryDir)))
     (if (== (strLen mf) 0)
       vecNew
-      (pkgDirsIn (sysReadFile (strData mf)) (pathDir mf) key))))
+      (pkgDirsIn (readFile mf) (pathDir mf) key))))
 
 ; Every value of `key` in an ALREADY-READ manifest, resolved against
 ; `base`. Split from the function above so that `pkgSearchDirs` can ask
@@ -416,7 +417,7 @@
     (if (== (strLen mf) 0)
       vecNew
       (let (
-        (text (sysReadFile (strData mf)))
+        (text (readFile mf))
         (base (pathDir mf))
       )
         (pkgConcatDirs (pkgDirsIn text base "depend") (pkgAxiomSub (pkgDirsIn text base "crate")))))))
@@ -781,7 +782,7 @@
 (pub :: pkgOrigin (-> String String))
 ;@axiom:effect(io)
 (pub fn (pkgOrigin dir)
-  (pkgOriginIn (sysReadFile (strData (strConcat dir ".git/config")))))
+  (pkgOriginIn (readFile (strConcat dir ".git/config"))))
 
 ; The `url` of the `[remote "origin"]` section of git config text, or
 ; "": the first `url = VALUE` line after that section header and before
@@ -912,7 +913,7 @@
   (let ((mf (pkgFindManifest entryDir)))
     (if (== (strLen mf) 0)
       ""
-      (pkgValue (sysReadFile (strData mf)) "name"))))
+      (pkgValue (readFile mf) "name"))))
 
 ; An `opt` value is one byte, `0` through `3`: the same four levels
 ; `--opt` honours, refused in the same words. Single byte, so no
@@ -935,7 +936,7 @@
   (let ((mf (pkgFindManifest entryDir)))
     (if (== (strLen mf) 0)
       (- 0 1)
-      (let ((v (pkgValue (sysReadFile (strData mf)) "opt")))
+      (let ((v (pkgValue (readFile mf) "opt")))
         (if (== (strLen v) 0)
           (- 0 1)
           (- (strByte v 0) 48))))))
@@ -949,7 +950,7 @@
   (let ((mf (pkgFindManifest entryDir)))
     (if (== (strLen mf) 0)
       ""
-      (pkgValue (sysReadFile (strData mf)) "main"))))
+      (pkgValue (readFile mf) "main"))))
 
 ; The project file for a manifest-mode invocation: the manifest's
 ; `main` resolved against the manifest's own directory, else
@@ -961,7 +962,7 @@
     (if (== (strLen mf) 0)
       ""
       (let ((base (pathDir mf)))
-        (let ((m (pkgValue (sysReadFile (strData mf)) "main")))
+        (let ((m (pkgValue (readFile mf) "main")))
           (if (> (strLen m) 0)
             (pkgResolve base m)
             (strConcat (pathWithSlash base) "Main.ax")))))))
@@ -1131,7 +1132,7 @@
   (let ((mf (pkgFindManifest entryDir)))
     (if (== (strLen mf) 0)
       0
-      (let ((text (sysReadFile (strData mf))))
+      (let ((text (readFile mf)))
         (let ((_lines (pkgCheckLines text mf)))
           (let ((dirs (pkgDependDirs entryDir)))
             (let (
@@ -1141,7 +1142,7 @@
               {
                 (while (< i n)
                   {
-                    (if (sysIsDir (strCStr (vecGetStr dirs i)))
+                    (if (isDir (vecGetStr dirs i))
                       0
                       (pkgDie (strConcat (strConcat "error: " (strConcat mf " names a dependency directory that is not there:\n")) (strConcat (strConcat "       " (strConcat (vecGetStr dirs i) "\n")) (strConcat "       `depend` names a DIRECTORY of modules, resolved against the\n" (strConcat "       manifest's own directory.\n" (pkgUrlHint text (pathDir mf) (vecGetStr dirs i))))))))
                     (set i (+ i 1))
@@ -1196,9 +1197,9 @@
     0
     {
       (let ((d (vecGetStr dirs i)))
-        (if (sysIsDir (strCStr d))
-          (if (sysFileExists (strCStr (strConcat d "Cargo.toml")))
-            (if (sysIsDir (strCStr (strConcat d "axiom/")))
+        (if (isDir d)
+          (if (fileExists (strConcat d "Cargo.toml"))
+            (if (isDir (strConcat d "axiom/"))
               0
               (pkgDie (strConcat (strConcat "error: " (strConcat mf " names a crate with no generated module directory:\n")) (strConcat (strConcat "       " (strConcat (strConcat d "axiom/") "\n")) (strConcat "       A crate's binding module is written to `DIR/axiom/` by\n       `axiom-bindgen`, and a manifest `crate` does not run it: run\n" "       `axiom build --crate DIR` (or `axiom-bindgen`) once, or commit the\n       generated module, and this line is enough from then on.\n")))))
             (pkgDie (strConcat (strConcat "error: " (strConcat mf " names a crate directory with no Cargo.toml:\n")) (strConcat (strConcat "       " (strConcat (strConcat d "Cargo.toml") "\n")) (strConcat "       `crate` names a CARGO CRATE - a `Cargo.toml` beside an `axiom/`\n" "       holding its generated module. A plain directory of `.ax` modules\n       is `depend`, not `crate`.\n")))))
@@ -1254,7 +1255,7 @@
         (while (< i (vecLen mods))
           {
             (let ((name (vecGetStr mods i)))
-              (if (&& (== (strLen hit) 0) (sysFileExists (strCStr (strConcat b name))))
+              (if (&& (== (strLen hit) 0) (fileExists (strConcat b name)))
                 {
                   (set hit name)
                   0
@@ -1312,7 +1313,7 @@
         (if (|| (strEq name ".") (strEq name ".."))
           0
           (let ((r (strConcat rel name)))
-            (if (sysIsDir (strCStr (strConcat root r)))
+            (if (isDir (strConcat root r))
               (pkgWalkModules out root (strConcat r "/") (+ depth 1))
               (if (strEq (pathExt name) ".ax")
                 {
@@ -1358,7 +1359,7 @@
 ;@axiom:effect(io)
 (pub fn (pkgDie msg)
   {
-    (sysWriteAllFd 2 (strData msg) (strLen msg) 0)
+    (writeStr 2 msg)
     (sysExitWith 3)
     0
   })
