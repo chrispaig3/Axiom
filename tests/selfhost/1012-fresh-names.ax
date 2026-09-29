@@ -1,0 +1,22 @@
+; expect 0
+; AN-37: `axiom symbols` numbers each row's fresh type variables from
+; 0, in order of first appearance, so `mk` prints
+; `(Int -> (_t0 -> (_t1 -> _t0)))` wherever it sits in the file. The
+; numbers used to come from one counter shared by the whole module, so
+; a function added below moved them. `scripts/check-metamorphic.sh`
+; appends ten unsigned functions to this file and requires every row
+; to stay byte for byte.
+(fn (mk n)
+  (lambda (a)
+    (lambda (b) a)))
+
+(fn (keepSecond n)
+  (lambda (a)
+    (lambda (b) b)))
+
+(fn (main)
+  (if (== ((mk 0 7) 9) 7)
+    (if (== ((keepSecond 0 7) 9) 9)
+      0
+      1)
+    2))

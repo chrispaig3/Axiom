@@ -34,10 +34,11 @@
 #      stops matching can't pass by testing nothing.
 #   2b. The second relation: reversing a program's top-level
 #      declarations (imports first, a `::` with its `fn`) changes
-#      neither its verdict nor any `symbols` row. One program a
-#      reordering refuses is a known limit (AN-39: a function with no
-#      signature called above its definition): it must still fail
-#      exactly as recorded below, so a fix updates the list. AN-40, a
+#      neither its verdict nor any `symbols` row. Two programs a
+#      reordering refuses show a known limit (AN-39: a function with no
+#      signature called above its definition), 770 once and 1012,
+#      whose `main` calls two, twice. Each must still fail exactly as
+#      recorded below, so a fix updates the list. AN-40, a
 #      macro query answered before its subject was generated, is fixed.
 #   2c. The third relation: moving every `::` to just below its own
 #      `fn` changes no verdict and no `symbols` row, NID included
@@ -47,7 +48,11 @@
 #      (AN-52: an entry file's `strLen` captured `IO`'s call to
 #      `Str`'s, and an entry file's `errorText` turned off the
 #      `main :: Result` dispatch).
-#   3. Seven compilers each rebuilt with one of the fixes taken out
+#   2e. The fifth relation: ten unsigned functions appended change no
+#      verdict and no `symbols` row, with fresh type variables
+#      compared as written (AN-37: `symbols` printed a counter shared
+#      by the whole module, so an unsigned function's row moved).
+#   3. Eight compilers each rebuilt with one of the fixes taken out
 #      (`gate_build_tree`), and the relation required to FAIL under
 #      each: the gate watches the defects it was built on.
 #   4. `--long` only: the compiler's own entry module and every stdlib
@@ -108,6 +113,7 @@ echo "== 2b. reordering the declarations changes nothing, over the corpora =="
 cat > "$work/reorder-known.txt" <<'KNOWN'
 # path<TAB>the divergence it must still show, until fixed
 tests/selfhost/770-over-application.ax	R1 AX3089
+tests/selfhost/1012-fresh-names.ax	R1 AX3089 AX3089
 KNOWN
 rc=0
 ( cd "$repo_root" && python3 "$lib" reorder --axiom "$axc" --jobs "$jobs" --known "$work/reorder-known.txt" "${corpus[@]}" ) \
@@ -124,10 +130,10 @@ else
 fi
 # 259 permuted programs kept it on 2026-09-28. The known divergences
 # are also the proof that the harness sees a verdict change.
-if [[ -n "$permuted" && "$permuted" -ge 250 && "${held:-0}" -eq 1 ]]; then
-  ok "$permuted reordered programs tested, at least 250, and the known divergence seen"
+if [[ -n "$permuted" && "$permuted" -ge 250 && "${held:-0}" -eq 2 ]]; then
+  ok "$permuted reordered programs tested, at least 250, and both known divergences seen"
 else
-  bad "only ${permuted:-0} reordered programs tested (floor 250), ${held:-0} of 1 known divergence seen"
+  bad "only ${permuted:-0} reordered programs tested (floor 250), ${held:-0} of 2 known divergences seen"
 fi
 
 echo "== 2c. moving a signature below its function changes nothing =="
@@ -163,6 +169,29 @@ if [[ -n "$shadowed" && "$shadowed" -ge 170 ]]; then
 else
   bad "only ${shadowed:-0} programs were tested with a shadow; the floor is 170"
 fi
+
+echo "== 2e. unsigned functions appended change no row, fresh names included =="
+rc=0
+( cd "$repo_root" && python3 "$lib" fresh --axiom "$axc" --jobs "$jobs" "${corpus[@]}" ) \
+  >"$work/fresh.log" 2>&1 || rc=$?
+summary="$(grep '^reordered ' "$work/fresh.log" || true)"
+appended="$(sed -nE 's/^reordered [0-9]+ files: ([0-9]+) permuted.*/\1/p' <<<"$summary")"
+if [[ $rc -eq 0 && -n "$appended" && "$appended" -ge 300 ]]; then
+  ok "fresh: $summary"
+else
+  bad "appending unsigned functions changed something (floor 300 programs): ${summary:-no summary}"
+  grep -E '^(DIVERGED|UNPARSED)' "$work/fresh.log" | cut -c1-400 | sed 's/^/     /' || true
+fi
+# Most programs print no fresh variable at all, so the relation watches
+# AN-37 through the ones that do. Require them to still print one.
+for p in tests/selfhost/770-over-application.ax tests/selfhost/1012-fresh-names.ax; do
+  if ( cd "$repo_root/$(dirname "$p")" && "$axc" --diagnostic-format=ai symbols "$(basename "$p")" ) 2>/dev/null \
+      | grep -qE '^F [a-zA-Z]+ .*"[^"]*_t0[^"]*"'; then
+    ok "$p prints a fresh variable numbered from its own row"
+  else
+    bad "$p no longer prints a row with \`_t0\`, so section 2e watches nothing there"
+  fi
+done
 
 echo "== 3. a compiler with a fix taken out fails the relation =="
 trio=(tests/stdlib/020-fmt.ax tests/stdlib/070-vec.ax tests/stdlib/210-struct-variants.ax)
@@ -233,6 +262,10 @@ ablate "entry-out-of-scope" typecheck.ax \
   "(pub fn (fnEntOutOfModuleScope tc m name e)
   (if (== m m)" \
   shadow
+ablate "fresh-names" symbols.ax \
+  "(strConcat (symFreshNames ty) \"\\\"\")" \
+  "(strConcat ty \"\\\"\")" \
+  fresh tests/selfhost/1012-fresh-names.ax
 ablate "result-renderer" codegen.ax \
   "(if (== (findFSigCg cg \"Err\$errorText\") 0)" \
   "(if true" \

@@ -56,6 +56,14 @@ appends `(fn (name) 0)` for each, and applies R1 to R3. Before AN-52
 was fixed, an entry file's `strLen` captured `IO`'s call to `Str`'s,
 at check time and at run time, and `println` printed nothing.
 
+THE FIFTH RELATION, `fresh`: ten unsigned functions appended, each
+drawing on the checker's counter for fresh type variables, change no
+verdict and no `symbols` row, with fresh variables compared as
+written. The counter runs over the whole module, and `symbols` used to
+print its raw numbers, so an unsigned function's row moved when a
+function was added below it (AN-37). Rows are compared as written in
+every relation now: a row that renumbers is R2.
+
 WHAT IT CANNOT SEE. Only names it adds; only programs the compiler
 already accepts (a refused program's free names are exactly the
 names this adds - `tests/diagnostics/1009-macro-for-innermost.ax`
@@ -70,6 +78,7 @@ Usage:
   metamorphic.py reorder --axiom AXC [--jobs N] [--known FILE] FILE...
   metamorphic.py sigmove --axiom AXC [--jobs N] [--known FILE] FILE...
   metamorphic.py shadow --axiom AXC [--jobs N] FILE...
+  metamorphic.py fresh --axiom AXC [--jobs N] FILE...
   metamorphic.py selftest
 Exit 0 when every accepted program keeps the relation, 1 otherwise.
 """
@@ -84,7 +93,6 @@ ENUMERATORS = {"__axiom_bt_name", "__axiom_lineinit"}
 DEADLINE = 600
 
 DEF_RE = re.compile(r"^define [^@\n]*@\"?([^\"(\s]+)\"?\(.*?^}", re.M | re.S)
-TYVAR_RE = re.compile(r"_t\d+")
 
 
 def declared(src):
@@ -112,9 +120,7 @@ def defs(ir):
 
 
 def norm_row(line, fname):
-    line = line.replace(fname, "F")
-    seen = {}
-    return TYVAR_RE.sub(lambda m: seen.setdefault(m.group(0), "_T%d" % len(seen)), line)
+    return line.replace(fname, "F")
 
 
 def rows(out, fname):
@@ -397,7 +403,15 @@ def sigs_below(src):
     return ''.join(out) + tail, len(moved)
 
 
-TRANSFORMS = {'reorder': reordered, 'sigmove': sigs_below}
+def unsigned_tail(src):
+    """Ten unsigned functions appended, each taking fresh variables."""
+    taken = declared(src)
+    names = ['zz' + c for c in 'abcdefghij' if 'zz' + c not in taken]
+    tail = ''.join('\n(fn (%s n)\n  (lambda (a) a))\n' % n for n in names)
+    return src.rstrip('\n') + '\n' + tail, 1
+
+
+TRANSFORMS = {'reorder': reordered, 'sigmove': sigs_below, 'fresh': unsigned_tail}
 
 
 def verdict_of(check):
@@ -553,8 +567,11 @@ def cmd_selftest():
            "a changed row is R2")
     expect(any("R2" in p for p in compare(base, dict(same, rows={}))), "a lost row is R2")
     expect(any("R3" in p for p in compare(base, dict(same, defs=None))), "a variant that does not emit is R3")
-    expect(norm_row("F f F:1 \"(_t13 -> _t9)\"", "F") == norm_row("F f F:1 \"(_t3 -> _t4)\"", "F"),
-           "fresh type variables are compared by order of appearance")
+    expect(norm_row("F f F:1 \"(_t13 -> _t13)\"", "F") != norm_row("F f F:1 \"(_t3 -> _t3)\"", "F"),
+           "fresh type variables are compared as written, so a renumbered row is R2")
+    fresh_text, _ = unsigned_tail("(fn (main) 0)\n(fn (zzb) 1)\n")
+    expect(fresh_text.count("(lambda (a) a)") == 9 and "(fn (zzb n)" not in fresh_text,
+           "fresh appends one unsigned function per name the program doesn't declare")
     expect(declared("(fn (k) 1)\n(:: v Int)\n(macro (w) 9)\n(fn e 2)") == {"k", "v", "w", "e"},
            "declared names are skipped, macros included")
     prog = ('(import IO)\n; a note\n;@axiom:effect(io)\n(:: f Int)\n(fn (f) 1)\n'
@@ -588,6 +605,8 @@ if __name__ == "__main__":
         sys.exit(cmd_reorder(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "sigmove":
         sys.exit(cmd_reorder(sys.argv[2:], sigs_below))
+    if len(sys.argv) > 1 and sys.argv[1] == "fresh":
+        sys.exit(cmd_reorder(sys.argv[2:], unsigned_tail))
     if len(sys.argv) > 1 and sys.argv[1] == "shadow":
         sys.exit(cmd_shadow(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "selftest":

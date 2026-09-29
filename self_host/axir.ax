@@ -160,7 +160,7 @@
   (let ((mut s "F "))
     {
       (set s (strConcat s (strConcat name (strConcat " " loc))))
-      (set s (strConcat s (strConcat " \"" (strConcat ty "\""))))
+      (set s (strConcat s (strConcat " \"" (strConcat (symFreshNames ty) "\""))))
       (if (> (strLen nid) 0)
         (set s (strConcat s (strConcat " @" nid)))
         "")

@@ -185,6 +185,133 @@
                     "{unknown}"))))))))))
 
 ; ------------------------------------------------------------------
+; A row's fresh type variables, numbered from that row (AN-37).
+;
+; The checker names a fresh variable from one counter that runs over
+; the whole module (`freshTVar`, `freshInstVar`), so an unsigned
+; function's printed type moved when unrelated declarations were added:
+; `adder` in `tests/selfhost/770-over-application.ax` read
+; `(Int -> (_t3 -> _t3))`, and `(Int -> (_t13 -> _t13))` with ten
+; functions appended. The number told a reader nothing. Each function's
+; type is generalised on its own, so two rows never share a fresh
+; variable. Each row now numbers its own from 0 in order of first
+; appearance, `_t` and `_i` separately. A signature can't spell `_t5`
+; (`AX3002`: no type of that name), so every such name is the
+; checker's. Renumbering a renumbered row changes nothing, which lets
+; the `.axir` read-back pass its headers through the same function.
+; ------------------------------------------------------------------
+(pub :: symNameByte (-> Int Bool))
+(pub fn (symNameByte c)
+  (|| (strIsDigit c) (|| (strIsAlpha c) (== c 95))))
+
+; The bytes a type's printer writes before a name: a space, `(`, `[`,
+; `{`, `,` and the `*` of a pointer.
+(pub :: symFreshOpens (-> Int Bool))
+(pub fn (symFreshOpens c)
+  (|| (== c 32) (|| (== c 40) (|| (== c 91) (|| (== c 123) (|| (== c 44) (== c 42)))))))
+
+; The end of a fresh variable's name starting at `i`, or `i` when none
+; starts there: `_t` or `_i`, then digits, with no name byte on either
+; side.
+(pub :: symFreshEnd (-> String Int Int Int))
+(pub fn (symFreshEnd ty i n)
+  (if (&&
+    (< (+ i 2) n)
+    (&&
+      (== (strByte ty i) 95)
+      (&&
+        (|| (== (strByte ty (+ i 1)) 116) (== (strByte ty (+ i 1)) 105))
+        (&&
+          (strIsDigit (strByte ty (+ i 2)))
+          (|| (== i 0) (symFreshOpens (strByte ty (- i 1))))))))
+    (let ((mut j (+ i 2)))
+      {
+        (while (&& (< j n) (strIsDigit (strByte ty j)))
+          (set j (+ j 1)))
+        (if (&& (< j n) (symNameByte (strByte ty j)))
+          i
+          j)
+      })
+    i))
+
+(pub :: symDigitsValue (-> String Int Int Int))
+(pub fn (symDigitsValue s i j)
+  (let (
+    (mut v 0)
+    (mut k i)
+  )
+    {
+      (while (< k j)
+        {
+          (set v (+ (* v 10) (- (strByte s k) 48)))
+          (set k (+ k 1))
+        })
+      v
+    }))
+
+; The position of `v` in `seen`, appending it when absent.
+(pub :: symFreshIndex (-> (Vec Int) Int Int))
+(pub fn (symFreshIndex seen v)
+  (let (
+    (mut i 0)
+    (mut at (- 0 1))
+  )
+    {
+      (while (&& (< i (vecLen seen)) (< at 0))
+        {
+          (if (== (vecGet seen i) v)
+            (set at i)
+            0)
+          (set i (+ i 1))
+        })
+      (if (< at 0)
+        {
+          (vecPush seen v)
+          (- (vecLen seen) 1)
+        }
+        at)
+    }))
+
+(pub :: symFreshNames (-> String String))
+(pub fn (symFreshNames ty)
+  (let (
+    (n (strLen ty))
+    (tvars (:: vecNew (Vec Int)))
+    (ivars (:: vecNew (Vec Int)))
+    (mut out "")
+    (mut from 0)
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        (let ((j (symFreshEnd ty i n)))
+          (if (== j i)
+            (set i (+ i 1))
+            (let ((tee (== (strByte ty (+ i 1)) 116)))
+              {
+                (set out (strConcat out (strSlice ty from (- i from))))
+                (set out
+                  (strConcat
+                    out
+                    (strConcat
+                      (if tee
+                        "_t"
+                        "_i")
+                      (decStr
+                        (symFreshIndex
+                          (if tee
+                            tvars
+                            ivars)
+                          (symDigitsValue ty (+ i 2) j))))))
+                (set from j)
+                (set i j)
+              }))))
+      (if (== from 0)
+        ty
+        (strConcat out (strSlice ty from (- n from))))
+    }))
+
+; ------------------------------------------------------------------
 ; One AXSYM line. The location string is the caller's - it owns the
 ; file registry and the char-column conversion - and `-` means
 ; builtin. An empty `nid` is OMITTED, not printed empty: constructor
@@ -199,7 +326,7 @@
     {
       (set s (strConcat s (strConcat " " name)))
       (set s (strConcat s (strConcat " " loc)))
-      (set s (strConcat s (strConcat " \"" (strConcat ty "\""))))
+      (set s (strConcat s (strConcat " \"" (strConcat (symFreshNames ty) "\""))))
       (if (> (strLen nid) 0)
         (set s (strConcat s (strConcat " @" nid)))
         "")
