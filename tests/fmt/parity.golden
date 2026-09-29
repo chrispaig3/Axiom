@@ -1,9 +1,13 @@
 # The refusal bank: what `axiom fmt` does to each tests/fmt/parity/*.axp case.
 #
 # One `### <case> (exit N)` line per case, followed by the formatted bytes when
-# it formatted at all. 65 cases: 35 rewrites and 30 refusals, which is why this
+# it formatted at all. 65 cases: 37 rewrites and 28 refusals, which is why this
 # file can tell a formatter that always succeeds from one that always refuses -
 # check-fmt-selfhost.sh requires both outcomes to be present.
+#
+# 092 FORMATS since 2026-09-29 (AN-59): a negative literal pattern checks and
+# runs, so refusing it, as the retired stage0 parser did, refused a program the
+# compiler accepts.
 #
 # THREE CASES WERE ADDED on 2026-09-04, one per layout defect fixed that day,
 # and each is a case the previous formatter FORMATTED - exit 0 both before and
@@ -169,7 +173,11 @@
 (fn (f v)
   (match v
     ((C h t) 1)))
-### 092-negative-pattern.axp (exit 1)
+### 092-negative-pattern.axp (exit 0)
+(fn (f v)
+  (match v
+    (-5 1)
+    (_ 2)))
 ### 100-empty-form-dropped.axp (exit 1)
 ### 101-axtag-then-unit.axp (exit 1)
 ### 102-axtag-trailing.axp (exit 1)
