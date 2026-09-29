@@ -416,6 +416,10 @@ clean() {
     ok "$what: no report ($last)"
   else
     bad "$what: exit $rc, '$last', $n report(s): $(reports "$err" first)"
+    # The program's own account of why, when it gave one: a self-check
+    # that prints only its verdict last would otherwise hide which of
+    # its conditions failed.
+    [[ -z "$(reports "$err" first)" ]] && printf '%s\n' "$out" | tail -6 | sed 's/^/    /'
   fi
 }
 for lvl in 0 2; do

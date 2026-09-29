@@ -50,6 +50,8 @@
 
 (:: now (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`buf` names 16 live writable bytes)
 (fn (now buf)
   (sysTimeoutMicros buf))
 
@@ -152,6 +154,7 @@
 ; Words of `flag`: 0 the holder holds, 1 the kill's clock reading.
 (:: ringWaiter (-> Chan Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (ringWaiter c flag idle)
   (let (
     (buf (memAlloc 16))
@@ -169,6 +172,7 @@
 
 (:: lockWaiter (-> Chan Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (lockWaiter c flag idle)
   {
     (until idle flag 0 1)
@@ -368,6 +372,7 @@
 
 (:: sweep (-> Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (sweep idle rounds)
   (let (
     (buf (memAlloc 16))

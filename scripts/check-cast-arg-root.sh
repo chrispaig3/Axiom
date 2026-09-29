@@ -55,6 +55,17 @@ echo "--- 1. user-level cast count does not grow ---"
 # program can build, and `556-count-balance.ax`'s control releases a
 # string's handle by hand through `(cast Int s)`: in both the cast is
 # the subject under test, the MM-VAL-23 reason.
+# Baseline 426 measured 2026-09-29 at the R-B10 merge: eight arrived on
+# trunk after 418 was set, and trunk carried the red. Three are
+# `tests/litmus/handle-bitflip.ax`'s fault injection, which flips one
+# bit of a sealed channel handle's word (only a cast can write that)
+# and types its unreachable failure arm; two are
+# `tests/selfhost/1011-cast-arrow-alias.ax`, whose subject is a cast to
+# an arrow alias (AN-53), in its header and its body; and one each in
+# `tests/stdlib/590-chan-dead-holder.ax` and `tests/litmus/chan-dead.ax`,
+# which open a channel's ring through the handle table to watch the lock
+# a dead holder left (AN-10). Each cast is the fixture's subject or its
+# harness: the MM-VAL-23 reason.
 # Baseline 418 measured 2026-09-29, the unsafe boundary merged onto the
 # typed handles: 385 on trunk and 406 on the boundary's branch, from a
 # base of 372.
@@ -115,10 +126,10 @@ echo "--- 1. user-level cast count does not grow ---"
 cast_count="$(git -C "$repo_root" grep -h -o '(cast ' -- stdlib tests examples ':!tests/fuzz' | wc -l | tr -d ' ')"
 if [ "$cast_count" -eq 0 ]; then
   bad "user-level: the cast count read 0 - the measurement is broken, not the tree clean"
-elif [ "$cast_count" -le 418 ]; then
-  ok "user-level (cast count $cast_count <= 418)"
+elif [ "$cast_count" -le 426 ]; then
+  ok "user-level (cast count $cast_count <= 426)"
 else
-  bad "user-level (cast count $cast_count > 418): new casts need a MM-VAL-23 reason and a baseline bump"
+  bad "user-level (cast count $cast_count > 426): new casts need a MM-VAL-23 reason and a baseline bump"
 fi
 
 echo "--- 2. arg-root cast still leaks (does not free early) ---"

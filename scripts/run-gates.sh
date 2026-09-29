@@ -132,10 +132,17 @@ NOTRUN_WHY='needs --emit DIR on any host and --run DIR on a Windows runner; a ba
 # short read is indistinguishable at the assertion from a server that
 # lost data.
 #
+# `check-race` joined on 2026-09-29. It runs `examples/concurrency/
+# pipeline.ax` under ThreadSanitizer, whose instrumentation slows a
+# program several times over, and that example's consumer stops after
+# 2 s with no word and its sends wait at most 1 s. At `-O0`, beside five
+# other gates, it answered `FAILED` once with no race reported; the gate
+# alone passed on the same tree and compiler.
+#
 # `check-protocol-model` reads the clock: its timed locks and receives
 # must answer within [T, T + 800 ms], and its starvation run measures
 # waits. Its model also runs four worker processes of its own.
-SERIAL_RE='check-(protocol-model|bootstrap|container-reclaim|reclaim-soak|recover|steady-state|memory-baseline|arena-reset-rate|name-scale|type-namespace|degenerate|stack-depth|stack-bound|concurrent-run|reproducible|ffi|seed-provenance|lsp-selfhost|compat|net|repl-history)\.sh$'
+SERIAL_RE='check-(race|protocol-model|bootstrap|container-reclaim|reclaim-soak|recover|steady-state|memory-baseline|arena-reset-rate|name-scale|type-namespace|degenerate|stack-depth|stack-bound|concurrent-run|reproducible|ffi|seed-provenance|lsp-selfhost|compat|net|repl-history)\.sh$'
 
 # THE TWO REPL GATES ARE NOT HERE, and they were nearly added on
 # 2026-08-31 on the strength of a comment. `check-repl-selfhost.sh`'s
