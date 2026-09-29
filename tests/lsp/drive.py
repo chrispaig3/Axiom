@@ -5252,7 +5252,15 @@ SLOPE_CEILING_KIB = 2048     # over 195 further edits
 # its 2,512, and Linux 40,960 is 1.22x its 33,544. The Darwin number is
 # TIGHTENED here - 2.7x lower than the 32,768 it replaces - because a
 # ceiling that only one platform can reach is only half a check.
-ABSOLUTE_CEILING_KIB = 12288 if sys.platform == "darwin" else 40960
+#
+# The Linux number is re-derived for 0.7.6 the same way. Its compiler's
+# IR grew 8.2% (13.0 MB to 14.1 MB, 207 more functions) and the session
+# grew with it: 41,148 KiB at 5 edits and 41,460 KiB at 200 on
+# linux-x86_64 (CI run 36628053287), where 0.7.5-era trunk measured
+# 40,292 and 40,668. The slope stayed at 312 KiB, so the start moved and
+# the session did not grow. Linux 51,200 is 1.23x its 41,460, the margin
+# the 40,960 had over 33,544.
+ABSOLUTE_CEILING_KIB = 12288 if sys.platform == "darwin" else 51200
 
 why = None
 rss = {}
