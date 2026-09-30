@@ -5,7 +5,7 @@
 #
 # The fixture is the primary gate and it runs for free, on every build,
 # inside `check-self-host.sh`'s and `check-bootstrap.sh`'s existing
-# sweep of `tests/selfhost/*.ax` - seventeen buffers a person could be
+# sweep of `tests/selfhost/*.ax` - twenty buffers a person could be
 # part-way through typing, each with its classification, its paren
 # depth and its matching-delimiter answer written by hand beside it,
 # plus a negative control, an escape-byte floor and a distinct-letter
@@ -62,7 +62,7 @@ else
     echo "ok   $fixture answers $got"
   else
     echo "FAIL: $fixture answered $got, not $want"
-    echo "      1..17   the classification of that case moved"
+    echo "      1..20   the classification of that case moved"
     echo "      50+i    visLen(painted) != visLen(source) for that case"
     echo "      100+i   replHlDepth disagreed with the hand-written depth"
     echo "      150+i   replHlMatch named the wrong partner"
@@ -107,7 +107,7 @@ fi
 # did. That spelling was written first and was a check that could not
 # fail; it is named rather than quietly replaced.
 #
-# Seventeen hand-written cases pin the CLASSIFICATION; eighty thousand
+# Twenty hand-written cases pin the CLASSIFICATION; eighty thousand
 # real ones pin that nothing anywhere drops a byte, runs a comment
 # scan off the end, or paints a slice at the wrong offset. Neither is
 # the other's substitute.

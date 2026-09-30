@@ -41,7 +41,7 @@
 ;        length check on every case at once.
 ;
 ; There is no golden here to regenerate; satisfying a broken
-; highlighter means hand-editing seventeen strings to disagree with the
+; highlighter means hand-editing twenty strings to disagree with the
 ; source sitting beside them.
 (import Mem)
 (import Str)
@@ -240,6 +240,28 @@
         "X"
         (- 0 1)
         (- 0 2)))
+      ; 18 `in` after a `for` binder is a keyword, in both binder
+      ;    shapes, though it is not a form head
+      (vecPush v (mkHCase
+        "(for x in xs x)"
+        0
+        "MKKK.i.KK.ii.iM"
+        0
+        14))
+      (vecPush v (mkHCase
+        "(for (x i) in xs i)"
+        0
+        "MKKK.pi.ip.KK.ii.iM"
+        0
+        18))
+      ; 20 anywhere else `in` is an ordinary name, as it is to the
+      ;    parser
+      (vecPush v (mkHCase
+        "(g x in)"
+        0
+        "Mi.i.iiM"
+        0
+        7))
       v
     }))
 

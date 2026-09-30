@@ -546,6 +546,42 @@
   (|| (== k (kindInt TK_LPAREN)) (|| (== k (kindInt TK_LBRACE)) (== k (kindInt TK_LBRACKET)))))
 
 ; ------------------------------------------------------------------
+; `in` is a keyword in one position that is not a form head: straight
+; after the binder of a `for`, as `forSkipIn` in parser.ax reads it -
+; `(for x in xs ...)` and `(for (x i) in xs ...)`. Everywhere else it
+; is an ordinary name.
+;
+; `hlScan` follows that position with a small state, advanced once per
+; token: 0 nowhere near a binder, 1 just after the `for`, 2 inside a
+; pair binder expecting `x`, 4 expecting `i`, 5 expecting its `)`, and
+; 3 just after a whole binder, where an `in` is the keyword.
+; ------------------------------------------------------------------
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: hlForNext (-> Int Int Bool String Int))
+(fn (hlForNext st k isHead lx)
+  (let ((ident (== k (kindInt TK_IDENT))))
+    (if (&& isHead (&& ident (strEq lx "for")))
+      1
+      (if (== st 1)
+        (if ident
+          3
+          (if (== k (kindInt TK_LPAREN))
+            2
+            0))
+        (if (&& ident (== st 2))
+          4
+          (if (&& ident (== st 4))
+            5
+            (if (&& (== st 5) (== k (kindInt TK_RPAREN)))
+              3
+              0)))))))
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: hlIsForIn (-> Int Int String Bool))
+(fn (hlIsForIn st k lx)
+  (&& (== st 3) (&& (== k (kindInt TK_IDENT)) (strEq lx "in"))))
+
+; ------------------------------------------------------------------
 ; The classifier. ONE `lex`, then every byte of the buffer covered
 ; exactly once and in order by an HlSpan, and every bracket token
 ; recorded with its span index.
@@ -567,6 +603,7 @@
     (mut i 0)
     (mut p 0)
     (mut prevLP false)
+    (mut forSt 0)
   )
     {
       (while (< i (vecLen toks))
@@ -607,7 +644,14 @@
                               (- 0 1)
                               (vecLen spans)))
                           brks)
-                        (hlPush spans (hlClassOf t prevLP n) s e)
+                        (hlPush
+                          spans
+                          (if (hlIsForIn forSt k (tokenLexeme t))
+                            HL_KEYWORD
+                            (hlClassOf t prevLP n))
+                          s
+                          e)
+                        (set forSt (hlForNext forSt k prevLP (tokenLexeme t)))
                         (set prevLP (== k (kindInt TK_LPAREN)))
                         (set p e)
                       }))))))
