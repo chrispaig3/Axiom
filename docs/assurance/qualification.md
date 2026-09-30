@@ -30,12 +30,16 @@ objectives the current evidence would speak to, for each standard's
 current edition, so a future assessor doesn't start from a blank page.
 Nothing here is legal or certification advice.
 
-- **Aviation (DO-178C / DO-330, AC 20-193 for multicore):** the gates
-  map most directly onto verification objectives and onto tool
-  qualification (DO-330), for a development tool whose output is
-  verified by other means. Missing: requirements-based coverage
-  analysis, structural coverage (MC/DC where applicable), tool
-  operational requirements and multicore interference analysis.
+- **Aviation (DO-178C / DO-330, and AC 20-193 of 8 January 2024 for
+  multi-core processors):** the gates map most directly onto
+  verification objectives and onto tool qualification (DO-330), for a
+  development tool whose output is verified by other means. AC 20-193's
+  ten objectives are mapped one by one in
+  [tool-qualification.md](tool-qualification.md); every one of them is
+  the applicant's, and Axiom contributes the memory-ordering rules and
+  their litmus evidence to MCP_Software_2. Missing: requirements-based
+  coverage analysis, structural coverage (MC/DC where applicable) and
+  any interference analysis, which needs the target processor.
 - **Automotive (ISO 26262):** a tool confidence level would need an
   argument from the bootstrap determinism evidence (`stage2 == stage3`,
   `check-reproducible.sh`) plus the diagnostic corpus. Software
@@ -44,11 +48,16 @@ Nothing here is legal or certification advice.
   coverage and fault-injection evidence.
 - **General (IEC 61508):** comparable gaps: a systematic-capability
   argument, verified configurations and anomaly tracking.
-- **Space (ECSS-E-ST-40 / ECSS-Q-ST-80):** the requirements matrix
-  ([requirements.md](requirements.md)) and the scorecard follow the
-  traceability shape those standards ask for. Missing: the process
-  evidence around them, such as reviews, NCRs and qualification test
-  reports.
+- **Space (ECSS-Q-ST-80C Rev.2 of 30 April 2025, and ECSS-E-ST-40):**
+  the requirements matrix ([requirements.md](requirements.md)) and the
+  scorecard follow the traceability shape those standards ask for.
+  [tool-qualification.md](tool-qualification.md) names the ECSS-Q-ST-80
+  clauses on tools (5.6), critical software (6.2.3.2), reuse (6.2.7),
+  security (6.2.9, 6.2.10) and test coverage (6.3.5.2, 6.3.5.7), and
+  what the repository supplies for each. Missing: the process evidence
+  around them, such as reviews, nonconformance reports and
+  qualification test reports, and ECSS-E-ST-40's coverage rules, which
+  weren't consulted.
 - **Defence and others:** the actual programme's assurance requirements
   govern, and nothing here substitutes for them.
 

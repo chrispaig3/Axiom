@@ -7,20 +7,25 @@ standard as met.
 
 ## Sources
 
-The mapping below was written from the public text of EASA AMC 20-193,
-"Use of multi-core processors" (Annex I to ED Decision 2022/001/R, 25
-January 2022). Its objectives are quoted by identifier under
-[Aviation](#aviation-do-178c-do-330-and-amc-20-193). The FAA's
-harmonised AC 20-193 couldn't be retrieved when this page was written,
-so its text wasn't compared with EASA's.
+Three public texts were read in full for this page:
 
-DO-178C, DO-330, ISO 26262, IEC 61508, ECSS-E-ST-40 and ECSS-Q-ST-80
-(Rev. 2, 30 April 2025) weren't consulted in their licensed text. What
-this page says about them is limited to their publicly documented
-structure, such as tool qualification levels, tool confidence levels
-and tool classes, and it names no clause. A qualification plan must be
-written against the current licensed editions by someone who holds
-them, and must re-derive every row below.
+- FAA AC 20-193, "Use of Multi-Core Processors" (8 January 2024). Its
+  objectives are quoted by identifier under
+  [Aviation](#aviation-do-178c-do-330-and-ac-20-193).
+- EASA AMC 20-193, "Use of multi-core processors" (Annex I to ED
+  Decision 2022/001/R, 25 January 2022). It uses the same objective
+  identifiers as the FAA's circular.
+- ECSS-Q-ST-80C Rev.2, "Software product assurance" (30 April 2025),
+  which supersedes Rev.1. Its clauses are named under
+  [Space](#space-ecss-q-st-80c-rev2-and-ecss-e-st-40).
+
+DO-178C, DO-330, ISO 26262:2018, IEC 61508:2010 and ECSS-E-ST-40 weren't
+consulted, because their text isn't public. What this page says about
+them is limited to their publicly documented structure, such as tool
+qualification levels, tool confidence levels and tool classes, and it
+names no clause of theirs. A qualification plan must be written against
+the licensed editions by someone who holds them, and must re-derive
+every row below.
 
 ## The tools and their roles
 
@@ -89,7 +94,8 @@ application's own verification must measure.
 
 This is a strategy only.
 
-### Aviation: DO-178C, DO-330 and AMC 20-193
+<a id="aviation-do-178c-do-330-and-amc-20-193"></a>
+### Aviation: DO-178C, DO-330 and AC 20-193
 
 The compiler is a development tool. Under DO-178C, a development tool
 whose output isn't verified needs qualification at the level DO-330
@@ -108,8 +114,22 @@ without being verified itself. TOR-6 and `scripts/check-report.sh` are
 the start of that data. Independent verification of the tool doesn't
 exist.
 
-AMC 20-193 applies when a hosted application or the hardware item is
-IDAL A, B or C. Axiom's contribution is small, stated per objective:
+AC 20-193 applies when a hosted application or the hardware item holding
+the multi-core processor is IDAL A, B or C, with two or more cores
+active. At IDAL A or B every objective applies. At IDAL C,
+MCP_Resource_Usage_4 and MCP_Error_Handling_1 don't, and
+MCP_Resource_Usage_3 may be left unmet when no hosted application must
+be robustly partitioned, at the cost of verifying every component with
+all the software running (its note d). MCP_Resource_Usage_2 is reserved:
+AC 20-152A's objective COTS-8 covers it.
+
+The circular's verification section (§5.5.2) warns that coupling
+analysis done one core at a time can miss behaviour that comes from a
+processor's memory model. That is where Axiom's concurrency evidence
+bears. `MM-PAR-9` says which accesses are ordered between bindings, and
+the litmus tests show the lowering keeps that order on the hosts that
+run them. Axiom's contribution is otherwise small, stated per
+objective:
 
 | Objective | What it asks (paraphrased) | What Axiom contributes | What it can't |
 |---|---|---|---|
@@ -119,7 +139,7 @@ IDAL A, B or C. Axiom's contribution is small, stated per objective:
 | MCP_Resource_Usage_3 | Identify interference channels and verify their mitigation | `MM-PAR-9` states what orders memory between bindings; the atomics are lowered and litmus-tested (`scripts/check-atomics.sh`) | Cache, interconnect and peripheral interference are hardware channels no language rule touches |
 | MCP_Resource_Usage_4 | Verify that resource demands don't exceed what is available | A stack bound per build (RP-7) and heap ceilings (`--heap-ceiling`) | Worst-case execution time and bandwidth |
 | MCP_Software_1 | Hosted software works correctly and completes in time in the final configuration | Nothing beyond HZ-C1's controls | Timing on the target |
-| MCP_Software_2 | Data and control coupling between components is exercised, including through shared memory | `symbols --calls` gives one program's control coupling | Coupling across programs and cores |
+| MCP_Software_2 | Data and control coupling between components is exercised, including through shared memory and the mechanisms that control access to it | `symbols --calls` gives one program's control coupling. `MM-PAR-9` to `MM-PAR-13` define what orders shared memory, and `scripts/check-atomics.sh` and `scripts/check-protocol-model.sh` exercise it | Coupling across programs and cores |
 | MCP_Error_Handling_1 | Detect MCP failures and handle them safely | Trap statuses are defined, and recovery points exist | The safe state and any safety net are the system's |
 | MCP_Accomplishment_Summary_1 | Summarise how each objective was met | This table is an input to it | None stated |
 
@@ -150,13 +170,29 @@ the tool (`docs/reference.md`, `docs/memory-model.md` and
 ([anomalies.md](anomalies.md)), and evidence of validation for the
 configuration.
 
-### Space: ECSS-E-ST-40 and ECSS-Q-ST-80
+<a id="space-ecss-e-st-40-and-ecss-q-st-80"></a>
+### Space: ECSS-Q-ST-80C Rev.2 and ECSS-E-ST-40
 
-The requirements matrix ([requirements.md](requirements.md)) and the
-scorecard follow the traceability shape the ECSS software standards
-ask for. The software product assurance plan, reviews, nonconformance
-reports and tool qualification against the project's software
-criticality category are the project's, and aren't in this
+ECSS-Q-ST-80C Rev.2 asks for these things of the tools and the code the
+project builds with them. Each is the project's to meet; the repository
+supplies inputs.
+
+| Clause | What it asks (paraphrased) | What the repository supplies |
+|---|---|---|
+| 5.6.1.1 | Identify the methods and tools for every development activity | [configurations.md](configurations.md) names the compiler, the backend tools and the gates for each configuration |
+| 5.6.1.2 | Justify each tool: the team's experience with it, its fit to the product, its availability for the product's whole development and maintenance life, and its fit to the product's security sensitivity | The compiler is built from the committed seed with no outside compiler (`scripts/bootstrap-from-seed.sh`), so its availability doesn't depend on a supplier. LLVM's does |
+| 5.6.1.3 | Verify and report the correct use of the tools | The gates replay the evidence; [safety-manual.md](safety-manual.md) states the conditions of use |
+| 5.6.2 | Choose the development environment on stated criteria, among them maintenance, supplier dependence and security | [support-policy.md](support-policy.md) and [trusted-components.md](trusted-components.md) |
+| 6.2.3.2 | Define and apply measures for critical software, such as a safe language subset, 100% branch coverage at unit level, full source inspection, independent testing and removal of deactivated code | The restricted profile ([restricted-profile.md](../restricted-profile.md)) is a checked subset; decision coverage of the compiler's own object code is measured (above). Coverage of the application's code, inspection and independent testing aren't |
+| 6.2.7 | Reuse of existing software, such as the LLVM tools and the seed | `bootstrap/CHAIN` and `bootstrap/SHA256SUMS` record the seed's provenance; the LLVM tools are pinned only by configuration ([configurations.md](configurations.md)) |
+| 6.2.9 and 6.2.10 | Software security and the handling of security-sensitive software, new in Rev.2 and applied by the project's security sensitivity level | [threats.md](threats.md), [SECURITY.md](../../SECURITY.md), and the crypto suite's constant-time checks (`AX3092`, `scripts/check-crypto.sh`) |
+| 6.3.5.2 | Agree test coverage goals for each test level from criticality and security sensitivity, and track them with metrics | The compiler's block and decision figures above. The goals are the project's |
+| 6.3.5.7 | Check the coverage of configurable code in each tested configuration | Axiom's configurable code is chosen by `--target`, `--opt` and `--threads`, and the `.optstable` fixtures run `--opt` 0 to 3. Per-target coverage isn't measured |
+
+ECSS-E-ST-40, which sets the software engineering processes and the
+code coverage each criticality category requires, wasn't consulted.
+Reviews, nonconformance reports and tool qualification against the
+project's criticality category are the project's, and aren't in this
 repository. Long-duration concerns such as resets, persistent state
 and radiation effects are the system's (HZ-E4 in
 [hazards.md](hazards.md)).

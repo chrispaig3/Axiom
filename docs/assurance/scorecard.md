@@ -274,9 +274,9 @@ No worst-case execution time is claimed for anything.
 ## Qualification gaps
 
 The R-E2 package exists and is a starting point, not a qualification.
-It was written from AMC 20-193's public text. DO-178C, DO-330, ISO
-26262, IEC 61508 and the ECSS standards weren't consulted in licensed
-text. There is no independent review, no MC/DC, no coverage of an
+It was written from the public text of AC 20-193, AMC 20-193 and
+ECSS-Q-ST-80C Rev.2. DO-178C, DO-330, ISO 26262, IEC 61508 and
+ECSS-E-ST-40 weren't consulted, because their text isn't public. There is no independent review, no MC/DC, no coverage of an
 application's object code, and no hardware evidence. The compiler's
 own object code has block and decision coverage.
 Nothing is approved.
