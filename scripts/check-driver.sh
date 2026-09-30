@@ -1270,6 +1270,42 @@ if command -v lld-link > /dev/null 2>&1 && command -v llvm-dlltool > /dev/null 2
     bad "--emit-staticlib for windows-x86_64 (rc=$rc: $(head -1 wlib.log))"
   fi
 
+  # windows-aarch64 takes the same link with `/machine:arm64` and an
+  # ARM64 import library. The machine is read out of the PE header
+  # (`e_lfanew` at 0x3c, then the COFF machine word after `PE\0\0`):
+  # 0xAA64 is IMAGE_FILE_MACHINE_ARM64, so an x64 image that merely
+  # linked cannot pass for it.
+  mkdir -p "$work/winlib-arm64"
+  llvm-dlltool -m arm64 -d "$work/winlib/kernel32.def" -l "$work/winlib-arm64/kernel32.lib"
+  pe_machine_of() {
+    local off
+    off="$(od -An -tu4 -j60 -N4 "$1" | tr -d ' ')"
+    od -An -tx1 -j$((off + 4)) -N2 "$1" | tr -d ' \n'
+  }
+  "$s1" build --target=windows-aarch64 --input hello.ax --output wahello --link-search "$work/winlib-arm64" >wahello.log 2>&1; rc=$?
+  if [[ $rc == 0 && -f wahello.exe && ! -e wahello ]] && [[ "$(head -c 2 wahello.exe)" == "MZ" ]] \
+     && [[ "$(pe_machine_of wahello.exe)" == "64aa" ]]; then
+    ok "a windows-aarch64 build links an ARM64 PE (machine 0xAA64) through lld-link and spells it wahello.exe"
+  else
+    bad "windows-aarch64 build (rc=$rc; machine $(pe_machine_of wahello.exe 2>/dev/null); $(ls wahello* 2>/dev/null | tr '\n' ' '))"
+    sed 's/^/     /' wahello.log | head -5
+  fi
+  # And the machine is the target's, not the host's or the import
+  # library's: the x64 `kernel32.lib` is refused for an arm64 link,
+  # blamed on lld-link, and the hint names the arm64 library it wants.
+  "$s1" build --target=windows-aarch64 --input hello.ax --output wamix --link-search "$work/winlib" >wamix.log 2>&1; rc=$?
+  if [[ $rc == 4 && ! -f wamix.exe ]] && grep -q 'lld-link failed' wamix.log && grep -q 'kernel32.lib` for arm64' wamix.log; then
+    ok "a windows-aarch64 link against an x64 kernel32.lib is refused (exit 4) and asks for an arm64 one"
+  else
+    bad "a windows-aarch64 link against an x64 kernel32.lib (rc=$rc: $(head -1 wamix.log))"
+  fi
+  "$s1" build --target=windows-aarch64 --input hello.ax --output walib.a --emit-staticlib --link-search "$work/winlib-arm64" >walib.log 2>&1; rc=$?
+  if [[ $rc == 4 && ! -f walib.a ]] && grep -q 'not supported for windows-aarch64' walib.log && grep -q 'AX4003' walib.log; then
+    ok "--emit-staticlib for windows-aarch64 is refused in words naming it (AX4003, exit 4)"
+  else
+    bad "--emit-staticlib for windows-aarch64 (rc=$rc: $(head -1 walib.log))"
+  fi
+
   # And the POSIX link is untouched by any of it: the same program for
   # the host still links through cc, with no .exe and no lld-link.
   PATH="$work/fake-lld:$PATH" "$s1" build --input hello.ax --output hostbuild >/dev/null 2>&1

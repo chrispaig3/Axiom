@@ -245,7 +245,8 @@ it would refuse releases we intend to make.
   already control, a digest protects nothing and changes on every edit
   of your own code.
 - **Windows as a host.** The compiler doesn't run on Windows.
-  `windows-x86_64` is a source-only target you cross-compile to.
+  `windows-x86_64` and `windows-aarch64` are source-only targets you
+  cross-compile to.
 
 <a id="5-cutting-a-release"></a>
 ## Cut a release

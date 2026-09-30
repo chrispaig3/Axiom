@@ -780,8 +780,8 @@ jobs:
         run: ./scripts/check-terminal-restore.sh
 
       # Both halves on every leg: no libc on this host, and every
-      # windows-x86_64 declare on the reviewed allowlist - the Windows
-      # IR is emitted cross, so each leg reads it.
+      # windows-x86_64 and windows-aarch64 declare on the reviewed
+      # allowlist - the Windows IR is emitted cross, so each leg reads it.
       - name: Freestanding check
         run: ./scripts/check-freestanding.sh
 
@@ -1709,10 +1709,11 @@ jobs:
       - name: Assemble every target from one host
         run: ./scripts/check-cross-targets.sh
 
-      # The Windows hello, emitted where the tree's compiler runs.
-      # windows-x86_64 is source-only (README, Targets): no job links or
-      # runs it, and `check-windows-hello.sh --run` is the half a
-      # Windows machine would take.
+      # The Windows hello, emitted for windows-x86_64 and windows-aarch64
+      # where the tree's compiler runs. Both are source-only (README,
+      # Targets): no job links or runs them, and
+      # `check-windows-hello.sh --run` is the half a Windows machine
+      # would take.
       - name: Emit the Windows hello
         run: ./scripts/check-windows-hello.sh --emit windows-hello
 

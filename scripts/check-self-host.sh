@@ -181,15 +181,15 @@ if [[ -z "$filter" ]]; then
 fi
 
 # Every target stage1 claims must actually assemble: emit the
-# syscall-heavy case for each of the seven and run llc under that
+# syscall-heavy case for each of them and run llc under that
 # target's own triple. A wrong register convention or syscall number
 # is invisible on the host - the mmap number 9 assembles fine on
-# darwin - so the check is per-triple, not host-only. windows-x86_64
-# makes no syscall at all: its `sysWriteFd` goes through kernel32, and
-# a wrong `dllimport` declare is what llc would refuse here.
+# darwin - so the check is per-triple, not host-only. The two Windows
+# targets make no syscall at all: their `sysWriteFd` goes through
+# kernel32, and a wrong `dllimport` declare is what llc would refuse here.
 if [[ -z "$filter" ]]; then
   cp "$repo_root/tests/selfhost/230-syscall.ax" "$work/in.ax"
-  all_targets="darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64 freebsd-x86_64 freebsd-aarch64 windows-x86_64"
+  all_targets="darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64 freebsd-x86_64 freebsd-aarch64 windows-x86_64 windows-aarch64"
   for tgt in $all_targets; do
     case "$tgt" in
       darwin-aarch64)  triple=arm64-apple-macosx14.0.0 ;;
@@ -199,6 +199,7 @@ if [[ -z "$filter" ]]; then
       freebsd-x86_64)  triple=x86_64-unknown-freebsd14.0 ;;
       freebsd-aarch64) triple=aarch64-unknown-freebsd14.0 ;;
       windows-x86_64)  triple=x86_64-pc-windows-msvc ;;
+      windows-aarch64) triple=aarch64-pc-windows-msvc ;;
     esac
     if (cd "$work" && ./stage1 in.ax "$tgt" >"out-$tgt.ll" 2>tgt.err) \
        && llc -mtriple="$triple" -relocation-model=pic "$work/out-$tgt.ll" -o /dev/null 2>"$work/llc-$tgt.err"; then
@@ -249,7 +250,8 @@ if [[ -z "$filter" ]]; then
     done
   done
   if [[ "$dupes" == 0 ]]; then
-    echo "ok   the seven targets emit seven different modules"
+    n_t=$(wc -w <<< "$all_targets" | tr -d ' ')
+    echo "ok   the $n_t targets emit $n_t different modules"
     passed=$((passed + 1))
   else
     failed=$((failed + 1))

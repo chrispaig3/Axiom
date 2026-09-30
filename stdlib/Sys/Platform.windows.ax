@@ -1,8 +1,9 @@
 ; Sys.Platform - Windows, as kernel32 bindings rather than syscall numbers.
 ;
 ; Selected by the `.windows.ax` filename suffix when compiling for
-; `--target=windows-x86_64` (the arch-specific `.windows-x86_64.ax` is
-; tried first and does not exist: the bindings below are the same on
+; `--target=windows-x86_64` or `--target=windows-aarch64` (the
+; arch-specific `.windows-x86_64.ax` and `.windows-aarch64.ax` are
+; tried first and do not exist: the bindings below are the same on
 ; every Windows architecture, which is the reason `Platform.darwin.ax`
 ; serves both Darwin targets).
 ;
@@ -39,8 +40,9 @@
 ; THE WORD-WIDTH RULE, which every shim here obeys and which
 ; `docs/ffi.md` states for externs in general: every binding is `i64`
 ; in and `i64` out. A Win32 function returning BOOL or DWORD writes
-; only eax and leaves the upper half of rax UNDEFINED, so a 32-bit
-; result is masked (`(& r 4294967295)`) before it is tested; a
+; only eax (w0 on arm64) and leaves the upper half of rax (x0)
+; UNDEFINED, so a 32-bit result is masked (`(& r 4294967295)`) before
+; it is tested; a
 ; function returning a HANDLE or a pointer answers a full 64-bit
 ; value and is NOT masked - masking one would turn INVALID_HANDLE_VALUE
 ; (-1) into 4294967295, which compares unequal to -1 and reads as

@@ -2755,6 +2755,7 @@ TRACE_AX = r'''
 (:: trWaitFor (-> Int Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 ;@axiom:precondition(`addr` or `ch` is a word of a live traced channel, whose trace area is mapped)
 (fn (trWaitFor addr expected nanos)
   (let ((t (trArea addr)))

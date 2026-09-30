@@ -14,7 +14,8 @@
 #
 # But the parsing is not Windows-specific - it is loads and stores over
 # memory, in functions that call nothing but each other. So this gate
-# emits a Windows module, cuts the `@__axiom_win_*` helpers out of it,
+# emits a module for each Windows target (windows-x86_64 and
+# windows-aarch64), cuts the `@__axiom_win_*` helpers out of each,
 # assembles them for THE HOST under the host's own triple, links them
 # to a C harness (libc is fine in a harness; it is not Axiom's output),
 # and runs them against command lines and environment blocks with
@@ -40,13 +41,19 @@ gate_build_axc axc
 
 status=0
 
-# The module the helpers are cut from. Any program with an entry
-# carries them; the hello case is the smallest.
-if ! "$axc" --target=windows-x86_64 emit-llvm tests/stdlib/010-hello.ax -o "$work/win.ll" >"$work/emit.log" 2>&1; then
-  echo "FAIL: could not emit tests/stdlib/010-hello.ax for windows-x86_64"
-  sed 's/^/    /' "$work/emit.log" | head -5
-  exit 1
-fi
+# The modules the helpers are cut from, one per Windows target. Any
+# program with an entry carries them; the hello case is the smallest.
+# Both architectures emit the same shim - it is plain IR with no
+# inline assembly - and both are cut and run, so a shim that one
+# target's emission bent would answer the golden wrongly here.
+win_targets=(windows-x86_64 windows-aarch64)
+for t in "${win_targets[@]}"; do
+  if ! "$axc" --target="$t" emit-llvm tests/stdlib/010-hello.ax -o "$work/win-$t.ll" >"$work/emit.log" 2>&1; then
+    echo "FAIL: could not emit tests/stdlib/010-hello.ax for $t"
+    sed 's/^/    /' "$work/emit.log" | head -5
+    exit 1
+  fi
+done
 
 # Cut every `define internal i64 @__axiom_win_...` through its closing
 # brace, drop `internal` so the harness can name them, keep the module's
@@ -67,13 +74,17 @@ extract_shim() {
   ' "$1"
   grep '^attributes #0' "$1"
 }
-extract_shim "$work/win.ll" > "$work/shim.ll"
-nfun="$(grep -c '^define i64 @__axiom_win_' "$work/shim.ll" || true)"
-if [[ "$nfun" -ne 6 ]]; then
-  echo "FAIL: cut $nfun \`__axiom_win_*\` helpers out of the Windows module; the entry shim emits 6"
-  echo "     (wlen, put, narrow, args, blocklen, env) - the emitter moved and this gate stopped reading it"
-  exit 1
-fi
+for t in "${win_targets[@]}"; do
+  extract_shim "$work/win-$t.ll" > "$work/shim-$t.ll"
+  nfun="$(grep -c '^define i64 @__axiom_win_' "$work/shim-$t.ll" || true)"
+  if [[ "$nfun" -ne 6 ]]; then
+    echo "FAIL: cut $nfun \`__axiom_win_*\` helpers out of the $t module; the entry shim emits 6"
+    echo "     (wlen, put, narrow, args, blocklen, env) - the emitter moved and this gate stopped reading it"
+    exit 1
+  fi
+done
+# The negative probes below ablate one copy; windows-x86_64's is it.
+cp "$work/shim-windows-x86_64.ll" "$work/shim.ll"
 
 # The harness. `u""` literals are UTF-16 on every host this runs on
 # (clang and gcc agree); `char16_t` is spelled out because macOS ships
@@ -177,14 +188,16 @@ run_harness() {  # <shim.ll> <label> -> writes $work/<label>.out, prints nothing
 }
 
 cases="$(grep -c '^argc=\|^envc=' "$work/expected")"
-if run_harness "$work/shim.ll" real && cmp -s "$work/real.out" "$work/expected"; then
-  echo "ok   the entry shim's parsers answer all $cases cases on $host_triple, at -O1 and -O2"
-else
-  echo "FAIL the entry shim's parsers do not answer the golden"
-  { diff "$work/expected" "$work/real.out" 2>/dev/null || true; } | head -20 | sed 's/^/    /'
-  for f in real.llc.err real.cc.err; do [[ -s "$work/$f" ]] && head -5 "$work/$f" | sed 's/^/    /'; done
-  status=1
-fi
+for t in "${win_targets[@]}"; do
+  if run_harness "$work/shim-$t.ll" "real-$t" && cmp -s "$work/real-$t.out" "$work/expected"; then
+    echo "ok   the $t entry shim's parsers answer all $cases cases on $host_triple, at -O1 and -O2"
+  else
+    echo "FAIL the $t entry shim's parsers do not answer the golden"
+    { diff "$work/expected" "$work/real-$t.out" 2>/dev/null || true; } | head -20 | sed 's/^/    /'
+    for f in "real-$t.llc.err" "real-$t.cc.err"; do [[ -s "$work/$f" ]] && head -5 "$work/$f" | sed 's/^/    /'; done
+    status=1
+  fi
+done
 
 # ---------------------------------------------------------------
 # Negative probes: a wrong rule is visible, and only on its own cases.

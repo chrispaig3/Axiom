@@ -86,8 +86,8 @@ way in CI. See `CONTRIBUTING.md` and `bootstrap/README.md`.
   Beyond those, a program that takes a long time to compile isn't a
   vulnerability.
 - **Source-only targets.** `darwin-x86_64`, `freebsd-aarch64`,
-  `freebsd-x86_64`, `linux-x86_64` and `windows-x86_64` are not
-  supported targets. `README.md`'s Targets section defines supported: a
+  `freebsd-x86_64`, `linux-x86_64`, `windows-aarch64` and
+  `windows-x86_64` are not supported targets. `README.md`'s Targets section defines supported: a
   CI job executes what the compiler emits there. No CI job runs the test
   battery on these, and no release archive is published for them. This
   policy doesn't cover binaries emitted for them until a CI job runs

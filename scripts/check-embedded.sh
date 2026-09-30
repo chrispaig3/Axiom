@@ -348,12 +348,12 @@ else
 fi
 
 # ---------------------------------------------------------------------
-# The seven targets, and their codes READ FROM `targetCode` rather than
-# restated here. A list this gate typed out itself would go stale beside
+# The eight hosted targets, and their codes READ FROM `targetCode`
+# rather than restated here. A list this gate typed out itself would go stale beside
 # the table it is about, and the variant edit below is written in terms
 # of the codes.
 # ---------------------------------------------------------------------
-targets=(darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64 freebsd-x86_64 freebsd-aarch64 windows-x86_64)
+targets=(darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64 freebsd-x86_64 freebsd-aarch64 windows-x86_64 windows-aarch64)
 
 codes_raw="$(python3 - "$src_root/self_host/codegen.ax" <<'PY'
 import re, sys
@@ -365,14 +365,14 @@ for name, code in re.findall(r'\(strEq name "([a-z0-9_-]+)"\)\s*\n\s*(\d+)', bod
 PY
 )"
 n_codes=$(printf '%s\n' "$codes_raw" | grep -c . || true)
-if (( n_codes != 8 )); then
-  abort "read $n_codes target codes out of targetCode, expected 8 - the parse broke,
+if (( n_codes != 9 )); then
+  abort "read $n_codes target codes out of targetCode, expected 9 - the parse broke,
        and every assertion below is written in terms of those codes."
 fi
 code_of() { printf '%s\n' "$codes_raw" | awk -v n="$1" '$1==n{print $2}'; }
-# The eighth code is the bare-metal port's, and it is pinned here: the
-# seven loops below still cover the supported hosted targets only, so a
-# bare-metal row that moved a hosted target's bytes would pass them all.
+# Code 7 is the bare-metal port's, and it is pinned here: the loops
+# below cover the eight hosted targets only, so a bare-metal row that
+# moved a hosted target's bytes would pass them all.
 [[ "$(code_of baremetal-aarch64)" == "7" ]] \
   || abort "baremetal-aarch64 is not code 7 in targetCode"
 
@@ -1028,7 +1028,7 @@ for t in "${targets[@]}"; do
   echo "     [$t] $n2 trap writes"
   (( n2 >= 10 )) || { bad "[$t] $n2 trap writes, floor 10"; prob=1; }
 done
-(( prob )) || note "seven targets write their traps (15 apiece here), and none is silent"
+(( prob )) || note "${#targets[@]} hosted targets write their traps, and none is silent"
 
 # The default has one spelling, held the way A2 holds 4.1's: a second
 # spelling is a target that cannot choose silence. The row is two lines

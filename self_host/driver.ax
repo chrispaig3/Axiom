@@ -282,12 +282,29 @@
 ; host. A Windows executable is linked on macOS and Linux (cross) long
 ; before any Windows runner exists, and `uname` on those hosts would
 ; answer for the wrong machine. The four POSIX targets share one
-; answer - `cc`, `lib<name>.a`, no suffix - and windows-x86_64 has the
-; other: `lld-link`, `<name>.lib`, `.exe`.
+; answer - `cc`, `lib<name>.a`, no suffix - and both Windows targets
+; have the other: `lld-link`, `<name>.lib`, `.exe`.
 ; ------------------------------------------------------------------
 (pub :: irTargetIsWindows (-> String Bool))
 (pub fn (irTargetIsWindows ir)
-  (>= (strFindSub ir "target triple = \"x86_64-pc-windows-msvc\"" 0) 0))
+  (> (strLen (irWindowsTarget ir)) 0))
+
+; Which Windows target the module was emitted for, by its triple, or ""
+; for any other. The link spells the machine and names the target in
+; its refusals from this, so an arm64 object is never linked or
+; reported as an x86-64 one. The module's own `target triple` line is
+; the one read - the emitter writes it first - so a string literal
+; spelling another triple further down cannot answer for it.
+(pub :: irWindowsTarget (-> String String))
+(pub fn (irWindowsTarget ir)
+  (let ((at (strFindSub ir "target triple = \"" 0)))
+    (if (< at 0)
+      ""
+      (if (subMatchesAt ir "x86_64-pc-windows-msvc\"" (+ at 17) 0)
+        "windows-x86_64"
+        (if (subMatchesAt ir "aarch64-pc-windows-msvc\"" (+ at 17) 0)
+          "windows-aarch64"
+          "")))))
 
 ; `aarch64-unknown-none-elf`: the bare target's triple, read off the
 ; IR the way `irTargetIsWindows` reads its own. The link below is
@@ -352,13 +369,15 @@
 ; Assemble `llPath` to `objPath`, then link it to `outPath`.
 ; Answers 0, or `exitToolFailed`.
 ;
-; `isWin` selects the linker: `cc` for the four POSIX targets, and for
-; windows-x86_64 `lld-link /subsystem:console /entry:mainCRTStartup
-; /out:<out> <obj> <libs>` - no C compiler anywhere on that path, by
-; decision (the design's Q2), which is one tool fewer than the status
-; quo rather than one more. `--emit-staticlib` is refused there for
-; now: `ar` has no place in a Windows link and `llvm-lib` is a later
-; phase, and saying so beats half-supporting it (Q11).
+; `winTarget` selects the linker: "" is `cc` for the four POSIX targets,
+; and a Windows target's name is `lld-link /subsystem:console
+; /entry:mainCRTStartup /out:<out> <obj> <libs>` - no C compiler
+; anywhere on that path, by decision (the design's Q2), which is one
+; tool fewer than the status quo rather than one more. windows-aarch64
+; adds `/machine:arm64`, so an x64 `kernel32.lib` on the search path is
+; a refused link rather than a guess. `--emit-staticlib` is refused
+; there for now: `ar` has no place in a Windows link and `llvm-lib` is
+; a later phase, and saying so beats half-supporting it (Q11).
 ; The port's linker script, written beside the object at link time.
 ; QEMU's `-kernel` loads the ELF's segments at their physical
 ; addresses, so `.text.boot` - and with it `_start`, the ENTRY -
@@ -396,11 +415,11 @@
 (pub fn (baremetalLinkScript)
   "ENTRY(_start)\nSECTIONS {\n  . = 0x40000000;\n  .text.boot : { KEEP(*(.text.boot)) }\n  .text : { *(.text*) }\n  . = ALIGN(4096);\n  __axiom_rx_end = .;\n  .rodata : { *(.rodata*) }\n  .eh_frame : { *(.eh_frame*) }\n  .got : { *(.got) *(.got.plt) }\n  . = ALIGN(4096);\n  __axiom_ro_end = .;\n  .data : { *(.data*) }\n  .bss : { *(.bss*) *(COMMON) }\n  . = ALIGN(4096);\n  __axiom_rw_end = .;\n  . = . + 0x10000;\n  __axiom_stack_lo = .;\n  . = . + 0x2000;\n  __stack_top = .;\n  . = . + 0x1000;\n  __axiom_exc_lo = .;\n  . = . + 0x2000;\n  __axiom_exc_top = .;\n  __axiom_pt = .;\n}\n")
 
-(pub :: assembleAndLink (-> String String String Int (Vec Int) Bool Bool Int))
+(pub :: assembleAndLink (-> String String String Int (Vec Int) String Bool Int))
 ;@axiom:effect(io)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
-(pub fn (assembleAndLink llPath objPath outPath optLevel linkArgs isWin isBaremetal)
+(pub fn (assembleAndLink llPath objPath outPath optLevel linkArgs winTarget isBaremetal)
   (let ((lvl 
     (if (> optLevel 3)
       3
@@ -437,10 +456,10 @@
               "could not run `llc`"
               "llc failed")
             "install LLVM and put `llc` on PATH; `--emit-llvm` keeps the IR so the step can be run by hand")
-          (if isWin
+          (if (> (strLen winTarget) 0)
             (if cgStaticlib
-              (toolFailDiag "`--emit-staticlib` is not supported for windows-x86_64 yet" "the Windows link is lld-link's and `ar` has no place in it; an archive for a Windows host is a later phase of the Windows track")
-              (let ((linkArgsW 
+              (toolFailDiag (strConcat "`--emit-staticlib` is not supported for " (strConcat winTarget " yet")) "the Windows link is lld-link's and `ar` has no place in it; an archive for a Windows host is a later phase of the Windows track")
+              (let ((linkArgsW
                 (let ((v vecNew))
                   {
                     (vecPush
@@ -449,6 +468,11 @@
                     (vecPush
                       v
                       (cast Int "/entry:mainCRTStartup"))
+                    (if (strEq winTarget "windows-aarch64")
+                      (vecPush
+                        v
+                        (cast Int "/machine:arm64"))
+                      v)
                     (vecPush
                       v
                       (cast Int (strConcat "/out:" outPath)))
@@ -464,7 +488,7 @@
                       (if (< rcw 0)
                         "could not run `lld-link`"
                         "lld-link failed")
-                      "lld-link links a windows-x86_64 executable; it ships with LLVM's lld (`brew install lld`, `apt-get install lld`, choco's llvm) - put it on PATH, and put a `kernel32.lib` on a `--link-search` directory")
+                      (strConcat (strConcat "lld-link links a " winTarget) (strConcat " executable; it ships with LLVM's lld (`brew install lld`, `apt-get install lld`, choco's llvm) - put it on PATH, and put a `kernel32.lib` for " (strConcat (if (strEq winTarget "windows-aarch64") "arm64" "x64") " on a `--link-search` directory"))))
                     0))))
             (if isBaremetal
               ; The bare target links an ELF for QEMU's `-kernel`, not
@@ -1923,6 +1947,7 @@
       ; `outPath`'s stem either way, so `--emit-llvm` leaves `<out>.ll`
       ; beside `<out>.exe` rather than `<out>.exe.ll`.
       (let (
+        (winTarget (irWindowsTarget ir))
         (isWin (irTargetIsWindows ir))
         (isBaremetal (irTargetIsBaremetal ir))
         (llPath (strConcat outPath ".ll"))
@@ -1947,7 +1972,7 @@
                   exePath
                   optLevel
                   linkArgs
-                  isWin
+                  winTarget
                   isBaremetal)))
                   {
                     (unwrapOr (removeFile objPath) 0)
@@ -2009,7 +2034,7 @@
 ; is a compiler nobody gets past.
 (pub :: usageText String)
 (pub fn (usageText)
-  (strConcat (strConcat (strConcat "Axiom " axiomVersion) "\n\nUSAGE:\n  axiom [OPTIONS] <COMMAND> [ARGS]\n  axiom [OPTIONS] <FILE> [TARGET]   emit LLVM IR to stdout\n\nCOMMANDS:\n  build      compile a source file to an executable\n  check      check syntax and types, emitting no code\n  run        compile a source file and run it, forwarding any further ARGS\n  new        start a new project: Main.ax and axiom.pkg in a new directory\n  fetch      check out the project's registry dependencies\n  test       run every `test`-named function in a file or directory\n  emit-llvm  print the generated LLVM IR\n  fmt        format a source file in place (--check to only report)\n  explain    describe a diagnostic code (--list for all codes)\n  symbols    list every top-level symbol in AXSYM (--builtins, --calls,\n             --mir, --axir too)\n  repl       start the interactive read-eval-print loop\n  lsp        run the language server on stdin/stdout (JSON-RPC)\n  version    print the version\n  help       print this message, or `help <COMMAND>` for one command\n\n") (strConcat "OPTIONS:\n  --input <PATH>     input file (build, check, run, emit-llvm; a bare\n                     path also works)\n  --output <PATH>    output file (build, emit-llvm; default: the `name` in\n                     the project's `axiom.pkg`, else `output`;\n                     `.exe` is appended for windows-x86_64 unless already spelled)\n  -o <PATH>          short for --output\n  --target <NAME>    darwin-aarch64, darwin-x86_64, freebsd-x86_64, linux-aarch64, linux-x86_64, windows-x86_64, freebsd-aarch64\n                     (default: the host; the first six are supported, and freebsd-aarch64\n                     is emitted and assembled but executed by no runner - README, Targets)\n  --opt <0-3>        optimisation level (build, run, test; default 1,\n                     or the project's `axiom.pkg` `opt` where the flag is silent)\n  --heap-ceiling <BYTES>  carve the heap from a static region of BYTES\n                     instead of mmap (build, run, test); exhausting it\n                     traps with status 70, and a program that spawns\n                     threads under it is refused as AX4006\n  --filter <TEXT>    run only the tests whose name contains TEXT (test)\n  --crate <DIR>      a Rust crate to bind: its `axiom/` module directory\n                     is searched for imports and its `target/release`\n                     for the archive, repeatable (build, run, check)\n  --link-lib <NAME>  link an FFI archive, repeatable (build, run);\n                     an `extern` block's library links by itself when a\n                     search directory holds `libNAME.a`\n  --link-search <DIR>  where to look for it, repeatable (build, run);\n                     `$AXIOM_LINK_SEARCH` and `<AXIOM_PATH entry>/../target/release` too\n  --emit-llvm        keep the generated .ll beside the executable (build)\n  --emit-staticlib   write a static archive instead of an executable: no\n                     `main` is needed, every `pub fn` of the file is a C\n                     symbol a Rust or C host can call (build)\n  --threads          lower `parallel` to the platform's threads instead of\n                     processes (build, run, test); darwin and linux only,\n                     and the runtime's globals go thread-local. freebsd\n                     lowers to processes (measured in CI) and refuses\n                     --threads as AX4006; windows warns AX4007 and a\n                     spawn there dies with status 79\n  --emit-rust-binding <PATH>  with --emit-staticlib, also write a Rust\n                     module binding the archive's `pub` functions (build)\n  --check            report whether the file is formatted, do not write (fmt)\n  --builtins         also list the built-in operators (symbols)\n  --calls            also list each function's resolved call edges as\n                     `#calls=` - the graph behind `#effects=` (symbols)\n  --mir              also list each function's region-facts summary as\n                     `#mir-*`; forces the facts fixpoint and is SLOW,\n                     ~30x on a large module (symbols)\n  --axir             emit the `.axir` record file instead of AXSYM: the\n                     same functions with their arity, parameter names\n                     and, under --mir, their region words and lowered\n                     block bodies, joined to AXSYM on the `F` header\n                     tuple. Given an `.axir` file it reads it back and\n                     re-emits it (symbols)\n  --list             list every diagnostic code (explain)\n  --no-banner        skip the startup banner (repl)\n  --diagnostic-format <human|ai|json>  how to render diagnostics (default human)\n  -h, --help         print help; accepted anywhere, including after the file\n  -V, --version      print the version; before the command\n  --                 end of options, so a file whose name begins with `-`\n                     can be named at all\n\n" "EXIT CODES:\n  0  success\n  1  the program is wrong: unreadable input, a syntax error, a failing\n     check, no entry point, or an unresolvable import\n  2  the command line is wrong: an unknown command or flag, or a flag\n     given the wrong number of values\n  3  a module could not be read or parsed, or a target name is unknown\n  4  a native tool failed or is missing (llc, cc; lld-link for windows-x86_64)\n")))
+  (strConcat (strConcat (strConcat "Axiom " axiomVersion) "\n\nUSAGE:\n  axiom [OPTIONS] <COMMAND> [ARGS]\n  axiom [OPTIONS] <FILE> [TARGET]   emit LLVM IR to stdout\n\nCOMMANDS:\n  build      compile a source file to an executable\n  check      check syntax and types, emitting no code\n  run        compile a source file and run it, forwarding any further ARGS\n  new        start a new project: Main.ax and axiom.pkg in a new directory\n  fetch      check out the project's registry dependencies\n  test       run every `test`-named function in a file or directory\n  emit-llvm  print the generated LLVM IR\n  fmt        format a source file in place (--check to only report)\n  explain    describe a diagnostic code (--list for all codes)\n  symbols    list every top-level symbol in AXSYM (--builtins, --calls,\n             --mir, --axir too)\n  repl       start the interactive read-eval-print loop\n  lsp        run the language server on stdin/stdout (JSON-RPC)\n  version    print the version\n  help       print this message, or `help <COMMAND>` for one command\n\n") (strConcat "OPTIONS:\n  --input <PATH>     input file (build, check, run, emit-llvm; a bare\n                     path also works)\n  --output <PATH>    output file (build, emit-llvm; default: the `name` in\n                     the project's `axiom.pkg`, else `output`;\n                     `.exe` is appended for a Windows target unless already spelled)\n  -o <PATH>          short for --output\n  --target <NAME>    darwin-aarch64, linux-aarch64, darwin-x86_64, freebsd-aarch64, freebsd-x86_64, linux-x86_64, windows-aarch64, windows-x86_64\n                     (default: the host; the first two are supported, and the rest\n                     are source-only: emitted and assembled, executed by no\n                     runner - README, Targets)\n  --opt <0-3>        optimisation level (build, run, test; default 1,\n                     or the project's `axiom.pkg` `opt` where the flag is silent)\n  --heap-ceiling <BYTES>  carve the heap from a static region of BYTES\n                     instead of mmap (build, run, test); exhausting it\n                     traps with status 70, and a program that spawns\n                     threads under it is refused as AX4006\n  --filter <TEXT>    run only the tests whose name contains TEXT (test)\n  --crate <DIR>      a Rust crate to bind: its `axiom/` module directory\n                     is searched for imports and its `target/release`\n                     for the archive, repeatable (build, run, check)\n  --link-lib <NAME>  link an FFI archive, repeatable (build, run);\n                     an `extern` block's library links by itself when a\n                     search directory holds `libNAME.a`\n  --link-search <DIR>  where to look for it, repeatable (build, run);\n                     `$AXIOM_LINK_SEARCH` and `<AXIOM_PATH entry>/../target/release` too\n  --emit-llvm        keep the generated .ll beside the executable (build)\n  --emit-staticlib   write a static archive instead of an executable: no\n                     `main` is needed, every `pub fn` of the file is a C\n                     symbol a Rust or C host can call (build)\n  --threads          lower `parallel` to the platform's threads instead of\n                     processes (build, run, test); darwin and linux only,\n                     and the runtime's globals go thread-local. freebsd\n                     lowers to processes (measured in CI) and refuses\n                     --threads as AX4006; windows warns AX4007 and a\n                     spawn there dies with status 79\n  --emit-rust-binding <PATH>  with --emit-staticlib, also write a Rust\n                     module binding the archive's `pub` functions (build)\n  --check            report whether the file is formatted, do not write (fmt)\n  --builtins         also list the built-in operators (symbols)\n  --calls            also list each function's resolved call edges as\n                     `#calls=` - the graph behind `#effects=` (symbols)\n  --mir              also list each function's region-facts summary as\n                     `#mir-*`; forces the facts fixpoint and is SLOW,\n                     ~30x on a large module (symbols)\n  --axir             emit the `.axir` record file instead of AXSYM: the\n                     same functions with their arity, parameter names\n                     and, under --mir, their region words and lowered\n                     block bodies, joined to AXSYM on the `F` header\n                     tuple. Given an `.axir` file it reads it back and\n                     re-emits it (symbols)\n  --list             list every diagnostic code (explain)\n  --no-banner        skip the startup banner (repl)\n  --diagnostic-format <human|ai|json>  how to render diagnostics (default human)\n  -h, --help         print help; accepted anywhere, including after the file\n  -V, --version      print the version; before the command\n  --                 end of options, so a file whose name begins with `-`\n                     can be named at all\n\n" "EXIT CODES:\n  0  success\n  1  the program is wrong: unreadable input, a syntax error, a failing\n     check, no entry point, or an unresolvable import\n  2  the command line is wrong: an unknown command or flag, or a flag\n     given the wrong number of values\n  3  a module could not be read or parsed, or a target name is unknown\n  4  a native tool failed or is missing (llc, cc; lld-link for Windows)\n")))
 
 ; One command's help: its synopsis and the flags it actually reads.
 ;

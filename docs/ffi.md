@@ -1411,8 +1411,8 @@ supplies what such a crate would otherwise write by hand:
 - raw `write` and `exit` syscalls for the four Darwin and Linux
   targets, numbered as `codegen.ax`'s own trap tables number them.
 
-There is no FFI leg for FreeBSD. On windows-x86_64 there is no syscall
-to number, since its runtime calls kernel32. Combining the feature with
+There is no FFI leg for FreeBSD. On the Windows targets there is no
+syscall to number, since their runtime calls kernel32. Combining the feature with
 `std` is a `compile_error!`.
 
 Rust's allocations then land inside Axiom's arena. The high-water mark

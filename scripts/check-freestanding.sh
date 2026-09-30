@@ -16,7 +16,7 @@
 # library is linked.
 #
 # WINDOWS IS THE SAME RELAXATION ONE NOTCH FURTHER, AND STRICTER FOR IT.
-# A windows-x86_64 program imports kernel32 - there is no syscall ABI,
+# A Windows program imports kernel32 - there is no syscall ABI,
 # so `VirtualAlloc` stands where `mmap` does and `WriteFile` where
 # `write` does - and the claim becomes "no libc function is imported,
 # and every non-libc import is on a reviewed list":
@@ -186,15 +186,16 @@ for case_file in tests/stdlib/*.ax; do
 done
 
 # ---------------------------------------------------------------
-# The Windows half: every case, emitted for windows-x86_64, calls no
-# libc function and declares nothing outside the allowlist.
+# The Windows half: every case, emitted for each Windows target
+# (windows-x86_64 and windows-aarch64), calls no libc function and
+# declares nothing outside the allowlist.
 #
 # The list is read first and held to two rules before a single case is
 # compared against it: it must permit at least the four names the
 # emitted runtime cannot do without (a list that parsed to nothing would
 # pass every `comm` below vacuously), and it may not carry a libc name.
 # ---------------------------------------------------------------
-echo "--- windows-x86_64: every declare is on $win_allow ---"
+echo "--- windows-x86_64, windows-aarch64: every declare is on $win_allow ---"
 if [[ ! -f "$win_allow" ]]; then
   echo "FAIL $win_allow is missing; the Windows import surface is enumerated there"
   status=1
@@ -211,41 +212,43 @@ else
   else
     for case_file in tests/stdlib/*.ax; do
       name="$(basename "$case_file" .ax)"
-      wir="$work/$name.win.ll"
-      if ! "$axc" --target=windows-x86_64 emit-llvm "$case_file" -o "$wir" > "$work/$name.win.emit" 2>&1; then
-        echo "FAIL $name [windows-x86_64]: emit-llvm"
-        sed 's/^/    /' "$work/$name.win.emit" | head -5
-        status=1
-        continue
-      fi
-      if grep -nE "call[^\"]*@($libc_names)\(" "$wir" > "$work/$name.win.hits"; then
-        echo "FAIL $name [windows-x86_64]: generated IR calls libc"
-        sed 's/^/    /' "$work/$name.win.hits"
-        status=1
-        continue
-      fi
-      if grep -nE "@llvm\.(memset|memcpy|memmove)\." "$wir" > "$work/$name.win.intr"; then
-        echo "FAIL $name [windows-x86_64]: generated IR uses an llvm.mem* intrinsic, which lowers to libc"
-        sed 's/^/    /' "$work/$name.win.intr"
-        status=1
-        continue
-      fi
-      declares_of "$wir" > "$work/$name.win.declares"
-      n_decl="$(grep -c . "$work/$name.win.declares" || true)"
-      if (( n_decl < 4 )); then
-        echo "FAIL $name [windows-x86_64]: the reader found $n_decl declare(s); the runtime alone writes four, so the emitter moved and this check stopped reading it"
-        status=1
-        continue
-      fi
-      unexpected="$(unpermitted_imports "$work/$name.win.declares" "$win_allow")"
-      if [[ -n "$unexpected" ]]; then
-        echo "FAIL $name [windows-x86_64]: the IR declares symbols $win_allow does not permit:"
-        printf '%s\n' "$unexpected" | sed 's/^/    /'
-        echo "    (a kernel32 entry point the runtime or Sys/Platform.windows.ax now needs is added to the list, in a reviewed diff)"
-        status=1
-        continue
-      fi
-      echo "ok   $name [windows-x86_64] (no libc in IR; $n_decl declares, all of $n_permitted_win permitted)"
+      for wt in windows-x86_64 windows-aarch64; do
+        wir="$work/$name.$wt.ll"
+        if ! "$axc" --target="$wt" emit-llvm "$case_file" -o "$wir" > "$work/$name.$wt.emit" 2>&1; then
+          echo "FAIL $name [$wt]: emit-llvm"
+          sed 's/^/    /' "$work/$name.$wt.emit" | head -5
+          status=1
+          continue
+        fi
+        if grep -nE "call[^\"]*@($libc_names)\(" "$wir" > "$work/$name.$wt.hits"; then
+          echo "FAIL $name [$wt]: generated IR calls libc"
+          sed 's/^/    /' "$work/$name.$wt.hits"
+          status=1
+          continue
+        fi
+        if grep -nE "@llvm\.(memset|memcpy|memmove)\." "$wir" > "$work/$name.$wt.intr"; then
+          echo "FAIL $name [$wt]: generated IR uses an llvm.mem* intrinsic, which lowers to libc"
+          sed 's/^/    /' "$work/$name.$wt.intr"
+          status=1
+          continue
+        fi
+        declares_of "$wir" > "$work/$name.$wt.declares"
+        n_decl="$(grep -c . "$work/$name.$wt.declares" || true)"
+        if (( n_decl < 4 )); then
+          echo "FAIL $name [$wt]: the reader found $n_decl declare(s); the runtime alone writes four, so the emitter moved and this check stopped reading it"
+          status=1
+          continue
+        fi
+        unexpected="$(unpermitted_imports "$work/$name.$wt.declares" "$win_allow")"
+        if [[ -n "$unexpected" ]]; then
+          echo "FAIL $name [$wt]: the IR declares symbols $win_allow does not permit:"
+          printf '%s\n' "$unexpected" | sed 's/^/    /'
+          echo "    (a kernel32 entry point the runtime or Sys/Platform.windows.ax now needs is added to the list, in a reviewed diff)"
+          status=1
+          continue
+        fi
+        echo "ok   $name [$wt] (no libc in IR; $n_decl declares, all of $n_permitted_win permitted)"
+      done
     done
   fi
 fi

@@ -38,7 +38,7 @@
 #      without it, so the flag is inert where nothing spawns;
 #   4. the targets that cannot: `--threads` for freebsd-x86_64 is
 #      refused at build time as AX4006, before any IR is written, and
-#      windows-x86_64 - no `fork`, no pthread - EMITS the program with
+#      the Windows targets - no `fork`, no pthread - EMIT the program with
 #      both primitives lowered to `@__axiom_par_unsupported`, which is
 #      what keeps every cross-target sweep green and the answer honest:
 #      the program links and dies at its first spawn saying why (79).
@@ -286,25 +286,30 @@ if "$axc" --target=freebsd-x86_64 emit-llvm "$fx470" -o "$work/fbp.ll" > /dev/nu
 else
   bad "freebsd-x86_64 without the flag did not emit the process lowering"
 fi
-if "$axc" --target=windows-x86_64 emit-llvm "$fx470" -o "$work/win.ll" > /dev/null 2>&1; then
-  n_unsup="$(grep -c 'call i64 @__axiom_par_unsupported()' "$work/win.ll" || true)"
-  if [[ "$n_unsup" -gt 0 ]] && ! grep -q 'pthread\|__axiom_par_spawn_proc\|thread_local' "$work/win.ll"; then
-    ok "windows-x86_64: emits, with $n_unsup spawn/join site(s) lowered to the status-79 trap and no fork, pthread or thread_local"
+# Both Windows targets: neither has `fork` or a pthread, and the arm64
+# one reaches this through the same `targetHasSpawn`/`targetHasThreads`
+# answers, so each is asked rather than one standing for the other.
+for wt in windows-x86_64 windows-aarch64; do
+  if "$axc" --target="$wt" emit-llvm "$fx470" -o "$work/win.ll" > /dev/null 2>&1; then
+    n_unsup="$(grep -c 'call i64 @__axiom_par_unsupported()' "$work/win.ll" || true)"
+    if [[ "$n_unsup" -gt 0 ]] && ! grep -q 'pthread\|__axiom_par_spawn_proc\|thread_local' "$work/win.ll"; then
+      ok "$wt: emits, with $n_unsup spawn/join site(s) lowered to the status-79 trap and no fork, pthread or thread_local"
+    else
+      bad "$wt: expected only the unsupported trap ($n_unsup site(s))"
+    fi
+    if llc -O0 -filetype=obj -o "$work/win.o" "$work/win.ll" 2> "$work/win.llc"; then
+      ok "$wt: and the module assembles"
+    else
+      bad "$wt: the module does not assemble"; sed 's/^/     /' "$work/win.llc" | head -3
+    fi
   else
-    bad "windows-x86_64: expected only the unsupported trap ($n_unsup site(s))"
+    bad "$wt: would not emit"
   fi
-  if llc -O0 -filetype=obj -o "$work/win.o" "$work/win.ll" 2> "$work/win.llc"; then
-    ok "windows-x86_64: and the module assembles"
-  else
-    bad "windows-x86_64: the module does not assemble"; sed 's/^/     /' "$work/win.llc" | head -3
-  fi
-else
-  bad "windows-x86_64: would not emit"
-fi
-set +e
-"$axc" --target=windows-x86_64 --threads emit-llvm "$fx470" -o "$work/wint.ll" > "$work/wint.log" 2>&1
-rc=$?
-if [[ "$rc" != 0 ]] && grep -q 'AX4006' "$work/wint.log"; then ok "windows-x86_64 --threads: refused as AX4006"; else bad "windows-x86_64 --threads: expected AX4006, exit $rc"; fi
+  set +e
+  "$axc" --target="$wt" --threads emit-llvm "$fx470" -o "$work/wint.ll" > "$work/wint.log" 2>&1
+  rc=$?
+  if [[ "$rc" != 0 ]] && grep -q 'AX4006' "$work/wint.log"; then ok "$wt --threads: refused as AX4006"; else bad "$wt --threads: expected AX4006, exit $rc"; fi
+done
 
 # --- 4b. and the DEFAULT lowering says so at build time too: AX4007 ---
 #
@@ -323,20 +328,23 @@ if [[ "$rc" != 0 ]] && grep -q 'AX4006' "$work/wint.log"; then ok "windows-x86_6
 # is still written, and a windows build of a program that names no
 # spawn says NOTHING - the diagnostic follows the PROGRAM, exactly as
 # `cgThreads` does, not the target.
-"$axc" --target=windows-x86_64 --diagnostic-format=ai emit-llvm "$fx470" -o "$work/win4007.ll" > "$work/win4007.log" 2>&1
-rc=$?
-if [[ "$rc" == 0 ]] && grep -q 'W AX4007' "$work/win4007.log" && [[ -s "$work/win4007.ll" ]]; then
-  ok "windows-x86_64: the default lowering warns AX4007 at build time, exit 0, and the IR is still written"
-else
-  bad "windows-x86_64: expected an AX4007 warning with exit 0 and IR written, got exit $rc"
-  sed 's/^/     /' "$work/win4007.log" | head -5
-fi
-"$axc" --target=windows-x86_64 --diagnostic-format=ai emit-llvm "$work/plain.ax" -o "$work/winplain.ll" > "$work/winplain.log" 2>&1
-if grep -q 'AX4007' "$work/winplain.log"; then
-  bad "windows-x86_64: a program that names no spawn drew AX4007 - the warning is following the target, not the program"
-else
-  ok "windows-x86_64: and a program that names no spawn draws nothing"
-fi
+for wt in windows-x86_64 windows-aarch64; do
+  "$axc" --target="$wt" --diagnostic-format=ai emit-llvm "$fx470" -o "$work/win4007.ll" > "$work/win4007.log" 2>&1
+  rc=$?
+  if [[ "$rc" == 0 ]] && grep -q 'W AX4007' "$work/win4007.log" && [[ -s "$work/win4007.ll" ]]; then
+    ok "$wt: the default lowering warns AX4007 at build time, exit 0, and the IR is still written"
+  else
+    bad "$wt: expected an AX4007 warning with exit 0 and IR written, got exit $rc"
+    sed 's/^/     /' "$work/win4007.log" | head -5
+  fi
+  rm -f "$work/win4007.ll"
+  "$axc" --target="$wt" --diagnostic-format=ai emit-llvm "$work/plain.ax" -o "$work/winplain.ll" > "$work/winplain.log" 2>&1
+  if grep -q 'AX4007' "$work/winplain.log"; then
+    bad "$wt: a program that names no spawn drew AX4007 - the warning is following the target, not the program"
+  else
+    ok "$wt: and a program that names no spawn draws nothing"
+  fi
+done
 # The hosts that CAN spawn never see it, whatever they build.
 if "$axc" --diagnostic-format=ai emit-llvm "$fx470" -o "$work/host4007.ll" > "$work/host4007.log" 2>&1 \
    && ! grep -q 'AX4007' "$work/host4007.log"; then

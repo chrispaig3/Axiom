@@ -47,10 +47,10 @@
 #   scripts/check-seed-supply-chain.sh   holds the five copies together
 #
 # NOT a consumer, and conflating them would be a real error:
-# `scripts/check-cross-targets.sh` names SEVEN targets. The seventh is
-# `windows-x86_64`, which the compiler cross-emits for and which has no
-# seed in `bootstrap/`, because hosting the compiler on Windows is a
-# later phase. "Targets the compiler emits" and "targets a clone can
+# `scripts/check-cross-targets.sh` names EIGHT targets. Two of them,
+# `windows-x86_64` and `windows-aarch64`, are ones the compiler
+# cross-emits for and which have no seed in `bootstrap/`, because
+# hosting the compiler on Windows is a later phase. "Targets the compiler emits" and "targets a clone can
 # bootstrap on" are two different facts and one list cannot be both.
 seed_targets() {
   cat <<'TARGETS'

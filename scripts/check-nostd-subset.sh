@@ -209,7 +209,7 @@ fi
 # either side means the reader broke, not that the surface is clean.
 checks=$((checks + 1))
 prob=0
-for t in darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64 freebsd-x86_64 freebsd-aarch64 windows-x86_64; do
+for t in darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64 freebsd-x86_64 freebsd-aarch64 windows-x86_64 windows-aarch64; do
   if ! "$axc" --target="$t" emit-llvm --input "$work/nostd-probe.ax" --output "$work/nostd-p.$t.ll" > "$work/nostd.emit" 2>&1; then
     bad "[$t] the subset probe would not emit"; prob=1; continue
   fi
@@ -230,7 +230,7 @@ for t in darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64 freebsd-x86_64 
     prob=1
   fi
 done
-(( prob )) || ok "seven targets declare nothing beyond hello"
+(( prob )) || ok "eight targets declare nothing beyond hello"
 
 # --------------------------------------------------------------------
 echo

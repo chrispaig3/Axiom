@@ -41,7 +41,7 @@
 # not on the supported list, not shipped, and either a `Bootstrap from
 # seed (<target>)` leg in ci.yml or a README sentence naming the target
 # that says no runner builds it (darwin-x86_64) or
-# that the compiler doesn't run there (windows-x86_64).
+# that the compiler doesn't run there (windows-x86_64, windows-aarch64).
 set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
 gate_init
@@ -115,7 +115,7 @@ fi
 echo
 echo "== every target the compiler accepts is in exactly one of them =="
 # --------------------------------------------------------------------
-# The compiler's own table is the universe, minus `windows-x86_64`:
+# The compiler's own table is the universe, minus the Windows targets:
 # hosting the compiler on Windows is a later phase, `install.sh` dies
 # on `uname -s` before it ever forms a target string, and README's
 # Targets section says so. A Windows entry in either list would be

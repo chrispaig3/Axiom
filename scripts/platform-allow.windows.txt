@@ -1,4 +1,6 @@
-# Every symbol a windows-x86_64 Axiom executable may import, by name.
+# Every symbol a Windows Axiom executable may import, by name - one list
+# for windows-x86_64 and windows-aarch64, whose runtime and platform
+# module reach the same kernel32 names.
 #
 # This is the Windows half of check-freestanding.sh's second claim.
 # Linux and macOS assert a NEGATIVE - no libc name among the imports;

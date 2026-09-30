@@ -862,12 +862,12 @@ statuses. A program **MUST NOT** reuse them as a normal result:
 | 70 | allocator out of memory (`mmap` failed) | measured: `tests/stdlib/314-out-of-memory.ax` asks for 2^47 bytes; the run prints `axiom: out of memory (mmap failed)` to fd 2 and exits 70 |
 | 71 | operation performed with no handler in extent | measured (`MM-EXEC-10`): `tests/stdlib/310-effect-unhandled.ax` prints `axiom: unhandled effect` to fd 2 and exits 71; `tests/stdlib/310-effect-unhandled.err` pins the message |
 | 72 | division by zero | measured: `(fn (main) (/ 10 0))` checks `OK`; the run prints `axiom: division by zero` to fd 2 and exits 72 |
-| 74 | a `__syscallN` reached on a target with no syscall ABI (windows-x86_64) | emitted, not yet executed: `emitPrimSyscall` lowers the primitive there to `__axiom_no_syscall`, which prints `axiom: no syscall ABI on this target` (37 bytes) and exits 74. Status 73 belongs to the FFI (`ffiHandleClose`) |
+| 74 | a `__syscallN` reached on a target with no syscall ABI (windows-x86_64, windows-aarch64) | emitted, not yet executed: `emitPrimSyscall` lowers the primitive there to `__axiom_no_syscall`, which prints `axiom: no syscall ABI on this target` (37 bytes) and exits 74. Status 73 belongs to the FFI (`ffiHandleClose`) |
 | 75 | `__axiom_arena_reset` handed a mark whose chunk is no longer on the active list (`MM-ALLOC-16a`) | measured: `tests/stdlib/166-arena-bad-mark.ax` resets an inner mark after its outer one; the run prints `axiom: arena reset to an invalid mark` to fd 2 and exits 75. The fixture's first two blocks (nested marks reset innermost-first, and one mark reset twice) must still exit silently, so the trap is pinned against firing on legal use |
 | 76 | `__axiom_arena_reset` handed a mark taken before a `handle` whose extent is still live (`MM-ALLOC-16b`) | measured: `tests/stdlib/167-arena-live-handle.ax` resets a mark that predates the extent; the run prints `axiom: arena reset past a live handle` to fd 2 and exits 76. Its first two blocks (a mark taken inside the extent, and a mark with no handle in scope) must still exit silently. `tests/stdlib/401-recover-effect.ax` must still exit 71, because a recovery abort performs this same reset legitimately |
 | 77 | an index out of range, raised by `(__indexTrap)`: `vecGet` and its kin, and `IO`'s range checks on `writeSlice`, `readInto` and `randomBytes` | measured: `tests/stdlib/464-index-trap.ax` prints `axiom: vector index out of range` to fd 2 and exits 77; `tests/stdlib/610-typed-io-bounds.ax` refuses each typed call's out-of-range argument before its syscall |
 | 78 | `parallel`: the kernel refused the fork or the pthread (`__axiom_par_spawn_failed`) | measured by `scripts/check-parallel.sh` §12d: under a per-user process limit of 1 a `parallel` form's fork answers EAGAIN, a recovery point armed around it answers 78, and the unrecovered spawn prints `axiom: parallel: could not spawn the binding` and exits 78 (processes on every non-root runner, threads too on Linux, where the limit counts threads) |
-| 79 | `parallel` on a target with neither `fork` nor a pthread (windows-x86_64) | emitted, not executed: both primitives compile there to `__axiom_par_unsupported`, which prints `axiom: parallel is not available on this target` and exits 79. The program builds for every target and says at its first spawn what it can't do (`scripts/check-parallel.sh` reads the IR) |
+| 79 | `parallel` on a target with neither `fork` nor a pthread (windows-x86_64, windows-aarch64) | emitted, not executed: both primitives compile there to `__axiom_par_unsupported`, which prints `axiom: parallel is not available on this target` and exits 79. The program builds for every target and says at its first spawn what it can't do (`scripts/check-parallel.sh` reads the IR) |
 | 80 | a violated `;@axiom:pre(...)`/`post(...)` contract | measured by `scripts/check-contracts.sh` §1: a violated `pre`/`post` prints ``axiom: precondition failed in `half`: (> n 0)`` to fd 2, prints the backtrace, and exits 80 at every `--opt` level. Inside `__axiom_recover` it answers 80 to the arming call |
 | 81 | an unhandled CPU exception on `baremetal-aarch64` | measured under QEMU (TCG): `tests/embedded/fault.ax` takes an alignment fault; the vector table writes the vector offset, ESR, ELR and FAR to the UART and exits 81 (`MM-EXEC-18`, `scripts/check-embedded.sh` A12). A stack overflow is one too, reported with a line naming the guard (`tests/embedded/overflow.ax`, A17). Not recoverable: no armed recovery point is jumped to. With an `isr(fault)` hook bound, the hook's answer is the status instead, for this row and for every trap above (`MM-EXEC-19`) |
 | 82 | an atomic whose address is not 8-byte aligned (`emitAtomicAlignGuard`, `MM-PAR-9`) | measured: `tests/stdlib/544-misaligned-atomic.ax` hands each of the four atomics an address 4 bytes into a word inside a recovery point, which answers 82 each time, then prints `axiom: misaligned atomic access` to fd 2 and exits 82, at every `--opt` level |
@@ -6327,10 +6327,10 @@ All five of `MM-EXEC-16`'s executable POSIX exit statuses are gated:
 The 75 and 76 fixtures each pin the sentence, the status, and the
 legal shapes the trap must stay silent on.
 
-The remaining status, 74, belongs to windows-x86_64, and nothing that
-executes checks it. `scripts/check-platform-constants.sh` reads its
-emission, and README's *Targets* section says no runner runs that
-target yet.
+The remaining status, 74, belongs to the two Windows targets, and
+nothing that executes checks it. `scripts/check-platform-constants.sh`
+reads its emission, and README's *Targets* section says no runner runs
+those targets yet.
 
 Status 70 is reached deterministically, without exhausting anything.
 `314` asks for 2^60 bytes, which is past the user address space on

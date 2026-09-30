@@ -825,8 +825,8 @@ program: `axiom: division by zero` on fd 2, and exit status 72.
 | an index out of range answers **77** | `axiom: vector index out of range`, exit 77 (`tests/stdlib/525-vec-set-bounds.ax`) |
 | a violated contract answers **80** | ``axiom: precondition failed in `half`: (> n 0)``, exit 80 |
 | a `parallel` spawn the kernel refused answers **78** | `axiom: parallel: could not spawn the binding`, exit 78 (emitted, not yet executed) |
-| `parallel` on a target with no lowering answers **79** | `axiom: parallel is not available on this target`, exit 79 (windows-x86_64; emitted, not executed) |
-| a `__syscallN` on a target with no syscall ABI answers **74** | `axiom: no syscall ABI on this target`, exit 74 (windows-x86_64; emitted, not executed) |
+| `parallel` on a target with no lowering answers **79** | `axiom: parallel is not available on this target`, exit 79 (windows-x86_64, windows-aarch64; emitted, not executed) |
+| a `__syscallN` on a target with no syscall ABI answers **74** | `axiom: no syscall ABI on this target`, exit 74 (windows-x86_64, windows-aarch64; emitted, not executed) |
 
 Out of memory, an unhandled effect and division by zero each have both
 halves in one program, at four optimisation levels:

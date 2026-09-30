@@ -87,7 +87,7 @@
 #
 # ONE GATE CANNOT BE RUN THAT WAY, and it is NAMED rather than skipped
 # quietly. `check-windows-hello.sh` is two halves on two machines - it
-# emits for windows-x86_64 on any host under `--emit DIR` and links and
+# emits for both Windows targets on any host under `--emit DIR` and links and
 # EXECUTES on a Windows runner under `--run DIR` - so a bare invocation
 # is a usage error, not a result. Globbed in and run bare it failed in
 # 0s on every local run, which made this battery permanently red and

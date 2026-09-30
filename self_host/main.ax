@@ -697,7 +697,7 @@
                                           ""
                                         })
                                       ; A spawn on a target with NEITHER lowering -
-                                      ; windows-x86_64, no `fork` and no pthread - is a
+                                      ; Windows, no `fork` and no pthread - is a
                                       ; WARNING and not a refusal, AX4007. The module still
                                       ; emits, with every spawn and join lowered to
                                       ; `@__axiom_par_unsupported`; what changes is WHEN the

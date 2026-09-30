@@ -113,7 +113,7 @@ case "$(uname -s)" in
   Linux)   os=linux ;;
   FreeBSD) os=freebsd ;;
   MINGW*|MSYS*|CYGWIN*|Windows_NT)
-    fail "no seed for Windows: bootstrap/ holds no axiom-windows-x86_64.ll, because hosting the compiler on Windows is a later phase of the Windows track (a Linux or macOS compiler cross-emits and links for windows-x86_64 today). README's Targets section says what is true" ;;
+    fail "no seed for Windows: bootstrap/ holds no axiom-windows-x86_64.ll, because hosting the compiler on Windows is a later phase of the Windows track (a Linux or macOS compiler cross-emits and links for windows-x86_64 and windows-aarch64 today). README's Targets section says what is true" ;;
   *) fail "unsupported OS $(uname -s): the seeds cover darwin, linux and freebsd" ;;
 esac
 case "$(uname -m)" in

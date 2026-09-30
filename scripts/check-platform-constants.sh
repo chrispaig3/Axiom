@@ -14,8 +14,8 @@
 #      carry the same syscalls for the STANDARD LIBRARY, as `sysExit`,
 #      `sysWrite` and their neighbours.
 #
-# AND ON WINDOWS THE SAME TWO TABLES ARE NAMES, NOT NUMBERS. windows-
-# x86_64 has no syscall ABI: `self_host/codegen.ax`'s runtime exits
+# AND ON WINDOWS THE SAME TWO TABLES ARE NAMES, NOT NUMBERS. Neither
+# Windows target has a syscall ABI: `self_host/codegen.ax`'s runtime exits
 # through `ExitProcess`, writes through `WriteFile` and maps through
 # `VirtualAlloc` (`emitRuntimeExit`/`emitRuntimeWrite`/`emitRuntimeMap`),
 # and `stdlib/Sys/Platform.windows.ax` exits and writes through
@@ -109,7 +109,7 @@ gate_init
 # exists to watch it. About eight seconds.
 gate_build_axc axc
 
-targets=(darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64 freebsd-x86_64 freebsd-aarch64 windows-x86_64)
+targets=(darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64 freebsd-x86_64 freebsd-aarch64 windows-x86_64 windows-aarch64)
 
 # Which platform module serves a target, for the failure message to
 # name. The mapping is `targetOsArchSuffix` then `targetOsSuffix` in
@@ -157,7 +157,7 @@ done
 #   * `main` names the two constants under test, so a rename in
 #     `Sys.Platform` fails the probe's own compile with a diagnostic
 #     instead of quietly removing a comparison.
-#   * on windows-x86_64 the platform module's functions are emitted
+#   * on the two Windows targets the platform module's functions are emitted
 #     whether or not the probe calls them, so the shims' kernel32 calls
 #     are in the module to read; and `main`'s two constants are 0 there
 #     (there is no number), which the Windows arm never reads.

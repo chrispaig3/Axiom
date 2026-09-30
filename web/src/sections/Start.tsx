@@ -250,9 +250,10 @@ export function Start() {
             </div>
             <p className="hint">
               <code>--target</code> emits for any of them from any host; only the final link needs
-              that target's linker. The other five targets, <code>linux-x86_64</code>,{' '}
-              <code>freebsd-x86_64</code>, <code>freebsd-aarch64</code>, <code>darwin-x86_64</code> and{' '}
-              <code>windows-x86_64</code>, are source-only: <code>--target</code> emits for them, and
+              that target's linker. The other six targets, <code>linux-x86_64</code>,{' '}
+              <code>freebsd-x86_64</code>, <code>freebsd-aarch64</code>, <code>darwin-x86_64</code>,{' '}
+              <code>windows-x86_64</code> and <code>windows-aarch64</code>, are source-only:{' '}
+              <code>--target</code> emits for them, and
               CI doesn't run the test battery there.{' '}
               <a href={`${REPO}#targets`} target="_blank" rel="noreferrer noopener">
                 What "supported" means here

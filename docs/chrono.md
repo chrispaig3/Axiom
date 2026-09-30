@@ -353,9 +353,9 @@ subtracted.
 - No time zones, no daylight saving and no zone database.
 - ISO 8601 extended format only: no week dates, ordinal dates or basic
   format such as `20240229`.
-- `datetimeNowUtc` answers `chronoClockUnavailable` on
-  `windows-x86_64` and bare metal, and after 2262-04-11, where the
-  clock's nanoseconds no longer fit an `Int`.
+- `datetimeNowUtc` answers `chronoClockUnavailable` on Windows
+  (`windows-x86_64`, `windows-aarch64`) and bare metal, and after
+  2262-04-11, where the clock's nanoseconds no longer fit an `Int`.
 
 ## See also
 

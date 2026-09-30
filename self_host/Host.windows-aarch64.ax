@@ -1,0 +1,12 @@
+; Host - which target this compiler binary itself runs on.
+; See `Host.darwin-aarch64.ax` for why this is a compile-time constant
+; selected by module resolution rather than a runtime query.
+;
+; This file exists so that compiling the compiler FOR windows-aarch64
+; resolves `Host` at all, as `Host.windows-x86_64.ax` does for the
+; other Windows architecture. No compiler binary has yet run on
+; Windows: hosting the compiler there is a later phase of the Windows
+; track.
+(pub :: hostTarget String)
+(pub fn (hostTarget)
+  "windows-aarch64")

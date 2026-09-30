@@ -24,7 +24,7 @@ into the C library.
   S-expressions, and the compiler can describe errors and symbols in a
   compact machine-readable form, so tools see the same facts you do.
 - **Read the compiler, in Axiom.** The compiler is written in Axiom:
-  116,366 lines of it. A clean checkout rebuilds it from committed LLVM
+  116,439 lines of it. A clean checkout rebuilds it from committed LLVM
   IR, and the build stops unless two generations come out
   byte-identical.
 - **Bring Rust along.** Declare Rust functions in an `extern` block,
@@ -92,15 +92,16 @@ there. Both supported targets run the whole test battery on every
 change, and each ships a prebuilt archive.
 
 Source-only: `darwin-x86_64`, `freebsd-aarch64`, `freebsd-x86_64`,
-`linux-x86_64`, `windows-x86_64`. The compiler emits code for each, and
+`linux-x86_64`, `windows-aarch64`, `windows-x86_64`. The compiler emits
+code for each, and
 CI assembles that code on every change. CI runs the test battery on
 none of them, so they aren't supported, and no prebuilt archive is
 published for them. CI builds the compiler from the seed in
 `bootstrap/` on `linux-x86_64`, and on `freebsd-x86_64` and
 `freebsd-aarch64` in FreeBSD 14.4 VMs. No runner builds it on
 `darwin-x86_64`.
-The compiler doesn't run on Windows, so `windows-x86_64` is a target
-you cross-compile to from Linux or macOS.
+The compiler doesn't run on Windows, so `windows-aarch64` and
+`windows-x86_64` are targets you cross-compile to from Linux or macOS.
 
 ## Quick start
 

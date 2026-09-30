@@ -4498,8 +4498,8 @@ pty or some CI runners do. Treat 0 as unknown and fall back to 80 by
 Terminal control works on `darwin-aarch64`, `darwin-x86_64`,
 `linux-x86_64`, `linux-aarch64` and `freebsd-x86_64`.
 
-It isn't available on `windows-x86_64`, which has no `termios` and no
-`ioctl`. The Windows console works through `GetConsoleMode` and
+It isn't available on Windows (`windows-x86_64`, `windows-aarch64`),
+which has no `termios` and no `ioctl`. The Windows console works through `GetConsoleMode` and
 `SetConsoleMode` on a handle, which this library doesn't implement.
 There, `sysIsatty` answers `false`, `termSave`, `termRaw`,
 `termRestore` and `termSize` answer an `Err`, and the `Sys` forms a
@@ -4859,7 +4859,7 @@ branches on a capability it exposes, such as `openNeedsDirFd`,
 which file resolved.
 
 A target can answer no to a whole facility. `ttyUsesTermios` is 0 on
-`windows-x86_64`, which has no `termios` and no `ioctl`, so every
+both Windows targets, which have no `termios` and no `ioctl`, so every
 terminal call there answers a negative result instead of a made-up one.
 See [Terminals](#terminals) for the support matrix. Every
 `Sys/Platform.*.ax` file declares the same public names, so a target
@@ -5508,7 +5508,8 @@ Tested by `tests/stdlib/620-par-float-order.ax` and
 - **FreeBSD** has the process lowering, and CI runs the `parallel`
   tests there. `--threads` is refused at build time with `AX4006`, and
   so is `__thread_spawn`.
-- **windows-x86_64** has no `fork` and no thread lowering. `--threads`
+- **Windows**, `windows-x86_64` and `windows-aarch64`, has no `fork`
+  and no thread lowering. `--threads`
   and `__thread_spawn` are `AX4006`. Without them, a program that uses
   `parallel` builds with an `AX4007` warning, and every spawn and join
   is lowered to a trap. A
@@ -5695,8 +5696,8 @@ Rust](#calling-rust), and [ffi.md](ffi.md) §15). The older `foreign`
 keyword is removed and reserved, and using it is `AX2004` ([Removed
 features](#removed-features)).
 
-On `windows-x86_64`, which has no syscall ABI, the same library reaches
-the OS through kernel32 instead. Every import it may use is listed in
+On Windows, which has no syscall ABI, the same library reaches the OS
+through kernel32 instead, on both `windows-x86_64` and `windows-aarch64`. Every import it may use is listed in
 `scripts/platform-allow.windows.txt`, and that list holds no libc name.
 
 Checked by `scripts/check-freestanding.sh`.
@@ -6576,8 +6577,8 @@ Supported targets: `darwin-aarch64`, `linux-aarch64`. Defaults to the host.
 A target is supported when a CI job executes what the compiler emits there.
 Both supported targets run the whole test battery on every change.
 
-`darwin-x86_64`, `freebsd-aarch64`, `freebsd-x86_64`, `linux-x86_64` and
-`windows-x86_64` are source-only. `--target` accepts each, and CI
+`darwin-x86_64`, `freebsd-aarch64`, `freebsd-x86_64`, `linux-x86_64`,
+`windows-aarch64` and `windows-x86_64` are source-only. `--target` accepts each, and CI
 assembles what the compiler emits for them, but runs no test battery
 there, so none of them is supported. README's
 [Targets](../README.md#targets) section says where CI builds the
@@ -6604,39 +6605,44 @@ emulated, so that build takes longer than the others.
 
 ### Windows
 
-`windows-x86_64` is a target, not a host. The compiler doesn't run on
-Windows yet, and `scripts/install.sh` refuses a Windows host. Build on Linux
-or macOS instead:
+`windows-x86_64` and `windows-aarch64` are targets, not hosts. The
+compiler doesn't run on Windows yet, and `scripts/install.sh` refuses a
+Windows host. Build on Linux or macOS instead:
 
 ```bash
 axiom build --target=windows-x86_64 --input p.ax --output p
+axiom build --target=windows-aarch64 --input p.ax --output p
 ```
 
 This links `p.exe` with `lld-link`
-(`/subsystem:console /entry:mainCRTStartup`), which ships with LLVM's
-`lld`. `--link-search DIR` becomes `/libpath:DIR`, and `--link-lib NAME`
-becomes `NAME.lib`.
+(`/subsystem:console /entry:mainCRTStartup`, and `/machine:arm64` for
+`windows-aarch64`), which ships with LLVM's `lld`. `--link-search DIR`
+becomes `/libpath:DIR`, and `--link-lib NAME` becomes `NAME.lib`.
 
-The runtime calls kernel32, so a `kernel32.lib` must sit in a search
-directory. Use the Windows SDK's (`Lib\<ver>\um\x64`), or generate one
-from a `kernel32.def` that names the symbols in
+The runtime calls kernel32, so a `kernel32.lib` for the target's machine
+must sit in a search directory. Use the Windows SDK's
+(`Lib\<ver>\um\x64` or `Lib\<ver>\um\arm64`), or generate one from a
+`kernel32.def` that names the symbols in
 `scripts/platform-allow.windows.txt`:
 
 ```bash
-llvm-dlltool -m i386:x86-64 -d kernel32.def -l kernel32.lib
+llvm-dlltool -m i386:x86-64 -d kernel32.def -l kernel32.lib   # windows-x86_64
+llvm-dlltool -m arm64 -d kernel32.def -l kernel32.lib         # windows-aarch64
 ```
 
-Windows is the one target without a syscall ABI. The standard library
-reaches kernel32 by call through `stdlib/Sys/Platform.windows.ax`, and
-your program starts at `mainCRTStartup` with no C runtime. If a program
+Windows is the one OS without a syscall ABI. On both architectures the
+standard library reaches kernel32 by call through
+`stdlib/Sys/Platform.windows.ax`, and your program starts at
+`mainCRTStartup` with no C runtime. If a program
 reaches a `__syscallN` anyway, it prints
 `axiom: no syscall ABI on this target` and exits with status 74.
 
 Limits:
 
-- CI executes one program on Windows, a hello world, where FreeBSD runs
-  the whole corpus.
-- `--emit-staticlib` is refused for this target.
+- CI runs no Windows program. It assembles every standard-library test
+  for both Windows targets, and `scripts/check-windows-hello.sh --emit`
+  emits a hello world for each that a Windows runner would link and run.
+- `--emit-staticlib` is refused for both targets.
 
 *Under the hood:* `Sys.Platform.usesSyscallAbi` is 0 on Windows, so
 `Sys.ax` calls the platform module's `platformWriteFd`, `platformReadFd`

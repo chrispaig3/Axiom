@@ -28,7 +28,12 @@
 #
 #      and AArch64 may show no exclusive or LSE form without both
 #      acquire and release (ldxr, stxr, ldadd, ldadda, ldaddl, cas,
-#      casa, casl). A program with no atomics (010-hello) must count
+#      casa, casl). windows-aarch64 adds barriers: LLVM ends every
+#      seq_cst store and read-modify-write there with a trailing
+#      `dmb ish`, because MSVC's runtime does not implement seq_cst
+#      loads with `ldar` and a release store alone would not order
+#      against them. `a64_dmb_want` states that count. A program with
+#      no atomics (010-hello) must count
 #      ZERO of every one on every target and level - so the counts are
 #      the primitives' own, not the runtime's.
 #
@@ -228,7 +233,7 @@ fixture="$repo_root/tests/stdlib/440-atomics.ax"
 control="$repo_root/tests/stdlib/010-hello.ax"
 litmus="$repo_root/tests/litmus/atomics.ax"
 x86_targets="linux-x86_64 darwin-x86_64 freebsd-x86_64 windows-x86_64"
-a64_targets="linux-aarch64 darwin-aarch64 freebsd-aarch64"
+a64_targets="linux-aarch64 darwin-aarch64 freebsd-aarch64 windows-aarch64"
 
 # The source's own count of each primitive, comments stripped - COUNTED,
 # not typed, so a fixture that gains a use moves the expectation with it.
@@ -313,6 +318,23 @@ lse_diff() {
   echo "$out"
 }
 
+# a64_dmb_want <target> <level>: how many `dmb ish` the fixture's
+# seq_cst lowering writes. One per `__fence` on every AArch64 target.
+# On windows-aarch64 each store and read-modify-write carries a
+# trailing one as well, and at -O0 a cas carries it on both its success
+# and its failure exit (measured, LLVM 23: 8 at -O0, 6 at -O1..-O3).
+a64_dmb_want() {
+  if [[ "$1" == windows-* ]]; then
+    if (( $2 == 0 )); then
+      echo $((n_fence + n_store + n_add + 2 * n_cas))
+    else
+      echo $((n_fence + n_store + n_add + n_cas))
+    fi
+  else
+    echo "$n_fence"
+  fi
+}
+
 # ---------------------------------------------------------------------
 echo "== 1. machine code: every target, every level =="
 for t in $x86_targets $a64_targets; do
@@ -332,7 +354,7 @@ for t in $x86_targets $a64_targets; do
       d="$(x86_diff "$work/atomics.$t.O$lvl.s" "$n_store" "$n_add" "$n_cas" "$n_fence")"
       c="$(x86_diff "$work/control.$t.O$lvl.s" 0 0 0 0)"
     else
-      d="$(a64_diff "$work/atomics.$t.O$lvl.s" "$n_load" "$n_store" $((n_add + n_cas)) "$n_fence")"
+      d="$(a64_diff "$work/atomics.$t.O$lvl.s" "$n_load" "$n_store" $((n_add + n_cas)) "$(a64_dmb_want "$t" "$lvl")")"
       c="$(a64_diff "$work/control.$t.O$lvl.s" 0 0 0 0)"
       (( $(cnt "$work/atomics.$t.O$lvl.s" "$A64_LSE") > 0 )) && shape="LSE" || shape="LL/SC loops"
     fi
@@ -360,7 +382,7 @@ ablate() {
 # measured 2026-09-27, LLVM 23 - and only -O1 and up weaken it to
 # ldxr/stxr, so the rmw row is measured at -O2 alone.
 while read -r kind isa levels want subst; do
-  t=linux-x86_64; [[ "$isa" == a64 ]] && t=linux-aarch64
+  t=linux-x86_64; [[ "$isa" == a64 ]] && t=linux-aarch64; [[ "$isa" == w64 ]] && t=windows-aarch64
   for lvl in ${levels//,/ }; do
     in="$work/atomics.$t.ll"; out="$work/abl-$kind-$isa.ll"
     if ! msg="$(ablate "$in" "$out" "$want" "$subst")"; then
@@ -384,7 +406,7 @@ while read -r kind isa levels want subst; do
     if [[ "$isa" == x86 ]]; then
       d="$(x86_diff "$s" "$n_store" "$n_add" "$n_cas" "$n_fence")"
     else
-      d="$(a64_diff "$s" "$n_load" "$n_store" $((n_add + n_cas)) "$n_fence")"
+      d="$(a64_diff "$s" "$n_load" "$n_store" $((n_add + n_cas)) "$(a64_dmb_want "$t" "$lvl")")"
     fi
     if [[ -n "$d" ]]; then
       ok "$kind [$t] -O$lvl: red -$d"
@@ -400,6 +422,8 @@ store     a64  0,2  $n_store  s/(store atomic i64 .*) seq_cst,/\$1 monotonic,/
 load      a64  0,2  $n_load   s/(load atomic i64, ptr \S+) seq_cst,/\$1 monotonic,/
 rmw       a64  2    $((n_add + n_cas))  s/(atomicrmw add .*) seq_cst,|(cmpxchg .*) seq_cst seq_cst,/defined(\$1) ? "\$1 monotonic," : "\$2 monotonic monotonic,"/e
 fence     a64  0,2  $n_fence  s/^\s*fence seq_cst\n//
+store     w64  0,2  $n_store  s/(store atomic i64 .*) seq_cst,/\$1 monotonic,/
+fence     w64  0,2  $n_fence  s/^\s*fence seq_cst\n//
 ROWS
 
 # ---------------------------------------------------------------------

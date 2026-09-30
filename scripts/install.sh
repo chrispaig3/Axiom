@@ -86,7 +86,7 @@ case "$os" in
   Linux)   os_name=linux ;;
   FreeBSD) os_name=freebsd ;;
   MINGW*|MSYS*|CYGWIN*|Windows_NT)
-    die "no Axiom release runs on Windows yet. The compiler EMITS for windows-x86_64 (a Linux or macOS build links a .exe with --target=windows-x86_64), but hosting the compiler itself on Windows is a later phase of the Windows track: there is no Windows seed in bootstrap/ and nothing to install. README's Targets section says what is true today" ;;
+    die "no Axiom release runs on Windows yet. The compiler EMITS for windows-x86_64 and windows-aarch64 (a Linux or macOS build links a .exe with --target=windows-x86_64 or --target=windows-aarch64), but hosting the compiler itself on Windows is a later phase of the Windows track: there is no Windows seed in bootstrap/ and nothing to install. README's Targets section says what is true today" ;;
   *) die "unsupported OS '$os'. Axiom targets darwin, linux and freebsd; build from source with scripts/bootstrap-from-seed.sh" ;;
 esac
 case "$arch" in
@@ -98,7 +98,7 @@ target="$os_name-$arch_name"
 
 # THE TARGETS WITH NO ARTIFACT are README's SOURCE-ONLY targets:
 # darwin-x86_64, freebsd-aarch64, freebsd-x86_64 and linux-x86_64 here
-# (windows-x86_64 never gets this far - a Windows host dies on
+# (the Windows targets never get this far - a Windows host dies on
 # `uname -s` above). No CI leg runs the test battery on them, so no
 # archive exists and the platform carries no support promise; the
 # seed is the way to install. CI does build the compiler from the seed

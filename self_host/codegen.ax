@@ -5633,7 +5633,7 @@
 
 ; Which targets can create a thread through the platform's pthread, and
 ; which can fork. `targetCode`'s numbering: darwin 0/1, linux 2/3,
-; freebsd 4/5, windows 6, baremetal-aarch64 7.
+; freebsd 4/5, windows 6/8, baremetal-aarch64 7.
 ;
 ; darwin and linux have a pthread AND the local-exec TLS a C runtime
 ; sets up for each new thread, and both are MEASURED - `Tests
@@ -5666,8 +5666,8 @@
 ; Which targets can spawn AT ALL, which is the question `targetHasThreads`
 ; does not answer. The process lowering IS the syscall template - `fork`,
 ; `mmap` and `wait4` through `targetSyscallAsm` - so "can this target
-; fork?" is exactly "does this target have a syscall ABI", and the one
-; that does not is windows-x86_64.
+; fork?" is exactly "does this target have a syscall ABI", and the ones
+; that do not are the two Windows targets and baremetal-aarch64.
 ;
 ; It is its own name rather than three copies of `targetUsesSyscallAsm`
 ; because the QUESTION here is about `parallel` and the answer merely
@@ -5695,7 +5695,9 @@
               "freebsd-aarch64"
               (if (== t 7)
                 "baremetal-aarch64"
-                "windows-x86_64"))))))))
+                (if (== t 8)
+                  "windows-aarch64"
+                  "windows-x86_64")))))))))
 
 ; The per-target numbers the process lowering needs beside
 ; `targetMmapNum`/`targetExitNum`/`targetWriteNum`, each the one
@@ -5962,8 +5964,8 @@
                   (declsNamePrim decls "__proc_join_nr" 0))))))))))
 
 ; A program that names a spawn, on a target with NEITHER lowering -
-; windows-x86_64, which has no `fork` and no pthread. This is the
-; build-time WARNING `main.ax` reports as AX4007, and warning rather
+; Windows, either architecture, which has no `fork` and no pthread.
+; This is the build-time WARNING `main.ax` reports as AX4007, and warning rather
 ; than refusal is the whole of the decision:
 ;
 ;   * the module still EMITS, with every spawn and join lowered to
@@ -6855,7 +6857,8 @@
   })
 
 ; Status 79: a target with neither `fork` nor a pthread - windows-x86_64
-; today. The program emits and links; the first spawn says this.
+; and windows-aarch64 today. The program emits and links; the first
+; spawn says this.
 (pub :: emitParUnsupported (-> Int Int))
 (pub fn (emitParUnsupported cg)
   {
@@ -8747,11 +8750,12 @@
 ; the 0x2000000 Unix class bit), the MAP_PRIVATE|MAP_ANON flag value,
 ; and the platform module suffixes. Codes: 0 darwin-aarch64,
 ; 1 darwin-x86_64, 2 linux-aarch64, 3 linux-x86_64, 4 freebsd-x86_64,
-; 5 freebsd-aarch64, 6 windows-x86_64, 7 baremetal-aarch64; -1 is
-; "unknown", refused
+; 5 freebsd-aarch64, 6 windows-x86_64, 7 baremetal-aarch64,
+; 8 windows-aarch64; -1 is "unknown", refused
 ; loudly. A code is an index into nothing, only a name for these
 ; chains of `if`; 4-6 were assigned across two concurrent branches so
-; that both landed without renumbering the other.
+; that both landed without renumbering the other, and 8 went to the
+; second Windows architecture because 7 was taken by then.
 ;
 ; The two FreeBSD codes were added 2026-08-29 from a macOS host with
 ; no FreeBSD to run on. Every FreeBSD number below was read from
@@ -8759,13 +8763,18 @@
 ; measured, and `stdlib/Sys/Platform.freebsd.ax` says the same of its
 ; own; the CI leg that executes them is what turns either into a fact.
 ;
-; windows-x86_64 is the one target in this block that is not "the same
-; runtime with different numbers". There is no syscall ABI on Windows
-; to put numbers in a table for, so where the others carry a syscall
-; template and three syscall numbers it carries `targetUsesSyscallAsm`
-; = 0, and the emitted runtime reaches the kernel through kernel32.dll
-; instead - see `emitRuntimeMap`, `emitRuntimeWrite`, `emitRuntimeExit`
-; and `emitWinEntry` below, which are the whole of that difference.
+; The two Windows targets are the ones in this block that are not "the
+; same runtime with different numbers". There is no syscall ABI on
+; Windows to put numbers in a table for, so where the others carry a
+; syscall template and three syscall numbers they carry
+; `targetUsesSyscallAsm` = 0, and the emitted runtime reaches the kernel
+; through kernel32.dll instead - see `emitRuntimeMap`,
+; `emitRuntimeWrite`, `emitRuntimeExit` and `emitWinEntry` below, which
+; are the whole of that difference. Those four emit plain LLVM IR - no
+; inline assembly, no calling-convention attribute - so windows-aarch64
+; shares every one of them with windows-x86_64, and the two differ only
+; where an architecture does: the triple, `targetIsAArch64`, and the
+; platform-register clause of `targetRecoverArmAsm`.
 ; ------------------------------------------------------------------
 (pub :: targetCode (-> String Int))
 (pub fn (targetCode name)
@@ -8785,7 +8794,17 @@
                 6
                 (if (strEq name "baremetal-aarch64")
                   7
-                  (- 0 1))))))))))
+                  (if (strEq name "windows-aarch64")
+                    8
+                    (- 0 1)))))))))))
+
+; Either Windows architecture. Every question below that is about the
+; OPERATING SYSTEM - no syscall ABI, `mainCRTStartup`, the `.windows.ax`
+; platform module - asks this, so the two codes cannot answer one of
+; those questions differently by being forgotten in a chain of `if`.
+(pub :: targetIsWindows (-> Int Bool))
+(pub fn (targetIsWindows t)
+  (|| (== t 6) (== t 8)))
 
 (pub :: targetTriple (-> Int String))
 (pub fn (targetTriple t)
@@ -8797,28 +8816,36 @@
   ; which ships beside the `llc` the driver already shells out to. No
   ; `target datalayout` line is emitted for it, as none is for the
   ; others: llc derives the layout from the triple.
+  ;
+  ; windows-aarch64 is the same choice on the other architecture, and
+  ; what the triple hands to LLVM is the part of the arm64 Windows ABI
+  ; this compiler never spells: x18 reserved as the TEB pointer (the
+  ; register allocator never touches it), `__chkstk` for a frame past
+  ; 4 KiB, and the `.pdata`/`.xdata` unwind records.
   (if (== t 6)
     "x86_64-pc-windows-msvc"
-    (if (== t 0)
-      "arm64-apple-macosx14.0.0"
-      (if (== t 1)
-        "x86_64-apple-macosx14.0.0"
-        (if (== t 2)
-          "aarch64-unknown-linux-gnu"
-          (if (== t 3)
-            "x86_64-unknown-linux-gnu"
-            ; A major version is pinned, as `arm64-apple-macosx14.0.0`
-            ; above pins one: an unversioned `x86_64-unknown-freebsd`
-            ; lets LLVM choose per-release defaults that move under the
-            ; committed seed. 14 is the pin; 12 is the floor the numbers
-            ; need (`kevent` 560 with the 64-byte record, `getrandom`
-            ; 563 and the current `struct dirent` are all 12+), and
-            ; `Platform.freebsd.ax` records that beside each.
-            (if (== t 4)
-              "x86_64-unknown-freebsd14.0"
-              (if (== t 7)
-                "aarch64-unknown-none-elf"
-                "aarch64-unknown-freebsd14.0"))))))))
+    (if (== t 8)
+      "aarch64-pc-windows-msvc"
+      (if (== t 0)
+        "arm64-apple-macosx14.0.0"
+        (if (== t 1)
+          "x86_64-apple-macosx14.0.0"
+          (if (== t 2)
+            "aarch64-unknown-linux-gnu"
+            (if (== t 3)
+              "x86_64-unknown-linux-gnu"
+              ; A major version is pinned, as `arm64-apple-macosx14.0.0`
+              ; above pins one: an unversioned `x86_64-unknown-freebsd`
+              ; lets LLVM choose per-release defaults that move under the
+              ; committed seed. 14 is the pin; 12 is the floor the numbers
+              ; need (`kevent` 560 with the 64-byte record, `getrandom`
+              ; 563 and the current `struct dirent` are all 12+), and
+              ; `Platform.freebsd.ax` records that beside each.
+              (if (== t 4)
+                "x86_64-unknown-freebsd14.0"
+                (if (== t 7)
+                  "aarch64-unknown-none-elf"
+                  "aarch64-unknown-freebsd14.0")))))))))
 
 ; Does this target reach the kernel through an inline-asm syscall
 ; template? Every POSIX target does, and `targetSyscallAsm`,
@@ -8836,7 +8863,7 @@
 ; holds the two answers to each other for every target.
 (pub :: targetUsesSyscallAsm (-> Int Int))
 (pub fn (targetUsesSyscallAsm t)
-  (if (|| (== t 6) (== t 7))
+  (if (|| (targetIsWindows t) (== t 7))
     0
     1))
 
@@ -8850,7 +8877,7 @@
 ; here rather than spelled in two places.
 (pub :: targetEntryName (-> Int String))
 (pub fn (targetEntryName t)
-  (if (== t 6)
+  (if (targetIsWindows t)
     "mainCRTStartup"
     "main"))
 
@@ -8885,7 +8912,9 @@
   ; writes one asks `targetUsesSyscallAsm` first and takes the kernel32
   ; door instead; an empty template reaching llc is a parse error,
   ; which is the loud failure wanted from a caller that forgot to ask.
-  (if (== t 6)
+  ; Asked as the OS, not as code 6: an arm64 Windows target that fell
+  ; through this chain would land on freebsd-aarch64's `svc #0` string.
+  (if (targetIsWindows t)
     ""
     (if (== t 0)
       "\"svc #0x80\\0Ab.cc 1f\\0Aneg x0, x0\\0A1:\", \"={x0},{x16},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x16},~{cc},~{memory}\""
@@ -8934,13 +8963,14 @@
 ; stated once.
 (pub :: targetIsAArch64 (-> Int Bool))
 (pub fn (targetIsAArch64 t)
-  (|| (== t 0) (|| (== t 2) (|| (== t 5) (== t 7)))))
+  (|| (== t 0) (|| (== t 2) (|| (== t 5) (|| (== t 7) (== t 8))))))
 
 ; Read the frame pointer. One instruction, and only two distinct
-; strings for seven targets, because this is an architecture question
+; strings for every target, because this is an architecture question
 ; rather than an OS one: AArch64 keeps it in x29 and x86-64 in %rbp on
 ; Darwin, Linux, FreeBSD and Windows alike - Win64 establishes rbp the
-; same way when `"frame-pointer"="all"` forces one.
+; same way when `"frame-pointer"="all"` forces one, and the arm64
+; Windows ABI keeps the AAPCS64 frame record `[x29, x30]` chain.
 ;
 ; `sideeffect` so the read is neither duplicated nor hoisted. It has no
 ; clobbers to declare - unlike `targetSyscallAsm` above, whose comment
@@ -9067,7 +9097,9 @@
     ; reserves x18 on Darwin, Android, Fuchsia, Windows and OHOS, and
     ; `aarch64-unknown-none-elf` is in none of those either; a `(== t 2)`
     ; here would ship
-    ; freebsd-aarch64 with exactly this bug, silently.
+    ; freebsd-aarch64 with exactly this bug, silently. windows-aarch64
+    ; takes Darwin's list: x18 is reserved as the TEB pointer there, so
+    ; no value can live in it and nothing in the block writes it.
     (strConcat
       "\"stp x19, x20, [$0, #48]\\0Astp x21, x22, [$0, #64]\\0Astp x23, x24, [$0, #80]\\0Astp x25, x26, [$0, #96]\\0Astp x27, x28, [$0, #112]\\0Amov x9, sp\\0Astr x9, [$0]\\0Astr x29, [$0, #8]\\0Aadr x9, 1f\\0Astr x9, [$0, #16]\\0Ab 2f\\0A1:\\0Aldp x19, x20, [x9, #48]\\0Aldp x21, x22, [x9, #64]\\0Aldp x23, x24, [x9, #80]\\0Aldp x25, x26, [x9, #96]\\0Aldp x27, x28, [x9, #112]\\0A2:\", \"r,~{x0},~{x1},~{x2},~{x3},~{x4},~{x5},~{x6},~{x7},~{x8},~{x9},~{x10},~{x11},~{x12},~{x13},~{x14},~{x15},~{x16},~{x17},~{lr}"
       (strConcat (if (|| (== t 2) (|| (== t 5) (== t 7)))
@@ -9105,8 +9137,9 @@
     "\"movq $0, %rax\\0Amovq $1, %rsp\\0Amovq $2, %rbp\\0Ajmpq *$3\", \"r,r,r,r,~{rax},~{memory}\""))
 
 ; The three syscall numbers below and `targetMapFlags` are read only
-; where `targetUsesSyscallAsm` answers 1; windows-x86_64 (6) falls
-; through their chains to the linux-x86_64 answer and never spends it.
+; where `targetUsesSyscallAsm` answers 1; windows-x86_64 (6) and
+; windows-aarch64 (8) fall through their chains to an answer they
+; never spend.
 (pub :: targetMmapNum (-> Int Int))
 (pub fn (targetMmapNum t)
   (if (== t 0)
@@ -9378,32 +9411,35 @@
 (pub fn (targetOsArchSuffix t)
   (if (== t 6)
     ".windows-x86_64.ax"
-    (if (== t 0)
-      ".darwin-aarch64.ax"
-      (if (== t 1)
-        ".darwin-x86_64.ax"
-        (if (== t 2)
-          ".linux-aarch64.ax"
-          (if (== t 3)
-            ".linux-x86_64.ax"
-            ; No `Platform.freebsd-*.ax` exists, and that is correct:
-            ; FreeBSD's syscall table is generated once for every
-            ; architecture, so the ladder falls through to
-            ; `.freebsd.ax`, the arrangement Darwin already has.
-            (if (== t 4)
-              ".freebsd-x86_64.ax"
-              (if (== t 7)
-                ".baremetal-aarch64.ax"
-                ".freebsd-aarch64.ax"))))))))
+    (if (== t 8)
+      ".windows-aarch64.ax"
+      (if (== t 0)
+        ".darwin-aarch64.ax"
+        (if (== t 1)
+          ".darwin-x86_64.ax"
+          (if (== t 2)
+            ".linux-aarch64.ax"
+            (if (== t 3)
+              ".linux-x86_64.ax"
+              ; No `Platform.freebsd-*.ax` exists, and that is correct:
+              ; FreeBSD's syscall table is generated once for every
+              ; architecture, so the ladder falls through to
+              ; `.freebsd.ax`, the arrangement Darwin already has.
+              (if (== t 4)
+                ".freebsd-x86_64.ax"
+                (if (== t 7)
+                  ".baremetal-aarch64.ax"
+                  ".freebsd-aarch64.ax")))))))))
 
 ; `.windows.ax` and not `.windows-x86_64.ax` for the platform module,
 ; for the reason `Platform.darwin.ax` serves both Darwin targets: the
 ; module is a set of kernel32 bindings and those are the same on
-; windows-aarch64, so a second Windows architecture would be a triple
-; and a recover-block clobber list, not a second platform module.
+; windows-aarch64, so the second Windows architecture is a triple and
+; a recover-block clobber list, not a second platform module. Both
+; codes resolve `Sys/Platform.windows.ax` here.
 (pub :: targetOsSuffix (-> Int String))
 (pub fn (targetOsSuffix t)
-  (if (== t 6)
+  (if (targetIsWindows t)
     ".windows.ax"
     (if (|| (== t 0) (== t 1))
       ".darwin.ax"
@@ -9417,7 +9453,7 @@
 ; The three things the emitted runtime asks the kernel for - a mapping,
 ; a write to fd 2, an exit - behind one door each, so that the ten
 ; sites which used to spell a syscall template by hand call a function
-; instead, and the one target whose kernel has no syscall ABI lives in
+; instead, and the one OS whose kernel has no syscall ABI lives in
 ; exactly three places.
 ;
 ; ON A SYSCALL TARGET EACH DOOR EMITS THE BYTES ITS SITE ALWAYS DID.
@@ -11462,7 +11498,7 @@
     ; The step is 2^(floor(log2(sz0 - 1)) - 3), so a size already on a
     ; boundary stays where it is. The logarithm is five compares rather
     ; than `llvm.ctlz`: an intrinsic is a `declare` in the module, and
-    ; the windows-x86_64 build holds every declaration to a reviewed
+    ; a Windows build holds every declaration to a reviewed
     ; list (`scripts/check-freestanding.sh`). A request at or below
     ; 1 KiB takes one subtraction and one branch more than it did.
     (emitLine cg "  %rcoff = sub i64 %sz0e, 1025")
@@ -14718,7 +14754,7 @@
 (pub fn (checkedTargetCode target)
   (let ((tcode (targetCode target)))
     (if (< tcode 0)
-      (dieImport "error: unknown target (want darwin-aarch64, darwin-x86_64, linux-aarch64, linux-x86_64, freebsd-x86_64, freebsd-aarch64, windows-x86_64, or baremetal-aarch64): " target)
+      (dieImport "error: unknown target (want darwin-aarch64, darwin-x86_64, linux-aarch64, linux-x86_64, freebsd-x86_64, freebsd-aarch64, windows-x86_64, windows-aarch64, or baremetal-aarch64): " target)
       tcode)))
 
 ; Emission over an ALREADY-resolved declaration list. Separated from
@@ -21179,8 +21215,8 @@
         ; a wrong instruction: `__axiom_no_syscall` writes a sentence to
         ; fd 2 and exits 74 (`emitWinRuntime`). The arguments were
         ; evaluated above for their effects and are dropped. This is
-        ; what `Sys.ax`'s syscall arms compile to on windows-x86_64,
-        ; where `Sys.Platform.usesSyscallAbi` is 0 and keeps them
+        ; what `Sys.ax`'s syscall arms compile to on both Windows
+        ; targets, where `Sys.Platform.usesSyscallAbi` is 0 and keeps them
         ; unreached; a program that calls `__syscallN` itself reaches
         ; it and dies saying why, rather than executing a `syscall`
         ; instruction the OS gives no meaning to.

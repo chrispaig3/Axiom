@@ -582,7 +582,7 @@ process. The processor's own timing is covered in
 | `darwin-x86_64` | source only | `getentropy` | a locked mapping |
 | `freebsd-x86_64`, `freebsd-aarch64` | source only | `getrandom` | a locked mapping, kept out of core files |
 | `baremetal-aarch64` | embedded ([guide](embedded-guide.md)) | the `RNDR` register, on CPUs that have it | none yet |
-| `windows-x86_64` | source only | none yet | none yet |
+| `windows-x86_64`, `windows-aarch64` | source only | none yet | none yet |
 
 Every algorithm is plain Axiom and compiles for every target. Where a
 row says "none yet", the calls that need it answer an availability
@@ -590,8 +590,9 @@ error.
 
 ## Limits
 
-- Not yet on `windows-x86_64`: there's no entropy source or secret
-  store there, and each call answers an availability error.
+- Not yet on Windows (`windows-x86_64`, `windows-aarch64`): there's no
+  entropy source or secret store there, and each call answers an
+  availability error.
 - On `baremetal-aarch64` there's no page mapping for the secret store,
   so key types aren't available there yet. Random values are, on CPUs
   with `RNDR`.
