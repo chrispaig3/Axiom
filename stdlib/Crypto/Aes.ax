@@ -440,7 +440,7 @@
 ; Lane `i` of the state back out as a 16-byte block at `dst + off`.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: aesInterleaveOut (-> Int Int Int Int Int))
-;@axiom:ct(*q)
+;@axiom:ct(*q, *dst)
 ;@axiom:effect(unsafe)
 ;@axiom:precondition(`q` names 8 live words, `i` is 0..3, and `dst` + `off` names 16 live writable bytes)
 (fn (aesInterleaveOut q i dst off)
@@ -489,7 +489,7 @@
 ; Unslice the state and store its first `n` blocks (1..4) at `dst`.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: aesStoreBlocks (-> Int Int Int Int))
-;@axiom:ct(*q)
+;@axiom:ct(*q, *dst)
 ;@axiom:effect(unsafe)
 ;@axiom:precondition(`q` names 8 live writable words and `dst` names 16 * `n` live writable bytes)
 (fn (aesStoreBlocks q dst n)
@@ -746,7 +746,7 @@
 ; scratch at `work` is wiped before this returns.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: aesKeyExpand (-> Int Int Int Int Int))
-;@axiom:ct(*key, *work)
+;@axiom:ct(*out, *key, *work)
 ;@axiom:effect(unsafe)
 ;@axiom:precondition(`key` names `keyLen` live bytes, `out` names `aesScheduleBytes keyLen` live writable bytes, `work` names `aesKeyWorkBytes` live writable bytes, 8-byte aligned, and none of them overlap)
 (pub fn (aesKeyExpand out key keyLen work)
@@ -823,7 +823,7 @@
 ; `dst` may be the same address. `q` is scratch the caller wipes.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: aesEncryptBlocks (-> Int Int Int Int Int Int Int))
-;@axiom:ct(*sk, *src, *q)
+;@axiom:ct(*sk, *src, *dst, *q)
 ;@axiom:effect(unsafe)
 ;@axiom:precondition(`sk` names the schedule for `nr` rounds, `src` and `dst` name 16 * `n` live bytes (`dst` writable), and `q` names `aesStateBytes` live writable bytes, 8-byte aligned)
 (pub fn (aesEncryptBlocks sk nr src dst n q)
@@ -886,7 +886,7 @@
 ; returns; the caller wipes it.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: aesCtr32Xor (-> Int Int Int Int Int Int Int Int Int))
-;@axiom:ct(*sk, *work, *src)
+;@axiom:ct(*sk, *work, *src, *dst)
 ;@axiom:effect(unsafe)
 ;@axiom:precondition(`sk` names the schedule for `nr` rounds, `work` names `aesCtrWorkBytes` live writable bytes, 8-byte aligned, `iv` names 12 live bytes, and `src` and `dst` name `len` live bytes (`dst` writable))
 (pub fn (aesCtr32Xor sk nr work iv ctr src dst len)

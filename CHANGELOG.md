@@ -22,6 +22,19 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+- A `;@axiom:ct(...)` claim is checked when the program compiles. The
+  compiler follows each named secret through the body and refuses a
+  branch, a memory address or a division that depends on one, and a
+  secret handed to a function whose own claim doesn't name that
+  parameter (`AX3092`). A claim naming anything but a parameter is
+  `AX3093` (`tests/diagnostics/1101-ct-claim.ax`). The check found ten
+  functions in the crypto suite whose claims left a secret unnamed,
+  among them `aesKeyExpand`'s expanded key schedule, and their claims
+  now name it.
+- Syntax highlighting knows every keyword. The tree-sitter query
+  colours `macro`, `emacro`, `set`, `extern`, `literals`, a subtype's
+  `is` and `range`, and the `syntax/` forms, and the REPL and the
+  website colour the `in` of `(for x in xs ...)`.
 - `try!` is now `try`, so the propagation form is named like every other
   macro and function: `(try v (parse s) (use v))`. The old name is gone;
   drop the `!`.

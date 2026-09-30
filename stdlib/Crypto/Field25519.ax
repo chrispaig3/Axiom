@@ -72,7 +72,7 @@
 ; Store the ten limbs of a constant at `out`. Answers 0.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: fe25519Set (-> Int Int Int Int Int Int Int Int Int Int Int Int))
-;@axiom:ct(*out)
+;@axiom:ct(*out, h0, h1, h2, h3, h4, h5, h6, h7, h8, h9)
 ;@axiom:effect(unsafe)
 ;@axiom:precondition(`out` names 10 live writable words)
 (pub fn (fe25519Set out h0 h1 h2 h3 h4 h5 h6 h7 h8 h9)
@@ -469,6 +469,7 @@
 ; The 3 bytes at `p + off`, little-endian.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: ld24le (-> Int Int Int))
+;@axiom:ct(*p)
 ;@axiom:effect(unsafe)
 ;@axiom:precondition(`p` + `off` names 3 live bytes)
 (fn (ld24le p off)

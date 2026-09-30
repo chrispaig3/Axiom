@@ -112,6 +112,7 @@
 ; GHASH pads a short final block with zeros (SP 800-38D 6.4).
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: ghashTailWord (-> Int Int Int Int Int))
+;@axiom:ct(*p)
 ;@axiom:effect(unsafe)
 ;@axiom:precondition(`p` + `off` names `n` live bytes)
 (fn (ghashTailWord p off n half)
@@ -134,7 +135,7 @@
 ; C gets GCM's padding for each. `len` is public; `y` and `h` are not.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ghashUpdate (-> Int Int Int Int Int))
-;@axiom:ct(*y, *h)
+;@axiom:ct(*y, *h, *data)
 ;@axiom:effect(unsafe)
 ;@axiom:precondition(`y` names 16 live writable bytes, `h` 16 live bytes, and `data` `len` live bytes)
 (pub fn (ghashUpdate y h data len)

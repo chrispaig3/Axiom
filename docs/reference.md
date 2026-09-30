@@ -2798,10 +2798,11 @@ above the declaration, like any other `;@axiom:` tag.
 | `pre(...)`, `post(...)` | a condition on the arguments, or on the result | on every call, at run time |
 | `unhandled(trap)` | reaching this effect with no handler is a deliberate abort | at compile time |
 | `precondition(...)` | beside `effect(unsafe)`: what a caller must make true for a call to be safe, so every call is the caller's unsafe operation | at compile time, that it is stated (`AX3079`, `AX3080`); the condition itself is the caller's to meet |
+| `ct(...)` | the function's timing doesn't depend on the named parameters: `key` for a secret value, `*buf` for an address whose memory is secret | at compile time (`AX3092`, `AX3093`) |
 | `nolint(...)` | quiet the editor's lint Hints for this declaration | by the language server |
 
-The compiler knows nine keys: `effect`, `raw`, `pre`, `post`,
-`restrict`, `isr`, `unhandled`, `precondition` and `syscall`. The last
+The compiler knows ten keys: `effect`, `raw`, `pre`, `post`,
+`restrict`, `isr`, `unhandled`, `precondition`, `ct` and `syscall`. The last
 belongs on a platform module's syscall number, as in
 `;@axiom:syscall(block)`, and says what the call behind the number
 does, so every function that names the number performs that effect. Any other key is
@@ -2814,7 +2815,7 @@ metadata: the compiler records it and doesn't check it, so
 wherever it stands.
 
 **A checked key belongs on its declaration.** `effect`, `raw`, `pre`,
-`post`, `restrict`, `isr` and `precondition` are checked on a
+`post`, `restrict`, `isr`, `precondition` and `ct` are checked on a
 function, above its `(:: ...)` or its `(fn ...)`, and `unhandled` on
 an `effect` declaration. Above a `data`, a `struct`, an import, a
 macro or an alias, the claim would be recorded and never read, so it

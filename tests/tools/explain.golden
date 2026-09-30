@@ -99,6 +99,8 @@
   [93mAX3089[0m  a function with no signature, called before its type is known  (signature-needed)
   [93mAX3090[0m  a recovery point's thunk the region check can't see  (recover-thunk-unseen)
   [93mAX3091[0m  an `asm` form the compiler can't lower  (inline-asm)
+  [93mAX3092[0m  a constant-time claim the body breaks  (ct-claim-violated)
+  [93mAX3093[0m  a constant-time claim that names no parameter  (ct-claim-malformed)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -2868,6 +2870,41 @@ clobber may name the stack pointer, the frame pointer or AArch64's
 The declaration holding an `asm` form says `;@axiom:effect(unsafe)`,
 because the compiler can't see what the instructions do.
 
+### explain AX3092
+AX3092 - a constant-time claim the body breaks
+
+`;@axiom:ct(...)` names the parameters of a function that carry
+secrets: `key` for a secret value, `*buf` for an address whose
+memory is secret. It promises that the function's timing doesn't
+depend on them:
+
+    ;@axiom:ct(a, b)
+    (fn (ctEq a b)
+      (ctMaskZero (^ a b)))
+
+The compiler follows each secret through the body. It refuses a
+branch on one (`if`, `while`, `&&`, `||`, a `match` of more than
+one arm), a load or store at an address computed from one, a
+division with a secret operand, and a secret handed to a function
+whose own `ct(...)` claim doesn't name that parameter.
+
+Choose between two computed values with the masks in `Crypto.Ct`
+(`ctSelect`, `ctMaskEq`) instead of branching, add the parameter to
+the callee's claim, or take the parameter out of this one.
+
+### explain AX3093
+AX3093 - a constant-time claim that names no parameter
+
+`;@axiom:ct(...)` lists the parameters that carry secrets: `name`
+for a secret value and `*name` for an address whose memory is
+secret.
+
+    ;@axiom:ct(key, *buf)
+    (fn (seal key buf len) ...)
+
+A claim that names nothing, or names something that isn't one of
+the function's parameters, can't be checked, so it's refused.
+
 ### explain AX4001
 AX4001 - no `main` function
 
@@ -3333,6 +3370,8 @@ run `axiom explain --list` to see all known codes
   [93mAX3089[0m  a function with no signature, called before its type is known  (signature-needed)
   [93mAX3090[0m  a recovery point's thunk the region check can't see  (recover-thunk-unseen)
   [93mAX3091[0m  an `asm` form the compiler can't lower  (inline-asm)
+  [93mAX3092[0m  a constant-time claim the body breaks  (ct-claim-violated)
+  [93mAX3093[0m  a constant-time claim that names no parameter  (ct-claim-malformed)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)

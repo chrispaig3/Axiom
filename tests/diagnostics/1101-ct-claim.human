@@ -1,0 +1,91 @@
+[1;31merror[AX3092][0m[1m: `==` is secret, and `if` branches on it (`branches` claims `ct(x)`)[0m
+  [1;34m--> [0m1101-ct-claim.ax:16:8
+[1;34m   |[0m
+[1;34m16 |[0m   (if (== x 5)
+[1;34m   |[0m        [1;31m^^ a branch on a secret[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma function that claims `ct(...)` promises its timing doesn't depend on the parameters it names. A branch, a memory address or a division that depends on one breaks the promise, and so does handing one to a function whose own claim doesn't name it. Compute both sides and choose between them with the masks in `Crypto.Ct` (`ctSelect`, `ctMaskEq`), claim the callee's parameter, or take the parameter out of this claim
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3092` for a full explanation
+
+[1;31merror[AX3092][0m[1m: `<` is secret, and `while` branches on it (`loops` claims `ct(n)`)[0m
+  [1;34m--> [0m1101-ct-claim.ax:25:15
+[1;34m   |[0m
+[1;34m25 |[0m       (while (< i n)
+[1;34m   |[0m               [1;31m^ a branch on a secret[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma function that claims `ct(...)` promises its timing doesn't depend on the parameters it names. A branch, a memory address or a division that depends on one breaks the promise, and so does handing one to a function whose own claim doesn't name it. Compute both sides and choose between them with the masks in `Crypto.Ct` (`ctSelect`, `ctMaskEq`), claim the callee's parameter, or take the parameter out of this claim
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3092` for a full explanation
+
+[1;31merror[AX3092][0m[1m: `&&` short-circuits on a secret (`shortCircuits` claims `ct(a)`)[0m
+  [1;34m--> [0m1101-ct-claim.ax:33:4
+[1;34m   |[0m
+[1;34m33 |[0m   (&& (== a 0) (== b 0)))
+[1;34m   |[0m    [1;31m^^ a branch on a secret[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma function that claims `ct(...)` promises its timing doesn't depend on the parameters it names. A branch, a memory address or a division that depends on one breaks the promise, and so does handing one to a function whose own claim doesn't name it. Compute both sides and choose between them with the masks in `Crypto.Ct` (`ctSelect`, `ctMaskEq`), claim the callee's parameter, or take the parameter out of this claim
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3092` for a full explanation
+
+[1;31merror[AX3092][0m[1m: `__load8` reads at an address computed from a secret (`indexes` claims `ct(x)`)[0m
+  [1;34m--> [0m1101-ct-claim.ax:39:4
+[1;34m   |[0m
+[1;34m39 |[0m   (__load8 tbl (& x 255)))
+[1;34m   |[0m    [1;31m^^^^^^^ an address from a secret[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma function that claims `ct(...)` promises its timing doesn't depend on the parameters it names. A branch, a memory address or a division that depends on one breaks the promise, and so does handing one to a function whose own claim doesn't name it. Compute both sides and choose between them with the masks in `Crypto.Ct` (`ctSelect`, `ctMaskEq`), claim the callee's parameter, or take the parameter out of this claim
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3092` for a full explanation
+
+[1;31merror[AX3092][0m[1m: `/` has a secret operand (`divides` claims `ct(x)`)[0m
+  [1;34m--> [0m1101-ct-claim.ax:44:4
+[1;34m   |[0m
+[1;34m44 |[0m   (/ 1000 (| x 1)))
+[1;34m   |[0m    [1;31m^ a division by or of a secret[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma function that claims `ct(...)` promises its timing doesn't depend on the parameters it names. A branch, a memory address or a division that depends on one breaks the promise, and so does handing one to a function whose own claim doesn't name it. Compute both sides and choose between them with the masks in `Crypto.Ct` (`ctSelect`, `ctMaskEq`), claim the callee's parameter, or take the parameter out of this claim
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3092` for a full explanation
+
+[1;31merror[AX3092][0m[1m: `public` gets a secret, and makes no `ct(...)` claim (`unclaimed` claims `ct(k)`)[0m
+  [1;34m--> [0m1101-ct-claim.ax:53:4
+[1;34m   |[0m
+[1;34m53 |[0m   (public k))
+[1;34m   |[0m    [1;31m^^^^^^ a secret to an unclaimed call[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma function that claims `ct(...)` promises its timing doesn't depend on the parameters it names. A branch, a memory address or a division that depends on one breaks the promise, and so does handing one to a function whose own claim doesn't name it. Compute both sides and choose between them with the masks in `Crypto.Ct` (`ctSelect`, `ctMaskEq`), claim the callee's parameter, or take the parameter out of this claim
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3092` for a full explanation
+
+[1;31merror[AX3092][0m[1m: `ctWipe` gets a secret for `n`, which its `ct(...)` claim doesn't name (`publicParam` claims `ct(*p, k)`)[0m
+  [1;34m--> [0m1101-ct-claim.ax:59:4
+[1;34m   |[0m
+[1;34m59 |[0m   (ctWipe p k))
+[1;34m   |[0m    [1;31m^^^^^^ a secret to a public parameter[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma function that claims `ct(...)` promises its timing doesn't depend on the parameters it names. A branch, a memory address or a division that depends on one breaks the promise, and so does handing one to a function whose own claim doesn't name it. Compute both sides and choose between them with the masks in `Crypto.Ct` (`ctSelect`, `ctMaskEq`), claim the callee's parameter, or take the parameter out of this claim
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3092` for a full explanation
+
+[1;31merror[AX3092][0m[1m: `==` is secret, and `if` branches on it (`carried` claims `ct(k)`)[0m
+  [1;34m--> [0m1101-ct-claim.ax:67:14
+[1;34m   |[0m
+[1;34m67 |[0m         (if (== acc 3)
+[1;34m   |[0m              [1;31m^^ a branch on a secret[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma function that claims `ct(...)` promises its timing doesn't depend on the parameters it names. A branch, a memory address or a division that depends on one breaks the promise, and so does handing one to a function whose own claim doesn't name it. Compute both sides and choose between them with the masks in `Crypto.Ct` (`ctSelect`, `ctMaskEq`), claim the callee's parameter, or take the parameter out of this claim
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3092` for a full explanation
+
+[1;31merror[AX3093][0m[1m: `notAParameter` claims `ct(y)`, and `y` isn't one of its parameters[0m
+  [1;34m--> [0m1101-ct-claim.ax:75:6
+[1;34m   |[0m
+[1;34m75 |[0m (fn (notAParameter x)
+[1;34m   |[0m      [1;31m^^^^^^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0m`ct(...)` names the parameters that carry secrets: `name` for a secret value, `*name` for an address whose memory is secret. Name only this function's own parameters
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3093` for a full explanation
+
+[1;31merror[AX3093][0m[1m: `namesNothing` claims `ct(...)` and names no parameter[0m
+  [1;34m--> [0m1101-ct-claim.ax:80:6
+[1;34m   |[0m
+[1;34m80 |[0m (fn (namesNothing x)
+[1;34m   |[0m      [1;31m^^^^^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0m`ct(...)` names the parameters that carry secrets: `name` for a secret value, `*name` for an address whose memory is secret. Name only this function's own parameters
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3093` for a full explanation
+
+compilation failed due to 10 previous errors

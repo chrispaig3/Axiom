@@ -52,7 +52,7 @@
 ; accumulator zero.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: poly1305Init (-> Int Int Int))
-;@axiom:ct(*key)
+;@axiom:ct(*st, *key)
 ;@axiom:effect(unsafe)
 ;@axiom:precondition(`st` names `poly1305StateBytes` live writable bytes, 8-byte aligned, and `key` 32 live bytes)
 (pub fn (poly1305Init st key)

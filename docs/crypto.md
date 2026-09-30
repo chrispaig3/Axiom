@@ -469,8 +469,20 @@ indices and division that depend on secrets.
 Code that looks branchless isn't enough, because the optimiser can
 turn a mask back into a branch. `Crypto.Ct` passes every mask a secret
 produces through `ctBarrier`, an empty assembly block that hides the
-value from the optimiser. Functions that handle secrets carry a
-`;@axiom:ct(...)` tag naming their secret parameters.
+value from the optimiser.
+
+Functions that handle secrets carry a `;@axiom:ct(...)` tag naming
+their secret parameters, and the compiler holds the body to it:
+
+```scheme fragment
+;@axiom:ct(a, b)
+(pub fn (ctMaskEq a b)
+  (ctMaskZero (^ a b)))
+```
+
+A branch, a memory address or a division that depends on a named
+secret is refused (`AX3092`), and so is a secret handed to a function
+whose own claim doesn't name that parameter.
 
 Some channels are below what Axiom source controls: a multiplier whose
 timing depends on its operands, cache lines shared with another

@@ -2,17 +2,19 @@
 
 Every error the compiler reports, classified by the invariant it
 protects, and the decisions taken on the refusals in question.
-`explain --list` reports 105 codes: 94 errors and 11 warnings. The
+`explain --list` reports 107 codes: 96 errors and 11 warnings. The
 classes come from probing the compiler, not from reading the code.
 The probes are in the audit work in this file's history, and each
 decided case names the test that pins it.
 
-- **S**: required for soundness, memory safety or valid semantics. 77
-  codes, all retained. The newest is `AX4009`: a handler bound to an
-  exception vector that reaches `wfi` or a system call, and so waits on
-  code that can't run until it returns.
+- **S**: required for soundness, memory safety or valid semantics. 79
+  codes, all retained. The newest are `AX3092` and `AX3093`: a
+  constant-time claim the body breaks, and one that names no
+  parameter. Before them came `AX4009`: a handler bound to an
+  exception vector that reaches `wfi` or a system call, and so waits
+  on code that can't run until it returns.
 
-  Before it came `AX3091`: an `asm` form the compiler can't lower, such
+  Before that came `AX3091`: an `asm` form the compiler can't lower, such
   as one naming the stack pointer as an operand. Before that came
   `AX3084` to `AX3086`, each a way to forge a handle: a word struct's
   markers that don't fit its shape, and building one or reading its

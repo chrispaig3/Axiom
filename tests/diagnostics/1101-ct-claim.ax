@@ -1,0 +1,85 @@
+; A `;@axiom:ct(...)` claim names the parameters that carry secrets.
+; The body is refused where a secret decides a branch, an address or a
+; division, or reaches a function whose own claim doesn't name it
+; (AX3092). A claim naming anything but a parameter is AX3093. `clean`
+; is the control: it chooses with masks, and draws nothing.
+(import Crypto.Ct)
+
+(:: clean (-> Int Int Int))
+;@axiom:ct(a, b)
+(fn (clean a b)
+  (ctSelect (ctMaskEq a b) a b))
+
+(:: branches (-> Int Int))
+;@axiom:ct(x)
+(fn (branches x)
+  (if (== x 5)
+    1
+    2))
+
+(:: loops (-> Int Int))
+;@axiom:ct(n)
+(fn (loops n)
+  (let ((mut i 0))
+    {
+      (while (< i n)
+        (set i (+ i 1)))
+      i
+    }))
+
+(:: shortCircuits (-> Int Int Bool))
+;@axiom:ct(a)
+(fn (shortCircuits a b)
+  (&& (== a 0) (== b 0)))
+
+(:: indexes (-> Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:ct(x)
+(fn (indexes tbl x)
+  (__load8 tbl (& x 255)))
+
+(:: divides (-> Int Int))
+;@axiom:ct(x)
+(fn (divides x)
+  (/ 1000 (| x 1)))
+
+(:: public (-> Int Int))
+(fn (public x)
+  (+ x 1))
+
+(:: unclaimed (-> Int Int))
+;@axiom:ct(k)
+(fn (unclaimed k)
+  (public k))
+
+(:: publicParam (-> Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:ct(*p, k)
+(fn (publicParam p k)
+  (ctWipe p k))
+
+(:: carried (-> Int Int))
+;@axiom:ct(k)
+(fn (carried k)
+  (let ((mut acc 0))
+    {
+      (for i 0 4
+        (if (== acc 3)
+          (set acc 0)
+          (set acc (^ acc k))))
+      acc
+    }))
+
+(:: notAParameter (-> Int Int))
+;@axiom:ct(y)
+(fn (notAParameter x)
+  x)
+
+(:: namesNothing (-> Int Int))
+;@axiom:ct()
+(fn (namesNothing x)
+  x)
+
+(:: main Int)
+(fn (main)
+  0)

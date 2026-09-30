@@ -2380,11 +2380,16 @@
 ;                    `restrict(no-unsafe)` was read.
 ;   3 `unsafePending` every declaration whose `restrict(no-unsafe)` its
 ;                    row could not refute, for that same pass.
+;   4 `ctClaimed`   every declaration with a `ct(...)` claim, found the
+;                    first time one is checked (`ctTable`), 0 before.
+;   5 `ctResults`   the result taint of each, beside it (`ctSummary`).
 (struct UState
   (unsafeSink : Int)
   (forgeSites : Int)
   (forgeDecls : (Vec Int))
-  (unsafePending : (Vec Int)))
+  (unsafePending : (Vec Int))
+  (ctClaimed : Int)
+  (ctResults : Int))
 
 ; Word 18 was `traits`, the `trait` declaration nodes `symbols`
 ; walked, and word 28 was `implIdx`, every `impl` declaration
@@ -3333,7 +3338,7 @@
           vecNew
           vecNew
           (countWordStructs allDecls 0 0)
-          (UState 0 0 vecNew vecNew)
+          (UState 0 0 vecNew vecNew 0 0)
           vecNew))))
         {
           (memSetWord tc 30 (tyIdxNew (vecLen allDecls)))
@@ -19783,6 +19788,8 @@
           (unsafeNotePending tc d own sig eff)
           ; `;@axiom:precondition(...)` has a shape (AX3079, AX3080).
           (checkPreconditionTags tc d own sig)
+          ; `;@axiom:ct(...)` holds of the body (AX3092, AX3093).
+          (checkCtClaim tc d)
           ; A declaration that made ANY effect claim belongs to AX3010,
           ; right or wrong. This arm is for the one that made none.
           (if (|| (== (axtagsClaimAny sig) 1) (== (axtagsClaimAny own) 1))
@@ -24067,7 +24074,12 @@
                   ; drop an effect every caller of the number owes.
                   (if (strEq key "syscall")
                     1
-                    0))))))))))
+                    ; `ct(...)` is checked (AX3092), so a slip of it
+                    ; would publish a constant-time promise nobody
+                    ; checked.
+                    (if (strEq key "ct")
+                      1
+                      0)))))))))))
 
 (pub :: axtagNearMiss (-> String String))
 (pub fn (axtagNearMiss key)
@@ -24091,7 +24103,9 @@
                     "precondition"
                     (if (== (axtagSlip key "syscall") 1)
                       "syscall"
-                      "")))))))))))
+                      (if (== (axtagSlip key "ct") 1)
+                        "ct"
+                        ""))))))))))))
 
 (pub :: axtagSlip (-> String String Int))
 (pub fn (axtagSlip key known)
@@ -26918,3 +26932,809 @@
         (wordLowerApply tc)
         tc
       })))
+
+; ------------------------------------------------------------------
+; Constant time: `;@axiom:ct(a, *p)` (AX3092, AX3093).
+;
+; The claim names a function's secret parameters: `a` for a secret
+; value and `*p` for an address whose memory is secret. Every other
+; parameter is public. The body is walked with a taint on every
+; binding - 0 public, 1 an address into secret memory, 2 a secret
+; value - one round after another until no taint grows, and the last
+; round's findings are reported: a branch on a secret (`if`, `while`,
+; `&&`, `||`, a `match` of more than one arm), a load or store at an
+; address computed from one, a division with a secret operand, and a
+; secret handed to a function whose own claim doesn't name that
+; parameter. A call to a claimed function answers the taint of that
+; function's result, found once by walking its body under its own
+; claim.
+;
+; A taint lives on the binding, keyed by the node that made it, so two
+; bindings that share a name in different scopes stay apart. This is
+; the source half of the evidence: `scripts/check-crypto.sh` asks the
+; same questions of the optimised IR (`scripts/lib/ct-taint.py`),
+; where a branch the optimiser put back would show.
+; ------------------------------------------------------------------
+(struct CtWalk
+  (tc : Int)
+  (fnName : String)
+  (claim : String)
+  (keys : (Vec Int))
+  (taints : (Vec Int))
+  (names : (Vec String))
+  (rows : (Vec Int))
+  (spans : (Vec Int))
+  (msgs : (Vec String))
+  (labels : (Vec String))
+  (grew : (Vec Int)))
+
+(pub :: ctJoin (-> Int Int Int))
+(pub fn (ctJoin a b)
+  (if (> a b)
+    a
+    b))
+
+; Every name in every `ct(...)` tag of `tags`, pushed once each; a
+; tag naming nothing pushes the empty name, so it is reported rather
+; than read as a claim of nothing.
+(pub :: ctCollect (-> (Vec Int) (Vec String) Int Int))
+;@axiom:effect(unsafe)
+(pub fn (ctCollect tags cs i)
+  (if (==
+    (cast Int tags)
+    0)
+    0
+    (if (>= i (vecLen tags))
+      0
+      (let ((content (memGetWordStr (vecGet tags i) 1)))
+        (let ((op
+          (match (strFindByte content 40 0)
+            ((None) (- 0 1))
+            ((Some k) k))))
+          {
+            (if (strEq
+              (if (< op 0)
+                content
+                (strSlice content 0 op))
+              "ct")
+              {
+                (restrictSplit (axtagListValue content op) cs)
+                0
+              }
+              0)
+            (ctCollect tags cs (+ i 1))
+          })))))
+
+; A function's claim, from its signature and its `fn` together. Empty
+; when it makes none.
+(pub :: ctClaimOf (-> Int Int (Vec String)))
+;@axiom:effect(unsafe)
+(pub fn (ctClaimOf tc d)
+  (let ((cs vecNew))
+    {
+      (ctCollect (sigAxtagsFor tc (nodeAName d)) cs 0)
+      (ctCollect (memGetWordVec d 7) cs 0)
+      cs
+    }))
+
+; What a claim says of parameter `p`: 2 a secret value, 1 an address
+; into secret memory, 0 public.
+(pub :: ctParamKind (-> (Vec String) String Int))
+(pub fn (ctParamKind cs p)
+  (if (== (strInVec cs p 0) 1)
+    2
+    (if (== (strInVec cs (strConcat "*" p) 0) 1)
+      1
+      0)))
+
+; The claim as written, `a, *p`, for messages.
+(pub :: ctClaimText (-> (Vec String) String))
+(pub fn (ctClaimText cs)
+  (let (
+    (mut i 0)
+    (mut s "")
+  )
+    {
+      (while (< i (vecLen cs))
+        {
+          (set s (if (== i 0)
+            (vecGet cs i)
+            (strConcat s (strConcat ", " (vecGet cs i)))))
+          (set i (+ i 1))
+        })
+      s
+    }))
+
+; The declarations that make a claim, found once per compilation and
+; kept in the unsafe record's word 4, beside their result taints in
+; word 5: -1 until asked, 3 while being found.
+(pub :: ctTable (-> Int (Vec Int)))
+;@axiom:effect(unsafe)
+(pub fn (ctTable tc)
+  (let ((u (memGetWord tc 44)))
+    {
+      (if (== (memGetWord u 4) 0)
+        (let (
+          (decls (memGetWordVec tc 10))
+          (tab vecNew)
+          (sums vecNew)
+          (mut i 0)
+        )
+          {
+            (while (< i (vecLen decls))
+              {
+                (let ((dd (vecGet decls i)))
+                  (if (== (nodeTag dd) TAG_D_FN)
+                    (if (> (vecLen (ctClaimOf tc dd)) 0)
+                      {
+                        (vecPush tab dd)
+                        (vecPush sums (- 0 1))
+                        0
+                      }
+                      0)
+                    0))
+                (set i (+ i 1))
+              })
+            (memSetWord u 5 (cast Int sums))
+            (memSetWord u 4 (cast Int tab))
+            0
+          })
+        0)
+      (cast (Vec Int) (memGetWord u 4))
+    }))
+
+(pub :: ctSums (-> Int (Vec Int)))
+;@axiom:effect(unsafe)
+(pub fn (ctSums tc)
+  (cast (Vec Int) (memGetWord (memGetWord tc 44) 5)))
+
+; The declared name a call's head resolves to, the way the checker
+; resolves it: a call names its callee bare, even across modules.
+(pub :: ctResolve (-> Int String String))
+;@axiom:effect(unsafe)
+(pub fn (ctResolve tc n)
+  (let ((ent (findFnEnt tc n)))
+    (if (== ent 0)
+      n
+      (memGetWordStr ent 0))))
+
+; Run `f` over `d` with the checker's current module set to `d`'s,
+; which is what `findFnEnt` resolves a bare name against.
+(pub :: ctInModule (-> Int Int (-> Int Int) Int))
+;@axiom:effect(unsafe)
+(pub fn (ctInModule tc d f)
+  (let ((saved (memGetWord tc 16)))
+    {
+      (memSetWord tc 16 (nodeModule d))
+      (let ((r (f d)))
+        {
+          (memSetWord tc 16 saved)
+          r
+        })
+    }))
+
+(pub :: ctTableIndex (-> (Vec Int) String Int))
+(pub fn (ctTableIndex tab name)
+  (let (
+    (mut i 0)
+    (mut at (- 0 1))
+  )
+    {
+      (while (&& (< i (vecLen tab)) (< at 0))
+        {
+          (if (strEq (nodeAName (vecGet tab i)) name)
+            {
+              (set at i)
+              0
+            }
+            0)
+          (set i (+ i 1))
+        })
+      at
+    }))
+
+; The result taint of the `k`th claimed function: its body walked once
+; under its own claim. A function reached again while its own walk is
+; under way answers secret, which is never wrong.
+(pub :: ctSummary (-> Int Int Int))
+(pub fn (ctSummary tc k)
+  (let (
+    (sums (ctSums tc))
+    (s (vecGet (ctSums tc) k))
+  )
+    (if (== s 3)
+      2
+      (if (>= s 0)
+        s
+        (let ((dd (vecGet (ctTable tc) k)))
+          {
+            (vecSet sums k 3)
+            (let (
+              (cs (ctClaimOf tc dd))
+            )
+              (let ((r (ctInModule tc dd (lambda (x) (ctRounds (ctWalkNew tc (nodeAName x) (ctClaimText cs)) x cs)))))
+                {
+                  (vecSet sums k r)
+                  r
+                }))
+          })))))
+
+; A walk of the function named `name`, whose claim reads `claim`.
+(pub :: ctWalkNew (-> Int String String CtWalk))
+(pub fn (ctWalkNew tc name claim)
+  (CtWalk
+    tc
+    (bareOf name)
+    claim
+    vecNew
+    vecNew
+    vecNew
+    vecNew
+    vecNew
+    vecNew
+    vecNew
+    (vecPush vecNew 0)))
+
+; The row a binding's key names, made on first sight.
+(pub :: ctRowFor (-> CtWalk Int Int))
+(pub fn (ctRowFor w key)
+  (let (
+    (mut i 0)
+    (mut at (- 0 1))
+  )
+    {
+      (while (&& (< i (vecLen w.keys)) (< at 0))
+        {
+          (if (== (vecGet w.keys i) key)
+            {
+              (set at i)
+              0
+            }
+            0)
+          (set i (+ i 1))
+        })
+      (if (< at 0)
+        {
+          (vecPush w.keys key)
+          (vecPush w.taints 0)
+          (- (vecLen w.keys) 1)
+        }
+        at)
+    }))
+
+(pub :: ctRaise (-> CtWalk Int Int Int))
+(pub fn (ctRaise w row t)
+  (if (> t (vecGet w.taints row))
+    {
+      (vecSet w.taints row t)
+      (vecSet w.grew 0 1)
+      0
+    }
+    0))
+
+(pub :: ctBind (-> CtWalk String Int Int Int))
+(pub fn (ctBind w name key t)
+  (let ((row (ctRowFor w key)))
+    {
+      (ctRaise w row t)
+      (vecPush w.names name)
+      (vecPush w.rows row)
+      0
+    }))
+
+; The row the innermost binding of `name` uses, or -1 for a name bound
+; outside the body (a function, a constant), which is public.
+(pub :: ctScopeRow (-> CtWalk String Int))
+(pub fn (ctScopeRow w name)
+  (let (
+    (mut i (- (vecLen w.names) 1))
+    (mut at (- 0 1))
+  )
+    {
+      (while (&& (>= i 0) (< at 0))
+        {
+          (if (strEq (vecGet w.names i) name)
+            {
+              (set at (vecGet w.rows i))
+              0
+            }
+            0)
+          (set i (- i 1))
+        })
+      at
+    }))
+
+(pub :: ctUnscope (-> CtWalk Int Int))
+(pub fn (ctUnscope w mark)
+  {
+    (while (> (vecLen w.names) mark)
+      {
+        (vecPop w.names)
+        (vecPop w.rows)
+        0
+      })
+    0
+  })
+
+(pub :: ctHit (-> CtWalk Int String String Int))
+(pub fn (ctHit w span msg label)
+  {
+    (vecPush w.spans span)
+    (vecPush w.msgs (strConcat msg (strConcat " (`" (strConcat w.fnName (strConcat "` claims `ct(" (strConcat w.claim ")`)"))))))
+    (vecPush w.labels label)
+    0
+  })
+
+; The name a node's span covers, for a message that leads with it:
+; a variable's, or an application's head's.
+(pub :: ctSpanText (-> Int String))
+(pub fn (ctSpanText e)
+  (if (== (nodeTag e) TAG_E_VAR)
+    (bareOf (nodeAName e))
+    (if (== (nodeTag e) TAG_E_APP)
+      (let ((h (spineHead e)))
+        (if (== (nodeTag h) TAG_E_VAR)
+          (bareOf (nodeAName h))
+          ""))
+      "")))
+
+; A branch on a secret, reported at its condition: an `if` node carries
+; no span of its own.
+(pub :: ctBranchHit (-> CtWalk Int Int String Int))
+(pub fn (ctBranchHit w e cond kw)
+  (let ((txt (ctSpanText cond)))
+    (ctHit
+      w
+      (if (== (nodeSpan cond) 0)
+        (nodeSpan e)
+        (nodeSpan cond))
+      (if (== (strLen txt) 0)
+        (strConcat (strConcat "`" kw) "` branches on a secret")
+        (strConcat (strConcat (strConcat (strConcat "`" txt) "` is secret, and `") kw) "` branches on it"))
+      "a branch on a secret")))
+
+(pub :: ctEvalVec (-> CtWalk (Vec Int) Int))
+(pub fn (ctEvalVec w es)
+  (let (
+    (mut i 0)
+    (mut t 0)
+  )
+    {
+      (while (< i (vecLen es))
+        {
+          (set t (ctEval w (vecGet es i)))
+          (set i (+ i 1))
+        })
+      t
+    }))
+
+(pub :: ctEvalArgs (-> CtWalk (Vec Int) (Vec Int)))
+(pub fn (ctEvalArgs w es)
+  (let (
+    (ts vecNew)
+    (mut i 0)
+  )
+    {
+      (while (< i (vecLen es))
+        {
+          (vecPush ts (ctEval w (vecGet es i)))
+          (set i (+ i 1))
+        })
+      ts
+    }))
+
+; The highest taint among the first `n` of `ts`.
+(pub :: ctMaxTo (-> (Vec Int) Int Int))
+(pub fn (ctMaxTo ts n)
+  (let (
+    (mut i 0)
+    (mut m 0)
+  )
+    {
+      (while (&& (< i n) (< i (vecLen ts)))
+        {
+          (set m (ctJoin m (vecGet ts i)))
+          (set i (+ i 1))
+        })
+      m
+    }))
+
+(pub :: ctIsArith (-> String Bool))
+(pub fn (ctIsArith n)
+  (|| (strEq n "+") (|| (strEq n "-") (|| (strEq n "*") (|| (strEq n "&") (|| (strEq n "|") (|| (strEq n "^") (|| (strEq n "<<") (strEq n ">>")))))))))
+
+(pub :: ctIsCompare (-> String Bool))
+(pub fn (ctIsCompare n)
+  (|| (strEq n "==") (|| (strEq n "!=") (|| (strEq n "<") (|| (strEq n ">") (|| (strEq n "<=") (|| (strEq n ">=") (strEq n "!"))))))))
+
+(pub :: ctIsCtor (-> String Bool))
+(pub fn (ctIsCtor b)
+  (if (== (strLen b) 0)
+    false
+    (&& (>= (strByte b 0) 65) (<= (strByte b 0) 90))))
+
+(pub :: ctEvalApp (-> CtWalk Int Int))
+(pub fn (ctEvalApp w e)
+  (let (
+    (head (spineHead e))
+    (ts (ctEvalArgs w (spineArgVec e vecNew)))
+  )
+    (if (== (nodeTag head) TAG_E_VAR)
+      (ctEvalNamed w e (nodeAName head) ts)
+      {
+        (ctEval w head)
+        (if (> (ctMaxTo ts (vecLen ts)) 0)
+          (ctHit w (nodeSpan e) "a call through a value gets a secret" "a secret to an unclaimed call")
+          0)
+        0
+      })))
+
+(pub :: ctEvalNamed (-> CtWalk Int String (Vec Int) Int))
+(pub fn (ctEvalNamed w e n ts)
+  (let (
+    (m (ctMaxTo ts (vecLen ts)))
+    (b (bareOf n))
+  )
+    (if (ctIsArith n)
+      m
+      (if (ctIsCompare n)
+        (if (== m 2)
+          2
+          0)
+        (if (|| (strEq n "/") (strEq n "%"))
+          {
+            (if (== m 2)
+              (ctHit w (nodeSpan e) (strConcat (strConcat "`" n) "` has a secret operand") "a division by or of a secret")
+              0)
+            (if (> m 0)
+              2
+              0)
+          }
+          (if (|| (strEq n "&&") (strEq n "||"))
+            {
+              (if (== m 2)
+                (ctHit w (nodeSpan e) (strConcat (strConcat "`" n) "` short-circuits on a secret") "a branch on a secret")
+                0)
+              m
+            }
+            (if (strStartsWith n "__load")
+              (if (== m 2)
+                {
+                  (ctHit w (nodeSpan e) (strConcat (strConcat "`" n) "` reads at an address computed from a secret") "an address from a secret")
+                  2
+                }
+                (if (== m 1)
+                  2
+                  0))
+              (if (strStartsWith n "__store")
+                {
+                  (if (== (ctMaxTo ts 2) 2)
+                    (ctHit w (nodeSpan e) (strConcat (strConcat "`" n) "` writes at an address computed from a secret") "an address from a secret")
+                    0)
+                  0
+                }
+                (if (== (isAsmPrim n) 1)
+                  (if (> m 0)
+                    2
+                    0)
+                  (if (ctIsCtor b)
+                    (if (> m 0)
+                      2
+                      0)
+                    (ctEvalCall w e n ts m)))))))))))
+
+; A call to a named function. Public arguments make a public result.
+; A secret may go only where the callee's own claim names that
+; parameter - a secret value to `x`, an address into secret memory to
+; `x` or `*x` - and the result is then the callee's result taint.
+(pub :: ctEvalCall (-> CtWalk Int String (Vec Int) Int Int))
+(pub fn (ctEvalCall w e n ts m)
+  (if (== m 0)
+    0
+    (let ((k (ctTableIndex (ctTable w.tc) (ctResolve w.tc n))))
+      (if (< k 0)
+        {
+          (ctHit w (nodeSpan e) (strConcat (strConcat "`" (bareOf n)) "` gets a secret, and makes no `ct(...)` claim") "a secret to an unclaimed call")
+          0
+        }
+        (let ((dd (vecGet (ctTable w.tc) k)))
+          {
+            (ctCheckArgs w e dd (ctClaimOf w.tc dd) ts 0)
+            (ctSummary w.tc k)
+          })))))
+
+(pub :: ctCheckArgs (-> CtWalk Int Int (Vec String) (Vec Int) Int Int))
+(pub fn (ctCheckArgs w e dd cs ts i)
+  (if (>= i (vecLen ts))
+    0
+    (let (
+      (t (vecGet ts i))
+      (p (restrictParamName dd i))
+    )
+      {
+        (if (&& (> t 0) (== (ctParamKind cs p) 0))
+          (ctHit w (nodeSpan e) (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName dd))) "` gets a secret for `") p) "`, which its `ct(...)` claim doesn't name") "a secret to a public parameter")
+          (if (&& (== t 2) (== (ctParamKind cs p) 1))
+            (ctHit w (nodeSpan e) (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName dd))) "` gets a secret value for `") p) "`, which its claim names as an address, `*") p) "`") "a secret to a public parameter")
+            0))
+        (ctCheckArgs w e dd cs ts (+ i 1))
+      })))
+
+; A pattern's binders take the scrutinee's taint.
+(pub :: ctBindPat (-> CtWalk Int Int Int))
+(pub fn (ctBindPat w pat t)
+  (if (== pat 0)
+    0
+    (let ((tag (nodeTag pat)))
+      (if (== tag TAG_E_VAR)
+        (ctBind w (nodeAName pat) pat t)
+        (if (== tag TAG_E_APP)
+          {
+            (ctBindPat w (nodeB pat) t)
+            (ctBindPatHead w (nodeA pat) t)
+          }
+          (if (== tag TAG_P_CONNAMED)
+            (ctBindPats w (nodeCVec pat) 0 t)
+            0))))))
+
+(pub :: ctBindPatHead (-> CtWalk Int Int Int))
+(pub fn (ctBindPatHead w pat t)
+  (if (== (nodeTag pat) TAG_E_APP)
+    {
+      (ctBindPat w (nodeB pat) t)
+      (ctBindPatHead w (nodeA pat) t)
+    }
+    0))
+
+(pub :: ctBindPats (-> CtWalk (Vec Int) Int Int Int))
+(pub fn (ctBindPats w pats i t)
+  (if (>= i (vecLen pats))
+    0
+    {
+      (ctBindPat w (vecGet pats i) t)
+      (ctBindPats w pats (+ i 1) t)
+    }))
+
+(pub :: ctEvalArms (-> CtWalk (Vec Int) Int Int))
+(pub fn (ctEvalArms w arms s)
+  (let (
+    (mut i 0)
+    (mut r 0)
+  )
+    {
+      (while (< i (vecLen arms))
+        {
+          (let (
+            (a (vecGet arms i))
+            (mark (vecLen w.names))
+          )
+            {
+              (ctBindPat w (nodeA a) s)
+              (set r (ctJoin r (ctEval w (nodeB a))))
+              (ctUnscope w mark)
+            })
+          (set i (+ i 1))
+        })
+      r
+    }))
+
+(pub :: ctEval (-> CtWalk Int Int))
+(pub fn (ctEval w e)
+  (if (== e 0)
+    0
+    (let ((tag (nodeTag e)))
+      (if (== tag TAG_E_VAR)
+        (let ((row (ctScopeRow w (nodeAName e))))
+          (if (< row 0)
+            0
+            (vecGet w.taints row)))
+        (if (== tag TAG_E_APP)
+          (ctEvalApp w e)
+          (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
+            (let (
+              (t (ctEval w (nodeB e)))
+              (mark (vecLen w.names))
+            )
+              {
+                (ctBind w (nodeAName e) e t)
+                (let ((r (ctEval w (nodeC e))))
+                  {
+                    (ctUnscope w mark)
+                    r
+                  })
+              })
+            (if (== tag TAG_E_IF)
+              (let ((c (ctEval w (nodeA e))))
+                {
+                  (if (== c 2)
+                    (ctBranchHit w e (nodeA e) "if")
+                    0)
+                  (ctJoin c (ctJoin (ctEval w (nodeB e)) (ctEval w (nodeC e))))
+                })
+              (if (== tag TAG_E_WHILE)
+                (let ((c (ctEval w (nodeA e))))
+                  {
+                    (if (== c 2)
+                      (ctBranchHit w e (nodeA e) "while")
+                      0)
+                    (ctEvalVec w (nodeBVec e))
+                    0
+                  })
+                (if (== tag TAG_E_BEGIN)
+                  (ctEvalVec w (nodeAVec e))
+                  (if (== tag TAG_E_MATCH)
+                    (let (
+                      (s (ctEval w (nodeA e)))
+                      (arms (nodeBVec e))
+                    )
+                      {
+                        (if (&& (== s 2) (> (vecLen arms) 1))
+                          (ctBranchHit w e (nodeA e) "match")
+                          0)
+                        (ctEvalArms w arms s)
+                      })
+                    (if (== tag TAG_E_SET)
+                      (let (
+                        (t (ctEval w (nodeB e)))
+                        (row (ctScopeRow w (nodeAName e)))
+                      )
+                        {
+                          (if (>= row 0)
+                            (ctRaise w row t)
+                            0)
+                          0
+                        })
+                      (if (== tag TAG_E_REGION)
+                        (ctEval w (nodeB e))
+                        (if (== tag TAG_E_LAM)
+                          {
+                            (ctEval w (nodeB e))
+                            0
+                          }
+                          (if (== tag TAG_E_FIELD)
+                            (if (> (ctEval w (nodeA e)) 0)
+                              2
+                              0)
+                            (if (== tag TAG_E_SETF)
+                              {
+                                (ctEval w (nodeA e))
+                                (ctEval w (nodeC e))
+                                0
+                              }
+                              (if (== tag TAG_E_STRUCTCON)
+                                (let ((ts (ctEvalArgs w (nodeBVec e))))
+                                  (if (> (ctMaxTo ts (vecLen ts)) 0)
+                                    2
+                                    0))
+                                (if (== tag TAG_E_ALLOC)
+                                  {
+                                    (ctEval w (nodeB e))
+                                    0
+                                  }
+                                  (if (== tag TAG_E_HANDLE)
+                                    (let ((t (ctEval w (nodeA e))))
+                                      {
+                                        (ctEval w (nodeC e))
+                                        t
+                                      })
+                                    0))))))))))))))))))
+
+(pub :: ctBindParams (-> CtWalk (Vec String) (Vec String) Int Int))
+(pub fn (ctBindParams w ps cs i)
+  (if (>= i (vecLen ps))
+    0
+    {
+      (ctBind w (vecGet ps i) (- 0 (+ i 1)) (ctParamKind cs (vecGet ps i)))
+      (ctBindParams w ps cs (+ i 1))
+    }))
+
+; Walk `d`'s body under claim `cs` until no taint grows, and answer the
+; taint of its result. `w`'s findings are the last round's.
+(pub :: ctRounds (-> CtWalk Int (Vec String) Int))
+(pub fn (ctRounds w d cs)
+  (let (
+    (mut round 0)
+    (mut r 0)
+    (mut more true)
+  )
+    {
+      (while more
+        {
+          (vecSet w.grew 0 0)
+          (while (> (vecLen w.spans) 0)
+            {
+              (vecPop w.spans)
+              (vecPop w.msgs)
+              (vecPop w.labels)
+              0
+            })
+          (ctBindParams w (nodeBVec d) cs 0)
+          (set r (ctEval w (nodeC d)))
+          (ctUnscope w 0)
+          (set round (+ round 1))
+          (set more (&& (== (vecGet w.grew 0) 1) (< round 12)))
+        })
+      r
+    }))
+
+; AX3093 for a claim that names nothing, or names something that isn't
+; a parameter. Answers 1 when the claim is well formed.
+(pub :: ctClaimShape (-> Int Int (Vec String) Int))
+(pub fn (ctClaimShape tc d cs)
+  (let (
+    (ps (nodeBVec d))
+    (mut i 0)
+    (mut ok 1)
+  )
+    {
+      (while (< i (vecLen cs))
+        {
+          (let (
+            (c (vecGet cs i))
+            (p
+              (if (strStartsWith (vecGet cs i) "*")
+                (strSlice (vecGet cs i) 1 (- (strLen (vecGet cs i)) 1))
+                (vecGet cs i)))
+          )
+            (if (== (strLen p) 0)
+              {
+                (set ok 0)
+                (emitCtMalformed tc d (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `ct(...)` and names no parameter"))
+              }
+              (if (== (strInVec ps p 0) 1)
+                0
+                {
+                  (set ok 0)
+                  (emitCtMalformed tc d (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `ct(") c) (strConcat (strConcat ")`, and `" p) "` isn't one of its parameters")))
+                })))
+          (set i (+ i 1))
+        })
+      ok
+    }))
+
+(pub :: emitCtMalformed (-> Int Int String Int))
+(pub fn (emitCtMalformed tc d msg)
+  (if (== (nodeSpan d) 0)
+    0
+    (emitDiag tc (mkDiag
+      SEV_ERROR
+      "AX3093"
+      "ct-claim-malformed"
+      (nodeSpan d)
+      msg
+      0
+      0
+      "`ct(...)` names the parameters that carry secrets: `name` for a secret value, `*name` for an address whose memory is secret. Name only this function's own parameters"))))
+
+(pub :: emitCtHits (-> Int Int CtWalk Int Int))
+(pub fn (emitCtHits tc d w i)
+  (if (>= i (vecLen w.spans))
+    0
+    {
+      (emitDiag tc (diagSetLabel (mkDiag
+        SEV_ERROR
+        "AX3092"
+        "ct-claim-violated"
+        (if (== (vecGet w.spans i) 0)
+          (nodeSpan d)
+          (vecGet w.spans i))
+        (vecGet w.msgs i)
+        0
+        0
+        "a function that claims `ct(...)` promises its timing doesn't depend on the parameters it names. A branch, a memory address or a division that depends on one breaks the promise, and so does handing one to a function whose own claim doesn't name it. Compute both sides and choose between them with the masks in `Crypto.Ct` (`ctSelect`, `ctMaskEq`), claim the callee's parameter, or take the parameter out of this claim") (vecGet w.labels i)))
+      (emitCtHits tc d w (+ i 1))
+    }))
+
+; The check itself, for one function: nothing to do without a claim.
+(pub :: checkCtClaim (-> Int Int Int))
+(pub fn (checkCtClaim tc d)
+  (let ((cs (ctClaimOf tc d)))
+    (if (== (vecLen cs) 0)
+      0
+      (if (== (ctClaimShape tc d cs) 0)
+        0
+        (let ((w (ctWalkNew tc (nodeAName d) (ctClaimText cs))))
+          {
+            (ctInModule tc d (lambda (x) (ctRounds w x cs)))
+            (emitCtHits tc d w 0)
+          })))))

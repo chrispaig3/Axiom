@@ -888,6 +888,19 @@
 # wait. Each new bucket is pinned, so nothing drifts into or out of one
 # unseen.
 #
+# RE-PINNED for the constant-time check (`ct(...)`, AX3092), and for
+# four compiler changes before it that moved the compiler view while an
+# earlier red in the same job hid this gate: the language server's
+# format-hole reads and import completion, the REPL's `for ... in`
+# state, and the word-payload release in codegen. The check adds 41
+# rows: 26 exactly `Alloc,Mut`, 7 pure, 4 `Alloc,Mut,Unsafe`, 2 exactly
+# `Mut`, one exactly `Unsafe`, one `Mut,Unsafe`, and `ctInModule`'s
+# effect parameter. Altogether exactly `Alloc,Mut` goes 1553 to 1592,
+# `Alloc,Mut,Unsafe` 940 to 954, `Mut,Unsafe` 98 to 112, exactly
+# `Unsafe` 488 to 495, exactly `Mut` 33 to 35, pure 1372 to 1397,
+# exactly `Alloc` 113 to 112, `Alloc,Unsafe` 10 to 9 and
+# `Alloc,IO,Mut,Unsafe` 249 to 250. The stdlib view doesn't move.
+#
 # Every bucket is pinned exactly. A refactor that moves functions
 # between buckets fails here, and the failure is a conversation about
 # whether the required/ambient line still sits where it was measured -
@@ -917,18 +930,18 @@ echo "== compiler view: symbols --calls self_host/main.ax =="
 rows="$(grep -c '^F ' "$work/main.axsym" || true)"
 (( rows >= 4000 )) && ok "$rows functions listed (floor 4000)" \
   || fail "only $rows functions listed; the floor is 4000 (the corpus moved or the read broke)"
-have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 1553 "exactly Alloc,Mut"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 1592 "exactly Alloc,Mut"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut')" 152 "Alloc,IO,Mut"
-have "$(bucket "$work/main.axsym" 'Mut')" 33 "exactly Mut"
-have "$(bucket "$work/main.axsym" 'Alloc')" 113 "exactly Alloc"
+have "$(bucket "$work/main.axsym" 'Mut')" 35 "exactly Mut"
+have "$(bucket "$work/main.axsym" 'Alloc')" 112 "exactly Alloc"
 have "$(bucket "$work/main.axsym" 'Alloc,IO')" 9 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 7 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 0 "IO,Mut"
-have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 940 "Alloc,Mut,Unsafe"
-have "$(bucket "$work/main.axsym" 'Unsafe')" 488 "exactly Unsafe"
-have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 249 "Alloc,IO,Mut,Unsafe"
-have "$(bucket "$work/main.axsym" 'Mut,Unsafe')" 98 "Mut,Unsafe"
-have "$(bucket "$work/main.axsym" 'Alloc,Unsafe')" 10 "Alloc,Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 954 "Alloc,Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Unsafe')" 495 "exactly Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 250 "Alloc,IO,Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Mut,Unsafe')" 112 "Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,Unsafe')" 9 "Alloc,Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Unsafe')" 46 "Alloc,IO,Unsafe"
 have "$(bucket "$work/main.axsym" 'IO,Mut,Unsafe')" 4 "IO,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'IO,Unsafe')" 13 "IO,Unsafe"
@@ -943,9 +956,9 @@ have "$(bucket "$work/main.axsym" 'Block,IO,Unsafe')" 3 "Block,IO,Unsafe"
 have "$(bucket "$work/main.axsym" 'Entropy')" 1 "Entropy"
 have "$(bucket "$work/main.axsym" 'IO,Spawn,Unsafe')" 1 "IO,Spawn,Unsafe"
 have "$(bucket "$work/main.axsym" 'Spawn')" 2 "Spawn"
-have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 1372 "pure (neither row nor mark)"
+have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 1397 "pure (neither row nor mark)"
 have "$(grep -c '#effects-incomplete' "$work/main.axsym" || true)" 0 "incomplete rows"
-have "$(grep -c '#effect-params' "$work/main.axsym" || true)" 7 "effect-params rows"
+have "$(grep -c '#effect-params' "$work/main.axsym" || true)" 8 "effect-params rows"
 
 echo
 echo "== stdlib view: one probe importing every module =="
