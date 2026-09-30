@@ -1,0 +1,48 @@
+ok   Z
+ok   z
+ok   a space for T
+ok   +05:30, back across midnight
+ok   -05:00, on across midnight
+ok   -01:00, on into a new year
+ok   +01:00, back into the old year
+ok   -01:00, on to 1 March of a leap year
+ok   +00:01, back to 29 February
+ok   -00:00
+ok   +23:59
+ok   -23:59 with a fraction
+ok   -05:00 to the Unix epoch
+ok   +01:00, back across year zero
+ok   a leap second
+ok   the last second, Z
+ok   -01:00 past the last day
+ok   +01:00 before the first day
+ok   no offset
+ok   +24:00
+ok   +05:60
+ok   +0530
+ok   +05
+ok   +05:30:00
+ok   ZZ
+ok   +05:30 and a space
+ok   a date alone, Z
+ok   2024-02-30, Z
+ok   25:00, Z
+ok   message for no offset
+ok   message for +24:00
+ok   Unix 0
+ok   Unix -1
+ok   Unix -1 and a half
+ok   Unix 1000000000
+ok   Unix 1709865600
+ok   Unix 253402300799, the last second
+ok   Unix 253402300800
+ok   Unix -377705116800, the first second
+ok   Unix -377705116801
+ok   Unix, the largest Int
+ok   Unix, the smallest Int
+ok   Unix 0 with 10^9 nanoseconds
+ok   Unix 0 with -1 nanoseconds
+ok   Unix -1 and a half, back
+ok   the last second, back
+ok   the first second, back
+ok   Unix seconds that disagree with adding a duration

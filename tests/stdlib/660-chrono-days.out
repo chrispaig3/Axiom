@@ -1,0 +1,7 @@
+ok   days walked
+ok   days that disagree with the walk
+ok   the first that disagrees
+ok   the walk would go on to year 10000
+ok   the last day is dateMax
+ok   and there is no day after it
+ok   dateDaysUntil dateMin dateMax

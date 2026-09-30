@@ -688,6 +688,7 @@ docs/embedded-guide.md
 docs/restricted-profile.md
 docs/cast-arg-root.md
 docs/crypto.md
+docs/chrono.md
 docs/recovery-audit-2026-09-27.md
 docs/refusal-ledger.md
 docs/roadmap-type-system.md

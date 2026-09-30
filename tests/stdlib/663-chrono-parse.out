@@ -1,0 +1,140 @@
+ok   date 2024-01-05
+ok   date 0000-01-01
+ok   date 9999-12-31
+ok   date -009999-01-01
+ok   date -000001-12-31
+ok   date +002024-01-05
+ok   date +000000-01-01
+ok   date empty
+ok   date 2024-1-05
+ok   date 2024-01-5
+ok   date 24-01-05
+ok   date 02024-01-05
+ok   date 2024/01/05
+ok   date with a space after
+ok   date with a space before
+ok   date 2024-01-05x
+ok   date 20240105, basic format
+ok   date 2024-W01-1, a week date
+ok   date 2024-005, an ordinal date
+ok   date +2024-01-05, a sign and four digits
+ok   date +10000-01-01, a sign and five digits
+ok   date -000000-01-01
+ok   date in full-width digits
+ok   date 2024-01-05T10:00
+ok   date +010000-01-01
+ok   date -010000-12-31
+ok   date 2024-13-01
+ok   date 2024-00-10
+ok   date 2024-02-30
+ok   date 2023-02-29
+ok   date 2024-04-31
+ok   date 2024-01-00
+ok   time 00:00
+ok   time 23:59
+ok   time 23:59:59
+ok   time 23:59:60, a leap second
+ok   time 00:00:60.999999999
+ok   time 12:00:00.5
+ok   time 12:00:00,5
+ok   time 12:00:00.000000001
+ok   time 12:00:00.100
+ok   time 12:00:00.000
+ok   time empty
+ok   time 1:00
+ok   time 01:0
+ok   time 0100, basic format
+ok   time 01:00:0
+ok   time 01:00:00. with no digits
+ok   time with ten fraction digits
+ok   time 01:00:00:00
+ok   time 01:00.5, a fraction on minutes
+ok   time with a space after
+ok   time T01:00
+ok   time 01:00:00Z
+ok   time 01h00
+ok   time -01:00
+ok   time 24:00
+ok   time 24:00:00
+ok   time 23:60
+ok   time 23:59:61
+ok   time 99:00
+ok   datetime 2024-01-05T10:00
+ok   datetime 2024-01-05t10:00
+ok   datetime 2024-01-05 10:00:00.25
+ok   datetime -000044-03-15T12:00
+ok   datetime with a leap second at the very end
+ok   datetime 2024-01-05, no time
+ok   datetime 2024-01-05T
+ok   datetime 2024-01-05X10:00
+ok   datetime with two spaces
+ok   datetime 2024-01-05T10
+ok   datetime with a space after
+ok   datetime 2024-1-05T10:00
+ok   datetime ending Z
+ok   datetime ending z
+ok   datetime ending +01:00
+ok   datetime ending -01:00
+ok   datetime 2024-02-30T10:00
+ok   datetime 2024-01-05T24:00
+ok   datetime +010000-01-01T00:00
+ok   duration PT0S
+ok   duration -PT0S
+ok   duration PT0H0M0S
+ok   duration PT1H30M
+ok   duration PT90M
+ok   duration PT3600S
+ok   duration PT01H
+ok   duration PT0.5S
+ok   duration PT0,5S
+ok   duration PT0.100S
+ok   duration -PT36H
+ok   duration PT1H0.000000001S
+ok   duration PT1H1S
+ok   duration, the longest
+ok   duration, the longest negative
+ok   duration empty
+ok   duration P
+ok   duration PT
+ok   duration P1D
+ok   duration P1Y
+ok   duration P1M
+ok   duration P1W
+ok   duration P1DT1H
+ok   duration PT1D
+ok   duration pt1h
+ok   duration PT1h
+ok   duration +PT1H
+ok   duration --PT1H
+ok   duration PT-1H
+ok   duration PT1.5H
+ok   duration PT1.5M
+ok   duration PT1S1M
+ok   duration PT1M1H
+ok   duration PT1H1H
+ok   duration PT1.S
+ok   duration PT.5S
+ok   duration with ten fraction digits
+ok   duration PT1H30, no unit
+ok   duration with a space after
+ok   duration with a space before
+ok   duration PT9223372037S
+ok   duration PT2562048H
+ok   duration PT99999999999999999999S
+ok   duration, 1 ns past the longest negative
+ok   message for 2024-1-05
+ok   message for -000000-01-01
+ok   message for +010000-01-01
+ok   message for 2024-13-01
+ok   message for 2023-02-29
+ok   message for 1:00
+ok   message for 24:00
+ok   message for 23:60
+ok   message for 23:59:61
+ok   message for 2024-01-05X10:00
+ok   message for an offset
+ok   message for PT
+ok   message for P
+ok   message for P1D
+ok   message for PT1.5H
+ok   message for PT2562048H

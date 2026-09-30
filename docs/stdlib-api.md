@@ -87,6 +87,87 @@ two differ.
 | `chanCap` | value | `(-> Chan Int)` |  |  |
 | `chanFree` | value | `(-> Chan (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Unmap the channel. Only once no binding can still reach it - after the `parallel` form that used it (the module header's obligation). The handle is retired before the ring is unmapped, so every call made after this one - a second `chanFree` included - traps with status 85. It takes no lock, so a poisoned channel is freed like any other. |
 
+## `Chrono`
+
+`stdlib/Chrono.ax` — 74 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `chronoInvalidDate` | value | `Int` |  | A year, month and day that do not name a day: month 13, or 30 February, or 29 February in a year that is not a leap year. |
+| `chronoInvalidTime` | value | `Int` |  | An hour, minute, second or nanosecond outside its range. |
+| `chronoOutOfRange` | value | `Int` |  | A result outside the supported range: a date outside -9999-01-01 to 9999-12-31, a time pushed out of its day, or a duration past 2^63 - 1 nanoseconds. Every overflow answers this. |
+| `chronoParseFailed` | value | `Int` |  | Text that is not in the format a parser reads. |
+| `chronoInvalidFormat` | value | `Int` |  | A formatter pattern with an unknown directive or a `%` at its end. |
+| `chronoClockUnavailable` | value | `Int` |  | This target has no realtime clock, or reading it failed. |
+| `Date` | struct |  |  | A day in the proleptic Gregorian calendar, -9999-01-01 to 9999-12-31. Make one with `dateNew` or `dateParse`. |
+| `Time` | struct |  |  | A time of day to the nanosecond, 00:00:00 to 23:59:59.999999999. Make one with `timeNew` or `timeParse`. |
+| `NaiveDateTime` | struct |  |  | A date and a time of day with no time zone or offset: a wall-clock reading. Build one with `datetimeNew` or by hand, and read its parts as `dt.date` and `dt.time`. |
+| `Duration` | struct |  |  | A signed length of time in nanoseconds, at most 2^63 - 1 either way. Make one with `durationFromSeconds` and its siblings or `durationParse`. |
+| `dateIsLeapYear` | value | `(-> Int Bool)` |  | Whether `y` is a leap year in the proleptic Gregorian calendar: a multiple of 4, and of 400 when it is a multiple of 100. Year 0 is one, and so are -4 and -400. |
+| `dateDaysInMonth` | value | `(-> Int Int Int)` |  | The number of days in month `m` of year `y`: 28 to 31, or 0 when `m` is outside 1 to 12. |
+| `dateNew` | value | `(-> Int Int Int (Result Date Error))` | `Alloc` | The date `y`-`m`-`d`. A month outside 1 to 12, or a day the month does not have, answers `chronoInvalidDate`; a year outside -9999 to 9999 answers `chronoOutOfRange`. |
+| `dateMin` | value | `Date` |  | The earliest supported date, -9999-01-01. |
+| `dateMax` | value | `Date` |  | The latest supported date, 9999-12-31. |
+| `dateYear` | value | `(-> Date Int)` |  | The year: -9999 to 9999, where 0 is 1 BC. |
+| `dateMonth` | value | `(-> Date Int)` |  | The month, 1 to 12. |
+| `dateDay` | value | `(-> Date Int)` |  | The day of the month, 1 to 31. |
+| `dateWeekday` | value | `(-> Date Int)` |  | The ISO weekday: 1 for Monday to 7 for Sunday. |
+| `dateDayOfYear` | value | `(-> Date Int)` |  | The day of the year: 1 for 1 January to 365, or 366 in a leap year. |
+| `dateAddDays` | value | `(-> Date Int (Result Date Error))` | `Alloc` | `d` moved by `n` days, forward when `n` is positive. |
+| `dateAddMonths` | value | `(-> Date Int (Result Date Error))` | `Alloc` | `d` moved by `n` calendar months. The day of the month is kept, or clamped to the new month's last day: 31 January plus one month is 28 or 29 February. |
+| `dateAddYears` | value | `(-> Date Int (Result Date Error))` | `Alloc` | `d` moved by `n` years. 29 February becomes 28 February in a year that is not a leap year. |
+| `dateDaysUntil` | value | `(-> Date Date Int)` |  | The number of days from `a` to `b`: positive when `b` is later. It always fits, since the whole range is under 7.4 million days. |
+| `dateCompare` | value | `(-> Date Date Int)` |  | -1, 0 or 1 as `a` is before, the same day as, or after `b`. |
+| `dateEq` | value | `(-> Date Date Bool)` |  | Whether `a` and `b` are the same day. |
+| `timeNew` | value | `(-> Int Int Int Int (Result Time Error))` | `Alloc` | The time `h`:`m`:`s` and `ns` nanoseconds: hours 0 to 23, minutes and seconds 0 to 59, nanoseconds 0 to 999,999,999. Anything else answers `chronoInvalidTime`; there is no second 60. |
+| `timeMidnight` | value | `Time` |  | Midnight, 00:00:00, the first instant of a day. |
+| `timeHour` | value | `(-> Time Int)` |  | The hour, 0 to 23. |
+| `timeMinute` | value | `(-> Time Int)` |  | The minute, 0 to 59. |
+| `timeSecond` | value | `(-> Time Int)` |  | The second, 0 to 59. |
+| `timeNanosecond` | value | `(-> Time Int)` |  | The nanoseconds past the second, 0 to 999,999,999. |
+| `timeAdd` | value | `(-> Time Duration (Result Time Error))` | `Alloc` | `t` moved by `d`, or `chronoOutOfRange` when that leaves the day. |
+| `timeAddWrapping` | value | `(-> Time Duration Time)` |  | `t` moved by `d` on a 24-hour clock face: 23:00 plus two hours is 01:00. The one function here that wraps. |
+| `timeCompare` | value | `(-> Time Time Int)` |  | -1, 0 or 1 as `a` is earlier than, equal to, or later than `b`. |
+| `timeEq` | value | `(-> Time Time Bool)` |  | Whether `a` and `b` are the same time of day. |
+| `durationFromNanos` | value | `(-> Int (Result Duration Error))` | `Alloc` | `n` nanoseconds. Every Int but the most negative one is a duration. |
+| `durationFromMicros` | value | `(-> Int (Result Duration Error))` | `Alloc` | `n` microseconds. |
+| `durationFromMillis` | value | `(-> Int (Result Duration Error))` | `Alloc` | `n` milliseconds. |
+| `durationFromSeconds` | value | `(-> Int (Result Duration Error))` | `Alloc` | `n` seconds. |
+| `durationFromMinutes` | value | `(-> Int (Result Duration Error))` | `Alloc` | `n` minutes. |
+| `durationFromHours` | value | `(-> Int (Result Duration Error))` | `Alloc` | `n` hours. A day is not a unit here: over a daylight-saving change it is not 24 hours long, so a program that means 24 hours says so. |
+| `durationZero` | value | `Duration` |  | The zero duration. |
+| `durationNanos` | value | `(-> Duration Int)` |  | The length of `d` in nanoseconds, negative for a negative duration. |
+| `durationAdd` | value | `(-> Duration Duration (Result Duration Error))` | `Alloc` | `a + b`. |
+| `durationSub` | value | `(-> Duration Duration (Result Duration Error))` | `Alloc` | `a - b`. |
+| `durationMul` | value | `(-> Duration Int (Result Duration Error))` | `Alloc` | `d` times `k`. |
+| `durationDiv` | value | `(-> Duration Int (Result Duration Error))` | `Alloc` | `d` divided by `k`, truncated toward zero. Dividing by zero answers `chronoOutOfRange`. |
+| `durationNeg` | value | `(-> Duration Duration)` |  | `-d`. The range is the same both ways, so this always fits. |
+| `durationAbs` | value | `(-> Duration Duration)` |  | `d` without its sign. |
+| `durationCompare` | value | `(-> Duration Duration Int)` |  | -1, 0 or 1 as `a` is shorter than, equal to, or longer than `b`, counting sign: every negative duration is shorter than zero. |
+| `durationEq` | value | `(-> Duration Duration Bool)` |  | Whether `a` and `b` are the same length. |
+| `durationIsNegative` | value | `(-> Duration Bool)` |  | Whether `d` is below zero. |
+| `datetimeNew` | value | `(-> Date Time NaiveDateTime)` | `Alloc` | The wall-clock reading `date` at `time`. |
+| `datetimeAdd` | value | `(-> NaiveDateTime Duration (Result NaiveDateTime Error))` | `Alloc` | `dt` moved forward by `d`, or back when `d` is negative. Every day is 86,400 seconds long here. |
+| `datetimeSub` | value | `(-> NaiveDateTime Duration (Result NaiveDateTime Error))` | `Alloc` | `dt` moved back by `d`. |
+| `datetimeUntil` | value | `(-> NaiveDateTime NaiveDateTime (Result Duration Error))` | `Alloc` | The duration from `a` to `b`, positive when `b` is later, or `chronoOutOfRange` when they are more than 2^63 - 1 nanoseconds apart (about 292 years). |
+| `datetimeCompare` | value | `(-> NaiveDateTime NaiveDateTime Int)` |  | -1, 0 or 1 as `a` is earlier than, equal to, or later than `b`. |
+| `datetimeEq` | value | `(-> NaiveDateTime NaiveDateTime Bool)` |  | Whether `a` and `b` are the same reading. |
+| `datetimeFromUnix` | value | `(-> Int Int (Result NaiveDateTime Error))` | `Alloc` | The UTC date and time of the Unix instant `secs` seconds and `nanos` nanoseconds after 1970-01-01T00:00:00Z. `secs` may be negative; `nanos` is 0 to 999,999,999, counted forward from `secs`. |
+| `datetimeToUnixSeconds` | value | `(-> NaiveDateTime Int)` |  | The Unix seconds of `dt` read as UTC, rounded down to the second. `(timeNanosecond dt.time)` is the fraction that goes with it. |
+| `datetimeNowUtc` | value | `(Result NaiveDateTime Error)` | `Alloc,IO,Mut,Unsafe` | The current UTC date and time, from the system's realtime clock (`Sys.sysNowRealtimeNanos`). That clock is the wall clock: the system may step it, so subtracting two readings does not reliably measure elapsed time. A target with no realtime clock answers `chronoClockUnavailable`. |
+| `dateToString` | value | `(-> Date String)` | `Alloc,Mut,Unsafe` | `d` in ISO 8601 extended format: `2024-02-29`, or `-000044-03-15` for a year outside 0 to 9999. |
+| `timeToString` | value | `(-> Time String)` | `Alloc,Mut,Unsafe` | `t` as `HH:MM:SS`, with a fraction only when it is not zero and without trailing zeros: `14:05:09`, `14:05:09.5`. |
+| `datetimeToString` | value | `(-> NaiveDateTime String)` | `Alloc,Mut,Unsafe` | `dt` as its date, `T` and its time: `2024-02-29T14:05:09.5`. |
+| `durationToString` | value | `(-> Duration String)` | `Alloc,Mut,Unsafe` | `d` in ISO 8601 as hours, minutes and seconds, largest unit hours: `PT1H30M`, `PT0.5S`, `-PT36H`, and `PT0S` for zero. A unit that is zero is left out. |
+| `dateParse` | value | `(-> String (Result Date Error))` | `Alloc` | The date spelled by all of `s`: `YYYY-MM-DD` for years 0000 to 9999, and a sign and six year digits for any year, as in `-000044-03-15` (year -44, which is 45 BC). `-000000` is refused. A month or day the calendar does not have answers `chronoInvalidDate`, a year outside -9999 to 9999 `chronoOutOfRange`, and anything else `chronoParseFailed`. |
+| `timeParse` | value | `(-> String (Result Time Error))` | `Alloc` | The time spelled by all of `s`: `HH:MM`, `HH:MM:SS`, or `HH:MM:SS` with `.` or `,` and one to nine fraction digits. A leap second `:60` reads as `:59`; `24:00` is refused. A field out of range answers `chronoInvalidTime`, anything else `chronoParseFailed`. |
+| `datetimeParse` | value | `(-> String (Result NaiveDateTime Error))` | `Alloc` | The date and time spelled by all of `s`: a date as `dateParse` reads one, `T` (or `t`, or one space, as RFC 3339 permits), and a time as `timeParse` reads one. A trailing `Z` or offset is refused, because a naive datetime has none; `datetimeParseUtc` reads timestamps that do. |
+| `datetimeParseUtc` | value | `(-> String (Result NaiveDateTime Error))` | `Alloc` | The UTC date and time of an RFC 3339 timestamp, which must end in `Z` or an offset `+HH:MM` or `-HH:MM`: `2024-03-10T02:30:00+05:30` is 2024-03-09T21:00:00. The offset is subtracted, which may move the date. This reads a fixed offset; it knows nothing of time zones. |
+| `durationParse` | value | `(-> String (Result Duration Error))` | `Alloc` | The duration spelled by all of `s`: `PT`, then hours `H`, minutes `M` and seconds `S`, each optional but in that order and at least one of them, with a fraction of one to nine digits on the seconds only. A leading `-` makes it negative: `PT1H30M`, `PT0.5S`, `-PT36H`. Days, weeks, months and years are refused, because none is a fixed length. |
+| `datetimeFormat` | value | `(-> String NaiveDateTime (Result String Error))` | `Alloc,Mut` | `dt` written out by `pattern`, whose `%` directives are replaced and whose other bytes are copied. The whole pattern is checked before anything is written: an unknown directive or a `%` at the end answers `chronoInvalidFormat`. |
+| `dateFormat` | value | `(-> String Date (Result String Error))` | `Alloc,Mut` | `d` written out by `pattern`, as `datetimeFormat` does. A time directive, such as `%H`, answers `chronoInvalidFormat`. |
+| `timeFormat` | value | `(-> String Time (Result String Error))` | `Alloc,Mut` | `t` written out by `pattern`, as `datetimeFormat` does. A date directive, such as `%Y`, answers `chronoInvalidFormat`. |
+
 ## `Crypto.Aead`
 
 `stdlib/Crypto/Aead.ax` — 11 public names
@@ -983,7 +1064,7 @@ two differ.
 
 ## `Sys`
 
-`stdlib/Sys.ax` — 105 public names
+`stdlib/Sys.ax` — 106 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -1028,6 +1109,7 @@ two differ.
 | `sysGetPid` | value | `Int` | `IO,Unsafe` | The calling process's own id - the per-session suffix scratch files need so two concurrent processes cannot collide. The syscall takes no arguments; the unused ones are simply zero. |
 | `sysNowMicros` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Unsafe` | Microseconds now, from the platform's cheapest correct clock: Darwin answers gettimeofday's timeval (realtime; Darwin's syscall table has no clock_gettime), Linux and FreeBSD answer CLOCK_MONOTONIC via clock_gettime - under the id `clockMonotonicId` names, because the id is not portable: 1 on Linux, and on FreeBSD 4, where 1 is CLOCK_VIRTUAL, the process's CPU time. That one was a literal here until 2026-08-29, and a clock that measures CPU time never runs backwards either, so nothing would have caught it. |
 | `sysNowMonotonic` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Unsafe` | Microseconds from a clock that NEVER steps backwards, or `Err` when this platform has none. The 16-byte buffer is the caller's, as above, so a timing loop allocates nothing on the path that answers. |
+| `sysNowRealtimeNanos` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Unsafe` | Nanoseconds since 1970-01-01T00:00:00Z from the realtime clock, the wall clock `Chrono.datetimeNowUtc` reads. The system may step it, so two readings do not measure a duration: that is `sysNowMonotonic`'s job. Darwin answers gettimeofday's microseconds times 1000; Linux and FreeBSD answer clock_gettime(CLOCK_REALTIME). A target with no clock call (`sysClockNum` 0: Windows and bare metal) answers `Err` 78, as `sysNowMonotonic` does. An Int of nanoseconds reaches 2262-04-11, and a reading beyond that answers `Err` `errOverflow` rather than wrap. The 16-byte buffer is the caller's, as above. |
 | `netSocketTcp` | value | `(Result Int Error)` | `Alloc,IO,Unsafe` | A TCP socket, as `(Result Int Error)`. |
 | `netSocketTcp6` | value | `(Result Int Error)` | `Alloc,IO,Unsafe` | The same over IPv6. Its own name rather than a family parameter, because the family is not a runtime choice at this layer: a caller already picked a builder when it made the address, and a socket whose family disagrees with the address it is given fails at `bind` and not here. |
 | `netAddr4Bytes` | value | `Int` |  | How many bytes an address of each family occupies, and how big a buffer that must take either has to be. |

@@ -1,0 +1,129 @@
+; The formatter: each directive, the English names, and the refusals.
+; The whole pattern is checked before anything is written, so a bad
+; directive anywhere answers `Err` 1205 (`chronoInvalidFormat`) and no
+; partial text.
+(import IO)
+(import Str)
+(import Err)
+(import Fmt)
+(import Chrono)
+
+(:: check (-> String String String Int))
+;@axiom:effect(io)
+(fn (check name got want)
+  (if (strEq got want)
+    {
+      (println "ok   {name}")
+      0
+    }
+    {
+      (println "FAIL {name} got={got} want={want}")
+      1
+    }))
+
+(:: shown (-> (Result String Error) String))
+(fn (shown r)
+  (match r
+    ((Ok s) s)
+    ((Err e) (strConcat "Err " (fmtInt (errCode e))))))
+
+(:: why (-> (Result String Error) String))
+(fn (why r)
+  (match r
+    ((Ok _) "accepted")
+    ((Err e) (errorText e))))
+
+(:: dt (-> String NaiveDateTime))
+(fn (dt s)
+  (unwrapOr (datetimeParse s) (datetimeNew dateMin timeMidnight)))
+
+(:: date (-> String Date))
+(fn (date s)
+  (unwrapOr (dateParse s) dateMin))
+
+; `pattern` applied to each of the `n` days from `from`, joined by `|`.
+(:: eachDay (-> String String Int Int String))
+(fn (eachDay pattern from step n)
+  (let ((mut out ""))
+    {
+      (for i 0 n
+        (let ((d (unwrapOr (dateAddDays (date from) (* i step)) dateMin)))
+          (set out (strConcat
+            out
+            (strConcat
+              (if (== i 0)
+                ""
+                "|")
+              (shown (dateFormat pattern d)))))))
+      out
+    }))
+
+; `pattern` applied to the first of each month of 2024, joined by `|`.
+(:: eachMonth (-> String String))
+(fn (eachMonth pattern)
+  (let ((mut out ""))
+    {
+      (for m 1 13
+        (let ((d (unwrapOr (dateNew 2024 m 1) dateMin)))
+          (set out (strConcat
+            out
+            (strConcat
+              (if (== m 1)
+                ""
+                "|")
+              (shown (dateFormat pattern d)))))))
+      out
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((x (dt "2024-03-10T02:30:05.123456789")))
+    {
+      (check "%Y-%m-%d %H:%M:%S" (shown (datetimeFormat "%Y-%m-%d %H:%M:%S" x)) "2024-03-10 02:30:05")
+      (check "%a %A %b %B" (shown (datetimeFormat "%a %A %b %B" x)) "Sun Sunday Mar March")
+      (check "%j %u" (shown (datetimeFormat "%j %u" x)) "070 7")
+      (check "%3f %6f %9f" (shown (datetimeFormat "%3f %6f %9f" x)) "123 123456 123456789")
+      (check "%S.%3f" (shown (datetimeFormat "%S.%3f" x)) "05.123")
+      (check "%%" (shown (datetimeFormat "%%" x)) "%")
+      (check "100%% sure" (shown (datetimeFormat "100%% sure" x)) "100% sure")
+      (check "an empty pattern" (shown (datetimeFormat "" x)) "")
+      (check "a pattern with no directives" (shown (datetimeFormat "no directives" x)) "no directives")
+      (check "other bytes are copied" (shown (datetimeFormat "%Y年%m月%d日" x)) "2024年03月10日")
+      (check "RFC 3339 by hand" (shown (datetimeFormat "%Y-%m-%dT%H:%M:%S.%3fZ" x)) "2024-03-10T02:30:05.123Z")
+      (check "%Y before year 0" (shown (datetimeFormat "%Y" (dt "-000044-03-15T00:00"))) "-000044")
+      (check "%Y in year 0" (shown (datetimeFormat "%Y" (dt "0000-01-01T00:00"))) "0000")
+      (check "%Y in year 9999" (shown (datetimeFormat "%Y" (dt "9999-12-31T00:00"))) "9999")
+      (check "%Y in year 5" (shown (datetimeFormat "%Y" (dt "0005-01-01T00:00"))) "0005")
+      (check "fractions are truncated" (shown (datetimeFormat "%3f %6f" (dt "2024-01-01T23:59:59.999999999"))) "999 999999")
+      (check "a zero fraction" (shown (datetimeFormat "%3f" (dt "2024-01-01T00:00"))) "000")
+      (check "weekdays from Monday 2024-01-01" (eachDay "%u %a %A" "2024-01-01" 1 7) "1 Mon Monday|2 Tue Tuesday|3 Wed Wednesday|4 Thu Thursday|5 Fri Friday|6 Sat Saturday|7 Sun Sunday")
+      (check "the months of 2024" (eachMonth "%m %b %B") "01 Jan January|02 Feb February|03 Mar March|04 Apr April|05 May May|06 Jun June|07 Jul July|08 Aug August|09 Sep September|10 Oct October|11 Nov November|12 Dec December")
+      (check "%j on 1 January and 31 December" (eachDay "%j" "2023-01-01" 364 2) "001|365")
+      (check "%j on 31 December of a leap year" (shown (dateFormat "%j" (date "2024-12-31"))) "366")
+      (check "dateFormat" (shown (dateFormat "%d/%m/%Y %a %%" (date "2024-02-29"))) "29/02/2024 Thu %")
+      (check "timeFormat" (shown (timeFormat "%H:%M:%S.%6f" x.time)) "02:30:05.123456")
+      ; Refusals.
+      (check "a lone %" (shown (datetimeFormat "%" x)) "Err 1205")
+      (check "a % at the end" (shown (datetimeFormat "abc%" x)) "Err 1205")
+      (check "%%% ends in a lone %" (shown (datetimeFormat "%%%" x)) "Err 1205")
+      (check "%q" (shown (datetimeFormat "%q" x)) "Err 1205")
+      (check "%y" (shown (datetimeFormat "%y" x)) "Err 1205")
+      (check "%E" (shown (datetimeFormat "%E" x)) "Err 1205")
+      (check "% and a space" (shown (datetimeFormat "% d" x)) "Err 1205")
+      (check "%4f" (shown (datetimeFormat "%4f" x)) "Err 1205")
+      (check "%3 with no f" (shown (datetimeFormat "%3" x)) "Err 1205")
+      (check "%3x" (shown (datetimeFormat "%3x" x)) "Err 1205")
+      (check "a bad directive after good ones" (shown (datetimeFormat "%Y-%m-%d %q" x)) "Err 1205")
+      (check "dateFormat %H" (shown (dateFormat "%H" x.date)) "Err 1205")
+      (check "dateFormat %3f" (shown (dateFormat "%3f" x.date)) "Err 1205")
+      (check "timeFormat %Y" (shown (timeFormat "%Y" x.time)) "Err 1205")
+      (check "timeFormat %a" (shown (timeFormat "%a" x.time)) "Err 1205")
+      (check "timeFormat %j" (shown (timeFormat "%j" x.time)) "Err 1205")
+      (check "message for %q" (why (datetimeFormat "%Y %q" x)) "unknown directive %q while datetimeFormat")
+      (check "message for a % at the end" (why (datetimeFormat "abc%" x)) "the pattern ends in a % with no directive while datetimeFormat")
+      (check "message for a byte that is not a letter" (why (datetimeFormat "%é" x)) "unknown directive % while datetimeFormat")
+      (check "message for %H on a date" (why (dateFormat "%H" x.date)) "%H needs a time, and a date has none while dateFormat")
+      (check "message for %B on a time" (why (timeFormat "%B" x.time)) "%B needs a date, and a time has none while timeFormat")
+      0
+    }))

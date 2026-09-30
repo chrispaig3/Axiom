@@ -1,0 +1,125 @@
+; UTC: RFC 3339 timestamps read with their offset subtracted, and Unix
+; seconds both ways. An offset may move the date across midnight, a
+; month, a year and year zero; past either end of the range it answers
+; `Err` 1203. The Unix values were worked in Python's `datetime`.
+(import IO)
+(import Str)
+(import Err)
+(import Fmt)
+(import Chrono)
+
+(:: check (-> String String String Int))
+;@axiom:effect(io)
+(fn (check name got want)
+  (if (strEq got want)
+    {
+      (println "ok   {name}")
+      0
+    }
+    {
+      (println "FAIL {name} got={got} want={want}")
+      1
+    }))
+
+(:: showDT (-> (Result NaiveDateTime Error) String))
+(fn (showDT r)
+  (match r
+    ((Ok dt) (datetimeToString dt))
+    ((Err e) (strConcat "Err " (fmtInt (errCode e))))))
+
+(:: utc (-> String String))
+(fn (utc s)
+  (showDT (datetimeParseUtc s)))
+
+(:: why (-> (Result NaiveDateTime Error) String))
+(fn (why r)
+  (match r
+    ((Ok _) "accepted")
+    ((Err e) (errorText e))))
+
+; `secs` and `nanos` to a datetime and back to seconds and nanoseconds.
+(:: unixBack (-> Int Int String))
+(fn (unixBack secs nanos)
+  (match (datetimeFromUnix secs nanos)
+    ((Ok dt) (strConcat (fmtInt (datetimeToUnixSeconds dt)) (strConcat " " (fmtInt (timeNanosecond dt.time)))))
+    ((Err e) (strConcat "Err " (fmtInt (errCode e))))))
+
+; 1 unless Unix second `secs` reads the same through `datetimeFromUnix`
+; as through adding that many seconds to 1970-01-01, and back.
+(:: unixFails (-> NaiveDateTime Int Int))
+(fn (unixFails epoch secs)
+  (match (datetimeFromUnix secs 0)
+    ((Err _) 1)
+    ((Ok a)
+      (match (datetimeAdd epoch (unwrapOr (durationFromSeconds secs) durationZero))
+        ((Err _) 1)
+        ((Ok b)
+          (if (&& (datetimeEq a b) (== (datetimeToUnixSeconds a) secs))
+            0
+            1)
+        ))
+    )))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (epoch (unwrapOr (datetimeFromUnix 0 0) (datetimeNew dateMin timeMidnight)))
+    (mut bad 0)
+  )
+    {
+      (check "Z" (utc "2024-03-10T02:30:00Z") "2024-03-10T02:30:00")
+      (check "z" (utc "2024-03-10T02:30:00z") "2024-03-10T02:30:00")
+      (check "a space for T" (utc "2024-03-10 02:30:00Z") "2024-03-10T02:30:00")
+      (check "+05:30, back across midnight" (utc "2024-03-10T02:30:00+05:30") "2024-03-09T21:00:00")
+      (check "-05:00, on across midnight" (utc "2024-03-10T22:30:00-05:00") "2024-03-11T03:30:00")
+      (check "-01:00, on into a new year" (utc "2024-12-31T23:30:00-01:00") "2025-01-01T00:30:00")
+      (check "+01:00, back into the old year" (utc "2025-01-01T00:30:00+01:00") "2024-12-31T23:30:00")
+      (check "-01:00, on to 1 March of a leap year" (utc "2024-02-29T23:00:00-01:00") "2024-03-01T00:00:00")
+      (check "+00:01, back to 29 February" (utc "2024-03-01T00:00:00+00:01") "2024-02-29T23:59:00")
+      (check "-00:00" (utc "2024-01-01T00:00:00-00:00") "2024-01-01T00:00:00")
+      (check "+23:59" (utc "2024-01-01T00:00:00+23:59") "2023-12-31T00:01:00")
+      (check "-23:59 with a fraction" (utc "2024-01-01T00:00:00.123456789-23:59") "2024-01-01T23:59:00.123456789")
+      (check "-05:00 to the Unix epoch" (utc "1969-12-31T19:00:00-05:00") "1970-01-01T00:00:00")
+      (check "+01:00, back across year zero" (utc "0000-01-01T00:30:00+01:00") "-000001-12-31T23:30:00")
+      (check "a leap second" (utc "2016-12-31T23:59:60Z") "2016-12-31T23:59:59")
+      (check "the last second, Z" (utc "9999-12-31T23:59:59Z") "9999-12-31T23:59:59")
+      (check "-01:00 past the last day" (utc "9999-12-31T23:30:00-01:00") "Err 1203")
+      (check "+01:00 before the first day" (utc "-009999-01-01T00:30:00+01:00") "Err 1203")
+      (check "no offset" (utc "2024-01-01T00:00:00") "Err 1204")
+      (check "+24:00" (utc "2024-01-01T00:00:00+24:00") "Err 1204")
+      (check "+05:60" (utc "2024-01-01T00:00:00+05:60") "Err 1204")
+      (check "+0530" (utc "2024-01-01T00:00:00+0530") "Err 1204")
+      (check "+05" (utc "2024-01-01T00:00:00+05") "Err 1204")
+      (check "+05:30:00" (utc "2024-01-01T00:00:00+05:30:00") "Err 1204")
+      (check "ZZ" (utc "2024-01-01T00:00:00ZZ") "Err 1204")
+      (check "+05:30 and a space" (utc "2024-01-01T00:00:00+05:30 ") "Err 1204")
+      (check "a date alone, Z" (utc "2024-01-01Z") "Err 1204")
+      (check "2024-02-30, Z" (utc "2024-02-30T00:00:00Z") "Err 1201")
+      (check "25:00, Z" (utc "2024-01-01T25:00:00Z") "Err 1202")
+      (check "message for no offset" (why (datetimeParseUtc "2024-01-01T00:00:00")) "expected Z or an offset such as +05:30 after the time while datetimeParseUtc")
+      (check "message for +24:00" (why (datetimeParseUtc "2024-01-01T00:00:00+24:00")) "the offset is outside -23:59 to +23:59 while datetimeParseUtc")
+      ; Unix seconds.
+      (check "Unix 0" (showDT (datetimeFromUnix 0 0)) "1970-01-01T00:00:00")
+      (check "Unix -1" (showDT (datetimeFromUnix -1 0)) "1969-12-31T23:59:59")
+      (check "Unix -1 and a half" (showDT (datetimeFromUnix -1 500000000)) "1969-12-31T23:59:59.5")
+      (check "Unix 1000000000" (showDT (datetimeFromUnix 1000000000 0)) "2001-09-09T01:46:40")
+      (check "Unix 1709865600" (showDT (datetimeFromUnix 1709865600 0)) "2024-03-08T02:40:00")
+      (check "Unix 253402300799, the last second" (showDT (datetimeFromUnix 253402300799 999999999)) "9999-12-31T23:59:59.999999999")
+      (check "Unix 253402300800" (showDT (datetimeFromUnix 253402300800 0)) "Err 1203")
+      (check "Unix -377705116800, the first second" (showDT (datetimeFromUnix -377705116800 0)) "-009999-01-01T00:00:00")
+      (check "Unix -377705116801" (showDT (datetimeFromUnix -377705116801 0)) "Err 1203")
+      (check "Unix, the largest Int" (showDT (datetimeFromUnix 9223372036854775807 0)) "Err 1203")
+      (check "Unix, the smallest Int" (showDT (datetimeFromUnix intMin 0)) "Err 1203")
+      (check "Unix 0 with 10^9 nanoseconds" (showDT (datetimeFromUnix 0 1000000000)) "Err 1202")
+      (check "Unix 0 with -1 nanoseconds" (showDT (datetimeFromUnix 0 -1)) "Err 1202")
+      (check "Unix -1 and a half, back" (unixBack -1 500000000) "-1 500000000")
+      (check "the last second, back" (unixBack 253402300799 999999999) "253402300799 999999999")
+      (check "the first second, back" (unixBack -377705116800 0) "-377705116800 0")
+      ; Every 999,999th second either side of 1970, out to 9,222,990,777:
+      ; nearly the whole range a Duration of seconds covers.
+      (for k -9223 9224
+        (set bad (+ bad (unixFails epoch (* k 999999)))))
+      (check "Unix seconds that disagree with adding a duration" (fmtInt bad) "0")
+      0
+    }))

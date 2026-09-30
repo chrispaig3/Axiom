@@ -1,0 +1,5 @@
+ok   seconds of the day that do not round-trip
+ok   durations across the range that do not round-trip
+ok   durations near zero that do not round-trip
+ok   datetimes that do not round-trip
+ok   the last datetime sampled

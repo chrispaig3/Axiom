@@ -1,0 +1,130 @@
+ok   2024-01-31 plus 1 month
+ok   2023-01-31 plus 1 month
+ok   2024-03-31 minus 1 month
+ok   2024-01-31 plus 2 months
+ok   2024-05-31 plus 1 month
+ok   2024-01-31 plus 13 months
+ok   2024-12-15 plus 1 month
+ok   2024-01-15 minus 1 month
+ok   2024-02-29 minus 24 months
+ok   2024-01-31 plus 0 months
+ok   0000-03-31 minus 1 month
+ok   -0001-01-31 plus 1 month
+ok   2024-01-15 minus 25 months
+ok   2024-02-29 plus 1 year
+ok   2024-02-29 plus 4 years
+ok   2024-02-29 minus 100 years
+ok   2000-02-29 plus 100 years
+ok   0000-02-29 minus 1 year
+ok   2024-06-15 minus 2024 years
+ok   2024-06-15 minus 2025 years
+ok   dateMax plus 1 day
+ok   dateMin minus 1 day
+ok   dateMax minus 7304483 days
+ok   a date plus the largest Int of days
+ok   a date plus the smallest Int of days
+ok   9999-11-30 plus 1 month
+ok   9999-12-31 plus 1 month
+ok   -9999-01-31 minus 1 month
+ok   2024-01-01 plus 95711 months
+ok   2024-01-01 plus 95712 months
+ok   a date plus the largest Int of months
+ok   a date plus the smallest Int of months
+ok   2024-01-01 plus 7975 years
+ok   2024-01-01 plus 7976 years
+ok   dateMin minus 1 year
+ok   a date plus the smallest Int of years
+ok   dateNew 10000 1 1
+ok   dateNew -10000 12 31
+ok   dateNew 2024 13 1
+ok   dateNew 2024 0 1
+ok   dateNew 2024 4 31
+ok   dateNew 2023 2 29
+ok   dateNew 2024 2 0
+ok   dateNew -9999 1 1
+ok   days in February 2024, 1900, 2000
+ok   days in April, and in months 0 and 13
+ok   dateCompare min max, max min, max max
+ok   dateDaysUntil backwards
+ok   timeNew 24 0 0 0
+ok   timeNew 0 60 0 0
+ok   timeNew 0 0 60 0
+ok   timeNew 0 0 0 1000000000
+ok   timeNew -1 0 0 0
+ok   timeNew 23 59 59 999999999
+ok   13:14:15.016 in parts
+ok   23:00 plus 1 hour
+ok   23:00 plus 59:59.999999999
+ok   00:00 minus 1 ns
+ok   12:00 plus the longest duration
+ok   12:00 minus the longest duration
+ok   12:00 minus 12 hours
+ok   23:00 plus 2 hours, wrapping
+ok   00:00 minus 1 ns, wrapping
+ok   00:00 plus 25 hours, wrapping
+ok   00:00 minus 25 hours, wrapping
+ok   00:00 plus the longest, wrapping
+ok   00:00 minus the longest, wrapping
+ok   timeCompare
+ok   the longest duration
+ok   the smallest Int of nanoseconds
+ok   one above it
+ok   2562047 hours
+ok   2562048 hours
+ok   -2562048 hours
+ok   153722867 minutes
+ok   153722868 minutes
+ok   9223372036 seconds
+ok   9223372037 seconds
+ok   9223372036854 milliseconds
+ok   9223372036855 milliseconds
+ok   9223372036854775 microseconds
+ok   9223372036854776 microseconds
+ok   the smallest Int of seconds
+ok   longest plus 1 ns
+ok   longest plus its negation
+ok   minus the longest, minus 1 ns
+ok   minus the longest, less 1 ns
+ok   longest less longest
+ok   zero less longest
+ok   longest times -1
+ok   longest times 2
+ok   1 ns times the smallest Int
+ok   -1 ns times the smallest Int
+ok   zero times the smallest Int
+ok   1 hour times 2562047
+ok   1 hour times 2562048
+ok   1 hour times -2562048
+ok   longest divided by -1
+ok   a duration divided by zero
+ok   -7 ns divided by 2
+ok   7 ns divided by -2
+ok   1 hour divided by 7
+ok   the longest, negated
+ok   its absolute value
+ok   durationNanos of minus 1 hour
+ok   durationCompare -1 ns with zero, and zero with zero
+ok   durationIsNegative
+ok   durationEq PT90M PT1H30M
+ok   2024-12-31T23:59:59.5 plus 0.5 s
+ok   2024-02-28T12:00 plus 24 hours
+ok   2024-03-10T01:30 plus 24 hours
+ok   2024-01-01T00:00 less 1 ns
+ok   1970-01-01 plus the longest
+ok   1970-01-01 minus the longest
+ok   1970-01-01 less the longest
+ok   the last instant plus 1 ns
+ok   the first instant minus 1 ns
+ok   the first instant less 1 ns
+ok   the first instant plus the longest
+ok   the last instant minus the longest
+ok   1970-01-01 until 2^63 - 1 ns later
+ok   1970-01-01 until 1 ns after that
+ok   a late time until 2^63 - 1 ns later
+ok   and back
+ok   the first instant until the last
+ok   an instant until itself
+ok   a leap year, less 1 ns
+ok   back across midnight
+ok   datetimeCompare
+ok   datetimeEq on the same reading

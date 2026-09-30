@@ -1,0 +1,44 @@
+ok   %Y-%m-%d %H:%M:%S
+ok   %a %A %b %B
+ok   %j %u
+ok   %3f %6f %9f
+ok   %S.%3f
+ok   %%
+ok   100%% sure
+ok   an empty pattern
+ok   a pattern with no directives
+ok   other bytes are copied
+ok   RFC 3339 by hand
+ok   %Y before year 0
+ok   %Y in year 0
+ok   %Y in year 9999
+ok   %Y in year 5
+ok   fractions are truncated
+ok   a zero fraction
+ok   weekdays from Monday 2024-01-01
+ok   the months of 2024
+ok   %j on 1 January and 31 December
+ok   %j on 31 December of a leap year
+ok   dateFormat
+ok   timeFormat
+ok   a lone %
+ok   a % at the end
+ok   %%% ends in a lone %
+ok   %q
+ok   %y
+ok   %E
+ok   % and a space
+ok   %4f
+ok   %3 with no f
+ok   %3x
+ok   a bad directive after good ones
+ok   dateFormat %H
+ok   dateFormat %3f
+ok   timeFormat %Y
+ok   timeFormat %a
+ok   timeFormat %j
+ok   message for %q
+ok   message for a % at the end
+ok   message for a byte that is not a letter
+ok   message for %H on a date
+ok   message for %B on a time

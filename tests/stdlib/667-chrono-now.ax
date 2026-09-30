@@ -1,0 +1,54 @@
+; The realtime clock answers, and answers something plausible: a UTC
+; date no earlier than 2026, which is when this was written, and two
+; readings a moment apart that agree to within a minute. Where the
+; target has no realtime clock this case fails, and should: the answer
+; there is `chronoClockUnavailable`, 1206.
+(import IO)
+(import Str)
+(import Err)
+(import Fmt)
+(import Chrono)
+
+(:: check (-> String String String Int))
+;@axiom:effect(io)
+(fn (check name got want)
+  (if (strEq got want)
+    {
+      (println "ok   {name}")
+      0
+    }
+    {
+      (println "FAIL {name} got={got} want={want}")
+      1
+    }))
+
+(:: yesNo (-> Bool String))
+(fn (yesNo b)
+  (if b
+    "yes"
+    "no"))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (match datetimeNowUtc
+    ((Err e)
+      {
+        (check "datetimeNowUtc answers" (errorText e) "a date and time")
+        0
+      }
+    )
+    ((Ok first)
+      (let (
+        (second (unwrapOr datetimeNowUtc first))
+        (minute (unwrapOr (durationFromMinutes 1) durationZero))
+      )
+        {
+          (check "datetimeNowUtc answers" "a date and time" "a date and time")
+          (check "the year is 2026 or later" (yesNo (>= (dateYear first.date) 2026)) "yes")
+          (check "and before 2262" (yesNo (< (dateYear first.date) 2262)) "yes")
+          (check "a second reading is within a minute of the first" (yesNo (< (durationCompare (durationAbs (unwrapOr (datetimeUntil first second) minute)) minute) 0)) "yes")
+          (check "it prints as a datetime" (yesNo (isOk (datetimeParse (datetimeToString first)))) "yes")
+          0
+        })
+    )))

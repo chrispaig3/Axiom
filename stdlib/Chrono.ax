@@ -1,0 +1,1729 @@
+; Chrono - dates, times of day and durations, with no time zones.
+;
+;     (dateParse "2024-01-31")                  ; (Ok d)
+;     (dateAddMonths d 1)                       ; (Ok 2024-02-29): the day clamps
+;     (datetimeParse "2024-03-10T02:30:00")     ; (Ok dt)
+;     (datetimeFormat "%a %d %b %Y %H:%M" dt)   ; (Ok "Sun 10 Mar 2024 02:30")
+;     (datetimeParseUtc "2024-03-10T02:30:00+05:30")
+;                                               ; (Ok 2024-03-09T21:00:00)
+;     (durationParse "PT90M")                   ; (Ok PT1H30M)
+;
+; Values print as their type's name, `<Date>`; `dateToString` and its
+; siblings are how to show one.
+;
+; Four types. A `Date` is a day from -9999-01-01 to 9999-12-31. A
+; `Time` is a time of day, 00:00:00 to 23:59:59.999999999. A
+; `NaiveDateTime` is a date and a time with no zone or offset. A
+; `Duration` is a signed count of nanoseconds, at most 2^63 - 1 either
+; way, which is about 292 years.
+;
+; Every value is valid. `Date`, `Time` and `Duration` are sealed word
+; structs (docs/reference.md, "Make a handle other modules can't
+; forge"): only this module makes one, and every function that does
+; checks first, so nothing here meets 30 February or 25 o'clock. A
+; `NaiveDateTime` is an ordinary struct any module may build, and every
+; combination of a date and a time is a valid one.
+;
+; Arithmetic never wraps. A result outside the supported range answers
+; `Err` with the code `chronoOutOfRange`, and so does a duration that
+; would pass 2^63 - 1 nanoseconds. `timeAddWrapping` is the one function that
+; wraps, around midnight, and its name says so. `durationDiv`
+; truncates toward zero, as `/` does.
+;
+; No leap seconds. Every day has exactly 86,400 seconds. A parsed
+; second of 60 reads as 59, as Jiff and Temporal read it, so
+; `23:59:60` is `23:59:59`.
+;
+; No time zones and no daylight saving. A `NaiveDateTime` is a
+; wall-clock reading, and adding 24 hours to one adds 24 hours of wall
+; time, whatever a zone did that day. Keep instants in UTC:
+; `datetimeNowUtc` and `datetimeFromUnix` answer UTC, and
+; `datetimeParseUtc` reads an RFC 3339 timestamp's offset and subtracts
+; it. That is arithmetic on a fixed offset, not a zone lookup.
+;
+; The calendar is proleptic Gregorian for every date, with astronomical
+; years: year 0 is 1 BC and a leap year, and year -1 is 2 BC. Adding
+; months or years keeps the day of the month where it can and clamps it
+; to the month's last day where it cannot: 31 January plus one month is
+; 28 or 29 February, and 29 February plus one year is 28 February.
+;
+; Text is strict ISO 8601 extended format and nothing else:
+; `2024-02-29`, `-000044-03-15` outside years 0000 to 9999, `14:05`,
+; `14:05:09.5`, `2024-02-29T14:05:09`, `PT1H30M`. No week dates, no
+; ordinal dates, no basic format, no durations in days or years. The
+; formatter's names are English and there is no locale.
+;
+; The day counts use Howard Hinnant's `days_from_civil` and
+; `civil_from_days`, from his public-domain "chrono-Compatible
+; Low-Level Date Algorithms".
+(import Mem)
+(import Str)
+(import Err)
+(import Sys)
+
+; ------------------------------------------------------------------
+; Errors.
+; ------------------------------------------------------------------
+; A year, month and day that do not name a day: month 13, or 30
+; February, or 29 February in a year that is not a leap year.
+(pub :: chronoInvalidDate Int)
+(pub fn (chronoInvalidDate)
+  1201)
+
+; An hour, minute, second or nanosecond outside its range.
+(pub :: chronoInvalidTime Int)
+(pub fn (chronoInvalidTime)
+  1202)
+
+; A result outside the supported range: a date outside -9999-01-01 to
+; 9999-12-31, a time pushed out of its day, or a duration past 2^63 - 1
+; nanoseconds. Every overflow answers this.
+(pub :: chronoOutOfRange Int)
+(pub fn (chronoOutOfRange)
+  1203)
+
+; Text that is not in the format a parser reads.
+(pub :: chronoParseFailed Int)
+(pub fn (chronoParseFailed)
+  1204)
+
+; A formatter pattern with an unknown directive or a `%` at its end.
+(pub :: chronoInvalidFormat Int)
+(pub fn (chronoInvalidFormat)
+  1205)
+
+; This target has no realtime clock, or reading it failed.
+(pub :: chronoClockUnavailable Int)
+(pub fn (chronoClockUnavailable)
+  1206)
+
+; An `Err` carrying one of the codes above, with a message and the
+; name of the function that raised it as context.
+(:: chronoErr (-> Int String String (Result a Error)))
+(fn (chronoErr code message where)
+  (Err (errContextOf (mkError code message) where)))
+
+(:: dateRangeMessage String)
+(fn (dateRangeMessage)
+  "the date is outside -9999-01-01 to 9999-12-31")
+
+(:: durationRangeMessage String)
+(fn (durationRangeMessage)
+  "the duration is longer than 2^63 - 1 nanoseconds")
+
+; ------------------------------------------------------------------
+; The types.
+; ------------------------------------------------------------------
+; A day in the proleptic Gregorian calendar, -9999-01-01 to
+; 9999-12-31. Make one with `dateNew` or `dateParse`.
+(pub struct Date word shared
+  (slot : Int))
+
+; A time of day to the nanosecond, 00:00:00 to 23:59:59.999999999.
+; Make one with `timeNew` or `timeParse`.
+(pub struct Time word shared
+  (slot : Int))
+
+; A date and a time of day with no time zone or offset: a wall-clock
+; reading. Build one with `datetimeNew` or by hand, and read its parts
+; as `dt.date` and `dt.time`.
+(pub struct NaiveDateTime
+  (date : Date)
+  (time : Time))
+
+; A signed length of time in nanoseconds, at most 2^63 - 1 either way.
+; Make one with `durationFromSeconds` and its siblings or
+; `durationParse`.
+(pub struct Duration word shared
+  (slot : Int))
+
+; ------------------------------------------------------------------
+; Arithmetic kernels. Nothing here allocates or wraps: a result that
+; would leave the range answers `nsBad`, the most negative Int, which
+; is never a Duration.
+; ------------------------------------------------------------------
+; Nanoseconds in a second, a minute, an hour and a day.
+(:: nsPerSecond Int)
+(fn (nsPerSecond)
+  1000000000)
+
+(:: nsPerMinute Int)
+(fn (nsPerMinute)
+  60000000000)
+
+(:: nsPerHour Int)
+(fn (nsPerHour)
+  3600000000000)
+
+(:: nsPerDay Int)
+(fn (nsPerDay)
+  86400000000000)
+
+; -9999-01-01 and 9999-12-31, as days since 1970-01-01.
+(:: minDay Int)
+(fn (minDay)
+  -4371587)
+
+(:: maxDay Int)
+(fn (maxDay)
+  2932896)
+
+; The answer for a nanosecond count out of range.
+(:: nsBad Int)
+(fn (nsBad)
+  intMin)
+
+; `a / b` rounded toward negative infinity, for `b` above zero.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: floorDiv (-> Int Int Int))
+(fn (floorDiv a b)
+  (if (< a 0)
+    (- (/ (+ a 1) b) 1)
+    (/ a b)))
+
+; The remainder that goes with `floorDiv`: 0 to `b - 1`.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: floorMod (-> Int Int Int))
+(fn (floorMod a b)
+  (let ((r (% a b)))
+    (if (< r 0)
+      (+ r b)
+      r)))
+
+; `a + b` for two nanosecond counts, or `nsBad` when either is `nsBad`
+; or the sum leaves the range.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: addNs (-> Int Int Int))
+(fn (addNs a b)
+  (if (|| (== a nsBad) (== b nsBad))
+    nsBad
+    ; Both on one side of zero and the sum on the other: overflow.
+    (let ((s (+ a b)))
+      (if (< (& (^ a s) (^ b s)) 0)
+        nsBad
+        s))))
+
+; `a * k`, or `nsBad` when `a` is `nsBad` or the product leaves the
+; range.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: mulNs (-> Int Int Int))
+(fn (mulNs a k)
+  (if (|| (== a 0) (== k 0))
+    0
+    (if (|| (== a nsBad) (== k nsBad))
+      nsBad
+      ; Neither is the most negative Int, so `p / k` is defined, and
+      ; it gives `a` back exactly when the product did not wrap.
+      (let ((p (* a k)))
+        (if (!= (/ p k) a)
+          nsBad
+          p)))))
+
+; -1, 0 or 1 as `a` is below, equal to or above `b`.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: cmpInt (-> Int Int Int))
+(fn (cmpInt a b)
+  (if (< a b)
+    -1
+    (if (> a b)
+      1
+      0)))
+
+; ------------------------------------------------------------------
+; The calendar.
+; ------------------------------------------------------------------
+; Days since 1970-01-01 of the valid date y-m-d. Hinnant's
+; `days_from_civil`: the year is shifted to begin on 1 March, so the
+; leap day falls last, and counted in 400-year eras of 146,097 days.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: daysFromCivil (-> Int Int Int Int))
+(fn (daysFromCivil y m d)
+  (let (
+    (yy (if (<= m 2)
+      (- y 1)
+      y))
+    (era (/
+      (if (>= yy 0)
+        yy
+        (- yy 399))
+      400))
+    (yoe (- yy (* era 400)))
+    (mp (if (> m 2)
+      (- m 3)
+      (+ m 9)))
+    (doy (+ (/ (+ (* 153 mp) 2) 5) (- d 1)))
+    (doe (+ (- (+ (* yoe 365) (/ yoe 4)) (/ yoe 100)) doy))
+  )
+    (+ (* era 146097) (- doe 719468))))
+
+; The date `z` days after 1970-01-01, packed as
+; year * 512 + month * 32 + day. Hinnant's `civil_from_days`.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: civilFromDays (-> Int Int))
+(fn (civilFromDays z)
+  (let (
+    (zz (+ z 719468))
+    (era (/
+      (if (>= zz 0)
+        zz
+        (- zz 146096))
+      146097))
+    (doe (- zz (* era 146097)))
+    (yoe (/ (- (+ (- doe (/ doe 1460)) (/ doe 36524)) (/ doe 146096)) 365))
+    (doy (- doe (- (+ (* 365 yoe) (/ yoe 4)) (/ yoe 100))))
+    (mp (/ (+ (* 5 doy) 2) 153))
+    (d (+ (- doy (/ (+ (* 153 mp) 2) 5)) 1))
+    (m (if (< mp 10)
+      (+ mp 3)
+      (- mp 9)))
+    (y (+
+      (+ yoe (* era 400))
+      (if (<= m 2)
+        1
+        0)))
+  )
+    (+ (* y 512) (+ (* m 32) d))))
+
+; The year, month and day of a date `civilFromDays` packed. A day
+; and month take the low nine bits, so the arithmetic shift gives the
+; year back for a negative year too.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: packedYear (-> Int Int))
+(fn (packedYear p)
+  (>> p 9))
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: packedMonth (-> Int Int))
+(fn (packedMonth p)
+  (& (>> p 5) 15))
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: packedDay (-> Int Int))
+(fn (packedDay p)
+  (& p 31))
+
+; Whether `y` is a leap year in the proleptic Gregorian calendar: a
+; multiple of 4, and of 400 when it is a multiple of 100. Year 0 is
+; one, and so are -4 and -400.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: dateIsLeapYear (-> Int Bool))
+(pub fn (dateIsLeapYear y)
+  (&& (== (% y 4) 0) (|| (!= (% y 100) 0) (== (% y 400) 0))))
+
+; The number of days in month `m` of year `y`: 28 to 31, or 0 when `m`
+; is outside 1 to 12.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: dateDaysInMonth (-> Int Int Int))
+(pub fn (dateDaysInMonth y m)
+  (if (|| (< m 1) (> m 12))
+    0
+    (if (== m 2)
+      (if (dateIsLeapYear y)
+        29
+        28)
+      (if (|| (|| (== m 4) (== m 6)) (|| (== m 9) (== m 11)))
+        30
+        31))))
+
+; 0 when y-m-d is a supported date, else the error code that says why
+; not.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: civilCheck (-> Int Int Int Int))
+(fn (civilCheck y m d)
+  (if (|| (< y -9999) (> y 9999))
+    chronoOutOfRange
+    (if (|| (< m 1) (> m 12))
+      chronoInvalidDate
+      (if (|| (< d 1) (> d (dateDaysInMonth y m)))
+        chronoInvalidDate
+        0))))
+
+; The message that goes with a `civilCheck` refusal.
+(:: civilMessage (-> Int Int String))
+(fn (civilMessage m code)
+  (if (== code chronoOutOfRange)
+    "the year is outside -9999 to 9999"
+    (if (|| (< m 1) (> m 12))
+      "the month is outside 1 to 12"
+      "the day is not in the month")))
+
+; ------------------------------------------------------------------
+; Dates.
+; ------------------------------------------------------------------
+; The date `y`-`m`-`d`. A month outside 1 to 12, or a day the month
+; does not have, answers `chronoInvalidDate`; a year outside -9999 to
+; 9999 answers `chronoOutOfRange`.
+(pub :: dateNew (-> Int Int Int (Result Date Error)))
+(pub fn (dateNew y m d)
+  (let ((code (civilCheck y m d)))
+    (if (== code 0)
+      (Ok (Date (daysFromCivil y m d)))
+      (chronoErr code (civilMessage m code) "dateNew"))))
+
+; The earliest supported date, -9999-01-01.
+(pub :: dateMin Date)
+(pub fn (dateMin)
+  (Date minDay))
+
+; The latest supported date, 9999-12-31.
+(pub :: dateMax Date)
+(pub fn (dateMax)
+  (Date maxDay))
+
+; The year: -9999 to 9999, where 0 is 1 BC.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: dateYear (-> Date Int))
+(pub fn (dateYear d)
+  (packedYear (civilFromDays d.slot)))
+
+; The month, 1 to 12.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: dateMonth (-> Date Int))
+(pub fn (dateMonth d)
+  (packedMonth (civilFromDays d.slot)))
+
+; The day of the month, 1 to 31.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: dateDay (-> Date Int))
+(pub fn (dateDay d)
+  (packedDay (civilFromDays d.slot)))
+
+; The ISO weekday: 1 for Monday to 7 for Sunday.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: dateWeekday (-> Date Int))
+(pub fn (dateWeekday d)
+  ; 1970-01-01 was a Thursday, ISO weekday 4.
+  (+ (floorMod (+ d.slot 3) 7) 1))
+
+; The day of the year: 1 for 1 January to 365, or 366 in a leap year.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: dateDayOfYear (-> Date Int))
+(pub fn (dateDayOfYear d)
+  (+ (- d.slot (daysFromCivil (packedYear (civilFromDays d.slot)) 1 1)) 1))
+
+; `d` moved by `n` days, forward when `n` is positive.
+(pub :: dateAddDays (-> Date Int (Result Date Error)))
+(pub fn (dateAddDays d n)
+  ; Compared before adding, so a huge `n` cannot wrap.
+  (if (|| (> n (- maxDay d.slot)) (< n (- minDay d.slot)))
+    (chronoErr chronoOutOfRange dateRangeMessage "dateAddDays")
+    (Ok (Date (+ d.slot n)))))
+
+; `d` moved by `n` calendar months. The day of the month is kept, or
+; clamped to the new month's last day: 31 January plus one month is 28
+; or 29 February.
+(pub :: dateAddMonths (-> Date Int (Result Date Error)))
+(pub fn (dateAddMonths d n)
+  (if (|| (> n 240000) (< n -240000))
+    (chronoErr chronoOutOfRange dateRangeMessage "dateAddMonths")
+    (let (
+      (p (civilFromDays d.slot))
+      (total (+ (+ (* (packedYear p) 12) (- (packedMonth p) 1)) n))
+      (y (floorDiv total 12))
+      (m (+ (floorMod total 12) 1))
+    )
+      (if (|| (< y -9999) (> y 9999))
+        (chronoErr chronoOutOfRange dateRangeMessage "dateAddMonths")
+        (let ((last (dateDaysInMonth y m)))
+          (Ok
+            (Date
+              (daysFromCivil
+                y
+                m
+                (if (> (packedDay p) last)
+                  last
+                  (packedDay p))))))))))
+
+; `d` moved by `n` years. 29 February becomes 28 February in a year that
+; is not a leap year.
+(pub :: dateAddYears (-> Date Int (Result Date Error)))
+(pub fn (dateAddYears d n)
+  (if (|| (> n 20000) (< n -20000))
+    (chronoErr chronoOutOfRange dateRangeMessage "dateAddYears")
+    (let (
+      (p (civilFromDays d.slot))
+      (y (+ (packedYear p) n))
+      (m (packedMonth p))
+    )
+      (if (|| (< y -9999) (> y 9999))
+        (chronoErr chronoOutOfRange dateRangeMessage "dateAddYears")
+        (let ((last (dateDaysInMonth y m)))
+          (Ok
+            (Date
+              (daysFromCivil
+                y
+                m
+                (if (> (packedDay p) last)
+                  last
+                  (packedDay p))))))))))
+
+; The number of days from `a` to `b`: positive when `b` is later. It
+; always fits, since the whole range is under 7.4 million days.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: dateDaysUntil (-> Date Date Int))
+(pub fn (dateDaysUntil a b)
+  (- b.slot a.slot))
+
+; -1, 0 or 1 as `a` is before, the same day as, or after `b`.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: dateCompare (-> Date Date Int))
+(pub fn (dateCompare a b)
+  (cmpInt a.slot b.slot))
+
+; Whether `a` and `b` are the same day.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: dateEq (-> Date Date Bool))
+(pub fn (dateEq a b)
+  (== a.slot b.slot))
+
+; ------------------------------------------------------------------
+; Times of day.
+; ------------------------------------------------------------------
+; The time `h`:`m`:`s` and `ns` nanoseconds: hours 0 to 23, minutes and
+; seconds 0 to 59, nanoseconds 0 to 999,999,999. Anything else answers
+; `chronoInvalidTime`; there is no second 60.
+(pub :: timeNew (-> Int Int Int Int (Result Time Error)))
+(pub fn (timeNew h m s ns)
+  (if (|| (< h 0) (> h 23))
+    (chronoErr chronoInvalidTime "the hour is outside 0 to 23" "timeNew")
+    (if (|| (< m 0) (> m 59))
+      (chronoErr chronoInvalidTime "the minute is outside 0 to 59" "timeNew")
+      (if (|| (< s 0) (> s 59))
+        (chronoErr chronoInvalidTime "the second is outside 0 to 59" "timeNew")
+        (if (|| (< ns 0) (>= ns nsPerSecond))
+          (chronoErr chronoInvalidTime "the nanosecond is outside 0 to 999999999" "timeNew")
+          (Ok (Time (+ (+ (* h nsPerHour) (* m nsPerMinute)) (+ (* s nsPerSecond) ns)))))))))
+
+; Midnight, 00:00:00, the first instant of a day.
+(pub :: timeMidnight Time)
+(pub fn (timeMidnight)
+  (Time 0))
+
+; The hour, 0 to 23.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: timeHour (-> Time Int))
+(pub fn (timeHour t)
+  (/ t.slot nsPerHour))
+
+; The minute, 0 to 59.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: timeMinute (-> Time Int))
+(pub fn (timeMinute t)
+  (% (/ t.slot nsPerMinute) 60))
+
+; The second, 0 to 59.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: timeSecond (-> Time Int))
+(pub fn (timeSecond t)
+  (% (/ t.slot nsPerSecond) 60))
+
+; The nanoseconds past the second, 0 to 999,999,999.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: timeNanosecond (-> Time Int))
+(pub fn (timeNanosecond t)
+  (% t.slot nsPerSecond))
+
+; `t` moved by `d`, or `chronoOutOfRange` when that leaves the day.
+(pub :: timeAdd (-> Time Duration (Result Time Error)))
+(pub fn (timeAdd t d)
+  ; `n` is compared with the room left in the day before anything is
+  ; added, so a long duration cannot wrap.
+  (let (
+    (x t.slot)
+    (n d.slot)
+  )
+    (if (|| (>= n (- nsPerDay x)) (< n (- 0 x)))
+      (chronoErr chronoOutOfRange "the time leaves the day" "timeAdd")
+      (Ok (Time (+ x n))))))
+
+; `t` moved by `d` on a 24-hour clock face: 23:00 plus two hours is
+; 01:00. The one function here that wraps.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: timeAddWrapping (-> Time Duration Time))
+(pub fn (timeAddWrapping t d)
+  (Time (floorMod (+ t.slot (floorMod d.slot nsPerDay)) nsPerDay)))
+
+; -1, 0 or 1 as `a` is earlier than, equal to, or later than `b`.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: timeCompare (-> Time Time Int))
+(pub fn (timeCompare a b)
+  (cmpInt a.slot b.slot))
+
+; Whether `a` and `b` are the same time of day.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: timeEq (-> Time Time Bool))
+(pub fn (timeEq a b)
+  (== a.slot b.slot))
+
+; ------------------------------------------------------------------
+; Durations.
+; ------------------------------------------------------------------
+; A duration from a count, or `chronoOutOfRange` when `n` units is
+; longer than 2^63 - 1 nanoseconds.
+(:: durationOf (-> Int Int String (Result Duration Error)))
+(fn (durationOf n unit where)
+  (let ((ns (mulNs n unit)))
+    (if (== ns nsBad)
+      (chronoErr chronoOutOfRange durationRangeMessage where)
+      (Ok (Duration ns)))))
+
+; `n` nanoseconds. Every Int but the most negative one is a duration.
+(pub :: durationFromNanos (-> Int (Result Duration Error)))
+(pub fn (durationFromNanos n)
+  (durationOf n 1 "durationFromNanos"))
+
+; `n` microseconds.
+(pub :: durationFromMicros (-> Int (Result Duration Error)))
+(pub fn (durationFromMicros n)
+  (durationOf n 1000 "durationFromMicros"))
+
+; `n` milliseconds.
+(pub :: durationFromMillis (-> Int (Result Duration Error)))
+(pub fn (durationFromMillis n)
+  (durationOf n 1000000 "durationFromMillis"))
+
+; `n` seconds.
+(pub :: durationFromSeconds (-> Int (Result Duration Error)))
+(pub fn (durationFromSeconds n)
+  (durationOf n nsPerSecond "durationFromSeconds"))
+
+; `n` minutes.
+(pub :: durationFromMinutes (-> Int (Result Duration Error)))
+(pub fn (durationFromMinutes n)
+  (durationOf n nsPerMinute "durationFromMinutes"))
+
+; `n` hours. A day is not a unit here: over a daylight-saving change it
+; is not 24 hours long, so a program that means 24 hours says so.
+(pub :: durationFromHours (-> Int (Result Duration Error)))
+(pub fn (durationFromHours n)
+  (durationOf n nsPerHour "durationFromHours"))
+
+; The zero duration.
+(pub :: durationZero Duration)
+(pub fn (durationZero)
+  (Duration 0))
+
+; The length of `d` in nanoseconds, negative for a negative duration.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: durationNanos (-> Duration Int))
+(pub fn (durationNanos d)
+  d.slot)
+
+; A nanosecond count as a Duration, or `chronoOutOfRange`.
+(:: durationResult (-> Int String (Result Duration Error)))
+(fn (durationResult ns where)
+  (if (== ns nsBad)
+    (chronoErr chronoOutOfRange durationRangeMessage where)
+    (Ok (Duration ns))))
+
+; `a + b`.
+(pub :: durationAdd (-> Duration Duration (Result Duration Error)))
+(pub fn (durationAdd a b)
+  (durationResult (addNs a.slot b.slot) "durationAdd"))
+
+; `a - b`.
+(pub :: durationSub (-> Duration Duration (Result Duration Error)))
+(pub fn (durationSub a b)
+  ; `b` is never the most negative Int, so its negation is exact.
+  (durationResult (addNs a.slot (- 0 b.slot)) "durationSub"))
+
+; `d` times `k`.
+(pub :: durationMul (-> Duration Int (Result Duration Error)))
+(pub fn (durationMul d k)
+  (durationResult (mulNs d.slot k) "durationMul"))
+
+; `d` divided by `k`, truncated toward zero. Dividing by zero answers
+; `chronoOutOfRange`.
+(pub :: durationDiv (-> Duration Int (Result Duration Error)))
+(pub fn (durationDiv d k)
+  (if (== k 0)
+    (chronoErr chronoOutOfRange "a duration divided by zero" "durationDiv")
+    ; `d` is never the most negative Int, so no quotient overflows.
+    (Ok (Duration (/ d.slot k)))))
+
+; `-d`. The range is the same both ways, so this always fits.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: durationNeg (-> Duration Duration))
+(pub fn (durationNeg d)
+  (Duration (- 0 d.slot)))
+
+; `d` without its sign.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: durationAbs (-> Duration Duration))
+(pub fn (durationAbs d)
+  (if (< d.slot 0)
+    (Duration (- 0 d.slot))
+    d))
+
+; -1, 0 or 1 as `a` is shorter than, equal to, or longer than `b`,
+; counting sign: every negative duration is shorter than zero.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: durationCompare (-> Duration Duration Int))
+(pub fn (durationCompare a b)
+  (cmpInt a.slot b.slot))
+
+; Whether `a` and `b` are the same length.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: durationEq (-> Duration Duration Bool))
+(pub fn (durationEq a b)
+  (== a.slot b.slot))
+
+; Whether `d` is below zero.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: durationIsNegative (-> Duration Bool))
+(pub fn (durationIsNegative d)
+  (< d.slot 0))
+
+; ------------------------------------------------------------------
+; Date and time together.
+; ------------------------------------------------------------------
+; The wall-clock reading `date` at `time`.
+(pub :: datetimeNew (-> Date Time NaiveDateTime))
+(pub fn (datetimeNew date time)
+  (NaiveDateTime date time))
+
+; `days` at `t` moved by `ns` nanoseconds, or `chronoOutOfRange` when
+; the date leaves the range.
+(:: datetimeShift (-> Int Int Int String (Result NaiveDateTime Error)))
+(fn (datetimeShift days t ns where)
+  ; `tt` is below two days, and `dd` within 106,752 days, so no sum
+  ; here can wrap.
+  (let (
+    (dd (floorDiv ns nsPerDay))
+    (tt (+ t (floorMod ns nsPerDay)))
+  )
+    (let ((carry 
+      (if (>= tt nsPerDay)
+        1
+        0)))
+      (let ((nd (+ (+ days dd) carry)))
+        (if (|| (< nd minDay) (> nd maxDay))
+          (chronoErr chronoOutOfRange dateRangeMessage where)
+          (Ok (NaiveDateTime (Date nd) (Time (- tt (* carry nsPerDay))))))))))
+
+; `dt` moved forward by `d`, or back when `d` is negative. Every day is
+; 86,400 seconds long here.
+(pub :: datetimeAdd (-> NaiveDateTime Duration (Result NaiveDateTime Error)))
+(pub fn (datetimeAdd dt d)
+  (datetimeShift dt.date.slot dt.time.slot d.slot "datetimeAdd"))
+
+; `dt` moved back by `d`.
+(pub :: datetimeSub (-> NaiveDateTime Duration (Result NaiveDateTime Error)))
+(pub fn (datetimeSub dt d)
+  (datetimeShift dt.date.slot dt.time.slot (- 0 d.slot) "datetimeSub"))
+
+; The duration from `a` to `b`, positive when `b` is later, or
+; `chronoOutOfRange` when they are more than 2^63 - 1 nanoseconds
+; apart (about 292 years).
+(pub :: datetimeUntil (-> NaiveDateTime NaiveDateTime (Result Duration Error)))
+(pub fn (datetimeUntil a b)
+  ; The day and time differences are given the same sign first. Then
+  ; the total grows with each part, so a day count whose product
+  ; overflows means a total that does too.
+  (let (
+    (dd (- b.date.slot a.date.slot))
+    (tt (- b.time.slot a.time.slot))
+  )
+    (let (
+      (d2 (if (&& (> dd 0) (< tt 0))
+        (- dd 1)
+        (if (&& (< dd 0) (> tt 0))
+          (+ dd 1)
+          dd)))
+      (t2 (if (&& (> dd 0) (< tt 0))
+        (+ tt nsPerDay)
+        (if (&& (< dd 0) (> tt 0))
+          (- tt nsPerDay)
+          tt)))
+    )
+      (durationResult (addNs (mulNs d2 nsPerDay) t2) "datetimeUntil"))))
+
+; -1, 0 or 1 as `a` is earlier than, equal to, or later than `b`.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: datetimeCompare (-> NaiveDateTime NaiveDateTime Int))
+(pub fn (datetimeCompare a b)
+  (let ((c (cmpInt a.date.slot b.date.slot)))
+    (if (!= c 0)
+      c
+      (cmpInt a.time.slot b.time.slot))))
+
+; Whether `a` and `b` are the same reading.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: datetimeEq (-> NaiveDateTime NaiveDateTime Bool))
+(pub fn (datetimeEq a b)
+  (&& (== a.date.slot b.date.slot) (== a.time.slot b.time.slot)))
+
+; The UTC date and time of the Unix instant `secs` seconds and `nanos`
+; nanoseconds after 1970-01-01T00:00:00Z. `secs` may be negative;
+; `nanos` is 0 to 999,999,999, counted forward from `secs`.
+(pub :: datetimeFromUnix (-> Int Int (Result NaiveDateTime Error)))
+(pub fn (datetimeFromUnix secs nanos)
+  (if (|| (< nanos 0) (>= nanos nsPerSecond))
+    (chronoErr chronoInvalidTime "the nanosecond is outside 0 to 999999999" "datetimeFromUnix")
+    (let ((days (floorDiv secs 86400)))
+      (if (|| (< days minDay) (> days maxDay))
+        (chronoErr chronoOutOfRange dateRangeMessage "datetimeFromUnix")
+        (Ok (NaiveDateTime (Date days) (Time (+ (* (floorMod secs 86400) nsPerSecond) nanos))))))))
+
+; The Unix seconds of `dt` read as UTC, rounded down to the second.
+; `(timeNanosecond dt.time)` is the fraction that goes with it.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: datetimeToUnixSeconds (-> NaiveDateTime Int))
+(pub fn (datetimeToUnixSeconds dt)
+  (+ (* dt.date.slot 86400) (/ dt.time.slot nsPerSecond)))
+
+; The current UTC date and time, from the system's realtime clock
+; (`Sys.sysNowRealtimeNanos`). That clock is the wall clock: the system
+; may step it, so subtracting two readings does not reliably measure
+; elapsed time. A target with no realtime clock answers
+; `chronoClockUnavailable`.
+(pub :: datetimeNowUtc (Result NaiveDateTime Error))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (datetimeNowUtc)
+  (let ((buf (memAlloc 16)))
+    (match (sysNowRealtimeNanos buf)
+      ((Ok ns) (datetimeShift 0 0 ns "datetimeNowUtc"))
+      ((Err e)
+        (chronoErr
+          chronoClockUnavailable
+          (if (== (errCode e) 78)
+            "this target has no realtime clock"
+            (if (== (errCode e) errOverflow)
+              "the realtime clock reads later than 2262-04-11"
+              (strConcat "the realtime clock failed with errno " (decimal (errCode e)))))
+          "datetimeNowUtc")
+      ))))
+
+; ------------------------------------------------------------------
+; Printing.
+; ------------------------------------------------------------------
+; The number of decimal digits in `v`, which is at least 0.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: digitCount (-> Int Int))
+(fn (digitCount v)
+  (let (
+    (mut x v)
+    (mut n 1)
+  )
+    {
+      (while (>= x 10)
+        {
+          (set x (/ x 10))
+          (set n (+ n 1))
+        })
+      n
+    }))
+
+; Write `v`, which is at least 0, as `width` decimal digits at
+; `p + off`, zero-padded on the left, and answer `off + width`.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: putDec (-> Int Int Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p + off` names `width` live writable bytes)
+(fn (putDec p off v width)
+  (let (
+    (mut x v)
+    (mut k (- width 1))
+  )
+    {
+      (while (>= k 0)
+        {
+          (__store8 p (+ off k) (+ 48 (% x 10)))
+          (set x (/ x 10))
+          (set k (- k 1))
+        })
+      (+ off width)
+    }))
+
+; Write byte `c` at `p + off` and answer `off + 1`.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: putByte (-> Int Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p + off` names a live writable byte)
+(fn (putByte p off c)
+  {
+    (__store8 p off c)
+    (+ off 1)
+  })
+
+; `v`, at least 0, in decimal.
+(:: decimal (-> Int String))
+;@axiom:effect(unsafe)
+(fn (decimal v)
+  (let ((n (digitCount v)))
+    (let ((s (strAlloc n)))
+      {
+        (putDec (strData s) 0 v n)
+        s
+      })))
+
+; How many bytes year `y` takes: four digits for 0 to 9999, else a
+; sign and six.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: yearWidth (-> Int Int))
+(fn (yearWidth y)
+  (if (&& (>= y 0) (<= y 9999))
+    4
+    7))
+
+; Write year `y` at `p + off` as `yearWidth` says.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: putYear (-> Int Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p + off` names `yearWidth y` live writable bytes)
+(fn (putYear p off y)
+  (if (&& (>= y 0) (<= y 9999))
+    (putDec p off y 4)
+    (if (< y 0)
+      (putDec p (putByte p off 45) (- 0 y) 6)
+      (putDec p (putByte p off 43) y 6))))
+
+; How many digits the fraction `f` (1 to 999,999,999 nanoseconds)
+; needs once its trailing zeros are dropped.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: fractionWidth (-> Int Int))
+(fn (fractionWidth f)
+  (let (
+    (mut x f)
+    (mut n 9)
+  )
+    {
+      (while (== (% x 10) 0)
+        {
+          (set x (/ x 10))
+          (set n (- n 1))
+        })
+      n
+    }))
+
+; 10 to the power `n`, for `n` from 0 to 9.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: pow10 (-> Int Int))
+(fn (pow10 n)
+  (let ((mut x 1))
+    {
+      (for i 0 n
+        (set x (* x 10)))
+      x
+    }))
+
+; Write `.` and the fraction `f` without trailing zeros, when `f` is
+; not zero.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: putFraction (-> Int Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p + off` names `fractionWidth f` + 1 live writable bytes)
+(fn (putFraction p off f)
+  (if (== f 0)
+    off
+    (let ((w (fractionWidth f)))
+      (putDec p (putByte p off 46) (/ f (pow10 (- 9 w))) w))))
+
+; How many bytes the packed date takes as `YYYY-MM-DD`, and writing it.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: dateWidth (-> Int Int))
+(fn (dateWidth packed)
+  (+ (yearWidth (packedYear packed)) 6))
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: putDate (-> Int Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p + off` names `dateWidth packed` live writable bytes)
+(fn (putDate p off packed)
+  (let (
+    (a (putYear p off (packedYear packed)))
+    (b (putDec p (putByte p a 45) (packedMonth packed) 2))
+  )
+    (putDec p (putByte p b 45) (packedDay packed) 2)))
+
+; How many bytes the time `ns` takes as `HH:MM:SS` and its fraction,
+; and writing it.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: timeWidth (-> Int Int))
+(fn (timeWidth ns)
+  (let ((f (% ns nsPerSecond)))
+    (if (== f 0)
+      8
+      (+ 9 (fractionWidth f)))))
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: putTime (-> Int Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p + off` names `timeWidth ns` live writable bytes)
+(fn (putTime p off ns)
+  (let (
+    (a (putDec p off (/ ns nsPerHour) 2))
+    (b (putDec p (putByte p a 58) (% (/ ns nsPerMinute) 60) 2))
+    (c (putDec p (putByte p b 58) (% (/ ns nsPerSecond) 60) 2))
+  )
+    (putFraction p c (% ns nsPerSecond))))
+
+; `d` in ISO 8601 extended format: `2024-02-29`, or `-000044-03-15`
+; for a year outside 0 to 9999.
+(pub :: dateToString (-> Date String))
+;@axiom:effect(unsafe)
+(pub fn (dateToString d)
+  (let ((packed (civilFromDays d.slot)))
+    (let ((s (strAlloc (dateWidth packed))))
+      {
+        (putDate (strData s) 0 packed)
+        s
+      })))
+
+; `t` as `HH:MM:SS`, with a fraction only when it is not zero and
+; without trailing zeros: `14:05:09`, `14:05:09.5`.
+(pub :: timeToString (-> Time String))
+;@axiom:effect(unsafe)
+(pub fn (timeToString t)
+  (let ((s (strAlloc (timeWidth t.slot))))
+    {
+      (putTime (strData s) 0 t.slot)
+      s
+    }))
+
+; `dt` as its date, `T` and its time: `2024-02-29T14:05:09.5`.
+(pub :: datetimeToString (-> NaiveDateTime String))
+;@axiom:effect(unsafe)
+(pub fn (datetimeToString dt)
+  (let ((packed (civilFromDays dt.date.slot)))
+    (let ((s (strAlloc (+ (+ (dateWidth packed) 1) (timeWidth dt.time.slot)))))
+      {
+        (let ((p (strData s)))
+          (putTime p (putByte p (putDate p 0 packed) 84) dt.time.slot))
+        s
+      })))
+
+; `d` in ISO 8601 as hours, minutes and seconds, largest unit hours:
+; `PT1H30M`, `PT0.5S`, `-PT36H`, and `PT0S` for zero. A unit that is
+; zero is left out.
+(pub :: durationToString (-> Duration String))
+;@axiom:effect(unsafe)
+(pub fn (durationToString d)
+  (let (
+    (a (if (< d.slot 0)
+      (- 0 d.slot)
+      d.slot))
+    (h (/ a nsPerHour))
+    (m (% (/ a nsPerMinute) 60))
+    (sec (% (/ a nsPerSecond) 60))
+    (f (% a nsPerSecond))
+    (showS (|| (|| (> sec 0) (> f 0)) (== a 0)))
+  )
+    (let ((len 
+      (+
+        (+
+          (+
+            (if (< d.slot 0)
+              3
+              2)
+            (if (> h 0)
+              (+ (digitCount h) 1)
+              0))
+          (if (> m 0)
+            (+ (digitCount m) 1)
+            0))
+        (if showS
+          (+
+            (+ (digitCount sec) 1)
+            (if (> f 0)
+              (+ (fractionWidth f) 1)
+              0))
+          0))))
+      (let (
+        (s (strAlloc len))
+        (mut off 0)
+      )
+        {
+          (let ((p (strData s)))
+            {
+              (if (< d.slot 0)
+                (set off (putByte p off 45))
+                0)
+              (set off (putByte p (putByte p off 80) 84))
+              (if (> h 0)
+                (set off (putByte p (putDec p off h (digitCount h)) 72))
+                0)
+              (if (> m 0)
+                (set off (putByte p (putDec p off m (digitCount m)) 77))
+                0)
+              (if showS
+                (set off (putByte p (putFraction p (putDec p off sec (digitCount sec)) f) 83))
+                0)
+            })
+          s
+        }))))
+
+; ------------------------------------------------------------------
+; Parsing: ISO 8601 extended format, and nothing else.
+; ------------------------------------------------------------------
+; The number spelled by exactly `n` ASCII digits at `s[i..i+n)`, or -1
+; when any of them is not a digit.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: digitsAt (-> String Int Int Int))
+(fn (digitsAt s i n)
+  (let (
+    (mut v 0)
+    (mut ok true)
+  )
+    {
+      (for k i (+ i n)
+        (let ((c (strByte s k)))
+          (if (&& (>= c 48) (<= c 57))
+            {
+              (set v (+ (* v 10) (- c 48)))
+              0
+            }
+            {
+              (set ok false)
+              0
+            })))
+      (if ok
+        v
+        -1)
+    }))
+
+; How many ASCII digits run from `s[i]`.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: digitRun (-> String Int Int))
+(fn (digitRun s i)
+  (let ((mut j i))
+    {
+      (while (&& (>= (strByte s j) 48) (<= (strByte s j) 57))
+        (set j (+ j 1)))
+      (- j i)
+    }))
+
+; The value of the `n` digits at `s[i..i+n)`, or `nsBad` when it is
+; above 2^63 - 1.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: digitValue (-> String Int Int Int))
+(fn (digitValue s i n)
+  (let ((mut v 0))
+    {
+      (for k i (+ i n)
+        (if (== v nsBad)
+          0
+          ; 922337203685477580 is (2^63 - 1) / 10.
+          (let ((c (- (strByte s k) 48)))
+            (if (|| (> v 922337203685477580) (&& (== v 922337203685477580) (> c 7)))
+              {
+                (set v nsBad)
+                0
+              }
+              {
+                (set v (+ (* v 10) c))
+                0
+              }))))
+      v
+    }))
+
+(:: dateShapeMessage String)
+(fn (dateShapeMessage)
+  "expected a date as YYYY-MM-DD, or with a sign and six year digits")
+
+(:: timeShapeMessage String)
+(fn (timeShapeMessage)
+  "expected a time as HH:MM, HH:MM:SS or HH:MM:SS.fffffffff")
+
+; The day count of year `y` and the `-MM-DD` at `s[at..at+6)`.
+(:: dateFields (-> String Int Int String (Result Int Error)))
+(fn (dateFields s y at where)
+  (let (
+    (m (digitsAt s (+ at 1) 2))
+    (d (digitsAt s (+ at 4) 2))
+  )
+    (if (|| (|| (!= (strByte s at) 45) (!= (strByte s (+ at 3)) 45)) (|| (< m 0) (< d 0)))
+      (chronoErr chronoParseFailed dateShapeMessage where)
+      (let ((code (civilCheck y m d)))
+        (if (== code 0)
+          (Ok (daysFromCivil y m d))
+          (chronoErr code (civilMessage m code) where))))))
+
+; The day count of the date spelled by exactly `s[lo..hi)`.
+(:: parseDateIn (-> String Int Int String (Result Int Error)))
+(fn (parseDateIn s lo hi where)
+  (let ((c (strByte s lo)))
+    (if (&& (>= c 48) (<= c 57))
+      (let ((y (digitsAt s lo 4)))
+        (if (|| (!= (- hi lo) 10) (< y 0))
+          (chronoErr chronoParseFailed dateShapeMessage where)
+          (dateFields s y (+ lo 4) where)))
+      (if (|| (== c 43) (== c 45))
+        (let ((y (digitsAt s (+ lo 1) 6)))
+          (if (|| (!= (- hi lo) 13) (< y 0))
+            (chronoErr chronoParseFailed dateShapeMessage where)
+            (if (== c 43)
+              (dateFields s y (+ lo 7) where)
+              (if (== y 0)
+                (chronoErr chronoParseFailed "-000000 is not a year: year zero is 0000" where)
+                (dateFields s (- 0 y) (+ lo 7) where)))))
+        (chronoErr chronoParseFailed dateShapeMessage where)))))
+
+; The nanoseconds since midnight of the time spelled by exactly
+; `s[lo..hi)`. A second of 60 reads as 59.
+(:: parseTimeIn (-> String Int Int String (Result Int Error)))
+(fn (parseTimeIn s lo hi where)
+  ; A time is 5, 8, or 10 to 18 bytes long: one to nine fraction
+  ; digits.
+  (let (
+    (n (- hi lo))
+    (h (digitsAt s lo 2))
+    (mi (digitsAt s (+ lo 3) 2))
+    (sec (if (>= n 8)
+      (digitsAt s (+ lo 6) 2)
+      0))
+    (frac (if (> n 9)
+      (digitsAt s (+ lo 9) (- n 9))
+      0))
+    (dot (strByte s (+ lo 8)))
+  )
+    (if (|| (|| (< n 5) (&& (> n 5) (< n 8))) (|| (== n 9) (> n 18)))
+      (chronoErr chronoParseFailed timeShapeMessage where)
+      (if (|| (|| (< h 0) (< mi 0)) (|| (< sec 0) (< frac 0)))
+        (chronoErr chronoParseFailed timeShapeMessage where)
+        (if (|| (!= (strByte s (+ lo 2)) 58) (&& (>= n 8) (!= (strByte s (+ lo 5)) 58)))
+          (chronoErr chronoParseFailed timeShapeMessage where)
+          (if (&& (> n 8) (&& (!= dot 46) (!= dot 44)))
+            (chronoErr chronoParseFailed timeShapeMessage where)
+            (if (> h 23)
+              (chronoErr chronoInvalidTime "the hour is outside 0 to 23" where)
+              (if (> mi 59)
+                (chronoErr chronoInvalidTime "the minute is outside 0 to 59" where)
+                (if (> sec 60)
+                  (chronoErr chronoInvalidTime "the second is outside 0 to 60" where)
+                  (Ok
+                    (+
+                      (+ (* h nsPerHour) (* mi nsPerMinute))
+                      (+
+                        (*
+                          (if (== sec 60)
+                            59
+                            sec)
+                          nsPerSecond)
+                        (if (> n 9)
+                          (* frac (pow10 (- 18 n)))
+                          0)))))))))))))
+
+; The date spelled by all of `s`: `YYYY-MM-DD` for years 0000 to 9999,
+; and a sign and six year digits for any year, as in `-000044-03-15`
+; (year -44, which is 45 BC). `-000000` is refused. A month or day the
+; calendar does not have answers `chronoInvalidDate`, a year outside
+; -9999 to 9999 `chronoOutOfRange`, and anything else
+; `chronoParseFailed`.
+(pub :: dateParse (-> String (Result Date Error)))
+(pub fn (dateParse s)
+  (match (parseDateIn s 0 (strLen s) "dateParse")
+    ((Ok days) (Ok (Date days)))
+    ((Err e) (Err e))))
+
+; The time spelled by all of `s`: `HH:MM`, `HH:MM:SS`, or `HH:MM:SS`
+; with `.` or `,` and one to nine fraction digits. A leap second `:60`
+; reads as `:59`; `24:00` is refused. A field out of range answers
+; `chronoInvalidTime`, anything else `chronoParseFailed`.
+(pub :: timeParse (-> String (Result Time Error)))
+(pub fn (timeParse s)
+  (match (parseTimeIn s 0 (strLen s) "timeParse")
+    ((Ok ns) (Ok (Time ns)))
+    ((Err e) (Err e))))
+
+; Where the date at the start of `s` ends: 10 bytes for a four-digit
+; year, 13 for a signed six-digit one.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: dateEnd (-> String Int))
+(fn (dateEnd s)
+  (let ((c (strByte s 0)))
+    (if (|| (== c 43) (== c 45))
+      13
+      10)))
+
+; Where the time that starts at `from` ends: at the first `Z`, `z`, `+`
+; or `-`, or at the end of `s`.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: timeEnd (-> String Int Int))
+(fn (timeEnd s from)
+  (let (
+    (n (strLen s))
+    (mut i (if (> from (strLen s))
+      (strLen s)
+      from))
+  )
+    {
+      (while (&& (< i n) (! (isOffsetStart (strByte s i))))
+        (set i (+ i 1)))
+      i
+    }))
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: isOffsetStart (-> Int Bool))
+(fn (isOffsetStart c)
+  (|| (|| (== c 90) (== c 122)) (|| (== c 43) (== c 45))))
+
+; The date and time spelled by `s[0..hi)`: a date, `T` (or `t`, or one
+; space), and a time.
+(:: parseDateTimeIn (-> String Int String (Result NaiveDateTime Error)))
+(fn (parseDateTimeIn s hi where)
+  (let (
+    (de (dateEnd s))
+    (sep (strByte s (dateEnd s)))
+  )
+    (if (|| (>= de hi) (&& (!= sep 84) (&& (!= sep 116) (!= sep 32))))
+      (chronoErr chronoParseFailed "expected a date, T and a time" where)
+      (match (parseDateIn s 0 de where)
+        ((Err e) (Err e))
+        ((Ok days)
+          (match (parseTimeIn s (+ de 1) hi where)
+            ((Err e) (Err e))
+            ((Ok ns) (Ok (NaiveDateTime (Date days) (Time ns)))))
+        )))))
+
+; The date and time spelled by all of `s`: a date as `dateParse` reads
+; one, `T` (or `t`, or one space, as RFC 3339 permits), and a time as
+; `timeParse` reads one. A trailing `Z` or offset is refused, because a
+; naive datetime has none; `datetimeParseUtc` reads timestamps that do.
+(pub :: datetimeParse (-> String (Result NaiveDateTime Error)))
+(pub fn (datetimeParse s)
+  (let ((te (timeEnd s (+ (dateEnd s) 1))))
+    (if (< te (strLen s))
+      (chronoErr chronoParseFailed "a naive datetime has no offset: datetimeParseUtc reads one with Z or +HH:MM" "datetimeParse")
+      (parseDateTimeIn s te "datetimeParse"))))
+
+; The offset in seconds spelled by all of `s[i..)`: `Z`, `z`, or a sign
+; and `HH:MM` up to 23:59.
+(:: parseOffset (-> String Int (Result Int Error)))
+(fn (parseOffset s i)
+  (let (
+    (n (- (strLen s) i))
+    (c (strByte s i))
+  )
+    (if (&& (|| (== c 90) (== c 122)) (== n 1))
+      (Ok 0)
+      (let (
+        (hh (digitsAt s (+ i 1) 2))
+        (mm (digitsAt s (+ i 4) 2))
+      )
+        (if (|| (|| (!= n 6) (!= (strByte s (+ i 3)) 58)) (|| (|| (< hh 0) (< mm 0)) (&& (!= c 43) (!= c 45))))
+          (chronoErr chronoParseFailed "expected Z or an offset such as +05:30 after the time" "datetimeParseUtc")
+          (if (|| (> hh 23) (> mm 59))
+            (chronoErr chronoParseFailed "the offset is outside -23:59 to +23:59" "datetimeParseUtc")
+            (Ok
+              (*
+                (if (== c 45)
+                  -60
+                  60)
+                (+ (* hh 60) mm)))))))))
+
+; The UTC date and time of an RFC 3339 timestamp, which must end in `Z`
+; or an offset `+HH:MM` or `-HH:MM`: `2024-03-10T02:30:00+05:30` is
+; 2024-03-09T21:00:00. The offset is subtracted, which may move the
+; date. This reads a fixed offset; it knows nothing of time zones.
+(pub :: datetimeParseUtc (-> String (Result NaiveDateTime Error)))
+(pub fn (datetimeParseUtc s)
+  (let ((te (timeEnd s (+ (dateEnd s) 1))))
+    (if (>= te (strLen s))
+      (chronoErr chronoParseFailed "expected Z or an offset such as +05:30 after the time" "datetimeParseUtc")
+      (match (parseDateTimeIn s te "datetimeParseUtc")
+        ((Err e) (Err e))
+        ((Ok dt)
+          (match (parseOffset s te)
+            ((Err e) (Err e))
+            ((Ok off) (datetimeShift dt.date.slot dt.time.slot (* (- 0 off) nsPerSecond) "datetimeParseUtc")))
+        )))))
+
+(:: durationShapeMessage String)
+(fn (durationShapeMessage)
+  "expected a duration such as PT1H30M or PT0.5S")
+
+; The duration spelled by all of `s`: `PT`, then hours `H`, minutes `M`
+; and seconds `S`, each optional but in that order and at least one of
+; them, with a fraction of one to nine digits on the seconds only. A
+; leading `-` makes it negative: `PT1H30M`, `PT0.5S`, `-PT36H`. Days,
+; weeks, months and years are refused, because none is a fixed length.
+(pub :: durationParse (-> String (Result Duration Error)))
+(pub fn (durationParse s)
+  (let (
+    (n (strLen s))
+    (start (if (== (strByte s 0) 45)
+      1
+      0))
+  )
+    (if (!= (strByte s start) 80)
+      (chronoErr chronoParseFailed durationShapeMessage "durationParse")
+      (if (!= (strByte s (+ start 1)) 84)
+        (if (> (digitRun s (+ start 1)) 0)
+          (chronoErr chronoParseFailed "a duration has hours, minutes and seconds only: a day is not a fixed length" "durationParse")
+          (chronoErr chronoParseFailed durationShapeMessage "durationParse"))
+        (let (
+          (mut i (+ start 2))
+          (mut stage 0)
+          (mut total 0)
+          (mut bad (if (>= (+ start 2) n)
+            1
+            0))
+        )
+          {
+            ; `stage` is the last unit read: 1 hours, 2 minutes, 3
+            ; seconds. `bad` is 1 for a shape error, 2 for a fraction
+            ; on hours or minutes.
+            (while (&& (< i n) (== bad 0))
+              (let (
+                (len (digitRun s i))
+                (j (+ i len))
+              )
+                (if (== len 0)
+                  {
+                    (set bad 1)
+                    0
+                  }
+                  (let (
+                    (v (digitValue s i len))
+                    (c (strByte s j))
+                  )
+                    (if (|| (== c 46) (== c 44))
+                      (let (
+                        (flen (digitRun s (+ j 1)))
+                        (u (strByte s (+ (+ j 1) flen)))
+                      )
+                        (if (|| (== u 72) (== u 77))
+                          {
+                            (set bad 2)
+                            0
+                          }
+                          (if (|| (|| (== flen 0) (> flen 9)) (|| (!= u 83) (>= stage 3)))
+                            {
+                              (set bad 1)
+                              0
+                            }
+                            {
+                              (set total (addNs total (addNs (mulNs v nsPerSecond) (* (digitsAt s (+ j 1) flen) (pow10 (- 9 flen))))))
+                              (set stage 3)
+                              (set i (+ (+ j 2) flen))
+                              0
+                            })))
+                      (let (
+                        (want (match c
+                          (72 1)
+                          (77 2)
+                          (83 3)
+                          (_ 0)))
+                        (unit (match c
+                          (72 nsPerHour)
+                          (77 nsPerMinute)
+                          (_ nsPerSecond)))
+                      )
+                        (if (|| (== want 0) (<= want stage))
+                          {
+                            (set bad 1)
+                            0
+                          }
+                          {
+                            (set total (addNs total (mulNs v unit)))
+                            (set stage want)
+                            (set i (+ j 1))
+                            0
+                          })))))))
+            (if (== bad 2)
+              (chronoErr chronoParseFailed "only the seconds may have a fraction" "durationParse")
+              (if (== bad 1)
+                (chronoErr chronoParseFailed durationShapeMessage "durationParse")
+                (if (== total nsBad)
+                  (chronoErr chronoOutOfRange durationRangeMessage "durationParse")
+                  (Ok
+                    (Duration
+                      (if (== start 1)
+                        (- 0 total)
+                        total))))))
+          })))))
+
+; ------------------------------------------------------------------
+; The formatter.
+; ------------------------------------------------------------------
+(:: weekdayName (-> Int String))
+(fn (weekdayName w)
+  (match w
+    (1 "Monday")
+    (2 "Tuesday")
+    (3 "Wednesday")
+    (4 "Thursday")
+    (5 "Friday")
+    (6 "Saturday")
+    (_ "Sunday")))
+
+(:: monthName (-> Int String))
+(fn (monthName m)
+  (match m
+    (1 "January")
+    (2 "February")
+    (3 "March")
+    (4 "April")
+    (5 "May")
+    (6 "June")
+    (7 "July")
+    (8 "August")
+    (9 "September")
+    (10 "October")
+    (11 "November")
+    (_ "December")))
+
+; How many bytes of the pattern the directive whose letter is at `i`
+; takes after its `%`: 2 for `%f`-style fractions, 1 for the rest.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: directiveSpan (-> String Int Int))
+(fn (directiveSpan pattern i)
+  (let ((c (strByte pattern i)))
+    (if (|| (== c 51) (|| (== c 54) (== c 57)))
+      2
+      1)))
+
+; The output width of the directive whose letter is at `pattern[i]`,
+; given the value's packed date and weekday; -1 when the directive is
+; unknown, and -2 when it needs a part `mask` lacks (bit 1 a date, bit
+; 2 a time).
+(:: directiveWidth (-> String Int Int Int Int Int))
+(fn (directiveWidth pattern i mask packed wd)
+  (let (
+    (c (strByte pattern i))
+    (date (!= (& mask 1) 0))
+    (time (!= (& mask 2) 0))
+    (frac (== (strByte pattern (+ i 1)) 102))
+  )
+    (let ((w 
+      (match c
+        (37 1)
+        (89 (yearWidth (packedYear packed)))
+        (109 2)
+        (100 2)
+        (106 3)
+        (117 1)
+        (97 3)
+        (98 3)
+        (65 (strLen (weekdayName wd)))
+        (66 (strLen (monthName (packedMonth packed))))
+        (72 2)
+        (77 2)
+        (83 2)
+        (51
+          (if frac
+            3
+            -1)
+        )
+        (54
+          (if frac
+            6
+            -1)
+        )
+        (57
+          (if frac
+            9
+            -1)
+        )
+        (_ -1))))
+      (if (|| (< w 0) (== c 37))
+        w
+        (if (|| (== c 72) (|| (|| (== c 77) (== c 83)) (&& (>= c 51) (<= c 57))))
+          (if time
+            w
+            -2)
+          (if date
+            w
+            -2))))))
+
+; The length of `pattern`'s output, measured before anything is
+; written; or -(i + 1) for the `%` at `i` that cannot be formatted.
+(:: formatMeasure (-> String Int Int Int Int))
+(fn (formatMeasure pattern mask packed wd)
+  (let (
+    (n (strLen pattern))
+    (mut i 0)
+    (mut len 0)
+    (mut bad -1)
+  )
+    {
+      (while (&& (< i n) (< bad 0))
+        (if (!= (strByte pattern i) 37)
+          {
+            (set len (+ len 1))
+            (set i (+ i 1))
+            0
+          }
+          (let ((w (directiveWidth
+            pattern
+            (+ i 1)
+            mask
+            packed
+            wd)))
+            (if (< w 0)
+              {
+                (set bad i)
+                0
+              }
+              {
+                (set len (+ len w))
+                (set i (+ (+ i 1) (directiveSpan pattern (+ i 1))))
+                0
+              }))))
+      (if (< bad 0)
+        len
+        (- -1 bad))
+    }))
+
+; Why the `%` at `i` cannot be formatted.
+(:: formatMessage (-> String Int Int String))
+(fn (formatMessage pattern i mask)
+  (let (
+    (c (strByte pattern (+ i 1)))
+    (spelled (if (&& (>= (strByte pattern (+ i 1)) 33) (<= (strByte pattern (+ i 1)) 126))
+      (strSlice pattern i (+ i 2))
+      "%"))
+  )
+    (if (>= (+ i 1) (strLen pattern))
+      "the pattern ends in a % with no directive"
+      (if (== (directiveWidth
+        pattern
+        (+ i 1)
+        3
+        0
+        1) -1)
+        (strConcat "unknown directive " spelled)
+        (if (== mask 1)
+          (strConcat spelled " needs a time, and a date has none")
+          (strConcat spelled " needs a date, and a time has none"))))))
+
+; Copy the first `n` bytes of `name` to `p + off`.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: putName (-> Int Int String Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p + off` names `n` live writable bytes)
+(fn (putName p off name n)
+  {
+    (for k 0 n
+      (__store8 p (+ off k) (strByte name k)))
+    (+ off n)
+  })
+
+; Write one directive's output at `p + off` and answer the new offset.
+(:: putDirective (-> Int Int Int Int Int Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p + off` names the directive's width in live writable bytes)
+(fn (putDirective p off c packed wd yday ns)
+  (match c
+    (37 (putByte p off 37))
+    (89 (putYear p off (packedYear packed)))
+    (109 (putDec p off (packedMonth packed) 2))
+    (100 (putDec p off (packedDay packed) 2))
+    (106 (putDec p off yday 3))
+    (117 (putDec p off wd 1))
+    (97 (putName p off (weekdayName wd) 3))
+    (65 (putName p off (weekdayName wd) (strLen (weekdayName wd))))
+    (98 (putName p off (monthName (packedMonth packed)) 3))
+    (66 (putName p off (monthName (packedMonth packed)) (strLen (monthName (packedMonth packed)))))
+    (72 (putDec p off (/ ns nsPerHour) 2))
+    (77 (putDec p off (% (/ ns nsPerMinute) 60) 2))
+    (83 (putDec p off (% (/ ns nsPerSecond) 60) 2))
+    (51 (putDec p off (/ (% ns nsPerSecond) 1000000) 3))
+    (54 (putDec p off (/ (% ns nsPerSecond) 1000) 6))
+    (57 (putDec p off (% ns nsPerSecond) 9))
+    (_ off)))
+
+; Write `pattern`'s output, already measured and valid, at `p`.
+(:: formatWrite (-> String Int Int Int Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p` names the measured length in live writable bytes)
+(fn (formatWrite pattern p packed wd yday ns)
+  (let (
+    (n (strLen pattern))
+    (mut i 0)
+    (mut off 0)
+  )
+    {
+      (while (< i n)
+        (let ((c (strByte pattern i)))
+          (if (!= c 37)
+            {
+              (set off (putByte p off c))
+              (set i (+ i 1))
+              0
+            }
+            {
+              (set off (putDirective
+                p
+                off
+                (strByte pattern (+ i 1))
+                packed
+                wd
+                yday
+                ns))
+              (set i (+ (+ i 1) (directiveSpan pattern (+ i 1))))
+              0
+            })))
+      off
+    }))
+
+; `pattern` filled in from day `days` at `ns` nanoseconds after
+; midnight; `mask` says which parts the value has.
+(:: formatParts (-> String Int Int Int String (Result String Error)))
+;@axiom:effect(unsafe)
+(fn (formatParts pattern mask days ns where)
+  (let (
+    (packed (civilFromDays days))
+    (wd (+ (floorMod (+ days 3) 7) 1))
+  )
+    (let ((len (formatMeasure pattern mask packed wd)))
+      (if (< len 0)
+        (chronoErr chronoInvalidFormat (formatMessage pattern (- -1 len) mask) where)
+        (let ((s (strAlloc len)))
+          {
+            (formatWrite
+              pattern
+              (strData s)
+              packed
+              wd
+              (+ (- days (daysFromCivil (packedYear packed) 1 1)) 1)
+              ns)
+            (Ok s)
+          })))))
+
+; `dt` written out by `pattern`, whose `%` directives are replaced and
+; whose other bytes are copied. The whole pattern is checked before
+; anything is written: an unknown directive or a `%` at the end answers
+; `chronoInvalidFormat`.
+;
+;     %Y  year, as dateToString writes it   %H  hour, 00 to 23
+;     %m  month, 01 to 12                   %M  minute, 00 to 59
+;     %d  day, 01 to 31                     %S  second, 00 to 59
+;     %j  day of the year, 001 to 366       %3f milliseconds, 3 digits
+;     %u  ISO weekday, 1 (Monday) to 7      %6f microseconds, 6 digits
+;     %a  Mon    %A  Monday                 %9f nanoseconds, 9 digits
+;     %b  Jan    %B  January                %%  a literal %
+;
+; The fractions are truncated, not rounded, and the names are English.
+(pub :: datetimeFormat (-> String NaiveDateTime (Result String Error)))
+(pub fn (datetimeFormat pattern dt)
+  (formatParts
+    pattern
+    3
+    dt.date.slot
+    dt.time.slot
+    "datetimeFormat"))
+
+; `d` written out by `pattern`, as `datetimeFormat` does. A time
+; directive, such as `%H`, answers `chronoInvalidFormat`.
+(pub :: dateFormat (-> String Date (Result String Error)))
+(pub fn (dateFormat pattern d)
+  (formatParts
+    pattern
+    1
+    d.slot
+    0
+    "dateFormat"))
+
+; `t` written out by `pattern`, as `datetimeFormat` does. A date
+; directive, such as `%Y`, answers `chronoInvalidFormat`.
+(pub :: timeFormat (-> String Time (Result String Error)))
+(pub fn (timeFormat pattern t)
+  (formatParts
+    pattern
+    2
+    0
+    t.slot
+    "timeFormat"))

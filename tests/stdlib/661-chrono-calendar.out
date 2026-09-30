@@ -1,0 +1,12 @@
+ok   vector lines read
+ok   of them in years -9999 to 0
+ok   vectors that disagree
+ok   0000-01-01
+ok   0000-02-29
+ok   -0001-12-31
+ok   -0001-02-29
+ok   -0004-02-29
+ok   -0400-02-29
+ok   -0100-02-29
+ok   -9999-01-01
+ok   leap years among -400 -100 -4 -1 0 1900 2000

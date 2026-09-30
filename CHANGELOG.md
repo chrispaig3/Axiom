@@ -22,6 +22,16 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+- `Chrono`: dates, times and durations with no time zones, after Jiff.
+  `Date`, `Time` and `Duration` are sealed words and `NaiveDateTime`
+  pairs a date with a time, so every value is valid by construction.
+  ISO 8601 parsing and printing that round-trips, RFC 3339 timestamps
+  read as UTC, the realtime clock (`datetimeNowUtc`, over a new
+  `Sys.sysNowRealtimeNanos`), a small formatter with English names and
+  no locale, and arithmetic that answers `chronoOutOfRange` rather than
+  wrapping. Every day from -9999-01-01 to 9999-12-31 is checked, against
+  Python's `datetime` where it reaches (`tests/stdlib/660-chrono-days.ax`
+  to `tests/stdlib/667-chrono-now.ax`).
 - `Float` reads and prints IEEE 754 binary64 values exactly.
   `floatParse` is correctly rounded, ties to even, for any number of
   digits, and `floatToString` prints the shortest text that reads back

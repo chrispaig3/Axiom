@@ -1,0 +1,5 @@
+ok   datetimeNowUtc answers
+ok   the year is 2026 or later
+ok   and before 2262
+ok   a second reading is within a minute of the first
+ok   it prints as a datetime

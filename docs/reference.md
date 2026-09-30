@@ -5698,7 +5698,7 @@ Checked by `scripts/check-freestanding.sh`.
 
 ### Modules at a Glance
 
-Forty-nine modules, all of them Axiom source under `stdlib/`. A module exports only the
+Fifty modules, all of them Axiom source under `stdlib/`. A module exports only the
 names it marks `pub`, and reaching any other name is `AX3023`, so
 `grep '^(pub' stdlib/M.ax` always tells you what module `M` exports.
 
@@ -5732,6 +5732,7 @@ regenerates it on every run to keep it exact.
 | `Sync` | `mutexNew`, a mutex between [`parallel`](#parallel--bindings-that-run-beside-the-caller) bindings in a shared word, in both lowerings. The mutex is a `Mutex`, a handle only this module makes, and a call on a freed one exits with status 85. `mutexLock`/`mutexTryLock`/`mutexLockTimeout` answer a guard that `mutexUnlock` takes back (an unlock the caller did not earn is `Err` `syncNotHeld`), a holder found dead poisons it (`syncOwnerDead`, `mutexOwnerDead`), `mutexFree`. No fairness, no priority inheritance, not reentrant ([memory-model.md](memory-model.md) `MM-PAR-11`). |
 | `Task` | `taskMap`/`taskMapWith`: `(-> Int String)` tasks in forked children, at most `width` at once, one `(Result String Error)` each in submit order. Answers cross as bytes under a per-task limit (`taskTooLargeCode`), a trap answers its wait status, a deadline kills and reaps (`sysTimedOut`), a token cancels (`taskTokenNew` answers a `CancelToken` handle; `taskCancel`, `taskCancelled`, `taskCancelledCode`), `failFast`; `TaskOpts` via `taskOpts` and `taskWith*`; `taskFold` streams the answers without keeping them ([memory-model.md](memory-model.md) `MM-PAR-13`). |
 | `Net` | TCP, the way Rust's `std::net` has it: `tcpListen`, `tcpAccept` and `tcpConnect` answer sealed `TcpListener` and `TcpStream` handles, read with `tcpRead`, `tcpReadSome` and `tcpReadAll`, and write with `tcpWrite`. Also `tcpShutdown`, the peer and local addresses, `tcpSetNoDelay`, read and write timeouts, non-blocking mode, and `SocketAddr` with `socketAddrParse` for numeric IPv4 and IPv6 addresses ([Connect over TCP](#connect-over-tcp)). |
+| `Chrono` | Dates, times and durations with no time zones: `Date`, `Time`, `NaiveDateTime` and `Duration`, made with `dateNew`, `timeNew`, `datetimeNew` and `durationFromSeconds` and their kin. ISO 8601 text in and out (`dateParse`, `datetimeParse`, `durationParse`, `datetimeToString`), RFC 3339 timestamps read as UTC (`datetimeParseUtc`), the clock (`datetimeNowUtc`), a small formatter (`datetimeFormat`), and arithmetic that answers `Err` `chronoOutOfRange` instead of wrapping ([chrono.md](chrono.md)). |
 | `Test` | `assertEq`, `assertNe`, `assertStrEq`, `assertTrue`, `assertFalse`, `testFail`, and the `Assert` effect a failed assertion performs, which `axiom test` uses to find and isolate failures (error-model.md ERR-REC-6). |
 | `Agent.Tags` | Reads the AXSYM stream, not the compiler's internals: `axsymParse`, `axsymLine`, and the accessors over one parsed line, `symTag`, `symHasTag`, `symEffects`, `symDerivedPure`, `symAgentTag`, `symHasAgentTag` ([agent-harness.md](agent-harness.md) §3.2). |
 | `Tui.Keys` | Terminal input bytes to key events, as pure functions ([line editor](#build-a-line-editor)). |

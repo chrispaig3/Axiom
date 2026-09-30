@@ -1,0 +1,177 @@
+; Chrono's calendar against an independent one. The input, beside this
+; file, is 3,935 dates with the weekday, day of the year, leap flag and
+; day count Python's `datetime` gives them (years 1 to 9999), and the
+; 400-year cycle gives them (years -9999 to 0). The generator is
+; tests/stdlib/tools/chrono_vectors.py; its command is in the input's
+; header.
+;
+; Each date is checked both ways: built from its fields and asked the
+; four facts, and rebuilt from its day count and asked for its fields.
+;
+; Then a few negative years by hand, each worked from 0001-01-01, a
+; Monday, the first date `datetime` has.
+(import IO)
+(import Str)
+(import Vec)
+(import Err)
+(import Fmt)
+(import Chrono)
+
+(:: check (-> String String String Int))
+;@axiom:effect(io)
+(fn (check name got want)
+  (if (strEq got want)
+    {
+      (println "ok   {name}")
+      0
+    }
+    {
+      (println "FAIL {name} got={got} want={want}")
+      1
+    }))
+
+(:: field (-> (Vec String) Int Int))
+(fn (field parts i)
+  (optUnwrapOr (strParseInt (vecGet parts i)) -99999999))
+
+(:: epoch Date)
+(fn (epoch)
+  (unwrapOr (dateNew 1970 1 1) dateMin))
+
+; What one vector line says, checked. Answers 0 when it all agrees.
+(:: vectorFails (-> (Vec String) Int))
+;@axiom:effect(io)
+(fn (vectorFails parts)
+  (let (
+    (y (field parts 0))
+    (m (field parts 1))
+    (d (field parts 2))
+    (wd (field parts 3))
+    (yday (field parts 4))
+    (leap (field parts 5))
+    (days (field parts 6))
+  )
+    (match (dateNew y m d)
+      ((Err e)
+        {
+          (let ((why (errorText e)))
+            (println "  refused {y} {m} {d}: {why}"))
+          1
+        }
+      )
+      ((Ok date)
+        (let ((back (unwrapOr (dateAddDays epoch days) dateMin)))
+          (if (&&
+            (&& (== (dateWeekday date) wd) (== (dateDayOfYear date) yday))
+            (&&
+              (==
+                (if (dateIsLeapYear y)
+                  1
+                  0)
+                leap)
+              (== (dateDaysUntil epoch date) days)))
+            (if (&& (&& (== (dateYear back) y) (== (dateMonth back) m)) (== (dateDay back) d))
+              0
+              {
+                (let ((got (dateToString back)))
+                  (println "  day {days} came back as {got}"))
+                1
+              })
+            {
+              (let (
+                (w (dateWeekday date))
+                (j (dateDayOfYear date))
+                (n (dateDaysUntil epoch date))
+              )
+                (println "  {y} {m} {d}: weekday {w} day {j} count {n}"))
+              1
+            }))
+      ))))
+
+(:: facts (-> Int Int Int String))
+(fn (facts y m d)
+  (match (dateNew y m d)
+    ((Ok date) (strConcat (strConcat (dateToString date) " weekday ") (strConcat (fmtInt (dateWeekday date)) (strConcat " day " (fmtInt (dateDayOfYear date))))))
+    ((Err e) (errorText e))))
+
+(:: vecOf7 (-> Int Int Int Int Int Int Int (Vec Int)))
+(fn (vecOf7 a b c d e f g)
+  (let ((v (vecNew)))
+    {
+      (vecPush v a)
+      (vecPush v b)
+      (vecPush v c)
+      (vecPush v d)
+      (vecPush v e)
+      (vecPush v f)
+      (vecPush v g)
+      v
+    }))
+
+; The leap years among `ys`, space-separated.
+(:: leapYears (-> (Vec Int) String))
+(fn (leapYears ys)
+  (let ((mut out ""))
+    {
+      (for y in ys
+        (if (dateIsLeapYear y)
+          {
+            (set out (if (== (strLen out) 0)
+              (fmtInt y)
+              (strConcat out (strConcat " " (fmtInt y)))))
+            0
+          }
+          0))
+      out
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (text (unwrapOr (readAll 0) ""))
+    (mut lines 0)
+    (mut fails 0)
+    (mut negative 0)
+  )
+    {
+      (for ln in (strSplit text 10)
+        (if (|| (== (strLen ln) 0) (== (strByte ln 0) 35))
+          0
+          (let ((parts (strSplit ln 32)))
+            {
+              (set lines (+ lines 1))
+              (if (<= (field parts 0) 0)
+                (set negative (+ negative 1))
+                0)
+              (set fails (+ fails (vectorFails parts)))
+              0
+            })))
+      (check "vector lines read" (fmtInt lines) "3935")
+      (check "of them in years -9999 to 0" (fmtInt negative) "612")
+      (check "vectors that disagree" (fmtInt fails) "0")
+      ; 0001-01-01 is a Monday and year 0 has 366 days, 52 weeks and
+      ; 2 days, so 0000-01-01 is a Saturday.
+      (check "0000-01-01" (facts 0 1 1) "0000-01-01 weekday 6 day 1")
+      ; Year 0 is a leap year: 29 February is its 60th day.
+      (check "0000-02-29" (facts 0 2 29) "0000-02-29 weekday 2 day 60")
+      ; The day before 0000-01-01.
+      (check "-0001-12-31" (facts -1 12 31) "-000001-12-31 weekday 5 day 365")
+      ; Year -1 is not a leap year.
+      (check "-0001-02-29" (facts -1 2 29) "the day is not in the month while dateNew")
+      ; -4 and -400 are, and -100 is not.
+      (check "-0004-02-29" (facts -4 2 29) "-000004-02-29 weekday 4 day 60")
+      (check "-0400-02-29" (facts -400 2 29) "-000400-02-29 weekday 2 day 60")
+      (check "-0100-02-29" (facts -100 2 29) "the day is not in the month while dateNew")
+      ; 25 cycles of 400 years before 0001-01-01: a Monday again.
+      (check "-9999-01-01" (facts -9999 1 1) "-009999-01-01 weekday 1 day 1")
+      (check "leap years among -400 -100 -4 -1 0 1900 2000" (leapYears (vecOf7
+        -400
+        -100
+        -4
+        -1
+        0
+        1900
+        2000)) "-400 -4 0 2000")
+      0
+    }))

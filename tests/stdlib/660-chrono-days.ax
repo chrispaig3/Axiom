@@ -1,0 +1,148 @@
+; Every day Chrono supports, one after another, from -9999-01-01 to
+; 9999-12-31: 7,304,484 of them.
+;
+; A calendar walked by hand runs beside `dateAddDays`. It knows only
+; that months have 31, 30, 28 or 29 days and when February has 29, and
+; it says what year, month and day each step should be. Every day is
+; then checked five ways: its fields, rebuilding it with `dateNew`,
+; printing it and parsing the text back, its weekday against a counter
+; that cycles 1 to 7, and its day of the year against a counter reset
+; each 1 January.
+(import IO)
+(import Str)
+(import Err)
+(import Fmt)
+(import Chrono)
+
+(:: check (-> String String String Int))
+;@axiom:effect(io)
+(fn (check name got want)
+  (if (strEq got want)
+    {
+      (println "ok   {name}")
+      0
+    }
+    {
+      (println "FAIL {name} got={got} want={want}")
+      1
+    }))
+
+; The walk's own calendar.
+(:: leap (-> Int Bool))
+(fn (leap y)
+  (&& (== (% y 4) 0) (|| (!= (% y 100) 0) (== (% y 400) 0))))
+
+(:: monthLength (-> Int Int Int))
+(fn (monthLength y m)
+  (if (== m 2)
+    (if (leap y)
+      29
+      28)
+    (if (|| (|| (== m 4) (== m 6)) (|| (== m 9) (== m 11)))
+      30
+      31)))
+
+; 1 when `d` is not the day `y`-`m`-`day`, with weekday `wd` and day of
+; the year `yday`, in every way this file can ask.
+(:: dayFails (-> Date Int Int Int Int Int Int))
+(fn (dayFails d y m day wd yday)
+  (let ((fieldsOk (&& (&& (== (dateYear d) y) (== (dateMonth d) m)) (== (dateDay d) day))))
+    (let ((rebuilt 
+      (match (dateNew y m day)
+        ((Ok e) (dateEq e d))
+        ((Err _) false))))
+      (let ((reparsed 
+        (match (dateParse (dateToString d))
+          ((Ok e) (dateEq e d))
+          ((Err _) false))))
+        (if (&& (&& fieldsOk rebuilt) (&& reparsed (&& (== (dateWeekday d) wd) (== (dateDayOfYear d) yday))))
+          0
+          1)))))
+
+(:: showDate (-> (Result Date Error) String))
+(fn (showDate r)
+  (match r
+    ((Ok d) (dateToString d))
+    ((Err _) "refused")))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  ; The walk starts on -9999-01-01, a Monday: it is 25 cycles of 400
+  ; years, each exactly 20,871 weeks, before 0001-01-01, which is one.
+  (let (
+    (mut y -9999)
+    (mut m 1)
+    (mut day 1)
+    (mut wd 1)
+    (mut yday 1)
+    (mut days 0)
+    (mut fails 0)
+    (mut firstFail -1)
+  )
+    {
+      ; 1,784 blocks of 4,096 days, each in a region of its own, so the
+      ; strings and results one block makes are gone before the next.
+      (for block 0 1784
+        (set fails (+
+          fails
+          (region r
+            (let (
+              (mut d (unwrapOr (dateAddDays dateMin (* block 4096)) dateMax))
+              (mut bad 0)
+            )
+              {
+                (for k 0 4096
+                  (if (< days 7304484)
+                    {
+                      (if (== (dayFails
+                        d
+                        y
+                        m
+                        day
+                        wd
+                        yday) 1)
+                        {
+                          (if (< firstFail 0)
+                            (set firstFail days)
+                            0)
+                          (set bad (+ bad 1))
+                          0
+                        }
+                        0)
+                      (set days (+ days 1))
+                      ; The walk's next day.
+                      (if (< day (monthLength y m))
+                        (set day (+ day 1))
+                        (if (< m 12)
+                          {
+                            (set m (+ m 1))
+                            (set day 1)
+                            0
+                          }
+                          {
+                            (set y (+ y 1))
+                            (set m 1)
+                            (set day 1)
+                            (set yday 0)
+                            0
+                          }))
+                      (set yday (+ yday 1))
+                      (set wd (if (== wd 7)
+                        1
+                        (+ wd 1)))
+                      (set d (unwrapOr (dateAddDays d 1) dateMax))
+                      0
+                    }
+                    0))
+                bad
+              })))))
+      (check "days walked" (fmtInt days) "7304484")
+      (check "days that disagree with the walk" (fmtInt fails) "0")
+      (check "the first that disagrees" (fmtInt firstFail) "-1")
+      (check "the walk would go on to year 10000" (fmtInt y) "10000")
+      (check "the last day is dateMax" (showDate (dateAddDays dateMin 7304483)) "9999-12-31")
+      (check "and there is no day after it" (showDate (dateAddDays dateMin 7304484)) "refused")
+      (check "dateDaysUntil dateMin dateMax" (fmtInt (dateDaysUntil dateMin dateMax)) "7304483")
+      0
+    }))

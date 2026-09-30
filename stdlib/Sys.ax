@@ -1568,6 +1568,41 @@
         (Err (mkError (- 0 r) "sysNowMonotonic"))
         (Ok (+ (* (memGetWord buf 0) 1000000) (/ (memGetWord buf 1) 1000)))))))
 
+; Nanoseconds since 1970-01-01T00:00:00Z from the realtime clock, the
+; wall clock `Chrono.datetimeNowUtc` reads. The system may step it, so
+; two readings do not measure a duration: that is `sysNowMonotonic`'s
+; job. Darwin answers gettimeofday's microseconds times 1000; Linux and
+; FreeBSD answer clock_gettime(CLOCK_REALTIME). A target with no clock
+; call (`sysClockNum` 0: Windows and bare metal) answers `Err` 78, as
+; `sysNowMonotonic` does. An Int of nanoseconds reaches 2262-04-11, and
+; a reading beyond that answers `Err` `errOverflow` rather than wrap.
+; The 16-byte buffer is the caller's, as above.
+(pub :: sysNowRealtimeNanos (-> Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`buf` names 16 live writable bytes)
+(pub fn (sysNowRealtimeNanos buf)
+  (if (== sysClockNum 0)
+    (Err (mkError 78 "sysNowRealtimeNanos"))
+    (let ((r
+      (if (== clockIsGettimeofday 1)
+        (__syscall3 sysClockNum buf 0 0)
+        ; CLOCK_REALTIME is 0 on Linux and on FreeBSD alike, unlike
+        ; the monotonic clock's id.
+        (__syscall3 sysClockNum 0 buf 0))))
+      (if (< r 0)
+        (Err (mkError (- 0 r) "sysNowRealtimeNanos"))
+        (let (
+          (secs (memGetWord buf 0))
+          (ns
+            (if (== clockIsGettimeofday 1)
+              (* (& (memGetWord buf 1) 4294967295) 1000)
+              (memGetWord buf 1)))
+        )
+          (if (|| (>= secs 9223372036) (<= secs -9223372036))
+            (Err (mkError errOverflow "sysNowRealtimeNanos"))
+            (Ok (+ (* secs 1000000000) ns))))))))
+
 ; ------------------------------------------------------------------
 ; Sockets
 ;
