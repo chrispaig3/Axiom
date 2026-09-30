@@ -1,0 +1,163 @@
+; Net over loopback, in one process: a listener on port 0 learns the
+; port the kernel chose, a client connects, the server accepts, and
+; bytes cross both ways, in both families. A loopback connect completes
+; into the accept queue before `accept` is called, so one process can be
+; both ends (307-socket-roundtrip.ax has the measurement).
+;
+; And the address parser, which reads only numbers: every refusal below
+; is a spelling another reader could take two ways.
+(import IO)
+(import Str)
+(import Vec)
+(import Err)
+(import Net)
+
+(:: say (-> Bool String Int))
+;@axiom:effect(io)
+(fn (say ok label)
+  (println
+    (strConcat
+      (if ok
+        "ok   "
+        "FAIL ")
+      label)))
+
+(:: parsed (-> String String))
+(fn (parsed t)
+  (match (socketAddrParse t)
+    ((Ok a) (socketAddrText a))
+    ((Err _) "refused")))
+
+(:: roundTrip (-> String String Int))
+;@axiom:effect(io)
+(fn (roundTrip family text)
+  (match (andThen (socketAddrParse text) tcpListen)
+    ((Err e) (say false (strConcat family (strConcat " listen: " (errorText e)))))
+    ((Ok lsn)
+      (match (tcpListenerAddr lsn)
+        ((Err e) (say false (strConcat family " listener address")))
+        ((Ok bound)
+          {
+            (say (> (socketAddrPort bound) 0) (strConcat family " port 0 gets a real port"))
+            (match (tcpConnect bound)
+              ((Err e) (say false (strConcat family (strConcat " connect: " (errorText e)))))
+              ((Ok client)
+                (match (tcpAccept lsn)
+                  ((Err e) (say false (strConcat family " accept")))
+                  ((Ok server)
+                    {
+                      (say (== (unwrapOr (tcpWrite client "ping") -1) 4) (strConcat family " client writes 4 bytes"))
+                      (say (strEq (unwrapOr (tcpReadSome server 64) "") "ping") (strConcat family " server reads them"))
+                      (say (isOk (tcpWrite server "pong and more")) (strConcat family " server answers"))
+                      (let ((_ (tcpShutdown server shutWrite)))
+                        0)
+                      (say (strEq (unwrapOr (tcpReadAll client) "") "pong and more") (strConcat family " client reads to end of stream"))
+                      (let (
+                        (peer (unwrapOr (tcpPeerAddr server) bound))
+                        (mine (unwrapOr (tcpLocalAddr client) bound))
+                      )
+                        (say (strEq (socketAddrText peer) (socketAddrText mine)) (strConcat family " the server's peer is the client's own address")))
+                      (say (isOk (tcpSetNoDelay client true)) (strConcat family " TCP_NODELAY"))
+                      (say (isOk (tcpSetReadTimeout client 250000)) (strConcat family " read timeout"))
+                      (let (
+                        (_ (tcpClose server))
+                        (_ (tcpClose client))
+                        (_ (tcpListenerClose lsn))
+                      )
+                        0)
+                    }
+                  ))
+              ))
+          }
+        ))
+    )))
+
+; A write to a peer that has gone away answers `Err`, and the program
+; is still here to say so: SIGPIPE would have ended it before the next
+; line. The first write after the close can still be accepted into the
+; buffer; the kernel refuses a later one once the peer's reset arrives.
+(:: brokenPipe Int)
+;@axiom:effect(io)
+(fn (brokenPipe)
+  (match (andThen (socketAddrParse "127.0.0.1:0") tcpListen)
+    ((Err _) (say false "broken pipe: listen"))
+    ((Ok lsn)
+      (match (andThen (tcpListenerAddr lsn) tcpConnect)
+        ((Err _) (say false "broken pipe: connect"))
+        ((Ok client)
+          (match (tcpAccept lsn)
+            ((Err _) (say false "broken pipe: accept"))
+            ((Ok server)
+              (let (
+                (_ (tcpClose client))
+                (mut failed false)
+                (mut tries 0)
+              )
+                {
+                  (while (&& (! failed) (< tries 200))
+                    {
+                      (if (isErr (tcpWrite server "data after the peer left"))
+                        {
+                          (set failed true)
+                          0
+                        }
+                        0)
+                      (set tries (+ tries 1))
+                    })
+                  (say failed "a write to a closed peer answers Err, not SIGPIPE")
+                  (let (
+                    (_ (tcpClose server))
+                    (_ (tcpListenerClose lsn))
+                  )
+                    0)
+                })
+            ))
+        ))
+    )))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (say (strEq (parsed "127.0.0.1:8080") "127.0.0.1:8080") "IPv4 with port")
+    (say (strEq (parsed "[::1]:443") "[::1]:443") "IPv6 loopback")
+    (say (strEq (parsed "[2001:db8:0:0:0:0:2:1]:80") "[2001:db8::2:1]:80") "IPv6 printed in RFC 5952 form")
+    (say (strEq (parsed "[::ffff:192.0.2.1]:1") "[::ffff:192.0.2.1]:1") "an IPv4 tail")
+    (say (strEq (parsed "[fe80::]:65535") "[fe80::]:65535") "a trailing ::")
+    (say (strEq (parsed "0.0.0.0:0") "0.0.0.0:0") "the unspecified address")
+    (for bad in (let ((v vecNew))
+      {
+        (vecPush v "")
+        (vecPush v "127.0.0.1")
+        (vecPush v "127.0.0.1:")
+        (vecPush v "127.0.0.1:65536")
+        (vecPush v "256.0.0.1:80")
+        (vecPush v "01.2.3.4:80")
+        (vecPush v "1.2.3:80")
+        (vecPush v "1.2.3.4.5:80")
+        (vecPush v "localhost:80")
+        (vecPush v "::1:80")
+        (vecPush v "[::1]")
+        (vecPush v "[::1]80")
+        (vecPush v "[1::2::3]:80")
+        (vecPush v "[1:2:3:4:5:6:7:8:9]:80")
+        (vecPush v "[12345::]:80")
+        (vecPush v "[fe80::1%en0]:80")
+        (vecPush v "[1:2:3:4:5:6:7:]:80")
+        v
+      })
+      (say
+        (strEq (parsed bad) "refused")
+        (strConcat
+          "refuses "
+          (if (== (strLen bad) 0)
+            "the empty string"
+            bad))))
+    (roundTrip "IPv4" "127.0.0.1:0")
+    (roundTrip "IPv6" "[::1]:0")
+    (brokenPipe)
+    (match (andThen (socketAddrParse "127.0.0.1:1") tcpConnect)
+      ((Ok _) (say false "a connect to a closed port"))
+      ((Err _) (say true "a connect to a closed port answers Err")))
+    0
+  })

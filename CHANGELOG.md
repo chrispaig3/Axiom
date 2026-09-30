@@ -3583,8 +3583,8 @@ battery still has eighty-three gates.
 What is still measured, and what is not. MM-ALLOC-22 — the request
 handler as an arena scope — is measured by `check-net.sh` over
 `tests/net/echo-server.ax`; `Http`'s parser, writer and router by
-`tests/stdlib/430-http-parse.ax`, `431-http-response.ax` and
-`432-http-router.ax`, which is where `httpPathSafe` is exercised now.
+`tests/stdlib/430-http-parse.ax`, `tests/stdlib/431-http-response.ax` and
+`tests/stdlib/432-http-router.ax`, which is where `httpPathSafe` is exercised now.
 No gate renders a page per request any more, and none refuses a
 `%2e%2e` traversal over a socket end to end.
 

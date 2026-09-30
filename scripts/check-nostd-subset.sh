@@ -4,7 +4,7 @@
 #
 # docs/embedded-proposal.md 4.4 says `Pre`, `Mem`, `Str`, `Vec`, `Map`,
 # `Fmt`, `Utf8` and `Err` assume no filesystem, process model or
-# sockets, while `Sys`, `IO`, `Path`, `Http`, `Rpc` and `Par` do - and
+# sockets, while `Sys`, `IO`, `Path`, `Net`, `Rpc` and `Par` do - and
 # requires the split to be gated BEFORE the port, because a subset no
 # gate holds is an intention. This is that gate, in three arms that
 # fail for three different breakages:

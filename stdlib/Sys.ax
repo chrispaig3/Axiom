@@ -641,9 +641,8 @@
 ; name, and a segment replaced between them by a link to `/` is
 ; followed by the second. Each `openat` here resolves exactly one name
 ; in a directory this call already holds open, so there is no second
-; lookup to race. `Http.httpServeFile` joined and opened until
-; 2026-09-26, and an audit served a file outside its static root through
-; a symlink planted inside it.
+; lookup to race. A static file server that joined and opened was
+; served a file outside its root through a symlink planted inside it.
 ;
 ; `rel` must be relative, of non-empty segments, with no `..` and no
 ; NUL; anything else answers EXDEV before any syscall - the errno
@@ -656,7 +655,6 @@
 ; file reads it, and a directory's read answers EISDIR (`sysReadErrno`
 ; says why that is the portable test). Every intermediate descriptor is
 ; closed before this answers; the one it answers is the caller's.
-; `tests/stdlib/432-http-router.ax` plants the links it must refuse.
 (pub :: sysOpenBeneath (-> Int String (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
@@ -2253,6 +2251,44 @@
 (pub fn (netShutdown fd how)
   (sysResult "netShutdown" (__syscall3 sysShutdownNum fd how 0)))
 
+; Set a socket option whose value is `len` bytes at `buf` - a struct
+; such as the `timeval` `SO_RCVTIMEO` takes, where `netSetOptInt`
+; covers the four-byte ones.
+(pub :: netSetOptBytes (-> Int Int Int Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`buf` names `len` live bytes)
+(pub fn (netSetOptBytes fd level name buf len)
+  (sysResult "netSetOptBytes" (__syscall5 sysSetSockOptNum fd level name buf len)))
+
+; The address socket `fd` is bound to (`getsockname`), written into the
+; `cap` bytes at `addr` with the length cell at `lenbuf`, as
+; `netAcceptFrom` writes a peer. How a listener asked for port 0 learns
+; the port it got.
+(pub :: netGetSockName (-> Int Int Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`addr` names `cap` live writable bytes and `lenbuf` 4)
+(pub fn (netGetSockName fd addr cap lenbuf)
+  {
+    (memSet addr 0 cap)
+    (netPutInt32 lenbuf 0 cap)
+    (sysResult "netGetSockName" (__syscall3 sysGetSockNameNum fd addr lenbuf))
+  })
+
+; The address of the peer connected to socket `fd` (`getpeername`), in
+; the same shape.
+(pub :: netGetPeerName (-> Int Int Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`addr` names `cap` live writable bytes and `lenbuf` 4)
+(pub fn (netGetPeerName fd addr cap lenbuf)
+  {
+    (memSet addr 0 cap)
+    (netPutInt32 lenbuf 0 cap)
+    (sysResult "netGetPeerName" (__syscall3 sysGetPeerNameNum fd addr lenbuf))
+  })
+
 ; Set an integer-valued socket option. The value crosses as four bytes
 ; in the host's own order, which is what the kernel reads an `int`
 ; option as - unlike an address, this one is NOT network order. That is
@@ -3146,7 +3182,7 @@
 ; `sysReadFd` is one `read(2)`, and until 2026-09-04 it was the whole
 ; of what a program could do with a descriptor it did not open: the
 ; only readers above it were `sysReadFile` (a path, to EOF), the
-; buffered record readers in `Rpc` and `Http`, and the REPL's private
+; buffered record reader in `Rpc`, and the REPL's private
 ; line reader. Nothing in the library read standard input, and nothing
 ; in the tree noticed, because nothing in the tree reads standard
 ; input - the corpus is the compiler's own needs, and the compiler
@@ -3182,7 +3218,7 @@
 ; state a descriptor has, and it is shared with every process holding
 ; the same open file - a child that `sysSpawn` hands fd 0 to must find
 ; the next unread byte there, not a block's worth further on. The
-; readers that DO buffer (`Rpc`, `Http`) keep the state in a record the
+; reader that DOES buffer (`Rpc`) keeps the state in a record the
 ; caller owns and passes back, which is sound and is their whole
 ; reason for existing as records. A line reader over a bare `Int` has
 ; no such place, so it reads exactly as many bytes as it answers.

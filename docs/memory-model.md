@@ -636,9 +636,9 @@ NUL-terminated path (`sysOpenPath`, `sysReadFile`, `sysWriteFile`,
 `sysRename`, `sysFileExists` and the rest), `sysRandomBytes` and the
 terminal calls. It covers the socket-address readers, the poll and
 signal calls, the clock reads, `sysChildExited`, `sysSpawn` and the
-`sysRun` family, `sysUnmapShared` and the word waits too. So are `IO`'s `readFileLit` and `printlnLit`, `Http`'s
-`httpRespondRaw`, `rdReseat` and `Fmt`'s digit writers. `KeyIn`,
-`HttpReader` and `IO`'s `TermState` are private. A syscall is an unsafe
+`sysRun` family, `sysUnmapShared` and the word waits too. So are `IO`'s `readFileLit` and `printlnLit`,
+`rdReseat` and `Fmt`'s digit writers. `KeyIn` and `IO`'s `TermState`
+are private. A syscall is an unsafe
 operation of its own (`MM-EXEC-9c`), so a function that makes one says
 `effect(unsafe)`, and `restrict(no-unsafe)` refuses
 `(__syscall3 sysRandomNum 4096 64 0)`.

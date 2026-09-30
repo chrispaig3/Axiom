@@ -1204,8 +1204,7 @@ checker about what your code means.
 - `lint-bool-if`: `(if c true false)` where `c` is a bare name. The
   `if` returns its condition unchanged. The reverse,
   `(if c false true)`, isn't linted. Axiom has no `not` operator, so
-  that form is how you write boolean negation, and `stdlib/Http.ax`
-  spells `httpNot` exactly that way.
+  that form is how you write boolean negation.
 - `lint-unused-let`: a `let` or `mut` binding that nothing reads. This
   is usually a forgotten use or a leftover. Only reads keep a binding
   alive, so a binding that is written but never read still draws the

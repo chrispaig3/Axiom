@@ -403,9 +403,8 @@ a refusal.
 
 The policy *can* refuse an incomplete row. An unexempt
 `#effects-incomplete` in stdlib fails `check-agent-policy.sh` outright.
-The only exemptions are the five higher-order rows the gate names with
-reasons: `vecSortBy`, `vecSiftDownBy` and the three `Http` dispatch
-frames. Its `partial.ax` probe plants one to prove the refusal fires. A
+The only exemptions are the four higher-order rows the gate names with
+reasons: `vecSortBy`, `vecSiftDownBy`, `taskFoldOne` and `taskFold`. Its `partial.ax` probe plants one to prove the refusal fires. A
 lower bound never passes as an upper one.
 
 `trait` and `impl` are refused as `AX2004`, so no edge can name a

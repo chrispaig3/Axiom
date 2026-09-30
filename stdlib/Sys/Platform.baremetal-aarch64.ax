@@ -686,3 +686,53 @@
 (pub :: randomUsesRndr Int)
 (pub fn (randomUsesRndr)
   1)
+
+; ------------------------------------------------------------------
+; TCP beyond connect and accept, for `stdlib/Net.ax`: the two calls that
+; name a socket's addresses, a write that takes flags, and the options
+; a stream sets. A syscall number of 0 means the target has none.
+; ------------------------------------------------------------------
+; getsockname - the address a socket is bound to
+(pub :: sysGetSockNameNum Int)
+(pub fn (sysGetSockNameNum)
+  0)
+
+; getpeername - the address of the connected peer
+(pub :: sysGetPeerNameNum Int)
+(pub fn (sysGetPeerNameNum)
+  0)
+
+; sendto - a write that takes flags, for `msgNoSignal`
+(pub :: sysSendToNum Int)
+(pub fn (sysSendToNum)
+  0)
+
+; SO_RCVTIMEO - how long a read may wait, as a struct timeval
+(pub :: soRcvTimeo Int)
+(pub fn (soRcvTimeo)
+  0)
+
+; SO_SNDTIMEO - how long a write may wait
+(pub :: soSndTimeo Int)
+(pub fn (soSndTimeo)
+  0)
+
+; SO_NOSIGPIPE - a write to a closed peer answers EPIPE instead of raising SIGPIPE; 0 where the option does not exist
+(pub :: soNoSigPipe Int)
+(pub fn (soNoSigPipe)
+  0)
+
+; MSG_NOSIGNAL - the same, per write, for `sendto`; 0 where the flag does not exist
+(pub :: msgNoSignal Int)
+(pub fn (msgNoSignal)
+  0)
+
+; IPPROTO_TCP - the level TCP options are set at
+(pub :: ipprotoTcp Int)
+(pub fn (ipprotoTcp)
+  6)
+
+; TCP_NODELAY - send small writes at once rather than join them
+(pub :: tcpNoDelayOpt Int)
+(pub fn (tcpNoDelayOpt)
+  1)

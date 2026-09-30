@@ -149,7 +149,7 @@ sentinel:
 
 | What the line does | Hits | Where |
 |---|---|---|
-| Seeds a loop accumulator, such as `(mut found (- 0 1))`; never an answer | 9 | `Str.strFind` (which already answers `(Option Int)`), `httpHeadEnd`, `httpHeaderIndex`, `httpRead`, `routeFind`, `routeFindStatic`, `rdFindHeaderEnd`, `rdContentLength`, `rpcReadMsg` |
+| Seeds a loop accumulator, such as `(mut found (- 0 1))`; never an answer | 4 | `Str.strFind` (which already answers `(Option Int)`), `rdFindHeaderEnd`, `rdContentLength`, `rpcReadMsg` |
 | A private helper below a wrapper that already answers `Option`, keeping `-1` on the recursion (§10's rule for `internFindFrom`) | 4 | `internFindFrom` (twice), `pathLastSlashFrom`, `pathLastDotFrom` |
 | `Map.ax`'s private probe walk below `mapGet`, whose absent-key answer is a caller-supplied default and not a sentinel | 4 | `mapFindSlot`, `mapFindLoop` (twice), `mapInsertNoGrow` |
 | Passes `-1` as an argument, or sets a local to it, in `stdlib/Sys.ax` | 3 | `netAddrText`'s zero-run seed, `netSignalOpenRaw`'s syscall slot, `sysRandomBytes`' `(set rc (- 0 1))` |
@@ -2018,15 +2018,9 @@ Each is now a `match` at the point of production, so the pair is
 consumed in two registers and no caller builds the block that
 `384-restrict-no-alloc-ctor` calls `held`.
 
-The port surfaced two defects of the class §10 slice 3 already names:
-a `-1` reaching arithmetic that nothing refused.
+The port surfaced a defect of the class §10 slice 3 already names: a
+`-1` reaching arithmetic that nothing refused.
 
-- `Http.httpParseHead` bound `eol` to `(strFindByte buf 13 base)` and
-  then computed `(strSlice buf base (- eol base))`. With no CR in the
-  head, that is a slice of negative length, held off only by the
-  reader's framing, which is a caller's property. `Http.httpParseHeaders`
-  had the same shape on `le`. Both now answer a 400, in the `None` arm
-  the type made someone write.
 - `driver.ax`'s directory walk called `strFindByte` a second time to
   find a `.` its own guard had just located at `strLen - 3`. That call
   is now the index.

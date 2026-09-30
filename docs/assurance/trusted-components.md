@@ -120,7 +120,7 @@ and bytes, `Vec`'s and `Map`'s heterogeneous readers and their frees,
 `Str`'s raw constructors, `Ffi`'s cells and handles, and
 `Task.taskFold`'s step. They are also every `Sys` call that hands the
 kernel a caller's address (its buffers, NUL-terminated paths, terminal
-states and word waits), `IO.readFileLit` and `Http.httpRespondRaw`.
+states and word waits) and `IO.readFileLit`.
 The syscall wrappers that hand the kernel nothing a caller chose, such
 as `sysCloseFd` and `netAccept`, and `IO`'s typed companions, which
 hand it only bytes a `String` holds, are trusted. Their

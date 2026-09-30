@@ -12935,8 +12935,8 @@
 ; is only as good as the definition of "reachable", and the class that
 ; sinks a naive answer is the function whose ADDRESS IS TAKEN rather
 ; than called - a callback, a comparator, a capability-record field.
-; `vecSortBy`, `vecSiftDownBy` and three functions in `stdlib/Http.ax`
-; are the ones the effect walk already gives up on and marks
+; `vecSortBy`, `vecSiftDownBy`, `taskFold` and `taskFoldOne` are the
+; ones the effect walk already gives up on and marks
 ; `#effects-incomplete`, and an AST walk would have to rediscover every
 ; one of them and would still be guessing about the next.
 ;

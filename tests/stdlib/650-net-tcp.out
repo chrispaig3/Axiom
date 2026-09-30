@@ -1,0 +1,41 @@
+ok   IPv4 with port
+ok   IPv6 loopback
+ok   IPv6 printed in RFC 5952 form
+ok   an IPv4 tail
+ok   a trailing ::
+ok   the unspecified address
+ok   refuses the empty string
+ok   refuses 127.0.0.1
+ok   refuses 127.0.0.1:
+ok   refuses 127.0.0.1:65536
+ok   refuses 256.0.0.1:80
+ok   refuses 01.2.3.4:80
+ok   refuses 1.2.3:80
+ok   refuses 1.2.3.4.5:80
+ok   refuses localhost:80
+ok   refuses ::1:80
+ok   refuses [::1]
+ok   refuses [::1]80
+ok   refuses [1::2::3]:80
+ok   refuses [1:2:3:4:5:6:7:8:9]:80
+ok   refuses [12345::]:80
+ok   refuses [fe80::1%en0]:80
+ok   refuses [1:2:3:4:5:6:7:]:80
+ok   IPv4 port 0 gets a real port
+ok   IPv4 client writes 4 bytes
+ok   IPv4 server reads them
+ok   IPv4 server answers
+ok   IPv4 client reads to end of stream
+ok   IPv4 the server's peer is the client's own address
+ok   IPv4 TCP_NODELAY
+ok   IPv4 read timeout
+ok   IPv6 port 0 gets a real port
+ok   IPv6 client writes 4 bytes
+ok   IPv6 server reads them
+ok   IPv6 server answers
+ok   IPv6 client reads to end of stream
+ok   IPv6 the server's peer is the client's own address
+ok   IPv6 TCP_NODELAY
+ok   IPv6 read timeout
+ok   a write to a closed peer answers Err, not SIGPIPE
+ok   a connect to a closed port answers Err

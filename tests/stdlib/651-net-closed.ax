@@ -1,0 +1,22 @@
+; A closed stream's handle is dead: the next use stops the program with
+; status 85 before the descriptor number is used, so it can never reach
+; a file the kernel has since given that number to (docs/reference.md,
+; "Connect over TCP"; MM-PAR-8).
+(import IO)
+(import Err)
+(import Net)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (match (andThen (socketAddrParse "127.0.0.1:0") tcpListen)
+    ((Ok lsn)
+      {
+        (println "listening")
+        (let ((_ (tcpListenerClose lsn)))
+          (println "closed"))
+        (println (tcpListenerFd lsn))
+        0
+      }
+    )
+    ((Err e) (die (errorText e) 1))))

@@ -459,9 +459,6 @@ echo "== completeness: no effect row is only a lower bound =="
 cat > "$work/incomplete.exempt" <<'INCOMPLETE'
 vecSortBy     Vec.ax  calls the comparator the CALLER supplies, so its row is a lower bound by construction; the first higher-order function in this library and the first entry here
 vecSiftDownBy Vec.ax  the same call one frame down, `vecSortBy`'s own helper
-httpCall      Http.ax calls the handler a ROUTE holds - a function value the program registered with `routeAdd`, read out of an `HttpHandler` struct's `.run` field - so its row is the router's lower bound by construction
-routeDispatch Http.ax `httpCall` one frame up: the dispatcher hands the socket to whichever handler the table names
-httpServeOne  Http.ax `routeDispatch` one frame up: read, dispatch, or write the parser's refusal
 taskFoldOne   Task.ax applies the step the CALLER supplies - to the accumulator and index first, then to the answer alone through a local, the one-argument call the region check can accept (MM-PAR-13) - so its row is a lower bound by construction
 taskFold      Task.ax `taskFoldOne` one frame up: the caller's step is the whole of the fold
 INCOMPLETE

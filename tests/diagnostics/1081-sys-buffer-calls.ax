@@ -8,7 +8,7 @@
 ; One untagged declaration per interface, each refused as AX3073 at the
 ; call: the descriptor reads and writes, the path calls, entropy, the
 ; terminal calls, the shared-memory unmap and wait, and the raw forms
-; in `IO` and `Http`. `pureRead` claims `pure` over `sysReadFd` and draws
+; in `IO`. `pureRead` claims `pure` over `sysReadFd` and draws
 ; AX3010 instead. `noUnsafe` claims `restrict(no-unsafe)` over
 ; `sysRandomBytes` and draws AX3049 beside its AX3073.
 ;
@@ -17,7 +17,6 @@
 ; `String` or answer a fresh one.
 (import Sys)
 (import IO)
-(import Http)
 (import Str)
 (import Err)
 
@@ -140,16 +139,6 @@
 (:: readsLitAt (-> Int String))
 (fn (readsLitAt path)
   (readFileLit path))
-
-;@axiom:effect(io)
-(:: respondsFrom (-> Int Int))
-(fn (respondsFrom addr)
-  (httpRespondRaw
-    1
-    200
-    "text/plain"
-    addr
-    64))
 
 (:: pureRead (-> Int (Result Int Error)))
 ;@axiom:effect(pure)

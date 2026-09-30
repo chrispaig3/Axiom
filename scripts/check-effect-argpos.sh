@@ -184,7 +184,17 @@ echo "== 3. the library's own sort, which is what found this =="
 mkdir -p "$work/lib"
 cat > "$work/lib/lib.ax" <<'AX'
 (import Vec)
-(import Http)
+
+; The control below: a handler held in a record's field and called
+; through it, `((h.run) n)` - a head that is not a name. The standard
+; library had one in `Http`'s router, and a program still writes one
+; whenever it keeps callbacks in a table.
+(struct Handler
+  (run : (-> Int Int)))
+
+(:: dispatch (-> Handler Int Int))
+(fn (dispatch h n)
+  ((h.run) n))
 
 (:: main Int)
 (fn (main) 0)
@@ -212,14 +222,14 @@ for d in vecSortBy vecSiftDownBy; do
   fi
 done
 
-# The control from the real corpus: `httpCall` is `((h.run) fd r)`, a
-# head that is not a name, and nothing here may touch it.
+# The control: `dispatch` is `((h.run) n)`, a head that is not a name,
+# and nothing here may touch it.
 checks=$((checks + 1))
-if grep -qE '^F httpCall .*#effects-incomplete' "$work/librows"; then
-  echo "ok   httpCall is still a lower bound - dispatch through a struct field is a different row of MM-EXEC-9a"
+if grep -qE '^F dispatch .*#effects-incomplete' "$work/librows"; then
+  echo "ok   dispatch is still a lower bound - dispatch through a struct field is a different row of MM-EXEC-9a"
 else
-  echo "FAIL: httpCall lost #effects-incomplete; it calls a value out of a record and nothing resolved it"
-  grep -E '^F httpCall ' "$work/librows" | sed 's/^/     /' || echo "     (no row at all)"
+  echo "FAIL: dispatch lost #effects-incomplete; it calls a value out of a record and nothing resolved it"
+  grep -E '^F dispatch ' "$work/librows" | sed 's/^/     /' || echo "     (no row at all)"
   failed=$((failed + 1))
 fi
 

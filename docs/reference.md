@@ -5693,7 +5693,7 @@ regenerates it on every run to keep it exact.
 | `Chan` | `chanNew`, a bounded channel of words between [`parallel`](#parallel--bindings-that-run-beside-the-caller) bindings, in shared memory so forked children and threads both see it. The channel is a `Chan`, a handle only this module makes, and a call on a freed one exits with status 85. `chanSend`/`chanRecv` block while it is full or empty, and `chanClose` ends the stream. Also `chanTrySend`, `chanTryRecv`, `chanLen`, `chanClosed`, `chanCap`, `chanFree`. `chanSendTimeout`/`chanRecvTimeout` wait at most a given time and answer `Err` code `sysTimedOut` when it runs out ([memory-model.md](memory-model.md) `MM-PAR-10`, `MM-PAR-12`). |
 | `Sync` | `mutexNew`, a mutex between [`parallel`](#parallel--bindings-that-run-beside-the-caller) bindings in a shared word, in both lowerings. The mutex is a `Mutex`, a handle only this module makes, and a call on a freed one exits with status 85. `mutexLock`/`mutexTryLock`/`mutexLockTimeout` answer a guard that `mutexUnlock` takes back (an unlock the caller did not earn is `Err` `syncNotHeld`), a holder found dead poisons it (`syncOwnerDead`, `mutexOwnerDead`), `mutexFree`. No fairness, no priority inheritance, not reentrant ([memory-model.md](memory-model.md) `MM-PAR-11`). |
 | `Task` | `taskMap`/`taskMapWith`: `(-> Int String)` tasks in forked children, at most `width` at once, one `(Result String Error)` each in submit order. Answers cross as bytes under a per-task limit (`taskTooLargeCode`), a trap answers its wait status, a deadline kills and reaps (`sysTimedOut`), a token cancels (`taskTokenNew` answers a `CancelToken` handle; `taskCancel`, `taskCancelled`, `taskCancelledCode`), `failFast`; `TaskOpts` via `taskOpts` and `taskWith*`; `taskFold` streams the answers without keeping them ([memory-model.md](memory-model.md) `MM-PAR-13`). |
-| `Http` | Serving HTTP. The parser `httpRead` over a buffered `HttpReader` (`httpReaderNew`/`httpReaderWith`). The `HttpReq` record with `httpHeader`/`httpHasHeader`/`httpQueryParam`/`httpDecode`. The writer `httpRespond`/`httpRespondRaw`/`httpFail`, with `httpStatusText` and `httpContentType`. The router `routerNew`/`routeAdd`/`routeStatic`/`routeNotFound`/`routeDispatch` over `HttpHandler` cells. Also `httpPathSafe`, `httpServeFile`, `httpServeOne`, and the limits `httpMaxHead`/`httpMaxBody`. |
+| `Net` | TCP, the way Rust's `std::net` has it: `tcpListen`, `tcpAccept` and `tcpConnect` answer sealed `TcpListener` and `TcpStream` handles, read with `tcpRead`, `tcpReadSome` and `tcpReadAll`, and write with `tcpWrite`. Also `tcpShutdown`, the peer and local addresses, `tcpSetNoDelay`, read and write timeouts, non-blocking mode, and `SocketAddr` with `socketAddrParse` for numeric IPv4 and IPv6 addresses ([Connect over TCP](#connect-over-tcp)). |
 | `Test` | `assertEq`, `assertNe`, `assertStrEq`, `assertTrue`, `assertFalse`, `testFail`, and the `Assert` effect a failed assertion performs, which `axiom test` uses to find and isolate failures (error-model.md ERR-REC-6). |
 | `Agent.Tags` | Reads the AXSYM stream, not the compiler's internals: `axsymParse`, `axsymLine`, and the accessors over one parsed line, `symTag`, `symHasTag`, `symEffects`, `symDerivedPure`, `symAgentTag`, `symHasAgentTag` ([agent-harness.md](agent-harness.md) §3.2). |
 | `Tui.Keys` | Terminal input bytes to key events, as pure functions ([line editor](#build-a-line-editor)). |
@@ -5874,6 +5874,60 @@ Three things to know before you use these:
   path anything else is holding.
 
 <a id="a-str-is"></a>
+### Connect over TCP
+
+`Net` is the standard library's networking: TCP listeners and streams,
+and the socket addresses they open on. Protocols above TCP, such as
+HTTP and TLS, are libraries a program brings.
+
+```scheme
+(import IO)
+(import Err)
+(import Net)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (match (andThen (socketAddrParse "127.0.0.1:0") tcpListen)
+    ((Err e) (die (errorText e) 1))
+    ((Ok lsn)
+      (match (andThen (tcpListenerAddr lsn) tcpConnect)
+        ((Err e) (die (errorText e) 1))
+        ((Ok client)
+          (match (tcpAccept lsn)
+            ((Err e) (die (errorText e) 1))
+            ((Ok server)
+              {
+                (let ((_ (tcpWrite client "ping")))
+                  (println (unwrapOr (tcpReadSome server 64) "")))
+                (let ((_ (tcpClose client)) (_ (tcpClose server)) (_ (tcpListenerClose lsn)))
+                  0)
+              })))))))
+```
+
+```text
+ping
+```
+
+Port 0 asks the kernel for a free port, and `tcpListenerAddr` says
+which one it chose. A loopback connection lands in the listener's
+queue straight away, so one program can be both ends.
+
+- Streams block by default. `tcpSetNonBlocking` switches one, and
+  `tcpStreamFd` hands its descriptor to `Sys`'s readiness calls
+  (`netPollCreate`, `netPollWait`).
+- A write to a peer that has closed answers `Err`. It doesn't end the
+  program with SIGPIPE.
+- A closed stream or listener used again stops the program with status
+  85, before the descriptor number reaches a file the kernel has since
+  given it to.
+- `socketAddrParse` reads numbers only, `127.0.0.1:80` or `[::1]:80`.
+  There's no name lookup, because the only resolver a freestanding
+  program could call is the C library's.
+
+Tested by `tests/stdlib/650-net-tcp.ax` and
+`tests/stdlib/651-net-closed.ax`.
+
 ### Strings are bytes
 
 A `Str` is a length-counted string of bytes, and `Str`'s own functions

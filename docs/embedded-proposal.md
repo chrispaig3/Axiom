@@ -220,7 +220,7 @@ leaves `targetTrapSilent` at 0, so no target is silent today.
 
 ### 4.4 A `--no-std`-shaped subset of the standard library *(done — `scripts/check-nostd-subset.sh`)*
 
-`Sys`, `IO`, `Path`, `Http`, `Rpc` and `Par` all assume a filesystem,
+`Sys`, `IO`, `Path`, `Net`, `Rpc` and `Par` all assume a filesystem,
 a process model or sockets. `Pre`, `Mem`, `Str`, `Vec`, `Map`, `Fmt`,
 `Utf8` and `Err` don't. The proposal: mark the second group as the
 freestanding subset, and gate it. A probe that imports only those

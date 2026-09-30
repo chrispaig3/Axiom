@@ -78,12 +78,12 @@ stdlib/Err.ax
 stdlib/Fallible.ax
 stdlib/Ffi.ax
 stdlib/Fmt.ax
-stdlib/Http.ax
 stdlib/IO.ax
 stdlib/Intern.ax
 stdlib/Json.ax
 stdlib/Map.ax
 stdlib/Mem.ax
+stdlib/Net.ax
 stdlib/Par.ax
 stdlib/Path.ax
 stdlib/Pre.ax

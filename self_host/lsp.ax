@@ -672,10 +672,9 @@
 ;                       the shorter spelling says the same thing.
 ;                       The other order is deliberately NOT linted:
 ;                       `(if c false true)` IS this language's boolean
-;                       negation - `stdlib/Http.ax` spells `httpNot`
-;                       exactly that way, there is no `not` operator
-;                       - and suggesting one would invent a rule
-;                       against the standard library.
+;                       negation, and suggesting the other order
+;                       would invent a rule against a spelling the
+;                       language's own code uses.
 ;
 ;   `lint-unused-let`   a `let` (or `mut`) binding nothing in its
 ;                       scope reads. Computing a value and dropping

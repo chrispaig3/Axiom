@@ -626,7 +626,7 @@ row is `#mir-truncated`, and 1,656 carry `#mir-result-fresh`.
 
 The trigger can stay cheap. `self_host` holds no real region form: its
 seven textual hits are the printer's spelling, an error message and
-comments. `stdlib` holds one, in `Http.ax`. So "a region form is
+comments. `stdlib` holds four, in `Par.ax` and `Task.ax`. So "a region form is
 present" keeps the compiler's own build and every region-free program
 at zero added cost, as long as the test is O(1) rather than a body scan
 on every check.

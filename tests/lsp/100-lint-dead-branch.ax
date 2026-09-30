@@ -2,7 +2,7 @@
 ; boolean literal can never reach one arm. Both orders, plus the two
 ; shapes that must stay silent - a condition that merely names a
 ; boolean, and the negation order, which is the language's spelling
-; of `not` (`stdlib/Http.ax` writes `httpNot` exactly that way).
+; of `not`.
 (:: alwaysTrue (-> Int Int))
 (fn (alwaysTrue n)
   (if true

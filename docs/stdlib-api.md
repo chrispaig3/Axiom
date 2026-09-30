@@ -402,39 +402,6 @@ two differ.
 | `fmtFloat` | value | `(-> Float String)` | `Alloc,Mut` | `x` with six decimal places. |
 | `fmtFloatPrec` | value | `(-> Float Int String)` | `Alloc,Mut` | `x` with `places` decimal places, rounded half away from zero. |
 
-## `Http`
-
-`stdlib/Http.ax` — 26 public names
-
-| Name | Kind | Type | Effects | Summary |
-|---|---|---|---|---|
-| `httpMaxHead` | value | `Int` |  | The largest request head - request line plus headers plus the blank line - `httpRead` will buffer, in bytes: 16 KiB. A head that has not ended by then is refused as 431. |
-| `httpMaxBody` | value | `Int` |  | The largest `Content-Length` `httpRead` accepts, in bytes: 8 MiB. Larger is 413, and so is a value the parser cannot represent. |
-| `httpReadCap` | value | `Int` |  | The reader's initial buffer, in bytes: 2 KiB, which holds a browser's request head with a few cookies in one read (measured in the header); the buffer doubles up to `httpMaxHead` when a head does not fit. |
-| `httpReaderNew` | value | `(-> Int HttpReader)` | `Alloc,Mut` | A reader over `fd` with the default buffer. |
-| `httpReaderWith` | value | `(-> Int Int HttpReader)` | `Alloc,Mut` | A reader over `fd` whose buffer starts at `cap` bytes (at least 1). A capacity of 1 makes every `read` answer one byte, which is how tests/stdlib/430-http-parse.ax drives the refill loop through every boundary a slow peer could put a read on, deterministically and in one process. |
-| `HttpReq` | struct |  |  | One parsed request. `path` is percent-decoded with the query stripped; `query` is the raw bytes after `?` (empty when there were none); `hnames` and `hvals` are parallel `Vec`s of Strings, the names ASCII-lowercased, so `httpHeader` needs one spelling; `body` is exactly `Content-Length` bytes, or empty. Every String here is a COPY, never a slice of the reader's buffer, which a later fill may move. |
-| `httpHeader` | value | `(-> HttpReq String String String)` | `Alloc,Mut,Unsafe` | The value of header `name` (any case; compared lowercased), or `dflt` when the request did not carry it. A header sent twice answers its first value. |
-| `httpHasHeader` | value | `(-> HttpReq String Bool)` | `Alloc,Mut` | Whether the request carried header `name`, in any case. |
-| `httpDecode` | value | `(-> String Bool String)` | `Alloc,Mut,Unsafe` | `s` percent-decoded: every `%XX` with two hex digits becomes the byte `XX`, and when `plusSpace` is set every `+` becomes a space - the rule for a query string, and not for a path. A `%` that does not start a valid escape is kept as it is rather than refused, so a caller that must refuse one compares the answer with the input. Also answers `s` itself when there is nothing to decode. The `unsafe` claim below is load-bearing: the body calls `__store8` directly, so removing it draws `AX3073` (verified). |
-| `httpQueryParam` | value | `(-> HttpReq String String String)` | `Alloc,Mut` | The value of query parameter `name`, decoded (`%XX` and `+`), or `dflt` when the query does not carry it. `?q=a%20b&x=1` answers `a b` for `q` and `1` for `x`; a pair with no `=` has the empty value. |
-| `httpRead` | value | `(-> HttpReader (Result HttpReq Error))` | `Alloc,IO,Mut` | Read one whole request from the reader: refill until the head has ended, parse it, then read exactly `Content-Length` bytes of body. The refusals answer an `Error` whose CODE is the HTTP status to write back: 400 for a malformed head or a peer that closed early, 413 for a body above `httpMaxBody` or a length the parser cannot hold, 431 for a head above `httpMaxHead`, 501 for `Transfer-Encoding` (chunked bodies are not read), 505 for a version that is not HTTP/1.x. |
-| `httpStatusText` | value | `(-> Int String)` |  | The reason phrase for a status, or `Unknown` for one this module does not name. |
-| `httpContentType` | value | `(-> String String)` | `Alloc,Mut` | The `Content-Type` for a file name, by its extension: `.html`, `.css`, `.js`, `.svg`, `.png`, `.ico`, `.txt` and `.json` are named, and everything else is `application/octet-stream` - deliberately not `text/html`, which is the stored-XSS route for an unknown file. |
-| `httpRespondRaw` | value | `(-> Int Int String Int Int Int)` | `Alloc,IO,Mut,Unsafe` | Write a whole response to `fd`: the head for `status` and `ctype` with `Content-Length: len`, then the `len` bytes at `addr`. The raw form of `httpRespond`, for bytes held outside any `String`: the body goes to `sysWriteAllFd` as the address it is given. Answers what the body's write answered, the head's when that one failed. |
-| `httpRespond` | value | `(-> Int Int String String Int)` | `Alloc,IO,Mut` | Write a whole response whose body is the String `body`: the head, then every byte of `body`, a NUL included. Answers what the body's write answered, the head's when that one failed. |
-| `httpFail` | value | `(-> Int Int String Int)` | `Alloc,IO,Mut` | A plain-text refusal or error page: `status` with its reason phrase and `why` as the body, so a curl user reads the reason on the terminal. Answers `status`. |
-| `HttpHandler` | struct |  |  | A handler: a function of the socket and the request, answering an Int the dispatcher passes back. Held in a struct because the router keeps handlers in a `Vec` of words. Written as `(HttpHandler (lambda (fd r) (page fd r)))` around a signed `fn`. |
-| `HttpRouter` | struct |  |  | The routing table: exact routes as three parallel `Vec`s (method, path, handler cell), static prefixes as two (URL prefix, directory), and the handler for a path nothing matched. |
-| `routerNew` | value | `HttpRouter` | `Alloc,IO,Mut` | An empty router whose not-found handler writes a plain-text 404. `IO`, because the checker charges a function with the effects of the lambda it builds, and the default handler writes. |
-| `routeAdd` | value | `(-> HttpRouter String String HttpHandler Int)` | `Alloc,Mut` | Route `method` (`GET`, `POST`, ...) at exactly `path` to `h`. Routes are tried in the order they were added. Answers the route's index. |
-| `routeStatic` | value | `(-> HttpRouter String String Int)` | `Alloc,Mut` | Serve GET requests under URL `prefix` (write it with its trailing slash: `/static/`) from the files under directory `dir`. Answers the mapping's index. |
-| `routeNotFound` | value | `(-> HttpRouter HttpHandler Int)` | `Mut` | Replace the not-found handler. |
-| `httpPathSafe` | value | `(-> String Bool)` |  | Whether a request path may reach the filesystem or a route at all: it starts with `/`, holds no NUL and no `\`, and has no empty segment (`//`) and no `..` segment. Decided on the DECODED path, so `%2e%2e` is `..` here. |
-| `httpServeFile` | value | `(-> Int HttpReq String String Int)` | `Alloc,IO,Mut` | Serve the file that `req`'s path names under `prefix` out of `dir` to `fd`: 400 when the path is unsafe, 404 when the rest of the path is empty or names nothing or a directory, otherwise 200 with the content type of its extension and its bytes written whole. The path is checked before the filesystem is touched. |
-| `routeDispatch` | value | `(-> HttpRouter Int HttpReq Int)` | `Alloc,IO,Mut,Unsafe` | Answer `req` on `fd`: an unsafe path is 400 before anything else is consulted; then the exact routes, in order; then the static prefixes, for GET (405 otherwise); then 405 when the path has a route for another method; then the not-found handler. Answers what the handler answered. |
-| `httpServeOne` | value | `(-> HttpRouter Int Int)` | `Alloc,IO,Mut` | One connection, start to finish: read the request off `fd`, and either dispatch it or write the parser's refusal back with the status the error carries. Answers the handler's answer, or the status written for a refusal. The caller owns the socket - it set it blocking, and it closes it - and the arena scope around this call is the caller's too. |
-
 ## `IO`
 
 `stdlib/IO.ax` — 38 public names
@@ -577,6 +544,45 @@ two differ.
 | `memGetByte` | value | `(-> Int Int Int)` | `Unsafe` |  |
 | `memPutByte` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` |  |
 
+## `Net`
+
+`stdlib/Net.ax` — 32 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `SocketAddr` | struct |  |  | An IPv4 or IPv6 address and a port: the kernel's own `sockaddr` bytes for it, `netAddrMaxBytes` long, built by `Sys.netAddr4` and `Sys.netAddr6`. Make one with `socketAddrParse`, `socketAddrV4` or `socketAddrV6`. |
+| `socketAddrV4` | value | `(-> Int Int Int Int Int (Result SocketAddr Error))` | `Alloc,Mut,Unsafe` | The address `a.b.c.d:port`. Each part must be in range: 0..255 for the octets and 0..65535 for the port. |
+| `socketAddrV6` | value | `(-> (Vec Int) Int (Result SocketAddr Error))` | `Alloc,Mut,Unsafe` | The address `[g0:g1:...:g7]:port` from eight 16-bit groups, each in 0..65535. `groups` must hold exactly eight. |
+| `socketAddrParse` | value | `(-> String (Result SocketAddr Error))` | `Alloc,Mut` | Read a socket address from text: `a.b.c.d:port` for IPv4, or `[ipv6]:port` with the brackets RFC 3986 section 3.2.2 requires, so the port can't be mistaken for a group. Only numeric addresses: see the header for why there are no names. |
+| `socketAddrText` | value | `(-> SocketAddr String)` | `Alloc,Mut,Unsafe` | The address as text, `a.b.c.d:port` or `[ipv6]:port`, with IPv6 in the RFC 5952 form: lower-case, the longest run of zero groups as `::`, and an IPv4-mapped address as `::ffff:a.b.c.d`. |
+| `socketAddrIp` | value | `(-> SocketAddr String)` | `Alloc,Mut,Unsafe` | The IP address alone, with no port and no brackets. |
+| `socketAddrPort` | value | `(-> SocketAddr Int)` | `Unsafe` | The port, or -1 for an address this module did not build. |
+| `socketAddrIsV6` | value | `(-> SocketAddr Bool)` | `Unsafe` | Whether the address is IPv6. |
+| `TcpListener` | struct |  |  | A socket listening for connections. |
+| `TcpStream` | struct |  |  | One TCP connection. |
+| `tcpListenerFd` | value | `(-> TcpListener Int)` |  | The listener's descriptor, for `Sys`'s readiness calls. It stays the listener's: close the listener, not the descriptor. |
+| `tcpStreamFd` | value | `(-> TcpStream Int)` |  | The stream's descriptor, for `Sys`'s readiness calls. |
+| `tcpListen` | value | `(-> SocketAddr (Result TcpListener Error))` | `Alloc,IO,Mut,Unsafe` | A socket bound to `addr` and listening, with `SO_REUSEADDR` set so a restarted server can bind the port its predecessor left in TIME_WAIT. Port 0 asks the kernel for a free port; `tcpListenerAddr` says which. |
+| `tcpAccept` | value | `(-> TcpListener (Result TcpStream Error))` | `Alloc,IO,Mut` | Wait for the next connection and answer it as a blocking stream. |
+| `tcpListenerAddr` | value | `(-> TcpListener (Result SocketAddr Error))` | `Alloc,IO,Mut` | The address the listener is bound to - the kernel's choice of port when it was asked for port 0. |
+| `tcpListenerClose` | value | `(-> TcpListener (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Close the listener. Its handle is retired first, so any later use of it stops the program with status 85. |
+| `tcpConnect` | value | `(-> SocketAddr (Result TcpStream Error))` | `Alloc,IO,Mut,Unsafe` | Connect to `addr`, waiting until the connection is made or refused. |
+| `tcpRead` | value | `(-> TcpStream String Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | Read into `buf[at .. at + count)`. Answers how many bytes arrived, and 0 when the peer has closed its side. A range outside `buf` stops the program with status 77 before the kernel sees it, as `IO.readInto` does. |
+| `tcpReadSome` | value | `(-> TcpStream Int (Result String Error))` | `Alloc,IO,Mut,Unsafe` | Up to `max` bytes, as a fresh string: empty when the peer has closed its side. |
+| `tcpReadAll` | value | `(-> TcpStream (Result String Error))` | `Alloc,IO,Mut` | Everything until the peer closes its side. |
+| `tcpWrite` | value | `(-> TcpStream String (Result Int Error))` | `Alloc,IO,Unsafe` | Write all of `data`, continuing after a short write. Answers the number of bytes written, which is `strLen data` unless it failed. A peer that has closed answers `Err` EPIPE rather than a signal. |
+| `shutRead` | value | `Int` |  | Which half of a connection `tcpShutdown` closes. |
+| `shutWrite` | value | `Int` |  |  |
+| `shutBoth` | value | `Int` |  |  |
+| `tcpShutdown` | value | `(-> TcpStream Int (Result Int Error))` | `Alloc,IO` | Close one or both halves of the connection without closing the stream: after `shutWrite` the peer reads end of stream, and this side can still read its answer. |
+| `tcpPeerAddr` | value | `(-> TcpStream (Result SocketAddr Error))` | `Alloc,IO,Mut` | The peer's address. |
+| `tcpLocalAddr` | value | `(-> TcpStream (Result SocketAddr Error))` | `Alloc,IO,Mut` | This side's address. |
+| `tcpSetNoDelay` | value | `(-> TcpStream Bool (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Turn Nagle's algorithm off (`true`) or back on: with it off, a small write is sent at once rather than held to be joined with the next. |
+| `tcpSetReadTimeout` | value | `(-> TcpStream Int (Result Int Error))` | `Alloc,IO,Mut` | How long a read may wait before it answers `Err` (EAGAIN), in microseconds; 0 waits for ever. |
+| `tcpSetWriteTimeout` | value | `(-> TcpStream Int (Result Int Error))` | `Alloc,IO,Mut` | How long a write may wait before it answers `Err`, in microseconds; 0 waits for ever. |
+| `tcpSetNonBlocking` | value | `(-> TcpStream Bool (Result Int Error))` | `Alloc,IO` | Switch the stream between blocking (`false`) and non-blocking (`true`). |
+| `tcpClose` | value | `(-> TcpStream (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Close the stream. Its handle is retired first, so any later use of it stops the program with status 85. |
+
 ## `Par`
 
 `stdlib/Par.ax` — 5 public names
@@ -676,7 +682,7 @@ two differ.
 
 ## `Sys`
 
-`stdlib/Sys.ax` — 102 public names
+`stdlib/Sys.ax` — 105 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -741,6 +747,9 @@ two differ.
 | `netSetBlocking` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Unsafe` | Take a descriptor OUT of non-blocking mode, preserving the other flags it carries. The counterpart of `netSetNonBlocking`, and what a caller that handles one connection synchronously wants from `netAccept`'s result. |
 | `netConnect` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | Connect to an address built by `netAddr4` or `netAddr6`. The length comes off the family in the buffer for the same reason `netBind`'s does, and was the same literal 16. |
 | `netShutdown` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | Answers `(Result Int Error)`; `Ok 0` on success. |
+| `netSetOptBytes` | value | `(-> Int Int Int Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | Set a socket option whose value is `len` bytes at `buf` - a struct such as the `timeval` `SO_RCVTIMEO` takes, where `netSetOptInt` covers the four-byte ones. |
+| `netGetSockName` | value | `(-> Int Int Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | The address socket `fd` is bound to (`getsockname`), written into the `cap` bytes at `addr` with the length cell at `lenbuf`, as `netAcceptFrom` writes a peer. How a listener asked for port 0 learns the port it got. |
+| `netGetPeerName` | value | `(-> Int Int Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | The address of the peer connected to socket `fd` (`getpeername`), in the same shape. |
 | `netSetOptInt` | value | `(-> Int Int Int Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Set an integer-valued socket option. The value crosses as four bytes in the host's own order, which is what the kernel reads an `int` option as - unlike an address, this one is NOT network order. That is `netPutInt32`, which `netAcceptFrom`'s `socklen_t` cell needs for the same reason. |
 | `netSetNonBlocking` | value | `(-> Int (Result Int Error))` | `Alloc,IO` | Put a descriptor into non-blocking mode, preserving the flags it already carries - a bare `F_SETFL` of the one flag would clear the access mode with it. |
 | `netWouldBlock` | value | `(-> Int Bool)` |  | Whether a negative answer means "nothing to take yet" rather than a broken socket. This is the whole reason `eAgain` is a capability: the number is 35 on Darwin and 11 on Linux, so an event loop written against a literal runs correctly on the machine it was written on. |
@@ -785,7 +794,7 @@ two differ.
 
 ## `Sys.Platform`
 
-`stdlib/Sys/Platform.darwin.ax` — 127 public names
+`stdlib/Sys/Platform.darwin.ax` — 136 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -916,6 +925,15 @@ two differ.
 | `sysMadviseNum` | value | `Int` |  | madvise - BSD 75 |
 | `madvNoDump` | value | `Int` |  | Darwin has no madvise that keeps a range out of a core file, so 0. Core files are off unless `ulimit -c` and `kern.coredump` both allow them, and docs/crypto.md says so. |
 | `randomUsesRndr` | value | `Int` |  | 0: entropy comes from the kernel call above, never from the CPU |
+| `sysGetSockNameNum` | value | `Int` |  | getsockname - the address a socket is bound to |
+| `sysGetPeerNameNum` | value | `Int` |  | getpeername - the address of the connected peer |
+| `sysSendToNum` | value | `Int` |  | sendto - a write that takes flags, for `msgNoSignal` |
+| `soRcvTimeo` | value | `Int` |  | SO_RCVTIMEO - how long a read may wait, as a struct timeval |
+| `soSndTimeo` | value | `Int` |  | SO_SNDTIMEO - how long a write may wait |
+| `soNoSigPipe` | value | `Int` |  | SO_NOSIGPIPE - a write to a closed peer answers EPIPE instead of raising SIGPIPE; 0 where the option does not exist |
+| `msgNoSignal` | value | `Int` |  | MSG_NOSIGNAL - the same, per write, for `sendto`; 0 where the flag does not exist |
+| `ipprotoTcp` | value | `Int` |  | IPPROTO_TCP - the level TCP options are set at |
+| `tcpNoDelayOpt` | value | `Int` |  | TCP_NODELAY - send small writes at once rather than join them |
 
 ## `Sync`
 

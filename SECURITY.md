@@ -67,10 +67,10 @@ way in CI. See `CONTRIBUTING.md` and `bootstrap/README.md`.
   that raw words are only reachable through `unsafe`, and that there is
   one runtime thread, through `AxRuntime`. `scripts/check-ffi.sh` holds
   that contract to compile errors.
-- **`Http`'s static file serving**: a request served from outside the
-  directory given to `routeStatic`, whether by path traversal or
-  through a symlink, and request framing the parser accepts
-  ambiguously.
+- **`Net`'s handles**: a `TcpStream` or `TcpListener` whose operations
+  reach a descriptor after the handle was closed, and a write to a
+  closed peer that ends the process with SIGPIPE instead of answering
+  an error.
 - **`axiom fetch`**: a build compiled against a checkout that isn't a
   clone of the URL its manifest names.
 
