@@ -6497,7 +6497,7 @@ Define a function, call it, and ask about it:
 
 ```text
 $ axiom repl
-Axiom 0.7.6 - REPL
+Axiom 0.7.7 - REPL
 Type :help for commands, :quit to exit
 
 (:: add (-> Int Int Int))

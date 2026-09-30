@@ -22,7 +22,7 @@ successor has been named yet. When one is, this page will say so.
 
 ## Supported versions
 
-The supported release is **0.7.6**. Security fixes are made against the
+The supported release is **0.7.7**. Security fixes are made against the
 newest release and shipped as a new patch release. Earlier releases get
 no fixes, and there is no long-term support branch.
 

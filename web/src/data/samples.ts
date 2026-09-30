@@ -606,6 +606,7 @@ test: 4 pauses recorded, 0 ms slept`,
     points: [
       { at: "(parallel scan (", text: "The three shards are scanned at once." },
       { at: "(nus (errors us 0))", text: "Each binding borrows its shard: the string's count is frozen until the last join, so no binding's retain or release reaches it." },
+      { at: ";@axiom:effect(spawn)", text: "`main` declares `spawn` and `block`: its bindings start beside it, and it waits for them." },
       { at: "(let ((total (+ nus (+ neu napac))))", text: "The body sees all three counts, joined in written order." },
       { at: "; Each binding borrows its shard", text: "What comes back across a join is one machine word, and the compiler enforces it." },
     ],
@@ -622,6 +623,8 @@ test: 4 pauses recorded, 0 ms slept`,
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   ; Each binding borrows its shard, and a join carries one word back.
   (let (
@@ -647,6 +650,8 @@ test: 4 pauses recorded, 0 ms slept`,
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   (let ((seen 
     (:: vecNew (Vec Int))))
@@ -656,9 +661,9 @@ test: 4 pauses recorded, 0 ms slept`,
     )
       (+ us eu))))`,
       human: `error[AX3064]: a concurrent binding captures \`seen\`, which has type \`Vec Int\` - a mutable container the parent also holds, which a binding could grow while another reads it
-  --> triage.ax:10:28
+  --> triage.ax:12:28
    |
-10 |       (us (vecLen (vecPush seen 1)))
+12 |       (us (vecLen (vecPush seen 1)))
    |                            ^^^^ \`seen\` is bound outside this binding
    |
    = note: MM-PAR-6: a binding runs BESIDE its parent, and \`axiom_retain\`/\`axiom_release\` are a plain load-add-store rather than an \`atomicrmw\` - two threads touching one block's count lose an increment and free a block a live reference still names. The rule is the language's and not the lowering's, so it does not depend on \`--threads\`; \`__proc_spawn\` names the isolated lowering and is exempt

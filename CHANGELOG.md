@@ -22,6 +22,14 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+## 0.7.7 — 2026-09-30
+
+Axiom 0.7.7 grows the standard library: a cryptography suite, dates
+and times, exact float conversion, and an embedded database with its
+own query language. Randomness, process spawning and blocking become
+declared effects, `try!` becomes `try`, and the compiler checks the
+constant-time claims on the crypto it now ships.
+
 - `Axqlite`: an embedded database in one file, with its own query
   language, AXQL. Tables and indices are B+trees in checksummed pages,
   every write goes through a rollback journal so a crash at any point
@@ -42,7 +50,6 @@ its changelog too.
   `kernel32.lib`. It is source-only, like `windows-x86_64`: CI
   assembles every standard-library case for it and emits its hello
   world, and no runner executes it.
-||||||| parent of 06391f4a (wip axqlite)
 - A `;@axiom:ct(...)` claim is checked when the program compiles. The
   compiler follows each named secret through the body and refuses a
   branch, a memory address or a division that depends on one, and a

@@ -128,7 +128,7 @@ axiom repl
 # compiler was built from, plus the commit when there is one, so two
 # different trees at the same version report different ids
 axiom version
-#   Axiom 0.7.6 (build 7ce43b921d1d 23b97d8285b4)
+#   Axiom 0.7.7 (build 7ce43b921d1d 23b97d8285b4)
 
 # Explain a diagnostic code, or list them all
 axiom explain AX3001

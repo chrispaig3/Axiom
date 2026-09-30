@@ -154,7 +154,7 @@ export const STATUS_SOLID: StatusRow[] = [
   { feature: 'Structs', status: 'Complete', note: 'Per-field `mut`, generic parameters, automatic rendering.' },
   { feature: 'Lambda / function values', status: 'Complete', note: 'Closures, partial application, `_` holes.' },
   { feature: 'Loops', status: 'Complete', note: '`for` over ranges and containers, `while`.' },
-  { feature: 'Syscalls', status: 'Complete', note: 'Six targets, no libc between you and the kernel.' },
+  { feature: 'Syscalls', status: 'Complete', note: 'Eight targets, no libc between you and the kernel.' },
   { feature: 'Module visibility', status: 'Complete', note: 'Only `pub` leaves a module.' },
   { feature: 'Self-hosting', status: 'Done', note: 'The Rust compiler it replaced has been deleted.' },
 ]
@@ -165,6 +165,8 @@ export const STATUS_LIMITS: StatusRow[] = [
   { feature: 'Concurrency', status: 'Language form, two lowerings', note: '`parallel`, channels, a mutex and task pools; a binding may borrow a `String`. No async, no scheduler.' },
   { feature: 'Region syntax', status: 'Checked scope, and annotated signatures with the escape rule', note: 'Scalars leave a region; typed promotion is planned.' },
   { feature: 'FFI', status: 'Functional', note: 'Rust through `extern` blocks and generated bindings.' },
+  { feature: 'Standard library', status: 'Functional', note: 'Collections, cryptography, dates, JSON, networking and an embedded database.' },
+  { feature: 'Error handling', status: 'Functional; adopted at the syscall seam', note: '`Result`, the `try` form, and handlers that skip a bad record without unwinding.' },
   { feature: 'Editor support', status: 'Functional', note: 'Language server plus a tree-sitter grammar.' },
 ]
 
@@ -222,7 +224,7 @@ export const FAQS: Faq[] = [
   {
     q: 'Do I have to annotate every function\'s effects?',
     a: [
-      'No. Only I/O must be declared through the call chain. Allocation and mutation are inferred and reported. A function that performs a raw operation, calls a precondition interface or casts a value into an unrelated reference type declares `effect(unsafe)`. A trusted wrapper contains that obligation for its callers. `restrict(...)` and `pure` add stronger checks where you need them.',
+      'No. Four effects must be declared through the call chain: `effect(io)`, `effect(entropy)`, `effect(spawn)` and `effect(block)`. Allocation and mutation are inferred and reported. A function that performs a raw operation, calls a precondition interface or casts a value into an unrelated reference type declares `effect(unsafe)`. A trusted wrapper contains that obligation for its callers. `restrict(...)` and `pure` add stronger checks where you need them.',
     ],
     link: { label: 'Effects in the reference', href: `${REF}#effects` },
   },

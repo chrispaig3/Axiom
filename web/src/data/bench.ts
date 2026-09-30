@@ -46,10 +46,10 @@
  */
 
 export const BENCH_ENV = {
-  machine: 'Apple M1, macOS 27.0, darwin-aarch64',
-  axiom: 'Axiom 0.7.6',
+  machine: 'Apple M1, macOS 27.0.1, darwin-aarch64',
+  axiom: 'Axiom 0.7.7',
   rust: 'rustc 1.98.1',
-  c: 'clang 23.1.1',
+  c: 'clang 23.1.2',
   answer: '428343467',
   timer: 'hyperfine 1.20.0',
 }
@@ -68,23 +68,23 @@ export const BENCH: BenchRow[] = [
   {
     metric: 'Run time',
     how: '3,000,000 Collatz sequences · hyperfine best of 20, interleaved',
-    axiom: '0.429 s',
-    rust: '0.431 s',
-    c: '0.431 s',
-    note: 'Within two milliseconds across all three. Axiom emits LLVM IR, so a loop that is only arithmetic and branches gets the machine code the other two get.',
+    axiom: '0.427 s',
+    rust: '0.427 s',
+    c: '0.427 s',
+    note: 'Identical to the millisecond across all three. Axiom emits LLVM IR, so a loop that is only arithmetic and branches gets the machine code the other two get.',
   },
   {
     metric: 'Compile to a native binary',
     how: 'one file, cold · hyperfine best of 15, interleaved',
-    axiom: '0.156 s',
-    rust: '0.114 s',
-    c: '0.148 s',
-    note: 'Axiom is the slowest of the three, by forty-two milliseconds against rustc — 1.37x — and eight behind clang at 1.05x. Published because it is what was measured, by the script beside the sources.',
+    axiom: '0.157 s',
+    rust: '0.112 s',
+    c: '0.145 s',
+    note: 'Axiom is the slowest of the three, by forty-five milliseconds against rustc — 1.40x — and twelve behind clang at 1.08x. Published because it is what was measured, by the script beside the sources.',
   },
   {
     metric: 'Binary size',
     how: 'the executable on disk',
-    axiom: '35,592 B',
+    axiom: '35,688 B',
     rust: '469,608 B',
     c: '33,432 B',
     note: 'Thirteen times smaller than the Rust binary, and within seven percent of C — with no C runtime inside it at all.',
@@ -100,6 +100,17 @@ export const BENCH: BenchRow[] = [
 ]
 
 /*
+ * RE-MEASURED 2026-09-30 by `web/bench/run-bench.sh`, against the
+ * 0.7.7 compiler. Interleaved, hyperfine best of 15 for the compile
+ * row and best of 20 for the run row, on an Apple M1 (macOS 27.0.1,
+ * clang 23.1.2; rustc and hyperfine unchanged).
+ *
+ * The run row is identical to the millisecond on all three arms
+ * (0.427 s). The compile ratio moves with the machine again: 1.37x
+ * -> 1.40x against rustc, 1.05x -> 1.08x against clang, every arm
+ * within milliseconds of the last pass. The Axiom binary grows
+ * 35,592 -> 35,688 B and stays within seven percent of C.
+ *
  * RE-MEASURED 2026-09-17 by `web/bench/run-bench.sh`, against the
  * compiler this page ships with. Interleaved, hyperfine best of 15
  * for the compile row and best of 20 for the run row, on an Apple
