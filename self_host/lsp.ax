@@ -1720,6 +1720,11 @@
 ; directory, because `moduleSrcPath` answers `Helper.ax` for a sibling
 ; module and a Location must name a file the editor can open from
 ; anywhere.
+;
+; The path is also cleaned: the standard library is found beside the
+; compiler as `.../.axiom-bin/../stdlib/Str.ax`, and an editor that
+; already has `.../stdlib/Str.ax` open would otherwise open the same
+; file a second time under the longer name.
 (pub :: lspPathToUri (-> String String))
 ;@axiom:effect(io)
 (pub fn (lspPathToUri path)
@@ -1727,10 +1732,10 @@
   ; this did when `sysGetCwd` answered `""` itself. A language
   ; server that refused to name a document because `getcwd` failed
   ; would be worse than one that names it relatively.
-  (let ((abs 
+  (let ((abs (pathClean
     (if (pathIsAbsolute path)
       path
-      (pathJoin (unwrapOr sysGetCwd "") path))))
+      (pathJoin (unwrapOr sysGetCwd "") path)))))
     (let (
       (n (strLen abs))
       (mut i 0)
@@ -5638,6 +5643,10 @@
       0
     }))
 
+; The declaring module's occurrences when that file is open. When it
+; isn't, its uses can't be listed without reading every file on disk,
+; but the declaration itself is one lookup away - the one `definition`
+; makes - so a request that includes the declaration still gets it.
 (pub :: lspNavHomeLocations (-> Int String String (Vec Int) String Int (Vec String) (Vec a) Int))
 ;@axiom:effect(io)
 (pub fn (lspNavHomeLocations out path src decls bare incl uris texts)
@@ -5648,7 +5657,15 @@
     bare
     uris)))
     (if (== (strLen huri) 0)
-      0
+      (if (== incl 1)
+        (let ((loc (lspDefinitionImported path src decls bare)))
+          (if (jsonIsNull loc)
+            0
+            {
+              (jsonArrPush out loc)
+              0
+            }))
+        0)
       (let ((htext (docText uris texts huri)))
         (let ((hdecls (lspNavParse htext)))
           (if (==

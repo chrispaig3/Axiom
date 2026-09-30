@@ -2082,6 +2082,46 @@ else:
           f"five more lets with their shapes; null on a broken document)")
     passed += 4
 # ---------------------------------------------------------------------
+# REFERENCES ON AN IMPORT WHOSE MODULE IS CLOSED. The session above opens
+# RefHelper.ax, so `twice`'s own occurrences are listed from the store.
+# With it closed, the uses there can't be listed without reading every
+# file on disk, but the declaration is the one lookup `definition`
+# makes, so a request that includes the declaration still gets it - in
+# RefHelper.ax, under that file's uri - and one that doesn't gets the
+# use alone.
+closed_session = b"".join(frame(m) for m in [
+    {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+    nav_open(A_URI, NAV_MAIN),
+    refs(2, A_URI, TWICE_A[0], True), refs(3, A_URI, TWICE_A[0], False),
+    {"jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": None},
+    {"jsonrpc": "2.0", "method": "exit", "params": None},
+])
+cp = subprocess.run([stage1, "lsp"], input=closed_session, capture_output=True,
+                    cwd=NAVREF_DIR)
+cmsgs, _ = unframe(cp.stdout)
+cresp = {m["id"]: m for m in cmsgs if "id" in m}
+
+def closed_locs(rid):
+    r = cresp.get(rid, {}).get("result")
+    if not isinstance(r, list):
+        return r
+    return [(x.get("uri"), x.get("range")) for x in r]
+
+want_incl = [loc(A_URI, TWICE_A[0]), loc(D_URI, TWICE_D[1])]
+want_excl = [loc(A_URI, TWICE_A[0])]
+if closed_locs(2) != want_incl:
+    print(f"FAIL nav-closed-import: with RefHelper.ax closed and the declaration "
+          f"included, got {closed_locs(2)!r:.400}, want {want_incl!r:.400}")
+    failed += 1
+elif closed_locs(3) != want_excl:
+    print(f"FAIL nav-closed-import: with RefHelper.ax closed and no declaration, "
+          f"got {closed_locs(3)!r:.400}, want {want_excl!r:.400}")
+    failed += 1
+else:
+    print("ok   references on an import whose module is closed (its use, and "
+          "its declaration in RefHelper.ax when asked for)")
+    passed += 1
+# ---------------------------------------------------------------------
 # CONSTRUCTOR NAVIGATION, over the session above. Its own block, so a
 # failure names the constructor rather than the whole of SECTION NAV.
 #
