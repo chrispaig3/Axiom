@@ -1,0 +1,605 @@
+; Crypto.Field25519 - arithmetic modulo p = 2^255 - 19, the field
+; under X25519 and Ed25519.
+;
+;     (let ((a (memAlloc fe25519Bytes)) (b (memAlloc fe25519Bytes)))
+;       {
+;         (fe25519FromBytes a (strData u))   ; 32 little-endian bytes in
+;         (fe25519Sq b a)                    ; b = a^2
+;         (fe25519Invert b b)                ; b = a^-2
+;         (fe25519ToBytes (strData out) b)   ; 32 canonical bytes out
+;         (ctWipe a fe25519Bytes)
+;         (ctWipe b fe25519Bytes)
+;       })
+;
+; This is the hazardous layer. It works on raw addresses, checks
+; nothing, and knows nothing about keys; `Crypto.X25519` and
+; `Crypto.Ed25519` are the interfaces application code wants.
+;
+; THE REPRESENTATION. A field element is ten signed 64-bit limbs at an
+; address, 80 bytes, holding h0 + h1 2^26 + h2 2^51 + h3 2^77 + ... +
+; h9 2^230: the even limbs carry 26 bits and the odd ones 25. Axiom has
+; only the wrapping 64 x 64 -> 64 multiply, and this representation
+; needs no more: every product of two limbs, and every sum of ten such
+; products, fits in 63 bits for the limb bounds below.
+;
+; THE BOUNDS. A "reduced" element is the output of `fe25519Mul`,
+; `fe25519Sq`, `fe25519Sq2`, `fe25519Mul121666` or `fe25519FromBytes`:
+; each limb is at most about 1.01 * 2^25 (even) or 2^24 (odd) in
+; magnitude. `fe25519Add`, `fe25519Sub` and `fe25519Neg` do not carry,
+; so their output is larger. The multiplying functions accept any
+; input built from reduced elements by at most two additions or
+; subtractions (limbs up to 1.65 * 2^26 even, 1.65 * 2^25 odd), and
+; `fe25519ToBytes`, `fe25519IsNegative` and `fe25519IsZero` accept
+; one addition or subtraction of reduced elements (limbs up to 1.1 *
+; 2^26 even, 1.1 * 2^25 odd). The group formulas in `Crypto.Curve25519`
+; and the ladder in `Crypto.X25519` are ref10's, whose every step stays
+; inside these bounds; code of your own must keep to them too.
+;
+; CONSTANT TIME. Nothing here branches on, or indexes memory by, a
+; limb's value. Carries use `>>`, which is arithmetic in Axiom, exactly
+; as ref10 relies on for signed limbs. Inversion is exponentiation by
+; p - 2 with a fixed chain of squarings and multiplications.
+;
+; STANDARD. The field of RFC 7748, section 4.1, and RFC 8032, section
+; 5.1; `fe25519FromBytes` ignores bit 255 as RFC 7748, section 5,
+; requires, and `fe25519ToBytes` answers the canonical encoding (the
+; value reduced below p).
+;
+; REFERENCE. A line-for-line port of the `fe_*` files of SUPERCOP's
+; ref10 (crypto_sign/ed25519/ref10 and crypto_scalarmult/curve25519/
+; ref10, by Daniel J. Bernstein, Niels Duif, Tanja Lange, Peter
+; Schwabe and Bo-Yin Yang), which are in the public domain. The limb
+; bounds above are ref10's, from the comments in its fe_mul.c.
+;
+; LIMITS. Every function takes addresses the caller vouches for: 80
+; live bytes (10 words) for each element, 32 bytes for each encoding.
+; An output may be the same address as an input. The scratch memory of
+; inversion and of the sign and zero tests comes from the arena and is
+; wiped before the function returns. The operations in `Crypto.X25519`
+; and `Crypto.Ed25519` hand it back with a `region`; code calling these
+; functions in a loop should do the same.
+(import Mem)
+(import Crypto.Ct)
+
+; The size of one field element in bytes: ten 64-bit limbs.
+(pub :: fe25519Bytes Int)
+(pub fn (fe25519Bytes)
+  80)
+
+; ------------------------------------------------------------------
+; Setting and copying.
+; ------------------------------------------------------------------
+; Store the ten limbs of a constant at `out`. Answers 0.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: fe25519Set (-> Int Int Int Int Int Int Int Int Int Int Int Int))
+;@axiom:ct(*out)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`out` names 10 live writable words)
+(pub fn (fe25519Set out h0 h1 h2 h3 h4 h5 h6 h7 h8 h9)
+  {
+    (__store64 out 0 h0)
+    (__store64 out 1 h1)
+    (__store64 out 2 h2)
+    (__store64 out 3 h3)
+    (__store64 out 4 h4)
+    (__store64 out 5 h5)
+    (__store64 out 6 h6)
+    (__store64 out 7 h7)
+    (__store64 out 8 h8)
+    (__store64 out 9 h9)
+    0
+  })
+
+; out = 0.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: fe25519Zero (-> Int Int))
+;@axiom:ct(*out)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`out` names 10 live writable words)
+(pub fn (fe25519Zero out)
+  (fe25519Set out 0 0 0 0 0 0 0 0 0 0))
+
+; out = 1.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: fe25519One (-> Int Int))
+;@axiom:ct(*out)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`out` names 10 live writable words)
+(pub fn (fe25519One out)
+  (fe25519Set out 1 0 0 0 0 0 0 0 0 0))
+
+; out = a.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: fe25519Copy (-> Int Int Int))
+;@axiom:ct(*out, *a)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`out` and `a` each name 10 live words)
+(pub fn (fe25519Copy out a)
+  {
+    (for i 0 10
+      (__store64 out i (__load64 a i)))
+    0
+  })
+
+; A square root of -1 modulo p (ref10's sqrtm1.h).
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: fe25519SqrtM1 (-> Int Int))
+;@axiom:ct(*out)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`out` names 10 live writable words)
+(pub fn (fe25519SqrtM1 out)
+  (fe25519Set out -32595792 -7943725 9377950 3500415 12389472 -272473 -25146209 -2005654 326686 11406482))
+
+; ------------------------------------------------------------------
+; Addition. No carry: see THE BOUNDS above.
+; ------------------------------------------------------------------
+; out = a + b.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: fe25519Add (-> Int Int Int Int))
+;@axiom:ct(*out, *a, *b)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`out`, `a` and `b` each name 10 live words)
+(pub fn (fe25519Add out a b)
+  {
+    (for i 0 10
+      (__store64 out i (+ (__load64 a i) (__load64 b i))))
+    0
+  })
+
+; out = a - b.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: fe25519Sub (-> Int Int Int Int))
+;@axiom:ct(*out, *a, *b)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`out`, `a` and `b` each name 10 live words)
+(pub fn (fe25519Sub out a b)
+  {
+    (for i 0 10
+      (__store64 out i (- (__load64 a i) (__load64 b i))))
+    0
+  })
+
+; out = -a.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: fe25519Neg (-> Int Int Int))
+;@axiom:ct(*out, *a)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`out` and `a` each name 10 live words)
+(pub fn (fe25519Neg out a)
+  {
+    (for i 0 10
+      (__store64 out i (- 0 (__load64 a i))))
+    0
+  })
+
+; ------------------------------------------------------------------
+; Multiplication (ref10 fe_mul.c, fe_sq.c, fe_sq2.c, fe_mul121666.c).
+; Each loads every limb before it stores any, so `out` may be an input.
+; ------------------------------------------------------------------
+; out = a * b, reduced.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: fe25519Mul (-> Int Int Int Int))
+;@axiom:ct(*out, *a, *b)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`out`, `a` and `b` each name 10 live words)
+(pub fn (fe25519Mul out a b)
+  (let (
+      (f0 (__load64 a 0)) (f1 (__load64 a 1)) (f2 (__load64 a 2)) (f3 (__load64 a 3)) (f4 (__load64 a 4))
+      (f5 (__load64 a 5)) (f6 (__load64 a 6)) (f7 (__load64 a 7)) (f8 (__load64 a 8)) (f9 (__load64 a 9))
+      (g0 (__load64 b 0)) (g1 (__load64 b 1)) (g2 (__load64 b 2)) (g3 (__load64 b 3)) (g4 (__load64 b 4))
+      (g5 (__load64 b 5)) (g6 (__load64 b 6)) (g7 (__load64 b 7)) (g8 (__load64 b 8)) (g9 (__load64 b 9))
+      (g1_19 (* 19 g1))
+      (g2_19 (* 19 g2))
+      (g3_19 (* 19 g3))
+      (g4_19 (* 19 g4))
+      (g5_19 (* 19 g5))
+      (g6_19 (* 19 g6))
+      (g7_19 (* 19 g7))
+      (g8_19 (* 19 g8))
+      (g9_19 (* 19 g9))
+      (f1_2 (* 2 f1))
+      (f3_2 (* 2 f3))
+      (f5_2 (* 2 f5))
+      (f7_2 (* 2 f7))
+      (f9_2 (* 2 f9))
+      (h0 (+ (+ (+ (+ (+ (+ (+ (+ (+ (* f0 g0) (* f1_2 g9_19)) (* f2 g8_19)) (* f3_2 g7_19)) (* f4 g6_19)) (* f5_2 g5_19)) (* f6 g4_19)) (* f7_2 g3_19)) (* f8 g2_19)) (* f9_2 g1_19)))
+      (h1 (+ (+ (+ (+ (+ (+ (+ (+ (+ (* f0 g1) (* f1 g0)) (* f2 g9_19)) (* f3 g8_19)) (* f4 g7_19)) (* f5 g6_19)) (* f6 g5_19)) (* f7 g4_19)) (* f8 g3_19)) (* f9 g2_19)))
+      (h2 (+ (+ (+ (+ (+ (+ (+ (+ (+ (* f0 g2) (* f1_2 g1)) (* f2 g0)) (* f3_2 g9_19)) (* f4 g8_19)) (* f5_2 g7_19)) (* f6 g6_19)) (* f7_2 g5_19)) (* f8 g4_19)) (* f9_2 g3_19)))
+      (h3 (+ (+ (+ (+ (+ (+ (+ (+ (+ (* f0 g3) (* f1 g2)) (* f2 g1)) (* f3 g0)) (* f4 g9_19)) (* f5 g8_19)) (* f6 g7_19)) (* f7 g6_19)) (* f8 g5_19)) (* f9 g4_19)))
+      (h4 (+ (+ (+ (+ (+ (+ (+ (+ (+ (* f0 g4) (* f1_2 g3)) (* f2 g2)) (* f3_2 g1)) (* f4 g0)) (* f5_2 g9_19)) (* f6 g8_19)) (* f7_2 g7_19)) (* f8 g6_19)) (* f9_2 g5_19)))
+      (h5 (+ (+ (+ (+ (+ (+ (+ (+ (+ (* f0 g5) (* f1 g4)) (* f2 g3)) (* f3 g2)) (* f4 g1)) (* f5 g0)) (* f6 g9_19)) (* f7 g8_19)) (* f8 g7_19)) (* f9 g6_19)))
+      (h6 (+ (+ (+ (+ (+ (+ (+ (+ (+ (* f0 g6) (* f1_2 g5)) (* f2 g4)) (* f3_2 g3)) (* f4 g2)) (* f5_2 g1)) (* f6 g0)) (* f7_2 g9_19)) (* f8 g8_19)) (* f9_2 g7_19)))
+      (h7 (+ (+ (+ (+ (+ (+ (+ (+ (+ (* f0 g7) (* f1 g6)) (* f2 g5)) (* f3 g4)) (* f4 g3)) (* f5 g2)) (* f6 g1)) (* f7 g0)) (* f8 g9_19)) (* f9 g8_19)))
+      (h8 (+ (+ (+ (+ (+ (+ (+ (+ (+ (* f0 g8) (* f1_2 g7)) (* f2 g6)) (* f3_2 g5)) (* f4 g4)) (* f5_2 g3)) (* f6 g2)) (* f7_2 g1)) (* f8 g0)) (* f9_2 g9_19)))
+      (h9 (+ (+ (+ (+ (+ (+ (+ (+ (+ (* f0 g9) (* f1 g8)) (* f2 g7)) (* f3 g6)) (* f4 g5)) (* f5 g4)) (* f6 g3)) (* f7 g2)) (* f8 g1)) (* f9 g0)))
+    )
+    (feCarryStore out h0 h1 h2 h3 h4 h5 h6 h7 h8 h9)))
+
+; out = a^2, reduced.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: fe25519Sq (-> Int Int Int))
+;@axiom:ct(*out, *a)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`out` and `a` each name 10 live words)
+(pub fn (fe25519Sq out a)
+  (let (
+      (f0 (__load64 a 0)) (f1 (__load64 a 1)) (f2 (__load64 a 2)) (f3 (__load64 a 3)) (f4 (__load64 a 4))
+      (f5 (__load64 a 5)) (f6 (__load64 a 6)) (f7 (__load64 a 7)) (f8 (__load64 a 8)) (f9 (__load64 a 9))
+      (f0_2 (* 2 f0))
+      (f1_2 (* 2 f1))
+      (f2_2 (* 2 f2))
+      (f3_2 (* 2 f3))
+      (f4_2 (* 2 f4))
+      (f5_2 (* 2 f5))
+      (f6_2 (* 2 f6))
+      (f7_2 (* 2 f7))
+      (f5_38 (* 38 f5))
+      (f6_19 (* 19 f6))
+      (f7_38 (* 38 f7))
+      (f8_19 (* 19 f8))
+      (f9_38 (* 38 f9))
+      (h0 (+ (+ (+ (+ (+ (* f0 f0) (* f1_2 f9_38)) (* f2_2 f8_19)) (* f3_2 f7_38)) (* f4_2 f6_19)) (* f5 f5_38)))
+      (h1 (+ (+ (+ (+ (* f0_2 f1) (* f2 f9_38)) (* f3_2 f8_19)) (* f4 f7_38)) (* f5_2 f6_19)))
+      (h2 (+ (+ (+ (+ (+ (* f0_2 f2) (* f1_2 f1)) (* f3_2 f9_38)) (* f4_2 f8_19)) (* f5_2 f7_38)) (* f6 f6_19)))
+      (h3 (+ (+ (+ (+ (* f0_2 f3) (* f1_2 f2)) (* f4 f9_38)) (* f5_2 f8_19)) (* f6 f7_38)))
+      (h4 (+ (+ (+ (+ (+ (* f0_2 f4) (* f1_2 f3_2)) (* f2 f2)) (* f5_2 f9_38)) (* f6_2 f8_19)) (* f7 f7_38)))
+      (h5 (+ (+ (+ (+ (* f0_2 f5) (* f1_2 f4)) (* f2_2 f3)) (* f6 f9_38)) (* f7_2 f8_19)))
+      (h6 (+ (+ (+ (+ (+ (* f0_2 f6) (* f1_2 f5_2)) (* f2_2 f4)) (* f3_2 f3)) (* f7_2 f9_38)) (* f8 f8_19)))
+      (h7 (+ (+ (+ (+ (* f0_2 f7) (* f1_2 f6)) (* f2_2 f5)) (* f3_2 f4)) (* f8 f9_38)))
+      (h8 (+ (+ (+ (+ (+ (* f0_2 f8) (* f1_2 f7_2)) (* f2_2 f6)) (* f3_2 f5_2)) (* f4 f4)) (* f9 f9_38)))
+      (h9 (+ (+ (+ (+ (* f0_2 f9) (* f1_2 f8)) (* f2_2 f7)) (* f3_2 f6)) (* f4_2 f5)))
+    )
+    (feCarryStore out h0 h1 h2 h3 h4 h5 h6 h7 h8 h9)))
+
+; out = 2 a^2, reduced: the square with every product doubled before
+; the carry, as ref10's fe_sq2 does for point doubling.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: fe25519Sq2 (-> Int Int Int))
+;@axiom:ct(*out, *a)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`out` and `a` each name 10 live words)
+(pub fn (fe25519Sq2 out a)
+  (let (
+      (f0 (__load64 a 0)) (f1 (__load64 a 1)) (f2 (__load64 a 2)) (f3 (__load64 a 3)) (f4 (__load64 a 4))
+      (f5 (__load64 a 5)) (f6 (__load64 a 6)) (f7 (__load64 a 7)) (f8 (__load64 a 8)) (f9 (__load64 a 9))
+      (f0_2 (* 2 f0))
+      (f1_2 (* 2 f1))
+      (f2_2 (* 2 f2))
+      (f3_2 (* 2 f3))
+      (f4_2 (* 2 f4))
+      (f5_2 (* 2 f5))
+      (f6_2 (* 2 f6))
+      (f7_2 (* 2 f7))
+      (f5_38 (* 38 f5))
+      (f6_19 (* 19 f6))
+      (f7_38 (* 38 f7))
+      (f8_19 (* 19 f8))
+      (f9_38 (* 38 f9))
+      (h0 (+ (+ (+ (+ (+ (* f0 f0) (* f1_2 f9_38)) (* f2_2 f8_19)) (* f3_2 f7_38)) (* f4_2 f6_19)) (* f5 f5_38)))
+      (h1 (+ (+ (+ (+ (* f0_2 f1) (* f2 f9_38)) (* f3_2 f8_19)) (* f4 f7_38)) (* f5_2 f6_19)))
+      (h2 (+ (+ (+ (+ (+ (* f0_2 f2) (* f1_2 f1)) (* f3_2 f9_38)) (* f4_2 f8_19)) (* f5_2 f7_38)) (* f6 f6_19)))
+      (h3 (+ (+ (+ (+ (* f0_2 f3) (* f1_2 f2)) (* f4 f9_38)) (* f5_2 f8_19)) (* f6 f7_38)))
+      (h4 (+ (+ (+ (+ (+ (* f0_2 f4) (* f1_2 f3_2)) (* f2 f2)) (* f5_2 f9_38)) (* f6_2 f8_19)) (* f7 f7_38)))
+      (h5 (+ (+ (+ (+ (* f0_2 f5) (* f1_2 f4)) (* f2_2 f3)) (* f6 f9_38)) (* f7_2 f8_19)))
+      (h6 (+ (+ (+ (+ (+ (* f0_2 f6) (* f1_2 f5_2)) (* f2_2 f4)) (* f3_2 f3)) (* f7_2 f9_38)) (* f8 f8_19)))
+      (h7 (+ (+ (+ (+ (* f0_2 f7) (* f1_2 f6)) (* f2_2 f5)) (* f3_2 f4)) (* f8 f9_38)))
+      (h8 (+ (+ (+ (+ (+ (* f0_2 f8) (* f1_2 f7_2)) (* f2_2 f6)) (* f3_2 f5_2)) (* f4 f4)) (* f9 f9_38)))
+      (h9 (+ (+ (+ (+ (* f0_2 f9) (* f1_2 f8)) (* f2_2 f7)) (* f3_2 f6)) (* f4_2 f5)))
+    )
+    (feCarryStore out (+ h0 h0) (+ h1 h1) (+ h2 h2) (+ h3 h3) (+ h4 h4) (+ h5 h5) (+ h6 h6) (+ h7 h7) (+ h8 h8) (+ h9 h9))))
+
+; The carry chain fe_mul, fe_sq and fe_sq2 end with, then the store.
+; Rounding carries: `(h + 2^25) >> 26` takes the nearest multiple of
+; 2^26 out of h and moves it up a limb; the carry out of h9 wraps round
+; to h0 times 19, because 2^255 = 19 modulo p. The order is ref10's,
+; which bounds every limb before the next step can overflow.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: feCarryStore (-> Int Int Int Int Int Int Int Int Int Int Int Int))
+;@axiom:ct(*out, h0, h1, h2, h3, h4, h5, h6, h7, h8, h9)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`out` names 10 live writable words)
+(fn (feCarryStore out h0 h1 h2 h3 h4 h5 h6 h7 h8 h9)
+  (let (
+      (c0 (>> (+ h0 33554432) 26)) (h1 (+ h1 c0)) (h0 (- h0 (<< c0 26)))
+      (c4 (>> (+ h4 33554432) 26)) (h5 (+ h5 c4)) (h4 (- h4 (<< c4 26)))
+      (c1 (>> (+ h1 16777216) 25)) (h2 (+ h2 c1)) (h1 (- h1 (<< c1 25)))
+      (c5 (>> (+ h5 16777216) 25)) (h6 (+ h6 c5)) (h5 (- h5 (<< c5 25)))
+      (c2 (>> (+ h2 33554432) 26)) (h3 (+ h3 c2)) (h2 (- h2 (<< c2 26)))
+      (c6 (>> (+ h6 33554432) 26)) (h7 (+ h7 c6)) (h6 (- h6 (<< c6 26)))
+      (c3 (>> (+ h3 16777216) 25)) (h4 (+ h4 c3)) (h3 (- h3 (<< c3 25)))
+      (c7 (>> (+ h7 16777216) 25)) (h8 (+ h8 c7)) (h7 (- h7 (<< c7 25)))
+      (c4 (>> (+ h4 33554432) 26)) (h5 (+ h5 c4)) (h4 (- h4 (<< c4 26)))
+      (c8 (>> (+ h8 33554432) 26)) (h9 (+ h9 c8)) (h8 (- h8 (<< c8 26)))
+      (c9 (>> (+ h9 16777216) 25)) (h0 (+ h0 (* c9 19))) (h9 (- h9 (<< c9 25)))
+      (c0 (>> (+ h0 33554432) 26)) (h1 (+ h1 c0)) (h0 (- h0 (<< c0 26)))
+    )
+    (fe25519Set out h0 h1 h2 h3 h4 h5 h6 h7 h8 h9)))
+
+; The carry chain fe_frombytes and fe_mul121666 end with: odd limbs
+; first, then even, each carry rounded as in `feCarryStore`.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: feCarryStore2 (-> Int Int Int Int Int Int Int Int Int Int Int Int))
+;@axiom:ct(*out, h0, h1, h2, h3, h4, h5, h6, h7, h8, h9)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`out` names 10 live writable words)
+(fn (feCarryStore2 out h0 h1 h2 h3 h4 h5 h6 h7 h8 h9)
+  (let (
+      (c9 (>> (+ h9 16777216) 25)) (h0 (+ h0 (* c9 19))) (h9 (- h9 (<< c9 25)))
+      (c1 (>> (+ h1 16777216) 25)) (h2 (+ h2 c1)) (h1 (- h1 (<< c1 25)))
+      (c3 (>> (+ h3 16777216) 25)) (h4 (+ h4 c3)) (h3 (- h3 (<< c3 25)))
+      (c5 (>> (+ h5 16777216) 25)) (h6 (+ h6 c5)) (h5 (- h5 (<< c5 25)))
+      (c7 (>> (+ h7 16777216) 25)) (h8 (+ h8 c7)) (h7 (- h7 (<< c7 25)))
+      (c0 (>> (+ h0 33554432) 26)) (h1 (+ h1 c0)) (h0 (- h0 (<< c0 26)))
+      (c2 (>> (+ h2 33554432) 26)) (h3 (+ h3 c2)) (h2 (- h2 (<< c2 26)))
+      (c4 (>> (+ h4 33554432) 26)) (h5 (+ h5 c4)) (h4 (- h4 (<< c4 26)))
+      (c6 (>> (+ h6 33554432) 26)) (h7 (+ h7 c6)) (h6 (- h6 (<< c6 26)))
+      (c8 (>> (+ h8 33554432) 26)) (h9 (+ h9 c8)) (h8 (- h8 (<< c8 26)))
+    )
+    (fe25519Set out h0 h1 h2 h3 h4 h5 h6 h7 h8 h9)))
+
+; out = 121666 a, reduced: the constant (A + 2) / 4 of RFC 7748's
+; ladder, where A = 486662.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: fe25519Mul121666 (-> Int Int Int))
+;@axiom:ct(*out, *a)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`out` and `a` each name 10 live words)
+(pub fn (fe25519Mul121666 out a)
+  (feCarryStore2 out
+    (* (__load64 a 0) 121666) (* (__load64 a 1) 121666) (* (__load64 a 2) 121666)
+    (* (__load64 a 3) 121666) (* (__load64 a 4) 121666) (* (__load64 a 5) 121666)
+    (* (__load64 a 6) 121666) (* (__load64 a 7) 121666) (* (__load64 a 8) 121666)
+    (* (__load64 a 9) 121666)))
+
+; out = a^(2^n), by n squarings. `n` must be at least 1.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: feSqN (-> Int Int Int Int))
+;@axiom:ct(*out, *a)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`out` and `a` each name 10 live words)
+(fn (feSqN out a n)
+  {
+    (fe25519Sq out a)
+    (for i 1 n
+      (fe25519Sq out out))
+    0
+  })
+
+; out = a^(p-2) = 1/a, or 0 when a is 0 (ref10's pow225521 chain:
+; 254 squarings and 11 multiplications, whatever `a` is).
+(pub :: fe25519Invert (-> Int Int Int))
+;@axiom:ct(*out, *a)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`out` and `a` each name 10 live words)
+(pub fn (fe25519Invert out a)
+  (let ((t (memAlloc 320)))
+    (let ((t0 t) (t1 (+ t 80)) (t2 (+ t 160)) (t3 (+ t 240)))
+      {
+        (feSqN t0 a 1)
+        (feSqN t1 t0 2)
+        (fe25519Mul t1 a t1)
+        (fe25519Mul t0 t0 t1)
+        (feSqN t2 t0 1)
+        (fe25519Mul t1 t1 t2)
+        (feSqN t2 t1 5)
+        (fe25519Mul t1 t2 t1)
+        (feSqN t2 t1 10)
+        (fe25519Mul t2 t2 t1)
+        (feSqN t3 t2 20)
+        (fe25519Mul t2 t3 t2)
+        (feSqN t2 t2 10)
+        (fe25519Mul t1 t2 t1)
+        (feSqN t2 t1 50)
+        (fe25519Mul t2 t2 t1)
+        (feSqN t3 t2 100)
+        (fe25519Mul t2 t3 t2)
+        (feSqN t2 t2 50)
+        (fe25519Mul t1 t2 t1)
+        (feSqN t1 t1 5)
+        (fe25519Mul out t1 t0)
+        (ctWipe t 320)
+      })))
+
+; out = a^((p-5)/8) = a^(2^252 - 3), the exponentiation behind square
+; roots in point decoding (ref10's pow22523 chain).
+(pub :: fe25519Pow22523 (-> Int Int Int))
+;@axiom:ct(*out, *a)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`out` and `a` each name 10 live words)
+(pub fn (fe25519Pow22523 out a)
+  (let ((t (memAlloc 240)))
+    (let ((t0 t) (t1 (+ t 80)) (t2 (+ t 160)))
+      {
+        (feSqN t0 a 1)
+        (feSqN t1 t0 2)
+        (fe25519Mul t1 a t1)
+        (fe25519Mul t0 t0 t1)
+        (feSqN t0 t0 1)
+        (fe25519Mul t0 t1 t0)
+        (feSqN t1 t0 5)
+        (fe25519Mul t0 t1 t0)
+        (feSqN t1 t0 10)
+        (fe25519Mul t1 t1 t0)
+        (feSqN t2 t1 20)
+        (fe25519Mul t1 t2 t1)
+        (feSqN t1 t1 10)
+        (fe25519Mul t0 t1 t0)
+        (feSqN t1 t0 50)
+        (fe25519Mul t1 t1 t0)
+        (feSqN t2 t1 100)
+        (fe25519Mul t1 t2 t1)
+        (feSqN t1 t1 50)
+        (fe25519Mul t0 t1 t0)
+        (feSqN t0 t0 2)
+        (fe25519Mul out t0 a)
+        (ctWipe t 240)
+      })))
+
+; ------------------------------------------------------------------
+; Constant-time selection.
+; ------------------------------------------------------------------
+; Swap `f` and `g` where `m` is -1; leave both where `m` is 0. `m` must
+; be a mask (`Crypto.Ct`). The Montgomery ladder's conditional swap.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: fe25519CSwap (-> Int Int Int Int))
+;@axiom:ct(m, *f, *g)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`f` and `g` each name 10 live writable words)
+(pub fn (fe25519CSwap m f g)
+  (ctSwapWords m f g 10))
+
+; f = g where `m` is -1; f unchanged where `m` is 0. `m` must be a
+; mask. The table scan's conditional move.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: fe25519CMov (-> Int Int Int Int))
+;@axiom:ct(m, *f, *g)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`f` and `g` each name 10 live words, `f` writable)
+(pub fn (fe25519CMov m f g)
+  {
+    (for i 0 10
+      (let ((x (__load64 f i)))
+        (__store64 f i (^ x (& m (^ x (__load64 g i)))))))
+    0
+  })
+
+; ------------------------------------------------------------------
+; Encoding (ref10 fe_frombytes.c and fe_tobytes.c).
+; ------------------------------------------------------------------
+; The 3 bytes at `p + off`, little-endian.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: ld24le (-> Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p` + `off` names 3 live bytes)
+(fn (ld24le p off)
+  (| (__load8 p off)
+    (| (<< (__load8 p (+ off 1)) 8)
+      (<< (__load8 p (+ off 2)) 16))))
+
+; out = the 32 little-endian bytes at `p`, with bit 255 ignored. The
+; value may be anything below 2^255, p itself and the 19 values above
+; it included; it is reduced as arithmetic proceeds.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: fe25519FromBytes (-> Int Int Int))
+;@axiom:ct(*out, *p)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`out` names 10 live writable words and `p` 32 live bytes)
+(pub fn (fe25519FromBytes out p)
+  (feCarryStore2 out
+    (ld32le p 0)
+    (<< (ld24le p 4) 6)
+    (<< (ld24le p 7) 5)
+    (<< (ld24le p 10) 3)
+    (<< (ld24le p 13) 2)
+    (ld32le p 16)
+    (<< (ld24le p 20) 7)
+    (<< (ld24le p 23) 5)
+    (<< (ld24le p 26) 4)
+    (<< (& (ld24le p 29) 8388607) 2)))
+
+; Write the canonical 32-byte little-endian encoding of `a` (its value
+; reduced below p) at `p`. `a`'s limbs must be within 1.1 * 2^26 (even)
+; and 1.1 * 2^25 (odd).
+;
+; ref10's argument: q = floor(a / p) is found from the top of `a` by a
+; carry pass with no branch, then a - q p is carried exactly.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: fe25519ToBytes (-> Int Int Int))
+;@axiom:ct(*p, *a)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p` names 32 live writable bytes and `a` 10 live words)
+(pub fn (fe25519ToBytes p a)
+  (let (
+      (h0 (__load64 a 0)) (h1 (__load64 a 1)) (h2 (__load64 a 2)) (h3 (__load64 a 3)) (h4 (__load64 a 4))
+      (h5 (__load64 a 5)) (h6 (__load64 a 6)) (h7 (__load64 a 7)) (h8 (__load64 a 8)) (h9 (__load64 a 9))
+      (q (>> (+ (* 19 h9) 16777216) 25))
+      (q (>> (+ h0 q) 26))
+      (q (>> (+ h1 q) 25))
+      (q (>> (+ h2 q) 26))
+      (q (>> (+ h3 q) 25))
+      (q (>> (+ h4 q) 26))
+      (q (>> (+ h5 q) 25))
+      (q (>> (+ h6 q) 26))
+      (q (>> (+ h7 q) 25))
+      (q (>> (+ h8 q) 26))
+      (q (>> (+ h9 q) 25))
+      (h0 (+ h0 (* 19 q)))
+      (c0 (>> h0 26)) (h1 (+ h1 c0)) (h0 (- h0 (<< c0 26)))
+      (c1 (>> h1 25)) (h2 (+ h2 c1)) (h1 (- h1 (<< c1 25)))
+      (c2 (>> h2 26)) (h3 (+ h3 c2)) (h2 (- h2 (<< c2 26)))
+      (c3 (>> h3 25)) (h4 (+ h4 c3)) (h3 (- h3 (<< c3 25)))
+      (c4 (>> h4 26)) (h5 (+ h5 c4)) (h4 (- h4 (<< c4 26)))
+      (c5 (>> h5 25)) (h6 (+ h6 c5)) (h5 (- h5 (<< c5 25)))
+      (c6 (>> h6 26)) (h7 (+ h7 c6)) (h6 (- h6 (<< c6 26)))
+      (c7 (>> h7 25)) (h8 (+ h8 c7)) (h7 (- h7 (<< c7 25)))
+      (c8 (>> h8 26)) (h9 (+ h9 c8)) (h8 (- h8 (<< c8 26)))
+      (c9 (>> h9 25)) (h9 (- h9 (<< c9 25)))
+    )
+    {
+      (__store8 p 0 (& h0 255))
+      (__store8 p 1 (& (>> h0 8) 255))
+      (__store8 p 2 (& (>> h0 16) 255))
+      (__store8 p 3 (& (| (>> h0 24) (<< h1 2)) 255))
+      (__store8 p 4 (& (>> h1 6) 255))
+      (__store8 p 5 (& (>> h1 14) 255))
+      (__store8 p 6 (& (| (>> h1 22) (<< h2 3)) 255))
+      (__store8 p 7 (& (>> h2 5) 255))
+      (__store8 p 8 (& (>> h2 13) 255))
+      (__store8 p 9 (& (| (>> h2 21) (<< h3 5)) 255))
+      (__store8 p 10 (& (>> h3 3) 255))
+      (__store8 p 11 (& (>> h3 11) 255))
+      (__store8 p 12 (& (| (>> h3 19) (<< h4 6)) 255))
+      (__store8 p 13 (& (>> h4 2) 255))
+      (__store8 p 14 (& (>> h4 10) 255))
+      (__store8 p 15 (& (>> h4 18) 255))
+      (__store8 p 16 (& h5 255))
+      (__store8 p 17 (& (>> h5 8) 255))
+      (__store8 p 18 (& (>> h5 16) 255))
+      (__store8 p 19 (& (| (>> h5 24) (<< h6 1)) 255))
+      (__store8 p 20 (& (>> h6 7) 255))
+      (__store8 p 21 (& (>> h6 15) 255))
+      (__store8 p 22 (& (| (>> h6 23) (<< h7 3)) 255))
+      (__store8 p 23 (& (>> h7 5) 255))
+      (__store8 p 24 (& (>> h7 13) 255))
+      (__store8 p 25 (& (| (>> h7 21) (<< h8 4)) 255))
+      (__store8 p 26 (& (>> h8 4) 255))
+      (__store8 p 27 (& (>> h8 12) 255))
+      (__store8 p 28 (& (| (>> h8 20) (<< h9 6)) 255))
+      (__store8 p 29 (& (>> h9 2) 255))
+      (__store8 p 30 (& (>> h9 10) 255))
+      (__store8 p 31 (& (>> h9 18) 255))
+      0
+    }))
+
+; 1 when `a` is odd once reduced below p, 0 when it is even: the sign
+; of x in an Ed25519 point encoding (RFC 8032, section 5.1.2).
+(pub :: fe25519IsNegative (-> Int Int))
+;@axiom:ct(*a)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`a` names 10 live words)
+(pub fn (fe25519IsNegative a)
+  (let ((s (memAlloc 32)))
+    {
+      (fe25519ToBytes s a)
+      (let ((bit (& (__load8 s 0) 1)))
+        {
+          (ctWipe s 32)
+          bit
+        })
+    }))
+
+; 1 when `a` is 0 modulo p, 0 otherwise, in time that does not depend
+; on `a`.
+(pub :: fe25519IsZero (-> Int Int))
+;@axiom:ct(*a)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`a` names 10 live words)
+(pub fn (fe25519IsZero a)
+  (let ((s (memAlloc 32)) (mut acc 0))
+    {
+      (fe25519ToBytes s a)
+      (for i 0 32
+        (set acc (| acc (__load8 s i))))
+      (ctWipe s 32)
+      (& (ctMaskZero acc) 1)
+    }))

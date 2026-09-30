@@ -1,0 +1,115 @@
+; The Edwards group (Crypto.Curve25519) against Python integers:
+; constant-time [k]B for edge and seeded scalars (0, L - 1, L, 2^256 -
+; 1 included), the verification multiplication [a]A + [b]B with A of
+; full, small and mixed order, strict decoding (every refusal of RFC
+; 8032 section 5.1.3, and re-encoding what it accepts), and every entry
+; of the fixed-base comb table, including its 2dxy coordinate.
+(import IO)
+(import Mem)
+(import Str)
+(import Vec)
+(import Crypto.Bytes)
+(import Crypto.Field25519)
+(import Crypto.Curve25519)
+(import Kat)
+
+(:: encP2 (-> Int String))
+;@axiom:effect(unsafe)
+(fn (encP2 h)
+  (let ((s (bytesNew 32)))
+    {
+      (ge25519ToBytes (strData s) h)
+      s
+    }))
+
+(:: encFe (-> Int String))
+;@axiom:effect(unsafe)
+(fn (encFe c)
+  (let ((s (bytesNew 32)))
+    {
+      (fe25519ToBytes (strData s) c)
+      s
+    }))
+
+; [k]B.
+(:: base (-> String String))
+;@axiom:effect(unsafe)
+(fn (base k)
+  (let ((h (memAlloc ge25519P3Bytes)))
+    {
+      (ge25519ScalarMultBase h (strData k))
+      (encP2 h)
+    }))
+
+; [a]A + [b]B, or a message when A does not decode.
+(:: double (-> String String String String))
+;@axiom:effect(unsafe)
+(fn (double a enc b)
+  (let ((pa (memAlloc ge25519P3Bytes)) (r (memAlloc ge25519P2Bytes)))
+    (if (!= (ge25519FromBytesVartime pa (strData enc)) 0)
+      "A does not decode"
+      {
+        (ge25519DoubleScalarMultVartime r (strData a) pa (strData b))
+        (encP2 r)
+      })))
+
+; 01 when `enc` decodes and re-encodes to itself, 00 when decoding
+; refuses it, 02 when it decodes to something else.
+(:: decode (-> String String))
+;@axiom:effect(unsafe)
+(fn (decode enc)
+  (let ((h (memAlloc ge25519P3Bytes)) (s (bytesNew 1)))
+    {
+      (__store8 (strData s) 0
+        (if (!= (ge25519FromBytesVartime h (strData enc)) 0)
+          0
+          (strEq (encP2 h) enc)
+          1
+          2))
+      s
+    }))
+
+; The encoding of comb entry `j`, after checking its third coordinate
+; is 2dxy.
+(:: combEntry (-> Int String))
+;@axiom:effect(unsafe)
+(fn (combEntry j)
+  (let ((tbl (memAlloc 3840)) (p (memAlloc ge25519P2Bytes)) (w (memAlloc 320)))
+    (let ((e (+ tbl (* j 240))) (lhs w) (rhs (+ w 80)) (k (+ w 160)) (xy (+ w 240)))
+      {
+        (ge25519CombTable tbl)
+        ; (y+x) - (y-x) = 2x, (y+x) + (y-x) = 2y, over Z = 2
+        (fe25519Sub p e (+ e 80))
+        (fe25519Add (+ p 80) e (+ e 80))
+        (fe25519Set (+ p 160) 2 0 0 0 0 0 0 0 0 0)
+        ; 4 (2dxy) against 2d (2x)(2y)
+        (fe25519Set k 4 0 0 0 0 0 0 0 0 0)
+        (fe25519Mul lhs (+ e 160) k)
+        (fe25519Mul xy p (+ p 80))
+        (ge25519D2 k)
+        (fe25519Mul rhs xy k)
+        (if (strEq (encFe lhs) (encFe rhs))
+          (encP2 p)
+          "the 2dxy coordinate is wrong")
+      })))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((t (tallyNew "curve25519-group")))
+    {
+      (for line in (katLines "curve25519-points.txt")
+        (let ((f (katFields line)))
+          (let ((op (katText f 0)) (want (katBytes f 4)))
+            (let ((label (strConcat op (strConcat " " (katText f 1)))))
+              (if (strEq op "base")
+                (tallyBytes t want (base (katBytes f 1)) label)
+                (strEq op "double")
+                (tallyBytes t want (double (katBytes f 1) (katBytes f 2) (katBytes f 3)) label)
+                (strEq op "decode")
+                (tallyBytes t want (decode (katBytes f 1)) label)
+                (strEq op "comb")
+                (tallyBytes t want (combEntry (strByte (katBytes f 1) 0)) label)
+                (tallyCheck t false (strConcat "unknown operation " op)))))))
+      (tallyReport t)
+    }))

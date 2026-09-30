@@ -1,0 +1,710 @@
+; Crypto.Curve25519 - the Ed25519 group: points of the twisted Edwards
+; curve -x^2 + y^2 = 1 + d x^2 y^2 over GF(2^255 - 19), their
+; arithmetic and their 32-byte encoding.
+;
+;     (let ((h (memAlloc ge25519P3Bytes)) (enc (strAlloc 32)))
+;       {
+;         (ge25519ScalarMultBase h (strData scalar))   ; h = [scalar]B
+;         (ge25519ToBytes (strData enc) h)             ; RFC 8032 encoding
+;         (ge25519FromBytesVartime h (strData enc))    ; 0: decoded again
+;       })
+;
+; This is the hazardous layer under `Crypto.Ed25519`. It works on raw
+; addresses, checks nothing but what it says, and has no idea what a
+; key is.
+;
+; THE REPRESENTATIONS are ref10's, each a run of field elements
+; (`Crypto.Field25519`, 80 bytes each):
+;
+;   P2      (X:Y:Z), x = X/Z, y = Y/Z                    240 bytes
+;   P3      (X:Y:Z:T), also XY = ZT                      320 bytes
+;   P1P1    ((X:Z),(Y:T)), x = X/Z, y = Y/T              320 bytes
+;   Precomp (y+x, y-x, 2dxy), an affine point            240 bytes
+;   Cached  (Y+X, Y-X, Z, 2dT), a P3 ready to be added   320 bytes
+;
+; The first three coordinates of a P3 are a P2, so a P3's address may
+; be passed where a P2 is read. An operation's output may not share
+; memory with its inputs.
+;
+; CONSTANT TIME. `ge25519ScalarMultBase` computes [a]B for a secret
+; scalar with a signed comb: 31 doublings and 64 additions whatever
+; `a` is, each addition choosing its table entry by reading all eight
+; entries and keeping one under a mask (`fe25519CMov`), and negating it
+; by a masked swap. The additions and doublings are straight-line
+; field arithmetic. `ge25519DoubleScalarMultVartime` and
+; `ge25519FromBytesVartime` branch on their inputs and take time that
+; depends on them: they are for verification, where every input is
+; public.
+;
+; STANDARD. RFC 8032, section 5.1: the curve and base point (5.1), the
+; encoding (5.1.2), strict decoding (5.1.3: y must be below p, x must
+; exist, and x = 0 must not carry the sign bit) and the group law
+; (5.1.4, in the extended coordinates of Hisil, Wong, Carter and
+; Dawson).
+;
+; REFERENCES. The formulas and representations are SUPERCOP's ref10
+; (crypto_sign/ed25519/ref10: ge_add.h, ge_sub.h, ge_madd.h,
+; ge_p2_dbl.h, ge_p1p1_to_p2.c, ge_p1p1_to_p3.c, ge_p3_to_cached.c,
+; ge_tobytes.c, ge_frombytes.c and ge_double_scalarmult.c, with the
+; constants of d.h, d2.h and sqrtm1.h; public domain), with decoding
+; made strict as RFC 8032 requires. The fixed-base multiplication is
+; Monocypher 4.0.2's twin 4-bit signed comb (after Mike Hamburg, "Fast
+; and compact elliptic-curve cryptography", 2012), including its two
+; eight-entry tables and its constants 1/2 and (2^256 - 1)/2 modulo L
+; (src/monocypher.c, CC0 or 2-clause BSD at the user's choice); its
+; additions and doublings here are ref10's.
+;
+; LIMITS. Scratch memory comes from the arena. The constant-time paths
+; wipe theirs before returning; the verification paths handle public
+; values and do not. The operations in `Crypto.Ed25519` hand scratch
+; back with a `region` (entering one costs about a microsecond, so they
+; take one per operation, not one per step); code calling these
+; functions in a loop should do the same.
+(import Mem)
+(import Crypto.Ct)
+(import Crypto.Field25519)
+(import Crypto.Curve25519Scalar)
+
+; ------------------------------------------------------------------
+; Sizes, coordinates and constants.
+; ------------------------------------------------------------------
+; Bytes in a P2 point (X:Y:Z).
+(pub :: ge25519P2Bytes Int)
+(pub fn (ge25519P2Bytes)
+  240)
+
+; Bytes in a P3 point (X:Y:Z:T).
+(pub :: ge25519P3Bytes Int)
+(pub fn (ge25519P3Bytes)
+  320)
+
+; Bytes in a P1P1 point, the output of an addition or doubling.
+(pub :: ge25519P1P1Bytes Int)
+(pub fn (ge25519P1P1Bytes)
+  320)
+
+; Bytes in a Precomp point (y+x, y-x, 2dxy).
+(pub :: ge25519PrecompBytes Int)
+(pub fn (ge25519PrecompBytes)
+  240)
+
+; Bytes in a Cached point (Y+X, Y-X, Z, 2dT).
+(pub :: ge25519CachedBytes Int)
+(pub fn (ge25519CachedBytes)
+  320)
+
+; The four coordinates of a point at `p`: first, second, third and
+; fourth field element.
+(:: gX (-> Int Int))
+;@axiom:ct(*p)
+(fn (gX p)
+  p)
+
+(:: gY (-> Int Int))
+;@axiom:ct(*p)
+(fn (gY p)
+  (+ p 80))
+
+(:: gZ (-> Int Int))
+;@axiom:ct(*p)
+(fn (gZ p)
+  (+ p 160))
+
+(:: gT (-> Int Int))
+;@axiom:ct(*p)
+(fn (gT p)
+  (+ p 240))
+
+; The curve constant d = -121665/121666 (ref10's d.h).
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: ge25519D (-> Int Int))
+;@axiom:ct(*out)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`out` names 10 live writable words)
+(pub fn (ge25519D out)
+  (fe25519Set out -10913610 13857413 -15372611 6949391 114729 -8787816 -6275908 -3247719 -18696448 -12055116))
+
+; 2d (ref10's d2.h).
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: ge25519D2 (-> Int Int))
+;@axiom:ct(*out)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`out` names 10 live writable words)
+(pub fn (ge25519D2 out)
+  (fe25519Set out -21827239 -5839606 -30745221 13898782 229458 15978800 -12551817 -6495438 29715968 9444199))
+
+; The base point B = (x, 4/5) with x even (RFC 8032, section 5.1), as
+; a P3 at `h`.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: ge25519Base (-> Int Int))
+;@axiom:ct(*h)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`h` names a live writable P3)
+(pub fn (ge25519Base h)
+  {
+    (fe25519Set (gX h) -14297830 -7645148 16144683 -16471763 27570974 -2696100 -26142465 8378389 20764389 8758491)
+    (fe25519Set (gY h) -26843541 -6710886 13421773 -13421773 26843546 6710886 -13421773 13421773 -26843546 -6710886)
+    (fe25519One (gZ h))
+    (fe25519Mul (gT h) (gX h) (gY h))
+  })
+
+; The neutral element (0, 1) as a P3.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: ge25519P3Zero (-> Int Int))
+;@axiom:ct(*h)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`h` names a live writable P3)
+(pub fn (ge25519P3Zero h)
+  {
+    (fe25519Zero (gX h))
+    (fe25519One (gY h))
+    (fe25519One (gZ h))
+    (fe25519Zero (gT h))
+  })
+
+; The neutral element as a P2.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: ge25519P2Zero (-> Int Int))
+;@axiom:ct(*h)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`h` names a live writable P2)
+(pub fn (ge25519P2Zero h)
+  {
+    (fe25519Zero (gX h))
+    (fe25519One (gY h))
+    (fe25519One (gZ h))
+  })
+
+; ------------------------------------------------------------------
+; Conversions and the group law (ref10).
+; ------------------------------------------------------------------
+; r = p as a P2 (ge_p1p1_to_p2).
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: ge25519P1P1ToP2 (-> Int Int Int))
+;@axiom:ct(*r, *p)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`r` names a live writable P2 and `p` a live P1P1, not overlapping)
+(pub fn (ge25519P1P1ToP2 r p)
+  {
+    (fe25519Mul (gX r) (gX p) (gT p))
+    (fe25519Mul (gY r) (gY p) (gZ p))
+    (fe25519Mul (gZ r) (gZ p) (gT p))
+  })
+
+; r = p as a P3 (ge_p1p1_to_p3).
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: ge25519P1P1ToP3 (-> Int Int Int))
+;@axiom:ct(*r, *p)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`r` names a live writable P3 and `p` a live P1P1, not overlapping)
+(pub fn (ge25519P1P1ToP3 r p)
+  {
+    (fe25519Mul (gX r) (gX p) (gT p))
+    (fe25519Mul (gY r) (gY p) (gZ p))
+    (fe25519Mul (gZ r) (gZ p) (gT p))
+    (fe25519Mul (gT r) (gX p) (gY p))
+  })
+
+; r = p as a Cached point (ge_p3_to_cached). `t` is one field element
+; of scratch.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: ge25519P3ToCached (-> Int Int Int Int))
+;@axiom:ct(*r, *p, *t)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`r` names a live writable Cached, `p` a live P3 and `t` 10 live writable words, none overlapping)
+(pub fn (ge25519P3ToCached r p t)
+  {
+    (fe25519Add (gX r) (gY p) (gX p))
+    (fe25519Sub (gY r) (gY p) (gX p))
+    (fe25519Copy (gZ r) (gZ p))
+    (ge25519D2 t)
+    (fe25519Mul (gT r) (gT p) t)
+  })
+
+; r = 2p, for a P2 (or a P3's first three coordinates) at `p`
+; (ge_p2_dbl.h). `t` is one field element of scratch.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: ge25519P2Dbl (-> Int Int Int Int))
+;@axiom:ct(*r, *p, *t)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`r` names a live writable P1P1, `p` a live P2 and `t` 10 live writable words, none overlapping)
+(pub fn (ge25519P2Dbl r p t)
+  {
+    (fe25519Sq (gX r) (gX p))
+    (fe25519Sq (gZ r) (gY p))
+    (fe25519Sq2 (gT r) (gZ p))
+    (fe25519Add (gY r) (gX p) (gY p))
+    (fe25519Sq t (gY r))
+    (fe25519Add (gY r) (gZ r) (gX r))
+    (fe25519Sub (gZ r) (gZ r) (gX r))
+    (fe25519Sub (gX r) t (gY r))
+    (fe25519Sub (gT r) (gT r) (gZ r))
+  })
+
+; r = p + q, for a P3 `p` and a Cached `q` (ge_add.h). `t` is one
+; field element of scratch.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: ge25519Add (-> Int Int Int Int Int))
+;@axiom:ct(*r, *p, *q, *t)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`r` names a live writable P1P1, `p` a live P3, `q` a live Cached and `t` 10 live writable words, `r` and `t` overlapping nothing)
+(pub fn (ge25519Add r p q t)
+  {
+    (fe25519Add (gX r) (gY p) (gX p))
+    (fe25519Sub (gY r) (gY p) (gX p))
+    (fe25519Mul (gZ r) (gX r) (gX q))
+    (fe25519Mul (gY r) (gY r) (gY q))
+    (fe25519Mul (gT r) (gT q) (gT p))
+    (fe25519Mul (gX r) (gZ p) (gZ q))
+    (fe25519Add t (gX r) (gX r))
+    (fe25519Sub (gX r) (gZ r) (gY r))
+    (fe25519Add (gY r) (gZ r) (gY r))
+    (fe25519Add (gZ r) t (gT r))
+    (fe25519Sub (gT r) t (gT r))
+  })
+
+; r = p - q, for a P3 `p` and a Cached `q` (ge_sub.h).
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: ge25519Sub (-> Int Int Int Int Int))
+;@axiom:ct(*r, *p, *q, *t)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`r` names a live writable P1P1, `p` a live P3, `q` a live Cached and `t` 10 live writable words, `r` and `t` overlapping nothing)
+(pub fn (ge25519Sub r p q t)
+  {
+    (fe25519Add (gX r) (gY p) (gX p))
+    (fe25519Sub (gY r) (gY p) (gX p))
+    (fe25519Mul (gZ r) (gX r) (gY q))
+    (fe25519Mul (gY r) (gY r) (gX q))
+    (fe25519Mul (gT r) (gT q) (gT p))
+    (fe25519Mul (gX r) (gZ p) (gZ q))
+    (fe25519Add t (gX r) (gX r))
+    (fe25519Sub (gX r) (gZ r) (gY r))
+    (fe25519Add (gY r) (gZ r) (gY r))
+    (fe25519Sub (gZ r) t (gT r))
+    (fe25519Add (gT r) t (gT r))
+  })
+
+; r = p + q, for a P3 `p` and a Precomp `q` (ge_madd.h).
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: ge25519Madd (-> Int Int Int Int Int))
+;@axiom:ct(*r, *p, *q, *t)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`r` names a live writable P1P1, `p` a live P3, `q` a live Precomp and `t` 10 live writable words, `r` and `t` overlapping nothing)
+(pub fn (ge25519Madd r p q t)
+  {
+    (fe25519Add (gX r) (gY p) (gX p))
+    (fe25519Sub (gY r) (gY p) (gX p))
+    (fe25519Mul (gZ r) (gX r) (gX q))
+    (fe25519Mul (gY r) (gY r) (gY q))
+    (fe25519Mul (gT r) (gZ q) (gT p))
+    (fe25519Add t (gZ p) (gZ p))
+    (fe25519Sub (gX r) (gZ r) (gY r))
+    (fe25519Add (gY r) (gZ r) (gY r))
+    (fe25519Add (gZ r) t (gT r))
+    (fe25519Sub (gT r) t (gT r))
+  })
+
+; ------------------------------------------------------------------
+; Encoding (RFC 8032, sections 5.1.2 and 5.1.3).
+; ------------------------------------------------------------------
+; Write the 32-byte encoding of the P2 (or P3) at `h` at `s`: y, with
+; the low bit of x in bit 255 (ge_tobytes.c).
+(pub :: ge25519ToBytes (-> Int Int Int))
+;@axiom:ct(*s, *h)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`s` names 32 live writable bytes and `h` a live P2)
+(pub fn (ge25519ToBytes s h)
+  (let ((w (memAlloc 240)))
+    (let ((recip w) (x (+ w 80)) (y (+ w 160)))
+      {
+        (fe25519Invert recip (gZ h))
+        (fe25519Mul x (gX h) recip)
+        (fe25519Mul y (gY h) recip)
+        (fe25519ToBytes s y)
+        (__store8 s 31 (^ (__load8 s 31) (<< (fe25519IsNegative x) 7)))
+        (ctWipe w 240)
+      })))
+
+; 1 when the low 255 bits of the 32 bytes at `s` are a canonical y,
+; below p = 2^255 - 19; 0 when they are p or one of the 18 values
+; above it.
+(:: geYCanonical (-> Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`s` names 32 live bytes)
+(fn (geYCanonical s)
+  (let ((mut all 255))
+    {
+      (for i 1 31
+        (set all (& all (__load8 s i))))
+      (if (&& (== all 255) (&& (== (& (__load8 s 31) 127) 127) (>= (__load8 s 0) 237)))
+        0
+        1)
+    }))
+
+; Decode the 32 bytes at `s` into the P3 at `h`, strictly (RFC 8032,
+; section 5.1.3): answers 0, or -1 when y is not below p, when no x
+; satisfies the curve equation, or when x is 0 and the sign bit is set,
+; and `h` is then unspecified. Variable time: for public keys and
+; signatures only. Points of small order decode; nothing here asks what
+; order a point has.
+;
+; ref10's ge_frombytes_negate_vartime, answering the point rather than
+; its negation, with the two canonicity checks added.
+(pub :: ge25519FromBytesVartime (-> Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`h` names a live writable P3 and `s` 32 live bytes)
+(pub fn (ge25519FromBytesVartime h s)
+  (if (== (geYCanonical s) 0)
+    -1
+    (let ((w (memAlloc 400)))
+      (let ((u w) (v (+ w 80)) (v3 (+ w 160)) (vxx (+ w 240)) (check (+ w 320)))
+        {
+          (fe25519FromBytes (gY h) s)
+          (fe25519One (gZ h))
+          (fe25519Sq u (gY h))
+          (ge25519D check)
+          (fe25519Mul v u check)
+          (fe25519Sub u u (gZ h))
+          (fe25519Add v v (gZ h))
+          (fe25519Sq v3 v)
+          (fe25519Mul v3 v3 v)
+          (fe25519Sq (gX h) v3)
+          (fe25519Mul (gX h) (gX h) v)
+          (fe25519Mul (gX h) (gX h) u)
+          (fe25519Pow22523 (gX h) (gX h))
+          (fe25519Mul (gX h) (gX h) v3)
+          (fe25519Mul (gX h) (gX h) u)
+          (fe25519Sq vxx (gX h))
+          (fe25519Mul vxx vxx v)
+          (fe25519Sub check vxx u)
+          (let ((root
+            (if (== (fe25519IsZero check) 1)
+              0
+              {
+                (fe25519Add check vxx u)
+                (if (== (fe25519IsZero check) 1)
+                  {
+                    (fe25519SqrtM1 check)
+                    (fe25519Mul (gX h) (gX h) check)
+                    0
+                  }
+                  -1)
+              })))
+            (let ((sign (>> (__load8 s 31) 7)))
+              (if (!= root 0)
+                -1
+                (&& (== (fe25519IsZero (gX h)) 1) (== sign 1))
+                -1
+                {
+                  (if (!= (fe25519IsNegative (gX h)) sign)
+                    (fe25519Neg (gX h) (gX h))
+                    0)
+                  (fe25519Mul (gT h) (gX h) (gY h))
+                  0
+                })))
+        }))))
+
+; h = -h, for a P3.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: ge25519P3Neg (-> Int Int))
+;@axiom:ct(*h)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`h` names a live writable P3)
+(pub fn (ge25519P3Neg h)
+  {
+    (fe25519Neg (gX h) (gX h))
+    (fe25519Neg (gT h) (gT h))
+  })
+
+; ------------------------------------------------------------------
+; Fixed-base scalar multiplication, constant time (Monocypher 4.0.2's
+; ge_scalarmult_base and lookup_add over ref10's formulas).
+;
+; Write s = (a + 2^256 - 1) / 2 modulo L. Then a = sum over k of
+; (2 s_k - 1) 2^k modulo L: every bit of s stands for +1 or -1. Split
+; the 256 bits into eight rows of 32 and read four rows at a time
+; ("teeth"): the low comb takes bits i, i+32, i+64, i+96, the high comb
+; the same plus 128. Each four-tooth value is one of 16 signed sums;
+; the eight whose top tooth is +1 are in the table, and the other
+; eight are their negations. So [a]B = sum over i of 2^i (low_i +
+; high_i), 31 doublings and 64 table additions.
+; ------------------------------------------------------------------
+; The two combs as sixteen Precomp points at `t`: entry j of the low
+; comb (0 <= j < 8) is 2^96 B + sum over k < 3 of (+/-) 2^(32k) B, the
+; sign of 2^(32k) B being bit k of j; the high comb, entries 8 to 15,
+; is 2^128 times the low. These are Monocypher's b_comb_low and
+; b_comb_high; tests/crypto/302-curve25519-group.ax recomputes them.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: ge25519CombTable (-> Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`t` names 3840 live writable bytes)
+(pub fn (ge25519CombTable t)
+  {
+    (fe25519Set (+ t 0) -6816601 -2324159 -22559413 124364 18015490 8373481 19993724 1979872 -18549925 9085059)
+    (fe25519Set (+ t 80) 10306321 403248 14839893 9633706 8463310 -8354981 -14305673 14668847 26301366 2818560)
+    (fe25519Set (+ t 160) -22701500 -3210264 -13831292 -2927732 -16326337 -14016360 12940910 177905 12165515 -2397893)
+    (fe25519Set (+ t 240) -12282262 -7022066 9920413 -3064358 -32147467 2927790 22392436 -14852487 2719975 16402117)
+    (fe25519Set (+ t 320) -7236961 -4729776 2685954 -6525055 -24242706 -15940211 -6238521 14082855 10047669 12228189)
+    (fe25519Set (+ t 400) -30495588 -12893761 -11161261 3539405 -11502464 16491580 -27286798 -15030530 -7272871 -15934455)
+    (fe25519Set (+ t 480) 17650926 582297 -860412 -187745 -12072900 -10683391 -20352381 15557840 -31072141 -5019061)
+    (fe25519Set (+ t 560) -6283632 -2259834 -4674247 -4598977 -4089240 12435688 -31278303 1060251 6256175 10480726)
+    (fe25519Set (+ t 640) -13871026 2026300 -21928428 -2741605 -2406664 -8034988 7355518 15733500 -23379862 7489131)
+    (fe25519Set (+ t 720) 6883359 695140 23196907 9644202 -33430614 11354760 -20134606 6388313 -8263585 -8491918)
+    (fe25519Set (+ t 800) -7716174 -13605463 -13646110 14757414 -19430591 -14967316 10359532 -11059670 -21935259 12082603)
+    (fe25519Set (+ t 880) -11253345 -15943946 10046784 5414629 24840771 8086951 -6694742 9868723 15842692 -16224787)
+    (fe25519Set (+ t 960) 9639399 11810955 -24007778 -9320054 3912937 -9856959 996125 -8727907 -8919186 -14097242)
+    (fe25519Set (+ t 1040) 7248867 14468564 25228636 -8795035 14346339 8224790 6388427 -7181107 6468218 -8720783)
+    (fe25519Set (+ t 1120) 15513115 15439095 7342322 -10157390 18005294 -7265713 2186239 4884640 10826567 7135781)
+    (fe25519Set (+ t 1200) -14204238 5297536 -5862318 -6004934 28095835 4236101 -14203318 1958636 -16816875 3837147)
+    (fe25519Set (+ t 1280) -5511166 -13176782 -29588215 12339465 15325758 -15945770 -8813185 11075932 -19608050 -3776283)
+    (fe25519Set (+ t 1360) 11728032 9603156 -4637821 -5304487 -7827751 2724948 31236191 -16760175 -7268616 14799772)
+    (fe25519Set (+ t 1440) -28842672 4840636 -12047946 -9101456 -1445464 381905 -30977094 -16523389 1290540 12798615)
+    (fe25519Set (+ t 1520) 27246947 -10320914 14792098 -14518944 5302070 -8746152 -3403974 -4149637 -27061213 10749585)
+    (fe25519Set (+ t 1600) 25572375 -6270368 -15353037 16037944 1146292 32198 23487090 9585613 24714571 -1418265)
+    (fe25519Set (+ t 1680) 19844825 282124 -17583147 11004019 -32004269 -2716035 6105106 -1711007 -21010044 14338445)
+    (fe25519Set (+ t 1760) 8027505 8191102 -18504907 -12335737 25173494 -5923905 15446145 7483684 -30440441 10009108)
+    (fe25519Set (+ t 1840) -14134701 -4174411 10246585 -14677495 33553567 -14012935 23366126 15080531 -7969992 7663473)
+    (fe25519Set (+ t 1920) 33055887 -4431773 -521787 6654165 951411 -6266464 -5158124 6995613 -5397442 -6985227)
+    (fe25519Set (+ t 2000) 4014062 6967095 -11977872 3960002 8001989 5130302 -2154812 -1899602 -31954493 -16173976)
+    (fe25519Set (+ t 2080) 16271757 -9212948 23792794 731486 -25808309 -3546396 6964344 -4767590 10976593 10050757)
+    (fe25519Set (+ t 2160) 2533007 -4288439 -24467768 -12387405 -13450051 14542280 12876301 13893535 15067764 8594792)
+    (fe25519Set (+ t 2240) 20073501 -11623621 3165391 -13119866 13188608 -11540496 -10751437 -13482671 29588810 2197295)
+    (fe25519Set (+ t 2320) -1084082 11831693 6031797 14062724 14748428 -8159962 -20721760 11742548 31368706 13161200)
+    (fe25519Set (+ t 2400) 2050412 -6457589 15321215 5273360 25484180 124590 -18187548 -7097255 -6691621 -14604792)
+    (fe25519Set (+ t 2480) 9938196 2162889 -6158074 -1711248 4278932 -2598531 -22865792 -7168500 -24323168 11746309)
+    (fe25519Set (+ t 2560) -22691768 -14268164 5965485 9383325 20443693 5854192 28250679 -1381811 -10837134 13717818)
+    (fe25519Set (+ t 2640) -8495530 16382250 9548884 -4971523 -4491811 -3902147 6182256 -12832479 26628081 10395408)
+    (fe25519Set (+ t 2720) 27329048 -15853735 7715764 8717446 -9215518 -14633480 28982250 -5668414 4227628 242148)
+    (fe25519Set (+ t 2800) -13279943 -7986904 -7100016 8764468 -27276630 3096719 29678419 -9141299 3906709 11265498)
+    (fe25519Set (+ t 2880) 11918285 15686328 -17757323 -11217300 -27548967 4853165 -27168827 6807359 6871949 -1075745)
+    (fe25519Set (+ t 2960) -29002610 13984323 -27111812 -2713442 28107359 -13266203 6155126 15104658 3538727 -7513788)
+    (fe25519Set (+ t 3040) 14103158 11233913 -33165269 9279850 31014152 4335090 -1827936 4590951 13960841 12787712)
+    (fe25519Set (+ t 3120) 1469134 -16738009 33411928 13942824 8092558 -8778224 -11165065 1437842 22521552 -2792954)
+    (fe25519Set (+ t 3200) 31352705 -4807352 -25327300 3962447 12541566 -9399651 -27425693 7964818 -23829869 5541287)
+    (fe25519Set (+ t 3280) -25732021 -6864887 23848984 3039395 -9147354 6022816 -27421653 10590137 25309915 -1584678)
+    (fe25519Set (+ t 3360) -22951376 5048948 31139401 -190316 -19542447 -626310 -17486305 -16511925 -18851313 -12985140)
+    (fe25519Set (+ t 3440) -9684890 14681754 30487568 7717771 -10829709 9630497 30290549 -10531496 -27798994 -13812825)
+    (fe25519Set (+ t 3520) 5827835 16097107 -24501327 12094619 7413972 11447087 28057551 -1793987 -14056981 4359312)
+    (fe25519Set (+ t 3600) 26323183 2342588 -21887793 -1623758 -6062284 2107090 -28724907 9036464 -19618351 -13055189)
+    (fe25519Set (+ t 3680) -29697200 14829398 -4596333 14220089 -30022969 2955645 12094100 -13693652 -5941445 7047569)
+    (fe25519Set (+ t 3760) -3201977 14413268 -12058324 -16417589 -9035655 -7224648 9258160 1399236 30397584 -5684634)
+    0
+  })
+
+; Bit `i` of the 32-byte scalar at `s`.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: geBit (-> Int Int Int))
+;@axiom:ct(*s)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`s` names 32 live bytes and 0 <= `i` < 256)
+(fn (geBit s i)
+  (& (>> (__load8 s (>> i 3)) (& i 7)) 1))
+
+; h = h + the comb entry for the teeth of `s` at bit `i`. `comb` is
+; one comb (eight Precomp points); `c` a Precomp, `ta` a field element
+; and `r` a P1P1 of scratch. Every entry is read and one kept under a
+; mask; the negation is a masked swap.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: geCombAdd (-> Int Int Int Int Int Int Int Int))
+;@axiom:ct(*h, *s, *c, *ta, *r)
+;@axiom:effect(unsafe)
+;@axiom:precondition(each address names live writable memory of its kind, none overlapping)
+(fn (geCombAdd h comb s i c ta r)
+  (let ((teeth (| (| (geBit s i) (<< (geBit s (+ i 32)) 1))
+                  (| (<< (geBit s (+ i 64)) 2) (<< (geBit s (+ i 96)) 3)))))
+    (let ((high (>> teeth 3)))
+      (let ((index (& (^ teeth (- high 1)) 7)))
+        {
+          (for j 0 8
+            (let ((m (ctMaskEq j index)) (e (+ comb (* j 240))))
+              {
+                (fe25519CMov m (gX c) (gX e))
+                (fe25519CMov m (gY c) (gY e))
+                (fe25519CMov m (gZ c) (gZ e))
+              }))
+          (fe25519Neg ta (gZ c))
+          (let ((neg (ctMaskFromBit (^ high 1))))
+            {
+              (fe25519CSwap neg (gZ c) ta)
+              (fe25519CSwap neg (gX c) (gY c))
+            })
+          (ge25519Madd r h c ta)
+          (ge25519P1P1ToP3 h r)
+        }))))
+
+; h = [a]B for the 32-byte scalar at `a`, any value below 2^256, in
+; time that does not depend on `a`.
+(pub :: ge25519ScalarMultBase (-> Int Int Int))
+;@axiom:ct(*h, *a)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`h` names a live writable P3 and `a` 32 live bytes, not overlapping)
+(pub fn (ge25519ScalarMultBase h a)
+  (let ((w (memAlloc 4608)))
+    (let (
+      (table w)
+      (s (+ w 3840))
+      (half (+ w 3872))
+      (halfOnes (+ w 3904))
+      (c (+ w 3936))
+      (ta (+ w 4176))
+      (r (+ w 4256))
+    )
+      {
+        (ge25519CombTable table)
+        ; 1/2 and (2^256 - 1)/2 modulo L, little-endian words
+        (__store64 half 0 3173121894899182071)
+        (__store64 half 1 751957030100258411)
+        (__store64 half 2 0)
+        (__store64 half 3 576460752303423488)
+        (__store64 halfOnes 0 7743403797640923790)
+        (__store64 halfOnes 1 7167388622205675448)
+        (__store64 halfOnes 2 -1)
+        (__store64 halfOnes 3 576460752303423487)
+        (sc25519MulAdd s a half halfOnes)
+        (ge25519P3Zero h)
+        (geCombAdd h table s 31 c ta r)
+        (geCombAdd h (+ table 1920) s 159 c ta r)
+        (for i 30 -1 -1
+          {
+            (ge25519P2Dbl r h ta)
+            (ge25519P1P1ToP3 h r)
+            (geCombAdd h table s i c ta r)
+            (geCombAdd h (+ table 1920) s (+ i 128) c ta r)
+          })
+        (ctWipe w 4608)
+      })))
+
+; ------------------------------------------------------------------
+; Double-scalar multiplication for verification, variable time
+; (ref10's ge_double_scalarmult_vartime). Every input is public.
+; ------------------------------------------------------------------
+; Write the 256 signed digits of the 32-byte scalar at `a` as words at
+; `r`, each 0 or odd in -15..15, with sum r_i 2^i equal to the scalar:
+; ref10's `slide`, a signed sliding window.
+(:: geSlide (-> Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`r` names 256 live writable words and `a` 32 live bytes)
+(fn (geSlide r a)
+  {
+    (for i 0 256
+      (__store64 r i (geBit a i)))
+    (for i 0 256
+      (if (== (__load64 r i) 0)
+        0
+        (let ((mut b 1) (mut stop 0))
+          (while (&& (== stop 0) (&& (<= b 6) (< (+ i b) 256)))
+            {
+              (let ((rb (__load64 r (+ i b))))
+                (if (== rb 0)
+                  0
+                  (let ((ri (__load64 r i)) (step (<< rb b)))
+                    (if (<= (+ ri step) 15)
+                      {
+                        (__store64 r i (+ ri step))
+                        (__store64 r (+ i b) 0)
+                        0
+                      }
+                      (>= (- ri step) -15)
+                      {
+                        (__store64 r i (- ri step))
+                        (let ((mut k (+ i b)) (mut done 0))
+                          (while (&& (== done 0) (< k 256))
+                            (if (== (__load64 r k) 0)
+                              {
+                                (__store64 r k 1)
+                                (set done 1)
+                              }
+                              {
+                                (__store64 r k 0)
+                                (set k (+ k 1))
+                              })))
+                        0
+                      }
+                      {
+                        (set stop 1)
+                        0
+                      }))))
+              (set b (+ b 1))
+            }))))
+    0
+  })
+
+; The eight odd multiples P, 3P, ..., 15P of the P3 at `p` as Cached
+; points at `tbl`. `t` is a P1P1, `u` and `p2` P3s, `fe` a field
+; element, all scratch.
+(:: geOddMultiples (-> Int Int Int Int Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(each address names live writable memory of its kind, none overlapping)
+(fn (geOddMultiples tbl p t u p2 fe)
+  {
+    (ge25519P3ToCached tbl p fe)
+    (ge25519P2Dbl t p fe)
+    (ge25519P1P1ToP3 p2 t)
+    (for k 1 8
+      {
+        (ge25519Add t p2 (+ tbl (* (- k 1) 320)) fe)
+        (ge25519P1P1ToP3 u t)
+        (ge25519P3ToCached (+ tbl (* k 320)) u fe)
+      })
+    0
+  })
+
+; r = [a]A + [b]B, as a P2, for 32-byte scalars `a` and `b` below 2^253
+; and the P3 `A`. Variable time: for verification only.
+(pub :: ge25519DoubleScalarMultVartime (-> Int Int Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`r` names a live writable P2, `A` a live P3, and `a` and `b` 32 live bytes each)
+(pub fn (ge25519DoubleScalarMultVartime r a A b)
+  (let ((w (memAlloc 10720)))
+    (let (
+      (aslide w)
+      (bslide (+ w 2048))
+      (ai (+ w 4096))
+      (bi (+ w 6656))
+      (t (+ w 9216))
+      (u (+ w 9536))
+      (p2 (+ w 9856))
+      (base (+ w 10176))
+      (fe (+ w 10496))
+      (mut i 255)
+    )
+      {
+        (geSlide aslide a)
+        (geSlide bslide b)
+        (geOddMultiples ai A t u p2 fe)
+        (ge25519Base base)
+        (geOddMultiples bi base t u p2 fe)
+        (ge25519P2Zero r)
+        (while (&& (>= i 0) (&& (== (__load64 aslide i) 0) (== (__load64 bslide i) 0)))
+          (set i (- i 1)))
+        (while (>= i 0)
+          (let ((da (__load64 aslide i)) (db (__load64 bslide i)))
+            {
+              (ge25519P2Dbl t r fe)
+              (if (> da 0)
+                {
+                  (ge25519P1P1ToP3 u t)
+                  (ge25519Add t u (+ ai (* (/ da 2) 320)) fe)
+                }
+                (< da 0)
+                {
+                  (ge25519P1P1ToP3 u t)
+                  (ge25519Sub t u (+ ai (* (/ (- 0 da) 2) 320)) fe)
+                }
+                0)
+              (if (> db 0)
+                {
+                  (ge25519P1P1ToP3 u t)
+                  (ge25519Add t u (+ bi (* (/ db 2) 320)) fe)
+                }
+                (< db 0)
+                {
+                  (ge25519P1P1ToP3 u t)
+                  (ge25519Sub t u (+ bi (* (/ (- 0 db) 2) 320)) fe)
+                }
+                0)
+              (ge25519P1P1ToP2 r t)
+              (set i (- i 1))
+            }))
+        0
+      })))

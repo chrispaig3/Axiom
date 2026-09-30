@@ -347,6 +347,110 @@ need different prefixes.
 
 Tested by `tests/crypto/260-aead-nonce.ax`.
 
+## Key agreement
+
+X25519 (RFC 7748) lets two parties that each send the other a public
+key arrive at the same 32-byte shared secret. Nobody watching the
+exchange can compute it.
+
+```scheme
+(import IO)
+(import Err)
+(import Crypto.Secret)
+(import Crypto.X25519)
+
+(:: agree (-> X25519SecretKey X25519SecretKey Int))
+;@axiom:effect(io)
+(fn (agree alice bob)
+  (match (x25519 alice (x25519PublicKey bob))
+    ((Err e) (die (errorText e) 1))
+    ((Ok s1)
+      (match (x25519 bob (x25519PublicKey alice))
+        ((Err e) (die (errorText e) 1))
+        ((Ok s2)
+          {
+            (println (secretLen s1))
+            (println (secretEq s1 s2))
+            0
+          })))))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (match x25519KeyGenerate
+    ((Err e) (die (errorText e) 1))
+    ((Ok alice)
+      (match x25519KeyGenerate
+        ((Err e) (die (errorText e) 1))
+        ((Ok bob) (agree alice bob))))))
+```
+
+```text
+32
+true
+```
+
+The shared secret comes back as `SecretBytes`. Don't use it as a key
+directly: pass it through `hkdfSha256` with both public keys in the
+info string, as RFC 7748 section 6.1 advises.
+
+Any 32 bytes are a public key, as the RFC requires, so
+`x25519PublicKeyFromBytes` checks only the length. When the peer sends
+a point of small order, the shared secret comes out all zero, and
+`x25519` answers `cryptoInvalidKey` instead. A peer following the
+protocol never sends one, so treat the error as a failed exchange.
+
+Tested by `tests/crypto/310-x25519-rfc7748.ax` and
+`tests/crypto/311-x25519-wycheproof.ax`.
+
+## Signatures
+
+Ed25519 (RFC 8032) signs a message with a private key, and anyone
+holding the matching public key can check the signature. Signing is
+deterministic, so the same key and message always give the same
+64-byte signature.
+
+```scheme
+(import IO)
+(import Str)
+(import Err)
+(import Crypto.Ed25519)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (match ed25519KeyGenerate
+    ((Err e) (die (errorText e) 1))
+    ((Ok key)
+      (let ((pk (ed25519PublicKey key))
+            (sig (ed25519Sign key "release 0.8.0")))
+        {
+          (println (strLen (ed25519SignatureBytes sig)))
+          (println (ed25519Verify pk "release 0.8.0" sig))
+          (println (ed25519Verify pk "release 0.8.1" sig))
+          (ed25519KeyWipe key)
+          0
+        }))))
+```
+
+```text
+64
+true
+false
+```
+
+Decoding is strict. `ed25519PublicKeyFromBytes` accepts one encoding
+per key, and `ed25519SignatureFromBytes` refuses an S at or above the
+group order, so a valid signature has no second form that also
+verifies. Verification uses the cofactorless equation. It accepts
+public keys of small order when the equation holds, as RFC 8032
+permits, so if strangers choose the keys, check how they were made.
+
+The Ed25519ctx and Ed25519ph variants aren't provided.
+
+Tested by `tests/crypto/320-ed25519-rfc8032.ax` and
+`tests/crypto/323-ed25519-strict.ax`.
+
 ## Constant time
 
 A function runs in constant time when nothing an attacker can time
@@ -395,6 +499,14 @@ iterations, best of five, with an empty program's startup subtracted.
 
 SHA-256 doesn't use the processor's SHA-2 instructions yet. OpenSSL
 3.6.4, which does, hashes about seven times faster on the same machine.
+
+| Operation | Time |
+|---|---|
+| X25519 shared secret | 79 µs |
+| Ed25519 sign, 64-byte message | 39 µs |
+| Ed25519 sign, 4 KiB message | 55 µs |
+| Ed25519 verify, 64-byte message | 91 µs |
+| Ed25519 and X25519 key generation, one of each | 122 µs |
 
 ## Error codes
 

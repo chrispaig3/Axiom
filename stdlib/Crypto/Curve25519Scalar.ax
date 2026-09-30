@@ -1,0 +1,221 @@
+; Crypto.Curve25519Scalar - arithmetic modulo L, the order of the
+; Ed25519 base point: L = 2^252 + 27742317777372353535851937790883648493.
+;
+;     (sc25519Reduce r (strData digest))       ; r = SHA-512 digest mod L
+;     (sc25519MulAdd s k a r)                  ; s = (k a + r) mod L
+;     (sc25519IsCanonical (+ (strData sig) 32)) ; 1 when S < L
+;
+; This is the hazardous layer under `Crypto.Ed25519`: raw addresses,
+; no checks. Scalars are 32 bytes little-endian; the input of
+; `sc25519Reduce` is 64.
+;
+; CONSTANT TIME. Every function runs the same loops over the same
+; words whatever the values: products of 32-bit words accumulate in a
+; 64-bit carry, the quotient is estimated by Barrett reduction with a
+; fixed multiplier, and the last correction subtracts L under a mask
+; rather than behind a branch. Axiom's `Int` is signed, so the carries
+; are read with the logical shift `shrU`; every carry is below 2^64,
+; which the wrapping arithmetic holds exactly.
+;
+; STANDARD. The scalar arithmetic RFC 8032, section 5.1, asks of
+; Ed25519: SHA-512 outputs reduced modulo L (5.1.6 steps 2 and 4,
+; 5.1.7 step 2), S = (r + k s) mod L (5.1.6 step 5), and the check that
+; S < L (5.1.7 step 1).
+;
+; REFERENCE. A port of Monocypher 4.0.2's `multiply`, `is_above_l`,
+; `remove_l` and `mod_l` (src/monocypher.c, by Loup Vaillant, CC0 or
+; 2-clause BSD at the user's choice), including its constants: L and
+; floor(2^512 / L) in 32-bit words.
+;
+; LIMITS. The addresses must name the bytes stated, and an output may
+; not overlap an input. Scratch words come from the arena and are wiped
+; before each function returns; `Crypto.Ed25519` hands them back with a
+; `region` around each signature.
+(import Mem)
+(import Crypto.Ct)
+
+; Word `i` of L, 32 bits a word, least significant first.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: scL (-> Int Int))
+(fn (scL i)
+  (if (== i 0) 1559614445
+    (== i 1) 1477600026
+    (== i 2) 2734136534
+    (== i 3) 350157278
+    (== i 7) 268435456
+    0))
+
+; Word `i` of floor(2^512 / L), the Barrett multiplier, 9 words.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: scBarrett (-> Int Int))
+(fn (scBarrett i)
+  (if (== i 0) 170660635
+    (== i 1) 3986482595
+    (== i 2) 140716455
+    (== i 3) 554049885
+    (== i 4) 4294967275
+    (== i 8) 15
+    4294967295))
+
+; Load `n` 32-bit little-endian words from the bytes at `p` into the
+; words at `w`.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: scLoad (-> Int Int Int Int))
+;@axiom:ct(*w, *p)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`w` names `n` live writable words and `p` 4n live bytes)
+(fn (scLoad w p n)
+  {
+    (for i 0 n
+      (__store64 w i (ld32le p (* 4 i))))
+    0
+  })
+
+; 1 when the eight words at `x` hold a value at or above L, 0 below
+; (Monocypher's is_above_l: the carry out of x - L).
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: scAboveL (-> Int Int))
+;@axiom:ct(*x)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`x` names 8 live words, each below 2^32)
+(fn (scAboveL x)
+  (let ((mut carry 1))
+    {
+      (for i 0 8
+        (set carry (shrU (+ carry (+ (__load64 x i) (^ (scL i) mask32))) 32)))
+      carry
+    }))
+
+; r = x - L when x >= L, else x, over eight words (Monocypher's
+; remove_l). Right only for x below 2L. `r` may be `x`.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: scRemoveL (-> Int Int Int))
+;@axiom:ct(*r, *x)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`r` and `x` each name 8 live words, each below 2^32)
+(fn (scRemoveL r x)
+  (let ((above (scAboveL x)))
+    (let ((mask (& (ctMaskFromBit above) mask32)) (mut carry above))
+      {
+        (for i 0 8
+          (let ((c (+ carry (+ (__load64 x i) (& (^ (scL i) mask32) mask)))))
+            {
+              (__store64 r i (& c mask32))
+              (set carry (shrU c 32))
+            }))
+        0
+      })))
+
+; Write x mod L at the 32 bytes at `out`, for x in the sixteen words at
+; `x` (below 2^512). Monocypher's mod_l: q = floor(x floor(2^512/L) /
+; 2^512) is at most one short of floor(x / L), so x - q L is below 2L
+; and one masked subtraction finishes it.
+;@axiom:restrict(no-io,no-foreign)
+(:: scModL (-> Int Int Int))
+;@axiom:ct(*out, *x)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`out` names 32 live writable bytes and `x` 16 live words, each below 2^32)
+(fn (scModL out x)
+  (let ((xr (memAlloc 200)))
+    {
+      ; xr = x * floor(2^512 / L), 25 words
+      (for i 0 9
+        (let ((ri (scBarrett i)) (mut carry 0))
+          {
+            (for j 0 16
+              (let ((c (+ carry (+ (__load64 xr (+ i j)) (* ri (__load64 x j))))))
+                {
+                  (__store64 xr (+ i j) (& c mask32))
+                  (set carry (shrU c 32))
+                }))
+            (__store64 xr (+ i 16) carry)
+          }))
+      ; xr = (xr / 2^512) * L, only the low 256 bits
+      (for i 0 8
+        (__store64 xr i 0))
+      (for i 0 8
+        (let ((qi (__load64 xr (+ i 16))) (mut carry 0))
+          (for j 0 (- 8 i)
+            (let ((c (+ carry (+ (__load64 xr (+ i j)) (* qi (scL j))))))
+              {
+                (__store64 xr (+ i j) (& c mask32))
+                (set carry (shrU c 32))
+              }))))
+      ; xr = x - xr
+      (let ((mut carry 1))
+        (for i 0 8
+          (let ((c (+ carry (+ (__load64 x i) (^ (__load64 xr i) mask32)))))
+            {
+              (__store64 xr i (& c mask32))
+              (set carry (shrU c 32))
+            })))
+      (scRemoveL xr xr)
+      (for i 0 8
+        (st32le out (* 4 i) (__load64 xr i)))
+      (ctWipe xr 200)
+    }))
+
+; Write the 64 little-endian bytes at `in` reduced modulo L as 32
+; bytes at `out`.
+;@axiom:restrict(no-io,no-foreign)
+(pub :: sc25519Reduce (-> Int Int Int))
+;@axiom:ct(*out, *in)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`out` names 32 live writable bytes and `in` 64 live bytes, not overlapping)
+(pub fn (sc25519Reduce out in)
+  (let ((x (memAlloc 128)))
+    {
+      (scLoad x in 16)
+      (scModL out x)
+      (ctWipe x 128)
+    }))
+
+; Write (a b + c) mod L as 32 bytes at `out`, for 32-byte scalars `a`,
+; `b` and `c` of any value below 2^256.
+;@axiom:restrict(no-io,no-foreign)
+(pub :: sc25519MulAdd (-> Int Int Int Int Int))
+;@axiom:ct(*out, *a, *b, *c)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`out` names 32 live writable bytes and `a`, `b`, `c` 32 live bytes each, none overlapping `out`)
+(pub fn (sc25519MulAdd out a b c)
+  (let ((w (memAlloc 256)))
+    (let ((p w) (wa (+ w 128)) (wb (+ w 192)))
+      {
+        (scLoad wa a 8)
+        (scLoad wb b 8)
+        (scLoad p c 8)
+        (for i 8 16
+          (__store64 p i 0))
+        ; p = p + a b (Monocypher's multiply)
+        (for i 0 8
+          (let ((ai (__load64 wa i)) (mut carry 0))
+            {
+              (for j 0 8
+                (let ((t (+ carry (+ (__load64 p (+ i j)) (* ai (__load64 wb j))))))
+                  {
+                    (__store64 p (+ i j) (& t mask32))
+                    (set carry (shrU t 32))
+                  }))
+              (__store64 p (+ i 8) carry)
+            }))
+        (scModL out p)
+        (ctWipe w 256)
+      })))
+
+; 1 when the 32-byte scalar at `s` is below L - the canonical range RFC
+; 8032, section 5.1.7, requires of a signature's S - and 0 otherwise.
+;@axiom:restrict(no-io,no-foreign)
+(pub :: sc25519IsCanonical (-> Int Int))
+;@axiom:ct(*s)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`s` names 32 live bytes)
+(pub fn (sc25519IsCanonical s)
+  (let ((x (memAlloc 64)))
+    {
+      (scLoad x s 8)
+      (let ((above (scAboveL x)))
+        {
+          (ctWipe x 64)
+          (- 1 above)
+        })
+    }))

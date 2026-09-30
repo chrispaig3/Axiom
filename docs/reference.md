@@ -5690,7 +5690,7 @@ Checked by `scripts/check-freestanding.sh`.
 
 ### Modules at a Glance
 
-Forty-three modules, all of them Axiom source under `stdlib/`. A module exports only the
+Forty-eight modules, all of them Axiom source under `stdlib/`. A module exports only the
 names it marks `pub`, and reaching any other name is `AX3023`, so
 `grep '^(pub' stdlib/M.ax` always tells you what module `M` exports.
 
@@ -5739,10 +5739,15 @@ regenerates it on every run to keep it exact.
 | `Crypto.AesGcm` | AES-GCM authenticated encryption (NIST SP 800-38D) with 256- and 128-bit keys: `aes256GcmSeal` and `aes256GcmOpen` over an `Aes256GcmKey`, which `aes256GcmKeyGenerate`, `aes256GcmKeyFromSecret`, `aes256GcmKeyExport` and `aes256GcmKeyWipe` manage, and the same for 128 ([Authenticated encryption](crypto.md#authenticated-encryption)). |
 | `Crypto.ChaCha20Poly1305` | ChaCha20-Poly1305 authenticated encryption (RFC 8439): `chacha20Poly1305Seal` and `chacha20Poly1305Open` over a `ChaCha20Poly1305Key`, with the same key functions. |
 | `Crypto.Aead` | The 12-byte `AeadNonce` both ciphers take (`aeadNonceFromBytes`, `aeadNonceRandom`), and `NonceSequence`, a counter that answers a fresh nonce until it runs out and never repeats one (`nonceSequenceNew`, `nonceSequenceNext`, `nonceSequenceResume`). |
+| `Crypto.X25519` | Key agreement over Curve25519 (RFC 7748): `x25519` answers the shared secret for your `X25519SecretKey` and a peer's `X25519PublicKey`, as `SecretBytes`. Keys come from `x25519KeyGenerate` or `x25519KeyFromSecret`, and `x25519PublicKeyFromBytes` reads a peer's key. |
+| `Crypto.Ed25519` | Ed25519 signatures (RFC 8032): `ed25519Sign` signs a message with an `Ed25519SecretKey`, and `ed25519Verify` checks an `Ed25519Signature` against an `Ed25519PublicKey`. Public keys and signatures decode strictly (`ed25519PublicKeyFromBytes`, `ed25519SignatureFromBytes`). |
 | `Crypto.Aes` | The AES block cipher (FIPS 197) with 128-, 192- and 256-bit keys, bitsliced so no table is indexed by a secret: `aesKeyExpand`, `aesEncryptBlocks`, `aesDecryptBlocks`, and `aesCtr32Xor`, GCM's counter mode. For implementers. |
 | `Crypto.Ghash` | GCM's authenticator, `ghashUpdate`, a carry-less multiply with no tables. For implementers. |
 | `Crypto.ChaCha20` | The ChaCha20 stream cipher (RFC 8439): `chacha20Block` and `chacha20Xor`. For implementers. |
 | `Crypto.Poly1305` | The Poly1305 one-time authenticator (RFC 8439): `poly1305Mac`, and the incremental `poly1305Init`, `poly1305Blocks`, `poly1305AbsorbPadded` and `poly1305Finish`. For implementers. |
+| `Crypto.Curve25519` | The Ed25519 group: point addition and doubling, the constant-time fixed-base multiplication `ge25519ScalarMultBase`, and strict encoding and decoding. For implementers. |
+| `Crypto.Field25519` | Arithmetic modulo 2²⁵⁵ − 19 on ten-limb field elements at raw addresses: `fe25519Mul`, `fe25519Invert`, `fe25519CSwap` and their kin. For implementers. |
+| `Crypto.Curve25519Scalar` | Arithmetic modulo the Ed25519 group order: `sc25519Reduce`, `sc25519MulAdd` and `sc25519IsCanonical`. For implementers. |
 | `Crypto.Ct` | The constant-time layer the other Crypto modules are built from: masks and `ctSelect`, the `ctBarrier` value barrier, byte-order loads and stores, and `ctWipe`, an erasure the optimiser can't remove. For implementers. |
 | `Crypto.Errors` | The error codes every Crypto module answers, from `cryptoInvalidLength` (1101) to `cryptoInvalidKey` (1109), and the helpers that build them. |
 

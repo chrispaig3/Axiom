@@ -70,7 +70,11 @@ stdlib/Crypto/Bytes.ax
 stdlib/Crypto/ChaCha20.ax
 stdlib/Crypto/ChaCha20Poly1305.ax
 stdlib/Crypto/Ct.ax
+stdlib/Crypto/Curve25519.ax
+stdlib/Crypto/Curve25519Scalar.ax
+stdlib/Crypto/Ed25519.ax
 stdlib/Crypto/Errors.ax
+stdlib/Crypto/Field25519.ax
 stdlib/Crypto/Ghash.ax
 stdlib/Crypto/Hkdf.ax
 stdlib/Crypto/Hmac.ax
@@ -79,6 +83,7 @@ stdlib/Crypto/Random.ax
 stdlib/Crypto/Secret.ax
 stdlib/Crypto/Sha2.ax
 stdlib/Crypto/Sha3.ax
+stdlib/Crypto/X25519.ax
 stdlib/Err.ax
 stdlib/Fallible.ax
 stdlib/Ffi.ax

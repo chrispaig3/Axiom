@@ -1,0 +1,159 @@
+; X25519 against RFC 7748: the section 5.2 function vectors, the
+; iterated vectors after 1 and 1,000 rounds, and the section 6.1
+; key agreement, through both the raw function and the key API. Then
+; the refusals the API promises.
+(import IO)
+(import Str)
+(import Vec)
+(import Err)
+(import Crypto.Errors)
+(import Crypto.Bytes)
+(import Crypto.Secret)
+(import Crypto.X25519)
+(import Kat)
+
+; The raw function's answer, or the empty string when it refused.
+(:: raw (-> String String String))
+(fn (raw k u)
+  (match (x25519ScalarMult k u)
+    ((Ok out) out)
+    ((Err _) "")))
+
+; The bytes of a shared secret, or the empty string for an error.
+(:: agree (-> X25519SecretKey X25519PublicKey String))
+;@axiom:effect(io)
+(fn (agree k pk)
+  (match (x25519 k pk)
+    ((Ok s)
+      (let ((b (secretExposeCopy s)))
+        {
+          (secretWipe s)
+          b
+        }))
+    ((Err _) "")))
+
+; Whether `r` is an `Err` carrying `code`.
+(:: failsWith (-> (Result a Error) Int Bool))
+(fn (failsWith r code)
+  (match r
+    ((Ok _) false)
+    ((Err e) (== (errCode e) code))))
+
+; The value in `r`, or stop the test: a refusal here is a broken
+; setup, not a result to count.
+(:: orDie (-> (Result a Error) String a))
+;@axiom:effect(io)
+(fn (orDie r what)
+  (match r
+    ((Ok v) v)
+    ((Err e) (cast a (die (strConcat "310: " (strConcat what (strConcat ": " (errorText e)))) 3)))))
+
+; A key from 32 bytes.
+(:: keyOf (-> String X25519SecretKey))
+;@axiom:effect(io)
+(fn (keyOf bytes)
+  (let ((s (orDie (secretFromString bytes) "secretFromString")))
+    (let ((k (orDie (x25519KeyFromSecret s) "x25519KeyFromSecret")))
+      {
+        (secretWipe s)
+        k
+      })))
+
+(:: pubOf (-> String X25519PublicKey))
+;@axiom:effect(io)
+(fn (pubOf bytes)
+  (orDie (x25519PublicKeyFromBytes bytes) "x25519PublicKeyFromBytes"))
+
+; `n` rounds of k, u = X25519(k, u), k from k = u = 9.
+(:: iterate (-> Int String))
+(fn (iterate n)
+  (let ((mut k x25519BasePoint) (mut u x25519BasePoint))
+    {
+      (for i 0 n
+        (let ((next (raw k u)))
+          {
+            (set u k)
+            (set k next)
+          }))
+      k
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((t (tallyNew "x25519-rfc7748")) (api (tallyNew "x25519-api")))
+    {
+      (for line in (katLines "x25519-rfc7748.txt")
+        (let ((f (katFields line)))
+          (let ((kind (katText f 0)))
+            (if (strEq kind "mult")
+              (tallyBytes t (katBytes f 3) (raw (katBytes f 1) (katBytes f 2)) "section 5.2 function vector")
+              (strEq kind "iter")
+              (let ((n (katInt f 1)))
+                (tallyBytes t (katBytes f 2) (iterate n) (strConcat "iterations: " (katText f 1))))
+              (strEq kind "dh")
+              (let (
+                (a (keyOf (katBytes f 1)))
+                (b (keyOf (katBytes f 3)))
+                (want (katBytes f 5))
+              )
+                {
+                  (tallyBytes t (katBytes f 2) (x25519PublicKeyBytes (x25519PublicKey a)) "section 6.1 Alice's public key")
+                  (tallyBytes t (katBytes f 4) (x25519PublicKeyBytes (x25519PublicKey b)) "section 6.1 Bob's public key")
+                  (tallyBytes t want (agree a (pubOf (katBytes f 4))) "section 6.1 Alice's shared secret")
+                  (tallyBytes t want (agree b (pubOf (katBytes f 2))) "section 6.1 Bob's shared secret")
+                  (tallyBytes t want (raw (katBytes f 1) (katBytes f 4)) "section 6.1 through the raw function")
+                  (x25519KeyWipe a)
+                  (x25519KeyWipe b)
+                })
+              (tallyCheck t false (strConcat "unknown case kind " kind))))))
+      ; The refusals, and the round trips the API promises.
+      (let (
+        (k (keyOf (bytesNew 32)))
+        (zero (bytesNew 32))
+        (one (orDie (hexDecode "0100000000000000000000000000000000000000000000000000000000000000") "hexDecode"))
+      )
+        {
+          (tallyCheck api (failsWith (x25519 k (pubOf zero)) cryptoInvalidKey) "u = 0 gives the all-zero secret")
+          (tallyCheck api (failsWith (x25519 k (pubOf one)) cryptoInvalidKey) "u = 1 gives the all-zero secret")
+          (tallyCheck api (failsWith (x25519 k (X25519PublicKey (bytesNew 31))) cryptoInvalidLength) "a forged 31-byte public key")
+          (tallyCheck api (failsWith (x25519PublicKeyFromBytes (bytesNew 31)) cryptoInvalidLength) "a 31-byte public key")
+          (tallyCheck api (failsWith (x25519PublicKeyFromBytes (bytesNew 33)) cryptoInvalidLength) "a 33-byte public key")
+          (tallyCheck api (failsWith (x25519ScalarMult (bytesNew 31) zero) cryptoInvalidLength) "a 31-byte scalar")
+          (tallyCheck api (failsWith (x25519ScalarMult zero (bytesNew 0)) cryptoInvalidLength) "an empty u-coordinate")
+          (match (secretFromString (bytesNew 16))
+            ((Ok s)
+              {
+                (tallyCheck api (failsWith (x25519KeyFromSecret s) cryptoInvalidLength) "a 16-byte private key")
+                (secretWipe s)
+              })
+            ((Err _) (tallyCheck api false "secret store")))
+          (x25519KeyWipe k)
+          0
+        })
+      (match x25519KeyGenerate
+        ((Err _) (tallyCheck api false "x25519KeyGenerate"))
+        ((Ok a)
+          (match x25519KeyGenerate
+            ((Err _) (tallyCheck api false "x25519KeyGenerate"))
+            ((Ok b)
+              (let (
+                (ab (agree a (x25519PublicKey b)))
+                (ba (agree b (x25519PublicKey a)))
+              )
+                {
+                  (tallyCheck api (&& (== (strLen ab) 32) (strEq ab ba)) "two generated keys agree")
+                  (tallyCheck api (! (strEq (x25519PublicKeyBytes (x25519PublicKey a)) (x25519PublicKeyBytes (x25519PublicKey b)))) "two generated keys differ")
+                  (match (x25519KeyExport a)
+                    ((Err _) (tallyCheck api false "x25519KeyExport"))
+                    ((Ok s)
+                      (let ((pa (raw (secretExposeCopy s) x25519BasePoint)))
+                        {
+                          (tallyBytes api (x25519PublicKeyBytes (x25519PublicKey a)) pa "the exported key gives the same public key")
+                          (secretWipe s)
+                        })))
+                  (x25519KeyWipe a)
+                  (x25519KeyWipe b)
+                })))))
+      (+ (tallyReport t) (tallyReport api))
+    }))

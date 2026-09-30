@@ -1,0 +1,88 @@
+; Field arithmetic modulo 2^255 - 19 (Crypto.Field25519) against
+; Python integers: every operation on edge values (0, 1, p - 1, p and
+; the other non-canonical encodings, bit 255 set) and on seeded ones,
+; each result encoded canonically and compared byte for byte. The
+; multiplications also run in place, output over input.
+(import IO)
+(import Mem)
+(import Str)
+(import Vec)
+(import Crypto.Bytes)
+(import Crypto.Field25519)
+(import Kat)
+
+; One byte, 0 or 1, as a string.
+(:: byteOf (-> Int String))
+;@axiom:effect(unsafe)
+(fn (byteOf v)
+  (let ((s (bytesNew 1)))
+    {
+      (__store8 (strData s) 0 v)
+      s
+    }))
+
+; The canonical encoding of the field element at `c`.
+(:: enc (-> Int String))
+;@axiom:effect(unsafe)
+(fn (enc c)
+  (let ((s (bytesNew 32)))
+    {
+      (fe25519ToBytes (strData s) c)
+      s
+    }))
+
+; Operation `op` on `a` and `b`, as the vector file spells its answer.
+; `inPlace` writes the result over the first operand instead.
+(:: compute (-> String String String Bool String))
+;@axiom:effect(unsafe)
+(fn (compute op a b inPlace)
+  (let ((w (memAlloc 400)))
+    (let ((fa w) (fb (+ w 80)) (c (+ w 160)) (t1 (+ w 240)) (t2 (+ w 320)))
+      (let ((out (if inPlace fa c)))
+        {
+          (fe25519FromBytes fa (strData a))
+          (fe25519FromBytes fb (strData b))
+          (if (strEq op "mul") { (fe25519Mul out fa fb) (enc out) }
+            (strEq op "sq") { (fe25519Sq out fa) (enc out) }
+            (strEq op "sq2") { (fe25519Sq2 out fa) (enc out) }
+            (strEq op "mul121666") { (fe25519Mul121666 out fa) (enc out) }
+            (strEq op "inv") { (fe25519Invert out fa) (enc out) }
+            (strEq op "pow22523") { (fe25519Pow22523 out fa) (enc out) }
+            (strEq op "neg") { (fe25519Neg out fa) (enc out) }
+            (strEq op "canon") { (fe25519Copy c fa) (enc c) }
+            (strEq op "addmul")
+            {
+              (fe25519Add t1 fa fb)
+              (fe25519Sub t2 fa fb)
+              (fe25519Mul out t1 t2)
+              (enc out)
+            }
+            (strEq op "submul")
+            {
+              (fe25519Sub t1 fa fb)
+              (fe25519Sub t2 fb fa)
+              (fe25519Mul out t1 t2)
+              (enc out)
+            }
+            (strEq op "isneg") (byteOf (fe25519IsNegative fa))
+            (strEq op "iszero") (byteOf (fe25519IsZero fa))
+            "unknown operation")
+        }))))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((t (tallyNew "field25519")) (ip (tallyNew "field25519-in-place")))
+    {
+      (for line in (katLines "curve25519-field.txt")
+        (let ((f (katFields line)))
+          (let ((op (katText f 0)) (a (katBytes f 1)) (b (katBytes f 2)) (want (katBytes f 3)))
+            (let ((label (strConcat op (strConcat " " (katText f 1)))))
+              {
+                (tallyBytes t want (compute op a b false) label)
+                (if (|| (strEq op "isneg") (|| (strEq op "iszero") (strEq op "canon")))
+                  0
+                  (tallyBytes ip want (compute op a b true) label))
+              }))))
+      (+ (tallyReport t) (tallyReport ip))
+    }))

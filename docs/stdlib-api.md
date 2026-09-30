@@ -244,6 +244,67 @@ two differ.
 | `ctCopy` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` | Copy `n` bytes from `src` to `dst`, which must not overlap. The same loop as `memCopy`; here so a Crypto module needs one import for its memory work. |
 | `ctSwapWords` | value | `(-> Int Int Int Int Int)` | `Mut,Unsafe` | Conditionally swap `n` words at `a` and `b`: swapped where `m` is -1, left alone where `m` is 0. The Montgomery ladder's step, and any other choice between two buffers a secret makes. |
 
+## `Crypto.Curve25519`
+
+`stdlib/Crypto/Curve25519.ax` — 23 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `ge25519P2Bytes` | value | `Int` |  | Bytes in a P2 point (X:Y:Z). |
+| `ge25519P3Bytes` | value | `Int` |  | Bytes in a P3 point (X:Y:Z:T). |
+| `ge25519P1P1Bytes` | value | `Int` |  | Bytes in a P1P1 point, the output of an addition or doubling. |
+| `ge25519PrecompBytes` | value | `Int` |  | Bytes in a Precomp point (y+x, y-x, 2dxy). |
+| `ge25519CachedBytes` | value | `Int` |  | Bytes in a Cached point (Y+X, Y-X, Z, 2dT). |
+| `ge25519D` | value | `(-> Int Int)` | `Mut,Unsafe` | The curve constant d = -121665/121666 (ref10's d.h). |
+| `ge25519D2` | value | `(-> Int Int)` | `Mut,Unsafe` | 2d (ref10's d2.h). |
+| `ge25519Base` | value | `(-> Int Int)` | `Mut,Unsafe` | The base point B = (x, 4/5) with x even (RFC 8032, section 5.1), as a P3 at `h`. |
+| `ge25519P3Zero` | value | `(-> Int Int)` | `Mut,Unsafe` | The neutral element (0, 1) as a P3. |
+| `ge25519P2Zero` | value | `(-> Int Int)` | `Mut,Unsafe` | The neutral element as a P2. |
+| `ge25519P1P1ToP2` | value | `(-> Int Int Int)` | `Mut,Unsafe` | r = p as a P2 (ge_p1p1_to_p2). |
+| `ge25519P1P1ToP3` | value | `(-> Int Int Int)` | `Mut,Unsafe` | r = p as a P3 (ge_p1p1_to_p3). |
+| `ge25519P3ToCached` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` | r = p as a Cached point (ge_p3_to_cached). `t` is one field element of scratch. |
+| `ge25519P2Dbl` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` | r = 2p, for a P2 (or a P3's first three coordinates) at `p` (ge_p2_dbl.h). `t` is one field element of scratch. |
+| `ge25519Add` | value | `(-> Int Int Int Int Int)` | `Mut,Unsafe` | r = p + q, for a P3 `p` and a Cached `q` (ge_add.h). `t` is one field element of scratch. |
+| `ge25519Sub` | value | `(-> Int Int Int Int Int)` | `Mut,Unsafe` | r = p - q, for a P3 `p` and a Cached `q` (ge_sub.h). |
+| `ge25519Madd` | value | `(-> Int Int Int Int Int)` | `Mut,Unsafe` | r = p + q, for a P3 `p` and a Precomp `q` (ge_madd.h). |
+| `ge25519ToBytes` | value | `(-> Int Int Int)` | `Alloc,Mut,Unsafe` | Write the 32-byte encoding of the P2 (or P3) at `h` at `s`: y, with the low bit of x in bit 255 (ge_tobytes.c). |
+| `ge25519FromBytesVartime` | value | `(-> Int Int Int)` | `Alloc,Mut,Unsafe` | Decode the 32 bytes at `s` into the P3 at `h`, strictly (RFC 8032, section 5.1.3): answers 0, or -1 when y is not below p, when no x satisfies the curve equation, or when x is 0 and the sign bit is set, and `h` is then unspecified. Variable time: for public keys and signatures only. Points of small order decode; nothing here asks what order a point has. |
+| `ge25519P3Neg` | value | `(-> Int Int)` | `Mut,Unsafe` | h = -h, for a P3. |
+| `ge25519CombTable` | value | `(-> Int Int)` | `Mut,Unsafe` | The two combs as sixteen Precomp points at `t`: entry j of the low comb (0 <= j < 8) is 2^96 B + sum over k < 3 of (+/-) 2^(32k) B, the sign of 2^(32k) B being bit k of j; the high comb, entries 8 to 15, is 2^128 times the low. These are Monocypher's b_comb_low and b_comb_high; tests/crypto/302-curve25519-group.ax recomputes them. |
+| `ge25519ScalarMultBase` | value | `(-> Int Int Int)` | `Alloc,Mut,Unsafe` | h = [a]B for the 32-byte scalar at `a`, any value below 2^256, in time that does not depend on `a`. |
+| `ge25519DoubleScalarMultVartime` | value | `(-> Int Int Int Int Int)` | `Alloc,Mut,Unsafe` | r = [a]A + [b]B, as a P2, for 32-byte scalars `a` and `b` below 2^253 and the P3 `A`. Variable time: for verification only. |
+
+## `Crypto.Curve25519Scalar`
+
+`stdlib/Crypto/Curve25519Scalar.ax` — 3 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `sc25519Reduce` | value | `(-> Int Int Int)` | `Alloc,Mut,Unsafe` | Write the 64 little-endian bytes at `in` reduced modulo L as 32 bytes at `out`. |
+| `sc25519MulAdd` | value | `(-> Int Int Int Int Int)` | `Alloc,Mut,Unsafe` | Write (a b + c) mod L as 32 bytes at `out`, for 32-byte scalars `a`, `b` and `c` of any value below 2^256. |
+| `sc25519IsCanonical` | value | `(-> Int Int)` | `Alloc,Mut,Unsafe` | 1 when the 32-byte scalar at `s` is below L - the canonical range RFC 8032, section 5.1.7, requires of a signature's S - and 0 otherwise. |
+
+## `Crypto.Ed25519`
+
+`stdlib/Crypto/Ed25519.ax` — 14 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `Ed25519SecretKey` | struct |  |  | An Ed25519 private key: a handle to the seed and what it expands to, in the secret store. Prints as `<Ed25519SecretKey>`. |
+| `Ed25519PublicKey` | struct |  |  | An Ed25519 public key: a point's 32-byte encoding. Build one with `ed25519PublicKeyFromBytes`, which checks it. |
+| `Ed25519Signature` | struct |  |  | An Ed25519 signature: R (32 bytes) then S (32 bytes). Build one from bytes with `ed25519SignatureFromBytes`, which checks it. |
+| `ed25519KeyGenerate` | value | `(Result Ed25519SecretKey Error)` | `Alloc,IO,Mut,Unsafe` | A fresh key from a random 32-byte seed. |
+| `ed25519KeyFromSecret` | value | `(-> SecretBytes (Result Ed25519SecretKey Error))` | `Alloc,IO,Mut,Unsafe` | The key whose 32-byte seed is `s` (RFC 8032's private key). `s` is copied, not consumed. This is the deterministic route: for known-answer tests, for restoring a key saved with `ed25519KeyExport`, and for protocols that derive the seed themselves. |
+| `ed25519KeyWipe` | value | `(-> Ed25519SecretKey Int)` | `Alloc,IO,Mut,Unsafe` | Erase `k` and free its storage. Any later use of `k` stops the program with status 85. Answers 0. |
+| `ed25519KeyExport` | value | `(-> Ed25519SecretKey (Result SecretBytes Error))` | `Alloc,IO,Mut,Unsafe` | The 32-byte seed of `k`, as a new `SecretBytes`: RFC 8032's private key, the standard serialisation. `ed25519KeyFromSecret` reads it back. |
+| `ed25519PublicKey` | value | `(-> Ed25519SecretKey Ed25519PublicKey)` | `Alloc,Mut,Unsafe` | The public key of `k`. |
+| `ed25519PublicKeyFromBytes` | value | `(-> String (Result Ed25519PublicKey Error))` | `Alloc,Mut,Unsafe` | A public key from its 32 bytes. `cryptoInvalidLength` for any other length, and `cryptoInvalidEncoding` unless the bytes are the strict encoding of a point: y below p, x recoverable, and no sign bit on x = 0. |
+| `ed25519PublicKeyBytes` | value | `(-> Ed25519PublicKey String)` |  | The 32 bytes of a public key. |
+| `ed25519SignatureFromBytes` | value | `(-> String (Result Ed25519Signature Error))` | `Alloc,Mut,Unsafe` | A signature from its 64 bytes. `cryptoInvalidLength` for any other length, and `cryptoInvalidEncoding` when R is not the strict encoding of a point or S is not below L. |
+| `ed25519SignatureBytes` | value | `(-> Ed25519Signature String)` |  | The 64 bytes of a signature. |
+| `ed25519Sign` | value | `(-> Ed25519SecretKey String Ed25519Signature)` | `Alloc,Mut,Unsafe` | The signature of `msg` under `k` (section 5.1.6): r = SHA-512(prefix \|\| msg) mod L, R = [r]B, k = SHA-512(R \|\| A \|\| msg) mod L, S = (r + k a) mod L. |
+| `ed25519Verify` | value | `(-> Ed25519PublicKey String Ed25519Signature Bool)` | `Alloc,Mut,Unsafe` | Whether `sig` is a valid signature of `msg` under `pk` (section 5.1.7): false for a public key or signature of the wrong length, a public key that is not a strict encoding, an S not below L, and whenever [S]B - [k]A does not encode to R. See HOW VERIFICATION DECIDES above. |
+
 ## `Crypto.Errors`
 
 `stdlib/Crypto/Errors.ax` — 12 public names
@@ -262,6 +323,34 @@ two differ.
 | `cryptoErr` | value | `(-> Int String String (Result a Error))` | `Alloc` | An `Err` carrying one of the codes above, with a message and the name of the function that raised it as context. |
 | `cryptoAuthErr` | value | `(-> String (Result a Error))` | `Alloc` | The one authentication failure every open and verify answers. |
 | `cryptoLengthErr` | value | `(-> String String (Result a Error))` | `Alloc,Mut` | A length refusal naming what was wrong. |
+
+## `Crypto.Field25519`
+
+`stdlib/Crypto/Field25519.ax` — 21 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `fe25519Bytes` | value | `Int` |  | The size of one field element in bytes: ten 64-bit limbs. |
+| `fe25519Set` | value | `(-> Int Int Int Int Int Int Int Int Int Int Int Int)` | `Mut,Unsafe` | Store the ten limbs of a constant at `out`. Answers 0. |
+| `fe25519Zero` | value | `(-> Int Int)` | `Mut,Unsafe` | out = 0. |
+| `fe25519One` | value | `(-> Int Int)` | `Mut,Unsafe` | out = 1. |
+| `fe25519Copy` | value | `(-> Int Int Int)` | `Mut,Unsafe` | out = a. |
+| `fe25519SqrtM1` | value | `(-> Int Int)` | `Mut,Unsafe` | A square root of -1 modulo p (ref10's sqrtm1.h). |
+| `fe25519Add` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` | out = a + b. |
+| `fe25519Sub` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` | out = a - b. |
+| `fe25519Neg` | value | `(-> Int Int Int)` | `Mut,Unsafe` | out = -a. |
+| `fe25519Mul` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` | out = a * b, reduced. |
+| `fe25519Sq` | value | `(-> Int Int Int)` | `Mut,Unsafe` | out = a^2, reduced. |
+| `fe25519Sq2` | value | `(-> Int Int Int)` | `Mut,Unsafe` | out = 2 a^2, reduced: the square with every product doubled before the carry, as ref10's fe_sq2 does for point doubling. |
+| `fe25519Mul121666` | value | `(-> Int Int Int)` | `Mut,Unsafe` | out = 121666 a, reduced: the constant (A + 2) / 4 of RFC 7748's ladder, where A = 486662. |
+| `fe25519Invert` | value | `(-> Int Int Int)` | `Alloc,Mut,Unsafe` | out = a^(p-2) = 1/a, or 0 when a is 0 (ref10's pow225521 chain: 254 squarings and 11 multiplications, whatever `a` is). |
+| `fe25519Pow22523` | value | `(-> Int Int Int)` | `Alloc,Mut,Unsafe` | out = a^((p-5)/8) = a^(2^252 - 3), the exponentiation behind square roots in point decoding (ref10's pow22523 chain). |
+| `fe25519CSwap` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` | Swap `f` and `g` where `m` is -1; leave both where `m` is 0. `m` must be a mask (`Crypto.Ct`). The Montgomery ladder's conditional swap. |
+| `fe25519CMov` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` | f = g where `m` is -1; f unchanged where `m` is 0. `m` must be a mask. The table scan's conditional move. |
+| `fe25519FromBytes` | value | `(-> Int Int Int)` | `Mut,Unsafe` | out = the 32 little-endian bytes at `p`, with bit 255 ignored. The value may be anything below 2^255, p itself and the 19 values above it included; it is reduced as arithmetic proceeds. |
+| `fe25519ToBytes` | value | `(-> Int Int Int)` | `Mut,Unsafe` | Write the canonical 32-byte little-endian encoding of `a` (its value reduced below p) at `p`. `a`'s limbs must be within 1.1 * 2^26 (even) and 1.1 * 2^25 (odd). |
+| `fe25519IsNegative` | value | `(-> Int Int)` | `Alloc,Mut,Unsafe` | 1 when `a` is odd once reduced below p, 0 when it is even: the sign of x in an Ed25519 point encoding (RFC 8032, section 5.1.2). |
+| `fe25519IsZero` | value | `(-> Int Int)` | `Alloc,Mut,Unsafe` | 1 when `a` is 0 modulo p, 0 otherwise, in time that does not depend on `a`. |
 
 ## `Crypto.Ghash`
 
@@ -477,6 +566,26 @@ two differ.
 | `shake256Squeeze` | value | `(-> Shake256 Int String)` | `Alloc,Mut,Unsafe` | The next `n` bytes of output; the first squeeze ends the input. A negative `n`, or a value that is not a SHAKE256 state, answers the empty string. |
 | `shake256Copy` | value | `(-> Shake256 Shake256)` | `Alloc,Mut,Unsafe` | An independent copy of `x`, which goes on from the same point. |
 | `shake256Wipe` | value | `(-> Shake256 Int)` | `Mut,Unsafe` | Erase everything `x` holds and leave it a fresh SHAKE256. Answers 0, or -1 with nothing written when `x` is not a sponge state. |
+
+## `Crypto.X25519`
+
+`stdlib/Crypto/X25519.ax` — 13 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `X25519SecretKey` | struct |  |  | An X25519 private key: a handle to 32 secret bytes and their public key in the secret store. Prints as `<X25519SecretKey>`. |
+| `X25519PublicKey` | struct |  |  | An X25519 public key: a u-coordinate, 32 little-endian bytes. Build one with `x25519PublicKeyFromBytes`. |
+| `x25519ScalarMultAddr` | value | `(-> Int Int Int Int)` | `Alloc,Mut,Unsafe` | X25519(k, u) at raw addresses: write the u-coordinate of [k]u at `out`, where `k` is clamped first and bit 255 of `u` is ignored. No all-zero check. Both inputs are read before `out` is written, so `out` may be either of them. |
+| `x25519ScalarMult` | value | `(-> String String (Result String Error))` | `Alloc,Mut,Unsafe` | X25519(k, u) on byte strings: the raw function of RFC 7748, section 5, with no all-zero check. `Err` with `cryptoInvalidLength` unless both are 32 bytes. For known-answer tests and protocols that specify the raw function; key agreement wants `x25519`. |
+| `x25519BasePoint` | value | `String` | `Alloc,Mut,Unsafe` | The u-coordinate of the base point, 9, as 32 bytes. |
+| `x25519KeyGenerate` | value | `(Result X25519SecretKey Error)` | `Alloc,IO,Mut,Unsafe` | A fresh random private key and its public key. |
+| `x25519KeyFromSecret` | value | `(-> SecretBytes (Result X25519SecretKey Error))` | `Alloc,IO,Mut,Unsafe` | The private key held in `s`, which must be 32 bytes, and its public key. `s` is copied, not consumed. Any 32 bytes are a private key (RFC 7748 clamps them when they are used), so this is also the deterministic route for known-answer tests and for protocols that derive the key themselves. |
+| `x25519KeyWipe` | value | `(-> X25519SecretKey Int)` | `Alloc,IO,Mut,Unsafe` | Erase `k` and free its storage. Any later use of `k` stops the program with status 85. Answers 0. |
+| `x25519KeyExport` | value | `(-> X25519SecretKey (Result SecretBytes Error))` | `Alloc,IO,Mut,Unsafe` | The 32 private-key bytes of `k`, as a new `SecretBytes`: the standard serialisation (RFC 7748, section 5), for storing the key somewhere you trust. |
+| `x25519PublicKey` | value | `(-> X25519SecretKey X25519PublicKey)` | `Alloc,Mut,Unsafe` | The public key of `k`. |
+| `x25519PublicKeyFromBytes` | value | `(-> String (Result X25519PublicKey Error))` | `Alloc,Mut` | A public key from its 32 bytes. Every 32-byte string is accepted (RFC 7748, section 5); any other length is `cryptoInvalidLength`. |
+| `x25519PublicKeyBytes` | value | `(-> X25519PublicKey String)` |  | The 32 bytes of a public key. |
+| `x25519` | value | `(-> X25519SecretKey X25519PublicKey (Result SecretBytes Error))` | `Alloc,IO,Mut,Unsafe` | The shared secret X25519(k, pk), as `SecretBytes`. `Err` with `cryptoInvalidKey` when it is all zero (the peer sent a point of small order), and `cryptoInvalidLength` when `pk` is not 32 bytes. |
 
 ## `Err`
 

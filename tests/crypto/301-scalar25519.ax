@@ -1,0 +1,52 @@
+; Scalar arithmetic modulo L (Crypto.Curve25519Scalar) against Python
+; integers: 64-byte reductions (0, L - 1, L, multiples of L, 2^512 - 1
+; and seeded values), (x y + z) mod L over the whole 256-bit range, and
+; the canonical-range test RFC 8032 applies to a signature's S.
+(import IO)
+(import Mem)
+(import Str)
+(import Vec)
+(import Crypto.Bytes)
+(import Crypto.Curve25519Scalar)
+(import Kat)
+
+(:: compute (-> String String String String String))
+;@axiom:effect(unsafe)
+(fn (compute op x y z)
+  (if (strEq op "reduce")
+    (if (!= (strLen x) 64)
+      "bad vector"
+      (let ((out (bytesNew 32)))
+        {
+          (sc25519Reduce (strData out) (strData x))
+          out
+        }))
+    (strEq op "muladd")
+    (if (|| (!= (strLen x) 32) (|| (!= (strLen y) 32) (!= (strLen z) 32)))
+      "bad vector"
+      (let ((out (bytesNew 32)))
+        {
+          (sc25519MulAdd (strData out) (strData x) (strData y) (strData z))
+          out
+        }))
+    (strEq op "canonical")
+    (if (!= (strLen x) 32)
+      "bad vector"
+      (let ((out (bytesNew 1)))
+        {
+          (__store8 (strData out) 0 (sc25519IsCanonical (strData x)))
+          out
+        }))
+    "unknown operation"))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((t (tallyNew "scalar25519")))
+    {
+      (for line in (katLines "curve25519-scalar.txt")
+        (let ((f (katFields line)))
+          (let ((op (katText f 0)))
+            (tallyBytes t (katBytes f 4) (compute op (katBytes f 1) (katBytes f 2) (katBytes f 3)) (strConcat op (strConcat " " (katText f 1)))))))
+      (tallyReport t)
+    }))

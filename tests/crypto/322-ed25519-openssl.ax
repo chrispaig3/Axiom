@@ -1,0 +1,49 @@
+; Ed25519 against OpenSSL: seeded keys and messages of every length
+; from 1 to 64 bytes and seeded lengths up to 3000. The public key must
+; match `openssl pkey`, the signature must match `openssl pkeyutl
+; -sign` byte for byte (both are deterministic), and OpenSSL's
+; signature must verify.
+(import IO)
+(import Str)
+(import Vec)
+(import Err)
+(import Fmt)
+(import Crypto.Secret)
+(import Crypto.Ed25519)
+(import Kat)
+
+(:: orDie (-> (Result a Error) String a))
+;@axiom:effect(io)
+(fn (orDie r what)
+  (match r
+    ((Ok v) v)
+    ((Err e) (cast a (die (strConcat "322: " (strConcat what (strConcat ": " (errorText e)))) 3)))))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((t (tallyNew "ed25519-openssl")) (mut n 0))
+    {
+      (for line in (katLines "ed25519-openssl.txt")
+        (let ((f (katFields line)))
+          (let (
+            (label (strConcat "case " (fmtInt n)))
+            (seed (orDie (secretFromString (katBytes f 0)) "secretFromString"))
+            (msg (katBytes f 2))
+            (want (katBytes f 3))
+          )
+            (let ((k (orDie (ed25519KeyFromSecret seed) "ed25519KeyFromSecret")))
+              {
+                (tallyBytes t (katBytes f 1) (ed25519PublicKeyBytes (ed25519PublicKey k)) (strConcat label ": public key"))
+                (tallyBytes t want (ed25519SignatureBytes (ed25519Sign k msg)) (strConcat label ": signature"))
+                (tallyCheck t
+                  (match (ed25519SignatureFromBytes want)
+                    ((Ok s) (ed25519Verify (ed25519PublicKey k) msg s))
+                    ((Err _) false))
+                  (strConcat label ": OpenSSL's signature verifies"))
+                (ed25519KeyWipe k)
+                (secretWipe seed)
+                (set n (+ n 1))
+              }))))
+      (tallyReport t)
+    }))

@@ -22,6 +22,15 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+- Key agreement and signatures: `Crypto.X25519` (RFC 7748) and
+  `Crypto.Ed25519` (RFC 8032, pure Ed25519) over sealed key types, on
+  `Crypto.Field25519`, `Crypto.Curve25519Scalar` and `Crypto.Curve25519`
+  after SUPERCOP ref10 and Monocypher. The ladder and the signing comb
+  run in constant time, and public keys and signatures decode strictly.
+  Tested against RFC 7748 and RFC 8032, Wycheproof, OpenSSL 3.6.4
+  answers for random inputs, and a Python model of the field, scalar
+  and group arithmetic (`tests/crypto/300-field25519.ax` to
+  `tests/crypto/323-ed25519-strict.ax`).
 - Hashes, MACs and key derivation: `Crypto.Sha2` (SHA-256, SHA-384,
   SHA-512), `Crypto.Sha3` (SHA3-224 to SHA3-512, SHAKE128 and
   SHAKE256), `Crypto.Blake2b` (unkeyed and keyed), `Crypto.Hmac`

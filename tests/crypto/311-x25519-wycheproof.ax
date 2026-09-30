@@ -1,0 +1,85 @@
+; Wycheproof's X25519 vectors: twist points, points of small order,
+; non-canonical u-coordinates and arithmetic edge cases. The raw
+; function must give Wycheproof's answer for every case, valid and
+; acceptable alike, since RFC 7748 defines them all; the key API must
+; give the same secret, or refuse with `cryptoInvalidKey` exactly when
+; that secret is all zero.
+(import IO)
+(import Str)
+(import Vec)
+(import Err)
+(import Crypto.Errors)
+(import Crypto.Bytes)
+(import Crypto.Secret)
+(import Crypto.X25519)
+(import Kat)
+
+(:: orDie (-> (Result a Error) String a))
+;@axiom:effect(io)
+(fn (orDie r what)
+  (match r
+    ((Ok v) v)
+    ((Err e) (cast a (die (strConcat "311: " (strConcat what (strConcat ": " (errorText e)))) 3)))))
+
+; Whether every byte of `s` is zero.
+(:: allZero (-> String Bool))
+(fn (allZero s)
+  (let ((mut acc 0))
+    {
+      (for i 0 (strLen s)
+        (set acc (| acc (strByte s i))))
+      (== acc 0)
+    }))
+
+; What the key API answers for this case, as a string: the shared
+; secret's bytes, "refused" for `cryptoInvalidKey`, or "error".
+(:: viaApi (-> String String String))
+;@axiom:effect(io)
+(fn (viaApi priv pub)
+  (let (
+    (s (orDie (secretFromString priv) "secretFromString"))
+    (pk (orDie (x25519PublicKeyFromBytes pub) "x25519PublicKeyFromBytes"))
+  )
+    (let ((k (orDie (x25519KeyFromSecret s) "x25519KeyFromSecret")))
+      (let ((answer
+        (match (x25519 k pk)
+          ((Ok shared)
+            (let ((b (secretExposeCopy shared)))
+              {
+                (secretWipe shared)
+                b
+              }))
+          ((Err e)
+            (if (== (errCode e) cryptoInvalidKey)
+              "refused"
+              "error")))))
+        {
+          (x25519KeyWipe k)
+          (secretWipe s)
+          answer
+        }))))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((raw (tallyNew "wycheproof-x25519-raw")) (api (tallyNew "wycheproof-x25519-api")))
+    {
+      (for line in (katLines "wycheproof-x25519.txt")
+        (let ((f (katFields line)))
+          (let (
+            (label (strConcat "tcId " (strConcat (katText f 0) (strConcat " " (katText f 2)))))
+            (priv (katBytes f 3))
+            (pub (katBytes f 4))
+            (shared (katBytes f 5))
+          )
+            {
+              (match (x25519ScalarMult priv pub)
+                ((Ok got) (tallyBytes raw shared got label))
+                ((Err _) (tallyCheck raw false label)))
+              (let ((got (viaApi priv pub)))
+                (if (allZero shared)
+                  (tallyCheck api (strEq got "refused") (strConcat label ": the all-zero secret is refused"))
+                  (tallyBytes api shared got label)))
+            })))
+      (+ (tallyReport raw) (tallyReport api))
+    }))

@@ -1,0 +1,314 @@
+; Crypto.Ed25519 - Ed25519 signatures (RFC 8032, section 5.1).
+;
+;     ed25519KeyGenerate                          ; (Ok <Ed25519SecretKey>)
+;     (ed25519Sign k "message")                   ; an Ed25519Signature, 64 bytes
+;     (ed25519Verify (ed25519PublicKey k) "message" sig)    ; true
+;     (ed25519PublicKeyFromBytes bytes)           ; (Ok pk), or Err for a bad key
+;
+; A signature made with a private key convinces anyone holding the
+; matching public key that the key's owner signed exactly this message.
+; Signing is deterministic: the same key and message always give the
+; same signature, and no randomness is drawn.
+;
+; WHAT IT GUARANTEES. The private key lives in the secret store (kind
+; 18, `Crypto.Secret`) as its 32-byte seed together with what RFC 8032
+; derives from it once, when the key is made: the clamped scalar, the
+; prefix that makes each signature's nonce, and the public key. Signing
+; computes [r]B with a constant-time signed comb (`Crypto.Curve25519`),
+; so no branch or memory address depends on the key or the nonce, and
+; it wipes the nonce, its hash and the intermediate point before it
+; returns. The seed leaves the store only through `ed25519KeyExport`,
+; as `SecretBytes`.
+;
+; STRICT ENCODINGS. `ed25519PublicKeyFromBytes` accepts exactly the
+; encodings RFC 8032, section 5.1.3, decodes: y below p, an x that
+; satisfies the curve equation, and no sign bit on x = 0. So each
+; public key has one accepted encoding. `ed25519SignatureFromBytes`
+; refuses a signature whose R does not decode the same way or whose S
+; is not below L (section 5.1.7), so a valid signature has no second
+; encoding that also verifies.
+;
+; HOW VERIFICATION DECIDES. `ed25519Verify` recomputes R' = [S]B -
+; [k]A, with k = SHA-512(R || A || M) mod L, and accepts when R' encodes
+; to exactly the 32 bytes of R. That is the cofactorless equation
+; [S]B = R + [k]A, which section 5.1.7 permits, and comparing encodings
+; rejects every R the strict decoder would refuse. Public keys and R of
+; small order are accepted when the equation holds, as the RFC allows:
+; no honest key has small order, and a signature under such a key
+; proves nothing about who made it, so a protocol that lets strangers
+; choose keys should also check that each key was made honestly. The
+; verification multiplication takes variable time; everything it
+; handles is public.
+;
+; STANDARD. RFC 8032, section 5.1, pure Ed25519, with SHA-512 from
+; `Crypto.Sha2` (FIPS 180-4). Tested against the section 7.1 vectors,
+; Wycheproof's ed25519_test.json and OpenSSL.
+;
+; REFERENCE. Key expansion, signing and verification follow SUPERCOP's
+; ref10 (crypto_sign/ed25519/ref10: keypair.c, sign.c and open.c,
+; public domain), with S reduced and checked by Monocypher 4.0.2's
+; modulo-L arithmetic (CC0 or 2-clause BSD) and [r]B computed by its
+; signed comb; see `Crypto.Curve25519` and `Crypto.Curve25519Scalar`.
+;
+; LIMITS. A message is any `String`. The Ed25519ctx and Ed25519ph
+; variants of RFC 8032 are not provided. Each key creation, signature,
+; verification and decoding takes its scratch memory in a `region` and
+; hands it back when it returns. Erasure does not reach values that were
+; in registers or spilled to the stack while signing ran
+; (`Crypto.Secret`).
+(import Mem)
+(import Str)
+(import Err)
+(import Crypto.Ct)
+(import Crypto.Errors)
+(import Crypto.Bytes)
+(import Crypto.Random)
+(import Crypto.Secret)
+(import Crypto.Sha2)
+(import Crypto.Curve25519Scalar)
+(import Crypto.Curve25519)
+
+; An Ed25519 private key: a handle to the seed and what it expands to,
+; in the secret store. Prints as `<Ed25519SecretKey>`.
+(pub struct Ed25519SecretKey word shared
+  (slot : Int))
+
+; An Ed25519 public key: a point's 32-byte encoding. Build one with
+; `ed25519PublicKeyFromBytes`, which checks it.
+(pub struct Ed25519PublicKey
+  (bytes : String))
+
+; An Ed25519 signature: R (32 bytes) then S (32 bytes). Build one from
+; bytes with `ed25519SignatureFromBytes`, which checks it.
+(pub struct Ed25519Signature
+  (bytes : String))
+
+; The secret-store kind of an `Ed25519SecretKey` (Crypto.Secret's table).
+(:: ed25519Kind Int)
+(fn (ed25519Kind)
+  18)
+
+; A key's block: the seed at 0, the clamped scalar a at 32, the prefix
+; at 64 and the public key at 96.
+(:: ed25519BlockBytes Int)
+(fn (ed25519BlockBytes)
+  128)
+
+; ------------------------------------------------------------------
+; Keys (RFC 8032, section 5.1.5).
+; ------------------------------------------------------------------
+; Expand the seed already in key block `h`: SHA-512 of it, its first
+; half clamped into the scalar a and its second half kept as the
+; prefix, then A = [a]B encoded as the public key.
+;@axiom:restrict(no-io,no-foreign)
+(:: ed25519BlockFinish (-> Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`h` is a live Ed25519 key block whose seed is set)
+(fn (ed25519BlockFinish h)
+  (region scratch
+    (let ((p (secretBlockAddr ed25519Kind h)) (pt (memAlloc ge25519P3Bytes)))
+      {
+        (sha512Addr p 32 (+ p 32))
+        (ed25519Clamp (+ p 32))
+        (ge25519ScalarMultBase pt (+ p 32))
+        (ge25519ToBytes (+ p 96) pt)
+        (ctWipe pt ge25519P3Bytes)
+      })))
+
+; Clamp the 32-byte scalar at `a` in place: clear the low three bits
+; and bit 255, set bit 254 (section 5.1.5, step 2).
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: ed25519Clamp (-> Int Int))
+;@axiom:ct(*a)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`a` names 32 live writable bytes)
+(fn (ed25519Clamp a)
+  {
+    (__store8 a 0 (& (__load8 a 0) 248))
+    (__store8 a 31 (| (& (__load8 a 31) 127) 64))
+    0
+  })
+
+; A fresh key from a random 32-byte seed.
+(pub :: ed25519KeyGenerate (Result Ed25519SecretKey Error))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (ed25519KeyGenerate)
+  (match (secretBlockNew ed25519Kind ed25519BlockBytes)
+    ((Err e) (Err e))
+    ((Ok h)
+      (match (randomFill (secretBlockAddr ed25519Kind h) 32)
+        ((Err e)
+          {
+            (secretBlockFree ed25519Kind h)
+            (Err e)
+          })
+        ((Ok _)
+          {
+            (ed25519BlockFinish h)
+            (Ok (Ed25519SecretKey h))
+          })))))
+
+; The key whose 32-byte seed is `s` (RFC 8032's private key). `s` is
+; copied, not consumed. This is the deterministic route: for
+; known-answer tests, for restoring a key saved with
+; `ed25519KeyExport`, and for protocols that derive the seed
+; themselves.
+(pub :: ed25519KeyFromSecret (-> SecretBytes (Result Ed25519SecretKey Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (ed25519KeyFromSecret s)
+  (if (!= (secretLen s) 32)
+    (cryptoLengthErr "an Ed25519 private key is a 32-byte seed" "ed25519KeyFromSecret")
+    (match (secretBlockNew ed25519Kind ed25519BlockBytes)
+      ((Err e) (Err e))
+      ((Ok h)
+        {
+          (ctCopy (secretBlockAddr ed25519Kind h) (secretAddr s) 32)
+          (ed25519BlockFinish h)
+          (Ok (Ed25519SecretKey h))
+        }))))
+
+; Erase `k` and free its storage. Any later use of `k` stops the
+; program with status 85. Answers 0.
+(pub :: ed25519KeyWipe (-> Ed25519SecretKey Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (ed25519KeyWipe k)
+  (secretBlockFree ed25519Kind k.slot))
+
+; The 32-byte seed of `k`, as a new `SecretBytes`: RFC 8032's private
+; key, the standard serialisation. `ed25519KeyFromSecret` reads it back.
+(pub :: ed25519KeyExport (-> Ed25519SecretKey (Result SecretBytes Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (ed25519KeyExport k)
+  (secretFromAddr (secretBlockAddr ed25519Kind k.slot) 32))
+
+; The public key of `k`.
+(pub :: ed25519PublicKey (-> Ed25519SecretKey Ed25519PublicKey))
+;@axiom:effect(unsafe)
+(pub fn (ed25519PublicKey k)
+  (Ed25519PublicKey (bytesFromAddr (+ (secretBlockAddr ed25519Kind k.slot) 96) 32)))
+
+; 1 when the 32 bytes at `p` decode strictly to a point (RFC 8032,
+; section 5.1.3), 0 otherwise.
+(:: ed25519Decodes (-> Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p` names 32 live bytes)
+(fn (ed25519Decodes p)
+  (region scratch
+    (let ((h (memAlloc ge25519P3Bytes)))
+      (if (== (ge25519FromBytesVartime h p) 0)
+        1
+        0))))
+
+; A public key from its 32 bytes. `cryptoInvalidLength` for any other
+; length, and `cryptoInvalidEncoding` unless the bytes are the strict
+; encoding of a point: y below p, x recoverable, and no sign bit on
+; x = 0.
+(pub :: ed25519PublicKeyFromBytes (-> String (Result Ed25519PublicKey Error)))
+;@axiom:effect(unsafe)
+(pub fn (ed25519PublicKeyFromBytes s)
+  (if (!= (strLen s) 32)
+    (cryptoLengthErr "an Ed25519 public key is 32 bytes" "ed25519PublicKeyFromBytes")
+    (if (== (ed25519Decodes (strData s)) 0)
+      (cryptoErr cryptoInvalidEncoding "not the encoding of a point on Ed25519" "ed25519PublicKeyFromBytes")
+      (Ok (Ed25519PublicKey s)))))
+
+; The 32 bytes of a public key.
+(pub :: ed25519PublicKeyBytes (-> Ed25519PublicKey String))
+(pub fn (ed25519PublicKeyBytes pk)
+  pk.bytes)
+
+; A signature from its 64 bytes. `cryptoInvalidLength` for any other
+; length, and `cryptoInvalidEncoding` when R is not the strict
+; encoding of a point or S is not below L.
+(pub :: ed25519SignatureFromBytes (-> String (Result Ed25519Signature Error)))
+;@axiom:effect(unsafe)
+(pub fn (ed25519SignatureFromBytes s)
+  (if (!= (strLen s) 64)
+    (cryptoLengthErr "an Ed25519 signature is 64 bytes" "ed25519SignatureFromBytes")
+    (if (== (sc25519IsCanonical (+ (strData s) 32)) 0)
+      (cryptoErr cryptoInvalidEncoding "the signature's S is not below the group order" "ed25519SignatureFromBytes")
+      (if (== (ed25519Decodes (strData s)) 0)
+        (cryptoErr cryptoInvalidEncoding "the signature's R is not the encoding of a point" "ed25519SignatureFromBytes")
+        (Ok (Ed25519Signature s))))))
+
+; The 64 bytes of a signature.
+(pub :: ed25519SignatureBytes (-> Ed25519Signature String))
+(pub fn (ed25519SignatureBytes sig)
+  sig.bytes)
+
+; ------------------------------------------------------------------
+; Signing and verification (sections 5.1.6 and 5.1.7).
+; ------------------------------------------------------------------
+; Write SHA-512(the `n` bytes at `p` || `q`'s `m` bytes || msg) reduced
+; modulo L at `out`. `m` may be 0. The digest and the hash state are
+; wiped before it returns.
+;@axiom:restrict(no-io,no-foreign)
+(:: ed25519HashReduce (-> Int Int Int Int Int String Int))
+;@axiom:ct(*out, *p, *q)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`out` names 32 live writable bytes, `p` `n` live bytes and `q` `m` live bytes)
+(fn (ed25519HashReduce out p n q m msg)
+  (let ((h sha512New))
+    {
+      (sha512UpdateAddr h p n)
+      (sha512UpdateAddr h q m)
+      (sha512Update h msg)
+      (let ((d (sha512Final h)))
+        {
+          (sc25519Reduce out (strData d))
+          (ctWipe (strData d) (strLen d))
+        })
+      (sha512Wipe h)
+    }))
+
+; The signature of `msg` under `k` (section 5.1.6): r = SHA-512(prefix
+; || msg) mod L, R = [r]B, k = SHA-512(R || A || msg) mod L, S = (r +
+; k a) mod L.
+(pub :: ed25519Sign (-> Ed25519SecretKey String Ed25519Signature))
+;@axiom:effect(unsafe)
+(pub fn (ed25519Sign k msg)
+  (let ((p (secretBlockAddr ed25519Kind k.slot)) (sig (bytesNew 64)))
+    {
+      (region scratch
+        (let ((w (memAlloc 384)))
+          (let ((r w) (hram (+ w 32)) (pt (+ w 64)))
+            {
+              (ed25519HashReduce r (+ p 64) 32 p 0 msg)
+              (ge25519ScalarMultBase pt r)
+              (ge25519ToBytes (strData sig) pt)
+              (ed25519HashReduce hram (strData sig) 32 (+ p 96) 32 msg)
+              (sc25519MulAdd (+ (strData sig) 32) hram (+ p 32) r)
+              (ctWipe w 384)
+            })))
+      (Ed25519Signature sig)
+    }))
+
+; Whether `sig` is a valid signature of `msg` under `pk` (section
+; 5.1.7): false for a public key or signature of the wrong length, a
+; public key that is not a strict encoding, an S not below L, and
+; whenever [S]B - [k]A does not encode to R. See HOW VERIFICATION
+; DECIDES above.
+(pub :: ed25519Verify (-> Ed25519PublicKey String Ed25519Signature Bool))
+;@axiom:effect(unsafe)
+(pub fn (ed25519Verify pk msg sig)
+  (let ((a pk.bytes) (s sig.bytes))
+    (if (|| (!= (strLen a) 32) (!= (strLen s) 64))
+      false
+      (if (== (sc25519IsCanonical (+ (strData s) 32)) 0)
+        false
+        (region scratch
+          (let ((pa (memAlloc ge25519P3Bytes)))
+            (if (!= (ge25519FromBytesVartime pa (strData a)) 0)
+              false
+              (let ((k (memAlloc 32)) (r (memAlloc ge25519P2Bytes)) (check (memAlloc 32)))
+                {
+                  (ge25519P3Neg pa)
+                  (ed25519HashReduce k (strData s) 32 (strData a) 32 msg)
+                  (ge25519DoubleScalarMultVartime r k pa (+ (strData s) 32))
+                  (ge25519ToBytes check r)
+                  (ctEqAddr check (strData s) 32)
+                }))))))))

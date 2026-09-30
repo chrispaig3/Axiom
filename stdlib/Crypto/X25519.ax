@@ -1,0 +1,332 @@
+; Crypto.X25519 - Diffie-Hellman key agreement over Curve25519
+; (RFC 7748).
+;
+;     x25519KeyGenerate                   ; (Ok <X25519SecretKey>)
+;     (x25519PublicKey k)                 ; the X25519PublicKey to send
+;     (x25519PublicKeyFromBytes bytes)    ; (Ok pk) for any 32 bytes
+;     (x25519 k pk)                       ; (Ok <SecretBytes>), 32 bytes
+;
+; Two parties that each send the other their public key arrive at the
+; same 32-byte shared secret, which nobody watching the exchange can
+; compute. Feed the shared secret to a key-derivation function, with
+; both public keys in its input, before using it to encrypt or
+; authenticate anything (RFC 7748, section 6.1).
+;
+; WHAT IT GUARANTEES. The private key lives in the secret store (kind
+; 17, `Crypto.Secret`) beside its public key, which is computed once
+; when the key is made. `x25519` answers the shared secret as
+; `SecretBytes`, never as a plain string. The scalar multiplication is
+; a Montgomery ladder of 255 identical steps whose conditional swaps
+; are masks (`fe25519CSwap`), so its branches and memory addresses do
+; not depend on the private key; the final inversion is a fixed
+; exponentiation. Every scratch word is wiped, and handed back to the
+; arena (a `region`), before the call returns.
+;
+; WHAT IT ACCEPTS. Any 32 bytes are a public key, as RFC 7748, section
+; 5, requires: bit 255 is ignored, and a u-coordinate at or above p is
+; used as its value modulo p. Points of small order and points on the
+; twist are accepted too. The one refusal is the check of section 6.1:
+; when the shared secret comes out all zero, which happens exactly
+; when the peer sent a point of small order, `x25519` answers
+; `cryptoInvalidKey` and releases nothing. An honest peer never sends
+; such a point, so treat the error as a failed exchange.
+;
+; STANDARD. RFC 7748, sections 5 (the X25519 function, scalar clamping
+; and u-coordinate decoding) and 6.1 (key agreement), tested against
+; its section 5.2 and 6.1 vectors and Wycheproof's x25519_test.json.
+;
+; REFERENCE. The ladder is SUPERCOP's ref10
+; crypto_scalarmult/curve25519/ref10 (scalarmult.c and montgomery.h,
+; public domain), over `Crypto.Field25519`, a port of ref10's field
+; arithmetic.
+;
+; LIMITS. The functions named `...ScalarMult...` are the raw RFC 7748
+; function for tests and for protocols that specify it; they skip the
+; all-zero check and answer plain bytes. Values that were in registers
+; or on the stack during the ladder are beyond what erasure reaches
+; (`Crypto.Secret`).
+(import Mem)
+(import Str)
+(import Err)
+(import Crypto.Ct)
+(import Crypto.Errors)
+(import Crypto.Bytes)
+(import Crypto.Random)
+(import Crypto.Secret)
+(import Crypto.Field25519)
+
+; An X25519 private key: a handle to 32 secret bytes and their public
+; key in the secret store. Prints as `<X25519SecretKey>`.
+(pub struct X25519SecretKey word shared
+  (slot : Int))
+
+; An X25519 public key: a u-coordinate, 32 little-endian bytes. Build
+; one with `x25519PublicKeyFromBytes`.
+(pub struct X25519PublicKey
+  (bytes : String))
+
+; The secret-store kind of an `X25519SecretKey` (Crypto.Secret's table).
+(:: x25519Kind Int)
+(fn (x25519Kind)
+  17)
+
+; The layout of a key's block: the private key as given, then its
+; public key.
+(:: x25519BlockBytes Int)
+(fn (x25519BlockBytes)
+  64)
+
+; ------------------------------------------------------------------
+; The X25519 function (RFC 7748, section 5).
+; ------------------------------------------------------------------
+; Copy the 32-byte scalar at `k` to `e` and clamp it
+; (decodeScalar25519): clear the low three bits and bit 255, set
+; bit 254.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: x25519Clamp (-> Int Int Int))
+;@axiom:ct(*e, *k)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`e` names 32 live writable bytes and `k` 32 live bytes)
+(fn (x25519Clamp e k)
+  {
+    (ctCopy e k 32)
+    (__store8 e 0 (& (__load8 e 0) 248))
+    (__store8 e 31 (| (& (__load8 e 31) 127) 64))
+    0
+  })
+
+; Swap (x2, z2) with (x3, z3) where `m` is -1.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: x25519CSwap (-> Int Int Int Int Int Int))
+;@axiom:ct(m, *x2, *z2, *x3, *z3)
+;@axiom:effect(unsafe)
+;@axiom:precondition(each address names a live writable field element)
+(fn (x25519CSwap m x2 z2 x3 z3)
+  {
+    (fe25519CSwap m x2 x3)
+    (fe25519CSwap m z2 z3)
+  })
+
+; One ladder step (ref10 montgomery.h): (x2:z2) becomes its double
+; and (x3:z3) the sum of the two, given x1, the u-coordinate of their
+; difference. `t0` and `t1` are scratch.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: x25519LadderStep (-> Int Int Int Int Int Int Int Int))
+;@axiom:ct(*x2, *z2, *x3, *z3, *t0, *t1)
+;@axiom:effect(unsafe)
+;@axiom:precondition(each address names a live writable field element)
+(fn (x25519LadderStep x1 x2 z2 x3 z3 t0 t1)
+  {
+    (fe25519Sub t0 x3 z3)
+    (fe25519Sub t1 x2 z2)
+    (fe25519Add x2 x2 z2)
+    (fe25519Add z2 x3 z3)
+    (fe25519Mul z3 t0 x2)
+    (fe25519Mul z2 z2 t1)
+    (fe25519Sq t0 t1)
+    (fe25519Sq t1 x2)
+    (fe25519Add x3 z3 z2)
+    (fe25519Sub z2 z3 z2)
+    (fe25519Mul x2 t1 t0)
+    (fe25519Sub t1 t1 t0)
+    (fe25519Sq z2 z2)
+    (fe25519Mul121666 z3 t1)
+    (fe25519Sq x3 x3)
+    (fe25519Add t0 t0 z3)
+    (fe25519Mul z3 x1 z2)
+    (fe25519Mul z2 t1 t0)
+  })
+
+; X25519(k, u) at raw addresses: write the u-coordinate of [k]u at
+; `out`, where `k` is clamped first and bit 255 of `u` is ignored. No
+; all-zero check. Both inputs are read before `out` is written, so
+; `out` may be either of them.
+;@axiom:restrict(no-io,no-foreign)
+(pub :: x25519ScalarMultAddr (-> Int Int Int Int))
+;@axiom:ct(*out, *k)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`out`, `k` and `u` each name 32 live bytes, and `out` is writable)
+(pub fn (x25519ScalarMultAddr out k u)
+  (region scratch
+    (let ((w (memAlloc 592)))
+      (let (
+        (x1 w)
+        (x2 (+ w 80))
+        (z2 (+ w 160))
+        (x3 (+ w 240))
+        (z3 (+ w 320))
+        (t0 (+ w 400))
+        (t1 (+ w 480))
+        (e (+ w 560))
+        (mut swap 0)
+      )
+        {
+          (x25519Clamp e k)
+          (fe25519FromBytes x1 u)
+          (fe25519One x2)
+          (fe25519Zero z2)
+          (fe25519Copy x3 x1)
+          (fe25519One z3)
+          ; bits 254 down to 0 of the clamped scalar
+          (for pos 254 -1 -1
+            (let ((b (& (>> (__load8 e (>> pos 3)) (& pos 7)) 1)))
+              {
+                (set swap (^ swap b))
+                (x25519CSwap (ctMaskFromBit swap) x2 z2 x3 z3)
+                (set swap b)
+                (x25519LadderStep x1 x2 z2 x3 z3 t0 t1)
+              }))
+          (x25519CSwap (ctMaskFromBit swap) x2 z2 x3 z3)
+          (fe25519Invert z2 z2)
+          (fe25519Mul x2 x2 z2)
+          (fe25519ToBytes out x2)
+          (ctWipe w 592)
+        }))))
+
+; X25519(k, u) on byte strings: the raw function of RFC 7748, section
+; 5, with no all-zero check. `Err` with `cryptoInvalidLength` unless
+; both are 32 bytes. For known-answer tests and protocols that specify
+; the raw function; key agreement wants `x25519`.
+(pub :: x25519ScalarMult (-> String String (Result String Error)))
+;@axiom:effect(unsafe)
+(pub fn (x25519ScalarMult k u)
+  (if (|| (!= (strLen k) 32) (!= (strLen u) 32))
+    (cryptoLengthErr "X25519 takes a 32-byte scalar and a 32-byte u-coordinate" "x25519ScalarMult")
+    (let ((out (bytesNew 32)))
+      {
+        (x25519ScalarMultAddr (strData out) (strData k) (strData u))
+        (Ok out)
+      })))
+
+; The u-coordinate of the base point, 9, as 32 bytes.
+(pub :: x25519BasePoint String)
+;@axiom:effect(unsafe)
+(pub fn (x25519BasePoint)
+  (let ((s (bytesNew 32)))
+    {
+      (__store8 (strData s) 0 9)
+      s
+    }))
+
+; ------------------------------------------------------------------
+; Keys.
+; ------------------------------------------------------------------
+; Fill in the public key of the key block `h` whose first 32 bytes are
+; already the private key.
+;@axiom:restrict(no-io,no-foreign)
+(:: x25519BlockFinish (-> Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`h` is a live X25519 key block whose private key is set)
+(fn (x25519BlockFinish h)
+  (let ((p (secretBlockAddr x25519Kind h)))
+    (x25519ScalarMultAddr (+ p 32) p (strData x25519BasePoint))))
+
+; A fresh random private key and its public key.
+(pub :: x25519KeyGenerate (Result X25519SecretKey Error))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (x25519KeyGenerate)
+  (match (secretBlockNew x25519Kind x25519BlockBytes)
+    ((Err e) (Err e))
+    ((Ok h)
+      (match (randomFill (secretBlockAddr x25519Kind h) 32)
+        ((Err e)
+          {
+            (secretBlockFree x25519Kind h)
+            (Err e)
+          })
+        ((Ok _)
+          {
+            (x25519BlockFinish h)
+            (Ok (X25519SecretKey h))
+          })))))
+
+; The private key held in `s`, which must be 32 bytes, and its public
+; key. `s` is copied, not consumed. Any 32 bytes are a private key
+; (RFC 7748 clamps them when they are used), so this is also the
+; deterministic route for known-answer tests and for protocols that
+; derive the key themselves.
+(pub :: x25519KeyFromSecret (-> SecretBytes (Result X25519SecretKey Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (x25519KeyFromSecret s)
+  (if (!= (secretLen s) 32)
+    (cryptoLengthErr "an X25519 private key is 32 bytes" "x25519KeyFromSecret")
+    (match (secretBlockNew x25519Kind x25519BlockBytes)
+      ((Err e) (Err e))
+      ((Ok h)
+        {
+          (ctCopy (secretBlockAddr x25519Kind h) (secretAddr s) 32)
+          (x25519BlockFinish h)
+          (Ok (X25519SecretKey h))
+        }))))
+
+; Erase `k` and free its storage. Any later use of `k` stops the
+; program with status 85. Answers 0.
+(pub :: x25519KeyWipe (-> X25519SecretKey Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (x25519KeyWipe k)
+  (secretBlockFree x25519Kind k.slot))
+
+; The 32 private-key bytes of `k`, as a new `SecretBytes`: the
+; standard serialisation (RFC 7748, section 5), for storing the key
+; somewhere you trust.
+(pub :: x25519KeyExport (-> X25519SecretKey (Result SecretBytes Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (x25519KeyExport k)
+  (secretFromAddr (secretBlockAddr x25519Kind k.slot) 32))
+
+; The public key of `k`.
+(pub :: x25519PublicKey (-> X25519SecretKey X25519PublicKey))
+;@axiom:effect(unsafe)
+(pub fn (x25519PublicKey k)
+  (X25519PublicKey (bytesFromAddr (+ (secretBlockAddr x25519Kind k.slot) 32) 32)))
+
+; A public key from its 32 bytes. Every 32-byte string is accepted
+; (RFC 7748, section 5); any other length is `cryptoInvalidLength`.
+(pub :: x25519PublicKeyFromBytes (-> String (Result X25519PublicKey Error)))
+(pub fn (x25519PublicKeyFromBytes s)
+  (if (!= (strLen s) 32)
+    (cryptoLengthErr "an X25519 public key is 32 bytes" "x25519PublicKeyFromBytes")
+    (Ok (X25519PublicKey s))))
+
+; The 32 bytes of a public key.
+(pub :: x25519PublicKeyBytes (-> X25519PublicKey String))
+(pub fn (x25519PublicKeyBytes pk)
+  pk.bytes)
+
+; ------------------------------------------------------------------
+; Key agreement (RFC 7748, section 6.1).
+; ------------------------------------------------------------------
+; The shared secret X25519(k, pk), as `SecretBytes`. `Err` with
+; `cryptoInvalidKey` when it is all zero (the peer sent a point of
+; small order), and `cryptoInvalidLength` when `pk` is not 32 bytes.
+;
+; The all-zero test ORs every byte together before it looks at the
+; answer, so it takes the same time whichever bytes are zero; which
+; answer came back is the only thing it reveals.
+(pub :: x25519 (-> X25519SecretKey X25519PublicKey (Result SecretBytes Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (x25519 k pk)
+  (let ((u pk.bytes))
+    (if (!= (strLen u) 32)
+      (cryptoLengthErr "an X25519 public key is 32 bytes" "x25519")
+      (let ((out (memAlloc 32)) (mut acc 0))
+        {
+          (x25519ScalarMultAddr out (secretBlockAddr x25519Kind k.slot) (strData u))
+          (for i 0 32
+            (set acc (| acc (__load8 out i))))
+          (if (== (ctMaskZero acc) 0)
+            (let ((r (secretFromAddr out 32)))
+              {
+                (ctWipe out 32)
+                r
+              })
+            {
+              (ctWipe out 32)
+              (cryptoErr cryptoInvalidKey "the peer's public key gives the all-zero shared secret" "x25519")
+            })
+        }))))

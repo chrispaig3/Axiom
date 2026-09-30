@@ -1,0 +1,79 @@
+; Ed25519 against RFC 8032, section 7.1: for each of the five tests,
+; the public key the seed expands to, the signature (signing is
+; deterministic, so it must match byte for byte), and verification of
+; it through the strict decoders. Then each signature with one bit
+; flipped in R, in S, and in the message, which must not verify.
+(import IO)
+(import Str)
+(import Vec)
+(import Err)
+(import Crypto.Bytes)
+(import Crypto.Secret)
+(import Crypto.Ed25519)
+(import Kat)
+
+(:: orDie (-> (Result a Error) String a))
+;@axiom:effect(io)
+(fn (orDie r what)
+  (match r
+    ((Ok v) v)
+    ((Err e) (cast a (die (strConcat "320: " (strConcat what (strConcat ": " (errorText e)))) 3)))))
+
+; `s` with bit `bit` of byte `i` flipped, as a fresh string.
+(:: flip (-> String Int Int String))
+;@axiom:effect(unsafe)
+(fn (flip s i bit)
+  (let ((t (bytesFromAddr (strData s) (strLen s))))
+    {
+      (__store8 (strData t) i (^ (strByte s i) (<< 1 bit)))
+      t
+    }))
+
+; Whether `sig` verifies for `msg` under `pk`, with the signature built
+; directly so that one the strict decoder would refuse still reaches
+; `ed25519Verify`.
+(:: verifies (-> Ed25519PublicKey String String Bool))
+(fn (verifies pk msg sig)
+  (ed25519Verify pk msg (Ed25519Signature sig)))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((t (tallyNew "ed25519-rfc8032")) (neg (tallyNew "ed25519-rfc8032-negative")))
+    {
+      (for line in (katLines "ed25519-rfc8032.txt")
+        (let ((f (katFields line)))
+          (let (
+            (label (strConcat "TEST " (katText f 0)))
+            (seed (orDie (secretFromString (katBytes f 1)) "secretFromString"))
+            (public (katBytes f 2))
+            (msg (katBytes f 3))
+            (want (katBytes f 4))
+          )
+            (let ((k (orDie (ed25519KeyFromSecret seed) "ed25519KeyFromSecret")))
+              (let ((sig (ed25519SignatureBytes (ed25519Sign k msg))))
+                {
+                  (tallyBytes t public (ed25519PublicKeyBytes (ed25519PublicKey k)) (strConcat label ": public key"))
+                  (tallyBytes t want sig (strConcat label ": signature"))
+                  (match (ed25519PublicKeyFromBytes public)
+                    ((Err e) (tallyCheck t false (strConcat label (strConcat ": public key refused: " (errorText e)))))
+                    ((Ok pk)
+                      (match (ed25519SignatureFromBytes want)
+                        ((Err e) (tallyCheck t false (strConcat label (strConcat ": signature refused: " (errorText e)))))
+                        ((Ok s)
+                          {
+                            (tallyCheck t (ed25519Verify pk msg s) (strConcat label ": verifies"))
+                            (tallyCheck neg (! (verifies pk msg (flip want 0 0))) (strConcat label ": R bit 0 flipped"))
+                            (tallyCheck neg (! (verifies pk msg (flip want 17 5))) (strConcat label ": R bit 141 flipped"))
+                            (tallyCheck neg (! (verifies pk msg (flip want 32 0))) (strConcat label ": S bit 0 flipped"))
+                            (tallyCheck neg (! (verifies pk msg (flip want 62 3))) (strConcat label ": S bit 499 flipped"))
+                            (tallyCheck neg (! (verifies pk (strConcat msg "x") want)) (strConcat label ": a byte appended"))
+                            (if (> (strLen msg) 0)
+                              (tallyCheck neg (! (verifies pk (flip msg (- (strLen msg) 1) 7) want)) (strConcat label ": last message bit flipped"))
+                              0)
+                          }))))
+                  (ed25519KeyWipe k)
+                  (secretWipe seed)
+                })))))
+      (+ (tallyReport t) (tallyReport neg))
+    }))

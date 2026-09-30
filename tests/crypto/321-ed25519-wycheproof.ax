@@ -1,0 +1,54 @@
+; Wycheproof's Ed25519 verification vectors: truncated, padded and
+; compressed signatures, S at or above the group order, R re-encoded
+; non-canonically with S recomputed to match, and arithmetic edge cases
+; that overflowed other implementations. Each verdict must match
+; Wycheproof's, both through the strict decoders and with the
+; signature handed to `ed25519Verify` as it stands.
+(import IO)
+(import Str)
+(import Vec)
+(import Err)
+(import Crypto.Ed25519)
+(import Kat)
+
+; The verdict through the strict decoders: false when either refuses.
+(:: strict (-> String String String Bool))
+(fn (strict pk msg sig)
+  (match (ed25519PublicKeyFromBytes pk)
+    ((Err _) false)
+    ((Ok k)
+      (match (ed25519SignatureFromBytes sig)
+        ((Err _) false)
+        ((Ok s) (ed25519Verify k msg s))))))
+
+; The verdict with both structs built directly, so `ed25519Verify` makes
+; every check itself.
+(:: direct (-> String String String Bool))
+(fn (direct pk msg sig)
+  (ed25519Verify (Ed25519PublicKey pk) msg (Ed25519Signature sig)))
+
+; Whether two verdicts agree.
+(:: agrees (-> Bool Bool Bool))
+(fn (agrees a b)
+  (if a b (! b)))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((t (tallyNew "wycheproof-ed25519")) (d (tallyNew "wycheproof-ed25519-direct")))
+    {
+      (for line in (katLines "wycheproof-ed25519.txt")
+        (let ((f (katFields line)))
+          (let (
+            (label (strConcat "tcId " (strConcat (katText f 0) (strConcat " " (katText f 2)))))
+            (want (strEq (katText f 1) "valid"))
+            (pk (katBytes f 3))
+            (msg (katBytes f 4))
+            (sig (katBytes f 5))
+          )
+            {
+              (tallyCheck t (agrees (strict pk msg sig) want) label)
+              (tallyCheck d (agrees (direct pk msg sig) want) label)
+            })))
+      (+ (tallyReport t) (tallyReport d))
+    }))
