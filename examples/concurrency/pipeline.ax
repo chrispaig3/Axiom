@@ -135,6 +135,8 @@
 
 (:: run (-> Chan Chan Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (run raw out idle n)
   (parallel p (
     (sent (produce raw idle n))
@@ -161,6 +163,8 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   (let ((n (argOr 1 2000)))
     (match (chanNew 4)

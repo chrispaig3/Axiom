@@ -104,6 +104,8 @@
 ; 5 s deadline per shard as the backstop.
 (:: search (-> Int Int CancelToken (Vec (Result String Error))))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (search pids idle tok)
   (taskMapWith
     (lambda (s) (shard pids idle tok s))
@@ -143,6 +145,8 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 ;@axiom:effect(unsafe)
 (fn (main)
   (match (sysMapShared 4096)
