@@ -1,0 +1,33 @@
+; Float literals are the binary64 nearest to the decimal written, ties to
+; even, whatever its length: each line prints a literal's bits, and the
+; golden holds the bits Python's float() gives the same text.
+(import IO)
+(import Fmt)
+(import Float)
+
+(:: show (-> String Float Int))
+;@axiom:effect(io)
+(fn (show text x)
+  {
+    (println (strConcat text (strConcat " " (fmtInt (floatToBits x)))))
+    0
+  })
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (show "0.1" 0.1)
+    (show "-0.0" -0.0)
+    (show "0.0" 0.0)
+    (show "123.456" 123.456)
+    (show "3.14159265358979323846264338327950288" 3.14159265358979323846264338327950288)
+    (show "12345678901234567890123.5" 12345678901234567890123.5)
+    (show "0.000000000000000000000000000001" 0.000000000000000000000000000001)
+    (show "1.00000000000000011102230246251565404236316680908203125" 1.00000000000000011102230246251565404236316680908203125)
+    (show "1.00000000000000011102230246251565404236316680908203126" 1.00000000000000011102230246251565404236316680908203126)
+    (show "9007199254740993.0" 9007199254740993.0)
+    (show "1_000.25" 1000.25)
+    (show "-2.5" -2.5)
+    0
+  })

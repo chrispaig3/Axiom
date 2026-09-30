@@ -9,6 +9,7 @@
 (import Vec)
 (import lexer)
 (import diag)
+(import Float)
 
 ; ------------------------------------------------------------------
 ; AST node: tagged union. tag + a,b,c fields. Unused = 0.
@@ -1660,63 +1661,36 @@
       ((Some cp) cp)
       ((None) (- 0 1)))))
 
-; The IEEE-754 bits of the value a float lexeme denotes, computed as
-; intPart + fracPart / 10^digits with the compiler's own float
-; arithmetic - this compiler is itself an Axiom program, so `1.5` can be
-; evaluated with the same `fadd`/`fdiv` the program being compiled will
-; use. `cast` reinterprets rather than converts, which is what makes the
-; result the bit pattern.
-;
-; The two operations round separately, where stage0's strtod rounds
-; once, so a literal with more precision than a double carries could
-; differ from stage0's in the last ulp. Every literal in the current
-; corpus (`0.0`, `0.5`, `10.0`, ...) is exactly representable, so the
-; results agree today; byte-identical emission for arbitrary literals
-; (phase 4) needs a single-rounding conversion here.
+; The IEEE-754 bits of the value a float lexeme denotes: the binary64
+; nearest to the decimal it spells, ties to even, which is what
+; `Float.floatParse` answers for any number of digits. So `0.1` and
+; `3.14159265358979323846` land on the nearest double, a literal with
+; more integer or fraction digits than an `Int` holds is still exact,
+; and `-0.0` keeps its sign. The lexer has already checked the shape
+; (an optional `-`, digits, one `.`, digits, with `_` separators among
+; the digits), so once the separators are gone the parse can't fail; a
+; failure would answer the bits of 0.0.
 (pub :: floatLexemeBits (-> String Int))
 (pub fn (floatLexemeBits lex)
-  ; A negative literal negates the whole magnitude - summing a negative
-  ; integer part with a positive fraction would be off by twice the
-  ; fraction.
-  (if (== (strByte lex 0) 45)
-    (cast Int (-
-      0.0
-      (cast Float (floatMagBits lex 1))))
-    (floatMagBits lex 0)))
+  (match (floatParse (dropUnderscores lex))
+    ((Ok x) (floatToBits x))
+    ((Err _) 0)))
 
-(pub :: floatMagBits (-> String Int Int))
-(pub fn (floatMagBits lex start)
-  (let ((dot (floatDotIndex lex 0)))
-    (let (
-      (ip (strToIntFrom lex start 0))
-      (fp (strToIntFrom lex (+ dot 1) 0))
-      (p10 (powTenAt lex (+ dot 1) 1))
-    )
-      (cast Int (+ (__intToFloat ip) (/ (__intToFloat fp) (__intToFloat p10)))))))
-
-; Index of the `.` - the lexer guarantees exactly one, with digits on
-; both sides.
-(pub :: floatDotIndex (-> String Int Int))
-(pub fn (floatDotIndex lex i)
-  (if (>= i (strLen lex))
-    i
-    (if (== (strByte lex i) 46)
-      i
-      (floatDotIndex lex (+ i 1)))))
-
-; 10^(number of digits from `i` to the end of `lex`). A `_` separator
-; is part of the lexeme but not a digit, so it must not scale the
-; denominator - `1.5_0` has two fractional digits, not three.
-(pub :: powTenAt (-> String Int Int Int))
-(pub fn (powTenAt lex i acc)
-  (if (>= i (strLen lex))
-    acc
-    (powTenAt
-      lex
-      (+ i 1)
-      (if (== (strByte lex i) 95)
-        acc
-        (* acc 10)))))
+; `lex` without its `_` digit separators: `1_000.5` reads as `1000.5`.
+(pub :: dropUnderscores (-> String String))
+(pub fn (dropUnderscores lex)
+  (let ((mut out "") (mut from 0) (n (strLen lex)))
+    {
+      (for i 0 n
+        (if (== (strByte lex i) 95)
+          {
+            (set out (strConcat out (strSlice lex from (- i from))))
+            (set from (+ i 1))
+            0
+          }
+          0))
+      (strConcat out (strSlice lex from (- n from)))
+    }))
 
 (pub :: parseIdentRef (-> (Vec Int) Int Int))
 ; A dotted chain of identifiers is either FIELD ACCESS (`p.x.y`) or a

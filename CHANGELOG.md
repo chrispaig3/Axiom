@@ -22,6 +22,13 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+- Float literals are correctly rounded. The compiler used to build one
+  as whole part plus fraction over a power of ten, which rounded twice,
+  overflowed `Int` past about 18 digits of either part, and turned
+  `-0.0` into `0.0`: `3.14159265358979323846264338327950288` came out as
+  an unrelated value. Literals now go through `Float.floatParse`, so
+  each is the binary64 nearest to the text, ties to even
+  (`tests/stdlib/693-float-literals.ax`).
 - `Chrono`: dates, times and durations with no time zones, after Jiff.
   `Date`, `Time` and `Duration` are sealed words and `NaiveDateTime`
   pairs a date with a time, so every value is valid by construction.

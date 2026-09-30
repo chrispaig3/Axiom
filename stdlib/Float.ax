@@ -796,7 +796,7 @@
               (set c (/ c 10))
               (set k (+ k 1))
             })))
-      (strSlice buf pos 800)
+      (strSlice buf pos (- 800 pos))
     }))
 
 ; `digits` with its trailing zeros removed.
@@ -861,7 +861,7 @@
             (__store8 (strData buf) pos (+ 48 (% x 10)))
             (set x (/ x 10))
           }))
-      (strSlice buf pos 20)
+      (strSlice buf pos (- 20 pos))
     }))
 
 ; `n` in decimal, signed.
@@ -966,11 +966,11 @@
         (strConcat "0." (strConcat (zeros (- 0 decpt)) digits))
         (if (>= decpt nd)
           (strConcat digits (strConcat (zeros (- decpt nd)) ".0"))
-          (strConcat (strSlice digits 0 decpt) (strConcat "." (strSlice digits decpt nd)))))
+          (strConcat (strSlice digits 0 decpt) (strConcat "." (strSlice digits decpt (- nd decpt))))))
       (let (
         (mant (if (== nd 1)
           digits
-          (strConcat (strSlice digits 0 1) (strConcat "." (strSlice digits 1 nd)))))
+          (strConcat (strSlice digits 0 1) (strConcat "." (strSlice digits 1 (- nd 1))))))
         (ax (if (< x10 0)
           (- 0 x10)
           x10))
