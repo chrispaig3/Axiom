@@ -1,7 +1,7 @@
 [1;31merror[AX3085][0m[1m: only module `Chan` can make a `Chan`[0m
-  [1;34m--> [0m1062-handle-sealed-build.ax:16:20
+  [1;34m--> [0m1062-handle-sealed-build.ax:17:20
 [1;34m   |[0m
-[1;34m16 |[0m         (chanSend (Chan 5) 1)
+[1;34m17 |[0m         (chanSend (Chan 5) 1)
 [1;34m   |[0m                    [1;31m^^^^ built outside its module[0m
 [1;34m   |[0m
   [1;34m = [0m[1mnote: [0ma word struct is sealed, so every value of its type is one its module made and no other code can forge one (docs/memory-model.md MM-VAL-10a)
@@ -9,9 +9,9 @@
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3085` for a full explanation
 
 [1;31merror[AX3085][0m[1m: only module `Chan` can make a `Chan`[0m
-  [1;34m--> [0m1062-handle-sealed-build.ax:18:19
+  [1;34m--> [0m1062-handle-sealed-build.ax:19:19
 [1;34m   |[0m
-[1;34m18 |[0m           (struct Chan 5)
+[1;34m19 |[0m           (struct Chan 5)
 [1;34m   |[0m                   [1;31m^^^^ built outside its module[0m
 [1;34m   |[0m
   [1;34m = [0m[1mnote: [0ma word struct is sealed, so every value of its type is one its module made and no other code can forge one (docs/memory-model.md MM-VAL-10a)
@@ -19,9 +19,9 @@
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3085` for a full explanation
 
 [1;31merror[AX3085][0m[1m: only module `Sync` can make a `Mutex`[0m
-  [1;34m--> [0m1062-handle-sealed-build.ax:20:26
+  [1;34m--> [0m1062-handle-sealed-build.ax:21:26
 [1;34m   |[0m
-[1;34m20 |[0m         (mutexOwnerDead (Mutex 7))
+[1;34m21 |[0m         (mutexOwnerDead (Mutex 7))
 [1;34m   |[0m                          [1;31m^^^^^ built outside its module[0m
 [1;34m   |[0m
   [1;34m = [0m[1mnote: [0ma word struct is sealed, so every value of its type is one its module made and no other code can forge one (docs/memory-model.md MM-VAL-10a)

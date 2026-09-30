@@ -14,6 +14,7 @@ where its limits are.
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(entropy)
 (fn (main)
   (match (secretRandom 32)
     ((Ok key)
@@ -48,7 +49,10 @@ system's kernel on every call:
 | `(randomTokenUrl n)` | `n` random bytes as URL-safe base64, for tokens and identifiers |
 | `(randomTokenHex n)` | `n` random bytes as lower-case hex |
 
-Each one answers a `Result`. The source is `getentropy` on Darwin and
+Each one answers a `Result` and performs `Entropy`, so a function that
+calls one, or makes a key, says `;@axiom:effect(entropy)` beside
+`effect(io)`, as the example at the top of this page does. The source
+is `getentropy` on Darwin and
 `getrandom` on Linux and FreeBSD. On `baremetal-aarch64` it is the
 CPU's `RNDR` register when the CPU has one. There's no generator
 inside your program, so there is no seed to manage, nothing a `fork`
@@ -204,6 +208,7 @@ secret into as many independent keys as you need.
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(entropy)
 (fn (main)
   (match hmacSha256KeyGenerate
     ((Err e) (die (errorText e) 1))
@@ -274,6 +279,7 @@ each with the same shape:
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(entropy)
 (fn (main)
   (match aes256GcmKeyGenerate
     ((Err e) (die (errorText e) 1))
@@ -376,6 +382,7 @@ exchange can compute it.
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(entropy)
 (fn (main)
   (match x25519KeyGenerate
     ((Err e) (die (errorText e) 1))
@@ -418,6 +425,7 @@ deterministic, so the same key and message always give the same
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(entropy)
 (fn (main)
   (match ed25519KeyGenerate
     ((Err e) (die (errorText e) 1))

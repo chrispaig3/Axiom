@@ -127,11 +127,13 @@
 ; six-argument spelling (sh with no arguments reads EOF from stdin and
 ; exits successfully) and 1792 - 7 << 8 - under this one.
 (pub :: sysPosixSpawn Int)
+;@axiom:syscall(spawn)
 (pub fn (sysPosixSpawn)
   33554676)
 
 ; wait4(pid, status, options, rusage) - BSD 7.
 (pub :: sysWait4 Int)
+;@axiom:syscall(block)
 (pub fn (sysWait4)
   33554439)
 
@@ -151,6 +153,7 @@
 ; saw `fork->81242 mypid=81242`. `forkChildIsZero` records that this
 ; normalisation is needed here and not on Linux.
 (pub :: sysFork Int)
+;@axiom:syscall(spawn)
 (pub fn (sysFork)
   33554434)
 
@@ -610,6 +613,7 @@
 ; `randomIsGetentropy`.
 ; --------------------------------------------------------------------
 (pub :: sysRandomNum Int)
+;@axiom:syscall(entropy)
 (pub fn (sysRandomNum)
   33554932)
 
@@ -1015,6 +1019,7 @@
 
 ; __ulock_wait(op, addr, value, timeout_us) - BSD 515 (SDK sys/syscall.h)
 (pub :: sysWaitWordNum Int)
+;@axiom:syscall(block)
 (pub fn (sysWaitWordNum)
   33554947)
 
@@ -1039,6 +1044,7 @@
 
 ; waitid(idtype, id, infop, options) - BSD 173
 (pub :: sysWaitIdNum Int)
+;@axiom:syscall(block)
 (pub fn (sysWaitIdNum)
   33554605)
 

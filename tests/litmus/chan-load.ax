@@ -34,6 +34,7 @@
 
 (:: produce (-> Chan Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (produce ch lo hi)
   (let (
     (mut i lo)
@@ -69,6 +70,7 @@
 ; answer the count.
 (:: tally (-> Chan Chan Int))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (tally ch out)
   (let (
     (mut count 0)
@@ -96,6 +98,7 @@
 
 (:: recvOr (-> Chan Int))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (recvOr ch)
   (match (chanRecv ch)
     ((Some v) v)
@@ -169,6 +172,7 @@
 (:: waiter (-> Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (waiter m)
   (let ((mut calls 0))
     {
@@ -224,6 +228,7 @@
 ; the receiver answers when the word arrived, the sender when it sent.
 (:: arrivedAt (-> Chan Int))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (arrivedAt ch)
   (match (chanRecv ch)
     ((Some v) (now (memAlloc 16)))
@@ -231,6 +236,7 @@
 
 (:: sentAt (-> Chan Int))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (sentAt ch)
   (let (
     (buf (memAlloc 16))

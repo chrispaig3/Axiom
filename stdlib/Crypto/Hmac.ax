@@ -260,6 +260,7 @@
 (:: hmacKeyRandom (-> Int (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(entropy)
 (fn (hmacKeyRandom v)
   (let ((l (hmacL v)))
     (match (secretBlockNew (hmacKind v) (* 3 l))
@@ -281,6 +282,7 @@
 ; A fresh random HMAC-SHA-256 key of 32 bytes, the hash's output length.
 (pub :: hmacSha256KeyGenerate (Result HmacSha256Key Error))
 ;@axiom:effect(io)
+;@axiom:effect(entropy)
 (pub fn (hmacSha256KeyGenerate)
   (match (hmacKeyRandom 256)
     ((Ok h) (Ok (HmacSha256Key h)))
@@ -315,6 +317,7 @@
 ; A fresh random HMAC-SHA-512 key of 64 bytes, the hash's output length.
 (pub :: hmacSha512KeyGenerate (Result HmacSha512Key Error))
 ;@axiom:effect(io)
+;@axiom:effect(entropy)
 (pub fn (hmacSha512KeyGenerate)
   (match (hmacKeyRandom 512)
     ((Ok h) (Ok (HmacSha512Key h)))

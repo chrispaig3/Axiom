@@ -74,16 +74,16 @@ two differ.
 | `Chan` | struct |  |  | A channel: one word, a slot in the runtime's handle table (MM-PAR-8) naming the ring's mapping. |
 | `chanOwnerDead` | value | `Int` |  | What a timed call answers on a channel whose lock holder died: the mutex's `syncOwnerDead`, the same code for the same event. Above 255, like `sysTimedOut`, so it cannot be mistaken for a wait status. |
 | `chanNew` | value | `(-> Int (Result Chan Error))` | `Alloc,IO,Mut` | A channel of `cap` words, 1 <= cap <= 1,048,576. Answers the handle, or the mapping's error; a capacity out of range is EINVAL (22 on every target with a syscall ABI), and a handle table with no slot left is EMFILE (24). |
-| `chanSend` | value | `(-> Chan Int Bool)` | `Alloc,IO,Mut` | Send `v`, waiting while the ring is full. `True` once it is in the ring; `False` if the channel is closed - before the call or while it waited - or poisoned (`chanPoisoned`), and then `v` was not sent. |
-| `chanRecv` | value | `(-> Chan (Option Int))` | `Alloc,IO,Mut` | Receive the oldest word, waiting while the ring is empty and open. `None` once the channel is closed AND drained - the end of the stream - or poisoned (`chanPoisoned`). |
-| `chanSendTimeout` | value | `(-> Chan Int Int (Result Bool Error))` | `Alloc,IO,Mut,Unsafe` | `chanSend`, waiting at most `nanos` nanoseconds - for the lock and for room. `Ok True` once `v` is in the ring; `Ok False` if the channel is closed; `Err` with code `sysTimedOut` when the time ran out first, and `Err` with code `chanOwnerDead` when the channel is poisoned - and in each of those `v` was not sent. The ring is looked at once more after the last wait, so a slot that opened as the time ran out is taken rather than refused. A non-positive `nanos` is one look, like `chanTrySend`, that says which it was. |
-| `chanRecvTimeout` | value | `(-> Chan Int (Result (Option Int) Error))` | `Alloc,IO,Mut,Unsafe` | `chanRecv`, waiting at most `nanos` nanoseconds - for the lock and for a word. `Ok (Some w)` the oldest word; `Ok None` the end of the stream (closed and drained); `Err` with code `sysTimedOut` when the time ran out first - the defined answer on timeout, which takes nothing out of the ring - and `Err` with code `chanOwnerDead` when the channel is poisoned. A non-positive `nanos` is one look. |
-| `chanTrySend` | value | `(-> Chan Int Bool)` | `Alloc,IO,Mut` | Send without waiting for room: `True` if `v` went into the ring, `False` if it did not - full, closed or poisoned, which `chanClosed` and `chanPoisoned` tell apart, as they do for `chanTryRecv`. A `Bool` rather than a three-way `Int`: a -1 for "closed" is the sentinel convention the error model is migrating away from (`tests/compat/verify-compat.py`). |
-| `chanTryRecv` | value | `(-> Chan (Option Int))` | `Alloc,IO,Mut` | Receive without waiting for a word: the oldest word, or `None` when there is none right now - empty, whether or not it is closed, or poisoned; `chanClosed` and `chanPoisoned` tell them apart. |
-| `chanClose` | value | `(-> Chan Int)` | `Alloc,IO,Mut` | End the stream. Idempotent. Every waiter wakes: a sender to be refused, a receiver to drain and then see `None`. A poisoned channel has ended already, and this changes nothing. |
-| `chanClosed` | value | `(-> Chan Bool)` | `Alloc,IO,Mut` | Whether the stream has ended: closed, or poisoned. |
+| `chanSend` | value | `(-> Chan Int Bool)` | `Alloc,Block,IO,Mut` | Send `v`, waiting while the ring is full. `True` once it is in the ring; `False` if the channel is closed - before the call or while it waited - or poisoned (`chanPoisoned`), and then `v` was not sent. |
+| `chanRecv` | value | `(-> Chan (Option Int))` | `Alloc,Block,IO,Mut` | Receive the oldest word, waiting while the ring is empty and open. `None` once the channel is closed AND drained - the end of the stream - or poisoned (`chanPoisoned`). |
+| `chanSendTimeout` | value | `(-> Chan Int Int (Result Bool Error))` | `Alloc,Block,IO,Mut,Unsafe` | `chanSend`, waiting at most `nanos` nanoseconds - for the lock and for room. `Ok True` once `v` is in the ring; `Ok False` if the channel is closed; `Err` with code `sysTimedOut` when the time ran out first, and `Err` with code `chanOwnerDead` when the channel is poisoned - and in each of those `v` was not sent. The ring is looked at once more after the last wait, so a slot that opened as the time ran out is taken rather than refused. A non-positive `nanos` is one look, like `chanTrySend`, that says which it was. |
+| `chanRecvTimeout` | value | `(-> Chan Int (Result (Option Int) Error))` | `Alloc,Block,IO,Mut,Unsafe` | `chanRecv`, waiting at most `nanos` nanoseconds - for the lock and for a word. `Ok (Some w)` the oldest word; `Ok None` the end of the stream (closed and drained); `Err` with code `sysTimedOut` when the time ran out first - the defined answer on timeout, which takes nothing out of the ring - and `Err` with code `chanOwnerDead` when the channel is poisoned. A non-positive `nanos` is one look. |
+| `chanTrySend` | value | `(-> Chan Int Bool)` | `Alloc,Block,IO,Mut` | Send without waiting for room: `True` if `v` went into the ring, `False` if it did not - full, closed or poisoned, which `chanClosed` and `chanPoisoned` tell apart, as they do for `chanTryRecv`. A `Bool` rather than a three-way `Int`: a -1 for "closed" is the sentinel convention the error model is migrating away from (`tests/compat/verify-compat.py`). |
+| `chanTryRecv` | value | `(-> Chan (Option Int))` | `Alloc,Block,IO,Mut` | Receive without waiting for a word: the oldest word, or `None` when there is none right now - empty, whether or not it is closed, or poisoned; `chanClosed` and `chanPoisoned` tell them apart. |
+| `chanClose` | value | `(-> Chan Int)` | `Alloc,Block,IO,Mut` | End the stream. Idempotent. Every waiter wakes: a sender to be refused, a receiver to drain and then see `None`. A poisoned channel has ended already, and this changes nothing. |
+| `chanClosed` | value | `(-> Chan Bool)` | `Alloc,Block,IO,Mut` | Whether the stream has ended: closed, or poisoned. |
 | `chanPoisoned` | value | `(-> Chan Bool)` |  | Whether a binding died holding this channel's lock, which poisoned it (the module header's "a holder that dies"). Takes no lock. |
-| `chanLen` | value | `(-> Chan Int)` | `Alloc,IO,Mut` | Words in the ring now; 0 on a poisoned channel, which yields none. |
+| `chanLen` | value | `(-> Chan Int)` | `Alloc,Block,IO,Mut` | Words in the ring now; 0 on a poisoned channel, which yields none. |
 | `chanCap` | value | `(-> Chan Int)` |  |  |
 | `chanFree` | value | `(-> Chan (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Unmap the channel. Only once no binding can still reach it - after the `parallel` form that used it (the module header's obligation). The handle is retired before the ring is unmapped, so every call made after this one - a second `chanFree` included - traps with status 85. It takes no lock, so a poisoned channel is freed like any other. |
 
@@ -179,7 +179,7 @@ two differ.
 | `aeadTagLen` | value | `Int` |  | The tag every seal appends and every open checks: 16 bytes. Shorter tags are not offered. |
 | `aeadNonceFromBytes` | value | `(-> String (Result AeadNonce Error))` | `Alloc,Mut,Unsafe` | A nonce holding a copy of `b`, which must be exactly 12 bytes. Anything else answers `cryptoInvalidLength`: other nonce lengths exist in GCM, and this suite does not take them. |
 | `aeadNonceBytes` | value | `(-> AeadNonce String)` |  | The nonce's 12 bytes, to send beside the ciphertext. |
-| `aeadNonceRandom` | value | `(Result AeadNonce Error)` | `Alloc,IO,Mut` | A nonce of 12 bytes from the kernel's entropy source. Use at most 2^32 random nonces under one key (SP 800-38D 8.3); the module header says why. |
+| `aeadNonceRandom` | value | `(Result AeadNonce Error)` | `Alloc,Entropy,IO,Mut` | A nonce of 12 bytes from the kernel's entropy source. Use at most 2^32 random nonces under one key (SP 800-38D 8.3); the module header says why. |
 | `NonceSequence` | struct |  |  | A source of nonces that never repeats: a fixed 4-byte prefix and a 64-bit big-endian counter, the prefix and invocation fields of SP 800-38D 8.2.1. The state is the next nonce itself, 12 bytes. The counter runs from 0 to 2^63 - 2, and one sequence is not safe to use from two threads at once. |
 | `nonceSequenceNew` | value | `(-> String (Result NonceSequence Error))` | `Alloc,Mut` | A sequence whose first nonce is `prefix` followed by a zero counter. `prefix` must be 4 bytes, and distinct for every sender that shares the key. |
 | `nonceSequenceResume` | value | `(-> String Int (Result NonceSequence Error))` | `Alloc,Mut` | A sequence that carries on from `position`, a value read back from `nonceSequencePosition` and persisted before the nonce it followed was used. `position` is 0 to 2^63 - 1; at 2^63 - 1 the sequence is already used up. |
@@ -210,8 +210,8 @@ two differ.
 |---|---|---|---|---|
 | `Aes128GcmKey` | struct |  |  | An AES-128-GCM key: 16 bytes, with its schedule and hash key, in the secret store (kind 19). |
 | `Aes256GcmKey` | struct |  |  | An AES-256-GCM key: 32 bytes, with its schedule and hash key, in the secret store (kind 20). |
-| `aes128GcmKeyGenerate` | value | `(Result Aes128GcmKey Error)` | `Alloc,IO,Mut,Unsafe` | A fresh random AES-128-GCM key from the kernel's entropy source. |
-| `aes256GcmKeyGenerate` | value | `(Result Aes256GcmKey Error)` | `Alloc,IO,Mut,Unsafe` | A fresh random AES-256-GCM key from the kernel's entropy source. |
+| `aes128GcmKeyGenerate` | value | `(Result Aes128GcmKey Error)` | `Alloc,Entropy,IO,Mut,Unsafe` | A fresh random AES-128-GCM key from the kernel's entropy source. |
+| `aes256GcmKeyGenerate` | value | `(Result Aes256GcmKey Error)` | `Alloc,Entropy,IO,Mut,Unsafe` | A fresh random AES-256-GCM key from the kernel's entropy source. |
 | `aes128GcmKeyFromSecret` | value | `(-> SecretBytes (Result Aes128GcmKey Error))` | `Alloc,IO,Mut,Unsafe` | An AES-128-GCM key holding a copy of `s`, which must be 16 bytes. This is also the deterministic way to make a key, for known-answer tests and protocols that derive one; `s` is left as it was. |
 | `aes256GcmKeyFromSecret` | value | `(-> SecretBytes (Result Aes256GcmKey Error))` | `Alloc,IO,Mut,Unsafe` | An AES-256-GCM key holding a copy of `s`, which must be 32 bytes. |
 | `aes128GcmKeyExport` | value | `(-> Aes128GcmKey (Result SecretBytes Error))` | `Alloc,IO,Mut,Unsafe` | The key's 16 bytes as a new `SecretBytes`, for storing it somewhere you trust. The key itself stays live. |
@@ -284,7 +284,7 @@ two differ.
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
 | `ChaCha20Poly1305Key` | struct |  |  | A ChaCha20-Poly1305 key: 32 bytes in the secret store (kind 21). |
-| `chacha20Poly1305KeyGenerate` | value | `(Result ChaCha20Poly1305Key Error)` | `Alloc,IO,Mut,Unsafe` | A fresh random ChaCha20-Poly1305 key from the kernel's entropy source, drawn straight into the secret store. |
+| `chacha20Poly1305KeyGenerate` | value | `(Result ChaCha20Poly1305Key Error)` | `Alloc,Entropy,IO,Mut,Unsafe` | A fresh random ChaCha20-Poly1305 key from the kernel's entropy source, drawn straight into the secret store. |
 | `chacha20Poly1305KeyFromSecret` | value | `(-> SecretBytes (Result ChaCha20Poly1305Key Error))` | `Alloc,IO,Mut,Unsafe` | A key holding a copy of `s`, which must be 32 bytes. This is also the deterministic way to make a key, for known-answer tests and protocols that derive one; `s` is left as it was. |
 | `chacha20Poly1305KeyExport` | value | `(-> ChaCha20Poly1305Key (Result SecretBytes Error))` | `Alloc,IO,Mut,Unsafe` | The key's 32 bytes as a new `SecretBytes`, for storing it somewhere you trust. The key itself stays live. |
 | `chacha20Poly1305KeyWipe` | value | `(-> ChaCha20Poly1305Key Int)` | `Alloc,IO,Mut,Unsafe` | Erase the key and free the store. Any later use of `k` stops the program with status 85. Answers 0. |
@@ -374,7 +374,7 @@ two differ.
 | `Ed25519SecretKey` | struct |  |  | An Ed25519 private key: a handle to the seed and what it expands to, in the secret store. Prints as `<Ed25519SecretKey>`. |
 | `Ed25519PublicKey` | struct |  |  | An Ed25519 public key: a point's 32-byte encoding. Build one with `ed25519PublicKeyFromBytes`, which checks it. |
 | `Ed25519Signature` | struct |  |  | An Ed25519 signature: R (32 bytes) then S (32 bytes). Build one from bytes with `ed25519SignatureFromBytes`, which checks it. |
-| `ed25519KeyGenerate` | value | `(Result Ed25519SecretKey Error)` | `Alloc,IO,Mut,Unsafe` | A fresh key from a random 32-byte seed. |
+| `ed25519KeyGenerate` | value | `(Result Ed25519SecretKey Error)` | `Alloc,Entropy,IO,Mut,Unsafe` | A fresh key from a random 32-byte seed. |
 | `ed25519KeyFromSecret` | value | `(-> SecretBytes (Result Ed25519SecretKey Error))` | `Alloc,IO,Mut,Unsafe` | The key whose 32-byte seed is `s` (RFC 8032's private key). `s` is copied, not consumed. This is the deterministic route: for known-answer tests, for restoring a key saved with `ed25519KeyExport`, and for protocols that derive the seed themselves. |
 | `ed25519KeyWipe` | value | `(-> Ed25519SecretKey Int)` | `Alloc,IO,Mut,Unsafe` | Erase `k` and free its storage. Any later use of `k` stops the program with status 85. Answers 0. |
 | `ed25519KeyExport` | value | `(-> Ed25519SecretKey (Result SecretBytes Error))` | `Alloc,IO,Mut,Unsafe` | The 32-byte seed of `k`, as a new `SecretBytes`: RFC 8032's private key, the standard serialisation. `ed25519KeyFromSecret` reads it back. |
@@ -466,11 +466,11 @@ two differ.
 |---|---|---|---|---|
 | `HmacSha256Key` | struct |  |  | An HMAC-SHA-256 key: a handle to its bytes and their precomputed inner and outer states in the secret store. Prints as `<HmacSha256Key>`. |
 | `HmacSha512Key` | struct |  |  | An HMAC-SHA-512 key. Prints as `<HmacSha512Key>`. |
-| `hmacSha256KeyGenerate` | value | `(Result HmacSha256Key Error)` | `Alloc,IO,Mut` | A fresh random HMAC-SHA-256 key of 32 bytes, the hash's output length. |
+| `hmacSha256KeyGenerate` | value | `(Result HmacSha256Key Error)` | `Alloc,Entropy,IO,Mut` | A fresh random HMAC-SHA-256 key of 32 bytes, the hash's output length. |
 | `hmacSha256KeyFromSecret` | value | `(-> SecretBytes (Result HmacSha256Key Error))` | `Alloc,IO,Mut,Unsafe` | An HMAC-SHA-256 key holding a copy of `s`, which may be any length from 1 byte. This is also the deterministic route for known-answer tests and protocols that derive the key. |
 | `hmacSha256KeyExport` | value | `(-> HmacSha256Key (Result SecretBytes Error))` | `Alloc,IO,Mut,Unsafe` | The key bytes of `k`, as a new `SecretBytes`. |
 | `hmacSha256KeyWipe` | value | `(-> HmacSha256Key Int)` | `Alloc,IO,Mut,Unsafe` | Erase `k` and free its storage. Any later use of `k` stops the program with status 85. Answers 0. |
-| `hmacSha512KeyGenerate` | value | `(Result HmacSha512Key Error)` | `Alloc,IO,Mut` | A fresh random HMAC-SHA-512 key of 64 bytes, the hash's output length. |
+| `hmacSha512KeyGenerate` | value | `(Result HmacSha512Key Error)` | `Alloc,Entropy,IO,Mut` | A fresh random HMAC-SHA-512 key of 64 bytes, the hash's output length. |
 | `hmacSha512KeyFromSecret` | value | `(-> SecretBytes (Result HmacSha512Key Error))` | `Alloc,IO,Mut,Unsafe` | An HMAC-SHA-512 key holding a copy of `s`, which may be any length from 1 byte. |
 | `hmacSha512KeyExport` | value | `(-> HmacSha512Key (Result SecretBytes Error))` | `Alloc,IO,Mut,Unsafe` | The key bytes of `k`, as a new `SecretBytes`. |
 | `hmacSha512KeyWipe` | value | `(-> HmacSha512Key Int)` | `Alloc,IO,Mut,Unsafe` | Erase `k` and free its storage. Answers 0. |
@@ -522,15 +522,15 @@ two differ.
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
-| `randomFill` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Fill `n` bytes at `p` with secure random bytes. The low-level entry every other function here and every key generator uses. On `Err` the bytes at `p` are unspecified and must not be used. |
-| `randomAvailable` | value | `Bool` | `Mut` | Whether this target has a secure entropy source at all. A program can ask before it depends on one. |
-| `secureRandomBytes` | value | `(-> Int (Result String Error))` | `Alloc,IO,Mut,Unsafe` | `n` secure random bytes. |
-| `randomWord` | value | `(Result Int Error)` | `Alloc,IO,Mut,Unsafe` | A uniformly random 64-bit word (any Int, negative included). |
-| `randomBelow` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | A uniformly random Int in 0..bound-1. `bound` must be at least 1. |
-| `randomRange` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Mut` | A uniformly random Int in lo..hi-1. `hi` must be above `lo`, and the range must fit in an Int. |
-| `randomShuffle` | value | `(-> (Vec a) (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Shuffle `v` in place into a uniformly random order (Fisher-Yates: position i swaps with a uniform choice among 0..i). Answers `v`'s length. Random words are drawn 32 at a time, so a long vector costs one kernel call per 32 or so positions rather than one each. |
-| `randomTokenHex` | value | `(-> Int (Result String Error))` | `Alloc,IO,Mut` | `n` random bytes as lower-case hex (2n characters). |
-| `randomTokenUrl` | value | `(-> Int (Result String Error))` | `Alloc,IO,Mut` | `n` random bytes as URL-safe base64 without padding. |
+| `randomFill` | value | `(-> Int Int (Result Int Error))` | `Alloc,Entropy,IO,Mut,Unsafe` | Fill `n` bytes at `p` with secure random bytes. The low-level entry every other function here and every key generator uses. On `Err` the bytes at `p` are unspecified and must not be used. |
+| `randomAvailable` | value | `Bool` | `Entropy,Mut` | Whether this target has a secure entropy source at all. A program can ask before it depends on one. |
+| `secureRandomBytes` | value | `(-> Int (Result String Error))` | `Alloc,Entropy,IO,Mut,Unsafe` | `n` secure random bytes. |
+| `randomWord` | value | `(Result Int Error)` | `Alloc,Entropy,IO,Mut,Unsafe` | A uniformly random 64-bit word (any Int, negative included). |
+| `randomBelow` | value | `(-> Int (Result Int Error))` | `Alloc,Entropy,IO,Mut,Unsafe` | A uniformly random Int in 0..bound-1. `bound` must be at least 1. |
+| `randomRange` | value | `(-> Int Int (Result Int Error))` | `Alloc,Entropy,IO,Mut` | A uniformly random Int in lo..hi-1. `hi` must be above `lo`, and the range must fit in an Int. |
+| `randomShuffle` | value | `(-> (Vec a) (Result Int Error))` | `Alloc,Entropy,IO,Mut,Unsafe` | Shuffle `v` in place into a uniformly random order (Fisher-Yates: position i swaps with a uniform choice among 0..i). Answers `v`'s length. Random words are drawn 32 at a time, so a long vector costs one kernel call per 32 or so positions rather than one each. |
+| `randomTokenHex` | value | `(-> Int (Result String Error))` | `Alloc,Entropy,IO,Mut` | `n` random bytes as lower-case hex (2n characters). |
+| `randomTokenUrl` | value | `(-> Int (Result String Error))` | `Alloc,Entropy,IO,Mut` | `n` random bytes as URL-safe base64 without padding. |
 
 ## `Crypto.Secret`
 
@@ -545,9 +545,9 @@ two differ.
 | `secretBlockLocked` | value | `(-> Int Int Bool)` | `Unsafe` | Whether the kernel locked live secret `h` out of swap. |
 | `secretBlockFree` | value | `(-> Int Int Int)` | `Alloc,IO,Mut,Unsafe` | Erase and free live secret `h`: zero the whole mapping, unlock it, unmap it, and retire the handle so any later use stops the program. A second free stops it too. Answers 0. |
 | `secretBlockFrom` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | A fresh secret of kind `kind` holding a copy of `n` bytes at `p`. |
-| `secretBlockRandom` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | A fresh secret of kind `kind` holding `n` random bytes, drawn straight into the mapping so they are never anywhere else. |
+| `secretBlockRandom` | value | `(-> Int Int (Result Int Error))` | `Alloc,Entropy,IO,Mut,Unsafe` | A fresh secret of kind `kind` holding `n` random bytes, drawn straight into the mapping so they are never anywhere else. |
 | `secretFromString` | value | `(-> String (Result SecretBytes Error))` | `Alloc,IO,Mut,Unsafe` | A secret holding a copy of `s`'s bytes. The string itself is not touched: if it held the only other copy, the caller decides whether to overwrite it. |
-| `secretRandom` | value | `(-> Int (Result SecretBytes Error))` | `Alloc,IO,Mut,Unsafe` | A secret of `n` random bytes from `Crypto.Random`. |
+| `secretRandom` | value | `(-> Int (Result SecretBytes Error))` | `Alloc,Entropy,IO,Mut,Unsafe` | A secret of `n` random bytes from `Crypto.Random`. |
 | `secretFromAddr` | value | `(-> Int Int (Result SecretBytes Error))` | `Alloc,IO,Mut,Unsafe` | A secret holding a copy of `n` bytes at `p`. For Crypto modules that derive a secret into their own scratch memory and hand it out. |
 | `secretLen` | value | `(-> SecretBytes Int)` |  | How many bytes `s` holds. A secret's length is not secret. |
 | `secretAddr` | value | `(-> SecretBytes Int)` | `Unsafe` | The payload address of `s`, for a Crypto module reading it. Valid only while `s` stays live. |
@@ -659,7 +659,7 @@ two differ.
 | `x25519ScalarMultAddr` | value | `(-> Int Int Int Int)` | `Alloc,Mut,Unsafe` | X25519(k, u) at raw addresses: write the u-coordinate of [k]u at `out`, where `k` is clamped first and bit 255 of `u` is ignored. No all-zero check. Both inputs are read before `out` is written, so `out` may be either of them. |
 | `x25519ScalarMult` | value | `(-> String String (Result String Error))` | `Alloc,Mut,Unsafe` | X25519(k, u) on byte strings: the raw function of RFC 7748, section 5, with no all-zero check. `Err` with `cryptoInvalidLength` unless both are 32 bytes. For known-answer tests and protocols that specify the raw function; key agreement wants `x25519`. |
 | `x25519BasePoint` | value | `String` | `Alloc,Mut,Unsafe` | The u-coordinate of the base point, 9, as 32 bytes. |
-| `x25519KeyGenerate` | value | `(Result X25519SecretKey Error)` | `Alloc,IO,Mut,Unsafe` | A fresh random private key and its public key. |
+| `x25519KeyGenerate` | value | `(Result X25519SecretKey Error)` | `Alloc,Entropy,IO,Mut,Unsafe` | A fresh random private key and its public key. |
 | `x25519KeyFromSecret` | value | `(-> SecretBytes (Result X25519SecretKey Error))` | `Alloc,IO,Mut,Unsafe` | The private key held in `s`, which must be 32 bytes, and its public key. `s` is copied, not consumed. Any 32 bytes are a private key (RFC 7748 clamps them when they are used), so this is also the deterministic route for known-answer tests and for protocols that derive the key themselves. |
 | `x25519KeyWipe` | value | `(-> X25519SecretKey Int)` | `Alloc,IO,Mut,Unsafe` | Erase `k` and free its storage. Any later use of `k` stops the program with status 85. Answers 0. |
 | `x25519KeyExport` | value | `(-> X25519SecretKey (Result SecretBytes Error))` | `Alloc,IO,Mut,Unsafe` | The 32 private-key bytes of `k`, as a new `SecretBytes`: the standard serialisation (RFC 7748, section 5), for storing the key somewhere you trust. |
@@ -822,7 +822,7 @@ two differ.
 | `readLine` | value | `(-> Int (Result (Option String) Error))` | `Alloc,IO,Mut` | One line of `fd` without its newline: `(Ok (Some line))`; `(Ok None)` at end of input when nothing was read; `(Err e)` whose code is the errno, its message `readLine: fd 0: errno 9`. |
 | `readAll` | value | `(-> Int (Result String Error))` | `Alloc,IO,Mut` | Everything left on `fd` to end of input: `(Ok s)`, `(Ok "")` when nothing arrived, or `(Err e)` whose code is the errno. |
 | `readInto` | value | `(-> Int String Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | One `read(2)` of at most `count` bytes from `fd` into the bytes of `buf` that start at byte `at`: `(Ok n)` with `n` the bytes read, `(Ok 0)` at end of input, or `(Err e)` whose code is the errno. |
-| `randomBytes` | value | `(-> Int (Result String Error))` | `Alloc,IO,Mut,Unsafe` | `n` bytes of kernel entropy as a fresh string: `(Ok bytes)`, or `(Err e)` whose code is the errno. The bytes are for keys, nonces and seeds; `strByte` reads them one at a time. A negative `n` stops the program with status 77. |
+| `randomBytes` | value | `(-> Int (Result String Error))` | `Alloc,Entropy,IO,Mut,Unsafe` | `n` bytes of kernel entropy as a fresh string: `(Ok bytes)`, or `(Err e)` whose code is the errno. The bytes are for keys, nonces and seeds; `strByte` reads them one at a time. A negative `n` stops the program with status 77. |
 | `TermSize` | struct |  |  | A terminal's size in character cells. A terminal that was never sized reports 0 for both; treat 0 as unknown and fall back to 80x24. |
 | `termSave` | value | `(-> Int (Result TermState Error))` | `Alloc,IO,Unsafe` | The attributes of the terminal on `fd`, saved: `(Ok state)` to hand to `termRestore` later, or `(Err e)` - ENOTTY when `fd` is not a terminal. |
 | `termRaw` | value | `(-> Int Bool (Result TermState Error))` | `Alloc,IO,Mut,Unsafe` | Put the terminal on `fd` into raw mode, saving what it was first: `(Ok state)` to restore it with, or `(Err e)`. With `keepSignals` true, ^C still raises SIGINT; see `Sys.sysTermRaw` for every flag raw mode changes. |
@@ -974,7 +974,7 @@ two differ.
 | `parMapWords` | value | `(-> (-> Int Int) Int Int (Vec Int))` | `Alloc,Block,IO,Mut,Spawn,Unsafe` | Run `f i` for every `i` in `0 .. n`, at most `width` at once, answering the results in SUBMIT order. |
 | `parMapWordsChecked` | value | `(-> (-> Int Int) Int Int (Vec (Result Int Error)))` | `Alloc,Block,IO,Mut,Spawn,Unsafe` | Run `f i` for every `i` in `0 .. n`, at most `width` at once, answering one `Result` per slot in SUBMIT order: `Ok` the thunk's word, `Err` the wait status of a slot whose thunk trapped. |
 | `parArgvVector` | value | `(-> (Vec String) Int)` | `Alloc,Mut,Unsafe` | A NULL-terminated array of char* from a Vec of `String`, which is the shape `execve` and `posix_spawn` both take. |
-| `parRunOne` | value | `(-> (Vec String) (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Run one argv - element 0 is the program, looked up on `PATH` the way `sysRunPath` does it. |
+| `parRunOne` | value | `(-> (Vec String) (Result Int Error))` | `Alloc,Block,IO,Mut,Spawn,Unsafe` | Run one argv - element 0 is the program, looked up on `PATH` the way `sysRunPath` does it. |
 | `parRunAll` | value | `(-> (Vec (Vec String)) Int (Vec Int))` | `Alloc,Block,IO,Mut,Spawn` | Run every command in `cmds` at up to `width` at once, answering their exit codes in the order they appear in `cmds`. |
 
 ## `Path`
@@ -1100,12 +1100,12 @@ two differ.
 | `sysGetCwd` | value | `(Result String Error)` | `Alloc,IO,Mut,Unsafe` | The process's working directory as an absolute path: `(Ok path)`, or `(Err e)` whose code is the errno the kernel refused with. |
 | `sysEnv` | value | `(-> String String)` | `Alloc,IO,Mut` | The value of the environment variable `name`, or "" when it is unset. |
 | `sysEnvp` | value | `Int` | `Alloc,IO,Mut,Unsafe` | A NULL-terminated copy of the process's own environment vector, in the form a child expects. |
-| `sysSpawn` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Start `path` with argument vector `argv` and environment `envp`. `(Ok pid)`, or `(Err e)` whose code is the errno - and `Err` means no child exists, which is what a caller must not confuse with a child that started and failed. |
-| `sysWaitPid` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Wait for `pid`. `(Ok status)` is the raw wait status; `(Err e)` carries the errno of a wait that could not be performed. |
+| `sysSpawn` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,IO,Mut,Spawn,Unsafe` | Start `path` with argument vector `argv` and environment `envp`. `(Ok pid)`, or `(Err e)` whose code is the errno - and `Err` means no child exists, which is what a caller must not confuse with a child that started and failed. |
+| `sysWaitPid` | value | `(-> Int (Result Int Error))` | `Alloc,Block,IO,Mut,Unsafe` | Wait for `pid`. `(Ok status)` is the raw wait status; `(Err e)` carries the errno of a wait that could not be performed. |
 | `sysExitCode` | value | `(-> Int Int)` |  | The exit code carried by a wait status, for a child that exited normally. |
 | `sysTermSignal` | value | `(-> Int Int)` |  | The signal that killed a child, or 0 if it exited normally. |
-| `sysRun` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Run `path` to completion and answer its exit code. |
-| `sysRunPath` | value | `(-> String Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Run `name`, searching `PATH` for it when it contains no slash. |
+| `sysRun` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,Block,IO,Mut,Spawn,Unsafe` | Run `path` to completion and answer its exit code. |
+| `sysRunPath` | value | `(-> String Int Int (Result Int Error))` | `Alloc,Block,IO,Mut,Spawn,Unsafe` | Run `name`, searching `PATH` for it when it contains no slash. |
 | `sysGetPid` | value | `Int` | `IO,Unsafe` | The calling process's own id - the per-session suffix scratch files need so two concurrent processes cannot collide. The syscall takes no arguments; the unused ones are simply zero. |
 | `sysNowMicros` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Unsafe` | Microseconds now, from the platform's cheapest correct clock: Darwin answers gettimeofday's timeval (realtime; Darwin's syscall table has no clock_gettime), Linux and FreeBSD answer CLOCK_MONOTONIC via clock_gettime - under the id `clockMonotonicId` names, because the id is not portable: 1 on Linux, and on FreeBSD 4, where 1 is CLOCK_VIRTUAL, the process's CPU time. That one was a literal here until 2026-08-29, and a clock that measures CPU time never runs backwards either, so nothing would have caught it. |
 | `sysNowMonotonic` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Unsafe` | Microseconds from a clock that NEVER steps backwards, or `Err` when this platform has none. The 16-byte buffer is the caller's, as above, so a timing loop allocates nothing on the path that answers. |
@@ -1142,13 +1142,13 @@ two differ.
 | `netPollDelRead` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Answers `(Result Int Error)`; `Ok 0` on success. |
 | `netPollWait` | value | `(-> Int Int Int Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Wait for readiness, answering `Ok` how many events landed in `buf` or `Err` the errno - `(Result Int Error)` since 2026-09-03, matched directly by every wake loop so the wake itself builds no block. A NEGATIVE `timeoutMs` BLOCKS INDEFINITELY, which is what a server's accept loop wants; zero polls and returns at once. |
 | `netPollFdAt` | value | `(-> Int Int Int)` | `Unsafe` | The descriptor named by event `i` of a buffer `netPollWait` filled. |
-| `sysRandomBytes` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | Fill `n` bytes at `buf` with kernel entropy. `(Ok 0)`, or `(Err e)` whose code is the errno - and on `Err` the buffer's contents are unspecified, so a caller must not read them. |
+| `sysRandomBytes` | value | `(-> Int Int (Result Int Error))` | `Alloc,Entropy,IO,Unsafe` | Fill `n` bytes at `buf` with kernel entropy. `(Ok 0)`, or `(Err e)` whose code is the errno - and on `Err` the buffer's contents are unspecified, so a caller must not read them. |
 | `sysSigBit` | value | `(-> Int Int)` |  | The `sigset_t` bit for a signal. SIGNAL N IS BIT N-1, an off-by-one that is easy to write the other way and yields the neighbouring signal's mask rather than an error. |
 | `sysSignalBlock` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Block the signals in `mask` so they become observable instead of fatal. `setbuf` is caller scratch of at least 16 bytes: the mask is written as one 64-bit word, and the kernel then copies ITS OWN `sigset_t` width out of the buffer - `sigsetBytes`, which is 4 on Darwin, 8 on Linux and 16 on FreeBSD. Sixteen covers every target, and the bytes between the word and that width are zeroed here rather than left to whatever the caller's buffer held, because on FreeBSD they are signals 65 through 128 and a stale byte there blocks one. Answers `(Result Int Error)`; `Ok 0` on success. Runs once, before a server forks, so that every worker inherits the mask. |
 | `netSignalOpen` | value | `(-> Int Int Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Watch the signals in `mask` on the readiness descriptor `pfd`, and answer a HANDLE to pass back to `netPollSignalAt` - the signal descriptor on Linux, and 0 on the BSDs, which need none. |
 | `netPollSignalAt` | value | `(-> Int Int Int Int (Option Int))` | `IO,Unsafe` | The signal named by event `i`, or `None` when that event is not a signal at all. `sigHandle` is what `netSignalOpen` answered and `scratch` is caller scratch of at least `sigInfoSize` bytes. |
 | `sysKill` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | Send a signal, which is how a test raises one against itself. |
-| `sysForkProcess` | value | `Int` | `IO,Unsafe` | Duplicating this process |
+| `sysForkProcess` | value | `Int` | `IO,Spawn,Unsafe` | Duplicating this process |
 | `sysTermStateBytes` | value | `Int` |  | How many bytes a saved terminal state occupies, which is how large the buffer a caller hands `sysTermSave`, `sysTermRaw` and `sysTermRestore` must be. 72, 36 or 44 depending on the target; 0 where there is no `termios` at all. |
 | `sysTermSizeBytes` | value | `Int` |  | The bytes `sysTermSize` writes. 8 on every target that has one; see the section header for why this number is here and not in `Sys.Platform`. |
 | `sysIsatty` | value | `(-> Int Bool)` | `Alloc,IO,Unsafe` | True when `fd` is a terminal. |
@@ -1167,13 +1167,13 @@ two differ.
 | `sysMlock` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | Lock `len` bytes at `addr` into memory, so the kernel never writes them to swap. The kernel may refuse: `RLIMIT_MEMLOCK` caps how much an unprivileged process may lock, and on Linux the default cap is a few megabytes. A refusal is an `Err` the caller decides about. |
 | `sysMunlock` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Unsafe` |  |
 | `sysExcludeFromCore` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | Keep `len` bytes at `addr` out of a core file (`MADV_DONTDUMP` on Linux, `MADV_NOCORE` on FreeBSD). Darwin has no such advice, and answers the unsupported sentinel. |
-| `sysWaitWord` | value | `(-> Int Int Int)` | `IO,Unsafe` | Block while the word at byte address `addr` - 8-aligned, inside a `sysMapShared` mapping - still holds `expected`. It returns when woken, when the word already differs on entry, or spuriously, so the caller re-checks its own condition every time. That is what makes a lost wake impossible: a waker changes the word BEFORE it wakes, so a waiter that read the old value either sees the new one on entry or is already in the queue the wake empties - with one caveat on Linux, which compares only the word's low 32 bits (FUTEX_WAIT, not PRIVATE: the key is the shared page): a waiter preempted across exactly a multiple of 2^32 changes would sleep through them. Darwin compares all 64 (UL_COMPARE_AND_WAIT64_SHARED = 6). Where `waitWordKind` is 0 it returns at once and the caller spins, which is correct and costs a core. No timeout here: `sysWaitWordTimeout` below is the timed form, and it pays for the timespec this one does not need. |
+| `sysWaitWord` | value | `(-> Int Int Int)` | `Block,IO,Unsafe` | Block while the word at byte address `addr` - 8-aligned, inside a `sysMapShared` mapping - still holds `expected`. It returns when woken, when the word already differs on entry, or spuriously, so the caller re-checks its own condition every time. That is what makes a lost wake impossible: a waker changes the word BEFORE it wakes, so a waiter that read the old value either sees the new one on entry or is already in the queue the wake empties - with one caveat on Linux, which compares only the word's low 32 bits (FUTEX_WAIT, not PRIVATE: the key is the shared page): a waiter preempted across exactly a multiple of 2^32 changes would sleep through them. Darwin compares all 64 (UL_COMPARE_AND_WAIT64_SHARED = 6). Where `waitWordKind` is 0 it returns at once and the caller spins, which is correct and costs a core. No timeout here: `sysWaitWordTimeout` below is the timed form, and it pays for the timespec this one does not need. |
 | `sysWakeWord` | value | `(-> Int Int)` | `IO` | Wake every binding blocked in `sysWaitWord` on `addr`: FUTEX_WAKE (1) for INT_MAX waiters, or `__ulock_wake` with UL_COMPARE_AND_WAIT64_SHARED \| ULF_WAKE_ALL (6 \| 0x100). Answers 0 for `sysWaitWord`'s reason: a wake with nobody waiting is not an error anyone can act on. |
 | `sysTimedOut` | value | `Int` |  | The `Error` code every timed operation in the concurrency modules answers when its time ran out: `chanRecvTimeout`, `chanSendTimeout`, `mutexLockTimeout`, a task past its deadline. NOT an errno: ETIMEDOUT is 60 on Darwin and FreeBSD and 110 on Linux, so a code borrowed from the kernel would need one comparison and one fixture per target. It is above 255 so that it can never be mistaken for a wait status, which is what `Task.ax` puts in the same field for a task that trapped. |
-| `sysWaitWordTimeout` | value | `(-> Int Int Int Int)` | `Alloc,IO,Mut,Unsafe` | Block while the word at `addr` still holds `expected`, for at most `nanos` nanoseconds. `sysWaitWord`'s contract - an 8-aligned word in a `sysMapShared` mapping, and every answer means "re-check your own condition" - plus a bound, and an answer that says why it returned: |
+| `sysWaitWordTimeout` | value | `(-> Int Int Int Int)` | `Alloc,Block,IO,Mut,Unsafe` | Block while the word at `addr` still holds `expected`, for at most `nanos` nanoseconds. `sysWaitWord`'s contract - an 8-aligned word in a `sysMapShared` mapping, and every answer means "re-check your own condition" - plus a bound, and an answer that says why it returned: |
 | `sysTimeoutMicros` | value | `(-> Int Int)` | `Alloc,IO,Unsafe` | Microseconds from the clock a timeout is measured on: the monotonic one where the platform has it and - DELIBERATELY, since nothing better is reachable without libSystem - the realtime clock on Darwin (`clockHasMonotonic` there says why). The timed loops above this file add only non-negative steps of this clock, each clamped to the slice the kernel was asked to wait, so a step of the realtime clock moves a wait by at most one slice; MM-PAR-12 states the bound. `buf` is 16 bytes of caller scratch. A clock that cannot be read answers 0, which a caller reads as no time having passed: its wait then ends on the kernel's own timeout rather than early. |
 | `sysChildPollBytes` | value | `Int` |  | Bytes of caller scratch `sysChildExited` needs: a `siginfo_t` is 104 bytes on Darwin and 128 on Linux. |
-| `sysChildExited` | value | `(-> Int Int (Result Bool Error))` | `Alloc,IO,Mut,Unsafe` | Has the child `pid` ended? Without reaping it: `Ok True` means it has exited or been killed and is waiting to be reaped - so a join on it will not block - and it is STILL this process's child, still waitable, its pid not free for reuse. `Ok False` means it is running. |
+| `sysChildExited` | value | `(-> Int Int (Result Bool Error))` | `Alloc,Block,IO,Mut,Unsafe` | Has the child `pid` ended? Without reaping it: `Ok True` means it has exited or been killed and is waiting to be reaped - so a join on it will not block - and it is STILL this process's child, still waitable, its pid not free for reuse. `Ok False` means it is running. |
 
 ## `Sys.Platform`
 
@@ -1195,9 +1195,9 @@ two differ.
 | `seekEnd` | value | `Int` |  |  |
 | `seekSet` | value | `Int` |  |  |
 | `spawnUsesPosixSpawn` | value | `Int` |  | Starting a child process. |
-| `sysPosixSpawn` | value | `Int` |  | posix_spawn - BSD 244. |
-| `sysWait4` | value | `Int` |  | wait4(pid, status, options, rusage) - BSD 7. |
-| `sysFork` | value | `Int` |  | fork() - BSD 2. `sysSpawn` does not reach it, because `spawnUsesPosixSpawn` selects `posix_spawn` here - but `sysForkProcess` does, and this used to be a placeholder 0 for that reason. |
+| `sysPosixSpawn` | value | `Int` | `Spawn` | posix_spawn - BSD 244. |
+| `sysWait4` | value | `Int` | `Block` | wait4(pid, status, options, rusage) - BSD 7. |
+| `sysFork` | value | `Int` | `Spawn` | fork() - BSD 2. `sysSpawn` does not reach it, because `spawnUsesPosixSpawn` selects `posix_spawn` here - but `sysForkProcess` does, and this used to be a placeholder 0 for that reason. |
 | `sysForkArg` | value | `Int` |  |  |
 | `sysExecve` | value | `Int` |  |  |
 | `sysUnlinkNum` | value | `Int` |  | unlink(path) - BSD 10. |
@@ -1248,7 +1248,7 @@ two differ.
 | `pollAddOp` | value | `Int` |  | EV_ADD and EV_DELETE, which coincide with EPOLL_CTL_ADD and EPOLL_CTL_DEL at 1 and 2. The agreement is luck rather than design, so both are named on both platforms instead of being assumed. |
 | `pollDelOp` | value | `Int` |  |  |
 | `pollSigsetSize` | value | `Int` |  | The size of the mask argument epoll_pwait takes and kevent does not. Zero here because nothing reads it; see the Linux files for why it must be exactly 8 there. |
-| `sysRandomNum` | value | `Int` |  |  |
+| `sysRandomNum` | value | `Int` | `Entropy` |  |
 | `randomIsGetentropy` | value | `Int` |  |  |
 | `randomMaxChunk` | value | `Int` |  |  |
 | `signalUsesSignalFd` | value | `Int` |  |  |
@@ -1295,11 +1295,11 @@ two differ.
 | `sysMunmapNum` | value | `Int` |  | munmap - BSD 73 |
 | `mapSharedAnon` | value | `Int` |  | MAP_SHARED \| MAP_ANON = 0x1 \| 0x1000: a fork keeps these pages the SAME pages, where the arena's MAP_PRIVATE pages become copies |
 | `waitWordKind` | value | `Int` |  | How a binding blocks on a shared word: 2, `__ulock_wait`/`__ulock_wake` with UL_COMPARE_AND_WAIT64_SHARED, which keys the wait on the page so a waiter and a waker in two processes over one MAP_SHARED page meet. Darwin has no futex. 1 is Linux `futex`; 0 is none (spin) |
-| `sysWaitWordNum` | value | `Int` |  | __ulock_wait(op, addr, value, timeout_us) - BSD 515 (SDK sys/syscall.h) |
+| `sysWaitWordNum` | value | `Int` | `Block` | __ulock_wait(op, addr, value, timeout_us) - BSD 515 (SDK sys/syscall.h) |
 | `sysWakeWordNum` | value | `Int` |  | __ulock_wake(op, addr, wake_value) - BSD 516 |
 | `eTimedOut` | value | `Int` |  | ETIMEDOUT - 60 here and on FreeBSD, 110 on Linux: what a timed `__ulock_wait` answers, negated, when its time ran out (`sysWaitWordTimeout`; measured -60 after a 200 ms wait). |
 | `childPollKind` | value | `Int` |  | How a parent looks at a child without reaping it (`sysChildExited`): 1, `waitid` with WNOWAIT, the answer read from `si_signo`. 2 is FreeBSD's `wait6`; 0 none. |
-| `sysWaitIdNum` | value | `Int` |  | waitid(idtype, id, infop, options) - BSD 173 |
+| `sysWaitIdNum` | value | `Int` | `Block` | waitid(idtype, id, infop, options) - BSD 173 |
 | `waitIdPidType` | value | `Int` |  | P_PID - 1 here and on Linux, 0 on FreeBSD |
 | `waitPollOptions` | value | `Int` |  | WEXITED \| WNOHANG \| WNOWAIT = 0x04 \| 0x01 \| 0x20 (SDK sys/wait.h) |
 | `mapPrivateAnon` | value | `Int` |  | MAP_PRIVATE \| MAP_ANON = 0x2 \| 0x1000 |
@@ -1330,9 +1330,9 @@ two differ.
 | `syncNotHeld` | value | `Int` |  |  |
 | `syncProbeNanos` | value | `Int` |  | How long a waiter sleeps before it looks at the holder: 100 ms. |
 | `mutexNew` | value | `(Result Mutex Error)` | `Alloc,IO,Mut` | A fresh mutex, free. `Err` the mapping's error, or EMFILE (24) when the handle table has no slot left. |
-| `mutexLock` | value | `(-> Mutex (Result MutexGuard Error))` | `Alloc,IO,Mut` | Wait until this binding holds the lock. `Ok` the guard `mutexUnlock` wants back; `Err` code `syncOwnerDead` if the holder is found dead while this waits, or the mutex was poisoned before. |
+| `mutexLock` | value | `(-> Mutex (Result MutexGuard Error))` | `Alloc,Block,IO,Mut` | Wait until this binding holds the lock. `Ok` the guard `mutexUnlock` wants back; `Err` code `syncOwnerDead` if the holder is found dead while this waits, or the mutex was poisoned before. |
 | `mutexTryLock` | value | `(-> Mutex (Option MutexGuard))` | `IO,Mut` | Take the lock if it is free right now: `Some` the guard, `None` if it is held - or poisoned, which `mutexOwnerDead` tells apart. |
-| `mutexLockTimeout` | value | `(-> Mutex Int (Result MutexGuard Error))` | `Alloc,IO,Mut,Unsafe` | `mutexLock`, waiting at most `nanos` nanoseconds. `Ok` the guard; `Err` code `sysTimedOut` when the time ran out with the lock still held by a holder that looks alive; `Err` code `syncOwnerDead` when the holder was found dead. A wait nobody ends is never shorter than `nanos` on a monotonic clock (MM-PAR-12 states Darwin's bound). A non-positive `nanos` is `mutexTryLock` with a reason. |
+| `mutexLockTimeout` | value | `(-> Mutex Int (Result MutexGuard Error))` | `Alloc,Block,IO,Mut,Unsafe` | `mutexLock`, waiting at most `nanos` nanoseconds. `Ok` the guard; `Err` code `sysTimedOut` when the time ran out with the lock still held by a holder that looks alive; `Err` code `syncOwnerDead` when the holder was found dead. A wait nobody ends is never shorter than `nanos` on a monotonic clock (MM-PAR-12 states Darwin's bound). A non-positive `nanos` is `mutexTryLock` with a reason. |
 | `mutexUnlock` | value | `(-> Mutex MutexGuard (Result Int Error))` | `Alloc,IO,Mut` | Let the next holder in. `mg` must be the guard this binding's lock call answered: any other - on a free mutex, a stale one, a sibling's, another mutex's - is `Err` code `syncNotHeld` and leaves the lock as it was. Exactly one unlock per acquisition succeeds, however the calls interleave. |
 | `mutexOwnerDead` | value | `(-> Mutex Bool)` |  | Whether a holder was found dead holding this mutex (the poisoning in the header). |
 | `mutexFree` | value | `(-> Mutex (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Unmap the mutex. Only once no binding can still reach it - after the `parallel` form that used it. Takes no lock, so it is also the one safe call on a poisoned mutex. The handle is retired before the page is unmapped, so every call made after this one - a second `mutexFree` included - traps with status 85. |

@@ -209,6 +209,7 @@
 
 (:: apiChecks (-> Tally Int))
 ;@axiom:effect(io)
+;@axiom:effect(entropy)
 (fn (apiChecks t)
   (let ((nonce (unwrapOr (aeadNonceFromBytes "0123456789ab") (AeadNonce ""))))
     {
@@ -292,6 +293,7 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(entropy)
 (fn (main)
   (let (
     (cavp (tallyNew "gcm-cavp"))

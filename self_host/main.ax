@@ -408,6 +408,8 @@
 (pub :: compileFile (-> String String Int Int String))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (pub fn (compileFile fileName tname doEmit needMain)
   ; `--crate DIR` first: a stale or missing binding module is
   ; regenerated and a missing archive built, before the module
@@ -786,6 +788,8 @@
 ; scripts use it, and they are the only gates that watch this compiler.
 (pub :: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (pub fn (main)
   ; Refuse a malformed invocation BEFORE anything acts on it. This
   ; is what stops `axiom fmt --check=true FILE` and
@@ -1182,6 +1186,8 @@
 (pub :: testRunFile (-> String String Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (pub fn (testRunFile file filter)
   (let (
     (src (readFile file))
@@ -1300,6 +1306,8 @@
 (pub :: testMain Int)
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (pub fn (testMain)
   (let (
     (target (positionalFrom operandStart))
@@ -1460,6 +1468,8 @@
 ; code.
 (pub :: fetchCmd Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (pub fn (fetchCmd)
   (let ((p (positionalIndex operandStart)))
     (if (>= p 0)
@@ -1488,6 +1498,8 @@
 (pub :: fetchUrls (-> (Vec Int) String Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (pub fn (fetchUrls urls base i)
   (if (>= i (vecLen urls))
     (if (== i 0)
@@ -1535,6 +1547,8 @@
 ; cannot reach a checkout or anything else under the manifest.
 (pub :: fetchDiscard (-> String Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (pub fn (fetchDiscard tmp)
   (if (isDir tmp)
     (let ((args vecNew))
@@ -1554,6 +1568,8 @@
 ; callers tell the two apart by sign).
 (pub :: fetchClone (-> String String Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (pub fn (fetchClone url dest)
   (let ((args vecNew))
     {
@@ -1610,6 +1626,8 @@
 (pub :: runSubcommand (-> String Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (pub fn (runSubcommand cmd)
   (if (|| (strEq cmd "help") (|| (strEq cmd "--help") (strEq cmd "-h")))
     ; `axiom help build` answers for `build`. The operand used to be

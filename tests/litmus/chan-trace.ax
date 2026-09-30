@@ -27,6 +27,7 @@
 ; Send s*1000+1 .. s*1000+n; answer how many went in.
 (:: send (-> Chan Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (send ch s n)
   (let (
     (mut k 1)
@@ -61,6 +62,7 @@
 ; Receive to the end of the stream; answer sum * 4096 + count.
 (:: drain (-> Chan Int))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (drain ch)
   (let (
     (mut sum 0)

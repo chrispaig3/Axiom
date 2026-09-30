@@ -86,6 +86,7 @@
 ;@axiom:restrict(no-unsafe)
 (:: fillsAt Int)
 ;@axiom:effect(io)
+;@axiom:effect(entropy)
 (fn (fillsAt)
   (__syscall3 sysRandomNum 4096 64 0))
 

@@ -1,2 +1,2 @@
-E AX3004 1061-handle-mutex-as-chan.ax:23:19-20 type-mismatch "type mismatch: expected Chan, found Mutex" #"this has type `Mutex`, expected `Chan`"
-E AX3004 1061-handle-mutex-as-chan.ax:24:29-30 type-mismatch "type mismatch: expected Mutex, found Chan" #"this has type `Chan`, expected `Mutex`"
+E AX3004 1061-handle-mutex-as-chan.ax:25:19-20 type-mismatch "type mismatch: expected Chan, found Mutex" #"this has type `Mutex`, expected `Chan`"
+E AX3004 1061-handle-mutex-as-chan.ax:26:29-30 type-mismatch "type mismatch: expected Mutex, found Chan" #"this has type `Chan`, expected `Mutex`"

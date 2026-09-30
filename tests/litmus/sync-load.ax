@@ -73,6 +73,7 @@
 (:: nap (-> Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (nap idle ms)
   {
     (sysWaitWordTimeout idle 0 (* ms 1000000))
@@ -104,6 +105,7 @@
 (:: bump (-> Mutex Int Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (bump m cell n locked)
   {
     (arrive (+ cell 8))
@@ -178,6 +180,7 @@
 (:: holdFor (-> Mutex Int Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (holdFor m flag idle ms)
   (match (mutexLock m)
     ((Ok g)
@@ -194,6 +197,7 @@
 (:: lockAfter (-> Mutex Int Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (lockAfter m flag ms what)
   (let ((buf (memAlloc 16)))
     {
@@ -217,6 +221,7 @@
 
 (:: sendLater (-> Chan Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (sendLater ch idle ms)
   {
     (nap idle ms)
@@ -228,6 +233,7 @@
 (:: recvWithin (-> Chan Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (recvWithin ch ms)
   (let ((buf (memAlloc 16)))
     (let ((t0 (sysTimeoutMicros buf)))
@@ -285,6 +291,7 @@
 (:: holdForever (-> Mutex Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (holdForever m flag idle)
   (match (mutexLock m)
     ((Ok g)
@@ -354,6 +361,7 @@
 (:: lockAndExit (-> Mutex Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (lockAndExit m flag)
   (match (mutexLock m)
     ((Ok g)
@@ -369,6 +377,7 @@
 (:: spawnExit (-> Mutex Int Spawn))
 ;@axiom:effect(io)
 ;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (spawnExit m flag)
   (__proc_spawn
     (lambda (x) (lockAndExit m flag))
@@ -377,6 +386,7 @@
 (:: awaitFlag (-> Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (awaitFlag flag)
   {
     (while (== (memGetWord flag 0) 0)
@@ -388,6 +398,7 @@
 (:: timedLock (-> Mutex Int String Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (timedLock m ms what)
   (let ((buf (memAlloc 16)))
     (let ((t0 (sysTimeoutMicros buf)))
@@ -466,6 +477,7 @@
 (:: staleDoubler (-> Mutex Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (staleDoubler m cell n)
   {
     (arrive3 (+ cell 24))
@@ -489,6 +501,7 @@
 (:: staleUser (-> Mutex Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (staleUser m cell n)
   {
     (arrive3 (+ cell 24))
@@ -585,6 +598,7 @@
 
 (:: misuse Int)
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (misuse)
   (match (mutexNew)
     ((Ok m)

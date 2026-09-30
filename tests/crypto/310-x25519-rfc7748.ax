@@ -80,6 +80,7 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(entropy)
 (fn (main)
   (let ((t (tallyNew "x25519-rfc7748")) (api (tallyNew "x25519-api")))
     {

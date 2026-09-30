@@ -1,15 +1,15 @@
 [1;31merror[AX3004][0m[1m: type mismatch: expected Chan, found Mutex[0m
-  [1;34m--> [0m1061-handle-mutex-as-chan.ax:23:19
+  [1;34m--> [0m1061-handle-mutex-as-chan.ax:25:19
 [1;34m   |[0m
-[1;34m23 |[0m             (send m 1)
+[1;34m25 |[0m             (send m 1)
 [1;34m   |[0m                   [1;31m^ this has type `Mutex`, expected `Chan`[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
 
 [1;31merror[AX3004][0m[1m: type mismatch: expected Mutex, found Chan[0m
-  [1;34m--> [0m1061-handle-mutex-as-chan.ax:24:29
+  [1;34m--> [0m1061-handle-mutex-as-chan.ax:26:29
 [1;34m   |[0m
-[1;34m24 |[0m             (mutexOwnerDead c)
+[1;34m26 |[0m             (mutexOwnerDead c)
 [1;34m   |[0m                             [1;31m^ this has type `Chan`, expected `Mutex`[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation

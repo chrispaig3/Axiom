@@ -133,6 +133,7 @@
 (pub :: ed25519KeyGenerate (Result Ed25519SecretKey Error))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(entropy)
 (pub fn (ed25519KeyGenerate)
   (match (secretBlockNew ed25519Kind ed25519BlockBytes)
     ((Err e) (Err e))

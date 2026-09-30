@@ -38,6 +38,7 @@
 ; ------------------------------------------------------------------
 ; 1 when the kernel entropy call is available on this target.
 (:: randomHasKernel Int)
+;@axiom:effect(entropy)
 (fn (randomHasKernel)
   (if (== usesSyscallAbi 0)
     0
@@ -109,6 +110,7 @@
 (pub :: randomFill (-> Int Int (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(entropy)
 ;@axiom:precondition(`p` names `n` live writable bytes)
 (pub fn (randomFill p n)
   (if (< n 0)
@@ -126,6 +128,7 @@
 ; Whether this target has a secure entropy source at all. A program
 ; can ask before it depends on one.
 (pub :: randomAvailable Bool)
+;@axiom:effect(entropy)
 (pub fn (randomAvailable)
   (if (== randomHasKernel 1)
     true
@@ -140,6 +143,7 @@
 (pub :: secureRandomBytes (-> Int (Result String Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(entropy)
 (pub fn (secureRandomBytes n)
   (if (< n 0)
     (cryptoLengthErr "a negative byte count" "secureRandomBytes")
@@ -152,6 +156,7 @@
 (pub :: randomWord (Result Int Error))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(entropy)
 (pub fn (randomWord)
   (let ((b (memAlloc 8)))
     (match (randomFill b 8)
@@ -182,6 +187,7 @@
 (:: belowFrom (-> Int Int Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(entropy)
 ;@axiom:precondition(`st` names a live three-word state: buffer address, word count, next index)
 (fn (belowFrom st bound mask k)
   (let (
@@ -242,6 +248,7 @@
 (pub :: randomBelow (-> Int (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(entropy)
 (pub fn (randomBelow bound)
   (if (< bound 1)
     (cryptoErr cryptoInvalidLength "the bound must be at least 1" "randomBelow")
@@ -258,6 +265,7 @@
 ; range must fit in an Int.
 (pub :: randomRange (-> Int Int (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(entropy)
 (pub fn (randomRange lo hi)
   (if (<= hi lo)
     (cryptoErr cryptoInvalidLength "the range is empty" "randomRange")
@@ -275,6 +283,7 @@
 (pub :: randomShuffle (-> (Vec a) (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(entropy)
 (pub fn (randomShuffle v)
   (let (
     (n (vecLen v))
@@ -312,6 +321,7 @@
 ; `n` random bytes as lower-case hex (2n characters).
 (pub :: randomTokenHex (-> Int (Result String Error)))
 ;@axiom:effect(io)
+;@axiom:effect(entropy)
 (pub fn (randomTokenHex n)
   (match (secureRandomBytes n)
     ((Ok b) (Ok (hexEncode b)))
@@ -320,6 +330,7 @@
 ; `n` random bytes as URL-safe base64 without padding.
 (pub :: randomTokenUrl (-> Int (Result String Error)))
 ;@axiom:effect(io)
+;@axiom:effect(entropy)
 (pub fn (randomTokenUrl n)
   (match (secureRandomBytes n)
     ((Ok b) (Ok (b64UrlEncode b)))

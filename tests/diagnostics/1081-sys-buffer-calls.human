@@ -203,9 +203,9 @@
    [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
 
 [1;31merror[AX3073][0m[1m: `fillsAt` calls `sysRandomBytes`, whose safety depends on its caller, and its declaration does not say so[0m
-   [1;34m--> [0m1081-sys-buffer-calls.ax:111:4
+   [1;34m--> [0m1081-sys-buffer-calls.ax:112:4
 [1;34m    |[0m
-[1;34m111 |[0m   (sysRandomBytes buf 64))
+[1;34m112 |[0m   (sysRandomBytes buf 64))
 [1;34m    |[0m    [1;31m^^^^^^^^^^^^^^ a precondition interface[0m
 [1;34m    |[0m
    [1;34m = [0m[1mnote: [0m`sysRandomBytes` requires: `buf` names `n` live writable bytes. A call to it is safe only when its caller makes that true, which is what `effect(unsafe)` here says this declaration does
@@ -215,9 +215,9 @@
    [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
 
 [1;31merror[AX3073][0m[1m: `savesAt` calls `sysTermSave`, whose safety depends on its caller, and its declaration does not say so[0m
-   [1;34m--> [0m1081-sys-buffer-calls.ax:116:4
+   [1;34m--> [0m1081-sys-buffer-calls.ax:117:4
 [1;34m    |[0m
-[1;34m116 |[0m   (sysTermSave 0 buf))
+[1;34m117 |[0m   (sysTermSave 0 buf))
 [1;34m    |[0m    [1;31m^^^^^^^^^^^ a precondition interface[0m
 [1;34m    |[0m
    [1;34m = [0m[1mnote: [0m`sysTermSave` requires: `save` names `sysTermStateBytes` live writable bytes. A call to it is safe only when its caller makes that true, which is what `effect(unsafe)` here says this declaration does
@@ -227,9 +227,9 @@
    [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
 
 [1;31merror[AX3073][0m[1m: `restoresAt` calls `sysTermRestore`, whose safety depends on its caller, and its declaration does not say so[0m
-   [1;34m--> [0m1081-sys-buffer-calls.ax:121:4
+   [1;34m--> [0m1081-sys-buffer-calls.ax:122:4
 [1;34m    |[0m
-[1;34m121 |[0m   (sysTermRestore 0 buf))
+[1;34m122 |[0m   (sysTermRestore 0 buf))
 [1;34m    |[0m    [1;31m^^^^^^^^^^^^^^ a precondition interface[0m
 [1;34m    |[0m
    [1;34m = [0m[1mnote: [0m`sysTermRestore` requires: `state` names `sysTermStateBytes` live bytes a save filled. A call to it is safe only when its caller makes that true, which is what `effect(unsafe)` here says this declaration does
@@ -239,9 +239,9 @@
    [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
 
 [1;31merror[AX3073][0m[1m: `sizesTermAt` calls `sysTermSize`, whose safety depends on its caller, and its declaration does not say so[0m
-   [1;34m--> [0m1081-sys-buffer-calls.ax:126:4
+   [1;34m--> [0m1081-sys-buffer-calls.ax:127:4
 [1;34m    |[0m
-[1;34m126 |[0m   (sysTermSize 0 buf))
+[1;34m127 |[0m   (sysTermSize 0 buf))
 [1;34m    |[0m    [1;31m^^^^^^^^^^^ a precondition interface[0m
 [1;34m    |[0m
    [1;34m = [0m[1mnote: [0m`sysTermSize` requires: `buf` names `sysTermSizeBytes` live writable bytes. A call to it is safe only when its caller makes that true, which is what `effect(unsafe)` here says this declaration does
@@ -251,9 +251,9 @@
    [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
 
 [1;31merror[AX3073][0m[1m: `unmapsAt` calls `sysUnmapShared`, whose safety depends on its caller, and its declaration does not say so[0m
-   [1;34m--> [0m1081-sys-buffer-calls.ax:131:4
+   [1;34m--> [0m1081-sys-buffer-calls.ax:132:4
 [1;34m    |[0m
-[1;34m131 |[0m   (sysUnmapShared addr 4096))
+[1;34m132 |[0m   (sysUnmapShared addr 4096))
 [1;34m    |[0m    [1;31m^^^^^^^^^^^^^^ a precondition interface[0m
 [1;34m    |[0m
    [1;34m = [0m[1mnote: [0m`sysUnmapShared` requires: `addr` and `len` name a whole mapping `sysMapShared` answered, and nothing reads or writes it afterwards. A call to it is safe only when its caller makes that true, which is what `effect(unsafe)` here says this declaration does
@@ -263,9 +263,9 @@
    [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
 
 [1;31merror[AX3073][0m[1m: `waitsAt` calls `sysWaitWord`, whose safety depends on its caller, and its declaration does not say so[0m
-   [1;34m--> [0m1081-sys-buffer-calls.ax:136:4
+   [1;34m--> [0m1081-sys-buffer-calls.ax:138:4
 [1;34m    |[0m
-[1;34m136 |[0m   (sysWaitWord addr 0))
+[1;34m138 |[0m   (sysWaitWord addr 0))
 [1;34m    |[0m    [1;31m^^^^^^^^^^^ a precondition interface[0m
 [1;34m    |[0m
    [1;34m = [0m[1mnote: [0m`sysWaitWord` requires: `addr` names a live, 8-byte aligned word. A call to it is safe only when its caller makes that true, which is what `effect(unsafe)` here says this declaration does
@@ -275,9 +275,9 @@
    [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
 
 [1;31merror[AX3073][0m[1m: `readsLitAt` calls `readFileLit`, whose safety depends on its caller, and its declaration does not say so[0m
-   [1;34m--> [0m1081-sys-buffer-calls.ax:141:4
+   [1;34m--> [0m1081-sys-buffer-calls.ax:143:4
 [1;34m    |[0m
-[1;34m141 |[0m   (readFileLit path))
+[1;34m143 |[0m   (readFileLit path))
 [1;34m    |[0m    [1;31m^^^^^^^^^^^ a precondition interface[0m
 [1;34m    |[0m
    [1;34m = [0m[1mnote: [0m`readFileLit` requires: `cstr` names live NUL-terminated bytes. A call to it is safe only when its caller makes that true, which is what `effect(unsafe)` here says this declaration does
@@ -287,28 +287,28 @@
    [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
 
 [1;31merror[AX3010][0m[1m: AXTAG mismatch on `pureRead`: `effect(pure)` claim contradicted: body performs Alloc, IO, Unsafe[0m
-   [1;34m--> [0m1081-sys-buffer-calls.ax:145:6
+   [1;34m--> [0m1081-sys-buffer-calls.ax:147:6
 [1;34m    |[0m
-[1;34m145 |[0m (fn (pureRead buf)
+[1;34m147 |[0m (fn (pureRead buf)
 [1;34m    |[0m      [1;31m^^^^^^^^[0m
 [1;34m    |[0m
    [1;34m = [0m[1;32mhelp: [0man AXTAG is a CLAIM, and this is the compiler answering it: make the body match the tag, or correct the tag to what the body does. Deleting the tag also silences this, and an untagged function is never checked - but that WITHDRAWS the claim rather than answering it, and every reader that trusted the tag loses the guarantee. A claim the walk cannot check is AX3037 and stays a warning; this code fires only where the walk has an answer
    [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3010` for a full explanation
 
 [1;31merror[AX3049][0m[1m: `noUnsafe` claims `restrict(no-unsafe)` and the body performs Unsafe: noUnsafe -> Sys$sysRandomBytes[0m
-   [1;34m--> [0m1081-sys-buffer-calls.ax:151:6
+   [1;34m--> [0m1081-sys-buffer-calls.ax:154:6
 [1;34m    |[0m
-[1;34m151 |[0m (fn (noUnsafe buf)
+[1;34m154 |[0m (fn (noUnsafe buf)
 [1;34m    |[0m      [1;31m^^^^^^^^[0m
 [1;34m    |[0m
-   [1;34m = [0m[1mnote: [0mSys$sysRandomBytes (stdlib/Sys.ax:2606:10-24)
+   [1;34m = [0m[1mnote: [0mSys$sysRandomBytes (stdlib/Sys.ax:2650:10-24)
    [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
    [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
 
 [1;31merror[AX3073][0m[1m: `noUnsafe` calls `sysRandomBytes`, whose safety depends on its caller, and its declaration does not say so[0m
-   [1;34m--> [0m1081-sys-buffer-calls.ax:152:4
+   [1;34m--> [0m1081-sys-buffer-calls.ax:155:4
 [1;34m    |[0m
-[1;34m152 |[0m   (sysRandomBytes buf 64))
+[1;34m155 |[0m   (sysRandomBytes buf 64))
 [1;34m    |[0m    [1;31m^^^^^^^^^^^^^^ a precondition interface[0m
 [1;34m    |[0m
    [1;34m = [0m[1mnote: [0m`sysRandomBytes` requires: `buf` names `n` live writable bytes. A call to it is safe only when its caller makes that true, which is what `effect(unsafe)` here says this declaration does

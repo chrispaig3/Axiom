@@ -33,6 +33,7 @@
 (:: forever (-> Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (forever idle)
   {
     (while (== 0 0)
@@ -42,6 +43,7 @@
 
 (:: first (-> Int Int String))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (first idle i)
   (if (== i 3)
     (fmtInt (/ 10 (- i 3)))
@@ -56,6 +58,7 @@
 
 (:: third (-> Int Int String))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (third idle i)
   (if (== i 0)
     (fmtInt (/ 1 i))

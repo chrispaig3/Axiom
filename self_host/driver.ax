@@ -98,6 +98,8 @@
 (pub :: runTool (-> String (Vec Int) Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (pub fn (runTool tool args)
   (let ((n (vecLen args)))
     (let ((v (memAlloc (* (+ n 2) 8))))
@@ -186,6 +188,8 @@
 ; overflows its stack.
 (pub :: runOpt (-> String Int String String))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (pub fn (runOpt llPath optLevel outPath)
   (if (<= optLevel 0)
     llPath
@@ -394,6 +398,8 @@
 
 (pub :: assembleAndLink (-> String String String Int (Vec Int) Bool Bool Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (pub fn (assembleAndLink llPath objPath outPath optLevel linkArgs isWin isBaremetal)
   (let ((lvl 
     (if (> optLevel 3)
@@ -585,6 +591,8 @@
 (pub :: prepareCrates Int)
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (pub fn (prepareCrates)
   (let (
     (crates crateDirsOf)
@@ -602,6 +610,8 @@
 
 (pub :: prepareCrate (-> String Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (pub fn (prepareCrate dirIn)
   (let ((dir (pathWithSlash dirIn)))
     (let ((pkg (cargoPackageName (strConcat dir "Cargo.toml"))))
@@ -648,6 +658,8 @@
 ; PATH answers below zero and nothing is written.
 (pub :: refreshBindings (-> String String String Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (pub fn (refreshBindings dir stem module)
   (let ((modPath (strConcat (strConcat dir "axiom/") (strConcat module ".ax"))))
     (let ((checkArgs 
@@ -721,6 +733,8 @@
 
 (pub :: buildCrate (-> String String Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (pub fn (buildCrate dir pkg)
   (let ((args 
     (let ((v vecNew))
@@ -749,6 +763,8 @@
 ; driver redirects no descriptor, so a tool that talks anyway is heard.
 (pub :: runToolQuiet (-> String (Vec Int) Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (pub fn (runToolQuiet tool args)
   (runTool tool args))
 
@@ -1893,6 +1909,8 @@
 ; what llc consumed.
 (pub :: buildToExecutable (-> String String Int Int (Vec Int) Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (pub fn (buildToExecutable ir outPath optLevel keepLl linkArgs)
   ; Grounding FIRST, before a byte is written or a tool is spawned: an
   ; ungrounded symbol is a defect in the program, and reporting it after

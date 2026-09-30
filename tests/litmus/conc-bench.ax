@@ -139,6 +139,7 @@
 (:: bump (-> Mutex Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (bump m cell n)
   {
     (for i 0 n
@@ -200,6 +201,7 @@
 ; ---- chan --------------------------------------------------------------
 (:: produce (-> Chan Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (produce ch n)
   {
     (for i 1 (+ n 1)
@@ -211,6 +213,7 @@
 (:: drain (-> Chan Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (drain ch cell)
   (let (
     (mut sum 0)
@@ -261,6 +264,7 @@
 (:: chanOneRun (-> Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 ;@axiom:precondition(`buf` names 16 live writable bytes)
 (fn (chanOneRun buf n)
   (match (chanNew 64)
@@ -510,6 +514,7 @@
 (:: pinger (-> Chan Chan Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 ;@axiom:precondition(`log` names `n` live words)
 (fn (pinger c1 c2 log n)
   (let ((buf (memAlloc 16)))
@@ -528,6 +533,7 @@
 
 (:: ponger (-> Chan Chan Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (ponger c1 c2 n)
   (let ((mut sum 0))
     {

@@ -56,6 +56,7 @@
 (:: main Int)
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(entropy)
 (fn (main)
   (let ((a (memAlloc 1000)))
     (let ((b (memAlloc 64)))

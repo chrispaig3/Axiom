@@ -62,6 +62,7 @@
 ; ---- misuse ---------------------------------------------------------------
 (:: freedSend Int)
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (freedSend)
   (match (chanNew 4)
     ((Ok c)
@@ -78,6 +79,7 @@
 
 (:: freedLock Int)
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (freedLock)
   (match (mutexNew)
     ((Ok m)
@@ -224,6 +226,7 @@
 
 (:: sendAfter (-> Chan Int))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (sendAfter c)
   (__axiom_recover
     __axiom_arena_mark

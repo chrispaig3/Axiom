@@ -79,6 +79,7 @@
 (:: contend (-> Mutex Int Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (contend m res k ms)
   (let (
     (buf (memAlloc 16))
@@ -199,6 +200,7 @@
 ; Lock `m` within `ms` milliseconds, or wait for ever when `ms` is 0.
 (:: lockWithin (-> Mutex Int (Result MutexGuard Error)))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (lockWithin m ms)
   (if (> ms 0)
     (mutexLockTimeout m (* ms 1000000))
@@ -211,6 +213,7 @@
 (:: inverted (-> Int Mutex Mutex Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (inverted k first second bar ms)
   (let ((buf (memAlloc 16)))
     (match (mutexLock first)
@@ -239,6 +242,7 @@
 ; Both sides take `a` and then `b`, the order that cannot deadlock.
 (:: ordered (-> Mutex Mutex Int))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (ordered a b)
   (match (mutexLock a)
     ((Ok g)
@@ -297,6 +301,7 @@
 (:: waitFor (-> Int Chan Chan Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (waitFor k mine theirs ms)
   (let ((buf (memAlloc 16)))
     (if (> ms 0)
@@ -324,6 +329,7 @@
 ; The control: this side sends first, then receives the answer.
 (:: sendFirst (-> Chan Chan Int))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (sendFirst mine theirs)
   (if (chanSend theirs 7)
     (match (chanRecv mine)

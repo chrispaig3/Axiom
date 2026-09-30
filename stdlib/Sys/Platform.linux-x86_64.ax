@@ -86,6 +86,7 @@
 ; fork ignores whatever is in the argument registers, so passing it is
 ; harmless here and keeps one call site in portable code.
 (pub :: sysFork Int)
+;@axiom:syscall(spawn)
 (pub fn (sysFork)
   57)
 
@@ -98,12 +99,14 @@
   59)
 
 (pub :: sysWait4 Int)
+;@axiom:syscall(block)
 (pub fn (sysWait4)
   61)
 
 ; Unused on Linux, defined so `Sys.ax` type-checks against every
 ; platform module.
 (pub :: sysPosixSpawn Int)
+;@axiom:syscall(spawn)
 (pub fn (sysPosixSpawn)
   0)
 
@@ -438,6 +441,7 @@
 ; differs by target.
 ; --------------------------------------------------------------------
 (pub :: sysRandomNum Int)
+;@axiom:syscall(entropy)
 (pub fn (sysRandomNum)
   318)
 
@@ -821,6 +825,7 @@
 
 ; futex - 202, for the wait
 (pub :: sysWaitWordNum Int)
+;@axiom:syscall(block)
 (pub fn (sysWaitWordNum)
   202)
 
@@ -843,6 +848,7 @@
 
 ; waitid(which, upid, infop, options, ru) - 247
 (pub :: sysWaitIdNum Int)
+;@axiom:syscall(block)
 (pub fn (sysWaitIdNum)
   247)
 

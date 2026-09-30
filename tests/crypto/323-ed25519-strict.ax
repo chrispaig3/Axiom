@@ -57,6 +57,7 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(entropy)
 (fn (main)
   (let ((t (tallyNew "ed25519-strict")) (api (tallyNew "ed25519-api")))
     {

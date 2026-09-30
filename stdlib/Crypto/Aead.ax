@@ -89,6 +89,7 @@
 ; says why.
 (pub :: aeadNonceRandom (Result AeadNonce Error))
 ;@axiom:effect(io)
+;@axiom:effect(entropy)
 (pub fn (aeadNonceRandom)
   (match (secureRandomBytes 12)
     ((Ok b) (Ok (AeadNonce b)))

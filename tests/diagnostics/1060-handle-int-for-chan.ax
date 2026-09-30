@@ -11,6 +11,7 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (main)
   (match (chanNew 4)
     ((Ok c)

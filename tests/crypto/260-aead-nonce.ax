@@ -54,6 +54,7 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(entropy)
 (fn (main)
   (let (
     (t (tallyNew "aead-nonce-sequence"))

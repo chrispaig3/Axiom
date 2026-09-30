@@ -201,6 +201,7 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(entropy)
 (fn (main)
   (let (
     (rfc (tallyNew "hmac-rfc4231"))

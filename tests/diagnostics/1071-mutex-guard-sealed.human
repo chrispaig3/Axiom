@@ -1,7 +1,7 @@
 [1;31merror[AX3085][0m[1m: only module `Sync` can make a `MutexGuard`[0m
-  [1;34m--> [0m1071-mutex-guard-sealed.ax:32:35
+  [1;34m--> [0m1071-mutex-guard-sealed.ax:33:35
 [1;34m   |[0m
-[1;34m32 |[0m             (done (mutexUnlock m (MutexGuard 5)))
+[1;34m33 |[0m             (done (mutexUnlock m (MutexGuard 5)))
 [1;34m   |[0m                                   [1;31m^^^^^^^^^^ built outside its module[0m
 [1;34m   |[0m
   [1;34m = [0m[1mnote: [0ma word struct is sealed, so every value of its type is one its module made and no other code can forge one (docs/memory-model.md MM-VAL-10a)
@@ -9,9 +9,9 @@
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3085` for a full explanation
 
 [1;31merror[AX3086][0m[1m: only module `Sync` can read field `serial` of `MutexGuard`[0m
-  [1;34m--> [0m1071-mutex-guard-sealed.ax:33:18
+  [1;34m--> [0m1071-mutex-guard-sealed.ax:34:18
 [1;34m   |[0m
-[1;34m33 |[0m             (+ g.serial 1)
+[1;34m34 |[0m             (+ g.serial 1)
 [1;34m   |[0m                  [1;31m^^^^^^ read outside its module[0m
 [1;34m   |[0m
   [1;34m = [0m[1mnote: [0ma word struct is sealed: what its word means is its module's business, and code that read it could hand the same word to something else (docs/memory-model.md MM-VAL-10a)
@@ -19,9 +19,9 @@
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3086` for a full explanation
 
 [1;31merror[AX3064][0m[1m: a concurrent binding captures `g`, which has type `MutexGuard` - a handle its module did not declare `shared`[0m
-  [1;34m--> [0m1071-mutex-guard-sealed.ax:36:39
+  [1;34m--> [0m1071-mutex-guard-sealed.ax:37:39
 [1;34m   |[0m
-[1;34m36 |[0m               (b (done (mutexUnlock m g)))
+[1;34m37 |[0m               (b (done (mutexUnlock m g)))
 [1;34m   |[0m                                       [1;31m^ `g` is bound outside this binding[0m
 [1;34m   |[0m
   [1;34m = [0m[1mnote: [0mMM-PAR-6: a word struct crosses into a concurrent binding only when its module declares it `shared`, which says every operation on it is safe from several bindings at once; `__proc_spawn` names the isolated lowering and is exempt

@@ -46,6 +46,7 @@
 (:: firstLook (-> Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (firstLook pid pbuf)
   (match (sysChildExited pid pbuf)
     ((Ok b) (bit b))
@@ -54,6 +55,7 @@
 (:: awaitEnd (-> Int Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (awaitEnd pid pbuf idle)
   (let ((mut seen 0))
     {
@@ -75,6 +77,7 @@
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 ;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (spawnWaiter w)
   (__proc_spawn
     (lambda (x)

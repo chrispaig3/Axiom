@@ -673,6 +673,7 @@
 (pub :: randomBytes (-> Int (Result String Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(entropy)
 (pub fn (randomBytes n)
   (if (< n 0)
     __indexTrap

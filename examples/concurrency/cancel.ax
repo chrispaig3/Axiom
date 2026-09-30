@@ -49,6 +49,7 @@
 (:: nap (-> Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (nap idle ms)
   {
     (sysWaitWordTimeout idle 0 (* ms 1000000))
@@ -59,6 +60,7 @@
 (:: shard (-> Int Int CancelToken Int String))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (shard pids idle tok s)
   {
     (memSetWord pids s sysGetPid)

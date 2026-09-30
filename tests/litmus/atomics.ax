@@ -572,6 +572,7 @@
 (:: arriveAll (-> Int Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (arriveAll ctr round parties)
   (let (
     (mut spins 0)
@@ -636,6 +637,7 @@
 (:: iriwWriter (-> Int Int Int Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (iriwWriter near far ctr n mode)
   (let ((mut i 0))
     {
@@ -662,6 +664,7 @@
 (:: iriwReader (-> Int Int Int Int Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (iriwReader first second res ctr n mode)
   (let ((mut i 0))
     {
@@ -779,6 +782,7 @@
 (:: chainWriter (-> Int Int Int Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (chainWriter first second ctr n mode)
   (let ((mut i 0))
     {
@@ -813,6 +817,7 @@
 (:: chainRelay (-> Int Int Int Int Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (chainRelay src dst res ctr n mode)
   (let ((mut i 0))
     {
@@ -844,6 +849,7 @@
 (:: chainReader (-> Int Int Int Int Int Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (chainReader first second rf rs ctr n mode)
   (let ((mut i 0))
     {
@@ -1529,6 +1535,7 @@
 (:: sb3Thread (-> Int Int Int Int Int Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (sb3Thread mine next res gate ctr n mode)
   (let ((mut i 0))
     {

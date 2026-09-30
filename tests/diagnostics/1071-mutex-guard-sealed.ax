@@ -14,6 +14,7 @@
 
 (:: unlockIn (-> Mutex Int))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (unlockIn m)
   (match (mutexLock m)
     ((Ok g) (done (mutexUnlock m g)))

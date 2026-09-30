@@ -73,6 +73,7 @@
 (pub :: chacha20Poly1305KeyGenerate (Result ChaCha20Poly1305Key Error))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(entropy)
 (pub fn (chacha20Poly1305KeyGenerate)
   (match (secretBlockRandom cpKind 32)
     ((Ok h) (Ok (ChaCha20Poly1305Key h)))

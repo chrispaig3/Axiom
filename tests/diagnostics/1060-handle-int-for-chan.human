@@ -7,17 +7,17 @@
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
 
 [1;31merror[AX3004][0m[1m: type mismatch: expected Chan, found Int[0m
-  [1;34m--> [0m1060-handle-int-for-chan.ax:19:19
+  [1;34m--> [0m1060-handle-int-for-chan.ax:20:19
 [1;34m   |[0m
-[1;34m19 |[0m         (chanSend 5 1)
+[1;34m20 |[0m         (chanSend 5 1)
 [1;34m   |[0m                   [1;31m^ this has type `Int`, expected `Chan`[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
 
 [1;31merror[AX3004][0m[1m: type mismatch: expected Int, found Chan[0m
-  [1;34m--> [0m1060-handle-int-for-chan.ax:20:12
+  [1;34m--> [0m1060-handle-int-for-chan.ax:21:12
 [1;34m   |[0m
-[1;34m20 |[0m         (+ c 1)
+[1;34m21 |[0m         (+ c 1)
 [1;34m   |[0m            [1;31m^ this has type `Chan`, expected `Int`[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation

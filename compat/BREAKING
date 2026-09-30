@@ -892,3 +892,17 @@
 # each caller now declares `effect(spawn)` and `effect(block)`.
 0.7.7  F  parMapWords  row -> Spawn, Block: it starts and joins bindings, and callers declare both
 0.7.7  F  parRunAll  row -> Spawn, Block: it starts and joins bindings, and callers declare both
+
+# 0.7.7 - `Entropy`, `Spawn` and `Block` have sources. The platform tables
+# tag the syscall numbers that draw randomness, start a process and wait
+# for one, so those numbers and every public function that names them
+# carry the effect, and each caller declares it.
+0.7.7  F  sysRandomNum  row -> Entropy: the number is tagged `syscall(entropy)`, and callers declare `effect(entropy)`
+0.7.7  F  sysFork  row -> Spawn: the number is tagged `syscall(spawn)`, and callers declare `effect(spawn)`
+0.7.7  F  sysPosixSpawn  row -> Spawn: the number is tagged `syscall(spawn)`, and callers declare `effect(spawn)`
+0.7.7  F  sysWait4  row -> Block: the number is tagged `syscall(block)`, and callers declare `effect(block)`
+0.7.7  F  sysSpawn  row -> Spawn: it starts a process, and callers declare `effect(spawn)`
+0.7.7  F  sysWaitPid  row -> Block: it waits for a child, and callers declare `effect(block)`
+0.7.7  F  sysRun  row -> Spawn, Block: it starts a process and waits for it, and callers declare both
+0.7.7  F  sysRunPath  row -> Spawn, Block: it starts a process and waits for it, and callers declare both
+0.7.7  F  parRunOne  row -> Spawn, Block: it forks a child and waits for it, and callers declare both

@@ -57,6 +57,8 @@
 (pub :: main Int)
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (pub fn (main)
   ; A child that exits 0, and one that exits 1: the status has to
   ; travel, not merely the fact that something ran.

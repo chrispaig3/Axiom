@@ -86,6 +86,7 @@
 ; it a bare `clone(0, ...)` creates a child whose parent is never
 ; notified and which `wait4` therefore never reaps.
 (pub :: sysFork Int)
+;@axiom:syscall(spawn)
 (pub fn (sysFork)
   220)
 
@@ -103,12 +104,14 @@
 ; `unlink` note above carried one entry too far: that table really does
 ; lack `unlink`, and really does have `wait4`.
 (pub :: sysWait4 Int)
+;@axiom:syscall(block)
 (pub fn (sysWait4)
   260)
 
 ; Unused on Linux, defined so `Sys.ax` type-checks against every
 ; platform module.
 (pub :: sysPosixSpawn Int)
+;@axiom:syscall(spawn)
 (pub fn (sysPosixSpawn)
   0)
 
@@ -450,6 +453,7 @@
 ; differs by target.
 ; --------------------------------------------------------------------
 (pub :: sysRandomNum Int)
+;@axiom:syscall(entropy)
 (pub fn (sysRandomNum)
   278)
 
@@ -835,6 +839,7 @@
 
 ; futex - 98, for the wait
 (pub :: sysWaitWordNum Int)
+;@axiom:syscall(block)
 (pub fn (sysWaitWordNum)
   98)
 
@@ -858,6 +863,7 @@
 
 ; waitid(which, upid, infop, options, ru) - 95 (the generic table)
 (pub :: sysWaitIdNum Int)
+;@axiom:syscall(block)
 (pub fn (sysWaitIdNum)
   95)
 

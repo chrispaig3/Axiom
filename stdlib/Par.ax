@@ -366,6 +366,8 @@
 (pub :: parRunOne (-> (Vec String) (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (pub fn (parRunOne argv)
   (if (== (vecLen argv) 0)
     (Err (mkError 2 "parRunOne: an empty argv names no program"))
@@ -389,6 +391,8 @@
 ; convention its header states. Nothing needs the lossy form by name.
 (:: parRunWord (-> (Vec String) Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (parRunWord argv)
   (match (parRunOne argv)
     ((Ok c) c)

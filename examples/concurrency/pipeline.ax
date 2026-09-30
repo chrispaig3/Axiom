@@ -46,6 +46,7 @@
 (:: nap (-> Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (nap idle ms)
   {
     (sysWaitWordTimeout idle 0 (* ms 1000000))
@@ -56,6 +57,7 @@
 ; count sent.
 (:: produce (-> Chan Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (produce raw idle n)
   (let ((mut sent 0))
     {
@@ -79,6 +81,7 @@
 ; `out`. Answers the idle ticks it counted.
 (:: work (-> Chan Chan Int))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (work raw out)
   (let (
     (mut ticks 0)
@@ -107,6 +110,7 @@
 ; Drain `out`: the sum of what arrived.
 (:: drainAll (-> Chan Int))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (drainAll out)
   (let (
     (mut sum 0)

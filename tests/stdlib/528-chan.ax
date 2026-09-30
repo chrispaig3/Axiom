@@ -36,6 +36,7 @@
 ; Send lo..hi-1; answer how many were accepted.
 (:: produce (-> Chan Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (produce ch lo hi)
   (let (
     (mut i lo)
@@ -55,6 +56,7 @@
 ; Receive to the end of the stream; answer the sum.
 (:: drain (-> Chan Int))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (drain ch)
   (let (
     (mut sum 0)

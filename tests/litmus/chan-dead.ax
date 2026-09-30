@@ -59,6 +59,7 @@
 (:: nap (-> Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (nap idle us)
   {
     (sysWaitWordTimeout idle 0 (* us 1000))
@@ -114,6 +115,7 @@
 ; Wait until word `i` of `a` holds `v` (checked every millisecond).
 (:: until (-> Int Int Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (until idle a i v)
   {
     (while (!= (word a i) v)
@@ -132,6 +134,7 @@
 (:: holdLock (-> Chan Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (holdLock c flag idle)
   (let ((ring (ringOf c)))
     (if (== (__atomic_cas ring 0 (* sysGetPid 4)) 0)
@@ -146,6 +149,7 @@
 (:: spawnHolder (-> Chan Int Int Spawn))
 ;@axiom:effect(io)
 ;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (spawnHolder c flag idle)
   (__proc_spawn
     (lambda (x) (holdLock c flag idle))
@@ -156,6 +160,7 @@
 (:: ringWaiter (-> Chan Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (ringWaiter c flag idle)
   (let (
     (buf (memAlloc 16))
@@ -174,6 +179,7 @@
 (:: lockWaiter (-> Chan Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (lockWaiter c flag idle)
   {
     (until idle flag 0 1)
@@ -243,6 +249,7 @@
 ; Every call on a poisoned channel, and what it answered.
 (:: aftermath (-> Chan Int))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (aftermath c)
   {
     (say "send" (bit (chanSend c 5)))
@@ -342,6 +349,7 @@
 ; it, so the sweep lands inside it in some rounds.
 (:: hammer (-> Chan Int))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (hammer c)
   {
     (while (== 0 0)
@@ -355,6 +363,7 @@
 (:: spawnHammer (-> Chan Spawn))
 ;@axiom:effect(io)
 ;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (spawnHammer c)
   (__proc_spawn
     (lambda (x) (hammer c))
@@ -364,6 +373,7 @@
 (:: round (-> Chan Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (round c idle us)
   (__axiom_recover
     __axiom_arena_mark
@@ -373,6 +383,7 @@
 (:: doomed (-> Chan Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (doomed c idle us)
   (let ((h (spawnHammer c)))
     {
@@ -384,6 +395,7 @@
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 ;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (sweep idle rounds)
   (let (
     (buf (memAlloc 16))

@@ -165,6 +165,7 @@
 (:: chanLock (-> Int Int Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (chanLock ch me b timed)
   (if (== (__atomic_cas ch 0 me) 0)
     0
@@ -176,6 +177,7 @@
 (:: chanAcquire (-> Int Int Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (chanAcquire ch me b timed)
   (let ((mut state 0))
     {
@@ -228,6 +230,7 @@
 ; that holder is `chanPoison`'s compare-and-swap to decide.
 (:: chanHolderDead (-> Int Int Bool))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (chanHolderDead w me)
   (let ((owner (/ w 4)))
     (if (|| (== owner 0) (== (* owner 4) me))
@@ -240,6 +243,7 @@
 (:: chanChildEnded (-> Int Bool))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (chanChildEnded pid)
   (let ((buf (chanBlock sysChildPollBytes)))
     (let ((ended (chanYes (sysChildExited pid buf))))
@@ -308,6 +312,7 @@
 (:: chanSleep (-> Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (chanSleep ch seen)
   {
     (sysWaitWordTimeout (+ ch 8) seen chanSliceNanos)
@@ -320,6 +325,7 @@
 (:: chanSleepFor (-> Int Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (chanSleepFor ch seen nanos)
   (let ((code (sysWaitWordTimeout (+ ch 8) seen nanos)))
     {
@@ -500,6 +506,7 @@
 ; waited - or poisoned (`chanPoisoned`), and then `v` was not sent.
 (pub :: chanSend (-> Chan Int Bool))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (pub fn (chanSend c v)
   (let (
     (ch (chanAt c))
@@ -542,6 +549,7 @@
 ; - or poisoned (`chanPoisoned`).
 (pub :: chanRecv (-> Chan (Option Int)))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (pub fn (chanRecv c)
   (let (
     (ch (chanAt c))
@@ -593,6 +601,7 @@
 (pub :: chanSendTimeout (-> Chan Int Int (Result Bool Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (pub fn (chanSendTimeout c v nanos)
   (let (
     (ch (chanAt c))
@@ -656,6 +665,7 @@
 (pub :: chanRecvTimeout (-> Chan Int (Result (Option Int) Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (pub fn (chanRecvTimeout c nanos)
   (let (
     (ch (chanAt c))
@@ -721,6 +731,7 @@
 ; (`tests/compat/verify-compat.py`).
 (pub :: chanTrySend (-> Chan Int Bool))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (pub fn (chanTrySend c v)
   (let (
     (ch (chanAt c))
@@ -757,6 +768,7 @@
 ; poisoned; `chanClosed` and `chanPoisoned` tell them apart.
 (pub :: chanTryRecv (-> Chan (Option Int)))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (pub fn (chanTryRecv c)
   (let (
     (ch (chanAt c))
@@ -788,6 +800,7 @@
 ; has ended already, and this changes nothing.
 (pub :: chanClose (-> Chan Int))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (pub fn (chanClose c)
   (let (
     (ch (chanAt c))
@@ -806,6 +819,7 @@
 ; Whether the stream has ended: closed, or poisoned.
 (pub :: chanClosed (-> Chan Bool))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (pub fn (chanClosed c)
   (let (
     (ch (chanAt c))
@@ -828,6 +842,7 @@
 ; Words in the ring now; 0 on a poisoned channel, which yields none.
 (pub :: chanLen (-> Chan Int))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (pub fn (chanLen c)
   (let (
     (ch (chanAt c))

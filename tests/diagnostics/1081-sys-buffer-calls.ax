@@ -107,6 +107,7 @@
 
 ;@axiom:effect(io)
 (:: fillsAt (-> Int (Result Int Error)))
+;@axiom:effect(entropy)
 (fn (fillsAt buf)
   (sysRandomBytes buf 64))
 
@@ -132,6 +133,7 @@
 
 ;@axiom:effect(io)
 (:: waitsAt (-> Int Int))
+;@axiom:effect(block)
 (fn (waitsAt addr)
   (sysWaitWord addr 0))
 
@@ -148,12 +150,14 @@
 ;@axiom:restrict(no-unsafe)
 (:: noUnsafe (-> Int (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(entropy)
 (fn (noUnsafe buf)
   (sysRandomBytes buf 64))
 
 ;@axiom:restrict(no-unsafe)
 (:: typed (-> String Int))
 ;@axiom:effect(io)
+;@axiom:effect(entropy)
 (fn (typed path)
   (let ((buf (strAlloc 64)))
     {

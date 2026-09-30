@@ -38,6 +38,7 @@
 
 (:: got (-> Chan Bool))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (got c)
   (match (chanTryRecv c)
     ((Some v) (== v 7))
@@ -45,6 +46,7 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (main)
   (let (
     (k (match (strParseInt (sysArg 1))

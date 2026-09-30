@@ -1159,6 +1159,7 @@
 (pub :: sysSpawn (-> Int Int Int (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
 ;@axiom:precondition(`path` names live NUL-terminated bytes, `argv` names a live NULL-terminated vector of such addresses, and `envp` is 0 or names another)
 (pub fn (sysSpawn path argv envp)
   (sysResult
@@ -1242,6 +1243,7 @@
 (pub :: sysWaitPid (-> Int (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (pub fn (sysWaitPid pid)
   (sysResult
     "sysWaitPid"
@@ -1287,6 +1289,8 @@
 (pub :: sysRun (-> Int Int Int (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 ;@axiom:precondition(`path` names live NUL-terminated bytes, `argv` names a live NULL-terminated vector of such addresses, and `envp` is 0 or names another)
 (pub fn (sysRun path argv envp)
   ; The three-way answer, now split by the type rather than by a sign.
@@ -1389,6 +1393,8 @@
 (pub :: sysRunPath (-> String Int Int (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 ;@axiom:precondition(`argv` names a live NULL-terminated vector of addresses of live NUL-terminated bytes, and `envp` is 0 or names another)
 (pub fn (sysRunPath name argv envp)
   (if (match (strFindByte name 47 0)
@@ -1416,6 +1422,8 @@
 (:: sysRunSearch (-> String Int Int String Int (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 ;@axiom:precondition(`argv` names a live NULL-terminated vector of addresses of live NUL-terminated bytes, and `envp` is 0 or names another)
 (fn (sysRunSearch name argv envp path from)
   (if (>= from (strLen path))
@@ -2637,6 +2645,7 @@
 (pub :: sysRandomBytes (-> Int Int (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(entropy)
 ;@axiom:precondition(`buf` names `n` live writable bytes)
 (pub fn (sysRandomBytes buf n)
   (sysResult
@@ -2893,6 +2902,7 @@
 (pub :: sysForkProcess Int)
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
 (pub fn (sysForkProcess)
   (let ((r (__syscall5
     sysFork
@@ -3493,6 +3503,7 @@
 (pub :: sysWaitWord (-> Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 ;@axiom:precondition(`addr` names a live, 8-byte aligned word)
 (pub fn (sysWaitWord addr expected)
   (if (== waitWordKind 0)
@@ -3505,6 +3516,7 @@
 (:: sysWaitWordRaw (-> Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 ;@axiom:precondition(`addr` names a live, 8-byte aligned word)
 (fn (sysWaitWordRaw addr expected)
   (if (== waitWordKind 1)
@@ -3641,6 +3653,7 @@
 (pub :: sysWaitWordTimeout (-> Int Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 ;@axiom:precondition(`addr` names a live, 8-byte aligned word)
 (pub fn (sysWaitWordTimeout addr expected nanos)
   (if (!= (memGetWord addr 0) expected)
@@ -3654,6 +3667,7 @@
 (:: sysWaitWordTimed (-> Int Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 ;@axiom:precondition(`addr` names a live, 8-byte aligned word)
 (fn (sysWaitWordTimed addr expected nanos)
   (if (== waitWordKind 1)
@@ -3690,6 +3704,7 @@
 (:: sysUlockWait (-> Int Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 ;@axiom:precondition(`addr` names a live, 8-byte aligned word)
 (fn (sysUlockWait addr expected us)
   (__syscall4
@@ -3792,6 +3807,7 @@
 (pub :: sysChildExited (-> Int Int (Result Bool Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 ;@axiom:precondition(`buf` names `sysChildPollBytes` live writable bytes)
 (pub fn (sysChildExited pid buf)
   (if (== childPollKind 0)

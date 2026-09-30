@@ -41,6 +41,7 @@
 
 (:: channelSum (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (channelSum n)
   (match (chanNew 8)
     ((Err e) (- 0 1))
@@ -114,6 +115,7 @@
 ; How many bytes of entropy arrived, or -1.
 (:: randomCount (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(entropy)
 (fn (randomCount n)
   (match (randomBytes n)
     ((Ok s) (strLen s))
@@ -133,6 +135,7 @@
 ;@axiom:effect(io)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
+;@axiom:effect(entropy)
 (fn (work n)
   (let (
     (v vecNew)
@@ -180,5 +183,6 @@
 ;@axiom:effect(io)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
+;@axiom:effect(entropy)
 (fn (main)
   (work 6))

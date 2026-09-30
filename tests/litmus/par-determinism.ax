@@ -113,6 +113,7 @@
 (:: nap (-> Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (nap us)
   (if (> us 0)
     (let ((idle (memAlloc 8)))
@@ -126,6 +127,7 @@
 ; Task `i`'s answer, after its jitter: its term's bits.
 (:: taskWord (-> Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (taskWord jitter i)
   {
     (nap (* (& (mixHash (+ i 977)) 7) jitter))
@@ -134,6 +136,7 @@
 
 (:: taskText (-> Int Int String))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (taskText jitter i)
   (fmtInt (taskWord jitter i)))
 
@@ -274,6 +277,7 @@
 (:: failWord (-> Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (failWord i)
   (if (== i 10)
     {
@@ -292,6 +296,7 @@
 
 (:: failText (-> Int String))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (failText i)
   (fmtInt (failWord i)))
 

@@ -162,6 +162,7 @@
 
 (:: apiChecks (-> Tally Int))
 ;@axiom:effect(io)
+;@axiom:effect(entropy)
 (fn (apiChecks t)
   (let ((nonce (unwrapOr (aeadNonceFromBytes "0123456789ab") (AeadNonce ""))))
     {
@@ -226,6 +227,7 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(entropy)
 (fn (main)
   (let (
     (rfc (tallyNew "chacha20-poly1305-rfc8439"))

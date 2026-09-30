@@ -22,6 +22,7 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+<<<<<<< Updated upstream
 - Float literals are correctly rounded. The compiler used to build one
   as whole part plus fraction over a power of ten, which rounded twice,
   overflowed `Int` past about 18 digits of either part, and turned
@@ -29,6 +30,21 @@ its changelog too.
   an unrelated value. Literals now go through `Float.floatParse`, so
   each is the binary64 nearest to the text, ties to even
   (`tests/stdlib/693-float-literals.ax`).
+||||||| Stash base
+=======
+- `Entropy`, `Spawn` and `Block` have sources. The platform tables tag
+  `sysRandomNum`, the fork and `posix_spawn` numbers and the three wait
+  numbers, so drawing randomness, starting a process and waiting for a
+  child or a lock must be declared all the way up: `Sys.sysRandomBytes`,
+  `IO.randomBytes`, `Crypto.Random` and every key generator carry
+  `effect(entropy)`, `sysSpawn` carries `effect(spawn)`, `sysRun` and
+  `sysRunPath` carry both `spawn` and `block`, and `sysWaitPid` and the
+  blocking `Chan` and `Sync` operations carry `effect(block)`. A program
+  that calls one declares it too, or draws `AX3042`;
+  `restrict(no-entropy)`, `no-spawn` and `no-block` now have something
+  to refuse. Nine public functions' rows widen, declared in
+  `compat/BREAKING`.
+>>>>>>> Stashed changes
 - `Chrono`: dates, times and durations with no time zones, after Jiff.
   `Date`, `Time` and `Duration` are sealed words and `NaiveDateTime`
   pairs a date with a time, so every value is valid by construction.

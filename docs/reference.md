@@ -2341,9 +2341,9 @@ The full contract for the inferred set is `MM-EXEC-9a` in
 | `Pure` | Nothing. `;@axiom:effect(pure)` claims it, and `(handle BODY (Pure) 0)` rejects a body that performs any effect. |
 | `Alloc` | Heap machinery, which is wider than allocation. Any call that reaches `__alloc` (every `Vec`, `Map` and `Str` growth, every `memAlloc`), the `(alloc T)` keyword, the three arena primitives, and `handle`, which installs its handler's evidence. An arena reset counts because it ends every block allocated since the mark. |
 | `Mut` | Heap state that other code can see: a field store `(set base.field v)`, the `__store8` and `__store64` primitives it lowers to, the atomic writers `__atomic_store`, `__atomic_add` and `__atomic_cas`, and `__fence`. That's why `vecPush` and `mapInsert` carry it. `__atomic_load` is a read and doesn't, just as `__load64` doesn't. A `set` on a `mut` local isn't `Mut`, because nothing outside the function can see it. The eight volatile device accesses carry it (a device read can change device state), as do the `__arm_` barriers, timer writes, interrupt masks, cache maintenance and `__arm_set_tpidr` (MM-FFI-8). |
-| `Entropy` | Drawing randomness, which makes the answer different from run to run: `__arm_rndr`, and any use of a syscall number tagged `;@axiom:syscall(entropy)`. |
-| `Spawn` | Starting another binding, thread or process: `parallel` and the spawn primitives it lowers to, and syscall numbers tagged `syscall(spawn)`. |
-| `Block` | Waiting for another binding, a lock, a child or time: the joins `parallel` lowers to, and syscall numbers tagged `syscall(block)`. |
+| `Entropy` | Drawing randomness, which makes the answer different from run to run: `__arm_rndr`, and any use of a syscall number tagged `;@axiom:syscall(entropy)`. The platform tables tag `sysRandomNum`, so `Sys.sysRandomBytes`, `IO.randomBytes`, everything in `Crypto.Random` and every key generator perform it. |
+| `Spawn` | Starting another binding, thread or process: `parallel` and the spawn primitives it lowers to, and syscall numbers tagged `syscall(spawn)`. The platform tables tag the fork and `posix_spawn` numbers, so `Sys.sysSpawn`, `sysRun` and `sysRunPath` perform it. |
+| `Block` | Waiting for another binding, a lock, a child or time: the joins `parallel` lowers to, and syscall numbers tagged `syscall(block)`. The platform tables tag the wait-on-a-word and wait-for-a-child numbers, so `Sys.sysWaitPid`, the blocking `Chan` and `Sync` operations and `sysRun` perform it. |
 | `Div` | Divergence. You can write it, but nothing infers it, so `;@axiom:effect(div)` draws `AX3037` (unverifiable), even over a body that plainly never ends. Inferring it would need a termination analysis the compiler doesn't have. |
 | `Unsafe` | The thirty-six raw primitives (`MM-EXEC-9c`), the seven `__syscallN` among them, a call to a precondition interface, or a cast that forges a reference (`MM-EXEC-9d`). A declaration performing one must say `;@axiom:effect(unsafe)` (`AX3073`). A declaration that also says `;@axiom:precondition(...)` passes the obligation to callers; otherwise it is a trusted wrapper. |
 
@@ -5160,6 +5160,7 @@ empty, and `chanClose` ends the stream:
 
 (:: produce (-> Chan Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (produce ch n)
   {
     (for i 1 (+ n 1)
@@ -5170,6 +5171,7 @@ empty, and `chanClose` ends the stream:
 
 (:: total (-> Chan Int))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (total ch)
   (let ((mut sum 0) (mut going 1))
     {
@@ -5226,6 +5228,7 @@ nanoseconds and answer `Err` with `sysTimedOut` when it passes:
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (main)
   (match (chanNew 4)
     ((Ok ch)
@@ -5275,6 +5278,7 @@ Tested by `tests/stdlib/540-wait-timeout.ax` and
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (main)
   (match mutexNew
     ((Ok m)

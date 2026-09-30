@@ -31,6 +31,7 @@
 ; Operation `k` on channel `c`; each answers 1 when it returns at all.
 (:: chanOp (-> Int Chan Int))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (chanOp k c)
   (if (== k 0)
     {
@@ -106,6 +107,7 @@
 ; Operation `k` on mutex `m`.
 (:: mutexOp (-> Int Mutex Int))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (mutexOp k m)
   (if (== k 0)
     (okBit (mutexLock m))
@@ -137,6 +139,7 @@
 
 (:: chanTrapped (-> Int Chan Int))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (chanTrapped k c)
   (__axiom_recover
     __axiom_arena_mark
@@ -144,6 +147,7 @@
 
 (:: mutexTrapped (-> Int Mutex Int))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (mutexTrapped k m)
   (__axiom_recover
     __axiom_arena_mark
@@ -164,6 +168,7 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (main)
   (match (chanNew 4)
     ((Ok c)

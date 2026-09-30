@@ -126,17 +126,20 @@
 ; Unused here (see `spawnUsesPosixSpawn`), defined so `Sys.ax`
 ; type-checks against every platform module.
 (pub :: sysPosixSpawn Int)
+;@axiom:syscall(spawn)
 (pub fn (sysPosixSpawn)
   0)
 
 ; wait4(pid, status, options, rusage) - 7.
 (pub :: sysWait4 Int)
+;@axiom:syscall(block)
 (pub fn (sysWait4)
   7)
 
 ; fork() - 2. Takes no arguments; `sysForkArg` exists for AArch64
 ; Linux, where fork is spelled `clone(SIGCHLD)`, and is ignored here.
 (pub :: sysFork Int)
+;@axiom:syscall(spawn)
 (pub fn (sysFork)
   2)
 
@@ -520,6 +523,7 @@
 ; syscall, not a syscall of its own.
 ; --------------------------------------------------------------------
 (pub :: sysRandomNum Int)
+;@axiom:syscall(entropy)
 (pub fn (sysRandomNum)
   563)
 
@@ -916,6 +920,7 @@
 
 ; no blocking wait wired (`waitWordKind` 0)
 (pub :: sysWaitWordNum Int)
+;@axiom:syscall(block)
 (pub fn (sysWaitWordNum)
   0)
 
@@ -942,6 +947,7 @@
 
 ; wait6(idtype, id, status, options, wrusage, info) - 532
 (pub :: sysWaitIdNum Int)
+;@axiom:syscall(block)
 (pub fn (sysWaitIdNum)
   532)
 

@@ -1514,6 +1514,8 @@
 ; ------------------------------------------------------------------
 (pub :: replEval (-> String Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (pub fn (replEval ir)
   (let ((pid sysGetPid))
     (let ((leaf (strConcat (strConcat "axiom-repl-" (decStr pid)) ".d")))
@@ -1610,6 +1612,8 @@
 (pub :: replExpr (-> String String Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (pub fn (replExpr declsSrc line)
   (let ((tr (typeExprAgainst declsSrc line)))
     (if (== (memGetWord tr 0) 0)
@@ -2152,6 +2156,8 @@
 ; refused here with its own line, before any parser runs.
 (pub :: replDispatch (-> String String String))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (pub fn (replDispatch declsSrc entry)
   (if (replDepthNegative entry)
     {
@@ -2173,6 +2179,8 @@
 (pub :: replDispatchColonMulti (-> String String String String))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (pub fn (replDispatchColonMulti declsSrc w rest)
   (if (|| (strEq w ":type") (strEq w ":t"))
     {
@@ -2212,6 +2220,8 @@
 (pub :: replColon (-> String String Int String))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (pub fn (replColon declsSrc line hist)
   (let ((mut src declsSrc))
     {
@@ -2300,6 +2310,8 @@
 ; ------------------------------------------------------------------
 (pub :: replMain (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (pub fn (replMain noBanner)
   {
     (if (== noBanner 0)

@@ -331,6 +331,7 @@
 ; still answers for.
 (:: syncHolderDead (-> Int Int Int Bool))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (syncHolderDead m v me)
   (let ((owner (/ v 4)))
     (if (|| (== owner 0) (== (* owner 4) me))
@@ -353,6 +354,7 @@
 (:: syncChildEnded (-> Int Bool))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (syncChildEnded pid)
   (let ((buf (syncBlock sysChildPollBytes)))
     (let ((ended (syncYes (sysChildExited pid buf))))
@@ -402,6 +404,7 @@
 (:: syncAcquire (-> Int Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (syncAcquire m b timed)
   (let (
     (me syncMe)
@@ -452,6 +455,7 @@
 ; while this waits, or the mutex was poisoned before.
 (pub :: mutexLock (-> Mutex (Result MutexGuard Error)))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (pub fn (mutexLock mx)
   (let ((m (syncAt mx)))
     (if (== (syncLoad m 3) 1)
@@ -486,6 +490,7 @@
 (pub :: mutexLockTimeout (-> Mutex Int (Result MutexGuard Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (pub fn (mutexLockTimeout mx nanos)
   (let ((m (syncAt mx)))
     (if (== (syncLoad m 3) 1)

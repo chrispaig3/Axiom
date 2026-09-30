@@ -1,4 +1,4 @@
-E AX3004 1070-mutex-guard-int.ax:26:38-39 type-mismatch "type mismatch: expected MutexGuard, found Int" #"this has type `Int`, expected `MutexGuard`"
-E AX3004 1070-mutex-guard-int.ax:27:38-39 type-mismatch "type mismatch: expected MutexGuard, found Mutex" #"this has type `Mutex`, expected `MutexGuard`"
-E AX3004 1070-mutex-guard-int.ax:28:38-39 type-mismatch "type mismatch: expected MutexGuard, found Chan" #"this has type `Chan`, expected `MutexGuard`"
-E AX3004 1070-mutex-guard-int.ax:29:20-21 type-mismatch "type mismatch: expected Int, found MutexGuard" #"this has type `MutexGuard`, expected `Int`"
+E AX3004 1070-mutex-guard-int.ax:27:38-39 type-mismatch "type mismatch: expected MutexGuard, found Int" #"this has type `Int`, expected `MutexGuard`"
+E AX3004 1070-mutex-guard-int.ax:28:38-39 type-mismatch "type mismatch: expected MutexGuard, found Mutex" #"this has type `Mutex`, expected `MutexGuard`"
+E AX3004 1070-mutex-guard-int.ax:29:38-39 type-mismatch "type mismatch: expected MutexGuard, found Chan" #"this has type `Chan`, expected `MutexGuard`"
+E AX3004 1070-mutex-guard-int.ax:30:20-21 type-mismatch "type mismatch: expected Int, found MutexGuard" #"this has type `MutexGuard`, expected `Int`"

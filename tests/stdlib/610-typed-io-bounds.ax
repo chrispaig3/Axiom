@@ -42,6 +42,7 @@
 
 (:: randomStatus (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(entropy)
 (fn (randomStatus n)
   (__axiom_recover
     __axiom_arena_mark
@@ -53,6 +54,7 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(entropy)
 (fn (main)
   (let (
     (a (sliceStatus 2 10))

@@ -8,11 +8,13 @@
 
 (:: send (-> Chan Int Bool))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (send c v)
   (chanSend c v))
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (main)
   (match (mutexNew)
     ((Ok m)
