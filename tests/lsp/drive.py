@@ -2176,6 +2176,51 @@ else:
           "rewrites the binder, `{v}` and `{v:>4}`, and leaves the literal `{{v}}` alone)")
     passed += 1
 # ---------------------------------------------------------------------
+# MODULE NAMES AFTER `(import `. The module position offers the modules
+# the resolver could load, one path segment at a time: a sibling file,
+# a stdlib namespace, and inside `Crypto.` the modules under it. A
+# cursor in an import's NAME list is not the module position.
+IMP_SRC = """(import IO)
+(import Ref
+(import Crypto.Sh
+(import IO (pri
+"""
+imp_uri = "file://" + os.path.join(NAVREF_DIR, "Imports.ax")
+open(os.path.join(NAVREF_DIR, "Imports.ax"), "w", encoding="utf-8").write(IMP_SRC)
+imp_lines = IMP_SRC.split("\n")
+
+def compl(rid, line):
+    return {"jsonrpc": "2.0", "id": rid, "method": "textDocument/completion",
+            "params": {"textDocument": {"uri": imp_uri},
+                       "position": {"line": line, "character": len(imp_lines[line])}}}
+
+imp_session = b"".join(frame(m) for m in [
+    {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+    nav_open(imp_uri, IMP_SRC), compl(2, 1), compl(3, 2), compl(4, 3),
+    {"jsonrpc": "2.0", "id": 5, "method": "shutdown", "params": None},
+    {"jsonrpc": "2.0", "method": "exit", "params": None},
+])
+ip = subprocess.run([stage1, "lsp"], input=imp_session, capture_output=True, cwd=NAVREF_DIR)
+imsgs, _ = unframe(ip.stdout)
+iresp = {m["id"]: m for m in imsgs if "id" in m}
+
+def labels(rid):
+    return sorted(i.get("label") for i in (((iresp.get(rid) or {}).get("result") or {}).get("items") or []))
+
+if "RefHelper" not in labels(2):
+    print(f"FAIL import-completion: `(import Ref` offered {labels(2)!r:.200}, want the sibling module RefHelper")
+    failed += 1
+elif labels(3) != ["Sha2", "Sha3"]:
+    print(f"FAIL import-completion: `(import Crypto.Sh` offered {labels(3)!r:.200}, want Sha2 and Sha3")
+    failed += 1
+elif any(l in ("IO", "Crypto", "RefHelper") for l in labels(4)):
+    print(f"FAIL import-completion: a cursor in `(import IO (pri` offered module names {labels(4)!r:.200}")
+    failed += 1
+else:
+    print("ok   import completion (`(import Ref` offers the sibling RefHelper, `(import Crypto.Sh` "
+          "exactly Sha2 and Sha3, and a name list offers no module names)")
+    passed += 1
+# ---------------------------------------------------------------------
 # CONSTRUCTOR NAVIGATION, over the session above. Its own block, so a
 # failure names the constructor rather than the whole of SECTION NAV.
 #

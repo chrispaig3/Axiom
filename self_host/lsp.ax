@@ -3024,7 +3024,14 @@
     (out jsonArr)
     (seen vecNew)
   )
-    (let ((prefix (lspPrefixAt src (lspOffsetOf src ix (jsonGet params "position")))))
+    (let ((prefix (lspPrefixAt src (lspOffsetOf src ix (jsonGet params "position"))))
+          (modPath (lspImportPathAt src (lspOffsetOf src ix (jsonGet params "position")))))
+      (if (! (strEq modPath lspNotImportPath))
+        ; After `(import `: module names, one path segment at a time.
+        {
+          (lspComplModules out seen (lspUriToPath uri) modPath)
+          (lspComplList out)
+        }
       (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
         {
           (lspComplKeywords out seen prefix)
@@ -3047,7 +3054,117 @@
                   prefix)
               }))
           (lspComplList out)
-        }))))
+        })))))
+
+; The module path typed so far when the cursor sits in the module
+; position of an `(import ...)` - `""` right after `(import `,
+; `"Crypto.Sh"` partway through a dotted name - or `lspNotImportPath`
+; anywhere else. A cursor in an import's NAME list, `(import IO (pri`,
+; is not in the module position.
+(pub :: lspImportPathAt (-> String Int String))
+(pub fn (lspImportPathAt src off)
+  (let (
+    (e (if (> off (strLen src)) (strLen src) off))
+    (mut s (if (> off (strLen src)) (strLen src) off))
+  )
+    {
+      (while (if (> s 0)
+        (let ((b (strByte src (- s 1))))
+          (|| (isIdentChar b) (== b 46)))
+        false)
+        (set s (- s 1)))
+      (let ((mut k s))
+        {
+          (while (if (> k 0)
+            (|| (== (strByte src (- k 1)) 32) (== (strByte src (- k 1)) 9))
+            false)
+            (set k (- k 1)))
+          (if (if (>= k 7)
+            (if (strEq (strSlice src (- k 7) 7) "(import")
+              (< k s)
+              false)
+            false)
+            (strSlice src s (- e s))
+            lspNotImportPath)
+        })
+    }))
+
+; The answer `lspImportPathAt` gives outside an import: a single space,
+; which a typed module path, made of identifier bytes and dots, can
+; never be.
+(pub :: lspNotImportPath String)
+(pub fn (lspNotImportPath)
+  " ")
+
+; Module names for a module position whose text so far is `typed`:
+; the directory part names where to look under each search root, and
+; the last segment is the prefix. A `.ax` file offers its module stem
+; (the target's suffix ladder, as the resolver reads it); a directory
+; whose name is a segment offers itself, as a namespace to continue
+; into. One `sysReadDir` per search root; nothing is read or parsed.
+(pub :: lspComplModules (-> Int (Vec String) String String Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (lspComplModules out seen path typed)
+  (let (
+    (tcode (checkedTargetCode hostTarget))
+    (dot (lspLastDot typed))
+  )
+    (let (
+      (rel (if (< dot 0) "" (strConcat (lspDotsToSlashes (strSlice typed 0 dot)) "/")))
+      (part (if (< dot 0) typed (strSlice typed (+ dot 1) (- (strLen typed) (+ dot 1)))))
+      (dirs (moduleSearchDirs (pathDir path)))
+      (mut i 0)
+    )
+      {
+        (while (< i (vecLen dirs))
+          (let ((root (vecGetStr dirs i)))
+            (let ((names (sysReadDir (strCStr (if (== (strLen root) 0) (strConcat "./" rel) (strConcat root rel))))))
+              {
+                (let ((mut j 0))
+                  (while (< j (vecLen names))
+                    (let ((nm (vecGetStr names j)))
+                      {
+                        (if (|| (== (strLen nm) 0) (== (strByte nm 0) 46))
+                          0
+                          (if (lspFixEndsWith nm ".ax")
+                            (let ((stem (lspFixStemOf nm tcode)))
+                              (if (== (strLen stem) 0)
+                                0
+                                (lspComplOffer out seen stem 9 "module" part)))
+                            (if (&& (lspFixIsSegment nm) (isDir (strConcat root (strConcat rel nm))))
+                              (lspComplOffer out seen nm 19 "namespace" part)
+                              0)))
+                        (set j (+ j 1))
+                      })))
+                (set i (+ i 1))
+              })))
+        0
+      })))
+
+; The index of the last `.` in `s`, or -1.
+(pub :: lspLastDot (-> String Int))
+(pub fn (lspLastDot s)
+  (let ((mut i (- (strLen s) 1)))
+    {
+      (while (if (>= i 0) (!= (strByte s i) 46) false)
+        (set i (- i 1)))
+      i
+    }))
+
+; `Crypto.Tui` as the directory path `Crypto/Tui`.
+(pub :: lspDotsToSlashes (-> String String))
+;@axiom:effect(unsafe)
+(pub fn (lspDotsToSlashes s)
+  (let ((parts (strSplit s 46)) (mut out "") (mut i 0))
+    {
+      (while (< i (vecLen parts))
+        {
+          (set out (if (== i 0) (vecGetStr parts 0) (strConcat out (strConcat "/" (vecGetStr parts i)))))
+          (set i (+ i 1))
+        })
+      out
+    }))
 
 (pub :: lspComplKeywords (-> Int (Vec String) String Int))
 ;@axiom:effect(unsafe)
