@@ -44,14 +44,12 @@
   1105)
 
 ; A usage limit was reached: a message longer than the algorithm may
-; process, a nonce sequence that has run out, or password-hashing
-; parameters above the policy's ceiling.
+; process, or a nonce sequence that has run out.
 (pub :: cryptoLimitExceeded Int)
 (pub fn (cryptoLimitExceeded)
   1106)
 
-; Parameters this implementation does not support, such as an Argon2
-; variant or version other than the one asked for.
+; Parameters this implementation does not support.
 (pub :: cryptoUnsupported Int)
 (pub fn (cryptoUnsupported)
   1107)
@@ -62,9 +60,8 @@
 (pub fn (cryptoNoSecretStore)
   1108)
 
-; A key that decodes but must not be used: an X25519 peer key that
-; gives the all-zero shared secret, or an ML-KEM encapsulation key that
-; fails the modulus check.
+; A key that decodes but must not be used, such as an X25519 peer key
+; that gives the all-zero shared secret.
 (pub :: cryptoInvalidKey Int)
 (pub fn (cryptoInvalidKey)
   1109)

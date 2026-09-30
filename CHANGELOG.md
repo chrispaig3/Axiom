@@ -22,15 +22,6 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
-- Post-quantum algorithms: `Crypto.MlKem` (ML-KEM-512, -768 and -1024,
-  FIPS 203) and `Crypto.MlDsa` (ML-DSA-44, -65 and -87, FIPS 204), one
-  type family per parameter set, over `Crypto.MlKemPoly` and
-  `Crypto.MlDsaPoly`. Decapsulation rejects implicitly, signing is
-  hedged with a deterministic variant, and neither divides by q on a
-  secret. Tested against NIST ACVP, Wycheproof and OpenSSL 3.6.4, with
-  negative cases for every region of a ciphertext and a signature
-  (`tests/crypto/500-mlkem-acvp.ax` to
-  `tests/crypto/630-mldsa-negative.ax`).
 - Key agreement and signatures: `Crypto.X25519` (RFC 7748) and
   `Crypto.Ed25519` (RFC 8032, pure Ed25519) over sealed key types, on
   `Crypto.Field25519`, `Crypto.Curve25519Scalar` and `Crypto.Curve25519`

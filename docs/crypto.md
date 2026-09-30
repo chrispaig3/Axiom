@@ -451,114 +451,6 @@ The Ed25519ctx and Ed25519ph variants aren't provided.
 Tested by `tests/crypto/320-ed25519-rfc8032.ax` and
 `tests/crypto/323-ed25519-strict.ax`.
 
-## Post-quantum algorithms
-
-X25519 and Ed25519 would fall to a large quantum computer. ML-KEM
-(FIPS 203) and ML-DSA (FIPS 204) are NIST's lattice-based replacements
-for key agreement and signatures. Each comes in three parameter sets
-with their own types, so a key of one set can't be passed to another.
-
-| Module | Sets | Use it for |
-|---|---|---|
-| `Crypto.MlKem` | ML-KEM-512, ML-KEM-768, ML-KEM-1024 | agreeing a 32-byte shared secret |
-| `Crypto.MlDsa` | ML-DSA-44, ML-DSA-65, ML-DSA-87 | signing messages |
-
-The middle set of each, ML-KEM-768 and ML-DSA-65, is the usual choice.
-
-### Key encapsulation
-
-A key encapsulation mechanism (KEM) works in one direction. The
-receiver publishes an encapsulation key. The sender uses it to make a
-fresh shared secret and a ciphertext, and only the receiver's
-decapsulation key can recover the secret from that ciphertext.
-
-```scheme
-(import IO)
-(import Err)
-(import Crypto.Secret)
-(import Crypto.MlKem)
-
-(:: main Int)
-;@axiom:effect(io)
-(fn (main)
-  (match mlKem768KeyGenerate
-    ((Err e) (die (errorText e) 1))
-    ((Ok dk)
-      (match (mlKem768Encaps (mlKem768EncapsKey dk))
-        ((Err e) (die (errorText e) 1))
-        ((Ok sent)
-          (match (mlKem768Decaps dk sent.ciphertext)
-            ((Err e) (die (errorText e) 1))
-            ((Ok got)
-              {
-                (println (secretLen got))
-                (println (secretEq got sent.secret))
-                (mlKem768KeyWipe dk)
-                0
-              })))))))
-```
-
-```text
-32
-true
-```
-
-A changed ciphertext doesn't make `mlKem768Decaps` fail. It answers a
-different secret, derived from the key and the ciphertext, which is the
-implicit rejection FIPS 203 requires, so decapsulation reveals nothing
-about why a ciphertext was wrong. The mismatch shows up when the two
-sides' keys don't agree.
-
-`mlKem768EncapsKeyFromBytes` checks a received key's length and that
-every coefficient is in range (FIPS 203 section 7.2).
-
-Tested by `tests/crypto/500-mlkem-acvp.ax` and
-`tests/crypto/530-mlkem-negative.ax`.
-
-### Lattice signatures
-
-ML-DSA signs and verifies like Ed25519, with one addition: a context
-string of up to 255 bytes that binds the signature to its purpose.
-
-```scheme
-(import IO)
-(import Err)
-(import Crypto.MlDsa)
-
-(:: main Int)
-;@axiom:effect(io)
-(fn (main)
-  (match mlDsa65KeyGenerate
-    ((Err e) (die (errorText e) 1))
-    ((Ok key)
-      (match (mlDsa65Sign key "release 0.8.0" "axiom-release")
-        ((Err e) (die (errorText e) 1))
-        ((Ok sig)
-          (let ((pk (mlDsa65PublicKey key)))
-            {
-              (println (mlDsa65Verify pk "release 0.8.0" "axiom-release" sig))
-              (println (mlDsa65Verify pk "release 0.8.0" "" sig))
-              (mlDsa65KeyWipe key)
-              0
-            }))))))
-```
-
-```text
-true
-false
-```
-
-A signature made under one context doesn't verify under another. Pass
-`""` when your protocol names none. Signing is hedged: each signature
-mixes in 32 fresh random bytes. `mlDsa65SignDeterministic` uses zeros
-instead, as FIPS 204 allows. Only pure ML-DSA is provided; HashML-DSA
-isn't.
-
-An ML-DSA-65 signature is 3,309 bytes, against Ed25519's 64.
-
-Tested by `tests/crypto/602-mldsa-acvp-siggen.ax` and
-`tests/crypto/630-mldsa-negative.ax`.
-
 ## Constant time
 
 A function runs in constant time when nothing an attacker can time
@@ -577,7 +469,7 @@ timing depends on its operands, cache lines shared with another
 process, and speculative execution. The suite removes the channels
 software can see. It can't promise more than the processor does.
 
-In particular, GHASH, Poly1305 and the curve and lattice arithmetic
+In particular, GHASH, Poly1305 and the curve arithmetic
 rely on 64-bit multiplication taking the same time for every operand.
 Arm promises that only while the DIT bit (FEAT_DIT) is set, and the
 suite doesn't set it yet.
@@ -615,19 +507,6 @@ SHA-256 doesn't use the processor's SHA-2 instructions yet. OpenSSL
 | Ed25519 sign, 4 KiB message | 55 µs |
 | Ed25519 verify, 64-byte message | 91 µs |
 | Ed25519 and X25519 key generation, one of each | 122 µs |
-
-| Parameter set | Key generation | Sign or encapsulate | Verify or decapsulate |
-|---|---|---|---|
-| ML-KEM-512 | 38 µs | 43 µs | 54 µs |
-| ML-KEM-768 | 58 µs | 64 µs | 77 µs |
-| ML-KEM-1024 | 85 µs | 86 µs | 102 µs |
-| ML-DSA-44 | 100 µs | 298 µs | 61 µs |
-| ML-DSA-65 | 163 µs | 479 µs | 99 µs |
-| ML-DSA-87 | 231 µs | 608 µs | 150 µs |
-
-Signing time varies from message to message, because ML-DSA retries
-until a candidate signature passes its checks. The figures are
-averages over 200 signatures.
 
 ## Error codes
 

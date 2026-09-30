@@ -41,7 +41,7 @@
 ; full one and compare its prefix with `bytesEqCt`. A streaming state
 ; keeps key-derived chaining values in arena memory until
 ; `hmacSha256Wipe`. The `...Raw` and `...Chains` functions are the
-; hazardous layer for other Crypto modules (HKDF, SLH-DSA): they take
+; hazardous layer for other Crypto modules, such as HKDF: they take
 ; the key, or its precomputed states, by address and check nothing.
 (import Mem)
 (import Str)
