@@ -88,6 +88,26 @@ blake2bNewKeyedSecret Blake2b.ax Alloc,Mut,Unsafe
 blake2bUpdate Blake2b.ax Mut,Unsafe
 blake2bUpdateAddr Blake2b.ax Mut,Unsafe
 blake2bWipe Blake2b.ax Mut,Unsafe
+bnBitLen Float.ax Unsafe
+bnCmp Float.ax Unsafe
+bnCopy Float.ax Mut,Unsafe
+bnDecimal Float.ax Alloc,Mut,Unsafe
+bnDivLong Float.ax Mut,Unsafe
+bnDivSmall Float.ax Mut,Unsafe
+bnLen Float.ax Unsafe
+bnLimb Float.ax Unsafe
+bnMulAdd Float.ax Mut,Unsafe
+bnMulPow10 Float.ax Mut,Unsafe
+bnMulPow5 Float.ax Mut,Unsafe
+bnNew Float.ax Alloc
+bnPut Float.ax Mut,Unsafe
+bnSetInt Float.ax Mut,Unsafe
+bnSetLen Float.ax Mut,Unsafe
+bnShl Float.ax Mut,Unsafe
+bnShr1 Float.ax Mut,Unsafe
+bnSub Float.ax Mut,Unsafe
+bnToInt Float.ax Unsafe
+bnTrim Float.ax Mut,Unsafe
 bytesEqCt Bytes.ax Mut,Unsafe
 bytesFromAddr Bytes.ax Alloc,Mut,Unsafe
 bytesNew Bytes.ax Alloc,Mut
@@ -96,6 +116,7 @@ bytesU32Le Bytes.ax Alloc,Mut,Unsafe
 bytesU64Be Bytes.ax Alloc,Mut,Unsafe
 bytesU64Le Bytes.ax Alloc,Mut,Unsafe
 bytesXor Bytes.ax Alloc,Mut,Unsafe
+candAt Float.ax Alloc,Mut
 chacha20Block ChaCha20.ax Mut,Unsafe
 chacha20Poly1305KeyExport ChaCha20Poly1305.ax Alloc,IO,Mut,Unsafe
 chacha20Poly1305KeyFromSecret ChaCha20Poly1305.ax Alloc,IO,Mut,Unsafe
@@ -228,6 +249,8 @@ ffiWordsInto Ffi.ax Alloc,Mut,Unsafe
 ffiWordsToVec Ffi.ax Alloc,Mut,Unsafe
 fileExists IO.ax Alloc,IO,Mut,Unsafe
 fileSize IO.ax Alloc,IO,Mut,Unsafe
+floatParse Float.ax Alloc,Mut,Unsafe
+floatToString Float.ax Alloc,Mut,Unsafe
 fmtDigits Fmt.ax Mut,Unsafe
 fmtFloat Fmt.ax Alloc,Mut
 fmtFloatAbs Fmt.ax Alloc,Mut
@@ -341,6 +364,8 @@ hmacStateFrom Hmac.ax Alloc,Mut,Unsafe
 hmacStateRaw Hmac.ax Unsafe
 hmacStateWipe Hmac.ax Mut,Unsafe
 hmacWithChains Hmac.ax Alloc,Mut,Unsafe
+incDigits Float.ax Alloc,Mut,Unsafe
+intText Float.ax Alloc,Mut
 internAdd Intern.ax Alloc,Mut,Unsafe
 internAllocTable Intern.ax Alloc,Mut,Unsafe
 internCap Intern.ax Unsafe
@@ -544,6 +569,8 @@ mutexLockTimeout Sync.ax Alloc,IO,Mut,Unsafe
 mutexNew Sync.ax Alloc,IO,Mut
 mutexTryLock Sync.ax IO,Mut
 mutexUnlock Sync.ax Alloc,IO,Mut
+natText Float.ax Alloc,Mut,Unsafe
+nearest Float.ax Alloc,Mut,Unsafe
 netAccept Sys.ax Alloc,IO,Unsafe
 netAcceptFinish Sys.ax IO
 netAcceptFrom Sys.ax Alloc,IO,Mut,Unsafe
@@ -614,6 +641,7 @@ parRunAll Par.ax Alloc,Block,IO,Mut,Spawn
 parRunOne Par.ax Alloc,IO,Mut,Unsafe
 parRunWord Par.ax Alloc,IO,Mut
 parSpawn Par.ax Alloc,IO,Spawn
+parseErr Float.ax Alloc,Mut
 parseV4Into Net.ax Alloc,Mut
 parseV6 Net.ax Alloc,Mut
 pathBase Path.ax Alloc,Mut
@@ -659,10 +687,12 @@ readFile IO.ax Alloc,IO,Mut,Unsafe
 readFileLit IO.ax Alloc,IO,Mut,Unsafe
 readInto IO.ax Alloc,IO,Unsafe
 readLine IO.ax Alloc,IO,Mut
+readsBack Float.ax Alloc,Mut
 remChecked Err.ax Alloc
 removeDir IO.ax Alloc,IO,Mut,Unsafe
 removeFile IO.ax Alloc,IO,Mut,Unsafe
 renamePath IO.ax Alloc,IO,Mut,Unsafe
+reprFormat Float.ax Alloc,Mut
 rndrFill Random.ax Alloc,Mut,Unsafe
 rndrPresent Random.ax Mut,Unsafe
 rndrWord Random.ax Mut,Unsafe
@@ -777,6 +807,7 @@ shake256Squeeze Sha3.ax Alloc,Mut,Unsafe
 shake256SqueezeAddr Sha3.ax Mut,Unsafe
 shake256Wipe Sha3.ax Mut,Unsafe
 shlChecked Err.ax Alloc
+shortestText Float.ax Alloc,Mut
 shrChecked Err.ax Alloc
 sockOk Net.ax Unsafe
 socketAddrIp Net.ax Alloc,Mut,Unsafe
@@ -988,6 +1019,7 @@ termWsRows Term.ax Unsafe
 testFail Test.ax Alloc,Assert,IO,Mut
 toOption Err.ax Alloc
 todo IO.ax Alloc,IO,Mut
+trimZeros Float.ax Alloc,Mut
 tuiCat Edit.ax Alloc,Mut,Unsafe
 utf8FromChar Utf8.ax Alloc,Mut,Unsafe
 utf8Slice Utf8.ax Alloc,Mut
@@ -1038,3 +1070,4 @@ x25519PublicKey X25519.ax Alloc,Mut,Unsafe
 x25519PublicKeyFromBytes X25519.ax Alloc,Mut
 x25519ScalarMult X25519.ax Alloc,Mut,Unsafe
 x25519ScalarMultAddr X25519.ax Alloc,Mut,Unsafe
+zeros Float.ax Alloc,Mut,Unsafe

@@ -22,6 +22,16 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+- `Float` reads and prints IEEE 754 binary64 values exactly.
+  `floatParse` is correctly rounded, ties to even, for any number of
+  digits, and `floatToString` prints the shortest text that reads back
+  to the same bits, in Python's `repr` format, so every finite value
+  round-trips, `-0.0` included. `floatToBits` and `floatFromBits` give
+  the 64-bit encoding. Tested against Python's `repr` and `float()` on
+  23,500 generated values, among them every power of two and ten with
+  its neighbours and the exact halfway point between neighbouring
+  floats (`tests/stdlib/690-float-repr.ax` to
+  `tests/stdlib/692-float-edges.ax`).
 - Key agreement and signatures: `Crypto.X25519` (RFC 7748) and
   `Crypto.Ed25519` (RFC 8032, pure Ed25519) over sealed key types, on
   `Crypto.Field25519`, `Crypto.Curve25519Scalar` and `Crypto.Curve25519`

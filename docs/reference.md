@@ -762,6 +762,14 @@ converts to 0, and a value beyond `Int`'s range to the nearest end.
 
 Tested by `tests/stdlib/622-float-to-int.ax`.
 
+To read or print a float exactly, use the `Float` module. `floatParse`
+reads decimal text correctly rounded, and `floatToString` prints the
+shortest text that reads back to the same bits, so `0.1` prints as
+`0.1` and every finite value survives the round trip.
+
+Tested by `tests/stdlib/690-float-repr.ax` and
+`tests/stdlib/691-float-parse.ax`.
+
 `==` and `!=` on two `String`s compare their contents, so
 `(== "ab" (strConcat "a" "b"))` is `true`. The orderings `<`, `>`,
 `<=` and `>=` don't take strings. Use `strCmp` from `Str` instead.
@@ -5690,7 +5698,7 @@ Checked by `scripts/check-freestanding.sh`.
 
 ### Modules at a Glance
 
-Forty-eight modules, all of them Axiom source under `stdlib/`. A module exports only the
+Forty-nine modules, all of them Axiom source under `stdlib/`. A module exports only the
 names it marks `pub`, and reaching any other name is `AX3023`, so
 `grep '^(pub' stdlib/M.ax` always tells you what module `M` exports.
 
@@ -5709,6 +5717,7 @@ regenerates it on every run to keep it exact.
 | `Vec` | A growable array, `(Vec a)`: `vecNew`, `vecNewRef`, `vecWithCapacity`, `vecWithCapacityRef`, `vecFree`, `vecPush`, `vecPop`, `vecGet`, `vecSet`, `vecLen`, `vecCap`, `vecLast`, `vecClear`, `vecSort`, `vecSortBy`. `vecGet` traps on an index it can't serve. |
 | `Map` | An open-addressing `Int→Int` hash map: `mapNew`, `mapNewRefVals`, `mapWithCapacity`, `mapWithCapacityRefVals`, `mapFree`, `mapHas`, `mapGet`, `mapGetStr`, `mapInsert`, `mapRemove`, `mapKeys`, `mapLen`, `mapCap`, `mapUsed`. `mapGet` takes the default to answer when a key is absent. |
 | `Fmt` | The functions a format specifier selects: `fmtInt`, `fmtHex`, `fmtHexUpper`, `fmtFloat`, `fmtFloatPrec`, `fmtPadLeft`, `fmtPadRight`, `fmtPadCenter`, `fmtPadZerosLeft`, `fmtIntWidth`. Importing `Fmt` also brings in `format`. |
+| `Float` | IEEE 754 binary64 values exactly: `floatParse` reads decimal text correctly rounded, `floatToString` prints the shortest text that reads back to the same bits (in Python's `repr` format), and `floatToBits`/`floatFromBits` convert to and from the 64-bit encoding. Also `floatIsNan`, `floatIsInfinite`, `floatIsFinite`, `floatInfinity` and `floatNan`. |
 | `Err` | `Result` (`Ok`/`Err`), the `Error` record, `isOk`/`isErr`, `okOr`, `unwrapOr`, `mapOk`/`mapErr`, `andThen`, `try!`, `toOption`, `withContext`, and checked arithmetic: `divChecked`, `remChecked`, `shlChecked`, `shrChecked`. The specification is [error-model.md](error-model.md). |
 | `Fallible` | `fallibleMalformed`, the operation a batch loop's callee performs on a malformed record, and the handlers that answer it without unwinding: `fallibleSkip`, `fallibleDefault`, `fallibleCounting`. Also the skip sentinel `fallibleSkipped`/`fallibleIsSkipped`, and the `FallibleTally` a counting handler writes, read with `fallibleTally`/`fallibleCount` (error-model.md ERR-REC-7). |
 | `Intern` | A string interner: `internNew`, `internFree`, `internIntern`, `internFind`, `internLookup`, `internCount`. |

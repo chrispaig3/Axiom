@@ -1,0 +1,79 @@
+; Float's hard cases, each checked against Python: exact halfway ties
+; between neighbouring floats, the subnormal boundary, the largest
+; finite value and the first that overflows, negative zero, the
+; specials, inputs longer than a float's precision, and refusals.
+(import IO)
+(import Err)
+(import Float)
+(import Fmt)
+
+(:: show (-> String Int))
+;@axiom:effect(io)
+(fn (show s)
+  (match (floatParse s)
+    ((Ok x)
+      {
+        (println (strConcat s (strConcat " -> " (strConcat (floatToString x) (strConcat " " (fmtBits x))))))
+        0
+      }
+    )
+    ((Err e)
+      {
+        (println (strConcat s (strConcat " -> ERR " (errorText e))))
+        0
+      }
+    )))
+
+(:: fmtBits (-> Float String))
+(fn (fmtBits x)
+  (fmtInt (floatToBits x)))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (show "0.1")
+    (show "1")
+    (show "-0.0")
+    (show "1e22")
+    (show "1e23")
+    (show "123456789012345678")
+    (show "0.0001")
+    (show "0.00001")
+    (show "1e16")
+    (show "9007199254740993")
+    (show "2.2250738585072011e-308")
+    (show "2.2250738585072014e-308")
+    (show "4.9406564584124654e-324")
+    (show "2.4703282292062327e-324")
+    (show "2.4703282292062328e-324")
+    (show "1.7976931348623157e308")
+    (show "1.7976931348623159e308")
+    (show "5e-324")
+    (show "1e-400")
+    (show "1e400")
+    (show "inf")
+    (show "-Infinity")
+    (show "nan")
+    (show ".5")
+    (show "5.")
+    (show "0.30000000000000004")
+    (show "3.14159265358979323846264338327950288419716939937510")
+    (show "1.00000000000000011102230246251565404236316680908203125")
+    (show "1.00000000000000011102230246251565404236316680908203124")
+    (show "1.00000000000000011102230246251565404236316680908203126")
+    (show "abc")
+    (show "1e")
+    (show "")
+    (show "-")
+    (show "1.5e+300")
+    (show "123.456")
+    (println (floatIsNan floatNan))
+    (println (floatIsNan floatInfinity))
+    (println (floatIsInfinite (- 0.0 floatInfinity)))
+    (println (floatIsFinite 1.5))
+    (println (floatIsFinite floatNan))
+    (println (floatToString (floatFromBits 1)))
+    (println (floatToString (floatFromBits -1)))
+    0
+  })

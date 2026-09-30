@@ -669,6 +669,23 @@ two differ.
 | `ffiStrsToVec` | value | `(-> Int Int (Vec String))` | `Alloc,Mut,Unsafe` | A Rust `Vec<String>` copied into an Axiom `Vec` of Strings: `p` points at `2n` words, `{bytesPtr, byteLen}` per element. Does NOT free the Rust side: the wrapper calls `ffiFreeStrList`. |
 | `ffiWordListsToVec` | value | `(-> Int Int (Vec (Vec Int)))` | `Alloc,Mut,Unsafe` | A Rust `Vec<Vec<T>>` of word scalars copied into an Axiom `Vec` of `Vec`s: `p` points at `2n` words, `{wordsPtr, len}` per inner list. Does NOT free the Rust side: the wrapper calls `ffiFreeWordLists`. |
 
+## `Float`
+
+`stdlib/Float.ax` — 10 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `floatToBits` | value | `(-> Float Int)` |  | The bits of `x`, sign first: the IEEE 754 binary64 encoding read as an `Int`. `(floatToBits 1.0)` is 4607182418800017408 and `(floatToBits -0.0)` is the most negative `Int`. |
+| `floatFromBits` | value | `(-> Int Float)` |  | The `Float` whose IEEE 754 binary64 encoding is `n`. Every `Int` is some `Float`, including the infinities and every NaN payload. |
+| `floatInfinity` | value | `Float` |  | Positive infinity. |
+| `floatNan` | value | `Float` |  | The quiet NaN `floatParse` answers for "nan". |
+| `floatIsNan` | value | `(-> Float Bool)` |  | True for every NaN, whatever its sign and payload. |
+| `floatIsInfinite` | value | `(-> Float Bool)` |  | True for positive and negative infinity. |
+| `floatIsFinite` | value | `(-> Float Bool)` |  | True for every value that is neither an infinity nor a NaN. |
+| `floatParseFailed` | value | `Int` |  | Text that isn't a number `floatParse` reads. |
+| `floatParse` | value | `(-> String (Result Float Error))` | `Alloc,Mut,Unsafe` | The number that `s` spells, correctly rounded to the nearest binary64, ties to even. See the module comment for the syntax. |
+| `floatToString` | value | `(-> Float String)` | `Alloc,Mut,Unsafe` | The shortest text that `floatParse` reads back to exactly `x`, in Python's `repr` format: `0.1`, `2.0`, `1e+22`, `-0.0`, `inf`, `nan`. |
+
 ## `Fmt`
 
 `stdlib/Fmt.ax` — 10 public names

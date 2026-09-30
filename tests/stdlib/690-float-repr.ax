@@ -1,0 +1,70 @@
+; Float's printer against Python's repr, and every printed value read
+; back to the same bits. The input (690-float-repr.in) is
+; "<bits> <repr>" per line, written by tests/stdlib/tools/float_vectors.py:
+; uniformly random encodings, short decimals at every scale, and every
+; power of two and ten with its two neighbours.
+(import IO)
+(import Str)
+(import Err)
+(import Fmt)
+(import Vec)
+(import Float)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (match (readAll 0)
+    ((Err e) (die (errorText e) 1))
+    ((Ok text)
+      (let (
+        (lines (strSplit text 10))
+        (mut checked 0)
+        (mut wrong 0)
+      )
+        {
+          (for i 0 (vecLen lines)
+            (let ((line (vecGet lines i)))
+              (if (== (strLen line) 0)
+                0
+                (let ((fields (strSplit line 32)))
+                  (match (strParseInt (vecGet fields 0))
+                    ((None) (die (strConcat "bad line: " line) 1))
+                    ((Some bits)
+                      (let (
+                        (want (vecGet fields 1))
+                        (got (floatToString (floatFromBits bits)))
+                      )
+                        {
+                          (set checked (+ checked 1))
+                          (if (! (strEq got want))
+                            {
+                              (set wrong (+ wrong 1))
+                              (println (strConcat "FAIL print " (strConcat (fmtInt bits) (strConcat ": got " (strConcat got (strConcat ", want " want))))))
+                              0
+                            }
+                            (match (floatParse got)
+                              ((Ok y)
+                                (if (== (floatToBits y) bits)
+                                  0
+                                  {
+                                    (set wrong (+ wrong 1))
+                                    (println (strConcat "FAIL read back " got))
+                                    0
+                                  })
+                              )
+                              ((Err _)
+                                {
+                                  (set wrong (+ wrong 1))
+                                  (println (strConcat "FAIL read back " got))
+                                  0
+                                }
+                              )))
+                        })
+                    ))))))
+          (println (strConcat "values: " (fmtInt checked)))
+          (println (strConcat "wrong: " (fmtInt wrong)))
+          (if (== wrong 0)
+            0
+            1)
+        })
+    )))
