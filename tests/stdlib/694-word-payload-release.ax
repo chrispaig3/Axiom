@@ -1,0 +1,51 @@
+; A `Result` block whose `Ok` payload is a word struct is released after
+; the match that unpacks it, even when the payload goes on to a call.
+;
+; `Date` is one word with no share, but a binder of it used to count as
+; a possible reference into the block, so the block was kept alive and
+; a loop over `dateAddDays` grew the arena 32 bytes a call. The arena
+; after 200,000 more calls must be within a page of where it was after
+; the first thousand.
+(import IO)
+(import Err)
+(import Chrono)
+
+(:: step (-> Date Int Int))
+(fn (step d i)
+  (match (dateAddDays d (% i 400))
+    ((Ok x) (dateDay x))
+    ((Err _) 0)))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (match (dateNew 2026 9 30)
+    ((Err _) 1)
+    ((Ok d)
+      (let ((mut acc 0))
+        {
+          (for i 0 1000
+            (set acc (+ acc (step d i))))
+          (let ((before (__axiom_mem_stat 0)))
+            {
+              (for i 0 200000
+                (set acc (+ acc (step d i))))
+              (let ((grew (- (__axiom_mem_stat 0) before)))
+                {
+                  (println
+                    (strConcat
+                      "arena flat: "
+                      (if (< grew 4096)
+                        "yes"
+                        "no")))
+                  (println
+                    (strConcat
+                      "days summed: "
+                      (if (> acc 0)
+                        "yes"
+                        "no")))
+                  0
+                })
+            })
+        })
+    )))

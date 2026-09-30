@@ -24306,7 +24306,7 @@
     (if (>= i (vecLen arms))
       0
       (let ((arm (vecGet arms i)))
-        (let ((bs (patBindersEsc (nodeA arm) vecNew)))
+        (let ((bs (patBindersEsc cg (nodeA arm) vecNew)))
           (if (==
             (cast Int bs)
             0)
@@ -24828,9 +24828,9 @@
 ; environment (`flowMaskArms`, `flowStashesArms`, `tailOwnedArms`,
 ; `collectTailsArms`). A scalar binder is still a binding; it is only
 ; the escape question it cannot answer yes to.
-(pub :: patBindersEsc (-> Int (Vec Int) (Vec Int)))
+(pub :: patBindersEsc (-> Int Int (Vec Int) (Vec Int)))
 ;@axiom:effect(unsafe)
-(pub fn (patBindersEsc pat acc)
+(pub fn (patBindersEsc cg pat acc)
   (if (== pat 0)
     acc
     (let ((tag (nodeTag pat)))
@@ -24838,7 +24838,7 @@
         acc
         (if (== tag TAG_E_VAR)
           {
-            (if (== (binderIsScalar pat) 0)
+            (if (== (binderIsWord cg pat) 0)
               {
                 (vecPush acc (nodeA pat))
                 0
@@ -24848,28 +24848,28 @@
           }
           (if (== tag TAG_E_APP)
             (if (==
-              (cast Int (patBindersEsc (nodeB pat) acc))
+              (cast Int (patBindersEsc cg (nodeB pat) acc))
               0)
               (cast (Vec Int) 0)
-              (patBindersEscHead (nodeA pat) acc))
+              (patBindersEscHead cg (nodeA pat) acc))
             (if (== tag TAG_P_CONNAMED)
-              (patBindersEscVec (nodeCVec pat) acc 0)
+              (patBindersEscVec cg (nodeCVec pat) acc 0)
               (cast (Vec Int) 0))))))))
 
-(pub :: patBindersEscHead (-> Int (Vec Int) (Vec Int)))
+(pub :: patBindersEscHead (-> Int Int (Vec Int) (Vec Int)))
 ;@axiom:effect(unsafe)
-(pub fn (patBindersEscHead pat acc)
+(pub fn (patBindersEscHead cg pat acc)
   (if (== (nodeTag pat) TAG_E_APP)
     (if (==
-      (cast Int (patBindersEsc (nodeB pat) acc))
+      (cast Int (patBindersEsc cg (nodeB pat) acc))
       0)
       (cast (Vec Int) 0)
-      (patBindersEscHead (nodeA pat) acc))
+      (patBindersEscHead cg (nodeA pat) acc))
     acc))
 
-(pub :: patBindersEscVec (-> (Vec Int) (Vec Int) Int (Vec Int)))
+(pub :: patBindersEscVec (-> Int (Vec Int) (Vec Int) Int (Vec Int)))
 ;@axiom:effect(unsafe)
-(pub fn (patBindersEscVec subs acc i)
+(pub fn (patBindersEscVec cg subs acc i)
   (if (==
     (cast Int subs)
     0)
@@ -24877,10 +24877,30 @@
     (if (>= i (vecLen subs))
       acc
       (if (==
-        (cast Int (patBindersEsc (vecGet subs i) acc))
+        (cast Int (patBindersEsc cg (vecGet subs i) acc))
         0)
         (cast (Vec Int) 0)
-        (patBindersEscVec subs acc (+ i 1))))))
+        (patBindersEscVec cg subs acc (+ i 1))))))
+
+; A binder that cannot alias the block it was copied out of: a machine
+; scalar (`binderIsScalar`), or a WORD STRUCT - `Date`, `TcpStream`, a
+; sealed key - which is one word with no share, declared here or in an
+; imported module. `fldClass` already classifies a word-struct FIELD as
+; a word through the same `lookupType`; without the same answer here, a
+; match that bound one and passed it to a call kept the whole scrutinee
+; alive, and a `(Result Date Error)` leaked 32 bytes per call.
+(pub :: binderIsWord (-> Int Int Int))
+;@axiom:effect(unsafe)
+(pub fn (binderIsWord cg n)
+  (if (== (binderIsScalar n) 1)
+    1
+    (let ((t (nodeBinderTy n)))
+      (if (== t 0)
+        0
+        (let ((e (lookupType (memGetWordVec cg 3) (cast String t))))
+          (if (== e 0)
+            0
+            (if (== (eKind e) TF_WORD) 1 0)))))))
 
 ; Did the checker stamp this binder with a MACHINE SCALAR type? An
 ; unstamped binder answers 0 - a type variable the checker could not

@@ -34,6 +34,12 @@ its changelog too.
   `restrict(no-entropy)`, `no-spawn` and `no-block` now have something
   to refuse. Nine public functions' rows widen, declared in
   `compat/BREAKING`.
+- A `Result` whose `Ok` payload is a word struct is released after the
+  `match` that unpacks it. A binder of a word struct (`Date`, a socket,
+  a sealed key) counted as a possible reference into the block, so a
+  match that passed it to a call kept the block alive: 32 bytes leaked
+  per call, 641 MB over 20 million `dateAddDays` calls
+  (`tests/stdlib/694-word-payload-release.ax`).
 - Float literals are correctly rounded. The compiler used to build one
   as whole part plus fraction over a power of ten, which rounded twice,
   overflowed `Int` past about 18 digits of either part, and turned
