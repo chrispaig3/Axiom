@@ -1,0 +1,936 @@
+; Crypto.Aes - the AES block cipher (FIPS 197), all three key sizes,
+; as a constant-time bitsliced kernel. Hazardous layer.
+;
+;     (let (
+;       (sched (strAlloc (aesScheduleBytes 32)))
+;       (work (strAlloc aesKeyWorkBytes))
+;       (q (strAlloc aesStateBytes))
+;     )
+;       {
+;         (aesKeyExpand (strData sched) (strData key) 32 (strData work))
+;         (aesEncryptBlocks (strData sched) 14 (strData pt) (strData ct) 1 (strData q))
+;         (ctWipe (strData sched) (aesScheduleBytes 32))
+;         (ctWipe (strData q) aesStateBytes)
+;       })
+;
+; This is a block cipher, not an encryption scheme. Encrypting data
+; wants an AEAD: `Crypto.AesGcm` or `Crypto.ChaCha20Poly1305`, which
+; take a typed key and a nonce. Everything here works on raw addresses
+; and states what the caller must make true.
+;
+; CONSTANT TIME, WITH NO TABLE. A table-driven AES reads memory at an
+; address chosen by key and data bytes, and the cache reports those
+; addresses to anything sharing it. This one is bitsliced: four blocks
+; are spread across eight 64-bit words, one word per bit position of
+; every byte, and the S-box is Boyar and Peralta's circuit of AND and
+; XOR gates applied to all 64 bytes at once. No branch, address, loop
+; bound or division depends on the key or the data. The key schedule
+; runs its S-box lookups through the same circuit. The `ct` tag on
+; each kernel names the parameters whose bytes are secret.
+;
+; STANDARD. FIPS 197 (AES), sections 5.1 (Cipher), 5.2 (KeyExpansion)
+; and 5.3 (InvCipher), for 128-, 192- and 256-bit keys. Checked
+; against Appendix C of FIPS 197 and NIST's AESAVS known-answer files
+; by tests/crypto/200-aes.ax.
+;
+; REFERENCE. A port of BearSSL's `aes_ct64` (src/symcipher/aes_ct64.c,
+; aes_ct64_enc.c, aes_ct64_dec.c and aes_ct64_ctr.c) by Thomas Pornin,
+; MIT licence: the S-box circuit, the orthogonalisation, the
+; interleaving, the compressed key schedule and the round functions
+; are his, in the same order. Decryption is here because it costs one
+; affine map on either side of the same S-box circuit.
+;
+; LIMITS. Four blocks cost the same as one, so a single block runs at
+; a quarter of the bulk rate. There are no register arrays, so the
+; state lives in an 8-word buffer the caller supplies and wipes. The
+; kernel removes the timing channels software can see; the hardware
+; ones (an instruction whose latency varies with its operands, a
+; shared cache line) are listed in docs/crypto.md.
+(import Mem)
+(import Crypto.Ct)
+
+; ------------------------------------------------------------------
+; Sizes.
+; ------------------------------------------------------------------
+; The number of rounds for a key of `keyLen` bytes: 10, 12 or 14 for
+; 16, 24 or 32, and 0 for any other length.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: aesRounds (-> Int Int))
+(pub fn (aesRounds keyLen)
+  (if (== keyLen 16)
+    10
+    (if (== keyLen 24)
+      12
+      (if (== keyLen 32)
+        14
+        0))))
+
+; The bytes an expanded schedule for a key of `keyLen` bytes occupies:
+; eight words per round key, 704, 832 or 960. 0 for a bad length.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: aesScheduleBytes (-> Int Int))
+(pub fn (aesScheduleBytes keyLen)
+  (let ((nr (aesRounds keyLen)))
+    (if (== nr 0)
+      0
+      (* 64 (+ nr 1)))))
+
+; The scratch `aesKeyExpand` needs: the 60-word FIPS 197 schedule and
+; an 8-word state.
+(pub :: aesKeyWorkBytes Int)
+(pub fn (aesKeyWorkBytes)
+  544)
+
+; The bitsliced state: eight words, four blocks.
+(pub :: aesStateBytes Int)
+(pub fn (aesStateBytes)
+  64)
+
+; The scratch `aesCtr32Xor` needs: the state and one 64-byte run of
+; keystream.
+(pub :: aesCtrWorkBytes Int)
+(pub fn (aesCtrWorkBytes)
+  128)
+
+; ------------------------------------------------------------------
+; Masks. Words above 2^63 are written as the negative Int with the
+; same bits.
+; ------------------------------------------------------------------
+(:: aesK5555 Int)
+(fn (aesK5555)
+  6148914691236517205)
+
+(:: aesKAAAA Int)
+(fn (aesKAAAA)
+  -6148914691236517206)
+
+(:: aesK3333 Int)
+(fn (aesK3333)
+  3689348814741910323)
+
+(:: aesKCCCC Int)
+(fn (aesKCCCC)
+  -3689348814741910324)
+
+(:: aesK0F0F Int)
+(fn (aesK0F0F)
+  1085102592571150095)
+
+(:: aesKF0F0 Int)
+(fn (aesKF0F0)
+  -1085102592571150096)
+
+(:: aesK1111 Int)
+(fn (aesK1111)
+  1229782938247303441)
+
+(:: aesK2222 Int)
+(fn (aesK2222)
+  2459565876494606882)
+
+(:: aesK4444 Int)
+(fn (aesK4444)
+  4919131752989213764)
+
+(:: aesK8888 Int)
+(fn (aesK8888)
+  -8608480567731124088)
+
+; 0x0000FFFF0000FFFF
+(:: aesKLow16 Int)
+(fn (aesKLow16)
+  281470681808895)
+
+; 0x00FF00FF00FF00FF
+(:: aesKLow8 Int)
+(fn (aesKLow8)
+  71777214294589695)
+
+; ------------------------------------------------------------------
+; The S-box. q[0] holds bit 0 of every byte of the four blocks, q[7]
+; bit 7. Boyar and Peralta, "A new combinational logic minimization
+; technique with applications to cryptology" (IACR ePrint 2009/191),
+; as BearSSL writes it: x0 is the high bit, x7 the low one, and the
+; three NOTs of the bottom layer fold into XORs with -1.
+; ------------------------------------------------------------------
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: aesSbox (-> Int Int))
+;@axiom:ct(*q)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`q` names 8 live writable words)
+(fn (aesSbox q)
+  (let (
+    (x0 (__load64 q 7))
+    (x1 (__load64 q 6))
+    (x2 (__load64 q 5))
+    (x3 (__load64 q 4))
+    (x4 (__load64 q 3))
+    (x5 (__load64 q 2))
+    (x6 (__load64 q 1))
+    (x7 (__load64 q 0))
+    (y14 (^ x3 x5))
+    (y13 (^ x0 x6))
+    (y9 (^ x0 x3))
+    (y8 (^ x0 x5))
+    (t0 (^ x1 x2))
+    (y1 (^ t0 x7))
+    (y4 (^ y1 x3))
+    (y12 (^ y13 y14))
+    (y2 (^ y1 x0))
+    (y5 (^ y1 x6))
+    (y3 (^ y5 y8))
+    (t1 (^ x4 y12))
+    (y15 (^ t1 x5))
+    (y20 (^ t1 x1))
+    (y6 (^ y15 x7))
+    (y10 (^ y15 t0))
+    (y11 (^ y20 y9))
+    (y7 (^ x7 y11))
+    (y17 (^ y10 y11))
+    (y19 (^ y10 y8))
+    (y16 (^ t0 y11))
+    (y21 (^ y13 y16))
+    (y18 (^ x0 y16))
+    (t2 (& y12 y15))
+    (t3 (& y3 y6))
+    (t4 (^ t3 t2))
+    (t5 (& y4 x7))
+    (t6 (^ t5 t2))
+    (t7 (& y13 y16))
+    (t8 (& y5 y1))
+    (t9 (^ t8 t7))
+    (t10 (& y2 y7))
+    (t11 (^ t10 t7))
+    (t12 (& y9 y11))
+    (t13 (& y14 y17))
+    (t14 (^ t13 t12))
+    (t15 (& y8 y10))
+    (t16 (^ t15 t12))
+    (t17 (^ t4 t14))
+    (t18 (^ t6 t16))
+    (t19 (^ t9 t14))
+    (t20 (^ t11 t16))
+    (t21 (^ t17 y20))
+    (t22 (^ t18 y19))
+    (t23 (^ t19 y21))
+    (t24 (^ t20 y18))
+    (t25 (^ t21 t22))
+    (t26 (& t21 t23))
+    (t27 (^ t24 t26))
+    (t28 (& t25 t27))
+    (t29 (^ t28 t22))
+    (t30 (^ t23 t24))
+    (t31 (^ t22 t26))
+    (t32 (& t31 t30))
+    (t33 (^ t32 t24))
+    (t34 (^ t23 t33))
+    (t35 (^ t27 t33))
+    (t36 (& t24 t35))
+    (t37 (^ t36 t34))
+    (t38 (^ t27 t36))
+    (t39 (& t29 t38))
+    (t40 (^ t25 t39))
+    (t41 (^ t40 t37))
+    (t42 (^ t29 t33))
+    (t43 (^ t29 t40))
+    (t44 (^ t33 t37))
+    (t45 (^ t42 t41))
+    (z0 (& t44 y15))
+    (z1 (& t37 y6))
+    (z2 (& t33 x7))
+    (z3 (& t43 y16))
+    (z4 (& t40 y1))
+    (z5 (& t29 y7))
+    (z6 (& t42 y11))
+    (z7 (& t45 y17))
+    (z8 (& t41 y10))
+    (z9 (& t44 y12))
+    (z10 (& t37 y3))
+    (z11 (& t33 y4))
+    (z12 (& t43 y13))
+    (z13 (& t40 y5))
+    (z14 (& t29 y2))
+    (z15 (& t42 y9))
+    (z16 (& t45 y14))
+    (z17 (& t41 y8))
+    (t46 (^ z15 z16))
+    (t47 (^ z10 z11))
+    (t48 (^ z5 z13))
+    (t49 (^ z9 z10))
+    (t50 (^ z2 z12))
+    (t51 (^ z2 z5))
+    (t52 (^ z7 z8))
+    (t53 (^ z0 z3))
+    (t54 (^ z6 z7))
+    (t55 (^ z16 z17))
+    (t56 (^ z12 t48))
+    (t57 (^ t50 t53))
+    (t58 (^ z4 t46))
+    (t59 (^ z3 t54))
+    (t60 (^ t46 t57))
+    (t61 (^ z14 t57))
+    (t62 (^ t52 t58))
+    (t63 (^ t49 t58))
+    (t64 (^ z4 t59))
+    (t65 (^ t61 t62))
+    (t66 (^ z1 t63))
+    (s0 (^ t59 t63))
+    (s6 (^ t56 (^ t62 -1)))
+    (s7 (^ t48 (^ t60 -1)))
+    (t67 (^ t64 t65))
+    (s3 (^ t53 t66))
+    (s4 (^ t51 t66))
+    (s5 (^ t47 t65))
+    (s1 (^ t64 (^ s3 -1)))
+    (s2 (^ t55 (^ t67 -1)))
+  )
+    {
+      (__store64 q 7 s0)
+      (__store64 q 6 s1)
+      (__store64 q 5 s2)
+      (__store64 q 4 s3)
+      (__store64 q 3 s4)
+      (__store64 q 2 s5)
+      (__store64 q 1 s6)
+      (__store64 q 0 s7)
+      0
+    }))
+
+; The affine map the inverse S-box applies before and after the
+; forward circuit: InvSubBytes is A^-1 . S . A^-1 in BearSSL's
+; factoring (aes_ct64_dec.c).
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: aesInvAffine (-> Int Int))
+;@axiom:ct(*q)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`q` names 8 live writable words)
+(fn (aesInvAffine q)
+  (let (
+    (q0 (^ (__load64 q 0) -1))
+    (q1 (^ (__load64 q 1) -1))
+    (q2 (__load64 q 2))
+    (q3 (__load64 q 3))
+    (q4 (__load64 q 4))
+    (q5 (^ (__load64 q 5) -1))
+    (q6 (^ (__load64 q 6) -1))
+    (q7 (__load64 q 7))
+  )
+    {
+      (__store64 q 7 (^ (^ q1 q4) q6))
+      (__store64 q 6 (^ (^ q0 q3) q5))
+      (__store64 q 5 (^ (^ q7 q2) q4))
+      (__store64 q 4 (^ (^ q6 q1) q3))
+      (__store64 q 3 (^ (^ q5 q0) q2))
+      (__store64 q 2 (^ (^ q4 q7) q1))
+      (__store64 q 1 (^ (^ q3 q6) q0))
+      (__store64 q 0 (^ (^ q2 q5) q7))
+      0
+    }))
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: aesInvSbox (-> Int Int))
+;@axiom:ct(*q)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`q` names 8 live writable words)
+(fn (aesInvSbox q)
+  {
+    (aesInvAffine q)
+    (aesSbox q)
+    (aesInvAffine q)
+  })
+
+; ------------------------------------------------------------------
+; Moving between byte order and bit slices.
+; ------------------------------------------------------------------
+; The transposition between four interleaved blocks and eight bit
+; planes: three rounds of swapping 1-, 2- and 4-bit groups between
+; word pairs. It is its own inverse.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: aesOrtho (-> Int Int))
+;@axiom:ct(*q)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`q` names 8 live writable words)
+(fn (aesOrtho q)
+  (let (
+    (q0 (__load64 q 0))
+    (q1 (__load64 q 1))
+    (q2 (__load64 q 2))
+    (q3 (__load64 q 3))
+    (q4 (__load64 q 4))
+    (q5 (__load64 q 5))
+    (q6 (__load64 q 6))
+    (q7 (__load64 q 7))
+    (lo1 aesK5555)
+    (hi1 aesKAAAA)
+    (lo2 aesK3333)
+    (hi2 aesKCCCC)
+    (lo4 aesK0F0F)
+    (hi4 aesKF0F0)
+  )
+    (let (
+      (a0 (| (& q0 lo1) (<< (& q1 lo1) 1)))
+      (a1 (| (shrU (& q0 hi1) 1) (& q1 hi1)))
+      (a2 (| (& q2 lo1) (<< (& q3 lo1) 1)))
+      (a3 (| (shrU (& q2 hi1) 1) (& q3 hi1)))
+      (a4 (| (& q4 lo1) (<< (& q5 lo1) 1)))
+      (a5 (| (shrU (& q4 hi1) 1) (& q5 hi1)))
+      (a6 (| (& q6 lo1) (<< (& q7 lo1) 1)))
+      (a7 (| (shrU (& q6 hi1) 1) (& q7 hi1)))
+    )
+      (let (
+        (b0 (| (& a0 lo2) (<< (& a2 lo2) 2)))
+        (b2 (| (shrU (& a0 hi2) 2) (& a2 hi2)))
+        (b1 (| (& a1 lo2) (<< (& a3 lo2) 2)))
+        (b3 (| (shrU (& a1 hi2) 2) (& a3 hi2)))
+        (b4 (| (& a4 lo2) (<< (& a6 lo2) 2)))
+        (b6 (| (shrU (& a4 hi2) 2) (& a6 hi2)))
+        (b5 (| (& a5 lo2) (<< (& a7 lo2) 2)))
+        (b7 (| (shrU (& a5 hi2) 2) (& a7 hi2)))
+      )
+        {
+          (__store64 q 0 (| (& b0 lo4) (<< (& b4 lo4) 4)))
+          (__store64 q 4 (| (shrU (& b0 hi4) 4) (& b4 hi4)))
+          (__store64 q 1 (| (& b1 lo4) (<< (& b5 lo4) 4)))
+          (__store64 q 5 (| (shrU (& b1 hi4) 4) (& b5 hi4)))
+          (__store64 q 2 (| (& b2 lo4) (<< (& b6 lo4) 4)))
+          (__store64 q 6 (| (shrU (& b2 hi4) 4) (& b6 hi4)))
+          (__store64 q 3 (| (& b3 lo4) (<< (& b7 lo4) 4)))
+          (__store64 q 7 (| (shrU (& b3 hi4) 4) (& b7 hi4)))
+          0
+        }))))
+
+; A 32-bit word's four bytes spread to the low byte of each 16-bit
+; lane: byte k moves to bits 16k..16k+7.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: aesSpread (-> Int Int))
+;@axiom:ct(x)
+(fn (aesSpread x)
+  (let ((a (& (| x (<< x 16)) aesKLow16)))
+    (& (| a (<< a 8)) aesKLow8)))
+
+; The inverse of `aesSpread` for a word already masked to 0x00FF00FF..:
+; the low byte of each 16-bit lane gathered back into 32 bits.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: aesGather (-> Int Int))
+;@axiom:ct(x)
+(fn (aesGather x)
+  (let ((a (& (| x (>> x 8)) aesKLow16)))
+    (& (| a (>> a 16)) 4294967295)))
+
+; One block, as its four little-endian 32-bit words, into lane `i`
+; (0..3) of the state: q[i] and q[i + 4].
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: aesInterleaveIn (-> Int Int Int Int Int Int Int))
+;@axiom:ct(*q, w0, w1, w2, w3)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`q` names 8 live writable words and `i` is 0..3)
+(fn (aesInterleaveIn q i w0 w1 w2 w3)
+  (let (
+    (x0 (aesSpread w0))
+    (x1 (aesSpread w1))
+    (x2 (aesSpread w2))
+    (x3 (aesSpread w3))
+  )
+    {
+      (__store64 q i (| x0 (<< x2 8)))
+      (__store64 q (+ i 4) (| x1 (<< x3 8)))
+      0
+    }))
+
+; Lane `i` of the state back out as a 16-byte block at `dst + off`.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: aesInterleaveOut (-> Int Int Int Int Int))
+;@axiom:ct(*q)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`q` names 8 live words, `i` is 0..3, and `dst` + `off` names 16 live writable bytes)
+(fn (aesInterleaveOut q i dst off)
+  (let (
+    (a (__load64 q i))
+    (b (__load64 q (+ i 4)))
+    (m aesKLow8)
+  )
+    {
+      (st32le dst off (aesGather (& a m)))
+      (st32le dst (+ off 4) (aesGather (& b m)))
+      (st32le dst (+ off 8) (aesGather (& (>> a 8) m)))
+      (st32le dst (+ off 12) (aesGather (& (>> b 8) m)))
+      0
+    }))
+
+; Load `n` blocks (1..4) from `src` into the state and slice them.
+; Lanes past `n` are zero.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: aesLoadBlocks (-> Int Int Int Int))
+;@axiom:ct(*q, *src)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`q` names 8 live writable words and `src` names 16 * `n` live bytes)
+(fn (aesLoadBlocks q src n)
+  {
+    (for i 0 4
+      (if (< i n)
+        (let ((o (* 16 i)))
+          (aesInterleaveIn
+            q
+            i
+            (ld32le src o)
+            (ld32le src (+ o 4))
+            (ld32le src (+ o 8))
+            (ld32le src (+ o 12))))
+        (aesInterleaveIn
+          q
+          i
+          0
+          0
+          0
+          0)))
+    (aesOrtho q)
+  })
+
+; Unslice the state and store its first `n` blocks (1..4) at `dst`.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: aesStoreBlocks (-> Int Int Int Int))
+;@axiom:ct(*q)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`q` names 8 live writable words and `dst` names 16 * `n` live writable bytes)
+(fn (aesStoreBlocks q dst n)
+  {
+    (aesOrtho q)
+    (for i 0 n
+      (aesInterleaveOut q i dst (* 16 i)))
+    0
+  })
+
+; ------------------------------------------------------------------
+; The rounds.
+; ------------------------------------------------------------------
+; ShiftRows on one bit plane. Each 16-bit group of the word is one row
+; of the four blocks, and the row rotates by 0, 1, 2 or 3 nibbles.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: aesShiftRow (-> Int Int))
+;@axiom:ct(x)
+(fn (aesShiftRow x)
+  (| (| (| (& x 65535) (>> (& x 4293918720) 4)) (| (<< (& x 983040) 12) (>> (& x 280375465082880) 8))) (| (| (<< (& x 1095216660480) 8) (shrU (& x -1152921504606846976) 12)) (<< (& x 1152640029630136320) 4))))
+
+; InvShiftRows on one bit plane.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: aesInvShiftRow (-> Int Int))
+;@axiom:ct(x)
+(fn (aesInvShiftRow x)
+  (| (| (| (& x 65535) (<< (& x 268369920) 4)) (| (>> (& x 4026531840) 12) (<< (& x 1095216660480) 8))) (| (| (>> (& x 280375465082880) 8) (<< (& x 4222124650659840) 12)) (shrU (& x -4503599627370496) 4))))
+
+; XOR the round key of eight words at `sk` into the state.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: aesAddRoundKey (-> Int Int Int))
+;@axiom:ct(*q, *sk)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`q` names 8 live writable words and `sk` 8 live words)
+(fn (aesAddRoundKey q sk)
+  {
+    (for i 0 8
+      (__store64 q i (^ (__load64 q i) (__load64 sk i))))
+    0
+  })
+
+; ShiftRows, MixColumns and AddRoundKey: the tail of every round but
+; the last. MixColumns multiplies each column by x, x+1, 1, 1 in
+; GF(2^8); in bit planes, a multiplication by x is a shift of the
+; plane index with the reduction folded into planes 0, 1, 3 and 4, and
+; the column's rows are the word rotated by 16 and 32 bits.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: aesShiftMixAdd (-> Int Int Int))
+;@axiom:ct(*q, *sk)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`q` names 8 live writable words and `sk` 8 live words)
+(fn (aesShiftMixAdd q sk)
+  (let (
+    (q0 (aesShiftRow (__load64 q 0)))
+    (q1 (aesShiftRow (__load64 q 1)))
+    (q2 (aesShiftRow (__load64 q 2)))
+    (q3 (aesShiftRow (__load64 q 3)))
+    (q4 (aesShiftRow (__load64 q 4)))
+    (q5 (aesShiftRow (__load64 q 5)))
+    (q6 (aesShiftRow (__load64 q 6)))
+    (q7 (aesShiftRow (__load64 q 7)))
+  )
+    (let (
+      (r0 (rotr64 q0 16))
+      (r1 (rotr64 q1 16))
+      (r2 (rotr64 q2 16))
+      (r3 (rotr64 q3 16))
+      (r4 (rotr64 q4 16))
+      (r5 (rotr64 q5 16))
+      (r6 (rotr64 q6 16))
+      (r7 (rotr64 q7 16))
+    )
+      (let ((q7r7 (^ q7 r7)))
+        {
+          (__store64 q 0 (^ (^ (^ q7r7 r0) (rotr64 (^ q0 r0) 32)) (__load64 sk 0)))
+          (__store64 q 1 (^ (^ (^ (^ (^ q0 r0) q7r7) r1) (rotr64 (^ q1 r1) 32)) (__load64 sk 1)))
+          (__store64 q 2 (^ (^ (^ (^ q1 r1) r2) (rotr64 (^ q2 r2) 32)) (__load64 sk 2)))
+          (__store64 q 3 (^ (^ (^ (^ (^ q2 r2) q7r7) r3) (rotr64 (^ q3 r3) 32)) (__load64 sk 3)))
+          (__store64 q 4 (^ (^ (^ (^ (^ q3 r3) q7r7) r4) (rotr64 (^ q4 r4) 32)) (__load64 sk 4)))
+          (__store64 q 5 (^ (^ (^ (^ q4 r4) r5) (rotr64 (^ q5 r5) 32)) (__load64 sk 5)))
+          (__store64 q 6 (^ (^ (^ (^ q5 r5) r6) (rotr64 (^ q6 r6) 32)) (__load64 sk 6)))
+          (__store64 q 7 (^ (^ (^ (^ q6 r6) r7) (rotr64 (^ q7 r7) 32)) (__load64 sk 7)))
+          0
+        }))))
+
+; ShiftRows and AddRoundKey: the tail of the last round.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: aesShiftAdd (-> Int Int Int))
+;@axiom:ct(*q, *sk)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`q` names 8 live writable words and `sk` 8 live words)
+(fn (aesShiftAdd q sk)
+  {
+    (for i 0 8
+      (__store64 q i (^ (aesShiftRow (__load64 q i)) (__load64 sk i))))
+    0
+  })
+
+; InvShiftRows on every plane.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: aesInvShiftRows (-> Int Int))
+;@axiom:ct(*q)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`q` names 8 live writable words)
+(fn (aesInvShiftRows q)
+  {
+    (for i 0 8
+      (__store64 q i (aesInvShiftRow (__load64 q i))))
+    0
+  })
+
+; AddRoundKey then InvMixColumns: the tail of every decryption round
+; but the last.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: aesAddInvMix (-> Int Int Int))
+;@axiom:ct(*q, *sk)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`q` names 8 live writable words and `sk` 8 live words)
+(fn (aesAddInvMix q sk)
+  (let (
+    (q0 (^ (__load64 q 0) (__load64 sk 0)))
+    (q1 (^ (__load64 q 1) (__load64 sk 1)))
+    (q2 (^ (__load64 q 2) (__load64 sk 2)))
+    (q3 (^ (__load64 q 3) (__load64 sk 3)))
+    (q4 (^ (__load64 q 4) (__load64 sk 4)))
+    (q5 (^ (__load64 q 5) (__load64 sk 5)))
+    (q6 (^ (__load64 q 6) (__load64 sk 6)))
+    (q7 (^ (__load64 q 7) (__load64 sk 7)))
+  )
+    (let (
+      (r0 (rotr64 q0 16))
+      (r1 (rotr64 q1 16))
+      (r2 (rotr64 q2 16))
+      (r3 (rotr64 q3 16))
+      (r4 (rotr64 q4 16))
+      (r5 (rotr64 q5 16))
+      (r6 (rotr64 q6 16))
+      (r7 (rotr64 q7 16))
+    )
+      {
+        (__store64 q 0 (^ (^ (^ (^ (^ (^ q5 q6) q7) r0) r5) r7) (rotr64 (^ (^ (^ (^ q0 q5) q6) r0) r5) 32)))
+        (__store64 q 1 (^ (^ (^ (^ (^ (^ (^ q0 q5) r0) r1) r5) r6) r7) (rotr64 (^ (^ (^ (^ (^ q1 q5) q7) r1) r5) r6) 32)))
+        (__store64 q 2 (^ (^ (^ (^ (^ (^ (^ q0 q1) q6) r1) r2) r6) r7) (rotr64 (^ (^ (^ (^ (^ q0 q2) q6) r2) r6) r7) 32)))
+        (__store64 q 3 (^ (^ (^ (^ (^ (^ (^ (^ (^ q0 q1) q2) q5) q6) r0) r2) r3) r5) (rotr64 (^ (^ (^ (^ (^ (^ (^ (^ (^ q0 q1) q3) q5) q6) q7) r0) r3) r5) r7) 32)))
+        (__store64 q 4 (^ (^ (^ (^ (^ (^ (^ (^ (^ (^ q1 q2) q3) q5) r1) r3) r4) r5) r6) r7) (rotr64 (^ (^ (^ (^ (^ (^ (^ (^ q1 q2) q4) q5) q7) r1) r4) r5) r6) 32)))
+        (__store64 q 5 (^ (^ (^ (^ (^ (^ (^ (^ (^ q2 q3) q4) q6) r2) r4) r5) r6) r7) (rotr64 (^ (^ (^ (^ (^ (^ (^ q2 q3) q5) q6) r2) r5) r6) r7) 32)))
+        (__store64 q 6 (^ (^ (^ (^ (^ (^ (^ (^ q3 q4) q5) q7) r3) r5) r6) r7) (rotr64 (^ (^ (^ (^ (^ (^ q3 q4) q6) q7) r3) r6) r7) 32)))
+        (__store64 q 7 (^ (^ (^ (^ (^ (^ q4 q5) q6) r4) r6) r7) (rotr64 (^ (^ (^ (^ q4 q5) q7) r4) r7) 32)))
+        0
+      })))
+
+; ------------------------------------------------------------------
+; The cipher on the sliced state.
+; ------------------------------------------------------------------
+; Encrypt the four blocks sliced in `q` under the `nr`-round schedule
+; at `sk` (FIPS 197 5.1).
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: aesEncryptState (-> Int Int Int Int))
+;@axiom:ct(*sk, *q)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`sk` names 8 * (`nr` + 1) live words from `aesKeyExpand`, and `q` names 8 live writable words)
+(fn (aesEncryptState nr sk q)
+  {
+    (aesAddRoundKey q sk)
+    (for u 1 nr
+      {
+        (aesSbox q)
+        (aesShiftMixAdd q (+ sk (* 64 u)))
+      })
+    (aesSbox q)
+    (aesShiftAdd q (+ sk (* 64 nr)))
+  })
+
+; Decrypt the four blocks sliced in `q` (FIPS 197 5.3), with the same
+; schedule encryption uses.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: aesDecryptState (-> Int Int Int Int))
+;@axiom:ct(*sk, *q)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`sk` names 8 * (`nr` + 1) live words from `aesKeyExpand`, and `q` names 8 live writable words)
+(fn (aesDecryptState nr sk q)
+  {
+    (aesAddRoundKey q (+ sk (* 64 nr)))
+    (for i 1 nr
+      {
+        (aesInvShiftRows q)
+        (aesInvSbox q)
+        (aesAddInvMix q (+ sk (* 64 (- nr i))))
+      })
+    (aesInvShiftRows q)
+    (aesInvSbox q)
+    (aesAddRoundKey q sk)
+  })
+
+; ------------------------------------------------------------------
+; The key schedule (FIPS 197 5.2), then BearSSL's bitsliced form of
+; each round key: the four words interleaved as a block, sliced, and
+; spread so each bit fills the four lanes.
+; ------------------------------------------------------------------
+; The round constant for schedule step `k` (0..9). `k` is a public
+; counter.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: aesRcon (-> Int Int))
+(fn (aesRcon k)
+  (if (< k 8)
+    (<< 1 k)
+    (if (== k 8)
+      27
+      54)))
+
+; SubWord: the S-box on each byte of a 32-bit word, through the same
+; circuit, in lane 0 of the state at `q`.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: aesSubWord (-> Int Int Int))
+;@axiom:ct(*q, x)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`q` names 8 live writable words)
+(fn (aesSubWord q x)
+  {
+    (__store64 q 0 x)
+    (for i 1 8
+      (__store64 q i 0))
+    (aesOrtho q)
+    (aesSbox q)
+    (aesOrtho q)
+    (& (__load64 q 0) 4294967295)
+  })
+
+; One compressed round-key word spread back to four: each bit of lane
+; k fills bits 4j..4j+3 of word k.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: aesExpandWord (-> Int Int Int Int))
+;@axiom:ct(*out, c)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`out` + 8 * `v` names 4 live writable words)
+(fn (aesExpandWord out v c)
+  (let (
+    (x0 (& c aesK1111))
+    (x1 (>> (& c aesK2222) 1))
+    (x2 (>> (& c aesK4444) 2))
+    (x3 (shrU (& c aesK8888) 3))
+  )
+    {
+      (__store64 out v (- (<< x0 4) x0))
+      (__store64 out (+ v 1) (- (<< x1 4) x1))
+      (__store64 out (+ v 2) (- (<< x2 4) x2))
+      (__store64 out (+ v 3) (- (<< x3 4) x3))
+      0
+    }))
+
+; Expand the `keyLen`-byte key at `key` into the bitsliced schedule at
+; `out`, `aesScheduleBytes keyLen` bytes. Answers the number of rounds,
+; or 0, writing nothing, when `keyLen` is not 16, 24 or 32. The
+; scratch at `work` is wiped before this returns.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: aesKeyExpand (-> Int Int Int Int Int))
+;@axiom:ct(*key, *work)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`key` names `keyLen` live bytes, `out` names `aesScheduleBytes keyLen` live writable bytes, `work` names `aesKeyWorkBytes` live writable bytes, 8-byte aligned, and none of them overlap)
+(pub fn (aesKeyExpand out key keyLen work)
+  (let ((nr (aesRounds keyLen)))
+    (if (== nr 0)
+      0
+      (let (
+        (nk (/ keyLen 4))
+        (nkf (* 4 (+ nr 1)))
+        (w work)
+        (q (+ work 480))
+      )
+        {
+          (for i 0 nk
+            (__store64 w i (ld32le key (* 4 i))))
+          (let (
+            (mut tmp (__load64 w (- nk 1)))
+            (mut j 0)
+            (mut k 0)
+          )
+            (for i nk nkf
+              {
+                (if (== j 0)
+                  {
+                    (set tmp (^ (aesSubWord q (rotr32 tmp 8)) (aesRcon k)))
+                    0
+                  }
+                  (if (&& (> nk 6) (== j 4))
+                    {
+                      (set tmp (aesSubWord q tmp))
+                      0
+                    }
+                    0))
+                (set tmp (^ tmp (__load64 w (- i nk))))
+                (__store64 w i tmp)
+                (set j (+ j 1))
+                (if (== j nk)
+                  {
+                    (set j 0)
+                    (set k (+ k 1))
+                    0
+                  }
+                  0)
+              }))
+          (for g 0 (+ nr 1)
+            (let ((i (* 4 g)))
+              {
+                (aesInterleaveIn
+                  q
+                  0
+                  (__load64 w i)
+                  (__load64 w (+ i 1))
+                  (__load64 w (+ i 2))
+                  (__load64 w (+ i 3)))
+                (__store64 q 1 (__load64 q 0))
+                (__store64 q 2 (__load64 q 0))
+                (__store64 q 3 (__load64 q 0))
+                (__store64 q 5 (__load64 q 4))
+                (__store64 q 6 (__load64 q 4))
+                (__store64 q 7 (__load64 q 4))
+                (aesOrtho q)
+                (aesExpandWord out (* 8 g) (| (| (& (__load64 q 0) aesK1111) (& (__load64 q 1) aesK2222)) (| (& (__load64 q 2) aesK4444) (& (__load64 q 3) aesK8888))))
+                (aesExpandWord out (+ (* 8 g) 4) (| (| (& (__load64 q 4) aesK1111) (& (__load64 q 5) aesK2222)) (| (& (__load64 q 6) aesK4444) (& (__load64 q 7) aesK8888))))
+              }))
+          (ctWipe work aesKeyWorkBytes)
+          nr
+        }))))
+
+; ------------------------------------------------------------------
+; Whole blocks.
+; ------------------------------------------------------------------
+; Encrypt `n` 16-byte blocks from `src` to `dst`, each on its own
+; (the raw cipher, FIPS 197 5.1; ECB when read as a mode). `src` and
+; `dst` may be the same address. `q` is scratch the caller wipes.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: aesEncryptBlocks (-> Int Int Int Int Int Int Int))
+;@axiom:ct(*sk, *src, *q)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`sk` names the schedule for `nr` rounds, `src` and `dst` name 16 * `n` live bytes (`dst` writable), and `q` names `aesStateBytes` live writable bytes, 8-byte aligned)
+(pub fn (aesEncryptBlocks sk nr src dst n q)
+  (let ((mut b 0))
+    {
+      (while (< b n)
+        (let ((m 
+          (if (< (- n b) 4)
+            (- n b)
+            4)))
+          {
+            (aesLoadBlocks q (+ src (* 16 b)) m)
+            (aesEncryptState nr sk q)
+            (aesStoreBlocks q (+ dst (* 16 b)) m)
+            (set b (+ b 4))
+            0
+          }))
+      0
+    }))
+
+; Decrypt `n` 16-byte blocks from `src` to `dst` (FIPS 197 5.3).
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: aesDecryptBlocks (-> Int Int Int Int Int Int Int))
+;@axiom:ct(*sk, *q)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`sk` names the schedule for `nr` rounds, `src` and `dst` name 16 * `n` live bytes (`dst` writable), and `q` names `aesStateBytes` live writable bytes, 8-byte aligned)
+(pub fn (aesDecryptBlocks sk nr src dst n q)
+  (let ((mut b 0))
+    {
+      (while (< b n)
+        (let ((m 
+          (if (< (- n b) 4)
+            (- n b)
+            4)))
+          {
+            (aesLoadBlocks q (+ src (* 16 b)) m)
+            (aesDecryptState nr sk q)
+            (aesStoreBlocks q (+ dst (* 16 b)) m)
+            (set b (+ b 4))
+            0
+          }))
+      0
+    }))
+
+; ------------------------------------------------------------------
+; Counter mode with a 32-bit block counter, as GCM uses it
+; (SP 800-38D 6.5, GCTR with inc32).
+; ------------------------------------------------------------------
+; The byte-reversal of a 32-bit word.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: aesBswap32 (-> Int Int))
+(fn (aesBswap32 x)
+  (| (| (<< (& x 255) 24) (<< (& (>> x 8) 255) 16)) (| (<< (& (>> x 16) 255) 8) (& (>> x 24) 255))))
+
+; XOR `len` bytes from `src` with the keystream E(iv || ctr),
+; E(iv || ctr + 1), ... into `dst`, where `iv` is 12 bytes and the
+; counter is the last 4 bytes of each block, big-endian, incremented
+; modulo 2^32. Answers the counter after the last block used. `src`
+; and `dst` may be the same address. `work` holds keystream when this
+; returns; the caller wipes it.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: aesCtr32Xor (-> Int Int Int Int Int Int Int Int Int))
+;@axiom:ct(*sk, *work, *src)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`sk` names the schedule for `nr` rounds, `work` names `aesCtrWorkBytes` live writable bytes, 8-byte aligned, `iv` names 12 live bytes, and `src` and `dst` name `len` live bytes (`dst` writable))
+(pub fn (aesCtr32Xor sk nr work iv ctr src dst len)
+  (let (
+    (q work)
+    (ks (+ work 64))
+    (iv0 (ld32le iv 0))
+    (iv1 (ld32le iv 4))
+    (iv2 (ld32le iv 8))
+    (mut cc (& ctr 4294967295))
+    (mut off 0)
+  )
+    {
+      (while (< off len)
+        {
+          (for i 0 4
+            (aesInterleaveIn
+              q
+              i
+              iv0
+              iv1
+              iv2
+              (aesBswap32 (& (+ cc i) 4294967295))))
+          (aesOrtho q)
+          (aesEncryptState nr sk q)
+          (aesOrtho q)
+          (for i 0 4
+            (aesInterleaveOut q i ks (* 16 i)))
+          (let ((rest (- len off)))
+            (if (>= rest 64)
+              {
+                (for i 0 8
+                  (st64le dst (+ off (* 8 i)) (^ (ld64le src (+ off (* 8 i))) (ld64le ks (* 8 i)))))
+                (set cc (& (+ cc 4) 4294967295))
+                0
+              }
+              {
+                (for i 0 rest
+                  (__store8 dst (+ off i) (^ (__load8 src (+ off i)) (__load8 ks i))))
+                (set cc (& (+ cc (/ (+ rest 15) 16)) 4294967295))
+                0
+              }))
+          (set off (+ off 64))
+          0
+        })
+      cc
+    }))

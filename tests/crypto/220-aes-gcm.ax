@@ -1,0 +1,375 @@
+; AES-128-GCM and AES-256-GCM (SP 800-38D) through Crypto.AesGcm's
+; typed API: NIST's CAVP vectors with a 96-bit IV and a 128-bit tag,
+; including every case NIST marks FAIL; every Wycheproof test, with the
+; parameters the suite does not offer (IVs other than 12 bytes, 192-bit
+; keys) refused rather than run; RustCrypto's aes-gcm on random inputs;
+; forgeries of every part of a message; and the key API.
+(import IO)
+(import Str)
+(import Vec)
+(import Err)
+(import Fmt)
+(import Crypto.Errors)
+(import Crypto.Bytes)
+(import Crypto.Secret)
+(import Crypto.Aead)
+(import Crypto.AesGcm)
+(import Kat)
+
+; ------------------------------------------------------------------
+; Seal and open with a key and nonce given as bytes. A key that is not
+; 16 or 32 bytes, or a nonce that is not 12, answers the refusal the
+; API gives for it.
+; ------------------------------------------------------------------
+(:: sealWith (-> SecretBytes AeadNonce String String (Result String Error)))
+;@axiom:effect(io)
+(fn (sealWith s n aad pt)
+  (if (== (secretLen s) 16)
+    (match (aes128GcmKeyFromSecret s)
+      ((Err e) (Err e))
+      ((Ok k)
+        (let ((r (aes128GcmSeal k n aad pt)))
+          {
+            (aes128GcmKeyWipe k)
+            r
+          })
+      ))
+    (match (aes256GcmKeyFromSecret s)
+      ((Err e) (Err e))
+      ((Ok k)
+        (let ((r (aes256GcmSeal k n aad pt)))
+          {
+            (aes256GcmKeyWipe k)
+            r
+          })
+      ))))
+
+(:: openWith (-> SecretBytes AeadNonce String String (Result String Error)))
+;@axiom:effect(io)
+(fn (openWith s n aad sealed)
+  (if (== (secretLen s) 16)
+    (match (aes128GcmKeyFromSecret s)
+      ((Err e) (Err e))
+      ((Ok k)
+        (let ((r (aes128GcmOpen k n aad sealed)))
+          {
+            (aes128GcmKeyWipe k)
+            r
+          })
+      ))
+    (match (aes256GcmKeyFromSecret s)
+      ((Err e) (Err e))
+      ((Ok k)
+        (let ((r (aes256GcmOpen k n aad sealed)))
+          {
+            (aes256GcmKeyWipe k)
+            r
+          })
+      ))))
+
+(:: gcm (-> Bool String String String String (Result String Error)))
+;@axiom:effect(io)
+(fn (gcm sealing key nonce aad text)
+  (match (aeadNonceFromBytes nonce)
+    ((Err e) (Err e))
+    ((Ok n)
+      (match (secretFromString key)
+        ((Err e) (Err e))
+        ((Ok s)
+          (let ((r 
+            (if sealing
+              (sealWith s n aad text)
+              (openWith s n aad text))))
+            {
+              (secretWipe s)
+              r
+            })
+        ))
+    )))
+
+(:: seal (-> String String String String (Result String Error)))
+;@axiom:effect(io)
+(fn (seal key nonce aad pt)
+  (gcm
+    true
+    key
+    nonce
+    aad
+    pt))
+
+(:: open (-> String String String String (Result String Error)))
+;@axiom:effect(io)
+(fn (open key nonce aad sealed)
+  (gcm
+    false
+    key
+    nonce
+    aad
+    sealed))
+
+; ------------------------------------------------------------------
+; Judging answers.
+; ------------------------------------------------------------------
+(:: answers (-> (Result String Error) String Bool))
+(fn (answers r want)
+  (match r
+    ((Ok got) (strEq got want))
+    ((Err _) false)))
+
+(:: refused (-> (Result String Error) Int Bool))
+(fn (refused r code)
+  (match r
+    ((Ok _) false)
+    ((Err e) (== (errCode e) code))))
+
+; The one authentication failure: code, message and nothing else.
+(:: authFails (-> (Result String Error) Bool))
+(fn (authFails r)
+  (match r
+    ((Ok _) false)
+    ((Err e) (&& (== (errCode e) cryptoAuthFailed) (strEq (errMessage e) "authentication failed")))))
+
+; `s` with byte `i` XORed with 1.
+(:: flip (-> String Int String))
+;@axiom:effect(unsafe)
+(fn (flip s i)
+  (let ((c (bytesFromAddr (strData s) (strLen s))))
+    {
+      (__store8 (strData c) i (^ (strByte s i) 1))
+      c
+    }))
+
+; ------------------------------------------------------------------
+; Forgeries: every way to change a sealed message must fail to open,
+; with the same error.
+; ------------------------------------------------------------------
+(:: forgeries (-> Tally String String String String String Int))
+;@axiom:effect(io)
+(fn (forgeries t key nonce aad pt sealed)
+  (let (
+    (n (strLen sealed))
+    (id (hexEncode nonce))
+  )
+    {
+      (tallyCheck t (answers (open key nonce aad sealed) pt) (strConcat "the genuine message opens " id))
+      (tallyCheck t (authFails (open key nonce aad (flip sealed 0))) (strConcat "first byte flipped " id))
+      (tallyCheck t (authFails (open key nonce aad (flip sealed (- n 1)))) (strConcat "last tag byte flipped " id))
+      (tallyCheck t (authFails (open key nonce aad (flip sealed (- n 16)))) (strConcat "first tag byte flipped " id))
+      (if (> n 16)
+        (tallyCheck t (authFails (open key nonce aad (flip sealed (- n 17)))) (strConcat "last ciphertext byte flipped " id))
+        0)
+      (tallyCheck t (authFails (open key nonce aad (strSlice sealed 0 (- n 1)))) (strConcat "truncated " id))
+      (tallyCheck t (authFails (open key nonce aad (strConcat sealed "\0"))) (strConcat "extended " id))
+      (tallyCheck t (authFails (open key nonce aad (strSlice sealed 0 15))) (strConcat "15 bytes " id))
+      (tallyCheck t (authFails (open key nonce aad "")) (strConcat "empty " id))
+      (tallyCheck t (authFails (open key nonce (strConcat aad "x") sealed)) (strConcat "aad extended " id))
+      (if (> (strLen aad) 0)
+        {
+          (tallyCheck t (authFails (open key nonce (flip aad 0) sealed)) (strConcat "aad flipped " id))
+          (tallyCheck t (authFails (open key nonce "" sealed)) (strConcat "aad dropped " id))
+        }
+        0)
+      (tallyCheck t (authFails (open key (flip nonce 0) aad sealed)) (strConcat "nonce flipped " id))
+      (tallyCheck t (authFails (open key (flip nonce 11) aad sealed)) (strConcat "nonce last byte flipped " id))
+      (tallyCheck t (authFails (open (flip key 0) nonce aad sealed)) (strConcat "wrong key " id))
+    }))
+
+; ------------------------------------------------------------------
+; The key API.
+; ------------------------------------------------------------------
+(:: keyLengthRefused (-> Int Bool))
+;@axiom:effect(io)
+(fn (keyLengthRefused n)
+  (match (secretFromString (bytesNew n))
+    ((Err _) false)
+    ((Ok s)
+      (let (
+        (a (match (aes128GcmKeyFromSecret s)
+          ((Ok k)
+            {
+              (aes128GcmKeyWipe k)
+              false
+            }
+          )
+          ((Err e) (== (errCode e) cryptoInvalidLength))))
+        (b (match (aes256GcmKeyFromSecret s)
+          ((Ok k)
+            {
+              (aes256GcmKeyWipe k)
+              false
+            }
+          )
+          ((Err e) (== (errCode e) cryptoInvalidLength))))
+      )
+        {
+          (secretWipe s)
+          (&& a b)
+        })
+    )))
+
+(:: apiChecks (-> Tally Int))
+;@axiom:effect(io)
+(fn (apiChecks t)
+  (let ((nonce (unwrapOr (aeadNonceFromBytes "0123456789ab") (AeadNonce ""))))
+    {
+      (for n in (vecOf6
+        0
+        15
+        17
+        24
+        31
+        33)
+        (tallyCheck t (keyLengthRefused n) "a key of the wrong length is refused"))
+      (tallyCheck t (refused (mapOk (aeadNonceFromBytes "0123456789a") aeadNonceBytes) cryptoInvalidLength) "an 11-byte nonce is refused")
+      (tallyCheck t (refused (mapOk (aeadNonceFromBytes "0123456789abc") aeadNonceBytes) cryptoInvalidLength) "a 13-byte nonce is refused")
+      (match (aes256GcmKeyGenerate)
+        ((Err _) (tallyCheck t false "aes256GcmKeyGenerate"))
+        ((Ok k)
+          (let ((sealed (aes256GcmSeal k nonce "hdr" "attack at dawn")))
+            {
+              (tallyCheck t (== (strLen (unwrapOr sealed "")) 30) "a seal is the plaintext plus 16 bytes")
+              (tallyCheck t (answers (aes256GcmOpen k nonce "hdr" (unwrapOr sealed "")) "attack at dawn") "a generated key opens its own seal")
+              (tallyCheck t (refused (aes256GcmSeal k (AeadNonce "short") "" "x") cryptoInvalidLength) "a forged short nonce is refused by seal")
+              (tallyCheck t (authFails (aes256GcmOpen k (AeadNonce "short") "hdr" (unwrapOr sealed ""))) "a forged short nonce fails open")
+              (tallyCheck t (answers (aes256GcmOpen k nonce "" (unwrapOr (aes256GcmSeal k nonce "" "") "")) "") "an empty message round-trips")
+              (let ((shown (format "{k}")))
+                (tallyCheck t (strEq shown "<Aes256GcmKey>") "a key prints as its type name"))
+              (match (aes256GcmKeyExport k)
+                ((Err _) (tallyCheck t false "aes256GcmKeyExport"))
+                ((Ok s)
+                  (match (aes256GcmKeyFromSecret s)
+                    ((Err _) (tallyCheck t false "re-import"))
+                    ((Ok k2)
+                      {
+                        (tallyCheck t (answers (aes256GcmOpen k2 nonce "hdr" (unwrapOr sealed "")) "attack at dawn") "an exported key opens what the original sealed")
+                        (aes256GcmKeyWipe k2)
+                        (secretWipe s)
+                      }
+                    ))
+                ))
+              (match (aes256GcmKeyGenerate)
+                ((Err _) (tallyCheck t false "a second key"))
+                ((Ok k3)
+                  {
+                    (tallyCheck t (authFails (aes256GcmOpen k3 nonce "hdr" (unwrapOr sealed ""))) "a second generated key does not open it")
+                    (aes256GcmKeyWipe k3)
+                  }
+                ))
+              (aes256GcmKeyWipe k)
+            })
+        ))
+      (match (aes128GcmKeyGenerate)
+        ((Err _) (tallyCheck t false "aes128GcmKeyGenerate"))
+        ((Ok k)
+          (let ((sealed (unwrapOr (aes128GcmSeal k nonce "" "sixteen byte msg") "")))
+            {
+              (tallyCheck t (answers (aes128GcmOpen k nonce "" sealed) "sixteen byte msg") "a generated 128-bit key opens its own seal")
+              (match (aes128GcmKeyExport k)
+                ((Err _) (tallyCheck t false "aes128GcmKeyExport"))
+                ((Ok s)
+                  {
+                    (tallyCheck t (== (secretLen s) 16) "a 128-bit key exports 16 bytes")
+                    (secretWipe s)
+                  }
+                ))
+              (aes128GcmKeyWipe k)
+            })
+        ))
+    }))
+
+(:: vecOf6 (-> Int Int Int Int Int Int (Vec Int)))
+(fn (vecOf6 a b c d e f)
+  (let ((v vecNew))
+    {
+      (vecPush v a)
+      (vecPush v b)
+      (vecPush v c)
+      (vecPush v d)
+      (vecPush v e)
+      (vecPush v f)
+      v
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (cavp (tallyNew "gcm-cavp"))
+    (wp (tallyNew "wycheproof-aes-gcm"))
+    (wpr (tallyNew "wycheproof-aes-gcm-refused"))
+    (diff (tallyNew "aes-gcm-rustcrypto"))
+    (neg (tallyNew "aes-gcm-forgeries"))
+    (api (tallyNew "aes-gcm-keys"))
+    (mut forged 0)
+  )
+    {
+      (for line in (katLines "gcm-cavp.txt")
+        (let ((f (katFields line)))
+          (let (
+            (id (katText f 0))
+            (kind (katText f 1))
+            (key (katBytes f 2))
+            (iv (katBytes f 3))
+            (aad (katBytes f 4))
+            (pt (katBytes f 5))
+            (sealed (strConcat (katBytes f 6) (katBytes f 7)))
+          )
+            (if (strEq kind "encrypt")
+              {
+                (tallyCheck cavp (answers (seal key iv aad pt) sealed) id)
+                (tallyCheck cavp (answers (open key iv aad sealed) pt) (strConcat "reopen " id))
+              }
+              (if (strEq kind "decrypt")
+                (tallyCheck cavp (answers (open key iv aad sealed) pt) id)
+                (tallyCheck cavp (authFails (open key iv aad sealed)) id))))))
+      (for line in (katLines "wycheproof-aes-gcm.txt")
+        (let ((f (katFields line)))
+          (let (
+            (id (strConcat "tcId " (katText f 0)))
+            (valid (strEq (katText f 1) "valid"))
+            (key (katBytes f 2))
+            (iv (katBytes f 3))
+            (aad (katBytes f 4))
+            (msg (katBytes f 5))
+            (sealed (strConcat (katBytes f 6) (katBytes f 7)))
+          )
+            (if (|| (!= (strLen iv) 12) (|| (== (strLen key) 24) (!= (strLen (katBytes f 7)) 16)))
+              {
+                (tallyCheck wpr (refused (seal key iv aad msg) cryptoInvalidLength) (strConcat "seal refuses " id))
+                (tallyCheck wpr (refused (open key iv aad sealed) cryptoInvalidLength) (strConcat "open refuses " id))
+              }
+              (if valid
+                {
+                  (tallyCheck wp (answers (seal key iv aad msg) sealed) id)
+                  (tallyCheck wp (answers (open key iv aad sealed) msg) (strConcat "open " id))
+                }
+                (tallyCheck wp (authFails (open key iv aad sealed)) id))))))
+      (for line in (katLines "aes-gcm-diff.txt")
+        (let ((f (katFields line)))
+          (let (
+            (key (katBytes f 0))
+            (nonce (katBytes f 1))
+            (aad (katBytes f 2))
+            (pt (katBytes f 3))
+            (sealed (strConcat (katBytes f 4) (katBytes f 5)))
+          )
+            {
+              (tallyCheck diff (answers (seal key nonce aad pt) sealed) (hexEncode nonce))
+              (tallyCheck diff (answers (open key nonce aad sealed) pt) (strConcat "open " (hexEncode nonce)))
+              (if (< forged 40)
+                {
+                  (forgeries
+                    neg
+                    key
+                    nonce
+                    aad
+                    pt
+                    sealed)
+                  (set forged (+ forged 1))
+                  0
+                }
+                0)
+            })))
+      (apiChecks api)
+      (+ (+ (tallyReport cavp) (+ (tallyReport wp) (tallyReport wpr))) (+ (tallyReport diff) (+ (tallyReport neg) (tallyReport api))))
+    }))

@@ -1,0 +1,218 @@
+; Crypto.Ghash - GHASH, GCM's universal hash (SP 800-38D 6.4), as a
+; constant-time carry-less multiplication. Hazardous layer.
+;
+;     (let ((y (strAlloc 16)))
+;       {
+;         (ghashUpdate (strData y) hAddr (strData aad) (strLen aad))
+;         (ghashUpdate (strData y) hAddr (strData ct) (strLen ct))
+;         (ghashUpdate (strData y) hAddr (strData lengths) 16)
+;         ; y now holds GHASH_H(A || pad || C || pad || len(A) || len(C))
+;       })
+;
+; GHASH is only safe inside GCM, where its key H = E_K(0^128) stays
+; secret and every hash is masked with a fresh E_K(J0). Anyone who
+; learns H can forge tags under that key. Application code wants
+; `Crypto.AesGcm`.
+;
+; CONSTANT TIME, WITH NO TABLE. The usual fast GHASH multiplies through
+; tables built from H, indexed by data bytes, and so leaks H through
+; the cache. This one multiplies polynomials over GF(2) with ordinary
+; integer multiplications: each operand is split into four words whose
+; set bits are four positions apart, so the carries a product makes
+; land in the gaps and are masked away. Every operation is a
+; multiply, shift, AND or XOR on words, with no branch or address that
+; depends on H or on the running hash.
+;
+; STANDARD. NIST SP 800-38D, section 6.3 (multiplication in
+; GF(2^128)) and 6.4 (GHASH). The block order and the reflected bit
+; order are the standard's; the reduction polynomial is
+; x^128 + x^7 + x^2 + x + 1.
+;
+; REFERENCE. A port of BearSSL's `ghash_ctmul64` (src/hash/
+; ghash_ctmul64.c) by Thomas Pornin, MIT licence: `bmul64`, the bit
+; reversal, the Karatsuba split into three products per half and the
+; shift-and-fold reduction are his, in the same order. It needs only
+; a 64 x 64 -> 64 multiply, which is Axiom's `*`.
+;
+; LIMITS. The multiplier's timing is the hardware's: on a core whose
+; multiply latency depends on its operands this leaks, and the 64-bit
+; cores Axiom supports multiply in constant time. The processors'
+; carry-less multiply instructions (PMULL, PCLMULQDQ) are not used:
+; Axiom has no way to reach them.
+(import Mem)
+(import Crypto.Ct)
+
+; ------------------------------------------------------------------
+; Masks: one bit in every four.
+; ------------------------------------------------------------------
+(:: ghashK1111 Int)
+(fn (ghashK1111)
+  1229782938247303441)
+
+(:: ghashK2222 Int)
+(fn (ghashK2222)
+  2459565876494606882)
+
+(:: ghashK4444 Int)
+(fn (ghashK4444)
+  4919131752989213764)
+
+(:: ghashK8888 Int)
+(fn (ghashK8888)
+  -8608480567731124088)
+
+; The low 64 bits of the carry-less product of `x` and `y`. Each
+; operand is split into four words holding every fourth bit; a product
+; of two such words has at most 16 terms in any bit position below
+; bit 64, and the one position that can reach 16 carries out of the
+; word, so the carries only ever land in the three bits the masks
+; clear.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: ghashBmul64 (-> Int Int Int))
+;@axiom:ct(x, y)
+(fn (ghashBmul64 x y)
+  (let (
+    (m0 ghashK1111)
+    (m1 ghashK2222)
+    (m2 ghashK4444)
+    (m3 ghashK8888)
+  )
+    (let (
+      (x0 (& x m0))
+      (x1 (& x m1))
+      (x2 (& x m2))
+      (x3 (& x m3))
+      (y0 (& y m0))
+      (y1 (& y m1))
+      (y2 (& y m2))
+      (y3 (& y m3))
+    )
+      (let (
+        (z0 (^ (^ (* x0 y0) (* x1 y3)) (^ (* x2 y2) (* x3 y1))))
+        (z1 (^ (^ (* x0 y1) (* x1 y0)) (^ (* x2 y3) (* x3 y2))))
+        (z2 (^ (^ (* x0 y2) (* x1 y1)) (^ (* x2 y0) (* x3 y3))))
+        (z3 (^ (^ (* x0 y3) (* x1 y2)) (^ (* x2 y1) (* x3 y0))))
+      )
+        (| (| (& z0 m0) (& z1 m1)) (| (& z2 m2) (& z3 m3)))))))
+
+; `x` with its 64 bits in reverse order.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: ghashRev64 (-> Int Int))
+;@axiom:ct(x)
+(fn (ghashRev64 x)
+  (let ((a (| (<< (& x 6148914691236517205) 1) (& (>> x 1) 6148914691236517205))))
+    (let ((b (| (<< (& a 3689348814741910323) 2) (& (>> a 2) 3689348814741910323))))
+      (let ((c (| (<< (& b 1085102592571150095) 4) (& (>> b 4) 1085102592571150095))))
+        (let ((d (| (<< (& c 71777214294589695) 8) (& (>> c 8) 71777214294589695))))
+          (let ((e (| (<< (& d 281470681808895) 16) (& (>> d 16) 281470681808895))))
+            (rotl64 e 32)))))))
+
+; Big-endian word `half` (0 or 8) of the block at `p + off`, of which
+; only the first `n` bytes (0..15) are data: the rest read as zero.
+; GHASH pads a short final block with zeros (SP 800-38D 6.4).
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: ghashTailWord (-> Int Int Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p` + `off` names `n` live bytes)
+(fn (ghashTailWord p off n half)
+  (let ((mut w 0))
+    {
+      (for i 0 8
+        (let ((k (+ half i)))
+          (set w (|
+            (<< w 8)
+            (if (< k n)
+              (__load8 p (+ off k))
+              0)))))
+      w
+    }))
+
+; Absorb `len` bytes at `data` into the running hash at `y` (16 bytes,
+; big-endian, updated in place) under the hash key at `h` (16 bytes):
+; for each 16-byte block X, Y <- (Y xor X) * H in GF(2^128). A final
+; partial block is padded with zeros, so a caller absorbing A and then
+; C gets GCM's padding for each. `len` is public; `y` and `h` are not.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: ghashUpdate (-> Int Int Int Int Int))
+;@axiom:ct(*y, *h)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`y` names 16 live writable bytes, `h` 16 live bytes, and `data` `len` live bytes)
+(pub fn (ghashUpdate y h data len)
+  (let (
+    (h1 (ld64be h 0))
+    (h0 (ld64be h 8))
+  )
+    (let (
+      (h0r (ghashRev64 h0))
+      (h1r (ghashRev64 h1))
+      (h2 (^ h0 h1))
+    )
+      (let (
+        (h2r (^ h0r h1r))
+        (mut y1 (ld64be y 0))
+        (mut y0 (ld64be y 8))
+        (mut off 0)
+      )
+        {
+          (while (< off len)
+            (let ((rest (- len off)))
+              (let (
+                (b1 (if (>= rest 16)
+                  (ld64be data off)
+                  (ghashTailWord data off rest 0)))
+                (b0 (if (>= rest 16)
+                  (ld64be data (+ off 8))
+                  (ghashTailWord data off rest 8)))
+              )
+                (let (
+                  (a1 (^ y1 b1))
+                  (a0 (^ y0 b0))
+                )
+                  (let (
+                    (a0r (ghashRev64 a0))
+                    (a1r (ghashRev64 a1))
+                    (a2 (^ a0 a1))
+                  )
+                    (let (
+                      (a2r (^ a0r a1r))
+                      (z0 (ghashBmul64 a0 h0))
+                      (z1 (ghashBmul64 a1 h1))
+                      (z2 (ghashBmul64 a2 h2))
+                      (z0h (ghashBmul64 a0r h0r))
+                      (z1h (ghashBmul64 a1r h1r))
+                    )
+                      (let ((z2h (ghashBmul64 a2r h2r)))
+                        (let (
+                          (z2m (^ z2 (^ z0 z1)))
+                          (z2hm (^ z2h (^ z0h z1h)))
+                        )
+                          (let (
+                            (v0 z0)
+                            (v1 (^ (shrU (ghashRev64 z0h) 1) z2m))
+                            (v2 (^ z1 (shrU (ghashRev64 z2hm) 1)))
+                            (v3 (shrU (ghashRev64 z1h) 1))
+                          )
+                            (let (
+                              (w3 (| (<< v3 1) (shrU v2 63)))
+                              (w2 (| (<< v2 1) (shrU v1 63)))
+                              (w1 (| (<< v1 1) (shrU v0 63)))
+                              (w0 (<< v0 1))
+                            )
+                              (let (
+                                (u2 (^ (^ w2 w0) (^ (^ (shrU w0 1) (shrU w0 2)) (shrU w0 7))))
+                                (u1 (^ w1 (^ (^ (<< w0 63) (<< w0 62)) (<< w0 57))))
+                              )
+                                (let (
+                                  (u3 (^ (^ w3 u1) (^ (^ (shrU u1 1) (shrU u1 2)) (shrU u1 7))))
+                                  (u2b (^ u2 (^ (^ (<< u1 63) (<< u1 62)) (<< u1 57))))
+                                )
+                                  {
+                                    (set y0 u2b)
+                                    (set y1 u3)
+                                    (set off (+ off 16))
+                                    0
+                                  }))))))))))))
+          (st64be y 0 y1)
+          (st64be y 8 y0)
+          0
+        }))))

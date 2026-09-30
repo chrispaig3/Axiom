@@ -1,0 +1,6 @@
+chacha20-poly1305-rfc8439 ok
+wycheproof-chacha20-poly1305 ok
+wycheproof-chacha20-poly1305-refused ok
+chacha20-poly1305-rustcrypto ok
+chacha20-poly1305-forgeries ok
+chacha20-poly1305-keys ok

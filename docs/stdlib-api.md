@@ -87,6 +87,61 @@ two differ.
 | `chanCap` | value | `(-> Chan Int)` |  |  |
 | `chanFree` | value | `(-> Chan (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Unmap the channel. Only once no binding can still reach it - after the `parallel` form that used it (the module header's obligation). The handle is retired before the ring is unmapped, so every call made after this one - a second `chanFree` included - traps with status 85. It takes no lock, so a poisoned channel is freed like any other. |
 
+## `Crypto.Aead`
+
+`stdlib/Crypto/Aead.ax` — 11 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `AeadNonce` | struct |  |  | A 12-byte nonce for one AEAD message. Build it with `aeadNonceFromBytes`, `aeadNonceRandom` or `nonceSequenceNext`; the AEADs refuse one of any other length. |
+| `aeadNonceLen` | value | `Int` |  | The nonce length the AEADs take: 12 bytes. |
+| `aeadTagLen` | value | `Int` |  | The tag every seal appends and every open checks: 16 bytes. Shorter tags are not offered. |
+| `aeadNonceFromBytes` | value | `(-> String (Result AeadNonce Error))` | `Alloc,Mut,Unsafe` | A nonce holding a copy of `b`, which must be exactly 12 bytes. Anything else answers `cryptoInvalidLength`: other nonce lengths exist in GCM, and this suite does not take them. |
+| `aeadNonceBytes` | value | `(-> AeadNonce String)` |  | The nonce's 12 bytes, to send beside the ciphertext. |
+| `aeadNonceRandom` | value | `(Result AeadNonce Error)` | `Alloc,IO,Mut` | A nonce of 12 bytes from the kernel's entropy source. Use at most 2^32 random nonces under one key (SP 800-38D 8.3); the module header says why. |
+| `NonceSequence` | struct |  |  | A source of nonces that never repeats: a fixed 4-byte prefix and a 64-bit big-endian counter, the prefix and invocation fields of SP 800-38D 8.2.1. The state is the next nonce itself, 12 bytes. The counter runs from 0 to 2^63 - 2, and one sequence is not safe to use from two threads at once. |
+| `nonceSequenceNew` | value | `(-> String (Result NonceSequence Error))` | `Alloc,Mut` | A sequence whose first nonce is `prefix` followed by a zero counter. `prefix` must be 4 bytes, and distinct for every sender that shares the key. |
+| `nonceSequenceResume` | value | `(-> String Int (Result NonceSequence Error))` | `Alloc,Mut` | A sequence that carries on from `position`, a value read back from `nonceSequencePosition` and persisted before the nonce it followed was used. `position` is 0 to 2^63 - 1; at 2^63 - 1 the sequence is already used up. |
+| `nonceSequenceNext` | value | `(-> NonceSequence (Result AeadNonce Error))` | `Alloc,Mut,Unsafe` | The next nonce, and the counter moved on past it. Once the counter reaches 2^63 - 1 every call answers `cryptoLimitExceeded`: the sequence never wraps round to a nonce it has given out. A state that is not 12 bytes answers `cryptoInvalidLength`. |
+| `nonceSequencePosition` | value | `(-> NonceSequence Int)` | `Unsafe` | The counter the next nonce will carry: the value to persist, before sealing, so a restart can resume after every nonce already given out. -1 for a state that is not 12 bytes. |
+
+## `Crypto.Aes`
+
+`stdlib/Crypto/Aes.ax` — 9 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `aesRounds` | value | `(-> Int Int)` |  | The number of rounds for a key of `keyLen` bytes: 10, 12 or 14 for 16, 24 or 32, and 0 for any other length. |
+| `aesScheduleBytes` | value | `(-> Int Int)` |  | The bytes an expanded schedule for a key of `keyLen` bytes occupies: eight words per round key, 704, 832 or 960. 0 for a bad length. |
+| `aesKeyWorkBytes` | value | `Int` |  | The scratch `aesKeyExpand` needs: the 60-word FIPS 197 schedule and an 8-word state. |
+| `aesStateBytes` | value | `Int` |  | The bitsliced state: eight words, four blocks. |
+| `aesCtrWorkBytes` | value | `Int` |  | The scratch `aesCtr32Xor` needs: the state and one 64-byte run of keystream. |
+| `aesKeyExpand` | value | `(-> Int Int Int Int Int)` | `Mut,Unsafe` | Expand the `keyLen`-byte key at `key` into the bitsliced schedule at `out`, `aesScheduleBytes keyLen` bytes. Answers the number of rounds, or 0, writing nothing, when `keyLen` is not 16, 24 or 32. The scratch at `work` is wiped before this returns. |
+| `aesEncryptBlocks` | value | `(-> Int Int Int Int Int Int Int)` | `Mut,Unsafe` | Encrypt `n` 16-byte blocks from `src` to `dst`, each on its own (the raw cipher, FIPS 197 5.1; ECB when read as a mode). `src` and `dst` may be the same address. `q` is scratch the caller wipes. |
+| `aesDecryptBlocks` | value | `(-> Int Int Int Int Int Int Int)` | `Mut,Unsafe` | Decrypt `n` 16-byte blocks from `src` to `dst` (FIPS 197 5.3). |
+| `aesCtr32Xor` | value | `(-> Int Int Int Int Int Int Int Int Int)` | `Mut,Unsafe` | XOR `len` bytes from `src` with the keystream E(iv \|\| ctr), E(iv \|\| ctr + 1), ... into `dst`, where `iv` is 12 bytes and the counter is the last 4 bytes of each block, big-endian, incremented modulo 2^32. Answers the counter after the last block used. `src` and `dst` may be the same address. `work` holds keystream when this returns; the caller wipes it. |
+
+## `Crypto.AesGcm`
+
+`stdlib/Crypto/AesGcm.ax` — 14 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `Aes128GcmKey` | struct |  |  | An AES-128-GCM key: 16 bytes, with its schedule and hash key, in the secret store (kind 19). |
+| `Aes256GcmKey` | struct |  |  | An AES-256-GCM key: 32 bytes, with its schedule and hash key, in the secret store (kind 20). |
+| `aes128GcmKeyGenerate` | value | `(Result Aes128GcmKey Error)` | `Alloc,IO,Mut,Unsafe` | A fresh random AES-128-GCM key from the kernel's entropy source. |
+| `aes256GcmKeyGenerate` | value | `(Result Aes256GcmKey Error)` | `Alloc,IO,Mut,Unsafe` | A fresh random AES-256-GCM key from the kernel's entropy source. |
+| `aes128GcmKeyFromSecret` | value | `(-> SecretBytes (Result Aes128GcmKey Error))` | `Alloc,IO,Mut,Unsafe` | An AES-128-GCM key holding a copy of `s`, which must be 16 bytes. This is also the deterministic way to make a key, for known-answer tests and protocols that derive one; `s` is left as it was. |
+| `aes256GcmKeyFromSecret` | value | `(-> SecretBytes (Result Aes256GcmKey Error))` | `Alloc,IO,Mut,Unsafe` | An AES-256-GCM key holding a copy of `s`, which must be 32 bytes. |
+| `aes128GcmKeyExport` | value | `(-> Aes128GcmKey (Result SecretBytes Error))` | `Alloc,IO,Mut,Unsafe` | The key's 16 bytes as a new `SecretBytes`, for storing it somewhere you trust. The key itself stays live. |
+| `aes256GcmKeyExport` | value | `(-> Aes256GcmKey (Result SecretBytes Error))` | `Alloc,IO,Mut,Unsafe` | The key's 32 bytes as a new `SecretBytes`. |
+| `aes128GcmKeyWipe` | value | `(-> Aes128GcmKey Int)` | `Alloc,IO,Mut,Unsafe` | Erase the key, its schedule and its hash key, and free the store. Any later use of `k` stops the program with status 85. Answers 0. |
+| `aes256GcmKeyWipe` | value | `(-> Aes256GcmKey Int)` | `Alloc,IO,Mut,Unsafe` | Erase an AES-256-GCM key and free the store. Answers 0. |
+| `aes128GcmSeal` | value | `(-> Aes128GcmKey AeadNonce String String (Result String Error))` | `Alloc,Mut,Unsafe` | Encrypt and authenticate `plaintext` with `aad` under `key` and `nonce`: the ciphertext, the same length as the plaintext, followed by the 16-byte tag. The nonce must never have been used with this key before. |
+| `aes128GcmOpen` | value | `(-> Aes128GcmKey AeadNonce String String (Result String Error))` | `Alloc,Mut,Unsafe` | Check and decrypt `sealed` (ciphertext \|\| tag) with `aad` under `key` and `nonce`: the plaintext, or `cryptoAuthFailed` for any failure. Nothing is decrypted unless the tag matches. |
+| `aes256GcmSeal` | value | `(-> Aes256GcmKey AeadNonce String String (Result String Error))` | `Alloc,Mut,Unsafe` | Encrypt and authenticate with AES-256-GCM: ciphertext \|\| 16-byte tag. |
+| `aes256GcmOpen` | value | `(-> Aes256GcmKey AeadNonce String String (Result String Error))` | `Alloc,Mut,Unsafe` | Check and decrypt an AES-256-GCM message: the plaintext, or `cryptoAuthFailed` for any failure. |
+
 ## `Crypto.Bytes`
 
 `stdlib/Crypto/Bytes.ax` — 16 public names
@@ -109,6 +164,30 @@ two differ.
 | `b64Decode` | value | `(-> String (Result String Error))` | `Alloc,Mut` | Decode padded standard base64. The length must be a multiple of four and the padding exactly what the length calls for. |
 | `b64DecodeNoPad` | value | `(-> String (Result String Error))` | `Alloc,Mut` | Decode standard base64 that carries no padding. An '=' anywhere is refused. |
 | `b64UrlDecode` | value | `(-> String (Result String Error))` | `Alloc,Mut` | Decode URL-safe base64 without padding. |
+
+## `Crypto.ChaCha20`
+
+`stdlib/Crypto/ChaCha20.ax` — 3 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `chacha20BlockBytes` | value | `Int` |  | The bytes `chacha20Block` writes through: 64 of keystream, then 64 of scratch it wipes. |
+| `chacha20Block` | value | `(-> Int Int Int Int Int)` | `Mut,Unsafe` | Write keystream block `counter` for the 32-byte key at `key` and the 12-byte nonce at `nonce` to the first 64 bytes at `out` (RFC 8439 2.3): the state after 20 rounds, ten column rounds alternating with ten diagonal rounds, added word by word to the state it started from. `out` also holds the working state, so it names `chacha20BlockBytes`; the second 64 bytes are wiped before this returns. `counter` is taken modulo 2^32. |
+| `chacha20Xor` | value | `(-> Int Int Int Int Int Int Int Int)` | `Mut,Unsafe` | XOR `len` bytes from `src` with the keystream starting at block `counter` into `dst` (RFC 8439 2.4). `src` and `dst` may be the same address. `work` is `chacha20BlockBytes` of scratch; its first 64 bytes hold the last keystream block when this returns, and the caller wipes them. Answers the counter after the last block used. The caller keeps `counter` plus the number of blocks within 2^32. |
+
+## `Crypto.ChaCha20Poly1305`
+
+`stdlib/Crypto/ChaCha20Poly1305.ax` — 7 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `ChaCha20Poly1305Key` | struct |  |  | A ChaCha20-Poly1305 key: 32 bytes in the secret store (kind 21). |
+| `chacha20Poly1305KeyGenerate` | value | `(Result ChaCha20Poly1305Key Error)` | `Alloc,IO,Mut,Unsafe` | A fresh random ChaCha20-Poly1305 key from the kernel's entropy source, drawn straight into the secret store. |
+| `chacha20Poly1305KeyFromSecret` | value | `(-> SecretBytes (Result ChaCha20Poly1305Key Error))` | `Alloc,IO,Mut,Unsafe` | A key holding a copy of `s`, which must be 32 bytes. This is also the deterministic way to make a key, for known-answer tests and protocols that derive one; `s` is left as it was. |
+| `chacha20Poly1305KeyExport` | value | `(-> ChaCha20Poly1305Key (Result SecretBytes Error))` | `Alloc,IO,Mut,Unsafe` | The key's 32 bytes as a new `SecretBytes`, for storing it somewhere you trust. The key itself stays live. |
+| `chacha20Poly1305KeyWipe` | value | `(-> ChaCha20Poly1305Key Int)` | `Alloc,IO,Mut,Unsafe` | Erase the key and free the store. Any later use of `k` stops the program with status 85. Answers 0. |
+| `chacha20Poly1305Seal` | value | `(-> ChaCha20Poly1305Key AeadNonce String String (Result String Error))` | `Alloc,Mut,Unsafe` | Encrypt and authenticate `plaintext` with `aad` under `key` and `nonce`: the ciphertext, the same length as the plaintext, followed by the 16-byte tag. The nonce must never have been used with this key before. A nonce that is not 12 bytes answers `cryptoInvalidLength`, and a plaintext over the limit `cryptoLimitExceeded`. |
+| `chacha20Poly1305Open` | value | `(-> ChaCha20Poly1305Key AeadNonce String String (Result String Error))` | `Alloc,Mut,Unsafe` | Check and decrypt `sealed` (ciphertext \|\| tag) with `aad` under `key` and `nonce`: the plaintext, or `cryptoAuthFailed` for any failure. Nothing is decrypted unless the tag matches. |
 
 ## `Crypto.Ct`
 
@@ -162,6 +241,27 @@ two differ.
 | `cryptoErr` | value | `(-> Int String String (Result a Error))` | `Alloc` | An `Err` carrying one of the codes above, with a message and the name of the function that raised it as context. |
 | `cryptoAuthErr` | value | `(-> String (Result a Error))` | `Alloc` | The one authentication failure every open and verify answers. |
 | `cryptoLengthErr` | value | `(-> String String (Result a Error))` | `Alloc,Mut` | A length refusal naming what was wrong. |
+
+## `Crypto.Ghash`
+
+`stdlib/Crypto/Ghash.ax` — 1 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `ghashUpdate` | value | `(-> Int Int Int Int Int)` | `Mut,Unsafe` | Absorb `len` bytes at `data` into the running hash at `y` (16 bytes, big-endian, updated in place) under the hash key at `h` (16 bytes): for each 16-byte block X, Y <- (Y xor X) * H in GF(2^128). A final partial block is padded with zeros, so a caller absorbing A and then C gets GCM's padding for each. `len` is public; `y` and `h` are not. |
+
+## `Crypto.Poly1305`
+
+`stdlib/Crypto/Poly1305.ax` — 6 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `poly1305StateBytes` | value | `Int` |  | The state, 16 words:   words 0-4    r, clamped, in 26-bit limbs   words 5-9    the accumulator h, in 26-bit limbs   words 10-13  s, the key's second half, as 32-bit words   words 14-15  scratch for a padded final block |
+| `poly1305Init` | value | `(-> Int Int Int)` | `Mut,Unsafe` | Start a state from the 32-byte one-time key at `key`: r is the first 16 bytes with the clamping of RFC 8439 2.5, s the last 16, and the accumulator zero. |
+| `poly1305Blocks` | value | `(-> Int Int Int Int Int)` | `Mut,Unsafe` | Absorb the `n` whole 16-byte blocks at `p`, each read as a little-endian number plus `hibit` * 2^104 in the top limb: 2^24 for the 2^128 bit every full block carries, 0 for a final block that already has its 0x01 byte. h <- (h + block) * r mod 2^130 - 5, left partly reduced: every limb below 2^26 but the second, which may be slightly above. |
+| `poly1305AbsorbPadded` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` | Absorb `len` bytes at `p` the way the AEAD of RFC 8439 2.8 does: the whole blocks, then any remainder padded with zeros to 16 bytes and absorbed as a full block (with its 2^128 bit). That padding is `pad16` of the RFC; the standalone MAC pads differently and uses `poly1305Mac`. |
+| `poly1305Finish` | value | `(-> Int Int Int)` | `Mut,Unsafe` | Finish: carry the accumulator fully, reduce it below p = 2^130 - 5 with a masked choice between h and h - p, add s modulo 2^128, and write the 16-byte tag at `tag` in little-endian order. The state is wiped. |
+| `poly1305Mac` | value | `(-> Int Int Int Int Int Int)` | `Mut,Unsafe` | The Poly1305 tag of the `len` bytes at `msg` under the 32-byte one-time key at `key`, written to the 16 bytes at `tag` (RFC 8439 2.5): whole blocks with their 2^128 bit, then any remainder with a 0x01 byte after it, zero-padded, and no 2^128 bit. `st` is scratch, wiped before this returns. |
 
 ## `Crypto.Random`
 

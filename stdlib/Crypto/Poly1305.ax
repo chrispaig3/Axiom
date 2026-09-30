@@ -1,0 +1,275 @@
+; Crypto.Poly1305 - the Poly1305 one-time authenticator of RFC 8439,
+; in constant time with 26-bit limbs. Hazardous layer.
+;
+;     (let ((tag (strAlloc 16)) (st (strAlloc poly1305StateBytes)))
+;       (poly1305Mac (strData tag) oneTimeKeyAddr (strData msg) (strLen msg) (strData st)))
+;
+; ONE KEY, ONE MESSAGE. A Poly1305 key authenticates exactly one
+; message: two tags under the same key give away enough to forge a
+; third. That is why it is used inside ChaCha20-Poly1305, which draws
+; a fresh key from ChaCha20 for every nonce. Application code wants
+; `Crypto.ChaCha20Poly1305`, not this.
+;
+; CONSTANT TIME. The accumulator and the key half `r` are five 26-bit
+; limbs, so every product fits a 64-bit multiply with room for the
+; sums, and the reduction modulo 2^130 - 5 is carries and a
+; multiplication by 5. The last step, choosing between h and h - p,
+; is a mask from `Crypto.Ct`, not a branch. No address depends on the
+; key or the message.
+;
+; STANDARD. RFC 8439, section 2.5 (Poly1305: clamping, the 2^128 bit
+; on each full block, the 0x01 byte after a short final block, and
+; the final addition of `s` modulo 2^128). Checked against the RFC's
+; section 2.5.2 and Appendix A.3 examples by tests/crypto/240-poly1305.ax.
+;
+; REFERENCE. The block function is BearSSL's `poly1305_ctmul`
+; (src/symcipher/poly1305_ctmul.c, Thomas Pornin, MIT licence), which
+; follows Andrew Moon's poly1305-donna (public domain or MIT). The
+; final carry and reduction are donna's `poly1305-donna-32.h`, which
+; multiplies the carry out of the top limb by 5 on its way back to
+; the bottom one.
+;
+; LIMITS. Only the whole-message form and the building blocks the AEAD
+; needs; there is no incremental API for arbitrary chunk sizes.
+(import Mem)
+(import Crypto.Ct)
+
+; The state, 16 words:
+;   words 0-4    r, clamped, in 26-bit limbs
+;   words 5-9    the accumulator h, in 26-bit limbs
+;   words 10-13  s, the key's second half, as 32-bit words
+;   words 14-15  scratch for a padded final block
+(pub :: poly1305StateBytes Int)
+(pub fn (poly1305StateBytes)
+  128)
+
+(:: polyMask26 Int)
+(fn (polyMask26)
+  67108863)
+
+; Start a state from the 32-byte one-time key at `key`: r is the first
+; 16 bytes with the clamping of RFC 8439 2.5, s the last 16, and the
+; accumulator zero.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: poly1305Init (-> Int Int Int))
+;@axiom:ct(*key)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`st` names `poly1305StateBytes` live writable bytes, 8-byte aligned, and `key` 32 live bytes)
+(pub fn (poly1305Init st key)
+  {
+    (__store64 st 0 (& (ld32le key 0) 67108863))
+    (__store64 st 1 (& (>> (ld32le key 3) 2) 67108611))
+    (__store64 st 2 (& (>> (ld32le key 6) 4) 67092735))
+    (__store64 st 3 (& (>> (ld32le key 9) 6) 66076671))
+    (__store64 st 4 (& (>> (ld32le key 12) 8) 1048575))
+    (for i 5 10
+      (__store64 st i 0))
+    (__store64 st 10 (ld32le key 16))
+    (__store64 st 11 (ld32le key 20))
+    (__store64 st 12 (ld32le key 24))
+    (__store64 st 13 (ld32le key 28))
+    (__store64 st 14 0)
+    (__store64 st 15 0)
+    0
+  })
+
+; Absorb the `n` whole 16-byte blocks at `p`, each read as a
+; little-endian number plus `hibit` * 2^104 in the top limb: 2^24 for
+; the 2^128 bit every full block carries, 0 for a final block that
+; already has its 0x01 byte. h <- (h + block) * r mod 2^130 - 5, left
+; partly reduced: every limb below 2^26 but the second, which may be
+; slightly above.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: poly1305Blocks (-> Int Int Int Int Int))
+;@axiom:ct(*st, *p)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`st` is a live state from `poly1305Init` and `p` names 16 * `n` live bytes)
+(pub fn (poly1305Blocks st p n hibit)
+  (let (
+    (m polyMask26)
+    (r0 (__load64 st 0))
+    (r1 (__load64 st 1))
+    (r2 (__load64 st 2))
+    (r3 (__load64 st 3))
+    (r4 (__load64 st 4))
+  )
+    (let (
+      (u1 (* r1 5))
+      (u2 (* r2 5))
+      (u3 (* r3 5))
+      (u4 (* r4 5))
+      (mut a0 (__load64 st 5))
+      (mut a1 (__load64 st 6))
+      (mut a2 (__load64 st 7))
+      (mut a3 (__load64 st 8))
+      (mut a4 (__load64 st 9))
+    )
+      {
+        (for b 0 n
+          (let ((o (* 16 b)))
+            (let (
+              (b0 (+ a0 (& (ld32le p o) m)))
+              (b1 (+ a1 (& (>> (ld32le p (+ o 3)) 2) m)))
+              (b2 (+ a2 (& (>> (ld32le p (+ o 6)) 4) m)))
+              (b3 (+ a3 (& (>> (ld32le p (+ o 9)) 6) m)))
+              (b4 (+ a4 (| (>> (ld32le p (+ o 12)) 8) hibit)))
+            )
+              (let (
+                (w0 (+ (+ (+ (* b0 r0) (* b1 u4)) (+ (* b2 u3) (* b3 u2))) (* b4 u1)))
+                (w1 (+ (+ (+ (* b0 r1) (* b1 r0)) (+ (* b2 u4) (* b3 u3))) (* b4 u2)))
+                (w2 (+ (+ (+ (* b0 r2) (* b1 r1)) (+ (* b2 r0) (* b3 u4))) (* b4 u3)))
+                (w3 (+ (+ (+ (* b0 r3) (* b1 r2)) (+ (* b2 r1) (* b3 r0))) (* b4 u4)))
+                (w4 (+ (+ (+ (* b0 r4) (* b1 r3)) (+ (* b2 r2) (* b3 r1))) (* b4 r0)))
+              )
+                (let ((v1 (+ w1 (>> w0 26))))
+                  (let ((v2 (+ w2 (>> v1 26))))
+                    (let ((v3 (+ w3 (>> v2 26))))
+                      (let ((v4 (+ w4 (>> v3 26))))
+                        (let ((v0 (+ (& w0 m) (* (>> v4 26) 5))))
+                          {
+                            (set a0 (& v0 m))
+                            (set a1 (+ (& v1 m) (>> v0 26)))
+                            (set a2 (& v2 m))
+                            (set a3 (& v3 m))
+                            (set a4 (& v4 m))
+                            0
+                          })))))))))
+        (__store64 st 5 a0)
+        (__store64 st 6 a1)
+        (__store64 st 7 a2)
+        (__store64 st 8 a3)
+        (__store64 st 9 a4)
+        0
+      })))
+
+; Absorb `len` bytes at `p` the way the AEAD of RFC 8439 2.8 does: the
+; whole blocks, then any remainder padded with zeros to 16 bytes and
+; absorbed as a full block (with its 2^128 bit). That padding is
+; `pad16` of the RFC; the standalone MAC pads differently and uses
+; `poly1305Mac`.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: poly1305AbsorbPadded (-> Int Int Int Int))
+;@axiom:ct(*st, *p)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`st` is a live state from `poly1305Init` and `p` names `len` live bytes)
+(pub fn (poly1305AbsorbPadded st p len)
+  (let (
+    (full (/ len 16))
+    (rest (% len 16))
+  )
+    {
+      (poly1305Blocks st p full 16777216)
+      (if (> rest 0)
+        (let ((t (+ st 112)))
+          {
+            (__store64 st 14 0)
+            (__store64 st 15 0)
+            (for i 0 rest
+              (__store8 t i (__load8 p (+ (* 16 full) i))))
+            (poly1305Blocks st t 1 16777216)
+          })
+        0)
+    }))
+
+; Finish: carry the accumulator fully, reduce it below p = 2^130 - 5
+; with a masked choice between h and h - p, add s modulo 2^128, and
+; write the 16-byte tag at `tag` in little-endian order. The state is
+; wiped.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: poly1305Finish (-> Int Int Int))
+;@axiom:ct(*st)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`st` is a live state from `poly1305Init` and `tag` names 16 live writable bytes)
+(pub fn (poly1305Finish st tag)
+  (let (
+    (m polyMask26)
+    (a0 (__load64 st 5))
+    (a1 (__load64 st 6))
+    (a2 (__load64 st 7))
+    (a3 (__load64 st 8))
+    (a4 (__load64 st 9))
+  )
+    (let (
+      (c1 (>> a1 26))
+      (h1 (& a1 m))
+    )
+      (let ((b2 (+ a2 c1)))
+        (let (
+          (c2 (>> b2 26))
+          (h2 (& b2 m))
+        )
+          (let ((b3 (+ a3 c2)))
+            (let (
+              (c3 (>> b3 26))
+              (h3 (& b3 m))
+            )
+              (let ((b4 (+ a4 c3)))
+                (let (
+                  (c4 (>> b4 26))
+                  (h4 (& b4 m))
+                )
+                  (let ((b0 (+ a0 (* c4 5))))
+                    (let (
+                      (h0 (& b0 m))
+                      (hb1 (+ h1 (>> b0 26)))
+                    )
+                      (let ((g0 (+ h0 5)))
+                        (let ((g1 (+ hb1 (>> g0 26))))
+                          (let ((g2 (+ h2 (>> g1 26))))
+                            (let ((g3 (+ h3 (>> g2 26))))
+                              (let ((g4 (- (+ h4 (>> g3 26)) 67108864)))
+                                (let ((keep (ctMaskNeg g4)))
+                                  (let (
+                                    (f0 (ctSelect keep h0 (& g0 m)))
+                                    (f1 (ctSelect keep hb1 (& g1 m)))
+                                    (f2 (ctSelect keep h2 (& g2 m)))
+                                    (f3 (ctSelect keep h3 (& g3 m)))
+                                    (f4 (ctSelect keep h4 (& g4 m)))
+                                  )
+                                    (let (
+                                      (t0 (& (| f0 (<< f1 26)) 4294967295))
+                                      (t1 (& (| (>> f1 6) (<< f2 20)) 4294967295))
+                                      (t2 (& (| (>> f2 12) (<< f3 14)) 4294967295))
+                                      (t3 (& (| (>> f3 18) (<< f4 8)) 4294967295))
+                                    )
+                                      (let ((s0 (+ t0 (__load64 st 10))))
+                                        (let ((s1 (+ (+ t1 (__load64 st 11)) (>> s0 32))))
+                                          (let ((s2 (+ (+ t2 (__load64 st 12)) (>> s1 32))))
+                                            (let ((s3 (+ (+ t3 (__load64 st 13)) (>> s2 32))))
+                                              {
+                                                (st32le tag 0 s0)
+                                                (st32le tag 4 s1)
+                                                (st32le tag 8 s2)
+                                                (st32le tag 12 s3)
+                                                (ctWipe st poly1305StateBytes)
+                                              })))))))))))))))))))))))
+
+; The Poly1305 tag of the `len` bytes at `msg` under the 32-byte
+; one-time key at `key`, written to the 16 bytes at `tag` (RFC 8439
+; 2.5): whole blocks with their 2^128 bit, then any remainder with a
+; 0x01 byte after it, zero-padded, and no 2^128 bit. `st` is scratch,
+; wiped before this returns.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: poly1305Mac (-> Int Int Int Int Int Int))
+;@axiom:ct(*key, *msg, *st)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`tag` names 16 live writable bytes, `key` 32 live bytes, `msg` `len` live bytes, and `st` `poly1305StateBytes` live writable bytes, 8-byte aligned)
+(pub fn (poly1305Mac tag key msg len st)
+  (let (
+    (full (/ len 16))
+    (rest (% len 16))
+  )
+    {
+      (poly1305Init st key)
+      (poly1305Blocks st msg full 16777216)
+      (if (> rest 0)
+        (let ((t (+ st 112)))
+          {
+            (for i 0 rest
+              (__store8 t i (__load8 msg (+ (* 16 full) i))))
+            (__store8 t rest 1)
+            (poly1305Blocks st t 1 0)
+          })
+        0)
+      (poly1305Finish st tag)
+    }))

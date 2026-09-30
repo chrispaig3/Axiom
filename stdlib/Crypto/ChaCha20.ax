@@ -1,0 +1,280 @@
+; Crypto.ChaCha20 - the ChaCha20 stream cipher of RFC 8439, with a
+; 256-bit key, a 96-bit nonce and a 32-bit block counter. Hazardous
+; layer.
+;
+;     (let ((block (strAlloc chacha20BlockBytes)))
+;       (chacha20Block (strData block) keyAddr 1 (strData nonce)))
+;       ; block holds keystream block 1 for that key and nonce
+;
+; A stream cipher on its own authenticates nothing: flip a ciphertext
+; bit and the same plaintext bit flips, silently. Application code
+; wants `Crypto.ChaCha20Poly1305`, which pairs this with Poly1305 and
+; takes a typed key. Everything here works on raw addresses.
+;
+; CONSTANT TIME. ChaCha20 is only 32-bit additions, XORs and fixed
+; rotations. Nothing branches on, indexes by or divides by the key,
+; the nonce or the data, so no lookup table or data-dependent address
+; exists to leak through the cache.
+;
+; STANDARD. RFC 8439, section 2.1 (the quarter round), 2.3 (the block
+; function) and 2.4 (encryption). Checked against the RFC's section 2
+; examples and Appendix A.1 and A.2 by tests/crypto/230-chacha20.ax.
+;
+; REFERENCE. The RFC's pseudocode, with the loop shape of BearSSL's
+; `chacha20_ct` (src/symcipher/chacha20_ct.c) by Thomas Pornin, MIT
+; licence.
+;
+; LIMITS. The block counter is 32 bits: one key and nonce give at most
+; 2^32 blocks (256 GiB) of keystream, and the caller keeps within it.
+; Each 32-bit word lives in the low half of an Int and is masked after
+; every addition, which costs about twice the instructions of a native
+; 32-bit implementation.
+(import Mem)
+(import Crypto.Ct)
+
+; The first four words of the state: "expand 32-byte k" as
+; little-endian words.
+(:: chachaC0 Int)
+(fn (chachaC0)
+  1634760805)
+
+(:: chachaC1 Int)
+(fn (chachaC1)
+  857760878)
+
+(:: chachaC2 Int)
+(fn (chachaC2)
+  2036477234)
+
+(:: chachaC3 Int)
+(fn (chachaC3)
+  1797285236)
+
+; One double round on the 16-word state at `s`: four column quarter
+; rounds, then four diagonal ones (RFC 8439 2.1 and 2.3). Each quarter
+; round is a + b, d ^ a, d <<< 16, c + d, b ^ c, b <<< 12, then the
+; same with rotations of 8 and 7.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: chachaDoubleRound (-> Int Int))
+;@axiom:ct(*s)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`s` names 16 live writable words, each below 2^32)
+(fn (chachaDoubleRound s)
+  (let (
+    (x0 (__load64 s 0))
+    (x1 (__load64 s 1))
+    (x2 (__load64 s 2))
+    (x3 (__load64 s 3))
+    (x4 (__load64 s 4))
+    (x5 (__load64 s 5))
+    (x6 (__load64 s 6))
+    (x7 (__load64 s 7))
+    (x8 (__load64 s 8))
+    (x9 (__load64 s 9))
+    (x10 (__load64 s 10))
+    (x11 (__load64 s 11))
+    (x12 (__load64 s 12))
+    (x13 (__load64 s 13))
+    (x14 (__load64 s 14))
+    (x15 (__load64 s 15))
+    (x0v1 (add32 x0 x4))
+    (x12v1 (rotl32 (^ x12 x0v1) 16))
+    (x8v1 (add32 x8 x12v1))
+    (x4v1 (rotl32 (^ x4 x8v1) 12))
+    (x0v2 (add32 x0v1 x4v1))
+    (x12v2 (rotl32 (^ x12v1 x0v2) 8))
+    (x8v2 (add32 x8v1 x12v2))
+    (x4v2 (rotl32 (^ x4v1 x8v2) 7))
+    (x1v1 (add32 x1 x5))
+    (x13v1 (rotl32 (^ x13 x1v1) 16))
+    (x9v1 (add32 x9 x13v1))
+    (x5v1 (rotl32 (^ x5 x9v1) 12))
+    (x1v2 (add32 x1v1 x5v1))
+    (x13v2 (rotl32 (^ x13v1 x1v2) 8))
+    (x9v2 (add32 x9v1 x13v2))
+    (x5v2 (rotl32 (^ x5v1 x9v2) 7))
+    (x2v1 (add32 x2 x6))
+    (x14v1 (rotl32 (^ x14 x2v1) 16))
+    (x10v1 (add32 x10 x14v1))
+    (x6v1 (rotl32 (^ x6 x10v1) 12))
+    (x2v2 (add32 x2v1 x6v1))
+    (x14v2 (rotl32 (^ x14v1 x2v2) 8))
+    (x10v2 (add32 x10v1 x14v2))
+    (x6v2 (rotl32 (^ x6v1 x10v2) 7))
+    (x3v1 (add32 x3 x7))
+    (x15v1 (rotl32 (^ x15 x3v1) 16))
+    (x11v1 (add32 x11 x15v1))
+    (x7v1 (rotl32 (^ x7 x11v1) 12))
+    (x3v2 (add32 x3v1 x7v1))
+    (x15v2 (rotl32 (^ x15v1 x3v2) 8))
+    (x11v2 (add32 x11v1 x15v2))
+    (x7v2 (rotl32 (^ x7v1 x11v2) 7))
+    (x0v3 (add32 x0v2 x5v2))
+    (x15v3 (rotl32 (^ x15v2 x0v3) 16))
+    (x10v3 (add32 x10v2 x15v3))
+    (x5v3 (rotl32 (^ x5v2 x10v3) 12))
+    (x0v4 (add32 x0v3 x5v3))
+    (x15v4 (rotl32 (^ x15v3 x0v4) 8))
+    (x10v4 (add32 x10v3 x15v4))
+    (x5v4 (rotl32 (^ x5v3 x10v4) 7))
+    (x1v3 (add32 x1v2 x6v2))
+    (x12v3 (rotl32 (^ x12v2 x1v3) 16))
+    (x11v3 (add32 x11v2 x12v3))
+    (x6v3 (rotl32 (^ x6v2 x11v3) 12))
+    (x1v4 (add32 x1v3 x6v3))
+    (x12v4 (rotl32 (^ x12v3 x1v4) 8))
+    (x11v4 (add32 x11v3 x12v4))
+    (x6v4 (rotl32 (^ x6v3 x11v4) 7))
+    (x2v3 (add32 x2v2 x7v2))
+    (x13v3 (rotl32 (^ x13v2 x2v3) 16))
+    (x8v3 (add32 x8v2 x13v3))
+    (x7v3 (rotl32 (^ x7v2 x8v3) 12))
+    (x2v4 (add32 x2v3 x7v3))
+    (x13v4 (rotl32 (^ x13v3 x2v4) 8))
+    (x8v4 (add32 x8v3 x13v4))
+    (x7v4 (rotl32 (^ x7v3 x8v4) 7))
+    (x3v3 (add32 x3v2 x4v2))
+    (x14v3 (rotl32 (^ x14v2 x3v3) 16))
+    (x9v3 (add32 x9v2 x14v3))
+    (x4v3 (rotl32 (^ x4v2 x9v3) 12))
+    (x3v4 (add32 x3v3 x4v3))
+    (x14v4 (rotl32 (^ x14v3 x3v4) 8))
+    (x9v4 (add32 x9v3 x14v4))
+    (x4v4 (rotl32 (^ x4v3 x9v4) 7))
+  )
+    {
+      (__store64 s 0 x0v4)
+      (__store64 s 1 x1v4)
+      (__store64 s 2 x2v4)
+      (__store64 s 3 x3v4)
+      (__store64 s 4 x4v4)
+      (__store64 s 5 x5v4)
+      (__store64 s 6 x6v4)
+      (__store64 s 7 x7v4)
+      (__store64 s 8 x8v4)
+      (__store64 s 9 x9v4)
+      (__store64 s 10 x10v4)
+      (__store64 s 11 x11v4)
+      (__store64 s 12 x12v4)
+      (__store64 s 13 x13v4)
+      (__store64 s 14 x14v4)
+      (__store64 s 15 x15v4)
+      0
+    }))
+
+; The bytes `chacha20Block` writes through: 64 of keystream, then 64
+; of scratch it wipes.
+(pub :: chacha20BlockBytes Int)
+(pub fn (chacha20BlockBytes)
+  128)
+
+; Write keystream block `counter` for the 32-byte key at `key` and the
+; 12-byte nonce at `nonce` to the first 64 bytes at `out` (RFC 8439
+; 2.3): the state after 20 rounds, ten column rounds alternating with
+; ten diagonal rounds, added word by word to the state it started
+; from. `out` also holds the working state, so it names
+; `chacha20BlockBytes`; the second 64 bytes are wiped before this
+; returns. `counter` is taken modulo 2^32.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: chacha20Block (-> Int Int Int Int Int))
+;@axiom:ct(*key, *out)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`out` names `chacha20BlockBytes` live writable bytes, 8-byte aligned, `key` 32 live bytes and `nonce` 12 live bytes)
+(pub fn (chacha20Block out key counter nonce)
+  (let (
+    (k0 (ld32le key 0))
+    (k1 (ld32le key 4))
+    (k2 (ld32le key 8))
+    (k3 (ld32le key 12))
+    (k4 (ld32le key 16))
+    (k5 (ld32le key 20))
+    (k6 (ld32le key 24))
+    (k7 (ld32le key 28))
+    (c (& counter 4294967295))
+    (n0 (ld32le nonce 0))
+    (n1 (ld32le nonce 4))
+    (n2 (ld32le nonce 8))
+  )
+    {
+      (__store64 out 0 chachaC0)
+      (__store64 out 1 chachaC1)
+      (__store64 out 2 chachaC2)
+      (__store64 out 3 chachaC3)
+      (__store64 out 4 k0)
+      (__store64 out 5 k1)
+      (__store64 out 6 k2)
+      (__store64 out 7 k3)
+      (__store64 out 8 k4)
+      (__store64 out 9 k5)
+      (__store64 out 10 k6)
+      (__store64 out 11 k7)
+      (__store64 out 12 c)
+      (__store64 out 13 n0)
+      (__store64 out 14 n1)
+      (__store64 out 15 n2)
+      (for i 0 10
+        (chachaDoubleRound out))
+      (let (
+        (y0 (add32 (__load64 out 0) chachaC0))
+        (y1 (add32 (__load64 out 1) chachaC1))
+        (y2 (add32 (__load64 out 2) chachaC2))
+        (y3 (add32 (__load64 out 3) chachaC3))
+        (y4 (add32 (__load64 out 4) k0))
+        (y5 (add32 (__load64 out 5) k1))
+        (y6 (add32 (__load64 out 6) k2))
+        (y7 (add32 (__load64 out 7) k3))
+        (y8 (add32 (__load64 out 8) k4))
+        (y9 (add32 (__load64 out 9) k5))
+        (y10 (add32 (__load64 out 10) k6))
+        (y11 (add32 (__load64 out 11) k7))
+        (y12 (add32 (__load64 out 12) c))
+        (y13 (add32 (__load64 out 13) n0))
+        (y14 (add32 (__load64 out 14) n1))
+        (y15 (add32 (__load64 out 15) n2))
+      )
+        {
+          (st64le out 0 (| y0 (<< y1 32)))
+          (st64le out 8 (| y2 (<< y3 32)))
+          (st64le out 16 (| y4 (<< y5 32)))
+          (st64le out 24 (| y6 (<< y7 32)))
+          (st64le out 32 (| y8 (<< y9 32)))
+          (st64le out 40 (| y10 (<< y11 32)))
+          (st64le out 48 (| y12 (<< y13 32)))
+          (st64le out 56 (| y14 (<< y15 32)))
+          (ctWipe (+ out 64) 64)
+        })
+    }))
+
+; XOR `len` bytes from `src` with the keystream starting at block
+; `counter` into `dst` (RFC 8439 2.4). `src` and `dst` may be the same
+; address. `work` is `chacha20BlockBytes` of scratch; its first 64
+; bytes hold the last keystream block when this returns, and the
+; caller wipes them. Answers the counter after the last block used.
+; The caller keeps `counter` plus the number of blocks within 2^32.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: chacha20Xor (-> Int Int Int Int Int Int Int Int))
+;@axiom:ct(*key, *src, *work)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`key` names 32 live bytes, `nonce` 12 live bytes, `src` and `dst` `len` live bytes (`dst` writable), and `work` `chacha20BlockBytes` live writable bytes, 8-byte aligned)
+(pub fn (chacha20Xor key nonce counter src dst len work)
+  (let (
+    (mut off 0)
+    (mut c counter)
+  )
+    {
+      (while (< off len)
+        (let ((rest (- len off)))
+          {
+            (chacha20Block work key c nonce)
+            (if (>= rest 64)
+              (for i 0 8
+                (let ((o (+ off (* 8 i))))
+                  (st64le dst o (^ (ld64le src o) (ld64le work (* 8 i))))))
+              (for i 0 rest
+                (__store8 dst (+ off i) (^ (__load8 src (+ off i)) (__load8 work i)))))
+            (set off (+ off 64))
+            (set c (+ c 1))
+            0
+          }))
+      c
+    }))

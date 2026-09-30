@@ -22,6 +22,52 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+- Authenticated encryption:  (AES-256-GCM and
+  AES-128-GCM, NIST SP 800-38D) and  (RFC
+  8439), over sealed key types, with 's 12-byte nonce and
+  a  that never repeats one. Open checks the tag before
+  it decrypts and answers one error for every failure. AES is
+  bitsliced and GHASH a table-free carry-less multiply, both after
+  BearSSL, so no table is indexed by a secret. Tested against NIST
+  CAVP, RFC 8439, Wycheproof, and OpenSSL 3.6.4 and RustCrypto answers
+  for random inputs ( to ).
+-  reads the optimised IR of every function that
+  claims  at  1, 2 and 3, refuses a branch,
+  `select`, memory index or division that depends on a secret, and
+  requires every claim to be checked by some test program; a probe
+  with three planted leaks must be refused (Constant-time taint check over optimised LLVM IR.
+
+Usage: ct-taint.py [--present-only] <module.ll> <spec> [<spec> ...]
+
+Each <spec> is `<llvm-name>=<params>`, where <llvm-name> is the
+function's IR name without `@` or quotes (`Crypto.Ct$ctSelect`) and
+<params> is the `ct(...)` claim's value: a comma-separated list of
+parameter names, a bare name for a secret VALUE and `*name` for an
+address whose POINTEE is secret. Every other parameter is public.
+
+The analysis is intraprocedural over the function as `opt` left it, so
+whatever was inlined is checked where it landed. Taint is one of:
+
+  S  a secret value
+  M  an address (int or ptr) into secret memory, public itself
+
+and propagates to a fixpoint through phis. A value loaded through an M
+address is S; a value loaded through any other address is public (the
+claim says which memory is secret). It reports, per function:
+
+  branch   `br`/`switch` on an S value
+  select   `select` on an S condition (the backend may branch)
+  address  a load, store or getelementptr index that is S
+  divide   `udiv`/`sdiv`/`urem`/`srem` with an S operand
+  call     a call to a function that is not a checked kernel, with an
+           S or M argument (inline asm and llvm intrinsics are fine)
+
+Exit status 0 when every named function is clean and was found, 1
+otherwise. A function that is not in the module is a failure: a check
+that found nothing to check is not a pass. With `--present-only` an
+absent function is skipped instead, for a caller that runs this over
+several modules and asks separately whether each claim was checked in
+at least one; every function checked prints `checked <name>`.).
 - The standard library has the foundation of a cryptography suite
   (docs/crypto.md). `Crypto.Random` answers secure random values from
   the kernel with no fallback: `secureRandomBytes`, `randomBelow`,

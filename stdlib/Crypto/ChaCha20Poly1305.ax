@@ -1,0 +1,263 @@
+; Crypto.ChaCha20Poly1305 - the ChaCha20-Poly1305 AEAD of RFC 8439,
+; one message at a time.
+;
+;     (let ((key (unwrapOr (chacha20Poly1305KeyGenerate) ...))
+;           (nonce (unwrapOr (aeadNonceRandom) ...)))
+;       (match (chacha20Poly1305Seal key nonce "header" "attack at dawn")
+;         ((Ok sealed)                       ; ciphertext || 16-byte tag
+;           (chacha20Poly1305Open key nonce "header" sealed))   ; (Ok "attack at dawn")
+;         ((Err e) (Err e))))
+;
+; WHAT IT GUARANTEES. `chacha20Poly1305Seal` encrypts the plaintext
+; and authenticates it together with the associated data, answering
+; the ciphertext followed by a 16-byte tag. `chacha20Poly1305Open`
+; answers the plaintext only when the tag matches the key, nonce,
+; associated data and ciphertext exactly. It computes and compares the
+; tag first, in time that does not depend on where a mismatch is, and
+; decrypts nothing unless it matches. Every failure answers the same
+; `cryptoAuthFailed` error.
+;
+; THE NONCE MUST NEVER REPEAT UNDER A KEY. A repeat gives away the XOR
+; of two plaintexts and the Poly1305 key for that nonce, which is
+; enough to forge messages under it. `Crypto.Aead` says how to keep
+; nonces unique.
+;
+; KEYS live in the secret store as `ChaCha20Poly1305Key` (kind 21), a
+; sealed handle that prints as its type name. Wipe one with
+; `chacha20Poly1305KeyWipe`; any later use stops the program with
+; status 85.
+;
+; CONSTANT TIME. ChaCha20 is additions, XORs and rotations; Poly1305 is
+; 26-bit limbs with a masked final reduction; the tag comparison is
+; `ctEqAddr`. The one-time Poly1305 key, its state and the last
+; keystream block are wiped before either call returns, on the failure
+; path too.
+;
+; STANDARD. RFC 8439, section 2.6 (the one-time key from block 0),
+; 2.8 (the AEAD construction: encryption from block 1, then Poly1305
+; over aad, pad16, ciphertext, pad16 and the two lengths as 64-bit
+; little-endian numbers). Checked against the RFC's section 2.8.2 and
+; Appendix A.5 examples, Wycheproof's `chacha20_poly1305_test.json`
+; and RustCrypto's `chacha20poly1305` on random inputs, by
+; tests/crypto/250-chacha20-poly1305.ax.
+;
+; REFERENCE. The composition follows RFC 8439 directly; the ChaCha20
+; and Poly1305 kernels name theirs in their own modules.
+;
+; LIMITS. A plaintext may be at most 274,877,906,880 bytes (2^32 - 1
+; blocks of 64, RFC 8439 2.8); longer answers `cryptoLimitExceeded`
+; from a seal and `cryptoAuthFailed` from an open. There is no
+; streaming form, for the reason `Crypto.AesGcm` gives: split a large
+; payload into messages, each with its own nonce.
+(import Mem)
+(import Str)
+(import Err)
+(import Crypto.Ct)
+(import Crypto.Errors)
+(import Crypto.Random)
+(import Crypto.Secret)
+(import Crypto.ChaCha20)
+(import Crypto.Poly1305)
+(import Crypto.Aead)
+
+; A ChaCha20-Poly1305 key: 32 bytes in the secret store (kind 21).
+(pub struct ChaCha20Poly1305Key word shared
+  (slot : Int))
+
+(:: cpKind Int)
+(fn (cpKind)
+  21)
+
+; A fresh random ChaCha20-Poly1305 key from the kernel's entropy
+; source, drawn straight into the secret store.
+(pub :: chacha20Poly1305KeyGenerate (Result ChaCha20Poly1305Key Error))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (chacha20Poly1305KeyGenerate)
+  (match (secretBlockRandom cpKind 32)
+    ((Ok h) (Ok (ChaCha20Poly1305Key h)))
+    ((Err e) (Err e))))
+
+; A key holding a copy of `s`, which must be 32 bytes. This is also the
+; deterministic way to make a key, for known-answer tests and
+; protocols that derive one; `s` is left as it was.
+(pub :: chacha20Poly1305KeyFromSecret (-> SecretBytes (Result ChaCha20Poly1305Key Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (chacha20Poly1305KeyFromSecret s)
+  (if (!= (secretLen s) 32)
+    (cryptoLengthErr "a ChaCha20-Poly1305 key is 32 bytes" "chacha20Poly1305KeyFromSecret")
+    (match (secretBlockFrom cpKind (secretAddr s) 32)
+      ((Ok h) (Ok (ChaCha20Poly1305Key h)))
+      ((Err e) (Err e)))))
+
+; The key's 32 bytes as a new `SecretBytes`, for storing it somewhere
+; you trust. The key itself stays live.
+(pub :: chacha20Poly1305KeyExport (-> ChaCha20Poly1305Key (Result SecretBytes Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (chacha20Poly1305KeyExport k)
+  (secretFromAddr (secretBlockAddr cpKind k.slot) 32))
+
+; Erase the key and free the store. Any later use of `k` stops the
+; program with status 85. Answers 0.
+(pub :: chacha20Poly1305KeyWipe (-> ChaCha20Poly1305Key Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (chacha20Poly1305KeyWipe k)
+  (secretBlockFree cpKind k.slot))
+
+; ------------------------------------------------------------------
+; The construction.
+; ------------------------------------------------------------------
+; The longest plaintext: 2^32 - 1 blocks of 64 bytes.
+(:: cpMaxText Int)
+(fn (cpMaxText)
+  274877906880)
+
+; The per-call scratch, wiped before each call returns:
+;   [0, 128)     `chacha20Block`'s output and scratch; the first
+;                32 bytes of block 0 are the one-time Poly1305 key
+;   [128, 256)   the Poly1305 state
+;   [256, 272)   the length block
+;   [272, 288)   the computed tag, on open
+(:: cpWorkBytes Int)
+(fn (cpWorkBytes)
+  288)
+
+; The tag over `aad` and `ct` into `tag` (RFC 8439 2.8): the one-time
+; key from block 0, then Poly1305 over aad || pad16 || ct || pad16 ||
+; len(aad) || len(ct).
+(:: cpTag (-> Int Int Int Int Int Int Int Int Int))
+;@axiom:ct(*key, *work)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`key` names 32 live bytes, `work` `cpWorkBytes` zeroed writable bytes, 8-byte aligned, `nonce` 12 bytes, `aad` `aadLen` bytes, `ct` `ctLen` bytes and `tag` 16 writable bytes)
+(fn (cpTag key work nonce aad aadLen ct ctLen tag)
+  (let (
+    (st (+ work 128))
+    (lens (+ work 256))
+  )
+    {
+      (chacha20Block work key 0 nonce)
+      (poly1305Init st work)
+      (ctWipe work 64)
+      (poly1305AbsorbPadded st aad aadLen)
+      (poly1305AbsorbPadded st ct ctLen)
+      (st64le lens 0 aadLen)
+      (st64le lens 8 ctLen)
+      (poly1305Blocks st lens 1 16777216)
+      (poly1305Finish st tag)
+    }))
+
+; Whether the 16 bytes at `a` and `b` match, in time that does not
+; depend on where they differ.
+(:: cpTagMatches (-> Int Int Bool))
+;@axiom:ct(*a, *b)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`a` and `b` each name 16 live bytes)
+(fn (cpTagMatches a b)
+  (ctEqAddr a b 16))
+
+; Encrypt and authenticate `plaintext` with `aad` under `key` and
+; `nonce`: the ciphertext, the same length as the plaintext, followed
+; by the 16-byte tag. The nonce must never have been used with this
+; key before. A nonce that is not 12 bytes answers
+; `cryptoInvalidLength`, and a plaintext over the limit
+; `cryptoLimitExceeded`.
+;@axiom:restrict(no-io,no-foreign)
+(pub :: chacha20Poly1305Seal (-> ChaCha20Poly1305Key AeadNonce String String (Result String Error)))
+;@axiom:effect(unsafe)
+(pub fn (chacha20Poly1305Seal key nonce aad plaintext)
+  (let (
+    (n nonce.bytes)
+    (ptLen (strLen plaintext))
+  )
+    (if (!= (strLen n) 12)
+      (cryptoLengthErr "a nonce must be 12 bytes" "chacha20Poly1305Seal")
+      (if (> ptLen cpMaxText)
+        (cryptoErr cryptoLimitExceeded "a ChaCha20-Poly1305 plaintext is at most 274877906880 bytes" "chacha20Poly1305Seal")
+        (let (
+          (k (secretBlockAddr cpKind key.slot))
+          (out (strAlloc (+ ptLen 16)))
+          (work (strAlloc cpWorkBytes))
+        )
+          (let (
+            (o (strData out))
+            (w (strData work))
+          )
+            {
+              (chacha20Xor
+                k
+                (strData n)
+                1
+                (strData plaintext)
+                o
+                ptLen
+                w)
+              (ctWipe w 64)
+              (cpTag
+                k
+                w
+                (strData n)
+                (strData aad)
+                (strLen aad)
+                o
+                ptLen
+                (+ o ptLen))
+              (ctWipe w cpWorkBytes)
+              (Ok out)
+            }))))))
+
+; Check and decrypt `sealed` (ciphertext || tag) with `aad` under `key`
+; and `nonce`: the plaintext, or `cryptoAuthFailed` for any failure.
+; Nothing is decrypted unless the tag matches.
+;@axiom:restrict(no-io,no-foreign)
+(pub :: chacha20Poly1305Open (-> ChaCha20Poly1305Key AeadNonce String String (Result String Error)))
+;@axiom:effect(unsafe)
+(pub fn (chacha20Poly1305Open key nonce aad sealed)
+  (let (
+    (n nonce.bytes)
+    (sLen (strLen sealed))
+  )
+    (if (|| (!= (strLen n) 12) (< sLen 16))
+      (cryptoAuthErr "chacha20Poly1305Open")
+      (let ((ctLen (- sLen 16)))
+        (if (> ctLen cpMaxText)
+          (cryptoAuthErr "chacha20Poly1305Open")
+          (let (
+            (k (secretBlockAddr cpKind key.slot))
+            (work (strAlloc cpWorkBytes))
+          )
+            (let (
+              (w (strData work))
+              (s (strData sealed))
+            )
+              {
+                (cpTag
+                  k
+                  w
+                  (strData n)
+                  (strData aad)
+                  (strLen aad)
+                  s
+                  ctLen
+                  (+ w 272))
+                (if (cpTagMatches (+ w 272) (+ s ctLen))
+                  (let ((out (strAlloc ctLen)))
+                    {
+                      (chacha20Xor
+                        k
+                        (strData n)
+                        1
+                        s
+                        (strData out)
+                        ctLen
+                        w)
+                      (ctWipe w cpWorkBytes)
+                      (Ok out)
+                    })
+                  {
+                    (ctWipe w cpWorkBytes)
+                    (cryptoAuthErr "chacha20Poly1305Open")
+                  })
+              })))))))

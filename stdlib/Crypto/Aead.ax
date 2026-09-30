@@ -1,0 +1,170 @@
+; Crypto.Aead - nonces for authenticated encryption, and a sequence
+; that never hands out the same one twice.
+;
+;     (let ((key (unwrapOr (aes256GcmKeyGenerate) ...))
+;           (seq (unwrapOr (nonceSequenceNew "srv1") ...)))
+;       (match (nonceSequenceNext seq)
+;         ((Ok nonce)
+;           {
+;             (saveCounter (nonceSequencePosition seq))   ; persist first
+;             (aes256GcmSeal key nonce aad message)       ; then seal
+;           })
+;         ((Err e) (Err e))))
+;
+; Both AEADs here, AES-GCM (`Crypto.AesGcm`) and ChaCha20-Poly1305
+; (`Crypto.ChaCha20Poly1305`), take a 12-byte `AeadNonce`, and both
+; fail the same way when one is used twice under a key: the two
+; ciphertexts XOR to the XOR of the plaintexts, and with GCM the
+; authentication key falls out as well, so an attacker can forge
+; messages from then on. Everything in this module exists to make
+; that not happen.
+;
+; UNIQUENESS IS THE CALLER'S RESPONSIBILITY. A nonce needs to be
+; unique per key, not secret and not unpredictable. This module can
+; keep one sequence from repeating inside one process. It cannot see
+; another process using the same key, a second copy of the same
+; sequence, or a restart that forgot where the counter had got to.
+; Across processes and restarts, uniqueness comes from how you use it:
+;
+; - Give every sender that shares a key its own 4-byte prefix.
+; - Persist `nonceSequencePosition` BEFORE sealing with the nonce
+;   `nonceSequenceNext` just answered, and resume from the persisted
+;   value with `nonceSequenceResume`. A crash between the two then
+;   wastes a nonce, which is harmless; the other order can repeat one.
+;   To write less often, persist a position ahead of the sequence (say
+;   1,000 on) and resume from that: skipped nonces are never used.
+; - Never copy a sequence's state to two places that both seal.
+;
+; RANDOM NONCES HAVE A LIMIT. `aeadNonceRandom` draws 96 bits from the
+; kernel. Two random nonces collide with probability about n^2 / 2^97
+; after n messages, so SP 800-38D section 8.3 caps a key at 2^32
+; messages with random nonces, where the chance of any repeat is below
+; 2^-32. Past that, or when you cannot count, use a `NonceSequence`.
+;
+; STANDARD. The nonce is the 96-bit IV of SP 800-38D (section 5.2.1.1,
+; and the deterministic construction of 8.2.1: a fixed field and an
+; invocation field) and the 96-bit nonce of RFC 8439 section 2.8.
+(import Mem)
+(import Str)
+(import Err)
+(import Crypto.Ct)
+(import Crypto.Errors)
+(import Crypto.Bytes)
+(import Crypto.Random)
+
+; A 12-byte nonce for one AEAD message. Build it with
+; `aeadNonceFromBytes`, `aeadNonceRandom` or `nonceSequenceNext`; the
+; AEADs refuse one of any other length.
+(pub struct AeadNonce
+  (bytes : String))
+
+; The nonce length the AEADs take: 12 bytes.
+(pub :: aeadNonceLen Int)
+(pub fn (aeadNonceLen)
+  12)
+
+; The tag every seal appends and every open checks: 16 bytes.
+; Shorter tags are not offered.
+(pub :: aeadTagLen Int)
+(pub fn (aeadTagLen)
+  16)
+
+; A nonce holding a copy of `b`, which must be exactly 12 bytes.
+; Anything else answers `cryptoInvalidLength`: other nonce lengths
+; exist in GCM, and this suite does not take them.
+(pub :: aeadNonceFromBytes (-> String (Result AeadNonce Error)))
+;@axiom:effect(unsafe)
+(pub fn (aeadNonceFromBytes b)
+  (if (!= (strLen b) aeadNonceLen)
+    (cryptoLengthErr "a nonce must be 12 bytes" "aeadNonceFromBytes")
+    (Ok (AeadNonce (bytesFromAddr (strData b) 12)))))
+
+; The nonce's 12 bytes, to send beside the ciphertext.
+(pub :: aeadNonceBytes (-> AeadNonce String))
+(pub fn (aeadNonceBytes n)
+  n.bytes)
+
+; A nonce of 12 bytes from the kernel's entropy source. Use at most
+; 2^32 random nonces under one key (SP 800-38D 8.3); the module header
+; says why.
+(pub :: aeadNonceRandom (Result AeadNonce Error))
+;@axiom:effect(io)
+(pub fn (aeadNonceRandom)
+  (match (secureRandomBytes 12)
+    ((Ok b) (Ok (AeadNonce b)))
+    ((Err e) (Err e))))
+
+; ------------------------------------------------------------------
+; Sequences.
+; ------------------------------------------------------------------
+; A source of nonces that never repeats: a fixed 4-byte prefix and a
+; 64-bit big-endian counter, the prefix and invocation fields of
+; SP 800-38D 8.2.1. The state is the next nonce itself, 12 bytes. The
+; counter runs from 0 to 2^63 - 2, and one sequence is not safe to use
+; from two threads at once.
+(pub struct NonceSequence
+  (state : String))
+
+; The largest counter a sequence can reach, at which it is used up.
+(:: nonceSequenceEnd Int)
+(fn (nonceSequenceEnd)
+  9223372036854775807)
+
+; A sequence whose first nonce is `prefix` followed by a zero counter.
+; `prefix` must be 4 bytes, and distinct for every sender that shares
+; the key.
+(pub :: nonceSequenceNew (-> String (Result NonceSequence Error)))
+(pub fn (nonceSequenceNew prefix)
+  (nonceSequenceStart prefix 0 "nonceSequenceNew"))
+
+; A sequence that carries on from `position`, a value read back from
+; `nonceSequencePosition` and persisted before the nonce it followed
+; was used. `position` is 0 to 2^63 - 1; at 2^63 - 1 the sequence is
+; already used up.
+(pub :: nonceSequenceResume (-> String Int (Result NonceSequence Error)))
+(pub fn (nonceSequenceResume prefix position)
+  (if (< position 0)
+    (cryptoErr cryptoLimitExceeded "a sequence position is 0 to 2^63 - 1" "nonceSequenceResume")
+    (nonceSequenceStart prefix position "nonceSequenceResume")))
+
+(:: nonceSequenceStart (-> String Int String (Result NonceSequence Error)))
+;@axiom:effect(unsafe)
+(fn (nonceSequenceStart prefix position where)
+  (if (!= (strLen prefix) 4)
+    (cryptoLengthErr "a sequence prefix must be 4 bytes" where)
+    (let ((s (bytesNew 12)))
+      {
+        (ctCopy (strData s) (strData prefix) 4)
+        (st64be (strData s) 4 position)
+        (Ok (NonceSequence s))
+      })))
+
+; The next nonce, and the counter moved on past it. Once the counter
+; reaches 2^63 - 1 every call answers `cryptoLimitExceeded`: the
+; sequence never wraps round to a nonce it has given out. A state
+; that is not 12 bytes answers `cryptoInvalidLength`.
+(pub :: nonceSequenceNext (-> NonceSequence (Result AeadNonce Error)))
+;@axiom:effect(unsafe)
+(pub fn (nonceSequenceNext seq)
+  (let ((s seq.state))
+    (if (!= (strLen s) 12)
+      (cryptoLengthErr "a sequence state must be 12 bytes" "nonceSequenceNext")
+      (let ((c (ld64be (strData s) 4)))
+        (if (|| (< c 0) (== c nonceSequenceEnd))
+          (cryptoErr cryptoLimitExceeded "the nonce sequence is used up" "nonceSequenceNext")
+          (let ((n (bytesFromAddr (strData s) 12)))
+            {
+              (st64be (strData s) 4 (+ c 1))
+              (Ok (AeadNonce n))
+            }))))))
+
+; The counter the next nonce will carry: the value to persist, before
+; sealing, so a restart can resume after every nonce already given
+; out. -1 for a state that is not 12 bytes.
+(pub :: nonceSequencePosition (-> NonceSequence Int))
+;@axiom:effect(unsafe)
+(pub fn (nonceSequencePosition seq)
+  (let ((s seq.state))
+    (if (!= (strLen s) 12)
+      -1
+      (ld64be (strData s) 4))))

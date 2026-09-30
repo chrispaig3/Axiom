@@ -5661,7 +5661,7 @@ Checked by `scripts/check-freestanding.sh`.
 
 ### Modules at a Glance
 
-Thirty-one modules, all of them Axiom source under `stdlib/`. A module exports only the
+Thirty-eight modules, all of them Axiom source under `stdlib/`. A module exports only the
 names it marks `pub`, and reaching any other name is `AX3023`, so
 `grep '^(pub' stdlib/M.ax` always tells you what module `M` exports.
 
@@ -5702,6 +5702,13 @@ regenerates it on every run to keep it exact.
 | `Crypto.Random` | Secure random values from the kernel: `secureRandomBytes`, `randomBelow`, `randomRange`, `randomShuffle`, `randomWord`, the tokens `randomTokenHex`/`randomTokenUrl`, and `randomFill` for key generators. Where the target has no secure source, each call answers `Err`; none falls back to a clock or a counter. |
 | `Crypto.Secret` | Where keys live. `SecretBytes` is a handle that prints as `<SecretBytes>`, over locked memory outside the arena: `secretRandom`, `secretFromString`, `secretLen`, `secretEq`, `secretWipe`, and `secretExposeCopy` for the one time you mean to write a key out. Using a wiped secret exits with status 85. |
 | `Crypto.Bytes` | Byte strings for cryptography: `bytesEqCt` compares in constant time, `hexEncode`/`hexDecode` and the base64 codecs (`b64Encode`, `b64EncodeNoPad`, `b64UrlEncode` and their strict decoders) run in constant time, and `bytesU32Be` and its kin encode integers. |
+| `Crypto.AesGcm` | AES-GCM authenticated encryption (NIST SP 800-38D) with 256- and 128-bit keys: `aes256GcmSeal` and `aes256GcmOpen` over an `Aes256GcmKey`, which `aes256GcmKeyGenerate`, `aes256GcmKeyFromSecret`, `aes256GcmKeyExport` and `aes256GcmKeyWipe` manage, and the same for 128 ([Authenticated encryption](crypto.md#authenticated-encryption)). |
+| `Crypto.ChaCha20Poly1305` | ChaCha20-Poly1305 authenticated encryption (RFC 8439): `chacha20Poly1305Seal` and `chacha20Poly1305Open` over a `ChaCha20Poly1305Key`, with the same key functions. |
+| `Crypto.Aead` | The 12-byte `AeadNonce` both ciphers take (`aeadNonceFromBytes`, `aeadNonceRandom`), and `NonceSequence`, a counter that answers a fresh nonce until it runs out and never repeats one (`nonceSequenceNew`, `nonceSequenceNext`, `nonceSequenceResume`). |
+| `Crypto.Aes` | The AES block cipher (FIPS 197) with 128-, 192- and 256-bit keys, bitsliced so no table is indexed by a secret: `aesKeyExpand`, `aesEncryptBlocks`, `aesDecryptBlocks`, and `aesCtr32Xor`, GCM's counter mode. For implementers. |
+| `Crypto.Ghash` | GCM's authenticator, `ghashUpdate`, a carry-less multiply with no tables. For implementers. |
+| `Crypto.ChaCha20` | The ChaCha20 stream cipher (RFC 8439): `chacha20Block` and `chacha20Xor`. For implementers. |
+| `Crypto.Poly1305` | The Poly1305 one-time authenticator (RFC 8439): `poly1305Mac`, and the incremental `poly1305Init`, `poly1305Blocks`, `poly1305AbsorbPadded` and `poly1305Finish`. For implementers. |
 | `Crypto.Ct` | The constant-time layer the other Crypto modules are built from: masks and `ctSelect`, the `ctBarrier` value barrier, byte-order loads and stores, and `ctWipe`, an erasure the optimiser can't remove. For implementers. |
 | `Crypto.Errors` | The error codes every Crypto module answers, from `cryptoInvalidLength` (1101) to `cryptoInvalidKey` (1109), and the helpers that build them. |
 

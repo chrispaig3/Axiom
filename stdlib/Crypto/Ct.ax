@@ -45,6 +45,7 @@
 ; stream is what we want the assembler to see.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ctBarrier (-> Int Int))
+;@axiom:ct(x)
 ;@axiom:effect(unsafe)
 (pub fn (ctBarrier x)
   (asm
@@ -57,6 +58,7 @@
 ; from being deleted as dead.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: ctFence (-> Int Int))
+;@axiom:ct(*p)
 ;@axiom:effect(unsafe)
 (fn (ctFence p)
   (asm
@@ -72,18 +74,21 @@
 ; do), so an arithmetic shift of their `|` spreads it.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ctMaskNz (-> Int Int))
+;@axiom:ct(x)
 (pub fn (ctMaskNz x)
   (ctBarrier (>> (| x (- 0 x)) 63)))
 
 ; -1 when `x` is zero, 0 when it is not.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ctMaskZero (-> Int Int))
+;@axiom:ct(x)
 (pub fn (ctMaskZero x)
   (^ (ctMaskNz x) -1))
 
 ; -1 when `a` equals `b`, 0 otherwise.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ctMaskEq (-> Int Int Int))
+;@axiom:ct(a, b)
 (pub fn (ctMaskEq a b)
   (ctMaskZero (^ a b)))
 
@@ -93,24 +98,28 @@
 ; the signed `(- a b)` would overflow.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ctMaskLtU (-> Int Int Int))
+;@axiom:ct(a, b)
 (pub fn (ctMaskLtU a b)
   (ctBarrier (>> (| (& (^ a -1) b) (& (^ (^ a b) -1) (- a b))) 63)))
 
 ; -1 when `x` is negative, 0 otherwise.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ctMaskNeg (-> Int Int))
+;@axiom:ct(x)
 (pub fn (ctMaskNeg x)
   (ctBarrier (>> x 63)))
 
 ; `a` where `m` is -1, `b` where `m` is 0. `m` must be a mask.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ctSelect (-> Int Int Int Int))
+;@axiom:ct(m, a, b)
 (pub fn (ctSelect m a b)
   (^ b (& m (^ a b))))
 
 ; A mask from a 0/1 bit: 1 becomes -1 and 0 stays 0.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ctMaskFromBit (-> Int Int))
+;@axiom:ct(b)
 (pub fn (ctMaskFromBit b)
   (ctBarrier (- 0 (& b 1))))
 
@@ -125,18 +134,21 @@
 ; `x` shifted right by `n` bits with zeros in, for 1 <= n <= 63.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: shrU (-> Int Int Int))
+;@axiom:ct(x)
 (pub fn (shrU x n)
   (& (>> x n) (- (<< 1 (- 64 n)) 1)))
 
 ; A 64-bit rotation left by `n`, for 1 <= n <= 63.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: rotl64 (-> Int Int Int))
+;@axiom:ct(x)
 (pub fn (rotl64 x n)
   (| (<< x n) (shrU x (- 64 n))))
 
 ; A 64-bit rotation right by `n`, for 1 <= n <= 63.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: rotr64 (-> Int Int Int))
+;@axiom:ct(x)
 (pub fn (rotr64 x n)
   (| (shrU x n) (<< x (- 64 n))))
 
@@ -152,18 +164,21 @@
 ; 0..2^32-1. The answer is in the same range.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: rotl32 (-> Int Int Int))
+;@axiom:ct(x)
 (pub fn (rotl32 x n)
   (& (| (<< x n) (>> x (- 32 n))) 4294967295))
 
 ; A 32-bit rotation right by `n`, for 1 <= n <= 31.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: rotr32 (-> Int Int Int))
+;@axiom:ct(x)
 (pub fn (rotr32 x n)
   (& (| (>> x n) (<< x (- 32 n))) 4294967295))
 
 ; `a + b` modulo 2^32, for words in 0..2^32-1.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: add32 (-> Int Int Int))
+;@axiom:ct(a, b)
 (pub fn (add32 a b)
   (& (+ a b) 4294967295))
 
@@ -174,6 +189,7 @@
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ld32le (-> Int Int Int))
+;@axiom:ct(*p)
 ;@axiom:effect(unsafe)
 ;@axiom:precondition(`p` + `off` names 4 live bytes)
 (pub fn (ld32le p off)
@@ -181,6 +197,7 @@
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ld32be (-> Int Int Int))
+;@axiom:ct(*p)
 ;@axiom:effect(unsafe)
 ;@axiom:precondition(`p` + `off` names 4 live bytes)
 (pub fn (ld32be p off)
@@ -188,6 +205,7 @@
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ld64le (-> Int Int Int))
+;@axiom:ct(*p)
 ;@axiom:effect(unsafe)
 ;@axiom:precondition(`p` + `off` names 8 live bytes)
 (pub fn (ld64le p off)
@@ -195,6 +213,7 @@
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ld64be (-> Int Int Int))
+;@axiom:ct(*p)
 ;@axiom:effect(unsafe)
 ;@axiom:precondition(`p` + `off` names 8 live bytes)
 (pub fn (ld64be p off)
@@ -202,6 +221,7 @@
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: st32le (-> Int Int Int Int))
+;@axiom:ct(*p, v)
 ;@axiom:effect(unsafe)
 ;@axiom:precondition(`p` + `off` names 4 live writable bytes)
 (pub fn (st32le p off v)
@@ -215,6 +235,7 @@
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: st32be (-> Int Int Int Int))
+;@axiom:ct(*p, v)
 ;@axiom:effect(unsafe)
 ;@axiom:precondition(`p` + `off` names 4 live writable bytes)
 (pub fn (st32be p off v)
@@ -228,6 +249,7 @@
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: st64le (-> Int Int Int Int))
+;@axiom:ct(*p, v)
 ;@axiom:effect(unsafe)
 ;@axiom:precondition(`p` + `off` names 8 live writable bytes)
 (pub fn (st64le p off v)
@@ -238,6 +260,7 @@
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: st64be (-> Int Int Int Int))
+;@axiom:ct(*p, v)
 ;@axiom:effect(unsafe)
 ;@axiom:precondition(`p` + `off` names 8 live writable bytes)
 (pub fn (st64be p off v)
@@ -255,6 +278,7 @@
 ; loop cannot be rewritten to stop at the first difference.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ctEqAddr (-> Int Int Int Bool))
+;@axiom:ct(*a, *b)
 ;@axiom:effect(unsafe)
 ;@axiom:precondition(`a` and `b` each name `n` live bytes)
 (pub fn (ctEqAddr a b n)
@@ -274,6 +298,7 @@
 ; memory, so every store above it has to happen first.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ctWipe (-> Int Int Int))
+;@axiom:ct(*p)
 ;@axiom:effect(unsafe)
 ;@axiom:precondition(`p` names `n` live writable bytes)
 (pub fn (ctWipe p n)
@@ -289,6 +314,7 @@
 ; memory work.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ctCopy (-> Int Int Int Int))
+;@axiom:ct(*dst, *src)
 ;@axiom:effect(unsafe)
 ;@axiom:precondition(`dst` and `src` each name `n` live bytes, and the ranges do not overlap)
 (pub fn (ctCopy dst src n)
@@ -303,6 +329,7 @@
 ; other choice between two buffers a secret makes.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ctSwapWords (-> Int Int Int Int Int))
+;@axiom:ct(m, *a, *b)
 ;@axiom:effect(unsafe)
 ;@axiom:precondition(`a` and `b` each name `n` live writable words)
 (pub fn (ctSwapWords m a b n)

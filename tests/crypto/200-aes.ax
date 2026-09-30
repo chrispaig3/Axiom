@@ -1,0 +1,167 @@
+; AES (FIPS 197), the raw block cipher in Crypto.Aes: the three
+; examples of FIPS 197 Appendix C, NIST's AESAVS known answers in both
+; directions for all three key sizes, OpenSSL on random keys and runs
+; of 1 to 9 blocks (so every lane count of the four-block kernel), and
+; the key-length refusals.
+(import IO)
+(import Str)
+(import Vec)
+(import Err)
+(import Crypto.Ct)
+(import Crypto.Bytes)
+(import Crypto.Aes)
+(import Kat)
+
+; Encrypt (or decrypt) the whole blocks of `data` under `key`, or ""
+; when the key length is not one AES takes. `inPlace` runs the kernel
+; with the same address for input and output.
+(:: aesRun (-> Bool Bool String String String))
+;@axiom:effect(unsafe)
+(fn (aesRun enc inPlace key data)
+  (let (
+    (kl (strLen key))
+    (n (/ (strLen data) 16))
+  )
+    (if (== (aesRounds kl) 0)
+      ""
+      (let (
+        (sched (strAlloc (aesScheduleBytes kl)))
+        (work (strAlloc aesKeyWorkBytes))
+        (q (strAlloc aesStateBytes))
+        (out (bytesFromAddr (strData data) (strLen data)))
+      )
+        (let (
+          (nr (aesKeyExpand (strData sched) (strData key) kl (strData work)))
+          (src (if inPlace
+            (strData out)
+            (strData data)))
+        )
+          {
+            (if enc
+              (aesEncryptBlocks
+                (strData sched)
+                nr
+                src
+                (strData out)
+                n
+                (strData q))
+              (aesDecryptBlocks
+                (strData sched)
+                nr
+                src
+                (strData out)
+                n
+                (strData q)))
+            (ctWipe (strData sched) (aesScheduleBytes kl))
+            (ctWipe (strData q) aesStateBytes)
+            out
+          })))))
+
+; Whether the work area is all zeros: `aesKeyExpand` wipes it.
+(:: allZero (-> String Bool))
+(fn (allZero s)
+  (let ((mut z true))
+    {
+      (for i 0 (strLen s)
+        (if (!= (strByte s i) 0)
+          {
+            (set z false)
+            0
+          }
+          0))
+      z
+    }))
+
+(:: expandLeavesWorkClean (-> String Bool))
+;@axiom:effect(unsafe)
+(fn (expandLeavesWorkClean key)
+  (let (
+    (sched (strAlloc (aesScheduleBytes (strLen key))))
+    (work (strAlloc aesKeyWorkBytes))
+  )
+    {
+      (aesKeyExpand (strData sched) (strData key) (strLen key) (strData work))
+      (allZero work)
+    }))
+
+(:: expandRefuses (-> Int Bool))
+;@axiom:effect(unsafe)
+(fn (expandRefuses kl)
+  (let (
+    (key (strAlloc 40))
+    (sched (strAlloc 64))
+    (work (strAlloc aesKeyWorkBytes))
+  )
+    (&& (== (aesKeyExpand (strData sched) (strData key) kl (strData work)) 0) (allZero sched))))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (fips (tallyNew "aes-fips197"))
+    (kat (tallyNew "aes-aesavs-ecb"))
+    (diff (tallyNew "aes-ecb-openssl"))
+    (api (tallyNew "aes-sizes"))
+  )
+    {
+      (for line in (katLines "aes-fips197.txt")
+        (let ((f (katFields line)))
+          (let (
+            (key (katBytes f 0))
+            (pt (katBytes f 1))
+            (ct (katBytes f 2))
+          )
+            {
+              (tallyBytes fips ct (aesRun true false key pt) (hexEncode key))
+              (tallyBytes fips pt (aesRun false false key ct) (strConcat "decrypt " (hexEncode key)))
+              0
+            })))
+      (for line in (katLines "aes-kat-ecb.txt")
+        (let ((f (katFields line)))
+          (let (
+            (id (katText f 0))
+            (enc (strEq (katText f 1) "encrypt"))
+            (key (katBytes f 2))
+            (input (katBytes f 3))
+            (output (katBytes f 4))
+          )
+            (tallyBytes kat output (aesRun enc false key input) id))))
+      (for line in (katLines "aes-ecb-diff.txt")
+        (let ((f (katFields line)))
+          (let (
+            (key (katBytes f 0))
+            (pt (katBytes f 1))
+            (ct (katBytes f 2))
+          )
+            {
+              (tallyBytes diff ct (aesRun true false key pt) (hexEncode key))
+              (tallyBytes diff ct (aesRun true true key pt) (strConcat "in place " (hexEncode key)))
+              (tallyBytes diff pt (aesRun false false key ct) (strConcat "decrypt " (hexEncode key)))
+              (tallyBytes diff pt (aesRun false true key ct) (strConcat "decrypt in place " (hexEncode key)))
+              0
+            })))
+      (tallyCheck api (== (aesRounds 16) 10) "16-byte key, 10 rounds")
+      (tallyCheck api (== (aesRounds 24) 12) "24-byte key, 12 rounds")
+      (tallyCheck api (== (aesRounds 32) 14) "32-byte key, 14 rounds")
+      (tallyCheck api (== (aesScheduleBytes 32) 960) "a 256-bit schedule is 960 bytes")
+      (for kl in (vecOf4 0 15 17 33)
+        {
+          (tallyCheck api (== (aesRounds kl) 0) "a bad key length has no rounds")
+          (tallyCheck api (== (aesScheduleBytes kl) 0) "a bad key length has no schedule")
+          (tallyCheck api (expandRefuses kl) "aesKeyExpand refuses a bad length and writes nothing")
+          0
+        })
+      (tallyCheck api (expandLeavesWorkClean "0123456789abcdef0123456789abcdef") "the key-schedule scratch is wiped")
+      (+ (+ (tallyReport fips) (tallyReport kat)) (+ (tallyReport diff) (tallyReport api)))
+    }))
+
+(:: vecOf4 (-> Int Int Int Int (Vec Int)))
+(fn (vecOf4 a b c d)
+  (let ((v vecNew))
+    {
+      (vecPush v a)
+      (vecPush v b)
+      (vecPush v c)
+      (vecPush v d)
+      v
+    }))

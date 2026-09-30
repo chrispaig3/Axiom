@@ -1,0 +1,47 @@
+; GHASH (SP 800-38D 6.4), the hazardous kernel in Crypto.Ghash, against
+; RustCrypto's ghash on random hash keys and inputs of 0 to 300 bytes:
+; in one call, and split at a block boundary into two calls, which
+; must agree because a whole block absorbs the same either way.
+(import IO)
+(import Str)
+(import Vec)
+(import Err)
+(import Crypto.Bytes)
+(import Crypto.Ghash)
+(import Kat)
+
+; GHASH_H(data) from a zero start, absorbed in two calls split at byte
+; `cut` (a multiple of 16).
+(:: ghash (-> String String Int String))
+;@axiom:effect(unsafe)
+(fn (ghash h data cut)
+  (let (
+    (y (strAlloc 16))
+    (n (strLen data))
+  )
+    {
+      (ghashUpdate (strData y) (strData h) (strData data) cut)
+      (ghashUpdate (strData y) (strData h) (+ (strData data) cut) (- n cut))
+      y
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((t (tallyNew "ghash-rustcrypto")))
+    {
+      (for line in (katLines "gcm-ghash-diff.txt")
+        (let ((f (katFields line)))
+          (let (
+            (h (katBytes f 0))
+            (data (katBytes f 1))
+            (y (katBytes f 2))
+          )
+            (let ((half (* 16 (/ (/ (strLen data) 2) 16))))
+              {
+                (tallyBytes t y (ghash h data 0) (strConcat "one call, h " (hexEncode h)))
+                (tallyBytes t y (ghash h data half) (strConcat "two calls, h " (hexEncode h)))
+                0
+              }))))
+      (tallyReport t)
+    }))

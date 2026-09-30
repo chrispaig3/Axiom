@@ -1,0 +1,84 @@
+; Poly1305 (RFC 8439 2.5), the hazardous kernel in Crypto.Poly1305:
+; the RFC's section 2.5.2 example and all eleven Appendix A.3 vectors
+; (the last seven probe the carries and the final reduction), and
+; RustCrypto's poly1305 on random keys - among them the largest
+; clamped r and an all-ones s - and messages of 0 to 300 bytes.
+(import IO)
+(import Str)
+(import Vec)
+(import Err)
+(import Crypto.Bytes)
+(import Crypto.Poly1305)
+(import Kat)
+
+(:: mac (-> String String String))
+;@axiom:effect(unsafe)
+(fn (mac key msg)
+  (let (
+    (tag (strAlloc 16))
+    (st (strAlloc poly1305StateBytes))
+  )
+    {
+      (poly1305Mac
+        (strData tag)
+        (strData key)
+        (strData msg)
+        (strLen msg)
+        (strData st))
+      tag
+    }))
+
+; Whether the state was wiped: poly1305Mac leaves it all zeros.
+(:: stateWiped (-> String String Bool))
+;@axiom:effect(unsafe)
+(fn (stateWiped key msg)
+  (let (
+    (tag (strAlloc 16))
+    (st (strAlloc poly1305StateBytes))
+    (mut z true)
+  )
+    {
+      (poly1305Mac
+        (strData tag)
+        (strData key)
+        (strData msg)
+        (strLen msg)
+        (strData st))
+      (for i 0 poly1305StateBytes
+        (if (!= (strByte st i) 0)
+          {
+            (set z false)
+            0
+          }
+          0))
+      z
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (rfc (tallyNew "poly1305-rfc8439"))
+    (diff (tallyNew "poly1305-rustcrypto"))
+  )
+    {
+      (for line in (katLines "poly1305-rfc8439.txt")
+        (let ((f (katFields line)))
+          (let (
+            (id (katText f 0))
+            (key (katBytes f 1))
+            (msg (katBytes f 2))
+            (tag (katBytes f 3))
+          )
+            (tallyBytes rfc tag (mac key msg) id))))
+      (for line in (katLines "poly1305-diff.txt")
+        (let ((f (katFields line)))
+          (let (
+            (key (katBytes f 0))
+            (msg (katBytes f 1))
+            (tag (katBytes f 2))
+          )
+            (tallyBytes diff tag (mac key msg) (strConcat "key " (hexEncode key))))))
+      (tallyCheck rfc (stateWiped "0123456789abcdef0123456789abcdef" "a message") "the state is wiped")
+      (+ (tallyReport rfc) (tallyReport diff))
+    }))

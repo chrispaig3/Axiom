@@ -1,0 +1,157 @@
+; Crypto.Aead's nonces: a NonceSequence resumed at each position in
+; aead-nonce.txt gives the expected nonce and position after each run
+; of draws (SP 800-38D 8.2.1's fixed field and big-endian invocation
+; counter), refuses to go past its last counter, refuses a bad prefix,
+; start or forged state, and random nonces are 12 bytes and distinct.
+(import IO)
+(import Str)
+(import Vec)
+(import Err)
+(import Crypto.Errors)
+(import Crypto.Bytes)
+(import Crypto.Aead)
+(import Kat)
+
+; The last of `steps` nonces from a sequence resumed at `start`, as
+; bytes, or "" when any draw failed.
+(:: draw (-> NonceSequence Int String))
+(fn (draw seq steps)
+  (let (
+    (mut last "")
+    (mut ok true)
+  )
+    {
+      (for i 0 steps
+        (match (nonceSequenceNext seq)
+          ((Ok n)
+            {
+              (set last (aeadNonceBytes n))
+              0
+            }
+          )
+          ((Err _)
+            {
+              (set ok false)
+              0
+            }
+          )))
+      (if ok
+        last
+        "")
+    }))
+
+(:: refusedWith (-> (Result NonceSequence Error) Int Bool))
+(fn (refusedWith r code)
+  (match r
+    ((Ok _) false)
+    ((Err e) (== (errCode e) code))))
+
+(:: nextRefused (-> NonceSequence Int Bool))
+(fn (nextRefused seq code)
+  (match (nonceSequenceNext seq)
+    ((Ok _) false)
+    ((Err e) (== (errCode e) code))))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (t (tallyNew "aead-nonce-sequence"))
+    (api (tallyNew "aead-nonce-api"))
+  )
+    {
+      (for line in (katLines "aead-nonce.txt")
+        (let ((f (katFields line)))
+          (let (
+            (prefix (katBytes f 0))
+            (start (katInt f 1))
+            (steps (katInt f 2))
+            (position (katInt f 3))
+            (nonce (katBytes f 4))
+          )
+            (match (nonceSequenceResume prefix start)
+              ((Err _) (tallyCheck t false (strConcat "resume at " (katText f 1))))
+              ((Ok seq)
+                {
+                  (tallyBytes t nonce (draw seq steps) (strConcat "draws from " (katText f 1)))
+                  (tallyCheck t (== (nonceSequencePosition seq) position) (strConcat "position after " (katText f 1)))
+                  0
+                }
+              )))))
+      ; a fresh sequence starts at counter 0
+      (match (nonceSequenceNew "abcd")
+        ((Err _) (tallyCheck api false "nonceSequenceNew"))
+        ((Ok seq)
+          {
+            (tallyCheck api (== (nonceSequencePosition seq) 0) "a new sequence is at 0")
+            (tallyCheck api (strEq (draw seq 1) "abcd\0\0\0\0\0\0\0\0") "the first nonce is the prefix and a zero counter")
+            (tallyCheck api (== (nonceSequencePosition seq) 1) "one draw moves it to 1")
+          }
+        ))
+      ; the end: 2^63 - 2 is the last counter a nonce carries
+      (match (nonceSequenceResume "abcd" 9223372036854775806)
+        ((Err _) (tallyCheck api false "resume near the end"))
+        ((Ok seq)
+          {
+            (tallyCheck api (> (strLen (draw seq 1)) 0) "the last counter is given out")
+            (tallyCheck api (nextRefused seq cryptoLimitExceeded) "then the sequence is used up")
+            (tallyCheck api (nextRefused seq cryptoLimitExceeded) "and stays used up")
+            (tallyCheck api (== (nonceSequencePosition seq) 9223372036854775807) "at position 2^63 - 1")
+          }
+        ))
+      (match (nonceSequenceResume "abcd" 9223372036854775807)
+        ((Err _) (tallyCheck api false "resume at the end"))
+        ((Ok seq) (tallyCheck api (nextRefused seq cryptoLimitExceeded) "a sequence resumed at the end gives nothing")))
+      (tallyCheck api (refusedWith (nonceSequenceResume "abcd" -1) cryptoLimitExceeded) "a negative position is refused")
+      (tallyCheck api (refusedWith (nonceSequenceNew "abc") cryptoInvalidLength) "a 3-byte prefix is refused")
+      (tallyCheck api (refusedWith (nonceSequenceNew "abcde") cryptoInvalidLength) "a 5-byte prefix is refused")
+      (tallyCheck api (nextRefused (NonceSequence "short") cryptoInvalidLength) "a forged short state is refused")
+      (tallyCheck api (== (nonceSequencePosition (NonceSequence "")) -1) "a forged state has no position")
+      ; a forged state whose counter has the top bit set is used up, not reused
+      (tallyCheck api (nextRefused (NonceSequence (unwrapOr (hexDecode "61626364ff00000000000000") "")) cryptoLimitExceeded) "a counter at or above 2^63 is refused")
+      ; nonces taken from bytes are copies
+      (let ((b (bytesNew 12)))
+        (match (aeadNonceFromBytes b)
+          ((Err _) (tallyCheck api false "aeadNonceFromBytes"))
+          ((Ok n) (tallyCheck api (strEq (aeadNonceBytes n) (bytesNew 12)) "a nonce keeps its own copy"))))
+      (tallyCheck api (isErr (aeadNonceFromBytes "")) "an empty nonce is refused")
+      ; random nonces
+      (let (
+        (seen vecNew)
+        (mut distinct true)
+        (mut sized true)
+      )
+        {
+          (for i 0 64
+            (match (aeadNonceRandom)
+              ((Err _)
+                {
+                  (set sized false)
+                  0
+                }
+              )
+              ((Ok n)
+                (let ((b (aeadNonceBytes n)))
+                  {
+                    (if (!= (strLen b) 12)
+                      {
+                        (set sized false)
+                        0
+                      }
+                      0)
+                    (for s in seen
+                      (if (strEq s b)
+                        {
+                          (set distinct false)
+                          0
+                        }
+                        0))
+                    (vecPush seen b)
+                    0
+                  })
+              )))
+          (tallyCheck api sized "64 random nonces of 12 bytes")
+          (tallyCheck api distinct "64 random nonces all differ")
+        })
+      (+ (tallyReport t) (tallyReport api))
+    }))
