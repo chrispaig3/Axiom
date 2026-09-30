@@ -1,0 +1,247 @@
+; ML-DSA signing against Wycheproof (sign_seed and sign_noseed, all
+; three parameter sets): keys from seeds and from encodings, including
+; seeds of the wrong length and encodings with s1 or s2 out of range,
+; which must be refused; deterministic, hedged and external-mu
+; signatures, including ones that take many iterations of the
+; rejection loop or sit on its boundaries, which must match
+; Wycheproof's and verify; and contexts over 255 bytes, which must be
+; refused.
+(import IO)
+(import Str)
+(import Vec)
+(import Err)
+(import Fmt)
+(import Crypto.Errors)
+(import Crypto.Bytes)
+(import Crypto.Secret)
+(import Crypto.Sha2)
+(import Crypto.MlDsa)
+(import Kat)
+
+(:: orDie (-> (Result a Error) String a))
+;@axiom:effect(io)
+(fn (orDie r what)
+  (match r
+    ((Ok v) v)
+    ((Err e) (cast a (die (strConcat "TEST: " (strConcat what (strConcat ": " (errorText e)))) 3)))))
+
+(:: shaHex (-> String String))
+(fn (shaHex s)
+  (hexEncode (sha256 s)))
+
+; M' for pure ML-DSA: 0, the context's length, the context, the message.
+(:: pureMPrime (-> String String String))
+;@axiom:effect(unsafe)
+(fn (pureMPrime ctx msg)
+  (let ((pre (bytesNew 2)))
+    {
+      (__store8 (strData pre) 1 (strLen ctx))
+      (strConcat pre (strConcat ctx msg))
+    }))
+
+; The code of an Err, or 0 for Ok.
+(:: codeOf (-> (Result a Error) Int))
+(fn (codeOf r)
+  (match r
+    ((Ok _) 0)
+    ((Err e) (errCode e))))
+
+(:: wpKeyOk44 (-> String String Bool))
+;@axiom:effect(io)
+(fn (wpKeyOk44 kind keyb)
+  (let ((s (orDie (secretFromString keyb) "secretFromString")))
+    (let ((ok
+      (match (if (strEq kind "seed") (mlDsa44KeyFromSeed s) (mlDsa44KeyFromSecret s))
+        ((Err _) false)
+        ((Ok k)
+          {
+            (mlDsa44KeyWipe k)
+            true
+          }))))
+      {
+        (secretWipe s)
+        ok
+      })))
+
+(:: wpKeyOk65 (-> String String Bool))
+;@axiom:effect(io)
+(fn (wpKeyOk65 kind keyb)
+  (let ((s (orDie (secretFromString keyb) "secretFromString")))
+    (let ((ok
+      (match (if (strEq kind "seed") (mlDsa65KeyFromSeed s) (mlDsa65KeyFromSecret s))
+        ((Err _) false)
+        ((Ok k)
+          {
+            (mlDsa65KeyWipe k)
+            true
+          }))))
+      {
+        (secretWipe s)
+        ok
+      })))
+
+(:: wpKeyOk87 (-> String String Bool))
+;@axiom:effect(io)
+(fn (wpKeyOk87 kind keyb)
+  (let ((s (orDie (secretFromString keyb) "secretFromString")))
+    (let ((ok
+      (match (if (strEq kind "seed") (mlDsa87KeyFromSeed s) (mlDsa87KeyFromSecret s))
+        ((Err _) false)
+        ((Ok k)
+          {
+            (mlDsa87KeyWipe k)
+            true
+          }))))
+      {
+        (secretWipe s)
+        ok
+      })))
+
+; wpKeyOk for parameter set `n`.
+(:: wpKeyOk (-> Int String String Bool))
+;@axiom:effect(io)
+(fn (wpKeyOk n kind keyb)
+  (if (== n 44) (wpKeyOk44 kind keyb) (== n 65) (wpKeyOk65 kind keyb) (wpKeyOk87 kind keyb)))
+
+(:: wpSign44 (-> String String String String String String String))
+;@axiom:effect(io)
+(fn (wpSign44 kind keyb iface rnd ctx msg)
+  (let ((s (orDie (secretFromString keyb) "secretFromString")))
+    (match (if (strEq kind "seed") (mlDsa44KeyFromSeed s) (mlDsa44KeyFromSecret s))
+      ((Err e)
+        {
+          (secretWipe s)
+          (strConcat "key refused: " (errorText e))
+        })
+      ((Ok k)
+        (let ((pk (mlDsa44PublicKey k)) (r0 (if (== (strLen rnd) 0) (bytesNew 32) rnd)))
+          (let ((r
+            (if (strEq iface "mu")
+              (mlDsa44SignExternalMu k msg r0)
+              (> (strLen ctx) 255)
+              (mlDsa44SignDeterministic k msg ctx)
+              (== (strLen rnd) 0)
+              (mlDsa44SignDeterministic k msg ctx)
+              (mlDsa44SignInternal k (pureMPrime ctx msg) rnd))))
+            (let ((answer
+              (match r
+                ((Err e) (strConcat "sign refused: " (errorText e)))
+                ((Ok sig)
+                  (let ((ok
+                    (if (strEq iface "mu")
+                      (mlDsa44VerifyExternalMu pk msg sig)
+                      (mlDsa44Verify pk msg ctx sig))))
+                    (if ok
+                      (shaHex (mlDsa44SignatureBytes sig))
+                      (strConcat (shaHex (mlDsa44SignatureBytes sig)) " (does not verify)")))))))
+              {
+                (mlDsa44KeyWipe k)
+                (secretWipe s)
+                answer
+              })))))))
+
+(:: wpSign65 (-> String String String String String String String))
+;@axiom:effect(io)
+(fn (wpSign65 kind keyb iface rnd ctx msg)
+  (let ((s (orDie (secretFromString keyb) "secretFromString")))
+    (match (if (strEq kind "seed") (mlDsa65KeyFromSeed s) (mlDsa65KeyFromSecret s))
+      ((Err e)
+        {
+          (secretWipe s)
+          (strConcat "key refused: " (errorText e))
+        })
+      ((Ok k)
+        (let ((pk (mlDsa65PublicKey k)) (r0 (if (== (strLen rnd) 0) (bytesNew 32) rnd)))
+          (let ((r
+            (if (strEq iface "mu")
+              (mlDsa65SignExternalMu k msg r0)
+              (> (strLen ctx) 255)
+              (mlDsa65SignDeterministic k msg ctx)
+              (== (strLen rnd) 0)
+              (mlDsa65SignDeterministic k msg ctx)
+              (mlDsa65SignInternal k (pureMPrime ctx msg) rnd))))
+            (let ((answer
+              (match r
+                ((Err e) (strConcat "sign refused: " (errorText e)))
+                ((Ok sig)
+                  (let ((ok
+                    (if (strEq iface "mu")
+                      (mlDsa65VerifyExternalMu pk msg sig)
+                      (mlDsa65Verify pk msg ctx sig))))
+                    (if ok
+                      (shaHex (mlDsa65SignatureBytes sig))
+                      (strConcat (shaHex (mlDsa65SignatureBytes sig)) " (does not verify)")))))))
+              {
+                (mlDsa65KeyWipe k)
+                (secretWipe s)
+                answer
+              })))))))
+
+(:: wpSign87 (-> String String String String String String String))
+;@axiom:effect(io)
+(fn (wpSign87 kind keyb iface rnd ctx msg)
+  (let ((s (orDie (secretFromString keyb) "secretFromString")))
+    (match (if (strEq kind "seed") (mlDsa87KeyFromSeed s) (mlDsa87KeyFromSecret s))
+      ((Err e)
+        {
+          (secretWipe s)
+          (strConcat "key refused: " (errorText e))
+        })
+      ((Ok k)
+        (let ((pk (mlDsa87PublicKey k)) (r0 (if (== (strLen rnd) 0) (bytesNew 32) rnd)))
+          (let ((r
+            (if (strEq iface "mu")
+              (mlDsa87SignExternalMu k msg r0)
+              (> (strLen ctx) 255)
+              (mlDsa87SignDeterministic k msg ctx)
+              (== (strLen rnd) 0)
+              (mlDsa87SignDeterministic k msg ctx)
+              (mlDsa87SignInternal k (pureMPrime ctx msg) rnd))))
+            (let ((answer
+              (match r
+                ((Err e) (strConcat "sign refused: " (errorText e)))
+                ((Ok sig)
+                  (let ((ok
+                    (if (strEq iface "mu")
+                      (mlDsa87VerifyExternalMu pk msg sig)
+                      (mlDsa87Verify pk msg ctx sig))))
+                    (if ok
+                      (shaHex (mlDsa87SignatureBytes sig))
+                      (strConcat (shaHex (mlDsa87SignatureBytes sig)) " (does not verify)")))))))
+              {
+                (mlDsa87KeyWipe k)
+                (secretWipe s)
+                answer
+              })))))))
+
+; wpSign for parameter set `n`.
+(:: wpSign (-> Int String String String String String String String))
+;@axiom:effect(io)
+(fn (wpSign n kind keyb iface rnd ctx msg)
+  (if (== n 44) (wpSign44 kind keyb iface rnd ctx msg) (== n 65) (wpSign65 kind keyb iface rnd ctx msg) (wpSign87 kind keyb iface rnd ctx msg)))
+
+(:: agrees (-> Bool Bool Bool))
+(fn (agrees a b)
+  (if a b (! b)))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((t (tallyNew "wycheproof-mldsa-sign")) (mut kind "") (mut keyb ""))
+    {
+      (for line in (katLines "wycheproof-mldsa-sign.txt")
+        (let ((f (katFields line)) (op (katText (katFields line) 0)))
+          (if (|| (strEq op "seed") (strEq op "key"))
+            {
+              (set kind op)
+              (set keyb (katBytes f 2))
+              (tallyCheck t (agrees (wpKeyOk (katInt f 1) kind keyb) (strEq (katText f 3) "01"))
+                (strConcat "ML-DSA-" (strConcat (katText f 1) (strConcat " " (strConcat op (strConcat " accepted: expected " (katText f 3)))))))
+            }
+            (let ((got (wpSign (katInt f 1) kind keyb (katText f 3) (katBytes f 4) (katBytes f 5) (katBytes f 6))))
+              (let ((label (strConcat "ML-DSA-" (strConcat (katText f 1) (strConcat " tcId " (strConcat (katText f 2) (strConcat ": got " got)))))))
+                (if (strEq (katText f 7) "valid")
+                  (tallyCheck t (strEq got (katText f 8)) label)
+                  (tallyCheck t (|| (strStartsWith got "sign refused") (strStartsWith got "key refused")) label)))))))
+      (tallyReport t)
+    }))

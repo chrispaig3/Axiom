@@ -1,0 +1,218 @@
+; The polynomial layer under ML-DSA (Crypto.MlDsaPoly) against Python
+; written from FIPS 204's algorithms: the NTT and its inverse, ring
+; multiplication against schoolbook multiplication, Power2Round,
+; Decompose, UseHint, the reference's MakeHint rule against MakeHint,
+; BitPack and SimpleBitPack both ways, the four samplers, and
+; HintBitUnpack on well-formed and malformed encodings.
+(import IO)
+(import Mem)
+(import Str)
+(import Vec)
+(import Err)
+(import Fmt)
+(import Crypto.Bytes)
+(import Crypto.Sha2)
+(import Crypto.Sha3)
+(import Crypto.MlDsaPoly)
+(import Kat)
+
+; A polynomial from a label, as mldsa_poly.py's poly_from makes it.
+(:: polyFrom (-> String Int Int))
+;@axiom:effect(unsafe)
+(fn (polyFrom label m)
+  (let ((b (strData (shake256 label 768))) (p (memAlloc 2048)))
+    {
+      (for i 0 256
+        (__store64 p i (% (| (__load8 b (* 3 i)) (| (<< (__load8 b (+ (* 3 i) 1)) 8) (<< (__load8 b (+ (* 3 i) 2)) 16))) m)))
+      p
+    }))
+
+; `n` polynomials' coefficients reduced to [0, q) by `mlDsaFreeze`,
+; three bytes each.
+(:: encPolys (-> Int Int String))
+;@axiom:effect(unsafe)
+(fn (encPolys p n)
+  (let ((out (bytesNew (* 768 n))))
+    {
+      (for i 0 (* 256 n)
+        (let ((c (mlDsaFreeze (__load64 p i))))
+          {
+            (__store8 (strData out) (* 3 i) (& c 255))
+            (__store8 (strData out) (+ (* 3 i) 1) (& (>> c 8) 255))
+            (__store8 (strData out) (+ (* 3 i) 2) (>> c 16))
+          }))
+      out
+    }))
+
+(:: shaHex (-> String String))
+(fn (shaHex s)
+  (hexEncode (sha256 s)))
+
+; A polynomial from three-byte encodings, centred when `centre`.
+(:: decPoly (-> String Bool Int))
+;@axiom:effect(unsafe)
+(fn (decPoly s centre)
+  (let ((p (memAlloc 2048)) (b (strData s)))
+    {
+      (for i 0 256
+        (let ((v (| (__load8 b (* 3 i)) (| (<< (__load8 b (+ (* 3 i) 1)) 8) (<< (__load8 b (+ (* 3 i) 2)) 16)))))
+          (__store64 p i (if (&& centre (> v 4190208)) (- v 8380417) v))))
+      p
+    }))
+
+(:: zetas Int)
+;@axiom:effect(unsafe)
+(fn (zetas)
+  (let ((z (memAlloc 2048)))
+    {
+      (mlDsaZetaTable z)
+      z
+    }))
+
+(:: copyPoly (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (copyPoly a)
+  (let ((p (memAlloc 2048)))
+    {
+      (for i 0 256
+        (__store64 p i (__load64 a i)))
+      p
+    }))
+
+(:: num (-> (Vec String) Int Int))
+;@axiom:effect(io)
+(fn (num f i)
+  (katInt f i))
+
+; Whether packing then unpacking `a` gives `a` back, and the SHA-256 of
+; the packing.
+(:: packCheck (-> Tally Int Int Int Bool String String))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (packCheck t a bits b simple label)
+  (let ((out (bytesNew (* 32 bits))) (back (memAlloc 2048)))
+    {
+      (if simple
+        {
+          (mlDsaPolySimplePack (strData out) a bits)
+          (mlDsaPolySimpleUnpack back (strData out) bits)
+        }
+        {
+          (mlDsaPolyPack (strData out) a bits b)
+          (mlDsaPolyUnpack back (strData out) bits b)
+        })
+      (tallyBytes t (encPolys a 1) (encPolys back 1) (strConcat label " round trip"))
+      (shaHex out)
+    }))
+
+(:: run (-> Tally (Vec String) String))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (run t f)
+  (let ((op (katText f 0)) (z zetas) (x128 shake128New) (x256 shake256New) (buf (memAlloc 840)))
+    (if (strEq op "ntt")
+      (let ((a (polyFrom (katText f 1) 8380417)))
+        {
+          (mlDsaNtt a z)
+          (shaHex (encPolys a 1))
+        })
+      (strEq op "invntt")
+      (let ((a (polyFrom (katText f 1) 8380417)))
+        {
+          (mlDsaInvNttToMont a z)
+          (shaHex (encPolys a 1))
+        })
+      (strEq op "mul")
+      (let (
+        (a (polyFrom (strConcat (katText f 1) ":a") 8380417))
+        (b (polyFrom (strConcat (katText f 1) ":b") 8380417))
+      )
+        {
+          (mlDsaNtt a z)
+          (mlDsaNtt b z)
+          (mlDsaPolyPointwise a a b)
+          (mlDsaInvNttToMont a z)
+          (shaHex (encPolys a 1))
+        })
+      (strEq op "p2r")
+      (let ((a (polyFrom (katText f 1) 8380417)) (a1 (memAlloc 4096)))
+        {
+          (mlDsaPolyPower2Round a1 (+ a1 2048) a)
+          (shaHex (encPolys a1 2))
+        })
+      (strEq op "decompose")
+      (let ((a (polyFrom (katText f 2) 8380417)) (a1 (memAlloc 4096)))
+        {
+          (mlDsaPolyDecompose a1 (+ a1 2048) a (num f 1))
+          (shaHex (encPolys a1 2))
+        })
+      (strEq op "usehint")
+      (let ((r (polyFrom (katText f 2) 8380417)) (h (polyFrom (strConcat (katText f 2) ":h") 2)) (b (memAlloc 2048)))
+        {
+          (mlDsaPolyUseHint b r h (num f 1))
+          (shaHex (encPolys b 1))
+        })
+      (strEq op "makehint")
+      (let ((a0 (decPoly (katBytes f 2) true)) (a1 (decPoly (katBytes f 3) false)) (h (memAlloc 2048)))
+        (let ((ones (mlDsaPolyMakeHint h a0 a1 (num f 1))))
+          (strConcat (fmtInt ones) (strConcat " " (shaHex (encPolys h 1))))))
+      (strEq op "pack")
+      (let ((bits (num f 1)) (b (num f 2)))
+        (let ((x (polyFrom (strConcat (katText f 3) (strConcat ":pack" (katText f 1))) (<< 1 bits))))
+          {
+            (for i 0 256
+              (__store64 x i (- b (__load64 x i))))
+            (packCheck t x bits b false (strConcat "pack " (katText f 1)))
+          }))
+      (strEq op "simplepack")
+      (let ((bits (num f 1)))
+        (let ((x (polyFrom (strConcat (katText f 2) (strConcat ":spack" (katText f 1))) (<< 1 bits))))
+          (packCheck t x bits 0 true (strConcat "simplepack " (katText f 1)))))
+      (strEq op "uniform")
+      (let ((a (memAlloc 2048)))
+        {
+          (mlDsaPolyUniform a (strData (katBytes f 1)) (num f 2) (num f 3) x128 buf)
+          (shaHex (encPolys a 1))
+        })
+      (strEq op "eta")
+      (let ((a (memAlloc 2048)))
+        {
+          (mlDsaPolyUniformEta a (strData (katBytes f 1)) (num f 2) (num f 3) x256 buf)
+          (shaHex (encPolys a 1))
+        })
+      (strEq op "mask")
+      (let ((a (memAlloc 2048)))
+        {
+          (mlDsaPolyUniformGamma1 a (strData (katBytes f 1)) (num f 2) (num f 3) x256 buf)
+          (shaHex (encPolys a 1))
+        })
+      (strEq op "challenge")
+      (let ((c (memAlloc 2048)) (ct (katBytes f 1)))
+        {
+          (mlDsaPolyChallenge c (strData ct) (strLen ct) (num f 2) x256 buf)
+          (shaHex (encPolys c 1))
+        })
+      (strEq op "hint")
+      (let ((k (num f 1)) (omega (num f 2)) (enc (katBytes f 3)))
+        (let ((h (memAlloc (* 2048 k))))
+          (if (!= (mlDsaHintUnpack h (strData enc) k omega) 0)
+            "00"
+            (shaHex (encPolys h k)))))
+      (strConcat "unknown operation " op))))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((t (tallyNew "mldsa-poly")) (rt (tallyNew "mldsa-poly-round-trip")))
+    {
+      (for line in (katLines "mldsa-poly.txt")
+        (let ((f (katFields line)))
+          (let ((n (vecLen f)) (op (katText f 0)))
+            (let ((want
+              (if (strEq op "makehint")
+                (strConcat (katText f 4) (strConcat " " (katText f 5)))
+                (katText f (- n 1)))))
+              (let ((got (run rt f)))
+                (tallyCheck t (strEq got want) (strConcat op (strConcat " " (strConcat (katText f 1) (strConcat ": got " got))))))))))
+      (+ (tallyReport t) (tallyReport rt))
+    }))

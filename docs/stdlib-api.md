@@ -422,6 +422,210 @@ two differ.
 | `hmacSha512Copy` | value | `(-> HmacSha512 HmacSha512)` | `Alloc,Mut,Unsafe` | An independent copy of `m`, which goes on from the same point. |
 | `hmacSha512Wipe` | value | `(-> HmacSha512 Int)` | `Mut` | Erase everything `m` holds, the key's chaining values included; every later operation on it is refused. Answers 0, or -1 with nothing written when `m` is not a state. |
 
+## `Crypto.MlDsa`
+
+`stdlib/Crypto/MlDsa.ax` — 63 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `MlDsa44SecretKey` | struct |  |  | An ML-DSA-44 private key in the secret store (kind 27). Prints as `<MlDsa44SecretKey>`. |
+| `MlDsa44PublicKey` | struct |  |  | An ML-DSA-44 public key: its 1312-byte encoding. Build one with `mlDsa44PublicKeyFromBytes`. |
+| `MlDsa44Signature` | struct |  |  | An ML-DSA-44 signature: its 2420-byte encoding. Build one from bytes with `mlDsa44SignatureFromBytes`. |
+| `mlDsa44KeyGenerate` | value | `(Result MlDsa44SecretKey Error)` | `Alloc,IO,Mut,Unsafe` | A fresh ML-DSA-44 key from a random 32-byte seed. |
+| `mlDsa44KeyFromSeed` | value | `(-> SecretBytes (Result MlDsa44SecretKey Error))` | `Alloc,IO,Mut,Unsafe` | The ML-DSA-44 key the 32-byte seed `s` determines. |
+| `mlDsa44KeyFromSecret` | value | `(-> SecretBytes (Result MlDsa44SecretKey Error))` | `Alloc,IO,Mut,Unsafe` | The ML-DSA-44 key whose 2560-byte private key encoding is `s`, checked as `mlDsa65KeyFromSecret` checks it. |
+| `mlDsa44KeyWipe` | value | `(-> MlDsa44SecretKey Int)` | `Alloc,IO,Mut,Unsafe` | Erase `k` and free its storage. Answers 0. |
+| `mlDsa44KeyExportSeed` | value | `(-> MlDsa44SecretKey (Result SecretBytes Error))` | `Alloc,IO,Mut,Unsafe` | The 32-byte seed `k` was made from, as `SecretBytes`, or `cryptoUnsupported` when it has none. |
+| `mlDsa44KeyExport` | value | `(-> MlDsa44SecretKey (Result SecretBytes Error))` | `Alloc,IO,Mut,Unsafe` | The 2560-byte private key encoding of `k`, as `SecretBytes`. |
+| `mlDsa44PublicKey` | value | `(-> MlDsa44SecretKey MlDsa44PublicKey)` | `Alloc,Mut,Unsafe` | The public key of `k`. |
+| `mlDsa44PublicKeyFromBytes` | value | `(-> String (Result MlDsa44PublicKey Error))` | `Alloc,Mut` | A public key from its 1312-byte encoding, or `cryptoInvalidLength`. |
+| `mlDsa44PublicKeyBytes` | value | `(-> MlDsa44PublicKey String)` |  | The 1312 bytes of a public key. |
+| `mlDsa44SignatureFromBytes` | value | `(-> String (Result MlDsa44Signature Error))` | `Alloc,Mut` | A signature from its 2420-byte encoding, refusing a wrong length or a malformed hint encoding as `mlDsa65SignatureFromBytes` does. |
+| `mlDsa44SignatureBytes` | value | `(-> MlDsa44Signature String)` |  | The 2420 bytes of a signature. |
+| `mlDsa44Sign` | value | `(-> MlDsa44SecretKey String String (Result MlDsa44Signature Error))` | `Alloc,IO,Mut,Unsafe` | The hedged signature of `msg` under `k` with context `ctx`, as `mlDsa65Sign` makes it. |
+| `mlDsa44SignDeterministic` | value | `(-> MlDsa44SecretKey String String (Result MlDsa44Signature Error))` | `Alloc,Mut,Unsafe` | The deterministic (rnd = 0^32) signature of `msg` under `k` with context `ctx`. |
+| `mlDsa44SignInternal` | value | `(-> MlDsa44SecretKey String String (Result MlDsa44Signature Error))` | `Alloc,Mut,Unsafe` | ML-DSA.Sign_internal on a formatted `mprime` with a 32-byte `rnd`. |
+| `mlDsa44SignExternalMu` | value | `(-> MlDsa44SecretKey String String (Result MlDsa44Signature Error))` | `Alloc,Mut,Unsafe` | Sign_internal from a 64-byte `mu` with a 32-byte `rnd`. |
+| `mlDsa44Verify` | value | `(-> MlDsa44PublicKey String String MlDsa44Signature Bool)` | `Alloc,Mut` | Whether `sig` is a valid signature of `msg` under `pk` with context `ctx`. |
+| `mlDsa44VerifyInternal` | value | `(-> MlDsa44PublicKey String MlDsa44Signature Bool)` | `Alloc,Mut` | ML-DSA.Verify_internal on a formatted `mprime`. |
+| `mlDsa44VerifyExternalMu` | value | `(-> MlDsa44PublicKey String MlDsa44Signature Bool)` | `Alloc,Mut` | Verify_internal from a 64-byte `mu`. |
+| `MlDsa65SecretKey` | struct |  |  | An ML-DSA-65 private key: a handle to the seed it was made from (when it was), its private key encoding and its public key, in the secret store (kind 28). Prints as `<MlDsa65SecretKey>`. |
+| `MlDsa65PublicKey` | struct |  |  | An ML-DSA-65 public key: its 1952-byte encoding (FIPS 204 Algorithm 22). Build one with `mlDsa65PublicKeyFromBytes`. |
+| `MlDsa65Signature` | struct |  |  | An ML-DSA-65 signature: its 3309-byte encoding (Algorithm 26). Build one from bytes with `mlDsa65SignatureFromBytes`. |
+| `mlDsa65KeyGenerate` | value | `(Result MlDsa65SecretKey Error)` | `Alloc,IO,Mut,Unsafe` | A fresh ML-DSA-65 key from a random 32-byte seed (ML-DSA.KeyGen, Algorithm 1). The seed is kept, so `mlDsa65KeyExportSeed` can save it. |
+| `mlDsa65KeyFromSeed` | value | `(-> SecretBytes (Result MlDsa65SecretKey Error))` | `Alloc,IO,Mut,Unsafe` | The key the 32-byte seed `s` determines (ML-DSA.KeyGen_internal, Algorithm 6): the deterministic route, for known-answer tests and for keys stored as their seed. `cryptoInvalidLength` for any other length. |
+| `mlDsa65KeyFromSecret` | value | `(-> SecretBytes (Result MlDsa65SecretKey Error))` | `Alloc,IO,Mut,Unsafe` | The key whose private key encoding (Algorithm 24, 4032 bytes) is `s`. The encoding is checked the way KeyGen would have made it: `cryptoInvalidKey` when a coefficient of s1 or s2 is outside [-eta, eta], or t0 or tr is not what rho, s1 and s2 give. A key imported this way has no seed to export. |
+| `mlDsa65KeyWipe` | value | `(-> MlDsa65SecretKey Int)` | `Alloc,IO,Mut,Unsafe` | Erase `k` and free its storage. Any later use of `k` stops the program with status 85. Answers 0. |
+| `mlDsa65KeyExportSeed` | value | `(-> MlDsa65SecretKey (Result SecretBytes Error))` | `Alloc,IO,Mut,Unsafe` | The 32-byte seed `k` was made from, as `SecretBytes`: the compact way to store the key, read back by `mlDsa65KeyFromSeed`. `cryptoUnsupported` for a key imported with `mlDsa65KeyFromSecret`, which has none. |
+| `mlDsa65KeyExport` | value | `(-> MlDsa65SecretKey (Result SecretBytes Error))` | `Alloc,IO,Mut,Unsafe` | The private key encoding of `k` (Algorithm 24, 4032 bytes), as `SecretBytes`, read back by `mlDsa65KeyFromSecret`. |
+| `mlDsa65PublicKey` | value | `(-> MlDsa65SecretKey MlDsa65PublicKey)` | `Alloc,Mut,Unsafe` | The public key of `k`. |
+| `mlDsa65PublicKeyFromBytes` | value | `(-> String (Result MlDsa65PublicKey Error))` | `Alloc,Mut` | A public key from its 1952-byte encoding. Every string of that length is an encoding (pkDecode, Algorithm 23, has nothing to refuse); any other length is `cryptoInvalidLength`. |
+| `mlDsa65PublicKeyBytes` | value | `(-> MlDsa65PublicKey String)` |  | The 1952 bytes of a public key. |
+| `mlDsa65SignatureFromBytes` | value | `(-> String (Result MlDsa65Signature Error))` | `Alloc,Mut` | A signature from its 3309-byte encoding: `cryptoInvalidLength` for any other length, `cryptoInvalidEncoding` when its hint encoding is malformed (HintBitUnpack, Algorithm 21: a count that goes down or passes omega, positions that do not increase, or nonzero padding). |
+| `mlDsa65SignatureBytes` | value | `(-> MlDsa65Signature String)` |  | The 3309 bytes of a signature. |
+| `mlDsa65Sign` | value | `(-> MlDsa65SecretKey String String (Result MlDsa65Signature Error))` | `Alloc,IO,Mut,Unsafe` | The signature of `msg` under `k` with context string `ctx` (ML-DSA.Sign, Algorithm 2), hedged: 32 fresh random bytes go into the nonce, so signing the same message twice gives different signatures, each valid. Pass "" when the protocol names no context. `cryptoInvalidLength` for a context over 255 bytes, `cryptoLimitExceeded` in the negligible case that the rejection loop reaches its bound, and the entropy source's error if it fails. |
+| `mlDsa65SignDeterministic` | value | `(-> MlDsa65SecretKey String String (Result MlDsa65Signature Error))` | `Alloc,Mut,Unsafe` | The deterministic signature of `msg` under `k` with context `ctx`: ML-DSA.Sign with rnd = 0^32, which FIPS 204 permits. The same inputs always give the same signature, and no entropy is needed; the hedged `mlDsa65Sign` is the better default where fault attacks are a concern. |
+| `mlDsa65SignInternal` | value | `(-> MlDsa65SecretKey String String (Result MlDsa65Signature Error))` | `Alloc,Mut,Unsafe` | ML-DSA.Sign_internal (Algorithm 7): the signature of an already formatted message `mprime` with the given 32-byte `rnd`. For known-answer tests and for protocols that build M' themselves, such as the pre-hash variant; application code wants `mlDsa65Sign`. |
+| `mlDsa65SignExternalMu` | value | `(-> MlDsa65SecretKey String String (Result MlDsa65Signature Error))` | `Alloc,Mut,Unsafe` | Sign_internal from the 64-byte message representative `mu` = H(tr \|\| M', 64), computed by the caller (FIPS 204 section 6.2 allows this split), with a 32-byte `rnd`. |
+| `mlDsa65Verify` | value | `(-> MlDsa65PublicKey String String MlDsa65Signature Bool)` | `Alloc,Mut` | Whether `sig` is a valid signature of `msg` under `pk` with context `ctx` (ML-DSA.Verify, Algorithm 3). False for a context over 255 bytes, a key or signature of the wrong length, a malformed hint encoding, z out of range, and any signature that does not check. |
+| `mlDsa65VerifyInternal` | value | `(-> MlDsa65PublicKey String MlDsa65Signature Bool)` | `Alloc,Mut` | ML-DSA.Verify_internal (Algorithm 8) on an already formatted M'. |
+| `mlDsa65VerifyExternalMu` | value | `(-> MlDsa65PublicKey String MlDsa65Signature Bool)` | `Alloc,Mut` | Verify_internal from a 64-byte `mu` computed by the caller; false for any other length. |
+| `MlDsa87SecretKey` | struct |  |  | An ML-DSA-87 private key in the secret store (kind 29). Prints as `<MlDsa87SecretKey>`. |
+| `MlDsa87PublicKey` | struct |  |  | An ML-DSA-87 public key: its 2592-byte encoding. Build one with `mlDsa87PublicKeyFromBytes`. |
+| `MlDsa87Signature` | struct |  |  | An ML-DSA-87 signature: its 4627-byte encoding. Build one from bytes with `mlDsa87SignatureFromBytes`. |
+| `mlDsa87KeyGenerate` | value | `(Result MlDsa87SecretKey Error)` | `Alloc,IO,Mut,Unsafe` | A fresh ML-DSA-87 key from a random 32-byte seed. |
+| `mlDsa87KeyFromSeed` | value | `(-> SecretBytes (Result MlDsa87SecretKey Error))` | `Alloc,IO,Mut,Unsafe` | The ML-DSA-87 key the 32-byte seed `s` determines. |
+| `mlDsa87KeyFromSecret` | value | `(-> SecretBytes (Result MlDsa87SecretKey Error))` | `Alloc,IO,Mut,Unsafe` | The ML-DSA-87 key whose 4896-byte private key encoding is `s`, checked as `mlDsa65KeyFromSecret` checks it. |
+| `mlDsa87KeyWipe` | value | `(-> MlDsa87SecretKey Int)` | `Alloc,IO,Mut,Unsafe` | Erase `k` and free its storage. Answers 0. |
+| `mlDsa87KeyExportSeed` | value | `(-> MlDsa87SecretKey (Result SecretBytes Error))` | `Alloc,IO,Mut,Unsafe` | The 32-byte seed `k` was made from, as `SecretBytes`, or `cryptoUnsupported` when it has none. |
+| `mlDsa87KeyExport` | value | `(-> MlDsa87SecretKey (Result SecretBytes Error))` | `Alloc,IO,Mut,Unsafe` | The 4896-byte private key encoding of `k`, as `SecretBytes`. |
+| `mlDsa87PublicKey` | value | `(-> MlDsa87SecretKey MlDsa87PublicKey)` | `Alloc,Mut,Unsafe` | The public key of `k`. |
+| `mlDsa87PublicKeyFromBytes` | value | `(-> String (Result MlDsa87PublicKey Error))` | `Alloc,Mut` | A public key from its 2592-byte encoding, or `cryptoInvalidLength`. |
+| `mlDsa87PublicKeyBytes` | value | `(-> MlDsa87PublicKey String)` |  | The 2592 bytes of a public key. |
+| `mlDsa87SignatureFromBytes` | value | `(-> String (Result MlDsa87Signature Error))` | `Alloc,Mut` | A signature from its 4627-byte encoding, refusing a wrong length or a malformed hint encoding as `mlDsa65SignatureFromBytes` does. |
+| `mlDsa87SignatureBytes` | value | `(-> MlDsa87Signature String)` |  | The 4627 bytes of a signature. |
+| `mlDsa87Sign` | value | `(-> MlDsa87SecretKey String String (Result MlDsa87Signature Error))` | `Alloc,IO,Mut,Unsafe` | The hedged signature of `msg` under `k` with context `ctx`, as `mlDsa65Sign` makes it. |
+| `mlDsa87SignDeterministic` | value | `(-> MlDsa87SecretKey String String (Result MlDsa87Signature Error))` | `Alloc,Mut,Unsafe` | The deterministic (rnd = 0^32) signature of `msg` under `k` with context `ctx`. |
+| `mlDsa87SignInternal` | value | `(-> MlDsa87SecretKey String String (Result MlDsa87Signature Error))` | `Alloc,Mut,Unsafe` | ML-DSA.Sign_internal on a formatted `mprime` with a 32-byte `rnd`. |
+| `mlDsa87SignExternalMu` | value | `(-> MlDsa87SecretKey String String (Result MlDsa87Signature Error))` | `Alloc,Mut,Unsafe` | Sign_internal from a 64-byte `mu` with a 32-byte `rnd`. |
+| `mlDsa87Verify` | value | `(-> MlDsa87PublicKey String String MlDsa87Signature Bool)` | `Alloc,Mut` | Whether `sig` is a valid signature of `msg` under `pk` with context `ctx`. |
+| `mlDsa87VerifyInternal` | value | `(-> MlDsa87PublicKey String MlDsa87Signature Bool)` | `Alloc,Mut` | ML-DSA.Verify_internal on a formatted `mprime`. |
+| `mlDsa87VerifyExternalMu` | value | `(-> MlDsa87PublicKey String MlDsa87Signature Bool)` | `Alloc,Mut` | Verify_internal from a 64-byte `mu`. |
+
+## `Crypto.MlDsaPoly`
+
+`stdlib/Crypto/MlDsaPoly.ax` — 31 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `mlDsaQ` | value | `Int` |  | q = 2^23 - 2^13 + 1. |
+| `mlDsaPolyBytes` | value | `Int` |  | Bytes in one polynomial: 256 words. |
+| `mlDsaMontReduce` | value | `(-> Int Int)` |  | a 2^-32 modulo q, for \|a\| < 2^31 q: the reference's montgomery_reduce, answering a value in (-q, q). |
+| `mlDsaReduce32` | value | `(-> Int Int)` |  | A value congruent to `a` modulo q in [-6283008, 6283008], for a <= 2^31 - 2^22 - 1 (reduce32). |
+| `mlDsaCaddq` | value | `(-> Int Int)` | `Mut` | `a` plus q when `a` is negative (caddq). |
+| `mlDsaFreeze` | value | `(-> Int Int)` | `Mut` | The representative of `a` in [0, q) (freeze). |
+| `mlDsaZetaTable` | value | `(-> Int Int)` | `Mut,Unsafe` | The 256 twiddle factors at `z`: zeta^brv(k) 2^32 mod q, centred, for zeta = 1753 (the reference's zetas table). |
+| `mlDsaNtt` | value | `(-> Int Int Int)` | `Mut,Unsafe` | `a` into the NTT domain, in place. Coefficients below q in magnitude come out below 9q. |
+| `mlDsaInvNttToMont` | value | `(-> Int Int Int)` | `Mut,Unsafe` | `a` out of the NTT domain, in place, multiplied by the Montgomery factor 2^32 (invntt_tomont). Coefficients below q in magnitude. |
+| `mlDsaPolyReduce` | value | `(-> Int Int)` | `Mut,Unsafe` | Every coefficient of `a` reduced to [-6283008, 6283008]. |
+| `mlDsaPolyCaddq` | value | `(-> Int Int)` | `Mut,Unsafe` | q added to every negative coefficient of `a`. |
+| `mlDsaPolyAdd` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` | c = a + b, without reduction. |
+| `mlDsaPolySub` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` | c = a - b, without reduction. |
+| `mlDsaPolyShiftL` | value | `(-> Int Int)` | `Mut,Unsafe` | a = a 2^13 (shiftl, with d = 13). |
+| `mlDsaPolyPointwise` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` | c = a b 2^-32 pointwise, for NTT-domain `a` and `b` (poly_pointwise_montgomery). |
+| `mlDsaPolyPointwiseAcc` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` | c = c + a b 2^-32 pointwise: one term of a row of the matrix-vector product (polyvecl_pointwise_acc_montgomery's loop body). |
+| `mlDsaPolyChkNorm` | value | `(-> Int Int Int)` | `Mut,Unsafe` | 1 when some coefficient of `a`, taken as its centred value, is at least `bound` in magnitude; 0 when all are below it (poly_chknorm). Every coefficient is examined and the answer folded into one word, so the time says nothing about which coefficient was too large or its sign. Coefficients must be reduced (below q/2 in magnitude). |
+| `mlDsaPolyPower2Round` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` | a1 and a0 with a = a1 2^13 + a0 and -2^12 < a0 <= 2^12, for each coefficient of `a` in [0, q) (Power2Round). |
+| `mlDsaPolyDecompose` | value | `(-> Int Int Int Int Int)` | `Mut,Unsafe` | a1 = HighBits and a0 = LowBits of each coefficient of `a` in [0, q), for gamma2 = (q-1)/88 or (q-1)/32 (Decompose): a = a1 2 gamma2 + a0 modulo q, with a0 centred and the top interval folded to a1 = 0. |
+| `mlDsaPolyMakeHint` | value | `(-> Int Int Int Int Int)` | `Mut,Unsafe` | h = 1 where the low part `a0` overflows into the high part `a1` (the reference's make_hint: a0 > gamma2, a0 < -gamma2, or a0 = -gamma2 with a1 nonzero), 0 elsewhere, computed with masks. Answers how many ones it wrote. |
+| `mlDsaPolyUseHint` | value | `(-> Int Int Int Int Int)` | `Mut,Unsafe` | b = the high part of `a` corrected by hint `h` (UseHint), for each coefficient of `a` in [0, q). For verification: branches on its inputs. |
+| `mlDsaPolyUniform` | value | `(-> Int Int Int Int Shake128 Int Int)` | `Mut,Unsafe` | Â[i][j] = RejNTTPoly(rho \|\| j \|\| i) at `a`: coefficients below q drawn as 23-bit values from SHAKE128 (poly_uniform). `x` is a SHAKE128 state and `buf` 840 bytes of scratch. Variable time, on public data. |
+| `mlDsaPolyUniformEta` | value | `(-> Int Int Int Int Shake256 Int Int)` | `Mut,Unsafe` | s = RejBoundedPoly(seed \|\| nonce) at `a`: coefficients in [-eta, eta] drawn from half-bytes of SHAKE256 over the 64-byte seed and the two-byte nonce (poly_uniform_eta). `x` is a SHAKE256 state and `buf` 136 bytes of scratch; both are wiped before it returns. Rejection sampling on secret bytes: a half-byte is rejected or kept independently of the value it would give, so the time reveals how many were drawn and nothing about the coefficients. |
+| `mlDsaPolyUniformGamma1` | value | `(-> Int Int Int Int Shake256 Int Int)` | `Mut,Unsafe` | y = ExpandMask's polynomial for `nonce` at `a`: coefficients in (-gamma1, gamma1] from SHAKE256(seed \|\| nonce), unpacked 18 or 20 bits at a time (poly_uniform_gamma1). `x` is a SHAKE256 state and `buf` 640 bytes of scratch; both are wiped before it returns. |
+| `mlDsaPolyChallenge` | value | `(-> Int Int Int Int Shake256 Int Int)` | `Mut,Unsafe` | c = SampleInBall(ctilde) at `c`: tau coefficients of +-1, the rest 0, from SHAKE256 over the `clen` bytes at `ctilde` (poly_challenge). `x` is a SHAKE256 state and `buf` 136 bytes of scratch. Variable time: the positions come from rejection sampling on the hash output. |
+| `mlDsaPolySimplePack` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` | SimpleBitPack: the coefficients of `a`, each in [0, 2^bits), as 32 `bits` bytes at `out`. |
+| `mlDsaPolyPack` | value | `(-> Int Int Int Int Int)` | `Mut,Unsafe` | BitPack: the values b - a_i, each in [0, 2^bits), as 32 `bits` bytes at `out`. |
+| `mlDsaPolySimpleUnpack` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` | SimpleBitUnpack: 256 `bits`-bit values from `in` into `a`. |
+| `mlDsaPolyUnpack` | value | `(-> Int Int Int Int Int)` | `Mut,Unsafe` | BitUnpack: b - v_i for the 256 `bits`-bit values v_i at `in`, into `a`. |
+| `mlDsaHintPack` | value | `(-> Int Int Int Int Int)` | `Mut,Unsafe` | HintBitPack: the positions of the ones in the `k` hint polynomials at `h`, then each polynomial's running count, as omega + k bytes at `out`. The ones must number at most omega. Branches on the hint, which the signature publishes. |
+| `mlDsaHintUnpack` | value | `(-> Int Int Int Int Int)` | `Mut,Unsafe` | HintBitUnpack: the `k` hint polynomials encoded in the omega + k bytes at `in`, into `h`. Answers 0, or -1 when the encoding is malformed: a count that goes down or passes omega, positions within a polynomial that do not strictly increase, or a nonzero byte after the last position (Algorithm 21). `h` is then unspecified. Branches on the encoding, which is public. |
+
+## `Crypto.MlKem`
+
+`stdlib/Crypto/MlKem.ax` — 66 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `MlKem512EncapsKey` | struct |  |  | An ML-KEM-512 encapsulation key: the public half, 800 bytes. Build it with `mlKem512EncapsKeyFromBytes`, which runs the checks of FIPS 203 7.2, or take it from a decapsulation key. |
+| `MlKem512Ciphertext` | struct |  |  | An ML-KEM-512 ciphertext, 768 bytes. |
+| `MlKem512DecapsKey` | struct |  |  | An ML-KEM-512 decapsulation key in the secret store (kind 24). |
+| `MlKem512Encapsulated` | struct |  |  | What `mlKem512Encaps` answers: the ciphertext to send, and the sender's copy of the shared secret. |
+| `mlKem512EncapsKeyLen` | value | `Int` |  | The length of an ML-KEM-512 encapsulation key: 800 bytes. |
+| `mlKem512DecapsKeyLen` | value | `Int` |  | The length of an ML-KEM-512 decapsulation key in its expanded form: 1632 bytes. |
+| `mlKem512CiphertextLen` | value | `Int` |  | The length of an ML-KEM-512 ciphertext: 768 bytes. |
+| `mlKem512EncapsKeyFromBytes` | value | `(-> String (Result MlKem512EncapsKey Error))` | `Alloc,Mut,Unsafe` | An encapsulation key holding a copy of `b`, after the checks of FIPS 203 7.2: `cryptoInvalidLength` unless `b` is 800 bytes, and `cryptoInvalidKey` when a 12-bit value in it is q or more. |
+| `mlKem512EncapsKeyBytes` | value | `(-> MlKem512EncapsKey String)` |  | The encapsulation key's 800 bytes. |
+| `mlKem512CiphertextFromBytes` | value | `(-> String (Result MlKem512Ciphertext Error))` | `Alloc,Mut,Unsafe` | A ciphertext holding a copy of `b`, which must be 768 bytes. Any bytes of that length are a ciphertext: whether it decapsulates to the sender's secret is never reported. |
+| `mlKem512CiphertextBytes` | value | `(-> MlKem512Ciphertext String)` |  | The ciphertext's 768 bytes. |
+| `mlKem512KeyGenerate` | value | `(Result MlKem512DecapsKey Error)` | `Alloc,IO,Mut` | A fresh ML-KEM-512 key pair (ML-KEM.KeyGen, Algorithm 19): d and z drawn from the kernel's entropy source straight into the store. |
+| `mlKem512KeyGenerateDerand` | value | `(-> SecretBytes SecretBytes (Result MlKem512DecapsKey Error))` | `Alloc,IO,Mut` | The key pair ML-KEM.KeyGen_internal (Algorithm 16) makes from the 32-byte seeds `d` and `z`: the deterministic form, for known-answer tests and protocols that specify the seeds. |
+| `mlKem512KeyFromSeed` | value | `(-> SecretBytes (Result MlKem512DecapsKey Error))` | `Alloc,IO,Mut` | A key from its 64-byte seed d \|\| z, the compact form to store a key in (as `mlKem512KeyExportSeed` gives it). |
+| `mlKem512KeyFromExpanded` | value | `(-> SecretBytes (Result MlKem512DecapsKey Error))` | `Alloc,IO,Mut` | A key from the FIPS 203 expanded decapsulation key (1632 bytes), after the checks of 7.3: `cryptoInvalidLength` for the wrong length, `cryptoInvalidKey` when its H(ek) does not match its ek. Such a key has no seed to export. |
+| `mlKem512KeyExportSeed` | value | `(-> MlKem512DecapsKey (Result SecretBytes Error))` | `Alloc,IO,Mut` | The 64-byte seed d \|\| z the key was made from, as a new `SecretBytes`; `cryptoUnsupported` for a key imported expanded. |
+| `mlKem512KeyExportExpanded` | value | `(-> MlKem512DecapsKey (Result SecretBytes Error))` | `Alloc,IO,Mut` | The expanded decapsulation key, 1632 bytes (dk_PKE \|\| ek \|\| H(ek) \|\| z), as a new `SecretBytes`. |
+| `mlKem512EncapsKey` | value | `(-> MlKem512DecapsKey MlKem512EncapsKey)` | `Alloc,Mut` | The encapsulation key that belongs to `dk`, to publish. |
+| `mlKem512Encaps` | value | `(-> MlKem512EncapsKey (Result MlKem512Encapsulated Error))` | `Alloc,IO,Mut` | Encapsulate against `ek` (ML-KEM.Encaps, Algorithm 20): a fresh random m, the ciphertext, and the 32-byte shared secret. The key is checked first, as section 7.2 requires. |
+| `mlKem512EncapsDerand` | value | `(-> MlKem512EncapsKey SecretBytes (Result MlKem512Encapsulated Error))` | `Alloc,IO,Mut` | Encapsulate with the caller's 32-byte `m` (Encaps_internal, Algorithm 17): the deterministic form, for known-answer tests. Never reuse an m. |
+| `mlKem512Decaps` | value | `(-> MlKem512DecapsKey MlKem512Ciphertext (Result SecretBytes Error))` | `Alloc,IO,Mut` | Decapsulate `c` with `dk` (ML-KEM.Decaps, Algorithm 21): the 32-byte shared secret. A ciphertext that was tampered with, or never came from this key, answers the implicit-rejection secret J(z \|\| c) instead, indistinguishably; only a ciphertext that is not 768 bytes is refused. |
+| `mlKem512KeyWipe` | value | `(-> MlKem512DecapsKey Int)` | `Alloc,IO,Mut,Unsafe` | Erase the key and free its store. Any later use of `dk` stops the program with status 85. Answers 0. |
+| `MlKem768EncapsKey` | struct |  |  | An ML-KEM-768 encapsulation key: the public half, 1184 bytes. Build it with `mlKem768EncapsKeyFromBytes`, which runs the checks of FIPS 203 7.2, or take it from a decapsulation key. |
+| `MlKem768Ciphertext` | struct |  |  | An ML-KEM-768 ciphertext, 1088 bytes. |
+| `MlKem768DecapsKey` | struct |  |  | An ML-KEM-768 decapsulation key in the secret store (kind 25). |
+| `MlKem768Encapsulated` | struct |  |  | What `mlKem768Encaps` answers: the ciphertext to send, and the sender's copy of the shared secret. |
+| `mlKem768EncapsKeyLen` | value | `Int` |  | The length of an ML-KEM-768 encapsulation key: 1184 bytes. |
+| `mlKem768DecapsKeyLen` | value | `Int` |  | The length of an ML-KEM-768 decapsulation key in its expanded form: 2400 bytes. |
+| `mlKem768CiphertextLen` | value | `Int` |  | The length of an ML-KEM-768 ciphertext: 1088 bytes. |
+| `mlKem768EncapsKeyFromBytes` | value | `(-> String (Result MlKem768EncapsKey Error))` | `Alloc,Mut,Unsafe` | An encapsulation key holding a copy of `b`, after the checks of FIPS 203 7.2: `cryptoInvalidLength` unless `b` is 1184 bytes, and `cryptoInvalidKey` when a 12-bit value in it is q or more. |
+| `mlKem768EncapsKeyBytes` | value | `(-> MlKem768EncapsKey String)` |  | The encapsulation key's 1184 bytes. |
+| `mlKem768CiphertextFromBytes` | value | `(-> String (Result MlKem768Ciphertext Error))` | `Alloc,Mut,Unsafe` | A ciphertext holding a copy of `b`, which must be 1088 bytes. Any bytes of that length are a ciphertext: whether it decapsulates to the sender's secret is never reported. |
+| `mlKem768CiphertextBytes` | value | `(-> MlKem768Ciphertext String)` |  | The ciphertext's 1088 bytes. |
+| `mlKem768KeyGenerate` | value | `(Result MlKem768DecapsKey Error)` | `Alloc,IO,Mut` | A fresh ML-KEM-768 key pair (ML-KEM.KeyGen, Algorithm 19): d and z drawn from the kernel's entropy source straight into the store. |
+| `mlKem768KeyGenerateDerand` | value | `(-> SecretBytes SecretBytes (Result MlKem768DecapsKey Error))` | `Alloc,IO,Mut` | The key pair ML-KEM.KeyGen_internal (Algorithm 16) makes from the 32-byte seeds `d` and `z`: the deterministic form, for known-answer tests and protocols that specify the seeds. |
+| `mlKem768KeyFromSeed` | value | `(-> SecretBytes (Result MlKem768DecapsKey Error))` | `Alloc,IO,Mut` | A key from its 64-byte seed d \|\| z, the compact form to store a key in (as `mlKem768KeyExportSeed` gives it). |
+| `mlKem768KeyFromExpanded` | value | `(-> SecretBytes (Result MlKem768DecapsKey Error))` | `Alloc,IO,Mut` | A key from the FIPS 203 expanded decapsulation key (2400 bytes), after the checks of 7.3: `cryptoInvalidLength` for the wrong length, `cryptoInvalidKey` when its H(ek) does not match its ek. Such a key has no seed to export. |
+| `mlKem768KeyExportSeed` | value | `(-> MlKem768DecapsKey (Result SecretBytes Error))` | `Alloc,IO,Mut` | The 64-byte seed d \|\| z the key was made from, as a new `SecretBytes`; `cryptoUnsupported` for a key imported expanded. |
+| `mlKem768KeyExportExpanded` | value | `(-> MlKem768DecapsKey (Result SecretBytes Error))` | `Alloc,IO,Mut` | The expanded decapsulation key, 2400 bytes (dk_PKE \|\| ek \|\| H(ek) \|\| z), as a new `SecretBytes`. |
+| `mlKem768EncapsKey` | value | `(-> MlKem768DecapsKey MlKem768EncapsKey)` | `Alloc,Mut` | The encapsulation key that belongs to `dk`, to publish. |
+| `mlKem768Encaps` | value | `(-> MlKem768EncapsKey (Result MlKem768Encapsulated Error))` | `Alloc,IO,Mut` | Encapsulate against `ek` (ML-KEM.Encaps, Algorithm 20): a fresh random m, the ciphertext, and the 32-byte shared secret. The key is checked first, as section 7.2 requires. |
+| `mlKem768EncapsDerand` | value | `(-> MlKem768EncapsKey SecretBytes (Result MlKem768Encapsulated Error))` | `Alloc,IO,Mut` | Encapsulate with the caller's 32-byte `m` (Encaps_internal, Algorithm 17): the deterministic form, for known-answer tests. Never reuse an m. |
+| `mlKem768Decaps` | value | `(-> MlKem768DecapsKey MlKem768Ciphertext (Result SecretBytes Error))` | `Alloc,IO,Mut` | Decapsulate `c` with `dk` (ML-KEM.Decaps, Algorithm 21): the 32-byte shared secret. A ciphertext that was tampered with, or never came from this key, answers the implicit-rejection secret J(z \|\| c) instead, indistinguishably; only a ciphertext that is not 1088 bytes is refused. |
+| `mlKem768KeyWipe` | value | `(-> MlKem768DecapsKey Int)` | `Alloc,IO,Mut,Unsafe` | Erase the key and free its store. Any later use of `dk` stops the program with status 85. Answers 0. |
+| `MlKem1024EncapsKey` | struct |  |  | An ML-KEM-1024 encapsulation key: the public half, 1568 bytes. Build it with `mlKem1024EncapsKeyFromBytes`, which runs the checks of FIPS 203 7.2, or take it from a decapsulation key. |
+| `MlKem1024Ciphertext` | struct |  |  | An ML-KEM-1024 ciphertext, 1568 bytes. |
+| `MlKem1024DecapsKey` | struct |  |  | An ML-KEM-1024 decapsulation key in the secret store (kind 26). |
+| `MlKem1024Encapsulated` | struct |  |  | What `mlKem1024Encaps` answers: the ciphertext to send, and the sender's copy of the shared secret. |
+| `mlKem1024EncapsKeyLen` | value | `Int` |  | The length of an ML-KEM-1024 encapsulation key: 1568 bytes. |
+| `mlKem1024DecapsKeyLen` | value | `Int` |  | The length of an ML-KEM-1024 decapsulation key in its expanded form: 3168 bytes. |
+| `mlKem1024CiphertextLen` | value | `Int` |  | The length of an ML-KEM-1024 ciphertext: 1568 bytes. |
+| `mlKem1024EncapsKeyFromBytes` | value | `(-> String (Result MlKem1024EncapsKey Error))` | `Alloc,Mut,Unsafe` | An encapsulation key holding a copy of `b`, after the checks of FIPS 203 7.2: `cryptoInvalidLength` unless `b` is 1568 bytes, and `cryptoInvalidKey` when a 12-bit value in it is q or more. |
+| `mlKem1024EncapsKeyBytes` | value | `(-> MlKem1024EncapsKey String)` |  | The encapsulation key's 1568 bytes. |
+| `mlKem1024CiphertextFromBytes` | value | `(-> String (Result MlKem1024Ciphertext Error))` | `Alloc,Mut,Unsafe` | A ciphertext holding a copy of `b`, which must be 1568 bytes. Any bytes of that length are a ciphertext: whether it decapsulates to the sender's secret is never reported. |
+| `mlKem1024CiphertextBytes` | value | `(-> MlKem1024Ciphertext String)` |  | The ciphertext's 1568 bytes. |
+| `mlKem1024KeyGenerate` | value | `(Result MlKem1024DecapsKey Error)` | `Alloc,IO,Mut` | A fresh ML-KEM-1024 key pair (ML-KEM.KeyGen, Algorithm 19): d and z drawn from the kernel's entropy source straight into the store. |
+| `mlKem1024KeyGenerateDerand` | value | `(-> SecretBytes SecretBytes (Result MlKem1024DecapsKey Error))` | `Alloc,IO,Mut` | The key pair ML-KEM.KeyGen_internal (Algorithm 16) makes from the 32-byte seeds `d` and `z`: the deterministic form, for known-answer tests and protocols that specify the seeds. |
+| `mlKem1024KeyFromSeed` | value | `(-> SecretBytes (Result MlKem1024DecapsKey Error))` | `Alloc,IO,Mut` | A key from its 64-byte seed d \|\| z, the compact form to store a key in (as `mlKem1024KeyExportSeed` gives it). |
+| `mlKem1024KeyFromExpanded` | value | `(-> SecretBytes (Result MlKem1024DecapsKey Error))` | `Alloc,IO,Mut` | A key from the FIPS 203 expanded decapsulation key (3168 bytes), after the checks of 7.3: `cryptoInvalidLength` for the wrong length, `cryptoInvalidKey` when its H(ek) does not match its ek. Such a key has no seed to export. |
+| `mlKem1024KeyExportSeed` | value | `(-> MlKem1024DecapsKey (Result SecretBytes Error))` | `Alloc,IO,Mut` | The 64-byte seed d \|\| z the key was made from, as a new `SecretBytes`; `cryptoUnsupported` for a key imported expanded. |
+| `mlKem1024KeyExportExpanded` | value | `(-> MlKem1024DecapsKey (Result SecretBytes Error))` | `Alloc,IO,Mut` | The expanded decapsulation key, 3168 bytes (dk_PKE \|\| ek \|\| H(ek) \|\| z), as a new `SecretBytes`. |
+| `mlKem1024EncapsKey` | value | `(-> MlKem1024DecapsKey MlKem1024EncapsKey)` | `Alloc,Mut` | The encapsulation key that belongs to `dk`, to publish. |
+| `mlKem1024Encaps` | value | `(-> MlKem1024EncapsKey (Result MlKem1024Encapsulated Error))` | `Alloc,IO,Mut` | Encapsulate against `ek` (ML-KEM.Encaps, Algorithm 20): a fresh random m, the ciphertext, and the 32-byte shared secret. The key is checked first, as section 7.2 requires. |
+| `mlKem1024EncapsDerand` | value | `(-> MlKem1024EncapsKey SecretBytes (Result MlKem1024Encapsulated Error))` | `Alloc,IO,Mut` | Encapsulate with the caller's 32-byte `m` (Encaps_internal, Algorithm 17): the deterministic form, for known-answer tests. Never reuse an m. |
+| `mlKem1024Decaps` | value | `(-> MlKem1024DecapsKey MlKem1024Ciphertext (Result SecretBytes Error))` | `Alloc,IO,Mut` | Decapsulate `c` with `dk` (ML-KEM.Decaps, Algorithm 21): the 32-byte shared secret. A ciphertext that was tampered with, or never came from this key, answers the implicit-rejection secret J(z \|\| c) instead, indistinguishably; only a ciphertext that is not 1568 bytes is refused. |
+| `mlKem1024KeyWipe` | value | `(-> MlKem1024DecapsKey Int)` | `Alloc,IO,Mut,Unsafe` | Erase the key and free its store. Any later use of `dk` stops the program with status 85. Answers 0. |
+
+## `Crypto.MlKemPoly`
+
+`stdlib/Crypto/MlKemPoly.ax` — 16 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `mlkemQ` | value | `Int` |  | The modulus. |
+| `mlkemPolyBytes` | value | `Int` |  | The bytes one polynomial occupies: 256 words. |
+| `mlkemDivQ` | value | `(-> Int Int)` |  | floor(x / q) for 0 <= x < 2^26, as (x * ceil(2^38 / q)) >> 38. The error of the reciprocal, 3291 / 2^38, times 2^26 stays below 1/q, so the answer is exact over the whole range; x * 82570715 is below 2^53. |
+| `mlkemModQ` | value | `(-> Int Int)` |  | x modulo q, for 0 <= x < 2^26. |
+| `mlkemNtt` | value | `(-> Int Int)` | `Mut,Unsafe` | f-hat = NTT(f), in place: seven layers of butterflies, lengths 128 down to 2, the zetas taken in order from index 1. |
+| `mlkemInvNtt` | value | `(-> Int Int)` | `Mut,Unsafe` | f = NTT^-1(f-hat), in place: the layers in reverse, the zetas from index 127 down, and a final multiplication by 3303 = 128^-1 mod q. |
+| `mlkemMulAcc` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` | h-hat += f-hat x g-hat in the NTT domain (MultiplyNTTs, Algorithm 11): 128 products of degree-one polynomials modulo X^2 - gamma_i (BaseCaseMultiply, Algorithm 12), added into `h`. `h` may be `f` or `g` only if the caller wants the product added to that operand. |
+| `mlkemPolyAdd` | value | `(-> Int Int Int)` | `Mut,Unsafe` | h = h + f, coefficient-wise modulo q. |
+| `mlkemPolySub` | value | `(-> Int Int Int)` | `Mut,Unsafe` | h = h - f, coefficient-wise modulo q. |
+| `mlkemWipe` | value | `(-> Int Int Int)` | `Mut,Unsafe` | Overwrite `n` bytes at `p` (a multiple of 8) with zeros, a word at a time. The address then passes through `ctBarrier`, whose assembly block may read any memory, so the stores cannot be dropped as dead. Answers 0. |
+| `mlkemCompress` | value | `(-> Int Int Int)` | `Mut,Unsafe` | Compress_d on every coefficient, in place: round(2^d x / q) mod 2^d, computed as floor((2^d x + 1664) / q) through `mlkemDivQ` - the multiply-and-shift form, never a division instruction, because x is secret (KyberSlash). Rounding half up and this floor agree for every x in 0..q-1 because q is odd. `d` is 1..11. |
+| `mlkemDecompress` | value | `(-> Int Int Int)` | `Mut,Unsafe` | Decompress_d on every coefficient, in place: round(q y / 2^d), which is (q y + 2^(d-1)) >> d exactly. `d` is 1..11 and every y is below 2^d. |
+| `mlkemByteEncode` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` | ByteEncode_d: the low `d` bits of each of the 256 coefficients at `p`, least significant first, packed into the 32 * d bytes at `out`. For d = 12 the coefficients must already be below q. |
+| `mlkemByteDecode` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` | ByteDecode_d: 256 coefficients of `d` bits each from the 32 * d bytes at `src`, into the polynomial at `p`. For d = 12 each value is reduced modulo q, as the standard specifies; a caller that must refuse values of q and above compares the re-encoding. |
+| `mlkemSampleNtt` | value | `(-> Int Int Int)` | `Alloc,Mut,Unsafe` | SampleNTT: a uniform polynomial in the NTT domain from the 34-byte seed rho \|\| j \|\| i at `seed`, by rejection from SHAKE128's output, read 168 bytes (one block) at a time. Every 3 bytes give two 12-bit candidates, kept when below q. The seed is public, so the loop may run as long as the draws need. |
+| `mlkemSampleCbd` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` | SamplePolyCBD_eta: a polynomial from the 64 * eta bytes at `src`. Coefficient i is x - y mod q, where x and y are the number of set bits in the next two runs of `eta` bits. Only additions of bits: no table, no branch on the bytes. |
+
 ## `Crypto.Poly1305`
 
 `stdlib/Crypto/Poly1305.ax` — 6 public names

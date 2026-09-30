@@ -221,7 +221,7 @@ only what it declares.
 
 Run `axiom fmt` over every file you touch. Don't assume the tree is
 already in the formatter's normal form: `axiom fmt --check` passes 813
-of the 897 `.ax` files in the repository and flags 84. It checks one
+of the 913 `.ax` files in the repository and flags 100. It checks one
 file at a time, so this lists the ones that need formatting:
 
 ```bash

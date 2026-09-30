@@ -1,0 +1,1374 @@
+; Crypto.MlDsa - ML-DSA signatures (FIPS 204), post-quantum: ML-DSA-44,
+; ML-DSA-65 and ML-DSA-87.
+;
+;     mlDsa65KeyGenerate                        ; (Ok <MlDsa65SecretKey>)
+;     (mlDsa65Sign k "message" "")              ; (Ok sig), 3309 bytes, hedged
+;     (mlDsa65Verify (mlDsa65PublicKey k) "message" "" sig)   ; true
+;     (mlDsa65PublicKeyFromBytes bytes)         ; (Ok pk), or Err for a bad length
+;
+; ML-DSA is the module-lattice signature scheme NIST standardised as
+; FIPS 204, believed secure against an attacker with a quantum
+; computer. The three parameter sets trade size for strength (NIST
+; security categories 2, 3 and 5); each has its own key and signature
+; types, so a key of one cannot be passed where another is expected.
+; ML-DSA-65 is the usual choice. Every name below exists for each set:
+; `mlDsa44...`, `mlDsa65...`, `mlDsa87...`.
+;
+; CONTEXT STRINGS. Signing and verification take a context `ctx` of up
+; to 255 bytes, which binds a signature to its purpose: a signature made
+; with one context does not verify with another. Pass "" when the
+; protocol names none.
+;
+; WHAT IT GUARANTEES. A private key lives in the secret store (kinds 27,
+; 28 and 29) as its FIPS 204 private key encoding, its public key, and,
+; when it was made from one, its 32-byte seed. Signing is hedged by
+; default: 32 fresh random bytes are mixed into each signature's nonce
+; with the key and the message (`...Sign`); `...SignDeterministic` uses
+; zeros instead, as FIPS 204 allows. The arithmetic on secrets - the
+; NTT products with s1, s2 and t0, Decompose, MakeHint and the norm
+; checks - has no secret-dependent branch, memory index or division
+; (`Crypto.MlDsaPoly`). The rejection loop's decision to try again is a
+; branch, which reveals only how many candidates were discarded; FIPS
+; 204 and the Dilithium analysis allow it. The loop stops after 821
+; iterations, the errata's minimum, with `cryptoLimitExceeded`, which
+; no honest key meets in practice. Every intermediate - s1, s2, t0, y,
+; z, the hints and rho'' - is wiped, a rejected iteration's before the
+; next begins.
+;
+; STRICT DECODING. `...SignatureFromBytes` refuses a malformed hint
+; encoding (Algorithm 21), and verification refuses every signature
+; that fails any check of Algorithm 8 by answering false, never by
+; stopping. `...KeyFromSecret` checks an imported private key the way
+; KeyGen would have made it.
+;
+; STANDARD. FIPS 204 (August 2024) with its errata: ML-DSA.KeyGen,
+; ML-DSA.Sign and ML-DSA.Verify (Algorithms 1 to 3) and their internal
+; forms (Algorithms 6 to 8), the encodings of Algorithms 22 to 28 and
+; the parameter sets of Table 1. Pure ML-DSA only: HashML-DSA
+; (Algorithms 4 and 5) has no function here, though its M' can be
+; passed to `...SignInternal`. Tested against NIST's ACVP vectors,
+; Wycheproof and OpenSSL.
+;
+; REFERENCE. The pq-crystals Dilithium reference implementation, ref/
+; at commit d35ba3fe (sign.c and packing.c; public domain under CC0, or
+; Apache 2.0). SHAKE128 and SHAKE256 come from `Crypto.Sha3`.
+;
+; LIMITS. A message is any `String`. Signing takes about 105 KB
+; (ML-DSA-44) to 250 KB (ML-DSA-87) of scratch memory, which is wiped
+; and handed back to the arena (a `region`) before the call returns.
+; Erasure does not reach values that were in registers or spilled to
+; the stack.
+(import Mem)
+(import Str)
+(import Err)
+(import Crypto.Ct)
+(import Crypto.Errors)
+(import Crypto.Bytes)
+(import Crypto.Random)
+(import Crypto.Secret)
+(import Crypto.Sha3)
+(import Crypto.MlDsaPoly)
+
+; ------------------------------------------------------------------
+; The parameter sets (FIPS 204, Table 1). `p` is 44, 65 or 87.
+; ------------------------------------------------------------------
+(:: mdK (-> Int Int))
+(fn (mdK p)
+  (if (== p 44) 4 (== p 65) 6 8))
+
+(:: mdL (-> Int Int))
+(fn (mdL p)
+  (if (== p 44) 4 (== p 65) 5 7))
+
+(:: mdEta (-> Int Int))
+(fn (mdEta p)
+  (if (== p 65) 4 2))
+
+(:: mdTau (-> Int Int))
+(fn (mdTau p)
+  (if (== p 44) 39 (== p 65) 49 60))
+
+(:: mdBeta (-> Int Int))
+(fn (mdBeta p)
+  (if (== p 44) 78 (== p 65) 196 120))
+
+(:: mdGamma1 (-> Int Int))
+(fn (mdGamma1 p)
+  (if (== p 44) 131072 524288))
+
+(:: mdGamma2 (-> Int Int))
+(fn (mdGamma2 p)
+  (if (== p 44) 95232 261888))
+
+(:: mdOmega (-> Int Int))
+(fn (mdOmega p)
+  (if (== p 44) 80 (== p 65) 55 75))
+
+; lambda / 4: the length of the challenge hash c~.
+(:: mdCtildeBytes (-> Int Int))
+(fn (mdCtildeBytes p)
+  (if (== p 44) 32 (== p 65) 48 64))
+
+; Bits per coefficient of s1 and s2 (bitlen 2 eta), of z (1 + bitlen
+; (gamma1 - 1)) and of w1 (bitlen ((q - 1) / (2 gamma2) - 1)).
+(:: mdEtaBits (-> Int Int))
+(fn (mdEtaBits p)
+  (if (== p 65) 4 3))
+
+(:: mdZBits (-> Int Int))
+(fn (mdZBits p)
+  (if (== p 44) 18 20))
+
+(:: mdW1Bits (-> Int Int))
+(fn (mdW1Bits p)
+  (if (== p 44) 6 4))
+
+; The encodings' lengths (FIPS 204, Table 2).
+(:: mdPkBytes (-> Int Int))
+(fn (mdPkBytes p)
+  (+ 32 (* 320 (mdK p))))
+
+(:: mdSkBytes (-> Int Int))
+(fn (mdSkBytes p)
+  (+ 128 (+ (* (* 32 (mdEtaBits p)) (+ (mdK p) (mdL p))) (* 416 (mdK p)))))
+
+(:: mdSigBytes (-> Int Int))
+(fn (mdSigBytes p)
+  (+ (mdCtildeBytes p) (+ (* (* 32 (mdZBits p)) (mdL p)) (+ (mdOmega p) (mdK p)))))
+
+; The most rejection-loop iterations a signature may take. FIPS 204
+; section 3.6.3 lets an implementation bound the loop provided the
+; bound is at least the one in its Table 3, which the FIPS 204 errata
+; (last updated 2026-07-31) raise from 814 to 821. A signature that
+; needs more is refused with `cryptoLimitExceeded`; the chance of that
+; is below 2^-128 for every parameter set.
+(:: mdSignLimit Int)
+(fn (mdSignLimit)
+  821)
+
+; ------------------------------------------------------------------
+; Vector helpers over `n` polynomials at `v`, 2048 bytes apart.
+; ------------------------------------------------------------------
+(:: mdPoly (-> Int Int Int))
+(fn (mdPoly v i)
+  (+ v (* i 2048)))
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: mdNttVec (-> Int Int Int Int))
+;@axiom:ct(*v)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`v` names `n` live writable polynomials and `z` the zeta table)
+(fn (mdNttVec v n z)
+  {
+    (for i 0 n
+      (mlDsaNtt (mdPoly v i) z))
+    0
+  })
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: mdInvNttVec (-> Int Int Int Int))
+;@axiom:ct(*v)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`v` names `n` live writable polynomials and `z` the zeta table)
+(fn (mdInvNttVec v n z)
+  {
+    (for i 0 n
+      (mlDsaInvNttToMont (mdPoly v i) z))
+    0
+  })
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: mdReduceVec (-> Int Int Int))
+;@axiom:ct(*v)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`v` names `n` live writable polynomials)
+(fn (mdReduceVec v n)
+  {
+    (for i 0 n
+      (mlDsaPolyReduce (mdPoly v i)))
+    0
+  })
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: mdCaddqVec (-> Int Int Int))
+;@axiom:ct(*v)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`v` names `n` live writable polynomials)
+(fn (mdCaddqVec v n)
+  {
+    (for i 0 n
+      (mlDsaPolyCaddq (mdPoly v i)))
+    0
+  })
+
+; 1 when any coefficient of the `n` polynomials at `v` is at least
+; `bound` in magnitude, examining all of them.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: mdChkNormVec (-> Int Int Int Int))
+;@axiom:ct(*v)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`v` names `n` live polynomials)
+(fn (mdChkNormVec v n bound)
+  (let ((mut over 0))
+    {
+      (for i 0 n
+        (set over (| over (mlDsaPolyChkNorm (mdPoly v i) bound))))
+      over
+    }))
+
+; t = A v for the k x l matrix `a` and the l polynomials `v`, all in
+; the NTT domain: t_i = sum over j of a_ij v_j (Montgomery products).
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: mdMatVec (-> Int Int Int Int Int Int))
+;@axiom:ct(*t, *v)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`t` names `k` live writable polynomials, `a` k l and `v` l live polynomials)
+(fn (mdMatVec t a v k l)
+  {
+    (for i 0 k
+      (let ((ti (mdPoly t i)))
+        {
+          (for c 0 256
+            (__store64 ti c 0))
+          (for j 0 l
+            (mlDsaPolyPointwiseAcc ti (mdPoly a (+ (* i l) j)) (mdPoly v j)))
+        }))
+    0
+  })
+
+; ExpandA (Algorithm 32): the k x l matrix from rho, row-major at `a`.
+(:: mdExpandA (-> Int Int Int Int Shake128 Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`a` names k l live writable polynomials, `rho` 32 live bytes and `buf` 840 live writable bytes)
+(fn (mdExpandA a rho k l x buf)
+  {
+    (for i 0 k
+      (for j 0 l
+        (mlDsaPolyUniform (mdPoly a (+ (* i l) j)) rho i j x buf)))
+    0
+  })
+
+; t = NTT^-1(A NTT(s1)) + s2, then caddq: KeyGen's t, whose Power2Round
+; is (t1, t0). `s1h` receives NTT(s1).
+(:: mdComputeT (-> Int Int Int Int Int Int Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(each address names live memory of the size its role needs)
+(fn (mdComputeT t a s1 s2 s1h k l z)
+  {
+    (ctCopy s1h s1 (* l 2048))
+    (mdNttVec s1h l z)
+    (mdMatVec t a s1h k l)
+    (mdReduceVec t k)
+    (mdInvNttVec t k z)
+    (for i 0 k
+      (mlDsaPolyAdd (mdPoly t i) (mdPoly t i) (mdPoly s2 i)))
+    (mdCaddqVec t k)
+  })
+
+; pkEncode (Algorithm 22): rho || SimpleBitPack(t1_i, 10) at `pk`.
+(:: mdPackPk (-> Int Int Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`pk` names the public key's length of live writable bytes)
+(fn (mdPackPk pk rho t1 k)
+  {
+    (ctCopy pk rho 32)
+    (for i 0 k
+      (mlDsaPolySimplePack (+ pk (+ 32 (* i 320))) (mdPoly t1 i) 10))
+    0
+  })
+
+; ------------------------------------------------------------------
+; ML-DSA.KeyGen_internal (Algorithm 6).
+; ------------------------------------------------------------------
+; Write the public key and the private key that the 32-byte seed at
+; `xi` determines at `pk` and `sk`. Every intermediate is wiped.
+(:: mdKeyGenCore (-> Int Int Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`xi` names 32 live bytes; `pk` and `sk` name the encodings' lengths of live writable bytes)
+(fn (mdKeyGenCore p xi pk sk)
+  (let ((k (mdK p)) (l (mdL p)) (eta (mdEta p)) (ebits (mdEtaBits p)))
+    (let ((size (+ 3072 (* 2048 (+ (* k l) (+ (* 2 l) (* 4 k)))))))
+      (region scratch
+        (let ((w (memAlloc size)) (x128 shake128New) (x256 shake256New))
+          (let (
+            (z w)
+            (seed (+ w 2048))
+            (buf (+ w 2176))
+            (a (+ w 3072))
+          )
+            (let (
+              (s1 (+ a (* 2048 (* k l))))
+            )
+              (let ((s2 (mdPoly s1 l)))
+                (let ((s1h (mdPoly s2 k)))
+                  (let ((t (mdPoly s1h l)))
+                    (let ((t1 (mdPoly t k)))
+                      (let ((t0 (mdPoly t1 k)))
+                        {
+                          (mlDsaZetaTable z)
+                          ; (rho, rho', K) = H(xi || k || l, 128)
+                          (ctCopy buf xi 32)
+                          (__store8 buf 32 k)
+                          (__store8 buf 33 l)
+                          (shake256Addr buf 34 seed 128)
+                          (mdExpandA a seed k l x128 buf)
+                          (for i 0 l
+                            (mlDsaPolyUniformEta (mdPoly s1 i) (+ seed 32) i eta x256 buf))
+                          (for i 0 k
+                            (mlDsaPolyUniformEta (mdPoly s2 i) (+ seed 32) (+ l i) eta x256 buf))
+                          (mdComputeT t a s1 s2 s1h k l z)
+                          (for i 0 k
+                            (mlDsaPolyPower2Round (mdPoly t1 i) (mdPoly t0 i) (mdPoly t i)))
+                          (mdPackPk pk seed t1 k)
+                          ; skEncode (Algorithm 24): rho || K || tr || s1 || s2 || t0
+                          (ctCopy sk seed 32)
+                          (ctCopy (+ sk 32) (+ seed 96) 32)
+                          (shake256Addr pk (mdPkBytes p) (+ sk 64) 64)
+                          (mdPackSecrets (+ sk 128) s1 s2 t0 k l eta ebits)
+                          (ctWipe w size)
+                          (shake256Wipe x256)
+                        }))))))))))))
+
+; s1, s2 and t0 as skEncode lays them out, from `out` on.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: mdPackSecrets (-> Int Int Int Int Int Int Int Int Int))
+;@axiom:ct(*out, *s1, *s2, *t0)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`out` names the secret part of a private key encoding, writable, and `s1`, `s2`, `t0` l, k and k live polynomials)
+(fn (mdPackSecrets out s1 s2 t0 k l eta ebits)
+  (let ((eb (* 32 ebits)))
+    {
+      (for i 0 l
+        (mlDsaPolyPack (+ out (* i eb)) (mdPoly s1 i) ebits eta))
+      (for i 0 k
+        (mlDsaPolyPack (+ out (* (+ l i) eb)) (mdPoly s2 i) ebits eta))
+      (for i 0 k
+        (mlDsaPolyPack (+ out (+ (* (+ k l) eb) (* i 416))) (mdPoly t0 i) 13 4096))
+      0
+    }))
+
+; Unpack s1, s2 and t0 from the secret part of a private key encoding
+; at `in`. Answers -1 when some coefficient of s1 or s2 lies outside
+; [-eta, eta], 0 otherwise, examining every coefficient either way.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: mdUnpackSecrets (-> Int Int Int Int Int Int Int Int Int))
+;@axiom:ct(*in, *s1, *s2, *t0)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`in` names the secret part of a private key encoding, and `s1`, `s2`, `t0` l, k and k live writable polynomials)
+(fn (mdUnpackSecrets in s1 s2 t0 k l eta ebits)
+  (let ((eb (* 32 ebits)) (mut bad 0))
+    {
+      (for i 0 l
+        (mlDsaPolyUnpack (mdPoly s1 i) (+ in (* i eb)) ebits eta))
+      (for i 0 k
+        (mlDsaPolyUnpack (mdPoly s2 i) (+ in (* (+ l i) eb)) ebits eta))
+      (for i 0 k
+        (mlDsaPolyUnpack (mdPoly t0 i) (+ in (+ (* (+ k l) eb) (* i 416))) 13 4096))
+      ; s = eta - v is below -eta exactly when v > 2 eta
+      (for i 0 (* 256 (+ k l))
+        (set bad (| bad (>> (+ (__load64 s1 i) eta) 63))))
+      (if (== (& (ctBarrier bad) 1) 0) 0 -1)
+    }))
+
+; Check a private key encoding at `sk` the way KeyGen would have made
+; it: s1 and s2 in range, and t0 and tr equal to what rho, s1 and s2
+; give. Writes the public key at `pk` and answers 0, or -1 when any
+; check fails. Every intermediate is wiped.
+(:: mdKeyCheck (-> Int Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`sk` names a private key encoding and `pk` the public key's length of live writable bytes)
+(fn (mdKeyCheck p sk pk)
+  (let ((k (mdK p)) (l (mdL p)) (eta (mdEta p)) (ebits (mdEtaBits p)))
+    (let ((size (+ 3072 (* 2048 (+ (* k l) (+ (* 2 l) (* 5 k)))))))
+      (region scratch
+        (let ((w (memAlloc size)) (x128 shake128New))
+          (let ((z w) (tr (+ w 2048)) (buf (+ w 2176)) (a (+ w 3072)))
+            (let ((s1 (+ a (* 2048 (* k l)))))
+              (let ((s2 (mdPoly s1 l)))
+                (let ((s1h (mdPoly s2 k)))
+                  (let ((t (mdPoly s1h l)))
+                    (let ((t1 (mdPoly t k)))
+                      (let ((t0 (mdPoly t1 k)))
+                        (let ((t0k (mdPoly t0 k)))
+                          (let ((ranges (mdUnpackSecrets (+ sk 128) s1 s2 t0k k l eta ebits)))
+                            {
+                              (mlDsaZetaTable z)
+                              (mdExpandA a sk k l x128 buf)
+                              (mdComputeT t a s1 s2 s1h k l z)
+                              (for i 0 k
+                                (mlDsaPolyPower2Round (mdPoly t1 i) (mdPoly t0 i) (mdPoly t i)))
+                              (mdPackPk pk sk t1 k)
+                              (shake256Addr pk (mdPkBytes p) tr 64)
+                              (let ((mut diff 0))
+                                {
+                                  (for i 0 (* 256 k)
+                                    (set diff (| diff (^ (__load64 t0 i) (__load64 t0k i)))))
+                                  (let (
+                                    (t0ok (== (ctBarrier diff) 0))
+                                    (trok (ctEqAddr tr (+ sk 64) 64))
+                                  )
+                                    {
+                                      (ctWipe w size)
+                                      (if (&& (== ranges 0) (&& t0ok trok)) 0 -1)
+                                    })
+                                })
+                            }))))))))))))))
+
+; ------------------------------------------------------------------
+; ML-DSA.Sign_internal (Algorithm 7), from mu.
+; ------------------------------------------------------------------
+; mu = H(tr || pre || msg, 64) at `out`: the message representative
+; (Algorithm 7 step 6, with M' = pre || msg).
+(:: mdMu (-> Int Int String String Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`out` names 64 live writable bytes and `tr` 64 live bytes)
+(fn (mdMu out tr pre msg)
+  (region scratch
+    (let ((x shake256New))
+      {
+        (shake256AbsorbAddr x tr 64)
+        (shake256Absorb x pre)
+        (shake256Absorb x msg)
+        (shake256SqueezeAddr x out 64)
+        (shake256Wipe x)
+      })))
+
+; Write the signature of message representative `mu` under the private
+; key encoding at `sk` with 32 bytes of randomness `rnd` (all zero for
+; deterministic signing) at `sig`. Answers 0, or -1 when the rejection
+; loop reached `mdSignLimit`.
+;
+; Everything derived from the key or the mask - s1, s2, t0, y, z, w,
+; the hints, rho'' - is in arena scratch that is wiped when the call
+; ends, and a rejected iteration's values are wiped before the next
+; begins. Whether an iteration is rejected is a branch: it depends
+; only on the discarded candidate, which is independent of the key
+; (the Dilithium specification's analysis), and FIPS 204 lets it be
+; observed.
+(:: mdSignCore (-> Int Int Int Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`sk` names a private key encoding, `mu` 64 live bytes, `rnd` 32 live bytes and `sig` the signature's length of live writable bytes)
+(fn (mdSignCore p sk mu rnd sig)
+  (let (
+    (k (mdK p)) (l (mdL p)) (eta (mdEta p)) (ebits (mdEtaBits p))
+    (gamma1 (mdGamma1 p)) (gamma2 (mdGamma2 p)) (beta (mdBeta p))
+    (omega (mdOmega p)) (tau (mdTau p)) (ctb (mdCtildeBytes p))
+    (zbits (mdZBits p)) (wbits (mdW1Bits p))
+  )
+    (let (
+      (fixed (+ 3072 (* 2048 (+ (* k l) (+ l (* 2 k))))))
+      (iterSize (+ (* 2048 (+ (* 2 l) (+ (* 3 k) 1))) (+ (* k 192) 64)))
+    )
+      (region scratch
+        (let ((w (memAlloc (+ fixed iterSize))) (x128 shake128New) (x256 shake256New))
+          (let (
+            (z w)
+            (rhopp (+ w 2048))
+            (buf (+ w 2176))
+            (a (+ w 3072))
+          )
+            (let ((s1 (+ a (* 2048 (* k l)))))
+              (let ((s2 (mdPoly s1 l)))
+                (let ((t0 (mdPoly s2 k)))
+                  (let ((iter (+ w fixed)))
+                    (let ((y iter))
+                      (let ((zv (mdPoly y l)))
+                        (let ((w1 (mdPoly zv l)))
+                          (let ((w0 (mdPoly w1 k)))
+                            (let ((h (mdPoly w0 k)))
+                              (let ((cp (mdPoly h k)))
+                                (let ((w1pack (mdPoly cp 1)))
+                                  (let ((ctilde (+ w1pack (* k 192))) (mut n 0) (mut done 0))
+                                    {
+                                      (mlDsaZetaTable z)
+                                      (mdUnpackSecrets (+ sk 128) s1 s2 t0 k l eta ebits)
+                                      (mdNttVec s1 l z)
+                                      (mdNttVec s2 k z)
+                                      (mdNttVec t0 k z)
+                                      ; rho'' = H(K || rnd || mu, 64)
+                                      (shake256Wipe x256)
+                                      (shake256AbsorbAddr x256 (+ sk 32) 32)
+                                      (shake256AbsorbAddr x256 rnd 32)
+                                      (shake256AbsorbAddr x256 mu 64)
+                                      (shake256SqueezeAddr x256 rhopp 64)
+                                      (shake256Wipe x256)
+                                      (mdExpandA a sk k l x128 buf)
+                                      (while (&& (== done 0) (< n mdSignLimit))
+                                        {
+                                          (for i 0 l
+                                            (mlDsaPolyUniformGamma1 (mdPoly y i) rhopp (+ (* n l) i) gamma1 x256 buf))
+                                          (ctCopy zv y (* l 2048))
+                                          (mdNttVec zv l z)
+                                          (mdMatVec w1 a zv k l)
+                                          (mdReduceVec w1 k)
+                                          (mdInvNttVec w1 k z)
+                                          (mdCaddqVec w1 k)
+                                          (for i 0 k
+                                            (mlDsaPolyDecompose (mdPoly w1 i) (mdPoly w0 i) (mdPoly w1 i) gamma2))
+                                          (for i 0 k
+                                            (mlDsaPolySimplePack (+ w1pack (* i (* 32 wbits))) (mdPoly w1 i) wbits))
+                                          ; c~ = H(mu || w1Encode(w1), lambda / 4)
+                                          (shake256Wipe x256)
+                                          (shake256AbsorbAddr x256 mu 64)
+                                          (shake256AbsorbAddr x256 w1pack (* k (* 32 wbits)))
+                                          (shake256SqueezeAddr x256 ctilde ctb)
+                                          (mlDsaPolyChallenge cp ctilde ctb tau x256 buf)
+                                          (mlDsaNtt cp z)
+                                          ; z = y + NTT^-1(c s1)
+                                          (for i 0 l
+                                            (mlDsaPolyPointwise (mdPoly zv i) cp (mdPoly s1 i)))
+                                          (mdInvNttVec zv l z)
+                                          (for i 0 l
+                                            (mlDsaPolyAdd (mdPoly zv i) (mdPoly zv i) (mdPoly y i)))
+                                          (mdReduceVec zv l)
+                                          (let ((accepted
+                                            (if (!= (mdChkNormVec zv l (- gamma1 beta)) 0)
+                                              0
+                                              {
+                                                ; r0 = LowBits(w - c s2)
+                                                (for i 0 k
+                                                  (mlDsaPolyPointwise (mdPoly h i) cp (mdPoly s2 i)))
+                                                (mdInvNttVec h k z)
+                                                (for i 0 k
+                                                  (mlDsaPolySub (mdPoly w0 i) (mdPoly w0 i) (mdPoly h i)))
+                                                (mdReduceVec w0 k)
+                                                (if (!= (mdChkNormVec w0 k (- gamma2 beta)) 0)
+                                                  0
+                                                  {
+                                                    ; c t0, and the hints
+                                                    (for i 0 k
+                                                      (mlDsaPolyPointwise (mdPoly h i) cp (mdPoly t0 i)))
+                                                    (mdInvNttVec h k z)
+                                                    (mdReduceVec h k)
+                                                    (if (!= (mdChkNormVec h k gamma2) 0)
+                                                      0
+                                                      (let ((mut ones 0))
+                                                        {
+                                                          (for i 0 k
+                                                            (mlDsaPolyAdd (mdPoly w0 i) (mdPoly w0 i) (mdPoly h i)))
+                                                          (for i 0 k
+                                                            (set ones (+ ones (mlDsaPolyMakeHint (mdPoly h i) (mdPoly w0 i) (mdPoly w1 i) gamma2))))
+                                                          (if (> ones omega)
+                                                            0
+                                                            {
+                                                              ; sigEncode (Algorithm 26)
+                                                              (ctCopy sig ctilde ctb)
+                                                              (for i 0 l
+                                                                (mlDsaPolyPack (+ sig (+ ctb (* i (* 32 zbits)))) (mdPoly zv i) zbits gamma1))
+                                                              (mlDsaHintPack (+ sig (+ ctb (* l (* 32 zbits)))) h k omega)
+                                                              1
+                                                            })
+                                                        }))
+                                                  })
+                                              })))
+                                            {
+                                              (ctWipe iter iterSize)
+                                              (set done accepted)
+                                              (set n (+ n 1))
+                                            })
+                                        })
+                                      (ctWipe w (+ fixed iterSize))
+                                      (shake256Wipe x256)
+                                      (if (== done 1) 0 -1)
+                                    }))))))))))))))))))
+
+; ------------------------------------------------------------------
+; ML-DSA.Verify_internal (Algorithm 8), from mu.
+; ------------------------------------------------------------------
+; Whether the signature encoding at `sig` is valid for message
+; representative `mu` under the public key encoding at `pk`. Variable
+; time: every input is public.
+(:: mdVerifyCore (-> Int Int Int Int Bool))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`pk`, `mu` and `sig` name a public key encoding, 64 bytes and a signature encoding, all live)
+(fn (mdVerifyCore p pk mu sig)
+  (let (
+    (k (mdK p)) (l (mdL p)) (gamma1 (mdGamma1 p)) (gamma2 (mdGamma2 p))
+    (beta (mdBeta p)) (omega (mdOmega p)) (tau (mdTau p)) (ctb (mdCtildeBytes p))
+    (zbits (mdZBits p)) (wbits (mdW1Bits p))
+  )
+    (let ((size (+ 3072 (+ (* 2048 (+ (* k l) (+ l (+ (* 3 k) 1)))) (+ (* k 192) 64)))))
+      (region scratch
+        (let ((w (memAlloc size)) (x128 shake128New) (x256 shake256New))
+          (let ((z w) (buf (+ w 2176)) (a (+ w 3072)))
+            (let ((zv (+ a (* 2048 (* k l)))))
+              (let ((t1 (mdPoly zv l)))
+                (let ((w1 (mdPoly t1 k)))
+                  (let ((h (mdPoly w1 k)))
+                    (let ((cp (mdPoly h k)))
+                      (let ((w1pack (mdPoly cp 1)))
+                        (let ((c2 (+ w1pack (* k 192))))
+                          (if (!= (mlDsaHintUnpack h (+ sig (+ ctb (* l (* 32 zbits)))) k omega) 0)
+                            false
+                            {
+                              (for i 0 l
+                                (mlDsaPolyUnpack (mdPoly zv i) (+ sig (+ ctb (* i (* 32 zbits)))) zbits gamma1))
+                              (if (!= (mdChkNormVec zv l (- gamma1 beta)) 0)
+                                false
+                                {
+                                  (mlDsaZetaTable z)
+                                  (mlDsaPolyChallenge cp sig ctb tau x256 buf)
+                                  (mdExpandA a pk k l x128 buf)
+                                  (for i 0 k
+                                    (mlDsaPolySimpleUnpack (mdPoly t1 i) (+ pk (+ 32 (* i 320))) 10))
+                                  ; w'_approx = NTT^-1(A NTT(z) - NTT(c) NTT(t1 2^d))
+                                  (mdNttVec zv l z)
+                                  (mdMatVec w1 a zv k l)
+                                  (mlDsaNtt cp z)
+                                  (for i 0 k
+                                    {
+                                      (mlDsaPolyShiftL (mdPoly t1 i))
+                                      (mlDsaNtt (mdPoly t1 i) z)
+                                      (mlDsaPolyPointwise (mdPoly t1 i) cp (mdPoly t1 i))
+                                      (mlDsaPolySub (mdPoly w1 i) (mdPoly w1 i) (mdPoly t1 i))
+                                    })
+                                  (mdReduceVec w1 k)
+                                  (mdInvNttVec w1 k z)
+                                  (mdCaddqVec w1 k)
+                                  (for i 0 k
+                                    {
+                                      (mlDsaPolyUseHint (mdPoly w1 i) (mdPoly w1 i) (mdPoly h i) gamma2)
+                                      (mlDsaPolySimplePack (+ w1pack (* i (* 32 wbits))) (mdPoly w1 i) wbits)
+                                    })
+                                  (shake256AbsorbAddr x256 mu 64)
+                                  (shake256AbsorbAddr x256 w1pack (* k (* 32 wbits)))
+                                  (shake256SqueezeAddr x256 c2 ctb)
+                                  (ctEqAddr c2 sig ctb)
+                                })
+                            }))))))))))))))
+
+; ------------------------------------------------------------------
+; Keys in the secret store, for every parameter set.
+;
+; A key's block holds a flags word (1 when the key was made from a
+; seed), the 32-byte seed xi (zero when there is none), the private key
+; encoding of FIPS 204 Algorithm 24, and the public key encoding.
+; ------------------------------------------------------------------
+(:: mdBlockBytes (-> Int Int))
+(fn (mdBlockBytes p)
+  (+ 40 (+ (mdSkBytes p) (mdPkBytes p))))
+
+(:: mdSkAt (-> Int Int))
+(fn (mdSkAt b)
+  (+ b 40))
+
+(:: mdPkAt (-> Int Int Int))
+(fn (mdPkAt p b)
+  (+ b (+ 40 (mdSkBytes p))))
+
+; Fill in the flags, private key and public key of block `h`, whose
+; seed is already at offset 8 (KeyGen_internal).
+(:: mdBlockFromSeed (-> Int Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`h` is a live key block of kind `kind` for parameter set `p`, its seed set)
+(fn (mdBlockFromSeed p kind h)
+  (let ((b (secretBlockAddr kind h)))
+    {
+      (__store64 b 0 1)
+      (mdKeyGenCore p (+ b 8) (mdPkAt p b) (mdSkAt b))
+    }))
+
+; A fresh key of parameter set `p` from a random seed (ML-DSA.KeyGen,
+; Algorithm 1), as a handle of kind `kind`.
+(:: mdKeyGenerate (-> Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`kind` is the secret-store kind of parameter set `p`)
+(fn (mdKeyGenerate p kind)
+  (match (secretBlockNew kind (mdBlockBytes p))
+    ((Err e) (Err e))
+    ((Ok h)
+      (match (randomFill (+ (secretBlockAddr kind h) 8) 32)
+        ((Err e)
+          {
+            (secretBlockFree kind h)
+            (Err e)
+          })
+        ((Ok _)
+          {
+            (mdBlockFromSeed p kind h)
+            (Ok h)
+          })))))
+
+; The key the 32-byte seed `s` determines (KeyGen_internal).
+(:: mdKeyFromSeed (-> Int Int SecretBytes String (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`kind` is the secret-store kind of parameter set `p`)
+(fn (mdKeyFromSeed p kind s where)
+  (if (!= (secretLen s) 32)
+    (cryptoLengthErr "an ML-DSA seed is 32 bytes" where)
+    (match (secretBlockNew kind (mdBlockBytes p))
+      ((Err e) (Err e))
+      ((Ok h)
+        {
+          (ctCopy (+ (secretBlockAddr kind h) 8) (secretAddr s) 32)
+          (mdBlockFromSeed p kind h)
+          (Ok h)
+        }))))
+
+; The key whose private key encoding is `s`, checked by `mdKeyCheck`.
+(:: mdKeyFromSecret (-> Int Int SecretBytes String (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`kind` is the secret-store kind of parameter set `p`)
+(fn (mdKeyFromSecret p kind s where)
+  (if (!= (secretLen s) (mdSkBytes p))
+    (cryptoLengthErr "not the length of this parameter set's private key encoding" where)
+    (match (secretBlockNew kind (mdBlockBytes p))
+      ((Err e) (Err e))
+      ((Ok h)
+        (let ((b (secretBlockAddr kind h)))
+          {
+            (ctCopy (mdSkAt b) (secretAddr s) (mdSkBytes p))
+            (if (== (mdKeyCheck p (mdSkAt b) (mdPkAt p b)) 0)
+              (Ok h)
+              {
+                (secretBlockFree kind h)
+                (cryptoErr cryptoInvalidKey "not a private key KeyGen could have made: a coefficient is out of range, or t0 or tr does not match" where)
+              })
+          })))))
+
+; The seed of key `h`, or `cryptoUnsupported` for a key imported from
+; its expanded encoding.
+(:: mdKeyExportSeed (-> Int Int Int String (Result SecretBytes Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`h` is a live key of kind `kind`)
+(fn (mdKeyExportSeed p kind h where)
+  (let ((b (secretBlockAddr kind h)))
+    (if (== (__load64 b 0) 0)
+      (cryptoErr cryptoUnsupported "this key was imported from its expanded encoding and has no seed" where)
+      (secretFromAddr (+ b 8) 32))))
+
+; The private key encoding of key `h`.
+(:: mdKeyExport (-> Int Int Int (Result SecretBytes Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`h` is a live key of kind `kind`)
+(fn (mdKeyExport p kind h)
+  (secretFromAddr (mdSkAt (secretBlockAddr kind h)) (mdSkBytes p)))
+
+; The public key encoding of key `h`.
+(:: mdPublicKey (-> Int Int Int String))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`h` is a live key of kind `kind`)
+(fn (mdPublicKey p kind h)
+  (bytesFromAddr (mdPkAt p (secretBlockAddr kind h)) (mdPkBytes p)))
+
+; `s` when it is a public key encoding's length.
+(:: mdPublicKeyCheck (-> Int String String (Result String Error)))
+(fn (mdPublicKeyCheck p s where)
+  (if (!= (strLen s) (mdPkBytes p))
+    (cryptoLengthErr "not the length of this parameter set's public key" where)
+    (Ok s)))
+
+; `s` when it is a signature encoding's length and its hints decode
+; (HintBitUnpack, Algorithm 21).
+(:: mdSignatureCheck (-> Int String String (Result String Error)))
+;@axiom:effect(unsafe)
+(fn (mdSignatureCheck p s where)
+  (if (!= (strLen s) (mdSigBytes p))
+    (cryptoLengthErr "not the length of this parameter set's signature" where)
+    (let ((rc
+      (region scratch
+        (let ((h (memAlloc (* 2048 (mdK p)))))
+          (mlDsaHintUnpack h (+ (strData s) (+ (mdCtildeBytes p) (* (mdL p) (* 32 (mdZBits p))))) (mdK p) (mdOmega p))))))
+      (if (!= rc 0)
+        (cryptoErr cryptoInvalidEncoding "the signature's hint encoding is malformed" where)
+        (Ok s)))))
+
+; M''s prefix for pure ML-DSA (Algorithm 2 step 10): 0, the context's
+; length, the context.
+(:: mdPrefix (-> String String))
+;@axiom:effect(unsafe)
+(fn (mdPrefix ctx)
+  (let ((n (strLen ctx)))
+    (let ((pre (bytesNew (+ n 2))))
+      {
+        (__store8 (strData pre) 1 n)
+        (ctCopy (+ (strData pre) 2) (strData ctx) n)
+        pre
+      })))
+
+; Sign mu with key `h` and the 32 bytes of randomness at `rnd`.
+(:: mdSignMu (-> Int Int Int Int Int String (Result String Error)))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`h` is a live key of kind `kind`, `mu` names 64 live bytes and `rnd` 32)
+(fn (mdSignMu p kind h mu rnd where)
+  (let ((sig (bytesNew (mdSigBytes p))))
+    (if (== (mdSignCore p (mdSkAt (secretBlockAddr kind h)) mu rnd (strData sig)) 0)
+      (Ok sig)
+      (cryptoErr cryptoLimitExceeded "the signing loop reached its limit of 821 iterations" where))))
+
+; Sign M' = pre || msg with key `h` and the 32 bytes at `rnd`.
+(:: mdSignWith (-> Int Int Int String String Int String (Result String Error)))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`h` is a live key of kind `kind` and `rnd` names 32 live bytes)
+(fn (mdSignWith p kind h pre msg rnd where)
+  (let ((mu (memAlloc 64)))
+    {
+      (mdMu mu (+ (mdSkAt (secretBlockAddr kind h)) 64) pre msg)
+      (let ((r (mdSignMu p kind h mu rnd where)))
+        {
+          (ctWipe mu 64)
+          r
+        })
+    }))
+
+; ML-DSA.Sign (Algorithm 2): hedged, with 32 fresh random bytes.
+(:: mdSign (-> Int Int Int String String String (Result String Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`h` is a live key of kind `kind`)
+(fn (mdSign p kind h msg ctx where)
+  (if (> (strLen ctx) 255)
+    (cryptoLengthErr "a context string is at most 255 bytes" where)
+    (let ((rnd (memAlloc 32)))
+      (match (randomFill rnd 32)
+        ((Err e) (Err e))
+        ((Ok _)
+          (let ((r (mdSignWith p kind h (mdPrefix ctx) msg rnd where)))
+            {
+              (ctWipe rnd 32)
+              r
+            }))))))
+
+; ML-DSA.Sign with rnd = 0^32, the deterministic variant.
+(:: mdSignDeterministic (-> Int Int Int String String String (Result String Error)))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`h` is a live key of kind `kind`)
+(fn (mdSignDeterministic p kind h msg ctx where)
+  (if (> (strLen ctx) 255)
+    (cryptoLengthErr "a context string is at most 255 bytes" where)
+    (mdSignWith p kind h (mdPrefix ctx) msg (memAlloc 32) where)))
+
+; ML-DSA.Sign_internal (Algorithm 7) on an already formatted M' and an
+; explicit 32-byte rnd.
+(:: mdSignInternal (-> Int Int Int String String String (Result String Error)))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`h` is a live key of kind `kind`)
+(fn (mdSignInternal p kind h mprime rnd where)
+  (if (!= (strLen rnd) 32)
+    (cryptoLengthErr "rnd is 32 bytes" where)
+    (mdSignWith p kind h "" mprime (strData rnd) where)))
+
+; Sign_internal from a 64-byte mu computed by the caller.
+(:: mdSignExternalMu (-> Int Int Int String String String (Result String Error)))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`h` is a live key of kind `kind`)
+(fn (mdSignExternalMu p kind h mu rnd where)
+  (if (|| (!= (strLen mu) 64) (!= (strLen rnd) 32))
+    (cryptoLengthErr "mu is 64 bytes and rnd 32" where)
+    (mdSignMu p kind h (strData mu) (strData rnd) where)))
+
+; Verify_internal for a 64-byte mu, re-checking both lengths.
+(:: mdVerifyMu (-> Int String String String Bool))
+;@axiom:effect(unsafe)
+(fn (mdVerifyMu p pk mu sig)
+  (if (|| (!= (strLen pk) (mdPkBytes p)) (|| (!= (strLen sig) (mdSigBytes p)) (!= (strLen mu) 64)))
+    false
+    (mdVerifyCore p (strData pk) (strData mu) (strData sig))))
+
+; Verify_internal for M' = pre || msg.
+(:: mdVerifyWith (-> Int String String String String Bool))
+;@axiom:effect(unsafe)
+(fn (mdVerifyWith p pk pre msg sig)
+  (if (!= (strLen pk) (mdPkBytes p))
+    false
+    (region scratch
+      (let ((tr (memAlloc 64)) (mu (bytesNew 64)))
+        {
+          (shake256Addr (strData pk) (mdPkBytes p) tr 64)
+          (mdMu (strData mu) tr pre msg)
+          (mdVerifyMu p pk mu sig)
+        }))))
+
+; ML-DSA.Verify (Algorithm 3): false for a context over 255 bytes.
+(:: mdVerify (-> Int String String String String Bool))
+(fn (mdVerify p pk msg ctx sig)
+  (if (> (strLen ctx) 255)
+    false
+    (mdVerifyWith p pk (mdPrefix ctx) msg sig)))
+; ------------------------------------------------------------------
+; ML-DSA-44: public key 1312 bytes, private key 2560 bytes, signature
+; 2420 bytes.
+; ------------------------------------------------------------------
+; An ML-DSA-44 private key in the secret store (kind 27). Prints as
+; `<MlDsa44SecretKey>`.
+(pub struct MlDsa44SecretKey word shared
+  (slot : Int))
+
+; An ML-DSA-44 public key: its 1312-byte encoding. Build one with
+; `mlDsa44PublicKeyFromBytes`.
+(pub struct MlDsa44PublicKey
+  (bytes : String))
+
+; An ML-DSA-44 signature: its 2420-byte encoding. Build one from
+; bytes with `mlDsa44SignatureFromBytes`.
+(pub struct MlDsa44Signature
+  (bytes : String))
+
+; A fresh ML-DSA-44 key from a random 32-byte seed.
+(pub :: mlDsa44KeyGenerate (Result MlDsa44SecretKey Error))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (mlDsa44KeyGenerate)
+  (match (mdKeyGenerate 44 27)
+    ((Ok h) (Ok (MlDsa44SecretKey h)))
+    ((Err e) (Err e))))
+
+; The ML-DSA-44 key the 32-byte seed `s` determines.
+(pub :: mlDsa44KeyFromSeed (-> SecretBytes (Result MlDsa44SecretKey Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (mlDsa44KeyFromSeed s)
+  (match (mdKeyFromSeed 44 27 s "mlDsa44KeyFromSeed")
+    ((Ok h) (Ok (MlDsa44SecretKey h)))
+    ((Err e) (Err e))))
+
+; The ML-DSA-44 key whose 2560-byte private key encoding is `s`,
+; checked as `mlDsa65KeyFromSecret` checks it.
+(pub :: mlDsa44KeyFromSecret (-> SecretBytes (Result MlDsa44SecretKey Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (mlDsa44KeyFromSecret s)
+  (match (mdKeyFromSecret 44 27 s "mlDsa44KeyFromSecret")
+    ((Ok h) (Ok (MlDsa44SecretKey h)))
+    ((Err e) (Err e))))
+
+; Erase `k` and free its storage. Answers 0.
+(pub :: mlDsa44KeyWipe (-> MlDsa44SecretKey Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (mlDsa44KeyWipe k)
+  (secretBlockFree 27 k.slot))
+
+; The 32-byte seed `k` was made from, as `SecretBytes`, or
+; `cryptoUnsupported` when it has none.
+(pub :: mlDsa44KeyExportSeed (-> MlDsa44SecretKey (Result SecretBytes Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (mlDsa44KeyExportSeed k)
+  (mdKeyExportSeed 44 27 k.slot "mlDsa44KeyExportSeed"))
+
+; The 2560-byte private key encoding of `k`, as `SecretBytes`.
+(pub :: mlDsa44KeyExport (-> MlDsa44SecretKey (Result SecretBytes Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (mlDsa44KeyExport k)
+  (mdKeyExport 44 27 k.slot))
+
+; The public key of `k`.
+(pub :: mlDsa44PublicKey (-> MlDsa44SecretKey MlDsa44PublicKey))
+;@axiom:effect(unsafe)
+(pub fn (mlDsa44PublicKey k)
+  (MlDsa44PublicKey (mdPublicKey 44 27 k.slot)))
+
+; A public key from its 1312-byte encoding, or `cryptoInvalidLength`.
+(pub :: mlDsa44PublicKeyFromBytes (-> String (Result MlDsa44PublicKey Error)))
+(pub fn (mlDsa44PublicKeyFromBytes s)
+  (match (mdPublicKeyCheck 44 s "mlDsa44PublicKeyFromBytes")
+    ((Ok b) (Ok (MlDsa44PublicKey b)))
+    ((Err e) (Err e))))
+
+; The 1312 bytes of a public key.
+(pub :: mlDsa44PublicKeyBytes (-> MlDsa44PublicKey String))
+(pub fn (mlDsa44PublicKeyBytes pk)
+  pk.bytes)
+
+; A signature from its 2420-byte encoding, refusing a wrong length or
+; a malformed hint encoding as `mlDsa65SignatureFromBytes` does.
+(pub :: mlDsa44SignatureFromBytes (-> String (Result MlDsa44Signature Error)))
+(pub fn (mlDsa44SignatureFromBytes s)
+  (match (mdSignatureCheck 44 s "mlDsa44SignatureFromBytes")
+    ((Ok b) (Ok (MlDsa44Signature b)))
+    ((Err e) (Err e))))
+
+; The 2420 bytes of a signature.
+(pub :: mlDsa44SignatureBytes (-> MlDsa44Signature String))
+(pub fn (mlDsa44SignatureBytes sig)
+  sig.bytes)
+
+; The hedged signature of `msg` under `k` with context `ctx`, as
+; `mlDsa65Sign` makes it.
+(pub :: mlDsa44Sign (-> MlDsa44SecretKey String String (Result MlDsa44Signature Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (mlDsa44Sign k msg ctx)
+  (match (mdSign 44 27 k.slot msg ctx "mlDsa44Sign")
+    ((Ok s) (Ok (MlDsa44Signature s)))
+    ((Err e) (Err e))))
+
+; The deterministic (rnd = 0^32) signature of `msg` under `k` with
+; context `ctx`.
+(pub :: mlDsa44SignDeterministic (-> MlDsa44SecretKey String String (Result MlDsa44Signature Error)))
+;@axiom:effect(unsafe)
+(pub fn (mlDsa44SignDeterministic k msg ctx)
+  (match (mdSignDeterministic 44 27 k.slot msg ctx "mlDsa44SignDeterministic")
+    ((Ok s) (Ok (MlDsa44Signature s)))
+    ((Err e) (Err e))))
+
+; ML-DSA.Sign_internal on a formatted `mprime` with a 32-byte `rnd`.
+(pub :: mlDsa44SignInternal (-> MlDsa44SecretKey String String (Result MlDsa44Signature Error)))
+;@axiom:effect(unsafe)
+(pub fn (mlDsa44SignInternal k mprime rnd)
+  (match (mdSignInternal 44 27 k.slot mprime rnd "mlDsa44SignInternal")
+    ((Ok s) (Ok (MlDsa44Signature s)))
+    ((Err e) (Err e))))
+
+; Sign_internal from a 64-byte `mu` with a 32-byte `rnd`.
+(pub :: mlDsa44SignExternalMu (-> MlDsa44SecretKey String String (Result MlDsa44Signature Error)))
+;@axiom:effect(unsafe)
+(pub fn (mlDsa44SignExternalMu k mu rnd)
+  (match (mdSignExternalMu 44 27 k.slot mu rnd "mlDsa44SignExternalMu")
+    ((Ok s) (Ok (MlDsa44Signature s)))
+    ((Err e) (Err e))))
+
+; Whether `sig` is a valid signature of `msg` under `pk` with context
+; `ctx`.
+(pub :: mlDsa44Verify (-> MlDsa44PublicKey String String MlDsa44Signature Bool))
+(pub fn (mlDsa44Verify pk msg ctx sig)
+  (mdVerify 44 pk.bytes msg ctx sig.bytes))
+
+; ML-DSA.Verify_internal on a formatted `mprime`.
+(pub :: mlDsa44VerifyInternal (-> MlDsa44PublicKey String MlDsa44Signature Bool))
+(pub fn (mlDsa44VerifyInternal pk mprime sig)
+  (mdVerifyWith 44 pk.bytes "" mprime sig.bytes))
+
+; Verify_internal from a 64-byte `mu`.
+(pub :: mlDsa44VerifyExternalMu (-> MlDsa44PublicKey String MlDsa44Signature Bool))
+(pub fn (mlDsa44VerifyExternalMu pk mu sig)
+  (mdVerifyMu 44 pk.bytes mu sig.bytes))
+
+; ------------------------------------------------------------------
+; ML-DSA-65: public key 1952 bytes, private key 4032 bytes, signature
+; 3309 bytes.
+; ------------------------------------------------------------------
+; An ML-DSA-65 private key: a handle to the seed it was made from
+; (when it was), its private key encoding and its public key, in the
+; secret store (kind 28). Prints as `<MlDsa65SecretKey>`.
+(pub struct MlDsa65SecretKey word shared
+  (slot : Int))
+
+; An ML-DSA-65 public key: its 1952-byte encoding (FIPS 204
+; Algorithm 22). Build one with `mlDsa65PublicKeyFromBytes`.
+(pub struct MlDsa65PublicKey
+  (bytes : String))
+
+; An ML-DSA-65 signature: its 3309-byte encoding (Algorithm 26).
+; Build one from bytes with `mlDsa65SignatureFromBytes`.
+(pub struct MlDsa65Signature
+  (bytes : String))
+
+; A fresh ML-DSA-65 key from a random 32-byte seed (ML-DSA.KeyGen,
+; Algorithm 1). The seed is kept, so `mlDsa65KeyExportSeed` can save it.
+(pub :: mlDsa65KeyGenerate (Result MlDsa65SecretKey Error))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (mlDsa65KeyGenerate)
+  (match (mdKeyGenerate 65 28)
+    ((Ok h) (Ok (MlDsa65SecretKey h)))
+    ((Err e) (Err e))))
+
+; The key the 32-byte seed `s` determines (ML-DSA.KeyGen_internal,
+; Algorithm 6): the deterministic route, for known-answer tests and for
+; keys stored as their seed. `cryptoInvalidLength` for any other length.
+(pub :: mlDsa65KeyFromSeed (-> SecretBytes (Result MlDsa65SecretKey Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (mlDsa65KeyFromSeed s)
+  (match (mdKeyFromSeed 65 28 s "mlDsa65KeyFromSeed")
+    ((Ok h) (Ok (MlDsa65SecretKey h)))
+    ((Err e) (Err e))))
+
+; The key whose private key encoding (Algorithm 24, 4032 bytes) is
+; `s`. The encoding is checked the way KeyGen would have made it:
+; `cryptoInvalidKey` when a coefficient of s1 or s2 is outside
+; [-eta, eta], or t0 or tr is not what rho, s1 and s2 give. A key
+; imported this way has no seed to export.
+(pub :: mlDsa65KeyFromSecret (-> SecretBytes (Result MlDsa65SecretKey Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (mlDsa65KeyFromSecret s)
+  (match (mdKeyFromSecret 65 28 s "mlDsa65KeyFromSecret")
+    ((Ok h) (Ok (MlDsa65SecretKey h)))
+    ((Err e) (Err e))))
+
+; Erase `k` and free its storage. Any later use of `k` stops the
+; program with status 85. Answers 0.
+(pub :: mlDsa65KeyWipe (-> MlDsa65SecretKey Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (mlDsa65KeyWipe k)
+  (secretBlockFree 28 k.slot))
+
+; The 32-byte seed `k` was made from, as `SecretBytes`: the compact way
+; to store the key, read back by `mlDsa65KeyFromSeed`. `cryptoUnsupported`
+; for a key imported with `mlDsa65KeyFromSecret`, which has none.
+(pub :: mlDsa65KeyExportSeed (-> MlDsa65SecretKey (Result SecretBytes Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (mlDsa65KeyExportSeed k)
+  (mdKeyExportSeed 65 28 k.slot "mlDsa65KeyExportSeed"))
+
+; The private key encoding of `k` (Algorithm 24, 4032 bytes), as
+; `SecretBytes`, read back by `mlDsa65KeyFromSecret`.
+(pub :: mlDsa65KeyExport (-> MlDsa65SecretKey (Result SecretBytes Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (mlDsa65KeyExport k)
+  (mdKeyExport 65 28 k.slot))
+
+; The public key of `k`.
+(pub :: mlDsa65PublicKey (-> MlDsa65SecretKey MlDsa65PublicKey))
+;@axiom:effect(unsafe)
+(pub fn (mlDsa65PublicKey k)
+  (MlDsa65PublicKey (mdPublicKey 65 28 k.slot)))
+
+; A public key from its 1952-byte encoding. Every string of that length
+; is an encoding (pkDecode, Algorithm 23, has nothing to refuse); any
+; other length is `cryptoInvalidLength`.
+(pub :: mlDsa65PublicKeyFromBytes (-> String (Result MlDsa65PublicKey Error)))
+(pub fn (mlDsa65PublicKeyFromBytes s)
+  (match (mdPublicKeyCheck 65 s "mlDsa65PublicKeyFromBytes")
+    ((Ok b) (Ok (MlDsa65PublicKey b)))
+    ((Err e) (Err e))))
+
+; The 1952 bytes of a public key.
+(pub :: mlDsa65PublicKeyBytes (-> MlDsa65PublicKey String))
+(pub fn (mlDsa65PublicKeyBytes pk)
+  pk.bytes)
+
+; A signature from its 3309-byte encoding: `cryptoInvalidLength` for
+; any other length, `cryptoInvalidEncoding` when its hint encoding is
+; malformed (HintBitUnpack, Algorithm 21: a count that goes down or
+; passes omega, positions that do not increase, or nonzero padding).
+(pub :: mlDsa65SignatureFromBytes (-> String (Result MlDsa65Signature Error)))
+(pub fn (mlDsa65SignatureFromBytes s)
+  (match (mdSignatureCheck 65 s "mlDsa65SignatureFromBytes")
+    ((Ok b) (Ok (MlDsa65Signature b)))
+    ((Err e) (Err e))))
+
+; The 3309 bytes of a signature.
+(pub :: mlDsa65SignatureBytes (-> MlDsa65Signature String))
+(pub fn (mlDsa65SignatureBytes sig)
+  sig.bytes)
+
+; The signature of `msg` under `k` with context string `ctx` (ML-DSA.Sign,
+; Algorithm 2), hedged: 32 fresh random bytes go into the nonce, so
+; signing the same message twice gives different signatures, each
+; valid. Pass "" when the protocol names no context.
+; `cryptoInvalidLength` for a context over 255 bytes, `cryptoLimitExceeded`
+; in the negligible case that the rejection loop reaches its bound, and
+; the entropy source's error if it fails.
+(pub :: mlDsa65Sign (-> MlDsa65SecretKey String String (Result MlDsa65Signature Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (mlDsa65Sign k msg ctx)
+  (match (mdSign 65 28 k.slot msg ctx "mlDsa65Sign")
+    ((Ok s) (Ok (MlDsa65Signature s)))
+    ((Err e) (Err e))))
+
+; The deterministic signature of `msg` under `k` with context `ctx`:
+; ML-DSA.Sign with rnd = 0^32, which FIPS 204 permits. The same inputs
+; always give the same signature, and no entropy is needed; the hedged
+; `mlDsa65Sign` is the better default where fault attacks are a concern.
+(pub :: mlDsa65SignDeterministic (-> MlDsa65SecretKey String String (Result MlDsa65Signature Error)))
+;@axiom:effect(unsafe)
+(pub fn (mlDsa65SignDeterministic k msg ctx)
+  (match (mdSignDeterministic 65 28 k.slot msg ctx "mlDsa65SignDeterministic")
+    ((Ok s) (Ok (MlDsa65Signature s)))
+    ((Err e) (Err e))))
+
+; ML-DSA.Sign_internal (Algorithm 7): the signature of an already
+; formatted message `mprime` with the given 32-byte `rnd`. For
+; known-answer tests and for protocols that build M' themselves, such
+; as the pre-hash variant; application code wants `mlDsa65Sign`.
+(pub :: mlDsa65SignInternal (-> MlDsa65SecretKey String String (Result MlDsa65Signature Error)))
+;@axiom:effect(unsafe)
+(pub fn (mlDsa65SignInternal k mprime rnd)
+  (match (mdSignInternal 65 28 k.slot mprime rnd "mlDsa65SignInternal")
+    ((Ok s) (Ok (MlDsa65Signature s)))
+    ((Err e) (Err e))))
+
+; Sign_internal from the 64-byte message representative `mu` =
+; H(tr || M', 64), computed by the caller (FIPS 204 section 6.2 allows
+; this split), with a 32-byte `rnd`.
+(pub :: mlDsa65SignExternalMu (-> MlDsa65SecretKey String String (Result MlDsa65Signature Error)))
+;@axiom:effect(unsafe)
+(pub fn (mlDsa65SignExternalMu k mu rnd)
+  (match (mdSignExternalMu 65 28 k.slot mu rnd "mlDsa65SignExternalMu")
+    ((Ok s) (Ok (MlDsa65Signature s)))
+    ((Err e) (Err e))))
+
+; Whether `sig` is a valid signature of `msg` under `pk` with context
+; `ctx` (ML-DSA.Verify, Algorithm 3). False for a context over 255
+; bytes, a key or signature of the wrong length, a malformed hint
+; encoding, z out of range, and any signature that does not check.
+(pub :: mlDsa65Verify (-> MlDsa65PublicKey String String MlDsa65Signature Bool))
+(pub fn (mlDsa65Verify pk msg ctx sig)
+  (mdVerify 65 pk.bytes msg ctx sig.bytes))
+
+; ML-DSA.Verify_internal (Algorithm 8) on an already formatted M'.
+(pub :: mlDsa65VerifyInternal (-> MlDsa65PublicKey String MlDsa65Signature Bool))
+(pub fn (mlDsa65VerifyInternal pk mprime sig)
+  (mdVerifyWith 65 pk.bytes "" mprime sig.bytes))
+
+; Verify_internal from a 64-byte `mu` computed by the caller; false
+; for any other length.
+(pub :: mlDsa65VerifyExternalMu (-> MlDsa65PublicKey String MlDsa65Signature Bool))
+(pub fn (mlDsa65VerifyExternalMu pk mu sig)
+  (mdVerifyMu 65 pk.bytes mu sig.bytes))
+
+; ------------------------------------------------------------------
+; ML-DSA-87: public key 2592 bytes, private key 4896 bytes, signature
+; 4627 bytes.
+; ------------------------------------------------------------------
+; An ML-DSA-87 private key in the secret store (kind 29). Prints as
+; `<MlDsa87SecretKey>`.
+(pub struct MlDsa87SecretKey word shared
+  (slot : Int))
+
+; An ML-DSA-87 public key: its 2592-byte encoding. Build one with
+; `mlDsa87PublicKeyFromBytes`.
+(pub struct MlDsa87PublicKey
+  (bytes : String))
+
+; An ML-DSA-87 signature: its 4627-byte encoding. Build one from
+; bytes with `mlDsa87SignatureFromBytes`.
+(pub struct MlDsa87Signature
+  (bytes : String))
+
+; A fresh ML-DSA-87 key from a random 32-byte seed.
+(pub :: mlDsa87KeyGenerate (Result MlDsa87SecretKey Error))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (mlDsa87KeyGenerate)
+  (match (mdKeyGenerate 87 29)
+    ((Ok h) (Ok (MlDsa87SecretKey h)))
+    ((Err e) (Err e))))
+
+; The ML-DSA-87 key the 32-byte seed `s` determines.
+(pub :: mlDsa87KeyFromSeed (-> SecretBytes (Result MlDsa87SecretKey Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (mlDsa87KeyFromSeed s)
+  (match (mdKeyFromSeed 87 29 s "mlDsa87KeyFromSeed")
+    ((Ok h) (Ok (MlDsa87SecretKey h)))
+    ((Err e) (Err e))))
+
+; The ML-DSA-87 key whose 4896-byte private key encoding is `s`,
+; checked as `mlDsa65KeyFromSecret` checks it.
+(pub :: mlDsa87KeyFromSecret (-> SecretBytes (Result MlDsa87SecretKey Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (mlDsa87KeyFromSecret s)
+  (match (mdKeyFromSecret 87 29 s "mlDsa87KeyFromSecret")
+    ((Ok h) (Ok (MlDsa87SecretKey h)))
+    ((Err e) (Err e))))
+
+; Erase `k` and free its storage. Answers 0.
+(pub :: mlDsa87KeyWipe (-> MlDsa87SecretKey Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (mlDsa87KeyWipe k)
+  (secretBlockFree 29 k.slot))
+
+; The 32-byte seed `k` was made from, as `SecretBytes`, or
+; `cryptoUnsupported` when it has none.
+(pub :: mlDsa87KeyExportSeed (-> MlDsa87SecretKey (Result SecretBytes Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (mlDsa87KeyExportSeed k)
+  (mdKeyExportSeed 87 29 k.slot "mlDsa87KeyExportSeed"))
+
+; The 4896-byte private key encoding of `k`, as `SecretBytes`.
+(pub :: mlDsa87KeyExport (-> MlDsa87SecretKey (Result SecretBytes Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (mlDsa87KeyExport k)
+  (mdKeyExport 87 29 k.slot))
+
+; The public key of `k`.
+(pub :: mlDsa87PublicKey (-> MlDsa87SecretKey MlDsa87PublicKey))
+;@axiom:effect(unsafe)
+(pub fn (mlDsa87PublicKey k)
+  (MlDsa87PublicKey (mdPublicKey 87 29 k.slot)))
+
+; A public key from its 2592-byte encoding, or `cryptoInvalidLength`.
+(pub :: mlDsa87PublicKeyFromBytes (-> String (Result MlDsa87PublicKey Error)))
+(pub fn (mlDsa87PublicKeyFromBytes s)
+  (match (mdPublicKeyCheck 87 s "mlDsa87PublicKeyFromBytes")
+    ((Ok b) (Ok (MlDsa87PublicKey b)))
+    ((Err e) (Err e))))
+
+; The 2592 bytes of a public key.
+(pub :: mlDsa87PublicKeyBytes (-> MlDsa87PublicKey String))
+(pub fn (mlDsa87PublicKeyBytes pk)
+  pk.bytes)
+
+; A signature from its 4627-byte encoding, refusing a wrong length or
+; a malformed hint encoding as `mlDsa65SignatureFromBytes` does.
+(pub :: mlDsa87SignatureFromBytes (-> String (Result MlDsa87Signature Error)))
+(pub fn (mlDsa87SignatureFromBytes s)
+  (match (mdSignatureCheck 87 s "mlDsa87SignatureFromBytes")
+    ((Ok b) (Ok (MlDsa87Signature b)))
+    ((Err e) (Err e))))
+
+; The 4627 bytes of a signature.
+(pub :: mlDsa87SignatureBytes (-> MlDsa87Signature String))
+(pub fn (mlDsa87SignatureBytes sig)
+  sig.bytes)
+
+; The hedged signature of `msg` under `k` with context `ctx`, as
+; `mlDsa65Sign` makes it.
+(pub :: mlDsa87Sign (-> MlDsa87SecretKey String String (Result MlDsa87Signature Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (mlDsa87Sign k msg ctx)
+  (match (mdSign 87 29 k.slot msg ctx "mlDsa87Sign")
+    ((Ok s) (Ok (MlDsa87Signature s)))
+    ((Err e) (Err e))))
+
+; The deterministic (rnd = 0^32) signature of `msg` under `k` with
+; context `ctx`.
+(pub :: mlDsa87SignDeterministic (-> MlDsa87SecretKey String String (Result MlDsa87Signature Error)))
+;@axiom:effect(unsafe)
+(pub fn (mlDsa87SignDeterministic k msg ctx)
+  (match (mdSignDeterministic 87 29 k.slot msg ctx "mlDsa87SignDeterministic")
+    ((Ok s) (Ok (MlDsa87Signature s)))
+    ((Err e) (Err e))))
+
+; ML-DSA.Sign_internal on a formatted `mprime` with a 32-byte `rnd`.
+(pub :: mlDsa87SignInternal (-> MlDsa87SecretKey String String (Result MlDsa87Signature Error)))
+;@axiom:effect(unsafe)
+(pub fn (mlDsa87SignInternal k mprime rnd)
+  (match (mdSignInternal 87 29 k.slot mprime rnd "mlDsa87SignInternal")
+    ((Ok s) (Ok (MlDsa87Signature s)))
+    ((Err e) (Err e))))
+
+; Sign_internal from a 64-byte `mu` with a 32-byte `rnd`.
+(pub :: mlDsa87SignExternalMu (-> MlDsa87SecretKey String String (Result MlDsa87Signature Error)))
+;@axiom:effect(unsafe)
+(pub fn (mlDsa87SignExternalMu k mu rnd)
+  (match (mdSignExternalMu 87 29 k.slot mu rnd "mlDsa87SignExternalMu")
+    ((Ok s) (Ok (MlDsa87Signature s)))
+    ((Err e) (Err e))))
+
+; Whether `sig` is a valid signature of `msg` under `pk` with context
+; `ctx`.
+(pub :: mlDsa87Verify (-> MlDsa87PublicKey String String MlDsa87Signature Bool))
+(pub fn (mlDsa87Verify pk msg ctx sig)
+  (mdVerify 87 pk.bytes msg ctx sig.bytes))
+
+; ML-DSA.Verify_internal on a formatted `mprime`.
+(pub :: mlDsa87VerifyInternal (-> MlDsa87PublicKey String MlDsa87Signature Bool))
+(pub fn (mlDsa87VerifyInternal pk mprime sig)
+  (mdVerifyWith 87 pk.bytes "" mprime sig.bytes))
+
+; Verify_internal from a 64-byte `mu`.
+(pub :: mlDsa87VerifyExternalMu (-> MlDsa87PublicKey String MlDsa87Signature Bool))
+(pub fn (mlDsa87VerifyExternalMu pk mu sig)
+  (mdVerifyMu 87 pk.bytes mu sig.bytes))
+

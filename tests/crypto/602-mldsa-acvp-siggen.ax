@@ -1,0 +1,186 @@
+; ML-DSA signing against NIST's ACVP vectors (ML-DSA-sigGen-FIPS204):
+; deterministic and hedged signing through ML-DSA.Sign with contexts,
+; Sign_internal on a formatted M' (HashML-DSA's among them), and
+; Sign_internal from an external mu, for all three parameter sets. Each
+; private key is imported from its encoding (so the import's checks
+; run on NIST's keys), each signature must match NIST's (as a SHA-256
+; digest), and each must verify through the matching interface.
+(import IO)
+(import Str)
+(import Vec)
+(import Err)
+(import Fmt)
+(import Crypto.Errors)
+(import Crypto.Bytes)
+(import Crypto.Secret)
+(import Crypto.Sha2)
+(import Crypto.MlDsa)
+(import Kat)
+
+(:: orDie (-> (Result a Error) String a))
+;@axiom:effect(io)
+(fn (orDie r what)
+  (match r
+    ((Ok v) v)
+    ((Err e) (cast a (die (strConcat "TEST: " (strConcat what (strConcat ": " (errorText e)))) 3)))))
+
+(:: shaHex (-> String String))
+(fn (shaHex s)
+  (hexEncode (sha256 s)))
+
+; M' for pure ML-DSA: 0, the context's length, the context, the message.
+(:: pureMPrime (-> String String String))
+;@axiom:effect(unsafe)
+(fn (pureMPrime ctx msg)
+  (let ((pre (bytesNew 2)))
+    {
+      (__store8 (strData pre) 1 (strLen ctx))
+      (strConcat pre (strConcat ctx msg))
+    }))
+
+; The code of an Err, or 0 for Ok.
+(:: codeOf (-> (Result a Error) Int))
+(fn (codeOf r)
+  (match r
+    ((Ok _) 0)
+    ((Err e) (errCode e))))
+
+(:: signCase44 (-> String String String String String String))
+;@axiom:effect(io)
+(fn (signCase44 skb iface rnd ctx msg)
+  (let ((s (orDie (secretFromString skb) "secretFromString")))
+    (match (mlDsa44KeyFromSecret s)
+      ((Err e)
+        {
+          (secretWipe s)
+          (strConcat "key refused: " (errorText e))
+        })
+      ((Ok k)
+        (let ((pk (mlDsa44PublicKey k)) (r0 (if (== (strLen rnd) 0) (bytesNew 32) rnd)))
+          (let ((r
+            (if (strEq iface "pure")
+              (if (== (strLen rnd) 0)
+                (mlDsa44SignDeterministic k msg ctx)
+                (mlDsa44SignInternal k (pureMPrime ctx msg) rnd))
+              (strEq iface "internal")
+              (mlDsa44SignInternal k msg r0)
+              (mlDsa44SignExternalMu k msg r0))))
+            (let ((answer
+              (match r
+                ((Err e) (strConcat "sign refused: " (errorText e)))
+                ((Ok sig)
+                  (let ((ok
+                    (if (strEq iface "pure")
+                      (mlDsa44Verify pk msg ctx sig)
+                      (strEq iface "internal")
+                      (mlDsa44VerifyInternal pk msg sig)
+                      (mlDsa44VerifyExternalMu pk msg sig))))
+                    (if ok
+                      (shaHex (mlDsa44SignatureBytes sig))
+                      (strConcat (shaHex (mlDsa44SignatureBytes sig)) " (does not verify)")))))))
+              {
+                (mlDsa44KeyWipe k)
+                (secretWipe s)
+                answer
+              })))))))
+
+(:: signCase65 (-> String String String String String String))
+;@axiom:effect(io)
+(fn (signCase65 skb iface rnd ctx msg)
+  (let ((s (orDie (secretFromString skb) "secretFromString")))
+    (match (mlDsa65KeyFromSecret s)
+      ((Err e)
+        {
+          (secretWipe s)
+          (strConcat "key refused: " (errorText e))
+        })
+      ((Ok k)
+        (let ((pk (mlDsa65PublicKey k)) (r0 (if (== (strLen rnd) 0) (bytesNew 32) rnd)))
+          (let ((r
+            (if (strEq iface "pure")
+              (if (== (strLen rnd) 0)
+                (mlDsa65SignDeterministic k msg ctx)
+                (mlDsa65SignInternal k (pureMPrime ctx msg) rnd))
+              (strEq iface "internal")
+              (mlDsa65SignInternal k msg r0)
+              (mlDsa65SignExternalMu k msg r0))))
+            (let ((answer
+              (match r
+                ((Err e) (strConcat "sign refused: " (errorText e)))
+                ((Ok sig)
+                  (let ((ok
+                    (if (strEq iface "pure")
+                      (mlDsa65Verify pk msg ctx sig)
+                      (strEq iface "internal")
+                      (mlDsa65VerifyInternal pk msg sig)
+                      (mlDsa65VerifyExternalMu pk msg sig))))
+                    (if ok
+                      (shaHex (mlDsa65SignatureBytes sig))
+                      (strConcat (shaHex (mlDsa65SignatureBytes sig)) " (does not verify)")))))))
+              {
+                (mlDsa65KeyWipe k)
+                (secretWipe s)
+                answer
+              })))))))
+
+(:: signCase87 (-> String String String String String String))
+;@axiom:effect(io)
+(fn (signCase87 skb iface rnd ctx msg)
+  (let ((s (orDie (secretFromString skb) "secretFromString")))
+    (match (mlDsa87KeyFromSecret s)
+      ((Err e)
+        {
+          (secretWipe s)
+          (strConcat "key refused: " (errorText e))
+        })
+      ((Ok k)
+        (let ((pk (mlDsa87PublicKey k)) (r0 (if (== (strLen rnd) 0) (bytesNew 32) rnd)))
+          (let ((r
+            (if (strEq iface "pure")
+              (if (== (strLen rnd) 0)
+                (mlDsa87SignDeterministic k msg ctx)
+                (mlDsa87SignInternal k (pureMPrime ctx msg) rnd))
+              (strEq iface "internal")
+              (mlDsa87SignInternal k msg r0)
+              (mlDsa87SignExternalMu k msg r0))))
+            (let ((answer
+              (match r
+                ((Err e) (strConcat "sign refused: " (errorText e)))
+                ((Ok sig)
+                  (let ((ok
+                    (if (strEq iface "pure")
+                      (mlDsa87Verify pk msg ctx sig)
+                      (strEq iface "internal")
+                      (mlDsa87VerifyInternal pk msg sig)
+                      (mlDsa87VerifyExternalMu pk msg sig))))
+                    (if ok
+                      (shaHex (mlDsa87SignatureBytes sig))
+                      (strConcat (shaHex (mlDsa87SignatureBytes sig)) " (does not verify)")))))))
+              {
+                (mlDsa87KeyWipe k)
+                (secretWipe s)
+                answer
+              })))))))
+
+; signCase for parameter set `n`.
+(:: signCase (-> Int String String String String String String))
+;@axiom:effect(io)
+(fn (signCase n skb iface rnd ctx msg)
+  (if (== n 44) (signCase44 skb iface rnd ctx msg) (== n 65) (signCase65 skb iface rnd ctx msg) (signCase87 skb iface rnd ctx msg)))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((t (tallyNew "mldsa-acvp-siggen")) (mut sk ""))
+    {
+      (for line in (katLines "mldsa-acvp-siggen.txt")
+        (let ((f (katFields line)))
+          (if (strEq (katText f 0) "key")
+            {
+              (set sk (katBytes f 2))
+              0
+            }
+            (let ((got (signCase (katInt f 1) sk (katText f 2) (katBytes f 3) (katBytes f 4) (katBytes f 5))))
+              (tallyCheck t (strEq got (katText f 6)) (strConcat "ML-DSA-" (strConcat (katText f 1) (strConcat " " (strConcat (katText f 2) (strConcat ": got " got))))))))))
+      (tallyReport t)
+    }))

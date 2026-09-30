@@ -1,0 +1,454 @@
+; Crypto.MlKemPoly - the polynomial layer of ML-KEM (FIPS 203): the
+; number-theoretic transform, multiplication in the NTT domain, the
+; byte encodings, compression and the two samplers. Hazardous layer.
+;
+;     (let ((f (strAlloc mlkemPolyBytes)))
+;       {
+;         (mlkemByteDecode (strData f) (strData bytes) 12)   ; 384 bytes in
+;         (mlkemNtt (strData f))                             ; f-hat
+;         (mlkemInvNtt (strData f))                          ; f again
+;       })
+;
+; This is the arithmetic under `Crypto.MlKem`, on raw addresses, with
+; the standard's algorithm numbers beside each function. Application
+; code wants `Crypto.MlKem`.
+;
+; REPRESENTATION. A polynomial is 256 coefficients, each an Int word
+; (so `mlkemPolyBytes` is 2048), always fully reduced into 0..q-1 with
+; q = 3329. Every product of two coefficients is below 2^24, so the
+; arithmetic never nears the top of an Int and there is no need for
+; the 16-bit Montgomery tricks of the reference code.
+;
+; CONSTANT TIME, WITH NO DIVISION BY q. Reducing a secret modulo q with
+; `%`, or dividing one by q with `/`, runs in time that depends on the
+; value on some processors, and the KyberSlash attacks recovered keys
+; from exactly that in Compress. Here every reduction and every
+; rounded division by q is a multiplication by a fixed reciprocal and
+; a shift (`mlkemDivQ`, exact for every value this module produces),
+; so no division instruction ever sees a secret. There are no
+; conditional subtractions either: a value is reduced by computing its
+; quotient, not by testing it. The centred binomial sampler adds bits;
+; it has no table and no branch. Rejection sampling in `mlkemSampleNtt`
+; branches, and may: it reads the public seed rho.
+;
+; STANDARD. FIPS 203 (August 2024), section 4: ByteEncode and
+; ByteDecode (Algorithms 5 and 6), Compress and Decompress (4.2.1),
+; SampleNTT and SamplePolyCBD (Algorithms 7 and 8), NTT and NTT^-1
+; (Algorithms 9 and 10, with the zeta table of Appendix A), and
+; MultiplyNTTs and BaseCaseMultiply (Algorithms 11 and 12). Checked
+; through `Crypto.MlKem` by tests/crypto/500-mlkem-acvp.ax and the
+; other 5NN tests.
+;
+; REFERENCE. Written from FIPS 203. The zeta and gamma tables were
+; computed as 17^BitRev7(i) and 17^(2 BitRev7(i) + 1) modulo q and
+; checked against Appendix A. No reference implementation's code was
+; used.
+;
+; LIMITS. Memory is traded for simplicity: a polynomial is 2 KiB, not
+; 512 bytes, and the callers' scratch grows with it.
+(import Mem)
+(import Crypto.Ct)
+(import Crypto.Sha3)
+
+; ------------------------------------------------------------------
+; Arithmetic modulo q = 3329.
+; ------------------------------------------------------------------
+; The modulus.
+(pub :: mlkemQ Int)
+(pub fn (mlkemQ)
+  3329)
+
+; The bytes one polynomial occupies: 256 words.
+(pub :: mlkemPolyBytes Int)
+(pub fn (mlkemPolyBytes)
+  2048)
+
+; floor(x / q) for 0 <= x < 2^26, as (x * ceil(2^38 / q)) >> 38. The
+; error of the reciprocal, 3291 / 2^38, times 2^26 stays below 1/q,
+; so the answer is exact over the whole range; x * 82570715 is below
+; 2^53.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: mlkemDivQ (-> Int Int))
+;@axiom:ct(x)
+(pub fn (mlkemDivQ x)
+  (>> (* x 82570715) 38))
+
+; x modulo q, for 0 <= x < 2^26.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: mlkemModQ (-> Int Int))
+;@axiom:ct(x)
+(pub fn (mlkemModQ x)
+  (- x (* (mlkemDivQ x) 3329)))
+
+; ------------------------------------------------------------------
+; The tables of Appendix A, three hex digits a value. Indexes are
+; public: they are loop counters.
+; ------------------------------------------------------------------
+; zeta^BitRev7(i) mod q, i = 0..127.
+(:: mlkemZetaHex String)
+(fn (mlkemZetaHex)
+  "0016c1a14cd9a5227676935042677f0c131dae2cbc2396d212898f53b5c4be60388c053559282e217b42959b3f7b633512114bcb56dc4ad9008e580728a7b99d1278b3102152877b90f59b3271c459eb345fe962a57a395c92889aac264cb38e011ac9247a596652d38f044c581a66cd10e92f486cbc7bea6a7673ae56fd7373b85b5a7f3ab9049859542dd92110c2816308fa7f5c941779f582a66d42713fad52f58332319a2a22af4444193402477866ad73766ba4bc75240583eb7737586a")
+
+; zeta^(2 BitRev7(i) + 1) mod q, i = 0..127: the gamma of each
+; BaseCaseMultiply.
+(:: mlkemGammaHex String)
+(fn (mlkemGammaHex)
+  "011cf0ac9238247abaa592a866569c2d3a2e8f041144c8b5581780a6629bcd10300e9c182f4a0d86c495bc713abea1176a765a67368eae521c6fd6047375ca3b89495b574ca7f2823ab9569043fd98537c9543ad2dda249213e010cbf5281a806306d18fa4077f550cc9406d177b8a9f530c82a4d766d6944278da13fbc2ad522c2f5a0c8334ce231ad09a235fa222dfaf420d4448bd193b6e4028ff47788a86649bad722a37698b6ba6474bc8457525af4058fc83e4c3b7718a37598c86a497")
+
+; The value of lower-case hex digit `c`.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: mlkemHexDigit (-> Int Int))
+(fn (mlkemHexDigit c)
+  (if (< c 97)
+    (- c 48)
+    (- c 87)))
+
+; Entry `i` of a table of three-digit hex values at `t`.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: mlkemTable (-> Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`t` names at least 3 * (`i` + 1) live bytes of lower-case hex)
+(fn (mlkemTable t i)
+  (let ((o (* 3 i)))
+    (| (<< (mlkemHexDigit (__load8 t o)) 8)
+      (| (<< (mlkemHexDigit (__load8 t (+ o 1))) 4)
+        (mlkemHexDigit (__load8 t (+ o 2)))))))
+
+; ------------------------------------------------------------------
+; The NTT (Algorithms 9 and 10).
+; ------------------------------------------------------------------
+; f-hat = NTT(f), in place: seven layers of butterflies, lengths 128
+; down to 2, the zetas taken in order from index 1.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: mlkemNtt (-> Int Int))
+;@axiom:ct(*p)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p` names a live writable polynomial, reduced)
+(pub fn (mlkemNtt p)
+  (let ((zt (strData mlkemZetaHex)) (mut k 1) (mut len 128))
+    {
+      (while (>= len 2)
+        (let ((mut start 0))
+          {
+            (while (< start 256)
+              (let ((z (mlkemTable zt k)))
+                {
+                  (set k (+ k 1))
+                  (for j start (+ start len)
+                    (let ((a (__load64 p j)) (t (mlkemModQ (* z (__load64 p (+ j len))))))
+                      {
+                        (__store64 p (+ j len) (mlkemModQ (+ (- a t) 3329)))
+                        (__store64 p j (mlkemModQ (+ a t)))
+                      }))
+                  (set start (+ start (* 2 len)))
+                  0
+                }))
+            (set len (>> len 1))
+            0
+          }))
+      0
+    }))
+
+; f = NTT^-1(f-hat), in place: the layers in reverse, the zetas from
+; index 127 down, and a final multiplication by 3303 = 128^-1 mod q.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: mlkemInvNtt (-> Int Int))
+;@axiom:ct(*p)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p` names a live writable polynomial, reduced)
+(pub fn (mlkemInvNtt p)
+  (let ((zt (strData mlkemZetaHex)) (mut k 127) (mut len 2))
+    {
+      (while (<= len 128)
+        (let ((mut start 0))
+          {
+            (while (< start 256)
+              (let ((z (mlkemTable zt k)))
+                {
+                  (set k (- k 1))
+                  (for j start (+ start len)
+                    (let ((t (__load64 p j)) (b (__load64 p (+ j len))))
+                      {
+                        (__store64 p j (mlkemModQ (+ t b)))
+                        (__store64 p (+ j len) (mlkemModQ (* z (+ (- b t) 3329))))
+                      }))
+                  (set start (+ start (* 2 len)))
+                  0
+                }))
+            (set len (<< len 1))
+            0
+          }))
+      (for j 0 256
+        (__store64 p j (mlkemModQ (* (__load64 p j) 3303))))
+      0
+    }))
+
+; h-hat += f-hat x g-hat in the NTT domain (MultiplyNTTs, Algorithm 11):
+; 128 products of degree-one polynomials modulo X^2 - gamma_i
+; (BaseCaseMultiply, Algorithm 12), added into `h`. `h` may be `f` or
+; `g` only if the caller wants the product added to that operand.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: mlkemMulAcc (-> Int Int Int Int))
+;@axiom:ct(*h, *f, *g)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`h` names a live writable polynomial and `f` and `g` live polynomials, all reduced)
+(pub fn (mlkemMulAcc h f g)
+  (let ((gt (strData mlkemGammaHex)))
+    {
+      (for i 0 128
+        (let (
+          (e (* 2 i))
+          (a0 (__load64 f (* 2 i)))
+          (a1 (__load64 f (+ (* 2 i) 1)))
+          (b0 (__load64 g (* 2 i)))
+          (b1 (__load64 g (+ (* 2 i) 1)))
+          (gamma (mlkemTable gt i))
+        )
+          (let (
+            (c0 (mlkemModQ (+ (* a0 b0) (* (mlkemModQ (* a1 b1)) gamma))))
+            (c1 (mlkemModQ (+ (* a0 b1) (* a1 b0))))
+          )
+            {
+              (__store64 h e (mlkemModQ (+ (__load64 h e) c0)))
+              (__store64 h (+ e 1) (mlkemModQ (+ (__load64 h (+ e 1)) c1)))
+            })))
+      0
+    }))
+
+; h = h + f, coefficient-wise modulo q.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: mlkemPolyAdd (-> Int Int Int))
+;@axiom:ct(*h, *f)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`h` names a live writable polynomial and `f` a live polynomial, both reduced)
+(pub fn (mlkemPolyAdd h f)
+  {
+    (for i 0 256
+      (__store64 h i (mlkemModQ (+ (__load64 h i) (__load64 f i)))))
+    0
+  })
+
+; h = h - f, coefficient-wise modulo q.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: mlkemPolySub (-> Int Int Int))
+;@axiom:ct(*h, *f)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`h` names a live writable polynomial and `f` a live polynomial, both reduced)
+(pub fn (mlkemPolySub h f)
+  {
+    (for i 0 256
+      (__store64 h i (mlkemModQ (+ (- (__load64 h i) (__load64 f i)) 3329))))
+    0
+  })
+
+; Overwrite `n` bytes at `p` (a multiple of 8) with zeros, a word at a
+; time. The address then passes through `ctBarrier`, whose assembly
+; block may read any memory, so the stores cannot be dropped as dead.
+; Answers 0.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: mlkemWipe (-> Int Int Int))
+;@axiom:ct(*p)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p` names `n` live writable bytes, 8-byte aligned, and `n` is a multiple of 8)
+(pub fn (mlkemWipe p n)
+  {
+    (for i 0 (>> n 3)
+      (__store64 p i 0))
+    (ctBarrier p)
+    0
+  })
+
+; ------------------------------------------------------------------
+; Compression (section 4.2.1).
+; ------------------------------------------------------------------
+; Compress_d on every coefficient, in place: round(2^d x / q) mod 2^d,
+; computed as floor((2^d x + 1664) / q) through `mlkemDivQ` - the
+; multiply-and-shift form, never a division instruction, because x is
+; secret (KyberSlash). Rounding half up and this floor agree for every
+; x in 0..q-1 because q is odd. `d` is 1..11.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: mlkemCompress (-> Int Int Int))
+;@axiom:ct(*p)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p` names a live writable polynomial, reduced, and `d` is 1..11)
+(pub fn (mlkemCompress p d)
+  (let ((m (- (<< 1 d) 1)))
+    {
+      (for i 0 256
+        (__store64 p i (& (mlkemDivQ (+ (<< (__load64 p i) d) 1664)) m)))
+      0
+    }))
+
+; Decompress_d on every coefficient, in place: round(q y / 2^d), which
+; is (q y + 2^(d-1)) >> d exactly. `d` is 1..11 and every y is below
+; 2^d.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: mlkemDecompress (-> Int Int Int))
+;@axiom:ct(*p)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p` names a live writable polynomial of `d`-bit values, and `d` is 1..11)
+(pub fn (mlkemDecompress p d)
+  (let ((half (<< 1 (- d 1))))
+    {
+      (for i 0 256
+        (__store64 p i (>> (+ (* (__load64 p i) 3329) half) d)))
+      0
+    }))
+
+; ------------------------------------------------------------------
+; Encodings (Algorithms 5 and 6).
+; ------------------------------------------------------------------
+; ByteEncode_d: the low `d` bits of each of the 256 coefficients at
+; `p`, least significant first, packed into the 32 * d bytes at `out`.
+; For d = 12 the coefficients must already be below q.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: mlkemByteEncode (-> Int Int Int Int))
+;@axiom:ct(*p)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`out` names 32 * `d` live writable bytes, `p` a live polynomial, and `d` is 1..12)
+(pub fn (mlkemByteEncode out p d)
+  (let ((m (- (<< 1 d) 1)) (mut acc 0) (mut nbits 0) (mut o 0))
+    {
+      (for i 0 256
+        {
+          (set acc (| acc (<< (& (__load64 p i) m) nbits)))
+          (set nbits (+ nbits d))
+          (while (>= nbits 8)
+            {
+              (__store8 out o (& acc 255))
+              (set acc (>> acc 8))
+              (set nbits (- nbits 8))
+              (set o (+ o 1))
+              0
+            })
+          0
+        })
+      0
+    }))
+
+; ByteDecode_d: 256 coefficients of `d` bits each from the 32 * d
+; bytes at `src`, into the polynomial at `p`. For d = 12 each value is
+; reduced modulo q, as the standard specifies; a caller that must
+; refuse values of q and above compares the re-encoding.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: mlkemByteDecode (-> Int Int Int Int))
+;@axiom:ct(*src)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p` names a live writable polynomial, `src` 32 * `d` live bytes, and `d` is 1..12)
+(pub fn (mlkemByteDecode p src d)
+  (let ((m (- (<< 1 d) 1)) (mut acc 0) (mut nbits 0) (mut b 0))
+    {
+      (for i 0 256
+        {
+          (while (< nbits d)
+            {
+              (set acc (| acc (<< (__load8 src b) nbits)))
+              (set b (+ b 1))
+              (set nbits (+ nbits 8))
+              0
+            })
+          (let ((v (& acc m)))
+            (__store64 p i
+              (if (== d 12)
+                (mlkemModQ v)
+                v)))
+          (set acc (>> acc d))
+          (set nbits (- nbits d))
+          0
+        })
+      0
+    }))
+
+; ------------------------------------------------------------------
+; Sampling (Algorithms 7 and 8).
+; ------------------------------------------------------------------
+; SampleNTT: a uniform polynomial in the NTT domain from the 34-byte
+; seed rho || j || i at `seed`, by rejection from SHAKE128's output,
+; read 168 bytes (one block) at a time. Every 3 bytes give two 12-bit
+; candidates, kept when below q. The seed is public, so the loop may
+; run as long as the draws need.
+(pub :: mlkemSampleNtt (-> Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p` names a live writable polynomial and `seed` 34 live bytes)
+(pub fn (mlkemSampleNtt p seed)
+  (let ((x (shake128New)) (buf (strAlloc 168)))
+    (let ((bp (strData buf)) (mut j 0) (mut pos 168))
+      {
+        (shake128AbsorbAddr x seed 34)
+        (while (< j 256)
+          {
+            (if (>= pos 168)
+              {
+                (shake128SqueezeAddr x bp 168)
+                (set pos 0)
+                0
+              }
+              0)
+            (let (
+              (b0 (__load8 bp pos))
+              (b1 (__load8 bp (+ pos 1)))
+              (b2 (__load8 bp (+ pos 2)))
+            )
+              (let (
+                (d1 (+ b0 (<< (& b1 15) 8)))
+                (d2 (+ (>> b1 4) (<< b2 4)))
+              )
+                {
+                  (if (< d1 3329)
+                    {
+                      (__store64 p j d1)
+                      (set j (+ j 1))
+                      0
+                    }
+                    0)
+                  (if (&& (< d2 3329) (< j 256))
+                    {
+                      (__store64 p j d2)
+                      (set j (+ j 1))
+                      0
+                    }
+                    0)
+                  (set pos (+ pos 3))
+                  0
+                }))
+          })
+        0
+      })))
+
+; SamplePolyCBD_eta: a polynomial from the 64 * eta bytes at `src`.
+; Coefficient i is x - y mod q, where x and y are the number of set
+; bits in the next two runs of `eta` bits. Only additions of bits: no
+; table, no branch on the bytes.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: mlkemSampleCbd (-> Int Int Int Int))
+;@axiom:ct(*src)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p` names a live writable polynomial, `src` 64 * `eta` live bytes, and `eta` is 2 or 3)
+(pub fn (mlkemSampleCbd p src eta)
+  (let ((w (* 2 eta)) (mut acc 0) (mut nbits 0) (mut b 0))
+    {
+      (for i 0 256
+        {
+          (while (< nbits w)
+            {
+              (set acc (| acc (<< (__load8 src b) nbits)))
+              (set b (+ b 1))
+              (set nbits (+ nbits 8))
+              0
+            })
+          (let ((mut x 0) (mut y 0))
+            {
+              (for j 0 eta
+                {
+                  (set x (+ x (& (>> acc j) 1)))
+                  (set y (+ y (& (>> acc (+ j eta)) 1)))
+                  0
+                })
+              (__store64 p i (mlkemModQ (+ (- x y) 3329)))
+            })
+          (set acc (>> acc w))
+          (set nbits (- nbits w))
+          0
+        })
+      0
+    }))

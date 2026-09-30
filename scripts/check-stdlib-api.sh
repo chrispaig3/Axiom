@@ -78,6 +78,10 @@ stdlib/Crypto/Field25519.ax
 stdlib/Crypto/Ghash.ax
 stdlib/Crypto/Hkdf.ax
 stdlib/Crypto/Hmac.ax
+stdlib/Crypto/MlDsa.ax
+stdlib/Crypto/MlDsaPoly.ax
+stdlib/Crypto/MlKem.ax
+stdlib/Crypto/MlKemPoly.ax
 stdlib/Crypto/Poly1305.ax
 stdlib/Crypto/Random.ax
 stdlib/Crypto/Secret.ax

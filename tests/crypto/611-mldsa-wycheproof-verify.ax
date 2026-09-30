@@ -1,0 +1,139 @@
+; ML-DSA verification against Wycheproof (verify files, all three
+; parameter sets): malformed hint encodings, modified signatures, norm
+; violations, contexts over 255 bytes, public keys and signatures of
+; the wrong length, and public keys whose t1 is zero. The verdict must
+; match Wycheproof's both through the strict decoders and with the key
+; and signature handed over as they stand.
+(import IO)
+(import Str)
+(import Vec)
+(import Err)
+(import Fmt)
+(import Crypto.Errors)
+(import Crypto.Bytes)
+(import Crypto.Secret)
+(import Crypto.Sha2)
+(import Crypto.MlDsa)
+(import Kat)
+
+(:: orDie (-> (Result a Error) String a))
+;@axiom:effect(io)
+(fn (orDie r what)
+  (match r
+    ((Ok v) v)
+    ((Err e) (cast a (die (strConcat "TEST: " (strConcat what (strConcat ": " (errorText e)))) 3)))))
+
+(:: shaHex (-> String String))
+(fn (shaHex s)
+  (hexEncode (sha256 s)))
+
+; M' for pure ML-DSA: 0, the context's length, the context, the message.
+(:: pureMPrime (-> String String String))
+;@axiom:effect(unsafe)
+(fn (pureMPrime ctx msg)
+  (let ((pre (bytesNew 2)))
+    {
+      (__store8 (strData pre) 1 (strLen ctx))
+      (strConcat pre (strConcat ctx msg))
+    }))
+
+; The code of an Err, or 0 for Ok.
+(:: codeOf (-> (Result a Error) Int))
+(fn (codeOf r)
+  (match r
+    ((Ok _) 0)
+    ((Err e) (errCode e))))
+
+(:: verifyCase44 (-> String String String String String Int))
+(fn (verifyCase44 iface ctx msg pkb sigb)
+  (let ((direct
+    (let ((pk (MlDsa44PublicKey pkb)) (sig (MlDsa44Signature sigb)))
+      (if (strEq iface "pure")
+        (mlDsa44Verify pk msg ctx sig)
+        (strEq iface "internal")
+        (mlDsa44VerifyInternal pk msg sig)
+        (mlDsa44VerifyExternalMu pk msg sig))))
+    (strict
+      (match (mlDsa44PublicKeyFromBytes pkb)
+        ((Err _) false)
+        ((Ok pk)
+          (match (mlDsa44SignatureFromBytes sigb)
+            ((Err _) false)
+            ((Ok sig)
+              (if (strEq iface "pure")
+                (mlDsa44Verify pk msg ctx sig)
+                (strEq iface "internal")
+                (mlDsa44VerifyInternal pk msg sig)
+                (mlDsa44VerifyExternalMu pk msg sig))))))))
+    (+ (if strict 1 0) (if direct 2 0))))
+
+(:: verifyCase65 (-> String String String String String Int))
+(fn (verifyCase65 iface ctx msg pkb sigb)
+  (let ((direct
+    (let ((pk (MlDsa65PublicKey pkb)) (sig (MlDsa65Signature sigb)))
+      (if (strEq iface "pure")
+        (mlDsa65Verify pk msg ctx sig)
+        (strEq iface "internal")
+        (mlDsa65VerifyInternal pk msg sig)
+        (mlDsa65VerifyExternalMu pk msg sig))))
+    (strict
+      (match (mlDsa65PublicKeyFromBytes pkb)
+        ((Err _) false)
+        ((Ok pk)
+          (match (mlDsa65SignatureFromBytes sigb)
+            ((Err _) false)
+            ((Ok sig)
+              (if (strEq iface "pure")
+                (mlDsa65Verify pk msg ctx sig)
+                (strEq iface "internal")
+                (mlDsa65VerifyInternal pk msg sig)
+                (mlDsa65VerifyExternalMu pk msg sig))))))))
+    (+ (if strict 1 0) (if direct 2 0))))
+
+(:: verifyCase87 (-> String String String String String Int))
+(fn (verifyCase87 iface ctx msg pkb sigb)
+  (let ((direct
+    (let ((pk (MlDsa87PublicKey pkb)) (sig (MlDsa87Signature sigb)))
+      (if (strEq iface "pure")
+        (mlDsa87Verify pk msg ctx sig)
+        (strEq iface "internal")
+        (mlDsa87VerifyInternal pk msg sig)
+        (mlDsa87VerifyExternalMu pk msg sig))))
+    (strict
+      (match (mlDsa87PublicKeyFromBytes pkb)
+        ((Err _) false)
+        ((Ok pk)
+          (match (mlDsa87SignatureFromBytes sigb)
+            ((Err _) false)
+            ((Ok sig)
+              (if (strEq iface "pure")
+                (mlDsa87Verify pk msg ctx sig)
+                (strEq iface "internal")
+                (mlDsa87VerifyInternal pk msg sig)
+                (mlDsa87VerifyExternalMu pk msg sig))))))))
+    (+ (if strict 1 0) (if direct 2 0))))
+
+; verifyCase for parameter set `n`.
+(:: verifyCase (-> Int String String String String String Int))
+(fn (verifyCase n iface ctx msg pkb sigb)
+  (if (== n 44) (verifyCase44 iface ctx msg pkb sigb) (== n 65) (verifyCase65 iface ctx msg pkb sigb) (verifyCase87 iface ctx msg pkb sigb)))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((t (tallyNew "wycheproof-mldsa-verify")) (mut pk ""))
+    {
+      (for line in (katLines "wycheproof-mldsa-verify.txt")
+        (let ((f (katFields line)))
+          (if (strEq (katText f 0) "pk")
+            {
+              (set pk (katBytes f 2))
+              (tallyCheck t (strEq (shaHex pk) (katText f 3)) (strConcat "ML-DSA-" (strConcat (katText f 1) ": a public key line")))
+            }
+            (let (
+              (want (if (strEq (katText f 6) "valid") 3 0))
+              (got (verifyCase (katInt f 1) "pure" (katBytes f 3) (katBytes f 4) pk (katBytes f 5)))
+            )
+              (tallyCheck t (== got want) (strConcat "ML-DSA-" (strConcat (katText f 1) (strConcat " tcId " (strConcat (katText f 2) (strConcat ": got " (fmtInt got)))))))))))
+      (tallyReport t)
+    }))

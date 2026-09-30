@@ -1,0 +1,474 @@
+; ML-KEM (FIPS 203), all three parameter sets, against NIST's ACVP
+; known answers: key generation from (d, z), encapsulation from
+; (ek, m), decapsulation with expanded keys and with keys made from
+; their seed, and the encapsulation- and decapsulation-key checks of
+; section 7. Each case goes through the typed API of Crypto.MlKem.
+; A last suite checks the arithmetic the constant-time forms replace:
+; the multiply-and-shift quotient by q against `/` for every value
+; below 2^26, Compress and Decompress against their rounding
+; definitions for every input, and NTT^-1(NTT(f)) = f.
+(import IO)
+(import Str)
+(import Vec)
+(import Err)
+(import Crypto.Errors)
+(import Crypto.Bytes)
+(import Crypto.Ct)
+(import Fmt)
+(import Crypto.Secret)
+(import Crypto.MlKem)
+(import Crypto.MlKemPoly)
+(import Kat)
+
+;; ---- adapter: the three parameter sets behind one interface ----
+; Every answer is bytes; a refusal keeps its error. `set` is "512",
+; "768" or "1024".
+(struct Keys
+  (ek : String)
+  (dk : String)
+  (seed : String))
+
+; A secret holding `b`; the vector file is wrong if this fails.
+(:: secretOf (-> String SecretBytes))
+;@axiom:effect(io)
+(fn (secretOf b)
+  (match (secretFromString b)
+    ((Ok s) s)
+    ((Err _)
+      {
+        (die "the secret store refused a test key" 3)
+        (secretOf b)
+      })))
+
+; The bytes of an exported secret, which is then wiped; "" on a
+; refusal.
+(:: exposed (-> (Result SecretBytes Error) String))
+;@axiom:effect(io)
+(fn (exposed r)
+  (match r
+    ((Err _) "")
+    ((Ok s)
+      (let ((b (secretExposeCopy s)))
+        {
+          (secretWipe s)
+          b
+        }))))
+
+; A secret's bytes, and the secret wiped.
+(:: taken (-> SecretBytes String))
+;@axiom:effect(io)
+(fn (taken s)
+  (let ((b (secretExposeCopy s)))
+    {
+      (secretWipe s)
+      b
+    }))
+
+(:: keysOf512 (-> (Result MlKem512DecapsKey Error) (Result Keys Error)))
+;@axiom:effect(io)
+(fn (keysOf512 r)
+  (match r
+    ((Err e) (Err e))
+    ((Ok dk)
+      (let (
+        (out (Keys (mlKem512EncapsKeyBytes (mlKem512EncapsKey dk))
+          (exposed (mlKem512KeyExportExpanded dk))
+          (exposed (mlKem512KeyExportSeed dk))))
+      )
+        {
+          (mlKem512KeyWipe dk)
+          (Ok out)
+        }))))
+
+(:: encaps512 (-> String String (Result String Error)))
+;@axiom:effect(io)
+(fn (encaps512 ek m)
+  (let ((ms (secretOf m)))
+    (let ((r (mlKem512EncapsDerand (MlKem512EncapsKey ek) ms)))
+      {
+        (secretWipe ms)
+        (match r
+          ((Err e) (Err e))
+          ((Ok x)
+            (let ((c x.ciphertext))
+              (Ok (strConcat (mlKem512CiphertextBytes c) (taken x.secret))))))
+      })))
+
+(:: decaps512 (-> (Result MlKem512DecapsKey Error) String (Result String Error)))
+;@axiom:effect(io)
+(fn (decaps512 r c)
+  (match r
+    ((Err e) (Err e))
+    ((Ok dk)
+      (let ((k (mlKem512Decaps dk (MlKem512Ciphertext c))))
+        {
+          (mlKem512KeyWipe dk)
+          (match k
+            ((Err e) (Err e))
+            ((Ok s) (Ok (taken s))))
+        }))))
+
+(:: ekCheck512 (-> String (Result String Error)))
+(fn (ekCheck512 ek)
+  (mapOk (mlKem512EncapsKeyFromBytes ek) mlKem512EncapsKeyBytes))
+
+(:: keysOf768 (-> (Result MlKem768DecapsKey Error) (Result Keys Error)))
+;@axiom:effect(io)
+(fn (keysOf768 r)
+  (match r
+    ((Err e) (Err e))
+    ((Ok dk)
+      (let (
+        (out (Keys (mlKem768EncapsKeyBytes (mlKem768EncapsKey dk))
+          (exposed (mlKem768KeyExportExpanded dk))
+          (exposed (mlKem768KeyExportSeed dk))))
+      )
+        {
+          (mlKem768KeyWipe dk)
+          (Ok out)
+        }))))
+
+(:: encaps768 (-> String String (Result String Error)))
+;@axiom:effect(io)
+(fn (encaps768 ek m)
+  (let ((ms (secretOf m)))
+    (let ((r (mlKem768EncapsDerand (MlKem768EncapsKey ek) ms)))
+      {
+        (secretWipe ms)
+        (match r
+          ((Err e) (Err e))
+          ((Ok x)
+            (let ((c x.ciphertext))
+              (Ok (strConcat (mlKem768CiphertextBytes c) (taken x.secret))))))
+      })))
+
+(:: decaps768 (-> (Result MlKem768DecapsKey Error) String (Result String Error)))
+;@axiom:effect(io)
+(fn (decaps768 r c)
+  (match r
+    ((Err e) (Err e))
+    ((Ok dk)
+      (let ((k (mlKem768Decaps dk (MlKem768Ciphertext c))))
+        {
+          (mlKem768KeyWipe dk)
+          (match k
+            ((Err e) (Err e))
+            ((Ok s) (Ok (taken s))))
+        }))))
+
+(:: ekCheck768 (-> String (Result String Error)))
+(fn (ekCheck768 ek)
+  (mapOk (mlKem768EncapsKeyFromBytes ek) mlKem768EncapsKeyBytes))
+
+(:: keysOf1024 (-> (Result MlKem1024DecapsKey Error) (Result Keys Error)))
+;@axiom:effect(io)
+(fn (keysOf1024 r)
+  (match r
+    ((Err e) (Err e))
+    ((Ok dk)
+      (let (
+        (out (Keys (mlKem1024EncapsKeyBytes (mlKem1024EncapsKey dk))
+          (exposed (mlKem1024KeyExportExpanded dk))
+          (exposed (mlKem1024KeyExportSeed dk))))
+      )
+        {
+          (mlKem1024KeyWipe dk)
+          (Ok out)
+        }))))
+
+(:: encaps1024 (-> String String (Result String Error)))
+;@axiom:effect(io)
+(fn (encaps1024 ek m)
+  (let ((ms (secretOf m)))
+    (let ((r (mlKem1024EncapsDerand (MlKem1024EncapsKey ek) ms)))
+      {
+        (secretWipe ms)
+        (match r
+          ((Err e) (Err e))
+          ((Ok x)
+            (let ((c x.ciphertext))
+              (Ok (strConcat (mlKem1024CiphertextBytes c) (taken x.secret))))))
+      })))
+
+(:: decaps1024 (-> (Result MlKem1024DecapsKey Error) String (Result String Error)))
+;@axiom:effect(io)
+(fn (decaps1024 r c)
+  (match r
+    ((Err e) (Err e))
+    ((Ok dk)
+      (let ((k (mlKem1024Decaps dk (MlKem1024Ciphertext c))))
+        {
+          (mlKem1024KeyWipe dk)
+          (match k
+            ((Err e) (Err e))
+            ((Ok s) (Ok (taken s))))
+        }))))
+
+(:: ekCheck1024 (-> String (Result String Error)))
+(fn (ekCheck1024 ek)
+  (mapOk (mlKem1024EncapsKeyFromBytes ek) mlKem1024EncapsKeyBytes))
+
+; KeyGen_internal(d, z).
+(:: keyGen (-> String String String (Result Keys Error)))
+;@axiom:effect(io)
+(fn (keyGen set d z)
+  (let ((ds (secretOf d)) (zs (secretOf z)))
+    (let ((r
+      (if (strEq set "512")
+        (keysOf512 (mlKem512KeyGenerateDerand ds zs))
+        (if (strEq set "768")
+          (keysOf768 (mlKem768KeyGenerateDerand ds zs))
+          (keysOf1024 (mlKem1024KeyGenerateDerand ds zs))))))
+      {
+        (secretWipe ds)
+        (secretWipe zs)
+        r
+      })))
+
+; A key from its 64-byte seed.
+(:: keyFromSeed (-> String String (Result Keys Error)))
+;@axiom:effect(io)
+(fn (keyFromSeed set seed)
+  (let ((s (secretOf seed)))
+    (let ((r
+      (if (strEq set "512")
+        (keysOf512 (mlKem512KeyFromSeed s))
+        (if (strEq set "768")
+          (keysOf768 (mlKem768KeyFromSeed s))
+          (keysOf1024 (mlKem1024KeyFromSeed s))))))
+      {
+        (secretWipe s)
+        r
+      })))
+
+; A key from the expanded form, after the checks of section 7.3.
+(:: keyFromExpanded (-> String String (Result Keys Error)))
+;@axiom:effect(io)
+(fn (keyFromExpanded set dk)
+  (let ((s (secretOf dk)))
+    (let ((r
+      (if (strEq set "512")
+        (keysOf512 (mlKem512KeyFromExpanded s))
+        (if (strEq set "768")
+          (keysOf768 (mlKem768KeyFromExpanded s))
+          (keysOf1024 (mlKem1024KeyFromExpanded s))))))
+      {
+        (secretWipe s)
+        r
+      })))
+
+; Encaps_internal(ek, m): c || K.
+(:: encaps (-> String String String (Result String Error)))
+;@axiom:effect(io)
+(fn (encaps set ek m)
+  (if (strEq set "512")
+    (encaps512 ek m)
+    (if (strEq set "768")
+      (encaps768 ek m)
+      (encaps1024 ek m))))
+
+; Decaps with a key made from `seed` (64 bytes) or, when `expanded`,
+; imported from the expanded `key`.
+(:: decaps (-> String Bool String String (Result String Error)))
+;@axiom:effect(io)
+(fn (decaps set expanded key c)
+  (let ((s (secretOf key)))
+    (let ((r
+      (if (strEq set "512")
+        (decaps512 (if expanded (mlKem512KeyFromExpanded s) (mlKem512KeyFromSeed s)) c)
+        (if (strEq set "768")
+          (decaps768 (if expanded (mlKem768KeyFromExpanded s) (mlKem768KeyFromSeed s)) c)
+          (decaps1024 (if expanded (mlKem1024KeyFromExpanded s) (mlKem1024KeyFromSeed s)) c)))))
+      {
+        (secretWipe s)
+        r
+      })))
+
+; The encapsulation-key checks of section 7.2.
+(:: ekCheck (-> String String (Result String Error)))
+(fn (ekCheck set ek)
+  (if (strEq set "512")
+    (ekCheck512 ek)
+    (if (strEq set "768")
+      (ekCheck768 ek)
+      (ekCheck1024 ek))))
+
+(:: answers (-> (Result String Error) String Bool))
+(fn (answers r want)
+  (match r
+    ((Ok got) (strEq got want))
+    ((Err _) false)))
+
+(:: refusedWith (-> (Result a Error) Int Bool))
+(fn (refusedWith r code)
+  (match r
+    ((Ok _) false)
+    ((Err e) (== (errCode e) code))))
+;; ---- end of adapter ----
+
+; The checks of the arithmetic, each against the plain definition with
+; `/`, which the test may use and the library may not.
+(:: polyChecks (-> Tally Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (polyChecks t)
+  (let ((mut bad 0) (p (strAlloc mlkemPolyBytes)) (f (strAlloc mlkemPolyBytes)))
+    {
+      (for x 0 67108864
+        (if (!= (mlkemDivQ x) (/ x 3329))
+          {
+            (set bad (+ bad 1))
+            0
+          }
+          0))
+      (tallyCheck t (== bad 0) "floor(x / q) by multiply and shift, every x below 2^26")
+      (for d in (vecOf5 1 4 5 10 11)
+        (let ((mut cbad 0) (mut dbad 0))
+          {
+            ; Compress: round(2^d x / q) mod 2^d, as floor((2^(d+1) x + q) / 2q)
+            (let ((mut x 0))
+              (while (< x 3329)
+                {
+                  (for i 0 256
+                    (__store64 (strData p) i (if (< (+ x i) 3329) (+ x i) 0)))
+                  (mlkemCompress (strData p) d)
+                  (for i 0 256
+                    (if (< (+ x i) 3329)
+                      (let ((want (% (/ (+ (* (+ x i) (<< 2 d)) 3329) 6658) (<< 1 d))))
+                        (if (!= (__load64 (strData p) i) want)
+                          {
+                            (set cbad (+ cbad 1))
+                            0
+                          }
+                          0))
+                      0))
+                  (set x (+ x 256))
+                  0
+                }))
+            ; Decompress: round(q y / 2^d), as floor((2 q y + 2^d) / 2^(d+1))
+            (let ((mut y 0))
+              (while (< y (<< 1 d))
+                {
+                  (for i 0 256
+                    (__store64 (strData p) i (& (+ y i) (- (<< 1 d) 1))))
+                  (mlkemDecompress (strData p) d)
+                  (for i 0 256
+                    (let ((v (& (+ y i) (- (<< 1 d) 1))))
+                      (if (!= (__load64 (strData p) i) (/ (+ (* 6658 v) (<< 1 d)) (<< 2 d)))
+                        {
+                          (set dbad (+ dbad 1))
+                          0
+                        }
+                        0)))
+                  (set y (+ y 256))
+                  0
+                }))
+            (tallyCheck t (== cbad 0) (strConcat "Compress_d, every input, d = " (fmtInt d)))
+            (tallyCheck t (== dbad 0) (strConcat "Decompress_d, every input, d = " (fmtInt d)))
+            0
+          }))
+      ; NTT^-1(NTT(f)) = f on a spread of polynomials
+      (for s 1 9
+        {
+          (for i 0 256
+            (__store64 (strData f) i (% (* (+ i 1) (* s 7919)) 3329)))
+          (ctCopy (strData p) (strData f) mlkemPolyBytes)
+          (mlkemNtt (strData p))
+          (mlkemInvNtt (strData p))
+          (tallyCheck t (strEq p f) (strConcat "NTT then NTT^-1 is the identity, seed " (fmtInt s)))
+        })
+      0
+    }))
+
+(:: vecOf5 (-> Int Int Int Int Int (Vec Int)))
+(fn (vecOf5 a b c d e)
+  (let ((v vecNew))
+    {
+      (vecPush v a)
+      (vecPush v b)
+      (vecPush v c)
+      (vecPush v d)
+      (vecPush v e)
+      v
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (kg (tallyNew "mlkem-acvp-keygen"))
+    (en (tallyNew "mlkem-acvp-encap"))
+    (de (tallyNew "mlkem-acvp-decap"))
+    (kc (tallyNew "mlkem-acvp-keycheck"))
+    (pa (tallyNew "mlkem-arithmetic"))
+  )
+    {
+      (for line in (katLines "mlkem-acvp-keygen.txt")
+        (let ((f (katFields line)))
+          (let (
+            (id (strConcat "tcId " (katText f 0)))
+            (set (katText f 1))
+            (d (katBytes f 2))
+            (z (katBytes f 3))
+            (ek (katBytes f 4))
+            (dkpke (katBytes f 5))
+            (hek (katBytes f 6))
+          )
+            (let ((dk (strConcat dkpke (strConcat ek (strConcat hek z)))))
+              (match (keyGen set d z)
+                ((Err _) (tallyCheck kg false (strConcat "keygen refused " id)))
+                ((Ok keys)
+                  (let ((kek keys.ek) (kdk keys.dk) (kseed keys.seed))
+                    {
+                      (tallyBytes kg ek kek (strConcat "ek " id))
+                      (tallyBytes kg dk kdk (strConcat "expanded dk " id))
+                      (tallyBytes kg (strConcat d z) kseed (strConcat "seed " id))
+                      0
+                    })))))))
+      (for line in (katLines "mlkem-acvp-encap.txt")
+        (let ((f (katFields line)))
+          (let (
+            (id (strConcat "tcId " (katText f 0)))
+            (set (katText f 1))
+            (ek (katBytes f 2))
+            (m (katBytes f 3))
+            (c (katBytes f 4))
+            (k (katBytes f 5))
+          )
+            (tallyCheck en (answers (encaps set ek m) (strConcat c k)) id))))
+      (for line in (katLines "mlkem-acvp-decap.txt")
+        (let ((f (katFields line)))
+          (let (
+            (id (strConcat "tcId " (katText f 0)))
+            (set (katText f 1))
+            (expanded (strEq (katText f 2) "expanded"))
+            (key (katBytes f 3))
+            (c (katBytes f 4))
+            (k (katBytes f 5))
+          )
+            (tallyCheck de (answers (decaps set expanded key c) k) id))))
+      (for line in (katLines "mlkem-acvp-keycheck.txt")
+        (let ((f (katFields line)))
+          (let (
+            (id (strConcat "tcId " (katText f 0)))
+            (set (katText f 1))
+            (isEk (strEq (katText f 2) "ek"))
+            (key (katBytes f 3))
+            (passed (== (katInt f 4) 1))
+          )
+            (if isEk
+              (let ((r (ekCheck set key)))
+                (tallyCheck kc
+                  (if passed
+                    (answers r key)
+                    (refusedWith r cryptoInvalidKey))
+                  (strConcat "ek check " id)))
+              (let ((r (keyFromExpanded set key)))
+                (tallyCheck kc
+                  (if passed
+                    (isOk r)
+                    (refusedWith r cryptoInvalidKey))
+                  (strConcat "dk check " id)))))))
+      (polyChecks pa)
+      (+ (+ (tallyReport kg) (tallyReport en)) (+ (+ (tallyReport de) (tallyReport kc)) (tallyReport pa)))
+    }))

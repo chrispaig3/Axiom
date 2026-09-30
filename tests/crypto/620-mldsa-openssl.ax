@@ -1,0 +1,207 @@
+; ML-DSA against OpenSSL: for seeded keys, contexts and messages in all
+; three parameter sets, the public key and the expanded private key
+; OpenSSL derives from the seed, and its deterministic and explicit-rnd
+; signatures, must match ours (as SHA-256 digests), and ours must
+; verify; OpenSSL's hedged signatures, made with its own randomness,
+; must verify here.
+(import IO)
+(import Str)
+(import Vec)
+(import Err)
+(import Fmt)
+(import Crypto.Errors)
+(import Crypto.Bytes)
+(import Crypto.Secret)
+(import Crypto.Sha2)
+(import Crypto.MlDsa)
+(import Kat)
+
+(:: orDie (-> (Result a Error) String a))
+;@axiom:effect(io)
+(fn (orDie r what)
+  (match r
+    ((Ok v) v)
+    ((Err e) (cast a (die (strConcat "TEST: " (strConcat what (strConcat ": " (errorText e)))) 3)))))
+
+(:: shaHex (-> String String))
+(fn (shaHex s)
+  (hexEncode (sha256 s)))
+
+; M' for pure ML-DSA: 0, the context's length, the context, the message.
+(:: pureMPrime (-> String String String))
+;@axiom:effect(unsafe)
+(fn (pureMPrime ctx msg)
+  (let ((pre (bytesNew 2)))
+    {
+      (__store8 (strData pre) 1 (strLen ctx))
+      (strConcat pre (strConcat ctx msg))
+    }))
+
+; The code of an Err, or 0 for Ok.
+(:: codeOf (-> (Result a Error) Int))
+(fn (codeOf r)
+  (match r
+    ((Ok _) 0)
+    ((Err e) (errCode e))))
+
+(:: ossl44 (-> String String String String String))
+;@axiom:effect(io)
+(fn (ossl44 seed ctx msg rnd)
+  (let ((s (orDie (secretFromString seed) "secretFromString")))
+    (let ((k (orDie (mlDsa44KeyFromSeed s) "KeyFromSeed")))
+      (let (
+        (pk (mlDsa44PublicKey k))
+        (sk (orDie (mlDsa44KeyExport k) "KeyExport"))
+        (sig
+          (orDie
+            (if (== (strLen rnd) 0)
+              (mlDsa44SignDeterministic k msg ctx)
+              (mlDsa44SignInternal k (pureMPrime ctx msg) rnd))
+            "sign"))
+      )
+        (let ((answer
+          (strConcat (shaHex (mlDsa44PublicKeyBytes pk))
+            (strConcat " "
+              (strConcat (shaHex (secretExposeCopy sk))
+                (strConcat " "
+                  (strConcat (shaHex (mlDsa44SignatureBytes sig))
+                    (if (mlDsa44Verify pk msg ctx sig) "" " (does not verify)"))))))))
+          {
+            (mlDsa44KeyWipe k)
+            (secretWipe s)
+            (secretWipe sk)
+            answer
+          })))))
+
+(:: ossl65 (-> String String String String String))
+;@axiom:effect(io)
+(fn (ossl65 seed ctx msg rnd)
+  (let ((s (orDie (secretFromString seed) "secretFromString")))
+    (let ((k (orDie (mlDsa65KeyFromSeed s) "KeyFromSeed")))
+      (let (
+        (pk (mlDsa65PublicKey k))
+        (sk (orDie (mlDsa65KeyExport k) "KeyExport"))
+        (sig
+          (orDie
+            (if (== (strLen rnd) 0)
+              (mlDsa65SignDeterministic k msg ctx)
+              (mlDsa65SignInternal k (pureMPrime ctx msg) rnd))
+            "sign"))
+      )
+        (let ((answer
+          (strConcat (shaHex (mlDsa65PublicKeyBytes pk))
+            (strConcat " "
+              (strConcat (shaHex (secretExposeCopy sk))
+                (strConcat " "
+                  (strConcat (shaHex (mlDsa65SignatureBytes sig))
+                    (if (mlDsa65Verify pk msg ctx sig) "" " (does not verify)"))))))))
+          {
+            (mlDsa65KeyWipe k)
+            (secretWipe s)
+            (secretWipe sk)
+            answer
+          })))))
+
+(:: ossl87 (-> String String String String String))
+;@axiom:effect(io)
+(fn (ossl87 seed ctx msg rnd)
+  (let ((s (orDie (secretFromString seed) "secretFromString")))
+    (let ((k (orDie (mlDsa87KeyFromSeed s) "KeyFromSeed")))
+      (let (
+        (pk (mlDsa87PublicKey k))
+        (sk (orDie (mlDsa87KeyExport k) "KeyExport"))
+        (sig
+          (orDie
+            (if (== (strLen rnd) 0)
+              (mlDsa87SignDeterministic k msg ctx)
+              (mlDsa87SignInternal k (pureMPrime ctx msg) rnd))
+            "sign"))
+      )
+        (let ((answer
+          (strConcat (shaHex (mlDsa87PublicKeyBytes pk))
+            (strConcat " "
+              (strConcat (shaHex (secretExposeCopy sk))
+                (strConcat " "
+                  (strConcat (shaHex (mlDsa87SignatureBytes sig))
+                    (if (mlDsa87Verify pk msg ctx sig) "" " (does not verify)"))))))))
+          {
+            (mlDsa87KeyWipe k)
+            (secretWipe s)
+            (secretWipe sk)
+            answer
+          })))))
+
+; ossl for parameter set `n`.
+(:: ossl (-> Int String String String String String))
+;@axiom:effect(io)
+(fn (ossl n seed ctx msg rnd)
+  (if (== n 44) (ossl44 seed ctx msg rnd) (== n 65) (ossl65 seed ctx msg rnd) (ossl87 seed ctx msg rnd)))
+
+(:: osslVerify44 (-> String String String String Bool))
+;@axiom:effect(io)
+(fn (osslVerify44 seed ctx msg sigb)
+  (let ((s (orDie (secretFromString seed) "secretFromString")))
+    (let ((k (orDie (mlDsa44KeyFromSeed s) "KeyFromSeed")))
+      (let ((ok
+        (match (mlDsa44SignatureFromBytes sigb)
+          ((Err _) false)
+          ((Ok sig) (mlDsa44Verify (mlDsa44PublicKey k) msg ctx sig)))))
+        {
+          (mlDsa44KeyWipe k)
+          (secretWipe s)
+          ok
+        }))))
+
+(:: osslVerify65 (-> String String String String Bool))
+;@axiom:effect(io)
+(fn (osslVerify65 seed ctx msg sigb)
+  (let ((s (orDie (secretFromString seed) "secretFromString")))
+    (let ((k (orDie (mlDsa65KeyFromSeed s) "KeyFromSeed")))
+      (let ((ok
+        (match (mlDsa65SignatureFromBytes sigb)
+          ((Err _) false)
+          ((Ok sig) (mlDsa65Verify (mlDsa65PublicKey k) msg ctx sig)))))
+        {
+          (mlDsa65KeyWipe k)
+          (secretWipe s)
+          ok
+        }))))
+
+(:: osslVerify87 (-> String String String String Bool))
+;@axiom:effect(io)
+(fn (osslVerify87 seed ctx msg sigb)
+  (let ((s (orDie (secretFromString seed) "secretFromString")))
+    (let ((k (orDie (mlDsa87KeyFromSeed s) "KeyFromSeed")))
+      (let ((ok
+        (match (mlDsa87SignatureFromBytes sigb)
+          ((Err _) false)
+          ((Ok sig) (mlDsa87Verify (mlDsa87PublicKey k) msg ctx sig)))))
+        {
+          (mlDsa87KeyWipe k)
+          (secretWipe s)
+          ok
+        }))))
+
+; osslVerify for parameter set `n`.
+(:: osslVerify (-> Int String String String String Bool))
+;@axiom:effect(io)
+(fn (osslVerify n seed ctx msg sigb)
+  (if (== n 44) (osslVerify44 seed ctx msg sigb) (== n 65) (osslVerify65 seed ctx msg sigb) (osslVerify87 seed ctx msg sigb)))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((t (tallyNew "mldsa-openssl")))
+    {
+      (for line in (katLines "mldsa-openssl.txt")
+        (let ((f (katFields line)))
+          (let ((label (strConcat "ML-DSA-" (strConcat (katText f 1) (strConcat " seed " (katText f 2))))))
+            (if (strEq (katText f 0) "sign")
+              (let (
+                (want (strConcat (katText f 6) (strConcat " " (strConcat (katText f 7) (strConcat " " (katText f 8))))))
+                (got (ossl (katInt f 1) (katBytes f 2) (katBytes f 3) (katBytes f 4) (katBytes f 5)))
+              )
+                (tallyCheck t (strEq got want) (strConcat label (strConcat ": got " got))))
+              (tallyCheck t (osslVerify (katInt f 1) (katBytes f 2) (katBytes f 3) (katBytes f 4) (katBytes f 5)) (strConcat label ": OpenSSL's hedged signature"))))))
+      (tallyReport t)
+    }))
