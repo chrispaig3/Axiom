@@ -535,6 +535,47 @@ Every Crypto module answers an `Err` carrying one of these codes:
 Every authentication failure answers the same code and message, so an
 error never tells an attacker which check a forgery failed.
 
+## What the suite protects against
+
+The suite is built to hold up against four kinds of attacker:
+
+- One who can time your program, from across a network or from
+  another process on the same machine. Code that handles a secret
+  doesn't branch on it, index memory with it, or divide by it, and the
+  gate checks the optimised code for each of those.
+- One who reads your process's memory later, from a core file, a
+  swapped page or a freed buffer. Secrets live in their own mappings,
+  kept out of swap and core files where the kernel allows it, and are
+  wiped when you're done with them.
+- Your own mistakes. Sealed key types can't be mixed up or
+  printed, a `NonceSequence` never repeats a nonce, decryption releases
+  nothing until the tag checks out, every authentication failure gives
+  the same error, and public keys and signatures decode strictly.
+- A failing entropy source. A kernel that can't supply randomness
+  gets you an `Err`, never a weaker substitute.
+
+It doesn't defend against power or electromagnetic analysis, fault
+injection, speculative execution, or code running inside your own
+process. The processor's own timing is covered in
+[Constant time](#constant-time), and what erasure can't reach in
+[Keys and secrets](#keys-and-secrets).
+
+## Support by target
+
+| Target | Status | Randomness | Secret store |
+|---|---|---|---|
+| `darwin-aarch64` | supported | `getentropy` | a locked mapping |
+| `linux-aarch64` | supported | `getrandom` | a locked mapping, kept out of core files |
+| `linux-x86_64` | source only | `getrandom` | a locked mapping, kept out of core files |
+| `darwin-x86_64` | source only | `getentropy` | a locked mapping |
+| `freebsd-x86_64`, `freebsd-aarch64` | source only | `getrandom` | a locked mapping, kept out of core files |
+| `baremetal-aarch64` | embedded ([guide](embedded-guide.md)) | the `RNDR` register, on CPUs that have it | none yet |
+| `windows-x86_64` | source only | none yet | none yet |
+
+Every algorithm is plain Axiom and compiles for every target. Where a
+row says "none yet", the calls that need it answer an availability
+error.
+
 ## Limits
 
 - Not yet on `windows-x86_64`: there's no entropy source or secret
