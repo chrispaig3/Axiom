@@ -5661,7 +5661,7 @@ Checked by `scripts/check-freestanding.sh`.
 
 ### Modules at a Glance
 
-Thirty-eight modules, all of them Axiom source under `stdlib/`. A module exports only the
+Forty-three modules, all of them Axiom source under `stdlib/`. A module exports only the
 names it marks `pub`, and reaching any other name is `AX3023`, so
 `grep '^(pub' stdlib/M.ax` always tells you what module `M` exports.
 
@@ -5702,6 +5702,11 @@ regenerates it on every run to keep it exact.
 | `Crypto.Random` | Secure random values from the kernel: `secureRandomBytes`, `randomBelow`, `randomRange`, `randomShuffle`, `randomWord`, the tokens `randomTokenHex`/`randomTokenUrl`, and `randomFill` for key generators. Where the target has no secure source, each call answers `Err`; none falls back to a clock or a counter. |
 | `Crypto.Secret` | Where keys live. `SecretBytes` is a handle that prints as `<SecretBytes>`, over locked memory outside the arena: `secretRandom`, `secretFromString`, `secretLen`, `secretEq`, `secretWipe`, and `secretExposeCopy` for the one time you mean to write a key out. Using a wiped secret exits with status 85. |
 | `Crypto.Bytes` | Byte strings for cryptography: `bytesEqCt` compares in constant time, `hexEncode`/`hexDecode` and the base64 codecs (`b64Encode`, `b64EncodeNoPad`, `b64UrlEncode` and their strict decoders) run in constant time, and `bytesU32Be` and its kin encode integers. |
+| `Crypto.Sha2` | SHA-256, SHA-384 and SHA-512 (FIPS 180-4): `sha256`, `sha384` and `sha512` hash a string, and `Sha256` and its kin hash a stream (`sha256New`, `sha256Update`, `sha256Final`, `sha256Copy`, `sha256Wipe`). |
+| `Crypto.Sha3` | SHA3-224 to SHA3-512 and the SHAKE128 and SHAKE256 extendable-output functions (FIPS 202): `sha3_256` and its kin, `shake128` and `shake256`, streaming `Sha3`, and `Shake128`/`Shake256` states you absorb into once and squeeze as often as you like. `keccakF1600` is the permutation. |
+| `Crypto.Blake2b` | BLAKE2b (RFC 7693), unkeyed or keyed, 1 to 64 bytes of output: `blake2b`, `blake2b512`, `blake2b256`, and the streaming `Blake2b` (`blake2bNew`, `blake2bNewKeyed`, `blake2bUpdate`, `blake2bFinal`). |
+| `Crypto.Hmac` | HMAC-SHA-256 and HMAC-SHA-512 (RFC 2104) over sealed keys: `hmacSha256` and `hmacSha256Verify`, which compares in constant time, over an `HmacSha256Key` from `hmacSha256KeyGenerate` or `hmacSha256KeyFromSecret`, streaming `HmacSha256`, and the same for 512. |
+| `Crypto.Hkdf` | HKDF (RFC 5869) with SHA-256 or SHA-512: `hkdfSha256` derives keys from input keying material, a salt and an info string, and `hkdfSha256Extract` and `hkdfSha256Expand` are its two halves. Keys go in and come out as `SecretBytes`. |
 | `Crypto.AesGcm` | AES-GCM authenticated encryption (NIST SP 800-38D) with 256- and 128-bit keys: `aes256GcmSeal` and `aes256GcmOpen` over an `Aes256GcmKey`, which `aes256GcmKeyGenerate`, `aes256GcmKeyFromSecret`, `aes256GcmKeyExport` and `aes256GcmKeyWipe` manage, and the same for 128 ([Authenticated encryption](crypto.md#authenticated-encryption)). |
 | `Crypto.ChaCha20Poly1305` | ChaCha20-Poly1305 authenticated encryption (RFC 8439): `chacha20Poly1305Seal` and `chacha20Poly1305Open` over a `ChaCha20Poly1305Key`, with the same key functions. |
 | `Crypto.Aead` | The 12-byte `AeadNonce` both ciphers take (`aeadNonceFromBytes`, `aeadNonceRandom`), and `NonceSequence`, a counter that answers a fresh nonce until it runs out and never repeats one (`nonceSequenceNew`, `nonceSequenceNext`, `nonceSequenceResume`). |

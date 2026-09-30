@@ -1,0 +1,176 @@
+; HKDF over SHA-256 and SHA-512: RFC 5869 Appendix A (SHA-256 cases),
+; Wycheproof's valid cases and its over-long outputs, a differential
+; file computed from Python's hmac module run through every entry
+; point, and the length refusals.
+(import IO)
+(import Str)
+(import Vec)
+(import Err)
+(import Mem)
+(import Crypto.Bytes)
+(import Crypto.Secret)
+(import Crypto.Hkdf)
+(import Kat)
+
+; The bytes of a derived secret, wiping it; the empty string for an
+; error.
+(:: taken (-> (Result SecretBytes Error) String))
+;@axiom:effect(io)
+(fn (taken r)
+  (match r
+    ((Ok s)
+      (let ((b (secretExposeCopy s)))
+        {
+          (secretWipe s)
+          b
+        }))
+    ((Err _) "")))
+
+(:: isErrS (-> (Result SecretBytes Error) Bool))
+;@axiom:effect(io)
+(fn (isErrS r)
+  (match r
+    ((Ok s)
+      {
+        (secretWipe s)
+        false
+      })
+    ((Err _) true)))
+
+; The output of HKDF-SHA-`alg` through one of three routes: 0 the
+; combined call, 1 extract then expand, 2 the by-address form.
+(:: derive (-> Int Int String String String Int String))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (derive alg route ikm salt info len)
+  (match (secretFromString ikm)
+    ((Err _) "")
+    ((Ok k)
+      (let ((out
+        (if (== route 0)
+          (taken
+            (if (== alg 256)
+              (hkdfSha256 k salt info len)
+              (hkdfSha512 k salt info len)))
+          (if (== route 1)
+            (match
+              (if (== alg 256)
+                (hkdfSha256Extract salt k)
+                (hkdfSha512Extract salt k))
+              ((Err _) "")
+              ((Ok prk)
+                (let ((o
+                  (taken
+                    (if (== alg 256)
+                      (hkdfSha256Expand prk info len)
+                      (hkdfSha512Expand prk info len)))))
+                  {
+                    (secretWipe prk)
+                    o
+                  })))
+            (let ((o (bytesNew len)))
+              {
+                (if (== alg 256)
+                  (hkdfSha256Raw (strData ikm) (strLen ikm) (strData salt) (strLen salt) (strData info) (strLen info) (strData o) len)
+                  (hkdfSha512Raw (strData ikm) (strLen ikm) (strData salt) (strLen salt) (strData info) (strLen info) (strData o) len))
+                o
+              })))))
+        {
+          (secretWipe k)
+          out
+        }))))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (rfc (tallyNew "hkdf-rfc5869"))
+    (wy (tallyNew "wycheproof-hkdf"))
+    (diff (tallyNew "hkdf-diff"))
+    (paths (tallyNew "hkdf-paths"))
+    (api (tallyNew "hkdf-api"))
+  )
+    {
+      (for line in (katLines "hkdf-rfc5869.txt")
+        (let ((f (katFields line)))
+          (let (
+            (ikm (katBytes f 0))
+            (salt (katBytes f 1))
+            (info (katBytes f 2))
+            (len (katInt f 3))
+            (prk (katBytes f 4))
+            (okm (katBytes f 5))
+          )
+            {
+              (match (secretFromString ikm)
+                ((Ok k)
+                  {
+                    (tallyBytes rfc prk (taken (hkdfSha256Extract salt k)) "PRK")
+                    (secretWipe k)
+                  })
+                ((Err _) (tallyCheck rfc false "secret")))
+              (tallyBytes rfc okm (derive 256 0 ikm salt info len) "OKM")
+              (tallyBytes rfc okm (derive 256 1 ikm salt info len) "OKM, extract then expand")
+            })))
+      (for name in (let ((v vecNew)) { (vecPush v "wycheproof-hkdf-sha256.txt") (vecPush v "wycheproof-hkdf-sha512.txt") v })
+        (for line in (katLines name)
+          (let ((f (katFields line)))
+            (let (
+              (alg (if (strEq name "wycheproof-hkdf-sha256.txt") 256 512))
+              (size (katInt f 0))
+              (valid (strEq (katText f 1) "valid"))
+              (ikm (katBytes f 2))
+              (salt (katBytes f 3))
+              (info (katBytes f 4))
+              (okm (katBytes f 5))
+            )
+              (if valid
+                {
+                  (tallyBytes wy okm (derive alg 0 ikm salt info size) (strConcat "valid, size " (katText f 0)))
+                  (tallyBytes wy okm (derive alg 1 ikm salt info size) "extract then expand")
+                }
+                (match (secretFromString ikm)
+                  ((Ok k)
+                    {
+                      (tallyCheck wy
+                        (if (== alg 256)
+                          (isErrS (hkdfSha256 k salt info size))
+                          (isErrS (hkdfSha512 k salt info size)))
+                        (strConcat "an output of " (strConcat (katText f 0) " bytes is refused")))
+                      (secretWipe k)
+                    })
+                  ((Err _) (tallyCheck wy false "secret"))))))))
+      (for line in (katLines "hkdf-diff.txt")
+        (let ((f (katFields line)))
+          (let (
+            (alg (katInt f 0))
+            (ikm (katBytes f 1))
+            (salt (katBytes f 2))
+            (info (katBytes f 3))
+            (len (katInt f 4))
+            (okm (katBytes f 5))
+          )
+            {
+              (tallyBytes diff okm (derive alg 0 ikm salt info len) (strConcat "HKDF-SHA-" (katText f 0)))
+              (tallyBytes paths okm (derive alg 1 ikm salt info len) "extract then expand")
+              (tallyBytes paths okm (derive alg 2 ikm salt info len) "by address")
+            })))
+      ; the refusals
+      (match (secretFromString "input keying material")
+        ((Ok k)
+          {
+            (tallyCheck api (isErrS (hkdfSha256 k "" "info" 0)) "an output of 0 bytes is refused")
+            (tallyCheck api (isErrS (hkdfSha256 k "" "info" -1)) "a negative length is refused")
+            (tallyCheck api (isErrS (hkdfSha256 k "" "info" 8161)) "8161 SHA-256 bytes are refused")
+            (tallyCheck api (isErrS (hkdfSha512 k "" "info" 16321)) "16321 SHA-512 bytes are refused")
+            (tallyCheck api (== (strLen (taken (hkdfSha256 k "" "info" 8160))) 8160) "8160 SHA-256 bytes are given")
+            (tallyCheck api (isErrS (hkdfSha256Expand k "info" 32)) "a 21-byte PRK is refused")
+            (tallyCheck api (isErrS (hkdfSha512Expand k "info" 32)) "for SHA-512 too")
+            (tallyCheck api (strEq (taken (hkdfSha256 k "" "info" 40)) (taken (hkdfSha256 k (bytesNew 32) "info" 40))) "an empty salt is 32 zero bytes")
+            (tallyCheck api (strEq (taken (hkdfSha512 k "" "info" 40)) (taken (hkdfSha512 k (bytesNew 64) "info" 40))) "and 64 for SHA-512")
+            (tallyCheck api (! (strEq (taken (hkdfSha256 k "" "a" 32)) (taken (hkdfSha256 k "" "b" 32)))) "the info separates outputs")
+            (secretWipe k)
+          })
+        ((Err _) (tallyCheck api false "secret")))
+      (+ (+ (tallyReport rfc) (tallyReport wy)) (+ (tallyReport diff) (+ (tallyReport paths) (tallyReport api))))
+    }))

@@ -1,0 +1,5 @@
+hkdf-rfc5869 ok
+wycheproof-hkdf ok
+hkdf-diff ok
+hkdf-paths ok
+hkdf-api ok

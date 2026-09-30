@@ -22,6 +22,15 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+- Hashes, MACs and key derivation: `Crypto.Sha2` (SHA-256, SHA-384,
+  SHA-512), `Crypto.Sha3` (SHA3-224 to SHA3-512, SHAKE128 and
+  SHAKE256), `Crypto.Blake2b` (unkeyed and keyed), `Crypto.Hmac`
+  (HMAC-SHA-256 and HMAC-SHA-512 over sealed keys, with a
+  constant-time verify) and `Crypto.Hkdf` (RFC 5869), each one-shot
+  and streaming. Tested against NIST CAVP including the Monte Carlo
+  chains, the BLAKE2 team's KATs, RFC 4231 and RFC 5869, Wycheproof,
+  and Python's `hashlib` for generated inputs (`tests/crypto/100-sha2.ax`
+  to `tests/crypto/140-hkdf.ax`).
 - Authenticated encryption: `Crypto.AesGcm` (AES-256-GCM and
   AES-128-GCM, NIST SP 800-38D) and `Crypto.ChaCha20Poly1305` (RFC
   8439), over sealed key types, with `Crypto.Aead`'s 12-byte nonce and

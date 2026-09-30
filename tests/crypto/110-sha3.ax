@@ -1,0 +1,317 @@
+; SHA-3 and SHAKE: NIST CAVP's short, long, variable-output and Monte
+; Carlo known answers, differential files from Python's hashlib, the
+; same messages streamed in pieces and squeezed in pieces, the
+; permutation on its own, and the state objects' refusals.
+(import IO)
+(import Str)
+(import Vec)
+(import Mem)
+(import Crypto.Ct)
+(import Crypto.Bytes)
+(import Crypto.Sha3)
+(import Kat)
+
+; The one-shot SHA3-`alg` digest of `msg`.
+(:: digestOf (-> Int String String))
+(fn (digestOf alg msg)
+  (if (== alg 224)
+    (sha3_224 msg)
+    (if (== alg 256)
+      (sha3_256 msg)
+      (if (== alg 384)
+        (sha3_384 msg)
+        (sha3_512 msg)))))
+
+; A fresh streaming state for SHA3-`alg`.
+(:: newOf (-> Int Sha3))
+(fn (newOf alg)
+  (if (== alg 224)
+    sha3_224New
+    (if (== alg 256)
+      sha3_256New
+      (if (== alg 384)
+        sha3_384New
+        sha3_512New))))
+
+; `outLen` bytes of SHAKE`alg` over `msg`, one shot.
+(:: shakeOf (-> Int String Int String))
+(fn (shakeOf alg msg outLen)
+  (if (== alg 128)
+    (shake128 msg outLen)
+    (shake256 msg outLen)))
+
+; `msg`'s SHA-3 digest from a state fed `c` bytes at a time, through the
+; address form when `viaAddr` is true. The state first hashes a
+; throwaway message, whose final resets it.
+(:: streamOf (-> Int String Int Bool String))
+;@axiom:effect(unsafe)
+(fn (streamOf alg msg c viaAddr)
+  (let ((h (newOf alg)) (n (strLen msg)) (p (strData msg)) (mut off 0))
+    {
+      (sha3Update h "throwaway")
+      (sha3Final h)
+      (while (< off n)
+        (let ((k
+          (if (< c (- n off))
+            c
+            (- n off))))
+          {
+            (if viaAddr
+              (sha3UpdateAddr h (+ p off) k)
+              (sha3Update h (strSlice msg off k)))
+            (set off (+ off k))
+          }))
+      (sha3Final h)
+    }))
+
+; `msg`'s digest from a copy of a state that absorbed its first half.
+(:: copiedOf (-> Int String String))
+(fn (copiedOf alg msg)
+  (let ((h (newOf alg)) (n (strLen msg)))
+    {
+      (sha3Update h (strSlice msg 0 (/ n 2)))
+      (let ((g (sha3Copy h)))
+        {
+          (sha3Update h "different")
+          (sha3Update g (strSlice msg (/ n 2) (- n (/ n 2))))
+          (sha3Final h)
+          (sha3Final g)
+        })
+    }))
+
+; `outLen` bytes of SHAKE`alg` over `msg`, absorbed `a` bytes at a time
+; and squeezed `s` bytes at a time, alternating the String and address
+; forms. A copy taken after absorbing squeezes the same bytes.
+(:: xofOf (-> Int String Int Int Int Bool String))
+;@axiom:effect(unsafe)
+(fn (xofOf alg msg outLen a s fromCopy)
+  (let (
+    (n (strLen msg))
+    (p (strData msg))
+    (out (bytesNew outLen))
+    (x128 shake128New)
+    (x256 shake256New)
+    (mut off 0)
+    (mut turn 0)
+  )
+    {
+      (while (< off n)
+        (let ((k
+          (if (< a (- n off))
+            a
+            (- n off))))
+          {
+            (if (== alg 128)
+              (if (== (& turn 1) 0)
+                (shake128Absorb x128 (strSlice msg off k))
+                (shake128AbsorbAddr x128 (+ p off) k))
+              (if (== (& turn 1) 0)
+                (shake256Absorb x256 (strSlice msg off k))
+                (shake256AbsorbAddr x256 (+ p off) k)))
+            (set off (+ off k))
+            (set turn (+ turn 1))
+          }))
+      (let ((y128
+        (if fromCopy
+          (shake128Copy x128)
+          x128))
+        (y256
+          (if fromCopy
+            (shake256Copy x256)
+            x256)))
+        {
+          (if fromCopy
+            {
+              ; the original squeezes ahead; the copy must not notice
+              (shake128Squeeze x128 50)
+              (shake256Squeeze x256 50)
+              0
+            }
+            0)
+          (set off 0)
+          (while (< off outLen)
+            (let ((k
+              (if (< s (- outLen off))
+                s
+                (- outLen off))))
+              {
+                (if (== alg 128)
+                  (if (== (& turn 1) 0)
+                    (ctCopy (+ (strData out) off) (strData (shake128Squeeze y128 k)) k)
+                    (shake128SqueezeAddr y128 (+ (strData out) off) k))
+                  (if (== (& turn 1) 0)
+                    (ctCopy (+ (strData out) off) (strData (shake256Squeeze y256 k)) k)
+                    (shake256SqueezeAddr y256 (+ (strData out) off) k)))
+                (set off (+ off k))
+                (set turn (+ turn 1))
+              }))
+          out
+        })
+    }))
+
+; SHA3VS Monte Carlo: 1000 iterations of md = SHA3-`alg`(md) from
+; `seed`, through the address forms and two buffers.
+(:: monte (-> Int String String))
+;@axiom:effect(unsafe)
+(fn (monte alg seed)
+  (let ((d (strLen seed)) (a (bytesFromAddr (strData seed) (strLen seed))) (b (bytesNew (strLen seed))))
+    (let ((pa (strData a)) (pb (strData b)))
+      {
+        (for i 0 500
+          {
+            (if (== alg 224)
+              {
+                (sha3_224Addr pa d pb)
+                (sha3_224Addr pb d pa)
+              }
+              (if (== alg 256)
+                {
+                  (sha3_256Addr pa d pb)
+                  (sha3_256Addr pb d pa)
+                }
+                (if (== alg 384)
+                  {
+                    (sha3_384Addr pa d pb)
+                    (sha3_384Addr pb d pa)
+                  }
+                  {
+                    (sha3_512Addr pa d pb)
+                    (sha3_512Addr pb d pa)
+                  })))
+            0
+          })
+        a
+      })))
+
+; SHAKEVS Monte Carlo from one checkpoint to the next (see the vector
+; file's header): 1000 outputs, each over the first 16 bytes of the one
+; before, zero-padded, at a length the one before chose.
+(:: shakeMonte (-> Int Int Int Int String String))
+;@axiom:effect(unsafe)
+(fn (shakeMonte alg minLen maxLen outLen0 prev)
+  (let ((m (bytesNew 16)) (mut cur prev) (mut outLen outLen0))
+    {
+      (for i 0 1000
+        (let ((take
+          (if (< (strLen cur) 16)
+            (strLen cur)
+            16)))
+          {
+            (ctWipe (strData m) 16)
+            (ctCopy (strData m) (strData cur) take)
+            (set cur (shakeOf alg m outLen))
+            (let ((n (strLen cur)))
+              (set outLen (+ minLen (% (| (<< (strByte cur (- n 2)) 8) (strByte cur (- n 1))) (+ (- maxLen minLen) 1)))))
+          }))
+      cur
+    }))
+
+; Keccak-f[1600] of the all-zero state: its first and last lanes, from
+; the Keccak team's published intermediate values.
+(:: permutationHolds Bool)
+;@axiom:effect(unsafe)
+(fn (permutationHolds)
+  (let ((st (memAlloc 200)))
+    {
+      (keccakF1600 st)
+      (&& (== (__load64 st 0) -1070291585488265753) (== (__load64 st 24) -1517150694142074295))
+    }))
+
+; A SHAKE128 blob with its position forged past the block.
+(:: forgedPosition Shake128)
+;@axiom:effect(unsafe)
+(fn (forgedPosition)
+  (let ((x shake128New))
+    (let ((s x.state))
+      {
+        (__store64 (strData s) 26 999)
+        x
+      })))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (cavp (tallyNew "sha3-cavp"))
+    (monteT (tallyNew "sha3-monte"))
+    (scavp (tallyNew "shake-cavp"))
+    (smonte (tallyNew "shake-monte"))
+    (diff (tallyNew "sha3-diff"))
+    (stream (tallyNew "sha3-stream"))
+    (sdiff (tallyNew "shake-diff"))
+    (xof (tallyNew "shake-stream"))
+    (api (tallyNew "sha3-api"))
+    (mut row 0)
+  )
+    {
+      (for line in (katLines "sha3-cavp-msg.txt")
+        (let ((f (katFields line)))
+          (tallyBytes cavp (katBytes f 2) (digestOf (katInt f 0) (katBytes f 1)) (strConcat "SHA3-" (katText f 0)))))
+      (for line in (katLines "sha3-cavp-monte.txt")
+        (let ((f (katFields line)))
+          (tallyBytes monteT (katBytes f 2) (monte (katInt f 0) (katBytes f 1)) (strConcat "SHA3-" (katText f 0)))))
+      (for line in (katLines "shake-cavp-msg.txt")
+        (let ((f (katFields line)))
+          (tallyBytes scavp (katBytes f 3) (shakeOf (katInt f 0) (katBytes f 2) (katInt f 1)) (strConcat "SHAKE" (katText f 0)))))
+      (for line in (katLines "shake-cavp-monte.txt")
+        (let ((f (katFields line)))
+          (tallyBytes smonte (katBytes f 5) (shakeMonte (katInt f 0) (katInt f 1) (katInt f 2) (katInt f 3) (katBytes f 4)) (strConcat "SHAKE" (katText f 0)))))
+      (for line in (katLines "sha3-diff.txt")
+        (let ((f (katFields line)))
+          (let ((alg (katInt f 0)) (msg (katBytes f 1)) (md (katBytes f 2)))
+            {
+              (tallyBytes diff md (digestOf alg msg) (strConcat "SHA3-" (katText f 0)))
+              (tallyBytes stream md (streamOf alg msg (+ 1 (% row 173)) false) "pieces")
+              (tallyBytes stream md (streamOf alg msg (+ 1 (% (* row 7) 301)) true) "pieces by address")
+              (tallyBytes stream md (copiedOf alg msg) "copied state")
+              (set row (+ row 1))
+            })))
+      (for line in (katLines "shake-diff.txt")
+        (let ((f (katFields line)))
+          (let ((alg (katInt f 0)) (outLen (katInt f 1)) (msg (katBytes f 2)) (out (katBytes f 3)))
+            {
+              (tallyBytes sdiff out (shakeOf alg msg outLen) (strConcat "SHAKE" (katText f 0)))
+              (tallyBytes xof out (xofOf alg msg outLen (+ 1 (% row 170)) (+ 1 (% (* row 11) 211)) false) "pieces")
+              (tallyBytes xof out (xofOf alg msg outLen (+ 1 (% (* row 5) 400)) (+ 1 (% (* row 3) 17)) true) "copied state")
+              (set row (+ row 1))
+            })))
+      ; the permutation, and the refusals
+      (tallyCheck api (permutationHolds) "Keccak-f[1600] of the zero state")
+      (tallyCheck api (== (sha3Update (Sha3 "short") "abc") -1) "a SHA-3 blob of the wrong size is refused")
+      (tallyCheck api (strEq (sha3Final (Sha3 "short")) "") "and finishes empty")
+      (tallyCheck api (== (sha3Update (Sha3 (bytesNew 232)) "abc") -1) "a SHA-3 blob with a rate of 0 is refused")
+      (tallyCheck api (== (shake128Absorb (Shake128 (bytesNew 232)) "abc") -1) "a SHAKE128 blob with the wrong rate is refused")
+      (tallyCheck api (strEq (shake256Squeeze (Shake256 (bytesNew 7)) 8) "") "a SHAKE256 blob of the wrong size squeezes nothing")
+      (tallyCheck api (== (shake128Absorb (Shake128 "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567") "abc") -1) "a state over a string literal is refused")
+      (tallyCheck api (== (shake128Wipe (Shake128 "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567")) -1) "and a wipe writes nothing")
+      (tallyCheck api (== (shake128Absorb (forgedPosition) "abc") -1) "a position past the block is refused")
+      (tallyCheck api (strEq (shake128Squeeze (forgedPosition) 4) "") "and squeezes nothing")
+      (tallyCheck api (== (shake256Absorb (Shake256 sha3_256New.state) "abc") 0) "a SHA3-256 blob has SHAKE256's rate and is accepted")
+      (let ((x shake128New))
+        {
+          (shake128Absorb x "abc")
+          (let ((first (shake128Squeeze x 10)))
+            {
+              (tallyCheck api (== (shake128Absorb x "more") -1) "absorbing after a squeeze is refused")
+              (tallyCheck api (strEq (shake128Squeeze x -1) "") "a negative squeeze answers nothing")
+              (tallyCheck api (strEq (strConcat first (shake128Squeeze x 6)) (shake128 "abc" 16)) "the refusals changed nothing")
+              (shake128Wipe x)
+              (shake128Absorb x "abc")
+              (tallyCheck api (strEq (shake128Squeeze x 16) (shake128 "abc" 16)) "a wipe leaves a fresh XOF")
+            })
+        })
+      (tallyCheck api (strEq (shake256 "abc" -5) "") "a negative one-shot length answers nothing")
+      (tallyCheck api (strEq (shake256 "abc" 0) "") "a zero length answers nothing")
+      (let ((h sha3_384New))
+        {
+          (sha3Update h "partial")
+          (sha3Wipe h)
+          (sha3Update h "abc")
+          (tallyCheck api (strEq (sha3Final h) (sha3_384 "abc")) "a SHA-3 wipe leaves a fresh hash of the same size")
+          (sha3Update h "abc")
+          (tallyCheck api (strEq (sha3Final h) (sha3_384 "abc")) "a final resets to the same size")
+        })
+      (tallyCheck api (strEq (hexEncode (sha3_256 "abc")) "3a985da74fe225b2045c172d6bd390bd855f086e3e9d525b46bfe24511431532") "FIPS 202 example, SHA3-256 of abc")
+      (+ (+ (+ (tallyReport cavp) (tallyReport monteT)) (+ (tallyReport scavp) (tallyReport smonte)))
+        (+ (+ (tallyReport diff) (tallyReport stream)) (+ (+ (tallyReport sdiff) (tallyReport xof)) (tallyReport api))))
+    }))

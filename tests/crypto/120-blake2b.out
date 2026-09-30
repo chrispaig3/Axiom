@@ -1,0 +1,4 @@
+blake2b-kat ok
+blake2b-diff ok
+blake2b-stream ok
+blake2b-api ok

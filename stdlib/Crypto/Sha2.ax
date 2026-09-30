@@ -1,0 +1,1362 @@
+; Crypto.Sha2 - SHA-256, SHA-384 and SHA-512.
+;
+;     (hexEncode (sha256 "abc"))
+;     ; "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+;
+;     (let ((h sha512New))
+;       {
+;         (sha512Update h "a")
+;         (sha512Update h "bc")
+;         (sha512Final h)          ; the same 64 bytes as (sha512 "abc")
+;       })
+;
+; A digest is a `String` of raw bytes: 32 for SHA-256, 48 for SHA-384,
+; 64 for SHA-512. `hexEncode` from `Crypto.Bytes` spells one in hex.
+;
+; WHAT IT GUARANTEES. The digests FIPS 180-4 defines, for every byte
+; string, whether it arrives in one piece or in any number of updates.
+; The compression functions are straight-line code: no branch, loop
+; bound or memory address depends on the message or on the chaining
+; value, so hashing a secret (an HMAC key, a seed) reveals its length
+; and nothing else. The round constants are literals in the code, not a
+; table.
+;
+; STANDARD. FIPS 180-4, Secure Hash Standard (August 2015): the
+; functions of sections 4.1.2 and 4.1.3, the constants of 4.2.2 and
+; 4.2.3, the padding of 5.1, the initial values of 5.3.3 to 5.3.5, and
+; the computations of 6.2 (SHA-256), 6.4 (SHA-512) and 6.5 (SHA-384).
+;
+; REFERENCE. Written from the standard. The shape of the round code, in
+; which the eight working variables change names from round to round
+; instead of moving, and the message schedule rolls through sixteen
+; words, follows BearSSL's `sha2small.c` and `sha2big.c` (MIT licence).
+;
+; STATE OBJECTS. `Sha256`, `Sha384` and `Sha512` each wrap one
+; fixed-size `String` holding the chaining value, the byte count and a
+; partial block. Every operation checks the blob first, so a value built
+; by hand with the wrong size, or over a string literal, is refused
+; instead of read out of bounds or written: an update answers -1 and a
+; final answers the empty string.
+; A final resets the state to a fresh one, with the partial block wiped,
+; so the same object can hash the next message.
+;
+; LIMITS. FIPS 180-4 bounds a SHA-256 message at 2^64 - 1 bits; this
+; module stops at 2^61 - 1 bytes, the same bound counted in bytes. It
+; bounds SHA-384 and SHA-512 messages at 2^128 - 1 bits; this module
+; stops at 2^63 - 1 bytes, the most an `Int` counts. An update that
+; would pass the bound absorbs nothing and answers -1. Erasure reaches
+; the state blob and the scratch memory of the one-shot forms, not
+; values the processor held in registers or spilled to the stack. The
+; `...Addr` and `...Raw...` functions are the hazardous layer for other
+; Crypto modules: they take addresses and check nothing their
+; preconditions leave to the caller.
+(import Mem)
+(import Str)
+(import Crypto.Ct)
+(import Crypto.Bytes)
+
+; Zero `n` words at `st` from word `first` on, in a way the optimiser
+; may not delete: word stores up to the last, then `ctWipe` over the
+; last, whose closing fence may read any memory and so keeps every
+; store before it. Cheaper than a byte-at-a-time `ctWipe` of the lot.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: sha2Erase (-> Int Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`st` names `first` + `n` live writable words, `n` at least 1)
+(fn (sha2Erase st first n)
+  {
+    (for i first (+ first (- n 1))
+      (__store64 st i 0))
+    (ctWipe (+ st (* 8 (+ first (- n 1)))) 8)
+  })
+
+; Whether `s` could be a state blob of `n` bytes this module made: the
+; right size, and bytes some allocation owns. A string literal owns
+; none, and its bytes are read-only, so a hand-built state over one is
+; refused before anything is written.
+(:: sha2BlobOk (-> String Int Bool))
+(fn (sha2BlobOk s n)
+  (&& (== (strLen s) n) (!= (strOwner s) 0)))
+
+; ------------------------------------------------------------------
+; SHA-256 (FIPS 180-4 section 6.2). The 32-bit words live in the low
+; half of an Int with the high half zero.
+; ------------------------------------------------------------------
+; A SHA-256 hash in progress. Make one with `sha256New`.
+(pub struct Sha256
+  (state : String))
+
+; The state blob: words 0-7 the chaining value H, word 8 the bytes
+; absorbed so far, word 9 how many of them wait in the partial block,
+; and bytes 80-143 the partial block.
+(:: sha256StateBytes Int)
+(fn (sha256StateBytes)
+  144)
+
+; 2^61 - 1: the longest message, in bytes, whose length in bits fits
+; the 64-bit length field.
+(:: sha256MaxBytes Int)
+(fn (sha256MaxBytes)
+  2305843009213693951)
+
+; ------------------------------------------------------------------
+; The operations the kernels are built from, as macros so that every
+; one lands inline in the kernel that uses it: no call is left for the
+; optimiser to keep, and the constant-time check reads one function.
+; ------------------------------------------------------------------
+; `x` shifted right by `n` bits with zeros in, for a literal `n` in
+; 1..63: the arithmetic shift with its sign copies masked off, which
+; `opt` folds into one logical shift.
+(macro (sha2Shr x n)
+  (& (>> x n) (- (<< 1 (- 64 n)) 1)))
+
+; `x` rotated right by a literal `n` in 1..63: one rotate instruction.
+(macro (sha2Rotr x n)
+  (| (sha2Shr x n) (<< x (- 64 n))))
+
+; The little-endian 32-bit word at `p` + `off`, which need not be
+; aligned, byte by byte; `opt` combines the bytes into one load.
+(macro (sha2Ld32le p off)
+  (| (__load8 p off)
+    (| (<< (__load8 p (+ off 1)) 8)
+      (| (<< (__load8 p (+ off 2)) 16)
+        (<< (__load8 p (+ off 3)) 24)))))
+
+; The little-endian 64-bit word at `p` + `off`, which need not be
+; aligned; one load after `opt`.
+(macro (sha2Ld64le p off)
+  (| (sha2Ld32le p off) (<< (sha2Ld32le p (+ off 4)) 32)))
+
+; `x` with its eight bytes in the opposite order. `opt` recognises the
+; shape and emits one byte-reverse instruction. The masks clear the sign
+; copies the arithmetic shifts bring in.
+(macro (sha2Bswap x)
+  (let ((x0 x))
+    (let ((a (| (& (>> x0 8) 71777214294589695) (<< (& x0 71777214294589695) 8))))
+      (let ((b (| (& (>> a 16) 281470681808895) (<< (& a 281470681808895) 16))))
+        (| (& (>> b 32) 4294967295) (<< b 32))))))
+
+; The big-endian 64-bit word at `p` + `off`: one load and one byte
+; reverse. (`Crypto.Ct`'s byte-wise `ld64be` is not combined into a
+; load at --opt 1; the little-endian shape is.)
+(macro (sha2Ld64be p off)
+  (sha2Bswap (sha2Ld64le p off)))
+
+; The big-endian 32-bit word at `p` + `off`.
+(macro (sha2Ld32be p off)
+  (| (<< (__load8 p off) 24)
+    (| (<< (__load8 p (+ off 1)) 16)
+      (| (<< (__load8 p (+ off 2)) 8)
+        (__load8 p (+ off 3))))))
+
+; Store the low 32 bits of `v` at `p` + `off`, most significant byte
+; first.
+(macro (sha2St32be p off v)
+  (let ((v0 v) (o off))
+    {
+      (__store8 p o (& (>> v0 24) 255))
+      (__store8 p (+ o 1) (& (>> v0 16) 255))
+      (__store8 p (+ o 2) (& (>> v0 8) 255))
+      (__store8 p (+ o 3) (& v0 255))
+    }))
+
+; Store the 64 bits of `v` at `p` + `off`, most significant byte first.
+(macro (sha2St64be p off v)
+  (let ((v0 v) (o off))
+    {
+      (sha2St32be p o (sha2Shr v0 32))
+      (sha2St32be p (+ o 4) (& v0 4294967295))
+    }))
+
+; Copy `n` bytes from `src` to `dst`, which do not overlap.
+(macro (sha2Copy dst src n)
+  (let ((d dst) (s src) (k n))
+    (for i 0 k
+      (__store8 d i (__load8 s i)))))
+
+; The functions of section 4.1.2, (4.4) to (4.7), on a word whose low
+; 32 bits are the operand and whose high 32 bits may hold anything. The
+; word is first doubled, its low half copied into the high half, so
+; that a 64-bit rotation right by n < 32 leaves the 32-bit rotation in
+; the low half: one instruction on aarch64 and x86_64, where a 32-bit
+; rotation built from 64-bit shifts takes three. The high half of an
+; answer means nothing; the chaining value masks back to 32 bits.
+(macro (sha256Double x)
+  (| (& x 4294967295) (<< x 32)))
+
+(macro (sha256Sum0 x)
+  (let ((xx (sha256Double x)))
+    (^ (^ (sha2Rotr xx 2) (sha2Rotr xx 13)) (sha2Rotr xx 22))))
+
+(macro (sha256Sum1 x)
+  (let ((xx (sha256Double x)))
+    (^ (^ (sha2Rotr xx 6) (sha2Rotr xx 11)) (sha2Rotr xx 25))))
+
+(macro (sha256Sigma0 x)
+  (let ((xx (sha256Double x)))
+    (^ (^ (sha2Rotr xx 7) (sha2Rotr xx 18)) (>> (& x 4294967295) 3))))
+
+(macro (sha256Sigma1 x)
+  (let ((xx (sha256Double x)))
+    (^ (^ (sha2Rotr xx 17) (sha2Rotr xx 19)) (>> (& x 4294967295) 10))))
+
+; Ch and Maj, (4.2) and (4.3), in the equivalent forms with one fewer
+; operation: Ch(e,f,g) = g ^ (e & (f ^ g)) and
+; Maj(a,b,c) = (a & b) ^ (c & (a ^ b)).
+(macro (sha2Ch e f g)
+  (^ g (& e (^ f g))))
+
+(macro (sha2Maj a b c)
+  (^ (& a b) (& c (^ a b))))
+
+; One round of section 6.2.2 step 3. Only two working variables change:
+; `d` becomes the new `e` and `h` the new `a`, and the next round names
+; the eight in the order h a b c d e f g. The sums are not masked: only
+; their low 32 bits are ever read until the chaining value is updated.
+(macro (sha256Round a b c d e f g h k w)
+  (let (
+    (t1 (+ (+ h (sha256Sum1 e)) (+ (sha2Ch e f g) (+ k w))))
+    (t2 (+ (sha256Sum0 a) (sha2Maj a b c)))
+  )
+    {
+      (set d (+ d t1))
+      (set h (+ t1 t2))
+    }))
+
+; Schedule word t (section 6.2.2 step 1) into the slot of word t - 16,
+; given the slots of words t - 2, t - 7 and t - 15.
+(macro (sha256Schedule w16 w2 w7 w15)
+  (set w16 (+ (+ w16 (sha256Sigma1 w2)) (+ w7 (sha256Sigma0 w15)))))
+
+; Fold `nblocks` 64-byte blocks at `p` into the chaining value in the
+; eight words at `cv`.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: sha256Blocks (-> Int Int Int Int))
+;@axiom:ct(*cv, *p)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`cv` names 8 live writable words and `p` names 64 * `nblocks` live bytes)
+(fn (sha256Blocks cv p nblocks)
+  (let (
+    (mut a (sha2Ld64le cv 0))
+    (mut b (sha2Ld64le cv 8))
+    (mut c (sha2Ld64le cv 16))
+    (mut d (sha2Ld64le cv 24))
+    (mut e (sha2Ld64le cv 32))
+    (mut f (sha2Ld64le cv 40))
+    (mut g (sha2Ld64le cv 48))
+    (mut h (sha2Ld64le cv 56))
+  )
+    {
+      (for blk 0 nblocks
+        (let (
+          (q (+ p (* 64 blk)))
+          (a0 a)
+          (b0 b)
+          (c0 c)
+          (d0 d)
+          (e0 e)
+          (f0 f)
+          (g0 g)
+          (h0 h)
+        )
+          (let (
+            (v0 (sha2Ld64be q 0))
+            (v1 (sha2Ld64be q 8))
+            (v2 (sha2Ld64be q 16))
+            (v3 (sha2Ld64be q 24))
+            (v4 (sha2Ld64be q 32))
+            (v5 (sha2Ld64be q 40))
+            (v6 (sha2Ld64be q 48))
+            (v7 (sha2Ld64be q 56))
+          )
+          (let (
+            (mut w0 (sha2Shr v0 32))
+            (mut w1 (& v0 4294967295))
+            (mut w2 (sha2Shr v1 32))
+            (mut w3 (& v1 4294967295))
+            (mut w4 (sha2Shr v2 32))
+            (mut w5 (& v2 4294967295))
+            (mut w6 (sha2Shr v3 32))
+            (mut w7 (& v3 4294967295))
+            (mut w8 (sha2Shr v4 32))
+            (mut w9 (& v4 4294967295))
+            (mut w10 (sha2Shr v5 32))
+            (mut w11 (& v5 4294967295))
+            (mut w12 (sha2Shr v6 32))
+            (mut w13 (& v6 4294967295))
+            (mut w14 (sha2Shr v7 32))
+            (mut w15 (& v7 4294967295))
+          )
+            {
+              (sha256Round a b c d e f g h 1116352408 w0)
+              (sha256Round h a b c d e f g 1899447441 w1)
+              (sha256Round g h a b c d e f 3049323471 w2)
+              (sha256Round f g h a b c d e 3921009573 w3)
+              (sha256Round e f g h a b c d 961987163 w4)
+              (sha256Round d e f g h a b c 1508970993 w5)
+              (sha256Round c d e f g h a b 2453635748 w6)
+              (sha256Round b c d e f g h a 2870763221 w7)
+              (sha256Round a b c d e f g h 3624381080 w8)
+              (sha256Round h a b c d e f g 310598401 w9)
+              (sha256Round g h a b c d e f 607225278 w10)
+              (sha256Round f g h a b c d e 1426881987 w11)
+              (sha256Round e f g h a b c d 1925078388 w12)
+              (sha256Round d e f g h a b c 2162078206 w13)
+              (sha256Round c d e f g h a b 2614888103 w14)
+              (sha256Round b c d e f g h a 3248222580 w15)
+              (sha256Schedule w0 w14 w9 w1)
+              (sha256Round a b c d e f g h 3835390401 w0)
+              (sha256Schedule w1 w15 w10 w2)
+              (sha256Round h a b c d e f g 4022224774 w1)
+              (sha256Schedule w2 w0 w11 w3)
+              (sha256Round g h a b c d e f 264347078 w2)
+              (sha256Schedule w3 w1 w12 w4)
+              (sha256Round f g h a b c d e 604807628 w3)
+              (sha256Schedule w4 w2 w13 w5)
+              (sha256Round e f g h a b c d 770255983 w4)
+              (sha256Schedule w5 w3 w14 w6)
+              (sha256Round d e f g h a b c 1249150122 w5)
+              (sha256Schedule w6 w4 w15 w7)
+              (sha256Round c d e f g h a b 1555081692 w6)
+              (sha256Schedule w7 w5 w0 w8)
+              (sha256Round b c d e f g h a 1996064986 w7)
+              (sha256Schedule w8 w6 w1 w9)
+              (sha256Round a b c d e f g h 2554220882 w8)
+              (sha256Schedule w9 w7 w2 w10)
+              (sha256Round h a b c d e f g 2821834349 w9)
+              (sha256Schedule w10 w8 w3 w11)
+              (sha256Round g h a b c d e f 2952996808 w10)
+              (sha256Schedule w11 w9 w4 w12)
+              (sha256Round f g h a b c d e 3210313671 w11)
+              (sha256Schedule w12 w10 w5 w13)
+              (sha256Round e f g h a b c d 3336571891 w12)
+              (sha256Schedule w13 w11 w6 w14)
+              (sha256Round d e f g h a b c 3584528711 w13)
+              (sha256Schedule w14 w12 w7 w15)
+              (sha256Round c d e f g h a b 113926993 w14)
+              (sha256Schedule w15 w13 w8 w0)
+              (sha256Round b c d e f g h a 338241895 w15)
+              (sha256Schedule w0 w14 w9 w1)
+              (sha256Round a b c d e f g h 666307205 w0)
+              (sha256Schedule w1 w15 w10 w2)
+              (sha256Round h a b c d e f g 773529912 w1)
+              (sha256Schedule w2 w0 w11 w3)
+              (sha256Round g h a b c d e f 1294757372 w2)
+              (sha256Schedule w3 w1 w12 w4)
+              (sha256Round f g h a b c d e 1396182291 w3)
+              (sha256Schedule w4 w2 w13 w5)
+              (sha256Round e f g h a b c d 1695183700 w4)
+              (sha256Schedule w5 w3 w14 w6)
+              (sha256Round d e f g h a b c 1986661051 w5)
+              (sha256Schedule w6 w4 w15 w7)
+              (sha256Round c d e f g h a b 2177026350 w6)
+              (sha256Schedule w7 w5 w0 w8)
+              (sha256Round b c d e f g h a 2456956037 w7)
+              (sha256Schedule w8 w6 w1 w9)
+              (sha256Round a b c d e f g h 2730485921 w8)
+              (sha256Schedule w9 w7 w2 w10)
+              (sha256Round h a b c d e f g 2820302411 w9)
+              (sha256Schedule w10 w8 w3 w11)
+              (sha256Round g h a b c d e f 3259730800 w10)
+              (sha256Schedule w11 w9 w4 w12)
+              (sha256Round f g h a b c d e 3345764771 w11)
+              (sha256Schedule w12 w10 w5 w13)
+              (sha256Round e f g h a b c d 3516065817 w12)
+              (sha256Schedule w13 w11 w6 w14)
+              (sha256Round d e f g h a b c 3600352804 w13)
+              (sha256Schedule w14 w12 w7 w15)
+              (sha256Round c d e f g h a b 4094571909 w14)
+              (sha256Schedule w15 w13 w8 w0)
+              (sha256Round b c d e f g h a 275423344 w15)
+              (sha256Schedule w0 w14 w9 w1)
+              (sha256Round a b c d e f g h 430227734 w0)
+              (sha256Schedule w1 w15 w10 w2)
+              (sha256Round h a b c d e f g 506948616 w1)
+              (sha256Schedule w2 w0 w11 w3)
+              (sha256Round g h a b c d e f 659060556 w2)
+              (sha256Schedule w3 w1 w12 w4)
+              (sha256Round f g h a b c d e 883997877 w3)
+              (sha256Schedule w4 w2 w13 w5)
+              (sha256Round e f g h a b c d 958139571 w4)
+              (sha256Schedule w5 w3 w14 w6)
+              (sha256Round d e f g h a b c 1322822218 w5)
+              (sha256Schedule w6 w4 w15 w7)
+              (sha256Round c d e f g h a b 1537002063 w6)
+              (sha256Schedule w7 w5 w0 w8)
+              (sha256Round b c d e f g h a 1747873779 w7)
+              (sha256Schedule w8 w6 w1 w9)
+              (sha256Round a b c d e f g h 1955562222 w8)
+              (sha256Schedule w9 w7 w2 w10)
+              (sha256Round h a b c d e f g 2024104815 w9)
+              (sha256Schedule w10 w8 w3 w11)
+              (sha256Round g h a b c d e f 2227730452 w10)
+              (sha256Schedule w11 w9 w4 w12)
+              (sha256Round f g h a b c d e 2361852424 w11)
+              (sha256Schedule w12 w10 w5 w13)
+              (sha256Round e f g h a b c d 2428436474 w12)
+              (sha256Schedule w13 w11 w6 w14)
+              (sha256Round d e f g h a b c 2756734187 w13)
+              (sha256Schedule w14 w12 w7 w15)
+              (sha256Round c d e f g h a b 3204031479 w14)
+              (sha256Schedule w15 w13 w8 w0)
+              (sha256Round b c d e f g h a 3329325298 w15)
+              (set a (& (+ a a0) 4294967295))
+              (set b (& (+ b b0) 4294967295))
+              (set c (& (+ c c0) 4294967295))
+              (set d (& (+ d d0) 4294967295))
+              (set e (& (+ e e0) 4294967295))
+              (set f (& (+ f f0) 4294967295))
+              (set g (& (+ g g0) 4294967295))
+              (set h (& (+ h h0) 4294967295))
+              0
+            }))))
+      (__store64 cv 0 a)
+      (__store64 cv 1 b)
+      (__store64 cv 2 c)
+      (__store64 cv 3 d)
+      (__store64 cv 4 e)
+      (__store64 cv 5 f)
+      (__store64 cv 6 g)
+      (__store64 cv 7 h)
+      0
+    }))
+
+; Set the state at `st` to the initial value of section 5.3.3, with
+; nothing absorbed and the partial block wiped.
+(:: sha256Init (-> Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`st` names a live writable SHA-256 state blob)
+(fn (sha256Init st)
+  {
+    (__store64 st 0 1779033703)
+    (__store64 st 1 3144134277)
+    (__store64 st 2 1013904242)
+    (__store64 st 3 2773480762)
+    (__store64 st 4 1359893119)
+    (__store64 st 5 2600822924)
+    (__store64 st 6 528734635)
+    (__store64 st 7 1541459225)
+    (sha2Erase st 8 10)
+  })
+
+; Absorb `n` bytes at `p`. The state is in three parts, passed apart so
+; that the constant-time claim can name the secret ones: the chaining
+; value at `cv` and the pending block at `buf` are secret; the two
+; counters at `ctr` (bytes absorbed, bytes pending) are the message's
+; length and public. Answers 0, or -1 when the message would pass
+; `sha256MaxBytes`, and then absorbs nothing.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: sha256AbsorbIn (-> Int Int Int Int Int Int))
+;@axiom:ct(*cv, *buf, *p)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`cv` names 8 live writable words, `ctr` 2, `buf` 64 live writable bytes, and `p` names `n` live bytes)
+(fn (sha256AbsorbIn cv ctr buf p n)
+  (let ((total (__load64 ctr 0)))
+    (if (|| (< n 0) (|| (< total 0) (> n (- sha256MaxBytes total))))
+      -1
+      (let (
+        (mut have (& (__load64 ctr 1) 63))
+        (mut off 0)
+      )
+        {
+          ; top up a partial block first
+          (if (> have 0)
+            (let ((take
+              (if (< n (- 64 have))
+                n
+                (- 64 have))))
+              {
+                (sha2Copy (+ buf have) p take)
+                (set off take)
+                (set have (+ have take))
+                (if (== have 64)
+                  {
+                    (sha256Blocks cv buf 1)
+                    (set have 0)
+                    0
+                  }
+                  0)
+              })
+            0)
+          ; whole blocks straight from the input
+          (let ((whole (>> (- n off) 6)))
+            {
+              (sha256Blocks cv (+ p off) whole)
+              (set off (+ off (<< whole 6)))
+            })
+          ; the rest waits for more
+          (sha2Copy (+ buf have) (+ p off) (- n off))
+          (__store64 ctr 0 (+ total n))
+          (__store64 ctr 1 (+ have (- n off)))
+          0
+        }))))
+
+; `sha256AbsorbIn` on the SHA-256 state blob at `st`.
+(:: sha256Absorb (-> Int Int Int Int))
+;@axiom:ct(*p)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`st` names a live writable SHA-256 state blob and `p` names `n` live bytes)
+(fn (sha256Absorb st p n)
+  (sha256AbsorbIn st (+ st 64) (+ st 80) p n))
+
+; Pad the message (section 5.1.1), fold in the last block or two, and
+; write the first `nwords` words of the chaining value to `out`, most
+; significant byte first. The parts are as `sha256AbsorbIn` takes them.
+; The state is left spent; the caller resets it.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: sha256FinishIn (-> Int Int Int Int Int Int))
+;@axiom:ct(*cv, *buf, *out)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`cv` names 8 live writable words, `ctr` 2, `buf` 64 live writable bytes, and `out` names 4 * `nwords` live writable bytes, `nwords` at most 8)
+(fn (sha256FinishIn cv ctr buf out nwords)
+  (let ((have (& (__load64 ctr 1) 63)) (total (__load64 ctr 0)))
+    {
+      (__store8 buf have 128)
+      (for i (+ have 1) 64
+        (__store8 buf i 0))
+      (if (> have 55)
+        {
+          (sha256Blocks cv buf 1)
+          (for i 0 56
+            (__store8 buf i 0))
+          0
+        }
+        0)
+      (sha2St64be buf 56 (<< total 3))
+      (sha256Blocks cv buf 1)
+      (for i 0 nwords
+        (sha2St32be out (* 4 i) (sha2Ld64le cv (* 8 i))))
+      0
+    }))
+
+; `sha256FinishIn` on the SHA-256 state blob at `st`.
+(:: sha256Finish (-> Int Int Int Int))
+;@axiom:ct(*out)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`st` names a live writable SHA-256 state blob and `out` names 4 * `nwords` live writable bytes, `nwords` at most 8)
+(fn (sha256Finish st out nwords)
+  (sha256FinishIn st (+ st 64) (+ st 80) out nwords))
+
+; A fresh SHA-256 hash with nothing absorbed.
+(pub :: sha256New Sha256)
+;@axiom:effect(unsafe)
+(pub fn (sha256New)
+  (let ((s (strAlloc sha256StateBytes)))
+    {
+      (sha256Init (strData s))
+      (Sha256 s)
+    }))
+
+; Absorb `n` bytes at address `p`: `sha256Update` for a caller holding
+; raw memory, such as another Crypto module hashing a key in the secret
+; store. Answers 0, or -1 when `h` is not a SHA-256 state or the
+; message would pass the length limit, and then absorbs nothing.
+(pub :: sha256UpdateAddr (-> Sha256 Int Int Int))
+;@axiom:ct(*p)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p` names `n` live bytes)
+(pub fn (sha256UpdateAddr h p n)
+  (let ((s h.state))
+    (if (! (sha2BlobOk s sha256StateBytes))
+      -1
+      (sha256Absorb (strData s) p n))))
+
+; Absorb `msg`. Answers 0, or -1 when `h` is not a SHA-256 state or the
+; message would pass the length limit, and then absorbs nothing.
+(pub :: sha256Update (-> Sha256 String Int))
+;@axiom:effect(unsafe)
+(pub fn (sha256Update h msg)
+  (sha256UpdateAddr h (strData msg) (strLen msg)))
+
+; The 32-byte digest of everything absorbed. `h` is then reset to a
+; fresh hash, its partial block wiped, ready for another message. A
+; value that is not a SHA-256 state answers the empty string.
+(pub :: sha256Final (-> Sha256 String))
+;@axiom:effect(unsafe)
+(pub fn (sha256Final h)
+  (let ((s h.state))
+    (if (! (sha2BlobOk s sha256StateBytes))
+      ""
+      (let ((out (strAlloc 32)) (st (strData s)))
+        {
+          (sha256Finish st (strData out) 8)
+          (sha256Init st)
+          out
+        }))))
+
+; An independent copy of `h`, which goes on from the same point. Prime
+; one state with a shared prefix, then copy it once per message.
+(pub :: sha256Copy (-> Sha256 Sha256))
+;@axiom:effect(unsafe)
+(pub fn (sha256Copy h)
+  (let ((s h.state))
+    (Sha256 (bytesFromAddr (strData s) (strLen s)))))
+
+; Erase everything `h` holds and leave it a fresh hash. Answers 0, or
+; -1 with nothing written when `h` is not a SHA-256 state.
+(pub :: sha256Wipe (-> Sha256 Int))
+;@axiom:effect(unsafe)
+(pub fn (sha256Wipe h)
+  (let ((s h.state))
+    (if (sha2BlobOk s sha256StateBytes)
+      {
+        (ctWipe (strData s) (strLen s))
+        (sha256Init (strData s))
+      }
+      -1)))
+
+; The SHA-256 digest of `n` bytes at `p`, written to the 32 bytes at
+; `out`. Answers 0. The scratch state is wiped before it returns.
+(pub :: sha256Addr (-> Int Int Int Int))
+;@axiom:ct(*p)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p` names `n` live bytes and `out` names 32 live writable bytes)
+(pub fn (sha256Addr p n out)
+  (let ((st (memAlloc sha256StateBytes)))
+    {
+      (sha256Init st)
+      (sha256Absorb st p n)
+      (sha256Finish st out 8)
+      (sha256Init st)
+    }))
+
+; The 32-byte SHA-256 digest of `msg`.
+(pub :: sha256 (-> String String))
+;@axiom:effect(unsafe)
+(pub fn (sha256 msg)
+  (let ((out (strAlloc 32)))
+    {
+      (sha256Addr (strData msg) (strLen msg) (strData out))
+      out
+    }))
+
+; ------------------------------------------------------------------
+; SHA-512 and SHA-384 (FIPS 180-4 sections 6.4 and 6.5). The same
+; computation on 64-bit words, which an Int holds whole; `+` wraps
+; modulo 2^64 as the standard's addition does.
+; ------------------------------------------------------------------
+; A SHA-512 hash in progress. Make one with `sha512New`.
+(pub struct Sha512
+  (state : String))
+
+; A SHA-384 hash in progress. Make one with `sha384New`.
+(pub struct Sha384
+  (state : String))
+
+; The state blob both share: words 0-7 the chaining value, word 8 the
+; bytes absorbed so far, word 9 how many of them wait in the partial
+; block, and bytes 80-207 the partial block.
+(:: sha512StateBytes Int)
+(fn (sha512StateBytes)
+  208)
+
+; 2^63 - 1, the most bytes an Int counts.
+(:: sha512MaxBytes Int)
+(fn (sha512MaxBytes)
+  9223372036854775807)
+
+; The functions of section 4.1.3, (4.10) to (4.13).
+(macro (sha512Sum0 x)
+  (^ (^ (sha2Rotr x 28) (sha2Rotr x 34)) (sha2Rotr x 39)))
+
+(macro (sha512Sum1 x)
+  (^ (^ (sha2Rotr x 14) (sha2Rotr x 18)) (sha2Rotr x 41)))
+
+(macro (sha512Sigma0 x)
+  (^ (^ (sha2Rotr x 1) (sha2Rotr x 8)) (sha2Shr x 7)))
+
+(macro (sha512Sigma1 x)
+  (^ (^ (sha2Rotr x 19) (sha2Rotr x 61)) (sha2Shr x 6)))
+
+; One round of section 6.4.2 step 3, named as `sha256Round`'s are.
+(macro (sha512Round a b c d e f g h k w)
+  (let (
+    (t1 (+ (+ h (sha512Sum1 e)) (+ (sha2Ch e f g) (+ k w))))
+    (t2 (+ (sha512Sum0 a) (sha2Maj a b c)))
+  )
+    {
+      (set d (+ d t1))
+      (set h (+ t1 t2))
+    }))
+
+; Schedule word t (section 6.4.2 step 1) into the slot of word t - 16.
+(macro (sha512Schedule w16 w2 w7 w15)
+  (set w16 (+ (+ w16 (sha512Sigma1 w2)) (+ w7 (sha512Sigma0 w15)))))
+
+; Fold `nblocks` 128-byte blocks at `p` into the chaining value in the
+; eight words at `cv`.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: sha512Blocks (-> Int Int Int Int))
+;@axiom:ct(*cv, *p)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`cv` names 8 live writable words and `p` names 128 * `nblocks` live bytes)
+(fn (sha512Blocks cv p nblocks)
+  (let (
+    (mut a (sha2Ld64le cv 0))
+    (mut b (sha2Ld64le cv 8))
+    (mut c (sha2Ld64le cv 16))
+    (mut d (sha2Ld64le cv 24))
+    (mut e (sha2Ld64le cv 32))
+    (mut f (sha2Ld64le cv 40))
+    (mut g (sha2Ld64le cv 48))
+    (mut h (sha2Ld64le cv 56))
+  )
+    {
+      (for blk 0 nblocks
+        (let (
+          (q (+ p (* 128 blk)))
+          (a0 a)
+          (b0 b)
+          (c0 c)
+          (d0 d)
+          (e0 e)
+          (f0 f)
+          (g0 g)
+          (h0 h)
+        )
+          (let (
+            (mut w0 (sha2Ld64be q 0))
+            (mut w1 (sha2Ld64be q 8))
+            (mut w2 (sha2Ld64be q 16))
+            (mut w3 (sha2Ld64be q 24))
+            (mut w4 (sha2Ld64be q 32))
+            (mut w5 (sha2Ld64be q 40))
+            (mut w6 (sha2Ld64be q 48))
+            (mut w7 (sha2Ld64be q 56))
+            (mut w8 (sha2Ld64be q 64))
+            (mut w9 (sha2Ld64be q 72))
+            (mut w10 (sha2Ld64be q 80))
+            (mut w11 (sha2Ld64be q 88))
+            (mut w12 (sha2Ld64be q 96))
+            (mut w13 (sha2Ld64be q 104))
+            (mut w14 (sha2Ld64be q 112))
+            (mut w15 (sha2Ld64be q 120))
+          )
+            {
+              (sha512Round a b c d e f g h 4794697086780616226 w0)
+              (sha512Round h a b c d e f g 8158064640168781261 w1)
+              (sha512Round g h a b c d e f -5349999486874862801 w2)
+              (sha512Round f g h a b c d e -1606136188198331460 w3)
+              (sha512Round e f g h a b c d 4131703408338449720 w4)
+              (sha512Round d e f g h a b c 6480981068601479193 w5)
+              (sha512Round c d e f g h a b -7908458776815382629 w6)
+              (sha512Round b c d e f g h a -6116909921290321640 w7)
+              (sha512Round a b c d e f g h -2880145864133508542 w8)
+              (sha512Round h a b c d e f g 1334009975649890238 w9)
+              (sha512Round g h a b c d e f 2608012711638119052 w10)
+              (sha512Round f g h a b c d e 6128411473006802146 w11)
+              (sha512Round e f g h a b c d 8268148722764581231 w12)
+              (sha512Round d e f g h a b c -9160688886553864527 w13)
+              (sha512Round c d e f g h a b -7215885187991268811 w14)
+              (sha512Round b c d e f g h a -4495734319001033068 w15)
+              (sha512Schedule w0 w14 w9 w1)
+              (sha512Round a b c d e f g h -1973867731355612462 w0)
+              (sha512Schedule w1 w15 w10 w2)
+              (sha512Round h a b c d e f g -1171420211273849373 w1)
+              (sha512Schedule w2 w0 w11 w3)
+              (sha512Round g h a b c d e f 1135362057144423861 w2)
+              (sha512Schedule w3 w1 w12 w4)
+              (sha512Round f g h a b c d e 2597628984639134821 w3)
+              (sha512Schedule w4 w2 w13 w5)
+              (sha512Round e f g h a b c d 3308224258029322869 w4)
+              (sha512Schedule w5 w3 w14 w6)
+              (sha512Round d e f g h a b c 5365058923640841347 w5)
+              (sha512Schedule w6 w4 w15 w7)
+              (sha512Round c d e f g h a b 6679025012923562964 w6)
+              (sha512Schedule w7 w5 w0 w8)
+              (sha512Round b c d e f g h a 8573033837759648693 w7)
+              (sha512Schedule w8 w6 w1 w9)
+              (sha512Round a b c d e f g h -7476448914759557205 w8)
+              (sha512Schedule w9 w7 w2 w10)
+              (sha512Round h a b c d e f g -6327057829258317296 w9)
+              (sha512Schedule w10 w8 w3 w11)
+              (sha512Round g h a b c d e f -5763719355590565569 w10)
+              (sha512Schedule w11 w9 w4 w12)
+              (sha512Round f g h a b c d e -4658551843659510044 w11)
+              (sha512Schedule w12 w10 w5 w13)
+              (sha512Round e f g h a b c d -4116276920077217854 w12)
+              (sha512Schedule w13 w11 w6 w14)
+              (sha512Round d e f g h a b c -3051310485924567259 w13)
+              (sha512Schedule w14 w12 w7 w15)
+              (sha512Round c d e f g h a b 489312712824947311 w14)
+              (sha512Schedule w15 w13 w8 w0)
+              (sha512Round b c d e f g h a 1452737877330783856 w15)
+              (sha512Schedule w0 w14 w9 w1)
+              (sha512Round a b c d e f g h 2861767655752347644 w0)
+              (sha512Schedule w1 w15 w10 w2)
+              (sha512Round h a b c d e f g 3322285676063803686 w1)
+              (sha512Schedule w2 w0 w11 w3)
+              (sha512Round g h a b c d e f 5560940570517711597 w2)
+              (sha512Schedule w3 w1 w12 w4)
+              (sha512Round f g h a b c d e 5996557281743188959 w3)
+              (sha512Schedule w4 w2 w13 w5)
+              (sha512Round e f g h a b c d 7280758554555802590 w4)
+              (sha512Schedule w5 w3 w14 w6)
+              (sha512Round d e f g h a b c 8532644243296465576 w5)
+              (sha512Schedule w6 w4 w15 w7)
+              (sha512Round c d e f g h a b -9096487096722542874 w6)
+              (sha512Schedule w7 w5 w0 w8)
+              (sha512Round b c d e f g h a -7894198246740708037 w7)
+              (sha512Schedule w8 w6 w1 w9)
+              (sha512Round a b c d e f g h -6719396339535248540 w8)
+              (sha512Schedule w9 w7 w2 w10)
+              (sha512Round h a b c d e f g -6333637450476146687 w9)
+              (sha512Schedule w10 w8 w3 w11)
+              (sha512Round g h a b c d e f -4446306890439682159 w10)
+              (sha512Schedule w11 w9 w4 w12)
+              (sha512Round f g h a b c d e -4076793802049405392 w11)
+              (sha512Schedule w12 w10 w5 w13)
+              (sha512Round e f g h a b c d -3345356375505022440 w12)
+              (sha512Schedule w13 w11 w6 w14)
+              (sha512Round d e f g h a b c -2983346525034927856 w13)
+              (sha512Schedule w14 w12 w7 w15)
+              (sha512Round c d e f g h a b -860691631967231958 w14)
+              (sha512Schedule w15 w13 w8 w0)
+              (sha512Round b c d e f g h a 1182934255886127544 w15)
+              (sha512Schedule w0 w14 w9 w1)
+              (sha512Round a b c d e f g h 1847814050463011016 w0)
+              (sha512Schedule w1 w15 w10 w2)
+              (sha512Round h a b c d e f g 2177327727835720531 w1)
+              (sha512Schedule w2 w0 w11 w3)
+              (sha512Round g h a b c d e f 2830643537854262169 w2)
+              (sha512Schedule w3 w1 w12 w4)
+              (sha512Round f g h a b c d e 3796741975233480872 w3)
+              (sha512Schedule w4 w2 w13 w5)
+              (sha512Round e f g h a b c d 4115178125766777443 w4)
+              (sha512Schedule w5 w3 w14 w6)
+              (sha512Round d e f g h a b c 5681478168544905931 w5)
+              (sha512Schedule w6 w4 w15 w7)
+              (sha512Round c d e f g h a b 6601373596472566643 w6)
+              (sha512Schedule w7 w5 w0 w8)
+              (sha512Round b c d e f g h a 7507060721942968483 w7)
+              (sha512Schedule w8 w6 w1 w9)
+              (sha512Round a b c d e f g h 8399075790359081724 w8)
+              (sha512Schedule w9 w7 w2 w10)
+              (sha512Round h a b c d e f g 8693463985226723168 w9)
+              (sha512Schedule w10 w8 w3 w11)
+              (sha512Round g h a b c d e f -8878714635349349518 w10)
+              (sha512Schedule w11 w9 w4 w12)
+              (sha512Round f g h a b c d e -8302665154208450068 w11)
+              (sha512Schedule w12 w10 w5 w13)
+              (sha512Round e f g h a b c d -8016688836872298968 w12)
+              (sha512Schedule w13 w11 w6 w14)
+              (sha512Round d e f g h a b c -6606660893046293015 w13)
+              (sha512Schedule w14 w12 w7 w15)
+              (sha512Round c d e f g h a b -4685533653050689259 w14)
+              (sha512Schedule w15 w13 w8 w0)
+              (sha512Round b c d e f g h a -4147400797238176981 w15)
+              (sha512Schedule w0 w14 w9 w1)
+              (sha512Round a b c d e f g h -3880063495543823972 w0)
+              (sha512Schedule w1 w15 w10 w2)
+              (sha512Round h a b c d e f g -3348786107499101689 w1)
+              (sha512Schedule w2 w0 w11 w3)
+              (sha512Round g h a b c d e f -1523767162380948706 w2)
+              (sha512Schedule w3 w1 w12 w4)
+              (sha512Round f g h a b c d e -757361751448694408 w3)
+              (sha512Schedule w4 w2 w13 w5)
+              (sha512Round e f g h a b c d 500013540394364858 w4)
+              (sha512Schedule w5 w3 w14 w6)
+              (sha512Round d e f g h a b c 748580250866718886 w5)
+              (sha512Schedule w6 w4 w15 w7)
+              (sha512Round c d e f g h a b 1242879168328830382 w6)
+              (sha512Schedule w7 w5 w0 w8)
+              (sha512Round b c d e f g h a 1977374033974150939 w7)
+              (sha512Schedule w8 w6 w1 w9)
+              (sha512Round a b c d e f g h 2944078676154940804 w8)
+              (sha512Schedule w9 w7 w2 w10)
+              (sha512Round h a b c d e f g 3659926193048069267 w9)
+              (sha512Schedule w10 w8 w3 w11)
+              (sha512Round g h a b c d e f 4368137639120453308 w10)
+              (sha512Schedule w11 w9 w4 w12)
+              (sha512Round f g h a b c d e 4836135668995329356 w11)
+              (sha512Schedule w12 w10 w5 w13)
+              (sha512Round e f g h a b c d 5532061633213252278 w12)
+              (sha512Schedule w13 w11 w6 w14)
+              (sha512Round d e f g h a b c 6448918945643986474 w13)
+              (sha512Schedule w14 w12 w7 w15)
+              (sha512Round c d e f g h a b 6902733635092675308 w14)
+              (sha512Schedule w15 w13 w8 w0)
+              (sha512Round b c d e f g h a 7801388544844847127 w15)
+              (set a (+ a a0))
+              (set b (+ b b0))
+              (set c (+ c c0))
+              (set d (+ d d0))
+              (set e (+ e e0))
+              (set f (+ f f0))
+              (set g (+ g g0))
+              (set h (+ h h0))
+              0
+            })))
+      (__store64 cv 0 a)
+      (__store64 cv 1 b)
+      (__store64 cv 2 c)
+      (__store64 cv 3 d)
+      (__store64 cv 4 e)
+      (__store64 cv 5 f)
+      (__store64 cv 6 g)
+      (__store64 cv 7 h)
+      0
+    }))
+
+; Reset the state at `st`: nothing absorbed and the partial block
+; wiped. The chaining value is the caller's to set.
+(:: sha512Clear (-> Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`st` names a live writable SHA-512 state blob)
+(fn (sha512Clear st)
+  (sha2Erase st 8 18))
+
+; Set the state at `st` to SHA-512's initial value (section 5.3.5).
+(:: sha512Init (-> Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`st` names a live writable SHA-512 state blob)
+(fn (sha512Init st)
+  {
+    (__store64 st 0 7640891576956012808)
+    (__store64 st 1 -4942790177534073029)
+    (__store64 st 2 4354685564936845355)
+    (__store64 st 3 -6534734903238641935)
+    (__store64 st 4 5840696475078001361)
+    (__store64 st 5 -7276294671716946913)
+    (__store64 st 6 2270897969802886507)
+    (__store64 st 7 6620516959819538809)
+    (sha512Clear st)
+  })
+
+; Set the state at `st` to SHA-384's initial value (section 5.3.4).
+(:: sha384Init (-> Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`st` names a live writable SHA-512 state blob)
+(fn (sha384Init st)
+  {
+    (__store64 st 0 -3766243637369397544)
+    (__store64 st 1 7105036623409894663)
+    (__store64 st 2 -7973340178411365097)
+    (__store64 st 3 1526699215303891257)
+    (__store64 st 4 7436329637833083697)
+    (__store64 st 5 -8163818279084223215)
+    (__store64 st 6 -2662702644619276377)
+    (__store64 st 7 5167115440072839076)
+    (sha512Clear st)
+  })
+
+; Absorb `n` bytes at `p`. The state is in three parts, passed apart so
+; that the constant-time claim can name the secret ones: the chaining
+; value at `cv` and the pending block at `buf` are secret; the two
+; counters at `ctr` (bytes absorbed, bytes pending) are the message's
+; length and public. Answers 0, or -1 when the message would pass
+; `sha512MaxBytes`, and then absorbs nothing.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: sha512AbsorbIn (-> Int Int Int Int Int Int))
+;@axiom:ct(*cv, *buf, *p)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`cv` names 8 live writable words, `ctr` 2, `buf` 128 live writable bytes, and `p` names `n` live bytes)
+(fn (sha512AbsorbIn cv ctr buf p n)
+  (let ((total (__load64 ctr 0)))
+    (if (|| (< n 0) (|| (< total 0) (> n (- sha512MaxBytes total))))
+      -1
+      (let (
+        (mut have (& (__load64 ctr 1) 127))
+        (mut off 0)
+      )
+        {
+          ; top up a partial block first
+          (if (> have 0)
+            (let ((take
+              (if (< n (- 128 have))
+                n
+                (- 128 have))))
+              {
+                (sha2Copy (+ buf have) p take)
+                (set off take)
+                (set have (+ have take))
+                (if (== have 128)
+                  {
+                    (sha512Blocks cv buf 1)
+                    (set have 0)
+                    0
+                  }
+                  0)
+              })
+            0)
+          ; whole blocks straight from the input
+          (let ((whole (>> (- n off) 7)))
+            {
+              (sha512Blocks cv (+ p off) whole)
+              (set off (+ off (<< whole 7)))
+            })
+          ; the rest waits for more
+          (sha2Copy (+ buf have) (+ p off) (- n off))
+          (__store64 ctr 0 (+ total n))
+          (__store64 ctr 1 (+ have (- n off)))
+          0
+        }))))
+
+; `sha512AbsorbIn` on the SHA-512 state blob at `st`.
+(:: sha512Absorb (-> Int Int Int Int))
+;@axiom:ct(*p)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`st` names a live writable SHA-512 state blob and `p` names `n` live bytes)
+(fn (sha512Absorb st p n)
+  (sha512AbsorbIn st (+ st 64) (+ st 80) p n))
+
+; Pad (section 5.1.2), fold in the last block or two, and write the
+; first `nwords` words of the chaining value to `out`, most significant
+; byte first. The 128-bit length field's high word holds the bits of
+; the byte count that shift out of the low one. The parts are as
+; `sha512AbsorbIn` takes them.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: sha512FinishIn (-> Int Int Int Int Int Int))
+;@axiom:ct(*cv, *buf, *out)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`cv` names 8 live writable words, `ctr` 2, `buf` 128 live writable bytes, and `out` names 8 * `nwords` live writable bytes, `nwords` at most 8)
+(fn (sha512FinishIn cv ctr buf out nwords)
+  (let ((have (& (__load64 ctr 1) 127)) (total (__load64 ctr 0)))
+    {
+      (__store8 buf have 128)
+      (for i (+ have 1) 128
+        (__store8 buf i 0))
+      (if (> have 111)
+        {
+          (sha512Blocks cv buf 1)
+          (for i 0 112
+            (__store8 buf i 0))
+          0
+        }
+        0)
+      (sha2St64be buf 112 (sha2Shr total 61))
+      (sha2St64be buf 120 (<< total 3))
+      (sha512Blocks cv buf 1)
+      (for i 0 nwords
+        (sha2St64be out (* 8 i) (sha2Ld64le cv (* 8 i))))
+      0
+    }))
+
+; `sha512FinishIn` on the SHA-512 state blob at `st`.
+(:: sha512Finish (-> Int Int Int Int))
+;@axiom:ct(*out)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`st` names a live writable SHA-512 state blob and `out` names 8 * `nwords` live writable bytes, `nwords` at most 8)
+(fn (sha512Finish st out nwords)
+  (sha512FinishIn st (+ st 64) (+ st 80) out nwords))
+
+; A fresh SHA-512 hash with nothing absorbed.
+(pub :: sha512New Sha512)
+;@axiom:effect(unsafe)
+(pub fn (sha512New)
+  (let ((s (strAlloc sha512StateBytes)))
+    {
+      (sha512Init (strData s))
+      (Sha512 s)
+    }))
+
+; Absorb `n` bytes at address `p`. Answers 0, or -1 when `h` is not a
+; SHA-512 state or the message would pass the length limit, and then
+; absorbs nothing.
+(pub :: sha512UpdateAddr (-> Sha512 Int Int Int))
+;@axiom:ct(*p)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p` names `n` live bytes)
+(pub fn (sha512UpdateAddr h p n)
+  (let ((s h.state))
+    (if (! (sha2BlobOk s sha512StateBytes))
+      -1
+      (sha512Absorb (strData s) p n))))
+
+; Absorb `msg`. Answers 0, or -1 when `h` is not a SHA-512 state or the
+; message would pass the length limit, and then absorbs nothing.
+(pub :: sha512Update (-> Sha512 String Int))
+;@axiom:effect(unsafe)
+(pub fn (sha512Update h msg)
+  (sha512UpdateAddr h (strData msg) (strLen msg)))
+
+; The 64-byte digest of everything absorbed. `h` is then reset to a
+; fresh hash, its partial block wiped. A value that is not a SHA-512
+; state answers the empty string.
+(pub :: sha512Final (-> Sha512 String))
+;@axiom:effect(unsafe)
+(pub fn (sha512Final h)
+  (let ((s h.state))
+    (if (! (sha2BlobOk s sha512StateBytes))
+      ""
+      (let ((out (strAlloc 64)) (st (strData s)))
+        {
+          (sha512Finish st (strData out) 8)
+          (sha512Init st)
+          out
+        }))))
+
+; An independent copy of `h`, which goes on from the same point.
+(pub :: sha512Copy (-> Sha512 Sha512))
+;@axiom:effect(unsafe)
+(pub fn (sha512Copy h)
+  (let ((s h.state))
+    (Sha512 (bytesFromAddr (strData s) (strLen s)))))
+
+; Erase everything `h` holds and leave it a fresh hash. Answers 0, or
+; -1 with nothing written when `h` is not a SHA-512 state.
+(pub :: sha512Wipe (-> Sha512 Int))
+;@axiom:effect(unsafe)
+(pub fn (sha512Wipe h)
+  (let ((s h.state))
+    (if (sha2BlobOk s sha512StateBytes)
+      {
+        (ctWipe (strData s) (strLen s))
+        (sha512Init (strData s))
+      }
+      -1)))
+
+; The SHA-512 digest of `n` bytes at `p`, written to the 64 bytes at
+; `out`. Answers 0. The scratch state is wiped before it returns.
+(pub :: sha512Addr (-> Int Int Int Int))
+;@axiom:ct(*p)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p` names `n` live bytes and `out` names 64 live writable bytes)
+(pub fn (sha512Addr p n out)
+  (let ((st (memAlloc sha512StateBytes)))
+    {
+      (sha512Init st)
+      (sha512Absorb st p n)
+      (sha512Finish st out 8)
+      (sha512Init st)
+    }))
+
+; The 64-byte SHA-512 digest of `msg`.
+(pub :: sha512 (-> String String))
+;@axiom:effect(unsafe)
+(pub fn (sha512 msg)
+  (let ((out (strAlloc 64)))
+    {
+      (sha512Addr (strData msg) (strLen msg) (strData out))
+      out
+    }))
+
+; A fresh SHA-384 hash with nothing absorbed.
+(pub :: sha384New Sha384)
+;@axiom:effect(unsafe)
+(pub fn (sha384New)
+  (let ((s (strAlloc sha512StateBytes)))
+    {
+      (sha384Init (strData s))
+      (Sha384 s)
+    }))
+
+; Absorb `n` bytes at address `p`. Answers 0, or -1 when `h` is not a
+; SHA-384 state or the message would pass the length limit, and then
+; absorbs nothing.
+(pub :: sha384UpdateAddr (-> Sha384 Int Int Int))
+;@axiom:ct(*p)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p` names `n` live bytes)
+(pub fn (sha384UpdateAddr h p n)
+  (let ((s h.state))
+    (if (! (sha2BlobOk s sha512StateBytes))
+      -1
+      (sha512Absorb (strData s) p n))))
+
+; Absorb `msg`. Answers 0, or -1 when `h` is not a SHA-384 state or the
+; message would pass the length limit, and then absorbs nothing.
+(pub :: sha384Update (-> Sha384 String Int))
+;@axiom:effect(unsafe)
+(pub fn (sha384Update h msg)
+  (sha384UpdateAddr h (strData msg) (strLen msg)))
+
+; The 48-byte digest of everything absorbed. `h` is then reset to a
+; fresh hash, its partial block wiped. A value that is not a SHA-384
+; state answers the empty string.
+(pub :: sha384Final (-> Sha384 String))
+;@axiom:effect(unsafe)
+(pub fn (sha384Final h)
+  (let ((s h.state))
+    (if (! (sha2BlobOk s sha512StateBytes))
+      ""
+      (let ((out (strAlloc 48)) (st (strData s)))
+        {
+          (sha512Finish st (strData out) 6)
+          (sha384Init st)
+          out
+        }))))
+
+; An independent copy of `h`, which goes on from the same point.
+(pub :: sha384Copy (-> Sha384 Sha384))
+;@axiom:effect(unsafe)
+(pub fn (sha384Copy h)
+  (let ((s h.state))
+    (Sha384 (bytesFromAddr (strData s) (strLen s)))))
+
+; Erase everything `h` holds and leave it a fresh hash. Answers 0, or
+; -1 with nothing written when `h` is not a SHA-384 state.
+(pub :: sha384Wipe (-> Sha384 Int))
+;@axiom:effect(unsafe)
+(pub fn (sha384Wipe h)
+  (let ((s h.state))
+    (if (sha2BlobOk s sha512StateBytes)
+      {
+        (ctWipe (strData s) (strLen s))
+        (sha384Init (strData s))
+      }
+      -1)))
+
+; The SHA-384 digest of `n` bytes at `p`, written to the 48 bytes at
+; `out`. Answers 0. The scratch state is wiped before it returns.
+(pub :: sha384Addr (-> Int Int Int Int))
+;@axiom:ct(*p)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p` names `n` live bytes and `out` names 48 live writable bytes)
+(pub fn (sha384Addr p n out)
+  (let ((st (memAlloc sha512StateBytes)))
+    {
+      (sha384Init st)
+      (sha512Absorb st p n)
+      (sha512Finish st out 6)
+      (sha384Init st)
+    }))
+
+; The 48-byte SHA-384 digest of `msg`.
+(pub :: sha384 (-> String String))
+;@axiom:effect(unsafe)
+(pub fn (sha384 msg)
+  (let ((out (strAlloc 48)))
+    {
+      (sha384Addr (strData msg) (strLen msg) (strData out))
+      out
+    }))
+
+; ------------------------------------------------------------------
+; Raw states at an address. The state objects above wrap these; they
+; are here for Crypto modules that keep a hash state in memory they
+; manage themselves, such as HMAC's precomputed key states in the
+; secret store. Nothing here checks a size: the caller owns the memory.
+; ------------------------------------------------------------------
+; The bytes a raw SHA-256 state occupies.
+(pub :: sha256RawSize Int)
+(pub fn (sha256RawSize)
+  sha256StateBytes)
+
+; Make the `sha256RawSize` bytes at `st` a fresh SHA-256 state. Answers 0.
+(pub :: sha256RawInit (-> Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`st` names `sha256RawSize` live writable bytes)
+(pub fn (sha256RawInit st)
+  (sha256Init st))
+
+; Absorb `n` bytes at `p` into the raw state at `st`. Answers 0, or -1
+; past the length limit, and then absorbs nothing.
+(pub :: sha256RawUpdate (-> Int Int Int Int))
+;@axiom:ct(*p)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`st` names a raw SHA-256 state and `p` names `n` live bytes)
+(pub fn (sha256RawUpdate st p n)
+  (sha256Absorb st p n))
+
+; Write the digest of the raw state at `st` to the 32 bytes at `out`,
+; then reset the state to a fresh one. Answers 0.
+(pub :: sha256RawFinal (-> Int Int Int))
+;@axiom:ct(*out)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`st` names a raw SHA-256 state and `out` names 32 live writable bytes)
+(pub fn (sha256RawFinal st out)
+  {
+    (sha256Finish st out 8)
+    (sha256Init st)
+  })
+
+; Make the raw state at `st` one that has absorbed `count` bytes and
+; holds the chaining value in the 32 bytes at `chain`, most significant
+; byte of each word first: the state `sha256RawChain` saved. `count`
+; must be a multiple of 64. Answers 0.
+(pub :: sha256RawResume (-> Int Int Int Int))
+;@axiom:ct(*chain)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`st` names `sha256RawSize` live writable bytes, `chain` names 32 live bytes, and `count` is a multiple of 64)
+(pub fn (sha256RawResume st chain count)
+  {
+    (sha256Init st)
+    (for i 0 8
+      (__store64 st i (sha2Ld32be chain (* 4 i))))
+    (__store64 st 8 count)
+    0
+  })
+
+; Write the chaining value of the raw state at `st` to the 32 bytes at
+; `out`, most significant byte of each word first. Meaningful only
+; after a whole number of blocks; answers 0, or -1 with nothing written
+; when a partial block is waiting.
+(pub :: sha256RawChain (-> Int Int Int))
+;@axiom:ct(*out)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`st` names a raw SHA-256 state and `out` names 32 live writable bytes)
+(pub fn (sha256RawChain st out)
+  (if (!= (& (__load64 st 9) 63) 0)
+    -1
+    {
+      (for i 0 8
+        (sha2St32be out (* 4 i) (sha2Ld64le st (* 8 i))))
+      0
+    }))
+
+; The bytes a raw SHA-512 or SHA-384 state occupies.
+(pub :: sha512RawSize Int)
+(pub fn (sha512RawSize)
+  sha512StateBytes)
+
+; Make the `sha512RawSize` bytes at `st` a fresh SHA-512 state. Answers 0.
+(pub :: sha512RawInit (-> Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`st` names `sha512RawSize` live writable bytes)
+(pub fn (sha512RawInit st)
+  (sha512Init st))
+
+; Absorb `n` bytes at `p` into the raw SHA-512 or SHA-384 state at
+; `st`. Answers 0, or -1 past the length limit, and then absorbs
+; nothing.
+(pub :: sha512RawUpdate (-> Int Int Int Int))
+;@axiom:ct(*p)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`st` names a raw SHA-512 state and `p` names `n` live bytes)
+(pub fn (sha512RawUpdate st p n)
+  (sha512Absorb st p n))
+
+; Write the SHA-512 digest of the raw state at `st` to the 64 bytes at
+; `out`, then reset the state to a fresh SHA-512 one. Answers 0.
+(pub :: sha512RawFinal (-> Int Int Int))
+;@axiom:ct(*out)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`st` names a raw SHA-512 state and `out` names 64 live writable bytes)
+(pub fn (sha512RawFinal st out)
+  {
+    (sha512Finish st out 8)
+    (sha512Init st)
+  })
+
+; Make the raw state at `st` one that has absorbed `count` bytes and
+; holds the chaining value in the 64 bytes at `chain`, most significant
+; byte of each word first. `count` must be a multiple of 128. Answers 0.
+(pub :: sha512RawResume (-> Int Int Int Int))
+;@axiom:ct(*chain)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`st` names `sha512RawSize` live writable bytes, `chain` names 64 live bytes, and `count` is a multiple of 128)
+(pub fn (sha512RawResume st chain count)
+  {
+    (sha512Init st)
+    (for i 0 8
+      (__store64 st i (sha2Ld64be chain (* 8 i))))
+    (__store64 st 8 count)
+    0
+  })
+
+; Write the chaining value of the raw SHA-512 state at `st` to the 64
+; bytes at `out`, most significant byte of each word first. Answers 0,
+; or -1 with nothing written when a partial block is waiting.
+(pub :: sha512RawChain (-> Int Int Int))
+;@axiom:ct(*out)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`st` names a raw SHA-512 state and `out` names 64 live writable bytes)
+(pub fn (sha512RawChain st out)
+  (if (!= (& (__load64 st 9) 127) 0)
+    -1
+    {
+      (for i 0 8
+        (sha2St64be out (* 8 i) (sha2Ld64le st (* 8 i))))
+      0
+    }))

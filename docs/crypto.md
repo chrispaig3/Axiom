@@ -131,6 +131,134 @@ what you need around them:
 
 Tested by `tests/crypto/010-bytes.ax`.
 
+## Hashes
+
+A hash turns a message of any length into a short digest. The same
+message always gives the same digest, and no one can find two
+messages that share one.
+
+```scheme
+(import IO)
+(import Crypto.Bytes)
+(import Crypto.Sha2)
+(import Crypto.Sha3)
+(import Crypto.Blake2b)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((h sha256New))
+    {
+      (println (hexEncode (sha256 "abc")))
+      (sha256Update h "a")
+      (sha256Update h "bc")
+      (println (hexEncode (sha256Final h)))
+      (println (hexEncode (sha3_256 "abc")))
+      (println (hexEncode (shake256 "abc" 16)))
+      (println (hexEncode (blake2b256 "abc")))
+      0
+    }))
+```
+
+```text
+ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+3a985da74fe225b2045c172d6bd390bd855f086e3e9d525b46bfe24511431532
+483366601360a8771c6863080cc4114d
+bddd813c634239723171ef3fee98579b94964e3bb1cb3e427262c8c068d52319
+```
+
+Each one-shot function takes a `String` and answers the digest's raw
+bytes, which `hexEncode` makes printable. For a message that arrives
+in pieces, make a state with `sha256New`, feed it with
+`sha256Update`, and take the digest with `sha256Final`. The second
+line shows it gives the same answer. `Final` leaves the state fresh
+for the next message.
+
+| Module | Functions | Digest |
+|---|---|---|
+| `Crypto.Sha2` | `sha256`, `sha384`, `sha512` | 32, 48 or 64 bytes |
+| `Crypto.Sha3` | `sha3_224`, `sha3_256`, `sha3_384`, `sha3_512` | 28 to 64 bytes |
+| `Crypto.Sha3` | `shake128`, `shake256` | as many bytes as you ask for |
+| `Crypto.Blake2b` | `blake2b256`, `blake2b512`, and `blake2b` with a length and an optional key | 1 to 64 bytes |
+
+Use SHA-256 unless a protocol asks for something else. SHAKE128 and
+SHAKE256 are extendable-output functions: `(shake256 msg n)` answers
+`n` bytes, and a `Shake256` state lets you squeeze more output as
+often as you like.
+
+Tested by `tests/crypto/100-sha2.ax` and `tests/crypto/110-sha3.ax`.
+
+## Message authentication and key derivation
+
+A message authentication code (MAC) proves that a message came from
+someone holding the key and hasn't changed since. HKDF turns one
+secret into as many independent keys as you need.
+
+```scheme
+(import IO)
+(import Err)
+(import Crypto.Secret)
+(import Crypto.Hmac)
+(import Crypto.Hkdf)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (match hmacSha256KeyGenerate
+    ((Err e) (die (errorText e) 1))
+    ((Ok key)
+      (let ((tag (hmacSha256 key "order 17")))
+        {
+          (println (strLen tag))
+          (println (hmacSha256Verify key "order 17" tag))
+          (println (hmacSha256Verify key "order 18" tag))
+          (hmacSha256KeyWipe key)
+          (match (secretRandom 32)
+            ((Err e) (die (errorText e) 1))
+            ((Ok shared)
+              (match (hkdfSha256 shared "salt" "session keys v1" 64)
+                ((Err e) (die (errorText e) 1))
+                ((Ok keys)
+                  {
+                    (println (secretLen keys))
+                    (secretWipe keys)
+                    (secretWipe shared)
+                    0
+                  }))))
+        }))))
+```
+
+```text
+32
+true
+false
+64
+```
+
+`hmacSha256` answers a 32-byte tag. Check one with
+`hmacSha256Verify`, which compares in constant time and accepts only a
+full-length tag. HMAC keys are sealed like the cipher keys, and
+`hmacSha256KeyFromSecret` takes a `SecretBytes` of any length from one
+byte. `Crypto.Hmac` has the same functions for HMAC-SHA-512.
+
+`hkdfSha256` takes input keying material that is already secret, such
+as a shared secret from a key exchange, then a salt and an `info`
+string naming what the keys are for. It answers up to 255 × 32 bytes
+as a `SecretBytes`, and a different `info` gives an independent key.
+`hkdfSha256Extract` and `hkdfSha256Expand` are its two halves, for
+protocols that call them separately.
+
+HKDF and HMAC are fast by design, so neither is a password hash. A
+stored password needs a slow, memory-hard function, and the suite
+doesn't have one yet.
+
+Every hash, MAC and XOF state has a `Wipe`. A hash state is left fresh
+afterwards; a `Blake2b` or `HmacSha256` state has held a key, so once
+wiped it refuses further use.
+
+Tested by `tests/crypto/130-hmac.ax` and `tests/crypto/140-hkdf.ax`.
+
 ## Authenticated encryption
 
 An authenticated cipher keeps a message secret and detects any change
@@ -259,6 +387,14 @@ iterations, best of five, with an empty program's startup subtracted.
 | AES-128-GCM seal | 130 MB/s | 1.14 µs |
 | ChaCha20-Poly1305 seal | 226 MB/s | 0.90 µs |
 | ChaCha20-Poly1305 open | 217 MB/s | 0.96 µs |
+| SHA-256 | 306 MB/s | 0.47 µs |
+| SHA-512 | 506 MB/s | 0.35 µs |
+| SHA3-256 | 582 MB/s | 0.28 µs |
+| BLAKE2b-512 | 996 MB/s | 0.30 µs |
+| HMAC-SHA-256, key already loaded | | 0.74 µs |
+
+SHA-256 doesn't use the processor's SHA-2 instructions yet. OpenSSL
+3.6.4, which does, hashes about seven times faster on the same machine.
 
 ## Error codes
 

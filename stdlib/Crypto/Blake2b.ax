@@ -1,0 +1,720 @@
+; Crypto.Blake2b - BLAKE2b, unkeyed and keyed.
+;
+;     (hexEncode (blake2b512 "abc"))
+;     ; "ba80a53f981c4d0d6a2797b69f12f6e94c212f14685ac4b74b12bb6fdbffa2d1
+;     ;  7d87c5392aab792dc252d5de4533cc9518d38aa8dbf1925ab92386edd4009923"
+;
+;     (blake2b 32 key msg)             ; (Ok <32-byte keyed digest>)
+;
+;     (match (blake2bNew 64)           ; streaming
+;       ((Ok h) { (blake2bUpdate h "a") (blake2bUpdate h "bc") (blake2bFinal h) })
+;       ((Err e) ""))
+;
+; A digest is a `String` of 1 to 64 raw bytes, its length chosen when
+; the hash is made; a key is 0 to 64 bytes. The digest length is part
+; of the computation, so a 32-byte digest is not the first half of a
+; 64-byte one.
+;
+; WHAT IT GUARANTEES. BLAKE2b as RFC 7693 defines it, for every byte
+; string, whether it arrives in one piece or in any number of updates.
+; The compression function is straight-line code over 16 words with the
+; message schedule written in: no branch, loop bound or memory address
+; depends on the message, the key or the chaining value, so hashing a
+; secret reveals its length and nothing else.
+;
+; STANDARD. RFC 7693, The BLAKE2 Cryptographic Hash and Message
+; Authentication Code (November 2015): the G function of section 3.1,
+; the compression function F of 3.2, the padding, counter and keying of
+; 3.3, and the constants of 2.6 and 2.7.
+;
+; REFERENCE. Written from the RFC. Keeping the last block back so it
+; can be compressed with the final-block flag follows the RFC's
+; Appendix C code (Simplified BSD licence) and Monocypher 4's
+; `crypto_blake2b` (CC0 or BSD-2-Clause).
+;
+; STATE OBJECTS. `Blake2b` wraps one fixed-size `String` holding the
+; chaining value, the byte counter, the digest and key lengths, the
+; pending block and the key. Every operation checks the blob first, so
+; a value built by hand with the wrong size, over a string literal, or
+; with impossible lengths is refused rather than read out of bounds or
+; written. A final resets the state to a
+; fresh one with the same digest length and key. A wipe erases
+; everything, the key included, and leaves the state refusing every
+; operation.
+;
+; LIMITS. RFC 7693's 128-bit byte counter is kept in full. A key held
+; for a keyed hash lives in the state blob, which is arena memory: it
+; is erased by `blake2bWipe`, not by the arena. Erasure reaches the
+; blob and the one-shot forms' scratch memory, not values held in
+; registers or spilled to the stack.
+(import Mem)
+(import Str)
+(import Err)
+(import Crypto.Ct)
+(import Crypto.Bytes)
+(import Crypto.Errors)
+(import Crypto.Secret)
+
+; ------------------------------------------------------------------
+; The word operations, as macros so that every one lands inline in the
+; kernel that uses it: no call is left for the optimiser to keep, and
+; the constant-time check reads one function.
+; ------------------------------------------------------------------
+; `x` rotated right by a literal `n` in 1..63: one rotate instruction
+; after `opt`. The mask clears the sign copies the arithmetic shift
+; brings in.
+(macro (b2Rotr x n)
+  (let ((x0 x))
+    (| (& (>> x0 n) (- (<< 1 (- 64 n)) 1)) (<< x0 (- 64 n)))))
+
+; The little-endian 64-bit word at `p` + `off`, which need not be
+; aligned, byte by byte; `opt` combines the bytes into one load.
+(macro (b2Ld64le p off)
+  (let ((q p) (o off))
+    (| (| (__load8 q o)
+          (| (<< (__load8 q (+ o 1)) 8)
+            (| (<< (__load8 q (+ o 2)) 16) (<< (__load8 q (+ o 3)) 24))))
+      (<< (| (__load8 q (+ o 4))
+            (| (<< (__load8 q (+ o 5)) 8)
+              (| (<< (__load8 q (+ o 6)) 16) (<< (__load8 q (+ o 7)) 24))))
+        32))))
+
+; Copy `n` bytes from `src` to `dst`, which do not overlap.
+(macro (b2Copy dst src n)
+  (let ((d dst) (s src) (k n))
+    (for i 0 k
+      (__store8 d i (__load8 s i)))))
+
+; ------------------------------------------------------------------
+; The compression function (RFC 7693 section 3.2).
+; ------------------------------------------------------------------
+; The mixing function G of section 3.1 on four working words, with
+; message words `x` and `y`.
+(macro (blake2bG a b c d x y)
+  {
+    (set a (+ (+ a b) x))
+    (set d (b2Rotr (^ d a) 32))
+    (set c (+ c d))
+    (set b (b2Rotr (^ b c) 24))
+    (set a (+ (+ a b) y))
+    (set d (b2Rotr (^ d a) 16))
+    (set c (+ c d))
+    (set b (b2Rotr (^ b c) 63))
+  })
+
+; Add `inc` to the 128-bit byte counter in the two words at `ctr` (low
+; word first). The counter is the message length, which is public.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: blake2bCount (-> Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`ctr` names 2 live writable words and `inc` is 0 to 128)
+(fn (blake2bCount ctr inc)
+  (let ((t0 (+ (__load64 ctr 0) inc)))
+    {
+      (__store64 ctr 0 t0)
+      (if (&& (>= t0 0) (< t0 inc))
+        (__store64 ctr 1 (+ (__load64 ctr 1) 1))
+        0)
+      0
+    }))
+
+; Fold `nblocks` 128-byte blocks at `p` into the chaining value in the
+; eight words at `cv`, with the 128-bit byte counter in the two words at
+; `ctr` (low word first). The counter is the message length and public,
+; so it is passed apart from the chaining value, which is secret.
+; `mode` 0 advances the counter by 128 before each block and compresses
+; it as a middle block; 1 compresses with the final-block flag and 2
+; without it, both leaving the counter as the caller set it. The rounds
+; follow the message schedule SIGMA of section 2.7, round r using row r
+; mod 10.
+;
+; Every word here is read a byte at a time and every mode-dependent
+; value is chosen by a comparison, so the compiler's word-flow analysis
+; sees no parameter reach the working variables; with one reaching them
+; its walk over the sixteen nested `mut` bindings takes minutes.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: blake2bBlocks (-> Int Int Int Int Int Int))
+;@axiom:ct(*cv, *p)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`cv` names 8 live writable words, `ctr` 2, and `p` names 128 * `nblocks` live bytes)
+(fn (blake2bBlocks cv ctr p nblocks mode)
+  (let (
+    (inc
+      (if (== mode 0)
+        128
+        0))
+    (flag
+      (if (== mode 1)
+        -1
+        0))
+    (mut h0 (b2Ld64le cv 0))
+    (mut h1 (b2Ld64le cv 8))
+    (mut h2 (b2Ld64le cv 16))
+    (mut h3 (b2Ld64le cv 24))
+    (mut h4 (b2Ld64le cv 32))
+    (mut h5 (b2Ld64le cv 40))
+    (mut h6 (b2Ld64le cv 48))
+    (mut h7 (b2Ld64le cv 56))
+    (mut t0 (b2Ld64le ctr 0))
+    (mut t1 (b2Ld64le ctr 8))
+  )
+    {
+      (for blk 0 nblocks
+        (let ((q (+ p (* 128 blk))))
+          {
+            (set t0 (+ t0 inc))
+            (if (&& (>= t0 0) (< t0 inc))
+              {
+                (set t1 (+ t1 1))
+                0
+              }
+              0)
+            (let (
+              (m0 (b2Ld64le q 0))
+              (m1 (b2Ld64le q 8))
+              (m2 (b2Ld64le q 16))
+              (m3 (b2Ld64le q 24))
+              (m4 (b2Ld64le q 32))
+              (m5 (b2Ld64le q 40))
+              (m6 (b2Ld64le q 48))
+              (m7 (b2Ld64le q 56))
+              (m8 (b2Ld64le q 64))
+              (m9 (b2Ld64le q 72))
+              (m10 (b2Ld64le q 80))
+              (m11 (b2Ld64le q 88))
+              (m12 (b2Ld64le q 96))
+              (m13 (b2Ld64le q 104))
+              (m14 (b2Ld64le q 112))
+              (m15 (b2Ld64le q 120))
+            )
+              (let (
+                (mut v0 h0)
+                (mut v1 h1)
+                (mut v2 h2)
+                (mut v3 h3)
+                (mut v4 h4)
+                (mut v5 h5)
+                (mut v6 h6)
+                (mut v7 h7)
+                (mut v8 7640891576956012808)
+                (mut v9 -4942790177534073029)
+                (mut v10 4354685564936845355)
+                (mut v11 -6534734903238641935)
+                (mut v12 (^ 5840696475078001361 t0))
+                (mut v13 (^ -7276294671716946913 t1))
+                (mut v14 (^ 2270897969802886507 flag))
+                (mut v15 6620516959819538809)
+              )
+                {
+                  ; round 0
+                  (blake2bG v0 v4 v8 v12 m0 m1)
+                  (blake2bG v1 v5 v9 v13 m2 m3)
+                  (blake2bG v2 v6 v10 v14 m4 m5)
+                  (blake2bG v3 v7 v11 v15 m6 m7)
+                  (blake2bG v0 v5 v10 v15 m8 m9)
+                  (blake2bG v1 v6 v11 v12 m10 m11)
+                  (blake2bG v2 v7 v8 v13 m12 m13)
+                  (blake2bG v3 v4 v9 v14 m14 m15)
+                  ; round 1
+                  (blake2bG v0 v4 v8 v12 m14 m10)
+                  (blake2bG v1 v5 v9 v13 m4 m8)
+                  (blake2bG v2 v6 v10 v14 m9 m15)
+                  (blake2bG v3 v7 v11 v15 m13 m6)
+                  (blake2bG v0 v5 v10 v15 m1 m12)
+                  (blake2bG v1 v6 v11 v12 m0 m2)
+                  (blake2bG v2 v7 v8 v13 m11 m7)
+                  (blake2bG v3 v4 v9 v14 m5 m3)
+                  ; round 2
+                  (blake2bG v0 v4 v8 v12 m11 m8)
+                  (blake2bG v1 v5 v9 v13 m12 m0)
+                  (blake2bG v2 v6 v10 v14 m5 m2)
+                  (blake2bG v3 v7 v11 v15 m15 m13)
+                  (blake2bG v0 v5 v10 v15 m10 m14)
+                  (blake2bG v1 v6 v11 v12 m3 m6)
+                  (blake2bG v2 v7 v8 v13 m7 m1)
+                  (blake2bG v3 v4 v9 v14 m9 m4)
+                  ; round 3
+                  (blake2bG v0 v4 v8 v12 m7 m9)
+                  (blake2bG v1 v5 v9 v13 m3 m1)
+                  (blake2bG v2 v6 v10 v14 m13 m12)
+                  (blake2bG v3 v7 v11 v15 m11 m14)
+                  (blake2bG v0 v5 v10 v15 m2 m6)
+                  (blake2bG v1 v6 v11 v12 m5 m10)
+                  (blake2bG v2 v7 v8 v13 m4 m0)
+                  (blake2bG v3 v4 v9 v14 m15 m8)
+                  ; round 4
+                  (blake2bG v0 v4 v8 v12 m9 m0)
+                  (blake2bG v1 v5 v9 v13 m5 m7)
+                  (blake2bG v2 v6 v10 v14 m2 m4)
+                  (blake2bG v3 v7 v11 v15 m10 m15)
+                  (blake2bG v0 v5 v10 v15 m14 m1)
+                  (blake2bG v1 v6 v11 v12 m11 m12)
+                  (blake2bG v2 v7 v8 v13 m6 m8)
+                  (blake2bG v3 v4 v9 v14 m3 m13)
+                  ; round 5
+                  (blake2bG v0 v4 v8 v12 m2 m12)
+                  (blake2bG v1 v5 v9 v13 m6 m10)
+                  (blake2bG v2 v6 v10 v14 m0 m11)
+                  (blake2bG v3 v7 v11 v15 m8 m3)
+                  (blake2bG v0 v5 v10 v15 m4 m13)
+                  (blake2bG v1 v6 v11 v12 m7 m5)
+                  (blake2bG v2 v7 v8 v13 m15 m14)
+                  (blake2bG v3 v4 v9 v14 m1 m9)
+                  ; round 6
+                  (blake2bG v0 v4 v8 v12 m12 m5)
+                  (blake2bG v1 v5 v9 v13 m1 m15)
+                  (blake2bG v2 v6 v10 v14 m14 m13)
+                  (blake2bG v3 v7 v11 v15 m4 m10)
+                  (blake2bG v0 v5 v10 v15 m0 m7)
+                  (blake2bG v1 v6 v11 v12 m6 m3)
+                  (blake2bG v2 v7 v8 v13 m9 m2)
+                  (blake2bG v3 v4 v9 v14 m8 m11)
+                  ; round 7
+                  (blake2bG v0 v4 v8 v12 m13 m11)
+                  (blake2bG v1 v5 v9 v13 m7 m14)
+                  (blake2bG v2 v6 v10 v14 m12 m1)
+                  (blake2bG v3 v7 v11 v15 m3 m9)
+                  (blake2bG v0 v5 v10 v15 m5 m0)
+                  (blake2bG v1 v6 v11 v12 m15 m4)
+                  (blake2bG v2 v7 v8 v13 m8 m6)
+                  (blake2bG v3 v4 v9 v14 m2 m10)
+                  ; round 8
+                  (blake2bG v0 v4 v8 v12 m6 m15)
+                  (blake2bG v1 v5 v9 v13 m14 m9)
+                  (blake2bG v2 v6 v10 v14 m11 m3)
+                  (blake2bG v3 v7 v11 v15 m0 m8)
+                  (blake2bG v0 v5 v10 v15 m12 m2)
+                  (blake2bG v1 v6 v11 v12 m13 m7)
+                  (blake2bG v2 v7 v8 v13 m1 m4)
+                  (blake2bG v3 v4 v9 v14 m10 m5)
+                  ; round 9
+                  (blake2bG v0 v4 v8 v12 m10 m2)
+                  (blake2bG v1 v5 v9 v13 m8 m4)
+                  (blake2bG v2 v6 v10 v14 m7 m6)
+                  (blake2bG v3 v7 v11 v15 m1 m5)
+                  (blake2bG v0 v5 v10 v15 m15 m11)
+                  (blake2bG v1 v6 v11 v12 m9 m14)
+                  (blake2bG v2 v7 v8 v13 m3 m12)
+                  (blake2bG v3 v4 v9 v14 m13 m0)
+                  ; round 10
+                  (blake2bG v0 v4 v8 v12 m0 m1)
+                  (blake2bG v1 v5 v9 v13 m2 m3)
+                  (blake2bG v2 v6 v10 v14 m4 m5)
+                  (blake2bG v3 v7 v11 v15 m6 m7)
+                  (blake2bG v0 v5 v10 v15 m8 m9)
+                  (blake2bG v1 v6 v11 v12 m10 m11)
+                  (blake2bG v2 v7 v8 v13 m12 m13)
+                  (blake2bG v3 v4 v9 v14 m14 m15)
+                  ; round 11
+                  (blake2bG v0 v4 v8 v12 m14 m10)
+                  (blake2bG v1 v5 v9 v13 m4 m8)
+                  (blake2bG v2 v6 v10 v14 m9 m15)
+                  (blake2bG v3 v7 v11 v15 m13 m6)
+                  (blake2bG v0 v5 v10 v15 m1 m12)
+                  (blake2bG v1 v6 v11 v12 m0 m2)
+                  (blake2bG v2 v7 v8 v13 m11 m7)
+                  (blake2bG v3 v4 v9 v14 m5 m3)
+                  (set h0 (^ h0 (^ v0 v8)))
+                  (set h1 (^ h1 (^ v1 v9)))
+                  (set h2 (^ h2 (^ v2 v10)))
+                  (set h3 (^ h3 (^ v3 v11)))
+                  (set h4 (^ h4 (^ v4 v12)))
+                  (set h5 (^ h5 (^ v5 v13)))
+                  (set h6 (^ h6 (^ v6 v14)))
+                  (set h7 (^ h7 (^ v7 v15)))
+                  0
+                }))
+          }))
+      (__store64 cv 0 h0)
+      (__store64 cv 1 h1)
+      (__store64 cv 2 h2)
+      (__store64 cv 3 h3)
+      (__store64 cv 4 h4)
+      (__store64 cv 5 h5)
+      (__store64 cv 6 h6)
+      (__store64 cv 7 h7)
+      (__store64 ctr 0 t0)
+      (__store64 ctr 1 t1)
+      0
+    }))
+
+; Fold one 128-byte block at `p` into the chaining value in words 0-7
+; at `st`, after advancing the byte counter in words 8 and 9 by `inc`;
+; `last` sets the final-block flag. This is F of RFC 7693 section 3.2
+; with its counter bookkeeping, for a caller building its own mode over
+; BLAKE2b. Answers 0.
+(pub :: blake2bCompress (-> Int Int Int Bool Int))
+;@axiom:ct(*p)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`st` names 10 live writable words, `p` names 128 live bytes, and `inc` is 0 to 128)
+(pub fn (blake2bCompress st p inc last)
+  {
+    (blake2bCount (+ st 64) inc)
+    (blake2bBlocks st (+ st 64) p 1
+      (if last
+        1
+        2))
+  })
+
+; ------------------------------------------------------------------
+; The hash (RFC 7693 section 3.3).
+; ------------------------------------------------------------------
+; The state blob: words 0-7 the chaining value, 8 and 9 the byte
+; counter, 10 the bytes waiting in the pending block (0 to 128), 11 the
+; digest length, 12 the key length, 13 set once the state is wiped,
+; bytes 112-239 the pending block and bytes 240-303 the key.
+(:: blake2bStateBytes Int)
+(fn (blake2bStateBytes)
+  304)
+
+; Zero the whole blob at `st`, in a way the optimiser may not delete:
+; word stores for the first 37 words, then `ctWipe` over the last,
+; whose closing fence may read any memory and so keeps every store
+; before it.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: blake2bErase (-> Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`st` names a live writable BLAKE2b state blob)
+(fn (blake2bErase st)
+  {
+    (for i 0 37
+      (__store64 st i 0))
+    (ctWipe (+ st 296) 8)
+  })
+
+; Copy the `keyLen` key bytes at `key` into the pending block at `buf`,
+; which is already zero, so that the key becomes the first block.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: blake2bKeyBlock (-> Int Int Int Int))
+;@axiom:ct(*key)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`buf` names 128 live writable bytes, `key` names `keyLen` live bytes, and `keyLen` is 0 to 64)
+(fn (blake2bKeyBlock buf key keyLen)
+  {
+    (b2Copy buf key keyLen)
+    0
+  })
+
+; A fresh hash at `st` for a digest of `outLen` bytes, keyed with the
+; `keyLen` bytes already at byte 240. The parameter block of section
+; 2.5 for sequential hashing folds into the first chaining word; a key
+; becomes the first block, zero-padded, as section 3.3 prescribes.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: blake2bInit (-> Int Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`st` names a live writable BLAKE2b state blob, `outLen` is 1 to 64 and `keyLen` 0 to 64)
+(fn (blake2bInit st outLen keyLen)
+  {
+    (__store64 st 0 (^ 7640891576956012808 (^ 16842752 (^ (<< keyLen 8) outLen))))
+    (__store64 st 1 -4942790177534073029)
+    (__store64 st 2 4354685564936845355)
+    (__store64 st 3 -6534734903238641935)
+    (__store64 st 4 5840696475078001361)
+    (__store64 st 5 -7276294671716946913)
+    (__store64 st 6 2270897969802886507)
+    (__store64 st 7 6620516959819538809)
+    (__store64 st 8 0)
+    (__store64 st 9 0)
+    (__store64 st 11 outLen)
+    (__store64 st 12 keyLen)
+    (__store64 st 13 0)
+    (for i 14 30
+      (__store64 st i 0))
+    (blake2bKeyBlock (+ st 112) (+ st 240) keyLen)
+    (__store64 st 10
+      (if (> keyLen 0)
+        128
+        0))
+    0
+  })
+
+; Absorb `n` bytes at `p`. The pending block is compressed only once
+; more input arrives, so the last block of the message is still there
+; for the final with its flag set. The state is in three parts, passed
+; apart so that the constant-time claim can name the secret ones: the
+; chaining value at `cv` and the pending block at `buf`; the counter and
+; lengths at `ctr` are public. Answers 0, or -1 when `n` is negative.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: blake2bAbsorbIn (-> Int Int Int Int Int Int))
+;@axiom:ct(*cv, *buf, *p)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`cv` names 8 live writable words, `ctr` 6 that passed `blake2bBlobOk`, `buf` 128 live writable bytes, and `p` names `n` live bytes)
+(fn (blake2bAbsorbIn cv ctr buf p n)
+  (if (< n 0)
+    -1
+    (let ((mut have (__load64 ctr 2)) (mut off 0))
+      {
+        (if (> n 0)
+          {
+            (if (== have 128)
+              {
+                (blake2bBlocks cv ctr buf 1 0)
+                (set have 0)
+                0
+              }
+              0)
+            (if (> have 0)
+              (let ((take
+                (if (< n (- 128 have))
+                  n
+                  (- 128 have))))
+                {
+                  (b2Copy (+ buf have) p take)
+                  (set have (+ have take))
+                  (set off take)
+                  (if (&& (== have 128) (< off n))
+                    {
+                      (blake2bBlocks cv ctr buf 1 0)
+                      (set have 0)
+                      0
+                    }
+                    0)
+                })
+              0)
+            (if (== have 0)
+              ; whole blocks straight from the input, keeping 1 to 128
+              ; bytes back for the pending block
+              (let ((whole (>> (- (- n off) 1) 7)))
+                {
+                  (blake2bBlocks cv ctr (+ p off) whole 0)
+                  (set off (+ off (<< whole 7)))
+                  (b2Copy buf (+ p off) (- n off))
+                  (set have (- n off))
+                  0
+                })
+              0)
+          }
+          0)
+        (__store64 ctr 2 have)
+        0
+      })))
+
+; `blake2bAbsorbIn` on the state blob at `st`.
+(:: blake2bAbsorb (-> Int Int Int Int))
+;@axiom:ct(*p)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`st` names a live writable BLAKE2b state blob that passed `blake2bBlobOk`, and `p` names `n` live bytes)
+(fn (blake2bAbsorb st p n)
+  (blake2bAbsorbIn st (+ st 64) (+ st 112) p n))
+
+; Compress the pending block, zero-padded, with the final-block flag,
+; and write the digest's bytes to `out`: the chaining words, least
+; significant byte first, cut to the digest length. The parts are as
+; `blake2bAbsorbIn` takes them. The state is left spent; the caller
+; resets or erases it.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: blake2bFinishIn (-> Int Int Int Int Int))
+;@axiom:ct(*cv, *buf, *out)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`cv` names 8 live writable words, `ctr` 6 that passed `blake2bBlobOk`, `buf` 128 live writable bytes, and `out` names the digest length in live writable bytes)
+(fn (blake2bFinishIn cv ctr buf out)
+  (let ((have (__load64 ctr 2)) (outLen (__load64 ctr 3)))
+    {
+      (for i have 128
+        (__store8 buf i 0))
+      (blake2bCount ctr have)
+      (blake2bBlocks cv ctr buf 1 1)
+      (for i 0 outLen
+        (__store8 out i (& (>> (b2Ld64le cv (* 8 (>> i 3))) (* 8 (& i 7))) 255)))
+      0
+    }))
+
+; `blake2bFinishIn` on the state blob at `st`.
+(:: blake2bFinish (-> Int Int Int))
+;@axiom:ct(*out)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`st` names a live writable BLAKE2b state blob that passed `blake2bBlobOk`, and `out` names its digest length in live writable bytes)
+(fn (blake2bFinish st out)
+  (blake2bFinishIn st (+ st 64) (+ st 112) out))
+
+; Whether `s` is the size of a state blob and its bytes belong to an
+; allocation. A string literal owns none, and its bytes are read-only,
+; so a hand-built state over one is refused before anything is written.
+(:: blake2bWritable (-> String Bool))
+(fn (blake2bWritable s)
+  (&& (== (strLen s) blake2bStateBytes) (!= (strOwner s) 0)))
+
+; Whether `s` is a live state blob this module could have made: the
+; right size, a pending count, digest length and key length in range,
+; and not wiped.
+(:: blake2bBlobOk (-> String Bool))
+;@axiom:effect(unsafe)
+(fn (blake2bBlobOk s)
+  (if (! (blake2bWritable s))
+    false
+    (let ((st (strData s)))
+      (let (
+        (have (__load64 st 10))
+        (outLen (__load64 st 11))
+        (keyLen (__load64 st 12))
+      )
+        (&& (&& (>= have 0) (<= have 128))
+          (&& (&& (>= outLen 1) (<= outLen 64))
+            (&& (&& (>= keyLen 0) (<= keyLen 64)) (== (__load64 st 13) 0))))))))
+
+; The BLAKE2b digest of `n` bytes at `p`, `outLen` bytes long and keyed
+; with the `keyLen` bytes at `key`, written to `out`. The scratch state
+; is erased before it returns. Answers 0.
+(pub :: blake2bAddr (-> Int Int Int Int Int Int Int))
+;@axiom:ct(*key, *p)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`out` names `outLen` live writable bytes, `outLen` is 1 to 64, `key` names `keyLen` live bytes, `keyLen` is 0 to 64, and `p` names `n` live bytes)
+(pub fn (blake2bAddr out outLen key keyLen p n)
+  (let ((st (memAlloc blake2bStateBytes)))
+    {
+      (b2Copy (+ st 240) key keyLen)
+      (blake2bInit st outLen keyLen)
+      (blake2bAbsorb st p n)
+      (blake2bFinish st out)
+      (blake2bErase st)
+    }))
+
+; The `outLen`-byte BLAKE2b digest of `msg` keyed with `key`; an empty
+; key is unkeyed BLAKE2b. A digest length outside 1 to 64 or a key over
+; 64 bytes answers `cryptoInvalidLength`.
+(pub :: blake2b (-> Int String String (Result String Error)))
+;@axiom:effect(unsafe)
+(pub fn (blake2b outLen key msg)
+  (if (|| (< outLen 1) (> outLen 64))
+    (cryptoLengthErr "a BLAKE2b digest is 1 to 64 bytes" "blake2b")
+    (if (> (strLen key) 64)
+      (cryptoLengthErr "a BLAKE2b key is at most 64 bytes" "blake2b")
+      (let ((out (strAlloc outLen)))
+        {
+          (blake2bAddr (strData out) outLen (strData key) (strLen key) (strData msg) (strLen msg))
+          (Ok out)
+        }))))
+
+; The 64-byte unkeyed BLAKE2b digest of `msg` (BLAKE2b-512).
+(pub :: blake2b512 (-> String String))
+;@axiom:effect(unsafe)
+(pub fn (blake2b512 msg)
+  (let ((out (strAlloc 64)))
+    {
+      (blake2bAddr (strData out) 64 (strData "") 0 (strData msg) (strLen msg))
+      out
+    }))
+
+; The 32-byte unkeyed BLAKE2b digest of `msg` (BLAKE2b-256).
+(pub :: blake2b256 (-> String String))
+;@axiom:effect(unsafe)
+(pub fn (blake2b256 msg)
+  (let ((out (strAlloc 32)))
+    {
+      (blake2bAddr (strData out) 32 (strData "") 0 (strData msg) (strLen msg))
+      out
+    }))
+
+; ------------------------------------------------------------------
+; Streaming.
+; ------------------------------------------------------------------
+; A BLAKE2b hash in progress. Make one with `blake2bNew` or
+; `blake2bNewKeyed`.
+(pub struct Blake2b
+  (state : String))
+
+; A fresh state for an `outLen`-byte digest keyed with the `keyLen`
+; bytes at `key`, after the lengths were checked.
+(:: blake2bMake (-> Int Int Int Blake2b))
+;@axiom:ct(*key)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`outLen` is 1 to 64, `key` names `keyLen` live bytes and `keyLen` is 0 to 64)
+(fn (blake2bMake outLen key keyLen)
+  (let ((s (strAlloc blake2bStateBytes)))
+    (let ((st (strData s)))
+      {
+        (b2Copy (+ st 240) key keyLen)
+        (blake2bInit st outLen keyLen)
+        (Blake2b s)
+      })))
+
+; A fresh unkeyed hash with an `outLen`-byte digest, or
+; `cryptoInvalidLength` when `outLen` is outside 1 to 64.
+(pub :: blake2bNew (-> Int (Result Blake2b Error)))
+;@axiom:effect(unsafe)
+(pub fn (blake2bNew outLen)
+  (if (|| (< outLen 1) (> outLen 64))
+    (cryptoLengthErr "a BLAKE2b digest is 1 to 64 bytes" "blake2bNew")
+    (Ok (blake2bMake outLen 0 0))))
+
+; A fresh hash with an `outLen`-byte digest keyed with `key`, or
+; `cryptoInvalidLength` when `outLen` is outside 1 to 64 or `key` is
+; over 64 bytes. The state keeps a copy of the key until it is wiped.
+(pub :: blake2bNewKeyed (-> Int String (Result Blake2b Error)))
+;@axiom:effect(unsafe)
+(pub fn (blake2bNewKeyed outLen key)
+  (if (|| (< outLen 1) (> outLen 64))
+    (cryptoLengthErr "a BLAKE2b digest is 1 to 64 bytes" "blake2bNewKeyed")
+    (if (> (strLen key) 64)
+      (cryptoLengthErr "a BLAKE2b key is at most 64 bytes" "blake2bNewKeyed")
+      (Ok (blake2bMake outLen (strData key) (strLen key))))))
+
+; `blake2bNewKeyed` with a key held in the secret store.
+(pub :: blake2bNewKeyedSecret (-> Int SecretBytes (Result Blake2b Error)))
+;@axiom:effect(unsafe)
+(pub fn (blake2bNewKeyedSecret outLen key)
+  (if (|| (< outLen 1) (> outLen 64))
+    (cryptoLengthErr "a BLAKE2b digest is 1 to 64 bytes" "blake2bNewKeyedSecret")
+    (if (> (secretLen key) 64)
+      (cryptoLengthErr "a BLAKE2b key is at most 64 bytes" "blake2bNewKeyedSecret")
+      (Ok (blake2bMake outLen (secretAddr key) (secretLen key))))))
+
+; Absorb `n` bytes at address `p`. Answers 0, or -1 when `h` is not a
+; live BLAKE2b state or `n` is negative, and then absorbs nothing.
+(pub :: blake2bUpdateAddr (-> Blake2b Int Int Int))
+;@axiom:ct(*p)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p` names `n` live bytes)
+(pub fn (blake2bUpdateAddr h p n)
+  (let ((s h.state))
+    (if (blake2bBlobOk s)
+      (blake2bAbsorb (strData s) p n)
+      -1)))
+
+; Absorb `msg`. Answers 0, or -1 when `h` is not a live BLAKE2b state.
+(pub :: blake2bUpdate (-> Blake2b String Int))
+;@axiom:effect(unsafe)
+(pub fn (blake2bUpdate h msg)
+  (blake2bUpdateAddr h (strData msg) (strLen msg)))
+
+; The digest of everything absorbed, as long as `h` was made to give.
+; `h` is then reset to a fresh hash with the same digest length and
+; key. A value that is not a live BLAKE2b state answers the empty
+; string.
+(pub :: blake2bFinal (-> Blake2b String))
+;@axiom:effect(unsafe)
+(pub fn (blake2bFinal h)
+  (let ((s h.state))
+    (if (blake2bBlobOk s)
+      (let ((st (strData s)))
+        (let ((outLen (__load64 st 11)) (keyLen (__load64 st 12)))
+          (let ((out (strAlloc outLen)))
+            {
+              (blake2bFinish st (strData out))
+              (blake2bInit st outLen keyLen)
+              out
+            })))
+      "")))
+
+; An independent copy of `h`, which goes on from the same point. It
+; holds its own copy of any key.
+(pub :: blake2bCopy (-> Blake2b Blake2b))
+;@axiom:effect(unsafe)
+(pub fn (blake2bCopy h)
+  (let ((s h.state))
+    (Blake2b (bytesFromAddr (strData s) (strLen s)))))
+
+; Erase everything `h` holds, the key included. Every later operation
+; on it is refused. Answers 0, or -1 with nothing written when `h` is
+; not a BLAKE2b state.
+(pub :: blake2bWipe (-> Blake2b Int))
+;@axiom:effect(unsafe)
+(pub fn (blake2bWipe h)
+  (let ((s h.state))
+    (if (blake2bWritable s)
+      {
+        (blake2bErase (strData s))
+        (__store64 (strData s) 13 1)
+        0
+      }
+      -1)))

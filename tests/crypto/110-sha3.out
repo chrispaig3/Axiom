@@ -1,0 +1,9 @@
+sha3-cavp ok
+sha3-monte ok
+shake-cavp ok
+shake-monte ok
+sha3-diff ok
+sha3-stream ok
+shake-diff ok
+shake-stream ok
+sha3-api ok

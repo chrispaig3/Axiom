@@ -1,0 +1,192 @@
+; BLAKE2b: the BLAKE2 team's unkeyed and keyed known answers, a
+; differential file from Python's hashlib with every digest length and
+; key length, the same messages streamed in pieces, the compression
+; function on its own, and the refusals.
+(import IO)
+(import Str)
+(import Vec)
+(import Err)
+(import Mem)
+(import Crypto.Ct)
+(import Crypto.Bytes)
+(import Crypto.Secret)
+(import Crypto.Blake2b)
+(import Kat)
+
+(:: okOr (-> (Result String Error) String))
+(fn (okOr r)
+  (match r
+    ((Ok s) s)
+    ((Err _) "")))
+
+(:: isErrS (-> (Result String Error) Bool))
+(fn (isErrS r)
+  (match r
+    ((Ok _) false)
+    ((Err _) true)))
+
+(:: isErrH (-> (Result Blake2b Error) Bool))
+(fn (isErrH r)
+  (match r
+    ((Ok _) false)
+    ((Err _) true)))
+
+; The digest of `msg` from a keyed streaming state fed `c` bytes at a
+; time, alternating the String and address forms. The state first
+; hashes a throwaway message, whose final resets it with the same key.
+(:: streamOf (-> Int String String Int String))
+;@axiom:effect(unsafe)
+(fn (streamOf outLen key msg c)
+  (match (blake2bNewKeyed outLen key)
+    ((Err _) "")
+    ((Ok h)
+      (let ((n (strLen msg)) (p (strData msg)) (mut off 0) (mut turn 0))
+        {
+          (blake2bUpdate h "throwaway")
+          (blake2bFinal h)
+          (while (< off n)
+            (let ((k
+              (if (< c (- n off))
+                c
+                (- n off))))
+              {
+                (if (== (& turn 1) 0)
+                  (blake2bUpdate h (strSlice msg off k))
+                  (blake2bUpdateAddr h (+ p off) k))
+                (set off (+ off k))
+                (set turn (+ turn 1))
+              }))
+          (blake2bFinal h)
+        }))))
+
+; `msg`'s digest from a copy of a keyed state that absorbed its first
+; half; the original then finishes something else.
+(:: copiedOf (-> Int String String String))
+(fn (copiedOf outLen key msg)
+  (match (blake2bNewKeyed outLen key)
+    ((Err _) "")
+    ((Ok h)
+      (let ((n (strLen msg)))
+        {
+          (blake2bUpdate h (strSlice msg 0 (/ n 2)))
+          (let ((g (blake2bCopy h)))
+            {
+              (blake2bUpdate h "different")
+              (blake2bUpdate g (strSlice msg (/ n 2) (- n (/ n 2))))
+              (blake2bFinal h)
+              (blake2bFinal g)
+            })
+        }))))
+
+; BLAKE2b-512 of "abc" through `blake2bCompress` alone: the parameter
+; block folded into the IV, one zero-padded block, a counter of 3 and
+; the final flag (RFC 7693 Appendix A's example).
+(:: compressAbc String)
+;@axiom:effect(unsafe)
+(fn (compressAbc)
+  (let ((st (memAlloc 80)) (blk (memAlloc 128)))
+    {
+      (__store64 st 0 (^ 7640891576956012808 16842816))
+      (__store64 st 1 -4942790177534073029)
+      (__store64 st 2 4354685564936845355)
+      (__store64 st 3 -6534734903238641935)
+      (__store64 st 4 5840696475078001361)
+      (__store64 st 5 -7276294671716946913)
+      (__store64 st 6 2270897969802886507)
+      (__store64 st 7 6620516959819538809)
+      (__store8 blk 0 97)
+      (__store8 blk 1 98)
+      (__store8 blk 2 99)
+      (blake2bCompress st blk 3 true)
+      (bytesFromAddr st 64)
+    }))
+
+; A state blob with its pending count forged past the block.
+(:: forgedCount Blake2b)
+;@axiom:effect(unsafe)
+(fn (forgedCount)
+  (match (blake2bNew 32)
+    ((Ok h)
+      (let ((s h.state))
+        {
+          (__store64 (strData s) 10 129)
+          h
+        }))
+    ((Err _) (Blake2b ""))))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (kat (tallyNew "blake2b-kat"))
+    (diff (tallyNew "blake2b-diff"))
+    (stream (tallyNew "blake2b-stream"))
+    (api (tallyNew "blake2b-api"))
+    (mut row 0)
+  )
+    {
+      (for line in (katLines "blake2b-kat.txt")
+        (let ((f (katFields line)))
+          (let ((key (katBytes f 0)) (msg (katBytes f 1)) (out (katBytes f 2)))
+            {
+              (tallyBytes kat out (okOr (blake2b 64 key msg)) (strConcat "message of " (katText f 1)))
+              (if (== (strLen key) 0)
+                (tallyBytes kat out (blake2b512 msg) "blake2b512")
+                0)
+            })))
+      (for line in (katLines "blake2b-diff.txt")
+        (let ((f (katFields line)))
+          (let ((outLen (katInt f 0)) (key (katBytes f 1)) (msg (katBytes f 2)) (out (katBytes f 3)))
+            {
+              (tallyBytes diff out (okOr (blake2b outLen key msg)) (strConcat "digest length " (katText f 0)))
+              (tallyBytes stream out (streamOf outLen key msg (+ 1 (% row 131))) "pieces")
+              (tallyBytes stream out (copiedOf outLen key msg) "copied state")
+              (set row (+ row 1))
+            })))
+      ; the compression function, the refusals, the reset and the wipe
+      (let ((abc (hexEncode (blake2b512 "abc"))))
+        {
+          (tallyCheck api (strEq abc "ba80a53f981c4d0d6a2797b69f12f6e94c212f14685ac4b74b12bb6fdbffa2d17d87c5392aab792dc252d5de4533cc9518d38aa8dbf1925ab92386edd4009923") "RFC 7693 Appendix A, abc")
+          (tallyCheck api (strEq (hexEncode (compressAbc)) abc) "the compression function alone")
+        })
+      (tallyCheck api (== (strLen (blake2b256 "abc")) 32) "BLAKE2b-256 is 32 bytes")
+      (tallyCheck api (! (strEq (blake2b256 "abc") (strSlice (blake2b512 "abc") 0 32))) "and not a prefix of BLAKE2b-512")
+      (tallyCheck api (isErrS (blake2b 0 "" "abc")) "a digest length of 0 is refused")
+      (tallyCheck api (isErrS (blake2b 65 "" "abc")) "a digest length of 65 is refused")
+      (tallyCheck api (isErrS (blake2b 32 (bytesNew 65) "abc")) "a 65-byte key is refused")
+      (tallyCheck api (! (isErrS (blake2b 1 (bytesNew 64) "abc"))) "a 64-byte key and a 1-byte digest are accepted")
+      (tallyCheck api (isErrH (blake2bNew 0)) "blake2bNew refuses 0")
+      (tallyCheck api (isErrH (blake2bNewKeyed 64 (bytesNew 65))) "blake2bNewKeyed refuses a 65-byte key")
+      (tallyCheck api (== (blake2bUpdate (Blake2b "short") "abc") -1) "a blob of the wrong size is refused")
+      (tallyCheck api (strEq (blake2bFinal (Blake2b (bytesNew 304))) "") "a blob with a digest length of 0 finishes empty")
+      (tallyCheck api (== (blake2bUpdate (Blake2b "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef") "abc") -1) "a state over a string literal is refused")
+      (tallyCheck api (== (blake2bWipe (Blake2b "x")) -1) "and a wipe writes nothing")
+      (tallyCheck api (== (blake2bUpdate (forgedCount) "abc") -1) "a pending count past the block is refused")
+      (match (blake2bNewKeyed 48 "a key")
+        ((Ok h)
+          {
+            (blake2bUpdate h "abc")
+            (let ((first (blake2bFinal h)))
+              {
+                (blake2bUpdate h "abc")
+                (tallyCheck api (strEq first (blake2bFinal h)) "a final resets with the same key")
+                (tallyCheck api (strEq first (okOr (blake2b 48 "a key" "abc"))) "and the same digest length")
+                (blake2bWipe h)
+                (tallyCheck api (== (blake2bUpdate h "abc") -1) "a wiped state refuses input")
+                (tallyCheck api (strEq (blake2bFinal h) "") "and finishes empty")
+              })
+          })
+        ((Err _) (tallyCheck api false "blake2bNewKeyed")))
+      (match (secretFromString "a key")
+        ((Ok k)
+          (match (blake2bNewKeyedSecret 48 k)
+            ((Ok h)
+              {
+                (blake2bUpdate h "abc")
+                (tallyCheck api (strEq (blake2bFinal h) (okOr (blake2b 48 "a key" "abc"))) "a key from the secret store")
+                (secretWipe k)
+              })
+            ((Err _) (tallyCheck api false "blake2bNewKeyedSecret"))))
+        ((Err _) (tallyCheck api false "secretFromString")))
+      (+ (+ (tallyReport kat) (tallyReport diff)) (+ (tallyReport stream) (tallyReport api)))
+    }))

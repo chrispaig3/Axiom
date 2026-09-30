@@ -1,0 +1,5 @@
+hmac-rfc4231 ok
+wycheproof-hmac ok
+hmac-diff ok
+hmac-paths ok
+hmac-api ok

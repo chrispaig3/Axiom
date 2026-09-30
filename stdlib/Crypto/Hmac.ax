@@ -1,0 +1,702 @@
+; Crypto.Hmac - HMAC-SHA-256 and HMAC-SHA-512.
+;
+;     (match (hmacSha256KeyFromSecret k)             ; k : SecretBytes
+;       ((Ok key)
+;         (let ((tag (hmacSha256 key "message")))      ; 32 bytes
+;           (hmacSha256Verify key "message" tag)))     ; true
+;       ((Err e) false))
+;
+;     (let ((m (hmacSha256New key)))                  ; streaming
+;       {
+;         (hmacSha256Update m "mess")
+;         (hmacSha256Update m "age")
+;         (hmacSha256Final m)                          ; the same tag
+;       })
+;
+; A tag is a `String` of 32 bytes (HMAC-SHA-256) or 64 bytes
+; (HMAC-SHA-512). Check one with `hmacSha256Verify`, never with
+; `strEq`: the comparison takes the same time wherever the tags differ.
+;
+; WHAT IT GUARANTEES. The MAC of FIPS 198-1 over SHA-256 and SHA-512,
+; for any key and any message. A key lives in the secret store (kind 22
+; for `HmacSha256Key`, 23 for `HmacSha512Key`) as the two chaining
+; values that hashing its inner and outer padded blocks produces,
+; computed once when the key is made, beside the key bytes themselves.
+; No branch or memory address depends on the key or the message; only
+; their lengths are public. Every scratch buffer that held key material
+; or an inner hash is erased before a call returns.
+;
+; STANDARD. FIPS 198-1, The Keyed-Hash Message Authentication Code
+; (July 2008), section 4, with the hash functions of FIPS 180-4; the
+; same construction as RFC 2104. The precomputed inner and outer states
+; are the optimisation FIPS 198-1 section 6 describes.
+;
+; REFERENCE. Written from the standard over `Crypto.Sha2`.
+;
+; LIMITS. Keys may be any length from 1 byte up; a key longer than the
+; hash's block (64 bytes for SHA-256, 128 for SHA-512) is hashed first,
+; as the standard says, and one shorter than the digest is accepted but
+; weaker than the hash. The empty key is refused. `hmacSha256Verify`
+; accepts only a full-length tag; to check a truncated tag, compute the
+; full one and compare its prefix with `bytesEqCt`. A streaming state
+; keeps key-derived chaining values in arena memory until
+; `hmacSha256Wipe`. The `...Raw` and `...Chains` functions are the
+; hazardous layer for other Crypto modules (HKDF, SLH-DSA): they take
+; the key, or its precomputed states, by address and check nothing.
+(import Mem)
+(import Str)
+(import Err)
+(import Crypto.Ct)
+(import Crypto.Errors)
+(import Crypto.Bytes)
+(import Crypto.Random)
+(import Crypto.Secret)
+(import Crypto.Sha2)
+
+; ------------------------------------------------------------------
+; The construction, for either hash. `v` is 256 or 512 and chooses the
+; hash; it is public.
+; ------------------------------------------------------------------
+; The digest length L in bytes.
+(:: hmacL (-> Int Int))
+(fn (hmacL v)
+  (if (== v 512)
+    64
+    32))
+
+; The hash's block length B in bytes.
+(:: hmacB (-> Int Int))
+(fn (hmacB v)
+  (if (== v 512)
+    128
+    64))
+
+; The bytes a raw hash state of the variant occupies.
+(:: hmacRawBytes (-> Int Int))
+(fn (hmacRawBytes v)
+  (if (== v 512)
+    sha512RawSize
+    sha256RawSize))
+
+(:: hmacRawInit (-> Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`st` names a raw state of the variant's size)
+(fn (hmacRawInit v st)
+  (if (== v 512)
+    (sha512RawInit st)
+    (sha256RawInit st)))
+
+(:: hmacRawUpdate (-> Int Int Int Int Int))
+;@axiom:ct(*p)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`st` names a raw state of the variant and `p` names `n` live bytes)
+(fn (hmacRawUpdate v st p n)
+  (if (== v 512)
+    (sha512RawUpdate st p n)
+    (sha256RawUpdate st p n)))
+
+(:: hmacRawFinal (-> Int Int Int Int))
+;@axiom:ct(*out)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`st` names a raw state of the variant and `out` names L live writable bytes)
+(fn (hmacRawFinal v st out)
+  (if (== v 512)
+    (sha512RawFinal st out)
+    (sha256RawFinal st out)))
+
+(:: hmacRawResume (-> Int Int Int Int))
+;@axiom:ct(*chain)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`st` names a raw state of the variant's size and `chain` names L live bytes)
+(fn (hmacRawResume v st chain)
+  (if (== v 512)
+    (sha512RawResume st chain 128)
+    (sha256RawResume st chain 64)))
+
+(:: hmacRawChain (-> Int Int Int Int))
+;@axiom:ct(*out)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`st` names a raw state of the variant and `out` names L live writable bytes)
+(fn (hmacRawChain v st out)
+  (if (== v 512)
+    (sha512RawChain st out)
+    (sha256RawChain st out)))
+
+; Zero `nwords` words at `p`, in a way the optimiser may not delete:
+; word stores up to the last, then `ctWipe` over the last, whose closing
+; fence may read any memory and so keeps every store before it.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: hmacErase (-> Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p` names `nwords` live writable words, `nwords` at least 1)
+(fn (hmacErase p nwords)
+  {
+    (for i 0 (- nwords 1)
+      (__store64 p i 0))
+    (ctWipe (+ p (* 8 (- nwords 1))) 8)
+  })
+
+; The two chaining values of FIPS 198-1 section 4 steps 1 to 4 and 7,
+; after one block: SHA over K0 xor ipad to `dst`, and SHA over K0 xor
+; opad to `dst` + L. K0 is the key zero-padded to B bytes, or its
+; digest zero-padded when it is longer than B. Answers 0.
+(:: hmacPrecompute (-> Int Int Int Int Int))
+;@axiom:ct(*key, *dst)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`key` names `keyLen` live bytes and `dst` names 2L live writable bytes)
+(fn (hmacPrecompute v key keyLen dst)
+  (let (
+    (b (hmacB v))
+    (scratch (memAlloc (+ 128 sha512RawSize)))
+  )
+    (let ((k0 scratch) (st (+ scratch 128)))
+      {
+        (if (> keyLen b)
+          (if (== v 512)
+            (sha512Addr key keyLen k0)
+            (sha256Addr key keyLen k0))
+          (for i 0 keyLen
+            (__store8 k0 i (__load8 key i))))
+        (for i 0 b
+          (__store8 k0 i (^ (__load8 k0 i) 54)))
+        (hmacRawInit v st)
+        (hmacRawUpdate v st k0 b)
+        (hmacRawChain v st dst)
+        ; ipad xor opad: 0x36 xor 0x5c
+        (for i 0 b
+          (__store8 k0 i (^ (__load8 k0 i) 106)))
+        (hmacRawInit v st)
+        (hmacRawUpdate v st k0 b)
+        (hmacRawChain v st (+ dst (hmacL v)))
+        (hmacErase scratch (/ (+ 128 sha512RawSize) 8))
+      })))
+
+; The MAC of `n` bytes at `p` from the precomputed chaining values at
+; `chains` (section 4 steps 5, 6, 8 and 9): the inner hash resumed from
+; the first, then the outer hash of its digest resumed from the second.
+; Writes L bytes to `out`. Answers 0.
+(:: hmacWithChains (-> Int Int Int Int Int Int))
+;@axiom:ct(*chains, *p)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`chains` names 2L live bytes, `p` names `n` live bytes and `out` names L live writable bytes)
+(fn (hmacWithChains v chains p n out)
+  (let ((scratch (memAlloc (+ 64 sha512RawSize))) (l (hmacL v)))
+    (let ((inner scratch) (st (+ scratch 64)))
+      {
+        (hmacRawResume v st chains)
+        (hmacRawUpdate v st p n)
+        (hmacRawFinal v st inner)
+        (hmacRawResume v st (+ chains l))
+        (hmacRawUpdate v st inner l)
+        (hmacRawFinal v st out)
+        (hmacErase scratch (/ (+ 64 sha512RawSize) 8))
+      })))
+
+; The MAC under the `keyLen`-byte key at `key` of `n` bytes at `p`,
+; written to the L bytes at `out`. Answers 0.
+(:: hmacRaw (-> Int Int Int Int Int Int Int))
+;@axiom:ct(*key, *p)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`key` names `keyLen` live bytes, `p` names `n` live bytes and `out` names L live writable bytes)
+(fn (hmacRaw v key keyLen p n out)
+  (let ((chains (memAlloc 128)))
+    {
+      (hmacPrecompute v key keyLen chains)
+      (hmacWithChains v chains p n out)
+      (hmacErase chains 16)
+    }))
+
+; ------------------------------------------------------------------
+; Keys.
+; ------------------------------------------------------------------
+; An HMAC-SHA-256 key: a handle to its bytes and their precomputed
+; inner and outer states in the secret store. Prints as
+; `<HmacSha256Key>`.
+(pub struct HmacSha256Key word shared
+  (slot : Int))
+
+; An HMAC-SHA-512 key. Prints as `<HmacSha512Key>`.
+(pub struct HmacSha512Key word shared
+  (slot : Int))
+
+; The secret-store kinds (Crypto.Secret's table).
+(:: hmacSha256Kind Int)
+(fn (hmacSha256Kind)
+  22)
+
+(:: hmacSha512Kind Int)
+(fn (hmacSha512Kind)
+  23)
+
+(:: hmacKind (-> Int Int))
+(fn (hmacKind v)
+  (if (== v 512)
+    hmacSha512Kind
+    hmacSha256Kind))
+
+; A key block of the variant: the inner chaining value, the outer one,
+; then the `keyLen` key bytes copied from `key`, as a handle word.
+(:: hmacKeyBlock (-> Int Int Int String (Result Int Error)))
+;@axiom:ct(*key)
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`key` names `keyLen` live bytes)
+(fn (hmacKeyBlock v key keyLen where)
+  (if (< keyLen 1)
+    (cryptoLengthErr "an HMAC key is at least 1 byte" where)
+    (let ((l (hmacL v)))
+      (match (secretBlockNew (hmacKind v) (+ (* 2 l) keyLen))
+        ((Err e) (Err e))
+        ((Ok h)
+          (let ((p (secretBlockAddr (hmacKind v) h)))
+            {
+              (for i 0 keyLen
+                (__store8 (+ p (* 2 l)) i (__load8 key i)))
+              (hmacPrecompute v (+ p (* 2 l)) keyLen p)
+              (Ok h)
+            }))))))
+
+; A fresh random key block of the variant, L bytes long.
+(:: hmacKeyRandom (-> Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (hmacKeyRandom v)
+  (let ((l (hmacL v)))
+    (match (secretBlockNew (hmacKind v) (* 3 l))
+      ((Err e) (Err e))
+      ((Ok h)
+        (let ((p (secretBlockAddr (hmacKind v) h)))
+          (match (randomFill (+ p (* 2 l)) l)
+            ((Err e)
+              {
+                (secretBlockFree (hmacKind v) h)
+                (Err e)
+              })
+            ((Ok _)
+              {
+                (hmacPrecompute v (+ p (* 2 l)) l p)
+                (Ok h)
+              })))))))
+
+; A fresh random HMAC-SHA-256 key of 32 bytes, the hash's output length.
+(pub :: hmacSha256KeyGenerate (Result HmacSha256Key Error))
+;@axiom:effect(io)
+(pub fn (hmacSha256KeyGenerate)
+  (match (hmacKeyRandom 256)
+    ((Ok h) (Ok (HmacSha256Key h)))
+    ((Err e) (Err e))))
+
+; An HMAC-SHA-256 key holding a copy of `s`, which may be any length
+; from 1 byte. This is also the deterministic route for known-answer
+; tests and protocols that derive the key.
+(pub :: hmacSha256KeyFromSecret (-> SecretBytes (Result HmacSha256Key Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (hmacSha256KeyFromSecret s)
+  (match (hmacKeyBlock 256 (secretAddr s) (secretLen s) "hmacSha256KeyFromSecret")
+    ((Ok h) (Ok (HmacSha256Key h)))
+    ((Err e) (Err e))))
+
+; The key bytes of `k`, as a new `SecretBytes`.
+(pub :: hmacSha256KeyExport (-> HmacSha256Key (Result SecretBytes Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (hmacSha256KeyExport k)
+  (secretFromAddr (+ (secretBlockAddr hmacSha256Kind k.slot) 64) (- (secretBlockLen hmacSha256Kind k.slot) 64)))
+
+; Erase `k` and free its storage. Any later use of `k` stops the
+; program with status 85. Answers 0.
+(pub :: hmacSha256KeyWipe (-> HmacSha256Key Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (hmacSha256KeyWipe k)
+  (secretBlockFree hmacSha256Kind k.slot))
+
+; A fresh random HMAC-SHA-512 key of 64 bytes, the hash's output length.
+(pub :: hmacSha512KeyGenerate (Result HmacSha512Key Error))
+;@axiom:effect(io)
+(pub fn (hmacSha512KeyGenerate)
+  (match (hmacKeyRandom 512)
+    ((Ok h) (Ok (HmacSha512Key h)))
+    ((Err e) (Err e))))
+
+; An HMAC-SHA-512 key holding a copy of `s`, which may be any length
+; from 1 byte.
+(pub :: hmacSha512KeyFromSecret (-> SecretBytes (Result HmacSha512Key Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (hmacSha512KeyFromSecret s)
+  (match (hmacKeyBlock 512 (secretAddr s) (secretLen s) "hmacSha512KeyFromSecret")
+    ((Ok h) (Ok (HmacSha512Key h)))
+    ((Err e) (Err e))))
+
+; The key bytes of `k`, as a new `SecretBytes`.
+(pub :: hmacSha512KeyExport (-> HmacSha512Key (Result SecretBytes Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (hmacSha512KeyExport k)
+  (secretFromAddr (+ (secretBlockAddr hmacSha512Kind k.slot) 128) (- (secretBlockLen hmacSha512Kind k.slot) 128)))
+
+; Erase `k` and free its storage. Answers 0.
+(pub :: hmacSha512KeyWipe (-> HmacSha512Key Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (hmacSha512KeyWipe k)
+  (secretBlockFree hmacSha512Kind k.slot))
+
+; ------------------------------------------------------------------
+; One-shot MACs.
+; ------------------------------------------------------------------
+; The 32-byte HMAC-SHA-256 tag of `msg` under `k`.
+(pub :: hmacSha256 (-> HmacSha256Key String String))
+;@axiom:effect(unsafe)
+(pub fn (hmacSha256 k msg)
+  (let ((out (strAlloc 32)))
+    {
+      (hmacWithChains 256 (secretBlockAddr hmacSha256Kind k.slot) (strData msg) (strLen msg) (strData out))
+      out
+    }))
+
+; Whether `tag` is the HMAC-SHA-256 tag of `msg` under `k`. A tag that
+; is not 32 bytes answers false. The comparison takes the same time
+; wherever the tags differ.
+(pub :: hmacSha256Verify (-> HmacSha256Key String String Bool))
+;@axiom:effect(unsafe)
+(pub fn (hmacSha256Verify k msg tag)
+  (if (!= (strLen tag) 32)
+    false
+    (let ((want (memAlloc 32)))
+      (let ((ok
+        {
+          (hmacWithChains 256 (secretBlockAddr hmacSha256Kind k.slot) (strData msg) (strLen msg) want)
+          (ctEqAddr want (strData tag) 32)
+        }))
+        {
+          (hmacErase want 4)
+          ok
+        }))))
+
+; The 64-byte HMAC-SHA-512 tag of `msg` under `k`.
+(pub :: hmacSha512 (-> HmacSha512Key String String))
+;@axiom:effect(unsafe)
+(pub fn (hmacSha512 k msg)
+  (let ((out (strAlloc 64)))
+    {
+      (hmacWithChains 512 (secretBlockAddr hmacSha512Kind k.slot) (strData msg) (strLen msg) (strData out))
+      out
+    }))
+
+; Whether `tag` is the HMAC-SHA-512 tag of `msg` under `k`. A tag that
+; is not 64 bytes answers false. The comparison takes the same time
+; wherever the tags differ.
+(pub :: hmacSha512Verify (-> HmacSha512Key String String Bool))
+;@axiom:effect(unsafe)
+(pub fn (hmacSha512Verify k msg tag)
+  (if (!= (strLen tag) 64)
+    false
+    (let ((want (memAlloc 64)))
+      (let ((ok
+        {
+          (hmacWithChains 512 (secretBlockAddr hmacSha512Kind k.slot) (strData msg) (strLen msg) want)
+          (ctEqAddr want (strData tag) 64)
+        }))
+        {
+          (hmacErase want 8)
+          ok
+        }))))
+
+; The HMAC-SHA-256 tag under the `keyLen`-byte key at `key` of `n`
+; bytes at `p`, written to the 32 bytes at `out`: the key by address,
+; for Crypto modules holding a key in their own secret memory. Any key
+; length, the empty key included, is used as given. Answers 0.
+(pub :: hmacSha256Raw (-> Int Int Int Int Int Int))
+;@axiom:ct(*key, *p)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`key` names `keyLen` live bytes, `p` names `n` live bytes and `out` names 32 live writable bytes)
+(pub fn (hmacSha256Raw key keyLen p n out)
+  (hmacRaw 256 key keyLen p n out))
+
+; The HMAC-SHA-512 tag under the `keyLen`-byte key at `key` of `n`
+; bytes at `p`, written to the 64 bytes at `out`. Answers 0.
+(pub :: hmacSha512Raw (-> Int Int Int Int Int Int))
+;@axiom:ct(*key, *p)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`key` names `keyLen` live bytes, `p` names `n` live bytes and `out` names 64 live writable bytes)
+(pub fn (hmacSha512Raw key keyLen p n out)
+  (hmacRaw 512 key keyLen p n out))
+
+; ------------------------------------------------------------------
+; Streaming MACs.
+; ------------------------------------------------------------------
+; An HMAC-SHA-256 computation in progress. Make one with
+; `hmacSha256New`.
+(pub struct HmacSha256
+  (state : String))
+
+; An HMAC-SHA-512 computation in progress. Make one with
+; `hmacSha512New`.
+(pub struct HmacSha512
+  (state : String))
+
+; The state blob: the inner and outer chaining values (2L bytes), the
+; running inner hash as a raw state, and a word that is 1 while the
+; state is live.
+(:: hmacStateBytes (-> Int Int))
+(fn (hmacStateBytes v)
+  (+ (+ (* 2 (hmacL v)) (hmacRawBytes v)) 8))
+
+; A fresh state blob over the chaining values at `chains`.
+(:: hmacStateFrom (-> Int Int String))
+;@axiom:ct(*chains)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`chains` names 2L live bytes)
+(fn (hmacStateFrom v chains)
+  (let ((s (strAlloc (hmacStateBytes v))) (l (hmacL v)))
+    (let ((st (strData s)))
+      {
+        (for i 0 (* 2 l)
+          (__store8 st i (__load8 chains i)))
+        (hmacRawResume v (+ st (* 2 l)) st)
+        (__store64 (+ st (- (hmacStateBytes v) 8)) 0 1)
+        s
+      })))
+
+; The raw inner state inside the blob `s`, or 0 when `s` is not a live
+; state blob of the variant.
+(:: hmacStateRaw (-> Int String Int))
+;@axiom:effect(unsafe)
+(fn (hmacStateRaw v s)
+  (if (|| (!= (strLen s) (hmacStateBytes v)) (== (strOwner s) 0))
+    0
+    (let ((st (strData s)))
+      (if (!= (__load64 (+ st (- (hmacStateBytes v) 8)) 0) 1)
+        0
+        (+ st (* 2 (hmacL v)))))))
+
+; The tag of everything absorbed into blob `s`, written to `out`; the
+; blob is then ready for another message under the same key. Answers
+; 0, or -1 when `s` is not a live state blob.
+(:: hmacStateFinal (-> Int String Int Int))
+;@axiom:ct(*out)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`out` names L live writable bytes)
+(fn (hmacStateFinal v s out)
+  (let ((raw (hmacStateRaw v s)) (l (hmacL v)))
+    (if (== raw 0)
+      -1
+      (let ((st (strData s)) (inner (memAlloc 64)))
+        {
+          (hmacRawFinal v raw inner)
+          (hmacRawResume v raw (+ st l))
+          (hmacRawUpdate v raw inner l)
+          (hmacRawFinal v raw out)
+          (hmacRawResume v raw st)
+          (hmacErase inner 8)
+        }))))
+
+; Erase the blob `s` whole; it then refuses every operation. Answers 0,
+; or -1 with nothing written when `s` is not a state blob of the
+; variant (a string literal's bytes are read-only).
+(:: hmacStateWipe (-> Int String Int))
+;@axiom:effect(unsafe)
+(fn (hmacStateWipe v s)
+  (if (|| (!= (strLen s) (hmacStateBytes v)) (== (strOwner s) 0))
+    -1
+    (ctWipe (strData s) (strLen s))))
+
+; A streaming HMAC-SHA-256 under `k`.
+(pub :: hmacSha256New (-> HmacSha256Key HmacSha256))
+;@axiom:effect(unsafe)
+(pub fn (hmacSha256New k)
+  (HmacSha256 (hmacStateFrom 256 (secretBlockAddr hmacSha256Kind k.slot))))
+
+; A streaming HMAC-SHA-256 under the `keyLen`-byte key at `key`, used
+; as given: the hazardous form for Crypto modules, such as HKDF, that
+; hold a key in their own secret memory.
+(pub :: hmacSha256NewRaw (-> Int Int HmacSha256))
+;@axiom:ct(*key)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`key` names `keyLen` live bytes)
+(pub fn (hmacSha256NewRaw key keyLen)
+  (let ((chains (memAlloc 128)))
+    {
+      (hmacPrecompute 256 key keyLen chains)
+      (let ((m (HmacSha256 (hmacStateFrom 256 chains))))
+        {
+          (hmacErase chains 16)
+          m
+        })
+    }))
+
+; The 64 bytes an HMAC-SHA-256 key precomputes (FIPS 198-1 section 6):
+; the inner chaining value, then the outer one, for the `keyLen`-byte
+; key at `key`, written to `out`. With `hmacSha256NewChains` this lets a
+; Crypto module key many MACs while doing the key schedule once, and
+; keep the key-derived bytes in memory it manages. Answers 0.
+(pub :: hmacSha256Chains (-> Int Int Int Int))
+;@axiom:ct(*key, *out)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`key` names `keyLen` live bytes and `out` names 64 live writable bytes)
+(pub fn (hmacSha256Chains key keyLen out)
+  (hmacPrecompute 256 key keyLen out))
+
+; A streaming HMAC-SHA-256 over the 64 precomputed bytes at `chains`
+; that `hmacSha256Chains` wrote.
+(pub :: hmacSha256NewChains (-> Int HmacSha256))
+;@axiom:ct(*chains)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`chains` names 64 live bytes)
+(pub fn (hmacSha256NewChains chains)
+  (HmacSha256 (hmacStateFrom 256 chains)))
+
+; Absorb `n` bytes at address `p`. Answers 0, or -1 when `m` is not a
+; live HMAC-SHA-256 state, and then absorbs nothing.
+(pub :: hmacSha256UpdateAddr (-> HmacSha256 Int Int Int))
+;@axiom:ct(*p)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p` names `n` live bytes)
+(pub fn (hmacSha256UpdateAddr m p n)
+  (let ((raw (hmacStateRaw 256 m.state)))
+    (if (== raw 0)
+      -1
+      (sha256RawUpdate raw p n))))
+
+; Absorb `msg`. Answers 0, or -1 when `m` is not a live HMAC-SHA-256
+; state.
+(pub :: hmacSha256Update (-> HmacSha256 String Int))
+;@axiom:effect(unsafe)
+(pub fn (hmacSha256Update m msg)
+  (hmacSha256UpdateAddr m (strData msg) (strLen msg)))
+
+; Write the tag of everything absorbed to the 32 bytes at `out`; `m` is
+; then ready for another message under the same key. Answers 0, or -1
+; when `m` is not a live HMAC-SHA-256 state.
+(pub :: hmacSha256FinalAddr (-> HmacSha256 Int Int))
+;@axiom:ct(*out)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`out` names 32 live writable bytes)
+(pub fn (hmacSha256FinalAddr m out)
+  (hmacStateFinal 256 m.state out))
+
+; The 32-byte tag of everything absorbed; `m` is then ready for another
+; message under the same key. A value that is not a live HMAC-SHA-256
+; state answers the empty string.
+(pub :: hmacSha256Final (-> HmacSha256 String))
+;@axiom:effect(unsafe)
+(pub fn (hmacSha256Final m)
+  (let ((out (strAlloc 32)))
+    (if (== (hmacSha256FinalAddr m (strData out)) 0)
+      out
+      "")))
+
+; An independent copy of `m`, which goes on from the same point.
+(pub :: hmacSha256Copy (-> HmacSha256 HmacSha256))
+;@axiom:effect(unsafe)
+(pub fn (hmacSha256Copy m)
+  (let ((s m.state))
+    (HmacSha256 (bytesFromAddr (strData s) (strLen s)))))
+
+; Erase everything `m` holds, the key's chaining values included; every
+; later operation on it is refused. Answers 0, or -1 with nothing
+; written when `m` is not a state.
+(pub :: hmacSha256Wipe (-> HmacSha256 Int))
+(pub fn (hmacSha256Wipe m)
+  (hmacStateWipe 256 m.state))
+
+; A streaming HMAC-SHA-512 under `k`.
+(pub :: hmacSha512New (-> HmacSha512Key HmacSha512))
+;@axiom:effect(unsafe)
+(pub fn (hmacSha512New k)
+  (HmacSha512 (hmacStateFrom 512 (secretBlockAddr hmacSha512Kind k.slot))))
+
+; A streaming HMAC-SHA-512 under the `keyLen`-byte key at `key`, used
+; as given: the hazardous form for Crypto modules.
+(pub :: hmacSha512NewRaw (-> Int Int HmacSha512))
+;@axiom:ct(*key)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`key` names `keyLen` live bytes)
+(pub fn (hmacSha512NewRaw key keyLen)
+  (let ((chains (memAlloc 128)))
+    {
+      (hmacPrecompute 512 key keyLen chains)
+      (let ((m (HmacSha512 (hmacStateFrom 512 chains))))
+        {
+          (hmacErase chains 16)
+          m
+        })
+    }))
+
+; The 128 bytes an HMAC-SHA-512 key precomputes (FIPS 198-1 section 6):
+; the inner chaining value, then the outer one, for the `keyLen`-byte
+; key at `key`, written to `out`. With `hmacSha512NewChains` this lets a
+; Crypto module key many MACs while doing the key schedule once, and
+; keep the key-derived bytes in memory it manages. Answers 0.
+(pub :: hmacSha512Chains (-> Int Int Int Int))
+;@axiom:ct(*key, *out)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`key` names `keyLen` live bytes and `out` names 128 live writable bytes)
+(pub fn (hmacSha512Chains key keyLen out)
+  (hmacPrecompute 512 key keyLen out))
+
+; A streaming HMAC-SHA-512 over the 128 precomputed bytes at `chains`
+; that `hmacSha512Chains` wrote.
+(pub :: hmacSha512NewChains (-> Int HmacSha512))
+;@axiom:ct(*chains)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`chains` names 128 live bytes)
+(pub fn (hmacSha512NewChains chains)
+  (HmacSha512 (hmacStateFrom 512 chains)))
+
+; Absorb `n` bytes at address `p`. Answers 0, or -1 when `m` is not a
+; live HMAC-SHA-512 state, and then absorbs nothing.
+(pub :: hmacSha512UpdateAddr (-> HmacSha512 Int Int Int))
+;@axiom:ct(*p)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p` names `n` live bytes)
+(pub fn (hmacSha512UpdateAddr m p n)
+  (let ((raw (hmacStateRaw 512 m.state)))
+    (if (== raw 0)
+      -1
+      (sha512RawUpdate raw p n))))
+
+; Absorb `msg`. Answers 0, or -1 when `m` is not a live HMAC-SHA-512
+; state.
+(pub :: hmacSha512Update (-> HmacSha512 String Int))
+;@axiom:effect(unsafe)
+(pub fn (hmacSha512Update m msg)
+  (hmacSha512UpdateAddr m (strData msg) (strLen msg)))
+
+; Write the tag of everything absorbed to the 64 bytes at `out`; `m` is
+; then ready for another message under the same key. Answers 0, or -1
+; when `m` is not a live HMAC-SHA-512 state.
+(pub :: hmacSha512FinalAddr (-> HmacSha512 Int Int))
+;@axiom:ct(*out)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`out` names 64 live writable bytes)
+(pub fn (hmacSha512FinalAddr m out)
+  (hmacStateFinal 512 m.state out))
+
+; The 64-byte tag of everything absorbed; `m` is then ready for another
+; message under the same key. A value that is not a live HMAC-SHA-512
+; state answers the empty string.
+(pub :: hmacSha512Final (-> HmacSha512 String))
+;@axiom:effect(unsafe)
+(pub fn (hmacSha512Final m)
+  (let ((out (strAlloc 64)))
+    (if (== (hmacSha512FinalAddr m (strData out)) 0)
+      out
+      "")))
+
+; An independent copy of `m`, which goes on from the same point.
+(pub :: hmacSha512Copy (-> HmacSha512 HmacSha512))
+;@axiom:effect(unsafe)
+(pub fn (hmacSha512Copy m)
+  (let ((s m.state))
+    (HmacSha512 (bytesFromAddr (strData s) (strLen s)))))
+
+; Erase everything `m` holds, the key's chaining values included; every
+; later operation on it is refused. Answers 0, or -1 with nothing
+; written when `m` is not a state.
+(pub :: hmacSha512Wipe (-> HmacSha512 Int))
+(pub fn (hmacSha512Wipe m)
+  (hmacStateWipe 512 m.state))

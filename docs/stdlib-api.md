@@ -142,6 +142,27 @@ two differ.
 | `aes256GcmSeal` | value | `(-> Aes256GcmKey AeadNonce String String (Result String Error))` | `Alloc,Mut,Unsafe` | Encrypt and authenticate with AES-256-GCM: ciphertext \|\| 16-byte tag. |
 | `aes256GcmOpen` | value | `(-> Aes256GcmKey AeadNonce String String (Result String Error))` | `Alloc,Mut,Unsafe` | Check and decrypt an AES-256-GCM message: the plaintext, or `cryptoAuthFailed` for any failure. |
 
+## `Crypto.Blake2b`
+
+`stdlib/Crypto/Blake2b.ax` — 14 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `blake2bCompress` | value | `(-> Int Int Int Bool Int)` | `Mut,Unsafe` | Fold one 128-byte block at `p` into the chaining value in words 0-7 at `st`, after advancing the byte counter in words 8 and 9 by `inc`; `last` sets the final-block flag. This is F of RFC 7693 section 3.2 with its counter bookkeeping, for a caller building its own mode over BLAKE2b. Answers 0. |
+| `blake2bAddr` | value | `(-> Int Int Int Int Int Int Int)` | `Alloc,Mut,Unsafe` | The BLAKE2b digest of `n` bytes at `p`, `outLen` bytes long and keyed with the `keyLen` bytes at `key`, written to `out`. The scratch state is erased before it returns. Answers 0. |
+| `blake2b` | value | `(-> Int String String (Result String Error))` | `Alloc,Mut,Unsafe` | The `outLen`-byte BLAKE2b digest of `msg` keyed with `key`; an empty key is unkeyed BLAKE2b. A digest length outside 1 to 64 or a key over 64 bytes answers `cryptoInvalidLength`. |
+| `blake2b512` | value | `(-> String String)` | `Alloc,Mut,Unsafe` | The 64-byte unkeyed BLAKE2b digest of `msg` (BLAKE2b-512). |
+| `blake2b256` | value | `(-> String String)` | `Alloc,Mut,Unsafe` | The 32-byte unkeyed BLAKE2b digest of `msg` (BLAKE2b-256). |
+| `Blake2b` | struct |  |  | A BLAKE2b hash in progress. Make one with `blake2bNew` or `blake2bNewKeyed`. |
+| `blake2bNew` | value | `(-> Int (Result Blake2b Error))` | `Alloc,Mut,Unsafe` | A fresh unkeyed hash with an `outLen`-byte digest, or `cryptoInvalidLength` when `outLen` is outside 1 to 64. |
+| `blake2bNewKeyed` | value | `(-> Int String (Result Blake2b Error))` | `Alloc,Mut,Unsafe` | A fresh hash with an `outLen`-byte digest keyed with `key`, or `cryptoInvalidLength` when `outLen` is outside 1 to 64 or `key` is over 64 bytes. The state keeps a copy of the key until it is wiped. |
+| `blake2bNewKeyedSecret` | value | `(-> Int SecretBytes (Result Blake2b Error))` | `Alloc,Mut,Unsafe` | `blake2bNewKeyed` with a key held in the secret store. |
+| `blake2bUpdateAddr` | value | `(-> Blake2b Int Int Int)` | `Mut,Unsafe` | Absorb `n` bytes at address `p`. Answers 0, or -1 when `h` is not a live BLAKE2b state or `n` is negative, and then absorbs nothing. |
+| `blake2bUpdate` | value | `(-> Blake2b String Int)` | `Mut,Unsafe` | Absorb `msg`. Answers 0, or -1 when `h` is not a live BLAKE2b state. |
+| `blake2bFinal` | value | `(-> Blake2b String)` | `Alloc,Mut,Unsafe` | The digest of everything absorbed, as long as `h` was made to give. `h` is then reset to a fresh hash with the same digest length and key. A value that is not a live BLAKE2b state answers the empty string. |
+| `blake2bCopy` | value | `(-> Blake2b Blake2b)` | `Alloc,Mut,Unsafe` | An independent copy of `h`, which goes on from the same point. It holds its own copy of any key. |
+| `blake2bWipe` | value | `(-> Blake2b Int)` | `Mut,Unsafe` | Erase everything `h` holds, the key included. Every later operation on it is refused. Answers 0, or -1 with nothing written when `h` is not a BLAKE2b state. |
+
 ## `Crypto.Bytes`
 
 `stdlib/Crypto/Bytes.ax` — 16 public names
@@ -250,6 +271,68 @@ two differ.
 |---|---|---|---|---|
 | `ghashUpdate` | value | `(-> Int Int Int Int Int)` | `Mut,Unsafe` | Absorb `len` bytes at `data` into the running hash at `y` (16 bytes, big-endian, updated in place) under the hash key at `h` (16 bytes): for each 16-byte block X, Y <- (Y xor X) * H in GF(2^128). A final partial block is padded with zeros, so a caller absorbing A and then C gets GCM's padding for each. `len` is public; `y` and `h` are not. |
 
+## `Crypto.Hkdf`
+
+`stdlib/Crypto/Hkdf.ax` — 10 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `hkdfSha256ExpandRaw` | value | `(-> Int Int Int Int Int Int Int)` | `Alloc,Mut,Unsafe` | HKDF-Expand with HMAC-SHA-256 (section 2.3): `len` bytes to `out` from the `prkLen`-byte key at `prk` and the `infoLen` bytes of info at `info`. T(i) = HMAC(PRK, T(i-1) \| info \| i) for i = 1, 2, ..., and the output is their concatenation cut to `len`. Answers 0. |
+| `hkdfSha512ExpandRaw` | value | `(-> Int Int Int Int Int Int Int)` | `Alloc,Mut,Unsafe` | HKDF-Expand with HMAC-SHA-512: as `hkdfSha256ExpandRaw` with 64-byte blocks. `len` is 1 to 16320. Answers 0. |
+| `hkdfSha256Raw` | value | `(-> Int Int Int Int Int Int Int Int Int)` | `Alloc,Mut,Unsafe` | HKDF with HMAC-SHA-256, extract then expand, by address: `len` bytes to `out`. The pseudorandom key lives only in scratch memory, erased before this returns. Answers 0. |
+| `hkdfSha512Raw` | value | `(-> Int Int Int Int Int Int Int Int Int)` | `Alloc,Mut,Unsafe` | HKDF with HMAC-SHA-512, extract then expand, by address. `len` is 1 to 16320. Answers 0. |
+| `hkdfSha256Extract` | value | `(-> String SecretBytes (Result SecretBytes Error))` | `Alloc,IO,Mut,Unsafe` | HKDF-Extract with HMAC-SHA-256 (section 2.2): the 32-byte pseudorandom key HMAC(salt, ikm). An empty salt is 32 zero bytes. |
+| `hkdfSha256Expand` | value | `(-> SecretBytes String Int (Result SecretBytes Error))` | `Alloc,IO,Mut,Unsafe` | HKDF-Expand with HMAC-SHA-256 (section 2.3): `len` bytes from `prk` for the context `info`. `prk` must be at least 32 bytes and `len` 1 to 8160; otherwise `cryptoInvalidLength`. |
+| `hkdfSha256` | value | `(-> SecretBytes String String Int (Result SecretBytes Error))` | `Alloc,IO,Mut,Unsafe` | HKDF with HMAC-SHA-256: extract from `ikm` with `salt`, then expand `len` bytes for the context `info`. `len` must be 1 to 8160; otherwise `cryptoInvalidLength`. |
+| `hkdfSha512Extract` | value | `(-> String SecretBytes (Result SecretBytes Error))` | `Alloc,IO,Mut,Unsafe` | HKDF-Extract with HMAC-SHA-512: the 64-byte pseudorandom key HMAC(salt, ikm). An empty salt is 64 zero bytes. |
+| `hkdfSha512Expand` | value | `(-> SecretBytes String Int (Result SecretBytes Error))` | `Alloc,IO,Mut,Unsafe` | HKDF-Expand with HMAC-SHA-512: `len` bytes from `prk` for the context `info`. `prk` must be at least 64 bytes and `len` 1 to 16320; otherwise `cryptoInvalidLength`. |
+| `hkdfSha512` | value | `(-> SecretBytes String String Int (Result SecretBytes Error))` | `Alloc,IO,Mut,Unsafe` | HKDF with HMAC-SHA-512: extract from `ikm` with `salt`, then expand `len` bytes for the context `info`. `len` must be 1 to 16320; otherwise `cryptoInvalidLength`. |
+
+## `Crypto.Hmac`
+
+`stdlib/Crypto/Hmac.ax` — 38 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `HmacSha256Key` | struct |  |  | An HMAC-SHA-256 key: a handle to its bytes and their precomputed inner and outer states in the secret store. Prints as `<HmacSha256Key>`. |
+| `HmacSha512Key` | struct |  |  | An HMAC-SHA-512 key. Prints as `<HmacSha512Key>`. |
+| `hmacSha256KeyGenerate` | value | `(Result HmacSha256Key Error)` | `Alloc,IO,Mut` | A fresh random HMAC-SHA-256 key of 32 bytes, the hash's output length. |
+| `hmacSha256KeyFromSecret` | value | `(-> SecretBytes (Result HmacSha256Key Error))` | `Alloc,IO,Mut,Unsafe` | An HMAC-SHA-256 key holding a copy of `s`, which may be any length from 1 byte. This is also the deterministic route for known-answer tests and protocols that derive the key. |
+| `hmacSha256KeyExport` | value | `(-> HmacSha256Key (Result SecretBytes Error))` | `Alloc,IO,Mut,Unsafe` | The key bytes of `k`, as a new `SecretBytes`. |
+| `hmacSha256KeyWipe` | value | `(-> HmacSha256Key Int)` | `Alloc,IO,Mut,Unsafe` | Erase `k` and free its storage. Any later use of `k` stops the program with status 85. Answers 0. |
+| `hmacSha512KeyGenerate` | value | `(Result HmacSha512Key Error)` | `Alloc,IO,Mut` | A fresh random HMAC-SHA-512 key of 64 bytes, the hash's output length. |
+| `hmacSha512KeyFromSecret` | value | `(-> SecretBytes (Result HmacSha512Key Error))` | `Alloc,IO,Mut,Unsafe` | An HMAC-SHA-512 key holding a copy of `s`, which may be any length from 1 byte. |
+| `hmacSha512KeyExport` | value | `(-> HmacSha512Key (Result SecretBytes Error))` | `Alloc,IO,Mut,Unsafe` | The key bytes of `k`, as a new `SecretBytes`. |
+| `hmacSha512KeyWipe` | value | `(-> HmacSha512Key Int)` | `Alloc,IO,Mut,Unsafe` | Erase `k` and free its storage. Answers 0. |
+| `hmacSha256` | value | `(-> HmacSha256Key String String)` | `Alloc,Mut,Unsafe` | The 32-byte HMAC-SHA-256 tag of `msg` under `k`. |
+| `hmacSha256Verify` | value | `(-> HmacSha256Key String String Bool)` | `Alloc,Mut,Unsafe` | Whether `tag` is the HMAC-SHA-256 tag of `msg` under `k`. A tag that is not 32 bytes answers false. The comparison takes the same time wherever the tags differ. |
+| `hmacSha512` | value | `(-> HmacSha512Key String String)` | `Alloc,Mut,Unsafe` | The 64-byte HMAC-SHA-512 tag of `msg` under `k`. |
+| `hmacSha512Verify` | value | `(-> HmacSha512Key String String Bool)` | `Alloc,Mut,Unsafe` | Whether `tag` is the HMAC-SHA-512 tag of `msg` under `k`. A tag that is not 64 bytes answers false. The comparison takes the same time wherever the tags differ. |
+| `hmacSha256Raw` | value | `(-> Int Int Int Int Int Int)` | `Alloc,Mut,Unsafe` | The HMAC-SHA-256 tag under the `keyLen`-byte key at `key` of `n` bytes at `p`, written to the 32 bytes at `out`: the key by address, for Crypto modules holding a key in their own secret memory. Any key length, the empty key included, is used as given. Answers 0. |
+| `hmacSha512Raw` | value | `(-> Int Int Int Int Int Int)` | `Alloc,Mut,Unsafe` | The HMAC-SHA-512 tag under the `keyLen`-byte key at `key` of `n` bytes at `p`, written to the 64 bytes at `out`. Answers 0. |
+| `HmacSha256` | struct |  |  | An HMAC-SHA-256 computation in progress. Make one with `hmacSha256New`. |
+| `HmacSha512` | struct |  |  | An HMAC-SHA-512 computation in progress. Make one with `hmacSha512New`. |
+| `hmacSha256New` | value | `(-> HmacSha256Key HmacSha256)` | `Alloc,Mut,Unsafe` | A streaming HMAC-SHA-256 under `k`. |
+| `hmacSha256NewRaw` | value | `(-> Int Int HmacSha256)` | `Alloc,Mut,Unsafe` | A streaming HMAC-SHA-256 under the `keyLen`-byte key at `key`, used as given: the hazardous form for Crypto modules, such as HKDF, that hold a key in their own secret memory. |
+| `hmacSha256Chains` | value | `(-> Int Int Int Int)` | `Alloc,Mut,Unsafe` | The 64 bytes an HMAC-SHA-256 key precomputes (FIPS 198-1 section 6): the inner chaining value, then the outer one, for the `keyLen`-byte key at `key`, written to `out`. With `hmacSha256NewChains` this lets a Crypto module key many MACs while doing the key schedule once, and keep the key-derived bytes in memory it manages. Answers 0. |
+| `hmacSha256NewChains` | value | `(-> Int HmacSha256)` | `Alloc,Mut,Unsafe` | A streaming HMAC-SHA-256 over the 64 precomputed bytes at `chains` that `hmacSha256Chains` wrote. |
+| `hmacSha256UpdateAddr` | value | `(-> HmacSha256 Int Int Int)` | `Mut,Unsafe` | Absorb `n` bytes at address `p`. Answers 0, or -1 when `m` is not a live HMAC-SHA-256 state, and then absorbs nothing. |
+| `hmacSha256Update` | value | `(-> HmacSha256 String Int)` | `Mut,Unsafe` | Absorb `msg`. Answers 0, or -1 when `m` is not a live HMAC-SHA-256 state. |
+| `hmacSha256FinalAddr` | value | `(-> HmacSha256 Int Int)` | `Alloc,Mut,Unsafe` | Write the tag of everything absorbed to the 32 bytes at `out`; `m` is then ready for another message under the same key. Answers 0, or -1 when `m` is not a live HMAC-SHA-256 state. |
+| `hmacSha256Final` | value | `(-> HmacSha256 String)` | `Alloc,Mut,Unsafe` | The 32-byte tag of everything absorbed; `m` is then ready for another message under the same key. A value that is not a live HMAC-SHA-256 state answers the empty string. |
+| `hmacSha256Copy` | value | `(-> HmacSha256 HmacSha256)` | `Alloc,Mut,Unsafe` | An independent copy of `m`, which goes on from the same point. |
+| `hmacSha256Wipe` | value | `(-> HmacSha256 Int)` | `Mut` | Erase everything `m` holds, the key's chaining values included; every later operation on it is refused. Answers 0, or -1 with nothing written when `m` is not a state. |
+| `hmacSha512New` | value | `(-> HmacSha512Key HmacSha512)` | `Alloc,Mut,Unsafe` | A streaming HMAC-SHA-512 under `k`. |
+| `hmacSha512NewRaw` | value | `(-> Int Int HmacSha512)` | `Alloc,Mut,Unsafe` | A streaming HMAC-SHA-512 under the `keyLen`-byte key at `key`, used as given: the hazardous form for Crypto modules. |
+| `hmacSha512Chains` | value | `(-> Int Int Int Int)` | `Alloc,Mut,Unsafe` | The 128 bytes an HMAC-SHA-512 key precomputes (FIPS 198-1 section 6): the inner chaining value, then the outer one, for the `keyLen`-byte key at `key`, written to `out`. With `hmacSha512NewChains` this lets a Crypto module key many MACs while doing the key schedule once, and keep the key-derived bytes in memory it manages. Answers 0. |
+| `hmacSha512NewChains` | value | `(-> Int HmacSha512)` | `Alloc,Mut,Unsafe` | A streaming HMAC-SHA-512 over the 128 precomputed bytes at `chains` that `hmacSha512Chains` wrote. |
+| `hmacSha512UpdateAddr` | value | `(-> HmacSha512 Int Int Int)` | `Mut,Unsafe` | Absorb `n` bytes at address `p`. Answers 0, or -1 when `m` is not a live HMAC-SHA-512 state, and then absorbs nothing. |
+| `hmacSha512Update` | value | `(-> HmacSha512 String Int)` | `Mut,Unsafe` | Absorb `msg`. Answers 0, or -1 when `m` is not a live HMAC-SHA-512 state. |
+| `hmacSha512FinalAddr` | value | `(-> HmacSha512 Int Int)` | `Alloc,Mut,Unsafe` | Write the tag of everything absorbed to the 64 bytes at `out`; `m` is then ready for another message under the same key. Answers 0, or -1 when `m` is not a live HMAC-SHA-512 state. |
+| `hmacSha512Final` | value | `(-> HmacSha512 String)` | `Alloc,Mut,Unsafe` | The 64-byte tag of everything absorbed; `m` is then ready for another message under the same key. A value that is not a live HMAC-SHA-512 state answers the empty string. |
+| `hmacSha512Copy` | value | `(-> HmacSha512 HmacSha512)` | `Alloc,Mut,Unsafe` | An independent copy of `m`, which goes on from the same point. |
+| `hmacSha512Wipe` | value | `(-> HmacSha512 Int)` | `Mut` | Erase everything `m` holds, the key's chaining values included; every later operation on it is refused. Answers 0, or -1 with nothing written when `m` is not a state. |
+
 ## `Crypto.Poly1305`
 
 `stdlib/Crypto/Poly1305.ax` — 6 public names
@@ -302,6 +385,98 @@ two differ.
 | `secretIsLocked` | value | `(-> SecretBytes Bool)` |  | Whether the kernel locked `s` out of swap. |
 | `secretWipe` | value | `(-> SecretBytes Int)` | `Alloc,IO,Mut,Unsafe` | Erase `s` and free its storage. Any later use of `s`, or of a copy of the handle, stops the program with status 85. Answers 0. |
 | `secretExposeCopy` | value | `(-> SecretBytes String)` | `Alloc,Mut,Unsafe` | A COPY of the secret's bytes in an ordinary string. This is the one way a secret's value leaves the store, for writing a key to a file you have decided to trust. The copy is arena memory: it is not locked, not wiped by `secretWipe`, and can be printed. Prefer a typed key's own export, which says what the bytes are. |
+
+## `Crypto.Sha2`
+
+`stdlib/Crypto/Sha2.ax` — 39 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `Sha256` | struct |  |  | A SHA-256 hash in progress. Make one with `sha256New`. |
+| `sha256New` | value | `Sha256` | `Alloc,Mut,Unsafe` | A fresh SHA-256 hash with nothing absorbed. |
+| `sha256UpdateAddr` | value | `(-> Sha256 Int Int Int)` | `Mut,Unsafe` | Absorb `n` bytes at address `p`: `sha256Update` for a caller holding raw memory, such as another Crypto module hashing a key in the secret store. Answers 0, or -1 when `h` is not a SHA-256 state or the message would pass the length limit, and then absorbs nothing. |
+| `sha256Update` | value | `(-> Sha256 String Int)` | `Mut,Unsafe` | Absorb `msg`. Answers 0, or -1 when `h` is not a SHA-256 state or the message would pass the length limit, and then absorbs nothing. |
+| `sha256Final` | value | `(-> Sha256 String)` | `Alloc,Mut,Unsafe` | The 32-byte digest of everything absorbed. `h` is then reset to a fresh hash, its partial block wiped, ready for another message. A value that is not a SHA-256 state answers the empty string. |
+| `sha256Copy` | value | `(-> Sha256 Sha256)` | `Alloc,Mut,Unsafe` | An independent copy of `h`, which goes on from the same point. Prime one state with a shared prefix, then copy it once per message. |
+| `sha256Wipe` | value | `(-> Sha256 Int)` | `Mut,Unsafe` | Erase everything `h` holds and leave it a fresh hash. Answers 0, or -1 with nothing written when `h` is not a SHA-256 state. |
+| `sha256Addr` | value | `(-> Int Int Int Int)` | `Alloc,Mut,Unsafe` | The SHA-256 digest of `n` bytes at `p`, written to the 32 bytes at `out`. Answers 0. The scratch state is wiped before it returns. |
+| `sha256` | value | `(-> String String)` | `Alloc,Mut,Unsafe` | The 32-byte SHA-256 digest of `msg`. |
+| `Sha512` | struct |  |  | A SHA-512 hash in progress. Make one with `sha512New`. |
+| `Sha384` | struct |  |  | A SHA-384 hash in progress. Make one with `sha384New`. |
+| `sha512New` | value | `Sha512` | `Alloc,Mut,Unsafe` | A fresh SHA-512 hash with nothing absorbed. |
+| `sha512UpdateAddr` | value | `(-> Sha512 Int Int Int)` | `Mut,Unsafe` | Absorb `n` bytes at address `p`. Answers 0, or -1 when `h` is not a SHA-512 state or the message would pass the length limit, and then absorbs nothing. |
+| `sha512Update` | value | `(-> Sha512 String Int)` | `Mut,Unsafe` | Absorb `msg`. Answers 0, or -1 when `h` is not a SHA-512 state or the message would pass the length limit, and then absorbs nothing. |
+| `sha512Final` | value | `(-> Sha512 String)` | `Alloc,Mut,Unsafe` | The 64-byte digest of everything absorbed. `h` is then reset to a fresh hash, its partial block wiped. A value that is not a SHA-512 state answers the empty string. |
+| `sha512Copy` | value | `(-> Sha512 Sha512)` | `Alloc,Mut,Unsafe` | An independent copy of `h`, which goes on from the same point. |
+| `sha512Wipe` | value | `(-> Sha512 Int)` | `Mut,Unsafe` | Erase everything `h` holds and leave it a fresh hash. Answers 0, or -1 with nothing written when `h` is not a SHA-512 state. |
+| `sha512Addr` | value | `(-> Int Int Int Int)` | `Alloc,Mut,Unsafe` | The SHA-512 digest of `n` bytes at `p`, written to the 64 bytes at `out`. Answers 0. The scratch state is wiped before it returns. |
+| `sha512` | value | `(-> String String)` | `Alloc,Mut,Unsafe` | The 64-byte SHA-512 digest of `msg`. |
+| `sha384New` | value | `Sha384` | `Alloc,Mut,Unsafe` | A fresh SHA-384 hash with nothing absorbed. |
+| `sha384UpdateAddr` | value | `(-> Sha384 Int Int Int)` | `Mut,Unsafe` | Absorb `n` bytes at address `p`. Answers 0, or -1 when `h` is not a SHA-384 state or the message would pass the length limit, and then absorbs nothing. |
+| `sha384Update` | value | `(-> Sha384 String Int)` | `Mut,Unsafe` | Absorb `msg`. Answers 0, or -1 when `h` is not a SHA-384 state or the message would pass the length limit, and then absorbs nothing. |
+| `sha384Final` | value | `(-> Sha384 String)` | `Alloc,Mut,Unsafe` | The 48-byte digest of everything absorbed. `h` is then reset to a fresh hash, its partial block wiped. A value that is not a SHA-384 state answers the empty string. |
+| `sha384Copy` | value | `(-> Sha384 Sha384)` | `Alloc,Mut,Unsafe` | An independent copy of `h`, which goes on from the same point. |
+| `sha384Wipe` | value | `(-> Sha384 Int)` | `Mut,Unsafe` | Erase everything `h` holds and leave it a fresh hash. Answers 0, or -1 with nothing written when `h` is not a SHA-384 state. |
+| `sha384Addr` | value | `(-> Int Int Int Int)` | `Alloc,Mut,Unsafe` | The SHA-384 digest of `n` bytes at `p`, written to the 48 bytes at `out`. Answers 0. The scratch state is wiped before it returns. |
+| `sha384` | value | `(-> String String)` | `Alloc,Mut,Unsafe` | The 48-byte SHA-384 digest of `msg`. |
+| `sha256RawSize` | value | `Int` |  | The bytes a raw SHA-256 state occupies. |
+| `sha256RawInit` | value | `(-> Int Int)` | `Mut,Unsafe` | Make the `sha256RawSize` bytes at `st` a fresh SHA-256 state. Answers 0. |
+| `sha256RawUpdate` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` | Absorb `n` bytes at `p` into the raw state at `st`. Answers 0, or -1 past the length limit, and then absorbs nothing. |
+| `sha256RawFinal` | value | `(-> Int Int Int)` | `Mut,Unsafe` | Write the digest of the raw state at `st` to the 32 bytes at `out`, then reset the state to a fresh one. Answers 0. |
+| `sha256RawResume` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` | Make the raw state at `st` one that has absorbed `count` bytes and holds the chaining value in the 32 bytes at `chain`, most significant byte of each word first: the state `sha256RawChain` saved. `count` must be a multiple of 64. Answers 0. |
+| `sha256RawChain` | value | `(-> Int Int Int)` | `Mut,Unsafe` | Write the chaining value of the raw state at `st` to the 32 bytes at `out`, most significant byte of each word first. Meaningful only after a whole number of blocks; answers 0, or -1 with nothing written when a partial block is waiting. |
+| `sha512RawSize` | value | `Int` |  | The bytes a raw SHA-512 or SHA-384 state occupies. |
+| `sha512RawInit` | value | `(-> Int Int)` | `Mut,Unsafe` | Make the `sha512RawSize` bytes at `st` a fresh SHA-512 state. Answers 0. |
+| `sha512RawUpdate` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` | Absorb `n` bytes at `p` into the raw SHA-512 or SHA-384 state at `st`. Answers 0, or -1 past the length limit, and then absorbs nothing. |
+| `sha512RawFinal` | value | `(-> Int Int Int)` | `Mut,Unsafe` | Write the SHA-512 digest of the raw state at `st` to the 64 bytes at `out`, then reset the state to a fresh SHA-512 one. Answers 0. |
+| `sha512RawResume` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` | Make the raw state at `st` one that has absorbed `count` bytes and holds the chaining value in the 64 bytes at `chain`, most significant byte of each word first. `count` must be a multiple of 128. Answers 0. |
+| `sha512RawChain` | value | `(-> Int Int Int)` | `Mut,Unsafe` | Write the chaining value of the raw SHA-512 state at `st` to the 64 bytes at `out`, most significant byte of each word first. Answers 0, or -1 with nothing written when a partial block is waiting. |
+
+## `Crypto.Sha3`
+
+`stdlib/Crypto/Sha3.ax` — 39 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `keccakF1600` | value | `(-> Int Int)` | `Mut,Unsafe` | Keccak-f[1600], Algorithm 7 with 24 rounds, on the 25 lanes at `st`: lane (x, y) in word x + 5y, as a 64-bit word. On a little-endian machine that is also FIPS 202's byte order for the state. |
+| `sha3_224Addr` | value | `(-> Int Int Int Int)` | `Alloc,Mut,Unsafe` | The SHA3-224 digest of `n` bytes at `p`, written to the 28 bytes at `out`. Answers 0. |
+| `sha3_256Addr` | value | `(-> Int Int Int Int)` | `Alloc,Mut,Unsafe` | The SHA3-256 digest of `n` bytes at `p`, written to the 32 bytes at `out`. Answers 0. |
+| `sha3_384Addr` | value | `(-> Int Int Int Int)` | `Alloc,Mut,Unsafe` | The SHA3-384 digest of `n` bytes at `p`, written to the 48 bytes at `out`. Answers 0. |
+| `sha3_512Addr` | value | `(-> Int Int Int Int)` | `Alloc,Mut,Unsafe` | The SHA3-512 digest of `n` bytes at `p`, written to the 64 bytes at `out`. Answers 0. |
+| `sha3_224` | value | `(-> String String)` | `Alloc,Mut,Unsafe` | The 28-byte SHA3-224 digest of `msg`. |
+| `sha3_256` | value | `(-> String String)` | `Alloc,Mut,Unsafe` | The 32-byte SHA3-256 digest of `msg`. |
+| `sha3_384` | value | `(-> String String)` | `Alloc,Mut,Unsafe` | The 48-byte SHA3-384 digest of `msg`. |
+| `sha3_512` | value | `(-> String String)` | `Alloc,Mut,Unsafe` | The 64-byte SHA3-512 digest of `msg`. |
+| `Sha3` | struct |  |  | A SHA-3 hash in progress, of any of the four sizes. Make one with `sha3_224New`, `sha3_256New`, `sha3_384New` or `sha3_512New`. |
+| `sha3_224New` | value | `Sha3` | `Alloc,Mut` | A fresh SHA3-224 hash. |
+| `sha3_256New` | value | `Sha3` | `Alloc,Mut` | A fresh SHA3-256 hash. |
+| `sha3_384New` | value | `Sha3` | `Alloc,Mut` | A fresh SHA3-384 hash. |
+| `sha3_512New` | value | `Sha3` | `Alloc,Mut` | A fresh SHA3-512 hash. |
+| `sha3UpdateAddr` | value | `(-> Sha3 Int Int Int)` | `Mut,Unsafe` | Absorb `n` bytes at address `p`. Answers 0, or -1 when `h` is not a SHA-3 state, and then absorbs nothing. |
+| `sha3Update` | value | `(-> Sha3 String Int)` | `Mut,Unsafe` | Absorb `msg`. Answers 0, or -1 when `h` is not a SHA-3 state. |
+| `sha3Final` | value | `(-> Sha3 String)` | `Alloc,Mut,Unsafe` | The digest of everything absorbed: 28, 32, 48 or 64 bytes, as `h` was made. `h` is then reset to a fresh hash of the same size. A value that is not a SHA-3 state answers the empty string. |
+| `sha3Copy` | value | `(-> Sha3 Sha3)` | `Alloc,Mut,Unsafe` | An independent copy of `h`, which goes on from the same point. |
+| `sha3Wipe` | value | `(-> Sha3 Int)` | `Mut,Unsafe` | Erase everything `h` holds and leave it a fresh hash of the same size. Answers 0, or -1 with nothing written when `h` is not a SHA-3 state. |
+| `shake128Addr` | value | `(-> Int Int Int Int Int)` | `Alloc,Mut,Unsafe` | `outLen` bytes of SHAKE128 over `n` bytes at `p`, written to `out`. Answers 0. |
+| `shake256Addr` | value | `(-> Int Int Int Int Int)` | `Alloc,Mut,Unsafe` | `outLen` bytes of SHAKE256 over `n` bytes at `p`, written to `out`. Answers 0. |
+| `shake128` | value | `(-> String Int String)` | `Alloc,Mut,Unsafe` | The first `outLen` bytes of SHAKE128 over `msg`. A negative length answers the empty string. |
+| `shake256` | value | `(-> String Int String)` | `Alloc,Mut,Unsafe` | The first `outLen` bytes of SHAKE256 over `msg`. A negative length answers the empty string. |
+| `Shake128` | struct |  |  | A SHAKE128 extendable-output function in progress: absorb input, then squeeze output in as many pieces as wanted. |
+| `Shake256` | struct |  |  | A SHAKE256 extendable-output function in progress. |
+| `shake128New` | value | `Shake128` | `Alloc,Mut` | A fresh SHAKE128 with nothing absorbed. |
+| `shake256New` | value | `Shake256` | `Alloc,Mut` | A fresh SHAKE256 with nothing absorbed. |
+| `shake128AbsorbAddr` | value | `(-> Shake128 Int Int Int)` | `Mut,Unsafe` | Absorb `n` bytes at address `p`. Answers 0, or -1 when `x` is not a SHAKE128 state or has begun squeezing, and then absorbs nothing. |
+| `shake128Absorb` | value | `(-> Shake128 String Int)` | `Mut,Unsafe` | Absorb `msg`. Answers 0, or -1 when `x` is not a SHAKE128 state or has begun squeezing. |
+| `shake128SqueezeAddr` | value | `(-> Shake128 Int Int Int)` | `Mut,Unsafe` | Squeeze the next `n` bytes of output to address `out`; the first squeeze ends the input. Answers 0, or -1 when `x` is not a SHAKE128 state or `n` is negative. |
+| `shake128Squeeze` | value | `(-> Shake128 Int String)` | `Alloc,Mut,Unsafe` | The next `n` bytes of output; the first squeeze ends the input. A negative `n`, or a value that is not a SHAKE128 state, answers the empty string. |
+| `shake128Copy` | value | `(-> Shake128 Shake128)` | `Alloc,Mut,Unsafe` | An independent copy of `x`, which goes on from the same point. |
+| `shake128Wipe` | value | `(-> Shake128 Int)` | `Mut,Unsafe` | Erase everything `x` holds and leave it a fresh SHAKE128. Answers 0, or -1 with nothing written when `x` is not a sponge state. |
+| `shake256AbsorbAddr` | value | `(-> Shake256 Int Int Int)` | `Mut,Unsafe` | Absorb `n` bytes at address `p`. Answers 0, or -1 when `x` is not a SHAKE256 state or has begun squeezing, and then absorbs nothing. |
+| `shake256Absorb` | value | `(-> Shake256 String Int)` | `Mut,Unsafe` | Absorb `msg`. Answers 0, or -1 when `x` is not a SHAKE256 state or has begun squeezing. |
+| `shake256SqueezeAddr` | value | `(-> Shake256 Int Int Int)` | `Mut,Unsafe` | Squeeze the next `n` bytes of output to address `out`; the first squeeze ends the input. Answers 0, or -1 when `x` is not a SHAKE256 state or `n` is negative. |
+| `shake256Squeeze` | value | `(-> Shake256 Int String)` | `Alloc,Mut,Unsafe` | The next `n` bytes of output; the first squeeze ends the input. A negative `n`, or a value that is not a SHAKE256 state, answers the empty string. |
+| `shake256Copy` | value | `(-> Shake256 Shake256)` | `Alloc,Mut,Unsafe` | An independent copy of `x`, which goes on from the same point. |
+| `shake256Wipe` | value | `(-> Shake256 Int)` | `Mut,Unsafe` | Erase everything `x` holds and leave it a fresh SHAKE256. Answers 0, or -1 with nothing written when `x` is not a sponge state. |
 
 ## `Err`
 
