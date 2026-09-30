@@ -462,6 +462,8 @@ cat > "$work/width.ax" <<'WIDTH'
 (pub :: main Int)
 
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (pub fn (main)
   (let (
     (cmds vecNew)
@@ -1535,6 +1537,8 @@ for kind in proc thread; do
 
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   (let (
     (cell (memAlloc 8))

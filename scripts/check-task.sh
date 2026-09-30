@@ -517,7 +517,10 @@ cuts = {
   "holder": [("Sync.ax", "(if (== (errCode e) 3)", "(if (== (errCode e) 99999)")],
   # The mutex never asks `waitid` about its own child: a zombie holder
   # looks alive to its parent too (AN-56 as it was).
-  "synclook": [("Sync.ax", "          (if (syncChildEnded owner)", "          (if false")],
+  # `syncChildEnded` is the look's one blocking call, so the block claim
+  # goes with it or the copy would not compile.
+  "synclook": [("Sync.ax", "          (if (syncChildEnded owner)", "          (if false"),
+               ("Sync.ax", ";@axiom:effect(block)\n(fn (syncHolderDead m v me)", "(fn (syncHolderDead m v me)")],
   "kill": [("Task.ax", "(sysKill (taskHandlePid (vecGet hs s)) 9)", "(sysKill (taskHandlePid (vecGet hs s)) 0)")],
   # The pid `__spawn_pid` reads through the handle, moved past every
   # kernel's pid_max: the same miss as a wrong word of the page, with

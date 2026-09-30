@@ -344,8 +344,10 @@ hlBrkPos self_host/replhl.ax no-io,no-alloc,no-foreign ok
 hlBrkSpan self_host/replhl.ax no-io,no-alloc,no-foreign ok
 hlClassOf self_host/replhl.ax no-io,no-foreign ok
 hlFamOf self_host/replhl.ax no-io,no-alloc,no-foreign ok
+hlForNext self_host/replhl.ax no-io,no-alloc,no-foreign ok
 hlGap self_host/replhl.ax no-io,no-foreign ok
 hlIsDeclHead self_host/replhl.ax no-io,no-alloc,no-foreign ok
+hlIsForIn self_host/replhl.ax no-io,no-alloc,no-foreign ok
 hlIsKeyword self_host/replhl.ax no-io,no-alloc,no-foreign ok
 hlIsOpener self_host/replhl.ax no-io,no-alloc,no-foreign ok
 hlLetter self_host/replhl.ax no-io,no-alloc,no-foreign ok
