@@ -901,6 +901,10 @@
 # exactly `Alloc` 113 to 112, `Alloc,Unsafe` 10 to 9 and
 # `Alloc,IO,Mut,Unsafe` 249 to 250. The stdlib view doesn't move.
 #
+# RE-PINNED for `windows-aarch64`: `targetIsWindows` (codegen) and
+# `irWindowsTarget` (the driver) are pure, 1397 to 1399. Nothing else
+# moves.
+#
 # Every bucket is pinned exactly. A refactor that moves functions
 # between buckets fails here, and the failure is a conversation about
 # whether the required/ambient line still sits where it was measured -
@@ -956,7 +960,7 @@ have "$(bucket "$work/main.axsym" 'Block,IO,Unsafe')" 3 "Block,IO,Unsafe"
 have "$(bucket "$work/main.axsym" 'Entropy')" 1 "Entropy"
 have "$(bucket "$work/main.axsym" 'IO,Spawn,Unsafe')" 1 "IO,Spawn,Unsafe"
 have "$(bucket "$work/main.axsym" 'Spawn')" 2 "Spawn"
-have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 1397 "pure (neither row nor mark)"
+have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 1399 "pure (neither row nor mark)"
 have "$(grep -c '#effects-incomplete' "$work/main.axsym" || true)" 0 "incomplete rows"
 have "$(grep -c '#effect-params' "$work/main.axsym" || true)" 8 "effect-params rows"
 

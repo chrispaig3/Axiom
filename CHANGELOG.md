@@ -22,6 +22,12 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+- `windows-aarch64` is a target. `axiom build --target=windows-aarch64`
+  emits arm64 Windows code (`aarch64-pc-windows-msvc`) and links a
+  `.exe` with `lld-link /machine:arm64` against an arm64
+  `kernel32.lib`. It is source-only, like `windows-x86_64`: CI
+  assembles every standard-library case for it and emits its hello
+  world, and no runner executes it.
 - A `;@axiom:ct(...)` claim is checked when the program compiles. The
   compiler follows each named secret through the body and refuses a
   branch, a memory address or a division that depends on one, and a
