@@ -22,6 +22,25 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+- The standard library has the foundation of a cryptography suite
+  (docs/crypto.md). `Crypto.Random` answers secure random values from
+  the kernel with no fallback: `secureRandomBytes`, `randomBelow`,
+  `randomRange`, `randomShuffle` and tokens. `Crypto.Secret` keeps key
+  material in locked mappings outside the arena behind sealed handles
+  that print as `<SecretBytes>` and stop the program with status 85
+  once wiped. `Crypto.Bytes` has constant-time comparison and hex and
+  base64 codecs, and `Crypto.Ct` the constant-time layer under them.
+  Tested by `tests/crypto/` through the new `check-crypto.sh`, which
+  also runs every test against corrupted vectors to show it can fail.
+  One new gate calls `gate_build_axc`; the count sites state
+  ninety-three gates.
+- `Sys` can map private pages, lock them out of swap (`sysMlock`) and
+  keep them out of core files (`sysExcludeFromCore`), and each
+  `Sys.Platform` module gains the six constants they need.
+- `sysRandomBytes`, and so `IO.randomBytes`, answer `Err` code 78 on a
+  target with no kernel entropy call (`windows-x86_64`,
+  `baremetal-aarch64`) instead of stopping the program with status 74.
+
 ## 0.7.6 — 2026-09-29
 
 Axiom 0.7.6 tightens what safe code can do with memory and threads, and

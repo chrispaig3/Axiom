@@ -5661,7 +5661,7 @@ Checked by `scripts/check-freestanding.sh`.
 
 ### Modules at a Glance
 
-Twenty-six modules, all of them Axiom source under `stdlib/`. A module exports only the
+Thirty-one modules, all of them Axiom source under `stdlib/`. A module exports only the
 names it marks `pub`, and reaching any other name is `AX3023`, so
 `grep '^(pub' stdlib/M.ax` always tells you what module `M` exports.
 
@@ -5699,6 +5699,11 @@ regenerates it on every run to keep it exact.
 | `Tui.Keys` | Terminal input bytes to key events, as pure functions ([line editor](#build-a-line-editor)). |
 | `Tui.Edit` | A line editor that performs no I/O ([line editor](#build-a-line-editor)). |
 | `Tui.Term` | The part of the line editor that reads the terminal ([line editor](#build-a-line-editor)). |
+| `Crypto.Random` | Secure random values from the kernel: `secureRandomBytes`, `randomBelow`, `randomRange`, `randomShuffle`, `randomWord`, the tokens `randomTokenHex`/`randomTokenUrl`, and `randomFill` for key generators. Where the target has no secure source, each call answers `Err`; none falls back to a clock or a counter. |
+| `Crypto.Secret` | Where keys live. `SecretBytes` is a handle that prints as `<SecretBytes>`, over locked memory outside the arena: `secretRandom`, `secretFromString`, `secretLen`, `secretEq`, `secretWipe`, and `secretExposeCopy` for the one time you mean to write a key out. Using a wiped secret exits with status 85. |
+| `Crypto.Bytes` | Byte strings for cryptography: `bytesEqCt` compares in constant time, `hexEncode`/`hexDecode` and the base64 codecs (`b64Encode`, `b64EncodeNoPad`, `b64UrlEncode` and their strict decoders) run in constant time, and `bytesU32Be` and its kin encode integers. |
+| `Crypto.Ct` | The constant-time layer the other Crypto modules are built from: masks and `ctSelect`, the `ctBarrier` value barrier, byte-order loads and stores, and `ctWipe`, an erasure the optimiser can't remove. For implementers. |
+| `Crypto.Errors` | The error codes every Crypto module answers, from `cryptoInvalidLength` (1101) to `cryptoInvalidKey` (1109), and the helpers that build them. |
 
 A few `IO` names need a word more:
 

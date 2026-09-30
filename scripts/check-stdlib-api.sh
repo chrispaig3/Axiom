@@ -62,6 +62,11 @@ bad() { echo "FAIL $*"; failed=$((failed + 1)); }
 modules="
 stdlib/Agent/Tags.ax
 stdlib/Chan.ax
+stdlib/Crypto/Bytes.ax
+stdlib/Crypto/Ct.ax
+stdlib/Crypto/Errors.ax
+stdlib/Crypto/Random.ax
+stdlib/Crypto/Secret.ax
 stdlib/Err.ax
 stdlib/Fallible.ax
 stdlib/Ffi.ax
@@ -145,27 +150,33 @@ printf '%s\n' "$mod_names" > "$work/mod.names"
 n_mods="$(printf '%s\n' "$mod_names" | grep -c . || true)"
 
 mod_word() {
-  case "$1" in
-    20) echo "Twenty" ;;        21) echo "Twenty-one" ;;
-    22) echo "Twenty-two" ;;    23) echo "Twenty-three" ;;
-    24) echo "Twenty-four" ;;   25) echo "Twenty-five" ;;
-    26) echo "Twenty-six" ;;    27) echo "Twenty-seven" ;;
-    28) echo "Twenty-eight" ;;  29) echo "Twenty-nine" ;;
-    30) echo "Thirty" ;;        *)  echo "" ;;
-  esac
+  local n="$1" tens units
+  (( n >= 20 && n <= 99 )) || { echo ""; return; }
+  tens=(Twenty Thirty Forty Fifty Sixty Seventy Eighty Ninety)
+  units=("" one two three four five six seven eight nine)
+  if (( n % 10 == 0 )); then
+    echo "${tens[$(( n / 10 - 2 ))]}"
+  else
+    echo "${tens[$(( n / 10 - 2 ))]}-${units[$(( n % 10 ))]}"
+  fi
 }
 
-# The table answers for itself, at every arm, before it is used.
+# The word is computed, so it answers for itself against a table
+# written out by hand, at every arm the library's size has taken or is
+# likely to take, before it is used. Out of range answers nothing, and
+# the prose checks below then fail naming the count.
 checks=$((checks + 1))
 word_arms=0
 word_bad=""
-for pair in "20 Twenty" "21 Twenty-one" "22 Twenty-two" "23 Twenty-three" \
+for pair in "19 " "20 Twenty" "21 Twenty-one" "22 Twenty-two" "23 Twenty-three" \
             "24 Twenty-four" "25 Twenty-five" "26 Twenty-six" \
             "27 Twenty-seven" "28 Twenty-eight" "29 Twenty-nine" \
-            "30 Thirty"; do
+            "30 Thirty" "31 Thirty-one" "39 Thirty-nine" "40 Forty" \
+            "44 Forty-four" "50 Fifty" "53 Fifty-three" "68 Sixty-eight" \
+            "99 Ninety-nine" "100 "; do
   set -- $pair
   word_arms=$((word_arms + 1))
-  [[ "$(mod_word "$1")" == "$2" ]] || word_bad="$word_bad $1"
+  [[ "$(mod_word "$1")" == "${2:-}" ]] || word_bad="$word_bad $1"
 done
 if [[ -z "$word_bad" ]]; then
   ok "mod_word answers its own $word_arms arms"

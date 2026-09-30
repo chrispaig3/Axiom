@@ -1,0 +1,11 @@
+# source: RFC 4648 section 10, https://www.rfc-editor.org/rfc/rfc4648#section-10
+# sha256: - (transcribed from the RFC's text; the seven cases are the whole section)
+# extract: by hand
+# fields: bytes base64 base16
+- - -
+66 Zg== 66
+666f Zm8= 666F
+666f6f Zm9v 666F6F
+666f6f62 Zm9vYg== 666F6F62
+666f6f6261 Zm9vYmE= 666F6F6261
+666f6f626172 Zm9vYmFy 666F6F626172

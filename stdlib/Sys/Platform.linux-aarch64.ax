@@ -870,3 +870,43 @@
 (pub :: waitPollOptions Int)
 (pub fn (waitPollOptions)
   16777221)
+
+; ------------------------------------------------------------------
+; Pages for secrets (`stdlib/Crypto/Secret.ax`). A key lives in a
+; private anonymous mapping of its own, outside the arena, so a region
+; reset cannot reclaim it under a live handle. The mapping is locked
+; so it is not written to swap, and where the kernel has an advice for
+; it, left out of core dumps. Both are best effort: `Crypto.Secret`
+; answers whether each one took, and a kernel that refuses (an
+; `RLIMIT_MEMLOCK` of zero, say) leaves the key usable and unlocked.
+; A 0 below means the target has no such call.
+; ------------------------------------------------------------------
+; MAP_PRIVATE | MAP_ANONYMOUS = 0x02 | 0x20
+(pub :: mapPrivateAnon Int)
+(pub fn (mapPrivateAnon)
+  34)
+
+; mlock - 228 (the generic table)
+(pub :: sysMlockNum Int)
+(pub fn (sysMlockNum)
+  228)
+
+; munlock - 229
+(pub :: sysMunlockNum Int)
+(pub fn (sysMunlockNum)
+  229)
+
+; madvise - 233
+(pub :: sysMadviseNum Int)
+(pub fn (sysMadviseNum)
+  233)
+
+; MADV_DONTDUMP - 16
+(pub :: madvNoDump Int)
+(pub fn (madvNoDump)
+  16)
+
+; 0: entropy comes from the kernel call above, never from the CPU
+(pub :: randomUsesRndr Int)
+(pub fn (randomUsesRndr)
+  0)

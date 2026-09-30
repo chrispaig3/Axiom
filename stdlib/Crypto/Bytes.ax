@@ -1,0 +1,402 @@
+; Crypto.Bytes - byte strings as the Crypto modules pass them around.
+;
+; A `String` in Axiom is a length-counted run of bytes that may hold
+; any byte, NUL included (docs/reference.md, "Strings are bytes"), so
+; it is the suite's type for public byte data: messages, ciphertexts,
+; digests, encoded keys. Secret bytes live in `Crypto.Secret` instead.
+;
+;     (hexEncode (sha256 "abc"))          ; "ba7816bf..."
+;     (hexDecode "00ff")                  ; (Ok "\0\255")
+;     (b64UrlEncode "\255\254")           ; "__4"
+;
+; THE CODECS ARE CONSTANT TIME. Hex and base64 are how keys get
+; exported and imported, so each character is mapped with masks rather
+; than a table indexed by the byte or a branch on its range. A decoder
+; still answers `Err` for bad input, but it looks at every character
+; before it does, so the answer's timing does not say where the bad
+; one was.
+(import Mem)
+(import Str)
+(import Err)
+(import Crypto.Ct)
+(import Crypto.Errors)
+
+; ------------------------------------------------------------------
+; Building byte strings.
+; ------------------------------------------------------------------
+; `n` zero bytes, as a fresh string a caller may write into through
+; `strData` before handing it on.
+(pub :: bytesNew (-> Int String))
+(pub fn (bytesNew n)
+  (strAlloc
+    (if (< n 0)
+      0
+      n)))
+
+; A fresh copy of `n` bytes at `p`.
+(pub :: bytesFromAddr (-> Int Int String))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p` names `n` live bytes)
+(pub fn (bytesFromAddr p n)
+  (let ((s (bytesNew n)))
+    {
+      (ctCopy (strData s) p n)
+      s
+    }))
+
+; The 4 bytes of `v`'s low 32 bits, most significant first.
+(pub :: bytesU32Be (-> Int String))
+;@axiom:effect(unsafe)
+(pub fn (bytesU32Be v)
+  (let ((s (bytesNew 4)))
+    {
+      (st32be (strData s) 0 v)
+      s
+    }))
+
+; The 4 bytes of `v`'s low 32 bits, least significant first.
+(pub :: bytesU32Le (-> Int String))
+;@axiom:effect(unsafe)
+(pub fn (bytesU32Le v)
+  (let ((s (bytesNew 4)))
+    {
+      (st32le (strData s) 0 v)
+      s
+    }))
+
+; The 8 bytes of `v`, most significant first.
+(pub :: bytesU64Be (-> Int String))
+;@axiom:effect(unsafe)
+(pub fn (bytesU64Be v)
+  (let ((s (bytesNew 8)))
+    {
+      (st64be (strData s) 0 v)
+      s
+    }))
+
+; The 8 bytes of `v`, least significant first.
+(pub :: bytesU64Le (-> Int String))
+;@axiom:effect(unsafe)
+(pub fn (bytesU64Le v)
+  (let ((s (bytesNew 8)))
+    {
+      (st64le (strData s) 0 v)
+      s
+    }))
+
+; The byte-wise XOR of two strings of the same length, or `Err` when
+; the lengths differ.
+(pub :: bytesXor (-> String String (Result String Error)))
+;@axiom:effect(unsafe)
+(pub fn (bytesXor a b)
+  (let ((n (strLen a)))
+    (if (!= n (strLen b))
+      (cryptoLengthErr "the two inputs differ in length" "bytesXor")
+      (let ((s (bytesNew n)) (pa (strData a)) (pb (strData b)))
+        {
+          (let ((ps (strData s)))
+            (for i 0 n
+              (__store8 ps i (^ (__load8 pa i) (__load8 pb i)))))
+          (Ok s)
+        }))))
+
+; ------------------------------------------------------------------
+; Comparison.
+; ------------------------------------------------------------------
+; Whether `a` and `b` hold the same bytes, in time that depends only on
+; their lengths. Lengths are public here: two strings of different
+; lengths answer false at once. Use this, never `==` or `strEq`, to
+; compare a tag, a digest of a secret, or anything else an attacker
+; could learn from how long a comparison took.
+(pub :: bytesEqCt (-> String String Bool))
+;@axiom:effect(unsafe)
+(pub fn (bytesEqCt a b)
+  (if (!= (strLen a) (strLen b))
+    false
+    (ctEqAddr (strData a) (strData b) (strLen a))))
+
+; ------------------------------------------------------------------
+; Hex.
+; ------------------------------------------------------------------
+; The lower-case hex digit for `n` in 0..15. `(- n 10) >> 8` is -1
+; below 10 and 0 from 10 up, so the same sum lands on '0'..'9' or on
+; 'a'..'f' with no branch (after libsodium's `sodium_bin2hex`).
+(:: hexDigit (-> Int Int))
+(fn (hexDigit n)
+  (+ (+ n 87) (& (ctBarrier (>> (- n 10) 8)) (^ 38 -1))))
+
+; `s`'s bytes as lower-case hex, two digits a byte.
+(pub :: hexEncode (-> String String))
+;@axiom:effect(unsafe)
+(pub fn (hexEncode s)
+  (let ((n (strLen s)) (p (strData s)))
+    (let ((out (bytesNew (* 2 n))))
+      {
+        (let ((q (strData out)))
+          (for i 0 n
+            (let ((b (__load8 p i)))
+              {
+                (__store8 q (* 2 i) (hexDigit (>> b 4)))
+                (__store8 q (+ (* 2 i) 1) (hexDigit (& b 15)))
+              })))
+        out
+      })))
+
+; The value of hex digit `c` in the low byte, and in bit 8 a flag that
+; is set when `c` is not a hex digit. Either case is accepted.
+(:: hexValue (-> Int Int))
+(fn (hexValue c)
+  (let (
+    (num (^ c 48))
+    (alpha (- (& c (^ 32 -1)) 55))
+  )
+    (let (
+      (numOk (ctBarrier (>> (- num 10) 8)))
+      (alphaOk (ctBarrier (>> (^ (- alpha 10) (- alpha 16)) 8)))
+    )
+      (| (| (& numOk num) (& alphaOk alpha))
+        (& (^ (| numOk alphaOk) -1) 256)))))
+
+; The bytes a hex string spells, or `Err` when its length is odd or any
+; character is not a hex digit. Upper- and lower-case both decode.
+(pub :: hexDecode (-> String (Result String Error)))
+;@axiom:effect(unsafe)
+(pub fn (hexDecode s)
+  (let ((n (strLen s)) (p (strData s)))
+    (if (!= (% n 2) 0)
+      (cryptoErr cryptoInvalidEncoding "hex has an odd number of digits" "hexDecode")
+      (let ((out (bytesNew (/ n 2))) (mut bad 0))
+        {
+          (let ((q (strData out)))
+            (for i 0 (/ n 2)
+              (let (
+                (hi (hexValue (__load8 p (* 2 i))))
+                (lo (hexValue (__load8 p (+ (* 2 i) 1))))
+              )
+                {
+                  (set bad (| bad (| hi lo)))
+                  (__store8 q i (| (<< (& hi 15) 4) (& lo 15)))
+                })))
+          (if (!= (& bad 256) 0)
+            (cryptoErr cryptoInvalidEncoding "not a hex digit" "hexDecode")
+            (Ok out))
+        }))))
+
+; ------------------------------------------------------------------
+; Base64 (RFC 4648). Two alphabets: the standard one, whose last two
+; digits are '+' and '/', and the URL-safe one, '-' and '_'. Encoding
+; without padding is what password records and tokens use; decoding is
+; strict in both spellings, refusing a character outside the alphabet,
+; padding where there should be none, and a final digit whose unused
+; low bits are not zero (RFC 4648 section 3.5), so every byte string
+; has exactly one accepted encoding.
+; ------------------------------------------------------------------
+; -1 when `a < b` for small non-negative values, 0 otherwise.
+(:: ltMask (-> Int Int Int))
+(fn (ltMask a b)
+  (ctBarrier (>> (- a b) 63)))
+
+; The digit for the 6-bit value `v`; `c62` and `c63` are the
+; alphabet's last two characters.
+(:: b64Digit (-> Int Int Int Int))
+(fn (b64Digit v c62 c63)
+  (let (
+    (lt26 (ltMask v 26))
+    (lt52 (ltMask v 52))
+    (lt62 (ltMask v 62))
+    (is62 (ctMaskEq v 62))
+    (is63 (ctMaskEq v 63))
+  )
+    (| (| (& lt26 (+ v 65))
+          (& (& (^ lt26 -1) lt52) (+ v 71)))
+      (| (& (& (^ lt52 -1) lt62) (- v 4))
+        (| (& is62 c62) (& is63 c63))))))
+
+; The 6-bit value of digit `c` in bits 0-5, and bit 8 set when `c` is
+; not a digit of the alphabet.
+(:: b64Value (-> Int Int Int Int))
+(fn (b64Value c c62 c63)
+  (let (
+    (upper (& (^ (ltMask c 65) -1) (ltMask c 91)))
+    (lower (& (^ (ltMask c 97) -1) (ltMask c 123)))
+    (digit (& (^ (ltMask c 48) -1) (ltMask c 58)))
+    (is62 (ctMaskEq c c62))
+    (is63 (ctMaskEq c c63))
+  )
+    (let ((ok (| (| upper lower) (| digit (| is62 is63)))))
+      (| (| (| (& upper (- c 65)) (& lower (- c 71)))
+            (| (& digit (+ c 4)) (| (& is62 62) (& is63 63))))
+        (& (^ ok -1) 256)))))
+
+(:: b64EncodeWith (-> String Int Int Bool String))
+;@axiom:effect(unsafe)
+(fn (b64EncodeWith s c62 c63 pad)
+  (let (
+    (n (strLen s))
+    (p (strData s))
+    (full (/ (strLen s) 3))
+    (rest (% (strLen s) 3))
+  )
+    (let ((outLen
+      (+ (* 4 full)
+        (if (== rest 0)
+          0
+          (if pad
+            4
+            (+ rest 1))))))
+      (let ((out (bytesNew outLen)))
+        {
+          (let ((q (strData out)))
+            {
+              (for i 0 full
+                (let ((w (| (<< (__load8 p (* 3 i)) 16) (| (<< (__load8 p (+ (* 3 i) 1)) 8) (__load8 p (+ (* 3 i) 2))))))
+                  {
+                    (__store8 q (* 4 i) (b64Digit (& (>> w 18) 63) c62 c63))
+                    (__store8 q (+ (* 4 i) 1) (b64Digit (& (>> w 12) 63) c62 c63))
+                    (__store8 q (+ (* 4 i) 2) (b64Digit (& (>> w 6) 63) c62 c63))
+                    (__store8 q (+ (* 4 i) 3) (b64Digit (& w 63) c62 c63))
+                  }))
+              (if (== rest 0)
+                0
+                (let (
+                  (at (* 4 full))
+                  (w (| (<< (__load8 p (* 3 full)) 16)
+                    (if (== rest 2)
+                      (<< (__load8 p (+ (* 3 full) 1)) 8)
+                      0)))
+                )
+                  {
+                    (__store8 q at (b64Digit (& (>> w 18) 63) c62 c63))
+                    (__store8 q (+ at 1) (b64Digit (& (>> w 12) 63) c62 c63))
+                    (if (== rest 2)
+                      (__store8 q (+ at 2) (b64Digit (& (>> w 6) 63) c62 c63))
+                      (if pad
+                        (__store8 q (+ at 2) 61)
+                        0))
+                    (if pad
+                      (__store8 q (+ at 3) 61)
+                      0)
+                  }))
+            })
+          out
+        }))))
+
+; Decode `s`, which must carry no padding: the caller has already
+; stripped and counted it.
+(:: b64DecodeWith (-> String Int Int Int String (Result String Error)))
+;@axiom:effect(unsafe)
+(fn (b64DecodeWith s n c62 c63 where)
+  (let ((rest (% n 4)))
+    (if (== rest 1)
+      (cryptoErr cryptoInvalidEncoding "base64 length is not a whole number of bytes" where)
+      (let (
+        (p (strData s))
+        (full (/ n 4))
+        (outLen (+ (* 3 (/ n 4))
+          (if (== rest 0)
+            0
+            (- rest 1))))
+      )
+        (let ((out (bytesNew outLen)) (mut bad 0))
+          {
+            (let ((q (strData out)))
+              {
+                (for i 0 full
+                  (let (
+                    (a (b64Value (__load8 p (* 4 i)) c62 c63))
+                    (b (b64Value (__load8 p (+ (* 4 i) 1)) c62 c63))
+                    (c (b64Value (__load8 p (+ (* 4 i) 2)) c62 c63))
+                    (d (b64Value (__load8 p (+ (* 4 i) 3)) c62 c63))
+                  )
+                    (let ((w (| (<< (& a 63) 18) (| (<< (& b 63) 12) (| (<< (& c 63) 6) (& d 63))))))
+                      {
+                        (set bad (| bad (| (| a b) (| c d))))
+                        (__store8 q (* 3 i) (& (>> w 16) 255))
+                        (__store8 q (+ (* 3 i) 1) (& (>> w 8) 255))
+                        (__store8 q (+ (* 3 i) 2) (& w 255))
+                      })))
+                (if (== rest 0)
+                  0
+                  (let (
+                    (at (* 4 full))
+                    (o (* 3 full))
+                  )
+                    (let (
+                      (a (b64Value (__load8 p at) c62 c63))
+                      (b (b64Value (__load8 p (+ at 1)) c62 c63))
+                      (c
+                        (if (== rest 3)
+                          (b64Value (__load8 p (+ at 2)) c62 c63)
+                          0))
+                    )
+                      (let ((w (| (<< (& a 63) 18) (| (<< (& b 63) 12) (<< (& c 63) 6)))))
+                        {
+                          (set bad (| bad (| a (| b c))))
+                          (__store8 q o (& (>> w 16) 255))
+                          (if (== rest 3)
+                            {
+                              (__store8 q (+ o 1) (& (>> w 8) 255))
+                              ; the last digit's low 2 bits are padding
+                              (set bad (| bad (<< (& w 255) 8)))
+                            }
+                            ; the last digit's low 4 bits are padding
+                            (set bad (| bad (<< (& w 65535) 8))))
+                          0
+                        }))))
+              })
+            (if (!= (& bad (- 0 256)) 0)
+              (cryptoErr cryptoInvalidEncoding "not canonical base64" where)
+              (Ok out))
+          })))))
+
+; How many '=' end `s`: 0, 1 or 2. Padding is the encoding's public
+; shape, so it may be read with branches.
+(:: b64PadCount (-> String Int))
+(fn (b64PadCount s)
+  (let ((n (strLen s)))
+    (if (&& (>= n 2) (== (strByte s (- n 2)) 61))
+      (if (== (strByte s (- n 1)) 61)
+        2
+        -1)
+      (if (&& (>= n 1) (== (strByte s (- n 1)) 61))
+        1
+        0))))
+
+; Standard base64 with '=' padding, as RFC 4648 section 4 writes it.
+(pub :: b64Encode (-> String String))
+(pub fn (b64Encode s)
+  (b64EncodeWith s 43 47 true))
+
+; Standard base64 without padding: the spelling of the PHC string
+; format that password records use.
+(pub :: b64EncodeNoPad (-> String String))
+(pub fn (b64EncodeNoPad s)
+  (b64EncodeWith s 43 47 false))
+
+; URL-safe base64 without padding (RFC 4648 section 5), for tokens
+; that go in a URL or a file name.
+(pub :: b64UrlEncode (-> String String))
+(pub fn (b64UrlEncode s)
+  (b64EncodeWith s 45 95 false))
+
+; Decode padded standard base64. The length must be a multiple of four
+; and the padding exactly what the length calls for.
+(pub :: b64Decode (-> String (Result String Error)))
+(pub fn (b64Decode s)
+  (let ((n (strLen s)) (pads (b64PadCount s)))
+    (if (|| (!= (% n 4) 0) (< pads 0))
+      (cryptoErr cryptoInvalidEncoding "padded base64 must be a multiple of four characters" "b64Decode")
+      (if (&& (== pads 0) (== n 0))
+        (Ok "")
+        (b64DecodeWith s (- n pads) 43 47 "b64Decode")))))
+
+; Decode standard base64 that carries no padding. An '=' anywhere is
+; refused.
+(pub :: b64DecodeNoPad (-> String (Result String Error)))
+(pub fn (b64DecodeNoPad s)
+  (b64DecodeWith s (strLen s) 43 47 "b64DecodeNoPad"))
+
+; Decode URL-safe base64 without padding.
+(pub :: b64UrlDecode (-> String (Result String Error)))
+(pub fn (b64UrlDecode s)
+  (b64DecodeWith s (strLen s) 45 95 "b64UrlDecode"))

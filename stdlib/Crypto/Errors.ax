@@ -1,0 +1,86 @@
+; Crypto.Errors - the error codes every Crypto module answers.
+;
+; One set of numbers for the whole suite, so a caller can match on a
+; code without knowing which module raised it. They sit at 1100-1199,
+; above the kernel's errno range and clear of `Chan`, `Sync` and
+; `Task`'s 1001-1005, and none is ever renumbered or reused.
+;
+; ONE CODE FOR EVERY AUTHENTICATION FAILURE. A wrong key, a flipped bit
+; in the ciphertext, a truncated tag and a tag that was never there all
+; answer `cryptoAuthFailed` with the same message. An error that said
+; which check failed would tell an attacker how far a forgery got.
+(import Err)
+(import Str)
+
+; A key, nonce, tag, salt, output length or input length that the
+; algorithm does not accept.
+(pub :: cryptoInvalidLength Int)
+(pub fn (cryptoInvalidLength)
+  1101)
+
+; Bytes that do not decode: bad hex or base64, a public key or
+; signature that is not a canonical encoding, a malformed password
+; record.
+(pub :: cryptoInvalidEncoding Int)
+(pub fn (cryptoInvalidEncoding)
+  1102)
+
+; Authenticated decryption or tag verification failed. Nothing about
+; the plaintext is released when this is answered.
+(pub :: cryptoAuthFailed Int)
+(pub fn (cryptoAuthFailed)
+  1103)
+
+; This target has no secure entropy source Axiom can reach. There is
+; no fallback: the suite never substitutes a clock, a process id or a
+; counter.
+(pub :: cryptoEntropyUnavailable Int)
+(pub fn (cryptoEntropyUnavailable)
+  1104)
+
+; The kernel's entropy call failed. The context carries its errno.
+(pub :: cryptoEntropyFailed Int)
+(pub fn (cryptoEntropyFailed)
+  1105)
+
+; A usage limit was reached: a message longer than the algorithm may
+; process, a nonce sequence that has run out, or password-hashing
+; parameters above the policy's ceiling.
+(pub :: cryptoLimitExceeded Int)
+(pub fn (cryptoLimitExceeded)
+  1106)
+
+; Parameters this implementation does not support, such as an Argon2
+; variant or version other than the one asked for.
+(pub :: cryptoUnsupported Int)
+(pub fn (cryptoUnsupported)
+  1107)
+
+; The secret store could not make room: the kernel refused a mapping,
+; or the runtime's handle table is full.
+(pub :: cryptoNoSecretStore Int)
+(pub fn (cryptoNoSecretStore)
+  1108)
+
+; A key that decodes but must not be used: an X25519 peer key that
+; gives the all-zero shared secret, or an ML-KEM encapsulation key that
+; fails the modulus check.
+(pub :: cryptoInvalidKey Int)
+(pub fn (cryptoInvalidKey)
+  1109)
+
+; An `Err` carrying one of the codes above, with a message and the
+; name of the function that raised it as context.
+(pub :: cryptoErr (-> Int String String (Result a Error)))
+(pub fn (cryptoErr code message where)
+  (Err (errContextOf (mkError code message) where)))
+
+; The one authentication failure every open and verify answers.
+(pub :: cryptoAuthErr (-> String (Result a Error)))
+(pub fn (cryptoAuthErr where)
+  (cryptoErr cryptoAuthFailed "authentication failed" where))
+
+; A length refusal naming what was wrong.
+(pub :: cryptoLengthErr (-> String String (Result a Error)))
+(pub fn (cryptoLengthErr what where)
+  (cryptoErr cryptoInvalidLength (strConcat "invalid length: " what) where))

@@ -1,0 +1,327 @@
+; Crypto.Ct - the constant-time building blocks every Crypto module
+; shares.
+;
+; This is the hazardous layer. Nothing here validates a length or
+; knows what an algorithm is; it is the handful of operations a
+; cryptographic implementation needs that plain Axiom arithmetic does
+; not promise, plus the byte and word accessors the algorithms read
+; their inputs through. Application code wants `Crypto.Aead`,
+; `Crypto.Sign` and friends, not this.
+;
+; WHAT "CONSTANT TIME" MEANS HERE. A function is constant time when
+; nothing an attacker can time - which branches run, which addresses
+; are touched, and which instructions have data-dependent latency -
+; depends on a secret. Source that looks branchless is not enough:
+; `opt` is free to turn `(^ b (& m (^ a b)))` back into a `select`
+; once it proves `m` is 0 or -1, and the backend is free to turn a
+; `select` into a branch. So every mask a secret produces passes
+; through `ctBarrier`, an empty inline-assembly block that answers its
+; operand in a register the optimiser cannot see into. After the
+; barrier `m` is an arbitrary word to LLVM, and there is no `select`
+; left to form. `scripts/check-crypto-ct.py` reads the optimised IR
+; and holds the kernels to that (docs/crypto.md, "Constant time").
+;
+; THE BARRIER IS NOT FREE. Every `asm` block clobbers memory, so a
+; barrier also forces loads after it to be reissued. Put one where a
+; mask is made, not inside a loop over limbs that only uses one.
+;
+; WHAT THIS MODULE CANNOT PROMISE. A multiply whose latency depends on
+; its operands, a cache line shared with another process, and a
+; speculative load past a bounds check are all below the level Axiom
+; source controls. The kernels avoid secret-indexed memory and
+; secret-dependent division, which removes the software-visible
+; channels; the hardware ones are listed in docs/crypto.md.
+(import Mem)
+
+; ------------------------------------------------------------------
+; The barrier.
+; ------------------------------------------------------------------
+; `x`, unchanged, through an empty assembly block: the optimiser has
+; to treat the answer as any word at all. This is what stops a mask
+; from being reasoned back into a branch.
+;
+; The template is a comment naming the register, because an `asm`
+; template has to name an operand (AX3091) and an empty instruction
+; stream is what we want the assembler to see.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: ctBarrier (-> Int Int))
+;@axiom:effect(unsafe)
+(pub fn (ctBarrier x)
+  (asm
+    (aarch64 "// {r}" (inout r x))
+    (x86_64 "# {r}" (inout r x))))
+
+; A compiler fence over the memory at `p`: every store before it is
+; performed, because the block could read `p`. `ctWipe` ends with one,
+; which is what keeps a zeroing loop over memory nobody reads again
+; from being deleted as dead.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: ctFence (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (ctFence p)
+  (asm
+    (aarch64 "// {a}" (in a p))
+    (x86_64 "# {a}" (in a p))))
+
+; ------------------------------------------------------------------
+; Masks. A mask is a word that is either 0 or -1 (all ones), so it can
+; choose between two values with `&`, `|` and `^` and no branch.
+; ------------------------------------------------------------------
+; -1 when `x` is not zero, 0 when it is. For any nonzero `x`, one of
+; `x` and `-x` has the sign bit set (for the most negative word both
+; do), so an arithmetic shift of their `|` spreads it.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: ctMaskNz (-> Int Int))
+(pub fn (ctMaskNz x)
+  (ctBarrier (>> (| x (- 0 x)) 63)))
+
+; -1 when `x` is zero, 0 when it is not.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: ctMaskZero (-> Int Int))
+(pub fn (ctMaskZero x)
+  (^ (ctMaskNz x) -1))
+
+; -1 when `a` equals `b`, 0 otherwise.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: ctMaskEq (-> Int Int Int))
+(pub fn (ctMaskEq a b)
+  (ctMaskZero (^ a b)))
+
+; -1 when `a` is below `b` as UNSIGNED 64-bit words, 0 otherwise. This
+; is the borrow out of `a - b`, computed from the operands' top bits
+; (Hacker's Delight 2-13), so it is right across the whole range where
+; the signed `(- a b)` would overflow.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: ctMaskLtU (-> Int Int Int))
+(pub fn (ctMaskLtU a b)
+  (ctBarrier (>> (| (& (^ a -1) b) (& (^ (^ a b) -1) (- a b))) 63)))
+
+; -1 when `x` is negative, 0 otherwise.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: ctMaskNeg (-> Int Int))
+(pub fn (ctMaskNeg x)
+  (ctBarrier (>> x 63)))
+
+; `a` where `m` is -1, `b` where `m` is 0. `m` must be a mask.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: ctSelect (-> Int Int Int Int))
+(pub fn (ctSelect m a b)
+  (^ b (& m (^ a b))))
+
+; A mask from a 0/1 bit: 1 becomes -1 and 0 stays 0.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: ctMaskFromBit (-> Int Int))
+(pub fn (ctMaskFromBit b)
+  (ctBarrier (- 0 (& b 1))))
+
+; ------------------------------------------------------------------
+; Shifts and rotations on the words the algorithms use.
+;
+; `>>` is arithmetic, so a LOGICAL right shift is the arithmetic one
+; with the sign copies masked off. For a constant `n` - the only kind
+; the algorithms pass - `opt` folds the pair back into one `lshr`, and
+; a rotation into one `ror` (measured at --opt 1 on aarch64).
+; ------------------------------------------------------------------
+; `x` shifted right by `n` bits with zeros in, for 1 <= n <= 63.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: shrU (-> Int Int Int))
+(pub fn (shrU x n)
+  (& (>> x n) (- (<< 1 (- 64 n)) 1)))
+
+; A 64-bit rotation left by `n`, for 1 <= n <= 63.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: rotl64 (-> Int Int Int))
+(pub fn (rotl64 x n)
+  (| (<< x n) (shrU x (- 64 n))))
+
+; A 64-bit rotation right by `n`, for 1 <= n <= 63.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: rotr64 (-> Int Int Int))
+(pub fn (rotr64 x n)
+  (| (shrU x n) (<< x (- 64 n))))
+
+; The 32-bit words a SHA-256 or ChaCha20 state holds live in the low
+; half of an Int with the high half zero, so `>>` on one is already
+; logical. Every operation that can carry into the high half masks
+; back to 32 bits.
+(pub :: mask32 Int)
+(pub fn (mask32)
+  4294967295)
+
+; A 32-bit rotation left by `n`, for 1 <= n <= 31, of a word in
+; 0..2^32-1. The answer is in the same range.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: rotl32 (-> Int Int Int))
+(pub fn (rotl32 x n)
+  (& (| (<< x n) (>> x (- 32 n))) 4294967295))
+
+; A 32-bit rotation right by `n`, for 1 <= n <= 31.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: rotr32 (-> Int Int Int))
+(pub fn (rotr32 x n)
+  (& (| (>> x n) (<< x (- 32 n))) 4294967295))
+
+; `a + b` modulo 2^32, for words in 0..2^32-1.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: add32 (-> Int Int Int))
+(pub fn (add32 a b)
+  (& (+ a b) 4294967295))
+
+; ------------------------------------------------------------------
+; Byte order. Each reads or writes at `p + off` a byte at a time, so
+; none needs an aligned address. The compiler combines the bytes into
+; one load or store where the target allows it.
+; ------------------------------------------------------------------
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: ld32le (-> Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p` + `off` names 4 live bytes)
+(pub fn (ld32le p off)
+  (| (__load8 p off)
+    (| (<< (__load8 p (+ off 1)) 8)
+      (| (<< (__load8 p (+ off 2)) 16)
+        (<< (__load8 p (+ off 3)) 24)))))
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: ld32be (-> Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p` + `off` names 4 live bytes)
+(pub fn (ld32be p off)
+  (| (<< (__load8 p off) 24)
+    (| (<< (__load8 p (+ off 1)) 16)
+      (| (<< (__load8 p (+ off 2)) 8)
+        (__load8 p (+ off 3))))))
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: ld64le (-> Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p` + `off` names 8 live bytes)
+(pub fn (ld64le p off)
+  (| (ld32le p off) (<< (ld32le p (+ off 4)) 32)))
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: ld64be (-> Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p` + `off` names 8 live bytes)
+(pub fn (ld64be p off)
+  (| (<< (ld32be p off) 32) (ld32be p (+ off 4))))
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: st32le (-> Int Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p` + `off` names 4 live writable bytes)
+(pub fn (st32le p off v)
+  {
+    (__store8 p off (& v 255))
+    (__store8 p (+ off 1) (& (>> v 8) 255))
+    (__store8 p (+ off 2) (& (>> v 16) 255))
+    (__store8 p (+ off 3) (& (>> v 24) 255))
+    0
+  })
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: st32be (-> Int Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p` + `off` names 4 live writable bytes)
+(pub fn (st32be p off v)
+  {
+    (__store8 p off (& (>> v 24) 255))
+    (__store8 p (+ off 1) (& (>> v 16) 255))
+    (__store8 p (+ off 2) (& (>> v 8) 255))
+    (__store8 p (+ off 3) (& v 255))
+    0
+  })
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: st64le (-> Int Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p` + `off` names 8 live writable bytes)
+(pub fn (st64le p off v)
+  {
+    (st32le p off (& v 4294967295))
+    (st32le p (+ off 4) (shrU v 32))
+  })
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: st64be (-> Int Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p` + `off` names 8 live writable bytes)
+(pub fn (st64be p off v)
+  {
+    (st32be p off (shrU v 32))
+    (st32be p (+ off 4) (& v 4294967295))
+  })
+
+; ------------------------------------------------------------------
+; Memory.
+; ------------------------------------------------------------------
+; Whether `n` bytes at `a` and at `b` are equal, taking the same time
+; whichever bytes differ. `n` is public; the contents are not. The
+; running difference passes through the barrier once per byte, so the
+; loop cannot be rewritten to stop at the first difference.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: ctEqAddr (-> Int Int Int Bool))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`a` and `b` each name `n` live bytes)
+(pub fn (ctEqAddr a b n)
+  (let ((mut d 0))
+    {
+      (for i 0 n
+        (set d (ctBarrier (| d (^ (__load8 a i) (__load8 b i))))))
+      (== d 0)
+    }))
+
+; Overwrite `n` bytes at `p` with zeros, in a way the optimiser may not
+; delete. Answers 0.
+;
+; A zeroing loop over memory that nothing reads afterwards is a dead
+; store, and removing dead stores is exactly what `opt` is for. The
+; fence at the end hands `p` to an assembly block that may read any
+; memory, so every store above it has to happen first.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: ctWipe (-> Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p` names `n` live writable bytes)
+(pub fn (ctWipe p n)
+  {
+    (for i 0 n
+      (__store8 p i 0))
+    (ctFence p)
+    0
+  })
+
+; Copy `n` bytes from `src` to `dst`, which must not overlap. The same
+; loop as `memCopy`; here so a Crypto module needs one import for its
+; memory work.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: ctCopy (-> Int Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`dst` and `src` each name `n` live bytes, and the ranges do not overlap)
+(pub fn (ctCopy dst src n)
+  {
+    (for i 0 n
+      (__store8 dst i (__load8 src i)))
+    dst
+  })
+
+; Conditionally swap `n` words at `a` and `b`: swapped where `m` is -1,
+; left alone where `m` is 0. The Montgomery ladder's step, and any
+; other choice between two buffers a secret makes.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: ctSwapWords (-> Int Int Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`a` and `b` each name `n` live writable words)
+(pub fn (ctSwapWords m a b n)
+  {
+    (for i 0 n
+      (let (
+        (x (__load64 a i))
+        (y (__load64 b i))
+      )
+        (let ((t (& m (^ x y))))
+          {
+            (__store64 a i (^ x t))
+            (__store64 b i (^ y t))
+          })))
+    0
+  })

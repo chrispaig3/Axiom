@@ -1,0 +1,315 @@
+; Crypto.Random - cryptographically secure random values.
+;
+;     (secureRandomBytes 32)    ; (Ok <32 bytes from the kernel>)
+;     (randomBelow 6)           ; (Ok 0..5, each equally likely)
+;     (randomTokenUrl 16)       ; (Ok "q0V9..."), 128 bits, URL-safe
+;
+; EVERY BYTE COMES FROM THE KERNEL, per call. `getentropy` on Darwin,
+; `getrandom` on Linux and FreeBSD (`Sys.sysRandomBytes`). There is no
+; generator in this process: nothing to seed, nothing a `fork` could
+; duplicate, nothing two threads could race on, and no state to steal.
+; The price is a system call per request, measured in docs/crypto.md;
+; a caller wanting many small values asks for one larger buffer.
+;
+; THERE IS NO FALLBACK. Where the kernel call fails, or the target has
+; none, every function here answers `Err` - `cryptoEntropyFailed` with
+; the errno, or `cryptoEntropyUnavailable` - and never substitutes a
+; clock, a process id, a counter or an ordinary generator. On
+; `baremetal-aarch64` the source is the CPU's `RNDR` register when the
+; CPU has one (FEAT_RNG), checked before use; without it the answer is
+; `cryptoEntropyUnavailable`. `windows-x86_64` has no source wired and
+; answers the same.
+;
+; RANDOM IS NOT UNIQUE. A random 96-bit nonce collides with probability
+; about n^2/2^97 after n messages; `Crypto.Aead` states the limit that
+; implies. Uniqueness is a property of how nonces are managed, not of
+; how good the randomness is.
+(import Mem)
+(import Str)
+(import Vec)
+(import Err)
+(import Sys)
+(import Crypto.Ct)
+(import Crypto.Errors)
+(import Crypto.Bytes)
+
+; ------------------------------------------------------------------
+; The source.
+; ------------------------------------------------------------------
+; 1 when the kernel entropy call is available on this target.
+(:: randomHasKernel Int)
+(fn (randomHasKernel)
+  (if (== usesSyscallAbi 0)
+    0
+    (if (== sysRandomNum 0)
+      0
+      1)))
+
+; The RNDR field of ID_AA64ISAR0_EL1 (bits 63:60): nonzero when the
+; CPU implements FEAT_RNG. Readable at EL1, which is where a
+; `baremetal-aarch64` program runs. The x86_64 arm exists so a program
+; built for that architecture compiles; it answers 0, and nothing asks
+; it, because `randomUsesRndr` is 1 only on bare metal.
+(:: rndrPresent Int)
+;@axiom:effect(unsafe)
+(fn (rndrPresent)
+  (shrU
+    (asm
+      (aarch64 "mrs {r}, ID_AA64ISAR0_EL1" (out r))
+      (x86_64 "xorl {r:k}, {r:k}" (out r)))
+    60))
+
+; One word from RNDR, or 0 when the hardware could not produce one in
+; time (it then sets the Z flag and answers 0; a genuine 0 has
+; probability 2^-64 and is discarded the same way).
+(:: rndrWord Int)
+;@axiom:effect(unsafe)
+(fn (rndrWord)
+  (asm
+    (aarch64 "mrs {r}, S3_3_C2_C4_0" (out r))
+    (x86_64 "xorl {r:k}, {r:k}" (out r))))
+
+; Fill `n` bytes at `p` from RNDR, retrying a failed read up to 64
+; times before giving up.
+(:: rndrFill (-> Int Int (Result Int Error)))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p` names `n` live writable bytes)
+(fn (rndrFill p n)
+  (if (== rndrPresent 0)
+    (cryptoErr cryptoEntropyUnavailable "the CPU has no RNDR register (FEAT_RNG)" "randomFill")
+    (let ((mut off 0) (mut tries 0))
+      {
+        (while (&& (< off n) (< tries 64))
+          (let ((w (rndrWord)))
+            (if (== w 0)
+              {
+                (set tries (+ tries 1))
+                0
+              }
+              {
+                (set tries 0)
+                (let ((take
+                  (if (> (- n off) 8)
+                    8
+                    (- n off))))
+                  (for i 0 take
+                    (__store8 p (+ off i) (& (>> w (* 8 i)) 255))))
+                (set off (+ off 8))
+                0
+              })))
+        (if (< off n)
+          (cryptoErr cryptoEntropyFailed "RNDR failed 64 times in a row" "randomFill")
+          (Ok 0))
+      })))
+
+; Fill `n` bytes at `p` with secure random bytes. The low-level entry
+; every other function here and every key generator uses. On `Err` the
+; bytes at `p` are unspecified and must not be used.
+(pub :: randomFill (-> Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p` names `n` live writable bytes)
+(pub fn (randomFill p n)
+  (if (< n 0)
+    (cryptoLengthErr "a negative byte count" "randomFill")
+    (if (== n 0)
+      (Ok 0)
+      (if (== randomHasKernel 1)
+        (match (sysRandomBytes p n)
+          ((Ok _) (Ok 0))
+          ((Err e) (cryptoErr cryptoEntropyFailed (strConcat "the kernel entropy call failed: " (errorText e)) "randomFill")))
+        (if (== randomUsesRndr 1)
+          (rndrFill p n)
+          (cryptoErr cryptoEntropyUnavailable "this target has no secure entropy source" "randomFill"))))))
+
+; Whether this target has a secure entropy source at all. A program
+; can ask before it depends on one.
+(pub :: randomAvailable Bool)
+(pub fn (randomAvailable)
+  (if (== randomHasKernel 1)
+    true
+    (if (== randomUsesRndr 1)
+      (!= rndrPresent 0)
+      false)))
+
+; ------------------------------------------------------------------
+; Values.
+; ------------------------------------------------------------------
+; `n` secure random bytes.
+(pub :: secureRandomBytes (-> Int (Result String Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (secureRandomBytes n)
+  (if (< n 0)
+    (cryptoLengthErr "a negative byte count" "secureRandomBytes")
+    (let ((s (bytesNew n)))
+      (match (randomFill (strData s) n)
+        ((Ok _) (Ok s))
+        ((Err e) (Err e))))))
+
+; A uniformly random 64-bit word (any Int, negative included).
+(pub :: randomWord (Result Int Error))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (randomWord)
+  (let ((b (memAlloc 8)))
+    (match (randomFill b 8)
+      ((Ok _) (Ok (ld64le b 0)))
+      ((Err e) (Err e)))))
+
+; The smallest all-ones mask covering `x`: 2^k - 1 >= x.
+(:: coverMask (-> Int Int))
+(fn (coverMask x)
+  (let ((mut m x))
+    {
+      (set m (| m (>> m 1)))
+      (set m (| m (>> m 2)))
+      (set m (| m (>> m 4)))
+      (set m (| m (>> m 8)))
+      (set m (| m (>> m 16)))
+      (set m (| m (>> m 32)))
+      m
+    }))
+
+; Draw below `bound` from a buffer of `k` random words at `buf`,
+; refilling it when used up. Rejection sampling: mask a word down to
+; the smallest power of two covering `bound - 1` and retry any value at
+; or above `bound`, so every result is equally likely - reducing with
+; `%` would favour the small ones. The expected number of words per
+; draw is below two. Answers the value, or -1 with the buffer's refill
+; failure left in `err`'s first word.
+(:: belowFrom (-> Int Int Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`st` names a live three-word state: buffer address, word count, next index)
+(fn (belowFrom st bound mask k)
+  (let ((mut r -1) (mut failed 0))
+    {
+      (while (&& (< r 0) (== failed 0))
+        {
+          (if (>= (__load64 st 2) k)
+            (match (randomFill (__load64 st 0) (* 8 k))
+              ((Ok _) (__store64 st 2 0))
+              ((Err _) {
+                (set failed 1)
+                0
+              }))
+            0)
+          (if (== failed 0)
+            (let ((w (& (ld64le (__load64 st 0) (* 8 (__load64 st 2))) mask)))
+              {
+                (__store64 st 2 (+ (__load64 st 2) 1))
+                (if (< w bound)
+                  {
+                    (set r w)
+                    0
+                  }
+                  0)
+              })
+            0)
+        })
+      r
+    }))
+
+; A three-word draw state over a fresh buffer of `k` words, marked
+; used up so the first draw fills it.
+(:: drawState (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (drawState k)
+  (let ((st (memAlloc 24)))
+    {
+      (__store64 st 0 (memAlloc (* 8 k)))
+      (__store64 st 1 k)
+      (__store64 st 2 k)
+      st
+    }))
+
+; Wipe and forget a draw state's buffer: the words it holds decided
+; what was drawn.
+(:: drawDone (-> Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`st` is a live draw state)
+(fn (drawDone st)
+  (ctWipe (__load64 st 0) (* 8 (__load64 st 1))))
+
+; A uniformly random Int in 0..bound-1. `bound` must be at least 1.
+(pub :: randomBelow (-> Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (randomBelow bound)
+  (if (< bound 1)
+    (cryptoErr cryptoInvalidLength "the bound must be at least 1" "randomBelow")
+    (let ((st (drawState 2)))
+      (let ((r (belowFrom st bound (& (coverMask (- bound 1)) 9223372036854775807) 2)))
+        {
+          (drawDone st)
+          (if (< r 0)
+            (cryptoErr cryptoEntropyFailed "the kernel entropy call failed" "randomBelow")
+            (Ok r))
+        }))))
+
+; A uniformly random Int in lo..hi-1. `hi` must be above `lo`, and the
+; range must fit in an Int.
+(pub :: randomRange (-> Int Int (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (randomRange lo hi)
+  (if (<= hi lo)
+    (cryptoErr cryptoInvalidLength "the range is empty" "randomRange")
+    (let ((span (- hi lo)))
+      (if (< span 1)
+        (cryptoErr cryptoLimitExceeded "the range is wider than an Int" "randomRange")
+        (match (randomBelow span)
+          ((Ok r) (Ok (+ lo r)))
+          ((Err e) (Err e)))))))
+
+; Shuffle `v` in place into a uniformly random order (Fisher-Yates:
+; position i swaps with a uniform choice among 0..i). Answers `v`'s
+; length. Random words are drawn 32 at a time, so a long vector costs
+; one kernel call per 32 or so positions rather than one each.
+(pub :: randomShuffle (-> (Vec a) (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (randomShuffle v)
+  (let ((n (vecLen v)) (st (drawState 32)) (mut i (- (vecLen v) 1)) (mut failed 0))
+    {
+      (while (&& (> i 0) (== failed 0))
+        (let ((j (belowFrom st (+ i 1) (& (coverMask i) 9223372036854775807) 32)))
+          (if (< j 0)
+            {
+              (set failed 1)
+              0
+            }
+            {
+              (let ((t (vecGet v i)))
+                {
+                  (vecSet v i (vecGet v j))
+                  (vecSet v j t)
+                })
+              (set i (- i 1))
+              0
+            })))
+      (drawDone st)
+      (if (== failed 0)
+        (Ok n)
+        (cryptoErr cryptoEntropyFailed "the kernel entropy call failed" "randomShuffle"))
+    }))
+
+; ------------------------------------------------------------------
+; Tokens. An unguessable identifier is its entropy; the text is only
+; how it is carried. Ask for at least 16 bytes (128 bits).
+; ------------------------------------------------------------------
+; `n` random bytes as lower-case hex (2n characters).
+(pub :: randomTokenHex (-> Int (Result String Error)))
+;@axiom:effect(io)
+(pub fn (randomTokenHex n)
+  (match (secureRandomBytes n)
+    ((Ok b) (Ok (hexEncode b)))
+    ((Err e) (Err e))))
+
+; `n` random bytes as URL-safe base64 without padding.
+(pub :: randomTokenUrl (-> Int (Result String Error)))
+;@axiom:effect(io)
+(pub fn (randomTokenUrl n)
+  (match (secureRandomBytes n)
+    ((Ok b) (Ok (b64UrlEncode b)))
+    ((Err e) (Err e))))

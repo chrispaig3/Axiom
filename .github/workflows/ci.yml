@@ -328,7 +328,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # ninety-two of the gates below build the compiler under test from
+    # ninety-three of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -750,6 +750,11 @@ jobs:
       # runner - and the pre-fix rescan is its ablation.
       - name: The HTTP head scan is linear, counted
         run: ./scripts/check-http-scan.sh
+      # The cryptography suite's known answers and negative cases, each
+      # test also run against corrupted vectors to show it can fail
+      # (docs/crypto.md).
+      - name: Cryptography known answers, and each test can fail
+        run: ./scripts/check-crypto.sh
       # The examples/ DIRECTORY is swept: every tracked file a source or
       # a static asset, none executable, every program named in
       # examples/README.md and README.md linking there. A 156 KB Mach-O

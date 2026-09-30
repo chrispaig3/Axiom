@@ -646,3 +646,43 @@
 (pub :: waitPollOptions Int)
 (pub fn (waitPollOptions)
   0)
+
+; ------------------------------------------------------------------
+; Pages for secrets (`stdlib/Crypto/Secret.ax`). A key lives in a
+; private anonymous mapping of its own, outside the arena, so a region
+; reset cannot reclaim it under a live handle. The mapping is locked
+; so it is not written to swap, and where the kernel has an advice for
+; it, left out of core dumps. Both are best effort: `Crypto.Secret`
+; answers whether each one took, and a kernel that refuses (an
+; `RLIMIT_MEMLOCK` of zero, say) leaves the key usable and unlocked.
+; A 0 below means the target has no such call.
+; ------------------------------------------------------------------
+; no syscall ABI: `Crypto.Secret` answers an availability error here
+(pub :: mapPrivateAnon Int)
+(pub fn (mapPrivateAnon)
+  0)
+
+; none
+(pub :: sysMlockNum Int)
+(pub fn (sysMlockNum)
+  0)
+
+; none
+(pub :: sysMunlockNum Int)
+(pub fn (sysMunlockNum)
+  0)
+
+; none
+(pub :: sysMadviseNum Int)
+(pub fn (sysMadviseNum)
+  0)
+
+; none
+(pub :: madvNoDump Int)
+(pub fn (madvNoDump)
+  0)
+
+; 1: `Crypto.Random` reads the RNDR register (FEAT_RNG) when the CPU has it, and answers an availability error when it does not
+(pub :: randomUsesRndr Int)
+(pub fn (randomUsesRndr)
+  1)

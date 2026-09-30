@@ -87,6 +87,122 @@ two differ.
 | `chanCap` | value | `(-> Chan Int)` |  |  |
 | `chanFree` | value | `(-> Chan (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Unmap the channel. Only once no binding can still reach it - after the `parallel` form that used it (the module header's obligation). The handle is retired before the ring is unmapped, so every call made after this one - a second `chanFree` included - traps with status 85. It takes no lock, so a poisoned channel is freed like any other. |
 
+## `Crypto.Bytes`
+
+`stdlib/Crypto/Bytes.ax` — 16 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `bytesNew` | value | `(-> Int String)` | `Alloc,Mut` | `n` zero bytes, as a fresh string a caller may write into through `strData` before handing it on. |
+| `bytesFromAddr` | value | `(-> Int Int String)` | `Alloc,Mut,Unsafe` | A fresh copy of `n` bytes at `p`. |
+| `bytesU32Be` | value | `(-> Int String)` | `Alloc,Mut,Unsafe` | The 4 bytes of `v`'s low 32 bits, most significant first. |
+| `bytesU32Le` | value | `(-> Int String)` | `Alloc,Mut,Unsafe` | The 4 bytes of `v`'s low 32 bits, least significant first. |
+| `bytesU64Be` | value | `(-> Int String)` | `Alloc,Mut,Unsafe` | The 8 bytes of `v`, most significant first. |
+| `bytesU64Le` | value | `(-> Int String)` | `Alloc,Mut,Unsafe` | The 8 bytes of `v`, least significant first. |
+| `bytesXor` | value | `(-> String String (Result String Error))` | `Alloc,Mut,Unsafe` | The byte-wise XOR of two strings of the same length, or `Err` when the lengths differ. |
+| `bytesEqCt` | value | `(-> String String Bool)` | `Mut,Unsafe` | Whether `a` and `b` hold the same bytes, in time that depends only on their lengths. Lengths are public here: two strings of different lengths answer false at once. Use this, never `==` or `strEq`, to compare a tag, a digest of a secret, or anything else an attacker could learn from how long a comparison took. |
+| `hexEncode` | value | `(-> String String)` | `Alloc,Mut,Unsafe` | `s`'s bytes as lower-case hex, two digits a byte. |
+| `hexDecode` | value | `(-> String (Result String Error))` | `Alloc,Mut,Unsafe` | The bytes a hex string spells, or `Err` when its length is odd or any character is not a hex digit. Upper- and lower-case both decode. |
+| `b64Encode` | value | `(-> String String)` | `Alloc,Mut` | Standard base64 with '=' padding, as RFC 4648 section 4 writes it. |
+| `b64EncodeNoPad` | value | `(-> String String)` | `Alloc,Mut` | Standard base64 without padding: the spelling of the PHC string format that password records use. |
+| `b64UrlEncode` | value | `(-> String String)` | `Alloc,Mut` | URL-safe base64 without padding (RFC 4648 section 5), for tokens that go in a URL or a file name. |
+| `b64Decode` | value | `(-> String (Result String Error))` | `Alloc,Mut` | Decode padded standard base64. The length must be a multiple of four and the padding exactly what the length calls for. |
+| `b64DecodeNoPad` | value | `(-> String (Result String Error))` | `Alloc,Mut` | Decode standard base64 that carries no padding. An '=' anywhere is refused. |
+| `b64UrlDecode` | value | `(-> String (Result String Error))` | `Alloc,Mut` | Decode URL-safe base64 without padding. |
+
+## `Crypto.Ct`
+
+`stdlib/Crypto/Ct.ax` — 27 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `ctBarrier` | value | `(-> Int Int)` | `Mut,Unsafe` | `x`, unchanged, through an empty assembly block: the optimiser has to treat the answer as any word at all. This is what stops a mask from being reasoned back into a branch. |
+| `ctMaskNz` | value | `(-> Int Int)` | `Mut` | -1 when `x` is not zero, 0 when it is. For any nonzero `x`, one of `x` and `-x` has the sign bit set (for the most negative word both do), so an arithmetic shift of their `\|` spreads it. |
+| `ctMaskZero` | value | `(-> Int Int)` | `Mut` | -1 when `x` is zero, 0 when it is not. |
+| `ctMaskEq` | value | `(-> Int Int Int)` | `Mut` | -1 when `a` equals `b`, 0 otherwise. |
+| `ctMaskLtU` | value | `(-> Int Int Int)` | `Mut` | -1 when `a` is below `b` as UNSIGNED 64-bit words, 0 otherwise. This is the borrow out of `a - b`, computed from the operands' top bits (Hacker's Delight 2-13), so it is right across the whole range where the signed `(- a b)` would overflow. |
+| `ctMaskNeg` | value | `(-> Int Int)` | `Mut` | -1 when `x` is negative, 0 otherwise. |
+| `ctSelect` | value | `(-> Int Int Int Int)` |  | `a` where `m` is -1, `b` where `m` is 0. `m` must be a mask. |
+| `ctMaskFromBit` | value | `(-> Int Int)` | `Mut` | A mask from a 0/1 bit: 1 becomes -1 and 0 stays 0. |
+| `shrU` | value | `(-> Int Int Int)` |  | `x` shifted right by `n` bits with zeros in, for 1 <= n <= 63. |
+| `rotl64` | value | `(-> Int Int Int)` |  | A 64-bit rotation left by `n`, for 1 <= n <= 63. |
+| `rotr64` | value | `(-> Int Int Int)` |  | A 64-bit rotation right by `n`, for 1 <= n <= 63. |
+| `mask32` | value | `Int` |  | The 32-bit words a SHA-256 or ChaCha20 state holds live in the low half of an Int with the high half zero, so `>>` on one is already logical. Every operation that can carry into the high half masks back to 32 bits. |
+| `rotl32` | value | `(-> Int Int Int)` |  | A 32-bit rotation left by `n`, for 1 <= n <= 31, of a word in 0..2^32-1. The answer is in the same range. |
+| `rotr32` | value | `(-> Int Int Int)` |  | A 32-bit rotation right by `n`, for 1 <= n <= 31. |
+| `add32` | value | `(-> Int Int Int)` |  | `a + b` modulo 2^32, for words in 0..2^32-1. |
+| `ld32le` | value | `(-> Int Int Int)` | `Unsafe` |  |
+| `ld32be` | value | `(-> Int Int Int)` | `Unsafe` |  |
+| `ld64le` | value | `(-> Int Int Int)` | `Unsafe` |  |
+| `ld64be` | value | `(-> Int Int Int)` | `Unsafe` |  |
+| `st32le` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` |  |
+| `st32be` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` |  |
+| `st64le` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` |  |
+| `st64be` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` |  |
+| `ctEqAddr` | value | `(-> Int Int Int Bool)` | `Mut,Unsafe` | Whether `n` bytes at `a` and at `b` are equal, taking the same time whichever bytes differ. `n` is public; the contents are not. The running difference passes through the barrier once per byte, so the loop cannot be rewritten to stop at the first difference. |
+| `ctWipe` | value | `(-> Int Int Int)` | `Mut,Unsafe` | Overwrite `n` bytes at `p` with zeros, in a way the optimiser may not delete. Answers 0. |
+| `ctCopy` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` | Copy `n` bytes from `src` to `dst`, which must not overlap. The same loop as `memCopy`; here so a Crypto module needs one import for its memory work. |
+| `ctSwapWords` | value | `(-> Int Int Int Int Int)` | `Mut,Unsafe` | Conditionally swap `n` words at `a` and `b`: swapped where `m` is -1, left alone where `m` is 0. The Montgomery ladder's step, and any other choice between two buffers a secret makes. |
+
+## `Crypto.Errors`
+
+`stdlib/Crypto/Errors.ax` — 12 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `cryptoInvalidLength` | value | `Int` |  | A key, nonce, tag, salt, output length or input length that the algorithm does not accept. |
+| `cryptoInvalidEncoding` | value | `Int` |  | Bytes that do not decode: bad hex or base64, a public key or signature that is not a canonical encoding, a malformed password record. |
+| `cryptoAuthFailed` | value | `Int` |  | Authenticated decryption or tag verification failed. Nothing about the plaintext is released when this is answered. |
+| `cryptoEntropyUnavailable` | value | `Int` |  | This target has no secure entropy source Axiom can reach. There is no fallback: the suite never substitutes a clock, a process id or a counter. |
+| `cryptoEntropyFailed` | value | `Int` |  | The kernel's entropy call failed. The context carries its errno. |
+| `cryptoLimitExceeded` | value | `Int` |  | A usage limit was reached: a message longer than the algorithm may process, a nonce sequence that has run out, or password-hashing parameters above the policy's ceiling. |
+| `cryptoUnsupported` | value | `Int` |  | Parameters this implementation does not support, such as an Argon2 variant or version other than the one asked for. |
+| `cryptoNoSecretStore` | value | `Int` |  | The secret store could not make room: the kernel refused a mapping, or the runtime's handle table is full. |
+| `cryptoInvalidKey` | value | `Int` |  | A key that decodes but must not be used: an X25519 peer key that gives the all-zero shared secret, or an ML-KEM encapsulation key that fails the modulus check. |
+| `cryptoErr` | value | `(-> Int String String (Result a Error))` | `Alloc` | An `Err` carrying one of the codes above, with a message and the name of the function that raised it as context. |
+| `cryptoAuthErr` | value | `(-> String (Result a Error))` | `Alloc` | The one authentication failure every open and verify answers. |
+| `cryptoLengthErr` | value | `(-> String String (Result a Error))` | `Alloc,Mut` | A length refusal naming what was wrong. |
+
+## `Crypto.Random`
+
+`stdlib/Crypto/Random.ax` — 9 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `randomFill` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Fill `n` bytes at `p` with secure random bytes. The low-level entry every other function here and every key generator uses. On `Err` the bytes at `p` are unspecified and must not be used. |
+| `randomAvailable` | value | `Bool` | `Mut` | Whether this target has a secure entropy source at all. A program can ask before it depends on one. |
+| `secureRandomBytes` | value | `(-> Int (Result String Error))` | `Alloc,IO,Mut,Unsafe` | `n` secure random bytes. |
+| `randomWord` | value | `(Result Int Error)` | `Alloc,IO,Mut,Unsafe` | A uniformly random 64-bit word (any Int, negative included). |
+| `randomBelow` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | A uniformly random Int in 0..bound-1. `bound` must be at least 1. |
+| `randomRange` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Mut` | A uniformly random Int in lo..hi-1. `hi` must be above `lo`, and the range must fit in an Int. |
+| `randomShuffle` | value | `(-> (Vec a) (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Shuffle `v` in place into a uniformly random order (Fisher-Yates: position i swaps with a uniform choice among 0..i). Answers `v`'s length. Random words are drawn 32 at a time, so a long vector costs one kernel call per 32 or so positions rather than one each. |
+| `randomTokenHex` | value | `(-> Int (Result String Error))` | `Alloc,IO,Mut` | `n` random bytes as lower-case hex (2n characters). |
+| `randomTokenUrl` | value | `(-> Int (Result String Error))` | `Alloc,IO,Mut` | `n` random bytes as URL-safe base64 without padding. |
+
+## `Crypto.Secret`
+
+`stdlib/Crypto/Secret.ax` — 17 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `SecretBytes` | struct |  |  | A secret of any length, with no algorithm attached. Algorithms take their own key types, made from one of these with an explicit conversion that checks the length. |
+| `secretBlockNew` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | A fresh zeroed secret of `n` payload bytes under handle kind `kind`, as a handle word. |
+| `secretBlockAddr` | value | `(-> Int Int Int)` | `Unsafe` | The address of the payload of live secret `h` of kind `kind`. A dead, forged or other-kind handle stops the program with status 85. |
+| `secretBlockLen` | value | `(-> Int Int Int)` | `Unsafe` | The payload length of live secret `h`. |
+| `secretBlockLocked` | value | `(-> Int Int Bool)` | `Unsafe` | Whether the kernel locked live secret `h` out of swap. |
+| `secretBlockFree` | value | `(-> Int Int Int)` | `Alloc,IO,Mut,Unsafe` | Erase and free live secret `h`: zero the whole mapping, unlock it, unmap it, and retire the handle so any later use stops the program. A second free stops it too. Answers 0. |
+| `secretBlockFrom` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | A fresh secret of kind `kind` holding a copy of `n` bytes at `p`. |
+| `secretBlockRandom` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | A fresh secret of kind `kind` holding `n` random bytes, drawn straight into the mapping so they are never anywhere else. |
+| `secretFromString` | value | `(-> String (Result SecretBytes Error))` | `Alloc,IO,Mut,Unsafe` | A secret holding a copy of `s`'s bytes. The string itself is not touched: if it held the only other copy, the caller decides whether to overwrite it. |
+| `secretRandom` | value | `(-> Int (Result SecretBytes Error))` | `Alloc,IO,Mut,Unsafe` | A secret of `n` random bytes from `Crypto.Random`. |
+| `secretFromAddr` | value | `(-> Int Int (Result SecretBytes Error))` | `Alloc,IO,Mut,Unsafe` | A secret holding a copy of `n` bytes at `p`. For Crypto modules that derive a secret into their own scratch memory and hand it out. |
+| `secretLen` | value | `(-> SecretBytes Int)` |  | How many bytes `s` holds. A secret's length is not secret. |
+| `secretAddr` | value | `(-> SecretBytes Int)` | `Unsafe` | The payload address of `s`, for a Crypto module reading it. Valid only while `s` stays live. |
+| `secretEq` | value | `(-> SecretBytes SecretBytes Bool)` | `Mut,Unsafe` | Whether two secrets hold the same bytes, in time that depends only on their lengths. |
+| `secretIsLocked` | value | `(-> SecretBytes Bool)` |  | Whether the kernel locked `s` out of swap. |
+| `secretWipe` | value | `(-> SecretBytes Int)` | `Alloc,IO,Mut,Unsafe` | Erase `s` and free its storage. Any later use of `s`, or of a copy of the handle, stops the program with status 85. Answers 0. |
+| `secretExposeCopy` | value | `(-> SecretBytes String)` | `Alloc,Mut,Unsafe` | A COPY of the secret's bytes in an ordinary string. This is the one way a secret's value leaves the store, for writing a key to a file you have decided to trust. The copy is arena memory: it is not locked, not wiped by `secretWipe`, and can be printed. Prefer a typed key's own export, which says what the bytes are. |
+
 ## `Err`
 
 `stdlib/Err.ax` — 36 public names
@@ -460,7 +576,7 @@ two differ.
 
 ## `Sys`
 
-`stdlib/Sys.ax` — 97 public names
+`stdlib/Sys.ax` — 102 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -554,6 +670,11 @@ two differ.
 | `sysReadLineFd` | value | `(-> Int (Result (Option String) Error))` | `Alloc,IO,Mut,Unsafe` | One line of `fd`: `Ok (Some line)` without its newline, `Ok None` at end of input when nothing was read, or `Err` carrying the errno. |
 | `sysMapShared` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Unsafe` | Map `len` bytes, readable and writable (PROT_READ\|PROT_WRITE = 3), shared with every binding spawned after this call; answers the address, page-aligned and zeroed. Unmap it with `sysUnmapShared` once no binding can still touch it - a program obligation, as a handle's single join is (MM-PAR-8). |
 | `sysUnmapShared` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Unsafe` |  |
+| `sysMapPrivate` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Unsafe` | Map `len` zeroed bytes, readable and writable, private to this process: a fork gets a copy, as it does of the arena. Answers the page-aligned address. |
+| `sysUnmapPrivate` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Unsafe` |  |
+| `sysMlock` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | Lock `len` bytes at `addr` into memory, so the kernel never writes them to swap. The kernel may refuse: `RLIMIT_MEMLOCK` caps how much an unprivileged process may lock, and on Linux the default cap is a few megabytes. A refusal is an `Err` the caller decides about. |
+| `sysMunlock` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Unsafe` |  |
+| `sysExcludeFromCore` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | Keep `len` bytes at `addr` out of a core file (`MADV_DONTDUMP` on Linux, `MADV_NOCORE` on FreeBSD). Darwin has no such advice, and answers the unsupported sentinel. |
 | `sysWaitWord` | value | `(-> Int Int Int)` | `IO,Unsafe` | Block while the word at byte address `addr` - 8-aligned, inside a `sysMapShared` mapping - still holds `expected`. It returns when woken, when the word already differs on entry, or spuriously, so the caller re-checks its own condition every time. That is what makes a lost wake impossible: a waker changes the word BEFORE it wakes, so a waiter that read the old value either sees the new one on entry or is already in the queue the wake empties - with one caveat on Linux, which compares only the word's low 32 bits (FUTEX_WAIT, not PRIVATE: the key is the shared page): a waiter preempted across exactly a multiple of 2^32 changes would sleep through them. Darwin compares all 64 (UL_COMPARE_AND_WAIT64_SHARED = 6). Where `waitWordKind` is 0 it returns at once and the caller spins, which is correct and costs a core. No timeout here: `sysWaitWordTimeout` below is the timed form, and it pays for the timespec this one does not need. |
 | `sysWakeWord` | value | `(-> Int Int)` | `IO` | Wake every binding blocked in `sysWaitWord` on `addr`: FUTEX_WAKE (1) for INT_MAX waiters, or `__ulock_wake` with UL_COMPARE_AND_WAIT64_SHARED \| ULF_WAKE_ALL (6 \| 0x100). Answers 0 for `sysWaitWord`'s reason: a wake with nobody waiting is not an error anyone can act on. |
 | `sysTimedOut` | value | `Int` |  | The `Error` code every timed operation in the concurrency modules answers when its time ran out: `chanRecvTimeout`, `chanSendTimeout`, `mutexLockTimeout`, a task past its deadline. NOT an errno: ETIMEDOUT is 60 on Darwin and FreeBSD and 110 on Linux, so a code borrowed from the kernel would need one comparison and one fixture per target. It is above 255 so that it can never be mistaken for a wait status, which is what `Task.ax` puts in the same field for a task that trapped. |
@@ -564,7 +685,7 @@ two differ.
 
 ## `Sys.Platform`
 
-`stdlib/Sys/Platform.darwin.ax` — 121 public names
+`stdlib/Sys/Platform.darwin.ax` — 127 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -689,6 +810,12 @@ two differ.
 | `sysWaitIdNum` | value | `Int` |  | waitid(idtype, id, infop, options) - BSD 173 |
 | `waitIdPidType` | value | `Int` |  | P_PID - 1 here and on Linux, 0 on FreeBSD |
 | `waitPollOptions` | value | `Int` |  | WEXITED \| WNOHANG \| WNOWAIT = 0x04 \| 0x01 \| 0x20 (SDK sys/wait.h) |
+| `mapPrivateAnon` | value | `Int` |  | MAP_PRIVATE \| MAP_ANON = 0x2 \| 0x1000 |
+| `sysMlockNum` | value | `Int` |  | mlock - BSD 203 (SDK sys/syscall.h) |
+| `sysMunlockNum` | value | `Int` |  | munlock - BSD 204 |
+| `sysMadviseNum` | value | `Int` |  | madvise - BSD 75 |
+| `madvNoDump` | value | `Int` |  | Darwin has no madvise that keeps a range out of a core file, so 0. Core files are off unless `ulimit -c` and `kern.coredump` both allow them, and docs/crypto.md says so. |
+| `randomUsesRndr` | value | `Int` |  | 0: entropy comes from the kernel call above, never from the CPU |
 
 ## `Sync`
 

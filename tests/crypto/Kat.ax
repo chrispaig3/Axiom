@@ -1,0 +1,153 @@
+; Kat - the shared harness for the known-answer tests in tests/crypto.
+;
+; A vector file is plain text, one case per line, fields separated by
+; single spaces. Byte fields are hex; an empty byte string is written
+; `-`. Lines starting with `#` are comments, and the first few of those
+; say where the vectors came from (tests/crypto/README.md):
+;
+;     # source: https://...
+;     # sha256: <digest of the file the vectors were extracted from>
+;     # extract: tests/crypto/tools/<script>.py <arguments>
+;     # fields: msg md
+;     616263 ba7816bf...
+;
+; A test program reads the vectors directory from its first argument,
+; runs every case, and prints one line per suite - `<suite> ok` when
+; every case passed and at least one ran, otherwise a `FAIL` line per
+; failing case and `<suite> FAILED`. The case count goes to stderr,
+; where `scripts/check-crypto.sh` records it: a suite that ran nothing
+; is a failure, never a pass.
+(import IO)
+(import Str)
+(import Vec)
+(import Err)
+(import Fmt)
+(import Sys)
+(import Crypto.Bytes)
+
+; The vectors directory: the program's first argument, or
+; `tests/crypto/vectors` when run from the repository root by hand.
+(pub :: katDir String)
+;@axiom:effect(io)
+(pub fn (katDir)
+  (if (> sysArgc 1)
+    (sysArg 1)
+    "tests/crypto/vectors"))
+
+; The case lines of vector file `name` in the vectors directory:
+; comments and blank lines dropped. A missing or empty file answers no
+; lines, which the tally then reports as a failure.
+(pub :: katLines (-> String (Vec String)))
+;@axiom:effect(io)
+(pub fn (katLines name)
+  (let (
+    (text (readFile (strConcat (katDir) (strConcat "/" name))))
+    (out vecNew)
+  )
+    {
+      (for line in (strSplit text 10)
+        (if (|| (== (strLen line) 0) (== (strByte line 0) 35))
+          0
+          {
+            (vecPush out line)
+            0
+          }))
+      out
+    }))
+
+; A case line's fields, split on single spaces.
+(pub :: katFields (-> String (Vec String)))
+(pub fn (katFields line)
+  (strSplit line 32))
+
+; Field `i` of `fields` decoded from hex, `-` being the empty string. A
+; field that does not decode stops the program: the vector file is
+; wrong, and that is not a result to count.
+(pub :: katBytes (-> (Vec String) Int String))
+;@axiom:effect(io)
+(pub fn (katBytes fields i)
+  (let ((f (vecGet fields i)))
+    (if (strEq f "-")
+      ""
+      (match (hexDecode f)
+        ((Ok b) b)
+        ((Err e)
+          {
+            (eprintln "Kat: bad hex field {i} in a vector line")
+            (die "Kat: the vector file is malformed" 3)
+            ""
+          })))))
+
+; Field `i` as a decimal Int.
+(pub :: katInt (-> (Vec String) Int Int))
+;@axiom:effect(io)
+(pub fn (katInt fields i)
+  (match (strParseInt (vecGet fields i))
+    ((Some n) n)
+    ((None)
+      {
+        (eprintln "Kat: field {i} is not an integer")
+        (die "Kat: the vector file is malformed" 3)
+        0
+      })))
+
+; Field `i` as a string, unchanged.
+(pub :: katText (-> (Vec String) Int String))
+(pub fn (katText fields i)
+  (vecGet fields i))
+
+; ------------------------------------------------------------------
+; The tally.
+; ------------------------------------------------------------------
+(pub struct Tally
+  (name : String)
+  (mut passed : Int)
+  (mut failed : Int))
+
+(pub :: tallyNew (-> String Tally))
+(pub fn (tallyNew name)
+  (Tally name 0 0))
+
+; Record one case. On a failure, print which one and why.
+(pub :: tallyCheck (-> Tally Bool String Int))
+;@axiom:effect(io)
+(pub fn (tallyCheck t ok label)
+  (if ok
+    {
+      (set t.passed (+ t.passed 1))
+      0
+    }
+    {
+      (set t.failed (+ t.failed 1))
+      (let ((name t.name))
+        (println "FAIL {name}: {label}"))
+      0
+    }))
+
+; Record that `got` equals `want`, byte for byte, printing both in hex
+; when they differ.
+(pub :: tallyBytes (-> Tally String String String Int))
+;@axiom:effect(io)
+(pub fn (tallyBytes t want got label)
+  (if (strEq want got)
+    (tallyCheck t true label)
+    (tallyCheck t false (strConcat label (strConcat "\n  want " (strConcat (hexEncode want) (strConcat "\n  got  " (hexEncode got))))))))
+
+; The suite's line on stdout and its count on stderr. Answers 1 when
+; the suite failed or ran nothing, 0 otherwise, so `main` can sum.
+(pub :: tallyReport (-> Tally Int))
+;@axiom:effect(io)
+(pub fn (tallyReport t)
+  (let ((name t.name) (passed t.passed) (failed t.failed))
+    {
+      (eprintln "{name}: {passed} passed, {failed} failed")
+      (if (&& (== failed 0) (> passed 0))
+        {
+          (println "{name} ok")
+          0
+        }
+        {
+          (println "{name} FAILED")
+          1
+        })
+    }))

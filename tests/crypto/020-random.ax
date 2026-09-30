@@ -1,0 +1,87 @@
+; Crypto.Random's contracts that can be checked from inside a program:
+; bounds, uniformity within wide statistical tolerance, a shuffle that
+; permutes, token shapes, and the refusals.
+(import IO)
+(import Str)
+(import Vec)
+(import Err)
+(import Crypto.Random)
+(import Kat)
+
+(:: isErrI (-> (Result Int Error) Bool))
+(fn (isErrI r)
+  (match r
+    ((Ok _) false)
+    ((Err _) true)))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((t (tallyNew "random")) (counts vecNew) (mut inRange true) (mut draws 0))
+    {
+      (tallyCheck t randomAvailable "this host has a source")
+      (tallyCheck t (== (strLen (unwrapOr (secureRandomBytes 1000) "")) 1000) "1000 bytes")
+      (tallyCheck t (== (strLen (unwrapOr (secureRandomBytes 0) "x")) 0) "zero bytes")
+      (tallyCheck t (isErr (secureRandomBytes -1)) "negative length refused")
+      (tallyCheck t (isErrI (randomBelow 0)) "bound 0 refused")
+      (tallyCheck t (== (unwrapOr (randomBelow 1) -1) 0) "bound 1 answers 0")
+      (tallyCheck t (isErrI (randomRange 5 5)) "empty range refused")
+      ; 60,000 draws below 6: each face's count must lie within six
+      ; standard deviations (about 91 each) of 10,000.
+      (for i 0 6 (vecPush counts 0))
+      (for i 0 60000
+        (let ((r (unwrapOr (randomBelow 6) -1)))
+          (if (|| (< r 0) (>= r 6))
+            {
+              (set inRange false)
+              0
+            }
+            {
+              (vecSet counts r (+ (vecGet counts r) 1))
+              (set draws (+ draws 1))
+              0
+            })))
+      (tallyCheck t inRange "every draw in 0..5")
+      (tallyCheck t (== draws 60000) "every draw answered")
+      (for c in counts
+        (tallyCheck t (&& (> c 9450) (< c 10550)) "a face count within six sigma"))
+      ; a range that does not start at zero, and one near the top of Int
+      (let ((r (unwrapOr (randomRange -3 3) 99)))
+        (tallyCheck t (&& (>= r -3) (< r 3)) "randomRange -3 3"))
+      (let ((big 4611686018427387904))
+        (let ((r (unwrapOr (randomBelow big) -1)))
+          (tallyCheck t (&& (>= r 0) (< r big)) "a bound of 2^62")))
+      ; a shuffle is a permutation
+      (let ((v vecNew) (seen vecNew) (mut perm true))
+        {
+          (for i 0 1000
+            {
+              (vecPush v i)
+              (vecPush seen 0)
+            })
+          (tallyCheck t (== (unwrapOr (randomShuffle v) -1) 1000) "shuffle answers the length")
+          (for x in v
+            (if (|| (< x 0) (>= x 1000))
+              {
+                (set perm false)
+                0
+              }
+              {
+                (vecSet seen x (+ (vecGet seen x) 1))
+                0
+              }))
+          (for c in seen
+            (if (!= c 1)
+              {
+                (set perm false)
+                0
+              }
+              0))
+          (tallyCheck t perm "shuffle keeps every element exactly once")
+        })
+      (tallyCheck t (== (unwrapOr (randomShuffle vecNew) -1) 0) "empty shuffle")
+      (tallyCheck t (== (strLen (unwrapOr (randomTokenHex 16) "")) 32) "hex token")
+      (tallyCheck t (== (strLen (unwrapOr (randomTokenUrl 16) "")) 22) "url token")
+      (tallyCheck t (! (strEq (unwrapOr (randomTokenUrl 16) "") (unwrapOr (randomTokenUrl 16) ""))) "two tokens differ")
+      (tallyReport t)
+    }))

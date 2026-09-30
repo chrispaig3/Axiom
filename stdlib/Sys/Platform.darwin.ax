@@ -1051,3 +1051,45 @@
 (pub :: waitPollOptions Int)
 (pub fn (waitPollOptions)
   37)
+
+; ------------------------------------------------------------------
+; Pages for secrets (`stdlib/Crypto/Secret.ax`). A key lives in a
+; private anonymous mapping of its own, outside the arena, so a region
+; reset cannot reclaim it under a live handle. The mapping is locked
+; so it is not written to swap, and where the kernel has an advice for
+; it, left out of core dumps. Both are best effort: `Crypto.Secret`
+; answers whether each one took, and a kernel that refuses (an
+; `RLIMIT_MEMLOCK` of zero, say) leaves the key usable and unlocked.
+; A 0 below means the target has no such call.
+; ------------------------------------------------------------------
+; MAP_PRIVATE | MAP_ANON = 0x2 | 0x1000
+(pub :: mapPrivateAnon Int)
+(pub fn (mapPrivateAnon)
+  4098)
+
+; mlock - BSD 203 (SDK sys/syscall.h)
+(pub :: sysMlockNum Int)
+(pub fn (sysMlockNum)
+  33554635)
+
+; munlock - BSD 204
+(pub :: sysMunlockNum Int)
+(pub fn (sysMunlockNum)
+  33554636)
+
+; madvise - BSD 75
+(pub :: sysMadviseNum Int)
+(pub fn (sysMadviseNum)
+  33554507)
+
+; Darwin has no madvise that keeps a range out of a core file, so 0.
+; Core files are off unless `ulimit -c` and `kern.coredump` both allow
+; them, and docs/crypto.md says so.
+(pub :: madvNoDump Int)
+(pub fn (madvNoDump)
+  0)
+
+; 0: entropy comes from the kernel call above, never from the CPU
+(pub :: randomUsesRndr Int)
+(pub fn (randomUsesRndr)
+  0)

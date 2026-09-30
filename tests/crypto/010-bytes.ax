@@ -1,0 +1,60 @@
+; RFC 4648's base64 and base16 examples, both directions, and the
+; strictness that makes every byte string's encoding unique.
+(import IO)
+(import Str)
+(import Vec)
+(import Err)
+(import Crypto.Bytes)
+(import Kat)
+
+(:: isErr (-> (Result String Error) Bool))
+(fn (isErr r)
+  (match r
+    ((Ok _) false)
+    ((Err _) true)))
+
+(:: decodes (-> (Result String Error) String Bool))
+(fn (decodes r want)
+  (match r
+    ((Ok got) (strEq got want))
+    ((Err _) false)))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((t (tallyNew "rfc4648")) (s (tallyNew "codec-strictness")))
+    {
+      (for line in (katLines "rfc4648.txt")
+        (let ((f (katFields line)))
+          (let (
+            (bytes (katBytes f 0))
+            (b64 (if (strEq (katText f 1) "-") "" (katText f 1)))
+            (b16 (if (strEq (katText f 2) "-") "" (katText f 2)))
+          )
+            {
+              (tallyCheck t (strEq (b64Encode bytes) b64) (strConcat "encode " b64))
+              (tallyCheck t (decodes (b64Decode b64) bytes) (strConcat "decode " b64))
+              (tallyCheck t (strEq (hexEncode bytes) (strLower b16)) (strConcat "hex " b16))
+              (tallyCheck t (decodes (hexDecode b16) bytes) (strConcat "unhex " b16))
+              0
+            })))
+      ; every refusal the decoders promise
+      (tallyCheck s (isErr (b64Decode "Zg=")) "padding short")
+      (tallyCheck s (isErr (b64Decode "Zh==")) "nonzero trailing bits, one byte")
+      (tallyCheck s (isErr (b64Decode "Zm9=")) "nonzero trailing bits, two bytes")
+      (tallyCheck s (isErr (b64Decode "Z===")) "three pads")
+      (tallyCheck s (isErr (b64Decode "Zm=v")) "pad inside")
+      (tallyCheck s (isErr (b64Decode "Zm9v\n")) "newline")
+      (tallyCheck s (isErr (b64Decode "Zm-v")) "url digit in standard base64")
+      (tallyCheck s (isErr (b64UrlDecode "Zm+v")) "standard digit in url base64")
+      (tallyCheck s (isErr (b64DecodeNoPad "Zg==")) "padding where none is allowed")
+      (tallyCheck s (isErr (b64DecodeNoPad "Z")) "one leftover digit")
+      (tallyCheck s (decodes (b64DecodeNoPad "Zg") "f") "unpadded one byte")
+      (tallyCheck s (isErr (hexDecode "0")) "odd hex")
+      (tallyCheck s (isErr (hexDecode "0x")) "non-hex digit")
+      (tallyCheck s (isErr (hexDecode "g0")) "non-hex first digit")
+      (tallyCheck s (bytesEqCt "abc" "abc") "equal strings")
+      (tallyCheck s (! (bytesEqCt "abc" "abd")) "last byte differs")
+      (tallyCheck s (! (bytesEqCt "abc" "ab")) "lengths differ")
+      (+ (tallyReport t) (tallyReport s))
+    }))

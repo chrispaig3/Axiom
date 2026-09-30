@@ -2556,6 +2556,13 @@
 ;
 ; A ZERO-BYTE REQUEST IS 0 AND MAKES NO SYSCALL, so a caller computing a
 ; length does not have to special-case an empty one.
+;
+; A TARGET WITH NO KERNEL ENTROPY CALL ANSWERS `Err`, code 78, and makes
+; no call: `windows-x86_64` and `baremetal-aarch64`, where
+; `sysRandomNum` is 0. Before 2026-09-29 the request reached the
+; `__syscallN` trap there and the program exited 74, which was loud but
+; left a caller no way to fall back to another source it trusts.
+; `Crypto.Random` reads the CPU's RNDR register on bare metal.
 (pub :: sysRandomBytes (-> Int Int (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
@@ -2564,7 +2571,12 @@
   (sysResult
     "sysRandomBytes"
     (let ((mut off 0))
-      (let ((mut rc 0))
+      (let ((mut rc
+        (if (|| (== usesSyscallAbi 0) (== sysRandomNum 0))
+          (if (> n 0)
+            sysNoCall
+            0)
+          0)))
         {
           (while (&& (< off n) (== rc 0))
             (let ((want 
@@ -3304,6 +3316,84 @@
 ;@axiom:precondition(`addr` and `len` name a whole mapping `sysMapShared` answered, and nothing reads or writes it afterwards)
 (pub fn (sysUnmapShared addr len)
   (sysResult "sysUnmapShared" (__syscall3 sysMunmapNum addr len 0)))
+
+; ------------------------------------------------------------------
+; Private pages, and keeping them out of swap and core files.
+;
+; `stdlib/Crypto/Secret.ax` keeps each secret in a mapping of its own,
+; outside the arena, so these four exist for it. A target with no
+; syscall ABI answers -78 from each without making a call, the same
+; sentinel `sysNowMonotonic` uses for "this platform cannot answer",
+; and so does a target whose number for the call is 0.
+; ------------------------------------------------------------------
+; The unsupported answer, as `termUnsupported` spells it.
+(:: sysNoCall Int)
+(fn (sysNoCall)
+  (- 0 78))
+
+; Map `len` zeroed bytes, readable and writable, private to this
+; process: a fork gets a copy, as it does of the arena. Answers the
+; page-aligned address.
+(pub :: sysMapPrivate (-> Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (sysMapPrivate len)
+  (sysResult
+    "sysMapPrivate"
+    (if (== usesSyscallAbi 0)
+      sysNoCall
+      (__syscall6 sysMmapNum 0 len 3 mapPrivateAnon (- 0 1) 0))))
+
+(pub :: sysUnmapPrivate (-> Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`addr` and `len` name a whole mapping `sysMapPrivate` answered, and nothing reads or writes it afterwards)
+(pub fn (sysUnmapPrivate addr len)
+  (sysResult
+    "sysUnmapPrivate"
+    (if (== usesSyscallAbi 0)
+      sysNoCall
+      (__syscall3 sysMunmapNum addr len 0))))
+
+; Lock `len` bytes at `addr` into memory, so the kernel never writes
+; them to swap. The kernel may refuse: `RLIMIT_MEMLOCK` caps how much
+; an unprivileged process may lock, and on Linux the default cap is a
+; few megabytes. A refusal is an `Err` the caller decides about.
+(pub :: sysMlock (-> Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`addr` and `len` name mapped memory)
+(pub fn (sysMlock addr len)
+  (sysResult
+    "sysMlock"
+    (if (== sysMlockNum 0)
+      sysNoCall
+      (__syscall3 sysMlockNum addr len 0))))
+
+(pub :: sysMunlock (-> Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`addr` and `len` name mapped memory)
+(pub fn (sysMunlock addr len)
+  (sysResult
+    "sysMunlock"
+    (if (== sysMunlockNum 0)
+      sysNoCall
+      (__syscall3 sysMunlockNum addr len 0))))
+
+; Keep `len` bytes at `addr` out of a core file (`MADV_DONTDUMP` on
+; Linux, `MADV_NOCORE` on FreeBSD). Darwin has no such advice, and
+; answers the unsupported sentinel.
+(pub :: sysExcludeFromCore (-> Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`addr` and `len` name a whole mapping `sysMapPrivate` answered)
+(pub fn (sysExcludeFromCore addr len)
+  (sysResult
+    "sysExcludeFromCore"
+    (if (|| (== sysMadviseNum 0) (== madvNoDump 0))
+      sysNoCall
+      (__syscall3 sysMadviseNum addr len madvNoDump))))
 
 ; Block while the word at byte address `addr` - 8-aligned, inside a
 ; `sysMapShared` mapping - still holds `expected`. It returns when woken,
