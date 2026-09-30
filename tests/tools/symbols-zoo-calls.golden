@@ -250,6 +250,16 @@ F soNoSigPipe stdlib/Sys/Platform.darwin.ax:1134:9-20 "Int" @81e9789c74a8467f
 F msgNoSignal stdlib/Sys/Platform.darwin.ax:1139:9-20 "Int" @378a3112fec9bb4b
 F ipprotoTcp stdlib/Sys/Platform.darwin.ax:1144:9-19 "Int" @ecca44c5ec42fd5f
 F tcpNoDelayOpt stdlib/Sys/Platform.darwin.ax:1149:9-22 "Int" @3a20a0604ab29bf9
+F sysPreadNum stdlib/Sys/Platform.darwin.ax:1161:9-20 "Int" @818a0e876692ad04
+F sysPwriteNum stdlib/Sys/Platform.darwin.ax:1166:9-21 "Int" @fce813a8d050cbad
+F sysFsyncNum stdlib/Sys/Platform.darwin.ax:1173:9-20 "Int" @80413c03b0700517
+F sysFtruncateNum stdlib/Sys/Platform.darwin.ax:1178:9-24 "Int" @132bfaf744f6ada0
+F sysFlockNum stdlib/Sys/Platform.darwin.ax:1183:9-20 "Int" @62729c550e0319eb
+F fsyncUsesFullFsync stdlib/Sys/Platform.darwin.ax:1188:9-27 "Int" @0df4b1a93f4556b6
+F fFullFsync stdlib/Sys/Platform.darwin.ax:1193:9-19 "Int" @a565fe393bd1c47f
+F oRdwr stdlib/Sys/Platform.darwin.ax:1198:9-14 "Int" @57f3cb9c9339bfff
+F oCreat stdlib/Sys/Platform.darwin.ax:1203:9-15 "Int" @f6636ffaec9beb4d
+F oCloexec stdlib/Sys/Platform.darwin.ax:1209:9-17 "Int" @5d1159b74379760d
 F apply tests/fmt/syntax-zoo.ax:96:9-14 "((Int -> Int) -> (Int -> Int))" @9fde5fb4f32622ed #effect-params=f
 F literals tests/fmt/syntax-zoo.ax:100:5-13 "(Int -> Int)" @44e294b76be6470b
 F control tests/fmt/syntax-zoo.ax:110:5-12 "(Int -> Int)" @d78a59fa83fe109c #effect=pure #calls=+,<,>
