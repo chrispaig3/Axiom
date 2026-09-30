@@ -286,11 +286,20 @@ echo "== totality: an inferred effect has an edge that accounts for it =="
 # The match is on the whole value here too, so `Alloc,IO` is still
 # reported: a function that allocates AND reaches a syscall has a call
 # somewhere, and a missing edge there would be a real finding.
+#
+# AND A SYSCALL NUMBER TAGGED `;@axiom:syscall(...)` is the third
+# construction site. `syscallTagEffects` seeds the number's row from its
+# tag - `sysWaitWordNum` is `Block`, `sysFork` `Spawn`, `sysRandomNum`
+# `Entropy` - so every function naming the number owes that effect, and
+# the number itself has no call to point at. Matched on the `#syscall=`
+# meta and on the whole value, so a tagged row that also calls something
+# is still reported.
 missing=$(awk -v p="$stdlib_prefix" '
   $1 == "F" && index($3, p) == 1 &&
   /#effects=/ && !/#calls=/ &&
   !/#effects=Mut( |$)/ &&
   !/#effects=Alloc( |$)/ &&
+  !(/#syscall=/ && /#effects=(Block|Spawn|Entropy)( |$)/) &&
   index($3, p "Ffi.ax:") != 1 { print $2, $3 }' "$work/calls" | LC_ALL=C sort -u || true)
 if [[ -n "$missing" ]]; then
   echo "FAIL: these rows carry an inferred effect and no edge explaining it:"
@@ -300,7 +309,7 @@ if [[ -n "$missing" ]]; then
   echo '     `tcAddExtern` does - in which case name it in this gate.'
   exit 1
 fi
-echo "ok   every inferred effect row carries an edge, extern rows and field-set rows excepted"
+echo "ok   every inferred effect row carries an edge, extern, field-set, constructor and tagged-syscall rows excepted"
 
 echo
 echo "== negative probes: every assertion can go red =="
