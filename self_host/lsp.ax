@@ -4858,7 +4858,14 @@
         (if (== tag TAG_E_APP)
           {
             (lspNavWalk nv (nodeA e))
-            (lspNavWalk nv (nodeB e))
+            ; A format string's holes name bindings: `(println "{v}")`
+            ; reads `v` as surely as `(println v)` does, so hover,
+            ; definition, references, highlights and rename all reach
+            ; it. Only the literal handed to a formatting macro is
+            ; read this way; anywhere else `{v}` is text.
+            (if (lspNavIsFormatCall e)
+              (lspNavHoles nv (nodeB e))
+              (lspNavWalk nv (nodeB e)))
           }
           (if (== tag TAG_E_LAM)
             (lspNavWalkLam nv e)
@@ -4920,6 +4927,65 @@
                                     (lspNavWalk nv (nodeC e))
                                   }
                                   0)))))))))))))))))
+
+; `(println "...")`, `(eprintln "...")` or `(format "...")`, with the
+; literal as the argument: the one place a string's `{name}` is a hole.
+(pub :: lspNavIsFormatCall (-> Int Bool))
+(pub fn (lspNavIsFormatCall e)
+  (let ((h (nodeA e)) (arg (nodeB e)))
+    (if (|| (== h 0) (== arg 0))
+      false
+      (if (|| (!= (nodeTag h) TAG_E_VAR) (!= (nodeTag arg) TAG_E_STR))
+        false
+        (let ((n (bareOf (nodeAName h))))
+          (|| (strEq n "println") (|| (strEq n "eprintln") (strEq n "format"))))))))
+
+; Each hole of the format string `lit` as a READ of the name it spells,
+; at the name's own bytes: `{name}` and `{name:SPEC}`, with `{{` and
+; `}}` as literal braces and a backslash escaping the byte after it.
+(pub :: lspNavHoles (-> Int Int Int))
+;@axiom:effect(unsafe)
+(pub fn (lspNavHoles nv lit)
+  (let (
+    (src (memGetWordStr nv 0))
+    (sp (nodeSpan lit))
+  )
+    (if (== sp 0)
+      0
+      (let (
+        (end (- (spanEnd sp) 1))
+        (mut i (+ (spanStart sp) 1))
+      )
+        {
+          (while (< i end)
+            (let ((b (strByte src i)))
+              (if (== b 92)
+                (set i (+ i 2))
+                (if (if (== b 123)
+                  (if (< (+ i 1) end)
+                    (== (strByte src (+ i 1)) 123)
+                    false)
+                  false)
+                  (set i (+ i 2))
+                  (if (== b 123)
+                    (let ((mut j (+ i 1)))
+                      {
+                        (while (if (< j end)
+                          (isIdentChar (strByte src j))
+                          false)
+                          (set j (+ j 1)))
+                        (if (if (> j (+ i 1))
+                          (if (< j end)
+                            (|| (== (strByte src j) 125) (== (strByte src j) 58))
+                            false)
+                          false)
+                          (lspNavRef nv (strSlice src (+ i 1) (- j (+ i 1))) (mkSpan (+ i 1) j) NAV_READ)
+                          0)
+                        (set i j)
+                      })
+                    (set i (+ i 1)))))))
+          0
+        }))))
 
 (pub :: lspNavWalkVec (-> Int (Vec Int) Int))
 (pub fn (lspNavWalkVec nv xs)

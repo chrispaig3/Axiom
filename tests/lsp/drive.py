@@ -2122,6 +2122,60 @@ else:
           "its declaration in RefHelper.ax when asked for)")
     passed += 1
 # ---------------------------------------------------------------------
+# FORMAT-STRING HOLES. A hole in the literal handed to `println`,
+# `eprintln` or `format` reads the binding it names, so hovering it
+# answers the binding and renaming the binding rewrites the hole - and
+# only a hole: `{{v}}` is two literal braces around the letter v.
+HOLES_SRC = """(import IO)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((v 41))
+    {
+      (println "v={v} padded {v:>4} braces {{v}}")
+      0
+    }))
+"""
+holes_uri = "file://" + os.path.join(NAVREF_DIR, "Holes.ax")
+open(os.path.join(NAVREF_DIR, "Holes.ax"), "w", encoding="utf-8").write(HOLES_SRC)
+H_BIND = ident_at(HOLES_SRC, "v", 1)
+_hl = HOLES_SRC.index('"v={v}')
+H_HOLE1 = HOLES_SRC.index("{v}", _hl) + 1
+H_HOLE2 = HOLES_SRC.index("{v:>4}", _hl) + 1
+
+def at_byte(src, b):
+    ln, text, col = line_of(src, b)
+    start = u16(text[:col])
+    return {"line": ln, "start": start, "end": start + 1, "byte": b}
+
+holes_session = b"".join(frame(m) for m in [
+    {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+    nav_open(holes_uri, HOLES_SRC),
+    nav_req(2, "textDocument/hover", holes_uri, at_byte(HOLES_SRC, H_HOLE1)),
+    ren(3, holes_uri, at_byte(HOLES_SRC, H_HOLE1), "count"),
+    {"jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": None},
+    {"jsonrpc": "2.0", "method": "exit", "params": None},
+])
+hp = subprocess.run([stage1, "lsp"], input=holes_session, capture_output=True, cwd=NAVREF_DIR)
+hmsgs, _ = unframe(hp.stdout)
+hresp = {m["id"]: m for m in hmsgs if "id" in m}
+hover_v = json.dumps((hresp.get(2) or {}).get("result") or {})
+edits = (((hresp.get(3) or {}).get("result") or {}).get("changes") or {}).get(holes_uri) or []
+got_edit = sorted((e["range"]["start"]["line"], e["range"]["start"]["character"], e["newText"]) for e in edits)
+want_edit = sorted((a["line"], a["start"], "count") for a in (H_BIND, at_byte(HOLES_SRC, H_HOLE1), at_byte(HOLES_SRC, H_HOLE2)))
+if "v : Int" not in hover_v:
+    print(f"FAIL nav-format-holes: hover on the hole `{{v}}` answered {hover_v:.200}, want the `let` binding `v : Int`")
+    failed += 1
+elif got_edit != want_edit:
+    print(f"FAIL nav-format-holes: renaming `v` edited {got_edit!r}, want the binder and the two "
+          f"holes {want_edit!r} and not the literal `{{{{v}}}}`")
+    failed += 1
+else:
+    print("ok   format-string holes (hover on `{v}` answers the `let` binding; renaming `v` "
+          "rewrites the binder, `{v}` and `{v:>4}`, and leaves the literal `{{v}}` alone)")
+    passed += 1
+# ---------------------------------------------------------------------
 # CONSTRUCTOR NAVIGATION, over the session above. Its own block, so a
 # failure names the constructor rather than the whole of SECTION NAV.
 #
