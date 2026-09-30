@@ -92,7 +92,11 @@
   (let ((n (strLen a)))
     (if (!= n (strLen b))
       (cryptoLengthErr "the two inputs differ in length" "bytesXor")
-      (let ((s (bytesNew n)) (pa (strData a)) (pb (strData b)))
+      (let (
+        (s (bytesNew n))
+        (pa (strData a))
+        (pb (strData b))
+      )
         {
           (let ((ps (strData s)))
             (for i 0 n
@@ -129,7 +133,10 @@
 (pub :: hexEncode (-> String String))
 ;@axiom:effect(unsafe)
 (pub fn (hexEncode s)
-  (let ((n (strLen s)) (p (strData s)))
+  (let (
+    (n (strLen s))
+    (p (strData s))
+  )
     (let ((out (bytesNew (* 2 n))))
       {
         (let ((q (strData out)))
@@ -154,18 +161,23 @@
       (numOk (ctBarrier (>> (- num 10) 8)))
       (alphaOk (ctBarrier (>> (^ (- alpha 10) (- alpha 16)) 8)))
     )
-      (| (| (& numOk num) (& alphaOk alpha))
-        (& (^ (| numOk alphaOk) -1) 256)))))
+      (| (| (& numOk num) (& alphaOk alpha)) (& (^ (| numOk alphaOk) -1) 256)))))
 
 ; The bytes a hex string spells, or `Err` when its length is odd or any
 ; character is not a hex digit. Upper- and lower-case both decode.
 (pub :: hexDecode (-> String (Result String Error)))
 ;@axiom:effect(unsafe)
 (pub fn (hexDecode s)
-  (let ((n (strLen s)) (p (strData s)))
+  (let (
+    (n (strLen s))
+    (p (strData s))
+  )
     (if (!= (% n 2) 0)
       (cryptoErr cryptoInvalidEncoding "hex has an odd number of digits" "hexDecode")
-      (let ((out (bytesNew (/ n 2))) (mut bad 0))
+      (let (
+        (out (bytesNew (/ n 2)))
+        (mut bad 0)
+      )
         {
           (let ((q (strData out)))
             (for i 0 (/ n 2)
@@ -207,10 +219,7 @@
     (is62 (ctMaskEq v 62))
     (is63 (ctMaskEq v 63))
   )
-    (| (| (& lt26 (+ v 65))
-          (& (& (^ lt26 -1) lt52) (+ v 71)))
-      (| (& (& (^ lt52 -1) lt62) (- v 4))
-        (| (& is62 c62) (& is63 c63))))))
+    (| (| (& lt26 (+ v 65)) (& (& (^ lt26 -1) lt52) (+ v 71))) (| (& (& (^ lt52 -1) lt62) (- v 4)) (| (& is62 c62) (& is63 c63))))))
 
 ; The 6-bit value of digit `c` in bits 0-5, and bit 8 set when `c` is
 ; not a digit of the alphabet.
@@ -224,9 +233,7 @@
     (is63 (ctMaskEq c c63))
   )
     (let ((ok (| (| upper lower) (| digit (| is62 is63)))))
-      (| (| (| (& upper (- c 65)) (& lower (- c 71)))
-            (| (& digit (+ c 4)) (| (& is62 62) (& is63 63))))
-        (& (^ ok -1) 256)))))
+      (| (| (| (& upper (- c 65)) (& lower (- c 71))) (| (& digit (+ c 4)) (| (& is62 62) (& is63 63)))) (& (^ ok -1) 256)))))
 
 (:: b64EncodeWith (-> String Int Int Bool String))
 ;@axiom:effect(unsafe)
@@ -237,8 +244,9 @@
     (full (/ (strLen s) 3))
     (rest (% (strLen s) 3))
   )
-    (let ((outLen
-      (+ (* 4 full)
+    (let ((outLen 
+      (+
+        (* 4 full)
         (if (== rest 0)
           0
           (if pad
@@ -260,7 +268,8 @@
                 0
                 (let (
                   (at (* 4 full))
-                  (w (| (<< (__load8 p (* 3 full)) 16)
+                  (w (|
+                    (<< (__load8 p (* 3 full)) 16)
                     (if (== rest 2)
                       (<< (__load8 p (+ (* 3 full) 1)) 8)
                       0)))
@@ -292,12 +301,16 @@
       (let (
         (p (strData s))
         (full (/ n 4))
-        (outLen (+ (* 3 (/ n 4))
+        (outLen (+
+          (* 3 (/ n 4))
           (if (== rest 0)
             0
             (- rest 1))))
       )
-        (let ((out (bytesNew outLen)) (mut bad 0))
+        (let (
+          (out (bytesNew outLen))
+          (mut bad 0)
+        )
           {
             (let ((q (strData out)))
               {
@@ -324,10 +337,9 @@
                     (let (
                       (a (b64Value (__load8 p at) c62 c63))
                       (b (b64Value (__load8 p (+ at 1)) c62 c63))
-                      (c
-                        (if (== rest 3)
-                          (b64Value (__load8 p (+ at 2)) c62 c63)
-                          0))
+                      (c (if (== rest 3)
+                        (b64Value (__load8 p (+ at 2)) c62 c63)
+                        0))
                     )
                       (let ((w (| (<< (& a 63) 18) (| (<< (& b 63) 12) (<< (& c 63) 6)))))
                         {
@@ -383,20 +395,38 @@
 ; and the padding exactly what the length calls for.
 (pub :: b64Decode (-> String (Result String Error)))
 (pub fn (b64Decode s)
-  (let ((n (strLen s)) (pads (b64PadCount s)))
+  (let (
+    (n (strLen s))
+    (pads (b64PadCount s))
+  )
     (if (|| (!= (% n 4) 0) (< pads 0))
       (cryptoErr cryptoInvalidEncoding "padded base64 must be a multiple of four characters" "b64Decode")
       (if (&& (== pads 0) (== n 0))
         (Ok "")
-        (b64DecodeWith s (- n pads) 43 47 "b64Decode")))))
+        (b64DecodeWith
+          s
+          (- n pads)
+          43
+          47
+          "b64Decode")))))
 
 ; Decode standard base64 that carries no padding. An '=' anywhere is
 ; refused.
 (pub :: b64DecodeNoPad (-> String (Result String Error)))
 (pub fn (b64DecodeNoPad s)
-  (b64DecodeWith s (strLen s) 43 47 "b64DecodeNoPad"))
+  (b64DecodeWith
+    s
+    (strLen s)
+    43
+    47
+    "b64DecodeNoPad"))
 
 ; Decode URL-safe base64 without padding.
 (pub :: b64UrlDecode (-> String (Result String Error)))
 (pub fn (b64UrlDecode s)
-  (b64DecodeWith s (strLen s) 45 95 "b64UrlDecode"))
+  (b64DecodeWith
+    s
+    (strLen s)
+    45
+    95
+    "b64UrlDecode"))

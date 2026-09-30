@@ -22,14 +22,21 @@
 (:: main Int)
 ;@axiom:effect(io)
 (fn (main)
-  (let ((t (tallyNew "rfc4648")) (s (tallyNew "codec-strictness")))
+  (let (
+    (t (tallyNew "rfc4648"))
+    (s (tallyNew "codec-strictness"))
+  )
     {
       (for line in (katLines "rfc4648.txt")
         (let ((f (katFields line)))
           (let (
             (bytes (katBytes f 0))
-            (b64 (if (strEq (katText f 1) "-") "" (katText f 1)))
-            (b16 (if (strEq (katText f 2) "-") "" (katText f 2)))
+            (b64 (if (strEq (katText f 1) "-")
+              ""
+              (katText f 1)))
+            (b16 (if (strEq (katText f 2) "-")
+              ""
+              (katText f 2)))
           )
             {
               (tallyCheck t (strEq (b64Encode bytes) b64) (strConcat "encode " b64))

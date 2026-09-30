@@ -76,7 +76,8 @@
             (eprintln "Kat: bad hex field {i} in a vector line")
             (die "Kat: the vector file is malformed" 3)
             ""
-          })))))
+          }
+        )))))
 
 ; Field `i` as a decimal Int.
 (pub :: katInt (-> (Vec String) Int Int))
@@ -89,7 +90,8 @@
         (eprintln "Kat: field {i} is not an integer")
         (die "Kat: the vector file is malformed" 3)
         0
-      })))
+      }
+    )))
 
 ; Field `i` as a string, unchanged.
 (pub :: katText (-> (Vec String) Int String))
@@ -138,7 +140,11 @@
 (pub :: tallyReport (-> Tally Int))
 ;@axiom:effect(io)
 (pub fn (tallyReport t)
-  (let ((name t.name) (passed t.passed) (failed t.failed))
+  (let (
+    (name t.name)
+    (passed t.passed)
+    (failed t.failed)
+  )
     {
       (eprintln "{name}: {passed} passed, {failed} failed")
       (if (&& (== failed 0) (> passed 0))

@@ -53,11 +53,9 @@
 (:: rndrPresent Int)
 ;@axiom:effect(unsafe)
 (fn (rndrPresent)
-  (shrU
-    (asm
-      (aarch64 "mrs {r}, ID_AA64ISAR0_EL1" (out r))
-      (x86_64 "xorl {r:k}, {r:k}" (out r)))
-    60))
+  (shrU (asm
+    (aarch64 "mrs {r}, ID_AA64ISAR0_EL1" (out r))
+    (x86_64 "xorl {r:k}, {r:k}" (out r))) 60))
 
 ; One word from RNDR, or 0 when the hardware could not produce one in
 ; time (it then sets the Z flag and answers 0; a genuine 0 has
@@ -77,7 +75,10 @@
 (fn (rndrFill p n)
   (if (== rndrPresent 0)
     (cryptoErr cryptoEntropyUnavailable "the CPU has no RNDR register (FEAT_RNG)" "randomFill")
-    (let ((mut off 0) (mut tries 0))
+    (let (
+      (mut off 0)
+      (mut tries 0)
+    )
       {
         (while (&& (< off n) (< tries 64))
           (let ((w (rndrWord)))
@@ -88,7 +89,7 @@
               }
               {
                 (set tries 0)
-                (let ((take
+                (let ((take 
                   (if (> (- n off) 8)
                     8
                     (- n off))))
@@ -183,17 +184,22 @@
 ;@axiom:effect(unsafe)
 ;@axiom:precondition(`st` names a live three-word state: buffer address, word count, next index)
 (fn (belowFrom st bound mask k)
-  (let ((mut r -1) (mut failed 0))
+  (let (
+    (mut r -1)
+    (mut failed 0)
+  )
     {
       (while (&& (< r 0) (== failed 0))
         {
           (if (>= (__load64 st 2) k)
             (match (randomFill (__load64 st 0) (* 8 k))
               ((Ok _) (__store64 st 2 0))
-              ((Err _) {
-                (set failed 1)
-                0
-              }))
+              ((Err _)
+                {
+                  (set failed 1)
+                  0
+                }
+              ))
             0)
           (if (== failed 0)
             (let ((w (& (ld64le (__load64 st 0) (* 8 (__load64 st 2))) mask)))
@@ -270,7 +276,12 @@
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 (pub fn (randomShuffle v)
-  (let ((n (vecLen v)) (st (drawState 32)) (mut i (- (vecLen v) 1)) (mut failed 0))
+  (let (
+    (n (vecLen v))
+    (st (drawState 32))
+    (mut i (- (vecLen v) 1))
+    (mut failed 0)
+  )
     {
       (while (&& (> i 0) (== failed 0))
         (let ((j (belowFrom st (+ i 1) (& (coverMask i) 9223372036854775807) 32)))
