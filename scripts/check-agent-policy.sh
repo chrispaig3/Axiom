@@ -752,19 +752,20 @@ prim_case "__fence"                     "(__fence)"                            "
 # for the syscall primitives' reason: a `parallel` in a body claiming
 # `no-io` is refused exactly as a `__syscall3` there is. The thunk is a
 # lambda so the probe compiles; a lambda's own record is a constructor
-# allocation, which MM-EXEC-9a lists as invisible, so the row reads `IO`
-# alone - and would read `Alloc,IO` the day that changes, which is the
-# right answer then too.
-prim_case "__par_spawn"                 "(__par_spawn (lambda (x) x) n)"       "IO"
+# allocation, which MM-EXEC-9a lists as invisible, so the rows carry no
+# `Alloc` - and would the day that changes, which is the right answer
+# then too. Starting a binding is also `Spawn`, and waiting for one is
+# `Block`: the two refinements of `IO` a caller must declare.
+prim_case "__par_spawn"                 "(__par_spawn (lambda (x) x) n)"       "IO,Spawn"
 # The syscall primitives themselves carry `IO` and, since R-B10's third
 # step, `Unsafe`: the kernel reads and writes this process's memory
 # through their arguments (MM-EXEC-9c). Before it, this row read `IO`
 # alone and a `no-unsafe` function could make `read(2)` write anywhere.
 prim_case "__syscall3"                  "(__syscall3 n 0 0 0)"                 "IO,Unsafe"
 prim_case "__syscall0"                  "(__syscall0 n)"                       "IO,Unsafe"
-prim_case "__par_join"                  "(__par_join n)"                       "IO"
-prim_case "__thread_spawn"              "(__thread_spawn (lambda (x) x) n)"    "IO"
-prim_case "__proc_join"                 "(__proc_join n)"                      "IO"
+prim_case "__par_join"                  "(__par_join n)"                       "Block,IO"
+prim_case "__thread_spawn"              "(__thread_spawn (lambda (x) x) n)"    "IO,Spawn"
+prim_case "__proc_join"                 "(__proc_join n)"                      "Block,IO"
 # THE CONTROLS, and they are what make the rows above mean anything. A
 # registration that gave EVERY primitive an effect would satisfy all of
 # them and destroy the discrimination the whole mechanism is for.
