@@ -97,13 +97,26 @@
 (field_declaration name: (identifier) @variable.member)
 
 (type_alias name: (identifier) @type.definition)
-
+(subtype_declaration name: (identifier) @type.definition)
 
 (effect_declaration name: (identifier) @keyword.modifier)
 (effect_operation name: (identifier) @function.method)
 
 (import module: (module_path) @module)
 (import name: (identifier) @variable)
+
+; An `extern` item names the Rust function it binds; its clauses are
+; keyed like attributes, `(symbol "demo_add")`.
+(extern_item name: (identifier) @function)
+(extern_clause key: (identifier) @attribute)
+
+; A field named in a constructor's braces, `(Circle { r : Float })`.
+(named_field name: (identifier) @variable.member)
+
+; A qualified type, `Net.Tcp::Stream`: modules, then the type.
+(qualified_type module: (constructor_identifier) @module)
+(qualified_type submodule: (constructor_identifier) @module)
+(qualified_type name: (constructor_identifier) @type)
 
 ; A top-level signature's subject is a bare identifier naming the
 ; function it describes. An inline ascription's subject is an arbitrary
@@ -117,6 +130,7 @@
 (wildcard_pattern) @character.special
 (constructor_pattern constructor: (constructor_identifier) @constructor)
 (let_binding pattern: (identifier) @variable)
+(field_pattern name: (identifier) @variable.member)
 
 ; ---------------------------------------------------------------
 ; Expressions
@@ -146,6 +160,14 @@
 
 (struct_construction name: (identifier) @constructor)
 
+; Regions are named scopes, and `@r` in a type points back at one.
+(region_annotation) @label
+(region_expression name: (identifier) @label)
+(parallel_expression region: (identifier) @label)
+
+; Macro templates: `syntax/binders` and `syntax/join` build names.
+(syntax_binders_pattern constructor: (identifier) @constructor)
+
 ; ---------------------------------------------------------------
 ; Keywords
 ; ---------------------------------------------------------------
@@ -154,6 +176,8 @@
   "fn"
   "define"
   "lambda"
+  "macro"
+  "emacro"
 ] @keyword.function
 
 [
@@ -173,21 +197,33 @@
   "match"
 ] @keyword.conditional
 
-; The two loop heads. `while` was missing from this file before `for`
-; existed, so this group is both of them rather than the new one alone.
+; The loop heads, and the `in` of `(for x in xs ...)`.
 [
   "while"
   "for"
   "in"
+  "syntax/for"
 ] @keyword.repeat
 
+; `is` and `range` are the refinement words of
+; `(subtype Port is Int range 1 .. 65536)`.
 [
   "let"
+  "set"
   "handle"
   "pub"
   "import"
+  "extern"
   "region"
+  "literals"
+  "is"
+  "range"
 ] @keyword
+
+[
+  "syntax/binders"
+  "syntax/join"
+] @function.builtin
 
 [
   "alloc"
@@ -219,6 +255,9 @@
 ; Punctuation
 ; ---------------------------------------------------------------
 
+".." @operator
+(ellipsis) @punctuation.special
+
 [
   "::"
   "->"
@@ -227,6 +266,7 @@
   "!"
   "*"
   ","
+  "."
 ] @punctuation.delimiter
 
 [

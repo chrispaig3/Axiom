@@ -74,12 +74,17 @@ const KEYWORD_TYPE = new Set(['data', 'struct', 'type', 'subtype', 'effect'])
 // never a keyword of its own, so it is an ordinary identifier now.
 const KEYWORD_CONDITIONAL = new Set(['if', 'match'])
 const KEYWORD_PLAIN = new Set([
-  'let', 'handle', 'where', 'pub', 'import', 'set', 'while', 'for', 'extern',
-  'macro', 'emacro',
-  // `region` returned on 2026-09-03 as a checked allocation scope
-  // (docs/reference.md, Regions); it left REMOVED below the same day.
-  'region',
+  'let', 'handle', 'pub', 'import', 'set', 'while', 'for', 'extern',
+  'macro', 'emacro', 'literals', 'region', 'parallel',
 ])
+
+// Keywords that sit inside a form rather than at its head, keyed by the
+// head and the argument position: `in` in `(for x in xs …)`, and `is`
+// and `range` in `(subtype Port is Int range 1 .. 65536)`.
+const KEYWORD_INNER: Record<string, Record<number, string>> = {
+  for: { 2: 'in' },
+  subtype: { 2: 'is', 4: 'range' },
+}
 const KEYWORD_MODIFIER = new Set(['alloc', 'sizeof', 'alignof', 'cast', 'mut'])
 
 // Heads the parser refuses with AX2004. highlights.scm captures these as
@@ -264,6 +269,8 @@ function classifyAtom(text: string, frame: Frame, parent: Frame | undefined): Ca
   // --- type-parameter list, `(data Maybe (a) …)` -----------------------
   if (frame.tyvars) return 'variable.parameter'
 
+  if (frame.head !== null && KEYWORD_INNER[frame.head]?.[arg] === text) return 'keyword'
+
   // --- declaration names, by role -------------------------------------
   if (arg === 1) {
     switch (frame.head) {
@@ -275,6 +282,7 @@ function classifyAtom(text: string, frame: Frame, parent: Frame | undefined): Ca
       case 'struct':
         return 'type'
       case 'type':
+      case 'subtype':
         return 'type.definition'
       case 'effect':
         return 'keyword.modifier'
