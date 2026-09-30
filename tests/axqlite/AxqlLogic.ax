@@ -1,0 +1,391 @@
+; AxqlLogic - runs an AXQL behaviour script: statements, and queries with
+; the rows they must answer.
+;
+;     (axqlRunScript (sysArg 1) "select")    ; runs tests/axqlite/axql/select.test
+;
+; A script is a list of records separated by blank lines. Lines that
+; start with `#` are comments.
+;
+;     statement ok
+;     CREATE TABLE t (a INTEGER)
+;
+;     statement error axqConstraint
+;     INSERT INTO t VALUES (NULL)
+;
+;     statement error axqSyntax line 1, column 8
+;     SELECT FROM t
+;
+;     query
+;     SELECT a, 'x' FROM t ORDER BY a
+;     ----
+;     1,'x'
+;     2,'x'
+;
+; `statement ok` runs the statement and wants it to succeed. `statement
+; error CODE` wants it to fail with that code, named as `Axqlite.Value`
+; names it, and when more text follows the code, wants the error's
+; message to contain it. `query` runs a SELECT and wants exactly the rows
+; after `----`, one per line, each value written as `axqValueText` writes
+; it and separated by commas; `query rowsort` sorts both sides by their
+; text first, for a query whose order isn't defined. A statement may
+; span several lines.
+;
+; The script runs against a fresh database in the working directory.
+; A passing script prints one line, `NAME: N records passed`; each
+; failure prints the record's line and what went wrong, then a count.
+(import IO)
+(import Str)
+(import Vec)
+(import Err)
+(import Fmt)
+(import Axqlite)
+(import Axqlite.Value)
+
+; The name of an AXQLite error code.
+(pub :: axqlCodeName (-> Int String))
+(pub fn (axqlCodeName code)
+  (if (== code axqBusy)
+    "axqBusy"
+    (== code axqCorrupt)
+    "axqCorrupt"
+    (== code axqConstraint)
+    "axqConstraint"
+    (== code axqSyntax)
+    "axqSyntax"
+    (== code axqSchema)
+    "axqSchema"
+    (== code axqType)
+    "axqType"
+    (== code axqMisuse)
+    "axqMisuse"
+    (== code axqReadOnly)
+    "axqReadOnly"
+    (== code axqIoFailed)
+    "axqIoFailed"
+    (== code axqTooBig)
+    "axqTooBig"
+    (== code axqNotADatabase)
+    "axqNotADatabase"
+    (== code axqArithmetic)
+    "axqArithmetic"
+    (strConcat "code " (fmtInt code))))
+
+; A row as a query record writes it.
+(pub :: axqlRowText (-> Row String))
+(pub fn (axqlRowText r)
+  (let ((mut line ""))
+    {
+      (for (v i) in r.values
+        (set line (strConcat
+          line
+          (strConcat
+            (if (== i 0)
+              ""
+              ",")
+            (axqValueText v)))))
+      line
+    }))
+
+; The state of one run: the script's name, and the counts.
+(struct Run
+  (name : String)
+  (mut records : Int)
+  (mut failures : Int))
+
+(:: fail (-> Run Int String Int))
+;@axiom:effect(io)
+(fn (fail run line msg)
+  (let (
+    (nm run.name)
+    (ln (fmtInt line))
+  )
+    {
+      (set run.failures (+ run.failures 1))
+      (println "FAIL {nm}.test:{ln}: {msg}")
+    }))
+
+; Whether `s` starts with `prefix`.
+(:: startsWith (-> String String Bool))
+(fn (startsWith s prefix)
+  (strStartsWith s prefix))
+
+; `s` without a trailing carriage return.
+(:: chomp (-> String String))
+(fn (chomp s)
+  (if (&& (> (strLen s) 0) (== (strByte s (- (strLen s) 1)) 13))
+    (strSlice s 0 (- (strLen s) 1))
+    s))
+
+(:: isBlank (-> String Bool))
+(fn (isBlank s)
+  (strIsEmpty (strTrim s)))
+
+; Lines `from` up to (not including) the first blank line or `stop`
+; line, joined with newlines; and where it stopped.
+(struct Chunk
+  (text : String)
+  (next : Int))
+
+(:: gather (-> (Vec String) Int String Chunk))
+(fn (gather lines from stop)
+  (let (
+    (n (vecLen lines))
+    (mut i from)
+    (mut out "")
+    (mut going true)
+  )
+    {
+      (while (&& going (< i n))
+        (let ((l (vecGet lines i)))
+          (if (|| (isBlank l) (&& (! (strIsEmpty stop)) (strEq l stop)))
+            {
+              (set going false)
+              0
+            }
+            {
+              (set out (if (strIsEmpty out)
+                l
+                (strConcat out (strConcat "\n" l))))
+              (set i (+ i 1))
+            })))
+      (Chunk out i)
+    }))
+
+; The lines after `----` up to a blank line.
+(:: gatherRows (-> (Vec String) Int (Vec String)))
+(fn (gatherRows lines from)
+  (let (
+    (out vecNewRef)
+    (n (vecLen lines))
+    (mut i from)
+  )
+    {
+      (while (&& (< i n) (! (isBlank (vecGet lines i))))
+        {
+          (vecPush out (vecGet lines i))
+          (set i (+ i 1))
+        })
+      out
+    }))
+
+; Sort lines by their bytes, stably.
+(:: sortLines (-> (Vec String) (Vec String)))
+(fn (sortLines v)
+  (let ((out vecNewRef))
+    {
+      (for s in v
+        (let ((mut at (vecLen out)))
+          {
+            (while (&& (> at 0) (> (strCmp (vecGet out (- at 1)) s) 0))
+              (set at (- at 1)))
+            (vecPush out s)
+            (let ((mut k (- (vecLen out) 1)))
+              (while (> k at)
+                {
+                  (vecSet out k (vecGet out (- k 1)))
+                  (set k (- k 1))
+                }))
+            (vecSet out at s)
+          }))
+      out
+    }))
+
+(:: runStatementOk (-> Run Connection Int String Int))
+;@axiom:effect(io)
+(fn (runStatementOk run db line text)
+  (match (axqExec db text)
+    ((Ok _) 0)
+    ((Err e)
+      (let ((code (axqlCodeName (errCode e))))
+        (fail run line (strConcat (strConcat "wanted ok, got " code) (strConcat ": " (errorText e)))))
+    )))
+
+(:: runStatementError (-> Run Connection Int String String String Int))
+;@axiom:effect(io)
+(fn (runStatementError run db line want needle text)
+  (match (axqExec db text)
+    ((Ok _) (fail run line (strConcat "wanted " (strConcat want ", but it succeeded"))))
+    ((Err e)
+      (let ((got (axqlCodeName (errCode e))))
+        (if (! (strEq got want))
+          (fail run line (strConcat (strConcat (strConcat "wanted " want) (strConcat ", got " got)) (strConcat ": " (errorText e))))
+          (if (&& (! (strIsEmpty needle)) (isNone (strFind (errorText e) needle 0)))
+            (fail run line (strConcat (strConcat "the message doesn't contain \"" needle) (strConcat "\": " (errorText e))))
+            0)))
+    )))
+
+(:: runQuery (-> Run Connection Int String Bool (Vec String) Int))
+;@axiom:effect(io)
+(fn (runQuery run db line text rowsort want)
+  (match (axqPrepare db text)
+    ((Err e) (fail run line (strConcat "the query failed to prepare: " (errorText e))))
+    ((Ok st)
+      (let ((r (axqQuery st vecNew)))
+        {
+          (let ((_ (axqFinalize st)))
+            0)
+          (match r
+            ((Err e) (fail run line (strConcat "the query failed: " (errorText e))))
+            ((Ok rs)
+              (let ((got vecNewRef))
+                {
+                  (for row in rs.rows
+                    (vecPush got (axqlRowText row)))
+                  (let (
+                    (g (if rowsort
+                      (sortLines got)
+                      got))
+                    (w (if rowsort
+                      (sortLines want)
+                      want))
+                  )
+                    (compareRows run line g w))
+                })
+            ))
+        })
+    )))
+
+(:: compareRows (-> Run Int (Vec String) (Vec String) Int))
+;@axiom:effect(io)
+(fn (compareRows run line got want)
+  (let (
+    (n (if (> (vecLen got) (vecLen want))
+      (vecLen got)
+      (vecLen want)))
+    (mut bad -1)
+  )
+    {
+      (for i 0 n
+        (if (>= bad 0)
+          0
+          (if (|| (>= i (vecLen got)) (|| (>= i (vecLen want)) (! (strEq (vecGet got i) (vecGet want i)))))
+            (set bad i)
+            0)))
+      (if (< bad 0)
+        0
+        (let (
+          (g (if (< bad (vecLen got))
+            (vecGet got bad)
+            "(no row)"))
+          (w (if (< bad (vecLen want))
+            (vecGet want bad)
+            "(no row)"))
+          (gn (fmtInt (vecLen got)))
+          (wn (fmtInt (vecLen want)))
+          (bn (fmtInt (+ bad 1)))
+        )
+          (fail run line "row {bn}: wanted {w}, got {g} ({wn} rows wanted, {gn} got)")))
+    }))
+
+; Run the records of `lines` from `i`.
+(:: runRecords (-> Run Connection (Vec String) Int Int))
+;@axiom:effect(io)
+(fn (runRecords run db lines i)
+  (if (>= i (vecLen lines))
+    0
+    (let ((l (vecGet lines i)))
+      (if (|| (isBlank l) (startsWith l "#"))
+        (runRecords run db lines (+ i 1))
+        {
+          (set run.records (+ run.records 1))
+          (if (strEq (strTrim l) "statement ok")
+            (let ((c (gather lines (+ i 1) "")))
+              {
+                (runStatementOk run db (+ i 1) c.text)
+                (runRecords run db lines c.next)
+              })
+            (startsWith l "statement error ")
+            (let (
+              (rest (strTrim (strSlice l 16 (- (strLen l) 16))))
+              (sp (strFindByte rest 32 0))
+              (code (match sp
+                ((Some k) (strSlice rest 0 k))
+                ((None) rest)))
+              (needle (match sp
+                ((Some k) (strTrim (strSlice rest k (- (strLen rest) k))))
+                ((None) "")))
+              (c (gather lines (+ i 1) ""))
+            )
+              {
+                (runStatementError
+                  run
+                  db
+                  (+ i 1)
+                  code
+                  needle
+                  c.text)
+                (runRecords run db lines c.next)
+              })
+            (startsWith l "query")
+            (let (
+              (rowsort (isSome (strFind l "rowsort" 0)))
+              (c (gather lines (+ i 1) "----"))
+            )
+              (if (|| (>= c.next (vecLen lines)) (! (strEq (vecGet lines c.next) "----")))
+                {
+                  (fail run (+ i 1) "a query record needs a ---- line")
+                  (runRecords run db lines c.next)
+                }
+                (let ((want (gatherRows lines (+ c.next 1))))
+                  {
+                    (runQuery
+                      run
+                      db
+                      (+ i 1)
+                      c.text
+                      rowsort
+                      want)
+                    (runRecords run db lines (+ (+ c.next 1) (vecLen want)))
+                  })))
+            {
+              (fail run (+ i 1) (strConcat "an unknown record: " l))
+              (runRecords run db lines (+ i 1))
+            })
+        }))))
+
+; Run `DIR/axql/NAME.test` against a fresh database `NAME.db` in the
+; working directory. Prints a line per failure and a summary; answers
+; the number of failures.
+(pub :: axqlRunScript (-> String String Int))
+;@axiom:effect(io)
+(pub fn (axqlRunScript dir name)
+  (let (
+    (path (strConcat dir (strConcat "/axql/" (strConcat name ".test"))))
+    (text (readFile path))
+    (dbPath (strConcat name ".db"))
+  )
+    (if (strIsEmpty text)
+      {
+        (println "FAIL {name}: can't read {path}")
+        1
+      }
+      (let ((_ (removeFile dbPath)))
+        (match (axqOpen dbPath openOptions)
+          ((Err e)
+            (let ((msg (errorText e)))
+              {
+                (println "FAIL {name}: can't open the database: {msg}")
+                1
+              })
+          )
+          ((Ok db)
+            (let (
+              (lines vecNewRef)
+              (run (Run name 0 0))
+            )
+              {
+                (for l in (strSplit text 10)
+                  (vecPush lines (chomp l)))
+                (runRecords run db lines 0)
+                (let ((_ (axqClose db)))
+                  0)
+                (let (
+                  (n (fmtInt run.records))
+                  (f (fmtInt run.failures))
+                )
+                  (if (== run.failures 0)
+                    (println "{name}: {n} records passed")
+                    (println "{name}: {f} of {n} records failed")))
+                run.failures
+              })
+          ))))))

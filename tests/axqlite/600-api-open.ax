@@ -1,0 +1,51 @@
+; Opening: create or not, read-only, a file that isn't a database, and
+; data surviving a close and a reopen.
+(import IO)
+(import Err)
+(import Vec)
+(import Axqlite)
+(import Axqlite.Value)
+(import AxqlKit)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (kitDone "open missing, no create" (axqOpen "missing.db" (OpenOptions false false 64)))
+    (kitDone "open with no cache" (axqOpen "x.db" (OpenOptions true false 0)))
+    (let ((_ (writeFile "notadb.db" "this is plain text, and long enough to fill a header or two .............................................................................................")))
+      0)
+    (kitDone "open a text file" (axqOpen "notadb.db" openOptions))
+    (let ((db (kitOpen "a.db")))
+      {
+        (kitRun "create" (axqExec db "CREATE TABLE t (a INTEGER, b TEXT)"))
+        (kitRun "insert" (axqExec db "INSERT INTO t VALUES (1, 'kept'), (2, 'also kept')"))
+        (kitRun "close" (axqClose db))
+      })
+    (match (axqOpen "a.db" (OpenOptions false false 8))
+      ((Ok db)
+        {
+          (kitDump db "SELECT a, b FROM t")
+          (kitRun "close again" (axqClose db))
+        }
+      )
+      ((Err e) (println (kitErrText e))))
+    (match (axqOpen "a.db" (OpenOptions false true 8))
+      ((Ok ro)
+        {
+          (kitDump ro "SELECT b FROM t WHERE a = 2")
+          (kitRun "write read-only" (axqExec ro "INSERT INTO t VALUES (3, 'no')"))
+          (kitRun "ddl read-only" (axqExec ro "CREATE TABLE u (x INTEGER)"))
+          (kitDump ro "SELECT a FROM t")
+          (kitRun "close read-only" (axqClose ro))
+        }
+      )
+      ((Err e) (println (kitErrText e))))
+    (let ((db (kitOpen "empty.db")))
+      {
+        (kitDump db "SELECT 1 + 1 AS two")
+        (kitRun "exec select" (axqExec db "SELECT 5"))
+        (kitRun "close" (axqClose db))
+      })
+    0
+  })

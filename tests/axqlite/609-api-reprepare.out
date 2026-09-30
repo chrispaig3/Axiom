@@ -1,0 +1,24 @@
+create: ok 0
+seed: ok 1
+before: 1 rows [a,b]
+  1,'one'
+drop: ok 0
+dropped: axqSchema: no such table: t while axqQuery
+insert into dropped: axqSchema: no such table: t while axqRun
+recreate: ok 0
+insert again: ok 1
+after: 1 rows [x,a,c]
+  NULL,3,NULL
+index: ok 0
+insert with the index: ok 1
+insert a clash: axqConstraint: the UNIQUE index ta already holds that value in t while axqRun
+with the index: 2 rows [x,a,c]
+  NULL,3,NULL
+  NULL,4,NULL
+drop again: ok 0
+recreate without a: ok 0
+insert, no column a: axqSchema: table t has no column named a while axqRun
+narrow: 0 rows [z]
+finalize: ok 0
+finalize: ok 0
+close: ok 0

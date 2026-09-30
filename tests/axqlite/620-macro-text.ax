@@ -1,0 +1,158 @@
+; Every statement macro spells exactly the AXQL text written by hand
+; beside it, with its parameters in order.
+(import IO)
+(import Str)
+(import Vec)
+(import Err)
+(import Axqlite)
+(import Axqlite.Value)
+(import AxqlKit)
+
+; Compare a macro's text with the text written by hand, and show its
+; parameters.
+(:: same (-> Query String Int))
+;@axiom:effect(io)
+(fn (same q want)
+  (let (
+    (got q.text)
+    (ps (paramText q.params))
+  )
+    (if (strEq got want)
+      (println "same  {got}  {ps}")
+      (println "DIFF  got {got}\n      want {want}"))))
+
+(:: paramText (-> (Vec Value) String))
+(fn (paramText ps)
+  (let ((mut out "["))
+    {
+      (for (v i) in ps
+        (set out (strConcat
+          out
+          (strConcat
+            (if (== i 0)
+              ""
+              ", ")
+            (axqValueText v)))))
+      (strConcat out "]")
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (minAge 30)
+    (who "Ada")
+    (uid 7)
+    (score 2.5)
+    (pic "pixels")
+    (v (VInt 9))
+  )
+    {
+      (same (axqlSelect users *) "SELECT * FROM users")
+      (same (axqlSelect users name) "SELECT name FROM users")
+      (same (axqlSelect users (id name) (where (> age (int minAge)))) "SELECT id, name FROM users WHERE age > ?")
+      (same (axqlSelect
+        users
+        (id name)
+        (where (and (> age (int minAge)) (= name (text who))))
+        (orderBy (age desc))
+        (limit 10)) "SELECT id, name FROM users WHERE (age > ?) AND (name = ?) ORDER BY age DESC LIMIT ?")
+      (same (axqlSelect
+        users
+        (name (as (* age (int 12)) months) id)
+        (orderBy name (id desc) (desc (+ age (int 1))) (asc age))
+        (limit 5)
+        (offset 10)) "SELECT name, age * ? AS months, id FROM users ORDER BY name, id DESC, age + ? DESC, age ASC LIMIT ? OFFSET ?")
+      (same (axqlSelect users (as (+ a b) total c)) "SELECT a + b AS total, c FROM users")
+      (same (axqlSelect users (as score s)) "SELECT score AS s FROM users")
+      (same (axqlSelect t * (where (or (isNull a) (isNotNull b) (not (= c null)) (< (neg d) (real score))))) "SELECT * FROM t WHERE (a IS NULL) OR (b IS NOT NULL) OR (NOT (c = NULL)) OR ((-d) < ?)")
+      (same (axqlSelect t * (where (= (+ (+ a b) (* c (- d e))) (param v)))) "SELECT * FROM t WHERE ((a + b) + (c * (d - e))) = ?")
+      (same (axqlSelect t * (where (and
+        (!= a (int 1))
+        (<= b (int 2))
+        (>= c (int 3))
+        (< d (int 4))
+        (> e (/ f (% g (int 5))))))) "SELECT * FROM t WHERE (a != ?) AND (b <= ?) AND (c >= ?) AND (d < ?) AND (e > (f / (g % ?)))")
+      (same (axqlSelect t * (orderBy a) (limit 1)) "SELECT * FROM t ORDER BY a LIMIT ?")
+      (same (axqlSelect t * (limit 1) (offset 2)) "SELECT * FROM t LIMIT ? OFFSET ?")
+      (same (axqlSelect
+        t
+        *
+        (where a)
+        (orderBy b)
+        (limit 3)
+        (offset 4)) "SELECT * FROM t WHERE a ORDER BY b LIMIT ? OFFSET ?")
+      (same (axqlSelect t (rowid a) (where (= rowid (int uid)))) "SELECT rowid, a FROM t WHERE rowid = ?")
+      (same (axqlSelect order (select from) (where (= group (text who)))) "SELECT \"select\", \"from\" FROM \"order\" WHERE group = ?")
+      (same (axqlSelect t (half' empty-list)) "SELECT \"half'\", \"empty-list\" FROM t")
+      (same (axqlInsert users (name age) (values (text who) (int minAge))) "INSERT INTO users (name, age) VALUES (?, ?)")
+      (same (axqlInsert
+        users
+        (name age)
+        (values (text "Ada") (int 36))
+        (values null (int 1))
+        (values (text who) (+ (int 1) (int 2)))) "INSERT INTO users (name, age) VALUES (?, ?), (NULL, ?), (?, ? + ?)")
+      (same (axqlInsert users * (values
+        (int 1)
+        (text "x")
+        null
+        (real score)
+        (blob pic))) "INSERT INTO users VALUES (?, ?, NULL, ?, ?)")
+      (same (axqlInsert users name (values (text "solo"))) "INSERT INTO users (name) VALUES (?)")
+      (same (axqlUpdate users (assign (age (+ age (int 1)))) (where (= id (int uid)))) "UPDATE users SET age = age + ? WHERE id = ?")
+      (same (axqlUpdate users (assign (age (int 1)) (name (text who)) (score null))) "UPDATE users SET age = ?, name = ?, score = NULL")
+      (same (axqlDelete users (where (< age (int 18)))) "DELETE FROM users WHERE age < ?")
+      (same (axqlDelete users) "DELETE FROM users")
+      (same (axqlCreateTable
+        users
+        (id INTEGER PRIMARY KEY)
+        (name TEXT NOT NULL)
+        (score REAL)
+        (pic BLOB)) "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL, score REAL, pic BLOB)")
+      (same (axqlCreateTable
+        IF
+        NOT
+        EXISTS
+        t
+        (a
+          INTEGER
+          NOT
+          NULL
+          PRIMARY
+          KEY)
+        (b
+          INTEGER
+          PRIMARY
+          KEY
+          NOT
+          NULL)) "CREATE TABLE IF NOT EXISTS t (a INTEGER NOT NULL PRIMARY KEY, b INTEGER PRIMARY KEY NOT NULL)")
+      (same (axqlDropTable users) "DROP TABLE users")
+      (same (axqlDropTable IF EXISTS users) "DROP TABLE IF EXISTS users")
+      (same (axqlCreateIndex byName ON users (name)) "CREATE INDEX byName ON users (name)")
+      (same (axqlCreateIndex
+        UNIQUE
+        byName
+        ON
+        users
+        (name age)) "CREATE UNIQUE INDEX byName ON users (name, age)")
+      (same (axqlCreateIndex
+        IF
+        NOT
+        EXISTS
+        byName
+        ON
+        users
+        (a b c)) "CREATE INDEX IF NOT EXISTS byName ON users (a, b, c)")
+      (same (axqlCreateIndex
+        UNIQUE
+        IF
+        NOT
+        EXISTS
+        byName
+        ON
+        users
+        (c b a)) "CREATE UNIQUE INDEX IF NOT EXISTS byName ON users (c, b, a)")
+      (same (axqlDropIndex byName) "DROP INDEX byName")
+      (same (axqlDropIndex IF EXISTS byName) "DROP INDEX IF EXISTS byName")
+      0
+    }))

@@ -1,0 +1,9 @@
+delete: 35 fault points; 3 pages spilled before the commit; 102400 bytes before, 61440 after
+delete, fail: 35 crash points; 35 before, 0 after; 0 left a journal header
+delete, tear: 35 crash points; 33 before, 2 after; 32 left a journal header
+delete, power loss: 35 crash points; 34 before, 1 after; 32 left a journal header
+delete, power loss, unsynced writes lost: 35 crash points; 35 before, 0 after; 18 left a journal header
+delete, power loss, the journal's unsynced writes lost: 35 crash points; 35 before, 0 after; 18 left a journal header
+delete, power loss, the database's unsynced writes lost: 35 crash points; 34 before, 1 after; 32 left a journal header
+delete: 4 hot journals, their recovery crashed 480 ways, and recovered again to the before state
+202-crash-delete: 731 checks, 0 failed

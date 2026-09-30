@@ -1,0 +1,299 @@
+; Axqlite.AxqlAst - the parsed form of one AXQL statement.
+;
+;     (axqlParse "SELECT name FROM users WHERE id = ?")
+;         ; (Ok (SSelect ...)) with one parameter
+;
+; The parser in `Axqlite.AxqlParse` builds these, and the executor in
+; `Axqlite.AxqlExec` binds them to the schema and runs them. They live
+; in the caller's arena for the length of one call: a prepared
+; statement keeps its text, never a tree, and parses it again each time
+; it runs.
+;
+; An `Expr` names its columns by the spelling the statement used. The
+; binder rewrites each name to a column number (`ECol`) once it knows
+; the table, so the evaluator never looks a name up.
+(import Str)
+(import Vec)
+(import Fmt)
+(import Axqlite.Value)
+
+; ------------------------------------------------------------------
+; Operators.
+; ------------------------------------------------------------------
+; The binary operators an `EBin` carries: `+`.
+(pub :: opAdd Int)
+(pub fn (opAdd)
+  1)
+
+; `-`.
+(pub :: opSub Int)
+(pub fn (opSub)
+  2)
+
+; `*`.
+(pub :: opMul Int)
+(pub fn (opMul)
+  3)
+
+; `/`.
+(pub :: opDiv Int)
+(pub fn (opDiv)
+  4)
+
+; `%`.
+(pub :: opMod Int)
+(pub fn (opMod)
+  5)
+
+; `=`.
+(pub :: opEq Int)
+(pub fn (opEq)
+  6)
+
+; `!=`.
+(pub :: opNe Int)
+(pub fn (opNe)
+  7)
+
+; `<`.
+(pub :: opLt Int)
+(pub fn (opLt)
+  8)
+
+; `<=`.
+(pub :: opLe Int)
+(pub fn (opLe)
+  9)
+
+; `>`.
+(pub :: opGt Int)
+(pub fn (opGt)
+  10)
+
+; `>=`.
+(pub :: opGe Int)
+(pub fn (opGe)
+  11)
+
+; `AND`.
+(pub :: opAnd Int)
+(pub fn (opAnd)
+  12)
+
+; `OR`.
+(pub :: opOr Int)
+(pub fn (opOr)
+  13)
+
+; Whether `op` is one of the six comparisons.
+(pub :: opIsComparison (-> Int Bool))
+(pub fn (opIsComparison op)
+  (&& (>= op opEq) (<= op opGe)))
+
+; Whether `op` is one of the five arithmetic operators.
+(pub :: opIsArithmetic (-> Int Bool))
+(pub fn (opIsArithmetic op)
+  (&& (>= op opAdd) (<= op opMod)))
+
+; The operator as AXQL spells it, for messages.
+(pub :: opText (-> Int String))
+(pub fn (opText op)
+  (if (== op opAdd)
+    "+"
+    (== op opSub)
+    "-"
+    (== op opMul)
+    "*"
+    (== op opDiv)
+    "/"
+    (== op opMod)
+    "%"
+    (== op opEq)
+    "="
+    (== op opNe)
+    "!="
+    (== op opLt)
+    "<"
+    (== op opLe)
+    "<="
+    (== op opGt)
+    ">"
+    (== op opGe)
+    ">="
+    (== op opAnd)
+    "AND"
+    "OR"))
+
+; ------------------------------------------------------------------
+; Column types.
+; ------------------------------------------------------------------
+; The four column types, as a `ColumnDef` records them: INTEGER.
+(pub :: typeInteger Int)
+(pub fn (typeInteger)
+  1)
+
+; REAL.
+(pub :: typeReal Int)
+(pub fn (typeReal)
+  2)
+
+; TEXT.
+(pub :: typeText Int)
+(pub fn (typeText)
+  3)
+
+; BLOB.
+(pub :: typeBlob Int)
+(pub fn (typeBlob)
+  4)
+
+; The type of an expression whose value is always NULL, such as the
+; literal `NULL`. Never a column's type.
+(pub :: typeNull Int)
+(pub fn (typeNull)
+  0)
+
+; A type's name as a statement spells it.
+(pub :: typeName (-> Int String))
+(pub fn (typeName t)
+  (if (== t typeInteger)
+    "INTEGER"
+    (== t typeReal)
+    "REAL"
+    (== t typeText)
+    "TEXT"
+    (== t typeBlob)
+    "BLOB"
+    "NULL"))
+
+; ------------------------------------------------------------------
+; Expressions.
+; ------------------------------------------------------------------
+; An expression. Every variant that can fail at run time carries the
+; byte offset of its operator, so a message can say where.
+(pub data Expr
+  (ELit Value)
+  (EName String Int)
+  (ECol Int)
+  (EParam Int Int)
+  (ENeg Expr Int)
+  (ENot Expr)
+  (EBin Int Expr Expr Int)
+  (EIsNull Expr Bool))
+
+; A literal, or a folded constant.
+; A column named in the statement, before binding: its spelling and
+; offset.
+; A bound column: its number in the table, or -1 for the rowid.
+; A parameter: its index in the parameter vector, from 0, and its
+; offset.
+; Unary minus, and its offset.
+; NOT.
+; A binary operator, its operands, and its offset.
+; `IS NULL`, or `IS NOT NULL` when the flag is true.
+; ------------------------------------------------------------------
+; Statements.
+; ------------------------------------------------------------------
+; One column of a `CREATE TABLE`.
+(pub struct ColumnDef
+  (name : String)
+  (ctype : Int)
+  (notNull : Bool)
+  (primaryKey : Bool))
+
+; One item of a `SELECT` list: the expression, the name `AS` gave it
+; ("" when none), and the text the statement wrote it with.
+(pub struct SelectItem
+  (expr : Expr)
+  (alias : String)
+  (text : String))
+
+; One `ORDER BY` term.
+(pub struct OrderTerm
+  (expr : Expr)
+  (desc : Bool))
+
+; A `SELECT`. `star` is true for `SELECT *`, and then `items` is empty.
+; `from` is "" when the statement has no FROM clause.
+(pub struct Select
+  (star : Bool)
+  (items : (Vec SelectItem))
+  (from : String)
+  (where : (Option Expr))
+  (orderBy : (Vec OrderTerm))
+  (limit : (Option Expr))
+  (offset : (Option Expr)))
+
+; One statement.
+(pub data Stmt
+  (SCreateTable Bool String (Vec ColumnDef))
+  (SDropTable Bool String)
+  (SCreateIndex Bool Bool String String (Vec String))
+  (SDropIndex Bool String)
+  (SInsert String (Vec String) (Vec (Vec Expr)))
+  (SUpdate String (Vec String) (Vec Expr) (Option Expr))
+  (SDelete String (Option Expr))
+  (SSelect Select)
+  (SBegin)
+  (SCommit)
+  (SRollback))
+
+; CREATE TABLE [IF NOT EXISTS] name (columns)
+; DROP TABLE [IF EXISTS] name
+; CREATE [UNIQUE] INDEX [IF NOT EXISTS] name ON table (columns):
+; unique, ifNotExists, name, table, columns
+; DROP INDEX [IF EXISTS] name
+; INSERT INTO table [(columns)] VALUES (row), ...: the columns are
+; empty when the statement names none
+; UPDATE table SET column = expr, ... [WHERE expr]
+; DELETE FROM table [WHERE expr]
+; A parsed statement with what the parameter scan found: how many
+; parameters it takes, the names of named ones in index order (empty
+; when it uses `?` or `?N`), and the statement's own text, from its
+; first token to its last.
+(pub struct Parsed
+  (stmt : Stmt)
+  (paramCount : Int)
+  (paramNames : (Vec String))
+  (text : String))
+
+; Whether a statement answers rows.
+(pub :: stmtIsQuery (-> Stmt Bool))
+(pub fn (stmtIsQuery s)
+  (match s
+    ((SSelect _) true)
+    (_ false)))
+
+; Whether a statement changes the schema.
+(pub :: stmtIsDdl (-> Stmt Bool))
+(pub fn (stmtIsDdl s)
+  (match s
+    ((SCreateTable _ _ _) true)
+    ((SDropTable _ _) true)
+    ((SCreateIndex _ _ _ _ _) true)
+    ((SDropIndex _ _) true)
+    (_ false)))
+
+; ------------------------------------------------------------------
+; Positions.
+; ------------------------------------------------------------------
+; "line L, column C" for byte offset `at` of `src`.
+(pub :: axqlPosText (-> String Int String))
+(pub fn (axqlPosText src at)
+  (let (
+    (mut line 1)
+    (mut lineStart 0)
+    (end (if (> at (strLen src))
+      (strLen src)
+      at))
+  )
+    {
+      (for i 0 end
+        (if (== (strByte src i) 10)
+          {
+            (set line (+ line 1))
+            (set lineStart (+ i 1))
+          }
+          0))
+      (strConcat (strConcat "line " (fmtInt line)) (strConcat ", column " (fmtInt (+ (- at lineStart) 1))))
+    }))

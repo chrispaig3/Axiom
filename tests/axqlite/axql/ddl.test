@@ -1,0 +1,176 @@
+# CREATE and DROP for tables and indices, IF [NOT] EXISTS, and the one
+# namespace tables and indices share. Names compare without regard to
+# ASCII case. Expected results follow docs/axql.md.
+
+statement ok
+CREATE TABLE t (a INTEGER, b TEXT)
+
+statement error axqSchema there is already a table named t
+CREATE TABLE t (a INTEGER)
+
+statement error axqSchema there is already a table named t
+CREATE TABLE T (a INTEGER)
+
+statement ok
+CREATE TABLE IF NOT EXISTS t (x REAL)
+
+query
+SELECT a, b FROM t
+----
+
+statement ok
+INSERT INTO t VALUES (1, 'one')
+
+query
+SELECT * FROM t
+----
+1,'one'
+
+statement ok
+CREATE INDEX ta ON t (a)
+
+statement error axqSchema there is already an index named ta
+CREATE INDEX ta ON t (b)
+
+statement ok
+CREATE INDEX IF NOT EXISTS ta ON t (b)
+
+statement error axqSchema t has no column named nosuch
+CREATE INDEX tz ON t (nosuch)
+
+statement error axqSchema no such table: nosuch
+CREATE INDEX tz ON nosuch (a)
+
+statement error axqSchema column A is named twice
+CREATE INDEX tz ON t (a, A)
+
+statement error axqSchema there is already a table named t
+CREATE INDEX t ON t (a)
+
+statement error axqSchema there is already an index named ta
+CREATE TABLE ta (a INTEGER)
+
+statement error axqSchema there is already an index named ta
+CREATE TABLE IF NOT EXISTS ta (a INTEGER)
+
+statement ok
+CREATE UNIQUE INDEX tb ON t (b, a)
+
+statement ok
+DROP INDEX ta
+
+statement error axqSchema no such index: ta
+DROP INDEX ta
+
+statement ok
+DROP INDEX IF EXISTS ta
+
+statement error axqSchema it names a table
+DROP INDEX t
+
+statement error axqSchema it names an index
+DROP TABLE tb
+
+statement error axqSchema it names an index
+SELECT * FROM tb
+
+statement ok
+DROP TABLE t
+
+statement error axqSchema no such table: t
+SELECT a FROM t
+
+statement error axqSchema no such index: tb
+DROP INDEX tb
+
+statement ok
+DROP TABLE IF EXISTS t
+
+statement error axqSchema no such table: t
+DROP TABLE t
+
+statement ok
+CREATE TABLE t (a INTEGER)
+
+query
+SELECT a FROM t
+----
+
+statement ok
+CREATE TABLE Mixed (Id INTEGER PRIMARY KEY, Name TEXT)
+
+statement ok
+INSERT INTO mixed (NAME) VALUES ('x')
+
+query
+SELECT id, name, ID FROM MIXED
+----
+1,'x',1
+
+statement ok
+CREATE TABLE "select" ("from" INTEGER, "a b" TEXT)
+
+statement ok
+INSERT INTO "select" VALUES (1, 'quoted')
+
+query
+SELECT "from", "a b" FROM "select"
+----
+1,'quoted'
+
+statement ok
+CREATE TABLE IF NOT EXISTS u (a INTEGER NOT NULL, b REAL, c BLOB, d TEXT NOT NULL)
+
+statement ok
+CREATE UNIQUE INDEX IF NOT EXISTS ud ON u (d)
+
+statement ok
+DROP TABLE u
+
+statement error axqSchema no such index: ud
+DROP INDEX ud
+
+statement ok
+CREATE TABLE u (a INTEGER PRIMARY KEY NOT NULL, b INTEGER NOT NULL)
+
+statement ok
+CREATE TABLE w (b INTEGER NOT NULL PRIMARY KEY)
+
+statement error axqSchema no such table: v
+SELECT * FROM v
+
+statement error axqSchema column A is declared twice
+CREATE TABLE v (a INTEGER, A TEXT)
+
+statement error axqSchema allowed only on an INTEGER column
+CREATE TABLE v (a TEXT PRIMARY KEY)
+
+statement error axqSchema more than one PRIMARY KEY
+CREATE TABLE v (a INTEGER PRIMARY KEY, b INTEGER PRIMARY KEY)
+
+statement error axqSyntax expected a column name
+CREATE TABLE v ()
+
+statement error axqSyntax expected a column type
+CREATE TABLE v (a)
+
+statement error axqSyntax expected a column type (INTEGER, REAL, TEXT or BLOB), found "INT"
+CREATE TABLE v (a INT)
+
+statement error axqSyntax expected a column name
+CREATE TABLE v (a INTEGER, PRIMARY KEY (a))
+
+query
+SELECT * FROM u
+----
+
+statement ok
+CREATE TABLE text (text TEXT, blob BLOB, key INTEGER, desc REAL)
+
+statement ok
+INSERT INTO text VALUES ('t', x'00', 1, 2.5)
+
+query
+SELECT text, blob, key, desc FROM text ORDER BY key DESC
+----
+'t',x'00',1,2.5

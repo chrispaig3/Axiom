@@ -1,0 +1,98 @@
+; A malformed macro form is a compile error at the invocation, never a
+; statement that fails when it runs. Each case below is compiled by the
+; compiler the gate uses (its exit status 1 means "the program is
+; wrong"); a well-formed control compiles. The diagnostic itself goes to
+; standard error: for a form that matches no rule it is AX3018, "no rule
+; of macro `axqlSelect` matches this invocation". The last case isn't a
+; macro: a `Connection` isn't `shared`, so a `parallel` binding that
+; captures one is refused (AX3064).
+(import IO)
+(import Str)
+(import Vec)
+(import Err)
+(import Mem)
+(import Sys)
+
+; The compiler: $AXIOM when set, else the repository's .axiom-bin.
+(:: compiler (-> String String))
+;@axiom:effect(io)
+(fn (compiler dir)
+  (let ((env (sysEnv "AXIOM")))
+    (if (strIsEmpty env)
+      (strConcat dir "/../../.axiom-bin/axiom")
+      env)))
+
+; Run `axiom check FILE` and answer its exit status.
+(:: check (-> String String Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(fn (check axiom file)
+  (let (
+    (args vecNewRef)
+    (argv (memAlloc 48))
+  )
+    {
+      (vecPush args (strDup axiom))
+      (vecPush args "--diagnostic-format=ai")
+      (vecPush args "check")
+      (vecPush args (strDup file))
+      (for (a i) in args
+        (memSetWord argv i (strCStr a)))
+      (memSetWord argv 4 0)
+      (match (sysRunPath axiom argv sysEnvp)
+        ((Ok status) status)
+        ((Err e) -1))
+    }))
+
+(:: program (-> String String))
+(fn (program body)
+  (strConcat "(import IO)\n(import Axqlite)\n(import Axqlite.Value)\n(:: main Int)\n;@axiom:effect(io)\n(fn (main) (let ((q " (strConcat body ")) { (println q.text) 0 }))\n")))
+
+; A connection isn't `shared`, so a `parallel` binding can't capture
+; one: AX3064.
+(:: sharedConnection String)
+(fn (sharedConnection)
+  "(import IO)\n(import Err)\n(import Axqlite)\n(:: main Int)\n;@axiom:effect(io)\n;@axiom:effect(spawn)\n;@axiom:effect(block)\n(fn (main)\n  (match (axqOpen \"p.db\" openOptions)\n    ((Ok db) (parallel p ((a (unwrapOr (axqExec db \"SELECT 1\") 0))) a))\n    ((Err e) 1)))\n")
+
+(:: case (-> String String String Int))
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(fn (case axiom label body)
+  (let ((file (strConcat label ".ax")))
+    {
+      (let ((_ (writeFile file (program body))))
+        0)
+      (let ((status (check axiom file)))
+        (println "{label}: {status}"))
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(fn (main)
+  (let ((axiom (compiler (sysArg 1))))
+    {
+      (case axiom "well-formed" "(axqlSelect users (id name) (where (= id (int 1))) (limit 5))")
+      (case axiom "clauses-out-of-order" "(axqlSelect users * (limit 5) (where (= id (int 1))))")
+      (case axiom "offset-without-limit" "(axqlSelect users * (offset 5))")
+      (case axiom "unknown-clause" "(axqlSelect users * (groupBy name))")
+      (case axiom "missing-table" "(axqlSelect)")
+      (case axiom "where-twice" "(axqlSelect users * (where a) (where b))")
+      (case axiom "unknown-operator" "(axqlSelect users * (where (like name (text \"a%\"))))")
+      (case axiom "a-literal-for-a-name" "(axqlSelect users * (where (= age 18)))")
+      (case axiom "update-without-assign" "(axqlUpdate users (age (int 1)))")
+      (case axiom "insert-without-values" "(axqlInsert users (name))")
+      (case axiom "unknown-column-type" "(axqlCreateTable t (a INT))")
+      (case axiom "unknown-constraint" "(axqlCreateTable t (a INTEGER UNIQUE))")
+      (case axiom "index-without-on" "(axqlCreateIndex i users (a))")
+      (case axiom "a-string-for-a-name" "(axqlSelect \"users\" *)")
+      (let ((_ (writeFile "shared-connection.ax" sharedConnection)))
+        0)
+      (let ((status (check axiom "shared-connection.ax")))
+        (println "a-connection-in-a-parallel-binding: {status}"))
+      0
+    }))

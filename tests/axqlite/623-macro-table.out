@@ -1,0 +1,18 @@
+CREATE TABLE people (id INTEGER PRIMARY KEY, name TEXT NOT NULL, age INTEGER, score REAL NOT NULL, photo BLOB, note TEXT)
+SELECT id, name, age, score, photo, note FROM people
+create: ok 0
+insert ada: ok 1
+insert bob: ok 1
+insert a clash: axqConstraint: a row with rowid 2 already exists in people while axqRunOn
+{id = 1, name = "Ada", age = (Some 36), score = 9.500000, photo = None, note = (Some "first")}
+{id = 2, name = "Bob", age = None, score = 7.250000, photo = (Some "\0bin"), note = None}
+with an age: Ada
+axqSchema: no result column named age while rowIndex
+axqType: column 1 is REAL, not TEXT while rowText
+tags: ok 0
+tag: ok 1
+1
+SELECT * FROM people: 2 rows [id,name,age,score,photo,note]
+  1,'Ada',36,9.5,NULL,'first'
+  2,'Bob',NULL,7.25,x'0062696e',NULL
+close: ok 0

@@ -1,0 +1,47 @@
+; A prepared statement follows the schema: after the table changes it
+; runs against the new one, and after its table is dropped it answers
+; axqSchema until the table is back.
+(import IO)
+(import Err)
+(import Vec)
+(import Axqlite)
+(import Axqlite.Value)
+(import AxqlKit)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((db (kitOpen "reprep.db")))
+    {
+      (kitRun "create" (axqExec db "CREATE TABLE t (a INTEGER, b TEXT)"))
+      (kitRun "seed" (axqExec db "INSERT INTO t VALUES (1, 'one')"))
+      (match (axqPrepare db "SELECT * FROM t")
+        ((Ok all)
+          (match (axqPrepare db "INSERT INTO t (a) VALUES (?)")
+            ((Ok ins)
+              {
+                (kitRows "before" (axqQuery all vec0))
+                (kitRun "drop" (axqExec db "DROP TABLE t"))
+                (kitRows "dropped" (axqQuery all vec0))
+                (kitRun "insert into dropped" (axqRun ins (vec1 (VInt 2))))
+                (kitRun "recreate" (axqExec db "CREATE TABLE t (x REAL, a INTEGER, c BLOB)"))
+                (kitRun "insert again" (axqRun ins (vec1 (VInt 3))))
+                (kitRows "after" (axqQuery all vec0))
+                (kitRun "index" (axqExec db "CREATE UNIQUE INDEX ta ON t (a)"))
+                (kitRun "insert with the index" (axqRun ins (vec1 (VInt 4))))
+                (kitRun "insert a clash" (axqRun ins (vec1 (VInt 4))))
+                (kitRows "with the index" (axqQuery all vec0))
+                (kitRun "drop again" (axqExec db "DROP TABLE t"))
+                (kitRun "recreate without a" (axqExec db "CREATE TABLE t (z TEXT)"))
+                (kitRun "insert, no column a" (axqRun ins (vec1 (VInt 5))))
+                (kitRows "narrow" (axqQuery all vec0))
+                (kitRun "finalize" (axqFinalize all))
+                (kitRun "finalize" (axqFinalize ins))
+              }
+            )
+            ((Err e) (println (kitErrText e))))
+        )
+        ((Err e) (println (kitErrText e))))
+      (kitRun "close" (axqClose db))
+      0
+    }))

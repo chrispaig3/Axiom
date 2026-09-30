@@ -1,0 +1,194 @@
+# INSERT: column lists, several rows, rowids, the INTEGER PRIMARY KEY,
+# REAL columns taking INTEGER values, and a failing row undoing its
+# whole statement. Expected results follow docs/axql.md.
+
+statement ok
+CREATE TABLE t (a INTEGER, b TEXT, c REAL)
+
+statement ok
+INSERT INTO t VALUES (1, 'one', 1.5)
+
+statement ok
+INSERT INTO t (b, a) VALUES ('two', 2), ('three', 3)
+
+statement ok
+INSERT INTO t (c) VALUES (4)
+
+query
+SELECT rowid, a, b, c FROM t
+----
+1,1,'one',1.5
+2,2,'two',NULL
+3,3,'three',NULL
+4,NULL,NULL,4.0
+
+statement error axqSchema a row of VALUES holds 2 values for 3 columns
+INSERT INTO t VALUES (1, 'x')
+
+statement error axqSchema a row of VALUES holds 1 value for 2 columns
+INSERT INTO t (a, b) VALUES (1)
+
+statement error axqSyntax every row of VALUES needs the same number of values
+INSERT INTO t (a, b) VALUES (1, 'x'), (2)
+
+statement error axqSchema t has no column named zz
+INSERT INTO t (zz) VALUES (1)
+
+statement error axqSchema column A is named twice
+INSERT INTO t (a, A) VALUES (1, 2)
+
+statement error axqSchema no such table: nosuch
+INSERT INTO nosuch VALUES (1)
+
+statement error axqSchema no such column: a
+INSERT INTO t (a) VALUES (a)
+
+statement error axqSyntax expected VALUES
+INSERT INTO t (a)
+
+statement error axqSyntax expected INTO
+INSERT t VALUES (1)
+
+query
+SELECT rowid FROM t
+----
+1
+2
+3
+4
+
+statement ok
+CREATE TABLE r (x TEXT)
+
+statement ok
+INSERT INTO r (rowid, x) VALUES (10, 'ten')
+
+statement ok
+INSERT INTO r (x) VALUES ('eleven')
+
+statement ok
+INSERT INTO r (rowid, x) VALUES (5, 'five')
+
+statement ok
+INSERT INTO r (x) VALUES ('twelve')
+
+query
+SELECT rowid, x FROM r
+----
+5,'five'
+10,'ten'
+11,'eleven'
+12,'twelve'
+
+statement error axqConstraint a row with rowid 10 already exists in r
+INSERT INTO r (rowid, x) VALUES (10, 'again')
+
+statement ok
+INSERT INTO r (rowid, x) VALUES (-3, 'negative')
+
+statement ok
+INSERT INTO r (rowid, x) VALUES (NULL, 'auto')
+
+query
+SELECT rowid, x FROM r WHERE rowid < 0 OR x = 'auto'
+----
+-3,'negative'
+13,'auto'
+
+statement ok
+INSERT INTO r (rowid, x) VALUES (9223372036854775807, 'last')
+
+statement error axqTooBig every rowid of r up to 9223372036854775807 is taken
+INSERT INTO r (x) VALUES ('no room')
+
+statement error axqType column rowid is INTEGER, not REAL
+INSERT INTO r (rowid, x) VALUES (1.0, 'real rowid')
+
+statement ok
+CREATE TABLE p (id INTEGER PRIMARY KEY, name TEXT NOT NULL)
+
+statement ok
+INSERT INTO p (name) VALUES ('a'), ('b')
+
+statement ok
+INSERT INTO p VALUES (7, 'c')
+
+statement ok
+INSERT INTO p VALUES (NULL, 'd')
+
+query
+SELECT id, rowid, name FROM p
+----
+1,1,'a'
+2,2,'b'
+7,7,'c'
+8,8,'d'
+
+statement error axqConstraint a row with rowid 7 already exists in p
+INSERT INTO p VALUES (7, 'dup')
+
+statement error axqConstraint p.name may not be NULL
+INSERT INTO p (id) VALUES (20)
+
+statement error axqSchema column rowid is named twice
+INSERT INTO p (id, rowid) VALUES (1, 2)
+
+statement error axqType column id is INTEGER, not TEXT
+INSERT INTO p VALUES ('x', 'y')
+
+statement error axqConstraint p.name may not be NULL
+INSERT INTO p (name) VALUES ('e'), (NULL)
+
+statement error axqConstraint a row with rowid 1 already exists in p
+INSERT INTO p VALUES (30, 'f'), (1, 'g')
+
+query
+SELECT id, name FROM p
+----
+1,'a'
+2,'b'
+7,'c'
+8,'d'
+
+statement ok
+CREATE TABLE f (x REAL)
+
+statement ok
+INSERT INTO f VALUES (1), (2.5), (-0.0), (9007199254740993), (NULL), (1e300)
+
+query
+SELECT rowid, x FROM f
+----
+1,1.0
+2,2.5
+3,-0.0
+4,9007199254740992.0
+5,NULL
+6,1e+300
+
+statement ok
+CREATE TABLE b (x BLOB)
+
+statement ok
+INSERT INTO b VALUES (x''), (X'00FFab'), (NULL)
+
+query
+SELECT x FROM b
+----
+x''
+x'00ffab'
+NULL
+
+statement ok
+CREATE TABLE n (a INTEGER NOT NULL, b TEXT)
+
+statement error axqConstraint n.a may not be NULL
+INSERT INTO n (b) VALUES ('no a')
+
+statement ok
+INSERT INTO n VALUES (1 + 2, 'sum')
+
+query
+SELECT a, b FROM n
+----
+3,'sum'

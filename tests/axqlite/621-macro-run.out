@@ -1,0 +1,27 @@
+create: ok 0
+index: ok 0
+insert: ok 1
+insert: ok 1
+insert: ok 1
+insert two: ok 2
+a clash: axqConstraint: the UNIQUE index byName already holds that value in people while axqRunOn
+update: ok 3
+delete: ok 1
+all: agree on 4 rows
+  1,'ada',30,1.5
+  2,'bob',36,2.5
+  3,'cy',41,2.5
+  4,'dee',NULL,NULL
+filtered: agree on 2 rows
+  'cy',41
+  'bob',36
+expressions: agree on 2 rows
+  'ada',60
+  'dee',NULL
+paged: agree on 2 rows
+  3
+  2
+drop index: ok 0
+drop: ok 0
+drop again: axqSchema: no such table: people while axqRunOn
+close: ok 0

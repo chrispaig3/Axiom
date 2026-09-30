@@ -1,0 +1,16 @@
+OK
+well-formed: 0
+clauses-out-of-order: 1
+offset-without-limit: 1
+unknown-clause: 1
+missing-table: 1
+where-twice: 1
+unknown-operator: 1
+a-literal-for-a-name: 1
+update-without-assign: 1
+insert-without-values: 1
+unknown-column-type: 1
+unknown-constraint: 1
+index-without-on: 1
+a-string-for-a-name: 1
+a-connection-in-a-parallel-binding: 1

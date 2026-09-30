@@ -746,6 +746,12 @@ jobs:
       # (docs/crypto.md).
       - name: Cryptography known answers, and each test can fail
         run: ./scripts/check-crypto.sh
+      # AXQLite: the file format's known answers, crash recovery at every
+      # write, two connections and two processes on one file, and AXQL's
+      # statements, each test in an empty directory of its own
+      # (docs/axqlite.md).
+      - name: AXQLite stores, recovers, and answers AXQL
+        run: ./scripts/check-axqlite.sh
       # The examples/ DIRECTORY is swept: every tracked file a source or
       # a static asset, none executable, every program named in
       # examples/README.md and README.md linking there. A 156 KB Mach-O

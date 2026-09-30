@@ -1,0 +1,11 @@
+(import IO)
+(import Sys)
+(import AxqlLogic)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (axqlRunScript (sysArg 1) "select")
+    0
+  })

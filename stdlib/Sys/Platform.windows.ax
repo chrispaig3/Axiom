@@ -828,3 +828,58 @@
 (pub :: tcpNoDelayOpt Int)
 (pub fn (tcpNoDelayOpt)
   1)
+
+; ------------------------------------------------------------------
+; Files a database keeps open (`stdlib/Axqlite/Pager.ax`). None of
+; these calls is routed through kernel32 yet, so each number is 0 and
+; `Sys.ax` answers the unsupported error without making a call.
+; ------------------------------------------------------------------
+; none
+(pub :: sysPreadNum Int)
+(pub fn (sysPreadNum)
+  0)
+
+; none
+(pub :: sysPwriteNum Int)
+(pub fn (sysPwriteNum)
+  0)
+
+; none
+(pub :: sysFsyncNum Int)
+(pub fn (sysFsyncNum)
+  0)
+
+; none
+(pub :: sysFtruncateNum Int)
+(pub fn (sysFtruncateNum)
+  0)
+
+; none
+(pub :: sysFlockNum Int)
+(pub fn (sysFlockNum)
+  0)
+
+; none
+(pub :: fsyncUsesFullFsync Int)
+(pub fn (fsyncUsesFullFsync)
+  0)
+
+; none
+(pub :: fFullFsync Int)
+(pub fn (fFullFsync)
+  0)
+
+; O_RDWR, in its Linux spelling, as the other flags here are
+(pub :: oRdwr Int)
+(pub fn (oRdwr)
+  2)
+
+; O_CREAT, in its Linux spelling
+(pub :: oCreat Int)
+(pub fn (oCreat)
+  64)
+
+; O_CLOEXEC, in its Linux spelling
+(pub :: oCloexec Int)
+(pub fn (oCloexec)
+  524288)

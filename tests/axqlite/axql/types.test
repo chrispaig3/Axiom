@@ -1,0 +1,141 @@
+# Types: a column holds values of its own type or NULL, a REAL column
+# also takes an INTEGER, and an operator refuses types it can't combine,
+# all before any row is read. Expected results follow docs/axql.md.
+
+statement ok
+CREATE TABLE t (i INTEGER, r REAL, s TEXT, b BLOB)
+
+statement error axqType column i is INTEGER, not TEXT
+INSERT INTO t (i) VALUES ('1')
+
+statement error axqType column i is INTEGER, not REAL
+INSERT INTO t (i) VALUES (1.0)
+
+statement error axqType column s is TEXT, not INTEGER
+INSERT INTO t (s) VALUES (1)
+
+statement error axqType column b is BLOB, not TEXT
+INSERT INTO t (b) VALUES ('x')
+
+statement error axqType column s is TEXT, not BLOB
+INSERT INTO t (s) VALUES (x'00')
+
+statement error axqType column r is REAL, not TEXT
+INSERT INTO t (r) VALUES ('2.5')
+
+statement error axqType column i is INTEGER, not TEXT
+INSERT INTO t VALUES (1, 2, 'ok', x'00'), ('2', 2, 'no', x'00')
+
+query
+SELECT * FROM t
+----
+
+statement ok
+INSERT INTO t VALUES (1, 2, 'x', x'01')
+
+query
+SELECT i, r, s, b FROM t
+----
+1,2.0,'x',x'01'
+
+statement error axqType line 1, column 25: can't compare INTEGER with TEXT
+SELECT * FROM t WHERE i = '1'
+
+statement error axqType line 1, column 25: can't compare TEXT with BLOB
+SELECT * FROM t WHERE s < b
+
+statement error axqType can't compare REAL with TEXT
+SELECT r = s FROM t
+
+statement error axqType can't apply + to TEXT and INTEGER
+SELECT s + 1 FROM t
+
+statement error axqType can't apply * to BLOB and BLOB
+SELECT b * b FROM t
+
+statement error axqType % needs INTEGER operands, not REAL and INTEGER
+SELECT r % 2 FROM t
+
+statement error axqType % needs INTEGER operands, not INTEGER and REAL
+SELECT 5 % 2.0
+
+statement error axqType can't negate TEXT
+SELECT -s FROM t
+
+statement error axqType NOT needs a number, not TEXT
+SELECT NOT s FROM t
+
+statement error axqType AND needs numbers, not TEXT and INTEGER
+SELECT s AND 1 FROM t
+
+statement error axqType OR needs numbers, not INTEGER and BLOB
+SELECT 1 OR b FROM t
+
+statement error axqType WHERE needs a number, not TEXT
+SELECT * FROM t WHERE s
+
+statement error axqType WHERE needs a number, not BLOB
+DELETE FROM t WHERE b
+
+statement error axqType column i is INTEGER, not TEXT
+UPDATE t SET i = 'x'
+
+statement error axqType column s is TEXT, not REAL
+UPDATE t SET s = r
+
+statement ok
+UPDATE t SET r = 3
+
+query
+SELECT r FROM t
+----
+3.0
+
+statement ok
+UPDATE t SET r = i + 0.5
+
+query
+SELECT r FROM t
+----
+1.5
+
+statement ok
+UPDATE t SET r = NULL, s = NULL, b = NULL, i = NULL
+
+query
+SELECT * FROM t
+----
+NULL,NULL,NULL,NULL
+
+statement error axqType can't compare INTEGER with TEXT
+DELETE FROM t WHERE i < 'a'
+
+query
+SELECT i = NULL, s < NULL, NULL + NULL, -NULL, NOT NULL FROM t
+----
+NULL,NULL,NULL,NULL,NULL
+
+query
+SELECT i + 1, r * 2, i IS NULL FROM t
+----
+NULL,NULL,1
+
+statement ok
+DELETE FROM t
+
+statement error axqType can't compare INTEGER with TEXT
+SELECT * FROM t WHERE i = 'x'
+
+statement error axqType can't apply - to TEXT and TEXT
+SELECT 'a' - 'b'
+
+statement error axqType can't compare BLOB with INTEGER
+SELECT x'00' = 0
+
+query
+SELECT 'a' = 'a', x'61' = x'61', 1 = 1.0
+----
+1,1,1
+
+statement error axqType can't compare TEXT with BLOB
+SELECT 'a' = x'61'

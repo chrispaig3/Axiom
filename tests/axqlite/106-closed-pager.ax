@@ -1,0 +1,20 @@
+; A closed pager used again stops the program with status 85, before
+; it touches memory that is no longer its own.
+(import IO)
+(import Err)
+(import Axqlite.Pager)
+(import StoreDb)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((p (openOrDie "closed.db" 16)))
+    {
+      (let ((_ (pagerClose p)))
+        0)
+      (println "closed; using it again")
+      (let ((_ (pagerBeginRead p)))
+        0)
+      (println "not reached")
+      0
+    }))

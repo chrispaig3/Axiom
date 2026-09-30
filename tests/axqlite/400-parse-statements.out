@@ -1,0 +1,27 @@
+(CREATE TABLE t (id INTEGER PRIMARY KEY) (name TEXT NOT NULL) (r REAL) (b BLOB)) params=0
+(CREATE TABLE IF NOT EXISTS T (A INTEGER NOT NULL PRIMARY KEY) (B TEXT NOT NULL PRIMARY KEY)) params=0
+(CREATE TABLE "my table" ("from" INTEGER) (text TEXT) (key BLOB) (desc REAL) (asc INTEGER) (transaction TEXT)) params=0
+(DROP TABLE t) params=0
+(DROP TABLE IF EXISTS t) params=0
+(CREATE INDEX i ON t (a)) params=0
+(CREATE UNIQUE INDEX IF NOT EXISTS i ON t (a b c)) params=0
+(DROP INDEX i) params=0
+(DROP INDEX IF EXISTS i) params=0
+(INSERT INTO t () VALUES (1 'a' 2.5 x'00')) params=0
+(INSERT INTO t (a b) VALUES (1 2) (3 4) (?1 ?2)) params=2
+(UPDATE t SET (= a (+ a 1)) (= b NULL) WHERE (= id 3)) params=0
+(UPDATE t SET (= a 1)) params=0
+(DELETE FROM t WHERE (OR (< a 0) (IS NULL b))) params=0
+(DELETE FROM t) params=0
+(SELECT * FROM t) params=0
+(SELECT a (AS b bee) (+ a b) FROM t WHERE (= a 1) ORDER BY (b DESC) (a ASC) (1 ASC) LIMIT 10 OFFSET 5) params=0
+(SELECT 1) params=0
+(SELECT 1 'two' 3.0 NULL 1 0 x'ff' WHERE 1 ORDER BY (1 ASC) LIMIT 1) params=0
+(SELECT a FROM t LIMIT ?1) params=1
+(BEGIN) params=0
+(BEGIN) params=0
+(COMMIT) params=0
+(COMMIT) params=0
+(ROLLBACK) params=0
+(ROLLBACK) params=0
+(SELECT a FROM t) params=0

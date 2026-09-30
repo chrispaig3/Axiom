@@ -1,0 +1,136 @@
+; AxqlKit - small helpers the AXQLite API tests share.
+;
+;     (kitOpen "t.db")                        ; a fresh connection, or exit 1
+;     (kitRun "insert" (axqExec db "..."))     ; prints "insert: ok 3" or "insert: axqSchema ..."
+;     (kitDump db "SELECT a FROM t")           ; prints each row as `axqValueText` writes it
+;     (vec2 (VInt 1) (VText "a"))              ; a parameter vector
+(import IO)
+(import Str)
+(import Vec)
+(import Err)
+(import Fmt)
+(import Axqlite)
+(import Axqlite.Value)
+(import AxqlLogic)
+
+; A fresh database `path` in the working directory, or stop with status
+; 1 after saying why.
+(pub :: kitOpen (-> String Connection))
+;@axiom:effect(io)
+(pub fn (kitOpen path)
+  (let ((_ (removeFile path)))
+    (match (axqOpen path openOptions)
+      ((Ok db) db)
+      ((Err e)
+        (let ((msg (errorText e)))
+          {
+            (println "can't open {path}: {msg}")
+            (exit 1)
+            (kitOpen path)
+          })
+      ))))
+
+; An error as `CODE: message`.
+(pub :: kitErrText (-> Error String))
+(pub fn (kitErrText e)
+  (strConcat (strConcat (axqlCodeName (errCode e)) ": ") (errorText e)))
+
+; Print how a step that answers an Int went.
+(pub :: kitRun (-> String (Result Int Error) Int))
+;@axiom:effect(io)
+(pub fn (kitRun label r)
+  (match r
+    ((Ok n) (println "{label}: ok {n}"))
+    ((Err e)
+      (let ((t (kitErrText e)))
+        (println "{label}: {t}"))
+    )))
+
+; Print how a step that answers anything went, without its value.
+(pub :: kitDone (-> String (Result a Error) Int))
+;@axiom:effect(io)
+(pub fn (kitDone label r)
+  (match r
+    ((Ok _) (println "{label}: ok"))
+    ((Err e)
+      (let ((t (kitErrText e)))
+        (println "{label}: {t}"))
+    )))
+
+; Print a result's rows, one per line.
+(pub :: kitRows (-> String (Result Rows Error) Int))
+;@axiom:effect(io)
+(pub fn (kitRows label r)
+  (match r
+    ((Ok rs)
+      (let (
+        (n (vecLen rs.rows))
+        (cols (kitJoin rs.columns))
+      )
+        {
+          (println "{label}: {n} rows [{cols}]")
+          (for row in rs.rows
+            (let ((t (axqlRowText row)))
+              (println "  {t}")))
+          0
+        })
+    )
+    ((Err e)
+      (let ((t (kitErrText e)))
+        (println "{label}: {t}"))
+    )))
+
+; Run a query with no parameters and print its rows.
+(pub :: kitDump (-> Connection String Int))
+;@axiom:effect(io)
+(pub fn (kitDump db text)
+  (kitRows text (axqQueryOn db (Query text vecNewRef))))
+
+(:: kitJoin (-> (Vec String) String))
+(fn (kitJoin names)
+  (let ((mut out ""))
+    {
+      (for (n i) in names
+        (set out (if (== i 0)
+          n
+          (strConcat out (strConcat "," n)))))
+      out
+    }))
+
+; Parameter vectors of one to four values.
+(pub :: vec1 (-> Value (Vec Value)))
+(pub fn (vec1 a)
+  (let ((v vecNewRef))
+    {
+      (vecPush v a)
+      v
+    }))
+
+(pub :: vec2 (-> Value Value (Vec Value)))
+(pub fn (vec2 a b)
+  (let ((v (vec1 a)))
+    {
+      (vecPush v b)
+      v
+    }))
+
+(pub :: vec3 (-> Value Value Value (Vec Value)))
+(pub fn (vec3 a b c)
+  (let ((v (vec2 a b)))
+    {
+      (vecPush v c)
+      v
+    }))
+
+(pub :: vec4 (-> Value Value Value Value (Vec Value)))
+(pub fn (vec4 a b c d)
+  (let ((v (vec3 a b c)))
+    {
+      (vecPush v d)
+      v
+    }))
+
+; No parameters.
+(pub :: vec0 (Vec Value))
+(pub fn (vec0)
+  vecNewRef)

@@ -1,0 +1,326 @@
+# SELECT: the select list, WHERE, ORDER BY with ties broken by rowid,
+# LIMIT and OFFSET, aliases, positions, and a SELECT with no table.
+# Expected results follow docs/axql.md.
+
+statement ok
+CREATE TABLE emp (id INTEGER PRIMARY KEY, name TEXT NOT NULL, dept TEXT, salary INTEGER, bonus REAL)
+
+statement ok
+INSERT INTO emp VALUES
+  (1, 'ada', 'eng', 120, 10.5),
+  (2, 'bob', 'ops', 80, NULL),
+  (3, 'cy', 'eng', 100, 0.0),
+  (4, 'dee', NULL, 90, 2.25),
+  (5, 'eve', 'ops', 80, 1.0)
+
+query
+SELECT * FROM emp
+----
+1,'ada','eng',120,10.5
+2,'bob','ops',80,NULL
+3,'cy','eng',100,0.0
+4,'dee',NULL,90,2.25
+5,'eve','ops',80,1.0
+
+query
+SELECT name FROM emp WHERE dept = 'eng'
+----
+'ada'
+'cy'
+
+query
+SELECT name, salary FROM emp WHERE salary >= 90 AND dept IS NOT NULL
+----
+'ada',120
+'cy',100
+
+query
+SELECT name FROM emp WHERE dept = 'ops' OR salary > 110
+----
+'ada'
+'bob'
+'eve'
+
+query
+SELECT name FROM emp WHERE NOT dept = 'eng'
+----
+'bob'
+'eve'
+
+query
+SELECT name FROM emp WHERE dept IS NULL
+----
+'dee'
+
+query
+SELECT name, salary FROM emp ORDER BY salary DESC, name
+----
+'ada',120
+'cy',100
+'dee',90
+'bob',80
+'eve',80
+
+query
+SELECT name FROM emp ORDER BY dept, name
+----
+'dee'
+'ada'
+'cy'
+'bob'
+'eve'
+
+query
+SELECT name FROM emp ORDER BY dept DESC, name
+----
+'bob'
+'eve'
+'ada'
+'cy'
+'dee'
+
+query
+SELECT id FROM emp ORDER BY salary
+----
+2
+5
+4
+3
+1
+
+query
+SELECT id FROM emp ORDER BY salary DESC
+----
+1
+3
+4
+2
+5
+
+query
+SELECT id FROM emp ORDER BY id LIMIT 2
+----
+1
+2
+
+query
+SELECT id FROM emp ORDER BY id LIMIT 2 OFFSET 3
+----
+4
+5
+
+query
+SELECT id FROM emp ORDER BY id DESC LIMIT 10 OFFSET 4
+----
+1
+
+query
+SELECT id FROM emp LIMIT 0
+----
+
+query
+SELECT id FROM emp LIMIT 3 OFFSET 9
+----
+
+query
+SELECT id FROM emp WHERE dept = 'ops' LIMIT 1
+----
+2
+
+query
+SELECT name AS who, salary * 2 AS double FROM emp WHERE id = 3
+----
+'cy',200
+
+query
+SELECT name AS n FROM emp ORDER BY n DESC LIMIT 2
+----
+'eve'
+'dee'
+
+query
+SELECT name, salary FROM emp ORDER BY 2, 1
+----
+'bob',80
+'eve',80
+'dee',90
+'cy',100
+'ada',120
+
+query
+SELECT * FROM emp ORDER BY 3 DESC, 1 LIMIT 3
+----
+2,'bob','ops',80,NULL
+5,'eve','ops',80,1.0
+1,'ada','eng',120,10.5
+
+query
+SELECT id + 1, bonus * 2, name FROM emp WHERE bonus > 1
+----
+2,21.0,'ada'
+5,4.5,'dee'
+
+query
+SELECT rowid, id FROM emp WHERE rowid = 4
+----
+4,4
+
+query
+SELECT name FROM emp WHERE salary = 80.0
+----
+'bob'
+'eve'
+
+query
+SELECT name FROM emp WHERE bonus = 0
+----
+'cy'
+
+query
+SELECT name FROM emp WHERE bonus < salary
+----
+'ada'
+'cy'
+'dee'
+'eve'
+
+query
+select NAME from EMP where ID = 2
+----
+'bob'
+
+query
+SELECT name FROM emp WHERE id = 99
+----
+
+query
+SELECT name FROM emp WHERE id > 2 AND id < 5
+----
+'cy'
+'dee'
+
+query
+SELECT name FROM emp WHERE id >= 4.5
+----
+'eve'
+
+query
+SELECT name FROM emp WHERE id = 2.5
+----
+
+query
+SELECT name FROM emp WHERE 3 > id
+----
+'ada'
+'bob'
+
+query
+SELECT name FROM emp WHERE rowid < -5
+----
+
+query
+SELECT name FROM emp WHERE 1
+----
+'ada'
+'bob'
+'cy'
+'dee'
+'eve'
+
+query
+SELECT name FROM emp WHERE 0
+----
+
+query
+SELECT name FROM emp WHERE NULL
+----
+
+query
+SELECT name FROM emp WHERE bonus
+----
+'ada'
+'dee'
+'eve'
+
+query
+SELECT 1, 'a', NULL, 2.5, x'01'
+----
+1,'a',NULL,2.5,x'01'
+
+query
+SELECT 1 WHERE 0
+----
+
+query
+SELECT 1 + 1 AS two ORDER BY 1 LIMIT 1
+----
+2
+
+query
+SELECT 'x' LIMIT 1 OFFSET 1
+----
+
+statement error axqSchema no such column: nosuch
+SELECT nosuch FROM emp
+
+statement error axqSchema no such column: name
+SELECT name
+
+statement error axqSchema ORDER BY 3 names no result column; there are 1
+SELECT name FROM emp ORDER BY 3
+
+statement error axqSchema ORDER BY 6 names no result column; there are 5
+SELECT * FROM emp ORDER BY 6
+
+statement error axqSchema ORDER BY 0 names no result column
+SELECT name FROM emp ORDER BY 0
+
+statement error axqType LIMIT needs an INTEGER
+SELECT id FROM emp LIMIT 'x'
+
+statement error axqType LIMIT is negative: -1
+SELECT id FROM emp LIMIT -1
+
+statement error axqType LIMIT needs an INTEGER
+SELECT id FROM emp LIMIT 1.5
+
+statement error axqType LIMIT needs an INTEGER
+SELECT id FROM emp LIMIT NULL
+
+statement error axqType OFFSET is negative: -2
+SELECT id FROM emp LIMIT 1 OFFSET -2
+
+statement error axqSchema no such column: id
+SELECT id FROM emp LIMIT id
+
+statement error axqSyntax expected the end of the statement, found "OFFSET"
+SELECT id FROM emp OFFSET 1
+
+statement error axqSyntax expected an expression, found the end of the statement
+SELECT * FROM emp WHERE
+
+statement error axqSyntax `*` needs a table
+SELECT *
+
+statement error axqSyntax expected an expression, found "*"
+SELECT id, * FROM emp
+
+query
+SELECT id FROM emp WHERE name = 'bob' AND id = 2 AND salary = 80
+----
+2
+
+query
+SELECT id FROM emp ORDER BY rowid DESC LIMIT 2
+----
+5
+4
+
+query
+SELECT id FROM emp ORDER BY -id
+----
+5
+4
+3
+2
+1

@@ -1,0 +1,32 @@
+create: ok 0
+begin: ok 0
+commit: ok 0
+finalize: ok 0
+asc: 1000 rows, ordered true
+desc: 1000 rows, ordered true
+index: ok 0
+asc by index: 1000 rows, ordered true
+desc over an index range: 666 rows, ordered true
+page 1: 3 rows [id]
+  2
+  5
+  8
+page 2: 3 rows [id]
+  11
+  14
+  17
+past the end: 0 rows [id]
+none: 0 rows [id]
+negative: axqType: LIMIT is negative: -1 while axqQuery
+text: axqType: LIMIT needs an INTEGER while axqQuery
+null: axqType: LIMIT needs an INTEGER while axqQuery
+finalize: ok 0
+SELECT id FROM t ORDER BY k DESC, id DESC LIMIT 4: 4 rows [id]
+  998
+  995
+  992
+  989
+SELECT id FROM t ORDER BY id DESC LIMIT 2 OFFSET 997: 2 rows [id]
+  2
+  1
+close: ok 0

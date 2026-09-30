@@ -1,0 +1,98 @@
+; Crashing the creation of a database. A new file is made a database in
+; a transaction of its own: a journal that returns the file to empty,
+; then the schema leaf and the header, then the commit. Each point of
+; it is failed, torn and cut by each kind of power loss; afterwards an
+; open with create gives a database byte for byte like one made without
+; a crash.
+(import IO)
+(import Str)
+(import Vec)
+(import Err)
+(import Axqlite.Pager)
+(import Axqlite.Btree)
+(import StoreTest)
+(import StoreDb)
+(import StoreCrash)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((t tallyNew))
+    {
+      (let ((_ (writeFile "clean.db" "")))
+        0)
+      (let ((points 
+        (match (pagerOpenFaulty
+          "clean.db"
+          true
+          false
+          16
+          0
+          0
+          0
+          false)
+          ((Ok p)
+            (let ((k (pagerFaultPoints p)))
+              {
+                (let ((_ (pagerClose p)))
+                  0)
+                k
+              })
+          )
+          ((Err e) 0))))
+        (let (
+          (want (fileHash "clean.db"))
+          (mut runs 0)
+        )
+          {
+            (println "creating a database passes {points} fault points")
+            (for kind in faultKinds
+              (for n 1 (+ points 1)
+                {
+                  (let ((_ (writeFile "new.db" "")))
+                    0)
+                  (let ((_ (removeFile "new.db-journal")))
+                    0)
+                  (match (pagerOpenFaulty
+                    "new.db"
+                    true
+                    false
+                    16
+                    kind
+                    n
+                    (+ 100 (% (* n 997) 3900))
+                    false)
+                    ((Ok p) (pagerAbandon p))
+                    ((Err e) 0))
+                  (set runs (+ runs 1))
+                  (match (pagerOpenFaulty
+                    "new.db"
+                    true
+                    false
+                    16
+                    0
+                    0
+                    0
+                    false)
+                    ((Ok p)
+                      {
+                        (check
+                          t
+                          (==
+                            (codeOf
+                              (andThen
+                                (pagerBeginRead p)
+                                (lambda (_) (btreeCheck p (vecPush vecNew btreeSchemaRoot)))))
+                            0)
+                          "the recovered database checks")
+                        (let ((_ (pagerClose p)))
+                          0)
+                        (check t (== (fileHash "new.db") want) (strConcat "creation crashed by " (strConcat (faultName kind) ": the reopened file is a new database")))
+                      }
+                    )
+                    ((Err e) (check t false (strConcat "creation crashed by " (strConcat (faultName kind) (strConcat ": reopen: " (errorText e)))))))
+                }))
+            (println "{runs} crashed creations, each reopened as a new database")
+          }))
+      (tallyReport t "205-crash-create")
+    }))

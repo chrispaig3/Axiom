@@ -1,0 +1,9 @@
+overflow: 219 fault points; 95 pages spilled before the commit; 380928 bytes before, 528384 after
+overflow, fail: 219 crash points; 219 before, 0 after; 0 left a journal header
+overflow, tear: 219 crash points; 217 before, 2 after; 216 left a journal header
+overflow, power loss: 219 crash points; 218 before, 1 after; 216 left a journal header
+overflow, power loss, unsynced writes lost: 219 crash points; 219 before, 0 after; 213 left a journal header
+overflow, power loss, the journal's unsynced writes lost: 219 crash points; 219 before, 0 after; 213 left a journal header
+overflow, power loss, the database's unsynced writes lost: 219 crash points; 218 before, 1 after; 216 left a journal header
+overflow: 14 hot journals, their recovery crashed 2832 ways, and recovered again to the before state
+203-crash-overflow: 4370 checks, 0 failed

@@ -1,0 +1,119 @@
+; Crashing a transaction that deletes: 600 of 1000 rows, the highest
+; first, go from a table whose pages are the last in the file, and 200
+; of 500 keys from an index tree. Leaves empty and are freed, the ones
+; at the end of the file cutting it short, so the commit truncates.
+; Every write, sync and truncate is failed, torn and cut by each kind of
+; power loss under a 5-page cache; every reopen gives exactly the
+; before or the after file. Crashed recoveries recover again to the
+; before state.
+(import IO)
+(import Str)
+(import Vec)
+(import Err)
+(import Axqlite.Value)
+(import Axqlite.Record)
+(import Axqlite.Pager)
+(import Axqlite.Btree)
+(import StoreTest)
+(import StoreDb)
+(import StoreCrash)
+
+(:: indexKey (-> Int String))
+(fn (indexKey n)
+  (keyWithRowid (unwrapOr (keyEncode (vecPush vecNew (VText (rowBytes n 12)))) "") n))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (t tallyNew)
+    (ta (Box 0))
+    (ib (Box 0))
+  )
+    {
+      (let ((_ 
+        (buildBase
+          "base.db"
+          (lambda (p)
+            (andThen
+              (btreeCreate p btreeIndex)
+              (lambda (i)
+                (let ((mut failed None))
+                  {
+                    (set ib.v i)
+                    (for n 0 500
+                      (match (btreePut p i (indexKey n) "")
+                        ((Err e)
+                          {
+                            (set failed (Some e))
+                            0
+                          }
+                        )
+                        ((Ok _) 0)))
+                    (match failed
+                      ((Some e) (Err e))
+                      ((None)
+                        (andThen
+                          (btreeCreate p btreeTable)
+                          (lambda (a)
+                            {
+                              (set ta.v a)
+                              (putRows
+                                p
+                                a
+                                0
+                                1000
+                                1
+                                50)
+                            }
+                          ))
+                      ))
+                  })
+              ))
+          ))))
+        0)
+      (let ((roots (vecPush (vecPush (vecPush vecNew btreeSchemaRoot) ta.v) ib.v)))
+        (let ((txn 
+          (lambda (p)
+            (andThen
+              (deleteRowsDown p ta.v 400 1000)
+              (lambda (_)
+                (let ((mut failed None))
+                  {
+                    (for n 100 300
+                      (if (isSome failed)
+                        0
+                        (match (btreeDelete p ib.v (indexKey n))
+                          ((Err e)
+                            {
+                              (set failed (Some e))
+                              0
+                            }
+                          )
+                          ((Ok _) 0))))
+                    (match failed
+                      ((Some e) (Err e))
+                      ((None) (Ok 0)))
+                  })
+              ))
+          )))
+          {
+            (crashSweep
+              t
+              "delete"
+              "base.db"
+              5
+              txn
+              roots
+              (lambda (_) roots))
+            (check t (< (sizeOf "after.db") (sizeOf "base.db")) "the deletes shrink the file")
+            (recoverySweep
+              t
+              "delete"
+              "base.db"
+              5
+              txn
+              4)
+          }))
+      (tallyReport t "202-crash-delete")
+    }))

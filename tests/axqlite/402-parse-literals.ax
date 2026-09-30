@@ -1,0 +1,27 @@
+; Literals, names and comments as the lexer reads them.
+(import IO)
+(import AxqlPrint)
+
+(:: show (-> String Int))
+;@axiom:effect(io)
+(fn (show text)
+  (println (axqlPrintParse text)))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (show "SELECT 0, 007, 9223372036854775807")
+    (show "SELECT 1_000")
+    (show "SELECT 1.5, .5, 5., 1e3, 1E-3, 1.5e+2, 0.1, 1e308, 1e309, 2.5e-324")
+    (show "SELECT 'text', '', 'it''s', '''', 'two\nlines', 'ünï'")
+    (show "SELECT x'', X'00ff', x'AbCd'")
+    (show "SELECT NULL, null, Null, TRUE, true, FALSE, false")
+    (show "SELECT a, _b, c9, \"quoted name\", \"with \"\"quotes\"\"\", \"select\"")
+    (show "SELECT a FROM t -- trailing comment")
+    (show "SELECT a --comment\n, b FROM t")
+    (show "SELECT 1-1, 1 -1, 1--1\n")
+    (show "SELECT a.b FROM t")
+    (show "SELECT 1 + 2")
+    0
+  })

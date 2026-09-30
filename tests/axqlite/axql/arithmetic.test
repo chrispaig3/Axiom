@@ -1,0 +1,163 @@
+# Arithmetic that has no answer: INTEGER overflow, division by zero, and
+# a REAL result that isn't a number. Also when such a failure is raised:
+# a subexpression naming no column is evaluated before any row is read,
+# and a row a FALSE term drops never fails. Expected results follow
+# docs/axql.md.
+
+statement error axqArithmetic integer overflow: 9223372036854775807 + 1
+SELECT 9223372036854775807 + 1
+
+statement error axqArithmetic integer overflow: -9223372036854775808 - 1
+SELECT -9223372036854775808 - 1
+
+statement error axqArithmetic integer overflow: 4611686018427387904 * 2
+SELECT 4611686018427387904 * 2
+
+statement error axqArithmetic integer overflow: -9223372036854775808 * -1
+SELECT -9223372036854775808 * -1
+
+statement error axqArithmetic integer overflow: -9223372036854775808 / -1
+SELECT -9223372036854775808 / -1
+
+statement error axqArithmetic integer overflow: -(-9223372036854775808)
+SELECT -(-9223372036854775808)
+
+statement error axqArithmetic integer division by zero
+SELECT 1 / 0
+
+statement error axqArithmetic integer remainder by zero
+SELECT 1 % 0
+
+statement error axqArithmetic real division by zero
+SELECT 1.0 / 0
+
+statement error axqArithmetic real division by zero
+SELECT 1 / 0.0
+
+statement error axqArithmetic real division by zero
+SELECT 1.0 / -0.0
+
+statement error axqArithmetic a real operation with no numeric answer: -
+SELECT 1e308 * 10 - 1e308 * 10
+
+statement error axqArithmetic a real operation with no numeric answer: *
+SELECT 0.0 * (1e308 * 10)
+
+query
+SELECT -9223372036854775808 % -1, 4611686018427387904 * -2, 9223372036854775807 - 9223372036854775807, 3037000499 * 3037000499
+----
+0,-9223372036854775808,0,9223372030926249001
+
+statement error axqArithmetic integer overflow: 3037000500 * 3037000500
+SELECT 3037000500 * 3037000500
+
+statement ok
+CREATE TABLE t (a INTEGER, b INTEGER)
+
+statement ok
+INSERT INTO t VALUES (1, 0), (2, 1), (9223372036854775807, 1)
+
+statement error axqArithmetic integer division by zero
+SELECT a / b FROM t
+
+query
+SELECT a / b FROM t WHERE b != 0
+----
+2
+9223372036854775807
+
+statement error axqArithmetic integer overflow: 9223372036854775807 + 1
+SELECT a + b FROM t WHERE b = 1
+
+query
+SELECT a FROM t WHERE b != 0 AND a / b > 0
+----
+2
+9223372036854775807
+
+query
+SELECT a FROM t WHERE a / b > 0 AND b != 0
+----
+2
+9223372036854775807
+
+query
+SELECT a FROM t WHERE b = 0 OR a / b > 1
+----
+1
+2
+9223372036854775807
+
+query
+SELECT a FROM t WHERE a / b > 1 OR b = 0
+----
+1
+2
+9223372036854775807
+
+statement error axqArithmetic integer division by zero
+SELECT a FROM t WHERE a / b > 1 OR b = 5
+
+query
+SELECT a FROM t WHERE (a / b > 0 AND b > 5) OR a = 1
+----
+1
+
+query
+SELECT a FROM t ORDER BY a LIMIT 1
+----
+1
+
+statement error axqArithmetic integer division by zero
+SELECT a FROM t ORDER BY a / b
+
+statement error axqArithmetic integer division by zero
+SELECT a FROM t WHERE a = 1 / 0
+
+statement ok
+DELETE FROM t
+
+statement error axqArithmetic integer division by zero
+SELECT a FROM t WHERE a = 1 / 0
+
+statement error axqArithmetic integer division by zero
+SELECT 1 / 0 FROM t
+
+query
+SELECT a / 0 FROM t
+----
+
+statement error axqArithmetic integer division by zero
+UPDATE t SET a = 1 / 0
+
+statement error axqArithmetic integer remainder by zero
+DELETE FROM t WHERE a = 1 % 0
+
+statement error axqArithmetic integer division by zero
+INSERT INTO t VALUES (1, 1), (1 / 0, 1)
+
+query
+SELECT a FROM t
+----
+
+statement ok
+INSERT INTO t VALUES (5, 0)
+
+statement error axqArithmetic integer division by zero
+UPDATE t SET a = a / b
+
+query
+SELECT a, b FROM t
+----
+5,0
+
+query
+SELECT a FROM t WHERE 0 AND a / b = 1
+----
+
+query
+SELECT a FROM t WHERE 1 / 0 = 1 AND 0
+----
+
+statement error axqArithmetic integer division by zero
+SELECT a FROM t WHERE 1 / 0 = 1 AND a = 99

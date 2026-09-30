@@ -1,0 +1,32 @@
+migration: ok 3
+SELECT id, name FROM users: 2 rows [id,name]
+  1,'ada'
+  2,'bea'
+fails at the third: axqConstraint: the UNIQUE index users_name already holds that value in users while axqExecBatch
+SELECT id, name FROM users: 2 rows [id,name]
+  1,'ada'
+  2,'bea'
+extra is gone: axqSchema: no such table: extra while axqExec
+a syntax error runs nothing: axqSyntax: line 1, column 42: expected a statement, found "SELEC" while axqExecBatch
+SELECT id, name FROM users: 2 rows [id,name]
+  1,'ada'
+  2,'bea'
+transaction control: axqMisuse: a batch runs in one transaction and can't hold BEGIN, COMMIT or ROLLBACK while axqExecBatch
+empty: ok 0
+with a select: ok 1
+begin: ok 0
+insert before: ok 1
+batch inside, fails: axqConstraint: the UNIQUE index users_name already holds that value in users while axqExecBatch
+true
+SELECT id, name FROM users: 4 rows [id,name]
+  1,'ada'
+  2,'bea'
+  3,'fay'
+  4,'gil'
+batch inside, succeeds: ok 2
+rollback: ok 0
+SELECT id, name FROM users: 3 rows [id,name]
+  1,'ada'
+  2,'bea'
+  3,'fay'
+close: ok 0

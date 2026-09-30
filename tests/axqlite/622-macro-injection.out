@@ -1,0 +1,45 @@
+create: ok 0
+seed: ok 2
+INSERT INTO users (name) VALUES (?)
+insert: ok 1
+INSERT INTO users (name) VALUES (?)
+insert: ok 1
+INSERT INTO users (name) VALUES (?)
+insert: ok 1
+INSERT INTO users (name) VALUES (?)
+insert: ok 1
+INSERT INTO users (name) VALUES (?)
+insert: ok 1
+INSERT INTO users (name) VALUES (?)
+insert: ok 1
+SELECT id FROM users WHERE name = ?
+find: 1 rows [id]
+  3
+SELECT id FROM users WHERE name = ?
+find: 1 rows [id]
+  4
+SELECT id FROM users WHERE name = ?
+find: 1 rows [id]
+  5
+SELECT id FROM users WHERE name = ?
+find: 1 rows [id]
+  6
+SELECT id FROM users WHERE name = ?
+find: 1 rows [id]
+  7
+SELECT id FROM users WHERE name = ?
+find: 1 rows [id]
+  8
+a quote-trick: 0 rows [id]
+DELETE FROM users WHERE name = ?
+delete nothing: ok 0
+SELECT id, name FROM users ORDER BY id: 8 rows [id,name]
+  1,'alice'
+  2,'bob'
+  3,'x''); DROP TABLE users; --'
+  4,''' OR 1=1 --'
+  5,'" OR ""="'
+  6,'?'
+  7,':name'
+  8,'NULL'
+close: ok 0

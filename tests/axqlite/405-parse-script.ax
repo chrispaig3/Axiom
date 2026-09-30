@@ -1,0 +1,42 @@
+; A script: statements separated by `;`, empty ones skipped.
+(import IO)
+(import Err)
+(import Vec)
+(import Axqlite.AxqlAst)
+(import Axqlite.AxqlParse)
+(import AxqlPrint)
+
+(:: show (-> String Int))
+;@axiom:effect(io)
+(fn (show text)
+  (match (axqlParseScript text)
+    ((Ok ps)
+      {
+        (let ((n (vecLen ps)))
+          (println "{n} statements"))
+        (for p in ps
+          (let (
+            (tree (axqlPrintStmt p.stmt))
+            (t p.text)
+          )
+            (println "  {tree} text=[{t}]")))
+        0
+      }
+    )
+    ((Err e) (println (strConcat "error: " (errMessage e))))))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (show "")
+    (show ";;;")
+    (show "SELECT 1")
+    (show "SELECT 1;")
+    (show "CREATE TABLE t (a INTEGER);\nINSERT INTO t VALUES (1);\n\n-- done\nSELECT a FROM t;")
+    (show "SELECT ?; SELECT :a; SELECT ?2")
+    (show "SELECT 1; SELEC 2")
+    (show "SELECT 1 SELECT 2")
+    (show "SELECT 'a;b'; SELECT \";\" FROM t")
+    0
+  })

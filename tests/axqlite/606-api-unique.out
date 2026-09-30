@@ -1,0 +1,61 @@
+create: ok 0
+index: ok 0
+seed: ok 3
+SELECT id, email, n FROM u ORDER BY id: 3 rows [id,email,n]
+  1,'a@x',1
+  2,'b@x',2
+  3,'c@x',3
+SELECT id FROM u WHERE email >= 'a' ORDER BY email: 3 rows [id]
+  1
+  2
+  3
+insert, third row clashes: axqConstraint: the UNIQUE index ue already holds that value in u while axqExec
+SELECT id, email, n FROM u ORDER BY id: 3 rows [id,email,n]
+  1,'a@x',1
+  2,'b@x',2
+  3,'c@x',3
+SELECT id FROM u WHERE email >= 'a' ORDER BY email: 3 rows [id]
+  1
+  2
+  3
+update, second row clashes: axqConstraint: the UNIQUE index ue already holds that value in u while axqExec
+SELECT id, email, n FROM u ORDER BY id: 3 rows [id,email,n]
+  1,'a@x',1
+  2,'b@x',2
+  3,'c@x',3
+SELECT id FROM u WHERE email >= 'a' ORDER BY email: 3 rows [id]
+  1
+  2
+  3
+begin: ok 0
+insert in a transaction: ok 1
+insert clashing: axqConstraint: the UNIQUE index ue already holds that value in u while axqExec
+update clashing: axqConstraint: the UNIQUE index ue already holds that value in u while axqExec
+commit: ok 0
+SELECT id, email, n FROM u ORDER BY id: 4 rows [id,email,n]
+  1,'a@x',1
+  2,'b@x',2
+  3,'c@x',3
+  7,'f@x',7
+SELECT id FROM u WHERE email >= 'a' ORDER BY email: 4 rows [id]
+  1
+  2
+  3
+  7
+prepared clash: axqConstraint: the UNIQUE index ue already holds that value in u while axqRun
+prepared ok: ok 1
+8
+finalize: ok 0
+SELECT id, email, n FROM u ORDER BY id: 5 rows [id,email,n]
+  1,'a@x',1
+  2,'b@x',2
+  3,'c@x',3
+  7,'f@x',7
+  8,'h@x',0
+SELECT id FROM u WHERE email >= 'a' ORDER BY email: 5 rows [id]
+  1
+  2
+  3
+  7
+  8
+close: ok 0

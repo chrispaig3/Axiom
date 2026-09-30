@@ -1,0 +1,113 @@
+; StoreModel - what a tree should hold: a map from byte-string keys to
+; values, kept as two vectors sorted by key. The B-tree tests replay
+; every operation on one of these and compare.
+(import Str)
+(import Vec)
+(import Err)
+
+(pub struct Model
+  (keys : (Vec String))
+  (vals : (Vec String)))
+
+(pub :: modelNew Model)
+(pub fn (modelNew)
+  (Model vecNew vecNew))
+
+(pub :: modelLen (-> Model Int))
+(pub fn (modelLen m)
+  (vecLen m.keys))
+
+; Twice the position of the first key >= `k`, plus one when it is `k`.
+(pub :: modelFind (-> Model String Int))
+(pub fn (modelFind m k)
+  (let (
+    (mut lo 0)
+    (mut hi (vecLen m.keys))
+  )
+    {
+      (while (< lo hi)
+        (let ((mid (/ (+ lo hi) 2)))
+          (if (< (strCmp (vecGet m.keys mid) k) 0)
+            {
+              (set lo (+ mid 1))
+              0
+            }
+            {
+              (set hi mid)
+              0
+            })))
+      (+
+        (* 2 lo)
+        (if (&& (< lo (vecLen m.keys)) (strEq (vecGet m.keys lo) k))
+          1
+          0))
+    }))
+
+(:: insertAtS (-> (Vec String) Int String Int))
+(fn (insertAtS v i x)
+  {
+    (vecPush v x)
+    (let ((mut k (- (vecLen v) 1)))
+      (while (> k i)
+        {
+          (vecSet v k (vecGet v (- k 1)))
+          (set k (- k 1))
+        }))
+    (vecSet v i x)
+    0
+  })
+
+(:: removeAtS (-> (Vec String) Int Int))
+(fn (removeAtS v i)
+  {
+    (for k i (- (vecLen v) 1)
+      (vecSet v k (vecGet v (+ k 1))))
+    (vecPop v)
+    0
+  })
+
+; Store `v` under `k`; true when `k` is new.
+(pub :: modelPut (-> Model String String Bool))
+(pub fn (modelPut m k v)
+  (let ((f (modelFind m k)))
+    (if (== (% f 2) 1)
+      {
+        (vecSet m.vals (/ f 2) v)
+        false
+      }
+      {
+        (insertAtS m.keys (/ f 2) k)
+        (insertAtS m.vals (/ f 2) v)
+        true
+      })))
+
+; Delete `k`; true when it was there.
+(pub :: modelDelete (-> Model String Bool))
+(pub fn (modelDelete m k)
+  (let ((f (modelFind m k)))
+    (if (== (% f 2) 1)
+      {
+        (removeAtS m.keys (/ f 2))
+        (removeAtS m.vals (/ f 2))
+        true
+      }
+      false)))
+
+(pub :: modelGet (-> Model String (Option String)))
+(pub fn (modelGet m k)
+  (let ((f (modelFind m k)))
+    (if (== (% f 2) 1)
+      (Some (vecGet m.vals (/ f 2)))
+      None)))
+
+(pub :: modelCopy (-> Model Model))
+(pub fn (modelCopy m)
+  (let ((c modelNew))
+    {
+      (for i 0 (vecLen m.keys)
+        {
+          (vecPush c.keys (vecGet m.keys i))
+          (vecPush c.vals (vecGet m.vals i))
+        })
+      c
+    }))

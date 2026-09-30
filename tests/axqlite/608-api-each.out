@@ -1,0 +1,32 @@
+create: ok 0
+seed: ok 5
+all: ok 5
+seen 5 rows summing to 150
+stop after two: ok 2
+callback fails: axqConstraint: the callback refused a row while callback
+  inner: 1 rows [v]
+  40
+  inner: 1 rows [v]
+  50
+nested read: ok 2
+write inside: axqMisuse: a query is still running on this connection; outside a transaction, writes wait for it while axqExec
+BEGIN inside: axqMisuse: a query is still running on this connection while axqExec
+close inside: axqMisuse: a query is still running on this connection while axqClose
+begin: ok 0
+write inside a transaction: ok 3
+DDL inside a transaction: axqMisuse: a query is still running on this connection, and DDL waits for it while axqExec
+commit: ok 0
+after the commit: ok 5
+finalize: ok 0
+each over an insert: axqMisuse: the statement returns no rows: use axqRun while axqQueryEach
+finalize: ok 0
+500
+400
+each on a query value: ok 2
+SELECT id, v FROM t: 5 rows [id,v]
+  1,10
+  2,20
+  3,300
+  4,400
+  5,500
+close: ok 0

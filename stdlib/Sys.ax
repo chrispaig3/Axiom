@@ -3831,3 +3831,159 @@
             (Ok (> r 0))
             (Ok (!= (& (memGetWord buf 0) 4294967295) 0)))))
     }))
+
+; ------------------------------------------------------------------
+; Files a database keeps open.
+;
+; `stdlib/Axqlite/Pager.ax` reads and writes its file a page at a time
+; at known offsets, syncs it at the points its commit protocol names,
+; truncates it when a transaction shrinks it, and coordinates with
+; other connections through a whole-file lock. These are those calls,
+; each answering `Err` with the errno. A target with no call for one
+; (Windows, bare metal) answers `Err` 78 without making it, as the
+; mapping calls above do.
+;
+; Every descriptor opened here closes on exec, so a child the program
+; spawns never inherits it, or the lock held on it.
+; ------------------------------------------------------------------
+; The `flock` operations. The same four values on every target that
+; has the call.
+(pub :: sysLockShared Int)
+(pub fn (sysLockShared)
+  1)
+
+(pub :: sysLockExclusive Int)
+(pub fn (sysLockExclusive)
+  2)
+
+; Or'd into `sysLockShared` or `sysLockExclusive`: answer EWOULDBLOCK
+; at once instead of waiting for the lock.
+(pub :: sysLockNonBlocking Int)
+(pub fn (sysLockNonBlocking)
+  4)
+
+(pub :: sysLockRelease Int)
+(pub fn (sysLockRelease)
+  8)
+
+; Open `path` for reading and writing, creating it with mode 0644 when
+; `create` is true and it isn't there. Answers the descriptor.
+(pub :: sysOpenRw (-> Int Bool (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`path` names live NUL-terminated bytes)
+(pub fn (sysOpenRw path create)
+  (sysResult
+    "sysOpenRw"
+    (if (== sysPreadNum 0)
+      sysNoCall
+      (sysOpenPathMode
+        path
+        (| (| oRdwr oCloexec)
+          (if create
+            oCreat
+            0))
+        420))))
+
+; Open `path` for reading only. Answers the descriptor.
+(pub :: sysOpenRo (-> Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`path` names live NUL-terminated bytes)
+(pub fn (sysOpenRo path)
+  (sysResult
+    "sysOpenRo"
+    (if (== sysPreadNum 0)
+      sysNoCall
+      (sysOpenPathMode path (| oRdonly oCloexec) 0))))
+
+; Read up to `count` bytes at byte `offset` of `fd` into `buf`, without
+; moving the descriptor's position. Answers how many arrived: fewer
+; than asked at the end of the file, and 0 past it.
+(pub :: sysPread (-> Int Int Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`buf` names `count` live writable bytes)
+(pub fn (sysPread fd buf count offset)
+  (sysResult
+    "sysPread"
+    (if (== sysPreadNum 0)
+      sysNoCall
+      (__syscall4 sysPreadNum fd buf count offset))))
+
+; Write `count` bytes from `buf` at byte `offset` of `fd`, without
+; moving the descriptor's position. Answers how many were written,
+; which may be fewer than asked: the caller writes the rest.
+(pub :: sysPwrite (-> Int Int Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`buf` names `count` live bytes)
+(pub fn (sysPwrite fd buf count offset)
+  (sysResult
+    "sysPwrite"
+    (if (== sysPwriteNum 0)
+      sysNoCall
+      (__syscall4 sysPwriteNum fd buf count offset))))
+
+; Make everything written to `fd` durable before answering. On Darwin
+; that is `fcntl(F_FULLFSYNC)`, because a plain `fsync` there stops at
+; the drive's own cache; a file system that refuses F_FULLFSYNC gets
+; the plain `fsync`. Elsewhere it is `fsync`.
+(pub :: sysFsync (-> Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (sysFsync fd)
+  (sysResult
+    "sysFsync"
+    (if (== sysFsyncNum 0)
+      sysNoCall
+      (if (== fsyncUsesFullFsync 1)
+        (let ((r (__syscall3 sysFcntlNum fd fFullFsync 0)))
+          (if (< r 0)
+            (__syscall1 sysFsyncNum fd)
+            r))
+        (__syscall1 sysFsyncNum fd)))))
+
+; Set the length of `fd`'s file to `len` bytes, dropping what lies
+; beyond or adding zeros.
+(pub :: sysFtruncate (-> Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (sysFtruncate fd len)
+  (sysResult
+    "sysFtruncate"
+    (if (== sysFtruncateNum 0)
+      sysNoCall
+      (__syscall2 sysFtruncateNum fd len))))
+
+; The size of `fd`'s file in bytes. It moves the descriptor's position
+; to the end, which `sysPread` and `sysPwrite` never read.
+(pub :: sysFdSize (-> Int (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (sysFdSize fd)
+  (sysResult
+    "sysFdSize"
+    (if (== sysPreadNum 0)
+      sysNoCall
+      (sysSeek fd 0 seekEnd))))
+
+; Take, change or release the advisory lock on `fd`'s whole file:
+; `op` is `sysLockShared` or `sysLockExclusive`, either or'd with
+; `sysLockNonBlocking`, or `sysLockRelease`. The lock belongs to the
+; open file, not the process, so two descriptors opened separately in
+; one process conflict with each other as two processes would. Closing
+; the descriptor releases it. With `sysLockNonBlocking`, a lock another
+; holder keeps answers `Err` EWOULDBLOCK (`eAgain`) at once.
+;
+; Changing a held lock from shared to exclusive, or back, isn't atomic:
+; the kernel may drop the old lock before it grants the new one, and
+; when a non-blocking change is refused the old lock may be gone.
+(pub :: sysFlock (-> Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (sysFlock fd op)
+  (sysResult
+    "sysFlock"
+    (if (== sysFlockNum 0)
+      sysNoCall
+      (__syscall2 sysFlockNum fd op))))

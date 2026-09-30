@@ -1,0 +1,132 @@
+; StoreValues - the edge values the record and key tests are built on:
+; integers at every width boundary, REALs at the edges of binary64
+; (signed zeros, subnormals, the largest finite value, the
+; infinities), and strings with NUL and FF bytes in them.
+(import Str)
+(import Vec)
+(import Err)
+(import Float)
+(import Axqlite.Value)
+
+; A string holding exactly `bytes`.
+(pub :: bytesStr (-> (Vec Int) String))
+;@axiom:effect(unsafe)
+(pub fn (bytesStr bytes)
+  (let ((s (strAlloc (vecLen bytes))))
+    {
+      (for i 0 (vecLen bytes)
+        (__store8 (strData s) i (vecGet bytes i)))
+      s
+    }))
+
+(:: b1 (-> Int String))
+(fn (b1 a)
+  (bytesStr (vecPush vecNew a)))
+
+(:: b2 (-> Int Int String))
+(fn (b2 a b)
+  (bytesStr (vecPush (vecPush vecNew a) b)))
+
+(:: b3 (-> Int Int Int String))
+(fn (b3 a b c)
+  (bytesStr (vecPush (vecPush (vecPush vecNew a) b) c)))
+
+(pub :: edgeInts (Vec Int))
+(pub fn (edgeInts)
+  (let ((v vecNew))
+    {
+      (for n in (vecPush (vecPush (vecPush (vecPush (vecPush (vecPush vecNew 0) 1) 2) 3) 127) 128)
+        {
+          (vecPush v n)
+          (vecPush v (- 0 n))
+        })
+      (for p in (vecPush (vecPush (vecPush (vecPush (vecPush (vecPush vecNew 8) 16) 31) 32) 52) 53)
+        {
+          (vecPush v (<< 1 p))
+          (vecPush v (+ (<< 1 p) 1))
+          (vecPush v (- (<< 1 p) 1))
+          (vecPush v (- 0 (<< 1 p)))
+          (vecPush v (- 0 (+ (<< 1 p) 1)))
+        })
+      (vecPush v (<< 1 62))
+      (vecPush v 9223372036854775807)
+      (vecPush v 9223372036854775806)
+      (vecPush v intMin)
+      (vecPush v (+ intMin 1))
+      v
+    }))
+
+; Binary64 bit patterns: zeros, subnormals, normals, the largest
+; finite value and the infinities, each with both signs.
+(pub :: edgeRealBits (Vec Int))
+(pub fn (edgeRealBits)
+  (let (
+    (pos (vecPush (vecPush (vecPush (vecPush (vecPush (vecPush (vecPush (vecPush vecNew 0) 1) 4503599627370495) 4503599627370496) 4607182418800017408) 4611686018427387904) 9218868437227405311) 9218868437227405312))
+    (v vecNew)
+  )
+    {
+      (for b in pos
+        {
+          (vecPush v b)
+          (vecPush v (| b intMin))
+        })
+      (for x in (vecPush (vecPush (vecPush (vecPush vecNew 0.5) 0.1) 1.5) 3.0)
+        {
+          (vecPush v (floatToBits x))
+          (vecPush v (| (floatToBits x) intMin))
+        })
+      ; 1e300 and 1e-300
+      (for b in (vecPush (vecPush vecNew 9094988921128908188) 118622047889322841)
+        {
+          (vecPush v b)
+          (vecPush v (| b intMin))
+        })
+      ; 2^53, 2^53 + 2, 2^62, 2^63, 2^64 as REALs: next to the integers above
+      (for p in (vecPush (vecPush (vecPush (vecPush vecNew 53) 62) 63) 64)
+        {
+          (vecPush v (<< (+ 1023 p) 52))
+          (vecPush v (| (<< (+ 1023 p) 52) intMin))
+        })
+      (vecPush v (+ (<< (+ 1023 53) 52) 1))
+      v
+    }))
+
+(pub :: edgeStrings (Vec String))
+(pub fn (edgeStrings)
+  (let ((v vecNew))
+    {
+      (vecPush v "")
+      (vecPush v "a")
+      (vecPush v (b2 97 0))
+      (vecPush v (b3 97 0 98))
+      (vecPush v (b3 97 0 0))
+      (vecPush v "ab")
+      (vecPush v "b")
+      (vecPush v (b1 0))
+      (vecPush v (b2 0 0))
+      (vecPush v (b1 1))
+      (vecPush v (b1 255))
+      (vecPush v (b2 255 255))
+      (vecPush v (b2 97 255))
+      (vecPush v (b2 97 1))
+      (vecPush v "Ada Lovelace")
+      v
+    }))
+
+; Every edge value: NULL, the integers, the REALs, and each string as
+; TEXT and as BLOB.
+(pub :: edgeValues (Vec Value))
+(pub fn (edgeValues)
+  (let ((v vecNew))
+    {
+      (vecPush v VNull)
+      (for n in edgeInts
+        (vecPush v (VInt n)))
+      (for b in edgeRealBits
+        (vecPush v (VReal (floatFromBits b))))
+      (for s in edgeStrings
+        (vecPush v (VText s)))
+      (for s in edgeStrings
+        (vecPush v (VBlob s)))
+      v
+    }))

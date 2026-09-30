@@ -1,0 +1,2575 @@
+; Axqlite.AxqlExec - planning and running one AXQL statement.
+;
+;     (axqlPlanSelect ex sel)            ; (Ok <SelectPlan>): bound, typed, planned
+;     (axqlRunSelect ex plan onRow)      ; calls onRow with each result row
+;     (axqlRunWrite ex parsed)           ; INSERT, UPDATE, DELETE or DDL
+;
+; The caller holds the lock a statement needs: a shared lock to read,
+; the write transaction to write. This module never takes, commits or
+; releases one.
+;
+; A statement is bound first: every column name becomes a column
+; number, and a name the table doesn't have is `axqSchema`. Then its
+; types are checked, with the parameters' values known, so a type
+; mismatch is `axqType` before any row is read. Then every
+; subexpression that names no column is folded to its value.
+;
+; Planning: the WHERE clause is split into its AND terms. A term
+; `rowid = v` (or its INTEGER PRIMARY KEY column) reads one row. An
+; equality on an index's leading column reads that index's range,
+; UNIQUE indices first. Then ranges on the rowid, then ranges on an
+; index's leading column. Anything else scans the table in rowid order.
+; Whatever the plan, every term is checked on every row it reads, so
+; the plan changes the cost and never the answer.
+;
+; Order: rows equal on every ORDER BY term come in rowid order. When
+; the plan already reads rows in the order ORDER BY asks for, they
+; stream; otherwise they are collected and sorted with a stable merge
+; sort. The select list is evaluated only for the rows returned.
+;
+; Writes: UPDATE and DELETE collect the rowids they match before they
+; change anything. Every row is checked (types, NOT NULL, the rowid, and
+; each UNIQUE index) before it is written. When `ex.logging` is true,
+; each change is recorded so a failed statement can be undone inside an
+; explicit transaction.
+(import Str)
+(import Vec)
+(import Err)
+(import Fmt)
+(import Axqlite.Value)
+(import Axqlite.Pager)
+(import Axqlite.Btree)
+(import Axqlite.Record)
+(import Axqlite.AxqlAst)
+(import Axqlite.AxqlParse)
+(import Axqlite.AxqlEval)
+(import Axqlite.AxqlSchema)
+
+; ------------------------------------------------------------------
+; The execution context.
+; ------------------------------------------------------------------
+; A change to reverse when a statement fails: put back an old value,
+; delete a key the statement added, drop a tree it created, or give up
+; (a dropped tree can't come back).
+(pub data Undo
+  (UPut Int String String)
+  (UDel Int String)
+  (UDrop Int)
+  (UFatal))
+
+; One statement's context: the pager, the statement's text (for
+; messages), its parameters, the undo log, and what it did.
+(pub struct Exec
+  (pager : Pager)
+  (src : String)
+  (params : (Vec Value))
+  (logging : Bool)
+  (undo : (Vec Undo))
+  (mut changes : Int)
+  (mut lastRowid : Int)
+  (mut inserted : Bool))
+
+; A context for running the statement `src` with `params`.
+(pub :: axqlExec (-> Pager String (Vec Value) Bool Exec))
+(pub fn (axqlExec pager src params logging)
+  (Exec
+    pager
+    src
+    params
+    logging
+    vecNewRef
+    0
+    0
+    false))
+
+; Reverse every change `undo` records, newest first. `Err` when one of
+; them can't be reversed; the caller then rolls back the transaction.
+(pub :: axqlUndo (-> Pager (Vec Undo) (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (axqlUndo pager undo)
+  (let (
+    (mut i (- (vecLen undo) 1))
+    (mut failure None)
+  )
+    {
+      (while (&& (isNone failure) (>= i 0))
+        {
+          (match (undoOne pager (vecGet undo i))
+            ((Ok _) 0)
+            ((Err e)
+              {
+                (set failure (Some e))
+                0
+              }
+            ))
+          (set i (- i 1))
+        })
+      (match failure
+        ((Some e) (Err e))
+        ((None) (Ok 0)))
+    }))
+
+(:: undoOne (-> Pager Undo (Result Int Error)))
+;@axiom:effect(io)
+(fn (undoOne pager u)
+  (match u
+    ((UPut root key old) (try _ (btreePut pager root key old) (Ok 0)))
+    ((UDel root key) (try _ (btreeDelete pager root key) (Ok 0)))
+    ((UDrop root) (try _ (btreeDrop pager root) (Ok 0)))
+    ((UFatal) (axqErr axqMisuse "a dropped table or index can't be restored" "axqlUndo"))))
+
+(:: logUndo (-> Exec Undo Int))
+(fn (logUndo ex u)
+  (if ex.logging
+    {
+      (vecPush ex.undo u)
+      0
+    }
+    0))
+
+; Put `key` -> `value` into a tree where the key must be new. `Ok false`
+; when it was already there, and then nothing changed.
+(:: putNew (-> Exec Int String String (Result Bool Error)))
+;@axiom:effect(io)
+(fn (putNew ex root key value)
+  (try
+    fresh
+    (btreeInsertNew ex.pager root key value)
+    {
+      (if fresh
+        (logUndo ex (UDel root key))
+        0)
+      (Ok fresh)
+    }))
+
+; Replace the value under an existing key, whose old value is `old`.
+(:: putOver (-> Exec Int String String String (Result Int Error)))
+;@axiom:effect(io)
+(fn (putOver ex root key value old)
+  (try
+    _
+    (btreePut ex.pager root key value)
+    {
+      (logUndo ex (UPut root key old))
+      (Ok 0)
+    }))
+
+; Delete an existing key whose value is `old`.
+(:: deleteKey (-> Exec Int String String (Result Int Error)))
+;@axiom:effect(io)
+(fn (deleteKey ex root key old)
+  (try
+    _
+    (btreeDelete ex.pager root key)
+    {
+      (logUndo ex (UPut root key old))
+      (Ok 0)
+    }))
+
+(:: createTree (-> Exec Int (Result Int Error)))
+;@axiom:effect(io)
+(fn (createTree ex kind)
+  (try
+    root
+    (btreeCreate ex.pager kind)
+    {
+      (logUndo ex (UDrop root))
+      (Ok root)
+    }))
+
+(:: dropTree (-> Exec Int (Result Int Error)))
+;@axiom:effect(io)
+(fn (dropTree ex root)
+  {
+    (logUndo ex UFatal)
+    (btreeDrop ex.pager root)
+  })
+
+; A message with the statement position in front, when there is one.
+(:: atPos (-> Exec Int String String))
+(fn (atPos ex at msg)
+  (if (< at 0)
+    msg
+    (strConcat (strConcat (axqlPosText ex.src at) ": ") msg)))
+
+; ------------------------------------------------------------------
+; Binding.
+; ------------------------------------------------------------------
+; `e` with every name replaced by its column: a column of `t`, or -1 for
+; `rowid` when no column has that name. `t` is `None` for a statement
+; with no table, where every name is unknown.
+(:: bind (-> Exec (Option TableDef) Expr (Result Expr Error)))
+(fn (bind ex t e)
+  (match e
+    ((EName n at) (bindName ex t n at))
+    ((ENeg x at)
+      (let ((rx (bind ex t x)))
+        (try bx rx (Ok (ENeg bx at))))
+    )
+    ((ENot x)
+      (let ((rx (bind ex t x)))
+        (try bx rx (Ok (ENot bx))))
+    )
+    ((EIsNull x neg)
+      (let ((rx (bind ex t x)))
+        (try bx rx (Ok (EIsNull bx neg))))
+    )
+    ((EBin op l r at)
+      (let (
+        (rl (bind ex t l))
+        (rr (bind ex t r))
+      )
+        (try bl rl (try br rr (Ok (EBin op bl br at)))))
+    )
+    (_ (Ok e))))
+
+(:: bindName (-> Exec (Option TableDef) String Int (Result Expr Error)))
+(fn (bindName ex t n at)
+  (match t
+    ((None) (axqErr axqSchema (atPos ex at (strConcat "no such column: " n)) "axqlBind"))
+    ((Some td)
+      (let ((ci (axqlColumnIndex td.cols n)))
+        (if (>= ci 0)
+          (Ok (ECol ci))
+          (if (axqlNameEq n "rowid")
+            (Ok (ECol -1))
+            (axqErr axqSchema (atPos ex at (strConcat "no such column: " n)) "axqlBind"))))
+    )))
+
+; Bind, type-check and fold one expression. Answers the folded
+; expression; its static type is checked against nothing here.
+(:: prepareExpr (-> Exec (Option TableDef) Expr (Result Expr Error)))
+(fn (prepareExpr ex t e)
+  (try b (bind ex t e) (try _ (axqlTypeOf ex.src b (colTypesOf t) ex.params) (axqlFold b ex.params))))
+
+(:: colTypesOf (-> (Option TableDef) (Vec Int)))
+(fn (colTypesOf t)
+  (match t
+    ((None) vecNew)
+    ((Some td) (axqlColumnTypes td))))
+
+; A WHERE clause bound, checked and folded, as its AND terms. It must
+; be a number or NULL: the truth values.
+(:: prepareWhere (-> Exec (Option TableDef) (Option Expr) (Result (Vec Expr) Error)))
+(fn (prepareWhere ex t w)
+  (match w
+    ((None) (Ok vecNewRef))
+    ((Some e)
+      (try
+        b
+        (bind ex t e)
+        (try
+          ty
+          (typeOfBound ex t b)
+          (if (|| (== ty typeText) (== ty typeBlob))
+            (axqErr axqType (strConcat "WHERE needs a number, not " (typeName ty)) "axqlPlan")
+            (try f (axqlFold b ex.params) (Ok (axqlConjuncts f))))))
+    )))
+
+; The static type of a bound expression.
+(:: typeOfBound (-> Exec (Option TableDef) Expr (Result Int Error)))
+(fn (typeOfBound ex t e)
+  (axqlTypeOf ex.src e (colTypesOf t) ex.params))
+
+; Whether a value of static type `vt` may go into a column of type `ct`.
+(:: typeFits (-> Int Int Bool))
+(fn (typeFits ct vt)
+  (|| (== vt typeNull) (|| (== vt ct) (&& (== ct typeReal) (== vt typeInteger)))))
+
+; `v` as a column of type `ct` stores it: an INTEGER in a REAL column
+; becomes the nearest REAL.
+(:: coerce (-> Int Value Value))
+(fn (coerce ct v)
+  (if (== ct typeReal)
+    (match v
+      ((VInt n) (VReal (__intToFloat n)))
+      (_ v))
+    v))
+
+; ------------------------------------------------------------------
+; Access paths.
+; ------------------------------------------------------------------
+; How a statement finds its rows.
+(pub data Access
+  (AFull Bool)
+  (ARowid Int)
+  (ARowidRange (Option Int) (Option Int) Bool)
+  (AIndex IndexDef (Option String) (Option String))
+  (ANone))
+
+; Every row, in rowid order (forward) or its reverse.
+; The one row with this rowid.
+; Rows whose rowid is in [lo, hi], either bound absent, forward or not.
+; The keys of an index from `lo` (inclusive) to `hi` (exclusive).
+; No row can match.
+; A comparison term `column op value` in either spelling, normalised so
+; the column is on the left: its column (-1 for the rowid), the
+; operator, and the constant.
+(struct ColTerm
+  (col : Int)
+  (op : Int)
+  (value : Value))
+
+; The operator that means the same with its operands swapped.
+(:: flipOp (-> Int Int))
+(fn (flipOp op)
+  (if (== op opLt)
+    opGt
+    (== op opLe)
+    opGe
+    (== op opGt)
+    opLt
+    (== op opGe)
+    opLe
+    op))
+
+; `term` as a ColTerm, if it compares a column with a constant.
+(:: colTerm (-> Expr (Option ColTerm)))
+(fn (colTerm term)
+  (match term
+    ((EBin op l r _)
+      (if (&& (opIsComparison op) (!= op opNe))
+        (match l
+          ((ECol c)
+            (match r
+              ((ELit v) (Some (ColTerm c op v)))
+              (_ None))
+          )
+          ((ELit v)
+            (match r
+              ((ECol c) (Some (ColTerm c (flipOp op) v)))
+              (_ None))
+          )
+          (_ None))
+        None)
+    )
+    (_ None)))
+
+; Whether column `c` of `t` is the rowid: -1, or the primary key.
+(:: isRowidCol (-> TableDef Int Bool))
+(fn (isRowidCol t c)
+  (|| (< c 0) (== c t.pk)))
+
+(:: isNullValue (-> Value Bool))
+(fn (isNullValue v)
+  (match v
+    ((VNull) true)
+    (_ false)))
+
+(:: intMax Int)
+(fn (intMax)
+  9223372036854775807)
+
+; The smallest INTEGER n with n > v (strict) or n >= v, or None when no
+; INTEGER is that large.
+(:: lowBound (-> Value Bool (Option Int)))
+(fn (lowBound v strict)
+  (match v
+    ((VInt x)
+      (if strict
+        (if (== x intMax)
+          None
+          (Some (+ x 1)))
+        (Some x))
+    )
+    ((VReal r)
+      (if (>= (axqlCompareIntReal intMax r) 0)
+        (if (<= (axqlCompareIntReal intMin r) 0)
+          (Some intMin)
+          (let ((t (__floatToInt r)))
+            (firstFrom (- t 1) r strict 3)))
+        None)
+    )
+    (_ None)))
+
+; The first of n, n+1, n+2 ... (up to `tries`) above (strict) or at `r`.
+(:: firstFrom (-> Int Float Bool Int (Option Int)))
+(fn (firstFrom n r strict tries)
+  (if (== tries 0)
+    None
+    (let ((c (axqlCompareIntReal n r)))
+      (if (|| (> c 0) (&& (! strict) (== c 0)))
+        (Some n)
+        (firstFrom (+ n 1) r strict (- tries 1))))))
+
+; The largest INTEGER n with n < v (strict) or n <= v, or None.
+(:: highBound (-> Value Bool (Option Int)))
+(fn (highBound v strict)
+  (match v
+    ((VInt x)
+      (if strict
+        (if (== x intMin)
+          None
+          (Some (- x 1)))
+        (Some x))
+    )
+    ((VReal r)
+      (if (<= (axqlCompareIntReal intMin r) 0)
+        (if (>= (axqlCompareIntReal intMax r) 0)
+          (Some intMax)
+          (let ((t (__floatToInt r)))
+            (lastFrom (+ t 1) r strict 3)))
+        None)
+    )
+    (_ None)))
+
+(:: lastFrom (-> Int Float Bool Int (Option Int)))
+(fn (lastFrom n r strict tries)
+  (if (== tries 0)
+    None
+    (let ((c (axqlCompareIntReal n r)))
+      (if (|| (< c 0) (&& (! strict) (== c 0)))
+        (Some n)
+        (lastFrom (- n 1) r strict (- tries 1))))))
+
+; The rowid `rowid = v` names, or None when no INTEGER equals v.
+(:: exactRowid (-> Value (Option Int)))
+(fn (exactRowid v)
+  (match v
+    ((VInt x) (Some x))
+    ((VReal r)
+      (match (lowBound v false)
+        ((Some n)
+          (if (== (axqlCompareIntReal n r) 0)
+            (Some n)
+            None)
+        )
+        ((None) None))
+    )
+    (_ None)))
+
+; The range accumulated over a set of bound terms: lower and upper
+; bounds, and whether some term rules out every row.
+(struct Range
+  (mut lo : (Option Int))
+  (mut hi : (Option Int))
+  (mut empty : Bool))
+
+(:: tightenRange (-> Range ColTerm Int))
+(fn (tightenRange rg ct)
+  (let (
+    (v ct.value)
+    (op ct.op)
+  )
+    (if (isNullValue v)
+      {
+        (set rg.empty true)
+        0
+      }
+      (if (|| (== op opGt) (== op opGe))
+        (match (lowBound v (== op opGt))
+          ((None)
+            {
+              (set rg.empty true)
+              0
+            }
+          )
+          ((Some n)
+            {
+              (set rg.lo (Some
+                (match rg.lo
+                  ((Some m)
+                    (if (> n m)
+                      n
+                      m)
+                  )
+                  ((None) n))))
+              0
+            }
+          ))
+        (match (highBound v (== op opLt))
+          ((None)
+            {
+              (set rg.empty true)
+              0
+            }
+          )
+          ((Some n)
+            {
+              (set rg.hi (Some
+                (match rg.hi
+                  ((Some m)
+                    (if (< n m)
+                      n
+                      m)
+                  )
+                  ((None) n))))
+              0
+            }
+          ))))))
+
+; Key bounds on an index's leading column, accumulated like `Range`.
+(struct KeyRange
+  (mut lo : (Option String))
+  (mut hi : (Option String))
+  (mut empty : Bool))
+
+(:: maxKey (-> (Option String) String (Option String)))
+(fn (maxKey cur k)
+  (match cur
+    ((None) (Some k))
+    ((Some c)
+      (Some
+        (if (> (keyCompare k c) 0)
+          k
+          c))
+    )))
+
+(:: minKey (-> (Option String) (Option String) (Option String)))
+(fn (minKey cur k)
+  (match k
+    ((None) cur)
+    ((Some kk)
+      (match cur
+        ((None) (Some kk))
+        ((Some c)
+          (Some
+            (if (< (keyCompare kk c) 0)
+              kk
+              c))
+        ))
+    )))
+
+(:: tightenKeys (-> KeyRange ColTerm (Result Int Error)))
+(fn (tightenKeys kr ct)
+  (if (isNullValue ct.value)
+    {
+      (set kr.empty true)
+      (Ok 0)
+    }
+    (try
+      p
+      (keyEncodeValue ct.value)
+      (let ((op ct.op))
+        {
+          (if (== op opEq)
+            {
+              (set kr.lo (maxKey kr.lo p))
+              (set kr.hi (minKey kr.hi (keyPrefixEnd p)))
+              0
+            }
+            (== op opGt)
+            (match (keyPrefixEnd p)
+              ((None)
+                {
+                  (set kr.empty true)
+                  0
+                }
+              )
+              ((Some k)
+                {
+                  (set kr.lo (maxKey kr.lo k))
+                  0
+                }
+              ))
+            (== op opGe)
+            {
+              (set kr.lo (maxKey kr.lo p))
+              0
+            }
+            (== op opLt)
+            {
+              (set kr.hi (minKey kr.hi (Some p)))
+              0
+            }
+            {
+              (set kr.hi (minKey kr.hi (keyPrefixEnd p)))
+              0
+            })
+          (Ok 0)
+        }))))
+
+; The first key after every NULL: where a range that excludes NULL
+; starts.
+(:: afterNulls (Result String Error))
+(fn (afterNulls)
+  (try
+    k
+    (keyEncodeValue VNull)
+    (match (keyPrefixEnd k)
+      ((Some e) (Ok e))
+      ((None) (axqErr axqCorrupt "the NULL key has no end" "axqlPlan")))))
+
+; The best index access for the terms on each index's leading column:
+; an equality on a UNIQUE index, then any equality, then any range.
+(:: chooseIndex (-> TableDef (Vec ColTerm) (Result (Option Access) Error)))
+(fn (chooseIndex t cts)
+  (try
+    eqU
+    (indexAccess t cts true true)
+    (match eqU
+      ((Some a) (Ok (Some a)))
+      ((None)
+        (try
+          eqAny
+          (indexAccess t cts true false)
+          (match eqAny
+            ((Some a) (Ok (Some a)))
+            ((None) (indexAccess t cts false false))))
+      ))))
+
+; The access for the first index (UNIQUE only when `uniqueOnly`) whose
+; leading column has an equality term (`wantEq`) or any term.
+(:: indexAccess (-> TableDef (Vec ColTerm) Bool Bool (Result (Option Access) Error)))
+(fn (indexAccess t cts wantEq uniqueOnly)
+  (let (
+    (mut chosen None)
+    (mut failure None)
+  )
+    {
+      (for ix in t.indexes
+        (if (&& (isNone chosen) (isNone failure))
+          (if (|| ix.unique (! uniqueOnly))
+            (let (
+              (lead (vecGet ix.cols 0))
+              (mut hasEq false)
+              (mut hasAny false)
+            )
+              {
+                (for ct in cts
+                  (if (== ct.col lead)
+                    {
+                      (set hasAny true)
+                      (if (== ct.op opEq)
+                        {
+                          (set hasEq true)
+                          0
+                        }
+                        0)
+                    }
+                    0))
+                (if (if wantEq
+                  hasEq
+                  hasAny)
+                  (match (keyAccess ix lead cts)
+                    ((Ok a)
+                      {
+                        (set chosen (Some a))
+                        0
+                      }
+                    )
+                    ((Err e)
+                      {
+                        (set failure (Some e))
+                        0
+                      }
+                    ))
+                  0)
+              })
+            0)
+          0))
+      (match failure
+        ((Some e) (Err e))
+        ((None) (Ok chosen)))
+    }))
+
+; The index range the terms on column `lead` describe.
+(:: keyAccess (-> IndexDef Int (Vec ColTerm) (Result Access Error)))
+(fn (keyAccess ix lead cts)
+  (let ((kr (KeyRange None None false)))
+    (let ((mut failure None))
+      {
+        (for ct in cts
+          (if (&& (== ct.col lead) (isNone failure))
+            (match (tightenKeys kr ct)
+              ((Ok _) 0)
+              ((Err e)
+                {
+                  (set failure (Some e))
+                  0
+                }
+              ))
+            0))
+        (match failure
+          ((Some e) (Err e))
+          ((None)
+            (if kr.empty
+              (Ok ANone)
+              (try
+                lo
+                (match kr.lo
+                  ((Some k) (Ok k))
+                  ((None) (afterNulls)))
+                (Ok (AIndex ix (Some lo) kr.hi))))
+          ))
+      })))
+
+; The access path for `terms` over `t`, given the ORDER BY terms that
+; might pick an index to read in order.
+(:: planAccess (-> TableDef (Vec Expr) (Vec OrderTerm) (Result Access Error)))
+(fn (planAccess t terms order)
+  (let (
+    (cts vecNewRef)
+    (mut noRow false)
+  )
+    {
+      (for term in terms
+        {
+          (match term
+            ((ELit v)
+              (match (axqlTruth v)
+                ((Ok tv)
+                  (if (!= tv tvTrue)
+                    {
+                      (set noRow true)
+                      0
+                    }
+                    0)
+                )
+                ((Err _) 0))
+            )
+            (_ 0))
+          (match (colTerm term)
+            ((Some ct)
+              {
+                (vecPush cts ct)
+                0
+              }
+            )
+            ((None) 0))
+        })
+      (if noRow
+        (Ok ANone)
+        (let ((rowEq (findRowidEq t cts)))
+          (match rowEq
+            ((Some v)
+              (Ok
+                (match (exactRowid v)
+                  ((Some n) (ARowid n))
+                  ((None) ANone)))
+            )
+            ((None)
+              (try
+                ixEq
+                (indexAccess t cts true false)
+                (match ixEq
+                  ((Some a) (Ok (preferUnique t cts a)))
+                  ((None)
+                    (let ((rg (Range None None false)))
+                      {
+                        (for rc in cts
+                          (rangeTerm t rg rc))
+                        (if rg.empty
+                          (Ok ANone)
+                          (if (|| (isSome rg.lo) (isSome rg.hi))
+                            (Ok (ARowidRange rg.lo rg.hi true))
+                            (try
+                              ixRange
+                              (indexAccess t cts false false)
+                              (match ixRange
+                                ((Some a) (Ok a))
+                                ((None) (Ok (orderAccess t order)))))))
+                      })
+                  )))
+            ))))
+    }))
+
+; Tighten `rg` by `c` when `c` is on the rowid.
+(:: rangeTerm (-> TableDef Range ColTerm Int))
+(fn (rangeTerm t rg c)
+  (if (isRowidCol t c.col)
+    (tightenRange rg c)
+    0))
+
+; A UNIQUE index's equality access when one exists, else `a`.
+(:: preferUnique (-> TableDef (Vec ColTerm) Access Access))
+(fn (preferUnique t cts a)
+  (match (indexAccess t cts true true)
+    ((Ok (Some u)) u)
+    (_ a)))
+
+; The value of the first `rowid = v` term.
+(:: findRowidEq (-> TableDef (Vec ColTerm) (Option Value)))
+(fn (findRowidEq t cts)
+  (let ((mut found None))
+    {
+      (for ct in cts
+        (if (&& (isNone found) (&& (isRowidCol t ct.col) (== ct.op opEq)))
+          {
+            (set found (Some ct.value))
+            0
+          }
+          0))
+      found
+    }))
+
+; With nothing in WHERE to use: read in the order ORDER BY asks for
+; when an access path gives it, else scan forward.
+(:: orderAccess (-> TableDef (Vec OrderTerm) Access))
+(fn (orderAccess t order)
+  (if (== (vecLen order) 0)
+    (AFull true)
+    (let ((first (vecGet order 0)))
+      (match first.expr
+        ((ECol c)
+          (if (isRowidCol t c)
+            (AFull (! first.desc))
+            (match (indexInOrder t order)
+              ((Some ix) (AIndex ix None None))
+              ((None) (AFull true))))
+        )
+        (_ (AFull true))))))
+
+; An index whose columns, in order and ascending, are exactly the
+; ORDER BY terms (a trailing `rowid ASC` allowed).
+(:: indexInOrder (-> TableDef (Vec OrderTerm) (Option IndexDef)))
+(fn (indexInOrder t order)
+  (let ((mut found None))
+    {
+      (for ix in t.indexes
+        (if (&& (isNone found) (orderMatchesIndex t ix order))
+          {
+            (set found (Some ix))
+            0
+          }
+          0))
+      found
+    }))
+
+(:: orderMatchesIndex (-> TableDef IndexDef (Vec OrderTerm) Bool))
+(fn (orderMatchesIndex t ix order)
+  (let (
+    (n (vecLen ix.cols))
+    (m (vecLen order))
+  )
+    (if (|| (< m n) (> m (+ n 1)))
+      false
+      (let ((mut ok true))
+        {
+          (for (term i) in order
+            (if (! ok)
+              0
+              (if term.desc
+                {
+                  (set ok false)
+                  0
+                }
+                (match term.expr
+                  ((ECol c)
+                    (if (< i n)
+                      (if (!= c (vecGet ix.cols i))
+                        {
+                          (set ok false)
+                          0
+                        }
+                        0)
+                      (if (isRowidCol t c)
+                        0
+                        {
+                          (set ok false)
+                          0
+                        }))
+                  )
+                  (_
+                    {
+                      (set ok false)
+                      0
+                    }
+                  )))))
+          ok
+        }))))
+
+; Whether rows read through `a` already come in the order `order` asks
+; for, ties broken by rowid.
+(:: accessSatisfies (-> TableDef Access (Vec OrderTerm) Bool))
+(fn (accessSatisfies t a order)
+  (if (== (vecLen order) 0)
+    true
+    (let ((first (vecGet order 0)))
+      (match a
+        ((ANone) true)
+        ((ARowid _) true)
+        ((AFull fwd) (rowidFirst t first fwd))
+        ((ARowidRange _ _ fwd) (rowidFirst t first fwd))
+        ((AIndex ix _ _) (orderMatchesIndex t ix order))))))
+
+; Whether the first ORDER BY term is the rowid in the direction `fwd`
+; reads it.
+(:: rowidFirst (-> TableDef OrderTerm Bool Bool))
+(fn (rowidFirst t first fwd)
+  (match first.expr
+    ((ECol c)
+      (&&
+        (isRowidCol t c)
+        (if fwd
+          (! first.desc)
+          first.desc))
+    )
+    (_ false)))
+
+; ------------------------------------------------------------------
+; Reading rows.
+; ------------------------------------------------------------------
+; A row as a scan meets it: its rowid and its values.
+(pub struct RowRef
+  (rowid : Int)
+  (values : (Vec Value)))
+
+; Call `f` with each row `a` reads from `t`, in the access path's order,
+; until `f` answers `Ok false` or `Err`.
+(:: scanRows (-> Exec TableDef Access (-> RowRef (Result Bool Error)) (Result Int Error)))
+;@axiom:effect(io)
+(fn (scanRows ex t a f)
+  (match a
+    ((ANone) (Ok 0))
+    ((ARowid n)
+      (try
+        got
+        (btreeGet ex.pager t.root (keyRowid n))
+        (match got
+          ((None) (Ok 0))
+          ((Some rec) (try vals (axqlRowValues t rec n) (try _ (f (RowRef n vals)) (Ok 1))))))
+    )
+    ((AFull fwd) (scanTable
+      ex
+      t
+      None
+      None
+      fwd
+      f))
+    ((ARowidRange lo hi fwd)
+      (if (match lo
+        ((Some l)
+          (match hi
+            ((Some h) (> l h))
+            ((None) false))
+        )
+        ((None) false))
+        (Ok 0)
+        (scanTable
+          ex
+          t
+          (match lo
+            ((Some l) (Some (keyRowid l)))
+            ((None) None))
+          (match hi
+            ((Some h)
+              (if (== h intMax)
+                None
+                (Some (keyRowid (+ h 1))))
+            )
+            ((None) None))
+          fwd
+          f))
+    )
+    ((AIndex ix lo hi)
+      (btreeScan
+        ex.pager
+        ix.root
+        lo
+        hi
+        true
+        (lambda (k v)
+          (try
+            rowid
+            (keyIndexRowid k)
+            (try
+              got
+              (btreeGet ex.pager t.root (keyRowid rowid))
+              (match got
+                ((None) (axqErr axqCorrupt (strConcat "an index entry names a missing row of " t.name) "axqlScan"))
+                ((Some rec) (try vals (axqlRowValues t rec rowid) (f (RowRef rowid vals)))))))
+        ))
+    )))
+
+(:: scanTable (-> Exec TableDef (Option String) (Option String) Bool (-> RowRef (Result Bool Error)) (Result Int Error)))
+;@axiom:effect(io)
+(fn (scanTable ex t lo hi fwd f)
+  (btreeScan
+    ex.pager
+    t.root
+    lo
+    hi
+    fwd
+    (lambda (k v) (try rowid (keyRowidOf k) (try vals (axqlRowValues t v rowid) (f (RowRef rowid vals)))))))
+
+; ------------------------------------------------------------------
+; SELECT.
+; ------------------------------------------------------------------
+; A planned SELECT.
+(pub struct SelectPlan
+  (table : (Option TableDef))
+  (names : (Vec String))
+  (outputs : (Vec Expr))
+  (terms : (Vec Expr))
+  (access : Access)
+  (order : (Vec OrderTerm))
+  (sorted : Bool)
+  (limit : Int)
+  (offset : Int))
+
+; The column names a SELECT answers.
+(pub :: axqlPlanNames (-> SelectPlan (Vec String)))
+(pub fn (axqlPlanNames plan)
+  plan.names)
+
+; Bind, check, fold and plan a SELECT. Needs a lock.
+(pub :: axqlPlanSelect (-> Exec Schema Select (Result SelectPlan Error)))
+(pub fn (axqlPlanSelect ex schema sel)
+  (try
+    t
+    (if (strIsEmpty sel.from)
+      (Ok None)
+      (try td (axqlTableDef schema sel.from) (Ok (Some td))))
+    (try
+      outs
+      (selectOutputs ex t sel)
+      (try
+        terms
+        (prepareWhere ex t sel.where)
+        (try
+          order
+          (orderTerms ex t sel outs)
+          (try
+            limit
+            (limitValue ex sel.limit "LIMIT" -1)
+            (try
+              offset
+              (limitValue ex sel.offset "OFFSET" 0)
+              (match t
+                ((None) (Ok (SelectPlan
+                  t
+                  outs.names
+                  outs.exprs
+                  terms
+                  (ARowid 0)
+                  order
+                  false
+                  limit
+                  offset)))
+                ((Some td) (try a (planAccess td terms order) (Ok (SelectPlan
+                  t
+                  outs.names
+                  outs.exprs
+                  terms
+                  a
+                  order
+                  (! (accessSatisfies td a order))
+                  limit
+                  offset))))))))))))
+
+; The output expressions and their names.
+(struct Outputs
+  (names : (Vec String))
+  (exprs : (Vec Expr)))
+
+(:: selectOutputs (-> Exec (Option TableDef) Select (Result Outputs Error)))
+(fn (selectOutputs ex t sel)
+  (let (
+    (names vecNewRef)
+    (exprs vecNewRef)
+  )
+    (if sel.star
+      (match t
+        ((None) (axqErr axqSyntax "`*` needs a FROM clause" "axqlPlan"))
+        ((Some td)
+          {
+            (for (c i) in td.cols
+              {
+                (vecPush names c.name)
+                (vecPush exprs (ECol i))
+              })
+            (Ok (Outputs names exprs))
+          }
+        ))
+      (let ((mut failure None))
+        {
+          (for item in sel.items
+            (if (isNone failure)
+              (match (prepareExpr ex t item.expr)
+                ((Ok e)
+                  {
+                    (vecPush names (itemName item))
+                    (vecPush exprs e)
+                    0
+                  }
+                )
+                ((Err err)
+                  {
+                    (set failure (Some err))
+                    0
+                  }
+                ))
+              0))
+          (match failure
+            ((Some err) (Err err))
+            ((None) (Ok (Outputs names exprs))))
+        }))))
+
+; A result column's name: its alias, a bare column's own name, or the
+; expression as written.
+(:: itemName (-> SelectItem String))
+(fn (itemName item)
+  (if (! (strIsEmpty item.alias))
+    item.alias
+    (match item.expr
+      ((EName n _) n)
+      (_ item.text))))
+
+; The ORDER BY terms, bound. An integer literal names a result column
+; by position, from 1; a bare name that is a result column's alias
+; names that column; anything else is an expression over the table.
+(:: orderTerms (-> Exec (Option TableDef) Select Outputs (Result (Vec OrderTerm) Error)))
+(fn (orderTerms ex t sel outs)
+  (let (
+    (out vecNewRef)
+    (mut failure None)
+  )
+    {
+      (for term in sel.orderBy
+        (if (isNone failure)
+          (match (orderExpr
+            ex
+            t
+            sel
+            outs
+            term.expr)
+            ((Ok e)
+              {
+                (vecPush out (OrderTerm e term.desc))
+                0
+              }
+            )
+            ((Err err)
+              {
+                (set failure (Some err))
+                0
+              }
+            ))
+          0))
+      (match failure
+        ((Some err) (Err err))
+        ((None) (Ok out)))
+    }))
+
+(:: orderExpr (-> Exec (Option TableDef) Select Outputs Expr (Result Expr Error)))
+(fn (orderExpr ex t sel outs e)
+  (match e
+    ((ELit (VInt k))
+      (if (|| (< k 1) (> k (vecLen outs.exprs)))
+        (axqErr axqSchema (strConcat "ORDER BY " (strConcat (fmtInt k) (strConcat " names no result column; there are " (fmtInt (vecLen outs.exprs))))) "axqlPlan")
+        (Ok (vecGet outs.exprs (- k 1))))
+    )
+    ((EName n _)
+      (match (aliasIndex sel n)
+        ((Some i) (Ok (vecGet outs.exprs i)))
+        ((None) (prepareExpr ex t e)))
+    )
+    (_ (prepareExpr ex t e))))
+
+(:: aliasIndex (-> Select String (Option Int)))
+(fn (aliasIndex sel n)
+  (let ((mut found None))
+    {
+      (for (item i) in sel.items
+        (if (&& (isNone found) (&& (! (strIsEmpty item.alias)) (axqlNameEq item.alias n)))
+          {
+            (set found (Some i))
+            0
+          }
+          0))
+      found
+    }))
+
+; A LIMIT or OFFSET count: a constant non-negative INTEGER. `absent`
+; when the clause isn't there.
+(:: limitValue (-> Exec (Option Expr) String Int (Result Int Error)))
+(fn (limitValue ex e what absent)
+  (match e
+    ((None) (Ok absent))
+    ((Some x)
+      (try
+        v
+        (prepareExpr ex None x)
+        (match v
+          ((ELit (VInt n))
+            (if (< n 0)
+              (axqErr axqType (strConcat what (strConcat " is negative: " (fmtInt n))) "axqlPlan")
+              (Ok n))
+          )
+          (_ (axqErr axqType (strConcat what " needs an INTEGER") "axqlPlan"))))
+    )))
+
+; A row kept for sorting: its sort keys, its rowid, and its values.
+(struct Keyed
+  (keys : (Vec Value))
+  (rowid : Int)
+  (values : (Vec Value)))
+
+; The running state of a SELECT: how many rows it has skipped and
+; returned, and the rows it keeps to sort.
+(struct SelState
+  (mut skipped : Int)
+  (mut returned : Int)
+  (kept : (Vec Keyed)))
+
+; Run a planned SELECT, calling `onRow` with each result row. Stops
+; early when `onRow` answers `Ok false`. Answers the rows returned.
+(pub :: axqlRunSelect (-> Exec SelectPlan (-> (Vec Value) (Result Bool Error)) (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (axqlRunSelect ex plan onRow)
+  (let ((st (SelState 0 0 vecNewRef)))
+    (match plan.table
+      ((None)
+        (try
+          keep
+          (axqlKeep plan.terms vecNew 0 ex.params)
+          (if keep
+            (if plan.sorted
+              (Ok 0)
+              (try _ (emitRow
+                ex
+                plan
+                st
+                (RowRef 0 vecNew)
+                onRow) (Ok st.returned)))
+            (Ok 0)))
+      )
+      ((Some td)
+        (if (== plan.limit 0)
+          (Ok 0)
+          (try
+            _
+            (scanRows
+              ex
+              td
+              plan.access
+              (lambda (r) (visitRow
+                ex
+                plan
+                st
+                onRow
+                r)))
+            (if plan.sorted
+              (emitSorted ex plan st onRow)
+              (Ok st.returned))))
+      ))))
+
+; One row a SELECT's scan meets: dropped, kept to sort, or handed on.
+(:: visitRow (-> Exec SelectPlan SelState (-> (Vec Value) (Result Bool Error)) RowRef (Result Bool Error)))
+(fn (visitRow ex plan st onRow r)
+  (try
+    keep
+    (axqlKeep plan.terms r.values r.rowid ex.params)
+    (if (! keep)
+      (Ok true)
+      (if plan.sorted
+        (try
+          ks
+          (sortKeys ex plan r)
+          {
+            (vecPush st.kept (Keyed ks r.rowid r.values))
+            (Ok true)
+          })
+        (emitRow
+          ex
+          plan
+          st
+          r
+          onRow)))))
+
+; The ORDER BY keys of a row.
+(:: sortKeys (-> Exec SelectPlan RowRef (Result (Vec Value) Error)))
+(fn (sortKeys ex plan r)
+  (let (
+    (ks vecNewRef)
+    (mut failure None)
+  )
+    {
+      (for term in plan.order
+        (if (isNone failure)
+          (match (axqlEval term.expr r.values r.rowid ex.params)
+            ((Ok v)
+              {
+                (vecPush ks v)
+                0
+              }
+            )
+            ((Err e)
+              {
+                (set failure (Some e))
+                0
+              }
+            ))
+          0))
+      (match failure
+        ((Some e) (Err e))
+        ((None) (Ok ks)))
+    }))
+
+; Hand one kept row on, after OFFSET and within LIMIT. Answers whether
+; to keep reading.
+(:: emitRow (-> Exec SelectPlan SelState RowRef (-> (Vec Value) (Result Bool Error)) (Result Bool Error)))
+(fn (emitRow ex plan st r onRow)
+  (if (< st.skipped plan.offset)
+    {
+      (set st.skipped (+ st.skipped 1))
+      (Ok true)
+    }
+    (try
+      outs
+      (evalOutputs ex plan r)
+      (try
+        more
+        (onRow outs)
+        {
+          (set st.returned (+ st.returned 1))
+          (Ok (&& more (|| (< plan.limit 0) (< st.returned plan.limit))))
+        }))))
+
+(:: evalOutputs (-> Exec SelectPlan RowRef (Result (Vec Value) Error)))
+(fn (evalOutputs ex plan r)
+  (let (
+    (outs vecNewRef)
+    (mut failure None)
+  )
+    {
+      (for e in plan.outputs
+        (if (isNone failure)
+          (match (axqlEval e r.values r.rowid ex.params)
+            ((Ok v)
+              {
+                (vecPush outs v)
+                0
+              }
+            )
+            ((Err err)
+              {
+                (set failure (Some err))
+                0
+              }
+            ))
+          0))
+      (match failure
+        ((Some err) (Err err))
+        ((None) (Ok outs)))
+    }))
+
+; Sort the kept rows and hand them on.
+(:: emitSorted (-> Exec SelectPlan SelState (-> (Vec Value) (Result Bool Error)) (Result Int Error)))
+(fn (emitSorted ex plan st onRow)
+  (let (
+    (sorted (mergeSort st.kept plan.order))
+    (n (vecLen sorted))
+    (mut i 0)
+    (mut going true)
+    (mut failure None)
+  )
+    {
+      (while (&& going (< i n))
+        (let ((k (vecGet sorted i)))
+          {
+            (match (emitRow
+              ex
+              plan
+              st
+              (RowRef k.rowid k.values)
+              onRow)
+              ((Ok more)
+                {
+                  (set going more)
+                  0
+                }
+              )
+              ((Err e)
+                {
+                  (set failure (Some e))
+                  (set going false)
+                  0
+                }
+              ))
+            (set i (+ i 1))
+          }))
+      (match failure
+        ((Some e) (Err e))
+        ((None) (Ok st.returned)))
+    }))
+
+; -1, 0 or 1 as kept row `a` sorts before, with or after `b`: by each
+; term in its direction, then by rowid.
+(:: compareKeyed (-> (Vec OrderTerm) Keyed Keyed Int))
+(fn (compareKeyed order a b)
+  (let (
+    (n (vecLen order))
+    (mut i 0)
+    (mut c 0)
+  )
+    {
+      (while (&& (== c 0) (< i n))
+        (let (
+          (term (vecGet order i))
+          (d (axqlSortCompare (vecGet a.keys i) (vecGet b.keys i)))
+        )
+          {
+            (set c (if term.desc
+              (- 0 d)
+              d))
+            (set i (+ i 1))
+          }))
+      (if (!= c 0)
+        c
+        (if (< a.rowid b.rowid)
+          -1
+          (> a.rowid b.rowid)
+          1
+          0))
+    }))
+
+; A stable merge sort, bottom up, so it needs no recursion.
+(:: mergeSort (-> (Vec Keyed) (Vec OrderTerm) (Vec Keyed)))
+(fn (mergeSort xs order)
+  (let (
+    (n (vecLen xs))
+    (mut src xs)
+    (mut width 1)
+  )
+    {
+      (while (< width n)
+        (let ((dst (vecWithCapacityRef n)))
+          {
+            (let ((mut lo 0))
+              (while (< lo n)
+                (let (
+                  (mid (if (< (+ lo width) n)
+                    (+ lo width)
+                    n))
+                  (hi (if (< (+ lo (* 2 width)) n)
+                    (+ lo (* 2 width))
+                    n))
+                  (mut i lo)
+                  (mut j (if (< (+ lo width) n)
+                    (+ lo width)
+                    n))
+                )
+                  {
+                    (while (|| (< i mid) (< j hi))
+                      (if (&& (< i mid) (|| (>= j hi) (<= (compareKeyed order (vecGet src i) (vecGet src j)) 0)))
+                        {
+                          (vecPush dst (vecGet src i))
+                          (set i (+ i 1))
+                        }
+                        {
+                          (vecPush dst (vecGet src j))
+                          (set j (+ j 1))
+                        }))
+                    (set lo hi)
+                  })))
+            (set src dst)
+            (set width (* width 2))
+          }))
+      src
+    }))
+
+; ------------------------------------------------------------------
+; Writing rows.
+; ------------------------------------------------------------------
+; Refuse a row of `t` that breaks a constraint, before anything is
+; written: a NULL in a NOT NULL column, a rowid already taken (unless it
+; is `self`, the row being rewritten), or a UNIQUE index value already
+; held by another row.
+(:: checkRow (-> Exec TableDef (Vec Value) Int Int (Result Int Error)))
+;@axiom:effect(io)
+(fn (checkRow ex t values rowid self)
+  (try
+    _
+    (checkNotNull t values)
+    (try
+      taken
+      (if (== rowid self)
+        (Ok false)
+        (try got (btreeGet ex.pager t.root (keyRowid rowid)) (Ok (isSome got))))
+      (if taken
+        (axqErr axqConstraint (strConcat (strConcat "a row with rowid " (fmtInt rowid)) (strConcat " already exists in " t.name)) "axqlWrite")
+        (checkUnique
+          ex
+          t
+          values
+          rowid
+          self)))))
+
+(:: checkNotNull (-> TableDef (Vec Value) (Result Int Error)))
+(fn (checkNotNull t values)
+  (let ((mut bad ""))
+    {
+      (for (c i) in t.cols
+        (if (&& (strIsEmpty bad) (&& c.notNull (&& (!= i t.pk) (isNullValue (vecGet values i)))))
+          {
+            (set bad c.name)
+            0
+          }
+          0))
+      (if (strIsEmpty bad)
+        (Ok 0)
+        (axqErr axqConstraint (strConcat (strConcat t.name ".") (strConcat bad " may not be NULL")) "axqlWrite"))
+    }))
+
+; Refuse `values` when a UNIQUE index of `t` already holds them for a
+; row other than `self` (or `rowid`, the row's own new rowid).
+(:: checkUnique (-> Exec TableDef (Vec Value) Int Int (Result Int Error)))
+;@axiom:effect(io)
+(fn (checkUnique ex t values rowid self)
+  (let (
+    (n (vecLen t.indexes))
+    (mut i 0)
+    (mut failure None)
+  )
+    {
+      (while (&& (isNone failure) (< i n))
+        (let ((ix (vecGet t.indexes i)))
+          {
+            (if (&& ix.unique (! (axqlIndexHasNull ix values)))
+              (match (uniqueHolder ex ix values)
+                ((Ok holder)
+                  (if (&& (>= holder 0) (&& (!= holder self) (!= holder rowid)))
+                    {
+                      (set failure (Some (mkError axqConstraint (strConcat (strConcat "the UNIQUE index " ix.name) (strConcat " already holds that value in " t.name)))))
+                      0
+                    }
+                    0)
+                )
+                ((Err e)
+                  {
+                    (set failure (Some e))
+                    0
+                  }
+                ))
+              0)
+            (set i (+ i 1))
+          }))
+      (match failure
+        ((Some e) (Err (errContextOf e "axqlWrite")))
+        ((None) (Ok 0)))
+    }))
+
+; The rowid of some row `ix` holds `values` for, or -1. A UNIQUE index
+; holds at most one row per value, and the rewrite in progress may be
+; that row.
+(:: uniqueHolder (-> Exec IndexDef (Vec Value) (Result Int Error)))
+;@axiom:effect(io)
+(fn (uniqueHolder ex ix values)
+  (try
+    prefix
+    (axqlIndexPrefix ix values)
+    (let ((found (Holder -1)))
+      (try
+        _
+        (btreeScan
+          ex.pager
+          ix.root
+          (Some prefix)
+          (keyPrefixEnd prefix)
+          true
+          (lambda (k v) (holderFound found k)))
+        (Ok found.rowid)))))
+
+(struct Holder
+  (mut rowid : Int))
+
+(:: holderFound (-> Holder String (Result Bool Error)))
+(fn (holderFound h k)
+  (try
+    r
+    (keyIndexRowid k)
+    {
+      (set h.rowid r)
+      (Ok false)
+    }))
+
+; Write a new row of `t` under `rowid`, with its index entries.
+(:: writeRow (-> Exec TableDef (Vec Value) Int (Result Int Error)))
+;@axiom:effect(io)
+(fn (writeRow ex t values rowid)
+  (try
+    rec
+    (axqlRowRecord t values)
+    (try
+      fresh
+      (putNew ex t.root (keyRowid rowid) rec)
+      (if (! fresh)
+        (axqErr axqConstraint (strConcat (strConcat "a row with rowid " (fmtInt rowid)) (strConcat " already exists in " t.name)) "axqlWrite")
+        (writeIndexEntries ex t values rowid)))))
+
+(:: writeIndexEntries (-> Exec TableDef (Vec Value) Int (Result Int Error)))
+;@axiom:effect(io)
+(fn (writeIndexEntries ex t values rowid)
+  (let (
+    (n (vecLen t.indexes))
+    (mut i 0)
+    (mut failure None)
+  )
+    {
+      (while (&& (isNone failure) (< i n))
+        {
+          (match (writeIndexEntry ex (vecGet t.indexes i) values rowid)
+            ((Ok _) 0)
+            ((Err e)
+              {
+                (set failure (Some e))
+                0
+              }
+            ))
+          (set i (+ i 1))
+        })
+      (match failure
+        ((Some e) (Err e))
+        ((None) (Ok 0)))
+    }))
+
+(:: writeIndexEntry (-> Exec IndexDef (Vec Value) Int (Result Int Error)))
+;@axiom:effect(io)
+(fn (writeIndexEntry ex ix values rowid)
+  (try prefix (axqlIndexPrefix ix values) (try _ (putNew ex ix.root (keyWithRowid prefix rowid) "") (Ok 0))))
+
+; Remove row `rowid` of `t`, whose values and record are given, with
+; its index entries.
+(:: removeRow (-> Exec TableDef (Vec Value) Int String (Result Int Error)))
+;@axiom:effect(io)
+(fn (removeRow ex t values rowid rec)
+  (try _ (removeIndexEntries ex t values rowid) (deleteKey ex t.root (keyRowid rowid) rec)))
+
+(:: removeIndexEntries (-> Exec TableDef (Vec Value) Int (Result Int Error)))
+;@axiom:effect(io)
+(fn (removeIndexEntries ex t values rowid)
+  (let (
+    (n (vecLen t.indexes))
+    (mut i 0)
+    (mut failure None)
+  )
+    {
+      (while (&& (isNone failure) (< i n))
+        {
+          (match (removeIndexEntry ex (vecGet t.indexes i) values rowid)
+            ((Ok _) 0)
+            ((Err e)
+              {
+                (set failure (Some e))
+                0
+              }
+            ))
+          (set i (+ i 1))
+        })
+      (match failure
+        ((Some e) (Err e))
+        ((None) (Ok 0)))
+    }))
+
+(:: removeIndexEntry (-> Exec IndexDef (Vec Value) Int (Result Int Error)))
+;@axiom:effect(io)
+(fn (removeIndexEntry ex ix values rowid)
+  (try prefix (axqlIndexPrefix ix values) (deleteKey ex ix.root (keyWithRowid prefix rowid) "")))
+
+; The rowid a new row gets when it names none: one more than the
+; largest, or 1 in an empty table.
+(:: nextRowid (-> Exec TableDef (Result Int Error)))
+;@axiom:effect(io)
+(fn (nextRowid ex t)
+  (try
+    last
+    (btreeLastKey ex.pager t.root)
+    (match last
+      ((None) (Ok 1))
+      ((Some k)
+        (try
+          r
+          (keyRowidOf k)
+          (if (== r intMax)
+            (axqErr axqTooBig (strConcat "every rowid of " (strConcat t.name " up to 9223372036854775807 is taken")) "axqlWrite")
+            (Ok (+ r 1))))
+      ))))
+
+; ------------------------------------------------------------------
+; INSERT.
+; ------------------------------------------------------------------
+; The column each position of an INSERT's column list fills: a column
+; number, with the rowid (when no column is called `rowid`) as the
+; primary key's number, or -1 when the table has none.
+(:: insertTargets (-> Exec TableDef (Vec String) (Result (Vec Int) Error)))
+(fn (insertTargets ex t names)
+  (let (
+    (out vecNew)
+    (mut failure None)
+  )
+    {
+      (if (== (vecLen names) 0)
+        (for (c i) in t.cols
+          (vecPush out i))
+        (for n in names
+          (if (isSome failure)
+            out
+            (let ((ci (axqlColumnIndex t.cols n)))
+              (let ((target 
+                (if (>= ci 0)
+                  ci
+                  (if (axqlNameEq n "rowid")
+                    (if (>= t.pk 0)
+                      t.pk
+                      -2)
+                    -3))))
+                (if (== target -3)
+                  {
+                    (set failure (Some (mkError axqSchema (strConcat (strConcat "table " t.name) (strConcat " has no column named " n)))))
+                    out
+                  }
+                  (if (vecHasInt out target)
+                    {
+                      (set failure (Some (mkError axqSchema (strConcat (strConcat "column " n) " is named twice"))))
+                      out
+                    }
+                    (vecPush out target))))))))
+      (match failure
+        ((Some e) (Err (errContextOf e "axqlInsert")))
+        ((None) (Ok out)))
+    }))
+
+(:: vecHasInt (-> (Vec Int) Int Bool))
+(fn (vecHasInt v x)
+  (let ((mut found false))
+    {
+      (for y in v
+        (if (== y x)
+          {
+            (set found true)
+            0
+          }
+          0))
+      found
+    }))
+
+(:: runInsert (-> Exec Schema String (Vec String) (Vec (Vec Expr)) (Result Int Error)))
+;@axiom:effect(io)
+(fn (runInsert ex schema table names rows)
+  (try
+    t
+    (axqlTableDef schema table)
+    (try
+      targets
+      (insertTargets ex t names)
+      (let ((width (vecLen targets)))
+        (try prepared (prepareRows ex t targets rows) (insertRows
+          ex
+          t
+          targets
+          prepared
+          0))))))
+
+; Every row's values folded, in the order the column list names, each
+; checked against its column's type. A row of the wrong width is
+; `axqSchema`.
+(:: prepareRows (-> Exec TableDef (Vec Int) (Vec (Vec Expr)) (Result (Vec (Vec Value)) Error)))
+(fn (prepareRows ex t targets rows)
+  (let (
+    (out vecNewRef)
+    (mut failure None)
+  )
+    {
+      (for row in rows
+        (if (isNone failure)
+          (match (prepareRow ex t targets row)
+            ((Ok vals)
+              {
+                (vecPush out vals)
+                0
+              }
+            )
+            ((Err e)
+              {
+                (set failure (Some e))
+                0
+              }
+            ))
+          0))
+      (match failure
+        ((Some e) (Err e))
+        ((None) (Ok out)))
+    }))
+
+(:: prepareRow (-> Exec TableDef (Vec Int) (Vec Expr) (Result (Vec Value) Error)))
+(fn (prepareRow ex t targets row)
+  (if (!= (vecLen row) (vecLen targets))
+    (axqErr axqSchema (strConcat (strConcat "a row of VALUES holds " (countOf (vecLen row) "value")) (strConcat " for " (countOf (vecLen targets) "column"))) "axqlInsert")
+    (let (
+      (out vecNewRef)
+      (mut failure None)
+    )
+      {
+        (for (e i) in row
+          (if (isNone failure)
+            (match (prepareValue ex t (vecGet targets i) e)
+              ((Ok v)
+                {
+                  (vecPush out v)
+                  0
+                }
+              )
+              ((Err err)
+                {
+                  (set failure (Some err))
+                  0
+                }
+              ))
+            0))
+        (match failure
+          ((Some err) (Err err))
+          ((None) (Ok out)))
+      })))
+
+; One value bound for column `target` of `t` (-2 is the rowid of a table
+; with no primary key column): checked against the column's type and
+; folded. VALUES names no column, so the expression binds to none.
+(:: prepareValue (-> Exec TableDef Int Expr (Result Value Error)))
+(fn (prepareValue ex t target e)
+  (try
+    b
+    (bind ex None e)
+    (try
+      vt
+      (typeOfBound ex None b)
+      (let ((ct 
+        (if (< target 0)
+          typeInteger
+          (let ((c (vecGet t.cols target)))
+            c.ctype))))
+        (if (! (typeFits ct vt))
+          (axqErr axqType (strConcat (strConcat (strConcat "column " (targetName t target)) (strConcat " is " (typeName ct))) (strConcat ", not " (typeName vt))) "axqlInsert")
+          (try
+            f
+            (axqlFold b ex.params)
+            (match f
+              ((ELit v) (Ok (coerce ct v)))
+              (_ (axqErr axqSchema "VALUES can't name a column" "axqlInsert")))))))))
+
+; `n` and a noun, plural unless `n` is 1.
+(:: countOf (-> Int String String))
+(fn (countOf n noun)
+  (strConcat
+    (strConcat (fmtInt n) " ")
+    (if (== n 1)
+      noun
+      (strConcat noun "s"))))
+
+(:: targetName (-> TableDef Int String))
+(fn (targetName t target)
+  (if (< target 0)
+    "rowid"
+    (let ((c (vecGet t.cols target)))
+      c.name)))
+
+; Insert each prepared row in turn.
+(:: insertRows (-> Exec TableDef (Vec Int) (Vec (Vec Value)) Int (Result Int Error)))
+;@axiom:effect(io)
+(fn (insertRows ex t targets rows i)
+  (if (>= i (vecLen rows))
+    (Ok ex.changes)
+    (try _ (insertOne ex t targets (vecGet rows i)) (insertRows
+      ex
+      t
+      targets
+      rows
+      (+ i 1)))))
+
+(:: insertOne (-> Exec TableDef (Vec Int) (Vec Value) (Result Int Error)))
+;@axiom:effect(io)
+(fn (insertOne ex t targets given)
+  (let (
+    (values vecNewRef)
+    (mut explicit VNull)
+  )
+    {
+      (for c in t.cols
+        (vecPush values VNull))
+      (for (target i) in targets
+        (if (< target 0)
+          {
+            (set explicit (vecGet given i))
+            0
+          }
+          {
+            (vecSet values target (vecGet given i))
+            (if (== target t.pk)
+              {
+                (set explicit (vecGet given i))
+                0
+              }
+              0)
+          }))
+      (try
+        rowid
+        (match explicit
+          ((VInt n) (Ok n))
+          (_ (nextRowid ex t)))
+        {
+          (if (>= t.pk 0)
+            (vecSet values t.pk (VInt rowid))
+            values)
+          (try
+            _
+            (checkRow
+              ex
+              t
+              values
+              rowid
+              -1)
+            (try
+              _
+              (writeRow ex t values rowid)
+              {
+                (set ex.changes (+ ex.changes 1))
+                (set ex.lastRowid rowid)
+                (set ex.inserted true)
+                (Ok 0)
+              }))
+        })
+    }))
+
+; ------------------------------------------------------------------
+; UPDATE and DELETE.
+; ------------------------------------------------------------------
+; The rows a WHERE matches, collected before any is changed.
+(struct Matches
+  (rows : (Vec RowRef)))
+
+(:: collectMatches (-> Exec TableDef (Option Expr) (Result (Vec RowRef) Error)))
+;@axiom:effect(io)
+(fn (collectMatches ex t w)
+  (try
+    terms
+    (prepareWhere ex (Some t) w)
+    (try
+      a
+      (planAccess t terms vecNewRef)
+      (let ((m (Matches vecNewRef)))
+        (try
+          _
+          (scanRows
+            ex
+            t
+            a
+            (lambda (r) (matchRow ex terms m r)))
+          (Ok m.rows))))))
+
+(:: matchRow (-> Exec (Vec Expr) Matches RowRef (Result Bool Error)))
+(fn (matchRow ex terms m r)
+  (try
+    keep
+    (axqlKeep terms r.values r.rowid ex.params)
+    {
+      (if keep
+        (vecPush m.rows r)
+        m.rows)
+      (Ok true)
+    }))
+
+(:: runDelete (-> Exec Schema String (Option Expr) (Result Int Error)))
+;@axiom:effect(io)
+(fn (runDelete ex schema table w)
+  (try t (axqlTableDef schema table) (try rows (collectMatches ex t w) (deleteRows ex t rows 0))))
+
+(:: deleteRows (-> Exec TableDef (Vec RowRef) Int (Result Int Error)))
+;@axiom:effect(io)
+(fn (deleteRows ex t rows i)
+  (if (>= i (vecLen rows))
+    (Ok ex.changes)
+    (let ((r (vecGet rows i)))
+      (try
+        rec
+        (axqlRowRecord t r.values)
+        (try
+          _
+          (removeRow
+            ex
+            t
+            r.values
+            r.rowid
+            rec)
+          {
+            (set ex.changes (+ ex.changes 1))
+            (deleteRows ex t rows (+ i 1))
+          })))))
+
+; The SET list bound: each target column and its folded expression.
+(struct Sets
+  (cols : (Vec Int))
+  (exprs : (Vec Expr)))
+
+(:: prepareSets (-> Exec TableDef (Vec String) (Vec Expr) (Result Sets Error)))
+(fn (prepareSets ex t names exprs)
+  (let (
+    (cols vecNew)
+    (out vecNewRef)
+    (mut failure None)
+  )
+    {
+      (for (n i) in names
+        (if (isNone failure)
+          (let ((ci (axqlColumnIndex t.cols n)))
+            (let ((target 
+              (if (>= ci 0)
+                ci
+                (if (axqlNameEq n "rowid")
+                  (if (>= t.pk 0)
+                    t.pk
+                    -1)
+                  -3))))
+              (if (== target -3)
+                {
+                  (set failure (Some (mkError axqSchema (strConcat (strConcat "table " t.name) (strConcat " has no column named " n)))))
+                  0
+                }
+                (if (vecHasInt cols target)
+                  {
+                    (set failure (Some (mkError axqSchema (strConcat (strConcat "column " n) " is set twice"))))
+                    0
+                  }
+                  (match (prepareSet ex t target (vecGet exprs i))
+                    ((Ok e)
+                      {
+                        (vecPush cols target)
+                        (vecPush out e)
+                        0
+                      }
+                    )
+                    ((Err err)
+                      {
+                        (set failure (Some err))
+                        0
+                      }
+                    ))))))
+          0))
+      (match failure
+        ((Some e) (Err (errContextOf e "axqlUpdate")))
+        ((None) (Ok (Sets cols out))))
+    }))
+
+(:: prepareSet (-> Exec TableDef Int Expr (Result Expr Error)))
+(fn (prepareSet ex t target e)
+  (try
+    b
+    (bind ex (Some t) e)
+    (try
+      vt
+      (typeOfBound ex (Some t) b)
+      (let ((ct 
+        (if (< target 0)
+          typeInteger
+          (let ((c (vecGet t.cols target)))
+            c.ctype))))
+        (if (! (typeFits ct vt))
+          (axqErr axqType (strConcat (strConcat (strConcat "column " (targetName t target)) (strConcat " is " (typeName ct))) (strConcat ", not " (typeName vt))) "axqlUpdate")
+          (axqlFold b ex.params))))))
+
+(:: runUpdate (-> Exec Schema String (Vec String) (Vec Expr) (Option Expr) (Result Int Error)))
+;@axiom:effect(io)
+(fn (runUpdate ex schema table names exprs w)
+  (try t (axqlTableDef schema table) (try sets (prepareSets ex t names exprs) (try rows (collectMatches ex t w) (updateRows
+    ex
+    t
+    sets
+    rows
+    0)))))
+
+(:: updateRows (-> Exec TableDef Sets (Vec RowRef) Int (Result Int Error)))
+;@axiom:effect(io)
+(fn (updateRows ex t sets rows i)
+  (if (>= i (vecLen rows))
+    (Ok ex.changes)
+    (try _ (updateOne ex t sets (vecGet rows i)) (updateRows
+      ex
+      t
+      sets
+      rows
+      (+ i 1)))))
+
+; Rewrite one row: evaluate every SET expression over the old values,
+; check the new row, then move or overwrite it and its index entries.
+(:: updateOne (-> Exec TableDef Sets RowRef (Result Int Error)))
+;@axiom:effect(io)
+(fn (updateOne ex t sets r)
+  (try
+    nr
+    (newRow ex t sets r)
+    (try
+      _
+      (checkRow
+        ex
+        t
+        nr.values
+        nr.rowid
+        r.rowid)
+      (try
+        oldRec
+        (axqlRowRecord t r.values)
+        (try
+          newRec
+          (axqlRowRecord t nr.values)
+          (try
+            _
+            (removeIndexEntries ex t r.values r.rowid)
+            (try
+              _
+              (if (== nr.rowid r.rowid)
+                (putOver
+                  ex
+                  t.root
+                  (keyRowid r.rowid)
+                  newRec
+                  oldRec)
+                (try
+                  _
+                  (deleteKey ex t.root (keyRowid r.rowid) oldRec)
+                  (try
+                    fresh
+                    (putNew ex t.root (keyRowid nr.rowid) newRec)
+                    (if fresh
+                      (Ok 0)
+                      (axqErr axqConstraint (strConcat (strConcat "a row with rowid " (fmtInt nr.rowid)) (strConcat " already exists in " t.name)) "axqlUpdate")))))
+              (try
+                _
+                (writeIndexEntries ex t nr.values nr.rowid)
+                {
+                  (set ex.changes (+ ex.changes 1))
+                  (Ok 0)
+                }))))))))
+
+; A rewritten row: its values and the rowid it will live under.
+(struct NewRow
+  (values : (Vec Value))
+  (mut rowid : Int))
+
+(:: newRow (-> Exec TableDef Sets RowRef (Result NewRow Error)))
+(fn (newRow ex t sets r)
+  (let (
+    (out vecNewRef)
+    (nr (NewRow out r.rowid))
+    (mut failure None)
+  )
+    {
+      (for v in r.values
+        (vecPush out v))
+      (for (target i) in sets.cols
+        (if (isNone failure)
+          (match (axqlEval (vecGet sets.exprs i) r.values r.rowid ex.params)
+            ((Ok v)
+              (if (>= target 0)
+                (let ((c (vecGet t.cols target)))
+                  {
+                    (vecSet out target (coerce c.ctype v))
+                    0
+                  })
+                (match v
+                  ((VInt n)
+                    {
+                      (set nr.rowid n)
+                      0
+                    }
+                  )
+                  (_
+                    {
+                      (set failure (Some (mkError axqConstraint (strConcat "the rowid of " (strConcat t.name " may not be NULL")))))
+                      0
+                    }
+                  )))
+            )
+            ((Err e)
+              {
+                (set failure (Some e))
+                0
+              }
+            ))
+          0))
+      (if (&& (isNone failure) (>= t.pk 0))
+        (match (vecGet out t.pk)
+          ((VInt n)
+            {
+              (set nr.rowid n)
+              0
+            }
+          )
+          (_
+            {
+              (set failure (Some (mkError axqConstraint (strConcat t.name "'s INTEGER PRIMARY KEY may not be NULL"))))
+              0
+            }
+          ))
+        0)
+      (match failure
+        ((Some e) (Err (errContextOf e "axqlUpdate")))
+        ((None) (Ok nr)))
+    }))
+
+; ------------------------------------------------------------------
+; DDL.
+; ------------------------------------------------------------------
+; The most columns a table may have.
+(pub :: axqlMaxColumns Int)
+(pub fn (axqlMaxColumns)
+  1000)
+
+; Add a schema entry under the next schema rowid.
+(:: addEntry (-> Exec String String String Int String (Result Int Error)))
+;@axiom:effect(io)
+(fn (addEntry ex kind name table root text)
+  (try
+    last
+    (btreeLastKey ex.pager btreeSchemaRoot)
+    (try
+      rowid
+      (match last
+        ((None) (Ok 1))
+        ((Some k) (try r (keyRowidOf k) (Ok (+ r 1)))))
+      (try rec (axqlEntryRecord
+        kind
+        name
+        table
+        root
+        text) (try _ (putNew ex btreeSchemaRoot (keyRowid rowid) rec) (Ok rowid))))))
+
+(:: removeEntry (-> Exec SchemaEntry (Result Int Error)))
+;@axiom:effect(io)
+(fn (removeEntry ex e)
+  (try rec (axqlEntryRecord
+    e.kind
+    e.name
+    e.table
+    e.root
+    e.text) (deleteKey ex btreeSchemaRoot (keyRowid e.rowid) rec)))
+
+; Refuse a CREATE TABLE's columns: a duplicate name, a PRIMARY KEY on a
+; column that isn't INTEGER, or more than one.
+(:: checkColumns (-> String (Vec ColumnDef) (Result Int Error)))
+(fn (checkColumns table cols)
+  (let (
+    (mut failure "")
+    (mut pks 0)
+  )
+    {
+      (if (> (vecLen cols) axqlMaxColumns)
+        (set failure (strConcat "a table may have at most " (strConcat (fmtInt axqlMaxColumns) " columns")))
+        "")
+      (for (c i) in cols
+        (if (! (strIsEmpty failure))
+          0
+          {
+            (for j 0 i
+              (let ((d (vecGet cols j)))
+                (if (&& (strIsEmpty failure) (axqlNameEq c.name d.name))
+                  {
+                    (set failure (strConcat (strConcat "column " c.name) " is declared twice"))
+                    0
+                  }
+                  0)))
+            (if c.primaryKey
+              {
+                (set pks (+ pks 1))
+                (if (!= c.ctype typeInteger)
+                  {
+                    (set failure (strConcat (strConcat "PRIMARY KEY is allowed only on an INTEGER column, and " c.name) (strConcat " is " (typeName c.ctype))))
+                    0
+                  }
+                  (if (> pks 1)
+                    {
+                      (set failure (strConcat table " has more than one PRIMARY KEY"))
+                      0
+                    }
+                    0))
+              }
+              0)
+          }))
+      (if (strIsEmpty failure)
+        (Ok 0)
+        (axqErr axqSchema failure "axqlCreateTable"))
+    }))
+
+; "there is already a table named t", or "an index".
+(:: alreadyNamed (-> SchemaEntry String))
+(fn (alreadyNamed e)
+  (strConcat
+    (if (strEq e.kind kindTable)
+      "there is already a table named "
+      "there is already an index named ")
+    e.name))
+
+(:: runCreateTable (-> Exec Schema Bool String (Vec ColumnDef) String (Result Int Error)))
+;@axiom:effect(io)
+(fn (runCreateTable ex schema ifNotExists name cols text)
+  (match (axqlFindEntry schema name)
+    ((Some e)
+      (if (&& ifNotExists (strEq e.kind kindTable))
+        (Ok 0)
+        (axqErr axqSchema (alreadyNamed e) "axqlCreateTable"))
+    )
+    ((None) (try _ (checkColumns name cols) (try root (createTree ex btreeTable) (try _ (addEntry
+      ex
+      kindTable
+      name
+      name
+      root
+      text) (try _ (pagerBumpSchemaVersion ex.pager) (Ok 0))))))))
+
+; An empty vector of schema entries, its element type fixed where it
+; is made.
+(:: entryVec (Vec SchemaEntry))
+(fn (entryVec)
+  vecNewRef)
+
+(:: runDropTable (-> Exec Schema Bool String (Result Int Error)))
+;@axiom:effect(io)
+(fn (runDropTable ex schema ifExists name)
+  (match (axqlFindEntry schema name)
+    ((None)
+      (if ifExists
+        (Ok 0)
+        (axqErr axqSchema (strConcat "no such table: " name) "axqlDropTable"))
+    )
+    ((Some e)
+      (if (! (strEq e.kind kindTable))
+        (axqErr axqSchema (strConcat (strConcat "no such table: " name) " (it names an index; use DROP INDEX)") "axqlDropTable")
+        (let (
+          (doomed (entryVec))
+          (mut failure None)
+        )
+          {
+            (for x in schema.entries
+              (if (&& (strEq x.kind kindIndex) (axqlNameEq x.table e.name))
+                (vecPush doomed x)
+                doomed))
+            (vecPush doomed e)
+            (for y in doomed
+              (if (isNone failure)
+                (match (removeEntry ex y)
+                  ((Ok _) 0)
+                  ((Err err)
+                    {
+                      (set failure (Some err))
+                      0
+                    }
+                  ))
+                0))
+            (for z in doomed
+              (if (isNone failure)
+                (match (dropTree ex z.root)
+                  ((Ok _) 0)
+                  ((Err err)
+                    {
+                      (set failure (Some err))
+                      0
+                    }
+                  ))
+                0))
+            (match failure
+              ((Some err) (Err err))
+              ((None) (try _ (pagerBumpSchemaVersion ex.pager) (Ok 0))))
+          }))
+    )))
+
+; Refuse an index's column list: a column the table lacks, or one
+; named twice. Answers the column numbers.
+(:: indexColumns (-> TableDef (Vec String) (Result (Vec Int) Error)))
+(fn (indexColumns t names)
+  (let (
+    (out vecNew)
+    (mut failure "")
+  )
+    {
+      (for n in names
+        (if (strIsEmpty failure)
+          (let ((ci (axqlColumnIndex t.cols n)))
+            (if (< ci 0)
+              (set failure (strConcat (strConcat "table " t.name) (strConcat " has no column named " n)))
+              (if (vecHasInt out ci)
+                (set failure (strConcat (strConcat "column " n) " is named twice"))
+                {
+                  (vecPush out ci)
+                  ""
+                })))
+          ""))
+      (if (strIsEmpty failure)
+        (Ok out)
+        (axqErr axqSchema failure "axqlCreateIndex"))
+    }))
+
+(:: runCreateIndex (-> Exec Schema Bool Bool String String (Vec String) String (Result Int Error)))
+;@axiom:effect(io)
+(fn (runCreateIndex ex schema unique ifNotExists name table cols text)
+  (match (axqlFindEntry schema name)
+    ((Some e)
+      (if (&& ifNotExists (strEq e.kind kindIndex))
+        (Ok 0)
+        (axqErr axqSchema (alreadyNamed e) "axqlCreateIndex"))
+    )
+    ((None)
+      (try
+        t
+        (axqlTableDef schema table)
+        (try
+          nums
+          (indexColumns t cols)
+          (try
+            root
+            (createTree ex btreeIndex)
+            (let ((ix (IndexDef name root unique nums)))
+              (try
+                _
+                (scanTable
+                  ex
+                  t
+                  None
+                  None
+                  true
+                  (lambda (r) (indexOneRow ex t ix r)))
+                (try _ (addEntry
+                  ex
+                  kindIndex
+                  name
+                  t.name
+                  root
+                  text) (try _ (pagerBumpSchemaVersion ex.pager) (Ok 0))))))))
+    )))
+
+; Add one existing row to a new index, refusing a duplicate in a UNIQUE
+; one.
+(:: indexOneRow (-> Exec TableDef IndexDef RowRef (Result Bool Error)))
+;@axiom:effect(io)
+(fn (indexOneRow ex t ix r)
+  (try
+    holder
+    (if (&& ix.unique (! (axqlIndexHasNull ix r.values)))
+      (uniqueHolder ex ix r.values)
+      (Ok -1))
+    (if (>= holder 0)
+      (axqErr axqConstraint (strConcat (strConcat "can't create the UNIQUE index " ix.name) (strConcat ": " (strConcat t.name " holds duplicate values"))) "axqlCreateIndex")
+      (try _ (writeIndexEntry ex ix r.values r.rowid) (Ok true)))))
+
+(:: runDropIndex (-> Exec Schema Bool String (Result Int Error)))
+;@axiom:effect(io)
+(fn (runDropIndex ex schema ifExists name)
+  (match (axqlFindEntry schema name)
+    ((None)
+      (if ifExists
+        (Ok 0)
+        (axqErr axqSchema (strConcat "no such index: " name) "axqlDropIndex"))
+    )
+    ((Some e)
+      (if (! (strEq e.kind kindIndex))
+        (axqErr axqSchema (strConcat (strConcat "no such index: " name) " (it names a table; use DROP TABLE)") "axqlDropIndex")
+        (try _ (removeEntry ex e) (try _ (dropTree ex e.root) (try _ (pagerBumpSchemaVersion ex.pager) (Ok 0)))))
+    )))
+
+; ------------------------------------------------------------------
+; The write entry point.
+; ------------------------------------------------------------------
+; Run an INSERT, UPDATE, DELETE or DDL statement inside the caller's
+; write transaction. Answers the rows it changed (0 for DDL).
+(pub :: axqlRunWrite (-> Exec Stmt String (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (axqlRunWrite ex stmt text)
+  (try
+    schema
+    (axqlLoadSchema ex.pager)
+    (match stmt
+      ((SInsert table cols rows) (runInsert
+        ex
+        schema
+        table
+        cols
+        rows))
+      ((SUpdate table cols exprs w) (runUpdate
+        ex
+        schema
+        table
+        cols
+        exprs
+        w))
+      ((SDelete table w) (runDelete ex schema table w))
+      ((SCreateTable ine name cols) (runCreateTable
+        ex
+        schema
+        ine
+        name
+        cols
+        text))
+      ((SDropTable ie name) (runDropTable ex schema ie name))
+      ((SCreateIndex unique ine name table cols) (runCreateIndex
+        ex
+        schema
+        unique
+        ine
+        name
+        table
+        cols
+        text))
+      ((SDropIndex ie name) (runDropIndex ex schema ie name))
+      (_ (axqErr axqMisuse "not a statement that writes" "axqlRunWrite")))))
+
+; Check that a statement's names resolve against the current schema,
+; without running it: the check `axqPrepare` makes. DDL is checked when
+; it runs.
+(pub :: axqlCheckNames (-> Exec Schema Stmt (Result Int Error)))
+(pub fn (axqlCheckNames ex schema stmt)
+  (match stmt
+    ((SSelect sel)
+      (try
+        t
+        (if (strIsEmpty sel.from)
+          (Ok None)
+          (try td (axqlTableDef schema sel.from) (Ok (Some td))))
+        (try _ (checkAllNames ex t (selectExprs sel)) (Ok 0)))
+    )
+    ((SInsert table cols rows) (try t (axqlTableDef schema table) (try _ (insertTargets ex t cols) (Ok 0))))
+    ((SUpdate table cols exprs w)
+      (try
+        t
+        (axqlTableDef schema table)
+        (let ((all vecNewRef))
+          {
+            (for e in exprs
+              (vecPush all e))
+            (match w
+              ((Some e) (vecPush all e))
+              ((None) all))
+            (try _ (checkAllNames ex (Some t) all) (Ok 0))
+          }))
+    )
+    ((SDelete table w)
+      (try
+        t
+        (axqlTableDef schema table)
+        (match w
+          ((Some e) (try _ (bind ex (Some t) e) (Ok 0)))
+          ((None) (Ok 0))))
+    )
+    (_ (Ok 0))))
+
+; The expressions of a SELECT that bind against its table: the items
+; and WHERE. ORDER BY may also name result columns, so it is checked
+; when the statement runs.
+(:: selectExprs (-> Select (Vec Expr)))
+(fn (selectExprs sel)
+  (let ((out vecNewRef))
+    {
+      (for item in sel.items
+        (vecPush out item.expr))
+      (match sel.where
+        ((Some e) (vecPush out e))
+        ((None) out))
+      out
+    }))
+
+(:: checkAllNames (-> Exec (Option TableDef) (Vec Expr) (Result Int Error)))
+(fn (checkAllNames ex t es)
+  (let ((mut failure None))
+    {
+      (for e in es
+        (if (isNone failure)
+          (match (bind ex t e)
+            ((Ok _) 0)
+            ((Err err)
+              {
+                (set failure (Some err))
+                0
+              }
+            ))
+          0))
+      (match failure
+        ((Some err) (Err err))
+        ((None) (Ok 0)))
+    }))

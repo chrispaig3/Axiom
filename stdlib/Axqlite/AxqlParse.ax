@@ -1,0 +1,1991 @@
+; Axqlite.AxqlParse - AXQL text to statements.
+;
+;     (axqlParse "SELECT id, name FROM users WHERE id = ?1")
+;         ; (Ok <Parsed>): a SELECT taking one parameter
+;     (axqlParse "SELEC 1")
+;         ; (Err ...) axqSyntax "line 1, column 1: expected a statement, found \"SELEC\""
+;     (axqlParseScript "CREATE TABLE t (a INTEGER); INSERT INTO t VALUES (1);")
+;         ; (Ok <two Parsed>)
+;
+; The lexer and a recursive-descent parser for the grammar in
+; docs/axql.md. Keywords are case-insensitive. An identifier is
+; `[A-Za-z_][A-Za-z0-9_]*`, or any text in double quotes with `""`
+; standing for one quote; a quoted identifier is never a keyword. The
+; words the grammar needs are reserved; the type names and `KEY`, `ASC`,
+; `DESC` and `TRANSACTION` are keywords only where the grammar expects
+; them, so a column may be called `text`.
+;
+; Literals: integers, which must fit in 64 bits (`-9223372036854775808`
+; is read as the most negative one); reals, with a point or an
+; exponent or both, read by `Float.floatParse`; 'text' with `''` for a
+; quote; X'hex' blobs; NULL, TRUE and FALSE. `--` starts a comment that
+; runs to the end of the line.
+;
+; Parameters are `?` (the next number after the largest so far), `?N`
+; (number N, from 1) and `:name` (numbered by first appearance, and the
+; same name is the same parameter). One statement uses positional or
+; named parameters, never both.
+;
+; Every refusal is `axqSyntax`, and its message starts with the line
+; and column (counted in bytes, from 1) of the token it stopped at.
+(import Mem)
+(import Str)
+(import Vec)
+(import Err)
+(import Fmt)
+(import Float)
+(import Axqlite.Value)
+(import Axqlite.AxqlAst)
+
+; ------------------------------------------------------------------
+; Tokens.
+; ------------------------------------------------------------------
+; One token: its kind, its byte range in the source, and its value. An
+; integer's value is in `num`, a real's in `real`, and a string's,
+; blob's, identifier's or parameter name's in `text`. `num` is 1 for a
+; quoted identifier and the number of a `?N` parameter.
+(struct Tok
+  (kind : Int)
+  (start : Int)
+  (end : Int)
+  (num : Int)
+  (real : Float)
+  (text : String))
+
+(:: tkEof Int)
+(fn (tkEof)
+  0)
+
+(:: tkIdent Int)
+(fn (tkIdent)
+  1)
+
+(:: tkInt Int)
+(fn (tkInt)
+  2)
+
+; The literal 9223372036854775808, which is an integer only right
+; after a unary minus.
+(:: tkIntMin Int)
+(fn (tkIntMin)
+  3)
+
+(:: tkReal Int)
+(fn (tkReal)
+  4)
+
+(:: tkStr Int)
+(fn (tkStr)
+  5)
+
+(:: tkBlob Int)
+(fn (tkBlob)
+  6)
+
+(:: tkParamNext Int)
+(fn (tkParamNext)
+  7)
+
+(:: tkParamNum Int)
+(fn (tkParamNum)
+  8)
+
+(:: tkParamName Int)
+(fn (tkParamName)
+  9)
+
+(:: tkLParen Int)
+(fn (tkLParen)
+  10)
+
+(:: tkRParen Int)
+(fn (tkRParen)
+  11)
+
+(:: tkComma Int)
+(fn (tkComma)
+  12)
+
+(:: tkSemi Int)
+(fn (tkSemi)
+  13)
+
+(:: tkStar Int)
+(fn (tkStar)
+  14)
+
+(:: tkPlus Int)
+(fn (tkPlus)
+  15)
+
+(:: tkMinus Int)
+(fn (tkMinus)
+  16)
+
+(:: tkSlash Int)
+(fn (tkSlash)
+  17)
+
+(:: tkPercent Int)
+(fn (tkPercent)
+  18)
+
+(:: tkEq Int)
+(fn (tkEq)
+  19)
+
+(:: tkNe Int)
+(fn (tkNe)
+  20)
+
+(:: tkLt Int)
+(fn (tkLt)
+  21)
+
+(:: tkLe Int)
+(fn (tkLe)
+  22)
+
+(:: tkGt Int)
+(fn (tkGt)
+  23)
+
+(:: tkGe Int)
+(fn (tkGe)
+  24)
+
+; The reserved words. Each is a token kind of its own.
+(:: kwAnd Int)
+(fn (kwAnd)
+  100)
+
+(:: kwAs Int)
+(fn (kwAs)
+  101)
+
+(:: kwBegin Int)
+(fn (kwBegin)
+  102)
+
+(:: kwBy Int)
+(fn (kwBy)
+  103)
+
+(:: kwCommit Int)
+(fn (kwCommit)
+  104)
+
+(:: kwCreate Int)
+(fn (kwCreate)
+  105)
+
+(:: kwDelete Int)
+(fn (kwDelete)
+  106)
+
+(:: kwDrop Int)
+(fn (kwDrop)
+  107)
+
+(:: kwExists Int)
+(fn (kwExists)
+  108)
+
+(:: kwFalse Int)
+(fn (kwFalse)
+  109)
+
+(:: kwFrom Int)
+(fn (kwFrom)
+  110)
+
+(:: kwIf Int)
+(fn (kwIf)
+  111)
+
+(:: kwIndex Int)
+(fn (kwIndex)
+  112)
+
+(:: kwInsert Int)
+(fn (kwInsert)
+  113)
+
+(:: kwInto Int)
+(fn (kwInto)
+  114)
+
+(:: kwIs Int)
+(fn (kwIs)
+  115)
+
+(:: kwLimit Int)
+(fn (kwLimit)
+  116)
+
+(:: kwNot Int)
+(fn (kwNot)
+  117)
+
+(:: kwNull Int)
+(fn (kwNull)
+  118)
+
+(:: kwOffset Int)
+(fn (kwOffset)
+  119)
+
+(:: kwOn Int)
+(fn (kwOn)
+  120)
+
+(:: kwOr Int)
+(fn (kwOr)
+  121)
+
+(:: kwOrder Int)
+(fn (kwOrder)
+  122)
+
+(:: kwPrimary Int)
+(fn (kwPrimary)
+  123)
+
+(:: kwRollback Int)
+(fn (kwRollback)
+  124)
+
+(:: kwSelect Int)
+(fn (kwSelect)
+  125)
+
+(:: kwSet Int)
+(fn (kwSet)
+  126)
+
+(:: kwTable Int)
+(fn (kwTable)
+  127)
+
+(:: kwTrue Int)
+(fn (kwTrue)
+  128)
+
+(:: kwUnique Int)
+(fn (kwUnique)
+  129)
+
+(:: kwUpdate Int)
+(fn (kwUpdate)
+  130)
+
+(:: kwValues Int)
+(fn (kwValues)
+  131)
+
+(:: kwWhere Int)
+(fn (kwWhere)
+  132)
+
+; How deep parentheses may nest in one expression. The parser is
+; recursive, so this is a stack budget: a deeper expression is a
+; refusal rather than a crash.
+(pub :: axqlMaxDepth Int)
+(pub fn (axqlMaxDepth)
+  200)
+
+; The most parameters a statement may take, and the largest `?N`.
+(pub :: axqlMaxParams Int)
+(pub fn (axqlMaxParams)
+  32766)
+
+; ------------------------------------------------------------------
+; Positions and errors.
+; ------------------------------------------------------------------
+; An `axqSyntax` error at byte `at` of `src`.
+(:: synErrAt (-> String Int String (Result a Error)))
+(fn (synErrAt src at msg)
+  (axqErr axqSyntax (strConcat (strConcat (axqlPosText src at) ": ") msg) "axqlParse"))
+
+; ------------------------------------------------------------------
+; The lexer.
+; ------------------------------------------------------------------
+(:: isIdentStart (-> Int Bool))
+(fn (isIdentStart c)
+  (|| (strIsAlpha c) (== c 95)))
+
+(:: isIdentPart (-> Int Bool))
+(fn (isIdentPart c)
+  (|| (isIdentStart c) (strIsDigit c)))
+
+; Byte `c` in upper case, for ASCII letters.
+(:: upperByte (-> Int Int))
+(fn (upperByte c)
+  (if (&& (>= c 97) (<= c 122))
+    (- c 32)
+    c))
+
+; Whether `src[at .. at + len)` spells `word` (upper case) ignoring case.
+(:: spells (-> String Int Int String Bool))
+(fn (spells src at len word)
+  (if (!= len (strLen word))
+    false
+    (let (
+      (mut i 0)
+      (mut same true)
+    )
+      {
+        (while (&& same (< i len))
+          (if (== (upperByte (strByte src (+ at i))) (strByte word i))
+            (set i (+ i 1))
+            {
+              (set same false)
+              0
+            }))
+        same
+      })))
+
+; The reserved word `src[at .. at + len)` spells, or `tkIdent`.
+(:: keywordKind (-> String Int Int Int))
+(fn (keywordKind src at len)
+  (if (== len 2)
+    (if (spells src at 2 "AS")
+      kwAs
+      (spells src at 2 "BY")
+      kwBy
+      (spells src at 2 "IF")
+      kwIf
+      (spells src at 2 "IS")
+      kwIs
+      (spells src at 2 "ON")
+      kwOn
+      (spells src at 2 "OR")
+      kwOr
+      tkIdent)
+    (== len 3)
+    (if (spells src at 3 "AND")
+      kwAnd
+      (spells src at 3 "NOT")
+      kwNot
+      (spells src at 3 "SET")
+      kwSet
+      tkIdent)
+    (== len 4)
+    (if (spells src at 4 "DROP")
+      kwDrop
+      (spells src at 4 "FROM")
+      kwFrom
+      (spells src at 4 "INTO")
+      kwInto
+      (spells src at 4 "NULL")
+      kwNull
+      (spells src at 4 "TRUE")
+      kwTrue
+      tkIdent)
+    (== len 5)
+    (if (spells src at 5 "BEGIN")
+      kwBegin
+      (spells src at 5 "FALSE")
+      kwFalse
+      (spells src at 5 "INDEX")
+      kwIndex
+      (spells src at 5 "LIMIT")
+      kwLimit
+      (spells src at 5 "ORDER")
+      kwOrder
+      (spells src at 5 "TABLE")
+      kwTable
+      (spells src at 5 "WHERE")
+      kwWhere
+      tkIdent)
+    (== len 6)
+    (if (spells src at 6 "COMMIT")
+      kwCommit
+      (spells src at 6 "CREATE")
+      kwCreate
+      (spells src at 6 "DELETE")
+      kwDelete
+      (spells src at 6 "EXISTS")
+      kwExists
+      (spells src at 6 "INSERT")
+      kwInsert
+      (spells src at 6 "OFFSET")
+      kwOffset
+      (spells src at 6 "SELECT")
+      kwSelect
+      (spells src at 6 "UNIQUE")
+      kwUnique
+      (spells src at 6 "UPDATE")
+      kwUpdate
+      (spells src at 6 "VALUES")
+      kwValues
+      tkIdent)
+    (== len 7)
+    (if (spells src at 7 "PRIMARY")
+      kwPrimary
+      tkIdent)
+    (== len 8)
+    (if (spells src at 8 "ROLLBACK")
+      kwRollback
+      tkIdent)
+    tkIdent))
+
+; The lexer's state: the source, the tokens so far, the cursor, and the
+; first refusal.
+(struct Lx
+  (src : String)
+  (toks : (Vec Tok))
+  (mut at : Int)
+  (mut failed : Bool)
+  (mut errAt : Int)
+  (mut errMsg : String))
+
+(:: lxFail (-> Lx Int String Int))
+(fn (lxFail lx at msg)
+  {
+    (set lx.failed true)
+    (set lx.errAt at)
+    (set lx.errMsg msg)
+    0
+  })
+
+(:: lxPush (-> Lx Int Int Int Int Float String Int))
+(fn (lxPush lx kind start end num real text)
+  {
+    (vecPush lx.toks (Tok
+      kind
+      start
+      end
+      num
+      real
+      text))
+    (set lx.at end)
+    0
+  })
+
+; An identifier or a reserved word.
+(:: lexWord (-> Lx Int))
+(fn (lexWord lx)
+  (let (
+    (src lx.src)
+    (start lx.at)
+    (mut j (+ lx.at 1))
+  )
+    {
+      (while (isIdentPart (strByte src j))
+        (set j (+ j 1)))
+      (let ((kind (keywordKind src start (- j start))))
+        (lxPush
+          lx
+          kind
+          start
+          j
+          0
+          0.0
+          (strSlice src start (- j start))))
+    }))
+
+; A double-quoted identifier, `""` standing for one quote.
+(:: lexQuotedName (-> Lx Int))
+(fn (lexQuotedName lx)
+  (let (
+    (src lx.src)
+    (n (strLen lx.src))
+    (start lx.at)
+    (mut j (+ lx.at 1))
+    (mut pairs 0)
+    (mut done false)
+  )
+    {
+      (while (&& (! done) (< j n))
+        (if (== (strByte src j) 34)
+          (if (== (strByte src (+ j 1)) 34)
+            {
+              (set pairs (+ pairs 1))
+              (set j (+ j 2))
+              0
+            }
+            {
+              (set done true)
+              0
+            })
+          {
+            (set j (+ j 1))
+            0
+          }))
+      (if (! done)
+        (lxFail lx start "a quoted name with no closing quote")
+        (if (== (- j start) 1)
+          (lxFail lx start "an empty quoted name")
+          (lxPush
+            lx
+            tkIdent
+            start
+            (+ j 1)
+            1
+            0.0
+            (unquote
+              src
+              (+ start 1)
+              j
+              34
+              pairs))))
+    }))
+
+; The bytes of `src[from .. to)` with each doubled `q` read as one.
+; `pairs` is how many doubled quotes there are.
+(:: unquote (-> String Int Int Int Int String))
+;@axiom:effect(unsafe)
+(fn (unquote src from to q pairs)
+  (if (== pairs 0)
+    (strSlice src from (- to from))
+    (let (
+      (out (strAlloc (- (- to from) pairs)))
+      (mut i from)
+      (mut k 0)
+    )
+      {
+        (while (< i to)
+          {
+            (memPutByte (strData out) k (strByte src i))
+            (set k (+ k 1))
+            (set i (+
+              i
+              (if (&& (== (strByte src i) q) (== (strByte src (+ i 1)) q))
+                2
+                1)))
+          })
+        out
+      })))
+
+; A single-quoted string, `''` standing for one quote.
+(:: lexString (-> Lx Int))
+(fn (lexString lx)
+  (let (
+    (src lx.src)
+    (n (strLen lx.src))
+    (start lx.at)
+    (mut j (+ lx.at 1))
+    (mut pairs 0)
+    (mut done false)
+  )
+    {
+      (while (&& (! done) (< j n))
+        (if (== (strByte src j) 39)
+          (if (== (strByte src (+ j 1)) 39)
+            {
+              (set pairs (+ pairs 1))
+              (set j (+ j 2))
+              0
+            }
+            {
+              (set done true)
+              0
+            })
+          {
+            (set j (+ j 1))
+            0
+          }))
+      (if (! done)
+        (lxFail lx start "a string with no closing quote")
+        (lxPush
+          lx
+          tkStr
+          start
+          (+ j 1)
+          0
+          0.0
+          (unquote
+            src
+            (+ start 1)
+            j
+            39
+            pairs)))
+    }))
+
+; X'hex': an even number of hex digits between the quotes.
+(:: lexBlob (-> Lx Int))
+;@axiom:effect(unsafe)
+(fn (lexBlob lx)
+  (let (
+    (src lx.src)
+    (n (strLen lx.src))
+    (start lx.at)
+    (mut j (+ lx.at 2))
+  )
+    {
+      (while (&& (< j n) (strIsHexDigit (strByte src j)))
+        (set j (+ j 1)))
+      (if (!= (strByte src j) 39)
+        (lxFail lx j "a blob literal holds hex digits and ends with a quote")
+        (let ((digits (- j (+ start 2))))
+          (if (!= (% digits 2) 0)
+            (lxFail lx start "a blob literal needs an even number of hex digits")
+            (let ((out (strAlloc (/ digits 2))))
+              {
+                (for k 0 (/ digits 2)
+                  (memPutByte (strData out) k (+ (* 16 (hexDigit (strByte src (+ (+ start 2) (* 2 k))))) (hexDigit (strByte src (+ (+ start 3) (* 2 k)))))))
+                (lxPush
+                  lx
+                  tkBlob
+                  start
+                  (+ j 1)
+                  0
+                  0.0
+                  out)
+              }))))
+    }))
+
+(:: hexDigit (-> Int Int))
+(fn (hexDigit c)
+  (match (strHexVal c)
+    ((Some v) v)
+    ((None) 0)))
+
+; A number: digits, then a point and more digits, then an exponent.
+; A point or an exponent makes it REAL.
+(:: lexNumber (-> Lx Int))
+(fn (lexNumber lx)
+  (let (
+    (src lx.src)
+    (start lx.at)
+    (mut j lx.at)
+    (mut isReal false)
+    (mut bad -1)
+  )
+    {
+      (while (strIsDigit (strByte src j))
+        (set j (+ j 1)))
+      (if (== (strByte src j) 46)
+        {
+          (set isReal true)
+          (set j (+ j 1))
+          (while (strIsDigit (strByte src j))
+            (set j (+ j 1)))
+          0
+        }
+        0)
+      (if (|| (== (strByte src j) 101) (== (strByte src j) 69))
+        (let ((mut k (+ j 1)))
+          {
+            (if (|| (== (strByte src k) 43) (== (strByte src k) 45))
+              (set k (+ k 1))
+              0)
+            (if (strIsDigit (strByte src k))
+              {
+                (set isReal true)
+                (set j k)
+                (while (strIsDigit (strByte src j))
+                  (set j (+ j 1)))
+                0
+              }
+              (set bad j))
+            0
+          })
+        0)
+      (if (>= bad 0)
+        (lxFail lx bad "an exponent needs digits")
+        (if (isIdentPart (strByte src j))
+          (lxFail lx j "a number runs into a name")
+          (if isReal
+            (lexReal lx start j)
+            (lexInteger lx start j))))
+    }))
+
+(:: lexReal (-> Lx Int Int Int))
+(fn (lexReal lx start end)
+  (match (floatParse (realText (strSlice lx.src start (- end start))))
+    ((Ok r) (lxPush
+      lx
+      tkReal
+      start
+      end
+      0
+      r
+      ""))
+    ((Err e) (lxFail lx start "a real literal that isn't a number"))))
+
+; `t` in the form `floatParse` reads: a zero before a leading point and
+; after a trailing one.
+(:: realText (-> String String))
+(fn (realText t)
+  (let ((t1 
+    (if (== (strByte t 0) 46)
+      (strConcat "0" t)
+      t)))
+    (match (strFindByte t1 46 0)
+      ((None) t1)
+      ((Some d)
+        (if (strIsDigit (strByte t1 (+ d 1)))
+          t1
+          (strConcat (strConcat (strSlice t1 0 (+ d 1)) "0") (strSlice t1 (+ d 1) (- (strLen t1) (+ d 1)))))
+      ))))
+
+(:: lexInteger (-> Lx Int Int Int))
+(fn (lexInteger lx start end)
+  (let (
+    (src lx.src)
+    (mut acc 0)
+    (mut over false)
+    (mut minOnly false)
+  )
+    {
+      (for i start end
+        (let ((d (- (strByte src i) 48)))
+          (if (|| over minOnly)
+            {
+              (set over true)
+              0
+            }
+            (if (|| (> acc 922337203685477580) (&& (== acc 922337203685477580) (> d 7)))
+              (if (&& (== acc 922337203685477580) (== d 8))
+                {
+                  (set minOnly true)
+                  0
+                }
+                {
+                  (set over true)
+                  0
+                })
+              (set acc (+ (* acc 10) d))))))
+      (if over
+        (lxFail lx start "an integer literal larger than 64 bits")
+        (if minOnly
+          (lxPush
+            lx
+            tkIntMin
+            start
+            end
+            0
+            0.0
+            "")
+          (lxPush
+            lx
+            tkInt
+            start
+            end
+            acc
+            0.0
+            "")))
+    }))
+
+; `?`, `?N`, or `:name`.
+(:: lexParam (-> Lx Int))
+(fn (lexParam lx)
+  (let (
+    (src lx.src)
+    (start lx.at)
+    (mut j (+ lx.at 1))
+  )
+    (if (== (strByte src start) 63)
+      {
+        (while (strIsDigit (strByte src j))
+          (set j (+ j 1)))
+        (if (== j (+ start 1))
+          (lxPush
+            lx
+            tkParamNext
+            start
+            j
+            0
+            0.0
+            "")
+          (let ((mut num 0))
+            {
+              (for i (+ start 1) j
+                (if (<= num axqlMaxParams)
+                  (set num (+ (* num 10) (- (strByte src i) 48)))
+                  0))
+              (if (|| (< num 1) (> num axqlMaxParams))
+                (lxFail lx start (strConcat "a parameter number outside 1 to " (fmtInt axqlMaxParams)))
+                (if (isIdentStart (strByte src j))
+                  (lxFail lx j "a parameter number runs into a name")
+                  (lxPush
+                    lx
+                    tkParamNum
+                    start
+                    j
+                    num
+                    0.0
+                    "")))
+            }))
+      }
+      (if (! (isIdentStart (strByte src j)))
+        (lxFail lx start "a `:` must start a parameter name")
+        {
+          (while (isIdentPart (strByte src j))
+            (set j (+ j 1)))
+          (lxPush
+            lx
+            tkParamName
+            start
+            j
+            0
+            0.0
+            (strSlice src start (- j start)))
+        }))))
+
+; One or two bytes of punctuation.
+(:: lexPunct (-> Lx Int))
+(fn (lexPunct lx)
+  (let (
+    (src lx.src)
+    (at lx.at)
+    (c (strByte lx.src lx.at))
+    (d (strByte lx.src (+ lx.at 1)))
+  )
+    (if (== c 40)
+      (lxPush
+        lx
+        tkLParen
+        at
+        (+ at 1)
+        0
+        0.0
+        "")
+      (== c 41)
+      (lxPush
+        lx
+        tkRParen
+        at
+        (+ at 1)
+        0
+        0.0
+        "")
+      (== c 44)
+      (lxPush
+        lx
+        tkComma
+        at
+        (+ at 1)
+        0
+        0.0
+        "")
+      (== c 59)
+      (lxPush
+        lx
+        tkSemi
+        at
+        (+ at 1)
+        0
+        0.0
+        "")
+      (== c 42)
+      (lxPush
+        lx
+        tkStar
+        at
+        (+ at 1)
+        0
+        0.0
+        "")
+      (== c 43)
+      (lxPush
+        lx
+        tkPlus
+        at
+        (+ at 1)
+        0
+        0.0
+        "")
+      (== c 45)
+      (lxPush
+        lx
+        tkMinus
+        at
+        (+ at 1)
+        0
+        0.0
+        "")
+      (== c 47)
+      (lxPush
+        lx
+        tkSlash
+        at
+        (+ at 1)
+        0
+        0.0
+        "")
+      (== c 37)
+      (lxPush
+        lx
+        tkPercent
+        at
+        (+ at 1)
+        0
+        0.0
+        "")
+      (== c 61)
+      (if (== d 61)
+        (lxPush
+          lx
+          tkEq
+          at
+          (+ at 2)
+          0
+          0.0
+          "")
+        (lxPush
+          lx
+          tkEq
+          at
+          (+ at 1)
+          0
+          0.0
+          ""))
+      (&& (== c 33) (== d 61))
+      (lxPush
+        lx
+        tkNe
+        at
+        (+ at 2)
+        0
+        0.0
+        "")
+      (== c 60)
+      (if (== d 61)
+        (lxPush
+          lx
+          tkLe
+          at
+          (+ at 2)
+          0
+          0.0
+          "")
+        (== d 62)
+        (lxPush
+          lx
+          tkNe
+          at
+          (+ at 2)
+          0
+          0.0
+          "")
+        (lxPush
+          lx
+          tkLt
+          at
+          (+ at 1)
+          0
+          0.0
+          ""))
+      (== c 62)
+      (if (== d 61)
+        (lxPush
+          lx
+          tkGe
+          at
+          (+ at 2)
+          0
+          0.0
+          "")
+        (lxPush
+          lx
+          tkGt
+          at
+          (+ at 1)
+          0
+          0.0
+          ""))
+      (lxFail lx at (strConcat "an unexpected character " (charText c))))))
+
+; A byte for a message: the character itself when it's printable ASCII,
+; its code otherwise.
+(:: charText (-> Int String))
+(fn (charText c)
+  (if (&& (> c 32) (< c 127))
+    (strConcat
+      (strConcat
+        "\""
+        (strFromByte
+          (cast Byte c)))
+      "\"")
+    (strConcat "byte " (fmtInt c))))
+
+; The tokens of `src`, ending with one `tkEof` at its length.
+(:: lex (-> String (Result (Vec Tok) Error)))
+(fn (lex src)
+  (let (
+    (n (strLen src))
+    (lx (Lx
+      src
+      vecNewRef
+      0
+      false
+      0
+      ""))
+  )
+    {
+      (while (&& (! lx.failed) (< lx.at n))
+        (let (
+          (c (strByte src lx.at))
+          (d (strByte src (+ lx.at 1)))
+        )
+          (if (strIsSpace c)
+            {
+              (set lx.at (+ lx.at 1))
+              0
+            }
+            (&& (== c 45) (== d 45))
+            {
+              (while (&& (< lx.at n) (!= (strByte src lx.at) 10))
+                (set lx.at (+ lx.at 1)))
+              0
+            }
+            (&& (|| (== c 88) (== c 120)) (== d 39))
+            (lexBlob lx)
+            (isIdentStart c)
+            (lexWord lx)
+            (== c 34)
+            (lexQuotedName lx)
+            (|| (strIsDigit c) (&& (== c 46) (strIsDigit d)))
+            (lexNumber lx)
+            (== c 39)
+            (lexString lx)
+            (|| (== c 63) (== c 58))
+            (lexParam lx)
+            (lexPunct lx))))
+      (if lx.failed
+        (synErrAt src lx.errAt lx.errMsg)
+        {
+          (vecPush lx.toks (Tok
+            tkEof
+            n
+            n
+            0
+            0.0
+            ""))
+          (Ok lx.toks)
+        })
+    }))
+
+; ------------------------------------------------------------------
+; The parser's state.
+; ------------------------------------------------------------------
+; The tokens, the cursor, and what the parameter scan has seen: the
+; largest positional number, the named parameters in index order, and
+; which of the two kinds the statement uses.
+(struct Ps
+  (src : String)
+  (toks : (Vec Tok))
+  (mut at : Int)
+  (mut depth : Int)
+  (mut maxParam : Int)
+  (names : (Vec String))
+  (mut sawPositional : Bool)
+  (mut sawNamed : Bool))
+
+(:: peek (-> Ps Tok))
+(fn (peek p)
+  (vecGet p.toks p.at))
+
+(:: peekKind (-> Ps Int))
+(fn (peekKind p)
+  (let ((t (peek p)))
+    t.kind))
+
+; The kind of the token after the current one.
+(:: peekKind2 (-> Ps Int))
+(fn (peekKind2 p)
+  (if (>= (+ p.at 1) (vecLen p.toks))
+    tkEof
+    (let ((t (vecGet p.toks (+ p.at 1))))
+      t.kind)))
+
+(:: advance (-> Ps Tok))
+(fn (advance p)
+  (let ((t (peek p)))
+    {
+      (if (< p.at (- (vecLen p.toks) 1))
+        {
+          (set p.at (+ p.at 1))
+          0
+        }
+        0)
+      t
+    }))
+
+; The end offset of the token before the cursor.
+(:: prevEnd (-> Ps Int))
+(fn (prevEnd p)
+  (if (== p.at 0)
+    0
+    (let ((t (vecGet p.toks (- p.at 1))))
+      t.end)))
+
+; How a token reads in a message.
+(:: tokDesc (-> Ps Tok String))
+(fn (tokDesc p t)
+  (if (== t.kind tkEof)
+    "the end of the statement"
+    (strConcat (strConcat "\"" (strSlice p.src t.start (- t.end t.start))) "\"")))
+
+; `axqSyntax` at the current token: "expected WHAT, found TOKEN".
+(:: expected (-> Ps String (Result a Error)))
+(fn (expected p what)
+  (let ((t (peek p)))
+    (synErrAt p.src t.start (strConcat (strConcat (strConcat "expected " what) ", found ") (tokDesc p t)))))
+
+; `axqSyntax` at the current token with a message of its own.
+(:: failHere (-> Ps String (Result a Error)))
+(fn (failHere p msg)
+  (let ((t (peek p)))
+    (synErrAt p.src t.start msg)))
+
+; Whether the current token is the unquoted identifier `word`, in any
+; case: how the non-reserved keywords are read.
+(:: atWord (-> Ps String Bool))
+(fn (atWord p word)
+  (let ((t (peek p)))
+    (&& (&& (== t.kind tkIdent) (== t.num 0)) (spells p.src t.start (- t.end t.start) word))))
+
+; Consume a token of kind `kind`, or refuse naming `what`.
+(:: expect (-> Ps Int String (Result Tok Error)))
+(fn (expect p kind what)
+  (if (== (peekKind p) kind)
+    (Ok (advance p))
+    (expected p what)))
+
+; Consume the unquoted word `word`, or refuse.
+(:: expectWord (-> Ps String (Result Int Error)))
+(fn (expectWord p word)
+  (if (atWord p word)
+    {
+      (advance p)
+      (Ok 0)
+    }
+    (expected p word)))
+
+; A name: an identifier, quoted or not.
+(:: parseName (-> Ps String (Result String Error)))
+(fn (parseName p what)
+  (if (== (peekKind p) tkIdent)
+    (let ((t (advance p)))
+      (Ok t.text))
+    (expected p what)))
+
+; `IF NOT EXISTS`, or nothing.
+(:: parseIfNotExists (-> Ps (Result Bool Error)))
+(fn (parseIfNotExists p)
+  (if (== (peekKind p) kwIf)
+    {
+      (advance p)
+      (try _ (expect p kwNot "NOT") (try _ (expect p kwExists "EXISTS") (Ok true)))
+    }
+    (Ok false)))
+
+; `IF EXISTS`, or nothing.
+(:: parseIfExists (-> Ps (Result Bool Error)))
+(fn (parseIfExists p)
+  (if (== (peekKind p) kwIf)
+    {
+      (advance p)
+      (try _ (expect p kwExists "EXISTS") (Ok true))
+    }
+    (Ok false)))
+
+; ------------------------------------------------------------------
+; Expressions, loosest first:
+;   OR, AND, NOT, = == != <> IS [NOT] NULL, < <= > >=, + -, * / %,
+;   unary -, and the primaries.
+; ------------------------------------------------------------------
+(:: parseExpr (-> Ps (Result Expr Error)))
+(fn (parseExpr p)
+  (try lhs (parseAnd p) (parseOrRest p lhs)))
+
+(:: parseOrRest (-> Ps Expr (Result Expr Error)))
+(fn (parseOrRest p lhs)
+  (if (== (peekKind p) kwOr)
+    (let ((t (advance p)))
+      (try rhs (parseAnd p) (parseOrRest p (EBin opOr lhs rhs t.start))))
+    (Ok lhs)))
+
+(:: parseAnd (-> Ps (Result Expr Error)))
+(fn (parseAnd p)
+  (try lhs (parseNot p) (parseAndRest p lhs)))
+
+(:: parseAndRest (-> Ps Expr (Result Expr Error)))
+(fn (parseAndRest p lhs)
+  (if (== (peekKind p) kwAnd)
+    (let ((t (advance p)))
+      (try rhs (parseNot p) (parseAndRest p (EBin opAnd lhs rhs t.start))))
+    (Ok lhs)))
+
+; Any number of NOTs, counted in a loop rather than by recursion so a
+; long run of them costs no stack.
+(:: parseNot (-> Ps (Result Expr Error)))
+(fn (parseNot p)
+  (let ((mut nots 0))
+    {
+      (while (== (peekKind p) kwNot)
+        {
+          (advance p)
+          (set nots (+ nots 1))
+        })
+      (try e (parseEquality p) (Ok (wrapNots e nots)))
+    }))
+
+(:: wrapNots (-> Expr Int Expr))
+(fn (wrapNots e n)
+  (if (== n 0)
+    e
+    (wrapNots (ENot e) (- n 1))))
+
+(:: parseEquality (-> Ps (Result Expr Error)))
+(fn (parseEquality p)
+  (try lhs (parseRelation p) (parseEqualityRest p lhs)))
+
+(:: parseEqualityRest (-> Ps Expr (Result Expr Error)))
+(fn (parseEqualityRest p lhs)
+  (let ((k (peekKind p)))
+    (if (|| (== k tkEq) (== k tkNe))
+      (let ((t (advance p)))
+        (try
+          rhs
+          (parseRelation p)
+          (parseEqualityRest
+            p
+            (EBin
+              (if (== k tkEq)
+                opEq
+                opNe)
+              lhs
+              rhs
+              t.start))))
+      (if (== k kwIs)
+        {
+          (advance p)
+          (let ((negated (== (peekKind p) kwNot)))
+            {
+              (if negated
+                {
+                  (advance p)
+                  0
+                }
+                0)
+              (try _ (expect p kwNull "NULL") (parseEqualityRest p (EIsNull lhs negated)))
+            })
+        }
+        (Ok lhs)))))
+
+(:: parseRelation (-> Ps (Result Expr Error)))
+(fn (parseRelation p)
+  (try lhs (parseAdditive p) (parseRelationRest p lhs)))
+
+(:: relationOp (-> Int Int))
+(fn (relationOp k)
+  (if (== k tkLt)
+    opLt
+    (== k tkLe)
+    opLe
+    (== k tkGt)
+    opGt
+    (== k tkGe)
+    opGe
+    0))
+
+(:: parseRelationRest (-> Ps Expr (Result Expr Error)))
+(fn (parseRelationRest p lhs)
+  (let ((op (relationOp (peekKind p))))
+    (if (== op 0)
+      (Ok lhs)
+      (let ((t (advance p)))
+        (try rhs (parseAdditive p) (parseRelationRest p (EBin op lhs rhs t.start)))))))
+
+(:: parseAdditive (-> Ps (Result Expr Error)))
+(fn (parseAdditive p)
+  (try lhs (parseMultiplicative p) (parseAdditiveRest p lhs)))
+
+(:: parseAdditiveRest (-> Ps Expr (Result Expr Error)))
+(fn (parseAdditiveRest p lhs)
+  (let ((k (peekKind p)))
+    (if (|| (== k tkPlus) (== k tkMinus))
+      (let ((t (advance p)))
+        (try
+          rhs
+          (parseMultiplicative p)
+          (parseAdditiveRest
+            p
+            (EBin
+              (if (== k tkPlus)
+                opAdd
+                opSub)
+              lhs
+              rhs
+              t.start))))
+      (Ok lhs))))
+
+(:: multiplicativeOp (-> Int Int))
+(fn (multiplicativeOp k)
+  (if (== k tkStar)
+    opMul
+    (== k tkSlash)
+    opDiv
+    (== k tkPercent)
+    opMod
+    0))
+
+(:: parseMultiplicative (-> Ps (Result Expr Error)))
+(fn (parseMultiplicative p)
+  (try lhs (parseUnary p) (parseMultiplicativeRest p lhs)))
+
+(:: parseMultiplicativeRest (-> Ps Expr (Result Expr Error)))
+(fn (parseMultiplicativeRest p lhs)
+  (let ((op (multiplicativeOp (peekKind p))))
+    (if (== op 0)
+      (Ok lhs)
+      (let ((t (advance p)))
+        (try rhs (parseUnary p) (parseMultiplicativeRest p (EBin op lhs rhs t.start)))))))
+
+; Any number of unary minuses, in a loop as NOT is. The literal
+; 9223372036854775808 is an integer only directly after one.
+(:: parseUnary (-> Ps (Result Expr Error)))
+(fn (parseUnary p)
+  (let ((minuses vecNew))
+    {
+      (while (== (peekKind p) tkMinus)
+        (let ((t (advance p)))
+          (vecPush minuses t.start)))
+      (if (&& (> (vecLen minuses) 0) (== (peekKind p) tkIntMin))
+        {
+          (advance p)
+          (vecPop minuses)
+          (Ok (wrapNegs (ELit (VInt intMin)) minuses))
+        }
+        (try e (parsePrimary p) (Ok (wrapNegs e minuses))))
+    }))
+
+; `e` under a unary minus for each offset in `at`, the last innermost.
+(:: wrapNegs (-> Expr (Vec Int) Expr))
+(fn (wrapNegs e at)
+  (if (== (vecLen at) 0)
+    e
+    (wrapNegs (ENeg e (vecPop at)) at)))
+
+(:: parsePrimary (-> Ps (Result Expr Error)))
+(fn (parsePrimary p)
+  (let (
+    (t (peek p))
+    (k t.kind)
+  )
+    (if (== k tkInt)
+      {
+        (advance p)
+        (Ok (ELit (VInt t.num)))
+      }
+      (== k tkIntMin)
+      (failHere p "an integer literal larger than 64 bits")
+      (== k tkReal)
+      {
+        (advance p)
+        (Ok (ELit (VReal t.real)))
+      }
+      (== k tkStr)
+      {
+        (advance p)
+        (Ok (ELit (VText t.text)))
+      }
+      (== k tkBlob)
+      {
+        (advance p)
+        (Ok (ELit (VBlob t.text)))
+      }
+      (== k kwNull)
+      {
+        (advance p)
+        (Ok (ELit VNull))
+      }
+      (== k kwTrue)
+      {
+        (advance p)
+        (Ok (ELit (VInt 1)))
+      }
+      (== k kwFalse)
+      {
+        (advance p)
+        (Ok (ELit (VInt 0)))
+      }
+      (== k tkIdent)
+      {
+        (advance p)
+        (Ok (EName t.text t.start))
+      }
+      (|| (== k tkParamNext) (|| (== k tkParamNum) (== k tkParamName)))
+      (parseParam p)
+      (== k tkLParen)
+      (if (>= p.depth axqlMaxDepth)
+        (failHere p (strConcat "parentheses nested deeper than " (fmtInt axqlMaxDepth)))
+        {
+          (advance p)
+          (set p.depth (+ p.depth 1))
+          (try
+            e
+            (parseExpr p)
+            (try
+              _
+              (expect p tkRParen "\")\"")
+              {
+                (set p.depth (- p.depth 1))
+                (Ok e)
+              }))
+        })
+      (expected p "an expression"))))
+
+; A parameter, numbered as the header says.
+(:: parseParam (-> Ps (Result Expr Error)))
+(fn (parseParam p)
+  (let (
+    (t (peek p))
+    (k t.kind)
+  )
+    (if (== k tkParamName)
+      (if p.sawPositional
+        (failHere p "a statement can't mix positional and named parameters")
+        (let ((idx (nameIndex p.names t.text 0)))
+          {
+            (advance p)
+            (set p.sawNamed true)
+            (if (>= idx 0)
+              (Ok (EParam idx t.start))
+              {
+                (vecPush p.names t.text)
+                (set p.maxParam (vecLen p.names))
+                (if (> p.maxParam axqlMaxParams)
+                  (synErrAt p.src t.start (strConcat "more than " (strConcat (fmtInt axqlMaxParams) " parameters")))
+                  (Ok (EParam (- p.maxParam 1) t.start)))
+              })
+          }))
+      (if p.sawNamed
+        (failHere p "a statement can't mix positional and named parameters")
+        (let ((n 
+          (if (== k tkParamNum)
+            t.num
+            (+ p.maxParam 1))))
+          {
+            (advance p)
+            (set p.sawPositional true)
+            (if (> n p.maxParam)
+              {
+                (set p.maxParam n)
+                0
+              }
+              0)
+            (if (> n axqlMaxParams)
+              (synErrAt p.src t.start (strConcat "more than " (strConcat (fmtInt axqlMaxParams) " parameters")))
+              (Ok (EParam (- n 1) t.start)))
+          })))))
+
+; The index of `name` in `names` from `i`, or -1.
+(:: nameIndex (-> (Vec String) String Int Int))
+(fn (nameIndex names name i)
+  (if (>= i (vecLen names))
+    -1
+    (if (strEq (vecGet names i) name)
+      i
+      (nameIndex names name (+ i 1)))))
+
+; ------------------------------------------------------------------
+; Statements.
+; ------------------------------------------------------------------
+; `name (, name)*` inside parentheses.
+(:: parseNameList (-> Ps String (Result (Vec String) Error)))
+(fn (parseNameList p what)
+  (try _ (expect p tkLParen "\"(\"") (parseNameListRest p what vecNewRef)))
+
+(:: parseNameListRest (-> Ps String (Vec String) (Result (Vec String) Error)))
+(fn (parseNameListRest p what acc)
+  (try
+    n
+    (parseName p what)
+    {
+      (vecPush acc n)
+      (if (== (peekKind p) tkComma)
+        {
+          (advance p)
+          (parseNameListRest p what acc)
+        }
+        (try _ (expect p tkRParen "\",\" or \")\"") (Ok acc)))
+    }))
+
+; `expr (, expr)*` up to the closing parenthesis, which it consumes.
+(:: parseExprListRest (-> Ps (Vec Expr) (Result (Vec Expr) Error)))
+(fn (parseExprListRest p acc)
+  (try
+    e
+    (parseExpr p)
+    {
+      (vecPush acc e)
+      (if (== (peekKind p) tkComma)
+        {
+          (advance p)
+          (parseExprListRest p acc)
+        }
+        (try _ (expect p tkRParen "\",\" or \")\"") (Ok acc)))
+    }))
+
+(:: parseCreateTable (-> Ps (Result Stmt Error)))
+(fn (parseCreateTable p)
+  (try ine (parseIfNotExists p) (try name (parseName p "a table name") (try _ (expect p tkLParen "\"(\"") (try cols (parseColumnDefs p vecNewRef) (Ok (SCreateTable ine name cols)))))))
+
+(:: parseColumnDefs (-> Ps (Vec ColumnDef) (Result (Vec ColumnDef) Error)))
+(fn (parseColumnDefs p acc)
+  (try
+    c
+    (parseColumnDef p)
+    {
+      (vecPush acc c)
+      (if (== (peekKind p) tkComma)
+        {
+          (advance p)
+          (parseColumnDefs p acc)
+        }
+        (try _ (expect p tkRParen "\",\" or \")\"") (Ok acc)))
+    }))
+
+; `name TYPE [NOT NULL] [PRIMARY KEY]`, the constraints in either order.
+(:: parseColumnDef (-> Ps (Result ColumnDef Error)))
+(fn (parseColumnDef p)
+  (try
+    name
+    (parseName p "a column name")
+    (let ((ty 
+      (if (atWord p "INTEGER")
+        typeInteger
+        (atWord p "REAL")
+        typeReal
+        (atWord p "TEXT")
+        typeText
+        (atWord p "BLOB")
+        typeBlob
+        0)))
+      (if (== ty 0)
+        (expected p "a column type (INTEGER, REAL, TEXT or BLOB)")
+        {
+          (advance p)
+          (parseConstraints p (ColumnDef name ty false false))
+        }))))
+
+(:: parseConstraints (-> Ps ColumnDef (Result ColumnDef Error)))
+(fn (parseConstraints p c)
+  (let ((k (peekKind p)))
+    (if (== k kwNot)
+      {
+        (advance p)
+        (try _ (expect p kwNull "NULL") (parseConstraints p (ColumnDef c.name c.ctype true c.primaryKey)))
+      }
+      (if (== k kwPrimary)
+        {
+          (advance p)
+          (try _ (expectWord p "KEY") (parseConstraints p (ColumnDef c.name c.ctype c.notNull true)))
+        }
+        (Ok c)))))
+
+(:: parseDropTable (-> Ps (Result Stmt Error)))
+(fn (parseDropTable p)
+  (try ie (parseIfExists p) (try name (parseName p "a table name") (Ok (SDropTable ie name)))))
+
+(:: parseCreateIndex (-> Ps Bool (Result Stmt Error)))
+(fn (parseCreateIndex p unique)
+  (try _ (expect p kwIndex "INDEX") (try ine (parseIfNotExists p) (try name (parseName p "an index name") (try _ (expect p kwOn "ON") (try table (parseName p "a table name") (try cols (parseNameList p "a column name") (Ok (SCreateIndex
+    unique
+    ine
+    name
+    table
+    cols)))))))))
+
+(:: parseDropIndex (-> Ps (Result Stmt Error)))
+(fn (parseDropIndex p)
+  (try ie (parseIfExists p) (try name (parseName p "an index name") (Ok (SDropIndex ie name)))))
+
+(:: parseInsert (-> Ps (Result Stmt Error)))
+(fn (parseInsert p)
+  (try
+    _
+    (expect p kwInto "INTO")
+    (try
+      table
+      (parseName p "a table name")
+      (try
+        cols
+        (if (== (peekKind p) tkLParen)
+          (parseNameList p "a column name")
+          (Ok vecNewRef))
+        (try _ (expect p kwValues "VALUES") (try rows (parseRows p vecNewRef -1) (Ok (SInsert table cols rows))))))))
+
+; `(expr, ...) (, (expr, ...))*`, every row as long as the first.
+(:: parseRows (-> Ps (Vec (Vec Expr)) Int (Result (Vec (Vec Expr)) Error)))
+(fn (parseRows p acc width)
+  (let ((open (peek p)))
+    (try
+      _
+      (expect p tkLParen "\"(\"")
+      (try
+        row
+        (parseExprListRest p vecNewRef)
+        (if (&& (>= width 0) (!= (vecLen row) width))
+          (synErrAt p.src open.start "every row of VALUES needs the same number of values")
+          {
+            (vecPush acc row)
+            (if (== (peekKind p) tkComma)
+              {
+                (advance p)
+                (parseRows p acc (vecLen row))
+              }
+              (Ok acc))
+          })))))
+
+(:: parseUpdate (-> Ps (Result Stmt Error)))
+(fn (parseUpdate p)
+  (try table (parseName p "a table name") (try _ (expect p kwSet "SET") (try a (parseAssignments p (Assign vecNewRef vecNewRef)) (try w (parseOptWhere p) (Ok (SUpdate table a.cols a.exprs w)))))))
+
+; The assignments of an UPDATE, in two parallel vectors.
+(struct Assign
+  (cols : (Vec String))
+  (exprs : (Vec Expr)))
+
+; `name = expr (, name = expr)*`.
+(:: parseAssignments (-> Ps Assign (Result Assign Error)))
+(fn (parseAssignments p acc)
+  (try
+    col
+    (parseName p "a column name")
+    (try
+      _
+      (expect p tkEq "\"=\"")
+      (try
+        e
+        (parseExpr p)
+        {
+          (vecPush acc.cols col)
+          (vecPush acc.exprs e)
+          (if (== (peekKind p) tkComma)
+            {
+              (advance p)
+              (parseAssignments p acc)
+            }
+            (Ok acc))
+        }))))
+
+; `WHERE expr`, or nothing.
+(:: parseOptWhere (-> Ps (Result (Option Expr) Error)))
+(fn (parseOptWhere p)
+  (if (== (peekKind p) kwWhere)
+    {
+      (advance p)
+      (try e (parseExpr p) (Ok (Some e)))
+    }
+    (Ok None)))
+
+(:: parseDelete (-> Ps (Result Stmt Error)))
+(fn (parseDelete p)
+  (try _ (expect p kwFrom "FROM") (try table (parseName p "a table name") (try w (parseOptWhere p) (Ok (SDelete table w))))))
+
+; `SELECT * | item, ... [FROM t] [WHERE e] [ORDER BY term, ...]
+; [LIMIT e [OFFSET e]]`.
+(:: parseSelect (-> Ps (Result Stmt Error)))
+(fn (parseSelect p)
+  (let ((star (== (peekKind p) tkStar)))
+    {
+      (if star
+        {
+          (advance p)
+          0
+        }
+        0)
+      (try
+        items
+        (if star
+          (Ok vecNewRef)
+          (parseSelectItems p vecNewRef))
+        (try
+          from
+          (if (== (peekKind p) kwFrom)
+            {
+              (advance p)
+              (parseName p "a table name")
+            }
+            (if star
+              (expected p "FROM, because `*` needs a table")
+              (Ok "")))
+          (try
+            w
+            (parseOptWhere p)
+            (try
+              order
+              (if (== (peekKind p) kwOrder)
+                {
+                  (advance p)
+                  (try _ (expect p kwBy "BY") (parseOrderTerms p vecNewRef))
+                }
+                (Ok vecNewRef))
+              (try
+                lim
+                (if (== (peekKind p) kwLimit)
+                  {
+                    (advance p)
+                    (try e (parseExpr p) (Ok (Some e)))
+                  }
+                  (Ok None))
+                (try
+                  off
+                  (if (&& (isSome lim) (== (peekKind p) kwOffset))
+                    {
+                      (advance p)
+                      (try e (parseExpr p) (Ok (Some e)))
+                    }
+                    (Ok None))
+                  (Ok (SSelect (Select
+                    star
+                    items
+                    from
+                    w
+                    order
+                    lim
+                    off)))))))))
+    }))
+
+(:: parseSelectItems (-> Ps (Vec SelectItem) (Result (Vec SelectItem) Error)))
+(fn (parseSelectItems p acc)
+  (let (
+    (t (peek p))
+    (start t.start)
+  )
+    (try
+      e
+      (parseExpr p)
+      (let ((text (strSlice p.src start (- (prevEnd p) start))))
+        (try
+          alias
+          (if (== (peekKind p) kwAs)
+            {
+              (advance p)
+              (parseName p "a column alias")
+            }
+            (Ok ""))
+          {
+            (vecPush acc (SelectItem e alias text))
+            (if (== (peekKind p) tkComma)
+              {
+                (advance p)
+                (parseSelectItems p acc)
+              }
+              (Ok acc))
+          })))))
+
+(:: parseOrderTerms (-> Ps (Vec OrderTerm) (Result (Vec OrderTerm) Error)))
+(fn (parseOrderTerms p acc)
+  (try
+    e
+    (parseExpr p)
+    (let ((desc (atWord p "DESC")))
+      {
+        (if (|| desc (atWord p "ASC"))
+          {
+            (advance p)
+            0
+          }
+          0)
+        (vecPush acc (OrderTerm e desc))
+        (if (== (peekKind p) tkComma)
+          {
+            (advance p)
+            (parseOrderTerms p acc)
+          }
+          (Ok acc))
+      })))
+
+; `BEGIN`, `COMMIT` or `ROLLBACK`, each with an optional `TRANSACTION`.
+(:: parseTxnWord (-> Ps Stmt (Result Stmt Error)))
+(fn (parseTxnWord p s)
+  {
+    (if (atWord p "TRANSACTION")
+      {
+        (advance p)
+        0
+      }
+      0)
+    (Ok s)
+  })
+
+; One statement, from the current token.
+(:: parseStatement (-> Ps (Result Stmt Error)))
+(fn (parseStatement p)
+  (let ((k (peekKind p)))
+    (if (== k kwSelect)
+      {
+        (advance p)
+        (parseSelect p)
+      }
+      (== k kwInsert)
+      {
+        (advance p)
+        (parseInsert p)
+      }
+      (== k kwUpdate)
+      {
+        (advance p)
+        (parseUpdate p)
+      }
+      (== k kwDelete)
+      {
+        (advance p)
+        (parseDelete p)
+      }
+      (== k kwCreate)
+      {
+        (advance p)
+        (if (== (peekKind p) kwTable)
+          {
+            (advance p)
+            (parseCreateTable p)
+          }
+          (== (peekKind p) kwUnique)
+          {
+            (advance p)
+            (parseCreateIndex p true)
+          }
+          (== (peekKind p) kwIndex)
+          (parseCreateIndex p false)
+          (expected p "TABLE, INDEX or UNIQUE INDEX"))
+      }
+      (== k kwDrop)
+      {
+        (advance p)
+        (if (== (peekKind p) kwTable)
+          {
+            (advance p)
+            (parseDropTable p)
+          }
+          (== (peekKind p) kwIndex)
+          {
+            (advance p)
+            (parseDropIndex p)
+          }
+          (expected p "TABLE or INDEX"))
+      }
+      (== k kwBegin)
+      {
+        (advance p)
+        (parseTxnWord p SBegin)
+      }
+      (== k kwCommit)
+      {
+        (advance p)
+        (parseTxnWord p SCommit)
+      }
+      (== k kwRollback)
+      {
+        (advance p)
+        (parseTxnWord p SRollback)
+      }
+      (expected p "a statement"))))
+
+; A parser over the tokens of `src`, or the lexer's refusal.
+(:: newParser (-> String (Result Ps Error)))
+(fn (newParser src)
+  (try toks (lex src) (Ok (Ps
+    src
+    toks
+    0
+    0
+    0
+    vecNewRef
+    false
+    false))))
+
+; Parse one statement starting at the current token and wrap it with its
+; parameters and its text. The parameter scan starts afresh for each
+; statement.
+(:: parseOne (-> Ps (Result Parsed Error)))
+(fn (parseOne p)
+  (let ((first (peek p)))
+    {
+      (set p.maxParam 0)
+      (set p.sawPositional false)
+      (set p.sawNamed false)
+      (vecClear p.names)
+      (try
+        s
+        (parseStatement p)
+        (let ((names vecNewRef))
+          {
+            (for n in p.names
+              (vecPush names n))
+            (Ok (Parsed s p.maxParam names (strSlice p.src first.start (- (prevEnd p) first.start))))
+          }))
+    }))
+
+; ------------------------------------------------------------------
+; The entry points.
+; ------------------------------------------------------------------
+; Parse exactly one statement, with an optional `;` after it and
+; nothing else but whitespace and comments.
+(pub :: axqlParse (-> String (Result Parsed Error)))
+(pub fn (axqlParse src)
+  (try
+    p
+    (newParser src)
+    (if (== (peekKind p) tkEof)
+      (expected p "a statement")
+      (try
+        parsed
+        (parseOne p)
+        (if (== (peekKind p) tkSemi)
+          {
+            (advance p)
+            (if (== (peekKind p) tkEof)
+              (Ok parsed)
+              (failHere p "one statement at a time; axqExecBatch runs a script"))
+          }
+          (if (== (peekKind p) tkEof)
+            (Ok parsed)
+            (expected p "the end of the statement")))))))
+
+; Parse a script: statements separated by `;`. Empty statements are
+; skipped, so a script may end with `;`.
+(pub :: axqlParseScript (-> String (Result (Vec Parsed) Error)))
+(pub fn (axqlParseScript src)
+  (try p (newParser src) (parseScriptRest p vecNewRef)))
+
+(:: parseScriptRest (-> Ps (Vec Parsed) (Result (Vec Parsed) Error)))
+(fn (parseScriptRest p acc)
+  (if (== (peekKind p) tkEof)
+    (Ok acc)
+    (if (== (peekKind p) tkSemi)
+      {
+        (advance p)
+        (parseScriptRest p acc)
+      }
+      (try
+        parsed
+        (parseOne p)
+        {
+          (vecPush acc parsed)
+          (if (== (peekKind p) tkSemi)
+            {
+              (advance p)
+              (parseScriptRest p acc)
+            }
+            (if (== (peekKind p) tkEof)
+              (Ok acc)
+              (expected p "\";\" between statements")))
+        }))))
+
+; Whether `name` needs double quotes to be read as a name: it isn't
+; `[A-Za-z_][A-Za-z0-9_]*`, or it spells a reserved word.
+(pub :: axqlNameNeedsQuotes (-> String Bool))
+(pub fn (axqlNameNeedsQuotes name)
+  (let (
+    (n (strLen name))
+    (mut plain (&& (> n 0) (isIdentStart (strByte name 0))))
+  )
+    {
+      (for i 1 n
+        (if (isIdentPart (strByte name i))
+          0
+          {
+            (set plain false)
+            0
+          }))
+      (|| (! plain) (!= (keywordKind name 0 n) tkIdent))
+    }))

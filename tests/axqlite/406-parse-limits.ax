@@ -1,0 +1,42 @@
+; The parser's budgets: parentheses nest at most 200 deep, and a long
+; run of operators or NOTs costs no stack while it parses.
+(import IO)
+(import Str)
+(import Err)
+(import Vec)
+(import Axqlite.AxqlAst)
+(import Axqlite.AxqlParse)
+
+(:: repeat (-> String Int String))
+(fn (repeat s n)
+  (let ((parts vecNewRef))
+    {
+      (for i 0 n
+        (vecPush parts s))
+      (let ((mut out ""))
+        {
+          (for p in parts
+            (set out (strConcat out p)))
+          out
+        })
+    }))
+
+(:: outcome (-> String String))
+(fn (outcome text)
+  (match (axqlParse text)
+    ((Ok p) (strConcat "ok params=" (format p.paramCount)))
+    ((Err e) (strConcat "error: " (errMessage e)))))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (println (outcome (strConcat "SELECT " (strConcat (repeat "(" 200) (strConcat "1" (repeat ")" 200))))))
+    (println (outcome (strConcat "SELECT " (strConcat (repeat "(" 201) (strConcat "1" (repeat ")" 201))))))
+    (println (outcome (strConcat "SELECT " (strConcat (repeat "NOT " 100000) "1"))))
+    (println (outcome (strConcat "SELECT " (strConcat (repeat "- " 100000) "1"))))
+    (println (outcome (strConcat "SELECT 1" (repeat " + 1" 5000))))
+    (println (outcome (strConcat "SELECT ?" (repeat ", ?" 32765))))
+    (println (outcome (strConcat "SELECT ?" (repeat ", ?" 32766))))
+    0
+  })

@@ -61,6 +61,17 @@ bad() { echo "FAIL $*"; failed=$((failed + 1)); }
 # of which one to carry is a decision this list makes visible.
 modules="
 stdlib/Agent/Tags.ax
+stdlib/Axqlite.ax
+stdlib/Axqlite/AxqlAst.ax
+stdlib/Axqlite/AxqlEval.ax
+stdlib/Axqlite/AxqlExec.ax
+stdlib/Axqlite/AxqlMacro.ax
+stdlib/Axqlite/AxqlParse.ax
+stdlib/Axqlite/AxqlSchema.ax
+stdlib/Axqlite/Btree.ax
+stdlib/Axqlite/Pager.ax
+stdlib/Axqlite/Record.ax
+stdlib/Axqlite/Value.ax
 stdlib/Chan.ax
 stdlib/Chrono.ax
 stdlib/Crypto/Aead.ax
@@ -101,9 +112,9 @@ stdlib/Path.ax
 stdlib/Pre.ax
 stdlib/Rpc.ax
 stdlib/Str.ax
+stdlib/Sync.ax
 stdlib/Sys.ax
 stdlib/Sys/Platform.darwin.ax
-stdlib/Sync.ax
 stdlib/Task.ax
 stdlib/Test.ax
 stdlib/Tui/Edit.ax

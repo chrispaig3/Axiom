@@ -1,0 +1,9 @@
+insert: 42 fault points; 19 pages spilled before the commit; 135168 bytes before, 208896 after
+insert, fail: 42 crash points; 42 before, 0 after; 0 left a journal header
+insert, tear: 42 crash points; 40 before, 2 after; 39 left a journal header
+insert, power loss: 42 crash points; 41 before, 1 after; 39 left a journal header
+insert, power loss, unsynced writes lost: 42 crash points; 42 before, 0 after; 36 left a journal header
+insert, power loss, the journal's unsynced writes lost: 42 crash points; 42 before, 0 after; 36 left a journal header
+insert, power loss, the database's unsynced writes lost: 42 crash points; 41 before, 1 after; 39 left a journal header
+insert: 12 hot journals, their recovery crashed 702 ways, and recovered again to the before state
+201-crash-insert: 1001 checks, 0 failed

@@ -1,0 +1,21 @@
+; A finalized statement used again stops the program with status 85.
+(import IO)
+(import Err)
+(import Axqlite)
+(import AxqlKit)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((db (kitOpen "fin.db")))
+    (match (axqPrepare db "SELECT 1")
+      ((Ok st)
+        {
+          (kitRun "finalize" (axqFinalize st))
+          (println "using it again")
+          (kitRows "again" (axqQuery st vec0))
+          (println "not reached")
+          0
+        }
+      )
+      ((Err e) 1))))

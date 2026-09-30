@@ -1,0 +1,109 @@
+; Crashing a transaction that rewrites long values: 20 of 60 rows get
+; new values of 3 to 20 kilobytes (new overflow chains, old ones freed),
+; 15 are deleted with their chains, 10 short rows arrive, and the
+; header's schema version and a meta word change, under an 8-page cache.
+; Every fault kind at every point gives exactly the before or after
+; file on reopen, and a sample of crashed recoveries recover again.
+(import IO)
+(import Str)
+(import Vec)
+(import Err)
+(import Axqlite.Pager)
+(import Axqlite.Btree)
+(import StoreTest)
+(import StoreDb)
+(import StoreCrash)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((t tallyNew))
+    (let ((root 
+      (buildBase
+        "base.db"
+        (lambda (p)
+          (andThen
+            (btreeCreate p btreeTable)
+            (lambda (r)
+              (let ((mut failed None))
+                {
+                  (for n 0 60
+                    (if (isSome failed)
+                      0
+                      (match (btreePut p r (keyRowid n) (rowBytes n (+ 1000 (* (% n 7) 1200))))
+                        ((Err e)
+                          {
+                            (set failed (Some e))
+                            0
+                          }
+                        )
+                        ((Ok _) 0))))
+                  (match failed
+                    ((Some e) (Err e))
+                    ((None) (Ok r)))
+                })
+            ))
+        ))))
+      (let (
+        (roots (vecPush (vecPush vecNew btreeSchemaRoot) root))
+        (txn (lambda (p)
+          (let ((mut failed None))
+            {
+              (for n 0 20
+                (if (isSome failed)
+                  0
+                  (match (btreePut p root (keyRowid (* n 2)) (rowBytes (+ n 500) (+ 3000 (* (% n 5) 4000))))
+                    ((Err e)
+                      {
+                        (set failed (Some e))
+                        0
+                      }
+                    )
+                    ((Ok _) 0))))
+              (match failed
+                ((Some e) (Err e))
+                ((None)
+                  (andThen
+                    (deleteRows
+                      p
+                      root
+                      1
+                      31
+                      2)
+                    (lambda (_)
+                      (andThen
+                        (putRows
+                          p
+                          root
+                          200
+                          210
+                          1
+                          20)
+                        (lambda (_)
+                          (andThen
+                            (pagerBumpSchemaVersion p)
+                            (lambda (_) (pagerSetMeta p 2 99)))
+                        ))
+                    ))
+                ))
+            })
+        ))
+      )
+        {
+          (crashSweep
+            t
+            "overflow"
+            "base.db"
+            8
+            txn
+            roots
+            (lambda (_) roots))
+          (recoverySweep
+            t
+            "overflow"
+            "base.db"
+            8
+            txn
+            15)
+          (tallyReport t "203-crash-overflow")
+        }))))

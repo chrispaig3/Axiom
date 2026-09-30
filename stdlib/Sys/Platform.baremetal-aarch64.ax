@@ -742,3 +742,58 @@
 (pub :: tcpNoDelayOpt Int)
 (pub fn (tcpNoDelayOpt)
   1)
+
+; ------------------------------------------------------------------
+; Files a database keeps open (`stdlib/Axqlite/Pager.ax`). Bare metal
+; has no file system, so each number is 0 and `Sys.ax` answers the
+; unsupported error without making a call.
+; ------------------------------------------------------------------
+; none
+(pub :: sysPreadNum Int)
+(pub fn (sysPreadNum)
+  0)
+
+; none
+(pub :: sysPwriteNum Int)
+(pub fn (sysPwriteNum)
+  0)
+
+; none
+(pub :: sysFsyncNum Int)
+(pub fn (sysFsyncNum)
+  0)
+
+; none
+(pub :: sysFtruncateNum Int)
+(pub fn (sysFtruncateNum)
+  0)
+
+; none
+(pub :: sysFlockNum Int)
+(pub fn (sysFlockNum)
+  0)
+
+; none
+(pub :: fsyncUsesFullFsync Int)
+(pub fn (fsyncUsesFullFsync)
+  0)
+
+; none
+(pub :: fFullFsync Int)
+(pub fn (fFullFsync)
+  0)
+
+; none
+(pub :: oRdwr Int)
+(pub fn (oRdwr)
+  0)
+
+; none
+(pub :: oCreat Int)
+(pub fn (oCreat)
+  0)
+
+; none
+(pub :: oCloexec Int)
+(pub fn (oCloexec)
+  0)

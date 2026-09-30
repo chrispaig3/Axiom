@@ -1,0 +1,376 @@
+; Two processes: this program runs a second copy of itself as a child,
+; and the two meet only through the file and marker files beside it.
+; A child reading shares the file with the parent's read and keeps the
+; parent from writing. A child writing keeps the parent from reading or
+; writing, while its uncommitted pages sit spilled in the file, and its
+; rollback leaves the file as it was. A child killed mid write (SIGKILL,
+; no chance to clean up) releases its lock with its descriptors, and the
+; parent's next read recovers the journal it left. And a parent and a
+; child each adding 1 to one counter 100 times, retrying whenever the
+; other holds the file, end at 200: no update is lost.
+(import IO)
+(import Str)
+(import Vec)
+(import Err)
+(import Mem)
+(import Sys)
+(import Axqlite.Value)
+(import Axqlite.Record)
+(import Axqlite.Pager)
+(import Axqlite.Btree)
+(import StoreTest)
+(import StoreDb)
+(import StoreCrash)
+
+(:: is (-> Tally (Result a Error) Int String Int))
+;@axiom:effect(io)
+(fn (is t r code label)
+  (check t (== (codeOf r) code) (strConcat label (strConcat ": got " (errText r)))))
+
+; Run this program again as a child in `mode`.
+(:: spawnChild (-> String (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+(fn (spawnChild mode)
+  (let (
+    (self (sysArg 0))
+    (argv (memAlloc 32))
+  )
+    {
+      (memSetWord argv 0 (strCStr self))
+      (memSetWord argv 1 (strCStr "--child"))
+      (memSetWord argv 2 (strCStr mode))
+      (memSetWord argv 3 0)
+      (sysSpawn (strCStr self) argv sysEnvp)
+    }))
+
+; Microseconds on the clock.
+(:: now Int)
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (now)
+  (unwrapOr (sysNowMicros (memAlloc 16)) 0))
+
+; Wait, polling, until `path` exists; false after 30 seconds.
+(:: waitFor (-> String Bool))
+;@axiom:effect(io)
+(fn (waitFor path)
+  (let (
+    (deadline (+ now 30000000))
+    (mut seen false)
+  )
+    {
+      (while (&& (! seen) (< now deadline))
+        (set seen (fileExists path)))
+      seen
+    }))
+
+; Wait for a child and answer its exit code, or 128 + the signal that
+; killed it.
+(:: reap (-> Int Int))
+;@axiom:effect(io)
+;@axiom:effect(block)
+(fn (reap pid)
+  (match (sysWaitPid pid)
+    ((Ok status)
+      (if (== (sysTermSignal status) 0)
+        (sysExitCode status)
+        (+ 128 (sysTermSignal status)))
+    )
+    ((Err e) -1)))
+
+(:: counterKey String)
+(fn (counterKey)
+  (keyRowid 1000))
+
+; Rewrite rows 0..49 with `v` and 300 bytes after it, so fifty rows
+; fill more pages than a 4-page cache holds.
+(:: rewrite (-> Pager Int String (Result Int Error)))
+;@axiom:effect(io)
+(fn (rewrite p root v)
+  (let (
+    (mut failed None)
+    (long (strConcat v (rowBytes 1 300)))
+  )
+    {
+      (for n 0 50
+        (if (isSome failed)
+          0
+          (match (btreePut p root (keyRowid n) long)
+            ((Err e)
+              {
+                (set failed (Some e))
+                0
+              }
+            )
+            ((Ok _) 0))))
+      (match failed
+        ((Some e) (Err e))
+        ((None) (Ok 0)))
+    }))
+
+; Add 1 to the counter row in a transaction of its own, retrying for as
+; long as the other process holds the file. Answers 1 when the change
+; failed, and says why on stderr.
+(:: increment (-> Pager Int Int))
+;@axiom:effect(io)
+(fn (increment p root)
+  (let (
+    (mut done false)
+    (mut busy 0)
+    (mut failed 0)
+  )
+    {
+      (while (&& (! done) (< busy 100000000))
+        (match (pagerBeginWrite p)
+          ((Err e)
+            {
+              (set busy (+ busy 1))
+              0
+            }
+          )
+          ((Ok _)
+            (let ((n 
+              (match (btreeGet p root counterKey)
+                ((Ok (Some v)) (optUnwrapOr (strParseInt v) -1000000))
+                (_ -1000000))))
+              {
+                (match (andThen
+                  (btreePut p root counterKey (fmtInt (+ n 1)))
+                  (lambda (_) (pagerCommit p)))
+                  ((Ok _) 0)
+                  ((Err e)
+                    {
+                      (eprintln (strConcat "increment failed: " (errorText e)))
+                      (set failed (+ failed 1))
+                      (let ((_ (pagerRollback p)))
+                        0)
+                    }
+                  ))
+                (set done true)
+                0
+              })
+          )))
+      failed
+    }))
+
+; The tree's root, from the header's meta word 0, retrying while the
+; parent holds the file.
+(:: rootOf (-> Pager Int))
+;@axiom:effect(io)
+(fn (rootOf p)
+  (let (
+    (mut root 0)
+    (mut tries 0)
+  )
+    {
+      (while (&& (== root 0) (< tries 100000000))
+        {
+          (match (andThen
+            (pagerBeginRead p)
+            (lambda (_) (pagerMeta p 0)))
+            ((Ok r)
+              (set root r)
+            )
+            ((Err e) 0))
+          (let ((_ (pagerEndRead p)))
+            0)
+          (set tries (+ tries 1))
+        })
+      root
+    }))
+
+; The child: `mode` says what to hold and what to wait for. It prints
+; nothing; its exit code says whether each step went as planned.
+(:: child (-> String Int))
+;@axiom:effect(io)
+(fn (child mode)
+  (match (pagerOpen "xp.db" false false 4)
+    ((Err e) 10)
+    ((Ok p)
+      {
+        (pagerSetDurable p false)
+        (let ((root (rootOf p)))
+          (if (strEq mode "hold-read")
+            (if (isErr (pagerBeginRead p))
+              11
+              {
+                (let ((_ (writeFile "ready-read" "1")))
+                  0)
+                (if (waitFor "go-read")
+                  0
+                  12)
+              })
+            (if (strEq mode "hold-write")
+              (if (isErr
+                (andThen
+                  (pagerBeginWrite p)
+                  (lambda (_) (rewrite p root "the child's, never committed, and long enough to spill"))))
+                13
+                {
+                  (let ((_ (writeFile "ready-write" "1")))
+                    0)
+                  (if (waitFor "go-write")
+                    (if (isErr (pagerRollback p))
+                      14
+                      0)
+                    15)
+                })
+              (if (strEq mode "die-writing")
+                (if (isErr
+                  (andThen
+                    (pagerBeginWrite p)
+                    (lambda (_) (rewrite p root "the child's, dying, and long enough to spill from the cache"))))
+                  16
+                  {
+                    (let ((_ (writeFile "ready-die" "1")))
+                      0)
+                    ; the parent kills us; the file never appears
+                    (waitFor "never")
+                    17
+                  })
+                (if (strEq mode "increment")
+                  (let ((mut failed 0))
+                    {
+                      (for i 0 100
+                        (set failed (+ failed (increment p root))))
+                      (if (== failed 0)
+                        0
+                        19)
+                    })
+                  18)))))
+      }
+    )))
+
+(:: parent Int)
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(fn (parent)
+  (let (
+    (t tallyNew)
+    (box (Box 0))
+  )
+    {
+      (let ((_ 
+        (buildBase
+          "xp.db"
+          (lambda (p)
+            (andThen
+              (btreeCreate p btreeTable)
+              (lambda (r)
+                {
+                  (set box.v r)
+                  (andThen
+                    (pagerSetMeta p 0 r)
+                    (lambda (_)
+                      (andThen
+                        (rewrite p r "original")
+                        (lambda (_)
+                          (mapOk
+                            (btreePut p r counterKey "0")
+                            (lambda (_) 0))
+                        ))
+                    ))
+                }
+              ))
+          ))))
+        0)
+      (let (
+        (root box.v)
+        (p (openOrDie "xp.db" 16))
+        (before (fileHash "xp.db"))
+      )
+        {
+          (pagerSetDurable p false)
+          ; a child reading
+          (match (spawnChild "hold-read")
+            ((Err e) (check t false "spawn hold-read"))
+            ((Ok pid)
+              {
+                (check t (waitFor "ready-read") "the reading child is ready")
+                (is t (pagerBeginRead p) 0 "the parent reads beside the reading child")
+                (is t (pagerEndRead p) 0 "end read")
+                (is t (pagerBeginWrite p) axqBusy "the parent can't write while the child reads")
+                (let ((_ (writeFile "go-read" "1")))
+                  0)
+                (check t (== (reap pid) 0) "the reading child finishes cleanly")
+                (is t (pagerBeginWrite p) 0 "then the parent writes")
+                (is t (pagerRollback p) 0 "rollback")
+              }
+            ))
+          ; a child writing
+          (match (spawnChild "hold-write")
+            ((Err e) (check t false "spawn hold-write"))
+            ((Ok pid)
+              {
+                (check t (waitFor "ready-write") "the writing child is ready")
+                (is t (pagerBeginRead p) axqBusy "the parent can't read while the child writes")
+                (is t (pagerBeginWrite p) axqBusy "nor write")
+                (check t (!= (fileHash "xp.db") before) "the child's uncommitted pages are in the file")
+                (let ((_ (writeFile "go-write" "1")))
+                  0)
+                (check t (== (reap pid) 0) "the writing child rolls back cleanly")
+                (check t (== (fileHash "xp.db") before) "and the file is as it was")
+                (match (andThen
+                  (pagerBeginRead p)
+                  (lambda (_) (btreeGet p root (keyRowid 3))))
+                  ((Ok (Some v)) (check t (strStartsWith v "original") "the parent reads the original row"))
+                  (_ (check t false "the parent reads row 3")))
+                (is t (pagerEndRead p) 0 "end read")
+              }
+            ))
+          ; a child killed mid write
+          (match (spawnChild "die-writing")
+            ((Err e) (check t false "spawn die-writing"))
+            ((Ok pid)
+              {
+                (check t (waitFor "ready-die") "the doomed child is writing")
+                (is t (pagerBeginRead p) axqBusy "the parent can't read while it writes")
+                (check t (!= (fileHash "xp.db") before) "its pages are in the file")
+                (check t (== (codeOf (sysKill pid 9)) 0) "SIGKILL")
+                (check t (== (reap pid) 137) "the child died of SIGKILL")
+                (match (andThen
+                  (pagerBeginRead p)
+                  (lambda (_) (btreeGet p root (keyRowid 3))))
+                  ((Ok (Some v)) (check t (strStartsWith v "original") "the parent recovers the journal and reads the original row"))
+                  (_ (check t false "the parent reads row 3 after the kill")))
+                (is t (btreeCheck p (vecPush (vecPush vecNew btreeSchemaRoot) root)) 0 "the recovered file checks")
+                (is t (pagerEndRead p) 0 "end read")
+                (check t (== (fileHash "xp.db") before) "recovery restores the file byte for byte")
+              }
+            ))
+          ; both processes add to one counter
+          (match (spawnChild "increment")
+            ((Err e) (check t false "spawn increment"))
+            ((Ok pid)
+              {
+                (let ((mut failed 0))
+                  {
+                    (for i 0 100
+                      (set failed (+ failed (increment p root))))
+                    (check t (== failed 0) "every increment of the parent's commits")
+                  })
+                (check t (== (reap pid) 0) "every increment of the child's commits")
+                (match (andThen
+                  (pagerBeginRead p)
+                  (lambda (_) (btreeGet p root counterKey)))
+                  ((Ok (Some v)) (check t (strEq v "200") (strConcat "100 + 100 increments make 200, not " v)))
+                  (_ (check t false "read the counter")))
+                (is t (pagerEndRead p) 0 "end read")
+              }
+            ))
+          (is t (pagerClose p) 0 "close")
+        })
+      (tallyReport t "302-two-processes")
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(fn (main)
+  (if (strEq (sysArg 1) "--child")
+    (child (sysArg 2))
+    parent))

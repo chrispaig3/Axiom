@@ -1,0 +1,9 @@
+empty: ok
+a: ok
+abc: ok
+0..255 x16, seed 0: ok
+0..255 x16, seed 7: ok
+4088 zero bytes, seed 3: ok
+100 x's, seed 12345: ok
+a 4100-byte record, 64-bit seed: ok
+103-checksum: 8 checks, 0 failed

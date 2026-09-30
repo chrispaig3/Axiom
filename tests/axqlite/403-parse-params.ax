@@ -1,0 +1,33 @@
+; Parameters: `?` takes the next number after the largest so far, `?N`
+; its own, and `:name` one number per name by first appearance.
+(import IO)
+(import AxqlPrint)
+
+(:: show (-> String Int))
+;@axiom:effect(io)
+(fn (show text)
+  (println (axqlPrintParse text)))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (show "SELECT ?, ?, ?")
+    (show "SELECT ?2, ?, ?1, ?")
+    (show "SELECT ?5")
+    (show "SELECT ?3, ?3")
+    (show "SELECT :a, :b, :a, :c")
+    (show "SELECT :x_1, :Y")
+    (show "INSERT INTO t VALUES (:id, :name), (:id, :other)")
+    (show "UPDATE t SET a = ? WHERE b = ? AND c = ?1")
+    (show "SELECT a FROM t WHERE a = ? LIMIT ? OFFSET ?")
+    (show "SELECT ?32766")
+    (show "SELECT ?, :a")
+    (show "SELECT :a, ?")
+    (show "SELECT ?0")
+    (show "SELECT ?32767")
+    (show "SELECT ?1a")
+    (show "SELECT :")
+    (show "SELECT :1")
+    0
+  })

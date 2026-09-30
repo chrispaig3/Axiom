@@ -22,12 +22,27 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+- `Axqlite`: an embedded database in one file, with its own query
+  language, AXQL. Tables and indices are B+trees in checksummed pages,
+  every write goes through a rollback journal so a crash at any point
+  recovers to the last commit, and two connections or two processes
+  share a file under file locks. `axqOpen`, `axqExec`, prepared
+  statements with bound values, transactions and typed row readers are
+  the API, and `Axqlite.AxqlMacro` writes statements as Axiom forms,
+  checked when the program compiles, that pass every value as a bound
+  parameter. `docs/axqlite.md` is the guide, `docs/axql.md` the
+  language and `docs/axqlite-format.md` the file format
+  (`scripts/check-axqlite.sh`). `Sys` gains what it needs:
+  `sysOpenRw`, `sysOpenRo`, `sysPread`, `sysPwrite`, `sysFsync`,
+  `sysFtruncate`, `sysFdSize` and `sysFlock` with its lock modes. On
+  Windows each answers the unsupported error for now.
 - `windows-aarch64` is a target. `axiom build --target=windows-aarch64`
   emits arm64 Windows code (`aarch64-pc-windows-msvc`) and links a
   `.exe` with `lld-link /machine:arm64` against an arm64
   `kernel32.lib`. It is source-only, like `windows-x86_64`: CI
   assembles every standard-library case for it and emits its hello
   world, and no runner executes it.
+||||||| parent of 06391f4a (wip axqlite)
 - A `;@axiom:ct(...)` claim is checked when the program compiles. The
   compiler follows each named secret through the body and refuses a
   branch, a memory address or a division that depends on one, and a

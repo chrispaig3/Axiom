@@ -1,0 +1,3 @@
+creating a database passes 9 fault points
+54 crashed creations, each reopened as a new database
+205-crash-create: 108 checks, 0 failed

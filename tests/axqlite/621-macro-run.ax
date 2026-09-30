@@ -1,0 +1,99 @@
+; A database built and queried through the macros gives the rows the
+; same statements give as text with the same parameters.
+(import IO)
+(import Str)
+(import Vec)
+(import Err)
+(import Axqlite)
+(import Axqlite.Value)
+(import AxqlKit)
+
+; The rows a query answers, one text line each.
+(:: rowsOf (-> (Result Rows Error) (Vec String)))
+(fn (rowsOf r)
+  (let ((out vecNewRef))
+    {
+      (match r
+        ((Ok rs)
+          (for row in rs.rows
+            (vecPush out (axqlRowText row)))
+        )
+        ((Err e)
+          {
+            (vecPush out (kitErrText e))
+            0
+          }
+        ))
+      out
+    }))
+
+; Run a macro query and its text twin, and say whether they agree.
+(:: agree (-> Connection String Query Query Int))
+;@axiom:effect(io)
+(fn (agree db label a b)
+  (let (
+    (ra (rowsOf (axqQueryOn db a)))
+    (rb (rowsOf (axqQueryOn db b)))
+    (n (vecLen ra))
+    (mut same (== (vecLen ra) (vecLen rb)))
+  )
+    {
+      (for (x i) in ra
+        (if (&& same (! (strEq x (vecGet rb i))))
+          {
+            (set same false)
+            0
+          }
+          0))
+      (if same
+        (println "{label}: agree on {n} rows")
+        (println "{label}: DISAGREE"))
+      (for x in ra
+        (println "  {x}"))
+      0
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (db (kitOpen "macro.db"))
+    (people (vec3 (VText "ada") (VText "bob") (VText "cy")))
+  )
+    {
+      (kitRun "create" (axqRunOn db (axqlCreateTable
+        people
+        (id INTEGER PRIMARY KEY)
+        (name TEXT NOT NULL)
+        (age INTEGER)
+        (score REAL))))
+      (kitRun "index" (axqRunOn db (axqlCreateIndex
+        UNIQUE
+        byName
+        ON
+        people
+        (name))))
+      (for (p i) in people
+        (kitRun "insert" (axqRunOn db (axqlInsert people (name age score) (values (param p) (int (+ 30 (* i 5))) (real 1.5))))))
+      (kitRun "insert two" (axqRunOn db (axqlInsert people (name age) (values (text "dee") null) (values (text "eve") (int 50)))))
+      (kitRun "a clash" (axqRunOn db (axqlInsert people (name) (values (text "ada")))))
+      (kitRun "update" (axqRunOn db (axqlUpdate people (assign (score (+ score (real 1.0))) (age (+ age (int 1)))) (where (>= age (int 35))))))
+      (kitRun "delete" (axqRunOn db (axqlDelete people (where (= name (text "eve"))))))
+      (let ((minAge 31))
+        {
+          (agree db "all" (axqlSelect people *) (Query "SELECT * FROM people" vec0))
+          (agree db "filtered" (axqlSelect people (name age) (where (and (> age (int minAge)) (isNotNull score))) (orderBy (age desc))) (Query "SELECT name, age FROM people WHERE (age > ?) AND (score IS NOT NULL) ORDER BY age DESC" (vec1 (VInt minAge))))
+          (agree db "expressions" (axqlSelect people (name (as (* age (int 2)) twice)) (where (or (isNull age) (< age (int 33)))) (orderBy name)) (Query "SELECT name, age * 2 AS twice FROM people WHERE age IS NULL OR age < 33 ORDER BY name" vec0))
+          (agree db "paged" (axqlSelect
+            people
+            id
+            (orderBy (id desc))
+            (limit 2)
+            (offset 1)) (Query "SELECT id FROM people ORDER BY id DESC LIMIT 2 OFFSET 1" vec0))
+        })
+      (kitRun "drop index" (axqRunOn db (axqlDropIndex byName)))
+      (kitRun "drop" (axqRunOn db (axqlDropTable IF EXISTS people)))
+      (kitRun "drop again" (axqRunOn db (axqlDropTable people)))
+      (kitRun "close" (axqClose db))
+      0
+    }))

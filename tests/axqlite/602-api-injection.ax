@@ -1,0 +1,64 @@
+; Parameters are values, never text: a value built to look like AXQL is
+; stored and compared as the bytes it is.
+(import IO)
+(import Err)
+(import Vec)
+(import Axqlite)
+(import Axqlite.Value)
+(import AxqlKit)
+
+(:: attempts (Vec String))
+(fn (attempts)
+  (let ((v vecNewRef))
+    {
+      (vecPush v "x'); DROP TABLE users; --")
+      (vecPush v "' OR 1=1 --")
+      (vecPush v "\"; DELETE FROM users; --")
+      (vecPush v "?, ?")
+      (vecPush v ":name")
+      (vecPush v "robert'); DROP TABLE users;--")
+      (vecPush v "")
+      (vecPush v "NULL")
+      v
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((db (kitOpen "inj.db")))
+    {
+      (kitRun "create" (axqExec db "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL)"))
+      (kitRun "seed" (axqExec db "INSERT INTO users (name) VALUES ('alice'), ('bob')"))
+      (match (axqPrepare db "INSERT INTO users (name) VALUES (?)")
+        ((Ok ins)
+          {
+            (for a in attempts
+              (kitRun "insert" (axqRun ins (vec1 (VText a)))))
+            (kitRun "finalize" (axqFinalize ins))
+          }
+        )
+        ((Err e) (println (kitErrText e))))
+      (match (axqPrepare db "SELECT id FROM users WHERE name = ?")
+        ((Ok q)
+          {
+            (for a in attempts
+              (kitRows "find" (axqQuery q (vec1 (VText a)))))
+            (kitRows "alice" (axqQuery q (vec1 (VText "alice"))))
+            (kitRows "a quote-trick" (axqQuery q (vec1 (VText "' OR '1'='1"))))
+            (kitRun "finalize" (axqFinalize q))
+          }
+        )
+        ((Err e) (println (kitErrText e))))
+      (match (axqPrepare db "SELECT name FROM users WHERE id = :id")
+        ((Ok q)
+          {
+            (kitRows "text for an id" (axqQuery q (vec1 (VText "1 OR 1=1"))))
+            (kitRows "an id" (axqQuery q (vec1 (VInt 2))))
+            (kitRun "finalize" (axqFinalize q))
+          }
+        )
+        ((Err e) (println (kitErrText e))))
+      (kitDump db "SELECT id, name FROM users ORDER BY id")
+      (kitRun "close" (axqClose db))
+      0
+    }))

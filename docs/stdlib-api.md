@@ -65,6 +65,340 @@ two differ.
 | `symAgentTag` | value | `(-> Sym String String)` | `Alloc,Mut` | The `agent:*` namespace, which the compiler records and does not check. `(symAgentTag s "rewrite")` reads `#agent:rewrite`. |
 | `symHasAgentTag` | value | `(-> Sym String Bool)` | `Alloc,Mut` |  |
 
+## `Axqlite`
+
+`stdlib/Axqlite.ax` — 58 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `OpenOptions` | struct |  |  | How `axqOpen` opens a database: whether a missing file becomes a new database, whether the connection may only read, and how many 4096-byte pages its cache holds. |
+| `openOptions` | value | `OpenOptions` | `Alloc` | The defaults: create the file when it's missing, read and write, and cache 256 pages (1 MiB). |
+| `Connection` | struct |  |  | An open database. |
+| `Statement` | struct |  |  | A prepared statement: its text, checked against the schema when it was prepared, and parsed again against the current schema each time it runs. |
+| `Transaction` | struct |  |  | An open transaction, from `axqBegin`. |
+| `axqOpen` | value | `(-> String OpenOptions (Result Connection Error))` | `Alloc,IO,Mut,Unsafe` | Open the database at `path`. A missing file is created when `opts.create` is true, and is `axqIoFailed` otherwise; a file that isn't an AXQLite database is `axqNotADatabase`. |
+| `axqClose` | value | `(-> Connection (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Close the connection, rolling back a transaction it has open. The handle is retired first, so any later use of it stops the program with status 85. Statements prepared on it must still be finalized. |
+| `axqValueText` | value | `(-> Value String)` | `Alloc,Mut` | A value written as AXQL would write it as a literal: an INTEGER in decimal, a REAL in the shortest form that reads back exactly, TEXT in single quotes with `''` for a quote, a BLOB as x'hex', and NULL. |
+| `axqlQuoteText` | value | `(-> String String)` | `Alloc,Mut,Unsafe` | `s` as an AXQL text literal: in single quotes, each quote doubled. |
+| `Row` | struct |  |  | One result row: the column names, shared by every row of a result, and the values. |
+| `Rows` | struct |  |  | A whole result: its column names and its rows. |
+| `rowLen` | value | `(-> Row Int)` |  | How many columns a row has. |
+| `rowName` | value | `(-> Row Int (Result String Error))` | `Alloc,Mut` | The name of column `i`, from 0. |
+| `rowIndex` | value | `(-> Row String (Result Int Error))` | `Alloc,Mut` | The number of the column named `name`, compared without regard to ASCII case; the first when two share it. |
+| `rowValue` | value | `(-> Row Int (Result Value Error))` | `Alloc,Mut` | The value in column `i`. |
+| `rowIsNull` | value | `(-> Row Int (Result Bool Error))` | `Alloc,Mut` | Whether column `i` is NULL. |
+| `rowInt` | value | `(-> Row Int (Result Int Error))` | `Alloc,Mut` | Column `i` as an INTEGER. Any other type, NULL included, is `axqType`. |
+| `rowReal` | value | `(-> Row Int (Result Float Error))` | `Alloc,Mut` | Column `i` as a REAL. An INTEGER is converted, as a REAL column converts one; any other type is `axqType`. |
+| `rowText` | value | `(-> Row Int (Result String Error))` | `Alloc,Mut` | Column `i` as TEXT. |
+| `rowBlob` | value | `(-> Row Int (Result String Error))` | `Alloc,Mut` | Column `i` as a BLOB's bytes. |
+| `rowValueNamed` | value | `(-> Row String (Result Value Error))` | `Alloc,Mut` | The value of the column named `name`. |
+| `rowIsNullNamed` | value | `(-> Row String (Result Bool Error))` | `Alloc,Mut` | Whether the column named `name` is NULL. |
+| `rowIntNamed` | value | `(-> Row String (Result Int Error))` | `Alloc,Mut` | The column named `name` as an INTEGER. |
+| `rowRealNamed` | value | `(-> Row String (Result Float Error))` | `Alloc,Mut` | The column named `name` as a REAL. |
+| `rowTextNamed` | value | `(-> Row String (Result String Error))` | `Alloc,Mut` | The column named `name` as TEXT. |
+| `rowBlobNamed` | value | `(-> Row String (Result String Error))` | `Alloc,Mut` | The column named `name` as a BLOB's bytes. |
+| `axqBegin` | value | `(-> Connection (Result Transaction Error))` | `Alloc,Mut,Unsafe` | Open a transaction. Statements then run inside it until `axqCommit` or `axqRollback`; one that fails is undone and the transaction stays open. No lock is taken until the first statement needs one. |
+| `axqCommit` | value | `(-> Transaction (Result Int Error))` | `Alloc,IO,Mut` | Commit the transaction: durable when this answers `Ok`. A transaction COMMIT or ROLLBACK already ended is `axqMisuse`. |
+| `axqRollback` | value | `(-> Transaction (Result Int Error))` | `Alloc,IO,Mut` | Roll the transaction back. |
+| `axqTransaction` | value | `(-> Connection (-> Connection (Result a Error)) (Result a Error))` | `Alloc,IO,Mut` | Run `f` in a transaction: commit when it answers `Ok`, roll back when it answers `Err`, and answer what it answered (or the commit's failure). `f` must not end the transaction itself. |
+| `axqInTransaction` | value | `(-> Connection Bool)` |  | Whether a transaction is open. |
+| `axqLastInsertRowid` | value | `(-> Connection Int)` |  | The rowid the last successful INSERT on this connection gave its last row, or 0 before the first. |
+| `axqChanges` | value | `(-> Connection Int)` |  | The rows the last successful INSERT, UPDATE or DELETE changed. |
+| `axqExec` | value | `(-> Connection String (Result Int Error))` | `Alloc,IO,Mut` | Run one statement that takes no parameters. A SELECT runs and its rows are dropped. Answers the rows changed. |
+| `axqExecBatch` | value | `(-> Connection String (Result Int Error))` | `Alloc,IO,Mut` | Run a script of statements separated by `;`, such as a migration, in one transaction: all of them or none. Outside a transaction it opens and commits its own; inside one, a failure undoes the whole script and leaves the transaction open. The script may not hold BEGIN, COMMIT or ROLLBACK, and nothing runs if any statement fails to parse. Answers the rows changed in total. |
+| `axqStatementText` | value | `(-> Statement String)` | `Alloc,Mut,Unsafe` | The statement's text, copied into the caller's arena. |
+| `axqParamCount` | value | `(-> Statement Int)` |  | How many parameters the statement takes. |
+| `axqPrepare` | value | `(-> Connection String (Result Statement Error))` | `Alloc,IO,Mut,Unsafe` | Parse `text` and check its table and column names against the current schema. The statement parses its text again each time it runs, so a schema change after this re-prepares it; a statement whose table is gone then answers `axqSchema`. |
+| `axqFinalize` | value | `(-> Statement (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Finalize the statement, freeing its mapping. Its handle is retired, so any later use stops the program with status 85. |
+| `axqParamIndex` | value | `(-> Statement String (Result Int Error))` | `Alloc,Mut` | The index in a statement's parameter vector (from 0) of the named parameter `name`, written with its colon: `":id"`. |
+| `axqRun` | value | `(-> Statement (Vec Value) (Result Int Error))` | `Alloc,IO,Mut` | Run a statement that returns no rows with `params`, one per parameter. Answers the rows changed. A SELECT is `axqMisuse`: use `axqQuery` or `axqQueryEach`. |
+| `axqQuery` | value | `(-> Statement (Vec Value) (Result Rows Error))` | `Alloc,IO,Mut` | Run a SELECT with `params` and answer all its rows. |
+| `axqQueryEach` | value | `(-> Statement (Vec Value) (-> Row (Result Bool Error)) (Result Int Error))` | `Alloc,IO,Mut` | Run a SELECT with `params`, calling `f` with each row as it is produced. Stops when `f` answers `Ok false` or `Err`, and answers that `Err`, or else the number of rows `f` was called with. |
+| `axqRunOn` | value | `(-> Connection Query (Result Int Error))` | `Alloc,IO,Mut` | Run a query that returns no rows. Answers the rows changed. |
+| `axqQueryOn` | value | `(-> Connection Query (Result Rows Error))` | `Alloc,IO,Mut` | Run a query and answer all its rows. |
+| `axqQueryEachOn` | value | `(-> Connection Query (-> Row (Result Bool Error)) (Result Int Error))` | `Alloc,IO,Mut` | Run a query, calling `f` with each row as it is produced, as `axqQueryEach` does. |
+| `axqQueryMap` | value | `(-> Connection Query (-> Row (Result a Error)) (Result (Vec a) Error))` | `Alloc,IO,Mut` | Run a query and answer `f` of each row, stopping at the first `Err` from the query or from `f`. |
+| `RowReader` | struct |  |  | A row being read into a record: the row, and the first failure. Each read answers a stand-in value after a failure, so a record can be built in one expression and checked once at the end. |
+| `axqlReader` | value | `(-> Row RowReader)` | `Alloc` | A reader over `row`. |
+| `axqlReadInt` | value | `(-> RowReader String Int)` | `Alloc,Mut` | The column named `name` as an INTEGER, or 0 after recording why not. |
+| `axqlReadReal` | value | `(-> RowReader String Float)` | `Alloc,Mut` | The column named `name` as a REAL, or 0.0 after recording why not. |
+| `axqlReadText` | value | `(-> RowReader String String)` | `Alloc,Mut` | The column named `name` as TEXT, or "" after recording why not. |
+| `axqlReadBlob` | value | `(-> RowReader String String)` | `Alloc,Mut` | The column named `name` as a BLOB's bytes, or "" after recording why not. |
+| `axqlReadOptInt` | value | `(-> RowReader String (Option Int))` | `Alloc,Mut` | The column named `name`: `None` for NULL, else its INTEGER. |
+| `axqlReadOptReal` | value | `(-> RowReader String (Option Float))` | `Alloc,Mut` | The column named `name`: `None` for NULL, else its REAL. |
+| `axqlReadOptText` | value | `(-> RowReader String (Option String))` | `Alloc,Mut` | The column named `name`: `None` for NULL, else its TEXT. |
+| `axqlReadOptBlob` | value | `(-> RowReader String (Option String))` | `Alloc,Mut` | The column named `name`: `None` for NULL, else its BLOB's bytes. |
+| `axqlReaderDone` | value | `(-> RowReader a (Result a Error))` | `Alloc` | `value` when every read went well, else the first failure. |
+
+## `Axqlite.AxqlAst`
+
+`stdlib/Axqlite/AxqlAst.ax` — 32 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `opAdd` | value | `Int` |  | The binary operators an `EBin` carries: `+`. |
+| `opSub` | value | `Int` |  | `-`. |
+| `opMul` | value | `Int` |  | `*`. |
+| `opDiv` | value | `Int` |  | `/`. |
+| `opMod` | value | `Int` |  | `%`. |
+| `opEq` | value | `Int` |  | `=`. |
+| `opNe` | value | `Int` |  | `!=`. |
+| `opLt` | value | `Int` |  | `<`. |
+| `opLe` | value | `Int` |  | `<=`. |
+| `opGt` | value | `Int` |  | `>`. |
+| `opGe` | value | `Int` |  | `>=`. |
+| `opAnd` | value | `Int` |  | `AND`. |
+| `opOr` | value | `Int` |  | `OR`. |
+| `opIsComparison` | value | `(-> Int Bool)` |  | Whether `op` is one of the six comparisons. |
+| `opIsArithmetic` | value | `(-> Int Bool)` |  | Whether `op` is one of the five arithmetic operators. |
+| `opText` | value | `(-> Int String)` |  | The operator as AXQL spells it, for messages. |
+| `typeInteger` | value | `Int` |  | The four column types, as a `ColumnDef` records them: INTEGER. |
+| `typeReal` | value | `Int` |  | REAL. |
+| `typeText` | value | `Int` |  | TEXT. |
+| `typeBlob` | value | `Int` |  | BLOB. |
+| `typeNull` | value | `Int` |  | The type of an expression whose value is always NULL, such as the literal `NULL`. Never a column's type. |
+| `typeName` | value | `(-> Int String)` |  | A type's name as a statement spells it. |
+| `Expr` | data |  |  | An expression. Every variant that can fail at run time carries the byte offset of its operator, so a message can say where. |
+| `ColumnDef` | struct |  |  | One column of a `CREATE TABLE`. |
+| `SelectItem` | struct |  |  | One item of a `SELECT` list: the expression, the name `AS` gave it ("" when none), and the text the statement wrote it with. |
+| `OrderTerm` | struct |  |  | One `ORDER BY` term. |
+| `Select` | struct |  |  | A `SELECT`. `star` is true for `SELECT *`, and then `items` is empty. `from` is "" when the statement has no FROM clause. |
+| `Stmt` | data |  |  | One statement. |
+| `Parsed` | struct |  |  | CREATE TABLE [IF NOT EXISTS] name (columns) DROP TABLE [IF EXISTS] name CREATE [UNIQUE] INDEX [IF NOT EXISTS] name ON table (columns): unique, ifNotExists, name, table, columns DROP INDEX [IF EXISTS] name INSERT INTO table [(columns)] VALUES (row), ...: the columns are empty when the statement names none UPDATE table SET column = expr, ... [WHERE expr] DELETE FROM table [WHERE expr] A parsed statement with what the parameter scan found: how many parameters it takes, the names of named ones in index order (empty when it uses `?` or `?N`), and the statement's own text, from its first token to its last. |
+| `stmtIsQuery` | value | `(-> Stmt Bool)` |  | Whether a statement answers rows. |
+| `stmtIsDdl` | value | `(-> Stmt Bool)` |  | Whether a statement changes the schema. |
+| `axqlPosText` | value | `(-> String Int String)` | `Alloc,Mut` | "line L, column C" for byte offset `at` of `src`. |
+
+## `Axqlite.AxqlEval`
+
+`stdlib/Axqlite/AxqlEval.ax` — 18 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `tvFalse` | value | `Int` |  | FALSE, as a truth value. |
+| `tvTrue` | value | `Int` |  | TRUE. |
+| `tvNull` | value | `Int` |  | NULL, as a truth value. |
+| `axqlTruth` | value | `(-> Value (Result Int Error))` | `Alloc` | The truth of a value: a number is TRUE when it isn't zero, NULL is NULL, and TEXT or BLOB is `axqType`. |
+| `truthValue` | value | `(-> Int Value)` | `Alloc` | A truth value as the INTEGER or NULL a statement sees. |
+| `axqlValueType` | value | `(-> Value Int)` |  | The type of a value: one of the four column types, or `typeNull`. |
+| `axqlCompareIntReal` | value | `(-> Int Float Int)` |  | -1, 0 or 1 as INTEGER `i` is below, equal to or above REAL `r`, exactly. `r` is never NaN: NaN isn't a value a statement can hold. |
+| `axqlCompare` | value | `(-> Value Value (Result Int Error))` | `Alloc,Mut` | -1, 0 or 1 as `a` is below, equal to or above `b`, for two non-NULL values of comparable types: two numbers, two TEXTs or two BLOBs. Anything else is `axqType`. |
+| `axqlSortCompare` | value | `(-> Value Value Int)` | `Alloc,Mut` | The order ORDER BY sorts in: NULL first, then numbers, then TEXT, then BLOB, each kind in its own order. Total, so it never fails. |
+| `axqlComparison` | value | `(-> Int Value Value (Result Value Error))` | `Alloc,Mut` | The six comparisons over two values, with NULL on either side giving NULL. |
+| `axqlArith` | value | `(-> Int Value Value (Result Value Error))` | `Alloc,Mut` | One of `+ - * / %` over two values. NULL on either side gives NULL. |
+| `axqlNegate` | value | `(-> Value (Result Value Error))` | `Alloc,Mut` | Unary minus. The most negative INTEGER has no negation. |
+| `axqlEval` | value | `(-> Expr (Vec Value) Int (Vec Value) (Result Value Error))` | `Alloc,Mut` | Evaluate `e` over one row: `row` holds the table's columns and `rowid` its rowid. `params` are the bound parameters. An unbound name is a refusal: the binder rewrites every name before evaluation. |
+| `axqlConjuncts` | value | `(-> Expr (Vec Expr))` | `Alloc,Mut` | The top-level AND terms of `e`, left to right. |
+| `axqlKeep` | value | `(-> (Vec Expr) (Vec Value) Int (Vec Value) (Result Bool Error))` | `Alloc,Mut` | Whether a row passes a WHERE given as its AND terms. The row is dropped when any term is FALSE or NULL, whatever the others do; a term's failure is the answer only when no term drops the row. |
+| `axqlTypeOf` | value | `(-> String Expr (Vec Int) (Vec Value) (Result Int Error))` | `Alloc,Mut` | The type `e` has whenever it isn't NULL, given the types of the table's columns (the rowid is INTEGER) and the bound parameters. `typeNull` means always NULL. A mismatch is `axqType`, named with its place in `src`, before any row is read. |
+| `axqlFold` | value | `(-> Expr (Vec Value) (Result Expr Error))` | `Alloc,Mut` | `e` with each largest subexpression that names no column replaced by its value. Those are evaluated once, before any row is read, so a failure among them fails the statement even when no row would have reached it. |
+| `axqlIsConstant` | value | `(-> Expr Bool)` |  | Whether `e` names no column: a literal, a parameter, or operators over those. |
+
+## `Axqlite.AxqlExec`
+
+`stdlib/Axqlite/AxqlExec.ax` — 13 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `Undo` | data |  |  | A change to reverse when a statement fails: put back an old value, delete a key the statement added, drop a tree it created, or give up (a dropped tree can't come back). |
+| `Exec` | struct |  |  | One statement's context: the pager, the statement's text (for messages), its parameters, the undo log, and what it did. |
+| `axqlExec` | value | `(-> Pager String (Vec Value) Bool Exec)` | `Alloc,Mut` | A context for running the statement `src` with `params`. |
+| `axqlUndo` | value | `(-> Pager (Vec Undo) (Result Int Error))` | `Alloc,IO,Mut` | Reverse every change `undo` records, newest first. `Err` when one of them can't be reversed; the caller then rolls back the transaction. |
+| `Access` | data |  |  | How a statement finds its rows. |
+| `RowRef` | struct |  |  | A row as a scan meets it: its rowid and its values. |
+| `SelectPlan` | struct |  |  | A planned SELECT. |
+| `axqlPlanNames` | value | `(-> SelectPlan (Vec String))` |  | The column names a SELECT answers. |
+| `axqlPlanSelect` | value | `(-> Exec Schema Select (Result SelectPlan Error))` | `Alloc,Mut` | Bind, check, fold and plan a SELECT. Needs a lock. |
+| `axqlRunSelect` | value | `(-> Exec SelectPlan (-> (Vec Value) (Result Bool Error)) (Result Int Error))` | `Alloc,IO,Mut` | Run a planned SELECT, calling `onRow` with each result row. Stops early when `onRow` answers `Ok false`. Answers the rows returned. |
+| `axqlMaxColumns` | value | `Int` |  | The most columns a table may have. |
+| `axqlRunWrite` | value | `(-> Exec Stmt String (Result Int Error))` | `Alloc,IO,Mut` | Run an INSERT, UPDATE, DELETE or DDL statement inside the caller's write transaction. Answers the rows it changed (0 for DDL). |
+| `axqlCheckNames` | value | `(-> Exec Schema Stmt (Result Int Error))` | `Alloc,Mut` | Check that a statement's names resolve against the current schema, without running it: the check `axqPrepare` makes. DDL is checked when it runs. |
+
+## `Axqlite.AxqlMacro`
+
+`stdlib/Axqlite/AxqlMacro.ax` — 22 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `Query` | struct |  |  | A statement's text with the values of its parameters, in order. The `axql...` macros build one; `axqRunOn`, `axqQueryOn` and `axqQueryEachOn` run one. |
+| `QueryBuilder` | struct |  |  | A query being written: the text in pieces, and the parameters so far. The statement macros make one, append to it left to right, and finish it; a program has no need to touch one. |
+| `axqlBuilder` | value | `QueryBuilder` | `Alloc,Mut` | An empty builder. |
+| `axqlPut` | value | `(-> QueryBuilder String Int)` | `Alloc,Mut` | Append text the macro spells. |
+| `axqlPutName` | value | `(-> QueryBuilder String Int)` | `Alloc,Mut` | Append a name, in double quotes when AXQL needs them. |
+| `axqlPutParam` | value | `(-> QueryBuilder Value Int)` | `Alloc,Mut` | Append a parameter: `?` in the text, `v` in the parameters. |
+| `axqlFinish` | value | `(-> QueryBuilder Query)` | `Alloc,Mut,Unsafe` | The finished query. |
+| `axqlQuoteName` | value | `(-> String String)` | `Alloc,Mut,Unsafe` | `name` as AXQL writes a name: bare when it can be, else in double quotes with each `"` inside doubled. |
+| `RowId` | type |  |  | A field that is its table's INTEGER PRIMARY KEY, the rowid. |
+| `Bytes` | type |  |  | A field holding a BLOB's bytes. |
+| `OptInt` | type |  |  | An INTEGER column that may be NULL: `None` is NULL. |
+| `OptFloat` | type |  |  | A REAL column that may be NULL. |
+| `OptString` | type |  |  | A TEXT column that may be NULL. |
+| `OptBytes` | type |  |  | A BLOB column that may be NULL. |
+| `axqlAddParam` | value | `(-> QueryBuilder Value Int)` | `Alloc,Mut` | Append a parameter's value with no `?`, for a statement whose text already holds its marks. |
+| `axqlOptIntValue` | value | `(-> (Option Int) Value)` | `Alloc` | An optional INTEGER as a parameter: `None` is NULL. |
+| `axqlOptFloatValue` | value | `(-> (Option Float) Value)` | `Alloc` | An optional REAL as a parameter. |
+| `axqlOptTextValue` | value | `(-> (Option String) Value)` | `Alloc` | An optional TEXT as a parameter. |
+| `axqlOptBlobValue` | value | `(-> (Option String) Value)` | `Alloc` | An optional BLOB as a parameter. |
+| `axqlPutColumn` | value | `(-> QueryBuilder String String Int)` | `Alloc,Mut` | Append `name TYPE...`. |
+| `axqlTableRest` | macro |  |  | The second half of `axqlTable`, which it invokes: what it declares once the struct exists, because a struct's fields can be read by name only through `syntax/fields`, which answers only for a struct already declared. It is public because a declaration macro's own invocation is resolved where `axqlTable` is used; a program has no need to call it. |
+| `axqlTable` | macro |  |  | A table of typed rows. `(axqlTable User users (id RowId) (name String) (age OptInt))` declares, for table `users`: |
+
+## `Axqlite.AxqlParse`
+
+`stdlib/Axqlite/AxqlParse.ax` — 5 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `axqlMaxDepth` | value | `Int` |  | How deep parentheses may nest in one expression. The parser is recursive, so this is a stack budget: a deeper expression is a refusal rather than a crash. |
+| `axqlMaxParams` | value | `Int` |  | The most parameters a statement may take, and the largest `?N`. |
+| `axqlParse` | value | `(-> String (Result Parsed Error))` | `Alloc,Mut` | Parse exactly one statement, with an optional `;` after it and nothing else but whitespace and comments. |
+| `axqlParseScript` | value | `(-> String (Result (Vec Parsed) Error))` | `Alloc,Mut` | Parse a script: statements separated by `;`. Empty statements are skipped, so a script may end with `;`. |
+| `axqlNameNeedsQuotes` | value | `(-> String Bool)` |  | Whether `name` needs double quotes to be read as a name: it isn't `[A-Za-z_][A-Za-z0-9_]*`, or it spells a reserved word. |
+
+## `Axqlite.AxqlSchema`
+
+`stdlib/Axqlite/AxqlSchema.ax` — 18 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `axqlNameEq` | value | `(-> String String Bool)` |  | Whether two names are the same name: equal but for ASCII case. |
+| `SchemaEntry` | struct |  |  | One row of the schema table. |
+| `Schema` | struct |  |  | Every entry, in rowid order. |
+| `IndexDef` | struct |  |  | An index: its name, root page, whether it's UNIQUE, and the numbers of the table columns it covers, in order. |
+| `TableDef` | struct |  |  | A table: its name as created, root page, columns, the number of its INTEGER PRIMARY KEY column (-1 when it has none), and its indices. |
+| `kindTable` | value | `String` |  | The kind of a table entry. |
+| `kindIndex` | value | `String` |  | The kind of an index entry. |
+| `axqlLoadSchema` | value | `(-> Pager (Result Schema Error))` | `Alloc,IO,Mut` | Read every entry of the schema table. Needs a lock. |
+| `axqlFindEntry` | value | `(-> Schema String (Option SchemaEntry))` | `Alloc` | The entry named `name`, table or index. |
+| `axqlColumnIndex` | value | `(-> (Vec ColumnDef) String Int)` |  | The number of the column named `name`, or -1. |
+| `axqlPrimaryKey` | value | `(-> (Vec ColumnDef) Int)` |  | The primary key column among `cols`, or -1. |
+| `axqlTableDef` | value | `(-> Schema String (Result TableDef Error))` | `Alloc,Mut` | The table named `name` with its indices, or `axqSchema`. |
+| `axqlRowRecord` | value | `(-> TableDef (Vec Value) (Result String Error))` | `Alloc,Mut` | The record a row of `t` is stored as: `values` in column order, with the primary key column, if any, stored as NULL. |
+| `axqlRowValues` | value | `(-> TableDef String Int (Result (Vec Value) Error))` | `Alloc,Mut` | A row of `t` read back from its record and rowid, with the primary key column filled in. A record of the wrong width, or a value whose type its column doesn't allow, is `axqCorrupt`. |
+| `axqlIndexPrefix` | value | `(-> IndexDef (Vec Value) (Result String Error))` | `Alloc,Mut` | The encoded values of `ix`'s columns for a row: the prefix every key for those values starts with. |
+| `axqlIndexHasNull` | value | `(-> IndexDef (Vec Value) Bool)` |  | Whether any of `ix`'s columns is NULL in a row. Such a row never conflicts in a UNIQUE index: NULLs are distinct. |
+| `axqlColumnTypes` | value | `(-> TableDef (Vec Int))` | `Alloc,Mut` | A table's column types, the rowid's INTEGER aside. |
+| `axqlEntryRecord` | value | `(-> String String String Int String (Result String Error))` | `Alloc,Mut` | The record of a schema entry. |
+
+## `Axqlite.Btree`
+
+`stdlib/Axqlite/Btree.ax` — 17 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `btreeTable` | value | `Int` |  | The kind of a table tree, for `btreeCreate`. |
+| `btreeIndex` | value | `Int` |  | The kind of an index tree, for `btreeCreate`. |
+| `btreeMaxKey` | value | `Int` |  | The longest key, in bytes. |
+| `btreeSchemaRoot` | value | `Int` |  | The root page of the schema table, the table tree every database is created with. |
+| `btreeCreate` | value | `(-> Pager Int (Result Int Error))` | `Alloc,IO,Mut` | A new, empty tree of `kind` (`btreeTable` or `btreeIndex`); answers its root page. Inside a write transaction. |
+| `btreeDrop` | value | `(-> Pager Int (Result Int Error))` | `Alloc,IO,Mut` | Free every page of the tree at `root`, the root included, and every overflow chain; answers how many entries it held. Inside a write transaction. The schema table's root can't be dropped. |
+| `btreeClear` | value | `(-> Pager Int (Result Int Error))` | `Alloc,IO,Mut` | Delete every entry of the tree at `root`, keeping the root as an empty leaf; answers how many there were. Inside a write transaction. |
+| `btreeGet` | value | `(-> Pager Int String (Result (Option String) Error))` | `Alloc,IO,Mut,Unsafe` | The value stored under `key`, fresh in the caller's arena, or `None`. |
+| `btreePut` | value | `(-> Pager Int String String (Result Bool Error))` | `Alloc,IO,Mut` | Store `value` under `key`, replacing any value there. Answers true when the key is new. Inside a write transaction. |
+| `btreeInsertNew` | value | `(-> Pager Int String String (Result Bool Error))` | `Alloc,IO,Mut` | Store `value` under `key` only when the key is new: answers false, changing nothing, when it is already there. Inside a write transaction. |
+| `btreeDelete` | value | `(-> Pager Int String (Result Bool Error))` | `Alloc,IO,Mut` | Delete `key` and its value; answers whether it was there. Inside a write transaction. |
+| `btreeScan` | value | `(-> Pager Int (Option String) (Option String) Bool (-> String String (Result Bool Error)) (Result Int Error))` | `Alloc,IO,Mut` | Walk the entries with `lo` <= key < `hi` (either bound `None` for no bound) in key order, or in reverse when `forward` is false, calling `f key value` on each: `Ok true` continues, `Ok false` stops, and `Err` stops and is answered. Answers how many entries `f` saw. `f` may change the tree: the scan then finds its place again after the last key it passed. |
+| `btreeFirstKey` | value | `(-> Pager Int (Result (Option String) Error))` | `Alloc,IO,Mut` | The smallest key in the tree, or `None` when it is empty. |
+| `btreeLastKey` | value | `(-> Pager Int (Result (Option String) Error))` | `Alloc,IO,Mut` | The largest key in the tree, or `None` when it is empty: a table's largest rowid. |
+| `btreeCount` | value | `(-> Pager Int (Result Int Error))` | `Alloc,IO,Mut` | How many entries the tree holds, counted leaf by leaf. |
+| `btreeHeight` | value | `(-> Pager Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | The tree's height: 1 when the root is a leaf. |
+| `btreeCheck` | value | `(-> Pager (Vec Int) (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Check the whole file, given the root of every tree in it (the schema root included): every page is reached exactly once, from a tree, an overflow chain or the free list; every tree's pages pass their checksums and structure checks, hold their keys in order within their parents' bounds, and have their leaves at one depth; every overflow chain holds exactly its value's bytes; and the free list is as long as the header says. Answers the pages checked, or `axqCorrupt` naming the first problem. Needs a lock. |
+
+## `Axqlite.Pager`
+
+`stdlib/Axqlite/Pager.ax` — 47 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `Pager` | struct |  |  | An open database file. |
+| `pagerPageSize` | value | `Int` |  | The page size in bytes. |
+| `pagerUsable` | value | `Int` |  | The bytes of a page before its checksum; a page's content is `[0, pagerUsable)`. |
+| `pagerFaultFail` | value | `Int` |  | The fault kinds `pagerFaultArm` takes. A failed point answers EIO and the pager carries on; a tear writes the first `arg` bytes of the write and then loses power; a power loss drops that point and every later write, sync and truncate while answering success. The strict power loss also undoes every write made since its file's last sync, as a disk that loses its whole cache would; the journal and database variants undo only that file's unsynced writes and keep the other's, as a disk that wrote the two files' caches out in either order. |
+| `pagerFaultTear` | value | `Int` |  |  |
+| `pagerFaultPowerLoss` | value | `Int` |  |  |
+| `pagerFaultPowerLossStrict` | value | `Int` |  |  |
+| `pagerFaultPowerLossJournal` | value | `Int` |  |  |
+| `pagerFaultPowerLossDatabase` | value | `Int` |  |  |
+| `pagerChecksum` | value | `(-> Int Int Int Int)` | `Unsafe` | The XXH64 hash of `len` bytes at `addr` with seed `seed`, as the reference implementation computes it (words read little-endian). It is the checksum of every page and journal record. |
+| `pagerGetBe` | value | `(-> Int Int Int Int)` | `Unsafe` | The `n` bytes (1..8) at `addr + off`, big-endian and unsigned. |
+| `pagerPutBe` | value | `(-> Int Int Int Int Int)` | `Mut,Unsafe` | Store the low `n` bytes of `v` big-endian at `addr + off`. |
+| `pagerOpenFaulty` | value | `(-> String Bool Bool Int Int Int Int Bool (Result Pager Error))` | `Alloc,IO,Mut,Unsafe` | Open the database file at `path`, as `pagerOpen` does, with fault `kind` armed at point `at` before the first I/O, and syncs made no-ops unless `durable` (see `pagerSetDurable`): the testing entry point for crashes during recovery and creation. |
+| `pagerOpen` | value | `(-> String Bool Bool Int (Result Pager Error))` | `Alloc,IO,Mut` | Open the database file at `path`. With `create`, a missing or empty file becomes a new database; without it, a missing file answers `axqIoFailed`. `readOnly` opens the file for reading only, and every write answers `axqReadOnly`. `cachePages` is the page cache's size in pages (at least 4). A file that isn't a database answers `axqNotADatabase`, and one that fails its header check `axqCorrupt`; while another connection holds a lock on the file, those checks wait for this connection's first lock. No lock is held when it answers. |
+| `pagerClose` | value | `(-> Pager (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Close the pager: roll back an open write transaction, release every lock, close the file and free the pager. Any later use of `p` stops the program with status 85. |
+| `pagerAbandon` | value | `(-> Pager Int)` | `Alloc,IO,Mut` | Drop the pager as a crash would: close its descriptors, which releases its lock, and free it, writing nothing. A journal it left stays hot for the next connection to recover. For tests. |
+| `pagerBeginRead` | value | `(-> Pager (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Take the shared lock for reading, recovering a hot journal first. `Ok` at once when a lock is already held. `axqBusy` when a writer holds the file. |
+| `pagerEndRead` | value | `(-> Pager (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Release the shared lock. Inside a write transaction it does nothing: the transaction's end releases every lock. |
+| `pagerBeginWrite` | value | `(-> Pager (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Begin a write transaction: take the exclusive lock and hold it until `pagerCommit` or `pagerRollback`. From a read, the change is not atomic: when another connection gets in between, this answers `axqBusy` with no lock held at all, and the read's view is gone, so end the transaction and retry it. `axqReadOnly` on a read-only pager. `Ok` at once inside a write transaction. |
+| `pagerRollback` | value | `(-> Pager (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Undo the write transaction: every page as it was at `pagerBeginWrite`. Releases every lock. `Ok` when there is no write transaction. |
+| `pagerCommit` | value | `(-> Pager (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Make the write transaction durable, then release every lock. The change counter goes up by one when anything changed. On any failure the transaction is rolled back and the failure answered; the file is then exactly as it was before the transaction. |
+| `pagerOpBegin` | value | `(-> Pager Int)` | `Mut,Unsafe` | Start an operation: pages fetched from now on stay cached until the next call. Answers the operation's number. |
+| `pagerGet` | value | `(-> Pager Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | The address of page `pgno`'s 4096 bytes in the cache, read and checked if it wasn't cached, and pinned until the next `pagerOpBegin`. Read only; `pagerWrite` for a page to change. Needs a lock. |
+| `pagerGetTransient` | value | `(-> Pager Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | As `pagerGet`, without pinning: the address is good only until the next pager call. |
+| `pagerWrite` | value | `(-> Pager Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | The address of page `pgno`, which the caller may now change: its original bytes are journalled first. Pinned until the next `pagerOpBegin`. Only inside a write transaction. |
+| `pagerWriteTransient` | value | `(-> Pager Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | As `pagerWrite`, without pinning: the address is good only until the next pager call. |
+| `pagerAlloc` | value | `(-> Pager (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | A page for the caller to fill, zeroed: the head of the free list, or a new page at the end of the file. Answers its number. Inside a write transaction. |
+| `pagerFree` | value | `(-> Pager Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Give page `pgno` back: onto the free list, or, when it is the last page of the file, off the end of the file. Inside a write transaction. Pages 0 and 1 are never freed. |
+| `pagerLockLevel` | value | `(-> Pager Int)` | `Unsafe` | 0 with no lock, 1 holding the shared lock, 2 in a write transaction. |
+| `pagerInWrite` | value | `(-> Pager Bool)` | `Unsafe` | Whether a write transaction is open. |
+| `pagerIsReadOnly` | value | `(-> Pager Bool)` | `Unsafe` | Whether the pager was opened read-only. |
+| `pagerPageCount` | value | `(-> Pager (Result Int Error))` | `Alloc,Unsafe` | How many pages the database has, header included. Needs a lock. |
+| `pagerChangeCounter` | value | `(-> Pager (Result Int Error))` | `Alloc,Unsafe` | The change counter: one more after every commit that changed anything. Needs a lock. |
+| `pagerSchemaVersion` | value | `(-> Pager (Result Int Error))` | `Alloc,Unsafe` | The schema version, which `pagerBumpSchemaVersion` raises. Needs a lock. |
+| `pagerBumpSchemaVersion` | value | `(-> Pager (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Raise the schema version by one, answering the new version. Inside a write transaction; it commits with it. |
+| `pagerMeta` | value | `(-> Pager Int (Result Int Error))` | `Alloc,Unsafe` | One of the header's eight spare words, `slot` 0..7, for the layer above (a next table id, say). Needs a lock. |
+| `pagerSetMeta` | value | `(-> Pager Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Set spare header word `slot` to `v`. Inside a write transaction. |
+| `pagerFreeListHead` | value | `(-> Pager (Result Int Error))` | `Alloc,Unsafe` | The first page of the free list, 0 when it is empty. Needs a lock. |
+| `pagerFreeListCount` | value | `(-> Pager (Result Int Error))` | `Alloc,Unsafe` | How many pages the free list holds. Needs a lock. |
+| `pagerChecked` | value | `(-> Pager Int Bool)` | `Unsafe` | Whether the page whose cached bytes start at `a` has had its structure checked since it was read from the file. `Btree` checks a page once per read rather than on every access. |
+| `pagerSetChecked` | value | `(-> Pager Int Int)` | `Mut,Unsafe` | Record that the page at `a` has been checked, or was built by the caller and needs no check. |
+| `pagerWriteSeq` | value | `(-> Pager Int)` | `Unsafe` | A number that changes whenever a page is written, allocated or freed: a scan compares it across a callback to learn whether the tree moved. |
+| `pagerFaultArm` | value | `(-> Pager Int Int Int Int)` | `Alloc,IO,Mut,Unsafe` | Arm fault `kind` (`pagerFaultFail`, `pagerFaultTear`, `pagerFaultPowerLoss`, `pagerFaultPowerLossStrict`, `pagerFaultPowerLossJournal`, `pagerFaultPowerLossDatabase`, or 0 for none) at the `at`th write, sync or truncate from now, counting from 1. `arg` is how many bytes of a torn write land. With kind 0 the points are still counted, which is how a test learns how many a transaction has. |
+| `pagerSetDurable` | value | `(-> Pager Bool Int)` | `Mut,Unsafe` | Whether syncs reach the disk. With `false` each sync is still a numbered fault point but asks nothing of the kernel: for tests that simulate their crashes with `pagerFaultArm` rather than suffer them, and would otherwise spend their time waiting on the drive. Never for data anyone keeps. |
+| `pagerFaultPoints` | value | `(-> Pager Int)` | `Unsafe` | How many writes, syncs and truncates have happened since the fault was armed. |
+| `pagerFaultFired` | value | `(-> Pager Bool)` | `Unsafe` | Whether the armed fault has fired. |
+| `pagerStat` | value | `(-> Pager Int Int)` | `Unsafe` | A counter since the pager opened: 0 page reads from the file, 1 page writes, 2 syncs, 3 cache hits, 4 cache misses, 5 pages spilled before commit, 6 journal records written. |
+
+## `Axqlite.Record`
+
+`stdlib/Axqlite/Record.ax` — 13 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `recEncode` | value | `(-> (Vec Value) (Result String Error))` | `Alloc,Mut,Unsafe` | The bytes of a row: its values in column order, as the header describes. A NaN answers `axqType`, more than 65535 columns or a record over 1 GiB `axqTooBig`. |
+| `recDecode` | value | `(-> String (Result (Vec Value) Error))` | `Alloc,Mut,Unsafe` | The values of a record, in column order. Anything malformed answers `axqCorrupt`. |
+| `recColumnCount` | value | `(-> String (Result Int Error))` | `Alloc,Unsafe` | How many columns a record holds. |
+| `recColumn` | value | `(-> String Int (Result Value Error))` | `Alloc,Mut,Unsafe` | Column `i` of a record, without decoding the columns after it. An `i` outside the record answers `axqMisuse`. |
+| `keyRowid` | value | `(-> Int String)` | `Alloc,Mut,Unsafe` | The 8-byte key of a table row: the rowid big-endian with its sign bit flipped, so bytewise order is numeric order. |
+| `keyRowidOf` | value | `(-> String (Result Int Error))` | `Alloc,Unsafe` | The rowid a table key holds. |
+| `keyIndexRowid` | value | `(-> String (Result Int Error))` | `Alloc,Unsafe` | The rowid in the last 8 bytes of an index key. |
+| `keyWithRowid` | value | `(-> String Int String)` | `Alloc,Mut` | An index key: `prefix`, the key encoding of the indexed columns, then the rowid's 8 bytes. |
+| `keyEncode` | value | `(-> (Vec Value) (Result String Error))` | `Alloc,Mut,Unsafe` | The key encoding of several values, one after another: the key an index on those columns stores before the rowid. A NaN answers `axqType`. |
+| `keyEncodeValue` | value | `(-> Value (Result String Error))` | `Alloc,Mut` | The key encoding of one value. |
+| `keyDecode` | value | `(-> String (Result (Vec Value) Error))` | `Alloc,Mut,Unsafe` | The values a key encodes. Numbers come back as `VInt` when they are integral and in the 64-bit range, and as `VReal` otherwise. Bytes that aren't a key answer `axqCorrupt`. |
+| `keyPrefixEnd` | value | `(-> String (Option String))` | `Alloc,Mut,Unsafe` | The smallest key greater than every key that starts with `prefix`: the prefix with its last byte below FF incremented and the rest cut off. `None` when there is no such key (the prefix is empty or all FF), meaning "no upper bound". |
+| `keyCompare` | value | `(-> String String Int)` |  | Compare two keys as the B-tree does: bytewise by unsigned value, and a prefix before any longer key. Negative, zero or positive. |
+
+## `Axqlite.Value`
+
+`stdlib/Axqlite/Value.ax` — 14 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `Value` | data |  |  | One value in a row, or a parameter bound to a statement. |
+| `axqBusy` | value | `Int` |  | Another connection holds a lock this operation needs. Nothing was changed; retry later. |
+| `axqCorrupt` | value | `Int` |  | The file isn't a consistent AXQLite database: a checksum failed, a page is malformed, or a structure points somewhere it can't. |
+| `axqConstraint` | value | `Int` |  | A row broke a constraint: NOT NULL, a UNIQUE index, or a duplicate primary key. |
+| `axqSyntax` | value | `Int` |  | An AXQL statement doesn't parse. The message says where. |
+| `axqSchema` | value | `Int` |  | A statement names a table, column or index that doesn't exist, or creates one that already does. |
+| `axqType` | value | `Int` |  | A value of the wrong type for its column, parameter or operator. |
+| `axqMisuse` | value | `Int` |  | The API was used out of order: a wrong number of parameters, a finished transaction used again, or a statement for another connection. |
+| `axqReadOnly` | value | `Int` |  | A write to a connection opened read-only. |
+| `axqIoFailed` | value | `Int` |  | The operating system refused a read, write, sync or lock. The context carries its errno. |
+| `axqTooBig` | value | `Int` |  | A value, key, row or database larger than AXQLite supports. |
+| `axqNotADatabase` | value | `Int` |  | The file exists but isn't an AXQLite database, or was written by a format version this library doesn't read. |
+| `axqArithmetic` | value | `Int` |  | Integer arithmetic in a statement overflowed 64 bits, or divided by zero. |
+| `axqErr` | value | `(-> Int String String (Result a Error))` | `Alloc` | An `Err` carrying one of the codes above, with a message and the name of the function that raised it as context. |
+
 ## `Chan`
 
 `stdlib/Chan.ax` — 15 public names
@@ -1062,9 +1396,28 @@ two differ.
 | `strParseInt` | value | `(-> String (Option Int))` |  | The decimal integer `s` spells - an optional `-`, then one or more ASCII digits and nothing else - or `None`: for an empty string, a sign alone, any other byte, and any value outside the 64-bit range. |
 | `format` | macro |  |  | `format` — a String, built at compile time from a literal's runs and holes, or the hole lowering applied to anything else. |
 
+## `Sync`
+
+`stdlib/Sync.ax` — 12 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `Mutex` | struct |  |  | A mutex: one word, a slot in the runtime's handle table (MM-PAR-8) naming the page. |
+| `MutexGuard` | struct |  |  | What a lock call answers and `mutexUnlock` takes back: one word, the serial number the acquisition drew (the module header's "the guard"). Only this module makes or reads one, and it is not `shared`. |
+| `syncOwnerDead` | value | `Int` |  | Above 255, like `sysTimedOut` (1001, the timeout every lock call here answers), so none can be mistaken for a wait status. |
+| `syncNotHeld` | value | `Int` |  |  |
+| `syncProbeNanos` | value | `Int` |  | How long a waiter sleeps before it looks at the holder: 100 ms. |
+| `mutexNew` | value | `(Result Mutex Error)` | `Alloc,IO,Mut` | A fresh mutex, free. `Err` the mapping's error, or EMFILE (24) when the handle table has no slot left. |
+| `mutexLock` | value | `(-> Mutex (Result MutexGuard Error))` | `Alloc,Block,IO,Mut` | Wait until this binding holds the lock. `Ok` the guard `mutexUnlock` wants back; `Err` code `syncOwnerDead` if the holder is found dead while this waits, or the mutex was poisoned before. |
+| `mutexTryLock` | value | `(-> Mutex (Option MutexGuard))` | `IO,Mut` | Take the lock if it is free right now: `Some` the guard, `None` if it is held - or poisoned, which `mutexOwnerDead` tells apart. |
+| `mutexLockTimeout` | value | `(-> Mutex Int (Result MutexGuard Error))` | `Alloc,Block,IO,Mut,Unsafe` | `mutexLock`, waiting at most `nanos` nanoseconds. `Ok` the guard; `Err` code `sysTimedOut` when the time ran out with the lock still held by a holder that looks alive; `Err` code `syncOwnerDead` when the holder was found dead. A wait nobody ends is never shorter than `nanos` on a monotonic clock (MM-PAR-12 states Darwin's bound). A non-positive `nanos` is `mutexTryLock` with a reason. |
+| `mutexUnlock` | value | `(-> Mutex MutexGuard (Result Int Error))` | `Alloc,IO,Mut` | Let the next holder in. `mg` must be the guard this binding's lock call answered: any other - on a free mutex, a stale one, a sibling's, another mutex's - is `Err` code `syncNotHeld` and leaves the lock as it was. Exactly one unlock per acquisition succeeds, however the calls interleave. |
+| `mutexOwnerDead` | value | `(-> Mutex Bool)` |  | Whether a holder was found dead holding this mutex (the poisoning in the header). |
+| `mutexFree` | value | `(-> Mutex (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Unmap the mutex. Only once no binding can still reach it - after the `parallel` form that used it. Takes no lock, so it is also the one safe call on a poisoned mutex. The handle is retired before the page is unmapped, so every call made after this one - a second `mutexFree` included - traps with status 85. |
+
 ## `Sys`
 
-`stdlib/Sys.ax` — 106 public names
+`stdlib/Sys.ax` — 118 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -1174,10 +1527,22 @@ two differ.
 | `sysTimeoutMicros` | value | `(-> Int Int)` | `Alloc,IO,Unsafe` | Microseconds from the clock a timeout is measured on: the monotonic one where the platform has it and - DELIBERATELY, since nothing better is reachable without libSystem - the realtime clock on Darwin (`clockHasMonotonic` there says why). The timed loops above this file add only non-negative steps of this clock, each clamped to the slice the kernel was asked to wait, so a step of the realtime clock moves a wait by at most one slice; MM-PAR-12 states the bound. `buf` is 16 bytes of caller scratch. A clock that cannot be read answers 0, which a caller reads as no time having passed: its wait then ends on the kernel's own timeout rather than early. |
 | `sysChildPollBytes` | value | `Int` |  | Bytes of caller scratch `sysChildExited` needs: a `siginfo_t` is 104 bytes on Darwin and 128 on Linux. |
 | `sysChildExited` | value | `(-> Int Int (Result Bool Error))` | `Alloc,Block,IO,Mut,Unsafe` | Has the child `pid` ended? Without reaping it: `Ok True` means it has exited or been killed and is waiting to be reaped - so a join on it will not block - and it is STILL this process's child, still waitable, its pid not free for reuse. `Ok False` means it is running. |
+| `sysLockShared` | value | `Int` |  | The `flock` operations. The same four values on every target that has the call. |
+| `sysLockExclusive` | value | `Int` |  |  |
+| `sysLockNonBlocking` | value | `Int` |  | Or'd into `sysLockShared` or `sysLockExclusive`: answer EWOULDBLOCK at once instead of waiting for the lock. |
+| `sysLockRelease` | value | `Int` |  |  |
+| `sysOpenRw` | value | `(-> Int Bool (Result Int Error))` | `Alloc,IO,Unsafe` | Open `path` for reading and writing, creating it with mode 0644 when `create` is true and it isn't there. Answers the descriptor. |
+| `sysOpenRo` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Unsafe` | Open `path` for reading only. Answers the descriptor. |
+| `sysPread` | value | `(-> Int Int Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | Read up to `count` bytes at byte `offset` of `fd` into `buf`, without moving the descriptor's position. Answers how many arrived: fewer than asked at the end of the file, and 0 past it. |
+| `sysPwrite` | value | `(-> Int Int Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | Write `count` bytes from `buf` at byte `offset` of `fd`, without moving the descriptor's position. Answers how many were written, which may be fewer than asked: the caller writes the rest. |
+| `sysFsync` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Unsafe` | Make everything written to `fd` durable before answering. On Darwin that is `fcntl(F_FULLFSYNC)`, because a plain `fsync` there stops at the drive's own cache; a file system that refuses F_FULLFSYNC gets the plain `fsync`. Elsewhere it is `fsync`. |
+| `sysFtruncate` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | Set the length of `fd`'s file to `len` bytes, dropping what lies beyond or adding zeros. |
+| `sysFdSize` | value | `(-> Int (Result Int Error))` | `Alloc,IO` | The size of `fd`'s file in bytes. It moves the descriptor's position to the end, which `sysPread` and `sysPwrite` never read. |
+| `sysFlock` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | Take, change or release the advisory lock on `fd`'s whole file: `op` is `sysLockShared` or `sysLockExclusive`, either or'd with `sysLockNonBlocking`, or `sysLockRelease`. The lock belongs to the open file, not the process, so two descriptors opened separately in one process conflict with each other as two processes would. Closing the descriptor releases it. With `sysLockNonBlocking`, a lock another holder keeps answers `Err` EWOULDBLOCK (`eAgain`) at once. |
 
 ## `Sys.Platform`
 
-`stdlib/Sys/Platform.darwin.ax` — 136 public names
+`stdlib/Sys/Platform.darwin.ax` — 146 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -1317,25 +1682,16 @@ two differ.
 | `msgNoSignal` | value | `Int` |  | MSG_NOSIGNAL - the same, per write, for `sendto`; 0 where the flag does not exist |
 | `ipprotoTcp` | value | `Int` |  | IPPROTO_TCP - the level TCP options are set at |
 | `tcpNoDelayOpt` | value | `Int` |  | TCP_NODELAY - send small writes at once rather than join them |
-
-## `Sync`
-
-`stdlib/Sync.ax` — 12 public names
-
-| Name | Kind | Type | Effects | Summary |
-|---|---|---|---|---|
-| `Mutex` | struct |  |  | A mutex: one word, a slot in the runtime's handle table (MM-PAR-8) naming the page. |
-| `MutexGuard` | struct |  |  | What a lock call answers and `mutexUnlock` takes back: one word, the serial number the acquisition drew (the module header's "the guard"). Only this module makes or reads one, and it is not `shared`. |
-| `syncOwnerDead` | value | `Int` |  | Above 255, like `sysTimedOut` (1001, the timeout every lock call here answers), so none can be mistaken for a wait status. |
-| `syncNotHeld` | value | `Int` |  |  |
-| `syncProbeNanos` | value | `Int` |  | How long a waiter sleeps before it looks at the holder: 100 ms. |
-| `mutexNew` | value | `(Result Mutex Error)` | `Alloc,IO,Mut` | A fresh mutex, free. `Err` the mapping's error, or EMFILE (24) when the handle table has no slot left. |
-| `mutexLock` | value | `(-> Mutex (Result MutexGuard Error))` | `Alloc,Block,IO,Mut` | Wait until this binding holds the lock. `Ok` the guard `mutexUnlock` wants back; `Err` code `syncOwnerDead` if the holder is found dead while this waits, or the mutex was poisoned before. |
-| `mutexTryLock` | value | `(-> Mutex (Option MutexGuard))` | `IO,Mut` | Take the lock if it is free right now: `Some` the guard, `None` if it is held - or poisoned, which `mutexOwnerDead` tells apart. |
-| `mutexLockTimeout` | value | `(-> Mutex Int (Result MutexGuard Error))` | `Alloc,Block,IO,Mut,Unsafe` | `mutexLock`, waiting at most `nanos` nanoseconds. `Ok` the guard; `Err` code `sysTimedOut` when the time ran out with the lock still held by a holder that looks alive; `Err` code `syncOwnerDead` when the holder was found dead. A wait nobody ends is never shorter than `nanos` on a monotonic clock (MM-PAR-12 states Darwin's bound). A non-positive `nanos` is `mutexTryLock` with a reason. |
-| `mutexUnlock` | value | `(-> Mutex MutexGuard (Result Int Error))` | `Alloc,IO,Mut` | Let the next holder in. `mg` must be the guard this binding's lock call answered: any other - on a free mutex, a stale one, a sibling's, another mutex's - is `Err` code `syncNotHeld` and leaves the lock as it was. Exactly one unlock per acquisition succeeds, however the calls interleave. |
-| `mutexOwnerDead` | value | `(-> Mutex Bool)` |  | Whether a holder was found dead holding this mutex (the poisoning in the header). |
-| `mutexFree` | value | `(-> Mutex (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Unmap the mutex. Only once no binding can still reach it - after the `parallel` form that used it. Takes no lock, so it is also the one safe call on a poisoned mutex. The handle is retired before the page is unmapped, so every call made after this one - a second `mutexFree` included - traps with status 85. |
+| `sysPreadNum` | value | `Int` |  | pread(fd, buf, count, offset) - BSD 153 |
+| `sysPwriteNum` | value | `Int` |  | pwrite(fd, buf, count, offset) - BSD 154 |
+| `sysFsyncNum` | value | `Int` |  | fsync(fd) - BSD 95. Darwin's fsync leaves the data in the drive's own cache, so `sysFsync` asks `fcntl(F_FULLFSYNC)` instead and uses this only if the file system refuses that. |
+| `sysFtruncateNum` | value | `Int` |  | ftruncate(fd, length) - BSD 201 |
+| `sysFlockNum` | value | `Int` |  | flock(fd, operation) - BSD 131 |
+| `fsyncUsesFullFsync` | value | `Int` |  | 1: a durable sync is `fcntl(fd, F_FULLFSYNC)`, through `sysFcntlNum` |
+| `fFullFsync` | value | `Int` |  | F_FULLFSYNC = 51 |
+| `oRdwr` | value | `Int` |  | O_RDWR = 0x0002 |
+| `oCreat` | value | `Int` |  | O_CREAT = 0x0200 |
+| `oCloexec` | value | `Int` |  | O_CLOEXEC = 0x01000000, so a spawned child never inherits the descriptor, or the lock held on it |
 
 ## `Task`
 

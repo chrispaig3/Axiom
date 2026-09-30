@@ -1149,3 +1149,63 @@
 (pub :: tcpNoDelayOpt Int)
 (pub fn (tcpNoDelayOpt)
   1)
+
+; ------------------------------------------------------------------
+; Files a database keeps open: reads and writes at an offset, a sync
+; that reaches the medium, truncation, and a whole-file advisory lock,
+; for `stdlib/Axqlite/Pager.ax`. Numbers from the SDK's
+; `sys/syscall.h`, flags from its `sys/fcntl.h`. A 0 means the target
+; has no such call.
+; ------------------------------------------------------------------
+; pread(fd, buf, count, offset) - BSD 153
+(pub :: sysPreadNum Int)
+(pub fn (sysPreadNum)
+  33554585)
+
+; pwrite(fd, buf, count, offset) - BSD 154
+(pub :: sysPwriteNum Int)
+(pub fn (sysPwriteNum)
+  33554586)
+
+; fsync(fd) - BSD 95. Darwin's fsync leaves the data in the drive's
+; own cache, so `sysFsync` asks `fcntl(F_FULLFSYNC)` instead and uses
+; this only if the file system refuses that.
+(pub :: sysFsyncNum Int)
+(pub fn (sysFsyncNum)
+  33554527)
+
+; ftruncate(fd, length) - BSD 201
+(pub :: sysFtruncateNum Int)
+(pub fn (sysFtruncateNum)
+  33554633)
+
+; flock(fd, operation) - BSD 131
+(pub :: sysFlockNum Int)
+(pub fn (sysFlockNum)
+  33554563)
+
+; 1: a durable sync is `fcntl(fd, F_FULLFSYNC)`, through `sysFcntlNum`
+(pub :: fsyncUsesFullFsync Int)
+(pub fn (fsyncUsesFullFsync)
+  1)
+
+; F_FULLFSYNC = 51
+(pub :: fFullFsync Int)
+(pub fn (fFullFsync)
+  51)
+
+; O_RDWR = 0x0002
+(pub :: oRdwr Int)
+(pub fn (oRdwr)
+  2)
+
+; O_CREAT = 0x0200
+(pub :: oCreat Int)
+(pub fn (oCreat)
+  512)
+
+; O_CLOEXEC = 0x01000000, so a spawned child never inherits the
+; descriptor, or the lock held on it
+(pub :: oCloexec Int)
+(pub fn (oCloexec)
+  16777216)

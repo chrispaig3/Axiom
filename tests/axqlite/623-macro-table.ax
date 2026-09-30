@@ -1,0 +1,89 @@
+; axqlTable: a struct per row, its CREATE TABLE, a typed insert, and
+; rows read back into records by column name, NULL as `None`.
+(import IO)
+(import Str)
+(import Vec)
+(import Err)
+(import Axqlite)
+(import Axqlite.Value)
+(import AxqlKit)
+
+(axqlTable
+  Person
+  people
+  (id RowId)
+  (name String)
+  (age OptInt)
+  (score Float)
+  (photo OptBytes)
+  (note OptString))
+
+(axqlTable Tag tags (label String))
+
+(:: showPerson (-> Person Int))
+;@axiom:effect(io)
+(fn (showPerson p)
+  (println "{p}"))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((db (kitOpen "table.db")))
+    {
+      (println createPersonTable.text)
+      (println selectAllPerson.text)
+      (kitRun "create" (axqRunOn db createPersonTable))
+      (kitRun "insert ada" (insertPerson db (Person
+        1
+        "Ada"
+        (Some 36)
+        9.5
+        None
+        (Some "first"))))
+      (kitRun "insert bob" (insertPerson db (Person
+        2
+        "Bob"
+        None
+        7.25
+        (Some "\0bin")
+        None)))
+      (kitRun "insert a clash" (insertPerson db (Person
+        2
+        "Dup"
+        None
+        0.0
+        None
+        None)))
+      (match (queryPerson db selectAllPerson)
+        ((Ok ps)
+          (for p in ps
+            (showPerson p))
+        )
+        ((Err e) (println (kitErrText e))))
+      (match (queryPerson db (axqlSelect people * (where (isNotNull age))))
+        ((Ok ps)
+          (for p in ps
+            (let ((n p.name))
+              (println "with an age: {n}")))
+        )
+        ((Err e) (println (kitErrText e))))
+      (match (queryPerson db (axqlSelect people (id name) (where (= id (int 1)))))
+        ((Ok ps) (println "a narrow row: ok"))
+        ((Err e) (println (kitErrText e))))
+      (match (queryPerson db (axqlSelect people (id
+        (as score name)
+        age
+        score
+        photo
+        note)))
+        ((Ok ps) (println "a wrong type: ok"))
+        ((Err e) (println (kitErrText e))))
+      (kitRun "tags" (axqRunOn db createTagTable))
+      (kitRun "tag" (insertTag db (Tag "x")))
+      (match (queryTag db selectAllTag)
+        ((Ok ts) (println (vecLen ts)))
+        ((Err e) (println (kitErrText e))))
+      (kitDump db "SELECT * FROM people")
+      (kitRun "close" (axqClose db))
+      0
+    }))

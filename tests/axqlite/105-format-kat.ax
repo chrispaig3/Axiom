@@ -1,0 +1,154 @@
+; The file format, byte for byte: the header page of a new database and
+; its checksum, the empty schema leaf, a table leaf holding one row, a
+; leaf cell whose value spills into an overflow page, an interior cell,
+; a record and an index key, and the rollback journal's header and first
+; record. docs/axqlite-format.md describes each of these bytes; this
+; test pins them. A journal's salt is random, so its 8 bytes and the
+; header checksum that covers them print as `s`, and the record's
+; checksum is checked instead of printed.
+(import IO)
+(import Str)
+(import Vec)
+(import Err)
+(import Axqlite.Value)
+(import Axqlite.Record)
+(import Axqlite.Pager)
+(import Axqlite.Btree)
+(import StoreTest)
+(import StoreDb)
+
+; Hex of bytes [lo, hi) of `s`, sixteen to a line, each line indented.
+(:: dump (-> String Int Int String Int))
+;@axiom:effect(io)
+(fn (dump s lo hi label)
+  {
+    (println label)
+    (let ((mut at lo))
+      (while (< at hi)
+        (let ((end 
+          (if (< (+ at 16) hi)
+            (+ at 16)
+            hi)))
+          {
+            (println (strConcat "  " (hexOf (strSlice s at (- end at)))))
+            (set at end)
+          })))
+    0
+  })
+
+(:: page (-> String Int String))
+(fn (page file n)
+  (strSlice file (* n 4096) 4096))
+
+(:: main Int)
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (main)
+  (let ((t tallyNew))
+    {
+      ; a new database
+      (let ((p (openOrDie "kat.db" 16)))
+        (let ((_ (pagerClose p)))
+          0))
+      (let ((f (readFile "kat.db")))
+        {
+          (dump (page f 0) 0 128 "page 0, bytes 0-127 (header):")
+          (dump (page f 0) 4088 4096 "page 0, bytes 4088-4095 (checksum):")
+          (dump (page f 1) 0 16 "page 1, bytes 0-15 (the empty schema leaf):")
+          (dump (page f 1) 4088 4096 "page 1, bytes 4088-4095 (checksum):")
+        })
+      ; a table tree with one row, then a row whose value overflows
+      (let ((p (openOrDie "kat.db" 16)))
+        {
+          (check t (== (codeOf (pagerBeginWrite p)) 0) "begin")
+          (let ((root (unwrapOr (btreeCreate p btreeTable) 0)))
+            {
+              (check t (== root 2) "the first tree's root is page 2")
+              (check t (== (codeOf (btreePut p root (keyRowid 1) (unwrapOr (recEncode (vecPush (vecPush vecNew (VInt 42)) (VText "hi"))) ""))) 0) "put row 1")
+              (check t (== (codeOf (pagerCommit p)) 0) "commit")
+              (let ((f (readFile "kat.db")))
+                {
+                  (dump (page f 0) 0 64 "after the commit, page 0 bytes 0-63:")
+                  (dump (page f 2) 0 14 "page 2 (a table leaf, one cell), bytes 0-13:")
+                  (dump (page f 2) 4056 4088 "page 2, bytes 4056-4087 (its one cell: key length, value length, key, record):")
+                  (dump (page f 2) 4088 4096 "page 2, bytes 4088-4095 (checksum):")
+                })
+              (check t (== (codeOf (pagerBeginWrite p)) 0) "begin")
+              (let ((big (strAlloc 5000)))
+                {
+                  (for i 0 5000
+                    (__store8 (strData big) i (& i 255)))
+                  (check t (== (codeOf (btreePut p root (keyRowid 2) big)) 0) "put row 2")
+                })
+              (check t (== (codeOf (pagerCommit p)) 0) "commit")
+              (let ((f (readFile "kat.db")))
+                {
+                  (dump (page f 2) 0 16 "page 2 after an overflowing row, bytes 0-15:")
+                  (dump (page f 2) 3040 3056 "the overflowing cell (at 3040), its first 16 bytes:")
+                  (dump (page f 2) 4052 4056 "and its last 4, the first overflow page:")
+                  (dump (page f 3) 0 16 "page 3 (overflow), bytes 0-15:")
+                })
+            })
+          (check t (== (codeOf (pagerClose p)) 0) "close")
+        })
+      ; an interior node: enough rows to split the root
+      (let ((p (openOrDie "kat.db" 16)))
+        {
+          (check t (== (codeOf (pagerBeginWrite p)) 0) "begin")
+          (for i 3 400
+            (check t (== (codeOf (btreePut p 2 (keyRowid i) "")) 0) "put"))
+          (check t (== (codeOf (pagerCommit p)) 0) "commit")
+          (check t (== (codeOf (pagerClose p)) 0) "close")
+          (let ((f (readFile "kat.db")))
+            {
+              (dump (page f 2) 0 14 "page 2 after its split (an interior root), bytes 0-13:")
+              (dump (page f 2) 4074 4088 "its one cell:")
+            })
+        })
+      ; values and keys
+      (match (recEncode (vecPush (vecPush (vecPush (vecPush (vecPush vecNew VNull) (VInt -2)) (VReal 1.5)) (VText "ab")) (VBlob "")))
+        ((Ok r) (dump r 0 (strLen r) "record [NULL, -2, 1.5, 'ab', x'']:"))
+        ((Err e) (check t false "record")))
+      (match (keyEncode (vecPush (vecPush (vecPush (vecPush (vecPush vecNew VNull) (VInt -2)) (VReal 1.5)) (VText "a\0b")) (VBlob "")))
+        ((Ok k) (dump (keyWithRowid k 7) 0 (+ (strLen k) 8) "index key [NULL, -2, 1.5, 'a\\0b', x''] + rowid 7:"))
+        ((Err e) (check t false "key")))
+      ; the journal: a transaction abandoned after changing page 2
+      (let ((p (openOrDie "kat.db" 16)))
+        {
+          (check t (== (codeOf (pagerBeginWrite p)) 0) "begin")
+          (check t (== (codeOf (btreePut p 2 (keyRowid 1) "changed")) 0) "change row 1")
+          (pagerAbandon p)
+          (let (
+            (j (readFile "kat.db-journal"))
+            (f (readFile "kat.db"))
+          )
+            (let ((masked (strDup (strSlice j 0 48))))
+              {
+                (for i 32 48
+                  (__store8 (strData masked) i 115))
+                (println "journal header, bytes 0-47 (salt and checksum as s):")
+                (let ((h (hexOf masked)))
+                  {
+                    (println (strConcat "  " (strSlice h 0 32)))
+                    (println (strConcat "  " (strSlice h 32 32)))
+                    (println (strConcat "  " (strConcat (strSlice h 64 16) "ssssssssssssssssssssssssssssssss")))
+                  })
+                (dump j 48 64 "journal bytes 48-63:")
+                (dump j 512 516 "journal record 0, its page number:")
+                (let (
+                  (salt (pagerGetBe (strData j) 32 8))
+                  (rec (strSlice j 512 (+ 512 4108)))
+                )
+                  {
+                    (check t (== (pagerGetBe (strData rec) 4100 8) (pagerChecksum (strData rec) 4100 salt)) "the record's checksum is XXH64 of its first 4100 bytes, seeded with the salt")
+                    (check t (== (pagerGetBe (strData j) 40 8) (pagerChecksum (strData j) 40 0)) "the journal header's checksum is XXH64 of bytes 0-39")
+                  })
+                (let (
+                  (n (/ (- (strLen j) 512) 4108))
+                  (rest (% (- (strLen j) 512) 4108))
+                )
+                  (println "the journal holds {n} whole records and {rest} bytes more"))
+              }))
+        })
+      (tallyReport t "105-format-kat")
+    }))

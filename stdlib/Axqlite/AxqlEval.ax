@@ -1,0 +1,691 @@
+; Axqlite.AxqlEval - what AXQL's operators do to values.
+;
+;     (axqlCompare (VInt 2) (VReal 2.5))       ; (Ok -1): numeric order
+;     (axqlArith opAdd (VInt 1) VNull)          ; (Ok VNull)
+;     (axqlArith opAdd (VInt intMax) (VInt 1))  ; (Err ...) axqArithmetic
+;
+; Values follow three-valued logic. A comparison, AND, OR or NOT is
+; TRUE (1), FALSE (0) or NULL. AND is FALSE when either side is FALSE
+; and OR is TRUE when either side is TRUE, even when the other side
+; fails to evaluate; otherwise a failure on either side is the answer.
+; That makes AND and OR independent of evaluation order, and it is what
+; lets the planner skip rows an index rules out.
+;
+; An INTEGER compares with a REAL exactly, as the two numbers they are,
+; however large. TEXT and BLOB compare bytewise. Comparing any other
+; pair of types is `axqType`, and so is arithmetic on TEXT or BLOB; the
+; checker `axqlTypeOf` finds those before a statement reads a row.
+;
+; INTEGER arithmetic never wraps: overflow and division by zero answer
+; `axqArithmetic`, and `/` truncates toward zero. REAL arithmetic is
+; IEEE 754, except that dividing by zero and a NaN result answer
+; `axqArithmetic` too. `%` takes INTEGER operands only.
+(import Str)
+(import Vec)
+(import Err)
+(import Fmt)
+(import Float)
+(import Axqlite.Value)
+(import Axqlite.AxqlAst)
+
+; ------------------------------------------------------------------
+; Truth values.
+; ------------------------------------------------------------------
+; FALSE, as a truth value.
+(pub :: tvFalse Int)
+(pub fn (tvFalse)
+  0)
+
+; TRUE.
+(pub :: tvTrue Int)
+(pub fn (tvTrue)
+  1)
+
+; NULL, as a truth value.
+(pub :: tvNull Int)
+(pub fn (tvNull)
+  2)
+
+; The truth of a value: a number is TRUE when it isn't zero, NULL is
+; NULL, and TEXT or BLOB is `axqType`.
+(pub :: axqlTruth (-> Value (Result Int Error)))
+(pub fn (axqlTruth v)
+  (match v
+    ((VNull) (Ok tvNull))
+    ((VInt n)
+      (Ok
+        (if (== n 0)
+          tvFalse
+          tvTrue))
+    )
+    ((VReal r)
+      (Ok
+        (if (== r 0.0)
+          tvFalse
+          tvTrue))
+    )
+    ((VText _) (axqErr axqType "a TEXT value isn't a truth value" "axqlTruth"))
+    ((VBlob _) (axqErr axqType "a BLOB value isn't a truth value" "axqlTruth"))))
+
+; A truth value as the INTEGER or NULL a statement sees.
+(pub :: truthValue (-> Int Value))
+(pub fn (truthValue t)
+  (if (== t tvNull)
+    VNull
+    (VInt t)))
+
+; ------------------------------------------------------------------
+; Types.
+; ------------------------------------------------------------------
+; The type of a value: one of the four column types, or `typeNull`.
+(pub :: axqlValueType (-> Value Int))
+(pub fn (axqlValueType v)
+  (match v
+    ((VNull) typeNull)
+    ((VInt _) typeInteger)
+    ((VReal _) typeReal)
+    ((VText _) typeText)
+    ((VBlob _) typeBlob)))
+
+(:: isNumericType (-> Int Bool))
+(fn (isNumericType t)
+  (|| (== t typeInteger) (== t typeReal)))
+
+; ------------------------------------------------------------------
+; Comparison.
+; ------------------------------------------------------------------
+; 2^63 as a REAL: the first number above every INTEGER.
+(:: twoTo63 Float)
+(fn (twoTo63)
+  (* -1.0 (__intToFloat intMin)))
+
+; -1, 0 or 1 as INTEGER `i` is below, equal to or above REAL `r`,
+; exactly. `r` is never NaN: NaN isn't a value a statement can hold.
+(pub :: axqlCompareIntReal (-> Int Float Int))
+(pub fn (axqlCompareIntReal i r)
+  (if (>= r twoTo63)
+    -1
+    (if (< r (* -1.0 twoTo63))
+      1
+      (let ((ri (__floatToInt r)))
+        (if (< i ri)
+          -1
+          (if (> i ri)
+            1
+            (let ((fr (__intToFloat ri)))
+              (if (> r fr)
+                -1
+                (if (< r fr)
+                  1
+                  0)))))))))
+
+(:: sign (-> Int Int))
+(fn (sign n)
+  (if (< n 0)
+    -1
+    (if (> n 0)
+      1
+      0)))
+
+(:: cmpFloat (-> Float Float Int))
+(fn (cmpFloat a b)
+  (if (< a b)
+    -1
+    (if (> a b)
+      1
+      0)))
+
+; -1, 0 or 1 as `a` is below, equal to or above `b`, for two non-NULL
+; values of comparable types: two numbers, two TEXTs or two BLOBs.
+; Anything else is `axqType`.
+(pub :: axqlCompare (-> Value Value (Result Int Error)))
+(pub fn (axqlCompare a b)
+  (match a
+    ((VInt x)
+      (match b
+        ((VInt y)
+          (Ok
+            (if (< x y)
+              -1
+              (> x y)
+              1
+              0))
+        )
+        ((VReal y) (Ok (axqlCompareIntReal x y)))
+        (_ (typeClash a b)))
+    )
+    ((VReal x)
+      (match b
+        ((VInt y) (Ok (- 0 (axqlCompareIntReal y x))))
+        ((VReal y) (Ok (cmpFloat x y)))
+        (_ (typeClash a b)))
+    )
+    ((VText x)
+      (match b
+        ((VText y) (Ok (sign (strCmp x y))))
+        (_ (typeClash a b)))
+    )
+    ((VBlob x)
+      (match b
+        ((VBlob y) (Ok (sign (strCmp x y))))
+        (_ (typeClash a b)))
+    )
+    ((VNull) (typeClash a b))))
+
+(:: typeClash (-> Value Value (Result Int Error)))
+(fn (typeClash a b)
+  (axqErr axqType (strConcat (strConcat "can't compare " (typeName (axqlValueType a))) (strConcat " with " (typeName (axqlValueType b)))) "axqlCompare"))
+
+; The order ORDER BY sorts in: NULL first, then numbers, then TEXT,
+; then BLOB, each kind in its own order. Total, so it never fails.
+(pub :: axqlSortCompare (-> Value Value Int))
+(pub fn (axqlSortCompare a b)
+  (let (
+    (ra (sortRank a))
+    (rb (sortRank b))
+  )
+    (if (!= ra rb)
+      (if (< ra rb)
+        -1
+        1)
+      (if (== ra 0)
+        0
+        (match (axqlCompare a b)
+          ((Ok c) c)
+          ((Err _) 0))))))
+
+(:: sortRank (-> Value Int))
+(fn (sortRank v)
+  (match v
+    ((VNull) 0)
+    ((VInt _) 1)
+    ((VReal _) 1)
+    ((VText _) 2)
+    ((VBlob _) 3)))
+
+; The six comparisons over two values, with NULL on either side giving
+; NULL.
+(pub :: axqlComparison (-> Int Value Value (Result Value Error)))
+(pub fn (axqlComparison op a b)
+  (if (|| (isNull a) (isNull b))
+    (Ok VNull)
+    (try
+      c
+      (axqlCompare a b)
+      (Ok
+        (VInt
+          (if (if (== op opEq)
+            (== c 0)
+            (== op opNe)
+            (!= c 0)
+            (== op opLt)
+            (< c 0)
+            (== op opLe)
+            (<= c 0)
+            (== op opGt)
+            (> c 0)
+            (>= c 0))
+            1
+            0))))))
+
+(:: isNull (-> Value Bool))
+(fn (isNull v)
+  (match v
+    ((VNull) true)
+    (_ false)))
+
+; ------------------------------------------------------------------
+; Arithmetic.
+; ------------------------------------------------------------------
+(:: arithErr (-> String (Result a Error)))
+(fn (arithErr msg)
+  (axqErr axqArithmetic msg "axqlArith"))
+
+(:: overflow (-> Int Int Int (Result a Error)))
+(fn (overflow op x y)
+  (arithErr (strConcat "integer overflow: " (strConcat (fmtInt x) (strConcat (strConcat " " (opText op)) (strConcat " " (fmtInt y)))))))
+
+; `x op y` on two INTEGERs, checked.
+(:: intArith (-> Int Int Int (Result Value Error)))
+(fn (intArith op x y)
+  (if (== op opAdd)
+    (let ((s (+ x y)))
+      (if (< (& (^ x s) (^ y s)) 0)
+        (overflow op x y)
+        (Ok (VInt s))))
+    (== op opSub)
+    (let ((s (- x y)))
+      (if (< (& (^ x y) (^ x s)) 0)
+        (overflow op x y)
+        (Ok (VInt s))))
+    (== op opMul)
+    (if (|| (== x 0) (== y 0))
+      (Ok (VInt 0))
+      (if (|| (&& (== x intMin) (== y -1)) (&& (== y intMin) (== x -1)))
+        (overflow op x y)
+        (let ((p (* x y)))
+          (if (!= (/ p x) y)
+            (overflow op x y)
+            (Ok (VInt p))))))
+    (== op opDiv)
+    (if (== y 0)
+      (arithErr "integer division by zero")
+      (if (&& (== x intMin) (== y -1))
+        (overflow op x y)
+        (Ok (VInt (/ x y)))))
+    (if (== y 0)
+      (arithErr "integer remainder by zero")
+      (if (== y -1)
+        (Ok (VInt 0))
+        (Ok (VInt (% x y)))))))
+
+; `x op y` on two REALs, IEEE 754 but refusing a zero divisor and NaN.
+(:: realArith (-> Int Float Float (Result Value Error)))
+(fn (realArith op x y)
+  (if (&& (== op opDiv) (== y 0.0))
+    (arithErr "real division by zero")
+    (let ((r 
+      (if (== op opAdd)
+        (+ x y)
+        (== op opSub)
+        (- x y)
+        (== op opMul)
+        (* x y)
+        (/ x y))))
+      (if (floatIsNan r)
+        (arithErr (strConcat "a real operation with no numeric answer: " (opText op)))
+        (Ok (VReal r))))))
+
+(:: toFloat (-> Value Float))
+(fn (toFloat v)
+  (match v
+    ((VInt n) (__intToFloat n))
+    ((VReal r) r)
+    (_ 0.0)))
+
+; One of `+ - * / %` over two values. NULL on either side gives NULL.
+(pub :: axqlArith (-> Int Value Value (Result Value Error)))
+(pub fn (axqlArith op a b)
+  (if (|| (isNull a) (isNull b))
+    (Ok VNull)
+    (match a
+      ((VInt x)
+        (match b
+          ((VInt y) (intArith op x y))
+          ((VReal y) (mixedArith op a b))
+          (_ (arithTypeErr op a b)))
+      )
+      ((VReal x)
+        (match b
+          ((VInt _) (mixedArith op a b))
+          ((VReal _) (mixedArith op a b))
+          (_ (arithTypeErr op a b)))
+      )
+      (_ (arithTypeErr op a b)))))
+
+(:: mixedArith (-> Int Value Value (Result Value Error)))
+(fn (mixedArith op a b)
+  (if (== op opMod)
+    (arithTypeErr op a b)
+    (realArith op (toFloat a) (toFloat b))))
+
+(:: arithTypeErr (-> Int Value Value (Result Value Error)))
+(fn (arithTypeErr op a b)
+  (axqErr axqType (strConcat (strConcat (strConcat "can't apply " (opText op)) " to ") (strConcat (typeName (axqlValueType a)) (strConcat " and " (typeName (axqlValueType b))))) "axqlArith"))
+
+; Unary minus. The most negative INTEGER has no negation.
+(pub :: axqlNegate (-> Value (Result Value Error)))
+(pub fn (axqlNegate v)
+  (match v
+    ((VNull) (Ok VNull))
+    ((VInt n)
+      (if (== n intMin)
+        (arithErr "integer overflow: -(-9223372036854775808)")
+        (Ok (VInt (- 0 n))))
+    )
+    ((VReal r) (Ok (VReal (* -1.0 r))))
+    (_ (axqErr axqType (strConcat "can't negate " (typeName (axqlValueType v))) "axqlNegate"))))
+
+; ------------------------------------------------------------------
+; Evaluation.
+; ------------------------------------------------------------------
+; Evaluate `e` over one row: `row` holds the table's columns and `rowid`
+; its rowid. `params` are the bound parameters. An unbound name is a
+; refusal: the binder rewrites every name before evaluation.
+(pub :: axqlEval (-> Expr (Vec Value) Int (Vec Value) (Result Value Error)))
+(pub fn (axqlEval e row rowid params)
+  (match e
+    ((ELit v) (Ok v))
+    ((ECol i)
+      (if (< i 0)
+        (Ok (VInt rowid))
+        (Ok (vecGet row i)))
+    )
+    ((EParam i _) (Ok (vecGet params i)))
+    ((EName n _) (axqErr axqSchema (strConcat "no such column: " n) "axqlEval"))
+    ((ENeg x _)
+      (let ((rx (axqlEval x row rowid params)))
+        (try v rx (axqlNegate v)))
+    )
+    ((ENot x)
+      (let ((rx (axqlEval x row rowid params)))
+        (try
+          v
+          rx
+          (try
+            t
+            (axqlTruth v)
+            (Ok
+              (truthValue
+                (if (== t tvNull)
+                  tvNull
+                  (- 1 t)))))))
+    )
+    ((EIsNull x negated)
+      (let ((rx (axqlEval x row rowid params)))
+        (try
+          v
+          rx
+          (Ok
+            (VInt
+              (if (isNull v)
+                (if negated
+                  0
+                  1)
+                (if negated
+                  1
+                  0))))))
+    )
+    ((EBin op l r _)
+      (if (== op opAnd)
+        (evalAndOr
+          tvFalse
+          l
+          r
+          row
+          rowid
+          params)
+        (== op opOr)
+        (evalAndOr
+          tvTrue
+          l
+          r
+          row
+          rowid
+          params)
+        (let (
+          (ra (axqlEval l row rowid params))
+          (rb (axqlEval r row rowid params))
+        )
+          (try
+            a
+            ra
+            (try
+              b
+              rb
+              (if (opIsComparison op)
+                (axqlComparison op a b)
+                (axqlArith op a b))))))
+    )))
+
+; The truth of `e` over a row: TRUE, FALSE, NULL, or the failure.
+(:: evalTruth (-> Expr (Vec Value) Int (Vec Value) (Result Int Error)))
+(fn (evalTruth e row rowid params)
+  (try v (axqlEval e row rowid params) (axqlTruth v)))
+
+; AND (`dominant` FALSE) or OR (`dominant` TRUE): the dominant value
+; from either side decides, whatever the other side does; otherwise a
+; failure on either side is the answer; otherwise NULL wins over the
+; other value.
+(:: evalAndOr (-> Int Expr Expr (Vec Value) Int (Vec Value) (Result Value Error)))
+(fn (evalAndOr dominant l r row rowid params)
+  (match (evalTruth l row rowid params)
+    ((Ok a)
+      (if (== a dominant)
+        (Ok (truthValue dominant))
+        (match (evalTruth r row rowid params)
+          ((Ok b)
+            (if (== b dominant)
+              (Ok (truthValue dominant))
+              (if (|| (== a tvNull) (== b tvNull))
+                (Ok VNull)
+                (Ok (truthValue a))))
+          )
+          ((Err e) (Err e))))
+    )
+    ((Err e)
+      (match (evalTruth r row rowid params)
+        ((Ok b)
+          (if (== b dominant)
+            (Ok (truthValue dominant))
+            (Err e))
+        )
+        ((Err _) (Err e)))
+    )))
+
+; ------------------------------------------------------------------
+; WHERE.
+; ------------------------------------------------------------------
+; The top-level AND terms of `e`, left to right.
+(pub :: axqlConjuncts (-> Expr (Vec Expr)))
+(pub fn (axqlConjuncts e)
+  (let ((out vecNewRef))
+    {
+      (pushConjuncts e out)
+      out
+    }))
+
+(:: pushConjuncts (-> Expr (Vec Expr) Int))
+(fn (pushConjuncts e out)
+  (match e
+    ((EBin op l r _)
+      (if (== op opAnd)
+        {
+          (pushConjuncts l out)
+          (pushConjuncts r out)
+        }
+        {
+          (vecPush out e)
+          0
+        })
+    )
+    (_
+      {
+        (vecPush out e)
+        0
+      }
+    )))
+
+; Whether a row passes a WHERE given as its AND terms. The row is
+; dropped when any term is FALSE or NULL, whatever the others do; a
+; term's failure is the answer only when no term drops the row.
+(pub :: axqlKeep (-> (Vec Expr) (Vec Value) Int (Vec Value) (Result Bool Error)))
+(pub fn (axqlKeep terms row rowid params)
+  (let (
+    (n (vecLen terms))
+    (mut i 0)
+    (mut drop false)
+    (mut failure None)
+  )
+    {
+      (while (&& (! drop) (< i n))
+        {
+          (match (evalTruth (vecGet terms i) row rowid params)
+            ((Ok t)
+              (if (!= t tvTrue)
+                {
+                  (set drop true)
+                  0
+                }
+                0)
+            )
+            ((Err e)
+              (if (isNone failure)
+                {
+                  (set failure (Some e))
+                  0
+                }
+                0)
+            ))
+          (set i (+ i 1))
+        })
+      (if drop
+        (Ok false)
+        (match failure
+          ((Some e) (Err e))
+          ((None) (Ok true))))
+    }))
+
+; ------------------------------------------------------------------
+; Static types.
+; ------------------------------------------------------------------
+; The type `e` has whenever it isn't NULL, given the types of the
+; table's columns (the rowid is INTEGER) and the bound parameters.
+; `typeNull` means always NULL. A mismatch is `axqType`, named with its
+; place in `src`, before any row is read.
+(pub :: axqlTypeOf (-> String Expr (Vec Int) (Vec Value) (Result Int Error)))
+(pub fn (axqlTypeOf src e colTypes params)
+  (match e
+    ((ELit v) (Ok (axqlValueType v)))
+    ((ECol i)
+      (Ok
+        (if (< i 0)
+          typeInteger
+          (vecGet colTypes i)))
+    )
+    ((EParam i _) (Ok (axqlValueType (vecGet params i))))
+    ((EName n _) (axqErr axqSchema (strConcat "no such column: " n) "axqlTypeOf"))
+    ((ENeg x at)
+      (let ((rx (axqlTypeOf src x colTypes params)))
+        (try
+          t
+          rx
+          (if (|| (== t typeNull) (isNumericType t))
+            (Ok t)
+            (typeErrAt src at (strConcat "can't negate " (typeName t))))))
+    )
+    ((ENot x)
+      (let ((rx (axqlTypeOf src x colTypes params)))
+        (try
+          t
+          rx
+          (if (|| (== t typeNull) (isNumericType t))
+            (Ok typeInteger)
+            (typeErrAt src (exprPos x) (strConcat "NOT needs a number, not " (typeName t))))))
+    )
+    ((EIsNull x _)
+      (let ((rx (axqlTypeOf src x colTypes params)))
+        (try _ rx (Ok typeInteger)))
+    )
+    ((EBin op l r at)
+      (let (
+        (ra (axqlTypeOf src l colTypes params))
+        (rb (axqlTypeOf src r colTypes params))
+      )
+        (try a ra (try b rb (binType
+          src
+          op
+          a
+          b
+          at))))
+    )))
+
+(:: binType (-> String Int Int Int Int (Result Int Error)))
+(fn (binType src op a b at)
+  (if (|| (== op opAnd) (== op opOr))
+    (if (&& (|| (== a typeNull) (isNumericType a)) (|| (== b typeNull) (isNumericType b)))
+      (Ok typeInteger)
+      (typeErrAt src at (strConcat (strConcat (opText op) " needs numbers, not ") (pairText a b))))
+    (if (opIsComparison op)
+      (if (|| (== a typeNull) (|| (== b typeNull) (|| (== a b) (&& (isNumericType a) (isNumericType b)))))
+        (Ok typeInteger)
+        (typeErrAt src at (strConcat "can't compare " (strConcat (typeName a) (strConcat " with " (typeName b))))))
+      (if (== op opMod)
+        (if (&& (|| (== a typeNull) (== a typeInteger)) (|| (== b typeNull) (== b typeInteger)))
+          (Ok
+            (if (|| (== a typeNull) (== b typeNull))
+              typeNull
+              typeInteger))
+          (typeErrAt src at (strConcat "% needs INTEGER operands, not " (pairText a b))))
+        (if (&& (|| (== a typeNull) (isNumericType a)) (|| (== b typeNull) (isNumericType b)))
+          (Ok
+            (if (|| (== a typeNull) (== b typeNull))
+              typeNull
+              (|| (== a typeReal) (== b typeReal))
+              typeReal
+              typeInteger))
+          (typeErrAt src at (strConcat (strConcat (strConcat "can't apply " (opText op)) " to ") (pairText a b))))))))
+
+(:: pairText (-> Int Int String))
+(fn (pairText a b)
+  (strConcat (typeName a) (strConcat " and " (typeName b))))
+
+; The byte offset an expression's own operator or name sits at, or -1.
+(:: exprPos (-> Expr Int))
+(fn (exprPos e)
+  (match e
+    ((EName _ at) at)
+    ((EParam _ at) at)
+    ((ENeg _ at) at)
+    ((EBin _ _ _ at) at)
+    ((ENot x) (exprPos x))
+    ((EIsNull x _) (exprPos x))
+    (_ -1)))
+
+(:: typeErrAt (-> String Int String (Result a Error)))
+(fn (typeErrAt src at msg)
+  (axqErr
+    axqType
+    (if (< at 0)
+      msg
+      (strConcat (strConcat (axqlPosText src at) ": ") msg))
+    "axqlTypeOf"))
+
+; ------------------------------------------------------------------
+; Folding.
+; ------------------------------------------------------------------
+; `e` with each largest subexpression that names no column replaced by
+; its value. Those are evaluated once, before any row is read, so a
+; failure among them fails the statement even when no row would have
+; reached it.
+(pub :: axqlFold (-> Expr (Vec Value) (Result Expr Error)))
+(pub fn (axqlFold e params)
+  (if (axqlIsConstant e)
+    (try v (axqlEval e vecNew 0 params) (Ok (ELit v)))
+    (foldInside e params)))
+
+; Fold the constant parts of `e`, which names a column somewhere.
+(:: foldInside (-> Expr (Vec Value) (Result Expr Error)))
+(fn (foldInside e params)
+  (match e
+    ((ELit _) (Ok e))
+    ((ECol _) (Ok e))
+    ((EName _ _) (Ok e))
+    ((EParam i _) (Ok (ELit (vecGet params i))))
+    ((ENeg x at) (try fx (axqlFold x params) (Ok (ENeg fx at))))
+    ((ENot x) (try fx (axqlFold x params) (Ok (ENot fx))))
+    ((EIsNull x negated) (try fx (axqlFold x params) (Ok (EIsNull fx negated))))
+    ((EBin op l r at)
+      (let ((rl (axqlFold l params)))
+        (try fl rl (try fr (axqlFold r params) (Ok (EBin op fl fr at)))))
+    )))
+
+(:: isLit (-> Expr Bool))
+(fn (isLit e)
+  (match e
+    ((ELit _) true)
+    (_ false)))
+
+; Whether `e` names no column: a literal, a parameter, or operators
+; over those.
+(pub :: axqlIsConstant (-> Expr Bool))
+(pub fn (axqlIsConstant e)
+  (match e
+    ((ELit _) true)
+    ((EParam _ _) true)
+    ((ECol _) false)
+    ((EName _ _) false)
+    ((ENeg x _) (axqlIsConstant x))
+    ((ENot x) (axqlIsConstant x))
+    ((EIsNull x _) (axqlIsConstant x))
+    ((EBin _ l r _) (&& (axqlIsConstant l) (axqlIsConstant r)))))

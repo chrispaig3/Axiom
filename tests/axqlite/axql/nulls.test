@@ -1,0 +1,123 @@
+# NULL: how comparisons, AND, OR and NOT treat it, where WHERE keeps a
+# row, where ORDER BY puts it, and how UNIQUE indices count it.
+# Expected results follow docs/axql.md.
+
+statement ok
+CREATE TABLE t (id INTEGER PRIMARY KEY, a INTEGER, b TEXT)
+
+statement ok
+INSERT INTO t VALUES (1, 1, 'x'), (2, NULL, 'y'), (3, 3, NULL), (4, NULL, NULL)
+
+query
+SELECT id FROM t WHERE a = NULL
+----
+
+query
+SELECT id FROM t WHERE a != 1
+----
+3
+
+query
+SELECT id FROM t WHERE NOT a = 1
+----
+3
+
+query
+SELECT id FROM t WHERE a IS NULL
+----
+2
+4
+
+query
+SELECT id FROM t WHERE a IS NOT NULL AND b IS NOT NULL
+----
+1
+
+query
+SELECT id FROM t WHERE a = 1 OR b = 'y'
+----
+1
+2
+
+query
+SELECT id FROM t WHERE NOT (a = 1 AND b = 'x')
+----
+2
+3
+
+query
+SELECT id, a > 1, a > 1 OR b = 'y', a > 1 AND b = 'y' FROM t
+----
+1,0,0,0
+2,NULL,1,NULL
+3,1,1,NULL
+4,NULL,NULL,NULL
+
+query
+SELECT id FROM t ORDER BY a, id DESC
+----
+4
+2
+1
+3
+
+query
+SELECT id FROM t ORDER BY a DESC
+----
+3
+1
+2
+4
+
+query
+SELECT id FROM t ORDER BY b DESC, a
+----
+2
+1
+4
+3
+
+query
+SELECT a + 1, a * NULL, b FROM t WHERE id = 2
+----
+NULL,NULL,'y'
+
+statement ok
+CREATE UNIQUE INDEX tb ON t (b)
+
+statement ok
+INSERT INTO t VALUES (5, 5, NULL)
+
+statement error axqConstraint the UNIQUE index tb already holds that value in t
+INSERT INTO t VALUES (6, 6, 'x')
+
+query
+SELECT id FROM t WHERE b IS NULL
+----
+3
+4
+5
+
+query
+SELECT id FROM t WHERE b = 'x'
+----
+1
+
+query
+SELECT id FROM t WHERE b > 'a'
+----
+1
+2
+
+statement ok
+CREATE TABLE n (v TEXT NOT NULL)
+
+statement error axqConstraint n.v may not be NULL
+INSERT INTO n VALUES (NULL)
+
+statement error axqConstraint n.v may not be NULL
+INSERT INTO n (rowid) VALUES (1)
+
+query
+SELECT v FROM n
+----

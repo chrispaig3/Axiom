@@ -1,0 +1,34 @@
+create: ok 0
+insert: ok 2
+5
+name 0 = 'i'
+name 4 = 'next'
+name 5: axqMisuse: no column 5; the row has 5 while rowName
+int 0 = 42
+real 1 = 2.5
+real 0 (an INTEGER) = 42.0
+text 2 = 'hi'
+blob 3 = x'0102'
+int 4 = 43
+int 2 (TEXT): axqType: column 2 is TEXT, not INTEGER while rowInt
+text 0 (INTEGER): axqType: column 0 is INTEGER, not TEXT while rowText
+blob 2 (TEXT): axqType: column 2 is TEXT, not BLOB while rowBlob
+real 2 (TEXT): axqType: column 2 is TEXT, not REAL while rowReal
+int 9: axqMisuse: no column 9; the row has 5 while rowValue
+int -1: axqMisuse: no column -1; the row has 5 while rowValue
+null 0 = false
+null 0 of the NULL row = true
+int of NULL: axqType: column 0 is NULL, not INTEGER while rowInt
+text of NULL: axqType: column 2 is NULL, not TEXT while rowText
+named i = 42
+named I = 42
+named next = 43
+named s = 'hi'
+named r = 2.5
+named b = x'0102'
+named null = true
+named nope: axqSchema: no result column named nope while rowIndex
+index of s = 2
+x'0102'
+NULL
+close: ok 0

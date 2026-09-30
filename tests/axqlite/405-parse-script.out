@@ -1,0 +1,19 @@
+0 statements
+0 statements
+1 statements
+  (SELECT 1) text=[SELECT 1]
+1 statements
+  (SELECT 1) text=[SELECT 1]
+3 statements
+  (CREATE TABLE t (a INTEGER)) text=[CREATE TABLE t (a INTEGER)]
+  (INSERT INTO t () VALUES (1)) text=[INSERT INTO t VALUES (1)]
+  (SELECT a FROM t) text=[SELECT a FROM t]
+3 statements
+  (SELECT ?1) text=[SELECT ?]
+  (SELECT ?1) text=[SELECT :a]
+  (SELECT ?2) text=[SELECT ?2]
+error: line 1, column 11: expected a statement, found "SELEC"
+error: line 1, column 10: expected ";" between statements, found "SELECT"
+2 statements
+  (SELECT 'a;b') text=[SELECT 'a;b']
+  (SELECT ";" FROM t) text=[SELECT ";" FROM t]

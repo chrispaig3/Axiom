@@ -1,0 +1,52 @@
+; Two connections to one file: a write transaction holds the lock, the
+; other connection's reads and writes answer axqBusy at once and change
+; nothing, and after the commit it sees the new rows.
+(import IO)
+(import Err)
+(import Vec)
+(import Axqlite)
+(import Axqlite.Value)
+(import AxqlKit)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((a (kitOpen "shared.db")))
+    (match (axqOpen "shared.db" openOptions)
+      ((Ok b)
+        {
+          (kitRun "a creates" (axqExec a "CREATE TABLE t (v INTEGER)"))
+          (kitDump b "SELECT v FROM t")
+          (kitRun "a begins" (axqExec a "BEGIN"))
+          (kitRun "a inserts" (axqExec a "INSERT INTO t VALUES (1)"))
+          (kitRun "b reads" (axqExec b "SELECT v FROM t"))
+          (kitRun "b writes" (axqExec b "INSERT INTO t VALUES (2)"))
+          (kitDone "b prepares" (axqPrepare b "SELECT v FROM t"))
+          (kitRun "a commits" (axqExec a "COMMIT"))
+          (kitDump b "SELECT v FROM t")
+          (kitRun "b writes now" (axqExec b "INSERT INTO t VALUES (2)"))
+          (kitDump a "SELECT v FROM t")
+          (kitRun
+            "a streams, b writes"
+            (axqQueryEachOn
+              a
+              (Query "SELECT v FROM t" vec0)
+              (lambda (r)
+                {
+                  (kitRun "  b inserts while a reads" (axqExec b "INSERT INTO t VALUES (3)"))
+                  (kitDump b "SELECT v FROM t")
+                  (Ok true)
+                }
+              )))
+          (kitRun "b begins" (axqExec b "BEGIN"))
+          (kitDump b "SELECT v FROM t")
+          (kitRun "a writes while b reads in a transaction" (axqExec a "INSERT INTO t VALUES (4)"))
+          (kitRun "b commits" (axqExec b "COMMIT"))
+          (kitRun "a writes now" (axqExec a "INSERT INTO t VALUES (4)"))
+          (kitDump b "SELECT v FROM t")
+          (kitRun "close b" (axqClose b))
+          (kitRun "close a" (axqClose a))
+          0
+        }
+      )
+      ((Err e) 1))))

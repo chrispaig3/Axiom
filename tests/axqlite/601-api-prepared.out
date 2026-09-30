@@ -1,0 +1,44 @@
+create: ok 0
+2
+INSERT INTO t (name, score) VALUES (?, ?)
+insert ada: ok 1
+insert bob: ok 1
+insert null: ok 1
+too few: axqMisuse: the statement takes 2 parameters and was given 1 while axqRun
+too many: axqMisuse: the statement takes 2 parameters and was given 3 while axqRun
+wrong type: axqType: column name is TEXT, not INTEGER while axqRun
+query an insert: axqMisuse: the statement returns no rows: use axqRun while axqQuery
+3
+finalize: ok 0
+2
+positional: 2 rows [id,name]
+  1,'ada'
+  2,'bob'
+run a query: axqMisuse: the statement returns rows: use axqQuery or axqQueryEach while axqRun
+index of a name: axqMisuse: the statement has no parameter named :x while axqParamIndex
+finalize: ok 0
+2
+:who: ok 0
+:id: ok 1
+:nope: axqMisuse: the statement has no parameter named :nope while axqParamIndex
+who without colon: axqMisuse: the statement has no parameter named who while axqParamIndex
+named: 2 rows [name]
+  'ada'
+  NULL
+finalize: ok 0
+prepare a syntax error: axqSyntax: line 1, column 8: expected an expression, found "FROM" while axqPrepare
+prepare a missing table: axqSchema: no such table: nosuch while axqPrepare
+prepare a missing column: axqSchema: line 1, column 8: no such column: nosuch while axqPrepare
+prepare two statements: axqSyntax: line 1, column 11: one statement at a time; axqExecBatch runs a script while axqPrepare
+prepare DDL for a missing table: ok
+update: ok 1
+1
+update none: ok 0
+0
+finalize: ok 0
+SELECT * FROM t: 3 rows [id,name,score]
+  1,'ada',15.0
+  2,'bob',2.0
+  3,NULL,NULL
+exec with parameters: axqMisuse: the statement takes 1 parameter and was given 0 while axqExec
+close: ok 0

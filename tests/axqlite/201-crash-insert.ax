@@ -1,0 +1,99 @@
+; Crashing a transaction that inserts: 250 rows between and after 300
+; existing ones, some with values long enough for overflow chains, under
+; a 6-page cache so pages are spilled to the file before the commit.
+; Every write, sync and truncate of the transaction and its commit is
+; failed, torn, and cut by a power loss, plain and strict; after each,
+; a reopen recovers and the file is byte for byte the database before or
+; after the transaction. Then every crash of that transaction that left
+; a journal header has its recovery crashed at each of its own points,
+; and the next open still recovers the before state.
+(import IO)
+(import Str)
+(import Vec)
+(import Err)
+(import Axqlite.Pager)
+(import Axqlite.Btree)
+(import StoreTest)
+(import StoreDb)
+(import StoreCrash)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((t tallyNew))
+    (let ((root 
+      (buildBase
+        "base.db"
+        (lambda (p)
+          (andThen
+            (btreeCreate p btreeTable)
+            (lambda (r)
+              (andThen
+                (putRows
+                  p
+                  r
+                  2
+                  602
+                  2
+                  40)
+                (lambda (_)
+                  (mapOk
+                    (putRows
+                      p
+                      r
+                      1000
+                      1020
+                      1
+                      5000)
+                    (lambda (_) r))
+                ))
+            ))
+        ))))
+      (let (
+        (roots (vecPush (vecPush vecNew btreeSchemaRoot) root))
+        (txn (lambda (p)
+          (andThen
+            (putRows
+              p
+              root
+              1
+              500
+              2
+              60)
+            (lambda (_)
+              (andThen
+                (putRows
+                  p
+                  root
+                  2000
+                  2050
+                  1
+                  30)
+                (lambda (_) (putRows
+                  p
+                  root
+                  3000
+                  3003
+                  1
+                  9000)))
+            ))
+        ))
+      )
+        {
+          (crashSweep
+            t
+            "insert"
+            "base.db"
+            6
+            txn
+            roots
+            (lambda (_) roots))
+          (recoverySweep
+            t
+            "insert"
+            "base.db"
+            6
+            txn
+            3)
+          (tallyReport t "201-crash-insert")
+        }))))

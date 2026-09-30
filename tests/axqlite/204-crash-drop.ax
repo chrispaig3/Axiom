@@ -1,0 +1,135 @@
+; Crashing a transaction that drops a tree, clears another and builds a
+; third from the freed pages: the free list grows and shrinks in one
+; transaction. Every fault kind at every point gives exactly the before
+; or after file on reopen, and crashed recoveries recover again.
+(import IO)
+(import Str)
+(import Vec)
+(import Err)
+(import Axqlite.Pager)
+(import Axqlite.Btree)
+(import StoreTest)
+(import StoreDb)
+(import StoreCrash)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (t tallyNew)
+    (a (Box 0))
+    (b (Box 0))
+    (c (Box 0))
+    (d (Box 0))
+  )
+    {
+      (let ((_ 
+        (buildBase
+          "base.db"
+          (lambda (p)
+            (andThen
+              (btreeCreate p btreeTable)
+              (lambda (ra)
+                (andThen
+                  (btreeCreate p btreeTable)
+                  (lambda (rb)
+                    (andThen
+                      (btreeCreate p btreeIndex)
+                      (lambda (rc)
+                        {
+                          (set a.v ra)
+                          (set b.v rb)
+                          (set c.v rc)
+                          (andThen
+                            (putRows
+                              p
+                              ra
+                              0
+                              600
+                              1
+                              100)
+                            (lambda (_)
+                              (andThen
+                                (putRows
+                                  p
+                                  rb
+                                  0
+                                  300
+                                  1
+                                  30)
+                                (lambda (_)
+                                  (andThen
+                                    (putRows
+                                      p
+                                      rc
+                                      0
+                                      200
+                                      1
+                                      0)
+                                    (lambda (_) (putRows
+                                      p
+                                      ra
+                                      1000
+                                      1005
+                                      1
+                                      7000)))
+                                ))
+                            ))
+                        }
+                      ))
+                  ))
+              ))
+          ))))
+        0)
+      (let ((txn 
+        (lambda (p)
+          (andThen
+            (btreeDrop p a.v)
+            (lambda (_)
+              (andThen
+                (btreeClear p b.v)
+                (lambda (_)
+                  (andThen
+                    (btreeCreate p btreeTable)
+                    (lambda (rd)
+                      {
+                        (set d.v rd)
+                        (andThen
+                          (putRows
+                            p
+                            rd
+                            0
+                            250
+                            1
+                            60)
+                          (lambda (_) (putRows
+                            p
+                            c.v
+                            500
+                            520
+                            1
+                            0)))
+                      }
+                    ))
+                ))
+            ))
+        )))
+        {
+          (crashSweep
+            t
+            "drop"
+            "base.db"
+            6
+            txn
+            (vecPush (vecPush (vecPush (vecPush vecNew btreeSchemaRoot) a.v) b.v) c.v)
+            (lambda (_) (vecPush (vecPush (vecPush (vecPush vecNew btreeSchemaRoot) b.v) c.v) d.v)))
+          (recoverySweep
+            t
+            "drop"
+            "base.db"
+            6
+            txn
+            4)
+        })
+      (tallyReport t "204-crash-drop")
+    }))

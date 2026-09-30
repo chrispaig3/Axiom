@@ -1,0 +1,240 @@
+; AxqlPrint - a parsed statement written out as a tree, for the parser
+; tests.
+;
+;     (axqlPrintParse "SELECT a + 1 FROM t WHERE b = ?")
+;         ; "(SELECT (+ a 1) FROM t WHERE (= b ?1)) params=1"
+;
+; Every operator is written in prefix form with its operands in
+; parentheses, so the tree shows precedence and associativity exactly
+; as the parser built them. A literal is written as `axqValueText`
+; writes it, a name as the statement spelled it (quoted when it must
+; be), and a parameter as `?` and its number from 1.
+(import Str)
+(import Vec)
+(import Err)
+(import Fmt)
+(import Axqlite)
+(import Axqlite.Value)
+(import Axqlite.AxqlAst)
+(import Axqlite.AxqlParse)
+
+(:: joinWith (-> (Vec String) String String))
+(fn (joinWith parts sep)
+  (let ((mut out ""))
+    {
+      (for (p i) in parts
+        (set out (if (== i 0)
+          p
+          (strConcat out (strConcat sep p)))))
+      out
+    }))
+
+; An expression as a tree.
+(pub :: axqlPrintExpr (-> Expr String))
+(pub fn (axqlPrintExpr e)
+  (match e
+    ((ELit v) (axqValueText v))
+    ((EName n _) (axqlQuoteName n))
+    ((ECol i) (strConcat "#" (fmtInt i)))
+    ((EParam i _) (strConcat "?" (fmtInt (+ i 1))))
+    ((ENeg x _) (strConcat "(- " (strConcat (axqlPrintExpr x) ")")))
+    ((ENot x) (strConcat "(NOT " (strConcat (axqlPrintExpr x) ")")))
+    ((EIsNull x neg)
+      (strConcat
+        (if neg
+          "(IS NOT NULL "
+          "(IS NULL ")
+        (strConcat (axqlPrintExpr x) ")"))
+    )
+    ((EBin op l r _) (strConcat (strConcat (strConcat "(" (opText op)) " ") (strConcat (strConcat (axqlPrintExpr l) " ") (strConcat (axqlPrintExpr r) ")"))))))
+
+(:: printNames (-> (Vec String) String))
+(fn (printNames ns)
+  (let ((out vecNewRef))
+    {
+      (for n in ns
+        (vecPush out (axqlQuoteName n)))
+      (strConcat "(" (strConcat (joinWith out " ") ")"))
+    }))
+
+(:: printExprs (-> (Vec Expr) String))
+(fn (printExprs es)
+  (let ((out vecNewRef))
+    {
+      (for e in es
+        (vecPush out (axqlPrintExpr e)))
+      (strConcat "(" (strConcat (joinWith out " ") ")"))
+    }))
+
+(:: printColumn (-> ColumnDef String))
+(fn (printColumn c)
+  (strConcat
+    (strConcat (strConcat "(" (axqlQuoteName c.name)) (strConcat " " (typeName c.ctype)))
+    (strConcat
+      (strConcat
+        (if c.notNull
+          " NOT NULL"
+          "")
+        (if c.primaryKey
+          " PRIMARY KEY"
+          ""))
+      ")")))
+
+(:: printSelect (-> Select String))
+(fn (printSelect s)
+  (let ((parts vecNewRef))
+    {
+      (vecPush parts "SELECT")
+      (if s.star
+        {
+          (vecPush parts "*")
+          0
+        }
+        (for item in s.items
+          (vecPush
+            parts
+            (if (strIsEmpty item.alias)
+              (axqlPrintExpr item.expr)
+              (strConcat (strConcat "(AS " (axqlPrintExpr item.expr)) (strConcat (strConcat " " (axqlQuoteName item.alias)) ")"))))))
+      (if (strIsEmpty s.from)
+        parts
+        {
+          (vecPush parts "FROM")
+          (vecPush parts (axqlQuoteName s.from))
+        })
+      (match s.where
+        ((Some w)
+          {
+            (vecPush parts "WHERE")
+            (vecPush parts (axqlPrintExpr w))
+          }
+        )
+        ((None) parts))
+      (if (> (vecLen s.orderBy) 0)
+        {
+          (vecPush parts "ORDER BY")
+          (for t in s.orderBy
+            (vecPush
+              parts
+              (strConcat
+                (strConcat "(" (axqlPrintExpr t.expr))
+                (if t.desc
+                  " DESC)"
+                  " ASC)"))))
+        }
+        0)
+      (match s.limit
+        ((Some e)
+          {
+            (vecPush parts "LIMIT")
+            (vecPush parts (axqlPrintExpr e))
+          }
+        )
+        ((None) parts))
+      (match s.offset
+        ((Some e)
+          {
+            (vecPush parts "OFFSET")
+            (vecPush parts (axqlPrintExpr e))
+          }
+        )
+        ((None) parts))
+      (strConcat "(" (strConcat (joinWith parts " ") ")"))
+    }))
+
+; A statement as a tree.
+(pub :: axqlPrintStmt (-> Stmt String))
+(pub fn (axqlPrintStmt s)
+  (match s
+    ((SCreateTable ine name cols)
+      (let ((cs vecNewRef))
+        {
+          (for c in cols
+            (vecPush cs (printColumn c)))
+          (strConcat
+            (strConcat
+              (if ine
+                "(CREATE TABLE IF NOT EXISTS "
+                "(CREATE TABLE ")
+              (axqlQuoteName name))
+            (strConcat (strConcat " " (joinWith cs " ")) ")"))
+        })
+    )
+    ((SDropTable ie name)
+      (strConcat
+        (if ie
+          "(DROP TABLE IF EXISTS "
+          "(DROP TABLE ")
+        (strConcat (axqlQuoteName name) ")"))
+    )
+    ((SCreateIndex unique ine name table cols)
+      (strConcat
+        (strConcat
+          (strConcat
+            "(CREATE "
+            (if unique
+              "UNIQUE INDEX "
+              "INDEX "))
+          (strConcat
+            (if ine
+              "IF NOT EXISTS "
+              "")
+            (axqlQuoteName name)))
+        (strConcat (strConcat " ON " (axqlQuoteName table)) (strConcat (strConcat " " (printNames cols)) ")")))
+    )
+    ((SDropIndex ie name)
+      (strConcat
+        (if ie
+          "(DROP INDEX IF EXISTS "
+          "(DROP INDEX ")
+        (strConcat (axqlQuoteName name) ")"))
+    )
+    ((SInsert table cols rows)
+      (let ((rs vecNewRef))
+        {
+          (for r in rows
+            (vecPush rs (printExprs r)))
+          (strConcat (strConcat (strConcat "(INSERT INTO " (axqlQuoteName table)) (strConcat " " (printNames cols))) (strConcat (strConcat " VALUES " (joinWith rs " ")) ")"))
+        })
+    )
+    ((SUpdate table cols exprs w)
+      (let ((sets vecNewRef))
+        {
+          (for (c i) in cols
+            (vecPush sets (strConcat (strConcat (strConcat "(= " (axqlQuoteName c)) " ") (strConcat (axqlPrintExpr (vecGet exprs i)) ")"))))
+          (strConcat
+            (strConcat (strConcat "(UPDATE " (axqlQuoteName table)) (strConcat " SET " (joinWith sets " ")))
+            (strConcat
+              (match w
+                ((Some e) (strConcat " WHERE " (axqlPrintExpr e)))
+                ((None) ""))
+              ")"))
+        })
+    )
+    ((SDelete table w)
+      (strConcat
+        (strConcat "(DELETE FROM " (axqlQuoteName table))
+        (strConcat
+          (match w
+            ((Some e) (strConcat " WHERE " (axqlPrintExpr e)))
+            ((None) ""))
+          ")"))
+    )
+    ((SSelect sel) (printSelect sel))
+    ((SBegin) "(BEGIN)")
+    ((SCommit) "(COMMIT)")
+    ((SRollback) "(ROLLBACK)")))
+
+; A parsed statement as a tree with its parameter count and names, or
+; its refusal as `CODE: message`.
+(pub :: axqlPrintParse (-> String String))
+(pub fn (axqlPrintParse text)
+  (match (axqlParse text)
+    ((Ok p)
+      (strConcat
+        (strConcat (axqlPrintStmt p.stmt) (strConcat " params=" (fmtInt p.paramCount)))
+        (if (== (vecLen p.paramNames) 0)
+          ""
+          (strConcat " names=" (joinWith p.paramNames ","))))
+    )
+    ((Err e) (strConcat "error: " (errMessage e)))))

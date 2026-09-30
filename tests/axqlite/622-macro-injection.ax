@@ -1,0 +1,54 @@
+; A value through a macro marker is a parameter, never text: the
+; statement's text stays the same whatever the value holds, and the
+; value is stored and compared as the bytes it is.
+(import IO)
+(import Str)
+(import Vec)
+(import Err)
+(import Axqlite)
+(import Axqlite.Value)
+(import AxqlKit)
+
+(:: attempts (Vec String))
+(fn (attempts)
+  (let ((v vecNewRef))
+    {
+      (vecPush v "x'); DROP TABLE users; --")
+      (vecPush v "' OR 1=1 --")
+      (vecPush v "\" OR \"\"=\"")
+      (vecPush v "?")
+      (vecPush v ":name")
+      (vecPush v "NULL")
+      v
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((db (kitOpen "minj.db")))
+    {
+      (kitRun "create" (axqRunOn db (axqlCreateTable users (id INTEGER PRIMARY KEY) (name TEXT NOT NULL))))
+      (kitRun "seed" (axqRunOn db (axqlInsert users (name) (values (text "alice")) (values (text "bob")))))
+      (for a in attempts
+        (let ((q (axqlInsert users (name) (values (text a)))))
+          {
+            (println q.text)
+            (kitRun "insert" (axqRunOn db q))
+          }))
+      (for a in attempts
+        (let ((q (axqlSelect users id (where (= name (text a))))))
+          {
+            (println q.text)
+            (kitRows "find" (axqQueryOn db q))
+          }))
+      (let ((q (axqlSelect users id (where (= name (text "' OR '1'='1"))))))
+        (kitRows "a quote-trick" (axqQueryOn db q)))
+      (let ((q (axqlDelete users (where (= name (text "anything' OR 1=1 --"))))))
+        {
+          (println q.text)
+          (kitRun "delete nothing" (axqRunOn db q))
+        })
+      (kitDump db "SELECT id, name FROM users ORDER BY id")
+      (kitRun "close" (axqClose db))
+      0
+    }))

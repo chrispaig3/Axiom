@@ -1,0 +1,400 @@
+; The B-tree against a model: 36 batches of random puts, insert-news,
+; deletes and gets on two trees in one file, with keys from 1 to 1000
+; bytes (NUL and FF bytes included) and values from empty to 30000
+; bytes (overflow chains), under a page cache of 8 pages so pages are
+; evicted and spilled mid-transaction. Each batch commits, or one in
+; six rolls back. After each: both trees scanned forwards, backwards
+; and over random ranges equal the model, counts and first and last
+; keys agree, and btreeCheck passes. Then everything is deleted, the
+; trees' pages come back, and a reopen reads the same state.
+(import IO)
+(import Str)
+(import Vec)
+(import Err)
+(import Axqlite.Value)
+(import Axqlite.Record)
+(import Axqlite.Pager)
+(import Axqlite.Btree)
+(import StoreTest)
+(import StoreModel)
+(import StoreDb)
+
+(:: randomKey (-> Rng String))
+;@axiom:effect(unsafe)
+(fn (randomKey r)
+  (let ((pick (rngBelow r 100)))
+    (if (< pick 4)
+      (rngBytes r (+ 900 (rngBelow r 101)) 3)
+      (let ((s (rngBytes r (+ 1 (rngBelow r 12)) 4)))
+        {
+          ; bytes 0, 1, 65, 255: prefixes, NULs and FFs
+          (for i 0 (strLen s)
+            (let ((b (strByte s i)))
+              (__store8
+                (strData s)
+                i
+                (if (== b 2)
+                  65
+                  (if (== b 3)
+                    255
+                    b)))))
+          s
+        }))))
+
+(:: randomValue (-> Rng String))
+(fn (randomValue r)
+  (let ((pick (rngBelow r 100)))
+    (if (< pick 70)
+      (rngBytes r (rngBelow r 61) 256)
+      (if (< pick 90)
+        (rngBytes r (+ 100 (rngBelow r 800)) 256)
+        (if (< pick 97)
+          (rngBytes r (+ 1000 (rngBelow r 4000)) 256)
+          (rngBytes r (+ 5000 (rngBelow r 25000)) 256))))))
+
+(:: someKey (-> Rng Model String))
+(fn (someKey r m)
+  (if (&& (> (modelLen m) 0) (< (rngBelow r 100) 60))
+    (vecGet m.keys (rngBelow r (modelLen m)))
+    (randomKey r)))
+
+; The model's entries with lo <= key < hi.
+(:: modelRange (-> Model (Option String) (Option String) Model))
+(fn (modelRange m lo hi)
+  (let ((out modelNew))
+    {
+      (for i 0 (modelLen m)
+        (let ((k (vecGet m.keys i)))
+          (if (&&
+            (match lo
+              ((Some l) (>= (strCmp k l) 0))
+              ((None) true))
+            (match hi
+              ((Some h) (< (strCmp k h) 0))
+              ((None) true)))
+            {
+              (vecPush out.keys k)
+              (vecPush out.vals (vecGet m.vals i))
+              0
+            }
+            0)))
+      out
+    }))
+
+(:: reversed (-> Model Model))
+(fn (reversed m)
+  (let ((out modelNew))
+    {
+      (let ((mut i (- (modelLen m) 1)))
+        (while (>= i 0)
+          {
+            (vecPush out.keys (vecGet m.keys i))
+            (vecPush out.vals (vecGet m.vals i))
+            (set i (- i 1))
+          }))
+      out
+    }))
+
+(:: scanRange (-> Pager Int (Option String) (Option String) Bool (Result Model Error)))
+;@axiom:effect(io)
+(fn (scanRange p root lo hi forward)
+  (let ((m modelNew))
+    (match (btreeScan
+      p
+      root
+      lo
+      hi
+      forward
+      (lambda (k v)
+        {
+          (vecPush m.keys k)
+          (vecPush m.vals v)
+          (Ok true)
+        }
+      ))
+      ((Ok _) (Ok m))
+      ((Err e) (Err e)))))
+
+(:: randomBound (-> Rng Model (Option String)))
+(fn (randomBound r m)
+  (if (< (rngBelow r 5) 1)
+    None
+    (Some (someKey r m))))
+
+; Everything the tree at `root` answers agrees with `m`.
+(:: verifyTree (-> Tally Pager Rng Int Model String Int))
+;@axiom:effect(io)
+(fn (verifyTree t p r root m label)
+  {
+    (match (readTree p root)
+      ((Ok got) (check t (sameModel got m) (strConcat label ": forward scan")))
+      ((Err e) (check t false (strConcat label (strConcat ": forward scan: " (errorText e))))))
+    (match (scanRange
+      p
+      root
+      None
+      None
+      false)
+      ((Ok got) (check t (sameModel got (reversed m)) (strConcat label ": backward scan")))
+      ((Err e) (check t false (strConcat label ": backward scan"))))
+    (match (btreeCount p root)
+      ((Ok n) (check t (== n (modelLen m)) (strConcat label ": count")))
+      ((Err e) (check t false (strConcat label ": count"))))
+    (match (btreeFirstKey p root)
+      ((Ok (Some k)) (check t (&& (> (modelLen m) 0) (strEq k (vecGet m.keys 0))) (strConcat label ": first key")))
+      ((Ok (None)) (check t (== (modelLen m) 0) (strConcat label ": no first key")))
+      ((Err e) (check t false (strConcat label ": first key"))))
+    (match (btreeLastKey p root)
+      ((Ok (Some k)) (check t (&& (> (modelLen m) 0) (strEq k (vecLast m.keys))) (strConcat label ": last key")))
+      ((Ok (None)) (check t (== (modelLen m) 0) (strConcat label ": no last key")))
+      ((Err e) (check t false (strConcat label ": last key"))))
+    (for i 0 4
+      (let (
+        (lo (randomBound r m))
+        (hi (randomBound r m))
+      )
+        (let ((want (modelRange m lo hi)))
+          {
+            (match (scanRange
+              p
+              root
+              lo
+              hi
+              true)
+              ((Ok got) (check t (sameModel got want) (strConcat label ": range forward")))
+              ((Err e) (check t false (strConcat label ": range forward"))))
+            (match (scanRange
+              p
+              root
+              lo
+              hi
+              false)
+              ((Ok got) (check t (sameModel got (reversed want)) (strConcat label ": range backward")))
+              ((Err e) (check t false (strConcat label ": range backward"))))
+          })))
+    0
+  })
+
+; One random operation on the tree at `root` and on `m`.
+(:: randomOp (-> Tally Pager Rng Int Model Bool Int))
+;@axiom:effect(io)
+(fn (randomOp t p r root m emptyValues)
+  (let ((op (rngBelow r 100)))
+    (let ((k 
+      (if (< op 45)
+        (if (< (rngBelow r 10) 7)
+          (randomKey r)
+          (someKey r m))
+        (someKey r m))))
+      (let ((v 
+        (if emptyValues
+          ""
+          (randomValue r))))
+        (if (< op 45)
+          (match (btreePut p root k v)
+            ((Ok isNew) (check t (boolEq isNew (modelPut m k v)) "put answers whether the key was new"))
+            ((Err e) (check t false (strConcat "put: " (errorText e)))))
+          (if (< op 55)
+            (let ((had (isSome (modelGet m k))))
+              (match (btreeInsertNew p root k v)
+                ((Ok added)
+                  {
+                    (if added
+                      (modelPut m k v)
+                      false)
+                    (check t (boolEq added (! had)) "insertNew adds only a new key")
+                  }
+                )
+                ((Err e) (check t false (strConcat "insertNew: " (errorText e))))))
+            (if (< op 75)
+              (match (btreeDelete p root k)
+                ((Ok was) (check t (boolEq was (modelDelete m k)) "delete answers whether the key was there"))
+                ((Err e) (check t false (strConcat "delete: " (errorText e)))))
+              (match (btreeGet p root k)
+                ((Ok got)
+                  (match (modelGet m k)
+                    ((Some want)
+                      (check
+                        t
+                        (match got
+                          ((Some g) (strEq g want))
+                          ((None) false))
+                        "get finds the value")
+                    )
+                    ((None) (check t (isNone got) "get finds nothing")))
+                )
+                ((Err e) (check t false (strConcat "get: " (errorText e))))))))))))
+
+(:: roots3 (-> Int Int (Vec Int)))
+(fn (roots3 a b)
+  (vecPush (vecPush (vecPush vecNew btreeSchemaRoot) a) b))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (t tallyNew)
+    (r (rngNew 111))
+    (p (openOrDie "model.db" 8))
+  )
+    {
+      (pagerSetDurable p false)
+      (check t (== (codeOf (pagerBeginWrite p)) 0) "begin")
+      (let (
+        (ra (unwrapOr (btreeCreate p btreeTable) 0))
+        (rb (unwrapOr (btreeCreate p btreeIndex) 0))
+      )
+        {
+          (check t (== (codeOf (pagerCommit p)) 0) "commit the new trees")
+          (let (
+            (ma modelNew)
+            (mb modelNew)
+            (mut commits 0)
+            (mut rollbacks 0)
+            (mut ops 0)
+          )
+            {
+              (for batch 0 36
+                (let (
+                  (sa (modelCopy ma))
+                  (sb (modelCopy mb))
+                )
+                  {
+                    (check t (== (codeOf (pagerBeginWrite p)) 0) "begin batch")
+                    (for i 0 150
+                      {
+                        (randomOp
+                          t
+                          p
+                          r
+                          ra
+                          ma
+                          false)
+                        (if (== (% i 3) 0)
+                          (randomOp
+                            t
+                            p
+                            r
+                            rb
+                            mb
+                            true)
+                          0)
+                        (set ops (+ ops 1))
+                      })
+                    (if (== (rngBelow r 6) 0)
+                      {
+                        (check t (== (codeOf (pagerRollback p)) 0) "rollback")
+                        (set rollbacks (+ rollbacks 1))
+                        ; the models go back too
+                        (vecClear ma.keys)
+                        (vecClear ma.vals)
+                        (vecClear mb.keys)
+                        (vecClear mb.vals)
+                        (for i 0 (modelLen sa)
+                          {
+                            (vecPush ma.keys (vecGet sa.keys i))
+                            (vecPush ma.vals (vecGet sa.vals i))
+                          })
+                        (for i 0 (modelLen sb)
+                          {
+                            (vecPush mb.keys (vecGet sb.keys i))
+                            (vecPush mb.vals (vecGet sb.vals i))
+                          })
+                        0
+                      }
+                      {
+                        (check t (== (codeOf (pagerCommit p)) 0) "commit")
+                        (set commits (+ commits 1))
+                      })
+                    (check t (== (codeOf (pagerBeginRead p)) 0) "begin read")
+                    (verifyTree
+                      t
+                      p
+                      r
+                      ra
+                      ma
+                      "table tree")
+                    (verifyTree
+                      t
+                      p
+                      r
+                      rb
+                      mb
+                      "index tree")
+                    (let ((c (btreeCheck p (roots3 ra rb))))
+                      (check t (== (codeOf c) 0) (strConcat "btreeCheck: " (errText c))))
+                    (check t (== (codeOf (pagerEndRead p)) 0) "end read")
+                  }))
+              (let (
+                (na (modelLen ma))
+                (nb (modelLen mb))
+              )
+                (println "{ops} operations in 36 batches: {commits} committed, {rollbacks} rolled back; {na} and {nb} entries remain"))
+              ; delete everything, in a random order
+              (check t (== (codeOf (pagerBeginWrite p)) 0) "begin delete-all")
+              (while (> (modelLen ma) 0)
+                (let ((k (vecGet ma.keys (rngBelow r (modelLen ma)))))
+                  {
+                    (check t (unwrapOr (btreeDelete p ra k) false) "delete-all deletes")
+                    (modelDelete ma k)
+                  }))
+              (while (> (modelLen mb) 0)
+                (let ((k (vecGet mb.keys (rngBelow r (modelLen mb)))))
+                  {
+                    (check t (unwrapOr (btreeDelete p rb k) false) "delete-all deletes")
+                    (modelDelete mb k)
+                  }))
+              (check t (== (codeOf (pagerCommit p)) 0) "commit delete-all")
+              (check t (== (codeOf (pagerBeginRead p)) 0) "read after delete-all")
+              (verifyTree
+                t
+                p
+                r
+                ra
+                ma
+                "emptied table tree")
+              (verifyTree
+                t
+                p
+                r
+                rb
+                mb
+                "emptied index tree")
+              (check t (== (codeOf (btreeCheck p (roots3 ra rb))) 0) "btreeCheck after delete-all")
+              ; every page but the header, the schema root and the two roots is free
+              (let (
+                (pages (unwrapOr (pagerPageCount p) 0))
+                (free (unwrapOr (pagerFreeListCount p) 0))
+              )
+                (check t (== (- pages free) 4) "an emptied tree keeps only its root"))
+              (check t (== (codeOf (pagerEndRead p)) 0) "end read")
+              ; refill, then reopen with another cache size and read it back
+              (check t (== (codeOf (pagerBeginWrite p)) 0) "begin refill")
+              (for i 0 400
+                (randomOp
+                  t
+                  p
+                  r
+                  ra
+                  ma
+                  false))
+              (check t (== (codeOf (pagerCommit p)) 0) "commit refill")
+              (check t (== (codeOf (pagerClose p)) 0) "close")
+              (let ((q (openOrDie "model.db" 64)))
+                {
+                  (check t (== (codeOf (pagerBeginRead q)) 0) "read after reopen")
+                  (verifyTree
+                    t
+                    q
+                    r
+                    ra
+                    ma
+                    "reopened table tree")
+                  (check t (== (codeOf (btreeCheck q (roots3 ra rb))) 0) "btreeCheck after reopen")
+                  (check t (== (codeOf (pagerEndRead q)) 0) "end read")
+                  (check t (== (codeOf (pagerClose q)) 0) "close again")
+                })
+            })
+        })
+      (tallyReport t "111-btree-model")
+    }))

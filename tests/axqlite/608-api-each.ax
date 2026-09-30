@@ -1,0 +1,139 @@
+; axqQueryEach streams rows to a callback: it stops on Ok false, hands
+; back the callback's Err, lets the callback read the same connection,
+; and refuses a write from it outside a transaction.
+(import IO)
+(import Err)
+(import Vec)
+(import Axqlite)
+(import Axqlite.Value)
+(import AxqlKit)
+
+(struct Seen
+  (mut n : Int)
+  (mut sum : Int))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((db (kitOpen "each.db")))
+    {
+      (kitRun "create" (axqExec db "CREATE TABLE t (id INTEGER PRIMARY KEY, v INTEGER)"))
+      (kitRun "seed" (axqExec db "INSERT INTO t (v) VALUES (10), (20), (30), (40), (50)"))
+      (match (axqPrepare db "SELECT id, v FROM t WHERE v >= ? ORDER BY id")
+        ((Ok q)
+          (let ((seen (Seen 0 0)))
+            {
+              (kitRun
+                "all"
+                (axqQueryEach
+                  q
+                  (vec1 (VInt 0))
+                  (lambda (r)
+                    {
+                      (set seen.n (+ seen.n 1))
+                      (set seen.sum (+ seen.sum (unwrapOr (rowIntNamed r "v") 0)))
+                      (Ok true)
+                    }
+                  )))
+              (let (
+                (n seen.n)
+                (sum seen.sum)
+              )
+                (println "seen {n} rows summing to {sum}"))
+              (kitRun
+                "stop after two"
+                (axqQueryEach
+                  q
+                  (vec1 (VInt 0))
+                  (lambda (r) (Ok (< (unwrapOr (rowInt r 0) 0) 2)))))
+              (kitRun
+                "callback fails"
+                (axqQueryEach
+                  q
+                  (vec1 (VInt 25))
+                  (lambda (r) (axqErr axqConstraint "the callback refused a row" "callback"))))
+              (kitRun
+                "nested read"
+                (axqQueryEach
+                  q
+                  (vec1 (VInt 40))
+                  (lambda (r)
+                    (match (axqQueryOn db (Query "SELECT v FROM t WHERE id = ?" (vec1 (VInt (unwrapOr (rowInt r 0) 0)))))
+                      ((Ok rs)
+                        {
+                          (kitRows "  inner" (Ok rs))
+                          (Ok true)
+                        }
+                      )
+                      ((Err e) (Err e)))
+                  )))
+              (kitRun
+                "write inside"
+                (axqQueryEach
+                  q
+                  (vec1 (VInt 50))
+                  (lambda (r) (try _ (axqExec db "UPDATE t SET v = v + 1") (Ok true)))))
+              (kitRun
+                "BEGIN inside"
+                (axqQueryEach
+                  q
+                  (vec1 (VInt 50))
+                  (lambda (r) (try _ (axqExec db "BEGIN") (Ok true)))))
+              (kitRun
+                "close inside"
+                (axqQueryEach
+                  q
+                  (vec1 (VInt 50))
+                  (lambda (r) (try _ (axqClose db) (Ok true)))))
+              (kitRun "begin" (axqExec db "BEGIN"))
+              (kitRun
+                "write inside a transaction"
+                (axqQueryEach
+                  q
+                  (vec1 (VInt 30))
+                  (lambda (r) (try _ (axqRunOn db (Query "UPDATE t SET v = v * 10 WHERE id = ?" (vec1 (VInt (unwrapOr (rowInt r 0) 0))))) (Ok true)))))
+              (kitRun
+                "DDL inside a transaction"
+                (axqQueryEach
+                  q
+                  (vec1 (VInt 0))
+                  (lambda (r) (try _ (axqExec db "CREATE TABLE u (x INTEGER)") (Ok true)))))
+              (kitRun "commit" (axqExec db "COMMIT"))
+              (kitRun
+                "after the commit"
+                (axqQueryEach
+                  q
+                  (vec1 (VInt 0))
+                  (lambda (r) (Ok true))))
+              (kitRun "finalize" (axqFinalize q))
+            })
+        )
+        ((Err e) (println (kitErrText e))))
+      (match (axqPrepare db "INSERT INTO t (v) VALUES (1)")
+        ((Ok ins)
+          {
+            (kitRun
+              "each over an insert"
+              (axqQueryEach
+                ins
+                vec0
+                (lambda (r) (Ok true))))
+            (kitRun "finalize" (axqFinalize ins))
+          }
+        )
+        ((Err e) (println (kitErrText e))))
+      (kitRun
+        "each on a query value"
+        (axqQueryEachOn
+          db
+          (Query "SELECT v FROM t ORDER BY v DESC LIMIT 2" vec0)
+          (lambda (r)
+            {
+              (println (axqValueText (unwrapOr (rowValue r 0) VNull)))
+              (Ok true)
+            }
+          )))
+      (kitDump db "SELECT id, v FROM t")
+      (kitRun "close" (axqClose db))
+      0
+    }))

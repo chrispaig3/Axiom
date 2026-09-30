@@ -1,0 +1,101 @@
+; ORDER BY over many ties keeps rowid order within a tie, whichever way
+; the terms run, and LIMIT and OFFSET take parameters.
+(import IO)
+(import Err)
+(import Vec)
+(import Axqlite)
+(import Axqlite.Value)
+(import AxqlKit)
+
+; Whether each row's keys are in order and ties are in rowid order.
+(:: checkOrder (-> Rows Bool Bool))
+(fn (checkOrder rs desc)
+  (let (
+    (mut ok true)
+    (mut prevK -1)
+    (mut prevId -1)
+  )
+    {
+      (for (r i) in rs.rows
+        (let (
+          (k (unwrapOr (rowInt r 0) -99))
+          (id (unwrapOr (rowInt r 1) -99))
+        )
+          {
+            (if (&&
+              (> i 0)
+              (if (== k prevK)
+                (<= id prevId)
+                (if desc
+                  (> k prevK)
+                  (< k prevK))))
+              {
+                (set ok false)
+                0
+              }
+              0)
+            (set prevK k)
+            (set prevId id)
+          }))
+      ok
+    }))
+
+(:: summary (-> String Rows Bool Int))
+;@axiom:effect(io)
+(fn (summary label rs desc)
+  (let (
+    (n (vecLen rs.rows))
+    (ok (checkOrder rs desc))
+  )
+    (println "{label}: {n} rows, ordered {ok}")))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((db (kitOpen "order.db")))
+    {
+      (kitRun "create" (axqExec db "CREATE TABLE t (k INTEGER, id INTEGER)"))
+      (match (axqPrepare db "INSERT INTO t VALUES (?, ?)")
+        ((Ok ins)
+          {
+            (kitRun "begin" (axqExec db "BEGIN"))
+            (for i 0 1000
+              (let ((_ (axqRun ins (vec2 (VInt (% (* i 7) 3)) (VInt i)))))
+                0))
+            (kitRun "commit" (axqExec db "COMMIT"))
+            (kitRun "finalize" (axqFinalize ins))
+          }
+        )
+        ((Err e) (println (kitErrText e))))
+      (match (axqQueryOn db (Query "SELECT k, id FROM t ORDER BY k" vec0))
+        ((Ok rs) (summary "asc" rs false))
+        ((Err e) (println (kitErrText e))))
+      (match (axqQueryOn db (Query "SELECT k, id FROM t ORDER BY k DESC" vec0))
+        ((Ok rs) (summary "desc" rs true))
+        ((Err e) (println (kitErrText e))))
+      (kitRun "index" (axqExec db "CREATE INDEX tk ON t (k)"))
+      (match (axqQueryOn db (Query "SELECT k, id FROM t ORDER BY k" vec0))
+        ((Ok rs) (summary "asc by index" rs false))
+        ((Err e) (println (kitErrText e))))
+      (match (axqQueryOn db (Query "SELECT k, id FROM t WHERE k >= 1 ORDER BY k DESC" vec0))
+        ((Ok rs) (summary "desc over an index range" rs true))
+        ((Err e) (println (kitErrText e))))
+      (match (axqPrepare db "SELECT id FROM t WHERE k = ? ORDER BY id LIMIT ? OFFSET ?")
+        ((Ok page)
+          {
+            (kitRows "page 1" (axqQuery page (vec3 (VInt 2) (VInt 3) (VInt 0))))
+            (kitRows "page 2" (axqQuery page (vec3 (VInt 2) (VInt 3) (VInt 3))))
+            (kitRows "past the end" (axqQuery page (vec3 (VInt 2) (VInt 3) (VInt 5000))))
+            (kitRows "none" (axqQuery page (vec3 (VInt 2) (VInt 0) (VInt 0))))
+            (kitRows "negative" (axqQuery page (vec3 (VInt 2) (VInt -1) (VInt 0))))
+            (kitRows "text" (axqQuery page (vec3 (VInt 2) (VText "3") (VInt 0))))
+            (kitRows "null" (axqQuery page (vec3 (VInt 2) VNull (VInt 0))))
+            (kitRun "finalize" (axqFinalize page))
+          }
+        )
+        ((Err e) (println (kitErrText e))))
+      (kitDump db "SELECT id FROM t ORDER BY k DESC, id DESC LIMIT 4")
+      (kitDump db "SELECT id FROM t ORDER BY id DESC LIMIT 2 OFFSET 997")
+      (kitRun "close" (axqClose db))
+      0
+    }))

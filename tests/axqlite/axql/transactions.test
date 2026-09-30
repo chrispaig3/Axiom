@@ -1,0 +1,165 @@
+# BEGIN, COMMIT and ROLLBACK as statements: a failing statement inside a
+# transaction is undone on its own and the transaction stays open, and
+# a failed CREATE UNIQUE INDEX leaves nothing behind. Expected results
+# follow docs/axql.md.
+
+statement ok
+CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT NOT NULL)
+
+statement ok
+BEGIN
+
+statement ok
+INSERT INTO t VALUES (1, 'a')
+
+statement error axqConstraint a row with rowid 1 already exists in t
+INSERT INTO t VALUES (2, 'b'), (1, 'dup')
+
+query
+SELECT id, v FROM t
+----
+1,'a'
+
+statement ok
+COMMIT
+
+query
+SELECT id FROM t
+----
+1
+
+statement ok
+BEGIN TRANSACTION
+
+statement ok
+DELETE FROM t
+
+statement ok
+INSERT INTO t VALUES (5, 'e')
+
+query
+SELECT id FROM t
+----
+5
+
+statement ok
+ROLLBACK
+
+query
+SELECT id, v FROM t
+----
+1,'a'
+
+statement error axqMisuse no transaction is open
+COMMIT
+
+statement error axqMisuse no transaction is open
+ROLLBACK TRANSACTION
+
+statement ok
+BEGIN
+
+statement error axqMisuse a transaction is already open
+BEGIN
+
+statement ok
+CREATE TABLE u (x INTEGER)
+
+statement ok
+INSERT INTO u VALUES (1)
+
+query
+SELECT x FROM u
+----
+1
+
+statement ok
+ROLLBACK
+
+statement error axqSchema no such table: u
+SELECT x FROM u
+
+statement ok
+BEGIN
+
+statement ok
+UPDATE t SET v = 'changed'
+
+statement error axqConstraint t.v may not be NULL
+UPDATE t SET v = NULL
+
+query
+SELECT v FROM t
+----
+'changed'
+
+statement ok
+COMMIT TRANSACTION
+
+query
+SELECT v FROM t
+----
+'changed'
+
+statement ok
+BEGIN
+
+statement ok
+INSERT INTO t VALUES (2, 'changed'), (3, 'other')
+
+statement error axqConstraint can't create the UNIQUE index tv
+CREATE UNIQUE INDEX tv ON t (v)
+
+statement error axqSchema no such index: tv
+DROP INDEX tv
+
+statement ok
+CREATE UNIQUE INDEX tid ON t (id)
+
+statement error axqArithmetic integer overflow
+UPDATE t SET id = id + 9223372036854775806
+
+query
+SELECT id, v FROM t
+----
+1,'changed'
+2,'changed'
+3,'other'
+
+statement ok
+COMMIT
+
+query
+SELECT id, v FROM t WHERE id >= 2
+----
+2,'changed'
+3,'other'
+
+statement ok
+BEGIN
+
+statement ok
+DROP INDEX tid
+
+statement ok
+DROP TABLE t
+
+statement ok
+ROLLBACK
+
+query
+SELECT id FROM t WHERE id = 3
+----
+3
+
+statement ok
+DROP INDEX tid
+
+statement ok
+BEGIN
+
+statement ok
+SELECT id FROM t
+
+statement ok
+COMMIT

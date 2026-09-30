@@ -1,0 +1,178 @@
+; StoreTest - what the storage tests (100-399) share: a deterministic
+; random number generator, value rendering and comparison, and checks
+; that count what they see.
+(import IO)
+(import Str)
+(import Vec)
+(import Err)
+(import Fmt)
+(import Float)
+(import Axqlite.Value)
+
+; xorshift64*, seeded; the same seed gives the same sequence everywhere.
+(pub struct Rng
+  (mut state : Int))
+
+(pub :: rngNew (-> Int Rng))
+(pub fn (rngNew seed)
+  (Rng
+    (if (== seed 0)
+      88172645463325252
+      seed)))
+
+; The next 64 random bits.
+(pub :: rngNext (-> Rng Int))
+(pub fn (rngNext r)
+  (let ((x0 r.state))
+    (let ((x1 (^ x0 (& (>> x0 12) 4503599627370495))))
+      (let ((x2 (^ x1 (<< x1 25))))
+        (let ((x3 (^ x2 (& (>> x2 27) 137438953471))))
+          {
+            (set r.state x3)
+            (* x3 2685821657736338717)
+          })))))
+
+; A random number in 0..n-1, for n > 0.
+(pub :: rngBelow (-> Rng Int Int))
+(pub fn (rngBelow r n)
+  (let ((x (& (>> (rngNext r) 1) 9223372036854775807)))
+    (% x n)))
+
+; A string of `n` random bytes, each below `limit`.
+(pub :: rngBytes (-> Rng Int Int String))
+;@axiom:effect(unsafe)
+(pub fn (rngBytes r n limit)
+  (let ((s (strAlloc n)))
+    {
+      (for i 0 n
+        (__store8 (strData s) i (rngBelow r limit)))
+      s
+    }))
+
+; Hex digits of a string's bytes.
+(pub :: hexOf (-> String String))
+;@axiom:effect(unsafe)
+(pub fn (hexOf s)
+  (let (
+    (out (strAlloc (* 2 (strLen s))))
+    (digits "0123456789abcdef")
+  )
+    {
+      (for i 0 (strLen s)
+        (let ((b (strByte s i)))
+          {
+            (__store8 (strData out) (* 2 i) (strByte digits (>> b 4)))
+            (__store8 (strData out) (+ (* 2 i) 1) (strByte digits (& b 15)))
+          }))
+      out
+    }))
+
+; A value as a test prints it.
+(pub :: showValue (-> Value String))
+(pub fn (showValue v)
+  (match v
+    ((VNull) "NULL")
+    ((VInt n) (fmtInt n))
+    ((VReal x) (strConcat (floatToString x) "r"))
+    ((VText s) (strConcat "'" (strConcat s "'")))
+    ((VBlob s) (strConcat "x'" (strConcat (hexOf s) "'")))))
+
+; Values equal as stored: same type, and for a REAL the same bits.
+(pub :: sameValue (-> Value Value Bool))
+(pub fn (sameValue a b)
+  (match a
+    ((VNull)
+      (match b
+        ((VNull) true)
+        (_ false))
+    )
+    ((VInt x)
+      (match b
+        ((VInt y) (== x y))
+        (_ false))
+    )
+    ((VReal x)
+      (match b
+        ((VReal y) (== (floatToBits x) (floatToBits y)))
+        (_ false))
+    )
+    ((VText x)
+      (match b
+        ((VText y) (strEq x y))
+        (_ false))
+    )
+    ((VBlob x)
+      (match b
+        ((VBlob y) (strEq x y))
+        (_ false))
+    )))
+
+(pub :: sameValues (-> (Vec Value) (Vec Value) Bool))
+(pub fn (sameValues a b)
+  (if (!= (vecLen a) (vecLen b))
+    false
+    (let ((mut ok true))
+      {
+        (for i 0 (vecLen a)
+          (if (sameValue (vecGet a i) (vecGet b i))
+            0
+            {
+              (set ok false)
+              0
+            }))
+        ok
+      })))
+
+; A tally of checks: how many ran and how many failed. A failure prints
+; its label at once, so the .out shows which one.
+(pub struct Tally
+  (mut ran : Int)
+  (mut failed : Int))
+
+(pub :: tallyNew Tally)
+(pub fn (tallyNew)
+  (Tally 0 0))
+
+(pub :: check (-> Tally Bool String Int))
+;@axiom:effect(io)
+(pub fn (check t ok label)
+  {
+    (set t.ran (+ t.ran 1))
+    (if ok
+      0
+      {
+        (set t.failed (+ t.failed 1))
+        (println (strConcat "FAIL " label))
+        0
+      })
+  })
+
+; Whether two Bools are the same (`==` takes Ints).
+(pub :: boolEq (-> Bool Bool Bool))
+(pub fn (boolEq a b)
+  (if a
+    b
+    (! b)))
+
+; The error code of a result, or 0 when it is `Ok`.
+(pub :: codeOf (-> (Result a Error) Int))
+(pub fn (codeOf r)
+  (match r
+    ((Ok _) 0)
+    ((Err e) (errCode e))))
+
+; Print a tally's summary line, and answer the exit status: 0 when
+; every check passed, 1 otherwise.
+(pub :: tallyReport (-> Tally String Int))
+;@axiom:effect(io)
+(pub fn (tallyReport t name)
+  (let (
+    (ran t.ran)
+    (failed t.failed)
+  )
+    {
+      (println "{name}: {ran} checks, {failed} failed")
+      (if (== failed 0)
+        0
+        1)
+    }))

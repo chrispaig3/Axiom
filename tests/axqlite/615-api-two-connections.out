@@ -1,0 +1,36 @@
+a creates: ok 0
+SELECT v FROM t: 0 rows [v]
+a begins: ok 0
+a inserts: ok 1
+b reads: axqBusy: another connection holds a lock on the database while axqExec
+b writes: axqBusy: another connection holds a lock on the database while axqExec
+b prepares: axqBusy: another connection holds a lock on the database while axqPrepare
+a commits: ok 0
+SELECT v FROM t: 1 rows [v]
+  1
+b writes now: ok 1
+SELECT v FROM t: 2 rows [v]
+  1
+  2
+  b inserts while a reads: axqBusy: another connection holds a lock on the database while axqExec
+SELECT v FROM t: 2 rows [v]
+  1
+  2
+  b inserts while a reads: axqBusy: another connection holds a lock on the database while axqExec
+SELECT v FROM t: 2 rows [v]
+  1
+  2
+a streams, b writes: ok 2
+b begins: ok 0
+SELECT v FROM t: 2 rows [v]
+  1
+  2
+a writes while b reads in a transaction: axqBusy: another connection holds a lock on the database while axqExec
+b commits: ok 0
+a writes now: ok 1
+SELECT v FROM t: 3 rows [v]
+  1
+  2
+  4
+close b: ok 0
+close a: ok 0

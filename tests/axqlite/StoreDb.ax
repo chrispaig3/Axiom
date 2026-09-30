@@ -1,0 +1,120 @@
+; StoreDb - opening databases and reading whole trees back, for the
+; storage tests.
+(import IO)
+(import Str)
+(import Vec)
+(import Err)
+(import Mem)
+(import Axqlite.Value)
+(import Axqlite.Pager)
+(import Axqlite.Btree)
+(import StoreModel)
+
+; Open `path`, creating it; stop the test when that fails.
+(pub :: openOrDie (-> String Int Pager))
+;@axiom:effect(io)
+(pub fn (openOrDie path cache)
+  (match (pagerOpen path true false cache)
+    ((Ok p) p)
+    ((Err e)
+      (let ((t (errorText e)))
+        {
+          (println "FAIL open {path}: {t}")
+          (exit 2)
+          (todo "unreachable")
+        })
+    )))
+
+; A result's error as text, "ok" when there is none.
+(pub :: errText (-> (Result a Error) String))
+(pub fn (errText r)
+  (match r
+    ((Ok _) "ok")
+    ((Err e) (errorText e))))
+
+; Every entry of the tree, in key order, as a model.
+(pub :: readTree (-> Pager Int (Result Model Error)))
+;@axiom:effect(io)
+(pub fn (readTree p root)
+  (let ((m modelNew))
+    (match (btreeScan
+      p
+      root
+      None
+      None
+      true
+      (lambda (k v)
+        {
+          (vecPush m.keys k)
+          (vecPush m.vals v)
+          (Ok true)
+        }
+      ))
+      ((Ok _) (Ok m))
+      ((Err e) (Err e)))))
+
+; Whether two models hold the same entries.
+(pub :: sameModel (-> Model Model Bool))
+(pub fn (sameModel a b)
+  (if (!= (modelLen a) (modelLen b))
+    false
+    (let ((mut ok true))
+      {
+        (for i 0 (modelLen a)
+          (if (&& (strEq (vecGet a.keys i) (vecGet b.keys i)) (strEq (vecGet a.vals i) (vecGet b.vals i)))
+            0
+            {
+              (set ok false)
+              0
+            }))
+        ok
+      })))
+
+; XXH64 of a file's bytes, or -1 when it can't be read.
+(pub :: fileHash (-> String Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (fileHash path)
+  (if (! (fileExists path))
+    -1
+    (let ((s (readFile path)))
+      (pagerChecksum (strData s) (strLen s) 7))))
+
+; The size of a file, or -1.
+(pub :: sizeOf (-> String Int))
+;@axiom:effect(io)
+(pub fn (sizeOf path)
+  (match (fileSize path)
+    ((Ok n) n)
+    ((Err e) -1)))
+
+; Change byte `off` of the file at `path` to `v`, for damaging a
+; database on purpose.
+(pub :: patchByte (-> String Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (patchByte path off v)
+  (let ((s (readFile path)))
+    (if (>= off (strLen s))
+      -1
+      {
+        (__store8 (strData s) off v)
+        (let ((_ (writeFile path s)))
+          0)
+      })))
+
+; Byte `off` of the file at `path`, or -1.
+(pub :: fileByte (-> String Int Int))
+;@axiom:effect(io)
+(pub fn (fileByte path off)
+  (let ((s (readFile path)))
+    (if (>= off (strLen s))
+      -1
+      (strByte s off))))
+
+; Copy the file at `from` to `to`, replacing it.
+(pub :: copyOver (-> String String Int))
+;@axiom:effect(io)
+(pub fn (copyOver from to)
+  (let ((_ (writeFile to (readFile from))))
+    0))

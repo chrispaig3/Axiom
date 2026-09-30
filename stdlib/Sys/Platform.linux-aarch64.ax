@@ -966,3 +966,62 @@
 (pub :: tcpNoDelayOpt Int)
 (pub fn (tcpNoDelayOpt)
   1)
+
+; ------------------------------------------------------------------
+; Files a database keeps open: reads and writes at an offset, a sync
+; that reaches the medium, truncation, and a whole-file advisory lock,
+; for `stdlib/Axqlite/Pager.ax`. Numbers from the generic
+; `include/uapi/asm-generic/unistd.h`, flags from
+; `include/uapi/asm-generic/fcntl.h` (arm64's own `asm/fcntl.h` moves
+; none of these three).
+; ------------------------------------------------------------------
+; pread64(fd, buf, count, offset) - 67
+(pub :: sysPreadNum Int)
+(pub fn (sysPreadNum)
+  67)
+
+; pwrite64(fd, buf, count, offset) - 68
+(pub :: sysPwriteNum Int)
+(pub fn (sysPwriteNum)
+  68)
+
+; fsync(fd) - 82
+(pub :: sysFsyncNum Int)
+(pub fn (sysFsyncNum)
+  82)
+
+; ftruncate(fd, length) - 46
+(pub :: sysFtruncateNum Int)
+(pub fn (sysFtruncateNum)
+  46)
+
+; flock(fd, operation) - 32
+(pub :: sysFlockNum Int)
+(pub fn (sysFlockNum)
+  32)
+
+; 0: fsync itself reaches the medium
+(pub :: fsyncUsesFullFsync Int)
+(pub fn (fsyncUsesFullFsync)
+  0)
+
+; none
+(pub :: fFullFsync Int)
+(pub fn (fFullFsync)
+  0)
+
+; O_RDWR = 0x2
+(pub :: oRdwr Int)
+(pub fn (oRdwr)
+  2)
+
+; O_CREAT = 0x40
+(pub :: oCreat Int)
+(pub fn (oCreat)
+  64)
+
+; O_CLOEXEC = 0x80000, so a spawned child never inherits the
+; descriptor, or the lock held on it
+(pub :: oCloexec Int)
+(pub fn (oCloexec)
+  524288)

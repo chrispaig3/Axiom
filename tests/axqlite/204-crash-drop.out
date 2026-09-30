@@ -1,0 +1,9 @@
+drop: 110 fault points; 32 pages spilled before the commit; 155648 bytes before, 151552 after
+drop, fail: 110 crash points; 110 before, 0 after; 0 left a journal header
+drop, tear: 110 crash points; 108 before, 2 after; 107 left a journal header
+drop, power loss: 110 crash points; 109 before, 1 after; 107 left a journal header
+drop, power loss, unsynced writes lost: 110 crash points; 110 before, 0 after; 101 left a journal header
+drop, power loss, the journal's unsynced writes lost: 110 crash points; 110 before, 0 after; 101 left a journal header
+drop, power loss, the database's unsynced writes lost: 110 crash points; 109 before, 1 after; 107 left a journal header
+drop: 25 hot journals, their recovery crashed 3960 ways, and recovered again to the before state
+204-crash-drop: 4735 checks, 0 failed

@@ -1,0 +1,2194 @@
+; Axqlite.Btree - the one B+tree AXQLite stores tables and indices in.
+;
+;     (try _ (pagerBeginWrite p)
+;       (try root (btreeCreate p btreeTable)
+;         (try _ (btreePut p root (keyRowid 1) record)
+;           (pagerCommit p))))
+;     (btreeGet p root (keyRowid 1))        ; (Ok (Some record))
+;     (btreeScan p root None None true
+;       (lambda (key value) (Ok true)))     ; every entry, in key order
+;
+; A tree maps byte-string keys to byte-string values, ordered by
+; `keyCompare` (memcmp order, a prefix first). It knows nothing of rows
+; or columns: `Axqlite.Record` makes the keys and values. A table tree
+; is keyed by 8-byte rowid keys and holds records; an index tree is
+; keyed by encoded columns and a rowid, with empty values. Both are this
+; same structure; only the page type byte differs.
+;
+; A tree is named by its root page, which never moves: a split of the
+; root pushes its cells down into two new pages and keeps the root's
+; number, so the schema can store it once. Every call needs a lock:
+; reads `pagerBeginRead` or a write transaction, and changes a write
+; transaction (`axqMisuse` otherwise, `axqReadOnly` on a read-only
+; pager).
+;
+; PAGES. A node is a slotted page: a 12-byte header, an array of cell
+; offsets in key order growing up, and cells growing down from the
+; checksum. Leaves hold (key, value) cells; interior nodes hold (child,
+; key) cells and a right child, where a cell's child holds the keys
+; below the cell's key and the right child the rest. A value too big
+; for its cell keeps its first bytes there and the rest in a chain of
+; overflow pages. `docs/axqlite-format.md` has every byte.
+;
+; A page's structure is checked once each time it is read from the
+; file: every offset and length lies inside the page and the free-space
+; count adds up. A page that fails answers `axqCorrupt`, and so does a
+; tree deeper than 40 levels, an overflow chain that doesn't match its
+; value's length, or a child of the wrong kind of tree.
+;
+; DELETION removes cells and frees pages that become empty; an interior
+; node left with one child is replaced by it. Nodes are not merged or
+; rebalanced, so a tree thinned by deletes keeps its height until it is
+; cleared, and there is no VACUUM: freed pages go to the free list for
+; reuse, and the file shrinks only when the pages freed are at its end.
+;
+; LIMITS. A key is at most `btreeMaxKey` (1000) bytes, a quarter page
+; with room to spare, and a value at most 2 GiB - 1. A longer key or
+; value answers `axqTooBig` before anything changes. Any other failure
+; inside a write transaction leaves it for `pagerRollback`.
+(import Mem)
+(import Str)
+(import Vec)
+(import Err)
+(import Fmt)
+(import Axqlite.Value)
+(import Axqlite.Pager)
+
+; The kind of a table tree, for `btreeCreate`.
+(pub :: btreeTable Int)
+(pub fn (btreeTable)
+  1)
+
+; The kind of an index tree, for `btreeCreate`.
+(pub :: btreeIndex Int)
+(pub fn (btreeIndex)
+  2)
+
+; The longest key, in bytes.
+(pub :: btreeMaxKey Int)
+(pub fn (btreeMaxKey)
+  1000)
+
+; The root page of the schema table, the table tree every database is
+; created with.
+(pub :: btreeSchemaRoot Int)
+(pub fn (btreeSchemaRoot)
+  1)
+
+(:: maxValue Int)
+(fn (maxValue)
+  2147483647)
+
+; The largest leaf cell; a bigger one keeps the rest of its value in an
+; overflow chain.
+(:: maxLeafCell Int)
+(fn (maxLeafCell)
+  1016)
+
+(:: maxDepth Int)
+(fn (maxDepth)
+  40)
+
+; Payload bytes an overflow page holds.
+(:: overflowRoom Int)
+(fn (overflowRoom)
+  4080)
+
+(:: corrupt (-> String String (Result a Error)))
+(fn (corrupt what where)
+  (axqErr axqCorrupt what where))
+
+(:: pageMsg (-> String Int String String))
+(fn (pageMsg before pgno after)
+  (strConcat before (strConcat (fmtInt pgno) after)))
+
+(:: corruptError (-> String Error))
+(fn (corruptError what)
+  (errContextOf (mkError axqCorrupt what) "btree"))
+
+; A change outside a write transaction.
+(:: writeRefused (-> Pager String (Result a Error)))
+(fn (writeRefused p where)
+  (if (pagerIsReadOnly p)
+    (axqErr axqReadOnly "the database was opened read-only" where)
+    (axqErr axqMisuse "a change needs a write transaction: call pagerBeginWrite first" where)))
+
+; ------------------------------------------------------------------
+; Bytes of a page.
+; ------------------------------------------------------------------
+(:: be16 (-> Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`a + off` names 2 live bytes)
+(fn (be16 a off)
+  (| (<< (__load8 a off) 8) (__load8 a (+ off 1))))
+
+(:: be32 (-> Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`a + off` names 4 live bytes)
+(fn (be32 a off)
+  (| (| (<< (__load8 a off) 24) (<< (__load8 a (+ off 1)) 16)) (| (<< (__load8 a (+ off 2)) 8) (__load8 a (+ off 3)))))
+
+(:: put16 (-> Int Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`a + off` names 2 live writable bytes)
+(fn (put16 a off v)
+  {
+    (__store8 a off (& (>> v 8) 255))
+    (__store8 a (+ off 1) (& v 255))
+    0
+  })
+
+(:: put32 (-> Int Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`a + off` names 4 live writable bytes)
+(fn (put32 a off v)
+  {
+    (__store8 a off (& (>> v 24) 255))
+    (__store8 a (+ off 1) (& (>> v 16) 255))
+    (__store8 a (+ off 2) (& (>> v 8) 255))
+    (__store8 a (+ off 3) (& v 255))
+    0
+  })
+
+; Node header: type, cell count, start of cell content, free bytes,
+; right child.
+(:: nType (-> Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`a` names a checked node's page)
+(fn (nType a)
+  (__load8 a 0))
+
+(:: isLeafType (-> Int Bool))
+(fn (isLeafType t)
+  (|| (== t 1) (== t 3)))
+
+(:: nCount (-> Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`a` names a checked node's page)
+(fn (nCount a)
+  (be16 a 2))
+
+(:: nContent (-> Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`a` names a checked node's page)
+(fn (nContent a)
+  (be16 a 4))
+
+(:: nFree (-> Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`a` names a checked node's page)
+(fn (nFree a)
+  (be16 a 6))
+
+(:: nRight (-> Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`a` names a checked node's page)
+(fn (nRight a)
+  (be32 a 8))
+
+(:: cellOff (-> Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`a` names a checked node's page)
+(fn (cellOff a i)
+  (be16 a (+ 12 (* 2 i))))
+
+; How much of a value stays in its leaf cell.
+(:: localLen (-> Int Int Int))
+(fn (localLen klen vlen)
+  (if (<= (+ (+ 6 klen) vlen) maxLeafCell)
+    vlen
+    (- (- maxLeafCell 10) klen)))
+
+(:: leafCellBytes (-> Int Int Int))
+(fn (leafCellBytes klen vlen)
+  (if (<= (+ (+ 6 klen) vlen) maxLeafCell)
+    (+ (+ 6 klen) vlen)
+    maxLeafCell))
+
+; The size of the cell at offset `q`. Both kinds keep their key at
+; `q + 6`; a leaf's key length is at `q`, an interior node's at `q + 4`.
+(:: cellBytes (-> Int Int Bool Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`a` names a checked node's page)
+(fn (cellBytes a q leaf)
+  (if leaf
+    (leafCellBytes (be16 a q) (be32 a (+ q 2)))
+    (+ 6 (be16 a (+ q 4)))))
+
+(:: cellKeyLen (-> Int Int Bool Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`a` names a checked node's page)
+(fn (cellKeyLen a q leaf)
+  (if leaf
+    (be16 a q)
+    (be16 a (+ q 4))))
+
+; The child at position `j` of an interior node: cell `j`'s child, or
+; the right child when `j` is the cell count.
+(:: childAt (-> Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`a` names a checked node's page)
+(fn (childAt a j)
+  (if (< j (nCount a))
+    (be32 a (cellOff a j))
+    (nRight a)))
+
+(:: setChildAt (-> Int Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`a` names a checked node's page)
+(fn (setChildAt a j child)
+  (if (< j (nCount a))
+    (put32 a (cellOff a j) child)
+    (put32 a 8 child)))
+
+; Compare `xl` bytes at `x` with `yl` bytes at `y`: memcmp, then length.
+(:: cmpBytes (-> Int Int Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`x` names `xl` live bytes and `y` names `yl`)
+(fn (cmpBytes x xl y yl)
+  (let (
+    (n (if (< xl yl)
+      xl
+      yl))
+    (mut i 0)
+    (mut d 0)
+  )
+    {
+      (while (&& (== d 0) (< i n))
+        {
+          (set d (- (__load8 x i) (__load8 y i)))
+          (set i (+ i 1))
+        })
+      (if (!= d 0)
+        d
+        (- xl yl))
+    }))
+
+; In a leaf: twice the position of the first cell whose key is at least
+; the search key, plus one when that key equals it.
+(:: leafSearch (-> Int Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`a` is a checked leaf and `k` names `kl` live bytes)
+(fn (leafSearch a k kl)
+  (let (
+    (mut lo 0)
+    (mut hi (nCount a))
+    (mut eq false)
+  )
+    {
+      (while (< lo hi)
+        (let ((mid (/ (+ lo hi) 2)))
+          (let ((q (cellOff a mid)))
+            (let ((c (cmpBytes (+ a (+ q 6)) (be16 a q) k kl)))
+              (if (< c 0)
+                {
+                  (set lo (+ mid 1))
+                  0
+                }
+                {
+                  (set eq (== c 0))
+                  (set hi mid)
+                  0
+                })))))
+      (+
+        (* 2 lo)
+        (if (&& eq (< lo (nCount a)))
+          1
+          0))
+    }))
+
+; In an interior node: the position of the child that holds the key,
+; the first cell whose key is greater than it, else the right child.
+(:: childFor (-> Int Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`a` is a checked interior node and `k` names `kl` live bytes)
+(fn (childFor a k kl)
+  (let (
+    (mut lo 0)
+    (mut hi (nCount a))
+  )
+    {
+      (while (< lo hi)
+        (let ((mid (/ (+ lo hi) 2)))
+          (let ((q (cellOff a mid)))
+            (if (< (cmpBytes k kl (+ a (+ q 6)) (be16 a (+ q 4))) 0)
+              {
+                (set hi mid)
+                0
+              }
+              {
+                (set lo (+ mid 1))
+                0
+              }))))
+      lo
+    }))
+
+; A copy of the key of the cell at `q`.
+(:: keyAt (-> Int Int Bool String))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`a` is a checked node and `q` one of its cells)
+(fn (keyAt a q leaf)
+  (let ((kl (cellKeyLen a q leaf)))
+    (let ((s (strAlloc kl)))
+      {
+        (memCopy (strData s) (+ a (+ q 6)) kl)
+        s
+      })))
+
+; ------------------------------------------------------------------
+; Cells as strings, for rebuilding nodes.
+; ------------------------------------------------------------------
+; Copies of every cell of the node at `a`, in key order.
+(:: cellsOf (-> Int (Vec String)))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`a` is a checked node)
+(fn (cellsOf a)
+  (let (
+    (leaf (isLeafType (nType a)))
+    (out vecNew)
+  )
+    {
+      (for i 0 (nCount a)
+        (let ((q (cellOff a i)))
+          (let ((size (cellBytes a q leaf)))
+            (let ((c (strAlloc size)))
+              {
+                (memCopy (strData c) (+ a q) size)
+                (vecPush out c)
+                0
+              }))))
+      out
+    }))
+
+; The key inside a cell held as a string.
+(:: cellKey (-> String Bool String))
+;@axiom:effect(unsafe)
+(fn (cellKey c leaf)
+  (keyAt (strData c) 0 leaf))
+
+(:: interiorCell (-> Int String String))
+;@axiom:effect(unsafe)
+(fn (interiorCell child key)
+  (let ((c (strAlloc (+ 6 (strLen key)))))
+    {
+      (put32 (strData c) 0 child)
+      (put16 (strData c) 4 (strLen key))
+      (memCopy (+ (strData c) 6) (strData key) (strLen key))
+      c
+    }))
+
+(:: withChild (-> String Int String))
+;@axiom:effect(unsafe)
+(fn (withChild c child)
+  (let ((d (strDup c)))
+    {
+      (put32 (strData d) 0 child)
+      d
+    }))
+
+(:: cellsBytes (-> (Vec String) Int))
+(fn (cellsBytes cells)
+  (let ((mut total 0))
+    {
+      (for c in cells
+        (set total (+ total (+ 2 (strLen c)))))
+      total
+    }))
+
+(:: fitsNode (-> (Vec String) Bool))
+(fn (fitsNode cells)
+  (<= (cellsBytes cells) 4076))
+
+(:: insertAt (-> (Vec String) Int String (Vec String)))
+(fn (insertAt v i x)
+  (let ((out vecNew))
+    {
+      (for k 0 (vecLen v)
+        {
+          (if (== k i)
+            (vecPush out x)
+            out)
+          (vecPush out (vecGet v k))
+          0
+        })
+      (if (>= i (vecLen v))
+        (vecPush out x)
+        out)
+      out
+    }))
+
+(:: sliceCells (-> (Vec String) Int Int (Vec String)))
+(fn (sliceCells v lo hi)
+  (let ((out vecNew))
+    {
+      (for k lo hi
+        (vecPush out (vecGet v k)))
+      out
+    }))
+
+; Where to split `cells` so the halves hold about the same bytes, kept
+; within `lo`..`hi`.
+(:: splitPoint (-> (Vec String) Int Int Int))
+(fn (splitPoint cells lo hi)
+  (let (
+    (total (cellsBytes cells))
+    (mut acc 0)
+    (mut k 0)
+  )
+    {
+      (while (&& (< k (vecLen cells)) (< (* 2 acc) total))
+        {
+          (set acc (+ acc (+ 2 (strLen (vecGet cells k)))))
+          (set k (+ k 1))
+        })
+      (if (< k lo)
+        lo
+        (if (> k hi)
+          hi
+          k))
+    }))
+
+; Rewrite the node at `a` as type `t` holding `cells` in order, with
+; right child `right`. The cells must fit.
+(:: writeNode (-> Int Int (Vec String) Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`a` names a writable page and `cells` fit in it)
+(fn (writeNode a t cells right)
+  (let (
+    (n (vecLen cells))
+    (mut w 4088)
+  )
+    {
+      (memSet a 0 4088)
+      (__store8 a 0 t)
+      (put16 a 2 n)
+      (for i 0 n
+        (let ((c (vecGet cells i)))
+          {
+            (set w (- w (strLen c)))
+            (memCopy (+ a w) (strData c) (strLen c))
+            (put16 a (+ 12 (* 2 i)) w)
+          }))
+      (put16 a 4 w)
+      (put16 a 6 (- w (+ 12 (* 2 n))))
+      (put32 a 8 right)
+    }))
+
+; Gather the node's cells at the end of the page, leaving one gap.
+(:: defrag (-> Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`a` is a checked, writable node)
+(fn (defrag a)
+  (writeNode a (nType a) (cellsOf a) (nRight a)))
+
+; Insert `cell` at position `i` of the node at `a`, which has room.
+(:: insertCell (-> Int Int String Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`a` is a checked, writable node with room for `cell`)
+(fn (insertCell a i cell)
+  (let (
+    (len (strLen cell))
+    (n (nCount a))
+  )
+    {
+      (if (< (- (nContent a) (+ 12 (* 2 n))) (+ len 2))
+        (defrag a)
+        0)
+      (let ((cs (- (nContent a) len)))
+        {
+          (memCopy (+ a cs) (strData cell) len)
+          (let ((mut k n))
+            (while (> k i)
+              {
+                (put16 a (+ 12 (* 2 k)) (cellOff a (- k 1)))
+                (set k (- k 1))
+              }))
+          (put16 a (+ 12 (* 2 i)) cs)
+          (put16 a 2 (+ n 1))
+          (put16 a 4 cs)
+          (put16 a 6 (- (nFree a) (+ len 2)))
+        })
+    }))
+
+; Remove the cell at position `i` of the node at `a`.
+(:: removeCell (-> Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`a` is a checked, writable node with a cell at `i`)
+(fn (removeCell a i)
+  (let (
+    (n (nCount a))
+    (q (cellOff a i))
+  )
+    (let ((size (cellBytes a q (isLeafType (nType a)))))
+      {
+        (for k i (- n 1)
+          (put16 a (+ 12 (* 2 k)) (cellOff a (+ k 1))))
+        (put16 a (+ 12 (* 2 (- n 1))) 0)
+        (put16 a 2 (- n 1))
+        (put16 a 6 (+ (nFree a) (+ size 2)))
+        (if (== q (nContent a))
+          (put16 a 4 (+ q size))
+          0)
+      })))
+
+; ------------------------------------------------------------------
+; Fetching and checking nodes.
+; ------------------------------------------------------------------
+; Check the structure of the node at `a`: its type, its header, every
+; cell's offset and extent, and that the free count adds up.
+(:: checkNode (-> Int Int (Result Int Error)))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`a` names a 4096-byte page)
+(fn (checkNode a pgno)
+  (let (
+    (t (nType a))
+    (n (nCount a))
+    (cs (nContent a))
+  )
+    (if (|| (< t 1) (> t 4))
+      (corrupt (pageMsg "page " pgno " isn't a B-tree node") "btree")
+      (if (|| (> (+ 12 (* 2 n)) cs) (> cs 4088))
+        (corrupt (pageMsg "page " pgno " has a malformed header") "btree")
+        (let (
+          (leaf (isLeafType t))
+          (mut sum 0)
+          (mut bad false)
+        )
+          {
+            (for i 0 n
+              (if bad
+                0
+                (let ((q (cellOff a i)))
+                  (if (|| (< q cs) (> (+ q 6) 4088))
+                    {
+                      (set bad true)
+                      0
+                    }
+                    (let (
+                      (size (cellBytes a q leaf))
+                      (klen (cellKeyLen a q leaf))
+                    )
+                      (if (|| (> (+ q size) 4088) (> klen btreeMaxKey))
+                        {
+                          (set bad true)
+                          0
+                        }
+                        {
+                          (set sum (+ sum size))
+                          0
+                        }))))))
+            (if bad
+              (corrupt (pageMsg "page " pgno " has a cell outside the page") "btree")
+              (if (!= (nFree a) (- (- 4076 (* 2 n)) sum))
+                (corrupt (pageMsg "page " pgno " has a wrong free-space count") "btree")
+                (Ok 0)))
+          })))))
+
+; A node's bytes, checked once per read from the file; `write` fetches
+; it for changing. Pinned until the next `pagerOpBegin`.
+(:: node (-> Pager Int Bool (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (node p pgno write)
+  (try
+    a
+    (if write
+      (pagerWrite p pgno)
+      (pagerGet p pgno))
+    (if (pagerChecked p a)
+      (Ok a)
+      (try
+        _
+        (checkNode a pgno)
+        {
+          (pagerSetChecked p a)
+          (Ok a)
+        }))))
+
+; 1 for a table tree's page types, 2 for an index tree's.
+(:: kindOf (-> Int Int))
+(fn (kindOf t)
+  (/ (+ t 1) 2))
+
+; The pages from `pg` down to a leaf, appended to `pages`, with the
+; child position taken at each interior node appended to `idxs`. `mode`
+; 0 follows the key at `k`, 1 the leftmost child, 2 the rightmost.
+; Answers the leaf's page number.
+(:: descend (-> Pager Int Int Int Int Int (Vec Int) (Vec Int) (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`k` names `kl` live bytes when `mode` is 0)
+(fn (descend p pg kind mode k kl pages idxs)
+  (let (
+    (mut cur pg)
+    (mut done false)
+    (mut failed None)
+  )
+    {
+      (while (&& (! done) (isNone failed))
+        (if (>= (vecLen pages) maxDepth)
+          {
+            (set failed (Some (corruptError "a B-tree is deeper than 40 levels")))
+            0
+          }
+          (match (node p cur false)
+            ((Err e)
+              {
+                (set failed (Some e))
+                0
+              }
+            )
+            ((Ok a)
+              (let ((t (nType a)))
+                (if (!= (kindOf t) kind)
+                  {
+                    (set failed (Some (corruptError (pageMsg "page " cur " belongs to another kind of tree"))))
+                    0
+                  }
+                  {
+                    (vecPush pages cur)
+                    (if (isLeafType t)
+                      {
+                        (set done true)
+                        0
+                      }
+                      (let ((j 
+                        (if (== mode 0)
+                          (childFor a k kl)
+                          (if (== mode 1)
+                            0
+                            (nCount a)))))
+                        {
+                          (vecPush idxs j)
+                          (set cur (childAt a j))
+                          0
+                        }))
+                  }))
+            ))))
+      (match failed
+        ((Some e) (Err e))
+        ((None) (Ok cur)))
+    }))
+
+; The kind of the tree rooted at `root`.
+(:: treeKind (-> Pager Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (treeKind p root)
+  (try a (node p root false) (Ok (kindOf (nType a)))))
+
+; ------------------------------------------------------------------
+; Values and overflow chains.
+; ------------------------------------------------------------------
+; Write `len` bytes at `src` into a new chain of overflow pages;
+; answers the first page.
+(:: writeChain (-> Pager Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`src` names `len` live bytes)
+(fn (writeChain p src len)
+  (let (
+    (mut off 0)
+    (mut prev 0)
+    (mut first 0)
+    (mut failed None)
+  )
+    {
+      (while (&& (isNone failed) (< off len))
+        (match (pagerAlloc p)
+          ((Err e)
+            {
+              (set failed (Some e))
+              0
+            }
+          )
+          ((Ok pg)
+            (match (pagerWriteTransient p pg)
+              ((Err e)
+                {
+                  (set failed (Some e))
+                  0
+                }
+              )
+              ((Ok w)
+                (let ((n 
+                  (if (< (- len off) overflowRoom)
+                    (- len off)
+                    overflowRoom)))
+                  {
+                    (__store8 w 0 5)
+                    (put16 w 2 n)
+                    (put32 w 4 0)
+                    (memCopy (+ w 8) (+ src off) n)
+                    (set off (+ off n))
+                    (if (== prev 0)
+                      {
+                        (set first pg)
+                        0
+                      }
+                      (match (pagerWriteTransient p prev)
+                        ((Err e)
+                          {
+                            (set failed (Some e))
+                            0
+                          }
+                        )
+                        ((Ok pw) (put32 pw 4 pg))))
+                    (set prev pg)
+                    0
+                  })
+              ))
+          )))
+      (match failed
+        ((Some e) (Err e))
+        ((None) (Ok first)))
+    }))
+
+; Walk the overflow chain from `first` holding `len` bytes: copy them
+; to `dst` when it isn't 0, and free each page when `free`.
+(:: walkChain (-> Pager Int Int Int Bool (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`dst` is 0 or names `len` live writable bytes)
+(fn (walkChain p first dst len free)
+  (let (
+    (mut pg first)
+    (mut done 0)
+    (mut failed None)
+  )
+    {
+      (while (&& (isNone failed) (< done len))
+        (if (== pg 0)
+          {
+            (set failed (Some (corruptError "an overflow chain ends before its value does")))
+            0
+          }
+          (match (pagerGetTransient p pg)
+            ((Err e)
+              {
+                (set failed (Some e))
+                0
+              }
+            )
+            ((Ok c)
+              (let (
+                (used (be16 c 2))
+                (next (be32 c 4))
+              )
+                (if (|| (!= (__load8 c 0) 5) (|| (== used 0) (|| (> used overflowRoom) (> used (- len done)))))
+                  {
+                    (set failed (Some (corruptError (pageMsg "overflow page " pg " is malformed"))))
+                    0
+                  }
+                  {
+                    (if (!= dst 0)
+                      (memCopy (+ dst done) (+ c 8) used)
+                      0)
+                    (set done (+ done used))
+                    (if free
+                      (match (pagerFree p pg)
+                        ((Err e)
+                          {
+                            (set failed (Some e))
+                            0
+                          }
+                        )
+                        ((Ok _) 0))
+                      0)
+                    (set pg next)
+                    0
+                  }))
+            ))))
+      (match failed
+        ((Some e) (Err e))
+        ((None)
+          (if (!= pg 0)
+            (corrupt "an overflow chain runs past its value" "btree")
+            (Ok done))
+        ))
+    }))
+
+; The value of the leaf cell at `q`, fresh in the caller's arena.
+(:: readValue (-> Pager Int Int (Result String Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`a` is a checked leaf pinned in this operation and `q` one of its cells)
+(fn (readValue p a q)
+  (let (
+    (klen (be16 a q))
+    (vlen (be32 a (+ q 2)))
+  )
+    (let (
+      (local (localLen klen vlen))
+      (out (strAlloc vlen))
+    )
+      {
+        (memCopy (strData out) (+ a (+ q (+ 6 klen))) local)
+        (if (> vlen local)
+          (try _ (walkChain
+            p
+            (be32 a (+ q (+ 6 (+ klen local))))
+            (+ (strData out) local)
+            (- vlen local)
+            false) (Ok out))
+          (Ok out))
+      })))
+
+; The leaf cell for `key` and `value`, writing the value's tail to an
+; overflow chain when it doesn't fit.
+(:: buildLeafCell (-> Pager String String (Result String Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (buildLeafCell p key value)
+  (let (
+    (klen (strLen key))
+    (vlen (strLen value))
+  )
+    (let (
+      (local (localLen klen vlen))
+      (cell (strAlloc (leafCellBytes klen vlen)))
+    )
+      (let ((c (strData cell)))
+        {
+          (put16 c 0 klen)
+          (put32 c 2 vlen)
+          (memCopy (+ c 6) (strData key) klen)
+          (memCopy (+ c (+ 6 klen)) (strData value) local)
+          (if (> vlen local)
+            (try
+              first
+              (writeChain p (+ (strData value) local) (- vlen local))
+              {
+                (put32 c (+ 6 (+ klen local)) first)
+                (Ok cell)
+              })
+            (Ok cell))
+        }))))
+
+; Remove leaf cell `i`, freeing its overflow chain.
+(:: removeLeafCell (-> Pager Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`a` is a checked, writable leaf pinned in this operation)
+(fn (removeLeafCell p a i)
+  (let ((q (cellOff a i)))
+    (let (
+      (klen (be16 a q))
+      (vlen (be32 a (+ q 2)))
+    )
+      (let ((local (localLen klen vlen)))
+        (try
+          _
+          (if (> vlen local)
+            (walkChain
+              p
+              (be32 a (+ q (+ 6 (+ klen local))))
+              0
+              (- vlen local)
+              true)
+            (Ok 0))
+          {
+            (removeCell a i)
+            (Ok 0)
+          })))))
+
+; ------------------------------------------------------------------
+; Inserting.
+; ------------------------------------------------------------------
+; A new page holding a node of type `t`.
+(:: newNode (-> Pager Int (Vec String) Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (newNode p t cells right)
+  (try
+    pg
+    (pagerAlloc p)
+    (try
+      w
+      (pagerWrite p pg)
+      {
+        (writeNode w t cells right)
+        (pagerSetChecked p w)
+        (Ok pg)
+      })))
+
+; Whether the path followed the last child at every interior node: the
+; leaf holds the tree's largest keys.
+(:: onRightEdge (-> Pager (Vec Int) (Vec Int) (Result Bool Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (onRightEdge p pages idxs)
+  (let (
+    (mut edge true)
+    (mut failed None)
+  )
+    {
+      (for l 0 (vecLen idxs)
+        (if (&& edge (isNone failed))
+          (match (node p (vecGet pages l) false)
+            ((Err e)
+              {
+                (set failed (Some e))
+                0
+              }
+            )
+            ((Ok a)
+              {
+                (set edge (== (vecGet idxs l) (nCount a)))
+                0
+              }
+            ))
+          0))
+      (match failed
+        ((Some e) (Err e))
+        ((None) (Ok edge)))
+    }))
+
+; Add (`c`, `sep`) at the child position the path took through the
+; interior node at `level`, and point the position after it at `r`: the
+; child `c` split, and `r` holds its upper half. Splits upward as needed.
+(:: insertInterior (-> Pager (Vec Int) (Vec Int) Int Int String Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (insertInterior p pages idxs level c sep r)
+  (let (
+    (pg (vecGet pages level))
+    (j (vecGet idxs level))
+  )
+    (try
+      a
+      (node p pg true)
+      (let (
+        (t (nType a))
+        (right0 (nRight a))
+        (cells (insertAt (cellsOf a) j (interiorCell c sep)))
+      )
+        (let ((right 
+          (if (< (+ j 1) (vecLen cells))
+            {
+              (vecSet cells (+ j 1) (withChild (vecGet cells (+ j 1)) r))
+              right0
+            }
+            r)))
+          (if (fitsNode cells)
+            {
+              (writeNode a t cells right)
+              (Ok 0)
+            }
+            (let ((m (vecLen cells)))
+              (let ((s (splitPoint cells 1 (- m 2))))
+                (let ((up (vecGet cells s)))
+                  (let (
+                    (upKey (cellKey up false))
+                    (upChild (be32 (strData up) 0))
+                    (left (sliceCells cells 0 s))
+                    (rightCells (sliceCells cells (+ s 1) m))
+                  )
+                    (if (== level 0)
+                      (try
+                        l
+                        (newNode p t left upChild)
+                        (try
+                          r2
+                          (newNode p t rightCells right)
+                          {
+                            (writeNode a t (vecPush vecNew (interiorCell l upKey)) r2)
+                            (Ok 0)
+                          }))
+                      (try
+                        r2
+                        (newNode p t rightCells right)
+                        {
+                          (writeNode a t left upChild)
+                          (insertInterior
+                            p
+                            pages
+                            idxs
+                            (- level 1)
+                            pg
+                            upKey
+                            r2)
+                        }))))))))))))
+
+; Split the full leaf at `a` to take `cell` at position `i`. A cell
+; added at the right edge of the tree goes alone into the new leaf, so
+; ascending inserts fill their pages; otherwise the bytes split evenly.
+(:: splitLeaf (-> Pager (Vec Int) (Vec Int) Int Int String (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`a` is the path's leaf, checked, writable and pinned in this operation)
+(fn (splitLeaf p pages idxs a i cell)
+  (let (
+    (cells (insertAt (cellsOf a) i cell))
+    (t (nType a))
+    (level (- (vecLen pages) 1))
+    (leafPg (vecLast pages))
+  )
+    (let ((m (vecLen cells)))
+      (try
+        edge
+        (if (== i (- m 1))
+          (onRightEdge p pages idxs)
+          (Ok false))
+        (let ((s 
+          (if edge
+            (- m 1)
+            (splitPoint cells 1 (- m 1)))))
+          (let (
+            (left (sliceCells cells 0 s))
+            (right (sliceCells cells s m))
+            (sep (cellKey (vecGet cells s) true))
+          )
+            (if (== level 0)
+              (try
+                l
+                (newNode p t left 0)
+                (try
+                  r
+                  (newNode p t right 0)
+                  {
+                    (writeNode a (+ t 1) (vecPush vecNew (interiorCell l sep)) r)
+                    (Ok 0)
+                  }))
+              (try
+                r
+                (newNode p t right 0)
+                {
+                  (writeNode a t left 0)
+                  (insertInterior
+                    p
+                    pages
+                    idxs
+                    (- level 1)
+                    leafPg
+                    sep
+                    r)
+                }))))))))
+
+; Insert `key` -> `value`, replacing an existing value when `replace`.
+; Answers true when the key is new.
+(:: insertKey (-> Pager Int String String Bool String (Result Bool Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (insertKey p root key value replace where)
+  (if (> (strLen key) btreeMaxKey)
+    (axqErr axqTooBig "a key is at most 1000 bytes" where)
+    (if (> (strLen value) maxValue)
+      (axqErr axqTooBig "a value is at most 2 GiB - 1 bytes" where)
+      (if (! (pagerInWrite p))
+        (writeRefused p where)
+        (let (
+          (_ (pagerOpBegin p))
+          (pages vecNew)
+          (idxs vecNew)
+        )
+          (try
+            kind
+            (treeKind p root)
+            (try
+              leaf
+              (descend
+                p
+                root
+                kind
+                0
+                (strData key)
+                (strLen key)
+                pages
+                idxs)
+              (try
+                a
+                (node p leaf false)
+                (let ((s (leafSearch a (strData key) (strLen key))))
+                  (let (
+                    (i (/ s 2))
+                    (found (== (% s 2) 1))
+                  )
+                    (if (&& found (! replace))
+                      (Ok false)
+                      (try
+                        cell
+                        (buildLeafCell p key value)
+                        (try
+                          w
+                          (node p leaf true)
+                          (try
+                            _
+                            (if found
+                              (removeLeafCell p w i)
+                              (Ok 0))
+                            (try
+                              _
+                              (if (>= (nFree w) (+ (strLen cell) 2))
+                                {
+                                  (insertCell w i cell)
+                                  (Ok 0)
+                                }
+                                (splitLeaf
+                                  p
+                                  pages
+                                  idxs
+                                  w
+                                  i
+                                  cell))
+                              (Ok (! found)))))))))))))))))
+
+; ------------------------------------------------------------------
+; Deleting.
+; ------------------------------------------------------------------
+; The node at `level` of the path has lost the child the path took
+; through it. Remove that child's slot, and collapse what that empties.
+(:: removeChild (-> Pager (Vec Int) (Vec Int) Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (removeChild p pages idxs level)
+  (let (
+    (pg (vecGet pages level))
+    (j (vecGet idxs level))
+  )
+    (try
+      a
+      (node p pg true)
+      (let ((n (nCount a)))
+        (if (&& (== j n) (== n 0))
+          ; its only child is gone: the node is empty
+          (if (== level 0)
+            {
+              (writeNode a (- (nType a) 1) vecNew 0)
+              (Ok 0)
+            }
+            (try _ (pagerFree p pg) (removeChild p pages idxs (- level 1))))
+          {
+            (if (< j n)
+              (removeCell a j)
+              (let ((newRight (be32 a (cellOff a (- n 1)))))
+                {
+                  (removeCell a (- n 1))
+                  (put32 a 8 newRight)
+                }))
+            (if (> (nCount a) 0)
+              (Ok 0)
+              ; one child left: it takes this node's place
+              (let ((only (nRight a)))
+                (if (== level 0)
+                  (try
+                    c
+                    (node p only false)
+                    {
+                      (memCopy a c 4088)
+                      (pagerFree p only)
+                    })
+                  (try
+                    g
+                    (node p (vecGet pages (- level 1)) true)
+                    {
+                      (setChildAt g (vecGet idxs (- level 1)) only)
+                      (pagerFree p pg)
+                    }))))
+          })))))
+
+; Delete `key`; answers whether it was there.
+(:: deleteKey (-> Pager Int String (Result Bool Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (deleteKey p root key)
+  (if (! (pagerInWrite p))
+    (writeRefused p "btreeDelete")
+    (let (
+      (_ (pagerOpBegin p))
+      (pages vecNew)
+      (idxs vecNew)
+    )
+      (try
+        kind
+        (treeKind p root)
+        (try
+          leaf
+          (descend
+            p
+            root
+            kind
+            0
+            (strData key)
+            (strLen key)
+            pages
+            idxs)
+          (try
+            a
+            (node p leaf false)
+            (let ((s (leafSearch a (strData key) (strLen key))))
+              (if (== (% s 2) 0)
+                (Ok false)
+                (try
+                  w
+                  (node p leaf true)
+                  (try
+                    _
+                    (removeLeafCell p w (/ s 2))
+                    (if (|| (> (nCount w) 0) (== (vecLen pages) 1))
+                      (Ok true)
+                      (try _ (pagerFree p leaf) (try _ (removeChild p pages idxs (- (vecLen pages) 2)) (Ok true))))))))))))))
+
+; ------------------------------------------------------------------
+; Scanning.
+; ------------------------------------------------------------------
+; Leave the exhausted leaf at the end of the path for the next one in
+; the scan's direction. Answers the position to start at in it, or -2
+; when the tree has no more leaves that way.
+(:: nextLeaf (-> Pager Int (Vec Int) (Vec Int) Bool (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (nextLeaf p kind pages idxs forward)
+  (let (
+    (mut result -3)
+    (mut failed None)
+  )
+    {
+      (vecPop pages)
+      (while (&& (== result -3) (isNone failed))
+        (if (== (vecLen pages) 0)
+          {
+            (set result -2)
+            0
+          }
+          (let ((level (- (vecLen pages) 1)))
+            (match (node p (vecGet pages level) false)
+              ((Err e)
+                {
+                  (set failed (Some e))
+                  0
+                }
+              )
+              ((Ok a)
+                (let ((j 
+                  (+
+                    (vecGet idxs level)
+                    (if forward
+                      1
+                      -1))))
+                  (if (if forward
+                    (<= j (nCount a))
+                    (>= j 0))
+                    {
+                      (vecSet idxs level j)
+                      (match (descend
+                        p
+                        (childAt a j)
+                        kind
+                        (if forward
+                          1
+                          2)
+                        0
+                        0
+                        pages
+                        idxs)
+                        ((Err e)
+                          {
+                            (set failed (Some e))
+                            0
+                          }
+                        )
+                        ((Ok leaf)
+                          (match (node p leaf false)
+                            ((Err e)
+                              {
+                                (set failed (Some e))
+                                0
+                              }
+                            )
+                            ((Ok la)
+                              {
+                                (set result (if forward
+                                  0
+                                  (- (nCount la) 1)))
+                                0
+                              }
+                            ))
+                        ))
+                    }
+                    {
+                      (vecPop pages)
+                      (vecPop idxs)
+                      0
+                    }))
+              )))))
+      (match failed
+        ((Some e) (Err e))
+        ((None) (Ok result)))
+    }))
+
+; The smallest key after `k`: `k` with a zero byte added.
+(:: keyAfter (-> String String))
+;@axiom:effect(unsafe)
+(fn (keyAfter k)
+  (let ((s (strAlloc (+ (strLen k) 1))))
+    {
+      (memCopy (strData s) (strData k) (strLen k))
+      s
+    }))
+
+; The scan behind `btreeScan`, `btreeFirstKey` and `btreeLastKey`;
+; without `wantValue` each value passed is "".
+(:: scanTree (-> Pager Int (Option String) (Option String) Bool Bool (-> String String (Result Bool Error)) (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (scanTree p root lo hi forward wantValue f)
+  (let ((_ (pagerOpBegin p)))
+    (try
+      kind
+      (treeKind p root)
+      (let (
+        (pages vecNew)
+        (idxs vecNew)
+        (mut pos 0)
+        (mut count 0)
+        (mut done false)
+        (mut failed None)
+        (mut reseek true)
+        (mut bound (if forward
+          lo
+          hi))
+      )
+        {
+          (while (&& (! done) (isNone failed))
+            {
+              (pagerOpBegin p)
+              (if reseek
+                ; descend afresh to the first key at or after `bound`
+                ; going forward, or the last one before it going back
+                {
+                  (vecClear pages)
+                  (vecClear idxs)
+                  (match (match bound
+                    ((Some b) (descend
+                      p
+                      root
+                      kind
+                      0
+                      (strData b)
+                      (strLen b)
+                      pages
+                      idxs))
+                    ((None)
+                      (descend
+                        p
+                        root
+                        kind
+                        (if forward
+                          1
+                          2)
+                        0
+                        0
+                        pages
+                        idxs)
+                    ))
+                    ((Err e)
+                      {
+                        (set failed (Some e))
+                        0
+                      }
+                    )
+                    ((Ok leaf)
+                      (match (node p leaf false)
+                        ((Err e)
+                          {
+                            (set failed (Some e))
+                            0
+                          }
+                        )
+                        ((Ok a)
+                          {
+                            (set pos (match bound
+                              ((Some b)
+                                (let ((s (leafSearch a (strData b) (strLen b))))
+                                  (if forward
+                                    (/ s 2)
+                                    (- (/ s 2) 1)))
+                              )
+                              ((None)
+                                (if forward
+                                  0
+                                  (- (nCount a) 1))
+                              )))
+                            (set reseek false)
+                            0
+                          }
+                        ))
+                    ))
+                }
+                (match (node p (vecLast pages) false)
+                  ((Err e)
+                    {
+                      (set failed (Some e))
+                      0
+                    }
+                  )
+                  ((Ok a)
+                    (if (if forward
+                      (< pos (nCount a))
+                      (&& (>= pos 0) (< pos (nCount a))))
+                      (let ((q (cellOff a pos)))
+                        (let ((key (keyAt a q true)))
+                          (if (if forward
+                            (match hi
+                              ((Some h) (>= (strCmp key h) 0))
+                              ((None) false))
+                            (match lo
+                              ((Some l) (< (strCmp key l) 0))
+                              ((None) false)))
+                            {
+                              (set done true)
+                              0
+                            }
+                            (match (if wantValue
+                              (readValue p a q)
+                              (Ok ""))
+                              ((Err e)
+                                {
+                                  (set failed (Some e))
+                                  0
+                                }
+                              )
+                              ((Ok value)
+                                (let ((seq (pagerWriteSeq p)))
+                                  (match (f key value)
+                                    ((Err e)
+                                      {
+                                        (set failed (Some e))
+                                        0
+                                      }
+                                    )
+                                    ((Ok more)
+                                      {
+                                        (set count (+ count 1))
+                                        (if (! more)
+                                          {
+                                            (set done true)
+                                            0
+                                          }
+                                          (if (!= (pagerWriteSeq p) seq)
+                                            ; the callback changed the tree: find our place again
+                                            {
+                                              (set bound (Some
+                                                (if forward
+                                                  (keyAfter key)
+                                                  key)))
+                                              (set reseek true)
+                                              0
+                                            }
+                                            {
+                                              (set pos (if forward
+                                                (+ pos 1)
+                                                (- pos 1)))
+                                              0
+                                            }))
+                                      }
+                                    )))
+                              )))))
+                      (match (nextLeaf
+                        p
+                        kind
+                        pages
+                        idxs
+                        forward)
+                        ((Err e)
+                          {
+                            (set failed (Some e))
+                            0
+                          }
+                        )
+                        ((Ok next)
+                          (if (== next -2)
+                            {
+                              (set done true)
+                              0
+                            }
+                            {
+                              (set pos next)
+                              0
+                            })
+                        )))
+                  )))
+            })
+          (match failed
+            ((Some e) (Err e))
+            ((None) (Ok count)))
+        }))))
+
+; ------------------------------------------------------------------
+; Whole trees.
+; ------------------------------------------------------------------
+; The child page numbers of the interior node at `a`, left to right.
+(:: childrenOf (-> Int (Vec Int)))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`a` is a checked interior node)
+(fn (childrenOf a)
+  (let ((out vecNew))
+    {
+      (for j 0 (+ (nCount a) 1)
+        (vecPush out (childAt a j)))
+      out
+    }))
+
+; Entries in the subtree at `pg`.
+(:: countTree (-> Pager Int Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (countTree p pg kind depth)
+  (if (> depth maxDepth)
+    (corrupt "a B-tree is deeper than 40 levels" "btreeCount")
+    (let ((_ (pagerOpBegin p)))
+      (try
+        a
+        (node p pg false)
+        (if (!= (kindOf (nType a)) kind)
+          (corrupt (pageMsg "page " pg " belongs to another kind of tree") "btreeCount")
+          (if (isLeafType (nType a))
+            (Ok (nCount a))
+            (let (
+              (kids (childrenOf a))
+              (mut total 0)
+              (mut failed None)
+            )
+              {
+                (for c in kids
+                  (if (isSome failed)
+                    0
+                    (let ((r (countTree p c kind (+ depth 1))))
+                      (match r
+                        ((Ok n)
+                          {
+                            (set total (+ total n))
+                            0
+                          }
+                        )
+                        ((Err e)
+                          {
+                            (set failed (Some e))
+                            0
+                          }
+                        )))))
+                (match failed
+                  ((Some e) (Err e))
+                  ((None) (Ok total)))
+              })))))))
+
+; Free every page of the subtree at `pg` and its overflow chains, or,
+; for the root with `keep`, empty it into a leaf. Answers the entries
+; removed.
+(:: freeTree (-> Pager Int Int Bool Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (freeTree p pg kind keep depth)
+  (if (> depth maxDepth)
+    (corrupt "a B-tree is deeper than 40 levels" "btreeDrop")
+    (let ((_ (pagerOpBegin p)))
+      (try
+        a
+        (node p pg false)
+        (if (!= (kindOf (nType a)) kind)
+          (corrupt (pageMsg "page " pg " belongs to another kind of tree") "btreeDrop")
+          (let (
+            (t (nType a))
+            (leaf (isLeafType (nType a)))
+            (n (nCount a))
+            (chains vecNew)
+            (kids (if (isLeafType (nType a))
+              vecNew
+              (childrenOf a)))
+            (mut total 0)
+            (mut failed None)
+          )
+            {
+              (if leaf
+                (for i 0 n
+                  (let ((q (cellOff a i)))
+                    (let (
+                      (klen (be16 a q))
+                      (vlen (be32 a (+ q 2)))
+                    )
+                      (let ((local (localLen klen vlen)))
+                        (if (> vlen local)
+                          {
+                            (vecPush chains (be32 a (+ q (+ 6 (+ klen local)))))
+                            (vecPush chains (- vlen local))
+                            0
+                          }
+                          0)))))
+                0)
+              (for k 0 (/ (vecLen chains) 2)
+                (if (isSome failed)
+                  0
+                  (match (walkChain
+                    p
+                    (vecGet chains (* 2 k))
+                    0
+                    (vecGet chains (+ (* 2 k) 1))
+                    true)
+                    ((Err e)
+                      {
+                        (set failed (Some e))
+                        0
+                      }
+                    )
+                    ((Ok _) 0))))
+              (if leaf
+                (set total n)
+                0)
+              (for c in kids
+                (if (isSome failed)
+                  0
+                  (let ((r (freeTree
+                    p
+                    c
+                    kind
+                    false
+                    (+ depth 1))))
+                    (match r
+                      ((Ok k)
+                        {
+                          (set total (+ total k))
+                          0
+                        }
+                      )
+                      ((Err e)
+                        {
+                          (set failed (Some e))
+                          0
+                        }
+                      )))))
+              (match failed
+                ((Some e) (Err e))
+                ((None)
+                  (if keep
+                    (let ((_ (pagerOpBegin p)))
+                      (try
+                        w
+                        (node p pg true)
+                        {
+                          (writeNode
+                            w
+                            (if leaf
+                              t
+                              (- t 1))
+                            vecNew
+                            0)
+                          (Ok total)
+                        }))
+                    (try _ (pagerFree p pg) (Ok total)))
+                ))
+            }))))))
+
+; ------------------------------------------------------------------
+; The public surface.
+; ------------------------------------------------------------------
+; A new, empty tree of `kind` (`btreeTable` or `btreeIndex`); answers
+; its root page. Inside a write transaction.
+(pub :: btreeCreate (-> Pager Int (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (btreeCreate p kind)
+  (if (&& (!= kind btreeTable) (!= kind btreeIndex))
+    (axqErr axqMisuse "a tree's kind is btreeTable or btreeIndex" "btreeCreate")
+    (if (! (pagerInWrite p))
+      (writeRefused p "btreeCreate")
+      (let ((_ (pagerOpBegin p)))
+        (newNode
+          p
+          (if (== kind btreeTable)
+            1
+            3)
+          vecNew
+          0)))))
+
+; Free every page of the tree at `root`, the root included, and every
+; overflow chain; answers how many entries it held. Inside a write
+; transaction. The schema table's root can't be dropped.
+(pub :: btreeDrop (-> Pager Int (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (btreeDrop p root)
+  (if (! (pagerInWrite p))
+    (writeRefused p "btreeDrop")
+    (if (< root 2)
+      (axqErr axqMisuse "the schema table's root can't be dropped" "btreeDrop")
+      (try kind (treeKind p root) (freeTree
+        p
+        root
+        kind
+        false
+        0)))))
+
+; Delete every entry of the tree at `root`, keeping the root as an
+; empty leaf; answers how many there were. Inside a write transaction.
+(pub :: btreeClear (-> Pager Int (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (btreeClear p root)
+  (if (! (pagerInWrite p))
+    (writeRefused p "btreeClear")
+    (try kind (treeKind p root) (freeTree
+      p
+      root
+      kind
+      true
+      0))))
+
+; The value stored under `key`, fresh in the caller's arena, or `None`.
+(pub :: btreeGet (-> Pager Int String (Result (Option String) Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (btreeGet p root key)
+  (let (
+    (_ (pagerOpBegin p))
+    (pages vecNew)
+    (idxs vecNew)
+  )
+    (try
+      kind
+      (treeKind p root)
+      (try
+        leaf
+        (descend
+          p
+          root
+          kind
+          0
+          (strData key)
+          (strLen key)
+          pages
+          idxs)
+        (try
+          a
+          (node p leaf false)
+          (let ((s (leafSearch a (strData key) (strLen key))))
+            (if (== (% s 2) 0)
+              (Ok None)
+              (try v (readValue p a (cellOff a (/ s 2))) (Ok (Some v))))))))))
+
+; Store `value` under `key`, replacing any value there. Answers true
+; when the key is new. Inside a write transaction.
+(pub :: btreePut (-> Pager Int String String (Result Bool Error)))
+;@axiom:effect(io)
+(pub fn (btreePut p root key value)
+  (insertKey
+    p
+    root
+    key
+    value
+    true
+    "btreePut"))
+
+; Store `value` under `key` only when the key is new: answers false,
+; changing nothing, when it is already there. Inside a write
+; transaction.
+(pub :: btreeInsertNew (-> Pager Int String String (Result Bool Error)))
+;@axiom:effect(io)
+(pub fn (btreeInsertNew p root key value)
+  (insertKey
+    p
+    root
+    key
+    value
+    false
+    "btreeInsertNew"))
+
+; Delete `key` and its value; answers whether it was there. Inside a
+; write transaction.
+(pub :: btreeDelete (-> Pager Int String (Result Bool Error)))
+;@axiom:effect(io)
+(pub fn (btreeDelete p root key)
+  (deleteKey p root key))
+
+; Walk the entries with `lo` <= key < `hi` (either bound `None` for no
+; bound) in key order, or in reverse when `forward` is false, calling
+; `f key value` on each: `Ok true` continues, `Ok false` stops, and
+; `Err` stops and is answered. Answers how many entries `f` saw. `f`
+; may change the tree: the scan then finds its place again after the
+; last key it passed.
+(pub :: btreeScan (-> Pager Int (Option String) (Option String) Bool (-> String String (Result Bool Error)) (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (btreeScan p root lo hi forward f)
+  (scanTree
+    p
+    root
+    lo
+    hi
+    forward
+    true
+    f))
+
+(struct KeyBox
+  (mut key : (Option String)))
+
+; The smallest key in the tree, or `None` when it is empty.
+(pub :: btreeFirstKey (-> Pager Int (Result (Option String) Error)))
+;@axiom:effect(io)
+(pub fn (btreeFirstKey p root)
+  (let ((box (KeyBox None)))
+    (try
+      _
+      (scanTree
+        p
+        root
+        None
+        None
+        true
+        false
+        (lambda (k v)
+          {
+            (set box.key (Some k))
+            (Ok false)
+          }
+        ))
+      (Ok box.key))))
+
+; The largest key in the tree, or `None` when it is empty: a table's
+; largest rowid.
+(pub :: btreeLastKey (-> Pager Int (Result (Option String) Error)))
+;@axiom:effect(io)
+(pub fn (btreeLastKey p root)
+  (let ((box (KeyBox None)))
+    (try
+      _
+      (scanTree
+        p
+        root
+        None
+        None
+        false
+        false
+        (lambda (k v)
+          {
+            (set box.key (Some k))
+            (Ok false)
+          }
+        ))
+      (Ok box.key))))
+
+; How many entries the tree holds, counted leaf by leaf.
+(pub :: btreeCount (-> Pager Int (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (btreeCount p root)
+  (try kind (treeKind p root) (countTree p root kind 0)))
+
+; The tree's height: 1 when the root is a leaf.
+(pub :: btreeHeight (-> Pager Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (btreeHeight p root)
+  (let (
+    (_ (pagerOpBegin p))
+    (pages vecNew)
+    (idxs vecNew)
+  )
+    (try kind (treeKind p root) (try _ (descend
+      p
+      root
+      kind
+      1
+      0
+      0
+      pages
+      idxs) (Ok (vecLen pages))))))
+
+; ------------------------------------------------------------------
+; The integrity check.
+; ------------------------------------------------------------------
+(struct Check
+  (seen : String)
+  (mut leafDepth : Int))
+
+(:: markPage (-> Check Int String (Result Int Error)))
+;@axiom:effect(unsafe)
+(fn (markPage ck pg what)
+  (if (|| (<= pg 0) (>= pg (strLen ck.seen)))
+    (corrupt (pageMsg (strConcat what " points at page ") pg ", outside the file") "btreeCheck")
+    (if (!= (strByte ck.seen pg) 0)
+      (corrupt (pageMsg "page " pg (strConcat " is reached twice, the second time as " what)) "btreeCheck")
+      {
+        (__store8 (strData ck.seen) pg 1)
+        (Ok 0)
+      })))
+
+; Check an overflow chain: every page reached once, of the right type,
+; holding exactly `len` bytes.
+(:: checkChain (-> Pager Check Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (checkChain p ck first len)
+  (let (
+    (mut pg first)
+    (mut done 0)
+    (mut failed None)
+  )
+    {
+      (while (&& (isNone failed) (< done len))
+        (match (andThen
+          (markPage ck pg "an overflow chain")
+          (lambda (_) (pagerGetTransient p pg)))
+          ((Err e)
+            {
+              (set failed (Some e))
+              0
+            }
+          )
+          ((Ok c)
+            (let ((used (be16 c 2)))
+              (if (|| (!= (__load8 c 0) 5) (|| (== used 0) (|| (> used overflowRoom) (> used (- len done)))))
+                {
+                  (set failed (Some (corruptError (pageMsg "overflow page " pg " is malformed"))))
+                  0
+                }
+                {
+                  (set done (+ done used))
+                  (set pg (be32 c 4))
+                  0
+                }))
+          )))
+      (match failed
+        ((Some e) (Err e))
+        ((None)
+          (if (!= pg 0)
+            (corrupt "an overflow chain runs past its value" "btreeCheck")
+            (Ok 0))
+        ))
+    }))
+
+; Check the subtree at `pg`: structure, key order within
+; `lo` <= key < `hi`, one depth for every leaf, and its overflow chains.
+(:: checkTree (-> Pager Check Int Int (Option String) (Option String) Int Bool (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (checkTree p ck pg kind lo hi depth isRoot)
+  (if (> depth maxDepth)
+    (corrupt "a B-tree is deeper than 40 levels" "btreeCheck")
+    (let ((_ (pagerOpBegin p)))
+      (try
+        _
+        (markPage ck pg "a tree")
+        (try
+          a
+          (pagerGet p pg)
+          (try
+            _
+            (checkNode a pg)
+            (let (
+              (t (nType a))
+              (leaf (isLeafType (nType a)))
+              (n (nCount a))
+              (keys vecNew)
+              (chains vecNew)
+              (mut failed None)
+            )
+              {
+                (for i 0 n
+                  (let ((q (cellOff a i)))
+                    {
+                      (vecPush keys (keyAt a q leaf))
+                      (if leaf
+                        (let (
+                          (klen (be16 a q))
+                          (vlen (be32 a (+ q 2)))
+                        )
+                          (let ((local (localLen klen vlen)))
+                            (if (> vlen local)
+                              {
+                                (vecPush chains (be32 a (+ q (+ 6 (+ klen local)))))
+                                (vecPush chains (- vlen local))
+                                0
+                              }
+                              0)))
+                        0)
+                    }))
+                (let ((kids 
+                  (if leaf
+                    vecNew
+                    (childrenOf a))))
+                  {
+                    (if (!= (kindOf t) kind)
+                      {
+                        (set failed (Some (corruptError (pageMsg "page " pg " belongs to another kind of tree"))))
+                        0
+                      }
+                      0)
+                    (if (&& (isNone failed) (&& (== n 0) (|| (! leaf) (! isRoot))))
+                      {
+                        (set failed (Some (corruptError (pageMsg "page " pg " is an empty node that should have been freed"))))
+                        0
+                      }
+                      0)
+                    ; keys ascend, and lie within the bounds
+                    (for i 0 n
+                      (if (isSome failed)
+                        0
+                        (let ((k (vecGet keys i)))
+                          (if (||
+                            (&& (> i 0) (<= (strCmp k (vecGet keys (- i 1))) 0))
+                            (||
+                              (match lo
+                                ((Some l) (< (strCmp k l) 0))
+                                ((None) false))
+                              (match hi
+                                ((Some h) (>= (strCmp k h) 0))
+                                ((None) false))))
+                            {
+                              (set failed (Some (corruptError (pageMsg "page " pg " has keys out of order"))))
+                              0
+                            }
+                            0))))
+                    (for k 0 (/ (vecLen chains) 2)
+                      (if (isSome failed)
+                        0
+                        (match (checkChain p ck (vecGet chains (* 2 k)) (vecGet chains (+ (* 2 k) 1)))
+                          ((Err e)
+                            {
+                              (set failed (Some e))
+                              0
+                            }
+                          )
+                          ((Ok _) 0))))
+                    (if (&& leaf (isNone failed))
+                      (if (< ck.leafDepth 0)
+                        {
+                          (set ck.leafDepth depth)
+                          0
+                        }
+                        (if (!= ck.leafDepth depth)
+                          {
+                            (set failed (Some (corruptError "the tree's leaves are at different depths")))
+                            0
+                          }
+                          0))
+                      0)
+                    (for j 0 (vecLen kids)
+                      (if (isSome failed)
+                        0
+                        (let ((r 
+                          (checkTree
+                            p
+                            ck
+                            (vecGet kids j)
+                            kind
+                            (if (== j 0)
+                              lo
+                              (Some (vecGet keys (- j 1))))
+                            (if (< j n)
+                              (Some (vecGet keys j))
+                              hi)
+                            (+ depth 1)
+                            false)))
+                          (match r
+                            ((Err e)
+                              {
+                                (set failed (Some e))
+                                0
+                              }
+                            )
+                            ((Ok _) 0)))))
+                    (match failed
+                      ((Some e) (Err e))
+                      ((None) (Ok 0)))
+                  })
+              })))))))
+
+; Check the whole file, given the root of every tree in it (the schema
+; root included): every page is reached exactly once, from a tree, an
+; overflow chain or the free list; every tree's pages pass their
+; checksums and structure checks, hold their keys in order within their
+; parents' bounds, and have their leaves at one depth; every overflow
+; chain holds exactly its value's bytes; and the free list is as long
+; as the header says. Answers the pages checked, or `axqCorrupt` naming
+; the first problem. Needs a lock.
+(pub :: btreeCheck (-> Pager (Vec Int) (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (btreeCheck p roots)
+  (try
+    count
+    (pagerPageCount p)
+    (let ((seen (strAlloc count)))
+      {
+        (__store8 (strData seen) 0 1)
+        (let ((mut failed None))
+          {
+            (for root in roots
+              (if (isSome failed)
+                0
+                (match (andThen
+                  (treeKind p root)
+                  (lambda (kind) (checkTree
+                    p
+                    (Check seen -1)
+                    root
+                    kind
+                    None
+                    None
+                    0
+                    true)))
+                  ((Err e)
+                    {
+                      (set failed (Some e))
+                      0
+                    }
+                  )
+                  ((Ok _) 0))))
+            (match failed
+              ((Some e) (Err e))
+              ((None)
+                (try
+                  head
+                  (pagerFreeListHead p)
+                  (try
+                    want
+                    (pagerFreeListCount p)
+                    (let (
+                      (ck (Check seen -1))
+                      (mut pg head)
+                      (mut k 0)
+                      (mut bad None)
+                    )
+                      {
+                        (while (&& (isNone bad) (&& (!= pg 0) (<= k want)))
+                          (match (andThen
+                            (markPage ck pg "the free list")
+                            (lambda (_) (pagerGetTransient p pg)))
+                            ((Err e)
+                              {
+                                (set bad (Some e))
+                                0
+                              }
+                            )
+                            ((Ok a)
+                              (if (!= (__load8 a 0) 6)
+                                {
+                                  (set bad (Some (corruptError (pageMsg "page " pg " is on the free list but isn't free"))))
+                                  0
+                                }
+                                {
+                                  (set k (+ k 1))
+                                  (set pg (be32 a 4))
+                                  0
+                                })
+                            )))
+                        (match bad
+                          ((Some e) (Err e))
+                          ((None)
+                            (if (|| (!= pg 0) (!= k want))
+                              (corrupt "the free list's length isn't the header's count" "btreeCheck")
+                              (let ((mut lost -1))
+                                {
+                                  (for i 0 count
+                                    (if (&& (< lost 0) (== (strByte seen i) 0))
+                                      {
+                                        (set lost i)
+                                        0
+                                      }
+                                      0))
+                                  (if (>= lost 0)
+                                    (corrupt (pageMsg "page " lost " is reached from nothing") "btreeCheck")
+                                    (Ok count))
+                                }))
+                          ))
+                      })))
+              ))
+          })
+      })))

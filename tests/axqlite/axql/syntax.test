@@ -1,0 +1,103 @@
+# What doesn't parse, and where the message says it stopped: every
+# refusal is axqSyntax with the line and column of the token, counted in
+# bytes from 1. Expected results follow docs/axql.md.
+
+statement error axqSyntax line 1, column 1: expected a statement, found "SELEC"
+SELEC 1
+
+statement error axqSyntax line 1, column 18: expected a statement, found the end of the statement
+-- only a comment
+
+statement error axqSyntax line 1, column 8: expected an expression, found "FROM"
+SELECT FROM t
+
+statement error axqSyntax line 2, column 3: expected an expression, found ")"
+SELECT (1 +
+  )
+
+statement error axqSyntax line 1, column 14: expected ")", found the end of the statement
+SELECT (1 + 2
+
+statement error axqSyntax line 1, column 8: an integer literal larger than 64 bits
+SELECT 9223372036854775808
+
+statement error axqSyntax line 1, column 8: an integer literal larger than 64 bits
+SELECT 99999999999999999999
+
+statement error axqSyntax line 1, column 8: a string with no closing quote
+SELECT 'abc
+
+statement error axqSyntax line 1, column 8: a quoted name with no closing quote
+SELECT "abc
+
+statement error axqSyntax line 1, column 8: an empty quoted name
+SELECT "" FROM t
+
+statement error axqSyntax line 1, column 10: an unexpected character "#"
+SELECT 1 # 2
+
+statement error axqSyntax line 1, column 10: a number runs into a name
+SELECT 12abc
+
+statement error axqSyntax line 1, column 8: a blob literal needs an even number of hex digits
+SELECT x'abc'
+
+statement error axqSyntax line 1, column 11: a blob literal holds hex digits and ends with a quote
+SELECT x'0g'
+
+statement error axqSyntax line 1, column 9: an exponent needs digits
+SELECT 1e
+
+statement error axqSyntax line 1, column 11: a statement can't mix positional and named parameters
+SELECT ?, :a
+
+statement error axqSyntax line 1, column 12: a statement can't mix positional and named parameters
+SELECT :a, ?1
+
+statement error axqSyntax line 1, column 8: a parameter number outside 1 to 32766
+SELECT ?0
+
+statement error axqSyntax line 1, column 8: a parameter number outside 1 to 32766
+SELECT ?32767
+
+statement error axqSyntax line 1, column 8: a `:` must start a parameter name
+SELECT : a
+
+statement error axqSyntax line 1, column 11: one statement at a time
+SELECT 1; SELECT 2
+
+statement error axqSyntax line 1, column 10: expected the end of the statement, found "2"
+SELECT 1 2
+
+statement error axqSyntax line 1, column 8: expected TABLE, INDEX or UNIQUE INDEX, found "TEMPORARY"
+CREATE TEMPORARY VIEW v
+
+statement error axqSyntax line 1, column 8: expected TABLE, INDEX or UNIQUE INDEX, found "VIEW"
+CREATE VIEW v
+
+statement error axqSyntax line 1, column 17: expected NOT, found "EXISTS"
+CREATE TABLE IF EXISTS t (a INTEGER)
+
+statement error axqSyntax line 1, column 27: expected "," or ")", found "DEFAULT"
+CREATE TABLE t (a INTEGER DEFAULT 1)
+
+statement error axqSyntax line 1, column 34: expected KEY, found ")"
+CREATE TABLE t (a INTEGER PRIMARY)
+
+statement error axqSyntax line 1, column 16: expected ON, found "("
+CREATE INDEX j (a)
+
+statement error axqSyntax line 1, column 25: expected the end of the statement, found "IN"
+SELECT 1 FROM t WHERE a IN (1, 2)
+
+statement error axqSchema line 1, column 12: no such column: a
+SELECT 1 + a
+
+statement error axqSyntax line 1, column 10: expected an expression, found the end of the statement
+SELECT 1,
+
+statement error axqSyntax line 1, column 21: expected "(", found the end of the statement
+INSERT INTO t VALUES
+
+statement error axqSyntax line 1, column 8: expected an expression, found ")"
+SELECT )

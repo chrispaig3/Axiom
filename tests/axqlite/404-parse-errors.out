@@ -1,0 +1,78 @@
+error: line 1, column 1: expected a statement, found the end of the statement
+error: line 1, column 4: expected a statement, found the end of the statement
+error: line 1, column 25: expected a statement, found the end of the statement
+error: line 1, column 1: expected a statement, found ";"
+error: line 1, column 1: expected a statement, found "SELEC"
+error: line 1, column 7: expected an expression, found the end of the statement
+error: line 1, column 10: expected an expression, found the end of the statement
+error: line 1, column 10: expected the end of the statement, found "2"
+error: line 1, column 11: one statement at a time; axqExecBatch runs a script
+error: line 1, column 10: one statement at a time; axqExecBatch runs a script
+error: line 1, column 10: expected FROM, because `*` needs a table, found "WHERE"
+error: line 1, column 8: expected an expression, found "FROM"
+error: line 1, column 14: expected a table name, found the end of the statement
+error: line 1, column 22: expected an expression, found the end of the statement
+error: line 1, column 23: expected BY, found "a"
+error: line 1, column 25: expected an expression, found the end of the statement
+error: line 1, column 22: expected an expression, found the end of the statement
+error: line 1, column 17: expected the end of the statement, found "OFFSET"
+error: line 1, column 31: expected an expression, found the end of the statement
+error: line 1, column 13: expected a column alias, found "FROM"
+error: line 1, column 10: expected ")", found the end of the statement
+error: line 1, column 9: expected the end of the statement, found ")"
+error: line 1, column 13: expected NULL, found "1"
+error: line 1, column 17: expected NULL, found "1"
+error: line 1, column 10: expected the end of the statement, found "NOT"
+error: line 1, column 8: an integer literal larger than 64 bits
+error: line 1, column 10: an integer literal larger than 64 bits
+error: line 1, column 11: an integer literal larger than 64 bits
+error: line 1, column 8: a string with no closing quote
+error: line 1, column 8: a quoted name with no closing quote
+error: line 1, column 8: an empty quoted name
+error: line 1, column 8: a blob literal needs an even number of hex digits
+error: line 1, column 10: a blob literal holds hex digits and ends with a quote
+error: line 1, column 12: a blob literal holds hex digits and ends with a quote
+error: line 1, column 9: an exponent needs digits
+error: line 1, column 9: an exponent needs digits
+error: line 1, column 10: a number runs into a name
+error: line 1, column 11: expected the end of the statement, found ".5"
+error: line 1, column 8: an unexpected character "@"
+error: line 1, column 10: an unexpected character "|"
+error: line 1, column 10: an unexpected character "!"
+error: line 3, column 13: expected an expression, found "="
+error: line 1, column 7: expected TABLE, INDEX or UNIQUE INDEX, found the end of the statement
+error: line 1, column 13: expected a table name, found the end of the statement
+error: line 1, column 15: expected "(", found the end of the statement
+error: line 1, column 17: expected a column name, found ")"
+error: line 1, column 18: expected a column type (INTEGER, REAL, TEXT or BLOB), found ")"
+error: line 1, column 19: expected a column type (INTEGER, REAL, TEXT or BLOB), found "INT"
+error: line 1, column 27: expected a column name, found ")"
+error: line 1, column 30: expected NULL, found ")"
+error: line 1, column 34: expected KEY, found ")"
+error: line 1, column 27: expected "," or ")", found "UNIQUE"
+error: line 1, column 28: expected the end of the statement, found "STRICT"
+error: line 1, column 17: expected NOT, found "t"
+error: line 1, column 16: expected ON, found "t"
+error: line 1, column 20: expected "(", found the end of the statement
+error: line 1, column 22: expected a column name, found ")"
+error: line 1, column 15: expected INDEX, found "TABLE"
+error: line 1, column 6: expected TABLE or INDEX, found "t"
+error: line 1, column 11: expected a table name, found the end of the statement
+error: line 1, column 15: expected EXISTS, found "NOT"
+error: line 1, column 8: expected INTO, found "t"
+error: line 1, column 14: expected VALUES, found the end of the statement
+error: line 1, column 21: expected "(", found the end of the statement
+error: line 1, column 23: expected an expression, found ")"
+error: line 1, column 27: every row of VALUES needs the same number of values
+error: line 1, column 18: expected a column name, found ")"
+error: line 1, column 15: expected VALUES, found "SELECT"
+error: line 1, column 9: expected SET, found the end of the statement
+error: line 1, column 13: expected a column name, found the end of the statement
+error: line 1, column 15: expected "=", found the end of the statement
+error: line 1, column 20: expected a column name, found the end of the statement
+error: line 1, column 25: expected an expression, found the end of the statement
+error: line 1, column 8: expected FROM, found "t"
+error: line 1, column 12: expected a table name, found the end of the statement
+error: line 1, column 7: expected the end of the statement, found "WORK"
+error: line 1, column 8: expected the end of the statement, found "1"
+error: line 1, column 8: an unexpected character "`"

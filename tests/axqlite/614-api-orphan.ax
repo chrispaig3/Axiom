@@ -1,0 +1,27 @@
+; A statement whose connection is closed stops the program with status
+; 85 when it is used; finalizing it frees it.
+(import IO)
+(import Err)
+(import Axqlite)
+(import AxqlKit)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((db (kitOpen "orphan.db")))
+    (match (axqPrepare db "SELECT 1")
+      ((Ok st)
+        (match (axqPrepare db "SELECT 2")
+          ((Ok other)
+            {
+              (kitRun "close" (axqClose db))
+              (kitRun "finalize the other" (axqFinalize other))
+              (println "running the statement")
+              (kitRows "run" (axqQuery st vec0))
+              (println "not reached")
+              0
+            }
+          )
+          ((Err e) 1))
+      )
+      ((Err e) 1))))

@@ -1,0 +1,27 @@
+(SELECT (+ 1 (* 2 3))) params=0
+(SELECT (+ (* 1 2) 3)) params=0
+(SELECT (- (- 1 2) 3)) params=0
+(SELECT (% (* (/ 1 2) 3) 4)) params=0
+(SELECT (* (+ 1 2) 3)) params=0
+(SELECT (- (- 1) (- 2))) params=0
+(SELECT (- (- 3))) params=0
+(SELECT (* (- a) b)) params=0
+(SELECT (= (< a b) (> c d))) params=0
+(SELECT (!= (!= (= (= a b) c) d) e)) params=0
+(SELECT (>= (> (<= (< a b) c) d) e)) params=0
+(SELECT (< (+ a 1) (* b 2))) params=0
+(SELECT (NOT (= a b))) params=0
+(SELECT (NOT (NOT a))) params=0
+(SELECT (AND (NOT a) b)) params=0
+(SELECT (OR (AND a b) (AND c d))) params=0
+(SELECT (OR a (AND b c))) params=0
+(SELECT (OR (OR a b) c)) params=0
+(SELECT (AND a (OR b c))) params=0
+(SELECT (IS NULL a)) params=0
+(SELECT (= (IS NOT NULL a) 1)) params=0
+(SELECT (IS NULL (+ a 1))) params=0
+(SELECT (NOT (IS NULL a))) params=0
+(SELECT (IS NULL (< a b))) params=0
+(SELECT (IS NOT NULL (= a b))) params=0
+(SELECT -9223372036854775808 -9223372036854775808 (- 9223372036854775807)) params=0
+(SELECT (- -9223372036854775808)) params=0

@@ -1,0 +1,22 @@
+open missing, no create: axqIoFailed: no database file at that path while axqOpen
+open with no cache: axqMisuse: the page cache needs at least one page while axqOpen
+open a text file: axqNotADatabase: the file isn't an AXQLite database while axqOpen
+create: ok 0
+insert: ok 2
+close: ok 0
+SELECT a, b FROM t: 2 rows [a,b]
+  1,'kept'
+  2,'also kept'
+close again: ok 0
+SELECT b FROM t WHERE a = 2: 1 rows [b]
+  'also kept'
+write read-only: axqReadOnly: the database was opened read-only while axqExec
+ddl read-only: axqReadOnly: the database was opened read-only while axqExec
+SELECT a FROM t: 2 rows [a]
+  1
+  2
+close read-only: ok 0
+SELECT 1 + 1 AS two: 1 rows [two]
+  2
+exec select: ok 0
+close: ok 0

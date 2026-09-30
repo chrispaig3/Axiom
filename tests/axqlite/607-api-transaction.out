@@ -1,0 +1,45 @@
+create: ok 0
+false
+true
+insert: ok 1
+begin again: axqMisuse: a transaction is already open while axqBegin
+BEGIN inside: axqMisuse: a transaction is already open while axqExec
+commit: ok 0
+false
+insert: ok 1
+rollback: ok 0
+SELECT v FROM t: 1 rows [v]
+  'committed'
+axqTransaction, Ok: ok 2
+false
+SELECT v FROM t: 3 rows [v]
+  'committed'
+  'in the transaction'
+  'and another'
+axqTransaction, Err: axqConstraint: the callback gave up while work
+false
+SELECT v FROM t: 3 rows [v]
+  'committed'
+  'in the transaction'
+  'and another'
+COMMIT by text: ok 0
+then axqCommit: axqMisuse: this transaction has already ended while axqCommit
+ROLLBACK by text: ok 0
+then axqRollback: axqMisuse: this transaction has already ended while axqRollback
+BEGIN by text: ok 0
+axqBegin inside: axqMisuse: a transaction is already open while axqBegin
+axqTransaction inside: axqMisuse: a transaction is already open while axqTransaction
+ROLLBACK: ok 0
+insert: ok 1
+1
+4
+update: ok 4
+4
+select: ok 0
+4
+SELECT rowid, v FROM t: 4 rows [rowid,v]
+  1,'committed'
+  2,'in the transaction'
+  3,'and another'
+  4,'last'
+close: ok 0

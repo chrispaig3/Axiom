@@ -1,0 +1,100 @@
+; Transactions from the API: axqBegin, axqCommit, axqRollback, and
+; axqTransaction committing on Ok and rolling back on Err.
+(import IO)
+(import Err)
+(import Vec)
+(import Axqlite)
+(import Axqlite.Value)
+(import AxqlKit)
+
+; Insert two rows, then fail when `fail` says so.
+(:: work (-> Bool Connection (Result Int Error)))
+;@axiom:effect(io)
+(fn (work fail c)
+  (try
+    a
+    (axqExec c "INSERT INTO t VALUES ('in the transaction')")
+    (try
+      b
+      (axqExec c "INSERT INTO t VALUES ('and another')")
+      (if fail
+        (axqErr axqConstraint "the callback gave up" "work")
+        (Ok (+ a b))))))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((db (kitOpen "txn.db")))
+    {
+      (kitRun "create" (axqExec db "CREATE TABLE t (v TEXT)"))
+      (println (axqInTransaction db))
+      (match (axqBegin db)
+        ((Ok tx)
+          {
+            (println (axqInTransaction db))
+            (kitRun "insert" (axqExec db "INSERT INTO t VALUES ('committed')"))
+            (kitDone "begin again" (axqBegin db))
+            (kitRun "BEGIN inside" (axqExec db "BEGIN"))
+            (kitRun "commit" (axqCommit tx))
+            (println (axqInTransaction db))
+          }
+        )
+        ((Err e) (println (kitErrText e))))
+      (match (axqBegin db)
+        ((Ok tx)
+          {
+            (kitRun "insert" (axqExec db "INSERT INTO t VALUES ('rolled back')"))
+            (kitRun "rollback" (axqRollback tx))
+          }
+        )
+        ((Err e) (println (kitErrText e))))
+      (kitDump db "SELECT v FROM t")
+      (kitRun
+        "axqTransaction, Ok"
+        (axqTransaction
+          db
+          (lambda (c) (work false c))))
+      (println (axqInTransaction db))
+      (kitDump db "SELECT v FROM t")
+      (kitRun
+        "axqTransaction, Err"
+        (axqTransaction
+          db
+          (lambda (c) (work true c))))
+      (println (axqInTransaction db))
+      (kitDump db "SELECT v FROM t")
+      (match (axqBegin db)
+        ((Ok tx)
+          {
+            (kitRun "COMMIT by text" (axqExec db "COMMIT"))
+            (kitRun "then axqCommit" (axqCommit tx))
+          }
+        )
+        ((Err e) (println (kitErrText e))))
+      (match (axqBegin db)
+        ((Ok tx)
+          {
+            (kitRun "ROLLBACK by text" (axqExec db "ROLLBACK"))
+            (kitRun "then axqRollback" (axqRollback tx))
+          }
+        )
+        ((Err e) (println (kitErrText e))))
+      (kitRun "BEGIN by text" (axqExec db "BEGIN"))
+      (kitDone "axqBegin inside" (axqBegin db))
+      (kitDone
+        "axqTransaction inside"
+        (axqTransaction
+          db
+          (lambda (c) (work false c))))
+      (kitRun "ROLLBACK" (axqExec db "ROLLBACK"))
+      (kitRun "insert" (axqExec db "INSERT INTO t VALUES ('last')"))
+      (println (axqChanges db))
+      (println (axqLastInsertRowid db))
+      (kitRun "update" (axqExec db "UPDATE t SET v = v"))
+      (println (axqChanges db))
+      (kitRun "select" (axqExec db "SELECT v FROM t"))
+      (println (axqChanges db))
+      (kitDump db "SELECT rowid, v FROM t")
+      (kitRun "close" (axqClose db))
+      0
+    }))

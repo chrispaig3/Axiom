@@ -1,0 +1,553 @@
+; StoreCrash - the crash harness the recovery tests (200-299) share.
+;
+; A transaction is run against a copy of a known database with one
+; fault armed: the Nth write, sync or truncate fails, tears, or loses
+; power (plainly, or strictly: every write since its file's last sync
+; is lost too). The connection is then dropped as a crash would drop it,
+; and a fresh connection opens the file, which recovers any hot journal.
+; The file must then be byte for byte the database before the
+; transaction or the one after it. A failure that the transaction saw
+; and answered (a failed point) must leave exactly the before state
+; when it answered `Err`, and the after state when it answered `Ok`.
+(import IO)
+(import Str)
+(import Vec)
+(import Err)
+(import Fmt)
+(import Axqlite.Value)
+(import Axqlite.Record)
+(import Axqlite.Pager)
+(import Axqlite.Btree)
+(import StoreTest)
+(import StoreDb)
+
+(pub :: faultName (-> Int String))
+(pub fn (faultName k)
+  (if (== k pagerFaultFail)
+    "fail"
+    (if (== k pagerFaultTear)
+      "tear"
+      (if (== k pagerFaultPowerLoss)
+        "power loss"
+        (if (== k pagerFaultPowerLossStrict)
+          "power loss, unsynced writes lost"
+          (if (== k pagerFaultPowerLossJournal)
+            "power loss, the journal's unsynced writes lost"
+            "power loss, the database's unsynced writes lost"))))))
+
+; Every fault kind.
+(pub :: faultKinds (Vec Int))
+(pub fn (faultKinds)
+  (vecPush (vecPush (vecPush (vecPush (vecPush (vecPush vecNew pagerFaultFail) pagerFaultTear) pagerFaultPowerLoss) pagerFaultPowerLossStrict) pagerFaultPowerLossJournal) pagerFaultPowerLossDatabase))
+
+(:: fresh (-> String String Int))
+;@axiom:effect(io)
+(fn (fresh base to)
+  {
+    (copyOver base to)
+    (let ((_ (removeFile (strConcat to "-journal"))))
+      0)
+    0
+  })
+
+; Run `txn` then commit, on a copy of `base` at `path`, with the fault
+; armed; drop the connection without cleanup. Answers the transaction's
+; error code (0 when the commit answered `Ok`) and the fault points it
+; reached, as code * 1000000 + points.
+(pub :: runFaulted (-> String String Int (-> Pager (Result Int Error)) Int Int Int Int))
+;@axiom:effect(io)
+(pub fn (runFaulted base path cache txn kind at arg)
+  {
+    (fresh base path)
+    (match (pagerOpenFaulty
+      path
+      false
+      false
+      cache
+      0
+      0
+      0
+      false)
+      ((Err e) (* (errCode e) 1000000))
+      ((Ok p)
+        {
+          (pagerSetDurable p false)
+          (pagerFaultArm p kind at arg)
+          (let ((r 
+            (match (pagerBeginWrite p)
+              ((Err e) (Err e))
+              ((Ok _)
+                (match (txn p)
+                  ((Ok _) (pagerCommit p))
+                  ((Err e)
+                    (let ((_ (pagerRollback p)))
+                      (Err e))
+                  ))
+              ))))
+            (let ((points (pagerFaultPoints p)))
+              {
+                (pagerAbandon p)
+                (+ (* (codeOf r) 1000000) points)
+              }))
+        }
+      ))
+  })
+
+; Open `path` (recovering it), close it, and answer the file's hash; -1
+; when the open fails.
+(pub :: recoveredHash (-> String Int))
+;@axiom:effect(io)
+(pub fn (recoveredHash path)
+  (match (pagerOpenFaulty
+    path
+    false
+    false
+    16
+    0
+    0
+    0
+    false)
+    ((Err e) -1)
+    ((Ok p)
+      (let ((_ (pagerClose p)))
+        (fileHash path))
+    )))
+
+; Whether the journal beside `path` has a header, so a reopen may
+; recover it.
+(pub :: journalHasHeader (-> String Bool))
+;@axiom:effect(io)
+(pub fn (journalHasHeader path)
+  (let ((j (readFile (strConcat path "-journal"))))
+    (&& (>= (strLen j) 16) (strEq (strSlice j 0 15) "AXQLite journal"))))
+
+; How many pages `txn` spills to the file before its commit, run on a
+; copy of `base` with no fault.
+(pub :: spillsDuring (-> String Int (-> Pager (Result Int Error)) Int))
+;@axiom:effect(io)
+(pub fn (spillsDuring base cache txn)
+  {
+    (fresh base "spill.db")
+    (match (pagerOpenFaulty
+      "spill.db"
+      false
+      false
+      cache
+      0
+      0
+      0
+      false)
+      ((Err e) -1)
+      ((Ok p)
+        (let ((n 
+          (match (andThen
+            (pagerBeginWrite p)
+            (lambda (_) (txn p)))
+            ((Ok _) (pagerStat p 5))
+            ((Err e) -1))))
+          {
+            (pagerAbandon p)
+            n
+          })
+      ))
+  })
+
+; The committed result of `txn` on `base`, left at `after`, and the
+; number of fault points the transaction and its commit pass.
+(pub :: dryRun (-> Tally String String Int (-> Pager (Result Int Error)) Int))
+;@axiom:effect(io)
+(pub fn (dryRun t base after cache txn)
+  (let ((r (runFaulted
+    base
+    after
+    cache
+    txn
+    0
+    0
+    0)))
+    {
+      (check t (< r 1000000) "the transaction commits when nothing fails")
+      (% r 1000000)
+    }))
+
+; One crash: `txn` on a copy of `base` with fault `kind` at point `n`,
+; then a reopen. Answers 1 when the file is the before state, 2 when it
+; is the after state, and 0 otherwise; plus 4 when a journal header was
+; left behind. Runs in a region of its own, so a sweep of thousands of
+; crashes reuses the same memory.
+(:: crashOne (-> Tally String String Int (-> Pager (Result Int Error)) Int Int Int Int Int))
+;@axiom:effect(io)
+(fn (crashOne t label base cache txn kind n before after)
+  (region one
+    (let ((r (runFaulted
+      base
+      "crash.db"
+      cache
+      txn
+      kind
+      n
+      (+ 100 (% (* n 997) 3900)))))
+      (let (
+        (code (/ r 1000000))
+        (hot (journalHasHeader "crash.db"))
+      )
+        (let ((h (recoveredHash "crash.db")))
+          (let ((where (strConcat label (strConcat ", " (strConcat (faultName kind) (strConcat " at point " (fmtInt n)))))))
+            {
+              (check t (|| (== h before) (== h after)) (strConcat where ": the file is exactly the before or the after state"))
+              (if (== kind pagerFaultFail)
+                (check
+                  t
+                  (==
+                    h
+                    (if (== code 0)
+                      after
+                      before))
+                  (strConcat where ": a failure the transaction answered leaves the state it answered"))
+                0)
+              (+
+                (if (== h before)
+                  1
+                  (if (== h after)
+                    2
+                    0))
+                (if hot
+                  4
+                  0))
+            }))))))
+
+; Every fault kind at every point of `txn` on `base`. `rootsBefore`
+; names the trees in `base`; `rootsAfter`, called once after a clean run
+; of `txn`, the trees after it. Prints one line per kind; answers how
+; many crashes were run.
+(pub :: crashSweep (-> Tally String String Int (-> Pager (Result Int Error)) (Vec Int) (-> Int (Vec Int)) Int))
+;@axiom:effect(io)
+(pub fn (crashSweep t label base cache txn rootsBefore rootsAfter)
+  (let ((points (dryRun
+    t
+    base
+    "after.db"
+    cache
+    txn)))
+    (let (
+      (before (fileHash base))
+      (after (fileHash "after.db"))
+      (mut total 0)
+    )
+      {
+        (check t (!= before after) (strConcat label ": the transaction changes the file"))
+        (let (
+          (spills (spillsDuring base cache txn))
+          (bs (sizeOf base))
+          (as (sizeOf "after.db"))
+        )
+          (println "{label}: {points} fault points; {spills} pages spilled before the commit; {bs} bytes before, {as} after"))
+        ; both ends are sound databases
+        (for which 0 2
+          (match (pagerOpen
+            (if (== which 0)
+              base
+              "after.db")
+            false
+            false
+            16)
+            ((Ok p)
+              {
+                (check
+                  t
+                  (==
+                    (codeOf
+                      (andThen
+                        (pagerBeginRead p)
+                        (lambda (_)
+                          (btreeCheck
+                            p
+                            (if (== which 0)
+                              rootsBefore
+                              (rootsAfter 0)))
+                        )))
+                    0)
+                  (strConcat label ": btreeCheck before and after"))
+                (let ((_ (pagerClose p)))
+                  0)
+              }
+            )
+            ((Err e) (check t false (strConcat label ": open before and after")))))
+        (for kind in faultKinds
+          (let (
+            (mut nBefore 0)
+            (mut nAfter 0)
+            (mut nHot 0)
+          )
+            {
+              (for n 1 (+ points 1)
+                (let ((v (crashOne
+                  t
+                  label
+                  base
+                  cache
+                  txn
+                  kind
+                  n
+                  before
+                  after)))
+                  {
+                    (set total (+ total 1))
+                    (if (== (& v 3) 1)
+                      (set nBefore (+ nBefore 1))
+                      0)
+                    (if (== (& v 3) 2)
+                      (set nAfter (+ nAfter 1))
+                      0)
+                    (if (!= (& v 4) 0)
+                      (set nHot (+ nHot 1))
+                      0)
+                  }))
+              (let ((name (faultName kind)))
+                (println "{label}, {name}: {points} crash points; {nBefore} before, {nAfter} after; {nHot} left a journal header"))
+            }))
+        total
+      })))
+
+; Crash the recovery of the journal the crash at `n` left, at recovery
+; point `m`, then open again; answers 1 when that gives the before
+; state.
+(:: recoveryCrashOne (-> Int Int Int Int))
+;@axiom:effect(io)
+(fn (recoveryCrashOne kind m before)
+  (region one
+    {
+      (copyOver "hot.db" "rec.db")
+      (copyOver "hot.db-journal" "rec.db-journal")
+      (match (pagerOpenFaulty
+        "rec.db"
+        false
+        false
+        16
+        kind
+        m
+        (+ 100 (% (* m 997) 3900))
+        false)
+        ((Ok p) (pagerAbandon p))
+        ((Err e) 0))
+      (if (== (recoveredHash "rec.db") before)
+        1
+        0)
+    }))
+
+; Leave the crash at point `n` of `txn` (a strict power loss) at
+; `hot.db` and its journal; answers the fault points a clean recovery
+; of it passes, or -1 when it left no journal header.
+(:: prepareHot (-> String Int (-> Pager (Result Int Error)) Int Int))
+;@axiom:effect(io)
+(fn (prepareHot base cache txn n)
+  (region one
+    (let ((_ (runFaulted
+      base
+      "crash.db"
+      cache
+      txn
+      pagerFaultPowerLossStrict
+      n
+      0)))
+      (if (! (journalHasHeader "crash.db"))
+        -1
+        {
+          (copyOver "crash.db" "hot.db")
+          (copyOver "crash.db-journal" "hot.db-journal")
+          (copyOver "hot.db" "rec.db")
+          (copyOver "hot.db-journal" "rec.db-journal")
+          (match (pagerOpenFaulty
+            "rec.db"
+            false
+            false
+            16
+            0
+            0
+            0
+            false)
+            ((Ok p)
+              (let ((k (pagerFaultPoints p)))
+                {
+                  (let ((_ (pagerClose p)))
+                    0)
+                  k
+                })
+            )
+            ((Err e) 0))
+        }))))
+
+; Crash the recovery itself: for every `every`th point of `txn` whose
+; crash (a strict power loss) leaves a journal header, crash the next
+; open's recovery at each of its points with each fault kind, then open
+; again. Recovering a hot journal always gives the before state.
+; Answers how many were run.
+(pub :: recoverySweep (-> Tally String String Int (-> Pager (Result Int Error)) Int Int))
+;@axiom:effect(io)
+(pub fn (recoverySweep t label base cache txn every)
+  (let (
+    (points (dryRun
+      t
+      base
+      "after.db"
+      cache
+      txn))
+    (before (fileHash base))
+    (mut total 0)
+    (mut hotCases 0)
+  )
+    {
+      (for n 1 (+ points 1)
+        (if (!= (% n every) 0)
+          0
+          (let ((rpoints (prepareHot base cache txn n)))
+            (if (< rpoints 0)
+              0
+              {
+                (set hotCases (+ hotCases 1))
+                (for kind in faultKinds
+                  (for m 1 (+ rpoints 1)
+                    {
+                      (set total (+ total 1))
+                      (check t (== (recoveryCrashOne kind m before) 1) (strConcat label (strConcat ": recovery crashed by " (strConcat (faultName kind) (strConcat " at recovery point " (fmtInt m))))))
+                    }))
+                0
+              }))))
+      (println "{label}: {hotCases} hot journals, their recovery crashed {total} ways, and recovered again to the before state")
+      total
+    }))
+
+; The hash a recovery of `path` would give, recovering a copy at
+; `scratch` so `path` and its journal stay as they are.
+(pub :: recoveredHashKeep (-> String String Int))
+;@axiom:effect(io)
+(pub fn (recoveredHashKeep path scratch)
+  {
+    (copyOver path scratch)
+    (copyOver (strConcat path "-journal") (strConcat scratch "-journal"))
+    (recoveredHash scratch)
+  })
+
+; A value for row `n` of about `size` bytes, the same every run.
+(pub :: rowBytes (-> Int Int String))
+;@axiom:effect(unsafe)
+(pub fn (rowBytes n size)
+  (let ((s (strAlloc size)))
+    {
+      (for i 0 size
+        (__store8 (strData s) i (& (+ (* n 31) (* i 7)) 255)))
+      s
+    }))
+
+; Put rows `from` .. `to` - 1, stepping by `step`, each `size` bytes;
+; stops at the first failure.
+(pub :: putRows (-> Pager Int Int Int Int Int (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (putRows p root from to step size)
+  (let (
+    (mut n from)
+    (mut failed None)
+  )
+    {
+      (while (&& (isNone failed) (< n to))
+        {
+          (match (btreePut p root (keyRowid n) (rowBytes n size))
+            ((Err e)
+              {
+                (set failed (Some e))
+                0
+              }
+            )
+            ((Ok _) 0))
+          (set n (+ n step))
+        })
+      (match failed
+        ((Some e) (Err e))
+        ((None) (Ok 0)))
+    }))
+
+; Delete rows `from` .. `to` - 1, stepping by `step`.
+(pub :: deleteRows (-> Pager Int Int Int Int (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (deleteRows p root from to step)
+  (let (
+    (mut n from)
+    (mut failed None)
+  )
+    {
+      (while (&& (isNone failed) (< n to))
+        {
+          (match (btreeDelete p root (keyRowid n))
+            ((Err e)
+              {
+                (set failed (Some e))
+                0
+              }
+            )
+            ((Ok _) 0))
+          (set n (+ n step))
+        })
+      (match failed
+        ((Some e) (Err e))
+        ((None) (Ok 0)))
+    }))
+
+; Build the database at `path` by running `setup` in one transaction;
+; answers what `setup` answered, or -1.
+(pub :: buildBase (-> String (-> Pager (Result Int Error)) Int))
+;@axiom:effect(io)
+(pub fn (buildBase path setup)
+  (let ((p (openOrDie path 64)))
+    {
+      (pagerSetDurable p false)
+      (let ((r 
+        (andThen
+          (pagerBeginWrite p)
+          (lambda (_)
+            (andThen
+              (setup p)
+              (lambda (v)
+                (mapOk
+                  (pagerCommit p)
+                  (lambda (_) v))
+              ))
+          ))))
+        {
+          (let ((_ (pagerClose p)))
+            0)
+          (match r
+            ((Ok v) v)
+            ((Err e) -1))
+        })
+    }))
+
+; Delete rows `hi` - 1 down to `lo`, the highest first.
+(pub :: deleteRowsDown (-> Pager Int Int Int (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (deleteRowsDown p root lo hi)
+  (let (
+    (mut n (- hi 1))
+    (mut failed None)
+  )
+    {
+      (while (&& (isNone failed) (>= n lo))
+        {
+          (match (btreeDelete p root (keyRowid n))
+            ((Err e)
+              {
+                (set failed (Some e))
+                0
+              }
+            )
+            ((Ok _) 0))
+          (set n (- n 1))
+        })
+      (match failed
+        ((Some e) (Err e))
+        ((None) (Ok 0)))
+    }))
+
+; A word a transaction can leave behind for the test to read, such as
+; the root of a tree it created.
+(pub struct Box
+  (mut v : Int))

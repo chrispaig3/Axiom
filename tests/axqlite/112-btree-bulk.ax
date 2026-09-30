@@ -1,0 +1,239 @@
+; Big trees: 20000 rows appended in rowid order fill their leaves (the
+; right-edge split keeps a leaf full rather than half full); 6000 more
+; at random rowids and 3000 in descending order land between them; a
+; range and every third row are deleted; 2500 keys of 1000 bytes build
+; an index tree six levels deep, then are deleted in random order until
+; the tree is a single empty leaf again and its pages are free. Every
+; phase runs in one transaction under a 16-page cache, and ends with a
+; full comparison against a model and btreeCheck.
+(import IO)
+(import Str)
+(import Vec)
+(import Err)
+(import Axqlite.Value)
+(import Axqlite.Record)
+(import Axqlite.Pager)
+(import Axqlite.Btree)
+(import StoreTest)
+(import StoreModel)
+(import StoreDb)
+
+(:: rowValue (-> Int String))
+(fn (rowValue n)
+  (match (recEncode (vecPush (vecPush (vecPush vecNew (VInt n)) (VText "a row of about fifty bytes, give or take")) (VReal 2.5)))
+    ((Ok r) r)
+    ((Err e) "")))
+
+(:: putRow (-> Tally Pager Int Model Int Int))
+;@axiom:effect(io)
+(fn (putRow t p root m n)
+  (let (
+    (k (keyRowid n))
+    (v (rowValue n))
+  )
+    (match (btreePut p root k v)
+      ((Ok isNew) (check t (boolEq isNew (modelPut m k v)) "put answers whether the rowid was new"))
+      ((Err e) (check t false (strConcat "put: " (errorText e)))))))
+
+(:: verify (-> Tally Pager Int Model (Vec Int) String Int))
+;@axiom:effect(io)
+(fn (verify t p root m roots label)
+  {
+    (match (readTree p root)
+      ((Ok got) (check t (sameModel got m) (strConcat label ": scan equals the model")))
+      ((Err e) (check t false (strConcat label (strConcat ": scan: " (errorText e))))))
+    (check t (== (unwrapOr (btreeCount p root) -1) (modelLen m)) (strConcat label ": count"))
+    (let ((c (btreeCheck p roots)))
+      (check t (== (codeOf c) 0) (strConcat label (strConcat ": btreeCheck: " (errText c)))))
+  })
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (t tallyNew)
+    (r (rngNew 112))
+    (p (openOrDie "bulk.db" 16))
+  )
+    {
+      (pagerSetDurable p false)
+      (check t (== (codeOf (pagerBeginWrite p)) 0) "begin")
+      (let (
+        (ta (unwrapOr (btreeCreate p btreeTable) 0))
+        (ib (unwrapOr (btreeCreate p btreeIndex) 0))
+        (m modelNew)
+        (mi modelNew)
+      )
+        (let ((roots (vecPush (vecPush (vecPush vecNew btreeSchemaRoot) ta) ib)))
+          {
+            ; ascending
+            (for n 1 20001
+              (putRow
+                t
+                p
+                ta
+                m
+                n))
+            (check t (== (codeOf (pagerCommit p)) 0) "commit ascending")
+            (check t (== (codeOf (pagerBeginRead p)) 0) "read")
+            (verify
+              t
+              p
+              ta
+              m
+              roots
+              "20000 ascending rows")
+            (let (
+              (pages (unwrapOr (pagerPageCount p) 0))
+              (h (unwrapOr (btreeHeight p ta) 0))
+            )
+              {
+                ; a row's cell is 79 bytes and its offset 2 more, so a full
+                ; leaf holds 50 and 20000 rows need 400 leaves; half-full
+                ; leaves would need 800
+                (check t (< pages 420) "ascending inserts fill their leaves")
+                (println "20000 ascending rows: height {h}, {pages} pages")
+              })
+            (match (btreeLastKey p ta)
+              ((Ok (Some k)) (check t (== (unwrapOr (keyRowidOf k) 0) 20000) "the last rowid is 20000"))
+              (_ (check t false "last key")))
+            (check t (== (codeOf (pagerEndRead p)) 0) "end read")
+            ; random and descending rowids between and beyond them
+            (check t (== (codeOf (pagerBeginWrite p)) 0) "begin mixed")
+            (for i 0 6000
+              (putRow
+                t
+                p
+                ta
+                m
+                (- (rngBelow r 60000) 20000)))
+            (let ((mut n 100000))
+              (while (> n 97000)
+                {
+                  (putRow
+                    t
+                    p
+                    ta
+                    m
+                    n)
+                  (set n (- n 1))
+                }))
+            (check t (== (codeOf (pagerCommit p)) 0) "commit mixed")
+            (check t (== (codeOf (pagerBeginRead p)) 0) "read")
+            (verify
+              t
+              p
+              ta
+              m
+              roots
+              "random and descending rows")
+            (check t (== (codeOf (pagerEndRead p)) 0) "end read")
+            ; delete a range, then every third remaining row
+            (check t (== (codeOf (pagerBeginWrite p)) 0) "begin deletes")
+            (for n 5000 12000
+              (let ((k (keyRowid n)))
+                (match (btreeDelete p ta k)
+                  ((Ok was) (check t (boolEq was (modelDelete m k)) "range delete"))
+                  ((Err e) (check t false "range delete")))))
+            (let ((keys vecNew))
+              {
+                (for i 0 (modelLen m)
+                  (if (== (% i 3) 0)
+                    (vecPush keys (vecGet m.keys i))
+                    keys))
+                (for k in keys
+                  (match (btreeDelete p ta k)
+                    ((Ok was) (check t (boolEq was (modelDelete m k)) "every third delete"))
+                    ((Err e) (check t false "every third delete"))))
+              })
+            (check t (== (codeOf (pagerCommit p)) 0) "commit deletes")
+            (check t (== (codeOf (pagerBeginRead p)) 0) "read")
+            (verify
+              t
+              p
+              ta
+              m
+              roots
+              "after deletes")
+            (let (
+              (n (modelLen m))
+              (free (unwrapOr (pagerFreeListCount p) 0))
+            )
+              {
+                (check t (> free 0) "deletes free pages")
+                (println "{n} rows after deletes")
+              })
+            (check t (== (codeOf (pagerEndRead p)) 0) "end read")
+            ; 1000-byte keys: four to an interior node, so the tree is deep
+            (check t (== (codeOf (pagerBeginWrite p)) 0) "begin big keys")
+            (for i 0 2500
+              (let ((k (rngBytes r 1000 256)))
+                (match (btreeInsertNew p ib k "")
+                  ((Ok added) (check t (boolEq added (modelPut mi k "")) "big key insert"))
+                  ((Err e) (check t false (strConcat "big key insert: " (errorText e)))))))
+            (check t (== (codeOf (btreeInsertNew p ib (rngBytes r 1001 256) "")) axqTooBig) "a 1001-byte key is too big")
+            (check t (== (codeOf (pagerCommit p)) 0) "commit big keys")
+            (check t (== (codeOf (pagerBeginRead p)) 0) "read")
+            (verify
+              t
+              p
+              ib
+              mi
+              roots
+              "2500 keys of 1000 bytes")
+            (let ((h (unwrapOr (btreeHeight p ib) 0)))
+              {
+                (check t (>= h 5) "1000-byte keys make a deep tree")
+                (println "2500 keys of 1000 bytes: height {h}")
+              })
+            (check t (== (codeOf (pagerEndRead p)) 0) "end read")
+            (check t (== (codeOf (pagerBeginWrite p)) 0) "begin big-key deletes")
+            (let ((before (unwrapOr (pagerPageCount p) 0)))
+              {
+                (while (> (modelLen mi) 0)
+                  (let ((k (vecGet mi.keys (rngBelow r (modelLen mi)))))
+                    {
+                      (check t (unwrapOr (btreeDelete p ib k) false) "big key delete")
+                      (modelDelete mi k)
+                    }))
+                (check t (== (unwrapOr (btreeHeight p ib) 0) 1) "an emptied tree is a single leaf")
+                (check t (== (codeOf (pagerCommit p)) 0) "commit big-key deletes")
+              })
+            (check t (== (codeOf (pagerBeginRead p)) 0) "read")
+            (verify
+              t
+              p
+              ib
+              mi
+              roots
+              "big keys all deleted")
+            (verify
+              t
+              p
+              ta
+              m
+              roots
+              "the table tree untouched")
+            (check t (== (codeOf (pagerEndRead p)) 0) "end read")
+            ; clearing the table tree frees all but its root
+            (check t (== (codeOf (pagerBeginWrite p)) 0) "begin clear")
+            (check t (== (unwrapOr (btreeClear p ta) -1) (modelLen m)) "clear answers the entries removed")
+            (check t (== (codeOf (pagerCommit p)) 0) "commit clear")
+            (check t (== (codeOf (pagerBeginRead p)) 0) "read")
+            (verify
+              t
+              p
+              ta
+              modelNew
+              roots
+              "cleared")
+            (let (
+              (pages (unwrapOr (pagerPageCount p) 0))
+              (free (unwrapOr (pagerFreeListCount p) 0))
+            )
+              (check t (== (- pages free) 4) "cleared trees keep only their roots"))
+            (check t (== (codeOf (pagerEndRead p)) 0) "end read")
+            (check t (== (codeOf (pagerClose p)) 0) "close")
+          }))
+      (tallyReport t "112-btree-bulk")
+    }))

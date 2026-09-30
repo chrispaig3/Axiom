@@ -1,0 +1,1545 @@
+; Axqlite - an embedded, single-file, transactional database.
+;
+;     (match (axqOpen "app.db" openOptions)
+;       ((Ok db)
+;         {
+;           (axqExec db "CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT NOT NULL, age INTEGER)")
+;           (axqRunOn db (axqlInsert users (name age) (values (text "Ada") (int 36))))
+;           (match (axqQueryOn db (axqlSelect users (id name) (where (> age (int 30)))))
+;             ((Ok rows) (for r in rows.rows (println (unwrapOr (rowTextNamed r "name") "?"))))
+;             ((Err e) (println (errorText e))))
+;           (axqClose db)
+;         })
+;       ((Err e) ...))
+;
+; A database is one file of tables, each a set of typed rows, queried in
+; AXQL, Axiom's own query language: docs/axql.md defines it and
+; docs/axqlite.md is the guide. Statements are written with the
+; `axql...` macros, which spell the AXQL text at compile time and bind
+; every Axiom value as a parameter, or as text (`axqExec`,
+; `axqPrepare`).
+;
+; Handles: `Connection`, `Statement` and `Transaction` are sealed word
+; structs over the runtime's handle table, as `Net`'s streams are. A
+; closed connection, a finalized statement or a finished transaction's
+; handle used again stops the program with status 85, and so does a
+; statement used after its connection closed.
+;
+; Memory: a connection's and a statement's own state lives in a private
+; mapping each owns, outside the arena, and goes when it is closed or
+; finalized. Everything this module answers, such as a `Row`, a
+; `String` or a `Value`, is allocated in the caller's arena when it is
+; answered, so a `region` around a query reclaims its results.
+;
+; Transactions: outside a transaction every statement commits on its
+; own. `axqBegin`, `BEGIN`, and `axqTransaction` open one; inside
+; it a statement that fails is undone and the transaction stays open.
+; Commit is durable when it answers: see docs/axqlite.md for what the
+; journal guarantees after a crash.
+;
+; Concurrency: one connection is used by one binding at a time: it isn't
+; `shared`, so the compiler refuses to let a `parallel` binding capture
+; one. Connections to one file, in one process or several, coordinate
+; through a whole-file lock that never waits: a lock that isn't free
+; answers `axqBusy` at once, having changed nothing.
+;
+; While `axqQueryEach` streams rows to its callback, the callback may
+; run other SELECTs on the same connection. Outside a transaction it may
+; not write, and it may never run DDL, BEGIN, COMMIT or ROLLBACK, or
+; close the connection: those answer `axqMisuse`.
+(import Mem)
+(import Str)
+(import Vec)
+(import Err)
+(import Fmt)
+(import Sys)
+(import Float)
+(import Axqlite.Value)
+(import Axqlite.Pager)
+(import Axqlite.AxqlAst)
+(import Axqlite.AxqlParse)
+(import Axqlite.AxqlEval)
+(import Axqlite.AxqlSchema)
+(import Axqlite.AxqlExec)
+(import Axqlite.AxqlMacro)
+
+; ------------------------------------------------------------------
+; Options.
+; ------------------------------------------------------------------
+; How `axqOpen` opens a database: whether a missing file becomes a new
+; database, whether the connection may only read, and how many 4096-byte
+; pages its cache holds.
+(pub struct OpenOptions
+  (create : Bool)
+  (readOnly : Bool)
+  (cachePages : Int))
+
+; The defaults: create the file when it's missing, read and write, and
+; cache 256 pages (1 MiB).
+(pub :: openOptions OpenOptions)
+(pub fn (openOptions)
+  (OpenOptions true false 256))
+
+; ------------------------------------------------------------------
+; Handles.
+; ------------------------------------------------------------------
+; An open database.
+(pub struct Connection word
+  (slot : Int))
+
+; A prepared statement: its text, checked against the schema when it
+; was prepared, and parsed again against the current schema each time it
+; runs.
+(pub struct Statement word
+  (slot : Int))
+
+; An open transaction, from `axqBegin`.
+(pub struct Transaction word
+  (slot : Int))
+
+; The handle table's kinds: 1 to 7 are the runtime's and the standard
+; library's, `Axqlite.Pager` takes 11, and `Crypto` 16 up.
+(:: connKind Int)
+(fn (connKind)
+  8)
+
+(:: stmtKind Int)
+(fn (stmtKind)
+  9)
+
+(:: txnKind Int)
+(fn (txnKind)
+  10)
+
+; A connection's mapping, one word each:
+;   0 the mapping's length in bytes
+;   1 the pager's handle word
+;   2 the last rowid an INSERT used
+;   3 the rows the last INSERT, UPDATE or DELETE changed
+;   4 1 inside a transaction, else 0
+;   5 the open transaction's handle word, or 0 when it has none
+;   6 how many SELECTs are running (nested through axqQueryEach)
+(:: connBytes Int)
+(fn (connBytes)
+  4096)
+
+(:: cwPager Int)
+(fn (cwPager)
+  1)
+
+(:: cwLastRowid Int)
+(fn (cwLastRowid)
+  2)
+
+(:: cwChanges Int)
+(fn (cwChanges)
+  3)
+
+(:: cwInTxn Int)
+(fn (cwInTxn)
+  4)
+
+(:: cwTxnHandle Int)
+(fn (cwTxnHandle)
+  5)
+
+(:: cwReaders Int)
+(fn (cwReaders)
+  6)
+
+; Word `i` of a live connection's mapping. A closed connection traps 85
+; in `__handle_get` before anything is read.
+(:: connGet (-> Connection Int Int))
+;@axiom:effect(unsafe)
+(fn (connGet c i)
+  (__load64 (__handle_get connKind c.slot) i))
+
+(:: connSet (-> Connection Int Int Int))
+;@axiom:effect(unsafe)
+(fn (connSet c i v)
+  {
+    (__store64 (__handle_get connKind c.slot) i v)
+    0
+  })
+
+; The connection's pager. The word in the mapping is the one
+; `pagerOpen` answered, kept for as long as the connection is open, and
+; the pager's own handle table entry refuses it once closed.
+(:: connPager (-> Connection Pager))
+;@axiom:effect(unsafe)
+(fn (connPager c)
+  (cast Pager (connGet c cwPager)))
+
+(:: inTxn (-> Connection Bool))
+(fn (inTxn c)
+  (== (connGet c cwInTxn) 1))
+
+; The connection a statement or transaction handle word belongs to.
+(:: connOfSlot (-> Int Connection))
+(fn (connOfSlot s)
+  (Connection s))
+
+(:: misuse (-> String String (Result a Error)))
+(fn (misuse msg where)
+  (axqErr axqMisuse msg where))
+
+; ------------------------------------------------------------------
+; Statements that reclaim what they allocate.
+;
+; A statement that answers only a count runs inside a region, so a loop
+; of them keeps the caller's memory flat. A `Result` can't leave the
+; region, so the count leaves as itself and a failure leaves as -1, with
+; its code, message and context copied into the connection's mapping
+; from byte 1024 and rebuilt outside.
+; ------------------------------------------------------------------
+(:: stashAt Int)
+(fn (stashAt)
+  1024)
+
+; The longest message and context kept; longer ones are cut.
+(:: stashMessageMax Int)
+(fn (stashMessageMax)
+  2048)
+
+(:: stashContextMax Int)
+(fn (stashContextMax)
+  960)
+
+; `r` as a count, or -1 after copying its error into the mapping.
+(:: stashResult (-> Connection (Result Int Error) Int))
+;@axiom:effect(unsafe)
+(fn (stashResult c r)
+  (match r
+    ((Ok n) n)
+    ((Err e)
+      (let (
+        (m (__handle_get connKind c.slot))
+        (msg e.message)
+        (ctx e.context)
+        (ml (if (> (strLen msg) stashMessageMax)
+          stashMessageMax
+          (strLen msg)))
+        (cl (if (> (strLen ctx) stashContextMax)
+          stashContextMax
+          (strLen ctx)))
+        (base (+ m stashAt))
+      )
+        {
+          (__store64 base 0 e.code)
+          (__store64 base 1 ml)
+          (__store64 base 2 cl)
+          (memCopy (+ base 24) (strData msg) ml)
+          (memCopy (+ (+ base 24) ml) (strData ctx) cl)
+          -1
+        })
+    )))
+
+; A fresh vector holding `params`, for a region to use in place of
+; the caller's.
+(:: copyParams (-> (Vec Value) (Vec Value)))
+(fn (copyParams params)
+  (let ((out vecNewRef))
+    {
+      (for v in params
+        (vecPush out v))
+      out
+    }))
+
+; The count, or the error `stashResult` copied into the mapping.
+(:: unstashResult (-> Connection Int (Result Int Error)))
+;@axiom:effect(unsafe)
+(fn (unstashResult c n)
+  (if (>= n 0)
+    (Ok n)
+    (let (
+      (base (+ (__handle_get connKind c.slot) stashAt))
+      (ml (__load64 base 1))
+      (cl (__load64 base 2))
+      (msg (strAlloc ml))
+      (ctx (strAlloc cl))
+    )
+      {
+        (memCopy (strData msg) (+ base 24) ml)
+        (memCopy (strData ctx) (+ (+ base 24) ml) cl)
+        (Err (Error (__load64 base 0) msg ctx))
+      })))
+
+; ------------------------------------------------------------------
+; Opening and closing.
+; ------------------------------------------------------------------
+; Open the database at `path`. A missing file is created when
+; `opts.create` is true, and is `axqIoFailed` otherwise; a file that
+; isn't an AXQLite database is `axqNotADatabase`.
+(pub :: axqOpen (-> String OpenOptions (Result Connection Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (axqOpen path opts)
+  (if (< opts.cachePages 1)
+    (misuse "the page cache needs at least one page" "axqOpen")
+    (try
+      pager
+      (withContext (pagerOpen path opts.create opts.readOnly opts.cachePages) "axqOpen")
+      (match (sysMapPrivate connBytes)
+        ((Err e)
+          (let ((_ (pagerClose pager)))
+            (Err (errContextOf e "axqOpen")))
+        )
+        ((Ok m)
+          (let ((h (__handle_new connKind m)))
+            (if (== h 0)
+              (let (
+                (_ (pagerClose pager))
+                (_ (sysUnmapPrivate m connBytes))
+              )
+                (misuse "the runtime's handle table is full" "axqOpen"))
+              {
+                (__store64 m 0 connBytes)
+                (__store64
+                  m
+                  cwPager
+                  (cast Int pager))
+                (Ok (Connection h))
+              }))
+        )))))
+
+; Close the connection, rolling back a transaction it has open. The
+; handle is retired first, so any later use of it stops the program with
+; status 85. Statements prepared on it must still be finalized.
+(pub :: axqClose (-> Connection (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (axqClose c)
+  (if (> (connGet c cwReaders) 0)
+    (misuse "a query is still running on this connection" "axqClose")
+    (let (
+      (pager (connPager c))
+      (m (__handle_free connKind c.slot))
+    )
+      (let (
+        (r (pagerClose pager))
+        (_ (sysUnmapPrivate m connBytes))
+      )
+        (match r
+          ((Ok _) (Ok 0))
+          ((Err e) (Err (errContextOf e "axqClose"))))))))
+
+; ------------------------------------------------------------------
+; Values as text.
+; ------------------------------------------------------------------
+; A value written as AXQL would write it as a literal: an INTEGER in
+; decimal, a REAL in the shortest form that reads back exactly, TEXT in
+; single quotes with `''` for a quote, a BLOB as x'hex', and NULL.
+(pub :: axqValueText (-> Value String))
+(pub fn (axqValueText v)
+  (match v
+    ((VNull) "NULL")
+    ((VInt n) (fmtInt n))
+    ((VReal r) (floatToString r))
+    ((VText s) (axqlQuoteText s))
+    ((VBlob b) (blobText b))))
+
+(:: blobText (-> String String))
+;@axiom:effect(unsafe)
+(fn (blobText b)
+  (let (
+    (n (strLen b))
+    (out (strAlloc (+ 3 (* 2 n))))
+    (d (strData out))
+    (digits "0123456789abcdef")
+  )
+    {
+      (memPutByte d 0 120)
+      (memPutByte d 1 39)
+      (for i 0 n
+        (let ((c (strByte b i)))
+          {
+            (memPutByte d (+ 2 (* 2 i)) (strByte digits (>> c 4)))
+            (memPutByte d (+ 3 (* 2 i)) (strByte digits (& c 15)))
+          }))
+      (memPutByte d (+ 2 (* 2 n)) 39)
+      out
+    }))
+
+; `s` as an AXQL text literal: in single quotes, each quote doubled.
+(pub :: axqlQuoteText (-> String String))
+;@axiom:effect(unsafe)
+(pub fn (axqlQuoteText s)
+  (let (
+    (n (strLen s))
+    (mut quotes 0)
+  )
+    {
+      (for i 0 n
+        (if (== (strByte s i) 39)
+          (set quotes (+ quotes 1))
+          0))
+      (let (
+        (out (strAlloc (+ (+ n quotes) 2)))
+        (d (strData out))
+        (mut k 1)
+      )
+        {
+          (memPutByte d 0 39)
+          (for i 0 n
+            (let ((c (strByte s i)))
+              {
+                (memPutByte d k c)
+                (set k (+ k 1))
+                (if (== c 39)
+                  {
+                    (memPutByte d k 39)
+                    (set k (+ k 1))
+                  }
+                  0)
+              }))
+          (memPutByte d k 39)
+          out
+        })
+    }))
+
+; ------------------------------------------------------------------
+; Rows.
+; ------------------------------------------------------------------
+; One result row: the column names, shared by every row of a result,
+; and the values.
+(pub struct Row
+  (names : (Vec String))
+  (values : (Vec Value)))
+
+; A whole result: its column names and its rows.
+(pub struct Rows
+  (columns : (Vec String))
+  (rows : (Vec Row)))
+
+; How many columns a row has.
+(pub :: rowLen (-> Row Int))
+(pub fn (rowLen r)
+  (vecLen r.values))
+
+; The name of column `i`, from 0.
+(pub :: rowName (-> Row Int (Result String Error)))
+(pub fn (rowName r i)
+  (if (|| (< i 0) (>= i (vecLen r.names)))
+    (columnRange r i "rowName")
+    (Ok (vecGet r.names i))))
+
+(:: columnRange (-> Row Int String (Result a Error)))
+(fn (columnRange r i where)
+  (axqErr axqMisuse (strConcat (strConcat "no column " (fmtInt i)) (strConcat "; the row has " (fmtInt (vecLen r.values)))) where))
+
+; The number of the column named `name`, compared without regard to
+; ASCII case; the first when two share it.
+(pub :: rowIndex (-> Row String (Result Int Error)))
+(pub fn (rowIndex r name)
+  (let (
+    (n (vecLen r.names))
+    (mut i 0)
+    (mut found -1)
+  )
+    {
+      (while (&& (< found 0) (< i n))
+        {
+          (if (axqlNameEq (vecGet r.names i) name)
+            (set found i)
+            0)
+          (set i (+ i 1))
+        })
+      (if (< found 0)
+        (axqErr axqSchema (strConcat "no result column named " name) "rowIndex")
+        (Ok found))
+    }))
+
+; The value in column `i`.
+(pub :: rowValue (-> Row Int (Result Value Error)))
+(pub fn (rowValue r i)
+  (if (|| (< i 0) (>= i (vecLen r.values)))
+    (columnRange r i "rowValue")
+    (Ok (vecGet r.values i))))
+
+(:: wrongType (-> Row Int String Value String (Result a Error)))
+(fn (wrongType r i want v where)
+  (axqErr axqType (strConcat (strConcat (strConcat "column " (fmtInt i)) (strConcat " is " (typeName (axqlValueType v)))) (strConcat ", not " want)) where))
+
+; Whether column `i` is NULL.
+(pub :: rowIsNull (-> Row Int (Result Bool Error)))
+(pub fn (rowIsNull r i)
+  (try
+    v
+    (rowValue r i)
+    (match v
+      ((VNull) (Ok true))
+      (_ (Ok false)))))
+
+; Column `i` as an INTEGER. Any other type, NULL included, is `axqType`.
+(pub :: rowInt (-> Row Int (Result Int Error)))
+(pub fn (rowInt r i)
+  (try
+    v
+    (rowValue r i)
+    (match v
+      ((VInt n) (Ok n))
+      (_ (wrongType
+        r
+        i
+        "INTEGER"
+        v
+        "rowInt")))))
+
+; Column `i` as a REAL. An INTEGER is converted, as a REAL column
+; converts one; any other type is `axqType`.
+(pub :: rowReal (-> Row Int (Result Float Error)))
+(pub fn (rowReal r i)
+  (try
+    v
+    (rowValue r i)
+    (match v
+      ((VReal x) (Ok x))
+      ((VInt n) (Ok (__intToFloat n)))
+      (_ (wrongType
+        r
+        i
+        "REAL"
+        v
+        "rowReal")))))
+
+; Column `i` as TEXT.
+(pub :: rowText (-> Row Int (Result String Error)))
+(pub fn (rowText r i)
+  (try
+    v
+    (rowValue r i)
+    (match v
+      ((VText s) (Ok s))
+      (_ (wrongType
+        r
+        i
+        "TEXT"
+        v
+        "rowText")))))
+
+; Column `i` as a BLOB's bytes.
+(pub :: rowBlob (-> Row Int (Result String Error)))
+(pub fn (rowBlob r i)
+  (try
+    v
+    (rowValue r i)
+    (match v
+      ((VBlob b) (Ok b))
+      (_ (wrongType
+        r
+        i
+        "BLOB"
+        v
+        "rowBlob")))))
+
+; The value of the column named `name`.
+(pub :: rowValueNamed (-> Row String (Result Value Error)))
+(pub fn (rowValueNamed r name)
+  (try i (rowIndex r name) (rowValue r i)))
+
+; Whether the column named `name` is NULL.
+(pub :: rowIsNullNamed (-> Row String (Result Bool Error)))
+(pub fn (rowIsNullNamed r name)
+  (try i (rowIndex r name) (rowIsNull r i)))
+
+; The column named `name` as an INTEGER.
+(pub :: rowIntNamed (-> Row String (Result Int Error)))
+(pub fn (rowIntNamed r name)
+  (try i (rowIndex r name) (rowInt r i)))
+
+; The column named `name` as a REAL.
+(pub :: rowRealNamed (-> Row String (Result Float Error)))
+(pub fn (rowRealNamed r name)
+  (try i (rowIndex r name) (rowReal r i)))
+
+; The column named `name` as TEXT.
+(pub :: rowTextNamed (-> Row String (Result String Error)))
+(pub fn (rowTextNamed r name)
+  (try i (rowIndex r name) (rowText r i)))
+
+; The column named `name` as a BLOB's bytes.
+(pub :: rowBlobNamed (-> Row String (Result String Error)))
+(pub fn (rowBlobNamed r name)
+  (try i (rowIndex r name) (rowBlob r i)))
+
+; ------------------------------------------------------------------
+; Running one statement.
+; ------------------------------------------------------------------
+; Where a statement's column names go, once it knows them. Its rows go
+; to an `onRow` function passed beside it, a parameter rather than a
+; field, so the checker can follow the call.
+(struct Sink
+  (mut names : (Vec String)))
+
+; Run one parsed statement with `params`, handing any rows to `sink`.
+; Answers the rows changed (0 for a SELECT, DDL, or transaction control).
+(:: runParsed (-> Connection Parsed (Vec Value) Sink (-> Row (Result Bool Error)) (Result Int Error)))
+;@axiom:effect(io)
+(fn (runParsed c parsed params sink onRow)
+  (if (!= (vecLen params) parsed.paramCount)
+    (misuse
+      (strConcat
+        (strConcat "the statement takes " (fmtInt parsed.paramCount))
+        (strConcat
+          (if (== parsed.paramCount 1)
+            " parameter and was given "
+            " parameters and was given ")
+          (fmtInt (vecLen params))))
+      "axqRun")
+    (let ((nan (nanParam params)))
+      (if (>= nan 0)
+        (axqErr axqType (strConcat (strConcat "parameter " (fmtInt (+ nan 1))) " is a NaN, which no statement can hold") "axqRun")
+        (runChecked
+          c
+          parsed
+          params
+          sink
+          onRow)))))
+
+; The index of the first parameter that is a REAL NaN, or -1.
+(:: nanParam (-> (Vec Value) Int))
+(fn (nanParam params)
+  (let ((mut found -1))
+    {
+      (for (v i) in params
+        (match v
+          ((VReal r)
+            (if (&& (< found 0) (floatIsNan r))
+              (set found i)
+              0)
+          )
+          (_ 0)))
+      found
+    }))
+
+(:: runChecked (-> Connection Parsed (Vec Value) Sink (-> Row (Result Bool Error)) (Result Int Error)))
+;@axiom:effect(io)
+(fn (runChecked c parsed params sink onRow)
+  (match parsed.stmt
+    ((SBegin) (txnOpen c 0))
+    ((SCommit) (txnCommit c "COMMIT"))
+    ((SRollback) (txnRollback c "ROLLBACK"))
+    ((SSelect sel) (runSelect
+      c
+      parsed
+      sel
+      params
+      sink
+      onRow))
+    (_ (runWrite c parsed params))))
+
+; Take the lock a read needs. Outside a transaction the first of
+; several nested reads takes the shared lock and the last releases it;
+; inside one, the lock is kept until COMMIT or ROLLBACK.
+(:: readBegin (-> Connection (Result Int Error)))
+;@axiom:effect(io)
+(fn (readBegin c)
+  (let ((pager (connPager c)))
+    (try
+      _
+      (if (> (pagerLockLevel pager) 0)
+        (Ok 0)
+        (pagerBeginRead pager))
+      {
+        (connSet c cwReaders (+ (connGet c cwReaders) 1))
+        (Ok 0)
+      })))
+
+(:: readEnd (-> Connection Int))
+;@axiom:effect(io)
+(fn (readEnd c)
+  (let (
+    (pager (connPager c))
+    (n (- (connGet c cwReaders) 1))
+  )
+    {
+      (connSet c cwReaders n)
+      (if (&& (== n 0) (&& (! (inTxn c)) (! (pagerInWrite pager))))
+        (let ((_ (pagerEndRead pager)))
+          0)
+        0)
+    }))
+
+(:: runSelect (-> Connection Parsed Select (Vec Value) Sink (-> Row (Result Bool Error)) (Result Int Error)))
+;@axiom:effect(io)
+(fn (runSelect c parsed sel params sink onRow)
+  (try
+    _
+    (readBegin c)
+    (let ((r (selectLocked
+      c
+      parsed
+      sel
+      params
+      sink
+      onRow)))
+      {
+        (readEnd c)
+        r
+      })))
+
+(:: selectLocked (-> Connection Parsed Select (Vec Value) Sink (-> Row (Result Bool Error)) (Result Int Error)))
+;@axiom:effect(io)
+(fn (selectLocked c parsed sel params sink onRow)
+  (let ((ex (axqlExec (connPager c) parsed.text params false)))
+    (try
+      schema
+      (axqlLoadSchema ex.pager)
+      (try
+        plan
+        (axqlPlanSelect ex schema sel)
+        (let ((names (axqlPlanNames plan)))
+          {
+            (set sink.names names)
+            (try
+              _
+              (axqlRunSelect
+                ex
+                plan
+                (lambda (vals) (onRow (Row names vals))))
+              (Ok 0))
+          })))))
+
+(:: runWrite (-> Connection Parsed (Vec Value) (Result Int Error)))
+;@axiom:effect(io)
+(fn (runWrite c parsed params)
+  (let ((explicit (inTxn c)))
+    (if (&& (> (connGet c cwReaders) 0) (|| (! explicit) (stmtIsDdl parsed.stmt)))
+      (misuse
+        (if explicit
+          "a query is still running on this connection, and DDL waits for it"
+          "a query is still running on this connection; outside a transaction, writes wait for it")
+        "axqRun")
+      (let ((pager (connPager c)))
+        (try
+          _
+          (pagerBeginWrite pager)
+          (let (
+            (ex (axqlExec pager parsed.text params explicit))
+            (r (axqlRunWrite ex parsed.stmt parsed.text))
+          )
+            (match r
+              ((Ok n)
+                (try
+                  _
+                  (if explicit
+                    (Ok 0)
+                    (withContext (pagerCommit pager) "axqRun"))
+                  (finishWrite c parsed ex n))
+              )
+              ((Err e)
+                (if explicit
+                  (match (axqlUndo pager ex.undo)
+                    ((Ok _) (Err e))
+                    ((Err _)
+                      (let ((_ (pagerRollback pager)))
+                        {
+                          (endTxn c)
+                          (Err (errContextOf e "axqRun, which then rolled back the transaction"))
+                        })
+                    ))
+                  (let ((_ (pagerRollback pager)))
+                    (Err e)))
+              ))))))))
+
+; Record what a successful write did.
+(:: finishWrite (-> Connection Parsed Exec Int (Result Int Error)))
+(fn (finishWrite c parsed ex n)
+  {
+    (match parsed.stmt
+      ((SInsert _ _ _) (connSet c cwChanges n))
+      ((SUpdate _ _ _ _) (connSet c cwChanges n))
+      ((SDelete _ _) (connSet c cwChanges n))
+      (_ 0))
+    (if ex.inserted
+      (connSet c cwLastRowid ex.lastRowid)
+      0)
+    (Ok n)
+  })
+
+; ------------------------------------------------------------------
+; Transactions.
+; ------------------------------------------------------------------
+; Open a transaction; `handle` is its handle word, or 0 for BEGIN.
+(:: txnOpen (-> Connection Int (Result Int Error)))
+(fn (txnOpen c handle)
+  (if (inTxn c)
+    (misuse "a transaction is already open" "BEGIN")
+    (if (> (connGet c cwReaders) 0)
+      (misuse "a query is still running on this connection" "BEGIN")
+      {
+        (connSet c cwInTxn 1)
+        (connSet c cwTxnHandle handle)
+        (Ok 0)
+      })))
+
+; Leave the transaction state; the pager's locks are the caller's.
+(:: endTxn (-> Connection Int))
+(fn (endTxn c)
+  {
+    (connSet c cwInTxn 0)
+    (connSet c cwTxnHandle 0)
+  })
+
+(:: txnCommit (-> Connection String (Result Int Error)))
+;@axiom:effect(io)
+(fn (txnCommit c where)
+  (if (! (inTxn c))
+    (misuse "no transaction is open" where)
+    (if (> (connGet c cwReaders) 0)
+      (misuse "a query is still running on this connection" where)
+      (let ((pager (connPager c)))
+        {
+          (endTxn c)
+          (if (pagerInWrite pager)
+            (withContext (pagerCommit pager) where)
+            (if (> (pagerLockLevel pager) 0)
+              (withContext (pagerEndRead pager) where)
+              (Ok 0)))
+        }))))
+
+(:: txnRollback (-> Connection String (Result Int Error)))
+;@axiom:effect(io)
+(fn (txnRollback c where)
+  (if (! (inTxn c))
+    (misuse "no transaction is open" where)
+    (if (> (connGet c cwReaders) 0)
+      (misuse "a query is still running on this connection" where)
+      (let ((pager (connPager c)))
+        {
+          (endTxn c)
+          (if (> (pagerLockLevel pager) 0)
+            (withContext (pagerRollback pager) where)
+            (Ok 0))
+        }))))
+
+; Open a transaction. Statements then run inside it until `axqCommit`
+; or `axqRollback`; one that fails is undone and the transaction stays
+; open. No lock is taken until the first statement needs one.
+(pub :: axqBegin (-> Connection (Result Transaction Error)))
+;@axiom:effect(unsafe)
+(pub fn (axqBegin c)
+  (if (inTxn c)
+    (misuse "a transaction is already open" "axqBegin")
+    (let ((h (__handle_new txnKind c.slot)))
+      (if (== h 0)
+        (misuse "the runtime's handle table is full" "axqBegin")
+        (try _ (txnOpen c h) (Ok (Transaction h)))))))
+
+; The connection of a transaction handle, retiring the handle. A
+; transaction handle used again stops the program with status 85.
+(:: txnFinish (-> Transaction Connection))
+;@axiom:effect(unsafe)
+(fn (txnFinish t)
+  (Connection (__handle_free txnKind t.slot)))
+
+; Commit the transaction: durable when this answers `Ok`. A transaction
+; COMMIT or ROLLBACK already ended is `axqMisuse`.
+(pub :: axqCommit (-> Transaction (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (axqCommit t)
+  (let (
+    (h t.slot)
+    (c (txnFinish t))
+  )
+    (if (|| (! (inTxn c)) (!= (connGet c cwTxnHandle) h))
+      (misuse "this transaction has already ended" "axqCommit")
+      (txnCommit c "axqCommit"))))
+
+; Roll the transaction back.
+(pub :: axqRollback (-> Transaction (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (axqRollback t)
+  (let (
+    (h t.slot)
+    (c (txnFinish t))
+  )
+    (if (|| (! (inTxn c)) (!= (connGet c cwTxnHandle) h))
+      (misuse "this transaction has already ended" "axqRollback")
+      (txnRollback c "axqRollback"))))
+
+; Run `f` in a transaction: commit when it answers `Ok`, roll back when
+; it answers `Err`, and answer what it answered (or the commit's
+; failure). `f` must not end the transaction itself.
+(pub :: axqTransaction (-> Connection (-> Connection (Result a Error)) (Result a Error)))
+;@axiom:effect(io)
+(pub fn (axqTransaction c f)
+  (try
+    t
+    (withContext (axqBegin c) "axqTransaction")
+    (match (f c)
+      ((Ok v) (try _ (axqCommit t) (Ok v)))
+      ((Err e)
+        (let ((_ (axqRollback t)))
+          (Err e))
+      ))))
+
+; Whether a transaction is open.
+(pub :: axqInTransaction (-> Connection Bool))
+(pub fn (axqInTransaction c)
+  (inTxn c))
+
+; The rowid the last successful INSERT on this connection gave its last
+; row, or 0 before the first.
+(pub :: axqLastInsertRowid (-> Connection Int))
+(pub fn (axqLastInsertRowid c)
+  (connGet c cwLastRowid))
+
+; The rows the last successful INSERT, UPDATE or DELETE changed.
+(pub :: axqChanges (-> Connection Int))
+(pub fn (axqChanges c)
+  (connGet c cwChanges))
+
+; ------------------------------------------------------------------
+; Text statements.
+; ------------------------------------------------------------------
+(:: dropRows (-> Row (Result Bool Error)))
+(fn (dropRows r)
+  (Ok true))
+
+; Run one statement that takes no parameters. A SELECT runs and its
+; rows are dropped. Answers the rows changed.
+(pub :: axqExec (-> Connection String (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (axqExec c text)
+  (unstashResult
+    c
+    (region stmt
+      (stashResult c (execText c (strDup text))))))
+
+(:: execText (-> Connection String (Result Int Error)))
+;@axiom:effect(io)
+(fn (execText c text)
+  (try parsed (withContext (axqlParse text) "axqExec") (withContext (runParsed
+    c
+    parsed
+    vecNewRef
+    (Sink vecNewRef)
+    dropRows) "axqExec")))
+
+; Run a script of statements separated by `;`, such as a migration, in
+; one transaction: all of them or none. Outside a transaction it opens
+; and commits its own; inside one, a failure undoes the whole script and
+; leaves the transaction open. The script may not hold BEGIN, COMMIT or
+; ROLLBACK, and nothing runs if any statement fails to parse. Answers
+; the rows changed in total.
+(pub :: axqExecBatch (-> Connection String (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (axqExecBatch c script)
+  (unstashResult
+    c
+    (region batch
+      (stashResult c (execScript c (strDup script))))))
+
+(:: execScript (-> Connection String (Result Int Error)))
+;@axiom:effect(io)
+(fn (execScript c script)
+  (try
+    stmts
+    (withContext (axqlParseScript script) "axqExecBatch")
+    (if (hasTxnControl stmts)
+      (misuse "a batch runs in one transaction and can't hold BEGIN, COMMIT or ROLLBACK" "axqExecBatch")
+      (if (inTxn c)
+        (batchInside c stmts)
+        (try
+          _
+          (txnOpen c 0)
+          (match (batchRun c stmts 0 0)
+            ((Ok n) (try _ (txnCommit c "axqExecBatch") (Ok n)))
+            ((Err e)
+              (let ((_ (txnRollback c "axqExecBatch")))
+                (Err e))
+            )))))))
+
+(:: hasTxnControl (-> (Vec Parsed) Bool))
+(fn (hasTxnControl stmts)
+  (let ((mut found false))
+    {
+      (for p in stmts
+        (match p.stmt
+          ((SBegin)
+            {
+              (set found true)
+              0
+            }
+          )
+          ((SCommit)
+            {
+              (set found true)
+              0
+            }
+          )
+          ((SRollback)
+            {
+              (set found true)
+              0
+            }
+          )
+          (_ 0)))
+      found
+    }))
+
+(:: batchRun (-> Connection (Vec Parsed) Int Int (Result Int Error)))
+;@axiom:effect(io)
+(fn (batchRun c stmts i total)
+  (if (>= i (vecLen stmts))
+    (Ok total)
+    (try n (withContext (runParsed
+      c
+      (vecGet stmts i)
+      vecNewRef
+      (Sink vecNewRef)
+      dropRows) "axqExecBatch") (batchRun c stmts (+ i 1) (+ total n)))))
+
+; A batch inside the caller's transaction: each statement's undo log is
+; kept, so a failure can undo the statements before it too.
+(:: batchInside (-> Connection (Vec Parsed) (Result Int Error)))
+;@axiom:effect(io)
+(fn (batchInside c stmts)
+  (let (
+    (pager (connPager c))
+    (all vecNewRef)
+    (mut total 0)
+    (mut failure None)
+  )
+    {
+      (for p in stmts
+        (if (isNone failure)
+          (match (withContext (batchStep c p all) "axqExecBatch")
+            ((Ok n)
+              {
+                (set total (+ total n))
+                0
+              }
+            )
+            ((Err e)
+              {
+                (set failure (Some e))
+                0
+              }
+            ))
+          0))
+      (match failure
+        ((None) (Ok total))
+        ((Some e)
+          (match (axqlUndo pager all)
+            ((Ok _) (Err e))
+            ((Err _)
+              (let ((_ (pagerRollback pager)))
+                {
+                  (endTxn c)
+                  (Err (errContextOf e "axqExecBatch, which then rolled back the transaction"))
+                })
+            ))
+        ))
+    }))
+
+; One statement of a batch inside a transaction. A write is logged into
+; `all` as well as undone on its own failure.
+(:: batchStep (-> Connection Parsed (Vec Undo) (Result Int Error)))
+;@axiom:effect(io)
+(fn (batchStep c p all)
+  (match p.stmt
+    ((SSelect _) (runParsed
+      c
+      p
+      vecNewRef
+      (Sink vecNewRef)
+      dropRows))
+    (_
+      (let ((pager (connPager c)))
+        (try
+          _
+          (pagerBeginWrite pager)
+          (let (
+            (ex (axqlExec pager p.text vecNewRef true))
+            (r (axqlRunWrite ex p.stmt p.text))
+          )
+            (match r
+              ((Ok n)
+                {
+                  (for u in ex.undo
+                    (vecPush all u))
+                  (finishWrite c p ex n)
+                }
+              )
+              ((Err e)
+                (match (axqlUndo pager ex.undo)
+                  ((Ok _) (Err e))
+                  ((Err u) (Err u)))
+              )))))
+    )))
+
+; ------------------------------------------------------------------
+; Prepared statements.
+; ------------------------------------------------------------------
+; A statement's mapping:
+;   word 0 the mapping's length in bytes
+;   word 1 its connection's handle word
+;   word 2 the text's length in bytes
+;   word 3 how many parameters it takes
+;   word 4 1 when it is a SELECT
+;   bytes from 64: the text
+(:: stmtHeader Int)
+(fn (stmtHeader)
+  64)
+
+(:: stmtMap (-> Statement Int))
+;@axiom:effect(unsafe)
+(fn (stmtMap s)
+  (__handle_get stmtKind s.slot))
+
+(:: stmtWord (-> Statement Int Int))
+;@axiom:effect(unsafe)
+(fn (stmtWord s i)
+  (__load64 (stmtMap s) i))
+
+; The statement's connection: its handle table entry is checked on
+; every use, so a closed connection stops the program with status 85.
+(:: stmtConn (-> Statement Connection))
+;@axiom:effect(unsafe)
+(fn (stmtConn s)
+  (let ((c (Connection (stmtWord s 1))))
+    {
+      (__handle_get connKind c.slot)
+      c
+    }))
+
+; The statement's text, copied into the caller's arena.
+(pub :: axqStatementText (-> Statement String))
+;@axiom:effect(unsafe)
+(pub fn (axqStatementText s)
+  (let (
+    (m (stmtMap s))
+    (n (__load64 m 2))
+    (out (strAlloc n))
+  )
+    {
+      (memCopy (strData out) (+ m stmtHeader) n)
+      out
+    }))
+
+; How many parameters the statement takes.
+(pub :: axqParamCount (-> Statement Int))
+(pub fn (axqParamCount s)
+  (stmtWord s 3))
+
+; Parse `text` and check its table and column names against the current
+; schema. The statement parses its text again each time it runs, so a
+; schema change after this re-prepares it; a statement whose table is
+; gone then answers `axqSchema`.
+(pub :: axqPrepare (-> Connection String (Result Statement Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (axqPrepare c text)
+  (try
+    parsed
+    (withContext (axqlParse text) "axqPrepare")
+    (try
+      _
+      (withContext (checkParsed c parsed) "axqPrepare")
+      (let (
+        (n (strLen text))
+        (len (+ stmtHeader (+ n 1)))
+      )
+        (match (sysMapPrivate len)
+          ((Err e) (Err (errContextOf e "axqPrepare")))
+          ((Ok m)
+            (let ((h (__handle_new stmtKind m)))
+              (if (== h 0)
+                (let ((_ (sysUnmapPrivate m len)))
+                  (misuse "the runtime's handle table is full" "axqPrepare"))
+                {
+                  (__store64 m 0 len)
+                  (__store64 m 1 c.slot)
+                  (__store64 m 2 n)
+                  (__store64 m 3 parsed.paramCount)
+                  (__store64
+                    m
+                    4
+                    (if (stmtIsQuery parsed.stmt)
+                      1
+                      0))
+                  (memCopy (+ m stmtHeader) (strData text) n)
+                  (Ok (Statement h))
+                }))
+          ))))))
+
+; Resolve a parsed statement's names under a read lock.
+(:: checkParsed (-> Connection Parsed (Result Int Error)))
+;@axiom:effect(io)
+(fn (checkParsed c parsed)
+  (if (stmtIsDdl parsed.stmt)
+    (Ok 0)
+    (match parsed.stmt
+      ((SBegin) (Ok 0))
+      ((SCommit) (Ok 0))
+      ((SRollback) (Ok 0))
+      (_
+        (try
+          _
+          (readBegin c)
+          (let ((r (checkLocked c parsed)))
+            {
+              (readEnd c)
+              r
+            }))
+      ))))
+
+(:: checkLocked (-> Connection Parsed (Result Int Error)))
+;@axiom:effect(io)
+(fn (checkLocked c parsed)
+  (let ((ex (axqlExec (connPager c) parsed.text vecNewRef false)))
+    (try schema (axqlLoadSchema ex.pager) (axqlCheckNames ex schema parsed.stmt))))
+
+; Finalize the statement, freeing its mapping. Its handle is retired,
+; so any later use stops the program with status 85.
+(pub :: axqFinalize (-> Statement (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (axqFinalize s)
+  (let ((m (__handle_free stmtKind s.slot)))
+    (sysUnmapPrivate m (__load64 m 0))))
+
+; The statement's text parsed again.
+(:: reparse (-> Statement String (Result Parsed Error)))
+(fn (reparse s where)
+  (withContext (axqlParse (axqStatementText s)) where))
+
+; The index in a statement's parameter vector (from 0) of the named
+; parameter `name`, written with its colon: `":id"`.
+(pub :: axqParamIndex (-> Statement String (Result Int Error)))
+(pub fn (axqParamIndex s name)
+  (try
+    parsed
+    (reparse s "axqParamIndex")
+    (let (
+      (names parsed.paramNames)
+      (mut found -1)
+    )
+      {
+        (for (n i) in names
+          (if (&& (< found 0) (strEq n name))
+            (set found i)
+            0))
+        (if (< found 0)
+          (misuse (strConcat "the statement has no parameter named " name) "axqParamIndex")
+          (Ok found))
+      })))
+
+; Run a statement that returns no rows with `params`, one per
+; parameter. Answers the rows changed. A SELECT is `axqMisuse`: use
+; `axqQuery` or `axqQueryEach`.
+(pub :: axqRun (-> Statement (Vec Value) (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (axqRun s params)
+  (let ((c (stmtConn s)))
+    (unstashResult
+      c
+      (region stmt
+        (stashResult c (runStatement c s (copyParams params)))))))
+
+(:: runStatement (-> Connection Statement (Vec Value) (Result Int Error)))
+;@axiom:effect(io)
+(fn (runStatement c s params)
+  (try
+    parsed
+    (reparse s "axqRun")
+    (if (stmtIsQuery parsed.stmt)
+      (misuse "the statement returns rows: use axqQuery or axqQueryEach" "axqRun")
+      (withContext (runParsed
+        c
+        parsed
+        params
+        (Sink vecNewRef)
+        dropRows) "axqRun"))))
+
+; Run a SELECT with `params` and answer all its rows.
+(pub :: axqQuery (-> Statement (Vec Value) (Result Rows Error)))
+;@axiom:effect(io)
+(pub fn (axqQuery s params)
+  (let ((c (stmtConn s)))
+    (try parsed (reparse s "axqQuery") (queryParsed c parsed params "axqQuery"))))
+
+(:: queryParsed (-> Connection Parsed (Vec Value) String (Result Rows Error)))
+;@axiom:effect(io)
+(fn (queryParsed c parsed params where)
+  (if (! (stmtIsQuery parsed.stmt))
+    (misuse "the statement returns no rows: use axqRun" where)
+    (let (
+      (acc vecNewRef)
+      (sink (Sink vecNewRef))
+    )
+      (try
+        _
+        (withContext
+          (runParsed
+            c
+            parsed
+            params
+            sink
+            (lambda (r) (collectRow acc r)))
+          where)
+        (Ok (Rows sink.names acc))))))
+
+(:: collectRow (-> (Vec Row) Row (Result Bool Error)))
+(fn (collectRow acc r)
+  {
+    (vecPush acc r)
+    (Ok true)
+  })
+
+; Run a SELECT with `params`, calling `f` with each row as it is
+; produced. Stops when `f` answers `Ok false` or `Err`, and answers that
+; `Err`, or else the number of rows `f` was called with.
+(pub :: axqQueryEach (-> Statement (Vec Value) (-> Row (Result Bool Error)) (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (axqQueryEach s params f)
+  (let ((c (stmtConn s)))
+    (try parsed (reparse s "axqQueryEach") (eachParsed
+      c
+      parsed
+      params
+      f
+      "axqQueryEach"))))
+
+; How many rows a callback saw, and the failure it answered, which is
+; handed back exactly as it answered it.
+(struct Counter
+  (mut n : Int)
+  (mut failure : (Option Error)))
+
+(:: eachParsed (-> Connection Parsed (Vec Value) (-> Row (Result Bool Error)) String (Result Int Error)))
+;@axiom:effect(io)
+(fn (eachParsed c parsed params f where)
+  (if (! (stmtIsQuery parsed.stmt))
+    (misuse "the statement returns no rows: use axqRun" where)
+    (let (
+      (count (Counter 0 None))
+      (sink (Sink vecNewRef))
+      (r (runParsed
+        c
+        parsed
+        params
+        sink
+        (lambda (r) (countRow count f r))))
+    )
+      (match count.failure
+        ((Some e) (Err e))
+        ((None) (try _ (withContext r where) (Ok count.n)))))))
+
+(:: countRow (-> Counter (-> Row (Result Bool Error)) Row (Result Bool Error)))
+(fn (countRow count f r)
+  {
+    (set count.n (+ count.n 1))
+    (match (f r)
+      ((Ok more) (Ok more))
+      ((Err e)
+        {
+          (set count.failure (Some e))
+          (Err e)
+        }
+      ))
+  })
+
+; ------------------------------------------------------------------
+; Queries: text and parameters together, as the `axql...` macros in
+; `Axqlite.AxqlMacro` build them.
+; ------------------------------------------------------------------
+; Run a query that returns no rows. Answers the rows changed.
+(pub :: axqRunOn (-> Connection Query (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (axqRunOn c q)
+  (unstashResult
+    c
+    (region stmt
+      (stashResult c (runQuery c (Query (strDup q.text) (copyParams q.params)))))))
+
+(:: runQuery (-> Connection Query (Result Int Error)))
+;@axiom:effect(io)
+(fn (runQuery c q)
+  (try
+    parsed
+    (withContext (axqlParse q.text) "axqRunOn")
+    (if (stmtIsQuery parsed.stmt)
+      (misuse "the query returns rows: use axqQueryOn or axqQueryEachOn" "axqRunOn")
+      (withContext (runParsed
+        c
+        parsed
+        q.params
+        (Sink vecNewRef)
+        dropRows) "axqRunOn"))))
+
+; Run a query and answer all its rows.
+(pub :: axqQueryOn (-> Connection Query (Result Rows Error)))
+;@axiom:effect(io)
+(pub fn (axqQueryOn c q)
+  (try parsed (withContext (axqlParse q.text) "axqQueryOn") (queryParsed c parsed q.params "axqQueryOn")))
+
+; Run a query, calling `f` with each row as it is produced, as
+; `axqQueryEach` does.
+(pub :: axqQueryEachOn (-> Connection Query (-> Row (Result Bool Error)) (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (axqQueryEachOn c q f)
+  (try parsed (withContext (axqlParse q.text) "axqQueryEachOn") (eachParsed
+    c
+    parsed
+    q.params
+    f
+    "axqQueryEachOn")))
+
+; Run a query and answer `f` of each row, stopping at the first `Err`
+; from the query or from `f`.
+(pub :: axqQueryMap (-> Connection Query (-> Row (Result a Error)) (Result (Vec a) Error)))
+;@axiom:effect(io)
+(pub fn (axqQueryMap c q f)
+  (let (
+    (out vecNewRef)
+    (r (axqQueryEachOn
+      c
+      q
+      (lambda (row) (mapRow out f row))))
+  )
+    (try _ r (Ok out))))
+
+(:: mapRow (-> (Vec a) (-> Row (Result a Error)) Row (Result Bool Error)))
+(fn (mapRow out f row)
+  (try
+    v
+    (f row)
+    {
+      (vecPush out v)
+      (Ok true)
+    }))
+
+; ------------------------------------------------------------------
+; Reading a row field by field, for `axqlTable`.
+; ------------------------------------------------------------------
+; A row being read into a record: the row, and the first failure. Each
+; read answers a stand-in value after a failure, so a record can be
+; built in one expression and checked once at the end.
+(pub struct RowReader
+  (row : Row)
+  (mut failure : (Option Error)))
+
+; A reader over `row`.
+(pub :: axqlReader (-> Row RowReader))
+(pub fn (axqlReader row)
+  (RowReader row None))
+
+(:: readFailed (-> RowReader Error Int))
+(fn (readFailed rd e)
+  (if (isNone rd.failure)
+    {
+      (set rd.failure (Some e))
+      0
+    }
+    0))
+
+; The column named `name` as an INTEGER, or 0 after recording why not.
+(pub :: axqlReadInt (-> RowReader String Int))
+(pub fn (axqlReadInt rd name)
+  (match (rowIntNamed rd.row name)
+    ((Ok n) n)
+    ((Err e)
+      {
+        (readFailed rd e)
+        0
+      }
+    )))
+
+; The column named `name` as a REAL, or 0.0 after recording why not.
+(pub :: axqlReadReal (-> RowReader String Float))
+(pub fn (axqlReadReal rd name)
+  (match (rowRealNamed rd.row name)
+    ((Ok x) x)
+    ((Err e)
+      {
+        (readFailed rd e)
+        0.0
+      }
+    )))
+
+; The column named `name` as TEXT, or "" after recording why not.
+(pub :: axqlReadText (-> RowReader String String))
+(pub fn (axqlReadText rd name)
+  (match (rowTextNamed rd.row name)
+    ((Ok s) s)
+    ((Err e)
+      {
+        (readFailed rd e)
+        ""
+      }
+    )))
+
+; The column named `name` as a BLOB's bytes, or "" after recording why
+; not.
+(pub :: axqlReadBlob (-> RowReader String String))
+(pub fn (axqlReadBlob rd name)
+  (match (rowBlobNamed rd.row name)
+    ((Ok s) s)
+    ((Err e)
+      {
+        (readFailed rd e)
+        ""
+      }
+    )))
+
+; The column named `name`: `None` for NULL, else its INTEGER.
+(pub :: axqlReadOptInt (-> RowReader String (Option Int)))
+(pub fn (axqlReadOptInt rd name)
+  (match (rowIsNullNamed rd.row name)
+    ((Ok true) None)
+    ((Ok false) (Some (axqlReadInt rd name)))
+    ((Err e)
+      {
+        (readFailed rd e)
+        None
+      }
+    )))
+
+; The column named `name`: `None` for NULL, else its REAL.
+(pub :: axqlReadOptReal (-> RowReader String (Option Float)))
+(pub fn (axqlReadOptReal rd name)
+  (match (rowIsNullNamed rd.row name)
+    ((Ok true) None)
+    ((Ok false) (Some (axqlReadReal rd name)))
+    ((Err e)
+      {
+        (readFailed rd e)
+        None
+      }
+    )))
+
+; The column named `name`: `None` for NULL, else its TEXT.
+(pub :: axqlReadOptText (-> RowReader String (Option String)))
+(pub fn (axqlReadOptText rd name)
+  (match (rowIsNullNamed rd.row name)
+    ((Ok true) None)
+    ((Ok false) (Some (axqlReadText rd name)))
+    ((Err e)
+      {
+        (readFailed rd e)
+        None
+      }
+    )))
+
+; The column named `name`: `None` for NULL, else its BLOB's bytes.
+(pub :: axqlReadOptBlob (-> RowReader String (Option String)))
+(pub fn (axqlReadOptBlob rd name)
+  (match (rowIsNullNamed rd.row name)
+    ((Ok true) None)
+    ((Ok false) (Some (axqlReadBlob rd name)))
+    ((Err e)
+      {
+        (readFailed rd e)
+        None
+      }
+    )))
+
+; `value` when every read went well, else the first failure.
+(pub :: axqlReaderDone (-> RowReader a (Result a Error)))
+(pub fn (axqlReaderDone rd value)
+  (match rd.failure
+    ((Some e) (Err e))
+    ((None) (Ok value))))

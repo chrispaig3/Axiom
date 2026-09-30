@@ -1,0 +1,32 @@
+create: ok 0
+limits: ok 1
+negative limits: ok 1
+infinity: ok 1
+subnormal: ok 1
+nan: axqType: parameter 2 is a NaN, which no statement can hold while axqRun
+integer for a REAL: ok 1
+finalize: ok 0
+SELECT rowid, i, r FROM t: 5 rows [rowid,i,r]
+  1,9223372036854775807,1e+308
+  2,-9223372036854775808,-0.0
+  3,0,inf
+  4,0,5e-324
+  5,1,9007199254740992.0
+true
+true
+-9223372036854775808
+max + 0: 1 rows [? + ?]
+  9223372036854775807
+max + 1: axqArithmetic: integer overflow: 9223372036854775807 + 1 while axqQuery
+min + -1: axqArithmetic: integer overflow: -9223372036854775808 + -1 while axqQuery
+int + real: 1 rows [? + ?]
+  1.5
+null + 1: 1 rows [? + ?]
+  NULL
+text + 1: axqType: line 1, column 10: can't apply + to TEXT and INTEGER while axqQuery
+finalize: ok 0
+overflow: axqArithmetic: integer overflow: 4294967296 * 4294967296 while axqQuery
+divide by zero: axqArithmetic: integer division by zero while axqQuery
+min / -1: axqArithmetic: integer overflow: -9223372036854775808 / -1 while axqQuery
+finalize: ok 0
+close: ok 0

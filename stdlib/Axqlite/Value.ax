@@ -1,0 +1,102 @@
+; Axqlite.Value - the values an AXQLite database holds, and the error
+; codes every AXQLite module answers.
+;
+;     (VInt 42)            ; an INTEGER
+;     (VReal 2.5)          ; a REAL, IEEE 754 binary64
+;     (VText "Ada")        ; a TEXT, UTF-8
+;     (VBlob bytes)        ; a BLOB, any bytes
+;     VNull                ; NULL
+;
+; A column holds exactly one of these types, or NULL. AXQLite has no
+; type affinity: a TEXT column refuses an integer, and an INTEGER column
+; refuses text. A REAL column also takes an integer, converted exactly
+; when it can be. A REAL is stored with all 64 of its bits, so it reads
+; back exactly as it was written; NaN isn't storable.
+;
+; ERROR CODES sit at 1300-1399, clear of `Chan`, `Sync` and `Task`'s
+; 1001-1005 and `Crypto`'s 1100-1199, and none is ever renumbered or
+; reused.
+(import Err)
+
+; One value in a row, or a parameter bound to a statement.
+(pub data Value
+  (VNull)
+  (VInt Int)
+  (VReal Float)
+  (VText String)
+  (VBlob String))
+
+; Another connection holds a lock this operation needs. Nothing was
+; changed; retry later.
+(pub :: axqBusy Int)
+(pub fn (axqBusy)
+  1301)
+
+; The file isn't a consistent AXQLite database: a checksum failed, a
+; page is malformed, or a structure points somewhere it can't.
+(pub :: axqCorrupt Int)
+(pub fn (axqCorrupt)
+  1302)
+
+; A row broke a constraint: NOT NULL, a UNIQUE index, or a duplicate
+; primary key.
+(pub :: axqConstraint Int)
+(pub fn (axqConstraint)
+  1303)
+
+; An AXQL statement doesn't parse. The message says where.
+(pub :: axqSyntax Int)
+(pub fn (axqSyntax)
+  1304)
+
+; A statement names a table, column or index that doesn't exist, or
+; creates one that already does.
+(pub :: axqSchema Int)
+(pub fn (axqSchema)
+  1305)
+
+; A value of the wrong type for its column, parameter or operator.
+(pub :: axqType Int)
+(pub fn (axqType)
+  1306)
+
+; The API was used out of order: a wrong number of parameters, a
+; finished transaction used again, or a statement for another
+; connection.
+(pub :: axqMisuse Int)
+(pub fn (axqMisuse)
+  1307)
+
+; A write to a connection opened read-only.
+(pub :: axqReadOnly Int)
+(pub fn (axqReadOnly)
+  1308)
+
+; The operating system refused a read, write, sync or lock. The
+; context carries its errno.
+(pub :: axqIoFailed Int)
+(pub fn (axqIoFailed)
+  1309)
+
+; A value, key, row or database larger than AXQLite supports.
+(pub :: axqTooBig Int)
+(pub fn (axqTooBig)
+  1310)
+
+; The file exists but isn't an AXQLite database, or was written by a
+; format version this library doesn't read.
+(pub :: axqNotADatabase Int)
+(pub fn (axqNotADatabase)
+  1311)
+
+; Integer arithmetic in a statement overflowed 64 bits, or divided by
+; zero.
+(pub :: axqArithmetic Int)
+(pub fn (axqArithmetic)
+  1312)
+
+; An `Err` carrying one of the codes above, with a message and the
+; name of the function that raised it as context.
+(pub :: axqErr (-> Int String String (Result a Error)))
+(pub fn (axqErr code message where)
+  (Err (errContextOf (mkError code message) where)))

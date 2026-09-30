@@ -1,0 +1,113 @@
+# Expressions: literals, precedence, arithmetic, comparison across
+# INTEGER and REAL, TEXT and BLOB order, three-valued logic, IS NULL.
+# Expected results follow docs/axql.md.
+
+query
+SELECT 1 + 2 * 3, (1 + 2) * 3, 7 / 2, -7 / 2, 7 % 3, -7 % 3, 7 % -3
+----
+7,9,3,-3,1,-1,1
+
+query
+SELECT 5 / -2, -5 / -2, 5 % -2, -5 % -2, 0 / 5, 10 - 2 - 3, 2 * 3 % 4
+----
+-2,2,1,-1,0,5,2
+
+query
+SELECT 1.5 + 1, 3 / 2.0, 0.1 + 0.2, 2.5 * -2, 1e3, 1.5e-3, .5, 5., 1E2
+----
+2.5,1.5,0.30000000000000004,-5.0,1000.0,0.0015,0.5,5.0,100.0
+
+query
+SELECT 1 = 1, 1 = 2, 1 != 2, 1 <> 1, 1 < 2, 2 <= 2, 3 > 2, 2 >= 3, 1 == 1
+----
+1,0,1,0,1,1,1,0,1
+
+query
+SELECT 2 = 2.0, 1 < 1.5, 9007199254740993 = 9007199254740992.0, 9007199254740993 > 9007199254740992.0, -1 < -0.5, 0.0 = -0.0
+----
+1,1,0,1,1,1
+
+query
+SELECT 9223372036854775807 < 9223372036854775808.0, 9223372036854775807 = 9.223372036854776e18, -9223372036854775808 = -9223372036854775808.0
+----
+1,0,1
+
+query
+SELECT 'a' < 'b', 'a' < 'B', 'abc' > 'ab', '' < 'a', 'x' = 'x', x'00' < x'01', x'' < x'00', 'Z' < 'a'
+----
+1,0,1,1,1,1,1,1
+
+query
+SELECT NULL = 1, NULL <> NULL, NULL < 1, NULL IS NULL, 1 IS NULL, NULL IS NOT NULL, 'x' IS NOT NULL
+----
+NULL,NULL,NULL,1,0,0,1
+
+query
+SELECT 1 + NULL, NULL * 2, -NULL, NULL / 0, NULL % 0, 1.5 - NULL
+----
+NULL,NULL,NULL,NULL,NULL,NULL
+
+query
+SELECT TRUE, FALSE, TRUE AND FALSE, TRUE OR FALSE, NOT TRUE, NOT FALSE, NOT 5, NOT 0.0
+----
+1,0,0,1,0,1,0,1
+
+query
+SELECT NULL AND 0, NULL AND 1, NULL OR 1, NULL OR 0, NOT NULL, 0 AND NULL, 1 OR NULL, NULL AND NULL
+----
+0,NULL,1,NULL,NULL,0,1,NULL
+
+query
+SELECT 2 AND 3, 0.5 OR 0, -1 AND 1.0
+----
+1,1,1
+
+query
+SELECT NOT 1 = 2, 1 + 2 = 3 AND 2 * 3 = 6, 1 = 1 OR 1 = 2 AND 0, -2 * -3, - - 4, 2 - -1, NOT NOT 7
+----
+1,1,1,6,4,3,1
+
+query
+SELECT 1 < 2 < 3, 3 > 2 > 1, 1 = 1 = 1, 1 + 2 * 3 - 4 / 2
+----
+1,0,1,5
+
+query
+SELECT 'it''s', '', 'ünï', 'a -- not a comment'
+----
+'it''s','','ünï','a -- not a comment'
+
+query
+SELECT 9223372036854775807, -9223372036854775808, -9223372036854775807 - 1, 007
+----
+9223372036854775807,-9223372036854775808,-9223372036854775808,7
+
+query
+SELECT -0.0, -(1.5), -(-2), -(0), 1e308 * 10, -1e308 * 10
+----
+-0.0,-1.5,2,0,inf,-inf
+
+query
+SELECT (1 + NULL) IS NULL, (NULL = NULL) IS NULL, 1 IS NOT NULL IS NOT NULL
+----
+1,1,1
+
+query
+SELECT 1e-5, 123456789012345678, 1.0e16, 12345.678, 0.000123
+----
+1e-05,123456789012345678,1e+16,12345.678,0.000123
+
+query
+SELECT x'CAFE', X'cafe' = x'CAFE', x'00' IS NULL
+----
+x'cafe',1,0
+
+query
+SELECT ((((1))))
+----
+1
+
+query
+SELECT 1 -- a comment
+----
+1

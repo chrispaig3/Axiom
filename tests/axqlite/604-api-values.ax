@@ -1,0 +1,94 @@
+; Values through parameters: the INTEGER limits, overflow, REAL values
+; that read back bit for bit, a NaN refused, and TEXT and BLOB with
+; every byte.
+(import IO)
+(import Err)
+(import Vec)
+(import Str)
+(import Float)
+(import Axqlite)
+(import Axqlite.Value)
+(import AxqlKit)
+
+(:: allBytes String)
+;@axiom:effect(unsafe)
+(fn (allBytes)
+  (let ((s (strAlloc 256)))
+    {
+      (for i 0 256
+        (memPutByte (strData s) i i))
+      s
+    }))
+
+; A REAL from its text.
+(:: fp (-> String Float))
+(fn (fp text)
+  (unwrapOr (floatParse text) 0.0))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((db (kitOpen "vals.db")))
+    {
+      (kitRun "create" (axqExec db "CREATE TABLE t (i INTEGER, r REAL, s TEXT, b BLOB)"))
+      (match (axqPrepare db "INSERT INTO t VALUES (?, ?, ?, ?)")
+        ((Ok ins)
+          {
+            (kitRun "limits" (axqRun ins (vec4 (VInt 9223372036854775807) (VReal (fp "1e308")) (VText "") (VBlob ""))))
+            (kitRun "negative limits" (axqRun ins (vec4 (VInt intMin) (VReal (* -1.0 0.0)) (VText "\0nul") (VBlob (allBytes)))))
+            (kitRun "infinity" (axqRun ins (vec4 (VInt 0) (VReal (fp "inf")) VNull VNull)))
+            (kitRun "subnormal" (axqRun ins (vec4 (VInt 0) (VReal (fp "5e-324")) VNull VNull)))
+            (kitRun "nan" (axqRun ins (vec4 (VInt 0) (VReal floatNan) VNull VNull)))
+            (kitRun "integer for a REAL" (axqRun ins (vec4 (VInt 1) (VInt 9007199254740993) VNull VNull)))
+            (kitRun "finalize" (axqFinalize ins))
+          }
+        )
+        ((Err e) (println (kitErrText e))))
+      (kitDump db "SELECT rowid, i, r FROM t")
+      (match (axqQueryOn db (Query "SELECT s FROM t WHERE rowid = 2" vec0))
+        ((Ok rs)
+          (match (rowText (vecGet rs.rows 0) 0)
+            ((Ok t) (println (strEq t "\0nul")))
+            ((Err e) (println (kitErrText e))))
+        )
+        ((Err e) (println (kitErrText e))))
+      (match (axqQueryOn db (Query "SELECT b FROM t WHERE rowid = 2" vec0))
+        ((Ok rs)
+          (match (rowBlob (vecGet rs.rows 0) 0)
+            ((Ok b) (println (strEq b (allBytes))))
+            ((Err e) (println (kitErrText e))))
+        )
+        ((Err e) (println (kitErrText e))))
+      (match (axqQueryOn db (Query "SELECT r FROM t WHERE rowid = 2" vec0))
+        ((Ok rs)
+          (match (rowReal (vecGet rs.rows 0) 0)
+            ((Ok x) (println (floatToBits x)))
+            ((Err e) (println (kitErrText e))))
+        )
+        ((Err e) (println (kitErrText e))))
+      (match (axqPrepare db "SELECT ? + ?")
+        ((Ok add)
+          {
+            (kitRows "max + 0" (axqQuery add (vec2 (VInt 9223372036854775807) (VInt 0))))
+            (kitRows "max + 1" (axqQuery add (vec2 (VInt 9223372036854775807) (VInt 1))))
+            (kitRows "min + -1" (axqQuery add (vec2 (VInt intMin) (VInt -1))))
+            (kitRows "int + real" (axqQuery add (vec2 (VInt 1) (VReal 0.5))))
+            (kitRows "null + 1" (axqQuery add (vec2 VNull (VInt 1))))
+            (kitRows "text + 1" (axqQuery add (vec2 (VText "1") (VInt 1))))
+            (kitRun "finalize" (axqFinalize add))
+          }
+        )
+        ((Err e) (println (kitErrText e))))
+      (match (axqPrepare db "SELECT ? * ?, ? / ?")
+        ((Ok mul)
+          {
+            (kitRows "overflow" (axqQuery mul (vec4 (VInt 4294967296) (VInt 4294967296) (VInt 1) (VInt 1))))
+            (kitRows "divide by zero" (axqQuery mul (vec4 (VInt 1) (VInt 1) (VInt 1) (VInt 0))))
+            (kitRows "min / -1" (axqQuery mul (vec4 (VInt 1) (VInt 1) (VInt intMin) (VInt -1))))
+            (kitRun "finalize" (axqFinalize mul))
+          }
+        )
+        ((Err e) (println (kitErrText e))))
+      (kitRun "close" (axqClose db))
+      0
+    }))
