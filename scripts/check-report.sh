@@ -134,6 +134,8 @@ cat > "$work/facts.ax" <<'AX'
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   {
     (println "hi")

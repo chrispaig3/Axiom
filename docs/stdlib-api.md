@@ -764,11 +764,11 @@ two differ.
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
-| `parMapWords` | value | `(-> (-> Int Int) Int Int (Vec Int))` | `Alloc,IO,Mut,Unsafe` | Run `f i` for every `i` in `0 .. n`, at most `width` at once, answering the results in SUBMIT order. |
-| `parMapWordsChecked` | value | `(-> (-> Int Int) Int Int (Vec (Result Int Error)))` | `Alloc,IO,Mut,Unsafe` | Run `f i` for every `i` in `0 .. n`, at most `width` at once, answering one `Result` per slot in SUBMIT order: `Ok` the thunk's word, `Err` the wait status of a slot whose thunk trapped. |
+| `parMapWords` | value | `(-> (-> Int Int) Int Int (Vec Int))` | `Alloc,Block,IO,Mut,Spawn,Unsafe` | Run `f i` for every `i` in `0 .. n`, at most `width` at once, answering the results in SUBMIT order. |
+| `parMapWordsChecked` | value | `(-> (-> Int Int) Int Int (Vec (Result Int Error)))` | `Alloc,Block,IO,Mut,Spawn,Unsafe` | Run `f i` for every `i` in `0 .. n`, at most `width` at once, answering one `Result` per slot in SUBMIT order: `Ok` the thunk's word, `Err` the wait status of a slot whose thunk trapped. |
 | `parArgvVector` | value | `(-> (Vec String) Int)` | `Alloc,Mut,Unsafe` | A NULL-terminated array of char* from a Vec of `String`, which is the shape `execve` and `posix_spawn` both take. |
 | `parRunOne` | value | `(-> (Vec String) (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Run one argv - element 0 is the program, looked up on `PATH` the way `sysRunPath` does it. |
-| `parRunAll` | value | `(-> (Vec (Vec String)) Int (Vec Int))` | `Alloc,IO,Mut` | Run every command in `cmds` at up to `width` at once, answering their exit codes in the order they appear in `cmds`. |
+| `parRunAll` | value | `(-> (Vec (Vec String)) Int (Vec Int))` | `Alloc,Block,IO,Mut,Spawn` | Run every command in `cmds` at up to `width` at once, answering their exit codes in the order they appear in `cmds`. |
 
 ## `Path`
 
@@ -1149,9 +1149,9 @@ two differ.
 | `taskCancel` | value | `(-> CancelToken Int)` | `IO,Mut` | Set the token and wake every pool sleeping on it. Idempotent. |
 | `taskCancelled` | value | `(-> CancelToken Bool)` |  | Whether the token is set: the poll a cooperative task makes. |
 | `taskTokenFree` | value | `(-> CancelToken (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Unmap a token. Only once no pool and no task can still reach it; the handle is retired first, so every call after this one - a second `taskTokenFree` included - traps with status 85. |
-| `taskMap` | value | `(-> (-> Int String) Int Int Int (Vec (Result String Error)))` | `Alloc,IO,Mut` | `f i` for every `i` in `0 .. n`, at most `width` at once, each answer at most `limit` bytes: one `Result` per task in submit order. No deadline, no fail-fast, a private token. |
-| `taskMapWith` | value | `(-> (-> Int String) Int TaskOpts (Vec (Result String Error)))` | `Alloc,IO,Mut` | `taskMap` with every option (`TaskOpts`). |
-| `taskFold` | value | `(-> (-> Int String) Int TaskOpts Int (-> Int Int (Result String Error) Int) Int)` | `Alloc,IO,Mut,Unsafe` | Fold the answers in submit order without keeping them: `step acc i r` for each task, starting from `init`, answering the last `acc`. Each answer - and EVERYTHING `step` allocates - lives only while that `step` runs: the pool builds the answer and calls `step` inside a `region` (MM-RGN-1) that is reset when `step` returns, so memory stays flat however many tasks go through. |
+| `taskMap` | value | `(-> (-> Int String) Int Int Int (Vec (Result String Error)))` | `Alloc,Block,IO,Mut,Spawn` | `f i` for every `i` in `0 .. n`, at most `width` at once, each answer at most `limit` bytes: one `Result` per task in submit order. No deadline, no fail-fast, a private token. |
+| `taskMapWith` | value | `(-> (-> Int String) Int TaskOpts (Vec (Result String Error)))` | `Alloc,Block,IO,Mut,Spawn` | `taskMap` with every option (`TaskOpts`). |
+| `taskFold` | value | `(-> (-> Int String) Int TaskOpts Int (-> Int Int (Result String Error) Int) Int)` | `Alloc,Block,IO,Mut,Spawn,Unsafe` | Fold the answers in submit order without keeping them: `step acc i r` for each task, starting from `init`, answering the last `acc`. Each answer - and EVERYTHING `step` allocates - lives only while that `step` runs: the pool builds the answer and calls `step` inside a `region` (MM-RGN-1) that is reset when `step` returns, so memory stays flat however many tasks go through. |
 
 ## `Test`
 

@@ -197,6 +197,8 @@
 
 (:: results (-> Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (results n w)
   (let (
     (rs (taskMap answer n w 64))
@@ -263,6 +265,8 @@
 ; ---- siblingtrap -----------------------------------------------------------
 (:: poolForever (-> Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (poolForever page idle)
   (vecLen
     (taskMap
@@ -285,6 +289,7 @@
 ; ---- stuck -----------------------------------------------------------------
 (:: stuckWork (-> Int Int String))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
 (fn (stuckWork idle i)
   {
     (__thread_spawn
@@ -305,6 +310,8 @@
 
 (:: graceRun (-> Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (graceRun idle g)
   (match taskTokenNew
     ((Ok tok)
@@ -340,6 +347,8 @@
 
 (:: runCancelled (-> Int Int CancelToken Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (runCancelled page idle tok)
   (showAll
     (taskMapWith
@@ -403,6 +412,8 @@
 (:: main Int)
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   (let (
     (mode (sysArg 1))

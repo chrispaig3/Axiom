@@ -33,6 +33,8 @@
 ; A binding that runs a `parallel` of its own over the borrowed string.
 (:: nested (-> String Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (nested s)
   (parallel q ((x (work s 10))
                (y (strLen s)))
@@ -40,6 +42,8 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   (let (
     (s (strConcat "hello, " "world"))

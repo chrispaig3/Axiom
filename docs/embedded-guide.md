@@ -131,6 +131,7 @@ a byte address.
 | `(__vstore8 a v)` … `(__vstore64 a v)` | one volatile store of the low 8/16/32/64 bits | all | `Mut`, `Unsafe` |
 | `__arm_dmb` / `__arm_dsb` / `__arm_isb` | `DMB SY` / `DSB SY` / `ISB` | any AArch64 | `Mut` |
 | `__arm_cntvct` / `__arm_cntfrq` | read `CNTVCT_EL0` / `CNTFRQ_EL0` | any AArch64 | `IO` |
+| `__arm_rndr` | read `RNDR` (FEAT_RNG), 0 when no value was ready | baremetal-aarch64 | `IO`, `Entropy` |
 | `__arm_ctr` | read `CTR_EL0` | bare metal | `IO` |
 | `(__arm_set_cntv_cval t)` / `(__arm_set_cntv_ctl c)` | write the virtual timer | bare metal | `Mut` |
 | `__arm_irq_mask` / `__arm_irq_unmask` | `msr daifset, #2` / `msr daifclr, #2` | bare metal | `Mut` |

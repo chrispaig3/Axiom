@@ -369,6 +369,8 @@ cat > "$work/fine.ax" <<'FINE'
 (:: main Int)
 
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   (parallel p ((a 1) (b 2))
     (println (+ a b))
@@ -722,6 +724,8 @@ cat > "$work/nrpar.ax" <<'NRPAR'
 
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   (let ((cell (memAlloc 8)))
     (let ((h (__par_spawn (lambda (w) (+ w 41)) 1)))
@@ -741,6 +745,8 @@ cat > "$work/nrtrap.ax" <<'NRTRAP'
 
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   (let ((cell (memAlloc 8)))
     (let ((h (__par_spawn (lambda (w) (/ 10 w)) 0)))
@@ -906,6 +912,8 @@ cat > "$work/arena.ax" <<'ARENA'
 (:: main Int)
 
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   {
     (parallel p ((a (build 20000)) (b (build 20000)) (c (build 20000)) (d (strwork 2000)))
@@ -1030,6 +1038,8 @@ cat > "$work/traps.ax" <<'TRAPS'
 (:: main Int)
 
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   (let (
     (zero 0)
@@ -1212,6 +1222,8 @@ cat > "$work/opaque-cond.ax" <<'OPAQUE'
 (import Str)
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   (let ((s "hello"))
     (__par_join (__par_spawn (if (== 1 1) (lambda (w) (+ w (strLen s))) (lambda (w) w)) 0))))
@@ -1222,6 +1234,8 @@ cat > "$work/opaque-call.ax" <<'OPAQUE'
 (fn (mk s) (lambda (w) (+ w (strLen s))))
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   (let ((s "hello"))
     (__par_join (__par_spawn (mk s) 0))))
@@ -1229,6 +1243,8 @@ OPAQUE
 cat > "$work/opaque-word.ax" <<'OPAQUE'
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   (let ((n 40))
     (__par_join (__par_spawn (if (== 1 1) (lambda (w) (+ w n)) (lambda (w) w)) 0))))
@@ -1239,6 +1255,8 @@ cat > "$work/opaque-proc.ax" <<'OPAQUE'
 (fn (mk s) (lambda (w) (+ w (strLen s))))
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   (let ((s "hello"))
     (__proc_join (__proc_spawn (mk s) 0))))
@@ -1260,6 +1278,8 @@ cat > "$work/accept-foreign.ax" <<'FOREIGN'
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   (let ((p (counterNew 0)))
     (__par_join (__par_spawn (lambda (w) { p w }) 0))))
@@ -1270,6 +1290,8 @@ cat > "$work/refuse-handle.ax" <<'HANDLE'
 (:: main Int)
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   (let ((h (ffiHandleNew 0 0)))
     (__par_join (__par_spawn (lambda (w) { h w }) 0))))
@@ -1427,6 +1449,8 @@ cat > "$work/orphan.ax" <<'ORPHAN'
 ; the second child's trap, so that cannot test a prompt failure sweep.
 (:: failWithSibling (-> String Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (failWithSibling path)
   {
     (__proc_spawn (lambda (x) (sleeper path)) 0)
@@ -1436,6 +1460,8 @@ cat > "$work/orphan.ax" <<'ORPHAN'
   })
 
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   (let ((mode (sysArg 1)))
     (if (strEq mode "abort")
@@ -1561,6 +1587,8 @@ cat > "$work/refuse.ax" <<'AX'
 
 (:: pair (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (pair x)
   (parallel p (
     (a (+ x 1))
@@ -1570,6 +1598,8 @@ cat > "$work/refuse.ax" <<'AX'
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   {
     (println "before")

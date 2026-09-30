@@ -886,3 +886,9 @@
 0.7.7  F  routeNotFound  removed with `Http`: the standard library stops at TCP (`Net`)
 0.7.7  F  routerNew  removed with `Http`: the standard library stops at TCP (`Net`)
 0.7.7  F  routeStatic  removed with `Http`: the standard library stops at TCP (`Net`)
+
+# 0.7.7 - `Spawn` and `Block` are required effects. The two pool entry
+# points start bindings and wait for them, so their rows carry both and
+# each caller now declares `effect(spawn)` and `effect(block)`.
+0.7.7  F  parMapWords  row -> Spawn, Block: it starts and joins bindings, and callers declare both
+0.7.7  F  parRunAll  row -> Spawn, Block: it starts and joins bindings, and callers declare both

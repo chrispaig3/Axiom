@@ -57,6 +57,8 @@
 
 (:: shared (-> String Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (shared s)
   (parallel p (
     (a (+ (strLen s) (strLen s)))
@@ -66,6 +68,8 @@
 
 (:: words (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (words n)
   (parallel p (
     (a (* n 2))
@@ -75,6 +79,8 @@
 
 (:: shadowed (-> String Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (shadowed s)
   (parallel p (
     (a (let ((s (strConcat "x" "y")))
@@ -85,6 +91,8 @@
 
 (:: called (-> String Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (called s)
   (parallel p (
     (a (sink "lit"))
@@ -94,6 +102,8 @@
 
 (:: container (-> (Vec Int) Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (container v)
   (parallel p (
     (a (vecLen v))

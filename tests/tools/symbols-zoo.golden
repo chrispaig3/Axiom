@@ -235,6 +235,12 @@ F childPollKind stdlib/Sys/Platform.darwin.ax:1036:9-22 "Int" @36bd998094030714
 F sysWaitIdNum stdlib/Sys/Platform.darwin.ax:1041:9-21 "Int" @15abe68cb6e46534
 F waitIdPidType stdlib/Sys/Platform.darwin.ax:1046:9-22 "Int" @417e56c542031940
 F waitPollOptions stdlib/Sys/Platform.darwin.ax:1051:9-24 "Int" @4f04cb2dcd714a4f
+F mapPrivateAnon stdlib/Sys/Platform.darwin.ax:1066:9-23 "Int" @ef4c2938ecef99dc
+F sysMlockNum stdlib/Sys/Platform.darwin.ax:1071:9-20 "Int" @61730157418e3990
+F sysMunlockNum stdlib/Sys/Platform.darwin.ax:1076:9-22 "Int" @3869d737ea0f439d
+F sysMadviseNum stdlib/Sys/Platform.darwin.ax:1081:9-22 "Int" @70319b177d8ee011
+F madvNoDump stdlib/Sys/Platform.darwin.ax:1088:9-19 "Int" @6cebc98a90575f7e
+F randomUsesRndr stdlib/Sys/Platform.darwin.ax:1093:9-23 "Int" @e741486fbca4a9ce
 F apply tests/fmt/syntax-zoo.ax:96:9-14 "((Int -> Int) -> (Int -> Int))" @9fde5fb4f32622ed #effect-params=f
 F literals tests/fmt/syntax-zoo.ax:100:5-13 "(Int -> Int)" @44e294b76be6470b
 F control tests/fmt/syntax-zoo.ax:110:5-12 "(Int -> Int)" @d78a59fa83fe109c #effect=pure
@@ -272,10 +278,10 @@ F unitArg tests/fmt/syntax-zoo.ax:364:5-12 "(() -> Int)" @6cefab6aa3adb3a3
 F integerName tests/fmt/syntax-zoo.ax:367:5-16 "(Int -> Int)" @78077a35b687a150
 F negatives tests/fmt/syntax-zoo.ax:373:5-14 "Int" @c1e7a0698a782505
 F splitTags tests/fmt/syntax-zoo.ax:406:5-14 "(Int -> Int)" @1149cb6053381fbc #no_refactor #effect=pure
-F beside tests/fmt/syntax-zoo.ax:414:5-11 "(Int -> Int)" @aa727b9b975db469 #effect=io #effects=Alloc,IO
-F alone tests/fmt/syntax-zoo.ax:418:5-10 "(Int -> Int)" @03ff16d88044c27e #effect=io #effects=Alloc,IO
-F restrictedTwice tests/fmt/syntax-zoo.ax:429:5-20 "(Int -> Int)" @09253db9ca4471fa #restrict=no-io,no-cast
-F regionKeep tests/fmt/syntax-zoo.ax:436:5-15 "(Vec String -> (String -> (a -> Int)))" @a46706b1069fed62
+F beside tests/fmt/syntax-zoo.ax:414:5-11 "(Int -> Int)" @aa727b9b975db469 #effect=io #effect=spawn #effect=block #effects=Alloc,Block,IO,Spawn
+F alone tests/fmt/syntax-zoo.ax:420:5-10 "(Int -> Int)" @03ff16d88044c27e #effect=io #effect=spawn #effect=block #effects=Alloc,Block,IO,Spawn
+F restrictedTwice tests/fmt/syntax-zoo.ax:433:5-20 "(Int -> Int)" @09253db9ca4471fa #restrict=no-io,no-cast
+F regionKeep tests/fmt/syntax-zoo.ax:440:5-15 "(Vec String -> (String -> (a -> Int)))" @a46706b1069fed62
 D Option - "data Option" #ctors=Some,None
 C Some - "(a -> Option a)" #of=Option
 C None - "Option a" #of=Option

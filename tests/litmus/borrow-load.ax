@@ -53,6 +53,8 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   (let (
     (n (argInt 1 2000))

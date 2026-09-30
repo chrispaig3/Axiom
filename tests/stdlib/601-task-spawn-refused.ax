@@ -93,6 +93,8 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   (match (sysMapShared 4096)
     ((Ok page)

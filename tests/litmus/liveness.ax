@@ -173,6 +173,8 @@
 
 (:: starve (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (starve ms)
   (match (mutexNew)
     ((Ok m)
@@ -248,6 +250,8 @@
 
 (:: inversion (-> Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (inversion how ms)
   (match (mutexNew)
     ((Ok a)
@@ -329,6 +333,8 @@
 
 (:: pair (-> Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (pair how ms)
   (match (chanNew 1)
     ((Ok c1)
@@ -366,6 +372,8 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   (let (
     (mode (sysArg 1))

@@ -956,6 +956,8 @@ checks=$((checks + 1))
 cat > "$work/par7.ax" <<'AX'
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main) (parallel p ((a 40) (b 2)) (+ a b)))
 AX
 if "$axc" build --input "$work/par7.ax" --output "$work/par7.plain" --threads \

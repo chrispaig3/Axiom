@@ -78,6 +78,8 @@
 ; The raising pool, passed to the recovery point by name.
 (:: raisingRound (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (raisingRound x)
   (match (sysMapShared 4096)
     ((Ok page)
@@ -91,6 +93,8 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   (match (sysMapShared 4096)
     ((Ok page)

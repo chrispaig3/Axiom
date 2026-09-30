@@ -145,6 +145,7 @@
 
 (:: spawnHolder (-> Chan Int Int Spawn))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
 (fn (spawnHolder c flag idle)
   (__proc_spawn
     (lambda (x) (holdLock c flag idle))
@@ -200,6 +201,8 @@
 (:: killer (-> Chan Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (killer c flag idle)
   (let (
     (ring (ringOf c))
@@ -271,6 +274,8 @@
 
 (:: exact (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (exact idle)
   (match (chanNew 1)
     ((Ok c)
@@ -294,6 +299,8 @@
 (:: parent (-> Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (parent idle)
   (match (chanNew 1)
     ((Ok c)
@@ -347,6 +354,7 @@
 
 (:: spawnHammer (-> Chan Spawn))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
 (fn (spawnHammer c)
   (__proc_spawn
     (lambda (x) (hammer c))
@@ -355,6 +363,7 @@
 ; One round: a recovery point around `doomed`, answering its status.
 (:: round (-> Chan Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
 (fn (round c idle us)
   (__axiom_recover
     __axiom_arena_mark
@@ -363,6 +372,7 @@
 ; Start the hammer, let it run `us`, then trap: the abort sweeps it.
 (:: doomed (-> Chan Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
 (fn (doomed c idle us)
   (let ((h (spawnHammer c)))
     {
@@ -373,6 +383,7 @@
 (:: sweep (-> Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
 (fn (sweep idle rounds)
   (let (
     (buf (memAlloc 16))
@@ -423,6 +434,8 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   (match (sysMapShared 4096)
     ((Ok idle)

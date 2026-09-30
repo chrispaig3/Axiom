@@ -20783,7 +20783,7 @@
 (pub fn (isArmPrimName nm)
   (if (isHostedArmPrimName nm)
     true
-    (if (|| (strEq nm "__arm_ctr") (|| (strEq nm "__arm_tpidr") (strEq nm "__arm_set_tpidr")))
+    (if (|| (strEq nm "__arm_ctr") (|| (strEq nm "__arm_tpidr") (|| (strEq nm "__arm_set_tpidr") (strEq nm "__arm_rndr"))))
       true
       (if (|| (strEq nm "__arm_set_cntv_cval") (strEq nm "__arm_set_cntv_ctl"))
         true
@@ -20804,7 +20804,7 @@
 (pub fn (isNullaryDevicePrimName nm)
   (if (isHostedArmPrimName nm)
     true
-    (if (|| (strEq nm "__arm_ctr") (strEq nm "__arm_tpidr"))
+    (if (|| (strEq nm "__arm_ctr") (|| (strEq nm "__arm_tpidr") (strEq nm "__arm_rndr")))
       true
       (|| (strEq nm "__arm_irq_mask") (|| (strEq nm "__arm_irq_unmask") (strEq nm "__arm_wfi"))))))
 
@@ -20854,7 +20854,12 @@
                             "wfi"
                             (if (strEq nm "__arm_dc_cvac")
                               "dc cvac, $0"
-                              "dc civac, $0")))))))))))))))
+                              (if (strEq nm "__arm_rndr")
+                                ; `RNDR` sets Z when it could not answer and
+                                ; leaves 0; `csel` turns every such read
+                                ; into 0, so the answer is the whole story
+                                "mrs $0, s3_3_c2_c4_0\\0Acsel $0, $0, xzr, ne"
+                                "dc civac, $0"))))))))))))))))
 
 ; The reads answer a register. The counter read carries `~{memory}`
 ; because it is a TIMESTAMP: a load or store the compiler moved across
@@ -20863,13 +20868,15 @@
 (pub fn (armPrimReadCons nm)
   (if (strEq nm "__arm_cntvct")
     "\"=r,~{memory}\"()"
-    "\"=r\"()"))
+    (if (strEq nm "__arm_rndr")
+      "\"=r,~{cc}\"()"
+      "\"=r\"()")))
 
 (pub :: armPrimReads (-> String Bool))
 (pub fn (armPrimReads nm)
   (if (|| (strEq nm "__arm_cntvct") (strEq nm "__arm_cntfrq"))
     true
-    (|| (strEq nm "__arm_ctr") (strEq nm "__arm_tpidr"))))
+    (|| (strEq nm "__arm_ctr") (|| (strEq nm "__arm_tpidr") (strEq nm "__arm_rndr")))))
 
 (pub :: armPrimTakesArg (-> String Bool))
 (pub fn (armPrimTakesArg nm)

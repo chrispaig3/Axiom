@@ -31,6 +31,8 @@
 
 (:: body (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (body x)
   (parallel p (
     (a (+ x 1))
@@ -39,6 +41,8 @@
     (+ a b)))
 
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   (let ((st 
     (__axiom_recover

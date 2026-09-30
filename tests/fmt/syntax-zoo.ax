@@ -413,10 +413,14 @@
 ; `parseParallelExpr`). `IO`, because a spawn reaches the kernel.
 (:: beside (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (beside n)
   (parallel p ((a (+ n 1)) (b (+ n 2))) (+ a b)))
 (:: alone (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (alone n)
   (parallel p ((a (* n 2))) (+ a 1) a))
 

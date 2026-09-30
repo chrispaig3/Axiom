@@ -46,6 +46,8 @@
 ; Both senders, then the close.
 (:: feed (-> Chan Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (feed ch n)
   (parallel q (
     (a (send ch 1 n))
@@ -87,6 +89,8 @@
 
 (:: run (-> Chan Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (run ch cap n)
   (parallel p (
     (fed (feed ch n))
@@ -108,6 +112,8 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   (let (
     (cap (argInt 1 1))

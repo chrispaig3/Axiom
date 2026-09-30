@@ -54,7 +54,7 @@
   [93mAX3039[0m  an AXTAG key one slip from a key the compiler checks  (axtag-key-typo)
   [93mAX3040[0m  a type variable the caller chooses and the callee produces  (result-only-tyvar)
   [93mAX3041[0m  an `extern` block's library name that is not one  (extern-library-name)
-  [93mAX3042[0m  a function performs IO and does not declare it  (undeclared-effect)
+  [93mAX3042[0m  a function performs a required effect and does not declare it  (undeclared-effect)
   [93mAX3043[0m  a reference stored through a field declared `Int`  (error-payload-untyped)
   [93mAX3044[0m  a bare TYPE name is declared in more than one imported module  (ambiguous-type)
   [93mAX3045[0m  a self-recursive call in the scrutinee of a match  (recursion-in-scrutinee)
@@ -1709,11 +1709,17 @@ or `AXIOM_LINK_SEARCH`, and the symbol on the other side of the
 boundary belongs in the item's own `(symbol "...")` clause.
 
 ### explain AX3042
-AX3042 - a function performs IO and does not declare it
+AX3042 - a function performs a required effect and does not declare it
 
 The body reaches outside the process - a `__syscallN`, a call to
 something that does, or an `extern` - and the declaration says
-nothing about it.
+nothing about it. Or it performs one of the three effects that
+refine IO: `Entropy` (it draws randomness), `Spawn` (it starts a
+binding, thread or process, as `parallel` does) or `Block` (it waits
+for one, for a lock or for a child). Those three are asked of every
+declaration, claim or none: a function that says `effect(io)` and
+uses `parallel` still draws this, naming `Spawn` and `Block`. Write
+`;@axiom:effect(spawn)` and `;@axiom:effect(block)` above it.
 
 SILENCE IS A CLAIM HERE. An untagged function is not an unchecked
 one: it is a function claiming to perform no IO, and this is that
@@ -1728,7 +1734,7 @@ place a reader would otherwise have to open the callee to learn it.
 If the effect is not wanted there, the fix is to stop performing it
 rather than to stop saying so.
 
-`IO` is the only effect required TRANSITIVELY, and the reason is a measurement. Of 4,645
+`IO` and its three refinements are the only effects required TRANSITIVELY, and the reason is a measurement. The refinements were measured before they were made required: over one probe importing every standard-library module, 1,044 functions, `Spawn` reaches 19 and `Block` 45; over the compiler's 5,110, they reach 10 and 19. Of 4,645
 functions in this compiler and its standard library, 4,092 perform
 something and 2,251 of those perform exactly `Alloc,Mut,Unsafe` -
 every function that touches a String or a Vec, because allocating is
@@ -3282,7 +3288,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3039[0m  an AXTAG key one slip from a key the compiler checks  (axtag-key-typo)
   [93mAX3040[0m  a type variable the caller chooses and the callee produces  (result-only-tyvar)
   [93mAX3041[0m  an `extern` block's library name that is not one  (extern-library-name)
-  [93mAX3042[0m  a function performs IO and does not declare it  (undeclared-effect)
+  [93mAX3042[0m  a function performs a required effect and does not declare it  (undeclared-effect)
   [93mAX3043[0m  a reference stored through a field declared `Int`  (error-payload-untyped)
   [93mAX3044[0m  a bare TYPE name is declared in more than one imported module  (ambiguous-type)
   [93mAX3045[0m  a self-recursive call in the scrutinee of a match  (recursion-in-scrutinee)

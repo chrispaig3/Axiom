@@ -70,6 +70,8 @@ cat > "$work/b_spawn.ax" <<'AX'
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   (let ((out (parMapWords (lambda (i) i) 4000 8)))
     (let ((s (vecSum out)))
@@ -95,6 +97,8 @@ cat > "$work/b_alloc.ax" <<'AX'
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   (let ((out (parMapWords (lambda (i) (childSum 2000)) 2000 8)))
     (let ((s (vecSum out)))
@@ -113,6 +117,8 @@ cat > "$work/b_runall.ax" <<'AX'
 (:: main Int)
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   (let ((cmds vecNew))
     {

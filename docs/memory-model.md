@@ -306,7 +306,11 @@ Effects don't appear in function types. `;@axiom:effect(...)` and
 `;@axiom:effect(pure)` are claims, checked against the inference, and a refuted
 claim is `AX3010`, an error. Claims aren't opt-in: an untagged function
 claims to perform no `IO`, and a body that performs it anyway is
-`AX3042`. `Alloc` and `Mut` stay ambient and are never required.
+`AX3042`. The same holds for the three effects that refine `IO` -
+`Entropy` (drawing randomness), `Spawn` (starting a binding, thread or
+process) and `Block` (waiting for one, a lock or time) - and each is
+asked of every declaration, so an `effect(io)` claim doesn't answer
+for them. `Alloc` and `Mut` stay ambient and are never required.
 
 **MM-EXEC-9a (H).** The inferred effect set is an under-approximation,
 and this specification says so. A conforming implementation **SHOULD**
@@ -4754,6 +4758,8 @@ changes a count the parent relies on:
 
 (:: shout (-> String Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (shout s)
   (parallel p ((a (strLen s))
                (b (strLen (strConcat s "!"))))
@@ -4761,6 +4767,8 @@ changes a count the parent relies on:
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   (shout (strConcat "hello, " "world")))
 ```

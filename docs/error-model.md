@@ -1111,7 +1111,7 @@ This section records the codes below. All of them are built, and
 | `AX3039` `axtag-key-typo` | an AXTAG key one edit away from a key the compiler checks | A warning. |
 | `AX3040` `result-only-tyvar` | a type variable the caller chooses and the callee produces | The slug names the shape it was built for and stays as the machine key. The rule also covers a function-typed parameter's own variable. |
 | `AX3041` `extern-library-name` | an `extern` block's library name that isn't one | Reported by the parser. |
-| `AX3042` `undeclared-effect` | a function that performs IO and doesn't declare it | |
+| `AX3042` `undeclared-effect` | a function that performs a required effect (`IO`, `Entropy`, `Spawn` or `Block`) and doesn't declare it | |
 | `AX3043` `error-payload-untyped` | a reference smuggled through a field declared `Int` | A warning. `tests/diagnostics/1008-error-payload-untyped.ax` |
 | `AX3044` `ambiguous-type` | a bare type name declared in more than one imported module | Reported by the namespace pass. |
 | `AX3045` `recursion-in-scrutinee` | a self-recursive call in the scrutinee of a `match` | A warning. `ERR-PROP-4` |

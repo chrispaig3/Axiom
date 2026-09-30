@@ -156,6 +156,8 @@
 ; it captures nothing the abort could reclaim (MM-ALLOC-23).
 (:: taskRound (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (taskRound x)
   (match (sysMapShared 4096)
     ((Ok page)
@@ -180,6 +182,8 @@
 
 (:: checkedRound (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (checkedRound x)
   (match (sysMapShared 4096)
     ((Ok page)
@@ -198,6 +202,8 @@
 
 (:: raisingRound (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (raisingRound x)
   (match (sysMapShared 4096)
     ((Ok page)
@@ -213,6 +219,8 @@
 ; The round the first argument names.
 (:: oneRound (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (oneRound x)
   (let ((mode (sysArg 1)))
     (if (strEq mode "task")
@@ -225,6 +233,8 @@
 ; untouched when `k` is below 0.
 (:: rounds (-> Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (rounds k n)
   (let ((hs (vecWithCapacity 65536)))
     {
@@ -275,6 +285,8 @@
 (:: kernelRound (-> Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (kernelRound x)
   (match (sysMapShared 4096)
     ((Ok page)
@@ -307,6 +319,8 @@
 (:: main Int)
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   (let ((mode (sysArg 1)))
     (match (sysMapShared 4096)

@@ -28,6 +28,8 @@
 
 (:: fpar Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (fpar)
   (let ((p (counterNew 0)))
     (__par_join
@@ -42,6 +44,8 @@
 
 (:: fthread Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (fthread)
   (let ((p (counterNew 0)))
     (__thread_join
@@ -56,6 +60,8 @@
 
 (:: falias (-> FPtr Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (falias x)
   (__par_join
     (__par_spawn
@@ -69,6 +75,8 @@
 
 (:: hstring Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (hstring)
   (let ((s "held"))
     (__par_join
@@ -84,6 +92,8 @@
 (:: hhandle Int)
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (hhandle)
   (let ((h (ffiHandleNew 0 0)))
     (__par_join

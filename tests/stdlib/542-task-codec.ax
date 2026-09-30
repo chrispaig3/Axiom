@@ -120,6 +120,8 @@
 ; Blocks 0 .. n-1, each encoded in its own task, at most `limit` bytes.
 (:: encoded (-> Int Int (Vec (Result String Error))))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (encoded n limit)
   (taskMap
     (lambda (i) (encode (compute i)))
@@ -129,6 +131,8 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   (let (
     (rs (encoded 12 512))

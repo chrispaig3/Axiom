@@ -76,6 +76,8 @@
 ; ---- spawn -------------------------------------------------------------
 (:: pair (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (pair i)
   (parallel p (
     (a (+ i 1))
@@ -87,6 +89,8 @@
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 ;@axiom:precondition(`buf` names 16 live writable bytes)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (spawnRun buf n)
   (let (
     (t0 (sysTimeoutMicros buf))
@@ -113,6 +117,8 @@
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 ;@axiom:precondition(`buf` names 16 live writable bytes)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (tasksRun buf n w bytes)
   (let ((t0 (sysTimeoutMicros buf)))
     (let (
@@ -149,6 +155,8 @@
 
 (:: bumpK (-> Mutex Int Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (bumpK m cell n k)
   (if (== k 1)
     (bump m cell n)
@@ -163,6 +171,8 @@
 (:: mutexRun (-> Int Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (mutexRun buf n k)
   (match (mutexNew)
     ((Ok m)
@@ -222,6 +232,8 @@
 (:: chanRun (-> Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (chanRun buf n)
   (match (chanNew 64)
     ((Ok ch)
@@ -281,6 +293,8 @@
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 ;@axiom:precondition(`buf` names 16 live writable bytes)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (one buf)
   (let ((t0 (sysTimeoutMicros buf)))
     {
@@ -300,6 +314,8 @@
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 ;@axiom:precondition(`buf` names 16 live writable bytes)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (latencyRun buf n)
   (let ((v (vecWithCapacity n)))
     {
@@ -341,6 +357,8 @@
 
 (:: bindWork (-> Int Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (bindWork parts base w)
   (if (== parts 1)
     (parallel p (
@@ -375,6 +393,8 @@
 
 (:: poolWork (-> Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (poolWork parts w)
   (vecSum (parMapWords
     (lambda (k) (part 0 w parts k))
@@ -386,6 +406,8 @@
 ; two answer the same sum and no round repeats another's work.
 (:: grainPar (-> Int Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (grainPar parts w rounds)
   (let ((mut acc 0))
     {
@@ -427,6 +449,8 @@
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 ;@axiom:precondition(`base` names a page with 8 live words `stride` bytes apart)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (hammerK parts base stride n)
   (if (== parts 2)
     (parallel p (
@@ -458,6 +482,8 @@
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 ;@axiom:precondition(`buf` names 16 live writable bytes)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (fshareRun buf parts stride n)
   (match (sysMapShared 4096)
     ((Ok page)
@@ -521,6 +547,8 @@
 (:: pingpongRun (-> Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (pingpongRun n)
   (match (chanNew 1)
     ((Ok c1)
@@ -562,6 +590,8 @@
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 ;@axiom:precondition(`buf` names 16 live writable bytes)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (moreModes buf mode)
   (if (strEq mode "nop")
     0
@@ -592,6 +622,8 @@
 (:: main Int)
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   (let (
     (mode (sysArg 1))

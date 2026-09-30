@@ -52,6 +52,8 @@
 
 (:: feed (-> Chan Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (feed ch n)
   (parallel q (
     (x (produce ch 1 (+ n 1)))
@@ -117,6 +119,8 @@
 
 (:: stress (-> Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (stress cap n)
   (let (
     (ch (newOr cap))
@@ -193,6 +197,8 @@
 
 (:: waitMode Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (waitMode)
   (match (sysMapShared 4096)
     ((Ok m)
@@ -242,6 +248,8 @@
 
 (:: wakeRound Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (wakeRound)
   (let ((ch (newOr 1)))
     (parallel p (
@@ -256,6 +264,8 @@
 ; Eleven rounds, sorted in place: the median is the sixth.
 (:: wakeMode Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (wakeMode)
   (let (
     (v (:: vecNew (Vec Int)))
@@ -292,6 +302,8 @@
 
 (:: stuck Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (stuck)
   (let ((ch (newOr 1)))
     (parallel p ((r (recvOr ch)))
@@ -302,6 +314,8 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   (let ((mode (sysArg 1)))
     (if (strEq mode "stress")

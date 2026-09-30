@@ -73,6 +73,8 @@
 (:: storageWords Int)
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (storageWords)
   (region words
     (let (
@@ -91,6 +93,8 @@
 (:: storageChecked Int)
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (storageChecked)
   (region checked
     (let (
@@ -108,6 +112,8 @@
 
 (pub :: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (pub fn (main)
   {
     (println storageWords)

@@ -29,6 +29,8 @@
 
 (:: direct (-> (Vec Int) Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (direct v)
   (__par_join
     (__par_spawn
@@ -42,6 +44,8 @@
 
 (:: aliased (-> IntVec Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (aliased v)
   (__par_join
     (__par_spawn
@@ -55,6 +59,8 @@
 
 (:: nested (-> (Vec (Vec Int)) Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (nested v)
   (__thread_join
     (__thread_spawn
@@ -68,6 +74,8 @@
 
 (:: wrapped (-> Bag Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (wrapped b)
   (__par_join
     (__par_spawn
@@ -81,6 +89,8 @@
 
 (:: words (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (words n)
   (__thread_join
     (__thread_spawn

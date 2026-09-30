@@ -27,6 +27,7 @@
 
 (:: spawnInner (-> Int Spawn))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
 (fn (spawnInner i)
   (__thread_spawn
     (lambda (x) (inner x))
@@ -34,6 +35,8 @@
 
 (:: joined (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (joined i)
   (__thread_join (spawnInner i)))
 
@@ -58,6 +61,7 @@
 ; Answers, and leaves a thread its process must join for ever.
 (:: stuck (-> Int Int String))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
 (fn (stuck idle i)
   {
     (__thread_spawn
@@ -74,6 +78,8 @@
 
 (:: rawFork Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (rawFork)
   (__proc_join
     (__proc_spawn
@@ -82,6 +88,8 @@
 
 (:: ranOrWrong (-> Int String))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (ranOrWrong i)
   (if (== (joined i) 1)
     "ran"
@@ -89,6 +97,8 @@
 
 (:: taskRan String)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (taskRan)
   (first
     (taskMap
@@ -99,6 +109,8 @@
 
 (:: stuckTask (-> Int String))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (stuckTask idle)
   (first
     (taskMapWith
@@ -108,6 +120,8 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   (match (sysMapShared 4096)
     ((Ok idle)

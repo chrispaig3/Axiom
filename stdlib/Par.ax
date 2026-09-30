@@ -125,6 +125,8 @@
 (pub :: parMapWords (-> (-> Int Int) Int Int (Vec Int)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (pub fn (parMapWords f n width)
   (let (
     (w (if (< width 1)
@@ -176,6 +178,7 @@
 (:: parJoinChecked (-> Spawn Int (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (parJoinChecked h cell)
   (let ((w (__proc_join_nr h cell)))
     (let ((st (memGetWord cell 0)))
@@ -191,6 +194,7 @@
 ; and the `region` around it takes back its one allocation, the mark.
 (:: parSpawn (-> (-> Int Int) Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
 (fn (parSpawn f i)
   (region r
     (__axiom_recover
@@ -232,6 +236,7 @@
 (:: parJoinKilled (-> Spawn Int (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (parJoinKilled h cell)
   (let ((w (__proc_join_nr h cell)))
     (let ((st (memGetWord cell 0)))
@@ -260,6 +265,8 @@
 (pub :: parMapWordsChecked (-> (-> Int Int) Int Int (Vec (Result Int Error))))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (pub fn (parMapWordsChecked f n width)
   (let (
     (w (if (< width 1)
@@ -404,6 +411,8 @@
 ; process pays for the `PATH` walk.
 (pub :: parRunAll (-> (Vec (Vec String)) Int (Vec Int)))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (pub fn (parRunAll cmds width)
   (parMapWords
     (lambda (i) (parRunWord (vecGet cmds i)))

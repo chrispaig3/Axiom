@@ -2817,6 +2817,19 @@
 ; program's meaning - giving them `Mut` marks every function that
 ; touches a reference and deletes the discrimination the rest of this
 ; buys.
+; A primitive with two effects: `IO` and the refinement that says what
+; kind of IO - a spawn is `IO` and `Spawn`, a join `IO` and `Block`.
+(pub :: regFnEff2 (-> (Vec Int) String Int String String (Vec Int)))
+;@axiom:effect(unsafe)
+(pub fn (regFnEff2 fns name ty eff1 eff2)
+  (let ((ent (regFnEff fns name ty eff1)))
+    {
+      (vecPush
+        (memGetWordVec (vecGet fns (- (vecLen fns) 1)) 5)
+        (cast Int eff2))
+      ent
+    }))
+
 (pub :: regFnEff (-> (Vec Int) String Int String (Vec Int)))
 (pub fn (regFnEff fns name ty eff)
   (let ((effs vecNew))
@@ -2968,6 +2981,12 @@
     (regFnEff fns "__arm_dsb" (mkIntArrow 0) (builtinEff "Mut"))
     (regFnEff fns "__arm_isb" (mkIntArrow 0) (builtinEff "Mut"))
     (regFnEff fns "__arm_cntvct" (mkIntArrow 0) (builtinEff "IO"))
+    ; `RNDR`, FEAT_RNG's random-number register: one word of hardware
+    ; entropy, or 0 when the generator could not produce one in time.
+    ; `IO` and `Entropy`, which is what makes a bare-metal program that
+    ; draws randomness say so. `baremetal-aarch64` only (AX4008): an
+    ; aarch64 host without FEAT_RNG answers the read with SIGILL.
+    (regFnEff2 fns "__arm_rndr" (mkIntArrow 0) (builtinEff "IO") (builtinEff "Entropy"))
     (regFnEff fns "__arm_cntfrq" (mkIntArrow 0) (builtinEff "IO"))
     (regFnEff fns "__arm_ctr" (mkIntArrow 0) (builtinEff "IO"))
     (regFnEff fns "__arm_set_cntv_cval" (mkIntArrow 1) (builtinEff "Mut"))
@@ -3162,15 +3181,15 @@
       ; is a slot in the runtime's handle table, so a join of a handle
       ; already joined - or of one that never was a handle - traps 85
       ; before it reads the page the slot named.
-      (regFnEff fns "__par_spawn" (mkTArr (mkTArr mkIntTy mkIntTy) (mkTArr mkIntTy mkSpawnTy)) (builtinEff "IO"))
-      (regFnEff fns "__par_join" (mkTArr mkSpawnTy mkIntTy) (builtinEff "IO"))
-      (regFnEff fns "__par_join_nr" (mkTArr mkSpawnTy (mkTArr mkIntTy mkIntTy)) (builtinEff "IO"))
-      (regFnEff fns "__thread_spawn" (mkTArr (mkTArr mkIntTy mkIntTy) (mkTArr mkIntTy mkSpawnTy)) (builtinEff "IO"))
-      (regFnEff fns "__thread_join" (mkTArr mkSpawnTy mkIntTy) (builtinEff "IO"))
-      (regFnEff fns "__thread_join_nr" (mkTArr mkSpawnTy (mkTArr mkIntTy mkIntTy)) (builtinEff "IO"))
-      (regFnEff fns "__proc_spawn" (mkTArr (mkTArr mkIntTy mkIntTy) (mkTArr mkIntTy mkSpawnTy)) (builtinEff "IO"))
-      (regFnEff fns "__proc_join" (mkTArr mkSpawnTy mkIntTy) (builtinEff "IO"))
-      (regFnEff fns "__proc_join_nr" (mkTArr mkSpawnTy (mkTArr mkIntTy mkIntTy)) (builtinEff "IO"))
+      (regFnEff2 fns "__par_spawn" (mkTArr (mkTArr mkIntTy mkIntTy) (mkTArr mkIntTy mkSpawnTy)) (builtinEff "IO") (builtinEff "Spawn"))
+      (regFnEff2 fns "__par_join" (mkTArr mkSpawnTy mkIntTy) (builtinEff "IO") (builtinEff "Block"))
+      (regFnEff2 fns "__par_join_nr" (mkTArr mkSpawnTy (mkTArr mkIntTy mkIntTy)) (builtinEff "IO") (builtinEff "Block"))
+      (regFnEff2 fns "__thread_spawn" (mkTArr (mkTArr mkIntTy mkIntTy) (mkTArr mkIntTy mkSpawnTy)) (builtinEff "IO") (builtinEff "Spawn"))
+      (regFnEff2 fns "__thread_join" (mkTArr mkSpawnTy mkIntTy) (builtinEff "IO") (builtinEff "Block"))
+      (regFnEff2 fns "__thread_join_nr" (mkTArr mkSpawnTy (mkTArr mkIntTy mkIntTy)) (builtinEff "IO") (builtinEff "Block"))
+      (regFnEff2 fns "__proc_spawn" (mkTArr (mkTArr mkIntTy mkIntTy) (mkTArr mkIntTy mkSpawnTy)) (builtinEff "IO") (builtinEff "Spawn"))
+      (regFnEff2 fns "__proc_join" (mkTArr mkSpawnTy mkIntTy) (builtinEff "IO") (builtinEff "Block"))
+      (regFnEff2 fns "__proc_join_nr" (mkTArr mkSpawnTy (mkTArr mkIntTy mkIntTy)) (builtinEff "IO") (builtinEff "Block"))
       ; `parallel`'s borrow scope (MM-PAR-6b): `(parallel$borrow 0)`
       ; answers a fresh borrow record, codegen lends it each thunk's
       ; captures, and `(parallel$return b)` restores their counts. The
@@ -8569,7 +8588,35 @@
               1
               (if (strEq n "Unsafe")
                 1
-                0))))))))
+                (isConcEntropyEffect n)))))))))
+
+; The three built-in effects that refine `IO`: `Entropy` (the program
+; drew randomness, so it is not deterministic), `Spawn` (it started
+; another binding, thread or process) and `Block` (it waited for
+; another binding, a lock, a child or time). Each is REQUIRED the way
+; `IO` is - an undeclaring body is AX3042 - and each was measured to
+; discriminate before it was made so: over one probe importing every
+; standard-library module (1,044 functions, 235 performing IO), `Spawn`
+; reaches 19 and `Block` 45; over `self_host/main.ax` (5,110 functions)
+; they reach 10 and 19. A tag on that few says something `IO` alone
+; does not.
+;
+; Their PRODUCERS are the spawn and join primitives, `__arm_rndr`, and
+; any constant carrying `;@axiom:syscall(...)` - the syscall numbers in
+; `Sys.Platform` that mean `getrandom`, `fork` or `futex`. The compiler
+; cannot tell one `__syscallN` from another, because the number is a
+; runtime value; the platform table that names the number is where its
+; meaning is known, so that is where the effect is stated
+; (`syscallTagEffects`).
+(pub :: isConcEntropyEffect (-> String Int))
+(pub fn (isConcEntropyEffect n)
+  (if (strEq n "Entropy")
+    1
+    (if (strEq n "Spawn")
+      1
+      (if (strEq n "Block")
+        1
+        0))))
 
 ; AX3054: an effect declared with a built-in effect's name.
 ;
@@ -15824,10 +15871,77 @@
             (let (
               (g1 (effUnion (memGetWordVec ent 5) got 0))
               (g2 (intUnion (memGetWordVec ent 6) (bsEparamsVec sc) 0))
+              (g3 (effUnion (memGetWordVec ent 5) (syscallTagEffects tc d) 0))
             )
-              (if (|| (== g1 1) (== g2 1))
+              (if (|| (|| (== g1 1) (== g2 1)) (== g3 1))
                 1
                 0))))))))
+
+; `;@axiom:syscall(entropy)`, `syscall(spawn)`, `syscall(block)`: this
+; declaration is a syscall NUMBER, and the call it names draws entropy,
+; starts a process or thread, or waits. The platform tables in
+; `stdlib/Sys/Platform.*.ax` carry it on `sysRandomNum`, the fork and
+; clone numbers and the wait numbers.
+;
+; The effect is seeded into the constant's own row, so every function
+; that NAMES the number performs it, by the same propagation that
+; carries IO up from a `__syscallN`. Naming is the right trigger: the
+; kernel sees the number, and a function cannot make the call without
+; first saying it. A function that names the number and never makes
+; the call is over-approximated, which is the safe direction.
+;
+; The value is a comma list of the three names. A name outside them is
+; AX3052's refusal, reported by `checkSyscallTag` where the tag stands.
+(pub :: syscallTagEffects (-> Int Int (Vec Int)))
+;@axiom:effect(unsafe)
+(pub fn (syscallTagEffects tc d)
+  (let ((out vecNew))
+    {
+      (syscallTagsInto out (memGetWordVec d 7) 0)
+      (syscallTagsInto out (sigAxtagsFor tc (nodeAName d)) 0)
+      out
+    }))
+
+(pub :: syscallTagsInto (-> (Vec Int) (Vec Int) Int Int))
+(pub fn (syscallTagsInto out tags i)
+  (if (==
+    (cast Int tags)
+    0)
+    0
+    (if (>= i (vecLen tags))
+      0
+      (let ((t (vecGet tags i)))
+        {
+          (if (strEq (axtagKeyOf t) "syscall")
+            (syscallNamesInto out (strSplit (axtagTextValue t) 44) 0)
+            0)
+          (syscallTagsInto out tags (+ i 1))
+        }))))
+
+(pub :: syscallNamesInto (-> (Vec Int) (Vec String) Int Int))
+;@axiom:effect(unsafe)
+(pub fn (syscallNamesInto out names i)
+  (if (>= i (vecLen names))
+    0
+    (let ((e (syscallEffectOf (strTrimBlanks (vecGetStr names i)))))
+      {
+        (if (== (strLen e) 0)
+          0
+          (effAdd out e))
+        (syscallNamesInto out names (+ i 1))
+      })))
+
+; The effect a `syscall(...)` name denotes, or "" for a name it does
+; not accept.
+(pub :: syscallEffectOf (-> String String))
+(pub fn (syscallEffectOf n)
+  (if (strEq n "entropy")
+    (builtinEff "Entropy")
+    (if (strEq n "spawn")
+      (builtinEff "Spawn")
+      (if (strEq n "block")
+        (builtinEff "Block")
+        ""))))
 
 ; LAST declaration to first. The recursive call is bound before the
 ; body runs, so `decls[i]` is processed after everything above it.
@@ -19674,6 +19788,11 @@
           (if (|| (== (axtagsClaimAny sig) 1) (== (axtagsClaimAny own) 1))
             0
             (checkUndeclaredIO tc d eff))
+          ; `Entropy`, `Spawn` and `Block` are asked of every
+          ; declaration, claims or none: `effect(io)` says the body
+          ; reaches the outside world, and says nothing about whether it
+          ; draws randomness, starts a binding or waits for one.
+          (checkUndeclaredRefined tc d eff own sig)
           ; AX3073 asks every declaration that did not SAY
           ; `effect(unsafe)`, whatever else it claimed: an `effect(io)`
           ; claim is about IO, and it used to buy silence about the raw
@@ -19871,6 +19990,15 @@
             0
             {
               (vecPush rs "no-recursion")
+              0
+            })
+          ; and `no-block`: a handler that waits for another binding,
+          ; a lock or a child waits with the interrupted code stopped
+          ; underneath it, which is how an interrupt deadlocks.
+          (if (== (strInVec rs "no-block" 0) 1)
+            0
+            {
+              (vecPush rs "no-block")
               0
             })
           (checkIsrParams tc d (isrVectorOf sig own))
@@ -20305,7 +20433,15 @@
               ; every callee's stores (stage S3, `restrictNoEscape`).
               (if (strEq r "no-escape")
                 1
-                0))))))))
+                ; the three refinements of `IO`, read off the row as
+                ; `no-io` is
+                (if (strEq r "no-entropy")
+                  1
+                  (if (strEq r "no-spawn")
+                    1
+                    (if (strEq r "no-block")
+                      1
+                      0)))))))))))
 
 ; The effect-transparent parameters by NAME, backticked and comma
 ; joined. `FnEnt` word 6 holds indices, and `symbols` renders them the
@@ -20384,7 +20520,28 @@
                     (restrictNoUntrapped tc d r (nodeC d))
                     (if (strEq r "no-escape")
                       (restrictNoEscape tc d r)
-                      (emitRestrictUnknown tc d r))))))))))))
+                      (if (strEq r "no-entropy")
+                        (restrictEffect
+                          tc
+                          d
+                          r
+                          eff
+                          "Entropy")
+                        (if (strEq r "no-spawn")
+                          (restrictEffect
+                            tc
+                            d
+                            r
+                            eff
+                            "Spawn")
+                          (if (strEq r "no-block")
+                            (restrictEffect
+                              tc
+                              d
+                              r
+                              eff
+                              "Block")
+                            (emitRestrictUnknown tc d r)))))))))))))))
 
 ; `no-io`, `no-alloc` and `no-unsafe`: the effect row, read per
 ; direction as the header explains.
@@ -21884,7 +22041,7 @@
           (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `restrict(") r) (strConcat (strConcat ")`, and `" r) "` names no restriction")))
         0
         0
-        "the restrictions this compiler checks are `no-cast`, `no-cast:deep`, `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-recursion`, `no-wrap`, `no-untrapped` and `no-escape`, comma-separated inside one `restrict(...)`. The list is closed, so a name outside it is not metadata - it is a claim in the one place the compiler has said it checks, and it would otherwise read like a guarantee and buy silence"))))
+        "the restrictions this compiler checks are `no-cast`, `no-cast:deep`, `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-recursion`, `no-wrap`, `no-untrapped`, `no-escape`, `no-entropy`, `no-spawn` and `no-block`, comma-separated inside one `restrict(...)`. The list is closed, so a name outside it is not metadata - it is a claim in the one place the compiler has said it checks, and it would otherwise read like a guarantee and buy silence"))))
 
 ; ==================================================================
 ; `;@axiom:pre(...)` and `;@axiom:post(...)`: AX3050, the static half.
@@ -22252,6 +22409,27 @@
     (emitUndeclaredEffect tc d "IO")
     0))
 
+; AX3042 for the three effects that refine `IO` (`isConcEntropyEffect`).
+; A purity claim is answered by AX3010 instead, as it is for IO, so one
+; mistake draws one diagnostic.
+(pub :: checkUndeclaredRefined (-> Int Int (Vec a) (Vec Int) (Vec Int) Int))
+(pub fn (checkUndeclaredRefined tc d eff own sig)
+  (if (== (tagsClaimPure sig own) 1)
+    0
+    {
+      (checkUndeclaredOne tc d eff own sig "Entropy")
+      (checkUndeclaredOne tc d eff own sig "Spawn")
+      (checkUndeclaredOne tc d eff own sig "Block")
+    }))
+
+(pub :: checkUndeclaredOne (-> Int Int (Vec a) (Vec Int) (Vec Int) String Int))
+(pub fn (checkUndeclaredOne tc d eff own sig e)
+  (if (== (effDefinite eff (builtinEff e)) 0)
+    0
+    (if (|| (== (tagsClaimEffectIn tc sig (builtinEff e) 0) 1) (== (tagsClaimEffectIn tc own (builtinEff e) 0) 1))
+      0
+      (emitUndeclaredEffect tc d e))))
+
 ; A trait-method IMPLEMENTATION draws this like anything else, and
 ; getting there needed a parser fix rather than an exemption.
 ; `attachAxtags` walked only the top-level declaration vector, so a
@@ -22305,10 +22483,11 @@
           (- 0 1)
           (effectTagInsertAt src (spanStart (nodeSpan d))))))
         {
-          (if (< at 0)
-            (diagAddHelp dg "write `;@axiom:effect(io)` above the declaration")
-            (diagAddFixHelp dg "write `;@axiom:effect(io)` above the declaration" (mkSpan at at) ";@axiom:effect(io)\n"))
-          (diagAddHelp dg "effects are INFERRED transitively, so this fires on every function up the call chain, and each one is a place a reader would otherwise have to open the callee to learn it. If the effect is not wanted here the fix is to stop performing it, not to stop saying so; `Alloc` and `Mut` are ambient and never need declaring")
+          (let ((tag (strConcat ";@axiom:effect(" (strConcat (strLower name) ")"))))
+            (if (< at 0)
+              (diagAddHelp dg (strConcat "write `" (strConcat tag "` above the declaration")))
+              (diagAddFixHelp dg (strConcat "write `" (strConcat tag "` above the declaration")) (mkSpan at at) (strConcat tag "\n"))))
+          (diagAddHelp dg "effects are INFERRED transitively, so this fires on every function up the call chain, and each one is a place a reader would otherwise have to open the callee to learn it. If the effect is not wanted here the fix is to stop performing it, not to stop saying so. `IO`, `Entropy`, `Spawn` and `Block` are required; `Alloc` and `Mut` are ambient and never need declaring")
           (emitDiag tc dg)
         }))))
 
@@ -23883,7 +24062,12 @@
                 ; is the costliest of these to miss.
                 (if (strEq key "precondition")
                   1
-                  0)))))))))
+                  ; `syscall(...)` seeds a syscall number's own effect
+                  ; row (`syscallTagEffects`), so a slip of it would
+                  ; drop an effect every caller of the number owes.
+                  (if (strEq key "syscall")
+                    1
+                    0))))))))))
 
 (pub :: axtagNearMiss (-> String String))
 (pub fn (axtagNearMiss key)
@@ -23905,7 +24089,9 @@
                   "isr"
                   (if (== (axtagSlip key "precondition") 1)
                     "precondition"
-                    ""))))))))))
+                    (if (== (axtagSlip key "syscall") 1)
+                      "syscall"
+                      "")))))))))))
 
 (pub :: axtagSlip (-> String String Int))
 (pub fn (axtagSlip key known)
@@ -24130,9 +24316,15 @@
           (builtinEff "Alloc")
           (if (strEq val "unsafe")
             (builtinEff "Unsafe")
-            (if (== (strLen val) 0)
-              ""
-              (axtagCustomOrBuiltinCI tc val))))))))
+            (if (strEq val "entropy")
+              (builtinEff "Entropy")
+              (if (strEq val "spawn")
+                (builtinEff "Spawn")
+                (if (strEq val "block")
+                  (builtinEff "Block")
+                  (if (== (strLen val) 0)
+                    ""
+                    (axtagCustomOrBuiltinCI tc val)))))))))))
 
 ; A value that is not one of the five lowercase built-in spellings, in
 ; the order the two possibilities have to be tried.
@@ -24172,7 +24364,13 @@
               (builtinEff "Alloc")
               (if (== (strEqCI val "unsafe") 1)
                 (builtinEff "Unsafe")
-                (customEff canon)))))))))
+                (if (== (strEqCI val "entropy") 1)
+                  (builtinEff "Entropy")
+                  (if (== (strEqCI val "spawn") 1)
+                    (builtinEff "Spawn")
+                    (if (== (strEqCI val "block") 1)
+                      (builtinEff "Block")
+                      (customEff canon))))))))))))
 
 (pub :: canonicalEffectName (-> Int String String))
 (pub fn (canonicalEffectName tc val)

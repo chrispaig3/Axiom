@@ -131,6 +131,8 @@
 (:: work (-> Int Int))
 ;@axiom:restrict(no-unsafe)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (work n)
   (let (
     (v vecNew)
@@ -176,5 +178,7 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   (work 6))

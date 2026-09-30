@@ -2267,9 +2267,11 @@ set, checked against what the declaration says.
 - No tag is a claim too: it says "performs no I/O". A body that does
   I/O under it is an error, `AX3042`.
 
-Only `IO` is required all the way up the call chain. `Alloc` and
-`Mut` are inferred and reported, but callers aren't asked to declare
-them. `Unsafe` marks the declaration that performs an unsafe operation.
+`IO`, `Entropy`, `Spawn` and `Block` are required all the way up the
+call chain: silence says the body does none of them, and a body that
+does one draws `AX3042` naming it, even when the declaration already
+says `effect(io)`. `Alloc` and `Mut` are inferred and reported, but
+callers aren't asked to declare them. `Unsafe` marks the declaration that performs an unsafe operation.
 It stops at a trusted wrapper and reaches callers of a precondition
 interface. `scripts/check-effect-distribution.sh` measures the effect
 split over the compiler and standard library.
@@ -2331,6 +2333,9 @@ The full contract for the inferred set is `MM-EXEC-9a` in
 | `Pure` | Nothing. `;@axiom:effect(pure)` claims it, and `(handle BODY (Pure) 0)` rejects a body that performs any effect. |
 | `Alloc` | Heap machinery, which is wider than allocation. Any call that reaches `__alloc` (every `Vec`, `Map` and `Str` growth, every `memAlloc`), the `(alloc T)` keyword, the three arena primitives, and `handle`, which installs its handler's evidence. An arena reset counts because it ends every block allocated since the mark. |
 | `Mut` | Heap state that other code can see: a field store `(set base.field v)`, the `__store8` and `__store64` primitives it lowers to, the atomic writers `__atomic_store`, `__atomic_add` and `__atomic_cas`, and `__fence`. That's why `vecPush` and `mapInsert` carry it. `__atomic_load` is a read and doesn't, just as `__load64` doesn't. A `set` on a `mut` local isn't `Mut`, because nothing outside the function can see it. The eight volatile device accesses carry it (a device read can change device state), as do the `__arm_` barriers, timer writes, interrupt masks, cache maintenance and `__arm_set_tpidr` (MM-FFI-8). |
+| `Entropy` | Drawing randomness, which makes the answer different from run to run: `__arm_rndr`, and any use of a syscall number tagged `;@axiom:syscall(entropy)`. |
+| `Spawn` | Starting another binding, thread or process: `parallel` and the spawn primitives it lowers to, and syscall numbers tagged `syscall(spawn)`. |
+| `Block` | Waiting for another binding, a lock, a child or time: the joins `parallel` lowers to, and syscall numbers tagged `syscall(block)`. |
 | `Div` | Divergence. You can write it, but nothing infers it, so `;@axiom:effect(div)` draws `AX3037` (unverifiable), even over a body that plainly never ends. Inferring it would need a termination analysis the compiler doesn't have. |
 | `Unsafe` | The thirty-six raw primitives (`MM-EXEC-9c`), the seven `__syscallN` among them, a call to a precondition interface, or a cast that forges a reference (`MM-EXEC-9d`). A declaration performing one must say `;@axiom:effect(unsafe)` (`AX3073`). A declaration that also says `;@axiom:precondition(...)` passes the obligation to callers; otherwise it is a trusted wrapper. |
 
@@ -2787,8 +2792,11 @@ above the declaration, like any other `;@axiom:` tag.
 | `precondition(...)` | beside `effect(unsafe)`: what a caller must make true for a call to be safe, so every call is the caller's unsafe operation | at compile time, that it is stated (`AX3079`, `AX3080`); the condition itself is the caller's to meet |
 | `nolint(...)` | quiet the editor's lint Hints for this declaration | by the language server |
 
-The compiler knows eight keys: `effect`, `raw`, `pre`, `post`,
-`restrict`, `isr`, `unhandled` and `precondition`. Any other key is
+The compiler knows nine keys: `effect`, `raw`, `pre`, `post`,
+`restrict`, `isr`, `unhandled`, `precondition` and `syscall`. The last
+belongs on a platform module's syscall number, as in
+`;@axiom:syscall(block)`, and says what the call behind the number
+does, so every function that names the number performs that effect. Any other key is
 metadata: the compiler records it and doesn't check it, so
 `agent:readonly` draws nothing.
 
@@ -2901,6 +2909,9 @@ guarantee that nothing checks. Separate names with commas inside one
 | `no-wrap` | writes no integer `+`, `-` or `*` | local |
 | `no-untrapped` | writes no integer `/`, `%`, `<<` or `>>` | local |
 | `no-escape` | lets nothing it allocates flow into one of its parameters | transitive |
+| `no-entropy` | has no `Entropy` in its effect row, so it answers the same on every run | transitive |
+| `no-spawn` | has no `Spawn` in its effect row, so it starts no binding, thread or process | transitive |
+| `no-block` | has no `Block` in its effect row, so it never waits on another binding, a lock or a child | transitive |
 | `strict` | a modifier, not a restriction: see [strict](#make-an-unproven-claim-an-error-with-strict) | |
 
 A *transitive* restriction covers everything the function calls. A
@@ -3125,6 +3136,9 @@ The tag makes three promises, and the compiler checks all of them:
 - No recursion: the tag adds `no-recursion` the same way. A handler
   runs on a stack it doesn't own, so its depth must be one the stack
   bound can compute.
+- No waiting: the tag adds `no-block` too. A handler that waits for a
+  lock or a child waits with the interrupted code stopped underneath
+  it, which is how an interrupt deadlocks.
 
 Only `pub` functions become symbols, but a private `isr` is checked
 too, so the tag protects a helper that nobody calls from C.
@@ -4791,6 +4805,7 @@ stops: every argument and result is an `Int`.
 | `(__vload8 a)` / `(__vload16 a)` / `(__vload32 a)` / `(__vload64 a)` | ONE volatile read of 8/16/32/64 bits at the byte address `a` (the address itself, not `base + i`), naturally aligned, zero-extended to the word - a device register at its own width. `Mut` and `Unsafe`: a device read can change device state. `a` MUST be aligned to the width ([memory-model.md](memory-model.md) MM-FFI-8) |
 | `(__vstore8 a v)` / `(__vstore16 a v)` / `(__vstore32 a v)` / `(__vstore64 a v)` | ONE volatile write of the low 8/16/32/64 bits of `v` at the byte address `a`, naturally aligned; answers 0. Volatile keeps every access, its width and its order against other volatile accesses - and is NOT a synchronisation edge: across threads that is the atomics above, and against ordinary memory a device reads (a DMA descriptor) it is `__arm_dmb`/`__arm_dsb` |
 | `__arm_dmb` / `__arm_dsb` / `__arm_isb` | AArch64 `DMB SY` (order every access before against every access after, for every observer including a device), `DSB SY` (complete them before the next instruction) and `ISB` (context synchronisation - after writing a system register). Each is also a compiler barrier. Any AArch64 target |
+| `__arm_rndr` | One word from `RNDR`, the random-number register of FEAT_RNG, or 0 when the hardware couldn't produce one in time. `IO` and `Entropy`. `baremetal-aarch64` only, where the CPU has FEAT_RNG |
 | `__arm_cntvct` / `__arm_cntfrq` | The virtual counter `CNTVCT_EL0` and its frequency `CNTFRQ_EL0`, in ticks and ticks per second. `IO`; the counter read is a compiler barrier, because it is a timestamp. Any AArch64 target |
 | `__arm_ctr` / `__arm_tpidr` / `(__arm_set_tpidr v)` | `CTR_EL0` (the cache geometry: `4 << ((ctr >> 16) & 15)` is the smallest data-cache line in bytes, `DminLine`), and `TPIDR_EL1`, a word of software state the hardware keeps - how an interrupt handler, which takes no argument, finds its state. `baremetal-aarch64` only |
 | `(__arm_set_cntv_cval t)` / `(__arm_set_cntv_ctl c)` | The virtual timer: fire when the counter reaches `t`; control bit 0 enables it, bit 1 masks its interrupt. `baremetal-aarch64` only |
@@ -4938,6 +4953,8 @@ and no async.
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   (let ((n 1000000))
     (parallel p ((a (slowSum n))
@@ -4969,8 +4986,10 @@ region's arena mark, a word. The typed regions of
 [memory-model-v2-design.md](memory-model-v2-design.md) will give it a
 type.
 
-`parallel` performs `IO`, so a function that uses it declares
-`effect(io)`, and a body that claims `no-io` can't contain one.
+`parallel` performs `IO`, `Spawn` and `Block`: it starts the bindings
+and waits for them. So a function that uses it declares
+`effect(io)`, `effect(spawn)` and `effect(block)`, and a body that
+claims `no-io`, `no-spawn` or `no-block` can't contain one.
 
 ### Processes or threads
 
@@ -5052,6 +5071,8 @@ Words, and strings. A binding may read a `String` its parent holds:
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   (let ((name (strConcat "axi" "om")))
     (parallel p ((n (strLen name))
@@ -5153,6 +5174,8 @@ empty, and `chanClose` ends the stream:
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   (match (chanNew 8)
     ((Ok ch)
@@ -5301,6 +5324,8 @@ word from two bindings under the lock.
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   (let ((squares (parMapWords (lambda (i) (* i i)) 6 3)))
     {
@@ -5349,6 +5374,8 @@ at a time, and accepts answers of up to `limit` bytes:
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   (let ((results (taskMap square 5 2 64)))
     {
@@ -5406,6 +5433,8 @@ grace period, fail-fast, or a `CancelToken` shared with other code:
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   (let ((opts (taskWithDeadline (taskOpts 4 64) 200000000)))
     {

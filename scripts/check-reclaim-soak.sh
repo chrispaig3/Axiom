@@ -477,6 +477,8 @@ else
 (:: main Int)
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   (let ((p (memAlloc 4000)))
     {
@@ -561,6 +563,7 @@ cat > "$work/res.ax" <<'AX'
 (:: child Int)
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
 (fn (child)
   (let ((w (memAlloc 16)))
     {
@@ -585,6 +588,7 @@ cat > "$work/res.ax" <<'AX'
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
 (fn (main)
   (let ((mode (atoiFrom (sysArg 1) 0 0)) (n (atoiFrom (sysArg 2) 0 0)))
     (if (== mode 3)

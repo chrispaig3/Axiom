@@ -27,6 +27,8 @@
 
 (:: byHand (-> String Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (byHand s)
   (__par_join
     (__par_spawn
@@ -35,6 +37,8 @@
 
 (:: inStruct (-> Named Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (inStruct r)
   (parallel p (
     (a (strLen r.name))
@@ -44,6 +48,8 @@
 
 (:: optional (-> (Option String) Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (optional o)
   (parallel p (
     (a (match o
@@ -55,6 +61,8 @@
 
 (:: closure (-> (-> Int Int) Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (closure f)
   (parallel p (
     (a (f 1))
@@ -64,6 +72,8 @@
 
 (:: borrowed (-> String Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (borrowed s)
   (parallel p (
     (a (strLen s))

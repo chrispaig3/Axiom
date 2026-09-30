@@ -34,11 +34,15 @@
 
 (:: viaHop (-> (-> Int Int) Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (viaHop f w)
   (__par_join (__par_spawn f w)))
 
 (:: hop (-> String Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (hop s)
   (viaHop
     (lambda (w) (+ (strLen s) w))
@@ -46,6 +50,8 @@
 
 (:: direct (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (direct n)
   (__par_join
     (__par_spawn
@@ -54,21 +60,29 @@
 
 (:: topfn Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (topfn)
   (__par_join (__par_spawn worker 0)))
 
 (:: scalar (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (scalar n)
   (__par_join (__par_spawn n 0)))
 
 (:: viaAlias (-> Thunk Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (viaAlias f w)
   (__par_join (__par_spawn f w)))
 
 (:: ahop (-> String Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (ahop s)
   (viaAlias
     (lambda (w) (+ (strLen s) w))

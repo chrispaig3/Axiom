@@ -434,6 +434,7 @@
 (:: taskJoin (-> (Vec Int) (Vec Spawn) Int Int Int Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(block)
 (fn (taskJoin st hs s cell slab slotBytes why)
   (let ((w (__proc_join_nr (vecGet hs s) cell)))
     (let (
@@ -456,6 +457,7 @@
 ; Kill slot `s`'s child and join it.
 (:: taskKillJoin (-> (Vec Int) (Vec Spawn) Int Int Int Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (taskKillJoin st hs s cell slab slotBytes why)
   {
     (match (sysKill (taskHandlePid (vecGet hs s)) 9)
@@ -619,6 +621,7 @@
 ; `taskJoin`'s answer (1 an error `failFast` counts, 0 not).
 (:: taskCheck (-> (Vec Int) (Vec Spawn) Int Int Int Int Int Int Int Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(block)
 (fn (taskCheck st hs s now cancelling graceEnd canPoll cell slab slotBytes pbuf)
   (let ((ended (taskEnded
     hs
@@ -669,6 +672,7 @@
 ; the `region` around it.
 (:: taskSpawn (-> (-> Int Int) Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
 (fn (taskSpawn wrapper arg)
   (region r
     (__axiom_recover
@@ -705,6 +709,7 @@
 (:: taskStart (-> (Vec Int) (Vec Spawn) (-> Int Int) Int Int Int Int Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
 (fn (taskStart st hs wrapper t w slab slotBytes clk deadlineUs)
   (let (
     (s (% t w))
@@ -765,6 +770,8 @@
 (:: taskLoop (-> (-> Int String) Int TaskOpts (-> (Result String Error) Int) Int Int Int Int Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (taskLoop f n opts sink scoped w limit slotBytes tok slab)
   (let (
     (st (vecWithCapacity (* 3 w)))
@@ -936,6 +943,8 @@
 (:: taskWithSlab (-> (-> Int String) Int TaskOpts (-> (Result String Error) Int) Int Int Int Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (taskWithSlab f n opts sink scoped w limit slotBytes tok)
   (match (sysMapShared (* w slotBytes))
     ((Err e) (taskAllFailed n e sink))
@@ -983,6 +992,8 @@
 ; The pool with its mappings made and unmade around it.
 (:: taskRun (-> (-> Int String) Int TaskOpts (-> (Result String Error) Int) Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (taskRun f n opts sink scoped)
   (if (<= n 0)
     0
@@ -1020,12 +1031,16 @@
 ; deadline, no fail-fast, a private token.
 (pub :: taskMap (-> (-> Int String) Int Int Int (Vec (Result String Error))))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (pub fn (taskMap f n width limit)
   (taskMapWith f n (taskOpts width limit)))
 
 ; `taskMap` with every option (`TaskOpts`).
 (pub :: taskMapWith (-> (-> Int String) Int TaskOpts (Vec (Result String Error))))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (pub fn (taskMapWith f n opts)
   (let ((out vecNew))
     {
@@ -1065,6 +1080,8 @@
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 ;@axiom:precondition(`step` keeps only what its `Int` accumulator carries: an answer or anything it allocates is reclaimed when it returns)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (pub fn (taskFold f n opts init step)
   (let ((acc (taskScratch 16)))
     {

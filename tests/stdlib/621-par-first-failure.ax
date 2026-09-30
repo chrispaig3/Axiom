@@ -89,6 +89,8 @@
 ; The raising pool at `width`, inside a recovery point: what it raised.
 (:: raised (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (raised width)
   (__axiom_recover
     __axiom_arena_mark
@@ -96,6 +98,8 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   {
     (showWords "parMapWordsChecked" (parMapWordsChecked work 20 8))

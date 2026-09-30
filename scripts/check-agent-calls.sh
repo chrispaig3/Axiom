@@ -416,8 +416,10 @@ echo "== grounding: every inferred IO reaches a primitive through the graph =="
 # one hop and failed on a correct tree, which is why it is spelled as
 # reachability now.
 # The origin list, READ from the compiler rather than restated here.
-# `regFnEff <name> <type> (builtinEff "IO")` is the one place a
-# primitive is given `IO`, so it is the one place this gate asks.
+# `regFnEff <name> <type> (builtinEff "IO")` - or `regFnEff2`, for a
+# primitive with a second effect beside IO (a spawn's `Spawn`, a join's
+# `Block`) - is the one place a primitive is given `IO`, so it is the
+# one place this gate asks.
 # `|| true` IS LOAD-BEARING, and leaving it off made the floor below
 # unreachable. This script runs under `set -e` (re-armed at line 89) and
 # `pipefail`, so a `grep` that matches nothing fails the whole pipeline
@@ -425,9 +427,9 @@ echo "== grounding: every inferred IO reaches a primitive through the graph =="
 # anything. Measured: ablating the second `grep` exited 1 with the
 # section header as the last line and no message at all, which reads as
 # a crash rather than as the finding it is.
-io_prims="$(grep 'regFnEff fns "' "$repo_root/self_host/typecheck.ax" \
+io_prims="$(grep -E 'regFnEff2? fns "' "$repo_root/self_host/typecheck.ax" \
   | grep 'builtinEff "IO"' \
-  | sed 's/.*regFnEff fns "\([^"]*\)".*/\1/' | LC_ALL=C sort -u | tr '\n' ',' || true)"
+  | sed -E 's/.*regFnEff2? fns "([^"]*)".*/\1/' | LC_ALL=C sort -u | tr '\n' ',' || true)"
 n_io_prims="$(printf '%s' "$io_prims" | tr ',' '\n' | grep -c . || true)"
 if [[ "$n_io_prims" -lt 4 ]]; then
   echo "FAIL: only $n_io_prims IO-registering primitive(s) found in self_host/typecheck.ax;"

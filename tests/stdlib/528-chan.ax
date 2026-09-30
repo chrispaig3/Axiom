@@ -74,6 +74,8 @@
 
 (:: feed (-> Chan Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (feed ch)
   (parallel q (
     (x (produce ch 1 1001))
@@ -103,6 +105,8 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   {
     (match (chanNew 3)

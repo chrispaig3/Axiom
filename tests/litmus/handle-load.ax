@@ -133,6 +133,8 @@
 
 (:: churn (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (churn n)
   (parallel p (
     (a (churnOne 1 n))
@@ -189,6 +191,8 @@
 
 (:: race (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (race n)
   (match (sysMapShared 4096)
     ((Ok bar)
@@ -231,6 +235,8 @@
 
 (:: sibling Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (sibling)
   (match (chanNew 4)
     ((Ok c)
@@ -246,6 +252,8 @@
 ; ---- the kinds of spawn handle --------------------------------------------
 (:: doubleJoin Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (doubleJoin)
   (let ((h 
     (__par_spawn
@@ -260,6 +268,7 @@
 
 (:: threadPid Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
 (fn (threadPid)
   (let ((h 
     (__thread_spawn
@@ -274,6 +283,8 @@
 
 (:: crossJoin Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (crossJoin)
   (let ((h 
     (__proc_spawn
@@ -288,6 +299,8 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   (let ((mode (sysArg 1)))
     (if (strEq mode "freed-send")
