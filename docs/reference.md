@@ -6591,15 +6591,15 @@ compiler from source.
 
 ### FreeBSD
 
-On `freebsd-x86_64`, CI boots FreeBSD 14.4 in a VM and builds the
-compiler there from the seed. It runs no test battery there, so the
+On `freebsd-x86_64` and `freebsd-aarch64`, CI boots FreeBSD 14.4 in a
+VM and builds the compiler there from the seed. It runs no test battery
+there, so the
 standard library, [parallel](#parallel--bindings-that-run-beside-the-caller)
 included, is assembled for FreeBSD but not run. FreeBSD 12 is the oldest
 release the syscall numbers support, and the target triple pins 14.
 
-`freebsd-aarch64` shares the seed and the syscall table, but no runner
-builds or runs it: every runner GitHub offers would have to emulate an
-aarch64 guest, which is too slow.
+`freebsd-aarch64` shares the seed and the syscall table. Its VM is
+emulated, so that build takes longer than the others.
 
 ### Windows
 

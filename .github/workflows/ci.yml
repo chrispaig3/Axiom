@@ -1665,16 +1665,33 @@ jobs:
             uname -a; llc --version | head -2; cc --version | head -1
             ./scripts/bootstrap-from-seed.sh --install .axiom-bin
 
-  # There is no freebsd-aarch64 job. The action's own documentation
-  # says the host for an `arch: aarch64` guest is still the x86_64
-  # runner and that `ubuntu-24.04-arm` is slower, so the guest would be
-  # TCG-emulated either way - the 10-30x case, a 300-minute budget for
-  # a bootstrap plus four gates, measured 2026-08-29 and dropped the
-  # same day. freebsd-aarch64 is source-only with no leg, as
-  # darwin-x86_64 is: assembled and relocation-checked by `cross`
-  # below, executed by no runner.
-  # Where it HAS executed is a FreeBSD 14.4 arm64 VM under HVF on the
-  # maintainer's machine, 2026-08-29 - a measurement, not a leg.
+  # freebsd-aarch64 is on the same tier: the same bootstrap in a
+  # FreeBSD 14.4 VM, with `arch: aarch64`. The action boots an aarch64
+  # guest on the x86_64 runner by emulation, 10-30 times slower than
+  # the KVM guest above, so the leg does the bootstrap alone - no gates -
+  # and has a longer budget: the x86_64 bootstrap takes under four
+  # minutes, so even the slow end of emulation fits well inside it.
+  # ---------------------------------------------------------------
+  test-freebsd-aarch64:
+    name: Bootstrap from seed (freebsd-aarch64)
+    needs: grammar
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Bootstrap from the seed on FreeBSD 14 (aarch64, emulated)
+        uses: vmactions/freebsd-vm@f0552d3b69211736abd97f02ff3d4674c56b73b1 # v1.5.5
+        with:
+          release: "14.4"
+          arch: aarch64
+          copyback: false
+          prepare: |
+            pkg install -y bash llvm python3
+          run: |
+            set -e
+            export PATH="$(ls -d /usr/local/llvm*/bin | sort -V | tail -1):$PATH"
+            uname -a; llc --version | head -2; cc --version | head -1
+            ./scripts/bootstrap-from-seed.sh --install .axiom-bin
 
   cross:
     name: Cross-target codegen

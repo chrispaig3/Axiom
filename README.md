@@ -96,8 +96,9 @@ Source-only: `darwin-x86_64`, `freebsd-aarch64`, `freebsd-x86_64`,
 CI assembles that code on every change. CI runs the test battery on
 none of them, so they aren't supported, and no prebuilt archive is
 published for them. CI builds the compiler from the seed in
-`bootstrap/` on `linux-x86_64`, and on `freebsd-x86_64` in a FreeBSD
-14.4 VM. No runner builds it on `darwin-x86_64` or `freebsd-aarch64`.
+`bootstrap/` on `linux-x86_64`, and on `freebsd-x86_64` and
+`freebsd-aarch64` in FreeBSD 14.4 VMs. No runner builds it on
+`darwin-x86_64`.
 The compiler doesn't run on Windows, so `windows-x86_64` is a target
 you cross-compile to from Linux or macOS.
 

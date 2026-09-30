@@ -40,7 +40,7 @@
 # and a build from the seed. The last section holds each one to that:
 # not on the supported list, not shipped, and either a `Bootstrap from
 # seed (<target>)` leg in ci.yml or a README sentence naming the target
-# that says no runner builds it (darwin-x86_64, freebsd-aarch64) or
+# that says no runner builds it (darwin-x86_64) or
 # that the compiler doesn't run there (windows-x86_64).
 set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
