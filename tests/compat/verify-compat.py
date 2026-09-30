@@ -40,7 +40,7 @@ import sys, re, os, subprocess
 # reason `scripts/check-stdlib-api.sh` gives: `Sys/Platform` has one
 # file per target declaring the same names, so a glob prints it three
 # times and the choice of which to carry is a decision worth seeing.
-MODULES = ("Agent/Tags Axqlite Axqlite/AxqlAst Axqlite/AxqlEval Axqlite/AxqlExec Axqlite/AxqlMacro Axqlite/AxqlParse Axqlite/AxqlSchema Axqlite/Btree Axqlite/Pager Axqlite/Record Axqlite/Value Chan Chrono Crypto/Aead Crypto/Aes Crypto/AesGcm Crypto/Blake2b Crypto/Bytes Crypto/ChaCha20 Crypto/ChaCha20Poly1305 Crypto/Ct Crypto/Curve25519 Crypto/Curve25519Scalar Crypto/Ed25519 Crypto/Errors Crypto/Field25519 Crypto/Ghash Crypto/Hkdf Crypto/Hmac Crypto/Poly1305 Crypto/Random Crypto/Secret Crypto/Sha2 Crypto/Sha3 Crypto/X25519 Err Fallible Ffi Float Fmt IO Intern Json Map Mem Net Par Path Pre Rpc Str Sync Sys"
+MODULES = ("Agent/Tags Axqlite Axqlite/AxqlAst Axqlite/AxqlEval Axqlite/AxqlExec Axqlite/AxqlMacro Axqlite/AxqlParse Axqlite/AxqlSchema Axqlite/Btree Axqlite/Pager Axqlite/Record Axqlite/Value Chan Chrono Crypto/Aead Crypto/Aes Crypto/AesGcm Crypto/Blake2b Crypto/Bytes Crypto/ChaCha20 Crypto/ChaCha20Poly1305 Crypto/Ct Crypto/Curve25519 Crypto/Curve25519Scalar Crypto/Ed25519 Crypto/Errors Crypto/Field25519 Crypto/Ghash Crypto/Hkdf Crypto/Hmac Crypto/Poly1305 Crypto/Random Crypto/Secret Crypto/Sha2 Crypto/Sha3 Crypto/X25519 Err Fallible Ffi Float Fmt IO Intern Json Map Mem Net Par Path Pre Rpc Str Sync Sys "
            "Sys/Platform.darwin Task Test Tui/Edit Tui/Keys Tui/Term Utf8 Vec").split()
 
 # Visibility is not in AXSYM - `symbols` has no `pub` field - so the
