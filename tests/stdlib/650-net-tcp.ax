@@ -94,7 +94,12 @@
                 (mut tries 0)
               )
                 {
-                  (while (&& (! failed) (< tries 200))
+                  ; The peer's reset arrives after some writes have
+                  ; already succeeded, and on a loaded host 200 of them
+                  ; can finish first. The loop stops at the first `Err`,
+                  ; so a generous bound costs nothing when the reset is
+                  ; quick.
+                  (while (&& (! failed) (< tries 200000))
                     {
                       (if (isErr (tcpWrite server "data after the peer left"))
                         {
