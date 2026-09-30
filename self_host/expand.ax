@@ -1354,7 +1354,7 @@
           ; A pattern binder that is a macro PARAMETER takes the
           ; caller's name and is not renamed - the arm's body may
           ; be another parameter's syntax, which spells that name
-          ; and must bind to it. This is the `try!` case, and the
+          ; and must bind to it. This is the `try` case, and the
           ; one that made a propagation form writable at all.
           (let ((pb (expBinderParam
             (nodeAName p)

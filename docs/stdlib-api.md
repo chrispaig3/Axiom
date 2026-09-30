@@ -709,7 +709,7 @@ two differ.
 | `remChecked` | value | `(-> Int Int (Result Int Error))` | `Alloc` |  |
 | `shlChecked` | value | `(-> Int Int (Result Int Error))` | `Alloc` | A shift amount of 64 or more, and a negative one, are undefined and no masking is emitted - `(<< 1 100)` answers 68719476736 at `--opt 0` and 1 at `--opt 1`. |
 | `shrChecked` | value | `(-> Int Int (Result Int Error))` | `Alloc` |  |
-| `try!` | macro |  |  | ERR-SUGAR-2: the propagation form. |
+| `try` | macro |  |  | ERR-SUGAR-2: the propagation form. |
 
 ## `Fallible`
 

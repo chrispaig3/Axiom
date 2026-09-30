@@ -5722,7 +5722,7 @@ regenerates it on every run to keep it exact.
 | `Map` | An open-addressing `Int→Int` hash map: `mapNew`, `mapNewRefVals`, `mapWithCapacity`, `mapWithCapacityRefVals`, `mapFree`, `mapHas`, `mapGet`, `mapGetStr`, `mapInsert`, `mapRemove`, `mapKeys`, `mapLen`, `mapCap`, `mapUsed`. `mapGet` takes the default to answer when a key is absent. |
 | `Fmt` | The functions a format specifier selects: `fmtInt`, `fmtHex`, `fmtHexUpper`, `fmtFloat`, `fmtFloatPrec`, `fmtPadLeft`, `fmtPadRight`, `fmtPadCenter`, `fmtPadZerosLeft`, `fmtIntWidth`. Importing `Fmt` also brings in `format`. |
 | `Float` | IEEE 754 binary64 values exactly: `floatParse` reads decimal text correctly rounded, `floatToString` prints the shortest text that reads back to the same bits (in Python's `repr` format), and `floatToBits`/`floatFromBits` convert to and from the 64-bit encoding. Also `floatIsNan`, `floatIsInfinite`, `floatIsFinite`, `floatInfinity` and `floatNan`. |
-| `Err` | `Result` (`Ok`/`Err`), the `Error` record, `isOk`/`isErr`, `okOr`, `unwrapOr`, `mapOk`/`mapErr`, `andThen`, `try!`, `toOption`, `withContext`, and checked arithmetic: `divChecked`, `remChecked`, `shlChecked`, `shrChecked`. The specification is [error-model.md](error-model.md). |
+| `Err` | `Result` (`Ok`/`Err`), the `Error` record, `isOk`/`isErr`, `okOr`, `unwrapOr`, `mapOk`/`mapErr`, `andThen`, `try`, `toOption`, `withContext`, and checked arithmetic: `divChecked`, `remChecked`, `shlChecked`, `shrChecked`. The specification is [error-model.md](error-model.md). |
 | `Fallible` | `fallibleMalformed`, the operation a batch loop's callee performs on a malformed record, and the handlers that answer it without unwinding: `fallibleSkip`, `fallibleDefault`, `fallibleCounting`. Also the skip sentinel `fallibleSkipped`/`fallibleIsSkipped`, and the `FallibleTally` a counting handler writes, read with `fallibleTally`/`fallibleCount` (error-model.md ERR-REC-7). |
 | `Intern` | A string interner: `internNew`, `internFree`, `internIntern`, `internFind`, `internLookup`, `internCount`. |
 | `Sys` | The syscall layer: `sysWriteFd`, `sysReadFd`, `sysWriteAllFd`, `sysReadAllFd`, `sysReadLineFd`, `sysOpenPath`, `sysCloseFd`, `sysExitWith`, `sysFailed`, `sysErrno`, `stdin`/`stdout`/`stderr`. The [filesystem](#work-with-files-and-directories) calls, and processes: `sysSpawn`, `sysRun`, `sysRunPath`, `sysWaitPid`, `sysEnv`, `sysArgc`, `sysArg`, `sysGetPid`, `sysNowMicros`. Shared memory and waiting on it: `sysMapShared`/`sysUnmapShared`, `sysWaitWord`/`sysWakeWord`, the timed `sysWaitWordTimeout` (0 woken, 1 timed out, 2 changed) with `sysTimeoutMicros` and `sysTimedOut`, and `sysChildExited`, which looks at a child without reaping it. |
@@ -5792,15 +5792,15 @@ A few `IO` names need a word more:
 ;@axiom:effect(io)
 (fn (main)
   (let ((file (pathJoin "notes" "today.txt")))
-    (try! _ (makeDirAll "notes")
-      (try! _ (writeFile file "first\n")
-        (try! _ (appendFile file "second\n")
+    (try _ (makeDirAll "notes")
+      (try _ (writeFile file "first\n")
+        (try _ (appendFile file "second\n")
           {
             (println (readFile file))
             (println (pathExt file))
             (println (pathStem file))
             (println (pathReplaceExt file ".md"))
-            (try! _ (removeFile file)
+            (try _ (removeFile file)
               (removeDir "notes"))
           })))))
 ```
@@ -5815,7 +5815,7 @@ notes/today.md
 ```
 
 Nothing throws. Most calls that can fail answer a `Result`, and
-`(try! x e body)` binds `x` to the value inside `Ok` and continues with
+`(try x e body)` binds `x` to the value inside `Ok` and continues with
 `body`, or returns the `Err` as it is. An `Err` from `IO` carries the
 errno as its code and names the path or descriptor in its message.
 `readFile` and `listDir` answer an empty value instead, as described

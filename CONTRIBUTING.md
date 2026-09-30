@@ -892,7 +892,7 @@ python3 scripts/lib/doc-style.py --axiom .axiom-bin/axiom path/to/page.md
 | [docs/status.md](docs/status.md) | What's ready today, feature by feature, with the tests behind each row |
 | [docs/memory-model.md](docs/memory-model.md) | The memory model specification: reference counting, rules MM-* |
 | [docs/macro-system.md](docs/macro-system.md) | The macro system specification, rules MAC-* |
-| [docs/error-model.md](docs/error-model.md) | How a program signals failure: `Result`, `Error`, `try!`, rules ERR-* |
+| [docs/error-model.md](docs/error-model.md) | How a program signals failure: `Result`, `Error`, `try`, rules ERR-* |
 | [docs/diagnostics.md](docs/diagnostics.md) | AXDL, AXSYM, NID and AXTAG notation, the diagnostic-code ranges, and how to add a code |
 | [docs/ffi.md](docs/ffi.md) | The `extern` block, `axiom-bindgen`, and what may cross the boundary |
 | [docs/lsp.md](docs/lsp.md) | The language server: running `axiom lsp`, editor configurations, what each request answers and refuses, the semantic-token legend, and the cost rule |

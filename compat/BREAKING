@@ -906,3 +906,7 @@
 0.7.7  F  sysRun  row -> Spawn, Block: it starts a process and waits for it, and callers declare both
 0.7.7  F  sysRunPath  row -> Spawn, Block: it starts a process and waits for it, and callers declare both
 0.7.7  F  parRunOne  row -> Spawn, Block: it forks a child and waits for it, and callers declare both
+
+# 0.7.7 - the propagation macro loses its `!`, so it is named like every
+# other macro and function in the language.
+0.7.7  M  try!  REMOVED: renamed `try`; drop the `!`

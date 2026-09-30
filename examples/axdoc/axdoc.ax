@@ -16,7 +16,7 @@
 ; written down. `axiom symbols` cannot answer "is this public?" at all,
 ; and it emits no row for a macro, so a reference driven by AXSYM alone
 ; would print an `IO` with no `println`, a `Show` with no `format` and
-; an `Err` with no `try!`, and would be perfectly self-consistent while
+; an `Err` with no `try`, and would be perfectly self-consistent while
 ; doing it.
 ;
 ; The EFFECT ROW comes from AXSYM, because that is the compiler's own

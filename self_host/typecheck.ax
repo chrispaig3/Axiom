@@ -8841,7 +8841,7 @@
           "a `Result` is discarded here, in statement position"
           0
           ""
-          "match on it, propagate it with `try!`, or bind it to `_` if the discard is deliberate") "unused `Result`"))))))
+          "match on it, propagate it with `try`, or bind it to `_` if the discard is deliberate") "unused `Result`"))))))
 
 ; A condition must be Bool. Skipped when the condition is already
 ; poisoned; a wildcard passes through tyCompat.

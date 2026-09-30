@@ -3,7 +3,7 @@
 ; the `closeIt` tail of a `let` (the binder is not the value), and a
 ; macro expanding to a match answering a `Result` (the rule reads the
 ; expanded shape, backtrace and all - the macro is local so the frame
-; stays in this file, as `try!`'s would not).
+; stays in this file, as `try`'s would not).
 ; Matching the answer, binding it to `_`, answering a non-`Result`,
 ; and a single-item block tail draw nothing: the first two read it,
 ; the third is not one, and the fourth flows onward.

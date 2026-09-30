@@ -441,7 +441,7 @@ At the default `--opt 1` with an 8 MiB stack, the unsafe shape costs
 with a flat stack.
 
 The shape a propagation form generates, with the continuation in the
-arm, is the shape that converts: `try!` (`ERR-SUGAR-2`) expands to
+arm, is the shape that converts: `try` (`ERR-SUGAR-2`) expands to
 exactly this. So the convenient spelling and the safe one agree.
 
 Gated by `tests/stdlib/370-error-propagation.ax` term 16, with the
@@ -1267,7 +1267,7 @@ change that moves the lexer, `tree-sitter-axiom/` and
 return, so the operator would have nothing to expand into.
 
 **ERR-SUGAR-2 (H). The propagation form is a binding form.**
-`(try! x e body)` binds `x` to the success value of `e` and runs
+`(try x e body)` binds `x` to the success value of `e` and runs
 `body`. If `e` is an `Err`, it answers that error unchanged:
 
 ```scheme
@@ -1275,8 +1275,8 @@ return, so the operator would have nothing to expand into.
 
 (:: halveTwice (-> Int (Result Int Error)))
 (fn (halveTwice n)
-  (try! a (divChecked n 2)
-    (try! b (divChecked a 2)
+  (try a (divChecked n 2)
+    (try b (divChecked a 2)
       (Ok b))))
 
 (fn (main)
@@ -1287,13 +1287,13 @@ return, so the operator would have nothing to expand into.
 
 `(halveTwice 40)` answers `(Ok 10)`, so the program exits 10.
 
-`try!` is a macro in `stdlib/Err.ax`. Expansion runs before the
+`try` is a macro in `stdlib/Err.ax`. Expansion runs before the
 checker (`self_host/expand.ax`), so everything it generates is
 type-checked, and a macro costs no seed rebuild. Here is what it
 expands to:
 
 ```scheme
-(try! x (mayFail 1)
+(try x (mayFail 1)
   (use x))
 
 ; expands to
@@ -1307,7 +1307,7 @@ So the form makes the TCO-correct spelling the default, and you have to
 write the dangerous spelling out by hand. That is the whole case for
 having it.
 
-`try!` depends on `MAC-HYG-10` in [macro-system.md](macro-system.md): a
+`try` depends on `MAC-HYG-10` in [macro-system.md](macro-system.md): a
 binder position holding a macro parameter takes the *argument's* name
 and isn't renamed. A binder introduced through one parameter then
 scopes over syntax arriving through another:
@@ -1319,7 +1319,7 @@ scopes over syntax arriving through another:
 
 This holds in all three binder positions the expander owns: `let`,
 `lambda` parameters and pattern binders. An argument that isn't a name
-is `AX3035`. `tests/stdlib/371-err-module.ax` term 16 gates `try!`, and
+is `AX3035`. `tests/stdlib/371-err-module.ax` term 16 gates `try`, and
 it doesn't compile against an expander without `MAC-HYG-10`.
 
 **ERR-SUGAR-3 (H). A contextual wrapper is a function, not a form.**
@@ -1352,7 +1352,7 @@ mapped the template's `x` to the gensym on both sides:
 ```
 
 That right answer for the wrong reason kept the defect hidden. It
-blocked every binding-form macro: `let*`, `for`, `with` and `try!`.
+blocked every binding-form macro: `let*`, `for`, `with` and `try`.
 `docs/macro-system.md` recorded binder-direction hygiene as complete,
 which it was only for the direction anyone had tested. It is fixed as
 `MAC-HYG-10`, with `AX3035` for an argument that isn't a name.
@@ -1441,7 +1441,7 @@ runs the direct read and the routed one and compares their answers.
 | `ERR-DIAG-1` | H | `mkDiag` is the only channel |
 | `ERR-DIAG-2`, `3` | P | No proposal is open: the last one, `AX3043`, is built (`1008-error-payload-untyped.ax`). `scripts/check-doc-drift.sh` fails on a proposal whose number is spent |
 | `ERR-SUGAR-1` | R | `?` is `AX1001` |
-| `ERR-SUGAR-2` | **H, gated** | `try!`; `371` term 16, `MAC-HYG-10` |
+| `ERR-SUGAR-2` | **H, gated** | `try`; `371` term 16, `MAC-HYG-10` |
 | `ERR-SUGAR-3` | **H, gated** | `withContext`; `371` term 2 |
 
 Every rule marked **H** names what holds it. What remains open is
@@ -1529,7 +1529,7 @@ The slices, in order, each green before the next starts:
 
 1. `stdlib/Err.ax`. Done. It provides `Result`, `Error`, `mapErr`,
    `withContext`, `okOr`, `toOption`, `andThen`, `mapOk`, `unwrapOr`,
-   the `ERR-REC-2` checked operators and `try!`. It went first because
+   the `ERR-REC-2` checked operators and `try`. It went first because
    nothing else in `stdlib/` had to change.
    `tests/stdlib/371-err-module.ax` exercises it across a module
    boundary. The FFI fixtures match `Ok` and `Err` across the Rust
@@ -2144,12 +2144,12 @@ before it crosses a boundary:
 (import Err)
 
 ; The fallible call is the scrutinee and the recursion is the arm's
-; answer. `try!` writes that shape for you.
+; answer. `try` writes that shape for you.
 (:: parseAll (-> Int Int (Result Int Error)))
 (fn (parseAll toks acc)
   (if (== (vecLen toks) 0)
       (Ok acc)
-      (try! v (parseOne (vecGet toks 0))
+      (try v (parseOne (vecGet toks 0))
         (parseAll (vecTail toks) (+ acc v)))))   ; ERR-PROP-3: the arm
 
 ; The caller says what it was doing. `withContext` takes the whole
@@ -2161,6 +2161,6 @@ before it crosses a boundary:
 ```
 
 The recursion sits where `ERR-PROP-3` requires it, because that is
-where `try!` puts it. Each rule behind this shape rests on a probe.
+where `try` puts it. Each rule behind this shape rests on a probe.
 What made the shape writable was a hygiene fix in the macro expander,
 not a change to the error types.

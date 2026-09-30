@@ -3,10 +3,10 @@
 ; operators, and the propagation form, exercised across a module
 ; boundary because that is where every one of them will be used from.
 ;
-; The form is the part worth stating plainly: `try!` could not be
+; The form is the part worth stating plainly: `try` could not be
 ; written at all before 2026-08-16. A macro parameter standing in a
 ; binder position was gensymed like a template's own binder, so
-; `(try! v e body)` bound `v.N` and spliced a body that still said `v`
+; `(try v e body)` bound `v.N` and spliced a body that still said `v`
 ; - AX3001, on the macro whose whole job is to bind it. The expander
 ; takes the caller's name there now (`expBinderParam`), and term 16
 ; below is the first program in this repository that depends on it.
@@ -51,7 +51,7 @@
 ;       remChecked and shrChecked raise the codes divChecked does
 ;   64  divChecked answers Ok, and Err with the right code on zero
 ;   32  the INT_MIN / -1 guard fires, and shlChecked refuses 64
-;   16  try! propagates an error unchanged through a two-step chain
+;   16  try propagates an error unchanged through a two-step chain
 ;    8  mapErr converts an error type and andThen sequences
 ;    4  okOr and toOption convert in both directions
 ;    2  withContext attaches, errorText renders what it attached, and
@@ -61,7 +61,7 @@
 ;
 ; Ablation, run 2026-08-16: revert `expBinderParam`'s pattern-binder
 ; arm and this file does not compile at all - AX3001 on `a` and `b` at
-; the two `try!` sites, which is the diagnostic the fix exists to
+; the two `try` sites, which is the diagnostic the fix exists to
 ; remove.
 (import Err)
 (import Str)
@@ -75,7 +75,7 @@
 ; a two-step fallible chain written with the form
 (:: chain (-> Int (Result Int Error)))
 (fn (chain n)
-  (try! a (divChecked 100 n) (try! b (divChecked a 2) (Ok (+ b 1)))))
+  (try a (divChecked 100 n) (try b (divChecked a 2) (Ok (+ b 1)))))
 
 ; Term 256's subject: the polymorphic scrutinee is a PARAMETER, so
 ; nothing at this site fixes `a` - and the arm still reads three

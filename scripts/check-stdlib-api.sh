@@ -4,8 +4,8 @@
 # WHY A REFERENCE AT ALL. The standard library's public surface was
 # described in two hand-written tables - one in `README.md`, one in
 # `docs/reference.md` - which between them named a minority of the
-# public names and had already drifted: `docs/reference.md` called the
-# `Err` macro `try` where the library spells it `try!`. Nothing read
+# public names and had already drifted: `docs/reference.md` misspelled
+# the `Err` macro's name. Nothing read
 # either table. A per-symbol reference typed by hand would drift the
 # same way and faster, so this one is derived from the source and
 # diffed on every run.

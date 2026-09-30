@@ -308,7 +308,7 @@
 ; DOES NOT GENERALISE AND THESE DO: every parser that adds a length it
 ; was told to an offset it computed has the same shape, and the fix is
 ; the same three lines each time. Written once here, they are a
-; `try!` away instead.
+; `try` away instead.
 ;
 ; The tests are the standard sign tests rather than a wider type,
 ; because there is no wider type: `Int` is the only integer this
@@ -397,10 +397,10 @@
 ; ------------------------------------------------------------------
 ; ERR-SUGAR-2: the propagation form.
 ;
-; `(try! x e body)` binds `x` to `e`'s success and answers its error
+; `(try x e body)` binds `x` to `e`'s success and answers its error
 ; unchanged:
 ;
-;   (try! v (parse s) (use v))
+;   (try v (parse s) (use v))
 ;     ->  (match (parse s)
 ;           ((Err er) (Err er))
 ;           ((Ok v) (use v)))
@@ -420,6 +420,6 @@
 ;
 ; `er` is the template's own binder and is still renamed at every
 ; expansion, so a caller whose body mentions `er` means their own.
-(pub macro (try! x e body) (match e
+(pub macro (try x e body) (match e
   ((Err er) (Err er))
   ((Ok x) body)))

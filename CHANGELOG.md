@@ -22,6 +22,9 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+- `try!` is now `try`, so the propagation form is named like every other
+  macro and function: `(try v (parse s) (use v))`. The old name is gone;
+  drop the `!`.
 - `Entropy`, `Spawn` and `Block` have sources. The platform tables tag
   `sysRandomNum`, the fork and `posix_spawn` numbers and the three wait
   numbers, so drawing randomness, starting a process and waiting for a

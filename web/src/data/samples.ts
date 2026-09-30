@@ -427,11 +427,11 @@ compilation failed due to 1 previous error`,
     file: "settings.ax",
     tab: "Errors",
     title: "Three steps, one error path",
-    lede: "Failure is a value. `Result` carries it, `try!` returns early on it, and `withContext` records which step failed.",
+    lede: "Failure is a value. `Result` carries it, `try` returns early on it, and `withContext` records which step failed.",
     points: [
       { at: "(withContext (okOr (strParseInt text) bad) (strConcat \"reading \" name))))", text: "`okOr` turns a missing number into an error with a message." },
       { at: "(withContext (mulChecked chunk parts) \"sizing the upload\"))", text: "`mulChecked` fails where `*` would wrap around." },
-      { at: "(match (try! size (number \"chunk\" chunk)", text: "`try!` binds each success and stops at the first failure." },
+      { at: "(match (try size (number \"chunk\" chunk)", text: "`try` binds each success and stops at the first failure." },
     ],
     docs: { label: "The error model", href: `${LIB}docs/error-model.md` },
     output: `4096 x 256 = 1048576 bytes
@@ -454,7 +454,7 @@ product is not representable while sizing the upload`,
 (:: report (-> String String Int))
 ;@axiom:effect(io)
 (fn (report chunk parts)
-  (match (try! size (number "chunk" chunk) (try! n (number "parts" parts) (upload size n)))
+  (match (try size (number "chunk" chunk) (try n (number "parts" parts) (upload size n)))
     ((Ok total) (println "{chunk} x {parts} = {total} bytes"))
     ((Err e) (println (errorText e)))))
 

@@ -2801,7 +2801,7 @@ document's rules still holds:
   binders are `for$i`, `for$n` and `for$v`. `$` inside an identifier is
   `AX1001`, so nothing a caller writes can collide with them. Term 6 of
   `tests/stdlib/466-for-loop.ax` is the hygiene check. `MAC-HYG-10` is
-  unchanged, and `Err.ax`'s `try!` still depends on it.
+  unchanged, and `Err.ax`'s `try` still depends on it.
 - **`MAC-HYG-6`/`MAC-HYG-7`** resolve every helper a template names at
   the definition site. The module kept every such helper in `Html.ax`,
   and declared it `pub`. `MAC-LANG-10` judges a template's private

@@ -1910,7 +1910,7 @@
         ; A macro has no TYPE. The row says `macro <name>`, the shape
         ; `trait <name>` already uses, and carries its parameter names
         ; as `#params=` so a reader can see the arity a call must
-        ; satisfy. Without this row `println`, `format` and `try!` were
+        ; satisfy. Without this row `println`, `format` and `try` were
         ; public API no gate over this stream could see
         ; (`compat/UNCOVERED`).
         (let (
