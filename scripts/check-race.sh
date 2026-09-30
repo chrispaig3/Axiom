@@ -527,7 +527,7 @@ cuts = {
   "lock": [("Sync.ax",
     "    (if (== (syncLoad m 3) 1)\n      (Err (mkError syncOwnerDead \"mutexLock: the holder died holding it\"))\n      (let ((me syncMe))\n        (if (== (syncCas m 0 me) 0)",
     "    (if (== (syncLoad m 3) 1)\n      (Err (mkError syncOwnerDead \"mutexLock: the holder died holding it\"))\n      (let ((me syncMe))\n        (if (== 0 0)")],
-  "chan": [("Chan.ax", ";@axiom:effect(unsafe)\n(fn (chanLock ch me b timed)\n  (if (== (__atomic_cas ch 0 me) 0)", "(fn (chanLock ch me b timed)\n  (if (== 0 0)"),
+  "chan": [("Chan.ax", ";@axiom:effect(unsafe)\n;@axiom:effect(block)\n(fn (chanLock ch me b timed)\n  (if (== (__atomic_cas ch 0 me) 0)", ";@axiom:effect(block)\n(fn (chanLock ch me b timed)\n  (if (== 0 0)"),
            ("Chan.ax", "(fn (chanUnlock ch me)\n  (if (== (__atomic_cas ch me 0) me)", "(fn (chanUnlock ch me)\n  (if (== me me)")],
 }[kind]
 for f, old, new in cuts:

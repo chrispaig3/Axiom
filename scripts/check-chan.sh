@@ -200,7 +200,7 @@ cuts = {
   "lock": [
     # The unsafe claim goes with the compare-and-swap, the lock's one raw
     # operation, or the copy would not compile.
-    (";@axiom:effect(unsafe)\n(fn (chanLock ch me b timed)\n  (if (== (__atomic_cas ch 0 me) 0)", "(fn (chanLock ch me b timed)\n  (if (== 0 0)"),
+    (";@axiom:effect(unsafe)\n;@axiom:effect(block)\n(fn (chanLock ch me b timed)\n  (if (== (__atomic_cas ch 0 me) 0)", ";@axiom:effect(block)\n(fn (chanLock ch me b timed)\n  (if (== 0 0)"),
     ("(fn (chanUnlock ch me)\n  (if (== (__atomic_cas ch me 0) me)", "(fn (chanUnlock ch me)\n  (if (== me me)"),
   ],
   "notify": [
@@ -369,12 +369,15 @@ ablate_dead() {
 import sys
 p, kind = sys.argv[1], sys.argv[2]
 s = open(p, encoding="utf-8").read()
+# Both cuts take out `chanChildEnded`, the look's one blocking call, so
+# the block claim goes with it or the copy would not compile.
+unblock = (";@axiom:effect(block)\n(fn (chanHolderDead w me)", "(fn (chanHolderDead w me)")
 cuts = {
   # The dead-holder test never finds one: kill's ESRCH and the look ignored.
   "holder": [("        ((Ok r) (chanChildEnded owner))\n        ((Err e) (== (errCode e) 3))))))",
-              "        ((Ok r) false)\n        ((Err e) false)))))")],
+              "        ((Ok r) false)\n        ((Err e) false)))))"), unblock],
   # Only the look at the waiter's own child goes: a zombie looks alive.
-  "look": [("        ((Ok r) (chanChildEnded owner))", "        ((Ok r) false)")],
+  "look": [("        ((Ok r) (chanChildEnded owner))", "        ((Ok r) false)"), unblock],
 }[kind]
 for old, new in cuts:
     if s.count(old) != 1:
