@@ -50,7 +50,7 @@
 ;@axiom:precondition(`p` names `n` live writable bytes and `n` is a positive multiple of 8)
 (fn (hkdfErase p n)
   {
-    (for i in 0 (- (/ n 8) 1)
+    (for i in 0..(- (/ n 8) 1)
       (__store64 p i 0))
     (ctWipe (+ p (- n 8)) 8)
   })
@@ -77,7 +77,7 @@
       (hmacSha256NewChains chains)
     }))
       {
-        (for i in 1 (+ n 1)
+        (for i in 1..(+ n 1)
           {
             (if (> i 1)
               (hmacSha256UpdateAddr m (+ t (* 32 (- i 2))) 32)
@@ -110,7 +110,7 @@
       (hmacSha512NewChains chains)
     }))
       {
-        (for i in 1 (+ n 1)
+        (for i in 1..(+ n 1)
           {
             (if (> i 1)
               (hmacSha512UpdateAddr m (+ t (* 64 (- i 2))) 64)

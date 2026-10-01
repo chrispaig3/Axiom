@@ -540,7 +540,7 @@
     (mut upper 0)
   )
     {
-      (for k in 0 len
+      (for k in 0..len
         (if (&& (>= (strByte s k) 65) (<= (strByte s k) 90))
           (set upper (+ upper 1))
           0))
@@ -551,7 +551,7 @@
           (d (strData out))
         )
           {
-            (for i in 0 len
+            (for i in 0..len
               (let ((c (strByte s i)))
                 (__store8
                   d

@@ -558,7 +558,7 @@
     (mut answered 0)
   )
     {
-      (for t in head next
+      (for t in head..next
         (let ((s (% t w)))
           (if (== (taskSt st s 2) 0)
             {
@@ -799,7 +799,7 @@
     (mut nap taskExitNapFirst)
   )
     {
-      (for i in 0 (* 3 w)
+      (for i in 0..(* 3 w)
         (vecPush st 0))
       (while (< head n)
         (let (
@@ -839,7 +839,7 @@
                 (set progress 1)
               })
             ; Join what has ended; kill and join what ran out of time.
-            (for t in head next
+            (for t in head..next
               (let ((s (% t w)))
                 (if (== (taskSt st s 2) 0)
                   (let ((r (taskCheck
@@ -935,7 +935,7 @@
 (:: taskAllFailed (-> Int Error (-> (Result String Error) Int) Int))
 (fn (taskAllFailed n e sink)
   {
-    (for i in 0 n
+    (for i in 0..n
       (sink (Err e)))
     n
   })

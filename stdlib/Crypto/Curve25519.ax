@@ -334,7 +334,7 @@
 (fn (geYCanonical s)
   (let ((mut all 255))
     {
-      (for i in 1 31
+      (for i in 1..31
         (set all (& all (__load8 s i))))
       (if (&& (== all 255) (&& (== (& (__load8 s 31) 127) 127) (>= (__load8 s 0) 237)))
         0
@@ -515,7 +515,7 @@
     (let ((high (>> teeth 3)))
       (let ((index (& (^ teeth (- high 1)) 7)))
         {
-          (for j in 0 8
+          (for j in 0..8
             (let ((m (ctMaskEq j index)) (e (+ comb (* j 240))))
               {
                 (fe25519CMov m (gX c) (gX e))
@@ -564,7 +564,7 @@
         (ge25519P3Zero h)
         (geCombAdd h table s 31 c ta r)
         (geCombAdd h (+ table 1920) s 159 c ta r)
-        (for i in 30 -1 -1
+        (for i in 30..-1 by -1
           {
             (ge25519P2Dbl r h ta)
             (ge25519P1P1ToP3 h r)
@@ -586,9 +586,9 @@
 ;@axiom:precondition(`r` names 256 live writable words and `a` 32 live bytes)
 (fn (geSlide r a)
   {
-    (for i in 0 256
+    (for i in 0..256
       (__store64 r i (geBit a i)))
-    (for i in 0 256
+    (for i in 0..256
       (if (== (__load64 r i) 0)
         0
         (let ((mut b 1) (mut stop 0))
@@ -640,7 +640,7 @@
     (ge25519P3ToCached tbl p fe)
     (ge25519P2Dbl t p fe)
     (ge25519P1P1ToP3 p2 t)
-    (for k in 1 8
+    (for k in 1..8
       {
         (ge25519Add t p2 (+ tbl (* (- k 1) 320)) fe)
         (ge25519P1P1ToP3 u t)

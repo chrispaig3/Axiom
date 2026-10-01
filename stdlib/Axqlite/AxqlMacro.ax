@@ -119,7 +119,7 @@
       (mut quotes 0)
     )
       {
-        (for i in 0 n
+        (for i in 0..n
           (if (== (strByte name i) 34)
             (set quotes (+ quotes 1))
             0))
@@ -130,7 +130,7 @@
         )
           {
             (memPutByte d 0 34)
-            (for i in 0 n
+            (for i in 0..n
               (let ((c (strByte name i)))
                 {
                   (memPutByte d k c)

@@ -1016,9 +1016,9 @@ module.exports = grammar({
     // marks a range and `by` its step. `in` and `by` are keywords only
     // here: the `word` rule lexes each as one only where this rule
     // allows it, so `(in a x)` elsewhere is still an application of an
-    // identifier. The plain `operand` arm is the container, and also
-    // reads `(for i in lo hi body)`, which the compiler still accepts
-    // until the next reseed.
+    // identifier. The `operand` arm is the container. `..-` is the range
+    // marker written before a negative end, `0..-1`, because the identifier
+    // rule would otherwise read the two dots and the sign as one operator.
     for_expression: $ => seq(
       '(', 'for',
       field('binder', choice(
@@ -1029,14 +1029,12 @@ module.exports = grammar({
       choice(
         seq(
           field('start', $._expression),
-          '..',
+          choice('..', '..-'),
           field('end', $._expression),
           optional(seq('by', field('step', $._expression))),
         ),
         seq(
           field('operand', $._expression),
-          optional(field('operand', $._expression)),
-          optional(field('operand', $._expression)),
         ),
       ),
       field('body', $._expression),

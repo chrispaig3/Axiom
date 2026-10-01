@@ -66,7 +66,7 @@
 ;@axiom:precondition(`w` names `n` live writable words and `p` 4n live bytes)
 (fn (scLoad w p n)
   {
-    (for i in 0 n
+    (for i in 0..n
       (__store64 w i (ld32le p (* 4 i))))
     0
   })
@@ -81,7 +81,7 @@
 (fn (scAboveL x)
   (let ((mut carry 1))
     {
-      (for i in 0 8
+      (for i in 0..8
         (set carry (shrU (+ carry (+ (__load64 x i) (^ (scL i) mask32))) 32)))
       carry
     }))
@@ -97,7 +97,7 @@
   (let ((above (scAboveL x)))
     (let ((mask (& (ctMaskFromBit above) mask32)) (mut carry above))
       {
-        (for i in 0 8
+        (for i in 0..8
           (let ((c (+ carry (+ (__load64 x i) (& (^ (scL i) mask32) mask)))))
             {
               (__store64 r i (& c mask32))
@@ -119,10 +119,10 @@
   (let ((xr (memAlloc 200)))
     {
       ; xr = x * floor(2^512 / L), 25 words
-      (for i in 0 9
+      (for i in 0..9
         (let ((ri (scBarrett i)) (mut carry 0))
           {
-            (for j in 0 16
+            (for j in 0..16
               (let ((c (+ carry (+ (__load64 xr (+ i j)) (* ri (__load64 x j))))))
                 {
                   (__store64 xr (+ i j) (& c mask32))
@@ -131,11 +131,11 @@
             (__store64 xr (+ i 16) carry)
           }))
       ; xr = (xr / 2^512) * L, only the low 256 bits
-      (for i in 0 8
+      (for i in 0..8
         (__store64 xr i 0))
-      (for i in 0 8
+      (for i in 0..8
         (let ((qi (__load64 xr (+ i 16))) (mut carry 0))
-          (for j in 0 (- 8 i)
+          (for j in 0..(- 8 i)
             (let ((c (+ carry (+ (__load64 xr (+ i j)) (* qi (scL j))))))
               {
                 (__store64 xr (+ i j) (& c mask32))
@@ -143,14 +143,14 @@
               }))))
       ; xr = x - xr
       (let ((mut carry 1))
-        (for i in 0 8
+        (for i in 0..8
           (let ((c (+ carry (+ (__load64 x i) (^ (__load64 xr i) mask32)))))
             {
               (__store64 xr i (& c mask32))
               (set carry (shrU c 32))
             })))
       (scRemoveL xr xr)
-      (for i in 0 8
+      (for i in 0..8
         (st32le out (* 4 i) (__load64 xr i)))
       (ctWipe xr 200)
     }))
@@ -184,13 +184,13 @@
         (scLoad wa a 8)
         (scLoad wb b 8)
         (scLoad p c 8)
-        (for i in 8 16
+        (for i in 8..16
           (__store64 p i 0))
         ; p = p + a b (Monocypher's multiply)
-        (for i in 0 8
+        (for i in 0..8
           (let ((ai (__load64 wa i)) (mut carry 0))
             {
-              (for j in 0 8
+              (for j in 0..8
                 (let ((t (+ carry (+ (__load64 p (+ i j)) (* ai (__load64 wb j))))))
                   {
                     (__store64 p (+ i j) (& t mask32))

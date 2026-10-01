@@ -297,7 +297,7 @@
       (st64be lens 0 (* 8 aadLen))
       (st64be lens 8 (* 8 ctLen))
       (ghashUpdate y h lens 16)
-      (for i in 0 16
+      (for i in 0..16
         (__store8 tag i (^ (__load8 y i) (__load8 ekj0 i))))
       0
     }))

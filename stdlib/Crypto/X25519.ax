@@ -168,7 +168,7 @@
           (fe25519Copy x3 x1)
           (fe25519One z3)
           ; bits 254 down to 0 of the clamped scalar
-          (for pos in 254 -1 -1
+          (for pos in 254..-1 by -1
             (let ((b (& (>> (__load8 e (>> pos 3)) (& pos 7)) 1)))
               {
                 (set swap (^ swap b))
@@ -318,7 +318,7 @@
       (let ((out (memAlloc 32)) (mut acc 0))
         {
           (x25519ScalarMultAddr out (secretBlockAddr x25519Kind k.slot) (strData u))
-          (for i in 0 32
+          (for i in 0..32
             (set acc (| acc (__load8 out i))))
           (if (== (ctMaskZero acc) 0)
             (let ((r (secretFromAddr out 32)))

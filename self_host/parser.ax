@@ -1708,7 +1708,7 @@
 (pub fn (dropUnderscores lex)
   (let ((mut out "") (mut from 0) (n (strLen lex)))
     {
-      (for i in 0 n
+      (for i in 0..n
         (if (== (strByte lex i) 95)
           {
             (set out (strConcat out (strSlice lex from (- i from))))
@@ -4920,19 +4920,17 @@
           (pOk (mkNode TAG_E_WHILE cnd (memGetWord bodyR 1) 0) (memGetWord bodyR 2)))))))
 
 ; ------------------------------------------------------------------
-; (for i in lo hi body) - the counted loop - and (for x in xs body) - the
-; container loop. ONE keyword, FOUR shapes, discriminated by ARITY.
+; (for i in lo..hi body) - the counted loop - and (for x in xs body) - the
+; container loop. ONE keyword, FOUR shapes, and `in` always follows the
+; binder.
 ;
-; Arity is the only discriminator a parser has, because a parser knows
-; no types: two operands after the binder is the container, three is
-; the range, four the range with its step. The binder is a name, or an
-; element-index pair `(x i)` for the container shape only - a range
-; counts its own index. Exactly ONE body expression in all four, and
-; that is forced rather than chosen - a variadic body would make
-; `(for x in xs..a b)` ambiguous with the range. `{ ... }` sequences
-; several, which is what `(range i lo hi body)` in `stdlib/Pre.ax` and
-; the `(for x in xs body)` macro `stdlib/Html.ax` used to export already
-; contracted for, so no call site of either moves.
+; A parser knows no types, so the shapes are told apart by marks: `..`
+; after the first operand makes a range, and `by` after a range's end
+; gives its step. The binder is a name, or an element-index pair `(x i)`
+; for the container shape only - a range counts its own index. Exactly
+; ONE body expression in all four, and that is forced rather than
+; chosen: a variadic body would make `(for x in xs a b)` ambiguous.
+; `{ ... }` sequences several.
 ;
 ; DESUGARED HERE, into nodes that already exist. A new AST tag would
 ; cost edits in `expand.ax` (substTpl and expandExpr), `typecheck.ax`,
@@ -4940,7 +4938,7 @@
 ; the IR a `for` emits is by construction the IR the hand-written loop
 ; already emitted.
 ;
-;   (for i in LO HI BODY)
+;   (for i in LO..HI BODY)
 ;     => (let ((for$lo LO))
 ;          (let ((for$n HI))
 ;            (let ((mut for$i for$lo))
@@ -4949,7 +4947,7 @@
 ;                    (set for$i (+ for$i 1)) })
 ;                0 })))
 ;
-;   (for i in LO HI STEP BODY)
+;   (for i in LO..HI by STEP BODY)
 ;     => (let ((for$lo LO))
 ;          (let ((for$hi HI))
 ;            (let ((for$step STEP))
@@ -5075,49 +5073,18 @@
   (let ((aR (parseExpr tokens pos)))
     (if (== (memGetWord aR 0) 0)
       (if (peekIs tokens pos TK_RPAREN)
-        (pErrExp pos "the rest of the `for` shape: `(for x in xs body)`, `(for (x i) in xs body)`, `(for i in lo..hi body)` or `(for i in lo..hi..by by step body)`, and `{ ... }` sequences several")
+        (pErrExp pos "the rest of the `for` shape: `(for x in xs body)`, `(for (x i) in xs body)`, `(for i in lo..hi body)` or `(for i in lo..hi by step body)`, and `{ ... }` sequences several")
         aR)
       (if (forAtDotDot tokens (memGetWord aR 2))
         (if (== isPair 1)
           (pErrExp (memGetWord aR 2) "the container: an element-index binder `(x i)` takes the container shape only, `(for (x i) in xs body)`, because a range counts its own index")
           (parseForRange tokens (advance (advance (memGetWord aR 2))) xName xSpan (memGetWord aR 1) kwSpan))
-      (let ((bR (parseExpr tokens (memGetWord aR 2))))
-        (if (== (memGetWord bR 0) 0)
-          (if (peekIs tokens (memGetWord aR 2) TK_RPAREN)
-            (pErrExp (memGetWord aR 2) "the rest of the `for` shape: `(for x in xs body)`, `(for (x i) in xs body)`, `(for i in lo..hi body)` or `(for i in lo..hi by step body)`, and `{ ... }` sequences several")
-            bR)
-          (if (peekIs tokens (memGetWord bR 2) TK_RPAREN)
+        (let ((bR (parseForBody tokens (memGetWord aR 2))))
+          (if (== (memGetWord bR 0) 0)
+            bR
             (pOk (if (== isPair 1)
               (mkForContainerIndexed xName xSpan iName iSpan (memGetWord aR 1) (memGetWord bR 1) kwSpan)
-              (mkForContainer xName xSpan (memGetWord aR 1) (memGetWord bR 1) kwSpan)) (advance (memGetWord bR 2)))
-            (if (== isPair 1)
-              (pErrExp (memGetWord bR 2) "the container body: an element-index binder `(x i)` takes the container shape only, `(for (x i) in xs body)`, because a range counts its own index")
-              (let ((cPos (memGetWord bR 2)))
-                (let ((cR (parseExpr tokens cPos)))
-                  (if (== (memGetWord cR 0) 0)
-                    (if (peekIs tokens cPos TK_RPAREN)
-                      (pErrExp cPos "the rest of the `for` shape: `(for x in xs body)`, `(for (x i) in xs body)`, `(for i in lo..hi body)` or `(for i in lo..hi by step body)`, and `{ ... }` sequences several")
-                      cR)
-                    (if (peekIs tokens (memGetWord cR 2) TK_RPAREN)
-                      (pOk (mkForRange xName xSpan (memGetWord aR 1) (memGetWord bR 1) (memGetWord cR 1) kwSpan) (advance (memGetWord cR 2)))
-                      ; A fourth operand turns the body into a step and
-                      ; the shape wants one more: a literal step of `0`
-                      ; never advances the counter, so it is refused
-                      ; where it stands. A computed zero is not: the
-                      ; step is an expression, and what an expression
-                      ; answers is a run-time fact.
-                      (let ((step (memGetWord cR 1)))
-                        (if (&& (== (nodeTag step) TAG_E_INT) (== (nodeA step) 0))
-                          (pErrExp cPos "a nonzero step: a step of `0` never advances the counter")
-                          (let ((dPos (memGetWord cR 2)))
-                            (let ((dR (parseExpr tokens dPos)))
-                              (if (== (memGetWord dR 0) 0)
-                                (if (peekIs tokens dPos TK_RPAREN)
-                                  (pErrExp dPos "the rest of the `for` shape: `(for x in xs body)`, `(for (x i) in xs body)`, `(for i in lo..hi body)` or `(for i in lo..hi by step body)`, and `{ ... }` sequences several")
-                                  dR)
-                                (if (peekIs tokens (memGetWord dR 2) TK_RPAREN)
-                                  (pOk (mkForRangeStep xName xSpan (memGetWord aR 1) (memGetWord bR 1) step (memGetWord dR 1) kwSpan) (advance (memGetWord dR 2)))
-                                  (pErrExp (memGetWord dR 2) "`)` - `for` takes `(for x in xs body)`, `(for (x i) in xs body)`, `(for i in lo..hi body)` or `(for i in lo..hi by step body)`, and `{ ... }` sequences several")))))))))))))))))))
+              (mkForContainer xName xSpan (memGetWord aR 1) (memGetWord bR 1) kwSpan)) (memGetWord bR 2))))))))
 
 ; Two dots between operands: `lo..hi`. The lexer makes each a `.`,
 ; and a field access needs a name after its dot, so `lo..hi`,
@@ -5142,7 +5109,7 @@
           (let ((sR (parseExpr tokens (advance afterHi))))
             (if (== (memGetWord sR 0) 0)
               (if (peekIs tokens (advance afterHi) TK_RPAREN)
-                (pErrExp (advance afterHi) "the step after `by`: `(for i in lo..hi..by by step body)`")
+                (pErrExp (advance afterHi) "the step after `by`: `(for i in lo..hi by step body)`")
                 sR)
               (let ((step (memGetWord sR 1)))
                 (if (&& (== (nodeTag step) TAG_E_INT) (== (nodeA step) 0))
@@ -5220,7 +5187,7 @@
 (pub fn (forUpByOne kwSpan)
   (forSeq2 (mkForCall2 "<" (mkEVarAt "for$i" kwSpan) (mkEVarAt "for$n" kwSpan) kwSpan) (mkForCall2 "+" (mkEVarAt "for$i" kwSpan) (mkEInt 1) kwSpan)))
 
-; (for i in LO HI BODY). `for$lo` and `for$n` are bound in source order and
+; (for i in LO..HI BODY). `for$lo` and `for$n` are bound in source order and
 ; before the loop, so each end is computed ONCE.
 (pub :: mkForRange (-> String Int Int Int Int Int Int))
 (pub fn (mkForRange bindName bindSpan lo hi body kwSpan)
@@ -5239,7 +5206,7 @@
         kwSpan))
       kwSpan) kwSpan) kwSpan)))
 
-; (for i in LO HI STEP BODY). `for$step` joins the hoisted bindings, bound
+; (for i in LO..HI by STEP BODY). `for$step` joins the hoisted bindings, bound
 ; beside the ends in source order. The condition reads its sign: up
 ; while below `hi`, down while above it.
 (pub :: mkForRangeStep (-> String Int Int Int Int Int Int Int))

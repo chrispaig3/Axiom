@@ -99,7 +99,7 @@
       )
         {
           (let ((ps (strData s)))
-            (for i in 0 n
+            (for i in 0..n
               (__store8 ps i (^ (__load8 pa i) (__load8 pb i)))))
           (Ok s)
         }))))
@@ -140,7 +140,7 @@
     (let ((out (bytesNew (* 2 n))))
       {
         (let ((q (strData out)))
-          (for i in 0 n
+          (for i in 0..n
             (let ((b (__load8 p i)))
               {
                 (__store8 q (* 2 i) (hexDigit (>> b 4)))
@@ -180,7 +180,7 @@
       )
         {
           (let ((q (strData out)))
-            (for i in 0 (/ n 2)
+            (for i in 0..(/ n 2)
               (let (
                 (hi (hexValue (__load8 p (* 2 i))))
                 (lo (hexValue (__load8 p (+ (* 2 i) 1))))
@@ -256,7 +256,7 @@
         {
           (let ((q (strData out)))
             {
-              (for i in 0 full
+              (for i in 0..full
                 (let ((w (| (<< (__load8 p (* 3 i)) 16) (| (<< (__load8 p (+ (* 3 i) 1)) 8) (__load8 p (+ (* 3 i) 2))))))
                   {
                     (__store8 q (* 4 i) (b64Digit (& (>> w 18) 63) c62 c63))
@@ -314,7 +314,7 @@
           {
             (let ((q (strData out)))
               {
-                (for i in 0 full
+                (for i in 0..full
                   (let (
                     (a (b64Value (__load8 p (* 4 i)) c62 c63))
                     (b (b64Value (__load8 p (+ (* 4 i) 1)) c62 c63))

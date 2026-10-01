@@ -178,7 +178,7 @@
 (fn (bnCopy dst src)
   (let ((n (bnLen src)))
     {
-      (for i in 0 n
+      (for i in 0..n
         (bnPut dst i (bnLimb src i)))
       (bnSetLen dst n)
     }))
@@ -193,7 +193,7 @@
     (mut carry add)
   )
     {
-      (for i in 0 n
+      (for i in 0..n
         (let ((t (+ (* (bnLimb p i) k) carry)))
           {
             (bnPut p i (& t bnMask))
@@ -221,7 +221,7 @@
         })
       (let ((mut k 1))
         {
-          (for i in 0 left
+          (for i in 0..left
             (set k (* k 10)))
           (bnMulAdd p k 0)
         })
@@ -241,7 +241,7 @@
         })
       (let ((mut k 1))
         {
-          (for i in 0 left
+          (for i in 0..left
             (set k (* k 5)))
           (bnMulAdd p k 0)
         })
@@ -266,7 +266,7 @@
               (bnPut p (+ i whole) (bnLimb p i))
               (set i (- i 1))
             }))
-        (for i in 0 whole
+        (for i in 0..whole
           (bnPut p i 0))
         (bnSetLen p (+ len whole))
         (if (> bits 0)
@@ -339,7 +339,7 @@
     (mut borrow 0)
   )
     {
-      (for i in 0 la
+      (for i in 0..la
         (let ((t 
           (-
             (-
@@ -491,7 +491,7 @@
     false
     (let ((mut ok true))
       {
-        (for i in 0 (strLen word)
+        (for i in 0..(strLen word)
           (if (!= (lowerAt s (+ start i)) (strByte word i))
             {
               (set ok false)
@@ -821,7 +821,7 @@
     (mut carry 1)
   )
     {
-      (for k in 0 n
+      (for k in 0..n
         (__store8 (strData out) k (strByte digits k)))
       (while (&& (>= i 0) (== carry 1))
         (let ((c (+ (strByte digits i) 1)))
@@ -885,7 +885,7 @@
 (fn (zeros n)
   (let ((buf (strAlloc n)))
     {
-      (for i in 0 n
+      (for i in 0..n
         (__store8 (strData buf) i 48))
       buf
     }))
@@ -902,7 +902,7 @@
 (fn (zerosFrom s from)
   (let ((mut z true))
     {
-      (for k in from (strLen s)
+      (for k in from..(strLen s)
         (if (!= (strByte s k) 48)
           {
             (set z false)

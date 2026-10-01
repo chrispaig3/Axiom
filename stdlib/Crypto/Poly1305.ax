@@ -62,7 +62,7 @@
     (__store64 st 2 (& (>> (ld32le key 6) 4) 67092735))
     (__store64 st 3 (& (>> (ld32le key 9) 6) 66076671))
     (__store64 st 4 (& (>> (ld32le key 12) 8) 1048575))
-    (for i in 5 10
+    (for i in 5..10
       (__store64 st i 0))
     (__store64 st 10 (ld32le key 16))
     (__store64 st 11 (ld32le key 20))
@@ -105,7 +105,7 @@
       (mut a4 (__load64 st 9))
     )
       {
-        (for b in 0 n
+        (for b in 0..n
           (let ((o (* 16 b)))
             (let (
               (b0 (+ a0 (& (ld32le p o) m)))
@@ -164,7 +164,7 @@
           {
             (__store64 st 14 0)
             (__store64 st 15 0)
-            (for i in 0 rest
+            (for i in 0..rest
               (__store8 t i (__load8 p (+ (* 16 full) i))))
             (poly1305Blocks st t 1 16777216)
           })
@@ -265,7 +265,7 @@
       (if (> rest 0)
         (let ((t (+ st 112)))
           {
-            (for i in 0 rest
+            (for i in 0..rest
               (__store8 t i (__load8 msg (+ (* 16 full) i))))
             (__store8 t rest 1)
             (poly1305Blocks st t 1 0)

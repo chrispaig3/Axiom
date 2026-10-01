@@ -83,7 +83,6 @@
 ; reader that kept raw lines would satisfy `emit | read | emit ==
 ; emit` without reading anything, which is the vacuous check this
 ; repository names most often.
-(import Pre (range))
 (import Mem)
 (import Str)
 (import Vec)
@@ -188,7 +187,7 @@
     (mut from "")
   )
     {
-      (for i in 0 np
+      (for i in 0..np
         {
           (if (> i 0)
             (set from (strConcat from ","))
@@ -304,7 +303,7 @@
   (let ((mut ok 1))
     {
       (vecPushStr out (strConcat "blk " (strConcat (mirBB b.id) (strConcat (axirRegs b.params 0 "") "\n"))))
-      (for i in 0 (vecLen b.instrs)
+      (for i in 0..(vecLen b.instrs)
         (let ((s (axirOpLine (vecGet b.instrs i))))
           (if (== (strLen s) 0)
             (set ok 0)
@@ -340,13 +339,13 @@
     (mut ok 1)
   )
     {
-      (for i in 0 (vecLen f.blocks)
+      (for i in 0..(vecLen f.blocks)
         (if (== (axirBlockLines (vecGet f.blocks i) body) 0)
           (set ok 0)
           0))
       (if (== ok 1)
         {
-          (for k in 0 (vecLen body)
+          (for k in 0..(vecLen body)
             (vecPush parts (vecGetStr body k)))
           0
         }

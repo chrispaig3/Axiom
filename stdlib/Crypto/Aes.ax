@@ -466,7 +466,7 @@
 ;@axiom:precondition(`q` names 8 live writable words and `src` names 16 * `n` live bytes)
 (fn (aesLoadBlocks q src n)
   {
-    (for i in 0 4
+    (for i in 0..4
       (if (< i n)
         (let ((o (* 16 i)))
           (aesInterleaveIn
@@ -495,7 +495,7 @@
 (fn (aesStoreBlocks q dst n)
   {
     (aesOrtho q)
-    (for i in 0 n
+    (for i in 0..n
       (aesInterleaveOut q i dst (* 16 i)))
     0
   })
@@ -526,7 +526,7 @@
 ;@axiom:precondition(`q` names 8 live writable words and `sk` 8 live words)
 (fn (aesAddRoundKey q sk)
   {
-    (for i in 0 8
+    (for i in 0..8
       (__store64 q i (^ (__load64 q i) (__load64 sk i))))
     0
   })
@@ -583,7 +583,7 @@
 ;@axiom:precondition(`q` names 8 live writable words and `sk` 8 live words)
 (fn (aesShiftAdd q sk)
   {
-    (for i in 0 8
+    (for i in 0..8
       (__store64 q i (^ (aesShiftRow (__load64 q i)) (__load64 sk i))))
     0
   })
@@ -596,7 +596,7 @@
 ;@axiom:precondition(`q` names 8 live writable words)
 (fn (aesInvShiftRows q)
   {
-    (for i in 0 8
+    (for i in 0..8
       (__store64 q i (aesInvShiftRow (__load64 q i))))
     0
   })
@@ -654,7 +654,7 @@
 (fn (aesEncryptState nr sk q)
   {
     (aesAddRoundKey q sk)
-    (for u in 1 nr
+    (for u in 1..nr
       {
         (aesSbox q)
         (aesShiftMixAdd q (+ sk (* 64 u)))
@@ -673,7 +673,7 @@
 (fn (aesDecryptState nr sk q)
   {
     (aesAddRoundKey q (+ sk (* 64 nr)))
-    (for i in 1 nr
+    (for i in 1..nr
       {
         (aesInvShiftRows q)
         (aesInvSbox q)
@@ -710,7 +710,7 @@
 (fn (aesSubWord q x)
   {
     (__store64 q 0 x)
-    (for i in 1 8
+    (for i in 1..8
       (__store64 q i 0))
     (aesOrtho q)
     (aesSbox q)
@@ -760,14 +760,14 @@
         (q (+ work 480))
       )
         {
-          (for i in 0 nk
+          (for i in 0..nk
             (__store64 w i (ld32le key (* 4 i))))
           (let (
             (mut tmp (__load64 w (- nk 1)))
             (mut j 0)
             (mut k 0)
           )
-            (for i in nk nkf
+            (for i in nk..nkf
               {
                 (if (== j 0)
                   {
@@ -791,7 +791,7 @@
                   }
                   0)
               }))
-          (for g in 0 (+ nr 1)
+          (for g in 0..(+ nr 1)
             (let ((i (* 4 g)))
               {
                 (aesInterleaveIn
@@ -902,7 +902,7 @@
     {
       (while (< off len)
         {
-          (for i in 0 4
+          (for i in 0..4
             (aesInterleaveIn
               q
               i
@@ -913,18 +913,18 @@
           (aesOrtho q)
           (aesEncryptState nr sk q)
           (aesOrtho q)
-          (for i in 0 4
+          (for i in 0..4
             (aesInterleaveOut q i ks (* 16 i)))
           (let ((rest (- len off)))
             (if (>= rest 64)
               {
-                (for i in 0 8
+                (for i in 0..8
                   (st64le dst (+ off (* 8 i)) (^ (ld64le src (+ off (* 8 i))) (ld64le ks (* 8 i)))))
                 (set cc (& (+ cc 4) 4294967295))
                 0
               }
               {
-                (for i in 0 rest
+                (for i in 0..rest
                   (__store8 dst (+ off i) (^ (__load8 src (+ off i)) (__load8 ks i))))
                 (set cc (& (+ cc (/ (+ rest 15) 16)) 4294967295))
                 0

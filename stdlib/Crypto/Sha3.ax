@@ -80,7 +80,7 @@
 ; Store the 64 bits of `v` at `p` + `off`, least significant byte first.
 (macro (keccakSt64le p off v)
   (let ((q p) (o off) (v0 v))
-    (for k in 0 8
+    (for k in 0..8
       (__store8 q (+ o k) (& (>> v0 (* 8 k)) 255)))))
 
 ; ------------------------------------------------------------------
@@ -310,7 +310,7 @@
 ;@axiom:precondition(`st` names a live writable sponge blob)
 (fn (keccakErase st)
   {
-    (for i in 0 28
+    (for i in 0..28
       (__store64 st i 0))
     (ctWipe (+ st 224) 8)
   })

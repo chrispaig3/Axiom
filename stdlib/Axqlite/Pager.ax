@@ -265,7 +265,7 @@
 (pub fn (pagerGetBe addr off n)
   (let ((mut v 0))
     {
-      (for i in 0 n
+      (for i in 0..n
         (set v (| (<< v 8) (__load8 addr (+ off i)))))
       v
     }))
@@ -276,7 +276,7 @@
 ;@axiom:precondition(`addr + off` names `n` live writable bytes)
 (pub fn (pagerPutBe addr off n v)
   {
-    (for i in 0 n
+    (for i in 0..n
       (__store8 addr (+ off i) (& (>> v (* 8 (- (- n 1) i))) 255)))
     0
   })
@@ -1099,7 +1099,7 @@
 (fn (cacheDrop m)
   {
     (memSet (hashTab m) 0 (* 8 (st m wHashSize)))
-    (for f in 0 (st m wUsed)
+    (for f in 0..(st m wUsed)
       {
         (__store64 (fMeta m f) 0 -1)
         (__store64 (fMeta m f) 1 0)
@@ -1766,7 +1766,7 @@
                         (stSet m wFreeCount free)
                         (stSet m wCounter counter)
                         (stSet m wSchemaVer (pagerGetBe a 56 8))
-                        (for i in 0 8
+                        (for i in 0..8
                           (stSet m (+ wMeta0 i) (pagerGetBe a (+ 64 (* 8 i)) 8)))
                         (stSet m wDbSize (* count 4096))
                         (Ok 0)
@@ -1788,7 +1788,7 @@
     (pagerPutBe a 40 8 (st m wCounter))
     (pagerPutBe a 48 4 1)
     (pagerPutBe a 56 8 (st m wSchemaVer))
-    (for i in 0 8
+    (for i in 0..8
       (pagerPutBe a (+ 64 (* 8 i)) 8 (st m (+ wMeta0 i))))
     (pagerPutBe a 4088 8 (pagerChecksum a 4088 0))
   })
@@ -1971,7 +1971,7 @@
                   (stSet m wFreeCount 0)
                   (stSet m wCounter 1)
                   (stSet m wSchemaVer 0)
-                  (for i in 0 8
+                  (for i in 0..8
                     (stSet m (+ wMeta0 i) 0))
                   (storeHeader m a)
                   (try _ (ioWrite
@@ -2311,7 +2311,7 @@
         (mut failed None)
       )
         {
-          (for k in 0 (st m wJRecords)
+          (for k in 0..(st m wJRecords)
             (if (isSome failed)
               0
               (match (ioRead
@@ -2381,7 +2381,7 @@
 (fn (dirtyFrames m)
   (let ((keys vecNew))
     {
-      (for f in 0 (st m wUsed)
+      (for f in 0..(st m wUsed)
         (if (&& (fDirty m f) (>= (fPgno m f) 0))
           {
             (vecPush keys (+ (* (fPgno m f) 1048576) f))
@@ -2474,7 +2474,7 @@
             )
             ((Ok _)
               {
-                (for f in 0 (st m wUsed)
+                (for f in 0..(st m wUsed)
                   (fSetDirty m f 0))
                 (stSet m wCachedCounter (st m wCounter))
                 (endTxn m)

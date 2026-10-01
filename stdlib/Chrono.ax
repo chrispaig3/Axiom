@@ -903,7 +903,7 @@
 (fn (pow10 n)
   (let ((mut x 1))
     {
-      (for i in 0 n
+      (for i in 0..n
         (set x (* x 10)))
       x
     }))
@@ -1067,7 +1067,7 @@
     (mut ok true)
   )
     {
-      (for k in i (+ i n)
+      (for k in i..(+ i n)
         (let ((c (strByte s k)))
           (if (&& (>= c 48) (<= c 57))
             {
@@ -1101,7 +1101,7 @@
 (fn (digitValue s i n)
   (let ((mut v 0))
     {
-      (for k in i (+ i n)
+      (for k in i..(+ i n)
         (if (== v nsBad)
           0
           ; 922337203685477580 is (2^63 - 1) / 10.
@@ -1596,7 +1596,7 @@
 ;@axiom:precondition(`p + off` names `n` live writable bytes)
 (fn (putName p off name n)
   {
-    (for k in 0 n
+    (for k in 0..n
       (__store8 p (+ off k) (strByte name k)))
     (+ off n)
   })

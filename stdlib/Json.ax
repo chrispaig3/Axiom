@@ -327,7 +327,7 @@
 (fn (jsonJoinFill pieces out)
   (let ((mut off 0))
     {
-      (for k in 0 (vecLen pieces)
+      (for k in 0..(vecLen pieces)
         (let ((p (vecGetStr pieces k)))
           {
             (memCopy (+ (strData out) off) (strData p) (strLen p))
@@ -430,7 +430,7 @@
       ; well-formed sequence whose lead byte was just copied; they are
       ; copied as they come. A byte that begins no well-formed sequence
       ; is `�` - the rule `jsonEscapeLen` sized the buffer by.
-      (for k in 0 len
+      (for k in 0..len
         (let ((b (strByte s k)))
           (if (> skip 0)
             {
@@ -565,7 +565,7 @@
   (let ((items (memGetWordVec v 1)))
     {
       (vecPush pieces "[")
-      (for i in 0 (vecLen items)
+      (for i in 0..(vecLen items)
         {
           (if (> i 0)
             (vecPush pieces ",")
@@ -584,7 +584,7 @@
   )
     {
       (vecPush pieces "{")
-      (for i in 0 (vecLen keys)
+      (for i in 0..(vecLen keys)
         {
           (if (> i 0)
             (vecPush pieces ",")
