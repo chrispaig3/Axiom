@@ -393,7 +393,6 @@ read.
 | Keyword | Purpose | More |
 |---|---|---|
 | `fn` | Define a function | [Functions](#functions) |
-| `define` | The old spelling of `fn`. Still accepted and read as `fn`, and `axiom fmt` rewrites it to `fn` | [Functions](#functions) |
 | `lambda` | Anonymous function | [Functions](#functions) |
 | `let` | Local variable binding | [Let bindings](#let-bindings) |
 | `mut` | Marks a `let` binding assignable | [Mutable bindings](#mutable-bindings) |
@@ -440,6 +439,7 @@ write instead:
 |---|---|
 | `begin` | A brace block, `{ a b c }`. A `fn` body already runs its expressions in order, so often you can just delete it |
 | `cond` | The variadic `if`: `(if t1 b1 t2 b2 ... els)` |
+| `define` | `fn`: `(fn (add x y) (+ x y))`, and `(fn (answer) 42)` when it takes no parameters |
 | `union` | `data` for a tagged sum, or `struct` for a product |
 | `foreign` | An `extern` block ([Calling Rust](#calling-rust)), or the standard library, which needs no FFI |
 | `trait` | A [capability record](#capability-records): a struct of functions, passed as a value |
@@ -498,8 +498,8 @@ A function with no parameters has a plain type as its signature:
 ```
 
 Each use of its name calls it, so `answer` and `(answer)` both give
-`42`. The head may also be written without parentheses,
-`(fn answer 42)`, and `axiom fmt` prints it in the first form.
+`42`. The name always sits in parentheses, with its parameters:
+`(fn answer 42)` is `AX2001`.
 
 ### Several expressions in a body
 
@@ -529,21 +529,6 @@ in braces:
 
 A brace block's value is the value of its last expression. A single
 expression in braces is just that expression: `{ 42 }` is `42`.
-
-### `define` is legacy
-
-`define` is the old spelling of `fn`. The parser still accepts it and
-reads it as `fn`, and `axiom fmt` rewrites it: `(define legacy 7)`
-becomes `(fn (legacy) 7)`. Write `fn`, and when you meet `define` in
-old code, format the file.
-
-```scheme
-(:: add (-> Int Int Int))
-(define (add x y)       ; read as (fn (add x y) ...)
-  (+ x y))
-```
-
-Tested by `tests/fmt/parity/182-define-rewrites.axp`.
 
 ### Lambdas
 
@@ -630,7 +615,7 @@ A top-level function applied to too few arguments is `AX3013`:
 (fn (addFive) (add 5))
 
 (:: main Int)
-(fn main (addFive 1))
+(fn (main) (addFive 1))
 ; error[AX3013]: partial application of `add`: it takes 2 argument(s)
 ;                and 1 were supplied
 ```

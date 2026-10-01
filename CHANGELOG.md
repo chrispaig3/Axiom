@@ -30,6 +30,12 @@ its changelog too.
   highlighters read the new shapes, and subtype ranges print as
   `range 0..101`. Tested by `tests/stdlib/466-for-loop.ax` and
   `tests/diagnostics/634-for-missing-in.axbad`.
+- A function is written `(fn (name params) body)`, and `(fn (name) body)`
+  when it takes none. `define` is a removed keyword (`AX2004`, with the
+  replacement in the help) and a bare name, `(fn answer 42)`, is
+  `AX2001`. `axiom fmt` refuses both. Tested by
+  `tests/diagnostics/635-define-removed.axbad` and
+  `tests/diagnostics/636-fn-bare-name.axbad`.
 - The prelude's `range` macro is gone. `(for i in lo..hi body)` is the
   same loop.
 

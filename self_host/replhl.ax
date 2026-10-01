@@ -380,7 +380,7 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: hlIsDeclHead (-> String Bool))
 (pub fn (hlIsDeclHead w)
-  (|| (strEq w "fn") (|| (strEq w "define") (|| (strEq w "::") (|| (strEq w "pub") (|| (strEq w "data") (|| (strEq w "struct") (|| (strEq w "import") (|| (strEq w "macro") (|| (strEq w "effect") (|| (strEq w "type") (|| (strEq w "trait") (strEq w "impl")))))))))))))
+  (|| (strEq w "fn") (|| (strEq w "::") (|| (strEq w "pub") (|| (strEq w "data") (|| (strEq w "struct") (|| (strEq w "import") (|| (strEq w "macro") (|| (strEq w "effect") (|| (strEq w "type") (|| (strEq w "trait") (strEq w "impl"))))))))))))
 
 ; A keyword is a POSITION, not a token kind, and this predicate only
 ; ever runs on a name in head position - see `hlClassOf`.

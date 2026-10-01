@@ -174,7 +174,6 @@
 
 [
   "fn"
-  "define"
   "lambda"
   "macro"
   "emacro"

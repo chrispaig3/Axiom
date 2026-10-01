@@ -1,7 +1,7 @@
 # The refusal bank: what `axiom fmt` does to each tests/fmt/parity/*.axp case.
 #
 # One `### <case> (exit N)` line per case, followed by the formatted bytes when
-# it formatted at all. 69 cases: 38 rewrites and 31 refusals, which is why this
+# it formatted at all. 72 cases: 37 rewrites and 35 refusals, which is why this
 # file can tell a formatter that always succeeds from one that always refuses -
 # check-fmt-selfhost.sh requires both outcomes to be present.
 #
@@ -257,9 +257,7 @@
 (fn (f)
   (let ((x 1))
     x))
-### 182-define-rewrites.axp (exit 0)
-(fn (legacy)
-  7)
+### 182-define-refused.axp (exit 1)
 ### 190-keyword-param.axp (exit 0)
 (fn (g data)
   data)
@@ -343,6 +341,7 @@
     (for i in (h n)..n by -1
       i)
   })
+### 204-fn-bare-name-refused.axp (exit 1)
 ### 210-region-head-layout.axp (exit 0)
 (fn (f xs)
   {

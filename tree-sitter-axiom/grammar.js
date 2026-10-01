@@ -267,25 +267,17 @@ module.exports = grammar({
       field('type', $._type), ')',
     ),
 
-    // `(fn (name params...) body)` or `(define name body)`.
-    //
-    // Both spellings exist and `fn` is the modern one; they are the same
-    // node here because an editor has no reason to distinguish them and
-    // every reason to highlight them identically.
+    // `(fn (name params...) body)`. A function with no parameters is
+    // `(fn (name) body)`. `define` and a bare name are refused by the
+    // compiler and are not in this grammar.
     function_definition: $ => seq(
       '(',
-      optional(field('visibility', 'pub')), choice('fn', 'define'),
-      choice(
-        // `(fn (name p1 p2) body)` - the parenthesised form, which is
-        // also how a nullary function is written: `(fn (main) ...)`.
-        // The name may also be the query form `(syntax/join a b)`
-        // (MAC-CAP-5), standing in for the identifier a declaration
-        // macro computes at instantiation.
-        seq('(', field('name', choice($.identifier, $.syntax_join_name)),
-            repeat(field('parameter', $._pattern)), ')'),
-        // `(fn name body)` - a named constant.
-        field('name', $.identifier),
-      ),
+      optional(field('visibility', 'pub')), 'fn',
+      // The name may also be the query form `(syntax/join a b)`
+      // (MAC-CAP-5), standing in for the identifier a declaration
+      // macro computes at instantiation.
+      seq('(', field('name', choice($.identifier, $.syntax_join_name)),
+          repeat(field('parameter', $._pattern)), ')'),
       repeat(field('body', $._expression)),
       ')',
     ),

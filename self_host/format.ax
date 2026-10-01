@@ -4793,8 +4793,8 @@
           (fpP p "(")
           (fpVis p n)
           (fpP p "fn (")
-          ; `(fn (name params) body)`, `(fn name = body)` and
-          ; `(define name body)` all print as the first spelling.
+          ; Only `(fn (name params) body)` is a function. A bare name
+          ; or a `define` head is refused, as the parser refuses it.
           (let ((bodyFrom 
             (if (== (fnKind x) FN_PAREN)
               (if (&& (> (fnLen x) 0) (fpIsIdentAtom (fnKid x 0)))
@@ -4815,17 +4815,10 @@
                   (fpBad p)
                   (+ b 2)
                 })
-              (if (fpIsIdentAtom x)
-                {
-                  (fpP p (fnText src x))
-                  (if (&& (> (fnLen n) (+ b 2)) (fpIsAtomText src (fnKid n (+ b 2)) "="))
-                    (+ b 3)
-                    (+ b 2))
-                }
-                {
-                  (fpBad p)
-                  (+ b 2)
-                }))))
+              {
+                (fpBad p)
+                (+ b 2)
+              })))
             (let ((body (fpExprElems n bodyFrom)))
               {
                 (fpP p ")")
@@ -5201,7 +5194,9 @@
   (let ((h (fpDeclHead (fpSrc p) n)))
     (if (strEq h "import")
       (fpDeclImport p n)
-      (if (|| (strEq h "fn") (strEq h "define"))
+      (if (strEq h "define")
+        (fpBad p)
+      (if (strEq h "fn")
         (fpDeclFn p n)
         (if (strEq h "::")
           (fpDeclSig p n)
@@ -5244,7 +5239,7 @@
                                 (fpExpr p (fnKid n 0))
                                 (fpP p ")")
                               }
-                              (fpExpr p n))))))))))))))))
+                              (fpExpr p n)))))))))))))))))
 
 ; An AXTAG line, reconstructed the way stage0's parser splits it: the
 ; key up to the first `(`, the value to the LAST `)`. Text outside

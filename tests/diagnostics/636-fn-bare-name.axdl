@@ -1,0 +1,1 @@
+E AX2001 636-fn-bare-name.ax:5:5-11 unexpected-token "expected the function's name and parameters in parentheses: `(fn (name params) body)`, or `(fn (name) body)` when it takes none, found `answer`" #"found `answer` here" ?"Axiom expected the function's name and parameters in parentheses: `(fn (name params) body)`, or `(fn (name) body)` when it takes none at this position"

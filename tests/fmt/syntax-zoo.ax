@@ -302,8 +302,6 @@
 ; The list is exhaustive as of the day it was written, one entry per
 ; measured rewrite:
 ;
-;   (define x 1)             -> (fn (x) 1)
-;   (fn f = 7)               -> (fn (f) 7)
 ;   1_000_000                -> 1000000
 ;   007                      -> 7
 ;   ((g 1) 2)                -> (g 1 2)
@@ -329,10 +327,10 @@
 ; equivalence, which is why one is not written here.
 
 (:: helperD (-> Int Int))
-(define (helperD x) x)
+(fn (helperD x) x)
 
 (:: zeroParam Int)
-(fn zeroParam = 7)
+(fn (zeroParam) 7)
 
 (:: bigNums Int)
 (fn (bigNums) (+ 1_000_000 007))

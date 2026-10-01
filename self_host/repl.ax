@@ -956,7 +956,7 @@
     (if (!= (strByte line 0) 40)
       false
       (let ((w (declHeadWord line)))
-        (|| (strEq w "fn") (|| (strEq w "define") (|| (strEq w "::") (|| (strEq w "pub") (|| (strEq w "data") (|| (strEq w "struct") (|| (strEq w "import") (|| (strEq w "macro") (|| (strEq w "effect") (|| (strEq w "type") (|| (strEq w "trait") (strEq w "impl"))))))))))))))))
+        (|| (strEq w "fn") (|| (strEq w "::") (|| (strEq w "pub") (|| (strEq w "data") (|| (strEq w "struct") (|| (strEq w "import") (|| (strEq w "macro") (|| (strEq w "effect") (|| (strEq w "type") (|| (strEq w "trait") (strEq w "impl")))))))))))))))
 
 ; `impl` was missing while `trait` and `type` were
 ; here, so a trait implementation typed at the prompt
@@ -1847,7 +1847,7 @@
     (replOut "  :llvm <expr>  Show generated LLVM IR\n")
     (replOut "  :time <expr>  Time expression evaluation\n")
     (replOut "\nTips:\n")
-    (replOut "  • Define functions: (define (add x y) (+ x y))\n")
+    (replOut "  • Define functions: (fn (add x y) (+ x y))\n")
     (replOut "  • Type signatures: (:: add (-> Int Int Int))\n")
     (replOut "  • Data types: (data Maybe (a) (Nothing) (Just a))\n")
     (replOut "  • Expressions are evaluated and results shown\n")

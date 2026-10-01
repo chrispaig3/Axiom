@@ -1,0 +1,5 @@
+; `define` was the old spelling of `fn`. It is a removed keyword now,
+; refused as AX2004 with the replacement in the help. `.axbad` because
+; a parse error stops the file.
+(:: add (-> Int Int Int))
+(define (add x y) (+ x y))

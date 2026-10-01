@@ -346,8 +346,6 @@
 ; The list is exhaustive as of the day it was written, one entry per
 ; measured rewrite:
 ;
-;   (define x 1)             -> (fn (x) 1)
-;   (fn f = 7)               -> (fn (f) 7)
 ;   1_000_000                -> 1000000
 ;   007                      -> 7
 ;   ((g 1) 2)                -> (g 1 2)

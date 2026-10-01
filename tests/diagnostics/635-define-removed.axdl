@@ -1,0 +1,1 @@
+E AX2004 635-define-removed.ax:5:2-8 removed-construct "`define` is no longer part of Axiom" #"`define` was the old spelling of `fn`, read as the same declaration; a language with two spellings of one thing makes every reader learn both" ?"write `fn`: `(fn (add x y) (+ x y))`, and `(fn (answer) 42)` for a function with no parameters"

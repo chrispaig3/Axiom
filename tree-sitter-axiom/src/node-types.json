@@ -2609,10 +2609,6 @@
     "named": false
   },
   {
-    "type": "define",
-    "named": false
-  },
-  {
     "type": "effect",
     "named": false
   },

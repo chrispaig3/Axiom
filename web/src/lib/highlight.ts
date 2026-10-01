@@ -68,7 +68,7 @@ const BUILTIN_TYPES = new Set([
 // Alloc, Mut, Div.
 const BUILTIN_EFFECTS = new Set(['Pure', 'IO', 'Alloc', 'Mut', 'Div'])
 
-const KEYWORD_FUNCTION = new Set(['fn', 'define', 'lambda'])
+const KEYWORD_FUNCTION = new Set(['fn', 'lambda'])
 const KEYWORD_TYPE = new Set(['data', 'struct', 'type', 'subtype', 'effect'])
 // `else` left with `cond`: it was only ever the else-clause marker,
 // never a keyword of its own, so it is an ordinary identifier now.
