@@ -928,7 +928,6 @@ module.exports = grammar({
       $.set_expression,
       $.match_expression,
       $.handle_expression,
-      $.alloc_expression,
       $.sizeof_expression,
       $.alignof_expression,
       $.cast_expression,
@@ -1165,10 +1164,6 @@ module.exports = grammar({
     // The remaining ambiguity, `(foo)` as a one-element effect list versus
     // an application, is declared as a conflict below.
     effect_list: $ => seq('(', repeat1(field('effect', $.effect)), ')'),
-
-    alloc_expression: $ => seq(
-      '(', 'alloc', field('type', $._type), optional(field('count', $._expression)), ')',
-    ),
 
     sizeof_expression: $ => seq('(', 'sizeof', field('type', $._type), ')'),
 

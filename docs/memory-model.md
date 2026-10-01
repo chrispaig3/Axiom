@@ -422,8 +422,7 @@ row above. This checks `OK` with `AX3037` beside it, and its row reads
 ```
 
 `__alloc`, the primitive the whole heap goes through, contributes
-`Alloc`. So does the `(alloc T)` form, which allocates nothing and which
-`MM-LIFE-7` records as definable but uncallable.
+`Alloc`.
 
 The store, command-line and arena rows follow the definitions already
 in [reference.md](reference.md):
@@ -1420,48 +1419,17 @@ is an ordinary closure record.
 ### 2.4 Pointers
 
 **MM-VAL-20 (H).** The type system has a pointer type, spelled `*T` or
-`*mut T`. `(alloc T)` produces it, and nothing else a program can write
-does.
+`*mut T`. No expression a program can write produces one.
 
-**MM-VAL-21 (H, defective).** `(alloc T)` **allocates nothing and
-evaluates to the constant 0**, while typing as `*mut T`. There is no
-dereference, no field access and no store through the result: every
-use is `AX3004 expected struct or data type, found *mut Node`. This
-program checks `OK`:
+**MM-VAL-21 (R).** `(alloc T)` **MUST** be refused. The form typed as
+`*mut T` and evaluated to the constant 0, with no dereference, no
+field access and no store through the result, so a program holding
+one held no memory. The parser answers `AX2004` and the help points to
+`__alloc`, `vecNew`, `strAlloc` or a struct. The formatter refuses it
+too. The `Alloc` effect has one site-level witness, a call to
+`__alloc`.
 
-```scheme
-(fn (main) (cast Int (alloc P)))
-```
-
-and its `main` compiles to:
-
-```llvm
-define i64 @__axiom_user_main() #0 {
-
-  ret i64 0
-}
-```
-
-Three more facts make the form unusable, not just unimplemented:
-
-- **`*mut` can't be spelled in source.** No signature can name the
-  type, so an `alloc` result can only be `let`-bound and `cast`. It can
-  never be passed to a declared parameter or returned.
-- **`alloc`'s type operand is never resolved.** An undefined type name
-  inside `alloc` draws no `AX3002`, where the same name in a signature
-  does. Its *count* operand is fully checked.
-- **`alloc` still contributes the built-in `Alloc` effect.** The effect
-  is inferred, shown on AXSYM as `#effects=Alloc`, and checked against
-  a `;@axiom:effect(pure)` claim. A form that allocates nothing reports that it
-  allocates.
-
-<!-- doc-gate:negative-exempt a population count, not an existence claim. What falsifies it is any .ax file spelling the form, and the MUST in this same paragraph is what such a file would violate. The honest probe is a corpus counter, which this gate does not have yet. -->
-So `alloc` is a documented form with no semantics, and no program in
-the corpus uses it. **A conforming implementation MUST either give
-`alloc` the semantics of `MM-ALLOC-11` or refuse it.** This
-specification doesn't bless the current behaviour. Until that is
-decided, a program **MUST NOT** use `alloc`, and **MUST NOT** rely on
-the emitted 0.
+*Evidence:* `tests/diagnostics/1102-alloc-removed.axbad`.
 
 ---
 
@@ -6162,8 +6130,7 @@ opposite of that rule's status.
 | Parallelism | PAR-1…5, 6a, 7…13 | PAR-6 | — | — |
 | Foreign | FFI-1…7 | — | — | — |
 
-`MM-VAL-21` is in no column. It is neither held, planned nor refused,
-but **defective**: see §9.0.
+`MM-VAL-21` is refused: see §2.4.
 
 The Lifetimes row's Withdrawn column is §0.3's second kind, abandoned
 in place. `LIFE-2a…2f` were withdrawn *after* most of their machinery
@@ -6209,7 +6176,6 @@ with the fixture that pins it.
 | `MM-ALLOC-8b` | `(__alloc 0)` returns the bump pointer without advancing it, which is address 0 before any chunk exists |
 | `MM-VAL-4c` | `(!= NaN NaN)` is `false`, and `Fmt.fmtFloat` can't render inf or NaN |
 | `MM-VAL-3b` | `INT_MIN / -1` and shifts of 64 or more are undefined, and answer differently at each `--opt` level. The operators are unchanged. What is fixed is the lack of an alternative: `stdlib/Err.ax` has checked arithmetic (`tests/stdlib/312-checked-arithmetic.ax`) |
-| `MM-VAL-21` | `alloc` types as `*mut T`, which you can't spell, evaluates to 0, and still reports `#effects=Alloc`. The form is in use: thirteen `(alloc ...)` expressions in eight corpus files across four gates (`check-diagnostics`, `check-fmt`, `check-restrictions`, `check-self-host`), and the formatter's own printer for it in `self_host/format.ax`, a second grammar a refusal would also have to change. So refusing the form is a migration, not the near-zero edit `memory-model-v2-proposal.md` P1 priced. It would also remove the only cheap way to write a site-level `Alloc` witness (the `direct` case in `tests/diagnostics/372-restrict-no-alloc.ax`) |
 | `MM-EXEC-9a` | Effect inference under-approximates. Of seven known gaps, six are closed: `__alloc`, trait dispatch, `__store8`/`__store64` (`Mut`), `__argc`/`__argv` (`IO`), the arena primitives (`Alloc`) and constructor allocation. One remains: a call through a local, a parameter or an unresolved name. It sets `#effects-incomplete` instead of reporting a set that looks complete |
 | `MM-LIFE-7` | `consume` and `alloc` win as expression heads, so you can define a function with either name but can't call it |
 | `MM-LIFE-2j` | **Resolved by removal in 0.6.0.** A trait default body's shape word depended on `impl` declaration order. `checkImplComplete` synthesised the default into every impl that omitted the method without copying the body's nodes, so one AST was checked once per implementing type, and per-node stamps were last-write-wins across the monomorphisations. On the fixture `373-shared-default-binder` in 0.3.0, `Ident#String#ident` got header `131076` and `axiom_retain(%x)` with the `Int` impl declared first, and header `4` (a leaf) with no retain with the `String` impl first. Removing traits removed the only way to check one body under two type environments. Emitted IR from a last-write-wins compiler is byte-identical to the tree's across 278 fixtures, every `stdlib/` module and `self_host/main.ax`. `scripts/check-fallible-reclaim.sh` asserts that the case stays unreachable, so the rule stays listed: a future construct that re-checks a body per instantiation would bring it back |

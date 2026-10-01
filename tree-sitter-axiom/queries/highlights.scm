@@ -227,7 +227,6 @@
 ] @function.builtin
 
 [
-  "alloc"
   "sizeof"
   "alignof"
   "cast"

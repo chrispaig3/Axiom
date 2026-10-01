@@ -86,7 +86,7 @@ const KEYWORD_INNER: Record<string, Record<number, string>> = {
   for: { 2: 'in', 4: 'by' },
   subtype: { 2: 'is', 4: 'range' },
 }
-const KEYWORD_MODIFIER = new Set(['alloc', 'sizeof', 'alignof', 'cast', 'mut'])
+const KEYWORD_MODIFIER = new Set(['sizeof', 'alignof', 'cast', 'mut'])
 
 // Heads the parser refuses with AX2004. highlights.scm captures these as
 // `@error` "because that is what the compiler reports".

@@ -1,10 +1,10 @@
 ; `restrict(no-alloc)`: `Alloc` is not in the effect row. Transitive
 ; for the same reason `no-io` is - the row is a fixpoint - and it sees
-; the body's OWN allocation too, because `(alloc T n)` adds `Alloc` at
-; the site rather than through a call.
+; the body's OWN allocation too: a call to the primitive `__alloc` carries
+; `Alloc` itself.
 ;
 ;   `builds`  calls `strConcat`, which allocates      -> AX3049
-;   `direct`  writes `(alloc Int 1)` itself           -> AX3049
+;   `direct`  calls `__alloc` itself                   -> AX3049
 ;   `sums`    arithmetic only                         -> silent
 ;   `reads`   loads a word through a primitive        -> silent:
 ;             `__load64` performs `Unsafe`, not `Alloc`, and the
@@ -19,9 +19,10 @@
 
 ;@axiom:restrict(no-alloc)
 (:: direct (-> Int Int))
+;@axiom:effect(unsafe)
 (fn (direct n)
   (let ((p 
-    (alloc Int 1)))
+    (__alloc 8)))
     n))
 
 ;@axiom:restrict(no-alloc)

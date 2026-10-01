@@ -1,0 +1,8 @@
+; `(alloc T)` typed as `*mut T` and evaluated to the constant 0, so it
+; never allocated anything. It is a removed form now: AX2004, with
+; `__alloc` in the help. `.axbad` because a parse error stops the file.
+(struct P (x : Int))
+
+(:: main Int)
+(fn (main)
+  (cast Int (alloc P)))

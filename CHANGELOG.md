@@ -30,6 +30,10 @@ its changelog too.
   highlighters read the new shapes, and subtype ranges print as
   `range 0..101`. Tested by `tests/stdlib/466-for-loop.ax` and
   `tests/diagnostics/634-for-missing-in.axbad`.
+- `alloc` is a removed form (`AX2004`, with `__alloc` in the help). It
+  typed as a pointer and evaluated to 0, so it never allocated. The
+  `Alloc` effect's site-level witness is a call to `__alloc`. Tested by
+  `tests/diagnostics/1102-alloc-removed.axbad`.
 - A function is written `(fn (name params) body)`, and `(fn (name) body)`
   when it takes none. `define` is a removed keyword (`AX2004`, with the
   replacement in the help) and a bare name, `(fn answer 42)`, is

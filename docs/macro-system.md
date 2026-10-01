@@ -924,7 +924,7 @@ replaced" can't be implemented there. A conforming implementation
 extent. An IDE feature such as "select this expansion" needs extents,
 and that changes every construction site in the parser.
 
-**MAC-EXP-14b (H).** Four positions inside otherwise-handled template
+**MAC-EXP-14b (H).** Three positions inside otherwise-handled template
 forms are not substituted. A macro parameter placed in one is used as a
 literal name, not replaced by its argument:
 
@@ -932,23 +932,21 @@ literal name, not replaced by its argument:
 |---|---|
 | field access / field store | the field name |
 | struct construction | the type name |
-| `alloc` | the type operand |
 | `handle` | the effect-name list |
 
 Each position is a name, not an expression, so this is by design. It is
-easy to miss, though, and more so for `alloc`, whose type operand is
-never resolved either (`MM-VAL-21`). A conforming implementation
+easy to miss, though. A conforming implementation
 **SHOULD** diagnose a macro parameter in one of these positions instead
 of passing its name through.
 
-This implementation warns. A parameter in one of the four positions
+This implementation warns. A parameter in one of the three positions
 draws `AX3074` (`macro-parameter-name-position`) at the invocation,
 under the macro's expansion frame. It is a warning, not a refusal,
 because refusing would break templates that mean the literal spelling.
 A field name that an enclosing `syntax/for` binds is exempt, since the
 iteration substitutes it.
 
-Tested by `tests/diagnostics/1007-macro-param-name-position.ax`: five
+Tested by `tests/diagnostics/1007-macro-param-name-position.ax`: four
 warnings (field access and field store each draw one) over a program
 that still checks clean, and nothing for a literal field or a
 `syntax/for`-bound field.
@@ -1473,7 +1471,7 @@ invocation, under the macro's frame.
 **MAC-CAP-1 (H).** Every form a template can contain has a substitution
 case: application, `if`, `match` and its arms, `let`, `let mut`, `set`,
 `while`, field access, field store, struct construction, `lambda`,
-block, `alloc`, `handle`, and every literal. A variadic `if`
+block, `handle`, and every literal. A variadic `if`
 substitutes as the nested `if`s it stands for. Lists and tuples need no
 case of their own, because `[T]` and tuple types are type nodes: a
 list-shaped value is a constructor application (`MM-VAL-13`).

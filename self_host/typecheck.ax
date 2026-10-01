@@ -8748,21 +8748,7 @@
                                       (checkHandle tc e)
                                       (if (== tag TAG_E_STRUCTCON)
                                         (checkStructConNode tc e)
-                                        ; `(alloc Type [count])` types `*mut Type` and evaluates
-                                        ; nothing - stage0's IR generator has no case for it. The
-                                        ; count, when present, is still an expression stage0 walks,
-                                        ; so a diagnostic inside it is reported.
-                                        (if (== tag TAG_E_ALLOC)
-                                          {
-                                            (if (!= (nodeB e) 0)
-                                              (checkExprH tc (nodeB e) 0)
-                                              0)
-                                            (mkTPtr (nodeA e) 1)
-                                          }
-                                          ; A subtype range check: a=value expr, b=bounds
-                                          ; Vec, c=message; the ty slot carries the
-                                          ; target subtype, which is the answer.
-                                          (if (== tag TAG_E_SUBCHECK)
+                                        (if (== tag TAG_E_SUBCHECK)
                                             {
                                               (checkExprH tc (nodeA e) 0)
                                               (checkSubtypeBounds tc (nodeBVec e) 0)
@@ -8774,7 +8760,7 @@
                                                   tt
                                                   mkSilentWild))
                                             }
-                                            mkSilentWild))))))))))))))))))))))
+                                            mkSilentWild)))))))))))))))))))))
 
 (pub :: checkExprSeq (-> Int (Vec Int) Int Int Int))
 (pub fn (checkExprSeq tc v i last)
@@ -9991,7 +9977,7 @@
                           bound
                           acc
                           done)
-                        (if (|| (== tag TAG_E_INT) (|| (== tag TAG_E_FLT) (|| (== tag TAG_E_STR) (|| (== tag TAG_E_CHAR) (|| (== tag TAG_E_QUOTE) (|| (== tag TAG_E_STRUCTCON) (|| (== tag TAG_E_ALLOC) (|| (== tag TAG_E_WHILE) (== tag TAG_E_SETF)))))))))
+                        (if (|| (== tag TAG_E_INT) (|| (== tag TAG_E_FLT) (|| (== tag TAG_E_STR) (|| (== tag TAG_E_CHAR) (|| (== tag TAG_E_QUOTE) (|| (== tag TAG_E_STRUCTCON) (|| (== tag TAG_E_WHILE) (== tag TAG_E_SETF))))))))
                           0
                           (capOpaqueOnce tc e tag done))))))))))))))
 
@@ -10137,9 +10123,7 @@
               (capScanIn (spineHead e) bound acc)
               (capScanVec (spineArgVec e vecNew) 0 bound acc)
             }
-            (if (== tag TAG_E_ALLOC)
-              (capScanIn (nodeB e) bound acc)
-              (if (== tag TAG_E_SETF)
+            (if (== tag TAG_E_SETF)
                 {
                   (capScanIn (nodeA e) bound acc)
                   (capScanIn (nodeC e) bound acc)
@@ -10204,7 +10188,7 @@
                                         (capScanIn (nodeA e) bound acc)
                                         (capScanArms (nodeBVec e) 0 bound acc)
                                       }
-                                      0)))))))))))))))
+                                      0))))))))))))))
         acc
       })))
 
@@ -13388,7 +13372,6 @@
 ;   calling `__syscallN`         IO
 ;   calling anything else        that callee's inferred effects
 ;   an effect operation          Custom(E), stored on its entry
-;   `(alloc T)`                  Alloc
 ;   `(set base.field v)`         Mut
 ;   a `handle` naming a resolved custom effect   Alloc
 ;
@@ -14111,12 +14094,7 @@
             (unsafeSinkNote tc e bound)
             (effRefSite tc (nodeAName e) bound acc)
           }
-          (if (== tag TAG_E_ALLOC)
-            {
-              (effAdd acc (builtinEff "Alloc"))
-              (walkEffects tc (nodeB e) bound acc)
-            }
-            (if (== tag TAG_E_SETF)
+          (if (== tag TAG_E_SETF)
               {
                 (effAdd acc (builtinEff "Mut"))
                 (walkEffects tc (nodeA e) bound acc)
@@ -14220,7 +14198,7 @@
                                       bound
                                       acc)
                                   }
-                                  0)))))))))))))))))
+                                  0))))))))))))))))
 
 (pub :: walkEffectsVec (-> Int (Vec Int) Int Int (Vec a) Int))
 (pub fn (walkEffectsVec tc v i bound acc)
@@ -15676,7 +15654,7 @@
 (pub :: notCallableShape (-> Int Int))
 (pub fn (notCallableShape e)
   (let ((t (nodeTag e)))
-    (if (|| (== t TAG_E_INT) (|| (== t TAG_E_STR) (|| (== t TAG_E_FLT) (|| (== t TAG_E_CHAR) (|| (== t TAG_E_STRUCTCON) (== t TAG_E_ALLOC))))))
+    (if (|| (== t TAG_E_INT) (|| (== t TAG_E_STR) (|| (== t TAG_E_FLT) (|| (== t TAG_E_CHAR) (== t TAG_E_STRUCTCON)))))
       1
       0)))
 
@@ -17522,11 +17500,7 @@
                                     (selfCallIn (nodeC e) name bare nullary shadowed)))
                                 (if (== tg TAG_E_STRUCTCON)
                                   (selfCallInVec (nodeBVec e) name bare nullary shadowed 0)
-                                  (if (== tg TAG_E_ALLOC)
-                                    (if (== (nodeB e) 0)
-                                      0
-                                      (selfCallIn (nodeB e) name bare nullary shadowed))
-                                    (if (== tg TAG_E_SUBCHECK)
+                                  (if (== tg TAG_E_SUBCHECK)
                                       (let ((a (selfCallIn (nodeA e) name bare nullary shadowed)))
                                         (if (!= a 0)
                                           a
@@ -17536,7 +17510,7 @@
                                               (if (== (nodeC e) 0)
                                                 0
                                                 (selfCallIn (nodeC e) name bare nullary shadowed))))))
-                                      0)))))))))))))))))))
+                                      0))))))))))))))))))
 
 ; The first self-call across a vector of expressions, in order, or 0.
 (pub :: selfCallInVec (-> (Vec Int) String String Int Int Int Int))
@@ -20877,7 +20851,7 @@
 ; PERFORMS one is exactly the entry `graphOwnSource` describes - the
 ; row carries the effect and no callee does. That is why the custom
 ; case needs no arm in `graphSeeds`: it is already the shape the
-; `(alloc T n)`-in-this-body case was written for.
+; `handle` in this body was written for.
 ;
 ; Breadth-first, so the witness is the one at the fewest hops; `seen`
 ; is keyed by the resolved name every edge already carries; a parent
@@ -20991,8 +20965,8 @@
     0))
 
 ; A function whose row carries the effect while NO callee seeds or
-; carries it: the effect came from a form in its own body - `(alloc T
-; n)`, or a `handle` installing a handler - which the row cannot name
+; carries it: the effect came from a form in its own body - a
+; `handle` installing a handler - which the row cannot name
 ; and the graph cannot reach past. Only an effect kind has this shape;
 ; an extern is reached or it is not, and a cast is a seed by
 ; definition.
@@ -21250,9 +21224,7 @@
                 })
               (castScanVec (spineArgVec e vecNew) 0 acc)
             })
-          (if (== tag TAG_E_ALLOC)
-            (castScanIn (nodeB e) acc)
-            (if (== tag TAG_E_SETF)
+          (if (== tag TAG_E_SETF)
               {
                 (castScanIn (nodeA e) acc)
                 (castScanIn (nodeC e) acc)
@@ -21297,7 +21269,7 @@
                                     (castScanIn (nodeA e) acc)
                                     (castScanArms (nodeBVec e) 0 acc)
                                   }
-                                  0)))))))))))))
+                                  0))))))))))))
         acc
       })))
 
@@ -21359,9 +21331,7 @@
                 })
               (unsafeScanVec (spineArgVec e vecNew) 0 acc)
             })
-          (if (== tag TAG_E_ALLOC)
-            (unsafeScanIn (nodeB e) acc)
-            (if (== tag TAG_E_SETF)
+          (if (== tag TAG_E_SETF)
               {
                 (unsafeScanIn (nodeA e) acc)
                 (unsafeScanIn (nodeC e) acc)
@@ -21407,7 +21377,7 @@
                                     (unsafeScanIn (nodeA e) acc)
                                     (unsafeScanArms (nodeBVec e) 0 acc)
                                   }
-                                  0)))))))))))))
+                                  0))))))))))))
         acc
       })))
 
@@ -21581,9 +21551,7 @@
                 })
               (wrapScanVec (spineArgVec e vecNew) 0 acc)
             })
-          (if (== tag TAG_E_ALLOC)
-            (wrapScanIn (nodeB e) acc)
-            (if (== tag TAG_E_SETF)
+          (if (== tag TAG_E_SETF)
               {
                 (wrapScanIn (nodeA e) acc)
                 (wrapScanIn (nodeC e) acc)
@@ -21639,7 +21607,7 @@
                                     (wrapScanIn (nodeA e) acc)
                                     (wrapScanArms (nodeBVec e) 0 acc)
                                   }
-                                  0)))))))))))))
+                                  0))))))))))))
         acc
       })))
 
@@ -21769,9 +21737,7 @@
                 })
               (untrappedScanVec (spineArgVec e vecNew) 0 acc)
             })
-          (if (== tag TAG_E_ALLOC)
-            (untrappedScanIn (nodeB e) acc)
-            (if (== tag TAG_E_SETF)
+          (if (== tag TAG_E_SETF)
               {
                 (untrappedScanIn (nodeA e) acc)
                 (untrappedScanIn (nodeC e) acc)
@@ -21816,7 +21782,7 @@
                                     (untrappedScanIn (nodeA e) acc)
                                     (untrappedScanArms (nodeBVec e) 0 acc)
                                   }
-                                  0)))))))))))))
+                                  0))))))))))))
         acc
       })))
 
@@ -25732,11 +25698,9 @@
                                 })
                               (if (== tag TAG_E_STRUCTCON)
                                 (| (memGetWord rc 7) (rgnArgsUnion rc (nodeBVec e) 0 0))
-                                (if (== tag TAG_E_ALLOC)
-                                  (memGetWord rc 7)
-                                  (if (== tag TAG_E_REGION)
+                                (if (== tag TAG_E_REGION)
                                     (rgnRegionForm rc e)
-                                    0))))))))))))))))))
+                                    0)))))))))))))))))
 
 (pub :: rgnVar (-> Int Int Int))
 ;@axiom:effect(unsafe)
@@ -27606,18 +27570,13 @@
                                   (if (> (ctMaxTo ts (vecLen ts)) 0)
                                     2
                                     0))
-                                (if (== tag TAG_E_ALLOC)
-                                  {
-                                    (ctEval w (nodeB e))
-                                    0
-                                  }
-                                  (if (== tag TAG_E_HANDLE)
+                                (if (== tag TAG_E_HANDLE)
                                     (let ((t (ctEval w (nodeA e))))
                                       {
                                         (ctEval w (nodeC e))
                                         t
                                       })
-                                    0))))))))))))))))))
+                                    0)))))))))))))))))
 
 (pub :: ctBindParams (-> CtWalk (Vec String) (Vec String) Int Int))
 (pub fn (ctBindParams w ps cs i)

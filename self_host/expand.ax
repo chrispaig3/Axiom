@@ -4090,10 +4090,9 @@
 
 ; ------------------------------------------------------------------
 ; MAC-EXP-14b: a macro parameter standing where a template keeps a
-; NAME rather than substituting an expression. Four positions pass
+; NAME rather than substituting an expression. Three positions pass
 ; their name through verbatim - the field of `.` and `set`, the type
-; of a struct construction, `alloc`'s type operand, the effect list
-; of `handle` - so a parameter there is read as a literal name and
+; of a struct construction, the effect list of `handle` - so a parameter there is read as a literal name and
 ; its argument is evaluated and discarded. Deliberate, and silent:
 ; AX3074 warns rather than refuses, at the invocation under the
 ; macro's frame, because refusing would break the templates that
@@ -4668,27 +4667,7 @@
                               }
                               ; `alloc`'s word a is a TYPE node, which holds no parameter
                               ; reference; its count is an expression.
-                              (if (== tag TAG_E_ALLOC)
-                                (let ((tn (expTyParamName (nodeA tpl) params)))
-                                  {
-                                    (if (== (cast Int tn) 0)
-                                      0
-                                      (expWarnNamePos params tn 0 env isp "an `alloc` type operand" "rename the parameter to mean the literal type"))
-                                    (mkNodeAt
-                                      TAG_E_ALLOC
-                                      (nodeA tpl)
-                                      (substTpl
-                                        (nodeB tpl)
-                                        params
-                                        args
-                                        ren
-                                        env
-                                        isp)
-                                      0
-                                      isp)
-                                  })
-                                ; `handle`'s word b is a Vec of EFFECT names, not values.
-                                (if (== tag TAG_E_HANDLE)
+                              (if (== tag TAG_E_HANDLE)
                                   (let ((en (expHandleParamName (nodeBVec tpl) params 0)))
                                     {
                                       (if (== (cast Int en) 0)
@@ -4750,7 +4729,7 @@
                                         "rewrite the template without this form, or add a case for it to `substTpl` in self_host/expand.ax"
                                         "the expansion was refused rather than emitted, because substituting nothing here would silently leave the template's own identifiers in the generated code"))
                                       (mkEInt 0)
-                                    }))))))))))))))))))
+                                    })))))))))))))))))
 
 ; A lambda's parameter list is a Vec of NAMES. Each is a binder the
 ; template introduces and is renamed - unless it is a MACRO parameter,
@@ -5576,14 +5555,7 @@
                                 (expandVec (nodeBVec e) env bs)
                                 0
                                 sp)
-                              (if (== tag TAG_E_ALLOC)
-                                (mkNodeAt
-                                  TAG_E_ALLOC
-                                  (nodeA e)
-                                  (expandExpr (nodeB e) env bs)
-                                  0
-                                  sp)
-                                (if (== tag TAG_E_HANDLE)
+                              (if (== tag TAG_E_HANDLE)
                                   (mkNodeAt
                                     TAG_E_HANDLE
                                     (expandExpr (nodeA e) env bs)
@@ -5603,7 +5575,7 @@
                                     ; parameter references, so passing it through is safe.
                                     ; (`cond` is AX2004: the parser builds
                                     ; none, so no arm walks one.)
-                                    e))))))))))))))))))
+                                    e)))))))))))))))))
 
 (pub :: expPushNames (-> (Vec Int) (Vec Int) Int Int))
 (pub fn (expPushNames ns bs i)
@@ -8940,9 +8912,7 @@
                               (tplExprHasRepeat (nodeC e)))
                             (if (== tag TAG_E_STRUCTCON)
                               (tplVecHasRepeat (nodeBVec e) 0)
-                              (if (== tag TAG_E_ALLOC)
-                                (tplExprHasRepeat (nodeB e))
-                                (if (== tag TAG_E_HANDLE)
+                              (if (== tag TAG_E_HANDLE)
                                   (if (== (tplExprHasRepeat (nodeA e)) 1)
                                     1
                                     (tplExprHasRepeat (nodeC e)))
@@ -8952,7 +8922,7 @@
                                       (tplArmsHaveRepeat (nodeBVec e) 0))
                                     ; `cond` is AX2004: no template holds
                                     ; one, so nothing here repeats one.
-                                    0))))))))))))))))))
+                                    0)))))))))))))))))
 
 (pub :: tplVecHasRepeat (-> (Vec Int) Int Int))
 (pub fn (tplVecHasRepeat es i)

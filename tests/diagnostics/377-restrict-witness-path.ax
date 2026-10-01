@@ -1,7 +1,7 @@
 ; The witness path: every transitive violation names the chain of
 ; resolved calls from the claiming declaration to where the effect
 ; enters, in the spellings `symbols --calls` prints, so each hop
-; cross-checks `#calls=`. Five shapes the renderer has to get right,
+; cross-checks `#calls=`. Four shapes the renderer has to get right,
 ; and the control that stays silent:
 ;
 ;   `viaCap`      the path crosses a CAPABILITY RECORD's field: the
@@ -20,12 +20,6 @@
 ;   `viaBuiltin`  the path ends at a builtin whose row is SEEDED,
 ;                 `__argc` - not a syscall, not an extern, but where
 ;                 IO enters all the same             -> AX3049 with path
-;   `viaForm`     `no-alloc`, and the callee's allocation is an `alloc`
-;                 FORM - no `__alloc` edge exists, the row carries
-;                 `Alloc` and no callee does, so the path ends at the
-;                 callee and says "in its own body"  -> AX3049 with path
-;   `ownForm`     `no-alloc` over a body holding the form itself: a
-;                 path of one, "in its own body"     -> AX3049
 ;   `viaCallback` `(apply shout n)`: the walk records an edge to the
 ;                 named callback, so the path goes through `shout`
 ;                 and not through `apply`            -> AX3049 with path
@@ -66,24 +60,6 @@
 (fn (viaBuiltin n)
   (+ n __argc))
 
-(:: makes (-> Int Int))
-(fn (makes n)
-  (let ((p 
-    (alloc Int 1)))
-    n))
-
-;@axiom:restrict(no-alloc)
-(:: viaForm (-> Int Int))
-(fn (viaForm n)
-  (makes n))
-
-;@axiom:restrict(no-alloc)
-(:: ownForm (-> Int Int))
-(fn (ownForm n)
-  (let ((p 
-    (alloc Int 1)))
-    n))
-
 (:: shout (-> Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
@@ -113,4 +89,4 @@
 (:: main Int)
 ;@axiom:effect(io)
 (fn (main)
-  (+ (viaCap 1) (+ (viaModule 2) (+ (viaBuiltin 3) (+ (viaForm 4) (+ (ownForm 5) (+ (viaCallback 6) (quiet 7))))))))
+  (+ (viaCap 1) (+ (viaModule 2) (+ (viaBuiltin 3) (+ (viaCallback 6) (quiet 7))))))

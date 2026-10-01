@@ -63,7 +63,6 @@
   (syntax_for_declaration)
   (handle_expression)
   (effect_list)
-  (alloc_expression)
   (sizeof_expression)
   (alignof_expression)
   (cast_expression)

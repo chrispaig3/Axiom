@@ -1116,14 +1116,12 @@
                             }
                             (if (== tag TAG_E_STRUCTCON)
                               (lspLintWalkVec lx (nodeBVec e) 0)
-                              (if (== tag TAG_E_ALLOC)
-                                (lspLintWalk lx (nodeB e))
-                                (if (== tag TAG_E_HANDLE)
+                              (if (== tag TAG_E_HANDLE)
                                   {
                                     (lspLintWalk lx (nodeA e))
                                     (lspLintWalk lx (nodeC e))
                                   }
-                                  0)))))))))))))))))
+                                  0))))))))))))))))
 
 ; One declaration: a fresh scope under its own name, its parameters
 ; bound over its body. Macro bodies are not entered - templates are
@@ -2893,7 +2891,6 @@
 (pub fn (lspKeywords)
   (let ((v vecNew))
     {
-      (vecPush v "alloc")
       (vecPush v "begin")
       ; `cond` is AX2004 but still offered: this menu mirrors what the
       ; parser dispatches on (`drive.py` derives it from parser.ax's
@@ -5035,15 +5032,13 @@
                                 (lspNavRef nv (nodeAName e) (nodeSpan e) NAV_READ)
                                 (lspNavWalkVec nv (nodeBVec e))
                               }
-                              (if (== tag TAG_E_ALLOC)
-                                (lspNavWalk nv (nodeB e))
-                                (if (== tag TAG_E_HANDLE)
+                              (if (== tag TAG_E_HANDLE)
                                   {
                                     (lspNavWalk nv (nodeA e))
                                     (lspNavWalkEffects nv (nodeBVec e) 0)
                                     (lspNavWalk nv (nodeC e))
                                   }
-                                  0)))))))))))))))))
+                                  0))))))))))))))))
 
 ; `(println "...")`, `(eprintln "...")` or `(format "...")`, with the
 ; literal as the argument: the one place a string's `{name}` is a hole.
@@ -9238,19 +9233,7 @@
                                 rs
                                 re)
                             }
-                            (if (== tag TAG_E_ALLOC)
-                              (lspViewHintsExpr
-                                out
-                                src
-                                ix
-                                fns
-                                locals
-                                decls
-                                occs
-                                (nodeB e)
-                                rs
-                                re)
-                              (if (== tag TAG_E_HANDLE)
+                            (if (== tag TAG_E_HANDLE)
                                 {
                                   (lspViewHintsExpr
                                     out
@@ -9275,7 +9258,7 @@
                                     rs
                                     re)
                                 }
-                                0))))))))))))))))
+                                0)))))))))))))))
 
 (pub :: lspViewHintsVec (-> Int String (Vec Int) (Vec Int) (Vec Int) (Vec Int) (Vec Int) (Vec Int) Int Int Int))
 (pub fn (lspViewHintsVec out src ix fns locals decls occs xs rs re)
@@ -11999,7 +11982,7 @@
         ; end and step in one shape and the BODY in the other, and this
         ; predicate sees the head and the index but not the shape, so it
         ; answers false there rather than guess.
-        (if (|| (strEq head "let") (|| (strEq head "set") (|| (strEq head "cast") (|| (strEq head "alloc") (|| (strEq head "for") (strEq head "region"))))))
+        (if (|| (strEq head "let") (|| (strEq head "set") (|| (strEq head "cast") (|| (strEq head "for") (strEq head "region")))))
           (== k 2)
           (if (strEq head "struct")
             (>= k 2)
@@ -13649,11 +13632,7 @@
           (lspRenderForm (lspParts3 "set" (strConcat (strConcat (lspRenderExpr (nodeA e) (+ ind 2)) ".") (nodeBName e)) (lspRenderExpr (nodeC e) (+ ind 2))) ind)
           (if (== tag TAG_E_STRUCTCON)
             (lspRenderForm (lspPartsExprs (lspParts2 "struct" (lspRenderName (nodeAName e))) (nodeBVec e) 0 (+ ind 2)) ind)
-            (if (== tag TAG_E_ALLOC)
-              (if (== (nodeB e) 0)
-                (lspRenderForm (lspParts2 "alloc" (lspRenderType (nodeA e))) ind)
-                (lspRenderForm (lspParts3 "alloc" (lspRenderType (nodeA e)) (lspRenderExpr (nodeB e) (+ ind 2))) ind))
-              (if (== tag TAG_E_HANDLE)
+            (if (== tag TAG_E_HANDLE)
                 (lspRenderHandle e ind)
                 (if (== tag TAG_E_QUOTE)
                   (lspRenderForm (lspParts2 "quote" (lspRenderExpr (nodeA e) (+ ind 2))) ind)
@@ -13665,7 +13644,7 @@
                         (lspRenderSynFor e ind)
                         (if (== tag TAG_M_ARM)
                           (lspRenderArm e ind)
-                          (strConcat (strConcat "(syntax/unrenderable " (decStr tag)) ")"))))))))))))))
+                          (strConcat (strConcat "(syntax/unrenderable " (decStr tag)) ")")))))))))))))
 
 (pub :: lspParts2 (-> String String (Vec String)))
 (pub fn (lspParts2 a b)

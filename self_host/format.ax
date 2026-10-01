@@ -2181,7 +2181,7 @@
   ; printing what no compiler accepts. `cond` stays a keyword head
   ; (see `isKeywordHead`) exactly as `consume` does, so the refusal -
   ; not the application layout - is what a `(cond ...)` reaches.
-  (|| (strEq t "consume") (|| (strEq t "begin") (strEq t "cond"))))
+  (|| (strEq t "consume") (|| (strEq t "begin") (|| (strEq t "cond") (strEq t "alloc")))))
 
 ; The same rule in DECLARATION position, and the two words it names are
 ; `trait` and `impl`.
@@ -3435,22 +3435,7 @@
                                       ; `fmt` may never emit.
                                       (if (fpIsRefusedHead h)
                                         (fpBad p)
-                                        (if (strEq h "alloc")
-                                          (let ((cnt (fpExprElems n 2)))
-                                            (if (|| (< (fnLen n) 2) (> (vecLen cnt) 1))
-                                              (fpBad p)
-                                              {
-                                                (fpP p "(alloc ")
-                                                (fpType p (fnKid n 1))
-                                                (if (== (vecLen cnt) 1)
-                                                  {
-                                                    (fpP p " ")
-                                                    (fpExpr p (vecGet cnt 0))
-                                                  }
-                                                  p)
-                                                (fpP p ")")
-                                              }))
-                                          (if (strEq h "sizeof")
+                                        (if (strEq h "sizeof")
                                             (if (== (fnLen n) 2)
                                               {
                                                 (fpP p "(sizeof ")
@@ -3530,7 +3515,7 @@
                                                     ; through to `parseAppForm`: `(data 1)`
                                                     ; calls whatever `data` is bound to,
                                                     ; and the checker says what that is.
-                                                    (fpApp p n)))))))))))))))))))))))))))
+                                                    (fpApp p n))))))))))))))))))))))))))
 
 ; ------------------------------------------------------------------
 ; Anchors: `Expr::span()` as a byte offset.
@@ -4085,7 +4070,7 @@
                             ; `cond` is AX2004: refused, so no anchor
                             ; walks one. It falls to the application
                             ; default below.
-                            (if (|| (strEq h "alloc") (|| (strEq h "sizeof") (strEq h "alignof")))
+                            (if (|| (strEq h "sizeof") (strEq h "alignof"))
                               (fnStart (fnKid n 0))
                               (if (|| (strEq h "set") (strEq h "struct"))
                                 (if (> (fnLen n) 1)

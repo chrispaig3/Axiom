@@ -416,7 +416,6 @@ read.
 | `region` | Bracket an allocation scope: `(region r body)` reclaims everything `body` allocated when it ends, and answers `body`'s value | [Regions](#regions) |
 | `sizeof` | Size of a type in bytes: `(sizeof Int)` is 8 | |
 | `alignof` | Alignment of a type in bytes | |
-| `alloc` | `(alloc T)` types as `*mut T` but allocates nothing and evaluates to 0, a known defect (`MM-VAL-21` in [memory-model.md](memory-model.md)). Use `__alloc` for raw memory | [Memory](#memory) |
 | `parallel` | Run bindings beside the caller and join them in the order written: processes by default, threads under `--threads` | [parallel](#parallel--bindings-that-run-beside-the-caller) |
 | `extern` | Declare Rust functions to call | [Calling Rust](#calling-rust) |
 | `asm` | Inline assembly, one arm per architecture. A local binding named `asm` shadows it | [Inline assembly](#inline-assembly) |
@@ -2978,8 +2977,8 @@ the effect enters:
 - a syscall primitive, such as `__syscall3`
 - an `extern` item
 - a builtin whose row the compiler seeds, such as `__argc` or `__alloc`
-- a function whose own body brings the effect in with a constructor, an
-  `alloc` form or a `handle`, which the message says ("in `makes`'s own
+- a function whose own body brings the effect in with a constructor or a
+  `handle`, which the message says ("in `makes`'s own
   body")
 
 The hops use the spellings `symbols --calls` prints, including

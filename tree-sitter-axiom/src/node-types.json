@@ -62,10 +62,6 @@
         "named": true
       },
       {
-        "type": "alloc_expression",
-        "named": true
-      },
-      {
         "type": "application",
         "named": true
       },
@@ -269,32 +265,6 @@
     "type": "alignof_expression",
     "named": true,
     "fields": {
-      "type": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "_type",
-            "named": true
-          }
-        ]
-      }
-    }
-  },
-  {
-    "type": "alloc_expression",
-    "named": true,
-    "fields": {
-      "count": {
-        "multiple": false,
-        "required": false,
-        "types": [
-          {
-            "type": "_expression",
-            "named": true
-          }
-        ]
-      },
       "type": {
         "multiple": false,
         "required": true,
@@ -2563,10 +2533,6 @@
   },
   {
     "type": "alignof",
-    "named": false
-  },
-  {
-    "type": "alloc",
     "named": false
   },
   {

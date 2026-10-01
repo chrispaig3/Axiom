@@ -191,13 +191,10 @@
 ; `Rec 1 true 1.5 "s"` - no keyword, no parens - until a conformance
 ; case first asked the formatter to render one: output that either
 ; failed to parse or re-parsed as an application and dropped its
-; arguments on the second pass. `alloc` rides along, the
-; two other forms whose only corpus use is this file.
+; arguments on the second pass.
 (:: keyword_forms (-> Int Int))
 (fn (keyword_forms n)
-  (let ((r (struct Rec 1 0 true 1.5 "s"))
-        (p (alloc Int 8))
-        (q (alloc Bool)))
+  (let ((r (struct Rec 1 0 true 1.5 "s")))
     (+ r.n n)))
 
 ; --- qualified names ------------------------------------------------
@@ -286,8 +283,7 @@
 ;@axiom:effect(unsafe)
 (fn (typed_exprs n)
   (let ((s (:: (B 1) (Box Int)))
-        (c (cast (Box Int) 0))
-        (p (alloc (Box Int) 2)))
+        (c (cast (Box Int) 0)))
     (+ (sizeof (Box Int)) (alignof (Box Int)))))
 
 ; --- the normalisations: what `fmt` REWRITES rather than reprints ----

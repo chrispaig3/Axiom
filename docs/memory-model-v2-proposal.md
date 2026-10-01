@@ -472,8 +472,10 @@ after.
 
 ### P1 — Refuse `alloc`/`*mut T` outright (deletes MM-VAL-20/21's gap)
 
-**Status: not taken.** The proposal assumed nothing in the tree uses
-the form. Fourteen sites would need migrating.
+**Status: the `alloc` half is built.** `(alloc T)` is `AX2004`, with
+`__alloc` in the help, and `MM-VAL-21` is **R**. The tree's fourteen
+sites moved to `__alloc` or went. The `*T`/`*mut T` type syntax is still
+accepted, and no expression produces it (`MM-VAL-20`).
 
 **What.** `(alloc T)` and the `*T`/`*mut T` type syntax would become
 `AX2004` refusals, like `foreign`, `union`, `region`, `linear` and
@@ -954,7 +956,7 @@ history first.
 
 | # | Proposal | Deletes or adds | Cost | Status, or result if built |
 |---|---|---|---|---|
-| P1 | Refuse `alloc`/`*mut T` | deletes MM-VAL-21's gap | ~~near zero~~ 14 sites, 4 gates, and the only site-level `Alloc` witness | **Not taken**, 2026-08-31. The zero-population premise is false, and was false at `6cfa571` |
+| P1 | Refuse `alloc`/`*mut T` | deletes MM-VAL-21's gap | ~~near zero~~ 14 sites, 4 gates, and the only site-level `Alloc` witness | **Built for `alloc`**, the type syntax remains. The fourteen sites moved to `__alloc` or went |
 | P2 | Refuse `owned(...)` AXTAG | deletes a silent accept | ~~near zero~~ closes an intentionally open namespace | **Not taken as written**, 2026-08-31. No lookup table exists; the defect is `docs/reference.md`'s table |
 | P3 | Renumber the duplicate rule pair | fixes a §0.1 violation | doc-only, plus a new gate | **Built**, 2026-08-31. Three pairs, not two; `check-doc-drift` section 8 |
 | P4 | `MM-ALLOC-8`: P → R | deletes a stale Planned row | doc-only | **Built**, 2026-08-31. Planned is `ALLOC-20` alone |

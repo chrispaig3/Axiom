@@ -434,14 +434,6 @@
 (pub fn (TAG_E_STRUCTCON)
   40)
 
-; `(alloc Type [count])`. stage0 types this `*mut Type` and its IR
-; generator has NO case for it, so it falls to the generator's
-; catch-all and emits the constant 0 - verified by running a
-; stage0-built binary. stage1 reproduces both halves: the pointer
-; type, and the zero. a=type node, b=count node (0 when absent).
-(pub :: TAG_E_ALLOC Int)
-(pub fn (TAG_E_ALLOC)
-  41)
 
 ; `(handle body (Effect...) handler)`. Parsed as an application until
 ; now, which had two costs: an unknown effect name drew AX3001
@@ -1531,6 +1523,8 @@
 ; only one of.
 (pub :: removedRationale (-> String String))
 (pub fn (removedRationale kw)
+  (if (strEq kw "alloc")
+    "`alloc` was refused rather than implemented: the form typed as a pointer and evaluated to the constant 0, so a program holding one held no memory"
   (if (strEq kw "define")
     "`define` was the old spelling of `fn`, read as the same declaration; a language with two spellings of one thing makes every reader learn both"
   (if (strEq kw "begin")
@@ -1553,9 +1547,11 @@
                     (strConcat (strConcat "`[T]` was refused rather than implemented: the form checked in " "signatures while no literal, no pattern and no runtime representation existed behind it - ") "a reader met the syntax in the reference, wrote it, and got a parse error. Sequences are `(Vec T)`")
                     (if (strEq kw "tuple")
                       (strConcat (strConcat "`(A B)` was refused rather than implemented: the form checked in " "signatures while no literal, no pattern and no runtime representation existed behind it. ") "Products are `struct`, sums are `data`")
-                      (strConcat (strConcat "`" kw) "` was removed")))))))))))))
+                      (strConcat (strConcat "`" kw) "` was removed"))))))))))))))
 
 (pub fn (removedHelp kw)
+  (if (strEq kw "alloc")
+    "allocate with `__alloc`, or use `vecNew`, `strAlloc` or a struct: `(alloc T n)` typed `*mut T` and evaluated to 0, so it never allocated anything"
   (if (strEq kw "define")
     "write `fn`: `(fn (add x y) (+ x y))`, and `(fn (answer) 42)` for a function with no parameters"
   (if (strEq kw "begin")
@@ -1578,7 +1574,7 @@
                     (strConcat "write `(Vec T)` for a sequence: `vecNew`, `vecGet`, `vecPush` and " "`(for x in xs body)` are its surface")
                     (if (strEq kw "tuple")
                       (strConcat "write a `struct` for a product of named fields, or `data` for a " "tagged sum - both are inhabited, matched and reclaimed")
-                      "run `axiom explain AX2004`"))))))))))))
+                      "run `axiom explain AX2004`")))))))))))))
 
 ; ------------------------------------------------------------------
 ; Token helpers.
@@ -4810,7 +4806,7 @@
                                     (if (kwEq name "begin")
                                       (pErrRemoved pos "begin")
                                       (if (kwEq name "alloc")
-                                        (parseAllocExpr tokens (advance pos) (tokenSpan kw))
+                                        (pErrRemoved pos "alloc")
                                         (if (kwEq name "handle")
                                           (parseHandleExpr tokens (advance pos))
                                           (parseAppForm tokens pos))))))))))))))))))))
@@ -5518,45 +5514,6 @@
           (tokenSpan nameTok)) (memGetWord argsR 2))))
     (pErr pos)))
 
-; ------------------------------------------------------------------
-; (alloc Type) / (alloc Type count) - the count is optional, and both
-; shapes type as `*mut Type`. Nothing evaluates: stage0's IR generator
-; has no EAlloc case at all, so the form reaches its catch-all and
-; emits the constant 0 (probed: a stage0-built `(cast Int (alloc Int
-; 4))` exits 0). stage1 reproduces the type and the zero rather than
-; inventing an allocation stage0 does not perform.
-; ------------------------------------------------------------------
-; The span is the `alloc` KEYWORD's, which is stage0's - `EAlloc`
-; carries the token span `parse_alloc` captured, rather than deriving
-; one from a subexpression. It is load-bearing: an AX3011 whose
-; handle body is a bare `(alloc T)` anchors there, and a node with no
-; span suppresses the diagnostic instead of misplacing it.
-(pub :: parseAllocExpr (-> (Vec Int) Int Int Int))
-;@axiom:effect(unsafe)
-(pub fn (parseAllocExpr tokens pos kwSpan)
-  (let ((tr (parseType tokens pos)))
-    (if (== (memGetWord tr 0) 0)
-      tr
-      (if (peekIs tokens (memGetWord tr 2) TK_RPAREN)
-        (pOk (mkNodeAt
-          TAG_E_ALLOC
-          (memGetWord tr 1)
-          0
-          0
-          kwSpan) (advance (memGetWord tr 2)))
-        (let ((cr (parseExpr tokens (memGetWord tr 2))))
-          (if (== (memGetWord cr 0) 0)
-            cr
-            (if (peekIs tokens (memGetWord cr 2) TK_RPAREN)
-              (pOk (mkNodeAt
-                TAG_E_ALLOC
-                (memGetWord tr 1)
-                (memGetWord cr 1)
-                0
-                kwSpan) (advance (memGetWord cr 2)))
-              (pErr (memGetWord cr 2)))))))))
-
-; ------------------------------------------------------------------
 ; (handle body (Effect...) handler) - stage0's parse_handle. The
 ; effect list is OPTIONAL: stage0 only reads one when the next token
 ; opens a paren, and otherwise goes straight to the handler.

@@ -1,0 +1,10 @@
+[1;31merror[AX2004][0m[1m: `alloc` is no longer part of Axiom[0m
+ [1;34m--> [0m1102-alloc-removed.ax:8:14
+[1;34m  |[0m
+[1;34m8 |[0m   (cast Int (alloc P)))
+[1;34m  |[0m              [1;31m^^^^^ `alloc` was refused rather than implemented: the form typed as a pointer and evaluated to the constant 0, so a program holding one held no memory[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mallocate with `__alloc`, or use `vecNew`, `strAlloc` or a struct: `(alloc T n)` typed `*mut T` and evaluated to 0, so it never allocated anything
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX2004` for a full explanation
+
+compilation failed due to 1 previous error
