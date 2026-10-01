@@ -4444,7 +4444,7 @@
 ; is asked of the BYTES: a qualified reference the user wrote has its
 ; last segment in the document at the span `lspNavQualSpan` finds, and
 ; a reference the parser made up does not - `Vec$vecLen` and `for$v`
-; sit on `for`, or on the container expression `(for x XS body)` reads
+; sit on `for`, or on the container expression `(for x in XS body)` reads
 ; its length from. A macro template's free identifier rewritten to
 ; `IO$writeStr` (MAC-HYG-7, `println`'s `writeStr`) keeps its own span,
 ; which spells `writeStr`, so it stays.
@@ -4859,7 +4859,7 @@
           0
         }))))
 
-; `(subtype Positive is Int range LO .. HI)`: the identifiers between
+; `(subtype Positive is Int range LO..HI)`: the identifiers between
 ; `is` and `range` name the base type. The bounds after `range` are
 ; VALUE expressions and are deliberately not walked - a name a bound
 ; spells is a reference `references` will not find, which is a gap
@@ -7661,7 +7661,7 @@
   (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "name" (jsonStr name)) "kind" (jsonNum 5)) "detail" (jsonStr "builtin type")) "uri" (jsonStr uri)) "range" (lspRangeIx src ix wsp)) "selectionRange" (lspRangeIx src ix wsp)))
 
 ; The span at which the subtype declaration `d` spells its base HEAD -
-; the `Int` of `(subtype Positive is Int range 1 .. 10)` - or 0. The
+; the `Int` of `(subtype Positive is Int range 1..10)` - or 0. The
 ; first identifier after the `is` that spells `head`; the parse
 ; guarantees both are there, so 0 is a shape this never answers on.
 (pub :: lspThBaseSpan (-> String Int String Int))
@@ -11919,10 +11919,11 @@
       ok
     }))
 
-; The index `lspFixArgIsPlain` reasons about. A `for` that spells `in`
-; after its binder has one more element than the shapes it knows: the
-; word itself, at 2, is not an expression, and every later element sits
-; one place further on (`forSkipIn` in parser.ax).
+; The index `lspFixArgIsPlain` reasons about. A `for` spells `in`
+; after its binder (`forHasIn` in parser.ax): the word itself, at 2, is
+; not an expression, and every later element sits one place further on.
+; A document still being typed may lack it, and then the index is the
+; element's own.
 (pub :: lspForArgIndex (-> String Int Int Int))
 (pub fn (lspForArgIndex src p k)
   (if (if (strEq (lspViewHeadAt src p) "for")
@@ -11991,14 +11992,13 @@
       false
       (if (|| (strEq head "if") (|| (strEq head "match") (|| (strEq head "&&") (strEq head "||"))))
         (== k 1)
-        ; `for` is here with `let`: `(for x XS body)` and `(for i LO hi
-        ; body)` both evaluate their SECOND item exactly once, before the
-        ; loop, because the parser hoists it into `for$v`/`for$lo`
-        ; (`parseForExpr`). The third is `hi` in one shape and the BODY
-        ; in the other, and this predicate sees the head and the index
-        ; but not the arity, so it answers false there rather than
-        ; guess; the binder at 1 and the body at 4 are not expressions
-        ; evaluated once either.
+        ; `for` is here with `let`: `(for x in XS body)` and
+        ; `(for i in LO..hi body)` both evaluate their SECOND item exactly
+        ; once, before the loop, because the parser hoists it into
+        ; `for$v`/`for$lo` (`parseForExpr`). Later items are the range's
+        ; end and step in one shape and the BODY in the other, and this
+        ; predicate sees the head and the index but not the shape, so it
+        ; answers false there rather than guess.
         (if (|| (strEq head "let") (|| (strEq head "set") (|| (strEq head "cast") (|| (strEq head "alloc") (|| (strEq head "for") (strEq head "region"))))))
           (== k 2)
           (if (strEq head "struct")

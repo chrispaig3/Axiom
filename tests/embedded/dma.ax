@@ -119,7 +119,7 @@
 ;@axiom:effect(unsafe)
 (fn (dmaLines b invalidate)
   {
-    (for off 0 (+ (/ (dmaLen b) 64) 1)
+    (for off in 0..(+ (/ (dmaLen b) 64) 1)
       (let ((a (+ (dmaData b) (* off 64))))
         (if (== invalidate 1)
           (__arm_dc_civac a)
@@ -254,7 +254,7 @@
 (fn (pioRead dst len item)
   {
     (__vstore16 (+ cfgBase 8) (bswap16 item))
-    (for i 0 len
+    (for i in 0..len
       (__store8 dst i (__vload8 cfgBase)))
     0
   })
@@ -301,7 +301,7 @@
             (mut differ 0)
           )
             {
-              (for i 0 len
+              (for i in 0..len
                 (if (== (dmaByte b i) (__load8 copy i))
                   0
                   (set differ (+ differ 1))))

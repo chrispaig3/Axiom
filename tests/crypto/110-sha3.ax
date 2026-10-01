@@ -157,7 +157,7 @@
   (let ((d (strLen seed)) (a (bytesFromAddr (strData seed) (strLen seed))) (b (bytesNew (strLen seed))))
     (let ((pa (strData a)) (pb (strData b)))
       {
-        (for i 0 500
+        (for i in 0..500
           {
             (if (== alg 224)
               {
@@ -191,7 +191,7 @@
 (fn (shakeMonte alg minLen maxLen outLen0 prev)
   (let ((m (bytesNew 16)) (mut cur prev) (mut outLen outLen0))
     {
-      (for i 0 1000
+      (for i in 0..1000
         (let ((take
           (if (< (strLen cur) 16)
             (strLen cur)

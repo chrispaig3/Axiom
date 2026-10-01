@@ -94,7 +94,7 @@
                   (if (> (- n off) 8)
                     8
                     (- n off))))
-                  (for i 0 take
+                  (for i in 0 take
                     (__store8 p (+ off i) (& (>> w (* 8 i)) 255))))
                 (set off (+ off 8))
                 0

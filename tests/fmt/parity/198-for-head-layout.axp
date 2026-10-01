@@ -1,7 +1,7 @@
 (fn (f xs)
   {
-    (for i 0 5 { (println i) (println i) })
-    (for x xs (println x))
-    (for (x k) xs (println k))
-    (for i 0 10 2 (println i))
+    (for i in 0..5 { (println i) (println i) })
+    (for x in xs (println x))
+    (for (x k) in xs (println k))
+    (for i in 0..10 by 2 (println i))
   })

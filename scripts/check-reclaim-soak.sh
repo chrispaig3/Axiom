@@ -419,7 +419,7 @@ else
 ;@axiom:effect(unsafe)
 (fn (pat p words tag)
   {
-    (for i 0 words
+    (for i in 0..words
       (memSetWord p i (+ (* tag 1000003) i)))
     p
   })
@@ -429,7 +429,7 @@ else
 (fn (bad p words tag)
   (let ((mut k 0))
     {
-      (for i 0 words
+      (for i in 0..words
         (if (== (memGetWord p i) (+ (* tag 1000003) i)) 0 (set k (+ k 1))))
       k
     }))
@@ -452,13 +452,13 @@ else
       (if (== (__axiom_mem_stat 1) 0) 0 (set k (+ k 1)))
       (let ((v (vecNew)))
         {
-          (for i 0 64
+          (for i in 0..64
             (let ((p (memAlloc 1100)))
               {
                 (if (== (memGetWord p 3) 0) 0 (set k (+ k 1)))
                 (vecPush v (pat p 137 (+ salt i)))
               }))
-          (for i 0 64
+          (for i in 0..64
             (set k (+ k (bad (vecGet v i) 137 (+ salt i)))))
         })
       (__axiom_arena_reset m)
@@ -469,7 +469,7 @@ else
 (fn (worker salt)
   (let ((mut k 0))
     {
-      (for r 0 20
+      (for r in 0..20
         (set k (+ k (churnOnce (+ salt (* r 100))))))
       k
     }))

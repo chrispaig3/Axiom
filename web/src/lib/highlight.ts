@@ -79,10 +79,11 @@ const KEYWORD_PLAIN = new Set([
 ])
 
 // Keywords that sit inside a form rather than at its head, keyed by the
-// head and the argument position: `in` in `(for x in xs …)`, and `is`
-// and `range` in `(subtype Port is Int range 1 .. 65536)`.
+// head and the argument position: `in` in `(for x in xs …)`, `by` in
+// `(for i in 0..10 by 2 …)`, and `is` and `range` in
+// `(subtype Port is Int range 1..65536)`.
 const KEYWORD_INNER: Record<string, Record<number, string>> = {
-  for: { 2: 'in' },
+  for: { 2: 'in', 4: 'by' },
   subtype: { 2: 'is', 4: 'range' },
 }
 const KEYWORD_MODIFIER = new Set(['alloc', 'sizeof', 'alignof', 'cast', 'mut'])

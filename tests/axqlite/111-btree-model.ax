@@ -28,7 +28,7 @@
       (let ((s (rngBytes r (+ 1 (rngBelow r 12)) 4)))
         {
           ; bytes 0, 1, 65, 255: prefixes, NULs and FFs
-          (for i 0 (strLen s)
+          (for i in 0..(strLen s)
             (let ((b (strByte s i)))
               (__store8
                 (strData s)
@@ -63,7 +63,7 @@
 (fn (modelRange m lo hi)
   (let ((out modelNew))
     {
-      (for i 0 (modelLen m)
+      (for i in 0..(modelLen m)
         (let ((k (vecGet m.keys i)))
           (if (&&
             (match lo
@@ -148,7 +148,7 @@
       ((Ok (Some k)) (check t (&& (> (modelLen m) 0) (strEq k (vecLast m.keys))) (strConcat label ": last key")))
       ((Ok (None)) (check t (== (modelLen m) 0) (strConcat label ": no last key")))
       ((Err e) (check t false (strConcat label ": last key"))))
-    (for i 0 4
+    (for i in 0..4
       (let (
         (lo (randomBound r m))
         (hi (randomBound r m))
@@ -254,14 +254,14 @@
             (mut ops 0)
           )
             {
-              (for batch 0 36
+              (for batch in 0..36
                 (let (
                   (sa (modelCopy ma))
                   (sb (modelCopy mb))
                 )
                   {
                     (check t (== (codeOf (pagerBeginWrite p)) 0) "begin batch")
-                    (for i 0 150
+                    (for i in 0..150
                       {
                         (randomOp
                           t
@@ -290,12 +290,12 @@
                         (vecClear ma.vals)
                         (vecClear mb.keys)
                         (vecClear mb.vals)
-                        (for i 0 (modelLen sa)
+                        (for i in 0..(modelLen sa)
                           {
                             (vecPush ma.keys (vecGet sa.keys i))
                             (vecPush ma.vals (vecGet sa.vals i))
                           })
-                        (for i 0 (modelLen sb)
+                        (for i in 0..(modelLen sb)
                           {
                             (vecPush mb.keys (vecGet sb.keys i))
                             (vecPush mb.vals (vecGet sb.vals i))
@@ -370,7 +370,7 @@
               (check t (== (codeOf (pagerEndRead p)) 0) "end read")
               ; refill, then reopen with another cache size and read it back
               (check t (== (codeOf (pagerBeginWrite p)) 0) "begin refill")
-              (for i 0 400
+              (for i in 0..400
                 (randomOp
                   t
                   p

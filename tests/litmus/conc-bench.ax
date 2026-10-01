@@ -97,7 +97,7 @@
     (mut sum 0)
   )
     {
-      (for i 0 n
+      (for i in 0..n
         (set sum (+ sum (pair i))))
       (report "spawn" sum (+ (* n 3) (* n (- n 1))) (- (sysTimeoutMicros buf) t0))
     }))
@@ -130,7 +130,7 @@
       (mut total 0)
     )
       {
-        (for i 0 n
+        (for i in 0..n
           (set total (+ total (lenOf (vecGet rs i)))))
         (report "tasks" total (* n bytes) (- (sysTimeoutMicros buf) t0))
       })))
@@ -142,7 +142,7 @@
 ;@axiom:effect(block)
 (fn (bump m cell n)
   {
-    (for i 0 n
+    (for i in 0..n
       (match (mutexLock m)
         ((Ok g)
           {
@@ -204,7 +204,7 @@
 ;@axiom:effect(block)
 (fn (produce ch n)
   {
-    (for i 1 (+ n 1)
+    (for i in 1..(+ n 1)
       (chanSend ch i))
     (chanClose ch)
     0
@@ -274,7 +274,7 @@
         (mut sum 0)
       )
         {
-          (for i 1 (+ n 1)
+          (for i in 1..(+ n 1)
             {
               (chanSend ch i)
               (match (chanRecv ch)
@@ -323,7 +323,7 @@
 (fn (latencyRun buf n)
   (let ((v (vecWithCapacity n)))
     {
-      (for i 0 n
+      (for i in 0..n
         (vecPush v (one buf)))
       (let (
         (sorted (vecSort v))
@@ -349,7 +349,7 @@
 (fn (workRange lo hi)
   (let ((mut acc 0))
     {
-      (for i lo hi
+      (for i in lo..hi
         (set acc (+ acc (mixHash i))))
       acc
     }))
@@ -415,7 +415,7 @@
 (fn (grainPar parts w rounds)
   (let ((mut acc 0))
     {
-      (for r 0 rounds
+      (for r in 0..rounds
         (set acc (+ acc (bindWork parts (* r (* parts w)) (* parts w)))))
       acc
     }))
@@ -444,7 +444,7 @@
 ;@axiom:precondition(`addr` names a live, 8-byte aligned word)
 (fn (hammer addr n)
   {
-    (for i 0 n
+    (for i in 0..n
       (__atomic_add addr 1))
     0
   })
@@ -499,7 +499,7 @@
             (mut total 0)
           )
             {
-              (for k 0 parts
+              (for k in 0..parts
                 (set total (+ total (memGetWord (+ page (* k stride)) 0))))
               (report "fshare" total (* parts n) us)
             })
@@ -519,7 +519,7 @@
 (fn (pinger c1 c2 log n)
   (let ((buf (memAlloc 16)))
     {
-      (for i 0 n
+      (for i in 0..n
         (let ((t0 (sysTimeoutMicros buf)))
           {
             (chanSend c1 i)
@@ -537,7 +537,7 @@
 (fn (ponger c1 c2 n)
   (let ((mut sum 0))
     {
-      (for i 0 n
+      (for i in 0..n
         (match (chanRecv c1)
           ((Some v)
             {
@@ -569,7 +569,7 @@
                 b)))
                 (let ((v (vecWithCapacity n)))
                   {
-                    (for i 0 n
+                    (for i in 0..n
                       (vecPush v (memGetWord log i)))
                     (let (
                       (sorted (vecSort v))

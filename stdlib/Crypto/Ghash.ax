@@ -118,7 +118,7 @@
 (fn (ghashTailWord p off n half)
   (let ((mut w 0))
     {
-      (for i 0 8
+      (for i in 0 8
         (let ((k (+ half i)))
           (set w (|
             (<< w 8)

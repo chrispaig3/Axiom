@@ -26,7 +26,7 @@
 ;@axiom:effect(unsafe)
 (fn (say s)
   {
-    (for i 0 (strLen s)
+    (for i in 0..(strLen s)
       (__vstore8 uart (strByte s i)))
     0
   })
@@ -36,7 +36,7 @@
 (fn (sayHex v)
   {
     (say "0x")
-    (for k 0 16
+    (for k in 0..16
       (let ((d (& (>> v (* 4 (- 15 k))) 15)))
         (__vstore8
           uart

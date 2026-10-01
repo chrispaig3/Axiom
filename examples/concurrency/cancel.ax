@@ -133,7 +133,7 @@
 (fn (stillAlive pids n)
   (let ((mut alive 0))
     {
-      (for s 0 n
+      (for s in 0..n
         (let ((p (memGetWord pids s)))
           (if (> p 0)
             (match (sysKill p 0)
@@ -168,7 +168,7 @@
                       (alive (stillAlive pids 16))
                     )
                       {
-                        (for s 0 16
+                        (for s in 0..16
                           (let (
                             (c (codeOf (vecGet rs s)))
                             (t (textOf (vecGet rs s)))
@@ -188,7 +188,7 @@
                         ; cancelled - and at least one never started.
                         (let ((mut unstarted 0))
                           {
-                            (for s 10 16
+                            (for s in 10..16
                               (if (== (codeOf (vecGet rs s)) taskCancelledCode)
                                 (set unstarted (+ unstarted 1))
                                 (if (strStartsWith (textOf (vecGet rs s)) "stopped")

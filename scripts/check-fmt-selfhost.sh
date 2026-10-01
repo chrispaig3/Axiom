@@ -215,7 +215,7 @@ for af in $(find "$orig" -name '*.ax' | sort); do
 done
 echo "     $swept files swept, $refused refused"
 if [[ $swept -lt 420 ]]; then
-  echo "FAIL: the sweep read $swept files; the floor is 420 (476 today) - a tree is missing from the find"
+  echo "FAIL: the sweep read $swept files; the floor is 420 (977 today) - a tree is missing from the find"
   failed=$((failed + 1))
 fi
 failed=$((failed + nonidem + dirty_after + wrote_on_refusal))
@@ -255,7 +255,7 @@ else
     failed=$((failed + 1))
   fi
   if [[ $entries -lt 420 ]]; then
-    echo "FAIL: the table has $entries entries; the floor is 420 (601 today)"
+    echo "FAIL: the table has $entries entries; the floor is 420 (977 today)"
     failed=$((failed + 1))
   fi
   # A table of one repeated value would be satisfied by a formatter that
@@ -280,7 +280,7 @@ else
   # three.
   if [[ $hits -lt 380 ]]; then
     echo "FAIL: only $hits of $entries table entries still match a file in the tree;"
-    echo "      the floor is 380 (601 of 601 hit today) - the table has decayed and must be regenerated"
+    echo "      the floor is 380 (977 of 977 hit today) - the table has decayed and must be regenerated"
     failed=$((failed + 1))
   elif [[ $bad -eq 0 ]]; then
     echo "ok   $hits of $entries pinned source->formatted mappings reproduced"

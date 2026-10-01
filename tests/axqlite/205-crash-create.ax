@@ -47,7 +47,7 @@
           {
             (println "creating a database passes {points} fault points")
             (for kind in faultKinds
-              (for n 1 (+ points 1)
+              (for n in 1..(+ points 1)
                 {
                   (let ((_ (writeFile "new.db" "")))
                     0)

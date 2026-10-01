@@ -24,11 +24,11 @@
     ((Ok d)
       (let ((mut acc 0))
         {
-          (for i 0 1000
+          (for i in 0..1000
             (set acc (+ acc (step d i))))
           (let ((before (__axiom_mem_stat 0)))
             {
-              (for i 0 200000
+              (for i in 0..200000
                 (set acc (+ acc (step d i))))
               (let ((grew (- (__axiom_mem_stat 0) before)))
                 {

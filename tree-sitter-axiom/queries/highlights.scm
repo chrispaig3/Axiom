@@ -197,16 +197,18 @@
   "match"
 ] @keyword.conditional
 
-; The loop heads, and the `in` of `(for x in xs ...)`.
+; The loop heads, the `in` of `(for x in xs ...)` and the `by` of
+; `(for i in lo..hi by step ...)`.
 [
   "while"
   "for"
   "in"
+  "by"
   "syntax/for"
 ] @keyword.repeat
 
 ; `is` and `range` are the refinement words of
-; `(subtype Port is Int range 1 .. 65536)`.
+; `(subtype Port is Int range 1..65536)`.
 [
   "let"
   "set"

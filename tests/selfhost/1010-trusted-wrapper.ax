@@ -47,7 +47,7 @@
 (fn (sum c)
   (let ((mut t 0))
     {
-      (for i 0 c.len
+      (for i in 0..c.len
         (set t (+ t (cellGet c i))))
       t
     }))
@@ -56,7 +56,7 @@
 (fn (main)
   (let ((c (cellsOf 4)))
     {
-      (for i 0 4
+      (for i in 0..4
         (cellSet c i (+ i 9)))
       (sum c)
     }))

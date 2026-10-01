@@ -46,7 +46,7 @@
 (fn (eachDay pattern from step n)
   (let ((mut out ""))
     {
-      (for i 0 n
+      (for i in 0..n
         (let ((d (unwrapOr (dateAddDays (date from) (* i step)) dateMin)))
           (set out (strConcat
             out
@@ -63,7 +63,7 @@
 (fn (eachMonth pattern)
   (let ((mut out ""))
     {
-      (for m 1 13
+      (for m in 1..13
         (let ((d (unwrapOr (dateNew 2024 m 1) dateMin)))
           (set out (strConcat
             out

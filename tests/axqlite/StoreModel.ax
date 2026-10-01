@@ -60,7 +60,7 @@
 (:: removeAtS (-> (Vec String) Int Int))
 (fn (removeAtS v i)
   {
-    (for k i (- (vecLen v) 1)
+    (for k in i..(- (vecLen v) 1)
       (vecSet v k (vecGet v (+ k 1))))
     (vecPop v)
     0
@@ -104,7 +104,7 @@
 (pub fn (modelCopy m)
   (let ((c modelNew))
     {
-      (for i 0 (vecLen m.keys)
+      (for i in 0..(vecLen m.keys)
         {
           (vecPush c.keys (vecGet m.keys i))
           (vecPush c.vals (vecGet m.vals i))

@@ -384,9 +384,10 @@ Any name `check` accepts also builds and runs. Tested by `scripts/check-symbol-n
 These words have grammar rules. None of them is reserved: each is an
 ordinary identifier everywhere except the position its rule claims.
 That position is the head of a form, for `mut` the head of a `let`
-binding, and for `in` the word after a `for` loop's binder. So `(let ((match 1)) match)` binds a variable called
-`match`, and `(cast Int x)` is always the cast form, whatever `cast`
-is bound to. Shadowing a keyword is legal, but it makes code hard to
+binding, for `in` the word after a `for` loop's binder, and for `by`
+the word after its range. So `(let ((match 1)) match)` binds a
+variable called `match`, and `(cast Int x)` is always the cast form,
+whatever `cast` is bound to. Shadowing a keyword is legal, but it makes code hard to
 read.
 
 | Keyword | Purpose | More |
@@ -399,8 +400,9 @@ read.
 | `set` | Assign to a `mut` binding | [Mutable bindings](#mutable-bindings) |
 | `if` | Conditional expression, variadic: `(if t1 b1 t2 b2 ... els)` | [if](#if) |
 | `while` | Loop while a condition holds | [while loops](#while-loops) |
-| `for` | Loop over a range, `(for i lo hi body)`, with a step, `(for i lo hi step body)`, or over a `(Vec a)`, `(for x in xs body)` and `(for (x k) in xs body)` | [for loops](#for-loops) |
-| `in` | Optional, after a `for` loop's binder: `(for x in xs body)` | [for loops](#for-loops) |
+| `for` | Loop over a range, `(for i in lo..hi body)`, with a step, `(for i in lo..hi by step body)`, or over a `(Vec a)`, `(for x in xs body)` and `(for (x k) in xs body)` | [for loops](#for-loops) |
+| `in` | After a `for` loop's binder: `(for x in xs body)` | [for loops](#for-loops) |
+| `by` | After a `for` loop's range, before its step: `(for i in 0..10 by 2 body)` | [for loops](#for-loops) |
 | `match` | Pattern matching | [Pattern matching](#pattern-matching) |
 | `data` | Algebraic data type | [Algebraic data types](#algebraic-data-types) |
 | `struct` | Product type with named fields | [Structs](#structs) |
@@ -1001,7 +1003,7 @@ Tested by `tests/selfhost/500-while-mut.ax`.
 ### for loops
 
 `for` counts through a range of integers or walks the elements of a
-`(Vec a)`. It has four shapes:
+`(Vec a)`. The binder comes first, then `in`, then what to loop over:
 
 ```scheme
 (import IO)
@@ -1014,16 +1016,16 @@ Tested by `tests/selfhost/500-while-mut.ax`.
         (names vecNew))
     (vecPush names "ada")
     (vecPush names "grace")
-    (for i 0 5                 ; 0, 1, 2, 3, 4
+    (for i in 0..5              ; 0, 1, 2, 3, 4
       (set total (+ total i)))
     (println total)
-    (for i 0 10 3              ; 0, 3, 6, 9
+    (for i in 0..10 by 3        ; 0, 3, 6, 9
       (println i))
-    (for i 3 0 -1              ; 3, 2, 1
+    (for i in 3..0 by -1        ; 3, 2, 1
       (println i))
-    (for name in names         ; each element
+    (for name in names          ; each element
       (println name))
-    (for (name k) in names     ; each element with its index
+    (for (name k) in names      ; each element with its index
       (println "{k}: {name}"))
     0))
 ```
@@ -1047,17 +1049,19 @@ grace
 
 | Shape | Runs the body |
 |---|---|
-| `(for i lo hi body)` | once for each `i` from `lo` up to, but not including, `hi` |
-| `(for i lo hi step body)` | stepping by `step`: up while below `hi` when the step is positive, down while above `hi` when it is negative |
+| `(for i in lo..hi body)` | once for each `i` from `lo` up to, but not including, `hi` |
+| `(for i in lo..hi by step body)` | stepping by `step`: up while below `hi` when the step is positive, down while above `hi` when it is negative |
 | `(for x in xs body)` | once for each element of the `(Vec a)` `xs`, with `x` bound to it at type `a` |
 | `(for (x k) in xs body)` | the same, with `k` counting 0, 1, 2 beside the elements |
 
 The rules:
 
-- `in` after the binder is optional in every shape: `(for x xs body)`
-  and `(for i in 0 5 body)` are the same loops. It is a keyword only
-  there, so a variable named `in` works anywhere else, including as a
-  later operand, `(for i in 0 in body)`.
+- `in` follows the binder in every shape. `in` and `by` are keywords
+  only in those positions, so a variable named `in` or `by` works
+  anywhere else.
+- Either end of a range can be any expression: `0..n`,
+  `lo..(+ lo 3)`, `0..(strLen s)` and `p.x..p.y` all work. Spaces
+  around `..` are allowed, and `axiom fmt` removes them.
 - A range whose `hi` is at or below `lo` runs zero times. To count
   down, give a negative step.
 - `lo`, `hi`, the step and the container are each evaluated once,
@@ -1077,19 +1081,19 @@ Tested by `tests/stdlib/466-for-loop.ax`.
 
 #### When a loop is refused
 
+- A missing `in` is `AX2001` at the token where it belongs, with a fix
+  that inserts it (`tests/diagnostics/634-for-missing-in.axbad`).
 - A literal step of `0` never moves the counter, so it is refused
   where it stands with `AX2001`
   (`tests/diagnostics/632-for-zero-step.axbad`).
-- The parser tells the shapes apart by counting operands: four after
-  the binder is a stepped range, three a range, two a container. That
-  is why the body is one expression. An extra or missing operand is
-  `AX2001`, and the message lists all four shapes
+- After the range or the container, the body is the only element
+  left. A second body is `AX2001`
   (`tests/diagnostics/625-for-shape.axbad`).
 - An element-index binder `(x k)` works with the container shape only,
   because a range counts its own index
   (`tests/diagnostics/633-for-pair-range.axbad`).
 - Looping over something that isn't a `Vec` is reported at your
-  expression: `(for x n body)` over an `Int` underlines `n` with
+  expression: `(for x in n body)` over an `Int` underlines `n` with
   `AX3004 type mismatch: expected Vec _a, found Int`. A second row
   points at the `for` keyword, because the loop reads the container
   twice. Each row's help names what fits instead: a range for an
@@ -1114,11 +1118,11 @@ its keys vector:
   (let ((s "hi")
         (m mapNew)
         (mut total 0))
-    (for i 0 (strLen s)            ; each byte
+    (for i in 0..(strLen s)        ; each byte
       (println (strByte s i)))
     (mapInsert m 1 10)
     (mapInsert m 2 20)
-    (for k (mapKeys m)             ; each key, in no fixed order
+    (for k in (mapKeys m)          ; each key, in no fixed order
       (set total (+ total (mapGet m k 0))))
     (println total)
     0))
@@ -1138,19 +1142,12 @@ any value of the right type will do.
 it is an ordinary name: a parameter, a `let` binder or a pattern
 variable. `axiom fmt` prints it that way too
 (`tests/fmt/parity/199-for-arg-position.axp`). It lays out a `for` as
-it lays out `while`, with the binder and bounds on the head line and
-the body indented below
+it lays out `while`, with the binder and the range or container on the
+head line and the body indented below
 (`tests/fmt/parity/198-for-head-layout.axp`).
 
 Limit: a macro of your own named `for` never runs. The keyword wins,
 with no diagnostic, so the macro is dead code that still type-checks.
-
-#### The `range` macro
-
-The prelude's `range` macro, `(range i lo hi body)` in `stdlib/Pre.ax`,
-is the same loop as the first `for` shape. It stays for code that
-already uses it, and the two agree binding for binding. New code
-should use `for`.
 
 *Under the hood:* the parser rewrites every `for` into `let`, `while`
 and `set`, with its bounds bound before the loop. Nothing after the
@@ -1402,7 +1399,7 @@ whenever a plain `Int` becomes the subtype:
 ```scheme
 (import IO)
 
-(subtype Percent is Int range 0 .. 101)
+(subtype Percent is Int range 0..101)
 
 (:: describe (-> Percent String))
 (fn (describe p)
@@ -1423,7 +1420,7 @@ at least half
 21
 ```
 
-`range 0 .. 101` accepts `0 <= v < 101`: the upper bound is excluded.
+`range 0..101` accepts `0 <= v < 101`: the upper bound is excluded.
 A range with only a lower bound, such as `(subtype NonNeg is Int range 0)`,
 checks `>=` and nothing else.
 
@@ -5164,7 +5161,7 @@ empty, and `chanClose` ends the stream:
 ;@axiom:effect(block)
 (fn (produce ch n)
   {
-    (for i 1 (+ n 1)
+    (for i in 1..(+ n 1)
       (chanSend ch i))
     (chanClose ch)
     n
@@ -5342,7 +5339,7 @@ word from two bindings under the lock.
 (fn (main)
   (let ((squares (parMapWords (lambda (i) (* i i)) 6 3)))
     {
-      (for x squares
+      (for x in squares
         (println x))
       0
     }))
@@ -5392,7 +5389,7 @@ at a time, and accepts answers of up to `limit` bytes:
 (fn (main)
   (let ((results (taskMap square 5 2 64)))
     {
-      (for r results
+      (for r in results
         (match r
           ((Ok s) (println s))
           ((Err e) (let ((code (errCode e))) (println "task failed with {code}")))))
@@ -5451,7 +5448,7 @@ grace period, fail-fast, or a `CancelToken` shared with other code:
 (fn (main)
   (let ((opts (taskWithDeadline (taskOpts 4 64) 200000000)))
     {
-      (for r (taskMapWith work 4 opts)
+      (for r in (taskMapWith work 4 opts)
         (match r
           ((Ok s) (println "answered {s}"))
           ((Err e)
@@ -5673,10 +5670,10 @@ needs no C library.
   (let ((words (strSplit "the quick brown fox jumps over the lazy dog" 32))
         (counts mapNew))
     {
-      (for w words
+      (for w in words
         (let ((n (strLen w)))
           (mapInsert counts n (+ (mapGet counts n 0) 1))))
-      (for n (vecSort (mapKeys counts))
+      (for n in (vecSort (mapKeys counts))
         (let ((c (mapGet counts n 0)))
           (println "{n} letters: {c}")))
       0
@@ -5716,7 +5713,7 @@ regenerates it on every run to keep it exact.
 
 | Module | Provides |
 |---|---|
-| `Pre` | The prelude macros: `when` and `unless` (conditionals), `range`, `deriveEq`, `deriveShow`, `deriveArity`, `showOr`. |
+| `Pre` | The prelude macros: `when` and `unless` (conditionals), `deriveEq`, `deriveShow`, `deriveArity`, `showOr`. |
 | `Mem` | Raw memory: `memAlloc`, `memAllocMapped`, `memMarkArray`/`memMarkLeaf`, `memCopy`, `memSet`, `memCmp`, `memGetByte`/`memPutByte`, `memGetWord`/`memSetWord`. |
 | `Str` | The byte view of a `Str`: `strFromLit`, `strAlloc`, `strLen`, `strByte`, `strCmp`, `strEq`, `strSlice`, `strDup`, `strConcat`, `strFindByte`, `strStartsWith`, `strSplit`, `strCStr`, and the `format` macro. String literals are already `Str` values ([Literals](#literals)). |
 | `Utf8` | The character view of a `Str`: `utf8Len`, `utf8CharAt`, `utf8DecodeAt`, `utf8FromChar`, `utf8Next`, `utf8Offset`, `utf8Slice`, `utf8Width`, `utf8SeqLen`, `utf8IsCont`, `utf8Valid`, `utf8WellFormedAt`. |
@@ -5899,7 +5896,7 @@ answers:
 ;@axiom:effect(io)
 (fn (report dir)
   {
-    (for name (listDir dir)
+    (for name in (listDir dir)
       (let ((p (pathJoin dir name)))
         (if (strEq (pathExt p) ".ax")
             (match (fileSize p)
@@ -6767,9 +6764,9 @@ the default `--opt 1` runs neither the loop nor the SLP vectorizer.
 
 | Loop | At `--opt 2` | LLVM's reason |
 |---|---|---|
-| `(for x xs (set acc (+ acc x)))` over a `(Vec Int)` | Vectorized, width 2, interleave 4. 3.1x faster than `--opt 1`. | Nothing is stored in the loop, so the vector's header reads move out of it and the range check folds. |
-| `(for i 0 n (if (== (strByte s i) 97) ...))` over a `String` | Vectorized, width 16. 1.9x faster. | The same shape, with byte elements. |
-| `(for i 0 n (vecSet v i (+ (vecGet v i) 1)))`, in place | Not vectorized. | `control flow cannot be substituted for a select`, `call instruction cannot be vectorized`, and an early exit: the range check's trap |
+| `(for x in xs (set acc (+ acc x)))` over a `(Vec Int)` | Vectorized, width 2, interleave 4. 3.1x faster than `--opt 1`. | Nothing is stored in the loop, so the vector's header reads move out of it and the range check folds. |
+| `(for i in 0..n (if (== (strByte s i) 97) ...))` over a `String` | Vectorized, width 16. 1.9x faster. | The same shape, with byte elements. |
+| `(for i in 0..n (vecSet v i (+ (vecGet v i) 1)))`, in place | Not vectorized. | `control flow cannot be substituted for a select`, `call instruction cannot be vectorized`, and an early exit: the range check's trap |
 | A `while` with a data-dependent trip count, such as `web/bench/collatz.ax` | Not vectorized, correctly. | `Cannot vectorize uncountable loop` |
 
 Not yet: loops that write into a vector don't vectorize. Every memory

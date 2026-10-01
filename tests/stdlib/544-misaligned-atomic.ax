@@ -67,7 +67,7 @@
       (println (loadAt p))
       (println (addAt (+ p 8)))
       (println (casAt (+ p 16)))
-      (for k 0 4
+      (for k in 0..4
         (let ((st (trapped k (+ p 4))))
           (println "misaligned {k}: status {st}")))
       (println (loadAt (+ p 12)))

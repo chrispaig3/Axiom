@@ -21,7 +21,7 @@ and `vecGet` stops the program when it doesn't:
     {
       (vecPush names "ada")
       (vecPush names "grace")
-      (for n names (println n))
+      (for n in names (println n))
       (match (vecTry names 5)
         ((Some n) (println n))
         (None (println "nothing at 5")))
@@ -786,24 +786,22 @@ Nothing from §6 is in the tree, and neither is §4c's inferencer.
 `for` is a keyword, and the list is closed. Item 6 is the reason this
 document exists: its opening paragraph says a container loop can't be
 a keyword until a container has an element type. It landed on top of
-item 5, as one head with two forms told apart by arity:
+item 5, as one head with two forms, a range marked by `..` and a
+container:
 
-- `(for i lo hi body)` loops over a range.
-- `(for x xs body)` loops over a `(Vec a)`.
+- `(for i in lo..hi body)` loops over a range.
+- `(for x in xs body)` loops over a `(Vec a)`.
 
 The parser desugars both, so no consumer of the AST changed, and both
 ends are read once before the loop. The element read is the qualified
 `Vec::vecGet`, so it is the polymorphic accessor the port typed, and
 not a per-type spelling. The HTML DSL's `for` and `forInt`, the two
 macros for one idea that the opening paragraph names, are deleted
-without moving a call site. `tests/stdlib/466-for-loop.ax` holds twelve
+without moving a call site. `tests/stdlib/466-for-loop.ax` holds the
 terms, and `tests/diagnostics/625-for-shape` and
 `626-for-not-a-container` hold the two refusals.
 
 In-tree code uses the keyword too. The seed predated it, and
 `scripts/reseed.sh` states the order: land the construct, reseed, then
-use it. After the `ea78e37` reseed, `self_host/symbols.ax` writes its
-argument-type loop with `for`, where it used the `range` macro before.
-The `range` macro stays, because it is `pub`, user programs write it,
-and `tests/stdlib/463-range-loop.ax` pins it. New in-tree code prefers
-the keyword.
+use it. The prelude's `range` macro, the one-shape loop the keyword
+replaced, is gone, so `for` is the only counted loop.

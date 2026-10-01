@@ -350,7 +350,7 @@
     {
       (memPutByte d 0 120)
       (memPutByte d 1 39)
-      (for i 0 n
+      (for i in 0 n
         (let ((c (strByte b i)))
           {
             (memPutByte d (+ 2 (* 2 i)) (strByte digits (>> c 4)))
@@ -369,7 +369,7 @@
     (mut quotes 0)
   )
     {
-      (for i 0 n
+      (for i in 0 n
         (if (== (strByte s i) 39)
           (set quotes (+ quotes 1))
           0))
@@ -380,7 +380,7 @@
       )
         {
           (memPutByte d 0 39)
-          (for i 0 n
+          (for i in 0 n
             (let ((c (strByte s i)))
               {
                 (memPutByte d k c)

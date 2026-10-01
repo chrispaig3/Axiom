@@ -65,7 +65,7 @@
 ;@axiom:precondition(`st` names `first` + `n` live writable words, `n` at least 1)
 (fn (sha2Erase st first n)
   {
-    (for i first (+ first (- n 1))
+    (for i in first (+ first (- n 1))
       (__store64 st i 0))
     (ctWipe (+ st (* 8 (+ first (- n 1)))) 8)
   })
@@ -171,7 +171,7 @@
 ; Copy `n` bytes from `src` to `dst`, which do not overlap.
 (macro (sha2Copy dst src n)
   (let ((d dst) (s src) (k n))
-    (for i 0 k
+    (for i in 0 k
       (__store8 d i (__load8 s i)))))
 
 ; The functions of section 4.1.2, (4.4) to (4.7), on a word whose low
@@ -247,7 +247,7 @@
     (mut h (sha2Ld64le cv 56))
   )
     {
-      (for blk 0 nblocks
+      (for blk in 0 nblocks
         (let (
           (q (+ p (* 64 blk)))
           (a0 a)
@@ -512,19 +512,19 @@
   (let ((have (& (__load64 ctr 1) 63)) (total (__load64 ctr 0)))
     {
       (__store8 buf have 128)
-      (for i (+ have 1) 64
+      (for i in (+ have 1) 64
         (__store8 buf i 0))
       (if (> have 55)
         {
           (sha256Blocks cv buf 1)
-          (for i 0 56
+          (for i in 0 56
             (__store8 buf i 0))
           0
         }
         0)
       (sha2St64be buf 56 (<< total 3))
       (sha256Blocks cv buf 1)
-      (for i 0 nwords
+      (for i in 0 nwords
         (sha2St32be out (* 4 i) (sha2Ld64le cv (* 8 i))))
       0
     }))
@@ -702,7 +702,7 @@
     (mut h (sha2Ld64le cv 56))
   )
     {
-      (for blk 0 nblocks
+      (for blk in 0 nblocks
         (let (
           (q (+ p (* 128 blk)))
           (a0 a)
@@ -1014,12 +1014,12 @@
   (let ((have (& (__load64 ctr 1) 127)) (total (__load64 ctr 0)))
     {
       (__store8 buf have 128)
-      (for i (+ have 1) 128
+      (for i in (+ have 1) 128
         (__store8 buf i 0))
       (if (> have 111)
         {
           (sha512Blocks cv buf 1)
-          (for i 0 112
+          (for i in 0 112
             (__store8 buf i 0))
           0
         }
@@ -1027,7 +1027,7 @@
       (sha2St64be buf 112 (sha2Shr total 61))
       (sha2St64be buf 120 (<< total 3))
       (sha512Blocks cv buf 1)
-      (for i 0 nwords
+      (for i in 0 nwords
         (sha2St64be out (* 8 i) (sha2Ld64le cv (* 8 i))))
       0
     }))
@@ -1272,7 +1272,7 @@
 (pub fn (sha256RawResume st chain count)
   {
     (sha256Init st)
-    (for i 0 8
+    (for i in 0 8
       (__store64 st i (sha2Ld32be chain (* 4 i))))
     (__store64 st 8 count)
     0
@@ -1290,7 +1290,7 @@
   (if (!= (& (__load64 st 9) 63) 0)
     -1
     {
-      (for i 0 8
+      (for i in 0 8
         (sha2St32be out (* 4 i) (sha2Ld64le st (* 8 i))))
       0
     }))
@@ -1339,7 +1339,7 @@
 (pub fn (sha512RawResume st chain count)
   {
     (sha512Init st)
-    (for i 0 8
+    (for i in 0 8
       (__store64 st i (sha2Ld64be chain (* 8 i))))
     (__store64 st 8 count)
     0
@@ -1356,7 +1356,7 @@
   (if (!= (& (__load64 st 9) 127) 0)
     -1
     {
-      (for i 0 8
+      (for i in 0 8
         (sha2St64be out (* 8 i) (sha2Ld64le st (* 8 i))))
       0
     }))

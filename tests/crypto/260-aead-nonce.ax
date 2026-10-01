@@ -21,7 +21,7 @@
     (mut ok true)
   )
     {
-      (for i 0 steps
+      (for i in 0..steps
         (match (nonceSequenceNext seq)
           ((Ok n)
             {
@@ -123,7 +123,7 @@
         (mut sized true)
       )
         {
-          (for i 0 64
+          (for i in 0..64
             (match (aeadNonceRandom)
               ((Err _)
                 {

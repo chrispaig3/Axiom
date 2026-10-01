@@ -275,7 +275,7 @@
 ;@axiom:precondition(`dst` and `src` each name `count` live bytes)
 (fn (memCopyFrom dst src count start)
   {
-    (for i start count
+    (for i in start count
       (__store8 dst i (__load8 src i)))
     dst
   })
@@ -294,7 +294,7 @@
 ;@axiom:precondition(`addr` names `count` live writable bytes)
 (fn (memSetFrom addr value count start)
   {
-    (for i start count
+    (for i in start count
       (__store8 addr i value))
     addr
   })

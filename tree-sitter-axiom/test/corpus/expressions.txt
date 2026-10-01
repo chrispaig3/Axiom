@@ -338,7 +338,7 @@ for, both shapes: a range and a container
 (:: main Int)
 (fn (main)
   (let ((v vecNew))
-    (for i 0 3 (for x v (println x)))))
+    (for i in 0..3 (for x in v (println x)))))
 
 ----------------------------------------------------------------
 
@@ -354,12 +354,12 @@ for, both shapes: a range and a container
         value: (identifier))
       body: (for_expression
         binder: (identifier)
-        operand: (integer_literal)
-        operand: (integer_literal)
-        operand: (for_expression
+        start: (integer_literal)
+        end: (integer_literal)
+        body: (for_expression
           binder: (identifier)
           operand: (identifier)
-          operand: (application
+          body: (application
             operand: (identifier)
             operand: (identifier)))))))
 
@@ -537,8 +537,8 @@ for, new shapes: an element-index pair and a stepped range
 (fn (main)
   (let ((v vecNew))
     {
-      (for (x k) v (println k))
-      (for i 0 10 2 (println i))
+      (for (x k) in v (println k))
+      (for i in 0..10 by 2 (println i))
     }))
 
 ----------------------------------------------------------------
@@ -558,15 +558,15 @@ for, new shapes: an element-index pair and a stepped range
           binder: (identifier)
           binder: (identifier)
           operand: (identifier)
-          operand: (application
+          body: (application
             operand: (identifier)
             operand: (identifier)))
         body: (for_expression
           binder: (identifier)
-          operand: (integer_literal)
-          operand: (integer_literal)
-          operand: (integer_literal)
-          operand: (application
+          start: (integer_literal)
+          end: (integer_literal)
+          step: (integer_literal)
+          body: (application
             operand: (identifier)
             operand: (identifier)))))))
 
@@ -580,7 +580,7 @@ for, with `in` after the binder; `in` elsewhere is an identifier
     {
       (for x in v (println x))
       (for (x k) in v (println k))
-      (for i in 0 10 2 (in i))
+      (for i in 0..10 by 2 (in i))
     }))
 
 ----------------------------------------------------------------
@@ -599,21 +599,68 @@ for, with `in` after the binder; `in` elsewhere is an identifier
         body: (for_expression
           binder: (identifier)
           operand: (identifier)
-          operand: (application
+          body: (application
             operand: (identifier)
             operand: (identifier)))
         body: (for_expression
           binder: (identifier)
           binder: (identifier)
           operand: (identifier)
-          operand: (application
+          body: (application
             operand: (identifier)
             operand: (identifier)))
         body: (for_expression
           binder: (identifier)
-          operand: (integer_literal)
-          operand: (integer_literal)
-          operand: (integer_literal)
-          operand: (application
+          start: (integer_literal)
+          end: (integer_literal)
+          step: (integer_literal)
+          body: (application
             operand: (identifier)
             operand: (identifier)))))))
+
+================================================================
+for, a range between names, fields and calls
+================================================================
+
+(:: main Int)
+(fn (main)
+  (let ((lo 1) (p (Point 0 3)))
+    {
+      (for i in lo..hi (println i))
+      (for i in p.x..(f p) by -1 i)
+    }))
+
+----------------------------------------------------------------
+
+(source_file
+  (type_signature
+    subject: (identifier)
+    type: (builtin_type))
+  (function_definition
+    name: (identifier)
+    body: (let_expression
+      binding: (let_binding
+        pattern: (identifier)
+        value: (integer_literal))
+      binding: (let_binding
+        pattern: (identifier)
+        value: (application
+          operand: (identifier)
+          operand: (integer_literal)
+          operand: (integer_literal)))
+      body: (block
+        body: (for_expression
+          binder: (identifier)
+          start: (identifier)
+          end: (identifier)
+          body: (application
+            operand: (identifier)
+            operand: (identifier)))
+        body: (for_expression
+          binder: (identifier)
+          start: (identifier)
+          end: (application
+            operand: (identifier)
+            operand: (identifier))
+          step: (integer_literal)
+          body: (identifier))))))

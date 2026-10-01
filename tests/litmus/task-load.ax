@@ -129,7 +129,7 @@
 ;@axiom:effect(io)
 (fn (showAll rs)
   {
-    (for i 0 (vecLen rs)
+    (for i in 0..(vecLen rs)
       (showResult i (vecGet rs i)))
     0
   })
@@ -141,7 +141,7 @@
 (fn (goneCount page lo hi)
   (let ((mut gone 0))
     {
-      (for k lo hi
+      (for k in lo..hi
         (match (sysKill (memGetWord page k) 0)
           ((Ok z) 0)
           ((Err e)
@@ -176,7 +176,7 @@
       (while (== missing 1)
         {
           (set missing 0)
-          (for k lo hi
+          (for k in lo..hi
             (if (== (memGetWord page k) 0)
               (set missing 1)
               0))
@@ -209,7 +209,7 @@
     (mut bad (- 0 1))
   )
     {
-      (for i 0 n
+      (for i in 0..n
         (match (vecGet rs i)
           ((Ok s)
             (if (&&

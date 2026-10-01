@@ -13,62 +13,6 @@
   0
   body))
 
-;; range — the counted loop: `(range i 0 n body)` is `0..n`
-;; (range i lo hi body) -> `body` once per `i` in [lo, hi), ascending,
-;; with both ends read ONCE.
-;
-; ONE RULE AND NOT TWO, so both ends are written out: the rule form's
-; templates are DECLARATIONS (MAC-LANG-14), so an expression macro has
-; one shape, and `(range i 0 n ...)` spells the range it means.
-;
-; NOT NAMED `for`, because `for` is a language KEYWORD as of 0.6.4
-; (`self_host/parser.ax`'s `parseForExpr`), covering ranges, a step
-; and containers, and a macro cannot be that: one shape cannot serve
-; `(for i 0 n ..)`, `(for i 0 n 2 ..)` and `(for x xs ..)`. Measured before the keyword
-; existed, they could not even coexist - `Html.ax` exported its own
-; `(for x xs body)` over a `Vec`, and a program importing both resolved
-; `for` to Html's and answered `AX3001: undefined variable i` in the
-; body rather than an ambiguity at the import. The keyword's range
-; shape mirrors THIS template binding for binding - `lo` and `hi`
-; hoisted in source order, a `mut` counter, the caller's name bound
-; over the body, `0` as the value - so the two agree by construction.
-;
-; WHY THIS STAYS. It used to stay because the committed seed
-; predated the keyword: `self_host/` could not write `for`, so
-; `self_host/symbols.ax` spelled its loop with `range`. The ea78e37
-; reseed retired that reason - the seed knows `for` now, and that
-; site spells it with the keyword. What keeps the macro is that it is
-; `pub`: user programs write it (`tests/stdlib/463-range-loop.ax`
-; pins the shape), and removing a public name is a break
-; `compat/BREAKING` would have to declare. New code in this
-; repository prefers `for`.
-;
-; The shape this replaces is written by hand about a hundred times in
-; this repository:
-;
-;   (let ((mut i 0)) (while (< i (vecLen xs)) { BODY (set i (+ i 1)) }))
-;
-; and it re-reads `(vecLen xs)` on every iteration. Both ends are bound
-; before the loop here, in source order, so each is computed ONCE - the
-; ergonomic win and a correctness one, because a bound that reads a
-; structure the body mutates is a loop whose length moves under it.
-;
-; `i` is the CALLER's name (MAC-HYG-10); `a`, `b` and `cur` are the
-; template's and are renamed at every expansion, so a body that
-; mentions any of them means its own. Answers 0.
-(pub macro (range i lo hi body) (let ((a lo))
-  (let ((b hi))
-    (let ((mut cur a))
-      {
-        (while (< cur b)
-          {
-            (let ((i cur))
-              body)
-            (set cur (+ cur 1))
-          })
-        0
-      }))))
-
 ;; Variadic branching is the `if` statement itself: `(if t1 b1 t2 b2
 ;; ... els)` is the nested chain `(if t1 b1 (if t2 b2 ... els))`,
 ;; built by the parser. The fixed-arity `cond2`/`cond3` helpers that

@@ -15,7 +15,7 @@
 (fn (allBytes)
   (let ((s (strAlloc 256)))
     {
-      (for i 0 256
+      (for i in 0..256
         (memPutByte (strData s) i i))
       s
     }))

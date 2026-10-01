@@ -48,7 +48,7 @@
 (fn (rewrite p root v)
   (let ((mut failed None))
     {
-      (for n 0 200
+      (for n in 0..200
         (if (isSome failed)
           0
           (match (btreePut p root (keyRowid n) v)

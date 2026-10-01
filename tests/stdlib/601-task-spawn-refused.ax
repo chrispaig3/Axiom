@@ -55,7 +55,7 @@
 (fn (stubborn page i)
   {
     (memSetWord page (+ i 1) sysGetPid)
-    (for k 0 600
+    (for k in 0..600
       (sysWaitWordTimeout page 0 100000000))
     "late"
   })
@@ -80,7 +80,7 @@
 (fn (aliveCount page)
   (let ((mut alive 0))
     {
-      (for k 1 5
+      (for k in 1..5
         (let ((p (memGetWord page k)))
           (if (> p 0)
             (match (sysKill p 0)
@@ -102,7 +102,7 @@
       (let ((hs (vecWithCapacity 65536)))
         {
           (fillAll hs)
-          (for k 0 3
+          (for k in 0..3
             (freeH (vecPop hs)))
           (let ((rs 
             (taskMap
@@ -110,7 +110,7 @@
               4
               4
               64)))
-            (for i 0 (vecLen rs)
+            (for i in 0..(vecLen rs)
               (showResult i (vecGet rs i))))
           (let ((free (fillAll hs)))
             (println "handle slots back {free} of 3"))

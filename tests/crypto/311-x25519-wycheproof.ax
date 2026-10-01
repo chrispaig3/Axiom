@@ -26,7 +26,7 @@
 (fn (allZero s)
   (let ((mut acc 0))
     {
-      (for i 0 (strLen s)
+      (for i in 0..(strLen s)
         (set acc (| acc (strByte s i))))
       (== acc 0)
     }))

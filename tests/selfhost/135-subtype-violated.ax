@@ -18,7 +18,7 @@
 ;
 ; The message and the backtrace go to fd 2 and are not this gate's
 ; subject - `scripts/check-contracts.sh` reads that shape.
-(subtype Positive is Int range 1 .. 10)
+(subtype Positive is Int range 1..10)
 
 (:: takePos (-> Positive Int))
 (fn (takePos x)

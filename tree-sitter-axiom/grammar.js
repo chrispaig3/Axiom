@@ -553,7 +553,7 @@ module.exports = grammar({
       ')',
     ),
 
-    // `(subtype Name is Base range LO[ .. HI])` — Ada-style
+    // `(subtype Name is Base range LO[..HI])` — Ada-style
     // range-constrained subtypes (`self_host/parser.ax`'s
     // `parseSubtypeDecl`). The upper bound is present exactly when two
     // consecutive dots follow the lower bound. The compiler lexes `..`
@@ -1010,28 +1010,36 @@ module.exports = grammar({
       ')',
     ),
 
-    // `(for i lo hi body)`, `(for i lo hi step body)` and
-    // `(for x xs body)` with a plain or `(x i)` pair binder, told
-    // apart by ARITY - two operands after the binder is the container,
-    // three the range, four the stepped range, and there is exactly
-    // one body expression in all (`self_host/parser.ax`'s
-    // `parseForExpr`). A fifth is a parse error in the compiler
-    // (AX2001, `tests/diagnostics/625-for-shape.axbad`) and is simply
-    // not in this grammar's language either. `in` may follow the binder
-    // in every shape (`forSkipIn`). It is a keyword only there: the
-    // `word` rule lexes it as one only where this rule allows it, so
-    // `(in a x)` elsewhere is still an application of an identifier.
+    // `(for i in lo..hi body)`, `(for i in lo..hi by step body)`,
+    // `(for x in xs body)` and `(for (x k) in xs body)`, with exactly one
+    // body expression (`self_host/parser.ax`'s `parseForExpr`). `..`
+    // marks a range and `by` its step. `in` and `by` are keywords only
+    // here: the `word` rule lexes each as one only where this rule
+    // allows it, so `(in a x)` elsewhere is still an application of an
+    // identifier. The plain `operand` arm is the container, and also
+    // reads `(for i in lo hi body)`, which the compiler still accepts
+    // until the next reseed.
     for_expression: $ => seq(
       '(', 'for',
       field('binder', choice(
         $.identifier,
         seq('(', $.identifier, $.identifier, ')'),
       )),
-      optional('in'),
-      field('operand', $._expression),
-      field('operand', $._expression),
-      optional(field('operand', $._expression)),
-      optional(field('operand', $._expression)),
+      'in',
+      choice(
+        seq(
+          field('start', $._expression),
+          '..',
+          field('end', $._expression),
+          optional(seq('by', field('step', $._expression))),
+        ),
+        seq(
+          field('operand', $._expression),
+          optional(field('operand', $._expression)),
+          optional(field('operand', $._expression)),
+        ),
+      ),
+      field('body', $._expression),
       ')',
     ),
 
@@ -1253,10 +1261,11 @@ module.exports = grammar({
 
     // An identifier is either a name (possibly dotted, since `.` is an
     // operator character that the lexer glues on) or a bare run of
-    // operator characters. Operators being identifiers is why this
-    // grammar has no precedence table.
+    // operator characters. A dot inside a name is never followed by a
+    // second one, so `lo..hi` is a range between two names. Operators
+    // being identifiers is why this grammar has no precedence table.
     identifier: _ => token(choice(
-      /[A-Za-z_][A-Za-z0-9_']*([+\-*\/%^=<>!&|.?~@]+[A-Za-z0-9_']*)*/,
+      /[A-Za-z_][A-Za-z0-9_']*([+\-*\/%^=<>!&|?~@]+[A-Za-z0-9_']*|\.[A-Za-z0-9_'+\-*\/%^=<>!&|?~@][A-Za-z0-9_']*)*/,
       new RegExp(OPERATOR_CHAR.source + '+'),
     )),
   },

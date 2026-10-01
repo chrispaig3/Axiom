@@ -2801,7 +2801,7 @@
     ; bit at a time. Signals are 1..31; bit N-1 is signal N.
     (let ((mut rc 0))
       {
-        (for signo 1 32
+        (for signo in 1 32
           (if (!= (& mask (sysSigBit signo)) 0)
             {
               (memSet rec 0 pollEventSize)

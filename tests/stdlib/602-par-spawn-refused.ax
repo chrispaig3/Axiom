@@ -46,7 +46,7 @@
 (:: freeSome (-> (Vec Int) Int Int))
 (fn (freeSome hs k)
   {
-    (for i 0 k
+    (for i in 0..k
       (freeH (vecPop hs)))
     k
   })
@@ -58,7 +58,7 @@
 ;@axiom:effect(block)
 (fn (stubborn page)
   {
-    (for k 0 600
+    (for k in 0..600
       (sysWaitWordTimeout page 0 100000000))
     0
   })
@@ -108,7 +108,7 @@
               (lambda (i) (stubborn page))
               4
               4)))
-            (for i 0 (vecLen rs)
+            (for i in 0..(vecLen rs)
               (showWord i (vecGet rs i))))
           (let ((free (fillAll hs)))
             (println "checked: handle slots back {free} of 2"))

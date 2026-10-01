@@ -73,7 +73,7 @@
 ;@axiom:effect(io)
 (fn (show rs)
   {
-    (for i 0 (vecLen rs)
+    (for i in 0..(vecLen rs)
       (match (vecGet rs i)
         ((Ok s) (println "{i} ok {s}"))
         ((Err e)

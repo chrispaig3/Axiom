@@ -187,13 +187,13 @@
                   ((Err e) (println "lock failed")))
                 (println (okBit (chanFree c)))  ; 1
                 (println (okBit (mutexFree m)))  ; 1
-                (for k 0 11
+                (for k in 0..11
                   (let (
                     (st (chanTrapped k c))
                     (nm (chanName k))
                   )
                     (println "freed channel {nm}: status {st}")))
-                (for k 0 6
+                (for k in 0..6
                   (let (
                     (st (mutexTrapped k m))
                     (nm (mutexName k))

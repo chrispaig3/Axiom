@@ -44,7 +44,7 @@
 (pub fn (rngBytes r n limit)
   (let ((s (strAlloc n)))
     {
-      (for i 0 n
+      (for i in 0..n
         (__store8 (strData s) i (rngBelow r limit)))
       s
     }))
@@ -58,7 +58,7 @@
     (digits "0123456789abcdef")
   )
     {
-      (for i 0 (strLen s)
+      (for i in 0..(strLen s)
         (let ((b (strByte s i)))
           {
             (__store8 (strData out) (* 2 i) (strByte digits (>> b 4)))
@@ -113,7 +113,7 @@
     false
     (let ((mut ok true))
       {
-        (for i 0 (vecLen a)
+        (for i in 0..(vecLen a)
           (if (sameValue (vecGet a i) (vecGet b i))
             0
             {

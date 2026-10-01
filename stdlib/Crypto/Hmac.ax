@@ -131,7 +131,7 @@
 ;@axiom:precondition(`p` names `nwords` live writable words, `nwords` at least 1)
 (fn (hmacErase p nwords)
   {
-    (for i 0 (- nwords 1)
+    (for i in 0 (- nwords 1)
       (__store64 p i 0))
     (ctWipe (+ p (* 8 (- nwords 1))) 8)
   })
@@ -155,15 +155,15 @@
           (if (== v 512)
             (sha512Addr key keyLen k0)
             (sha256Addr key keyLen k0))
-          (for i 0 keyLen
+          (for i in 0 keyLen
             (__store8 k0 i (__load8 key i))))
-        (for i 0 b
+        (for i in 0 b
           (__store8 k0 i (^ (__load8 k0 i) 54)))
         (hmacRawInit v st)
         (hmacRawUpdate v st k0 b)
         (hmacRawChain v st dst)
         ; ipad xor opad: 0x36 xor 0x5c
-        (for i 0 b
+        (for i in 0 b
           (__store8 k0 i (^ (__load8 k0 i) 106)))
         (hmacRawInit v st)
         (hmacRawUpdate v st k0 b)
@@ -250,7 +250,7 @@
         ((Ok h)
           (let ((p (secretBlockAddr (hmacKind v) h)))
             {
-              (for i 0 keyLen
+              (for i in 0 keyLen
                 (__store8 (+ p (* 2 l)) i (__load8 key i)))
               (hmacPrecompute v (+ p (* 2 l)) keyLen p)
               (Ok h)
@@ -457,7 +457,7 @@
   (let ((s (strAlloc (hmacStateBytes v))) (l (hmacL v)))
     (let ((st (strData s)))
       {
-        (for i 0 (* 2 l)
+        (for i in 0 (* 2 l)
           (__store8 st i (__load8 chains i)))
         (hmacRawResume v (+ st (* 2 l)) st)
         (__store64 (+ st (- (hmacStateBytes v) 8)) 0 1)

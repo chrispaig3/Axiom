@@ -1331,13 +1331,12 @@ two differ.
 
 ## `Pre`
 
-`stdlib/Pre.ax` — 7 public names
+`stdlib/Pre.ax` — 6 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
 | `when` | macro |  |  | Axiom standard prelude — macros and utilities. |
 | `unless` | macro |  |  | ;; unless — evaluate body unless test is true ;; (unless test body) -> (if test 0 body) |
-| `range` | macro |  |  | ;; range — the counted loop: `(range i 0 n body)` is `0..n` ;; (range i lo hi body) -> `body` once per `i` in [lo, hi), ascending, ;; with both ends read ONCE. |
 | `deriveEq` | macro |  |  | ;; Variadic branching is the `if` statement itself: `(if t1 b1 t2 b2 ;; ... els)` is the nested chain `(if t1 b1 (if t2 b2 ... els))`, ;; built by the parser. The fixed-arity `cond2`/`cond3` helpers that ;; used to stand here are gone with the `cond` keyword (AX2004): ;; spell the nesting with `if`. ;; deriveEq — structural equality for a data type, derived at the ;; point of use: `(deriveEq Color)` generates `eqColor : Color -> ;; Color -> Bool`, one match arm per constructor, answered from the ;; declaration list at expansion time (macro-system.md MAC-CAP-5/9). ;; The nullary form: works for any sum of nullary constructors, which ;; is the enum case. Fieldful sums want the impl form written where ;; the Eq trait is in scope — see macro-system.md section 10.2. |
 | `deriveShow` | macro |  |  | ;; deriveShow — the constructor's own name, as a String, for any ;; `data` type: `(deriveShow Shape)` generates `showShape : Shape -> ;; String`. This is what `syntax/name` exists for (macro-system.md ;; MAC-CAP-5), and the only way to get a constructor's spelling into ;; a running program: a tag is an integer at run time and the name ;; lives only in the declaration list the expander reads. ;; ;; Fieldful constructors are matched and their fields ignored - ;; `(syntax/binders C f)` supplies exactly arity-of-C binders, so one ;; template covers arities 0, 1 and n without an arity test. Rendering ;; the FIELDS would need each field's type to pick a printer, and a ;; macro cannot see a type (MAC-CAP-7); a program that wants that ;; writes the arm itself. |
 | `deriveArity` | macro |  |  | ;; deriveArity — how many fields the value's constructor carries: ;; `(deriveArity Shape)` generates `arityShape : Shape -> Int`. The ;; count is `syntax/arity`'s answer, folded to a literal per arm, and ;; it is not derivable any other way at run time: a heap block records ;; its tag, never its field count (memory-model.md MM-VAL-6). |

@@ -120,8 +120,8 @@
     {
       (for v in vals
         (vecPush keys (keyOf v)))
-      (for i 0 (vecLen vals)
-        (for j 0 (vecLen vals)
+      (for i in 0..(vecLen vals)
+        (for j in 0..(vecLen vals)
           (let (
             (want (refCompare (vecGet vals i) (vecGet vals j)))
             (got (sign (keyCompare (vecGet keys i) (vecGet keys j))))
@@ -187,10 +187,10 @@
       (checkPairs t edges "edge values")
       (let ((rand vecNew))
         {
-          (for i 0 400
+          (for i in 0..400
             (vecPush rand (randomValue r)))
           ; and some edges among them, so random values meet the extremes
-          (for i 0 60
+          (for i in 0..60
             (vecPush rand (vecGet edges (rngBelow r (vecLen edges)))))
           (checkPairs t rand "random values")
         })
@@ -238,7 +238,7 @@
         (keys vecNew)
       )
         {
-          (for i 0 150
+          (for i in 0..150
             (let (
               (a (randomValue r))
               (b (randomValue r))
@@ -251,8 +251,8 @@
                     ((Ok k) k)
                     ((Err e) "")))
               }))
-          (for i 0 150
-            (for j 0 150
+          (for i in 0..150
+            (for j in 0..150
               (let (
                 (ta (vecGet tuples i))
                 (tb (vecGet tuples j))
@@ -278,7 +278,7 @@
         {
           (for n in edgeInts
             (vecPush ids n))
-          (for i 0 300
+          (for i in 0..300
             (vecPush ids (rngNext r)))
           (for a in ids
             {
@@ -326,7 +326,7 @@
       ; keyPrefixEnd: prefix <= k < end for every k starting with the prefix
       (let ((mut bad 0))
         {
-          (for i 0 500
+          (for i in 0..500
             (let ((p 
               (rngBytes
                 r
@@ -340,7 +340,7 @@
                   ((None)
                     (let ((mut allFf true))
                       {
-                        (for j 0 (strLen p)
+                        (for j in 0..(strLen p)
                           (if (== (strByte p j) 255)
                             0
                             {

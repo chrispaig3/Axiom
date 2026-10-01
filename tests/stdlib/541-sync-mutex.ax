@@ -64,7 +64,7 @@
 ;@axiom:effect(block)
 (fn (bump m cell n)
   {
-    (for i 0 n
+    (for i in 0..n
       (match (mutexLock m)
         ((Ok g)
           {

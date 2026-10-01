@@ -22,6 +22,17 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+- `for` has one spelling. A range is written `lo..hi`, a step follows
+  `by`, and `in` always follows the binder: `(for i in 0..10 body)`,
+  `(for i in 0..10 by 2 body)`, `(for x in xs body)` and
+  `(for (x k) in xs body)`. A binder with no `in` is `AX2001`, with a
+  fix that inserts it. `axiom fmt`, the tree-sitter grammar and both
+  highlighters read the new shapes, and subtype ranges print as
+  `range 0..101`. Tested by `tests/stdlib/466-for-loop.ax` and
+  `tests/diagnostics/634-for-missing-in.axbad`.
+- The prelude's `range` macro is gone. `(for i in lo..hi body)` is the
+  same loop.
+
 ## 0.7.7 — 2026-09-30
 
 Axiom 0.7.7 grows the standard library: a cryptography suite, dates

@@ -67,7 +67,7 @@
         (let ((roots (vecPush (vecPush (vecPush vecNew btreeSchemaRoot) ta) ib)))
           {
             ; ascending
-            (for n 1 20001
+            (for n in 1..20001
               (putRow
                 t
                 p
@@ -100,7 +100,7 @@
             (check t (== (codeOf (pagerEndRead p)) 0) "end read")
             ; random and descending rowids between and beyond them
             (check t (== (codeOf (pagerBeginWrite p)) 0) "begin mixed")
-            (for i 0 6000
+            (for i in 0..6000
               (putRow
                 t
                 p
@@ -130,14 +130,14 @@
             (check t (== (codeOf (pagerEndRead p)) 0) "end read")
             ; delete a range, then every third remaining row
             (check t (== (codeOf (pagerBeginWrite p)) 0) "begin deletes")
-            (for n 5000 12000
+            (for n in 5000..12000
               (let ((k (keyRowid n)))
                 (match (btreeDelete p ta k)
                   ((Ok was) (check t (boolEq was (modelDelete m k)) "range delete"))
                   ((Err e) (check t false "range delete")))))
             (let ((keys vecNew))
               {
-                (for i 0 (modelLen m)
+                (for i in 0..(modelLen m)
                   (if (== (% i 3) 0)
                     (vecPush keys (vecGet m.keys i))
                     keys))
@@ -166,7 +166,7 @@
             (check t (== (codeOf (pagerEndRead p)) 0) "end read")
             ; 1000-byte keys: four to an interior node, so the tree is deep
             (check t (== (codeOf (pagerBeginWrite p)) 0) "begin big keys")
-            (for i 0 2500
+            (for i in 0..2500
               (let ((k (rngBytes r 1000 256)))
                 (match (btreeInsertNew p ib k "")
                   ((Ok added) (check t (boolEq added (modelPut mi k "")) "big key insert"))

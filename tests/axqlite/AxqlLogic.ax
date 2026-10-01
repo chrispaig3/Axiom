@@ -255,7 +255,7 @@
     (mut bad -1)
   )
     {
-      (for i 0 n
+      (for i in 0..n
         (if (>= bad 0)
           0
           (if (|| (>= i (vecLen got)) (|| (>= i (vecLen want)) (! (strEq (vecGet got i) (vecGet want i)))))

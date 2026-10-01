@@ -14,7 +14,7 @@
 (pub fn (bytesStr bytes)
   (let ((s (strAlloc (vecLen bytes))))
     {
-      (for i 0 (vecLen bytes)
+      (for i in 0..(vecLen bytes)
         (__store8 (strData s) i (vecGet bytes i)))
       s
     }))

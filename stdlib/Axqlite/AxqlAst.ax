@@ -288,7 +288,7 @@
       at))
   )
     {
-      (for i 0 end
+      (for i in 0 end
         (if (== (strByte src i) 10)
           {
             (set line (+ line 1))

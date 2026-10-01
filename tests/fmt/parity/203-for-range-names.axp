@@ -1,0 +1,6 @@
+(fn (f n p)
+  {
+    (for i in 0..n i)
+    (for i in p.x .. p.y by 2 (g i))
+    (for i in (h n)..n by -1 i)
+  })

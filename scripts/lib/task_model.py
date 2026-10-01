@@ -230,7 +230,7 @@ def install(ns):
         ("set", "wake", "graceEnd if cancelling == 1 else -1", "(mut wake (if (== cancelling 1)"),
         ("set", "running", "0"),
         ("set", "answered", "0"),
-        ("set", "t", "head", "(for t head next"),
+        ("set", "t", "head", "(for t in head next"),
         ("L", "loop"),
         ("if", "t < nxt", "end"),
         ("set", "s", "t % w"),

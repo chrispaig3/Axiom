@@ -63,7 +63,7 @@
 (fn (carried k)
   (let ((mut acc 0))
     {
-      (for i 0 4
+      (for i in 0..4
         (if (== acc 3)
           (set acc 0)
           (set acc (^ acc k))))

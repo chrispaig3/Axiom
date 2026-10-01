@@ -8142,11 +8142,11 @@
                 (tyVarsInto wantArg names)
                 (tyVarsInto argTy names)
                 (let ((help (if (strEq bn "Int")
-                  "to count, use the range: `(for i 0 n ...)` - a range counts, a container holds"
+                  "to count, use the range: `(for i in 0..n ...)` - a range counts, a container holds"
                   (if (strEq bn "String")
-                    "to read bytes: `(for i 0 (strLen s) ... (strByte s i) ...)` - `for` iterates `(Vec a)` directly"
+                    "to read bytes: `(for i in 0..(strLen s) ... (strByte s i) ...)` - `for` iterates `(Vec a)` directly"
                     (if (strEq bn "Map")
-                      "to visit entries: `(for k (mapKeys m) ... (mapGet m k default) ...)` - `for` iterates `(Vec a)` directly"
+                      "to visit entries: `(for k in (mapKeys m) ... (mapGet m k default) ...)` - `for` iterates `(Vec a)` directly"
                       (cast String 0))))))
                   (if (== (cast Int help) 0)
                     0

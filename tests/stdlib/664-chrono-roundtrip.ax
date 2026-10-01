@@ -105,26 +105,26 @@
     (mut datetimeBad 0)
   )
     {
-      (for block 0 10
+      (for block in 0..10
         (set timeBad (+
           timeBad
           (region r
             (let ((mut bad 0))
               {
-                (for i (* block 8640) (* (+ block 1) 8640)
+                (for i in (* block 8640)..(* (+ block 1) 8640)
                   (set bad (+ bad (timeFails i))))
                 bad
               })))))
       ; Multiples of a large odd step wrap all over the Int range; the
       ; one multiple that lands on the most negative Int is skipped,
       ; because that is not a duration.
-      (for block 0 40
+      (for block in 0..40
         (set spreadBad (+
           spreadBad
           (region r
             (let ((mut bad 0))
               {
-                (for k (* block 10000) (* (+ block 1) 10000)
+                (for k in (* block 10000)..(* (+ block 1) 10000)
                   (let ((n (* (- k 200000) 46116860184273879)))
                     (if (== n intMin)
                       0
@@ -132,18 +132,18 @@
                 bad
               })))))
       (set spreadBad (+ spreadBad (durationFails 9223372036854775807)))
-      (for block 0 20
+      (for block in 0..20
         (set nearBad (+
           nearBad
           (region r
             (let ((mut bad 0))
               {
-                (for n (- (* block 10000) 100000) (- (* (+ block 1) 10000) 100000)
+                (for n in (- (* block 10000) 100000)..(- (* (+ block 1) 10000) 100000)
                   (set bad (+ bad (durationFails n))))
                 bad
               })))))
       (set nearBad (+ nearBad (durationFails 100000)))
-      (for k 0 7327
+      (for k in 0..7327
         (set datetimeBad (+ datetimeBad (datetimeFails k))))
       (check "seconds of the day that do not round-trip" (fmtInt timeBad) "0")
       (check "durations across the range that do not round-trip" (fmtInt spreadBad) "0")

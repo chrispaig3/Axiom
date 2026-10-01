@@ -752,9 +752,9 @@ cat > "$work/exempt/exempt.ax" <<'EXEMPT'
 (fn (loops xs)
   (let ((mut acc 0))
     {
-      (for i 0 3
+      (for i in 0..3
         (set acc (unwrapOr (addChecked acc i) 0)))
-      (for x xs
+      (for x in xs
         (set acc (unwrapOr (addChecked acc x) 0)))
       acc
     }

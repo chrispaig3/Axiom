@@ -118,7 +118,7 @@
       (check "the first second, back" (unixBack -377705116800 0) "-377705116800 0")
       ; Every 999,999th second either side of 1970, out to 9,222,990,777:
       ; nearly the whole range a Duration of seconds covers.
-      (for k -9223 9224
+      (for k in -9223..9224
         (set bad (+ bad (unixFails epoch (* k 999999)))))
       (check "Unix seconds that disagree with adding a duration" (fmtInt bad) "0")
       0

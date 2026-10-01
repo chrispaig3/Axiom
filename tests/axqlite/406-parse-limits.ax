@@ -11,7 +11,7 @@
 (fn (repeat s n)
   (let ((parts vecNewRef))
     {
-      (for i 0 n
+      (for i in 0..n
         (vecPush parts s))
       (let ((mut out ""))
         {

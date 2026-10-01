@@ -24,7 +24,7 @@
           {
             (check t (sameValues row back) (strConcat "round trip " label))
             (check t (== (codeOf (recColumnCount rec)) 0) (strConcat "count " label))
-            (for i 0 (vecLen row)
+            (for i in 0..(vecLen row)
               (match (recColumn rec i)
                 ((Ok v) (check t (sameValue v (vecGet row i)) (strConcat "column " label)))
                 ((Err e) (check t false (strConcat "column err " label)))))
@@ -62,7 +62,7 @@
       })
     (let ((row vecNew))
       {
-        (for k 0 (rngBelow r 5)
+        (for k in 0..(rngBelow r 5)
           (let ((v (vecGet vals (rngBelow r (vecLen vals)))))
             (match v
               ((VReal x)
@@ -84,7 +84,7 @@
           ((Ok rec)
             (let ((c (strDup rec)))
               {
-                (for k 0 (+ 1 (rngBelow r 3))
+                (for k in 0..(+ 1 (rngBelow r 3))
                   (__store8 (strData c) (rngBelow r (strLen c)) (rngBelow r 256)))
                 (let ((how (rngBelow r 3)))
                   (if (== how 0)
@@ -111,7 +111,7 @@
       (roundTrip t vals "every edge value")
       (let ((wide vecNew))
         {
-          (for i 0 3000
+          (for i in 0..3000
             (vecPush wide (VInt (* i 7919))))
           (roundTrip t wide "3000 columns")
         })
@@ -127,7 +127,7 @@
       (check t (== (codeOf (recEncode (vecPush vecNew (VReal floatNan)))) axqType) "NaN refused")
       (let ((huge vecNew))
         {
-          (for i 0 65536
+          (for i in 0..65536
             (vecPush huge VNull))
           (check t (== (codeOf (recEncode huge)) axqTooBig) "65536 columns refused")
         })
@@ -140,7 +140,7 @@
             (mut corrupt 0)
           )
             {
-              (for k 0 n
+              (for k in 0..n
                 (if (isCorrupt (strSlice rec 0 k))
                   {
                     (set corrupt (+ corrupt 1))
@@ -152,7 +152,7 @@
               ; every type code outside 0..4, in the first column's slot
               (let ((mut bad 0))
                 {
-                  (for code 5 256
+                  (for code in 5..256
                     (if (isCorrupt (withByte rec 2 code))
                       {
                         (set bad (+ bad 1))
@@ -185,7 +185,7 @@
         (mut other 0)
       )
         {
-          (for i 0 20000
+          (for i in 0..20000
             (let ((s (fuzzCase r i vals)))
               (let ((len (strLen s)))
                 (match (recDecode s)

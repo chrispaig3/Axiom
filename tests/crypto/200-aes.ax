@@ -62,7 +62,7 @@
 (fn (allZero s)
   (let ((mut z true))
     {
-      (for i 0 (strLen s)
+      (for i in 0..(strLen s)
         (if (!= (strByte s i) 0)
           {
             (set z false)

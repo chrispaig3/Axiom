@@ -494,7 +494,7 @@
 ; status 80 outside the range, by the same compare-branch-trap a
 ; contract lowers to; widening back to `Int` is free, which is why the
 ; `__store8` below takes `b` with no cast at all.
-(pub subtype Byte is Int range 0 .. 256)
+(pub subtype Byte is Int range 0..256)
 
 ; A one-byte `Str` holding `b`. The compiler driver and the JSON
 ; encoder each had this three-line allocate-and-store under a private
@@ -540,7 +540,7 @@
     (mut upper 0)
   )
     {
-      (for k 0 len
+      (for k in 0 len
         (if (&& (>= (strByte s k) 65) (<= (strByte s k) 90))
           (set upper (+ upper 1))
           0))
@@ -551,7 +551,7 @@
           (d (strData out))
         )
           {
-            (for i 0 len
+            (for i in 0 len
               (let ((c (strByte s i)))
                 (__store8
                   d

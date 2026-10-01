@@ -55,7 +55,7 @@
 (fn (showWords what rs)
   (let ((mut good 0))
     {
-      (for i 0 (vecLen rs)
+      (for i in 0..(vecLen rs)
         (match (vecGet rs i)
           ((Ok w)
             (if (== w (* i i))
@@ -75,7 +75,7 @@
 (fn (showTexts what rs)
   (let ((mut good 0))
     {
-      (for i 0 (vecLen rs)
+      (for i in 0..(vecLen rs)
         (match (vecGet rs i)
           ((Ok s)
             (set good (+ good 1))
@@ -112,7 +112,7 @@
         20
         8
         32))
-    (for k 1 5
+    (for k in 1..5
       (let (
         (w (* k 2))
         (st (raised w))

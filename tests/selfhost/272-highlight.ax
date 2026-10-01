@@ -262,6 +262,28 @@
         "Mi.i.iiM"
         0
         7))
+      ; 21 `by` after a range's end is a keyword too, whatever the
+      ;    ends are
+      (vecPush v (mkHCase
+        "(for i in 0..9 by 2 i)"
+        0
+        "MKKK.i.KK.nppn.KK.n.iM"
+        0
+        21))
+      (vecPush v (mkHCase
+        "(for i in a.b..(f x) by -1 i)"
+        0
+        "MKKK.i.KK.ipipppi.ip.KK.nn.iM"
+        0
+        28))
+      ; 23 after a container, the next word is the body, so `by` is an
+      ;    ordinary name there
+      (vecPush v (mkHCase
+        "(for x in xs by)"
+        0
+        "MKKK.i.KK.ii.iiM"
+        0
+        15))
       v
     }))
 

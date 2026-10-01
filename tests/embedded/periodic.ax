@@ -142,7 +142,7 @@
 ;@axiom:precondition(`buf` names a live block of at least `words` words)
 (fn (zeroed buf words)
   {
-    (for i 0 words
+    (for i in 0..words
       (__store64 buf i 0))
     buf
   })
@@ -154,7 +154,7 @@
   (let ((mut sum 0))
     {
       (zeroed buf 17)
-      (for k 0 ticksWanted
+      (for k in 0..ticksWanted
         (set sum (runStep buf k)))
       sum
     }))

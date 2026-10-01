@@ -243,7 +243,7 @@
         )
           (println "{label}: {points} fault points; {spills} pages spilled before the commit; {bs} bytes before, {as} after"))
         ; both ends are sound databases
-        (for which 0 2
+        (for which in 0..2
           (match (pagerOpen
             (if (== which 0)
               base
@@ -280,7 +280,7 @@
             (mut nHot 0)
           )
             {
-              (for n 1 (+ points 1)
+              (for n in 1..(+ points 1)
                 (let ((v (crashOne
                   t
                   label
@@ -397,7 +397,7 @@
     (mut hotCases 0)
   )
     {
-      (for n 1 (+ points 1)
+      (for n in 1..(+ points 1)
         (if (!= (% n every) 0)
           0
           (let ((rpoints (prepareHot base cache txn n)))
@@ -406,7 +406,7 @@
               {
                 (set hotCases (+ hotCases 1))
                 (for kind in faultKinds
-                  (for m 1 (+ rpoints 1)
+                  (for m in 1..(+ rpoints 1)
                     {
                       (set total (+ total 1))
                       (check t (== (recoveryCrashOne kind m before) 1) (strConcat label (strConcat ": recovery crashed by " (strConcat (faultName kind) (strConcat " at recovery point " (fmtInt m))))))
@@ -434,7 +434,7 @@
 (pub fn (rowBytes n size)
   (let ((s (strAlloc size)))
     {
-      (for i 0 size
+      (for i in 0..size
         (__store8 (strData s) i (& (+ (* n 31) (* i 7)) 255)))
       s
     }))

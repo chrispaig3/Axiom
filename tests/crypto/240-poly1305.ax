@@ -44,7 +44,7 @@
         (strData msg)
         (strLen msg)
         (strData st))
-      (for i 0 poly1305StateBytes
+      (for i in 0..poly1305StateBytes
         (if (!= (strByte st i) 0)
           {
             (set z false)

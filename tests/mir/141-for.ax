@@ -21,9 +21,9 @@
   ; while an `if` whose arms hold no stores lowers like any other.
   (let ((mut s 0))
     {
-      (for i 1 (if (== n 0) 1 n)
+      (for i in 1..(if (== n 0) 1 n)
         (set s (+ s i)))
-      (for j n 0 -1
+      (for j in n..0 by -1
         (set s (+ s j)))
       s
     }))

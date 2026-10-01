@@ -21,7 +21,7 @@
 ; a range check is enforced by the same compare-branch-trap the
 ; `__contract` primitive lowers to, so no new runtime is added).
 ; No `import`: the whole file is arithmetic and comparison.
-(subtype Positive is Int range 1 .. 10)
+(subtype Positive is Int range 1..10)
 
 (subtype NonNeg is Int range 0)
 

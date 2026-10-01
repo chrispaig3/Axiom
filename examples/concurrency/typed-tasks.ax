@@ -58,7 +58,7 @@
   )
     (let ((s (strAlloc len)))
       {
-        (for j 0 len
+        (for j in 0..len
           (memPutByte (strData s) j (+ 97 (% (+ seed (* j (+ 5 (% k 7)))) 26))))
         s
       })))
@@ -71,9 +71,9 @@
     (mut longest "")
   )
     {
-      (for b 0 13
+      (for b in 0..13
         (vecPush hist 0))
-      (for k 0 n
+      (for k in 0..n
         (let ((w (wordOf d k)))
           {
             (vecSet hist (strLen w) (+ (vecGet hist (strLen w)) 1))
@@ -91,7 +91,7 @@
     (arr jsonArr)
   )
     {
-      (for b 0 (vecLen s.lengths)
+      (for b in 0..(vecLen s.lengths)
         (jsonArrPush arr (jsonNum (vecGet s.lengths b))))
       (jsonObjPut o "words" (jsonNum s.words))
       (jsonObjPut o "longest" (jsonStr s.longest))
@@ -107,7 +107,7 @@
   )
     (let ((arr (jsonGet v "lengths")))
       {
-        (for b 0 (jsonArrLen arr)
+        (for b in 0..(jsonArrLen arr)
           (vecPush hist (jsonInt (jsonArrGet arr b))))
         (Summary (jsonGetInt v "words") (jsonGetStr v "longest") hist)
       })))
@@ -124,7 +124,7 @@
       false
       (let ((mut ok true))
         {
-          (for i 0 (vecLen a.lengths)
+          (for i in 0..(vecLen a.lengths)
             (set ok (&& ok (== (vecGet a.lengths i) (vecGet b.lengths i)))))
           ok
         }))))
@@ -161,7 +161,7 @@
       (mut failed 0)
     )
       {
-        (for d 0 (vecLen rs)
+        (for d in 0..(vecLen rs)
           (match (vecGet rs d)
             ((Ok text)
               (let ((s (decode text)))

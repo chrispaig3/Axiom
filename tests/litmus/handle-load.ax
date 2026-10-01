@@ -119,7 +119,7 @@
 (fn (churnOne who n)
   (let ((mut wrong 0))
     {
-      (for i 0 n
+      (for i in 0..n
         (let ((addr (+ (* who 1000000000) (* i 16))))
           (let ((h (newH 11 addr)))
             {
@@ -200,7 +200,7 @@
     ((Ok bar)
       (let ((mut freed 0))
         {
-          (for i 0 n
+          (for i in 0..n
             (let ((h (newH 12 4096)))
               {
                 (resetBar bar)

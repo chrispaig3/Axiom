@@ -498,7 +498,7 @@ extern: a Rust FFI binding block
 subtype with and without an upper bound
 ================================================================
 
-(pub subtype Byte is Int range 0 .. 256)
+(pub subtype Byte is Int range 0..256)
 (subtype NonNeg is Int range 0)
 
 ----------------------------------------------------------------

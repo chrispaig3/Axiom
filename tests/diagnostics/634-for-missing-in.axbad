@@ -1,0 +1,9 @@
+; Every `for` writes `in` after its binder: `(for i in 0..3 body)`.
+; Without it the parser stops at the token where `in` belongs, and the
+; help inserts it, so an editor or an agent can apply the fix as it
+; stands. `.axbad` because a parse error stops the file.
+(import IO)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main) (for i 0..3 (println i)))

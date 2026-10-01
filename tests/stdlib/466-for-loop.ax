@@ -1,26 +1,18 @@
 ; `for`: the loop keyword, in all four of its shapes.
 ;
-; `for` is a KEYWORD and not a macro, and `stdlib/Pre.ax`'s `range`
-; header records why: an expression macro has exactly ONE shape
-; (MAC-LANG-14, because the rule form's templates are DECLARATIONS),
-; and `for` has four - `(for i lo hi body)` over a range,
-; `(for i lo hi step body)` stepped, `(for x xs body)` over a
-; container and `(for (x k) xs body)` with the index. The parser
-; desugars all four into `let`/`while`/`set`, so no AST tag was added
-; and no consumer of one moved (`self_host/parser.ax`'s
-; `parseForExpr`).
-;
-; The container half was blocked on an ELEMENT type until `Vec` became
-; parameterised; this is item 6 of `docs/generics-design.md` §5 and
-; item 5 is what unblocked it.
+; `(for i in lo..hi body)` over a range, `(for i in lo..hi by step
+; body)` stepped, `(for x in xs body)` over a container and
+; `(for (x k) in xs body)` with the index. The parser desugars all four
+; into `let`/`while`/`set`, so no AST tag was added and no consumer of
+; one moved (`self_host/parser.ax`'s `parseForExpr`).
 ;
 ; What each term establishes:
 ;
 ;   1. The range counts [0, n) ascending, and the sum says which values
 ;      and in what order - 0+1+2+3+4 is 10.
 ;   2. A nonzero start counts [lo, hi). 3+4+5+6 = 18.
-;   3. Three EMPTY ranges run zero times: `(for a 0 0 ..)`,
-;      `(for b 5 5 ..)` and a backwards `(for c 7 3 ..)`.
+;   3. Three EMPTY ranges run zero times: `(for a in 0..0 ..)`,
+;      `(for b in 5..5 ..)` and a backwards `(for c in 7..3 ..)`.
 ;   4. THE BOUND IS READ ONCE, range form. The body pushes onto the very
 ;      Vec the bound was computed from; the loop must still run twice.
 ;      Read inside the `while` condition instead, this runs until the
@@ -40,25 +32,24 @@
 ;      `AX3025 its type is a type variable` about a type that was not a
 ;      variable any more.
 ;   8. The same over a container of Ints - one keyword, both element
-;      types, where the HTML DSL (`stdlib/Html.ax`, deleted 2026-09-04)
-;      needed `for` and `forInt`.
+;      types.
 ;   9. An empty container runs zero times.
 ;  10. Nesting: 3 x 4 = 12, with each loop's counter its own.
 ;  11. `for` is an ordinary identifier everywhere except the head of a
 ;      form - the rule `docs/reference.md`'s Keywords section states -
 ;      so it is a parameter name and a `let` binder here.
-;   12. THE ELEMENT READ IS QUALIFIED. The desugaring emits `Vec$vecGet`
+;  12. THE ELEMENT READ IS QUALIFIED. The desugaring emits `Vec$vecGet`
 ;      and `Vec$vecLen`, the mangled spelling of `Vec::vecGet` and
 ;      `Vec::vecLen`, so an entry file's own `vecLen` cannot capture it
 ;      (MAC-CAP-10.5's defect: a bare `strConcat` in a generated body
 ;      WAS captured, silently and wrongly). This file declares a
 ;      `vecLen` that answers 99; the loop must still run twice.
-;   13. An element-index pair `(for (e k) g ...)`: `k` counts 0, 1, 2
+;   13. An element-index pair `(for (e k) in g ...)`: `k` counts 0, 1, 2
 ;      beside the elements - (10+0)+(20+1)+(30+2) is 63.
-;   14. A stepped range `(for k 0 10 2 ...)`: 0+2+4+6+8 is 20.
+;   14. A stepped range `(for k in 0..10 by 2 ...)`: 0+2+4+6+8 is 20.
 ;   15. A negative step counts down to `hi`: 5+4+3+2+1 is 15. The
 ;      three-operand range is unchanged by this: term 3's backwards
-;      `(for c 7 3 ...)` still runs zero times, and counting down
+;      `(for c in 7..3 ...)` still runs zero times, and counting down
 ;      spells the step.
 ;   16. THE STEP IS READ ONCE, like both ends: a step expression with
 ;      a side effect runs exactly once, and the loop still steps by
@@ -96,21 +87,21 @@
     {
       ; --- 1. the range counts [0, n) ---
       (memSetWord acc 0 0)
-      (for k 0 5
+      (for k in 0..5
         (memSetWord acc 0 (+ (memGetWord acc 0) k)))
       (println (memGetWord acc 0))  ; 10
       ; --- 2. the range counts [lo, hi) ---
       (memSetWord acc 0 0)
-      (for k 3 7
+      (for k in 3..7
         (memSetWord acc 0 (+ (memGetWord acc 0) k)))
       (println (memGetWord acc 0))  ; 18
       ; --- 3. empty ranges run zero times ---
       (memSetWord acc 0 0)
-      (for a 0 0
+      (for a in 0..0
         (memSetWord acc 0 (+ (memGetWord acc 0) 1)))
-      (for b 5 5
+      (for b in 5..5
         (memSetWord acc 0 (+ (memGetWord acc 0) 1)))
-      (for c 7 3
+      (for c in 7..3
         (memSetWord acc 0 (+ (memGetWord acc 0) 1)))
       (println (memGetWord acc 0))  ; 0
       ; --- 4. the bound is read once, range form ---
@@ -119,7 +110,7 @@
           (vecPush g 10)
           (vecPush g 20)
           (memSetWord acc 0 0)
-          (for k 0 (Vec::vecLen g)
+          (for k in 0..(Vec::vecLen g)
             {
               (vecPush g 99)
               (memSetWord acc 0 (+ (memGetWord acc 0) 1))
@@ -135,7 +126,7 @@
           (vecPush g 30)
           (vecPush g 40)
           (memSetWord acc 0 0)
-          (for e g
+          (for e in g
             {
               (vecPush g 99)
               (memSetWord acc 0 (+ (memGetWord acc 0) 1))
@@ -145,14 +136,14 @@
         })
       ; --- 6. hygiene: a caller's i, n and v survive both shapes ---
       (memSetWord acc 0 0)
-      (for k 0 3
+      (for k in 0..3
         (memSetWord acc 0 (+ (memGetWord acc 0) i)))
       (println (memGetWord acc 0))  ; 333
       (let ((g vecNew))
         {
           (vecPush g 1)
           (vecPush g 2)
-          (for e g
+          (for e in g
             (memSetWord acc 0 (+ (memGetWord acc 0) n)))
         })
       (println (memGetWord acc 0))  ; 333 + 444 = 777
@@ -164,7 +155,7 @@
         {
           (vecPush ss "one")
           (vecPush ss "two")
-          (for s ss
+          (for s in ss
             (println s))
         })
       ; one, two
@@ -173,7 +164,7 @@
         {
           (vecPush ns 7)
           (vecPush ns 8)
-          (for w ns
+          (for w in ns
             (println w))
         })
       ; 7, 8
@@ -183,14 +174,14 @@
         {
           (vecPush emp 1)
           (vecPop emp)
-          (for e emp
+          (for e in emp
             (memSetWord acc 0 (+ (memGetWord acc 0) 1)))
         })
       (println (memGetWord acc 0))  ; 0
       ; --- 10. nesting ---
       (memSetWord acc 0 0)
-      (for p 0 3
-        (for q 0 4
+      (for p in 0..3
+        (for q in 0..4
           (memSetWord acc 0 (+ (memGetWord acc 0) 1))))
       (println (memGetWord acc 0))  ; 12
       ; --- 11. `for` is an ordinary identifier off the head ---
@@ -203,7 +194,7 @@
           (vecPush g 41)
           (vecPush g 42)
           (memSetWord acc 0 0)
-          (for e g
+          (for e in g
             (memSetWord acc 0 (+ (memGetWord acc 0) 1)))
           (println (memGetWord acc 0))  ; 2, not 99
           (println (vecLen g))  ; 99: this file's own vecLen really is in scope
@@ -215,18 +206,18 @@
           (vecPush g 20)
           (vecPush g 30)
           (memSetWord acc 0 0)
-          (for (e k) g
+          (for (e k) in g
             (memSetWord acc 0 (+ (memGetWord acc 0) (+ e k))))
           (println (memGetWord acc 0))  ; 63
         })
       ; --- 14. a stepped range ---
       (memSetWord acc 0 0)
-      (for k 0 10 2
+      (for k in 0..10 by 2
         (memSetWord acc 0 (+ (memGetWord acc 0) k)))
       (println (memGetWord acc 0))  ; 20
       ; --- 15. a negative step counts down to hi ---
       (memSetWord acc 0 0)
-      (for k 5 0 -1
+      (for k in 5..0 by -1
         (memSetWord acc 0 (+ (memGetWord acc 0) k)))
       (println (memGetWord acc 0))  ; 15
       ; --- 16. the step is read once ---
@@ -234,7 +225,7 @@
         {
           (memSetWord sc 0 0)
           (memSetWord acc 0 0)
-          (for k 0 6 {
+          (for k in 0..6 by {
             (memSetWord sc 0 (+ (memGetWord sc 0) 1))
             2
           }
@@ -247,13 +238,13 @@
         {
           (vecPush g 1)
           (vecPush g 2)
-          (for (e k) g
+          (for (e k) in g
             (memSetWord acc 0 (+ e k)))
           (println i)  ; 111
         })
       ; --- 18. a String reads byte by byte over a range ---
       (memSetWord acc 0 0)
-      (for i 0 (strLen "hi")
+      (for i in 0..(strLen "hi")
         (memSetWord acc 0 (+ (memGetWord acc 0) (strByte "hi" i))))
       (println (memGetWord acc 0))  ; 209
       ; --- 19. a Map visits through its keys, order-independently ---
@@ -262,7 +253,7 @@
           (mapInsert m 1 10)
           (mapInsert m 2 20)
           (memSetWord acc 0 0)
-          (for k (mapKeys m)
+          (for k in (mapKeys m)
             (memSetWord acc 0 (+ (memGetWord acc 0) (+ k (mapGet m k 0)))))
           (println (memGetWord acc 0))  ; 33
         })

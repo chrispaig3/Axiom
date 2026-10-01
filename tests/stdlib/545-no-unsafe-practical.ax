@@ -48,7 +48,7 @@
     ((Ok ch)
       (let ((mut sum 0))
         {
-          (for i 0 n
+          (for i in 0..n
             (if (chanSend ch i)
               0
               1))
@@ -72,7 +72,7 @@
 (fn (taskText rs)
   (let ((mut out ""))
     {
-      (for i 0 (vecLen rs)
+      (for i in 0..(vecLen rs)
         (match (vecGet rs i)
           ((Ok s)
             (set out (strConcat (strConcat out s) " "))
@@ -142,7 +142,7 @@
     (m mapNew)
   )
     {
-      (for i 0 n
+      (for i in 0..n
         {
           (vecPush v (* i 3))
           (mapInsert m i (* i i))

@@ -22,7 +22,7 @@
 (fn (sumOf v)
   (let ((mut acc 0))
     {
-      (for i 0 (vecLen v)
+      (for i in 0..(vecLen v)
         (set acc (+ acc (vecGet v i))))
       acc
     }))
@@ -32,7 +32,7 @@
 (fn (main)
   (let ((before (vecWithCapacity 16)))
     {
-      (for i 0 1000
+      (for i in 0..1000
         (vecPush before (+ i 1)))
       (let (
         (a (__axiom_recover __axiom_arena_mark (lambda (x) (wrapping x))))
@@ -40,7 +40,7 @@
         (after (vecWithCapacity 16))
       )
         {
-          (for i 0 16
+          (for i in 0..16
             (vecPush after 7))
           (println "2^61 elements: {a}")
           (println "2^59 + 1 elements: {b}")

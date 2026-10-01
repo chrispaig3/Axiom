@@ -623,7 +623,7 @@
             (lxFail lx start "a blob literal needs an even number of hex digits")
             (let ((out (strAlloc (/ digits 2))))
               {
-                (for k 0 (/ digits 2)
+                (for k in 0 (/ digits 2)
                   (memPutByte (strData out) k (+ (* 16 (hexDigit (strByte src (+ (+ start 2) (* 2 k))))) (hexDigit (strByte src (+ (+ start 3) (* 2 k)))))))
                 (lxPush
                   lx
@@ -730,7 +730,7 @@
     (mut minOnly false)
   )
     {
-      (for i start end
+      (for i in start end
         (let ((d (- (strByte src i) 48)))
           (if (|| over minOnly)
             {
@@ -792,7 +792,7 @@
             "")
           (let ((mut num 0))
             {
-              (for i (+ start 1) j
+              (for i in (+ start 1) j
                 (if (<= num axqlMaxParams)
                   (set num (+ (* num 10) (- (strByte src i) 48)))
                   0))
@@ -1980,7 +1980,7 @@
     (mut plain (&& (> n 0) (isIdentStart (strByte name 0))))
   )
     {
-      (for i 1 n
+      (for i in 1 n
         (if (isIdentPart (strByte name i))
           0
           {

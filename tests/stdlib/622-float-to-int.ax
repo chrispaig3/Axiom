@@ -10,7 +10,7 @@
 (fn (tenTo k)
   (let ((mut x 1.0))
     {
-      (for i 0 k
+      (for i in 0..k
         (set x (* x 10.0)))
       x
     }))
@@ -19,7 +19,7 @@
 (fn (twoTo k)
   (let ((mut x 1.0))
     {
-      (for i 0 k
+      (for i in 0..k
         (set x (* x 2.0)))
       x
     }))

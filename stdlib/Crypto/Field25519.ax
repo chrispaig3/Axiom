@@ -116,7 +116,7 @@
 ;@axiom:precondition(`out` and `a` each name 10 live words)
 (pub fn (fe25519Copy out a)
   {
-    (for i 0 10
+    (for i in 0 10
       (__store64 out i (__load64 a i)))
     0
   })
@@ -141,7 +141,7 @@
 ;@axiom:precondition(`out`, `a` and `b` each name 10 live words)
 (pub fn (fe25519Add out a b)
   {
-    (for i 0 10
+    (for i in 0 10
       (__store64 out i (+ (__load64 a i) (__load64 b i))))
     0
   })
@@ -154,7 +154,7 @@
 ;@axiom:precondition(`out`, `a` and `b` each name 10 live words)
 (pub fn (fe25519Sub out a b)
   {
-    (for i 0 10
+    (for i in 0 10
       (__store64 out i (- (__load64 a i) (__load64 b i))))
     0
   })
@@ -167,7 +167,7 @@
 ;@axiom:precondition(`out` and `a` each name 10 live words)
 (pub fn (fe25519Neg out a)
   {
-    (for i 0 10
+    (for i in 0 10
       (__store64 out i (- 0 (__load64 a i))))
     0
   })
@@ -360,7 +360,7 @@
 (fn (feSqN out a n)
   {
     (fe25519Sq out a)
-    (for i 1 n
+    (for i in 1 n
       (fe25519Sq out out))
     0
   })
@@ -457,7 +457,7 @@
 ;@axiom:precondition(`f` and `g` each name 10 live words, `f` writable)
 (pub fn (fe25519CMov m f g)
   {
-    (for i 0 10
+    (for i in 0 10
       (let ((x (__load64 f i)))
         (__store64 f i (^ x (& m (^ x (__load64 g i)))))))
     0
@@ -599,7 +599,7 @@
   (let ((s (memAlloc 32)) (mut acc 0))
     {
       (fe25519ToBytes s a)
-      (for i 0 32
+      (for i in 0 32
         (set acc (| acc (__load8 s i))))
       (ctWipe s 32)
       (& (ctMaskZero acc) 1)

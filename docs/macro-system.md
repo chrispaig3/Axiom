@@ -2543,7 +2543,7 @@ six lines of plausible code.
 (pub macro (unless test body) (if test 0 body))
 ```
 
-It also exports `range`, `deriveEq`, `deriveShow`, `deriveArity` and
+It also exports `deriveEq`, `deriveShow`, `deriveArity` and
 `showOr`. Variadic branching needs no macro: `(if t1 b1 t2 b2 ... els)`
 is the nested chain, built by the parser.
 

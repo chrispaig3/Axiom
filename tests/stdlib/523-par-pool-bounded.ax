@@ -32,7 +32,7 @@
       0
       1)))
     {
-      (for i 0 (vecLen r)
+      (for i in 0..(vecLen r)
         (if (== (vecGet r i) (work i))
           0
           (set bad (+ bad 1))))
@@ -46,7 +46,7 @@
       0
       1)))
     {
-      (for i 0 (vecLen r)
+      (for i in 0..(vecLen r)
         (let ((fail (&& mixed (== (% i 5) 1))))
           (if (match (vecGet r i)
             ((Ok w)

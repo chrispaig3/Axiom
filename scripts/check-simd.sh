@@ -148,7 +148,7 @@ cat > "$work/simd/sum.ax" <<'EOF'
 (fn (fill n)
   (let ((v vecNew))
     {
-      (for i 0 n (vecPush v i))
+      (for i in 0..n (vecPush v i))
       v
     }
   )
@@ -159,7 +159,7 @@ cat > "$work/simd/sum.ax" <<'EOF'
 (fn (sumVec xs)
   (let ((mut acc 0))
     {
-      (for x xs (set acc (+ acc x)))
+      (for x in xs (set acc (+ acc x)))
       acc
     }
   )
@@ -172,7 +172,7 @@ cat > "$work/simd/sum.ax" <<'EOF'
   (let ((v (fill 1000000)))
     (let ((mut total 0))
       {
-        (for r 0 50 (set total (+ total (sumVec v))))
+        (for r in 0..50 (set total (+ total (sumVec v))))
         (println total)
         0
       }
@@ -194,7 +194,7 @@ cat > "$work/simd/bytes.ax" <<'EOF'
   (let ((n (strLen s)))
     (let ((mut c 0))
       {
-        (for i 0 n (if (== (strByte s i) 97) (set c (+ c 1)) 0))
+        (for i in 0..n (if (== (strByte s i) 97) (set c (+ c 1)) 0))
         c
       }
     )
@@ -206,7 +206,7 @@ cat > "$work/simd/bytes.ax" <<'EOF'
 (fn (bigStr k)
   (let ((mut s "abcabcaa"))
     {
-      (for i 0 k (set s (strConcat s s)))
+      (for i in 0..k (set s (strConcat s s)))
       s
     }
   )
@@ -219,7 +219,7 @@ cat > "$work/simd/bytes.ax" <<'EOF'
   (let ((s (bigStr 17)))
     (let ((mut total 0))
       {
-        (for r 0 20 (set total (+ total (countA s))))
+        (for r in 0..20 (set total (+ total (countA s))))
         (println total)
         0
       }
@@ -271,7 +271,7 @@ cat > "$work/simd/bump.ax" <<'EOF'
 (fn (fill n)
   (let ((v vecNew))
     {
-      (for i 0 n (vecPush v i))
+      (for i in 0..n (vecPush v i))
       v
     }
   )
@@ -282,7 +282,7 @@ cat > "$work/simd/bump.ax" <<'EOF'
 (fn (bump v)
   (let ((n (vecLen v)))
     {
-      (for i 0 n (vecSet v i (+ (vecGet v i) 1)))
+      (for i in 0..n (vecSet v i (+ (vecGet v i) 1)))
       0
     }
   )

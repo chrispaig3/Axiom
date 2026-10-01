@@ -1333,7 +1333,7 @@ if [[ "$(uname -s)" == Linux ]]; then
 (fn (work i)
   (let ((v vecNew))
     {
-      (for k 0 100
+      (for k in 0..100
         (vecPush v k))
       (vecLen v)
     }))

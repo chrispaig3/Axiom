@@ -76,7 +76,7 @@
               (check t (== (codeOf (pagerBeginWrite p)) 0) "begin")
               (let ((big (strAlloc 5000)))
                 {
-                  (for i 0 5000
+                  (for i in 0..5000
                     (__store8 (strData big) i (& i 255)))
                   (check t (== (codeOf (btreePut p root (keyRowid 2) big)) 0) "put row 2")
                 })
@@ -95,7 +95,7 @@
       (let ((p (openOrDie "kat.db" 16)))
         {
           (check t (== (codeOf (pagerBeginWrite p)) 0) "begin")
-          (for i 3 400
+          (for i in 3..400
             (check t (== (codeOf (btreePut p 2 (keyRowid i) "")) 0) "put"))
           (check t (== (codeOf (pagerCommit p)) 0) "commit")
           (check t (== (codeOf (pagerClose p)) 0) "close")
@@ -124,7 +124,7 @@
           )
             (let ((masked (strDup (strSlice j 0 48))))
               {
-                (for i 32 48
+                (for i in 32..48
                   (__store8 (strData masked) i 115))
                 (println "journal header, bytes 0-47 (salt and checksum as s):")
                 (let ((h (hexOf masked)))

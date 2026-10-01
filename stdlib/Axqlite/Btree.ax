@@ -348,7 +348,7 @@
     (out vecNew)
   )
     {
-      (for i 0 (nCount a)
+      (for i in 0 (nCount a)
         (let ((q (cellOff a i)))
           (let ((size (cellBytes a q leaf)))
             (let ((c (strAlloc size)))
@@ -403,7 +403,7 @@
 (fn (insertAt v i x)
   (let ((out vecNew))
     {
-      (for k 0 (vecLen v)
+      (for k in 0 (vecLen v)
         {
           (if (== k i)
             (vecPush out x)
@@ -421,7 +421,7 @@
 (fn (sliceCells v lo hi)
   (let ((out vecNew))
     {
-      (for k lo hi
+      (for k in lo hi
         (vecPush out (vecGet v k)))
       out
     }))
@@ -462,7 +462,7 @@
       (memSet a 0 4088)
       (__store8 a 0 t)
       (put16 a 2 n)
-      (for i 0 n
+      (for i in 0 n
         (let ((c (vecGet cells i)))
           {
             (set w (- w (strLen c)))
@@ -521,7 +521,7 @@
   )
     (let ((size (cellBytes a q (isLeafType (nType a)))))
       {
-        (for k i (- n 1)
+        (for k in i (- n 1)
           (put16 a (+ 12 (* 2 k)) (cellOff a (+ k 1))))
         (put16 a (+ 12 (* 2 (- n 1))) 0)
         (put16 a 2 (- n 1))
@@ -555,7 +555,7 @@
           (mut bad false)
         )
           {
-            (for i 0 n
+            (for i in 0 n
               (if bad
                 0
                 (let ((q (cellOff a i)))
@@ -923,7 +923,7 @@
     (mut failed None)
   )
     {
-      (for l 0 (vecLen idxs)
+      (for l in 0 (vecLen idxs)
         (if (&& edge (isNone failed))
           (match (node p (vecGet pages l) false)
             ((Err e)
@@ -1525,7 +1525,7 @@
 (fn (childrenOf a)
   (let ((out vecNew))
     {
-      (for j 0 (+ (nCount a) 1)
+      (for j in 0 (+ (nCount a) 1)
         (vecPush out (childAt a j)))
       out
     }))
@@ -1601,7 +1601,7 @@
           )
             {
               (if leaf
-                (for i 0 n
+                (for i in 0 n
                   (let ((q (cellOff a i)))
                     (let (
                       (klen (be16 a q))
@@ -1616,7 +1616,7 @@
                           }
                           0)))))
                 0)
-              (for k 0 (/ (vecLen chains) 2)
+              (for k in 0 (/ (vecLen chains) 2)
                 (if (isSome failed)
                   0
                   (match (walkChain
@@ -1980,7 +1980,7 @@
               (mut failed None)
             )
               {
-                (for i 0 n
+                (for i in 0 n
                   (let ((q (cellOff a i)))
                     {
                       (vecPush keys (keyAt a q leaf))
@@ -2017,7 +2017,7 @@
                       }
                       0)
                     ; keys ascend, and lie within the bounds
-                    (for i 0 n
+                    (for i in 0 n
                       (if (isSome failed)
                         0
                         (let ((k (vecGet keys i)))
@@ -2035,7 +2035,7 @@
                               0
                             }
                             0))))
-                    (for k 0 (/ (vecLen chains) 2)
+                    (for k in 0 (/ (vecLen chains) 2)
                       (if (isSome failed)
                         0
                         (match (checkChain p ck (vecGet chains (* 2 k)) (vecGet chains (+ (* 2 k) 1)))
@@ -2059,7 +2059,7 @@
                           }
                           0))
                       0)
-                    (for j 0 (vecLen kids)
+                    (for j in 0 (vecLen kids)
                       (if (isSome failed)
                         0
                         (let ((r 
@@ -2176,7 +2176,7 @@
                               (corrupt "the free list's length isn't the header's count" "btreeCheck")
                               (let ((mut lost -1))
                                 {
-                                  (for i 0 count
+                                  (for i in 0 count
                                     (if (&& (< lost 0) (== (strByte seen i) 0))
                                       {
                                         (set lost i)

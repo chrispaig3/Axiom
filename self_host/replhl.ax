@@ -546,15 +546,20 @@
   (|| (== k (kindInt TK_LPAREN)) (|| (== k (kindInt TK_LBRACE)) (== k (kindInt TK_LBRACKET)))))
 
 ; ------------------------------------------------------------------
-; `in` is a keyword in one position that is not a form head: straight
-; after the binder of a `for`, as `forSkipIn` in parser.ax reads it -
-; `(for x in xs ...)` and `(for (x i) in xs ...)`. Everywhere else it
-; is an ordinary name.
+; `in` and `by` are keywords in positions that are not a form head.
+; `in` comes straight after the binder of a `for`, as `forHasIn` in
+; parser.ax reads it: `(for x in xs ...)` and `(for (x i) in xs ...)`.
+; `by` comes after a range's end, at the `for`'s own depth:
+; `(for i in lo..hi by step ...)`. Everywhere else both are ordinary
+; names.
 ;
-; `hlScan` follows that position with a small state, advanced once per
-; token: 0 nowhere near a binder, 1 just after the `for`, 2 inside a
-; pair binder expecting `x`, 4 expecting `i`, 5 expecting its `)`, and
-; 3 just after a whole binder, where an `in` is the keyword.
+; `hlScan` follows those positions with a small state, advanced once
+; per token: 0 nowhere near a `for`, 1 just after the `for`, 2 inside a
+; pair binder expecting `x`, 4 expecting `i`, 5 expecting its `)`, 3
+; just after a whole binder, where an `in` is the keyword. After `in`,
+; 6 reads the first operand, 9 has seen one `.` at the loop's depth, 7
+; reads a range's end after `..`, 8 has finished it, where a `by` is
+; the keyword, and 10 is inside a field access on the end.
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: hlForNext (-> Int Int Bool String Int))
@@ -581,6 +586,61 @@
 (fn (hlIsForIn st k lx)
   (&& (== st 3) (&& (== k (kindInt TK_IDENT)) (strEq lx "in"))))
 
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: hlIsForBy (-> Int Int String Int Int Bool))
+(fn (hlIsForBy st k lx depth forD)
+  (&& (== st 8) (&& (== depth forD) (&& (== k (kindInt TK_IDENT)) (strEq lx "by")))))
+
+; The state after this token, from the state before it. `depth` is the
+; bracket depth before the token, and `forD` the depth of the `for`'s
+; own operands, recorded when its `in` was read.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: hlForStep (-> Int Int Bool String Int Int Int))
+(fn (hlForStep st k isHead lx depth forD)
+  (if (&& isHead (&& (== k (kindInt TK_IDENT)) (strEq lx "for")))
+    1
+    (if (< st 6)
+      (if (hlIsForIn st k lx)
+        6
+        (hlForNext st k isHead lx))
+      (hlRangeNext st k depth forD))))
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: hlRangeNext (-> Int Int Int Int Int))
+(fn (hlRangeNext st k depth forD)
+  (let (
+    (isDot (== k (kindInt TK_DOT)))
+    (closer (if (>= (hlFamOf k) 0)
+      (! (hlIsOpener k))
+      false))
+    (opener (hlIsOpener k))
+  )
+    (if (&& closer (<= depth forD))
+      0
+      (if (== st 6)
+        (if (&& (== depth forD) isDot)
+          9
+          6)
+        (if (== st 9)
+          (if isDot
+            7
+            6)
+          (if (== st 7)
+            (if closer
+              (if (== (- depth 1) forD)
+                8
+                7)
+              (if (&& (== depth forD) (&& (! opener) (! isDot)))
+                8
+                7))
+            (if (== st 8)
+              (if (&& (== depth forD) isDot)
+                10
+                0)
+              (if (&& (== st 10) (== k (kindInt TK_IDENT)))
+                8
+                0))))))))
+
 ; ------------------------------------------------------------------
 ; The classifier. ONE `lex`, then every byte of the buffer covered
 ; exactly once and in order by an HlSpan, and every bracket token
@@ -604,6 +664,8 @@
     (mut p 0)
     (mut prevLP false)
     (mut forSt 0)
+    (mut forD 0)
+    (mut depth 0)
   )
     {
       (while (< i (vecLen toks))
@@ -646,12 +708,23 @@
                           brks)
                         (hlPush
                           spans
-                          (if (hlIsForIn forSt k (tokenLexeme t))
+                          (if (|| (hlIsForIn forSt k (tokenLexeme t)) (hlIsForBy forSt k (tokenLexeme t) depth forD))
                             HL_KEYWORD
                             (hlClassOf t prevLP n))
                           s
                           e)
-                        (set forSt (hlForNext forSt k prevLP (tokenLexeme t)))
+                        (let ((next (hlForStep forSt k prevLP (tokenLexeme t) depth forD)))
+                          {
+                            (if (&& (== next 6) (!= forSt 6))
+                              (set forD depth)
+                              0)
+                            (set forSt next)
+                          })
+                        (set depth (if (hlIsOpener k)
+                          (+ depth 1)
+                          (if (&& (>= (hlFamOf k) 0) (> depth 0))
+                            (- depth 1)
+                            depth)))
                         (set prevLP (== k (kindInt TK_LPAREN)))
                         (set p e)
                       }))))))

@@ -1437,7 +1437,7 @@ runs the direct read and the routed one and compares their answers.
 | `ERR-REC-4` | **H, gated** | `tests/stdlib/490-main-result-ok.ax`, `491-main-result-err.ax` (+ `.out`/`.exit`/`.err`) |
 | `ERR-REC-5` | P | — |
 | `ERR-REC-7` | **H, gated** | `stdlib/Fallible.ax`; `410-fallible.ax`: thirteen values, four of them memory terms with an ablation; `tests/diagnostics/389-unhandled-at-main.ax` for the missing handler, which `AX3053` names at compile time; `scripts/check-steady-state.sh`'s `batch` probe, and `examples/batch-fallible` under the same gate |
-| `ERR-REC-8` | **R, superseded** | Range-constrained subtypes were refused as a type (roadmap item 11, D2), then built: `(subtype N is Int range lo .. hi)` (`tests/selfhost/134-subtype-checked.ax`, `135-subtype-violated.ax`), with narrowing conversions checked by the contract trap (80). The `;@axiom:pre(...)` vehicle still stands beside it. `docs/subtypes-design.md` keeps the case for, the reversal and the re-measured counts |
+| `ERR-REC-8` | **R, superseded** | Range-constrained subtypes were refused as a type (roadmap item 11, D2), then built: `(subtype N is Int range lo..hi)` (`tests/selfhost/134-subtype-checked.ax`, `135-subtype-violated.ax`), with narrowing conversions checked by the contract trap (80). The `;@axiom:pre(...)` vehicle still stands beside it. `docs/subtypes-design.md` keeps the case for, the reversal and the re-measured counts |
 | `ERR-DIAG-1` | H | `mkDiag` is the only channel |
 | `ERR-DIAG-2`, `3` | P | No proposal is open: the last one, `AX3043`, is built (`1008-error-payload-untyped.ax`). `scripts/check-doc-drift.sh` fails on a proposal whose number is spent |
 | `ERR-SUGAR-1` | R | `?` is `AX1001` |

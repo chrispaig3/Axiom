@@ -10,7 +10,7 @@ case and the reversal. For how to use them, see
 The Ada feature is this:
 
 ```ada
-subtype Positive is Integer range 1 .. Integer'Last;
+subtype Positive is Integer range 1..Integer'Last;
 ```
 
 It was the third Ada item after checked arithmetic
@@ -43,7 +43,7 @@ declaration to a type.
 As built, a subtype is declared over `Int`:
 
 ```scheme
-(subtype Positive is Int range 1 .. 10)
+(subtype Positive is Int range 1..10)
 
 (:: takePos (-> Positive Int))
 (fn (takePos x)
@@ -373,7 +373,7 @@ standing conditions, re-measured, not by re-arguing the case for it.
 D2 was reversed by direction, without meeting its two conditions.
 `ERR-REC-8` is marked superseded.
 
-`(subtype Positive is Int range 1 .. 10)` declares a distinct type over
+`(subtype Positive is Int range 1..10)` declares a distinct type over
 `Int`. It is checked at every narrowing conversion (an explicit `cast`,
 a call argument, a declared return) by the contract trap, status 80.
 Widening is free. `tests/selfhost/134-subtype-checked.ax` and

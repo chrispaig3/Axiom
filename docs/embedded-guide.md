@@ -266,7 +266,7 @@ function that gives yours:
 ;@axiom:effect(unsafe)
 (fn (say s)
   {
-    (for i 0 (strLen s)
+    (for i in 0..(strLen s)
       (__vstore8 150994944 (strByte s i)))
     0
   })

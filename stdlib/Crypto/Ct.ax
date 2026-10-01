@@ -284,7 +284,7 @@
 (pub fn (ctEqAddr a b n)
   (let ((mut d 0))
     {
-      (for i 0 n
+      (for i in 0 n
         (set d (ctBarrier (| d (^ (__load8 a i) (__load8 b i))))))
       (== d 0)
     }))
@@ -303,7 +303,7 @@
 ;@axiom:precondition(`p` names `n` live writable bytes)
 (pub fn (ctWipe p n)
   {
-    (for i 0 n
+    (for i in 0 n
       (__store8 p i 0))
     (ctFence p)
     0
@@ -319,7 +319,7 @@
 ;@axiom:precondition(`dst` and `src` each name `n` live bytes, and the ranges do not overlap)
 (pub fn (ctCopy dst src n)
   {
-    (for i 0 n
+    (for i in 0 n
       (__store8 dst i (__load8 src i)))
     dst
   })
@@ -334,7 +334,7 @@
 ;@axiom:precondition(`a` and `b` each name `n` live writable words)
 (pub fn (ctSwapWords m a b n)
   {
-    (for i 0 n
+    (for i in 0 n
       (let (
         (x (__load64 a i))
         (y (__load64 b i))

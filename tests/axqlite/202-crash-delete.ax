@@ -41,7 +41,7 @@
                 (let ((mut failed None))
                   {
                     (set ib.v i)
-                    (for n 0 500
+                    (for n in 0..500
                       (match (btreePut p i (indexKey n) "")
                         ((Err e)
                           {
@@ -80,7 +80,7 @@
               (lambda (_)
                 (let ((mut failed None))
                   {
-                    (for n 100 300
+                    (for n in 100..300
                       (if (isSome failed)
                         0
                         (match (btreeDelete p ib.v (indexKey n))

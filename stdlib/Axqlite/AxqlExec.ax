@@ -2249,7 +2249,7 @@
         (if (! (strIsEmpty failure))
           0
           {
-            (for j 0 i
+            (for j in 0 i
               (let ((d (vecGet cols j)))
                 (if (&& (strIsEmpty failure) (axqlNameEq c.name d.name))
                   {

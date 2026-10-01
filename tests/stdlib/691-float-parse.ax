@@ -23,7 +23,7 @@
         (mut wrong 0)
       )
         {
-          (for i 0 (vecLen lines)
+          (for i in 0..(vecLen lines)
             (let ((line (vecGet lines i)))
               (if (== (strLen line) 0)
                 0

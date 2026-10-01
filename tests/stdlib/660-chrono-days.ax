@@ -83,7 +83,7 @@
     {
       ; 1,784 blocks of 4,096 days, each in a region of its own, so the
       ; strings and results one block makes are gone before the next.
-      (for block 0 1784
+      (for block in 0..1784
         (set fails (+
           fails
           (region r
@@ -92,7 +92,7 @@
               (mut bad 0)
             )
               {
-                (for k 0 4096
+                (for k in 0..4096
                   (if (< days 7304484)
                     {
                       (if (== (dayFails

@@ -369,7 +369,7 @@ AX-1044  delivered             -`,
       (vecPush shelf (Item "bolt-m4" 120 50))
       (vecPush shelf (Item "nut-m4" 12 50))
       (vecPush shelf (Item "washer" 0 200))
-      (for item shelf
+      (for item in shelf
         (let ((ordered (restock item)))
           (println "{ordered:>4} ordered  {item}")))
       0
@@ -404,7 +404,7 @@ AX-1044  delivered             -`,
       (vecPush shelf (Item "bolt-m4" 120 50))
       (vecPush shelf (Item "nut-m4" 12 50))
       (vecPush shelf (Item "washer" 0 200))
-      (for item shelf
+      (for item in shelf
         (let ((ordered (restock item)))
           (println "{ordered:>4} ordered  {item}")))
       0
@@ -499,7 +499,7 @@ test: 4 pauses recorded, 0 ms slept`,
 (fn (retry attempts)
   (let ((mut delay 100))
     {
-      (for i 0 attempts
+      (for i in 0..attempts
         {
           (pause delay)
           (set delay (* delay 2))
@@ -535,7 +535,7 @@ test: 4 pauses recorded, 0 ms slept`,
     title: "Top words in a support inbox",
     lede: "`Vec`, `Map` and a string interner from the standard library, which is written in Axiom and calls no C.",
     points: [
-      { at: "(for msg inbox", text: "`for` walks a `Vec` element by element." },
+      { at: "(for msg in inbox", text: "`for` walks a `Vec` element by element." },
       { at: "(let ((id (internIntern words w)))", text: "Each word becomes an id, counted in a `Map`." },
       { at: "(byCount (lambda (a b)", text: "The comparator is a lambda that closes over the map." },
       { at: "(let ((ranked (vecSortBy (mapKeys count) byCount)))", text: "`vecSortBy` ranks the ids by count." },
@@ -578,16 +578,16 @@ test: 4 pauses recorded, 0 ms slept`,
       (vecPush inbox "Payment declined with no error message on mobile Safari.")
       (vecPush inbox "Safari on iOS shows the same error.")
       (vecPush inbox "Checkout on mobile is unusable.")
-      (for msg inbox
+      (for msg in inbox
         (let ((parts (strSplit (strLower msg) 32)))
-          (for i 0 (vecLen parts)
+          (for i in 0..(vecLen parts)
             (let ((w (bare (vecGet parts i))))
               (if (>= (strLen w) 4)
                 (let ((id (internIntern words w)))
                   (mapInsert count id (+ 1 (mapGet count id 0))))
                 0)))))
       (let ((ranked (vecSortBy (mapKeys count) byCount)))
-        (for r 0 5
+        (for r in 0..5
           (let (
             (id (vecGet ranked r))
             (n (mapGet count id 0))
@@ -682,7 +682,7 @@ compilation failed due to 1 previous error`,
     points: [
       { at: "(region req", text: "Each request runs in its own region." },
       { at: "(set bytes (+ bytes (strLen (render id))))))", text: "The `Int` total leaves the region; the strings stay inside it." },
-      { at: "(for id 0 1000000", text: "A million requests, and the heap ends where it began." },
+      { at: "(for id in 0..1000000", text: "A million requests, and the heap ends where it began." },
     ],
     docs: { label: "Regions", href: `${REF}#regions` },
     output: `1000000 requests, 27818986 bytes rendered`,
@@ -699,7 +699,7 @@ compilation failed due to 1 previous error`,
 (fn (main)
   (let ((mut bytes 0))
     {
-      (for id 0 1000000
+      (for id in 0..1000000
         (region req
           (set bytes (+ bytes (strLen (render id))))))
       (println "1000000 requests, {bytes} bytes rendered")
@@ -721,7 +721,7 @@ compilation failed due to 1 previous error`,
 (fn (main)
   (let ((mut last ""))
     {
-      (for id 0 1000000
+      (for id in 0..1000000
         (region req
           (set last (render id))))
       (println "last request: {last}")

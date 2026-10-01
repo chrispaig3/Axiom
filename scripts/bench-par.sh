@@ -90,7 +90,7 @@ cat > "$work/b_alloc.ax" <<'AX'
 (fn (childSum n)
   (let ((v vecNew))
     {
-      (for i 0 n
+      (for i in 0..n
         (vecPush v i))
       (vecSum v)
     }))
@@ -122,7 +122,7 @@ cat > "$work/b_runall.ax" <<'AX'
 (fn (main)
   (let ((cmds vecNew))
     {
-      (for k 0 800
+      (for k in 0..800
         (let ((one vecNew))
           {
             (vecPushStr one "true")

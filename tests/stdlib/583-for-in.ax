@@ -1,6 +1,7 @@
-; `in` may follow a `for` loop's binder in every shape, and each loop
-; answers what the same loop without it does. `in` is a word only
-; there: `in` below is also an ordinary variable, used as a bound.
+; `in` follows a `for` loop's binder in every shape, and `by` its
+; range. Both are words only there: `in` below is also an ordinary
+; variable, read as the end of a range, and the loop over it runs
+; three times.
 (import IO)
 (import Vec)
 
@@ -18,11 +19,11 @@
         (println (fmtInt x)))
       (for (x k) in v
         (println (strConcat (fmtInt k) (strConcat ": " (fmtInt x)))))
-      (for i in 0 in
+      (for i in 0..in
         (println (fmtInt i)))
-      (for i in 9 0 -4
+      (for i in 9..0 by -4
         (println (fmtInt i)))
-      (for x v
+      (for x in v
         (println (fmtInt x)))
       0
     }))

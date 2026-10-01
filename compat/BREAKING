@@ -910,3 +910,6 @@
 # 0.7.7 - the propagation macro loses its `!`, so it is named like every
 # other macro and function in the language.
 0.7.7  M  try!  REMOVED: renamed `try`; drop the `!`
+
+# 0.8.0 - the counted loop is the `for` keyword: `(for i in lo..hi body)`.
+0.8.0  M  range  REMOVED: write `(for i in lo..hi body)`

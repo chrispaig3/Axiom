@@ -70,7 +70,7 @@
 ;@axiom:precondition(`a + off` names `n` live writable bytes)
 (fn (putBe a off n v)
   {
-    (for i 0 n
+    (for i in 0 n
       (__store8 a (+ off i) (& (>> v (* 8 (- (- n 1) i))) 255)))
     0
   })
@@ -83,7 +83,7 @@
 (fn (getBe a off n)
   (let ((mut v 0))
     {
-      (for i 0 n
+      (for i in 0 n
         (set v (| (<< v 8) (__load8 a (+ off i)))))
       v
     }))
@@ -189,7 +189,7 @@
               (let ((a (strData out)))
                 {
                   (putBe a 0 2 n)
-                  (for i 0 n
+                  (for i in 0 n
                     (let ((v (vecGet vals i)))
                       {
                         (__store8 a (+ 2 i) (typeCode v))
@@ -299,7 +299,7 @@
             (mut bad None)
           )
             {
-              (for i 0 n
+              (for i in 0 n
                 (if (isNone bad)
                   (match (readPayload a size (__load8 a (+ 2 i)) at)
                     ((Ok v)
@@ -353,7 +353,7 @@
         (mut ok true)
       )
         {
-          (for j 0 i
+          (for j in 0 i
             (if ok
               (let ((span (payloadSpan a size (__load8 a (+ 2 j)) at)))
                 (if (|| (< span 0) (> span (- size at)))
@@ -519,7 +519,7 @@
     (mut z 0)
   )
     {
-      (for i 0 (strLen s)
+      (for i in 0 (strLen s)
         (if (== (__load8 a i) 0)
           (set z (+ z 1))
           0))
@@ -536,7 +536,7 @@
   )
     {
       (__store8 a at tag)
-      (for i 0 (strLen s)
+      (for i in 0 (strLen s)
         (let ((b (__load8 src i)))
           (if (== b 0)
             {
@@ -772,7 +772,7 @@
                         (s (strAlloc (- (vecLen bytes) 1)))
                       )
                         {
-                          (for j 0 len
+                          (for j in 0 len
                             (__store8 (strData s) j (vecGet bytes j)))
                           (vecPush
                             out

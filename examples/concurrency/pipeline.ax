@@ -61,7 +61,7 @@
 (fn (produce raw idle n)
   (let ((mut sent 0))
     {
-      (for i 1 (+ n 1)
+      (for i in 1..(+ n 1)
         {
           (if (== i (/ n 2))
             (nap idle 250)

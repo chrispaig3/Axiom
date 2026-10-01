@@ -212,7 +212,7 @@
       (__store64 out 13 n0)
       (__store64 out 14 n1)
       (__store64 out 15 n2)
-      (for i 0 10
+      (for i in 0 10
         (chachaDoubleRound out))
       (let (
         (y0 (add32 (__load64 out 0) chachaC0))
@@ -267,10 +267,10 @@
           {
             (chacha20Block work key c nonce)
             (if (>= rest 64)
-              (for i 0 8
+              (for i in 0 8
                 (let ((o (+ off (* 8 i))))
                   (st64le dst o (^ (ld64le src o) (ld64le work (* 8 i))))))
-              (for i 0 rest
+              (for i in 0 rest
                 (__store8 dst (+ off i) (^ (__load8 src (+ off i)) (__load8 work i)))))
             (set off (+ off 64))
             (set c (+ c 1))

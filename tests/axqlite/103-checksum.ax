@@ -17,7 +17,7 @@
 (fn (bytesOf n f)
   (let ((s (strAlloc n)))
     {
-      (for i 0 n
+      (for i in 0..n
         (__store8 (strData s) i (f i)))
       s
     }))

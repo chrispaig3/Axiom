@@ -109,7 +109,7 @@
 (fn (bump m cell n locked)
   {
     (arrive (+ cell 8))
-    (for i 0 n
+    (for i in 0..n
       (if (== locked 1)
         (match (mutexLock m)
           ((Ok g)
@@ -481,7 +481,7 @@
 (fn (staleDoubler m cell n)
   {
     (arrive3 (+ cell 24))
-    (for i 0 n
+    (for i in 0..n
       (match (mutexLock m)
         ((Ok g)
           {
@@ -505,7 +505,7 @@
 (fn (staleUser m cell n)
   {
     (arrive3 (+ cell 24))
-    (for i 0 n
+    (for i in 0..n
       (match (mutexLock m)
         ((Ok g)
           {

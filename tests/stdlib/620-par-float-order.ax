@@ -35,9 +35,9 @@
   (let ((mut x 1.0))
     {
       (if (>= e 0)
-        (for k 0 e
+        (for k in 0..e
           (set x (* x 2.0)))
-        (for k 0 (- 0 e)
+        (for k in 0..(- 0 e)
           (set x (* x 0.5))))
       x
     }))
@@ -63,7 +63,7 @@
 (fn (seqSum lo hi)
   (let ((mut acc 0))
     {
-      (for i lo hi
+      (for i in lo..hi
         (set acc (add2 acc (bitsOf (term i)))))
       acc
     }))
@@ -117,7 +117,7 @@
         (if (== r s)
           (println "reversed: the same bits, so this data cannot see an order")
           (println "reversed differs: {r}")))
-      (for w 1 5
+      (for w in 1..5
         (verdict
           (strConcat "taskFold at width " (fmtInt w))
           (taskFold
@@ -135,7 +135,7 @@
         (mut acc 0)
       )
         {
-          (for i 0 n
+          (for i in 0..n
             (set acc (add2 acc (vecGet ws i))))
           (verdict "parMapWords at width 8" acc s)
         })

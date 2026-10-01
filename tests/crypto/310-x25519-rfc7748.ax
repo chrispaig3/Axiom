@@ -69,7 +69,7 @@
 (fn (iterate n)
   (let ((mut k x25519BasePoint) (mut u x25519BasePoint))
     {
-      (for i 0 n
+      (for i in 0..n
         (let ((next (raw k u)))
           {
             (set u k)

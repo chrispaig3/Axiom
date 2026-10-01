@@ -1,6 +1,6 @@
 ; The container `for` over something that is not a container.
 ;
-; This case PARSES - `(for x n body)` is a well-formed three-element
+; This case PARSES - `(for x in n body)` is a well-formed three-element
 ; `for` - and is refused by the checker at the user's OWN expression:
 ; `n` is underlined, not the word `for`. Two rows per site, because the
 ; desugaring reads the container twice - once for its length, once per
@@ -16,9 +16,9 @@
 ;      the reason it is written down here is that a reader meeting this
 ;      diagnostic will otherwise attribute it to `for`.
 ;   3  a `String`. `for` iterates `(Vec a)` directly, so the rows name
-;      the bytes idiom instead: `(for i 0 (strLen s) ... (strByte s i)
+;      the bytes idiom instead: `(for i in 0..(strLen s) ... (strByte s i)
 ;      ...)`.
-;   4  a `Map`. Same shape, the keys idiom: `(for k (mapKeys m) ...
+;   4  a `Map`. Same shape, the keys idiom: `(for k in (mapKeys m) ...
 ;      (mapGet m k default) ...)`.
 ;
 ; The file declares its OWN `vecLen`. That is the ablation this case
@@ -39,24 +39,24 @@
 (:: overAnInt (-> Int Int))
 ;@axiom:effect(io)
 (fn (overAnInt n)
-  (for x n
+  (for x in n
     (println 1)))
 
 ;@axiom:effect(io)
 (fn (overAnUndeclaredParam xs)
-  (for x xs
+  (for x in xs
     (println 1)))
 
 (:: overAString (-> String Int))
 ;@axiom:effect(io)
 (fn (overAString s)
-  (for c s
+  (for c in s
     (println 1)))
 
 (:: overAMap (-> Map Int))
 ;@axiom:effect(io)
 (fn (overAMap m)
-  (for k m
+  (for k in m
     (println 1)))
 
 (:: main Int)

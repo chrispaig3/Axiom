@@ -75,7 +75,7 @@
           (ctWipe a 32)
           (let ((mut z 0))
             {
-              (for i 0 32
+              (for i in 0..32
                 (set z (| z (__load8 a i))))
               (tallyCheck t (== z 0) "ctWipe zeroes every byte")
             })
