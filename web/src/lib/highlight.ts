@@ -56,8 +56,7 @@ export interface Token {
 
 // grammar.js: BUILTIN_TYPES
 const BUILTIN_TYPES = new Set([
-  'Int', 'Integer', 'Float', 'Double', 'Bool', 'Char', 'String',
-  'Any', 'Void', 'Unit',
+  'Int', 'Float', 'Double', 'Bool', 'Char', 'String',
   'I8', 'I16', 'I32', 'I64', 'I128', 'Isize',
   'U8', 'U16', 'U32', 'U64', 'U128', 'Usize',
   'F32', 'F64',

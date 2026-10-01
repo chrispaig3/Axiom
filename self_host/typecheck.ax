@@ -87,7 +87,7 @@
 ;   (Int -> (Int -> Bool))           arrow, always parenthesised, binary
 ;   () / (Int, Bool)                 tuple; empty tuple is unit
 ;   [Int]                            list
-;   *Any / *mut Any                  pointer
+;   *Int / *mut Int                  pointer
 ; ------------------------------------------------------------------
 ; A type variable is born `_t<N>` from ONE counter that runs across the
 ; whole program, standard library first, so the name a diagnostic showed
@@ -1081,8 +1081,7 @@
 ; hold the argument's block without one - releasing the argument
 ; under a `Vec` answer would free storage the answer points at. So
 ; `Vec` is 0 here, and so is every name this does not spell: a type
-; variable, an unexpanded alias, `Unit` (a constructor, hence a
-; block), `Any`, `Foreign`, `Handle`, `String`, an arrow, and no
+; variable, an unexpanded alias, `Foreign`, `Handle`, `String`, an arrow, and no
 ; type at all. Each of those is a missed elision, never an unsound
 ; one; the zero default is what makes an unstamped node keep its
 ; release. Pure readers, so untagged like the setters beside it.
@@ -7775,7 +7774,7 @@
 ;       (a) the region's own VALUE, when its type is not a scalar. The
 ;           lowering (`emitRegion`) hands the body's value out past the
 ;           reset by VALUE, and only a scalar - Int, Bool, Char, Float,
-;           Unit, `()` - survives that. A `String` is a 24-byte
+;           `()` - survives that. A `String` is a 24-byte
 ;           descriptor over a second block; a struct is a block; a
 ;           closure is a record. Every one of them would point into
 ;           reclaimed memory.
@@ -7855,7 +7854,7 @@
   })
 
 ; Is this a type whose VALUE survives a reset - a word that is not an
-; address? The four scalar constructors, `Unit`, and the empty tuple.
+; address? The four scalar constructors and the empty tuple.
 ; A bare type variable answers 0: what it stands for is not known
 ; here, and the safe direction is to refuse.
 ;
@@ -7872,7 +7871,7 @@
       (if (== (nodeTag ty) TAG_T_CON)
         (if (== (vecLen (nodeBVec ty)) 0)
           (let ((n (nodeAName ty)))
-            (if (|| (strEq n "Int") (|| (strEq n "Bool") (|| (strEq n "Char") (|| (strEq n "Float") (strEq n "Unit")))))
+            (if (|| (strEq n "Int") (|| (strEq n "Bool") (|| (strEq n "Char") (strEq n "Float"))))
               1
               ; A word struct's value is its word, and the handle table
               ; it names lives outside every arena (MM-PAR-8), so it
@@ -7912,7 +7911,7 @@
       (strConcat (strConcat (strConcat (strConcat "region `" name) "` answers a value of type `") (tyRender ty)) "`, which may point into the memory the region reclaims")
       0
       0
-      "answer a scalar - Int, Bool, Char, Float or Unit - which survives the reset by value; a reference has to be built outside the region until typed regions (docs/memory-model-v2-design.md §4, S3) can promote one"
+      "answer a scalar - Int, Bool, Char or Float - which survives the reset by value; a reference has to be built outside the region until typed regions (docs/memory-model-v2-design.md §4, S3) can promote one"
       "a `String` is a descriptor over a second block, a struct is a block and a closure is a record; every one of them would point at reclaimed memory") (strConcat (strConcat "this has type `" (tyRender ty)) "`")))
     0
   })
@@ -12654,20 +12653,16 @@
       ; allocated and never walks.
       (if (== (evScalarName n) 1)
         0
-        (if (|| (strEq n "Unit") (strEq n "Void"))
+        (if (!= (tySubtypeBase tc t) 0)
           0
-          (if (strEq n "Any")
-            3
-            (if (!= (tySubtypeBase tc t) 0)
-              0
-              (if (!= (findStruct tc n) 0)
-                1
-                (let ((de (findData tc n)))
-                  (if (== de 0)
-                    3
-                    (if (== (castDataAllNullary (memGetWordVec de 1) 0) 1)
-                      0
-                      1)))))))))))
+          (if (!= (findStruct tc n) 0)
+            1
+            (let ((de (findData tc n)))
+              (if (== de 0)
+                3
+                (if (== (castDataAllNullary (memGetWordVec de 1) 0) 1)
+                  0
+                  1)))))))))
 
 ; A `data` whose every constructor is nullary is a set of tags, and a
 ; value of it is an immediate word: `(Empty)` allocates nothing
@@ -24673,8 +24668,7 @@
 ;   (-> Int Box) over 'A'        (-> Int Box) over (P 1 2)
 ;   (-> Int Box) over (fn (y) y) (-> Int (Opt Int)) over 7
 ;   (-> Int [Int]) over 7        (-> Int Char) over 7
-;   (-> Int Void) over 7         (-> Int Any) over 7
-;   (-> Int Unit) over 7         (-> Int (Opt Int)) over (Some "s")
+;   (-> Int (Opt Int)) over (Some "s")
 ;
 ; WHAT IT COSTS, measured rather than guessed, over all 558 `.ax`
 ; files in the tree with a compiler built from it: comparing a

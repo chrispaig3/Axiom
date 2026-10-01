@@ -3669,12 +3669,7 @@
   (let ((k (fnKind n)))
     (if (== k FN_ATOM)
       (if (== (ftKind (fnTok n)) FT_IDENT)
-        ; `Integer` is a second spelling of `Int` in stage0's
-        ; token set, and the printer normalises it away.
-        (let ((t (fnText (fpSrc p) n)))
-          (if (strEq t "Integer")
-            (fpP p "Int")
-            (fpP p t)))
+        (fpP p (fnText (fpSrc p) n))
         ; `@r` inside a type's parentheses prints as written; the
         ; parser puts it last (`parseTypeAtomsRgn`) and this printer
         ; keeps the order it was given, so a misplaced one round-trips
@@ -3692,7 +3687,7 @@
           (fpBad p))
         (if (== k FN_PAREN)
           (if (== (fnLen n) 0)
-            (fpP p "Unit")
+            (fpP p "()")
             (let ((h (fnHeadText (fpSrc p) n)))
               (if (strEq h "->")
                 (fpArrow p n)

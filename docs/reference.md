@@ -1154,7 +1154,7 @@ and the compiler infers the rest.
 
 (:: main Int)
 ;@axiom:effect(io)
-(fn main
+(fn (main)
   {
     (println (average 3 4))
     0
@@ -1187,10 +1187,7 @@ A `lambda` is (see [Partial application](#partial-application)).
 | `Bool` | Boolean (`true` / `false`) |
 | `Char` | A Unicode code point: `'A'` is 65, `'é'` is 233, `'世'` is 19990, `'😀'` is 128512 |
 | `String` | String (pointer) |
-| `()` | Unit. It is a type only: `(:: main ())` and `(:: f (-> () Int))` are accepted, and `symbols` shows the empty tuple as `()`. There is no unit value. `()` in an expression is `AX2001 expected expression`, as are `[]` and `(set)` |
-| `Unit` | A separate type constructor, not a synonym for `()`. `symbols` shows `(:: a (-> () Int))` as `(() -> Int)` and `(:: b (-> Unit Int))` as `(Unit -> Int)` |
-| `Void` | Void |
-| `Any` | Generic pointer |
+| `()` | The empty tuple type, with no value. `(:: main ())` and `(:: f (-> () Int))` are accepted, and `symbols` shows the empty tuple as `()`. `()` in an expression is `AX2001 expected expression`, as are `[]` and `(set)` |
 | `Foreign` | An opaque pointer into memory Axiom didn't allocate and doesn't own, held as one word. It is distinct from `Int` because reference counting never follows a `Foreign` field. `(cast Foreign x)` converts in and out. See [ffi.md](ffi.md) |
 | `Handle` | A share of a Rust value that Axiom owns: a counted block holding the Rust pointer and its destructor (`stdlib/Ffi.ax`). It is a reference like `String`: each share is released at the end of its `let`'s scope, and when the last share goes, Rust's `Drop` runs once. `axiom-bindgen` wraps each opaque Rust type in its own `data` type around a `Handle`, so `Counter` and `Widget` stay distinct. `ffiHandleClose` destroys the value early and leaves the block inert |
 
@@ -1352,7 +1349,7 @@ A type alias gives a new name to an existing type:
 
 (:: main Int)
 ;@axiom:effect(io)
-(fn main
+(fn (main)
   {
     (let ((r (Reading "Oslo" 4.5)))
       (println (label r)))
@@ -1391,7 +1388,7 @@ whenever a plain `Int` becomes the subtype:
 
 (:: main Int)
 ;@axiom:effect(io)
-(fn main
+(fn (main)
   {
     (println (describe (cast Percent 75)))
     (println (+ (cast Percent 20) 1))
@@ -1482,7 +1479,7 @@ A constructor's fields can be named instead of positional:
 
 (:: main Int)
 ;@axiom:effect(io)
-(fn main
+(fn (main)
   {
     (println (area (Circle 2)))
     (println (area (Rect 3 4)))
@@ -1543,7 +1540,7 @@ macro from `Pre` where you want the function:
 
 (:: main Int)
 ;@axiom:effect(io)
-(fn main
+(fn (main)
   {
     (println (showColour Green))
     (println (eqColour Red Red))
@@ -1620,7 +1617,7 @@ result, and the first arm that fits wins:
 
 (:: main Int)
 ;@axiom:effect(io)
-(fn main
+(fn (main)
   {
     (println (describe (Nil)))
     (println (describe (Cons 7 (Nil))))
@@ -1731,7 +1728,7 @@ without a `data` declaration:
 
 (:: main Int)
 ;@axiom:effect(io)
-(fn main
+(fn (main)
   {
     (println (orZero (safeDiv 10 2)))
     (println (orZero (safeDiv 10 0)))
@@ -4570,8 +4567,8 @@ so two thousand iterations leave the waterline where they found it.
 
 The compiler checks three rules:
 
-- **The value must be a scalar**: an `Int`, `Bool`, `Char`, `Float` or
-  `Unit`. These pass the reset by value. A `String` is a descriptor
+- **The value must be a scalar**: an `Int`, `Bool`, `Char` or `Float`.
+  These pass the reset by value. A `String` is a descriptor
   over a second block, a struct is a block and a closure is a record,
   so each would point at reclaimed memory. A region that answers any
   other type is `AX3059` at the body. Answer a count, a status or a

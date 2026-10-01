@@ -1061,21 +1061,20 @@ echo "== types: the LLVM column in docs/status.md, against what the emitter actu
 # one probe per row and reads the `define` line back.
 #
 # THE TYPE GOES IN PARAMETER POSITION on purpose. In return position a
-# probe needs a VALUE of the type, which means a `cast` for `Unit` and
-# `Void` and is not expressible at all for `()` - so the shape of the
-# probe would vary per row and the rows would stop being comparable.
-# A parameter needs no value.
+# probe needs a VALUE of the type, which is not expressible at all for
+# `()` - so the shape of the probe would vary per row and the rows
+# would stop being comparable. A parameter needs no value.
 #
 # AND `main` HOLDS A BARE REFERENCE TO `g`, which is not decoration.
 # Until 2026-08-31 the probe never mentioned `g` at all, and once the
 # emitter stopped writing functions a program cannot reach
-# (`pruneDeadDefs`) there was no `define @g` left to read: all nine
-# rows failed at "the probe stopped measuring", which is that check
+# (`pruneDeadDefs`) there was no `define @g` left to read: every row
+# failed at "the probe stopped measuring", which is that check
 # doing its job. Calling `g` would need a value of the row's type and
 # would undo the paragraph above, so `main` binds it instead - a bare
 # reference to a one-argument function makes `g` reachable through the
 # thunk the emitter synthesises, and leaves the `define` line this
-# reads byte-identical. Verified across all nine rows.
+# reads byte-identical. Verified across every row.
 types_before=$failed
 tw="$work/types"; mkdir -p "$tw"
 row_n=0
@@ -1111,7 +1110,7 @@ done <<< "$(awk '
     if (ty != "" && lv != "") print ty "|" lv
   }
 ' docs/status.md)"
-if (( row_n < 8 )); then
+if (( row_n < 5 )); then
   echo "FAIL types: read $row_n row(s) out of the type table in docs/status.md; the parse broke and this section is checking almost nothing"
   failed=$((failed+1))
 elif (( failed == types_before )); then

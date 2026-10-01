@@ -1780,10 +1780,6 @@
         },
         {
           "type": "STRING",
-          "value": "Integer"
-        },
-        {
-          "type": "STRING",
           "value": "Float"
         },
         {
@@ -1801,14 +1797,6 @@
         {
           "type": "STRING",
           "value": "String"
-        },
-        {
-          "type": "STRING",
-          "value": "Any"
-        },
-        {
-          "type": "STRING",
-          "value": "Void"
         },
         {
           "type": "STRING",

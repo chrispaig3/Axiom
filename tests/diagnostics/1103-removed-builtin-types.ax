@@ -1,0 +1,17 @@
+; `Unit`, `Void`, `Any` and `Integer` are not builtin types: each is an
+; ordinary unknown name in type position. `Int` and `()` are the spellings.
+
+(:: ignore (-> Unit Int))
+(fn (ignore x) 0)
+
+(:: widen (-> Integer Int))
+(fn (widen n) n)
+
+(:: nothing (-> Int Void))
+(fn (nothing n) n)
+
+(:: anything (-> Any Int))
+(fn (anything p) 0)
+
+(:: main Int)
+(fn (main) 0)

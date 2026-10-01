@@ -127,8 +127,8 @@ counting of the cell, region and parallel checks,
 1. Nullary-lambda thunks: type-directed `(t)` application. The
    `(f)`≡`f` rule is language-wide, so this is medium risk for low
    value.
-2. Scalar stores into regions: ignore `Int`, `Bool`, `Char`, `Float`
-   and `Unit` in the escape check, as `AX3059` already does. Low risk.
+2. Scalar stores into regions: ignore `Int`, `Bool`, `Char` and `Float`
+   in the escape check, as `AX3059` already does. Low risk.
 3. Multi-effect and multi-operation handlers: a new evidence-record
    layout and syntax. High risk.
 4. Qualified constructors: `(Mod::T …)` in expression position. Low

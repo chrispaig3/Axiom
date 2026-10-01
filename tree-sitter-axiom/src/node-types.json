@@ -2416,10 +2416,6 @@
     "named": false
   },
   {
-    "type": "Any",
-    "named": false
-  },
-  {
     "type": "Bool",
     "named": false
   },
@@ -2476,10 +2472,6 @@
     "named": false
   },
   {
-    "type": "Integer",
-    "named": false
-  },
-  {
     "type": "Isize",
     "named": false
   },
@@ -2517,10 +2509,6 @@
   },
   {
     "type": "Usize",
-    "named": false
-  },
-  {
-    "type": "Void",
     "named": false
   },
   {

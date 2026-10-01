@@ -306,8 +306,7 @@
 ;   two body expressions     -> a { } block
 ;   (-> Int (-> Int Int))    -> (-> Int Int Int)
 ;   (Int)                    -> Int
-;   ()  as a type            -> Unit
-;   Integer                  -> Int
+;   ()  as a type            -> ()
 ;   Q.Inner::only            -> Q::Inner::only
 ;
 ; plus, not visible as a single line: imports hoisted above every other
@@ -357,9 +356,6 @@
 
 (:: unitArg (-> () Int))
 (fn (unitArg n) 1)
-
-(:: integerName (-> Integer Int))
-(fn (integerName n) 1)
 
 ; Negative literals, in the four positions that read differently: a
 ; binding, an argument, after a leading operand, and the space-separated

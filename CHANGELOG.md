@@ -22,6 +22,11 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+- The builtin types have one spelling. `Integer`, `Unit`, `Void` and `Any`
+  are removed: each is now an unknown type name and draws `AX3002`. Write
+  `Int` for `Integer`, and `()` for the empty tuple. Tested by
+  `tests/diagnostics/1103-removed-builtin-types.ax`.
+
 - `for` has one spelling. A range is written `lo..hi`, a step follows
   `by`, and `in` always follows the binder: `(for i in 0..10 body)`,
   `(for i in 0..10 by 2 body)`, `(for x in xs body)` and

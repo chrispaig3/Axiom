@@ -331,6 +331,10 @@ This form was part of an earlier version of Axiom and no longer exists.
 The keyword is still reserved so that old source gets this explanation
 instead of being silently reinterpreted as an ordinary identifier.
 
+`define` was the old spelling of `fn`. Write `fn` instead:
+`(fn (add x y) (+ x y))`, and `(fn (answer) 42)` for a function with no
+parameters. A bare name, `(fn answer 42)`, is `AX2001`.
+
 `union` is gone because C interoperability is no longer a goal of the
 language, and an untagged union cannot be pattern-matched safely - its
 variants are not distinguishable at run time. Use `data` for a tagged
@@ -410,7 +414,7 @@ types checked in signatures while no literal, no pattern and no runtime
 representation existed behind either of them - a reader met the syntax
 in the reference, wrote it, and got a parse error. A checked type no
 value can inhabit is worse than one that does not parse. Sequences are
-`(Vec T)`: `vecNew`, `vecGet`, `vecPush` and `(for x xs body)` are its
+`(Vec T)`: `vecNew`, `vecGet`, `vecPush` and `(for x in xs body)` are its
 surface. Products are `struct`, sums are `data`.
 
 ### explain AX2005
@@ -506,8 +510,8 @@ this module:
 
     (fn (main) 0)
 
-The built-ins are `Int`, `Float`, `Bool`, `Char`, `String` and
-`Unit`, with `Vec`, `Option` and the arrow `(-> a b)` over them.
+The built-ins are `Int`, `Float`, `Bool`, `Char`, `String`,
+`Foreign` and `Handle`, with `Vec`, `Option` and the arrow `(-> a b)` over them.
 Everything else is declared by a `data`, a `struct` or a `type`
 alias, in this module or in one it imports.
 
@@ -2379,7 +2383,7 @@ without region TYPES:
 
   - the region's own VALUE, when its type is not a scalar. The value
     is handed past the reset by value, so an `Int`, `Bool`, `Char`,
-    `Float` or `Unit` survives it and a `String` (a descriptor over a
+    `Float` survives it and a `String` (a descriptor over a
     second block), a struct, a `Vec` or a closure does not. Answer a
     scalar - a count, a status, a hash - and keep the reference's
     owner outside.
@@ -2651,7 +2655,7 @@ This fires where the operation is performed, not up the call chain, and it asks 
 ### explain AX3074
 AX3074 - a macro parameter standing where the template keeps a name
 
-Four positions in a macro template keep the name they are written with rather than substituting the argument: the field of `.` and `set`, the type of a struct construction, `alloc`'s type operand, and `handle`'s effect list (docs/macro-system.md MAC-EXP-14b). A parameter standing in one is read as a literal name, and the argument it was given is evaluated and discarded - `(macro (getf s f) s.f)` invoked as `(getf p 0)` reads field `f`, not field `0`.
+Three positions in a macro template keep the name they are written with rather than substituting the argument: the field of `.` and `set`, the type of a struct construction, and `handle`'s effect list (docs/macro-system.md MAC-EXP-14b). A parameter standing in one is read as a literal name, and the argument it was given is evaluated and discarded - `(macro (getf s f) s.f)` invoked as `(getf p 0)` reads field `f`, not field `0`.
 
 THIS IS A WARNING, and the positions are why. Each is a name, not an expression, and keeping the spelling is deliberate - templates have always meant the literal there - so refusing would break programs that mean it. What the warning reports is the parameter, which promises a per-invocation choice the position cannot honour.
 

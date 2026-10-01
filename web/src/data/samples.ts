@@ -744,7 +744,7 @@ error[AX3059]: region \`req\` answers a value of type \`String\`, which may poin
    |                ^^^^ this has type \`String\`
    |
    = note: a \`String\` is a descriptor over a second block, a struct is a block and a closure is a record; every one of them would point at reclaimed memory
-   = help: answer a scalar - Int, Bool, Char, Float or Unit - which survives the reset by value; a reference has to be built outside the region until typed regions (docs/memory-model-v2-design.md §4, S3) can promote one
+   = help: answer a scalar - Int, Bool, Char or Float - which survives the reset by value; a reference has to be built outside the region until typed regions (docs/memory-model-v2-design.md §4, S3) can promote one
    = help: run \`axiom explain AX3059\` for a full explanation
 
 compilation failed due to 2 previous errors`,

@@ -1,0 +1,37 @@
+[1;31merror[AX3002][0m[1m: undefined type `Unit`[0m
+ [1;34m--> [0m1103-removed-builtin-types.ax:4:5
+[1;34m  |[0m
+[1;34m4 |[0m (:: ignore (-> Unit Int))
+[1;34m  |[0m     [1;31m^^^^^^ no type named `Unit` is visible here[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mcheck for typos, or a missing `data`/`struct`/`type` declaration
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3002` for a full explanation
+
+[1;31merror[AX3002][0m[1m: undefined type `Integer`[0m
+ [1;34m--> [0m1103-removed-builtin-types.ax:7:5
+[1;34m  |[0m
+[1;34m7 |[0m (:: widen (-> Integer Int))
+[1;34m  |[0m     [1;31m^^^^^ no type named `Integer` is visible here[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mcheck for typos, or a missing `data`/`struct`/`type` declaration
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3002` for a full explanation
+
+[1;31merror[AX3002][0m[1m: undefined type `Void`[0m
+  [1;34m--> [0m1103-removed-builtin-types.ax:10:5
+[1;34m   |[0m
+[1;34m10 |[0m (:: nothing (-> Int Void))
+[1;34m   |[0m     [1;31m^^^^^^^ no type named `Void` is visible here[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mcheck for typos, or a missing `data`/`struct`/`type` declaration
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3002` for a full explanation
+
+[1;31merror[AX3002][0m[1m: undefined type `Any`[0m
+  [1;34m--> [0m1103-removed-builtin-types.ax:13:5
+[1;34m   |[0m
+[1;34m13 |[0m (:: anything (-> Any Int))
+[1;34m   |[0m     [1;31m^^^^^^^^ no type named `Any` is visible here[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mcheck for typos, or a missing `data`/`struct`/`type` declaration
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3002` for a full explanation
+
+compilation failed due to 4 previous errors

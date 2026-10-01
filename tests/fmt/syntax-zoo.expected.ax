@@ -349,8 +349,7 @@
 ;   two body expressions     -> a { } block
 ;   (-> Int (-> Int Int))    -> (-> Int Int Int)
 ;   (Int)                    -> Int
-;   ()  as a type            -> Unit
-;   Integer                  -> Int
+;   ()  as a type            -> ()
 ;   Q.Inner::only            -> Q::Inner::only
 ;
 ; plus, not visible as a single line: imports hoisted above every other
@@ -408,12 +407,8 @@
 ; one made it ambiguous against a type-parameter list and against a
 ; zero-argument application at once - so a file both gates must accept
 ; cannot contain one.
-(:: unitArg (-> Unit Int))
+(:: unitArg (-> () Int))
 (fn (unitArg n)
-  1)
-
-(:: integerName (-> Int Int))
-(fn (integerName n)
   1)
 
 ; Negative literals, in the four positions that read differently: a

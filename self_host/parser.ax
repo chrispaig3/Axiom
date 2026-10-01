@@ -2765,22 +2765,7 @@
 ; own token kind, so `(Int Bool)` is a TUPLE while `(Foo Bar)` is an
 ; application - probed via `axiom symbols` rendering `(Int, Bool)`.
 ; stage1 lexes both as plain idents, so the keyword set is spelled out
-; here. `Integer` canonicalises to `Int`, everything else to itself.
-;
-; `Unit` is in this list because `docs/reference.md` and `README.md`
-; both document it as a type and `tests/fmt/syntax-zoo.expected.ax`
-; declares `(:: unitArg (-> Unit Int))`, while this list had omitted
-; it - so `Unit` became a bare unresolvable `TAG_T_CON` that nothing
-; asked about. Resolving signature types (`tcCheckSigTypes`) is what
-; surfaced it; before that, the omission had no observable effect.
-;
-; It canonicalises to itself, NOT to the empty tuple, which is what
-; `docs/reference.md`'s "`Unit` / `()`" spelling claims they share.
-; They do not, and did not before this: `symbols` already renders
-; `(:: a (-> () Int))` as `(() -> Int)` and `(:: b (-> Unit Int))` as
-; `(Unit -> Int)`. Making them one type is a semantic change with a
-; golden behind it; naming the type the documentation promises is not,
-; so only the second is done here and the first is recorded.
+; here. Every name in it canonicalises to itself.
 ; ------------------------------------------------------------------
 ; Double, F32, F64 and the sized integers (I8..I128, U8..U128, Isize,
 ; Usize) were in this table until 2026-08-14, and every one was a name
@@ -2839,7 +2824,7 @@
           (if (sizedTyIn n "str string")
             "String"
             (if (sizedTyIn n "void")
-              "Void"
+              "Int"
               "")))))))
 
 ; Is `n` one of the space-separated words in `words`?
@@ -2897,46 +2882,38 @@
 (pub fn (typeKeywordCanon n)
   (if (strEq n "Int")
     "Int"
-    (if (strEq n "Integer")
-      "Int"
-      (if (strEq n "Float")
-        "Float"
-        (if (strEq n "Bool")
-          "Bool"
-          (if (strEq n "Char")
-            "Char"
-            (if (strEq n "String")
-              "String"
-              (if (strEq n "Void")
-                "Void"
-                (if (strEq n "Unit")
-                  "Unit"
-                  (if (strEq n "Any")
-                    "Any"
-                    ; `Foreign` - an opaque foreign pointer (docs/ffi.md, MM-FFI-5
-                    ; requirement 1: "foreign memory be a DISTINCT TYPE from Int").
-                    ; A builtin rather than a declared type because the two readers that
-                    ; must agree about it are the checker and the EMITTER, and a
-                    ; user-declarable name could be shadowed by a `data Foreign` that
-                    ; the emitter would then treat as a counted block.
-                    (if (strEq n "Foreign")
-                      "Foreign"
-                      ; `Handle` - an Axiom block of the FOREIGN FORM holding a Rust
-                      ; value and its destructor (docs/ffi.md): a counted REFERENCE,
-                      ; unlike `Foreign`, so the Rust value dies when its last Axiom
-                      ; holder does. A builtin for the reason `Foreign` is.
-                      (if (strEq n "Handle")
-                        "Handle"
-                        ; `Spawn` - what a spawn primitive answers and a
-                        ; join takes (docs/memory-model.md MM-PAR-8): one
-                        ; machine word, a slot in the runtime's handle
-                        ; table, never shared between bindings. A builtin
-                        ; for `Foreign`'s reason: the checker, which
-                        ; types the primitives, and the emitter, which
-                        ; must never count one, have to agree about it.
-                        (if (strEq n "Spawn")
-                          "Spawn"
-                          (cast String 0))))))))))))))
+    (if (strEq n "Float")
+      "Float"
+      (if (strEq n "Bool")
+        "Bool"
+        (if (strEq n "Char")
+          "Char"
+          (if (strEq n "String")
+            "String"
+            ; `Foreign` - an opaque foreign pointer (docs/ffi.md, MM-FFI-5
+            ; requirement 1: "foreign memory be a DISTINCT TYPE from Int").
+            ; A builtin rather than a declared type because the two readers that
+            ; must agree about it are the checker and the EMITTER, and a
+            ; user-declarable name could be shadowed by a `data Foreign` that
+            ; the emitter would then treat as a counted block.
+            (if (strEq n "Foreign")
+              "Foreign"
+              ; `Handle` - an Axiom block of the FOREIGN FORM holding a Rust
+              ; value and its destructor (docs/ffi.md): a counted REFERENCE,
+              ; unlike `Foreign`, so the Rust value dies when its last Axiom
+              ; holder does. A builtin for the reason `Foreign` is.
+              (if (strEq n "Handle")
+                "Handle"
+                ; `Spawn` - what a spawn primitive answers and a
+                ; join takes (docs/memory-model.md MM-PAR-8): one
+                ; machine word, a slot in the runtime's handle
+                ; table, never shared between bindings. A builtin
+                ; for `Foreign`'s reason: the checker, which
+                ; types the primitives, and the emitter, which
+                ; must never count one, have to agree about it.
+                (if (strEq n "Spawn")
+                  "Spawn"
+                  (cast String 0))))))))))
 
 (pub :: lexStartsLower (-> String Int))
 (pub fn (lexStartsLower s)
@@ -2993,7 +2970,7 @@
   (if (peekIs tokens pos TK_LBRACKET)
     (pErrRemoved pos "list")
     (if (peekIs tokens pos TK_IDENT)
-      ; `* T` and `linear T` prefix the NEXT atom. `*Any` without the
+      ; `* T` and `linear T` prefix the NEXT atom. `*Int` without the
       ; space lexes as one identifier here (stage1's `*` is an ident
       ; character) and lands in the TCon fallback - a recorded lexer
       ; gap; spell pointers `(* T)`.
