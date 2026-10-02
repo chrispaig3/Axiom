@@ -1,0 +1,5 @@
+; A `'` that opens no character literal is refused with advice, not a
+; bare syntax error: the shape is a Scheme habit (`'x`, `'(a b)`), and
+; Axiom has no quote form.
+(:: main Int)
+(fn (main) '(1 2))

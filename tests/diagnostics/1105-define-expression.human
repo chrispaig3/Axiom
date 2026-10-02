@@ -1,0 +1,10 @@
+[1;31merror[AX2004][0m[1m: `define` is no longer part of Axiom[0m
+ [1;34m--> [0m1105-define-expression.ax:5:13
+[1;34m  |[0m
+[1;34m5 |[0m (fn (main) (define (f x) x))
+[1;34m  |[0m             [1;31m^^^^^^ `define` was the old spelling of `fn`, read as the same declaration; a language with two spellings of one thing makes every reader learn both[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mwrite `fn`: `(fn (add x y) (+ x y))`, and `(fn (answer) 42)` for a function with no parameters
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX2004` for a full explanation
+
+compilation failed due to 1 previous error

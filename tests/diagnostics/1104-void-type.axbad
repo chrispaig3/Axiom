@@ -1,0 +1,9 @@
+; `void` in type position is AX3047 like the other C spellings, and the
+; advice names the empty tuple: a C `void` result is `()` in Axiom.
+(:: f (-> Int void))
+
+(fn (f x) 7)
+
+(:: main Int)
+
+(fn (main) (f 41))

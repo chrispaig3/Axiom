@@ -1,0 +1,1 @@
+{"severity":"error","code":"AX2001","slug":"unexpected-token","message":"expected expression, found `'`","file":"1106-stray-quote.ax","span":{"start":{"line":5,"col":12},"end":{"line":5,"col":13},"char_start":193,"char_end":194},"label":"stray `'` here","related":[],"notes":[],"help":["a `'` opens a character literal such as `'a'`; Axiom has no quote form"],"expansion":[]}

@@ -1,0 +1,10 @@
+[1;31merror[AX3005][0m[1m: non-exhaustive pattern match: some `Option Int` values are not covered[0m
+ [1;34m--> [0m1107-match-literal-column.ax:6:10
+[1;34m  |[0m
+[1;34m6 |[0m   (match o
+[1;34m  |[0m          [1;31m^ this `match` does not cover every value of `Option Int`[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0madd the missing arms, or a wildcard `_` arm to catch the rest
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3005` for a full explanation
+
+compilation failed due to 1 previous error

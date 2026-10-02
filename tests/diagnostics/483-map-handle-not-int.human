@@ -20,7 +20,7 @@
 [1;34m62 |[0m       (mapLen (Map
 [1;34m   |[0m                [1;31m^^^ no binding named `Map` in scope[0m
 [1;34m   |[0m
-  [1;34m = [0m[1;32mhelp: [0mvariables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
+  [1;34m = [0m[1;32mhelp: [0mvariables must be defined (via `fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
 
 compilation failed due to 3 previous errors

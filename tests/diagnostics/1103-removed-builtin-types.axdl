@@ -1,4 +1,4 @@
-E AX3002 1103-removed-builtin-types.ax:4:5-11 undefined-type "undefined type `Unit`" #"no type named `Unit` is visible here" ?"check for typos, or a missing `data`/`struct`/`type` declaration"
-E AX3002 1103-removed-builtin-types.ax:7:5-10 undefined-type "undefined type `Integer`" #"no type named `Integer` is visible here" ?"check for typos, or a missing `data`/`struct`/`type` declaration"
-E AX3002 1103-removed-builtin-types.ax:10:5-12 undefined-type "undefined type `Void`" #"no type named `Void` is visible here" ?"check for typos, or a missing `data`/`struct`/`type` declaration"
-E AX3002 1103-removed-builtin-types.ax:13:5-13 undefined-type "undefined type `Any`" #"no type named `Any` is visible here" ?"check for typos, or a missing `data`/`struct`/`type` declaration"
+E AX3002 1103-removed-builtin-types.ax:4:5-11 undefined-type "undefined type `Unit`" #"no type named `Unit` is visible here" ?"write `()`: `Unit` is not a builtin type"
+E AX3002 1103-removed-builtin-types.ax:7:5-10 undefined-type "undefined type `Integer`" #"no type named `Integer` is visible here" ?"write `Int`: `Integer` is not a builtin type"
+E AX3002 1103-removed-builtin-types.ax:10:5-12 undefined-type "undefined type `Void`" #"no type named `Void` is visible here" ?"write `()`: `Void` is not a builtin type"
+E AX3002 1103-removed-builtin-types.ax:13:5-13 undefined-type "undefined type `Any`" #"no type named `Any` is visible here" ?"`Any` is not a builtin type; a lowercase name in type position is a type variable"

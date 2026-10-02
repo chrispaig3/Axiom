@@ -1,0 +1,1 @@
+E AX3005 1107-match-literal-column.ax:6:10-11 non-exhaustive-match "non-exhaustive pattern match: some `Option Int` values are not covered" #"this `match` does not cover every value of `Option Int`" ?"add the missing arms, or a wildcard `_` arm to catch the rest"

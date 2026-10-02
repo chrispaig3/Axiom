@@ -1071,6 +1071,18 @@
     n
     "AX3047"))
 
+; A `'` that opens no character literal. The code is the bare word,
+; the way `for-in` is: the diagnostic keeps its AX2001 code and slug,
+; and only the message and help are quote-specific.
+(pub :: pErrQuote (-> Int Int))
+(pub fn (pErrQuote p)
+  (PResult
+    0
+    0
+    p
+    ""
+    "quote"))
+
 ; An `extern` block's library name that is not one. `exp` carries the
 ; ONE offending byte as a one-byte string, and `""` means the name was
 ; empty - the two shapes AX3041 has. The offending byte rather than the
@@ -1170,6 +1182,26 @@
           (diagSetLabel d (strConcat (strConcat "this binds a fresh type variable named `" n) "`"))
           d
         }))))
+
+; A `'` that opens no character literal: AX2001 with a
+; quote-specific message and help. The shape this catches is a
+; Scheme habit, `'x` or `'(a b)` - the char-literal rule sends a
+; quote followed by space, `(` or `[` here - and Axiom has no
+; quote form, so the help says what the quote mark does open
+; rather than naming a replacement that does not exist.
+(pub :: quoteDiag (-> (Vec Int) Int Int))
+(pub fn (quoteDiag tokens pos)
+  (let ((tok (vecGet tokens pos)))
+    (diagSetLabel (mkDiag
+      SEV_ERROR
+      "AX2001"
+      "unexpected-token"
+      (tokenSpan tok)
+      "expected expression, found `'`"
+      0
+      ""
+      "a `'` opens a character literal such as `'a'`; Axiom has no quote form")
+      "stray `'` here")))
 
 ; AX2006, at the offending SEGMENT's own token.
 ;
@@ -1299,7 +1331,13 @@
           (ax3047Diag tokens pos exp)
           (if (strEq (pResCode r) "AX3041")
             (ax3041Diag tokens pos exp)
-            ; AX2002 is NOT "the position is at EOF" - stage0 emits it from
+            ; A stray `'`, refused where the token kind is still
+            ; known: the generic arms below read only the
+            ; expectation, which a quote never states, so without
+            ; this the reader gets a bare syntax error.
+            (if (strEq (pResCode r) "quote")
+              (quoteDiag tokens pos)
+              ; AX2002 is NOT "the position is at EOF" - stage0 emits it from
             ; exactly one routine, the one that demands a SPECIFIC token kind
             ; (`expect(RParen)` and friends), and reports AX2001 with a found
             ; text of `EOF` from every site that wanted a CATEGORY. So the
@@ -1377,7 +1415,7 @@
                       (strConcat (strConcat "expected " exp) (strConcat ", found `" (strConcat (foundText tok) "`")))
                       0
                       ""
-                      (strConcat (strConcat "Axiom expected " exp) " at this position")) (strConcat (strConcat "found `" (foundText tok)) "` here")))))))))))))
+                      (strConcat (strConcat "Axiom expected " exp) " at this position")) (strConcat (strConcat "found `" (foundText tok)) "` here"))))))))))))))
 
 ; The diagnostic for a LEXICAL error, or 0 when the token stream has
 ; none. Lexing happens before parsing, so this is asked first and a
@@ -1567,7 +1605,7 @@
             (if (strEq kw "deriving")
               (strConcat "derive instances explicitly, where you want them: " "`(deriveEq T)` is an ordinary declaration macro (docs/macro-system.md MAC-CAP-9)")
               (if (strEq kw "trait")
-                (strConcat (strConcat "declare a capability record instead: `(struct ShowOf (a) (render : " "(-> a String)))`, and bind an instance with `fn` - ") "`(fn (showInt) (ShowOf fmtInt))`. Call through the field: `((c.render) x)`")
+                (strConcat (strConcat "declare a capability record instead: `(struct ShowOf (a) (render : " "(-> a String)))`, and bind an instance with `fn` - ") "`(fn (showInt) (ShowOf fmtInt))`. Call through the field: `(c.render x)`")
                 (if (strEq kw "impl")
                   (strConcat (strConcat "bind the instance as a VALUE - `(fn (showColor) (ShowOf renderColor))` " "- and pass it where it is needed. If this was an `impl` of `Show`, ") "delete it: `show` and `{}` interpolation render every type from its static type without one")
                   (if (strEq kw "list")
@@ -2824,7 +2862,7 @@
           (if (sizedTyIn n "str string")
             "String"
             (if (sizedTyIn n "void")
-              "Int"
+              "()"
               "")))))))
 
 ; Is `n` one of the space-separated words in `words`?
@@ -4681,7 +4719,12 @@
               (parseSExpr tokens pos)
               (if (peekIs tokens pos TK_LBRACE)
                 (parseBlock tokens (advance pos))
-                (pErrExp pos "expression")))))))))
+                ; A `'` the lexer could not read as a character
+                ; literal: refused here, where the token kind is
+                ; still known, rather than as a bare syntax error.
+                (if (peekIs tokens pos TK_QUOTE)
+                  (pErrQuote pos)
+                  (pErrExp pos "expression"))))))))))
 
 ; ------------------------------------------------------------------
 ; Parse an S-expression: dispatch on first token.
@@ -4784,9 +4827,19 @@
                                       (pErrRemoved pos "begin")
                                       (if (kwEq name "alloc")
                                         (pErrRemoved pos "alloc")
-                                        (if (kwEq name "handle")
-                                          (parseHandleExpr tokens (advance pos))
-                                          (parseAppForm tokens pos))))))))))))))))))))
+                                        ; `define` is RESERVED in expression
+                                        ; position too: it was the old
+                                        ; spelling of `fn`, so old source
+                                        ; nests it, and falling through
+                                        ; would report `AX3001 undefined
+                                        ; variable define` - a typo read
+                                        ; on a keyword with a known
+                                        ; replacement.
+                                        (if (kwEq name kwDefine)
+                                          (pErrRemoved pos "define")
+                                          (if (kwEq name "handle")
+                                            (parseHandleExpr tokens (advance pos))
+                                            (parseAppForm tokens pos)))))))))))))))))))))
     (if (peekIs tokens pos TK_DOUBLE_COLON)
       (parseTypeSigExpr tokens (advance pos))
       (if (peekIs tokens pos TK_RPAREN)

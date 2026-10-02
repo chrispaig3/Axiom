@@ -1,0 +1,5 @@
+; `define` in expression position is AX2004, not AX3001: it was the old
+; spelling of `fn`, so a use nested in a body gets the migration advice
+; rather than an undefined-variable report.
+(:: main Int)
+(fn (main) (define (f x) x))

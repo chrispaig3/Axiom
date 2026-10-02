@@ -512,6 +512,9 @@ this module:
 
 The built-ins are `Int`, `Float`, `Bool`, `Char`, `String`,
 `Foreign` and `Handle`, with `Vec`, `Option` and the arrow `(-> a b)` over them.
+`Integer`, `Unit`, `Void` and `Any` look like built-ins and are not:
+write `Int` for `Integer`, `()` for `Unit` and `Void`, and a lowercase
+type variable for `Any`.
 Everything else is declared by a `data`, a `struct` or a `type`
 alias, in this module or in one it imports.
 

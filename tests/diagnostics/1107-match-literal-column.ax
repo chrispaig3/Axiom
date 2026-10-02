@@ -1,0 +1,11 @@
+; A literal arm over a non-enumerable column names the scrutinee's
+; type: `(Some 1)` covers one `Int`, not the column, so the match over
+; `(Option Int)` is inexhaustive with no single missing constructor.
+(:: f (-> (Option Int) Int))
+(fn (f o)
+  (match o
+    ((Some 1) 10)
+    ((None) 0)))
+
+(:: main Int)
+(fn (main) 0)

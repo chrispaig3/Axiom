@@ -4,7 +4,7 @@
 [1;34m18 |[0m   (__thisPrimitiveDoesNotExist 1 2))
 [1;34m   |[0m    [1;31m^^^^^^^^^^^^^^^^^^^^^^^^^^^ no binding named `__thisPrimitiveDoesNotExist` in scope[0m
 [1;34m   |[0m
-  [1;34m = [0m[1;32mhelp: [0mvariables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
+  [1;34m = [0m[1;32mhelp: [0mvariables must be defined (via `fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
 
 compilation failed due to 1 previous error

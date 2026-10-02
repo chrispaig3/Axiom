@@ -4,7 +4,7 @@
 [1;34m1 |[0m (trait (Ord a)
 [1;34m  |[0m  [1;31m^^^^^ `trait` was removed: an interface is a CAPABILITY RECORD now - a parameterised struct holding the functions, passed as a value. `(struct ShowOf (a) (render : (-> a String)))`, and `(ShowOf fmtInt)` is the instance[0m
 [1;34m  |[0m
- [1;34m = [0m[1;32mhelp: [0mdeclare a capability record instead: `(struct ShowOf (a) (render : (-> a String)))`, and bind an instance with `fn` - `(fn (showInt) (ShowOf fmtInt))`. Call through the field: `((c.render) x)`
+ [1;34m = [0m[1;32mhelp: [0mdeclare a capability record instead: `(struct ShowOf (a) (render : (-> a String)))`, and bind an instance with `fn` - `(fn (showInt) (ShowOf fmtInt))`. Call through the field: `(c.render x)`
  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX2004` for a full explanation
 
 compilation failed due to 1 previous error
