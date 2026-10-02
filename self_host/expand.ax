@@ -5970,7 +5970,7 @@
         ""
       }
       (let ((arch (nodeAName head)))
-        (if (if (expAsmArch arch) false true)
+        (if (! (expAsmArch arch))
           {
             (expAsmBad env (nodeSpan head) (strConcat (strConcat "`" arch) "` is not an architecture `asm` knows; an arm opens with `aarch64` or `x86_64`"))
             ""
@@ -6295,7 +6295,7 @@
     (p (strLen prefix))
     (n (strLen r))
   )
-    (if (|| (<= n p) (|| (> (- n p) 2) (if (strStartsWith r prefix) false true)))
+    (if (|| (<= n p) (|| (> (- n p) 2) (! (strStartsWith r prefix))))
       false
       (if (&& (== (- n p) 2) (== (strByte r p) 48))
         false
@@ -6409,7 +6409,7 @@
         (vecPush errs (strConcat (strConcat "the template writes `{" nm) "}`, and no operand of this arm has that name; write `{{` and `}}` for literal braces"))
         ""
       }
-      (if (&& (> (strLen m) 0) (if (expAsmModifier arch m) false true))
+      (if (&& (> (strLen m) 0) (! (expAsmModifier arch m)))
         {
           (vecPush errs (strConcat (strConcat (strConcat "`:" m) "` is not an operand modifier on ") (strConcat arch (if (strEq arch "aarch64")
             "; the modifiers are `w` and `x`"

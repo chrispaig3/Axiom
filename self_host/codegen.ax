@@ -7,6 +7,7 @@
 (import Vec)
 (import Sys)
 (import IO (fileExists readFile writeStr))
+(import Err)
 (import Path)
 (import parser)
 (import namespace)
@@ -7856,9 +7857,7 @@
 
 (pub :: cgFlagHasValuePart (-> String Bool))
 (pub fn (cgFlagHasValuePart a)
-  (match (strFindByte a 61 0)
-    ((None) false)
-    ((Some _) true)))
+  (isSome (strFindByte a 61 0)))
 
 ; `--input`, either spelling. `flagValue` lives in driver.ax, which
 ; cannot be imported here, so the one flag this needs is read
@@ -10143,7 +10142,7 @@
         (if (> (vecLen faults) 1)
           (emitLine cg (strConcat "; axiom-device-refused `isr(fault)` binds " (strConcat (fmtInt (vecLen faults)) (strConcat " functions to the one fault hook (`" (strConcat (vecGetStr faults 0) (strConcat "`, `" (strConcat (vecGetStr faults 1) "`) - bind one hook and decide inside it")))))))
           0)
-        (if (&& (== t 7) (if cgStaticlib false true))
+        (if (&& (== t 7) (! cgStaticlib))
           (emitBaremetalVectors
             cg
             (if (> (vecLen irqs) 0)

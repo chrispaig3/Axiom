@@ -6199,15 +6199,15 @@
 (pub fn (tyRemovedBuiltinHelp n)
   (if (strEq n "Integer")
     "write `Int`: `Integer` is not a builtin type"
-    (if (strEq n "Unit")
-      "write `()`: `Unit` is not a builtin type"
-      (if (strEq n "Void")
-        "write `()`: `Void` is not a builtin type"
-        (if (strEq n "Any")
-          "`Any` is not a builtin type; a lowercase name in type position is a type variable"
-          (if (strStartsWith n "*")
-            "spell a pointer `(* T)`: `*` joins the name without the space"
-            "check for typos, or a missing `data`/`struct`/`type` declaration"))))))
+    (strEq n "Unit")
+    "write `()`: `Unit` is not a builtin type"
+    (strEq n "Void")
+    "write `()`: `Void` is not a builtin type"
+    (strEq n "Any")
+    "`Any` is not a builtin type; a lowercase name in type position is a type variable"
+    (strStartsWith n "*")
+    "spell a pointer `(* T)`: `*` joins the name without the space"
+    "check for typos, or a missing `data`/`struct`/`type` declaration"))
 
 (pub :: tyUnknownConVec (-> Int (Vec Int) Int Int))
 (pub fn (tyUnknownConVec tc xs i)

@@ -672,10 +672,10 @@
 ;                       The `if` answers its condition unchanged, so
 ;                       the shorter spelling says the same thing.
 ;                       The other order is deliberately NOT linted:
-;                       `(if c false true)` IS this language's boolean
-;                       negation, and suggesting the other order
-;                       would invent a rule against a spelling the
-;                       language's own code uses.
+;                       `(! c)` is this language's boolean negation
+;                       and the `if` form still parses, so flagging
+;                       it would invent a rule against a spelling
+;                       the language accepts.
 ;
 ;   `lint-unused-let`   a `let` (or `mut`) binding nothing in its
 ;                       scope reads. Computing a value and dropping
@@ -4417,9 +4417,7 @@
     (== span 0)
     (||
       (strEq name "_")
-      (match (strFindByte name 36 0)
-        ((None) false)
-        ((Some _) true))))
+      (isSome (strFindByte name 36 0))))
     0
     (lspNavEmit
       nv
@@ -6595,13 +6593,9 @@
 ; stage spelled it with: `::` in the raw tree, `$` after mangling.
 (pub :: lspShapeQualified (-> String Bool))
 (pub fn (lspShapeQualified name)
-  (match (strFindByte name 58 0)
-    ((None)
-      (match (strFindByte name 36 0)
-        ((None) false)
-        ((Some _) true))
-    )
-    ((Some _) true)))
+  (||
+    (isSome (strFindByte name 58 0))
+    (isSome (strFindByte name 36 0))))
 
 ; A call's shape, asked in the language's own order: this
 ; document's signature first, so a declaration shadows a builtin

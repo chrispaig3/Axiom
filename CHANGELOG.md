@@ -87,6 +87,13 @@ its changelog too.
   parser dispatches on, and the parser still takes it to an AX2004
   refusal naming `__alloc`. Tested by
   `scripts/check-lsp-selfhost.sh`.
+- The compiler's own source adopts the latest spellings. Option
+  matches collapse to `isSome`, boolean negations to `!`, and
+  nested `if` ladders to the variadic `if` (the removed-builtin
+  help drops four levels of nesting, `fmtIntStr` three). No behavior
+  change: every changed line is held by the same
+  gates that covered it, `scripts/check-diagnostics.sh`,
+  `scripts/check-render-selfhost.sh` and `scripts/check-self-host.sh`.
 
 ## 0.7.7 — 2026-09-30
 

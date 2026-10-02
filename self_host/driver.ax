@@ -43,6 +43,7 @@
 (import Vec)
 (import Sys)
 (import IO (fileExists readFile removeFile writeFile writeStr))
+(import Err)
 (import Path)
 (import parser)
 (import codegen)
@@ -2011,13 +2012,13 @@
 (pub fn (fmtIntStr n)
   (if (== n 0)
     "0"
-    (if (== n 1)
-      "1"
-      (if (== n 2)
-        "2"
-        (if (== n 3)
-          "3"
-          "1")))))
+    (== n 1)
+    "1"
+    (== n 2)
+    "2"
+    (== n 3)
+    "3"
+    "1"))
 
 ; ------------------------------------------------------------------
 ; Argument parsing.
@@ -2235,9 +2236,7 @@
 
 (pub :: flagHasValuePart (-> String Bool))
 (pub fn (flagHasValuePart a)
-  (match (strFindByte a 61 0)
-    ((None) false)
-    ((Some _) true)))
+  (isSome (strFindByte a 61 0)))
 
 (pub :: flagValuePart (-> String String))
 (pub fn (flagValuePart a)
@@ -2591,12 +2590,8 @@
   (||
     (strEq w "-")
     (||
-      (match (strFindByte w 47 0)
-        ((None) false)
-        ((Some _) true))
-      (match (strFindByte w 46 0)
-        ((None) false)
-        ((Some _) true)))))
+      (isSome (strFindByte w 47 0))
+      (isSome (strFindByte w 46 0)))))
 
 ; Is `want` present as a FLAG - anywhere in argv, not as another flag's
 ; value, and not after `--`?
