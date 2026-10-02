@@ -146,8 +146,8 @@
 ; THE EXIT STATUS IS NOT IN THE IR. `MT_TRAP` carries the helper's
 ; SYMBOL; which status that symbol exits with is `codegen.ax`'s
 ; property of it. Putting the number here would mean the IR had to
-; round-trip a status, and a status in this tree does not identify a
-; condition uniquely - 77 is both the index trap and the contract trap.
+; round-trip a status, and the helper-to-status mapping lives in one
+; place: the trap emitters (77 the index trap, 80 the contract trap).
 (pub :: MT_TRAPZ Int)
 (pub fn (MT_TRAPZ)
   13)

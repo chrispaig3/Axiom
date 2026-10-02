@@ -9,7 +9,7 @@
 [1;34m18 |[0m (macro (getf s x) s.x)
 [1;34m   |[0m         [1;36m^^^^ in this expansion of `getf`[0m
 [1;34m   |[0m
-  [1;34m = [0m[1mnote: [0mthe field name, the struct type name, `alloc`'s type operand and `handle`'s effect list substitute nothing (macro-system.md MAC-EXP-14b)
+  [1;34m = [0m[1mnote: [0mthe field name, the struct type name and `handle`'s effect list substitute nothing (macro-system.md MAC-EXP-14b)
   [1;34m = [0m[1;32mhelp: [0mrename the parameter to mean the literal field, or bind the field name with an enclosing `syntax/for`
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3074` for a full explanation
 
@@ -24,7 +24,7 @@
 [1;34m19 |[0m (macro (setf s y v) (set s.y v))
 [1;34m   |[0m         [1;36m^^^^ in this expansion of `setf`[0m
 [1;34m   |[0m
-  [1;34m = [0m[1mnote: [0mthe field name, the struct type name, `alloc`'s type operand and `handle`'s effect list substitute nothing (macro-system.md MAC-EXP-14b)
+  [1;34m = [0m[1mnote: [0mthe field name, the struct type name and `handle`'s effect list substitute nothing (macro-system.md MAC-EXP-14b)
   [1;34m = [0m[1;32mhelp: [0mrename the parameter to mean the literal field, or bind the field name with an enclosing `syntax/for`
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3074` for a full explanation
 
@@ -39,7 +39,7 @@
 [1;34m20 |[0m (macro (mkpt Point x y) (struct Point x y))
 [1;34m   |[0m         [1;36m^^^^ in this expansion of `mkpt`[0m
 [1;34m   |[0m
-  [1;34m = [0m[1mnote: [0mthe field name, the struct type name, `alloc`'s type operand and `handle`'s effect list substitute nothing (macro-system.md MAC-EXP-14b)
+  [1;34m = [0m[1mnote: [0mthe field name, the struct type name and `handle`'s effect list substitute nothing (macro-system.md MAC-EXP-14b)
   [1;34m = [0m[1;32mhelp: [0mrename the parameter to mean the literal type
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3074` for a full explanation
 
@@ -54,7 +54,7 @@
 [1;34m25 |[0m (macro (runask x Ask) (handle x (Ask) (lambda (p) p)))
 [1;34m   |[0m         [1;36m^^^^^^ in this expansion of `runask`[0m
 [1;34m   |[0m
-  [1;34m = [0m[1mnote: [0mthe field name, the struct type name, `alloc`'s type operand and `handle`'s effect list substitute nothing (macro-system.md MAC-EXP-14b)
+  [1;34m = [0m[1mnote: [0mthe field name, the struct type name and `handle`'s effect list substitute nothing (macro-system.md MAC-EXP-14b)
   [1;34m = [0m[1;32mhelp: [0mrename the parameter to mean the literal effect
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3074` for a full explanation
 

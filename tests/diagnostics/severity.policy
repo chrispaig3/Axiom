@@ -220,9 +220,9 @@ AX3045
 AX3046
 # AX3074 `macro-parameter-name-position` - a macro parameter standing
 #          where the template keeps a name: the field of `.`/`set`,
-#          a struct construction's type, `alloc`'s type operand, or
-#          `handle`'s effect list. A warning by DESIGN, like the four
-#          above: each position is deliberately a name rather than an
+#          a struct construction's type, or `handle`'s effect list.
+#          A warning by DESIGN, like the four above: each position is
+#          deliberately a name rather than an
 #          expression, and templates have always meant the literal
 #          spelling there, so an error would refuse working programs
 #          to catch the accidents. The deliberate spellings are a

@@ -4116,7 +4116,7 @@
         0
         0
         help
-        "the field name, the struct type name, `alloc`'s type operand and `handle`'s effect list substitute nothing (macro-system.md MAC-EXP-14b)")))))
+        "the field name, the struct type name and `handle`'s effect list substitute nothing (macro-system.md MAC-EXP-14b)")))))
 
 ; The first parameter name a TYPE node mentions, or null. Mirrors
 ; `expSubstTy`'s traversal - constructor and variable names, both
@@ -4665,8 +4665,6 @@
                                   0
                                   isp)
                               }
-                              ; `alloc`'s word a is a TYPE node, which holds no parameter
-                              ; reference; its count is an expression.
                               (if (== tag TAG_E_HANDLE)
                                   (let ((en (expHandleParamName (nodeBVec tpl) params 0)))
                                     {
