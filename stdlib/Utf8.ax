@@ -281,44 +281,38 @@
 ; ------------------------------------------------------------------
 ; Is every byte of `s` part of a well-formed UTF-8 sequence?
 ;
-; Checks structure - lead byte, the right number of continuation bytes,
-; and no sequence running off the end. It does not reject an
-; overlong encoding, a surrogate, or a code point above U+10FFFF; those
-; need range checks per sequence length, and nothing in the compiler
-; asks the question yet.
+; Strict - Unicode's Table 3-7 at every offset, through
+; `utf8WellFormedAt` below - so an overlong form, an encoded
+; surrogate, a code point above U+10FFFF, a stray continuation byte
+; and a truncated sequence all answer false. It used to check
+; structure only, and the name promised more than it asked.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: utf8Valid (-> String Bool))
 (pub fn (utf8Valid s)
-  (utf8ValidFrom s 0))
+  (utf8ValidFrom s 0 (strLen s)))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
-(:: utf8ValidFrom (-> String Int Bool))
-(fn (utf8ValidFrom s i)
-  (if (>= i (strLen s))
+(:: utf8ValidFrom (-> String Int Int Bool))
+(fn (utf8ValidFrom s i end)
+  (if (>= i end)
     true
-    (let ((b (strByte s i)))
-      (if (utf8IsCont b)
+    (let ((n (utf8WellFormedAt s i end)))
+      (if (== n 0)
         false
-        (let ((n (utf8SeqLen b)))
-          (if (&& (>= b 248) (>= n 1))
-            false
-            (if (> (+ i n) (strLen s))
-              false
-              (if (utf8ContRun s (+ i 1) (- n 1))
-                (utf8ValidFrom s (+ i n))
-                false))))))))
+        (utf8ValidFrom s (+ i n) end)))))
 
 ; The length of the WELL-FORMED UTF-8 sequence that begins at byte `i`
 ; of `s` and ends at or before byte `end`: 1 to 4, or 0 when the bytes
 ; there are not one.
 ;
-; Strict where `utf8Valid` is structural - this is Unicode's Table 3-7
-; exactly, so an overlong form (`C0 AF`), an encoded surrogate
-; (`ED A0 80`), a code point above U+10FFFF (`F4 90 ..`), a stray
-; continuation byte, a truncated sequence and the bytes `F5`-`FF` all
-; answer 0. Those are the inputs a strict decoder refuses - Python's,
-; and every JSON parser's - so a writer that must never emit text such
-; a reader rejects asks this, and replaces what answers 0.
+; This is Unicode's Table 3-7 exactly, so an overlong form
+; (`C0 AF`), an encoded surrogate (`ED A0 80`), a code point above
+; U+10FFFF (`F4 90 ..`), a stray continuation byte, a truncated
+; sequence and the bytes `F5`-`FF` all answer 0. Those are the inputs
+; a strict decoder refuses - Python's, and every JSON parser's - so
+; a writer that must never emit text such a reader rejects asks this,
+; and replaces what answers 0. `utf8Valid` above is the whole-string
+; question over this one.
 ;
 ; Added 2026-09-27 for exactly that writer: the compiler's JSON
 ; diagnostics passed ill-formed bytes from a source file straight
@@ -376,12 +370,3 @@
     (let ((c (strByte s i)))
       (&& (>= c lo) (<= c hi)))))
 
-; Are the next `k` bytes from `i` all continuation bytes?
-;@axiom:restrict(no-io,no-alloc,no-foreign)
-(:: utf8ContRun (-> String Int Int Bool))
-(fn (utf8ContRun s i k)
-  (if (<= k 0)
-    true
-    (if (utf8IsCont (strByte s i))
-      (utf8ContRun s (+ i 1) (- k 1))
-      false)))

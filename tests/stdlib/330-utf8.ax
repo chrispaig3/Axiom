@@ -116,14 +116,14 @@
     (println (check (utf8Valid (utf8FromChar 55296)) 108))
     (println (check (utf8Valid (utf8FromChar 2000000)) 109))
     (println (cpOr (utf8DecodeAt (utf8FromChar 55296) 0)))
-    ; `utf8WellFormedAt` is the STRICT question, Unicode's Table 3-7 at
-    ; one offset, where `utf8Valid` above checks structure only: the
+    ; `utf8WellFormedAt` is Unicode's Table 3-7 at one offset: the
     ; length of the well-formed character there, or 0. The diagnostic
     ; writers ask it before copying a byte (2026-09-27, the fuzzer's
-    ; JSON finding). One of each length, then the five ill-formed
-    ; shapes a strict reader refuses - truncated, a stray continuation
-    ; byte, an encoded surrogate, an overlong form, past U+10FFFF - and
-    ; the last scalar below the surrogates, which is NOT one of them.
+    ; JSON finding), and `utf8Valid` above walks the whole string with
+    ; it. One of each length, then the five ill-formed shapes a strict
+    ; reader refuses - truncated, a stray continuation byte, an encoded
+    ; surrogate, an overlong form, past U+10FFFF - and the last scalar
+    ; below the surrogates, which is NOT one of them.
     (println (utf8WellFormedAt "a" 0 1))
     (println (utf8WellFormedAt "é" 0 2))
     (println (utf8WellFormedAt "世" 0 3))
@@ -134,5 +134,36 @@
     (println (utf8WellFormedAt (strConcat (strFromByte 192) (strFromByte 175)) 0 2))
     (println (utf8WellFormedAt (strConcat (strFromByte 244) (strConcat (strFromByte 144) (strConcat (strFromByte 128) (strFromByte 128)))) 0 4))
     (println (utf8WellFormedAt (strConcat (strFromByte 237) (strConcat (strFromByte 159) (strFromByte 191))) 0 3))
+    ; `utf8Valid` refuses what the one-offset question refuses: the
+    ; overlong form, the encoded surrogate and the code point past
+    ; U+10FFFF are all false here, while the largest scalar, the last
+    ; scalar below the surrogates and the empty string are true.
+    (println
+      (check
+        (if (utf8Valid (strConcat (strFromByte 192) (strFromByte 175)))
+          false
+          true)
+        110))
+    (println
+      (check
+        (if (utf8Valid (strConcat (strFromByte 237) (strConcat (strFromByte 160) (strFromByte 128))))
+          false
+          true)
+        111))
+    (println
+      (check
+        (if (utf8Valid (strConcat (strFromByte 244) (strConcat (strFromByte 144) (strConcat (strFromByte 128) (strFromByte 128)))))
+          false
+          true)
+        112))
+    (println
+      (check
+        (utf8Valid (strConcat (strFromByte 244) (strConcat (strFromByte 143) (strConcat (strFromByte 191) (strFromByte 191)))))
+        113))
+    (println (check (utf8Valid "") 114))
+    (println
+      (check
+        (utf8Valid (strConcat (strFromByte 237) (strConcat (strFromByte 159) (strFromByte 191))))
+        115))
     0
   })

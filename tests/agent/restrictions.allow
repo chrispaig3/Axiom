@@ -724,7 +724,6 @@ unescByte self_host/core.ax no-io,no-alloc,no-foreign ok
 unitIndexes self_host/diag.ax no-io,no-foreign ok
 utf8CharAt stdlib/Utf8.ax no-io,no-alloc,no-foreign ok
 utf8ContIn stdlib/Utf8.ax no-io,no-alloc,no-foreign ok
-utf8ContRun stdlib/Utf8.ax no-io,no-alloc,no-foreign ok
 utf8DecodeAt stdlib/Utf8.ax no-io,no-alloc,no-foreign ok
 utf8Encodable stdlib/Utf8.ax no-io,no-alloc,no-foreign ok
 utf8FromChar stdlib/Utf8.ax no-io,no-foreign ok

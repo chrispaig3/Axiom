@@ -22,6 +22,12 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+- `Utf8.utf8Valid` is strict. It used to check structure only, so an
+  overlong form, an encoded surrogate and a code point above U+10FFFF
+  all answered true. It now asks Unicode's Table 3-7 at every offset,
+  through `utf8WellFormedAt`, and those answer false. Tested by
+  `tests/stdlib/330-utf8.ax`.
+
 - The builtin types have one spelling. `Integer`, `Unit`, `Void` and `Any`
   are removed: each is now an unknown type name and draws `AX3002`. Write
   `Int` for `Integer`, and `()` for the empty tuple. Tested by
