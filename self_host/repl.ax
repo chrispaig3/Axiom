@@ -90,6 +90,7 @@
 (import Host)
 (import Mem)
 (import Str)
+(import Fmt)
 (import Vec)
 (import Sys)
 (import IO (makeDirMode readFile removeDir removeFile writeFile writeStr))
@@ -1471,7 +1472,7 @@
 ; spell the `n` in `-O<n>` and nothing else. Every REPL on the machine
 ; therefore wrote `/tmp/axiom-repl-1.{ll,o,out}`, and two sessions
 ; collided on exactly the files the suffix promised they would not.
-; `diag$decStr` renders any non-negative integer and is already
+; `Fmt$fmtInt` renders any integer and is already
 ; imported here.
 ;
 ; PREDICTABILITY, fixed 2026-08-23, and NOT the same property.
@@ -1518,7 +1519,7 @@
 ;@axiom:effect(block)
 (pub fn (replEval ir)
   (let ((pid sysGetPid))
-    (let ((leaf (strConcat (strConcat "axiom-repl-" (decStr pid)) ".d")))
+    (let ((leaf (strConcat (strConcat "axiom-repl-" (fmtInt pid)) ".d")))
       (let ((dir (pathJoin replTmpRoot leaf)))
         (if (isErr (makeDirMode dir 448))
           (replOut "Error: could not create a private scratch directory\n")
@@ -1591,11 +1592,11 @@
                                   (replOut (strConcat (strConcat "result " printed) "\n"))
                                   (if (< rc 0)
                                     (replOut "Error: the program was terminated by a signal\n")
-                                    ; `decStr`, not `fmtIntStr`: an
+                                    ; `fmtInt`, not `fmtIntStr`: an
                                     ; exit status is any byte, and
                                     ; `fmtIntStr` reported every one
                                     ; of them above 3 as `1`.
-                                    (replOut (strConcat (strConcat "result " (decStr rc)) "\n"))))))))))))
+                                    (replOut (strConcat (strConcat "result " (fmtInt rc)) "\n"))))))))))))
                 (unwrapOr (removeFile ll) 0)
                 (unwrapOr (removeFile obj) 0)
                 (unwrapOr (removeFile exe) 0)
@@ -2566,7 +2567,7 @@
         (let ((v vecNew))
           {
             (vecPush v "Time: ")
-            (vecPush v (decStr ms))
+            (vecPush v (fmtInt ms))
             (vecPush v ".")
             (vecPush
               v
@@ -2575,7 +2576,7 @@
                 (if (< rem 100)
                   "0"
                   "")))
-            (vecPush v (decStr rem))
+            (vecPush v (fmtInt rem))
             (vecPush v "ms\n")
             v
           })))))

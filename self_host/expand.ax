@@ -95,6 +95,7 @@
 ; refuses makes it loud, in the commit that adds the tag.
 (import Mem)
 (import Str)
+(import Fmt)
 (import Vec)
 (import core)
 (import lexer)
@@ -1979,7 +1980,7 @@
         {
           (while (< i n)
             {
-              (vecPush names (strConcat (strConcat p "#") (decStr i)))
+              (vecPush names (strConcat (strConcat p "#") (fmtInt i)))
               (set i (+ i 1))
             })
           (let ((r vecNew))

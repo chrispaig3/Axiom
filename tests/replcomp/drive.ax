@@ -47,7 +47,7 @@
 (import Vec)
 (import Sys)
 (import Mem)
-(import diag)
+(import Fmt)
 (import style)
 (import replcomp)
 
@@ -83,7 +83,7 @@
             (println (strConcat (strConcat (strConcat (originLetter (rcOrigin c)) " ") (rcLabel c)) (strConcat " | " (rcDetail c))))
             (set i (+ i 1))
           }))
-      (println (strConcat "COUNT " (decStr (vecLen cands))))
+      (println (strConcat "COUNT " (fmtInt (vecLen cands))))
       0
     }))
 
@@ -136,9 +136,9 @@
               (set b (tabBuf r))
               (set c (tabCur r))
               (set st (tabState r))
-              (println (strConcat (strConcat (strConcat "BUF " (tabBuf r)) (strConcat " CUR " (decStr (tabCur r)))) (strConcat " ROWS " (decStr (tabRows r)))))
-              (println (strConcat "MENUNL " (decStr (countNl (tabMenu r)))))
-              (println (strConcat "ESCBYTES " (decStr (strLen (tabMenu r)))))
+              (println (strConcat (strConcat (strConcat "BUF " (tabBuf r)) (strConcat " CUR " (fmtInt (tabCur r)))) (strConcat " ROWS " (fmtInt (tabRows r)))))
+              (println (strConcat "MENUNL " (fmtInt (countNl (tabMenu r)))))
+              (println (strConcat "ESCBYTES " (fmtInt (strLen (tabMenu r)))))
               (set i (+ i 1))
             })))
       0
@@ -225,17 +225,15 @@
                                 (strConcat
                                   (strConcat
                                     "W "
-                                    (if (< w 0)
-                                      (strConcat "-" (decStr (- 0 w)))
-                                      (decStr w)))
+                                    (fmtInt w))
                                   " SEL ")
                                 (if (< sel 0)
                                   "n"
-                                  (decStr sel)))
+                                  (fmtInt sel)))
                               " ROWS ")
-                            (decStr (replComplRows cands sel w)))
-                          (strConcat " NL " (decStr (countNl (replComplMenu cands sel w)))))
-                        (strConcat " MAXVIS " (decStr (maxLineVis (replComplMenu cands sel w))))))
+                            (fmtInt (replComplRows cands sel w)))
+                          (strConcat " NL " (fmtInt (countNl (replComplMenu cands sel w)))))
+                        (strConcat " MAXVIS " (fmtInt (maxLineVis (replComplMenu cands sel w))))))
                     (set si (+ si 1))
                   }))
               (set wi (+ wi 1))
@@ -255,8 +253,8 @@
     )
       {
         (writeStr 1 (replComplMenu cands sel width))
-        (println (strConcat "ROWS " (decStr (replComplRows cands sel width))))
-        (println (strConcat "MENUNL " (decStr (countNl (replComplMenu cands sel width)))))
+        (println (strConcat "ROWS " (fmtInt (replComplRows cands sel width))))
+        (println (strConcat "MENUNL " (fmtInt (countNl (replComplMenu cands sel width)))))
         0
       })))
 

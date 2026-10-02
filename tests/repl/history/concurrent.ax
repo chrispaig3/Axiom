@@ -9,7 +9,7 @@
 ; Driven by scripts/check-repl-history.sh.
 (import Str)
 (import Sys)
-(import diag)
+(import Fmt)
 (import replhist)
 
 ; `HIST_PAD=1` makes every entry about 260 bytes instead of about 16,
@@ -29,7 +29,7 @@
   (if (>= i limit)
     0
     {
-      (histRecord h (strConcat (strConcat "(entry " tag) (strConcat " " (strConcat (decStr i) (strConcat pad ")")))))
+      (histRecord h (strConcat (strConcat "(entry " tag) (strConcat " " (strConcat (fmtInt i) (strConcat pad ")")))))
       (tagRecord
         h
         tag

@@ -50,6 +50,7 @@
 (import core)
 (import Mem)
 (import Str)
+(import Fmt)
 (import Vec)
 (import Utf8)
 (import diag)
@@ -92,7 +93,7 @@
 ; seven columns wide per colour.
 (pub :: rjNum (-> Int Int String))
 (pub fn (rjNum n w)
-  (let ((t (decStr n)))
+  (let ((t (fmtInt n)))
     (strConcat (spacesN (- w (visLen t))) t)))
 
 ; Byte offset one past the last byte of the line containing `off`.
@@ -885,7 +886,7 @@
   )
     {
       (while (< i (vecLen rows))
-        (let ((n (strLen (decStr (lineOfIx ix (spanStart (rowSpan (vecGet rows i))))))))
+        (let ((n (strLen (fmtInt (lineOfIx ix (spanStart (rowSpan (vecGet rows i))))))))
           {
             (if (> n w)
               (set w n)
@@ -1044,9 +1045,9 @@
                               (strConcat
                                 (cast String ffile)
                                 ":")
-                              (decStr (lineOfIx fix (spanStart fs))))
+                              (fmtInt (lineOfIx fix (spanStart fs))))
                             ":")
-                          (strConcat (decStr (colOfIx fsrc fix (spanStart fs))) "\n"))))
+                          (strConcat (fmtInt (colOfIx fsrc fix (spanStart fs))) "\n"))))
                     (vecPush out bar)
                     (vecPush out (snipBody fsrc fix gw rows))
                     (vecPush out bar)
@@ -1117,7 +1118,7 @@
               (strConcat (spacesN gw) (paint SGR_GUT "--> "))
               (if spanless
                 (strConcat file "\n")
-                (strConcat (strConcat (strConcat (strConcat file ":") (decStr (lineOfIx ix (spanStart span)))) ":") (strConcat (decStr (colOfIx src ix (spanStart span))) "\n")))))
+                (strConcat (strConcat (strConcat (strConcat file ":") (fmtInt (lineOfIx ix (spanStart span)))) ":") (strConcat (fmtInt (colOfIx src ix (spanStart span))) "\n")))))
             (bar (strConcat (paint SGR_GUT (strConcat (spacesN gw) " |")) "\n"))
           )
             (let (
@@ -1230,7 +1231,7 @@
 (pub :: renderFailTrailer (-> Int String))
 (pub fn (renderFailTrailer n)
   (strConcat
-    (strConcat "compilation failed due to " (decStr n))
+    (strConcat "compilation failed due to " (fmtInt n))
     (if (== n 1)
       " previous error\n"
       " previous errors\n")))
@@ -1386,7 +1387,7 @@
       (if (< e0 s)
         s
         e0)))
-      (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat "{\"start\":{\"line\":" (decStr (lineOfIx ix s))) ",\"col\":") (decStr (colOfIx src ix s))) "},\"end\":{\"line\":") (decStr (lineOfIx ix e))) ",\"col\":") (decStr (colOfIx src ix e))) "},\"char_start\":") (decStr (charsToIx src ix s))) (strConcat (strConcat ",\"char_end\":" (decStr (charsToIx src ix e))) "}")))))
+      (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat "{\"start\":{\"line\":" (fmtInt (lineOfIx ix s))) ",\"col\":") (fmtInt (colOfIx src ix s))) "},\"end\":{\"line\":") (fmtInt (lineOfIx ix e))) ",\"col\":") (fmtInt (colOfIx src ix e))) "},\"char_start\":") (fmtInt (charsToIx src ix s))) (strConcat (strConcat ",\"char_end\":" (fmtInt (charsToIx src ix e))) "}")))))
 
 ; A JSON array of quoted strings.
 (pub :: jsonStrArray (-> (Vec String) String))
@@ -1488,9 +1489,9 @@
                     }
                     (vecPush parts (jsonEsc (memGetWordStr u 0)))
                     (vecPush parts "\",\"line\":")
-                    (vecPush parts (decStr (lineOfIx fix (spanStart fs))))
+                    (vecPush parts (fmtInt (lineOfIx fix (spanStart fs))))
                     (vecPush parts ",\"col\":")
-                    (vecPush parts (decStr (colOfIx fsrc fix (spanStart fs))))
+                    (vecPush parts (fmtInt (colOfIx fsrc fix (spanStart fs))))
                     0
                   }))))
           (vecPush parts "}")

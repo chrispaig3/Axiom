@@ -454,10 +454,10 @@ if grep -n 'fmtIntStr' "$code" >/dev/null; then
 else
   ok "E2: fmtIntStr is not used"
 fi
-if grep -n 'decStr sysGetPid' "$code" >/dev/null; then
-  ok "E3: the compaction temp name carries a decStr-rendered pid"
+if grep -n 'fmtInt sysGetPid' "$code" >/dev/null; then
+  ok "E3: the compaction temp name carries a fmtInt-rendered pid"
 else
-  bad "E3: the compaction temp name no longer carries a decStr pid"
+  bad "E3: the compaction temp name no longer carries a fmtInt pid"
 fi
 
 # THE GREPS ARE PROVEN ABLE TO FIRE. Two patterns that must match

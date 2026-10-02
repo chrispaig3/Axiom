@@ -54,6 +54,7 @@
 (import Host)
 (import Mem)
 (import Str)
+(import Fmt)
 (import Vec)
 (import Utf8)
 (import Sys)
@@ -2891,6 +2892,10 @@
 (pub fn (lspKeywords)
   (let ((v vecNew))
     {
+      ; `alloc` is AX2004 but still offered, like `cond` below: the
+      ; menu mirrors what the parser dispatches on, and the parser
+      ; still takes it - to a refusal naming `__alloc`.
+      (vecPush v "alloc")
       (vecPush v "begin")
       ; `cond` is AX2004 but still offered: this menu mirrors what the
       ; parser dispatches on (`drive.py` derives it from parser.ax's
@@ -4403,8 +4408,8 @@
 (pub :: lspNavBinderKey (-> String Int Int String))
 (pub fn (lspNavBinderKey name span node)
   (if (!= span 0)
-    (strConcat "@" (decStr (spanStart span)))
-    (strConcat "~" (strConcat (decStr node) (strConcat ":" name)))))
+    (strConcat "@" (fmtInt (spanStart span)))
+    (strConcat "~" (strConcat (fmtInt node) (strConcat ":" name)))))
 
 (pub :: lspNavEmitBinder (-> Int String Int String Int Int Int))
 (pub fn (lspNavEmitBinder nv name span key bkind idx)
@@ -10039,7 +10044,7 @@
   (if (>= (jsonArrLen out) LSP_COMPL_MAX)
     0
     (if (lspStrHasFold name query)
-      (let ((key (strConcat uri (strConcat "#" (decStr (spanStart span))))))
+      (let ((key (strConcat uri (strConcat "#" (fmtInt (spanStart span))))))
         (if (lspSeenHas seen key)
           0
           (let ((base (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "name" (jsonStr name)) "kind" (jsonNum kind)) "location" (jsonObjPut (jsonObjPut jsonObj "uri" (jsonStr uri)) "range" (lspRangeIx src ix span)))))
@@ -10863,7 +10868,7 @@
     (if (== (vecLen opens) 0)
       0
       (let ((o (vecGet opens (- (vecLen opens) 1))))
-        (let ((key (strConcat "if$" (decStr o))))
+        (let ((key (strConcat "if$" (fmtInt o))))
           (if (>= (strVecIdx seen key) 0)
             0
             (if (|| (|| (>= (+ o 2) (strLen src)) (!= (strByte src o) 40)) (|| (!= (strByte src (+ o 1)) 105) (!= (strByte src (+ o 2)) 102)))
@@ -12049,7 +12054,7 @@
     {
       (while (lspNavNamed occs name)
         {
-          (set name (strConcat "extracted" (decStr k)))
+          (set name (strConcat "extracted" (fmtInt k)))
           (set k (+ k 1))
         })
       name
@@ -13305,8 +13310,8 @@
 (pub :: lspRenderInt (-> Int String))
 (pub fn (lspRenderInt v)
   (if (< v 0)
-    (strConcat "-" (decStr (- 0 v)))
-    (decStr v)))
+    (strConcat "-" (fmtInt (- 0 v)))
+    (fmtInt v)))
 
 ; A string node holds its LEXEME - quotes and escapes as written - so
 ; it is written back as it was. One a macro built without quotes is
@@ -13384,7 +13389,7 @@
         (if (>= scaled scale)
           1
           0)))
-        (strConcat (strConcat (decStr (+ whole carry)) ".") (lspTrimZeros (lspZeroPad (decStr (- scaled (* carry scale))) 9)))))))
+        (strConcat (strConcat (fmtInt (+ whole carry)) ".") (lspTrimZeros (lspZeroPad (fmtInt (- scaled (* carry scale))) 9)))))))
 
 (pub :: lspZeroPad (-> String Int String))
 (pub fn (lspZeroPad s width)
@@ -13644,7 +13649,7 @@
                         (lspRenderSynFor e ind)
                         (if (== tag TAG_M_ARM)
                           (lspRenderArm e ind)
-                          (strConcat (strConcat "(syntax/unrenderable " (decStr tag)) ")")))))))))))))
+                          (strConcat (strConcat "(syntax/unrenderable " (fmtInt tag)) ")")))))))))))))
 
 (pub :: lspParts2 (-> String String (Vec String)))
 (pub fn (lspParts2 a b)
@@ -14000,7 +14005,7 @@
         (lspRenderSynFor d ind)
         (if (== tag TAG_D_EFFECT)
           (strConcat (strConcat "; (effect " (nodeAName d)) " ...) - the parser keeps its operation names and not their signatures, so it is not rendered")
-          (strConcat (strConcat "; unrenderable declaration (tag " (decStr tag)) ")"))))))
+          (strConcat (strConcat "; unrenderable declaration (tag " (fmtInt tag)) ")"))))))
 
 (pub :: lspParts1 (-> String (Vec String)))
 (pub fn (lspParts1 a)

@@ -24,6 +24,7 @@
 ; cached stage0 output alone.
 (import Mem)
 (import Str)
+(import Fmt)
 (import Vec)
 (import Utf8)
 (import core)
@@ -34,27 +35,8 @@
 (import expand)
 (import diag)
 
-; A minimal digit formatter, local so this module need not import
-; `Fmt` - codegen defines its own `fmtInt`, and importing a second
-; would make every bare `fmtInt` in the program ambiguous. Reached
-; only by the effect-params index fallback, which no probed checker
-; state can construct.
-(pub :: symsDigits (-> Int String))
-;@axiom:effect(unsafe)
-(pub fn (symsDigits n)
-  (if (< n 10)
-    (let ((s (strAlloc 1)))
-      {
-        (__store8 (strData s) 0 (+ n 48))
-        s
-      })
-    (strConcat
-      (symsDigits (/ n 10))
-      (let ((s (strAlloc 1)))
-        {
-          (__store8 (strData s) 0 (+ (% n 10) 48))
-          s
-        }))))
+; Decimal rendering is `Fmt.fmtInt`, which also covers the negative
+; integers the local `symsDigits` it replaces could not spell.
 
 ; ------------------------------------------------------------------
 ; FNV-1a 64.
@@ -292,7 +274,7 @@
                       (if tee
                         "_t"
                         "_i")
-                      (decStr
+                      (fmtInt
                         (symFreshIndex
                           (if tee
                             tvars
@@ -1387,7 +1369,7 @@
                   0)
                 (< i (vecLen params)))
                 (vecGetStr params i)
-                (symsDigits i)))
+                (fmtInt i)))
             (cast (Vec String) 0))
           (set i (+ i 1))
         })
@@ -1414,7 +1396,7 @@
         (rfr (symMirParams params (memGetWord f 7) (memGetWord f 3)))
       )
         {
-          (vecPush metas (strConcat "mir-params=" (symsDigits np)))
+          (vecPush metas (strConcat "mir-params=" (fmtInt np)))
           (if (> (vecLen esc) 0)
             (vecPush metas (strConcat "mir-escapes=" (saJoinComma esc)))
             (cast (Vec String) 0))
@@ -1645,7 +1627,7 @@
                                             0)
                                           (< pi (vecLen params)))
                                           (vecGetStr params pi)
-                                          (symsDigits pi)))
+                                          (fmtInt pi)))
                                       (set k (+ k 1))
                                     }))
                                 (vecPush metas (strConcat "effect-params=" (saJoinComma pnames)))

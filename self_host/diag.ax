@@ -20,27 +20,12 @@
 (import core)
 (import Mem)
 (import Str)
+(import Fmt)
 (import Vec)
 (import Utf8)
 
-; ------------------------------------------------------------------
-; Decimal rendering of a non-negative number.
-;
-; The standard library formats integers already, and importing it for
-; that is what this deliberately does not do: `codegen.ax` carries its
-; own copy of that function (it predates stage1 importing any of
-; `Fmt`), so pulling `Fmt` into the same program makes the bare name
-; ambiguous - and the ambiguity lands *inside Fmt.ax's own body*,
-; where no qualification here could reach it. Line and column numbers
-; are the only numbers AXDL prints and both are at least 1, so a local
-; unsigned renderer is three lines and no dependency at all.
-; ------------------------------------------------------------------
-;@axiom:restrict(no-io,no-foreign)
-(pub :: decStr (-> Int String))
-(pub fn (decStr n)
-  (if (< n 10)
-    (strSlice "0123456789" n 1)
-    (strConcat (decStr (/ n 10)) (strSlice "0123456789" (% n 10) 1))))
+; Decimal rendering is `Fmt.fmtInt`: total over negatives and
+; `MIN`, where the local `decStr` it replaces mis-rendered both.
 
 ; ------------------------------------------------------------------
 ; Severity. The sigil is the first byte of every AXDL line.
@@ -919,10 +904,10 @@
 (pub :: fmtSpanParts (-> Int Int Int Int String))
 (pub fn (fmtSpanParts sl sc el ec)
   (if (&& (== sl el) (== sc ec))
-    (strConcat (strConcat (decStr sl) ":") (decStr sc))
+    (strConcat (strConcat (fmtInt sl) ":") (fmtInt sc))
     (if (== sl el)
-      (strConcat (strConcat (strConcat (strConcat (decStr sl) ":") (decStr sc)) "-") (decStr ec))
-      (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat (decStr sl) ":") (decStr sc)) "-") (decStr el)) ":") (decStr ec)))))
+      (strConcat (strConcat (strConcat (strConcat (fmtInt sl) ":") (fmtInt sc)) "-") (fmtInt ec))
+      (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat (fmtInt sl) ":") (fmtInt sc)) "-") (fmtInt el)) ":") (fmtInt ec)))))
 
 ; The scanning spelling. `symbols.ax` calls this - one span per symbol,
 ; against a source it holds - and it is deliberately left scanning: it

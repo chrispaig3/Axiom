@@ -65,10 +65,11 @@
 ; an earlier body does not see a later signature (probed: AX3001, not
 ; AX3012).
 ;
-; Dependencies: core.ax, parser.ax, diag.ax, Mem, Str, Vec.
+; Dependencies: core.ax, parser.ax, diag.ax, Mem, Str, Fmt, Vec.
 (import core)
 (import Mem)
 (import Str)
+(import Fmt)
 (import Vec)
 (import parser)
 (import diag)
@@ -123,7 +124,7 @@
   (let ((letter (strFromByte (+ 97 (% i 26)))))
     (if (< i 26)
       (strConcat "_" letter)
-      (strConcat (strConcat "_" letter) (decStr (/ i 26))))))
+      (strConcat (strConcat "_" letter) (fmtInt (/ i 26))))))
 
 (pub :: tyVarsInto (-> Int (Vec String) Int))
 (pub fn (tyVarsInto t0 names)
@@ -2717,7 +2718,7 @@
 ; this file's rule, and one prefix is what keeps it.
 (pub :: freshInstVar (-> Int Int))
 (pub fn (freshInstVar tc)
-  (let ((t (mkTVar (strConcat "_i" (decStr (tcCounter tc))))))
+  (let ((t (mkTVar (strConcat "_i" (fmtInt (tcCounter tc))))))
     {
       (tcBumpCounter tc)
       t
@@ -2725,7 +2726,7 @@
 
 (pub :: freshTVar (-> Int Int Int))
 (pub fn (freshTVar tc bump)
-  (let ((t (mkTVar (strConcat "_t" (decStr (tcCounter tc))))))
+  (let ((t (mkTVar (strConcat "_t" (fmtInt (tcCounter tc))))))
     {
       (if (== bump 1)
         (tcBumpCounter tc)
@@ -3011,7 +3012,7 @@
   (if (> n 16)
     0
     {
-      (regFnEff fns (strConcat "__asm." (decStr n)) (mkTArr mkStringTy (mkIntArrow n)) (builtinEff "Mut"))
+      (regFnEff fns (strConcat "__asm." (fmtInt n)) (mkTArr mkStringTy (mkIntArrow n)) (builtinEff "Mut"))
       (tcRegAsmPrims fns (+ n 1))
     }))
 
@@ -3430,7 +3431,7 @@
                           "constructor `"
                           (cast String (nodeA c)))
                         "` has ")
-                      (strConcat (decStr (nodeB c)) " fields, and a cell's reference map covers 46 beside the tag word"))
+                      (strConcat (fmtInt (nodeB c)) " fields, and a cell's reference map covers 46 beside the tag word"))
                     0
                     0
                     "split the declaration: a nested struct or constructor cell is ONE word of the outer block, and every block carries its own map"
@@ -3459,7 +3460,7 @@
     "AX3030"
     "evidence-word-capacity"
     span
-    (strConcat (strConcat (strConcat "this " what) " declares ") (strConcat (decStr n) " type variables, and the evidence word carries 64"))
+    (strConcat (strConcat (strConcat "this " what) " declares ") (strConcat (fmtInt n) " type variables, and the evidence word carries 64"))
     0
     0
     "split the declaration, or make some positions concrete - each variable needs one bit"
@@ -3563,7 +3564,7 @@
                                 "struct `"
                                 (cast String (nodeA d)))
                               "` has ")
-                            (strConcat (decStr (vecLen (nodeBVec d))) " fields, and a block's reference map covers 47"))
+                            (strConcat (fmtInt (vecLen (nodeBVec d))) " fields, and a block's reference map covers 47"))
                           0
                           0
                           "split the declaration: a nested struct or constructor cell is ONE word of the outer block, and every block carries its own map"
@@ -4113,7 +4114,7 @@
     (let ((ent 
       (if (!= ent0 0)
         ent0
-        (let ((ph (mkTVar (strConcat "_fn_" (decStr (tcCounter tc))))))
+        (let ((ph (mkTVar (strConcat "_fn_" (fmtInt (tcCounter tc))))))
           {
             (tcBumpCounter tc)
             (tcPushFn
@@ -5929,7 +5930,7 @@
       (emitStructMarkerDiag
         tc
         (nodeSpan d)
-        (strConcat (strConcat (strConcat (strConcat "word struct `" name) "` declares ") (decStr (vecLen fs))) " fields, and a word holds exactly one")
+        (strConcat (strConcat (strConcat (strConcat "word struct `" name) "` declares ") (fmtInt (vecLen fs))) " fields, and a word holds exactly one")
         "give it one field, `(slot : Int)`: a word struct IS its one field, so a second one has nowhere to live"
         "a word struct is one machine word, not a block (docs/memory-model.md MM-VAL-10a)")
       (let ((f (vecGet fs 0)))
@@ -9522,11 +9523,11 @@
                   "AX3013"
                   "partial-application"
                   span
-                  (strConcat (strConcat (strConcat (strConcat "partial application of `" name) "`: it takes ") (decStr ar)) " argument(s) and 0 were supplied")
+                  (strConcat (strConcat (strConcat (strConcat "partial application of `" name) "`: it takes ") (fmtInt ar)) " argument(s) and 0 were supplied")
                   0
                   0
                   "bind the missing arguments with a lambda: `(lambda (y) (f x y))` builds the value `(f x)` would mean"
-                  "a partial application has to hold the arguments it was not given, and a top-level function has no closure record to hold them in") (strConcat (strConcat (strConcat (strConcat "`" name) "` takes ") (decStr ar)) " arguments, so it cannot be used as a bare value")))
+                  "a partial application has to hold the arguments it was not given, and a top-level function has no closure record to hold them in") (strConcat (strConcat (strConcat (strConcat "`" name) "` takes ") (fmtInt ar)) " arguments, so it cannot be used as a bare value")))
                 1
               })
             ; A ONE-argument BUILT-IN (FnEnt word 3): a primitive is
@@ -9579,10 +9580,10 @@
                     "AX3009"
                     "constructor-arity-mismatch"
                     span
-                    (strConcat (strConcat (strConcat (strConcat (strConcat "constructor `" name) "` expects ") (decStr fc)) " argument(s), found ") "0")
+                    (strConcat (strConcat (strConcat (strConcat (strConcat "constructor `" name) "` expects ") (fmtInt fc)) " argument(s), found ") "0")
                     0
                     0
-                    (strConcat (strConcat "this constructor takes exactly " (decStr fc)) " field(s); add or remove arguments to match")) "0 argument(s) provided here"))
+                    (strConcat (strConcat "this constructor takes exactly " (fmtInt fc)) " field(s); add or remove arguments to match")) "0 argument(s) provided here"))
                   1
                 })))))))))
 
@@ -9600,11 +9601,11 @@
         "AX3013"
         "partial-application"
         span
-        (strConcat (strConcat (strConcat (strConcat "partial application of `" name) "`: it takes ") (decStr ar)) " argument(s) and 0 were supplied")
+        (strConcat (strConcat (strConcat (strConcat "partial application of `" name) "`: it takes ") (fmtInt ar)) " argument(s) and 0 were supplied")
         0
         0
         help
-        note) (strConcat (strConcat (strConcat (strConcat "`" name) "` takes ") (decStr ar)) " argument(s), so it cannot be used as a bare value"))))
+        note) (strConcat (strConcat (strConcat (strConcat "`" name) "` takes ") (fmtInt ar)) " argument(s), so it cannot be used as a bare value"))))
     1
   })
 
@@ -12101,7 +12102,7 @@
 (pub fn (showBinderSpine acc n sp i)
   (if (>= i n)
     acc
-    (showBinderSpine (mkEApp acc (showVar (strConcat "f" (decStr i)) sp)) n sp (+ i 1))))
+    (showBinderSpine (mkEApp acc (showVar (strConcat "f" (fmtInt i)) sp)) n sp (+ i 1))))
 
 (pub :: showCtorBody (-> Int (Vec Int) Int Int Int Int))
 (pub fn (showCtorBody tc ftys acc sp i)
@@ -12110,7 +12111,7 @@
     (showCtorBody
       tc
       ftys
-      (showCat tc (showCat tc acc (showLit " " sp) sp) (showFieldExpr tc (vecGet ftys i) (showVar (strConcat "f" (decStr i)) sp) sp) sp)
+      (showCat tc (showCat tc acc (showLit " " sp) sp) (showFieldExpr tc (vecGet ftys i) (showVar (strConcat "f" (fmtInt i)) sp) sp) sp)
       sp
       (+ i 1))))
 
@@ -12937,7 +12938,7 @@
           "AX3013"
           "partial-application"
           (spanOf (spineHead e))
-          (strConcat (strConcat "partial application of `cast`: it takes 2 argument(s) and " (decStr (vecLen args))) " were supplied")
+          (strConcat (strConcat "partial application of `cast`: it takes 2 argument(s) and " (fmtInt (vecLen args))) " were supplied")
           0
           0
           "write the value to convert after the type - `(cast Int e)` - or, for a function value, `(lambda (x) (cast Int x))`"
@@ -13235,11 +13236,11 @@
                         "AX3013"
                         "partial-application"
                         (nodeSpan head)
-                        (strConcat (strConcat (strConcat (strConcat (strConcat "partial application of `" hname) "`: it takes ") (decStr ar)) " argument(s) and ") (strConcat (decStr got) " were supplied"))
+                        (strConcat (strConcat (strConcat (strConcat (strConcat "partial application of `" hname) "`: it takes ") (fmtInt ar)) " argument(s) and ") (strConcat (fmtInt got) " were supplied"))
                         0
                         0
                         "bind the missing arguments with a lambda: `(lambda (y) (f x y))` builds the value `(f x)` would mean"
-                        "a partial application has to hold the arguments it was not given, and a top-level function has no closure record to hold them in") (strConcat (strConcat (strConcat (strConcat (strConcat "`" hname) "` takes ") (decStr ar)) " argument(s); ") (strConcat (decStr (- ar got)) " more needed"))))
+                        "a partial application has to hold the arguments it was not given, and a top-level function has no closure record to hold them in") (strConcat (strConcat (strConcat (strConcat (strConcat "`" hname) "` takes ") (fmtInt ar)) " argument(s); ") (strConcat (fmtInt (- ar got)) " more needed"))))
                       (checkSpineArgsOnly tc e)
                       1
                     }))))
@@ -13260,10 +13261,10 @@
                           "AX3009"
                           "constructor-arity-mismatch"
                           (nodeSpan head)
-                          (strConcat (strConcat (strConcat (strConcat (strConcat "constructor `" hname) "` expects ") (decStr want)) " argument(s), found ") (decStr got))
+                          (strConcat (strConcat (strConcat (strConcat (strConcat "constructor `" hname) "` expects ") (fmtInt want)) " argument(s), found ") (fmtInt got))
                           0
                           0
-                          (strConcat (strConcat "this constructor takes exactly " (decStr want)) " field(s); add or remove arguments to match")) (strConcat (decStr got) " argument(s) provided here")))
+                          (strConcat (strConcat "this constructor takes exactly " (fmtInt want)) " field(s); add or remove arguments to match")) (strConcat (fmtInt got) " argument(s) provided here")))
                         (checkSpineArgsOnly tc e)
                         1
                       })))))))))))
@@ -13328,7 +13329,7 @@
           (if (!= span 0)
             (emitDiag
               tc
-              (let ((msg (strConcat (strConcat (strConcat (strConcat (strConcat "struct `" (bareOf (memGetWordStr ent 0))) "` expects ") (decStr (vecLen fields))) " field(s), found ") (decStr (vecLen args)))))
+              (let ((msg (strConcat (strConcat (strConcat (strConcat (strConcat "struct `" (bareOf (memGetWordStr ent 0))) "` expects ") (fmtInt (vecLen fields))) " field(s), found ") (fmtInt (vecLen args)))))
                 (mkDiag
                   SEV_ERROR
                   "AX3067"
@@ -16603,7 +16604,7 @@
         "AX3017"
         "effect-handler-unsupported"
         formSpan
-        (strConcat (decStr dynN) " custom effects in one handle; nest one `handle` per effect")
+        (strConcat (fmtInt dynN) " custom effects in one handle; nest one `handle` per effect")
         0
         0
         0))
@@ -16645,7 +16646,7 @@
                     "AX3017"
                     "effect-handler-unsupported"
                     (nodeSpan nm)
-                    (strConcat (strConcat (strConcat (strConcat "effect `" (nodeAName nm)) "` declares ") (decStr (vecLen (nodeBVec d)))) " operations; a dynamic handler covers exactly one")
+                    (strConcat (strConcat (strConcat (strConcat "effect `" (nodeAName nm)) "` declares ") (fmtInt (vecLen (nodeBVec d)))) " operations; a dynamic handler covers exactly one")
                     0
                     0
                     0))
@@ -19112,10 +19113,10 @@
                 "AX3009"
                 "constructor-arity-mismatch"
                 span
-                (strConcat (strConcat (strConcat (strConcat (strConcat "constructor `" cname) "` expects ") (decStr (vecLen fieldTys))) " argument(s), found ") (decStr (vecLen args)))
+                (strConcat (strConcat (strConcat (strConcat (strConcat "constructor `" cname) "` expects ") (fmtInt (vecLen fieldTys))) " argument(s), found ") (fmtInt (vecLen args)))
                 0
                 0
-                (strConcat (strConcat "this constructor takes exactly " (decStr (vecLen fieldTys))) " field(s); add or remove arguments to match")) (strConcat (decStr (vecLen args)) " argument(s) provided here"))))
+                (strConcat (strConcat "this constructor takes exactly " (fmtInt (vecLen fieldTys))) " field(s); add or remove arguments to match")) (strConcat (fmtInt (vecLen args)) " argument(s) provided here"))))
             0)
           (bindPatternArgs tc args fieldTys 0)
           0
@@ -23417,7 +23418,7 @@
       "AX3076"
       "effect-tag-list"
       (nodeSpan d)
-      (strConcat (strConcat (strConcat (strConcat (strConcat "`effect(" val) ")` on `") (bareOf (nodeAName d))) "` names ") (strConcat (decStr (vecLen names)) " effects, and an `effect(...)` tag names one"))
+      (strConcat (strConcat (strConcat (strConcat (strConcat "`effect(" val) ")` on `") (bareOf (nodeAName d))) "` names ") (strConcat (fmtInt (vecLen names)) " effects, and an `effect(...)` tag names one"))
       0
       0
       (strConcat "write one tag line per effect: " (effTagLines names 0 ""))
@@ -26222,7 +26223,7 @@
                 rc
                 (rgnStoreBadMask rc (| u (memGetWord rc 7)) (vecGet masks i))
                 span
-                (strConcat (strConcat "argument " (decStr (+ i 1))) " of a call the compiler cannot resolve")
+                (strConcat (strConcat "argument " (fmtInt (+ i 1))) " of a call the compiler cannot resolve")
                 " - a call through a parameter, a closure or a field is assumed to store every argument into every argument"
                 0)
               (rgnNoteFlow rc (| u (memGetWord rc 7)) (vecGet masks i) "<unresolved call>")
@@ -26529,10 +26530,10 @@
 (pub fn (rgnCalleeParamName tc callee i)
   (let ((d (rgnDeclOf tc callee)))
     (if (== d 0)
-      (decStr i)
+      (fmtInt i)
       (if (< i (vecLen (nodeBVec d)))
         (vecGetStr (nodeBVec d) i)
-        (decStr i)))))
+        (fmtInt i)))))
 
 (pub :: rgnDeclOf (-> Int String Int))
 ;@axiom:effect(unsafe)

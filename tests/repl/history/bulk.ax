@@ -11,7 +11,7 @@
 ; Driven by scripts/check-repl-history.sh.
 (import Str)
 (import Sys)
-(import diag)
+(import Fmt)
 (import replhist)
 
 (:: pad String)
@@ -24,7 +24,7 @@
   (if (>= i limit)
     0
     {
-      (histRecord h (strConcat (strConcat "(bulk " (decStr i)) (strConcat " " (strConcat pad ")"))))
+      (histRecord h (strConcat (strConcat "(bulk " (fmtInt i)) (strConcat " " (strConcat pad ")"))))
       (bulkRecord h (+ i 1) limit)
     }))
 

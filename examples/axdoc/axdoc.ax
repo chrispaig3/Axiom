@@ -40,6 +40,7 @@
 ; covering the modules named after it; the gate produces it.
 (import IO)
 (import Str)
+(import Fmt)
 (import Vec)
 (import Sys)
 (import Path)
@@ -426,7 +427,7 @@
                   (set i (+ i 1))
                 }))
             (strConcat
-              (strConcat (strConcat (strConcat "## `" name) "`\n\n") (strConcat (strConcat "`" path) (strConcat "` — " (strConcat (decStrOf count) " public names\n\n"))))
+              (strConcat (strConcat (strConcat "## `" name) "`\n\n") (strConcat (strConcat "`" path) (strConcat "` — " (strConcat (fmtInt count) " public names\n\n"))))
               (if (== count 0)
                 ""
                 (strConcat "| Name | Kind | Type | Effects | Summary |\n|---|---|---|---|---|\n" (strConcat rows "\n"))))
@@ -450,24 +451,8 @@
             (strConcat (strConcat "`" (cell effects)) "`")))
         (strConcat (strConcat " | " (cell summary)) " |\n")))))
 
-; `Fmt.fmtInt` under another name, so this file needs no import for one
-; call. The reference states one number per module and this writes it.
-(:: decStrOf (-> Int String))
-(fn (decStrOf n)
-  (if (== n 0)
-    "0"
-    (let (
-      (mut v n)
-      (mut out "")
-    )
-      {
-        (while (> v 0)
-          {
-            (set out (strConcat (strSlice "0123456789" (% v 10) 1) out))
-            (set v (/ v 10))
-          })
-        out
-      })))
+; The reference states one number per module and this writes it, with
+; `Fmt.fmtInt`.
 
 (:: main Int)
 ;@axiom:effect(io)

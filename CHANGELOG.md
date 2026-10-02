@@ -77,6 +77,16 @@ its changelog too.
   the import spelled out, instead of the generic undefined-variable
   help. Tested by
   `tests/diagnostics/1109-ok-needs-err-import.ax`.
+- The compiler formats integers one way. The three local renderers -
+  `decStr`, `symsDigits` and the sign wrapper `axirNum` - are gone,
+  and every call site uses `Fmt.fmtInt`, which also spells negatives
+  and `MIN` correctly where the locals mis-rendered them. Tested by
+  `scripts/check-render-selfhost.sh` (byte-identical goldens),
+  `scripts/check-self-host.sh` and `scripts/check-repl-history.sh`.
+- `alloc` is offered in completion again: the menu mirrors what the
+  parser dispatches on, and the parser still takes it to an AX2004
+  refusal naming `__alloc`. Tested by
+  `scripts/check-lsp-selfhost.sh`.
 
 ## 0.7.7 — 2026-09-30
 

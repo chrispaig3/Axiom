@@ -85,6 +85,7 @@
 ; repository names most often.
 (import Mem)
 (import Str)
+(import Fmt)
 (import Vec)
 (import core)
 (import parser)
@@ -199,13 +200,13 @@
                 (cast Int ff)
                 0)
               (< i (vecLen ff)))
-              (symsDigits (vecGet ff i))
+              (fmtInt (vecGet ff i))
               "0")))
         })
       (if (== np 0)
         (set from "-")
         "")
-      (strConcat "region " (strConcat (symsDigits (memGetWord f 1)) (strConcat (strConcat " " from) (strConcat (strConcat " " (symsDigits (memGetWord f 3))) (strConcat (strConcat " " (symsDigits (memGetWord f 4))) (strConcat (strConcat " " (symsDigits (memGetWord f 5))) "\n"))))))
+      (strConcat "region " (strConcat (fmtInt (memGetWord f 1)) (strConcat (strConcat " " from) (strConcat (strConcat " " (fmtInt (memGetWord f 3))) (strConcat (strConcat " " (fmtInt (memGetWord f 4))) (strConcat (strConcat " " (fmtInt (memGetWord f 5))) "\n"))))))
     }))
 
 ; ------------------------------------------------------------------
@@ -223,14 +224,8 @@
 ; `bb3` is a place, and `term br bb3 %4` puts one of each in the same
 ; operand list - so the byte tells them apart, not the position.
 ; ------------------------------------------------------------------
-; A possibly negative integer. `symsDigits` is unsigned - AXSYM reaches
-; it only for indices - and `MO_CONST` carries a source literal, so the
-; sign is written here rather than assumed away.
-(pub :: axirNum (-> Int String))
-(pub fn (axirNum n)
-  (if (< n 0)
-    (strConcat "-" (symsDigits (- 0 n)))
-    (symsDigits n)))
+; Integers - including negative `MO_CONST` literals - render with
+; `Fmt.fmtInt`, which spells the sign itself.
 
 ; ` %0 %1 %2` - the operand SUFFIX a register list renders as, leading
 ; space included so an empty list renders as nothing at all. One
@@ -256,7 +251,7 @@
 (pub :: axirOpLine (-> MInst String))
 (pub fn (axirOpLine n)
   (if (== n.op MO_CONST)
-    (strConcat "op " (strConcat (mirReg n.dst) (strConcat " const " (axirNum n.a))))
+    (strConcat "op " (strConcat (mirReg n.dst) (strConcat " const " (fmtInt n.a))))
     (if (== n.op MO_BIN)
       (strConcat "op " (strConcat (mirReg n.dst) (strConcat " " (strConcat n.name (strConcat " " (strConcat (mirReg n.a) (strConcat " " (mirReg n.b))))))))
       (if (== n.op MO_CALL)
@@ -448,7 +443,7 @@
                                 (cast Int opTy))
                               (symTy (memGetWord e 1)))
                             (smNidFor sm name)))
-                        (vecPush parts (strConcat "sig " (strConcat (symsDigits (memGetWord e 2)) "\n")))
+                        (vecPush parts (strConcat "sig " (strConcat (fmtInt (memGetWord e 2)) "\n")))
                         (let ((mut k 0))
                           (if (==
                             (cast Int params)
@@ -456,7 +451,7 @@
                             0
                             (while (< k (vecLen params))
                               {
-                                (vecPush parts (strConcat "param " (strConcat (symsDigits k) (strConcat " " (strConcat (saAxSafe (vecGetStr params k)) "\n")))))
+                                (vecPush parts (strConcat "param " (strConcat (fmtInt k) (strConcat " " (strConcat (saAxSafe (vecGetStr params k)) "\n")))))
                                 (set k (+ k 1))
                               })))
                         (let ((f (memGetWord e 8)))

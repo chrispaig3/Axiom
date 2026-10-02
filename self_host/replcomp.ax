@@ -133,6 +133,7 @@
 (import Host)
 (import Mem)
 (import Str)
+(import Fmt)
 (import Vec)
 (import lexer)
 (import parser)
@@ -1215,7 +1216,7 @@
 ; file's header exists to prevent.
 (pub :: replComplMoreText (-> Int Int Int String))
 (pub fn (replComplMoreText base shown total)
-  (strConcat (strConcat (strConcat (strConcat (strConcat "  ... " (decStr (+ base 1))) "-") (decStr (+ base shown))) " of ") (decStr total)))
+  (strConcat (strConcat (strConcat (strConcat (strConcat "  ... " (fmtInt (+ base 1))) "-") (fmtInt (+ base shown))) " of ") (fmtInt total)))
 
 ; `  vecPush : (-> (Vec a) a Int)`, or just the name when there is
 ; nothing true to say about it.
@@ -1524,7 +1525,7 @@
             (set out (strConcat out (strConcat (replCsi "B") (replCsi "2K"))))
             (set i (+ i 1))
           })
-        (strConcat out (replCsi (strConcat (decStr rows) "A")))
+        (strConcat out (replCsi (strConcat (fmtInt rows) "A")))
       })))
 
 ; Any key that is not Tab or Shift-Tab. Answers the erase sequence

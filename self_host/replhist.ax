@@ -175,6 +175,7 @@
 ; history file without a session.
 (import Mem)
 (import Str)
+(import Fmt)
 (import Vec)
 (import Sys)
 (import IO (appendFile fileSize makeDir readFile renamePath writeFile))
@@ -702,7 +703,7 @@
 ; The rewrite is write-to-temp then `sysRename`, which Sys.ax:458
 ; states is atomic within a filesystem: a concurrent reader sees the
 ; whole old file or the whole new one, never a half-written prefix. The
-; temp name carries `sysGetPid` rendered by `diag$decStr` - NOT
+; temp name carries `sysGetPid` rendered by `Fmt$fmtInt` - NOT
 ; `driver$fmtIntStr`, which renders 0, 1, 2 and 3 and answers "1" for
 ; everything else, and which is exactly why every REPL on this machine
 ; once wrote to one scratch name (repl.ax:752-766).
@@ -720,7 +721,7 @@
             (let ((s1 (unwrapOr (fileSize cp) (- 0 1))))
               (if (!= s1 s0)
                 0
-                (let ((tmp (strConcat (strConcat (histPath h) ".tmp-") (decStr sysGetPid))))
+                (let ((tmp (strConcat (strConcat (histPath h) ".tmp-") (fmtInt sysGetPid))))
                   (if (isErr (writeFile tmp (histSerialize v)))
                     0
                     (if (isErr (renamePath tmp cp))

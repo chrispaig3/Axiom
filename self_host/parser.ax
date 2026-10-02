@@ -1,10 +1,11 @@
 ; parser.ax — recursive-descent S-expression parser.
 ;
 ; Consumes a Vec of Token handles and produces ASTNodes.
-; Dependencies: core.ax, Mem, Str, Vec, lexer.ax.
+; Dependencies: core.ax, Mem, Str, Fmt, Vec, lexer.ax.
 (import core)
 (import Mem)
 (import Str)
+(import Fmt)
 (import Utf8)
 (import Vec)
 (import lexer)
@@ -1128,7 +1129,7 @@
 (pub fn (ax2005Diag tokens pos)
   (let (
     (tok (vecGet tokens pos))
-    (lim (decStr parseMaxDepth))
+    (lim (fmtInt parseMaxDepth))
   )
     (let ((d (mkDiag
       SEV_ERROR
