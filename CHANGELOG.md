@@ -94,6 +94,17 @@ its changelog too.
   change: every changed line is held by the same
   gates that covered it, `scripts/check-diagnostics.sh`,
   `scripts/check-render-selfhost.sh` and `scripts/check-self-host.sh`.
+- The compiler's counting loops are `for` loops. `fnv1a64`,
+  `symHex16`, `symDigitsValue` and `saJoinComma` drop their index
+  mutables and end-of-body increments; the subcommand test reads as
+  a string-literal `match`, one arm per command, instead of an
+  18-deep `||` nest; and the private `strLtBytes` is gone in favor
+  of `strCmp`, which answers the same order (`__load8` zero-extends,
+  so both compare unsigned bytes) through `memCmp`. `saSort` keeps
+  its insertion sort: `vecSortBy` is a heapsort and the AXSYM bytes
+  depend on stability. Tested by `scripts/check-tools-selfhost.sh`
+  (byte-identical AXSYM against the stage0 cache),
+  `scripts/check-driver.sh` and `scripts/check-self-host.sh`.
 
 ## 0.7.7 — 2026-09-30
 

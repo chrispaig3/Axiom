@@ -49,15 +49,11 @@
 (pub fn (fnv1a64 s)
   (let (
     (mut h (- 0 3750763034362895579))
-    (mut i 0)
     (n (strLen s))
   )
     {
-      (while (< i n)
-        {
-          (set h (* (^ h (strByte s i)) 1099511628211))
-          (set i (+ i 1))
-        })
+      (for i in 0..n
+        (set h (* (^ h (strByte s i)) 1099511628211)))
       h
     }))
 
@@ -69,22 +65,16 @@
 (pub :: symHex16 (-> Int String))
 ;@axiom:effect(unsafe)
 (pub fn (symHex16 h)
-  (let (
-    (out (strAlloc 16))
-    (mut k 0)
-  )
+  (let ((out (strAlloc 16)))
     {
-      (while (< k 16)
+      (for k in 0..16
         (let ((nib (& (>> h (* 4 (- 15 k))) 15)))
-          {
-            (__store8
-              (strData out)
-              k
-              (if (< nib 10)
-                (+ 48 nib)
-                (+ 87 nib)))
-            (set k (+ k 1))
-          }))
+          (__store8
+            (strData out)
+            k
+            (if (< nib 10)
+              (+ 48 nib)
+              (+ 87 nib)))))
       out
     }))
 
@@ -213,16 +203,10 @@
 
 (pub :: symDigitsValue (-> String Int Int Int))
 (pub fn (symDigitsValue s i j)
-  (let (
-    (mut v 0)
-    (mut k i)
-  )
+  (let ((mut v 0))
     {
-      (while (< k j)
-        {
-          (set v (+ (* v 10) (- (strByte s k) 48)))
-          (set k (+ k 1))
-        })
+      (for k in i..j
+        (set v (+ (* v 10) (- (strByte s k) 48))))
       v
     }))
 
@@ -430,30 +414,6 @@
 ; Byte-wise ascending insertion sort, in place: stage0's effect list
 ; arrives sorted (probed: `Beta,zeta`), and byte order is what Rust's
 ; string ordering is.
-(pub :: strLtBytes (-> String String Bool))
-(pub fn (strLtBytes a b)
-  (let (
-    (la (strLen a))
-    (lb (strLen b))
-    (mut i 0)
-    (mut ans (- 0 1))
-  )
-    {
-      (while (&& (< ans 0) (&& (< i la) (< i lb)))
-        (let (
-          (ca (strByte a i))
-          (cb (strByte b i))
-        )
-          (if (< ca cb)
-            (set ans 1)
-            (if (> ca cb)
-              (set ans 0)
-              (set i (+ i 1))))))
-      (if (< ans 0)
-        (< la lb)
-        (== ans 1))
-    }))
-
 (pub :: saSort (-> (Vec String) (Vec String)))
 ;@axiom:effect(unsafe)
 (pub fn (saSort v)
@@ -462,7 +422,7 @@
       (while (< i (vecLen v))
         (let ((mut j i))
           {
-            (while (&& (> j 0) (strLtBytes (vecGetStr v j) (vecGetStr v (- j 1))))
+            (while (&& (> j 0) (< (strCmp (vecGetStr v j) (vecGetStr v (- j 1))) 0))
               {
                 (let ((t (vecGet v j)))
                   {
@@ -479,18 +439,14 @@
 (pub :: saJoinComma (-> (Vec a) String))
 ;@axiom:effect(unsafe)
 (pub fn (saJoinComma v)
-  (let (
-    (mut s "")
-    (mut i 0)
-  )
+  (let ((mut s ""))
     {
-      (while (< i (vecLen v))
+      (for i in 0..(vecLen v)
         {
           (if (> i 0)
             (set s (strConcat s ","))
             "")
           (set s (strConcat s (vecGetStr v i)))
-          (set i (+ i 1))
         })
       s
     }))
