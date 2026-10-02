@@ -220,7 +220,7 @@ Here are Axiom's literals and the type each one has:
 | `42`, `-7` | `Int` | 64-bit signed integer |
 | `1_000_000` | `Int` | Underscores separate digits for readability |
 | `3.14` | `Float` | 64-bit floating point |
-| `true`, `false` | `Bool` | |
+| `true`, `false` | `Bool` | Reserved: neither is bindable (`AX3094`) |
 | `"hello world"` | `String` | A ready-to-use `Str` value (below) |
 | `'x'` | `Char` | One character |
 

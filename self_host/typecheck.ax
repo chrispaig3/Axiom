@@ -7722,6 +7722,50 @@
     0
   })
 
+; AX3094 at a binding - or a top-level declaration, when `isDecl` -
+; that takes the name `true` or `false`.
+;
+; The checker answers those spellings before it consults scope
+; (`checkVar`), while the emitter reads a binding in scope before the
+; literal (`emitVar`), so a program that binds `true` checks one
+; thing and runs another: `(let ((true 0)) (while true ...))` said
+; OK and the loop terminated at once, at exit 0. Patterns already
+; refuse the other reading - a bare `true` there TESTS the literal
+; and binds nothing - so reservation is the one rule left: the names
+; are literals everywhere, and bindable nowhere.
+(pub :: refuseReservedBinder (-> Int String Int Int Int))
+(pub fn (refuseReservedBinder tc name span isDecl)
+  (if (|| (strEq name "true") (strEq name "false"))
+    {
+      (emitDiag tc (diagSetLabel (mkDiagNote
+        SEV_ERROR
+        "AX3094"
+        "reserved-literal"
+        span
+        (strConcat (strConcat (strConcat "cannot " (if (== isDecl 1) "declare `" "bind `")) name) "` - it is a boolean literal")
+        0
+        0
+        "choose another name"
+        (if (== isDecl 1)
+          "a top-level `true` would be dead: every reference answers the literal before the declaration is consulted"
+          "a reference to this name answers the literal before scope is consulted, so the binding would check as `Bool` and run as the bound value")) "this name is a boolean literal"))
+      1
+    }
+    0))
+
+; The same refusal over a parameter vector's names, which carry no
+; spans of their own: the declaration (or lambda) anchors every
+; refusal, the way `checkDupParams` already anchors AX3006.
+(pub :: refuseReservedParams (-> Int (Vec Int) Int Int Int))
+;@axiom:effect(unsafe)
+(pub fn (refuseReservedParams tc params span i)
+  (if (>= i (vecLen params))
+    0
+    {
+      (refuseReservedBinder tc (vecGetStr params i) span 0)
+      (refuseReservedParams tc params span (+ i 1))
+    }))
+
 (pub :: sEntTy (-> Int Int))
 ;@axiom:effect(unsafe)
 (pub fn (sEntTy ent)
@@ -8722,6 +8766,7 @@
                       (let ((initTy (checkExprH tc (nodeB e) 0)))
                         (let ((mark (vecLen (tcScopeVec tc))))
                           {
+                            (refuseReservedBinder tc (nodeAName e) (nodeSpan e) 0)
                             (pushScope
                               (tcScopeVec tc)
                               (nodeA e)
@@ -8913,6 +8958,7 @@
           "give it a parameter, or write a top-level `(fn (name) body)` - a bare reference to a nullary function does call it"
           "`(f)` and `f` are the same expression, so no syntax applies a nullary closure; it used to evaluate to the closure record's address") "this lambda takes no parameters"))
         0)
+      (refuseReservedParams tc params (nodeSpan e) 0)
       (bindLamParams tc params ptys 0)
       ; The lambda boundary for `checkSet`: entries below `mark` are
       ; captured (by value, MM-VAL-16), and assigning one is refused.
@@ -9004,6 +9050,7 @@
       (checkLam tc e)
       (let ((mark (vecLen (tcScopeVec tc))))
         {
+          (refuseReservedBinder tc (vecGetStr params 0) (nodeSpan e) 0)
           (pushScope
             (tcScopeVec tc)
             (vecGet params 0)
@@ -19637,20 +19684,24 @@
           (memSetWord tc 14 (unitIndexFor (memGetWordVec tc 13) (nodeModule d)))
           (let ((tag (nodeTag d)))
             (if (== tag TAG_D_SIG)
-              (pushScope
-                (tcScopeVec tc)
-                (nodeA d)
-                0
-                (nodeSpan d)
-                (if (== (nodeTy d) 0)
-                  mkSilentWild
-                  (nodeTy d)))
+              {
+                (refuseReservedBinder tc (nodeAName d) (nodeSpan d) 1)
+                (pushScope
+                  (tcScopeVec tc)
+                  (nodeA d)
+                  0
+                  (nodeSpan d)
+                  (if (== (nodeTy d) 0)
+                    mkSilentWild
+                    (nodeTy d)))
+              }
               ; The body first, then its tags - stage0's
               ; `check_decls` runs `check_expr(body)` and only
               ; then walks `axtags`, so every diagnostic from a
               ; function's body precedes its AX3010.
               (if (== tag TAG_D_FN)
                 {
+                  (refuseReservedBinder tc (nodeAName d) (nodeSpan d) 1)
                   ; `forgeSites` collects the body's casts that may forge
                   ; while it is checked (`castNoteForge`), keeps the ones
                   ; that do once it is typed (`unsafeSettleForges`), for
@@ -24490,6 +24541,7 @@
                     (cast Int sv)))
               })
             (memSetWord tc 23 0))
+          (refuseReservedParams tc params (nodeSpan d) 0)
           (checkDupParams tc d params 1)
           (bindFnParams
             tc

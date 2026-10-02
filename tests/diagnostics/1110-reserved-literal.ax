@@ -1,0 +1,23 @@
+; AX3094: `true` and `false` are boolean literals, and bindable
+; nowhere - not in a `let`, not as a parameter, not at top level.
+; The checker answers those spellings before it consults scope
+; while the emitter reads a binding in scope before the literal, so
+; `(let ((true 0)) (while true ...))` said OK and the loop
+; terminated at once, at exit 0. Four refusals: the `let`, the
+; lambda parameter, the `fn` parameter (a `false`, so both
+; spellings are pinned), and the top-level `false`.
+(pub fn (main)
+  (let ((true 0))
+    {
+      (while true 0)
+      0
+    }))
+
+(pub fn (takesLam)
+  (let ((f (lambda (true) true)))
+    0))
+
+(pub fn (takesFalse false)
+  false)
+
+(pub fn (false) 0)

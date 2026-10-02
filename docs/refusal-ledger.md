@@ -2,14 +2,16 @@
 
 Every error the compiler reports, classified by the invariant it
 protects, and the decisions taken on the refusals in question.
-`explain --list` reports 107 codes: 96 errors and 11 warnings. The
+`explain --list` reports 108 codes: 97 errors and 11 warnings. The
 classes come from probing the compiler, not from reading the code.
 The probes are in the audit work in this file's history, and each
 decided case names the test that pins it.
 
-- **S**: required for soundness, memory safety or valid semantics. 79
-  codes, all retained. The newest are `AX3092` and `AX3093`: a
-  constant-time claim the body breaks, and one that names no
+- **S**: required for soundness, memory safety or valid semantics. 80
+  codes, all retained. The newest is `AX3094`: a binding or
+  declaration named `true` or `false`, which would check as `Bool`
+  and run as the bound value. Before it came `AX3092` and `AX3093`:
+  a constant-time claim the body breaks, and one that names no
   parameter. Before them came `AX4009`: a handler bound to an
   exception vector that reaches `wfi` or a system call, and so waits
   on code that can't run until it returns.

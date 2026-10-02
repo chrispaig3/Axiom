@@ -113,6 +113,16 @@ its changelog too.
   note is a fact). Seven goldens re-blessed with help-to-note-only
   diffs. Tested by `scripts/check-diagnostics.sh` and
   `scripts/check-render-selfhost.sh`.
+- `true` and `false` are reserved: binding either is `AX3094`. The
+  checker answered those spellings before consulting scope while
+  the emitter read a binding in scope before the literal, so
+  `(let ((true 0)) (while true ...))` said OK and the loop
+  terminated at once, at exit 0. The refusal lands at every scope
+  entry point - `let`, lambda and `fn` parameters, top-level
+  declarations - and patterns already test the literal rather than
+  binding it, so no program that meant what it said changes
+  meaning. Tested by
+  `tests/diagnostics/1110-reserved-literal.ax`.
 
 ## 0.7.7 — 2026-09-30
 

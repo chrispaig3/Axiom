@@ -101,6 +101,7 @@
   [93mAX3091[0m  an `asm` form the compiler can't lower  (inline-asm)
   [93mAX3092[0m  a constant-time claim the body breaks  (ct-claim-violated)
   [93mAX3093[0m  a constant-time claim that names no parameter  (ct-claim-malformed)
+  [93mAX3094[0m  a binding or declaration named `true` or `false`  (reserved-literal)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -2912,6 +2913,22 @@ secret.
 A claim that names nothing, or names something that isn't one of
 the function's parameters, can't be checked, so it's refused.
 
+### explain AX3094
+AX3094 - a binding or declaration named `true` or `false`
+
+`true` and `false` are boolean literals, and the checker answers
+them before it consults scope: a reference to `true` has type
+`Bool` no matter what is bound under that name. The emitter reads
+the other way around - a binding in scope wins over the literal -
+so a program that binds `true` checks one thing and runs another.
+Before this refusal, `(let ((true 0)) (while true ...))` said OK
+and the loop terminated at once, at exit 0.
+
+So the names are reserved: literals everywhere, bindable nowhere.
+A bare `true` in a `match` pattern already TESTS the literal and
+binds nothing, which is the same rule from the pattern side.
+Choose another name.
+
 ### explain AX4001
 AX4001 - no `main` function
 
@@ -3379,6 +3396,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3091[0m  an `asm` form the compiler can't lower  (inline-asm)
   [93mAX3092[0m  a constant-time claim the body breaks  (ct-claim-violated)
   [93mAX3093[0m  a constant-time claim that names no parameter  (ct-claim-malformed)
+  [93mAX3094[0m  a binding or declaration named `true` or `false`  (reserved-literal)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)

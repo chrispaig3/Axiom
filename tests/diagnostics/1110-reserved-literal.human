@@ -1,0 +1,41 @@
+[1;31merror[AX3094][0m[1m: cannot bind `true` - it is a boolean literal[0m
+  [1;34m--> [0m1110-reserved-literal.ax:10:10
+[1;34m   |[0m
+[1;34m10 |[0m   (let ((true 0))
+[1;34m   |[0m          [1;31m^^^^ this name is a boolean literal[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma reference to this name answers the literal before scope is consulted, so the binding would check as `Bool` and run as the bound value
+  [1;34m = [0m[1;32mhelp: [0mchoose another name
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3094` for a full explanation
+
+[1;31merror[AX3094][0m[1m: cannot bind `true` - it is a boolean literal[0m
+  [1;34m--> [0m1110-reserved-literal.ax:17:13
+[1;34m   |[0m
+[1;34m17 |[0m   (let ((f (lambda (true) true)))
+[1;34m   |[0m             [1;31m^^^^^^ this name is a boolean literal[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma reference to this name answers the literal before scope is consulted, so the binding would check as `Bool` and run as the bound value
+  [1;34m = [0m[1;32mhelp: [0mchoose another name
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3094` for a full explanation
+
+[1;31merror[AX3094][0m[1m: cannot bind `false` - it is a boolean literal[0m
+  [1;34m--> [0m1110-reserved-literal.ax:20:10
+[1;34m   |[0m
+[1;34m20 |[0m (pub fn (takesFalse false)
+[1;34m   |[0m          [1;31m^^^^^^^^^^ this name is a boolean literal[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma reference to this name answers the literal before scope is consulted, so the binding would check as `Bool` and run as the bound value
+  [1;34m = [0m[1;32mhelp: [0mchoose another name
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3094` for a full explanation
+
+[1;31merror[AX3094][0m[1m: cannot declare `false` - it is a boolean literal[0m
+  [1;34m--> [0m1110-reserved-literal.ax:23:10
+[1;34m   |[0m
+[1;34m23 |[0m (pub fn (false) 0)
+[1;34m   |[0m          [1;31m^^^^^ this name is a boolean literal[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma top-level `true` would be dead: every reference answers the literal before the declaration is consulted
+  [1;34m = [0m[1;32mhelp: [0mchoose another name
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3094` for a full explanation
+
+compilation failed due to 4 previous errors
