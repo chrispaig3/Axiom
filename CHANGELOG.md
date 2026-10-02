@@ -52,7 +52,8 @@ its changelog too.
   `tests/diagnostics/635-define-removed.axbad` and
   `tests/diagnostics/636-fn-bare-name.axbad`.
 - The prelude's `range` macro is gone. `(for i in lo..hi body)` is the
-  same loop.
+  same loop. Declared in `compat/BREAKING` and held by
+  `scripts/check-compat.sh`.
 
 - A pointer type has one spelling. No spelling ever set the `mut` flag
   on the pointer node — `(* mut T)` parsed as a tuple — so the flag
@@ -9916,6 +9917,11 @@ cannot see one being removed from a third-party effect —
 
 
 ## 0.4.3 — 2026-08-29
+
+**This version was cut but never published.** No `v0.4.3` tag was ever
+pushed, so there is no release to download. The compat baseline
+`compat/0.4.3.axsym` stays: it is what a consumer moving between two
+versions diffs.
 
 Three new `--target`s the compiler emits for and CI assembles but does
 not yet execute - `freebsd-x86_64`, `freebsd-aarch64` and
