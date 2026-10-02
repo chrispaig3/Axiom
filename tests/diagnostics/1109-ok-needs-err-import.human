@@ -1,0 +1,28 @@
+[1;31merror[AX3001][0m[1m: undefined variable `Ok`[0m
+ [1;34m--> [0m1109-ok-needs-err-import.ax:6:4
+[1;34m  |[0m
+[1;34m6 |[0m   (Ok x))
+[1;34m  |[0m    [1;31m^^ no binding named `Ok` in scope[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0m`Ok` is defined in the `Err` module; add `(import Err)`
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
+
+[1;31merror[AX3001][0m[1m: undefined variable `Err`[0m
+  [1;34m--> [0m1109-ok-needs-err-import.ax:10:4
+[1;34m   |[0m
+[1;34m10 |[0m   (Err x))
+[1;34m   |[0m    [1;31m^^^ no binding named `Err` in scope[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0m`Err` is defined in the `Err` module; add `(import Err)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
+
+[1;31merror[AX3001][0m[1m: undefined variable `Result`[0m
+  [1;34m--> [0m1109-ok-needs-err-import.ax:14:4
+[1;34m   |[0m
+[1;34m14 |[0m   (Result x))
+[1;34m   |[0m    [1;31m^^^^^^ no binding named `Result` in scope[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0m`Result` is defined in the `Err` module; add `(import Err)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
+
+compilation failed due to 3 previous errors

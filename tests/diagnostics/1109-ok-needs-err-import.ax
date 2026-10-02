@@ -1,0 +1,18 @@
+; `Ok`, `Err` and `Result` need `(import Err)`: `Some`/`None` are
+; builtin, the `Result` family is not. Each draws AX3001 with the
+; import steer instead of the generic undefined-variable help.
+(:: useOk (-> Int Int))
+(fn (useOk x)
+  (Ok x))
+
+(:: useErr (-> Int Int))
+(fn (useErr x)
+  (Err x))
+
+(:: useResult (-> Int Int))
+(fn (useResult x)
+  (Result x))
+
+(:: main Int)
+(fn (main)
+  0)

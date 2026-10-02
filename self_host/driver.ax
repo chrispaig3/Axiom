@@ -2057,7 +2057,7 @@
       (if (strEq c "run")
         "axiom run - compile a source file and run it\n\nUSAGE:\n  axiom run <FILE> [ARGS...]\n  axiom run [-- ARGS...]                       (in a project directory)\n\nWith no FILE, the project's entry runs: the manifest's `main`, else\n`Main.ax` beside the nearest `axiom.pkg` at or above the working\ndirectory. Program arguments follow `--`; without it nothing is\nforwarded. A bare operand is always a FILE, never an argument.\n\nEverything after FILE is passed to the program, not read by the\ncompiler. Use `--` before an argument that begins with a dash. The\nprogram's own exit status becomes this command's.\n\n  --opt <0-3>      optimisation level (default 1, or the manifest's `opt`)\n"
         (if (strEq c "test")
-          "axiom test - run every `test`-named function in a file or directory\n\nUSAGE:\n  axiom test <FILE|DIR> [--filter <TEXT>] [--opt <0-3>]\n\nA test is a top-level function whose name begins with `test` and which\ntakes no parameters. Nothing else is discovered, and a `test`-named\nfunction that DOES take parameters is refused rather than skipped.\n\nEach test runs inside its own recovery point, so a failing assertion,\nan unhandled effect, an allocation failure or a division by zero ends\nthat test and no other. Assertions are `stdlib/Test.ax`.\n\nDIR runs every `.ax` file directly inside it, in name order.\n\n  --filter <TEXT>  run only the tests whose name contains TEXT\n  --opt <0-3>      optimisation level (default 1)\n\nExit 0 when every test passed, 1 when any failed or none was found.\n"
+          "axiom test - run every `test`-named function in a file or directory\n\nUSAGE:\n  axiom test <FILE|DIR> [--filter <TEXT>] [--opt <0-3>]\n\nA test is a top-level function whose name begins with `test` and which\ntakes no parameters. Nothing else is discovered, and a `test`-named\nfunction that DOES take parameters is refused rather than skipped.\n\nEach test runs inside its own recovery point, so a failing assertion,\nan unhandled effect, an allocation failure or a division by zero ends\nthat test and no other. Assertions are `stdlib/Test.ax`.\n\nDIR runs every `.ax` file directly inside it, in name order.\n\n  --filter <TEXT>  run only the tests whose name contains TEXT\n  --opt <0-3>      optimisation level (default 1, or the manifest's `opt`)\n\nExit 0 when every test passed, 1 when any failed or none was found.\n"
           (if (strEq c "emit-llvm")
             "axiom emit-llvm - print the generated LLVM IR\n\nUSAGE:\n  axiom emit-llvm <FILE> [-o <PATH>]\n\n  --output <PATH>  write the IR to PATH instead of stdout\n  -o <PATH>        short for --output\n\nA module with no `main` is fine here: no executable is produced.\n"
             (if (strEq c "fmt")
@@ -2537,8 +2537,8 @@
 ; command. It used to be: a first operand that failed to open was
 ; refused only when a command name lay within two edits of it, so
 ; `axiom frobnicate` - two edits from nothing - fell through to the
-; legacy `FILE [TARGET]` reading and answered `Failed to read file
-; 'frobnicate': No such file or directory` at exit 1, while `--help`
+; legacy `FILE [TARGET]` reading and answered `error: could not
+; read file 'frobnicate': No such file or directory` at exit 1, while `--help`
 ; promised 2 for "an unknown command or flag". `spelledLikePath` is
 ; the rule that replaced the distance test; the distance now only
 ; chooses whether the refusal carries a `did you mean`.

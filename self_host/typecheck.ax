@@ -9705,6 +9705,14 @@
       (nodeModule (vecGet ms i))
       (macroModuleOfBare ms n (+ i 1)))))
 
+; `Some`/`None` need no import; `Ok`/`Err`/`Result` need `(import Err)`.
+; The asymmetry stays - builtin `Result` would widen every prelude - so
+; the use site steers instead: this names the three spellings whose
+; fix is the import, and `emitUndefinedVarPlain` below says so.
+(pub :: isErrImportName (-> String Bool))
+(pub fn (isErrImportName n)
+  (|| (strEq n "Ok") (|| (strEq n "Err") (strEq n "Result"))))
+
 (pub :: emitUndefinedVarPlain (-> Int String Int Int))
 ;@axiom:effect(unsafe)
 (pub fn (emitUndefinedVarPlain tc name span)
@@ -9718,7 +9726,7 @@
           tc
           (let ((msg (strConcat (strConcat "undefined variable `" (srcSpelling name)) "`")))
             (diagSetLabel
-              (if (== (memGetWord best 0) 0)
+              (if (isErrImportName name)
                 (mkDiag
                   SEV_ERROR
                   "AX3001"
@@ -9727,18 +9735,28 @@
                   msg
                   0
                   0
-                  "variables must be defined (via `fn`, a `let` binding, or a lambda parameter) before they are used; check for typos")
-                (mkDiagFix
-                  SEV_ERROR
-                  "AX3001"
-                  "undefined-variable"
-                  span
-                  msg
-                  0
-                  0
-                  (strConcat (strConcat "a similarly named binding `" (memGetWordStr best 0)) "` is in scope; did you mean this?")
-                  span
-                  (memGetWord best 0)))
+                  (strConcat "`" (strConcat (srcSpelling name) "` is defined in the `Err` module; add `(import Err)`")))
+                (if (== (memGetWord best 0) 0)
+                  (mkDiag
+                    SEV_ERROR
+                    "AX3001"
+                    "undefined-variable"
+                    span
+                    msg
+                    0
+                    0
+                    "variables must be defined (via `fn`, a `let` binding, or a lambda parameter) before they are used; check for typos")
+                  (mkDiagFix
+                    SEV_ERROR
+                    "AX3001"
+                    "undefined-variable"
+                    span
+                    msg
+                    0
+                    0
+                    (strConcat (strConcat "a similarly named binding `" (memGetWordStr best 0)) "` is in scope; did you mean this?")
+                    span
+                    (memGetWord best 0))))
               (strConcat (strConcat "no binding named `" (srcSpelling name)) "` in scope"))))
         0)
       (mkNode TAG_T_ERR 0 0 0)

@@ -284,11 +284,11 @@
           ; `AX2001 expected expression, found "one`. Measured against
           ; a stage1 built from 61ed4e8.
           ;
-          ; AX1002's help says "end of input (or end of line)"; only the
-          ; first half is true of either compiler. Banning the line
-          ; break is a language decision, not a lexer detail, and would
-          ; have to move the tree-sitter grammar and the formatter with
-          ; it - so it is not made here by accident.
+          ; AX1002 fires at end of input only: a line break inside the
+          ; string is legal input, not a terminator. Banning the line
+          ; break would be a language decision, not a lexer detail, and
+          ; would have to move the tree-sitter grammar and the formatter
+          ; with it - so it is not made here by accident.
           (scanStringEnd src (+ pos 1) len))))))
 
 ; ------------------------------------------------------------------

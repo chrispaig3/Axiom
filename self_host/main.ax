@@ -270,7 +270,10 @@
     0
     (sourceReadErrno fileName)))
 
-; One spelling of the read failure, everywhere.
+; One spelling of the read failure, everywhere: `error: could not
+; read file 'F': <reason>`, lowercase with the `error:` prefix every
+; other CLI failure carries, and the reason naming whether the file
+; was missing, unreadable, or a directory.
 ;
 ; There were three. `fmt` and `symbols` said `Failed to read file 'F'`,
 ; the compile path said `cannot read input: F`, and neither gave the
@@ -279,7 +282,55 @@
 ; unreadable, or a directory.
 (pub :: readFailMsg (-> String Int String))
 (pub fn (readFailMsg fileName e)
-  (strConcat (strConcat "Failed to read file '" (strConcat fileName "': ")) (strConcat (errnoReason e) "\n")))
+  (strConcat (strConcat "error: could not read file '" (strConcat fileName "': ")) (strConcat (errnoReason e) "\n")))
+
+; A parse failure is a DIAGNOSTIC, through the same renderer and the
+; same exit status as every other one - the shape `compileFile` uses
+; inline, for the subcommands that parse a second time. `test`
+; re-parses after `compileFile` has already refused any error it
+; found, and `symbols` parses its own input; both used to die with a
+; bare `compilation failed due to a syntax error` naming no code, no
+; span and no count, against the coded, spanned report and exit 1 the
+; compile path gives the same file.
+;
+; The tokens are re-lexed here rather than threaded in: this runs only
+; on the failure path, where one more lex costs nothing, and the call
+; sites keep their shape. Lex errors are checked first for the same
+; reason they are in `compileFile` - a file with a bad escape has no
+; token stream worth parsing.
+(pub :: dieParseErr (-> String String Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (dieParseErr file src pr dfmt)
+  (let ((toks (lex src)))
+    (let ((lexD (lexErrDiag toks src)))
+      (let (
+        (ds (let ((v vecNew))
+          {
+            (vecPush
+              v
+              (if (== lexD 0)
+                (parseErrDiag toks pr src)
+                lexD))
+            v
+          }))
+        (units (let ((v vecNew))
+          {
+            (vecPush
+              v
+              (cast Int (CUnit2
+                file
+                src
+                (cast String 0))))
+            v
+          }))
+      )
+        {
+          (writeStderrStr (renderDiagsFormat dfmt ds units))
+          (writeStderrStr (renderFailTrailer 1))
+          (sysExitWith 1)
+          1
+        }))))
 
 ; Does this declaration list define a `main` function?
 ;
@@ -1207,7 +1258,7 @@
         (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
           (if (== (memGetWord pr 0) 0)
             {
-              (die "compilation failed due to a syntax error\n" 1)
+              (dieParseErr file src pr diagFormatArg)
               1
             }
             (let ((decls (memGetWordVec pr 1)))
@@ -1861,7 +1912,7 @@
                             (pr (parseModuleWith (lex src) (scanAxtags src)))
                           )
                             (if (== (memGetWord pr 0) 0)
-                              (die "compilation failed due to a syntax error\n" 1)
+                              (dieParseErr f src pr dfmt)
                               ; `symbols` type-checks to get the types it
                               ; prints, so it expands first for the same
                               ; reason `check` does. A listing tool that

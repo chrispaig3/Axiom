@@ -464,25 +464,27 @@ fi
 # all distinguishing a missing file from a directory - so which message
 # a user saw depended on which subcommand they had typed, and none of
 # them ever said whether the file was absent, unreadable, or a
-# directory. The REASON is what pins this: no previous version printed
-# one, so a re-blessed golden cannot satisfy it by accident.
+# directory. The one spelling is `error: could not read file 'F'` with
+# the reason after it. The REASON is what pins this: no previous
+# version printed one, so a re-blessed golden cannot satisfy it by
+# accident.
 for sub in "check" "fmt" "symbols"; do
   "$s1" $sub no-such-file.ax >/dev/null 2>r.err
-  if grep -q "Failed to read file 'no-such-file.ax': No such file or directory" r.err; then
+  if grep -q "error: could not read file 'no-such-file.ax': No such file or directory" r.err; then
     ok "\`$sub\` names the file and the reason it could not be read"
   else
     bad "\`$sub\` read failure: $(head -1 r.err)"
   fi
 done
 "$s1" build --input no-such-file.ax --output x >/dev/null 2>r2.err
-grep -q "Failed to read file 'no-such-file.ax': No such file or directory" r2.err \
+grep -q "error: could not read file 'no-such-file.ax': No such file or directory" r2.err \
   && ok "\`build\` uses the same wording" || bad "build read failure: $(head -1 r2.err)"
 
 # A directory opens happily on both Darwin and Linux and fails at
 # `read`, so it is the case a missing-file-only probe gets wrong.
 mkdir -p adir
 "$s1" check adir >/dev/null 2>d.err
-grep -q "Failed to read file 'adir': Is a directory" d.err \
+grep -q "error: could not read file 'adir': Is a directory" d.err \
   && ok "a directory is reported as a directory" || bad "directory: $(head -1 d.err)"
 
 # ---------------------------------------------------------------
@@ -534,6 +536,12 @@ fi
 [[ $rc == 2 ]] && grep -q 'value is required' u2.err \
   && ok "a value flag with no value is refused" || bad "missing flag value (rc=$rc)"
 
+# A boolean flag with `=value` is refused rather than read as true:
+# `--threads=false` enabling threads is the lie this prevents.
+"$s1" check hello.ax --threads=false >u3.out 2>u3.err; rc=$?
+[[ $rc == 2 ]] && grep -q 'takes no value' u3.err \
+  && ok "a boolean flag with =value is refused" || bad "boolean =value (rc=$rc)"
+
 # ---------------------------------------------------------------
 # A mistyped SUBCOMMAND is a subcommand error, not a file error.
 #
@@ -558,8 +566,8 @@ fi
 # A word that is no command AND near no command was still read as a
 # file. The suggestion above was the only thing that refused a word,
 # so `axiom frobnicate` - two edits from nothing - fell through to the
-# legacy reading and answered `Failed to read file 'frobnicate': No
-# such file or directory` at exit 1, while the EXIT CODES block of
+# legacy reading and answered `error: could not read file
+# 'frobnicate': No such file or directory` at exit 1, while the EXIT CODES block of
 # `--help` promised 2 for "an unknown command or flag". The rule that
 # now separates the word from the path is `spelledLikePath` in
 # driver.ax: a first operand that opens as nothing is a path if it
@@ -586,6 +594,20 @@ grep -q 'did you mean' uc.err \
   && ok "an unknown command followed by a real file is still an unknown command" \
   || bad "unknown command with a file after it (rc=$rc): $(head -1 uc2.err)"
 
+# ---------------------------------------------------------------
+# A parse failure out of `symbols` is a DIAGNOSTIC, not a bare
+# trailer: the same coded, spanned report `check` gives the same
+# file, through the same renderer and the same standard trailer.
+# It used to die with `compilation failed due to a syntax error`
+# and nothing else - no code, no span, no count.
+printf '(fn (broken\n' >parse-bad.ax
+"$s1" symbols parse-bad.ax >pb.out 2>pb.err; rc=$?
+if [[ $rc == 1 ]] && grep -q 'error\[AX2001\]' pb.err && grep -q 'compilation failed due to 1 previous error' pb.err; then
+  ok "\`symbols\` reports a bad file as a diagnostic with the standard trailer"
+else
+  bad "\`symbols\` bad file (rc=$rc): $(head -1 pb.err)"
+fi
+
 # The other direction. A path that does not exist is a READ FAILURE at
 # exit 1 naming the path, in both spellings a path has: an extension,
 # or a separator. Under the narrower rule "no `.ax` suffix" the first
@@ -594,7 +616,7 @@ grep -q 'did you mean' uc.err \
 for p in nosuch.ax ./frobnicate hello.aax; do
   [[ ! -e "$p" ]] || bad "the probe path \`$p\` exists in $work"
   "$s1" "$p" >rp.out 2>rp.err; rc=$?
-  if [[ $rc == 1 ]] && grep -q "Failed to read file '$p': No such file or directory" rp.err \
+  if [[ $rc == 1 ]] && grep -q "error: could not read file '$p': No such file or directory" rp.err \
      && ! grep -q 'unknown command' rp.err; then
     ok "\`$p\` is a path by its spelling: read failure, exit 1, named"
   else

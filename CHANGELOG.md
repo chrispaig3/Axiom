@@ -64,6 +64,20 @@ its changelog too.
   Tested by `tests/diagnostics/1108-star-glued-type.ax` and
   `tests/fmt/parity/242-glued-star-preserved.axp`.
 
+- CLI failures share one voice. An unreadable entry file is now
+  `error: could not read file 'F': <reason>`, lowercase with the
+  `error:` prefix every other CLI failure carries. `symbols` reports
+  a file it cannot parse as a coded, spanned diagnostic with the
+  standard trailer instead of a bare `compilation failed due to a
+  syntax error`, `help test` admits the manifest `opt` fallback it
+  always honoured, and `explain --list` runs in numeric order.
+  Tested by `scripts/check-driver.sh` and
+  `tests/tools/explain.golden`.
+- `Ok`, `Err` and `Result` without `(import Err)` draw AX3001 with
+  the import spelled out, instead of the generic undefined-variable
+  help. Tested by
+  `tests/diagnostics/1109-ok-needs-err-import.ax`.
+
 ## 0.7.7 — 2026-09-30
 
 Axiom 0.7.7 grows the standard library: a cryptography suite, dates

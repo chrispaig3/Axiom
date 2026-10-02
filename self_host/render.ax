@@ -12,9 +12,13 @@
 ; that replaced the phase-4 byte-identity criterion. Two information
 ; deltas versus stage0, both deliberate and both in stage1's favor:
 ;
-;   * no color: stage0 emits ANSI escapes even when piped, wrapping
-;     every snippet character individually; this renderer emits plain
-;     text a terminal, a log file and a diff all read the same way;
+;   * always-on color: stage0 emits ANSI escapes even when piped,
+;     wrapping every snippet character individually; this renderer
+;     keeps the escapes and wraps whole lexemes instead, so a
+;     terminal, a log file and a diff all read the same stream
+;     (`style.ax` states the design; `NO_COLOR` is not honored -
+;     machine readers take `--diagnostic-format=ai|json`, which
+;     carry no escapes at all);
 ;   * ALL helps render: ariadne 0.4.1 keeps only the last `with_help`,
 ;     so stage0's human output silently drops every help but the
 ;     appended `axiom explain` line. The AXDL line shows what was

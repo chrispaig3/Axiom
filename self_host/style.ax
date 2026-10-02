@@ -11,7 +11,7 @@
 ; ALWAYS ON, even when stderr is a file. That is stage0's behaviour -
 ; ariadne wrote escapes into a pipe as readily as into a terminal, and
 ; had no tty detection anywhere - and it is a deliberate choice here
-; rather than an inherited accident: the 56 `.human` goldens carry the
+; rather than an inherited accident: the `.human` goldens carry the
 ; escape stream, so the bytes a user sees are the bytes a gate checks.
 ; The cost is that a redirected log holds escapes; the benefit is that
 ; there is exactly one output to reason about. `paint` is the single
