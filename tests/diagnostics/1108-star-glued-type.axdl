@@ -1,0 +1,1 @@
+E AX3002 1108-star-glued-type.ax:4:5-6 undefined-type "undefined type `*Int`" #"no type named `*Int` is visible here" ?"spell a pointer `(* T)`: `*` joins the name without the space"

@@ -1,0 +1,10 @@
+; A `*` glued to a type name is one identifier, not a pointer: `*`
+; is an identifier character, so `*Int` names the unknown type
+; `*Int`. The advice spells `(* T)`.
+(:: f (-> *Int Int))
+(fn (f p)
+  0)
+
+(:: main Int)
+(fn (main)
+  0)

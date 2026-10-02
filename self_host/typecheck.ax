@@ -87,7 +87,7 @@
 ;   (Int -> (Int -> Bool))           arrow, always parenthesised, binary
 ;   () / (Int, Bool)                 tuple; empty tuple is unit
 ;   [Int]                            list
-;   *Int / *mut Int                  pointer
+;   *Int                             pointer
 ; ------------------------------------------------------------------
 ; A type variable is born `_t<N>` from ONE counter that runs across the
 ; whole program, standard library first, so the name a diagnostic showed
@@ -188,11 +188,7 @@
                 (if (== tag TAG_T_LIST)
                   (strConcat (strConcat "[" (tyRenderIn (nodeA t) names)) "]")
                   (if (== tag TAG_T_PTR)
-                    (strConcat
-                      (if (== (nodeB t) 1)
-                        "*mut "
-                        "*")
-                      (tyRenderIn (nodeA t) names))
+                    (strConcat "*" (tyRenderIn (nodeA t) names))
                     "{unknown}"))))))))))
 
 (pub :: tyRenderApp (-> String (Vec Int) Int (Vec String) String))
@@ -558,9 +554,7 @@
                   (if (&& (== ta TAG_T_LIST) (== tb TAG_T_LIST))
                     (tyCompat tc (nodeA a) (nodeA b))
                     (if (&& (== ta TAG_T_PTR) (== tb TAG_T_PTR))
-                      (if (== (nodeB a) (nodeB b))
-                        (tyCompat tc (nodeA a) (nodeA b))
-                        0)
+                      (tyCompat tc (nodeA a) (nodeA b))
                       0)))))))))))
 
 (pub :: tyCompatVec (-> Int (Vec Int) (Vec Int) Int Int))
@@ -914,7 +908,7 @@
               (if (== tg TAG_T_LIST)
                 (mkNode TAG_T_LIST (tyInstIn tc (nodeA t) env) 0 0)
                 (if (== tg TAG_T_PTR)
-                  (mkTPtr (tyInstIn tc (nodeA t) env) (nodeB t))
+                  (mkTPtr (tyInstIn tc (nodeA t) env))
                   t)))))))))
 
 (pub :: tyInstVar (-> Int String (Vec Int) Int Int))
@@ -6194,10 +6188,12 @@
   (cast String (tyUnknownCon tc t)))
 
 ; The help for an unknown type name: migration advice for the four
-; removed builtins, the generic sentence for anything else. `Integer`
-; was the old spelling of `Int`; `Unit` and `Void` were the empty
-; tuple, which is `()`; `Any` was the top type Axiom does not have,
-; and a lowercase name generalises the way one was written for.
+; removed builtins and for a `*` glued to a name, the generic
+; sentence for anything else. `Integer` was the old spelling of
+; `Int`; `Unit` and `Void` were the empty tuple, which is `()`;
+; `Any` was the top type Axiom does not have, and a lowercase name
+; generalises the way one was written for. `*` is an identifier
+; character, so `*Int` lexes as one name rather than a pointer.
 (pub :: tyRemovedBuiltinHelp (-> String String))
 (pub fn (tyRemovedBuiltinHelp n)
   (if (strEq n "Integer")
@@ -6208,7 +6204,9 @@
         "write `()`: `Void` is not a builtin type"
         (if (strEq n "Any")
           "`Any` is not a builtin type; a lowercase name in type position is a type variable"
-          "check for typos, or a missing `data`/`struct`/`type` declaration")))))
+          (if (strStartsWith n "*")
+            "spell a pointer `(* T)`: `*` joins the name without the space"
+            "check for typos, or a missing `data`/`struct`/`type` declaration"))))))
 
 (pub :: tyUnknownConVec (-> Int (Vec Int) Int Int))
 (pub fn (tyUnknownConVec tc xs i)
@@ -6331,7 +6329,7 @@
               (if (== tg TAG_T_LIST)
                 (mkNode TAG_T_LIST (tyExpandAliases tc (nodeA t) depth) 0 0)
                 (if (== tg TAG_T_PTR)
-                  (mkTPtr (tyExpandAliases tc (nodeA t) depth) (nodeB t))
+                  (mkTPtr (tyExpandAliases tc (nodeA t) depth))
                   t)))))))))
 
 (pub :: tyExpandAliasesVec (-> Int (Vec Int) Int (Vec Int) Int (Vec Int)))
@@ -7639,7 +7637,7 @@
           (if (== (nodeTag t) TAG_T_LIST)
             (mkNode TAG_T_LIST (tyPoisonUnknown tc (nodeA t)) 0 0)
             (if (== (nodeTag t) TAG_T_PTR)
-              (mkTPtr (tyPoisonUnknown tc (nodeA t)) (nodeB t))
+              (mkTPtr (tyPoisonUnknown tc (nodeA t)))
               t)))))))
 
 (pub :: tyPoisonUnknownVec (-> Int (Vec Int) (Vec Int) Int (Vec Int)))
@@ -11124,7 +11122,7 @@
               (if (== tg TAG_T_LIST)
                 (mkNode TAG_T_LIST (tyPinVar (nodeA t) name rep) 0 0)
                 (if (== tg TAG_T_PTR)
-                  (mkTPtr (tyPinVar (nodeA t) name rep) (nodeB t))
+                  (mkTPtr (tyPinVar (nodeA t) name rep))
                   t)))))))))
 
 (pub :: tyPinVarVec (-> (Vec Int) String Int (Vec Int) Int (Vec Int)))
@@ -13158,7 +13156,7 @@
                 (exprsToTypes args tys 0)
                 (if (strEq (nodeAName head) "*")
                   (if (== (vecLen tys) 1)
-                    (mkTPtr (vecGet tys 0) 0)
+                    (mkTPtr (vecGet tys 0))
                     mkSilentWild)
                   (mkTCon (nodeAName head) tys))
               })))
@@ -18270,7 +18268,7 @@
               (if (== tg TAG_T_LIST)
                 (mkNode TAG_T_LIST (tyEnvSubst (nodeA t) env) 0 0)
                 (if (== tg TAG_T_PTR)
-                  (mkTPtr (tyEnvSubst (nodeA t) env) (nodeB t))
+                  (mkTPtr (tyEnvSubst (nodeA t) env))
                   t)))))))))
 
 (pub :: tyEnvSubstVar (-> Int String (Vec Int) Int Int))

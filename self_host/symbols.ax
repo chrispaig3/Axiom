@@ -121,7 +121,7 @@
 ;   TArr          (a -> b), fully parenthesised, right-nested
 ;   TTuple        (a, b); the empty tuple is `()`
 ;   TList         [a]
-;   TPtr          *a  or  *mut a
+;   TPtr          *a
 ; ------------------------------------------------------------------
 (pub :: symTy (-> Int String))
 (pub fn (symTy t)
@@ -176,11 +176,7 @@
                 (if (== tag TAG_T_LIST)
                   (strConcat "[" (strConcat (symTy (nodeA t)) "]"))
                   (if (== tag TAG_T_PTR)
-                    (strConcat
-                      (if (== (nodeB t) 1)
-                        "*mut "
-                        "*")
-                      (symTy (nodeA t)))
+                    (strConcat "*" (symTy (nodeA t)))
                     "{unknown}"))))))))))
 
 ; ------------------------------------------------------------------

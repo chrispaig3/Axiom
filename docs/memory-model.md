@@ -1418,8 +1418,8 @@ is an ordinary closure record.
 
 ### 2.4 Pointers
 
-**MM-VAL-20 (H).** The type system has a pointer type, spelled `*T` or
-`*mut T`. No expression a program can write produces one.
+**MM-VAL-20 (H).** The type system has a pointer type, spelled `(* T)`.
+No expression a program can write produces one.
 
 **MM-VAL-21 (R).** `(alloc T)` **MUST** be refused. The form typed as
 `*mut T` and evaluated to the constant 0, with no dereference, no

@@ -803,8 +803,9 @@ module.exports = grammar({
       '(', field('element', $._type), repeat1(seq(',', field('element', $._type))), ')',
     ),
 
-    // `(* T)` or `(* mut T)`
-    pointer_type: $ => seq('(', '*', optional('mut'), field('target', $._type), ')'),
+    // `(* T)`. There is no `mut` spelling: the compiler refuses
+    // `(* mut T)` as a tuple, so the grammar does not accept it.
+    pointer_type: $ => seq('(', '*', field('target', $._type), ')'),
 
     effect_type: $ => seq(
       '(', field('target', $._type), '!', repeat(field('effect', $.effect)), ')',

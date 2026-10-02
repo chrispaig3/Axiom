@@ -54,6 +54,15 @@ its changelog too.
 - The prelude's `range` macro is gone. `(for i in lo..hi body)` is the
   same loop.
 
+- A pointer type has one spelling. No spelling ever set the `mut` flag
+  on the pointer node — `(* mut T)` parsed as a tuple — so the flag
+  is gone from the node, the renderers and the grammar, and a pointer
+  prints as `(* T)` only. A `*` glued to a type name (`*Int`) lexes
+  as one identifier, and the unknown-type help now spells `(* T)`;
+  `axiom fmt` no longer splits the glued name into a pointer.
+  Tested by `tests/diagnostics/1108-star-glued-type.ax` and
+  `tests/fmt/parity/242-glued-star-preserved.axp`.
+
 ## 0.7.7 — 2026-09-30
 
 Axiom 0.7.7 grows the standard library: a cryptography suite, dates

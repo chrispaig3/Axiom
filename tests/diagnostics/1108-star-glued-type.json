@@ -1,0 +1,1 @@
+{"severity":"error","code":"AX3002","slug":"undefined-type","message":"undefined type `*Int`","file":"1108-star-glued-type.ax","span":{"start":{"line":4,"col":5},"end":{"line":4,"col":6},"char_start":171,"char_end":172},"label":"no type named `*Int` is visible here","related":[],"notes":[],"help":["spell a pointer `(* T)`: `*` joins the name without the space"],"expansion":[]}

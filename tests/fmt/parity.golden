@@ -1,7 +1,7 @@
 # The refusal bank: what `axiom fmt` does to each tests/fmt/parity/*.axp case.
 #
 # One `### <case> (exit N)` line per case, followed by the formatted bytes when
-# it formatted at all. 72 cases: 37 rewrites and 35 refusals, which is why this
+# it formatted at all. 73 cases: 38 rewrites and 35 refusals, which is why this
 # file can tell a formatter that always succeeds from one that always refuses -
 # check-fmt-selfhost.sh requires both outcomes to be present.
 #
@@ -16,6 +16,13 @@
 # 241 is a bare `(pub` - an editor buffer mid-keystroke - where `fmtPrint`
 # read the head after `pub` before asking whether there was one. Both now
 # refuse, exit 1, and write nothing.
+#
+# ONE CASE WAS ADDED for the operator-initial identifier (2026-10-02).
+# 242 pins `fscanOperator` extending through `isIdentChar` the way the
+# real lexer does: `*Int` is one identifier to `check` (AX3002), and
+# the old scanner split it, so `fmt` printed `* Int` and rewrote an
+# ill-typed program into one that checks. Regenerating this file for
+# it moved no other case's bytes.
 #
 # THREE CASES WERE ADDED on 2026-09-04, one per layout defect fixed that day,
 # and each is a case the previous formatter FORMATTED - exit 0 both before and
@@ -378,3 +385,7 @@
 ### 232-quote-refused.axp (exit 1)
 ### 240-effect-empty-op-refused.axp (exit 1)
 ### 241-bare-pub-refused.axp (exit 1)
+### 242-glued-star-preserved.axp (exit 0)
+(:: f (-> *Int Int))
+(fn (f p)
+  p)

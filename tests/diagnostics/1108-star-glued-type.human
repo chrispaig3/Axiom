@@ -1,0 +1,10 @@
+[1;31merror[AX3002][0m[1m: undefined type `*Int`[0m
+ [1;34m--> [0m1108-star-glued-type.ax:4:5
+[1;34m  |[0m
+[1;34m4 |[0m (:: f (-> *Int Int))
+[1;34m  |[0m     [1;31m^ no type named `*Int` is visible here[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mspell a pointer `(* T)`: `*` joins the name without the space
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3002` for a full explanation
+
+compilation failed due to 1 previous error

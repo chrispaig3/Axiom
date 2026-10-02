@@ -771,6 +771,22 @@
     {
       (while (&& (< e len) (isFOperChar (strByte src e)))
         (set e (+ e 1)))
+      ; An operator run the real lexer would keep reading: `*Int`
+      ; is one identifier to `lexTokens` (`isIdentStart` admits the
+      ; operator bytes and `skipIdent` continues through letters),
+      ; so stopping here splits it and the printer puts the space
+      ; back, rewriting an AX3002 program into one that checks. The
+      ; run extends through `isIdentChar` exactly as the lexer
+      ; does - except `-` against a digit, which the lexer reads as
+      ; a negative number while this scanner keeps it split for the
+      ; `-5` adjacency rule below. `?`, `~` and `$` never extend:
+      ; the lexer does not start an identifier with any of them.
+      (if (&& (isIdentStart (strByte src p)) (&& (< e len) (isIdentChar (strByte src e))))
+        (if (&& (&& (== (- e p) 1) (== (strByte src p) 45)) (isFDigit (strByte src e)))
+          0
+          (while (&& (< e len) (isIdentChar (strByte src e)))
+            (set e (+ e 1))))
+        0)
       ; A lone `-` is its own kind, because the printer has to know
       ; whether a `-` touches the literal after it: `(+ x -5)` is
       ; two arguments and `(+ x - 5)` is three, and only adjacency

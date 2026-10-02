@@ -394,7 +394,7 @@
 (pub fn (TAG_T_LIST)
   36)
 
-(pub :: TAG_T_PTR Int)  ; a=inner, b=mut
+(pub :: TAG_T_PTR Int)  ; a=inner
 (pub fn (TAG_T_PTR)
   37)
 
@@ -796,9 +796,12 @@
 (pub fn (mkTTup xs)
   (mkNode TAG_T_TUP xs 0 0))
 
-(pub :: mkTPtr (-> Int Int Int))
-(pub fn (mkTPtr inner m)
-  (mkNode TAG_T_PTR inner m 0))
+; A pointer holds its referent only. The `mut` flag is gone: no
+; spelling ever set it, `(* mut T)` is refused as a tuple, and the
+; renderers' `*mut` arms printed nothing anywhere.
+(pub :: mkTPtr (-> Int Int))
+(pub fn (mkTPtr inner)
+  (mkNode TAG_T_PTR inner 0 0))
 
 (pub :: mkTErr Int)
 (pub fn (mkTErr)
@@ -2877,13 +2880,6 @@
 ; splitting it, so it allocates nothing per call and runs at parse time
 ; over every type atom.
 ;
-; The list parameter is `words` and not `set` because `set` is a
-; FORMATTER REFUSAL: `axiom fmt` will not rewrite a file with a
-; parameter of that name, while the parser and the checker accept it
-; and the compiler builds. That is a live parser/formatter divergence,
-; found here and recorded in `CHANGELOG.md` rather than fixed in this
-; change - a formatter is a second implementation of the grammar, and
-; the two disagreeing is its own slice.
 (pub :: sizedTyIn (-> String String Bool))
 (pub fn (sizedTyIn n words)
   (sizedTyInFrom n words 0))
@@ -3024,7 +3020,7 @@
           (let ((r (parseTypeAtom tokens (advance pos))))
             (if (== (memGetWord r 0) 0)
               r
-              (pOk (mkTPtr (memGetWord r 1) 0) (memGetWord r 2))))
+              (pOk (mkTPtr (memGetWord r 1)) (memGetWord r 2))))
           ; `linear` is RESERVED, not parsed. It used to build the
           ; nominal type constructor `Linear T`, which was a real
           ; barrier - `AX3004` against `T` - and enforced nothing else:

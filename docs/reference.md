@@ -1059,7 +1059,8 @@ The rules:
   before the first iteration. A body that pushes onto `xs` doesn't
   change how many times the loop runs, and a step expression with a
   side effect runs only once.
-- The body is exactly one expression. Put several in `{ ... }`.
+- The body is exactly one expression. Put several in `{ ... }`: a
+  second one would leave `(for x in xs a b)` ambiguous.
 - Every `for` evaluates to `0`, as `while` does. Nested loops each
   keep their own counter.
 - The loop's own hidden bindings use names no program can write, so
