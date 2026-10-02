@@ -377,7 +377,7 @@ fixture_expectations() {
 374-restrict-no-foreign  AX3049 2 native local
 375-restrict-unverifiable AX3051 2 clean
 376-restrict-unknown-name AX3052 3 twice control
-377-restrict-witness-path AX3049 6 quiet
+377-restrict-witness-path AX3049 4 quiet
 378-restrict-no-cast-deep AX3049 5 deepClean shallow plain
 379-restrict-no-recursion AX3049 4 deep looped d1 d2 d3 d4
 383-restrict-no-wrap     AX3049 3 delegates compares honest

@@ -345,8 +345,10 @@ hlBrkSpan self_host/replhl.ax no-io,no-alloc,no-foreign ok
 hlClassOf self_host/replhl.ax no-io,no-foreign ok
 hlFamOf self_host/replhl.ax no-io,no-alloc,no-foreign ok
 hlForNext self_host/replhl.ax no-io,no-alloc,no-foreign ok
+hlForStep self_host/replhl.ax no-io,no-alloc,no-foreign ok
 hlGap self_host/replhl.ax no-io,no-foreign ok
 hlIsDeclHead self_host/replhl.ax no-io,no-alloc,no-foreign ok
+hlIsForBy self_host/replhl.ax no-io,no-alloc,no-foreign ok
 hlIsForIn self_host/replhl.ax no-io,no-alloc,no-foreign ok
 hlIsKeyword self_host/replhl.ax no-io,no-alloc,no-foreign ok
 hlIsOpener self_host/replhl.ax no-io,no-alloc,no-foreign ok
@@ -354,6 +356,7 @@ hlLetter self_host/replhl.ax no-io,no-alloc,no-foreign ok
 hlMarkPair self_host/replhl.ax no-io,no-foreign ok
 hlPair self_host/replhl.ax no-io,no-foreign ok
 hlPush self_host/replhl.ax no-io,no-foreign ok
+hlRangeNext self_host/replhl.ax no-io,no-alloc,no-foreign ok
 hlRecolour self_host/replhl.ax no-io,no-foreign ok
 hlScan self_host/replhl.ax no-io,no-foreign ok
 hlScanBrks self_host/replhl.ax no-io,no-alloc,no-foreign ok
@@ -533,7 +536,6 @@ nested tests/diagnostics/396-restrict-no-untrapped.ax no-untrapped violated
 noUnsafe tests/diagnostics/1081-sys-buffer-calls.ax no-unsafe violated
 none tests/diagnostics/384-restrict-no-alloc-ctor.ax no-alloc ok
 orderDiags self_host/diag.ax no-io,no-foreign ok
-ownForm tests/diagnostics/377-restrict-witness-path.ax no-alloc violated
 packedDay stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
 packedMonth stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
 packedYear stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
@@ -786,7 +788,6 @@ viaDeep tests/diagnostics/391-restrict-effect-transparent.ax no-cast:deep unveri
 viaField tests/diagnostics/375-restrict-unverifiable.ax no-io unverifiable
 viaForeign tests/diagnostics/391-restrict-effect-transparent.ax no-foreign unverifiable
 viaForge tests/diagnostics/1042-no-unsafe-indirect.ax no-unsafe violated
-viaForm tests/diagnostics/377-restrict-witness-path.ax no-alloc violated
 viaHelper tests/diagnostics/374-restrict-no-foreign.ax no-foreign violated
 viaInterface tests/diagnostics/1042-no-unsafe-indirect.ax no-unsafe violated
 viaIo tests/diagnostics/391-restrict-effect-transparent.ax no-io unverifiable
