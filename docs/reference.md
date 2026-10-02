@@ -444,10 +444,13 @@ write instead:
 | `trait` | A [capability record](#capability-records): a struct of functions, passed as a value |
 | `impl` | An ordinary value of a capability record, bound with `fn` |
 | `deriving` | An explicit derive macro such as `(deriveEq T)` ([macro-system.md](macro-system.md), `MAC-CAP-9`) |
-| `linear` | The type itself. Reference counting reclaims memory |
+| `linear` | The type itself. Reference counting reclaims memory (`MM-LIFE-2b` and `MM-LIFE-2c` in [memory-model.md](memory-model.md)) |
 | `consume` | The argument itself: `(consume e)` always meant `e` |
+| `alloc` | `__alloc`, or `vecNew`, `strAlloc` or a struct |
 
 [Removed features](#removed-features) has more on most of them.
+The removed type forms `[T]` and `(A B)` are under
+[Compound types](#compound-types).
 
 ## Functions
 
@@ -540,6 +543,10 @@ expression in braces is just that expression: `{ 42 }` is `42`.
 
 (lambda (_) 42)    ; `_` ignores the argument
 ```
+
+In expression position, `fn` parses as the same node: `(fn (x) (+ x 1))`
+is a lambda. It is the older spelling; write `lambda`, which is what
+`axiom fmt` prints.
 
 A lambda captures the variables it uses from the surrounding scope, and
 you can pass it anywhere a function type is expected:
@@ -1210,7 +1217,7 @@ The list type `[T]` and the tuple type `(A B)` are rejected as
 `AX2004 removed-construct`, with advice naming the replacement. No
 value could ever have either type. Use `(Vec T)` for a sequence,
 [`struct`](#structs) for a product and [`data`](#algebraic-data-types)
-for a sum. `()` is unaffected: it is unit.
+for a sum. `()` is unaffected: it stays the empty tuple type, with no value.
 
 ### Type variables and polymorphism
 
@@ -1255,6 +1262,12 @@ in and out of an opaque pointer, or `(cast Int s)` to read a `String`
 handle as a word. It is the entry point to the unsafe layer (see
 [Effects](#effects)), and everything that layer says about what the
 checker stops proving applies from here.
+
+A type ascription, `(:: e T)`, reads as the same cast with its
+operands swapped: `(:: someBits Float)` casts `someBits` to `Float`.
+Write `(cast T e)`.
+
+Tested by `tests/selfhost/870-ascription-and-negation.ax`.
 
 ### Region annotations
 
@@ -1963,9 +1976,9 @@ parameterised struct into an interface, covered in full under
 [Capability records](#capability-records). Here are the struct
 mechanics.
 
-You can call a function field two ways. `(c.render 7)` applies the
-field directly, and `((c.render) 7)` reads the field first. They
-compile to the same call. This exits 5:
+Call a function field by applying it directly: `(c.render 7)`.
+`((c.render) 7)` reads the field first and compiles to the same call;
+`axiom fmt` prints the direct form. This exits 5:
 
 ```scheme
 (import Fmt)
@@ -2317,7 +2330,7 @@ The full contract for the inferred set is `MM-EXEC-9a` in
 |---|---|
 | `IO` | Reaching the outside world: a `__syscallN`, or reading the command line with `__argc` or `__argv`. The AArch64 reads of registers the hardware owns (`__arm_cntvct`, `__arm_cntfrq`, `__arm_ctr`) and `__arm_wfi`, which waits on the outside world, carry it too (MM-FFI-8). |
 | `Pure` | Nothing. `;@axiom:effect(pure)` claims it, and `(handle BODY (Pure) 0)` rejects a body that performs any effect. |
-| `Alloc` | Heap machinery, which is wider than allocation. Any call that reaches `__alloc` (every `Vec`, `Map` and `Str` growth, every `memAlloc`), the `(alloc T)` keyword, the three arena primitives, and `handle`, which installs its handler's evidence. An arena reset counts because it ends every block allocated since the mark. |
+| `Alloc` | Heap machinery, which is wider than allocation. Any call that reaches `__alloc` (every `Vec`, `Map` and `Str` growth, every `memAlloc`), the three arena primitives, and `handle`, which installs its handler's evidence. An arena reset counts because it ends every block allocated since the mark. |
 | `Mut` | Heap state that other code can see: a field store `(set base.field v)`, the `__store8` and `__store64` primitives it lowers to, the atomic writers `__atomic_store`, `__atomic_add` and `__atomic_cas`, and `__fence`. That's why `vecPush` and `mapInsert` carry it. `__atomic_load` is a read and doesn't, just as `__load64` doesn't. A `set` on a `mut` local isn't `Mut`, because nothing outside the function can see it. The eight volatile device accesses carry it (a device read can change device state), as do the `__arm_` barriers, timer writes, interrupt masks, cache maintenance and `__arm_set_tpidr` (MM-FFI-8). |
 | `Entropy` | Drawing randomness, which makes the answer different from run to run: `__arm_rndr`, and any use of a syscall number tagged `;@axiom:syscall(entropy)`. The platform tables tag `sysRandomNum`, so `Sys.sysRandomBytes`, `IO.randomBytes`, everything in `Crypto.Random` and every key generator perform it. |
 | `Spawn` | Starting another binding, thread or process: `parallel` and the spawn primitives it lowers to, and syscall numbers tagged `syscall(spawn)`. The platform tables tag the fork and `posix_spawn` numbers, so `Sys.sysSpawn`, `sysRun` and `sysRunPath` perform it. |
@@ -4810,7 +4823,7 @@ stops: every argument and result is an `Int`.
 | `(__addr "literal")` | Address of a string literal's bytes |
 
 A device primitive the target cannot execute is refused at build time
-as `AX4008` - the volatile accesses lower everywhere, the barriers and
+as `AX4008`. The volatile accesses lower everywhere, the barriers and
 the two counter reads on any AArch64 target (they run at EL0), and the
 rest only on `baremetal-aarch64`, the one target that runs a program at
 EL1. The check reads the module after unreachable functions are
@@ -6057,8 +6070,8 @@ The rules for bad input:
 - Iteration never stalls. `utf8SeqLen` answers 1 for a byte it
   doesn't understand, so `utf8Next` always advances and no decoding
   loop can hang on a corrupt file. Ask `utf8Valid` for a verdict on a
-  whole string. `utf8Valid` checks STRUCTURE - lead byte and
-  continuation count - and not ranges; `utf8WellFormedAt` is the strict
+  whole string. `utf8Valid` checks structure: lead byte and
+  continuation count, not ranges. `utf8WellFormedAt` is the strict
   question, Unicode's Table 3-7 at one offset, so an overlong form, an
   encoded surrogate and a code point past U+10FFFF answer 0 there. It
   is what the compiler's diagnostic writers ask before they copy a
@@ -6832,16 +6845,9 @@ To work on the compiler, start with [CONTRIBUTING.md](../CONTRIBUTING.md).
 ## Removed features
 
 These words are reserved. Each one reports `AX2004` and tells you what
-to write instead.
-
-| Removed | What it was | Use instead |
-|---|---|---|
-| `begin` | `(begin a b c)`, the sequencing form | A block, `{ a b c }`. A `fn` body already sequences, so you can usually just delete the wrapper. |
-| `union` | An untagged union, which can't be pattern-matched safely | `data` for a tagged sum, or `struct` for a product |
-| `linear` | `linear T`, a marker that enforced nothing | Plain `T`. Memory is reclaimed by reference counting (`MM-LIFE-2b` and `MM-LIFE-2c` in [memory-model.md](memory-model.md)). To choose the point yourself, use `__axiom_arena_mark` and `__axiom_arena_reset_keeping`. |
-| `consume` | `(consume e)`, a wrapper that reclaimed nothing | `e` |
-| `trait`, `impl` | Interfaces and their instances | [Capability records](#capability-records) |
-| `foreign` | A foreign call that never linked | An [`extern` block](#calling-rust). To reach the kernel, use the standard library, which is written over `__syscall0` to `__syscall6`. |
+to write instead. The full table is under [Removed
+keywords](#removed-keywords); what follows is the longer story for the
+removals that need one.
 
 For example:
 
