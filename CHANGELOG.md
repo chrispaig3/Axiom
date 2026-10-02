@@ -105,6 +105,14 @@ its changelog too.
   depend on stability. Tested by `scripts/check-tools-selfhost.sh`
   (byte-identical AXSYM against the stage0 cache),
   `scripts/check-driver.sh` and `scripts/check-self-host.sh`.
+- `AX3048` and `AX3042` keep their helps actionable. The deprecation
+  warning's help is now just what the declaration says to use
+  instead, and the undeclared-effect error's keeps just the tag to
+  write; the explanatory prose in both moves to `note:`, which is
+  the distinction `mkDiagNote` documents (a help is an action, a
+  note is a fact). Seven goldens re-blessed with help-to-note-only
+  diffs. Tested by `scripts/check-diagnostics.sh` and
+  `scripts/check-render-selfhost.sh`.
 
 ## 0.7.7 — 2026-09-30
 

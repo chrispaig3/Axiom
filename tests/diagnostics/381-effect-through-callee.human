@@ -13,9 +13,9 @@
 [1;34m38 |[0m (fn (relay n)
 [1;34m   |[0m      [1;31m^^^^^[0m
 [1;34m   |[0m
+  [1;34m = [0m[1mnote: [0meffects are INFERRED transitively, so this fires on every function up the call chain, and each one is a place a reader would otherwise have to open the callee to learn it. If the effect is not wanted here the fix is to stop performing it, not to stop saying so. `IO`, `Entropy`, `Spawn` and `Block` are required; `Alloc` and `Mut` are ambient and never need declaring
   [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(io)` above the declaration[1;35m ~>[0m
            [1;35m;@axiom:effect(io)[0m
-  [1;34m = [0m[1;32mhelp: [0meffects are INFERRED transitively, so this fires on every function up the call chain, and each one is a place a reader would otherwise have to open the callee to learn it. If the effect is not wanted here the fix is to stop performing it, not to stop saying so. `IO`, `Entropy`, `Spawn` and `Block` are required; `Alloc` and `Mut` are ambient and never need declaring
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3042` for a full explanation
 
 [1;31merror[AX3042][0m[1m: `relay2` performs IO and its declaration does not say so[0m
@@ -24,9 +24,9 @@
 [1;34m42 |[0m (fn (relay2 n)
 [1;34m   |[0m      [1;31m^^^^^^[0m
 [1;34m   |[0m
+  [1;34m = [0m[1mnote: [0meffects are INFERRED transitively, so this fires on every function up the call chain, and each one is a place a reader would otherwise have to open the callee to learn it. If the effect is not wanted here the fix is to stop performing it, not to stop saying so. `IO`, `Entropy`, `Spawn` and `Block` are required; `Alloc` and `Mut` are ambient and never need declaring
   [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(io)` above the declaration[1;35m ~>[0m
            [1;35m;@axiom:effect(io)[0m
-  [1;34m = [0m[1;32mhelp: [0meffects are INFERRED transitively, so this fires on every function up the call chain, and each one is a place a reader would otherwise have to open the callee to learn it. If the effect is not wanted here the fix is to stop performing it, not to stop saying so. `IO`, `Entropy`, `Spawn` and `Block` are required; `Alloc` and `Mut` are ambient and never need declaring
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3042` for a full explanation
 
 [1;31merror[AX3010][0m[1m: AXTAG mismatch on `liar`: `effect(pure)` claim contradicted: body performs Alloc, IO[0m
@@ -44,9 +44,9 @@
 [1;34m63 |[0m (fn (main)
 [1;34m   |[0m      [1;31m^^^^[0m
 [1;34m   |[0m
+  [1;34m = [0m[1mnote: [0meffects are INFERRED transitively, so this fires on every function up the call chain, and each one is a place a reader would otherwise have to open the callee to learn it. If the effect is not wanted here the fix is to stop performing it, not to stop saying so. `IO`, `Entropy`, `Spawn` and `Block` are required; `Alloc` and `Mut` are ambient and never need declaring
   [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(io)` above the declaration[1;35m ~>[0m
            [1;35m;@axiom:effect(io)[0m
-  [1;34m = [0m[1;32mhelp: [0meffects are INFERRED transitively, so this fires on every function up the call chain, and each one is a place a reader would otherwise have to open the callee to learn it. If the effect is not wanted here the fix is to stop performing it, not to stop saying so. `IO`, `Entropy`, `Spawn` and `Block` are required; `Alloc` and `Mut` are ambient and never need declaring
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3042` for a full explanation
 
 compilation failed due to 4 previous errors

@@ -22489,7 +22489,7 @@
             (if (< at 0)
               (diagAddHelp dg (strConcat "write `" (strConcat tag "` above the declaration")))
               (diagAddFixHelp dg (strConcat "write `" (strConcat tag "` above the declaration")) (mkSpan at at) (strConcat tag "\n"))))
-          (diagAddHelp dg "effects are INFERRED transitively, so this fires on every function up the call chain, and each one is a place a reader would otherwise have to open the callee to learn it. If the effect is not wanted here the fix is to stop performing it, not to stop saying so. `IO`, `Entropy`, `Spawn` and `Block` are required; `Alloc` and `Mut` are ambient and never need declaring")
+          (diagAddNote dg "effects are INFERRED transitively, so this fires on every function up the call chain, and each one is a place a reader would otherwise have to open the callee to learn it. If the effect is not wanted here the fix is to stop performing it, not to stop saying so. `IO`, `Entropy`, `Spawn` and `Block` are required; `Alloc` and `Mut` are ambient and never need declaring")
           (emitDiag tc dg)
         }))))
 
@@ -23171,7 +23171,7 @@
     (let ((repl (deprecatedFor tc name)))
       (if (== (strLen repl) 0)
         0
-        (emitDiag tc (diagSetLabel (mkDiag
+        (emitDiag tc (diagSetLabel (mkDiagNote
           SEV_WARNING
           "AX3048"
           "deprecated-name"
@@ -23179,7 +23179,8 @@
           (strConcat (strConcat "`" (srcSpelling name)) "` is deprecated")
           0
           ""
-          (strConcat (strConcat "the declaration says: " repl) ". It still works, and it still compiles - a deprecation is a notice, not a refusal. It may be removed in a later release, and `compat/BREAKING`'s rule lets that happen without a declared break precisely because this notice shipped first")) (strConcat "declared `;@axiom:deprecated(" (strConcat repl ")`"))))))))
+          (strConcat "the declaration says: " repl)
+          "It still works, and it still compiles - a deprecation is a notice, not a refusal. It may be removed in a later release, and `compat/BREAKING`'s rule lets that happen without a declared break precisely because this notice shipped first") (strConcat "declared `;@axiom:deprecated(" (strConcat repl ")`"))))))))
 
 (pub :: deprecatedFor (-> Int String String))
 ;@axiom:effect(unsafe)
