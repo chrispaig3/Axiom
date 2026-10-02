@@ -589,3 +589,24 @@ qualified type reference, bare and applied
     (identifier)
     (identifier)
     (integer_literal)))
+
+================================================================
+an operator-led type name is one identifier, not a star and a name
+================================================================
+
+(:: f (-> *Int Int))
+(fn (f p) 0)
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (type_signature
+    (identifier)
+    (function_type
+      (type_constructor
+        (constructor_identifier))
+      (builtin_type)))
+  (function_definition
+    (identifier)
+    (identifier)
+    (integer_literal)))

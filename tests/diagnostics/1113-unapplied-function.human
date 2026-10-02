@@ -1,0 +1,81 @@
+[1;31merror[AX3004][0m[1m: type mismatch: expected a number, found unapplied function[0m
+  [1;34m--> [0m1113-unapplied-function.ax:10:7
+[1;34m   |[0m
+[1;34m10 |[0m   (+ (lambda (x) x) 1))
+[1;34m   |[0m       [1;31m^^^^^^ this has type `unapplied function`, expected `a number`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected Bool, found unapplied function[0m
+  [1;34m--> [0m1113-unapplied-function.ax:14:8
+[1;34m   |[0m
+[1;34m14 |[0m   (if (lambda (x) x)
+[1;34m   |[0m        [1;31m^^^^^^ this has type `unapplied function`, expected `Bool`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected a matchable value, found unapplied function[0m
+  [1;34m--> [0m1113-unapplied-function.ax:20:11
+[1;34m   |[0m
+[1;34m20 |[0m   (match (lambda (x) x)
+[1;34m   |[0m           [1;31m^^^^^^ this has type `unapplied function`, expected `a matchable value`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected struct or data type, found unapplied function[0m
+  [1;34m--> [0m1113-unapplied-function.ax:27:5
+[1;34m   |[0m
+[1;34m27 |[0m     f.v))
+[1;34m   |[0m     [1;31m^ this has type `unapplied function`, expected `struct or data type`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected Int, found (_a -> _a)[0m
+  [1;34m--> [0m1113-unapplied-function.ax:31:13
+[1;34m   |[0m
+[1;34m31 |[0m   (takeInt (lambda (x) x)))
+[1;34m   |[0m             [1;31m^^^^^^ this has type `(_a -> _a)`, expected `Int`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected Int, found unapplied function[0m
+  [1;34m--> [0m1113-unapplied-function.ax:36:9
+[1;34m   |[0m
+[1;34m36 |[0m     (if c
+[1;34m   |[0m         [1;31m^ this has type `unapplied function`, expected `Int`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected Int, found unapplied function[0m
+  [1;34m--> [0m1113-unapplied-function.ax:42:9
+[1;34m   |[0m
+[1;34m42 |[0m   (Box (lambda (x) x)))
+[1;34m   |[0m         [1;31m^^^^^^ this has type `unapplied function`, expected `Int`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected Int, found unapplied function[0m
+  [1;34m--> [0m1113-unapplied-function.ax:48:15
+[1;34m   |[0m
+[1;34m48 |[0m       (set n (lambda (x) x))
+[1;34m   |[0m               [1;31m^^^^^^ this has type `unapplied function`, expected `Int`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected struct or data type, found unapplied function[0m
+  [1;34m--> [0m1113-unapplied-function.ax:56:12
+[1;34m   |[0m
+[1;34m56 |[0m       (set f.v 1)
+[1;34m   |[0m            [1;31m^ this has type `unapplied function`, expected `struct or data type`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected String, found (_a -> _a)[0m
+  [1;34m--> [0m1113-unapplied-function.ax:62:4
+[1;34m   |[0m
+[1;34m62 |[0m   (lambda (x) x))
+[1;34m   |[0m    [1;31m^^^^^^ this has type `(_a -> _a)`, expected `String`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+compilation failed due to 10 previous errors

@@ -1,0 +1,11 @@
+[1;31merror[AX3004][0m[1m: type mismatch: this function calls itself through an alias bound after its definition, which cannot be compiled[0m
+ [1;34m--> [0m1112-forward-alias.ax:5:10
+[1;34m  |[0m
+[1;34m5 |[0m       (g 5))))
+[1;34m  |[0m          [1;31m^ this call cannot be compiled[0m
+[1;34m  |[0m
+ [1;34m = [0m[1mnote: [0minference grounds a lambda's parameters from its uses; a use through a forward alias resolves only after the definition, past what the emitter can call
+ [1;34m = [0m[1;32mhelp: [0mname the function with `fn` and recurse through its name - a top-level name compiles to a direct call
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+compilation failed due to 1 previous error

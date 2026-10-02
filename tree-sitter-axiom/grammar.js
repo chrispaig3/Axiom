@@ -752,7 +752,8 @@ module.exports = grammar({
     // A lowercase name in type position is a variable (`a`), an uppercase
     // one is a constructor (`Maybe`). That is the compiler's rule, and
     // encoding it here is what lets an editor colour the two differently.
-    type_variable: _ => token(/[a-z][A-Za-z0-9_']*/),
+    // Leading operator run, as on `constructor_identifier` above.
+    type_variable: _ => token(/[+*/%<>=!&|^~-]*[a-z][A-Za-z0-9_']*/),
 
     // There is no general "parenthesised type" rule, and that is not an
     // omission: `parseType` in `self_host/parser.ax` accepts a
@@ -1242,15 +1243,23 @@ module.exports = grammar({
     // uppercase name is a type or data constructor, a lowercase one is a
     // type variable. Keeping them as distinct tokens is also what makes
     // `(data Maybe (a) (Nothing) ...)` unambiguous.
-    constructor_identifier: _ => token(/[A-Z][A-Za-z0-9_']*/),
+    // A leading run of operator characters is glued on: the lexer
+    // starts an identifier on `*` (and `+ - / % < > = ! & | ^`),
+    // so `*Int` is one identifier naming the unknown type `*Int`
+    // (the compiler's AX3002 spells `(* T)` at it), not a star
+    // followed by a name. Source: `isIdentStart` in
+    // self_host/lexer.ax.
+    constructor_identifier: _ => token(/[+*/%<>=!&|^~-]*[A-Z][A-Za-z0-9_']*/),
 
     // An identifier is either a name (possibly dotted, since `.` is an
     // operator character that the lexer glues on) or a bare run of
     // operator characters. A dot inside a name is never followed by a
     // second one, so `lo..hi` is a range between two names. Operators
     // being identifiers is why this grammar has no precedence table.
+    // The name alternative starts on the lexer's full start set,
+    // operators included, for the reason above.
     identifier: _ => token(choice(
-      /[A-Za-z_][A-Za-z0-9_']*([+\-*\/%^=<>!&|?~@]+[A-Za-z0-9_']*|\.[A-Za-z0-9_'+\-*\/%^=<>!&|?~@][A-Za-z0-9_']*)*/,
+      /[A-Za-z_+*/%<>=!&|^~-][A-Za-z0-9_']*([+\-*\/%^=<>!&|?~@]+[A-Za-z0-9_']*|\.[A-Za-z0-9_'+\-*\/%^=<>!&|?~@][A-Za-z0-9_']*)*/,
       new RegExp(OPERATOR_CHAR.source + '+'),
     )),
   },

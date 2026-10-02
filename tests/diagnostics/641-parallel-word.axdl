@@ -1,1 +1,1 @@
-E AX3004 641-parallel-word.ax:19:8-11 type-mismatch "type mismatch: expected (Int -> Int), found (_a -> String)" #"this has type `(_a -> String)`, expected `(Int -> Int)`"
+E AX3004 641-parallel-word.ax:19:8-11 type-mismatch "type mismatch: expected (Int -> Int), found (Int -> String)" #"this has type `(Int -> String)`, expected `(Int -> Int)`"

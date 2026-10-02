@@ -919,6 +919,24 @@
 # pure 616 to 912, and effect-params rows 19 to 38 (the row callbacks,
 # passed as parameters so no row is only a lower bound). No new bucket.
 #
+# RE-PINNED for use-driven lambda inference (grounding). The engine is
+# thirty-odd new functions in typecheck.ax - stamps, records, prefixes,
+# flushes, two-pass recursion - most of them pure or Alloc, plus
+# `checkLam` newly `effect(unsafe)` (its body reads a word the walk
+# checks, which the split of its validation half exposed). Exactly
+# `Alloc,Mut` goes 1592 to 1614, exactly `Alloc` 112 to 121, pure
+# 1413 to 1424, `Alloc,Mut,Unsafe` 954 to 959, exactly `Unsafe` 495
+# to 497, `Alloc,IO,Mut` 152 to 153, exactly `Mut` 35 to 36 and
+# `Mut,Unsafe` 112 to 113. The stdlib view's pure 912 to 911 is NOT
+# this change: the symbols output is byte-identical with and without
+# grounding, and trunk's own tree measures 911 too - the pin rotted
+# earlier and this re-pin collects it. No new bucket.
+#
+# RE-PINNED for the grounding consumer sweep (`refusePendingOperand`
+# + `groundStandalone` in typecheck.ax). Both emit diagnostics, so
+# both land exactly `Alloc,Mut` beside their siblings, and the pin
+# moves 1614 to 1616 by that delta and no more. No new bucket.
+#
 # Every bucket is pinned exactly. A refactor that moves functions
 # between buckets fails here, and the failure is a conversation about
 # whether the required/ambient line still sits where it was measured -
@@ -948,17 +966,17 @@ echo "== compiler view: symbols --calls self_host/main.ax =="
 rows="$(grep -c '^F ' "$work/main.axsym" || true)"
 (( rows >= 4000 )) && ok "$rows functions listed (floor 4000)" \
   || fail "only $rows functions listed; the floor is 4000 (the corpus moved or the read broke)"
-have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 1592 "exactly Alloc,Mut"
-have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut')" 152 "Alloc,IO,Mut"
-have "$(bucket "$work/main.axsym" 'Mut')" 35 "exactly Mut"
-have "$(bucket "$work/main.axsym" 'Alloc')" 112 "exactly Alloc"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 1616 "exactly Alloc,Mut"
+have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut')" 153 "Alloc,IO,Mut"
+have "$(bucket "$work/main.axsym" 'Mut')" 36 "exactly Mut"
+have "$(bucket "$work/main.axsym" 'Alloc')" 121 "exactly Alloc"
 have "$(bucket "$work/main.axsym" 'Alloc,IO')" 10 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 7 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 0 "IO,Mut"
-have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 954 "Alloc,Mut,Unsafe"
-have "$(bucket "$work/main.axsym" 'Unsafe')" 495 "exactly Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 959 "Alloc,Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Unsafe')" 497 "exactly Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 250 "Alloc,IO,Mut,Unsafe"
-have "$(bucket "$work/main.axsym" 'Mut,Unsafe')" 112 "Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Mut,Unsafe')" 113 "Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,Unsafe')" 9 "Alloc,Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Unsafe')" 53 "Alloc,IO,Unsafe"
 have "$(bucket "$work/main.axsym" 'IO,Mut,Unsafe')" 4 "IO,Mut,Unsafe"
@@ -974,7 +992,7 @@ have "$(bucket "$work/main.axsym" 'Block,IO,Unsafe')" 3 "Block,IO,Unsafe"
 have "$(bucket "$work/main.axsym" 'Entropy')" 1 "Entropy"
 have "$(bucket "$work/main.axsym" 'IO,Spawn,Unsafe')" 1 "IO,Spawn,Unsafe"
 have "$(bucket "$work/main.axsym" 'Spawn')" 2 "Spawn"
-have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 1413 "pure (neither row nor mark)"
+have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 1424 "pure (neither row nor mark)"
 have "$(grep -c '#effects-incomplete' "$work/main.axsym" || true)" 0 "incomplete rows"
 have "$(grep -c '#effect-params' "$work/main.axsym" || true)" 8 "effect-params rows"
 
@@ -1034,7 +1052,7 @@ have "$(bucket "$work/lib.axsym" 'Entropy')" 2 "Entropy"
 have "$(bucket "$work/lib.axsym" 'Entropy,Mut')" 1 "Entropy,Mut"
 have "$(bucket "$work/lib.axsym" 'IO,Spawn,Unsafe')" 1 "IO,Spawn,Unsafe"
 have "$(bucket "$work/lib.axsym" 'Spawn')" 2 "Spawn"
-have "$(grep '^F ' "$work/lib.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 912 "pure (neither row nor mark)"
+have "$(grep '^F ' "$work/lib.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 911 "pure (neither row nor mark)"
 have "$(grep -c '#effects-incomplete' "$work/lib.axsym" || true)" 2 "incomplete rows"
 have "$(grep -c '#effect-params' "$work/lib.axsym" || true)" 38 "effect-params rows"
 

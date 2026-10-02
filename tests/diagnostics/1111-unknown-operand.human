@@ -1,0 +1,19 @@
+[1;31merror[AX3004][0m[1m: type mismatch: expected Int, found {unknown}[0m
+ [1;34m--> [0m1111-unknown-operand.ax:3:55
+[1;34m  |[0m
+[1;34m3 |[0m (fn (main) (handle (ask 1) (Ask) (lambda (s extra) (+ extra 1))))
+[1;34m  |[0m                                                       [1;31m^^^^^ this has an unknown type[0m
+[1;34m  |[0m
+ [1;34m = [0m[1mnote: [0mno signature declares this value's type - a `lambda` parameter has nowhere to declare one, so name the function and sign it - and each representation lowers differently
+ [1;34m = [0m[1;32mhelp: [0mdeclare the type with a `(:: ...)` signature
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected (Int -> Int), found (Int -> (_a -> Int))[0m
+ [1;34m--> [0m1111-unknown-operand.ax:3:35
+[1;34m  |[0m
+[1;34m3 |[0m (fn (main) (handle (ask 1) (Ask) (lambda (s extra) (+ extra 1))))
+[1;34m  |[0m                                   [1;31m^^^^^^ this has type `(Int -> (_a -> Int))`, expected `(Int -> Int)`[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+compilation failed due to 2 previous errors

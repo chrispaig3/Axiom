@@ -1,0 +1,66 @@
+(struct Box
+  (v : Int))
+
+(:: takeInt (-> Int Int))
+(fn (takeInt n)
+  n)
+
+(:: numOp Int)
+(fn (numOp)
+  (+ (lambda (x) x) 1))
+
+(:: condFn Int)
+(fn (condFn)
+  (if (lambda (x) x)
+    1
+    2))
+
+(:: matchFn Int)
+(fn (matchFn)
+  (match (lambda (x) x)
+    ((1) 1)
+    (_ 2)))
+
+(:: fieldFn Int)
+(fn (fieldFn)
+  (let ((f (lambda (x) x)))
+    f.v))
+
+(:: callArg Int)
+(fn (callArg)
+  (takeInt (lambda (x) x)))
+
+(:: callArgWrapped (-> Bool Int))
+(fn (callArgWrapped c)
+  (takeInt
+    (if c
+      (lambda (x) x)
+      (lambda (x) x))))
+
+(:: structField Box)
+(fn (structField)
+  (Box (lambda (x) x)))
+
+(:: setBind Int)
+(fn (setBind)
+  (let ((mut n 0))
+    {
+      (set n (lambda (x) x))
+      n
+    }))
+
+(:: setfBase Int)
+(fn (setfBase)
+  (let ((f (lambda (x) x)))
+    {
+      (set f.v 1)
+      0
+    }))
+
+(:: retStr String)
+(fn (retStr)
+  (lambda (x) x))
+
+(:: main Int)
+(fn (main)
+  0)

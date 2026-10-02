@@ -239,6 +239,797 @@
 (pub fn (mkSilentWild)
   (mkTVar ""))
 
+; Whether this type is still unknown in the sense that refuses
+; consumption: a `_tN` "not known yet" placeholder, after resolving
+; whatever instantiation already pinned. Source variables are rigid
+; user polymorphism with their own refusal machinery (a `+` over `a`
+; already draws AX3004); minted `_iN` placeholders belong to the
+; instantiation env; the silent wildcard and `0` mark what stage1
+; alone cannot know, and refusing those would refuse the unknowable
+; rather than the untyped. Answers on the RESOLVED type, so a
+; placeholder pinned to ground is ground.
+(pub :: tyIsUnknown (-> Int Int))
+(pub fn (tyIsUnknown t0)
+  (let ((t (tyResolve t0)))
+    (if (== t 0)
+      0
+      (if (!= (nodeTag t) TAG_T_VAR)
+        0
+        ; Exactly the `_tN` class: `freshTVar`'s "not known yet".
+        ; Every other placeholder is lenient by construction - `_iN`
+        ; instantiation variables (pinned through their cells),
+        ; `_fn_N` declaration placeholders (ground truth exists;
+        ; entry-first order may simply not have inferred it yet, as
+        ; a cross-module macro's nullary `made` proves), the empty
+        ; variable, and source variables. A name a user WROTE that
+        ; starts with `_t` is indistinguishable from a minted one
+        ; and refuses with it; nobody writes that name. A future
+        ; placeholder class is lenient until it opts in here: the
+        ; fail-closed direction is silence, the trunk behavior.
+        (if (strStartsWith (nodeAName t) "_t")
+          1
+          0)))))
+
+; Whether this type is ground enough to consume an unknown against:
+; anything that resolves to a non-variable. A variable on this side
+; - `_tN`, an unpinned `_iN`, a source `a` - means both sides are
+; still open, and the ignorance propagates to the next consumer
+; rather than refusing here.
+(pub :: tyIsGround (-> Int Int))
+(pub fn (tyIsGround t0)
+  (let ((t (tyResolve t0)))
+    (if (== t 0)
+      0
+      (if (== (nodeTag t) TAG_T_VAR)
+        0
+        1))))
+
+; AX3004 at a value of unknown type consumed where a ground type is
+; required: the emitter must choose a representation - `add` or
+; `fadd`, an `i64` or a `double` slot - and ignorance is not a
+; choice. `(lambda (x) (+ x 1))` applied to `1.5` ran integer `add`
+; on double bits, at exit 1, with no diagnostic; the same shape
+; through a call argument, an `if` condition, a struct field and a
+; `set` value. The `found` is fixed: these types have no source
+; spelling to render (a `_tN` would print as the `_a` label of a
+; name the user never wrote).
+(pub :: refuseUnknownOperand (-> Int String Int Int Int))
+(pub fn (refuseUnknownOperand tc want valTy span)
+  (if (== (tyIsUnknown valTy) 0)
+    0
+    (if (== span 0)
+      0
+      {
+        (emitDiag tc (diagSetLabel (mkDiagNote
+          SEV_ERROR
+          "AX3004"
+          "type-mismatch"
+          span
+          (strConcat (strConcat "type mismatch: expected " want) ", found {unknown}")
+          0
+          0
+          "declare the type with a `(:: ...)` signature"
+          "no signature declares this value's type - a `lambda` parameter has nowhere to declare one, so name the function and sign it - and each representation lowers differently") "this has an unknown type"))
+        1
+      })))
+
+; ------------------------------------------------------------------
+; USE-DRIVEN LAMBDA INFERENCE (grounding). A `let`-bound lambda used
+; to be checked where it sat, against nothing: every parameter a
+; fresh `_tN`, and every consumption of one a `{unknown}` refusal -
+; or, before the refusals, a silent hole the emitter filled with a
+; guess that read back 122. The use knows what the definition
+; cannot: defer the check to the first application, bind the
+; parameters to the argument types it carries, and check the body
+; then. What no use witnesses is flushed, not guessed: a lambda
+; that escapes (stored, returned, sequenced past, outlived by its
+; scope) is checked standalone and only its `{unknown}` refusals
+; are dropped - a bad name is bad whatever the use, but ignorance
+; no use witnesses is not a refusal.
+;
+; A pending lambda flows as THE NODE ITSELF where a type is
+; expected. `tyRender` falls through to `{unknown}` on it, which is
+; what a diagnostic about one should say, and `tyCompat` answers 1
+; on it - there is no arrow yet to compare against, and answering
+; 0 refused sound programs with `expected {unknown}, found
+; {unknown}`. Every consumer that CAN judge it still does: a use
+; grounds it, a declaration checks it, an escape flushes it.
+;
+; THE STAMP is the lambda's own ty slot (word 6), which nothing
+; downstream reads for a lambda: codegen consults it for
+; declarations, fields and applications, and `resolveStructField`
+; for fields - never for `TAG_E_LAM`. Five states, two of them
+; terminal:
+;
+;   0         ungrounded (fresh, or flushed and still pending)
+;   TAG_T_ARR grounded: the arrow over the REMAINING parameters -
+;             this level's and whatever deeper levels are still
+;             pending; captures and supplied outer parameters the
+;             body reads but the arrow must not name
+;   TAG_NIL   partial: a record whose `a` is a vector of `SEnt`s
+;             (captures, then the outer parameters witnessed so
+;             far) and whose `b` is the node's OWN position in it.
+;             The outer node and the rest node hold two records
+;             over one shared entries vector, their `b` words one
+;             apart.
+;   __grounding
+;             in progress: the first pass is running; recursive
+;             uses read this (a name-compared type variable that
+;             never escapes the grounding)
+;   TAG_T_ERR broken: the body failed and its diagnostics are out,
+;             so later uses go poison-quiet (cascade suppression)
+;             rather than re-checking (duplicates)
+;
+; First use wins: a second use of a grounded node verifies against
+; the arrow through the normal application path, and a second use
+; of a partial outer node verifies its argument against the record.
+; No body is ever checked twice for one grounding - except a
+; self-recursive one, which gets exactly two passes (below).
+; ------------------------------------------------------------------
+
+; 1 when `t` is a lambda node flowing as a type: an ungrounded
+; closure whose parameters no use has witnessed yet.
+(pub :: isPendingNode (-> Int Int))
+(pub fn (isPendingNode t)
+  (if (== t 0)
+    0
+    (if (== (nodeTag t) TAG_E_LAM)
+      1
+      0)))
+
+(pub :: lamStamp (-> Int Int))
+(pub fn (lamStamp node)
+  (nodeTy node))
+
+(pub :: setLamStamp (-> Int Int Int))
+(pub fn (setLamStamp node s)
+  (setNodeTy node s))
+
+(pub :: stampIsArrow (-> Int Int))
+(pub fn (stampIsArrow s)
+  (if (== s 0)
+    0
+    (if (== (nodeTag s) TAG_T_ARR)
+      1
+      0)))
+
+(pub :: stampIsPartial (-> Int Int))
+(pub fn (stampIsPartial s)
+  (if (== s 0)
+    0
+    (if (== (nodeTag s) TAG_NIL)
+      1
+      0)))
+
+(pub :: mkPartialRec (-> (Vec Int) Int Int Int))
+(pub fn (mkPartialRec ents own sp)
+  (mkNodeAt TAG_NIL (cast Int ents) own 0 sp))
+
+(pub :: partialEnts (-> Int (Vec Int)))
+;@axiom:effect(unsafe)
+(pub fn (partialEnts s)
+  (cast (Vec Int) (nodeA s)))
+
+; The node's OWN position: where its parameters start in the
+; record (captures below, witnessed parameters above). It rides
+; the RECORD's `b` word, not the lambda's `c` word: a seed-built
+; stage1 segfaults emitting any lambda whose `c` word is nonzero
+; (measured 2026-10-02, `d1/axc` on a two-line partial
+; application), so the checker's stamp touches only the ty slot it
+; owns, and the node itself is never written.
+(pub :: partialOwn (-> Int Int))
+(pub fn (partialOwn s)
+  (nodeB s))
+
+(pub :: stampIsProg (-> Int Int))
+(pub fn (stampIsProg s)
+  (if (== s 0)
+    0
+    (if (== (nodeTag s) TAG_T_VAR)
+      (if (strEq (nodeAName s) "__grounding")
+        1
+        0)
+      0)))
+
+(pub :: mkProgStamp Int)
+(pub fn (mkProgStamp)
+  (mkTVar "__grounding"))
+
+(pub :: stampIsBroken (-> Int Int))
+(pub fn (stampIsBroken s)
+  (if (== s 0)
+    0
+    (if (== (nodeTag s) TAG_T_ERR)
+      1
+      0)))
+
+; The out-vector swap: a throwaway home for a speculative pass's
+; diagnostics. The swapper either restores filtered (a flush keeps
+; what it keeps) or restores bare (a first pass discards all).
+(pub :: outvecSwapOut (-> Int Int))
+;@axiom:effect(unsafe)
+(pub fn (outvecSwapOut tc)
+  (let ((real (memGetWord tc 4)))
+    {
+      (memSetWord tc 4 (cast Int vecNew))
+      real
+    }))
+
+(pub :: outvecSwapIn (-> Int Int Int))
+;@axiom:effect(unsafe)
+(pub fn (outvecSwapIn tc real)
+  {
+    (memSetWord tc 4 real)
+    0
+  })
+
+; 1 when `d` is an `{unknown}` refusal: AX3004 whose message names
+; the unknowable.
+(pub :: diagIsUnknownRefusal (-> Int Int))
+(pub fn (diagIsUnknownRefusal d)
+  (if (== d 0)
+    0
+    (if (strEq (diagCode d) "AX3004")
+      (if (isSome (strFind (diagMsg d) "{unknown}" 0))
+        1
+        0)
+      0)))
+
+(pub :: outvecCarryOver (-> Int (Vec Int) Int Int))
+;@axiom:effect(unsafe)
+(pub fn (outvecCarryOver tc fresh i)
+  (if (>= i (vecLen fresh))
+    0
+    {
+      (if (== (diagIsUnknownRefusal (vecGet fresh i)) 0)
+        {
+          (vecPush (cast (Vec Int) (memGetWord tc 4)) (vecGet fresh i))
+          0
+        }
+        0)
+      (outvecCarryOver tc fresh (+ i 1))
+    }))
+
+; Restore `real`, carrying over every diagnostic EXCEPT the
+; `{unknown}` refusals.
+(pub :: outvecRestoreFiltered (-> Int Int Int))
+;@axiom:effect(unsafe)
+(pub fn (outvecRestoreFiltered tc real)
+  (let ((fresh (cast (Vec Int) (memGetWord tc 4))))
+    {
+      (memSetWord tc 4 real)
+      (outvecCarryOver tc fresh 0)
+    }))
+
+; FLUSH: verify a pending lambda that escapes without a use. The
+; standalone check runs with fresh parameters; its `{unknown}`
+; refusals are dropped (no use witnesses them, so there is nothing
+; to refuse) and everything else is kept. The stamp is NOT touched:
+; a later use still grounds. Grounded and broken nodes are not
+; flushed - one is verified, the other's diagnostics are out.
+; Answers 0.
+; Refuse a pending lambda where a ground value is required: the body
+; is verified LENIENTLY first (its own errors are still reported -
+; refusing the shape must not silence the body), then the shape
+; refusal names the position. Refusal paths keep both diagnostics.
+(pub :: refusePendingOperand (-> Int Int String Int Int))
+(pub fn (refusePendingOperand tc node expected span)
+  {
+    (flushPending tc node span)
+    (emitMismatch tc expected "unapplied function" span)
+  })
+
+; FLUSH, answering the arrow: for a use that witnesses NOTHING
+; about the parameters (a type-variable parameter, a returned
+; closure, a lambda nested in a body) the body is verified
+; leniently and the INFERRED arrow answers - the old standalone
+; behavior, which pinning, evidence, and rendering require to be
+; a TYPE, never a pending node. Stamps the arrow (first use
+; wins: later uses verify against it instead of re-checking the
+; body). The in-progress marker guards re-entry: a recursive use
+; during the check answers poison after naming the too-early
+; call, which the filter below KEEPS (only `{unknown}` drops).
+(pub :: groundStandalone (-> Int Int Int Int))
+(pub fn (groundStandalone tc t span)
+  (if (== (isPendingNode t) 0)
+    t
+    (let ((s (lamStamp t)))
+      (if (== (stampIsArrow s) 1)
+        s
+        (if (== (stampIsBroken s) 1)
+          (mkNode TAG_T_ERR 0 0 0)
+          (if (== (stampIsProg s) 1)
+            {
+              (emitDiag tc (diagSetLabel (mkDiagNote
+                SEV_ERROR
+                "AX3004"
+                "type-mismatch"
+                span
+                "type mismatch: cannot check this function while its parameter types are still being inferred"
+                0
+                0
+                "use it after its definition is complete - a use during its own inference resolves nothing yet"
+                "inference grounds a lambda's parameters from its uses; this use runs before the grounding finished") "this use is too early to check"))
+              (mkNode TAG_T_ERR 0 0 0)
+            }
+            (let ((real (outvecSwapOut tc)))
+              (let ((mark (vecLen (tcScopeVec tc))))
+                (let ((arr
+                  {
+                    (if (== (stampIsPartial s) 1)
+                      (groundPushPrefix tc (partialEnts s) 0)
+                      0)
+                    (setLamStamp t (mkProgStamp))
+                    (checkLam tc t)
+                  }))
+                  {
+                    (scopeTrunc (tcScopeVec tc) mark)
+                    (outvecRestoreFiltered tc real)
+                    (groundFinish tc t arr)
+                  })))))))))
+
+(pub :: flushPending (-> Int Int Int Int))
+(pub fn (flushPending tc t span)
+  (if (== (isPendingNode t) 0)
+    0
+    (let ((s (lamStamp t)))
+      (if (== (stampIsArrow s) 1)
+        0
+        (if (== (stampIsBroken s) 1)
+          0
+          ; A partial node flushes with its PREFIX in scope: the
+          ; outer parameters are witnessed, and checking without
+          ; them would refuse names the grounding binds. The
+          ; `{unknown}` filter still drops what no use witnesses.
+          (let ((real (outvecSwapOut tc)))
+            (let ((mark (vecLen (tcScopeVec tc))))
+              {
+                (if (== (stampIsPartial s) 1)
+                  (groundPushPrefix tc (partialEnts s) 0)
+                  0)
+                (checkLam tc t)
+                (scopeTrunc (tcScopeVec tc) mark)
+                (outvecRestoreFiltered tc real)
+              })))))))
+
+; GROUND one application level: witness this level's argument
+; against `node` and answer the grounded arrow - or, for the outer
+; level of a curried chain, the REST node still pending, which the
+; enclosing application grounds in turn. Broken nodes answer
+; poison quietly; nodes mid-grounding (a recursive use during the
+; first pass) answer poison after naming the recursion, which the
+; first pass's swap discards for honest self-recursion and the user
+; sees only when an alias hid the recursion from the two-pass
+; trigger.
+(pub :: groundLamArg (-> Int Int Int Int Int))
+(pub fn (groundLamArg tc node argTy span)
+  (let ((s (lamStamp node)))
+    ; Grounded nodes answer the arrow: first use wins, and the
+    ; normal path verifies this use against it. Re-grounding here
+    ; would check the body WITHOUT its prefix (the record is gone,
+    ; replaced by the arrow) - refusing names the first grounding
+    ; bound, and duplicating every diagnostic the body earned.
+    (if (== (stampIsArrow s) 1)
+      s
+    (if (== (stampIsProg s) 1)
+      {
+        (emitDiag tc (diagSetLabel (mkDiagNote
+          SEV_ERROR
+          "AX3004"
+          "type-mismatch"
+          span
+          "type mismatch: cannot call this function while its parameter types are still being inferred"
+          0
+          0
+          "call it after its definition is complete - a recursive call through a `let` alias hides the recursion from inference"
+          "inference grounds a lambda's parameters from its uses; this use runs before the grounding finished") "this call is too early to check"))
+        (mkNode TAG_T_ERR 0 0 0)
+      }
+      (if (== (stampIsBroken s) 1)
+        (mkNode TAG_T_ERR 0 0 0)
+        (groundLamStage tc node argTy span s))))))
+
+; The staging half of grounding. The prefix (the record's entries,
+; or nothing) names the outer parameters an earlier level
+; witnessed; this level's argument witnesses the next one.
+(pub :: groundLamStage (-> Int Int Int Int Int Int))
+(pub fn (groundLamStage tc node argTy span s)
+  (let ((prefix (if (== (stampIsPartial s) 1)
+    (partialEnts s)
+    vecNew)))
+    ; The parser curries, so one parameter is the shape; a flat
+    ; spelling is curried at defer time, and the flat arm is its
+    ; backstop.
+    (if (!= (vecLen (nodeAVec node)) 1)
+      (groundLamFlat tc node span)
+      (if (== (nodeTag (nodeB node)) TAG_E_LAM)
+        (groundLamOuter tc node argTy span prefix)
+        (groundLamSelf tc node argTy span prefix)))))
+
+; The outer level of a curried chain: witness, record, and answer
+; the REST pending. No check runs - the rest's body is checked when
+; the rest is applied, with the full prefix in scope. The node's
+; OWN position rides its record's `b` word (0 when there is no
+; record yet): a use after the first at the same level verifies
+; against the record instead of rebinding (first use wins; uses
+; disagree at the use, not in the body), while a MIDDLE level's
+; first use witnesses a NEW position - the record then holds
+; exactly the outer positions. Records are immutable: the new
+; entries vector is a clone plus the new entry, shared by two
+; records whose `b` words differ (the node's own position, and the
+; rest's, one deeper), so outer levels keep witnessing what they
+; witnessed.
+(pub :: groundLamOuter (-> Int Int Int Int (Vec Int) Int))
+(pub fn (groundLamOuter tc node argTy span prefix)
+  (let ((rest (nodeB node)))
+    (let ((own (let ((st (lamStamp node)))
+      (if (== (stampIsPartial st) 1)
+        (partialOwn st)
+        0))))
+      (if (> (vecLen prefix) own)
+        {
+          (if (== (tyCompat tc argTy (sEntTy (vecGet prefix own))) 0)
+            (emitMismatchTy tc (sEntTy (vecGet prefix own)) argTy span)
+            0)
+          rest
+        }
+        (let ((ents (prefixClonePlus prefix (vecGet (nodeAVec node) 0) argTy)))
+          {
+            (setLamStamp node (mkPartialRec ents own span))
+            (setLamStamp rest (mkPartialRec ents (+ own 1) span))
+            rest
+          }
+        )))))
+
+(pub :: prefixClonePlus (-> (Vec Int) Int Int (Vec Int)))
+(pub fn (prefixClonePlus prefix name ty)
+  (let ((ents vecNew))
+    {
+      (prefixCloneInto prefix ents 0)
+      (vecPush ents (cast Int (SEnt name 0 0 ty)))
+      ents
+    }))
+
+(pub :: prefixCloneInto (-> (Vec Int) (Vec Int) Int Int))
+(pub fn (prefixCloneInto prefix ents i)
+  (if (>= i (vecLen prefix))
+    0
+    {
+      (vecPush ents (vecGet prefix i))
+      (prefixCloneInto prefix ents (+ i 1))
+    }))
+
+; The innermost level: the full environment is known (the prefix
+; plus this argument), so the body is CHECKED and the node answers
+; a grounded arrow. Self-recursion gets exactly two passes: the
+; first grounds under a throwaway vector (recursive uses read the
+; in-progress marker), the second verifies against the first's
+; arrow. `checkLamAgainst` binds the parameter from the built
+; arrow, recursing through nothing - this shape's body is not a
+; lambda - so its fallback (a flat multi-parameter spelling, or an
+; arrow run out) is unreachable here.
+(pub :: groundLamSelf (-> Int Int Int Int (Vec Int) Int))
+(pub fn (groundLamSelf tc node argTy span prefix)
+  (let ((mark (vecLen (tcScopeVec tc))))
+    {
+      (groundPushPrefix tc prefix 0)
+      (setLamStamp node (mkProgStamp))
+      (let ((arrow (mkTArr argTy (freshTVar tc 1))))
+        (let ((ans (let ((sm (groundSelfMention tc node (nodeB node) prefix)))
+          (if (== sm 2)
+            ; A FORWARD alias: the body names this lambda through a
+            ; name unbound at the defer, so the capture record does
+            ; not hold it. The emitter calls a `let`-bound name
+            ; directly (`call i64 @g`), which is undefined for an
+            ; alias - accepting would miscompile where the old
+            ; checker refused AX3001 - so the grounding refuses and
+            ; the node goes broken-terminal.
+            {
+              (emitDiag tc (diagSetLabel (mkDiagNote
+                SEV_ERROR
+                "AX3004"
+                "type-mismatch"
+                span
+                "type mismatch: this function calls itself through an alias bound after its definition, which cannot be compiled"
+                0
+                0
+                "name the function with `fn` and recurse through its name - a top-level name compiles to a direct call"
+                "inference grounds a lambda's parameters from its uses; a use through a forward alias resolves only after the definition, past what the emitter can call") "this call cannot be compiled"))
+              (mkNode TAG_T_ERR 0 0 0)
+            }
+            (if (== sm 1)
+              (groundLamRec tc node arrow)
+              (checkLamAgainst tc node arrow))))))
+          {
+            (scopeTrunc (tcScopeVec tc) mark)
+            (groundFinish tc node ans)
+          }))
+    }))
+
+(pub :: groundPushPrefix (-> Int (Vec Int) Int Int))
+(pub fn (groundPushPrefix tc prefix i)
+  (if (>= i (vecLen prefix))
+    0
+    {
+      (vecPush (tcScopeVec tc) (vecGet prefix i))
+      (groundPushPrefix tc prefix (+ i 1))
+    }))
+
+; The first pass grounds under a throwaway vector; the second
+; verifies against the first's arrow, whose parameters are the
+; argument types (unchanged between passes), so recursive calls
+; check their arguments honestly. The first pass's diagnostics are
+; discarded and the second's are definitive: no diagnostic is
+; emitted twice for one grounding.
+(pub :: groundLamRec (-> Int Int Int Int))
+(pub fn (groundLamRec tc node arrow)
+  (let ((real (outvecSwapOut tc)))
+    (let ((pre (checkLamAgainst tc node arrow)))
+      {
+        (outvecSwapIn tc real)
+        (setLamStamp node pre)
+        (checkLamAgainst tc node arrow)
+      })))
+
+; Stamp the answer: poison anywhere in it means the body's
+; diagnostics are already out, so the node goes broken-terminal
+; (later uses go quiet); otherwise the answer stamps the node as
+; is. It names exactly the REMAINING parameters - the node's own
+; (bound from this level's argument) plus whatever deeper levels
+; are still pending - because the prefix it was checked under
+; holds only captures and already-supplied outer parameters, which
+; the body reads but the arrow must not name (naming a capture
+; would answer `(a -> (Int -> Int))` for a one-parameter closure
+; over `z : a`, refusing every honest call).
+(pub :: groundFinish (-> Int Int Int Int))
+(pub fn (groundFinish tc node ans)
+  (if (== (tyHasPoison ans) 1)
+    {
+      (setLamStamp node (mkNode TAG_T_ERR 0 0 0))
+      ans
+    }
+    {
+      (setLamStamp node ans)
+      ans
+    }))
+
+; 0 when `body` never names `node`, 1 when it names it through
+; the record (a capture the defer resolved: the two-pass trigger),
+; 2 when it names it through a FORWARD alias (unbound at the
+; defer, so the record does not hold it: refused, since the
+; emitter cannot call it). `capScanInto` collects the free
+; variables (shadowing-correct: inner binders shadow, outer names
+; resolve through the scope); each is resolved, compared by
+; pointer, and looked up in the record. A false positive only buys
+; a second pass (or a refusal the user can lift by naming the
+; function), while a miss would leave recursion unverified - and a
+; miss still answers audibly, through the in-progress marker,
+; never silently. Forms `capScanInto` does not walk (a `cast` over
+; the call, and the like) miss by construction.
+(pub :: groundSelfMention (-> Int Int Int (Vec Int) Int))
+(pub fn (groundSelfMention tc node body prefix)
+  (let ((bound vecNew))
+    (let ((acc vecNew))
+      {
+        (capScanInto body bound acc)
+        (groundAccMentions tc acc node prefix 0)
+      })))
+
+(pub :: groundAccMentions (-> Int (Vec Int) Int (Vec Int) Int Int))
+(pub fn (groundAccMentions tc acc node prefix i)
+  (if (>= i (vecLen acc))
+    0
+    (let ((ent (scopeFindFrame tc (nodeAName (vecGet acc i)))))
+      (if (!= ent 0)
+        (if (== (sEntTy ent) node)
+          (if (== (groundNameInPrefix prefix (nodeAName (vecGet acc i)) 0) 1)
+            1
+            2)
+          (groundAccMentions tc acc node prefix (+ i 1)))
+        (groundAccMentions tc acc node prefix (+ i 1))))))
+
+; 1 when `name` is bound anywhere in `prefix` (captures and outer
+; parameters alike): the defer (or an earlier level) resolved it,
+; so it is not forward.
+(pub :: groundNameInPrefix (-> (Vec Int) String Int Int))
+;@axiom:effect(unsafe)
+(pub fn (groundNameInPrefix prefix name i)
+  (if (>= i (vecLen prefix))
+    0
+    (if (strEq (memGetWordStr (vecGet prefix i) 0) name)
+      1
+      (groundNameInPrefix prefix name (+ i 1)))))
+
+; Flat multi-parameter lambdas never reach grounding (the defer
+; curries them), so this arm refuses audibly rather than guessing:
+; it is unreachable in practice, and loud if it ever is not.
+(pub :: groundLamFlat (-> Int Int Int Int))
+(pub fn (groundLamFlat tc node span)
+  {
+    (emitDiag tc (diagSetLabel (mkDiagNote
+      SEV_ERROR
+      "AX3004"
+      "type-mismatch"
+      span
+      "type mismatch: cannot infer the parameter types of this multi-parameter lambda"
+      0
+      0
+      "name the function and sign it with a `(:: ...)` signature"
+      "inference grounds one parameter per application level; this lambda kept a flat spelling") "cannot ground this call"))
+    (mkNode TAG_T_ERR 0 0 0)
+  })
+
+; DEFER: validate a lambda literal NOW (a nullary one can never be
+; called; `true`/`false` refuse as binders) and answer the NODE
+; ITSELF pending - its body is checked when a use grounds it, or
+; when it escapes. A flat multi-parameter spelling is curried into
+; a COPY (the emitter still sees the original, which checks the
+; same: same parameters, same body, regrouped), so grounding meets
+; one parameter per level everywhere. The defer STAMPS the node's
+; captures: the free variables resolve NOW (their bindings die at
+; the let-exit the pending node outlives) into a record the
+; grounding and the flush push before they check. Captures are
+; entries 0..c of the same record the prefix extends, and the
+; record's `b` word holds the node's own position - one record,
+; one rule.
+(pub :: deferLam (-> Int Int Int))
+(pub fn (deferLam tc e)
+  {
+    (checkLamValidate tc e)
+    (let ((n (if (> (vecLen (nodeAVec e)) 1)
+      (curryLam (nodeAVec e) (nodeB e) (nodeSpan e) 0)
+      e)))
+      {
+        (deferStampCaptures tc n)
+        n
+      })
+  })
+
+; Collect the node's free variables (`capScanInto`: inner binders
+; shadow, so parameters are never captures), resolve each through
+; the current frame (globals resolve nowhere and need no record -
+; they are visible everywhere), and stamp COPIES of the entries:
+; types are static, so a copy carries what the later check needs.
+; A node that already carries a grounding - an arrow, a breakage,
+; or a record with witnessed parameters - keeps it: re-deferring
+; (a flush checks the outer node, which re-defers the rest) must
+; refresh captures, never clobber evidence.
+(pub :: deferStampCaptures (-> Int Int Int))
+(pub fn (deferStampCaptures tc n)
+  (let ((s (lamStamp n)))
+    (if (|| (== (stampIsArrow s) 1) (== (stampIsBroken s) 1))
+      0
+      (if (&& (== (stampIsPartial s) 1) (> (vecLen (partialEnts s)) (partialOwn s)))
+        0
+        (let ((bound vecNew))
+          (let ((acc vecNew))
+            {
+              (capScanInto n bound acc)
+              (let ((ents vecNew))
+                {
+                  (deferResolveCaps tc acc ents 0)
+                  (setLamStamp n (mkPartialRec ents (vecLen ents) (nodeSpan n)))
+                  0
+                })
+            }))))))
+
+(pub :: deferResolveCaps (-> Int (Vec Int) (Vec Int) Int Int))
+;@axiom:effect(unsafe)
+(pub fn (deferResolveCaps tc acc ents i)
+  (if (>= i (vecLen acc))
+    0
+    (let ((ent (scopeFindFrame tc (nodeAName (vecGet acc i)))))
+      {
+        (if (!= ent 0)
+          {
+            (vecPush ents (cast Int (SEnt (memGetWord ent 0) (memGetWord ent 1) (memGetWord ent 2) (sEntTy ent))))
+            0
+          }
+          0)
+        (deferResolveCaps tc acc ents (+ i 1))
+      })))
+
+; Flush every pending lambda bound at or above `mark`: the scope is
+; closing, so these bindings outlive no further use IN this scope.
+; (Aliases outside it still ground: the flush leaves the stamp
+; alone.) Grounded and broken nodes are skipped by `flushPending`
+; itself; the seen-set skips aliases of one node within the scan,
+; so one escaping lambda is flushed once however many names it has
+; here. Answers 0.
+(pub :: flushScopePending (-> Int Int Int))
+(pub fn (flushScopePending tc mark)
+  (let ((seen vecNew))
+    (flushScopeVec tc (tcScopeVec tc) mark seen)))
+
+(pub :: flushScopeVec (-> Int (Vec Int) Int (Vec Int) Int))
+(pub fn (flushScopeVec tc scope i seen)
+  (if (>= i (vecLen scope))
+    0
+    (let ((ty (sEntTy (vecGet scope i))))
+      {
+        (if (== (isPendingNode ty) 1)
+          (if (== (flushSeen seen ty 0) 0)
+            {
+              (vecPush seen ty)
+              (flushPending tc ty (spanOf ty))
+            }
+            0)
+          0)
+        (flushScopeVec tc scope (+ i 1) seen)
+      })))
+
+(pub :: flushSeen (-> (Vec Int) Int Int Int))
+(pub fn (flushSeen seen ty i)
+  (if (>= i (vecLen seen))
+    0
+    (if (== (vecGet seen i) ty)
+      1
+      (flushSeen seen ty (+ i 1)))))
+
+; Check an application head and ground it from the already-checked
+; argument type: a pending head witnesses this level's argument.
+; Anything else flows through untouched.
+(pub :: groundHead (-> Int Int Int Int))
+(pub fn (groundHead tc e argTy0)
+  (let ((h (checkExprH tc (nodeA e) 1)))
+    (if (== (isPendingNode h) 1)
+      (groundLamArg tc h argTy0 (spanOf (nodeB e)))
+      h)))
+
+; Ground an ARGUMENT by declaration: a pending lambda passed where
+; an arrow is declared is checked AGAINST it, so its parameters
+; carry the types the author wrote - the evidence-safe direction,
+; the same rule `checkHandler` holds handlers to - and the answer
+; stamps the node. Grounded nodes answer their arrow (the normal
+; path verifies it); broken nodes answer poison quietly; nodes
+; mid-grounding name the too-early recursion. Anything else -
+; including a pending lambda where a NON-arrow is declared, which
+; the normal mismatch below owns - flows through untouched.
+; Single pass: a partial node grounds with its prefix in scope, as
+; a flush does.
+(pub :: groundArgByDecl (-> Int Int Int Int Int))
+(pub fn (groundArgByDecl tc argTy param span)
+  (if (== (isPendingNode argTy) 0)
+    argTy
+    (if (== param 0)
+      argTy
+      (if (!= (nodeTag param) TAG_T_ARR)
+        argTy
+      (let ((s (lamStamp argTy)))
+        (if (== (stampIsArrow s) 1)
+          s
+          (if (== (stampIsBroken s) 1)
+            (mkNode TAG_T_ERR 0 0 0)
+            (if (== (stampIsProg s) 1)
+              {
+                (emitDiag tc (diagSetLabel (mkDiagNote
+                  SEV_ERROR
+                  "AX3004"
+                  "type-mismatch"
+                  span
+                  "type mismatch: cannot pass this function while its parameter types are still being inferred"
+                  0
+                  0
+                  "pass it after its definition is complete - a use through a `let` alias hides the recursion from inference"
+                  "inference grounds a lambda's parameters from its uses; this use runs before the grounding finished") "this use is too early to check"))
+                (mkNode TAG_T_ERR 0 0 0)
+              }
+              (let ((mark (vecLen (tcScopeVec tc))))
+                {
+                  (if (== (stampIsPartial s) 1)
+                    (groundPushPrefix tc (partialEnts s) 0)
+                    0)
+                  (setLamStamp argTy (mkProgStamp))
+                  (let ((ans (checkLamAgainst tc argTy param)))
+                    {
+                      (scopeTrunc (tcScopeVec tc) mark)
+                      (if (== (tyHasPoison ans) 1)
+                        (setLamStamp argTy (mkNode TAG_T_ERR 0 0 0))
+                        (setLamStamp argTy ans))
+                      ans
+                    })
+                })))))))))
+
 ; Is this type EXACTLY `String`? Deliberately not "compatible with
 ; String": while the uniform-representation fiat lived, `tyCompat`
 ; said the two names were interchangeable, and asking it here would
@@ -501,6 +1292,17 @@
     (a (tyResolve a0))
     (b (tyResolve b0))
   )
+    ; A pending lambda is compatible with anything it meets here:
+    ; its arrow does not exist yet (no use or declaration has
+    ; witnessed it), so there is nothing to compare against, and
+    ; answering 0 would refuse sound programs with `expected
+    ; {unknown}, found {unknown}` - a diagnostic that names
+    ; nothing. This is not a hole: the pending side is verified
+    ; where it is GROUNDED (a use checks it with the argument
+    ; types) or where it is FLUSHED (an escape checks it
+    ; standalone), so every consumer that matters still judges it.
+    (if (|| (== (isPendingNode a) 1) (== (isPendingNode b) 1))
+      1
     (if (|| (== a 0) (== b 0))
       1
       ; Poison BEFORE variables. The two orders differ on exactly one
@@ -556,7 +1358,7 @@
                     (tyCompat tc (nodeA a) (nodeA b))
                     (if (&& (== ta TAG_T_PTR) (== tb TAG_T_PTR))
                       (tyCompat tc (nodeA a) (nodeA b))
-                      0)))))))))))
+                      0))))))))))))
 
 (pub :: tyCompatVec (-> Int (Vec Int) (Vec Int) Int Int))
 (pub fn (tyCompatVec tc xs ys i)
@@ -8761,7 +9563,7 @@
                 (if (== tag TAG_E_APP)
                   (checkApp tc e inHead)
                   (if (== tag TAG_E_LAM)
-                    (checkLam tc e)
+                    (deferLam tc e)
                     (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
                       (let ((initTy (checkExprH tc (nodeB e) 0)))
                         (let ((mark (vecLen (tcScopeVec tc))))
@@ -8777,6 +9579,7 @@
                               initTy)
                             (let ((bodyTy (checkExprH tc (nodeC e) 0)))
                               {
+                                (flushScopePending tc mark)
                                 (scopeTrunc (tcScopeVec tc) mark)
                                 bodyTy
                               })
@@ -8839,6 +9642,12 @@
         (if (&& (< i (- (vecLen v) 1)) (== (isDiscardedResultTy t) 1))
           (emitDiscardedResult tc (vecGet v i))
           0)
+        ; A non-tail element's value is discarded, so a pending
+        ; lambda there escapes: flush it (verify standalone, drop
+        ; only the `{unknown}` refusals no use witnesses).
+        (if (< i (- (vecLen v) 1))
+          (flushPending tc t (spanOf (vecGet v i)))
+          0)
         (checkExprSeq tc v (+ i 1) t)
       })))
 
@@ -8900,9 +9709,14 @@
 (pub fn (checkCondBool tc cnd)
   (let ((cty (checkExprH tc cnd 0)))
     {
-      (if (&& (== (tyIsErr cty) 0) (== (tyCompat tc cty mkBoolTy) 0))
-        (emitMismatch tc "Bool" (tyRender cty) (spanOf cnd))
-        0)
+      ; A pending lambda is compatible with everything, so the
+      ; compatibility arm below would accept a function as a
+      ; condition in silence. Name it instead.
+      (if (== (isPendingNode cty) 1)
+        (refusePendingOperand tc cty "Bool" (spanOf cnd))
+        (if (&& (== (tyIsErr cty) 0) (== (tyCompat tc cty mkBoolTy) 0))
+          (emitMismatch tc "Bool" (tyRender cty) (spanOf cnd))
+          (refuseUnknownOperand tc "Bool" cty (spanOf cnd))))
       cty
     }))
 
@@ -8930,21 +9744,18 @@
 ; had (clause bodies never compared, only a real `else` against the
 ; last clause) goes with it.
 (pub :: checkLam (-> Int Int Int))
-;@axiom:effect(unsafe)
-(pub fn (checkLam tc e)
-  ; A lambda with no parameters can never be called, so it is
-  ; refused rather than built. `(f)` and `f` are the SAME
-  ; expression - a one-element list is its head - which is how a
-  ; bare reference to a nullary top-level `fn` calls it, and it
-  ; leaves no syntax that applies a nullary closure. Before this it
-  ; was accepted, lifted, and evaluated to the closure record's
-  ; ADDRESS: `(let ((f (lambda () 42))) (f))` answered 16, at exit
-  ; 0, and `((lambda () 42))` the same.
-  (let (
-    (params (nodeAVec e))
-    (mark (vecLen (tcScopeVec tc)))
-    (ptys vecNew)
-  )
+; The syntax-level half of `checkLam`, shared with the defer: a
+; lambda with no parameters can never be called, so it is refused
+; rather than built. `(f)` and `f` are the SAME expression - a
+; one-element list is its head - which is how a bare reference to
+; a nullary top-level `fn` calls it, and it leaves no syntax that
+; applies a nullary closure. Before this it was accepted, lifted,
+; and evaluated to the closure record's ADDRESS: `(let ((f (lambda
+; () 42))) (f))` answered 16, at exit 0, and `((lambda () 42))`
+; the same.
+(pub :: checkLamValidate (-> Int Int Int))
+(pub fn (checkLamValidate tc e)
+  (let ((params (nodeAVec e)))
     {
       (if (== (vecLen params) 0)
         (emitDiag tc (diagSetLabel (mkDiagNote
@@ -8959,6 +9770,21 @@
           "`(f)` and `f` are the same expression, so no syntax applies a nullary closure; it used to evaluate to the closure record's address") "this lambda takes no parameters"))
         0)
       (refuseReservedParams tc params (nodeSpan e) 0)
+    }))
+
+;@axiom:effect(unsafe)
+; No validation here: every caller checks a node the defer
+; already validated (flush, grounding, and `checkLamAgainst`'s
+; fallback all run post-defer), and validating twice would refuse
+; twice - measured, a duplicated AX3094 on the reserved-literal
+; fixture.
+(pub fn (checkLam tc e)
+  (let (
+    (params (nodeAVec e))
+    (mark (vecLen (tcScopeVec tc)))
+    (ptys vecNew)
+  )
+    {
       (bindLamParams tc params ptys 0)
       ; The lambda boundary for `checkSet`: entries below `mark` are
       ; captured (by value, MM-VAL-16), and assigning one is refused.
@@ -8981,7 +9807,15 @@
       )
         {
           (memSetWord tc 22 mark)
-          (let ((bodyTy (checkExprH tc (nodeB e) 0)))
+          (let ((bodyTy0 (checkExprH tc (nodeB e) 0)))
+            (let ((bodyTy
+              ; A pending body (a lambda nested in this one) is
+              ; inferred NOW, while this lambda's parameters are
+              ; still in scope for it to close over: the arrow
+              ; below must be a TYPE, never a pending node.
+              (if (== (isPendingNode bodyTy0) 1)
+                (groundStandalone tc bodyTy0 (spanOf (nodeB e)))
+                bodyTy0)))
             {
               (memSetWord tc 22 savedLB)
               (lamVarTrunc tc (- lamMark 1))
@@ -8991,7 +9825,7 @@
                 (if (== (vecLen ptys) 1)
                   (mkTArr (vecGet ptys 0) bodyTy)
                   (mkTArr (mkTTup ptys) bodyTy)))
-            })
+            }))
         })
     }))
 
@@ -9094,12 +9928,23 @@
                 (if (== (nodeTag (nodeB e)) TAG_E_LAM)
                   (checkLamAgainst tc (nodeB e) (nodeB arrow))
                   (checkExprH tc (nodeB e) 0))))
+                ; A pending body THROUGH A WRAPPER (the direct
+                ; lambda above already recursed): against an arrow
+                ; codomain the declaration still binds it; against
+                ; anything else it is inferred standalone, and the
+                ; mismatch below owns the shape.
+                (let ((bodyTy2
+                  (if (== (isPendingNode bodyTy) 1)
+                    (if (== (nodeTag (nodeB arrow)) TAG_T_ARR)
+                      (checkLamAgainst tc bodyTy (nodeB arrow))
+                      (groundStandalone tc bodyTy (spanOf (nodeB e))))
+                    bodyTy)))
                 {
                   (memSetWord tc 22 savedLB)
                   (lamVarTrunc tc (- lamMark 1))
                   (scopeTrunc (tcScopeVec tc) mark)
-                  (mkTArr (nodeA arrow) bodyTy)
-                })
+                  (mkTArr (nodeA arrow) bodyTy2)
+                }))
             })
         }))))
 
@@ -9462,7 +10307,35 @@
             0
             (scopeFindFrame tc name))))
           (if (!= fr 0)
-            (sEntTy fr)
+            ; A pending lambda answers through its STAMP: grounded
+            ; reads the arrow, broken reads poison quietly (its
+            ; diagnostics are out), in-progress names the too-early
+            ; recursion (the first pass's swap discards it for
+            ; honest self-recursion), and anything else answers the
+            ; node itself - the use grounds it.
+            (let ((ety (sEntTy fr)))
+              (if (== (isPendingNode ety) 0)
+                ety
+                (let ((s (lamStamp ety)))
+                  (if (== (stampIsArrow s) 1)
+                    s
+                    (if (== (stampIsBroken s) 1)
+                      (mkNode TAG_T_ERR 0 0 0)
+                      (if (== (stampIsProg s) 1)
+                        {
+                          (emitDiag tc (diagSetLabel (mkDiagNote
+                            SEV_ERROR
+                            "AX3004"
+                            "type-mismatch"
+                            (nodeSpan e)
+                            "type mismatch: cannot use this function while its parameter types are still being inferred"
+                            0
+                            0
+                            "use it after its definition is complete - a use through a `let` alias hides the recursion from inference"
+                            "inference grounds a lambda's parameters from its uses; this use runs before the grounding finished") "this use is too early to check"))
+                          (mkNode TAG_T_ERR 0 0 0)
+                        }
+                        ety))))))
             (if (== (checkAmbiguous tc name (nodeSpan e)) 1)
               (mkNode TAG_T_ERR 0 0 0)
               (let ((refused 
@@ -10990,8 +11863,66 @@
                           ; MM-LIFE-2d: this level's argument witnesses the callee's
                           ; type parameters; meet into the head's stamp (no-op when
                           ; the head carries none).
-                          (let ((funcTy (checkExprH tc (nodeA e) 1)))
-                            (let ((argTy (checkExprH tc (nodeB e) 0)))
+                          ; The argument is checked FIRST (a lambda
+                            ; literal defers: no check runs on it
+                            ; yet), then the head grounds from it -
+                            ; a pending head witnesses this level's
+                            ; argument - and only then is a lambda
+                            ; literal checked against a grounded
+                            ; arrow. The order matters both ways:
+                            ; grounding needs the argument's type,
+                            ; and the literal needs the head's
+                            ; arrow; deferring the literal (no
+                            ; check) where the old order checked it
+                            ; standalone (fresh parameters, spurious
+                            ; refusals) is what lets a callback's
+                            ; parameters carry the types the call
+                            ; declares. Nothing is checked twice: a
+                            ; deferred literal's first check is the
+                            ; `checkLamAgainst` below (or a later
+                            ; grounding, or a flush).
+                            (let ((argTy0 (checkExprH tc (nodeB e) 0)))
+                              (let ((funcTy (groundHead tc e argTy0)))
+                                ; A lambda literal applied to a
+                                ; declared (or grounded) arrow is
+                                ; checked AGAINST it
+                                ; (`checkLamAgainst`), so its
+                                ; parameters carry the declared
+                                ; types - the same rule
+                                ; `checkHandler` holds handlers to.
+                                ; A pending argument where an arrow is
+                                ; declared grounds BY the declaration
+                                ; (`groundArgByDecl`): its parameters
+                                ; carry the types the author wrote.
+                                (let ((argTy (let ((argTy1 (groundArgByDecl tc (if (&& (== (nodeTag (nodeB e)) TAG_E_LAM) (== (nodeTag funcTy) TAG_T_ARR))
+                                  (checkLamAgainst tc (nodeB e) (nodeA funcTy))
+                                  argTy0) (if (== funcTy 0)
+                                  0
+                                  (if (== (nodeTag funcTy) TAG_T_ARR)
+                                    (nodeA funcTy)
+                                    0)) (spanOf (nodeB e)))))
+                                  ; A pending argument that survived the
+                                  ; grounding above faces a NON-arrow
+                                  ; parameter: against a variable one -
+                                  ; or an unknown head - it is a
+                                  ; generic payload, inferred
+                                  ; standalone (the pinning and the
+                                  ; evidence below require a TYPE,
+                                  ; never a pending node); against a
+                                  ; ground one it is a function where
+                                  ; a value belongs, and refuses.
+                                  (if (== (isPendingNode argTy1) 1)
+                                    (if (== funcTy 0)
+                                      (groundStandalone tc argTy1 (spanOf (nodeB e)))
+                                      (if (== (nodeTag funcTy) TAG_T_ARR)
+                                        (if (== (nodeTag (nodeA funcTy)) TAG_T_VAR)
+                                          (groundStandalone tc argTy1 (spanOf (nodeB e)))
+                                          {
+                                            (refusePendingOperand tc argTy1 (tyRender (nodeA funcTy)) (spanOf (nodeB e)))
+                                            argTy1
+                                          })
+                                        (groundStandalone tc argTy1 (spanOf (nodeB e)))))
+                                    argTy1))))
                               {
                                 (evStampFill tc e funcTy argTy)
                                 ; THE CLOSURE-APPLICATION EVIDENCE, recorded on
@@ -11040,6 +11971,14 @@
                                 (if (&& (== inHead 0) (&& (== headIsVar 1) (&& (strEq hname "__addr") (== (spineArgs e 0) 1))))
                                   (checkAddrLitRefusal tc e (nodeB e))
                                   0)
+                                ; A staged curried application answers
+                                ; the REST node pending: the enclosing
+                                ; application grounds it in turn. It is
+                                ; not an arrow yet, so the arms below
+                                ; must not see it (the mismatch arm
+                                ; would refuse a sound program).
+                                (if (== (isPendingNode funcTy) 1)
+                                  funcTy
                                 (if (== (nodeTag funcTy) TAG_T_ARR)
                                   {
                                     (if (== (tyCompat tc argTy (nodeA funcTy)) 0)
@@ -11069,16 +12008,28 @@
                                               0
                                               (emitMismatchTy tc (nodeA funcTy) argTy (spanOf (nodeB e)))))))
                                       ; Compatibility succeeded, so a direct
-                                      ; mismatch owns nothing here. A
-                                      ; data-constructor payload smuggled
+                                      ; mismatch owns nothing here. An
+                                      ; argument still unknown against a
+                                      ; ground parameter refuses: the
+                                      ; callee lowers for its declared
+                                      ; representation and ignorance is
+                                      ; not one (`(lambda (x) (g x))`
+                                      ; applied to `1.5` ran `g`'s
+                                      ; integer body on double bits).
+                                      ; A data-constructor payload smuggled
                                       ; through an `Int` field still warns
                                       ; (AX3043): the head names a
                                       ; constructor, and this level's
                                       ; parameter is its payload's
                                       ; declared type.
-                                      (if (&& (== headIsVar 1) (!= (rfindCtor tc hname) 0))
-                                        (emitPayloadSmuggled tc (nodeA funcTy) (nodeB e) (spanOf (nodeB e)))
-                                        0))
+                                      {
+                                        (if (&& (== (tyIsUnknown argTy) 1) (== (tyIsGround (nodeA funcTy)) 1))
+                                          (refuseUnknownOperand tc (tyRender (nodeA funcTy)) argTy (spanOf (nodeB e)))
+                                          0)
+                                        (if (&& (== headIsVar 1) (!= (rfindCtor tc hname) 0))
+                                          (emitPayloadSmuggled tc (nodeA funcTy) (nodeB e) (spanOf (nodeB e)))
+                                          0)
+                                      })
                                     ; The rest of the arrow, with this parameter's
                                     ; PLACEHOLDER pinned to the argument's type where the
                                     ; argument has one to offer (`pinArg`, 2026-08-21):
@@ -11101,8 +12052,8 @@
                                           (emitSignatureNeeded tc hname (spanOf e))
                                           (emitMismatch tc "function type" (tyRender funcTy) (spanOf e)))
                                         (mkNode TAG_T_ERR 0 0 0)
-                                      })))
-                              })))))))))))))))
+                                      }))))
+                              }))))))))))))))))
 
 ; `rest` with the minted placeholder `param` replaced by `argTy`
 ; throughout, when `param` is one and `argTy` says something - a
@@ -12586,6 +13537,15 @@
   (let ((lt (checkExprH tc l 0)))
     (let ((rt (checkExprH tc r 0)))
       {
+        ; A function value where arithmetic needs a number is a shape
+        ; error at the operand, not a `{unknown}` downstream: refuse
+        ; it audibly (the body is still verified inside).
+        (if (== (isPendingNode lt) 1)
+          (refusePendingOperand tc lt "a number" (spanOf l))
+          0)
+        (if (== (isPendingNode rt) 1)
+          (refusePendingOperand tc rt "a number" (spanOf r))
+          0)
         (if (== (equalityIsStringly op lt rt) 1)
           (memSetWord
             head
@@ -12611,10 +13571,10 @@
               {
                 (if (&& (== (tyIsFloatTy lt) 0) (== (tyCompat tc lt mkFloatTy) 0))
                   (emitMismatch tc "Float" (tyRender lt) (spanOf l))
-                  0)
+                  (refuseUnknownOperand tc "Float" lt (spanOf l)))
                 (if (&& (== (tyIsFloatTy rt) 0) (== (tyCompat tc rt mkFloatTy) 0))
                   (emitMismatch tc "Float" (tyRender rt) (spanOf r))
-                  0)
+                  (refuseUnknownOperand tc "Float" rt (spanOf r)))
                 ; The one thing `restrict(no-wrap)` and
                 ; `restrict(no-untrapped)` need and cannot
                 ; find out for themselves: this `+`/`-`/`*`/`/` is a
@@ -12636,10 +13596,10 @@
               {
                 (if (== (subtypeCompatAllows tc mkIntTy lt) 0)
                   (emitMismatch tc "Int" (tyRender lt) (spanOf l))
-                  0)
+                  (refuseUnknownOperand tc "Int" lt (spanOf l)))
                 (if (== (subtypeCompatAllows tc mkIntTy rt) 0)
                   (emitMismatch tc "Int" (tyRender rt) (spanOf r))
-                  0)
+                  (refuseUnknownOperand tc "Int" rt (spanOf r)))
                 (if (== (isNumCmpOp op) 1)
                   mkBoolTy
                   mkIntTy)
@@ -12933,10 +13893,18 @@
     ; The value's type is kept for the forging rule. `checkCastArgs`
     ; stamps nothing at index 1, so checking it here first and the
     ; surplus from index 2 checks the same nodes in the same order.
-    (srcTy
+    (srcTy (let ((srcTy0
       (if (>= (vecLen args) 2)
         (checkExprH tc (vecGet args 1) 0)
-        0))
+        0)))
+      ; The cast erases the value's type, so a pending lambda there
+      ; is never grounded by a use: inferred standalone (the
+      ; forging rule below requires a TYPE, never a pending node) -
+      ; which also verifies the body (462: the cast spine's closure
+      ; keeps its evidence).
+      (if (== (isPendingNode srcTy0) 1)
+        (groundStandalone tc srcTy0 (spanOf (vecGet args 1)))
+        srcTy0)))
   )
     {
       (checkCastArgs
@@ -13108,7 +14076,15 @@
   (if (>= i n)
     0
     {
-      (let ((at (checkExprH tc (vecGet args i) 0)))
+      (let ((at (let ((at0 (checkExprH tc (vecGet args i) 0)))
+        ; A pending surplus argument is inferred standalone: the
+        ; cast erased the only declaration that could ground it,
+        ; and the evidence stamp below requires a TYPE (a pending
+        ; node reads 0, "not a reference", and a stored closure
+        ; would go unretained).
+        (if (== (isPendingNode at0) 1)
+          (groundStandalone tc at0 (spanOf (vecGet args i)))
+          at0))))
         (if (>= i 2)
           (setNodeTy
             (castAppNodeAt e (- (- n 1) i))
@@ -16451,10 +17427,18 @@
       (checkExprH tc h 0)
       0
     }
+    ; A pending handler grounds BY the operation's declared
+    ; arrow (`groundArgByDecl`): its parameters carry the types the
+    ; author wrote. Anything else flows through to the comparison.
+    ; A literal handler never passes the defer (nothing checks it
+    ; as an expression first), so it is validated here, once.
     (let ((hty 
       (if (== (nodeTag h) TAG_E_LAM)
-        (checkLamAgainst tc h arrow)
-        (checkExprH tc h 0))))
+        {
+          (checkLamValidate tc h)
+          (checkLamAgainst tc h arrow)
+        }
+        (groundArgByDecl tc (checkExprH tc h 0) arrow (spanOf h)))))
       (if (== (tyCompat tc hty arrow) 0)
         (emitMismatchTy tc arrow hty (spanOf h))
         0))))
@@ -16806,11 +17790,24 @@
 (pub fn (checkStructFieldsInst tc args insts i)
   (if (>= i (vecLen args))
     0
-    (let ((aty (checkExprH tc (vecGet args i) 0)))
+    ; A pending lambda stored into a declared arrow field grounds
+    ; BY the declaration (`groundArgByDecl`): its parameters carry
+    ; the types the author wrote. Anything else flows through to
+    ; the comparison, which a still-pending value skips (flushed:
+    ; verified standalone, only the `{unknown}` refusals dropped).
+    (let ((aty (groundArgByDecl tc (checkExprH tc (vecGet args i) 0) (vecGet insts i) (spanOf (vecGet args i)))))
       {
-        (if (== (tyCompat tc aty (vecGet insts i)) 0)
-          (emitMismatchTy tc (vecGet insts i) aty (spanOf (vecGet args i)))
-          (emitPayloadSmuggled tc (vecGet insts i) (vecGet args i) (spanOf (vecGet args i))))
+        ; Still pending against a GROUND field is a function
+        ; where a value belongs (refused, as the standalone
+        ; arrow was before grounding); against a variable
+        ; field it is a generic payload (flushed and skipped).
+        (if (== (isPendingNode aty) 1)
+          (if (== (tyIsGround (vecGet insts i)) 1)
+            (refusePendingOperand tc aty (tyRender (vecGet insts i)) (spanOf (vecGet args i)))
+            (flushPending tc aty (spanOf (vecGet args i))))
+          (if (== (tyCompat tc aty (vecGet insts i)) 0)
+            (emitMismatchTy tc (vecGet insts i) aty (spanOf (vecGet args i)))
+            (emitPayloadSmuggled tc (vecGet insts i) (vecGet args i) (spanOf (vecGet args i)))))
         (checkStructFieldsInst tc args insts (+ i 1))
       })))
 
@@ -16859,20 +17856,43 @@
 (pub fn (checkStructFields tc args fields i)
   (if (>= i (vecLen args))
     0
-    (let ((aty (checkExprH tc (vecGet args i) 0)))
-      (let ((fty 
+    (let ((aty0 (checkExprH tc (vecGet args i) 0)))
+      (let ((fty
         (if (== (nodeTy (vecGet fields i)) 0)
           mkSilentWild
           (nodeTy (vecGet fields i)))))
+        ; A pending lambda stored into a declared arrow field
+        ; grounds BY the declaration first (`groundArgByDecl`);
+        ; what is STILL pending escapes: flushed (verified
+        ; standalone, only the `{unknown}` refusals dropped) and
+        ; skipped by the comparison, which has no arrow to compare
+        ; against.
+        (let ((aty (groundArgByDecl tc aty0 fty (spanOf (vecGet args i)))))
         {
+          ; Still pending against a GROUND field is a function
+          ; where a value belongs (refused, as the standalone
+          ; arrow was before grounding); against a variable
+          ; field it is a generic payload (flushed and
+          ; skipped - the comparison has no arrow to compare
+          ; against).
+          (if (== (isPendingNode aty) 1)
+            (if (== (tyIsGround fty) 1)
+              (refusePendingOperand tc aty (tyRender fty) (spanOf (vecGet args i)))
+              (flushPending tc aty (spanOf (vecGet args i))))
           (if (== (tyCompat tc aty fty) 0)
             (emitMismatchTy tc fty aty (spanOf (vecGet args i)))
             ; Compatibility succeeded, so a direct mismatch owns
-            ; nothing here; a reference smuggled through an `Int`
-            ; field still warns (AX3043).
-            (emitPayloadSmuggled tc fty (vecGet args i) (spanOf (vecGet args i))))
+            ; nothing here; a value still unknown against a
+            ; ground field refuses, and a reference smuggled
+            ; through an `Int` field still warns (AX3043).
+            {
+              (if (&& (== (tyIsUnknown aty) 1) (== (tyIsGround fty) 1))
+                (refuseUnknownOperand tc (tyRender fty) aty (spanOf (vecGet args i)))
+                0)
+              (emitPayloadSmuggled tc fty (vecGet args i) (spanOf (vecGet args i)))
+            }))
           (checkStructFields tc args fields (+ i 1))
-        }))))
+        })))))
 
 ; ------------------------------------------------------------------
 ; Field access and field store. The base must be a plain constructor
@@ -17062,9 +18082,13 @@
                         mkI64Ty
                       })))))))))
       {
-        (if (== (tyIsSilentWild baseTy) 0)
-          (emitMismatch tc "struct or data type" (tyRender baseTy) (spanOf (nodeA e)))
-          0)
+        ; A pending base would render its raw node as the "found"
+        ; type below; name the shape instead (same expectation).
+        (if (== (isPendingNode baseTy) 1)
+          (refusePendingOperand tc baseTy "struct or data type" (spanOf (nodeA e)))
+          (if (== (tyIsSilentWild baseTy) 0)
+            (emitMismatch tc "struct or data type" (tyRender baseTy) (spanOf (nodeA e)))
+            0))
         mkI64Ty
       })))
 
@@ -17294,7 +18318,24 @@
               ; path was the worse half of the by-name defect:
               ; `(set q.tag 123)` stored an integer over a live
               ; String pointer when `P` declared `tag` first.
-              (let ((vty (checkExprH tc (nodeC e) 0)))
+              (let ((vty (let ((vty1 (checkExprH tc (nodeC e) 0)))
+                ; A pending value grounds against the field's
+                ; declared arrow, is inferred standalone into a
+                ; variable field, or is refused into any other
+                ; ground field: the compatibility below is lenient
+                ; to pending nodes, so without this a function
+                ; stored into any field would pass in silence
+                ; with its body unchecked.
+                (if (== (isPendingNode vty1) 1)
+                  (if (== (nodeTag fty) TAG_T_ARR)
+                    (groundArgByDecl tc vty1 fty (spanOf (nodeC e)))
+                    (if (== (nodeTag fty) TAG_T_VAR)
+                      (groundStandalone tc vty1 (spanOf (nodeC e)))
+                      {
+                        (refusePendingOperand tc vty1 (tyRender fty) (spanOf (nodeC e)))
+                        vty1
+                      }))
+                  vty1))))
                 {
                   (stampFieldStruct e ent)
                   ; `(set a.b v)` inside a `region` is a store into
@@ -17317,9 +18358,13 @@
                     0)
                 })
               (emitFieldNotFound tc (nodeBName e) (nodeAName baseTy) (nodeSpan e)))))
-        (if (== (tyIsSilentWild baseTy) 0)
-          (emitMismatch tc "struct or data type" (tyRender baseTy) (spanOf (nodeA e)))
-          0))
+        ; A pending base would render its raw node as the "found"
+        ; type below; name the shape instead (same expectation).
+        (if (== (isPendingNode baseTy) 1)
+          (refusePendingOperand tc baseTy "struct or data type" (spanOf (nodeA e)))
+          (if (== (tyIsSilentWild baseTy) 0)
+            (emitMismatch tc "struct or data type" (tyRender baseTy) (spanOf (nodeA e)))
+            0)))
       mkI64Ty
     }))
 
@@ -17337,7 +18382,7 @@
 (pub :: checkSet (-> Int Int Int))
 ;@axiom:effect(unsafe)
 (pub fn (checkSet tc e)
-  (let ((valTy (checkExprH tc (nodeB e) 0)))
+  (let ((mut valTy (checkExprH tc (nodeB e) 0)))
     (let ((name (nodeAName e)))
       (match (scopeFindIdx (tcScopeVec tc) name)
         ; Mutable - but only assignable from the frame
@@ -17376,9 +18421,50 @@
                     0
                   }))))
               {
-                (if (&& (== suppressed 0) (&& (== (tyIsErr valTy) 0) (&& (== (tyIsErr (sEntTy ent)) 0) (== (tyCompat tc valTy (sEntTy ent)) 0))))
-                  (emitMismatchTy tc (sEntTy ent) valTy (spanOf (nodeB e)))
-                  0)
+                ; A pending lambda stored into a cell escapes the
+                ; bindings: flush it (verify standalone, drop only
+                ; the `{unknown}` refusals) and skip the comparison,
+                ; which has no arrow to compare against. Loads flow
+                ; the node and ground at their own uses.
+                ; A pending value grounds against the binding's
+                ; declared arrow, is inferred standalone into an
+                ; untyped or variable binding, or is refused into
+                ; any other ground binding - rebound, so the
+                ; region check below judges the TYPE, never the
+                ; node.
+                (if (== (isPendingNode valTy) 1)
+                  (set valTy
+                    (if (== (isPendingNode (sEntTy ent)) 1)
+                      ; The BINDING is itself unresolved (a `let`
+                      ; holding a lambda): infer it standalone,
+                      ; then ground the value by the inferred
+                      ; arrow - or accept leniently when the
+                      ; binding is no arrow.
+                      (let ((ety (groundStandalone tc (sEntTy ent) (spanOf e))))
+                        (if (== (nodeTag ety) TAG_T_ARR)
+                          (groundArgByDecl tc valTy ety (spanOf (nodeB e)))
+                          {
+                            (flushPending tc valTy (spanOf (nodeB e)))
+                            valTy
+                          }))
+                      (if (== (sEntTy ent) 0)
+                        {
+                          (flushPending tc valTy (spanOf (nodeB e)))
+                          valTy
+                        }
+                        (if (== (nodeTag (sEntTy ent)) TAG_T_ARR)
+                          (groundArgByDecl tc valTy (sEntTy ent) (spanOf (nodeB e)))
+                          (if (== (tyIsGround (sEntTy ent)) 1)
+                            {
+                              (refusePendingOperand tc valTy (tyRender (sEntTy ent)) (spanOf (nodeB e)))
+                              valTy
+                            }
+                            (groundStandalone tc valTy (spanOf (nodeB e))))))))
+                  (if (&& (== suppressed 0) (&& (== (tyIsErr valTy) 0) (&& (== (tyIsErr (sEntTy ent)) 0) (== (tyCompat tc valTy (sEntTy ent)) 0))))
+                    (emitMismatchTy tc (sEntTy ent) valTy (spanOf (nodeB e)))
+                    (if (&& (== suppressed 0) (&& (== (tyIsErr valTy) 0) (&& (== (tyIsErr (sEntTy ent)) 0) (&& (== (tyIsUnknown valTy) 1) (== (tyIsGround (sEntTy ent)) 1)))))
+                      (refuseUnknownOperand tc (tyRender (sEntTy ent)) valTy (spanOf (nodeB e)))
+                      0)))
                 ; Inside a `region`, a store to a binding bound before
                 ; it opened may not carry a reference out (AX3059).
                 (rgCheckStore
@@ -17661,6 +18747,12 @@
   )
     {
       (memSetWord catchall 0 0)
+      ; Matching ON a function is a shape error at the scrutinee:
+      ; no pattern can match it, and the arms below would compare
+      ; against a pending node in silence.
+      (if (== (isPendingNode scrutTy) 1)
+        (refusePendingOperand tc scrutTy "a matchable value" (spanOf (nodeA e)))
+        0)
       ; The type exhaustiveness is decided over, and the one every
       ; constructor arm is held to. The scrutinee's own when the
       ; checker concluded one; when it concluded only a placeholder
@@ -24575,29 +25667,45 @@
           ; like a general one is worse than none. The guard below is
           ; syntactic: the body must BE a lambda and the declared result
           ; must BE an arrow. Every other position where a lambda can
-          ; sit has no declaration to bind against, and this checker
-          ; cannot recover one by inference - `tyVarCompat` lets a
-          ; minted placeholder match anything and `pinArg` substitutes
-          ; into the arrow it RETURNS without touching the placeholder
-          ; node, so a lambda parameter is never resolved by use.
-          ; Measured the same day, all reading 122 at `--opt 0` and
+          ; sit has no declaration to bind against - and use-driven
+          ; inference (grounding) is what reaches those now: a
+          ; lambda's parameters ARE resolved by use, bound to the
+          ; argument types each application carries, and a lambda no
+          ; use witnesses is flushed rather than guessed. Measured
+          ; before grounding landed, all reading 122 at `--opt 0` and
           ; `--opt 3` alike: a lambda bound in a `let` inside the
           ; factory; one returned from an `if`; one bound and applied
           ; in `main` with no declaration anywhere; one passed to a
           ; declared arrow PARAMETER; and one whose factory's declared
           ; result arrow carries a type variable rather than a ground
-          ; type - that last is emitted correctly and still under-
-          ; retains, because nothing at the factory's call site
-          ; witnesses the variable and the caller passes 0.
+          ; type.
           ;
-          ; They need an evidence word contributed at the closure's
+          ; The LAST of those is still open: it is emitted correctly
+          ; and still under-retains, because nothing at the factory's
+          ; call site witnesses the variable and the caller passes 0.
+          ; It needs an evidence word contributed at the closure's
           ; APPLICATION rather than at its construction, which
-          ; `docs/memory-model.md` MM-LIFE-2g states as the open half.
+          ; `docs/memory-model.md` MM-LIFE-2g states as the open half
+          ; - grounding resolves the TYPES by use, and the evidence
+          ; word does not reach the application site today.
           (let ((resTy (peelArrows sigTy (vecLen params))))
-            (let ((bodyTy 
+            (let ((bodyTy (let ((bodyTy0
+              ; A lambda body checked against the declared arrow
+              ; never passes the defer either, so it is validated
+              ; here, once, exactly as a literal handler is.
               (if (&& (!= (nodeC d) 0) (&& (== (nodeTag (nodeC d)) TAG_E_LAM) (&& (!= resTy 0) (== (nodeTag resTy) TAG_T_ARR))))
-                (checkLamAgainst tc (nodeC d) resTy)
+                {
+                  (checkLamValidate tc (nodeC d))
+                  (checkLamAgainst tc (nodeC d) resTy)
+                }
                 (checkExprH tc (nodeC d) 0))))
+              ; A pending body is inferred standalone NOW: the
+              ; callers, the declared-return check, and the
+              ; recorded arrow below all require a TYPE, never a
+              ; pending node.
+              (if (== (isPendingNode bodyTy0) 1)
+                (groundStandalone tc bodyTy0 (spanOf (nodeC d)))
+                bodyTy0))))
               {
                 (checkDeclaredReturn tc d resTy (maybeWrapSubtypeReturn tc d resTy bodyTy))
                 ; The contracts, while the frame is still standing: the
@@ -24781,6 +25889,18 @@
     0
     (if (== got 0)
       0
+      ; `got` is all but never pending here - the tail infers a
+      ; pending body standalone before this runs - but a path that
+      ; bypassed the tail must still judge it: where an arrow, a
+      ; variable, or a BARE `Int` is declared nothing is refused
+      ; (a factory; a generic; a handle may hide behind the `Int`),
+      ; and where any OTHER ground type is declared it is a shape
+      ; error - a function where a value goes - refusing audibly
+      ; without ever rendering the node.
+      (if (== (isPendingNode got) 1)
+        (if (|| (== (nodeTag want) TAG_T_ARR) (|| (== (tyIsGround want) 0) (tyIsBareInt want)))
+          0
+          (refusePendingOperand tc got (tyRender want) (spanOf (nodeC d))))
       (if (== (tyIsErr got) 1)
         0
         (if (== (tyIsSilentWild got) 1)
@@ -24857,7 +25977,7 @@
                       (if (== (subtypeCompatAllows tc want got) 1)
                         0
                         (emitMismatchTy tc want got (spanOf (nodeC d))))
-                      0)))))))))))
+                      0))))))))))))
 
 ; 1 when `want` and `got` are two plain type constructors that cannot
 ; share a representation, so believing the signature over the body is

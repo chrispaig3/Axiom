@@ -1,0 +1,2 @@
+E AX3004 1111-unknown-operand.ax:3:55-60 type-mismatch "type mismatch: expected Int, found {unknown}" #"this has an unknown type" !"no signature declares this value's type - a `lambda` parameter has nowhere to declare one, so name the function and sign it - and each representation lowers differently" ?"declare the type with a `(:: ...)` signature"
+E AX3004 1111-unknown-operand.ax:3:35-41 type-mismatch "type mismatch: expected (Int -> Int), found (Int -> (_a -> Int))" #"this has type `(Int -> (_a -> Int))`, expected `(Int -> Int)`"

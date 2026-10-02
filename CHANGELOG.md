@@ -28,6 +28,72 @@ its changelog too.
   through `utf8WellFormedAt`, and those answer false. Tested by
   `tests/stdlib/330-utf8.ax`.
 
+- Lambda parameters are inferred from their uses. A `let`-bound
+  lambda used to be checked where it sat, every parameter a fresh
+  unknown, so consuming one either refused spuriously or silently
+  miscompiled (an integer body ran on double bits and read back
+  122). The check now defers to the first application, binds the
+  parameters to the argument types it carries, and checks the body
+  then; a lambda no use witnesses is flushed (checked standalone,
+  only its `{unknown}` refusals dropped) rather than guessed.
+  Held by `scripts/check-diagnostics.sh` (306 passed, including new
+  `1111-unknown-operand`, `1112-forward-alias` and
+  `1113-unapplied-function`),
+  `scripts/check-render-selfhost.sh`, `scripts/check-self-host.sh`,
+  `scripts/check-driver.sh`, and `scripts/bootstrap-from-seed.sh`
+  (seed -> stage1 -> stage2 == stage3, byte-identical).
+
+- An operand that stays unknown where a ground type is required
+  refuses (`expected Int, found {unknown}`, AX3004): call
+  arguments, `if` conditions, struct fields and `set` values. The
+  rule fires only on the `_tN` class (`freshTVar`'s "not known
+  yet"); instantiation variables, `_fn_N` declaration placeholders
+  (entry-first order may not have inferred a sig-less declaration
+  yet) and source variables stay lenient. Held by
+  `scripts/check-diagnostics.sh` (`1111-unknown-operand`).
+
+- A self-call through an alias bound after the lambda refuses
+  (AX3004): the emitter calls a `let`-bound name directly, which
+  is undefined for a forward alias, so accepting would miscompile
+  where the old checker refused AX3001. Name the function with
+  `fn` and recurse through its name. Held by
+  `scripts/check-diagnostics.sh` (`1112-forward-alias`).
+
+- Every consumer of a deferred lambda judges it. Grounding defers
+  a lambda's check to its first use, which left the positions no
+  use reaches: a function in arithmetic, a condition, a match
+  scrutinee or a field base passed in silence with its body
+  unchecked, and a pending node leaked into answered types (pin
+  shapes, evidence classes, rendered messages). Each such position
+  now refuses the shape (`found unapplied function`, AX3004),
+  grounds by the declaration where one is written, or infers
+  standalone where nothing is witnessed - and the cast spine's
+  closure keeps its evidence, so `tests/stdlib/462` exits 15
+  again instead of 7. Held by `scripts/check-diagnostics.sh` (306
+  passed, including new `1113-unapplied-function`),
+  `scripts/check-render-selfhost.sh` (299 passed),
+  `scripts/run-stdlib-tests.sh` (169 passed; the 7
+  failures are the sandbox's loopback `bind` denials),
+  `scripts/check-self-host.sh` (203 passed),
+  `scripts/check-driver.sh` (150 passed), and
+  `scripts/check-effect-distribution.sh` (re-pinned 1614 to 1616:
+  the two new functions emit diagnostics, exactly `Alloc,Mut`).
+
+- One diagnostic sharpened along the way: a callback refused
+  against a declared arrow reports its parameter as the call
+  witnesses it (`(Int -> String)` where `(_a -> String)` stood).
+  Golden `tests/diagnostics/641-parallel-word.*` re-blessed; held
+  by `scripts/check-diagnostics.sh` and
+  `scripts/check-render-selfhost.sh`.
+
+- The tree-sitter grammar accepts operator-led identifiers, as the
+  lexer always has: `*Int` is one `constructor_identifier`, not a
+  star beside a name (which left an ERROR node on the
+  `1108-star-glued-type` fixture). The identifier, constructor and
+  type-variable tokens start on the lexer's full start set. Held
+  by `scripts/check-tree-sitter.sh` (994/994 files, 50/50 corpus
+  cases, including the new operator-led-type case).
+
 - The builtin types have one spelling. `Integer`, `Unit`, `Void` and `Any`
   are removed: each is now an unknown type name and draws `AX3002`. Write
   `Int` for `Integer`, and `()` for the empty tuple. Tested by

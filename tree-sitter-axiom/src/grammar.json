@@ -1873,7 +1873,7 @@
       "type": "TOKEN",
       "content": {
         "type": "PATTERN",
-        "value": "[a-z][A-Za-z0-9_']*"
+        "value": "[+*/%<>=!&|^~-]*[a-z][A-Za-z0-9_']*"
       }
     },
     "type_constructor": {
@@ -3831,7 +3831,7 @@
       "type": "TOKEN",
       "content": {
         "type": "PATTERN",
-        "value": "[A-Z][A-Za-z0-9_']*"
+        "value": "[+*/%<>=!&|^~-]*[A-Z][A-Za-z0-9_']*"
       }
     },
     "identifier": {
@@ -3841,7 +3841,7 @@
         "members": [
           {
             "type": "PATTERN",
-            "value": "[A-Za-z_][A-Za-z0-9_']*([+\\-*\\/%^=<>!&|?~@]+[A-Za-z0-9_']*|\\.[A-Za-z0-9_'+\\-*\\/%^=<>!&|?~@][A-Za-z0-9_']*)*"
+            "value": "[A-Za-z_+*/%<>=!&|^~-][A-Za-z0-9_']*([+\\-*\\/%^=<>!&|?~@]+[A-Za-z0-9_']*|\\.[A-Za-z0-9_'+\\-*\\/%^=<>!&|?~@][A-Za-z0-9_']*)*"
           },
           {
             "type": "PATTERN",
