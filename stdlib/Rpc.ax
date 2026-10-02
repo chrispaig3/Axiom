@@ -30,10 +30,10 @@
 ; CONTENT-LENGTH IS COUNTED IN BYTES, not characters - the spec says so,
 ; and getting it wrong would desynchronise the stream permanently on the
 ; first non-ASCII message rather than failing visibly.
-; `IO` is deliberately NOT imported. It defines `die`, and so does the
-; compiler's own `main.ax`; Axiom's namespace is flat, so a program
-; holding both has an ambiguous `die` at every call site. Writing is
-; three lines over `Sys` and costs nothing.
+; `IO` arrives selectively - `(readInto writeStr)` only. A whole `IO`
+; import would collide: it defines `die`, and so does the compiler's
+; own `main.ax`, and Axiom's namespace is flat, so a program holding
+; both has an ambiguous `die` at every call site.
 (import Mem)
 (import Str)
 (import Fmt)

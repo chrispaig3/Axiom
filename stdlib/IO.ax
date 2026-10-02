@@ -257,7 +257,7 @@
 (pub fn (appendFile path s)
   (ioResult (sysAppendFile (ioPath path) s) "appendFile" path))
 
-; Remove the file `path`. Answers 0, or a negative errno.
+; Remove the file `path`. Answers `(Ok 0)`, or `(Err …)` carrying the errno.
 ;
 ; It does NOT remove a directory - the kernel refuses with EPERM on
 ; Darwin and EISDIR on Linux (probed 2026-08-15: `-1` here). That is
@@ -269,7 +269,7 @@
 (pub fn (removeFile path)
   (ioResult (sysUnlink (ioPath path)) "removeFile" path))
 
-; Move `old` to `new`, answering 0 or a negative errno.
+; Move `old` to `new`, answering `(Ok 0)` or `(Err …)` with the errno.
 ;
 ; Atomic within one filesystem: a reader of `new` sees the whole old
 ; contents or the whole new ones, never a prefix. Across filesystems
@@ -342,7 +342,7 @@
 (pub fn (isDir path)
   (sysIsDir (ioPath path)))
 
-; The size of `path` in bytes, or a negative errno.
+; The size of `path` in bytes, or `(Err …)` carrying the errno.
 ;
 ; A DIRECTORY answers a positive number here, and it is the size of
 ; the directory file rather than anything a caller means - ask `isDir`
@@ -365,8 +365,8 @@
 (pub fn (readErrno path)
   (sysReadErrno (ioPath path)))
 
-; Create the directory `path`, mode 0755. Answers 0, or a negative
-; errno - `-17` (EEXIST) when it is already there.
+; Create the directory `path`, mode 0755. Answers `(Ok 0)`, or
+; `(Err …)` carrying the errno - `EEXIST` when it is already there.
 (pub :: makeDir (-> String (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
@@ -382,8 +382,8 @@
 (pub fn (makeDirMode path mode)
   (ioResult (sysMkdir (ioPath path) mode) "makeDirMode" path))
 
-; Create `path` and every missing directory above it. Answers 0, or
-; the negative errno of the first component that could not be made.
+; Create `path` and every missing directory above it. Answers `(Ok 0)`,
+; or `(Err …)` carrying the errno of the first component that could not be made.
 ;
 ; An existing directory is SUCCESS at every level, which is the whole
 ; difference from `makeDir` and the reason a build can call this
@@ -425,8 +425,8 @@
           (Err e))
       ))))
 
-; Remove the EMPTY directory `path`. Answers 0, or a negative errno -
-; `-66`/`-39` (ENOTEMPTY) when it still holds entries. Nothing here
+; Remove the EMPTY directory `path`. Answers `(Ok 0)`, or `(Err …)` -
+; `ENOTEMPTY` when it still holds entries. Nothing here
 ; removes a tree: that is a loop over `listDir`, and it is the
 ; caller's to write, because a library that deletes recursively on
 ; one call is a library that deletes the wrong subtree once.

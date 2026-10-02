@@ -1,6 +1,10 @@
 """The task pool of `stdlib/Task.ax` (MM-PAR-13), transcribed for
 `scripts/lib/protocol-model.py`, which installs it (`install`).
 
+The name is `snake_case` while every sibling script is kebab-case
+because it is loaded as a module (`task_model`), not run as a script —
+kebab-case is unimportable, so the odd one out is the load-bearing one.
+
 WHAT IS TRANSCRIBED. The pool's parent loop, `taskLoop`, and every step it
 takes on shared state or on a child: the token's cancel flag and event
 counter, a slot's state word, the spawn, the look at a child

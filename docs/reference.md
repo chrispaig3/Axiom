@@ -5696,7 +5696,7 @@ Checked by `scripts/check-freestanding.sh`.
 
 ### Modules at a Glance
 
-Sixty-one modules, all of them Axiom source under `stdlib/`. A module exports only the
+Sixty-one modules, all of them Axiom source under `stdlib/`, plus the six `Sys.Platform.*` files — one target's syscall numbers each, covered by the `Sys` row. A module exports only the
 names it marks `pub`, and reaching any other name is `AX3023`, so
 `grep '^(pub' stdlib/M.ax` always tells you what module `M` exports.
 
@@ -5714,9 +5714,9 @@ regenerates it on every run to keep it exact.
 | `Utf8` | The character view of a `Str`: `utf8Len`, `utf8CharAt`, `utf8DecodeAt`, `utf8FromChar`, `utf8Next`, `utf8Offset`, `utf8Slice`, `utf8Width`, `utf8SeqLen`, `utf8IsCont`, `utf8Valid`, `utf8WellFormedAt`. |
 | `Vec` | A growable array, `(Vec a)`: `vecNew`, `vecNewRef`, `vecWithCapacity`, `vecWithCapacityRef`, `vecFree`, `vecPush`, `vecPop`, `vecGet`, `vecSet`, `vecLen`, `vecCap`, `vecLast`, `vecClear`, `vecSort`, `vecSortBy`. `vecGet` traps on an index it can't serve. |
 | `Map` | An open-addressing `Int→Int` hash map: `mapNew`, `mapNewRefVals`, `mapWithCapacity`, `mapWithCapacityRefVals`, `mapFree`, `mapHas`, `mapGet`, `mapGetStr`, `mapInsert`, `mapRemove`, `mapKeys`, `mapLen`, `mapCap`, `mapUsed`. `mapGet` takes the default to answer when a key is absent. |
-| `Fmt` | The functions a format specifier selects: `fmtInt`, `fmtHex`, `fmtHexUpper`, `fmtFloat`, `fmtFloatPrec`, `fmtPadLeft`, `fmtPadRight`, `fmtPadCenter`, `fmtPadZerosLeft`, `fmtIntWidth`. Importing `Fmt` also brings in `format`. |
+| `Fmt` | The functions a format specifier selects: `fmtInt`, `fmtHex`, `fmtHexUpper`, `fmtFloat`, `fmtFloatPrec`, `fmtPadLeft`, `fmtPadRight`, `fmtPadCenter`, `fmtPadZerosLeft`, `fmtIntWidth`. The `format` macro itself lives in `Str` and arrives via transitivity. |
 | `Float` | IEEE 754 binary64 values exactly: `floatParse` reads decimal text correctly rounded, `floatToString` prints the shortest text that reads back to the same bits (in Python's `repr` format), and `floatToBits`/`floatFromBits` convert to and from the 64-bit encoding. Also `floatIsNan`, `floatIsInfinite`, `floatIsFinite`, `floatInfinity` and `floatNan`. |
-| `Err` | `Result` (`Ok`/`Err`), the `Error` record, `isOk`/`isErr`, `okOr`, `unwrapOr`, `mapOk`/`mapErr`, `andThen`, `try`, `toOption`, `withContext`, and checked arithmetic: `divChecked`, `remChecked`, `shlChecked`, `shrChecked`. The specification is [error-model.md](error-model.md). |
+| `Err` | `Result` (`Ok`/`Err`), the `Error` record, `isOk`/`isErr`, `okOr`, `unwrapOr`, `mapOk`/`mapErr`, `andThen`, `try`, `toOption`, `withContext`, and checked arithmetic: `addChecked`, `subChecked`, `mulChecked`, `divChecked`, `remChecked`, `shlChecked`, `shrChecked`. The specification is [error-model.md](error-model.md). |
 | `Fallible` | `fallibleMalformed`, the operation a batch loop's callee performs on a malformed record, and the handlers that answer it without unwinding: `fallibleSkip`, `fallibleDefault`, `fallibleCounting`. Also the skip sentinel `fallibleSkipped`/`fallibleIsSkipped`, and the `FallibleTally` a counting handler writes, read with `fallibleTally`/`fallibleCount` (error-model.md ERR-REC-7). |
 | `Intern` | A string interner: `internNew`, `internFree`, `internIntern`, `internFind`, `internLookup`, `internCount`. |
 | `Sys` | The syscall layer: `sysWriteFd`, `sysReadFd`, `sysWriteAllFd`, `sysReadAllFd`, `sysReadLineFd`, `sysOpenPath`, `sysCloseFd`, `sysExitWith`, `sysFailed`, `sysErrno`, `stdin`/`stdout`/`stderr`. The [filesystem](#work-with-files-and-directories) calls, and processes: `sysSpawn`, `sysRun`, `sysRunPath`, `sysWaitPid`, `sysEnv`, `sysArgc`, `sysArg`, `sysGetPid`, `sysNowMicros`. Shared memory and waiting on it: `sysMapShared`/`sysUnmapShared`, `sysWaitWord`/`sysWakeWord`, the timed `sysWaitWordTimeout` (0 woken, 1 timed out, 2 changed) with `sysTimeoutMicros` and `sysTimedOut`, and `sysChildExited`, which looks at a child without reaping it. |

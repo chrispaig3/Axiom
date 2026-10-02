@@ -616,7 +616,8 @@ refuses a Windows host first.
 | Constructors | `PascalCase` | `Nothing`, `Just`, `Cons` |
 | Type parameters | single lowercase letter | `a`, `b`, `t` |
 | Modules | `PascalCase` | `IO`, `Mem`, `Str` |
-| Files | `PascalCase.ax` | `IO.ax`, `Mem.ax` |
+| Stdlib files | `PascalCase.ax` | `IO.ax`, `Mem.ax` |
+| Compiler files | lowercase `.ax` | `lexer.ax`, `typecheck.ax` |
 | Diagnostic codes | `AX` + stage number + 3 digits | `AX3001`, `AX5001` |
 
 ### Diagnostic codes

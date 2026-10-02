@@ -6,7 +6,7 @@
 ; cryptographic implementation needs that plain Axiom arithmetic does
 ; not promise, plus the byte and word accessors the algorithms read
 ; their inputs through. Application code wants `Crypto.Aead`,
-; `Crypto.Sign` and friends, not this.
+; `Crypto.Ed25519`, `Crypto.X25519` and friends, not this.
 ;
 ; WHAT "CONSTANT TIME" MEANS HERE. A function is constant time when
 ; nothing an attacker can time - which branches run, which addresses
