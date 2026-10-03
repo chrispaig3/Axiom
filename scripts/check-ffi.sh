@@ -47,6 +47,18 @@ fi
 
 status=0
 
+python3 tests/ffi/verify-unsafe-inventory.py
+if "$axiom" --diagnostic-format=ai symbols stdlib/Ffi.ax --calls \
+    > "$work/ffi-boundaries.axsym" 2> "$work/ffi-boundaries.log" \
+    && python3 scripts/lib/unsafe-inventory.py < "$work/ffi-boundaries.axsym" \
+    > "$work/ffi-boundaries.json"; then
+  echo "ok   Ffi unsafe vouches and caller preconditions can be inventoried"
+else
+  echo "FAIL cannot inventory Ffi unsafe boundaries"
+  head -4 "$work/ffi-boundaries.log"
+  status=1
+fi
+
 # The names that are never permitted, whatever a manifest says. A
 # manifest is a statement about what a CRATE needs; it is not a licence
 # to reintroduce a libc dependency through the back door for names Axiom

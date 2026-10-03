@@ -7,6 +7,8 @@ the boundary, and the rules each side keeps.
 The memory rules behind it are `MM-FFI-1` to `MM-FFI-6` in
 [memory-model.md](memory-model.md) §11. This page is the user-facing
 contract, so it cites those rules rather than restating them.
+The [contract audit](assurance/ffi-contract-audit.md) lists reviewed
+routes, caller obligations and the remaining Unsafe vouches.
 
 ---
 

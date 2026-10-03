@@ -16,6 +16,12 @@ its changelog too.
 
 ## Unreleased
 
+- Added an Unsafe boundary inventory with source locations, caller
+  preconditions and resolved call edges. The FFI contract audit records
+  the reviewed pointer, buffer, owner and callback routes, and identifies
+  the remaining vouches. Record probes cover null inputs and partial
+  flattened records. Tested by `scripts/check-ffi.sh`.
+
 - Binding wrappers that combine callbacks with live vector or opaque
   borrows declare caller preconditions. Callers must vouch with
   `effect(unsafe)` that callbacks preserve those borrows. Copied inputs

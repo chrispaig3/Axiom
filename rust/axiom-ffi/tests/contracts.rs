@@ -1,6 +1,21 @@
 //! Raw wire errors are refused before references or deallocations are formed.
 
-use axiom_ffi::{axiom_export, axiom_opaque, AxVecRepr, AxWord};
+use axiom_ffi::{axiom_export, axiom_opaque, axiom_record, AxVecRepr, AxWord};
+
+#[axiom_record]
+/// A record copied from a flattened input vector.
+pub struct Pair {
+    /// First word.
+    pub x: i64,
+    /// Second word.
+    pub y: i64,
+}
+
+#[axiom_export]
+/// Sum reconstructed records.
+pub fn sum_records(pairs: &[Pair]) -> i64 {
+    pairs.iter().map(|p| p.x + p.y).sum()
+}
 
 #[axiom_export]
 /// Add a shared vector's first word to a disjoint mutable vector.
@@ -87,6 +102,10 @@ fn accept_disjoint_wire_borrows() {
     assert_eq!(observed, 10);
 
     let (ptr, n) = axiom_ffi::__private::leak_words(vec![1, 2]);
+    let records = [1, 2, 3, 4];
+    let records_repr = vec_repr(&records);
+    // SAFETY: the live vector holds two complete records for the call.
+    assert_eq!(unsafe { axffi_sum_records(vec_word(&records_repr)) }, 10);
     // SAFETY: return exactly the allocation pair once.
     let observed = unsafe { axiom_ffi::axffi_free_words(ptr as *mut i64, n) };
     assert_eq!(observed, 0);
@@ -129,6 +148,12 @@ fn reject_invalid_wire_borrows() {
                 "opaque" => {
                     axffi_mix_handles(xword, xword);
                 }
+                "partial_record" => {
+                    axffi_sum_records(vec_word(&a));
+                }
+                "null_records" => {
+                    axffi_sum_records(0);
+                }
                 "negative_bytes" => {
                     axiom_ffi::axffi_free_bytes(core::ptr::null_mut(), -1);
                 }
@@ -162,6 +187,8 @@ fn reject_invalid_wire_borrows() {
         ("two_mutable", "alias mutable Vec words"),
         ("nested", "alias mutable Vec words"),
         ("opaque", "alias a mutable handle"),
+        ("partial_record", "not a multiple of the record's 2 fields"),
+        ("null_records", "is not a Vec: 0"),
         ("negative_bytes", "buffer length is negative"),
         ("negative_words", "buffer length is negative"),
         ("null_words", "invalid buffer address or alignment"),
