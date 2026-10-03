@@ -29,7 +29,7 @@ root.
 | A reset keeps exactly one contiguous carried block, and kept fields aren't recursively promoted (`MM-ALLOC-16`) | Boundary: the `reset_keeping` contract. Referencing a dead allocation through a kept block is the caller's responsibility | Stated; no fixture |
 | A mark names a live arena position, and evidence is live at reset (`MM-ALLOC-16a`, `16b`) | Dynamic: the runtime checks marks and live evidence | The `6527bea0` fixtures |
 | A lexical region answers a scalar, and names don't rebind inside themselves (`MM-RGN-1`) | Static: `AX3058`, `AX3059` | `tests/stdlib/168-region.ax`; `check-region-scope.sh`, including the unsafe-escape ablation |
-| No reference escapes to an outliving region by store, return, capture or argument (`MM-RGN-2…4`) | Static within the tracked-origin domain: `AX3059–AX3063`. Unresolved calls are refused conservatively | `tests/diagnostics/653-region-escape-callee.ax` beside the accepted `tests/stdlib/479-region-reclaim.ax`; the escape ablations expose the reclaimed read |
+| No reference escapes to an outliving region by store, return, capture or argument (`MM-RGN-2…4`) | Static within the tracked-origin domain: `AX3059–AX3063`. Unresolved calls include their captures. Origin overflow and unconverged facts are refused | `scripts/check-region-escape.sh`; `tests/region/escape-closure-call.ax` beside the accepted `tests/region/closure-local.ax` |
 | Erased addresses, hand-built layouts and foreign memory obey the region rules | Open: §3.6 covers typed origins only, and raw words keep `MM-ALLOC-16` and `MM-LIFE-2g` | — |
 
 ## Lifetimes and counting
@@ -67,6 +67,7 @@ root.
 | `__addr` takes a literal's address, and `strCStr` bytes aren't used after the `Str` is gone (`MM-FFI-2a`, `MM-FFI-4`) | Boundary: caller preconditions | Stated; misuse fixtures are absent |
 | A `Handle` destructor runs once, from Rust, with the documented `axiom-allow.txt` symbol set | Dynamic: the release path and the FFI gate | `check-ffi.sh` per-crate allowlists |
 | A cast that makes a reference from another type preserves a valid representation | Static boundary: `AX3073` requires `effect(unsafe)` where the cast forges; `restrict(no-unsafe)` refuses it directly and through untrusted callees. The programmer still validates the word | `tests/diagnostics/1040-forging-cast.ax`, `tests/diagnostics/1042-no-unsafe-indirect.ax` |
+| A type-preserving cast keeps the operand's ownership and evidence | Static: the cast proof preserves temporary cleanup and borrowed aliases; scalar casts take no reference share | `tests/stdlib/701-cast-ownership.ax`; `scripts/check-cast-arg-root.sh` |
 | A precondition interface is called only after its stated condition holds | Static boundary: `AX3073` requires `effect(unsafe)` on the caller; `AX3079` and `AX3080` require the interface to state a nonempty condition. The caller still checks that condition | `tests/diagnostics/1041-precondition-call.ax`, `tests/diagnostics/1043-precondition-tag.ax`; `tests/selfhost/1010-trusted-wrapper.ax` |
 
 ## Closures and containers

@@ -145,6 +145,84 @@ refused 648-region-argument       AX3063 'pair'
 refused 649-restrict-no-escape    AX3049 'through `vecPush`'
 refused 649-restrict-no-escape    AX3051 'dispatch'
 refused 649-restrict-no-escape    AX3057 'dispatchStrict'
+
+# A callback's captures are destinations too. The three stores were
+# accepted when the origin walk considered only its explicit arguments.
+cp "$repo_root/tests/region/escape-closure-call.ax" "$work/run/escape-closure-call.ax"
+( cd "$work/run" && "$axc" --diagnostic-format=ai check escape-closure-call.ax ) \
+  > /dev/null 2> "$work/run/escape-closure-call.err"
+for extent in direct indirect field; do
+  checks=$((checks + 1))
+  if grep -q "^E AX3060 .*region \`$extent\`" "$work/run/escape-closure-call.err"; then
+    ok "$extent callback refuses a store into an older capture"
+  else
+    bad "$extent callback accepted an escaping reference"
+    head -8 "$work/run/escape-closure-call.err"
+  fi
+done
+if "$axc" --diagnostic-format=ai check "$repo_root/tests/region/closure-local.ax" \
+    > /dev/null 2> "$work/run/closure-local.err"; then
+  ok "callbacks whose captures and arguments share a region are accepted"
+else
+  bad "a callback confined to one region was refused"
+  head -8 "$work/run/closure-local.err"
+fi
+
+# A proof must never reuse an origin bit when the domain is full.
+python3 - "$work/run" <<'PY'
+import pathlib, sys
+root = pathlib.Path(sys.argv[1])
+for count in (61, 62):
+    body = "\n".join(f"    (region r{i} 0)" for i in range(count))
+    (root / f"capacity-{count}.ax").write_text(
+        f"(:: main Int)\n(fn (main) {{\n{body}\n    0 }})\n")
+for count in (61, 62):
+    params = " ".join(f"p{i}" for i in range(count))
+    types = " ".join("(String @r)" for _ in range(count))
+    (root / f"parameters-{count}.ax").write_text(
+        f"(:: wide (-> {types} (String @r)))\n"
+        f"(fn (wide {params}) p{count - 1})\n"
+        "(:: main Int)\n(fn (main) 0)\n")
+PY
+for shape in capacity parameters; do
+  if "$axc" --diagnostic-format=ai check "$work/run/$shape-61.ax" \
+      > /dev/null 2> "$work/run/$shape-61.err"; then
+    ok "$shape: all 61 origins remain representable"
+  else
+    bad "$shape: the last representable origin was refused"
+    head -8 "$work/run/$shape-61.err"
+  fi
+  "$axc" --diagnostic-format=ai check "$work/run/$shape-62.ax" \
+    > /dev/null 2> "$work/run/$shape-62.err"
+  if grep -q '^E AX3060 .*region safety cannot be proved' "$work/run/$shape-62.err"; then
+    ok "$shape: an unrepresentable lifetime is refused"
+  else
+    bad "$shape: origin overflow was accepted"
+    head -8 "$work/run/$shape-62.err"
+  fi
+done
+
+"$axc" --diagnostic-format=ai check "$repo_root/tests/region/lifetime-unconverged.ax" \
+  > /dev/null 2> "$work/run/lifetime-unconverged.err"
+if grep -q '^E AX3060 .*lifetime analysis did not converge' "$work/run/lifetime-unconverged.err"; then
+  ok "an unfinished recursive lifetime proof is refused"
+else
+  bad "an unfinished lifetime proof permitted emission"
+  head -8 "$work/run/lifetime-unconverged.err"
+fi
+cat > "$work/run/lifetime-converged.ax" <<'EOF'
+(:: rotate (-> String String Int String))
+(fn (rotate a b n) (if (== n 0) a (rotate b a (- n 1))))
+(:: main Int)
+(fn (main) (region r 0))
+EOF
+if "$axc" --diagnostic-format=ai check "$work/run/lifetime-converged.ax" \
+    > /dev/null 2> "$work/run/lifetime-converged.err"; then
+  ok "a converged recursive lifetime proof is accepted"
+else
+  bad "a completed lifetime proof was refused"
+  head -8 "$work/run/lifetime-converged.err"
+fi
 # the program of section 3, refused by the tree's compiler
 checks=$((checks + 1))
 cp "$repo_root/tests/region/escape-store.ax" "$work/run/escape-store.ax"
@@ -176,7 +254,16 @@ new = """(pub fn (rgnCheckAll tc)
     {"""
 if s.count(old) != 1:
     sys.exit("the ablation matched %d times, wanted 1" % s.count(old))
-open(p, "w", encoding="utf-8").write(s.replace(old, new))
+s = s.replace(old, new)
+# Disable the reporting walk for unannotated region forms as well.
+start = s.index("(pub fn (rgnCheckAll tc)")
+end = s.index("(pub :: rgnEnsureFacts", start)
+part = s[start:end]
+old_forms = "(if (== (memGetWord tc 39) 1)"
+if part.count(old_forms) != 1:
+    sys.exit("the region-form ablation no longer matches")
+s = s[:start] + part.replace(old_forms, "(if (== 0 1)") + s[end:]
+open(p, "w", encoding="utf-8").write(s)
 PY
 if [[ $? -ne 0 ]]; then
   bad "could not apply the ablation - rgnCheckAll has moved, and section 3 is asserting nothing"
@@ -199,6 +286,7 @@ else
   accepted 647-region-capture
   accepted 648-region-argument
   accepted escape-store
+  accepted escape-closure-call
   # 649 rests on the facts, not the pass, and must survive
   checks=$((checks + 1))
   ( cd "$work/run" && AXIOM_STDLIB="$abl/stdlib" "$work/axc-ablated" --diagnostic-format=ai check 649-restrict-no-escape.ax ) > /dev/null 2> "$work/run/649.abl"

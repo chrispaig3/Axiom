@@ -1,65 +1,54 @@
-# Cast at argument root — design note (QA P0 §3 F7/F19)
+# Casts and ownership
 
-Status: defect pinned by `scripts/check-cast-arg-root.sh`, not yet
-fixed. Target: Axiom 0.7.5, compiler `./.axiom-bin/axiom`.
+```scheme fragment
+(strLen (cast String (strDup "hi")))
+```
 
-When a call argument's root is a `cast`, the compiler drops that
-temporary's release: a leak, never an early free.
+The checker proves that this cast preserves the operand's type. The
+temporary therefore has the same cleanup as `(strLen (strDup "hi"))`.
+A borrowed string stays borrowed, and an owned string stays owned.
 
 ## What happens
 
-An argument whose root is a `cast` gets evidence 0 outright:
+`checkCastForm` in `self_host/typecheck.ax` records a type-preserving
+cast as `nodeResWord` 3. This proof has three consumers:
 
-- `evStampFill` in `self_host/typecheck.ax`: "the cast launders a word
-  past the checker, and evidence must not trust it".
-- `emitPrimRetainRef` in `self_host/codegen.ax`: a missing or foreign
-  stamp answers 0, "the same conservative direction `evStampOk` takes
-  everywhere else, and the one that leaks rather than frees early".
+- `evStampFill` preserves the argument's reference evidence.
+- `valueOwnedRef` follows the operand's ownership through the cast.
+- `escapes` follows the operand's lifetime dependencies.
 
-So, as the MM-VAL-22 table in `docs/memory-model.md` sets out, the
-temporary's release isn't emitted.
+The proof covers a cast's value, including nested casts. Surplus
+arguments apply the resulting function and use application evidence.
+An unproved reinterpretation keeps conservative evidence 0; scalar
+casts take no reference share.
 
-## Reproduction
-
-```bash
-axiom --diagnostic-format=ai check cast3.ax   # OK
-axiom --diagnostic-format=ai check cast4.ax   # OK
-axiom --diagnostic-format=ai emit-llvm cast3.ax -o cast3.ll
-axiom --diagnostic-format=ai emit-llvm cast4.ax -o cast4.ll
-rg -c 'call void @axiom_release' cast3.ll cast4.ll
-# cast3.ll:1  cast4.ll:0  (darwin-aarch64)
-```
-
-`cast3.ax` stores `(strDup "hi")`, and `cast4.ax` stores
-`(cast String (strDup "hi"))`. Both check `OK`, but the cast version
-emits one fewer release.
+Tested by `scripts/check-cast-arg-root.sh` and
+`tests/stdlib/701-cast-ownership.ax`.
 
 <a id="why-the-fix-is-a-migration-not-a-one-line-change"></a>
-## Why the fix is a migration
+## Reinterpreting a word
 
-We considered and rejected two one-line fixes:
+A cast that changes a word into a reference still requires a valid
+representation and `effect(unsafe)`. Put that conversion inside a typed
+accessor whose precondition says what the word holds. Its callers then
+receive the declared type and its reference evidence.
 
-1. Emit an unconditional retain and release on evidence 0. This taxes
-   every integer `memSetWord`, the shape the 0 answer exists to keep
-   free. It also hides the laundering instead of removing it.
-2. Refuse casts at the argument root outright. This needs a new
-   diagnostic code, an `explain.ax` entry, `.axdl`, `.human` and
-   `.json` goldens, and a reseed. That makes it a language change, not
-   a gate change.
+[The memory model](memory-model.md) specifies this boundary as
+`MM-VAL-22` and `MM-VAL-23`. The cast census in
+`scripts/check-cast-arg-root.sh` records uses in `stdlib/`, `tests/`
+and `examples/`; `self_host/` and the fuzzer reproducers are excluded.
 
-The real fix is MM-VAL-23: casts belong at a return, under a declared
-type that tells the truth about the value. `mapGet` returning `Int`,
-alongside `mapGetStr`, is the precedent. The 1,223 AX3040 sites migrate that way.
+## Lifetime guarantees
 
-While the migration runs, `scripts/check-cast-arg-root.sh` ratchets
-the census of user-level `(cast ` uses, so the hole can't widen
-unnoticed. The census covers `stdlib/`, `tests/` and `examples/`, with
-a baseline of 337. The plumbing in `self_host/` is excluded.
+Checked lexical regions reject stores into older bindings, fields,
+containers and callback captures. The compiler also rejects origin
+overflow and unconverged lifetime facts. Calls confined to one region
+remain valid.
 
-## When to delete this note
+These guarantees cover tracked typed origins. Raw addresses and resets
+retain their unsafe preconditions. Reference counting can retain
+unreachable cycles, and a checked region reclaims cycles confined to
+its extent. See `MM-RGN-3`, `MM-LIFE-3` and `MM-LIFE-4` in
+[the memory model](memory-model.md).
 
-Delete this note when the probe's release counts become equal because
-releases are emitted from truthful return-position types. Equal counts
-from teaching codegen to retain on evidence 0 don't count. At that
-point, also delete section 2 of the gate, and keep the census ratchet
-until the migration completes.
+Tested by `scripts/check-region-escape.sh`.

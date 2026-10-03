@@ -16,6 +16,13 @@ its changelog too.
 
 ## Unreleased
 
+- Type-preserving casts keep ownership and reference evidence, so owned
+  temporaries are released once and borrowed aliases stay live.
+  Lifetime checks include indirect-call captures and refuse origin
+  overflow or unconverged facts. Tested by
+  `tests/stdlib/701-cast-ownership.ax`, `scripts/check-cast-arg-root.sh`
+  and `scripts/check-region-escape.sh`.
+
 - JSON diagnostics include machine-applicable fix locations and replacement
   text. REPL type errors show their diagnostic code and an `axiom explain`
   command. Missing imports point at the importing source, including nested

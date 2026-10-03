@@ -1,0 +1,95 @@
+; A type-preserving cast transfers the same share as its operand.
+(import IO)
+(import Vec)
+
+(struct Owner sealed
+  (handle : Handle))
+
+(:: makeOwner (-> (Vec Int) Int Owner))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (makeOwner hits n)
+  (Owner
+    (__resource_new
+      (lambda (v)
+        {
+          (vecPush hits v)
+          0
+        }
+      )
+      n)))
+
+(:: readOwner (-> Owner Int))
+;@axiom:effect(unsafe)
+(fn (readOwner o)
+  (__resource_get o.handle))
+
+(:: temporary (-> (Vec Int) Int))
+;@axiom:effect(io)
+(fn (temporary hits)
+  (readOwner
+    (cast Owner (makeOwner hits 11))))
+
+(:: bound (-> (Vec Int) Int))
+;@axiom:effect(io)
+(fn (bound hits)
+  (let ((o
+    (cast Owner (makeOwner hits 22))))
+    (readOwner o)))
+
+(:: discarded (-> (Vec Int) Int))
+;@axiom:effect(io)
+(fn (discarded hits)
+  {
+    (cast Owner (makeOwner hits 33))
+    0
+  })
+
+(:: wrap (-> a (Option a)))
+(fn (wrap x)
+  (Some x))
+
+(:: generic (-> (Vec Int) Int))
+;@axiom:effect(io)
+(fn (generic hits)
+  (match (wrap
+    (cast Owner (makeOwner hits 44)))
+    ((Some o) (readOwner o))
+    ((None) 0)))
+
+(:: borrowed (-> (Vec Int) Int))
+;@axiom:effect(io)
+(fn (borrowed hits)
+  (let (
+    (o (makeOwner hits 55))
+    (alias (cast Owner o))
+  )
+    (+ (readOwner alias) (readOwner o))))
+
+(:: nested (-> (Vec Int) Int))
+;@axiom:effect(io)
+(fn (nested hits)
+  (readOwner
+    (cast Owner (cast Owner (makeOwner hits 66)))))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((hits vecNew))
+    {
+      (println (temporary hits))
+      (println (vecLen hits))
+      (println (bound hits))
+      (println (vecLen hits))
+      (discarded hits)
+      (println (vecLen hits))
+      (println (generic hits))
+      (println (vecLen hits))
+      (println (borrowed hits))
+      (println (vecLen hits))
+      (println (nested hits))
+      (println (vecLen hits))
+      (for i in 0..6
+        (println (vecGet hits i)))
+      0
+    }))

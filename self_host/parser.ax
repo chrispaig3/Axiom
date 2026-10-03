@@ -707,7 +707,10 @@
 ; pass's witness stamp (0 to 2 only, post-fixpoint, never while
 ; facts are still moving and never when truncation made every row
 ; a lower bound); its readers are the chain walker (`== 1`) and
-; the region elision (`== 2`).
+; the region elision (`== 2`). A type-preserving cast carries 3:
+; checking proved its operand and result have the same type, so its
+; ownership and evidence follow the operand. This proof never claims
+; that the value is a word or fresh in a region.
 (pub :: nodeResWord (-> Int Int))
 ;@axiom:effect(unsafe)
 (pub fn (nodeResWord n)

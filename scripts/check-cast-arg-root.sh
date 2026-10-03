@@ -2,30 +2,11 @@
 # THE CAST-AT-ARGUMENT-ROOT GATE (docs/memory-model.md MM-VAL-22/23,
 # QA P0 §3 F7/F19).
 #
-# A `cast` at an argument root launders a word past the checker's
-# evidence walk (`evStampFill` in self_host/typecheck.ax classifies it
-# 0 outright), so codegen emits no retain/release for it
-# (self_host/codegen.ax `emitPrimRetainRef`: a missing stamp answers
-# 0). The direction is LEAK, not early free - the temporary's release
-# is gone - which is the conservative side, and the one this gate pins.
-#
-# Measured on darwin-aarch64 (probe in docs/cast-arg-root.md):
-#
-#   memSetWord p 0 (strDup "hi")                1 release in the IR
-#   memSetWord p 0 (cast String (strDup "hi"))   0 releases in the IR
-#
-# WHY PIN IT RATHER THAN FIX IT. The real fix is per MM-VAL-23: casts
-# belong at a RETURN under an honest declared type (the
-# `mapGet`->`Int` + `mapGetStr` precedent), and the 1,223 AX3040 sites
-# migrate that way - not by making codegen emit unconditional
-# retain+release on evidence 0 (which would add retain traffic to every
-# `memSetWord` of an integer, the shape the 0-answer exists to keep
-# free) and not by refusing arg-root casts outright (which needs a new
-# diagnostic code, an explain entry, goldens, and a reseed). This file
-# converts "there is a documented leak hole one cast wide" into "here
-# is exactly how wide, and here is the ratchet that keeps it from
-# widening": if the release counts below ever become EQUAL, the defect
-# is fixed and this gate must be deleted or repurposed - it will say so.
+# A type-preserving cast keeps the operand's ownership and evidence.
+# Its temporary must have the same release as the uncast spelling.
+# A scalar control must still have no release: evidence 0 never
+# licenses an unconditional retain or release. Reinterpretations
+# keep MM-VAL-22's conservative evidence and unsafe obligations.
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
@@ -159,16 +140,19 @@ echo "--- 1. user-level cast count does not grow ---"
 # its operand missing, and moved this count to 342 while CI stopped at
 # an earlier red; counted, every future fuzzer finding about `cast`
 # would be a ratchet failure over a file that is not user code.
+# The incoming trunk census is 465. The seven additional casts in
+# 701-cast-ownership.ax are the regression's subject: temporary,
+# binding, discard, polymorphic store, borrowed alias and nested casts.
 cast_count="$(git -C "$repo_root" grep -h -o '(cast ' -- stdlib tests examples ':!tests/fuzz' | wc -l | tr -d ' ')"
 if [ "$cast_count" -eq 0 ]; then
   bad "user-level: the cast count read 0 - the measurement is broken, not the tree clean"
-elif [ "$cast_count" -le 451 ]; then
-  ok "user-level (cast count $cast_count <= 451)"
+elif [ "$cast_count" -le 472 ]; then
+  ok "user-level (cast count $cast_count <= 472)"
 else
-  bad "user-level (cast count $cast_count > 451): new casts need a MM-VAL-23 reason and a baseline bump"
+  bad "user-level (cast count $cast_count > 472): new casts need a MM-VAL-23 reason and a baseline bump"
 fi
 
-echo "--- 2. arg-root cast still leaks (does not free early) ---"
+echo "--- 2. type-preserving casts keep ownership ---"
 cat > "$work/cast3.ax" <<'EOF'
 (import Mem)
 (import Str)
@@ -211,13 +195,31 @@ else
   rel4="$(grep -c 'call void @axiom_release' "$work/cast4.ll" || true)"
   rel3="${rel3:-0}"
   rel4="${rel4:-0}"
-  if [ "$rel4" -lt "$rel3" ]; then
-    ok "cast at arg root drops a release ($rel3 -> $rel4): leak direction holds, MM-VAL-22 current"
-  elif [ "$rel4" -eq "$rel3" ]; then
-    bad "releases now equal ($rel3 == $rel4): MM-VAL-22 may be FIXED - update docs/cast-arg-root.md and delete or repurpose this gate"
+  if [[ "$rel3" -gt 0 && "$rel4" -eq "$rel3" ]]; then
+    ok "type-preserving cast retains the temporary's release ($rel3 == $rel4)"
   else
-    bad "cast version releases MORE ($rel3 -> $rel4): over-release direction, possible premature free - investigate immediately"
+    bad "type-preserving cast changed ownership ($rel3 -> $rel4), or both probes emitted no release"
   fi
+fi
+
+cat > "$work/scalar.ax" <<'EOF'
+(import Mem)
+(:: main Int)
+;@axiom:effect(unsafe)
+(fn (main)
+  (let ((p (memAlloc 8)))
+    { (memSetWord p 0 (cast Int 7)) 0 }))
+EOF
+if "$axc" --diagnostic-format=ai emit-llvm "$work/scalar.ax" -o "$work/scalar.ll" \
+     > /dev/null 2> "$work/scalar.err"; then
+  if grep -q 'call void @axiom_release' "$work/scalar.ll"; then
+    bad "the scalar control acquired a reference release"
+  else
+    ok "the scalar control still has no reference release"
+  fi
+else
+  bad "the scalar control did not emit"
+  head -8 "$work/scalar.err"
 fi
 
 echo "--- 3. AX3040 rule still pinned ---"
@@ -237,4 +239,4 @@ if [ "$failed" -gt 0 ]; then
   echo "check-cast-arg-root: $failed of $checks checks failed"
   exit 1
 fi
-echo "check-cast-arg-root: $checks checks - cast census bounded, leak direction pinned, AX3040 pinned"
+echo "check-cast-arg-root: $checks checks - cast census bounded, ownership preserved, AX3040 pinned"

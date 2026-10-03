@@ -1,0 +1,34 @@
+; A callback can store an argument into a captured outer cell.
+(import Str)
+
+(struct Cell
+  (mut s : String))
+
+(struct Hook
+  (f : (-> String Int)))
+
+(:: dispatch (-> (-> String Int) String Int))
+(fn (dispatch hook s)
+  (hook s))
+
+(:: main Int)
+(fn (main)
+  (let (
+    (c (Cell "outer"))
+    (hook (lambda (s)
+      {
+        (set c.s s)
+        0
+      }
+    ))
+    (holder (Hook hook))
+  )
+    {
+      (region direct
+        (hook (strDup "direct")))
+      (region indirect
+        (dispatch hook (strDup "indirect")))
+      (region field
+        (holder.f (strDup "field")))
+      0
+    }))

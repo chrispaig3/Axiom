@@ -2173,9 +2173,10 @@
 ; Fill one call level's witnesses: co-walk the instantiated param
 ; tree beside the argument's inferred type; wherever the param tree
 ; is one of this stamp's minted placeholders, the matching subtree
-; of the argument type is that variable's witness at this level. An
-; argument whose root is a `cast` classifies 0 outright - the cast
-; launders a word past the checker, and evidence must not trust it.
+; of the argument type is that variable's witness at this level.
+; A cast proven to preserve its operand's type keeps that evidence.
+; A reinterpretation still classifies 0: it can erase an ownership
+; relation the checker cannot recover from the resulting word.
 (pub :: evStampFill (-> Int Int Int Int Int))
 ;@axiom:effect(unsafe)
 (pub fn (evStampFill tc e funcTy argTy)
@@ -2201,7 +2202,7 @@
                 (let ((an (nodeB e)))
                   (let ((castArg 
                     (let ((ah (spineHead an)))
-                      (if (&& (== (nodeTag ah) TAG_E_VAR) (== (isCastLike (nodeAName ah)) 1))
+                      (if (&& (== (nodeTag ah) TAG_E_VAR) (&& (== (isCastLike (nodeAName ah)) 1) (!= (nodeResWord an) 3)))
                         1
                         0))))
                     (evWalk
@@ -13900,20 +13901,20 @@
 (pub :: checkCastForm (-> Int Int String Int))
 ;@axiom:effect(unsafe)
 (pub fn (checkCastForm tc e hname)
+  ; The value's type is kept for the forging rule. `checkCastArgs`
+  ; stamps nothing at index 1, so checking it here first and the
+  ; surplus from index 2 checks the same nodes in the same order.
+  ; The cast erases the value's type, so a pending lambda there
+  ; is never grounded by a use: inferred standalone (the
+  ; forging rule below requires a TYPE, never a pending node) -
+  ; which also verifies the body (462: the cast spine's closure
+  ; keeps its evidence).
   (let (
     (args (spineArgVec e vecNew))
-    ; The value's type is kept for the forging rule. `checkCastArgs`
-    ; stamps nothing at index 1, so checking it here first and the
-    ; surplus from index 2 checks the same nodes in the same order.
     (srcTy (let ((srcTy0
       (if (>= (vecLen args) 2)
         (checkExprH tc (vecGet args 1) 0)
         0)))
-      ; The cast erases the value's type, so a pending lambda there
-      ; is never grounded by a use: inferred standalone (the
-      ; forging rule below requires a TYPE, never a pending node) -
-      ; which also verifies the body (462: the cast spine's closure
-      ; keeps its evidence).
       (if (== (isPendingNode srcTy0) 1)
         (groundStandalone tc srcTy0 (spanOf (vecGet args 1)))
         srcTy0)))
@@ -13993,27 +13994,30 @@
         ; fuzzer's m00120). The operand was ignored, not
         ; wildcarded, so their help and note say that instead.
         {
-          (emitDiag tc (diagSetLabel (mkDiagNote
-            SEV_ERROR
-            "AX3002"
-            "undefined-type"
-            (spanOf (castTypeBadPart (vecGet args 0)))
-            (if (strEq hname "cast")
-              (if (== (castTypeIsLiteral (castTypeBadPart (vecGet args 0))) 1)
-                "a literal is not a type, and `cast` takes a type first"
-                "this expression is not a type, and `cast` takes a type first")
-              (if (== (castTypeIsLiteral (castTypeBadPart (vecGet args 0))) 1)
-                (strConcat (strConcat "a literal is not a type, and `" hname) "` takes a type")
-                (strConcat (strConcat "this expression is not a type, and `" hname) "` takes a type")))
-            0
-            0
-            (if (strEq hname "cast")
-              "write the type to cast TO - `(cast Int e)` - or, for an ascription, `(:: e Int)`"
-              (strConcat (strConcat "write the type to measure - `(" hname) " Int)`"))
-            (if (strEq hname "cast")
-              "an unconvertible shape here used to answer a silent wildcard, which unifies with everything: the cast was performed, the result had no type anyone could object to, and a function returning it satisfied any declaration"
-              (strConcat (strConcat "the operand used to be ignored in silence: `(" hname) " 99)` answered 8"))
-            ) "not a type"))
+          (emitDiag
+            tc
+            (diagSetLabel
+              (mkDiagNote
+                SEV_ERROR
+                "AX3002"
+                "undefined-type"
+                (spanOf (castTypeBadPart (vecGet args 0)))
+                (if (strEq hname "cast")
+                  (if (== (castTypeIsLiteral (castTypeBadPart (vecGet args 0))) 1)
+                    "a literal is not a type, and `cast` takes a type first"
+                    "this expression is not a type, and `cast` takes a type first")
+                  (if (== (castTypeIsLiteral (castTypeBadPart (vecGet args 0))) 1)
+                    (strConcat (strConcat "a literal is not a type, and `" hname) "` takes a type")
+                    (strConcat (strConcat "this expression is not a type, and `" hname) "` takes a type")))
+                0
+                0
+                (if (strEq hname "cast")
+                  "write the type to cast TO - `(cast Int e)` - or, for an ascription, `(:: e Int)`"
+                  (strConcat (strConcat "write the type to measure - `(" hname) " Int)`"))
+                (if (strEq hname "cast")
+                  "an unconvertible shape here used to answer a silent wildcard, which unifies with everything: the cast was performed, the result had no type anyone could object to, and a function returning it satisfied any declaration"
+                  (strConcat (strConcat "the operand used to be ignored in silence: `(" hname) " 99)` answered 8")))
+              "not a type"))
           (mkNode TAG_T_ERR 0 0 0)
         }
         (if (strEq hname "cast")
@@ -14025,10 +14029,23 @@
                   0)))
                 (if (== subBase 0)
                   {
+                    ; 3 is a proof of a type-preserving cast, distinct
+                    ; from a word answer (1) and region freshness (2).
+                    ; No proof is minted for surplus applications.
+                    (setNodeResWord
+                      e
+                      (if (&& (== (vecLen args) 2) (== (castSameTy tc targetTy srcTy) 1))
+                        3
+                        0))
                     ; the target as written, so AX3073 names the alias
                     ; the program spelled; `castMayForge` expands it
                     (if (>= (vecLen args) 2)
-                      (castNoteForge tc e (exprToType (vecGet args 0)) srcTy (vecGet args 1))
+                      (castNoteForge
+                        tc
+                        e
+                        (exprToType (vecGet args 0))
+                        srcTy
+                        (vecGet args 1))
                       0)
                     targetTy
                   }
@@ -14064,8 +14081,8 @@
                               (memSetWord inner 2 (mkSubtypeCheckNode (vecGet args 1) boundsH targetTy (spanOf (vecGet args 1))))
                               targetTy
                             }))))))))
-          mkSilentWild)
-        mkIntTy))
+            mkSilentWild)
+          mkIntTy))
     }))
 
 ; `cast`'s arguments, and the SURPLUS ones stamped with the evidence
@@ -27302,7 +27319,24 @@
     (savedRid (memGetWord rc 8))
   )
     (if (>= (+ n k) 61)
-      (rgnExpr rc body)
+      {
+        ; Reusing the enclosing bit would accept an escape as if the
+        ; shorter extent outlived it. An unrepresentable lifetime is
+        ; an unproved lifetime, and emission must stop.
+        (if (== (rgnReport rc) 1)
+          (emitDiag (rgnTc rc) (mkDiag
+            SEV_ERROR
+            "AX3060"
+            "region-escape"
+            (nodeSpan body)
+            "region safety cannot be proved: this function exceeds the lifetime origin capacity"
+            0
+            0
+            "split this function into smaller functions so each region has a distinct tracked origin"))
+          0)
+        (memSetWord (rgnFacts rc) 5 1)
+        0
+      }
       (let ((bit (<< 1 (+ (+ n 1) k))))
         {
           (vecPush (rgnFormParents rc) savedRid)
@@ -27367,40 +27401,37 @@
     (tc (rgnTc rc))
   )
     (if (!= (nodeTag head) TAG_E_VAR)
-      {
-        (rgnExpr rc head)
-        (rgnUnknownCall rc args (spanOf e))
-      }
+      (rgnUnknownCall rc args (spanOf e) (rgnExpr rc head))
       (let ((n (nodeAName head)))
         (if (>= (rgnEnvFind rc n) 0)
-          (rgnUnknownCall rc args (spanOf e))
+          (rgnUnknownCall rc args (spanOf e) (rgnExpr rc head))
           (if (&& (strEq n "__axiom_recover") (== (vecLen args) 2))
             (rgnRecoverForm rc args (spanOf e))
-          (if (== (isCastLike n) 1)
-            (rgnLastArg rc args)
-            (if (!= (findCtor tc n) 0)
-              (| (memGetWord rc 7) (rgnArgsUnion rc args 0 0))
-              (if (!= (findStructIfConstruct tc n) 0)
+            (if (== (isCastLike n) 1)
+              (rgnLastArg rc args)
+              (if (!= (findCtor tc n) 0)
                 (| (memGetWord rc 7) (rgnArgsUnion rc args 0 0))
-                (let ((ent (findFnEnt tc n)))
-                  (if (== ent 0)
-                    (rgnUnknownCall rc args (spanOf e))
-                    (if (== (memGetWord ent 3) 1)
-                      (rgnBuiltinCall rc n args (spanOf e))
-                      (if (== (memGetWord ent 4) 1)
-                        (rgnUnknownCall rc args (spanOf e))
-                        (if (== (memGetWord ent 4) 2)
-                          {
-                            (rgnArgsUnion rc args 0 0)
-                            (memGetWord rc 7)
-                          }
-                          (rgnKnownCall
-                            rc
-                            ent
-                            n
-                            args
-                            (spanOf e)
-                            e)))))))))))))))
+                (if (!= (findStructIfConstruct tc n) 0)
+                  (| (memGetWord rc 7) (rgnArgsUnion rc args 0 0))
+                  (let ((ent (findFnEnt tc n)))
+                    (if (== ent 0)
+                      (rgnUnknownCall rc args (spanOf e) 0)
+                      (if (== (memGetWord ent 3) 1)
+                        (rgnBuiltinCall rc n args (spanOf e))
+                        (if (== (memGetWord ent 4) 1)
+                          (rgnUnknownCall rc args (spanOf e) 0)
+                          (if (== (memGetWord ent 4) 2)
+                            {
+                              (rgnArgsUnion rc args 0 0)
+                              (memGetWord rc 7)
+                            }
+                            (rgnKnownCall
+                              rc
+                              ent
+                              n
+                              args
+                              (spanOf e)
+                              e)))))))))))))))
 
 (pub :: rgnLastArg (-> Int (Vec Int) Int))
 (pub fn (rgnLastArg rc args)
@@ -27420,14 +27451,16 @@
       })))
 
 ; A callee the walk cannot read: assume it stores every argument into
-; every argument and allocates its result.
-(pub :: rgnUnknownCall (-> Int (Vec Int) Int Int))
+; every argument and allocates its result. A closure may also read
+; and write its captures, so those origins participate in both sides
+; of the lifetime relation, including calls with no reference arguments.
+(pub :: rgnUnknownCall (-> Int (Vec Int) Int Int Int))
 ;@axiom:effect(unsafe)
-(pub fn (rgnUnknownCall rc args span)
+(pub fn (rgnUnknownCall rc args span captures)
   (let (
     (masks (rgnIntVec))
     (mut i 0)
-    (mut u 0)
+    (mut u captures)
   )
     {
       (while (< i (vecLen args))
@@ -27436,6 +27469,18 @@
           (set u (| u (vecGet masks i)))
           (set i (+ i 1))
         })
+      (if (!= captures 0)
+        {
+          (rgnEmitEscape
+            rc
+            (rgnStoreBadMask rc (| u (memGetWord rc 7)) captures)
+            span
+            "the captures of a call the compiler cannot resolve"
+            " - the call may store its arguments or fresh values into a capture"
+            0)
+          (rgnNoteFlow rc (| u (memGetWord rc 7)) captures "<unresolved call>")
+        }
+        0)
       (set i 0)
       (while (< i (vecLen args))
         {
@@ -27504,7 +27549,7 @@
                 (vecGet masks 1)
                 0)
               (if (strEq n "__call_word")
-                (rgnUnknownCall rc args span)
+                (rgnUnknownCall rc args span 0)
                 0)))))
     }))
 
@@ -27781,72 +27826,88 @@
     (params (nodeBVec d))
     (mut i 0)
   )
-    {
-      ; the parameters: origin bit 1+i, region = declared or CUR0
-      (while (< i (vecLen params))
-        {
-          (let ((rn (rgnParamRegion sig i)))
-            (vecPush
-              (rgnParamRids rc)
-              (if (== rn 0)
-                0
+    (if (> (vecLen params) 61)
+      {
+        (if (== report 1)
+          (emitDiag tc (mkDiag
+            SEV_ERROR
+            "AX3060"
+            "region-escape"
+            (nodeSpan d)
+            "region safety cannot be proved: this function has more than 61 parameter origins"
+            0
+            0
+            "split this function into smaller functions so every parameter has a distinct tracked origin"))
+          0)
+        (memSetWord (rgnFacts rc) 5 1)
+        0
+      }
+      {
+        ; the parameters: origin bit 1+i, region = declared or CUR0
+        (while (< i (vecLen params))
+          {
+            (let ((rn (rgnParamRegion sig i)))
+              (vecPush
+                (rgnParamRids rc)
+                (if (== rn 0)
+                  0
+                  (rgnNameRid
+                    rc
+                    (cast String rn)))))
+            (rgnBind rc (vecGetStr params i) (<< 1 (+ i 1)) (vecGet (rgnParamRids rc) i))
+            (set i (+ i 1))
+          })
+        (let (
+          (rr (tyRegion (rgnResultTy sig)))
+          (body (rgnExpr rc (nodeC d)))
+        )
+          (let ((resRid
+            (if (== rr 0)
+              0
+              (if (>=
+                (strVecIdx
+                  (rgnRegionNames rc)
+                  (cast String rr))
+                0)
                 (rgnNameRid
                   rc
-                  (cast String rn)))))
-          (rgnBind rc (vecGetStr params i) (<< 1 (+ i 1)) (vecGet (rgnParamRids rc) i))
-          (set i (+ i 1))
-        })
-      (let (
-        (rr (tyRegion (rgnResultTy sig)))
-        (body (rgnExpr rc (nodeC d)))
-      )
-        (let ((resRid 
-          (if (== rr 0)
-            0
-            (if (>=
-              (strVecIdx
-                (rgnRegionNames rc)
-                (cast String rr))
-              0)
-              (rgnNameRid
-                rc
-                (cast String rr))
-              (- 0 1)))))
-          {
-            (if (== resRid (- 0 1))
-              (if (== report 1)
-                (emitDiag
-                  tc
-                  (mkDiag
-                    SEV_ERROR
-                    "AX3063"
-                    "region-argument"
-                    (nodeSpan d)
-                    (strConcat
+                  (cast String rr))
+                (- 0 1)))))
+            {
+              (if (== resRid (- 0 1))
+                (if (== report 1)
+                  (emitDiag
+                    tc
+                    (mkDiag
+                      SEV_ERROR
+                      "AX3063"
+                      "region-argument"
+                      (nodeSpan d)
                       (strConcat
-                        (strConcat (strConcat "`" (bareOf (nodeAName d))) "` answers a value in region `@")
-                        (cast String rr))
-                      "`, which no parameter supplies")
-                    0
-                    0
-                    "a region parameter is chosen by the CALLER through an argument, as a type variable is; a region named only in the result is one the callee would have to invent. Name it on a parameter, or drop the annotation and answer a value in the caller's current region"))
-                0)
-              {
-                (rgnEmitReturn rc (rgnStoreBad rc body resRid) (nodeSpan d) (nodeC d))
-                0
-              })
-            (rgnFactsOr rc 3 (>> (& body (rgnParamMask rc)) 1))
-            (if (!= (& body (rgnFreshMask rc)) 0)
-              (if (== (memGetWord (rgnFacts rc) 4) 0)
+                        (strConcat
+                          (strConcat (strConcat "`" (bareOf (nodeAName d))) "` answers a value in region `@")
+                          (cast String rr))
+                        "`, which no parameter supplies")
+                      0
+                      0
+                      "a region parameter is chosen by the CALLER through an argument, as a type variable is; a region named only in the result is one the callee would have to invent. Name it on a parameter, or drop the annotation and answer a value in the caller's current region"))
+                  0)
                 {
-                  (memSetWord (rgnFacts rc) 4 1)
-                  (memSetWord rc 14 1)
-                }
+                  (rgnEmitReturn rc (rgnStoreBad rc body resRid) (nodeSpan d) (nodeC d))
+                  0
+                })
+              (rgnFactsOr rc 3 (>> (& body (rgnParamMask rc)) 1))
+              (if (!= (& body (rgnFreshMask rc)) 0)
+                (if (== (memGetWord (rgnFacts rc) 4) 0)
+                  {
+                    (memSetWord (rgnFacts rc) 4 1)
+                    (memSetWord rc 14 1)
+                  }
+                  0)
                 0)
-              0)
-            (memGetWord rc 14)
-          }))
-    }))
+              (memGetWord rc 14)
+            }))
+      })))
 
 (pub :: rgnEmitReturn (-> Int Int Int Int Int))
 ;@axiom:effect(unsafe)
@@ -28015,26 +28076,43 @@
 (pub :: rgnPass (-> Int (Vec Int) Int Int Int))
 ;@axiom:effect(unsafe)
 (pub fn (rgnPass tc decls i report)
-  (if (>= i (vecLen decls))
-    0
-    (let ((d (vecGet decls i)))
-      (if (!= (nodeTag d) TAG_D_FN)
-        (rgnPass tc decls (+ i 1) report)
-        (let (
-          (_m (memSetWord tc 16 (nodeModule d)))
-          (ent (findFnEnt tc (nodeAName d)))
-          (_m0 (memSetWord tc 16 0))
-        )
-          (if (== ent 0)
-            (rgnPass tc decls (+ i 1) report)
-            (let (
-              (_m1 (memSetWord tc 16 (nodeModule d)))
-              (changed (rgnWalkFn tc d ent report))
-              (_m2 (memSetWord tc 16 0))
-            )
-              (if (== (rgnPass tc decls (+ i 1) report) 1)
-                1
-                changed))))))))
+  (if (&& (== i 0) (&& (== report 1) (== (rgnFactsTruncated tc) 1)))
+    {
+      (emitDiag
+        tc
+        (mkDiag
+          SEV_ERROR
+          "AX3060"
+          "region-escape"
+          (if (== (vecLen decls) 0)
+            0
+            (nodeSpan (vecGet decls 0)))
+          "region safety cannot be proved: lifetime analysis did not converge"
+          0
+          0
+          "simplify the lifetime dependencies or split the call graph into smaller functions"))
+      0
+    }
+    (if (>= i (vecLen decls))
+      0
+      (let ((d (vecGet decls i)))
+        (if (!= (nodeTag d) TAG_D_FN)
+          (rgnPass tc decls (+ i 1) report)
+          (let (
+            (_m (memSetWord tc 16 (nodeModule d)))
+            (ent (findFnEnt tc (nodeAName d)))
+            (_m0 (memSetWord tc 16 0))
+          )
+            (if (== ent 0)
+              (rgnPass tc decls (+ i 1) report)
+              (let (
+                (_m1 (memSetWord tc 16 (nodeModule d)))
+                (changed (rgnWalkFn tc d ent report))
+                (_m2 (memSetWord tc 16 0))
+              )
+                (if (== (rgnPass tc decls (+ i 1) report) 1)
+                  1
+                  changed)))))))))
 
 ; ---- `restrict(no-escape)` ----
 ; The claim: this declaration stores nothing it allocates into any of

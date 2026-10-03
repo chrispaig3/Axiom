@@ -1,0 +1,21 @@
+; A recursive permutation needs more rounds than the fact cap.
+; An unfinished proof must not permit a checked region to emit.
+(:: rotate (-> String String String String String String String String Int String))
+(fn (rotate s0 s1 s2 s3 s4 s5 s6 s7 n)
+  (if (== n 0)
+    s0
+    (rotate
+      s1
+      s2
+      s3
+      s4
+      s5
+      s6
+      s7
+      s0
+      (- n 1))))
+
+(:: main Int)
+(fn (main)
+  (region r
+    0))

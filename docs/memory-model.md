@@ -2235,37 +2235,32 @@ instead of promoting an arena.
 <a id="35-cast-degrades-the-evidence-word--measured"></a>
 ### 3.5 `cast` degrades the evidence word
 
-**MM-VAL-22 (H, renumbered from a second `MM-LIFE-2e`). `cast` is not
-a type-level no-op. It also tells the reference model "do not trust
-this word".** `evStampFill` (`self_host/typecheck.ax`) classifies an
-argument whose root is a `cast` as evidence **0** outright, because "the
-cast launders a word past the checker, and evidence must not trust it".
+**MM-VAL-22 (H, renumbered from a second `MM-LIFE-2e`). A
+type-preserving cast preserves ownership and evidence.** When checking
+proves that a cast's operand and target have the same type, the result
+keeps the operand's ownership. An owned temporary moves through the
+cast; a borrowed reference remains borrowed. Calls, bindings and
+discarded expressions use the same cleanup decision as the operand.
+Scalar casts take no reference share.
 
-The effect isn't confined to arguments in type-variable positions, and
-no warning reports it. The emitted LLVM for the same program, either
-way:
+`checkCastForm` records this proof as `nodeResWord` 3. It is distinct
+from word-result evidence and region freshness. `evStampFill`,
+`valueOwnedRef` and `escapes` spend the proof without treating an
+unproved reinterpretation as an owned reference.
 
-| the call | evidence word | `axiom_release` |
-|---|---|---|
-| `(memSetWord p 0 "hi")` | `1` | emitted |
-| `(memSetWord p 0 (cast String "hi"))` | **`0`** | **gone** |
-| `(strEq (mk 1) "ab")` — concrete parameter | — | 4 releases |
-| `(strEq (cast String (mk 1)) "ab")` | — | **3 releases** |
+A cast that changes the type still receives evidence 0 at an argument
+root. Erasing a reference to a word makes its lifetime the programmer's
+obligation. Forging a reference requires `effect(unsafe)` and a valid
+representation (`MM-EXEC-9d`).
 
-So a `cast` at an argument root suppresses a retain where the parameter
-is a type variable, and suppresses a release where it is concrete. The
-first risks a **premature free**. The second **leaks**.
-
-This matters because `cast` is the language's only reinterpretation
-operator. That makes it the obvious tool for repairing the
-type-soundness hole `AX3040` reports: a signature returning a variable
-that no parameter mentions. Making all fourteen of those signatures
-concrete produced **1,223 type errors**, and the obvious repair is a
-`cast` at each site. That repair would silently trade a type-system
-unsoundness for a memory-model regression at 1,223 places.
+Evidence: [check-cast-arg-root.sh](../scripts/check-cast-arg-root.sh)
+compares releases with the uncast spelling and a scalar control.
+[701-cast-ownership.ax](../tests/stdlib/701-cast-ownership.ax) checks
+exactly one destructor call through temporary, binding, discard,
+polymorphic, borrowed-alias and nested-cast paths.
 
 **MM-VAL-23 (H, renumbered from a second `MM-LIFE-2f`). The safe
-vehicle is a typed accessor, not a call-site cast.** Put the cast at a
+vehicle for a reinterpreted word is a typed accessor.** Put the cast at a
 *return*, inside a function whose declared type states the truth.
 Callers then see that declared type, and the evidence word is computed
 from it:
@@ -2284,19 +2279,9 @@ The cast still forges a reference out of a word, so the accessor says
 `effect(unsafe)`, and the word it trusts is its caller's to vouch for
 (`MM-EXEC-9d`).
 
-That is the migration recipe for the `#raw` layer. The accessor's
-declared type must also match what the word holds. A cast inside a
-polymorphic `mapGet` got this wrong: its `dflt` parameter witnesses
-what the caller wants when the key is *absent*, but the cast sat on the
-found path, reading a table with no element type. So
-`(mapInsert m 1 100000000)` followed by
-`(strLen (mapGet m 1 "absent"))` checked `OK` and exited **139**.
-
-`mapGet` now answers `Int`, which is the truth about a machine word, and
-`mapGetStr` is the typed reader beside it, matching the
-`vecGet`/`vecGetStr` and `memGetWord`/`memGetWordStr` pairs. The cast
-still sits at a return, inside the reader whose declared type matches
-what it returns.
+The accessor's declared type must match what the word holds. A default
+value cannot establish the type of a stored word. Use a typed container
+or a reader whose precondition identifies the stored representation.
 
 ### 3.6 Checked lexical regions
 
@@ -2396,8 +2381,15 @@ bodies when the program contains a region form or a region-annotated
 signature.
 
 Facts propagate through resolved calls to a fixpoint. An unresolved
-call is assumed, conservatively, to store every argument into every
-argument, so it can cause a false refusal.
+call may store arguments and fresh values into any argument or capture.
+Its result depends on those captures too. This conservative rule can
+refuse a call whose body would be safe.
+
+The checker refuses unrepresentable origins and unconverged facts as
+`AX3060`. Each function can track 61 parameter and lexical-extent
+origins together. An annotation alone adds no extent origin. Split a
+function that exceeds the capacity instead of relying on an incomplete
+lifetime proof.
 
 This is not a proof about arbitrary words. Erased addresses, hand-built
 layouts and raw mark and reset calls keep the obligations of
@@ -2412,6 +2404,9 @@ refusal, and ablates the rule to expose the read of reclaimed memory.
 [653-region-escape-callee.ax](../tests/diagnostics/653-region-escape-callee.ax)
 pins the store made by an unannotated callee, beside the accepted cases
 in [479-region-reclaim.ax](../tests/stdlib/479-region-reclaim.ax).
+The same gate covers callback captures and origin capacity, with
+[escape-closure-call.ax](../tests/region/escape-closure-call.ax) beside
+the accepted [closure-local.ax](../tests/region/closure-local.ax).
 
 **MM-RGN-4 (H, amended from the design default). Origins are
 inferred, not invariant.** A function without region

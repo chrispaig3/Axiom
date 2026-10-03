@@ -3604,73 +3604,79 @@
 (pub fn (valueOwnedRef cg e)
   (if (== e 0)
     0
-    (let ((tg (nodeTag e)))
-      (if (== (argIsDirectCon cg e) 1)
-        1
-        (if (== tg TAG_E_STR)
-          ; a static: immortal, and releasing it is a no-op, so a
-          ; branch answering one does not stop the join being owned
+    (if (== (nodeResWord e) 3)
+      (valueOwnedRef cg (nodeB e))
+      (let ((tg (nodeTag e)))
+        (if (== (argIsDirectCon cg e) 1)
           1
-          (if (== tg TAG_E_VAR)
-            ; a nullary constructor - `None`, `Nil` - is an immediate,
-            ; a no-op to release, so `(if c (Some x) None)` is owned
-            ; and the `Some` it builds is given back
-            (if (!= (lookupType (memGetWordVec cg 3) (nodeAName e)) 0)
-              (if (isLocalValue cg (nodeAName e))
-                0
-                1)
-              ; a bare reference to a nullary function is a CALL, not a
-              ; use: `parseArgs` answers the head unchanged when no
-              ; argument follows, and `emitVar` emits `call i64 @...()`
-              ; for it. It is owned exactly when the same call spelled
-              ; with arguments is - a signed global whose declared
-              ; result is a reference - with the arity half answered by
-              ; `isNullaryFnCg` itself, the predicate emission asks
-              ; before emitting the call, so the two cannot disagree
-              ; about which spellings call. A bare reference to a
-              ; multi-parameter function answers its closure record
-              ; instead, and keeps the 0 it always got (issue #35).
-              (let ((n (nodeAName e)))
-                (if (|| (isCastName n) (|| (isPrimName n) (isLocalValue cg n)))
+          (if (== tg TAG_E_STR)
+            ; a static: immortal, and releasing it is a no-op, so a
+            ; branch answering one does not stop the join being owned
+            1
+            (if (== tg TAG_E_VAR)
+              ; a nullary constructor - `None`, `Nil` - is an immediate,
+              ; a no-op to release, so `(if c (Some x) None)` is owned
+              ; and the `Some` it builds is given back
+              (if (!= (lookupType (memGetWordVec cg 3) (nodeAName e)) 0)
+                (if (isLocalValue cg (nodeAName e))
                   0
-                  (if (&& (== (fnResultClass cg n) 2) (isNullaryFnCg cg (mangledForCg cg n)))
-                    1
-                    0))))
-            (if (== tg TAG_E_APP)
-              (let ((hd (spineHead e)))
-                (if (!= (nodeTag hd) TAG_E_VAR)
-                  (if (== (fldClass cg (checkedValueTy e)) 2) 1 0)
-                  ; the indexed questions first - most arguments are
-                  ; not calls to reference-returning globals, and the
-                  ; constructor-table scan is the expensive one
-                  (let ((n (nodeAName hd)))
-                    (if (isLocalValue cg n)
-                      (if (== (fldClass cg (checkedValueTy e)) 2) 1 0)
-                    (if (!= (fnResultClass cg n) 2)
-                      0
-                      (if (|| (isCastName n) (|| (isPrimName n) (isLocalValue cg n)))
-                        0
-                        (if (!= (lookupType (memGetWordVec cg 3) n) 0)
+                  1)
+                ; a bare reference to a nullary function is a CALL, not a
+                ; use: `parseArgs` answers the head unchanged when no
+                ; argument follows, and `emitVar` emits `call i64 @...()`
+                ; for it. It is owned exactly when the same call spelled
+                ; with arguments is - a signed global whose declared
+                ; result is a reference - with the arity half answered by
+                ; `isNullaryFnCg` itself, the predicate emission asks
+                ; before emitting the call, so the two cannot disagree
+                ; about which spellings call. A bare reference to a
+                ; multi-parameter function answers its closure record
+                ; instead, and keeps the 0 it always got (issue #35).
+                (let ((n (nodeAName e)))
+                  (if (|| (isCastName n) (|| (isPrimName n) (isLocalValue cg n)))
+                    0
+                    (if (&& (== (fnResultClass cg n) 2) (isNullaryFnCg cg (mangledForCg cg n)))
+                      1
+                      0))))
+              (if (== tg TAG_E_APP)
+                (let ((hd (spineHead e)))
+                  (if (!= (nodeTag hd) TAG_E_VAR)
+                    (if (== (fldClass cg (checkedValueTy e)) 2)
+                      1
+                      0)
+                    ; the indexed questions first - most arguments are
+                    ; not calls to reference-returning globals, and the
+                    ; constructor-table scan is the expensive one
+                    (let ((n (nodeAName hd)))
+                      (if (isLocalValue cg n)
+                        (if (== (fldClass cg (checkedValueTy e)) 2)
+                          1
+                          0)
+                        (if (!= (fnResultClass cg n) 2)
                           0
-                          (if (== (spineArity e) (fnArityCg cg n))
-                            1
-                            0))))))))
-              (if (== tg TAG_E_IF)
-                (if (== (valueOwnedRef cg (nodeB e)) 1)
-                  (valueOwnedRef cg (nodeC e))
-                  0)
-                ; `cond` is AX2004: the parser builds none, so no
-                ; arm asks after one's value. A variadic `if`
-                ; arrives as nested `if`s.
-                (if (== tg TAG_E_MATCH)
-                  (valueOwnedRefArms cg (nodeBVec e) 0)
-                  (if (== tg TAG_E_LET)
+                          (if (|| (isCastName n) (|| (isPrimName n) (isLocalValue cg n)))
+                            0
+                            (if (!= (lookupType (memGetWordVec cg 3) n) 0)
+                              0
+                              (if (== (spineArity e) (fnArityCg cg n))
+                                1
+                                0))))))))
+                (if (== tg TAG_E_IF)
+                  (if (== (valueOwnedRef cg (nodeB e)) 1)
                     (valueOwnedRef cg (nodeC e))
-                    (if (== tg TAG_E_BEGIN)
-                      (if (== (vecLen (nodeAVec e)) 0)
-                        0
-                        (valueOwnedRef cg (vecGet (nodeAVec e) (- (vecLen (nodeAVec e)) 1))))
-                      0)))))))))))
+                    0)
+                  ; `cond` is AX2004: the parser builds none, so no
+                  ; arm asks after one's value. A variadic `if`
+                  ; arrives as nested `if`s.
+                  (if (== tg TAG_E_MATCH)
+                    (valueOwnedRefArms cg (nodeBVec e) 0)
+                    (if (== tg TAG_E_LET)
+                      (valueOwnedRef cg (nodeC e))
+                      (if (== tg TAG_E_BEGIN)
+                        (if (== (vecLen (nodeAVec e)) 0)
+                          0
+                          (valueOwnedRef cg (vecGet (nodeAVec e) (- (vecLen (nodeAVec e)) 1))))
+                        0))))))))))))
 
 (pub :: valueOwnedRefArms (-> Int (Vec Int) Int Int))
 (pub fn (valueOwnedRefArms cg arms i)
@@ -7996,7 +8002,6 @@
 
 (pub :: dieImportDiag (-> String Int String Int Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (dieImportDiag name tcode entryDir parent span)
   (let (
     (d (mkDiag
@@ -24174,91 +24179,31 @@
 (pub fn (escapes cg name e vp bound)
   (if (== e 0)
     0
-    (let ((tg (nodeTag e)))
-      (if (|| (== tg TAG_E_INT) (|| (== tg TAG_E_FLT) (|| (== tg TAG_E_STR) (== tg TAG_E_CHAR))))
-        0
-        (if (== tg TAG_E_LAM)
-          (if (== (lookupSymKind cg name) 3) 0 (mentions name e))
-        (if (== tg TAG_E_VAR)
-          (if (strEq (nodeAName e) name)
-            vp
-            0)
-          (if (== tg TAG_E_FIELD)
-            ; a field READ answers the field - which the block owns, so
-            ; in VALUE position reading a REFERENCE field of the
-            ; binding is the binding escaping (see `letReleasable`); a
-            ; machine-scalar field cannot alias the block and its read
-            ; still releases; in argument position the callee borrows
-            ; the field as it would the block
-            (if (== (escapes
-              cg
-              name
-              (nodeA e)
+    (if (== (nodeResWord e) 3)
+      (escapes
+        cg
+        name
+        (nodeB e)
+        vp
+        bound)
+      (let ((tg (nodeTag e)))
+        (if (|| (== tg TAG_E_INT) (|| (== tg TAG_E_FLT) (|| (== tg TAG_E_STR) (== tg TAG_E_CHAR))))
+          0
+          (if (== tg TAG_E_LAM)
+            (if (== (lookupSymKind cg name) 3)
               0
-              bound) 1)
-              1
-              (if (&& (== vp 1) (== (mentions name (nodeA e)) 1))
-                (if (== (fieldReadIsScalar cg e) 1)
-                  0
-                  1)
-                0))
-            (if (== tg TAG_E_APP)
-              (if (== (wordTakingHead (spineHead e)) 1)
-                ; `cast`/`__addr`/`strData` of the binding hands out a
-                ; word, and a word takes no share: in VALUE position
-                ; the word is the let's value and the binding escapes;
-                ; in argument position its consumer decides - a call
-                ; by its masks in the word's form, a raw store, a
-                ; constructor's word field, a `set` - and the operands
-                ; are walked for what they contain
-                (if (== vp 1)
-                  (mentions name e)
-                  (if (== (escapes
-                    cg
-                    name
-                    (nodeA e)
-                    0
-                    bound) 1)
-                    1
-                    (escapes
-                      cg
-                      name
-                      (nodeB e)
-                      0
-                      bound)))
-                ; a CALL keeps or answers an argument only as its
-                ; flow masks say (`callEscapesArg`); otherwise a
-                ; callee borrows, and the arguments are walked in
-                ; argument position
-                (if (== (callEscapesArg
-                  cg
-                  e
-                  name
-                  vp
-                  bound) 1)
-                  1
-                  ; arithmetic and `&&`/`||` answer an operand's
-                  ; word: `(+ (asWord s) 0)` in value position is
-                  ; `(asWord s)` in value position
-                  (let ((vp2 
-                    (if (== (passesValueHead (spineHead e)) 1)
-                      vp
-                      0)))
-                    (if (== (escapes
-                      cg
-                      name
-                      (spineHead e)
-                      vp2
-                      bound) 1)
-                      1
-                      (escapesSeq
-                        cg
-                        name
-                        (callFlowArgs e)
-                        vp2
-                        0
-                        bound)))))
-              (if (== tg TAG_E_IF)
+              (mentions name e))
+            (if (== tg TAG_E_VAR)
+              (if (strEq (nodeAName e) name)
+                vp
+                0)
+              (if (== tg TAG_E_FIELD)
+                ; a field READ answers the field - which the block owns, so
+                ; in VALUE position reading a REFERENCE field of the
+                ; binding is the binding escaping (see `letReleasable`); a
+                ; machine-scalar field cannot alias the block and its read
+                ; still releases; in argument position the callee borrows
+                ; the field as it would the block
                 (if (== (escapes
                   cg
                   name
@@ -24266,32 +24211,68 @@
                   0
                   bound) 1)
                   1
-                  (if (== (escapes
-                    cg
-                    name
-                    (nodeB e)
-                    vp
-                    bound) 1)
-                    1
-                    (escapes
+                  (if (&& (== vp 1) (== (mentions name (nodeA e)) 1))
+                    (if (== (fieldReadIsScalar cg e) 1)
+                      0
+                      1)
+                    0))
+                (if (== tg TAG_E_APP)
+                  (if (== (wordTakingHead (spineHead e)) 1)
+                    ; `cast`/`__addr`/`strData` of the binding hands out a
+                    ; word, and a word takes no share: in VALUE position
+                    ; the word is the let's value and the binding escapes;
+                    ; in argument position its consumer decides - a call
+                    ; by its masks in the word's form, a raw store, a
+                    ; constructor's word field, a `set` - and the operands
+                    ; are walked for what they contain
+                    (if (== vp 1)
+                      (mentions name e)
+                      (if (== (escapes
+                        cg
+                        name
+                        (nodeA e)
+                        0
+                        bound) 1)
+                        1
+                        (escapes
+                          cg
+                          name
+                          (nodeB e)
+                          0
+                          bound)))
+                    ; a CALL keeps or answers an argument only as its
+                    ; flow masks say (`callEscapesArg`); otherwise a
+                    ; callee borrows, and the arguments are walked in
+                    ; argument position
+                    (if (== (callEscapesArg
                       cg
+                      e
                       name
-                      (nodeC e)
                       vp
-                      bound)))
-                (if (== tg TAG_E_BEGIN)
-                  (escapesSeq
-                    cg
-                    name
-                    (nodeAVec e)
-                    vp
-                    0
-                    bound)
-                  (if (== tg TAG_E_MATCH)
-                    ; the arms' binders are the scrutinee's fields, owned by
-                    ; the block exactly as a field read's answer is: when the
-                    ; scrutinee mentions the binding, a binder reaching the
-                    ; match's value is the binding reaching it
+                      bound) 1)
+                      1
+                      ; arithmetic and `&&`/`||` answer an operand's
+                      ; word: `(+ (asWord s) 0)` in value position is
+                      ; `(asWord s)` in value position
+                      (let ((vp2
+                        (if (== (passesValueHead (spineHead e)) 1)
+                          vp
+                          0)))
+                        (if (== (escapes
+                          cg
+                          name
+                          (spineHead e)
+                          vp2
+                          bound) 1)
+                          1
+                          (escapesSeq
+                            cg
+                            name
+                            (callFlowArgs e)
+                            vp2
+                            0
+                            bound)))))
+                  (if (== tg TAG_E_IF)
                     (if (== (escapes
                       cg
                       name
@@ -24299,120 +24280,153 @@
                       0
                       bound) 1)
                       1
-                      (if (== (escapesArms
-                        cg
-                        name
-                        (nodeBVec e)
-                        vp
-                        0
-                        bound) 1)
-                        1
-                        (if (== (mayAlias cg name (nodeA e) bound) 1)
-                          (escapesViaBinders
-                            cg
-                            (nodeBVec e)
-                            vp
-                            0
-                            bound)
-                          0)))
-                    ; `cond` is AX2004: the parser builds none, so no
-                    ; arm asks after one's escapes. A variadic `if`
-                    ; arrives as nested `if`s.
-                    (if (|| (== tg TAG_E_LET) (== tg TAG_E_LETM))
-                      ; the initialiser inherits the position: `(let ((t s)) t)`
-                      ; makes the binding the let's value through an alias - and
-                      ; an alias that may hold (part of) the block is then asked
-                      ; the same question under its own name, in the same
-                      ; position, so `(let ((t s)) (set r t))` in a statement is
-                      ; seen for the stash it is. An initialiser that can only
-                      ; be a machine word - an operator's answer, a scalar
-                      ; field - aliases nothing and is exempt.
-                      ; The initialiser is walked in ARGUMENT position: it is
-                      ; not the let's value, its binder is, and the alias step
-                      ; below carries whatever reaches the binder on to the
-                      ; body - `(let ((t b.f)) t)` escapes through `t`, while
-                      ; `(let ((t b.f)) (strLen t))` no longer does.
                       (if (== (escapes
                         cg
                         name
                         (nodeB e)
-                        0
+                        vp
                         bound) 1)
                         1
-                        (if (== (escapes
+                        (escapes
                           cg
                           name
                           (nodeC e)
                           vp
+                          bound)))
+                    (if (== tg TAG_E_BEGIN)
+                      (escapesSeq
+                        cg
+                        name
+                        (nodeAVec e)
+                        vp
+                        0
+                        bound)
+                      (if (== tg TAG_E_MATCH)
+                        ; the arms' binders are the scrutinee's fields, owned by
+                        ; the block exactly as a field read's answer is: when the
+                        ; scrutinee mentions the binding, a binder reaching the
+                        ; match's value is the binding reaching it
+                        (if (== (escapes
+                          cg
+                          name
+                          (nodeA e)
+                          0
                           bound) 1)
                           1
-                          (if (== (mayAlias cg name (nodeB e) bound) 1)
-                            (escapes
-                              cg
-                              (nodeAName e)
-                              (nodeC e)
-                              vp
-                              bound)
-                            0)))
-                      (if (|| (== tg TAG_E_WHILE) (== tg TAG_E_REGION))
-                        (if (== tg TAG_E_REGION)
-                          (escapes
+                          (if (== (escapesArms
                             cg
                             name
-                            (nodeB e)
+                            (nodeBVec e)
                             vp
-                            bound)
-                          (if (== (escapes
-                            cg
-                            name
-                            (nodeA e)
                             0
                             bound) 1)
                             1
-                            (escapesSeq
-                              cg
-                              name
-                              (nodeBVec e)
-                              0
-                              0
-                              bound)))
-                        (if (== tg TAG_E_SET)
-                          ; a slot store takes no share - of what REACHES the slot:
-                          ; the binding itself, a word of it, not a length or a sum
-                          ; computed from it (`(set k (strLen s))` beside a self
-                          ; tail call kept every iteration's string). And the value
-                          ; is walked in argument position for what it PARKS on the
-                          ; way: a lambda capturing the binding, a constructor's
-                          ; word field, a callee that stashes it
-                          (if (!= (bindingFlow cg name (nodeB e)) 0)
+                            (if (== (mayAlias cg name (nodeA e) bound) 1)
+                              (escapesViaBinders
+                                cg
+                                (nodeBVec e)
+                                vp
+                                0
+                                bound)
+                              0)))
+                        ; `cond` is AX2004: the parser builds none, so no
+                        ; arm asks after one's escapes. A variadic `if`
+                        ; arrives as nested `if`s.
+                        (if (|| (== tg TAG_E_LET) (== tg TAG_E_LETM))
+                          ; the initialiser inherits the position: `(let ((t s)) t)`
+                          ; makes the binding the let's value through an alias - and
+                          ; an alias that may hold (part of) the block is then asked
+                          ; the same question under its own name, in the same
+                          ; position, so `(let ((t s)) (set r t))` in a statement is
+                          ; seen for the stash it is. An initialiser that can only
+                          ; be a machine word - an operator's answer, a scalar
+                          ; field - aliases nothing and is exempt.
+                          ; The initialiser is walked in ARGUMENT position: it is
+                          ; not the let's value, its binder is, and the alias step
+                          ; below carries whatever reaches the binder on to the
+                          ; body - `(let ((t b.f)) t)` escapes through `t`, while
+                          ; `(let ((t b.f)) (strLen t))` no longer does.
+                          (if (== (escapes
+                            cg
+                            name
+                            (nodeB e)
+                            0
+                            bound) 1)
                             1
-                            (escapes
-                              cg
-                              name
-                              (nodeB e)
-                              0
-                              bound))
-                          (if (== tg TAG_E_SETF)
-                            ; `(set b.f v)` retains v into a REFERENCE field (event 5),
-                            ; so the base is a borrow and the value walks in argument
-                            ; position; a WORD field takes a `cast`, which parks the
-                            ; value uncounted - that mention escapes
                             (if (== (escapes
                               cg
                               name
-                              (nodeA e)
-                              0
+                              (nodeC e)
+                              vp
                               bound) 1)
                               1
-                              (if (== (fieldReadIsScalar cg e) 1)
-                                (mentions name (nodeC e))
+                              (if (== (mayAlias cg name (nodeB e) bound) 1)
+                                (escapes
+                                  cg
+                                  (nodeAName e)
+                                  (nodeC e)
+                                  vp
+                                  bound)
+                                0)))
+                          (if (|| (== tg TAG_E_WHILE) (== tg TAG_E_REGION))
+                            (if (== tg TAG_E_REGION)
+                              (escapes
+                                cg
+                                name
+                                (nodeB e)
+                                vp
+                                bound)
+                              (if (== (escapes
+                                cg
+                                name
+                                (nodeA e)
+                                0
+                                bound) 1)
+                                1
+                                (escapesSeq
+                                  cg
+                                  name
+                                  (nodeBVec e)
+                                  0
+                                  0
+                                  bound)))
+                            (if (== tg TAG_E_SET)
+                              ; a slot store takes no share - of what REACHES the slot:
+                              ; the binding itself, a word of it, not a length or a sum
+                              ; computed from it (`(set k (strLen s))` beside a self
+                              ; tail call kept every iteration's string). And the value
+                              ; is walked in argument position for what it PARKS on the
+                              ; way: a lambda capturing the binding, a constructor's
+                              ; word field, a callee that stashes it
+                              (if (!= (bindingFlow cg name (nodeB e)) 0)
+                                1
                                 (escapes
                                   cg
                                   name
-                                  (nodeC e)
+                                  (nodeB e)
                                   0
-                                  bound)))
-                            (mentions name e))))))))))))))))
+                                  bound))
+                              (if (== tg TAG_E_SETF)
+                                ; `(set b.f v)` retains v into a REFERENCE field (event 5),
+                                ; so the base is a borrow and the value walks in argument
+                                ; position; a WORD field takes a `cast`, which parks the
+                                ; value uncounted - that mention escapes
+                                (if (== (escapes
+                                  cg
+                                  name
+                                  (nodeA e)
+                                  0
+                                  bound) 1)
+                                  1
+                                  (if (== (fieldReadIsScalar cg e) 1)
+                                    (mentions name (nodeC e))
+                                    (escapes
+                                      cg
+                                      name
+                                      (nodeC e)
+                                      0
+                                      bound)))
+                                (mentions name e)))))))))))))))))
 
 (pub :: escapesSeq (-> Int String (Vec Int) Int Int Int Int))
 (pub fn (escapesSeq cg name v vp i bound)

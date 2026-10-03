@@ -1155,14 +1155,10 @@ jobs:
       - name: A closure chain's intermediate record is reclaimed, and one word in each walker is what does it
         run: ./scripts/check-closure-reclaim.sh
 
-      # A `cast` at an argument root launders a word past the evidence
-      # walk, so codegen emits no retain/release for it - the leak
-      # direction, never an early free. The fix is a migration to
-      # return-position casts (MM-VAL-23), so this gate ratchets what
-      # can be ratcheted meanwhile: the user-level `(cast` census and
-      # the release-count probe that pins the direction, plus the
-      # AX3040 rule the migration is measured in.
-      - name: Casts at argument roots are counted and still leak, never free early
+      # Proven type-preserving casts keep the operand's ownership and
+      # evidence. Compare release counts with the uncast spelling and
+      # a scalar control, beside the census of reinterpretations.
+      - name: Type-preserving casts keep ownership and scalar casts take no share
         run: ./scripts/check-cast-arg-root.sh
 
       # What an `Option` costs, counted rather than timed.
@@ -1972,4 +1968,3 @@ jobs:
           echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
       - name: Build the compiler from the committed seed
         run: ./scripts/bootstrap-from-seed.sh
-

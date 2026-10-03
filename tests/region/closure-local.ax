@@ -1,0 +1,32 @@
+; Captures and callback arguments confined to one region are valid.
+(import Str)
+
+(struct Cell
+  (mut s : String))
+
+(struct Hook
+  (f : (-> String Int)))
+
+(:: dispatch (-> (-> String Int) String Int))
+(fn (dispatch hook s)
+  (hook s))
+
+(:: main Int)
+(fn (main)
+  (region local
+    (let (
+      (c (Cell "outer"))
+      (hook (lambda (s)
+        {
+          (set c.s s)
+          0
+        }
+      ))
+      (holder (Hook hook))
+    )
+      {
+        (hook (strDup "direct"))
+        (dispatch hook (strDup "indirect"))
+        (holder.f (strDup "field"))
+        (strLen c.s)
+      })))

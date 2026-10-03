@@ -1429,16 +1429,24 @@
     }))
 
 (pub :: jsonFixField (-> Int String Int String String))
-;@axiom:effect(unsafe)
 (pub fn (jsonFixField d src ix file)
-  (let ((parts vecNew) (mut i 0) (mut count 0))
+  (let (
+    (parts vecNew)
+    (mut i 0)
+    (mut count 0)
+  )
     {
       (while (< i (diagHelpCount d))
         {
           (let ((span (diagHelpFixSpan d i)))
-            (when (!= span 0)
+            (if (!= span 0)
               {
-                (when (> count 0) (vecPush parts ","))
+                (if (> count 0)
+                  {
+                    (vecPush parts ",")
+                    0
+                  }
+                  0)
                 (vecPush parts "{\"file\":\"")
                 (vecPush parts (jsonEsc file))
                 (vecPush parts "\",\"span\":")
@@ -1447,7 +1455,8 @@
                 (vecPush parts (jsonEsc (diagHelpFixText d i)))
                 (vecPush parts "\"}")
                 (set count (+ count 1))
-              }))
+              }
+              0))
           (set i (+ i 1))
         })
       (if (== count 0)
