@@ -33,7 +33,7 @@
 ; An error as `CODE: message`.
 (pub :: kitErrText (-> Error String))
 (pub fn (kitErrText e)
-  (strConcat (strConcat (axqlCodeName (errCode e)) ": ") (errorText e)))
+  (concat (concat (axqlCodeName (errCode e)) ": ") (errorText e)))
 
 ; Print how a step that answers an Int went.
 (pub :: kitRun (-> String (Result Int Error) Int))
@@ -93,7 +93,7 @@
       (for (n i) in names
         (set out (if (== i 0)
           n
-          (strConcat out (strConcat "," n)))))
+          (concat out (concat "," n)))))
       out
     }))
 

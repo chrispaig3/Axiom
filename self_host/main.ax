@@ -47,7 +47,7 @@
         (if (>= c 0)
           c
           {
-            (writeStderrStr (strConcat "warning: unknown --diagnostic-format '" (strConcat v "', falling back to 'human' (valid: human, ai, json)\n")))
+            (writeStderrStr (concat "warning: unknown --diagnostic-format '" (concat v "', falling back to 'human' (valid: human, ai, json)\n")))
             FMT_HUMAN
           })))))
 
@@ -162,7 +162,7 @@
       (out (axirReemit src msg))
     )
       (if (> (vecLen msg) 0)
-        (die (strConcat "error: " (strConcat (vecGetStr msg 0) "\n")) 1)
+        (die (concat "error: " (concat (vecGetStr msg 0) "\n")) 1)
         {
           (replOut out)
           (sysExitWith 0)
@@ -179,7 +179,7 @@
     (if (|| (== (strLen v) 0) (|| (strEq v "ai") (|| (strEq v "agent") (|| (strEq v "compact") (|| (strEq v "human") (|| (strEq v "pretty") (strEq v "rustc")))))))
       0
       {
-        (writeStderrStr (strConcat "note: `symbols` emits AXSYM; --diagnostic-format='" (strConcat v "' applies to diagnostics only\n")))
+        (writeStderrStr (concat "note: `symbols` emits AXSYM; --diagnostic-format='" (concat v "' applies to diagnostics only\n")))
         0
       })))
 
@@ -224,7 +224,7 @@
       "Permission denied"
       (if (== e 21)
         "Is a directory"
-        (strConcat "errno " (fmtInt e))))))
+        (concat "errno " (fmtInt e))))))
 
 ; 0 when `fileName` can be read, otherwise the errno explaining why not.
 ;
@@ -283,7 +283,7 @@
 ; unreadable, or a directory.
 (pub :: readFailMsg (-> String Int String))
 (pub fn (readFailMsg fileName e)
-  (strConcat (strConcat "error: could not read file '" (strConcat fileName "': ")) (strConcat (errnoReason e) "\n")))
+  (concat (concat "error: could not read file '" (concat fileName "': ")) (concat (errnoReason e) "\n")))
 
 ; A parse failure is a DIAGNOSTIC, through the same renderer and the
 ; same exit status as every other one - the shape `compileFile` uses
@@ -731,12 +731,12 @@
                                                 "AX4006"
                                                 "threads-unsupported"
                                                 0
-                                                (strConcat
+                                                (concat
                                                   (if (== (declsNamePrim allDecls "__thread_spawn" 0) 1)
                                                     "`__thread_spawn` is named"
                                                     "`--threads` asks for the thread lowering")
-                                                  (strConcat ", and "
-                                                  (strConcat (targetSpelling tcode) " has no thread runtime")))
+                                                  (concat ", and "
+                                                  (concat (targetSpelling tcode) " has no thread runtime")))
                                                 0
                                                 0
                                                 "threads exist on darwin and linux, where a thread is the platform's `pthread_create` and the runtime's globals go thread-local; freebsd links no `libthr` here and windows has no `fork` either. Drop `--threads` to lower `parallel` to processes - which freebsd runs and CI executes there - or build for a target that has threads"))
@@ -774,7 +774,7 @@
                                                       "AX4007"
                                                       "parallel-unsupported"
                                                       0
-                                                      (strConcat (targetSpelling tcode) " has neither `parallel` lowering: no `fork` and no pthread")
+                                                      (concat (targetSpelling tcode) " has neither `parallel` lowering: no `fork` and no pthread")
                                                       0
                                                       0
                                                       "the program still builds, with every spawn and join lowered to a trap that prints `axiom: parallel is not available on this target` and exits 79 - so this matters only if the program actually reaches one. Build for a target that can spawn, or keep the `parallel` off the path this target takes"))
@@ -788,7 +788,7 @@
                                           (if (&& (== needMain 0) (> (strLen (flagValue "--emit-rust-binding" 1)) 0))
                                             (let ((bp (flagValue "--emit-rust-binding" 1)))
                                               (if (isErr (writeFile bp (rustBindingOf decls pubFns fileName)))
-                                                (die (strConcat "error: could not write " (strConcat bp "\n")) 1)
+                                                (die (concat "error: could not write " (concat bp "\n")) 1)
                                                 ; laid out by `rustfmt` when one is on
                                                 ; PATH, so a checked-in copy is the
                                                 ; formatted one; without it the file is
@@ -812,7 +812,7 @@
                                                           (cast Int bp))
                                                         v
                                                       }))
-                                                  (replOut (strConcat "Rust binding written to " (strConcat bp "\n")))
+                                                  (replOut (concat "Rust binding written to " (concat bp "\n")))
                                                 }))
                                             0)
                                           (if (== needMain 1)
@@ -1089,7 +1089,7 @@
           {
             (if (&& (== (nodeTag d) TAG_D_FN) (strStartsWith (nodeAName d) "test"))
               (if (> (testArity d) 0)
-                (die (strConcat (strConcat "error: " (strConcat file " declares `")) (strConcat (nodeAName d) (strConcat (strConcat "`, which begins with `test` and takes " (strConcat (fmtInt (testArity d)) " parameter(s).\n")) "       A test takes none, so this one would never be run. Rename it,\n       or give it no parameters.\n"))) 1)
+                (die (concat (concat "error: " (concat file " declares `")) (concat (nodeAName d) (concat (concat "`, which begins with `test` and takes " (concat (fmtInt (testArity d)) " parameter(s).\n")) "       A test takes none, so this one would never be run. Rename it,\n       or give it no parameters.\n"))) 1)
                 (if (testContains (nodeAName d) filter)
                   {
                     (vecPush out (testMkRec (nodeAName d) (testExpectFail decls d)))
@@ -1146,7 +1146,7 @@
 ; THE BRACES ARE NOT ESCAPED HERE, and that is worth stating because
 ; the first version of this escaped them all. A `{` is a HOLE only in
 ; a string that reaches `println` or `format`; these literals reach
-; `strConcat`, so their bytes are data and a brace is a brace.
+; `concat`, so their bytes are data and a brace is a brace.
 ; Doubling them compiled, ran, and printed `ok   {name}` five times -
 ; the generated program was emitting the hole syntax instead of
 ; interpolating it.
@@ -1166,17 +1166,17 @@
           (reporter (if (== (memGetWord rec 1) 1)
             "axiomTestReportXFail"
             "axiomTestReport"))
-          (head (strConcat "      (set failed (+ failed (" (strConcat reporter "\"")))
+          (head (concat "      (set failed (+ failed (" (concat reporter "\"")))
           (body (if (== hasSetup 1)
             (if (== hasTeardown 1)
-              (strConcat "{ setup " (strConcat name (strConcat " " "teardown 0 }")))
-              (strConcat "{ setup " (strConcat name " 0 }")))
+              (concat "{ setup " (concat name (concat " " "teardown 0 }")))
+              (concat "{ setup " (concat name " 0 }")))
             (if (== hasTeardown 1)
-              (strConcat "{ " (strConcat name " teardown 0 }"))
-              (strConcat "{ " (strConcat name " 0 }")))))
+              (concat "{ " (concat name " teardown 0 }"))
+              (concat "{ " (concat name " 0 }")))))
         )
           {
-            (set out (strConcat out (strConcat head (strConcat name (strConcat "\" (__axiom_recover __axiom_arena_mark (lambda (__axiomTestArg) " (strConcat body ")))))\n"))))))
+            (set out (concat out (concat head (concat name (concat "\" (__axiom_recover __axiom_arena_mark (lambda (__axiomTestArg) " (concat body ")))))\n"))))))
             (set i (+ i 1))
           }))
       out
@@ -1202,7 +1202,7 @@
 ; way to omit half of itself conditionally.
 (pub :: testDriverText (-> String (Vec Int) Int Int String))
 (pub fn (testDriverText src names hasSetup hasTeardown)
-  (strConcat src (strConcat "\n; -----------------------------------------------------------------\n; Generated by `axiom test`. Everything above this line is the file\n; under test, byte for byte, so every line number is its own.\n; -----------------------------------------------------------------\n(import IO)\n\n(:: axiomTestWhy (-> Int String))\n\n(fn (axiomTestWhy status)\n  (if (== status 70)\n    \"out of memory\"\n    (== status 71)\n    \"a failed assertion, or an unhandled effect\"\n    (== status 72)\n    \"division by zero\"\n    \"an abort\"\n  )\n)\n\n(:: axiomTestReport (-> String Int Int))\n\n;@axiom:effect(io)\n(fn (axiomTestReport name status)\n  (if (== status 0)\n    {\n      (println \"ok   {name}\")\n      0\n    }\n    (let ((why (axiomTestWhy status)))\n      {\n        (println \"FAIL {name} - {why} (status {status})\")\n        1\n      }\n    )\n  )\n)\n\n(:: axiomTestReportXFail (-> String Int Int))\n\n;@axiom:effect(io)\n(fn (axiomTestReportXFail name status)\n  (if (== status 0)\n    {\n      (println \"FAIL {name} - expected to fail, but passed\")\n      1\n    }\n    (let ((why (axiomTestWhy status)))\n      {\n        (println \"xfail {name} - {why} (status {status}), as expected\")\n        0\n      }\n    )\n  )\n)\n\n(:: main Int)\n\n;@axiom:effect(io)\n(fn (main)\n  (let ((mut failed 0))\n    {\n" (strConcat (testCallLines names hasSetup hasTeardown) (strConcat "      (println \"\")\n      (println \"" (strConcat (fmtInt (vecLen names)) " test(s), {failed} failed\")\n      (if (> failed 0)\n        1\n        0\n      )\n    }\n  )\n)\n"))))))
+  (concat src (concat "\n; -----------------------------------------------------------------\n; Generated by `axiom test`. Everything above this line is the file\n; under test, byte for byte, so every line number is its own.\n; -----------------------------------------------------------------\n(import IO)\n\n(:: axiomTestWhy (-> Int String))\n\n(fn (axiomTestWhy status)\n  (if (== status 70)\n    \"out of memory\"\n    (== status 71)\n    \"a failed assertion, or an unhandled effect\"\n    (== status 72)\n    \"division by zero\"\n    \"an abort\"\n  )\n)\n\n(:: axiomTestReport (-> String Int Int))\n\n;@axiom:effect(io)\n(fn (axiomTestReport name status)\n  (if (== status 0)\n    {\n      (println \"ok   {name}\")\n      0\n    }\n    (let ((why (axiomTestWhy status)))\n      {\n        (println \"FAIL {name} - {why} (status {status})\")\n        1\n      }\n    )\n  )\n)\n\n(:: axiomTestReportXFail (-> String Int Int))\n\n;@axiom:effect(io)\n(fn (axiomTestReportXFail name status)\n  (if (== status 0)\n    {\n      (println \"FAIL {name} - expected to fail, but passed\")\n      1\n    }\n    (let ((why (axiomTestWhy status)))\n      {\n        (println \"xfail {name} - {why} (status {status}), as expected\")\n        0\n      }\n    )\n  )\n)\n\n(:: main Int)\n\n;@axiom:effect(io)\n(fn (main)\n  (let ((mut failed 0))\n    {\n" (concat (testCallLines names hasSetup hasTeardown) (concat "      (println \"\")\n      (println \"" (concat (fmtInt (vecLen names)) " test(s), {failed} failed\")\n      (if (> failed 0)\n        1\n        0\n      )\n    }\n  )\n)\n"))))))
 
 ; argv for the test program: its own name and nothing else. `test`
 ; forwards nothing, because its operand may be a DIRECTORY and there
@@ -1266,7 +1266,7 @@
               (let ((names (testCollect decls file filter)))
                 (if (== (vecLen names) 0)
                   {
-                    (writeStderrStr (strConcat "axiom test: " (strConcat file " declares no test\n")))
+                    (writeStderrStr (concat "axiom test: " (concat file " declares no test\n")))
                     1
                   }
                   ; A `setup`/`teardown` hook that takes parameters is
@@ -1277,26 +1277,26 @@
                     (let ((teardownKind (testHookKind decls "teardown" 0)))
                       (if (> setupKind 1)
                         {
-                          (die (strConcat (strConcat "error: " (strConcat file " declares `setup`, which is the per-test setup hook and takes ")) (strConcat (fmtInt (- setupKind 1)) (strConcat " parameter(s).\n" "       A hook takes none, so this one would never be run correctly. Rename it,\n       or give it no parameters.\n"))) 1)
+                          (die (concat (concat "error: " (concat file " declares `setup`, which is the per-test setup hook and takes ")) (concat (fmtInt (- setupKind 1)) (concat " parameter(s).\n" "       A hook takes none, so this one would never be run correctly. Rename it,\n       or give it no parameters.\n"))) 1)
                           1
                         }
                         (if (> teardownKind 1)
                           {
-                            (die (strConcat (strConcat "error: " (strConcat file " declares `teardown`, which is the per-test teardown hook and takes ")) (strConcat (fmtInt (- teardownKind 1)) (strConcat " parameter(s).\n" "       A hook takes none, so this one would never be run correctly. Rename it,\n       or give it no parameters.\n"))) 1)
+                            (die (concat (concat "error: " (concat file " declares `teardown`, which is the per-test teardown hook and takes ")) (concat (fmtInt (- teardownKind 1)) (concat " parameter(s).\n" "       A hook takes none, so this one would never be run correctly. Rename it,\n       or give it no parameters.\n"))) 1)
                             1
                           }
                           (let (
-                            (gen (pathJoin (pathDir file) (strConcat ".axiom-test." (strConcat (fmtInt sysGetPid) ".ax"))))
+                            (gen (pathJoin (pathDir file) (concat ".axiom-test." (concat (fmtInt sysGetPid) ".ax"))))
                             (text (testDriverText src names setupKind teardownKind))
                           )
                             (if (isErr (writeFile gen text))
                               {
-                                (die (strConcat "error: could not write the generated test driver to '" (strConcat gen "'\n")) 4)
+                                (die (concat "error: could not write the generated test driver to '" (concat gen "'\n")) 4)
                                 1
                               }
                               (let ((ir (compileFile gen hostTarget 1 1)))
-                                (let ((base (strConcat "axiom_test_output." (fmtInt sysGetPid))))
-                                  (let ((exe (strConcat "./" base)))
+                                (let ((base (concat "axiom_test_output." (fmtInt sysGetPid))))
+                                  (let ((exe (concat "./" base)))
                                     (let ((rc (buildToExecutable
                                       ir
                                       base
@@ -1370,7 +1370,7 @@
       (if (isDir target)
         (let ((files (testFilesIn target)))
           (if (== (vecLen files) 0)
-            (die (strConcat "error: no `.ax` file in " (strConcat target "\n")) 1)
+            (die (concat "error: no `.ax` file in " (concat target "\n")) 1)
             (let (
               (n (vecLen files))
               (mut i 0)
@@ -1380,13 +1380,13 @@
                 (while (< i n)
                   (let ((f (vecGetStr files i)))
                     {
-                      (replOut (strConcat "== " (strConcat f " ==\n")))
+                      (replOut (concat "== " (concat f " ==\n")))
                       (if (!= (testRunFile f filter) 0)
                         (set bad (+ bad 1))
                         0)
                       (set i (+ i 1))
                     }))
-                (replOut (strConcat "\n" (strConcat (fmtInt n) (strConcat " file(s), " (strConcat (fmtInt bad) (strConcat " with a failing test" "\n"))))))
+                (replOut (concat "\n" (concat (fmtInt n) (concat " file(s), " (concat (fmtInt bad) (concat " with a failing test" "\n"))))))
                 (if (> bad 0)
                   1
                   0)
@@ -1423,8 +1423,8 @@
             (let ((near (nearestSubcommand w)))
               (usageError
                 (if (== (strLen near) 0)
-                  (strConcat "error: unknown command `" (strConcat w "`\n"))
-                  (strConcat (strConcat "error: unknown command `" (strConcat w "`\n")) (strConcat "       did you mean `" (strConcat near "`?\n"))))))))))))
+                  (concat "error: unknown command `" (concat w "`\n"))
+                  (concat (concat "error: unknown command `" (concat w "`\n")) (concat "       did you mean `" (concat near "`?\n"))))))))))))
 
 ; `axiom new NAME`: start a project.
 ;
@@ -1442,11 +1442,11 @@
       (usageError "error: `axiom new` needs a project name\n")
       (let ((p2 (positionalIndex (+ p1 1))))
         (if (>= p2 0)
-          (usageError (strConcat "error: `axiom new` takes one project name, but `" (strConcat (sysArg p2) "` was also given\n")))
+          (usageError (concat "error: `axiom new` takes one project name, but `" (concat (sysArg p2) "` was also given\n")))
           (let ((name (sysArg p1)))
             (if (pkgNameOk name)
               (newProject name)
-              (usageError (strConcat "error: `" (strConcat name "` is not a package name\n       A package name is letters, digits, `.`, `-` and `_`, and is neither `.` nor `..`.\n"))))))))))
+              (usageError (concat "error: `" (concat name "` is not a package name\n       A package name is letters, digits, `.`, `-` and `_`, and is neither `.` nor `..`.\n"))))))))))
 
 (pub :: newProject (-> String Int))
 ;@axiom:effect(io)
@@ -1454,24 +1454,24 @@
   (let ((mf (pathJoin name "axiom.pkg")))
     (let ((mainf (pathJoin name "Main.ax")))
       (if (fileExists mf)
-        (die (strConcat (strConcat "error: `" name) "` already holds an Axiom project (`axiom.pkg` exists)\n") 1)
+        (die (concat (concat "error: `" name) "` already holds an Axiom project (`axiom.pkg` exists)\n") 1)
         (if (isDir name)
           (if (> (vecLen (listDir name)) 0)
-            (die (strConcat (strConcat "error: `" name) "` exists and is not empty\n") 1)
+            (die (concat (concat "error: `" name) "` exists and is not empty\n") 1)
             (newProjectWrite name mf mainf))
           (if (isErr (makeDir name))
-            (die (strConcat (strConcat "error: could not create directory `" name) "`\n") 4)
+            (die (concat (concat "error: could not create directory `" name) "`\n") 4)
             (newProjectWrite name mf mainf)))))))
 
 (pub :: newProjectWrite (-> String String String Int))
 ;@axiom:effect(io)
 (pub fn (newProjectWrite name mf mainf)
   (if (isErr (writeFile mainf newProjectMain))
-    (die (strConcat (strConcat "error: could not write `" mainf) "`\n") 4)
+    (die (concat (concat "error: could not write `" mainf) "`\n") 4)
     (if (isErr (writeFile mf (newProjectManifest name)))
-      (die (strConcat (strConcat "error: could not write `" mf) "`\n") 4)
+      (die (concat (concat "error: could not write `" mf) "`\n") 4)
       {
-        (replOut (strConcat "Created new Axiom project in `" (strConcat name "` (Main.ax, axiom.pkg)\n")))
+        (replOut (concat "Created new Axiom project in `" (concat name "` (Main.ax, axiom.pkg)\n")))
         0
       })))
 
@@ -1481,7 +1481,7 @@
 
 (pub :: newProjectManifest (-> String String))
 (pub fn (newProjectManifest name)
-  (strConcat (strConcat "name     " (strConcat name "\nversion  0.1.0\n")) "# `depend` names a directory of modules (or a git URL to check out\n# under `.axiom/deps/`), `crate` a native crate directory, `opt` the\n# default optimisation level (0-3) and `main` the entry file.\n# depend  vendor/lib\n# opt     1\n"))
+  (concat (concat "name     " (concat name "\nversion  0.1.0\n")) "# `depend` names a directory of modules (or a git URL to check out\n# under `.axiom/deps/`), `crate` a native crate directory, `opt` the\n# default optimisation level (0-3) and `main` the entry file.\n# depend  vendor/lib\n# opt     1\n"))
 
 ; The manifest-mode entry file for `build` and `run`: the manifest's
 ; `main` resolved against the manifest's own directory, else `Main.ax`
@@ -1503,7 +1503,7 @@
           ; `if` whose arms disagree is a type error, so the refusal
           ; sequences behind a string it never reaches.
           {
-            (die (strConcat (strConcat "error: the project manifest `" (strConcat mf (strConcat "` names no entry file that exists (want `" f))) (strConcat "`)" "\n       Set `main` to move it, or write `Main.ax` beside the manifest.\n")) 1)
+            (die (concat (concat "error: the project manifest `" (concat mf (concat "` names no entry file that exists (want `" f))) (concat "`)" "\n       Set `main` to move it, or write `Main.ax` beside the manifest.\n")) 1)
             ""
           })))))
 
@@ -1525,7 +1525,7 @@
 (pub fn (fetchCmd)
   (let ((p (positionalIndex operandStart)))
     (if (>= p 0)
-      (usageError (strConcat "error: `axiom fetch` takes no operands, but `" (strConcat (sysArg p) "` was given\n")))
+      (usageError (concat "error: `axiom fetch` takes no operands, but `" (concat (sysArg p) "` was given\n")))
       (let ((mf (pkgFindManifest "")))
         (if (== (strLen mf) 0)
           (die "error: no axiom.pkg at or above the working directory\n" 1)
@@ -1566,30 +1566,30 @@
           (let ((origin (pkgOrigin dest)))
             (if (strEq origin url)
               {
-                (replOut (strConcat "present " (strConcat dest "\n")))
+                (replOut (concat "present " (concat dest "\n")))
                 (fetchUrls urls base (+ i 1))
               }
-              (die (strConcat (strConcat "error: `" (strConcat dest "` is not a checkout of `")) (strConcat url (strConcat (strConcat "`: " (strConcat (pkgOriginWhy origin url) ".\n")) "       Remove it and run `axiom fetch` again.\n"))) 4)))
+              (die (concat (concat "error: `" (concat dest "` is not a checkout of `")) (concat url (concat (concat "`: " (concat (pkgOriginWhy origin url) ".\n")) "       Remove it and run `axiom fetch` again.\n"))) 4)))
           (let (
-            (deps (strConcat (pathWithSlash base) ".axiom/deps"))
-            (tmp (strConcat (strConcat (pathWithSlash base) ".axiom/deps/.fetch-") (strConcat (pkgDepKey url) (strConcat "-" (fmtInt sysGetPid)))))
+            (deps (concat (pathWithSlash base) ".axiom/deps"))
+            (tmp (concat (concat (pathWithSlash base) ".axiom/deps/.fetch-") (concat (pkgDepKey url) (concat "-" (fmtInt sysGetPid)))))
           )
             {
-              (replOut (strConcat "fetching " (strConcat dest "\n")))
+              (replOut (concat "fetching " (concat dest "\n")))
               (if (!= (mkdirParents deps) 0)
-                (die (strConcat (strConcat "error: could not create directory `" deps) "`\n") 4)
+                (die (concat (concat "error: could not create directory `" deps) "`\n") 4)
                 (let ((rc (fetchClone url tmp)))
                   (if (< rc 0)
                     (die "error: `git` was not found on PATH; install git and try again\n" 4)
                     (if (!= rc 0)
                       {
                         (fetchDiscard tmp)
-                        (die (strConcat (strConcat "error: cloning `" url) (strConcat "` failed (git exited " (strConcat (fmtInt rc) "); nothing was checked out\n"))) 4)
+                        (die (concat (concat "error: cloning `" url) (concat "` failed (git exited " (concat (fmtInt rc) "); nothing was checked out\n"))) 4)
                       }
                       (if (isErr (renamePath tmp (pkgStripSlash dest)))
                         {
                           (fetchDiscard tmp)
-                          (die (strConcat "error: the clone finished but could not be moved to `" (strConcat dest "`\n")) 4)
+                          (die (concat "error: the clone finished but could not be moved to `" (concat dest "`\n")) 4)
                         }
                         (fetchUrls urls base (+ i 1)))))))
             }))))))
@@ -1706,7 +1706,7 @@
       ; `self_host/build.ax` for why the id is a literal, and
       ; `scripts/build-stamped.sh` for what rewrites it.
       {
-        (replOut (strConcat (strConcat "Axiom " axiomVersion) (strConcat (strConcat " (build " axiomBuildId) ")\n")))
+        (replOut (concat (concat "Axiom " axiomVersion) (concat (concat " (build " axiomBuildId) ")\n")))
         0
       }
       (if (strEq cmd "check")
@@ -1743,9 +1743,9 @@
                     0
                   }
                   (if (isErr (writeFile out ir))
-                    (die (strConcat "error: could not write LLVM IR to '" (strConcat out "'\n")) 4)
+                    (die (concat "error: could not write LLVM IR to '" (concat out "'\n")) 4)
                     {
-                      (replOut (strConcat "LLVM IR written to " (strConcat out "\n")))
+                      (replOut (concat "LLVM IR written to " (concat out "\n")))
                       0
                     })))))
           (if (strEq cmd "build")
@@ -1839,9 +1839,9 @@
                         ; program's own output.
                         {
                           (if (hasFlagAnywhere cmd "--emit-llvm")
-                            (replOut (strConcat "LLVM IR written to " (strConcat outp ".ll\n")))
+                            (replOut (concat "LLVM IR written to " (concat outp ".ll\n")))
                             0)
-                          (replOut (strConcat "Build successful: " (strConcat outp "\n")))
+                          (replOut (concat "Build successful: " (concat outp "\n")))
                           0
                         }))))))
             (if (strEq cmd "fmt")
@@ -1870,20 +1870,20 @@
                           (let ((res (fmtFormat src)))
                             (if (== (fzOk res) 0)
                               (if (strEq (fzText res) "AX2005")
-                                (die (strConcat "error[AX2005]: nesting is too deep for the formatter (limit is 1024); it counts each `.name` and `Mod::name` link as a level\n" (strConcat f " was not rewritten: formatter refusal\n")) 1)
-                                (die (strConcat f " was not rewritten: formatter refusal\n") 1))
+                                (die (concat "error[AX2005]: nesting is too deep for the formatter (limit is 1024); it counts each `.name` and `Mod::name` link as a level\n" (concat f " was not rewritten: formatter refusal\n")) 1)
+                                (die (concat f " was not rewritten: formatter refusal\n") 1))
                               (let ((text (fzText res)))
                                 (if (hasFlagAnywhere cmd "--check")
                                   (if (strEq src text)
                                     {
-                                      (replOut (strConcat "OK: " (strConcat f " is already formatted\n")))
+                                      (replOut (concat "OK: " (concat f " is already formatted\n")))
                                       0
                                     }
-                                    (die (strConcat "Error: " (strConcat f " needs formatting\n")) 1))
+                                    (die (concat "Error: " (concat f " needs formatting\n")) 1))
                                   (if (isErr (writeFile f text))
                                     (die "error: could not write formatted file\n" 1)
                                     {
-                                      (replOut (strConcat "OK: " (strConcat f " formatted\n")))
+                                      (replOut (concat "OK: " (concat f " formatted\n")))
                                       0
                                     })))))
                         })))))
@@ -2047,7 +2047,7 @@
                       (let ((text (explainText (explainNormalize code))))
                         (if (== (strLen text) 0)
                           {
-                            (writeStderrStr (strConcat "error: unknown diagnostic code '" (strConcat code "'\n")))
+                            (writeStderrStr (concat "error: unknown diagnostic code '" (concat code "'\n")))
                             (writeStderrStr "run `axiom explain --list` to see all known codes\n")
                             (sysExitWith 1)
                             1
@@ -2127,8 +2127,8 @@
                             ; and a foreign binary does not run here. `build` is where
                             ; a cross-target artefact is asked for.
                             (let ((ir (compileFile f hostTarget 1 1)))
-                              (let ((base (strConcat "axiom_temp_output." (fmtInt sysGetPid))))
-                                (let ((exe (strConcat "./" base)))
+                              (let ((base (concat "axiom_temp_output." (fmtInt sysGetPid))))
+                                (let ((exe (concat "./" base)))
                                   (let ((rc (buildToExecutable
                                     ir
                                     base

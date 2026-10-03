@@ -150,7 +150,7 @@
     ; --- 7. a String dies with its region; its length does not ---
     (println
       (region r
-        (let ((s (strConcat "abc" "de")))
+        (let ((s (concat "abc" "de")))
           (strLen s))))
     ; --- 8. a region inside a live handle's extent ---
     (handle

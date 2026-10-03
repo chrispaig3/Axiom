@@ -113,7 +113,7 @@
     0))
 
 ; The same loop with a message BUILT per malformed record
-; (`strConcat`/`fmtInt`, 32 bytes each): term `e` below. Until the
+; (`concat`/`fmtInt`, 32 bytes each): term `e` below. Until the
 ; closure-argument release this read 80 bytes per operation - an
 ; application through a closure never released its owned argument -
 ; and now reads flat, because the handler answers an `Int` and the
@@ -121,7 +121,7 @@
 (:: parseBuilt (-> Int Int))
 (fn (parseBuilt i)
   (if (== (% i 7) 0)
-    (fallibleMalformed (strConcat "record " (fmtInt i)))
+    (fallibleMalformed (concat "record " (fmtInt i)))
     i))
 
 (:: totalB (-> Int Int))

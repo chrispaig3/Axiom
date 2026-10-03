@@ -66,7 +66,7 @@ Fn       strCmp               (String -> (String -> Int))              [stdlib/S
 Fn       strEq                (String -> (String -> Bool))             [stdlib/Str.ax:237:9-14]
 Fn       strSlice             (String -> (Int -> (Int -> String)))     [stdlib/Str.ax:259:9-17]
 Fn       strDup               (String -> String)                       [stdlib/Str.ax:285:9-15]
-Fn       strConcat            (String -> (String -> String))           [stdlib/Str.ax:296:9-18]
+Fn       concat            (String -> (String -> String))           [stdlib/Str.ax:296:9-18]
 Fn       strFindByte          (String -> (Int -> (Int -> Option Int))) [stdlib/Str.ax:342:9-20]
 Fn       strStartsWith        (String -> (String -> Bool))             [stdlib/Str.ax:360:9-22]
 Fn       strIsDigit           (Int -> Bool)                            [stdlib/Str.ax:390:9-19]

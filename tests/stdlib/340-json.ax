@@ -148,8 +148,8 @@
       ; `�`, one per byte, where it went out raw until 2026-09-27
       ; and made text no strict reader parses; well-formed multi-byte
       ; text still passes through as itself.
-      (set bad (+ bad (eq "write lone lead byte" (jsonWrite (jsonStr (strConcat "a" (strConcat (strFromByte 228) "b")))) "\"a\\ufffdb\"")))
-      (set bad (+ bad (eq "write surrogate bytes" (jsonWrite (jsonStr (strConcat (strFromByte 237) (strConcat (strFromByte 160) (strFromByte 128))))) "\"\\ufffd\\ufffd\\ufffd\"")))
+      (set bad (+ bad (eq "write lone lead byte" (jsonWrite (jsonStr (concat "a" (concat (strFromByte 228) "b")))) "\"a\\ufffdb\"")))
+      (set bad (+ bad (eq "write surrogate bytes" (jsonWrite (jsonStr (concat (strFromByte 237) (concat (strFromByte 160) (strFromByte 128))))) "\"\\ufffd\\ufffd\\ufffd\"")))
       (set bad (+ bad (eq "write well-formed" (jsonWrite (jsonStr "é世")) "\"é世\"")))
       (set n (+ n 10))
       ; --- depth ------------------------------------------------------

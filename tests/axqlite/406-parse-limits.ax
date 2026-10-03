@@ -16,7 +16,7 @@
       (let ((mut out ""))
         {
           (for p in parts
-            (set out (strConcat out p)))
+            (set out (concat out p)))
           out
         })
     }))
@@ -24,19 +24,19 @@
 (:: outcome (-> String String))
 (fn (outcome text)
   (match (axqlParse text)
-    ((Ok p) (strConcat "ok params=" (format p.paramCount)))
-    ((Err e) (strConcat "error: " (errMessage e)))))
+    ((Ok p) (concat "ok params=" (format p.paramCount)))
+    ((Err e) (concat "error: " (errMessage e)))))
 
 (:: main Int)
 ;@axiom:effect(io)
 (fn (main)
   {
-    (println (outcome (strConcat "SELECT " (strConcat (repeat "(" 200) (strConcat "1" (repeat ")" 200))))))
-    (println (outcome (strConcat "SELECT " (strConcat (repeat "(" 201) (strConcat "1" (repeat ")" 201))))))
-    (println (outcome (strConcat "SELECT " (strConcat (repeat "NOT " 100000) "1"))))
-    (println (outcome (strConcat "SELECT " (strConcat (repeat "- " 100000) "1"))))
-    (println (outcome (strConcat "SELECT 1" (repeat " + 1" 5000))))
-    (println (outcome (strConcat "SELECT ?" (repeat ", ?" 32765))))
-    (println (outcome (strConcat "SELECT ?" (repeat ", ?" 32766))))
+    (println (outcome (concat "SELECT " (concat (repeat "(" 200) (concat "1" (repeat ")" 200))))))
+    (println (outcome (concat "SELECT " (concat (repeat "(" 201) (concat "1" (repeat ")" 201))))))
+    (println (outcome (concat "SELECT " (concat (repeat "NOT " 100000) "1"))))
+    (println (outcome (concat "SELECT " (concat (repeat "- " 100000) "1"))))
+    (println (outcome (concat "SELECT 1" (repeat " + 1" 5000))))
+    (println (outcome (concat "SELECT ?" (repeat ", ?" 32765))))
+    (println (outcome (concat "SELECT ?" (repeat ", ?" 32766))))
     0
   })

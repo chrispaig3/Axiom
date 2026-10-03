@@ -497,10 +497,10 @@ them:
    reference.
 
    The format lowering was the worked example. It expanded to bare
-   `show` and `strConcat` calls, and an entry file declaring either
+   `show` and `concat` calls, and an entry file declaring either
    hijacked every hole in the file. Both halves are closed:
-   `expQualify`'s exactly-one-module rule takes `strConcat` to
-   `Str$strConcat`, and the rendering head is the unwritable `format#`.
+   `expQualify`'s exactly-one-module rule takes `concat` to
+   `Str$concat`, and the rendering head is the unwritable `format#`.
    `tests/selfhost/383-format-capture.ax` measures both, at exit 60,
    where 20 would mean the hijack won.
    `tests/selfhost/394-macro-entry-capture.ax` (exit 130) measures the

@@ -129,7 +129,7 @@
         (let ((f (katFields line)))
           (let ((key (katBytes f 0)) (msg (katBytes f 1)) (out (katBytes f 2)))
             {
-              (tallyBytes kat out (okOr (blake2b 64 key msg)) (strConcat "message of " (katText f 1)))
+              (tallyBytes kat out (okOr (blake2b 64 key msg)) (concat "message of " (katText f 1)))
               (if (== (strLen key) 0)
                 (tallyBytes kat out (blake2b512 msg) "blake2b512")
                 0)
@@ -138,7 +138,7 @@
         (let ((f (katFields line)))
           (let ((outLen (katInt f 0)) (key (katBytes f 1)) (msg (katBytes f 2)) (out (katBytes f 3)))
             {
-              (tallyBytes diff out (okOr (blake2b outLen key msg)) (strConcat "digest length " (katText f 0)))
+              (tallyBytes diff out (okOr (blake2b outLen key msg)) (concat "digest length " (katText f 0)))
               (tallyBytes stream out (streamOf outLen key msg (+ 1 (% row 131))) "pieces")
               (tallyBytes stream out (copiedOf outLen key msg) "copied state")
               (set row (+ row 1))

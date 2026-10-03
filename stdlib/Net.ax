@@ -58,7 +58,7 @@
 ; match on everywhere.
 (:: netBadAddr (-> String String (Result a Error)))
 (fn (netBadAddr what where)
-  (Err (errContextOf (mkError 22 (strConcat "invalid socket address: " what)) where)))
+  (Err (errContextOf (mkError 22 (concat "invalid socket address: " what)) where)))
 
 ; Whether `a` is a well-formed address this module built: the right
 ; length and a family it knows. Every function taking one asks first,
@@ -427,7 +427,7 @@
 ;@axiom:precondition(`p` names a live socket address Net built)
 (fn (ipTextOf p)
   (if (&& (== (netAddrFamily p) afInet6) (mappedV4 p))
-    (strConcat "::ffff:" (strConcat (fmtInt (memGetByte p 20)) (strConcat "." (strConcat (fmtInt (memGetByte p 21)) (strConcat "." (strConcat (fmtInt (memGetByte p 22)) (strConcat "." (fmtInt (memGetByte p 23)))))))))
+    (concat "::ffff:" (concat (fmtInt (memGetByte p 20)) (concat "." (concat (fmtInt (memGetByte p 21)) (concat "." (concat (fmtInt (memGetByte p 22)) (concat "." (fmtInt (memGetByte p 23)))))))))
     (netAddrText p)))
 
 ; The address as text, `a.b.c.d:port` or `[ipv6]:port`, with IPv6 in
@@ -439,8 +439,8 @@
   (if (sockOk a)
     (let ((p (strData a.bytes)))
       (if (== (netAddrFamily p) afInet6)
-        (strConcat "[" (strConcat (ipTextOf p) (strConcat "]:" (fmtInt (netAddrPort p)))))
-        (strConcat (ipTextOf p) (strConcat ":" (fmtInt (netAddrPort p))))))
+        (concat "[" (concat (ipTextOf p) (concat "]:" (fmtInt (netAddrPort p)))))
+        (concat (ipTextOf p) (concat ":" (fmtInt (netAddrPort p))))))
     "<invalid address>"))
 
 ; The IP address alone, with no port and no brackets.

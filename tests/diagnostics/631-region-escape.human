@@ -1,7 +1,7 @@
 [1;31merror[AX3059][0m[1m: region `r` answers a value of type `String`, which may point into the memory the region reclaims[0m
   [1;34m--> [0m631-region-escape.ax:47:10
 [1;34m   |[0m
-[1;34m47 |[0m         (strConcat "a" "b"))
+[1;34m47 |[0m         (concat "a" "b"))
 [1;34m   |[0m          [1;31m^^^^^^^^^ this has type `String`[0m
 [1;34m   |[0m
   [1;34m = [0m[1mnote: [0ma `String` is a descriptor over a second block, a struct is a block and a closure is a record; every one of them would point at reclaimed memory
@@ -11,7 +11,7 @@
 [1;31merror[AX3059][0m[1m: `out` is bound outside region `s`, and the value stored into it has type `String`[0m
   [1;34m--> [0m631-region-escape.ax:51:16
 [1;34m   |[0m
-[1;34m51 |[0m           (set out (strConcat "a" "b"))
+[1;34m51 |[0m           (set out (concat "a" "b"))
 [1;34m   |[0m                [1;31m^^^ this store leaves the region[0m
 [1;34m   |[0m
   [1;34m = [0m[1mnote: [0ma store is the one escape channel a scope check can see; a call that stores the value for you is refused too, where the facts walk sees it
@@ -21,7 +21,7 @@
 [1;31merror[AX3059][0m[1m: `b` is bound outside region `t`, and the value stored into it has type `String`[0m
   [1;34m--> [0m631-region-escape.ax:57:18
 [1;34m   |[0m
-[1;34m57 |[0m           (set b.s (strConcat "c" "d"))
+[1;34m57 |[0m           (set b.s (concat "c" "d"))
 [1;34m   |[0m                  [1;31m^ this store leaves the region[0m
 [1;34m   |[0m
   [1;34m = [0m[1mnote: [0ma store is the one escape channel a scope check can see; a call that stores the value for you is refused too, where the facts walk sees it

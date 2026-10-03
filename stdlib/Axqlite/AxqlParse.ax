@@ -305,7 +305,7 @@
 ; An `axqSyntax` error at byte `at` of `src`.
 (:: synErrAt (-> String Int String (Result a Error)))
 (fn (synErrAt src at msg)
-  (axqErr axqSyntax (strConcat (strConcat (axqlPosText src at) ": ") msg) "axqlParse"))
+  (axqErr axqSyntax (concat (concat (axqlPosText src at) ": ") msg) "axqlParse"))
 
 ; ------------------------------------------------------------------
 ; The lexer.
@@ -711,14 +711,14 @@
 (fn (realText t)
   (let ((t1 
     (if (== (strByte t 0) 46)
-      (strConcat "0" t)
+      (concat "0" t)
       t)))
     (match (strFindByte t1 46 0)
       ((None) t1)
       ((Some d)
         (if (strIsDigit (strByte t1 (+ d 1)))
           t1
-          (strConcat (strConcat (strSlice t1 0 (+ d 1)) "0") (strSlice t1 (+ d 1) (- (strLen t1) (+ d 1)))))
+          (concat (concat (strSlice t1 0 (+ d 1)) "0") (strSlice t1 (+ d 1) (- (strLen t1) (+ d 1)))))
       ))))
 
 (:: lexInteger (-> Lx Int Int Int))
@@ -797,7 +797,7 @@
                   (set num (+ (* num 10) (- (strByte src i) 48)))
                   0))
               (if (|| (< num 1) (> num axqlMaxParams))
-                (lxFail lx start (strConcat "a parameter number outside 1 to " (fmtInt axqlMaxParams)))
+                (lxFail lx start (concat "a parameter number outside 1 to " (fmtInt axqlMaxParams)))
                 (if (isIdentStart (strByte src j))
                   (lxFail lx j "a parameter number runs into a name")
                   (lxPush
@@ -987,20 +987,20 @@
           0
           0.0
           ""))
-      (lxFail lx at (strConcat "an unexpected character " (charText c))))))
+      (lxFail lx at (concat "an unexpected character " (charText c))))))
 
 ; A byte for a message: the character itself when it's printable ASCII,
 ; its code otherwise.
 (:: charText (-> Int String))
 (fn (charText c)
   (if (&& (> c 32) (< c 127))
-    (strConcat
-      (strConcat
+    (concat
+      (concat
         "\""
         (strFromByte
           (cast Byte c)))
       "\"")
-    (strConcat "byte " (fmtInt c))))
+    (concat "byte " (fmtInt c))))
 
 ; The tokens of `src`, ending with one `tkEof` at its length.
 (:: lex (-> String (Result (Vec Tok) Error)))
@@ -1118,13 +1118,13 @@
 (fn (tokDesc p t)
   (if (== t.kind tkEof)
     "the end of the statement"
-    (strConcat (strConcat "\"" (strSlice p.src t.start (- t.end t.start))) "\"")))
+    (concat (concat "\"" (strSlice p.src t.start (- t.end t.start))) "\"")))
 
 ; `axqSyntax` at the current token: "expected WHAT, found TOKEN".
 (:: expected (-> Ps String (Result a Error)))
 (fn (expected p what)
   (let ((t (peek p)))
-    (synErrAt p.src t.start (strConcat (strConcat (strConcat "expected " what) ", found ") (tokDesc p t)))))
+    (synErrAt p.src t.start (concat (concat (concat "expected " what) ", found ") (tokDesc p t)))))
 
 ; `axqSyntax` at the current token with a message of its own.
 (:: failHere (-> Ps String (Result a Error)))
@@ -1414,7 +1414,7 @@
       (parseParam p)
       (== k tkLParen)
       (if (>= p.depth axqlMaxDepth)
-        (failHere p (strConcat "parentheses nested deeper than " (fmtInt axqlMaxDepth)))
+        (failHere p (concat "parentheses nested deeper than " (fmtInt axqlMaxDepth)))
         {
           (advance p)
           (set p.depth (+ p.depth 1))
@@ -1451,7 +1451,7 @@
                 (vecPush p.names t.text)
                 (set p.maxParam (vecLen p.names))
                 (if (> p.maxParam axqlMaxParams)
-                  (synErrAt p.src t.start (strConcat "more than " (strConcat (fmtInt axqlMaxParams) " parameters")))
+                  (synErrAt p.src t.start (concat "more than " (concat (fmtInt axqlMaxParams) " parameters")))
                   (Ok (EParam (- p.maxParam 1) t.start)))
               })
           }))
@@ -1471,7 +1471,7 @@
               }
               0)
             (if (> n axqlMaxParams)
-              (synErrAt p.src t.start (strConcat "more than " (strConcat (fmtInt axqlMaxParams) " parameters")))
+              (synErrAt p.src t.start (concat "more than " (concat (fmtInt axqlMaxParams) " parameters")))
               (Ok (EParam (- n 1) t.start)))
           })))))
 

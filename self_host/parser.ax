@@ -1139,17 +1139,17 @@
       "AX2005"
       "recursion-limit"
       (tokenSpan tok)
-      (strConcat (strConcat "nesting is too deep (limit is " lim) ")")
+      (concat (concat "nesting is too deep (limit is " lim) ")")
       0
       ""
-      (strConcat "rewrite the form as a `let` chain, a `{}` block, or a balanced tree; " "hand-written code does not reach this limit, generated code can"))))
+      (concat "rewrite the form as a `let` chain, a `{}` block, or a balanced tree; " "hand-written code does not reach this limit, generated code can"))))
       {
-        (diagSetLabel d (strConcat (strConcat "nesting reaches " lim) " levels here"))
+        (diagSetLabel d (concat (concat "nesting reaches " lim) " levels here"))
         ; Why the limit exists at all, which the help does not say: the
         ; parser walks the form tree recursively, so nesting depth IS
         ; native stack depth, and the alternative to refusing here is
         ; the SIGSEGV this check was added to prevent.
-        (diagAddNote d (strConcat "the parser walks the form tree recursively, so nesting depth is " "native stack depth"))
+        (diagAddNote d (concat "the parser walks the form tree recursively, so nesting depth is " "native stack depth"))
         d
       })))
 
@@ -1173,8 +1173,8 @@
     (meant (sizedTyMeant n))
   )
     (let (
-      (msg (strConcat (strConcat "`" n) "` is a type VARIABLE here, not a type"))
-      (help (strConcat (strConcat (strConcat (strConcat "write `" meant) "`. A lowercase name in type position is a TYPE VARIABLE, and there is no such thing as an unknown one - so this signature does not constrain anything, it generalises over it and accepts a value of any type at all. ") "Axiom has one integer type, `Int`, 64 bits wide, and one float, `Float`. The narrow spellings belong on the Rust side of an `extern` block, where the boundary widens them - see docs/ffi.md; they are not Axiom types. ") (strConcat (strConcat "The uppercase near-misses are refused already: `Double` and `I64` draw AX3002, because an unknown UPPERCASE name is an unknown type constructor. `" n) "` is lowercase, which is the whole difference.")))
+      (msg (concat (concat "`" n) "` is a type VARIABLE here, not a type"))
+      (help (concat (concat (concat (concat "write `" meant) "`. A lowercase name in type position is a TYPE VARIABLE, and there is no such thing as an unknown one - so this signature does not constrain anything, it generalises over it and accepts a value of any type at all. ") "Axiom has one integer type, `Int`, 64 bits wide, and one float, `Float`. The narrow spellings belong on the Rust side of an `extern` block, where the boundary widens them - see docs/ffi.md; they are not Axiom types. ") (concat (concat "The uppercase near-misses are refused already: `Double` and `I64` draw AX3002, because an unknown UPPERCASE name is an unknown type constructor. `" n) "` is lowercase, which is the whole difference.")))
     )
       (let ((d (mkDiag
         SEV_ERROR
@@ -1186,7 +1186,7 @@
         ""
         help)))
         {
-          (diagSetLabel d (strConcat (strConcat "this binds a fresh type variable named `" n) "`"))
+          (diagSetLabel d (concat (concat "this binds a fresh type variable named `" n) "`"))
           d
         }))))
 
@@ -1227,20 +1227,20 @@
       "AX2006"
       "module-path-segment"
       (tokenSpan tok)
-      (strConcat (strConcat "`" seg) "` is a file path, not a module-path segment")
+      (concat (concat "`" seg) "` is a file path, not a module-path segment")
       0
       ""
-      (strConcat "write the module's dotted name - `Sys.Platform`, not `Sys/Platform` - and put the directory holding it on " "`AXIOM_PATH` or beside the entry file; a module name is resolved against the search directories, never used as a path of its own"))))
+      (concat "write the module's dotted name - `Sys.Platform`, not `Sys/Platform` - and put the directory holding it on " "`AXIOM_PATH` or beside the entry file; a module name is resolved against the search directories, never used as a path of its own"))))
       {
         (diagSetLabel d "a module-path segment is a name: `/` is not part of one")
         ; Why the ban is here and not in the resolver: `modPathToFile`
         ; rewrites `.` to `/` and leaves an existing `/` alone, and
         ; `searchDirsFor` prefixes a search directory with a bare
-        ; `strConcat`, which an already-absolute name re-anchors. So the
+        ; `concat`, which an already-absolute name re-anchors. So the
         ; search root confines nothing once a segment carries a slash -
         ; measured 2026-08-23, `(import /tmp/axtrav/secret)` compiled a
         ; file outside the project and `check` printed OK.
-        (diagAddNote d (strConcat "a segment carrying `/` re-anchors the search directory it is concatenated onto, so the import " "resolves outside the project"))
+        (diagAddNote d (concat "a segment carrying `/` re-anchors the search directory it is concatenated onto, so the import " "resolves outside the project"))
         d
       })))
 
@@ -1264,10 +1264,10 @@
         (tokenSpan tok)
         (if (== (strLen ch) 0)
           "an `extern` block's library name is empty"
-          (strConcat (strConcat "`" ch) "` cannot appear in an `extern` block's library name"))
+          (concat (concat "`" ch) "` cannot appear in an `extern` block's library name"))
         0
         ""
-        (strConcat "a library name is the stem of `lib<name>.a`, so it is `[A-Za-z0-9._+-]` and nothing else - `axiom_demo`, `m`, `c++abi`; " "pass a directory with `--link-search DIR` rather than encoding one here, and name the boundary symbol in the item's own `(symbol \"...\")` clause"))))
+        (concat "a library name is the stem of `lib<name>.a`, so it is `[A-Za-z0-9._+-]` and nothing else - `axiom_demo`, `m`, `c++abi`; " "pass a directory with `--link-search DIR` rather than encoding one here, and name the boundary symbol in the item's own `(symbol \"...\")` clause"))))
       {
         (diagSetLabel d "this name is written into the emitted module and passed to the linker as `-l<name>`")
         ; The byte set is not tidiness. The name is emitted verbatim as
@@ -1284,7 +1284,7 @@
         ; a body or a `@llvm.global_ctors` entry - code that runs before
         ; `main` - passed every check the compiler has.
         ; `tests/diagnostics/945-extern-lib-newline.axbad` pins it.
-        (diagAddNote d (strConcat "the name is emitted verbatim into the module beside the block's declares, where a `;` comment " "ends at the first newline"))
+        (diagAddNote d (concat "the name is emitted verbatim into the module beside the block's declares, where a `;` comment " "ends at the first newline"))
         d
       })))
 
@@ -1300,7 +1300,7 @@
       "AX2001"
       "unexpected-token"
       (tokenSpan tok)
-      (strConcat (strConcat "expected `in` after the loop's binder, found `" (foundText tok)) "`")
+      (concat (concat "expected `in` after the loop's binder, found `" (foundText tok)) "`")
       0
       ""
       0)))
@@ -1360,7 +1360,7 @@
                 "unexpected end of file"
                 0
                 ""
-                (strConcat "count `(`/`[`/`{` against `)`/`]`/`}` " "working backward from the end of the file")) "file ends here while a form is still open")
+                (concat "count `(`/`[`/`{` against `)`/`]`/`}` " "working backward from the end of the file")) "file ends here while a form is still open")
               (let ((tok (vecGet tokens pos)))
                 (if (strEq (pResCode r) "AX2004")
                   (diagSetLabel
@@ -1389,7 +1389,7 @@
                               "`[T]` checked as a type no value could inhabit, and is now refused"
                               (if (strEq exp "tuple")
                                 "`(A B)` checked as a type no value could inhabit, and is now refused"
-                                (strConcat (strConcat "`" exp) "` is no longer part of Axiom"))))))
+                                (concat (concat "`" exp) "` is no longer part of Axiom"))))))
                       0
                       ""
                       (removedHelp exp))
@@ -1419,10 +1419,10 @@
                       "AX2001"
                       "unexpected-token"
                       (tokenSpan tok)
-                      (strConcat (strConcat "expected " exp) (strConcat ", found `" (strConcat (foundText tok) "`")))
+                      (concat (concat "expected " exp) (concat ", found `" (concat (foundText tok) "`")))
                       0
                       ""
-                      (strConcat (strConcat "Axiom expected " exp) " at this position")) (strConcat (strConcat "found `" (foundText tok)) "` here"))))))))))))))
+                      (concat (concat "Axiom expected " exp) " at this position")) (concat (concat "found `" (foundText tok)) "` here"))))))))))))))
 
 ; The diagnostic for a LEXICAL error, or 0 when the token stream has
 ; none. Lexing happens before parsing, so this is asked first and a
@@ -1475,7 +1475,7 @@
                 "AX1005"
                 "invalid-escape-sequence"
                 sp
-                (strConcat (strConcat "invalid escape sequence `" (strSlice src (spanStart sp) 2)) "`")
+                (concat (concat "invalid escape sequence `" (strSlice src (spanStart sp) 2)) "`")
                 0
                 ""
                 "valid escapes are \\n \\t \\r \\\\ \\\" \\' \\0") "unrecognized escape sequence")
@@ -1505,10 +1505,10 @@
                       "AX1004"
                       "invalid-number-literal"
                       sp
-                      (strConcat (strConcat "invalid number literal `" (strSlice src (spanStart sp) (- (spanEnd sp) (spanStart sp)))) "`")
+                      (concat (concat "invalid number literal `" (strSlice src (spanStart sp) (- (spanEnd sp) (spanStart sp)))) "`")
                       0
                       ""
-                      "check for a value that overflows i64/f64 or a malformed exponent") (strConcat (strConcat "`" (strSlice src (spanStart sp) (- (spanEnd sp) (spanStart sp)))) "` cannot be parsed as Int or Float"))
+                      "check for a value that overflows i64/f64 or a malformed exponent") (concat (concat "`" (strSlice src (spanStart sp) (- (spanEnd sp) (spanStart sp)))) "` cannot be parsed as Int or Float"))
                     ; The lexer's error token covers the whole
                     ; character (`lexErrCharLen`), so the quote does
                     ; too; a byte that begins no UTF-8 character is
@@ -1522,7 +1522,7 @@
                           "AX1001"
                           "unexpected-char"
                           sp
-                          (strConcat (strConcat "unexpected byte 0x" (hexByteUpper b)) ", which begins no UTF-8 character")
+                          (concat (concat "unexpected byte 0x" (hexByteUpper b)) ", which begins no UTF-8 character")
                           0
                           ""
                           "Axiom source is UTF-8; this byte is not part of a well-formed character - the file may be in another encoding, or damaged") "not UTF-8")
@@ -1531,16 +1531,16 @@
                           "AX1001"
                           "unexpected-char"
                           sp
-                          (strConcat (strConcat "unexpected character `" ch) "`")
+                          (concat (concat "unexpected character `" ch) "`")
                           0
                           ""
-                          "an identifier is letters, digits, `_`, `'` and `+ - * / % < > = ! & | ^`, and cannot begin with a digit or `'`; operators are not a separate class - `+` is simply an identifier - and `?`, `~` and `@` are not identifier characters at all") (strConcat (strConcat "`" ch) "` is not valid here")))))))))))
+                          "an identifier is letters, digits, `_`, `'` and `+ - * / % < > = ! & | ^`, and cannot begin with a digit or `'`; operators are not a separate class - `+` is simply an identifier - and `?`, `~` and `@` are not identifier characters at all") (concat (concat "`" ch) "` is not valid here")))))))))))
     }))
 
 ; Two upper-case hex digits for byte `b`.
 (pub :: hexByteUpper (-> Int String))
 (pub fn (hexByteUpper b)
-  (strConcat (strSlice "0123456789ABCDEF" (/ b 16) 1) (strSlice "0123456789ABCDEF" (% b 16) 1)))
+  (concat (strSlice "0123456789ABCDEF" (/ b 16) 1) (strSlice "0123456789ABCDEF" (% b 16) 1)))
 
 ; The EOF token has no lexeme; stage0 spells it `EOF` in the message.
 (pub :: foundText (-> Int String))
@@ -1573,26 +1573,26 @@
   (if (strEq kw "define")
     "`define` was the old spelling of `fn`, read as the same declaration; a language with two spellings of one thing makes every reader learn both"
   (if (strEq kw "begin")
-    (strConcat "`begin` was replaced by `{ }` brace blocks and implicit " "sequencing; it was an ordinary name to the parser afterwards, so using one drew `AX3001 undefined variable begin`, which named no replacement")
+    (concat "`begin` was replaced by `{ }` brace blocks and implicit " "sequencing; it was an ordinary name to the parser afterwards, so using one drew `AX3001 undefined variable begin`, which named no replacement")
     (if (strEq kw "union")
-      (strConcat "`union` was removed: C interoperability is no longer a goal, " "and an untagged union cannot be pattern-matched safely - its variants are not distinguishable at run time")
+      (concat "`union` was removed: C interoperability is no longer a goal, " "and an untagged union cannot be pattern-matched safely - its variants are not distinguishable at run time")
       (if (strEq kw "linear")
-        (strConcat (strConcat "`linear` was refused rather than implemented: it built the nominal " "type `Linear T` and enforced nothing else - no use was counted, so a ") "value could be consumed twice or never, and the marker read as an ownership guarantee it did not supply")
+        (concat (concat "`linear` was refused rather than implemented: it built the nominal " "type `Linear T` and enforced nothing else - no use was counted, so a ") "value could be consumed twice or never, and the marker read as an ownership guarantee it did not supply")
         (if (strEq kw "consume")
-          (strConcat (strConcat "`consume` was refused rather than implemented: it was a parse-time " "IDENTITY that kept the `Linear` wrapper, so consuming twice was ") "accepted and the form reclaimed nothing")
+          (concat (concat "`consume` was refused rather than implemented: it was a parse-time " "IDENTITY that kept the `Linear` wrapper, so consuming twice was ") "accepted and the form reclaimed nothing")
           (if (strEq kw "foreign")
-            (strConcat (strConcat "`foreign` was removed because it never worked: it emitted a call " "to a symbol the module never declared, so a program using one ") "passed `check` and died in `opt`. The FFI is the `extern` block")
+            (concat (concat "`foreign` was removed because it never worked: it emitted a call " "to a symbol the module never declared, so a program using one ") "passed `check` and died in `opt`. The FFI is the `extern` block")
             (if (strEq kw "deriving")
-              (strConcat "`deriving` was refused rather than implemented: the clause parsed and was silently discarded - " "no instance was ever derived from it, and a clause that does nothing is worse than one that does not parse")
+              (concat "`deriving` was refused rather than implemented: the clause parsed and was silently discarded - " "no instance was ever derived from it, and a clause that does nothing is worse than one that does not parse")
               (if (strEq kw "trait")
-                (strConcat (strConcat "`trait` was removed: an interface is a CAPABILITY RECORD now - a " "parameterised struct holding the functions, passed as a value. ") "`(struct ShowOf (a) (render : (-> a String)))`, and `(ShowOf fmtInt)` is the instance")
+                (concat (concat "`trait` was removed: an interface is a CAPABILITY RECORD now - a " "parameterised struct holding the functions, passed as a value. ") "`(struct ShowOf (a) (render : (-> a String)))`, and `(ShowOf fmtInt)` is the instance")
                 (if (strEq kw "impl")
-                  (strConcat (strConcat "`impl` was removed with `trait`: an instance is a VALUE now, not a " "declaration - bind one with `fn` and pass it where it is needed. ") "`show` needs none: the compiler renders every type from its static type without one")
+                  (concat (concat "`impl` was removed with `trait`: an instance is a VALUE now, not a " "declaration - bind one with `fn` and pass it where it is needed. ") "`show` needs none: the compiler renders every type from its static type without one")
                   (if (strEq kw "list")
-                    (strConcat (strConcat "`[T]` was refused rather than implemented: the form checked in " "signatures while no literal, no pattern and no runtime representation existed behind it - ") "a reader met the syntax in the reference, wrote it, and got a parse error. Sequences are `(Vec T)`")
+                    (concat (concat "`[T]` was refused rather than implemented: the form checked in " "signatures while no literal, no pattern and no runtime representation existed behind it - ") "a reader met the syntax in the reference, wrote it, and got a parse error. Sequences are `(Vec T)`")
                     (if (strEq kw "tuple")
-                      (strConcat (strConcat "`(A B)` was refused rather than implemented: the form checked in " "signatures while no literal, no pattern and no runtime representation existed behind it. ") "Products are `struct`, sums are `data`")
-                      (strConcat (strConcat "`" kw) "` was removed"))))))))))))))
+                      (concat (concat "`(A B)` was refused rather than implemented: the form checked in " "signatures while no literal, no pattern and no runtime representation existed behind it. ") "Products are `struct`, sums are `data`")
+                      (concat (concat "`" kw) "` was removed"))))))))))))))
 
 (pub fn (removedHelp kw)
   (if (strEq kw "alloc")
@@ -1600,25 +1600,25 @@
   (if (strEq kw "define")
     "write `fn`: `(fn (add x y) (+ x y))`, and `(fn (answer) 42)` for a function with no parameters"
   (if (strEq kw "begin")
-    (strConcat "use a brace block: `{ a b c }` sequences expressions and answers " "the last one, which is what `(begin a b c)` meant - and a `fn` body already sequences, so the wrapper is usually just deletable")
+    (concat "use a brace block: `{ a b c }` sequences expressions and answers " "the last one, which is what `(begin a b c)` meant - and a `fn` body already sequences, so the wrapper is usually just deletable")
     (if (strEq kw "union")
-      (strConcat "use `data` for a tagged sum whose variants the compiler can check " "for exhaustiveness, or `struct` for a product of fields")
+      (concat "use `data` for a tagged sum whose variants the compiler can check " "for exhaustiveness, or `struct` for a product of fields")
       (if (strEq kw "linear")
-        (strConcat (strConcat "delete the marker and use the type itself: reclamation is the " "reference counting every heap block carries, and ") "`__axiom_arena_mark`/`__axiom_arena_reset_keeping` is the explicit fallback for a program that wants to choose the point")
+        (concat (concat "delete the marker and use the type itself: reclamation is the " "reference counting every heap block carries, and ") "`__axiom_arena_mark`/`__axiom_arena_reset_keeping` is the explicit fallback for a program that wants to choose the point")
         (if (strEq kw "consume")
-          (strConcat "delete the wrapper and keep its argument - `(consume e)` always " "meant `e`, and a block is freed when its count reaches zero")
+          (concat "delete the wrapper and keep its argument - `(consume e)` always " "meant `e`, and a block is freed when its count reaches zero")
           (if (strEq kw "foreign")
-            (strConcat (strConcat "write an `extern` block instead - `(extern \"lib\" (name :: " "(-> Int Int) (symbol \"sym\")))` - and build with ") (strConcat "`--link-lib`/`--link-search`; or reach the kernel through the " "standard library's `__syscall0`-`__syscall6`, which needs no FFI"))
+            (concat (concat "write an `extern` block instead - `(extern \"lib\" (name :: " "(-> Int Int) (symbol \"sym\")))` - and build with ") (concat "`--link-lib`/`--link-search`; or reach the kernel through the " "standard library's `__syscall0`-`__syscall6`, which needs no FFI"))
             (if (strEq kw "deriving")
-              (strConcat "derive instances explicitly, where you want them: " "`(deriveEq T)` is an ordinary declaration macro (docs/macro-system.md MAC-CAP-9)")
+              (concat "derive instances explicitly, where you want them: " "`(deriveEq T)` is an ordinary declaration macro (docs/macro-system.md MAC-CAP-9)")
               (if (strEq kw "trait")
-                (strConcat (strConcat "declare a capability record instead: `(struct ShowOf (a) (render : " "(-> a String)))`, and bind an instance with `fn` - ") "`(fn (showInt) (ShowOf fmtInt))`. Call through the field: `(c.render x)`")
+                (concat (concat "declare a capability record instead: `(struct ShowOf (a) (render : " "(-> a String)))`, and bind an instance with `fn` - ") "`(fn (showInt) (ShowOf fmtInt))`. Call through the field: `(c.render x)`")
                 (if (strEq kw "impl")
-                  (strConcat (strConcat "bind the instance as a VALUE - `(fn (showColor) (ShowOf renderColor))` " "- and pass it where it is needed. If this was an `impl` of `Show`, ") "delete it: `show` and `{}` interpolation render every type from its static type without one")
+                  (concat (concat "bind the instance as a VALUE - `(fn (showColor) (ShowOf renderColor))` " "- and pass it where it is needed. If this was an `impl` of `Show`, ") "delete it: `show` and `{}` interpolation render every type from its static type without one")
                   (if (strEq kw "list")
-                    (strConcat "write `(Vec T)` for a sequence: `vecNew`, `vecGet`, `vecPush` and " "`(for x in xs body)` are its surface")
+                    (concat "write `(Vec T)` for a sequence: `vecNew`, `vecGet`, `vecPush` and " "`(for x in xs body)` are its surface")
                     (if (strEq kw "tuple")
-                      (strConcat "write a `struct` for a product of named fields, or `data` for a " "tagged sum - both are inhabited, matched and reclaimed")
+                      (concat "write a `struct` for a product of named fields, or `data` for a " "tagged sum - both are inhabited, matched and reclaimed")
                       "run `axiom explain AX2004`")))))))))))))
 
 ; ------------------------------------------------------------------
@@ -1756,12 +1756,12 @@
       (for i in 0..n
         (if (== (strByte lex i) 95)
           {
-            (set out (strConcat out (strSlice lex from (- i from))))
+            (set out (concat out (strSlice lex from (- i from))))
             (set from (+ i 1))
             0
           }
           0))
-      (strConcat out (strSlice lex from (- n from)))
+      (concat out (strSlice lex from (- n from)))
     }))
 
 (pub :: parseIdentRef (-> (Vec Int) Int Int))
@@ -1828,7 +1828,7 @@
 (pub :: mangledFromChain (-> (Vec String) String))
 ;@axiom:effect(unsafe)
 (pub fn (mangledFromChain chain)
-  (strConcat (strConcat (joinDotted chain 0 "") "$") (vecGetStr chain (- (vecLen chain) 1))))
+  (concat (concat (joinDotted chain 0 "") "$") (vecGetStr chain (- (vecLen chain) 1))))
 
 (pub :: joinDotted (-> (Vec String) Int String String))
 ;@axiom:effect(unsafe)
@@ -1840,7 +1840,7 @@
       (+ i 1)
       (if (== i 0)
         (vecGetStr chain 0)
-        (strConcat (strConcat acc ".") (vecGetStr chain i))))))
+        (concat (concat acc ".") (vecGetStr chain i))))))
 
 ; `.field` suffixes make field accesses, folded left so `a.b.c` reads
 ; the `c` of the value at `a.b`. Dotted module paths never reach here -
@@ -1897,7 +1897,7 @@
             (if (== (memGetWord rr 0) 0)
               rr
               (if (peekIs tokens (memGetWord rr 2) TK_RPAREN)
-                (pOk (strConcat (strConcat (strConcat "syntax/join " (memGetWordStr lr 1)) " ") (memGetWordStr rr 1)) (advance (memGetWord rr 2)))
+                (pOk (concat (concat (concat "syntax/join " (memGetWordStr lr 1)) " ") (memGetWordStr rr 1)) (advance (memGetWord rr 2)))
                 (pErrExp (memGetWord rr 2) ")")))))))
     ; A declared name is a name, not an operator. Every use of `-`
     ; or `*` reaches the built-in, so a function, constructor or type
@@ -2045,7 +2045,7 @@
               (vecPush names (patSlotName (memGetWord r 1)))
               (vecPush
                 spells
-                (strConcat
+                (concat
                   (patTokensSpelling tokens pos afterPat "")
                   (if (== rep 1)
                     " ..."
@@ -2117,8 +2117,8 @@
         (if (== (strLen acc) 0)
           lx
           (if (|| (strEq lx ")") (strEq (patLastByte acc) "("))
-            (strConcat acc lx)
-            (strConcat (strConcat acc " ") lx)))))))
+            (concat acc lx)
+            (concat (concat acc " ") lx)))))))
 
 (pub :: patLastByte (-> String String))
 (pub fn (patLastByte s)
@@ -2619,7 +2619,7 @@
                           (tokenSpan (vecGet tokens (advance pos)))))
                       (parseExternItems tokens (memGetWord cr 2) names items)
                     }))))
-            (pErrExp (memGetWord nr 2) (strConcat (strConcat "`:: type` after extern item `" (memGetWordStr nr 1)) "` (an extern item declares its type: `(name :: (-> Int Int) (symbol \"c_name\"))`)")))))
+            (pErrExp (memGetWord nr 2) (concat (concat "`:: type` after extern item `" (memGetWordStr nr 1)) "` (an extern item declares its type: `(name :: (-> Int Int) (symbol \"c_name\"))`)")))))
       (pErrExp pos "an extern item `(name :: type (symbol \"...\"))`"))))
 
 ; The clauses after an item's type, up to and past the item's closing
@@ -2653,7 +2653,7 @@
                         (pErrExp p4 "the item's closing paren after its `(symbol ...)` clause")))
                     (pErrExp p3 "`)` closing the `(symbol ...)` clause")))
                 (pErrExp p2 "a quoted linker symbol after `symbol`")))
-            (pErrExp p1 (strConcat (strConcat "`symbol` (unknown extern clause `" (tokenLexeme (vecGet tokens p1))) "`; the clauses an extern item takes are: symbol)")))
+            (pErrExp p1 (concat (concat "`symbol` (unknown extern clause `" (tokenLexeme (vecGet tokens p1))) "`; the clauses an extern item takes are: symbol)")))
           (pErrExp p1 "`symbol`, the one clause an extern item takes")))
       (pErrExp pos "`(symbol \"...\")` or the item's closing paren"))))
 
@@ -3340,7 +3340,7 @@
 ; slash in them - so `/tmp/x/secret` lexes as ONE identifier and used to
 ; reach `modPathToFile`, which rewrites `.` to `/` and leaves an
 ; existing `/` alone, and then `searchDirsFor`, which forms its
-; candidate with a bare `strConcat` that an already-absolute name simply
+; candidate with a bare `concat` that an already-absolute name simply
 ; re-anchors. Measured 2026-08-23: with `/tmp/axtrav/secret.ax` written
 ; outside the project and `(import /tmp/axtrav/secret)` in the entry
 ; file, `axiom check` printed `OK` and compiled that file's
@@ -3377,12 +3377,12 @@
         nr
         ; The dotted tail is checked too, not only the head: `Sys./etc/x`
         ; is one `.` away from the head case and reaches the same
-        ; `strConcat`.
+        ; `concat`.
         (if (match (strFindByte (memGetWordStr nr 1) 47 0)
           ((None) false)
           ((Some _) true))
           (pErrModSeg (advance pos) (memGetWordStr nr 1))
-          (parseModPathRest tokens (memGetWord nr 2) (strConcat (strConcat acc ".") (memGetWordStr nr 1))))))
+          (parseModPathRest tokens (memGetWord nr 2) (concat (concat acc ".") (memGetWordStr nr 1))))))
     (pOk acc pos)))
 
 ; ------------------------------------------------------------------
@@ -4250,7 +4250,7 @@
             (if (== (strVecHas used nm) 0)
               (vecPush used nm)
               used)
-            (mkEVarAt (strConcat "syntax/literal " nm) (nodeSpan p))
+            (mkEVarAt (concat "syntax/literal " nm) (nodeSpan p))
           })))
     (if (== (nodeTag p) TAG_E_APP)
       (mkEApp (rewritePatLits (nodeA p) lits used) (rewritePatLits (nodeB p) lits used))
@@ -5465,7 +5465,7 @@
 (pub :: mkParallel (-> String Int (Vec Int) Int Int Int Int))
 (pub fn (mkParallel rname rspan binds body kwSpan formPos)
   (let ((id (parIndexName formPos)))
-    (let ((bname (strConcat "parallel$b" id)))
+    (let ((bname (concat "parallel$b" id)))
       (mkELetAt rname (mkEVarAt "__axiom_arena_mark" kwSpan) (mkELetAt bname (mkEApp (mkEVarAt "parallel$borrow" kwSpan) (mkEInt 0)) (mkELetAt "parallel$l" (mkEApp (mkEApp (mkEVarAt "parallel$lends" kwSpan) (mkEVarAt bname kwSpan)) (mkEBegin vecNew)) (parSpawnLets binds 0 (parJoinLets binds 0 (mkELetAt "parallel$r" (mkEApp (mkEVarAt "parallel$return" kwSpan) (mkEVarAt bname kwSpan)) body kwSpan) kwSpan) kwSpan id) kwSpan) kwSpan) rspan))))
 
 ; The spawns, outermost first, so the first binding starts first.
@@ -5493,7 +5493,7 @@
 (pub fn (parSpawnCall e kwSpan id)
   (let ((ps vecNew))
     {
-      (vecPush ps (strConcat "parallel$_" id))
+      (vecPush ps (concat "parallel$_" id))
       (mkEApp (mkEApp (mkEVarAt "__par_spawn" kwSpan) (mkLamCurried ps e (nodeSpan e))) (mkEInt 0))
     }))
 
@@ -5507,7 +5507,7 @@
 ; compiler's own sources one module at a time and found the capture).
 (pub :: parHandleName (-> Int String))
 (pub fn (parHandleName i)
-  (strConcat "parallel$h" (parIndexName i)))
+  (concat "parallel$h" (parIndexName i)))
 
 (pub :: parIndexName (-> Int String))
 (pub fn (parIndexName i)
@@ -5516,7 +5516,7 @@
       (if (< i 10)
         (+ 48 i)
         (+ 87 i)))
-    (strConcat (parIndexName (/ i 36)) (parIndexName (% i 36)))))
+    (concat (parIndexName (/ i 36)) (parIndexName (% i 36)))))
 
 ; ------------------------------------------------------------------
 ; (struct Name field...) - struct construction in expression position,

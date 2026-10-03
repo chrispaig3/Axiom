@@ -160,7 +160,7 @@ fi
 (pub :: greedy Int)
 
 ;@axiom:isr
-(pub fn (greedy) (strLen (strConcat "x" "y")))
+(pub fn (greedy) (strLen (concat "x" "y")))
 ABL
 } > "$work/isrlib-abl.ax"
 # Assert the plant landed before believing the red.

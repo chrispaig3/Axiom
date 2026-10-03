@@ -27,7 +27,7 @@
 ; a name the entry file declares cannot capture it. Emit a bare
 ; `vecLen` instead and this file's own wins - the messages become
 ; `expected Vec Int` and the case goes red. MAC-CAP-10.5 records the
-; same defect being real once: an entry file's own `strConcat` captured
+; same defect being real once: an entry file's own `concat` captured
 ; the format lowering's, silently and wrongly.
 (import IO)
 (import Map)

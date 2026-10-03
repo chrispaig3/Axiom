@@ -44,8 +44,8 @@
 ;@axiom:effect(io)
 (fn (say okFlag label)
   (if (== okFlag 1)
-    (println (strConcat "ok   " label))
-    (println (strConcat "FAIL " label))))
+    (println (concat "ok   " label))
+    (println (concat "FAIL " label))))
 
 (:: main Int)
 ;@axiom:effect(io)
@@ -90,7 +90,7 @@
                             0
                             1)
                           (match (netBind lsn addr)
-                            ((Err e) (die (strConcat "bind failed: errno=" (fmtInt (errCode e))) 1))
+                            ((Err e) (die (concat "bind failed: errno=" (fmtInt (errCode e))) 1))
                             ((Ok _) 0))
                           (let ((_ (netListen lsn 16))) 0)
                           (let ((_ (netSetNonBlocking lsn))) 0)

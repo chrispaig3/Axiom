@@ -7,4 +7,4 @@
     (a "abc")
     (b "de")
   )
-    (+ (strLen (strConcat a b)) 37)))
+    (+ (strLen (concat a b)) 37)))

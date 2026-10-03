@@ -1183,7 +1183,7 @@ They share one code because they share a remedy: correct the
 expression, or delete the tag to withdraw the claim. `AX3010` and
 `AX3049` group their arms for the same reason. Question 4 isn't a
 blanket refusal. `vecLen`, `vecGet`, `strLen`, `strEq`, `strByte` and
-`memGetWord` carry an empty effect row, while `strConcat`, `fmtInt` and
+`memGetWord` carry an empty effect row, while `concat`, `fmtInt` and
 `vecNew` carry `Alloc,Mut`. A contract may compare, index, measure and
 test, but it may not build. The design note is
 [contracts-design.md](contracts-design.md), and
@@ -1478,7 +1478,7 @@ F openish  "(Int -> Result Int Error)"  #effects=Alloc,Mut
 F openLit  "(Int -> Result Int Error)"  #effects=Alloc
 ```
 
-The first builds its message with `strConcat`, and the second uses a
+The first builds its message with `concat`, and the second uses a
 literal. A function that pays `Alloc, Mut` cannot carry `pure`, cannot
 pass `restrict(no-alloc)`, and cannot sit in a `handle` checked
 exhaustive against a narrower row. P6 in

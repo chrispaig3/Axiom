@@ -49,8 +49,8 @@
 ;@axiom:effect(io)
 (fn (say okFlag label)
   (if (== okFlag 1)
-    (println (strConcat "ok   " label))
-    (println (strConcat "FAIL " label))))
+    (println (concat "ok   " label))
+    (println (concat "FAIL " label))))
 
 ; The binder is handed to a function whose parameter is DECLARED
 ; `Error` because, when this was written, a `match` binder over a

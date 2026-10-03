@@ -247,7 +247,7 @@ def indent_problems(text, delims, delim_lines, orig):
     truth: where a printer puts its spaces is defined by its goldens and
     nothing else. That makes layout exactly the part a re-bless owns,
     and an adversary proved it - one token in `foIndentStr`
-    (`(strConcat s "  ")` -> `(strConcat s "")`) makes the printer emit
+    (`(concat s "  ")` -> `(concat s "")`) makes the printer emit
     every file flush left, and re-blessing the three goldens this gate
     reads turned it green: 224 of 224 mappings reproduced, zoo matched,
     37 parity cases matched, exit 0. Comments, strings and chars all
@@ -284,7 +284,7 @@ def indent_problems(text, delims, delim_lines, orig):
     this exists to catch - flush-left output still BREAKS forms across
     lines, so its lines still begin nested, and only the leading
     spaces are gone. Measured against a compiler built with
-    `foIndentStr`'s `(strConcat s "  ")` cut to `""`: over the files
+    `foIndentStr`'s `(concat s "  ")` cut to `""`: over the files
     that build rewrites, the old trigger and this one name the same
     set, and the four Platform files leave it - they failed under the
     good compiler and the defective one alike, so they were never

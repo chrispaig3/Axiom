@@ -23,7 +23,7 @@
 ; counter is what a region inside a loop needs, and a store to a
 ; binding made INSIDE the region dies with it. Each is written with
 ; the reference the refused shape carries, so a refusal that keyed on
-; "a `strConcat` appears in the body" would draw three rows too many.
+; "a `concat` appears in the body" would draw three rows too many.
 ;
 ; Every row is AX3059 with the one slug `region-escape`: a code has one
 ; slug, and the message says which shape it was.
@@ -44,31 +44,31 @@
     {
       ; --- (a) the value ---
       (region r
-        (strConcat "a" "b"))
+        (concat "a" "b"))
       ; --- (b) a store to an outer binding ---
       (region s
         {
-          (set out (strConcat "a" "b"))
+          (set out (concat "a" "b"))
           0
         })
       ; --- (c) a store into an outer struct's field ---
       (region t
         {
-          (set b.s (strConcat "c" "d"))
+          (set b.s (concat "c" "d"))
           0
         })
       ; --- silent: a scalar leaves ---
       (println
         (region u
-          (strLen (strConcat "a" "b"))))
+          (strLen (concat "a" "b"))))
       ; --- silent: a scalar store to an outer counter ---
       (region v
-        (set n (+ n (strLen (strConcat "a" "b")))))
+        (set n (+ n (strLen (concat "a" "b")))))
       ; --- silent: a store to a binding made inside ---
       (region w
         (let ((mut inner ""))
           {
-            (set inner (strConcat "x" "y"))
+            (set inner (concat "x" "y"))
             (strLen inner)
           }))
       (println n)

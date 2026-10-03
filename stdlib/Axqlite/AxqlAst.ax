@@ -295,5 +295,5 @@
             (set lineStart (+ i 1))
           }
           0))
-      (strConcat (strConcat "line " (fmtInt line)) (strConcat ", column " (fmtInt (+ (- at lineStart) 1))))
+      (concat (concat "line " (fmtInt line)) (concat ", column " (fmtInt (+ (- at lineStart) 1))))
     }))

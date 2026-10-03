@@ -80,4 +80,4 @@
 ; A length refusal naming what was wrong.
 (pub :: cryptoLengthErr (-> String String (Result a Error)))
 (pub fn (cryptoLengthErr what where)
-  (cryptoErr cryptoInvalidLength (strConcat "invalid length: " what) where))
+  (cryptoErr cryptoInvalidLength (concat "invalid length: " what) where))

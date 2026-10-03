@@ -1342,7 +1342,7 @@ storeHeader Pager.ax Mut,Unsafe
 strAlloc Str.ax Alloc,Mut,Unsafe
 strByte Str.ax Unsafe
 strCmp Str.ax Unsafe
-strConcat Str.ax Alloc,Mut,Unsafe
+concat Str.ax Alloc,Mut,Unsafe
 strData Str.ax Unsafe
 strDup Str.ax Alloc,Mut,Unsafe
 strEq Str.ax Unsafe

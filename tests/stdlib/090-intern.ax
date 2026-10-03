@@ -3,7 +3,7 @@
 ; The property that matters, and the one an interner exists for, is that
 ; two `Str` handles built *separately* from the same bytes get the same
 ; id. So the same content is interned here four ways - as a literal, as
-; `strConcat` of two halves, as a `strSlice` out of an unrelated longer
+; `concat` of two halves, as a `strSlice` out of an unrelated longer
 ; string, and as a `strDup` - and all four must return the id the literal
 ; got, with `internCount` never moving. The test also prints the two
 ; handles' inequality, so the golden file records that they really were
@@ -48,7 +48,7 @@
 ; the re-interning check below needs.
 (pub :: itName (-> Int String))
 (pub fn (itName n)
-  (strConcat "id" (fmtInt n)))
+  (concat "id" (fmtInt n)))
 
 ; Intern "id{lo}" .. "id{hi-1}".
 (pub :: itInternRange (-> Int Int Int Int))
@@ -116,7 +116,7 @@
     (col (internWithCapacity 8))
     (big internNew)
     (alpha "alpha")
-    (built (strConcat "al" "pha"))
+    (built (concat "al" "pha"))
     (haystack "not-alpha-either")
   )
     {

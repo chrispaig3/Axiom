@@ -26,14 +26,14 @@
   (let ((mut out "["))
     {
       (for (v i) in ps
-        (set out (strConcat
+        (set out (concat
           out
-          (strConcat
+          (concat
             (if (== i 0)
               ""
               ", ")
             (axqValueText v)))))
-      (strConcat out "]")
+      (concat out "]")
     }))
 
 (:: main Int)

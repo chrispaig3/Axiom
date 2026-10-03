@@ -113,7 +113,7 @@
           )
             {
               (tallyBytes fips ct (aesRun true false key pt) (hexEncode key))
-              (tallyBytes fips pt (aesRun false false key ct) (strConcat "decrypt " (hexEncode key)))
+              (tallyBytes fips pt (aesRun false false key ct) (concat "decrypt " (hexEncode key)))
               0
             })))
       (for line in (katLines "aes-kat-ecb.txt")
@@ -135,9 +135,9 @@
           )
             {
               (tallyBytes diff ct (aesRun true false key pt) (hexEncode key))
-              (tallyBytes diff ct (aesRun true true key pt) (strConcat "in place " (hexEncode key)))
-              (tallyBytes diff pt (aesRun false false key ct) (strConcat "decrypt " (hexEncode key)))
-              (tallyBytes diff pt (aesRun false true key ct) (strConcat "decrypt in place " (hexEncode key)))
+              (tallyBytes diff ct (aesRun true true key pt) (concat "in place " (hexEncode key)))
+              (tallyBytes diff pt (aesRun false false key ct) (concat "decrypt " (hexEncode key)))
+              (tallyBytes diff pt (aesRun false true key ct) (concat "decrypt in place " (hexEncode key)))
               0
             })))
       (tallyCheck api (== (aesRounds 16) 10) "16-byte key, 10 rounds")

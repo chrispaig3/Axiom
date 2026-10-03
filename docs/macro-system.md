@@ -1977,19 +1977,19 @@ argument list on the format call. `{}` is refused by name as `AX3031`,
 and its help points to the capture form.
 
 **MAC-CAP-10.5 (H, CLOSED 0.7.4).** The names these queries generate
-are `strConcat`, `fmtInt`, the `fmtPad*` family and the rendering call
+are `concat`, `fmtInt`, the `fmtPad*` family and the rendering call
 for a hole. No template writes them, so they take `expQualify`'s
 definition-site rule (`MAC-HYG-6`) explicitly, not through
 substitution. An entry file that declares the same name can't capture
-them. This program declares its own `show` and `strConcat`, and still
+them. This program declares its own `show` and `concat`, and still
 prints `n=42`:
 
 ```scheme
 (import IO)
 (:: show (-> a String))
 (fn (show x) "HIJACKED")
-(:: strConcat (-> String String String))
-(fn (strConcat a b) "HIJACKED")
+(:: concat (-> String String String))
+(fn (concat a b) "HIJACKED")
 ;@axiom:effect(io)
 (fn (main) (let ((n 42)) { (println "n={n}") 0 }))
 ```
@@ -2004,7 +2004,7 @@ Two mechanisms close the two ways in:
   rewrites a free identifier to `Mod$name` when exactly one module in
   the merged declaration list declares it. The entry file's own
   declaration isn't a module's. `Str` is the only module declaring
-  `strConcat`, so the lowering emits `Str$strConcat`.
+  `concat`, so the lowering emits `Str$concat`.
 - **The rendering call.** A hole's rendering call isn't a name at all.
   `expFmtShow` emits the head `format#`, and `#` isn't an identifier
   character (`AX1001`). The checker claims that head and rewrites it

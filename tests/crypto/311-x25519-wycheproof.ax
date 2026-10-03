@@ -19,7 +19,7 @@
 (fn (orDie r what)
   (match r
     ((Ok v) v)
-    ((Err e) (cast a (die (strConcat "311: " (strConcat what (strConcat ": " (errorText e)))) 3)))))
+    ((Err e) (cast a (die (concat "311: " (concat what (concat ": " (errorText e)))) 3)))))
 
 ; Whether every byte of `s` is zero.
 (:: allZero (-> String Bool))
@@ -67,7 +67,7 @@
       (for line in (katLines "wycheproof-x25519.txt")
         (let ((f (katFields line)))
           (let (
-            (label (strConcat "tcId " (strConcat (katText f 0) (strConcat " " (katText f 2)))))
+            (label (concat "tcId " (concat (katText f 0) (concat " " (katText f 2)))))
             (priv (katBytes f 3))
             (pub (katBytes f 4))
             (shared (katBytes f 5))
@@ -78,7 +78,7 @@
                 ((Err _) (tallyCheck raw false label)))
               (let ((got (viaApi priv pub)))
                 (if (allZero shared)
-                  (tallyCheck api (strEq got "refused") (strConcat label ": the all-zero secret is refused"))
+                  (tallyCheck api (strEq got "refused") (concat label ": the all-zero secret is refused"))
                   (tallyBytes api shared got label)))
             })))
       (+ (tallyReport raw) (tallyReport api))

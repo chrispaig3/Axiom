@@ -46,7 +46,7 @@
 ;
 ; CONCATENATION. The serialiser builds a Vec of pieces and joins it
 ; ONCE, summing the lengths and copying into a single allocation. It
-; does not left-fold `strConcat`: that shape cost this project 16.9 GB
+; does not left-fold `concat`: that shape cost this project 16.9 GB
 ; on one self-compile, because every intermediate survives in a bump
 ; allocator that never frees.
 (import Mem)

@@ -67,10 +67,10 @@ ABLATIONS = {
     # stand - the two chunk lines read the EFFECTIVE chunk since the
     # ceiling flag landed, and re-anchoring here is part of that move.
     "literal": (
-        """    (emitLine cg (strConcat "  %big = icmp ugt i64 %need, " (strConcat (fmtInt (arenaChunkBytes (memGetWord cg 26))) "")))
-    (emitLine cg (strConcat "  %rounded0 = add i64 %need, " (strConcat (fmtInt (- (targetArenaGrainBytes (memGetWord cg 26)) 1)) "")))
-    (emitLine cg (strConcat "  %rounded = and i64 %rounded0, " (strConcat (fmtInt (- 0 (targetArenaGrainBytes (memGetWord cg 26)))) "")))
-    (emitLine cg (strConcat "  %chunk = select i1 %big, i64 %rounded, i64 " (strConcat (fmtInt (arenaChunkBytes (memGetWord cg 26))) "")))""",
+        """    (emitLine cg (concat "  %big = icmp ugt i64 %need, " (concat (fmtInt (arenaChunkBytes (memGetWord cg 26))) "")))
+    (emitLine cg (concat "  %rounded0 = add i64 %need, " (concat (fmtInt (- (targetArenaGrainBytes (memGetWord cg 26)) 1)) "")))
+    (emitLine cg (concat "  %rounded = and i64 %rounded0, " (concat (fmtInt (- 0 (targetArenaGrainBytes (memGetWord cg 26)))) "")))
+    (emitLine cg (concat "  %chunk = select i1 %big, i64 %rounded, i64 " (concat (fmtInt (arenaChunkBytes (memGetWord cg 26))) "")))""",
         """    (emitLine cg "  %big = icmp ugt i64 %need, 1048576")
     (emitLine cg "  %rounded0 = add i64 %need, 65535")
     (emitLine cg "  %rounded = and i64 %rounded0, -65536")
@@ -153,10 +153,10 @@ ABLATIONS = {
     # edits, one drill - the keyword is one property of one family, and
     # stripping half of it would leave A11 half-tested.
     "volatile": (
-        [(""" = load volatile " (strConcat ty ", ptr ")) (strConcat pr (strConcat ", align " """,
-          """ = load " (strConcat ty ", ptr ")) (strConcat pr (strConcat ", align " """),
-         ("""(strConcat "  store volatile " (strConcat ty (strConcat " " sv)))""",
-          """(strConcat "  store " (strConcat ty (strConcat " " sv)))""")],
+        [(""" = load volatile " (concat ty ", ptr ")) (concat pr (concat ", align " """,
+          """ = load " (concat ty ", ptr ")) (concat pr (concat ", align " """),
+         ("""(concat "  store volatile " (concat ty (concat " " sv)))""",
+          """(concat "  store " (concat ty (concat " " sv)))""")],
         None,
         "A11 - the volatile keyword reaching the emitted accesses",
     ),
@@ -190,8 +190,8 @@ ABLATIONS = {
     # memory clobber still keeps it here, so the drill is read off the
     # emitted attributes, which is what the rule promises.
     "asmfx": (
-        '(strConcat "  " r) " = call i64 asm sideeffect \\"")',
-        '(strConcat "  " r) " = call i64 asm \\"")',
+        '(concat "  " r) " = call i64 asm sideeffect \\"")',
+        '(concat "  " r) " = call i64 asm \\"")',
         "A15 - every inline-asm block being sideeffect",
     ),
     # `_start` builds the tables and never writes SCTLR_EL1: MAIR, TCR
@@ -207,7 +207,7 @@ ABLATIONS = {
     # else, or not at all.
     "guard": (
         '(emitLine cg "  %a3 = select i1 %isg, i64 0, i64 %a4")',
-        '(emitLine cg (strConcat "  %a3 = select i1 %isg, i64 " (strConcat (fmtInt mmuAttrData) ", i64 %a4")))',
+        '(emitLine cg (concat "  %a3 = select i1 %isg, i64 " (concat (fmtInt mmuAttrData) ", i64 %a4")))',
         "A17 - the guard below the stack not mapped",
     ),
     # The fault exit no longer switches to the fault stack: a fault

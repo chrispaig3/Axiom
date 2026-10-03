@@ -39,10 +39,10 @@
               (katText f 2)))
           )
             {
-              (tallyCheck t (strEq (b64Encode bytes) b64) (strConcat "encode " b64))
-              (tallyCheck t (decodes (b64Decode b64) bytes) (strConcat "decode " b64))
-              (tallyCheck t (strEq (hexEncode bytes) (strLower b16)) (strConcat "hex " b16))
-              (tallyCheck t (decodes (hexDecode b16) bytes) (strConcat "unhex " b16))
+              (tallyCheck t (strEq (b64Encode bytes) b64) (concat "encode " b64))
+              (tallyCheck t (decodes (b64Decode b64) bytes) (concat "decode " b64))
+              (tallyCheck t (strEq (hexEncode bytes) (strLower b16)) (concat "hex " b16))
+              (tallyCheck t (decodes (hexDecode b16) bytes) (concat "unhex " b16))
               0
             })))
       ; every refusal the decoders promise

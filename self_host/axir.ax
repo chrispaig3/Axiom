@@ -159,12 +159,12 @@
 (pub fn (axirHeader name loc ty nid)
   (let ((mut s "F "))
     {
-      (set s (strConcat s (strConcat name (strConcat " " loc))))
-      (set s (strConcat s (strConcat " \"" (strConcat (symFreshNames ty) "\""))))
+      (set s (concat s (concat name (concat " " loc))))
+      (set s (concat s (concat " \"" (concat (symFreshNames ty) "\""))))
       (if (> (strLen nid) 0)
-        (set s (strConcat s (strConcat " @" nid)))
+        (set s (concat s (concat " @" nid)))
         "")
-      (strConcat s "\n")
+      (concat s "\n")
     }))
 
 ; The `region` line: the checker's own words, undecoded.
@@ -191,9 +191,9 @@
       (for i in 0..np
         {
           (if (> i 0)
-            (set from (strConcat from ","))
+            (set from (concat from ","))
             "")
-          (set from (strConcat
+          (set from (concat
             from
             (if (&&
               (!=
@@ -206,7 +206,7 @@
       (if (== np 0)
         (set from "-")
         "")
-      (strConcat "region " (strConcat (fmtInt (memGetWord f 1)) (strConcat (strConcat " " from) (strConcat (strConcat " " (fmtInt (memGetWord f 3))) (strConcat (strConcat " " (fmtInt (memGetWord f 4))) (strConcat (strConcat " " (fmtInt (memGetWord f 5))) "\n"))))))
+      (concat "region " (concat (fmtInt (memGetWord f 1)) (concat (concat " " from) (concat (concat " " (fmtInt (memGetWord f 3))) (concat (concat " " (fmtInt (memGetWord f 4))) (concat (concat " " (fmtInt (memGetWord f 5))) "\n"))))))
     }))
 
 ; ------------------------------------------------------------------
@@ -236,7 +236,7 @@
 (pub fn (axirRegs v i acc)
   (if (>= i (vecLen v))
     acc
-    (axirRegs v (+ i 1) (strConcat acc (strConcat " " (mirReg (vecGet v i)))))))
+    (axirRegs v (+ i 1) (concat acc (concat " " (mirReg (vecGet v i)))))))
 
 ; One instruction, or "" for an opcode this grammar does not spell.
 ;
@@ -251,11 +251,11 @@
 (pub :: axirOpLine (-> MInst String))
 (pub fn (axirOpLine n)
   (if (== n.op MO_CONST)
-    (strConcat "op " (strConcat (mirReg n.dst) (strConcat " const " (fmtInt n.a))))
+    (concat "op " (concat (mirReg n.dst) (concat " const " (fmtInt n.a))))
     (if (== n.op MO_BIN)
-      (strConcat "op " (strConcat (mirReg n.dst) (strConcat " " (strConcat n.name (strConcat " " (strConcat (mirReg n.a) (strConcat " " (mirReg n.b))))))))
+      (concat "op " (concat (mirReg n.dst) (concat " " (concat n.name (concat " " (concat (mirReg n.a) (concat " " (mirReg n.b))))))))
       (if (== n.op MO_CALL)
-        (strConcat "op " (strConcat (mirReg n.dst) (strConcat " call " (strConcat (saAxSafe n.name) (axirRegs n.args 0 "")))))
+        (concat "op " (concat (mirReg n.dst) (concat " call " (concat (saAxSafe n.name) (axirRegs n.args 0 "")))))
         ""))))
 
 ; One terminator, or "" for an opcode this grammar does not spell.
@@ -270,21 +270,21 @@
 (pub :: axirTermLine (-> MInst String))
 (pub fn (axirTermLine t)
   (if (== t.op MT_RET)
-    (strConcat "term ret " (mirReg t.a))
+    (concat "term ret " (mirReg t.a))
     (if (== t.op MT_BR)
-      (strConcat "term br " (strConcat (mirBB t.tgt) (axirRegs t.args 0 "")))
+      (concat "term br " (concat (mirBB t.tgt) (axirRegs t.args 0 "")))
       (if (== t.op MT_CONDBR)
         ; The block arguments ride after the two targets - the same
         ; suffix `br` carries, because it is the same list. An empty
         ; list renders as nothing, so the bare form reads exactly as
         ; it did before `while` gave the applied form a writer.
-        (strConcat "term condbr " (strConcat (mirReg t.a) (strConcat " " (strConcat (mirBB t.tgt) (strConcat " " (strConcat (mirBB t.alt) (axirRegs t.args 0 "")))))))
+        (concat "term condbr " (concat (mirReg t.a) (concat " " (concat (mirBB t.tgt) (concat " " (concat (mirBB t.alt) (axirRegs t.args 0 "")))))))
         (if (== t.op MT_TRAPZ)
-          (strConcat "term trapz " (strConcat (mirReg t.a) (strConcat " " (strConcat (mirBB t.tgt) (strConcat " " (mirBB t.alt))))))
+          (concat "term trapz " (concat (mirReg t.a) (concat " " (concat (mirBB t.tgt) (concat " " (mirBB t.alt))))))
           (if (== t.op MT_TRAP)
             (if (>= t.a 0)
-              (strConcat "term trap " (strConcat (saAxSafe t.name) (strConcat " " (mirReg t.a))))
-              (strConcat "term trap " (saAxSafe t.name)))
+              (concat "term trap " (concat (saAxSafe t.name) (concat " " (mirReg t.a))))
+              (concat "term trap " (saAxSafe t.name)))
             ""))))))
 
 ; One block onto `out`. Answers 0 the moment a line renders as "" or
@@ -297,13 +297,13 @@
 (pub fn (axirBlockLines b out)
   (let ((mut ok 1))
     {
-      (vecPushStr out (strConcat "blk " (strConcat (mirBB b.id) (strConcat (axirRegs b.params 0 "") "\n"))))
+      (vecPushStr out (concat "blk " (concat (mirBB b.id) (concat (axirRegs b.params 0 "") "\n"))))
       (for i in 0..(vecLen b.instrs)
         (let ((s (axirOpLine (vecGet b.instrs i))))
           (if (== (strLen s) 0)
             (set ok 0)
             {
-              (vecPushStr out (strConcat s "\n"))
+              (vecPushStr out (concat s "\n"))
               0
             })))
       (if (== (vecLen b.term) 1)
@@ -311,7 +311,7 @@
           (if (== (strLen s) 0)
             (set ok 0)
             {
-              (vecPushStr out (strConcat s "\n"))
+              (vecPushStr out (concat s "\n"))
               0
             }))
         (set ok 0))
@@ -404,7 +404,7 @@
   )
     (let ((sm (smBuild decls units)))
       {
-        (vecPush parts (strConcat "axir 1 " (strConcat target (strConcat " " (strConcat axiomVersion "\n")))))
+        (vecPush parts (concat "axir 1 " (concat target (concat " " (concat axiomVersion "\n")))))
         (let (
           (fns (tcFnsVec tc))
           (mut i 0)
@@ -443,7 +443,7 @@
                                 (cast Int opTy))
                               (symTy (memGetWord e 1)))
                             (smNidFor sm name)))
-                        (vecPush parts (strConcat "sig " (strConcat (fmtInt (memGetWord e 2)) "\n")))
+                        (vecPush parts (concat "sig " (concat (fmtInt (memGetWord e 2)) "\n")))
                         (let ((mut k 0))
                           (if (==
                             (cast Int params)
@@ -451,7 +451,7 @@
                             0
                             (while (< k (vecLen params))
                               {
-                                (vecPush parts (strConcat "param " (strConcat (fmtInt k) (strConcat " " (strConcat (saAxSafe (vecGetStr params k)) "\n")))))
+                                (vecPush parts (concat "param " (concat (fmtInt k) (concat " " (concat (saAxSafe (vecGetStr params k)) "\n")))))
                                 (set k (+ k 1))
                               })))
                         (let ((f (memGetWord e 8)))
@@ -664,14 +664,14 @@
                 (let ((kind (vecGetStr toks 0)))
                   (let ((want (axirKindArityMin kind)))
                     (if (< want 0)
-                      (set bad (strConcat "unknown line kind `" (strConcat kind "`")))
+                      (set bad (concat "unknown line kind `" (concat kind "`")))
                       (if (|| (< (vecLen toks) want) (&& (axirKindExact kind) (> (vecLen toks) want)))
-                        (set bad (strConcat "`" (strConcat kind "` line has the wrong number of fields")))
+                        (set bad (concat "`" (concat kind "` line has the wrong number of fields")))
                         (let ((rec (axirDecompose kind toks)))
                           (if (==
                             (cast Int rec)
                             0)
-                            (set bad (strConcat "`" (strConcat kind "` line is malformed")))
+                            (set bad (concat "`" (concat kind "` line is malformed")))
                             {
                               (vecPush
                                 out
@@ -711,16 +711,16 @@
                   {
                     (while (< k (vecLen rec))
                       {
-                        (set s (strConcat
+                        (set s (concat
                           s
-                          (strConcat
+                          (concat
                             " "
                             (if (|| (&& (strEq kind "op") (== k 1)) (&& (strEq kind "blk") (> k 1)))
-                              (strConcat "%" (vecGetStr rec k))
+                              (concat "%" (vecGetStr rec k))
                               (vecGetStr rec k)))))
                         (set k (+ k 1))
                       })
-                    (vecPush parts (strConcat s "\n"))
+                    (vecPush parts (concat s "\n"))
                   }))
               (set i (+ i 1))
             })))

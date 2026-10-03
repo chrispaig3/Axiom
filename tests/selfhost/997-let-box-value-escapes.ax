@@ -20,8 +20,8 @@
 ; allocated over them, and `==` allocates nothing - so a compare
 ; straight after the call passed on the broken compiler, 1 for 1 with
 ; the fixed one, while `println` of the same value printed NULs. The
-; three `strConcat`s stand in for whatever the next allocation would
-; have been. Each helper answers a string `strConcat` built, so
+; three `concat`s stand in for whatever the next allocation would
+; have been. Each helper answers a string `concat` built, so
 ; nothing here is an interned literal that would survive by accident.
 ;
 ; Four more spellings, found by trying to refute the first three:
@@ -51,25 +51,25 @@
 
 (:: viaMatch (-> String String))
 (fn (viaMatch t)
-  (let ((b (Mk (strConcat "id-" t))))
+  (let ((b (Mk (concat "id-" t))))
     (match b
       ((Mk s) s))))
 
 (:: viaField (-> String String))
 (fn (viaField t)
-  (let ((b (S (strConcat "id-" t))))
+  (let ((b (S (concat "id-" t))))
     b.f))
 
 (:: viaAlias (-> String String))
 (fn (viaAlias t)
-  (let ((b (S (strConcat "id-" t))))
+  (let ((b (S (concat "id-" t))))
     (let ((x b.f))
       x)))
 
 (:: viaSet (-> String String))
 (fn (viaSet t)
   (let ((mut r "none"))
-    (let ((b (Mk (strConcat "id-" t))))
+    (let ((b (Mk (concat "id-" t))))
       {
         (match b
           ((Mk s)
@@ -82,7 +82,7 @@
 (fn (viaLambda t)
   (let ((mut g 
     (lambda (i) "none")))
-    (let ((b (Mk (strConcat "id-" t))))
+    (let ((b (Mk (concat "id-" t))))
       {
         (match b
           ((Mk s)
@@ -97,7 +97,7 @@
 
 (:: viaIdent (-> String String))
 (fn (viaIdent t)
-  (let ((b (Mk (strConcat "id-" t))))
+  (let ((b (Mk (concat "id-" t))))
     (match b
       ((Mk s) (ident s)))))
 
@@ -109,7 +109,7 @@
 (:: viaWrap (-> String String))
 (fn (viaWrap t)
   (unbox
-    (let ((b (Mk (strConcat "id-" t))))
+    (let ((b (Mk (concat "id-" t))))
       (match b
         ((Mk s) (Mk s))))))
 
@@ -120,15 +120,15 @@
 (:: viaShadow (-> (-> (Box String) (Box String)) String String))
 (fn (viaShadow total t)
   (unbox
-    (let ((b (Mk (strConcat "id-" t))))
+    (let ((b (Mk (concat "id-" t))))
       (total b))))
 
 (:: held (-> String String Int))
 (fn (held got want)
   (let (
-    (a (strConcat "......" "......"))
-    (b (strConcat "......" "......"))
-    (c (strConcat "......" "......"))
+    (a (concat "......" "......"))
+    (b (concat "......" "......"))
+    (c (concat "......" "......"))
   )
     (if (== got want)
       1

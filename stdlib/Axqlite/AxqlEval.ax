@@ -174,7 +174,7 @@
 
 (:: typeClash (-> Value Value (Result Int Error)))
 (fn (typeClash a b)
-  (axqErr axqType (strConcat (strConcat "can't compare " (typeName (axqlValueType a))) (strConcat " with " (typeName (axqlValueType b)))) "axqlCompare"))
+  (axqErr axqType (concat (concat "can't compare " (typeName (axqlValueType a))) (concat " with " (typeName (axqlValueType b)))) "axqlCompare"))
 
 ; The order ORDER BY sorts in: NULL first, then numbers, then TEXT,
 ; then BLOB, each kind in its own order. Total, so it never fails.
@@ -243,7 +243,7 @@
 
 (:: overflow (-> Int Int Int (Result a Error)))
 (fn (overflow op x y)
-  (arithErr (strConcat "integer overflow: " (strConcat (fmtInt x) (strConcat (strConcat " " (opText op)) (strConcat " " (fmtInt y)))))))
+  (arithErr (concat "integer overflow: " (concat (fmtInt x) (concat (concat " " (opText op)) (concat " " (fmtInt y)))))))
 
 ; `x op y` on two INTEGERs, checked.
 (:: intArith (-> Int Int Int (Result Value Error)))
@@ -293,7 +293,7 @@
         (* x y)
         (/ x y))))
       (if (floatIsNan r)
-        (arithErr (strConcat "a real operation with no numeric answer: " (opText op)))
+        (arithErr (concat "a real operation with no numeric answer: " (opText op)))
         (Ok (VReal r))))))
 
 (:: toFloat (-> Value Float))
@@ -331,7 +331,7 @@
 
 (:: arithTypeErr (-> Int Value Value (Result Value Error)))
 (fn (arithTypeErr op a b)
-  (axqErr axqType (strConcat (strConcat (strConcat "can't apply " (opText op)) " to ") (strConcat (typeName (axqlValueType a)) (strConcat " and " (typeName (axqlValueType b))))) "axqlArith"))
+  (axqErr axqType (concat (concat (concat "can't apply " (opText op)) " to ") (concat (typeName (axqlValueType a)) (concat " and " (typeName (axqlValueType b))))) "axqlArith"))
 
 ; Unary minus. The most negative INTEGER has no negation.
 (pub :: axqlNegate (-> Value (Result Value Error)))
@@ -344,7 +344,7 @@
         (Ok (VInt (- 0 n))))
     )
     ((VReal r) (Ok (VReal (* -1.0 r))))
-    (_ (axqErr axqType (strConcat "can't negate " (typeName (axqlValueType v))) "axqlNegate"))))
+    (_ (axqErr axqType (concat "can't negate " (typeName (axqlValueType v))) "axqlNegate"))))
 
 ; ------------------------------------------------------------------
 ; Evaluation.
@@ -362,7 +362,7 @@
         (Ok (vecGet row i)))
     )
     ((EParam i _) (Ok (vecGet params i)))
-    ((EName n _) (axqErr axqSchema (strConcat "no such column: " n) "axqlEval"))
+    ((EName n _) (axqErr axqSchema (concat "no such column: " n) "axqlEval"))
     ((ENeg x _)
       (let ((rx (axqlEval x row rowid params)))
         (try v rx (axqlNegate v)))
@@ -554,7 +554,7 @@
           (vecGet colTypes i)))
     )
     ((EParam i _) (Ok (axqlValueType (vecGet params i))))
-    ((EName n _) (axqErr axqSchema (strConcat "no such column: " n) "axqlTypeOf"))
+    ((EName n _) (axqErr axqSchema (concat "no such column: " n) "axqlTypeOf"))
     ((ENeg x at)
       (let ((rx (axqlTypeOf src x colTypes params)))
         (try
@@ -562,7 +562,7 @@
           rx
           (if (|| (== t typeNull) (isNumericType t))
             (Ok t)
-            (typeErrAt src at (strConcat "can't negate " (typeName t))))))
+            (typeErrAt src at (concat "can't negate " (typeName t))))))
     )
     ((ENot x)
       (let ((rx (axqlTypeOf src x colTypes params)))
@@ -571,7 +571,7 @@
           rx
           (if (|| (== t typeNull) (isNumericType t))
             (Ok typeInteger)
-            (typeErrAt src (exprPos x) (strConcat "NOT needs a number, not " (typeName t))))))
+            (typeErrAt src (exprPos x) (concat "NOT needs a number, not " (typeName t))))))
     )
     ((EIsNull x _)
       (let ((rx (axqlTypeOf src x colTypes params)))
@@ -595,18 +595,18 @@
   (if (|| (== op opAnd) (== op opOr))
     (if (&& (|| (== a typeNull) (isNumericType a)) (|| (== b typeNull) (isNumericType b)))
       (Ok typeInteger)
-      (typeErrAt src at (strConcat (strConcat (opText op) " needs numbers, not ") (pairText a b))))
+      (typeErrAt src at (concat (concat (opText op) " needs numbers, not ") (pairText a b))))
     (if (opIsComparison op)
       (if (|| (== a typeNull) (|| (== b typeNull) (|| (== a b) (&& (isNumericType a) (isNumericType b)))))
         (Ok typeInteger)
-        (typeErrAt src at (strConcat "can't compare " (strConcat (typeName a) (strConcat " with " (typeName b))))))
+        (typeErrAt src at (concat "can't compare " (concat (typeName a) (concat " with " (typeName b))))))
       (if (== op opMod)
         (if (&& (|| (== a typeNull) (== a typeInteger)) (|| (== b typeNull) (== b typeInteger)))
           (Ok
             (if (|| (== a typeNull) (== b typeNull))
               typeNull
               typeInteger))
-          (typeErrAt src at (strConcat "% needs INTEGER operands, not " (pairText a b))))
+          (typeErrAt src at (concat "% needs INTEGER operands, not " (pairText a b))))
         (if (&& (|| (== a typeNull) (isNumericType a)) (|| (== b typeNull) (isNumericType b)))
           (Ok
             (if (|| (== a typeNull) (== b typeNull))
@@ -614,11 +614,11 @@
               (|| (== a typeReal) (== b typeReal))
               typeReal
               typeInteger))
-          (typeErrAt src at (strConcat (strConcat (strConcat "can't apply " (opText op)) " to ") (pairText a b))))))))
+          (typeErrAt src at (concat (concat (concat "can't apply " (opText op)) " to ") (pairText a b))))))))
 
 (:: pairText (-> Int Int String))
 (fn (pairText a b)
-  (strConcat (typeName a) (strConcat " and " (typeName b))))
+  (concat (typeName a) (concat " and " (typeName b))))
 
 ; The byte offset an expression's own operator or name sits at, or -1.
 (:: exprPos (-> Expr Int))
@@ -638,7 +638,7 @@
     axqType
     (if (< at 0)
       msg
-      (strConcat (strConcat (axqlPosText src at) ": ") msg))
+      (concat (concat (axqlPosText src at) ": ") msg))
     "axqlTypeOf"))
 
 ; ------------------------------------------------------------------

@@ -39,8 +39,8 @@
           )
             (let ((half (* 16 (/ (/ (strLen data) 2) 16))))
               {
-                (tallyBytes t y (ghash h data 0) (strConcat "one call, h " (hexEncode h)))
-                (tallyBytes t y (ghash h data half) (strConcat "two calls, h " (hexEncode h)))
+                (tallyBytes t y (ghash h data 0) (concat "one call, h " (hexEncode h)))
+                (tallyBytes t y (ghash h data half) (concat "two calls, h " (hexEncode h)))
                 0
               }))))
       (tallyReport t)

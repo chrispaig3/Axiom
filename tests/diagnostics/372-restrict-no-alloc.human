@@ -1,10 +1,10 @@
-[1;31merror[AX3049][0m[1m: `builds` claims `restrict(no-alloc)` and the body performs Alloc: builds -> Str$strConcat -> Str$strAlloc -> Mem$memAlloc -> __alloc[0m
+[1;31merror[AX3049][0m[1m: `builds` claims `restrict(no-alloc)` and the body performs Alloc: builds -> Str$concat -> Str$strAlloc -> Mem$memAlloc -> __alloc[0m
   [1;34m--> [0m372-restrict-no-alloc.ax:17:6
 [1;34m   |[0m
 [1;34m17 |[0m (fn (builds s)
 [1;34m   |[0m      [1;31m^^^^^^[0m
 [1;34m   |[0m
-  [1;34m = [0m[1mnote: [0mStr$strConcat (stdlib/Str.ax:298:10-19)
+  [1;34m = [0m[1mnote: [0mStr$concat (stdlib/Str.ax:298:10-19)
   [1;34m = [0m[1mnote: [0mStr$strAlloc (stdlib/Str.ax:96:10-18)
   [1;34m = [0m[1mnote: [0mMem$memAlloc (stdlib/Mem.ax:53:10-18)
   [1;34m = [0m[1mnote: [0m__alloc (no declaration to point at)

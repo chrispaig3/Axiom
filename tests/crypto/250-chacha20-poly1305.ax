@@ -113,27 +113,27 @@
     (id (hexEncode nonce))
   )
     {
-      (tallyCheck t (answers (open key nonce aad sealed) pt) (strConcat "the genuine message opens " id))
-      (tallyCheck t (authFails (open key nonce aad (flip sealed 0))) (strConcat "first byte flipped " id))
-      (tallyCheck t (authFails (open key nonce aad (flip sealed (- n 1)))) (strConcat "last tag byte flipped " id))
-      (tallyCheck t (authFails (open key nonce aad (flip sealed (- n 16)))) (strConcat "first tag byte flipped " id))
+      (tallyCheck t (answers (open key nonce aad sealed) pt) (concat "the genuine message opens " id))
+      (tallyCheck t (authFails (open key nonce aad (flip sealed 0))) (concat "first byte flipped " id))
+      (tallyCheck t (authFails (open key nonce aad (flip sealed (- n 1)))) (concat "last tag byte flipped " id))
+      (tallyCheck t (authFails (open key nonce aad (flip sealed (- n 16)))) (concat "first tag byte flipped " id))
       (if (> n 16)
-        (tallyCheck t (authFails (open key nonce aad (flip sealed (- n 17)))) (strConcat "last ciphertext byte flipped " id))
+        (tallyCheck t (authFails (open key nonce aad (flip sealed (- n 17)))) (concat "last ciphertext byte flipped " id))
         0)
-      (tallyCheck t (authFails (open key nonce aad (strSlice sealed 0 (- n 1)))) (strConcat "truncated " id))
-      (tallyCheck t (authFails (open key nonce aad (strConcat sealed "\0"))) (strConcat "extended " id))
-      (tallyCheck t (authFails (open key nonce aad (strSlice sealed 0 15))) (strConcat "15 bytes " id))
-      (tallyCheck t (authFails (open key nonce aad "")) (strConcat "empty " id))
-      (tallyCheck t (authFails (open key nonce (strConcat aad "x") sealed)) (strConcat "aad extended " id))
+      (tallyCheck t (authFails (open key nonce aad (strSlice sealed 0 (- n 1)))) (concat "truncated " id))
+      (tallyCheck t (authFails (open key nonce aad (concat sealed "\0"))) (concat "extended " id))
+      (tallyCheck t (authFails (open key nonce aad (strSlice sealed 0 15))) (concat "15 bytes " id))
+      (tallyCheck t (authFails (open key nonce aad "")) (concat "empty " id))
+      (tallyCheck t (authFails (open key nonce (concat aad "x") sealed)) (concat "aad extended " id))
       (if (> (strLen aad) 0)
         {
-          (tallyCheck t (authFails (open key nonce (flip aad 0) sealed)) (strConcat "aad flipped " id))
-          (tallyCheck t (authFails (open key nonce "" sealed)) (strConcat "aad dropped " id))
+          (tallyCheck t (authFails (open key nonce (flip aad 0) sealed)) (concat "aad flipped " id))
+          (tallyCheck t (authFails (open key nonce "" sealed)) (concat "aad dropped " id))
         }
         0)
-      (tallyCheck t (authFails (open key (flip nonce 0) aad sealed)) (strConcat "nonce flipped " id))
-      (tallyCheck t (authFails (open key (flip nonce 11) aad sealed)) (strConcat "nonce last byte flipped " id))
-      (tallyCheck t (authFails (open (flip key 0) nonce aad sealed)) (strConcat "wrong key " id))
+      (tallyCheck t (authFails (open key (flip nonce 0) aad sealed)) (concat "nonce flipped " id))
+      (tallyCheck t (authFails (open key (flip nonce 11) aad sealed)) (concat "nonce last byte flipped " id))
+      (tallyCheck t (authFails (open (flip key 0) nonce aad sealed)) (concat "wrong key " id))
     }))
 
 ; ------------------------------------------------------------------
@@ -247,11 +247,11 @@
             (nonce (katBytes f 2))
             (aad (katBytes f 3))
             (pt (katBytes f 4))
-            (sealed (strConcat (katBytes f 5) (katBytes f 6)))
+            (sealed (concat (katBytes f 5) (katBytes f 6)))
           )
             {
               (tallyCheck rfc (answers (seal key nonce aad pt) sealed) id)
-              (tallyCheck rfc (answers (open key nonce aad sealed) pt) (strConcat "open " id))
+              (tallyCheck rfc (answers (open key nonce aad sealed) pt) (concat "open " id))
               (forgeries
                 rfc
                 key
@@ -263,23 +263,23 @@
       (for line in (katLines "wycheproof-chacha20-poly1305.txt")
         (let ((f (katFields line)))
           (let (
-            (id (strConcat "tcId " (katText f 0)))
+            (id (concat "tcId " (katText f 0)))
             (valid (strEq (katText f 1) "valid"))
             (key (katBytes f 2))
             (iv (katBytes f 3))
             (aad (katBytes f 4))
             (msg (katBytes f 5))
-            (sealed (strConcat (katBytes f 6) (katBytes f 7)))
+            (sealed (concat (katBytes f 6) (katBytes f 7)))
           )
             (if (!= (strLen iv) 12)
               {
-                (tallyCheck wpr (refused (seal key iv aad msg) cryptoInvalidLength) (strConcat "seal refuses " id))
-                (tallyCheck wpr (refused (open key iv aad sealed) cryptoInvalidLength) (strConcat "open refuses " id))
+                (tallyCheck wpr (refused (seal key iv aad msg) cryptoInvalidLength) (concat "seal refuses " id))
+                (tallyCheck wpr (refused (open key iv aad sealed) cryptoInvalidLength) (concat "open refuses " id))
               }
               (if valid
                 {
                   (tallyCheck wp (answers (seal key iv aad msg) sealed) id)
-                  (tallyCheck wp (answers (open key iv aad sealed) msg) (strConcat "open " id))
+                  (tallyCheck wp (answers (open key iv aad sealed) msg) (concat "open " id))
                 }
                 (tallyCheck wp (authFails (open key iv aad sealed)) id))))))
       (for line in (katLines "chacha20-poly1305-diff.txt")
@@ -289,11 +289,11 @@
             (nonce (katBytes f 1))
             (aad (katBytes f 2))
             (pt (katBytes f 3))
-            (sealed (strConcat (katBytes f 4) (katBytes f 5)))
+            (sealed (concat (katBytes f 4) (katBytes f 5)))
           )
             {
               (tallyCheck diff (answers (seal key nonce aad pt) sealed) (hexEncode nonce))
-              (tallyCheck diff (answers (open key nonce aad sealed) pt) (strConcat "open " (hexEncode nonce)))
+              (tallyCheck diff (answers (open key nonce aad sealed) pt) (concat "open " (hexEncode nonce)))
               (if (< forged 40)
                 {
                   (forgeries

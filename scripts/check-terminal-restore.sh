@@ -143,7 +143,7 @@ cat > "$work/probe.ax" <<'AX'
   (if (>= i n)
     acc
     (hexOf
-      buf      n      (+ i 1)      (strConcat acc (strConcat (if (< (memGetByte buf i) 16) "0" "") (fmtHex (memGetByte buf i))))
+      buf      n      (+ i 1)      (concat acc (concat (if (< (memGetByte buf i) 16) "0" "") (fmtHex (memGetByte buf i))))
     )
   )
 )
@@ -151,7 +151,7 @@ cat > "$work/probe.ax" <<'AX'
 (:: kv (-> String String Int))
 
 ;@axiom:effect(io)
-(fn (kv k v) { (println (strConcat k (strConcat "=" v))) 0 })
+(fn (kv k v) { (println (concat k (concat "=" v))) 0 })
 
 (:: kvInt (-> String Int Int))
 
@@ -220,7 +220,7 @@ cat > "$work/neg.ax" <<'AX'
 (:: kvInt (-> String Int Int))
 
 ;@axiom:effect(io)
-(fn (kvInt k v) { (println (strConcat k (strConcat "=" (fmtInt v)))) 0 })
+(fn (kvInt k v) { (println (concat k (concat "=" (fmtInt v)))) 0 })
 
 (:: main Int)
 

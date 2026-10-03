@@ -904,10 +904,10 @@
 (pub :: fmtSpanParts (-> Int Int Int Int String))
 (pub fn (fmtSpanParts sl sc el ec)
   (if (&& (== sl el) (== sc ec))
-    (strConcat (strConcat (fmtInt sl) ":") (fmtInt sc))
+    (concat (concat (fmtInt sl) ":") (fmtInt sc))
     (if (== sl el)
-      (strConcat (strConcat (strConcat (strConcat (fmtInt sl) ":") (fmtInt sc)) "-") (fmtInt ec))
-      (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat (fmtInt sl) ":") (fmtInt sc)) "-") (fmtInt el)) ":") (fmtInt ec)))))
+      (concat (concat (concat (concat (fmtInt sl) ":") (fmtInt sc)) "-") (fmtInt ec))
+      (concat (concat (concat (concat (concat (concat (fmtInt sl) ":") (fmtInt sc)) "-") (fmtInt el)) ":") (fmtInt ec)))))
 
 ; The scanning spelling. `symbols.ax` calls this - one span per symbol,
 ; against a source it holds - and it is deliberately left scanning: it
@@ -984,11 +984,11 @@
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: quoteStr (-> String String))
 (pub fn (quoteStr s)
-  (strConcat (strConcat "\"" (quoteBody s 0 "")) "\""))
+  (concat (concat "\"" (quoteBody s 0 "")) "\""))
 
 ; PERFORMANCE, 2026-08-24: the same quadratic shape `ctlEsc` and
 ; `jsonEsc` carried in render.ax, reached by the same untrusted
-; spelling. Every recursive step built `(strConcat acc <one byte>)`, a
+; spelling. Every recursive step built `(concat acc <one byte>)`, a
 ; fresh buffer of length i+1 that the bump allocator never reclaims, so
 ; quoting a string of length n allocated n^2/2 bytes. Measured on
 ; `axiom check --diagnostic-format=ai` over one undefined identifier of
@@ -1067,12 +1067,12 @@
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: quoteUesc (-> Int String))
 (pub fn (quoteUesc b)
-  (strConcat
-    (strConcat
+  (concat
+    (concat
       "\\u{"
       (if (< b 16)
         (quoteHexDigit b)
-        (strConcat (quoteHexDigit (/ b 16)) (quoteHexDigit (% b 16)))))
+        (concat (quoteHexDigit (/ b 16)) (quoteHexDigit (% b 16)))))
     "}"))
 
 ;@axiom:restrict(no-io,no-foreign)
@@ -1294,7 +1294,7 @@
 (pub :: renderDiagsUnits (-> (Vec Int) (Vec Int) String))
 ;@axiom:effect(unsafe)
 (pub fn (renderDiagsUnits ds units)
-  ; A linear join rather than the old recursive strConcat fold, whose
+  ; A linear join rather than the old recursive concat fold, whose
   ; peak was measured at 829 MiB RSS for a 2000-diagnostic file - the
   ; renderCG shape, one layer up.
   ; ONE index per unit for the whole run, not one per diagnostic:
@@ -1330,7 +1330,7 @@
 
 ; ------------------------------------------------------------------
 ; Linear concatenation of a Vec of Str: sum the lengths, allocate
-; once, copy each piece. The naive alternative - folding strConcat -
+; once, copy each piece. The naive alternative - folding concat -
 ; peaks at the SUM of every intermediate, which is the 16.9 GB shape
 ; renderCG had (the self-hosting record); measured on this very module's
 ; AXDL path, the fold reached 829 MiB peak RSS on a 2000-diagnostic

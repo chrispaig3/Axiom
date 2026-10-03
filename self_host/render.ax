@@ -58,7 +58,7 @@
 
 ; ------------------------------------------------------------------
 ; Small string tools. `repByte` is a filled `strAlloc`, not a
-; strConcat fold: the fold's peak is the sum of every intermediate
+; concat fold: the fold's peak is the sum of every intermediate
 ; (the 16.9 GB lesson in the self-hosting record), and a caret line for
 ; a wide span would pay it per character.
 ; ------------------------------------------------------------------
@@ -94,7 +94,7 @@
 (pub :: rjNum (-> Int Int String))
 (pub fn (rjNum n w)
   (let ((t (fmtInt n)))
-    (strConcat (spacesN (- w (visLen t))) t)))
+    (concat (spacesN (- w (visLen t))) t)))
 
 ; Byte offset one past the last byte of the line containing `off`.
 (pub :: lineEndOf (-> String Int Int))
@@ -449,25 +449,25 @@
                   "..."
                   ""))
               )
-                (strConcat
-                  (strConcat (strConcat (paint SGR_GUT (strConcat (rjNum ln gw) " |")) (strConcat " " (strConcat (strConcat lead (expandWindow
+                (concat
+                  (concat (concat (paint SGR_GUT (concat (rjNum ln gw) " |")) (concat " " (concat (concat lead (expandWindow
                     src
                     ls
                     le
                     ws
                     we)) tail))) "\n")
-                  (strConcat
-                    (strConcat
-                      (strConcat (paint SGR_GUT (strConcat (spacesN gw) " |")) " ")
-                      (strConcat
+                  (concat
+                    (concat
+                      (concat (paint SGR_GUT (concat (spacesN gw) " |")) " ")
+                      (concat
                         (spacesN (+ (strLen lead) (- (- dcol 1) ws)))
                         (paint
                           sgr
-                          (strConcat
+                          (concat
                             (repByte run ch)
                             (if (== (strLen m) 0)
                               ""
-                              (strConcat " " m))))))
+                              (concat " " m))))))
                     "\n"))))))))))
 
 ; The last position in `src` that a caret can sit on: one past the
@@ -529,7 +529,7 @@
 ;
 ; PERFORMANCE, 2026-08-24, after an audit reproduced it: this used to
 ; rebuild the whole answer on every input byte -
-; `(set acc (strConcat acc (strSlice s i 1)))` - allocating a fresh
+; `(set acc (concat acc (strSlice s i 1)))` - allocating a fresh
 ; buffer of length i+1 per byte. The allocator is a bump allocator with
 ; NO FREE, so no intermediate is ever reclaimed and a string of length
 ; n costs sum(i+1) = n^2/2 bytes allocated as well as n^2/2 bytes
@@ -629,7 +629,7 @@
 ; so immediately when the escape sat inside `helpLine` instead.
 (pub :: helpLine (-> Int String String))
 (pub fn (helpLine gw text)
-  (strConcat (strConcat (strConcat (spacesN gw) (paint SGR_GUT " = ")) (paint SGR_HELP "help: ")) (strConcat text "\n")))
+  (concat (concat (concat (spacesN gw) (paint SGR_GUT " = ")) (paint SGR_HELP "help: ")) (concat text "\n")))
 
 (pub :: helpLineEsc (-> Int String String))
 (pub fn (helpLineEsc gw text)
@@ -691,8 +691,8 @@
   ; `strFindByte` answers `(Option Int)` since the ERR-ADOPT slice, so
   ; "carries no newline" is `None` rather than a negative index.
   (match (strFindByte repl 10 0)
-    ((None) (helpLine gw (strConcat (ctlEsc text) (paint SGR_FIX (strConcat " ~> " (ctlEsc repl))))))
-    ((Some _) (strConcat (helpLine gw (strConcat (ctlEsc text) (paint SGR_FIX " ~>"))) (fixBlock (+ gw 9) repl)))))
+    ((None) (helpLine gw (concat (ctlEsc text) (paint SGR_FIX (concat " ~> " (ctlEsc repl))))))
+    ((Some _) (concat (helpLine gw (concat (ctlEsc text) (paint SGR_FIX " ~>"))) (fixBlock (+ gw 9) repl)))))
 
 ; The lines of a multi-line replacement, each indented `indent`
 ; columns, escaped and painted on its own. An empty first or last
@@ -730,7 +730,7 @@
 ; `   = note: ...`, which renders before the helps.
 (pub :: noteLine (-> Int String String))
 (pub fn (noteLine gw text)
-  (strConcat (strConcat (strConcat (spacesN gw) (paint SGR_GUT " = ")) (paint SGR_TITLE "note: ")) (strConcat (ctlEsc text) "\n")))
+  (concat (concat (concat (spacesN gw) (paint SGR_GUT " = ")) (paint SGR_TITLE "note: ")) (concat (ctlEsc text) "\n")))
 
 ; ------------------------------------------------------------------
 ; The rows of one snippet: one per labeled span, in source order.
@@ -868,10 +868,10 @@
 ;@axiom:effect(unsafe)
 (pub fn (secNoteText d i units ixs)
   (if (== (diagSecSpan d i) 0)
-    (strConcat (diagSecMsg d i) " (no declaration to point at)")
+    (concat (diagSecMsg d i) " (no declaration to point at)")
     (if (== (diagSecCross d i units ixs) 1)
       (let ((u (vecGet units (diagSecUnit d i))))
-        (strConcat (strConcat (strConcat (diagSecMsg d i) " (") (memGetWordStr u 0)) (strConcat (strConcat ":" (fmtSpanIx (memGetWordStr u 1) (vecGet ixs (diagSecUnit d i)) (diagSecSpan d i))) ")")))
+        (concat (concat (concat (diagSecMsg d i) " (") (memGetWordStr u 0)) (concat (concat ":" (fmtSpanIx (memGetWordStr u 1) (vecGet ixs (diagSecUnit d i)) (diagSecSpan d i))) ")")))
       ; Another unit, and no table to name it with. There is a
       ; position; this renderer cannot say where, and says nothing
       ; rather than something false.
@@ -912,7 +912,7 @@
           (let ((ln (lineOfIx ix (spanStart (rowSpan r)))))
             {
               (if (&& (> i 0) (> (- ln prev) 1))
-                (vecPush out (strConcat (paint SGR_GUT "...") "\n"))
+                (vecPush out (concat (paint SGR_GUT "...") "\n"))
                 (cast (Vec String) 0))
               (vecPush out (labelBlock
                 src
@@ -938,7 +938,7 @@
 (pub :: traceNoteText (-> Int Int (Vec Int) (Vec Int) String))
 ;@axiom:effect(unsafe)
 (pub fn (traceNoteText d i units ixs)
-  (let ((base (strConcat (strConcat "in this expansion of `" (diagTraceName d i)) "`")))
+  (let ((base (concat (concat "in this expansion of `" (diagTraceName d i)) "`")))
     (let (
       (fs (diagTraceSpan d i))
       (fu (diagTraceUnit d i))
@@ -952,7 +952,7 @@
           (>= fu (vecLen units))))
         base
         (let ((u (vecGet units fu)))
-          (strConcat (strConcat (strConcat (strConcat (strConcat base " (") (memGetWordStr u 0)) ":") (fmtSpanIx (memGetWordStr u 1) (vecGet ixs fu) fs)) ")"))))))
+          (concat (concat (concat (concat (concat base " (") (memGetWordStr u 0)) ":") (fmtSpanIx (memGetWordStr u 1) (vecGet ixs fu) fs)) ")"))))))
 
 ; MAC-DIAG-5: a frame whose unit the caller supplied renders as a
 ; SECOND location block - the macro's own file, opened, with its
@@ -981,7 +981,7 @@
     {
       (vecPush
         rows
-        (cast Int (SnipRow (diagTraceSpan d i) 94 (strConcat (strConcat "in this expansion of `" (diagTraceName d i)) "`") SGR_SEC)))
+        (cast Int (SnipRow (diagTraceSpan d i) 94 (concat (concat "in this expansion of `" (diagTraceName d i)) "`") SGR_SEC)))
       rows
     }))
 
@@ -1033,21 +1033,21 @@
                 (ffile (memGetWord u 0))
                 (fs (diagTraceSpan d i))
               )
-                (let ((bar (strConcat (paint SGR_GUT (strConcat (spacesN gw) " |")) "\n")))
+                (let ((bar (concat (paint SGR_GUT (concat (spacesN gw) " |")) "\n")))
                   {
                     (vecPush
                       out
-                      (strConcat
-                        (strConcat (spacesN gw) (paint SGR_GUT "--> "))
-                        (strConcat
-                          (strConcat
-                            (strConcat
-                              (strConcat
+                      (concat
+                        (concat (spacesN gw) (paint SGR_GUT "--> "))
+                        (concat
+                          (concat
+                            (concat
+                              (concat
                                 (cast String ffile)
                                 ":")
                               (fmtInt (lineOfIx fix (spanStart fs))))
                             ":")
-                          (strConcat (fmtInt (colOfIx fsrc fix (spanStart fs))) "\n"))))
+                          (concat (fmtInt (colOfIx fsrc fix (spanStart fs))) "\n"))))
                     (vecPush out bar)
                     (vecPush out (snipBody fsrc fix gw rows))
                     (vecPush out bar)
@@ -1097,7 +1097,7 @@
     (msg (diagMsg d))
   )
     (let (
-      (head (strConcat (paint (sgrForSev sev) (strConcat (strConcat (strConcat (sevWord sev) "[") code) "]")) (strConcat (paint SGR_TITLE (strConcat ": " (ctlEsc msg))) "\n")))
+      (head (concat (paint (sgrForSev sev) (concat (concat (concat (sevWord sev) "[") code) "]")) (concat (paint SGR_TITLE (concat ": " (ctlEsc msg))) "\n")))
       (span (clampToSource src span))
       (spanless (== span 0))
     )
@@ -1114,18 +1114,18 @@
               1
               (rowsGutterWidth src ix rows)))))
           (let (
-            (loc (strConcat
-              (strConcat (spacesN gw) (paint SGR_GUT "--> "))
+            (loc (concat
+              (concat (spacesN gw) (paint SGR_GUT "--> "))
               (if spanless
-                (strConcat file "\n")
-                (strConcat (strConcat (strConcat (strConcat file ":") (fmtInt (lineOfIx ix (spanStart span)))) ":") (strConcat (fmtInt (colOfIx src ix (spanStart span))) "\n")))))
-            (bar (strConcat (paint SGR_GUT (strConcat (spacesN gw) " |")) "\n"))
+                (concat file "\n")
+                (concat (concat (concat (concat file ":") (fmtInt (lineOfIx ix (spanStart span)))) ":") (concat (fmtInt (colOfIx src ix (spanStart span))) "\n")))))
+            (bar (concat (paint SGR_GUT (concat (spacesN gw) " |")) "\n"))
           )
             (let (
-              (snippet (strConcat
+              (snippet (concat
                 (if spanless
                   ""
-                  (strConcat (strConcat bar (snipBody src ix gw rows)) bar))
+                  (concat (concat bar (snipBody src ix gw rows)) bar))
                 (traceBlocks d units ixs gw)))
               (notes (let (
                 (acc vecNew)
@@ -1177,10 +1177,10 @@
                             (helpLineFix gw (diagHelpMsg d i) (diagHelpFixText d i))))
                         (set i (+ i 1))
                       })
-                    (vecPush acc (helpLine gw (strConcat (strConcat "run `axiom explain " code) "` for a full explanation")))
+                    (vecPush acc (helpLine gw (concat (concat "run `axiom explain " code) "` for a full explanation")))
                     (catStrs acc)
                   })))
-                (strConcat (strConcat (strConcat (strConcat (strConcat head loc) snippet) notes) helps) "\n")))))))))
+                (concat (concat (concat (concat (concat head loc) snippet) notes) helps) "\n")))))))))
 
 ; Every diagnostic, each rendered against the source file its `unit`
 ; field names - the same table renderDiagsUnits (AXDL) reads.
@@ -1219,7 +1219,7 @@
                 ixs))
               (set i (+ i 1))
             })))
-      ; A single linear join, not a strConcat fold - the fold's peak
+      ; A single linear join, not a concat fold - the fold's peak
       ; is the sum of every intermediate (see catStrs in diag.ax).
       (catStrs blocks)
     }))
@@ -1230,8 +1230,8 @@
 ; `ai` mode too). Errors only, post-suppression, pluralized.
 (pub :: renderFailTrailer (-> Int String))
 (pub fn (renderFailTrailer n)
-  (strConcat
-    (strConcat "compilation failed due to " (fmtInt n))
+  (concat
+    (concat "compilation failed due to " (fmtInt n))
     (if (== n 1)
       " previous error\n"
       " previous errors\n")))
@@ -1387,7 +1387,7 @@
       (if (< e0 s)
         s
         e0)))
-      (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat "{\"start\":{\"line\":" (fmtInt (lineOfIx ix s))) ",\"col\":") (fmtInt (colOfIx src ix s))) "},\"end\":{\"line\":") (fmtInt (lineOfIx ix e))) ",\"col\":") (fmtInt (colOfIx src ix e))) "},\"char_start\":") (fmtInt (charsToIx src ix s))) (strConcat (strConcat ",\"char_end\":" (fmtInt (charsToIx src ix e))) "}")))))
+      (concat (concat (concat (concat (concat (concat (concat (concat (concat (concat "{\"start\":{\"line\":" (fmtInt (lineOfIx ix s))) ",\"col\":") (fmtInt (colOfIx src ix s))) "},\"end\":{\"line\":") (fmtInt (lineOfIx ix e))) ",\"col\":") (fmtInt (colOfIx src ix e))) "},\"char_start\":") (fmtInt (charsToIx src ix s))) (concat (concat ",\"char_end\":" (fmtInt (charsToIx src ix e))) "}")))))
 
 ; A JSON array of quoted strings.
 (pub :: jsonStrArray (-> (Vec String) String))
@@ -1461,7 +1461,7 @@
         })
       (if (== count 0)
         ""
-        (strConcat (strConcat ",\"fixes\":[" (catStrs parts)) "]"))
+        (concat (concat ",\"fixes\":[" (catStrs parts)) "]"))
     }))
 
 (pub :: jsonNoteArray (-> Int String))
@@ -1609,31 +1609,31 @@
     (span (diagSpan d))
     (msg (diagMsg d))
   )
-    (strConcat
-      (strConcat
-        (strConcat
-          (strConcat
-            (strConcat (strConcat (strConcat (strConcat (strConcat "{\"severity\":\"" (sevWord sev)) "\",") (strConcat (strConcat (strConcat (strConcat "\"code\":\"" code) "\",\"slug\":\"") slug) "\",")) (strConcat (strConcat "\"message\":\"" (jsonEsc msg)) "\",")) (strConcat (strConcat "\"file\":\"" (jsonEsc file)) "\","))
+    (concat
+      (concat
+        (concat
+          (concat
+            (concat (concat (concat (concat (concat "{\"severity\":\"" (sevWord sev)) "\",") (concat (concat (concat (concat "\"code\":\"" code) "\",\"slug\":\"") slug) "\",")) (concat (concat "\"message\":\"" (jsonEsc msg)) "\",")) (concat (concat "\"file\":\"" (jsonEsc file)) "\","))
             (if (== span 0)
               ""
               ; The label rides the span: AXDL prints `#"..."` only where
               ; one exists, so JSON carries `"label"` only there too -
               ; a consumer distinguishes "no label" from "empty label".
-              (strConcat
-                (strConcat "\"span\":" (jsonSpan src ix span))
+              (concat
+                (concat "\"span\":" (jsonSpan src ix span))
                 (if (==
                   (cast Int (diagLabel d))
                   0)
                   ","
-                  (strConcat (strConcat ",\"label\":\"" (jsonEsc (diagLabel d))) "\",")))))
-          (strConcat (strConcat "\"related\":" (jsonRelatedArray
+                  (concat (concat ",\"label\":\"" (jsonEsc (diagLabel d))) "\",")))))
+          (concat (concat "\"related\":" (jsonRelatedArray
             d
             src
             ix
             units
             ixs)) ","))
-        (strConcat (strConcat "\"notes\":" (jsonNoteArray d)) ","))
-      (strConcat (strConcat (strConcat (strConcat (strConcat "\"help\":" (jsonHelpArray d)) (jsonFixField d src ix file)) ",\"expansion\":") (jsonTraceArray d units ixs)) "}"))))
+        (concat (concat "\"notes\":" (jsonNoteArray d)) ","))
+      (concat (concat (concat (concat (concat "\"help\":" (jsonHelpArray d)) (jsonFixField d src ix file)) ",\"expansion\":") (jsonTraceArray d units ixs)) "}"))))
 
 (pub :: renderDiagsJsonUnits (-> (Vec Int) (Vec Int) String))
 ;@axiom:effect(unsafe)

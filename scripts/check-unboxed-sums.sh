@@ -245,7 +245,7 @@ cat > "$work/us/ref.ax" <<'AX'
 (fn (nameOf n)
   (if (== (% n 3) 0)
     None
-    (Some (strConcat "n" (fmtInt n)))
+    (Some (concat "n" (fmtInt n)))
   )
 )
 

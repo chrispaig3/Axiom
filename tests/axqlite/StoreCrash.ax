@@ -45,7 +45,7 @@
 (fn (fresh base to)
   {
     (copyOver base to)
-    (let ((_ (removeFile (strConcat to "-journal"))))
+    (let ((_ (removeFile (concat to "-journal"))))
       0)
     0
   })
@@ -118,7 +118,7 @@
 (pub :: journalHasHeader (-> String Bool))
 ;@axiom:effect(io)
 (pub fn (journalHasHeader path)
-  (let ((j (readFile (strConcat path "-journal"))))
+  (let ((j (readFile (concat path "-journal"))))
     (&& (>= (strLen j) 16) (strEq (strSlice j 0 15) "AXQLite journal"))))
 
 ; How many pages `txn` spills to the file before its commit, run on a
@@ -192,9 +192,9 @@
         (hot (journalHasHeader "crash.db"))
       )
         (let ((h (recoveredHash "crash.db")))
-          (let ((where (strConcat label (strConcat ", " (strConcat (faultName kind) (strConcat " at point " (fmtInt n)))))))
+          (let ((where (concat label (concat ", " (concat (faultName kind) (concat " at point " (fmtInt n)))))))
             {
-              (check t (|| (== h before) (== h after)) (strConcat where ": the file is exactly the before or the after state"))
+              (check t (|| (== h before) (== h after)) (concat where ": the file is exactly the before or the after state"))
               (if (== kind pagerFaultFail)
                 (check
                   t
@@ -203,7 +203,7 @@
                     (if (== code 0)
                       after
                       before))
-                  (strConcat where ": a failure the transaction answered leaves the state it answered"))
+                  (concat where ": a failure the transaction answered leaves the state it answered"))
                 0)
               (+
                 (if (== h before)
@@ -235,7 +235,7 @@
       (mut total 0)
     )
       {
-        (check t (!= before after) (strConcat label ": the transaction changes the file"))
+        (check t (!= before after) (concat label ": the transaction changes the file"))
         (let (
           (spills (spillsDuring base cache txn))
           (bs (sizeOf base))
@@ -267,12 +267,12 @@
                               (rootsAfter 0)))
                         )))
                     0)
-                  (strConcat label ": btreeCheck before and after"))
+                  (concat label ": btreeCheck before and after"))
                 (let ((_ (pagerClose p)))
                   0)
               }
             )
-            ((Err e) (check t false (strConcat label ": open before and after")))))
+            ((Err e) (check t false (concat label ": open before and after")))))
         (for kind in faultKinds
           (let (
             (mut nBefore 0)
@@ -409,7 +409,7 @@
                   (for m in 1..(+ rpoints 1)
                     {
                       (set total (+ total 1))
-                      (check t (== (recoveryCrashOne kind m before) 1) (strConcat label (strConcat ": recovery crashed by " (strConcat (faultName kind) (strConcat " at recovery point " (fmtInt m))))))
+                      (check t (== (recoveryCrashOne kind m before) 1) (concat label (concat ": recovery crashed by " (concat (faultName kind) (concat " at recovery point " (fmtInt m))))))
                     }))
                 0
               }))))
@@ -424,7 +424,7 @@
 (pub fn (recoveredHashKeep path scratch)
   {
     (copyOver path scratch)
-    (copyOver (strConcat path "-journal") (strConcat scratch "-journal"))
+    (copyOver (concat path "-journal") (concat scratch "-journal"))
     (recoveredHash scratch)
   })
 

@@ -41,8 +41,8 @@
 (pub :: showSlot (-> (Result Int Error) String))
 (pub fn (showSlot r)
   (match r
-    ((Ok w) (strConcat "ok " (fmtInt w)))
-    ((Err e) (strConcat "err " (fmtInt (errCode e))))))
+    ((Ok w) (concat "ok " (fmtInt w)))
+    ((Err e) (concat "err " (fmtInt (errCode e))))))
 
 (pub :: showPool (-> (Vec (Result Int Error)) Int))
 ;@axiom:effect(io)

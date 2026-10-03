@@ -19,7 +19,7 @@
 ;                   in a named region, because allocating INTO a named
 ;                   region is stage S4's work. The rows name `vecPush`
 ;                   and its parameter.
-;   4  `putFresh`   `(vecPush v (strConcat x "!"))`: the growth row
+;   4  `putFresh`   `(vecPush v (concat x "!"))`: the growth row
 ;                   again, and the fresh string through `vecPush`'s
 ;                   second parameter - both "a value allocated in this
 ;                   function's own region", by two doors.
@@ -63,7 +63,7 @@
 (:: putFresh (-> (Vec String @r) String Int))
 (fn (putFresh v x)
   {
-    (vecPush v (strConcat x "!"))
+    (vecPush v (concat x "!"))
     0
   })
 

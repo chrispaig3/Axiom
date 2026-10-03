@@ -169,16 +169,16 @@
       (for line in (katLines "sha2-cavp-msg.txt")
         (let ((f (katFields line)))
           (let ((alg (katInt f 0)) (msg (katBytes f 1)) (md (katBytes f 2)))
-            (tallyBytes cavp md (digestOf alg msg) (strConcat "SHA-" (katText f 0))))))
+            (tallyBytes cavp md (digestOf alg msg) (concat "SHA-" (katText f 0))))))
       (for line in (katLines "sha2-cavp-monte.txt")
         (let ((f (katFields line)))
           (let ((alg (katInt f 0)) (seed (katBytes f 1)) (md (katBytes f 2)))
-            (tallyBytes monteT md (monte alg seed) (strConcat "SHA-" (katText f 0))))))
+            (tallyBytes monteT md (monte alg seed) (concat "SHA-" (katText f 0))))))
       (for line in (katLines "sha2-diff.txt")
         (let ((f (katFields line)))
           (let ((alg (katInt f 0)) (msg (katBytes f 1)) (md (katBytes f 2)))
             {
-              (tallyBytes diff md (digestOf alg msg) (strConcat "SHA-" (katText f 0)))
+              (tallyBytes diff md (digestOf alg msg) (concat "SHA-" (katText f 0)))
               ; every piece size from 1 to 130, then whole
               (let ((c (+ 1 (% row 131))))
                 {

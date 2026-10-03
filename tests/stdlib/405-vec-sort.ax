@@ -37,7 +37,7 @@
 (fn (joined v i acc)
   (if (>= i (vecLen v))
     acc
-    (joined v (+ i 1) (strConcat (strConcat acc (fmtInt (vecGet v i))) " "))))
+    (joined v (+ i 1) (concat (concat acc (fmtInt (vecGet v i))) " "))))
 
 (:: push4 (-> (Vec Int) Int Int Int Int (Vec Int)))
 (fn (push4 v a b c d)
@@ -165,10 +165,10 @@
     ; a REF-OWNING vector: every element read back after the sort
     (let ((owned vecNewRef))
       {
-        (vecPush owned (strConcat "pe" "ar"))
-        (vecPush owned (strConcat "fi" "g"))
-        (vecPush owned (strConcat "ap" "ple"))
-        (vecPush owned (strConcat "da" "te"))
+        (vecPush owned (concat "pe" "ar"))
+        (vecPush owned (concat "fi" "g"))
+        (vecPush owned (concat "ap" "ple"))
+        (vecPush owned (concat "da" "te"))
         (vecSortBy
           owned
           (lambda (a b)

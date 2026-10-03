@@ -37,7 +37,7 @@
 ;
 ; The obvious simplification is a `String` and an integer index. It
 ; reads shorter and it is worse in three measurable ways: every insert
-; becomes two `strConcat` allocations and two full copies; every
+; becomes two `concat` allocations and two full copies; every
 ; motion becomes a boundary walk; and backspace can split `é` in half.
 ; It is also structurally refused - `ledCursor` would have to answer a
 ; byte offset, and every geometry function below counts COLUMNS.
@@ -541,8 +541,8 @@
             ed.ring
             ed.ringIdx
             (if (== dir 1)
-              (strConcat cur text)
-              (strConcat text cur)))
+              (concat cur text)
+              (concat text cur)))
           0
         })
       (if (< (vecLen ed.ring) LED_RING_MAX)
@@ -715,7 +715,7 @@
 
 ; Every fragment in `v`, concatenated, in ONE allocation.
 ;
-; A folded `strConcat` peaks at the SUM of its intermediates, and a
+; A folded `concat` peaks at the SUM of its intermediates, and a
 ; redraw builds a dozen fragments per keystroke. Sizing first and
 ; copying once is the shape every builder in this tree uses for the
 ; same reason.

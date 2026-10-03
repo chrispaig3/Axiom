@@ -6,7 +6,7 @@
 ; 1,000-iteration warm-up, and every line must read 0.
 ;
 ; Before 2026-08-21 the first three leaked 80, 80 and 80 bytes per
-; iteration (a `fmtInt` result, a `strConcat` result, or both - born
+; iteration (a `fmtInt` result, a `concat` result, or both - born
 ; at count 0, never adopted, never released), and the doc declined
 ; the event pair at "285 retains for 8 releases and nothing
 ; reclaimed". What reclaims here is the combination the model lacked:
@@ -19,9 +19,9 @@
 ; retained is released after the store.
 ;
 ;   shape 0: a record with a String field, built from a `fmtInt` and a
-;            `strConcat`, read through an accessor, dropped
+;            `concat`, read through an accessor, dropped
 ;   shape 1: `(strLen (fmtInt i))` - a temporary to a word-result callee
-;   shape 2: a `let`-bound `strConcat`, measured, dropped
+;   shape 2: a `let`-bound `concat`, measured, dropped
 ;   shape 3: a record with a static String field, read, dropped
 ;   shape 4: `(Some (fmtInt i))` matched and its binder measured - a
 ;            reference in a type-variable field, retained under its
@@ -55,7 +55,7 @@
 
 (:: s0 (-> Int Int))
 (fn (s0 i)
-  (let ((r (Rec i (strConcat "nm-" (fmtInt i)))))
+  (let ((r (Rec i (concat "nm-" (fmtInt i)))))
     (strLen (nameOf r))))
 
 (:: s1 (-> Int Int))
@@ -64,7 +64,7 @@
 
 (:: s2 (-> Int Int))
 (fn (s2 i)
-  (let ((s (strConcat "nm-" (fmtInt i))))
+  (let ((s (concat "nm-" (fmtInt i))))
     (strLen s)))
 
 (:: s3 (-> Int Int))

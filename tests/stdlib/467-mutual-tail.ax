@@ -25,7 +25,7 @@
 ;      costs at `--opt 0` fit under the gate's 512 KiB with the other
 ;      terms; a hundred thousand did not, and the whole fixture died
 ;      of the term that claims no guarantee.
-;   5. An OWNED TEMPORARY handed over, `(od (+ i 1) (strConcat s "x"))`:
+;   5. An OWNED TEMPORARY handed over, `(od (+ i 1) (concat s "x"))`:
 ;      the caller must release the string after the callee returns, so
 ;      the call stays plain. Two thousand iterations answer the length,
 ;      for the reason in 4; the gate holds that no `musttail` was
@@ -114,12 +114,12 @@
 (fn (evS i s)
   (if (>= i 2000)
     (strLen s)
-    (odS (+ i 1) (strConcat s "x"))))
+    (odS (+ i 1) (concat s "x"))))
 
 (fn (odS i s)
   (if (>= i 2000)
     (strLen s)
-    (evS (+ i 1) (strConcat s "y"))))
+    (evS (+ i 1) (concat s "y"))))
 
 ; --- 6. a self tail call in a let body ---
 (:: selfLet (-> Int Int Int))

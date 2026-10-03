@@ -25,7 +25,7 @@
 (fn (shown r)
   (match r
     ((Ok s) s)
-    ((Err e) (strConcat "Err " (fmtInt (errCode e))))))
+    ((Err e) (concat "Err " (fmtInt (errCode e))))))
 
 (:: why (-> (Result String Error) String))
 (fn (why r)
@@ -48,9 +48,9 @@
     {
       (for i in 0..n
         (let ((d (unwrapOr (dateAddDays (date from) (* i step)) dateMin)))
-          (set out (strConcat
+          (set out (concat
             out
-            (strConcat
+            (concat
               (if (== i 0)
                 ""
                 "|")
@@ -65,9 +65,9 @@
     {
       (for m in 1..13
         (let ((d (unwrapOr (dateNew 2024 m 1) dateMin)))
-          (set out (strConcat
+          (set out (concat
             out
-            (strConcat
+            (concat
               (if (== m 1)
                 ""
                 "|")

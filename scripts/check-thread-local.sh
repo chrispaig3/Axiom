@@ -102,7 +102,7 @@ mkprobe() {  # <path> <spawn-line> <extra-effects>
 
 (:: build (-> Int Int))
 
-(fn (build n) (strLen (strConcat "a" "b")))
+(fn (build n) (strLen (concat "a" "b")))
 
 (:: main Int)
 

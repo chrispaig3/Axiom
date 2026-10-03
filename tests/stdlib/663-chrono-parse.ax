@@ -25,7 +25,7 @@
 
 (:: errText (-> Error String))
 (fn (errText e)
-  (strConcat "Err " (fmtInt (errCode e))))
+  (concat "Err " (fmtInt (errCode e))))
 
 (:: pd (-> String String))
 (fn (pd s)

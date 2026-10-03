@@ -25,7 +25,7 @@
 (:: is (-> Tally (Result a Error) Int String Int))
 ;@axiom:effect(io)
 (fn (is t r code label)
-  (check t (== (codeOf r) code) (strConcat label (strConcat ": got " (errText r)))))
+  (check t (== (codeOf r) code) (concat label (concat ": got " (errText r)))))
 
 ; Run this program again as a child in `mode`.
 (:: spawnChild (-> String (Result Int Error)))
@@ -91,7 +91,7 @@
 (fn (rewrite p root v)
   (let (
     (mut failed None)
-    (long (strConcat v (rowBytes 1 300)))
+    (long (concat v (rowBytes 1 300)))
   )
     {
       (for n in 0..50
@@ -142,7 +142,7 @@
                   ((Ok _) 0)
                   ((Err e)
                     {
-                      (eprintln (strConcat "increment failed: " (errorText e)))
+                      (eprintln (concat "increment failed: " (errorText e)))
                       (set failed (+ failed 1))
                       (let ((_ (pagerRollback p)))
                         0)
@@ -356,7 +356,7 @@
                 (match (andThen
                   (pagerBeginRead p)
                   (lambda (_) (btreeGet p root counterKey)))
-                  ((Ok (Some v)) (check t (strEq v "200") (strConcat "100 + 100 increments make 200, not " v)))
+                  ((Ok (Some v)) (check t (strEq v "200") (concat "100 + 100 increments make 200, not " v)))
                   (_ (check t false "read the counter")))
                 (is t (pagerEndRead p) 0 "end read")
               }

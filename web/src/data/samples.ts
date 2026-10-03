@@ -429,7 +429,7 @@ compilation failed due to 1 previous error`,
     title: "Three steps, one error path",
     lede: "Failure is a value. `Result` carries it, `try` returns early on it, and `withContext` records which step failed.",
     points: [
-      { at: "(withContext (okOr (strParseInt text) bad) (strConcat \"reading \" name))))", text: "`okOr` turns a missing number into an error with a message." },
+      { at: "(withContext (okOr (strParseInt text) bad) (concat \"reading \" name))))", text: "`okOr` turns a missing number into an error with a message." },
       { at: "(withContext (mulChecked chunk parts) \"sizing the upload\"))", text: "`mulChecked` fails where `*` would wrap around." },
       { at: "(match (try size (number \"chunk\" chunk)", text: "`try` binds each success and stops at the first failure." },
     ],
@@ -443,8 +443,8 @@ product is not representable while sizing the upload`,
 
 (:: number (-> String String (Result Int Error)))
 (fn (number name text)
-  (let ((bad (mkError 20 (strConcat text " is not a number"))))
-    (withContext (okOr (strParseInt text) bad) (strConcat "reading " name))))
+  (let ((bad (mkError 20 (concat text " is not a number"))))
+    (withContext (okOr (strParseInt text) bad) (concat "reading " name))))
 
 ; \`*\` wraps silently on overflow; this is the one that can say no.
 (:: upload (-> Int Int (Result Int Error)))

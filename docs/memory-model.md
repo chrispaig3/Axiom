@@ -202,7 +202,7 @@ Two details make the `let` body safe as a tail position:
 The compiler can't leave the `let` body to LLVM. `MM-LIFE-2c` event 3
 releases a `let`'s owned temporary *after* the call its body makes, and
 that release stops LLVM's sibling-call pass. Left to LLVM,
-`(let ((s (strConcat s "x"))) (grow s (- n 1)))` would overflow the
+`(let ((s (concat s "x"))) (grow s (- n 1)))` would overflow the
 stack 200,000 calls deep.
 
 **MM-EXEC-6c (H).** **A mutual tail call runs in constant stack when
@@ -245,7 +245,7 @@ either for unbounded recursion:
    the runtime's callback trampoline and every `extern` boundary. It is
    recorded here as the measured next step, and isn't built.
 2. **A call that hands over an owned temporary**, such as
-   `(od (+ i 1) (strConcat s "x"))`. The caller releases the temporary
+   `(od (+ i 1) (concat s "x"))`. The caller releases the temporary
    after the callee returns (`MM-LIFE-2c` event 3). Releasing it before
    the call would free a block the callee is about to read, and moving
    the release into the callee would change the convention for every
@@ -446,7 +446,7 @@ would mark every function that touches a reference and lose the
 distinctions the rest of this table draws.
 
 The rows discriminate rather than blanket the library. `memAlloc`,
-`vecPush` and `strConcat` carry `Alloc`, and the last two also carry
+`vecPush` and `concat` carry `Alloc`, and the last two also carry
 `Mut` because they store. `vecGet` and `strEq` carry neither.
 `scripts/check-agent-policy.sh` pins the whole population against
 `tests/agent/stdlib-effects.allow`.
@@ -586,7 +586,7 @@ The two tags give a declaration one of two roles:
 - A *trusted encapsulation* says `effect(unsafe)` alone. Its author
   vouches that every well-typed call is safe, so its `Unsafe` ends at
   the declaration: a caller's inferred row doesn't carry it, and a
-  caller needs no tag. `vecPush`, `strConcat` and `mapInsert` are
+  caller needs no tag. `vecPush`, `concat` and `mapInsert` are
   trusted.
 - A *precondition interface* says `effect(unsafe)` and
   `;@axiom:precondition(...)`. The text states what a caller must make
@@ -1228,7 +1228,7 @@ holds defects of this kind, which stay inert until a later change.
 to the address of a static constant header whose length is a
 compile-time constant. Literals are **interned by content**, so two
 occurrences of the same text in a module share one header. Only
-`strAlloc`, `strDup`, `strConcat` and their callers allocate.
+`strAlloc`, `strDup`, `concat` and their callers allocate.
 
 **MM-VAL-8 (H).** Each `data` type gets one of three representations,
 computed once per type from its constructors (`codegen.ax`
@@ -1765,7 +1765,7 @@ the same rounding must see memory grow.
 |---|---|
 | a constructor with fields | `(1 + arity) * 8` bytes under representation 0/2 |
 | `(struct P ...)` / `(P ...)` for a struct | `fields * 8` bytes, no tag |
-| `Str` construction, `strDup`, `strConcat`, `strAlloc` | 2-word header, plus bytes where not shared |
+| `Str` construction, `strDup`, `concat`, `strAlloc` | 2-word header, plus bytes where not shared |
 | a `lambda` that is evaluated | closure record, `(1 + captures) * 8` bytes |
 | `Vec`, `Map`, `Intern` operations | library-level, over `memAlloc` |
 | a `match`'s result | one scratch `alloca` per function, shared by every merge. A cell lives from the store at an arm's end to the load at the merge, with nothing between, so one slot serves nested and tail shapes alike |
@@ -1811,7 +1811,7 @@ Evidence is a gated workload. `scripts/check-net.sh` builds one
 pre-forked server (`tests/net/echo-server.ax`) and runs it twice under
 the same load. The only difference is whether a mark and a reset
 bracket the request handler. Each connection builds its response by
-repeated `strConcat`, leaving about 16 KiB of unreachable intermediates
+repeated `concat`, leaving about 16 KiB of unreachable intermediates
 to reclaim. Peak worker RSS:
 
 | connections | handler scoped | handler unscoped |
@@ -3055,7 +3055,7 @@ of its `let`, `b` here would take its string with it, and the `match`
 would answer freed storage:
 
 ```scheme
-(let ((b (Mk (strConcat "id-" t))))
+(let ((b (Mk (concat "id-" t))))
   (match b ((Mk s) s)))
 ```
 
@@ -3099,7 +3099,7 @@ This part of the event is for programs.
 bytes per iteration). Event 2 makes every reference result one share
 the caller holds, and event 3 releases a `let` bound to such a call.
 
-The key is adoption. A string that `strConcat` builds is born through
+The key is adoption. A string that `concat` builds is born through
 `__alloc` at count 0: free-floating, and owned by nobody until a store
 takes the first share. The `A1` comment on `storeCountOneAt` states the
 convention: constructors are born at 1, while raw allocation and
@@ -3292,10 +3292,10 @@ passes through.
 `tests/stdlib/372-arc-owned-results.ax` measures the bytes the arena
 grows per iteration over 10,000 iterations, on six shapes:
 
-1. a record with a `fmtInt`+`strConcat` String field, read through an
+1. a record with a `fmtInt`+`concat` String field, read through an
    accessor;
 2. `(strLen (fmtInt i))`;
-3. a `let`-bound `strConcat`;
+3. a `let`-bound `concat`;
 4. a record with a static field;
 5. `(Some (fmtInt i))`, matched;
 6. a String answered borrowed through two helpers.
@@ -4744,7 +4744,7 @@ changes a count the parent relies on:
 ;@axiom:effect(block)
 (fn (shout s)
   (parallel p ((a (strLen s))
-               (b (strLen (strConcat s "!"))))
+               (b (strLen (concat s "!"))))
     (+ a b)))
 
 (:: main Int)
@@ -4752,7 +4752,7 @@ changes a count the parent relies on:
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
 (fn (main)
-  (shout (strConcat "hello, " "world")))
+  (shout (concat "hello, " "world")))
 ```
 
 The form keeps a borrow record. Before it builds any binding, it lends

@@ -56,7 +56,7 @@
 ; THE MESSAGE IS THE OP NAME, NOT A RENDERED SENTENCE, and that is a
 ; memory-model decision rather than a cosmetic one.
 ;
-; This built `"sysWriteFile: errno 9"` with two `strConcat`s and an
+; This built `"sysWriteFile: errno 9"` with two `concat`s and an
 ; `fmtInt`, on the failure path, eagerly. Effects are computed over the
 ; whole body, so those reached the SUCCESS path too: measured
 ; 2026-08-31, a `Result`-returning function whose message is a literal
@@ -1078,11 +1078,11 @@
 ; The answer SHARES the environment's bytes rather than copying them,
 ; so it is not NUL-terminated - `strSlice` wraps an interior pointer.
 ; Anything handing it to a syscall as a path must copy it first, which
-; `strConcat` and `strDup` both do.
+; `concat` and `strDup` both do.
 (pub :: sysEnv (-> String String))
 ;@axiom:effect(io)
 (pub fn (sysEnv name)
-  (sysEnvLookup (strConcat name "=") 0))
+  (sysEnvLookup (concat name "=") 0))
 
 (:: sysEnvLookup (-> String Int String))
 ;@axiom:effect(io)
@@ -1429,7 +1429,7 @@
   (if (>= from (strLen path))
     ; PATH exhausted: nothing was found to run, which is a spawn
     ; failure and not a child's answer - ENOENT, in the `Err` arm.
-    (Err (mkError 2 (strConcat (strConcat "sysRunSearch: " name) ": not found on PATH")))
+    (Err (mkError 2 (concat (concat "sysRunSearch: " name) ": not found on PATH")))
     ; AN EMPTY ENTRY IS SKIPPED rather than read as the
     ; working directory. POSIX does give `PATH=/usr/bin:`
     ; and `PATH=:/usr/bin` a `.` entry and the shell
@@ -1460,7 +1460,7 @@
             envp
             path
             (+ end 1))
-          ; `strConcat` copies, so the candidate is
+          ; `concat` copies, so the candidate is
           ; NUL-terminated even though `dir` - a slice sharing
           ; the environment's bytes - is not.
           ; Does it exist? A candidate that cannot be opened
@@ -1469,7 +1469,7 @@
           ; distinguishable - once the fork has happened, "no
           ; such file" and "the tool exited 127" are the same
           ; integer.
-          (let ((cand (strConcat (strConcat dir "/") name)))
+          (let ((cand (concat (concat dir "/") name)))
             (let ((cpath (strCStr cand)))
               (let ((fd (sysOpenRaw cpath oRdonly)))
                 (if (< fd 0)
@@ -2152,13 +2152,13 @@
       (netAddrText6 addr 0 (netAddrZeroRunStart addr 0 (- 0 1) 1) "")
       (if (== fam afInet)
         (netAddrText4 addr)
-        (strConcat "af=" (fmtInt fam))))))
+        (concat "af=" (fmtInt fam))))))
 
 (:: netAddrText4 (-> Int String))
 ;@axiom:effect(unsafe)
 ;@axiom:precondition(`addr` names a live IPv4 socket address of `netAddr4Bytes` bytes)
 (fn (netAddrText4 addr)
-  (strConcat (strConcat (strConcat (fmtInt (memGetByte addr 4)) ".") (strConcat (fmtInt (memGetByte addr 5)) ".")) (strConcat (strConcat (fmtInt (memGetByte addr 6)) ".") (fmtInt (memGetByte addr 7)))))
+  (concat (concat (concat (fmtInt (memGetByte addr 4)) ".") (concat (fmtInt (memGetByte addr 5)) ".")) (concat (concat (fmtInt (memGetByte addr 6)) ".") (fmtInt (memGetByte addr 7)))))
 
 ; How many groups from `i` are zero. The run this answers is what a
 ; `::` stands for.
@@ -2218,7 +2218,7 @@
           addr
           (+ i n)
           zs
-          (strConcat
+          (concat
             acc
             (if (== (+ i n) 8)
               "::"
@@ -2227,10 +2227,10 @@
         addr
         (+ i 1)
         zs
-        (strConcat
+        (concat
           (if (== i 0)
             acc
-            (strConcat acc ":"))
+            (concat acc ":"))
           (fmtHex (netGetGroup addr i)))))))
 
 ; The same, with the port, in the form a URL authority uses:
@@ -2245,8 +2245,8 @@
 ;@axiom:precondition(`addr` names a live socket address `netAddr4` or `netAddr6` wrote, or an accepted peer's)
 (pub fn (netAddrTextPort addr)
   (if (== (netAddrFamily addr) afInet6)
-    (strConcat (strConcat "[" (netAddrText addr)) (strConcat "]:" (fmtInt (netAddrPort addr))))
-    (strConcat (netAddrText addr) (strConcat ":" (fmtInt (netAddrPort addr))))))
+    (concat (concat "[" (netAddrText addr)) (concat "]:" (fmtInt (netAddrPort addr))))
+    (concat (netAddrText addr) (concat ":" (fmtInt (netAddrPort addr))))))
 
 ; Take a descriptor OUT of non-blocking mode, preserving the other flags
 ; it carries. The counterpart of `netSetNonBlocking`, and what a caller

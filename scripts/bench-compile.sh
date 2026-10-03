@@ -2,7 +2,7 @@
 # Where a compile actually spends its time.
 #
 # This project has no compile-time profile and never has. The only
-# wall-clock figure anywhere in it is the `strConcat` fix - a self-compile
+# wall-clock figure anywhere in it is the `concat` fix - a self-compile
 # went 11.54s to 0.85s when a quadratic concatenation in code generation
 # was replaced (the self-hosting record). The lesson recorded there is the
 # reason this script exists:

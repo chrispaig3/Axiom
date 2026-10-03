@@ -273,7 +273,7 @@
       (die "axiom: division overflow\n" 83)
       (if (strEq name "__axiom_shift_out_of_range")
         (die "axiom: shift amount out of range\n" 84)
-        (die (strConcat (strConcat "axiom: trap " name) "\n") 70)))))
+        (die (concat (concat "axiom: trap " name) "\n") 70)))))
 
 (pub :: mvalGoto (-> (Vec MFunc) MFunc (Vec Int) Int (Vec Int) Int))
 ;@axiom:effect(io)

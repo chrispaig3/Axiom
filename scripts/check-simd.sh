@@ -206,7 +206,7 @@ cat > "$work/simd/bytes.ax" <<'EOF'
 (fn (bigStr k)
   (let ((mut s "abcabcaa"))
     {
-      (for i in 0..k (set s (strConcat s s)))
+      (for i in 0..k (set s (concat s s)))
       s
     }
   )

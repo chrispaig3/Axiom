@@ -77,7 +77,7 @@
 (fn (borrowed s)
   (parallel p (
     (a (strLen s))
-    (b (strLen (strConcat s s)))
+    (b (strLen (concat s s)))
   )
     (+ a b)))
 

@@ -83,7 +83,7 @@
       (Console IO Alloc)
       (lambda (s)
         {
-          (println (strConcat "outer saw " s))
+          (println (concat "outer saw " s))
           0
         }
       ))

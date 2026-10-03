@@ -280,7 +280,7 @@
     (if (== (strLen pending) 0)
       (replHlPaint snap (replCursorBytes ed) 0)
       (let ((from (+ (strLen pending) 1)))
-        (replHlPaint (strConcat (strConcat pending "\n") snap) (+ from (replCursorBytes ed)) from)))))
+        (replHlPaint (concat (concat pending "\n") snap) (+ from (replCursorBytes ed)) from)))))
 
 ; ------------------------------------------------------------------
 ; History inside the keystroke loop.
@@ -1160,8 +1160,8 @@
         {
           (let ((d (vecGet ds i)) (code (diagCode d)))
             {
-              (replOut (strConcat (strConcat (strConcat (strConcat "Type error: [" code) "] ") (diagMsg d)) "\n"))
-              (replOut (strConcat (strConcat "  help: run `axiom explain " code) "`\n"))
+              (replOut (concat (concat (concat (concat "Type error: [" code) "] ") (diagMsg d)) "\n"))
+              (replOut (concat (concat "  help: run `axiom explain " code) "`\n"))
             })
           (set i (+ i 1))
         })
@@ -1212,7 +1212,7 @@
         "String"
         "Int")))
     (body (if (strEq tyStr "Bool")
-      (strConcat (strConcat "(if " exprLine) " 1 0)")
+      (concat (concat "(if " exprLine) " 1 0)")
       exprLine))
   )
     (catStrs
@@ -1359,7 +1359,7 @@
         {
           (if (== (vecLen ds) 0)
             (replOut "Error: parsing failed\n")
-            (replOut (strConcat "Error: " (joinDiagMsgs ds))))
+            (replOut (concat "Error: " (joinDiagMsgs ds))))
           (pErr 0)
         }))))
 
@@ -1403,7 +1403,7 @@
           {
             (if (== (vecLen ds) 0)
               (replOut "Error: parsing failed\n")
-              (replOut (strConcat "Error: " (joinDiagMsgs ds))))
+              (replOut (concat "Error: " (joinDiagMsgs ds))))
             (pErr 0)
           })))))
 
@@ -1523,16 +1523,16 @@
 ;@axiom:effect(block)
 (pub fn (replEval ir)
   (let ((pid sysGetPid))
-    (let ((leaf (strConcat (strConcat "axiom-repl-" (fmtInt pid)) ".d")))
+    (let ((leaf (concat (concat "axiom-repl-" (fmtInt pid)) ".d")))
       (let ((dir (pathJoin replTmpRoot leaf)))
         (if (isErr (makeDirMode dir 448))
           (replOut "Error: could not create a private scratch directory\n")
           (let ((base (pathJoin dir "expr")))
             (let (
-              (ll (strConcat base ".ll"))
-              (obj (strConcat base ".o"))
+              (ll (concat base ".ll"))
+              (obj (concat base ".o"))
               (exe base)
-              (outf (strConcat base ".out"))
+              (outf (concat base ".out"))
             )
               {
                 (if (isErr (writeFile ll ir))
@@ -1593,14 +1593,14 @@
                             (let ((rc (runTool "/bin/sh" (argsOf3 "-c" cmd ""))))
                               (let ((printed (replTrim (readFile outf))))
                                 (if (> (strLen printed) 0)
-                                  (replOut (strConcat (strConcat "result " printed) "\n"))
+                                  (replOut (concat (concat "result " printed) "\n"))
                                   (if (< rc 0)
                                     (replOut "Error: the program was terminated by a signal\n")
                                     ; `fmtInt`, not `fmtIntStr`: an
                                     ; exit status is any byte, and
                                     ; `fmtIntStr` reported every one
                                     ; of them above 3 as `1`.
-                                    (replOut (strConcat (strConcat "result " (fmtInt rc)) "\n"))))))))))))
+                                    (replOut (concat (concat "result " (fmtInt rc)) "\n"))))))))))))
                 (unwrapOr (removeFile ll) 0)
                 (unwrapOr (removeFile obj) 0)
                 (unwrapOr (removeFile exe) 0)
@@ -1625,7 +1625,7 @@
       0
       (let ((tyStr (memGetWordStr tr 1)))
         {
-          (replOut (strConcat (strConcat "type : " tyStr) "\n"))
+          (replOut (concat (concat "type : " tyStr) "\n"))
           (let ((cr (replCompileExpr declsSrc line tyStr)))
             (if (== (memGetWord cr 0) 0)
               0
@@ -1742,13 +1742,13 @@
                       (e (spanEnd sp))
                     )
                       {
-                        (set out (strConcat out (strSlice src cursor (- s cursor))))
+                        (set out (concat out (strSlice src cursor (- s cursor))))
                         (set cursor (replSkipNl src e))
                       }))
                   0))
               (set i (+ i 1))
             })
-          (strConcat out (strSlice src cursor (- (strLen src) cursor)))
+          (concat out (strSlice src cursor (- (strLen src) cursor)))
         }))))
 
 ; `declsSrc` with every earlier top-level decl that `newDecls` is
@@ -1823,11 +1823,11 @@
             (let ((d (vecGet decls 0)))
               (let ((tag (nodeTag d)))
                 (if (|| (== tag TAG_D_FN) (== tag TAG_D_SIG))
-                  (replOut (strConcat (strConcat "OK: " (nodeAName d)) " defined\n"))
+                  (replOut (concat (concat "OK: " (nodeAName d)) " defined\n"))
                   (if (|| (== tag TAG_D_DATA) (== tag TAG_D_STRUCT))
-                    (replOut (strConcat (strConcat "OK: data " (nodeAName d)) " defined\n"))
+                    (replOut (concat (concat "OK: data " (nodeAName d)) " defined\n"))
                     (replOut "OK\n"))))))
-          (strConcat (strConcat (replDeclsSrcDropping declsSrc decls) line) "\n")
+          (concat (concat (replDeclsSrcDropping declsSrc decls) line) "\n")
         }))))
 
 ; ------------------------------------------------------------------
@@ -1882,7 +1882,7 @@
 ;@axiom:effect(io)
 (pub fn (replBanner)
   {
-    (replOut (strConcat "Axiom " (strConcat axiomVersion " - REPL\n")))
+    (replOut (concat "Axiom " (concat axiomVersion " - REPL\n")))
     (replOut "Type :help for commands, :quit to exit\n\n")
     0
   })
@@ -1928,7 +1928,7 @@
     (let ((src (readFile arg)))
       (if (== (strLen src) 0)
         {
-          (replOut (strConcat (strConcat "File error: cannot read '" arg) "'\n"))
+          (replOut (concat (concat "File error: cannot read '" arg) "'\n"))
           declsSrc
         }
         (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
@@ -2006,8 +2006,8 @@
                         (if (> (vecLen ds) 0)
                           (printTypeErrors ds 0)
                           0)
-                        (replOut (strConcat (strConcat "OK: Loaded '" arg) "'\n"))
-                        (strConcat (strConcat declsSrc src) "\n")
+                        (replOut (concat (concat "OK: Loaded '" arg) "'\n"))
+                        (concat (concat declsSrc src) "\n")
                       })))))))))))
 
 (pub :: replCmdLlvm (-> String String Int))
@@ -2428,10 +2428,10 @@
                                 (replOut "Aborted: unbalanced input discarded.\n")
                               }
                               {
-                                (set pending (strConcat pending "\n"))
+                                (set pending (concat pending "\n"))
                                 0
                               })
-                            (let ((joined (strConcat (strConcat pending "\n") next)))
+                            (let ((joined (concat (concat pending "\n") next)))
                               (if (replEntryIncomplete joined)
                                 {
                                   (set pending joined)
@@ -2481,7 +2481,7 @@
                             ; tag - are handled where they are.
                             (if (== (replIsAxtagLine line) 1)
                               {
-                                (set declsSrc (strConcat (strConcat declsSrc line) "\n"))
+                                (set declsSrc (concat (concat declsSrc line) "\n"))
                                 0
                               }
                               0)
@@ -2545,7 +2545,7 @@
               (let ((d (vecGet decls i)))
                 {
                   (if (|| (== (nodeTag d) TAG_D_FN) (|| (== (nodeTag d) TAG_D_SIG) (|| (== (nodeTag d) TAG_D_DATA) (== (nodeTag d) TAG_D_STRUCT))))
-                    (replOut (strConcat (strConcat "  " (nodeAName d)) "\n"))
+                    (replOut (concat (concat "  " (nodeAName d)) "\n"))
                     0)
                   (set i (+ i 1))
                 }))

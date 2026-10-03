@@ -425,7 +425,7 @@
 
 (:: columnRange (-> Row Int String (Result a Error)))
 (fn (columnRange r i where)
-  (axqErr axqMisuse (strConcat (strConcat "no column " (fmtInt i)) (strConcat "; the row has " (fmtInt (vecLen r.values)))) where))
+  (axqErr axqMisuse (concat (concat "no column " (fmtInt i)) (concat "; the row has " (fmtInt (vecLen r.values)))) where))
 
 ; The number of the column named `name`, compared without regard to
 ; ASCII case; the first when two share it.
@@ -445,7 +445,7 @@
           (set i (+ i 1))
         })
       (if (< found 0)
-        (axqErr axqSchema (strConcat "no result column named " name) "rowIndex")
+        (axqErr axqSchema (concat "no result column named " name) "rowIndex")
         (Ok found))
     }))
 
@@ -458,7 +458,7 @@
 
 (:: wrongType (-> Row Int String Value String (Result a Error)))
 (fn (wrongType r i want v where)
-  (axqErr axqType (strConcat (strConcat (strConcat "column " (fmtInt i)) (strConcat " is " (typeName (axqlValueType v)))) (strConcat ", not " want)) where))
+  (axqErr axqType (concat (concat (concat "column " (fmtInt i)) (concat " is " (typeName (axqlValueType v)))) (concat ", not " want)) where))
 
 ; Whether column `i` is NULL.
 (pub :: rowIsNull (-> Row Int (Result Bool Error)))
@@ -578,9 +578,9 @@
 (fn (runParsed c parsed params sink onRow)
   (if (!= (vecLen params) parsed.paramCount)
     (misuse
-      (strConcat
-        (strConcat "the statement takes " (fmtInt parsed.paramCount))
-        (strConcat
+      (concat
+        (concat "the statement takes " (fmtInt parsed.paramCount))
+        (concat
           (if (== parsed.paramCount 1)
             " parameter and was given "
             " parameters and was given ")
@@ -588,7 +588,7 @@
       "axqRun")
     (let ((nan (nanParam params)))
       (if (>= nan 0)
-        (axqErr axqType (strConcat (strConcat "parameter " (fmtInt (+ nan 1))) " is a NaN, which no statement can hold") "axqRun")
+        (axqErr axqType (concat (concat "parameter " (fmtInt (+ nan 1))) " is a NaN, which no statement can hold") "axqRun")
         (runChecked
           c
           parsed
@@ -1231,7 +1231,7 @@
             (set found i)
             0))
         (if (< found 0)
-          (misuse (strConcat "the statement has no parameter named " name) "axqParamIndex")
+          (misuse (concat "the statement has no parameter named " name) "axqParamIndex")
           (Ok found))
       })))
 

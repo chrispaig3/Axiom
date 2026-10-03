@@ -142,7 +142,7 @@
                   0
                 })
             })))
-      (check t (== bad 0) (strConcat label ": key order is value order"))
+      (check t (== bad 0) (concat label ": key order is value order"))
       (println "{label}: {pairs} pairs")
     }))
 
@@ -227,7 +227,7 @@
             ((Ok back) (check t (sameValue (vecGet back 0) (VReal 0.5)) "0.5 decodes as VReal"))
             ((Err e) (check t false "0.5 decodes")))
           (check t (== (codeOf (keyDecode (bytesStr (vecPush (vecPush (vecPush vecNew 2) 97) 98)))) axqCorrupt) "a short number is corrupt")
-          (check t (== (codeOf (keyDecode (strConcat (keyOf (VText "ab")) ""))) 0) "a text key decodes")
+          (check t (== (codeOf (keyDecode (concat (keyOf (VText "ab")) ""))) 0) "a text key decodes")
           (check t (== (codeOf (keyDecode (bytesStr (vecPush (vecPush (vecPush vecNew 5) 97) 0)))) axqCorrupt) "an unterminated text is corrupt")
           (check t (== (codeOf (keyDecode (bytesStr (vecPush vecNew 9)))) axqCorrupt) "an unknown tag is corrupt")
         })
@@ -334,7 +334,7 @@
                 (if (== (% i 3) 0)
                   256
                   3))))
-              (let ((k (strConcat p (rngBytes r (rngBelow r 4) 256))))
+              (let ((k (concat p (rngBytes r (rngBelow r 4) 256))))
                 (match (keyPrefixEnd p)
                   ; only the empty prefix, or one of all FF bytes, has no end
                   ((None)

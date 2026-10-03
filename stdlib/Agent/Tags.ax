@@ -188,8 +188,8 @@
   (if (>= i (strLen s))
     acc
     (match (axsymPctAt s i)
-      ((None) (axsymUnpctFrom s (+ i 1) (strConcat acc (strSlice s i 1))))
-      ((Some b) (axsymUnpctFrom s (+ i 3) (strConcat acc (strFromByte b)))))))
+      ((None) (axsymUnpctFrom s (+ i 1) (concat acc (strSlice s i 1))))
+      ((Some b) (axsymUnpctFrom s (+ i 3) (concat acc (strFromByte b)))))))
 
 ; `#key=value` or a bare `#key`, with the leading `#` already dropped.
 ; Both halves are unescaped, because `saAxMeta` escapes both: an AXTAG
@@ -387,8 +387,8 @@
 ; check. `(symAgentTag s "rewrite")` reads `#agent:rewrite`.
 (pub :: symAgentTag (-> Sym String String))
 (pub fn (symAgentTag s k)
-  (symTag s (strConcat "agent:" k)))
+  (symTag s (concat "agent:" k)))
 
 (pub :: symHasAgentTag (-> Sym String Bool))
 (pub fn (symHasAgentTag s k)
-  (symHasTag s (strConcat "agent:" k)))
+  (symHasTag s (concat "agent:" k)))

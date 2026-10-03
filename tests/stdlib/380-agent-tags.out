@@ -12,6 +12,6 @@ true
 -
 Some,None
 show:(a -> String)
-IO$exit,Show#Int#show,Str$strConcat
+IO$exit,Show#Int#show,Str$concat
 Alloc,IO
 io

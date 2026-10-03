@@ -83,7 +83,7 @@
 ;@axiom:effect(block)
 (fn (shadowed s)
   (parallel p (
-    (a (let ((s (strConcat "x" "y")))
+    (a (let ((s (concat "x" "y")))
       (strLen s)))
     (b 2)
   )

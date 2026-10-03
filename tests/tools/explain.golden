@@ -1302,7 +1302,7 @@ before the program is type-checked - so a hole that names nothing,
 a brace that never closes, and a stray `}` are all compile errors
 rather than runtime surprises. This is the whole reason the
 printing macros exist: `(println "x = {x}")` is a rewrite into
-`strConcat` and rendering calls, and there is no runtime format
+`concat` and rendering calls, and there is no runtime format
 parser to fail in.
 
 The grammar is small on purpose:
@@ -2075,7 +2075,7 @@ static:
 THE LAST ONE IS NOT A BLANKET REFUSAL, and that is measurable rather
 than asserted: `vecLen`, `vecGet`, `strLen`, `strEq`, `strByte` and
 `memGetWord` all carry no effect but `Unsafe` (a read, which contracts
-do not refuse), while `strConcat`,
+do not refuse), while `concat`,
 `fmtInt` and `vecNew` carry `Alloc,Mut`. A contract may compare,
 index, measure and test; it may not build. Only a DEFINITE effect is
 refused - an effect that reaches the row only as possible arrived
@@ -2394,7 +2394,7 @@ without region TYPES:
 
   - a `set` inside the region on a binding that was bound OUTSIDE it,
     when the stored value is not a scalar: `(let ((mut out "")) (region
-    r (set out (strConcat a b))))` would leave `out` pointing into the
+    r (set out (concat a b))))` would leave `out` pointing into the
 reclaimed extent. `(set i (+ i 1))` on an outer counter is fine, which
     is what makes a region per loop iteration writable. A field store
     `(set o.f v)` is a store into `o` and follows the same rule.

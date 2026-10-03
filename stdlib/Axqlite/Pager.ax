@@ -547,7 +547,7 @@
 ; ------------------------------------------------------------------
 (:: ioErr (-> Error String (Result a Error)))
 (fn (ioErr e where)
-  (axqErr axqIoFailed (strConcat (errMessage e) (strConcat " failed with errno " (fmtInt (errCode e)))) where))
+  (axqErr axqIoFailed (concat (errMessage e) (concat " failed with errno " (fmtInt (errCode e)))) where))
 
 (:: corrupt (-> String String (Result a Error)))
 (fn (corrupt what where)
@@ -555,7 +555,7 @@
 
 (:: pageMsg (-> String Int String String))
 (fn (pageMsg before pgno after)
-  (strConcat before (strConcat (fmtInt pgno) after)))
+  (concat before (concat (fmtInt pgno) after)))
 
 ; ------------------------------------------------------------------
 ; The file layer. Every write, sync and truncate is a numbered point

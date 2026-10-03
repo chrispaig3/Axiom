@@ -116,7 +116,7 @@
 ; ------------------------------------------------------------------
 ; `ESC [ <params> m <text> ESC [ 0 m`, in one allocation.
 ;
-; Written into a single `strAlloc` rather than built from `strConcat`,
+; Written into a single `strAlloc` rather than built from `concat`,
 ; for the reason every other builder in this compiler is: a fold's peak
 ; is the sum of its intermediates, and painting happens per fragment,
 ; per row, per diagnostic. One `paint` is one allocation.

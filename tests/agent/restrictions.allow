@@ -664,7 +664,7 @@ strAlloc stdlib/Str.ax no-io,no-foreign ok
 strByte stdlib/Str.ax no-io,no-alloc,no-foreign ok
 strCStr stdlib/Str.ax no-io,no-alloc,no-foreign ok
 strCmp stdlib/Str.ax no-io,no-alloc,no-foreign ok
-strConcat stdlib/Str.ax no-io,no-foreign ok
+concat stdlib/Str.ax no-io,no-foreign ok
 strData stdlib/Str.ax no-io,no-alloc,no-foreign ok
 strDup stdlib/Str.ax no-io,no-foreign ok
 strEq stdlib/Str.ax no-io,no-alloc,no-foreign ok

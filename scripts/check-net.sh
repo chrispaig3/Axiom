@@ -37,7 +37,7 @@
 #
 # The unscoped column is linear in TOTAL ALLOCATION because the
 # allocator is a bump allocator that never frees (MM-ALLOC-4a). The
-# response is built by repeated `strConcat` on purpose - about 16 KiB of
+# response is built by repeated `concat` on purpose - about 16 KiB of
 # unreachable intermediates per connection - so there is something real
 # to reclaim.
 #

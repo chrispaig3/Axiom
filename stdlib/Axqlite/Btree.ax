@@ -100,7 +100,7 @@
 
 (:: pageMsg (-> String Int String String))
 (fn (pageMsg before pgno after)
-  (strConcat before (strConcat (fmtInt pgno) after)))
+  (concat before (concat (fmtInt pgno) after)))
 
 (:: corruptError (-> String Error))
 (fn (corruptError what)
@@ -1901,9 +1901,9 @@
 ;@axiom:effect(unsafe)
 (fn (markPage ck pg what)
   (if (|| (<= pg 0) (>= pg (strLen ck.seen)))
-    (corrupt (pageMsg (strConcat what " points at page ") pg ", outside the file") "btreeCheck")
+    (corrupt (pageMsg (concat what " points at page ") pg ", outside the file") "btreeCheck")
     (if (!= (strByte ck.seen pg) 0)
-      (corrupt (pageMsg "page " pg (strConcat " is reached twice, the second time as " what)) "btreeCheck")
+      (corrupt (pageMsg "page " pg (concat " is reached twice, the second time as " what)) "btreeCheck")
       {
         (__store8 (strData ck.seen) pg 1)
         (Ok 0)

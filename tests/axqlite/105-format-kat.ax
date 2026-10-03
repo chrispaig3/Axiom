@@ -30,7 +30,7 @@
             (+ at 16)
             hi)))
           {
-            (println (strConcat "  " (hexOf (strSlice s at (- end at)))))
+            (println (concat "  " (hexOf (strSlice s at (- end at)))))
             (set at end)
           })))
     0
@@ -129,9 +129,9 @@
                 (println "journal header, bytes 0-47 (salt and checksum as s):")
                 (let ((h (hexOf masked)))
                   {
-                    (println (strConcat "  " (strSlice h 0 32)))
-                    (println (strConcat "  " (strSlice h 32 32)))
-                    (println (strConcat "  " (strConcat (strSlice h 64 16) "ssssssssssssssssssssssssssssssss")))
+                    (println (concat "  " (strSlice h 0 32)))
+                    (println (concat "  " (strSlice h 32 32)))
+                    (println (concat "  " (concat (strSlice h 64 16) "ssssssssssssssssssssssssssssssss")))
                   })
                 (dump j 48 64 "journal bytes 48-63:")
                 (dump j 512 516 "journal record 0, its page number:")

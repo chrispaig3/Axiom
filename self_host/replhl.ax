@@ -959,7 +959,7 @@
 ; already handing to `replParenDepth`. `from` of 0 paints everything.
 ;
 ; One fragment per span into a Vec, joined ONCE with `catStrs`.
-; `strConcat` folded over the fragments would peak at the sum of its
+; `concat` folded over the fragments would peak at the sum of its
 ; intermediates, which is the discipline style.ax:115-118 and
 ; diag.ax's `catStrs` header both record; painting happens on every
 ; keystroke, which is the worst place to pay it.

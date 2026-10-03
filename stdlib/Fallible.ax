@@ -31,7 +31,7 @@
 ;   one argument, an `Int` index          0 bytes per operation
 ;   two arguments (message, fallback)    32 bytes per operation
 ;   one argument, a message BUILT         80 bytes per operation
-;     per record (`strConcat`/`fmtInt`)
+;     per record (`concat`/`fmtInt`)
 ;
 ; TWO OF THOSE ROWS HAVE MOVED SINCE, and the reasons written under
 ; them were not both right. Re-measured 2026-08-30 on the same

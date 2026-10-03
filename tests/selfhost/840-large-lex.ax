@@ -21,7 +21,7 @@
 (fn (rep s n)
   (if (== n 0)
     s
-    (rep (strConcat s s) (- n 1))))
+    (rep (concat s s) (- n 1))))
 
 (:: main Int)
 (fn (main)

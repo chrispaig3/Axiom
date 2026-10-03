@@ -523,7 +523,7 @@ echo "ok   a program built end to end by stage3 prints and exits correctly"
 # What one self-compile costs.
 #
 # This exists because the cost was once 16.9 GB and nothing said so.
-# `renderCG` left-folded `strConcat` over the emitted line vector, which
+# `renderCG` left-folded `concat` over the emitted line vector, which
 # is one allocation and one full copy of everything emitted so far per
 # line, over an allocator that never frees - so peak was the SUM of every
 # intermediate rather than the largest, and it grew with the SQUARE of

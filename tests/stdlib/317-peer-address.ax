@@ -34,8 +34,8 @@
 ;@axiom:effect(io)
 (fn (say okFlag label)
   (if (== okFlag 1)
-    (println (strConcat "ok   " label))
-    (println (strConcat "FAIL " label))))
+    (println (concat "ok   " label))
+    (println (concat "FAIL " label))))
 
 ; Accept with the peer, allowing for the connection not having reached
 ; the queue yet - the bounded retry `307` measured the need for, over
@@ -311,7 +311,7 @@
                             0)
                           "the peer's address is ::1")
                         (say
-                          (if (strEq (netAddrTextPort peer) (strConcat "[::1]:" (fmtInt (+ base 3))))
+                          (if (strEq (netAddrTextPort peer) (concat "[::1]:" (fmtInt (+ base 3))))
                             1
                             0)
                           "and reads back as [::1]:<source port>")

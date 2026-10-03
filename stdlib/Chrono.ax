@@ -791,7 +791,7 @@
             "this target has no realtime clock"
             (if (== (errCode e) errOverflow)
               "the realtime clock reads later than 2262-04-11"
-              (strConcat "the realtime clock failed with errno " (decimal (errCode e)))))
+              (concat "the realtime clock failed with errno " (decimal (errCode e)))))
           "datetimeNowUtc")
       ))))
 
@@ -1584,10 +1584,10 @@
         3
         0
         1) -1)
-        (strConcat "unknown directive " spelled)
+        (concat "unknown directive " spelled)
         (if (== mask 1)
-          (strConcat spelled " needs a time, and a date has none")
-          (strConcat spelled " needs a date, and a time has none"))))))
+          (concat spelled " needs a time, and a date has none")
+          (concat spelled " needs a date, and a time has none"))))))
 
 ; Copy the first `n` bytes of `name` to `p + off`.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)

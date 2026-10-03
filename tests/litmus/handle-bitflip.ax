@@ -57,7 +57,7 @@
   )
     {
       (if (< k 0)
-        (println (strConcat "words " (strConcat (fmtInt (wordOf a)) (strConcat " " (fmtInt (wordOf b))))))
+        (println (concat "words " (concat (fmtInt (wordOf a)) (concat " " (fmtInt (wordOf b))))))
         0)
       (chanSend (if (< k 0) a (flipped a k)) 7)
       (println (if (got a)

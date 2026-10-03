@@ -87,10 +87,10 @@
                           "the recovered database checks")
                         (let ((_ (pagerClose p)))
                           0)
-                        (check t (== (fileHash "new.db") want) (strConcat "creation crashed by " (strConcat (faultName kind) ": the reopened file is a new database")))
+                        (check t (== (fileHash "new.db") want) (concat "creation crashed by " (concat (faultName kind) ": the reopened file is a new database")))
                       }
                     )
-                    ((Err e) (check t false (strConcat "creation crashed by " (strConcat (faultName kind) (strConcat ": reopen: " (errorText e)))))))
+                    ((Err e) (check t false (concat "creation crashed by " (concat (faultName kind) (concat ": reopen: " (errorText e)))))))
                 }))
             (println "{runs} crashed creations, each reopened as a new database")
           }))

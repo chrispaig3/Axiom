@@ -360,7 +360,7 @@ Two more instances are still open.
 > this section stays. Their expected answers have moved: `mkOk` and
 > `mkErrLit` now report `#effects=Alloc`, not nothing. The section's
 > conclusion still holds: the cost the commit blamed on `Ok`/`Err` was
-> really `strConcat`'s.
+> really `concat`'s.
 
 `ERR-PROP-2` and `MM-EXEC-9a`'s table state a decision: applying a
 `data` or `struct` constructor adds nothing to the inferred effect row,
@@ -379,13 +379,13 @@ the real mechanism:
 ```scheme
 (fn (mkOk n) (Ok n))                                              ; no #effects=
 (fn (mkErrLit n) (Err (mkError n "fixed literal")))                ; no #effects=
-(fn (mkErrFmt n) (Err (mkError n (strConcat "errno " (fmtInt n)))))  ; #effects=Alloc,Mut
-(fn (mkErrCat n) (Err (mkError n (strConcat "op: errno " ""))))      ; #effects=Alloc,Mut, even both operands literal
+(fn (mkErrFmt n) (Err (mkError n (concat "errno " (fmtInt n)))))  ; #effects=Alloc,Mut
+(fn (mkErrCat n) (Err (mkError n (concat "op: errno " ""))))      ; #effects=Alloc,Mut, even both operands literal
 ```
 
 `Ok`, `Err` and `mkError` (itself a plain struct constructor) are
 exactly as effect-free as the decision says. The cost comes from
-`strConcat` alone. It fires even when concatenating two string
+`concat` alone. It fires even when concatenating two string
 literals, with no `fmtInt` involved.
 
 So the real finding is narrower than the commit's. Any
@@ -410,7 +410,7 @@ primitives, through `TAG_E_SETF` in `walkEffects` (`typecheck.ax:10634`)
 and the `__store8`/`__store64` attribution. It doesn't know whether the
 target is a parameter or global, which really is visible through
 aliases, or a block the function just allocated and hasn't returned
-yet, which no alias the caller holds can see. `strConcat`'s internal
+yet, which no alias the caller holds can see. `concat`'s internal
 byte-writing loop is the second kind.
 
 The compiler already computes almost exactly this distinction one pass
@@ -755,8 +755,8 @@ measurements against the merged tree show why.
    option (b) reaches the same non-answer later. Both options are void.
    P6 needs a new analysis, escape or points-to over store targets,
    which is larger than a hoist.
-3. **`strConcat`, the headline case, is refuted by its own file.**
-   `strConcat` does no store of its own. Its `Mut` comes from
+3. **`concat`, the headline case, is refuted by its own file.**
+   `concat` does no store of its own. Its `Mut` comes from
    `(memCopy (strData out) (strData a) la)`, and `memCopy` writes
    through its first parameter. So the question is whether
    `(strData out)` is private. `strData` loads word 1 of the `Str`
@@ -800,7 +800,7 @@ only its own freshly allocated block, never a parameter, capture or
 global. Such a function is marked `Alloc`, because it still allocates,
 but never `Mut`. Nothing it does is visible through any alias the
 caller holds, which is `Mut`'s own definition (`MM-EXEC-9a`). The
-proposal named `strConcat`, `fmtInt`, `strAlloc` and `mkError` as
+proposal named `concat`, `fmtInt`, `strAlloc` and `mkError` as
 qualifying.
 
 **Cost.** Effect inference (`collectEffects`/`walkEffects` in

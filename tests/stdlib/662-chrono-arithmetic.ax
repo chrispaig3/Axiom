@@ -28,7 +28,7 @@
 
 (:: errText (-> Error String))
 (fn (errText e)
-  (strConcat "Err " (fmtInt (errCode e))))
+  (concat "Err " (fmtInt (errCode e))))
 
 (:: showD (-> (Result Date Error) String))
 (fn (showD r)
@@ -137,9 +137,9 @@
       (check "dateNew 2023 2 29" (showD (dateNew 2023 2 29)) "Err 1201")
       (check "dateNew 2024 2 0" (showD (dateNew 2024 2 0)) "Err 1201")
       (check "dateNew -9999 1 1" (showD (dateNew -9999 1 1)) "-009999-01-01")
-      (check "days in February 2024, 1900, 2000" (strConcat (fmtInt (dateDaysInMonth 2024 2)) (strConcat (fmtInt (dateDaysInMonth 1900 2)) (fmtInt (dateDaysInMonth 2000 2)))) "292829")
-      (check "days in April, and in months 0 and 13" (strConcat (fmtInt (dateDaysInMonth 2024 4)) (strConcat (fmtInt (dateDaysInMonth 2024 0)) (fmtInt (dateDaysInMonth 2024 13)))) "3000")
-      (check "dateCompare min max, max min, max max" (strConcat (fmtInt (dateCompare dateMin dateMax)) (strConcat (fmtInt (dateCompare dateMax dateMin)) (fmtInt (dateCompare dateMax dateMax)))) "-110")
+      (check "days in February 2024, 1900, 2000" (concat (fmtInt (dateDaysInMonth 2024 2)) (concat (fmtInt (dateDaysInMonth 1900 2)) (fmtInt (dateDaysInMonth 2000 2)))) "292829")
+      (check "days in April, and in months 0 and 13" (concat (fmtInt (dateDaysInMonth 2024 4)) (concat (fmtInt (dateDaysInMonth 2024 0)) (fmtInt (dateDaysInMonth 2024 13)))) "3000")
+      (check "dateCompare min max, max min, max max" (concat (fmtInt (dateCompare dateMin dateMax)) (concat (fmtInt (dateCompare dateMax dateMin)) (fmtInt (dateCompare dateMax dateMax)))) "-110")
       (check "dateDaysUntil backwards" (fmtInt (dateDaysUntil (date "2024-03-01") (date "2024-02-01"))) "-29")
       ; Times.
       (check "timeNew 24 0 0 0" (showT (timeNew 24 0 0 0)) "Err 1202")
@@ -151,7 +151,7 @@
       (check
         "13:14:15.016 in parts"
         (let ((t (time "13:14:15.016")))
-          (strConcat (strConcat (fmtInt (timeHour t)) (fmtInt (timeMinute t))) (strConcat (fmtInt (timeSecond t)) (strConcat " " (fmtInt (timeNanosecond t))))))
+          (concat (concat (fmtInt (timeHour t)) (fmtInt (timeMinute t))) (concat (fmtInt (timeSecond t)) (concat " " (fmtInt (timeNanosecond t))))))
         "131415 16000000")
       (check "23:00 plus 1 hour" (showT (timeAdd (time "23:00") h1)) "Err 1203")
       (check "23:00 plus 59:59.999999999" (showT (timeAdd (time "23:00") (dur "PT59M59.999999999S"))) "23:59:59.999999999")
@@ -165,7 +165,7 @@
       (check "00:00 minus 25 hours, wrapping" (timeToString (timeAddWrapping timeMidnight (dur "-PT25H"))) "23:00:00")
       (check "00:00 plus the longest, wrapping" (timeToString (timeAddWrapping timeMidnight longest)) "23:47:16.854775807")
       (check "00:00 minus the longest, wrapping" (timeToString (timeAddWrapping timeMidnight (durationNeg longest))) "00:12:43.145224193")
-      (check "timeCompare" (strConcat (fmtInt (timeCompare (time "01:00") (time "02:00"))) (fmtInt (timeCompare (time "02:00") (time "02:00")))) "-10")
+      (check "timeCompare" (concat (fmtInt (timeCompare (time "01:00") (time "02:00"))) (fmtInt (timeCompare (time "02:00") (time "02:00")))) "-10")
       ; Durations: 2^63 - 1 nanoseconds either way, and never the most
       ; negative Int.
       (check "the longest duration" (showDu (durationFromNanos 9223372036854775807)) "PT2562047H47M16.854775807S")
@@ -205,7 +205,7 @@
       (check "the longest, negated" (durationToString (durationNeg longest)) "-PT2562047H47M16.854775807S")
       (check "its absolute value" (durationToString (durationAbs (durationNeg longest))) "PT2562047H47M16.854775807S")
       (check "durationNanos of minus 1 hour" (fmtInt (durationNanos (dur "-PT1H"))) "-3600000000000")
-      (check "durationCompare -1 ns with zero, and zero with zero" (strConcat (fmtInt (durationCompare (nanos -1) durationZero)) (fmtInt (durationCompare durationZero durationZero))) "-10")
+      (check "durationCompare -1 ns with zero, and zero with zero" (concat (fmtInt (durationCompare (nanos -1) durationZero)) (fmtInt (durationCompare durationZero durationZero))) "-10")
       (check
         "durationIsNegative"
         (if (&& (durationIsNegative (nanos -1)) (! (durationIsNegative durationZero)))
@@ -239,7 +239,7 @@
       (check "an instant until itself" (showDu (datetimeUntil late late)) "PT0S")
       (check "a leap year, less 1 ns" (showDu (datetimeUntil (dt "2024-01-01T00:00") (dt "2024-12-31T23:59:59.999999999"))) "PT8783H59M59.999999999S")
       (check "back across midnight" (showDu (datetimeUntil (dt "2024-01-02T00:30") (dt "2024-01-01T23:45"))) "-PT45M")
-      (check "datetimeCompare" (strConcat (fmtInt (datetimeCompare late epoch)) (strConcat (fmtInt (datetimeCompare epoch late)) (fmtInt (datetimeCompare late late)))) "1-10")
+      (check "datetimeCompare" (concat (fmtInt (datetimeCompare late epoch)) (concat (fmtInt (datetimeCompare epoch late)) (fmtInt (datetimeCompare late late)))) "1-10")
       (check
         "datetimeEq on the same reading"
         (if (datetimeEq (dt "2024-01-01T00:00") (dt "2024-01-01 00:00:00.000"))

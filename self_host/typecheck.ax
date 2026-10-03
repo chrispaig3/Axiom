@@ -123,8 +123,8 @@
 (pub fn (tyVarLabel i)
   (let ((letter (strFromByte (+ 97 (% i 26)))))
     (if (< i 26)
-      (strConcat "_" letter)
-      (strConcat (strConcat "_" letter) (fmtInt (/ i 26))))))
+      (concat "_" letter)
+      (concat (concat "_" letter) (fmtInt (/ i 26))))))
 
 (pub :: tyVarsInto (-> Int (Vec String) Int))
 (pub fn (tyVarsInto t0 names)
@@ -183,20 +183,20 @@
           (if (== tag TAG_T_CON)
             (tyRenderApp (nodeAName t) (nodeBVec t) 0 names)
             (if (== tag TAG_T_ARR)
-              (strConcat (strConcat (strConcat (strConcat "(" (tyRenderIn (nodeA t) names)) " -> ") (tyRenderIn (nodeB t) names)) ")")
+              (concat (concat (concat (concat "(" (tyRenderIn (nodeA t) names)) " -> ") (tyRenderIn (nodeB t) names)) ")")
               (if (== tag TAG_T_TUP)
-                (strConcat (strConcat "(" (tyRenderJoin (nodeAVec t) 0 "" names)) ")")
+                (concat (concat "(" (tyRenderJoin (nodeAVec t) 0 "" names)) ")")
                 (if (== tag TAG_T_LIST)
-                  (strConcat (strConcat "[" (tyRenderIn (nodeA t) names)) "]")
+                  (concat (concat "[" (tyRenderIn (nodeA t) names)) "]")
                   (if (== tag TAG_T_PTR)
-                    (strConcat "*" (tyRenderIn (nodeA t) names))
+                    (concat "*" (tyRenderIn (nodeA t) names))
                     "{unknown}"))))))))))
 
 (pub :: tyRenderApp (-> String (Vec Int) Int (Vec String) String))
 (pub fn (tyRenderApp acc args i names)
   (if (>= i (vecLen args))
     acc
-    (tyRenderApp (strConcat (strConcat acc " ") (tyRenderIn (vecGet args i) names)) args (+ i 1) names)))
+    (tyRenderApp (concat (concat acc " ") (tyRenderIn (vecGet args i) names)) args (+ i 1) names)))
 
 (pub :: tyRenderJoin (-> (Vec Int) Int String (Vec String) String))
 (pub fn (tyRenderJoin xs i acc names)
@@ -207,7 +207,7 @@
       (+ i 1)
       (if (== i 0)
         (tyRenderIn (vecGet xs 0) names)
-        (strConcat (strConcat acc ", ") (tyRenderIn (vecGet xs i) names)))
+        (concat (concat acc ", ") (tyRenderIn (vecGet xs i) names)))
       names)))
 
 ; ------------------------------------------------------------------
@@ -305,7 +305,7 @@
           "AX3004"
           "type-mismatch"
           span
-          (strConcat (strConcat "type mismatch: expected " want) ", found {unknown}")
+          (concat (concat "type mismatch: expected " want) ", found {unknown}")
           0
           0
           "declare the type with a `(:: ...)` signature"
@@ -2645,7 +2645,7 @@
                 "AX3026"
                 "reserved-runtime-name"
                 (nodeSpan d)
-                (strConcat (strConcat "`" (nodeAName d)) "` is the emitted runtime's ownership primitive; a program cannot define it")
+                (concat (concat "`" (nodeAName d)) "` is the emitted runtime's ownership primitive; a program cannot define it")
                 0
                 0
                 "rename the function - retain and release belong to the reference-counting runtime (docs/memory-model.md MM-LIFE-2b)"
@@ -2687,10 +2687,10 @@
       "AX3006"
       "duplicate-definition"
       sp
-      (strConcat (strConcat "duplicate definition `" name) "`")
+      (concat (concat "duplicate definition `" name) "`")
       (declDefSpan (vecGet decls j) name)
-      (strConcat (strConcat "`" name) "` first defined here")
-      "rename one of the definitions, or remove the duplicate") (strConcat (strConcat "`" name) "` redefined here")))
+      (concat (concat "`" name) "` first defined here")
+      "rename one of the definitions, or remove the duplicate") (concat (concat "`" name) "` redefined here")))
     0
   })
 
@@ -2895,8 +2895,8 @@
         (if (== (declaredInModule allDecls modName n 0) 1)
           (if (== (exportedFromModule allDecls modName n 0) 1)
             0
-            (importDiag out sp (strConcat (strConcat (strConcat (strConcat "module `" modName) "` declares `") n) "` but does not export it") "write `pub` on its declaration"))
-          (importDiag out sp (strConcat (strConcat (strConcat (strConcat "module `" modName) "` declares no `") n) "`") "check the spelling, or import the module without a name list")))
+            (importDiag out sp (concat (concat (concat (concat "module `" modName) "` declares `") n) "` but does not export it") "write `pub` on its declaration"))
+          (importDiag out sp (concat (concat (concat (concat "module `" modName) "` declares no `") n) "`") "check the spelling, or import the module without a name list")))
       (checkImportNameList
         modName
         names
@@ -2956,10 +2956,10 @@
                 "AX3015"
                 "missing-definition"
                 (nodeSpan d)
-                (strConcat (strConcat "`" name) "` has a signature but no definition")
+                (concat (concat "`" name) "` has a signature but no definition")
                 0
                 0
-                "add the definition, or if it lives in another module, mark that definition `pub` so the import carries it") (strConcat (strConcat "no `fn` defines `" name) "`")))
+                "add the definition, or if it lives in another module, mark that definition `pub` so the import carries it") (concat (concat "no `fn` defines `" name) "`")))
               (checkMissingDefs bs entryDecls out (+ i 1))
             }))))))
 
@@ -3521,7 +3521,7 @@
 ; this file's rule, and one prefix is what keeps it.
 (pub :: freshInstVar (-> Int Int))
 (pub fn (freshInstVar tc)
-  (let ((t (mkTVar (strConcat "_i" (fmtInt (tcCounter tc))))))
+  (let ((t (mkTVar (concat "_i" (fmtInt (tcCounter tc))))))
     {
       (tcBumpCounter tc)
       t
@@ -3529,7 +3529,7 @@
 
 (pub :: freshTVar (-> Int Int Int))
 (pub fn (freshTVar tc bump)
-  (let ((t (mkTVar (strConcat "_t" (fmtInt (tcCounter tc))))))
+  (let ((t (mkTVar (concat "_t" (fmtInt (tcCounter tc))))))
     {
       (if (== bump 1)
         (tcBumpCounter tc)
@@ -3815,7 +3815,7 @@
   (if (> n 16)
     0
     {
-      (regFnEff fns (strConcat "__asm." (fmtInt n)) (mkTArr mkStringTy (mkIntArrow n)) (builtinEff "Mut"))
+      (regFnEff fns (concat "__asm." (fmtInt n)) (mkTArr mkStringTy (mkIntArrow n)) (builtinEff "Mut"))
       (tcRegAsmPrims fns (+ n 1))
     }))
 
@@ -4232,13 +4232,13 @@
                     "AX3029"
                     "record-bitmap-capacity"
                     (nodeSpan c)
-                    (strConcat
-                      (strConcat
-                        (strConcat
+                    (concat
+                      (concat
+                        (concat
                           "constructor `"
                           (cast String (nodeA c)))
                         "` has ")
-                      (strConcat (fmtInt (nodeB c)) " fields, and a cell's reference map covers 46 beside the tag word"))
+                      (concat (fmtInt (nodeB c)) " fields, and a cell's reference map covers 46 beside the tag word"))
                     0
                     0
                     "split the declaration: a nested struct or constructor cell is ONE word of the outer block, and every block carries its own map"
@@ -4267,7 +4267,7 @@
     "AX3030"
     "evidence-word-capacity"
     span
-    (strConcat (strConcat (strConcat "this " what) " declares ") (strConcat (fmtInt n) " type variables, and the evidence word carries 64"))
+    (concat (concat (concat "this " what) " declares ") (concat (fmtInt n) " type variables, and the evidence word carries 64"))
     0
     0
     "split the declaration, or make some positions concrete - each variable needs one bit"
@@ -4365,13 +4365,13 @@
                           "AX3029"
                           "record-bitmap-capacity"
                           (nodeSpan d)
-                          (strConcat
-                            (strConcat
-                              (strConcat
+                          (concat
+                            (concat
+                              (concat
                                 "struct `"
                                 (cast String (nodeA d)))
                               "` has ")
-                            (strConcat (fmtInt (vecLen (nodeBVec d))) " fields, and a block's reference map covers 47"))
+                            (concat (fmtInt (vecLen (nodeBVec d))) " fields, and a block's reference map covers 47"))
                           0
                           0
                           "split the declaration: a nested struct or constructor cell is ONE word of the outer block, and every block carries its own map"
@@ -4519,10 +4519,10 @@
                   "AX3055"
                   "effect-op-untyped"
                   (nodeSpan f)
-                  (strConcat (strConcat (strConcat (strConcat "operation `" (nodeAName f)) "` of effect `") effName) "` declares no type; a handler is checked against it and a call is checked against its arity")
+                  (concat (concat (concat (concat "operation `" (nodeAName f)) "` of effect `") effName) "` declares no type; a handler is checked against it and a call is checked against its arity")
                   0
                   0
-                  (strConcat (strConcat "write `(" (nodeAName f)) " :: (-> Arg Result))`")) "no `::` type after the operation's name"))
+                  (concat (concat "write `(" (nodeAName f)) " :: (-> Arg Result))`")) "no `::` type after the operation's name"))
                 0))
             (set i (+ i 1))
           })
@@ -4571,10 +4571,10 @@
                   "AX3056"
                   "struct-field-untyped"
                   (nodeSpan f)
-                  (strConcat (strConcat (strConcat (strConcat "field `" (nodeAName f)) "` of struct `") structName) "` declares no type; a field's type is what decides whether the release path follows it")
+                  (concat (concat (concat (concat "field `" (nodeAName f)) "` of struct `") structName) "` declares no type; a field's type is what decides whether the release path follows it")
                   0
                   0
-                  (strConcat (strConcat "write `(" (nodeAName f)) " : Type)` - the `:` is what makes this a field declaration")) "no `:` type after the field's name"))
+                  (concat (concat "write `(" (nodeAName f)) " : Type)` - the `:` is what makes this a field declaration")) "no `:` type after the field's name"))
                 0))
             (set i (+ i 1))
           })
@@ -4623,15 +4623,15 @@
             (cast Int modName)
             0)
             0
-            ; `strConcat` twice, from `Str`: nothing from codegen.ax
+            ; `concat` twice, from `Str`: nothing from codegen.ax
             ; is imported here - stage0's flat
             ; namespace resolves it across the merged declaration list
             ; and stage1 refuses it, which is the open B4 item and the
             ; stricter of the two answers.
             (tcAddEffectOp
               tc
-              (strConcat
-                (strConcat
+              (concat
+                (concat
                   (cast String modName)
                   "$")
                 (nodeAName f))
@@ -4754,8 +4754,8 @@
             0
             (tcAddExtern
               tc
-              (strConcat
-                (strConcat
+              (concat
+                (concat
                   (cast String modName)
                   "$")
                 (nodeAName f))
@@ -4770,11 +4770,11 @@
 ; ------------------------------------------------------------------
 (pub :: builtinEff (-> String String))
 (pub fn (builtinEff n)
-  (strConcat "b:" n))
+  (concat "b:" n))
 
 (pub :: customEff (-> String String))
 (pub fn (customEff n)
-  (strConcat "c:" n))
+  (concat "c:" n))
 
 ; The name stage0's `Display for Effect` prints, which is what an
 ; AX3011 message quotes: the tag's two bytes removed - and the `~` of
@@ -4923,7 +4923,7 @@
     (let ((ent 
       (if (!= ent0 0)
         ent0
-        (let ((ph (mkTVar (strConcat "_fn_" (fmtInt (tcCounter tc))))))
+        (let ((ph (mkTVar (concat "_fn_" (fmtInt (tcCounter tc))))))
           {
             (tcBumpCounter tc)
             (tcPushFn
@@ -4998,8 +4998,8 @@
     (cast Int declMod)
     0)
     name
-    (strConcat
-      (strConcat
+    (concat
+      (concat
         (cast String declMod)
         "$")
       name)))
@@ -5018,7 +5018,7 @@
 ; The ownership test builds no string either. It ran for every
 ; reference a module makes to its OWN private names, which for a
 ; module of private helpers is most of them, and
-; `(strConcat curMod "$")` allocated a prefix per call on an allocator
+; `(concat curMod "$")` allocated a prefix per call on an allocator
 ; that never frees.
 (pub :: privBlocks (-> (Vec (Vec String)) String a Int))
 ;@axiom:effect(unsafe)
@@ -5480,7 +5480,7 @@
 ; The module-local probe, without building `Mod$name`.
 ;
 ; `findFnEnt` asks this FIRST for every reference made from inside a
-; module, and it built the key with two `strConcat`s - two allocations
+; module, and it built the key with two `concat`s - two allocations
 ; and two copies, per reference, on an allocator that never frees.
 ;
 ; Neither is needed. The hash is a left fold over bytes, so it can be
@@ -5493,7 +5493,7 @@
 ;@axiom:effect(unsafe)
 (pub fn (fnEntQual tc m name)
   (if (== (memGetWord tc 20) 0)
-    (findFnEntExact (tcFnsVec tc) (strConcat (strConcat m "$") name) 0)
+    (findFnEntExact (tcFnsVec tc) (concat (concat m "$") name) 0)
     (fnIdxGetQual (memGetWordVec tc 20) m name)))
 
 ; `fnIdxHash` of `m` ++ "$" ++ `name`, computed over the pieces. 36 is
@@ -6324,10 +6324,10 @@
             "AX3044"
             "ambiguous-type"
             span
-            (strConcat (strConcat (strConcat "ambiguous type `" (bareOf name)) "`: declared in ") (joinModules mods 0 ""))
+            (concat (concat (concat "ambiguous type `" (bareOf name)) "`: declared in ") (joinModules mods 0 ""))
             0
             0
-            (strConcat "qualify the reference: " (joinQualified mods (bareOf name) 0 ""))) (strConcat (strConcat "`" (bareOf name)) "` could mean more than one declaration")))
+            (concat "qualify the reference: " (joinQualified mods (bareOf name) 0 ""))) (concat (concat "`" (bareOf name)) "` could mean more than one declaration")))
           1
         }))))
 
@@ -6697,7 +6697,7 @@
                 (emitStructMarkerDiag
                   tc
                   (nodeSpan m)
-                  (strConcat (strConcat "`" n) "` is written twice")
+                  (concat (concat "`" n) "` is written twice")
                   "write each marker once"
                   "a marker says one thing about the struct, and saying it twice says nothing more")
                 {
@@ -6707,7 +6707,7 @@
               (emitStructMarkerDiag
                 tc
                 (nodeSpan m)
-                (strConcat (strConcat "`" n) "` is not a struct marker")
+                (concat (concat "`" n) "` is not a struct marker")
                 "a struct takes `word`, which makes it one machine word rather than a heap block, and `shared`, which lets a `parallel` binding capture a `word`; anything else after the struct's name is refused"
                 "the markers come between the name and the first field: `(struct Chan word shared (slot : Int))`"))
             (set i (+ i 1))
@@ -6718,7 +6718,7 @@
         (emitStructMarkerDiag
           tc
           (nodeSpan d)
-          (strConcat (strConcat "struct `" (nodeAName d)) "` is `shared` but not a `word`")
+          (concat (concat "struct `" (nodeAName d)) "` is `shared` but not a `word`")
           "add `word`, or drop `shared`: only a word may be shared between concurrent bindings"
           "a heap struct is a counted block, and `axiom_retain` is a plain load-add-store: two bindings touching one count lose an increment and free a block still named (MM-PAR-6)")
         0)
@@ -6738,7 +6738,7 @@
       (emitStructMarkerDiag
         tc
         (nodeSpan d)
-        (strConcat (strConcat (strConcat (strConcat "word struct `" name) "` declares ") (fmtInt (vecLen fs))) " fields, and a word holds exactly one")
+        (concat (concat (concat (concat "word struct `" name) "` declares ") (fmtInt (vecLen fs))) " fields, and a word holds exactly one")
         "give it one field, `(slot : Int)`: a word struct IS its one field, so a second one has nowhere to live"
         "a word struct is one machine word, not a block (docs/memory-model.md MM-VAL-10a)")
       (let ((f (vecGet fs 0)))
@@ -6746,14 +6746,14 @@
           (emitStructMarkerDiag
             tc
             (nodeSpan d)
-            (strConcat (strConcat "word struct `" name) "` takes type parameters")
+            (concat (concat "word struct `" name) "` takes type parameters")
             "drop the parameters: a word carries no type argument"
             "a word takes no share and so has no evidence a type argument could describe")
           (if (== (fieldIsMut f) 1)
             (emitStructMarkerDiag
               tc
               (spanOf f)
-              (strConcat (strConcat (strConcat (strConcat "field `" (nodeAName f)) "` of word struct `") name) "` is `mut`")
+              (concat (concat (concat (concat "field `" (nodeAName f)) "` of word struct `") name) "` is `mut`")
               "drop `mut`: a word struct is a value, and a store would change only the copy it was made on"
               "a word struct has no block a field store could reach")
             (if (&& (!= (nodeTy f) 0) (if (tyIsBareInt (nodeTy f))
@@ -6762,7 +6762,7 @@
               (emitStructMarkerDiag
                 tc
                 (spanOf f)
-                (strConcat (strConcat (strConcat (strConcat "field `" (nodeAName f)) "` of word struct `") name) "` is not an `Int`")
+                (concat (concat (concat (concat "field `" (nodeAName f)) "` of word struct `") name) "` is not an `Int`")
                 "type the field `Int`: a word struct holds one machine word, and `Int` is the type that is one"
                 "a `String`, a `Vec` or a record is a reference, and a word that held one would take no share of it")
               0)))))))
@@ -6800,10 +6800,10 @@
         "AX3085"
         "word-struct-sealed"
         span
-        (strConcat (strConcat (strConcat (strConcat "only module `" (wordEntModuleName ent)) "` can make a `") (memGetWordStr ent 0)) "`")
+        (concat (concat (concat (concat "only module `" (wordEntModuleName ent)) "` can make a `") (memGetWordStr ent 0)) "`")
         0
         0
-        (strConcat (strConcat "get one from a function module `" (wordEntModuleName ent)) (if (!= (& (memGetWord ent 4) 1) 0) "` provides: a word struct's constructor stays in its module, `pub` or not" "` provides: a sealed struct's constructor stays in its module, `pub` or not"))
+        (concat (concat "get one from a function module `" (wordEntModuleName ent)) (if (!= (& (memGetWord ent 4) 1) 0) "` provides: a word struct's constructor stays in its module, `pub` or not" "` provides: a sealed struct's constructor stays in its module, `pub` or not"))
         (if (!= (& (memGetWord ent 4) 1) 0) "a word struct is sealed, so every value of its type is one its module made and no other code can forge one (docs/memory-model.md MM-VAL-10a)" "a sealed struct keeps ownership state private; use its module's functions (docs/reference.md Structs)")) "built outside its module"))
       0
     }))
@@ -6819,10 +6819,10 @@
         "AX3086"
         "word-struct-sealed-field"
         span
-        (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat "only module `" (wordEntModuleName ent)) "` can read field `") field) "` of `") (memGetWordStr ent 0)) "`")
+        (concat (concat (concat (concat (concat (concat "only module `" (wordEntModuleName ent)) "` can read field `") field) "` of `") (memGetWordStr ent 0)) "`")
         0
         0
-        (strConcat (strConcat "use the functions module `" (wordEntModuleName ent)) (if (!= (& (memGetWord ent 4) 1) 0) "` provides: a word struct's field stays in its module, `pub` or not" "` provides: a sealed struct's field stays in its module, `pub` or not"))
+        (concat (concat "use the functions module `" (wordEntModuleName ent)) (if (!= (& (memGetWord ent 4) 1) 0) "` provides: a word struct's field stays in its module, `pub` or not" "` provides: a sealed struct's field stays in its module, `pub` or not"))
         (if (!= (& (memGetWord ent 4) 1) 0) "a word struct is sealed: what its word means is its module's business, and code that read it could hand the same word to something else (docs/memory-model.md MM-VAL-10a)" "a sealed struct keeps ownership state private; use its module's functions (docs/reference.md Structs)")) "read outside its module"))
       0
     }))
@@ -7438,7 +7438,7 @@
                       "AX3036"
                       "extern-type"
                       (nodeSpan f)
-                      (strConcat (strConcat "an `extern` item cannot carry " shape) " across the boundary")
+                      (concat (concat "an `extern` item cannot carry " shape) " across the boundary")
                       0
                       0
                       "an `extern` signature names only `Int`, `Float`, `Bool`, `Char`, `String` and `Foreign` (one machine word each way); a Rust value of any other shape crosses as a `Foreign` handle, or through the wrapper `axiom-bindgen` generates (a `String` result, a `Result`, an `Option`, an opaque type)")))))
@@ -7449,10 +7449,10 @@
                   "AX3002"
                   "undefined-type"
                   (nodeSpan f)
-                  (strConcat (strConcat "undefined type `" (tyUnknownConName tc (nodeB f))) "`")
+                  (concat (concat "undefined type `" (tyUnknownConName tc (nodeB f))) "`")
                   0
                   0
-                  "an `extern` item's type is the only description of the boundary the compiler has; declare the type, or use `Foreign` for an opaque handle") (strConcat (strConcat "no type named `" (tyUnknownConName tc (nodeB f))) "` is visible here")))))))
+                  "an `extern` item's type is the only description of the boundary the compiler has; declare the type, or use `Foreign` for an opaque handle") (concat (concat "no type named `" (tyUnknownConName tc (nodeB f))) "` is visible here")))))))
         (tcCheckExternTypes tc items (+ i 1))
       })))
 
@@ -7499,7 +7499,7 @@
             (cast String 0)
             "a function-typed argument (a callback is an arrow over words only - `Int`, `Float`, `Bool`, `Char` - such as `(-> Int Float)`)"))
         (if (== tg TAG_T_VAR)
-          (strConcat (strConcat "the type variable `" (nodeAName t)) "`")
+          (concat (concat "the type variable `" (nodeAName t)) "`")
           (if (== tg TAG_T_TUP)
             "a tuple"
             (if (== tg TAG_T_LIST)
@@ -7509,8 +7509,8 @@
                   (if (|| (== (evScalarName n) 1) (|| (strEq n "String") (|| (strEq n "Foreign") (|| (strEq n "Char") (strEq n "Bool")))))
                     (if (== (vecLen (nodeBVec t)) 0)
                       (cast String 0)
-                      (strConcat (strConcat "`" n) "` applied to type arguments"))
-                    (strConcat (strConcat "the type `" n) "`")))
+                      (concat (concat "`" n) "` applied to type arguments"))
+                    (concat (concat "the type `" n) "`")))
                 "this type"))))))))
 
 (pub :: tcExpandSigAliases (-> Int Int Int))
@@ -8296,7 +8296,7 @@
       "AX3040"
       "result-only-tyvar"
       (nodeSpan d)
-      (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` must produce a value of type variable `") v) "`, which no parameter supplies: it occurs inside a function-typed parameter, on the side this function fills in, so the caller chooses the type and a `cast` fabricates the value")
+      (concat (concat (concat (concat "`" (bareOf (nodeAName d))) "` must produce a value of type variable `") v) "`, which no parameter supplies: it occurs inside a function-typed parameter, on the side this function fills in, so the caller chooses the type and a `cast` fabricates the value")
       0
       0
       "making the function diverge does not answer this one - the value is fabricated before it returns, or fails to; name a concrete word type in the callback's parameter and let callers write `cast`, or tag the declaration `;@axiom:raw` to put it in the unsafe layer on purpose"))))
@@ -8310,7 +8310,7 @@
       "AX3040"
       "result-only-tyvar"
       (nodeSpan d)
-      (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` returns type variable `") v) "`, which no parameter mentions, and its body produces that result rather than never returning: the caller chooses the type and a `cast` fabricates the value")
+      (concat (concat (concat (concat "`" (bareOf (nodeAName d))) "` returns type variable `") v) "`, which no parameter mentions, and its body produces that result rather than never returning: the caller chooses the type and a `cast` fabricates the value")
       0
       0
       "three ways out: return a concrete word type and let callers write `cast`; or make it DIVERGE, so every path ends in a call that never returns, which is what makes `for all a` honest; or tag the declaration `;@axiom:raw` to put it in the unsafe layer on purpose"))))
@@ -8402,10 +8402,10 @@
             "AX3002"
             "undefined-type"
             (nodeSpan d)
-            (strConcat (strConcat "undefined type `" (tyUnknownConName tc (nodeTy d))) "`")
+            (concat (concat "undefined type `" (tyUnknownConName tc (nodeTy d))) "`")
             0
             0
-            (tyRemovedBuiltinHelp (tyUnknownConName tc (nodeTy d)))) (strConcat (strConcat "no type named `" (tyUnknownConName tc (nodeTy d))) "` is visible here"))))
+            (tyRemovedBuiltinHelp (tyUnknownConName tc (nodeTy d)))) (concat (concat "no type named `" (tyUnknownConName tc (nodeTy d))) "` is visible here"))))
         (let ((ent (fnEntExact tc (nodeAName d))))
           (if (== ent 0)
             0
@@ -8549,7 +8549,7 @@
         "AX3094"
         "reserved-literal"
         span
-        (strConcat (strConcat (strConcat "cannot " (if (== isDecl 1) "declare `" "bind `")) name) "` - it is a boolean literal")
+        (concat (concat (concat "cannot " (if (== isDecl 1) "declare `" "bind `")) name) "` - it is a boolean literal")
         0
         0
         "choose another name"
@@ -8759,11 +8759,11 @@
       "AX3058"
       "region-name-shadowed"
       span
-      (strConcat (strConcat "region `" name) "` is already open: a nested region cannot reuse an enclosing region's name")
+      (concat (concat "region `" name) "` is already open: a nested region cannot reuse an enclosing region's name")
       0
       0
       "rename the inner region: regions are ordered by nesting (MM-RGN-2), and a name that means two extents cannot be ordered"
-      "nothing can refer to a region by name yet; when a `@r` in type position can, this is the ambiguity it must not meet") (strConcat (strConcat "`" name) "` is already the name of an enclosing region")))
+      "nothing can refer to a region by name yet; when a `@r` in type position can, this is the ambiguity it must not meet") (concat (concat "`" name) "` is already the name of an enclosing region")))
     0
   })
 
@@ -8775,11 +8775,11 @@
       "AX3059"
       "region-escape"
       span
-      (strConcat (strConcat (strConcat (strConcat "region `" name) "` answers a value of type `") (tyRender ty)) "`, which may point into the memory the region reclaims")
+      (concat (concat (concat (concat "region `" name) "` answers a value of type `") (tyRender ty)) "`, which may point into the memory the region reclaims")
       0
       0
       "answer a scalar - Int, Bool, Char or Float - which survives the reset by value; a reference has to be built outside the region until typed regions (docs/memory-model-v2-design.md §4, S3) can promote one"
-      "a `String` is a descriptor over a second block, a struct is a block and a closure is a record; every one of them would point at reclaimed memory") (strConcat (strConcat "this has type `" (tyRender ty)) "`")))
+      "a `String` is a descriptor over a second block, a struct is a block and a closure is a record; every one of them would point at reclaimed memory") (concat (concat "this has type `" (tyRender ty)) "`")))
     0
   })
 
@@ -8803,7 +8803,7 @@
       "AX3059"
       "region-escape"
       span
-      (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat "`" bname) "` is bound outside region `") rname) "`, and the value stored into it has type `") (tyRender ty)) "`")
+      (concat (concat (concat (concat (concat (concat "`" bname) "` is bound outside region `") rname) "`, and the value stored into it has type `") (tyRender ty)) "`")
       0
       0
       "a reference allocated inside the region would outlive it: store a scalar, or bind the target inside the region"
@@ -8957,10 +8957,10 @@
         "AX3004"
         "type-mismatch"
         span
-        (strConcat (strConcat (strConcat "type mismatch: expected " expected) ", found ") found)
+        (concat (concat (concat "type mismatch: expected " expected) ", found ") found)
         0
         0
-        0) (strConcat (strConcat (strConcat (strConcat "this has type `" found) "`, expected `") expected) "`")))
+        0) (concat (concat (concat (concat "this has type `" found) "`, expected `") expected) "`")))
       0
     }))
 
@@ -8978,10 +8978,10 @@
         "AX3004"
         "type-mismatch"
         span
-        (strConcat (strConcat (strConcat "type mismatch: expected " expected) ", found ") found)
+        (concat (concat (concat "type mismatch: expected " expected) ", found ") found)
         0
         0
-        help) (strConcat (strConcat (strConcat (strConcat "this has type `" found) "`, expected `") expected) "`")))
+        help) (concat (concat (concat (concat "this has type `" found) "`, expected `") expected) "`")))
       0
     }))
 
@@ -9051,13 +9051,13 @@
           "AX3012"
           "assign-to-immutable"
           tspan
-          (strConcat (strConcat "cannot assign to immutable binding `" disp) "`")
+          (concat (concat "cannot assign to immutable binding `" disp) "`")
           bspan
-          (strConcat (strConcat "`" disp) "` is bound here")
-          (strConcat (strConcat "declare it mutable: `(mut " disp) " ...)`")
+          (concat (concat "`" disp) "` is bound here")
+          (concat (concat "declare it mutable: `(mut " disp) " ...)`")
           bspan
-          (strConcat "mut " disp)
-          "only a binding introduced by `(let ((mut x ...)) ...)` may be the target of `set`") (strConcat (strConcat "`" disp) "` cannot be assigned")))
+          (concat "mut " disp)
+          "only a binding introduced by `(let ((mut x ...)) ...)` may be the target of `set`") (concat (concat "`" disp) "` cannot be assigned")))
         0
       })))
 
@@ -9086,11 +9086,11 @@
           "AX3012"
           "assign-to-immutable"
           tspan
-          (strConcat (strConcat "cannot assign to `" disp) "`: it is a parameter, and parameters are immutable")
+          (concat (concat "cannot assign to `" disp) "`: it is a parameter, and parameters are immutable")
           0
           0
-          (strConcat (strConcat (strConcat (strConcat "copy it into a mutable local first: `(let ((mut " disp) "2 ") disp) ")) ...)`")
-          "this used to pass `check` and fail inside codegen as AX4002; the check runs here now") (strConcat (strConcat "`" disp) "` is a parameter")))
+          (concat (concat (concat (concat "copy it into a mutable local first: `(let ((mut " disp) "2 ") disp) ")) ...)`")
+          "this used to pass `check` and fail inside codegen as AX4002; the check runs here now") (concat (concat "`" disp) "` is a parameter")))
         0
       })))
 
@@ -9107,11 +9107,11 @@
         "AX3012"
         "assign-to-immutable"
         tspan
-        (strConcat (strConcat (strConcat (strConcat "cannot assign to `" (srcSpelling name)) "`: it is ") what) ", not a binding")
+        (concat (concat (concat (concat "cannot assign to `" (srcSpelling name)) "`: it is ") what) ", not a binding")
         0
         0
         "only a binding introduced by `(let ((mut x ...)) ...)` may be the target of `set`; bind a mutable local of your own"
-        "this used to pass `check` and fail inside codegen as AX4002") (strConcat (strConcat "`" (srcSpelling name)) "` cannot be assigned"))))
+        "this used to pass `check` and fail inside codegen as AX4002") (concat (concat "`" (srcSpelling name)) "` cannot be assigned"))))
     (mkNode TAG_T_ERR 0 0 0)
   })
 
@@ -9137,11 +9137,11 @@
           "AX3012"
           "assign-to-immutable"
           tspan
-          (strConcat (strConcat "cannot assign to `" disp) "` from inside a lambda: the lambda captured its value, not the binding")
+          (concat (concat "cannot assign to `" disp) "` from inside a lambda: the lambda captured its value, not the binding")
           bspan
-          (strConcat (strConcat "`" disp) "` is bound outside the lambda, here")
+          (concat (concat "`" disp) "` is bound outside the lambda, here")
           "return the new value instead, or restructure so the assignment happens where the binding lives"
-          "a closure captures by value when its record is built, so a later `set` inside it could never be observed outside; this used to pass `check` and fail inside codegen as AX4002") (strConcat (strConcat "`" disp) "` was captured, not shared")))
+          "a closure captures by value when its record is built, so a later `set` inside it could never be observed outside; this used to pass `check` and fail inside codegen as AX4002") (concat (concat "`" disp) "` was captured, not shared")))
         0
       })))
 
@@ -9171,11 +9171,11 @@
       "AX3012"
       "assign-to-immutable"
       tspan
-      (strConcat (strConcat (strConcat (strConcat "cannot assign to field `" fname) "` of `") tyname) "`: the field is not declared `mut`")
+      (concat (concat (concat (concat "cannot assign to field `" fname) "` of `") tyname) "`: the field is not declared `mut`")
       0
       0
-      (strConcat (strConcat (strConcat (strConcat "declare it mutable where `" tyname) "` is defined: `(mut ") fname) (strConcat (strConcat " : " fty) ")`"))
-      "a struct field is immutable unless its declaration marks it `mut`, the rule `let` already follows; until 0.6.0 the marker was parsed and discarded and this store compiled in silence") (strConcat (strConcat "`" fname) "` is not a `mut` field")))
+      (concat (concat (concat (concat "declare it mutable where `" tyname) "` is defined: `(mut ") fname) (concat (concat " : " fty) ")`"))
+      "a struct field is immutable unless its declaration marks it `mut`, the rule `let` already follows; until 0.6.0 the marker was parsed and discarded and this store compiled in silence") (concat (concat "`" fname) "` is not a `mut` field")))
     0
   })
 
@@ -9521,10 +9521,10 @@
         "AX3054"
         "effect-name-reserved"
         (nodeSpan d)
-        (strConcat (strConcat "`" (nodeAName d)) "` names a built-in effect, and an effect declared with that name can never be handled: a handle list naming it reads as the built-in")
+        (concat (concat "`" (nodeAName d)) "` names a built-in effect, and an effect declared with that name can never be handled: a handle list naming it reads as the built-in")
         0
         0
-        "choose another name - the built-in effect names are `IO`, `Pure`, `Alloc`, `Mut`, `Div` and `Unsafe`, and `alloc` is a second spelling of one of them") (strConcat (strConcat "`" (nodeAName d)) "` is a built-in effect"))))))
+        "choose another name - the built-in effect names are `IO`, `Pure`, `Alloc`, `Mut`, `Div` and `Unsafe`, and `alloc` is a second spelling of one of them") (concat (concat "`" (nodeAName d)) "` is a built-in effect"))))))
 
 (pub :: isCastLike (-> String Int))
 (pub fn (isCastLike n)
@@ -10020,10 +10020,10 @@
               "AX3014"
               "ambiguous-name"
               span
-              (strConcat (strConcat (strConcat (strConcat "ambiguous name `" (bareOf name)) "`: defined in ") (joinModules mods 0 "")) "")
+              (concat (concat (concat (concat "ambiguous name `" (bareOf name)) "`: defined in ") (joinModules mods 0 "")) "")
               0
               0
-              (strConcat "qualify the reference: " (joinQualified mods (bareOf name) 0 ""))) (strConcat (strConcat "`" (bareOf name)) "` could mean more than one definition")))
+              (concat "qualify the reference: " (joinQualified mods (bareOf name) 0 ""))) (concat (concat "`" (bareOf name)) "` could mean more than one definition")))
             1
           })))))
 
@@ -10272,7 +10272,7 @@
       (+ i 1)
       (if (== i 0)
         (vecGetStr v i)
-        (strConcat (strConcat acc ", ") (vecGetStr v i))))))
+        (concat (concat acc ", ") (vecGetStr v i))))))
 
 (pub :: joinQualified (-> (Vec Int) String Int String String))
 ;@axiom:effect(unsafe)
@@ -10283,10 +10283,10 @@
       v
       n
       (+ i 1)
-      (let ((one (strConcat (strConcat (strConcat "`" (vecGetStr v i)) "::") (strConcat n "`"))))
+      (let ((one (concat (concat (concat "`" (vecGetStr v i)) "::") (concat n "`"))))
         (if (== i 0)
           one
-          (strConcat (strConcat acc " or ") one))))))
+          (concat (concat acc " or ") one))))))
 
 (pub :: checkVar (-> Int Int Int Int))
 ;@axiom:effect(unsafe)
@@ -10432,7 +10432,7 @@
               "AX3017"
               "effect-handler-unsupported"
               span
-              (strConcat (strConcat (strConcat (strConcat (strConcat "effect operation `" (bareOf name)) "` cannot be used as a bare value; call it, or wrap it: `(lambda (x) (") (bareOf name)) " x))`") "")
+              (concat (concat (concat (concat (concat "effect operation `" (bareOf name)) "` cannot be used as a bare value; call it, or wrap it: `(lambda (x) (") (bareOf name)) " x))`") "")
               0
               0
               0)))
@@ -10448,11 +10448,11 @@
                   "AX3013"
                   "partial-application"
                   span
-                  (strConcat (strConcat (strConcat (strConcat "partial application of `" name) "`: it takes ") (fmtInt ar)) " argument(s) and 0 were supplied")
+                  (concat (concat (concat (concat "partial application of `" name) "`: it takes ") (fmtInt ar)) " argument(s) and 0 were supplied")
                   0
                   0
                   "bind the missing arguments with a lambda: `(lambda (y) (f x y))` builds the value `(f x)` would mean"
-                  "a partial application has to hold the arguments it was not given, and a top-level function has no closure record to hold them in") (strConcat (strConcat (strConcat (strConcat "`" name) "` takes ") (fmtInt ar)) " arguments, so it cannot be used as a bare value")))
+                  "a partial application has to hold the arguments it was not given, and a top-level function has no closure record to hold them in") (concat (concat (concat (concat "`" name) "` takes ") (fmtInt ar)) " arguments, so it cannot be used as a bare value")))
                 1
               })
             ; A ONE-argument BUILT-IN (FnEnt word 3): a primitive is
@@ -10470,7 +10470,7 @@
                 name
                 1
                 span
-                (strConcat (strConcat "call it, or wrap it in a lambda to pass it as a value: `(lambda (x) (" name) " x))`")
+                (concat (concat "call it, or wrap it in a lambda to pass it as a value: `(lambda (x) (" name) " x))`")
                 "a primitive is lowered in place at each call and has no function symbol, so a bare reference to one has no value to take")
               0))))
       ; `cast`, `sizeof` and `alignof` are FORMS: their first argument
@@ -10489,7 +10489,7 @@
           span
           (if (strEq name "cast")
             "write the value to convert after the type - `(cast Int e)` - or, for a function value, `(lambda (x) (cast Int x))`"
-            (strConcat (strConcat "write the type it measures: `(" name) " Int)`"))
+            (concat (concat "write the type it measures: `(" name) " Int)`"))
           "`cast`, `sizeof` and `alignof` are forms whose first argument is a type, not functions: there is nothing for a bare one to be")
       (let ((ctor (rfindCtor tc name)))
         (if (== ctor 0)
@@ -10505,10 +10505,10 @@
                     "AX3009"
                     "constructor-arity-mismatch"
                     span
-                    (strConcat (strConcat (strConcat (strConcat (strConcat "constructor `" name) "` expects ") (fmtInt fc)) " argument(s), found ") "0")
+                    (concat (concat (concat (concat (concat "constructor `" name) "` expects ") (fmtInt fc)) " argument(s), found ") "0")
                     0
                     0
-                    (strConcat (strConcat "this constructor takes exactly " (fmtInt fc)) " field(s); add or remove arguments to match")) "0 argument(s) provided here"))
+                    (concat (concat "this constructor takes exactly " (fmtInt fc)) " field(s); add or remove arguments to match")) "0 argument(s) provided here"))
                   1
                 })))))))))
 
@@ -10526,11 +10526,11 @@
         "AX3013"
         "partial-application"
         span
-        (strConcat (strConcat (strConcat (strConcat "partial application of `" name) "`: it takes ") (fmtInt ar)) " argument(s) and 0 were supplied")
+        (concat (concat (concat (concat "partial application of `" name) "`: it takes ") (fmtInt ar)) " argument(s) and 0 were supplied")
         0
         0
         help
-        note) (strConcat (strConcat (strConcat (strConcat "`" name) "` takes ") (fmtInt ar)) " argument(s), so it cannot be used as a bare value"))))
+        note) (concat (concat (concat (concat "`" name) "` takes ") (fmtInt ar)) " argument(s), so it cannot be used as a bare value"))))
     1
   })
 
@@ -10554,10 +10554,10 @@
         "AX3023"
         "private-name"
         span
-        (strConcat (strConcat (strConcat (strConcat "`" (srcSpelling name)) "` is private to module `") (modOfName declName)) "`")
+        (concat (concat (concat (concat "`" (srcSpelling name)) "` is private to module `") (modOfName declName)) "`")
         0
         0
-        "a name leaves its module when its declaration is written `pub`; if the import that brought the module in carries a name list, the name has to appear there too") (strConcat (strConcat "`" (bareOf declName)) "` is not exported by its module")))
+        "a name leaves its module when its declaration is written `pub`; if the import that brought the module in carries a name list, the name has to appear there too") (concat (concat "`" (bareOf declName)) "` is not exported by its module")))
       0)
     (mkNode TAG_T_ERR 0 0 0)
   })
@@ -10650,7 +10650,7 @@
       (if (!= span 0)
         (emitDiag
           tc
-          (let ((msg (strConcat (strConcat "undefined variable `" (srcSpelling name)) "`")))
+          (let ((msg (concat (concat "undefined variable `" (srcSpelling name)) "`")))
             (diagSetLabel
               (if (isErrImportName name)
                 (mkDiag
@@ -10661,7 +10661,7 @@
                   msg
                   0
                   0
-                  (strConcat "`" (strConcat (srcSpelling name) "` is defined in the `Err` module; add `(import Err)`")))
+                  (concat "`" (concat (srcSpelling name) "` is defined in the `Err` module; add `(import Err)`")))
                 (if (== (memGetWord best 0) 0)
                   (mkDiag
                     SEV_ERROR
@@ -10680,10 +10680,10 @@
                     msg
                     0
                     0
-                    (strConcat (strConcat "a similarly named binding `" (memGetWordStr best 0)) "` is in scope; did you mean this?")
+                    (concat (concat "a similarly named binding `" (memGetWordStr best 0)) "` is in scope; did you mean this?")
                     span
                     (memGetWord best 0))))
-              (strConcat (strConcat "no binding named `" (srcSpelling name)) "` in scope"))))
+              (concat (concat "no binding named `" (srcSpelling name)) "` in scope"))))
         0)
       (mkNode TAG_T_ERR 0 0 0)
     }))
@@ -11017,7 +11017,7 @@
       "AX3064"
       "parallel-capture"
       span
-      (strConcat (strConcat "a concurrent binding spawns " shape) ", whose captures this checker cannot see")
+      (concat (concat "a concurrent binding spawns " shape) ", whose captures this checker cannot see")
       0
       0
       "write the lambda at the spawn, or name a top-level function: a literal is checked where it stands and a top-level name captures nothing"
@@ -11281,7 +11281,7 @@
 (pub fn (capBorrowBlock tc id)
   (let (
     (v (memGetWordVec tc 45))
-    (want (strConcat "parallel$b" id))
+    (want (concat "parallel$b" id))
     (mut i (- (vecLen v) 2))
     (mut found 0)
   )
@@ -11472,8 +11472,8 @@
           "AX3064"
           "parallel-capture"
           span
-          (strConcat
-            (strConcat (strConcat (strConcat "a concurrent binding captures `" name) "`, which has type `") (tyRender ty))
+          (concat
+            (concat (concat (concat "a concurrent binding captures `" name) "`, which has type `") (tyRender ty))
             (if (== cls 0)
               "` - a mutable container the parent also holds, which a binding could grow while another reads it"
               (if (== cls 1)
@@ -11485,7 +11485,7 @@
           0
           "pass the value in through the thunk's word argument instead of capturing it, or build a copy of it inside the binding. A `parallel` binding may borrow a `String` its parent holds; anything else it shares with its parent is a word. To share other read-only input with several workers, use `stdlib/Par.ax`, whose forked children read their own copy"
           "MM-PAR-6: a binding runs BESIDE its parent, and `axiom_retain`/`axiom_release` are a plain load-add-store rather than an `atomicrmw` - two threads touching one block's count lose an increment and free a block a live reference still names. The rule is the language's and not the lowering's, so it does not depend on `--threads`; `__proc_spawn` names the isolated lowering and is exempt")
-        (strConcat (strConcat "`" name) "` is bound outside this binding")))
+        (concat (concat "`" name) "` is bound outside this binding")))
     0
   })
 
@@ -11501,15 +11501,15 @@
       "AX3064"
       "parallel-capture"
       span
-      (strConcat (strConcat (strConcat (strConcat "a concurrent binding captures `" name) "`, which has type `") (tyRender ty)) (if (strEq (tyRender ty) "Spawn")
+      (concat (concat (concat (concat "a concurrent binding captures `" name) "`, which has type `") (tyRender ty)) (if (strEq (tyRender ty) "Spawn")
         "` - a spawn handle, which only the binding that spawned it may join"
         "` - a handle its module did not declare `shared`"))
       0
       0
       (if (strEq (tyRender ty) "Spawn")
         "join the handle in the binding that spawned it: a spawn handle belongs to the binding that made it, and a join from another thread is refused at run time"
-        (strConcat (strConcat "use the handle only in the binding that holds it, or have its module declare `(struct " (tyRender ty)) " word shared ...)` if every operation on it is safe from several bindings at once"))
-      "MM-PAR-6: a word struct crosses into a concurrent binding only when its module declares it `shared`, which says every operation on it is safe from several bindings at once; `__proc_spawn` names the isolated lowering and is exempt") (strConcat (strConcat "`" name) "` is bound outside this binding")))
+        (concat (concat "use the handle only in the binding that holds it, or have its module declare `(struct " (tyRender ty)) " word shared ...)` if every operation on it is safe from several bindings at once"))
+      "MM-PAR-6: a word struct crosses into a concurrent binding only when its module declares it `shared`, which says every operation on it is safe from several bindings at once; `__proc_spawn` names the isolated lowering and is exempt") (concat (concat "`" name) "` is bound outside this binding")))
     0
   })
 
@@ -11527,11 +11527,11 @@
       "AX3064"
       "parallel-capture"
       span
-      (strConcat (strConcat (strConcat (strConcat "a concurrent binding spawns `" name) "`, a local name holding a function of type `") (tyRender ty)) "` whose captures this checker cannot see")
+      (concat (concat (concat (concat "a concurrent binding spawns `" name) "`, a local name holding a function of type `") (tyRender ty)) "` whose captures this checker cannot see")
       0
       0
       "write the lambda at the spawn, or name a top-level function: a literal is checked where it stands and a top-level name captures nothing"
-      "MM-PAR-6: a binding runs BESIDE its parent, and `axiom_retain`/`axiom_release` are a plain load-add-store rather than an `atomicrmw` - two threads touching one block's count lose an increment and free a block a live reference still names. The rule is the language's and not the lowering's, so it does not depend on `--threads`; `__proc_spawn` names the isolated lowering and is exempt") (strConcat (strConcat "`" name) "` is bound outside this binding")))
+      "MM-PAR-6: a binding runs BESIDE its parent, and `axiom_retain`/`axiom_release` are a plain load-add-store rather than an `atomicrmw` - two threads touching one block's count lose an increment and free a block a live reference still names. The rule is the language's and not the lowering's, so it does not depend on `--threads`; `__proc_spawn` names the isolated lowering and is exempt") (concat (concat "`" name) "` is bound outside this binding")))
     0
   })
 
@@ -11664,11 +11664,11 @@
         "AX3071"
         "unretained-store"
         sp
-        (strConcat (strConcat "storing a `" (tyRender oty)) "` with a bare `__store64` takes no share: the owner's release frees a block this word still names")
+        (concat (concat "storing a `" (tyRender oty)) "` with a bare `__store64` takes no share: the owner's release frees a block this word still names")
         0
         0
         "store through `memSetWord`, which retains first - or `Ffi.ax`'s handle paths for handles"
-        "a raw `__store64` writes the word and nothing else; the release walk never counted a share it cannot see") (strConcat (strConcat "storing `" (tyRender oty)) "`"))))))
+        "a raw `__store64` writes the word and nothing else; the release walk never counted a share it cannot see") (concat (concat "storing `" (tyRender oty)) "`"))))))
 
 ; A reference smuggled through a field declared `Int`
 ; (`error-model.md` ERR-TYPE-5/`ERR-MEM-1`, `AX3043`
@@ -11711,11 +11711,11 @@
                         "AX3043"
                         "error-payload-untyped"
                         span
-                        (strConcat (strConcat "storing a `" (tyRender oty)) "` through a field declared `Int` hides it from the release walk, which follows declared types")
+                        (concat (concat "storing a `" (tyRender oty)) "` through a field declared `Int` hides it from the release walk, which follows declared types")
                         0
                         0
                         "declare the field's real type"
-                        "an `Int` slot holding a reference is invisible to reclamation, and leaks (error-model.md ERR-TYPE-5/ERR-MEM-1)") (strConcat (strConcat "this holds a `" (tyRender oty)) "`")))
+                        "an `Int` slot holding a reference is invisible to reclamation, and leaks (error-model.md ERR-TYPE-5/ERR-MEM-1)") (concat (concat "this holds a `" (tyRender oty)) "`")))
                       1
                     })
                   0))))
@@ -12314,14 +12314,14 @@
 ; field type, BEFORE anything is generated (`showDerivable`), so a
 ; generated body never has to report on the caller's behalf. And a
 ; `show` in a program that has not loaded the library module the
-; rewrite needs - `Str` for `strConcat`, `Fmt` for `fmtInt` - is a
+; rewrite needs - `Str` for `concat`, `Fmt` for `fmtInt` - is a
 ; diagnostic naming that module, not a call to a symbol that does not
 ; exist: the builtin is a rewrite to library functions, not a runtime.
 ;
 ; Free identifiers in a generated body are the library's QUALIFIED
-; spellings (`Str$strConcat`), which is what makes them immune to the
+; spellings (`Str$concat`), which is what makes them immune to the
 ; capture `tests/selfhost/383-format-capture.ax` still pins for the
-; expander's own `strConcat`.
+; expander's own `concat`.
 ; ------------------------------------------------------------------
 ; The reserved head, by exact spelling.
 ;
@@ -12542,7 +12542,7 @@
 ; not loaded at all.
 (pub :: showHelperName (-> Int String String Int String))
 (pub fn (showHelperName tc mod name sp)
-  (let ((full (strConcat (strConcat mod "$") name)))
+  (let ((full (concat (concat mod "$") name)))
     (if (!= (fnEntExact tc full) 0)
       full
       (if (!= (fnEntExact tc name) 0)
@@ -12551,8 +12551,8 @@
           (showDiag
             tc
             sp
-            (strConcat (strConcat (strConcat (strConcat "`format` renders with `" mod) "`'s `") name) (strConcat (strConcat "`, and `" mod) "` is not loaded here"))
-            (strConcat (strConcat "(import " mod) ") - `IO` imports it, so a program that prints already has it")
+            (concat (concat (concat (concat "`format` renders with `" mod) "`'s `") name) (concat (concat "`, and `" mod) "` is not loaded here"))
+            (concat (concat "(import " mod) ") - `IO` imports it, so a program that prints already has it")
             "a rendering is a rewrite to the standard library's own functions, not a runtime of its own")
           ""
         }))))
@@ -12583,13 +12583,13 @@
   (showDiag
     tc
     (spanOf arg)
-    (strConcat
+    (concat
       "cannot render this argument with `format`: its type "
       (if (== at 0)
         "is not known here"
         (if (== (nodeTag at) TAG_T_VAR)
           "is a type variable, not a named type"
-          (strConcat (strConcat "is `" (tyRender at)) "`, which mentions a type variable"))))
+          (concat (concat "is `" (tyRender at)) "`, which mentions a type variable"))))
     "`format` renders by the STATIC type of its argument: bind it to a `let` with a signature, or write the type at the call - a generic function's own type variable cannot select a rendering either"
     "a rendering is chosen at compile time from the argument's static type, and a type variable is not a type"))
 
@@ -12598,7 +12598,7 @@
   (showDiag
     tc
     (spanOf arg)
-    (strConcat (strConcat "`format` has no rendering for `" (tyRender at)) "`")
+    (concat (concat "`format` has no rendering for `" (tyRender at)) "`")
     "`format` renders `Int`, `Float`, `Bool`, `Char` and `String`, and derives one for any `data` or `struct` whose fields it can render; for anything else write a function that renders it and interpolate its result"
     "a rendering is derived from the static type at compile time, and a type the compiler cannot take apart has none"))
 
@@ -12650,16 +12650,16 @@
       (if (== tg TAG_T_CON)
         (if (== (vecLen (nodeBVec t)) 0)
           (nodeAName t)
-          (strConcat (strConcat "(" (showTyNameVec (nodeAName t) (nodeBVec t) 0)) ")"))
+          (concat (concat "(" (showTyNameVec (nodeAName t) (nodeBVec t) 0)) ")"))
         (if (== tg TAG_T_ARR)
-          (strConcat (strConcat (strConcat (strConcat "(-> " (showTyName (nodeA t))) " ") (showTyName (nodeB t))) ")")
+          (concat (concat (concat (concat "(-> " (showTyName (nodeA t))) " ") (showTyName (nodeB t))) ")")
           (tyRender t))))))
 
 (pub :: showTyNameVec (-> String (Vec Int) Int String))
 (pub fn (showTyNameVec acc xs i)
   (if (>= i (vecLen xs))
     acc
-    (showTyNameVec (strConcat (strConcat acc " ") (showTyName (vecGet xs i))) xs (+ i 1))))
+    (showTyNameVec (concat (concat acc " ") (showTyName (vecGet xs i))) xs (+ i 1))))
 
 ; The constructor's field types at THIS instantiation of its type:
 ; `Some`'s `a` is `Int` over `(Option Int)`. `ctorPatEnv` pairs the
@@ -12768,7 +12768,7 @@
 ; code nobody wrote.
 (pub :: showEnsure (-> Int Int Int String))
 (pub fn (showEnsure tc ty sp)
-  (let ((nm (strConcat "show#" (showTyName ty))))
+  (let ((nm (concat "show#" (showTyName ty))))
     (if (!= (fnEntExact tc nm) 0)
       nm
       (let ((bad (showDerivable tc ty vecNew)))
@@ -12777,11 +12777,11 @@
             (showDiag
               tc
               sp
-              (strConcat
-                (strConcat (strConcat "`format` cannot render `" (tyRender ty)) "`: it holds ")
+              (concat
+                (concat (concat "`format` cannot render `" (tyRender ty)) "`: it holds ")
                 (if (== (nodeTag bad) TAG_T_VAR)
                   "a value whose type is a type variable"
-                  (strConcat (strConcat "a `" (tyRender bad)) "`, which has no rendering")))
+                  (concat (concat "a `" (tyRender bad)) "`, which has no rendering")))
               "give the field a type `format` can render, or write a function that renders this type and interpolate its result"
               "a rendering is derived from the static type at compile time, field by field, and a type the compiler cannot take apart has none")
             ""
@@ -12883,7 +12883,7 @@
 (pub fn (showLit text sp)
   (mkNodeAt
     TAG_E_STR
-    (strConcat (strConcat "\"" text) "\"")
+    (concat (concat "\"" text) "\"")
     1
     0
     sp))
@@ -12904,10 +12904,10 @@
 (pub fn (showCall3 f x y z sp)
   (mkEApp (mkEApp (mkEApp (mkEVarAt f sp) x) y) z))
 
-; `(strConcat a b)`, through whatever `Str` is called here.
+; `(concat a b)`, through whatever `Str` is called here.
 (pub :: showCat (-> Int Int Int Int Int))
 (pub fn (showCat tc a b sp)
-  (showCall2 (showHelperName tc "Str" "strConcat" sp) a b sp))
+  (showCall2 (showHelperName tc "Str" "concat" sp) a b sp))
 
 ; `(cast Int v)` - the block's address, or a nullary constructor's
 ; immediate tag, which can never be an ancestor of anything and so
@@ -12970,7 +12970,7 @@
 ;     (if (show#seen seen (cast Int v) 0)
 ;       "..."
 ;       { (vecPush seen (cast Int v))
-;         (let ((r (match v ((C) "C") ((D f0 f1) (strConcat "(D" ...))))
+;         (let ((r (match v ((C) "C") ((D f0 f1) (concat "(D" ...))))
 ;           { (vecPop seen) r }) }))
 ;
 ; and, for a type none of whose constructors carries a field, the
@@ -13081,7 +13081,7 @@
               (let ((body (showCtorBody
                 tc
                 ftys
-                (showLit (strConcat "(" cname) sp)
+                (showLit (concat "(" cname) sp)
                 sp
                 0)))
                 (vecPush arms (mkNodeAt
@@ -13105,7 +13105,7 @@
 (pub fn (showBinderSpine acc n sp i)
   (if (>= i n)
     acc
-    (showBinderSpine (mkEApp acc (showVar (strConcat "f" (fmtInt i)) sp)) n sp (+ i 1))))
+    (showBinderSpine (mkEApp acc (showVar (concat "f" (fmtInt i)) sp)) n sp (+ i 1))))
 
 (pub :: showCtorBody (-> Int (Vec Int) Int Int Int Int))
 (pub fn (showCtorBody tc ftys acc sp i)
@@ -13114,7 +13114,7 @@
     (showCtorBody
       tc
       ftys
-      (showCat tc (showCat tc acc (showLit " " sp) sp) (showFieldExpr tc (vecGet ftys i) (showVar (strConcat "f" (fmtInt i)) sp) sp) sp)
+      (showCat tc (showCat tc acc (showLit " " sp) sp) (showFieldExpr tc (vecGet ftys i) (showVar (concat "f" (fmtInt i)) sp) sp) sp)
       sp
       (+ i 1))))
 
@@ -13142,7 +13142,7 @@
         tc
         fnd
         (if (!= (& (memGetWord sent 4) 5) 0)
-          (showLit (strConcat "<" (strConcat (memGetWordStr sent 0) ">")) sp)
+          (showLit (concat "<" (concat (memGetWordStr sent 0) ">")) sp)
           (if (== (vecLen fields) 0)
             (showLit "{}" sp)
             (showGuarded tc (showCat tc (showStructBody
@@ -13166,11 +13166,11 @@
             tc
             acc
             (showLit
-              (strConcat
+              (concat
                 (if (== i 0)
                   ""
                   ", ")
-                (strConcat (nodeAName f) " = "))
+                (concat (nodeAName f) " = "))
               sp)
             sp)
           (showFieldExpr tc (nodeTy f) (mkNodeAt
@@ -13223,10 +13223,10 @@
 ; (`isEscapeChar`) minus the one a string never needs (`\'`), byte by
 ; byte so a multi-byte character passes through untouched:
 ;
-;   (fn (show#String#quoted s) (strConcat (show#String#from s 0 "\"") "\""))
+;   (fn (show#String#quoted s) (concat (show#String#from s 0 "\"") "\""))
 ;   (fn (show#String#from s i acc)
 ;     (if (>= i (strLen s)) acc
-;       (show#String#from s (+ i 1) (strConcat acc (show#String#byte (strByte s i))))))
+;       (show#String#from s (+ i 1) (concat acc (show#String#byte (strByte s i))))))
 ;   (fn (show#String#byte b) (if (== b 34) "\\\"" ... (strFromByte b)))
 (pub :: showEnsureString (-> Int Int String))
 (pub fn (showEnsureString tc sp)
@@ -13331,7 +13331,7 @@
 ; would use - that module is not loaded by `IO` and the rewrite may not
 ; assume it:
 ;
-;   (fn (show#Char c) (let ((n (cast Int c))) (strConcat "'" (strConcat (show#Char#esc n) "'"))))
+;   (fn (show#Char c) (let ((n (cast Int c))) (concat "'" (concat (show#Char#esc n) "'"))))
 ;   (fn (show#Char#esc n) (if (== n 10) "\\n" ... (show#Char#utf8 n)))
 ;   (fn (show#Char#utf8 n) (if (< n 128) (strFromByte n) (if (< n 2048) ... )))
 (pub :: showGenChar (-> Int String Int Int))
@@ -13941,7 +13941,7 @@
           "AX3069"
           "sizeof-arity"
           (spanOf (vecGet args 1))
-          (strConcat (strConcat "`" hname) "` takes one type and answers a constant, so this argument has nowhere to go")
+          (concat (concat "`" hname) "` takes one type and answers a constant, so this argument has nowhere to go")
           0
           0
           "remove the extra argument"
@@ -13966,7 +13966,7 @@
           "AX3013"
           "partial-application"
           (spanOf (spineHead e))
-          (strConcat (strConcat "partial application of `cast`: it takes 2 argument(s) and " (fmtInt (vecLen args))) " were supplied")
+          (concat (concat "partial application of `cast`: it takes 2 argument(s) and " (fmtInt (vecLen args))) " were supplied")
           0
           0
           "write the value to convert after the type - `(cast Int e)` - or, for a function value, `(lambda (x) (cast Int x))`"
@@ -14007,16 +14007,16 @@
                     "a literal is not a type, and `cast` takes a type first"
                     "this expression is not a type, and `cast` takes a type first")
                   (if (== (castTypeIsLiteral (castTypeBadPart (vecGet args 0))) 1)
-                    (strConcat (strConcat "a literal is not a type, and `" hname) "` takes a type")
-                    (strConcat (strConcat "this expression is not a type, and `" hname) "` takes a type")))
+                    (concat (concat "a literal is not a type, and `" hname) "` takes a type")
+                    (concat (concat "this expression is not a type, and `" hname) "` takes a type")))
                 0
                 0
                 (if (strEq hname "cast")
                   "write the type to cast TO - `(cast Int e)` - or, for an ascription, `(:: e Int)`"
-                  (strConcat (strConcat "write the type to measure - `(" hname) " Int)`"))
+                  (concat (concat "write the type to measure - `(" hname) " Int)`"))
                 (if (strEq hname "cast")
                   "an unconvertible shape here used to answer a silent wildcard, which unifies with everything: the cast was performed, the result had no type anyone could object to, and a function returning it satisfied any declaration"
-                  (strConcat (strConcat "the operand used to be ignored in silence: `(" hname) " 99)` answered 8")))
+                  (concat (concat "the operand used to be ignored in silence: `(" hname) " 99)` answered 8")))
               "not a type"))
           (mkNode TAG_T_ERR 0 0 0)
         }
@@ -14304,11 +14304,11 @@
                         "AX3013"
                         "partial-application"
                         (nodeSpan head)
-                        (strConcat (strConcat (strConcat (strConcat (strConcat "partial application of `" hname) "`: it takes ") (fmtInt ar)) " argument(s) and ") (strConcat (fmtInt got) " were supplied"))
+                        (concat (concat (concat (concat (concat "partial application of `" hname) "`: it takes ") (fmtInt ar)) " argument(s) and ") (concat (fmtInt got) " were supplied"))
                         0
                         0
                         "bind the missing arguments with a lambda: `(lambda (y) (f x y))` builds the value `(f x)` would mean"
-                        "a partial application has to hold the arguments it was not given, and a top-level function has no closure record to hold them in") (strConcat (strConcat (strConcat (strConcat (strConcat "`" hname) "` takes ") (fmtInt ar)) " argument(s); ") (strConcat (fmtInt (- ar got)) " more needed"))))
+                        "a partial application has to hold the arguments it was not given, and a top-level function has no closure record to hold them in") (concat (concat (concat (concat (concat "`" hname) "` takes ") (fmtInt ar)) " argument(s); ") (concat (fmtInt (- ar got)) " more needed"))))
                       (checkSpineArgsOnly tc e)
                       1
                     }))))
@@ -14329,10 +14329,10 @@
                           "AX3009"
                           "constructor-arity-mismatch"
                           (nodeSpan head)
-                          (strConcat (strConcat (strConcat (strConcat (strConcat "constructor `" hname) "` expects ") (fmtInt want)) " argument(s), found ") (fmtInt got))
+                          (concat (concat (concat (concat (concat "constructor `" hname) "` expects ") (fmtInt want)) " argument(s), found ") (fmtInt got))
                           0
                           0
-                          (strConcat (strConcat "this constructor takes exactly " (fmtInt want)) " field(s); add or remove arguments to match")) (strConcat (fmtInt got) " argument(s) provided here")))
+                          (concat (concat "this constructor takes exactly " (fmtInt want)) " field(s); add or remove arguments to match")) (concat (fmtInt got) " argument(s) provided here")))
                         (checkSpineArgsOnly tc e)
                         1
                       })))))))))))
@@ -14397,7 +14397,7 @@
           (if (!= span 0)
             (emitDiag
               tc
-              (let ((msg (strConcat (strConcat (strConcat (strConcat (strConcat "struct `" (bareOf (memGetWordStr ent 0))) "` expects ") (fmtInt (vecLen fields))) " field(s), found ") (fmtInt (vecLen args)))))
+              (let ((msg (concat (concat (concat (concat (concat "struct `" (bareOf (memGetWordStr ent 0))) "` expects ") (fmtInt (vecLen fields))) " field(s), found ") (fmtInt (vecLen args)))))
                 (mkDiag
                   SEV_ERROR
                   "AX3067"
@@ -16128,7 +16128,7 @@
     e
     (if (== (effIsMarker e) 1)
       e
-      (strConcat "~" e))))
+      (concat "~" e))))
 
 (pub :: effDefiniteOf (-> String String))
 (pub fn (effDefiniteOf e)
@@ -16291,7 +16291,7 @@
       (+ i 1)
       (if (== i 0)
         (effRender (vecGetStr v i))
-        (strConcat (strConcat acc ", ") (effRender (vecGetStr v i)))))))
+        (concat (concat acc ", ") (effRender (vecGetStr v i)))))))
 
 ; Insertion sort by rendered name - the sets are three or four
 ; entries, and this has to agree with stage0's `sort_by_key` on the
@@ -17609,7 +17609,7 @@
               "AX3011"
               "effect-mismatch"
               span
-              (strConcat (strConcat "effect mismatch: unhandled effect `" (effRender (vecGetStr inner i))) "`")
+              (concat (concat "effect mismatch: unhandled effect `" (effRender (vecGetStr inner i))) "`")
               0
               0
               0))
@@ -17682,7 +17682,7 @@
         "AX3017"
         "effect-handler-unsupported"
         formSpan
-        (strConcat (fmtInt dynN) " custom effects in one handle; nest one `handle` per effect")
+        (concat (fmtInt dynN) " custom effects in one handle; nest one `handle` per effect")
         0
         0
         0))
@@ -17704,10 +17704,10 @@
                   "AX3016"
                   "unknown-effect"
                   (nodeSpan nm)
-                  (strConcat (strConcat "unknown effect `" (nodeAName nm)) "`")
+                  (concat (concat "unknown effect `" (nodeAName nm)) "`")
                   0
                   0
-                  "declare it with `(effect Name (op :: sig))`, import the module that does, or fix the spelling") (strConcat (strConcat "no effect named `" (nodeAName nm)) "` is declared")))
+                  "declare it with `(effect Name (op :: sig))`, import the module that does, or fix the spelling") (concat (concat "no effect named `" (nodeAName nm)) "` is declared")))
                 0)
               (checkHandleEffects
                 tc
@@ -17724,7 +17724,7 @@
                     "AX3017"
                     "effect-handler-unsupported"
                     (nodeSpan nm)
-                    (strConcat (strConcat (strConcat (strConcat "effect `" (nodeAName nm)) "` declares ") (fmtInt (vecLen (nodeBVec d)))) " operations; a dynamic handler covers exactly one")
+                    (concat (concat (concat (concat "effect `" (nodeAName nm)) "` declares ") (fmtInt (vecLen (nodeBVec d)))) " operations; a dynamic handler covers exactly one")
                     0
                     0
                     0))
@@ -17773,10 +17773,10 @@
             "AX3002"
             "undefined-type"
             (nodeSpan e)
-            (strConcat (strConcat "undefined type `" (nodeAName e)) "`")
+            (concat (concat "undefined type `" (nodeAName e)) "`")
             0
             0
-            (tyRemovedBuiltinHelp (nodeAName e))) (strConcat (strConcat "no type named `" (nodeAName e)) "` is visible here")))
+            (tyRemovedBuiltinHelp (nodeAName e))) (concat (concat "no type named `" (nodeAName e)) "` is visible here")))
           0)
         (mkNode TAG_T_ERR 0 0 0)
       }
@@ -18159,7 +18159,7 @@
       e
       (cast Int (if (== m 0)
         name
-        (strConcat (strConcat (memGetWordStr ent 2) "$") name))))))
+        (concat (concat (memGetWordStr ent 2) "$") name))))))
 
 ; The type of a named constructor field, searching every data type in
 ; declaration order, or 0. Mirrors stage0's `find_data_field_by_name`.
@@ -18263,7 +18263,7 @@
       "AX3070"
       "unsafe-field-access"
       span
-      (strConcat (strConcat (strConcat (strConcat "field access `." fname) "` is unsafe on `") tyname) "`: the type has a nullary constructor, so a value may be an immediate tag with no fields to read")
+      (concat (concat (concat (concat "field access `." fname) "` is unsafe on `") tyname) "`: the type has a nullary constructor, so a value may be an immediate tag with no fields to read")
       0
       0
       "match on the value instead, and read the field in the fieldful arm - a `match` emits the immediate-or-address guard that field access cannot"
@@ -18284,7 +18284,7 @@
       "AX3070"
       "unsafe-field-access"
       span
-      (strConcat (strConcat (strConcat (strConcat "field access `." fname) "` is unsafe on `") tyname) "`: not every constructor declares that field, so a value built by another constructor has no such word to read")
+      (concat (concat (concat (concat "field access `." fname) "` is unsafe on `") tyname) "`: not every constructor declares that field, so a value built by another constructor has no such word to read")
       0
       0
       "match on the value instead, and read the field in the arm that has it - a `match` emits the tag guard that field access cannot"
@@ -18340,10 +18340,10 @@
         "AX3007"
         "field-not-found"
         span
-        (strConcat (strConcat (strConcat (strConcat "field `" fname) "` not found on type `") tyName) "`")
+        (concat (concat (concat (concat "field `" fname) "` not found on type `") tyName) "`")
         0
         0
-        (strConcat (strConcat "check the field name and the definition of `" tyName) "`")) (strConcat (strConcat (strConcat (strConcat "no field `" fname) "` on `") tyName) "`")))
+        (concat (concat "check the field name and the definition of `" tyName) "`")) (concat (concat (concat (concat "no field `" fname) "` on `") tyName) "`")))
       0
     }))
 
@@ -18544,7 +18544,7 @@
                   (if (!= (nodeSpan e) 0)
                     (emitDiag
                       tc
-                      (let ((msg (strConcat (strConcat "undefined variable `" (srcSpelling name)) "`")))
+                      (let ((msg (concat (concat "undefined variable `" (srcSpelling name)) "`")))
                         (diagSetLabel
                           (if (== (memGetWord best 0) 0)
                             (mkDiag
@@ -18564,10 +18564,10 @@
                               msg
                               0
                               0
-                              (strConcat (strConcat "a similarly named binding `" (memGetWordStr best 0)) "` is in scope; did you mean this?")
+                              (concat (concat "a similarly named binding `" (memGetWordStr best 0)) "` is in scope; did you mean this?")
                               (nodeSpan e)
                               (memGetWord best 0)))
-                          (strConcat (strConcat "no binding named `" (srcSpelling name)) "` in scope"))))
+                          (concat (concat "no binding named `" (srcSpelling name)) "` in scope"))))
                     0)
                   (mkNode TAG_T_ERR 0 0 0)
                 })))
@@ -18778,10 +18778,10 @@
                   "AX3045"
                   "recursion-in-scrutinee"
                   (nodeSpan found)
-                  (strConcat (strConcat "`" (bareOf name)) "` calls itself here, in the scrutinee of a `match`")
+                  (concat (concat "`" (bareOf name)) "` calls itself here, in the scrutinee of a `match`")
                   0
                   ""
-                  "bind the scrutinee in a `let` and answer the recursive call from a match arm, where the self call is a tail call and the loop conversion fires") (strConcat (strConcat "recursive call to `" (bareOf name)) "`")))))))))))
+                  "bind the scrutinee in a `let` and answer the recursive call from a match arm, where the self call is a tail call and the loop conversion fires") (concat (concat "recursive call to `" (bareOf name)) "`")))))))))))
 
 ;@axiom:effect(unsafe)
 (pub fn (checkMatch tc e)
@@ -19665,7 +19665,7 @@
 (pub fn (spacesOf n)
   (if (<= n 0)
     ""
-    (strConcat " " (spacesOf (- n 1)))))
+    (concat " " (spacesOf (- n 1)))))
 
 ; ------------------------------------------------------------------
 ; AX3005's fix: the missing arms, written.
@@ -19836,7 +19836,7 @@
                   (if (|| (< arity 0) (== (colHasCtor matrix cn 0) 1))
                     (set ok 0)
                     {
-                      (vecPush parts (strConcat "\n" (strConcat pad (todoArmText cn arity))))
+                      (vecPush parts (concat "\n" (concat pad (todoArmText cn arity))))
                       0
                     })
                   (set i (+ i 1))
@@ -19860,13 +19860,13 @@
 
 (pub :: todoArmText (-> String Int String))
 (pub fn (todoArmText cn arity)
-  (strConcat (strConcat (strConcat "((" cn) (wildsOf arity)) (strConcat (strConcat ") (todo \"" cn) "\"))")))
+  (concat (concat (concat "((" cn) (wildsOf arity)) (concat (concat ") (todo \"" cn) "\"))")))
 
 (pub :: wildsOf (-> Int String))
 (pub fn (wildsOf n)
   (if (<= n 0)
     ""
-    (strConcat " _" (wildsOf (- n 1)))))
+    (concat " _" (wildsOf (- n 1)))))
 
 ; The import that brings `todo` in, as a second fix help on the same
 ; diagnostic. `mod` is the module the import must name, or "" for the
@@ -19962,8 +19962,8 @@
                   "non-exhaustive-match"
                   span
                   (if (== (vecLen missing) 0)
-                    (strConcat "non-exhaustive pattern match: some `" (strConcat (tyRender scrutTy) "` values are not covered"))
-                    (strConcat "non-exhaustive pattern match: missing " (joinComma missing 0 "")))
+                    (concat "non-exhaustive pattern match: some `" (concat (tyRender scrutTy) "` values are not covered"))
+                    (concat "non-exhaustive pattern match: missing " (joinComma missing 0 "")))
                   0
                   0
                   0)))
@@ -19971,8 +19971,8 @@
                   (diagSetLabel
                     d
                     (if (== (vecLen missing) 0)
-                      (strConcat "this `match` does not cover every value of `" (strConcat (tyRender scrutTy) "`"))
-                      (strConcat "this `match` does not cover: " (joinComma missing 0 ""))))
+                      (concat "this `match` does not cover every value of `" (concat (tyRender scrutTy) "`"))
+                      (concat "this `match` does not cover: " (joinComma missing 0 ""))))
                   (matchFixHelps
                     tc
                     d
@@ -20016,7 +20016,7 @@
       (+ i 1)
       (if (== i 0)
         (vecGetStr xs 0)
-        (strConcat (strConcat acc ", ") (vecGetStr xs i))))))
+        (concat (concat acc ", ") (vecGetStr xs i))))))
 
 ; ------------------------------------------------------------------
 ; Patterns, typed. A bare identifier binds at the expected type -
@@ -20299,10 +20299,10 @@
                 "AX3009"
                 "constructor-arity-mismatch"
                 span
-                (strConcat (strConcat (strConcat (strConcat (strConcat "constructor `" cname) "` expects ") (fmtInt (vecLen fieldTys))) " argument(s), found ") (fmtInt (vecLen args)))
+                (concat (concat (concat (concat (concat "constructor `" cname) "` expects ") (fmtInt (vecLen fieldTys))) " argument(s), found ") (fmtInt (vecLen args)))
                 0
                 0
-                (strConcat (strConcat "this constructor takes exactly " (fmtInt (vecLen fieldTys))) " field(s); add or remove arguments to match")) (strConcat (fmtInt (vecLen args)) " argument(s) provided here"))))
+                (concat (concat "this constructor takes exactly " (fmtInt (vecLen fieldTys))) " field(s); add or remove arguments to match")) (concat (fmtInt (vecLen args)) " argument(s) provided here"))))
             0)
           (bindPatternArgs tc args fieldTys 0)
           0
@@ -20465,7 +20465,7 @@
           (emitPrivateVar tc cname span (privKey (ctorHiddenModule tc cname) cname))
           (emitDiag
             tc
-            (let ((msg (strConcat (strConcat "undefined constructor `" cname) "`")))
+            (let ((msg (concat (concat "undefined constructor `" cname) "`")))
               (diagSetLabel
                 (if (== (memGetWord best 0) 0)
                   (mkDiag
@@ -20485,10 +20485,10 @@
                     msg
                     0
                     0
-                    (strConcat (strConcat "a similarly named constructor `" (memGetWordStr best 0)) "` is visible; did you mean this?")
+                    (concat (concat "a similarly named constructor `" (memGetWordStr best 0)) "` is visible; did you mean this?")
                     span
                     (memGetWord best 0)))
-                (strConcat (strConcat "no constructor named `" cname) "` is visible here")))))
+                (concat (concat "no constructor named `" cname) "` is visible here")))))
         0
       })))
 
@@ -20734,7 +20734,7 @@
       ; `strSlice`, and a cast at an argument root would classify its
       ; evidence 0 and drop the release (MM-LIFE-2e). Re-derived only
       ; on the qualified path, which is the rarer one.
-      (strConcat (strConcat (modOfName s) "::") (bareOf s)))))
+      (concat (concat (modOfName s) "::") (bareOf s)))))
 
 ; The module prefix of a mangled `Mod$name`, as a word: the prefix when
 ; there is one and 0 when there is not. Callers ask `(!= (modOf n) 0)`
@@ -20867,10 +20867,10 @@
                             "AX3002"
                             "undefined-type"
                             (nodeSpan d)
-                            (strConcat (strConcat "undefined type `" (tyUnknownConName tc (nodeB d))) "`")
+                            (concat (concat "undefined type `" (tyUnknownConName tc (nodeB d))) "`")
                             0
                             0
-                            (tyRemovedBuiltinHelp (tyUnknownConName tc (nodeB d)))) (strConcat (strConcat "no type named `" (tyUnknownConName tc (nodeB d))) "` is visible here"))))
+                            (tyRemovedBuiltinHelp (tyUnknownConName tc (nodeB d)))) (concat (concat "no type named `" (tyUnknownConName tc (nodeB d))) "` is visible here"))))
                         (if (tyIsBareInt (nodeB d))
                           0
                           (if (== (nodeSpan d) 0)
@@ -21376,14 +21376,14 @@
               (cast Int sys)
               0)
               0
-              (emitIsrWaits tc d v (strConcat (strConcat "reaches a system call, where every blocking library call ends, and baremetal-aarch64 has no kernel to answer it: " (graphRender sys)) "") sys)))
+              (emitIsrWaits tc d v (concat (concat "reaches a system call, where every blocking library call ends, and baremetal-aarch64 has no kernel to answer it: " (graphRender sys)) "") sys)))
           (if (strEq v "irq")
             (let ((w (graphWitness tc ent "wfi")))
               (if (==
                 (cast Int w)
                 0)
                 0
-                (emitIsrWaits tc d v (strConcat "waits for an interrupt with IRQs masked: " (graphRender w)) w)))
+                (emitIsrWaits tc d v (concat "waits for an interrupt with IRQs masked: " (graphRender w)) w)))
             0)
         }))))
 
@@ -21396,7 +21396,7 @@
       "AX4009"
       "isr-waits"
       (nodeSpan d)
-      (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` is bound by `isr(") v) (strConcat ")` and " why))
+      (concat (concat (concat (concat "`" (bareOf (nodeAName d))) "` is bound by `isr(") v) (concat ")` and " why))
       0
       0
       "a handler bound to a vector runs while the code it interrupted is stopped - until it returns, for `isr(irq)`, and for good, for `isr(fault)` - so anything it waits for can't come. Every blocking library call ends in a system call, which baremetal-aarch64 answers with trap 74, and `__arm_wfi` in an IRQ handler sleeps with the interrupt that would wake it masked. Set a flag the main loop reads instead, and do the waiting there. A fault hook may halt in `wfi`: never returning is one of its answers")))))
@@ -21608,7 +21608,7 @@
                 tc
                 d
                 r
-                (strConcat (strConcat "the body CALLS its own parameter " (restrictEparamNames d eps 0 "")) ", so what it performs is decided by the argument each caller passes - the effect row is complete about this body and says nothing about that call")
+                (concat (concat "the body CALLS its own parameter " (restrictEparamNames d eps 0 "")) ", so what it performs is decided by the argument each caller passes - the effect row is complete about this body and says nothing about that call")
                 (cast (Vec Int) 0)))))))))
 
 ; The five that are decided by walking somewhere else - the effect row,
@@ -21657,11 +21657,11 @@
       d
       eps
       (+ i 1)
-      (strConcat
+      (concat
         (if (== (strLen acc) 0)
           ""
-          (strConcat acc ", "))
-        (strConcat (strConcat "`" (restrictParamName d (vecGet eps i))) "`")))))
+          (concat acc ", "))
+        (concat (concat "`" (restrictParamName d (vecGet eps i))) "`")))))
 
 ; The `k`th parameter's spelling, from the `fn` header. A `::` with no
 ; `fn` under it never reaches `checkRestricts`, and an index the header
@@ -21759,7 +21759,7 @@
         tc
         d
         r
-        (strConcat "the body performs Unsafe: it " (unsafeForgeText (unsafeForgeSitesOf tc) 0))
+        (concat "the body performs Unsafe: it " (unsafeForgeText (unsafeForgeSitesOf tc) 0))
         (cast (Vec Int) 0))
       ; The path is walked ONCE and handed to both halves - the prose
       ; and the related locations - so the two cannot come to disagree
@@ -21769,21 +21769,21 @@
           tc
           d
           r
-          (strConcat (strConcat "the body performs " e) (witnessTextOf tc path e))
+          (concat (concat "the body performs " e) (witnessTextOf tc path e))
           (witnessSecPath tc path e))))
     (if (== (effPossible eff (builtinEff e)) 1)
       (emitRestrictUnverifiable
         tc
         d
         r
-        (strConcat (strConcat "`" e) "` reaches the effect row only as a possible effect - the body names a function without calling it - so its presence is not evidence the body performs it")
+        (concat (concat "`" e) "` reaches the effect row only as a possible effect - the body names a function without calling it - so its presence is not evidence the body performs it")
         (cast (Vec Int) 0))
       (if (== (effPartial eff) 1)
         (emitRestrictUnverifiable
           tc
           d
           r
-          (strConcat (strConcat "the body calls a value the compiler could not resolve, so the effect row is a lower bound and the absence of `" e) "` from it is not evidence")
+          (concat (concat "the body calls a value the compiler could not resolve, so the effect row is a lower bound and the absence of `" e) "` from it is not evidence")
           (cast (Vec Int) 0))
         0))))
 
@@ -21815,13 +21815,13 @@
             tc
             d
             r
-            (strConcat (strConcat (strConcat (strConcat "the call graph reaches the `extern` item `" (bareOf (memGetWordStr hit 0))) "` through a function the body names without calling, so the edge is not evidence of a call: ") (graphRender path)) "")
+            (concat (concat (concat (concat "the call graph reaches the `extern` item `" (bareOf (memGetWordStr hit 0))) "` through a function the body names without calling, so the edge is not evidence of a call: ") (graphRender path)) "")
             path)
           (emitRestrictViolated
             tc
             d
             r
-            (strConcat (strConcat (strConcat "the body reaches the `extern` item `" (bareOf (memGetWordStr hit 0))) "`: ") (graphRender path))
+            (concat (concat (concat "the body reaches the `extern` item `" (bareOf (memGetWordStr hit 0))) "`: ") (graphRender path))
             path)))
       (if (== (effPartial eff) 1)
         (emitRestrictUnverifiable
@@ -21850,13 +21850,13 @@
             tc
             d
             r
-            (strConcat (strConcat (strConcat "the call graph closes a cycle at `" (bareOf (memGetWordStr again 0))) "` through a function the body names without calling, so the edge is not evidence of a call: ") (graphRender path))
+            (concat (concat (concat "the call graph closes a cycle at `" (bareOf (memGetWordStr again 0))) "` through a function the body names without calling, so the edge is not evidence of a call: ") (graphRender path))
             path)
           (emitRestrictViolated
             tc
             d
             r
-            (strConcat (strConcat (strConcat "the call graph closes a cycle at `" (bareOf (memGetWordStr again 0))) "`: ") (graphRender path))
+            (concat (concat (concat "the call graph closes a cycle at `" (bareOf (memGetWordStr again 0))) "`: ") (graphRender path))
             path)))
       (if (== (effPartial eff) 1)
         (emitRestrictUnverifiable
@@ -22010,10 +22010,10 @@
     " (the walk found no path to a source of it)"
     (let ((last (vecGet path (- (vecLen path) 1))))
       (if (== (graphSeeds tc last e 1) 1)
-        (strConcat ": " (graphRender path))
+        (concat ": " (graphRender path))
         (if (== (vecLen path) 1)
           " in its own body (a constructor application, an `alloc` form, or a `handle` installing a handler)"
-          (strConcat (strConcat (strConcat ": " (graphRender path)) ", in ") (strConcat (strConcat "`" (bareOf (memGetWordStr last 0))) "`'s own body")))))))
+          (concat (concat (concat ": " (graphRender path)) ", in ") (concat (concat "`" (bareOf (memGetWordStr last 0))) "`'s own body")))))))
 
 ; The path the RELATED LOCATIONS are built from - which is the path
 ; the prose rendered, and 0 in the one arm above that renders no chain
@@ -22303,7 +22303,7 @@
       (+ i 1)
       (if (== i 0)
         (graphShownName (memGetWordStr (vecGet path i) 0))
-        (strConcat (strConcat acc " -> ") (graphShownName (memGetWordStr (vecGet path i) 0)))))))
+        (concat (concat acc " -> ") (graphShownName (memGetWordStr (vecGet path i) 0)))))))
 
 ; A name as a message shows it: `__asm.N` is the `asm` form the author
 ; wrote, since no source can spell the primitive (MM-FFI-9).
@@ -22403,13 +22403,13 @@
                 tc
                 d
                 r
-                (strConcat (strConcat (strConcat "the closure reaches a cast in `" (bareOf (memGetWordStr hit 0))) "` through a function the body names without calling, so the edge is not evidence of a call: ") (graphRender path))
+                (concat (concat (concat "the closure reaches a cast in `" (bareOf (memGetWordStr hit 0))) "` through a function the body names without calling, so the edge is not evidence of a call: ") (graphRender path))
                 path)
               (emitRestrictViolated
                 tc
                 d
                 r
-                (strConcat (strConcat (strConcat "the closure reaches a cast in the body of `" (bareOf (memGetWordStr hit 0))) "`: ") (graphRender path))
+                (concat (concat (concat "the closure reaches a cast in the body of `" (bareOf (memGetWordStr hit 0))) "`: ") (graphRender path))
                 path)))
           (if (&& (== (vecLen local) 0) (== (effPartial eff) 1))
             (emitRestrictUnverifiable
@@ -23122,7 +23122,7 @@
       "AX3049"
       "restriction-violated"
       (nodeSpan d)
-      (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `restrict(") r) (strConcat ")` and " why))
+      (concat (concat (concat (concat "`" (bareOf (nodeAName d))) "` claims `restrict(") r) (concat ")` and " why))
       0
       0
       "a restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked")))))
@@ -23138,7 +23138,7 @@
       "AX3049"
       "restriction-violated"
       span
-      (strConcat (strConcat (strConcat (strConcat "`cast` in the body of `" (bareOf (nodeAName d))) "`, which claims `restrict(") r) ")`")
+      (concat (concat (concat (concat "`cast` in the body of `" (bareOf (nodeAName d))) "`, which claims `restrict(") r) ")`")
       0
       0
       "`no-cast` is LOCAL: a cast is an act this body performs, so it is refused where it is written, and a callee's casts are the callee's claim to make. `cast` is the one documented way to fabricate a value - a cast between two concrete types is unchecked - so under this restriction a type's guarantee holds, and without it, it holds of programs that did not write `cast`. Write the conversion the type system checks, or delete the tag"))))
@@ -23156,7 +23156,7 @@
       "AX3049"
       "restriction-violated"
       span
-      (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat "`" op) "` in the body of `") (bareOf (nodeAName d))) "`, which claims `restrict(") r) ")`")
+      (concat (concat (concat (concat (concat (concat "`" op) "` in the body of `") (bareOf (nodeAName d))) "`, which claims `restrict(") r) ")`")
       0
       0
       "`no-wrap` is LOCAL, like `no-cast`: on `Int` operands `+`, `-` and `*` lower to plain `add`/`sub`/`mul` with no overflow check, so a silent wraparound is an act this body performs by writing the raw operator, not a fact the effect row or call graph carries - it is refused where it is written, and a callee's arithmetic is the callee's claim to make. `stdlib/Err.ax` has the checked alternative for each: `addChecked`, `subChecked`, `mulChecked`, every one `(-> Int Int (Result Int Error))`. Calling one pulls `Alloc` into this body's effect row (constructing the `Result` allocates), so `no-wrap` cannot be satisfied together with `no-alloc` or `pure` by a body that needs arithmetic - write the checked call and match its `Err`, accept the row, or delete the tag. TWO OPERATORS ARE NOT REFUSED, because neither can wrap: the same three spellings on `Float` operands, which lower to `fadd`/`fsub`/`fmul`, and the `for` keyword's own counter increment, which the parser writes and whose loop guard bounds it"))))
@@ -23175,7 +23175,7 @@
       "AX3049"
       "restriction-violated"
       span
-      (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat "`" op) "` in the body of `") (bareOf (nodeAName d))) "`, which claims `restrict(") r) ")`")
+      (concat (concat (concat (concat (concat (concat "`" op) "` in the body of `") (bareOf (nodeAName d))) "`, which claims `restrict(") r) ")`")
       0
       0
       "`no-trap` is LOCAL, like `no-cast` and `no-wrap`: on `Int` operands `/` and `%` trap on a zero divisor (exit 72) and on the `INT_MIN / -1` corner (exit 83), and `<<` and `>>` trap on an out-of-range shift amount (exit 84) - so the trapping use is an act this body performs by writing the raw operator, not a fact the effect row or call graph carries. `stdlib/Err.ax` has the checked alternative for each: `divChecked`, `remChecked`, `shlChecked`, `shrChecked`, every one `(-> Int Int (Result Int Error))`. Calling one pulls `Alloc` into this body's effect row (constructing the `Result` allocates), so `no-trap` cannot be satisfied together with `no-alloc` or `pure` by a body that needs these operations - write the checked call and match its `Err`, accept the row, or delete the tag. ONE SPELLING IS NOT REFUSED: `/` on `Float` operands, which lowers to `fdiv` with no integer trap to require, and whose checked fix is `(-> Int Int (Result Int Error))` and does not typecheck against a `Float`"))))
@@ -23201,7 +23201,7 @@
         "AX3057"
         "restriction-unproven"
         (nodeSpan d)
-        (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `restrict(") r) (strConcat ", strict)` and the claim cannot be PROVEN: " why))
+        (concat (concat (concat (concat "`" (bareOf (nodeAName d))) "` claims `restrict(") r) (concat ", strict)` and the claim cannot be PROVEN: " why))
         0
         0
         "`strict` asks for a guarantee and not a best effort: where the walk cannot settle the claim, it is refused rather than warned. The four readings are AX3051's - an effect present only as POSSIBLE, a row the walk marked incomplete, a body that CALLS one of its own parameters (`#effect-params=`), whose answer is chosen by each caller, and a region fixpoint that hit its round limit. Name the function at the call site, stop calling the parameter, shorten the chain, or drop `strict` to keep the claim as a checked best effort (AX3051)")))
@@ -23210,7 +23210,7 @@
         "AX3051"
         "restriction-unverifiable"
         (nodeSpan d)
-        (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `restrict(") r) (strConcat ")` and the claim cannot be checked: " why))
+        (concat (concat (concat (concat "`" (bareOf (nodeAName d))) "` claims `restrict(") r) (concat ")` and the claim cannot be checked: " why))
         0
         0
         "a limit of the ANALYSIS rather than a defect in the program - AX3037's argument at one remove. There are four readings: an effect present only as POSSIBLE, a row the walk marked incomplete, a body that CALLS one of its own parameters (`#effect-params=`), whose answer is chosen by each caller and cannot be settled here at all, and - for `no-escape` alone - a region fixpoint that hit its round limit before the facts settled, which is a depth limit rather than anything about this declaration. Name the function at the call, stop calling the parameter, shorten the chain, or drop the claim; `no-cast`, `no-wrap` and `no-trap` are checked regardless, because all three are lexical and need no call resolved"))))))
@@ -23230,8 +23230,8 @@
         "restriction-unknown"
         (nodeSpan d)
         (if (== (strLen r) 0)
-          (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `restrict()`, which names no restriction")
-          (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `restrict(") r) (strConcat (strConcat ")`, and `" r) "` names no restriction")))
+          (concat (concat "`" (bareOf (nodeAName d))) "` claims `restrict()`, which names no restriction")
+          (concat (concat (concat (concat "`" (bareOf (nodeAName d))) "` claims `restrict(") r) (concat (concat ")`, and `" r) "` names no restriction")))
         0
         0
         "the restrictions this compiler checks are `no-cast`, `no-cast:deep`, `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-recursion`, `no-wrap`, `no-trap`, `no-escape`, `no-entropy`, `no-spawn` and `no-block`, comma-separated inside one `restrict(...)`. The list is closed, so a name outside it is not metadata - it is a claim in the one place the compiler has said it checks, and it would otherwise read like a guarantee and buy silence"))))
@@ -23289,7 +23289,7 @@
 ; `vecLen`, `vecGet`, `strLen`, `strEq`, `strByte` and `memGetWord`
 ; all render `#restrict=no-io,no-alloc,no-foreign` with `#effects=Unsafe`
 ; and nothing else (a read, which `effDropUnsafe` exempts),
-; while `strConcat`, `fmtInt` and `vecNew` carry `Alloc,Mut`.
+; while `concat`, `fmtInt` and `vecNew` carry `Alloc,Mut`.
 ; A contract may compare, index, measure and test; it may not build.
 ;
 ; ONLY A DEFINITE EFFECT IS REFUSED. An effect that reaches the row
@@ -23379,7 +23379,7 @@
             (memSetWord tc 34 0)
             (scopeTrunc (tcScopeVec tc) mark)
             (if (== (tyCompat tc mkBoolTy ty) 0)
-              (emitContractMalformed tc t (contractSpanOf t) (strConcat (strConcat (strConcat (strConcat "is the `" (contractKeyOf t)) "` on `") (strConcat (bareOf (nodeAName d)) "` and has type `")) (strConcat (tyRender ty) "`, not `Bool`")))
+              (emitContractMalformed tc t (contractSpanOf t) (concat (concat (concat (concat "is the `" (contractKeyOf t)) "` on `") (concat (bareOf (nodeAName d)) "` and has type `")) (concat (tyRender ty) "`, not `Bool`")))
               0)
             (checkContractPurity
               tc
@@ -23414,7 +23414,7 @@
       (let ((did (effDropUnsafe (effDefiniteOnly (collectEffects tc p sc)))))
         (if (== (vecLen did) 0)
           0
-          (emitContractMalformed tc t (contractSpanOf t) (strConcat (strConcat (strConcat (strConcat "is the `" (contractKeyOf t)) "` on `") (strConcat (bareOf (nodeAName d)) "` and performs ")) (effJoin did)))))
+          (emitContractMalformed tc t (contractSpanOf t) (concat (concat (concat (concat "is the `" (contractKeyOf t)) "` on `") (concat (bareOf (nodeAName d)) "` and performs ")) (effJoin did)))))
     }))
 
 ; The row without `Unsafe`: what a contract is refused for. A contract
@@ -23474,7 +23474,7 @@
 (pub fn (contractLead t)
   (let ((txt (contractTextOf t)))
     (if (== (strLen txt) 0)
-      (strConcat ";@axiom:" (memGetWordStr t 1))
+      (concat ";@axiom:" (memGetWordStr t 1))
       txt)))
 
 (pub :: emitContractMalformed (-> Int Int Int String Int))
@@ -23486,10 +23486,10 @@
       "AX3050"
       "contract-malformed"
       span
-      (strConcat (strConcat (strConcat "`" (contractLead t)) "` ") why)
+      (concat (concat (concat "`" (contractLead t)) "` ") why)
       0
       0
-      "a `;@axiom:pre(...)` or `;@axiom:post(...)` is a claim the COMPILER cannot decide - there is no value analysis here - so it is compiled into the body and checked at run time, on every call, and a failure writes `axiom: precondition failed in `f`: ...` on fd 2 and exits 80. That is why the expression has to parse, has to be `Bool`, and has to PERFORM nothing: a contract that allocates or writes changes the program by being stated. Comparison, indexing, `strEq`, `strLen`, `vecLen` and `vecGet` are allocation-free and are what a predicate is written from; `strConcat`, `fmtInt` and `vecNew` are not. `result` names the declared result of a `post` and nothing anywhere else"))))
+      "a `;@axiom:pre(...)` or `;@axiom:post(...)` is a claim the COMPILER cannot decide - there is no value analysis here - so it is compiled into the body and checked at run time, on every call, and a failure writes `axiom: precondition failed in `f`: ...` on fd 2 and exits 80. That is why the expression has to parse, has to be `Bool`, and has to PERFORM nothing: a contract that allocates or writes changes the program by being stated. Comparison, indexing, `strEq`, `strLen`, `vecLen` and `vecGet` are allocation-free and are what a predicate is written from; `concat`, `fmtInt` and `vecNew` are not. `result` names the declared result of a `post` and nothing anywhere else"))))
 
 ; AX3050 for `result` naming nothing, reported from `checkVar` so that
 ; the question is total - see the `inContract` field's own note.
@@ -23511,7 +23511,7 @@
             "`result` names nothing here: this declaration has no `::` signature, so it declares no result type for `result` to have")
           0
           0
-          "a `;@axiom:pre(...)` or `;@axiom:post(...)` is a claim the COMPILER cannot decide - there is no value analysis here - so it is compiled into the body and checked at run time, on every call, and a failure writes `axiom: precondition failed in `f`: ...` on fd 2 and exits 80. That is why the expression has to parse, has to be `Bool`, and has to PERFORM nothing: a contract that allocates or writes changes the program by being stated. Comparison, indexing, `strEq`, `strLen`, `vecLen` and `vecGet` are allocation-free and are what a predicate is written from; `strConcat`, `fmtInt` and `vecNew` are not. `result` names the declared result of a `post` and nothing anywhere else")))))
+          "a `;@axiom:pre(...)` or `;@axiom:post(...)` is a claim the COMPILER cannot decide - there is no value analysis here - so it is compiled into the body and checked at run time, on every call, and a failure writes `axiom: precondition failed in `f`: ...` on fd 2 and exits 80. That is why the expression has to parse, has to be `Bool`, and has to PERFORM nothing: a contract that allocates or writes changes the program by being stated. Comparison, indexing, `strEq`, `strLen`, `vecLen` and `vecGet` are allocation-free and are what a predicate is written from; `concat`, `fmtInt` and `vecNew` are not. `result` names the declared result of a `post` and nothing anywhere else")))))
 
 ; Does any AXTAG here make an EFFECT CLAIM - `pure`, or `effect(...)`?
 ; A metadata key (`no_refactor`, `agent:readonly`) is not a claim and
@@ -23666,7 +23666,7 @@
         "AX3042"
         "undeclared-effect"
         (nodeSpan d)
-        (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` performs ") (strConcat name " and its declaration does not say so"))
+        (concat (concat (concat "`" (bareOf (nodeAName d))) "` performs ") (concat name " and its declaration does not say so"))
         0
         0
         0))
@@ -23676,10 +23676,10 @@
           (- 0 1)
           (effectTagInsertAt src (spanStart (nodeSpan d))))))
         {
-          (let ((tag (strConcat ";@axiom:effect(" (strConcat (strLower name) ")"))))
+          (let ((tag (concat ";@axiom:effect(" (concat (strLower name) ")"))))
             (if (< at 0)
-              (diagAddHelp dg (strConcat "write `" (strConcat tag "` above the declaration")))
-              (diagAddFixHelp dg (strConcat "write `" (strConcat tag "` above the declaration")) (mkSpan at at) (strConcat tag "\n"))))
+              (diagAddHelp dg (concat "write `" (concat tag "` above the declaration")))
+              (diagAddFixHelp dg (concat "write `" (concat tag "` above the declaration")) (mkSpan at at) (concat tag "\n"))))
           (diagAddNote dg "effects are INFERRED transitively, so this fires on every function up the call chain, and each one is a place a reader would otherwise have to open the callee to learn it. If the effect is not wanted here the fix is to stop performing it, not to stop saying so. `IO`, `Entropy`, `Spawn` and `Block` are required; `Alloc` and `Mut` are ambient and never need declaring")
           (emitDiag tc dg)
         }))))
@@ -23866,7 +23866,7 @@
             "AX3073"
             "undeclared-unsafe"
             sp
-            (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` ") (unsafeOpText site kind forges k))
+            (concat (concat (concat "`" (bareOf (nodeAName d))) "` ") (unsafeOpText site kind forges k))
             0
             0
             0))
@@ -23890,14 +23890,14 @@
 (pub :: unsafeOpText (-> Int Int (Vec Int) Int String))
 (pub fn (unsafeOpText site kind forges k)
   (if (== kind 3)
-    (strConcat (strConcat "calls extern `" (srcSpelling (nodeAName site))) "`, whose implementation is outside the safety checker, and its declaration does not say so")
+    (concat (concat "calls extern `" (srcSpelling (nodeAName site))) "`, whose implementation is outside the safety checker, and its declaration does not say so")
   (if (== kind 0)
     (if (== (isAsmPrim (nodeAName (spineHead site))) 1)
       "runs inline assembly and its declaration does not say so"
       "touches raw memory and its declaration does not say so")
     (if (== kind 1)
-      (strConcat (strConcat "calls `" (srcSpelling (nodeAName site))) "`, whose safety depends on its caller, and its declaration does not say so")
-      (strConcat (unsafeForgeText forges k) ", and its declaration does not say so")))))
+      (concat (concat "calls `" (srcSpelling (nodeAName site))) "`, whose safety depends on its caller, and its declaration does not say so")
+      (concat (unsafeForgeText forges k) ", and its declaration does not say so")))))
 
 (pub :: unsafeOpLabel (-> Int Int String))
 (pub fn (unsafeOpLabel site kind)
@@ -23913,7 +23913,7 @@
 ; of `forges`: node, target, source.
 (pub :: unsafeForgeText (-> (Vec Int) Int String))
 (pub fn (unsafeForgeText forges k)
-  (strConcat (strConcat (strConcat (strConcat "forges `" (tyRender (castNormTyShown (vecGet forges (+ (* k 3) 1))))) "` out of `") (tyRender (vecGet forges (+ (* k 3) 2)))) "` with `cast`"))
+  (concat (concat (concat (concat "forges `" (tyRender (castNormTyShown (vecGet forges (+ (* k 3) 1))))) "` out of `") (tyRender (vecGet forges (+ (* k 3) 2)))) "` with `cast`"))
 
 ; The target as the author wrote it, with `(-> A B)` read as the arrow
 ; it names. `castNormTy` also expands aliases, which a message should
@@ -23943,7 +23943,7 @@
         (preconditionTextOf tc (memGetWordStr ent 0)))))
       (if (== (strLen txt) 0)
         "a call to it is safe only when its caller makes its precondition true, which is what `effect(unsafe)` here says this declaration does"
-        (strConcat (strConcat (strConcat (strConcat "`" (srcSpelling (nodeAName site))) "` requires: ") txt) ". A call to it is safe only when its caller makes that true, which is what `effect(unsafe)` here says this declaration does")))))
+        (concat (concat (concat (concat "`" (srcSpelling (nodeAName site))) "` requires: ") txt) ". A call to it is safe only when its caller makes that true, which is what `effect(unsafe)` here says this declaration does")))))
 
 ; The `precondition(...)` text a function's own tags or its
 ; signature's state, or "" - joined with "; " when it states several.
@@ -23972,7 +23972,7 @@
                 acc
                 (if (== (strLen acc) 0)
                   v
-                  (strConcat (strConcat acc "; ") v))))
+                  (concat (concat acc "; ") v))))
             acc)
           (+ i 1))))))
 
@@ -24131,7 +24131,7 @@
         "AX3079"
         "precondition-without-unsafe"
         (nodeSpan d)
-        (strConcat (strConcat "`" (bareOf (nodeAName d))) "` states a precondition and does not say `effect(unsafe)`")
+        (concat (concat "`" (bareOf (nodeAName d))) "` states a precondition and does not say `effect(unsafe)`")
         0
         0
         0))
@@ -24157,7 +24157,7 @@
       "AX3080"
       "precondition-empty"
       (nodeSpan d)
-      (strConcat (strConcat "the precondition on `" (bareOf (nodeAName d))) "` states nothing")
+      (concat (concat "the precondition on `" (bareOf (nodeAName d))) "` states nothing")
       0
       0
       "write what a caller must make true, such as `;@axiom:precondition(addr names a live block of n bytes)`"
@@ -24287,7 +24287,7 @@
               tc
               d
               "no-unsafe"
-              (strConcat (strConcat (strConcat (strConcat "the body performs Unsafe: " (graphRender path)) ", where `") (bareOf (memGetWordStr (vecGet path (- (vecLen path) 1)) 0))) "` forges a reference with `cast` and does not say `effect(unsafe)`")
+              (concat (concat (concat (concat "the body performs Unsafe: " (graphRender path)) ", where `") (bareOf (memGetWordStr (vecGet path (- (vecLen path) 1)) 0))) "` forges a reference with `cast` and does not say `effect(unsafe)`")
               path))))
       (unsafeLateRestricts tc pending (+ i 1))
     }))
@@ -24385,11 +24385,11 @@
           "AX3048"
           "deprecated-name"
           span
-          (strConcat (strConcat "`" (srcSpelling name)) "` is deprecated")
+          (concat (concat "`" (srcSpelling name)) "` is deprecated")
           0
           ""
-          (strConcat "the declaration says: " repl)
-          "It still works, and it still compiles - a deprecation is a notice, not a refusal. It may be removed in a later release, and `compat/BREAKING`'s rule lets that happen without a declared break precisely because this notice shipped first") (strConcat "declared `;@axiom:deprecated(" (strConcat repl ")`"))))))))
+          (concat "the declaration says: " repl)
+          "It still works, and it still compiles - a deprecation is a notice, not a refusal. It may be removed in a later release, and `compat/BREAKING`'s rule lets that happen without a declared break precisely because this notice shipped first") (concat "declared `;@axiom:deprecated(" (concat repl ")`"))))))))
 
 (pub :: deprecatedFor (-> Int String String))
 ;@axiom:effect(unsafe)
@@ -24628,10 +24628,10 @@
       "AX3076"
       "effect-tag-list"
       (nodeSpan d)
-      (strConcat (strConcat (strConcat (strConcat (strConcat "`effect(" val) ")` on `") (bareOf (nodeAName d))) "` names ") (strConcat (fmtInt (vecLen names)) " effects, and an `effect(...)` tag names one"))
+      (concat (concat (concat (concat (concat "`effect(" val) ")` on `") (bareOf (nodeAName d))) "` names ") (concat (fmtInt (vecLen names)) " effects, and an `effect(...)` tag names one"))
       0
       0
-      (strConcat "write one tag line per effect: " (effTagLines names 0 ""))
+      (concat "write one tag line per effect: " (effTagLines names 0 ""))
       "a list here was read as ONE effect spelled with the comma in it, which nothing declares - so the claim could never be satisfied, and AX3010 reported it missing from a body that performed it. `restrict(...)` takes a comma list; `effect(...)` does not") "one effect per `effect(...)` tag"))))
 
 (pub :: effTagLines (-> (Vec String) Int String String))
@@ -24642,11 +24642,11 @@
     (effTagLines
       names
       (+ i 1)
-      (strConcat
+      (concat
         (if (== i 0)
           acc
-          (strConcat acc " and "))
-        (strConcat (strConcat "`;@axiom:effect(" (vecGetStr names i)) ")`")))))
+          (concat acc " and "))
+        (concat (concat "`;@axiom:effect(" (vecGetStr names i)) ")`")))))
 
 ; The LAST `)`, scanned backwards, which is stage0's `rfind` - a
 ; value may contain parens of its own.
@@ -24710,7 +24710,7 @@
       "AX3078"
       "pure-tag-spelling"
       (nodeSpan d)
-      (strConcat (strConcat (strConcat (strConcat "purity on `" (bareOf (nodeAName d))) "` is written `;@axiom:effect(pure)`, not `;@axiom:") key) "`")
+      (concat (concat (concat (concat "purity on `" (bareOf (nodeAName d))) "` is written `;@axiom:effect(pure)`, not `;@axiom:") key) "`")
       0
       0
       "write `;@axiom:effect(pure)`"
@@ -24758,10 +24758,10 @@
       "AX3089"
       "signature-needed"
       span
-      (strConcat "`" (strConcat (bareOf hname) "` has no signature, and its type isn't known until its own body has been checked"))
+      (concat "`" (concat (bareOf hname) "` has no signature, and its type isn't known until its own body has been checked"))
       0
       0
-      (strConcat "write its signature above its definition, such as `(:: " (strConcat (bareOf hname) " (-> Int Int))`"))
+      (concat "write its signature above its definition, such as `(:: " (concat (bareOf hname) " (-> Int Int))`"))
       "a function with no signature is typed by checking its body, and declarations are checked in the order they are written: a call from inside that body, or from above it, needs the signature") "called before its type is known"))))
 
 ; ------------------------------------------------------------------
@@ -24885,10 +24885,10 @@
           "AX3053"
           "unhandled-operation"
           (nodeSpan d)
-          (strConcat (strConcat (strConcat (strConcat "`main` reaches " (unhandledOpText tc name)) " with no handler: the process would write `axiom: unhandled effect` and exit 71 there") (unhandledPathText path)) (unhandledElsewhereText tc d path))
+          (concat (concat (concat (concat "`main` reaches " (unhandledOpText tc name)) " with no handler: the process would write `axiom: unhandled effect` and exit 71 there") (unhandledPathText path)) (unhandledElsewhereText tc d path))
           (unhandledRelSpan tc d path)
           (unhandledRelText path)
-          "install one - `(handle BODY (E) HANDLER)` around the call - or, if an unhandled operation of this effect is a deliberate abort as `Assert`'s is, write `;@axiom:unhandled(trap)` above its `effect` declaration") (strConcat (strConcat "reaches `" name) "` with nothing handling it")))))))
+          "install one - `(handle BODY (E) HANDLER)` around the call - or, if an unhandled operation of this effect is a deliberate abort as `Assert`'s is, write `;@axiom:unhandled(trap)` above its `effect` declaration") (concat (concat "reaches `" name) "` with nothing handling it")))))))
 
 ; `operation `log` of effect `Console`` where the effect declares one
 ; operation, and the effect alone where it declares several - a
@@ -24899,10 +24899,10 @@
 (pub fn (unhandledOpText tc name)
   (let ((decl (findEffectDecl tc name)))
     (if (== decl 0)
-      (strConcat (strConcat "effect `" name) "`")
+      (concat (concat "effect `" name) "`")
       (if (== (vecLen (nodeBVec decl)) 1)
-        (strConcat (strConcat (strConcat (strConcat "operation `" (vecGetStr (nodeBVec decl) 0)) "` of effect `") name) "`")
-        (strConcat (strConcat "effect `" name) "`")))))
+        (concat (concat (concat (concat "operation `" (vecGetStr (nodeBVec decl) 0)) "` of effect `") name) "`")
+        (concat (concat "effect `" name) "`")))))
 
 ; The path, in `graphRender`'s spelling, so it cross-checks
 ; `symbols --calls` hop for hop as AX3049's does. A path of one entry
@@ -24915,7 +24915,7 @@
     ""
     (if (<= (vecLen path) 1)
       " - in `main`'s own body"
-      (strConcat " - " (graphRender path)))))
+      (concat " - " (graphRender path)))))
 
 ; The witness's declaration span, and ONLY when the witness is
 ; declared in the same module as `main`.
@@ -24958,7 +24958,7 @@
     ""
     (if (<= (vecLen path) 1)
       ""
-      (strConcat (strConcat "`" (bareOf (memGetWordStr (vecGet path (- (vecLen path) 1)) 0))) "` performs it"))))
+      (concat (concat "`" (bareOf (memGetWordStr (vecGet path (- (vecLen path) 1)) 0))) "` performs it"))))
 
 ; The witness's own module, when it is not `main`'s: the sentence that
 ; replaces a related span the renderer could not place, so the report
@@ -24973,7 +24973,7 @@
       ""
       (if (<= (vecLen path) 1)
         ""
-        (strConcat (strConcat ", and `" (bareOf (memGetWordStr (vecGet path (- (vecLen path) 1)) 0))) "` is what performs it")))
+        (concat (concat ", and `" (bareOf (memGetWordStr (vecGet path (- (vecLen path) 1)) 0))) "` is what performs it")))
     ""))
 
 ; AX3039 over the tags on `(effect ...)` declarations.
@@ -25095,7 +25095,7 @@
       "AX3077"
       "axtag-misplaced"
       (nodeSpan d)
-      (strConcat (strConcat (strConcat (strConcat (strConcat "the `" key) "` tag on `") (bareOf (nodeAName d))) "` is never checked: it is ") (axtagDeclKind (nodeTag d)))
+      (concat (concat (concat (concat (concat "the `" key) "` tag on `") (bareOf (nodeAName d))) "` is never checked: it is ") (axtagDeclKind (nodeTag d)))
       0
       0
       (if (strEq key "unhandled")
@@ -25245,7 +25245,7 @@
       "AX3065"
       "axtag-key-reserved"
       (nodeSpan d)
-      (strConcat (strConcat (strConcat (strConcat "AXTAG key `" key) "` on `") (bareOf (nodeAName d))) "` is a key the compiler derives and writes itself")
+      (concat (concat (concat (concat "AXTAG key `" key) "` on `") (bareOf (nodeAName d))) "` is a key the compiler derives and writes itself")
       0
       0
       "the AXTAG namespace is open, but not for the keys `axiom symbols` writes from the checker's own answers: a reader of that stream cannot tell an author's copy from the compiler's. Namespace it - `;@axiom:my:effects(...)` - or drop it"))))
@@ -25339,7 +25339,7 @@
       "AX3039"
       "axtag-key-typo"
       (nodeSpan d)
-      (strConcat (strConcat (strConcat (strConcat (strConcat "AXTAG key typo on `" (bareOf (nodeAName d))) "`: unrecognised key `") key) "`; did you mean `") (strConcat want "`?"))
+      (concat (concat (concat (concat (concat "AXTAG key typo on `" (bareOf (nodeAName d))) "`: unrecognised key `") key) "`; did you mean `") (concat want "`?"))
       0
       0
       "an unrecognised key is recorded and never checked, so the claim this looks like was not made; the keys that are checked are `effect(...)` (purity is `effect(pure)`), `restrict(...)`, `pre(...)`, `post(...)`, `isr` and `unhandled(trap)` on an `effect` declaration"))))
@@ -25407,7 +25407,7 @@
   ; possible, so a body that printed a `{hole}` AND wrote to stdout
   ; under `pure` drew a warning where the `writeStr` is a plain lie.
   (if (== (effHasDefinite eff) 1)
-    (emitAxtag tc d (strConcat (strConcat label " contradicted: body performs ") (effJoinDefinite eff)))
+    (emitAxtag tc d (concat (concat label " contradicted: body performs ") (effJoinDefinite eff)))
     ; Nothing definite contradicts the claim - which acquits it only
     ; when the walk resolved every call it met and named nothing it
     ; could not follow. Where it did not, the empty set is the
@@ -25471,7 +25471,7 @@
           ; `docs/reference.md`.
           (if (== (effNeverInferred want) 1)
             (emitAxtagNotInferred tc d val)
-            (emitAxtag tc d (strConcat (strConcat (strConcat "`effect(" val) ")` claim unsupported: missing ") (effRender want)))))))))
+            (emitAxtag tc d (concat (concat (concat "`effect(" val) ")` claim unsupported: missing ") (effRender want)))))))))
 
 ; Only a CUSTOM effect can fail to exist; the built-ins always do.
 ; AX3037 for an effect the walk has no producer for at all. Distinct
@@ -25506,7 +25506,7 @@
       "AX3037"
       "axtag-unverifiable"
       (nodeSpan d)
-      (strConcat (strConcat (strConcat "AXTAG unverifiable on `" (bareOf (nodeAName d))) "`: ") (strConcat (strConcat "`effect(" val) ")` cannot be checked: nothing in the compiler infers that effect, so no body ever supplies it"))
+      (concat (concat (concat "AXTAG unverifiable on `" (bareOf (nodeAName d))) "`: ") (concat (concat "`effect(" val) ")` cannot be checked: nothing in the compiler infers that effect, so no body ever supplies it"))
       0
       0
       "`Div` is spellable and never inferred - zero of this repository's 2,094 effectful rows carry it. The claim is recorded and nothing validates it. Divergence is not inferred because the cheapest sound rule - a self-call, or any `while` - marks most of a real program non-terminating; `(handle BODY (Pure) 0)` is the construct that does refuse, and it measures IO, Alloc, Mut and Unsafe"))))
@@ -25619,7 +25619,7 @@
       "AX3010"
       "axtag-mismatch"
       (nodeSpan d)
-      (strConcat (strConcat (strConcat (strConcat "AXTAG mismatch on `" (bareOf (nodeAName d))) "`: ") msg) "")
+      (concat (concat (concat (concat "AXTAG mismatch on `" (bareOf (nodeAName d))) "`: ") msg) "")
       0
       0
       "an AXTAG is a CLAIM, and this is the compiler answering it: make the body match the tag, or correct the tag to what the body does. Deleting the tag also silences this, and an untagged function is never checked - but that WITHDRAWS the claim rather than answering it, and every reader that trusted the tag loses the guarantee. A claim the walk cannot check is AX3037 and stays a warning; this code fires only where the walk has an answer"))))
@@ -25644,7 +25644,7 @@
       "AX3037"
       "axtag-unverifiable"
       (nodeSpan d)
-      (strConcat (strConcat (strConcat "AXTAG unverifiable on `" (bareOf (nodeAName d))) "`: ") (strConcat label " cannot be checked: the body calls a value the compiler could not resolve"))
+      (concat (concat (concat "AXTAG unverifiable on `" (bareOf (nodeAName d))) "`: ") (concat label " cannot be checked: the body calls a value the compiler could not resolve"))
       0
       0
       "name the function at the call, or drop the claim: an unresolved call may perform anything"))))
@@ -25827,11 +25827,11 @@
             "AX3006"
             "duplicate-definition"
             (nodeSpan d)
-            (strConcat (strConcat (strConcat (strConcat "duplicate parameter `" (srcSpelling p)) "` in the definition of `") (srcSpelling (bareOf (nodeAName d)))) "`")
+            (concat (concat (concat (concat "duplicate parameter `" (srcSpelling p)) "` in the definition of `") (srcSpelling (bareOf (nodeAName d)))) "`")
             0
             0
             "give each parameter its own name; an unused one can be `_a`, `_b` - `_` is a name here like any other, so two of them collide too"
-            "the body could only ever read one of them, and the emitted function declared both, which the native toolchain refused after `check` said OK") (strConcat (strConcat "`" (srcSpelling p)) "` names two parameters of this function")))
+            "the body could only ever read one of them, and the emitted function declared both, which the native toolchain refused after `check` said OK") (concat (concat "`" (srcSpelling p)) "` names two parameters of this function")))
           0)
         (checkDupParams tc d params (+ i 1))
       })))
@@ -26669,11 +26669,11 @@
     (if (== rid 0)
       "this function's own region (its caller's current region)"
       (if (<= rid m)
-        (strConcat (strConcat "region `@" (vecGetStr (rgnRegionNames rc) (- rid 1))) "`")
+        (concat (concat "region `@" (vecGetStr (rgnRegionNames rc) (- rid 1))) "`")
         (let ((nm (vecGetStr (rgnFormNames rc) (- rid (+ m 1)))))
           (if (strEq nm "#recover")
             "the recovery point (reclaimed on abort)"
-            (strConcat (strConcat "region `" nm) "`")))))))
+            (concat (concat "region `" nm) "`")))))))
 
 (pub :: rgnOriginText (-> Int Int String))
 ;@axiom:effect(unsafe)
@@ -26684,15 +26684,15 @@
       (if (== bit 0)
         "a value allocated in this function's own region"
         (if (<= bit n)
-          (strConcat (strConcat (strConcat "parameter `" (vecGetStr (nodeBVec (memGetWord rc 1)) (- bit 1))) "`, which lives in ") (rgnRidText rc (rgnOriginRid rc bit)))
-          (strConcat "a value allocated in " (rgnRidText rc (rgnOriginRid rc bit))))))))
+          (concat (concat (concat "parameter `" (vecGetStr (nodeBVec (memGetWord rc 1)) (- bit 1))) "`, which lives in ") (rgnRidText rc (rgnOriginRid rc bit)))
+          (concat "a value allocated in " (rgnRidText rc (rgnOriginRid rc bit))))))))
 
 ; The same, followed by the comma a relative clause closes with.
 (pub :: rgnOriginTextComma (-> Int Int String))
 ;@axiom:effect(unsafe)
 (pub fn (rgnOriginTextComma rc bit)
   (if (&& (> bit 0) (<= bit (memGetWord rc 3)))
-    (strConcat (rgnOriginText rc bit) ",")
+    (concat (rgnOriginText rc bit) ",")
     (rgnOriginText rc bit)))
 
 ; The lowest set bit's index, or -1.
@@ -26785,7 +26785,7 @@
                     "AX3060"
                     "region-escape"
                     span
-                    (strConcat (strConcat (strConcat (strConcat (rgnOriginTextComma rc v) " is stored into ") into) (strConcat ", which lives in " (rgnRidText rc t))) how)
+                    (concat (concat (concat (concat (rgnOriginTextComma rc v) " is stored into ") into) (concat ", which lives in " (rgnRidText rc t))) how)
                     0
                     0
                     "MM-RGN-3 (docs/memory-model-v2-design.md): a value may be stored only into a place its own region OUTLIVES, because the place is still readable after the value's region has been reclaimed. A region named in a signature (`@r`) outlives the function's own region and is unordered against another name; the function's own region is its caller's. Keep the value in the region of the place it is stored into - allocate it there, or copy it there - or widen the place's annotation to the value's region"))
@@ -26794,7 +26794,7 @@
                     "AX3062"
                     "region-capture"
                     span
-                    (strConcat (strConcat (strConcat (strConcat (strConcat "the closure captures `" (rgnCaptureFor rc valNode (/ (- capBad 1) 64))) "`, which lives in ") (rgnRidText rc (rgnOriginRid rc (/ (- capBad 1) 64)))) (strConcat ", and is stored into " into)) (strConcat (strConcat ", which lives in " (rgnRidText rc t)) how))
+                    (concat (concat (concat (concat (concat "the closure captures `" (rgnCaptureFor rc valNode (/ (- capBad 1) 64))) "`, which lives in ") (rgnRidText rc (rgnOriginRid rc (/ (- capBad 1) 64)))) (concat ", and is stored into " into)) (concat (concat ", which lives in " (rgnRidText rc t)) how))
                     0
                     0
                     "MM-RGN-3 for a closure: a lambda's region is the region it is created in AND the region of everything it captures, because its record holds a reference to each capture. It may be stored only where every capture outlives the place. Capture a copy made in the place's region, or stop capturing the short-lived value")))))))))))
@@ -27131,7 +27131,7 @@
           rc
           (rgnStoreBad rc v (vecGet (rgnBinds rc) idx))
           (nodeSpan e)
-          (strConcat (strConcat "the binding `" (nodeAName e)) "`")
+          (concat (concat "the binding `" (nodeAName e)) "`")
           ""
           (nodeB e))
         (vecSet (rgnOrigs rc) idx (| (vecGet (rgnOrigs rc) idx) v))
@@ -27150,7 +27150,7 @@
         rc
         (rgnStoreBadMask rc v b)
         (nodeSpan e)
-        (strConcat (strConcat "the field `" (nodeBName e)) "` of a value")
+        (concat (concat "the field `" (nodeBName e)) "` of a value")
         ""
         (nodeC e))
       (rgnNoteFlow rc v b "")
@@ -27490,7 +27490,7 @@
                 rc
                 (rgnStoreBadMask rc (| u (memGetWord rc 7)) (vecGet masks i))
                 span
-                (strConcat (strConcat "argument " (fmtInt (+ i 1))) " of a call the compiler cannot resolve")
+                (concat (concat "argument " (fmtInt (+ i 1))) " of a call the compiler cannot resolve")
                 " - a call through a parameter, a closure or a field is assumed to store every argument into every argument"
                 0)
               (rgnNoteFlow rc (| u (memGetWord rc 7)) (vecGet masks i) "<unresolved call>")
@@ -27531,7 +27531,7 @@
                 rc
                 (rgnStoreBadMask rc v (vecGet masks 0))
                 span
-                (strConcat (strConcat "the block `" n) "` writes")
+                (concat (concat "the block `" n) "` writes")
                 ""
                 (vecGet args (- (vecLen args) 1)))
               (rgnNoteFlow rc v (vecGet masks 0) "")
@@ -27614,13 +27614,13 @@
                           "AX3063"
                           "region-argument"
                           span
-                          (strConcat
-                            (strConcat
-                              (strConcat
-                                (strConcat (strConcat "`" (bareOf callee)) "` names one region `@")
+                          (concat
+                            (concat
+                              (concat
+                                (concat (concat "`" (bareOf callee)) "` names one region `@")
                                 (cast String rn))
                               "` for two of these arguments, and they do not live in the same region: ")
-                            (strConcat (strConcat (rgnOriginText rc (rgnFirstBit (vecGet instMasks k))) " against ") (rgnOriginText rc (rgnFirstBit (vecGet masks i)))))
+                            (concat (concat (rgnOriginText rc (rgnFirstBit (vecGet instMasks k))) " against ") (rgnOriginText rc (rgnFirstBit (vecGet masks i)))))
                           0
                           0
                           "a region parameter is instantiated ONCE per call, like a type variable; every argument annotated with it must live in that one region. Pass values from one region, or give the parameters different region names"))
@@ -27641,7 +27641,7 @@
                 (let (
                   (fresh (!= (& (memGetWord f 1) (<< 1 i)) 0))
                   (from (vecGet (memGetWordVec f 2) i))
-                  (into (strConcat (strConcat (strConcat (strConcat "parameter `" (rgnCalleeParamName tc callee i)) "` of `") (bareOf callee)) "`"))
+                  (into (concat (concat (concat (concat "parameter `" (rgnCalleeParamName tc callee i)) "` of `") (bareOf callee)) "`"))
                 )
                   {
                     (if fresh
@@ -27651,7 +27651,7 @@
                           (rgnStoreBadMask rc (memGetWord rc 7) (vecGet masks i))
                           span
                           into
-                          (strConcat (strConcat " - `" (bareOf callee)) "` stores a value it allocates into that parameter")
+                          (concat (concat " - `" (bareOf callee)) "` stores a value it allocates into that parameter")
                           0)
                         (rgnNoteFlow rc (memGetWord rc 7) (vecGet masks i) callee)
                       }
@@ -27666,7 +27666,7 @@
                                 (rgnStoreBadMask rc (vecGet masks j) (vecGet masks i))
                                 span
                                 into
-                                (strConcat (strConcat (strConcat (strConcat " - `" (bareOf callee)) "` stores its parameter `") (rgnCalleeParamName tc callee j)) "` into it")
+                                (concat (concat (concat (concat " - `" (bareOf callee)) "` stores its parameter `") (rgnCalleeParamName tc callee j)) "` into it")
                                 (vecGet args j))
                               (rgnNoteFlow rc (vecGet masks j) (vecGet masks i) callee)
                             }
@@ -27883,9 +27883,9 @@
                       "AX3063"
                       "region-argument"
                       (nodeSpan d)
-                      (strConcat
-                        (strConcat
-                          (strConcat (strConcat "`" (bareOf (nodeAName d))) "` answers a value in region `@")
+                      (concat
+                        (concat
+                          (concat (concat "`" (bareOf (nodeAName d))) "` answers a value in region `@")
                           (cast String rr))
                         "`, which no parameter supplies")
                       0
@@ -27930,7 +27930,7 @@
             "AX3061"
             "region-return"
             span
-            (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName (memGetWord rc 1)))) "` answers ") (rgnOriginText rc v)) (strConcat ", and its result is declared to live in " (rgnRidText rc t)))
+            (concat (concat (concat (concat "`" (bareOf (nodeAName (memGetWord rc 1)))) "` answers ") (rgnOriginText rc v)) (concat ", and its result is declared to live in " (rgnRidText rc t)))
             0
             0
             "MM-RGN-3 at the return: the result is read by a caller in the declared region, after every shorter region has been reclaimed. Answer a value that lives in the declared region - one derived from a parameter annotated with it - or drop the result's annotation, which makes the result the caller's current region and lets the caller decide"))
@@ -27939,7 +27939,7 @@
             "AX3062"
             "region-capture"
             span
-            (strConcat (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName (memGetWord rc 1)))) "` answers a closure that captures `") cap) "`, which lives in ") (strConcat (strConcat (rgnRidText rc (rgnOriginRid rc (/ (- capBad 1) 64))) ", and its result is declared to live in ") (rgnRidText rc t)))
+            (concat (concat (concat (concat (concat "`" (bareOf (nodeAName (memGetWord rc 1)))) "` answers a closure that captures `") cap) "`, which lives in ") (concat (concat (rgnRidText rc (rgnOriginRid rc (/ (- capBad 1) 64))) ", and its result is declared to live in ") (rgnRidText rc t)))
             0
             0
             "MM-RGN-3 for a closure: a lambda's region is the region it is created in AND the region of everything it captures, because its record holds a reference to each capture. It may be answered into a region only if every capture outlives it. Capture a copy made in that region, or stop capturing the short-lived value")))))))
@@ -28155,11 +28155,11 @@
                   tc
                   d
                   r
-                  (strConcat
-                    (strConcat (strConcat "the body stores a value it allocates into its parameter `" (rgnCalleeParamName tc (nodeAName d) i)) "`")
+                  (concat
+                    (concat (concat "the body stores a value it allocates into its parameter `" (rgnCalleeParamName tc (nodeAName d) i)) "`")
                     (if (== (strLen (vecGetStr (memGetWordVec f 6) i)) 0)
                       " in its own body"
-                      (strConcat (strConcat " through `" (bareOf (vecGetStr (memGetWordVec f 6) i))) "`")))
+                      (concat (concat " through `" (bareOf (vecGetStr (memGetWordVec f 6) i))) "`")))
                   (cast (Vec Int) 0))
                 (if (!= (memGetWord f 5) 0)
                   (emitRestrictUnverifiable
@@ -28315,7 +28315,7 @@
 (pub fn (ctParamKind cs p)
   (if (== (strInVec cs p 0) 1)
     2
-    (if (== (strInVec cs (strConcat "*" p) 0) 1)
+    (if (== (strInVec cs (concat "*" p) 0) 1)
       1
       0)))
 
@@ -28331,7 +28331,7 @@
         {
           (set s (if (== i 0)
             (vecGet cs i)
-            (strConcat s (strConcat ", " (vecGet cs i)))))
+            (concat s (concat ", " (vecGet cs i)))))
           (set i (+ i 1))
         })
       s
@@ -28552,7 +28552,7 @@
 (pub fn (ctHit w span msg label)
   {
     (vecPush w.spans span)
-    (vecPush w.msgs (strConcat msg (strConcat " (`" (strConcat w.fnName (strConcat "` claims `ct(" (strConcat w.claim ")`)"))))))
+    (vecPush w.msgs (concat msg (concat " (`" (concat w.fnName (concat "` claims `ct(" (concat w.claim ")`)"))))))
     (vecPush w.labels label)
     0
   })
@@ -28581,8 +28581,8 @@
         (nodeSpan e)
         (nodeSpan cond))
       (if (== (strLen txt) 0)
-        (strConcat (strConcat "`" kw) "` branches on a secret")
-        (strConcat (strConcat (strConcat (strConcat "`" txt) "` is secret, and `") kw) "` branches on it"))
+        (concat (concat "`" kw) "` branches on a secret")
+        (concat (concat (concat (concat "`" txt) "` is secret, and `") kw) "` branches on it"))
       "a branch on a secret")))
 
 (pub :: ctEvalVec (-> CtWalk (Vec Int) Int))
@@ -28676,7 +28676,7 @@
         (if (|| (strEq n "/") (strEq n "%"))
           {
             (if (== m 2)
-              (ctHit w (nodeSpan e) (strConcat (strConcat "`" n) "` has a secret operand") "a division by or of a secret")
+              (ctHit w (nodeSpan e) (concat (concat "`" n) "` has a secret operand") "a division by or of a secret")
               0)
             (if (> m 0)
               2
@@ -28685,14 +28685,14 @@
           (if (|| (strEq n "&&") (strEq n "||"))
             {
               (if (== m 2)
-                (ctHit w (nodeSpan e) (strConcat (strConcat "`" n) "` short-circuits on a secret") "a branch on a secret")
+                (ctHit w (nodeSpan e) (concat (concat "`" n) "` short-circuits on a secret") "a branch on a secret")
                 0)
               m
             }
             (if (strStartsWith n "__load")
               (if (== m 2)
                 {
-                  (ctHit w (nodeSpan e) (strConcat (strConcat "`" n) "` reads at an address computed from a secret") "an address from a secret")
+                  (ctHit w (nodeSpan e) (concat (concat "`" n) "` reads at an address computed from a secret") "an address from a secret")
                   2
                 }
                 (if (== m 1)
@@ -28701,7 +28701,7 @@
               (if (strStartsWith n "__store")
                 {
                   (if (== (ctMaxTo ts 2) 2)
-                    (ctHit w (nodeSpan e) (strConcat (strConcat "`" n) "` writes at an address computed from a secret") "an address from a secret")
+                    (ctHit w (nodeSpan e) (concat (concat "`" n) "` writes at an address computed from a secret") "an address from a secret")
                     0)
                   0
                 }
@@ -28726,7 +28726,7 @@
     (let ((k (ctTableIndex (ctTable w.tc) (ctResolve w.tc n))))
       (if (< k 0)
         {
-          (ctHit w (nodeSpan e) (strConcat (strConcat "`" (bareOf n)) "` gets a secret, and makes no `ct(...)` claim") "a secret to an unclaimed call")
+          (ctHit w (nodeSpan e) (concat (concat "`" (bareOf n)) "` gets a secret, and makes no `ct(...)` claim") "a secret to an unclaimed call")
           0
         }
         (let ((dd (vecGet (ctTable w.tc) k)))
@@ -28745,9 +28745,9 @@
     )
       {
         (if (&& (> t 0) (== (ctParamKind cs p) 0))
-          (ctHit w (nodeSpan e) (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName dd))) "` gets a secret for `") p) "`, which its `ct(...)` claim doesn't name") "a secret to a public parameter")
+          (ctHit w (nodeSpan e) (concat (concat (concat (concat "`" (bareOf (nodeAName dd))) "` gets a secret for `") p) "`, which its `ct(...)` claim doesn't name") "a secret to a public parameter")
           (if (&& (== t 2) (== (ctParamKind cs p) 1))
-            (ctHit w (nodeSpan e) (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName dd))) "` gets a secret value for `") p) "`, which its claim names as an address, `*") p) "`") "a secret to a public parameter")
+            (ctHit w (nodeSpan e) (concat (concat (concat (concat (concat (concat "`" (bareOf (nodeAName dd))) "` gets a secret value for `") p) "`, which its claim names as an address, `*") p) "`") "a secret to a public parameter")
             0))
         (ctCheckArgs w e dd cs ts (+ i 1))
       })))
@@ -28966,13 +28966,13 @@
             (if (== (strLen p) 0)
               {
                 (set ok 0)
-                (emitCtMalformed tc d (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `ct(...)` and names no parameter"))
+                (emitCtMalformed tc d (concat (concat "`" (bareOf (nodeAName d))) "` claims `ct(...)` and names no parameter"))
               }
               (if (== (strInVec ps p 0) 1)
                 0
                 {
                   (set ok 0)
-                  (emitCtMalformed tc d (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `ct(") c) (strConcat (strConcat ")`, and `" p) "` isn't one of its parameters")))
+                  (emitCtMalformed tc d (concat (concat (concat (concat "`" (bareOf (nodeAName d))) "` claims `ct(") c) (concat (concat ")`, and `" p) "` isn't one of its parameters")))
                 })))
           (set i (+ i 1))
         })

@@ -436,7 +436,7 @@
 ; the rowid's 8 bytes.
 (pub :: keyWithRowid (-> String Int String))
 (pub fn (keyWithRowid prefix rowid)
-  (strConcat prefix (keyRowid rowid)))
+  (concat prefix (keyRowid rowid)))
 
 ; A number as sign, exponent and mantissa: `sign` -1, 0 or 1, `e` the
 ; power of two of its leading bit, and `mant` the bits after that bit,

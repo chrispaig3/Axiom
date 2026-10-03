@@ -85,7 +85,7 @@
                 key
                 nonce
                 counter
-                ct) (strConcat "decrypt " id))
+                ct) (concat "decrypt " id))
               0
             })))
       (for line in (katLines "chacha20-diff.txt")
@@ -97,7 +97,7 @@
             (pt (katBytes f 3))
             (ct (katBytes f 4))
           )
-            (let ((id (strConcat (hexEncode nonce) (strConcat " counter " (katText f 2)))))
+            (let ((id (concat (hexEncode nonce) (concat " counter " (katText f 2)))))
               {
                 (tallyBytes diff ct (chacha
                   false
@@ -110,8 +110,8 @@
                   key
                   nonce
                   counter
-                  pt) (strConcat "in place " id))
-                (tallyCheck diff (== (nextCounter key nonce counter (strLen pt)) (+ counter (/ (+ (strLen pt) 63) 64))) (strConcat "next counter " id))
+                  pt) (concat "in place " id))
+                (tallyCheck diff (== (nextCounter key nonce counter (strLen pt)) (+ counter (/ (+ (strLen pt) 63) 64))) (concat "next counter " id))
                 0
               }))))
       (+ (tallyReport rfc) (tallyReport diff))

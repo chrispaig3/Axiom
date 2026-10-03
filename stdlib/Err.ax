@@ -91,7 +91,7 @@
 (pub fn (errorText e)
   (if (== (strLen e.context) 0)
     e.message
-    (strConcat (strConcat e.message " while ") e.context)))
+    (concat (concat e.message " while ") e.context)))
 
 ; ------------------------------------------------------------------
 ; Inspecting.

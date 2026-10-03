@@ -15,7 +15,7 @@
 (fn (walk s n)
   (if (== n 0)
     s
-    (let ((s2 (strConcat "v" (fmtInt n))))
+    (let ((s2 (concat "v" (fmtInt n))))
       (let ((mut k 0))
         {
           (set k (strLen s2))

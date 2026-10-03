@@ -3,7 +3,7 @@
 ; the body's OWN allocation too: a call to the primitive `__alloc` carries
 ; `Alloc` itself.
 ;
-;   `builds`  calls `strConcat`, which allocates      -> AX3049
+;   `builds`  calls `concat`, which allocates      -> AX3049
 ;   `direct`  calls `__alloc` itself                   -> AX3049
 ;   `sums`    arithmetic only                         -> silent
 ;   `reads`   loads a word through a primitive        -> silent:
@@ -15,7 +15,7 @@
 ;@axiom:restrict(no-alloc)
 (:: builds (-> String String))
 (fn (builds s)
-  (strConcat s "!"))
+  (concat s "!"))
 
 ;@axiom:restrict(no-alloc)
 (:: direct (-> Int Int))

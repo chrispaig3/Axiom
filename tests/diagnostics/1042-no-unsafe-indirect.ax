@@ -71,7 +71,7 @@
   (let ((v vecNew))
     {
       (vecPush v n)
-      (vecPush v (strLen (strConcat "a" "b")))
+      (vecPush v (strLen (concat "a" "b")))
       (vecLen v)
     }))
 

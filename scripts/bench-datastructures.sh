@@ -191,7 +191,7 @@ cat > "$work/b_intern.ax" <<AX
 (import Fmt)
 $ax_args
 (:: nm (-> Int String))
-(fn (nm i) (strConcat "sym" (fmtInt i)))
+(fn (nm i) (concat "sym" (fmtInt i)))
 (:: fill (-> Int Int Int Int))
 (fn (fill it lo hi)
   (if (>= lo hi) it { (internIntern it (nm lo)) (fill it (+ lo 1) hi) }))

@@ -456,7 +456,7 @@
 ; ------------------------------------------------------------------
 (:: parseErr (-> String (Result Float Error)))
 (fn (parseErr s)
-  (Err (errContextOf (mkError floatParseFailed (strConcat "not a number: " s)) "floatParse")))
+  (Err (errContextOf (mkError floatParseFailed (concat "not a number: " s)) "floatParse")))
 
 ; The decimal digit at `i` in `s`, or -1 when there is none.
 (:: digitAt (-> String Int Int))
@@ -836,7 +836,7 @@
             (set i (- i 1))
           }))
       (if (== carry 1)
-        (strConcat "1" out)
+        (concat "1" out)
         out)
     }))
 
@@ -868,14 +868,14 @@
 (:: intText (-> Int String))
 (fn (intText n)
   (if (< n 0)
-    (strConcat "-" (natText (- 0 n)))
+    (concat "-" (natText (- 0 n)))
     (natText n)))
 
 ; True when 0.`digits` * 10^`decpt` reads back as the magnitude of
 ; `bits`.
 (:: readsBack (-> String Int Int Bool))
 (fn (readsBack digits decpt bits)
-  (match (floatParse (strConcat digits (strConcat "e" (intText (- decpt (strLen digits))))))
+  (match (floatParse (concat digits (concat "e" (intText (- decpt (strLen digits))))))
     ((Ok y) (== (floatToBits y) (& bits 9223372036854775807)))
     ((Err _) false)))
 
@@ -963,26 +963,26 @@
   )
     (if (&& (>= x10 -4) (< x10 16))
       (if (<= decpt 0)
-        (strConcat "0." (strConcat (zeros (- 0 decpt)) digits))
+        (concat "0." (concat (zeros (- 0 decpt)) digits))
         (if (>= decpt nd)
-          (strConcat digits (strConcat (zeros (- decpt nd)) ".0"))
-          (strConcat (strSlice digits 0 decpt) (strConcat "." (strSlice digits decpt (- nd decpt))))))
+          (concat digits (concat (zeros (- decpt nd)) ".0"))
+          (concat (strSlice digits 0 decpt) (concat "." (strSlice digits decpt (- nd decpt))))))
       (let (
         (mant (if (== nd 1)
           digits
-          (strConcat (strSlice digits 0 1) (strConcat "." (strSlice digits 1 (- nd 1))))))
+          (concat (strSlice digits 0 1) (concat "." (strSlice digits 1 (- nd 1))))))
         (ax (if (< x10 0)
           (- 0 x10)
           x10))
       )
-        (strConcat
+        (concat
           mant
-          (strConcat
+          (concat
             (if (< x10 0)
               "e-"
               "e+")
             (if (< ax 10)
-              (strConcat "0" (natText ax))
+              (concat "0" (natText ax))
               (natText ax))))))))
 
 ; The shortest text for a finite, non-zero magnitude whose exact
@@ -1052,6 +1052,6 @@
                       (shortestText ds (+ (strLen ds) e) bits))
                   })))
                 (if neg
-                  (strConcat "-" text)
+                  (concat "-" text)
                   text))
             }))))))

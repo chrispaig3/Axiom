@@ -523,7 +523,7 @@
           )
             (let ((missing (lspPreflight decls tcode entryDir vecNew)))
               (if (> (strLen missing) 0)
-                (lspOneDiag src "AX5001" (strConcat (strConcat "cannot resolve import `" missing) "`"))
+                (lspOneDiag src "AX5001" (concat (concat "cannot resolve import `" missing) "`"))
                 ; Same order as `compileFile`: expansion, then the
                 ; checker. An editor that reported a different set
                 ; of diagnostics from `axiom check` on the same file
@@ -888,7 +888,7 @@
             (vecPop idxs)
             (let ((b (vecGet binders idx)))
               (if (&& (== (memGetWord b 4) 1) (== (memGetWord b 2) 0))
-                (lspLintRecord lx (memGetWord b 1) (lintUnusedLet) (strConcat (strConcat "`" (memGetWordStr b 0)) "` is bound here and never read"))
+                (lspLintRecord lx (memGetWord b 1) (lintUnusedLet) (concat (concat "`" (memGetWordStr b 0)) "` is bound here and never read"))
                 0))
             (set i (+ i 1))
           }))
@@ -959,7 +959,7 @@
         0
         (if (lspLintScopeHas lx "false")
           0
-          (lspLintRecord lx sp (lintBoolIf) (strConcat (strConcat "`" cn) "` is handed straight back; the `if` adds nothing"))))
+          (lspLintRecord lx sp (lintBoolIf) (concat (concat "`" cn) "` is handed straight back; the `if` adds nothing"))))
       0)
     0))
 
@@ -1743,7 +1743,7 @@
       {
         (while (< i n)
           {
-            (set out (strConcat
+            (set out (concat
               out
               (if (lspUriSafe (strByte abs i))
                 (strSlice abs i 1)
@@ -1759,7 +1759,7 @@
 
 (pub :: lspPercent (-> Int String))
 (pub fn (lspPercent b)
-  (strConcat "%" (strConcat (lspHexDigit (/ b 16)) (lspHexDigit (% b 16)))))
+  (concat "%" (concat (lspHexDigit (/ b 16)) (lspHexDigit (% b 16)))))
 
 (pub :: lspHexDigit (-> Int String))
 (pub fn (lspHexDigit v)
@@ -2120,7 +2120,7 @@
               d
               range
               ""
-              (strConcat (strConcat (strConcat "field `" w) "` of `struct ") (strConcat (nodeAName d) "`")))))))))
+              (concat (concat (concat "field `" w) "` of `struct ") (concat (nodeAName d) "`")))))))))
 
 ; A field declaration: the word sits in a struct's field slot.
 (pub :: lspHoverFieldDecl (-> String (Vec Int) Int Int Int))
@@ -2161,7 +2161,7 @@
             d
             range
             ""
-            (strConcat (strConcat (strConcat "field `" w) "` of `struct ") (strConcat (nodeAName d) "`"))))))))
+            (concat (concat (concat "field `" w) "` of `struct ") (concat (nodeAName d) "`"))))))))
 
 (pub :: lspFieldNodeAt (-> (Vec Int) String Int Int Int))
 (pub fn (lspFieldNodeAt fs fname off i)
@@ -2300,19 +2300,19 @@
           (code (lspClampLines (lspHoverCode dsrc d sig o) 40))
           (doc (lspDocComment dsrc o))
         )
-          (let ((fence (strConcat (strConcat "```axiom\n" code) "\n```\n")))
+          (let ((fence (concat (concat "```axiom\n" code) "\n```\n")))
             (let ((body 
               (if (== (strLen note) 0)
                 fence
-                (strConcat fence (strConcat (strConcat "\n" note) "\n")))))
+                (concat fence (concat (concat "\n" note) "\n")))))
               (let ((withMod 
                 (if (== (strLen origin) 0)
                   body
-                  (strConcat body (strConcat (strConcat "\nfrom `" origin) "`\n")))))
+                  (concat body (concat (concat "\nfrom `" origin) "`\n")))))
                 (let ((value 
                   (if (== (strLen doc) 0)
                     withMod
-                    (strConcat withMod (strConcat "\n" doc)))))
+                    (concat withMod (concat "\n" doc)))))
                   (jsonObjPut (jsonObjPut jsonObj "contents" (jsonObjPut (jsonObjPut jsonObj "kind" (jsonStr "markdown")) "value" (jsonStr value))) "range" range))))))))))
 
 ; The fenced half. Everything read at its own form is quoted whole; a
@@ -2591,7 +2591,7 @@
               (let ((line (strSlice src ls (- (- e 1) ls))))
                 (if (lspIsDocLine line)
                   {
-                    (set out (strConcat (strConcat (lspDocStrip line) "\n") out))
+                    (set out (concat (concat (lspDocStrip line) "\n") out))
                     (set e ls)
                   }
                   (set go 0))))))
@@ -2723,7 +2723,7 @@
         })
       (if (< cut 0)
         s
-        (strConcat (strSlice s 0 cut) "\n  ; ..."))
+        (concat (strSlice s 0 cut) "\n  ; ..."))
     }))
 
 (pub :: lspFirstLine (-> String String))
@@ -3113,7 +3113,7 @@
     (dot (lspLastDot typed))
   )
     (let (
-      (rel (if (< dot 0) "" (strConcat (lspDotsToSlashes (strSlice typed 0 dot)) "/")))
+      (rel (if (< dot 0) "" (concat (lspDotsToSlashes (strSlice typed 0 dot)) "/")))
       (part (if (< dot 0) typed (strSlice typed (+ dot 1) (- (strLen typed) (+ dot 1)))))
       (dirs (moduleSearchDirs (pathDir path)))
       (mut i 0)
@@ -3121,7 +3121,7 @@
       {
         (while (< i (vecLen dirs))
           (let ((root (vecGetStr dirs i)))
-            (let ((names (sysReadDir (strCStr (if (== (strLen root) 0) (strConcat "./" rel) (strConcat root rel))))))
+            (let ((names (sysReadDir (strCStr (if (== (strLen root) 0) (concat "./" rel) (concat root rel))))))
               {
                 (let ((mut j 0))
                   (while (< j (vecLen names))
@@ -3134,7 +3134,7 @@
                               (if (== (strLen stem) 0)
                                 0
                                 (lspComplOffer out seen stem 9 "module" part)))
-                            (if (&& (lspFixIsSegment nm) (isDir (strConcat root (strConcat rel nm))))
+                            (if (&& (lspFixIsSegment nm) (isDir (concat root (concat rel nm))))
                               (lspComplOffer out seen nm 19 "namespace" part)
                               0)))
                         (set j (+ j 1))
@@ -3162,7 +3162,7 @@
     {
       (while (< i (vecLen parts))
         {
-          (set out (if (== i 0) (vecGetStr parts 0) (strConcat out (strConcat "/" (vecGetStr parts i)))))
+          (set out (if (== i 0) (vecGetStr parts 0) (concat out (concat "/" (vecGetStr parts i)))))
           (set i (+ i 1))
         })
       out
@@ -4170,7 +4170,7 @@
 
 (pub :: lspNavCtorKey (-> String String String))
 (pub fn (lspNavCtorKey dat ctor)
-  (strConcat dat (strConcat "#" ctor)))
+  (concat dat (concat "#" ctor)))
 
 ; The TYPE table: the `data`, `struct` and `type` names this document
 ; declares, each keyed by itself - the same key the declaration's own
@@ -4344,7 +4344,7 @@
       (let ((t (lspNavTopGet (memGetWordVec nv 3) name)))
         (if (!= (strLen t) 0)
           t
-          (strConcat "?" (bareOf name)))))))
+          (concat "?" (bareOf name)))))))
 
 ; ------------------------------------------------------------------
 ; The rename collision probe.
@@ -4408,8 +4408,8 @@
 (pub :: lspNavBinderKey (-> String Int Int String))
 (pub fn (lspNavBinderKey name span node)
   (if (!= span 0)
-    (strConcat "@" (fmtInt (spanStart span)))
-    (strConcat "~" (strConcat (fmtInt node) (strConcat ":" name)))))
+    (concat "@" (fmtInt (spanStart span)))
+    (concat "~" (concat (fmtInt node) (concat ":" name)))))
 
 (pub :: lspNavEmitBinder (-> Int String Int String Int Int Int))
 (pub fn (lspNavEmitBinder nv name span key bkind idx)
@@ -4702,7 +4702,7 @@
         NAV_READ
         (if (!= (strLen t) 0)
           t
-          (strConcat "?" name))
+          (concat "?" name))
         0
         0))
     0))
@@ -5291,7 +5291,7 @@
             (nodeAName v)
             (nodeSpan v)
             NAV_READ
-            (strConcat "!" (nodeAName v))
+            (concat "!" (nodeAName v))
             0
             0)
           0)
@@ -5375,7 +5375,7 @@
         NAV_READ
         (if (!= (strLen t) 0)
           t
-          (strConcat "?" (bareOf name)))
+          (concat "?" (bareOf name)))
         0
         0))))
 
@@ -5703,7 +5703,7 @@
 (pub :: lspNavForeignSel (-> (Vec a) Int String (Vec Int)))
 ;@axiom:effect(unsafe)
 (pub fn (lspNavForeignSel texts pair bare)
-  (lspNavSameKey (lspNavOccurrences (vecGetStr texts (memGetWord pair 0)) (memGetWordVec pair 1)) (strConcat "?" bare) 1))
+  (lspNavSameKey (lspNavOccurrences (vecGetStr texts (memGetWord pair 0)) (memGetWordVec pair 1)) (concat "?" bare) 1))
 
 ; The reverse direction: the cursor is on a name this document
 ; imports. The module that declares it is found the way `definition`
@@ -6008,7 +6008,7 @@
                     (set clash true)
                     0
                   }
-                  (let ((sel (lspNavSameKey oocc (strConcat "?" bare) 1)))
+                  (let ((sel (lspNavSameKey oocc (concat "?" bare) 1)))
                     (if (> (vecLen sel) 0)
                       (jsonObjPut changes ouri (lspNavEdits otext (lspLineIndex otext) sel newName))
                       0)))
@@ -6781,7 +6781,7 @@
     (let ((t (lspShapeOfBinder decls occs b)))
       (if (lspShapeIsBad t)
         pair
-        (strConcat pair (strConcat "\n" (strConcat name (strConcat " : " (tyRender t)))))))))
+        (concat pair (concat "\n" (concat name (concat " : " (tyRender t)))))))))
 
 ; A hover for a local: the binding AS WRITTEN, and a line saying what
 ; kind of binding it is, so a reader knows whether the fence is a
@@ -6824,7 +6824,7 @@
                         name)
                       (if (== bkind NAV_B_PARAM)
                         (lspNavParamCode decls owner name (memGetWord b 6))
-                        (strConcat name (strConcat "\n" (lspNavLineText src at))))))
+                        (concat name (concat "\n" (lspNavLineText src at))))))
                     (prose (if (== bkind NAV_B_LET)
                       "bound by `let` in `"
                       (if (== bkind NAV_B_PARAM)
@@ -6833,7 +6833,7 @@
                           "parameter of a `lambda` in `"
                           "bound by a pattern in `"))))
                   )
-                    (let ((value (strConcat "```axiom\n" (strConcat code (strConcat "\n```\n\n" (strConcat prose (strConcat owner "`\n")))))))
+                    (let ((value (concat "```axiom\n" (concat code (concat "\n```\n\n" (concat prose (concat owner "`\n")))))))
                       (jsonObjPut (jsonObjPut jsonObj "contents" (jsonObjPut (jsonObjPut jsonObj "kind" (jsonStr "markdown")) "value" (jsonStr value))) "range" (lspRangeIx src ix wsp)))))))
             0))))))
 
@@ -6846,7 +6846,7 @@
   (let ((t (lspShapeParamTy decls owner k)))
     (if (== t 0)
       name
-      (strConcat name (strConcat " : " (tyRender t))))))
+      (concat name (concat " : " (tyRender t))))))
 
 ; The line `off` sits on, without its indentation.
 (pub :: lspNavLineText (-> String Int String))
@@ -7313,7 +7313,7 @@
 (pub fn (lspChIncomingIn out ouri osrc odecls name foreign)
   (let (
     (want (if (== foreign 1)
-      (strConcat "?" name)
+      (concat "?" name)
       name))
     (oix (lspLineIndex osrc))
     (sites (lspChSites osrc odecls))
@@ -7601,7 +7601,7 @@
           (let ((h (lspThBaseHead d)))
             (if (== (strLen h) 0)
               "subtype"
-              (strConcat "subtype of " h))))))))
+              (concat "subtype of " h))))))))
 
 ; Whether `name` is a builtin type: exactly what the checker answers
 ; without a declaration - `typeKeywordCanon`'s set plus `Linear`
@@ -7961,7 +7961,7 @@
                         (lspReply id (lspSupertypes params uris texts))
                         (if (strEq method "typeHierarchy/subtypes")
                           (lspReply id (lspSubtypes params uris texts))
-                          (lspError id (- 0 32601) (strConcat "method not found: " method)))))))))))))))
+                          (lspError id (- 0 32601) (concat "method not found: " method)))))))))))))))
 
 ; `renameProvider` is an OBJECT: `prepareProvider: true` tells the
 ; client to ask `prepareRename` first, so an editor never opens a
@@ -8022,7 +8022,7 @@
                 (lspReply id (lspSelectionRanges src params))
                 (if (strEq method "textDocument/documentLink")
                   (lspReply id (lspDocumentLinks src uri))
-                  (lspError id (- 0 32601) (strConcat "method not found: " method)))))))))))
+                  (lspError id (- 0 32601) (concat "method not found: " method)))))))))))
 
 ; `signatureHelpProvider` and `documentLinkProvider` are objects, the
 ; other four booleans. `(` and a space are where a call's argument
@@ -8467,24 +8467,24 @@
     (ps (nodeBVec d))
     (starts vecNew)
     (ends vecNew)
-    (mut label (strConcat "(" (bareOf (nodeAName d))))
+    (mut label (concat "(" (bareOf (nodeAName d))))
     (mut i 0)
   )
     {
       (while (< i (vecLen ps))
         {
-          (set label (strConcat label " "))
+          (set label (concat label " "))
           (vecPush starts (strLen label))
-          (set label (strConcat label (vecGetStr ps i)))
+          (set label (concat label (vecGetStr ps i)))
           (vecPush ends (strLen label))
           (set i (+ i 1))
         })
-      (set label (strConcat label ")"))
+      (set label (concat label ")"))
       (if (!= sig 0)
-        (set label (strConcat (strConcat label " : ") (lspSigType dsrc sig)))
+        (set label (concat (concat label " : ") (lspSigType dsrc sig)))
         label)
       (if (> (strLen origin) 0)
-        (set label (strConcat (strConcat label " from ") origin))
+        (set label (concat (concat label " from ") origin))
         label)
       (lspViewSigInfo label starts ends (lspViewSigDoc dsrc d sig))
     }))
@@ -8511,7 +8511,7 @@
     (tys (nodeTyVec c))
     (starts vecNew)
     (ends vecNew)
-    (mut label (strConcat "(" (nodeAName c)))
+    (mut label (concat "(" (nodeAName c)))
     (mut i 0)
   )
     {
@@ -8521,13 +8521,13 @@
         (< i (vecLen tys))
         false)
         {
-          (set label (strConcat label " "))
+          (set label (concat label " "))
           (vecPush starts (strLen label))
-          (set label (strConcat label (tyRender (vecGet tys i))))
+          (set label (concat label (tyRender (vecGet tys i))))
           (vecPush ends (strLen label))
           (set i (+ i 1))
         })
-      (set label (strConcat label ")"))
+      (set label (concat label ")"))
       (lspViewSigInfo label starts ends "")
     }))
 
@@ -8887,7 +8887,7 @@
                             src
                             ix
                             e
-                            (strConcat ": " (tyRender pt))
+                            (concat ": " (tyRender pt))
                             1
                             0
                             rs
@@ -8905,7 +8905,7 @@
             src
             ix
             (+ close 1)
-            (strConcat " -> " (tyRender (lspViewResultTy ty)))
+            (concat " -> " (tyRender (lspViewResultTy ty)))
             1
             0
             rs
@@ -9018,7 +9018,7 @@
                     src
                     ix
                     (spanEnd (nodeSpan e))
-                    (strConcat ": " (tyRender t))
+                    (concat ": " (tyRender t))
                     1
                     0
                     rs
@@ -9434,7 +9434,7 @@
                             src
                             ix
                             i
-                            (strConcat (vecGetStr ps a) ":")
+                            (concat (vecGetStr ps a) ":")
                             2
                             1
                             rs
@@ -10038,7 +10038,7 @@
   (if (>= (jsonArrLen out) LSP_COMPL_MAX)
     0
     (if (lspStrHasFold name query)
-      (let ((key (strConcat uri (strConcat "#" (fmtInt (spanStart span))))))
+      (let ((key (concat uri (concat "#" (fmtInt (spanStart span))))))
         (if (lspSeenHas seen key)
           0
           (let ((base (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "name" (jsonStr name)) "kind" (jsonNum kind)) "location" (jsonObjPut (jsonObjPut jsonObj "uri" (jsonStr uri)) "range" (lspRangeIx src ix span)))))
@@ -10615,16 +10615,16 @@
 (pub fn (lspSigAssistJson d vis ty src uri ix o)
   (let ((name (nodeAName d)))
     (let ((text 
-      (strConcat
-        (strConcat
-          (strConcat
+      (concat
+        (concat
+          (concat
             (if (== vis 1)
               "(pub :: "
               "(:: ")
             name)
           " ")
-        (strConcat (lspRenderTypeR ty (lspFreshRenames ty)) ")\n"))))
-      (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "title" (jsonStr (strConcat (strConcat "Add type signature for `" name) "`"))) "kind" (jsonStr "refactor.rewrite")) "edit" (lspEditJson uri (jsonObjPut (jsonObjPut jsonObj "start" (lspPosIx src ix o)) "end" (lspPosIx src ix o)) text)))))
+        (concat (lspRenderTypeR ty (lspFreshRenames ty)) ")\n"))))
+      (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "title" (jsonStr (concat (concat "Add type signature for `" name) "`"))) "kind" (jsonStr "refactor.rewrite")) "edit" (lspEditJson uri (jsonObjPut (jsonObjPut jsonObj "start" (lspPosIx src ix o)) "end" (lspPosIx src ix o)) text)))))
 
 ; ------------------------------------------------------------------
 ; Three assists the compiler does not write, and what each one reads.
@@ -10828,7 +10828,7 @@
 ; be found, which a macro-generated name would be.
 (pub :: lspNolintOffer (-> Int String String (Vec Int) (Vec Int) Int String String Int String (Vec String) Int))
 (pub fn (lspNolintOffer out src uri ix decls want code owner sp msg seen)
-  (let ((key (strConcat owner (strConcat "$" code))))
+  (let ((key (concat owner (concat "$" code))))
     (if (>= (strVecIdx seen key) 0)
       0
       (let ((d (lspLintOwnerDecl decls owner 0)))
@@ -10836,7 +10836,7 @@
           0
           {
             (vecPush seen key)
-            (jsonArrPush out (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "title" (jsonStr (strConcat (strConcat (strConcat "Suppress `" code) "` on `") (strConcat owner "`")))) "kind" (jsonStr "quickfix")) "diagnostics" (jsonArrPush jsonArr (lspLintJson
+            (jsonArrPush out (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "title" (jsonStr (concat (concat (concat "Suppress `" code) "` on `") (concat owner "`")))) "kind" (jsonStr "quickfix")) "diagnostics" (jsonArrPush jsonArr (lspLintJson
               src
               ix
               sp
@@ -10846,7 +10846,7 @@
               src
               ix
               (lineStartOf src (spanStart (nodeSpan d)))
-              (strConcat (strConcat ";@axiom:nolint(" code) ")\n"))))
+              (concat (concat ";@axiom:nolint(" code) ")\n"))))
             0
           })))))
 
@@ -10862,7 +10862,7 @@
     (if (== (vecLen opens) 0)
       0
       (let ((o (vecGet opens (- (vecLen opens) 1))))
-        (let ((key (strConcat "if$" (fmtInt o))))
+        (let ((key (concat "if$" (fmtInt o))))
           (if (>= (strVecIdx seen key) 0)
             0
             (if (|| (|| (>= (+ o 2) (strLen src)) (!= (strByte src o) 40)) (|| (!= (strByte src (+ o 1)) 105) (!= (strByte src (+ o 2)) 102)))
@@ -10875,7 +10875,7 @@
                       0
                       {
                         (vecPush seen key)
-                        (jsonArrPush out (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "title" (jsonStr (strConcat (strConcat "Simplify to `" cond) "`"))) "kind" (jsonStr "refactor.rewrite")) "diagnostics" (jsonArrPush jsonArr (lspLintJson
+                        (jsonArrPush out (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "title" (jsonStr (concat (concat "Simplify to `" cond) "`"))) "kind" (jsonStr "refactor.rewrite")) "diagnostics" (jsonArrPush jsonArr (lspLintJson
                           src
                           ix
                           sp
@@ -10977,7 +10977,7 @@
                           0
                           {
                             (vecPush seen eff)
-                            (jsonArrPush out (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "title" (jsonStr (strConcat (strConcat "Treat unhandled `" eff) "` as a deliberate abort"))) "kind" (jsonStr "quickfix")) "diagnostics" (jsonArrPush jsonArr (lspDiagJson d src ix uri))) "edit" (lspFixInsert
+                            (jsonArrPush out (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "title" (jsonStr (concat (concat "Treat unhandled `" eff) "` as a deliberate abort"))) "kind" (jsonStr "quickfix")) "diagnostics" (jsonArrPush jsonArr (lspDiagJson d src ix uri))) "edit" (lspFixInsert
                               uri
                               src
                               ix
@@ -11073,7 +11073,7 @@
 
 (pub :: lspFixImportTitle (-> String String String))
 (pub fn (lspFixImportTitle mod name)
-  (strConcat (strConcat (strConcat "Import `" name) "` from `") (strConcat mod "`")))
+  (concat (concat (concat "Import `" name) "` from `") (concat mod "`")))
 
 ; The name AX3001 reports is the reference's own bytes; a qualified
 ; `Mod::name` spans its first segment alone, and names its module
@@ -11118,7 +11118,7 @@
 ; that asked for it - a whole-document range meets every one.
 (pub :: lspImportOffer (-> Int Int String String (Vec Int) (Vec Int) String String (Vec String) Int))
 (pub fn (lspImportOffer out d src uri ix decls mod name seen)
-  (let ((key (strConcat mod (strConcat "$" name))))
+  (let ((key (concat mod (concat "$" name))))
     (if (>= (strVecIdx seen key) 0)
       0
       (let ((edit (lspImportEdit
@@ -11165,7 +11165,7 @@
                     src
                     ix
                     (- (lspFormEnd src lo) 1)
-                    (strConcat " " name)))
+                    (concat " " name)))
               )))))
       (let ((last (lspFixLastImport decls (- (vecLen decls) 1))))
         (if (== last 0)
@@ -11174,17 +11174,17 @@
             src
             ix
             0
-            (strConcat (lspFixImportLine mod name) "\n"))
+            (concat (lspFixImportLine mod name) "\n"))
           (lspFixInsert
             uri
             src
             ix
             (lspFormEnd src (lspFormStart src (spanStart (nodeSpan last))))
-            (strConcat "\n" (lspFixImportLine mod name))))))))
+            (concat "\n" (lspFixImportLine mod name))))))))
 
 (pub :: lspFixImportLine (-> String String String))
 (pub fn (lspFixImportLine mod name)
-  (strConcat (strConcat "(import " mod) (strConcat (strConcat " (" name) "))")))
+  (concat (concat "(import " mod) (concat (concat " (" name) "))")))
 
 ; This document's import of `mod`, last wins, or 0.
 (pub :: lspFixFindImport (-> (Vec Int) String Int Int))
@@ -11256,8 +11256,8 @@
     (sysReadDir
       (strCStr
         (if (== (strLen dir) 0)
-          (strConcat "./" rel)
-          (strConcat dir rel))))))
+          (concat "./" rel)
+          (concat dir rel))))))
     (let (
       (n (vecLen names))
       (mut i 0)
@@ -11268,14 +11268,14 @@
             {
               (if (|| (== (strLen nm) 0) (== (strByte nm 0) 46))
                 0
-                (let ((full (strConcat dir (strConcat rel nm))))
+                (let ((full (concat dir (concat rel nm))))
                   (if (lspFixEndsWith nm ".ax")
                     (let ((stem (lspFixStemOf nm tcode)))
                       (if (== (strLen stem) 0)
                         0
                         (lspFixConsider
                           full
-                          (strConcat modPrefix stem)
+                          (concat modPrefix stem)
                           name
                           path
                           tcode
@@ -11285,8 +11285,8 @@
                     (if (&& (< depth 3) (&& (lspFixIsSegment nm) (isDir full)))
                       (lspFixScanDir
                         dir
-                        (strConcat rel (strConcat nm "/"))
-                        (strConcat modPrefix (strConcat nm "."))
+                        (concat rel (concat nm "/"))
+                        (concat modPrefix (concat nm "."))
                         (+ depth 1)
                         name
                         path
@@ -11584,7 +11584,7 @@
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 (pub fn (lspPublicOffer out d src uri ix decls allDecls units mod name decl seen)
-  (let ((key (strConcat mod (strConcat "$" name))))
+  (let ((key (concat mod (concat "$" name))))
     (if (>= (strVecIdx seen key) 0)
       0
       (let ((u (lspUnitOf units (nodeModule decl))))
@@ -11632,7 +11632,7 @@
                           (jsonArrPush edits (lspFixTextEdit hsrc hix (+ so 1) "pub ")))))
                     (vecPush seen key)
                     (jsonArrPush out (lspFixActionJson
-                      (strConcat (strConcat (strConcat "Make `" name) "` public in `") (strConcat mod "`"))
+                      (concat (concat (concat "Make `" name) "` public in `") (concat mod "`"))
                       "quickfix"
                       d
                       src
@@ -12048,7 +12048,7 @@
     {
       (while (lspNavNamed occs name)
         {
-          (set name (strConcat "extracted" (fmtInt k)))
+          (set name (concat "extracted" (fmtInt k)))
           (set k (+ k 1))
         })
       name
@@ -12328,7 +12328,7 @@
 ; `Shapes$Shape` in the merged list and nobody writes it that way.
 (pub :: lspCtorNote (-> Int String String))
 (pub fn (lspCtorNote dat name)
-  (strConcat (strConcat (strConcat "constructor `" name) "` of `") (strConcat (bareOf (nodeAName dat)) "`")))
+  (concat (concat (concat "constructor `" name) "` of `") (concat (bareOf (nodeAName dat)) "`")))
 
 ; Hover on a constructor an import brought in: the `data` quoted out
 ; of the DECLARING file, the module named, and the note saying which
@@ -12899,7 +12899,7 @@
     (if (== e 0)
       jsonNull
       (let ((form (lspFormText src (lspFormStart src (jsonGetInt e "invStart")))))
-        (let ((value (strConcat (strConcat (strConcat "```axiom\n" (lspClampLines (jsonGetStr e "code") 40)) "\n```\n") (strConcat (strConcat "\ngenerated by `" form) "`\n"))))
+        (let ((value (concat (concat (concat "```axiom\n" (lspClampLines (jsonGetStr e "code") 40)) "\n```\n") (concat (concat "\ngenerated by `" form) "`\n"))))
           (jsonObjPut (jsonObjPut jsonObj "contents" (jsonObjPut (jsonObjPut jsonObj "kind" (jsonStr "markdown")) "value" (jsonStr value))) "range" range))))))
 
 ; `axiom/expandMacro`: what a macro generated, as source.
@@ -13194,7 +13194,7 @@
 (pub fn (lspPad n)
   (if (<= n 0)
     ""
-    (strConcat " " (lspPad (- n 1)))))
+    (concat " " (lspPad (- n 1)))))
 
 (pub :: lspHasNl (-> String Bool))
 (pub fn (lspHasNl s)
@@ -13223,7 +13223,7 @@
             (vecPush
               out
               (if broken
-                (strConcat "\n" (lspPad (+ ind 2)))
+                (concat "\n" (lspPad (+ ind 2)))
                 " "))
             (cast (Vec String) 0))
           (vecPush out (vecGetStr parts i))
@@ -13250,7 +13250,7 @@
   (let ((m (lspModOf s)))
     (if (== (strLen m) 0)
       (lspDeHygiene s)
-      (strConcat (strConcat m "::") (lspDeHygiene (bareOf s))))))
+      (concat (concat m "::") (lspDeHygiene (bareOf s))))))
 
 ; The expander's own names carry two bytes no identifier may: the `.`
 ; of a hygiene rename (`x.3`, MAC-HYG) and the `#` of a `syntax/binders`
@@ -13298,13 +13298,13 @@
 (pub :: lspRenderDeclName (-> String String))
 (pub fn (lspRenderDeclName s)
   (if (!= (expIsJoinMarker s) 0)
-    (strConcat (strConcat "(" s) ")")
+    (concat (concat "(" s) ")")
     (lspRenderName s)))
 
 (pub :: lspRenderInt (-> Int String))
 (pub fn (lspRenderInt v)
   (if (< v 0)
-    (strConcat "-" (fmtInt (- 0 v)))
+    (concat "-" (fmtInt (- 0 v)))
     (fmtInt v)))
 
 ; A string node holds its LEXEME - quotes and escapes as written - so
@@ -13338,7 +13338,7 @@
   (if (== b 92)
     "\\\\"
     (if (== b q)
-      (strConcat
+      (concat
         "\\"
         (strSlice
           "\"'"
@@ -13358,7 +13358,7 @@
 
 (pub :: lspRenderChar (-> Int String))
 (pub fn (lspRenderChar cp)
-  (strConcat (strConcat "'" (lspEscByte cp 39 (utf8FromChar cp))) "'"))
+  (concat (concat "'" (lspEscByte cp 39 (utf8FromChar cp))) "'"))
 
 ; The bits reinterpreted, written to nine places and trimmed to the
 ; last non-zero one. `__floatToInt` truncates, so the fraction is
@@ -13369,7 +13369,7 @@
   (let ((x 
     (cast Float bits)))
     (if (< x 0.0)
-      (strConcat "-" (lspRenderFloatAbs (- 0.0 x)))
+      (concat "-" (lspRenderFloatAbs (- 0.0 x)))
       (lspRenderFloatAbs x))))
 
 (pub :: lspRenderFloatAbs (-> Float String))
@@ -13383,13 +13383,13 @@
         (if (>= scaled scale)
           1
           0)))
-        (strConcat (strConcat (fmtInt (+ whole carry)) ".") (lspTrimZeros (lspZeroPad (fmtInt (- scaled (* carry scale))) 9)))))))
+        (concat (concat (fmtInt (+ whole carry)) ".") (lspTrimZeros (lspZeroPad (fmtInt (- scaled (* carry scale))) 9)))))))
 
 (pub :: lspZeroPad (-> String Int String))
 (pub fn (lspZeroPad s width)
   (if (>= (strLen s) width)
     s
-    (lspZeroPad (strConcat "0" s) width)))
+    (lspZeroPad (concat "0" s) width)))
 
 (pub :: lspTrimZeros (-> String String))
 (pub fn (lspTrimZeros s)
@@ -13430,15 +13430,15 @@
         (if (== tag TAG_T_CON)
           (if (== (vecLen (nodeBVec t)) 0)
             (nodeAName t)
-            (strConcat (strConcat (strConcat "(" (nodeAName t)) (lspRenderTypes (nodeBVec t) 0 " " ren)) ")"))
+            (concat (concat (concat "(" (nodeAName t)) (lspRenderTypes (nodeBVec t) 0 " " ren)) ")"))
           (if (== tag TAG_T_ARR)
-            (strConcat (strConcat "(->" (lspRenderArrow t ren)) ")")
+            (concat (concat "(->" (lspRenderArrow t ren)) ")")
             (if (== tag TAG_T_TUP)
-              (strConcat (strConcat "(" (lspRenderTypes (nodeAVec t) 0 "" ren)) ")")
+              (concat (concat "(" (lspRenderTypes (nodeAVec t) 0 "" ren)) ")")
               (if (== tag TAG_T_LIST)
-                (strConcat (strConcat "[" (lspRenderTypeR (nodeA t) ren)) "]")
+                (concat (concat "[" (lspRenderTypeR (nodeA t) ren)) "]")
                 (if (== tag TAG_T_PTR)
-                  (strConcat (strConcat "(* " (lspRenderTypeR (nodeA t) ren)) ")")
+                  (concat (concat "(* " (lspRenderTypeR (nodeA t) ren)) ")")
                   "{unknown}")))))))))
 
 ; The parameters and result of an arrow chain, each preceded by a
@@ -13447,15 +13447,15 @@
 (pub fn (lspRenderTypes tys i lead ren)
   (if (>= i (vecLen tys))
     ""
-    (strConcat (strConcat lead (lspRenderTypeR (vecGet tys i) ren)) (lspRenderTypes tys (+ i 1) " " ren))))
+    (concat (concat lead (lspRenderTypeR (vecGet tys i) ren)) (lspRenderTypes tys (+ i 1) " " ren))))
 
 (pub :: lspRenderArrow (-> Int (Vec a) String))
 (pub fn (lspRenderArrow t ren)
   (if (== t 0)
     " {unknown}"
     (if (== (nodeTag t) TAG_T_ARR)
-      (strConcat (strConcat " " (lspRenderTypeR (nodeA t) ren)) (lspRenderArrow (nodeB t) ren))
-      (strConcat " " (lspRenderTypeR t ren)))))
+      (concat (concat " " (lspRenderTypeR (nodeA t) ren)) (lspRenderArrow (nodeB t) ren))
+      (concat " " (lspRenderTypeR t ren)))))
 
 (pub :: lspRenamed (-> (Vec a) String String))
 ;@axiom:effect(unsafe)
@@ -13624,11 +13624,11 @@
     (if (|| (== tag TAG_E_WHILE) (== tag TAG_E_REGION))
       (if (== tag TAG_E_REGION)
         (lspRenderForm (lspParts3 "region" (lspRenderName (nodeAName e)) (lspRenderExpr (nodeB e) (+ ind 2))) ind)
-        (strConcat (strConcat (strConcat "(while " (lspRenderExpr (nodeA e) (+ ind 2))) (lspRenderLines (nodeBVec e) (+ ind 2))) ")"))
+        (concat (concat (concat "(while " (lspRenderExpr (nodeA e) (+ ind 2))) (lspRenderLines (nodeBVec e) (+ ind 2))) ")"))
       (if (== tag TAG_E_FIELD)
-        (strConcat (strConcat (lspRenderExpr (nodeA e) ind) ".") (nodeBName e))
+        (concat (concat (lspRenderExpr (nodeA e) ind) ".") (nodeBName e))
         (if (== tag TAG_E_SETF)
-          (lspRenderForm (lspParts3 "set" (strConcat (strConcat (lspRenderExpr (nodeA e) (+ ind 2)) ".") (nodeBName e)) (lspRenderExpr (nodeC e) (+ ind 2))) ind)
+          (lspRenderForm (lspParts3 "set" (concat (concat (lspRenderExpr (nodeA e) (+ ind 2)) ".") (nodeBName e)) (lspRenderExpr (nodeC e) (+ ind 2))) ind)
           (if (== tag TAG_E_STRUCTCON)
             (lspRenderForm (lspPartsExprs (lspParts2 "struct" (lspRenderName (nodeAName e))) (nodeBVec e) 0 (+ ind 2)) ind)
             (if (== tag TAG_E_HANDLE)
@@ -13636,14 +13636,14 @@
                 (if (== tag TAG_E_QUOTE)
                   (lspRenderForm (lspParts2 "quote" (lspRenderExpr (nodeA e) (+ ind 2))) ind)
                   (if (== tag TAG_P_CON0)
-                    (strConcat (strConcat "(" (lspRenderName (nodeAName e))) ")")
+                    (concat (concat "(" (lspRenderName (nodeAName e))) ")")
                     (if (== tag TAG_P_CONNAMED)
                       (lspRenderConNamed e ind)
                       (if (== tag TAG_M_FOR)
                         (lspRenderSynFor e ind)
                         (if (== tag TAG_M_ARM)
                           (lspRenderArm e ind)
-                          (strConcat (strConcat "(syntax/unrenderable " (fmtInt tag)) ")")))))))))))))
+                          (concat (concat "(syntax/unrenderable " (fmtInt tag)) ")")))))))))))))
 
 (pub :: lspParts2 (-> String String (Vec String)))
 (pub fn (lspParts2 a b)
@@ -13729,7 +13729,7 @@
       (if (== (vecLen names) 0)
         (set body (nodeB e))
         0)
-      (strConcat (strConcat (strConcat (strConcat "(lambda (" (lspJoinNames names 0)) ")\n") (lspPad (+ ind 2))) (strConcat (lspRenderExpr body (+ ind 2)) ")"))
+      (concat (concat (concat (concat "(lambda (" (lspJoinNames names 0)) ")\n") (lspPad (+ ind 2))) (concat (lspRenderExpr body (+ ind 2)) ")"))
     }))
 
 (pub :: lspJoinNames (-> (Vec a) Int String))
@@ -13737,11 +13737,11 @@
 (pub fn (lspJoinNames names i)
   (if (>= i (vecLen names))
     ""
-    (strConcat
+    (concat
       (if (== i 0)
         ""
         " ")
-      (strConcat (lspRenderName (vecGetStr names i)) (lspJoinNames names (+ i 1))))))
+      (concat (lspRenderName (vecGetStr names i)) (lspJoinNames names (+ i 1))))))
 
 ; `(let ((x 1) (mut y 2))` and the body on its own line: the nested
 ; single-binding lets re-merged while the body is directly another.
@@ -13756,20 +13756,20 @@
         {
           (vecPush
             binds
-            (strConcat
-              (strConcat
-                (strConcat
-                  (strConcat
+            (concat
+              (concat
+                (concat
+                  (concat
                     "("
                     (if (== (nodeTag body) TAG_E_LETM)
                       "mut "
                       ""))
                   (lspRenderName (nodeAName body)))
                 " ")
-              (strConcat (lspRenderExpr (nodeB body) (+ ind 6)) ")")))
+              (concat (lspRenderExpr (nodeB body) (+ ind 6)) ")")))
           (set body (nodeC body))
         })
-      (strConcat (strConcat (strConcat (strConcat "(let (" (lspJoinStrs binds 0 " ")) ")\n") (lspPad (+ ind 2))) (strConcat (lspRenderExpr body (+ ind 2)) ")"))
+      (concat (concat (concat (concat "(let (" (lspJoinStrs binds 0 " ")) ")\n") (lspPad (+ ind 2))) (concat (lspRenderExpr body (+ ind 2)) ")"))
     }))
 
 (pub :: lspJoinStrs (-> (Vec a) Int String String))
@@ -13777,16 +13777,16 @@
 (pub fn (lspJoinStrs xs i sep)
   (if (>= i (vecLen xs))
     ""
-    (strConcat
+    (concat
       (if (== i 0)
         ""
         sep)
-      (strConcat (vecGetStr xs i) (lspJoinStrs xs (+ i 1) sep)))))
+      (concat (vecGetStr xs i) (lspJoinStrs xs (+ i 1) sep)))))
 
 ; `{ }`: one expression per line.
 (pub :: lspRenderBlock (-> (Vec Int) Int String))
 (pub fn (lspRenderBlock es ind)
-  (strConcat (strConcat "{" (lspRenderLines es (+ ind 2))) (strConcat "\n" (strConcat (lspPad ind) "}"))))
+  (concat (concat "{" (lspRenderLines es (+ ind 2))) (concat "\n" (concat (lspPad ind) "}"))))
 
 ; Each of `es` on a line of its own at `ind`, every line led by its
 ; newline so the caller's opener stays on the caller's line.
@@ -13800,7 +13800,7 @@
     {
       (while (< i n)
         {
-          (vecPush parts (strConcat (strConcat "\n" (lspPad ind)) (lspRenderExpr (vecGet es i) ind)))
+          (vecPush parts (concat (concat "\n" (lspPad ind)) (lspRenderExpr (vecGet es i) ind)))
           (set i (+ i 1))
         })
       (catStrs parts)
@@ -13808,7 +13808,7 @@
 
 (pub :: lspRenderMatch (-> Int Int String))
 (pub fn (lspRenderMatch e ind)
-  (strConcat (strConcat (strConcat "(match " (lspRenderExpr (nodeA e) (+ ind 2))) (lspRenderLines (nodeBVec e) (+ ind 2))) ")"))
+  (concat (concat (concat "(match " (lspRenderExpr (nodeA e) (+ ind 2))) (lspRenderLines (nodeBVec e) (+ ind 2))) ")"))
 
 ; One arm, `(pattern body)` - a `match` arm - with the body on its
 ; own line when it spans lines.
@@ -13818,13 +13818,13 @@
     (pat (lspRenderExpr (nodeA arm) (+ ind 2)))
     (body (lspRenderExpr (nodeB arm) (+ ind 2)))
   )
-    (strConcat
-      (strConcat
-        (strConcat "(" pat)
+    (concat
+      (concat
+        (concat "(" pat)
         (if (lspHasNl body)
-          (strConcat "\n" (lspPad (+ ind 2)))
+          (concat "\n" (lspPad (+ ind 2)))
           " "))
-      (strConcat body ")"))))
+      (concat body ")"))))
 
 ; `(handle body (Effect...) handler)`, the effect list left out when
 ; it is empty - the parser reads it as optional.
@@ -13834,7 +13834,7 @@
   (let ((parts (lspParts2 "handle" (lspRenderExpr (nodeA e) (+ ind 2)))))
     {
       (if (> (vecLen (nodeBVec e)) 0)
-        (vecPush parts (strConcat (strConcat "(" (lspJoinExprs (nodeBVec e) 0 ind)) ")"))
+        (vecPush parts (concat (concat "(" (lspJoinExprs (nodeBVec e) 0 ind)) ")"))
         (cast (Vec String) 0))
       (vecPush parts (lspRenderExpr (nodeC e) (+ ind 2)))
       (lspRenderForm parts ind)
@@ -13844,11 +13844,11 @@
 (pub fn (lspJoinExprs es i ind)
   (if (>= i (vecLen es))
     ""
-    (strConcat
+    (concat
       (if (== i 0)
         ""
         " ")
-      (strConcat (lspRenderExpr (vecGet es i) ind) (lspJoinExprs es (+ i 1) ind)))))
+      (concat (lspRenderExpr (vecGet es i) ind) (lspJoinExprs es (+ i 1) ind)))))
 
 ; `(Rect { w = p, h = q })`: field names in `b`, sub-patterns aligned
 ; in `c`.
@@ -13861,7 +13861,7 @@
     (mut i 0)
   )
     {
-      (vecPush parts (strConcat (strConcat "(" (lspRenderName (nodeAName e))) " {"))
+      (vecPush parts (concat (concat "(" (lspRenderName (nodeAName e))) " {"))
       (while (< i (vecLen names))
         {
           (vecPush
@@ -13883,9 +13883,9 @@
 ; declarations by the node's tag.
 (pub :: lspRenderSynFor (-> Int Int String))
 (pub fn (lspRenderSynFor e ind)
-  (strConcat
-    (strConcat "(syntax/for " (lspRenderExpr (nodeB e) (+ ind 2)))
-    (strConcat
+  (concat
+    (concat "(syntax/for " (lspRenderExpr (nodeB e) (+ ind 2)))
+    (concat
       (if (== (nodeTag e) TAG_M_FOR)
         (lspRenderLines (nodeCVec e) (+ ind 2))
         (lspRenderDeclLines (nodeCVec e) (+ ind 2)))
@@ -13901,7 +13901,7 @@
     {
       (while (< i n)
         {
-          (vecPush parts (strConcat (strConcat "\n" (lspPad ind)) (lspRenderDecl (vecGet ds i) ind)))
+          (vecPush parts (concat (concat "\n" (lspPad ind)) (lspRenderDecl (vecGet ds i) ind)))
           (set i (+ i 1))
         })
       (catStrs parts)
@@ -13915,7 +13915,7 @@
 (pub fn (lspRenderDecl d ind)
   (if (== d 0)
     "; unrenderable declaration (no node)"
-    (strConcat (lspRenderAxtags (nodeAxtagsVec d) ind) (lspRenderDeclBody d ind))))
+    (concat (lspRenderAxtags (nodeAxtagsVec d) ind) (lspRenderDeclBody d ind))))
 
 (pub :: lspRenderAxtags (-> (Vec Int) Int String))
 ;@axiom:effect(unsafe)
@@ -13932,7 +13932,7 @@
       {
         (while (< i n)
           {
-            (vecPush parts (strConcat (strConcat ";@axiom:" (memGetWordStr (vecGet tags i) 1)) (strConcat "\n" (lspPad ind))))
+            (vecPush parts (concat (concat ";@axiom:" (memGetWordStr (vecGet tags i) 1)) (concat "\n" (lspPad ind))))
             (set i (+ i 1))
           })
         (catStrs parts)
@@ -13958,7 +13958,7 @@
     {
       (while (< i (vecLen ms))
         {
-          (vecPush parts (strConcat " " (nodeAName (vecGet ms i))))
+          (vecPush parts (concat " " (nodeAName (vecGet ms i))))
           (set i (+ i 1))
         })
       (catStrs parts)
@@ -13968,38 +13968,38 @@
 (pub fn (lspRenderDeclBody d ind)
   (let ((tag (nodeTag d)))
     (if (== tag TAG_D_FN)
-      (strConcat (strConcat (strConcat (strConcat (lspPubOf d) "fn (") (lspRenderDeclName (nodeAName d))) (strConcat (lspParamsOf (nodeBVec d)) ")\n")) (strConcat (lspPad (+ ind 2)) (strConcat (lspRenderExpr (nodeC d) (+ ind 2)) ")")))
+      (concat (concat (concat (concat (lspPubOf d) "fn (") (lspRenderDeclName (nodeAName d))) (concat (lspParamsOf (nodeBVec d)) ")\n")) (concat (lspPad (+ ind 2)) (concat (lspRenderExpr (nodeC d) (+ ind 2)) ")")))
       (if (== tag TAG_D_SIG)
-        (strConcat (strConcat (strConcat (lspPubOf d) ":: ") (lspRenderDeclName (nodeAName d))) (strConcat (strConcat " " (lspRenderType (nodeTy d))) ")"))
+        (concat (concat (concat (lspPubOf d) ":: ") (lspRenderDeclName (nodeAName d))) (concat (concat " " (lspRenderType (nodeTy d))) ")"))
         (if (== tag TAG_D_DATA)
           (lspRenderData d ind)
           (if (== tag TAG_D_STRUCT)
-            (strConcat (strConcat (strConcat (lspPubOf d) "struct ") (strConcat (lspRenderDeclName (nodeAName d)) (lspStructMarkers d))) (strConcat (lspRenderFields (nodeBVec d) (+ ind 2)) ")"))
+            (concat (concat (concat (lspPubOf d) "struct ") (concat (lspRenderDeclName (nodeAName d)) (lspStructMarkers d))) (concat (lspRenderFields (nodeBVec d) (+ ind 2)) ")"))
             (if (== tag TAG_D_MACRO)
               (lspRenderMacro d ind)
               (if (== tag TAG_D_IMPORT)
-                (strConcat
-                  (strConcat "(import " (nodeAName d))
-                  (strConcat
+                (concat
+                  (concat "(import " (nodeAName d))
+                  (concat
                     (if (== (vecLen (nodeBVec d)) 0)
                       ""
-                      (strConcat (strConcat " (" (lspJoinNames (nodeBVec d) 0)) ")"))
+                      (concat (concat " (" (lspJoinNames (nodeBVec d) 0)) ")"))
                     ")"))
                 (if (== tag TAG_D_ALIAS)
-                  (strConcat (strConcat (strConcat (lspPubOf d) "type ") (lspRenderDeclName (nodeAName d))) (strConcat (strConcat (lspTyvarsOf (nodeCVec d)) " = ") (strConcat (lspRenderType (nodeB d)) ")")))
+                  (concat (concat (concat (lspPubOf d) "type ") (lspRenderDeclName (nodeAName d))) (concat (concat (lspTyvarsOf (nodeCVec d)) " = ") (concat (lspRenderType (nodeB d)) ")")))
                   (lspRenderDeclMore d tag ind))))))))))
 
 (pub :: lspRenderDeclMore (-> Int Int Int String))
 (pub fn (lspRenderDeclMore d tag ind)
   (if (== tag TAG_D_EXTERN)
-    (strConcat (strConcat (strConcat (lspPubOf d) "extern \"") (strConcat (nodeAName d) "\"")) (strConcat (lspRenderExternItems (nodeCVec d) (+ ind 2)) ")"))
+    (concat (concat (concat (lspPubOf d) "extern \"") (concat (nodeAName d) "\"")) (concat (lspRenderExternItems (nodeCVec d) (+ ind 2)) ")"))
     (if (== tag TAG_D_MACROCALL)
       (lspRenderForm (lspPartsExprs (lspParts1 (lspRenderName (nodeAName d))) (nodeBVec d) 0 (+ ind 2)) ind)
       (if (== tag TAG_D_SYNFOR)
         (lspRenderSynFor d ind)
         (if (== tag TAG_D_EFFECT)
-          (strConcat (strConcat "; (effect " (nodeAName d)) " ...) - the parser keeps its operation names and not their signatures, so it is not rendered")
-          (strConcat (strConcat "; unrenderable declaration (tag " (fmtInt tag)) ")"))))))
+          (concat (concat "; (effect " (nodeAName d)) " ...) - the parser keeps its operation names and not their signatures, so it is not rendered")
+          (concat (concat "; unrenderable declaration (tag " (fmtInt tag)) ")"))))))
 
 (pub :: lspParts1 (-> String (Vec String)))
 (pub fn (lspParts1 a)
@@ -14014,7 +14014,7 @@
 (pub fn (lspParamsOf names)
   (if (== (vecLen names) 0)
     ""
-    (strConcat " " (lspJoinNames names 0))))
+    (concat " " (lspJoinNames names 0))))
 
 ; ` (a b)` for a `data`'s type parameters; ` a b` bare for a `type`
 ; or `trait`, which is what their parsers read; "" for none.
@@ -14026,7 +14026,7 @@
     ""
     (if (== (vecLen tvs) 0)
       ""
-      (strConcat " " (lspJoinStrs tvs 0 " ")))))
+      (concat " " (lspJoinStrs tvs 0 " ")))))
 
 ; `(data Name (a) ctor...)`: each constructor on its own line, a struct
 ; variant with its named fields, a positional one with its field
@@ -14039,18 +14039,18 @@
     (mut i 0)
   )
     {
-      (vecPush parts (strConcat (strConcat (lspPubOf d) "data ") (lspRenderDeclName (nodeAName d))))
+      (vecPush parts (concat (concat (lspPubOf d) "data ") (lspRenderDeclName (nodeAName d))))
       (if (== (nodeTy d) 0)
         0
         (if (== (vecLen (nodeTyVec d)) 0)
           0
           {
-            (vecPush parts (strConcat (strConcat " (" (lspJoinStrs (nodeTyVec d) 0 " ")) ")"))
+            (vecPush parts (concat (concat " (" (lspJoinStrs (nodeTyVec d) 0 " ")) ")"))
             0
           }))
       (while (< i (vecLen ctors))
         {
-          (vecPush parts (strConcat (strConcat "\n" (lspPad (+ ind 2))) (lspRenderCtor (vecGet ctors i))))
+          (vecPush parts (concat (concat "\n" (lspPad (+ ind 2))) (lspRenderCtor (vecGet ctors i))))
           (set i (+ i 1))
         })
       (vecPush parts ")")
@@ -14071,10 +14071,10 @@
         (cast Int names)
         0)
       (> (vecLen names) 0))
-      (strConcat (strConcat (strConcat "(" (lspRenderDeclName (nodeAName c))) " {") (strConcat (lspRenderNamedFields names tys 0) " })"))
-      (strConcat
-        (strConcat "(" (lspRenderDeclName (nodeAName c)))
-        (strConcat
+      (concat (concat (concat "(" (lspRenderDeclName (nodeAName c))) " {") (concat (lspRenderNamedFields names tys 0) " })"))
+      (concat
+        (concat "(" (lspRenderDeclName (nodeAName c)))
+        (concat
           (lspRenderTypes
             tys
             0
@@ -14087,13 +14087,13 @@
 (pub fn (lspRenderNamedFields names tys i)
   (if (>= i (vecLen names))
     ""
-    (strConcat
-      (strConcat
+    (concat
+      (concat
         (if (== i 0)
           " "
           ", ")
-        (strConcat (vecGetStr names i) " : "))
-      (strConcat
+        (concat (vecGetStr names i) " : "))
+      (concat
         (if (< i (vecLen tys))
           (lspRenderType (vecGet tys i))
           "_")
@@ -14138,10 +14138,10 @@
           {
             (vecPush
               parts
-              (strConcat
-                (strConcat (strConcat "\n" (lspPad ind)) (strConcat "(" (nodeAName f)))
+              (concat
+                (concat (concat "\n" (lspPad ind)) (concat "(" (nodeAName f)))
                 (if (lspTyKnown (nodeTy f))
-                  (strConcat (strConcat " : " (lspRenderType (nodeTy f))) ")")
+                  (concat (concat " : " (lspRenderType (nodeTy f))) ")")
                   ")")))
             (set i (+ i 1))
           }))
@@ -14160,7 +14160,7 @@
       (while (< i n)
         (let ((it (vecGet items i)))
           {
-            (vecPush parts (strConcat (strConcat (strConcat "\n" (lspPad ind)) (strConcat "(" (nodeAName it))) (strConcat (strConcat " :: " (lspRenderType (nodeB it))) (strConcat (strConcat " (symbol \"" (nodeCName it)) "\"))"))))
+            (vecPush parts (concat (concat (concat "\n" (lspPad ind)) (concat "(" (nodeAName it))) (concat (concat " :: " (lspRenderType (nodeB it))) (concat (concat " (symbol \"" (nodeCName it)) "\"))"))))
             (set i (+ i 1))
           }))
       (catStrs parts)
@@ -14175,14 +14175,14 @@
 ;@axiom:effect(unsafe)
 (pub fn (lspRenderMacro d ind)
   (if (!= (nodeC d) 0)
-    (strConcat (strConcat (strConcat (strConcat (lspPubOf d) "macro (") (lspRenderName (nodeAName d))) (strConcat (lspParamsOf (nodeBVec d)) ")\n")) (strConcat (lspPad (+ ind 2)) (strConcat (lspRenderExpr (nodeC d) (+ ind 2)) ")")))
+    (concat (concat (concat (concat (lspPubOf d) "macro (") (lspRenderName (nodeAName d))) (concat (lspParamsOf (nodeBVec d)) ")\n")) (concat (lspPad (+ ind 2)) (concat (lspRenderExpr (nodeC d) (+ ind 2)) ")")))
     (let (
       (rules (memGetWordVec d 9))
       (parts vecNew)
       (mut i 0)
     )
       {
-        (vecPush parts (strConcat (strConcat (lspPubOf d) "macro ") (lspRenderName (nodeAName d))))
+        (vecPush parts (concat (concat (lspPubOf d) "macro ") (lspRenderName (nodeAName d))))
         (while (if (==
           (cast Int rules)
           0)
@@ -14190,8 +14190,8 @@
           (< i (vecLen rules)))
           (let ((rule (vecGet rules i)))
             {
-              (vecPush parts (strConcat (strConcat (strConcat "\n" (lspPad (+ ind 2))) (strConcat "((" (lspRenderName (nodeAName d)))) (strConcat (lspParamsOf (vecGet rule 0)) ")")))
-              (vecPush parts (strConcat (lspRenderDeclLines (vecGet rule 1) (+ ind 4)) ")"))
+              (vecPush parts (concat (concat (concat "\n" (lspPad (+ ind 2))) (concat "((" (lspRenderName (nodeAName d)))) (concat (lspParamsOf (vecGet rule 0)) ")")))
+              (vecPush parts (concat (lspRenderDeclLines (vecGet rule 1) (+ ind 4)) ")"))
               (set i (+ i 1))
             }))
         (vecPush parts ")")
@@ -14306,7 +14306,7 @@
                                             ; a notification must not be.
                                             (if (== id 0)
                                               0
-                                              (lspError id (- 0 32601) (strConcat "method not found: " method))))))))))))))))))
+                                              (lspError id (- 0 32601) (concat "method not found: " method))))))))))))))))))
             ))
           ; The boundary. Everything this message touched goes back,
           ; except the store and the reader's unconsumed bytes, which

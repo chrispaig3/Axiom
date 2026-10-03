@@ -56,7 +56,7 @@
   (if (intIsMostNegative n)
     "-9223372036854775808"
     (if (< n 0)
-      (strConcat "-" (fmtNat (- 0 n)))
+      (concat "-" (fmtNat (- 0 n)))
       (fmtNat n))))
 
 ; `n` (assumed non-negative) in base 10.
@@ -302,7 +302,7 @@
 (pub :: fmtFloatPrec (-> Float Int String))
 (pub fn (fmtFloatPrec x places)
   (if (< x 0.0)
-    (strConcat "-" (fmtFloatAbs (- 0.0 x) places))
+    (concat "-" (fmtFloatAbs (- 0.0 x) places))
     (fmtFloatAbs x places)))
 
 ; The non-negative case.
@@ -326,4 +326,4 @@
   )
     (if (<= places 0)
       (fmtInt whole2)
-      (strConcat (strConcat (fmtInt whole2) ".") (fmtPadZeros frac2 places)))))
+      (concat (concat (fmtInt whole2) ".") (fmtPadZeros frac2 places)))))

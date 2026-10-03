@@ -23,7 +23,7 @@
 (:: is (-> Tally (Result a Error) Int String Int))
 ;@axiom:effect(io)
 (fn (is t r code label)
-  (check t (== (codeOf r) code) (strConcat label (strConcat ": got " (errText r)))))
+  (check t (== (codeOf r) code) (concat label (concat ": got " (errText r)))))
 
 ; The value of row `n` as `p` reads it, in its own read.
 (:: rowAt (-> Pager Int Int String))
@@ -40,7 +40,7 @@
       (let ((_ (pagerEndRead p)))
         "<none>")
     )
-    ((Err e) (strConcat "<" (strConcat (errorText e) ">")))))
+    ((Err e) (concat "<" (concat (errorText e) ">")))))
 
 ; Rewrite rows 0..199 with `v`.
 (:: rewrite (-> Pager Int String (Result Int Error)))
@@ -119,7 +119,7 @@
                     (is t (pagerClose c) 0 "c closes")
                   }
                 )
-                ((Err e) (check t false (strConcat "a connection opens while another writes: " (errorText e)))))
+                ((Err e) (check t false (concat "a connection opens while another writes: " (errorText e)))))
               (is t (pagerRollback a) 0 "a rolls back")
               (check t (== (pagerLockLevel a) 0) "a rollback releases the lock")
               (check t (== (fileHash "shared.db") before) "the rollback leaves the file as it was")

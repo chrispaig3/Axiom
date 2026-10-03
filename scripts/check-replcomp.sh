@@ -153,7 +153,7 @@ subs = {
  # the inline step inserts a whole candidate instead of the shared prefix
  "lcp":     ("        (strSlice first 0 n)", "        first"),
  # a command prefix loses the colon that makes it one
- "colon":   ('            (memSetWord\n              r              1              (if atCmd\n                (strConcat ":" word)\n                word\n              )\n            )',
+ "colon":   ('            (memSetWord\n              r              1              (if atCmd\n                (concat ":" word)\n                word\n              )\n            )',
              '            (memSetWord r 1 word)'),
  # the height the editor erases stops counting the detail line
  # a menu wider than its terminal is printed anyway

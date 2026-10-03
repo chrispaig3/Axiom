@@ -583,7 +583,7 @@
           {
             (if (== (nodeTag d) TAG_D_IMPORT)
               {
-                (set key (strConcat (strConcat key (memGetWordStr d 1)) "\n"))
+                (set key (concat (concat key (memGetWordStr d 1)) "\n"))
                 0
               }
               0)
@@ -746,7 +746,7 @@
               r
               1
               (if atCmd
-                (strConcat ":" word)
+                (concat ":" word)
                 word))
             (memSetWord
               r
@@ -1127,7 +1127,7 @@
             (if (< ix shown)
               (let ((cand (vecGet cands (+ base ix))))
                 {
-                  (set line (strConcat line (paint (replComplSgr (rcOrigin cand)) (rcLabel cand))))
+                  (set line (concat line (paint (replComplSgr (rcOrigin cand)) (rcLabel cand))))
                   ; THE ALIGNMENT PADDING AND THE GAP GO BETWEEN
                   ; CELLS, never after the last one. A trailing pad is
                   ; two columns of nothing that can push a row past
@@ -1138,8 +1138,8 @@
                   ; that matters.
                   (if (< (+ (* (+ c 1) grid) r) shown)
                     {
-                      (set line (strConcat line (replComplPad (rcLabel cand) (replComplWidest cands))))
-                      (set line (strConcat line "  "))
+                      (set line (concat line (replComplPad (rcLabel cand) (replComplWidest cands))))
+                      (set line (concat line "  "))
                       0
                     }
                     0)
@@ -1148,7 +1148,7 @@
               0)
             (set c (+ c 1))
           }))
-      (strConcat line "\n")
+      (concat line "\n")
     }))
 
 ; The whole block printed below the input line.
@@ -1179,7 +1179,7 @@
           {
             (while (< r grid)
               {
-                (set out (strConcat out (replComplRow
+                (set out (concat out (replComplRow
                   cands
                   sel
                   base
@@ -1191,13 +1191,13 @@
               })
             (if (> (vecLen cands) shown)
               {
-                (set out (strConcat (strConcat out (paint SGR_GUT (replComplMoreText base shown (vecLen cands)))) "\n"))
+                (set out (concat (concat out (paint SGR_GUT (replComplMoreText base shown (vecLen cands)))) "\n"))
                 0
               }
               0)
             (if (>= sel 0)
               {
-                (set out (strConcat out (replComplDetailLine (vecGet cands sel))))
+                (set out (concat out (replComplDetailLine (vecGet cands sel))))
                 0
               }
               0)
@@ -1216,13 +1216,13 @@
 ; file's header exists to prevent.
 (pub :: replComplMoreText (-> Int Int Int String))
 (pub fn (replComplMoreText base shown total)
-  (strConcat (strConcat (strConcat (strConcat (strConcat "  ... " (fmtInt (+ base 1))) "-") (fmtInt (+ base shown))) " of ") (fmtInt total)))
+  (concat (concat (concat (concat (concat "  ... " (fmtInt (+ base 1))) "-") (fmtInt (+ base shown))) " of ") (fmtInt total)))
 
 ; `  vecPush : (-> (Vec a) a Int)`, or just the name when there is
 ; nothing true to say about it.
 (pub :: replComplDetailLine (-> Int String))
 (pub fn (replComplDetailLine cand)
-  (strConcat (replComplDetailText cand) "\n"))
+  (concat (replComplDetailText cand) "\n"))
 
 ; The same line WITHOUT its newline, because `replComplMaxLine` has to
 ; measure it and `visLen` counts a newline as a column. Stated once and
@@ -1231,8 +1231,8 @@
 (pub :: replComplDetailText (-> Int String))
 (pub fn (replComplDetailText cand)
   (if (== (strLen (rcDetail cand)) 0)
-    (strConcat "  " (paint (replComplSgr (rcOrigin cand)) (rcLabel cand)))
-    (strConcat (strConcat (strConcat "  " (paint (replComplSgr (rcOrigin cand)) (rcLabel cand))) " : ") (rcDetail cand))))
+    (concat "  " (paint (replComplSgr (rcOrigin cand)) (rcLabel cand)))
+    (concat (concat (concat "  " (paint (replComplSgr (rcOrigin cand)) (rcLabel cand))) " : ") (rcDetail cand))))
 
 ; ------------------------------------------------------------------
 ; THE STATE MACHINE.
@@ -1334,7 +1334,7 @@
 ; `buf` with [start, cur) replaced by `s`.
 (pub :: replComplSplice (-> String Int Int String String))
 (pub fn (replComplSplice buf start cur s)
-  (strConcat (strConcat (strSlice buf 0 start) s) (strSlice buf cur (- (strLen buf) cur))))
+  (concat (concat (strSlice buf 0 start) s) (strSlice buf cur (- (strLen buf) cur))))
 
 ; Tab, and Shift-Tab as `dir` = -1.
 ;
@@ -1502,7 +1502,7 @@
 ; carry an escape.
 (pub :: replCsi (-> String String))
 (pub fn (replCsi rest)
-  (strConcat (strFromByte 27) (strConcat "[" rest)))
+  (concat (strFromByte 27) (concat "[" rest)))
 
 ; The bytes that erase a menu of `rows` rows and put the cursor back
 ; where it started.
@@ -1522,10 +1522,10 @@
       {
         (while (< i rows)
           {
-            (set out (strConcat out (strConcat (replCsi "B") (replCsi "2K"))))
+            (set out (concat out (concat (replCsi "B") (replCsi "2K"))))
             (set i (+ i 1))
           })
-        (strConcat out (replCsi (strConcat (fmtInt rows) "A")))
+        (concat out (replCsi (concat (fmtInt rows) "A")))
       })))
 
 ; Any key that is not Tab or Shift-Tab. Answers the erase sequence

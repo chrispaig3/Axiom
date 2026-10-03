@@ -41,7 +41,7 @@
 ;  12. THE ELEMENT READ IS QUALIFIED. The desugaring emits `Vec$vecGet`
 ;      and `Vec$vecLen`, the mangled spelling of `Vec::vecGet` and
 ;      `Vec::vecLen`, so an entry file's own `vecLen` cannot capture it
-;      (MAC-CAP-10.5's defect: a bare `strConcat` in a generated body
+;      (MAC-CAP-10.5's defect: a bare `concat` in a generated body
 ;      WAS captured, silently and wrongly). This file declares a
 ;      `vecLen` that answers 99; the loop must still run twice.
 ;   13. An element-index pair `(for (e k) in g ...)`: `k` counts 0, 1, 2

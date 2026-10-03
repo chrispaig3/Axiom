@@ -78,7 +78,7 @@
             (msg (katBytes f 1))
             (tag (katBytes f 2))
           )
-            (tallyBytes diff tag (mac key msg) (strConcat "key " (hexEncode key))))))
+            (tallyBytes diff tag (mac key msg) (concat "key " (hexEncode key))))))
       (tallyCheck rfc (stateWiped "0123456789abcdef0123456789abcdef" "a message") "the state is wiped")
       (+ (tallyReport rfc) (tallyReport diff))
     }))

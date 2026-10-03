@@ -19,7 +19,7 @@
 (fn (orDie r what)
   (match r
     ((Ok v) v)
-    ((Err e) (cast a (die (strConcat "323: " (strConcat what (strConcat ": " (errorText e)))) 3)))))
+    ((Err e) (cast a (die (concat "323: " (concat what (concat ": " (errorText e)))) 3)))))
 
 (:: failsWith (-> (Result a Error) Int Bool))
 (fn (failsWith r code)
@@ -36,7 +36,7 @@
     ((Err e)
       (if (== (errCode e) cryptoInvalidEncoding)
         (strFromBool false)
-        (strConcat "unexpected error: " (errorText e))))))
+        (concat "unexpected error: " (errorText e))))))
 
 ; One byte: 01 for true, 00 for false.
 (:: strFromBool (-> Bool String))
@@ -64,7 +64,7 @@
       (for line in (katLines "ed25519-strict.txt")
         (let ((f (katFields line)))
           (let ((op (katText f 0)) (want (katBytes f 4)))
-            (let ((label (strConcat op (strConcat " " (katText f 1)))))
+            (let ((label (concat op (concat " " (katText f 1)))))
               (if (strEq op "pk")
                 (tallyBytes t want (verdict (ed25519PublicKeyFromBytes (katBytes f 1))) label)
                 (strEq op "sig")
@@ -87,9 +87,9 @@
                               (match (ed25519SignatureFromBytes sig)
                                 ((Err _) false)
                                 ((Ok s) (ed25519Verify k msg s))))))
-                        (strConcat label " (through the decoders)"))
+                        (concat label " (through the decoders)"))
                     }))
-                (tallyCheck t false (strConcat "unknown operation " op)))))))
+                (tallyCheck t false (concat "unknown operation " op)))))))
       ; lengths
       (tallyCheck api (failsWith (ed25519PublicKeyFromBytes (bytesNew 31)) cryptoInvalidLength) "a 31-byte public key")
       (tallyCheck api (failsWith (ed25519PublicKeyFromBytes (bytesNew 33)) cryptoInvalidLength) "a 33-byte public key")
@@ -111,7 +111,7 @@
             (tallyCheck api (strEq (ed25519SignatureBytes sig) (ed25519SignatureBytes (ed25519Sign k "hello"))) "signing is deterministic")
             (tallyCheck api (! (ed25519Verify (Ed25519PublicKey (bytesNew 31)) "hello" sig)) "a forged 31-byte public key")
             (tallyCheck api (! (ed25519Verify pk "hello" (Ed25519Signature (strSlice (ed25519SignatureBytes sig) 0 63)))) "a forged 63-byte signature")
-            (tallyCheck api (! (ed25519Verify pk "hello" (Ed25519Signature (strConcat (ed25519SignatureBytes sig) "\0")))) "a forged 65-byte signature")
+            (tallyCheck api (! (ed25519Verify pk "hello" (Ed25519Signature (concat (ed25519SignatureBytes sig) "\0")))) "a forged 65-byte signature")
             (let ((seed (orDie (ed25519KeyExport k) "ed25519KeyExport")))
               (let ((back (orDie (ed25519KeyFromSecret seed) "ed25519KeyFromSecret")))
                 {

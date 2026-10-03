@@ -81,7 +81,7 @@
             (while (< chunk 8)
               (if (taskCancelled tok)
                 {
-                  (set answer (strConcat "stopped before chunk " (fmtInt chunk)))
+                  (set answer (concat "stopped before chunk " (fmtInt chunk)))
                   (set chunk 8)
                 }
                 (let (
@@ -93,7 +93,7 @@
                     (if (&& (>= needle from) (< needle upto))
                       {
                         (taskCancel tok)
-                        (set answer (strConcat "found " (fmtInt needle)))
+                        (set answer (concat "found " (fmtInt needle)))
                         (set chunk 8)
                       }
                       (set chunk (+ chunk 1)))

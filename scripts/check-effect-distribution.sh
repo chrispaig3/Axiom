@@ -239,8 +239,8 @@
 # RE-PINNED 2026-09-28 (27): the string-joining helpers go. Compiler
 # view only, 6 rows removed (4887 to 4881), none moved: `cat2`, `cat3`
 # and `cat4` in codegen.ax, `pkg3` and `pkg4` in pkg.ax and `mcat3` in
-# mir.ax were each nested `strConcat` calls, and every call site now
-# writes the `strConcat` itself; all six were `Alloc,Mut,Unsafe` (2362
+# mir.ax were each nested `concat` calls, and every call site now
+# writes the `concat` itself; all six were `Alloc,Mut,Unsafe` (2362
 # to 2356). None names `IO`.
 #
 # RE-PINNED 2026-09-28 (26): the effect walk reads a named pattern's
@@ -579,7 +579,7 @@
 #
 # RE-PINNED for R-B6 (MM-EXEC-9d): `effect(unsafe)` alone makes a
 # trusted encapsulation, whose `Unsafe` its callers' rows no longer
-# carry. So every caller of `vecPush`, `strConcat`, `memAlloc` and the
+# carry. So every caller of `vecPush`, `concat`, `memAlloc` and the
 # rest lost `Unsafe` and nothing else. Compiler view: `Alloc,Mut,Unsafe`
 # 2356 to 904, `Unsafe` 1207 to 479, `Alloc,IO,Mut,Unsafe` 417 to 227,
 # `Mut,Unsafe` 130 to 98, `Alloc,Unsafe` 49 to 9, `Alloc,IO,Unsafe` 20 to

@@ -71,11 +71,11 @@
             (nonce (katBytes f 4))
           )
             (match (nonceSequenceResume prefix start)
-              ((Err _) (tallyCheck t false (strConcat "resume at " (katText f 1))))
+              ((Err _) (tallyCheck t false (concat "resume at " (katText f 1))))
               ((Ok seq)
                 {
-                  (tallyBytes t nonce (draw seq steps) (strConcat "draws from " (katText f 1)))
-                  (tallyCheck t (== (nonceSequencePosition seq) position) (strConcat "position after " (katText f 1)))
+                  (tallyBytes t nonce (draw seq steps) (concat "draws from " (katText f 1)))
+                  (tallyCheck t (== (nonceSequencePosition seq) position) (concat "position after " (katText f 1)))
                   0
                 }
               )))))

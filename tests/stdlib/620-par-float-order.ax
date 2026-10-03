@@ -119,7 +119,7 @@
           (println "reversed differs: {r}")))
       (for w in 1..5
         (verdict
-          (strConcat "taskFold at width " (fmtInt w))
+          (concat "taskFold at width " (fmtInt w))
           (taskFold
             (lambda (i) (fmtInt (bitsOf (term i))))
             n

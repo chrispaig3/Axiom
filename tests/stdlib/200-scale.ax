@@ -173,7 +173,7 @@
 ; over this range, so the hash sees every length rather than one.
 (pub :: scName (-> Int String))
 (pub fn (scName i)
-  (strConcat "sym" (fmtInt i)))
+  (concat "sym" (fmtInt i)))
 
 (pub :: scIntern (-> Int Int Int Int))
 (pub fn (scIntern it lo hi)

@@ -9,7 +9,7 @@
 ;@axiom:effect(io)
 (fn (show text x)
   {
-    (println (strConcat text (strConcat " " (fmtInt (floatToBits x)))))
+    (println (concat text (concat " " (fmtInt (floatToBits x)))))
     0
   })
 

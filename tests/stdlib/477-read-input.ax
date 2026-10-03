@@ -48,9 +48,9 @@
 (:: text (-> (Result (Option String) Error) String))
 (fn (text r)
   (match r
-    ((Ok (Some s)) (strConcat (strConcat "[" s) "]"))
+    ((Ok (Some s)) (concat (concat "[" s) "]"))
     ((Ok (None)) "none")
-    ((Err e) (strConcat "err: " (errMessage e)))))
+    ((Err e) (concat "err: " (errMessage e)))))
 
 ; The line itself, or "" - for a comparison rather than a print.
 (:: lineOf (-> (Result (Option String) Error) String))
@@ -78,8 +78,8 @@
 (:: textAll (-> (Result String Error) String))
 (fn (textAll r)
   (match r
-    ((Ok s) (strConcat (strConcat "[" s) "]"))
-    ((Err e) (strConcat "err: " (errMessage e)))))
+    ((Ok s) (concat (concat "[" s) "]"))
+    ((Err e) (concat "err: " (errMessage e)))))
 
 (:: stepAll (-> (Result String Error) Int))
 ;@axiom:effect(io)
@@ -99,7 +99,7 @@
 ;@axiom:effect(io)
 (fn (main)
   (let (
-    (long (strConcat hundred (strConcat hundred hundred)))
+    (long (concat hundred (concat hundred hundred)))
     (path "477-input.txt")
   )
     {
@@ -113,7 +113,7 @@
       ; --- 2. readAll on the exhausted descriptor ---
       (stepAll (readAll stdin))  ; 0
       ; --- 3. a descriptor this program opened ---
-      (let ((_ (writeFile path (strConcat "first line\n" (strConcat long "\nsecond\nlast without newline"))))) 0)
+      (let ((_ (writeFile path (concat "first line\n" (concat long "\nsecond\nlast without newline"))))) 0)
       (match (openPath path oRdonly)
         ((Ok fd)
           {

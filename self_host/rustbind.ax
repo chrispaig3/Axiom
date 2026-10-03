@@ -699,7 +699,7 @@
         {
           (while (< i (vecLen args))
             {
-              (set s (strConcat s (strConcat "_" (rbMangle (vecGet args i)))))
+              (set s (concat s (concat "_" (rbMangle (vecGet args i)))))
               (set i (+ i 1))
             })
           s
@@ -784,10 +784,10 @@
     (mut i 0)
   )
     {
-      (set out (strConcat out "(import Vec)\n(pub :: axh_vec_new (Vec Int))\n(pub fn (axh_vec_new) vecNew)\n(pub :: axh_vec_push (-> (Vec Int) Int (Vec Int)))\n(pub fn (axh_vec_push v w) (vecPush v w))\n(pub :: axh_vec_len (-> (Vec Int) Int))\n(pub fn (axh_vec_len v) (vecLen v))\n(pub :: axh_vec_get (-> (Vec Int) Int Int))\n(pub fn (axh_vec_get v i) (vecGet v i))\n"))
+      (set out (concat out "(import Vec)\n(pub :: axh_vec_new (Vec Int))\n(pub fn (axh_vec_new) vecNew)\n(pub :: axh_vec_push (-> (Vec Int) Int (Vec Int)))\n(pub fn (axh_vec_push v w) (vecPush v w))\n(pub :: axh_vec_len (-> (Vec Int) Int))\n(pub fn (axh_vec_len v) (vecLen v))\n(pub :: axh_vec_get (-> (Vec Int) Int Int))\n(pub fn (axh_vec_get v i) (vecGet v i))\n"))
       (while (< i (vecLen insts))
         {
-          (set out (strConcat out (rbShimsFor decls (vecGet insts i))))
+          (set out (concat out (rbShimsFor decls (vecGet insts i))))
           (set i (+ i 1))
         })
       out
@@ -806,17 +806,17 @@
     (mut j 0)
   )
     {
-      (set out (strConcat out (strConcat "(pub :: axh_" (strConcat m (strConcat "_tag (-> " (strConcat ts " Int))\n"))))))
+      (set out (concat out (concat "(pub :: axh_" (concat m (concat "_tag (-> " (concat ts " Int))\n"))))))
       (if (== isStruct 1)
-        (set out (strConcat out (strConcat "(pub fn (axh_" (strConcat m "_tag v) 0)\n"))))
+        (set out (concat out (concat "(pub fn (axh_" (concat m "_tag v) 0)\n"))))
         {
-          (set out (strConcat out (strConcat "(pub fn (axh_" (strConcat m "_tag v) (match v"))))
+          (set out (concat out (concat "(pub fn (axh_" (concat m "_tag v) (match v"))))
           (while (< j (vecLen cs))
             {
-              (set out (strConcat out (strConcat " ((" (strConcat (rbCtorName (vecGet cs j)) (strConcat (rbBinders (vecLen (rbCtorTys (vecGet cs j)))) (strConcat ") " (strConcat (fmtInt j) ")")))))))
+              (set out (concat out (concat " ((" (concat (rbCtorName (vecGet cs j)) (concat (rbBinders (vecLen (rbCtorTys (vecGet cs j)))) (concat ") " (concat (fmtInt j) ")")))))))
               (set j (+ j 1))
             })
-          (set out (strConcat out "))\n"))
+          (set out (concat out "))\n"))
         })
       ; constructors and accessors
       (set j 0)
@@ -830,13 +830,13 @@
             )
               {
                 (if (== (vecLen tys) 0)
-                  (set out (strConcat out (strConcat "(pub :: axh_" (strConcat m (strConcat (strConcat "_" cn) (strConcat " " (strConcat ts (strConcat ")\n(pub fn (axh_" (strConcat m (strConcat "_" (strConcat cn (strConcat ") " (strConcat cn ")\n")))))))))))))
-                  (set out (strConcat out (strConcat "(pub :: axh_" (strConcat m (strConcat (strConcat "_" cn) (strConcat " (-> " (strConcat (rbSpellEachSp tys 0) (strConcat ts (strConcat "))\n(pub fn (axh_" (strConcat m (strConcat (strConcat "_" cn) (strConcat (rbBinders (vecLen tys)) (strConcat ") (" (strConcat cn (strConcat (rbBinders (vecLen tys)) "))\n"))))))))))))))))
+                  (set out (concat out (concat "(pub :: axh_" (concat m (concat (concat "_" cn) (concat " " (concat ts (concat ")\n(pub fn (axh_" (concat m (concat "_" (concat cn (concat ") " (concat cn ")\n")))))))))))))
+                  (set out (concat out (concat "(pub :: axh_" (concat m (concat (concat "_" cn) (concat " (-> " (concat (rbSpellEachSp tys 0) (concat ts (concat "))\n(pub fn (axh_" (concat m (concat (concat "_" cn) (concat (rbBinders (vecLen tys)) (concat ") (" (concat cn (concat (rbBinders (vecLen tys)) "))\n"))))))))))))))))
                 (while (< k (vecLen tys))
                   {
                     (let ((fty (rbSpellType (vecGet tys k))))
                       {
-                        (set out (strConcat out (strConcat "(pub :: axh_" (strConcat m (strConcat (strConcat "_" (strConcat cn (strConcat "_" (fmtInt k)))) (strConcat " (-> " (strConcat ts (strConcat " " (strConcat fty "))\n")))))))))
+                        (set out (concat out (concat "(pub :: axh_" (concat m (concat (concat "_" (concat cn (concat "_" (fmtInt k)))) (concat " (-> " (concat ts (concat " " (concat fty "))\n")))))))))
                         ; A field of a `data` value is read only after its
                         ; tag, so a value of another constructor has no
                         ; field to answer: the arm traps (status 77), as
@@ -844,17 +844,17 @@
                         ; `(cast T 0)`, a forged null reference whenever `T`
                         ; is one (R-B6).
                         (if (== isStruct 1)
-                          (set out (strConcat
+                          (set out (concat
                             out
-                            (strConcat
+                            (concat
                               "(pub fn (axh_"
-                              (strConcat m
-                              (strConcat (strConcat "_" (strConcat cn (strConcat "_" (fmtInt k))))
-                              (strConcat
+                              (concat m
+                              (concat (concat "_" (concat cn (concat "_" (fmtInt k))))
+                              (concat
                                 " v) v."
-                                (strConcat (cast String (vecGet (rbCtorNames c) k))
+                                (concat (cast String (vecGet (rbCtorNames c) k))
                                 ")\n")))))))
-                          (set out (strConcat out (strConcat "(pub fn (axh_" (strConcat m (strConcat (strConcat "_" (strConcat cn (strConcat "_" (fmtInt k)))) (strConcat " v) (match v ((" (strConcat cn (strConcat (rbBinders (vecLen tys)) (strConcat ") a" (strConcat (fmtInt k) ") (_ __indexTrap)))\n")))))))))))
+                          (set out (concat out (concat "(pub fn (axh_" (concat m (concat (concat "_" (concat cn (concat "_" (fmtInt k)))) (concat " v) (match v ((" (concat cn (concat (rbBinders (vecLen tys)) (concat ") a" (concat (fmtInt k) ") (_ __indexTrap)))\n")))))))))))
                       })
                     (set k (+ k 1))
                   })
@@ -883,7 +883,7 @@
     {
       (while (< i n)
         {
-          (set s (strConcat s (strConcat " a" (fmtInt i))))
+          (set s (concat s (concat " a" (fmtInt i))))
           (set i (+ i 1))
         })
       s
@@ -893,7 +893,7 @@
 (pub fn (rbSpellEachSp v i)
   (if (>= i (vecLen v))
     ""
-    (strConcat (rbSpellType (vecGet v i)) (strConcat " " (rbSpellEachSp v (+ i 1))))))
+    (concat (rbSpellType (vecGet v i)) (concat " " (rbSpellEachSp v (+ i 1))))))
 
 ; Parse the shims and append them to the entry's declarations. Called
 ; before import resolution, so they are checked and compiled like the
@@ -908,7 +908,7 @@
       (let ((pr (parseModuleWith toks (scanAxtags src))))
         (if (== (memGetWord pr 0) 0)
           {
-            (writeStderrStr (strConcat "error: the synthesised binding shims did not parse (a compiler bug):\n" (strConcat src "\n")))
+            (writeStderrStr (concat "error: the synthesised binding shims did not parse (a compiler bug):\n" (concat src "\n")))
             (sysExitWith 1)
             0
           }
@@ -953,7 +953,7 @@
               0))
           (set i (+ i 1))
         })
-      (strConcat (strConcat (rbHeader fileName) (rbRawBlock raws)) (strConcat rbVecBuf (strConcat (strConcat (rbTypesBlock decls insts) (rbJoin wraps)) (rbNotes notes))))
+      (concat (concat (rbHeader fileName) (rbRawBlock raws)) (concat rbVecBuf (concat (concat (rbTypesBlock decls insts) (rbJoin wraps)) (rbNotes notes))))
     }))
 
 ; `s` with every control byte replaced by `?`, so it cannot end the
@@ -999,7 +999,7 @@
 
 (pub :: rbHeader (-> String String))
 (pub fn (rbHeader fileName)
-  (strConcat (strConcat "//! GENERATED by `axiom build --emit-rust-binding` from " (strConcat (rbCommentSafe (pathBase fileName)) ". Do not edit.\n")) (strConcat "//!\n//! Link the archive `--emit-staticlib` wrote beside this file; every\n//! function below is a `pub fn` of that module, a C symbol under its own\n//! name. Arguments are borrowed for the call (a callee that keeps one\n//! retains it); every result is an owned share the wrapper adopts or\n//! releases. `String` arguments are built with the archive's own\n//! `Str$strAlloc`; a `data` value is built and read through the `axh_*`\n//! accessors the same build synthesised into the archive.\n//!\n//! Every call takes an `AxRuntime`: the archive's allocator and its\n//! reference counts are unsynchronised, so exactly one thread may touch\n//! them, and `AxRuntime::claim` is how a thread becomes that one. A call\n//! that takes a raw `AxWord` is `unsafe`: the word must be a live value\n//! of the Axiom type its signature names.\n" (strConcat "#![allow(non_snake_case, non_camel_case_types, dead_code, unused_imports, unused_unsafe, unused_variables, clippy::all)]\n\n" "use axiom_ffi::host::{AxRuntime, AxString};\nuse axiom_ffi::{axiom_release, AxWord};\n\n"))))
+  (concat (concat "//! GENERATED by `axiom build --emit-rust-binding` from " (concat (rbCommentSafe (pathBase fileName)) ". Do not edit.\n")) (concat "//!\n//! Link the archive `--emit-staticlib` wrote beside this file; every\n//! function below is a `pub fn` of that module, a C symbol under its own\n//! name. Arguments are borrowed for the call (a callee that keeps one\n//! retains it); every result is an owned share the wrapper adopts or\n//! releases. `String` arguments are built with the archive's own\n//! `Str$strAlloc`; a `data` value is built and read through the `axh_*`\n//! accessors the same build synthesised into the archive.\n//!\n//! Every call takes an `AxRuntime`: the archive's allocator and its\n//! reference counts are unsynchronised, so exactly one thread may touch\n//! them, and `AxRuntime::claim` is how a thread becomes that one. A call\n//! that takes a raw `AxWord` is `unsafe`: the word must be a live value\n//! of the Axiom type its signature names.\n" (concat "#![allow(non_snake_case, non_camel_case_types, dead_code, unused_imports, unused_unsafe, unused_variables, clippy::all)]\n\n" "use axiom_ffi::host::{AxRuntime, AxString};\nuse axiom_ffi::{axiom_release, AxWord};\n\n"))))
 
 ; `unsafe extern "C"`, not `extern "C"`, SINCE 2026-09-03. Edition 2024
 ; makes an un-`unsafe` extern block a hard error - "extern blocks must
@@ -1015,7 +1015,7 @@
 ; line; the gate is what makes the pair a pair.
 (pub :: rbRawBlock (-> (Vec Int) String))
 (pub fn (rbRawBlock raws)
-  (strConcat "mod raw {\n    unsafe extern \"C\" {\n" (strConcat (rbJoin raws) "    }\n}\n\n")))
+  (concat "mod raw {\n    unsafe extern \"C\" {\n" (concat (rbJoin raws) "    }\n}\n\n")))
 
 ; `AxVecBuf`: an Axiom `(Vec Int)` the host builds and reads through
 ; the synthesised shims; its share is released on drop.
@@ -1048,7 +1048,7 @@
 (pub fn (rbNotes notes)
   (if (== (vecLen notes) 0)
     ""
-    (strConcat "// Not bound - call these through the archive by hand, or change the type:\n" (rbJoin notes))))
+    (concat "// Not bound - call these through the archive by hand, or change the type:\n" (rbJoin notes))))
 
 (pub :: rbJoin (-> (Vec Int) String))
 ;@axiom:effect(unsafe)
@@ -1060,7 +1060,7 @@
     {
       (while (< i (vecLen v))
         {
-          (set out (strConcat
+          (set out (concat
             out
             (cast String (vecGet v i))))
           (set i (+ i 1))
@@ -1099,7 +1099,7 @@
           {
             (vecPush
               notes
-              (cast Int (strConcat "// `" (strConcat name "`: no `(pub :: name Type)` signature to bind it by\n"))))
+              (cast Int (concat "// `" (concat name "`: no `(pub :: name Type)` signature to bind it by\n"))))
             0
           }
           (let (
@@ -1119,14 +1119,14 @@
                   {
                     (vecPush
                       notes
-                      (cast Int (strConcat "// `" (strConcat name (strConcat "`: `" (strConcat (rbSpellType ty) (strConcat "` names " (strConcat bad "\n"))))))))
+                      (cast Int (concat "// `" (concat name (concat "`: `" (concat (rbSpellType ty) (concat "` names " (concat bad "\n"))))))))
                     0
                   }
                   (if (!= (vecLen params) (vecLen names))
                     {
                       (vecPush
                         notes
-                        (cast Int (strConcat "// `" (strConcat name "`: the signature and the definition disagree on arity\n"))))
+                        (cast Int (concat "// `" (concat name "`: the signature and the definition disagree on arity\n"))))
                       0
                     }
                     ; The BINDERS are interpolated too, and by the same
@@ -1141,7 +1141,7 @@
                         {
                           (vecPush
                             notes
-                            (cast Int (strConcat "// `" (strConcat name (strConcat "`: its parameter `" (strConcat badParam "` is not a Rust identifier\n"))))))
+                            (cast Int (concat "// `" (concat name (concat "`: its parameter `" (concat badParam "` is not a Rust identifier\n"))))))
                           0
                         }
                         {
@@ -1162,7 +1162,7 @@
         {
           (vecPush
             notes
-            (cast Int (strConcat "// `" (strConcat name "`: not a Rust identifier, so no `extern \"C\"` declaration can name it\n"))))
+            (cast Int (concat "// `" (concat name "`: not a Rust identifier, so no `extern \"C\"` declaration can name it\n"))))
           0
         }))))
 
@@ -1218,7 +1218,7 @@
               ""
               (let ((own (rbRustDataName decls t)))
                 (if (== pos 0)
-                  (strConcat "&" own)
+                  (concat "&" own)
                   own)))
             (if (&& (== (nodeTag t) TAG_T_TUP) (&& (== pos 1) (== (vecLen (nodeAVec t)) 0)))
               "()"
@@ -1230,9 +1230,9 @@
 (pub fn (rbRustDataName decls t)
   (let ((n (nodeAName t)))
     (if (strEq n "Option")
-      (strConcat "Option<" (strConcat (rbRustType decls (vecGet (nodeBVec t) 0) 2) ">"))
+      (concat "Option<" (concat (rbRustType decls (vecGet (nodeBVec t) 0) 2) ">"))
       (if (strEq n "Result")
-        (strConcat "Result<" (strConcat (rbRustType decls (vecGet (nodeBVec t) 0) 2) (strConcat ", " (strConcat (rbRustType decls (vecGet (nodeBVec t) 1) 2) ">"))))
+        (concat "Result<" (concat (rbRustType decls (vecGet (nodeBVec t) 0) 2) (concat ", " (concat (rbRustType decls (vecGet (nodeBVec t) 1) 2) ">"))))
         (rbMangle t)))))
 
 ; The first type the binding cannot carry, spelled for the note; ""
@@ -1268,9 +1268,9 @@
 ; false - it carries a two-field product perfectly well.
 (pub :: rbUncarriedPhrase (-> (Vec Int) Int String))
 (pub fn (rbUncarriedPhrase decls t)
-  (strConcat
+  (concat
     "`"
-    (strConcat (rbSpellType t)
+    (concat (rbSpellType t)
     (if (&& (== (rbIsData decls t) 1) (== (rbTypeNamesSpellable decls t) 0))
       "`, whose name is not a Rust identifier"
       "`, which the binding does not carry"))))
@@ -1278,17 +1278,17 @@
 ; `extern "C"` line: every word is `i64` on the wire.
 (pub :: rbRawDecl (-> String (Vec Int) String))
 (pub fn (rbRawDecl name params)
-  (strConcat "        pub fn " (strConcat name (strConcat (strConcat "(" (strConcat (rbRawParams (vecLen params) 0) ")")) " -> i64;\n"))))
+  (concat "        pub fn " (concat name (concat (concat "(" (concat (rbRawParams (vecLen params) 0) ")")) " -> i64;\n"))))
 
 (pub :: rbRawParams (-> Int Int String))
 (pub fn (rbRawParams n i)
   (if (>= i n)
     ""
-    (strConcat
-      (strConcat "a" (fmtInt i))
-      (strConcat ": i64"
+    (concat
+      (concat "a" (fmtInt i))
+      (concat ": i64"
       (if (< (+ i 1) n)
-        (strConcat ", " (rbRawParams n (+ i 1)))
+        (concat ", " (rbRawParams n (+ i 1)))
         "")))))
 
 ; ------------------------------------------------------------------
@@ -1307,22 +1307,22 @@
     (if (== (rbIsWordLeaf t) 1)
       (let ((n (nodeAName t)))
         (if (strEq n "Float")
-          (strConcat "(" (strConcat (strConcat deref e) ").to_bits() as i64"))
+          (concat "(" (concat (concat deref e) ").to_bits() as i64"))
           (if (|| (strEq n "Bool") (strEq n "Char"))
-            (strConcat "(" (strConcat (strConcat deref e) ") as i64"))
-            (strConcat deref e))))
+            (concat "(" (concat (concat deref e) ") as i64"))
+            (concat deref e))))
       (if (|| (== (rbIsString t) 1) (== (rbIsIntVec t) 1))
-        (strConcat e ".as_word()")
+        (concat e ".as_word()")
         (if (== (rbIsVec t) 1)
-          (strConcat deref e)
-          (strConcat
+          (concat deref e)
+          (concat
             "__to_"
-            (strConcat (rbMangle t)
-            (strConcat "("
-            (strConcat
+            (concat (rbMangle t)
+            (concat "("
+            (concat
               (if (== isRef 1)
                 e
-                (strConcat "&" e))
+                (concat "&" e))
               ")")))))))))
 
 (pub :: rbIsOwnedWord (-> (Vec Int) Int Int))
@@ -1338,19 +1338,19 @@
   (if (== (rbIsWordLeaf t) 1)
     (let ((n (nodeAName t)))
       (if (strEq n "Float")
-        (strConcat "f64::from_bits(" (strConcat w " as u64)"))
+        (concat "f64::from_bits(" (concat w " as u64)"))
         (if (strEq n "Bool")
-          (strConcat w " != 0")
+          (concat w " != 0")
           (if (strEq n "Char")
-            (strConcat "char::from_u32(" (strConcat w " as u32).unwrap_or('\\u{FFFD}')"))
+            (concat "char::from_u32(" (concat w " as u32).unwrap_or('\\u{FFFD}')"))
             w))))
     (if (== (rbIsString t) 1)
-      (strConcat "unsafe { AxString::from_owned(" (strConcat w ") }"))
+      (concat "unsafe { AxString::from_owned(" (concat w ") }"))
       (if (== (rbIsIntVec t) 1)
-        (strConcat "unsafe { AxVecBuf::from_owned(" (strConcat w ") }"))
+        (concat "unsafe { AxVecBuf::from_owned(" (concat w ") }"))
         (if (== (rbIsVec t) 1)
           w
-          (strConcat "unsafe { __from_" (strConcat (rbMangle t) (strConcat "(" (strConcat w ") }")))))))))
+          (concat "unsafe { __from_" (concat (rbMangle t) (concat "(" (concat w ") }")))))))))
 
 ; ------------------------------------------------------------------
 ; The Rust types and their conversion functions
@@ -1364,7 +1364,7 @@
     {
       (while (< i (vecLen insts))
         {
-          (set out (strConcat out (rbTypeFor decls (vecGet insts i))))
+          (set out (concat out (rbTypeFor decls (vecGet insts i))))
           (set i (+ i 1))
         })
       out
@@ -1381,21 +1381,21 @@
     (cs (rbCtorsOf decls t))
     (rn (rbRustDataName decls t))
   )
-    (strConcat
+    (concat
       (if (|| (strEq n "Option") (strEq n "Result"))
         ""
         (rbTypeDecl decls t cs))
-      (strConcat (rbFromFn decls t cs rn)
-      (strConcat (rbToFn decls t cs rn)
+      (concat (rbFromFn decls t cs rn)
+      (concat (rbToFn decls t cs rn)
       (if (|| (strEq n "Option") (strEq n "Result"))
         ""
-        (strConcat
+        (concat
           "impl "
-          (strConcat rn
-          (strConcat (strConcat " {\n    /// Adopt an Axiom value of this type, consuming the share `word` carries.\n    ///\n    /// # Safety\n    /// `word` must be a live Axiom `" (strConcat (rbSpellType t) (strConcat "` the caller owns one share of - the answer\n    /// of an Axiom call, or of `to_axiom` - and that share is released here, so the same\n    /// word must not be adopted twice.\n    pub unsafe fn from_axiom(rt: AxRuntime, word: AxWord) -> " (strConcat rn (strConcat " {\n        unsafe { __from_" (strConcat m "(word) }\n    }\n\n"))))))
+          (concat rn
+          (concat (concat " {\n    /// Adopt an Axiom value of this type, consuming the share `word` carries.\n    ///\n    /// # Safety\n    /// `word` must be a live Axiom `" (concat (rbSpellType t) (concat "` the caller owns one share of - the answer\n    /// of an Axiom call, or of `to_axiom` - and that share is released here, so the same\n    /// word must not be adopted twice.\n    pub unsafe fn from_axiom(rt: AxRuntime, word: AxWord) -> " (concat rn (concat " {\n        unsafe { __from_" (concat m "(word) }\n    }\n\n"))))))
           (if (== (rbRawIn decls t vecNew) 1)
-            (strConcat "    /// This value as an Axiom one, an owned share the caller releases.\n    ///\n    /// # Safety\n    /// Every `AxWord` field reachable from `self` must be a live Axiom value of the\n    /// type its Axiom declaration names.\n    pub unsafe fn to_axiom(&self, rt: AxRuntime) -> AxWord {\n        __to_" (strConcat m "(self)\n    }\n}\n\n"))
-            (strConcat "    /// This value as an Axiom one, an owned share the caller releases.\n    pub fn to_axiom(&self, rt: AxRuntime) -> AxWord {\n        __to_" (strConcat m "(self)\n    }\n}\n\n"))))))))))))
+            (concat "    /// This value as an Axiom one, an owned share the caller releases.\n    ///\n    /// # Safety\n    /// Every `AxWord` field reachable from `self` must be a live Axiom value of the\n    /// type its Axiom declaration names.\n    pub unsafe fn to_axiom(&self, rt: AxRuntime) -> AxWord {\n        __to_" (concat m "(self)\n    }\n}\n\n"))
+            (concat "    /// This value as an Axiom one, an owned share the caller releases.\n    pub fn to_axiom(&self, rt: AxRuntime) -> AxWord {\n        __to_" (concat m "(self)\n    }\n}\n\n"))))))))))))
 
 ; `pub struct T { pub f0: .. }` or `pub enum T { C0(..), C1 }`.
 (pub :: rbTypeDecl (-> (Vec Int) Int (Vec (Vec Int)) String))
@@ -1411,29 +1411,29 @@
         (mut k 0)
       )
         {
-          (set out (strConcat "/// `" (strConcat (rbSpellType t) (strConcat "`, one constructor\n#[derive(Debug)]\npub struct " (strConcat rn " {\n")))))
+          (set out (concat "/// `" (concat (rbSpellType t) (concat "`, one constructor\n#[derive(Debug)]\npub struct " (concat rn " {\n")))))
           (while (< k (vecLen (rbCtorTys c)))
             {
-              (set out (strConcat out (strConcat "    pub " (strConcat (rbFieldName c k) (strConcat ": " (strConcat (rbFieldRustType decls m (vecGet (rbCtorTys c) k)) ",\n"))))))
+              (set out (concat out (concat "    pub " (concat (rbFieldName c k) (concat ": " (concat (rbFieldRustType decls m (vecGet (rbCtorTys c) k)) ",\n"))))))
               (set k (+ k 1))
             })
-          (strConcat out "}\n\n")
+          (concat out "}\n\n")
         })
       (let (
         (mut out "")
         (mut j 0)
       )
         {
-          (set out (strConcat "/// `" (strConcat (rbSpellType t) (strConcat "`, one variant per constructor\n#[derive(Debug)]\npub enum " (strConcat rn " {\n")))))
+          (set out (concat "/// `" (concat (rbSpellType t) (concat "`, one variant per constructor\n#[derive(Debug)]\npub enum " (concat rn " {\n")))))
           (while (< j (vecLen cs))
             {
               (let ((c (vecGet cs j)))
                 (if (== (vecLen (rbCtorTys c)) 0)
-                  (set out (strConcat out (strConcat "    " (strConcat (rbCtorName c) ",\n"))))
-                  (set out (strConcat out (strConcat "    " (strConcat (rbCtorName c) (strConcat "(" (strConcat (rbFieldRustTypes decls m (rbCtorTys c) 0) "),\n"))))))))
+                  (set out (concat out (concat "    " (concat (rbCtorName c) ",\n"))))
+                  (set out (concat out (concat "    " (concat (rbCtorName c) (concat "(" (concat (rbFieldRustTypes decls m (rbCtorTys c) 0) "),\n"))))))))
               (set j (+ j 1))
             })
-          (strConcat out "}\n\n")
+          (concat out "}\n\n")
         }))))
 
 ; A field's Rust type: owned, and boxed when it reaches the type
@@ -1442,16 +1442,16 @@
 (pub fn (rbFieldRustType decls m ft)
   (let ((rt (rbRustType decls ft 2)))
     (if (rbReaches decls ft m vecNew)
-      (strConcat "Box<" (strConcat rt ">"))
+      (concat "Box<" (concat rt ">"))
       rt)))
 
 (pub :: rbFieldRustTypes (-> (Vec Int) String (Vec Int) Int String))
 (pub fn (rbFieldRustTypes decls m tys i)
   (if (>= i (vecLen tys))
     ""
-    (strConcat
+    (concat
       (rbFieldRustType decls m (vecGet tys i))
-      (strConcat (if (< (+ i 1) (vecLen tys))
+      (concat (if (< (+ i 1) (vecLen tys))
         ", "
         "")
       (rbFieldRustTypes decls m tys (+ i 1))))))
@@ -1505,7 +1505,7 @@
         (cast Int names)
         0)
       (>= k (vecLen names)))
-      (strConcat "f" (fmtInt k))
+      (concat "f" (fmtInt k))
       (rbSnake
         (cast String (vecGet names k))))))
 
@@ -1521,8 +1521,8 @@
     (mut j 0)
   )
     {
-      (set out (strConcat "unsafe fn __from_" (strConcat m (strConcat "(word: AxWord) -> " (strConcat rn " {\n    // SAFETY: the caller promises `word` is a live value of this type it owns;\n    // every accessor answers an owned share, released here or adopted by the value.\n    let __tag = unsafe { raw::axh_")))))
-      (set out (strConcat out (strConcat m "_tag(word) };\n    let __v = match __tag {\n")))
+      (set out (concat "unsafe fn __from_" (concat m (concat "(word: AxWord) -> " (concat rn " {\n    // SAFETY: the caller promises `word` is a live value of this type it owns;\n    // every accessor answers an owned share, released here or adopted by the value.\n    let __tag = unsafe { raw::axh_")))))
+      (set out (concat out (concat m "_tag(word) };\n    let __v = match __tag {\n")))
       (while (< j (vecLen cs))
         {
           (let ((c (vecGet cs j)))
@@ -1535,21 +1535,21 @@
               {
                 (while (< k (vecLen tys))
                   {
-                    (let ((fw (strConcat "__f" (fmtInt k))))
+                    (let ((fw (concat "__f" (fmtInt k))))
                       (let ((val (rbFromWord (vecGet tys k) fw)))
                         (let ((boxed 
                           (if (rbReaches decls (vecGet tys k) m vecNew)
-                            (strConcat "Box::new(" (strConcat val ")"))
+                            (concat "Box::new(" (concat val ")"))
                             val)))
                           {
-                            (set lets (strConcat lets (strConcat "            let " (strConcat fw (strConcat " = unsafe { raw::axh_" (strConcat m (strConcat (strConcat "_" (strConcat (rbCtorName c) (strConcat "_" (fmtInt k)))) (strConcat "(word) };\n" ""))))))))
-                            (set args (strConcat
+                            (set lets (concat lets (concat "            let " (concat fw (concat " = unsafe { raw::axh_" (concat m (concat (concat "_" (concat (rbCtorName c) (concat "_" (fmtInt k)))) (concat "(word) };\n" ""))))))))
+                            (set args (concat
                               args
-                              (strConcat
+                              (concat
                                 (if (== (vecLen cs) 1)
-                                  (strConcat (rbFieldName c k) ": ")
+                                  (concat (rbFieldName c k) ": ")
                                   "")
-                                (strConcat boxed
+                                (concat boxed
                                 (if (< (+ k 1) (vecLen tys))
                                   ", "
                                   "")))))
@@ -1557,13 +1557,13 @@
                     (set k (+ k 1))
                   })
                 (if (== (vecLen tys) 0)
-                  (set out (strConcat out (strConcat "        " (strConcat (fmtInt j) (strConcat " => " (strConcat (rbCtorExpr
+                  (set out (concat out (concat "        " (concat (fmtInt j) (concat " => " (concat (rbCtorExpr
                     decls
                     t
                     c
                     rn
                     args) ",\n"))))))
-                  (set out (strConcat out (strConcat "        " (strConcat (fmtInt j) (strConcat " => {\n" (strConcat lets (strConcat "            " (strConcat (rbCtorExpr
+                  (set out (concat out (concat "        " (concat (fmtInt j) (concat " => {\n" (concat lets (concat "            " (concat (rbCtorExpr
                     decls
                     t
                     c
@@ -1572,7 +1572,7 @@
               }))
           (set j (+ j 1))
         })
-      (set out (strConcat out "        _ => unreachable!(\"a constructor index the type does not have\"),\n    };\n    unsafe { axiom_release(word) };\n    __v\n}\n\n"))
+      (set out (concat out "        _ => unreachable!(\"a constructor index the type does not have\"),\n    };\n    unsafe { axiom_release(word) };\n    __v\n}\n\n"))
       out
     }))
 
@@ -1588,12 +1588,12 @@
     (if (|| (strEq n "Option") (strEq n "Result"))
       (if (== (vecLen (rbCtorTys c)) 0)
         cn
-        (strConcat cn (strConcat "(" (strConcat args ")"))))
+        (concat cn (concat "(" (concat args ")"))))
       (if (== (vecLen cs) 1)
-        (strConcat rn (strConcat " { " (strConcat args " }")))
+        (concat rn (concat " { " (concat args " }")))
         (if (== (vecLen (rbCtorTys c)) 0)
-          (strConcat rn (strConcat "::" cn))
-          (strConcat rn (strConcat "::" (strConcat cn (strConcat "(" (strConcat args ")"))))))))))
+          (concat rn (concat "::" cn))
+          (concat rn (concat "::" (concat cn (concat "(" (concat args ")"))))))))))
 
 ; `fn __to_M(v: &T) -> AxWord`: build the word through the
 ; constructor shim, releasing the owned words of data-typed fields
@@ -1607,7 +1607,7 @@
     (mut j 0)
   )
     {
-      (set out (strConcat "fn __to_" (strConcat m (strConcat "(v: &" (strConcat rn ") -> AxWord {\n    match v {\n")))))
+      (set out (concat "fn __to_" (concat m (concat "(v: &" (concat rn ") -> AxWord {\n    match v {\n")))))
       (while (< j (vecLen cs))
         {
           ; the pattern binds each field by reference
@@ -1623,37 +1623,37 @@
               {
                 (while (< k (vecLen tys))
                   {
-                    (set pat (strConcat
+                    (set pat (concat
                       pat
-                      (strConcat
+                      (concat
                         (if (== (vecLen cs) 1)
-                          (strConcat (rbFieldName c k) ": ")
+                          (concat (rbFieldName c k) ": ")
                           "")
-                        (strConcat (strConcat "a" (fmtInt k))
+                        (concat (concat "a" (fmtInt k))
                         (if (< (+ k 1) (vecLen tys))
                           ", "
                           "")))))
                     (let ((ft (vecGet tys k)))
                       (let ((src 
                         (if (rbReaches decls ft m vecNew)
-                          (strConcat "&**a" (strConcat (fmtInt k) ""))
-                          (strConcat "a" (fmtInt k)))))
+                          (concat "&**a" (concat (fmtInt k) ""))
+                          (concat "a" (fmtInt k)))))
                         (if (== (rbIsOwnedWord decls ft) 1)
                           {
-                            (set lets (strConcat lets (strConcat "            let __w" (strConcat (fmtInt k) (strConcat " = " (strConcat (rbToWord ft src 1) ";\n"))))))
-                            (set rels (strConcat rels (strConcat "            unsafe { axiom_release(__w" (strConcat (fmtInt k) ") };\n"))))
-                            (set args (strConcat
+                            (set lets (concat lets (concat "            let __w" (concat (fmtInt k) (concat " = " (concat (rbToWord ft src 1) ";\n"))))))
+                            (set rels (concat rels (concat "            unsafe { axiom_release(__w" (concat (fmtInt k) ") };\n"))))
+                            (set args (concat
                               args
-                              (strConcat
+                              (concat
                                 "__w"
-                                (strConcat (fmtInt k)
+                                (concat (fmtInt k)
                                 (if (< (+ k 1) (vecLen tys))
                                   ", "
                                   "")))))
                           }
-                          (set args (strConcat
+                          (set args (concat
                             args
-                            (strConcat
+                            (concat
                               (rbToWord ft src 1)
                               (if (< (+ k 1) (vecLen tys))
                                 ", "
@@ -1666,11 +1666,11 @@
                   c
                   rn
                   pat)))
-                  (set out (strConcat out (strConcat "        " (strConcat head (strConcat " => {\n" (strConcat lets (strConcat (strConcat "            let __w = unsafe { raw::axh_" (strConcat m (strConcat (strConcat "_" (strConcat (rbCtorName c) (strConcat "(" (strConcat args ")")))) " };\n"))) (strConcat rels "            __w\n        }\n")))))))))
+                  (set out (concat out (concat "        " (concat head (concat " => {\n" (concat lets (concat (concat "            let __w = unsafe { raw::axh_" (concat m (concat (concat "_" (concat (rbCtorName c) (concat "(" (concat args ")")))) " };\n"))) (concat rels "            __w\n        }\n")))))))))
               }))
           (set j (+ j 1))
         })
-      (strConcat out "    }\n}\n\n")
+      (concat out "    }\n}\n\n")
     }))
 
 (pub :: rbCtorPat (-> (Vec Int) Int (Vec Int) String String String))
@@ -1683,12 +1683,12 @@
     (if (|| (strEq n "Option") (strEq n "Result"))
       (if (== (vecLen (rbCtorTys c)) 0)
         cn
-        (strConcat cn (strConcat "(" (strConcat pat ")"))))
+        (concat cn (concat "(" (concat pat ")"))))
       (if (== (vecLen cs) 1)
-        (strConcat rn (strConcat " { " (strConcat pat " }")))
+        (concat rn (concat " { " (concat pat " }")))
         (if (== (vecLen (rbCtorTys c)) 0)
-          (strConcat rn (strConcat "::" cn))
-          (strConcat rn (strConcat "::" (strConcat cn (strConcat "(" (strConcat pat ")"))))))))))
+          (concat rn (concat "::" cn))
+          (concat rn (concat "::" (concat cn (concat "(" (concat pat ")"))))))))))
 
 ; ------------------------------------------------------------------
 ; Wrappers
@@ -1701,48 +1701,48 @@
     (sig (rbSigLine decls params names 0))
     (lets (rbArgLets decls params names 0))
     (rels (rbArgRels decls params 0))
-    (call (strConcat "raw::" (strConcat name (strConcat "(" (strConcat (rbArgList decls params names 0) ")")))))
+    (call (concat "raw::" (concat name (concat "(" (concat (rbArgList decls params names 0) ")")))))
     (raw (rbAnyRaw decls params))
   )
-    (strConcat
-      (strConcat
+    (concat
+      (concat
         "/// `(pub :: "
-        (strConcat name
-        (strConcat " "
-        (strConcat
+        (concat name
+        (concat " "
+        (concat
           (rbSpellType ty)
           (if (== raw 1)
             ")`\n///\n/// # Safety\n/// Every `AxWord` this call is handed - an argument, or a field of a value passed\n/// by reference - must be a live Axiom value of the type its Axiom signature names,\n/// borrowed for the call.\n"
             ")`\n")))))
-      (strConcat (strConcat
+      (concat (concat
         (if (== raw 1)
           "pub unsafe fn "
           "pub fn ")
-        (strConcat rname
-        (strConcat (strConcat
+        (concat rname
+        (concat (concat
           "(rt: AxRuntime"
-          (strConcat (if (> (strLen sig) 0)
-            (strConcat ", " sig)
+          (concat (if (> (strLen sig) 0)
+            (concat ", " sig)
             "")
           ")"))
         (if (strEq rty "()")
           " {\n"
-          (strConcat " -> " (strConcat rty " {\n"))))))
-      (strConcat (strConcat lets (strConcat "    // SAFETY: the archive defines the symbol with exactly this shape (one word each way).\n    let __r = unsafe { " (strConcat call " };\n")))
-      (strConcat rels (strConcat (rbResultExpr res rty) "}\n\n")))))))
+          (concat " -> " (concat rty " {\n"))))))
+      (concat (concat lets (concat "    // SAFETY: the archive defines the symbol with exactly this shape (one word each way).\n    let __r = unsafe { " (concat call " };\n")))
+      (concat rels (concat (rbResultExpr res rty) "}\n\n")))))))
 
 (pub :: rbSigLine (-> (Vec Int) (Vec Int) (Vec Int) Int String))
 ;@axiom:effect(unsafe)
 (pub fn (rbSigLine decls params names i)
   (if (>= i (vecLen params))
     ""
-    (strConcat
-      (strConcat
+    (concat
+      (concat
         (rbParamName
           (cast String (vecGet names i)))
-        (strConcat ": "
+        (concat ": "
         (rbRustType decls (vecGet params i) 0)))
-      (strConcat (if (< (+ i 1) (vecLen params))
+      (concat (if (< (+ i 1) (vecLen params))
         ", "
         "")
       (rbSigLine decls params names (+ i 1))))))
@@ -1759,11 +1759,11 @@
       (pn (rbParamName
         (cast String (vecGet names i))))
     )
-      (strConcat
+      (concat
         (if (== (rbIsString t) 1)
-          (strConcat "    let __a" (strConcat (fmtInt i) (strConcat " = AxString::from_str(rt, " (strConcat pn ");\n"))))
+          (concat "    let __a" (concat (fmtInt i) (concat " = AxString::from_str(rt, " (concat pn ");\n"))))
           (if (== (rbIsOwnedWord decls t) 1)
-            (strConcat "    let __a" (strConcat (fmtInt i) (strConcat " = " (strConcat (rbToWord t pn 1) ";\n"))))
+            (concat "    let __a" (concat (fmtInt i) (concat " = " (concat (rbToWord t pn 1) ";\n"))))
             ""))
         (rbArgLets decls params names (+ i 1))))))
 
@@ -1771,9 +1771,9 @@
 (pub fn (rbArgRels decls params i)
   (if (>= i (vecLen params))
     ""
-    (strConcat
+    (concat
       (if (== (rbIsOwnedWord decls (vecGet params i)) 1)
-        (strConcat "    unsafe { axiom_release(__a" (strConcat (fmtInt i) ") };\n"))
+        (concat "    unsafe { axiom_release(__a" (concat (fmtInt i) ") };\n"))
         "")
       (rbArgRels decls params (+ i 1)))))
 
@@ -1787,13 +1787,13 @@
       (pn (rbParamName
         (cast String (vecGet names i))))
     )
-      (strConcat
+      (concat
         (if (== (rbIsString t) 1)
-          (strConcat "__a" (strConcat (fmtInt i) ".as_word()"))
+          (concat "__a" (concat (fmtInt i) ".as_word()"))
           (if (== (rbIsOwnedWord decls t) 1)
-            (strConcat "__a" (fmtInt i))
+            (concat "__a" (fmtInt i))
             (rbToWord t pn 0)))
-        (strConcat (if (< (+ i 1) (vecLen params))
+        (concat (if (< (+ i 1) (vecLen params))
           ", "
           "")
         (rbArgList decls params names (+ i 1)))))))
@@ -1805,7 +1805,7 @@
     "    let _ = __r;\n"
     (if (== (rbIsString res) 1)
       "    // SAFETY: a String a function answers is an owned share (MM-LIFE-2c event 2).\n    unsafe { AxString::from_owned(__r) }\n"
-      (strConcat "    " (strConcat (rbFromWord res "__r") "\n")))))
+      (concat "    " (concat (rbFromWord res "__r") "\n")))))
 
 ; `addTwo` -> `add_two`; `a-b` -> `a_b`; a Rust keyword gets a trailing
 ; underscore (`type_`).
@@ -1864,7 +1864,7 @@
         })
       (let ((r (strSlice out 0 o)))
         (if (rbIsKeyword r)
-          (strConcat r "_")
+          (concat r "_")
           r))
     }))
 
@@ -1891,27 +1891,27 @@
       (if (== tag TAG_T_CON)
         (if (== (vecLen (nodeBVec t)) 0)
           (nodeAName t)
-          (strConcat "(" (strConcat (strConcat (nodeAName t) (rbSpellEach (nodeBVec t) 0)) ")")))
+          (concat "(" (concat (concat (nodeAName t) (rbSpellEach (nodeBVec t) 0)) ")")))
         (if (== tag TAG_T_VAR)
           (nodeAName t)
           (if (== tag TAG_T_ARR)
-            (strConcat "(->" (strConcat (rbSpellSpine t) ")"))
+            (concat "(->" (concat (rbSpellSpine t) ")"))
             (if (== tag TAG_T_LIST)
-              (strConcat "[" (strConcat (rbSpellType (nodeA t)) "]"))
+              (concat "[" (concat (rbSpellType (nodeA t)) "]"))
               (if (== tag TAG_T_TUP)
                 (if (== (vecLen (nodeAVec t)) 0)
                   "()"
-                  (strConcat "(Tuple" (strConcat (rbSpellEach (nodeAVec t) 0) ")")))
+                  (concat "(Tuple" (concat (rbSpellEach (nodeAVec t) 0) ")")))
                 "?"))))))))
 
 (pub :: rbSpellEach (-> (Vec Int) Int String))
 (pub fn (rbSpellEach v i)
   (if (>= i (vecLen v))
     ""
-    (strConcat " " (strConcat (rbSpellType (vecGet v i)) (rbSpellEach v (+ i 1))))))
+    (concat " " (concat (rbSpellType (vecGet v i)) (rbSpellEach v (+ i 1))))))
 
 (pub :: rbSpellSpine (-> Int String))
 (pub fn (rbSpellSpine t)
   (if (&& (!= t 0) (== (nodeTag t) TAG_T_ARR))
-    (strConcat " " (strConcat (rbSpellType (nodeA t)) (rbSpellSpine (nodeB t))))
-    (strConcat " " (rbSpellType t))))
+    (concat " " (concat (rbSpellType (nodeA t)) (rbSpellSpine (nodeB t))))
+    (concat " " (rbSpellType t))))

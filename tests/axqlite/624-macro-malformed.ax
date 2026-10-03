@@ -19,7 +19,7 @@
 (fn (compiler dir)
   (let ((env (sysEnv "AXIOM")))
     (if (strIsEmpty env)
-      (strConcat dir "/../../.axiom-bin/axiom")
+      (concat dir "/../../.axiom-bin/axiom")
       env)))
 
 ; Run `axiom check FILE` and answer its exit status.
@@ -48,7 +48,7 @@
 
 (:: program (-> String String))
 (fn (program body)
-  (strConcat "(import IO)\n(import Axqlite)\n(import Axqlite.Value)\n(:: main Int)\n;@axiom:effect(io)\n(fn (main) (let ((q " (strConcat body ")) { (println q.text) 0 }))\n")))
+  (concat "(import IO)\n(import Axqlite)\n(import Axqlite.Value)\n(:: main Int)\n;@axiom:effect(io)\n(fn (main) (let ((q " (concat body ")) { (println q.text) 0 }))\n")))
 
 ; A connection isn't `shared`, so a `parallel` binding can't capture
 ; one: AX3064.
@@ -61,7 +61,7 @@
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
 (fn (case axiom label body)
-  (let ((file (strConcat label ".ax")))
+  (let ((file (concat label ".ax")))
     {
       (let ((_ (writeFile file (program body))))
         0)

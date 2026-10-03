@@ -17,7 +17,7 @@
 (fn (orDie r what)
   (match r
     ((Ok v) v)
-    ((Err e) (cast a (die (strConcat "312: " (strConcat what (strConcat ": " (errorText e)))) 3)))))
+    ((Err e) (cast a (die (concat "312: " (concat what (concat ": " (errorText e)))) 3)))))
 
 (:: main Int)
 ;@axiom:effect(io)
@@ -27,20 +27,20 @@
       (for line in (katLines "x25519-openssl.txt")
         (let ((f (katFields line)))
           (let (
-            (label (strConcat "case " (fmtInt n)))
+            (label (concat "case " (fmtInt n)))
             (s (orDie (secretFromString (katBytes f 0)) "secretFromString"))
             (peer (orDie (x25519PublicKeyFromBytes (katBytes f 2)) "x25519PublicKeyFromBytes"))
           )
             (let ((k (orDie (x25519KeyFromSecret s) "x25519KeyFromSecret")))
               {
-                (tallyBytes t (katBytes f 1) (x25519PublicKeyBytes (x25519PublicKey k)) (strConcat label ": public key"))
+                (tallyBytes t (katBytes f 1) (x25519PublicKeyBytes (x25519PublicKey k)) (concat label ": public key"))
                 (match (x25519 k peer)
                   ((Ok shared)
                     {
-                      (tallyBytes t (katBytes f 3) (secretExposeCopy shared) (strConcat label ": shared secret"))
+                      (tallyBytes t (katBytes f 3) (secretExposeCopy shared) (concat label ": shared secret"))
                       (secretWipe shared)
                     })
-                  ((Err e) (tallyCheck t false (strConcat label (strConcat ": " (errorText e))))))
+                  ((Err e) (tallyCheck t false (concat label (concat ": " (errorText e))))))
                 (x25519KeyWipe k)
                 (secretWipe s)
                 (set n (+ n 1))

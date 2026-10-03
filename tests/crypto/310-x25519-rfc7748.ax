@@ -46,7 +46,7 @@
 (fn (orDie r what)
   (match r
     ((Ok v) v)
-    ((Err e) (cast a (die (strConcat "310: " (strConcat what (strConcat ": " (errorText e)))) 3)))))
+    ((Err e) (cast a (die (concat "310: " (concat what (concat ": " (errorText e)))) 3)))))
 
 ; A key from 32 bytes.
 (:: keyOf (-> String X25519SecretKey))
@@ -91,7 +91,7 @@
               (tallyBytes t (katBytes f 3) (raw (katBytes f 1) (katBytes f 2)) "section 5.2 function vector")
               (strEq kind "iter")
               (let ((n (katInt f 1)))
-                (tallyBytes t (katBytes f 2) (iterate n) (strConcat "iterations: " (katText f 1))))
+                (tallyBytes t (katBytes f 2) (iterate n) (concat "iterations: " (katText f 1))))
               (strEq kind "dh")
               (let (
                 (a (keyOf (katBytes f 1)))
@@ -107,7 +107,7 @@
                   (x25519KeyWipe a)
                   (x25519KeyWipe b)
                 })
-              (tallyCheck t false (strConcat "unknown case kind " kind))))))
+              (tallyCheck t false (concat "unknown case kind " kind))))))
       ; The refusals, and the round trips the API promises.
       (let (
         (k (keyOf (bytesNew 32)))

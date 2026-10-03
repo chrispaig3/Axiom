@@ -27,7 +27,7 @@
 
 (:: work (-> String Int Int))
 (fn (work s k)
-  (let ((l (Cons s (Cons (strSlice s 1 3) (Cons (strConcat s s) (Nil))))))
+  (let ((l (Cons s (Cons (strSlice s 1 3) (Cons (concat s s) (Nil))))))
     (+ k (lenAll l))))
 
 ; A binding that runs a `parallel` of its own over the borrowed string.
@@ -46,8 +46,8 @@
 ;@axiom:effect(block)
 (fn (main)
   (let (
-    (s (strConcat "hello, " "world"))
-    (head (strSlice (strConcat "parallel " "borrow") 0 8))
+    (s (concat "hello, " "world"))
+    (head (strSlice (concat "parallel " "borrow") 0 8))
   )
     (let (
       (before (countOf s))
@@ -56,7 +56,7 @@
       (parallel p ((a (work s 1))
                    (b (work head 2))
                    (c (nested s))
-                   (d (strLen (strConcat head s))))
+                   (d (strLen (concat head s))))
         {
           (println "{a} {b} {c} {d}")
           (let (

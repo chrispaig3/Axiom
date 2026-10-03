@@ -25,7 +25,7 @@
 (fn (showDT r)
   (match r
     ((Ok dt) (datetimeToString dt))
-    ((Err e) (strConcat "Err " (fmtInt (errCode e))))))
+    ((Err e) (concat "Err " (fmtInt (errCode e))))))
 
 (:: utc (-> String String))
 (fn (utc s)
@@ -41,8 +41,8 @@
 (:: unixBack (-> Int Int String))
 (fn (unixBack secs nanos)
   (match (datetimeFromUnix secs nanos)
-    ((Ok dt) (strConcat (fmtInt (datetimeToUnixSeconds dt)) (strConcat " " (fmtInt (timeNanosecond dt.time)))))
-    ((Err e) (strConcat "Err " (fmtInt (errCode e))))))
+    ((Ok dt) (concat (fmtInt (datetimeToUnixSeconds dt)) (concat " " (fmtInt (timeNanosecond dt.time)))))
+    ((Err e) (concat "Err " (fmtInt (errCode e))))))
 
 ; 1 unless Unix second `secs` reads the same through `datetimeFromUnix`
 ; as through adding that many seconds to 1970-01-01, and back.

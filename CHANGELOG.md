@@ -16,6 +16,12 @@ its changelog too.
 
 ## Unreleased
 
+- Rename `Str.strConcat` to `Str.concat`, including compiler, examples,
+  current guides and fixtures. Replace `(strConcat a b)` with
+  `(concat a b)`. A temporary bridge lets the preceding seed compile
+  the new source until reseeding. Tested by
+  `tests/stdlib/190-string-literals.ax` and `scripts/check-tools-selfhost.sh`.
+
 - Panic probes cover generated scalar, fallible and destructor shims
   in debug, release and host builds. The no_std runtime's panic path
   exits with status 73. Tested by `scripts/check-ffi.sh` and

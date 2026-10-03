@@ -37,7 +37,7 @@
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 (pub fn (main)
-  (let ((seed (strConcat "ab" "cd")))
+  (let ((seed (concat "ab" "cd")))
     {
       (reentrantSeed
         (cast Foreign seed))

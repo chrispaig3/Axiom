@@ -34,8 +34,8 @@
 ;@axiom:effect(io)
 (fn (say okFlag label)
   (if (== okFlag 1)
-    (println (strConcat "ok   " label))
-    (println (strConcat "FAIL " label))))
+    (println (concat "ok   " label))
+    (println (concat "FAIL " label))))
 
 (:: isNone (-> (Option Int) Int))
 (fn (isNone o)

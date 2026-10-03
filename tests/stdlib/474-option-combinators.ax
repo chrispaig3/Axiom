@@ -81,7 +81,7 @@
         (optUnwrapOr
           (optMap
             some7
-            (lambda (x) (strConcat "n=" (fmtInt x))))
+            (lambda (x) (concat "n=" (fmtInt x))))
           "none"))
       ; --- 4. optAndThen, all three combinations ---
       (println (optUnwrapOr (optAndThen some7 doubleIt) 0))

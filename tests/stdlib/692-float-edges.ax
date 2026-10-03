@@ -13,13 +13,13 @@
   (match (floatParse s)
     ((Ok x)
       {
-        (println (strConcat s (strConcat " -> " (strConcat (floatToString x) (strConcat " " (fmtBits x))))))
+        (println (concat s (concat " -> " (concat (floatToString x) (concat " " (fmtBits x))))))
         0
       }
     )
     ((Err e)
       {
-        (println (strConcat s (strConcat " -> ERR " (errorText e))))
+        (println (concat s (concat " -> ERR " (errorText e))))
         0
       }
     )))

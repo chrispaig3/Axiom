@@ -29,7 +29,7 @@
                 0
                 (let ((fields (strSplit line 32)))
                   (match (strParseInt (vecGet fields 1))
-                    ((None) (die (strConcat "bad line: " line) 1))
+                    ((None) (die (concat "bad line: " line) 1))
                     ((Some want)
                       {
                         (set checked (+ checked 1))
@@ -39,21 +39,21 @@
                               0
                               {
                                 (set wrong (+ wrong 1))
-                                (println (strConcat "FAIL " (strConcat (vecGet fields 0) (strConcat ": got " (fmtInt (floatToBits x))))))
+                                (println (concat "FAIL " (concat (vecGet fields 0) (concat ": got " (fmtInt (floatToBits x))))))
                                 0
                               })
                           )
                           ((Err e)
                             {
                               (set wrong (+ wrong 1))
-                              (println (strConcat "FAIL " (strConcat (vecGet fields 0) (strConcat ": " (errorText e)))))
+                              (println (concat "FAIL " (concat (vecGet fields 0) (concat ": " (errorText e)))))
                               0
                             }
                           ))
                       }
                     ))))))
-          (println (strConcat "inputs: " (fmtInt checked)))
-          (println (strConcat "wrong: " (fmtInt wrong)))
+          (println (concat "inputs: " (fmtInt checked)))
+          (println (concat "wrong: " (fmtInt wrong)))
           (if (== wrong 0)
             0
             1)

@@ -33,13 +33,13 @@
               (let ((grew (- (__axiom_mem_stat 0) before)))
                 {
                   (println
-                    (strConcat
+                    (concat
                       "arena flat: "
                       (if (< grew 4096)
                         "yes"
                         "no")))
                   (println
-                    (strConcat
+                    (concat
                       "days summed: "
                       (if (> acc 0)
                         "yes"

@@ -207,7 +207,7 @@
 (:: f0 (-> (Vec String) String Int))
 (fn (f0 v x)
   {
-    (vecPush v (strConcat x "!"))
+    (vecPush v (concat x "!"))
     0
   })
 

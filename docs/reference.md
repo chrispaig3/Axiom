@@ -265,7 +265,7 @@ type. It needs no conversion, and works anywhere a `Str` does:
   {
     (println "Hello, Axiom!")
     (println (fmtInt (strLen "Hello")))
-    (println (strConcat "sum=" (fmtInt 42)))
+    (println (concat "sum=" (fmtInt 42)))
     (println (strSlice "abcdef" 2 3))
     0
   })
@@ -767,7 +767,7 @@ Tested by `tests/stdlib/690-float-repr.ax` and
 `tests/stdlib/691-float-parse.ax`.
 
 `==` and `!=` on two `String`s compare their contents, so
-`(== "ab" (strConcat "a" "b"))` is `true`. The orderings `<`, `>`,
+`(== "ab" (concat "a" "b"))` is `true`. The orderings `<`, `>`,
 `<=` and `>=` don't take strings. Use `strCmp` from `Str` instead.
 
 ### Operator types
@@ -3246,7 +3246,7 @@ A contract may not have effects. It runs on every call, so one that
 allocates or writes would change the program just by being stated.
 That includes `Alloc`. A contract may compare, index, measure and test, but it may
 not build: `vecLen`, `vecGet`, `strLen`, `strEq`, `strByte` and
-`memGetWord` carry no effects, while `strConcat`, `fmtInt` and `vecNew`
+`memGetWord` carry no effects, while `concat`, `fmtInt` and `vecNew`
 carry `Alloc,Mut`. Only a definite effect is refused. Naming a function
 without calling it makes an effect only possible, and naming performs
 nothing.
@@ -4378,7 +4378,7 @@ Name the type with `cast`, and it prints:
 |---|---|
 | `(printlnInt n)` | `(println n)` |
 | `(printInt n)` | `(println n)`, or `(writeStr stdout (format "{n}"))` to keep the line open |
-| `(println (strConcat "n=" (fmtInt n)))` | `(println "n={n}")` |
+| `(println (concat "n=" (fmtInt n)))` | `(println "n={n}")` |
 | `(print "a") (print b) (println c)` | `(println "a{b}{c}")`: one call, one system call |
 | `(print s)`, with no newline | `(writeStr stdout s)` |
 | a literal containing `{` or `}` | double it: `{{`, `}}` |
@@ -4629,10 +4629,10 @@ The compiler checks three rules:
   (let ((mut out ""))
     {
       (region r
-        (strConcat "a" "b"))            ; AX3059: the region answers a String
+        (concat "a" "b"))            ; AX3059: the region answers a String
       (region s
         {
-          (set out (strConcat "a" "b")) ; AX3059: a String stored outside
+          (set out (concat "a" "b")) ; AX3059: a String stored outside
           0
         })
       0
@@ -5098,9 +5098,9 @@ Words, and strings. A binding may read a `String` its parent holds:
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
 (fn (main)
-  (let ((name (strConcat "axi" "om")))
+  (let ((name (concat "axi" "om")))
     (parallel p ((n (strLen name))
-                 (m (strLen (strConcat name "!"))))
+                 (m (strLen (concat name "!"))))
       {
         (println "{n} {m}")
         0
@@ -5733,7 +5733,7 @@ regenerates it on every run to keep it exact.
 |---|---|
 | `Pre` | The prelude macros: `when` and `unless` (conditionals), `deriveEq`, `deriveShow`, `deriveArity`, `showOr`. |
 | `Mem` | Raw memory: `memAlloc`, `memAllocMapped`, `memMarkArray`/`memMarkLeaf`, `memCopy`, `memSet`, `memCmp`, `memGetByte`/`memPutByte`, `memGetWord`/`memSetWord`. |
-| `Str` | The byte view of a `Str`: `strFromLit`, `strAlloc`, `strLen`, `strByte`, `strCmp`, `strEq`, `strSlice`, `strDup`, `strConcat`, `strFindByte`, `strStartsWith`, `strSplit`, `strCStr`, and the `format` macro. String literals are already `Str` values ([Literals](#literals)). |
+| `Str` | The byte view of a `Str`: `strFromLit`, `strAlloc`, `strLen`, `strByte`, `strCmp`, `strEq`, `strSlice`, `strDup`, `concat`, `strFindByte`, `strStartsWith`, `strSplit`, `strCStr`, and the `format` macro. String literals are already `Str` values ([Literals](#literals)). |
 | `Utf8` | The character view of a `Str`: `utf8Len`, `utf8CharAt`, `utf8DecodeAt`, `utf8FromChar`, `utf8Next`, `utf8Offset`, `utf8Slice`, `utf8Width`, `utf8SeqLen`, `utf8IsCont`, `utf8Valid`, `utf8WellFormedAt`. |
 | `Vec` | A growable array, `(Vec a)`: `vecNew`, `vecNewRef`, `vecWithCapacity`, `vecWithCapacityRef`, `vecFree`, `vecPush`, `vecPop`, `vecGet`, `vecSet`, `vecLen`, `vecCap`, `vecLast`, `vecClear`, `vecSort`, `vecSortBy`. `vecGet` traps on an index it can't serve. |
 | `Map` | An open-addressing `Int→Int` hash map: `mapNew`, `mapNewRefVals`, `mapWithCapacity`, `mapWithCapacityRefVals`, `mapFree`, `mapHas`, `mapGet`, `mapGetStr`, `mapInsert`, `mapRemove`, `mapKeys`, `mapLen`, `mapCap`, `mapUsed`. `mapGet` takes the default to answer when a key is absent. |
@@ -6730,7 +6730,7 @@ and the operands of `&&` and `||` are not tail positions.
 A mutual tail call that qualifies is marked `musttail`, LLVM's
 guaranteed tail call. Two shapes stay plain calls and are bounded: a
 callee with a different number of arguments, and a call that hands over
-an owned temporary, such as `(od (+ i 1) (strConcat s "x"))`. LLVM may
+an owned temporary, such as `(od (+ i 1) (concat s "x"))`. LLVM may
 flatten these at `--opt 1` and above, but nothing guarantees it.
 
 So the shape to avoid at scale is recursion whose work happens *after*

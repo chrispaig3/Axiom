@@ -30,7 +30,7 @@
 (pub fn (churn i acc)
   (if (>= i 500)
     acc
-    (let ((s (strConcat "abc" "de")))
+    (let ((s (concat "abc" "de")))
       (let ((n 
         (strKeep
           (cast Foreign s))))

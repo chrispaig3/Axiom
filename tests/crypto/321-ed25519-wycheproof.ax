@@ -40,7 +40,7 @@
       (for line in (katLines "wycheproof-ed25519.txt")
         (let ((f (katFields line)))
           (let (
-            (label (strConcat "tcId " (strConcat (katText f 0) (strConcat " " (katText f 2)))))
+            (label (concat "tcId " (concat (katText f 0) (concat " " (katText f 2)))))
             (want (strEq (katText f 1) "valid"))
             (pk (katBytes f 3))
             (msg (katBytes f 4))

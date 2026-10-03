@@ -91,7 +91,7 @@
 (:: facts (-> Int Int Int String))
 (fn (facts y m d)
   (match (dateNew y m d)
-    ((Ok date) (strConcat (strConcat (dateToString date) " weekday ") (strConcat (fmtInt (dateWeekday date)) (strConcat " day " (fmtInt (dateDayOfYear date))))))
+    ((Ok date) (concat (concat (dateToString date) " weekday ") (concat (fmtInt (dateWeekday date)) (concat " day " (fmtInt (dateDayOfYear date))))))
     ((Err e) (errorText e))))
 
 (:: vecOf7 (-> Int Int Int Int Int Int Int (Vec Int)))
@@ -118,7 +118,7 @@
           {
             (set out (if (== (strLen out) 0)
               (fmtInt y)
-              (strConcat out (strConcat " " (fmtInt y)))))
+              (concat out (concat " " (fmtInt y)))))
             0
           }
           0))

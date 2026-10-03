@@ -64,7 +64,7 @@
 ;
 ; The trailing slash is kept because the answer's job is to be
 ; prefixed onto a name, and `""` is then exactly right for the
-; working-directory case - `(strConcat (pathDir "x.ax") "x.ax")` is
+; working-directory case - `(concat (pathDir "x.ax") "x.ax")` is
 ; `"x.ax"`, with no special case anywhere. This is the rule
 ; `codegen.ax`'s `dirOfPath` established and it does not change here.
 (pub :: pathDir (-> String String))
@@ -96,7 +96,7 @@
     ""
     (if (== (strByte d (- (strLen d) 1)) 47)
       (strDup d)
-      (strConcat d "/"))))
+      (concat d "/"))))
 
 ; `dir` and `name` as one path, with exactly one `/` between them.
 ;
@@ -111,7 +111,7 @@
     (strDup name)
     (if (== (strByte name 0) 47)
       (strDup name)
-      (strConcat (pathWithSlash dir) name))))
+      (concat (pathWithSlash dir) name))))
 
 ; The index of the extension's `.` within `p`, or `None`.
 ;
@@ -168,14 +168,14 @@
 ; path with no extension simply gains one.
 ;
 ; The directory is preserved, which is what separates this from
-; `(strConcat (pathStem p) ext)` - the spelling every driver reaches
+; `(concat (pathStem p) ext)` - the spelling every driver reaches
 ; for first, and the one that quietly writes its output to the
 ; working directory instead of beside its input.
 (pub :: pathReplaceExt (-> String String String))
 (pub fn (pathReplaceExt p ext)
   (match (pathExtIndex p)
-    ((None) (strConcat p ext))
-    ((Some i) (strConcat (strSlice p 0 i) ext))))
+    ((None) (concat p ext))
+    ((Some i) (concat (strSlice p 0 i) ext))))
 
 ; True when `p` starts at the root. A relative path is resolved
 ; against the working directory, which is why `Sys.sysGetCwd` exists.
@@ -216,7 +216,7 @@
         ""
         abs)))
         (if abs
-          (strConcat "/" body)
+          (concat "/" body)
           (if (== (strLen body) 0)
             "."
             body))))))
@@ -277,7 +277,7 @@
 (fn (pathPrependSeg seg acc)
   (if (== (strLen acc) 0)
     (strDup seg)
-    (strConcat (strConcat seg "/") acc)))
+    (concat (concat seg "/") acc)))
 
 ; `skip` unmatched `..`s, each turned into a leading `../` - unless
 ; `abs` says there is a root above which none of them can climb, in

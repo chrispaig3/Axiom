@@ -18,7 +18,7 @@
       (for x in v
         (println (fmtInt x)))
       (for (x k) in v
-        (println (strConcat (fmtInt k) (strConcat ": " (fmtInt x)))))
+        (println (concat (fmtInt k) (concat ": " (fmtInt x)))))
       (for i in 0..in
         (println (fmtInt i)))
       (for i in 9..0 by -4

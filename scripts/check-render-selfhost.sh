@@ -154,7 +154,7 @@
 #      k is the rendering of AXDL line k, and the drill reverses two
 #      blocks of a real golden every run.
 #
-#   C  render.ax:211 `(strConcat msg "\n")` -> `(strConcat msg " [debug:
+#   C  render.ax:211 `(concat msg "\n")` -> `(concat msg " [debug:
 #      span=?]\n")`, welding a debug tag onto every heading. Invisible
 #      because `grep -qF -- "$msg"` means "appears somewhere as a
 #      substring", so anything appended, prepended or interleaved was

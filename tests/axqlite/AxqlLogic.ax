@@ -68,7 +68,7 @@
     "axqNotADatabase"
     (== code axqArithmetic)
     "axqArithmetic"
-    (strConcat "code " (fmtInt code))))
+    (concat "code " (fmtInt code))))
 
 ; A row as a query record writes it.
 (pub :: axqlRowText (-> Row String))
@@ -76,9 +76,9 @@
   (let ((mut line ""))
     {
       (for (v i) in r.values
-        (set line (strConcat
+        (set line (concat
           line
-          (strConcat
+          (concat
             (if (== i 0)
               ""
               ",")
@@ -145,7 +145,7 @@
             {
               (set out (if (strIsEmpty out)
                 l
-                (strConcat out (strConcat "\n" l))))
+                (concat out (concat "\n" l))))
               (set i (+ i 1))
             })))
       (Chunk out i)
@@ -197,20 +197,20 @@
     ((Ok _) 0)
     ((Err e)
       (let ((code (axqlCodeName (errCode e))))
-        (fail run line (strConcat (strConcat "wanted ok, got " code) (strConcat ": " (errorText e)))))
+        (fail run line (concat (concat "wanted ok, got " code) (concat ": " (errorText e)))))
     )))
 
 (:: runStatementError (-> Run Connection Int String String String Int))
 ;@axiom:effect(io)
 (fn (runStatementError run db line want needle text)
   (match (axqExec db text)
-    ((Ok _) (fail run line (strConcat "wanted " (strConcat want ", but it succeeded"))))
+    ((Ok _) (fail run line (concat "wanted " (concat want ", but it succeeded"))))
     ((Err e)
       (let ((got (axqlCodeName (errCode e))))
         (if (! (strEq got want))
-          (fail run line (strConcat (strConcat (strConcat "wanted " want) (strConcat ", got " got)) (strConcat ": " (errorText e))))
+          (fail run line (concat (concat (concat "wanted " want) (concat ", got " got)) (concat ": " (errorText e))))
           (if (&& (! (strIsEmpty needle)) (isNone (strFind (errorText e) needle 0)))
-            (fail run line (strConcat (strConcat "the message doesn't contain \"" needle) (strConcat "\": " (errorText e))))
+            (fail run line (concat (concat "the message doesn't contain \"" needle) (concat "\": " (errorText e))))
             0)))
     )))
 
@@ -218,14 +218,14 @@
 ;@axiom:effect(io)
 (fn (runQuery run db line text rowsort want)
   (match (axqPrepare db text)
-    ((Err e) (fail run line (strConcat "the query failed to prepare: " (errorText e))))
+    ((Err e) (fail run line (concat "the query failed to prepare: " (errorText e))))
     ((Ok st)
       (let ((r (axqQuery st vecNew)))
         {
           (let ((_ (axqFinalize st)))
             0)
           (match r
-            ((Err e) (fail run line (strConcat "the query failed: " (errorText e))))
+            ((Err e) (fail run line (concat "the query failed: " (errorText e))))
             ((Ok rs)
               (let ((got vecNewRef))
                 {
@@ -338,7 +338,7 @@
                     (runRecords run db lines (+ (+ c.next 1) (vecLen want)))
                   })))
             {
-              (fail run (+ i 1) (strConcat "an unknown record: " l))
+              (fail run (+ i 1) (concat "an unknown record: " l))
               (runRecords run db lines (+ i 1))
             })
         }))))
@@ -350,9 +350,9 @@
 ;@axiom:effect(io)
 (pub fn (axqlRunScript dir name)
   (let (
-    (path (strConcat dir (strConcat "/axql/" (strConcat name ".test"))))
+    (path (concat dir (concat "/axql/" (concat name ".test"))))
     (text (readFile path))
-    (dbPath (strConcat name ".db"))
+    (dbPath (concat name ".db"))
   )
     (if (strIsEmpty text)
       {

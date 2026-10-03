@@ -92,7 +92,7 @@
     ; --- 3. three parameters, curried two deep ---
     (println (threeDeep "x" "y"))
     ; --- 4. a genuine reference capture is still counted ---
-    (println (keepsCapture (strConcat "abc" "de")))
+    (println (keepsCapture (concat "abc" "de")))
     ; --- 5. lambda parameters shadowing the function's ---
     (println (shadowed "x" 1))
     0

@@ -192,7 +192,7 @@
     (match (mangleIdxIndexOf idx bares bare)
       ((Some i)
         (if (strEq (vecGet fulls i) bare)
-          (let ((key (strConcat "$" bare)))
+          (let ((key (concat "$" bare)))
             (if (mangleIdxHas idx bares key)
               0
               {
@@ -235,7 +235,7 @@
         (let ((held (vecGet fulls i)))
           (if (strEq held name)
             0
-            (let ((key (strConcat "$" name)))
+            (let ((key (concat "$" name)))
               (if (mangleIdxHas idx bares key)
                 0
                 {
@@ -287,8 +287,8 @@
     (if (== (nodeTag node) TAG_D_FN)
       (let ((bare (nodeAName node)))
         (let ((full 
-          (strConcat
-            (strConcat
+          (concat
+            (concat
               (strDup
                 (cast String modName))
               "$")
@@ -309,8 +309,8 @@
           (memSetWord
             node
             1
-            (strConcat
-              (strConcat
+            (concat
+              (concat
                 (strDup
                   (cast String modName))
                 "$")

@@ -119,14 +119,14 @@
 (fn (main)
   {
     ; --- 1, 2: outside a lambda, then inside one ---
-    (let ((a (strConcat "ab" "cd")))
+    (let ((a (concat "ab" "cd")))
       (let ((p 
         (cast Int (wrap a))))
         {
           (println (shapeOf p))
           (println (payloadRc p))
         }))
-    (let ((b (strConcat "ab" "cd")))
+    (let ((b (concat "ab" "cd")))
       (let ((p 
         (cast Int (viaLam b))))
         {
@@ -134,8 +134,8 @@
           (println (payloadRc p))
         }))
     ; --- 3: two reference fields, plain then one lambda deep ---
-    (let ((c (strConcat "ef" "gh")))
-      (let ((d (strConcat "ij" "kl")))
+    (let ((c (concat "ef" "gh")))
+      (let ((d (concat "ij" "kl")))
         {
           (println
             (shapeOf

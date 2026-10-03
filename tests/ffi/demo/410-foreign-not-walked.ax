@@ -42,7 +42,7 @@
     (counterValue h)
     ; The record dies here. Its release walk must follow words 0
     ; and 2 and must NOT touch word 1.
-    (let ((s (Session (strConcat "a" "b") h (strConcat "c" "d"))))
+    (let ((s (Session (concat "a" "b") h (concat "c" "d"))))
       (if (== (strLen s.before) 2)
         (roundTrip h (+ i 1))
         (- 0 1)))))

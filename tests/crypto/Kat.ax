@@ -41,7 +41,7 @@
 ;@axiom:effect(io)
 (pub fn (katLines name)
   (let (
-    (text (readFile (strConcat (katDir) (strConcat "/" name))))
+    (text (readFile (concat (katDir) (concat "/" name))))
     (out vecNew)
   )
     {
@@ -133,7 +133,7 @@
 (pub fn (tallyBytes t want got label)
   (if (strEq want got)
     (tallyCheck t true label)
-    (tallyCheck t false (strConcat label (strConcat "\n  want " (strConcat (hexEncode want) (strConcat "\n  got  " (hexEncode got))))))))
+    (tallyCheck t false (concat label (concat "\n  want " (concat (hexEncode want) (concat "\n  got  " (hexEncode got))))))))
 
 ; The suite's line on stdout and its count on stderr. Answers 1 when
 ; the suite failed or ran nothing, 0 otherwise, so `main` can sum.

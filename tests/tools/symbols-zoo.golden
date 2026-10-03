@@ -66,7 +66,7 @@ F strCmp stdlib/Str.ax:202:9-15 "(String -> (String -> Int))" @7d1efca2bc01048e 
 F strEq stdlib/Str.ax:237:9-14 "(String -> (String -> Bool))" @4ee168f65eaa3fec #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #unsafe=trusted
 F strSlice stdlib/Str.ax:259:9-17 "(String -> (Int -> (Int -> String)))" @c1ced650f3717fa8 #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe #unsafe=trusted
 F strDup stdlib/Str.ax:285:9-15 "(String -> String)" @a890bfa2d4a6809f #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe #unsafe=trusted
-F strConcat stdlib/Str.ax:296:9-18 "(String -> (String -> String))" @22972c7a28e75fd2 #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe #unsafe=trusted
+F concat stdlib/Str.ax:296:9-18 "(String -> (String -> String))" @22972c7a28e75fd2 #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe #unsafe=trusted
 F strFindByte stdlib/Str.ax:342:9-20 "(String -> (Int -> (Int -> Option Int)))" @38cfa6a2400e724f #restrict=no-io,no-alloc,no-foreign
 F strStartsWith stdlib/Str.ax:360:9-22 "(String -> (String -> Bool))" @6f8a115feaeda283 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #unsafe=trusted
 F strIsDigit stdlib/Str.ax:390:9-19 "(Int -> Bool)" @3896c3e2e54af473 #restrict=no-io,no-alloc,no-foreign

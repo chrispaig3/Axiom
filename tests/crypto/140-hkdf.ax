@@ -126,7 +126,7 @@
             )
               (if valid
                 {
-                  (tallyBytes wy okm (derive alg 0 ikm salt info size) (strConcat "valid, size " (katText f 0)))
+                  (tallyBytes wy okm (derive alg 0 ikm salt info size) (concat "valid, size " (katText f 0)))
                   (tallyBytes wy okm (derive alg 1 ikm salt info size) "extract then expand")
                 }
                 (match (secretFromString ikm)
@@ -136,7 +136,7 @@
                         (if (== alg 256)
                           (isErrS (hkdfSha256 k salt info size))
                           (isErrS (hkdfSha512 k salt info size)))
-                        (strConcat "an output of " (strConcat (katText f 0) " bytes is refused")))
+                        (concat "an output of " (concat (katText f 0) " bytes is refused")))
                       (secretWipe k)
                     })
                   ((Err _) (tallyCheck wy false "secret"))))))))
@@ -151,7 +151,7 @@
             (okm (katBytes f 5))
           )
             {
-              (tallyBytes diff okm (derive alg 0 ikm salt info len) (strConcat "HKDF-SHA-" (katText f 0)))
+              (tallyBytes diff okm (derive alg 0 ikm salt info len) (concat "HKDF-SHA-" (katText f 0)))
               (tallyBytes paths okm (derive alg 1 ikm salt info len) "extract then expand")
               (tallyBytes paths okm (derive alg 2 ikm salt info len) "by address")
             })))

@@ -7,7 +7,7 @@
 ;@axiom:effect(io)
 (pub fn (main)
   {
-    (println (strConcat "hello" " world"))
+    (println (concat "hello" " world"))
     0
   })
 ; expect 0

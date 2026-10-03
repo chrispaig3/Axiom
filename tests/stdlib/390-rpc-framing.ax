@@ -33,13 +33,13 @@
 (import Str)
 
 ; `s` doubled until it covers `n` bytes, then cut to exactly `n`.
-; Repeated `strConcat` of a fixed chunk would be quadratic, and this
+; Repeated `concat` of a fixed chunk would be quadratic, and this
 ; case wants 200,000 bytes.
 (:: repeatTo (-> String Int String))
 (fn (repeatTo s n)
   (if (>= (strLen s) n)
     (strSlice s 0 n)
-    (repeatTo (strConcat s s) n)))
+    (repeatTo (concat s s) n)))
 
 ; Write `Content-Length: <header>\r\n\r\n<body>` to a scratch file,
 ; frame ONE message out of it, and print what came back together with
@@ -51,7 +51,7 @@
 (fn (frameOne label header body)
   (let ((path "axiom-rpc-framing.tmp"))
     {
-      (let ((_ (writeFile path (strConcat (strConcat (strConcat "Content-Length: " header) "\r\n\r\n") body)))) 0)
+      (let ((_ (writeFile path (concat (concat (concat "Content-Length: " header) "\r\n\r\n") body)))) 0)
       (match (openPath path oRdonly)
         ((Err e) (die "open for read failed" 1))
         ((Ok fd)

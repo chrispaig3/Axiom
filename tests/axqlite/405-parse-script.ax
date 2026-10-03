@@ -23,7 +23,7 @@
         0
       }
     )
-    ((Err e) (println (strConcat "error: " (errMessage e))))))
+    ((Err e) (println (concat "error: " (errMessage e))))))
 
 (:: main Int)
 ;@axiom:effect(io)

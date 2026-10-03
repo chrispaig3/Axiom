@@ -127,27 +127,27 @@
 (fn (verifyTree t p r root m label)
   {
     (match (readTree p root)
-      ((Ok got) (check t (sameModel got m) (strConcat label ": forward scan")))
-      ((Err e) (check t false (strConcat label (strConcat ": forward scan: " (errorText e))))))
+      ((Ok got) (check t (sameModel got m) (concat label ": forward scan")))
+      ((Err e) (check t false (concat label (concat ": forward scan: " (errorText e))))))
     (match (scanRange
       p
       root
       None
       None
       false)
-      ((Ok got) (check t (sameModel got (reversed m)) (strConcat label ": backward scan")))
-      ((Err e) (check t false (strConcat label ": backward scan"))))
+      ((Ok got) (check t (sameModel got (reversed m)) (concat label ": backward scan")))
+      ((Err e) (check t false (concat label ": backward scan"))))
     (match (btreeCount p root)
-      ((Ok n) (check t (== n (modelLen m)) (strConcat label ": count")))
-      ((Err e) (check t false (strConcat label ": count"))))
+      ((Ok n) (check t (== n (modelLen m)) (concat label ": count")))
+      ((Err e) (check t false (concat label ": count"))))
     (match (btreeFirstKey p root)
-      ((Ok (Some k)) (check t (&& (> (modelLen m) 0) (strEq k (vecGet m.keys 0))) (strConcat label ": first key")))
-      ((Ok (None)) (check t (== (modelLen m) 0) (strConcat label ": no first key")))
-      ((Err e) (check t false (strConcat label ": first key"))))
+      ((Ok (Some k)) (check t (&& (> (modelLen m) 0) (strEq k (vecGet m.keys 0))) (concat label ": first key")))
+      ((Ok (None)) (check t (== (modelLen m) 0) (concat label ": no first key")))
+      ((Err e) (check t false (concat label ": first key"))))
     (match (btreeLastKey p root)
-      ((Ok (Some k)) (check t (&& (> (modelLen m) 0) (strEq k (vecLast m.keys))) (strConcat label ": last key")))
-      ((Ok (None)) (check t (== (modelLen m) 0) (strConcat label ": no last key")))
-      ((Err e) (check t false (strConcat label ": last key"))))
+      ((Ok (Some k)) (check t (&& (> (modelLen m) 0) (strEq k (vecLast m.keys))) (concat label ": last key")))
+      ((Ok (None)) (check t (== (modelLen m) 0) (concat label ": no last key")))
+      ((Err e) (check t false (concat label ": last key"))))
     (for i in 0..4
       (let (
         (lo (randomBound r m))
@@ -161,16 +161,16 @@
               lo
               hi
               true)
-              ((Ok got) (check t (sameModel got want) (strConcat label ": range forward")))
-              ((Err e) (check t false (strConcat label ": range forward"))))
+              ((Ok got) (check t (sameModel got want) (concat label ": range forward")))
+              ((Err e) (check t false (concat label ": range forward"))))
             (match (scanRange
               p
               root
               lo
               hi
               false)
-              ((Ok got) (check t (sameModel got (reversed want)) (strConcat label ": range backward")))
-              ((Err e) (check t false (strConcat label ": range backward"))))
+              ((Ok got) (check t (sameModel got (reversed want)) (concat label ": range backward")))
+              ((Err e) (check t false (concat label ": range backward"))))
           })))
     0
   })
@@ -193,7 +193,7 @@
         (if (< op 45)
           (match (btreePut p root k v)
             ((Ok isNew) (check t (boolEq isNew (modelPut m k v)) "put answers whether the key was new"))
-            ((Err e) (check t false (strConcat "put: " (errorText e)))))
+            ((Err e) (check t false (concat "put: " (errorText e)))))
           (if (< op 55)
             (let ((had (isSome (modelGet m k))))
               (match (btreeInsertNew p root k v)
@@ -205,11 +205,11 @@
                     (check t (boolEq added (! had)) "insertNew adds only a new key")
                   }
                 )
-                ((Err e) (check t false (strConcat "insertNew: " (errorText e))))))
+                ((Err e) (check t false (concat "insertNew: " (errorText e))))))
             (if (< op 75)
               (match (btreeDelete p root k)
                 ((Ok was) (check t (boolEq was (modelDelete m k)) "delete answers whether the key was there"))
-                ((Err e) (check t false (strConcat "delete: " (errorText e)))))
+                ((Err e) (check t false (concat "delete: " (errorText e)))))
               (match (btreeGet p root k)
                 ((Ok got)
                   (match (modelGet m k)
@@ -223,7 +223,7 @@
                     )
                     ((None) (check t (isNone got) "get finds nothing")))
                 )
-                ((Err e) (check t false (strConcat "get: " (errorText e))))))))))))
+                ((Err e) (check t false (concat "get: " (errorText e))))))))))))
 
 (:: roots3 (-> Int Int (Vec Int)))
 (fn (roots3 a b)
@@ -322,7 +322,7 @@
                       mb
                       "index tree")
                     (let ((c (btreeCheck p (roots3 ra rb))))
-                      (check t (== (codeOf c) 0) (strConcat "btreeCheck: " (errText c))))
+                      (check t (== (codeOf c) 0) (concat "btreeCheck: " (errText c))))
                     (check t (== (codeOf (pagerEndRead p)) 0) "end read")
                   }))
               (let (

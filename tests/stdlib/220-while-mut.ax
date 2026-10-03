@@ -92,7 +92,7 @@
     {
       (while (< i n)
         {
-          (set out (strConcat out "x"))
+          (set out (concat out "x"))
           (set i (+ i 1))
         })
       (strLen out)

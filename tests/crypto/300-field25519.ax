@@ -77,7 +77,7 @@
       (for line in (katLines "curve25519-field.txt")
         (let ((f (katFields line)))
           (let ((op (katText f 0)) (a (katBytes f 1)) (b (katBytes f 2)) (want (katBytes f 3)))
-            (let ((label (strConcat op (strConcat " " (katText f 1)))))
+            (let ((label (concat op (concat " " (katText f 1)))))
               {
                 (tallyBytes t want (compute op a b false) label)
                 (if (|| (strEq op "isneg") (|| (strEq op "iszero") (strEq op "canon")))

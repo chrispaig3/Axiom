@@ -244,7 +244,7 @@
                   {
                     (set out (if (== (strLen out) 0)
                       t
-                      (strConcat (strConcat out " ") t)))
+                      (concat (concat out " ") t)))
                     0
                   })))
             (set j (+ j 1))
@@ -334,7 +334,7 @@
     {
       (while (< i n)
         {
-          (set out (strConcat
+          (set out (concat
             out
             (if (== (strByte s i) 124)
               "\\|"
@@ -362,7 +362,7 @@
     (let ((dir (trimSlash (pathDir path))))
       (if (strEq (pathBase dir) "stdlib")
         stem
-        (strConcat (strConcat (pathBase dir) ".") stem)))))
+        (concat (concat (pathBase dir) ".") stem)))))
 
 (:: upToDot (-> String String))
 (fn (upToDot s)
@@ -407,7 +407,7 @@
                       (let ((dn (declName line kind)))
                         {
                           (set count (+ count 1))
-                          (set rows (strConcat
+                          (set rows (concat
                             rows
                             (renderRow
                               kind
@@ -426,30 +426,30 @@
                         })))
                   (set i (+ i 1))
                 }))
-            (strConcat
-              (strConcat (strConcat (strConcat "## `" name) "`\n\n") (strConcat (strConcat "`" path) (strConcat "` — " (strConcat (fmtInt count) " public names\n\n"))))
+            (concat
+              (concat (concat (concat "## `" name) "`\n\n") (concat (concat "`" path) (concat "` — " (concat (fmtInt count) " public names\n\n"))))
               (if (== count 0)
                 ""
-                (strConcat "| Name | Kind | Type | Effects | Summary |\n|---|---|---|---|---|\n" (strConcat rows "\n"))))
+                (concat "| Name | Kind | Type | Effects | Summary |\n|---|---|---|---|---|\n" (concat rows "\n"))))
           })))))
 
 (:: renderRow (-> String String String String String String))
 (fn (renderRow kind name ty effects summary)
-  (strConcat
-    (strConcat (strConcat "| `" (cell name)) (strConcat "` | " kind))
-    (strConcat
-      (strConcat
+  (concat
+    (concat (concat "| `" (cell name)) (concat "` | " kind))
+    (concat
+      (concat
         " | "
         (if (== (strLen ty) 0)
           ""
-          (strConcat (strConcat "`" (cell ty)) "`")))
-      (strConcat
-        (strConcat
+          (concat (concat "`" (cell ty)) "`")))
+      (concat
+        (concat
           " | "
           (if (== (strLen effects) 0)
             ""
-            (strConcat (strConcat "`" (cell effects)) "`")))
-        (strConcat (strConcat " | " (cell summary)) " |\n")))))
+            (concat (concat "`" (cell effects)) "`")))
+        (concat (concat " | " (cell summary)) " |\n")))))
 
 ; The reference states one number per module and this writes it, with
 ; `Fmt.fmtInt`.
@@ -466,10 +466,10 @@
           (mut out "")
         )
           {
-            (set out (strConcat out header))
+            (set out (concat out header))
             (while (< i argc)
               {
-                (set out (strConcat out (renderModule (sysArg i) axsym)))
+                (set out (concat out (renderModule (sysArg i) axsym)))
                 (set i (+ i 1))
               })
             (writeStr stdout out)

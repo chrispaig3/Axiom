@@ -29,7 +29,7 @@
   (if (>= i limit)
     0
     {
-      (histRecord h (strConcat (strConcat "(entry " tag) (strConcat " " (strConcat (fmtInt i) (strConcat pad ")")))))
+      (histRecord h (concat (concat "(entry " tag) (concat " " (concat (fmtInt i) (concat pad ")")))))
       (tagRecord
         h
         tag

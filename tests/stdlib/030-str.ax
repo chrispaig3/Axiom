@@ -11,8 +11,8 @@
     {
       (println (strLen hello))
       (println (strLen ""))
-      (println (strConcat hello world))
-      (println (strConcat (strConcat hello ", ") world))
+      (println (concat hello world))
+      (println (concat (concat hello ", ") world))
       (println (strByte hello 0))
       (println (strByte hello 4))
       (println (strByte hello 5))
@@ -23,7 +23,7 @@
       (println (strCmp hello hello))
       (println (strCmp hello world))
       (println (strCmp world hello))
-      (println (strCmp hello (strConcat hello world)))
+      (println (strCmp hello (concat hello world)))
       ; `strFindByte` answers `(Option Int)` since 0.7.5. The three
       ; prints below keep the numbers this fixture always asserted, by
       ; folding `None` back to -1 at the call - and the two after them

@@ -73,9 +73,9 @@
   (match v
     ((VNull) "NULL")
     ((VInt n) (fmtInt n))
-    ((VReal x) (strConcat (floatToString x) "r"))
-    ((VText s) (strConcat "'" (strConcat s "'")))
-    ((VBlob s) (strConcat "x'" (strConcat (hexOf s) "'")))))
+    ((VReal x) (concat (floatToString x) "r"))
+    ((VText s) (concat "'" (concat s "'")))
+    ((VBlob s) (concat "x'" (concat (hexOf s) "'")))))
 
 ; Values equal as stored: same type, and for a REAL the same bits.
 (pub :: sameValue (-> Value Value Bool))
@@ -142,7 +142,7 @@
       0
       {
         (set t.failed (+ t.failed 1))
-        (println (strConcat "FAIL " label))
+        (println (concat "FAIL " label))
         0
       })
   })

@@ -29,7 +29,7 @@
   (let ((got (pagerChecksum (strData s) (strLen s) seed)))
     {
       (println
-        (strConcat
+        (concat
           label
           (if (== got want)
             ": ok"

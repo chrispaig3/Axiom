@@ -16,7 +16,7 @@
 ;@axiom:effect(io)
 (fn (say ok label)
   (println
-    (strConcat
+    (concat
       (if ok
         "ok   "
         "FAIL ")
@@ -32,33 +32,33 @@
 ;@axiom:effect(io)
 (fn (roundTrip family text)
   (match (andThen (socketAddrParse text) tcpListen)
-    ((Err e) (say false (strConcat family (strConcat " listen: " (errorText e)))))
+    ((Err e) (say false (concat family (concat " listen: " (errorText e)))))
     ((Ok lsn)
       (match (tcpListenerAddr lsn)
-        ((Err e) (say false (strConcat family " listener address")))
+        ((Err e) (say false (concat family " listener address")))
         ((Ok bound)
           {
-            (say (> (socketAddrPort bound) 0) (strConcat family " port 0 gets a real port"))
+            (say (> (socketAddrPort bound) 0) (concat family " port 0 gets a real port"))
             (match (tcpConnect bound)
-              ((Err e) (say false (strConcat family (strConcat " connect: " (errorText e)))))
+              ((Err e) (say false (concat family (concat " connect: " (errorText e)))))
               ((Ok client)
                 (match (tcpAccept lsn)
-                  ((Err e) (say false (strConcat family " accept")))
+                  ((Err e) (say false (concat family " accept")))
                   ((Ok server)
                     {
-                      (say (== (unwrapOr (tcpWrite client "ping") -1) 4) (strConcat family " client writes 4 bytes"))
-                      (say (strEq (unwrapOr (tcpReadSome server 64) "") "ping") (strConcat family " server reads them"))
-                      (say (isOk (tcpWrite server "pong and more")) (strConcat family " server answers"))
+                      (say (== (unwrapOr (tcpWrite client "ping") -1) 4) (concat family " client writes 4 bytes"))
+                      (say (strEq (unwrapOr (tcpReadSome server 64) "") "ping") (concat family " server reads them"))
+                      (say (isOk (tcpWrite server "pong and more")) (concat family " server answers"))
                       (let ((_ (tcpShutdown server shutWrite)))
                         0)
-                      (say (strEq (unwrapOr (tcpReadAll client) "") "pong and more") (strConcat family " client reads to end of stream"))
+                      (say (strEq (unwrapOr (tcpReadAll client) "") "pong and more") (concat family " client reads to end of stream"))
                       (let (
                         (peer (unwrapOr (tcpPeerAddr server) bound))
                         (mine (unwrapOr (tcpLocalAddr client) bound))
                       )
-                        (say (strEq (socketAddrText peer) (socketAddrText mine)) (strConcat family " the server's peer is the client's own address")))
-                      (say (isOk (tcpSetNoDelay client true)) (strConcat family " TCP_NODELAY"))
-                      (say (isOk (tcpSetReadTimeout client 250000)) (strConcat family " read timeout"))
+                        (say (strEq (socketAddrText peer) (socketAddrText mine)) (concat family " the server's peer is the client's own address")))
+                      (say (isOk (tcpSetNoDelay client true)) (concat family " TCP_NODELAY"))
+                      (say (isOk (tcpSetReadTimeout client 250000)) (concat family " read timeout"))
                       (let (
                         (_ (tcpClose server))
                         (_ (tcpClose client))
@@ -153,7 +153,7 @@
       })
       (say
         (strEq (parsed bad) "refused")
-        (strConcat
+        (concat
           "refuses "
           (if (== (strLen bad) 0)
             "the empty string"

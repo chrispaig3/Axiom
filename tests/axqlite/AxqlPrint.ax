@@ -25,7 +25,7 @@
       (for (p i) in parts
         (set out (if (== i 0)
           p
-          (strConcat out (strConcat sep p)))))
+          (concat out (concat sep p)))))
       out
     }))
 
@@ -35,18 +35,18 @@
   (match e
     ((ELit v) (axqValueText v))
     ((EName n _) (axqlQuoteName n))
-    ((ECol i) (strConcat "#" (fmtInt i)))
-    ((EParam i _) (strConcat "?" (fmtInt (+ i 1))))
-    ((ENeg x _) (strConcat "(- " (strConcat (axqlPrintExpr x) ")")))
-    ((ENot x) (strConcat "(NOT " (strConcat (axqlPrintExpr x) ")")))
+    ((ECol i) (concat "#" (fmtInt i)))
+    ((EParam i _) (concat "?" (fmtInt (+ i 1))))
+    ((ENeg x _) (concat "(- " (concat (axqlPrintExpr x) ")")))
+    ((ENot x) (concat "(NOT " (concat (axqlPrintExpr x) ")")))
     ((EIsNull x neg)
-      (strConcat
+      (concat
         (if neg
           "(IS NOT NULL "
           "(IS NULL ")
-        (strConcat (axqlPrintExpr x) ")"))
+        (concat (axqlPrintExpr x) ")"))
     )
-    ((EBin op l r _) (strConcat (strConcat (strConcat "(" (opText op)) " ") (strConcat (strConcat (axqlPrintExpr l) " ") (strConcat (axqlPrintExpr r) ")"))))))
+    ((EBin op l r _) (concat (concat (concat "(" (opText op)) " ") (concat (concat (axqlPrintExpr l) " ") (concat (axqlPrintExpr r) ")"))))))
 
 (:: printNames (-> (Vec String) String))
 (fn (printNames ns)
@@ -54,7 +54,7 @@
     {
       (for n in ns
         (vecPush out (axqlQuoteName n)))
-      (strConcat "(" (strConcat (joinWith out " ") ")"))
+      (concat "(" (concat (joinWith out " ") ")"))
     }))
 
 (:: printExprs (-> (Vec Expr) String))
@@ -63,15 +63,15 @@
     {
       (for e in es
         (vecPush out (axqlPrintExpr e)))
-      (strConcat "(" (strConcat (joinWith out " ") ")"))
+      (concat "(" (concat (joinWith out " ") ")"))
     }))
 
 (:: printColumn (-> ColumnDef String))
 (fn (printColumn c)
-  (strConcat
-    (strConcat (strConcat "(" (axqlQuoteName c.name)) (strConcat " " (typeName c.ctype)))
-    (strConcat
-      (strConcat
+  (concat
+    (concat (concat "(" (axqlQuoteName c.name)) (concat " " (typeName c.ctype)))
+    (concat
+      (concat
         (if c.notNull
           " NOT NULL"
           "")
@@ -95,7 +95,7 @@
             parts
             (if (strIsEmpty item.alias)
               (axqlPrintExpr item.expr)
-              (strConcat (strConcat "(AS " (axqlPrintExpr item.expr)) (strConcat (strConcat " " (axqlQuoteName item.alias)) ")"))))))
+              (concat (concat "(AS " (axqlPrintExpr item.expr)) (concat (concat " " (axqlQuoteName item.alias)) ")"))))))
       (if (strIsEmpty s.from)
         parts
         {
@@ -116,8 +116,8 @@
           (for t in s.orderBy
             (vecPush
               parts
-              (strConcat
-                (strConcat "(" (axqlPrintExpr t.expr))
+              (concat
+                (concat "(" (axqlPrintExpr t.expr))
                 (if t.desc
                   " DESC)"
                   " ASC)"))))
@@ -139,7 +139,7 @@
           }
         )
         ((None) parts))
-      (strConcat "(" (strConcat (joinWith parts " ") ")"))
+      (concat "(" (concat (joinWith parts " ") ")"))
     }))
 
 ; A statement as a tree.
@@ -151,72 +151,72 @@
         {
           (for c in cols
             (vecPush cs (printColumn c)))
-          (strConcat
-            (strConcat
+          (concat
+            (concat
               (if ine
                 "(CREATE TABLE IF NOT EXISTS "
                 "(CREATE TABLE ")
               (axqlQuoteName name))
-            (strConcat (strConcat " " (joinWith cs " ")) ")"))
+            (concat (concat " " (joinWith cs " ")) ")"))
         })
     )
     ((SDropTable ie name)
-      (strConcat
+      (concat
         (if ie
           "(DROP TABLE IF EXISTS "
           "(DROP TABLE ")
-        (strConcat (axqlQuoteName name) ")"))
+        (concat (axqlQuoteName name) ")"))
     )
     ((SCreateIndex unique ine name table cols)
-      (strConcat
-        (strConcat
-          (strConcat
+      (concat
+        (concat
+          (concat
             "(CREATE "
             (if unique
               "UNIQUE INDEX "
               "INDEX "))
-          (strConcat
+          (concat
             (if ine
               "IF NOT EXISTS "
               "")
             (axqlQuoteName name)))
-        (strConcat (strConcat " ON " (axqlQuoteName table)) (strConcat (strConcat " " (printNames cols)) ")")))
+        (concat (concat " ON " (axqlQuoteName table)) (concat (concat " " (printNames cols)) ")")))
     )
     ((SDropIndex ie name)
-      (strConcat
+      (concat
         (if ie
           "(DROP INDEX IF EXISTS "
           "(DROP INDEX ")
-        (strConcat (axqlQuoteName name) ")"))
+        (concat (axqlQuoteName name) ")"))
     )
     ((SInsert table cols rows)
       (let ((rs vecNewRef))
         {
           (for r in rows
             (vecPush rs (printExprs r)))
-          (strConcat (strConcat (strConcat "(INSERT INTO " (axqlQuoteName table)) (strConcat " " (printNames cols))) (strConcat (strConcat " VALUES " (joinWith rs " ")) ")"))
+          (concat (concat (concat "(INSERT INTO " (axqlQuoteName table)) (concat " " (printNames cols))) (concat (concat " VALUES " (joinWith rs " ")) ")"))
         })
     )
     ((SUpdate table cols exprs w)
       (let ((sets vecNewRef))
         {
           (for (c i) in cols
-            (vecPush sets (strConcat (strConcat (strConcat "(= " (axqlQuoteName c)) " ") (strConcat (axqlPrintExpr (vecGet exprs i)) ")"))))
-          (strConcat
-            (strConcat (strConcat "(UPDATE " (axqlQuoteName table)) (strConcat " SET " (joinWith sets " ")))
-            (strConcat
+            (vecPush sets (concat (concat (concat "(= " (axqlQuoteName c)) " ") (concat (axqlPrintExpr (vecGet exprs i)) ")"))))
+          (concat
+            (concat (concat "(UPDATE " (axqlQuoteName table)) (concat " SET " (joinWith sets " ")))
+            (concat
               (match w
-                ((Some e) (strConcat " WHERE " (axqlPrintExpr e)))
+                ((Some e) (concat " WHERE " (axqlPrintExpr e)))
                 ((None) ""))
               ")"))
         })
     )
     ((SDelete table w)
-      (strConcat
-        (strConcat "(DELETE FROM " (axqlQuoteName table))
-        (strConcat
+      (concat
+        (concat "(DELETE FROM " (axqlQuoteName table))
+        (concat
           (match w
-            ((Some e) (strConcat " WHERE " (axqlPrintExpr e)))
+            ((Some e) (concat " WHERE " (axqlPrintExpr e)))
             ((None) ""))
           ")"))
     )
@@ -231,10 +231,10 @@
 (pub fn (axqlPrintParse text)
   (match (axqlParse text)
     ((Ok p)
-      (strConcat
-        (strConcat (axqlPrintStmt p.stmt) (strConcat " params=" (fmtInt p.paramCount)))
+      (concat
+        (concat (axqlPrintStmt p.stmt) (concat " params=" (fmtInt p.paramCount)))
         (if (== (vecLen p.paramNames) 0)
           ""
-          (strConcat " names=" (joinWith p.paramNames ","))))
+          (concat " names=" (joinWith p.paramNames ","))))
     )
-    ((Err e) (strConcat "error: " (errMessage e)))))
+    ((Err e) (concat "error: " (errMessage e)))))

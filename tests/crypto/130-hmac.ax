@@ -217,7 +217,7 @@
           (let ((alg (katInt f 0)) (key (katBytes f 1)) (msg (katBytes f 2)) (tag (katBytes f 3)))
             (let ((r (macs alg key msg 7)))
               {
-                (tallyBytes rfc tag (strSlice r.oneShot 0 (strLen tag)) (strConcat "HMAC-SHA-" (katText f 0)))
+                (tallyBytes rfc tag (strSlice r.oneShot 0 (strLen tag)) (concat "HMAC-SHA-" (katText f 0)))
                 (tallyBytes rfc tag (strSlice r.raw 0 (strLen tag)) "by address")
                 0
               }))))
@@ -248,7 +248,7 @@
           (let ((alg (katInt f 0)) (key (katBytes f 1)) (msg (katBytes f 2)) (tag (katBytes f 3)))
             (let ((r (macs alg key msg (+ 1 (% (* row 7) 150)))))
               {
-                (tallyBytes diff tag r.oneShot (strConcat "HMAC-SHA-" (katText f 0)))
+                (tallyBytes diff tag r.oneShot (concat "HMAC-SHA-" (katText f 0)))
                 (tallyBytes paths tag r.streamed "streamed")
                 (tallyBytes paths tag r.copied "copied state")
                 (tallyBytes paths tag r.raw "by address")
@@ -267,7 +267,7 @@
                   (tallyCheck api (hmacSha256Verify k "message" tag) "a good tag verifies")
                   (tallyCheck api (! (hmacSha256Verify k "messagf" tag)) "another message does not")
                   (tallyCheck api (! (hmacSha256Verify k "message" (strSlice tag 0 16))) "a truncated tag is refused")
-                  (tallyCheck api (! (hmacSha256Verify k "message" (strConcat tag "x"))) "a long tag is refused")
+                  (tallyCheck api (! (hmacSha256Verify k "message" (concat tag "x"))) "a long tag is refused")
                   (tallyCheck api (! (hmacSha256Verify k "message" (bytesNew 32))) "a zero tag is refused")
                   (match (hmacSha256KeyExport k)
                     ((Ok e)

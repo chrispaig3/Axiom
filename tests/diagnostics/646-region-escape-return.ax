@@ -22,7 +22,7 @@
 
 (:: fresh (-> (String @r) (String @r)))
 (fn (fresh a)
-  (strConcat a "x"))
+  (concat a "x"))
 
 (:: same (-> (String @r) (String @r)))
 (fn (same a)

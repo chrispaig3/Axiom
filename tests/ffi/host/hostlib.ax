@@ -132,7 +132,7 @@
 
 (pub :: namedBump (-> Named Named))
 (pub fn (namedBump n)
-  (Named (strConcat n.name "!") (+ n.score 1)))
+  (Named (concat n.name "!") (+ n.score 1)))
 
 (pub data List a
   (Nil)

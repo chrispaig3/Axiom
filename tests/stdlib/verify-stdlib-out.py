@@ -33,7 +33,7 @@ Three independent classes of claim, all anchored in the fixture's bytes:
   MODEL       A second implementation, in Python, of the small part of
               `Str`/`Utf8` whose answer follows from the literal alone.
               `(printlnInt (strLen "héllo"))` must print 6 because the
-              literal is six bytes; `(println (strConcat hello world))`
+              literal is six bytes; `(println (concat hello world))`
               must print `helloworld` because that is what those two
               literals concatenated are. It reaches six cases that carry
               no annotation at all - 010-hello, 020-fmt, 030-str,
@@ -362,7 +362,7 @@ def ev(node, env):
             return ev(inner[2][1], env)
         return UNMODELLED
 
-    if h == 'strConcat' and len(args) == 2:
+    if h == 'concat' and len(args) == 2:
         x, y = a(0), a(1)
         if isinstance(x, Str) and isinstance(y, Str):
             return Str(x.b + y.b)
@@ -503,7 +503,7 @@ def rendered(node, env):
         return None
     if h == 'println' and arg[0] == 'str':
         # A BARE literal is the format string. Anything else - a
-        # `strConcat`, a binding - reaches `println` as a value and is
+        # `concat`, a binding - reaches `println` as a value and is
         # printed byte for byte, braces included.
         text = defmt(text)
         if text is None:

@@ -58,12 +58,12 @@
 
 (:: t0 (-> Int Int))
 (fn (t0 i)
-  (let ((r (Aliased i (strConcat "nm-" (fmtInt i)))))
+  (let ((r (Aliased i (concat "nm-" (fmtInt i)))))
     (strLen r.name)))
 
 (:: t1 (-> Int Int))
 (fn (t1 i)
-  (let ((r (Plain i (strConcat "nm-" (fmtInt i)))))
+  (let ((r (Plain i (concat "nm-" (fmtInt i)))))
     (strLen r.name)))
 
 (:: run (-> Int Int Int))

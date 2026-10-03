@@ -223,10 +223,10 @@ cat > "$work/esc.ax" <<'EOF'
     {
       (region r
         {
-          (set out (strConcat "hello" " world"))
+          (set out (concat "hello" " world"))
           0
         })
-      (let ((fresh (strConcat "XXXXX" "XXXXXX")))
+      (let ((fresh (concat "XXXXX" "XXXXXX")))
         {
           (println out)
           (strLen fresh)

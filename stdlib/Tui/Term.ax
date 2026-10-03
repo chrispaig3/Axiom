@@ -358,7 +358,7 @@
 
 ; ------------------------------------------------------------------
 ; One write per keystroke: join the editor's fragments and send them.
-; A folded `strConcat` would peak at the sum of its intermediates -
+; A folded `concat` would peak at the sum of its intermediates -
 ; the shape `tuiCat` exists to avoid - and a write
 ; per fragment would put a syscall between the erase and the redraw,
 ; which is visible as flicker.

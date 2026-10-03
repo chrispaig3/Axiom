@@ -4,7 +4,7 @@
 ; because this repository got the answer wrong in a comment twice.
 ;
 ; The lowering invents two free identifiers that no template spells:
-; the rendering call for a hole, and the `strConcat` that joins a
+; the rendering call for a hole, and the `concat` that joins a
 ; literal run to it. Both were capturable when this file was written.
 ; NEITHER IS NOW, and they closed separately, which is why both are
 ; measured here:
@@ -28,20 +28,20 @@
 ;     Without this bit, bit 1 would also pass if `show` had simply
 ;     stopped compiling.
 ;
-;  3  `strConcat` IS NOT CAPTURABLE EITHER, and it closed EARLIER and
+;  3  `concat` IS NOT CAPTURABLE EITHER, and it closed EARLIER and
 ;     for a different reason - which is worth a bit of its own,
 ;     because `self_host/expand.ax` went on claiming the opposite
 ;     until 0.7.4 and this fixture never asked. `expQualify`'s fourth
 ;     rule (MAC-HYG-8 hole 4) rewrites a template's free identifier to
 ;     `Mod$name` when exactly ONE module in the merged declaration
 ;     list declares it, and `Str` is the only one that declares
-;     `strConcat`, so the lowering emits `Str$strConcat` and the entry
+;     `concat`, so the lowering emits `Str$concat` and the entry
 ;     file's own declaration is not in the running. Measured on the
 ;     0.7.3 binary as well as this tree: `#calls=` on `main` reads
-;     `Str$strConcat` in both.
+;     `Str$concat` in both.
 ;     The hole needs a NON-EMPTY literal run to emit a join at all -
 ;     `expFmtCat` answers the accumulated node itself when there is
-;     nothing to join to, so a bare `{n}` emits no `strConcat`, which
+;     nothing to join to, so a bare `{n}` emits no `concat`, which
 ;     is also why bit 1's probe is undisturbed by the hijack below.
 ;     `captureCat` answers 4 - `n=42` - and 8 would be `HIJACKED`.
 ;
@@ -60,8 +60,8 @@
 (fn (show x)
   "xyz")
 
-(:: strConcat (-> String String String))
-(fn (strConcat a b)
+(:: concat (-> String String String))
+(fn (concat a b)
   "HIJACKED")
 
 (:: bit (-> Bool Int Int))
@@ -82,7 +82,7 @@
   (strLen (show n)))
 
 ; 3: the literal run's join does not go through this file's
-;    `strConcat` either. 4 is `n=42`; 8 would be `HIJACKED`.
+;    `concat` either. 4 is `n=42`; 8 would be `HIJACKED`.
 (:: captureCat (-> Int Int))
 (fn (captureCat n)
   (strLen (format "n={n}")))

@@ -68,7 +68,7 @@
 ; ascends, so completion order is the reverse of submit order.
 (pub :: staggered (-> Int (Vec String)))
 (pub fn (staggered i)
-  (sh3 (strConcat (strConcat "sleep 0.0" (fmtInt (- 8 i))) (strConcat "; exit " (fmtInt (+ i 10))))))
+  (sh3 (concat (concat "sleep 0.0" (fmtInt (- 8 i))) (concat "; exit " (fmtInt (+ i 10))))))
 
 (pub :: main Int)
 ;@axiom:effect(io)

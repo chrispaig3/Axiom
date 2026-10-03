@@ -184,10 +184,10 @@
         0
       }
     )
-      (strConcat "abcdefgh" "ijklmnop"))
+      (concat "abcdefgh" "ijklmnop"))
     ; Allocated AFTER the application, so a freed block would be
     ; handed back here and the read below would see these bytes.
-    (strLen (strConcat "xy" "z"))
+    (strLen (concat "xy" "z"))
   })
 
 ; TERM 128 IS THE OTHER FRAME'S RELEASE, and it is worth reading beside

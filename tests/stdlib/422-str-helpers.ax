@@ -43,7 +43,7 @@
 (fn (optText o)
   (match o
     ((None) "None")
-    ((Some v) (strConcat "Some " (fmtInt v)))))
+    ((Some v) (concat "Some " (fmtInt v)))))
 
 (:: main Int)
 ;@axiom:effect(io)

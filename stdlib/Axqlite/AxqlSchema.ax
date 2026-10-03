@@ -108,7 +108,7 @@
 
 (:: corrupt (-> String (Result a Error)))
 (fn (corrupt msg)
-  (axqErr axqCorrupt (strConcat "the schema table is damaged: " msg) "axqlLoadSchema"))
+  (axqErr axqCorrupt (concat "the schema table is damaged: " msg) "axqlLoadSchema"))
 
 ; ------------------------------------------------------------------
 ; Reading the schema.
@@ -229,7 +229,7 @@
         ((SCreateTable _ _ cols) (Ok cols))
         (_ (corrupt "a table's statement isn't CREATE TABLE")))
     )
-    ((Err e) (corrupt (strConcat "a table's statement doesn't parse: " (errorText e))))))
+    ((Err e) (corrupt (concat "a table's statement doesn't parse: " (errorText e))))))
 
 ; The unique flag and column names a CREATE INDEX text declares.
 (:: indexShape (-> String (Result IndexShape Error)))
@@ -240,7 +240,7 @@
         ((SCreateIndex unique _ _ _ cols) (Ok (IndexShape unique cols)))
         (_ (corrupt "an index's statement isn't CREATE INDEX")))
     )
-    ((Err e) (corrupt (strConcat "an index's statement doesn't parse: " (errorText e))))))
+    ((Err e) (corrupt (concat "an index's statement doesn't parse: " (errorText e))))))
 
 (struct IndexShape
   (unique : Bool)
@@ -265,10 +265,10 @@
 (pub :: axqlTableDef (-> Schema String (Result TableDef Error)))
 (pub fn (axqlTableDef s name)
   (match (axqlFindEntry s name)
-    ((None) (axqErr axqSchema (strConcat "no such table: " name) "axqlTableDef"))
+    ((None) (axqErr axqSchema (concat "no such table: " name) "axqlTableDef"))
     ((Some e)
       (if (! (strEq e.kind kindTable))
-        (axqErr axqSchema (strConcat (strConcat "no such table: " name) " (it names an index)") "axqlTableDef")
+        (axqErr axqSchema (concat (concat "no such table: " name) " (it names an index)") "axqlTableDef")
         (try cols (tableColumns e.text) (try idx (tableIndexes s e.name cols) (Ok (TableDef
           e.name
           e.root
@@ -307,7 +307,7 @@
                         })))
                   (if bad
                     {
-                      (set failure (Some (mkError axqCorrupt (strConcat "the schema table is damaged: index names a missing column: " e.name))))
+                      (set failure (Some (mkError axqCorrupt (concat "the schema table is damaged: index names a missing column: " e.name))))
                       0
                     }
                     {
@@ -357,7 +357,7 @@
     vals
     (recDecode rec)
     (if (!= (vecLen vals) (vecLen t.cols))
-      (axqErr axqCorrupt (strConcat "a row of " (strConcat t.name " has the wrong number of values")) "axqlRowValues")
+      (axqErr axqCorrupt (concat "a row of " (concat t.name " has the wrong number of values")) "axqlRowValues")
       (let ((mut ok true))
         {
           (for (c i) in t.cols
@@ -371,7 +371,7 @@
                 })))
           (if ok
             (Ok vals)
-            (axqErr axqCorrupt (strConcat "a row of " (strConcat t.name " holds a value its column's type doesn't allow")) "axqlRowValues"))
+            (axqErr axqCorrupt (concat "a row of " (concat t.name " holds a value its column's type doesn't allow")) "axqlRowValues"))
         }))))
 
 ; Whether `v` may be stored in a column of type `ty`.

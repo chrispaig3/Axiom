@@ -33,8 +33,8 @@
       (println "abcd")
       (vecPush v 7)
       (vecPush v 8)
-      (println (strConcat "second element: " (fmtInt (vecGet v 1))))
-      (println (strConcat "this file's strLen: " (fmtInt (strLen "abcd"))))
-      (println (strConcat "this file's strData: " (fmtInt (strData 21))))
+      (println (concat "second element: " (fmtInt (vecGet v 1))))
+      (println (concat "this file's strLen: " (fmtInt (strLen "abcd"))))
+      (println (concat "this file's strData: " (fmtInt (strData 21))))
       0
     }))

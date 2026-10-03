@@ -17,7 +17,7 @@
 ; THE FILE FORMAT, and why it is not one line per entry.
 ;
 ; `replMain` already builds a complete entry as ONE string with
-; embedded newlines - `(strConcat (strConcat pending "\n") next)` at
+; embedded newlines - `(concat (concat pending "\n") next)` at
 ; repl.ax:1495, handed to `replDispatch` at 1503 - because a form whose
 ; parens do not balance on one physical line keeps reading
 ; (`replParenDepth`). So a three-line `fn` is one entry, and a
@@ -399,7 +399,7 @@
                   (let ((body (strSlice line 1 (- (strLen line) 1))))
                     (if (== have 1)
                       {
-                        (set cur (strConcat (strConcat cur "\n") body))
+                        (set cur (concat (concat cur "\n") body))
                         0
                       }
                       {
@@ -482,7 +482,7 @@
 ; reading the environment at all.
 ;
 ; Every answer is an ALLOCATED string - `strDup`, `pathJoin` and
-; `strConcat` all allocate, and `strAlloc` zero-fills len+1 - because
+; `concat` all allocate, and `strAlloc` zero-fills len+1 - because
 ; the caller hands it to `strCStr` and thence to a syscall. `sysEnv`'s
 ; own answer is a SLICE into the environment block with no NUL after
 ; it (Sys.ax:912-915), so `(strCStr (sysEnv ...))` would open a path
@@ -721,7 +721,7 @@
             (let ((s1 (unwrapOr (fileSize cp) (- 0 1))))
               (if (!= s1 s0)
                 0
-                (let ((tmp (strConcat (strConcat (histPath h) ".tmp-") (fmtInt sysGetPid))))
+                (let ((tmp (concat (concat (histPath h) ".tmp-") (fmtInt sysGetPid))))
                   (if (isErr (writeFile tmp (histSerialize v)))
                     0
                     (if (isErr (renamePath tmp cp))

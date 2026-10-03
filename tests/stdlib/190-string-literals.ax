@@ -48,7 +48,7 @@
       (println escapes)
       ; A literal is an ordinary `Str` everywhere: concatenation,
       ; slicing and byte access do not care where it came from.
-      (println (strConcat direct ", world"))
+      (println (concat direct ", world"))
       (println (strSlice "abcdef" 2 3))
       (println (strByte "abc" 1))
       (println

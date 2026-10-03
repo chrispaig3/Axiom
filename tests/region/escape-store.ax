@@ -50,7 +50,7 @@
     (m __axiom_arena_mark)
   )
     {
-      (put c (strConcat "hel" "lo"))
+      (put c (concat "hel" "lo"))
       (__axiom_arena_reset m)
       (burn 64)
       (println c.s)

@@ -50,11 +50,11 @@
 
 (:: nameOf (-> Int String))
 (fn (nameOf i)
-  (strConcat pad (fmtPadZerosLeft (fmtInt i) 5)))
+  (concat pad (fmtPadZerosLeft (fmtInt i) 5)))
 
 (:: pathOf (-> Int String))
 (fn (pathOf i)
-  (strConcat "ax994_big/" (nameOf i)))
+  (concat "ax994_big/" (nameOf i)))
 
 (:: fill (-> Int Int))
 ;@axiom:effect(io)

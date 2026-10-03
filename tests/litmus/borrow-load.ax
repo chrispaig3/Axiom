@@ -58,7 +58,7 @@
 (fn (main)
   (let (
     (n (argInt 1 2000))
-    (s (strConcat "hello, " "world"))
+    (s (concat "hello, " "world"))
   )
     (let (
       (before (countOf s))

@@ -239,7 +239,7 @@
     ; do is name the path, because at that layer a path is an `Int` -
     ; a NUL-terminated buffer address. The code is carried through
     ; unchanged and only the message is rebuilt.
-    ((Err e) (Err (mkError (errCode e) (strConcat (strConcat (strConcat op ": ") (strConcat path ": errno ")) (fmtInt (errCode e))))))))
+    ((Err e) (Err (mkError (errCode e) (concat (concat (concat op ": ") (concat path ": errno ")) (fmtInt (errCode e))))))))
 
 ; Write `s` to `path`, creating it or TRUNCATING what is there.
 ; Answers `(Ok bytes)`, or `(Err e)` whose code is the errno.
@@ -328,7 +328,7 @@
 (pub fn (copyFile src dst)
   (let ((e (readErrno src)))
     (if (!= e 0)
-      (Err (mkError e (strConcat (strConcat "copyFile: " src) ": unreadable")))
+      (Err (mkError e (concat (concat "copyFile: " src) ": unreadable")))
       (writeFile dst (readFile src)))))
 
 ; True when `path` names something that can be opened for reading -
@@ -592,7 +592,7 @@
 ;@axiom:effect(io)
 (pub fn (todo what)
   (cast a {
-    (writeStr stderr (strConcat (strConcat "todo: " what) "\n"))
+    (writeStr stderr (concat (concat "todo: " what) "\n"))
     (exit 70)
   }))
 
@@ -648,7 +648,7 @@
 ; `readLine: fd 0: errno 9`. The code is carried through unchanged.
 (:: ioFdError (-> Int String Int Error))
 (fn (ioFdError code op fd)
-  (mkError code (strConcat (strConcat (strConcat op ": fd ") (fmtInt fd)) (strConcat ": errno " (fmtInt code)))))
+  (mkError code (concat (concat (concat op ": fd ") (fmtInt fd)) (concat ": errno " (fmtInt code)))))
 
 ; One `read(2)` of at most `count` bytes from `fd` into the bytes of
 ; `buf` that start at byte `at`: `(Ok n)` with `n` the bytes read, `(Ok

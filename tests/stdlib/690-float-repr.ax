@@ -28,7 +28,7 @@
                 0
                 (let ((fields (strSplit line 32)))
                   (match (strParseInt (vecGet fields 0))
-                    ((None) (die (strConcat "bad line: " line) 1))
+                    ((None) (die (concat "bad line: " line) 1))
                     ((Some bits)
                       (let (
                         (want (vecGet fields 1))
@@ -39,7 +39,7 @@
                           (if (! (strEq got want))
                             {
                               (set wrong (+ wrong 1))
-                              (println (strConcat "FAIL print " (strConcat (fmtInt bits) (strConcat ": got " (strConcat got (strConcat ", want " want))))))
+                              (println (concat "FAIL print " (concat (fmtInt bits) (concat ": got " (concat got (concat ", want " want))))))
                               0
                             }
                             (match (floatParse got)
@@ -48,21 +48,21 @@
                                   0
                                   {
                                     (set wrong (+ wrong 1))
-                                    (println (strConcat "FAIL read back " got))
+                                    (println (concat "FAIL read back " got))
                                     0
                                   })
                               )
                               ((Err _)
                                 {
                                   (set wrong (+ wrong 1))
-                                  (println (strConcat "FAIL read back " got))
+                                  (println (concat "FAIL read back " got))
                                   0
                                 }
                               )))
                         })
                     ))))))
-          (println (strConcat "values: " (fmtInt checked)))
-          (println (strConcat "wrong: " (fmtInt wrong)))
+          (println (concat "values: " (fmtInt checked)))
+          (println (concat "wrong: " (fmtInt wrong)))
           (if (== wrong 0)
             0
             1)

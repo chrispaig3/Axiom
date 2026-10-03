@@ -75,10 +75,10 @@
       (for i in 0..(vecLen rs)
         (match (vecGet rs i)
           ((Ok s)
-            (set out (strConcat (strConcat out s) " "))
+            (set out (concat (concat out s) " "))
           )
           ((Err e)
-            (set out (strConcat out "err "))
+            (set out (concat out "err "))
           )))
       out
     }))
@@ -158,7 +158,7 @@
           (println "map {size} at 4: {four}")
         })
       (let (
-        (s (strConcat "hello, " "world"))
+        (s (concat "hello, " "world"))
         (bytes (strLen s))
         (first (firstByte s))
         (same (if (strEq s "hello, world")

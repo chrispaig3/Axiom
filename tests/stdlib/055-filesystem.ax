@@ -90,7 +90,7 @@
         (+ i 1)
         (if (== i 0)
           name
-          (strConcat (strConcat acc ",") name))))))
+          (concat (concat acc ",") name))))))
 
 (:: main Int)
 

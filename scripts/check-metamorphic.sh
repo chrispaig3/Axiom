@@ -263,8 +263,8 @@ ablate "entry-out-of-scope" typecheck.ax \
   (if (== m m)" \
   shadow
 ablate "fresh-names" symbols.ax \
-  "(strConcat (symFreshNames ty) \"\\\"\")" \
-  "(strConcat ty \"\\\"\")" \
+  "(concat (symFreshNames ty) \"\\\"\")" \
+  "(concat ty \"\\\"\")" \
   fresh tests/selfhost/1012-fresh-names.ax
 ablate "result-renderer" codegen.ax \
   "(if (== (findFSigCg cg \"Err\$errorText\") 0)" \

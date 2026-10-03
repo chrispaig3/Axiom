@@ -22,7 +22,7 @@
 
 (:: sample String)
 (fn (sample)
-  (strConcat (strConcat "#| a block comment |#\n;@axiom:effect(pure)\n(pub fn (f x) [1, 2] { 'a' \"; not ;a comment \\\" \" })\n" "; a line comment\n(fn (g y) (+ y -5) (- 5) `(a ,b ,@c) x.y)\n") "(:: h (-> Int Int))\n"))
+  (concat (concat "#| a block comment |#\n;@axiom:effect(pure)\n(pub fn (f x) [1, 2] { 'a' \"; not ;a comment \\\" \" })\n" "; a line comment\n(fn (g y) (+ y -5) (- 5) `(a ,b ,@c) x.y)\n") "(:: h (-> Int Int))\n"))
 
 ; The reader pairs delimiters and refuses rather than guessing. Both
 ; directions matter: an unclosed group and a mismatched closer would

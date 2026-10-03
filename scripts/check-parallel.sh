@@ -911,7 +911,7 @@ cat > "$work/arena.ax" <<'ARENA'
     {
       (while (< i n)
         {
-          (set s (strConcat s "abcdefgh"))
+          (set s (concat s "abcdefgh"))
           (set i (+ i 1))
         })
       (strLen s)

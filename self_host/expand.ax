@@ -559,7 +559,7 @@
   (let ((m (expMacMod env)))
     (if (== m 0)
       name
-      (let ((q (strConcat (strConcat (expMacModName env) "$") name)))
+      (let ((q (concat (concat (expMacModName env) "$") name)))
         (if (== (expDeclNamed (expDeclsVec env) q 0) 1)
           q
           ; MAC-HYG-8's FOURTH hole. `MAC-HYG-7`'s rewrite tries
@@ -686,7 +686,7 @@
   (let ((n (memGetWord env 2)))
     {
       (memSetWord env 2 (+ n 1))
-      (strConcat (strConcat base ".") (expFmtInt n))
+      (concat (concat base ".") (expFmtInt n))
     }))
 
 ; Decimal rendering. `codegen.ax` has one of these and `Fmt` has
@@ -705,7 +705,7 @@
       (let ((suffix (strAlloc 1)))
         {
           (__store8 (strData suffix) 0 (+ (% n 10) 48))
-          (strConcat prefix suffix)
+          (concat prefix suffix)
         }))))
 
 ; ------------------------------------------------------------------
@@ -788,7 +788,7 @@
       (cast Int m)
       0)
       s
-      (strConcat (strConcat m "::") (bareOf s)))))
+      (concat (concat m "::") (bareOf s)))))
 
 (pub :: expSameMod (-> String String Int))
 (pub fn (expSameMod a b)
@@ -1210,7 +1210,7 @@
       "AX3075"
       "scope-divergence"
       isp
-      (strConcat (strConcat (strConcat "scope/rename divergence on `" name) "`: ") msg)
+      (concat (concat (concat "scope/rename divergence on `" name) "`: ") msg)
       0
       0
       "this diagnostic only fires under AXIOM_VERIFY_SCOPES=1; without it the expansion above is what the compiler ships"
@@ -1554,7 +1554,7 @@
 ; part's first letter is upcased, nothing else moves.
 (pub :: expJoinName (-> String String String))
 (pub fn (expJoinName a b)
-  (strConcat a (expUpperFirst b)))
+  (concat a (expUpperFirst b)))
 
 ; The join marker the parser writes into a declaration's name slot:
 ; "syntax/join a b", space-joined, unambiguous because a space can
@@ -1671,7 +1671,7 @@
               (cast String (expQueryErr
                 env
                 isp
-                (strConcat (strConcat "a syntax/* query's argument must be a bare identifier; `" s) "` was given an expression")
+                (concat (concat "a syntax/* query's argument must be a bare identifier; `" s) "` was given an expression")
                 "pass a plain name in this argument position"
                 (expMacMod env))))))))))
 
@@ -1762,7 +1762,7 @@
               })
             (let ((r vecNew))
               {
-                (vecPush r (strConcat "fields " s))
+                (vecPush r (concat "fields " s))
                 (vecPushVec r names)
                 r
               })
@@ -1770,7 +1770,7 @@
         (cast (Vec String) (expQueryErr
           env
           isp
-          (strConcat (strConcat "`" s) "` is not a `struct` declaration, so it has no fields")
+          (concat (concat "`" s) "` is not a `struct` declaration, so it has no fields")
           "syntax/fields answers structs; a data type's query is syntax/constructors"
           (expMacMod env))))
       (let ((any (expFindDeclNamed env s 0)))
@@ -1778,13 +1778,13 @@
           (cast (Vec String) (expQueryErr
             env
             isp
-            (strConcat (strConcat (strConcat "`" s) "` is private to module `") (strConcat (nodeModuleName any) "`"))
+            (concat (concat (concat "`" s) "` is private to module `") (concat (nodeModuleName any) "`"))
             "a query answers what an entry-file reference could name; mark the struct `pub`, or derive by hand inside its module"
             (expMacMod env)))
           (cast (Vec String) (expQueryMissing
             env
             isp
-            (strConcat (strConcat "no declaration named `" s) "` for syntax/fields to answer")
+            (concat (concat "no declaration named `" s) "` for syntax/fields to answer")
             "the query reads the declaration list; check the spelling, and declare (or import) the struct before deriving over it"
             (expMacMod env))))))))
 
@@ -1811,7 +1811,7 @@
               })
             (let ((r vecNew))
               {
-                (vecPush r (strConcat "constructors " t))
+                (vecPush r (concat "constructors " t))
                 (vecPushVec r names)
                 r
               })
@@ -1819,7 +1819,7 @@
         (cast (Vec String) (expQueryErr
           env
           isp
-          (strConcat (strConcat "`" t) "` is not a `data` declaration, so it has no constructors")
+          (concat (concat "`" t) "` is not a `data` declaration, so it has no constructors")
           "syntax/constructors answers `data` types; a struct's query is syntax/fields"
           (expMacMod env))))
       (let ((any (expFindDeclNamed env t 0)))
@@ -1827,13 +1827,13 @@
           (cast (Vec String) (expQueryErr
             env
             isp
-            (strConcat (strConcat (strConcat "`" t) "` is private to module `") (strConcat (nodeModuleName any) "`"))
+            (concat (concat (concat "`" t) "` is private to module `") (concat (nodeModuleName any) "`"))
             "a query answers what an entry-file reference could name; mark the type `pub`, or derive by hand inside its module"
             (expMacMod env)))
           (cast (Vec String) (expQueryMissing
             env
             isp
-            (strConcat (strConcat "no declaration named `" t) "` for syntax/constructors to answer")
+            (concat (concat "no declaration named `" t) "` for syntax/constructors to answer")
             "the query reads the declaration list; check the spelling, and declare (or import) the type before deriving over it"
             (expMacMod env))))))))
 
@@ -1905,8 +1905,8 @@
 (pub :: expPossessive (-> String String))
 (pub fn (expPossessive w)
   (if (== (strByte w (- (strLen w) 1)) 115)
-    (strConcat w "'")
-    (strConcat w "'s")))
+    (concat w "'")
+    (concat w "'s")))
 
 (pub :: expCtorArityFor (-> Int String Int String String Int))
 (pub fn (expCtorArityFor env c isp who verb)
@@ -1918,7 +1918,7 @@
           (expQueryErr
             env
             isp
-            (strConcat (strConcat "`" c) "` is a constructor of a type its module keeps private")
+            (concat (concat "`" c) "` is a constructor of a type its module keeps private")
             "a query answers what an entry-file reference could name; mark the type `pub`, or derive by hand inside its module"
             (expMacMod env))
           (- 0 1)
@@ -1927,8 +1927,8 @@
           (expQueryErr
             env
             isp
-            (strConcat (strConcat (strConcat "no constructor named `" c) (strConcat "` for " who)) (strConcat " to " verb))
-            (strConcat (strConcat "the query reads the declaration list; " (expPossessive who)) " first argument names a data constructor")
+            (concat (concat (concat "no constructor named `" c) (concat "` for " who)) (concat " to " verb))
+            (concat (concat "the query reads the declaration list; " (expPossessive who)) " first argument names a data constructor")
             (expMacMod env))
           (- 0 1)
         }))))
@@ -1980,12 +1980,12 @@
         {
           (while (< i n)
             {
-              (vecPush names (strConcat (strConcat p "#") (fmtInt i)))
+              (vecPush names (concat (concat p "#") (fmtInt i)))
               (set i (+ i 1))
             })
           (let ((r vecNew))
             {
-              (vecPush r (strConcat (strConcat (strConcat "binders " c) " ") p))
+              (vecPush r (concat (concat (concat "binders " c) " ") p))
               (vecPushVec r names)
               r
             })
@@ -2063,7 +2063,7 @@
               (if (!= (nodeSpan seq) 0)
                 (nodeSpan seq)
                 isp)
-              (strConcat (strConcat "`" (nodeAName head)) "` is not an iteration sequence this vocabulary answers, or its arguments are not bare identifiers")
+              (concat (concat "`" (nodeAName head)) "` is not an iteration sequence this vocabulary answers, or its arguments are not bare identifiers")
               "sequences are `(syntax/constructors T)`, `(syntax/fields S)`, and `(syntax/binders C p)`; several of them zip in one iteration as `((x xs) (y ys))`"
               (expMacMod env)))))))))
 
@@ -2294,8 +2294,8 @@
               (expQueryErr
                 env
                 isp
-                (strConcat
-                  (strConcat
+                (concat
+                  (concat
                     "`"
                     (nodeAName
                       (if (== ba 0)
@@ -2314,7 +2314,7 @@
                 (expQueryErr
                   env
                   isp
-                  (strConcat (strConcat (strConcat (strConcat "`" (nodeAName an)) "` ranges over `") (strConcat (strConcat (memGetWordStr ba 2) "` and `") (nodeAName bn))) (strConcat (strConcat "` over `" (memGetWordStr bb 2)) "`"))
+                  (concat (concat (concat (concat "`" (nodeAName an)) "` ranges over `") (concat (concat (memGetWordStr ba 2) "` and `") (nodeAName bn))) (concat (concat "` over `" (memGetWordStr bb 2)) "`"))
                   "syntax/same compares positions within ONE sequence; iterate both variables over the same query"
                   (expMacMod env))
                 (mkEInt 0)
@@ -2373,7 +2373,7 @@
         ; in one - so quoting is the whole conversion.
         (mkNodeAt
           TAG_E_STR
-          (strConcat (strConcat "\"" n) "\"")
+          (concat (concat "\"" n) "\"")
           0
           0
           isp)))))
@@ -2599,7 +2599,7 @@
 
 ; The generated call `(f x)`, with `f` resolved the way a template's
 ; free identifier resolves - at the macro's DEFINITION site
-; (MAC-HYG-6). `strConcat`, `fmtInt` and the `fmtPad*` family are the
+; (MAC-HYG-6). `concat`, `fmtInt` and the `fmtPad*` family are the
 ; names this query invents, and none of them is written in any
 ; template, so they cannot go through substTpl's path and have to take
 ; the same rule explicitly.
@@ -2614,21 +2614,21 @@
 ;   (:: show (-> a String)) (fn (show x) "HIJACKED")
 ;   ... (println "n={n}")            printed  n=HIJACKED
 ;
-;   (:: strConcat (-> String String String))
-;   (fn (strConcat a b) "HIJACKED")
+;   (:: concat (-> String String String))
+;   (fn (concat a b) "HIJACKED")
 ;   ... (println "n={n}")            printed  HIJACKED
 ;
 ; both at exit 0. It then said, from that measurement, that an entry
-; file defining `show` OR `strConcat` captures - and kept saying so
+; file defining `show` OR `concat` captures - and kept saying so
 ; after `expQualify` grew MAC-HYG-8's fourth rule, which is what
 ; retired the second half. That rule rewrites a free identifier to
 ; `Mod$name` when exactly ONE module in the merged declaration list
-; declares it; `Str` is the only module declaring `strConcat`, and the
+; declares it; `Str` is the only module declaring `concat`, and the
 ; entry file's own declaration is not a module's, so the lowering
-; emits `Str$strConcat` and the hijack is not reached. Re-measured on
+; emits `Str$concat` and the hijack is not reached. Re-measured on
 ; the 0.7.3 binary, which predates this file's 0.7.4 changes: the
 ; second program above prints `n=42`, and `symbols --calls` on `main`
-; reads `#calls=IO$writeStr,Str$strConcat,Sys$stdout`.
+; reads `#calls=IO$writeStr,Str$concat,Sys$stdout`.
 ;
 ; The first half is closed differently, and by this commit: the
 ; rendering head is `format#` (`expFmtShow`, below) and does not come
@@ -2643,7 +2643,7 @@
 ;
 ; This does NOT go through `expQualify`, and that is the whole point.
 ; `expQualify` resolves a template's free identifier at the macro's
-; definition site, which is the right rule for `strConcat` and
+; definition site, which is the right rule for `concat` and
 ; `fmtInt` - they are library functions and a program may legitimately
 ; own the name. `format#` is not a library function: nothing declares
 ; it, `typecheck.ax`'s `showIsHead` claims the head and rewrites it
@@ -2686,11 +2686,11 @@
 (pub fn (expFmtCat env acc node sp)
   (if (== acc 0)
     node
-    (mkEApp (expFmtCall env "strConcat" acc sp) node)))
+    (mkEApp (expFmtCall env "concat" acc sp) node)))
 
 ; The same, for a literal RUN that may be empty - which it is at every
 ; boundary a hole sits on. `"{a}{b}"` has three runs and all three are
-; empty, and concatenating them cost three `strConcat` calls per line
+; empty, and concatenating them cost three `concat` calls per line
 ; printed, at run time, to append nothing. An empty run contributes
 ; nothing to the answer and is dropped instead.
 (pub :: expFmtCatRun (-> Int Int String Int Int))
@@ -2720,7 +2720,7 @@
 (pub fn (expFmtLit body sp)
   (mkNodeAt
     TAG_E_STR
-    (strConcat (strConcat "\"" body) "\"")
+    (concat (concat "\"" body) "\"")
     1
     0
     sp))
@@ -2850,7 +2850,7 @@
           env
           (+ base from)
           (+ base to)
-          (strConcat "a format width above " expFmtMaxCountMsg)
+          (concat "a format width above " expFmtMaxCountMsg)
           "a width is a byte count the padding allocates; this one is a typo rather than a layout"))
         0)
       (if (&& (== ok 1) (&& (< p to) (== (strByte body p) 46)))
@@ -2883,7 +2883,7 @@
               env
               (+ base from)
               (+ base to)
-              (strConcat "a format precision above " expFmtMaxCountMsg)
+              (concat "a format precision above " expFmtMaxCountMsg)
               "a precision is a digit count; `{x:.2}` is two decimal places"))
             0)
         }
@@ -2898,7 +2898,7 @@
             env
             (+ base p)
             (+ base (+ p 1))
-            (strConcat (strConcat "`" (strSlice body p 1)) "` is not a format-specifier type")
+            (concat (concat "`" (strSlice body p 1)) "` is not a format-specifier type")
             "the types are `x` and `X`, both hexadecimal. Alignment and width come first (`{n:>8x}`) and a precision is `.N` (`{x:.2}`)")))
         0)
       (if (&& (== ok 1) (< p to))
@@ -2934,7 +2934,7 @@
 ;
 ; A macro that wants to render its own argument composes instead:
 ;
-;   (macro (logIt v) (println (strConcat "value is " (format v))))
+;   (macro (logIt v) (println (concat "value is " (format v))))
 ;
 ; The failure is loud, at the macro's own line, and pinned by
 ; tests/diagnostics/570-format-refusals.ax.
@@ -3090,13 +3090,13 @@
                       2
                       1)))
                     {
-                      (set chunk (strConcat chunk (strSlice body i w)))
+                      (set chunk (concat chunk (strSlice body i w)))
                       (set i (+ i w))
                     })
                   (if (== ch 123)
                     (if (&& (< (+ i 1) n) (== (strByte body (+ i 1)) 123))
                       {
-                        (set chunk (strConcat chunk "{"))
+                        (set chunk (concat chunk "{"))
                         (set i (+ i 2))
                       }
                       (let ((j (expFmtIdentEnd body (+ i 1) n)))
@@ -3143,7 +3143,7 @@
                                   env
                                   (+ base i)
                                   (+ base j)
-                                  (strConcat (strConcat "this hole is not closed: `" (strSlice body j 1)) "` is neither `}` nor `:`")
+                                  (concat (concat "this hole is not closed: `" (strSlice body j 1)) "` is neither `}` nor `:`")
                                   "a hole is `{name}`, or `{name:SPEC}` with a format specifier - `{n:>8}`, `{x:.2}`, `{n:04x}`"))
                                 (if (>= close n)
                                   (set ok (expFmtErr
@@ -3178,7 +3178,7 @@
                     (if (== ch 125)
                       (if (&& (< (+ i 1) n) (== (strByte body (+ i 1)) 125))
                         {
-                          (set chunk (strConcat chunk "}"))
+                          (set chunk (concat chunk "}"))
                           (set i (+ i 2))
                         }
                         (set ok (expFmtErr
@@ -3188,14 +3188,14 @@
                           "this `}` closes a hole that was never opened"
                           "write `}}` for a literal closing brace")))
                       {
-                        (set chunk (strConcat chunk (strSlice body i 1)))
+                        (set chunk (concat chunk (strSlice body i 1)))
                         (set i (+ i 1))
                       })))))
             ; The newline joins the trailing literal run rather than
             ; becoming a concatenation of its own, which is what makes
             ; `(println "hi")` one `write` of one literal.
             (set chunk (if (== nl 1)
-              (strConcat chunk "\\n")
+              (concat chunk "\\n")
               chunk))
             (if (== ok 0)
               (mkEInt 0)
@@ -3325,7 +3325,7 @@
         (expQueryErr
           env
           isp
-          (strConcat (strConcat "`" who) "`'s binding form is `(x xs)` or `((x xs) (y ys) ...)`")
+          (concat (concat "`" who) "`'s binding form is `(x xs)` or `((x xs) (y ys) ...)`")
           "bind each iteration variable to one sequence"
           (expMacMod env))
         (cast (Vec (Vec Int)) 0)
@@ -3362,7 +3362,7 @@
             (expQueryErr
               env
               isp
-              (strConcat (strConcat "each parallel `" who) "` binding is a `(y ys)` pair")
+              (concat (concat "each parallel `" who) "` binding is a `(y ys)` pair")
               "bind each iteration variable to one sequence"
               (expMacMod env))
             (cast (Vec (Vec Int)) 0)
@@ -3797,7 +3797,7 @@
                             (expQueryErr
                               env
                               isp
-                              (strConcat (strConcat "`" (nodeAName head)) "` answers a SEQUENCE, and this position needs one value")
+                              (concat (concat "`" (nodeAName head)) "` answers a SEQUENCE, and this position needs one value")
                               "sequence queries stand in a syntax/for's sequence slot or a syntax/fold's binding"
                               (expMacMod env))
                             (mkEInt 0)
@@ -3806,7 +3806,7 @@
                             (expQueryErr
                               env
                               isp
-                              (strConcat (strConcat "`" (nodeAName head)) "` is not a query this position answers")
+                              (concat (concat "`" (nodeAName head)) "` is not a query this position answers")
                               "the applied queries are syntax/same, syntax/fold, syntax/name, syntax/arity, syntax/defined, syntax/format and syntax/formatln here, and syntax/constructors / syntax/fields / syntax/binders in an iteration's sequence slot"
                               (expMacMod env))
                             (mkEInt 0)
@@ -4113,7 +4113,7 @@
         "AX3074"
         "macro-parameter-name-position"
         isp
-        (strConcat (strConcat (strConcat "this macro's template uses its parameter `" name) (strConcat "` as " position)) ", which is kept as written rather than replaced by its argument")
+        (concat (concat (concat "this macro's template uses its parameter `" name) (concat "` as " position)) ", which is kept as written rather than replaced by its argument")
         0
         0
         help
@@ -4283,7 +4283,7 @@
                           (expQueryErr
                             env
                             isp
-                            (strConcat (strConcat "`" (nodeAName tpl)) "` is not a query this position answers")
+                            (concat (concat "`" (nodeAName tpl)) "` is not a query this position answers")
                             "every query is APPLIED - `(syntax/name x)`, `(syntax/constructors T)` - so a bare `syntax/` name is a query missing its arguments, or a spelling the vocabulary does not answer"
                             (expMacMod env))
                           (mkEInt 0)
@@ -5436,12 +5436,12 @@
             (let ((r 
               (if (> d expMaxWalk)
                 {
-                  (expBlow env (nodeSpan e) (strConcat (strConcat "macro expansion nested deeper than the limit of " (expFmtInt expMaxWalk)) " forms"))
+                  (expBlow env (nodeSpan e) (concat (concat "macro expansion nested deeper than the limit of " (expFmtInt expMaxWalk)) " forms"))
                   e
                 }
                 (if (> n expMaxNodes)
                   {
-                    (expBlow env (nodeSpan e) (strConcat (strConcat "macro expansion produced more than the limit of " (expFmtInt expMaxNodes)) " forms"))
+                    (expBlow env (nodeSpan e) (concat (concat "macro expansion produced more than the limit of " (expFmtInt expMaxNodes)) " forms"))
                     e
                   }
                   (expandExprInner e env bs)))))
@@ -5765,7 +5765,7 @@
               "AX3027"
               "declaration-macro"
               (nodeSpan e)
-              (strConcat (strConcat "declaration macro `" (expSrcSpelling (nodeAName e))) "` referenced in expression position")
+              (concat (concat "declaration macro `" (expSrcSpelling (nodeAName e))) "` referenced in expression position")
               0
               0
               "a rule-form macro's template is declarations; invoke it at top level"
@@ -5894,13 +5894,13 @@
                 0
               }
               {
-                (set spec (strConcat spec r))
+                (set spec (concat spec r))
                 0
               }))
           (set i (+ i 1))
         })
       (if (&& (== bad 0) (> (vecLen vals) expAsmMaxValues))
-        (set bad (expAsmBad env (nodeSpan e) (strConcat (strConcat "this `asm` form has " (expFmtInt (vecLen vals))) " input operands across its arms, and the limit is 16")))
+        (set bad (expAsmBad env (nodeSpan e) (concat (concat "this `asm` form has " (expFmtInt (vecLen vals))) " input operands across its arms, and the limit is 16")))
         0)
       (if (== bad 1)
         (mkNodeAt
@@ -5910,10 +5910,10 @@
           0
           (nodeSpan e))
         (expBuildSpine
-          (mkEVarAt (strConcat "__asm." (expFmtInt (vecLen vals))) (nodeSpan e))
+          (mkEVarAt (concat "__asm." (expFmtInt (vecLen vals))) (nodeSpan e))
           (expAsmArgv (mkNodeAt
             TAG_E_STR
-            (strConcat (strConcat "\"" spec) "\"")
+            (concat (concat "\"" spec) "\"")
             0
             0
             (nodeSpan e)) vals)
@@ -5965,19 +5965,19 @@
     (if (|| (!= (nodeTag arm) TAG_E_APP) (!= (nodeTag head) TAG_E_VAR))
       {
         (expAsmBad env (nodeSpan arm) (if (&& (== (nodeTag arm) TAG_E_VAR) (expAsmArch (nodeAName arm)))
-          (strConcat (strConcat "each `asm` arm is a list: write `(asm (" (nodeAName arm)) " \"template\" operand...))`")
+          (concat (concat "each `asm` arm is a list: write `(asm (" (nodeAName arm)) " \"template\" operand...))`")
           "each `asm` arm is a list opening with its architecture, such as `(aarch64 \"nop\")`"))
         ""
       }
       (let ((arch (nodeAName head)))
         (if (! (expAsmArch arch))
           {
-            (expAsmBad env (nodeSpan head) (strConcat (strConcat "`" arch) "` is not an architecture `asm` knows; an arm opens with `aarch64` or `x86_64`"))
+            (expAsmBad env (nodeSpan head) (concat (concat "`" arch) "` is not an architecture `asm` knows; an arm opens with `aarch64` or `x86_64`"))
             ""
           }
           (if (>= (expAsmNameAt seen arch 0) 0)
             {
-              (expAsmBad env (nodeSpan head) (strConcat (strConcat "a second `" arch) "` arm; a form has at most one arm per architecture"))
+              (expAsmBad env (nodeSpan head) (concat (concat "a second `" arch) "` arm; a form has at most one arm per architecture"))
               ""
             }
             {
@@ -6053,19 +6053,19 @@
                     {
                       (while (< k (vecLen inVals))
                         {
-                          (set idxs (strConcat idxs (strConcat (if (== k 0)
+                          (set idxs (concat idxs (concat (if (== k 0)
                             ""
                             ",") (expFmtInt (vecLen vals)))))
                           (vecPush vals (expandExpr (vecGet inVals k) env bs))
                           (set k (+ k 1))
                         })
-                      (strConcat
-                        (strConcat (strConcat arch ";") (strConcat (expAsmConstraints arch outc ins clobs) ";"))
-                        (strConcat
-                          (strConcat (if (== nOut 0)
+                      (concat
+                        (concat (concat arch ";") (concat (expAsmConstraints arch outc ins clobs) ";"))
+                        (concat
+                          (concat (if (== nOut 0)
                             "0;"
-                            "1;") (strConcat idxs ";"))
-                          (strConcat (strConcat (expFmtInt (strLen tmpl)) ";") tmpl)))
+                            "1;") (concat idxs ";"))
+                          (concat (concat (expFmtInt (strLen tmpl)) ";") tmpl)))
                     })))
             }))
       })))
@@ -6089,7 +6089,7 @@
         (if (strEq kind "clobber")
           (expAsmClobbers arch args 0 env regs clobs)
           (if (if (|| (strEq kind "in") (|| (strEq kind "out") (strEq kind "inout"))) false true)
-            (expAsmBad env (nodeSpan kh) (strConcat (strConcat "`" kind) "` is not an operand kind; the kinds are `in`, `out`, `inout` and `clobber`"))
+            (expAsmBad env (nodeSpan kh) (concat (concat "`" kind) "` is not an operand kind; the kinds are `in`, `out`, `inout` and `clobber`"))
             (let (
               (hasReg (&& (> (vecLen args) 1) (== (nodeTag (vecGet args 1)) TAG_E_STR)))
               (want (if (strEq kind "out")
@@ -6097,13 +6097,13 @@
                 2))
             )
               (if (|| (== (vecLen args) 0) (!= (nodeTag (vecGet args 0)) TAG_E_VAR))
-                (expAsmBad env (nodeSpan op) (strConcat (strConcat "`(" kind) " ...)` names its operand first, with a bare name the template writes as `{name}`"))
+                (expAsmBad env (nodeSpan op) (concat (concat "`(" kind) " ...)` names its operand first, with a bare name the template writes as `{name}`"))
                 (if (!= (vecLen args) (+ want (if hasReg
                   1
                   0)))
                   (expAsmBad env (nodeSpan op) (if (strEq kind "out")
                     "`(out name)` takes a name and, optionally, a register: `(out r)` or `(out r \"x0\")`"
-                    (strConcat (strConcat (strConcat "`(" kind) " name value)` takes a name, optionally a register, and one value: `(") (strConcat (strConcat kind " a x)` or `(") (strConcat kind " a \"x0\" x)`")))))
+                    (concat (concat (concat "`(" kind) " name value)` takes a name, optionally a register, and one value: `(") (concat (concat kind " a x)` or `(") (concat kind " a \"x0\" x)`")))))
                   (let (
                     (nm (nodeAName (vecGet args 0)))
                     (reg (if hasReg
@@ -6111,7 +6111,7 @@
                       ""))
                   )
                     (if (|| (>= (expAsmNameAt names nm 0) 0) (>= (expAsmNameAt inNames nm 0) 0))
-                      (expAsmBad env (nodeSpan (vecGet args 0)) (strConcat (strConcat "a second operand named `" nm) "`; each operand of an arm has its own name"))
+                      (expAsmBad env (nodeSpan (vecGet args 0)) (concat (concat "a second operand named `" nm) "`; each operand of an arm has its own name"))
                       (if (&& (if (strEq kind "in") false true) (> (vecLen outc) 0))
                         (expAsmBad env (nodeSpan op) "an arm answers at most one value, so it takes one `out` or `inout`")
                         (let ((regBad (if hasReg
@@ -6120,7 +6120,7 @@
                           (if (> (strLen regBad) 0)
                             (expAsmBad env (nodeSpan (vecGet args 1)) regBad)
                             (if (&& hasReg (>= (expAsmNameAt regs reg 0) 0))
-                              (expAsmBad env (nodeSpan (vecGet args 1)) (strConcat (strConcat "`" reg) "` is named twice in this arm; an operand's register is its own"))
+                              (expAsmBad env (nodeSpan (vecGet args 1)) (concat (concat "`" reg) "` is named twice in this arm; an operand's register is its own"))
                               {
                                 (if hasReg
                                   {
@@ -6133,14 +6133,14 @@
                                     (vecPush names nm)
                                     (vecPush slots 0)
                                     (vecPush outc (if hasReg
-                                      (strConcat (strConcat "=&{" reg) "}")
+                                      (concat (concat "=&{" reg) "}")
                                       "=&r"))
                                     0
                                   }
                                   (if (strEq kind "inout")
                                     {
                                       (vecPush outc (if hasReg
-                                        (strConcat (strConcat "={" reg) "}")
+                                        (concat (concat "={" reg) "}")
                                         "=r"))
                                       (vecPush ins "0")
                                       (vecPush inNames "")
@@ -6151,7 +6151,7 @@
                                     }
                                     {
                                       (vecPush ins (if hasReg
-                                        (strConcat (strConcat "{" reg) "}")
+                                        (concat (concat "{" reg) "}")
                                         "r"))
                                       (vecPush inNames nm)
                                       (vecPush inVals (vecGet args (- (vecLen args) 1)))
@@ -6177,7 +6177,7 @@
               (if (> (strLen why) 0)
                 (expAsmBad env (nodeSpan a) why)
                 (if (>= (expAsmNameAt regs r 0) 0)
-                  (expAsmBad env (nodeSpan a) (strConcat (strConcat "`" r) "` is named twice in this arm; a clobbered register can't also hold an operand"))
+                  (expAsmBad env (nodeSpan a) (concat (concat "`" r) "` is named twice in this arm; a clobbered register can't also hold an operand"))
                   {
                     (vecPush regs r)
                     (vecPush clobs r)
@@ -6210,7 +6210,7 @@
       (set i 0)
       (while (< i (vecLen clobs))
         {
-          (set s (expAsmJoin s (strConcat (strConcat "~{" (vecGetStr clobs i)) "}")))
+          (set s (expAsmJoin s (concat (concat "~{" (vecGetStr clobs i)) "}")))
           (set i (+ i 1))
         })
       (expAsmJoin s (if (strEq arch "aarch64")
@@ -6222,7 +6222,7 @@
 (pub fn (expAsmJoin s t)
   (if (== (strLen s) 0)
     t
-    (strConcat (strConcat s ",") t)))
+    (concat (concat s ",") t)))
 
 ; Why `r` can't hold an operand on `arch`, or "" when it can. An
 ; operand lives in a general-purpose register the compiler's frame and
@@ -6237,10 +6237,10 @@
           ""
           (if (strEq r "x30")
             "`x30` is the link register; name it in `clobber` if the instructions write it"
-            (strConcat (strConcat "`" r) "` is not a register an aarch64 operand can name; use `x0` to `x28`, except `x18`")))
+            (concat (concat "`" r) "` is not a register an aarch64 operand can name; use `x0` to `x28`, except `x18`")))
         (if (expAsmX64Gpr r)
           ""
-          (strConcat (strConcat "`" r) "` is not a register an x86_64 operand can name; use `rax`, `rbx`, `rcx`, `rdx`, `rsi`, `rdi` or `r8` to `r15`"))))))
+          (concat (concat "`" r) "` is not a register an x86_64 operand can name; use `rax`, `rbx`, `rcx`, `rdx`, `rsi`, `rdi` or `r8` to `r15`"))))))
 
 ; Why `r` can't be clobbered on `arch`, or "" when it can: a
 ; general-purpose register, the link register, or a vector register.
@@ -6252,10 +6252,10 @@
       (if (strEq arch "aarch64")
         (if (|| (expAsmA64Gpr r) (expAsmNumbered r "v" 0 31))
           ""
-          (strConcat (strConcat "`" r) "` is not a register an aarch64 `clobber` can name; use `x0` to `x30`, except `x18` and `x29`, or `v0` to `v31`"))
+          (concat (concat "`" r) "` is not a register an aarch64 `clobber` can name; use `x0` to `x30`, except `x18` and `x29`, or `v0` to `v31`"))
         (if (|| (expAsmX64Gpr r) (expAsmNumbered r "xmm" 0 15))
           ""
-          (strConcat (strConcat "`" r) "` is not a register an x86_64 `clobber` can name; use a general-purpose register other than `rsp` and `rbp`, or `xmm0` to `xmm15`"))))))
+          (concat (concat "`" r) "` is not a register an x86_64 `clobber` can name; use a general-purpose register other than `rsp` and `rbp`, or `xmm0` to `xmm15`"))))))
 
 ; The registers no block may touch, and why.
 (pub :: expAsmReservedWhy (-> String String String))
@@ -6338,17 +6338,17 @@
         (let ((c (strByte s i)))
           (if (&& (== c 92) (< (+ i 1) n))
             {
-              (set out (strConcat out (strSlice s i 2)))
+              (set out (concat out (strSlice s i 2)))
               (set i (+ i 2))
             }
             (if (== c 36)
               {
-                (set out (strConcat out "$$"))
+                (set out (concat out "$$"))
                 (set i (+ i 1))
               }
               (if (&& (== c 123) (&& (< (+ i 1) n) (== (strByte s (+ i 1)) 123)))
                 {
-                  (set out (strConcat out "{"))
+                  (set out (concat out "{"))
                   (set i (+ i 2))
                 }
                 (if (== c 123)
@@ -6359,13 +6359,13 @@
                         0
                       }
                       {
-                        (set out (strConcat out (expAsmPlaceholder (strSlice s (+ i 1) (- close (+ i 1))) arch names slots errs)))
+                        (set out (concat out (expAsmPlaceholder (strSlice s (+ i 1) (- close (+ i 1))) arch names slots errs)))
                         (set i (+ close 1))
                       }))
                   (if (== c 125)
                     (if (&& (< (+ i 1) n) (== (strByte s (+ i 1)) 125))
                       {
-                        (set out (strConcat out "}"))
+                        (set out (concat out "}"))
                         (set i (+ i 2))
                       }
                       {
@@ -6373,7 +6373,7 @@
                         0
                       })
                     {
-                      (set out (strConcat out (strSlice s i 1)))
+                      (set out (concat out (strSlice s i 1)))
                       (set i (+ i 1))
                     })))))))
       out
@@ -6406,18 +6406,18 @@
   )
     (if (< at 0)
       {
-        (vecPush errs (strConcat (strConcat "the template writes `{" nm) "}`, and no operand of this arm has that name; write `{{` and `}}` for literal braces"))
+        (vecPush errs (concat (concat "the template writes `{" nm) "}`, and no operand of this arm has that name; write `{{` and `}}` for literal braces"))
         ""
       }
       (if (&& (> (strLen m) 0) (! (expAsmModifier arch m)))
         {
-          (vecPush errs (strConcat (strConcat (strConcat "`:" m) "` is not an operand modifier on ") (strConcat arch (if (strEq arch "aarch64")
+          (vecPush errs (concat (concat (concat "`:" m) "` is not an operand modifier on ") (concat arch (if (strEq arch "aarch64")
             "; the modifiers are `w` and `x`"
             "; the modifiers are `b`, `h`, `w`, `k` and `q`"))))
           ""
         }
-        (strConcat (strConcat "${" (expFmtInt (vecGet slots at))) (if (> (strLen m) 0)
-          (strConcat (strConcat ":" m) "}")
+        (concat (concat "${" (expFmtInt (vecGet slots at))) (if (> (strLen m) 0)
+          (concat (concat ":" m) "}")
           "}"))))))
 
 (pub :: expAsmColon (-> String Int Int))
@@ -6627,7 +6627,7 @@
             "AX3027"
             "declaration-macro"
             isp
-            (strConcat (strConcat "declaration macro `" (expSrcSpelling (nodeAName head))) "` invoked in expression position")
+            (concat (concat "declaration macro `" (expSrcSpelling (nodeAName head))) "` invoked in expression position")
             0
             0
             "a rule-form macro's template is declarations; invoke it at top level"
@@ -6708,7 +6708,7 @@
           "AX3019"
           "macro-recursion-limit"
           isp
-          (strConcat (strConcat "expanding `" (nodeAName mac)) "` exceeded the macro expansion depth limit")
+          (concat (concat "expanding `" (nodeAName mac)) "` exceeded the macro expansion depth limit")
           0
           0
           "check whether this macro, directly or through another, invokes itself with no case that stops"
@@ -6787,7 +6787,7 @@
           "AX3019"
           "macro-recursion-limit"
           isp
-          (strConcat (strConcat "expanding `" (nodeAName mac)) "` exceeded the macro expansion depth limit")
+          (concat (concat "expanding `" (nodeAName mac)) "` exceeded the macro expansion depth limit")
           0
           0
           "check whether this macro, directly or through another, invokes itself with no case that stops"
@@ -6882,7 +6882,7 @@
     "AX3018"
     "macro-arity"
     isp
-    (strConcat (strConcat (strConcat "no rule of macro `" name) "` matches this invocation; it accepts ") shapes)
+    (concat (concat (concat "no rule of macro `" name) "` matches this invocation; it accepts ") shapes)
     0
     0
     "write the invocation in one of the shapes above"
@@ -6895,7 +6895,7 @@
     "AX3018"
     "macro-arity"
     isp
-    (strConcat (strConcat (strConcat (strConcat (strConcat "macro `" name) "` takes ") (expFmtInt want)) " arguments, but was given ") (expFmtInt got))
+    (concat (concat (concat (concat (concat "macro `" name) "` takes ") (expFmtInt want)) " arguments, but was given ") (expFmtInt got))
     0
     0
     "pass exactly as many arguments as the macro declares parameters"
@@ -7061,7 +7061,7 @@
                 "AX3034"
                 "macro-ellipsis"
                 (nodeSpan mac)
-                (strConcat (strConcat "macro `" (nodeAName mac)) "` repeats beneath a repeat")
+                (concat (concat "macro `" (nodeAName mac)) "` repeats beneath a repeat")
                 0
                 0
                 "repeat one level only - `(m (f a) ...)` - and take deeper shapes apart across rules"
@@ -7073,7 +7073,7 @@
               "AX3034"
               "macro-ellipsis"
               (nodeSpan mac)
-              (strConcat (strConcat "macro `" (nodeAName mac)) "` has a rule with more than one `...`")
+              (concat (concat "macro `" (nodeAName mac)) "` has a rule with more than one `...`")
               0
               0
               "keep one repeating element per rule; the arguments a second one would take are the ones the first already took"
@@ -7169,7 +7169,7 @@
           "AX3066"
           "macro-literal"
           (nodeSpan mac)
-          (strConcat (strConcat "macro `" (nodeAName mac)) (strConcat "` declares the literal `" (strConcat (vecGetStr lits i) "` but no pattern spells it")))
+          (concat (concat "macro `" (nodeAName mac)) (concat "` declares the literal `" (concat (vecGetStr lits i) "` but no pattern spells it")))
           0
           0
           "spell it in a pattern, or drop it from the header"
@@ -7196,7 +7196,7 @@
     "AX3034"
     "macro-ellipsis"
     isp
-    (strConcat (strConcat (strConcat "`" name) "` ") msg)
+    (concat (concat (concat "`" name) "` ") msg)
     0
     0
     help
@@ -7220,7 +7220,7 @@
                 "AX3033"
                 "macro-unreachable-rule"
                 (nodeSpan mac)
-                (strConcat (strConcat (strConcat (strConcat "macro `" (nodeAName mac)) "` has a rule that can never match: rule ") (strConcat (expFmtInt (+ i 1)) " is shadowed by rule ")) (expFmtInt (+ j 1)))
+                (concat (concat (concat (concat "macro `" (nodeAName mac)) "` has a rule that can never match: rule ") (concat (expFmtInt (+ i 1)) " is shadowed by rule ")) (expFmtInt (+ j 1)))
                 0
                 0
                 "give the earlier rule a pattern that can FAIL - a literal, or a parenthesised shape of two or more elements - or delete this one. A one-element `(p)` is the bare binder `p`: the parentheses are the same ones an argument loses, so it still matches everything"
@@ -7379,7 +7379,7 @@
 ; The reserved spelling a declared literal takes in patterns.
 (pub :: expLitSpelling (-> String String))
 (pub fn (expLitSpelling name)
-  (strConcat "syntax/literal " name))
+  (concat "syntax/literal " name))
 
 ; A builtin operator spelling: the eighteen primitives the checker
 ; registers for every program (typecheck.ax `regFn`), which resolve
@@ -7450,33 +7450,33 @@
       (cast Int qm)
       0)
       (if (== (expDeclNamed decls name 0) 1)
-        (strConcat "D:" name)
+        (concat "D:" name)
         (if (== (expBuiltinOp (bareOf name)) 1)
-          (strConcat "D:builtin:" (bareOf name))
-          (strConcat "U:" name)))
+          (concat "D:builtin:" (bareOf name))
+          (concat "U:" name)))
       (if (== modW 0)
         (if (== (expDeclNamed decls name 0) 1)
-          (strConcat "D:" name)
+          (concat "D:" name)
           (if (== (expBuiltinOp name) 1)
-            (strConcat "D:builtin:" name)
+            (concat "D:builtin:" name)
             (let ((u (expUniqueModuleName decls name)))
               (if (strEq u name)
-                (strConcat "U:" name)
-                (strConcat "D:" u)))))
+                (concat "U:" name)
+                (concat "D:" u)))))
         (let ((q 
-          (strConcat
-            (strConcat
+          (concat
+            (concat
               (cast String modW)
               "$")
             name)))
           (if (== (expDeclNamed decls q 0) 1)
-            (strConcat "D:" q)
+            (concat "D:" q)
             (if (== (expBuiltinOp name) 1)
-              (strConcat "D:builtin:" name)
+              (concat "D:builtin:" name)
               (let ((u (expUniqueModuleName decls name)))
                 (if (strEq u name)
-                  (strConcat "U:" name)
-                  (strConcat "D:" u))))))))))
+                  (concat "U:" name)
+                  (concat "D:" u))))))))))
 
 ; The match context rule selection threads: the merged declaration
 ; list both canonicalizations read, and the invocation-site and
@@ -8032,18 +8032,18 @@
       (let ((one (expOneShape (vecGet rules i) name)))
         (if (== (strLen acc) 0)
           one
-          (strConcat (strConcat acc " or ") one))))))
+          (concat (concat acc " or ") one))))))
 
 (pub :: expOneShape (-> (Vec Int) String String))
 (pub fn (expOneShape r name)
-  (strConcat (expShapeElems (expRuleSpells r) 0 (strConcat "(" name)) ")"))
+  (concat (expShapeElems (expRuleSpells r) 0 (concat "(" name)) ")"))
 
 (pub :: expShapeElems (-> (Vec Int) Int String String))
 ;@axiom:effect(unsafe)
 (pub fn (expShapeElems spells i acc)
   (if (>= i (vecLen spells))
     acc
-    (expShapeElems spells (+ i 1) (strConcat (strConcat acc " ") (vecGetStr spells i)))))
+    (expShapeElems spells (+ i 1) (concat (concat acc " ") (vecGetStr spells i)))))
 
 ; Every BINDER a rule's patterns introduce, nested ones included. The
 ; duplicate check runs over this rather than over slot 0, because slot
@@ -8121,7 +8121,7 @@
             (if (== (nodeSpan t) 0)
               (nodeSpan mac)
               (nodeSpan t))
-            (strConcat (strConcat "macro `" (nodeAName mac)) "`'s template may generate `fn`, `::`, `data`, `struct`, `type` and `effect` declarations, further macro invocations, or a syntax/for over them - this form is not supported yet")
+            (concat (concat "macro `" (nodeAName mac)) "`'s template may generate `fn`, `::`, `data`, `struct`, `type` and `effect` declarations, further macro invocations, or a syntax/for over them - this form is not supported yet")
             0
             0
             "generate the declaration by hand, or split it out of the template"
@@ -8183,7 +8183,7 @@
                     (nodeSpan d)
                     (if (== (expIsJoinMarker (nodeAName d)) 1)
                       "a `(syntax/join ...)` name stands in a declaration macro's template, not in ordinary code"
-                      (strConcat (strConcat "`" (nodeAName d)) "` declares a name in the reserved `syntax/` prefix"))
+                      (concat (concat "`" (nodeAName d)) "` declares a name in the reserved `syntax/` prefix"))
                     "the syntax/ spellings belong to the query vocabulary (macro-system.md MAC-CAP-5/6); pick another name, or move the declaration into a macro template"
                     (nodeModule d))
                   0)
@@ -8212,7 +8212,7 @@
               (nodeSpan c))
             (if (== (expIsJoinMarker (nodeAName c)) 1)
               "a `(syntax/join ...)` constructor name stands in a declaration macro's template, not in ordinary code"
-              (strConcat (strConcat "`" (nodeAName c)) "` declares a constructor in the reserved `syntax/` prefix"))
+              (concat (concat "`" (nodeAName c)) "` declares a constructor in the reserved `syntax/` prefix"))
             "the syntax/ spellings belong to the query vocabulary (macro-system.md MAC-CAP-5/6); pick another name, or move the declaration into a macro template"
             (nodeModule d))
           0))
@@ -8245,7 +8245,7 @@
             "AX3020"
             "macro-duplicate-parameter"
             (nodeSpan mac)
-            (strConcat (strConcat (strConcat "macro `" (nodeAName mac)) "` declares the parameter `") (strConcat (vecGetStr ps i) "` more than once"))
+            (concat (concat (concat "macro `" (nodeAName mac)) "` declares the parameter `") (concat (vecGetStr ps i) "` more than once"))
             0
             0
             "give each parameter a distinct name"
@@ -8535,14 +8535,14 @@
             (expDeclCallErr
               env
               d
-              (strConcat (strConcat "`" (expSrcSpelling (nodeAName d))) "` is neither a declaration keyword nor a visible macro")
+              (concat (concat "`" (expSrcSpelling (nodeAName d))) "` is neither a declaration keyword nor a visible macro")
               "a top-level form is a declaration - fn, ::, data, struct, type, effect, import, macro - or an invocation of a declaration macro"
               "this used to be a bare `syntax error` that also stopped the parse at the first unknown head, hiding every later diagnostic in the file")
             (if (|| (== (memGetWord mac 9) 0) (== (memGetWord mac 6) 1))
               (expDeclCallErr
                 env
                 d
-                (strConcat (strConcat "macro `" (expSrcSpelling (nodeAName d))) "` has an expression template and cannot stand in declaration position")
+                (concat (concat "macro `" (expSrcSpelling (nodeAName d))) "` has an expression template and cannot stand in declaration position")
                 "give it a rule form - `(macro name ((name args ...) (fn ...) ...))` - whose template is declarations"
                 "an expression macro's template is one expression; a declaration position needs declarations (macro-system.md MAC-CAP-8)")
               (let ((m (expRuleForForms (memGetWordVec mac 9) (nodeBVec d) 0 (expMatchCtx decls (nodeModule d) (nodeModule mac)))))
@@ -8972,7 +8972,7 @@
             (memSetWord env 22 tot)
             (if (> tot expMaxDecls)
               {
-                (expBlow env isp (strConcat (strConcat "macro expansion produced more than the limit of " (expFmtInt expMaxDecls)) " declarations"))
+                (expBlow env isp (concat (concat "macro expansion produced more than the limit of " (expFmtInt expMaxDecls)) " declarations"))
                 (cast (Vec Int) 0)
               }
               (expDrainBuilt
@@ -9094,7 +9094,7 @@
                       (memSetWord env 22 tot)
                       (if (> tot expMaxDecls)
                         {
-                          (expBlow env isp (strConcat (strConcat "macro expansion produced more than the limit of " (expFmtInt expMaxDecls)) " declarations"))
+                          (expBlow env isp (concat (concat "macro expansion produced more than the limit of " (expFmtInt expMaxDecls)) " declarations"))
                           (cast (Vec Int) 0)
                         }
                         (expBuildDecls
@@ -9232,7 +9232,7 @@
                     "AX3027"
                     "declaration-macro"
                     isp
-                    (strConcat (strConcat "a generated declaration's name must be a bare identifier; `" s) "` was given an expression")
+                    (concat (concat "a generated declaration's name must be a bare identifier; `" s) "` was given an expression")
                     0
                     0
                     "pass a plain name in this argument position"
@@ -10807,7 +10807,7 @@
     j
     0)))
     (if (> n expMaxFrames)
-      (diagAddNote d (strConcat (strConcat "expansion reached this through " (expFmtInt n)) " frames; the first 128 are shown"))
+      (diagAddNote d (concat (concat "expansion reached this through " (expFmtInt n)) " frames; the first 128 are shown"))
       0)))
 
 ; Answers how many frames MATCHED, having added at most `expMaxFrames`
@@ -11063,15 +11063,15 @@
 ; `escBody` in the emitter reads (`\n` there is two source bytes).
 (pub :: expContractMsg (-> Int Int String))
 (pub fn (expContractMsg d t)
-  (strConcat
-    (strConcat
-      (strConcat
+  (concat
+    (concat
+      (concat
         "\"axiom: "
         (if (strEq (contractKeyOf t) "pre")
           "pre"
           "post"))
-      (strConcat "condition failed in `" (bareOf (nodeAName d))))
-    (strConcat (strConcat "`: " (expContractEsc (contractTextOf t) 0 "")) "\\n\"")))
+      (concat "condition failed in `" (bareOf (nodeAName d))))
+    (concat (concat "`: " (expContractEsc (contractTextOf t) 0 "")) "\\n\"")))
 
 ; The contract's own text, made safe to sit inside that lexeme. Only
 ; two bytes need it: `unescByte` in `core.ax` maps `\n`, `\t`, `\r` and
@@ -11087,7 +11087,7 @@
       (+ i 1)
       (let ((b (strByte s i)))
         (if (== b 92)
-          (strConcat acc "\\\\")
+          (concat acc "\\\\")
           (if (== b 34)
-            (strConcat acc "\\\"")
-            (strConcat acc (strSlice s i 1))))))))
+            (concat acc "\\\"")
+            (concat acc (strSlice s i 1))))))))

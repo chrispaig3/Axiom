@@ -211,7 +211,7 @@
             0)
           (set i (+ i 1))
         })
-      (println (strConcat (fmtInt weak) (strConcat " " (fmtInt n))))
+      (println (concat (fmtInt weak) (concat " " (fmtInt n))))
       0
     }))
 
@@ -335,7 +335,7 @@
           out))
       )
         (+ a b))
-      (println (strConcat (fmtInt (__load64 out 0)) (strConcat " " (fmtInt (__load64 out 1)))))
+      (println (concat (fmtInt (__load64 out 0)) (concat " " (fmtInt (__load64 out 1)))))
       0
     }))
 
@@ -380,9 +380,9 @@
       {
         (let ((lost (- (* 2 n) (__atomic_load cell))))
           (println
-            (strConcat
+            (concat
               (fmtInt lost)
-              (strConcat
+              (concat
                 " "
                 (fmtInt
                   (if (== mode 2)
@@ -396,7 +396,7 @@
 ;@axiom:effect(io)
 (fn (report forbidden witnessed)
   {
-    (println (strConcat (fmtInt forbidden) (strConcat " " (fmtInt witnessed))))
+    (println (concat (fmtInt forbidden) (concat " " (fmtInt witnessed))))
     0
   })
 

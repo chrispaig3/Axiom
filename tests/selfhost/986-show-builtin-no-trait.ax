@@ -3,7 +3,7 @@
 ;
 ; This is the minimal program that renders: `Fmt` and `Str` are the
 ; only modules loaded, because they are exactly what the rewrite
-; targets - `fmtInt`/`fmtFloat`, `strConcat`/`strByte`/`strFromByte`
+; targets - `fmtInt`/`fmtFloat`, `concat`/`strByte`/`strFromByte`
 ; (and `Vec`, which `Str` imports, for the ancestor stack) - and
 ; `Fmt` is where the `format` macro lives since 0.7.4, so no third
 ; import is needed to reach it.

@@ -1447,7 +1447,7 @@
 ;
 ; Fragments in a Vec, joined once at the end. `out.push_str` in stage0
 ; appends three to five fragments per token - the indent, the name, a
-; space, each paren - and a `strConcat` per fragment would copy the
+; space, each paren - and a `concat` per fragment would copy the
 ; whole output each time: 200 KB of formatted source over 100,000
 ; appends is 10 GB of copying, which is the law `renderCG` was just
 ; rescued from. Appending to a Vec is O(1) amortised and the join is one
@@ -1570,7 +1570,7 @@
     {
       (while (< i (foIndent o))
         {
-          (set s (strConcat s "  "))
+          (set s (concat s "  "))
           (set i (+ i 1))
         })
       s
@@ -5140,7 +5140,7 @@
             {
               (fpP p "(")
               (fpVis p n)
-              (fpP p (strConcat (fpDeclHead src n) " "))
+              (fpP p (concat (fpDeclHead src n) " "))
               (fpP p (fnText src (fnKid n (+ b 1))))
               (while (< ri (vecLen tail))
                 (let ((rule (vecGet tail ri)))
@@ -5660,7 +5660,7 @@
                                           (while (>= j 0)
                                             {
                                               (let ((ck (vecGet st j)))
-                                                (set out (strConcat
+                                                (set out (concat
                                                   out
                                                   (if (== ck FT_RPAREN)
                                                     ")"
@@ -5669,7 +5669,7 @@
                                                       "}")))))
                                               (set j (- j 1))
                                             })
-                                          (set out (strConcat out (strSlice src ins (- (strLen src) ins))))
+                                          (set out (concat out (strSlice src ins (- (strLen src) ins))))
                                           (fmtOnce out 0)
                                         }))
                                   }))))
@@ -5723,7 +5723,7 @@
       (let ((r (fmtFormatBody (strSlice src skip (- (strLen src) skip)))))
         (if (== (fzOk r) 0)
           r
-          (cast Int (FRes 1 (strConcat (strSlice src 0 skip) (fzText r)))))))))
+          (cast Int (FRes 1 (concat (strSlice src 0 skip) (fzText r)))))))))
 
 (pub :: fmtFormatBody (-> String Int))
 ;@axiom:effect(unsafe)

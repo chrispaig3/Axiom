@@ -54,7 +54,7 @@
       }
       (if (== i 6)
         "this answer is much longer than the limit of thirty-two bytes allows"
-        (strConcat "square " (fmtInt (* i i)))))))
+        (concat "square " (fmtInt (* i i)))))))
 
 (:: third (-> Int Int String))
 ;@axiom:effect(io)

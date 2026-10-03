@@ -190,7 +190,7 @@
 (fn (atPos ex at msg)
   (if (< at 0)
     msg
-    (strConcat (strConcat (axqlPosText ex.src at) ": ") msg)))
+    (concat (concat (axqlPosText ex.src at) ": ") msg)))
 
 ; ------------------------------------------------------------------
 ; Binding.
@@ -226,14 +226,14 @@
 (:: bindName (-> Exec (Option TableDef) String Int (Result Expr Error)))
 (fn (bindName ex t n at)
   (match t
-    ((None) (axqErr axqSchema (atPos ex at (strConcat "no such column: " n)) "axqlBind"))
+    ((None) (axqErr axqSchema (atPos ex at (concat "no such column: " n)) "axqlBind"))
     ((Some td)
       (let ((ci (axqlColumnIndex td.cols n)))
         (if (>= ci 0)
           (Ok (ECol ci))
           (if (axqlNameEq n "rowid")
             (Ok (ECol -1))
-            (axqErr axqSchema (atPos ex at (strConcat "no such column: " n)) "axqlBind"))))
+            (axqErr axqSchema (atPos ex at (concat "no such column: " n)) "axqlBind"))))
     )))
 
 ; Bind, type-check and fold one expression. Answers the folded
@@ -262,7 +262,7 @@
           ty
           (typeOfBound ex t b)
           (if (|| (== ty typeText) (== ty typeBlob))
-            (axqErr axqType (strConcat "WHERE needs a number, not " (typeName ty)) "axqlPlan")
+            (axqErr axqType (concat "WHERE needs a number, not " (typeName ty)) "axqlPlan")
             (try f (axqlFold b ex.params) (Ok (axqlConjuncts f))))))
     )))
 
@@ -967,7 +967,7 @@
               got
               (btreeGet ex.pager t.root (keyRowid rowid))
               (match got
-                ((None) (axqErr axqCorrupt (strConcat "an index entry names a missing row of " t.name) "axqlScan"))
+                ((None) (axqErr axqCorrupt (concat "an index entry names a missing row of " t.name) "axqlScan"))
                 ((Some rec) (try vals (axqlRowValues t rec rowid) (f (RowRef rowid vals)))))))
         ))
     )))
@@ -1147,7 +1147,7 @@
   (match e
     ((ELit (VInt k))
       (if (|| (< k 1) (> k (vecLen outs.exprs)))
-        (axqErr axqSchema (strConcat "ORDER BY " (strConcat (fmtInt k) (strConcat " names no result column; there are " (fmtInt (vecLen outs.exprs))))) "axqlPlan")
+        (axqErr axqSchema (concat "ORDER BY " (concat (fmtInt k) (concat " names no result column; there are " (fmtInt (vecLen outs.exprs))))) "axqlPlan")
         (Ok (vecGet outs.exprs (- k 1))))
     )
     ((EName n _)
@@ -1184,10 +1184,10 @@
         (match v
           ((ELit (VInt n))
             (if (< n 0)
-              (axqErr axqType (strConcat what (strConcat " is negative: " (fmtInt n))) "axqlPlan")
+              (axqErr axqType (concat what (concat " is negative: " (fmtInt n))) "axqlPlan")
               (Ok n))
           )
-          (_ (axqErr axqType (strConcat what " needs an INTEGER") "axqlPlan"))))
+          (_ (axqErr axqType (concat what " needs an INTEGER") "axqlPlan"))))
     )))
 
 ; A row kept for sorting: its sort keys, its rowid, and its values.
@@ -1479,7 +1479,7 @@
         (Ok false)
         (try got (btreeGet ex.pager t.root (keyRowid rowid)) (Ok (isSome got))))
       (if taken
-        (axqErr axqConstraint (strConcat (strConcat "a row with rowid " (fmtInt rowid)) (strConcat " already exists in " t.name)) "axqlWrite")
+        (axqErr axqConstraint (concat (concat "a row with rowid " (fmtInt rowid)) (concat " already exists in " t.name)) "axqlWrite")
         (checkUnique
           ex
           t
@@ -1500,7 +1500,7 @@
           0))
       (if (strIsEmpty bad)
         (Ok 0)
-        (axqErr axqConstraint (strConcat (strConcat t.name ".") (strConcat bad " may not be NULL")) "axqlWrite"))
+        (axqErr axqConstraint (concat (concat t.name ".") (concat bad " may not be NULL")) "axqlWrite"))
     }))
 
 ; Refuse `values` when a UNIQUE index of `t` already holds them for a
@@ -1522,7 +1522,7 @@
                 ((Ok holder)
                   (if (&& (>= holder 0) (&& (!= holder self) (!= holder rowid)))
                     {
-                      (set failure (Some (mkError axqConstraint (strConcat (strConcat "the UNIQUE index " ix.name) (strConcat " already holds that value in " t.name)))))
+                      (set failure (Some (mkError axqConstraint (concat (concat "the UNIQUE index " ix.name) (concat " already holds that value in " t.name)))))
                       0
                     }
                     0)
@@ -1586,7 +1586,7 @@
       fresh
       (putNew ex t.root (keyRowid rowid) rec)
       (if (! fresh)
-        (axqErr axqConstraint (strConcat (strConcat "a row with rowid " (fmtInt rowid)) (strConcat " already exists in " t.name)) "axqlWrite")
+        (axqErr axqConstraint (concat (concat "a row with rowid " (fmtInt rowid)) (concat " already exists in " t.name)) "axqlWrite")
         (writeIndexEntries ex t values rowid)))))
 
 (:: writeIndexEntries (-> Exec TableDef (Vec Value) Int (Result Int Error)))
@@ -1673,7 +1673,7 @@
           r
           (keyRowidOf k)
           (if (== r intMax)
-            (axqErr axqTooBig (strConcat "every rowid of " (strConcat t.name " up to 9223372036854775807 is taken")) "axqlWrite")
+            (axqErr axqTooBig (concat "every rowid of " (concat t.name " up to 9223372036854775807 is taken")) "axqlWrite")
             (Ok (+ r 1))))
       ))))
 
@@ -1707,12 +1707,12 @@
                     -3))))
                 (if (== target -3)
                   {
-                    (set failure (Some (mkError axqSchema (strConcat (strConcat "table " t.name) (strConcat " has no column named " n)))))
+                    (set failure (Some (mkError axqSchema (concat (concat "table " t.name) (concat " has no column named " n)))))
                     out
                   }
                   (if (vecHasInt out target)
                     {
-                      (set failure (Some (mkError axqSchema (strConcat (strConcat "column " n) " is named twice"))))
+                      (set failure (Some (mkError axqSchema (concat (concat "column " n) " is named twice"))))
                       out
                     }
                     (vecPush out target))))))))
@@ -1786,7 +1786,7 @@
 (:: prepareRow (-> Exec TableDef (Vec Int) (Vec Expr) (Result (Vec Value) Error)))
 (fn (prepareRow ex t targets row)
   (if (!= (vecLen row) (vecLen targets))
-    (axqErr axqSchema (strConcat (strConcat "a row of VALUES holds " (countOf (vecLen row) "value")) (strConcat " for " (countOf (vecLen targets) "column"))) "axqlInsert")
+    (axqErr axqSchema (concat (concat "a row of VALUES holds " (countOf (vecLen row) "value")) (concat " for " (countOf (vecLen targets) "column"))) "axqlInsert")
     (let (
       (out vecNewRef)
       (mut failure None)
@@ -1830,7 +1830,7 @@
           (let ((c (vecGet t.cols target)))
             c.ctype))))
         (if (! (typeFits ct vt))
-          (axqErr axqType (strConcat (strConcat (strConcat "column " (targetName t target)) (strConcat " is " (typeName ct))) (strConcat ", not " (typeName vt))) "axqlInsert")
+          (axqErr axqType (concat (concat (concat "column " (targetName t target)) (concat " is " (typeName ct))) (concat ", not " (typeName vt))) "axqlInsert")
           (try
             f
             (axqlFold b ex.params)
@@ -1841,11 +1841,11 @@
 ; `n` and a noun, plural unless `n` is 1.
 (:: countOf (-> Int String String))
 (fn (countOf n noun)
-  (strConcat
-    (strConcat (fmtInt n) " ")
+  (concat
+    (concat (fmtInt n) " ")
     (if (== n 1)
       noun
-      (strConcat noun "s"))))
+      (concat noun "s"))))
 
 (:: targetName (-> TableDef Int String))
 (fn (targetName t target)
@@ -2012,12 +2012,12 @@
                   -3))))
               (if (== target -3)
                 {
-                  (set failure (Some (mkError axqSchema (strConcat (strConcat "table " t.name) (strConcat " has no column named " n)))))
+                  (set failure (Some (mkError axqSchema (concat (concat "table " t.name) (concat " has no column named " n)))))
                   0
                 }
                 (if (vecHasInt cols target)
                   {
-                    (set failure (Some (mkError axqSchema (strConcat (strConcat "column " n) " is set twice"))))
+                    (set failure (Some (mkError axqSchema (concat (concat "column " n) " is set twice"))))
                     0
                   }
                   (match (prepareSet ex t target (vecGet exprs i))
@@ -2054,7 +2054,7 @@
           (let ((c (vecGet t.cols target)))
             c.ctype))))
         (if (! (typeFits ct vt))
-          (axqErr axqType (strConcat (strConcat (strConcat "column " (targetName t target)) (strConcat " is " (typeName ct))) (strConcat ", not " (typeName vt))) "axqlUpdate")
+          (axqErr axqType (concat (concat (concat "column " (targetName t target)) (concat " is " (typeName ct))) (concat ", not " (typeName vt))) "axqlUpdate")
           (axqlFold b ex.params))))))
 
 (:: runUpdate (-> Exec Schema String (Vec String) (Vec Expr) (Option Expr) (Result Int Error)))
@@ -2121,7 +2121,7 @@
                     (putNew ex t.root (keyRowid nr.rowid) newRec)
                     (if fresh
                       (Ok 0)
-                      (axqErr axqConstraint (strConcat (strConcat "a row with rowid " (fmtInt nr.rowid)) (strConcat " already exists in " t.name)) "axqlUpdate")))))
+                      (axqErr axqConstraint (concat (concat "a row with rowid " (fmtInt nr.rowid)) (concat " already exists in " t.name)) "axqlUpdate")))))
               (try
                 _
                 (writeIndexEntries ex t nr.values nr.rowid)
@@ -2164,7 +2164,7 @@
                   )
                   (_
                     {
-                      (set failure (Some (mkError axqConstraint (strConcat "the rowid of " (strConcat t.name " may not be NULL")))))
+                      (set failure (Some (mkError axqConstraint (concat "the rowid of " (concat t.name " may not be NULL")))))
                       0
                     }
                   )))
@@ -2186,7 +2186,7 @@
           )
           (_
             {
-              (set failure (Some (mkError axqConstraint (strConcat t.name "'s INTEGER PRIMARY KEY may not be NULL"))))
+              (set failure (Some (mkError axqConstraint (concat t.name "'s INTEGER PRIMARY KEY may not be NULL"))))
               0
             }
           ))
@@ -2243,7 +2243,7 @@
   )
     {
       (if (> (vecLen cols) axqlMaxColumns)
-        (set failure (strConcat "a table may have at most " (strConcat (fmtInt axqlMaxColumns) " columns")))
+        (set failure (concat "a table may have at most " (concat (fmtInt axqlMaxColumns) " columns")))
         "")
       (for (c i) in cols
         (if (! (strIsEmpty failure))
@@ -2253,7 +2253,7 @@
               (let ((d (vecGet cols j)))
                 (if (&& (strIsEmpty failure) (axqlNameEq c.name d.name))
                   {
-                    (set failure (strConcat (strConcat "column " c.name) " is declared twice"))
+                    (set failure (concat (concat "column " c.name) " is declared twice"))
                     0
                   }
                   0)))
@@ -2262,12 +2262,12 @@
                 (set pks (+ pks 1))
                 (if (!= c.ctype typeInteger)
                   {
-                    (set failure (strConcat (strConcat "PRIMARY KEY is allowed only on an INTEGER column, and " c.name) (strConcat " is " (typeName c.ctype))))
+                    (set failure (concat (concat "PRIMARY KEY is allowed only on an INTEGER column, and " c.name) (concat " is " (typeName c.ctype))))
                     0
                   }
                   (if (> pks 1)
                     {
-                      (set failure (strConcat table " has more than one PRIMARY KEY"))
+                      (set failure (concat table " has more than one PRIMARY KEY"))
                       0
                     }
                     0))
@@ -2282,7 +2282,7 @@
 ; "there is already a table named t", or "an index".
 (:: alreadyNamed (-> SchemaEntry String))
 (fn (alreadyNamed e)
-  (strConcat
+  (concat
     (if (strEq e.kind kindTable)
       "there is already a table named "
       "there is already an index named ")
@@ -2318,11 +2318,11 @@
     ((None)
       (if ifExists
         (Ok 0)
-        (axqErr axqSchema (strConcat "no such table: " name) "axqlDropTable"))
+        (axqErr axqSchema (concat "no such table: " name) "axqlDropTable"))
     )
     ((Some e)
       (if (! (strEq e.kind kindTable))
-        (axqErr axqSchema (strConcat (strConcat "no such table: " name) " (it names an index; use DROP INDEX)") "axqlDropTable")
+        (axqErr axqSchema (concat (concat "no such table: " name) " (it names an index; use DROP INDEX)") "axqlDropTable")
         (let (
           (doomed (entryVec))
           (mut failure None)
@@ -2374,9 +2374,9 @@
         (if (strIsEmpty failure)
           (let ((ci (axqlColumnIndex t.cols n)))
             (if (< ci 0)
-              (set failure (strConcat (strConcat "table " t.name) (strConcat " has no column named " n)))
+              (set failure (concat (concat "table " t.name) (concat " has no column named " n)))
               (if (vecHasInt out ci)
-                (set failure (strConcat (strConcat "column " n) " is named twice"))
+                (set failure (concat (concat "column " n) " is named twice"))
                 {
                   (vecPush out ci)
                   ""
@@ -2436,7 +2436,7 @@
       (uniqueHolder ex ix r.values)
       (Ok -1))
     (if (>= holder 0)
-      (axqErr axqConstraint (strConcat (strConcat "can't create the UNIQUE index " ix.name) (strConcat ": " (strConcat t.name " holds duplicate values"))) "axqlCreateIndex")
+      (axqErr axqConstraint (concat (concat "can't create the UNIQUE index " ix.name) (concat ": " (concat t.name " holds duplicate values"))) "axqlCreateIndex")
       (try _ (writeIndexEntry ex ix r.values r.rowid) (Ok true)))))
 
 (:: runDropIndex (-> Exec Schema Bool String (Result Int Error)))
@@ -2446,11 +2446,11 @@
     ((None)
       (if ifExists
         (Ok 0)
-        (axqErr axqSchema (strConcat "no such index: " name) "axqlDropIndex"))
+        (axqErr axqSchema (concat "no such index: " name) "axqlDropIndex"))
     )
     ((Some e)
       (if (! (strEq e.kind kindIndex))
-        (axqErr axqSchema (strConcat (strConcat "no such index: " name) " (it names a table; use DROP TABLE)") "axqlDropIndex")
+        (axqErr axqSchema (concat (concat "no such index: " name) " (it names a table; use DROP TABLE)") "axqlDropIndex")
         (try _ (removeEntry ex e) (try _ (dropTree ex e.root) (try _ (pagerBumpSchemaVersion ex.pager) (Ok 0)))))
     )))
 
