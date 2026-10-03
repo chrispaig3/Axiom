@@ -684,14 +684,16 @@ echo "--- 7b. a tampered line table fails the derived lines ---"
 # The ablation a golden cannot do: rewrite one row's line in the
 # EMITTED IR, rebuild through llc/cc, and require the trace to follow
 # the tamper (proving the walker reads the table) while the derived
-# expectation goes red (proving the gate reads the fixture). e5's row
-# carries `i64 5, i64 22` - the DIV line and column §1 derived - and
-# it occurs exactly once; anything else means the anchor moved and the
+# expectation goes red (proving the gate reads the fixture). e5's rows
+# carry `i64 5, i64 22` - the DIV line and column §1 derived - and
+# they occur exactly twice: one row per trap site, the divide-by-zero
+# block and the overflow block, both wearing the division's span. A
+# third site, or one row going missing, means the anchor moved and the
 # probe is measuring itself.
 "$axc" emit-llvm --diagnostic-format=ai "$work/chain.ax" -o "$work/tamper.ll" >/dev/null 2>&1
 anchor="$(grep -c 'i64 5, i64 22,' "$work/tamper.ll" || true)"
-if [[ "$anchor" != "1" ]]; then
-  bad "the tamper anchor occurs $anchor times, not once - re-anchor it"
+if [[ "$anchor" != "2" ]]; then
+  bad "the tamper anchor occurs $anchor times, not twice - re-anchor it"
 else
   sed 's/i64 5, i64 22,/i64 99, i64 22,/' "$work/tamper.ll" > "$work/tamper.evil.ll"
   if cmp -s "$work/tamper.ll" "$work/tamper.evil.ll"; then

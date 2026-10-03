@@ -279,10 +279,11 @@
 ; with a different return type, so no existing program's meaning moves
 ; and no hot loop pays for a check it did not ask for.
 ;
-; `INT_MIN / -1` is guarded here too. It is one of MM-VAL-3b's three
-; genuinely undefined cases - it answers -9223372036854775808 at
+; `INT_MIN / -1` is guarded here too. It was one of MM-VAL-3b's three
+; genuinely undefined cases - it answered -9223372036854775808 at
 ; `--opt 0` and 1 at `--opt 1`, which is the kind of disagreement a
-; checked operator exists to end.
+; checked operator exists to end. The raw operator traps it now (exit
+; 83); this answers `(Err Overflow)` instead.
 ; ------------------------------------------------------------------
 (pub :: intMin Int)
 (pub fn (intMin)
@@ -343,19 +344,16 @@
     ; zero - and a zero product cannot have wrapped.
     (Ok 0)
     ; `intMin * -1` is excluded HERE so the division below is never
-    ; asked to compute `intMin / -1`, which is undefined and answers
-    ; differently per `--opt` (MM-VAL-3b). Both operand orders are
-    ; excluded, because it is the same overflow written the other way.
+    ; asked to compute `intMin / -1`, which traps (exit 83, MM-VAL-3b).
+    ; Both operand orders are excluded, because it is the same
+    ; overflow written the other way.
     ;
-    ; THIS GUARD IS NOT OBSERVABLE IN THE ANSWER, and that is worth
-    ; saying rather than implying a test covers it. Removing it was
-    ; tried: `312-checked-arithmetic.ax` still passes, because the
-    ; undefined division happens to answer something other than `b` at
-    ; every level this compiler emits. The guard is here so the
-    ; implementation never PERFORMS the undefined operation, not
-    ; because the wrong answer would otherwise escape - a checked
-    ; operator whose correctness rests on what UB happens to do is not
-    ; a checked operator.
+    ; THIS GUARD IS LOAD-BEARING. Removing it was tried:
+    ; `312-checked-arithmetic.ax` exits 83 instead of answering `(Err
+    ; Overflow)`, because `(/ p a)` becomes `(/ intMin -1)` exactly.
+    ; (Before the exit-83 guard the removal still passed: the
+    ; undefined division happened to answer something other than `b`
+    ; at every level the compiler emitted.)
     (if (|| (&& (== a intMin) (== b (- 0 1))) (&& (== b intMin) (== a (- 0 1))))
       (Err (mkError errOverflow "product is not representable"))
       (let ((p (* a b)))
@@ -379,9 +377,9 @@
       (Err (mkError errOverflow "remainder is not representable"))
       (Ok (% a b)))))
 
-; A shift amount of 64 or more, and a negative one, are undefined and
-; no masking is emitted - `(<< 1 100)` answers 68719476736 at `--opt 0`
-; and 1 at `--opt 1`.
+; A shift amount of 64 or more, and a negative one, trap (exit 84,
+; MM-VAL-3b) - `(<< 1 100)` used to answer 68719476736 at `--opt 0`
+; and 1 at `--opt 1`, and no masking is emitted either way.
 (pub :: shlChecked (-> Int Int (Result Int Error)))
 (pub fn (shlChecked a n)
   (if (|| (< n 0) (>= n 64))

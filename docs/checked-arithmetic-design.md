@@ -11,6 +11,7 @@ considered, why we chose this one, and what we left out.
 | 2026-09-04 | Corrected: the `for` counter and `Float` operators are no longer refused. |
 | 2026-09-08 | Decision D1 (roadmap item 11) closes checked arithmetic as designed. |
 | 2026-09-10 | `remChecked` and `shrChecked` have fixtures, and `ERR-REC-2` reads "H, gated". |
+| 2026-10-02 | The deferred corners now trap: `INT_MIN / -1` exits 83, an out-of-range shift exits 84 (`MM-VAL-3b`). The follow-up is renamed `no-trap`, and this record's `no-untrapped` means that. |
 
 The sections from "What already exists" to "Gate plan" are the design
 pass, written before the code. What changed after it shipped is in
@@ -414,9 +415,9 @@ These are decided, not open.
   `shlChecked` and `shrChecked` in `stdlib/Err.ax` answer them.
 
 The named follow-up for these four operators is
-`restrict(no-untrapped)`, pinned by
-`tests/diagnostics/396-restrict-no-untrapped.ax`. It is not a gap in
-phase 1.
+`restrict(no-trap)` (spelled `no-untrapped` when this section was
+written), pinned by `tests/diagnostics/396-restrict-no-trap.ax`. It
+is not a gap in phase 1.
 
 The `remChecked` and `shrChecked` fixture gap is closed.
 `tests/stdlib/312-checked-arithmetic.ax` carries their boundary terms

@@ -65,6 +65,24 @@ echo "--- 1. user-level cast count does not grow ---"
 # `tests/litmus/par-determinism.ax`: a join carries one word, so a float
 # answer crosses as its bits, which is what MM-PAR-14 tells a program to
 # send when it compares answers bit for bit.
+# Baseline 451 measured 2026-10-02: twelve arrived in four commits,
+# each read against MM-VAL-22/23 rather than bulk-accepted. Six are
+# `orDie`'s Err arm in `tests/crypto/310/311/312/320/322/323`,
+# `(cast a (die ...))` at return position: `die` exits first, so the
+# cast never converts a word and only types the unreachable arm. Two
+# are `stdlib/Float.ax`'s `floatToBits`/`floatFromBits`, return
+# position in `(-> Float Int)`/`(-> Int Float)` - the same shape as
+# the float-bits pair the 439 baseline names. Three are AXQLite's:
+# `connPager` casts the mapping's word back to `Pager` at a return
+# under `effect(unsafe)` with the liveness precondition stated;
+# `(cast Int pager)` is the store half of that round-trip, a
+# reference decaying to a word rather than a word forged into one;
+# `(cast Byte c)` narrows an `Int` for `strFromByte`, scalar to
+# scalar, so no reference is forged and no release is suppressed.
+# The last net one is the `alloc`-removed refusal fixture, `(cast Int
+# (alloc P))` plus its golden's quote of it, minus the two alloc-user
+# casts the removal deleted; the fixture is refused AX2004, so its
+# cast never compiles.
 # Baseline 433 measured 2026-09-29 at the Track C merge: seven arrived.
 # Four are `stdlib/Task.ax`'s and `stdlib/Par.ax`'s spawn handle carried
 # through the recovery point around a spawn, which answers a word, so
@@ -144,10 +162,10 @@ echo "--- 1. user-level cast count does not grow ---"
 cast_count="$(git -C "$repo_root" grep -h -o '(cast ' -- stdlib tests examples ':!tests/fuzz' | wc -l | tr -d ' ')"
 if [ "$cast_count" -eq 0 ]; then
   bad "user-level: the cast count read 0 - the measurement is broken, not the tree clean"
-elif [ "$cast_count" -le 439 ]; then
-  ok "user-level (cast count $cast_count <= 439)"
+elif [ "$cast_count" -le 451 ]; then
+  ok "user-level (cast count $cast_count <= 451)"
 else
-  bad "user-level (cast count $cast_count > 439): new casts need a MM-VAL-23 reason and a baseline bump"
+  bad "user-level (cast count $cast_count > 451): new casts need a MM-VAL-23 reason and a baseline bump"
 fi
 
 echo "--- 2. arg-root cast still leaks (does not free early) ---"

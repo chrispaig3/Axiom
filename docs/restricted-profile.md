@@ -86,9 +86,7 @@ an `asm` form, allowed or not, every kernel entry
 no-syscall trap, status 74), and the stack analysis's own assumptions.
 
 It also lists, for each root, the trap statuses a call from it can end
-the process with, and whether it may block, with the path. Every
-function using an operator undefined on part of its domain (`<<` and
-`>>` on an amount outside 0 to 63, `INT_MIN / -1`) is listed too.
+the process with, and whether it may block, with the path.
 
 ### Traps
 
@@ -100,6 +98,8 @@ statuses of [memory-model.md](memory-model.md) `MM-EXEC-16`:
 | 70 | `Alloc` in the function's row: out of memory |
 | 71 | a declared effect in the row, unless a caller handles it |
 | 72 | `/` or `%`: a zero divisor |
+| 83 | `/` or `%`: `INT_MIN / -1` |
+| 84 | `<<` or `>>`: a shift amount outside 0 to 63 |
 | 75, 76 | `__axiom_arena_reset`: a bad mark, or a mark past a live handle |
 | 77 | `__indexTrap`: `vecGet`'s range check |
 | 78 | a spawn or join |

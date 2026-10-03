@@ -1076,8 +1076,8 @@
 ; and `mSuccs` answers empty for `MT_TRAP` as it already does for
 ; `MT_RET` - so dominance, reachability and the one-terminator rule all
 ; cover the guard without a new case in any of them.
-(pub :: mLowerDivGuard (-> MLC String Int Int))
-(pub fn (mLowerDivGuard lc bop divisor)
+(pub :: mLowerDivGuard (-> MLC String Int Int Int))
+(pub fn (mLowerDivGuard lc bop dividend divisor)
   (if (mIsDivOp bop)
     (let (
       (bt (mlcBlock lc vecNew))
@@ -1104,8 +1104,125 @@
           0
           0))
         (set lc.cur bk)
+        (mLowerDivOverflow lc dividend divisor)
         0
       })
+    0))
+
+; One constant / one binary instruction, answering the fresh register.
+; The guards below are unreadable without them (seven nested lets
+; each already).
+(pub :: mEmitConst (-> MLC Int Int))
+(pub fn (mEmitConst lc v)
+  (mlcEmit lc (MInst
+    MO_CONST
+    (mlcFresh lc)
+    v
+    0
+    ""
+    vecNew
+    0
+    0)))
+
+(pub :: mEmitBin (-> MLC String Int Int Int))
+(pub fn (mEmitBin lc bop a b)
+  (mlcEmit lc (MInst
+    MO_BIN
+    (mlcFresh lc)
+    a
+    b
+    bop
+    vecNew
+    0
+    0)))
+
+; MM-VAL-3b's first corner in the IR: trap when the dividend is
+; `INT_MIN` and the divisor is `-1`. Four value instructions and the
+; same `trapz` shape as the zero guard - `t4` is 1 exactly when the
+; division is safe, so the trap block is taken when it is 0. The
+; builder is left on the second continuation, so the division that
+; follows is emitted there. `INT_MIN` is computed, not spelled: the
+; literal does not parse (`stdlib/Err.ax`'s `intMin` says the same).
+(pub :: mLowerDivOverflow (-> MLC Int Int Int))
+(pub fn (mLowerDivOverflow lc dividend divisor)
+  (let ((kMin (mEmitConst lc (- (- 0 9223372036854775807) 1))))
+    (let ((kNeg1 (mEmitConst lc (- 0 1))))
+      (let ((kOne (mEmitConst lc 1)))
+        (let ((t1 (mEmitBin lc "eq" dividend kMin)))
+          (let ((t2 (mEmitBin lc "eq" divisor kNeg1)))
+            (let ((t3 (mEmitBin lc "and" t1 t2)))
+              (let ((t4 (mEmitBin lc "xor" t3 kOne)))
+                (let (
+                  (bt (mlcBlock lc vecNew))
+                  (bk (mlcBlock lc vecNew))
+                )
+                  {
+                    (mlcTerm lc (MInst
+                      MT_TRAPZ
+                      (- 0 1)
+                      t4
+                      0
+                      ""
+                      vecNew
+                      bt.id
+                      bk.id))
+                    (set lc.cur bt)
+                    (mlcTerm lc (MInst
+                      MT_TRAP
+                      (- 0 1)
+                      (- 0 1)
+                      0
+                      "__axiom_div_overflow"
+                      vecNew
+                      0
+                      0))
+                    (set lc.cur bk)
+                    0
+                  })))))))))
+
+(pub :: mIsShiftOp (-> String Bool))
+(pub fn (mIsShiftOp bop)
+  (|| (strEq bop "shl") (strEq bop "ashr")))
+
+; MM-VAL-3b's second corner in the IR: trap when the amount is below 0
+; or above 63. Same shape as the overflow guard above.
+(pub :: mLowerShiftGuard (-> MLC String Int Int))
+(pub fn (mLowerShiftGuard lc bop amount)
+  (if (mIsShiftOp bop)
+    (let ((k0 (mEmitConst lc 0)))
+      (let ((k64 (mEmitConst lc 64)))
+        (let ((kOne (mEmitConst lc 1)))
+          (let ((t1 (mEmitBin lc "slt" amount k0)))
+            (let ((t2 (mEmitBin lc "sge" amount k64)))
+              (let ((t3 (mEmitBin lc "or" t1 t2)))
+                (let ((t4 (mEmitBin lc "xor" t3 kOne)))
+                  (let (
+                    (bt (mlcBlock lc vecNew))
+                    (bk (mlcBlock lc vecNew))
+                  )
+                    {
+                      (mlcTerm lc (MInst
+                        MT_TRAPZ
+                        (- 0 1)
+                        t4
+                        0
+                        ""
+                        vecNew
+                        bt.id
+                        bk.id))
+                      (set lc.cur bt)
+                      (mlcTerm lc (MInst
+                        MT_TRAP
+                        (- 0 1)
+                        (- 0 1)
+                        0
+                        "__axiom_shift_out_of_range"
+                        vecNew
+                        0
+                        0))
+                      (set lc.cur bk)
+                      0
+                    }))))))))
     0))
 
 (pub :: mLowerApp (-> MLC (Vec MBind) Int Int))
@@ -1159,13 +1276,15 @@
               (if (> (strLen bop) 0)
                 (if (== (vecLen out) 2)
                   {
-                    ; A division's zero guard is lowered IN, before the
+                    ; A division's guards are lowered IN, before the
                     ; division itself is emitted. `codegen.ax` wraps `/`
-                    ; and `%` in a zero test, a trap block and a
-                    ; continuation; representing the division as one
-                    ; instruction and leaving the guard to the emitter is
-                    ; how the trap gets dropped.
-                    (mLowerDivGuard lc bop (vecGet out 1))
+                    ; and `%` in a zero test, an overflow test, trap
+                    ; blocks and continuations, and `<<`/`>>` in a
+                    ; range test the same way; representing the
+                    ; operation as one instruction and leaving the
+                    ; guards to the emitter is how a trap gets dropped.
+                    (mLowerDivGuard lc bop (vecGet out 0) (vecGet out 1))
+                    (mLowerShiftGuard lc bop (vecGet out 1))
                     (mlcEmit lc (MInst
                       MO_BIN
                       (mlcFresh lc)

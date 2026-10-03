@@ -1041,7 +1041,7 @@ two differ.
 | `mulChecked` | value | `(-> Int Int (Result Int Error))` | `Alloc` |  |
 | `divChecked` | value | `(-> Int Int (Result Int Error))` | `Alloc` |  |
 | `remChecked` | value | `(-> Int Int (Result Int Error))` | `Alloc` |  |
-| `shlChecked` | value | `(-> Int Int (Result Int Error))` | `Alloc` | A shift amount of 64 or more, and a negative one, are undefined and no masking is emitted - `(<< 1 100)` answers 68719476736 at `--opt 0` and 1 at `--opt 1`. |
+| `shlChecked` | value | `(-> Int Int (Result Int Error))` | `Alloc` | A shift amount of 64 or more, and a negative one, trap (exit 84, MM-VAL-3b) - `(<< 1 100)` used to answer 68719476736 at `--opt 0` and 1 at `--opt 1`, and no masking is emitted either way. |
 | `shrChecked` | value | `(-> Int Int (Result Int Error))` | `Alloc` |  |
 | `try` | macro |  |  | ERR-SUGAR-2: the propagation form. |
 
@@ -1134,20 +1134,20 @@ two differ.
 | `ioResult` | value | `(-> (Result Int Error) String String (Result Int Error))` | `Alloc,Mut` | A `Sys` answer re-wrapped with the path this layer knows. |
 | `writeFile` | value | `(-> String String (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Write `s` to `path`, creating it or TRUNCATING what is there. Answers `(Ok bytes)`, or `(Err e)` whose code is the errno. |
 | `appendFile` | value | `(-> String String (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Add `s` to the end of `path`, creating it if absent. Answers the `(Ok bytes)`, or `(Err e)` whose code is the errno. |
-| `removeFile` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Remove the file `path`. Answers 0, or a negative errno. |
-| `renamePath` | value | `(-> String String (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Move `old` to `new`, answering 0 or a negative errno. |
+| `removeFile` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Remove the file `path`. Answers `(Ok 0)`, or `(Err …)` carrying the errno. |
+| `renamePath` | value | `(-> String String (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Move `old` to `new`, answering `(Ok 0)` or `(Err …)` with the errno. |
 | `openPath` | value | `(-> String Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Open `path` with `flags` (`oRdonly`, `oWronlyCreateTrunc`, ...): `(Ok fd)`, or `(Err e)` whose code is the errno. New files get mode 0644. The descriptor is the caller's to close with `sysCloseFd`. |
 | `openBeneath` | value | `(-> String String (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Open `rel` for reading inside the directory `root`, following no symbolic link below it: `(Ok fd)`, or `(Err e)`. `rel` must be relative, with no `..` segment; see `Sys.sysOpenBeneath` for the rules and why it walks one segment at a time. |
 | `makeSymlink` | value | `(-> String String (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Create the symbolic link `link` whose content is `target`. Answers `(Ok 0)`, or `(Err e)` - EEXIST when `link` is already there. |
 | `copyFile` | value | `(-> String String (Result Int Error))` | `Alloc,IO,Mut` | Copy `src` onto `dst`, answering `(Ok bytes)` or `(Err e)`. `dst` is created or truncated. |
 | `fileExists` | value | `(-> String Bool)` | `Alloc,IO,Mut,Unsafe` | True when `path` names something that can be opened for reading - a directory included. `isDir` separates them. |
 | `isDir` | value | `(-> String Bool)` | `Alloc,IO,Mut,Unsafe` | True when `path` names a directory. |
-| `fileSize` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | The size of `path` in bytes, or a negative errno. |
+| `fileSize` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | The size of `path` in bytes, or `(Err …)` carrying the errno. |
 | `readErrno` | value | `(-> String Int)` | `Alloc,IO,Mut,Unsafe` | 0 when `path` can be read as a file, otherwise the errno saying why not: 2 missing, 13 not permitted, 21 a directory. |
-| `makeDir` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Create the directory `path`, mode 0755. Answers 0, or a negative errno - `-17` (EEXIST) when it is already there. |
+| `makeDir` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Create the directory `path`, mode 0755. Answers `(Ok 0)`, or `(Err …)` carrying the errno - `EEXIST` when it is already there. |
 | `makeDirMode` | value | `(-> String Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Create the directory `path` with the permission bits `mode`, such as 448 (0700) for a directory only its owner may enter. Answers `(Ok 0)`, or `(Err e)`. |
-| `makeDirAll` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut` | Create `path` and every missing directory above it. Answers 0, or the negative errno of the first component that could not be made. |
-| `removeDir` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Remove the EMPTY directory `path`. Answers 0, or a negative errno - `-66`/`-39` (ENOTEMPTY) when it still holds entries. Nothing here removes a tree: that is a loop over `listDir`, and it is the caller's to write, because a library that deletes recursively on one call is a library that deletes the wrong subtree once. |
+| `makeDirAll` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut` | Create `path` and every missing directory above it. Answers `(Ok 0)`, or `(Err …)` carrying the errno of the first component that could not be made. |
+| `removeDir` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Remove the EMPTY directory `path`. Answers `(Ok 0)`, or `(Err …)` - `ENOTEMPTY` when it still holds entries. Nothing here removes a tree: that is a loop over `listDir`, and it is the caller's to write, because a library that deletes recursively on one call is a library that deletes the wrong subtree once. |
 | `listDir` | value | `(-> String (Vec String))` | `Alloc,IO,Mut,Unsafe` | The entries of the directory `path`, as a Vec of `Str` - sorted by byte, with `.` and `..` removed. |
 | `cwd` | value | `(Result String Error)` | `Alloc,IO,Mut` | The process's working directory as an absolute path: `(Ok path)`, or `(Err e)` whose code is the errno. See `Sys.sysGetCwd` for why this is two different syscalls underneath, and why it stopped answering `""` for every distinct reason it can fail. |
 | `exit` | value | `(-> Int Int)` | `IO` |  |
@@ -1331,16 +1331,14 @@ two differ.
 
 ## `Pre`
 
-`stdlib/Pre.ax` — 6 public names
+`stdlib/Pre.ax` — 4 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
 | `when` | macro |  |  | Axiom standard prelude — macros and utilities. |
 | `unless` | macro |  |  | ;; unless — evaluate body unless test is true ;; (unless test body) -> (if test 0 body) |
 | `deriveEq` | macro |  |  | ;; Variadic branching is the `if` statement itself: `(if t1 b1 t2 b2 ;; ... els)` is the nested chain `(if t1 b1 (if t2 b2 ... els))`, ;; built by the parser. The fixed-arity `cond2`/`cond3` helpers that ;; used to stand here are gone with the `cond` keyword (AX2004): ;; spell the nesting with `if`. ;; deriveEq — structural equality for a data type, derived at the ;; point of use: `(deriveEq Color)` generates `eqColor : Color -> ;; Color -> Bool`, one match arm per constructor, answered from the ;; declaration list at expansion time (macro-system.md MAC-CAP-5/9). ;; The nullary form: works for any sum of nullary constructors, which ;; is the enum case. Fieldful sums want the impl form written where ;; the Eq trait is in scope — see macro-system.md section 10.2. |
-| `deriveShow` | macro |  |  | ;; deriveShow — the constructor's own name, as a String, for any ;; `data` type: `(deriveShow Shape)` generates `showShape : Shape -> ;; String`. This is what `syntax/name` exists for (macro-system.md ;; MAC-CAP-5), and the only way to get a constructor's spelling into ;; a running program: a tag is an integer at run time and the name ;; lives only in the declaration list the expander reads. ;; ;; Fieldful constructors are matched and their fields ignored - ;; `(syntax/binders C f)` supplies exactly arity-of-C binders, so one ;; template covers arities 0, 1 and n without an arity test. Rendering ;; the FIELDS would need each field's type to pick a printer, and a ;; macro cannot see a type (MAC-CAP-7); a program that wants that ;; writes the arm itself. |
 | `deriveArity` | macro |  |  | ;; deriveArity — how many fields the value's constructor carries: ;; `(deriveArity Shape)` generates `arityShape : Shape -> Int`. The ;; count is `syntax/arity`'s answer, folded to a literal per arm, and ;; it is not derivable any other way at run time: a heap block records ;; its tag, never its field count (memory-model.md MM-VAL-6). |
-| `showOr` | macro |  |  | ;; showOr — `(showOr T x fallback)` renders `x` with the type's ;; derived `showT` when the program has one, and answers `fallback` ;; when it does not. `syntax/defined` decides that at expansion time ;; and the losing branch is DELETED rather than compiled, which is ;; the whole point: the branch that names `showT` is only well-typed ;; in a program that derived it, so a runtime `if` over both arms ;; would be AX3001 in every program that did not. |
 
 ## `Rpc`
 

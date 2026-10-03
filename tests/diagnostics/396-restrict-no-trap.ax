@@ -1,4 +1,4 @@
-; `restrict(no-untrapped)`: no `/`, `%`, `<<` or `>>` head in THIS
+; `restrict(no-trap)`: no `/`, `%`, `<<` or `>>` head in THIS
 ; body. LOCAL, like `no-cast` and `no-wrap` - the controls are what
 ; pin that:
 ;
@@ -17,8 +17,7 @@
 ;                                                         claim to make
 ;   `compares`   writes `(< a b)` and `(== a b)`      -> silent: a
 ;                                                         comparison is
-;                                                         not an
-;                                                         untrapped
+;                                                         not a trapping
 ;                                                         operator
 ;   `honest`     calls `divChecked`, unwraps the      -> silent: the
 ;                `Result`                                 sanctioned
@@ -32,7 +31,7 @@
 ;
 ; Four operators in three bodies are four diagnostics: each has its own
 ; span, and the fix is where the span is - exactly
-; `373-restrict-no-cast.ax`'s own rule, because `no-untrapped` is
+; `373-restrict-no-cast.ax`'s own rule, because `no-trap` is
 ; `wrapScanInto`'s walk with a different head predicate.
 (import Err)
 
@@ -40,12 +39,12 @@
 (fn (halve n)
   (/ n 2))
 
-;@axiom:restrict(no-untrapped)
+;@axiom:restrict(no-trap)
 (:: divides (-> Int Int Int))
 (fn (divides a b)
   (/ a b))
 
-;@axiom:restrict(no-untrapped)
+;@axiom:restrict(no-trap)
 (:: nested (-> Int Int Int Int))
 (fn (nested a b c)
   (if (> a 0)
@@ -53,29 +52,29 @@
       (<< d c))
     0))
 
-;@axiom:restrict(no-untrapped)
+;@axiom:restrict(no-trap)
 (:: shifts (-> Int Int Int))
 (fn (shifts a n)
   (>> a n))
 
-;@axiom:restrict(no-untrapped)
+;@axiom:restrict(no-trap)
 (:: delegates (-> Int Int))
 (fn (delegates n)
   (halve n))
 
-;@axiom:restrict(no-untrapped)
+;@axiom:restrict(no-trap)
 (:: compares (-> Int Int Bool))
 (fn (compares a b)
   (if (< a b)
     true
     (== a b)))
 
-;@axiom:restrict(no-untrapped)
+;@axiom:restrict(no-trap)
 (:: honest (-> Int Int Int))
 (fn (honest a b)
   (unwrapOr (divChecked a b) 0))
 
-;@axiom:restrict(no-untrapped)
+;@axiom:restrict(no-trap)
 (:: floats (-> Float Float Float))
 (fn (floats a b)
   (/ a b))

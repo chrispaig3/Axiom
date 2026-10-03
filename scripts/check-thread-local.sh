@@ -91,7 +91,7 @@ done
 # `SPAWN` is the one line the ON program adds: a thread that runs
 # `build` and is joined before the answer is printed, so both programs
 # write the same bytes.
-mkprobe() {  # <path> <spawn-line>
+mkprobe() {  # <path> <spawn-line> <extra-effects>
   cat > "$1" <<PROBE
 (import IO)
 
@@ -107,6 +107,7 @@ mkprobe() {  # <path> <spawn-line>
 (:: main Int)
 
 ;@axiom:effect(io)
+$3
 (fn (main)
   {
     (println "probe")
@@ -120,8 +121,9 @@ PROBE
 }
 probe="$work/probe.ax"
 probe_on="$work/probe-on.ax"
-mkprobe "$probe" "(build 3)"
-mkprobe "$probe_on" "(__thread_join (__thread_spawn (lambda (x) (build 3)) 0))"
+mkprobe "$probe" "(build 3)" ""
+mkprobe "$probe_on" "(__thread_join (__thread_spawn (lambda (x) (build 3)) 0))" ";@axiom:effect(spawn)
+;@axiom:effect(block)"
 
 # --------------------------------------------------------------------
 echo "== 1. off: the emitted runtime has no thread-local storage at all =="

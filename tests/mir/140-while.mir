@@ -10,37 +10,48 @@ bb2(%4, %5):
   %10 = const 3
   trapz %10, bb4, bb5
 bb3(%6, %7):
-  %19 = const 0
-  %20 = const 100
-  %21 = sgt %7, %20
-  condbr %21, bb9, bb10
+  %26 = const 0
+  %27 = const 100
+  %28 = sgt %7, %27
+  condbr %28, bb11, bb12
 bb4:
   trap __axiom_div_by_zero
 bb5:
-  %11 = srem %4, %10
-  %12 = const 0
-  %13 = eq %11, %12
-  condbr %13, bb6, bb7
+  %11 = const -9223372036854775808
+  %12 = const -1
+  %13 = const 1
+  %14 = eq %4, %11
+  %15 = eq %10, %12
+  %16 = and %14, %15
+  %17 = xor %16, %13
+  trapz %17, bb6, bb7
 bb6:
-  %15 = const 0
-  br bb8(%15)
+  trap __axiom_div_overflow
 bb7:
-  br bb8(%4)
-bb8(%14):
-  %16 = add %5, %14
-  %17 = const 1
-  %18 = sub %4, %17
-  br bb1(%18, %16)
+  %18 = srem %4, %10
+  %19 = const 0
+  %20 = eq %18, %19
+  condbr %20, bb8, bb9
+bb8:
+  %22 = const 0
+  br bb10(%22)
 bb9:
-  %23 = const 100
-  %24 = sub %7, %23
-  %25 = add %24, %19
-  br bb11(%25)
-bb10:
-  %26 = add %7, %19
-  br bb11(%26)
-bb11(%22):
-  ret %22
+  br bb10(%4)
+bb10(%21):
+  %23 = add %5, %21
+  %24 = const 1
+  %25 = sub %4, %24
+  br bb1(%25, %23)
+bb11:
+  %30 = const 100
+  %31 = sub %7, %30
+  %32 = add %31, %26
+  br bb13(%32)
+bb12:
+  %33 = add %7, %26
+  br bb13(%33)
+bb13(%29):
+  ret %29
 }
 fn main() {
 bb0:

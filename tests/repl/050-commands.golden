@@ -10,7 +10,7 @@ Available Commands:
   :time <expr>  Time expression evaluation
 
 Tips:
-  • Define functions: (define (add x y) (+ x y))
+  • Define functions: (fn (add x y) (+ x y))
   • Type signatures: (:: add (-> Int Int Int))
   • Data types: (data Maybe (a) (Nothing) (Just a))
   • Expressions are evaluated and results shown
@@ -30,7 +30,7 @@ Available Commands:
   :time <expr>  Time expression evaluation
 
 Tips:
-  • Define functions: (define (add x y) (+ x y))
+  • Define functions: (fn (add x y) (+ x y))
   • Type signatures: (:: add (-> Int Int Int))
   • Data types: (data Maybe (a) (Nothing) (Just a))
   • Expressions are evaluated and results shown

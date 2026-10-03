@@ -1,0 +1,2 @@
+E AX3002 1114-sizeof-operand-type.ax:7:23-25 undefined-type "a literal is not a type, and `sizeof` takes a type" #"not a type" !"the operand used to be ignored in silence: `(sizeof 99)` answered 8" ?"write the type to measure - `(sizeof Int)`"
+E AX3002 1114-sizeof-operand-type.ax:7:36-38 undefined-type "a literal is not a type, and `alignof` takes a type" #"not a type" !"the operand used to be ignored in silence: `(alignof 99)` answered 8" ?"write the type to measure - `(alignof Int)`"

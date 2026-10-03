@@ -7,8 +7,19 @@ bb0:
 bb1:
   trap __axiom_div_by_zero
 bb2:
-  %4 = sdiv %1, %3
-  ret %4
+  %4 = const -9223372036854775808
+  %5 = const -1
+  %6 = const 1
+  %7 = eq %1, %4
+  %8 = eq %3, %5
+  %9 = and %7, %8
+  %10 = xor %9, %6
+  trapz %10, bb3, bb4
+bb3:
+  trap __axiom_div_overflow
+bb4:
+  %11 = sdiv %1, %3
+  ret %11
 }
 fn main() {
 bb0:

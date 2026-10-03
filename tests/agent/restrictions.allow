@@ -118,7 +118,7 @@ colCount self_host/diag.ax no-io,no-alloc,no-foreign ok
 colOf self_host/diag.ax no-io,no-alloc,no-foreign ok
 colOfIx self_host/diag.ax no-io,no-alloc,no-foreign ok
 compares tests/diagnostics/383-restrict-no-wrap.ax no-wrap ok
-compares tests/diagnostics/396-restrict-no-untrapped.ax no-untrapped ok
+compares tests/diagnostics/396-restrict-no-trap.ax no-trap ok
 confined tests/diagnostics/369-axtag-known-keys.ax no-io ok
 control tests/diagnostics/376-restrict-unknown-name.ax no-io ok
 count tests/stdlib/468-region-signatures.ax no-escape ok
@@ -155,7 +155,6 @@ datetimeCompare stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
 datetimeEq stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
 datetimeToUnixSeconds stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
 daysFromCivil stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
-decStr self_host/diag.ax no-io,no-foreign ok
 deep tests/diagnostics/379-restrict-no-recursion.ax no-recursion ok
 deepCaller tests/diagnostics/378-restrict-no-cast-deep.ax no-cast:deep violated
 deepClean tests/diagnostics/378-restrict-no-cast-deep.ax no-cast:deep ok
@@ -165,7 +164,7 @@ deepPartial tests/diagnostics/378-restrict-no-cast-deep.ax no-cast:deep unverifi
 deepRefuted tests/diagnostics/378-restrict-no-cast-deep.ax no-cast:deep violated
 delegates tests/diagnostics/373-restrict-no-cast.ax no-cast ok
 delegates tests/diagnostics/383-restrict-no-wrap.ax no-wrap ok
-delegates tests/diagnostics/396-restrict-no-untrapped.ax no-untrapped ok
+delegates tests/diagnostics/396-restrict-no-trap.ax no-trap ok
 diagAddFixHelp self_host/diag.ax no-io,no-foreign ok
 diagAddHelp self_host/diag.ax no-io,no-foreign ok
 diagAddNote self_host/diag.ax no-io,no-foreign ok
@@ -208,7 +207,7 @@ direct tests/diagnostics/372-restrict-no-alloc.ax no-alloc violated
 directiveSpan stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
 dispatch tests/diagnostics/649-restrict-no-escape.ax no-escape unverifiable
 dispatchStrict tests/diagnostics/649-restrict-no-escape.ax no-escape,strict unproven
-divides tests/diagnostics/396-restrict-no-untrapped.ax no-untrapped violated
+divides tests/diagnostics/396-restrict-no-trap.ax no-trap violated
 durationAbs stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
 durationCompare stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
 durationEq stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
@@ -242,7 +241,7 @@ feCarryStore2 stdlib/Crypto/Field25519.ax no-io,no-alloc,no-foreign ok
 feSqN stdlib/Crypto/Field25519.ax no-io,no-alloc,no-foreign ok
 fenced tests/diagnostics/1010-unsafe-primitives.ax no-unsafe ok
 fenced tests/diagnostics/1020-unsafe-device-primitives.ax no-unsafe ok
-fhalf tests/selfhost/466-restrict-no-untrapped-runs.ax no-untrapped ok
+fhalf tests/selfhost/466-restrict-no-trap-runs.ax no-trap ok
 fillsAt tests/diagnostics/1080-unsafe-syscalls.ax no-unsafe violated
 findNewline self_host/lexer.ax no-io,no-alloc,no-foreign ok
 floatFromBits stdlib/Float.ax no-io,no-alloc,no-foreign ok
@@ -253,7 +252,7 @@ floatIsNan stdlib/Float.ax no-io,no-alloc,no-foreign ok
 floatNan stdlib/Float.ax no-io,no-alloc,no-foreign ok
 floatToBits stdlib/Float.ax no-io,no-alloc,no-foreign ok
 floats tests/diagnostics/394-restrict-no-wrap-exempt.ax no-wrap ok
-floats tests/diagnostics/396-restrict-no-untrapped.ax no-untrapped ok
+floats tests/diagnostics/396-restrict-no-trap.ax no-trap ok
 floorDiv stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
 floorMod stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
 flush tests/diagnostics/1020-unsafe-device-primitives.ax no-unsafe violated
@@ -303,7 +302,7 @@ ghashUpdate stdlib/Crypto/Ghash.ax no-io,no-alloc,no-foreign ok
 h0 tests/diagnostics/1080-unsafe-syscalls.ax no-unsafe violated
 h1 tests/diagnostics/1080-unsafe-syscalls.ax no-unsafe violated
 h2 tests/diagnostics/1080-unsafe-syscalls.ax no-unsafe violated
-half tests/selfhost/466-restrict-no-untrapped-runs.ax no-untrapped ok
+half tests/selfhost/466-restrict-no-trap-runs.ax no-trap ok
 handRolled tests/diagnostics/394-restrict-no-wrap-exempt.ax no-wrap violated
 handoff tests/diagnostics/375-restrict-unverifiable.ax no-io unverifiable
 hardAlloc tests/diagnostics/393-restrict-strict.ax no-alloc,strict unproven
@@ -369,7 +368,7 @@ hlSpanStart self_host/replhl.ax no-io,no-alloc,no-foreign ok
 hmacErase stdlib/Crypto/Hmac.ax no-io,no-alloc,no-foreign ok
 honest tests/diagnostics/373-restrict-no-cast.ax no-cast ok
 honest tests/diagnostics/383-restrict-no-wrap.ax no-wrap ok
-honest tests/diagnostics/396-restrict-no-untrapped.ax no-untrapped ok
+honest tests/diagnostics/396-restrict-no-trap.ax no-trap ok
 indexForUnit self_host/diag.ax no-io,no-alloc,no-foreign ok
 intIsMostNegative stdlib/Fmt.ax no-io,no-alloc,no-foreign ok
 intLitFits self_host/lexer.ax no-io,no-alloc,no-foreign ok
@@ -532,7 +531,7 @@ named tests/diagnostics/391-restrict-effect-transparent.ax no-io ok
 native tests/diagnostics/374-restrict-no-foreign.ax no-foreign ok
 nested tests/diagnostics/373-restrict-no-cast.ax no-cast violated
 nested tests/diagnostics/383-restrict-no-wrap.ax no-wrap violated
-nested tests/diagnostics/396-restrict-no-untrapped.ax no-untrapped violated
+nested tests/diagnostics/396-restrict-no-trap.ax no-trap violated
 noUnsafe tests/diagnostics/1081-sys-buffer-calls.ax no-unsafe violated
 none tests/diagnostics/384-restrict-no-alloc-ctor.ax no-alloc ok
 orderDiags self_host/diag.ax no-io,no-foreign ok
@@ -630,7 +629,7 @@ sha512AbsorbIn stdlib/Crypto/Sha2.ax no-io,no-alloc,no-foreign ok
 sha512Blocks stdlib/Crypto/Sha2.ax no-io,no-alloc,no-foreign ok
 sha512FinishIn stdlib/Crypto/Sha2.ax no-io,no-alloc,no-foreign ok
 shallow tests/diagnostics/378-restrict-no-cast-deep.ax no-cast ok
-shifts tests/diagnostics/396-restrict-no-untrapped.ax no-untrapped violated
+shifts tests/diagnostics/396-restrict-no-trap.ax no-trap violated
 shrU stdlib/Crypto/Ct.ax no-io,no-alloc,no-foreign ok
 sigTagged tests/diagnostics/371-restrict-no-io.ax no-io violated
 skipBlockComment self_host/lexer.ax no-io,no-alloc,no-foreign ok

@@ -106,14 +106,14 @@ F optUnwrapOr stdlib/Err.ax:239:9-20 "(Option a -> (a -> a))" @5843089a10bee3c2
 F optMap stdlib/Err.ax:248:9-15 "(Option a -> ((a -> b) -> Option b))" @1e5045cee49c1156 #effects=Alloc #effect-params=f
 F optAndThen stdlib/Err.ax:257:9-19 "(Option a -> ((a -> Option b) -> Option b))" @89260c14169ebce2 #effect-params=f
 F optOr stdlib/Err.ax:267:9-14 "(Option a -> (Option a -> Option a))" @9f2916831fbd7f1d #effects=Alloc
-F intMin stdlib/Err.ax:287:9-15 "Int" @f0cd39212565a998 #calls=-
-F addChecked stdlib/Err.ax:321:9-19 "(Int -> (Int -> Result Int Error))" @5d660b40b8422a2f #effects=Alloc #calls=&,+,<,Err$errOverflow,Err$mkError,^
-F subChecked stdlib/Err.ax:330:9-19 "(Int -> (Int -> Result Int Error))" @4c69b49dee798ee8 #effects=Alloc #calls=&,-,<,Err$errOverflow,Err$mkError,^
-F mulChecked stdlib/Err.ax:339:9-19 "(Int -> (Int -> Result Int Error))" @a9a6c99c92231704 #effects=Alloc #calls=!=,&&,*,-,/,==,Err$errOverflow,Err$intMin,Err$mkError,||
-F divChecked stdlib/Err.ax:366:9-19 "(Int -> (Int -> Result Int Error))" @64cf173b228d176f #effects=Alloc #calls=&&,-,/,==,Err$errDivideByZero,Err$errOverflow,Err$intMin,Err$mkError
-F remChecked stdlib/Err.ax:374:9-19 "(Int -> (Int -> Result Int Error))" @8fb62ce3aababe76 #effects=Alloc #calls=%,&&,-,==,Err$errDivideByZero,Err$errOverflow,Err$intMin,Err$mkError
-F shlChecked stdlib/Err.ax:385:9-19 "(Int -> (Int -> Result Int Error))" @554de2a593269cfd #effects=Alloc #calls=<,<<,>=,Err$errShiftTooWide,Err$mkError,||
-F shrChecked stdlib/Err.ax:391:9-19 "(Int -> (Int -> Result Int Error))" @d6fbeaead7a43037 #effects=Alloc #calls=<,>=,>>,Err$errShiftTooWide,Err$mkError,||
+F intMin stdlib/Err.ax:288:9-15 "Int" @f0cd39212565a998 #calls=-
+F addChecked stdlib/Err.ax:322:9-19 "(Int -> (Int -> Result Int Error))" @5d660b40b8422a2f #effects=Alloc #calls=&,+,<,Err$errOverflow,Err$mkError,^
+F subChecked stdlib/Err.ax:331:9-19 "(Int -> (Int -> Result Int Error))" @4c69b49dee798ee8 #effects=Alloc #calls=&,-,<,Err$errOverflow,Err$mkError,^
+F mulChecked stdlib/Err.ax:340:9-19 "(Int -> (Int -> Result Int Error))" @a9a6c99c92231704 #effects=Alloc #calls=!=,&&,*,-,/,==,Err$errOverflow,Err$intMin,Err$mkError,||
+F divChecked stdlib/Err.ax:364:9-19 "(Int -> (Int -> Result Int Error))" @64cf173b228d176f #effects=Alloc #calls=&&,-,/,==,Err$errDivideByZero,Err$errOverflow,Err$intMin,Err$mkError
+F remChecked stdlib/Err.ax:372:9-19 "(Int -> (Int -> Result Int Error))" @8fb62ce3aababe76 #effects=Alloc #calls=%,&&,-,==,Err$errDivideByZero,Err$errOverflow,Err$intMin,Err$mkError
+F shlChecked stdlib/Err.ax:383:9-19 "(Int -> (Int -> Result Int Error))" @554de2a593269cfd #effects=Alloc #calls=<,<<,>=,Err$errShiftTooWide,Err$mkError,||
+F shrChecked stdlib/Err.ax:389:9-19 "(Int -> (Int -> Result Int Error))" @d6fbeaead7a43037 #effects=Alloc #calls=<,>=,>>,Err$errShiftTooWide,Err$mkError,||
 F sysRead stdlib/Sys/Platform.darwin.ax:25:9-16 "Int" @d99009b49c22cd84
 F sysWrite stdlib/Sys/Platform.darwin.ax:30:9-17 "Int" @74cf7b68f9a13d7f
 F sysOpen stdlib/Sys/Platform.darwin.ax:35:9-16 "Int" @48be4da44965be58
@@ -327,7 +327,7 @@ S RecTwin tests/fmt/syntax-zoo.ax:387:13-20 "struct RecTwin" @1e39f8cfc9405c78 #
 A Count tests/fmt/syntax-zoo.ax:26:11-16 "Int" @910ecfbfa27ddde2
 A BoxedCount tests/fmt/syntax-zoo.ax:244:11-21 "Box Int" @ce5c1ba8305ca704
 M format stdlib/Str.ax:708:13-19 "macro format" @f0b2b594fd323246
-M try stdlib/Err.ax:423:13-16 "macro try" @c3830f2ec9fc2f82
+M try stdlib/Err.ax:421:13-16 "macro try" @c3830f2ec9fc2f82
 M twice tests/fmt/syntax-zoo.ax:93:9-14 "macro twice" @a0ee9867b2571b97
 M defRecTwin tests/fmt/syntax-zoo.ax:379:8-18 "macro defRecTwin" @175bc52ff43ee048
 E Console tests/fmt/syntax-zoo.ax:209:9-16 "effect Console" @5e35620abc5f495d

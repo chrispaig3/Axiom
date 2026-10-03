@@ -1,0 +1,7 @@
+; `sizeof` and `alignof` take a TYPE, like `cast`'s first argument.
+; The operand used to be ignored - `(alignof 00)` checked clean and
+; answered 8, while `fmt` refused it (the seeded fuzzer's m00120) -
+; so a literal operand is AX3002 now. The help names the form that
+; was written, not `cast`'s.
+(:: main Int)
+(fn (main) (+ (sizeof 99) (alignof 00)))

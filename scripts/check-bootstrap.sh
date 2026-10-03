@@ -896,9 +896,30 @@ floor=8192       # 8 MiB
 # nothing and the number to trust is the highest of repeated runs. The
 # 568 the 09-26 entry set aside was probably this. 704 leaves 12.5%
 # over the measured 616.
-ceiling=720896   # 704 MiB, over a measured 616
+# 704 -> 800 MiB on 2026-10-02, and the margin was gone before this
+# slice arrived: HEAD's own tree peaks at 711 MiB under this gate's
+# compiler - 1% OVER the ceiling, eaten by the slices since the 616
+# the 704 was set from, exactly the invisible-margin failure the
+# 540 -> 420 entry describes. The new slice peaks at 714, and the
+# three-way split on one machine (stage1 binaries, same input)
+# prices its +0.4%:
+#
+#   base compiler on base source              729,200 KiB
+#   the NEW compiler on base source           729,552 KiB   +0.05%
+#   base compiler on the NEW source           731,440 KiB   +0.31%
+#   the NEW compiler on the NEW source        731,920 KiB   +0.37%
+#
+# The compiler CHANGE - two trap guards, their MIR lowering, a
+# restriction rename and a sizeof/alignof refusal - costs 352 KiB on
+# identical input. The rest is 280 more source lines to compile, and
+# string-heavy ones (diagnostic prose), at 8.0 KiB per line against
+# the 4.2-4.85 the entries above measured. Nothing here copies: the
+# machinery delta is 0.05%, and the shape is still exactly linear.
+# 800 leaves 12% over the measured 714, the margin these entries
+# keep, and the `ok` line still prints it.
+ceiling=819200   # 800 MiB, over a measured 714
 if (( peak < floor )); then
-  fail "the self-compile peaked at $peak KiB, under the $((floor / 1024)) MiB floor - that is not a measurement of compiling 73,298 source lines"
+  fail "the self-compile peaked at $peak KiB, under the $((floor / 1024)) MiB floor - that is not a measurement of compiling 117,922 source lines"
 fi
 if (( peak > ceiling )); then
   fail "one self-compile peaked at $((peak / 1024)) MiB, over the $((ceiling / 1024)) MiB ceiling - suspect an accumulator that copies, or a walk that repeats itself (bisect it, then run the split above)"

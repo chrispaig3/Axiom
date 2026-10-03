@@ -17,8 +17,8 @@
 #      compared exactly - and `#extern`, the compiler's own marker. Then
 #      the trap statuses each function may end the process with, for a
 #      program with one source of each (division, bounds, a contract, an
-#      atomic, an arena reset, an unhandled effect), and the operators
-#      undefined on part of their domain, compared exactly.
+#      atomic, an arena reset, an unhandled effect, a shift),
+#      compared exactly.
 #   3. The profile: tests/profile/ok-*.ax pass with exit 0; each
 #      tests/profile/rpN-*.ax is refused with exit 1 by exactly the rule
 #      its name gives, and by no other. RP-8 is an interrupt handler that
@@ -191,9 +191,11 @@ roots main,tick
 ROWS
 fi
 
-# Trap statuses and undefined operators, one source of each, compared
-# exactly. `traps` is transitive: `main` answers what `dv` and `half`
-# can end the process with.
+# Trap statuses, one source of each, compared exactly. `traps` is
+# transitive: `main` answers what `dv` and `half` can end the process
+# with. (Until 0.8.0 the report also listed the `INT_MIN / -1` and
+# overshift corners per function as `undefined`; they trap now, so
+# this section's third column went with them.)
 cat > "$work/traps.ax" <<'AX'
 (import Vec)
 
@@ -235,30 +237,30 @@ cat > "$work/traps.ax" <<'AX'
 (fn (main)
   (+ (dv 1 1) (half 4)))
 AX
-trapfacts() {  # trapfacts <tool> <out>: `name traps undefined` per root
+trapfacts() {  # trapfacts <tool> <out>: `name traps` per root
   report "$1" "$2.json" "$work/traps.ax" --root asker --root at --root rs --root ix --root sh || return 2
   python3 - "$2.json" > "$2" <<'PY'
 import json, sys
 r = json.load(open(sys.argv[1]))
 for q in ('main', 'dv', 'ix', 'at', 'rs', 'half', 'asker', 'sh'):
     fa = r['functions'][q]
-    print(q, ','.join(str(t) for t in fa['traps']) or '-', '|'.join(fa['undefined']) or '-')
+    print(q, ','.join(str(t) for t in fa['traps']) or '-')
 PY
 }
 cat > "$work/traps.want" <<'WANT'
-main 72,80 -
-dv 72 INT_MIN % -1|INT_MIN / -1
-ix 77 -
-at 82 -
-rs 70,75,76 -
-half 72,80 INT_MIN / -1
-asker 71 -
-sh - a shift amount outside 0..63
+main 72,80,83
+dv 72,83
+ix 77
+at 82
+rs 70,75,76
+half 72,80,83
+asker 71
+sh 84
 WANT
 if trapfacts "$tool" "$work/traps.got" && diff -u "$work/traps.want" "$work/traps.got" > "$work/traps.diff"; then
-  ok "traps: eight functions' statuses and undefined operators, exactly"
+  ok "traps: eight functions' statuses, exactly"
 else
-  bad "traps: the statuses or undefined operators differ:"; sed 's/^/     /' "$work/traps.diff" "$work/traps.got.json.err" 2>/dev/null | head -20
+  bad "traps: the statuses differ:"; sed 's/^/     /' "$work/traps.diff" "$work/traps.got.json.err" 2>/dev/null | head -20
 fi
 # `#extern` is the compiler's own marker: without it an extern row is a
 # function with no calls and `#effects=IO`, which is also what a body

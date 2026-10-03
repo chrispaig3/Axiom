@@ -173,7 +173,7 @@ run of `scripts/check-compat.sh` recomputes it
 must match the committed file row for row. It reads **0 failure and 2
 absence**. §10.1 names both, and what stops each from being ported.
 
-### 1.3 Two traps and three undefined cases
+### 1.3 Five traps
 
 - **Division or remainder by zero** writes `axiom: division by zero` to
   fd 2 and exits with status **72**. Probe: `(fn (main) (/ 10 (- 1 1)))`
@@ -181,11 +181,13 @@ absence**. §10.1 names both, and what stops each from being ported.
 - **An effect operation with no handler in its dynamic extent** traps
   and exits with status **71**. See [Effects](reference.md#effects) in
   the reference.
-- **`MM-VAL-3b`**: `INT_MIN / -1`, and a left or right shift by 64 or
-  more, are undefined. Their answers change with `--opt`, and nothing
-  traps.
+- **`MM-VAL-3b`**: `INT_MIN / -1` writes `axiom: division overflow`
+  to fd 2 and exits with status **83**, and a left or right shift by
+  an amount below 0 or above 63 writes `axiom: shift amount out of
+  range` and exits **84**. Until 0.8.0 these cases were undefined:
+  their answers changed with `--opt`, and nothing trapped.
 
-`ERR-REC-2` gives division, remainder and the undefined cases a
+`ERR-REC-2` gives division, remainder and the trapped cases a
 value-returning alternative you can call instead. `ERR-REC-6` lets a
 program that didn't call one contain the trap at an arena mark, instead
 of dying of it. The runtime has other traps, such as running out of
@@ -721,14 +723,15 @@ divided by zero
 |---|---|---|
 | `(/ a 0)`: fd 2, exit 72 | `(divChecked a b)` | `(Err DivideByZero)` |
 | `(% a 0)`: the same | `(remChecked a b)` | `(Err DivideByZero)` |
-| `INT_MIN / -1`: UB, `--opt`-dependent | `divChecked` | `(Err Overflow)` |
-| `(<< 1 100)`, `(>> x 64)`: UB | `shlChecked`, `shrChecked` | `(Err ShiftTooWide)` |
+| `INT_MIN / -1`: fd 2, exit 83 | `divChecked` | `(Err Overflow)` |
+| `(<< 1 100)`, `(>> x 64)`: fd 2, exit 84 | `shlChecked`, `shrChecked` | `(Err ShiftTooWide)` |
 
-`/` and `<<` are unchanged. A checked operator is a different function
-with a different type, so no existing program changes meaning, and no
-hot loop pays for a check it didn't ask for. `MM-VAL-3b` records the
-same decision for the raw cases: name the sharp edge instead of
-silently rounding it off.
+A checked operator is a different function with a different type, so
+no existing program changes meaning, and no hot loop pays for a check
+it didn't ask for. The raw cases trap instead of answering (`MM-VAL-3b`):
+name the sharp edge instead of silently rounding it off. Until 0.8.0
+the last two rows were undefined and `--opt`-dependent; the guard is
+what ended that, and the checked operators are unchanged by it.
 
 All four are pinned by `tests/stdlib/371-err-module.ax`. Term 64 pins
 `divChecked`'s zero case, term 32 its `INT_MIN / -1` guard together
@@ -822,6 +825,8 @@ program: `axiom: division by zero` on fd 2, and exit status 72.
 | a reference count at its maximum answers **70** | `axiom: reference count limit exceeded`, exit 70 (`MM-LIFE-2l`, `tests/stdlib/527-retain-overflow.ax`, both halves at `--opt` 0-3) |
 | an unhandled effect answers **71** | `axiom: unhandled effect`, exit 71 |
 | division by zero answers **72** | `axiom: division by zero`, exit 72 |
+| division overflow answers **83** | `axiom: division overflow`, exit 83 (`tests/stdlib/695-intmin-div-trap.ax`, both halves at `--opt` 0-3) |
+| a shift amount out of range answers **84** | `axiom: shift amount out of range`, exit 84 (`tests/stdlib/696-shift-wide-trap.ax`, both halves at `--opt` 0-3) |
 | an index out of range answers **77** | `axiom: vector index out of range`, exit 77 (`tests/stdlib/525-vec-set-bounds.ax`) |
 | a violated contract answers **80** | ``axiom: precondition failed in `half`: (> n 0)``, exit 80 |
 | a `parallel` spawn the kernel refused answers **78** | `axiom: parallel: could not spawn the binding`, exit 78 (emitted, not yet executed) |
@@ -831,7 +836,12 @@ program: `axiom: division by zero` on fd 2, and exit status 72.
 Out of memory, an unhandled effect and division by zero each have both
 halves in one program, at four optimisation levels:
 `tests/stdlib/401-recover-effect.ax`, `402-recover-oom.ax` and
-`403-recover-div.ax`, gated by `scripts/check-recover.sh`.
+`403-recover-div.ax`, gated by `scripts/check-recover.sh`. Division
+overflow and an out-of-range shift are the same shape:
+`tests/stdlib/695-intmin-div-trap.ax` and
+`tests/stdlib/696-shift-wide-trap.ax`, each with `.optstable`, under
+the stdlib runner rather than `check-recover.sh`, which would only
+re-assert what those runs already pin.
 
 The contract row covers `;@axiom:pre(...)` and `post(...)`. A violated
 contract is programmer error in the same sense as a division by zero:

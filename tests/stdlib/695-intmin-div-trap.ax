@@ -1,0 +1,55 @@
+; exit 83 (see .exit)
+; INT_MIN / -1: `sdiv`/`srem` overflow, which has no representable
+; answer. Before the guard this was MM-VAL-3b's first genuinely
+; undefined case: it answered -9223372036854775808 at `--opt 0` and 1
+; at `--opt 1`, the kind of disagreement a trap exists to end. It now
+; names the fault on fd 2 and exits 83, on every target, at every
+; `--opt` level (see .optstable).
+;
+; Both halves are here for the reason `403-recover-div.ax` gives: the
+; first division happens inside a recovery point and the program keeps
+; running with the status in hand; the second happens with nothing
+; armed and stops the program. The two halves also split the two
+; operators the guard covers - `/` inside, `%` outside - since `srem`
+; overflows on exactly the same corner.
+;
+; The operands come from functions so that no constant folding can
+; decide them before the guard does - the same reason
+; `tests/selfhost/980-divide-by-zero.ax` gives. `INT_MIN` is computed,
+; not spelled: the literal does not parse.
+(import IO)
+(import Str)
+
+(:: intmin Int)
+(fn (intmin)
+  (- (- 0 9223372036854775807) 1))
+
+(:: negone Int)
+(fn (negone)
+  (- 0 1))
+
+(:: divide (-> Int Int))
+(fn (divide x)
+  (/ intmin negone))
+
+(:: remainder (-> Int Int))
+(fn (remainder x)
+  (% intmin negone))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((inside 
+    (__axiom_recover
+      __axiom_arena_mark
+      (lambda (x) (divide x)))))
+    {
+      (println "recovered {inside}")
+      ; Outside every recovery point: this one is the end of the
+      ; program, and the line after it never runs.
+      (remainder 0)
+      ; `writeStr` and not `println`: `verify-stdlib-out.py` reads a
+      ; `println` literal as a line the program prints, and it cannot see
+      ; that the call above traps.
+      (writeStr stdout "UNREACHABLE: the trap outside a recovery point returned\\n")
+    }))

@@ -870,6 +870,8 @@ statuses. A program **MUST NOT** reuse them as a normal result:
 | 80 | a violated `;@axiom:pre(...)`/`post(...)` contract | measured by `scripts/check-contracts.sh` §1: a violated `pre`/`post` prints ``axiom: precondition failed in `half`: (> n 0)`` to fd 2, prints the backtrace, and exits 80 at every `--opt` level. Inside `__axiom_recover` it answers 80 to the arming call |
 | 81 | an unhandled CPU exception on `baremetal-aarch64` | measured under QEMU (TCG): `tests/embedded/fault.ax` takes an alignment fault; the vector table writes the vector offset, ESR, ELR and FAR to the UART and exits 81 (`MM-EXEC-18`, `scripts/check-embedded.sh` A12). A stack overflow is one too, reported with a line naming the guard (`tests/embedded/overflow.ax`, A17). Not recoverable: no armed recovery point is jumped to. With an `isr(fault)` hook bound, the hook's answer is the status instead, for this row and for every trap above (`MM-EXEC-19`) |
 | 82 | an atomic whose address is not 8-byte aligned (`emitAtomicAlignGuard`, `MM-PAR-9`) | measured: `tests/stdlib/544-misaligned-atomic.ax` hands each of the four atomics an address 4 bytes into a word inside a recovery point, which answers 82 each time, then prints `axiom: misaligned atomic access` to fd 2 and exits 82, at every `--opt` level |
+| 83 | `INT_MIN / -1`, raised by the division guard (`emitDivGuard`): `sdiv`/`srem` overflow has no representable answer | measured: `tests/stdlib/695-intmin-div-trap.ax` divides inside a recovery point, which answers 83, then prints `axiom: division overflow` to fd 2 and exits 83, at every `--opt` level |
+| 84 | a shift amount below 0 or above 63, raised by the shift guard (`emitShiftGuard`): an overshift is poison in LLVM | measured: `tests/stdlib/696-shift-wide-trap.ax` shifts inside a recovery point, which answers 84, then prints `axiom: shift amount out of range` to fd 2 and exits 84, at every `--opt` level |
 | 85 | a handle that isn't live: a freed, forged or other-kind channel, mutex or cancellation token, a second free of one, or a spawn handle joined twice or by the other lowering's join (`@__axiom_handle_dead`, `MM-PAR-8`) | measured: `tests/stdlib/570-handle-freed.ax` runs every channel and mutex operation on a freed handle, a second free, a forged word and a mutex's word used as a channel, each inside a recovery point, which answers 85 each time, then prints `axiom: not a live handle (freed, or never made)` to fd 2 and exits 85, at every `--opt` level. `tests/stdlib/572-spawn-joined-twice.ax` does the same for a second join, the pid of a joined binding and a freed token, and `tests/stdlib/571-handle-table.ax` pins the table: 65,536 live handles, the next refused, and a reused slot under a new generation |
 
 `(__indexTrap)` never returns, so it fits every result type. It exists
@@ -1078,10 +1080,17 @@ not undefined. The compiler emits a zero test even for a literal zero
 divisor, and the trap writes `axiom: division by zero` to fd 2 and
 exits 72.
 
-**MM-VAL-3b (H, undefined behaviour).** Three integer cases are
-undefined. A specification **MUST** name them, so that no reader infers
-safety from `MM-VAL-3a`. Each shows up as an answer that changes with
-`--opt`:
+**MM-VAL-3b (H).** Three integer cases are **guarded traps**,
+like `MM-VAL-3a`: `INT_MIN / -1` writes `axiom: division overflow`
+to fd 2 and exits 83, and a shift amount below 0 or above 63 writes
+`axiom: shift amount out of range` and exits 84. The guards are in
+the operators, so only `/`, `%`, `<<` and `>>` pay for them, and
+both traps are recoverable: inside `__axiom_recover` the arming
+call answers the status instead of dying of it.
+
+Until 0.8.0 these cases were undefined, and a specification **MUST**
+name what they did, so that no reader infers the traps were always
+there. Each showed up as an answer that changed with `--opt`:
 
 | Expression | `--opt 0` | `--opt 1` |
 |---|---|---|
@@ -1089,24 +1098,25 @@ safety from `MM-VAL-3a`. Each shows up as an answer that changes with
 | `(>> 1024 64)` | 1024 | 1 |
 | `(<< 1 100)` | 68719476736 | 1 |
 
-Shift amounts of 64 or more, and negative shift amounts, are undefined.
-No masking is emitted. A conforming implementation **SHOULD** guard the
-first case and define the rest.
+The remedy is still in `stdlib/Err.ax`: `addChecked`, `subChecked`
+and `mulChecked` for the wrapping operators of `MM-VAL-3`, and
+`divChecked` and `shlChecked` for the trapped cases. `mulChecked`
+rules out `intMin * -1` before the division that would hit this
+rule's first case, in both operand orders, so it never performs the
+trapping operation. Keep that guard even though output can't show
+it's needed: the trap it avoids is one the raw operator would take.
 
-The remedy is in `stdlib/Err.ax`: `addChecked`, `subChecked` and
-`mulChecked` for the wrapping operators of `MM-VAL-3`, and `divChecked`
-and `shlChecked` for the cases in the table above. `mulChecked` rules
-out `intMin * -1` before the division that would hit this rule's first
-row, in both operand orders, so it never performs the undefined
-operation. Keep that guard even though output can't show it's needed.
-The undefined division happens to answer something usable at every
-level this compiler emits, so the fixture still passes without it. A
-checked operator shouldn't rest on what undefined behaviour happens to
-do.
-
-`tests/stdlib/312-checked-arithmetic.ax` cites `MM-VAL-3b` by name and
-pins byte-identical stdout at `--opt` 0, 1, 2 and 3. That is the
-property the table above says the raw operators can't claim.
+`tests/stdlib/695-intmin-div-trap.ax` and
+`tests/stdlib/696-shift-wide-trap.ax` pin the sentence, the status
+and the recovery answer. Each traps once inside a recovery point,
+which answers the status, and once outside it, which exits; each
+carries `.optstable`, so stdout and exit status are identical at
+`--opt` 0, 1, 2 and 3.
+That is the property the table above says the raw operators
+couldn't claim before the guard.
+`tests/stdlib/312-checked-arithmetic.ax` cites `MM-VAL-3b` by name
+and pins byte-identical stdout at `--opt` 0, 1, 2 and 3 for the
+checked side.
 
 **MM-VAL-3c (H).** The sized integer types (`I8`…`I128`, `U8`…`U128`,
 `Isize`, `Usize`) are **refused** (`AX3002`). There are **no unsigned
@@ -6175,7 +6185,7 @@ with the fixture that pins it.
 |---|---|
 | `MM-ALLOC-8b` | `(__alloc 0)` returns the bump pointer without advancing it, which is address 0 before any chunk exists |
 | `MM-VAL-4c` | `(!= NaN NaN)` is `false`, and `Fmt.fmtFloat` can't render inf or NaN |
-| `MM-VAL-3b` | `INT_MIN / -1` and shifts of 64 or more are undefined, and answer differently at each `--opt` level. The operators are unchanged. What is fixed is the lack of an alternative: `stdlib/Err.ax` has checked arithmetic (`tests/stdlib/312-checked-arithmetic.ax`) |
+| ~~`MM-VAL-3b`~~ | **CLOSED.** `INT_MIN / -1` and shifts of 64 or more were undefined, and answered differently at each `--opt` level. Both are guarded traps now: `INT_MIN / -1` exits 83, an out-of-range shift exits 84, and each is recoverable. `tests/stdlib/695-intmin-div-trap.ax` and `tests/stdlib/696-shift-wide-trap.ax` gate them, and `restrict(no-trap)` - spelled `no-untrapped` until the guards landed - still refuses the raw operators in favour of `stdlib/Err.ax`'s checked arithmetic |
 | `MM-EXEC-9a` | Effect inference under-approximates. Of seven known gaps, six are closed: `__alloc`, trait dispatch, `__store8`/`__store64` (`Mut`), `__argc`/`__argv` (`IO`), the arena primitives (`Alloc`) and constructor allocation. One remains: a call through a local, a parameter or an unresolved name. It sets `#effects-incomplete` instead of reporting a set that looks complete |
 | `MM-LIFE-7` | `consume` and `alloc` win as expression heads, so you can define a function with either name but can't call it |
 | `MM-LIFE-2j` | **Resolved by removal in 0.6.0.** A trait default body's shape word depended on `impl` declaration order. `checkImplComplete` synthesised the default into every impl that omitted the method without copying the body's nodes, so one AST was checked once per implementing type, and per-node stamps were last-write-wins across the monomorphisations. On the fixture `373-shared-default-binder` in 0.3.0, `Ident#String#ident` got header `131076` and `axiom_retain(%x)` with the `Int` impl declared first, and header `4` (a leaf) with no retain with the `String` impl first. Removing traits removed the only way to check one body under two type environments. Emitted IR from a last-write-wins compiler is byte-identical to the tree's across 278 fixtures, every `stdlib/` module and `self_host/main.ax`. `scripts/check-fallible-reclaim.sh` asserts that the case stays unreachable, so the rule stays listed: a future construct that re-checks a body per instantiation would bring it back |
@@ -6282,21 +6292,30 @@ moves), `MM-MUT-2`'s visibility through aliases, `MM-EXEC-6b`'s
 self-TCO (a fixture would stop `reference.md` from misattributing it to
 LLVM again), and `MM-LIFE-3`'s cycles stated *as* a property.
 
-All five of `MM-EXEC-16`'s executable POSIX exit statuses are gated:
+All twelve of `MM-EXEC-16`'s executable POSIX exit statuses are gated:
 
 - 70 by `tests/stdlib/314-out-of-memory.ax`;
 - 71 by `tests/stdlib/310-effect-unhandled.ax`;
 - 72 by the division fixtures;
 - 75 by `tests/stdlib/166-arena-bad-mark.ax`;
-- 76 by `tests/stdlib/167-arena-live-handle.ax`.
+- 76 by `tests/stdlib/167-arena-live-handle.ax`;
+- 77 by `tests/stdlib/464-index-trap.ax`;
+- 78 by `scripts/check-parallel.sh` §12d, under a per-user process limit;
+- 80 by `scripts/check-contracts.sh` §1;
+- 82 by `tests/stdlib/544-misaligned-atomic.ax`;
+- 83 by `tests/stdlib/695-intmin-div-trap.ax`;
+- 84 by `tests/stdlib/696-shift-wide-trap.ax`;
+- 85 by `tests/stdlib/570-handle-freed.ax`.
 
 The 75 and 76 fixtures each pin the sentence, the status, and the
 legal shapes the trap must stay silent on.
 
-The remaining status, 74, belongs to the two Windows targets, and
-nothing that executes checks it. `scripts/check-platform-constants.sh`
-reads its emission, and README's *Targets* section says no runner runs
-those targets yet.
+The remaining statuses belong to targets no POSIX runner executes:
+74 and 79 to the two Windows targets, 81 to `baremetal-aarch64`
+(measured under QEMU instead, `scripts/check-embedded.sh`).
+`scripts/check-platform-constants.sh` reads 74's emission,
+`scripts/check-parallel.sh` reads 79's, and README's *Targets*
+section says no runner runs those targets yet.
 
 Status 70 is reached deterministically, without exhausting anything.
 `314` asks for 2^60 bytes, which is past the user address space on

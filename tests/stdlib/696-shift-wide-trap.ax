@@ -1,0 +1,53 @@
+; exit 84 (see .exit)
+; A shift amount of 64 or more, or a negative one: overshift is poison
+; in LLVM, and MM-VAL-3b's second genuinely undefined case - `(<< 1
+; 100)` answered 68719476736 at `--opt 0` and 1 at `--opt 1`. It now
+; names the fault on fd 2 and exits 84, on every target, at every
+; `--opt` level (see .optstable).
+;
+; Both halves are here for the reason `403-recover-div.ax` gives: the
+; first shift happens inside a recovery point and the program keeps
+; running with the status in hand; the second happens with nothing
+; armed and stops the program. The two halves also split the two
+; corners of the guard's disjunction and the two shift operators - a
+; wide `<<` inside, a negative `>>` outside.
+;
+; The amounts come from functions so that no constant folding can
+; decide them before the guard does - the same reason
+; `tests/selfhost/980-divide-by-zero.ax` gives.
+(import IO)
+(import Str)
+
+(:: wide Int)
+(fn (wide)
+  100)
+
+(:: negative Int)
+(fn (negative)
+  (- 0 1))
+
+(:: shlWide (-> Int Int))
+(fn (shlWide x)
+  (<< 1 wide))
+
+(:: shrNeg (-> Int Int))
+(fn (shrNeg x)
+  (>> 1 negative))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((inside 
+    (__axiom_recover
+      __axiom_arena_mark
+      (lambda (x) (shlWide x)))))
+    {
+      (println "recovered {inside}")
+      ; Outside every recovery point: this one is the end of the
+      ; program, and the line after it never runs.
+      (shrNeg 0)
+      ; `writeStr` and not `println`: `verify-stdlib-out.py` reads a
+      ; `println` literal as a line the program prints, and it cannot see
+      ; that the call above traps.
+      (writeStr stdout "UNREACHABLE: the trap outside a recovery point returned\\n")
+    }))

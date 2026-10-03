@@ -47,6 +47,10 @@
 # 2185 and `pure` 1687 to 1689, every IO bucket frozen again, and
 # `Mut`-anywhere still rounds to 94%. The required/ambient line did
 # not move; the pins did, by the delta above and no more.
+# (The restriction is `no-trap` since 0.8.0 and the functions read
+# `restrictNoTrap`, `restrictEmitTraps`, `emitRestrictTrap`,
+# `trapScanInto/In/Vec/Arms` and `isTrapOp`; the rename moves no
+# bucket, so no re-pin.)
 #
 # RE-PINNED 2026-09-20: `cond`/`cond2`/`cond3` are removed (AX2004)
 # and the variadic `if` takes their place, deleting the cond
@@ -937,6 +941,22 @@
 # both land exactly `Alloc,Mut` beside their siblings, and the pin
 # moves 1614 to 1616 by that delta and no more. No new bucket.
 #
+# RE-PINNED for the division-overflow/shift guards (83/84) and the
+# `no-trap` rename. Diffed HEAD's `symbols --calls` against the new
+# tree's row by row: added 19, removed 8, changed 0 over 5299 common
+# functions. Eight of each side are the rename
+# (`restrictNoUntrapped` to `restrictNoTrap` and its walkers), which
+# is bucket-stable; the eleven genuinely new ones are the guards and
+# their predicates. Seven emit IR and land exactly `Alloc,Mut`
+# (`emitOverflowTrap`, `emitShiftTrap`, `emitShiftGuard`,
+# `mLowerDivOverflow`, `mLowerShiftGuard`, `mEmitConst`, `mEmitBin`),
+# one more is `effect(unsafe)` (`emitUnknownBinopTrap`, the
+# unreachable-trap arm, so `Alloc,Mut,Unsafe`), and the three
+# predicates are pure (`isShiftOp`, `isFloatBinop`, `mIsShiftOp`).
+# Exactly `Alloc,Mut` moves 1616 to 1623, `Alloc,Mut,Unsafe` 959 to
+# 960, pure 1424 to 1427, by those deltas and no more. Every IO
+# bucket frozen; no new bucket.
+#
 # Every bucket is pinned exactly. A refactor that moves functions
 # between buckets fails here, and the failure is a conversation about
 # whether the required/ambient line still sits where it was measured -
@@ -966,14 +986,14 @@ echo "== compiler view: symbols --calls self_host/main.ax =="
 rows="$(grep -c '^F ' "$work/main.axsym" || true)"
 (( rows >= 4000 )) && ok "$rows functions listed (floor 4000)" \
   || fail "only $rows functions listed; the floor is 4000 (the corpus moved or the read broke)"
-have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 1616 "exactly Alloc,Mut"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 1623 "exactly Alloc,Mut"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut')" 153 "Alloc,IO,Mut"
 have "$(bucket "$work/main.axsym" 'Mut')" 36 "exactly Mut"
 have "$(bucket "$work/main.axsym" 'Alloc')" 121 "exactly Alloc"
 have "$(bucket "$work/main.axsym" 'Alloc,IO')" 10 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 7 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 0 "IO,Mut"
-have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 959 "Alloc,Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 960 "Alloc,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Unsafe')" 497 "exactly Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 250 "Alloc,IO,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Mut,Unsafe')" 113 "Mut,Unsafe"
@@ -992,7 +1012,7 @@ have "$(bucket "$work/main.axsym" 'Block,IO,Unsafe')" 3 "Block,IO,Unsafe"
 have "$(bucket "$work/main.axsym" 'Entropy')" 1 "Entropy"
 have "$(bucket "$work/main.axsym" 'IO,Spawn,Unsafe')" 1 "IO,Spawn,Unsafe"
 have "$(bucket "$work/main.axsym" 'Spawn')" 2 "Spawn"
-have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 1424 "pure (neither row nor mark)"
+have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 1427 "pure (neither row nor mark)"
 have "$(grep -c '#effects-incomplete' "$work/main.axsym" || true)" 0 "incomplete rows"
 have "$(grep -c '#effect-params' "$work/main.axsym" || true)" 8 "effect-params rows"
 

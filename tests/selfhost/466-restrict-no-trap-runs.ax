@@ -1,5 +1,5 @@
 ; expect 6
-; `restrict(no-untrapped)` over a body that divides integers through
+; `restrict(no-trap)` over a body that divides integers through
 ; the checked call and a body that divides floats raw, run rather than
 ; only checked. Raw `/` on `Int` would be refused with no fix but the
 ; checked one; `/` on `Float` lowers to `fdiv` with no integer trap to
@@ -22,12 +22,12 @@
 (import Err)
 
 (:: half (-> Int Int))
-;@axiom:restrict(no-untrapped)
+;@axiom:restrict(no-trap)
 (fn (half n)
   (unwrapOr (divChecked n 2) 0))
 
 (:: fhalf (-> Float Float))
-;@axiom:restrict(no-untrapped)
+;@axiom:restrict(no-trap)
 (fn (fhalf x)
   (/ x 2.0))
 

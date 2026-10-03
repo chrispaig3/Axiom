@@ -198,6 +198,41 @@ its changelog too.
   meaning. Tested by
   `tests/diagnostics/1110-reserved-literal.ax`.
 
+- `INT_MIN / -1` and an out-of-range shift trap instead of being
+  undefined (AN-14's second half, closed). `(<< 1 100)` answered
+  68719476736 at `--opt 0` and 1 at `--opt 1`; it now writes
+  `axiom: shift amount out of range` to fd 2 and exits 84, and
+  `INT_MIN / -1` writes `axiom: division overflow` and exits 83, at
+  every `--opt` level. Both traps are recoverable, both guards are
+  paid only by the operators that need them (`/`, `%`, `<<`,
+  `>>`), and an operator the emitters don't recognise is an
+  unreachable trap rather than a silent `add`. `restrict(no-trap)`
+  (spelled `no-untrapped` until the guards landed, since the old
+  name now contradicts what it refuses) still sends those bodies
+  to the checked operators, and the report's per-function
+  `undefined` field is gone with the corners it listed.
+
+  Held by `scripts/run-stdlib-tests.sh` (new `695-intmin-div-trap`
+  and `696-shift-wide-trap`, each with `.optstable`),
+  `scripts/check-trap-statuses.sh` (fourteen statuses, eleven live
+  exits, all distinct), `scripts/check-mir.sh` (the guards lower
+  into MIR with them), `scripts/check-report.sh` and
+  `scripts/check-restrictions.sh`. `scripts/check-diagnostics.sh`
+  (307 passed, including new `1114-sizeof-operand-type`) and
+  `scripts/check-effect-distribution.sh` (re-pinned 1616 to 1623,
+  959 to 960 and pure 1424 to 1427) hold the tail. The eleven new guard
+  functions explain the drift: seven exactly `Alloc,Mut`, one
+  unsafe, three pure.
+
+- `sizeof` and `alignof` refuse a non-type operand (AX3002). The
+  check sat inside the `cast` arm, so both forms answered `Int`
+  for any operand: `(alignof 00)` checked clean and answered 8
+  while `fmt` refused it, which the seeded fuzzer's m00120 caught
+  as a P4. The refusal is the same AX3002 `cast` draws, with the
+  help and note naming the form that was written
+  (`(sizeof 99)` answered 8; now it is refused). Tested by
+  `tests/diagnostics/1114-sizeof-operand-type.axbad`.
+
 ## 0.7.7 — 2026-09-30
 
 Axiom 0.7.7 grows the standard library: a cryptography suite, dates
@@ -2887,7 +2922,7 @@ measurement and the rejected one-liners written down in
 `docs/cast-arg-root.md`. Calls `gate_build_axc`, so the count sites
 state seventy-eight gates; the battery has ninety-five.
 
-### `restrict(no-untrapped)` refuses raw `/`, `%`, `<<` and `>>` — `tests/diagnostics/396-restrict-no-untrapped.ax`
+### `restrict(no-untrapped)` refuses raw `/`, `%`, `<<` and `>>` — `tests/diagnostics/396-restrict-no-untrapped.ax` (now `tests/diagnostics/396-restrict-no-trap.ax`)
 
 `docs/checked-arithmetic-design.md` scoped `no-wrap` to `+`, `-` and
 `*` on purpose and named this the follow-up: `/` and `%` trap on a

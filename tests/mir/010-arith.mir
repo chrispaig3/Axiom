@@ -11,17 +11,39 @@ bb0:
 bb1:
   trap __axiom_div_by_zero
 bb2:
-  %8 = sdiv %6, %7
-  %9 = const 7
-  trapz %9, bb3, bb4
+  %8 = const -9223372036854775808
+  %9 = const -1
+  %10 = const 1
+  %11 = eq %6, %8
+  %12 = eq %7, %9
+  %13 = and %11, %12
+  %14 = xor %13, %10
+  trapz %14, bb3, bb4
 bb3:
-  trap __axiom_div_by_zero
+  trap __axiom_div_overflow
 bb4:
-  %10 = srem %6, %9
-  %11 = const 10
-  %12 = mul %8, %11
-  %13 = add %12, %10
-  ret %13
+  %15 = sdiv %6, %7
+  %16 = const 7
+  trapz %16, bb5, bb6
+bb5:
+  trap __axiom_div_by_zero
+bb6:
+  %17 = const -9223372036854775808
+  %18 = const -1
+  %19 = const 1
+  %20 = eq %6, %17
+  %21 = eq %16, %18
+  %22 = and %20, %21
+  %23 = xor %22, %19
+  trapz %23, bb7, bb8
+bb7:
+  trap __axiom_div_overflow
+bb8:
+  %24 = srem %6, %16
+  %25 = const 10
+  %26 = mul %15, %25
+  %27 = add %26, %24
+  ret %27
 }
 fn main() {
 bb0:

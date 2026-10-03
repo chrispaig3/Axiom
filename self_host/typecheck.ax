@@ -3280,7 +3280,7 @@
 ; operands `checkNumeric` typed FLOAT. Appended, for the reason
 ; every field before it was.
 ;
-; It exists for `restrict(no-wrap)` and `restrict(no-untrapped)` and
+; It exists for `restrict(no-wrap)` and `restrict(no-trap)` and
 ; nothing else. Those checks are
 ; lexical - they match the operator's SPELLING - and on `Float`
 ; operands these spellings lower to `fadd`/`fsub`/`fmul`/`fdiv`
@@ -13576,7 +13576,7 @@
                   (emitMismatch tc "Float" (tyRender rt) (spanOf r))
                   (refuseUnknownOperand tc "Float" rt (spanOf r)))
                 ; The one thing `restrict(no-wrap)` and
-                ; `restrict(no-untrapped)` need and cannot
+                ; `restrict(no-trap)` need and cannot
                 ; find out for themselves: this `+`/`-`/`*`/`/` is a
                 ; FLOAT operation, so it lowers to
                 ; `fadd`/`fsub`/`fmul`/`fdiv` and has no wraparound
@@ -13586,7 +13586,7 @@
                 ; that is exactly the pair of tests above, so a
                 ; mixed-operand expression, which is a type error
                 ; here, is not also excused there.
-                (if (&& (|| (== (isWrapOp op) 1) (== (isUntrappedOp op) 1)) (&& (|| (== (tyIsFloatTy lt) 1) (== (tyCompat tc lt mkFloatTy) 1)) (|| (== (tyIsFloatTy rt) 1) (== (tyCompat tc rt mkFloatTy) 1))))
+                (if (&& (|| (== (isWrapOp op) 1) (== (isTrapOp op) 1)) (&& (|| (== (tyIsFloatTy lt) 1) (== (tyCompat tc lt mkFloatTy) 1)) (|| (== (tyIsFloatTy rt) 1) (== (tyCompat tc rt mkFloatTy) 1))))
                   (tcFloatOpAdd tc head)
                   0)
                 (if (== (isNumCmpOp op) 1)
@@ -13959,37 +13959,53 @@
           "write the value to convert after the type - `(cast Int e)` - or, for a function value, `(lambda (x) (cast Int x))`"
           "`cast` is a form and not a function: with its value missing there was nothing to convert, and the emitter read the type name as a variable the native toolchain refused") "`cast` takes a type and a value; the value is missing"))
         0)
-      (if (strEq hname "cast")
-        (if (>= (vecLen args) 1)
-          (if (!= (castTypeBadPart (vecGet args 0)) 0)
-            ; A LITERAL cannot name a type, and `exprToType`
-            ; answers the SILENT WILDCARD for every shape it
-            ; cannot convert - a type that unifies with anything,
-            ; so nothing downstream ever objects. Measured:
-            ; `(cast "hello" 7)` and `(cast 4 helper)` both check
-            ; clean, and the second returns a closure address
-            ; from a function declaring `Int` - 32, whatever the
-            ; argument. Type ascription `(:: e T)` desugars to
-            ; `(cast T e)`, so `(::helper 4)` reached it too.
-            ;
-            ; The wildcard stays for shapes that MIGHT be a type
-            ; this pass cannot resolve; a literal is not one of
-            ; those, and saying so costs nothing that was working.
-            {
-              (emitDiag tc (diagSetLabel (mkDiagNote
-                SEV_ERROR
-                "AX3002"
-                "undefined-type"
-                (spanOf (castTypeBadPart (vecGet args 0)))
-                (if (== (castTypeIsLiteral (castTypeBadPart (vecGet args 0))) 1)
-                  "a literal is not a type, and `cast` takes a type first"
-                  "this expression is not a type, and `cast` takes a type first")
-                0
-                0
-                "write the type to cast TO - `(cast Int e)` - or, for an ascription, `(:: e Int)`"
-                "an unconvertible shape here used to answer a silent wildcard, which unifies with everything: the cast was performed, the result had no type anyone could object to, and a function returning it satisfied any declaration") "not a type"))
-              (mkNode TAG_T_ERR 0 0 0)
-            }
+      (if (&& (>= (vecLen args) 1) (!= (castTypeBadPart (vecGet args 0)) 0))
+        ; A LITERAL cannot name a type, and `exprToType`
+        ; answers the SILENT WILDCARD for every shape it
+        ; cannot convert - a type that unifies with anything,
+        ; so nothing downstream ever objects. Measured:
+        ; `(cast "hello" 7)` and `(cast 4 helper)` both check
+        ; clean, and the second returns a closure address
+        ; from a function declaring `Int` - 32, whatever the
+        ; argument. Type ascription `(:: e T)` desugars to
+        ; `(cast T e)`, so `(::helper 4)` reached it too.
+        ;
+        ; The wildcard stays for shapes that MIGHT be a type
+        ; this pass cannot resolve; a literal is not one of
+        ; those, and saying so costs nothing that was working.
+        ;
+        ; `sizeof` and `alignof` share this refusal. They never
+        ; reached it - the check sat inside the `cast` arm, and
+        ; both answered `Int` for any operand, so `(alignof 00)`
+        ; checked clean while `fmt` refused it (the seeded
+        ; fuzzer's m00120). The operand was ignored, not
+        ; wildcarded, so their help and note say that instead.
+        {
+          (emitDiag tc (diagSetLabel (mkDiagNote
+            SEV_ERROR
+            "AX3002"
+            "undefined-type"
+            (spanOf (castTypeBadPart (vecGet args 0)))
+            (if (strEq hname "cast")
+              (if (== (castTypeIsLiteral (castTypeBadPart (vecGet args 0))) 1)
+                "a literal is not a type, and `cast` takes a type first"
+                "this expression is not a type, and `cast` takes a type first")
+              (if (== (castTypeIsLiteral (castTypeBadPart (vecGet args 0))) 1)
+                (strConcat (strConcat "a literal is not a type, and `" hname) "` takes a type")
+                (strConcat (strConcat "this expression is not a type, and `" hname) "` takes a type")))
+            0
+            0
+            (if (strEq hname "cast")
+              "write the type to cast TO - `(cast Int e)` - or, for an ascription, `(:: e Int)`"
+              (strConcat (strConcat "write the type to measure - `(" hname) " Int)`"))
+            (if (strEq hname "cast")
+              "an unconvertible shape here used to answer a silent wildcard, which unifies with everything: the cast was performed, the result had no type anyone could object to, and a function returning it satisfied any declaration"
+              (strConcat (strConcat "the operand used to be ignored in silence: `(" hname) " 99)` answered 8"))
+            ) "not a type"))
+          (mkNode TAG_T_ERR 0 0 0)
+        }
+        (if (strEq hname "cast")
+          (if (>= (vecLen args) 1)
             (let ((targetTy (castTargetTy tc (vecGet args 0))))
               (let ((subBase 
                 (if (&& (!= targetTy 0) (== (nodeTag targetTy) TAG_T_CON))
@@ -14035,9 +14051,9 @@
                             {
                               (memSetWord inner 2 (mkSubtypeCheckNode (vecGet args 1) boundsH targetTy (spanOf (vecGet args 1))))
                               targetTy
-                            })))))))))
+                            }))))))))
           mkSilentWild)
-        mkIntTy)
+        mkIntTy))
     }))
 
 ; `cast`'s arguments, and the SURPLUS ones stamped with the evidence
@@ -20976,7 +20992,7 @@
 ;   no-recursion no cycle in the call graph reachable from     transitive
 ;                this declaration
 ;   no-wrap      no INTEGER `+`, `-` or `*` head in THIS body   local
-;   no-untrapped no INTEGER `/`, `%`, `<<` or `>>` head in     local
+;   no-trap           no INTEGER `/`, `%`, `<<` or `>>` head in     local
 ;                THIS body
 ;
 ; `no-wrap` is `docs/checked-arithmetic-design.md`'s slice of the
@@ -20985,14 +21001,16 @@
 ; `addChecked`/`subChecked`/`mulChecked` are the alternative this
 ; restriction forces a claiming body to use instead.
 ;
-; `no-untrapped` is the same design's named follow-up, one restriction
-; over: `/`/`%` trap on a zero divisor today (exit 72) but are
-; undefined on the single `INT_MIN / -1` corner, and `<<`/`>>` are
-; undefined on an out-of-range shift amount with no runtime check at
-; all. `stdlib/Err.ax`'s `divChecked`/`remChecked`/`shlChecked`/
-; `shrChecked` are the sanctioned alternative, every one
-; `(-> Int Int (Result Int Error))`, and calling one pulls `Alloc`
-; into the row exactly as the `no-wrap` alternatives do.
+; `no-trap` is the same design's named follow-up, one restriction
+; over the four operators that trap: `/`/`%` on a zero divisor (exit
+; 72) and on the `INT_MIN / -1` corner (exit 83), and `<<`/`>>` on
+; an out-of-range shift amount (exit 84). Called `no-untrapped` until
+; 0.8.0, when those corners were undefined; the guards landed and the
+; rename followed them. `stdlib/Err.ax`'s
+; `divChecked`/`remChecked`/`shlChecked`/`shrChecked` are the
+; sanctioned alternative, every one `(-> Int Int (Result Int
+; Error))`, and calling one pulls `Alloc` into the row exactly as
+; the `no-wrap` alternatives do.
 ;
 ; INTEGER, and that word is the 2026-09-04 correction. The check
 ; matches the operator's SPELLING, and two things wearing those
@@ -21533,7 +21551,7 @@
 ; existing readings get.
 ;
 ; THE LEXICAL THREE ARE EXCLUDED, and that is the same line the header
-; draws: `no-cast`, `no-wrap` and `no-untrapped` are properties of the
+; draws: `no-cast`, `no-wrap` and `no-trap` are properties of the
 ; bytes of THIS body, which a parameter cannot change.
 ;
 ; BLAST RADIUS, measured over `self_host/main.ax`: 347 rows carry a
@@ -21564,7 +21582,7 @@
 
 ; The five that are decided by walking somewhere else - the effect row,
 ; which is a transitive fixpoint, or the call graph. `no-cast`,
-; `no-wrap` and `no-untrapped` are lexical and are deliberately not
+; `no-wrap` and `no-trap` are lexical and are deliberately not
 ; here; keep this in step with the Scope column of
 ; `docs/reference.md`'s restriction table, which is where the
 ; distinction is stated to the author.
@@ -21669,8 +21687,8 @@
                 (restrictNoRecursion tc d r eff)
                 (if (strEq r "no-wrap")
                   (restrictNoWrap tc d r (nodeC d))
-                  (if (strEq r "no-untrapped")
-                    (restrictNoUntrapped tc d r (nodeC d))
+                  (if (strEq r "no-trap")
+                    (restrictNoTrap tc d r (nodeC d))
                     (if (strEq r "no-escape")
                       (restrictNoEscape tc d r)
                       (if (strEq r "no-entropy")
@@ -22811,33 +22829,32 @@
         (wrapScanArms arms (+ i 1) acc)
       })))
 
-; `no-untrapped`: every `/`, `%`, `<<` or `>>` head in this body,
-; each reported at its own span - `untrappedScanInto` is
+; `no-trap`: every `/`, `%`, `<<` or `>>` head in this body,
+; each reported at its own span - `trapScanInto` is
 ; `wrapScanInto`'s twin, predicate swapped from "head named a
-; wrapping operator" to "head named an untrapped operator"
-; (`isUntrappedOp`). Duplicated rather than shared, for the reason
+; wrapping operator" to "head named a trapping operator"
+; (`isTrapOp`). Duplicated rather than shared, for the reason
 ; `wrapScanInto` gives: this file already hand-duplicates a full tree
 ; walk per collected fact rather than sharing one generic walker.
 ;
 ; LOCAL, for the same reason `no-cast` and `no-wrap` are: `/`/`%`
-; trap on a zero divisor today (exit 72) but are undefined on the
-; single `INT_MIN / -1` corner, and `<<`/`>>` are undefined on an
-; out-of-range shift amount with no runtime check at all - so the
-; untrapped use is an act THIS BODY performs by writing the bare
-; operator, not a fact the effect row or call graph carries.
+; trap on a zero divisor (exit 72) and on `INT_MIN / -1` (exit 83),
+; and `<<`/`>>` trap on an out-of-range shift amount (exit 84) -
+; so the trapping use is an act THIS BODY performs by writing the
+; bare operator, not a fact the effect row or call graph carries.
 ; `docs/checked-arithmetic-design.md` names this the follow-up its
 ; phase 1 deliberately left out; `stdlib/Err.ax`'s
 ; `divChecked`/`remChecked`/`shlChecked`/`shrChecked` are the
 ; sanctioned alternative, and calling one pulls `Alloc` into this
 ; body's row (constructing the `Result` allocates), which is why
-; `no-untrapped` and `no-alloc`, or `no-untrapped` and `pure`, are
+; `no-trap` and `no-alloc`, or `no-trap` and `pure`, are
 ; not satisfiable together for a body that needs these operations -
-; stated in `emitRestrictUntrapped`'s help rather than left to be
+; stated in `emitRestrictTrap`'s help rather than left to be
 ; discovered. There is no `for`-bump exemption to carry: `for`
 ; desugars to `+` and `<` only, so no generated node wears one of
 ; these four spellings.
-(pub :: isUntrappedOp (-> String Int))
-(pub fn (isUntrappedOp n)
+(pub :: isTrapOp (-> String Int))
+(pub fn (isTrapOp n)
   (if (strEq n "/")
     1
     (if (strEq n "%")
@@ -22848,22 +22865,22 @@
           1
           0)))))
 
-(pub :: restrictNoUntrapped (-> Int Int String Int Int))
-(pub fn (restrictNoUntrapped tc d r e)
-  (restrictEmitUntrappeds
+(pub :: restrictNoTrap (-> Int Int String Int Int))
+(pub fn (restrictNoTrap tc d r e)
+  (restrictEmitTraps
     tc
     d
     r
-    (untrappedScanInto e vecNew)
+    (trapScanInto e vecNew)
     0))
 
-(pub :: restrictEmitUntrappeds (-> Int Int String (Vec Int) Int Int))
-(pub fn (restrictEmitUntrappeds tc d r found i)
+(pub :: restrictEmitTraps (-> Int Int String (Vec Int) Int Int))
+(pub fn (restrictEmitTraps tc d r found i)
   (if (>= i (vecLen found))
     0
     (let ((w (vecGet found i)))
       {
-        ; THE SPELLING IS NOT THE OPERATION. `untrappedScanInto`
+        ; THE SPELLING IS NOT THE OPERATION. `trapScanInto`
         ; matches `/`, `%`, `<<` and `>>` by name, and on `Float`
         ; operands `/` lowers to `fdiv`, which has no integer trap -
         ; `checkNumeric` recorded which heads those were while it had
@@ -22873,13 +22890,13 @@
         ; Error))`) that does not typecheck against a `Float`.
         (if (== (tcFloatOpIn tc (spineHead w)) 1)
           0
-          (emitRestrictUntrapped
+          (emitRestrictTrap
             tc
             d
             r
             (nodeSpan w)
             (nodeAName (spineHead w))))
-        (restrictEmitUntrappeds
+        (restrictEmitTraps
           tc
           d
           r
@@ -22887,8 +22904,8 @@
           (+ i 1))
       })))
 
-(pub :: untrappedScanInto (-> Int (Vec Int) (Vec Int)))
-(pub fn (untrappedScanInto e acc)
+(pub :: trapScanInto (-> Int (Vec Int) (Vec Int)))
+(pub fn (trapScanInto e acc)
   (if (== e 0)
     acc
     (let ((tag (nodeTag e)))
@@ -22897,93 +22914,93 @@
           (let ((head (spineHead e)))
             {
               (if (== (nodeTag head) TAG_E_VAR)
-                (if (== (isUntrappedOp (nodeAName head)) 1)
+                (if (== (isTrapOp (nodeAName head)) 1)
                   {
                     (vecPush acc e)
                     0
                   }
                   0)
                 {
-                  (untrappedScanInto head acc)
+                  (trapScanInto head acc)
                   0
                 })
-              (untrappedScanVec (spineArgVec e vecNew) 0 acc)
+              (trapScanVec (spineArgVec e vecNew) 0 acc)
             })
           (if (== tag TAG_E_SETF)
               {
-                (untrappedScanIn (nodeA e) acc)
-                (untrappedScanIn (nodeC e) acc)
+                (trapScanIn (nodeA e) acc)
+                (trapScanIn (nodeC e) acc)
               }
               (if (== tag TAG_E_HANDLE)
                 {
-                  (untrappedScanIn (nodeA e) acc)
-                  (untrappedScanIn (nodeC e) acc)
+                  (trapScanIn (nodeA e) acc)
+                  (trapScanIn (nodeC e) acc)
                 }
                 (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
                   {
-                    (untrappedScanIn (nodeB e) acc)
-                    (untrappedScanIn (nodeC e) acc)
+                    (trapScanIn (nodeB e) acc)
+                    (trapScanIn (nodeC e) acc)
                   }
                   (if (== tag TAG_E_LAM)
-                    (untrappedScanIn (nodeB e) acc)
+                    (trapScanIn (nodeB e) acc)
                     (if (== tag TAG_E_IF)
                       {
-                        (untrappedScanIn (nodeA e) acc)
-                        (untrappedScanIn (nodeB e) acc)
-                        (untrappedScanIn (nodeC e) acc)
+                        (trapScanIn (nodeA e) acc)
+                        (trapScanIn (nodeB e) acc)
+                        (trapScanIn (nodeC e) acc)
                       }
                       (if (== tag TAG_E_BEGIN)
-                        (untrappedScanVec (nodeAVec e) 0 acc)
+                        (trapScanVec (nodeAVec e) 0 acc)
                         (if (|| (== tag TAG_E_WHILE) (== tag TAG_E_REGION))
                           (if (== tag TAG_E_REGION)
-                            (untrappedScanIn (nodeB e) acc)
+                            (trapScanIn (nodeB e) acc)
                             {
-                              (untrappedScanIn (nodeA e) acc)
-                              (untrappedScanVec (nodeBVec e) 0 acc)
+                              (trapScanIn (nodeA e) acc)
+                              (trapScanVec (nodeBVec e) 0 acc)
                             })
                           (if (== tag TAG_E_SET)
-                            (untrappedScanIn (nodeB e) acc)
+                            (trapScanIn (nodeB e) acc)
                             (if (== tag TAG_E_FIELD)
-                              (untrappedScanIn (nodeA e) acc)
+                              (trapScanIn (nodeA e) acc)
                               (if (== tag TAG_E_STRUCTCON)
-                                (untrappedScanVec (nodeBVec e) 0 acc)
+                                (trapScanVec (nodeBVec e) 0 acc)
                                 ; `cond` is AX2004: the parser builds
                                 ; none, so no arm scans one for traps.
                                 (if (== tag TAG_E_MATCH)
                                   {
-                                    (untrappedScanIn (nodeA e) acc)
-                                    (untrappedScanArms (nodeBVec e) 0 acc)
+                                    (trapScanIn (nodeA e) acc)
+                                    (trapScanArms (nodeBVec e) 0 acc)
                                   }
                                   0))))))))))))
         acc
       })))
 
-; `untrappedScanInto` for effect, answering 0 - the arms above
+; `trapScanInto` for effect, answering 0 - the arms above
 ; sequence several of these in a block.
-(pub :: untrappedScanIn (-> Int (Vec Int) Int))
-(pub fn (untrappedScanIn e acc)
+(pub :: trapScanIn (-> Int (Vec Int) Int))
+(pub fn (trapScanIn e acc)
   {
-    (untrappedScanInto e acc)
+    (trapScanInto e acc)
     0
   })
 
-(pub :: untrappedScanVec (-> (Vec Int) Int (Vec Int) Int))
-(pub fn (untrappedScanVec v i acc)
+(pub :: trapScanVec (-> (Vec Int) Int (Vec Int) Int))
+(pub fn (trapScanVec v i acc)
   (if (>= i (vecLen v))
     0
     {
-      (untrappedScanIn (vecGet v i) acc)
-      (untrappedScanVec v (+ i 1) acc)
+      (trapScanIn (vecGet v i) acc)
+      (trapScanVec v (+ i 1) acc)
     }))
 
-(pub :: untrappedScanArms (-> (Vec Int) Int (Vec Int) Int))
-(pub fn (untrappedScanArms arms i acc)
+(pub :: trapScanArms (-> (Vec Int) Int (Vec Int) Int))
+(pub fn (trapScanArms arms i acc)
   (if (>= i (vecLen arms))
     0
     (let ((a (vecGet arms i)))
       {
-        (untrappedScanIn (nodeB a) acc)
-        (untrappedScanArms arms (+ i 1) acc)
+        (trapScanIn (nodeB a) acc)
+        (trapScanArms arms (+ i 1) acc)
       })))
 
 ; ------------------------------------------------------------------
@@ -23113,13 +23130,13 @@
       0
       "`no-wrap` is LOCAL, like `no-cast`: on `Int` operands `+`, `-` and `*` lower to plain `add`/`sub`/`mul` with no overflow check, so a silent wraparound is an act this body performs by writing the raw operator, not a fact the effect row or call graph carries - it is refused where it is written, and a callee's arithmetic is the callee's claim to make. `stdlib/Err.ax` has the checked alternative for each: `addChecked`, `subChecked`, `mulChecked`, every one `(-> Int Int (Result Int Error))`. Calling one pulls `Alloc` into this body's effect row (constructing the `Result` allocates), so `no-wrap` cannot be satisfied together with `no-alloc` or `pure` by a body that needs arithmetic - write the checked call and match its `Err`, accept the row, or delete the tag. TWO OPERATORS ARE NOT REFUSED, because neither can wrap: the same three spellings on `Float` operands, which lower to `fadd`/`fsub`/`fmul`, and the `for` keyword's own counter increment, which the parser writes and whose loop guard bounds it"))))
 
-; AX3049 at the OPERATOR, for `no-untrapped`, LOCAL like `no-cast`
+; AX3049 at the OPERATOR, for `no-trap`, LOCAL like `no-cast`
 ; and `no-wrap`: it has a span, and the fix is where the span is.
 ; Unlike `no-cast` there are four possible fixes rather than one, so
 ; the message names which operator was found (`op`, from
-; `untrappedScanInto`'s recorded head).
-(pub :: emitRestrictUntrapped (-> Int Int String Int String Int))
-(pub fn (emitRestrictUntrapped tc d r span op)
+; `trapScanInto`'s recorded head).
+(pub :: emitRestrictTrap (-> Int Int String Int String Int))
+(pub fn (emitRestrictTrap tc d r span op)
   (if (== span 0)
     0
     (emitDiag tc (mkDiag
@@ -23130,7 +23147,7 @@
       (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat "`" op) "` in the body of `") (bareOf (nodeAName d))) "`, which claims `restrict(") r) ")`")
       0
       0
-      "`no-untrapped` is LOCAL, like `no-cast` and `no-wrap`: on `Int` operands `/` and `%` trap on a zero divisor (exit 72) but are undefined on the single `INT_MIN / -1` corner, and `<<` and `>>` are undefined on an out-of-range shift amount with no runtime check at all - so the untrapped use is an act this body performs by writing the raw operator, not a fact the effect row or call graph carries. `stdlib/Err.ax` has the checked alternative for each: `divChecked`, `remChecked`, `shlChecked`, `shrChecked`, every one `(-> Int Int (Result Int Error))`. Calling one pulls `Alloc` into this body's effect row (constructing the `Result` allocates), so `no-untrapped` cannot be satisfied together with `no-alloc` or `pure` by a body that needs these operations - write the checked call and match its `Err`, accept the row, or delete the tag. ONE SPELLING IS NOT REFUSED: `/` on `Float` operands, which lowers to `fdiv` with no integer trap to require, and whose checked fix is `(-> Int Int (Result Int Error))` and does not typecheck against a `Float`"))))
+      "`no-trap` is LOCAL, like `no-cast` and `no-wrap`: on `Int` operands `/` and `%` trap on a zero divisor (exit 72) and on the `INT_MIN / -1` corner (exit 83), and `<<` and `>>` trap on an out-of-range shift amount (exit 84) - so the trapping use is an act this body performs by writing the raw operator, not a fact the effect row or call graph carries. `stdlib/Err.ax` has the checked alternative for each: `divChecked`, `remChecked`, `shlChecked`, `shrChecked`, every one `(-> Int Int (Result Int Error))`. Calling one pulls `Alloc` into this body's effect row (constructing the `Result` allocates), so `no-trap` cannot be satisfied together with `no-alloc` or `pure` by a body that needs these operations - write the checked call and match its `Err`, accept the row, or delete the tag. ONE SPELLING IS NOT REFUSED: `/` on `Float` operands, which lowers to `fdiv` with no integer trap to require, and whose checked fix is `(-> Int Int (Result Int Error))` and does not typecheck against a `Float`"))))
 
 ; AX3051: unverifiable, a warning - the claim is neither refuted nor
 ; acquitted, and the reason is the analysis's rather than the body's.
@@ -23165,7 +23182,7 @@
         (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `restrict(") r) (strConcat ")` and the claim cannot be checked: " why))
         0
         0
-        "a limit of the ANALYSIS rather than a defect in the program - AX3037's argument at one remove. There are four readings: an effect present only as POSSIBLE, a row the walk marked incomplete, a body that CALLS one of its own parameters (`#effect-params=`), whose answer is chosen by each caller and cannot be settled here at all, and - for `no-escape` alone - a region fixpoint that hit its round limit before the facts settled, which is a depth limit rather than anything about this declaration. Name the function at the call, stop calling the parameter, shorten the chain, or drop the claim; `no-cast`, `no-wrap` and `no-untrapped` are checked regardless, because all three are lexical and need no call resolved"))))))
+        "a limit of the ANALYSIS rather than a defect in the program - AX3037's argument at one remove. There are four readings: an effect present only as POSSIBLE, a row the walk marked incomplete, a body that CALLS one of its own parameters (`#effect-params=`), whose answer is chosen by each caller and cannot be settled here at all, and - for `no-escape` alone - a region fixpoint that hit its round limit before the facts settled, which is a depth limit rather than anything about this declaration. Name the function at the call, stop calling the parameter, shorten the chain, or drop the claim; `no-cast`, `no-wrap` and `no-trap` are checked regardless, because all three are lexical and need no call resolved"))))))
 
 ; AX3052: a name outside the closed list. The help states the list,
 ; and it is the one place the list is stated to the author - keep it
@@ -23186,7 +23203,7 @@
           (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `restrict(") r) (strConcat (strConcat ")`, and `" r) "` names no restriction")))
         0
         0
-        "the restrictions this compiler checks are `no-cast`, `no-cast:deep`, `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-recursion`, `no-wrap`, `no-untrapped`, `no-escape`, `no-entropy`, `no-spawn` and `no-block`, comma-separated inside one `restrict(...)`. The list is closed, so a name outside it is not metadata - it is a claim in the one place the compiler has said it checks, and it would otherwise read like a guarantee and buy silence"))))
+        "the restrictions this compiler checks are `no-cast`, `no-cast:deep`, `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-recursion`, `no-wrap`, `no-trap`, `no-escape`, `no-entropy`, `no-spawn` and `no-block`, comma-separated inside one `restrict(...)`. The list is closed, so a name outside it is not metadata - it is a claim in the one place the compiler has said it checks, and it would otherwise read like a guarantee and buy silence"))))
 
 ; ==================================================================
 ; `;@axiom:pre(...)` and `;@axiom:post(...)`: AX3050, the static half.

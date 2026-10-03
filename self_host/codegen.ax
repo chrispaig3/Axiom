@@ -12046,6 +12046,8 @@
     (emitLiveHandleTrap cg)
     (emitEvCheck cg)
     (emitDivTrap cg)
+    (emitOverflowTrap cg)
+    (emitShiftTrap cg)
     (emitIndexTrap cg)
     (emitAtomicAlignTrap cg)
     (emitOomTrap cg)
@@ -12593,6 +12595,44 @@
     (emitRuntimeWrite cg "%dzp" "24")
     (emitLine cg "  call void @__axiom_backtrace()")
     (emitRuntimeExit cg "72")
+    (emitLine cg "  unreachable")
+    (emitLine cg "}")
+    cg
+  })
+
+; MM-VAL-3b's first corner, trapped: `sdiv`/`srem` overflow on
+; `INT_MIN / -1`. Same shape as `emitDivTrap` (recoverable, backtrace,
+; exact byte count: 25), its own status - each broken invariant gets
+; one (`MM-EXEC-16`).
+(pub :: emitOverflowTrap (-> Int Int))
+(pub fn (emitOverflowTrap cg)
+  {
+    (emitLine cg "@__axiom_divovf_msg = private unnamed_addr constant [25 x i8] c\"axiom: division overflow\\0A\"")
+    (emitLine cg (strConcat "define internal i64 @__axiom_div_overflow() " (strConcat trapFnAttrs " {")))
+    (emitLine cg "entry:")
+    (emitLine cg "  call i64 @__axiom_recover_abort(i64 83)")
+    (emitLine cg "  %dop = ptrtoint ptr @__axiom_divovf_msg to i64")
+    (emitRuntimeWrite cg "%dop" "25")
+    (emitLine cg "  call void @__axiom_backtrace()")
+    (emitRuntimeExit cg "83")
+    (emitLine cg "  unreachable")
+    (emitLine cg "}")
+    cg
+  })
+
+; MM-VAL-3b's second corner, trapped: a shift amount below 0 or above
+; 63. Same shape, own status, 33 bytes exactly.
+(pub :: emitShiftTrap (-> Int Int))
+(pub fn (emitShiftTrap cg)
+  {
+    (emitLine cg "@__axiom_shift_msg = private unnamed_addr constant [33 x i8] c\"axiom: shift amount out of range\\0A\"")
+    (emitLine cg (strConcat "define internal i64 @__axiom_shift_out_of_range() " (strConcat trapFnAttrs " {")))
+    (emitLine cg "entry:")
+    (emitLine cg "  call i64 @__axiom_recover_abort(i64 84)")
+    (emitLine cg "  %shp = ptrtoint ptr @__axiom_shift_msg to i64")
+    (emitRuntimeWrite cg "%shp" "33")
+    (emitLine cg "  call void @__axiom_backtrace()")
+    (emitRuntimeExit cg "84")
     (emitLine cg "  unreachable")
     (emitLine cg "}")
     cg
@@ -21504,47 +21544,129 @@
 (pub :: emitIBinop (-> String String String Int Int Int))
 ;@axiom:effect(unsafe)
 (pub fn (emitIBinop fnName a b cg snode)
-  (let ((cgG 
-    (if (isDivOp fnName)
-      (emitDivGuard b cg snode)
-      cg)))
-    (let ((rn (allocReg cgG)))
+  ; U4: `binopToLLVM` answers "add" for a name it does not know (pinned
+  ; by `check-mir.sh` §7), so a name that is no operator would lower to
+  ; an addition in silence. `emitCall` routes here through `isBinop`,
+  ; which makes this arm dead - until someone extends one table and not
+  ; the other, or a checker hole admits a bad name (H6's worry). Then
+  ; it traps instead of adding.
+  (if (isBinop fnName)
+    (let ((cgG
+      (if (isDivOp fnName)
+        (emitDivGuard a b cg snode)
+        (if (isShiftOp fnName)
+          (emitShiftGuard b cg snode)
+          cg))))
+      (let ((rn (allocReg cgG)))
+        (let ((r (regStr rn)))
+          {
+            (emitLine cgG (strConcat (strConcat (strConcat "  " r) (strConcat " = " (binopToLLVM fnName))) (strConcat " i64 " (strConcat (strConcat a (strConcat ", " b)) ""))))
+            (memSetWord cgG 2 r)
+            (memSetWord cgG 14 0)
+            cgG
+          })))
+    (emitUnknownBinopTrap cg 0)))
+
+; U4's trap: `unreachable` in its own dead block, then a zero filler so
+; the answer register stays defined and the IR stays valid. Reached
+; only if the operator tables disagree - which the guards above make
+; impossible today - so reaching it crashes loudly rather than adding
+; quietly.
+(pub :: emitUnknownBinopTrap (-> Int Int Int))
+;@axiom:effect(unsafe)
+(pub fn (emitUnknownBinopTrap cg floatFlag)
+  (let ((db (strConcat "dead_" (fmtInt (allocReg cg)))))
+    (let ((rn (allocReg cg)))
       (let ((r (regStr rn)))
         {
-          (emitLine cgG (strConcat (strConcat (strConcat "  " r) (strConcat " = " (binopToLLVM fnName))) (strConcat " i64 " (strConcat (strConcat a (strConcat ", " b)) ""))))
-          (memSetWord cgG 2 r)
-          (memSetWord cgG 14 0)
-          cgG
+          (emitLine cg "  unreachable")
+          (emitLabel cg db)
+          (emitLine cg (strConcat (strConcat "  " r) " = add i64 0, 0"))
+          (memSetWord cg 2 r)
+          (memSetWord cg 14 floatFlag)
+          cg
         }))))
+
+(pub :: isFloatBinop (-> String Bool))
+(pub fn (isFloatBinop nm)
+  (|| (strEq nm "+")
+    (|| (strEq nm "-")
+      (|| (strEq nm "*")
+        (|| (strEq nm "/") (strEq nm "%"))))))
 
 (pub :: isDivOp (-> String Bool))
 (pub fn (isDivOp nm)
   (|| (strEq nm "/") (strEq nm "%")))
 
-; `if divisor == 0 then trap`. The trap block ends `unreachable`, so
-; nothing downstream has to know it is there.
-(pub :: emitDivGuard (-> String Int Int Int))
-(pub fn (emitDivGuard b cg snode)
-  (let ((cn (allocReg cg)))
-    (let (
-      (zn (allocReg cg))
-      (kn (allocReg cg))
-    )
-      (let (
-        (c (regStr cn))
-        (zb (strConcat "divzero_" (fmtInt zn)))
-        (kb (strConcat "divok_" (fmtInt kn)))
-      )
-        {
-          (emitLine cg (strConcat (strConcat "  " c) (strConcat " = icmp eq i64 " (strConcat b ", 0"))))
-          (emitLine cg (strConcat (strConcat "  br i1 " (strConcat c ", label %")) (strConcat zb (strConcat (strConcat ", label %" kb) ""))))
-          (emitLabel cg zb)
-          (emitLineMark snode cg)
-          (emitLine cg "  call i64 @__axiom_div_by_zero()")
-          (emitLine cg "  unreachable")
-          (emitLabel cg kb)
-          cg
-        }))))
+(pub :: isShiftOp (-> String Bool))
+(pub fn (isShiftOp nm)
+  (|| (strEq nm "<<") (strEq nm ">>")))
+
+; `if divisor == 0 then trap 72; if INT_MIN / -1 then trap 83`. The
+; second test is the overflow corner `sdiv`/`srem` share, which has no
+; representable answer (MM-VAL-3b): two compares and an `and`, paid
+; only by `/` and `%`, which already pay the first branch. Each trap
+; block ends `unreachable`, so nothing downstream has to know either
+; is there.
+(pub :: emitDivGuard (-> String String Int Int Int))
+(pub fn (emitDivGuard a b cg snode)
+  (let (
+    (c0 (regStr (allocReg cg)))
+    (c1 (regStr (allocReg cg)))
+    (c2 (regStr (allocReg cg)))
+    (c3 (regStr (allocReg cg)))
+    (zb (strConcat "divzero_" (fmtInt (allocReg cg))))
+    (chk (strConcat "divovfchk_" (fmtInt (allocReg cg))))
+    (ob (strConcat "divovf_" (fmtInt (allocReg cg))))
+    (kb (strConcat "divok_" (fmtInt (allocReg cg))))
+  )
+    {
+      (emitLine cg (strConcat (strConcat "  " c0) (strConcat " = icmp eq i64 " (strConcat b ", 0"))))
+      (emitLine cg (strConcat (strConcat "  br i1 " (strConcat c0 ", label %")) (strConcat zb (strConcat (strConcat ", label %" chk) ""))))
+      (emitLabel cg zb)
+      (emitLineMark snode cg)
+      (emitLine cg "  call i64 @__axiom_div_by_zero()")
+      (emitLine cg "  unreachable")
+      (emitLabel cg chk)
+      (emitLine cg (strConcat (strConcat "  " c1) (strConcat " = icmp eq i64 " (strConcat a ", -9223372036854775808"))))
+      (emitLine cg (strConcat (strConcat "  " c2) (strConcat " = icmp eq i64 " (strConcat b ", -1"))))
+      (emitLine cg (strConcat (strConcat "  " c3) (strConcat " = and i1 " (strConcat c1 (strConcat ", " c2)))))
+      (emitLine cg (strConcat (strConcat "  br i1 " (strConcat c3 ", label %")) (strConcat ob (strConcat (strConcat ", label %" kb) ""))))
+      (emitLabel cg ob)
+      (emitLineMark snode cg)
+      (emitLine cg "  call i64 @__axiom_div_overflow()")
+      (emitLine cg "  unreachable")
+      (emitLabel cg kb)
+      cg
+    }))
+
+; `if amount < 0 or >= 64 then trap 84`. Overshift is poison in LLVM
+; (`shl`/`ashr` demand an amount below the bit width, and a negative
+; count is a huge unsigned one), and the two targets disagreed about
+; it exactly as they once did about division by zero (MM-VAL-3b) - so
+; it traps exactly like division by zero does. Paid only by `<<` and
+; `>>`.
+(pub :: emitShiftGuard (-> String Int Int Int))
+(pub fn (emitShiftGuard n cg snode)
+  (let (
+    (c0 (regStr (allocReg cg)))
+    (c1 (regStr (allocReg cg)))
+    (c2 (regStr (allocReg cg)))
+    (sb (strConcat "shiftbad_" (fmtInt (allocReg cg))))
+    (kb (strConcat "shiftok_" (fmtInt (allocReg cg))))
+  )
+    {
+      (emitLine cg (strConcat (strConcat "  " c0) (strConcat " = icmp slt i64 " (strConcat n ", 0"))))
+      (emitLine cg (strConcat (strConcat "  " c1) (strConcat " = icmp sge i64 " (strConcat n ", 64"))))
+      (emitLine cg (strConcat (strConcat "  " c2) (strConcat " = or i1 " (strConcat c0 (strConcat ", " c1)))))
+      (emitLine cg (strConcat (strConcat "  br i1 " (strConcat c2 ", label %")) (strConcat sb (strConcat (strConcat ", label %" kb) ""))))
+      (emitLabel cg sb)
+      (emitLineMark snode cg)
+      (emitLine cg "  call i64 @__axiom_shift_out_of_range()")
+      (emitLine cg "  unreachable")
+      (emitLabel cg kb)
+      cg
+    }))
 
 ; The operands hold bits; the arithmetic wants a double. `bitcast` in,
 ; one float instruction, `bitcast` back out - free at runtime, and the
@@ -21552,27 +21674,34 @@
 (pub :: emitFBinop (-> String String String Int Int))
 ;@axiom:effect(unsafe)
 (pub fn (emitFBinop fnName a b cg)
-  (let (
-    (an (allocReg cg))
-    (bn (allocReg cg))
-    (mn (allocReg cg))
-    (rn (allocReg cg))
-  )
+  ; U4: `fbinopToLLVM` answers "fadd" for a name it does not know, so a
+  ; bitwise operator over floats would lower to a float addition in
+  ; silence. The checker refuses those (`&` demands `Int` operands),
+  ; which makes this arm dead - until a checker hole admits one (H6's
+  ; worry). Then it traps instead of adding.
+  (if (isFloatBinop fnName)
     (let (
-      (ar (tmpStr "d" an))
-      (br (tmpStr "d" bn))
-      (fr (tmpStr "d" mn))
-      (r (regStr rn))
+      (an (allocReg cg))
+      (bn (allocReg cg))
+      (mn (allocReg cg))
+      (rn (allocReg cg))
     )
-      {
-        (emitLine cg (strConcat (strConcat "  " ar) (strConcat " = bitcast i64 " (strConcat a " to double"))))
-        (emitLine cg (strConcat (strConcat "  " br) (strConcat " = bitcast i64 " (strConcat b " to double"))))
-        (emitLine cg (strConcat (strConcat (strConcat "  " fr) (strConcat " = " (fbinopToLLVM fnName))) (strConcat " double " (strConcat (strConcat ar (strConcat ", " br)) ""))))
-        (emitLine cg (strConcat (strConcat "  " r) (strConcat " = bitcast double " (strConcat fr " to i64"))))
-        (memSetWord cg 2 r)
-        (memSetWord cg 14 1)
-        cg
-      })))
+      (let (
+        (ar (tmpStr "d" an))
+        (br (tmpStr "d" bn))
+        (fr (tmpStr "d" mn))
+        (r (regStr rn))
+      )
+        {
+          (emitLine cg (strConcat (strConcat "  " ar) (strConcat " = bitcast i64 " (strConcat a " to double"))))
+          (emitLine cg (strConcat (strConcat "  " br) (strConcat " = bitcast i64 " (strConcat b " to double"))))
+          (emitLine cg (strConcat (strConcat (strConcat "  " fr) (strConcat " = " (fbinopToLLVM fnName))) (strConcat " double " (strConcat (strConcat ar (strConcat ", " br)) ""))))
+          (emitLine cg (strConcat (strConcat "  " r) (strConcat " = bitcast double " (strConcat fr " to i64"))))
+          (memSetWord cg 2 r)
+          (memSetWord cg 14 1)
+          cg
+        }))
+    (emitUnknownBinopTrap cg 1)))
 
 (pub :: emitCmp2 (-> String (Vec Int) Int Int))
 ;@axiom:effect(io)

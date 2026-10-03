@@ -2907,7 +2907,7 @@ guarantee that nothing checks. Separate names with commas inside one
 | `no-cast` | writes no `cast` in its own body | local |
 | `no-cast:deep` | writes no `cast`, and reaches no function that does | transitive |
 | `no-wrap` | writes no integer `+`, `-` or `*` | local |
-| `no-untrapped` | writes no integer `/`, `%`, `<<` or `>>` | local |
+| `no-trap` | writes no integer `/`, `%`, `<<` or `>>` | local |
 | `no-escape` | lets nothing it allocates flow into one of its parameters | transitive |
 | `no-entropy` | has no `Entropy` in its effect row, so it answers the same on every run | transitive |
 | `no-spawn` | has no `Spawn` in its effect row, so it starts no binding, thread or process | transitive |
@@ -2946,18 +2946,19 @@ follows from what each one reads:
 - `no-wrap` is local for the same reason. On `Int` operands, `+`, `-`
   and `*` wrap silently with no overflow check, so the error points at
   the operator you wrote.
-- `no-untrapped` is local too. On `Int` operands, `/` and `%` trap on a
-  zero divisor but are undefined for `INT_MIN / -1`, and `<<` and `>>`
-  are undefined for an out-of-range shift amount, with no runtime
-  check.
+- `no-trap` is local too. On `Int` operands, `/` and `%` trap on a
+  zero divisor (exit 72) and on the `INT_MIN / -1` corner (exit 83),
+  and `<<` and `>>` trap on an out-of-range shift amount (exit 84).
+  Called `no-untrapped` until 0.8.0, when those corners were
+  undefined; the guards landed and the rename followed them.
 
 `stdlib/Err.ax` has checked alternatives for all seven operators:
 `addChecked`, `subChecked` and `mulChecked` for `no-wrap`, and
 `divChecked`, `remChecked`, `shlChecked` and `shrChecked` for
-`no-untrapped`. Each has the type `(-> Int Int (Result Int Error))`.
+`no-trap`. Each has the type `(-> Int Int (Result Int Error))`.
 Building the `Result` allocates, so calling one puts `Alloc` in your
 function's row. That means a body that needs arithmetic can't keep
-`no-wrap` or `no-untrapped` together with `no-alloc` or `effect(pure)`. The
+`no-wrap` or `no-trap` together with `no-alloc` or `effect(pure)`. The
 design note is [checked-arithmetic-design.md](checked-arithmetic-design.md).
 
 Two things that look like these operators can't wrap, so neither is
@@ -3051,7 +3052,7 @@ call returned, even when the walk has already seen that closure. One gap remains
 effect-polymorphic function itself as a callback doesn't instantiate
 that function's parameter marks, because that is a higher-rank flow.
 
-The local restrictions, `no-cast`, `no-wrap` and `no-untrapped`, never
+The local restrictions, `no-cast`, `no-wrap` and `no-trap`, never
 draw `AX3051`. They read only the body's own code, which a parameter
 can't change.
 

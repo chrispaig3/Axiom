@@ -1,0 +1,21 @@
+[1;31merror[AX3002][0m[1m: a literal is not a type, and `sizeof` takes a type[0m
+ [1;34m--> [0m1114-sizeof-operand-type.ax:7:23
+[1;34m  |[0m
+[1;34m7 |[0m (fn (main) (+ (sizeof 99) (alignof 00)))
+[1;34m  |[0m                       [1;31m^^ not a type[0m
+[1;34m  |[0m
+ [1;34m = [0m[1mnote: [0mthe operand used to be ignored in silence: `(sizeof 99)` answered 8
+ [1;34m = [0m[1;32mhelp: [0mwrite the type to measure - `(sizeof Int)`
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3002` for a full explanation
+
+[1;31merror[AX3002][0m[1m: a literal is not a type, and `alignof` takes a type[0m
+ [1;34m--> [0m1114-sizeof-operand-type.ax:7:36
+[1;34m  |[0m
+[1;34m7 |[0m (fn (main) (+ (sizeof 99) (alignof 00)))
+[1;34m  |[0m                                    [1;31m^^ not a type[0m
+[1;34m  |[0m
+ [1;34m = [0m[1mnote: [0mthe operand used to be ignored in silence: `(alignof 99)` answered 8
+ [1;34m = [0m[1;32mhelp: [0mwrite the type to measure - `(alignof Int)`
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3002` for a full explanation
+
+compilation failed due to 2 previous errors

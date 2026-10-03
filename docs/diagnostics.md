@@ -693,7 +693,7 @@ The type checker validates the tags it can:
 - `pure` is checked against the absence of any effect.
 - `restrict(...)` lists what a declaration doesn't do, comma-separated.
   The names are `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`,
-  `no-cast`, `no-cast:deep`, `no-recursion`, `no-wrap`, `no-untrapped`
+  `no-cast`, `no-cast:deep`, `no-recursion`, `no-wrap`, `no-trap`
   and `no-escape`. Each is checked against the effect row, the call
   graph or the region facts.
 

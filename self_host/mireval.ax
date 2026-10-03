@@ -54,6 +54,12 @@
 ; `mir.ax`'s `mBinOp` WROTE, so a rule that lowered `-` to `add`
 ; would be caught by the differential rather than cancelled out by an
 ; evaluator that had also been told `-` means subtract.
+; `INT_MIN`, computed: the literal does not parse, and this is the
+; value the totalized arms below compare against.
+(pub :: mvalIntMin Int)
+(pub fn (mvalIntMin)
+  (- (- 0 9223372036854775807) 1))
+
 (pub :: mvalBin (-> String Int Int Int))
 (pub fn (mvalBin nm x y)
   (if (strEq nm "add")
@@ -72,25 +78,30 @@
             (if (strEq nm "xor")
               (^ x y)
               (if (strEq nm "shl")
-                (<< x y)
+                (if (|| (< y 0) (>= y 64))
+                  0
+                  (<< x y))
                 (if (strEq nm "ashr")
-                  (>> x y)
+                  (if (|| (< y 0) (>= y 64))
+                    0
+                    (>> x y))
                   ; TOTAL, and that is the load-bearing line in this file.
-                  ; `/` and `%` are Axiom's own operators, which `codegen.ax`
-                  ; guards when THIS module is compiled - so before the IR
-                  ; carried a guard the evaluator trapped because its host
-                  ; trapped, and a divide-by-zero fixture came out byte-identical
-                  ; and exit-identical with the IR saying nothing about traps at
-                  ; all. The differential was vacuous on exactly the case it now
-                  ; exists to check. The `0` below is dead in any well-formed IR:
-                  ; it is reachable only when the lowering has lost the guard,
-                  ; which is precisely when the gate must go red.
+                  ; `/`, `%`, `<<` and `>>` are Axiom's own operators, which
+                  ; `codegen.ax` guards when THIS module is compiled - so
+                  ; before the IR carried a guard the evaluator trapped
+                  ; because its host trapped, and a trapping fixture came
+                  ; out byte-identical and exit-identical with the IR saying
+                  ; nothing about traps at all. The differential was vacuous
+                  ; on exactly the cases it now exists to check. The `0`s
+                  ; below are dead in any well-formed IR: each is reachable
+                  ; only when the lowering has lost the guard, which is
+                  ; precisely when the gate must go red.
                   (if (strEq nm "sdiv")
-                    (if (== y 0)
+                    (if (|| (== y 0) (&& (== x (mvalIntMin)) (== y (- 0 1))))
                       0
                       (/ x y))
                     (if (strEq nm "srem")
-                      (if (== y 0)
+                      (if (|| (== y 0) (&& (== x (mvalIntMin)) (== y (- 0 1))))
                         0
                         (% x y))
                       (mvalCmp nm x y))))))))))))
@@ -258,7 +269,11 @@
 (pub fn (mvalTrap name)
   (if (strEq name "__axiom_div_by_zero")
     (die "axiom: division by zero\n" 72)
-    (die (strConcat (strConcat "axiom: trap " name) "\n") 70)))
+    (if (strEq name "__axiom_div_overflow")
+      (die "axiom: division overflow\n" 83)
+      (if (strEq name "__axiom_shift_out_of_range")
+        (die "axiom: shift amount out of range\n" 84)
+        (die (strConcat (strConcat "axiom: trap " name) "\n") 70)))))
 
 (pub :: mvalGoto (-> (Vec MFunc) MFunc (Vec Int) Int (Vec Int) Int))
 ;@axiom:effect(io)

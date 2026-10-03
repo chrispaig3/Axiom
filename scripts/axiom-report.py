@@ -64,16 +64,18 @@ explicit trusted boundary rather than a defect: every reachable function
 that calls an Unsafe primitive directly (`#effect=unsafe`), every function
 holding an `asm` form, every kernel
 entry (`__syscallN`; on baremetal-aarch64 the compiler lowers these to
-the no-syscall trap), IO, the stack analysis's assumptions, each root's
-trap statuses and whether it may block, and every function using an
-operator undefined on part of its domain (`<<`, `>>`, INT_MIN / -1).
+the no-syscall trap), IO, the stack analysis's assumptions, and each
+root's trap statuses and whether it may block.
 
 TRAPS. Each function's `traps` is the set of MM-EXEC-16 statuses a call
-from it can end the process with: 72 for `/` and `%`, 77 for
-`__indexTrap`, 80 for a contract, 82 for an atomic, 75 and 76 for an
-arena reset, 78 for a spawn or join, 70 wherever the row has `Alloc`, and
-71 wherever it holds a declared effect (unless a caller handles it). The
-set is closed over the call graph.
+from it can end the process with: 72 and 83 for `/` and `%`, 84 for
+`<<` and `>>`, 77 for `__indexTrap`, 80 for a contract, 82 for an
+atomic, 75 and 76 for an arena reset, 78 for a spawn or join, 70
+wherever the row has `Alloc`, and 71 wherever it holds a declared
+effect (unless a caller handles it). The set is closed over the call
+graph. Until 0.8.0 the `INT_MIN / -1` and overshift corners were
+undefined rather than trapped, and the report listed them per function
+under `undefined`; that field is gone with them.
 
 WHAT IT DOES NOT DO, stated so a green report is not over-read:
 
@@ -126,19 +128,16 @@ INDIRECT_BUILTINS = {'__call_word'}
 
 # The builtins whose call can end the process with a trap status
 # (MM-EXEC-16). The graph shows each as a leaf of the function whose body
-# calls it: `/` and `%` trap on a zero divisor, `__indexTrap` is `vecGet`'s
-# range refusal, `__contract` a violated `pre`/`post`, the arena reset a
-# bad mark (75) or a mark past a live handle (76).
-TRAP_LEAVES = {'/': (72,), '%': (72,), '__indexTrap': (77,), '__contract': (80,),
+# calls it: `/` and `%` trap on a zero divisor (72) and on `INT_MIN /
+# -1` (83), `<<` and `>>` trap on an out-of-range amount (84),
+# `__indexTrap` is `vecGet`'s range refusal, `__contract` a violated
+# `pre`/`post`, the arena reset a bad mark (75) or a mark past a live
+# handle (76).
+TRAP_LEAVES = {'/': (72, 83), '%': (72, 83), '<<': (84,), '>>': (84,),
+               '__indexTrap': (77,), '__contract': (80,),
                '__axiom_arena_reset': (75, 76), '__axiom_arena_reset_keeping': (75, 76)}
 ATOMIC_RE = re.compile(r'^__atomic_')
 BUILTIN_EFFECTS = {'IO', 'Alloc', 'Mut', 'Unsafe', 'Div', 'Pure'}
-
-# The operators whose result is undefined on part of their domain rather
-# than trapped (AN-14): a shift by an amount outside 0..63, and
-# INT_MIN / -1. `restrict(no-untrapped)` refuses them per declaration.
-UNDEFINED_LEAVES = {'<<': 'a shift amount outside 0..63', '>>': 'a shift amount outside 0..63',
-                    '/': 'INT_MIN / -1', '%': 'INT_MIN % -1'}
 
 # The kernel entries that may suspend the caller until another party
 # acts, named by the syscall-number constants every `Sys.Platform`
@@ -822,7 +821,6 @@ def facts_of(g, q):
     return dict(
         trap_direct=sorted(traps),
         block_direct=blocking,
-        undefined=sorted(set(UNDEFINED_LEAVES[l] for l in leaves if l in UNDEFINED_LEAVES)),
         alloc='Alloc' in f.effects,
         io='IO' in f.effects,
         unsafe='unsafe' in f.metas.get('all:effect', []),
@@ -1010,11 +1008,6 @@ def build_report(args):
             hit = first_hit(g, [r], lambda q: bool(facts.get(q, {}).get('block_direct')))
             oblige('blocking', '%s may block: %s' % (r, ' -> '.join((hit or [r]) + [facts[hit[-1]]['block_direct'][0]] if hit else [r])), hit or [r])
     oblige('traps', 'not enumerated: count exhaustion (70, from retains the compiler emits), stack exhaustion (a signal; --stack bounds it), and a CPU fault from an Unsafe access or inline assembly (81 on baremetal-aarch64)')
-    undef = sorted(q for q in reach if facts[q]['undefined'])
-    if undef:
-        oblige('undefined', '%d reachable functions use an operator undefined on part of its domain (%s); `restrict(no-untrapped)` refuses them, and `stdlib/Err.ax` has checked forms: %s%s' % (
-            len(undef), ', '.join(sorted(set(u for q in undef for u in facts[q]['undefined']))),
-            ', '.join(undef[:12]), ' ...' if len(undef) > 12 else ''))
     oblige('time', 'no execution-time bound: a bounded stack is not a bounded latency, and no loop is proven to terminate')
     return dict(file=args.file, target=args.target or 'host', opt=args.opt,
                 profile=args.profile, roots=roots, isrs=isrs,
