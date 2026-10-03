@@ -647,6 +647,13 @@ The callback is borrowed (C1): it is valid for the call, not after it.
 `AxFn1`, `AxFn2` and `AxFn3` carry that lifetime in Rust. Use an
 elided lifetime or `'_` in an exported parameter. A callback cannot
 escape into a stored value through safe Rust.
+When a callback shares a call with borrowed vectors or opaque owners,
+the generated wrapper declares a caller precondition. The callback must
+keep those borrows valid: no mutation, growth, early close or release.
+The caller needs `effect(unsafe)` to accept that obligation. Slices
+copied into temporary Rust storage have no such caller precondition.
+
+Tested by `tests/ffi/probe-sealed/030-callback-borrow.axbad`.
 A shim that stores one takes a share with `axiom_retain` and pairs it
 with `axiom_release`.
 

@@ -113,6 +113,9 @@ fn nested_fixture_shape() {
     // The Rust type's handle stays in the declaring module.
     assert!(fresh.contains("(pub struct Thing sealed\n  (handle : Handle))"));
     assert!(fresh.contains("(ffiHandlePtr t.handle)"));
+    assert!(fresh.contains(";@axiom:precondition(callbacks must not mutate, grow, close or release borrowed arguments: `xs`)\n(pub fn (visitBorrowed xs f)"));
+    assert!(fresh.contains(";@axiom:precondition(callbacks must not mutate, grow, close or release borrowed arguments: `t`)\n(pub fn (visitHandle t f)"));
+    assert!(fresh.contains(";@axiom:effect(unsafe)\n(pub fn (visitCopied xs f)"));
     assert!(fresh.contains("(widgetDropFn :: Int (symbol \"axffi_widget_v2_drop_fn\"))"));
     // Option and Result wrappers.
     assert!(fresh.contains("(pub :: check (-> Bool (Option Bool)))"));

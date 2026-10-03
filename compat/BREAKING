@@ -946,3 +946,4 @@
 0.8.0  L  rust-raw-shims  Rust raw shims with borrowed inputs or out-cells require unsafe calls; wire signatures stay unchanged
 0.8.0  L  rust-callback-lifetimes  AxFn1/AxFn2/AxFn3 carry a borrow lifetime; exported parameters reject named and static lifetimes; wire signatures stay unchanged
 0.8.0  L  ffi-opaque-owners  generated opaque types are sealed structs; use generated constructors and close functions instead of constructing or destructuring their Handle
+0.8.0  L  ffi-callback-borrows  generated wrappers combining callbacks with live borrowed vectors or opaque owners propagate Unsafe through an explicit caller precondition

@@ -23,6 +23,7 @@
 ;   `pixelsTry` answers a Vec of Pixel;
 ;   `sumRows` reads `rows` as a Vec of Vecs of Int;
 ;   `tryGridF64` answers a Vec of Vecs of Float bits (f64);
+;   `visitCopied` reads `xs` as a Vec of i32 (each word range-checked);
 (pub extern "axiom_nested"
   (charsOfRaw :: (-> String Int Int) (symbol "axffi_chars_of"))
   (checkRaw :: (-> Bool Int Int) (symbol "axffi_check"))
@@ -70,6 +71,9 @@
   (tryEvensRaw :: (-> Int Int Int) (symbol "axffi_try_evens"))
   (tryGridF64Raw :: (-> Int Int Int) (symbol "axffi_try_grid_f64"))
   (unitResultRaw :: (-> Int Int Int) (symbol "axffi_unit_result"))
+  (visitBorrowedRaw :: (-> Int (-> Int Int) Int) (symbol "axffi_visit_borrowed"))
+  (visitCopiedRaw :: (-> Int (-> Int Int) Int) (symbol "axffi_visit_copied"))
+  (visitHandleRaw :: (-> Foreign (-> Int Int) Int) (symbol "axffi_visit_handle"))
   (wideRaw :: (-> Int Int Int Int Int Int Int) (symbol "axffi_wide"))
   (widgetDropFn :: Int (symbol "axffi_widget_v2_drop_fn"))
   (widgetNewRaw :: Foreign (symbol "axffi_widget_new"))
@@ -910,6 +914,38 @@
           (ffiCellFree __c)
           (Err __m)
         }))))
+
+(pub :: visitBorrowed (-> (Vec Int) (-> Int Int) Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(callbacks must not mutate, grow, close or release borrowed arguments: `xs`)
+(pub fn (visitBorrowed xs f)
+  (let ((__r 
+    (visitBorrowedRaw
+      (cast Int xs)
+      f)))
+    __r))
+
+(pub :: visitCopied (-> (Vec Int) (-> Int Int) Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (visitCopied xs f)
+  (let ((__r 
+    (visitCopiedRaw
+      (cast Int xs)
+      f)))
+    __r))
+
+(pub :: visitHandle (-> Thing (-> Int Int) Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(callbacks must not mutate, grow, close or release borrowed arguments: `t`)
+(pub fn (visitHandle t f)
+  (let (
+    (__a0 (cast Foreign (ffiHandlePtr t.handle)))
+    (__r (visitHandleRaw __a0 f))
+  )
+    __r))
 
 (pub :: wide (-> Int Int Int Int Int String))
 ;@axiom:effect(io)

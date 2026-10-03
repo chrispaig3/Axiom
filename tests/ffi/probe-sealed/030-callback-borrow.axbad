@@ -1,0 +1,10 @@
+; The callback may grow the vector while Rust reads a borrowed slice.
+(import Nested)
+(import Vec)
+
+(:: visit (-> (Vec Int) Int))
+;@axiom:effect(io)
+(fn (visit xs)
+  (visitBorrowed xs (lambda (n) { (vecPush xs n) n })))
+
+(fn (main) 0)

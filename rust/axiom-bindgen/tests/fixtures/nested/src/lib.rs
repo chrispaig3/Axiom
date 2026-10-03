@@ -27,6 +27,21 @@ pub fn thing_get(t: &Thing) -> i64 {
 }
 
 #[axiom_export]
+pub fn visit_borrowed(xs: &[i64], f: axiom_ffi::AxFn1<'_>) -> i64 {
+    xs.iter().map(|&x| f.call(x)).sum()
+}
+
+#[axiom_export]
+pub fn visit_copied(xs: &[i32], f: axiom_ffi::AxFn1<'_>) -> i64 {
+    xs.iter().map(|&x| f.call(i64::from(x))).sum()
+}
+
+#[axiom_export]
+pub fn visit_handle(t: &Thing, f: axiom_ffi::AxFn1<'_>) -> i64 {
+    f.call(t.n)
+}
+
+#[axiom_export]
 pub fn thing_pair(a: &Thing, b: &mut Thing, scale: f64) -> f64 {
     (a.n + b.n) as f64 * scale
 }

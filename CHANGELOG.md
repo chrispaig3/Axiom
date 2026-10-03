@@ -16,6 +16,13 @@ its changelog too.
 
 ## Unreleased
 
+- Binding wrappers that combine callbacks with live vector or opaque
+  borrows declare caller preconditions. Callers must vouch with
+  `effect(unsafe)` that callbacks preserve those borrows. Copied inputs
+  keep their existing interface. Tested by
+  `tests/ffi/probe-sealed/030-callback-borrow.axbad` and
+  `scripts/check-ffi.sh`.
+
 - Generated opaque Rust owners are sealed structs. Callers use the
   binding's functions to create and close them; constructors and handle
   fields stay in the binding module. This prevents rewrapping one Rust

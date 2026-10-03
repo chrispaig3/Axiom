@@ -657,8 +657,9 @@ impl Surface {
             } else {
                 ""
             };
+            let callback_tag = d.callback_precondition();
             tops.push(format!(
-                ";@axiom:effect(io)\n{unsafe_tag}{}",
+                ";@axiom:effect(io)\n{unsafe_tag}{callback_tag}{}",
                 sexp::decl_fn(&d.axiom_name, &params, &body)
             ));
         }
@@ -1273,6 +1274,39 @@ impl Decl {
             Ret::OptionResult(p) => format!("(Option (Result {} String))", payload_axiom_type(p)),
         };
         arrow(&ps, &ret)
+    }
+
+    /// A callback may re-enter Axiom while Rust holds these references.
+    /// Their mutation and early-close obligations belong to the caller,
+    /// so this wrapper cannot contain Unsafe by an unconditional vouch.
+    fn callback_precondition(&self) -> String {
+        if !self
+            .params
+            .iter()
+            .any(|(_, p)| matches!(p, Param::Callback(_)))
+        {
+            return String::new();
+        }
+        let borrowed: Vec<_> = self
+            .params
+            .iter()
+            .filter_map(|(name, p)| {
+                let live = match p {
+                    Param::Opaque { .. } | Param::MutWords(_) | Param::Strs => true,
+                    Param::Words(s) | Param::WordLists(s) => s.is_word_sized(),
+                    _ => false,
+                };
+                live.then(|| format!("`{name}`"))
+            })
+            .collect();
+        if borrowed.is_empty() {
+            String::new()
+        } else {
+            format!(
+                ";@axiom:precondition(callbacks must not mutate, grow, close or release borrowed arguments: {})\n",
+                borrowed.join(", ")
+            )
+        }
     }
 
     /// One line per `Vec` parameter or result whose element is not a
