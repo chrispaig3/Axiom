@@ -1,0 +1,83 @@
+; Authenticated obfuscation envelopes: arbitrary bytes, context and
+; key binding, randomisation, damaged envelopes and key shares.
+(import IO)
+(import Str)
+(import Err)
+(import Crypto.Bytes)
+(import Crypto.Errors)
+(import Crypto.Secret)
+(import Crypto.Obfuscate)
+(import Kat)
+
+(:: must (-> (Result a Error) a))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (must result)
+  (match result
+    ((Ok value) value)
+    ((Err e)
+      {
+        (die (errorText e) 1)
+        (cast a 0)
+      }
+    )))
+
+(:: refused (-> (Result a Error) Int Bool))
+(fn (refused r code)
+  (match r
+    ((Ok _) false)
+    ((Err e) (== (errCode e) code))))
+
+(:: corrupt (-> String Int String))
+(fn (corrupt bytes at)
+  (concat
+    (strSlice bytes 0 at)
+    (concat
+      (unwrapOr
+        (hexDecode
+          (if (== (strByte bytes at) 0)
+            "01"
+            "00"))
+        "")
+      (strSlice bytes (+ at 1) (- (strLen bytes) (+ at 1))))))
+
+(:: main Int)
+;@axiom:effect(io)
+;@axiom:effect(entropy)
+(fn (main)
+  (let (
+    (t (tallyNew "obfuscation"))
+    (s (must (secretFromString (bytesNew 32))))
+    (key (must (obfuscationKeyFromSecret s)))
+    (wrong (must obfuscationKeyGenerate))
+    (text "private asset: \0\n雪")
+    (sealed (must (obfuscationSeal key "asset/v1" text)))
+  )
+    {
+      (secretWipe s)
+      (tallyBytes t text (unwrapOr (obfuscationOpen key "asset/v1" sealed) "") "binary round trip")
+      (tallyCheck t (! (strEq sealed (unwrapOr (obfuscationSeal key "asset/v1" text) ""))) "fresh nonce changes the envelope")
+      (tallyCheck t (refused (obfuscationOpen key "asset/v2" sealed) cryptoAuthFailed) "context binding")
+      (tallyCheck t (refused (obfuscationOpen wrong "asset/v1" sealed) cryptoAuthFailed) "key binding")
+      (for i in 8..(strLen sealed)
+        (tallyCheck t (refused (obfuscationOpen key "asset/v1" (corrupt sealed i)) cryptoAuthFailed) "every nonce, ciphertext and tag byte is authenticated"))
+      (for i in 0..36
+        (tallyCheck t (refused (obfuscationOpen key "asset/v1" (strSlice sealed 0 i)) cryptoInvalidEncoding) "short envelope"))
+      (tallyCheck t (refused (obfuscationOpen key "asset/v1" (corrupt sealed 4)) cryptoInvalidEncoding) "unknown version")
+      (tallyCheck t (refused (obfuscationSeal key (bytesNew 4097) "") cryptoLimitExceeded) "context limit at seal")
+      (tallyCheck t (refused (obfuscationOpen key (bytesNew 4097) sealed) cryptoLimitExceeded) "context limit at open")
+      (tallyCheck t (refused (obfuscationKeyFromShares "" (bytesNew 32)) cryptoInvalidLength) "share length")
+      (let (
+        (share (bytesNew 32))
+        (shared (must (obfuscationKeyFromShares share share)))
+        (empty (must (obfuscationSeal shared "" "")))
+      )
+        {
+          (tallyCheck t (== (strLen empty) 36) "empty envelope length")
+          (tallyBytes t "" (unwrapOr (obfuscationOpen key "" empty) "bad") "shares reconstruct the zero master")
+          (obfuscationKeyWipe shared)
+        })
+      (obfuscationKeyWipe wrong)
+      (obfuscationKeyWipe key)
+      (tallyReport t)
+    }))

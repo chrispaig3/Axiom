@@ -592,6 +592,8 @@
       (vecPush ps 0)
       ; slot 15: proven identity callbacks during a call-site flow scan.
       (vecPush ps 0)
+      ; slot 16: opt-in binary obfuscation, set by emitResolvedMode.
+      (vecPush ps 0)
       (addTypeNamed
         ts
         "Some"
@@ -14339,10 +14341,15 @@
 (pub :: emitBacktrace (-> Int (Vec Int) Int))
 ;@axiom:effect(io)
 (pub fn (emitBacktrace cg names)
-  {
-    (emitSymbolTable cg names)
-    (emitBacktraceTables cg names (vecLen names))
-  })
+  (if (== (pairSlot cg 16) 1)
+    {
+      (emitLine cg "define internal void @__axiom_backtrace() #0 { ret void }")
+      cg
+    }
+    {
+      (emitSymbolTable cg names)
+      (emitBacktraceTables cg names (vecLen names))
+    }))
 
 ; The tables' remainder, split out so the skeleton above stays
 ; readable: constants, the walker with both counts, and the walk.
@@ -14800,13 +14807,31 @@
 ; module from disk twice.
 (pub :: emitResolved (-> (Vec Int) (Vec String) (Vec String) Int String))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (emitResolved allDecls bares fulls tcode)
+  (emitResolvedMode
+    allDecls
+    bares
+    fulls
+    tcode
+    false))
+
+; Keep mode selection explicit: program arguments after `run FILE`
+; cannot change code generation by resembling compiler flags.
+(pub :: emitResolvedMode (-> (Vec Int) (Vec String) (Vec String) Int Bool String))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (emitResolvedMode allDecls bares fulls tcode obscure)
   ; Every signature is known and the type table is built:
   ; index both, then decide who owns what result before a
   ; function is emitted.
   (let ((cg newCG))
     (let (
+      (_mode (pairSetSlot
+        cg
+        16
+        (if obscure
+          1
+          0)))
       (_ (memSetWord cg 12 bares))
       (_2 (memSetWord cg 13 fulls))
       (_2t (memSetWord cg 26 tcode))
@@ -15707,7 +15732,7 @@
                 (+ (vecLen params) takesEv))))
               (let ((cg1 
                 (openAllocaMark
-                  (let ((cgH (emitLine cg0e hdr)))
+                  (let ((cgH (emitObfuscationEntry (emitLine cg0e hdr))))
                     (if (== (bodyHasMatch body) 1)
                       (emitLine cgH "  %__scr.h = alloca i64")
                       cgH)))))
@@ -15771,6 +15796,30 @@
                                   (let ((ret (concat "  ret i64 " (concat (strDup (memGetWordStr cgP 2)) ""))))
                                     (emitLine (emitLine (closeAllocaMark cgP) ret) "}"))))
                             }))))))))))))))
+
+; Both arms enter the same body through distinct noinline helpers.
+; Their volatile reads keep the entry opaque at O3. This changes
+; neither the value nor the ownership of a parameter.
+(pub :: emitObfuscationEntry (-> Int Int))
+(pub fn (emitObfuscationEntry cg)
+  (if (== (pairSlot cg 16) 0)
+    cg
+    {
+      (emitLine cg "  %obf.a = load volatile i32, ptr @__axiom_obf_a")
+      (emitLine cg "  %obf.b = load volatile i32, ptr @__axiom_obf_b")
+      (emitLine cg "  %obf.x = xor i32 %obf.a, %obf.b")
+      (emitLine cg "  %obf.bit = and i32 %obf.x, 1")
+      (emitLine cg "  %obf.test = icmp eq i32 %obf.bit, 0")
+      (emitLine cg "  br i1 %obf.test, label %obf.left, label %obf.right")
+      (emitLabel cg "obf.left")
+      (emitLine cg "  call void @__axiom_obf_left()")
+      (emitLine cg "  br label %obf.body")
+      (emitLabel cg "obf.right")
+      (emitLine cg "  call void @__axiom_obf_right()")
+      (emitLine cg "  br label %obf.body")
+      (emitLabel cg "obf.body")
+      cg
+    }))
 
 ; The tail LEAVES of a function body that answer a borrowed value -
 ; `emitExpr` retains each as it is emitted (event 2). Empty unless

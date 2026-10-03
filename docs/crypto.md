@@ -601,6 +601,9 @@ error.
 
 ## See also
 
+- [Optional binary obfuscation](obfuscation.md) explains compiler
+  literal masking and authenticated asset packing with `Crypto.Obfuscate`.
+
 - [stdlib-api.md](stdlib-api.md) lists every public name in the
   `Crypto` modules with its type and effects.
 - [memory-model.md](memory-model.md) `MM-PAR-8` describes the handle

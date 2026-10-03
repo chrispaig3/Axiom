@@ -837,6 +837,21 @@ two differ.
 | `hmacSha512Copy` | value | `(-> HmacSha512 HmacSha512)` | `Alloc,Mut,Unsafe` | An independent copy of `m`, which goes on from the same point. |
 | `hmacSha512Wipe` | value | `(-> HmacSha512 Int)` | `Mut` | Erase everything `m` holds, the key's chaining values included; every later operation on it is refused. Answers 0, or -1 with nothing written when `m` is not a state. |
 
+## `Crypto.Obfuscate`
+
+`stdlib/Crypto/Obfuscate.ax` — 8 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `ObfuscationKey` | struct |  |  | A sealed 256-bit master key in the secret store. Wipe it after use. |
+| `obfuscationMaxBytes` | value | `Int` |  | The largest plaintext accepted by the envelope format: 64 MiB. |
+| `obfuscationKeyGenerate` | value | `(Result ObfuscationKey Error)` | `Alloc,Entropy,IO,Mut,Unsafe` | A fresh 32-byte master key from the operating system's entropy source. |
+| `obfuscationKeyFromSecret` | value | `(-> SecretBytes (Result ObfuscationKey Error))` | `Alloc,IO,Mut,Unsafe` | Copy a 32-byte secret into a master key, leaving the secret live. |
+| `obfuscationKeyFromShares` | value | `(-> String String (Result ObfuscationKey Error))` | `Alloc,IO,Mut,Unsafe` | Reconstruct a master key from two 32-byte XOR shares directly in the secret store. Neither share alone reveals the key when the other was drawn randomly. Embedding both shares provides obfuscation only. |
+| `obfuscationKeyWipe` | value | `(-> ObfuscationKey Int)` | `Alloc,IO,Mut,Unsafe` | Erase and free the master key. Later use stops with status 85. |
+| `obfuscationSeal` | value | `(-> ObfuscationKey String String (Result String Error))` | `Alloc,Entropy,IO,Mut` | Pack plaintext under a fresh random nonce, bound to `context`. An empty context is allowed. Seal at most 2^32 assets under one key; use a fresh master key for each build, as the packing tool does. |
+| `obfuscationOpen` | value | `(-> ObfuscationKey String String (Result String Error))` | `Alloc,IO,Mut` | Authenticate and open a v1 envelope for `context`. Wrong keys, contexts, nonces, ciphertext or tags answer cryptoAuthFailed without returning plaintext. Truncated or unknown headers answer cryptoInvalidEncoding; oversized inputs answer cryptoLimitExceeded. |
+
 ## `Crypto.Poly1305`
 
 `stdlib/Crypto/Poly1305.ax` — 6 public names

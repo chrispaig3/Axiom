@@ -1,0 +1,15 @@
+(import IO)
+(import Err)
+(import Packed)
+
+(:: main (Result Int Error))
+;@axiom:effect(io)
+(fn (main)
+  (match openAsset
+    ((Err e) (Err e))
+    ((Ok bytes)
+      {
+        (writeStr 1 bytes)
+        (Ok 0)
+      }
+    )))

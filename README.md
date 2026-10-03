@@ -24,7 +24,7 @@ into the C library.
   S-expressions, and the compiler can describe errors and symbols in a
   compact machine-readable form, so tools see the same facts you do.
 - **Read the compiler, in Axiom.** The compiler is written in Axiom:
-  118,498 lines of it. A clean checkout rebuilds it from committed LLVM
+  118,794 lines of it. A clean checkout rebuilds it from committed LLVM
   IR, and the build stops unless two generations come out
   byte-identical.
 - **Bring Rust along.** Declare Rust functions in an `extern` block,
@@ -233,6 +233,7 @@ this repository's standard library reference.
 | [Diagnostics](docs/diagnostics.md) | Error codes, and the machine-readable formats for tools |
 | [Editor setup](docs/lsp.md) | The language server, and how to connect your editor |
 | [Calling Rust](docs/ffi.md) | The `extern` block, bindings, and Rust calling Axiom |
+| [Optional obfuscation](docs/obfuscation.md) | Protecting source literals and packing embedded assets |
 | [Memory model](docs/memory-model.md) | Allocation, reference counting and regions, in full |
 | [Error model](docs/error-model.md) | `Result`, `Error`, and how failure travels |
 | [Agent harness](docs/agent-harness.md) | Tooling for agents that read and write Axiom |

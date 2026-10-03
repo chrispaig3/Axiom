@@ -1,0 +1,201 @@
+; Optional binary obfuscation after LLVM emission. The literal mask is
+; a xorshift32 stream for static concealment, not encryption for stored
+; secrets. Volatile split seeds prevent LLVM from folding the decoder.
+; Crypto.Obfuscate provides authenticated asset encryption separately.
+(import Str)
+(import Vec)
+(import Fmt)
+(import Err)
+(import Sys)
+(import Intern)
+(import codegen (symtabNames pruneRefEnd hexDigit))
+
+(:: obfWord (-> String Int Int))
+(fn (obfWord bytes start)
+  (| (strByte bytes start) (| (<< (strByte bytes (+ start 1)) 8) (| (<< (strByte bytes (+ start 2)) 16) (<< (strByte bytes (+ start 3)) 24)))))
+
+(:: obfStep (-> Int Int))
+(fn (obfStep state)
+  (let ((a (& (^ state (<< state 13)) 4294967295)))
+    (let ((b (^ a (>> a 17))))
+      (& (^ b (<< b 5)) 4294967295))))
+
+(:: obfLiteralSeed (-> Int Int Int))
+(fn (obfLiteralSeed seed id)
+  (| (& (^ seed (* id 2654435761)) 4294967295) 1))
+
+(:: obfHexValue (-> Int Int))
+(fn (obfHexValue c)
+  (if (<= c 57)
+    (- c 48)
+    (- c 55)))
+
+(:: obfMaskLiteral (-> String Int String))
+;@axiom:effect(unsafe)
+(fn (obfMaskLiteral body seed)
+  (let (
+    (out (strAlloc (strLen body)))
+    (mut state seed)
+  )
+    {
+      (for i in 0..(/ (strLen body) 3)
+        (let ((at (* i 3)))
+          (let ((byte (+ (* (obfHexValue (strByte body (+ at 1))) 16) (obfHexValue (strByte body (+ at 2))))))
+            {
+              (set state (obfStep state))
+              (let ((masked (^ byte (& state 255))))
+                {
+                  (__store8 (strData out) at 92)
+                  (__store8 (strData out) (+ at 1) (hexDigit (/ masked 16)))
+                  (__store8 (strData out) (+ at 2) (hexDigit (% masked 16)))
+                })
+            })))
+      out
+    }))
+
+; Replace complete LLVM symbol tokens, including quoted names. Never
+; substitute inside string constants or comments. Chunks are joined
+; once, avoiding an accumulator proportional to module size squared.
+(:: obfRenameLine (-> String Int (Vec String) String))
+(fn (obfRenameLine line names replacements)
+  (if (|| (strStartsWith (strTrim line) ";") (isSome (strFind line " c\"" 0)))
+    line
+    (let (
+      (parts vecNew)
+      (mut pos 0)
+      (mut scan 0)
+    )
+      {
+        (while (< scan (strLen line))
+          (if (== (strByte line scan) 64)
+            (let ((end (pruneRefEnd line (+ scan 1) (strLen line))))
+              {
+                (match (internFind names (strSlice line (+ scan 1) (- end (+ scan 1))))
+                  ((None) 0)
+                  ((Some id)
+                    {
+                      (vecPush parts (strSlice line pos (- (+ scan 1) pos)))
+                      (vecPush parts (vecGet replacements id))
+                      (set pos end)
+                      0
+                    }
+                  ))
+                (set scan end)
+              })
+            (set scan (+ scan 1))))
+        (vecPush parts (strSlice line pos (- (strLen line) pos)))
+        (obfJoin parts "")
+      })))
+
+(:: obfJoin (-> (Vec String) String String))
+;@axiom:effect(unsafe)
+(fn (obfJoin parts separator)
+  (let ((mut n 0))
+    {
+      (for part in parts
+        (set n (+ n (+ (strLen part) (strLen separator)))))
+      (let (
+        (out (strAlloc n))
+        (mut offset 0)
+      )
+        {
+          (for part in parts
+            {
+              (for i in 0..(strLen part)
+                (__store8 (strData out) (+ offset i) (strByte part i)))
+              (set offset (+ offset (strLen part)))
+              (for i in 0..(strLen separator)
+                (__store8 (strData out) (+ offset i) (strByte separator i)))
+              (set offset (+ offset (strLen separator)))
+            })
+          out
+        })
+    }))
+
+(:: obfKeepName (-> String Bool))
+(fn (obfKeepName name)
+  (|| (strEq name "main") (|| (strEq name "mainCRTStartup") (|| (strEq name "_start") (strStartsWith name "axiom_")))))
+
+(:: obfDecoder String)
+(fn (obfDecoder)
+  "define private void @__axiom_obf_decode(ptr %in, ptr %out, i64 %len, i32 %seed) noinline optnone {\nentry:\n  br label %loop\nloop:\n  %i = phi i64 [ 0, %entry ], [ %next, %byte ]\n  %state = phi i32 [ %seed, %entry ], [ %s3, %byte ]\n  %done = icmp eq i64 %i, %len\n  br i1 %done, label %end, label %byte\nbyte:\n  %l1 = shl i32 %state, 13\n  %s1 = xor i32 %state, %l1\n  %r2 = lshr i32 %s1, 17\n  %s2 = xor i32 %s1, %r2\n  %l3 = shl i32 %s2, 5\n  %s3 = xor i32 %s2, %l3\n  %mask = trunc i32 %s3 to i8\n  %src = getelementptr i8, ptr %in, i64 %i\n  %dst = getelementptr i8, ptr %out, i64 %i\n  %c = load volatile i8, ptr %src\n  %p = xor i8 %c, %mask\n  store volatile i8 %p, ptr %dst\n  %next = add i64 %i, 1\n  br label %loop\nend:\n  ret void\n}\n")
+
+(:: obfTransform (-> String Int Int String))
+;@axiom:effect(unsafe)
+(fn (obfTransform ir seed share)
+  (let (
+    (lines (strSplit ir 10))
+    (names internNew)
+    (replacements vecNew)
+    (out vecNew)
+    (init vecNew)
+    (mut literal 0)
+  )
+    {
+      (for name in (cast (Vec String) (symtabNames
+        (cast (Vec Int) lines)))
+        (if (obfKeepName name)
+          0
+          (let ((id (internIntern names name)))
+            {
+              (vecPush replacements (concat "__axob." (concat (fmtInt seed) (concat "." (fmtInt id)))))
+              0
+            })))
+      (vecPush init "define private void @__axiom_obf_init() noinline optnone {\nentry:\n  %a = load volatile i32, ptr @__axiom_obf_a\n  %b = load volatile i32, ptr @__axiom_obf_b\n  %seed = xor i32 %a, %b")
+      (for line in lines
+        (if (strStartsWith line "@str_")
+          (let (
+            (end (match (strFindByte line 32 0)
+              ((Some i) i)
+              ((None) 0)))
+            (at (+
+              (match (strFind line "c\"" 0)
+                ((Some i) i)
+                ((None) 0))
+              2))
+          )
+            (let (
+              (name (strSlice line 1 (- end 1)))
+              (body (strSlice line at (- (- (strLen line) 1) at)))
+              (n (/ (strLen body) 3))
+              (id (fmtInt literal))
+            )
+              {
+                (vecPush out (concat "@" (concat name (concat " = private global [" (concat (fmtInt n) " x i8] zeroinitializer")))))
+                (vecPush out (concat "@__axiom_obf_enc_" (concat id (concat " = private constant [" (concat (fmtInt n) (concat " x i8] c\"" (concat (obfMaskLiteral body (obfLiteralSeed seed literal)) "\"")))))))
+                (vecPush init (concat "  %mix" (concat id (concat " = xor i32 %seed, " (fmtInt (& (* literal 2654435761) 4294967295))))))
+                (vecPush init (concat "  %key" (concat id (concat " = or i32 %mix" (concat id ", 1")))))
+                (vecPush init (concat "  call void @__axiom_obf_decode(ptr @__axiom_obf_enc_" (concat id (concat ", ptr @" (concat name (concat ", i64 " (concat (fmtInt n) (concat ", i32 %key" (concat id ")")))))))))
+                (set literal (+ literal 1))
+              }))
+          {
+            (if (isSome (strFind line "  %r = call i64 @__axiom_user_main()" 0))
+              {
+                (vecPush out "  call void @__axiom_obf_init()")
+                0
+              }
+              0)
+            (vecPush out (obfRenameLine line names replacements))
+            0
+          }))
+      (vecPush init "  ret void\n}")
+      (vecPush out (concat "@__axiom_obf_a = private global i32 " (fmtInt share)))
+      (vecPush out (concat "@__axiom_obf_b = private global i32 " (fmtInt (^ share seed))))
+      (vecPush out obfDecoder)
+      (vecPush out "define private void @__axiom_obf_left() noinline optnone {\n  %x = load volatile i32, ptr @__axiom_obf_a\n  ret void\n}\ndefine private void @__axiom_obf_right() noinline optnone {\n  %x = load volatile i32, ptr @__axiom_obf_b\n  ret void\n}")
+      (vecPush out (obfJoin init "\n"))
+      (internFree names)
+      (obfJoin out "\n")
+    }))
+
+; Draw build-specific mask seeds. Entropy failures are reported, with
+; no deterministic fallback. Ordinary builds never draw entropy here.
+(pub :: obfuscateIr (-> String (Result String Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:effect(entropy)
+(pub fn (obfuscateIr ir)
+  (let ((random (strAlloc 8)))
+    (match (sysRandomBytes (strData random) 8)
+      ((Err e) (Err e))
+      ((Ok _) (Ok (obfTransform ir (| (obfWord random 0) 1) (obfWord random 4)))))))

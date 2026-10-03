@@ -5719,7 +5719,7 @@ Checked by `scripts/check-freestanding.sh`.
 
 ### Modules at a Glance
 
-Sixty-one modules, all of them Axiom source under `stdlib/`, plus the six `Sys.Platform.*` files — one target's syscall numbers each, covered by the `Sys` row. A module exports only the
+Sixty-two modules, all of them Axiom source under `stdlib/`, plus the six `Sys.Platform.*` files — one target's syscall numbers each, covered by the `Sys` row. A module exports only the
 names it marks `pub`, and reaching any other name is `AX3023`, so
 `grep '^(pub' stdlib/M.ax` always tells you what module `M` exports.
 
@@ -5778,6 +5778,7 @@ regenerates it on every run to keep it exact.
 | `Crypto.Blake2b` | BLAKE2b (RFC 7693), unkeyed or keyed, 1 to 64 bytes of output: `blake2b`, `blake2b512`, `blake2b256`, and the streaming `Blake2b` (`blake2bNew`, `blake2bNewKeyed`, `blake2bUpdate`, `blake2bFinal`). |
 | `Crypto.Hmac` | HMAC-SHA-256 and HMAC-SHA-512 (RFC 2104) over sealed keys: `hmacSha256` and `hmacSha256Verify`, which compares in constant time, over an `HmacSha256Key` from `hmacSha256KeyGenerate` or `hmacSha256KeyFromSecret`, streaming `HmacSha256`, and the same for 512. |
 | `Crypto.Hkdf` | HKDF (RFC 5869) with SHA-256 or SHA-512: `hkdfSha256` derives keys from input keying material, a salt and an info string, and `hkdfSha256Extract` and `hkdfSha256Expand` are its two halves. Keys go in and come out as `SecretBytes`. |
+| `Crypto.Obfuscate` | Authenticated binary asset envelopes, context-bound key derivation, and split embedded keys. See [Optional binary obfuscation](obfuscation.md). |
 | `Crypto.AesGcm` | AES-GCM authenticated encryption (NIST SP 800-38D) with 256- and 128-bit keys: `aes256GcmSeal` and `aes256GcmOpen` over an `Aes256GcmKey`, which `aes256GcmKeyGenerate`, `aes256GcmKeyFromSecret`, `aes256GcmKeyExport` and `aes256GcmKeyWipe` manage, and the same for 128 ([Authenticated encryption](crypto.md#authenticated-encryption)). |
 | `Crypto.ChaCha20Poly1305` | ChaCha20-Poly1305 authenticated encryption (RFC 8439): `chacha20Poly1305Seal` and `chacha20Poly1305Open` over a `ChaCha20Poly1305Key`, with the same key functions. |
 | `Crypto.Aead` | The 12-byte `AeadNonce` both ciphers take (`aeadNonceFromBytes`, `aeadNonceRandom`), and `NonceSequence`, a counter that answers a fresh nonce until it runs out and never repeats one (`nonceSequenceNew`, `nonceSequenceNext`, `nonceSequenceResume`). |

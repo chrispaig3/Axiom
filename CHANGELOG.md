@@ -16,6 +16,18 @@ its changelog too.
 
 ## Unreleased
 
+- Add `Crypto.Obfuscate` with authenticated asset envelopes, per-envelope
+  HKDF keys, context binding, XOR key shares and explicit key erasure.
+  `examples/axobfuscate/Main.ax` packs arbitrary files into encrypted
+  Axiom modules. Tested by `tests/crypto/330-obfuscate.ax` and
+  `scripts/check-obfuscation.sh`.
+
+- Add optional `--obfuscate` for executables: mask literals with fresh
+  split build seeds, decode them at startup, scramble defined function
+  symbols and retain opaque entries through optimisation. Source-level
+  backtrace tables are omitted in this mode. Static archives are refused.
+  Tested by `scripts/check-obfuscation.sh`.
+
 - Remove the `strConcat` bootstrap bridge after advancing the seed.
   `concat` is the string concatenation API. Tested by
   `tests/stdlib/190-string-literals.ax` and `scripts/check-compat.sh`.

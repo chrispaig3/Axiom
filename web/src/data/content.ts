@@ -165,7 +165,7 @@ export const STATUS_LIMITS: StatusRow[] = [
   { feature: 'Concurrency', status: 'Language form, two lowerings', note: '`parallel`, channels, a mutex and task pools; a binding may borrow a `String`. No async, no scheduler.' },
   { feature: 'Region syntax', status: 'Checked scope, and annotated signatures with the escape rule', note: 'Scalars leave a region; typed promotion is planned.' },
   { feature: 'FFI', status: 'Functional', note: 'Rust through `extern` blocks and generated bindings.' },
-  { feature: 'Standard library', status: 'Functional', note: 'Collections, cryptography, dates, JSON, networking and an embedded database.' },
+  { feature: 'Standard library', status: 'Functional', note: 'Collections, cryptography, optional binary obfuscation, dates, JSON, networking and an embedded database.' },
   { feature: 'Error handling', status: 'Functional; adopted at the syscall seam', note: '`Result`, the `try` form, and handlers that skip a bad record without unwinding.' },
   { feature: 'Editor support', status: 'Functional', note: 'Language server plus a tree-sitter grammar.' },
 ]

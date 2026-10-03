@@ -31,6 +31,20 @@ arithmetic behind the three numbers it prints, so you can check them.
 
 Tested by `scripts/check-steady-state.sh`.
 
+## axobfuscate
+
+[`examples/axobfuscate/Main.ax`](axobfuscate/Main.ax) packs a binary
+asset into an Axiom module with an authenticated encrypted envelope
+and split embedded key. Its generated `openAsset` returns the decoded
+bytes. See [Optional binary obfuscation](../docs/obfuscation.md).
+
+```bash
+axiom build examples/axobfuscate/Main.ax -o axobfuscate
+./axobfuscate INPUT OUTPUT.ax CONTEXT
+```
+
+Tested by `scripts/check-obfuscation.sh`.
+
 ## axdoc
 
 [`examples/axdoc/axdoc.ax`](axdoc/axdoc.ax) reads a program's public

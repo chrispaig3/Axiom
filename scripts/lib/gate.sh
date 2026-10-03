@@ -688,6 +688,7 @@ docs/embedded-guide.md
 docs/restricted-profile.md
 docs/cast-arg-root.md
 docs/crypto.md
+docs/obfuscation.md
 docs/chrono.md
 docs/axqlite.md
 docs/axql.md

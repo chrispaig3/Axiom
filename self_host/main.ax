@@ -29,6 +29,30 @@
 (import style)
 (import build)
 (import pkg)
+(import obfuscate)
+
+; Obfuscation is selected only by compiler flags, never program argv.
+(:: emitBinaryIr (-> (Vec Int) (Vec String) (Vec String) Int String))
+;@axiom:effect(io)
+;@axiom:effect(entropy)
+(fn (emitBinaryIr decls bares fulls target)
+  (let ((obscure (hasFlagAnywhere subcommandName "--obfuscate")))
+    (let ((ir (emitResolvedMode
+      decls
+      bares
+      fulls
+      target
+      obscure)))
+      (if obscure
+        (match (obfuscateIr ir)
+          ((Ok masked) masked)
+          ((Err e)
+            {
+              (sysExitWith (toolFailDiag (concat "obfuscation entropy failed: " (errorText e)) "check the operating system's entropy source"))
+              ""
+            }
+          ))
+        ir))))
 
 ; Which diagnostic renderer this invocation wants. `human` is the
 ; default, as it is stage0's; the aliases are stage0's; an unknown
@@ -462,6 +486,7 @@
 ;@axiom:effect(unsafe)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
+;@axiom:effect(entropy)
 (pub fn (compileFile fileName tname doEmit needMain)
   ; `--crate DIR` first: a stale or missing binding module is
   ; regenerated and a missing archive built, before the module
@@ -681,7 +706,7 @@
                                   ; point at. The renderer's `--> <file>`
                                   ; form still names the file.
                                   (if (&&
-                                    (== needMain 1)
+                                    (|| (== needMain 1) (&& (== doEmit 1) (hasFlagAnywhere subcommandName "--obfuscate")))
                                     (if (declsHaveMain allDecls)
                                       false
                                       true))
@@ -782,7 +807,7 @@
                                                   })
                                                 units))
                                             0)
-                                          (refuseDeviceIr (emitResolved allDecls bares fulls tcode) dfmt units)
+                                          (refuseDeviceIr (emitBinaryIr allDecls bares fulls tcode) dfmt units)
                                         }))
                                         {
                                           (if (&& (== needMain 0) (> (strLen (flagValue "--emit-rust-binding" 1)) 0))
@@ -842,6 +867,7 @@
 ;@axiom:effect(io)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
+;@axiom:effect(entropy)
 (pub fn (main)
   ; Refuse a malformed invocation BEFORE anything acts on it. This
   ; is what stops `axiom fmt --check=true FILE` and
@@ -1240,6 +1266,7 @@
 ;@axiom:effect(unsafe)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
+;@axiom:effect(entropy)
 (pub fn (testRunFile file filter)
   (let (
     (src (readFile file))
@@ -1360,6 +1387,7 @@
 ;@axiom:effect(unsafe)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
+;@axiom:effect(entropy)
 (pub fn (testMain)
   (let (
     (target (positionalFrom operandStart))
@@ -1680,6 +1708,7 @@
 ;@axiom:effect(unsafe)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
+;@axiom:effect(entropy)
 (pub fn (runSubcommand cmd)
   (if (|| (strEq cmd "help") (|| (strEq cmd "--help") (strEq cmd "-h")))
     ; `axiom help build` answers for `build`. The operand used to be

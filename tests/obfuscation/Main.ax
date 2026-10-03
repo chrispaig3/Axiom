@@ -1,0 +1,39 @@
+(import IO)
+(import Str)
+(import Sys)
+(import Vec)
+
+(:: distinctiveStrategy (-> Int Int))
+(fn (distinctiveStrategy n)
+  (if (== n 0)
+    42
+    (distinctiveStrategy (- n 1))))
+
+(:: quoted!c (-> Int Int))
+(fn (quoted!c n)
+  (+ n 1))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (text "AXIOM_PRIVATE_LITERAL_42e159a0")
+    (binary "\0雪\n\t\\\"")
+    (render (lambda (n) (concat text (format " {n}"))))
+    (v vecNew)
+  )
+    {
+      (vecPush v binary)
+      (println "{text}")
+      (println (render (quoted!c (- (distinctiveStrategy 100) 1))))
+      (println (format (strLen (vecGet v 0))))
+      (println (format (strByte binary 0)))
+      (println (format (strByte binary 4)))
+      (if (> sysArgc 1)
+        {
+          (println (sysArg 1))
+          0
+        }
+        0)
+      0
+    }))

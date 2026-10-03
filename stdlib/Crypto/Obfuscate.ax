@@ -1,0 +1,171 @@
+; Crypto.Obfuscate - authenticated envelopes for embedded binary assets.
+;
+; Pack assets before compiling, then open them on demand. Each envelope
+; has a fresh nonce, an HKDF-SHA-256 key derived for its context, and a
+; ChaCha20-Poly1305 tag. The context binds an asset to its intended use.
+; Two XOR shares can reconstruct an embedded key without storing its
+; contiguous bytes in the binary. Shares embedded together are
+; recoverable: this raises the cost of static inspection, and does not
+; keep a key secret from someone who can inspect the running program.
+;
+; FORMAT v1: 8-byte header AXOBv1\0\0, 12-byte random nonce, then
+; ciphertext and a 16-byte tag. The header, nonce and length-prefixed
+; context are authenticated. Contexts are at most 4096 bytes; assets
+; are at most 64 MiB. Opens authenticate before returning plaintext.
+; Temporary derived keys are wiped on success and failure. Returned
+; plaintext is an ordinary String and remains the caller's concern.
+(import Str)
+(import Err)
+(import Crypto.Bytes)
+(import Crypto.Ct)
+(import Crypto.Errors)
+(import Crypto.Secret)
+(import Crypto.Hkdf)
+(import Crypto.Aead)
+(import Crypto.ChaCha20Poly1305)
+
+; A sealed 256-bit master key in the secret store. Wipe it after use.
+(pub struct ObfuscationKey word shared
+  (slot : Int))
+
+(:: obfuscationKind Int)
+(fn (obfuscationKind)
+  24)
+
+(:: obfuscationHeader String)
+(fn (obfuscationHeader)
+  "AXOBv1\0\0")
+
+; The largest plaintext accepted by the envelope format: 64 MiB.
+(pub :: obfuscationMaxBytes Int)
+(pub fn (obfuscationMaxBytes)
+  67108864)
+
+; A fresh 32-byte master key from the operating system's entropy source.
+(pub :: obfuscationKeyGenerate (Result ObfuscationKey Error))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:effect(entropy)
+(pub fn (obfuscationKeyGenerate)
+  (match (secretBlockRandom obfuscationKind 32)
+    ((Ok h) (Ok (ObfuscationKey h)))
+    ((Err e) (Err e))))
+
+; Copy a 32-byte secret into a master key, leaving the secret live.
+(pub :: obfuscationKeyFromSecret (-> SecretBytes (Result ObfuscationKey Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (obfuscationKeyFromSecret s)
+  (if (!= (secretLen s) 32)
+    (cryptoLengthErr "an obfuscation key is 32 bytes" "obfuscationKeyFromSecret")
+    (match (secretBlockFrom obfuscationKind (secretAddr s) 32)
+      ((Ok h) (Ok (ObfuscationKey h)))
+      ((Err e) (Err e)))))
+
+; Reconstruct a master key from two 32-byte XOR shares directly in the
+; secret store. Neither share alone reveals the key when the other was
+; drawn randomly. Embedding both shares provides obfuscation only.
+(pub :: obfuscationKeyFromShares (-> String String (Result ObfuscationKey Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (obfuscationKeyFromShares a b)
+  (if (|| (!= (strLen a) 32) (!= (strLen b) 32))
+    (cryptoLengthErr "both obfuscation key shares are 32 bytes" "obfuscationKeyFromShares")
+    (match (secretBlockNew obfuscationKind 32)
+      ((Err e) (Err e))
+      ((Ok h)
+        (let ((p (secretBlockAddr obfuscationKind h)))
+          {
+            (for i in 0..32
+              (__store8 p i (^ (strByte a i) (strByte b i))))
+            (Ok (ObfuscationKey h))
+          })
+      ))))
+
+; Erase and free the master key. Later use stops with status 85.
+(pub :: obfuscationKeyWipe (-> ObfuscationKey Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (obfuscationKeyWipe k)
+  (secretBlockFree obfuscationKind k.slot))
+
+; Derive a fresh typed AEAD key for this envelope and context. The
+; nonce serves as HKDF salt; the info has an independent domain and a
+; length prefix. Both intermediate SecretBytes are wiped either way.
+(:: obfuscationDerive (-> ObfuscationKey String String (Result ChaCha20Poly1305Key Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (obfuscationDerive k nonce context)
+  (match (secretFromAddr (secretBlockAddr obfuscationKind k.slot) 32)
+    ((Err e) (Err e))
+    ((Ok master)
+      (let ((derived (hkdfSha256 master nonce (concat "Axiom.Obfuscate.v1\0" (concat (bytesU64Be (strLen context)) context)) 32)))
+        {
+          (secretWipe master)
+          (match derived
+            ((Err e) (Err e))
+            ((Ok s)
+              (let ((r (chacha20Poly1305KeyFromSecret s)))
+                {
+                  (secretWipe s)
+                  r
+                })
+            ))
+        })
+    )))
+
+(:: obfuscationAad (-> String String String))
+(fn (obfuscationAad prefix context)
+  (concat prefix (concat (bytesU64Be (strLen context)) context)))
+
+; Pack plaintext under a fresh random nonce, bound to `context`.
+; An empty context is allowed. Seal at most 2^32 assets under one key;
+; use a fresh master key for each build, as the packing tool does.
+(pub :: obfuscationSeal (-> ObfuscationKey String String (Result String Error)))
+;@axiom:effect(io)
+;@axiom:effect(entropy)
+(pub fn (obfuscationSeal k context plaintext)
+  (if (|| (> (strLen context) 4096) (> (strLen plaintext) obfuscationMaxBytes))
+    (cryptoErr cryptoLimitExceeded "obfuscation accepts a context up to 4096 bytes and an asset up to 64 MiB" "obfuscationSeal")
+    (match aeadNonceRandom
+      ((Err e) (Err e))
+      ((Ok nonce)
+        (let ((nb (aeadNonceBytes nonce)))
+          (match (obfuscationDerive k nb context)
+            ((Err e) (Err e))
+            ((Ok derived)
+              (let ((prefix (concat obfuscationHeader nb)))
+                (let ((r (chacha20Poly1305Seal derived nonce (obfuscationAad prefix context) plaintext)))
+                  {
+                    (chacha20Poly1305KeyWipe derived)
+                    (match r
+                      ((Err e) (Err e))
+                      ((Ok sealed) (Ok (concat prefix sealed))))
+                  }))
+            )))
+      ))))
+
+; Authenticate and open a v1 envelope for `context`. Wrong keys,
+; contexts, nonces, ciphertext or tags answer cryptoAuthFailed without
+; returning plaintext. Truncated or unknown headers answer
+; cryptoInvalidEncoding; oversized inputs answer cryptoLimitExceeded.
+(pub :: obfuscationOpen (-> ObfuscationKey String String (Result String Error)))
+;@axiom:effect(io)
+(pub fn (obfuscationOpen k context envelope)
+  (if (|| (> (strLen context) 4096) (> (strLen envelope) (+ obfuscationMaxBytes 36)))
+    (cryptoErr cryptoLimitExceeded "the obfuscation envelope or context is too large" "obfuscationOpen")
+    (if (|| (< (strLen envelope) 36) (! (strEq (strSlice envelope 0 8) obfuscationHeader)))
+      (cryptoErr cryptoInvalidEncoding "an obfuscation envelope needs a complete v1 header, nonce and tag" "obfuscationOpen")
+      (let ((nb (strSlice envelope 8 12)))
+        (match (obfuscationDerive k nb context)
+          ((Err e) (Err e))
+          ((Ok derived)
+            (let ((r 
+              (match (aeadNonceFromBytes nb)
+                ((Err e) (Err e))
+                ((Ok nonce) (chacha20Poly1305Open derived nonce (obfuscationAad (strSlice envelope 0 20) context) (strSlice envelope 20 (- (strLen envelope) 20)))))))
+              {
+                (chacha20Poly1305KeyWipe derived)
+                r
+              })
+          ))))))
