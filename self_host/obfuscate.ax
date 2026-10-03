@@ -118,7 +118,7 @@
 
 (:: obfDecoder String)
 (fn (obfDecoder)
-  "define private void @__axiom_obf_decode(ptr %in, ptr %out, i64 %len, i32 %seed) noinline optnone {\nentry:\n  br label %loop\nloop:\n  %i = phi i64 [ 0, %entry ], [ %next, %byte ]\n  %state = phi i32 [ %seed, %entry ], [ %s3, %byte ]\n  %done = icmp eq i64 %i, %len\n  br i1 %done, label %end, label %byte\nbyte:\n  %l1 = shl i32 %state, 13\n  %s1 = xor i32 %state, %l1\n  %r2 = lshr i32 %s1, 17\n  %s2 = xor i32 %s1, %r2\n  %l3 = shl i32 %s2, 5\n  %s3 = xor i32 %s2, %l3\n  %mask = trunc i32 %s3 to i8\n  %src = getelementptr i8, ptr %in, i64 %i\n  %dst = getelementptr i8, ptr %out, i64 %i\n  %c = load volatile i8, ptr %src\n  %p = xor i8 %c, %mask\n  store volatile i8 %p, ptr %dst\n  %next = add i64 %i, 1\n  br label %loop\nend:\n  ret void\n}\n")
+  "define private void @.axiom.obf.decode(ptr %in, ptr %out, i64 %len, i32 %seed) noinline optnone {\nentry:\n  br label %loop\nloop:\n  %i = phi i64 [ 0, %entry ], [ %next, %byte ]\n  %state = phi i32 [ %seed, %entry ], [ %s3, %byte ]\n  %done = icmp eq i64 %i, %len\n  br i1 %done, label %end, label %byte\nbyte:\n  %l1 = shl i32 %state, 13\n  %s1 = xor i32 %state, %l1\n  %r2 = lshr i32 %s1, 17\n  %s2 = xor i32 %s1, %r2\n  %l3 = shl i32 %s2, 5\n  %s3 = xor i32 %s2, %l3\n  %mask = trunc i32 %s3 to i8\n  %src = getelementptr i8, ptr %in, i64 %i\n  %dst = getelementptr i8, ptr %out, i64 %i\n  %c = load volatile i8, ptr %src\n  %p = xor i8 %c, %mask\n  store volatile i8 %p, ptr %dst\n  %next = add i64 %i, 1\n  br label %loop\nend:\n  ret void\n}\n")
 
 (:: obfTransform (-> String Int Int String))
 ;@axiom:effect(unsafe)
@@ -141,7 +141,7 @@
               (vecPush replacements (concat "__axob." (concat (fmtInt seed) (concat "." (fmtInt id)))))
               0
             })))
-      (vecPush init "define private void @__axiom_obf_init() noinline optnone {\nentry:\n  %a = load volatile i32, ptr @__axiom_obf_a\n  %b = load volatile i32, ptr @__axiom_obf_b\n  %seed = xor i32 %a, %b")
+      (vecPush init "define private void @.axiom.obf.init() noinline optnone {\nentry:\n  %a = load volatile i32, ptr @.axiom.obf.a\n  %b = load volatile i32, ptr @.axiom.obf.b\n  %seed = xor i32 %a, %b")
       (for line in lines
         (if (strStartsWith line "@str_")
           (let (
@@ -162,16 +162,16 @@
             )
               {
                 (vecPush out (concat "@" (concat name (concat " = private global [" (concat (fmtInt n) " x i8] zeroinitializer")))))
-                (vecPush out (concat "@__axiom_obf_enc_" (concat id (concat " = private constant [" (concat (fmtInt n) (concat " x i8] c\"" (concat (obfMaskLiteral body (obfLiteralSeed seed literal)) "\"")))))))
+                (vecPush out (concat "@.axiom.obf.enc_" (concat id (concat " = private constant [" (concat (fmtInt n) (concat " x i8] c\"" (concat (obfMaskLiteral body (obfLiteralSeed seed literal)) "\"")))))))
                 (vecPush init (concat "  %mix" (concat id (concat " = xor i32 %seed, " (fmtInt (& (* literal 2654435761) 4294967295))))))
                 (vecPush init (concat "  %key" (concat id (concat " = or i32 %mix" (concat id ", 1")))))
-                (vecPush init (concat "  call void @__axiom_obf_decode(ptr @__axiom_obf_enc_" (concat id (concat ", ptr @" (concat name (concat ", i64 " (concat (fmtInt n) (concat ", i32 %key" (concat id ")")))))))))
+                (vecPush init (concat "  call void @.axiom.obf.decode(ptr @.axiom.obf.enc_" (concat id (concat ", ptr @" (concat name (concat ", i64 " (concat (fmtInt n) (concat ", i32 %key" (concat id ")")))))))))
                 (set literal (+ literal 1))
               }))
           {
             (if (isSome (strFind line "  %r = call i64 @__axiom_user_main()" 0))
               {
-                (vecPush out "  call void @__axiom_obf_init()")
+                (vecPush out "  call void @.axiom.obf.init()")
                 0
               }
               0)
@@ -179,10 +179,10 @@
             0
           }))
       (vecPush init "  ret void\n}")
-      (vecPush out (concat "@__axiom_obf_a = private global i32 " (fmtInt share)))
-      (vecPush out (concat "@__axiom_obf_b = private global i32 " (fmtInt (^ share seed))))
+      (vecPush out (concat "@.axiom.obf.a = private global i32 " (fmtInt share)))
+      (vecPush out (concat "@.axiom.obf.b = private global i32 " (fmtInt (^ share seed))))
       (vecPush out obfDecoder)
-      (vecPush out "define private void @__axiom_obf_left() noinline optnone {\n  %x = load volatile i32, ptr @__axiom_obf_a\n  ret void\n}\ndefine private void @__axiom_obf_right() noinline optnone {\n  %x = load volatile i32, ptr @__axiom_obf_b\n  ret void\n}")
+      (vecPush out "define private void @.axiom.obf.left() noinline optnone {\n  %x = load volatile i32, ptr @.axiom.obf.a\n  ret void\n}\ndefine private void @.axiom.obf.right() noinline optnone {\n  %x = load volatile i32, ptr @.axiom.obf.b\n  ret void\n}")
       (vecPush out (obfJoin init "\n"))
       (internFree names)
       (obfJoin out "\n")

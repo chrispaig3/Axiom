@@ -17,7 +17,7 @@ for level in 0 1 3; do
 from pathlib import Path
 import sys
 binary = Path(sys.argv[1]).read_bytes()
-for plain in [b'AXIOM_PRIVATE_LITERAL_42e159a0', b'distinctiveStrategy', b'quoted!c', b'obfuscation/Main.ax']:
+for plain in [b'AXIOM_PRIVATE_LITERAL_42e159a0', b'distinctiveStrategy', b'quoted!c', b'__axiom_obf_', b'obfuscation/Main.ax']:
     assert plain not in binary, f'{plain!r} remains in the binary'
 PY
   echo "ok   obfuscated binary: execution and absent plaintext at O$level"

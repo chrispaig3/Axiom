@@ -15805,17 +15805,17 @@
   (if (== (pairSlot cg 16) 0)
     cg
     {
-      (emitLine cg "  %obf.a = load volatile i32, ptr @__axiom_obf_a")
-      (emitLine cg "  %obf.b = load volatile i32, ptr @__axiom_obf_b")
+      (emitLine cg "  %obf.a = load volatile i32, ptr @.axiom.obf.a")
+      (emitLine cg "  %obf.b = load volatile i32, ptr @.axiom.obf.b")
       (emitLine cg "  %obf.x = xor i32 %obf.a, %obf.b")
       (emitLine cg "  %obf.bit = and i32 %obf.x, 1")
       (emitLine cg "  %obf.test = icmp eq i32 %obf.bit, 0")
       (emitLine cg "  br i1 %obf.test, label %obf.left, label %obf.right")
       (emitLabel cg "obf.left")
-      (emitLine cg "  call void @__axiom_obf_left()")
+      (emitLine cg "  call void @.axiom.obf.left()")
       (emitLine cg "  br label %obf.body")
       (emitLabel cg "obf.right")
-      (emitLine cg "  call void @__axiom_obf_right()")
+      (emitLine cg "  call void @.axiom.obf.right()")
       (emitLine cg "  br label %obf.body")
       (emitLabel cg "obf.body")
       cg

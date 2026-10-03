@@ -13,6 +13,23 @@
 (fn (quoted!c n)
   (+ n 1))
 
+; Names resembling private LLVM helpers remain ordinary user functions.
+(:: __axiom_obf_a (-> Int Int))
+(fn (__axiom_obf_a n)
+  (+ n 1))
+
+(:: __axiom_obf_left (-> Int Int))
+(fn (__axiom_obf_left n)
+  (+ n 1))
+
+(:: __axiom_obf_init (-> Int Int))
+(fn (__axiom_obf_init n)
+  (+ n 1))
+
+(:: __axiom_obf_decode (-> Int Int))
+(fn (__axiom_obf_decode n)
+  (+ n 1))
+
 (:: main Int)
 ;@axiom:effect(io)
 (fn (main)
@@ -25,7 +42,7 @@
     {
       (vecPush v binary)
       (println "{text}")
-      (println (render (quoted!c (- (distinctiveStrategy 100) 1))))
+      (println (render (quoted!c (- (__axiom_obf_decode (__axiom_obf_init (__axiom_obf_left (__axiom_obf_a (distinctiveStrategy 100))))) 5))))
       (println (format (strLen (vecGet v 0))))
       (println (format (strByte binary 0)))
       (println (format (strByte binary 4)))

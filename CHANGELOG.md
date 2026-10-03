@@ -16,6 +16,11 @@ its changelog too.
 
 ## Unreleased
 
+- Isolate binary obfuscation helpers from source function names. User
+  functions resembling runtime helpers keep their behaviour under
+  obfuscation. Tested by `tests/obfuscation/Main.ax` and
+  `scripts/check-obfuscation.sh`.
+
 - Add `Crypto.Obfuscate` with authenticated asset envelopes, per-envelope
   HKDF keys, context binding, XOR key shares and explicit key erasure.
   `examples/axobfuscate/Main.ax` packs arbitrary files into encrypted
