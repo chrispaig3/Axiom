@@ -11826,6 +11826,7 @@
     ; until the chain ended, and 170,000 levels filled the worklist
     ; and then the machine stack. The dead list costs one word the
     ; block already owns.
+    (emitResourceRuntime cg)
     (emitLine cg "define void @axiom_release(i64 %h0) #0 {")
     (emitLine cg "start:")
     (emitLine cg "  %dead = alloca i64")
@@ -17993,7 +17994,7 @@
     (fl (memGetWord cg 14))
   )
     (let ((cgR 
-      (if (&& (!= (pairSlot cg 9) 0) (&& (|| (== (nodeTag scrutExpr) TAG_E_APP) (|| (== (nodeTag scrutExpr) TAG_E_IF) (== (nodeTag scrutExpr) TAG_E_MATCH))) (== (nodeResWord scrutExpr) 2)))
+      (if (&& (!= (pairSlot cg 9) 0) (&& (|| (== (nodeTag scrutExpr) TAG_E_APP) (|| (== (nodeTag scrutExpr) TAG_E_IF) (== (nodeTag scrutExpr) TAG_E_MATCH))) (&& (== (nodeResWord scrutExpr) 2) (dropFreeExpr cg scrutExpr))))
         cg
         (emitReleaseOf cg sv))))
       {
@@ -19746,7 +19747,7 @@
 ; ------------------------------------------------------------------
 (pub :: isPrimName (-> String Bool))
 (pub fn (isPrimName nm)
-  (if (strEq nm "__indexTrap")
+  (if (|| (strEq nm "__indexTrap") (|| (strEq nm "__resource_new") (|| (strEq nm "__resource_get") (|| (strEq nm "__resource_close") (strEq nm "__resource_disarm")))))
     true
     (if (strEq nm "__alloc")
       true
@@ -19895,8 +19896,8 @@
                           (emitPrimStore args cg 1 1)
                           (if (strEq fnName "__addr")
                             (emitPrimAddr args cg)
-                            (if (strEq fnName "__indexTrap")
-                              (emitPrimIndexTrap cg)
+                            (if (|| (strEq fnName "__indexTrap") (|| (strEq fnName "__resource_new") (|| (strEq fnName "__resource_get") (|| (strEq fnName "__resource_close") (strEq fnName "__resource_disarm")))))
+                              (if (strEq fnName "__indexTrap") (emitPrimIndexTrap cg) (emitPrimResource fnName args cg))
                               (if (strEq fnName "__argc")
                                 (emitPrimArgc cg)
                                 (if (strEq fnName "__argv")
@@ -21988,7 +21989,7 @@
       ; is a fresh join bound by `let` - that walker is the sibling
       ; slice, and this one leaves it exactly alone.
       (let ((a (vecGet args i)))
-        (if (|| (== (isRegionCoveredCon cg a) 1) (&& (!= (pairSlot cg 9) 0) (&& (|| (== (nodeTag a) TAG_E_APP) (|| (== (nodeTag a) TAG_E_IF) (== (nodeTag a) TAG_E_MATCH))) (== (nodeResWord a) 2))))
+        (if (|| (== (isRegionCoveredCon cg a) 1) (&& (!= (pairSlot cg 9) 0) (&& (|| (== (nodeTag a) TAG_E_APP) (|| (== (nodeTag a) TAG_E_IF) (== (nodeTag a) TAG_E_MATCH))) (&& (== (nodeResWord a) 2) (dropFreeExpr cg a)))))
           (releaseOwnedArgs
             cg
             fnName
@@ -22239,7 +22240,7 @@
 (pub :: isRegionCoveredCon (-> Int Int Int))
 ;@axiom:effect(unsafe)
 (pub fn (isRegionCoveredCon cg e)
-  (if (== (pairSlot cg 9) 0)
+  (if (|| (== (pairSlot cg 9) 0) (if (== e 0) true (! (dropFreeExpr cg e))))
     0
     (if (== e 0)
       0
@@ -23760,7 +23761,8 @@
           (let ((h (spineHead an)))
             (if (!= (nodeTag h) TAG_E_VAR)
               0
-              (if (!= (lookupType (memGetWordVec cg 3) (nodeAName h)) 0)
+              (if (|| (!= (lookupType (memGetWordVec cg 3) (nodeAName h)) 0)
+                (&& (strEq (nodeAName h) "__resource_new") (== (spineArity an) 2)))
                 1
                 0)))
           0)))))
@@ -23996,7 +23998,7 @@
                         ; shared predicate restores every one of
                         ; these releases with the other sites'.
                         (if (&& (== releasable 1) (&& (!= (memGetWord cgB 31) 1) (== (isStaticSentinelNode cgB valExpr) 0)))
-                          (if (&& (!= (pairSlot cgB 9) 0) (&& (|| (== (nodeTag valExpr) TAG_E_APP) (|| (== (nodeTag valExpr) TAG_E_IF) (== (nodeTag valExpr) TAG_E_MATCH))) (== (nodeResWord valExpr) 2)))
+                          (if (&& (!= (pairSlot cgB 9) 0) (&& (|| (== (nodeTag valExpr) TAG_E_APP) (|| (== (nodeTag valExpr) TAG_E_IF) (== (nodeTag valExpr) TAG_E_MATCH))) (&& (== (nodeResWord valExpr) 2) (dropFreeExpr cgB valExpr))))
                             cgB
                             (let (
                               (res (strDup (memGetWordStr cgB 2)))
@@ -25686,3 +25688,221 @@
     (memSetWord cg 14 0)
     cg
   })
+
+; Counted resource owners use the foreign form with a C-ABI trampoline.
+; The owner retains its callback; closing retires it before calling the
+; callback, then releases the callback and its captured references.
+(pub :: emitResourceRuntime (-> Int Int))
+(pub fn (emitResourceRuntime cg)
+  {
+    (emitLine cg "@__axiom_resource_dead_msg = private unnamed_addr constant [33 x i8] c\"axiom: use of a closed resource\\0A\\00\"")
+    (emitLine cg "define internal i64 @__axiom_resource_dead() #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  %msg = ptrtoint ptr @__axiom_resource_dead_msg to i64")
+    (emitRuntimeWrite cg "%msg" "32")
+    (emitLine cg "  call void @__axiom_backtrace()")
+    (emitRuntimeExit cg "85")
+    (emitLine cg "  unreachable")
+    (emitLine cg "}")
+    (emitLine cg "define internal i64 @__axiom_resource_drop(i64 %h) #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  %ca = add i64 %h, 16")
+    (emitLine cg "  %cap = inttoptr i64 %ca to ptr")
+    (emitLine cg "  %c = atomicrmw xchg ptr %cap, i64 0 seq_cst")
+    (emitLine cg "  %has = icmp ne i64 %c, 0")
+    (emitLine cg "  br i1 %has, label %run, label %done")
+    (emitLine cg "run:")
+    (emitLine cg "  %vp = inttoptr i64 %h to ptr")
+    (emitLine cg "  %vpp = getelementptr i64, ptr %vp, i64 3")
+    (emitLine cg "  %v = load i64, ptr %vpp")
+    (emitLine cg "  %record = inttoptr i64 %c to ptr")
+    (emitLine cg "  %code = load i64, ptr %record")
+    (emitLine cg "  %fn = inttoptr i64 %code to ptr")
+    (emitLine cg "  %r = call i64 %fn(i64 %c, i64 %v)")
+    (emitLine cg "  call void @axiom_release(i64 %c)")
+    (emitLine cg "  ret i64 %r")
+    (emitLine cg "done:")
+    (emitLine cg "  ret i64 0")
+    (emitLine cg "}")
+    (emitLine cg "define internal i64 @__axiom_resource_new(i64 %closure, i64 %value) #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  call void @axiom_retain(i64 %closure)")
+    (emitLine cg "  %h = call i64 @axiom_alloc(i64 32)")
+    (emitLine cg "  %rc = add i64 %h, -16")
+    (emitLine cg "  %rcp = inttoptr i64 %rc to ptr")
+    (emitLine cg "  store i64 1, ptr %rcp")
+    (emitLine cg "  %sh = add i64 %h, -8")
+    (emitLine cg "  %shp = inttoptr i64 %sh to ptr")
+    (emitLine cg "  %s = load i64, ptr %shp")
+    (emitLine cg "  %foreign = or i64 %s, 1")
+    (emitLine cg "  store i64 %foreign, ptr %shp")
+    (emitLine cg "  %p = inttoptr i64 %h to ptr")
+    (emitLine cg "  %fn = ptrtoint ptr @__axiom_resource_drop to i64")
+    (emitLine cg "  store i64 %fn, ptr %p")
+    (emitLine cg "  %arg = getelementptr i64, ptr %p, i64 1")
+    (emitLine cg "  store i64 %h, ptr %arg")
+    (emitLine cg "  %cp = getelementptr i64, ptr %p, i64 2")
+    (emitLine cg "  store i64 %closure, ptr %cp")
+    (emitLine cg "  %vp = getelementptr i64, ptr %p, i64 3")
+    (emitLine cg "  store i64 %value, ptr %vp")
+    (emitLine cg "  ret i64 %h")
+    (emitLine cg "}")
+    (emitLine cg "define internal i64 @__axiom_resource_check(i64 %h) #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  %small = icmp ult i64 %h, 4096")
+    (emitLine cg "  br i1 %small, label %bad, label %check")
+    (emitLine cg "check:")
+    (emitLine cg "  %p = inttoptr i64 %h to ptr")
+    (emitLine cg "  %fn = load i64, ptr %p")
+    (emitLine cg "  %want = ptrtoint ptr @__axiom_resource_drop to i64")
+    (emitLine cg "  %ok = icmp eq i64 %fn, %want")
+    (emitLine cg "  br i1 %ok, label %done, label %bad")
+    (emitLine cg "bad:")
+    (emitLine cg "  %e = call i64 @__axiom_resource_dead()")
+    (emitLine cg "  unreachable")
+    (emitLine cg "done:")
+    (emitLine cg "  ret i64 %h")
+    (emitLine cg "}")
+    (emitLine cg "define internal i64 @__axiom_resource_get(i64 %owner) #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  %h = call i64 @__axiom_resource_check(i64 %owner)")
+    (emitLine cg "  %p = inttoptr i64 %h to ptr")
+    (emitLine cg "  %ap = getelementptr i64, ptr %p, i64 1")
+    (emitLine cg "  %arg = load atomic i64, ptr %ap seq_cst, align 8")
+    (emitLine cg "  %live = icmp ne i64 %arg, 0")
+    (emitLine cg "  br i1 %live, label %done, label %bad")
+    (emitLine cg "bad:")
+    (emitLine cg "  %e = call i64 @__axiom_resource_dead()")
+    (emitLine cg "  unreachable")
+    (emitLine cg "done:")
+    (emitLine cg "  %vp = getelementptr i64, ptr %p, i64 3")
+    (emitLine cg "  %v = load i64, ptr %vp")
+    (emitLine cg "  ret i64 %v")
+    (emitLine cg "}")
+    (emitLine cg "define internal i64 @__axiom_resource_close(i64 %owner) #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  %h = call i64 @__axiom_resource_check(i64 %owner)")
+    (emitLine cg "  %p = inttoptr i64 %h to ptr")
+    (emitLine cg "  %ap = getelementptr i64, ptr %p, i64 1")
+    (emitLine cg "  %arg = atomicrmw xchg ptr %ap, i64 0 seq_cst")
+    (emitLine cg "  %live = icmp ne i64 %arg, 0")
+    (emitLine cg "  br i1 %live, label %close, label %done")
+    (emitLine cg "close:")
+    (emitLine cg "  %r = call i64 @__axiom_resource_drop(i64 %arg)")
+    (emitLine cg "  ret i64 %r")
+    (emitLine cg "done:")
+    (emitLine cg "  ret i64 0")
+    (emitLine cg "}")
+    (emitLine cg "define internal i64 @__axiom_resource_disarm(i64 %owner) #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  %nil = icmp eq i64 %owner, 0")
+    (emitLine cg "  br i1 %nil, label %done, label %check")
+    (emitLine cg "check:")
+    (emitLine cg "  %h = call i64 @__axiom_resource_check(i64 %owner)")
+    (emitLine cg "  %p = inttoptr i64 %h to ptr")
+    (emitLine cg "  %ap = getelementptr i64, ptr %p, i64 1")
+    (emitLine cg "  %arg = atomicrmw xchg ptr %ap, i64 0 seq_cst")
+    (emitLine cg "  %cp = getelementptr i64, ptr %p, i64 2")
+    (emitLine cg "  %closure = atomicrmw xchg ptr %cp, i64 0 seq_cst")
+    (emitLine cg "  call void @axiom_release(i64 %closure)")
+    (emitLine cg "  br label %done")
+    (emitLine cg "done:")
+    (emitLine cg "  ret i64 0")
+    (emitLine cg "}")
+    cg
+  })
+
+(pub :: emitPrimResource (-> String (Vec Int) Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (emitPrimResource name args cg)
+  (let (
+    (cg1 (emitExpr (vecGet args 0) cg))
+    (first (strDup (memGetWordStr cg1 2)))
+    (tail
+      (if (strEq name "__resource_new")
+        (let ((cg2 (emitExpr (vecGet args 1) cg1)))
+          (strConcat ", i64 " (memGetWordStr cg2 2)))
+        ""))
+    (r (regStr (allocReg cg1)))
+  )
+    {
+      (emitLine cg1 (strConcat (strConcat (strConcat (strConcat (strConcat "  " r) " = call i64 @__axiom") (strSlice name 1 (strLen name))) "(i64 ") (strConcat first (strConcat tail ")"))))
+      ; The runtime borrows its operand and takes its own callback
+      ; share. Return a temporary's share after the call, including a
+      ; global function materialised as a closure record.
+      (let ((a (vecGet args 0)))
+        (if (|| (== (valueOwnedRef cg1 a) 1)
+          (&& (== (nodeTag a) TAG_E_VAR)
+            (&& (if (isLocalValue cg1 (nodeAName a)) false true)
+              (> (fnArityCg cg1 (nodeAName a)) 0))))
+          (emitReleaseOf cg1 first)
+          cg1))
+      (memSetWord cg1 2 r)
+      (memSetWord cg1 14 0)
+      cg1
+    }))
+
+; A region reset reclaims bytes, but must not replace resource cleanup.
+; Only values proved to contain no callbacks may omit their releases.
+(pub :: dropFreeTy (-> Int Int Int Bool))
+;@axiom:effect(unsafe)
+(pub fn (dropFreeTy cg ty depth)
+  (if (|| (== ty 0) (<= depth 0))
+    false
+    (if (== (fldClass cg ty) 0)
+      true
+      (if (!= (nodeTag ty) TAG_T_CON)
+        false
+        (let ((n (nodeAName ty)))
+          (if (strEq n "String")
+            true
+            (if (|| (strEq n "Option") (strEq n "Vec"))
+              (dropFreeTypes cg (nodeBVec ty) (- depth 1) 0)
+              (let ((entry (lookupType (memGetWordVec cg 3) n)))
+                (if (== entry 0)
+                  false
+                  (dropFreeFields cg entry (- depth 1) 0))))))))))
+
+(pub :: dropFreeTypes (-> Int (Vec Int) Int Int Bool))
+(pub fn (dropFreeTypes cg tys depth i)
+  (if (>= i (vecLen tys))
+    true
+    (&& (dropFreeTy cg (vecGet tys i) depth)
+      (dropFreeTypes cg tys depth (+ i 1)))))
+
+(pub :: dropFreeFields (-> Int Int Int Int Bool))
+(pub fn (dropFreeFields cg entry depth i)
+  (if (|| (== (eKind entry) TF_WORD) (>= i (eArity entry)))
+    true
+    (let ((ty (if (== (eKind entry) TF_STRUCT)
+      (nodeTy (vecGet (eFieldFlagsVec entry) i))
+      (vecGet (eFieldTysVec entry) i))))
+      (&& (dropFreeTy cg ty depth)
+        (dropFreeFields cg entry depth (+ i 1))))))
+
+(pub :: dropFreeExpr (-> Int Int Bool))
+;@axiom:effect(unsafe)
+(pub fn (dropFreeExpr cg e)
+  (let ((tag (nodeTag e)))
+    (if (== tag TAG_E_IF)
+      (&& (dropFreeExpr cg (nodeB e)) (dropFreeExpr cg (nodeC e)))
+      (if (== tag TAG_E_MATCH)
+        (dropFreeArms cg (nodeBVec e) 0)
+        (let ((hd (if (== tag TAG_E_APP) (spineHead e) e)))
+          (if (|| (== (nodeTag hd) TAG_E_VAR) (== tag TAG_E_STRUCTCON))
+            (let ((n (nodeAName hd)) (entry (lookupType (memGetWordVec cg 3) n)))
+              (if (!= entry 0)
+                (dropFreeFields cg entry 16 0)
+                (let ((sig (findFSigCg cg (mangledForCg cg n))))
+                  (if (== sig 0)
+                    false
+                    (dropFreeTy cg (sigResultTy (memGetWord sig 3)) 16)))))
+            false))))))
+
+(pub :: dropFreeArms (-> Int (Vec Int) Int Bool))
+(pub fn (dropFreeArms cg arms i)
+  (if (>= i (vecLen arms))
+    true
+    (&& (dropFreeExpr cg (nodeB (vecGet arms i)))
+      (dropFreeArms cg arms (+ i 1)))))
