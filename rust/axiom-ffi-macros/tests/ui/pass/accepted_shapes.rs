@@ -438,6 +438,9 @@ fn take_bytes(cell: &AxOutCell) -> Vec<u8> {
 }
 
 fn main() {
+    // SAFETY: the fixture builds live representations, disjoint borrows
+    // and correctly sized out-cells for every raw shim it exercises.
+    unsafe {
     assert_eq!(axiom_ffi::ABI_VERSION, 3);
     assert_eq!(axiom_ffi::axffi_abi_version(), 3);
 
@@ -470,20 +473,20 @@ fn main() {
     assert_eq!(axffi_thing_get(h), 41);
     assert_eq!(axffi_thing_bump(h), 0);
     assert_eq!(axffi_thing_get(h), 42);
-    assert_eq!(unsafe { axffi_thing_drop(h) }, 0);
-    assert_eq!(unsafe { axffi_thing_drop(0) }, 0);
+    assert_eq!(axffi_thing_drop(h), 0);
+    assert_eq!(axffi_thing_drop(0), 0);
     assert_eq!(axffi_thing_drop_fn(), axffi_thing_drop as usize as AxWord);
     assert_eq!(<Thing as axiom_ffi::AxiomOpaque>::STEM, "thing");
     assert_eq!(<Widget as axiom_ffi::AxiomOpaque>::STEM, "widget_v2");
     let w = axffi_widget_new(1);
     assert_eq!(axffi_widget_is_b(w), 1);
-    assert_eq!(unsafe { axffi_widget_v2_drop(w) }, 0);
+    assert_eq!(axffi_widget_v2_drop(w), 0);
     assert_eq!(axffi_widget_v2_drop_fn(), axffi_widget_v2_drop as usize as AxWord);
 
     // Result: 0 + payload, 1 + message.
     assert_eq!(axffi_thing_try(3, cell_word(&mut cell)), AX_OK);
     assert_eq!(axffi_thing_get(cell.payload), 3);
-    assert_eq!(unsafe { axffi_thing_drop(cell.payload) }, 0);
+    assert_eq!(axffi_thing_drop(cell.payload), 0);
     assert_eq!(axffi_thing_try(-3, cell_word(&mut cell)), AX_ERR);
     assert_eq!(take_bytes(&cell), b"no: -3");
     // A fallible shim answers invalid UTF-8 as Err, never as a value.
@@ -503,7 +506,7 @@ fn main() {
     assert_eq!(axffi_maybe_text(0, cell_word(&mut cell)), AX_NONE);
     assert_eq!(axffi_maybe_thing(9, cell_word(&mut cell)), AX_OK);
     assert_eq!(axffi_thing_get(cell.payload), 9);
-    assert_eq!(unsafe { axffi_thing_drop(cell.payload) }, 0);
+    assert_eq!(axffi_thing_drop(cell.payload), 0);
     assert_eq!(axffi_maybe_thing(0, cell_word(&mut cell)), AX_NONE);
 
     // Callbacks: a record is [code, captures..]; the shim calls word 0
@@ -518,7 +521,7 @@ fn main() {
     let sum3: [AxWord; 1] = [lam_sum3_outer as usize as AxWord];
     assert_eq!(axffi_three(sum3.as_ptr() as AxWord), 6);
     assert_eq!(RELEASED.load(std::sync::atomic::Ordering::Relaxed), 4);
-    let direct = unsafe { <AxFn1 as axiom_ffi::AxCallback>::from_raw(add_ten_rec) };
+    let direct = <AxFn1 as axiom_ffi::AxCallback>::from_raw(add_ten_rec);
     assert_eq!(direct.call(5), 15);
     assert_eq!(direct.as_word(), add_ten_rec);
     assert_eq!(<AxFn2 as axiom_ffi::AxCallback>::ARITY, 2);
@@ -576,7 +579,7 @@ fn main() {
     // 0/1, f32 as f64 bits, usize a word.
     let t = axffi_thing_new(100);
     assert_eq!(axffi_mixed_sum(-5, 255, 1, 2.75f64.to_bits() as AxWord, 9, t), -5 + 255 + 1 + 2 + 9 + 100);
-    assert_eq!(unsafe { axffi_thing_drop(t) }, 0);
+    assert_eq!(axffi_thing_drop(t), 0);
     assert_eq!(axffi_mixed_make(-3, big_word), AX_OK);
     assert_eq!(big, [-3, 7, 1, 1.5f64.to_bits() as AxWord, 9]);
     let m = <Mixed as AxRecord>::from_words(&big);
@@ -666,46 +669,46 @@ fn main() {
     let pvec_word = &pvec as *const AxVecRepr as AxWord;
     assert_eq!(axffi_points_scale(pvec_word, 4, cell_word(&mut cell)), AX_OK);
     assert_eq!(cell.extra, 2);
-    let scaled = unsafe { std::slice::from_raw_parts(cell.payload as *const i64, 4) }.to_vec();
-    unsafe { axiom_ffi::axffi_free_words(cell.payload as *mut i64, cell.extra * 2) };
+    let scaled = std::slice::from_raw_parts(cell.payload as *const i64, 4).to_vec();
+    axiom_ffi::axffi_free_words(cell.payload as *mut i64, cell.extra * 2);
     assert_eq!(scaled, vec![4, 2.0f64.to_bits() as i64, -8, 5.0f64.to_bits() as i64]);
     assert_eq!(axffi_points_try(pvec_word, cell_word(&mut cell)), AX_OK);
     assert_eq!(cell.extra, 2);
-    unsafe { axiom_ffi::axffi_free_words(cell.payload as *mut i64, cell.extra * 2) };
+    axiom_ffi::axffi_free_words(cell.payload as *mut i64, cell.extra * 2);
     assert_eq!(axffi_points_try(&empty_vec as *const AxVecRepr as AxWord, cell_word(&mut cell)), AX_ERR);
     assert_eq!(take_bytes(&cell), b"no points");
     assert_eq!(axffi_points_maybe(3, cell_word(&mut cell)), AX_OK);
     assert_eq!(cell.extra, 3);
-    let three = unsafe { std::slice::from_raw_parts(cell.payload as *const i64, 6) }.to_vec();
-    unsafe { axiom_ffi::axffi_free_words(cell.payload as *mut i64, 6) };
+    let three = std::slice::from_raw_parts(cell.payload as *const i64, 6).to_vec();
+    axiom_ffi::axffi_free_words(cell.payload as *mut i64, 6);
     assert_eq!(three[4], 2);
     assert_eq!(axffi_points_maybe(-1, cell_word(&mut cell)), AX_NONE);
     assert_eq!(axffi_points_maybe(0, cell_word(&mut cell)), AX_OK);
     assert_eq!(cell.extra, 0);
-    unsafe { axiom_ffi::axffi_free_words(cell.payload as *mut i64, 0) };
+    axiom_ffi::axffi_free_words(cell.payload as *mut i64, 0);
     let mdata = [-3i64, 7, 1, 1.5f64.to_bits() as i64, 9];
     let mvec = AxVecRepr { len: 5, cap: 5, data: mdata.as_ptr() };
     assert_eq!(axffi_mixed_all(&mvec as *const AxVecRepr as AxWord, cell_word(&mut cell)), AX_OK);
     assert_eq!(cell.extra, 1);
-    let back = unsafe { std::slice::from_raw_parts(cell.payload as *const i64, 5) }.to_vec();
-    unsafe { axiom_ffi::axffi_free_words(cell.payload as *mut i64, 5) };
+    let back = std::slice::from_raw_parts(cell.payload as *const i64, 5).to_vec();
+    axiom_ffi::axffi_free_words(cell.payload as *mut i64, 5);
     assert_eq!(back, mdata);
 
     // Nested Vecs: (pairs, n) out, a Vec of Vec handles in.
     assert_eq!(axffi_grid(2, cell_word(&mut cell)), AX_OK);
     assert_eq!(cell.extra, 2);
-    let pairs = unsafe { std::slice::from_raw_parts(cell.payload as *const i64, 4) }.to_vec();
-    let row1 = unsafe { std::slice::from_raw_parts(pairs[2] as *const i64, pairs[3] as usize) }.to_vec();
+    let pairs = std::slice::from_raw_parts(cell.payload as *const i64, 4).to_vec();
+    let row1 = std::slice::from_raw_parts(pairs[2] as *const i64, pairs[3] as usize).to_vec();
     assert_eq!(row1, vec![2, 3]);
-    unsafe { axiom_ffi::axffi_free_word_lists(cell.payload as *mut i64, cell.extra) };
+    axiom_ffi::axffi_free_word_lists(cell.payload as *mut i64, cell.extra);
     assert_eq!(axffi_grid_f32(2, cell_word(&mut cell)), AX_OK);
-    let pairs = unsafe { std::slice::from_raw_parts(cell.payload as *const i64, 4) }.to_vec();
-    let row1 = unsafe { std::slice::from_raw_parts(pairs[2] as *const i64, pairs[3] as usize) }.to_vec();
+    let pairs = std::slice::from_raw_parts(cell.payload as *const i64, 4).to_vec();
+    let row1 = std::slice::from_raw_parts(pairs[2] as *const i64, pairs[3] as usize).to_vec();
     assert_eq!(row1, vec![0.5f64.to_bits() as i64; 2]);
-    unsafe { axiom_ffi::axffi_free_word_lists(cell.payload as *mut i64, cell.extra) };
+    axiom_ffi::axffi_free_word_lists(cell.payload as *mut i64, cell.extra);
     assert_eq!(axffi_grid(0, cell_word(&mut cell)), AX_OK);
     assert_eq!(cell.extra, 0);
-    unsafe { axiom_ffi::axffi_free_word_lists(cell.payload as *mut i64, 0) };
+    axiom_ffi::axffi_free_word_lists(cell.payload as *mut i64, 0);
     let rows = [&vec as *const AxVecRepr as AxWord, &ivec as *const AxVecRepr as AxWord];
     let rvec = AxVecRepr { len: 2, cap: 2, data: rows.as_ptr() };
     assert_eq!(axffi_sum_rows(&rvec as *const AxVecRepr as AxWord), 18 + 7);
@@ -759,7 +762,7 @@ fn main() {
     assert_eq!(take_bytes(&cell), b"neg");
     assert_eq!(axffi_find_thing(5, cell_word(&mut cell)), AX_OK);
     assert_eq!(axffi_thing_get(cell.payload), 5);
-    assert_eq!(unsafe { axffi_thing_drop(cell.payload) }, 0);
+    assert_eq!(axffi_thing_drop(cell.payload), 0);
     assert_eq!(axffi_find_thing(0, cell_word(&mut cell)), AX_NONE);
     assert_eq!(axffi_find_thing(-1, cell_word(&mut cell)), AX_ERR);
     assert_eq!(take_bytes(&cell), b"neg");
@@ -802,4 +805,5 @@ fn main() {
     assert_eq!(axffi_range__sig_ii_i(), 0);
     assert_eq!(axffi_words__sig_si_i(), 0);
     assert_eq!(axffi_total__sig_i_i(), 0);
+    }
 }

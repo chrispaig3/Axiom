@@ -943,3 +943,4 @@
 
 # 0.8.0 - counted callback results carry ownership evidence.
 0.8.0  L  closure-abi  Rust ABI 3: callback code takes (environment, argument, ownership evidence); rebuild Rust callback libraries
+0.8.0  L  rust-raw-shims  Rust raw shims with borrowed inputs or out-cells require unsafe calls; wire signatures stay unchanged

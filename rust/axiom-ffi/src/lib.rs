@@ -345,6 +345,66 @@ pub mod __private {
         }
     }
 
+    /// Reject two borrows of one opaque handle when either is mutable.
+    pub fn check_opaque_alias<A, B>(a: AxWord, b: AxWord, func: &str, i: usize, j: usize) {
+        if core::mem::size_of::<A>() != 0 && core::mem::size_of::<B>() != 0 && a != 0 && a == b {
+            abort(format_args!(
+                "`{func}`: arguments {i} and {j} alias a mutable handle"
+            ));
+        }
+    }
+
+    /// Check vector borrows before a shim creates any mutable reference.
+    ///
+    /// # Safety
+    /// Both words must name live Axiom vectors. If `nested`, every word
+    /// in `other` must name a live inner vector. No mutable view may
+    /// already be live. These checks do not validate arbitrary addresses.
+    pub unsafe fn check_vec_alias(
+        mutable: AxWord,
+        other: AxWord,
+        nested: bool,
+        func: &str,
+        i: usize,
+        j: usize,
+    ) {
+        fn overlaps(a: &[i64], b: &[i64]) -> bool {
+            if a.is_empty() || b.is_empty() {
+                return false;
+            }
+            let a0 = a.as_ptr() as usize;
+            let b0 = b.as_ptr() as usize;
+            // Valid Rust slices occupy a single allocation and cannot
+            // wrap the address space (the caller proves their validity).
+            a0 < b0 + core::mem::size_of_val(b) && b0 < a0 + core::mem::size_of_val(a)
+        }
+        if mutable == 0 || other == 0 {
+            abort(format_args!(
+                "`{func}`: arguments {i} and {j} must be live Vec values"
+            ));
+        }
+        // SAFETY: the caller keeps both vectors, and any inner vectors,
+        // live. All these temporary shared views end before the shim
+        // forms its mutable references.
+        unsafe {
+            let a = AxVec::from_raw(mutable).as_slice();
+            let b = AxVec::from_raw(other).as_slice();
+            let conflict = overlaps(a, b)
+                || (nested
+                    && b.iter().any(|&word| {
+                        if word == 0 {
+                            abort(format_args!("`{func}`: argument {j} contains a null Vec"));
+                        }
+                        overlaps(a, AxVec::from_raw(word).as_slice())
+                    }));
+            if conflict {
+                abort(format_args!(
+                    "`{func}`: arguments {i} and {j} alias mutable Vec words"
+                ));
+            }
+        }
+    }
+
     /// Borrow an opaque value for the duration of a call.
     ///
     /// A 0 word is a handle Axiom has already closed (or a null a
@@ -368,10 +428,9 @@ pub mod __private {
         }
     }
 
-    /// Borrow mutably. A shim runs on the thread that called into it and
-    /// touches no Axiom value from any other (`axiom_abi::NotThreadSafe`
-    /// is what enforces that), so the only way to alias is to pass the
-    /// same handle twice in one call.
+    /// Borrow mutably. Generated shims reject another borrow of the same
+    /// handle in their argument list. Exclusivity must also hold during
+    /// callbacks and throughout any nested calls.
     ///
     /// # Safety
     /// As [`borrow`], and no other borrow of the value may be live.
@@ -380,10 +439,7 @@ pub mod __private {
         unsafe {
             // SAFETY: as `borrow` - the `== 0` test below refuses a closed
             // handle - plus this function's extra promise that no other
-            // borrow of the value is live. A shim has no thread of its own,
-            // and `axiom_abi::NotThreadSafe` keeps every handle on the
-            // thread that received it, so aliasing here takes passing one
-            // handle twice in a single call.
+            // borrow of the value is live, including during re-entry.
             if word == 0 {
                 abort(format_args!("`{func}`: handle is closed"));
             }
@@ -663,8 +719,9 @@ pub mod __private {
     ///
     /// # Safety
     /// `word` must be 0 or a live Axiom `Vec` handle for the call, and
-    /// no other view of its words may be live (the same `Vec` passed
-    /// twice in one call is the only way to alias).
+    /// no other view of its words may be live, including during callbacks.
+    /// Generated shims check their direct and nested vector arguments for
+    /// overlapping views before constructing any mutable reference.
     #[inline]
     pub unsafe fn words_mut<'a>(word: AxWord, func: &str, idx: usize, name: &str) -> &'a mut [i64] {
         unsafe {
@@ -1134,6 +1191,40 @@ pub mod __private {
     }
 }
 
+fn checked_buffer_len<T>(ptr: *const T, len: i64, func: &str) -> usize {
+    let Ok(len) = usize::try_from(len) else {
+        __private::abort(format_args!("`{func}`: buffer length is negative"));
+    };
+    let Ok(layout) = core::alloc::Layout::array::<T>(len) else {
+        __private::abort(format_args!(
+            "`{func}`: buffer length exceeds the address space"
+        ));
+    };
+    if len != 0
+        && (ptr.is_null()
+            || !(ptr as usize).is_multiple_of(core::mem::align_of::<T>())
+            || (ptr as usize).checked_add(layout.size()).is_none())
+    {
+        __private::abort(format_args!(
+            "`{func}`: invalid buffer address or alignment"
+        ));
+    }
+    len
+}
+
+fn checked_pair_words(ptr: *const i64, n: i64, func: &str) -> i64 {
+    if n < 0 {
+        __private::abort(format_args!("`{func}`: buffer length is negative"));
+    }
+    let Some(words) = n.checked_mul(2) else {
+        __private::abort(format_args!(
+            "`{func}`: buffer length exceeds the address space"
+        ));
+    };
+    checked_buffer_len(ptr, words, func);
+    words
+}
+
 /// Free bytes handed out by a shim.
 ///
 /// Axiom's generated glue calls this immediately after copying, so the
@@ -1147,17 +1238,18 @@ pub mod __private {
 /// set. Nothing to report, so it reports 0.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn axffi_free_bytes(ptr: *mut u8, len: i64) -> i64 {
+    let len = checked_buffer_len(ptr, len, "axffi_free_bytes");
     unsafe {
         // SAFETY: this function's `# Safety` pins `ptr`/`len` to exactly what
         // a shim returned, i.e. `leak_bytes`'s `Box::into_raw` of a
         // `Box<[u8]>`, so rebuilding that same box reclaims it with the layout
-        // it was allocated with. The null / `len <= 0` test below takes the
+        // it was allocated with. The `len == 0` test below takes the
         // empty case, which never allocated; Axiom's glue calls this once,
         // right after the copy (C4).
-        if ptr.is_null() || len <= 0 {
+        if len == 0 {
             return 0;
         }
-        let s = core::ptr::slice_from_raw_parts_mut(ptr, len as usize);
+        let s = core::ptr::slice_from_raw_parts_mut(ptr, len);
         drop(alloc::boxed::Box::from_raw(s));
         0
     }
@@ -1170,15 +1262,16 @@ pub unsafe extern "C" fn axffi_free_bytes(ptr: *mut u8, len: i64) -> i64 {
 /// must not have been freed.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn axffi_free_words(ptr: *mut i64, len: i64) -> i64 {
+    let len = checked_buffer_len(ptr, len, "axffi_free_words");
     unsafe {
         // SAFETY: as `axffi_free_bytes`, over `leak_words`'s `Box<[i64]>`:
         // the caller promises the pair a shim wrote into the out-cell, and
-        // the null / `len <= 0` test below takes the empty case, which
+        // the `len == 0` test below takes the empty case, which
         // never allocated.
-        if ptr.is_null() || len <= 0 {
+        if len == 0 {
             return 0;
         }
-        let s = core::ptr::slice_from_raw_parts_mut(ptr, len as usize);
+        let s = core::ptr::slice_from_raw_parts_mut(ptr, len);
         drop(alloc::boxed::Box::from_raw(s));
         0
     }
@@ -1193,22 +1286,23 @@ pub unsafe extern "C" fn axffi_free_words(ptr: *mut i64, len: i64) -> i64 {
 /// must not have been freed.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn axffi_free_str_list(ptr: *mut i64, n: i64) -> i64 {
+    let words = checked_pair_words(ptr, n, "axffi_free_str_list");
     unsafe {
         // SAFETY: the caller promises the `(ptr, n)` a shim wrote, so
         // `leak_strs` allocated exactly `2n` words here and the read is in
         // bounds; each pair is a `leak_bytes` result, which is
         // `axffi_free_bytes`'s own precondition. The pair buffer is a
         // `leak_words` buffer of `2n` words, freed last so the loop still
-        // has it to read. The null / `n <= 0` test below takes the empty
+        // has it to read. The `words == 0` test below takes the empty
         // case.
-        if ptr.is_null() || n <= 0 {
+        if words == 0 {
             return 0;
         }
-        let pairs = core::slice::from_raw_parts(ptr, n as usize * 2);
+        let pairs = core::slice::from_raw_parts(ptr, words as usize);
         for pair in pairs.chunks_exact(2) {
             axffi_free_bytes(pair[0] as *mut u8, pair[1]);
         }
-        axffi_free_words(ptr, n * 2)
+        axffi_free_words(ptr, words)
     }
 }
 
@@ -1222,19 +1316,20 @@ pub unsafe extern "C" fn axffi_free_str_list(ptr: *mut i64, n: i64) -> i64 {
 /// must not have been freed.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn axffi_free_word_lists(ptr: *mut i64, n: i64) -> i64 {
+    let words = checked_pair_words(ptr, n, "axffi_free_word_lists");
     unsafe {
         // SAFETY: as `axffi_free_str_list` over `leak_word_lists`: `2n`
         // words of `(wordsPtr, len)` pairs, each pair exactly what
         // `leak_words` answered and so `axffi_free_words`'s precondition,
         // and the pair buffer freed last, after the loop has read it.
-        if ptr.is_null() || n <= 0 {
+        if words == 0 {
             return 0;
         }
-        let pairs = core::slice::from_raw_parts(ptr, n as usize * 2);
+        let pairs = core::slice::from_raw_parts(ptr, words as usize);
         for pair in pairs.chunks_exact(2) {
             axffi_free_words(pair[0] as *mut i64, pair[1]);
         }
-        axffi_free_words(ptr, n * 2)
+        axffi_free_words(ptr, words)
     }
 }
 

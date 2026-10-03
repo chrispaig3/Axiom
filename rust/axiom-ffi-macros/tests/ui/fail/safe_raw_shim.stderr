@@ -1,0 +1,7 @@
+error[E0133]: call to unsafe function `axffi_first` is unsafe and requires unsafe block
+ --> tests/ui/fail/safe_raw_shim.rs:9:5
+  |
+9 |     axffi_first(1);
+  |     ^^^^^^^^^^^^^^ call to unsafe function
+  |
+  = note: consult the function's documentation for information on how to avoid undefined behavior

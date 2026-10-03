@@ -499,9 +499,9 @@ and a note says to put the attribute on the declaration
 A returning shim boxes the value and returns its address. A borrowing
 shim (`&T`, `&mut T`) reads the word and aborts if it is 0, with
 ``axiom-ffi: `counter_value`: handle is closed`` and exit status 73.
-Otherwise it borrows for the call. Axiom has no threads (`MM-PAR-1`),
-so the only way to alias a `&mut` is to pass one handle twice in one
-call. Avoiding that is up to your program.
+Otherwise it borrows for the call. Generated shims reject repeated
+handles when either borrow is mutable, before constructing references.
+Callbacks must preserve the exclusivity of every live mutable borrow.
 
 On the Axiom side, the builtin type `Handle` is a counted heap block of
 the *foreign form*: shape-word bit 0 is set, and there are two payload
@@ -667,6 +667,21 @@ Tested by `tests/ffi/demo/130-callbacks.ax`.
 
 Vectors, slices and records all cross as words, and Rust never writes
 an Axiom block (C4).
+
+Generated shims reject overlapping direct or nested vector views when
+one argument is mutable. Callbacks must not access a vector while its
+words are borrowed mutably, or grow or release any borrowed vector.
+These checks require live, correctly typed values; they do not validate
+arbitrary addresses.
+
+When calling a raw shim from Rust, borrowed arguments and out-cells
+require an `unsafe` block. Keep each value live, preserve exclusive
+mutable borrows and provide a disjoint out-cell large enough for the
+return shape. Scalar calls and constructors without borrowed inputs
+remain safe. Rust buffer frees reject invalid lengths and layouts;
+return each allocation pair exactly once.
+
+Tested by `rust/axiom-ffi/tests/contracts.rs` and `scripts/check-ffi.sh`.
 
 | Rust | Axiom | wire |
 |---|---|---|

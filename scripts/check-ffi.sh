@@ -795,6 +795,15 @@ fi
 # finding. `axiom-host` is excluded for the same reason `ci.yml` excludes
 # it - it links a real Axiom archive and needs $AXIOM_HOST_ARCHIVE_DIR.
 echo "== the hand-written Rust: clippy and rustfmt =="
+if command -v cargo >/dev/null 2>&1; then
+  if contract_out="$(cd rust && cargo test --locked -p axiom-ffi --test contracts 2>&1)"; then
+    echo "ok   raw FFI alias and deallocation contract probes"
+  else
+    echo "FAIL raw FFI contract probes"
+    printf '%s\n' "$contract_out" | tail -15 | sed 's/^/     /'
+    status=1
+  fi
+fi
 if ! command -v cargo >/dev/null 2>&1; then
   echo "ok   cargo is not installed; the Rust lint pass is skipped (reported, not silent)"
 elif ! cargo clippy --version >/dev/null 2>&1; then

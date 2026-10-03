@@ -16,6 +16,12 @@ its changelog too.
 
 ## Unreleased
 
+- Raw Rust shims that borrow values or write an out-cell require an
+  unsafe call. Generated shims reject overlapping mutable vector views
+  and repeated opaque handles when one borrow is mutable. Buffer frees
+  reject negative lengths, invalid layouts and pair-count overflow
+  before dereferencing or deallocating. Tested by `scripts/check-ffi.sh`.
+
 - The Rust wire ABI is version 3: callback code takes an ownership
   evidence word after its environment and argument. Rebuild Rust
   callback libraries against this ABI. Tested by
