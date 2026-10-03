@@ -502,6 +502,9 @@ shim (`&T`, `&mut T`) reads the word and aborts if it is 0, with
 Otherwise it borrows for the call. Generated shims reject repeated
 handles when either borrow is mutable, before constructing references.
 Callbacks must preserve the exclusivity of every live mutable borrow.
+The generated owner is a sealed struct. Its constructor and `handle`
+field stay in the binding module, so callers cannot rewrap a pointer
+as another Rust type.
 
 On the Axiom side, the builtin type `Handle` is a counted heap block of
 the *foreign form*: shape-word bit 0 is set, and there are two payload
@@ -544,30 +547,32 @@ that must go *now*, such as a file or a lock, and for nothing else.
 `axiom-bindgen` generates this shape (`Demo.ax`):
 
 ```scheme
-(pub data Counter (Counter Handle))          ; one per #[axiom_opaque] type
+(pub struct Counter sealed (handle : Handle))
 
 (pub :: counterNew (-> Int Counter))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (counterNew start)
   (let ((__p (cast Int (counterNewRaw start)))
         (__h (ffiHandleNew __p counterDropFn)))
     (Counter __h)))
 
 (pub :: counterValue (-> Counter Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (counterValue c)
-  (match c
-    ((Counter __h0)
-      (let ((__a0 (cast Foreign (ffiHandlePtr __h0)))
-            (__r (counterValueRaw __a0)))
-        __r))))
+  (let ((__a0 (cast Foreign (ffiHandlePtr c.handle)))
+        (__r (counterValueRaw __a0)))
+    __r))
 
 (pub :: counterClose (-> Counter Int))       ; explicit early close, optional
 (pub fn (counterClose c)
-  (match c ((Counter __h) (ffiHandleClose __h))))
+  (ffiHandleClose c.handle))
 ```
 
-The cell holds the `Handle`, so the cell's death releases the handle,
+The struct holds the `Handle`, so its death releases the handle,
 and the handle's death runs the Rust `Drop`. `Counter` and `Widget`
-stay distinct Axiom types because each is its own `data`.
+stay distinct Axiom types because each is its own sealed struct.
 `(cast Int x)` and `(cast Foreign x)` reinterpret the bits, and they
 are the documented way across the `Foreign`/`Int` line.
 

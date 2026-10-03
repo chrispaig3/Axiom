@@ -119,23 +119,21 @@
 
 ; `Counter` is a Rust value held through a `Handle`: when the last
 ; reference dies the handle runs `axffi_counter_drop`.
-(pub data Counter
-  (Counter Handle))
+(pub struct Counter sealed
+  (handle : Handle))
 
 (pub :: counterClose (-> Counter Int))
 (pub fn (counterClose c)
-  (match c
-    ((Counter __h) (ffiHandleClose __h))))
+  (ffiHandleClose c.handle))
 
 ; `Reentrant` is a Rust value held through a `Handle`: when the last
 ; reference dies the handle runs `axffi_reentrant_drop`.
-(pub data Reentrant
-  (Reentrant Handle))
+(pub struct Reentrant sealed
+  (handle : Handle))
 
 (pub :: reentrantClose (-> Reentrant Int))
 (pub fn (reentrantClose c)
-  (match c
-    ((Reentrant __h) (ffiHandleClose __h))))
+  (ffiHandleClose c.handle))
 
 (pub :: bytesOf (-> String String))
 ;@axiom:effect(io)
@@ -175,14 +173,11 @@
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 (pub fn (counterAdd c by)
-  (match c
-    ((Counter __h0)
-      (let (
-        (__a0 (cast Foreign (ffiHandlePtr __h0)))
-        (__r (counterAddRaw __a0 by))
-      )
-        __r)
-    )))
+  (let (
+    (__a0 (cast Foreign (ffiHandlePtr c.handle)))
+    (__r (counterAddRaw __a0 by))
+  )
+    __r))
 
 (pub :: counterNew (-> Int Counter))
 ;@axiom:effect(io)
@@ -220,14 +215,11 @@
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 (pub fn (counterValue c)
-  (match c
-    ((Counter __h0)
-      (let (
-        (__a0 (cast Foreign (ffiHandlePtr __h0)))
-        (__r (counterValueRaw __a0))
-      )
-        __r)
-    )))
+  (let (
+    (__a0 (cast Foreign (ffiHandlePtr c.handle)))
+    (__r (counterValueRaw __a0))
+  )
+    __r))
 
 (pub :: doubleInPlace (-> (Vec Int) Int))
 ;@axiom:effect(io)

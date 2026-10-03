@@ -492,6 +492,23 @@ fi
 #    AX4004 AND requires the strings `opt:` and `AX4003` to be ABSENT:
 #    a refusal arriving from the native toolchain is the old bug wearing
 #    a new name, and only their absence tells the two apart.
+for seal_case in '010-forged-owner:AX3085' '020-exposed-handle:AX3086'; do
+  seal_name="${seal_case%%:*}"
+  seal_code="${seal_case#*:}"
+  if seal_out="$("$axiom" --diagnostic-format=ai build \
+      --input "tests/ffi/probe-sealed/$seal_name.axbad" --output "$work/$seal_name" \
+      --crate rust/examples/demo 2>&1)"; then
+    echo "FAIL $seal_name: an opaque owner escaped its seal"
+    status=1
+  elif ! grep -q "^E $seal_code " <<< "$seal_out"; then
+    echo "FAIL $seal_name: expected $seal_code"
+    printf '%s\n' "$seal_out" | head -4
+    status=1
+  else
+    echo "ok   $seal_name: opaque owner is sealed ($seal_code)"
+  fi
+done
+
 ung="tests/ffi/probe-ungrounded/020-missing-symbol.axbad"
 if [[ -f "$ung" ]]; then
   if ung_out="$("$axiom" --diagnostic-format=ai build --input "$ung" --output "$work/ung" \

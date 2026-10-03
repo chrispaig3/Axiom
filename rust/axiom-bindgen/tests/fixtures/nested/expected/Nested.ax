@@ -137,23 +137,21 @@
 
 ; `Thing` is a Rust value held through a `Handle`: when the last
 ; reference dies the handle runs `axffi_thing_drop`.
-(pub data Thing
-  (Thing Handle))
+(pub struct Thing sealed
+  (handle : Handle))
 
 (pub :: thingClose (-> Thing Int))
 (pub fn (thingClose c)
-  (match c
-    ((Thing __h) (ffiHandleClose __h))))
+  (ffiHandleClose c.handle))
 
 ; `Widget` is a Rust value held through a `Handle`: when the last
 ; reference dies the handle runs `axffi_widget_v2_drop`.
-(pub data Widget
-  (Widget Handle))
+(pub struct Widget sealed
+  (handle : Handle))
 
 (pub :: widgetClose (-> Widget Int))
 (pub fn (widgetClose c)
-  (match c
-    ((Widget __h) (ffiHandleClose __h))))
+  (ffiHandleClose c.handle))
 
 (pub :: charsOf (-> String (Vec Int)))
 ;@axiom:effect(io)
@@ -589,37 +587,34 @@
     ((Pixel __f0 __f1 __f2)
       (match b
         ((Pixel __f3 __f4 __f5)
-          (match t
-            ((Thing __h2)
-              (let (
-                (__a2 (cast Foreign (ffiHandlePtr __h2)))
-                (__c (ffiCellNewN 3))
-                (__st (pixelMixRaw
-                  __f0
-                  __f1
-                  __f2
-                  __f3
-                  __f4
-                  __f5
-                  __a2
-                  __c))
-                (__p (ffiCellWord __c 0))
-                (__n (ffiCellWord __c 1))
-                (__w0 (ffiCellWord __c 0))
-                (__w1 (cast Float (ffiCellWord __c 1)))
-                (__w2 (cast Bool (ffiCellWord __c 2)))
-                (__r (Pixel __w0 __w1 __w2))
-              )
-                (if (== __st ffiStatusOk)
-                  {
-                    (ffiCellFree __c)
-                    (Some __r)
-                  }
-                  {
-                    (ffiCellFree __c)
-                    None
-                  }))
-            ))
+          (let (
+            (__a2 (cast Foreign (ffiHandlePtr t.handle)))
+            (__c (ffiCellNewN 3))
+            (__st (pixelMixRaw
+              __f0
+              __f1
+              __f2
+              __f3
+              __f4
+              __f5
+              __a2
+              __c))
+            (__p (ffiCellWord __c 0))
+            (__n (ffiCellWord __c 1))
+            (__w0 (ffiCellWord __c 0))
+            (__w1 (cast Float (ffiCellWord __c 1)))
+            (__w2 (cast Bool (ffiCellWord __c 2)))
+            (__r (Pixel __w0 __w1 __w2))
+          )
+            (if (== __st ffiStatusOk)
+              {
+                (ffiCellFree __c)
+                (Some __r)
+              }
+              {
+                (ffiCellFree __c)
+                None
+              }))
         ))
     )))
 
@@ -767,38 +762,32 @@
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 (pub fn (thingGet t)
-  (match t
-    ((Thing __h0)
-      (let (
-        (__a0 (cast Foreign (ffiHandlePtr __h0)))
-        (__r (thingGetRaw __a0))
-      )
-        __r)
-    )))
+  (let (
+    (__a0 (cast Foreign (ffiHandlePtr t.handle)))
+    (__r (thingGetRaw __a0))
+  )
+    __r))
 
 (pub :: thingMaybe (-> Thing (Option Thing)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 (pub fn (thingMaybe t)
-  (match t
-    ((Thing __h0)
-      (let (
-        (__a0 (cast Foreign (ffiHandlePtr __h0)))
-        (__c ffiCellNew)
-        (__st (thingMaybeRaw __a0 __c))
-        (__p (ffiCellWord __c 0))
-        (__n (ffiCellWord __c 1))
-      )
-        (if (== __st ffiStatusOk)
-          {
-            (ffiCellFree __c)
-            (Some (Thing (ffiHandleNew __p thingDropFn)))
-          }
-          {
-            (ffiCellFree __c)
-            None
-          }))
-    )))
+  (let (
+    (__a0 (cast Foreign (ffiHandlePtr t.handle)))
+    (__c ffiCellNew)
+    (__st (thingMaybeRaw __a0 __c))
+    (__p (ffiCellWord __c 0))
+    (__n (ffiCellWord __c 1))
+  )
+    (if (== __st ffiStatusOk)
+      {
+        (ffiCellFree __c)
+        (Some (Thing (ffiHandleNew __p thingDropFn)))
+      }
+      {
+        (ffiCellFree __c)
+        None
+      })))
 
 (pub :: thingNew (-> Int Thing))
 ;@axiom:effect(io)
@@ -814,18 +803,12 @@
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 (pub fn (thingPair a b scale)
-  (match a
-    ((Thing __h0)
-      (match b
-        ((Thing __h1)
-          (let (
-            (__a0 (cast Foreign (ffiHandlePtr __h0)))
-            (__a1 (cast Foreign (ffiHandlePtr __h1)))
-            (__r (thingPairRaw __a0 __a1 scale))
-          )
-            __r)
-        ))
-    )))
+  (let (
+    (__a0 (cast Foreign (ffiHandlePtr a.handle)))
+    (__a1 (cast Foreign (ffiHandlePtr b.handle)))
+    (__r (thingPairRaw __a0 __a1 scale))
+  )
+    __r))
 
 (pub :: thingTry (-> Int (Result Thing String)))
 ;@axiom:effect(io)

@@ -1,0 +1,7 @@
+; A caller cannot extract a handle and rewrap it as a different Rust type.
+(import Demo)
+
+(:: expose (-> Counter Handle))
+(fn (expose c) c.handle)
+
+(fn (main) 0)

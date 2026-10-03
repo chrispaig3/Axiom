@@ -25,7 +25,7 @@
 //!   (counterNewRaw :: (-> Int Foreign) (symbol "axffi_counter_new"))
 //!   (counterDropFn :: Int (symbol "axffi_counter_drop_fn")))
 //!
-//! (pub data Counter (Counter Handle))  ; one per #[axiom_opaque] type
+//! (pub struct Counter sealed (handle : Handle))  ; one per #[axiom_opaque] type
 //! (pub :: counterClose (-> Counter Int))
 //! (pub :: counterNew (-> Int Counter))
 //! (pub :: shout (-> String String))
@@ -609,24 +609,19 @@ impl Surface {
             tops.push(body);
         }
 
-        // One `data` per opaque type, with its close wrapper.
+        // Each opaque type owns a sealed handle field. Callers cannot
+        // rewrap a different Rust type's handle.
         for o in &opaques {
             let t = &o.name;
             tops.push(format!(
                 "; `{t}` is a Rust value held through a `Handle`: when the last\n\
                  ; reference dies the handle runs `{}`.\n\
-                 (pub data {t}\n  ({t} Handle))",
+                 (pub struct {t} sealed\n  (handle : Handle))",
                 cls::drop_symbol(&o.stem)
             ));
             let close = format!("{}Close", lower_first(t));
             tops.push(format!("(pub :: {close} (-> {t} Int))"));
-            let body = Ex::Match(
-                Box::new(atom("c")),
-                vec![(
-                    app(vec![atom(t), atom("__h")]),
-                    app(vec![atom("ffiHandleClose"), atom("__h")]),
-                )],
-            );
+            let body = app(vec![atom("ffiHandleClose"), atom("c.handle")]);
             tops.push(sexp::decl_fn(&close, &["c".to_string()], &body));
         }
 
@@ -1343,8 +1338,8 @@ impl Decl {
         let mut field_no = 0usize;
         for (i, (name, p)) in self.params.iter().enumerate() {
             match p {
-                Param::Opaque { ty, .. } => {
-                    let h = format!("__h{i}");
+                Param::Opaque { .. } => {
+                    let h = format!("{name}.handle");
                     let a = format!("__a{i}");
                     binds.push((
                         a.clone(),
@@ -1354,7 +1349,6 @@ impl Decl {
                         ),
                     ));
                     args.push(atom(&a));
-                    matches.push((name.clone(), app(vec![atom(&ty.name), atom(&h)])));
                 }
                 Param::Record(r) => {
                     let mut pat = vec![atom(&r.name)];

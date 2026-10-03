@@ -24,7 +24,7 @@ usage: axiom-bindgen --src <dir> --lib <name> [--module <Name>] [-o <file.ax>]
 
 The module imports Ffi (and Err when a Result wrapper exists), binds every
 pub #[axiom_export] fn and every hand-written `pub extern \"C\" fn axffi_*`,
-and declares one `data` type per #[axiom_opaque] type.
+and declares one sealed struct per #[axiom_opaque] type.
 ";
 
 fn main() {

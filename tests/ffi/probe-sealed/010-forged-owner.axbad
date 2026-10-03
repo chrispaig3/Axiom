@@ -1,0 +1,7 @@
+; The binding's Rust type cannot be made around another Handle.
+(import Demo)
+
+(:: forge (-> Handle Counter))
+(fn (forge h) (Counter h))
+
+(fn (main) 0)

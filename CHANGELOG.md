@@ -16,6 +16,13 @@ its changelog too.
 
 ## Unreleased
 
+- Generated opaque Rust owners are sealed structs. Callers use the
+  binding's functions to create and close them; constructors and handle
+  fields stay in the binding module. This prevents rewrapping one Rust
+  type's pointer as another. Regenerate bindings for 0.8.0. Tested by
+  `tests/ffi/probe-sealed/010-forged-owner.axbad` and
+  `tests/ffi/probe-sealed/020-exposed-handle.axbad`.
+
 - Rust callback values carry the call's lifetime. Safe export bodies
   cannot store a borrowed callback for later use; exported parameters
   accept elided lifetimes and `'_`, and refuse `'static`. Tested by

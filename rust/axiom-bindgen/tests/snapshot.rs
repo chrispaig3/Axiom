@@ -110,8 +110,9 @@ fn nested_fixture_shape() {
     );
     assert!(fresh.contains(";@axiom:effect(io)\n;@axiom:effect(unsafe)\n(pub fn (thingGet t)"));
     assert!(fresh.contains("(__st (echoRaw cell __c))"));
-    // One data type per opaque type, with the overridden stem.
-    assert!(fresh.contains("(pub data Thing\n  (Thing Handle))"));
+    // The Rust type's handle stays in the declaring module.
+    assert!(fresh.contains("(pub struct Thing sealed\n  (handle : Handle))"));
+    assert!(fresh.contains("(ffiHandlePtr t.handle)"));
     assert!(fresh.contains("(widgetDropFn :: Int (symbol \"axffi_widget_v2_drop_fn\"))"));
     // Option and Result wrappers.
     assert!(fresh.contains("(pub :: check (-> Bool (Option Bool)))"));
