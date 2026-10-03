@@ -1,7 +1,9 @@
-Type error: undefined variable `zzz`
+Type error: [AX3001] undefined variable `zzz`
+  help: run `axiom explain AX3001`
 type : Int
 result 3
-Type error: undefined variable `undefined_fn`
+Type error: [AX3001] undefined variable `undefined_fn`
+  help: run `axiom explain AX3001`
 type : Int
 result 9
 

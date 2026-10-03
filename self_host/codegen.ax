@@ -7890,24 +7890,26 @@
 
 ; Declaration Vec for module `name`; a module that cannot be read or
 ; parsed is a fatal diagnostic, never a 0 this returns.
-(pub :: parseModuleOrDie (-> String Int String Int))
+(pub :: parseModuleOrDie (-> String Int String Int Int Int))
 
 ; As `parseModuleOrDie`, and additionally records the module in the
 ; UNIT TABLE - the path a diagnostic about this module renders
 ; against, its text, and its name so the checker can find the index
 ; from a declaration's `module` stamp.
-(pub :: parseModuleOrDieUnit (-> String Int String (Vec Int) (Vec a)))
+(pub :: parseModuleOrDieUnit (-> String Int String (Vec Int) String Int (Vec a)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
-(pub fn (parseModuleOrDieUnit name tcode entryDir units)
+(pub fn (parseModuleOrDieUnit name tcode entryDir units parentName site)
+  (let ((parent (vecGet units
+    (if (== (cast Int parentName) 0) 0 (unitIndexOf units parentName 0)))))
   {
     (if (== (unitIndexOf units name 0) (- 0 1))
       (vecPush
         units
         (cast Int (CUnit2 (moduleSrcPath name tcode entryDir) (readModuleSrcOr name tcode entryDir "") name)))
       (cast (Vec Int) 0))
-    (parseModuleOrDie name tcode entryDir)
-  })
+    (parseModuleOrDie name tcode entryDir parent (nodeSpan site))
+  }))
 
 (pub :: unitIndexOf (-> (Vec Int) String Int Int))
 ;@axiom:effect(unsafe)
@@ -7920,16 +7922,11 @@
         i
         (unitIndexOf units name (+ i 1))))))
 
-; The unresolvable import is a REAL DIAGNOSTIC now - AX5001,
-; spanless, rendered in the chosen format like every other refusal -
-; where it used to be a bare "cannot read module" line and exit 3.
-; stage0's shape, probed 2026-08-08: `E AX5001 <import>:-
-; module-not-found "cannot resolve import \`Name\`"` with one help
-; listing every candidate filename and every directory searched, and
-; exit 1. The help's paths are THIS binary's search list
-; (moduleSearchDirs), so the bytes legitimately differ between two
-; differently-located compilers - the pin is structural, in
-; check-self-host.sh and check-driver.sh, not a corpus golden.
+; An unresolved import reports AX5001 at the import form in its
+; parent's source unit, including imports nested inside other modules.
+; The help lists each candidate filename and search directory. These
+; depend on the compiler's location, so check-driver.sh pins the source
+; span and search structure rather than a complete golden.
 ;
 ; The format flag is re-derived from argv here for the same reason
 ; dieImport re-derives the subcommand: driver.ax owns flagValue and
@@ -7997,16 +7994,16 @@
         (catStrs parts)
       })))
 
-(pub :: dieImportDiag (-> String Int String Int))
+(pub :: dieImportDiag (-> String Int String Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
-(pub fn (dieImportDiag name tcode entryDir)
+(pub fn (dieImportDiag name tcode entryDir parent span)
   (let (
     (d (mkDiag
       SEV_ERROR
       "AX5001"
       "module-not-found"
-      0
+      span
       (strConcat "cannot resolve import `" (strConcat name "`"))
       0
       0
@@ -8016,12 +8013,7 @@
   )
     {
       (vecPush ds d)
-      (vecPush
-        units
-        (cast Int (CUnit2
-          "<import>"
-          ""
-          (cast String 0))))
+      (vecPush units parent)
       (let ((out 
         (cast String (renderDiagsFormat diagFormatFromArgv ds units))))
         (writeStr 2 out))
@@ -8084,10 +8076,10 @@
 
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
-(pub fn (parseModuleOrDie name tcode entryDir)
+(pub fn (parseModuleOrDie name tcode entryDir parent span)
   (let ((srcOpt (readModuleSrc name tcode entryDir)))
     (match srcOpt
-      ((None) (dieImportDiag name tcode entryDir))
+      ((None) (dieImportDiag name tcode entryDir parent span))
       ; `parseModuleWith`, not `parseModule`: an imported module's
       ; AXTAGs have to attach to its declarations exactly as the
       ; entry file's do, or `symbols` prints `#effects=IO` beside a
@@ -8412,7 +8404,7 @@
                 ; exist yet when the filter is applied here
                 ; (MAC-EXP-16).
                 (let (
-                  (modDecls (parseModuleOrDieUnit name tcode entryDir units))
+                  (modDecls (parseModuleOrDieUnit name tcode entryDir units modName first))
                   (subFilter (let ((ns (nodeBVec first)))
                     (if (==
                       (cast Int ns)

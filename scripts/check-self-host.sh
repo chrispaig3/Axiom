@@ -128,7 +128,7 @@ done
 # module, not a silent skip. Skipping is the failure mode that presented
 # `stdlib/Fmt.ax` failing to parse as `use of undefined value '@fmtInt'`
 # out of llc - a codegen-shaped report for an import-shaped failure.
-# An unresolvable import is a real diagnostic now - AX5001, spanless,
+# An unresolvable import is a source diagnostic: AX5001 at the import,
 # exit 1, stage0's code (2026-08-08; it was a bare "cannot read
 # module" line and exit 3, whose only consumers were this gate and
 # check-driver.sh). The pin is structural: the code, the module's

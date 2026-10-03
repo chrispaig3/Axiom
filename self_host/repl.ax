@@ -1158,7 +1158,11 @@
     {
       (while (< i (vecLen ds))
         {
-          (replOut (strConcat (strConcat "Type error: " (diagMsg (vecGet ds i))) "\n"))
+          (let ((d (vecGet ds i)) (code (diagCode d)))
+            {
+              (replOut (strConcat (strConcat (strConcat (strConcat "Type error: [" code) "] ") (diagMsg d)) "\n"))
+              (replOut (strConcat (strConcat "  help: run `axiom explain " code) "`\n"))
+            })
           (set i (+ i 1))
         })
       0

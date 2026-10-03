@@ -473,7 +473,7 @@ array, so output can be streamed. The program from
 [Read a diagnostic](#read-a-diagnostic) gives:
 
 ```json
-{"severity":"error","code":"AX3001","slug":"undefined-variable","message":"undefined variable `helpr`","file":"main.ax","span":{"start":{"line":6,"col":4},"end":{"line":6,"col":9},"char_start":78,"char_end":83},"label":"no binding named `helpr` in scope","related":[],"notes":[],"help":["a similarly named binding `helper` is in scope; did you mean this?"],"expansion":[]}
+{"severity":"error","code":"AX3001","slug":"undefined-variable","message":"undefined variable `helpr`","file":"main.ax","span":{"start":{"line":6,"col":4},"end":{"line":6,"col":9},"char_start":78,"char_end":83},"label":"no binding named `helpr` in scope","related":[],"notes":[],"help":["a similarly named binding `helper` is in scope; did you mean this?"],"fixes":[{"file":"main.ax","span":{"start":{"line":6,"col":4},"end":{"line":6,"col":9},"char_start":78,"char_end":83},"replacement":"helper"}],"expansion":[]}
 ```
 
 - `expansion` is the array form of AXDL's `&` field, one object per
@@ -482,8 +482,10 @@ array, so output can be streamed. The program from
 - `span` appears only when the diagnostic has a location, and `label`
   only when it also has a label. You can tell "no label" from an empty
   one.
-- `help` holds each help's text. A fix's replacement appears only in
-  the AXDL and human formats.
+- `help` holds each help's text. When a help carries a replacement,
+  `fixes` contains its `file`, `span` and `replacement`, in help order.
+  The key is absent when there are no fixes. Empty replacements delete
+  the span; an empty span inserts the replacement.
 - After the last object, a failed run prints the plain summary line
   from [Errors, warnings and the exit status](#errors-warnings-and-the-exit-status).
 
@@ -494,6 +496,8 @@ source a byte at a time. The JSON renderer converts them (`jsonSpan` in
 representation behind them. For ASCII source, characters and bytes
 agree. For source with multi-byte UTF-8 characters, don't use these
 fields as byte indices into the file.
+
+Tested by `scripts/check-render-selfhost.sh`.
 
 ## AXSYM: symbol/type notation (`axiom symbols`)
 

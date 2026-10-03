@@ -170,6 +170,46 @@ grep -q 'x86_64-unknown-linux-gnu' legacy_t.ll \
 "$s1" build --input badimport.ax --output nope3 >/dev/null 2>&1; [[ $? == 1 ]] \
   && ok "an unresolvable import exits 1 (AX5001, stage0's code)" || bad "import exit code"
 
+# The source is the importing module, including a failure one import
+# below the entry file. Check each format against the input location.
+printf '; nested import\n\n(import MissingNested)\n' >ImportParent.ax
+printf '(import ImportParent)\n(fn (main) 0)\n' >nestedimport.ax
+for input in badimport.ax nestedimport.ax; do
+  expected_file=badimport.ax
+  expected_line=1
+  if [[ "$input" == nestedimport.ax ]]; then
+    expected_file=ImportParent.ax
+    expected_line=3
+  fi
+  for format in ai human json; do
+    "$s1" --diagnostic-format="$format" check "$input" >/dev/null 2>import.err
+    rc=$?
+    if [[ $rc != 1 ]]; then
+      bad "missing import in $input ($format): exit $rc"
+    elif [[ "$format" == json ]]; then
+      if python3 - "$expected_file" "$expected_line" import.err <<'PY'
+import json, pathlib, sys
+name, line, report = sys.argv[1:]
+diagnostic = json.loads(pathlib.Path(report).read_text().splitlines()[0])
+assert diagnostic['code'] == 'AX5001'
+assert pathlib.Path(diagnostic['file']).name == name
+assert diagnostic['span']['start'] == {'line': int(line), 'col': 9}
+source = pathlib.Path(name).read_text()
+start = sum(len(s) for s in source.splitlines(keepends=True)[:int(line)-1]) + 8
+assert diagnostic['span']['char_start'] == start
+assert diagnostic['span']['char_end'] == source.index(')', start)
+PY
+      then ok "missing import in $input has its source span ($format)"
+      else bad "missing import in $input has its source span ($format)"; fi
+    elif grep -q 'AX5001' import.err \
+         && grep -q "$expected_file:$expected_line:9" import.err; then
+      ok "missing import in $input has its source span ($format)"
+    else
+      bad "missing import in $input has its source span ($format)"
+    fi
+  done
+done
+
 "$s1" build --input no-such-file.ax --output nope4 >err.txt 2>&1; rc=$?
 [[ $rc == 1 ]] && grep -q 'no-such-file.ax' err.txt \
   && ok "an unreadable input exits 1 and names the file" || bad "unreadable input"

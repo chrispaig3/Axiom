@@ -4,7 +4,8 @@ result 3
 OK: sq defined
 type : Int
 result 25
-Type error: undefined variable `bad_name`
+Type error: [AX3001] undefined variable `bad_name`
+  help: run `axiom explain AX3001`
 type : Int
 result 16
 OK: dec defined

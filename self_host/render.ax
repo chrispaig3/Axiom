@@ -1428,6 +1428,33 @@
       (jsonStrArray v)
     }))
 
+(pub :: jsonFixField (-> Int String Int String String))
+;@axiom:effect(unsafe)
+(pub fn (jsonFixField d src ix file)
+  (let ((parts vecNew) (mut i 0) (mut count 0))
+    {
+      (while (< i (diagHelpCount d))
+        {
+          (let ((span (diagHelpFixSpan d i)))
+            (when (!= span 0)
+              {
+                (when (> count 0) (vecPush parts ","))
+                (vecPush parts "{\"file\":\"")
+                (vecPush parts (jsonEsc file))
+                (vecPush parts "\",\"span\":")
+                (vecPush parts (jsonSpan src ix span))
+                (vecPush parts ",\"replacement\":\"")
+                (vecPush parts (jsonEsc (diagHelpFixText d i)))
+                (vecPush parts "\"}")
+                (set count (+ count 1))
+              }))
+          (set i (+ i 1))
+        })
+      (if (== count 0)
+        ""
+        (strConcat (strConcat ",\"fixes\":[" (catStrs parts)) "]"))
+    }))
+
 (pub :: jsonNoteArray (-> Int String))
 (pub fn (jsonNoteArray d)
   (let (
@@ -1597,7 +1624,7 @@
             units
             ixs)) ","))
         (strConcat (strConcat "\"notes\":" (jsonNoteArray d)) ","))
-      (strConcat (strConcat (strConcat (strConcat "\"help\":" (jsonHelpArray d)) ",\"expansion\":") (jsonTraceArray d units ixs)) "}"))))
+      (strConcat (strConcat (strConcat (strConcat (strConcat "\"help\":" (jsonHelpArray d)) (jsonFixField d src ix file)) ",\"expansion\":") (jsonTraceArray d units ixs)) "}"))))
 
 (pub :: renderDiagsJsonUnits (-> (Vec Int) (Vec Int) String))
 ;@axiom:effect(unsafe)

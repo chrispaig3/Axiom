@@ -43,6 +43,7 @@ Error: Unknown command ':zzz'. Type :help for available commands.
 Error: Usage: :type <expression>
 OK: f defined
 REPL state reset.
-Type error: undefined variable `f`
+Type error: [AX3001] undefined variable `f`
+  help: run `axiom explain AX3001`
 
 Goodbye!

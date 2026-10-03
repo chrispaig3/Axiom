@@ -1146,8 +1146,7 @@
       (vecPush parts ":")
       ; A diagnostic with no span renders `file:-`, stage0's spelling
       ; for None - and a span of 0 fed to fmtSpan would be read as
-      ; address zero. AX5001 is the first spanless producer; every
-      ; earlier diagnostic had a position by construction.
+      ; address zero. Synthetic diagnostics may have no source position.
       (vecPush
         parts
         (if (== (diagSpan d) 0)

@@ -43,6 +43,9 @@ WHAT IS DERIVED, per diagnostic:
     `^file:L:C-C:"msg"`, and `{"label"}` alone for `^-:"msg"`, which
     names a location that does not exist. The pair is present or it is
     not, which is how a spanless diagnostic already reads.
+  * `fixes` carries each help's location and replacement, in help order,
+    including empty replacements. Its character offsets are derived
+    from the fixture. The key is absent when no help carries a fix.
 
 The comparison is on the whole decoded object, so a key the renderer
 invented and a key it dropped are both failures; a derivation that
@@ -235,6 +238,12 @@ def derive(f, fixtures, lines):
         want['span'] = span_obj(lines, f['span'])
         if f['label'] is not None:
             want['label'] = f['label']
+    fixes = [{'file': f['file'], 'span': span_obj(lines, sp),
+              'replacement': replacement}
+             for sp, _text, replacement in f['helps']
+             if sp is not None and replacement is not None]
+    if fixes:
+        want['fixes'] = fixes
     return want
 
 

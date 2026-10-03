@@ -407,7 +407,8 @@ def predict(session):
         try:
             v = ev(form, {}, defs, Budget())
         except Undefined as u:
-            out.append((LINE, "Type error: undefined variable `%s`" % u.name))
+            out.append((LINE, "Type error: [AX3001] undefined variable `%s`" % u.name))
+            out.append((LINE, "  help: run `axiom explain AX3001`"))
             continue
         out.append((LINE, "type : %s" % v.type_name()))
         out.append((LINE, "result %s" % v.render()))

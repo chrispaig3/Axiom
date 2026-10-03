@@ -16,6 +16,12 @@ its changelog too.
 
 ## Unreleased
 
+- JSON diagnostics include machine-applicable fix locations and replacement
+  text. REPL type errors show their diagnostic code and an `axiom explain`
+  command. Missing imports point at the importing source, including nested
+  module imports. Tested by `scripts/check-render-selfhost.sh`,
+  `scripts/check-repl-selfhost.sh` and `scripts/check-driver.sh`.
+
 - Raw Rust shims that borrow values or write an out-cell require an
   unsafe call. Generated shims reject overlapping mutable vector views
   and repeated opaque handles when one borrow is mutable. Buffer frees
