@@ -856,6 +856,19 @@ fi
 # finding. `axiom-host` is excluded for the same reason `ci.yml` excludes
 # it - it links a real Axiom archive and needs $AXIOM_HOST_ARCHIVE_DIR.
 echo "== the hand-written Rust: clippy and rustfmt =="
+for panic_mode in 'debug' 'release' 'host'; do
+  panic_flags=()
+  [[ "$panic_mode" == release ]] && panic_flags+=(--release)
+  [[ "$panic_mode" == host ]] && panic_flags+=(--features host)
+  if panic_out="$(cd rust && cargo test --locked -p axiom-ffi \
+      --test panic_boundary "${panic_flags[@]}" 2>&1)"; then
+    echo "ok   $panic_mode: panics abort in scalar, status and destructor shims"
+  else
+    echo "FAIL $panic_mode: panic boundary probes"
+    printf '%s\n' "$panic_out" | tail -8
+    status=1
+  fi
+done
 if command -v cargo >/dev/null 2>&1; then
   if contract_out="$(cd rust && cargo test --locked -p axiom-ffi --test contracts 2>&1)"; then
     echo "ok   raw FFI alias and deallocation contract probes"

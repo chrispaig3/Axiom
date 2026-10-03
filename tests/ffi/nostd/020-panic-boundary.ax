@@ -1,0 +1,7 @@
+; A no_std panic terminates the process with the boundary's status.
+(import Hash)
+
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (main) panicProbe)
+; expect 73

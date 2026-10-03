@@ -42,3 +42,8 @@ pub fn repeat_byte(b: i64, n: i64) -> alloc::vec::Vec<u8> {
     alloc::vec![b as u8; n]
 }
 
+/// Exercise the runtime's abort policy through a generated shim.
+#[axiom_export]
+pub fn panic_probe() -> i64 {
+    panic!("no_std panic boundary probe")
+}

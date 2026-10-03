@@ -16,6 +16,11 @@ its changelog too.
 
 ## Unreleased
 
+- Panic probes cover generated scalar, fallible and destructor shims
+  in debug, release and host builds. The no_std runtime's panic path
+  exits with status 73. Tested by `scripts/check-ffi.sh` and
+  `tests/ffi/nostd/020-panic-boundary.ax`.
+
 - Added an Unsafe boundary inventory with source locations, caller
   preconditions and resolved call edges. The FFI contract audit records
   the reviewed pointer, buffer, owner and callback routes, and identifies

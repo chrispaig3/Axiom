@@ -62,6 +62,14 @@ arguments. The cell helpers expose these obligations through preconditions.
 
 ## Remaining review
 
+Panic probes cover scalar returns, fallible out-cells and destructors
+in the default, release and host builds. An unwind cannot reach the
+Rust caller's catcher across a generated `extern "C"` shim.
+The freestanding runtime's panic handler exits with status 73.
+
+Tested by `rust/axiom-ffi/tests/panic_boundary.rs` and
+`tests/ffi/nostd/020-panic-boundary.ax`.
+
 The full Unsafe vouch set remains open. Prioritise erased pointer and
 heterogeneous vector helpers, hand-written shims, retained raw callback
 words and foreign values shared between threads. A trusted wrapper can

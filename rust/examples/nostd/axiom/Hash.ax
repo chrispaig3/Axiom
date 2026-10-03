@@ -3,6 +3,7 @@
 
 (pub extern "axiom_nostd"
   (fnv1a :: (-> String Int) (symbol "axffi_fnv1a"))
+  (panicProbe :: Int (symbol "axffi_panic_probe"))
   (repeatByteRaw :: (-> Int Int Int Int) (symbol "axffi_repeat_byte")))
 
 (pub :: repeatByte (-> Int Int String))

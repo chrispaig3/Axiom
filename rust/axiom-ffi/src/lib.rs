@@ -59,8 +59,8 @@
 //! `landingpad`. So a panic that reaches the boundary ends the process.
 //! Set `panic = "abort"` to make that explicit and to drop the landing
 //! pads from the archive. The generated shims also abort deliberately,
-//! with a message on fd 2 and exit status 72 (the status Axiom's own
-//! runtime traps use), when an argument cannot be honoured: a narrow
+//! with a message on fd 2 and exit status 73 when an argument cannot
+//! be honoured: a narrow
 //! integer out of range, a `char` word that is not a Unicode scalar
 //! value, invalid UTF-8 into an infallible `&str`, a closed handle.
 //! Axiom has no way to receive an error from an infallible call, so
