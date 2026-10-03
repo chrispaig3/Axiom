@@ -10,6 +10,7 @@
 (import Err)
 (import Path)
 (import parser)
+(import typecheck (tyResolve))
 (import namespace)
 (import diag)
 (import expand)
