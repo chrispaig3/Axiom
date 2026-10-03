@@ -534,9 +534,9 @@ column for. The table is built by re-reading the AXSYM text
 (`symbolsHumanTable` in `self_host/symbols.ax`), so the two can't
 disagree about what the symbols are.
 
-`json` has no symbol renderer, because that flag selects the format of
-diagnostics. If you ask for it, `axiom symbols` prints a note on stderr
-and answers in AXSYM.
+`symbols --diagnostic-format=json` exits with status 2 and prints guidance
+on stderr. Use `--diagnostic-format=ai` for AXSYM or `human` for the table.
+The refusal also applies to `symbols --axir`.
 
 ### Grammar
 

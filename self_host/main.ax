@@ -129,7 +129,6 @@
 ;@axiom:effect(io)
 (pub fn (symbolsEmit tc gens cmd dfmt)
   {
-    symbolsFormatNotice
     (let (
       (bi (if (hasFlagAnywhere cmd "--builtins")
         1
@@ -194,18 +193,12 @@
         }))
     0))
 
-(pub :: symbolsFormatNotice Int)
+(pub :: symbolsCheckFormat Int)
 ;@axiom:effect(io)
-(pub fn (symbolsFormatNotice)
-  ; `human` and `ai` both render symbols now; only `json` has no
-  ; symbol renderer of its own and falls back.
-  (let ((v (lowerAscii (flagValue "--diagnostic-format" 1))))
-    (if (|| (== (strLen v) 0) (|| (strEq v "ai") (|| (strEq v "agent") (|| (strEq v "compact") (|| (strEq v "human") (|| (strEq v "pretty") (strEq v "rustc")))))))
-      0
-      {
-        (writeStderrStr (concat "note: `symbols` emits AXSYM; --diagnostic-format='" (concat v "' applies to diagnostics only\n")))
-        0
-      })))
+(pub fn (symbolsCheckFormat)
+  (if (strEq (lowerAscii (flagValue "--diagnostic-format" 1)) "json")
+    (usageError "error: `symbols` has no JSON renderer; use --diagnostic-format=ai for AXSYM or --diagnostic-format=human for a table\n")
+    0))
 
 ; Exit status is the driver's answer, not a byte count: 0 on success and
 ; 1 when the source could not be read, could not be parsed, has no entry
@@ -894,6 +887,9 @@
             0
           }
           0))
+      (if (strEq first "symbols")
+        symbolsCheckFormat
+        0)
       (if (== (strLen first) 0)
         rejectUnknownCommand
         0)

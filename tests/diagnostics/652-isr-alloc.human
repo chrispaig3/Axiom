@@ -4,7 +4,7 @@
 [1;34m14 |[0m (fn (tick)
 [1;34m   |[0m      [1;31m^^^^[0m
 [1;34m   |[0m
-  [1;34m = [0m[1mnote: [0mStr$concat (stdlib/Str.ax:298:10-19)
+  [1;34m = [0m[1mnote: [0mStr$concat (stdlib/Str.ax:298:10-16)
   [1;34m = [0m[1mnote: [0mStr$strAlloc (stdlib/Str.ax:96:10-18)
   [1;34m = [0m[1mnote: [0mMem$memAlloc (stdlib/Mem.ax:53:10-18)
   [1;34m = [0m[1mnote: [0m__alloc (no declaration to point at)

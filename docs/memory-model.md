@@ -500,7 +500,8 @@ thirty-six:
   arbitrary address and can file it on a free list;
 - `__call_word`, which calls it;
 - the four atomics, which dereference it;
-- `__axiom_arena_reset` and `__axiom_arena_reset_keeping`, which rewind
+- `__axiom_arena_mark_into`, which writes a snapshot through it, and
+  `__axiom_arena_reset`/`__axiom_arena_reset_keeping`, which rewind
   the allocator to it (`MM-ALLOC-16`);
 - `__handle_new`, `__handle_get` and `__handle_free`, which take or
   answer an address their caller dereferences (`MM-PAR-8`);
@@ -1657,7 +1658,8 @@ move the position of an allocator that is no longer there.
 
 It was refused because the need behind it went away. `MM-ALLOC-22`
 makes the arena scope the reclamation strategy. A program that wants control over reclamation has `__axiom_arena_mark`,
-`__axiom_arena_reset` and `__axiom_arena_reset_keeping`, three
+`__axiom_arena_mark_into`, `__axiom_arena_reset` and
+`__axiom_arena_reset_keeping`, four
 primitives a conforming implementation **MUST NOT** refuse. A second,
 independent allocator underneath them is a different feature, with no
 stated acceptance criteria, and it would interact with the release path
@@ -1838,10 +1840,11 @@ validate an arbitrary raw reset. Keep-alive, where per-connection state
 outlives the request, is outside the measurement and outside this
 rule's claim (`MM-ALLOC-4b`).
 
-**MM-ALLOC-12 (H).** Three primitives move the allocator's position:
+**MM-ALLOC-12 (H).** Four primitives read or restore the allocator's position:
 
 ```scheme
-(__axiom_arena_mark)                        ; -> mark cell
+(__axiom_arena_mark)                        ; -> newly allocated mark cell
+(__axiom_arena_mark_into cell)              ; -> caller-owned mark cell
 (__axiom_arena_reset mark)                  ; -> 0
 (__axiom_arena_reset_keeping mark addr n)   ; -> new address of the kept block
 ```
@@ -1852,6 +1855,16 @@ pointer alone means nothing once allocation has moved to another chunk.
 The cell is allocated *before* the position is read, so it sits below
 its own waterline. A reset therefore never reclaims its own mark, and
 **the same mark may be reset more than once**.
+
+`__axiom_arena_mark_into` writes that snapshot into a caller-owned cell,
+without allocating. It performs Alloc, Mut and Unsafe. The cell MUST
+hold at least 24 writable bytes, aligned to 8 bytes, and remain live
+through the reset. The snapshot MUST remain unchanged until that reset.
+The cell and all values needed afterwards MUST predate the snapshot.
+Refreshing one retained cell lets a library scope repeated work without
+leaving a newly allocated mark behind each time.
+
+Tested by `tests/stdlib/702-arena-mark-into.ax`.
 
 **MM-ALLOC-13 (H).** A **reset** restores that position and moves every
 chunk mapped since the mark onto the free list, where the next refill
@@ -5496,9 +5509,11 @@ isolation is what makes a task's captures its own.
   when its result is delivered in submit order, so a slow task holds
   back the tasks `width` places behind it (`MM-PAR-5`'s price).
   `taskMap`'s answer is O(n), because it is n results. `taskFold`
-  delivers each answer inside a `region` (`MM-RGN-1`) and keeps
-  nothing. On H3 its peak RSS was 1,888 KiB at 500, 5,000 and 20,000
-  tasks of 4 KiB answers.
+  takes a fresh snapshot in one retained mark cell before each delivery.
+  It resets that snapshot when the step returns, including set-up errors
+  and unstarted tasks. The pool state predates each snapshot.
+  `scripts/check-task.sh` compares its peak RSS at 500 and 5,000 tasks
+  of 4 KiB answers.
 - **A refused spawn is a value too.** A spawn the kernel refuses, or
   one the handle table has no slot for, answers `Err` 78 in its task's
   slot, or 70 when no page could be mapped for the handle. It cancels
@@ -5558,10 +5573,10 @@ isolation is what makes a task's captures its own.
 *Program obligations.*
 
 - `taskFold`'s step may keep only what its `Int` accumulator carries.
-  The region check sees the pool's call but not into the step's
-  captures. A step that stores an answer, or grows a captured `Vec`,
-  names reclaimed memory, which is why `taskFold` claims
-  `effect(unsafe)`.
+  The pool uses raw marks under this caller precondition. Checked regions
+  refuse opaque callbacks whose captures might retain a scoped value.
+  A step that stores an answer or grows a captured `Vec` names reclaimed
+  memory, which is why `taskFold` claims `effect(unsafe)`.
 - A token passed in is shared state: cancelling it cancels every pool
   using it. Free it only once no pool and no task can still use it.
 

@@ -4677,8 +4677,8 @@ you steer yourself:
 - **Nothing.** Reference counting frees each block when its last
   reference goes. This is the default and needs no flag.
 - **A `region`**, for a scope of work you want reclaimed in one move.
-- **The arena primitives** `__axiom_arena_mark`, `__axiom_arena_reset`
-  and `__axiom_arena_reset_keeping`, for full control. The language
+- **The arena primitives** `__axiom_arena_mark`, `__axiom_arena_mark_into`,
+  `__axiom_arena_reset` and `__axiom_arena_reset_keeping`, for full control. The language
   server uses them to keep its memory flat across an editing session.
 
 ```bash
@@ -4841,6 +4841,7 @@ stops: every argument and result is an `Int`.
 | `(__retain h)` / `(__release h)` | Take or hand back a share of the counted block at `h` |
 | `(__retainref v)` | Take a share of `v` only if `v` is a reference. This is decided from the call's type, so an `Int` argument emits nothing. Use it when you store a value behind a `cast Int` |
 | `__axiom_arena_mark` / `(__axiom_arena_reset m)` | Read the allocator's waterline (it takes no argument), and roll it back to a mark |
+| `(__axiom_arena_mark_into cell)` | Save a mark in 24 writable bytes aligned to 8; the cell and later-needed values must predate the mark. Performs Alloc, Mut and Unsafe |
 | `(__axiom_mem_stat k)` | The allocator's own counts for this thread, in bytes: 0 held by the arena, 1 filed on the size-class lists for reuse, 2 mapped. Held less filed is what a reset would give back and counting hasn't, such as unreachable cycles. Any other `k` answers -1 ([memory-model.md](memory-model.md) MM-ALLOC-24) |
 | `(memMarkArray h n)` / `(memMarkLeaf h)` | From `Mem`. Declare that payload words `0..n-1` of the block at `h` are handles, or that none is. `n` is your element count, not the block's size, because the allocator's own word count is a size class, clamped to 0 past 16,383 words. There's no reader, so a container keeps its own flag (MM-LIFE-2h) |
 | `(__axiom_recover m thunk)` | Arm a recovery point at mark `m` and run `thunk`. See [Recover from a trap](#recover-from-a-trap) |
@@ -6321,8 +6322,8 @@ axiom symbols source.ax --diagnostic-format=ai --calls
 
 The default output is an aligned table for people.
 `--diagnostic-format=ai` gives AXSYM instead, one line per symbol.
-`symbols` has no JSON renderer: with `--diagnostic-format=json` it prints
-AXSYM, with a note on stderr saying so.
+`symbols --diagnostic-format=json` exits with status 2 before reading
+your input. Use `--diagnostic-format=ai` for AXSYM.
 
 A function with no signature can have type variables the checker made
 up. `symbols` numbers them from `_t0` within each row, so

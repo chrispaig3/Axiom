@@ -14390,6 +14390,12 @@
     (emitLine cg "define internal i64 @__axiom_arena_mark_fn() #0 {")
     (emitLine cg "entry:")
     (emitLine cg "  %cell = call i64 @axiom_alloc(i64 24)")
+    (emitLine cg "  %mark = call i64 @.axiom.arena.mark.into(i64 %cell)")
+    (emitLine cg "  ret i64 %mark")
+    (emitLine cg "}")
+    (emitLine cg "")
+    (emitLine cg "define internal i64 @.axiom.arena.mark.into(i64 %cell) #0 {")
+    (emitLine cg "entry:")
     (emitLine cg "  %bump = load i64, ptr @__axiom_bump")
     (emitLine cg "  %end = load i64, ptr @__axiom_bump_end")
     (emitLine cg "  %chunk = load i64, ptr @__axiom_chunk")
@@ -19873,7 +19879,7 @@
                                   true
                                   (if (strEq nm "__axiom_arena_mark")
                                     true
-                                    (if (strEq nm "__axiom_arena_reset")
+                                    (if (|| (strEq nm "__axiom_arena_reset") (strEq nm "__axiom_arena_mark_into"))
                                       true
                                       (if (strEq nm "__axiom_arena_reset_keeping")
                                         true
@@ -19993,8 +19999,8 @@
                                     (emitPrimRecover args cg)
                                     (if (strEq fnName "__axiom_arena_mark")
                                       (emitPrimArenaMark cg)
-                                      (if (strEq fnName "__axiom_arena_reset")
-                                        (emitPrimArenaReset args cg)
+                                      (if (|| (strEq fnName "__axiom_arena_reset") (strEq fnName "__axiom_arena_mark_into"))
+                                        (if (strEq fnName "__axiom_arena_mark_into") (emitPrimArenaMarkInto args cg) (emitPrimArenaReset args cg))
                                         (if (strEq fnName "__axiom_arena_reset_keeping")
                                           (emitPrimArenaResetKeeping args cg)
                                           (if (strEq fnName "__axiom_mem_stat")
@@ -20504,6 +20510,19 @@
         (memSetWord cg1 2 r)
         cg1
       })))
+
+(pub :: emitPrimArenaMarkInto (-> (Vec Int) Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (emitPrimArenaMarkInto args cg)
+  (let ((cg0 (emitExpr (vecGet args 0) cg)))
+    (let ((cell (strDup (memGetWordStr cg0 2))))
+      (let ((r (regStr (allocReg cg0))))
+        {
+          (emitLine cg0 (concat "  " (concat r (concat " = call i64 @.axiom.arena.mark.into(i64 " (concat cell ")")))))
+          (memSetWord cg0 2 r)
+          cg0
+        }))))
 
 (pub :: emitPrimArenaReset (-> (Vec Int) Int Int))
 ;@axiom:effect(io)

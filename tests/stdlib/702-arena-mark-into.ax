@@ -1,0 +1,110 @@
+; Refreshing caller-owned marks allocates nothing. Guard words pin the
+; three-word write; repeated resets must keep allocation and reuse flat.
+(import IO)
+(import Mem)
+(import Task)
+(import Err)
+
+(:: allocationStep (-> Int Int (Result String Error) Int))
+;@axiom:effect(unsafe)
+(fn (allocationStep acc i r)
+  (let ((p (memAlloc 131072)))
+    {
+      (memSetWord p 0 i)
+      (match r
+        ((Err e)
+          (+
+            acc
+            (if (== e.code 22)
+              1
+              0))
+        )
+        ((Ok s) acc))
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(fn (main)
+  (let (
+    (cell (memAlloc 40))
+    (inner (memAlloc 24))
+  )
+    {
+      (__retain cell)
+      (__retain inner)
+      (memSetWord cell 0 713)
+      (memSetWord cell 4 917)
+      (let (
+        (mark (+ cell 8))
+        (before (__axiom_mem_stat 0))
+      )
+        {
+          (let (
+            (returned (__axiom_arena_mark_into mark))
+            (after (__axiom_mem_stat 0))
+          )
+            (println
+              (if (&& (== returned mark) (== before after))
+                1
+                0)))
+          (println
+            (if (&& (== (memGetWord cell 0) 713) (== (memGetWord cell 4) 917))
+              1
+              0))
+          (__axiom_arena_mark_into mark)
+          (let ((p (memAlloc 64)))
+            {
+              (memSetWord p 0 411)
+              (__axiom_arena_mark_into inner)
+              (let ((q (memAlloc 64)))
+                {
+                  (memSetWord q 0 823)
+                  (__axiom_arena_reset inner)
+                  (let ((again (memAlloc 64)))
+                    (println
+                      (if (&& (== again q) (&& (== (memGetWord again 0) 0) (== (memGetWord p 0) 411)))
+                        1
+                        0)))
+                  (__axiom_arena_reset mark)
+                  (println
+                    (if (== (memAlloc 64) p)
+                      1
+                      0))
+                })
+            })
+          (__axiom_arena_mark_into mark)
+          (let ((held (__axiom_mem_stat 0)))
+            {
+              (for i in 0..500
+                {
+                  (__axiom_arena_mark_into mark)
+                  (memSetWord (memAlloc 131072) 0 i)
+                  (__axiom_arena_reset mark)
+                })
+              (println
+                (if (== (__axiom_mem_stat 0) held)
+                  1
+                  0))
+            })
+        })
+      (__release cell)
+      (__release inner)
+      ; Set-up errors deliver through the same scoped path as successes.
+      (let ((before (__axiom_mem_stat 0)))
+        (let ((count 
+          (taskFold
+            (lambda (i) "unused")
+            2000
+            (taskOpts 8 1099511627777)
+            0
+            (lambda (acc i r) (allocationStep acc i r)))))
+          (let ((grew (- (__axiom_mem_stat 0) before)))
+            (println
+              (if (&& (== count 2000) (< grew 65536))
+                1
+                0)))))
+      0
+    }))

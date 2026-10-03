@@ -156,6 +156,41 @@ else
   echo "ok   explain matches the golden ($(grep -c '^### ' "$golden") sections)"
 fi
 
+# Ordering and format refusal are independent of a blessed golden.
+python3 - "$work/explain.out" <<'PY_ORDER'
+from pathlib import Path
+import re
+import sys
+text = Path(sys.argv[1]).read_text()
+listing = text.split('### explain --list\n', 1)[1].split('### explain AX', 1)[0]
+codes = [int(c) for c in re.findall(r'AX([0-9]{4})', listing)]
+assert codes == sorted(set(codes)), 'explain --list is not in numeric order'
+PY_ORDER
+for input in "$repo_root/tests/fmt/syntax-zoo.ax" "$work/absent.ax"; do
+  for shape in plain axir; do
+    flags=(--diagnostic-format=json)
+    [[ "$shape" == axir ]] && flags+=(--axir)
+    if "$work/axc" symbols "${flags[@]}" "$input" >"$work/refuse.out" 2>"$work/refuse.err"; then
+      rc=0
+    else
+      rc=$?
+    fi
+    if [[ "$rc" != 2 || -s "$work/refuse.out" ]] || ! grep -q -- '--diagnostic-format=ai' "$work/refuse.err"; then
+      echo "FAIL symbols: JSON must be refused with guidance before reading input ($shape, $input, rc=$rc)"
+      failed=$((failed + 1))
+    fi
+  done
+done
+if "$work/axc" --diagnostic-format=JSON symbols "$work/absent.ax" >"$work/refuse.out" 2>"$work/refuse.err"; then
+  rc=0
+else
+  rc=$?
+fi
+if [[ "$rc" != 2 || -s "$work/refuse.out" ]] || ! grep -q -- '--diagnostic-format=ai' "$work/refuse.err"; then
+  echo 'FAIL symbols: JSON refusal must accept a global flag before the command'
+  failed=$((failed + 1))
+fi
+
 # The half a re-bless of that golden cannot satisfy: the codes come from
 # a DIFFERENT artifact. Every code the diagnostics corpus actually emits
 # must have an explanation, so a new diagnostic that nobody documented

@@ -10,10 +10,13 @@
 #
 #   <version>  <kind-letter>  <name>  <why>
 #
+# CLI rows record command-line breaks; ABI comparisons use single-letter rows.
+#
 # The kind letter is AXSYM's: F function, D data, C constructor,
 # S struct, T trait, M macro. `docs/compatibility.md` is the policy
 # this file implements.
 
+0.8.0  CLI  symbols-json  JSON symbol output is refused with status 2; use --diagnostic-format=ai
 0.8.0  F  strConcat  renamed to concat; import Str and use (concat a b)
 
 # 0.3.3 - ERR-ADOPT-1 slice 3, the half of it where `-errno` genuinely

@@ -507,39 +507,37 @@
         s
       })))
 
-; Hand the answer in slot `s` to the sink, which takes the answers in
-; submit order and so needs no index. Inside a `region` when `scoped`:
-; the answer and everything the sink allocates are reclaimed as it
-; returns (MM-RGN-1), with the mark kept in a stack cell rather than the
-; arena - so, unlike a raw `__axiom_arena_mark`, a delivery leaves no
-; 48-byte mark cell behind. The sink takes ONE argument so the region
-; check can accept the call: a call through a closure is assumed to
-; store every argument into every other (AX3060), and one argument has
-; no other to be stored into.
+; `scoped` is zero for retained answers, or a retained three-word
+; mark cell for taskFold. The pool and its captures predate each mark.
+; The fold's caller promises that the sink retains no scoped allocation.
+; Refreshing the cell allocates nothing, so deliveries leave no marks.
 (:: taskDeliver (-> (-> (Result String Error) Int) Int (Vec Int) Int Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (taskDeliver sink scoped st s slab slotBytes)
-  ; `(+ 0 ...)` is not decoration. A word read out of a `Vec` carries the
-  ; `Vec`'s origin for the region check, so `(mkError status ...)`
-  ; built inside the region read as a region value stored into an outer
-  ; one and was refused (AX3060, measured - and reported against the
-  ; CALLER's file, not this one). The arithmetic answers a plain word.
   (let (
     (slot (+ slab (* s slotBytes)))
-    (status (+ 0 (taskSt st s 1)))
-    (why (+ 0 (taskSt st s 2)))
+    (status (taskSt st s 1))
+    (why (taskSt st s 2))
   )
-    (if (== scoped 1)
-      (region r
-        (sink (taskResultAt slot status why)))
+    (if (!= scoped 0)
+      {
+        (__axiom_arena_mark_into scoped)
+        (sink (taskResultAt slot status why))
+        (__axiom_arena_reset scoped)
+      }
       (sink (taskResultAt slot status why)))))
 
 (:: taskDeliverCancelled (-> (-> (Result String Error) Int) Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (taskDeliverCancelled sink scoped)
-  (if (== scoped 1)
-    (region r
-      (sink (Err (mkError taskCancelledCode "task not started: the pool was cancelled"))))
+  (if (!= scoped 0)
+    {
+      (__axiom_arena_mark_into scoped)
+      (sink (Err (mkError taskCancelledCode "task not started: the pool was cancelled")))
+      (__axiom_arena_reset scoped)
+    }
     (sink (Err (mkError taskCancelledCode "task not started: the pool was cancelled")))))
 
 ; Earliest instant, in microseconds, the parent must wake by: the
@@ -932,11 +930,18 @@
     }))
 
 ; Every task answers `e`: the pool could not be set up.
-(:: taskAllFailed (-> Int Error (-> (Result String Error) Int) Int))
-(fn (taskAllFailed n e sink)
+(:: taskAllFailed (-> Int Error (-> (Result String Error) Int) Int Int))
+;@axiom:effect(unsafe)
+(fn (taskAllFailed n e sink scoped)
   {
     (for i in 0..n
-      (sink (Err e)))
+      (if (!= scoped 0)
+        {
+          (__axiom_arena_mark_into scoped)
+          (sink (Err e))
+          (__axiom_arena_reset scoped)
+        }
+        (sink (Err e))))
     n
   })
 
@@ -948,7 +953,7 @@
 ;@axiom:effect(block)
 (fn (taskWithSlab f n opts sink scoped w limit slotBytes tok)
   (match (sysMapShared (* w slotBytes))
-    ((Err e) (taskAllFailed n e sink))
+    ((Err e) (taskAllFailed n e sink scoped))
     ((Ok slab)
       (let ((done (taskLoop
         f
@@ -1005,9 +1010,9 @@
         opts.limit))
     )
       (if (> limit 1099511627776)
-        (taskAllFailed n (mkError 22 "task limit over 2^40 bytes") sink)
+        (taskAllFailed n (mkError 22 "task limit over 2^40 bytes") sink scoped)
         (match (taskTokenFor opts.token)
-          ((Err e) (taskAllFailed n e sink))
+          ((Err e) (taskAllFailed n e sink scoped))
           ((Ok tok)
             (let ((done (taskWithSlab
               f
@@ -1060,23 +1065,16 @@
     }))
 
 ; Fold the answers in submit order without keeping them: `step acc i r`
-; for each task, starting from `init`, answering the last `acc`. Each
-; answer - and EVERYTHING `step` allocates - lives only while that
-; `step` runs: the pool builds the answer and calls `step` inside a
-; `region` (MM-RGN-1) that is reset when `step` returns, so memory
-; stays flat however many tasks go through.
+; for each task, starting from `init`, answering the last `acc`.
+; Each answer and everything the step allocates are reclaimed on return.
+; A retained mark cell is refreshed before delivery, then reset after it.
+; The pool's state and the accumulator were allocated before that mark.
 ;
-; THAT IS A CONTRACT THE REGION CHECK CANNOT HOLD, AND THIS FUNCTION
-; SAYS SO in its claim. `step` may keep only what its `Int` accumulator
-; carries: an answer's `String` stored anywhere, or a push onto a
-; captured `Vec` that grew its buffer, names reclaimed memory once
-; `step` returns. The region check sees the call to the pool's internal
-; sink and not into `step`'s body - a closure's captures are outside its
-; tracked origins (MM-RGN-3's domain) - so the obligation is the
-; caller's, as MM-ALLOC-16 makes it for a raw reset, and the claim
-; `effect(unsafe)` is what puts it where a reader and
-; `restrict(no-unsafe)` can see it. `taskMapWith` keeps every answer and
-; has no such contract.
+; The caller must keep only scalar accumulator bits across a step.
+; Saving an answer or growing a captured Vec would retain reclaimed
+; memory. This is taskFold's explicit Unsafe precondition; checked
+; regions refuse such opaque callbacks because captures may be stores.
+; taskMapWith retains answers and has no scoped callback contract.
 (pub :: taskFold (-> (-> Int String) Int TaskOpts Int (-> Int Int (Result String Error) Int) Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
@@ -1084,7 +1082,10 @@
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
 (pub fn (taskFold f n opts init step)
-  (let ((acc (taskScratch 16)))
+  (let (
+    (acc (taskScratch 16))
+    (mark (taskScratch 24))
+  )
     {
       (memSetWord acc 0 init)
       (memSetWord acc 1 0)
@@ -1093,19 +1094,17 @@
         n
         opts
         (lambda (r) (taskFoldOne acc step r))
-        1)
+        mark)
       (let ((v (memGetWord acc 0)))
         {
           (taskScratchDone acc)
+          (taskScratchDone mark)
           v
         })
     }))
 
-; One step of the fold: word 0 of `acc` the accumulator, word 1 the
-; index of the answer, which arrives in submit order. `step` is applied
-; to the two words first and to the answer alone after, so the answer
-; is handed to a ONE-argument call - the shape the region check can
-; accept (see `taskDeliver`).
+; One step: word 0 of `acc` is the scalar accumulator, word 1 the
+; submit-order index. Neither word may retain a scoped allocation.
 (:: taskFoldOne (-> Int (-> Int Int (Result String Error) Int) (Result String Error) Int))
 ;@axiom:effect(unsafe)
 (fn (taskFoldOne acc step r)

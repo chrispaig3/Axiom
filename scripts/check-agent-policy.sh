@@ -728,6 +728,7 @@ prim_case "__store8v"                   "(__store8v n 0 42)"                   "
 prim_case "__argc"                      "(__argc)"                             "IO"
 prim_case "__argv"                      "(__argv n)"                           "IO"
 prim_case "__axiom_arena_mark"          "(__axiom_arena_mark)"                 "Alloc"
+prim_case "__axiom_arena_mark_into"     "(__axiom_arena_mark_into n)"          "Alloc,Mut,Unsafe"
 # The resets rewind the allocator to an arbitrary word, so they joined
 # `Unsafe` with the other eight of 2026-09-27 (MM-EXEC-9c). The mark
 # did not: it answers a position and dereferences nothing, and it is

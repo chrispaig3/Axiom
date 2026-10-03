@@ -1,0 +1,9 @@
+; Caller-owned arena snapshots write through a raw address.
+;@axiom:restrict(no-unsafe)
+(:: snapshot (-> Int Int))
+(fn (snapshot cell)
+  (__axiom_arena_mark_into cell))
+
+(:: main Int)
+(fn (main)
+  0)

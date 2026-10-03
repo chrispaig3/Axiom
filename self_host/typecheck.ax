@@ -3929,6 +3929,7 @@
       ; an indirect call through word 0 of whatever it points at.
       (regFn fns "__axiom_recover" (mkTArr mkIntTy (mkTArr (mkTArr mkIntTy mkIntTy) mkIntTy)))
       (regFnEff fns "__axiom_arena_mark" (mkIntArrow 0) (builtinEff "Alloc"))
+      (regFnEff2 fns "__axiom_arena_mark_into" (mkIntArrow 1) (builtinEff "Alloc") (builtinEff "Mut"))
       (regFnEff fns "__axiom_arena_reset" (mkIntArrow 1) (builtinEff "Alloc"))
       (regFnEff fns "__axiom_arena_reset_keeping" (mkIntArrow 3) (builtinEff "Alloc"))
       ; `(__axiom_mem_stat k)` reads the allocator's own counts
@@ -16497,7 +16498,7 @@
       1
       (if (|| (strEq n "__atomic_load") (|| (strEq n "__atomic_store") (|| (strEq n "__atomic_add") (strEq n "__atomic_cas"))))
         1
-        (if (|| (strEq n "__axiom_arena_reset") (strEq n "__axiom_arena_reset_keeping"))
+        (if (|| (strEq n "__axiom_arena_mark_into") (|| (strEq n "__axiom_arena_reset") (strEq n "__axiom_arena_reset_keeping")))
           1
           0)))))
 

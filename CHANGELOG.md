@@ -16,6 +16,18 @@ its changelog too.
 
 ## Unreleased
 
+- Repair `Task` under the capture-aware region checker. `taskFold`
+  refreshes one retained arena mark for each delivery and preserves its
+  caller precondition; set-up errors also reclaim step allocations.
+  Add Unsafe `__axiom_arena_mark_into` for caller-owned mark cells.
+  Tested by `tests/stdlib/702-arena-mark-into.ax` and
+  `scripts/check-task.sh`.
+
+- Sort `explain --list` numerically. Refuse `symbols
+  --diagnostic-format=json` with status 2 and guidance before reading
+  input, including `--axir`. Use `--diagnostic-format=ai` for AXSYM.
+  Tested by `scripts/check-tools-selfhost.sh`.
+
 - Isolate binary obfuscation helpers from source function names. User
   functions resembling runtime helpers keep their behaviour under
   obfuscation. Tested by `tests/obfuscation/Main.ax` and

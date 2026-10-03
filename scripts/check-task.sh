@@ -154,6 +154,19 @@ bad() { echo "FAIL $*"; failed=$((failed + 1)); }
 sync="$repo_root/tests/litmus/sync-load.ax"
 task="$repo_root/tests/litmus/task-load.ax"
 
+# A reusable mark must bound allocations on set-up errors too.
+for lowering in processes threads; do
+  flags=(--diagnostic-format=ai)
+  [[ "$lowering" == threads ]] && flags+=(--threads)
+  bin="$work/mark-$lowering"
+  if "$axc" build "${flags[@]}" tests/stdlib/702-arena-mark-into.ax -o "$bin" >"$bin.build" 2>&1 && "$bin" >"$bin.out" && cmp -s tests/stdlib/702-arena-mark-into.out "$bin.out"; then
+    ok "caller-owned marks: no allocations and bounded error delivery ($lowering)"
+  else
+    bad "caller-owned mark probe ($lowering)"
+    cat "$bin.build"
+  fi
+done
+
 # build <out> <source> <flags...>: from the tree's stdlib.
 build() {
   local out="$1" src="$2"; shift 2
