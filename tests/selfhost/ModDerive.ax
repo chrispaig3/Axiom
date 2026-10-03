@@ -11,9 +11,9 @@
 
 ; the prelude's macros, invoked on the module's own type - their
 ; templates declare their products `pub`, so they leave this module.
-; (`deriveArity` rather than `deriveShow` since 0.3.8: that one is
-; deprecated with the builtin `show`, and this file is about a module
-; spending the prelude's derivers, not about which one.)
+; (`deriveArity` rather than `deriveShow`, removed in 0.8.0: this
+; file is about a module spending the prelude's derivers, not about
+; which one.)
 (deriveEq Signal)
 
 (deriveArity Signal)

@@ -121,6 +121,14 @@ its changelog too.
   same loop. Declared in `compat/BREAKING` and held by
   `scripts/check-compat.sh`.
 
+- The prelude's `deriveShow` and `showOr` macros are gone.
+  Deprecated since 0.3.8 in favour of `show`, and `show` itself
+  went in 0.7.4: `(format x)` renders any value in full and is
+  the only spelling left. The `syntax/name` and `syntax/defined`
+  queries stay, measured by their templates in
+  `tests/selfhost/380-syntax-scalar-queries.ax`. Declared in
+  `compat/BREAKING` and held by `scripts/check-compat.sh`.
+
 - A pointer type has one spelling. No spelling ever set the `mut` flag
   on the pointer node — `(* mut T)` parsed as a tuple — so the flag
   is gone from the node, the renderers and the grammar, and a pointer

@@ -913,3 +913,9 @@
 
 # 0.8.0 - the counted loop is the `for` keyword: `(for i in lo..hi body)`.
 0.8.0  M  range  REMOVED: write `(for i in lo..hi body)`
+
+# 0.8.0 - `deriveShow` and `showOr` are removed. Deprecated since
+# 0.3.8 in favour of `show`, and `show` itself went in 0.7.4 - `(format x)`
+# renders any value in full and is the only spelling left.
+0.8.0  M  deriveShow  REMOVED: write `(format x)`
+0.8.0  M  showOr  REMOVED: write `(format x)`

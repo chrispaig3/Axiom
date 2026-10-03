@@ -1529,9 +1529,9 @@ query from the declaration list it already holds:
 | `(syntax/constructors T)` | **H** | the constructor names of `data` type `T`, in declaration order, as a `syntax/for` sequence | `derive` for any sum |
 | `(syntax/arity C)` | **H** | the field count of constructor `C`, as an integer literal | `deriveArity` in `stdlib/Pre.ax` |
 | `(syntax/fields S)` | **H** | the field names of `struct` `S`, in declaration order, as a `syntax/for` sequence | lenses, `Eq`, serialisers |
-| `(syntax/name x)` | **H** | the identifier `x`, as a string literal | `deriveShow` in `stdlib/Pre.ax` |
+| `(syntax/name x)` | **H** | the identifier `x`, as a string literal | `deriveCtorName` in `tests/selfhost/380-syntax-scalar-queries.ax` |
 | `(syntax/join a b)` | **H** | one identifier made from two, with the second's first letter upper-cased | naming generated declarations, and calling them |
-| `(syntax/defined n)` | **H** | whether `n` names a visible declaration | `showOr` in `stdlib/Pre.ax` |
+| `(syntax/defined n)` | **H** | whether `n` names a visible declaration | `ctorNameOr` in `tests/selfhost/380-syntax-scalar-queries.ax` |
 | `(syntax/same a b)` | **H** | whether `a` and `b` are the same binding or declaration slot | `deriveLenses`' diagonal (§10.3) |
 | `(syntax/binders C p)` | **H** | arity-of-`C` fresh identifiers derived from prefix `p` | fieldful `derive` (§10.2) |
 | `(syntax/for ((x xs) …) tpl)` | **H** | `tpl` once per element, spliced in place | the iteration form |
@@ -1597,12 +1597,14 @@ in `self_host/lexer.ax`). So the names are `syntax/defined` and
 `syntax/same`, and `syntax/defined?` and `syntax/same?` don't lex.
 
 Each of the three scalar queries, `syntax/name`, `syntax/arity` and
-`syntax/defined`, comes with the library macro that needs it. That is
+`syntax/defined`, comes with the macro that needs it. That is
 `MAC-CAP-6`'s closure rule applied literally: a query with no consumer
-is one that nothing tests. `stdlib/Pre.ax` uses them in `deriveShow`,
-`deriveArity` and `showOr`. Those macros also need a join to work as a
-reference, so a macro can call what it names as well as name it.
-`tests/selfhost/380-syntax-scalar-queries.ax` tests them, and
+is one that nothing tests. The prelude uses `syntax/arity` in
+`deriveArity`, and `tests/selfhost/380-syntax-scalar-queries.ax` keeps
+the other two measured with its own `deriveCtorName` and `ctorNameOr`
+(copies of the prelude's removed `deriveShow` and `showOr`). Those
+macros also need a join to work as a reference, so a macro can call
+what it names as well as name it. That fixture tests them, and
 `tests/diagnostics/560-syntax-scalar-misuse.ax` pins the four
 refusals.
 
@@ -2541,8 +2543,8 @@ six lines of plausible code.
 (pub macro (unless test body) (if test 0 body))
 ```
 
-It also exports `deriveEq`, `deriveShow`, `deriveArity` and
-`showOr`. Variadic branching needs no macro: `(if t1 b1 t2 b2 ... els)`
+It also exports `deriveEq` and `deriveArity`.
+Variadic branching needs no macro: `(if t1 b1 t2 b2 ... els)`
 is the nested chain, built by the parser.
 
 Here is hygiene at work. The template binds its own `v`, and the caller
@@ -2910,7 +2912,7 @@ the rule landed.
 | `tests/diagnostics/540-syntax-fold-misuse.ax` | The `fold` and `binders` refusals: zip-length mismatch, unknown constructor, a sequence in scalar position, and `fold`'s arity |
 | `tests/selfhost/379-derive-imported.ax` (30) | CAP-9's shipped library: `stdlib/Pre.ax`'s `deriveEq` over an entry-file type and an imported one |
 | `tests/diagnostics/550-derive-private-type.ax` | The query visibility rule: a private subject is refused at the invocation, with one diagnostic in the right place |
-| `tests/selfhost/380-syntax-scalar-queries.ax` (41) | CAP-5's scalar rows: `syntax/name`, `syntax/arity`, `syntax/defined`, and a join standing as a callable reference. The consumers are `stdlib/Pre.ax`'s `deriveArity` and the fixture's own copies of `deriveShow` and `showOr`. The prelude's two are deprecated since 0.3.8, because the builtin `show` renders the whole value and they give only the constructor's name. |
+| `tests/selfhost/380-syntax-scalar-queries.ax` (41) | CAP-5's scalar rows: `syntax/name`, `syntax/arity`, `syntax/defined`, and a join standing as a callable reference. The consumers are the prelude's `deriveArity` and the fixture's own `deriveCtorName` and `ctorNameOr` (copies of the prelude's `deriveShow` and `showOr`, removed in 0.8.0: `(format x)` renders the whole value and they gave only the constructor's name). |
 | `tests/diagnostics/560-syntax-scalar-misuse.ax` | The scalar rows' refusals: an arity of nothing (naming `syntax/arity`, not the counter it shares a slot with), a bare query head, a non-identifier argument, and a one-part join |
 | `tests/diagnostics/520-syntax-query-misuse.ax` | CAP-6's closure: an unknown query, a wrong-kind subject and a missing subject, all `AX3028` |
 | `tests/selfhost/382-format-macros.ax` (255) | CAP-10's lowering: eight independent claims, one bit each, so a partial regression names itself in the exit status. They are interpolation, escaped braces, the three alignments, signed zero-padding, both hex cases, precision, conversion inside padding, and the degenerate literals. |

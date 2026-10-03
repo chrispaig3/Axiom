@@ -1,7 +1,8 @@
 ; expect 63
-; `deriveShow`'s template over a data type whose constructors are ALL
-; nullary - the shape no fixture derived over, and the shape that was
-; wrong.
+; A constructor-name template over a data type whose constructors are
+; ALL nullary - the shape `tests/selfhost/380-syntax-scalar-queries.ax`
+; never derived over (its `Shape` mixes arities), and the shape that
+; was wrong.
 ;
 ; `(syntax/binders C f)` supplies arity-many binders so that one
 ; template covers every arity (MAC-CAP-5). At arity 0 it supplies
@@ -11,7 +12,7 @@
 ; therefore matched every value, and the FIRST one answered:
 ;
 ;   (data Colour (Red) (Green) (Blue))
-;   (deriveShow Colour)
+;   (deriveCtorName Colour)
 ;   (showColour (Green))            answered "Red", at exit 0
 ;
 ; `380-syntax-scalar-queries.ax` could not see it. The only type it
@@ -26,8 +27,9 @@
 ; test cannot produce.
 ;
 ; The template is this file's own since `deriveShow` was deprecated
-; (0.3.8): the builtin `show` renders `(Mid 7)` in full, and this file
-; is about the constructor's NAME - `Mid` - reaching a running program
+; (0.3.8; removed in 0.8.0): `(format x)` renders `(Mid 7)` in full,
+; and this file is about the constructor's NAME - `Mid` - reaching a
+; running program
 ; through `syntax/name` with `syntax/binders` supplying the arity, so
 ; it keeps the shape that exercised the bug rather than the rendering
 ; that would not.

@@ -1537,8 +1537,9 @@ hold `r` there.
 
 ### Deriving
 
-To get equality or a printable name for a `data` type, invoke a derive
-macro from `Pre` where you want the function:
+To get equality for a `data` type, invoke the derive macro from
+`Pre` where you want the function; to print a value, `(format x)`
+renders it in full - no macro needed:
 
 ```scheme
 (import IO)
@@ -1550,13 +1551,12 @@ macro from `Pre` where you want the function:
   (Blue))
 
 (deriveEq Colour)
-(deriveShow Colour)
 
 (:: main Int)
 ;@axiom:effect(io)
 (fn (main)
   {
-    (println (showColour Green))
+    (println (format Green))
     (println (eqColour Red Red))
     (println (eqColour Red Blue))
     0
@@ -1570,16 +1570,15 @@ false
 ```
 
 `(deriveEq Colour)` generates `eqColour : Colour -> Colour -> Bool`,
-and `(deriveShow Colour)` generates `showColour : Colour -> String`.
-Each is an ordinary function, checked and compiled like one you wrote,
-and called by name. In `axiom symbols --diagnostic-format ai`, their
-`F` rows carry `#generated=deriveEq` and `#generated=deriveShow`.
+an ordinary function, checked and compiled like one you wrote, and
+called by name. In `axiom symbols --diagnostic-format ai`, its `F`
+row carries `#generated=deriveEq`.
 
 `Pre`'s `deriveEq` covers types whose constructors have no fields.
-`deriveShow` works on any `data` type and ignores the fields.
-[Macros](#macros) shows how these macros are written, and
+[Macros](#macros) shows how the macro is written, and
 [macro-system.md](macro-system.md) §10.2 covers equality over fieldful
-constructors.
+constructors. (`deriveShow` and `showOr` did the printing half before
+`(format x)` existed; deprecated since 0.3.8, removed in 0.8.0.)
 
 A `deriving` clause on the declaration is rejected as `AX2004`. Use the
 macros above instead:
@@ -4005,21 +4004,32 @@ With these, the specification's
 [`deriveLenses`](macro-system.md#103-deriving-lenses) run as written,
 and a derived function can feed the next derive.
 
-Three more queries answer a single value. `Pre` ships a macro built on
-each:
+Three more queries answer a single value:
 
-| Query | Answers | Prelude macro |
+| Query | Answers | Example |
 |---|---|---|
-| `(syntax/name C)` | the constructor's spelling, as a `String` literal | `(deriveShow Shape)` writes `showShape : Shape -> String`. A tag is an integer at run time, so this is the only way to get a constructor's name. |
+| `(syntax/name C)` | the constructor's spelling, as a `String` literal | `deriveCtorName` in `tests/selfhost/380-syntax-scalar-queries.ax` writes `showShape : Shape -> String`. A tag is an integer at run time, so this is the only way to get a constructor's name. |
 | `(syntax/arity C)` | its field count, as an `Int` literal | `(deriveArity Shape)` writes `arityShape : Shape -> Int`. A value records its tag but not its field count, so this is the only way to get that number too. |
-| `(syntax/defined n)` | whether `n` names a visible declaration | `(showOr T x "?")` renders `x` with `showT` if the program derived one, and answers the fallback if not. The `if` is decided at expansion time and the losing branch is deleted, so the `showT` branch never has to type-check in a program without it. |
+| `(syntax/defined n)` | whether `n` names a visible declaration | `ctorNameOr` in the same file renders with `showT` if the program derived one, and answers the fallback if not. The `if` is decided at expansion time and the losing branch is deleted, so the `showT` branch never has to type-check in a program without it. |
 
 ```scheme
 (import IO)
 (import Pre)
 
 (data Shape () (Circle Int) (Rect Int Int) (Dot))
-(deriveShow Shape)                       ; writes showShape
+
+(macro deriveCtorName ((deriveCtorName T)
+   (:: (syntax/join show T) (-> T String))
+   (fn ((syntax/join show T) v)
+     (match v
+       (syntax/for (C (syntax/constructors T))
+         ((C (syntax/binders C f)) (syntax/name C)))))))
+
+(macro (ctorNameOr T x fallback) (if (syntax/defined (syntax/join show T))
+  (syntax/join show T x)
+  fallback))
+
+(deriveCtorName Shape)                   ; writes showShape
 (deriveArity Shape)                      ; writes arityShape
 
 (:: main Int)
@@ -4028,8 +4038,8 @@ each:
   (let ((s (Rect 3 4)))
     { (println (showShape s))
       (println (arityShape s))
-      (println (showOr Shape s "?"))
-      (println (showOr Int 5 "?"))       ; no showInt, so the fallback
+      (println (ctorNameOr Shape s "?"))
+      (println (ctorNameOr Int 5 "?"))   ; no showInt, so the fallback
       0 }))
 ```
 
@@ -4041,8 +4051,8 @@ Rect
 ```
 
 `(syntax/join a b)` also works where a reference goes, so a macro can
-call what it names, as in `((syntax/join show T) x)`. It can also feed
-another query's argument, which is how `showOr` asks about a name no
+call what it names, as in `((syntax/join show T) x)` above. It can also feed
+another query's argument, which is how `ctorNameOr` asks about a name no
 source file spells.
 
 A query with no answer is `AX3028`, never a default. That covers an
