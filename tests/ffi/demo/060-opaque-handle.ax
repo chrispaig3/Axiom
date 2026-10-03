@@ -33,6 +33,7 @@
       (sumOfFresh (+ i 1) (+ acc (counterValue c))))))
 
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (main)
   ; `sumOfFresh` built 200 counters and let every one go: Rust's
   ; `Drop` ran 200 times, through the handle, with no close call

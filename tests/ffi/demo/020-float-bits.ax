@@ -9,6 +9,7 @@
   (hypot :: (-> Float Float Float) (symbol "axffi_hypot")))
 
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (main)
   {
     (println (fmtFloat (hypot 3.0 4.0)))

@@ -34,6 +34,7 @@
   (cast Int c))
 
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (main)
   (let ((cs vecNew))
     {

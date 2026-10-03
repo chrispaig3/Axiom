@@ -1,7 +1,7 @@
 ; MM-FFI-5 requirement 3: "a foreign call is an inferred effect like a
 ; syscall".
 ;
-; `add`'s FnEnt is seeded with IO at registration, exactly as an effect
+; `add`'s FnEnt is seeded with IO and Unsafe at registration, exactly as an effect
 ; operation's is seeded with its Custom(E). The existing monotone
 ; fixpoint in `inferEffects` then carries it to `layer1` and on to
 ; `main` with no new inference machinery anywhere - `isSyscallPrim` is
@@ -17,6 +17,7 @@
 
 (pub :: layer1 (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (layer1 n)
   (add n 1))
 

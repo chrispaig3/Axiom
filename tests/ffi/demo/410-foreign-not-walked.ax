@@ -36,6 +36,7 @@
 
 (pub :: roundTrip (-> Foreign Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (roundTrip h i)
   (if (>= i 2000)
     (counterValue h)
@@ -47,6 +48,7 @@
         (- 0 1)))))
 
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (main)
   (let ((h (counterNew 41)))
     (let ((v (roundTrip h 0)))

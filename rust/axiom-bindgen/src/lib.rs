@@ -583,6 +583,9 @@ impl Surface {
         // wrapper that calls it declares the unsafe operation itself.
         let mut unsafe_calls: Vec<String> =
             PRECONDITION_CALLS.iter().map(|s| s.to_string()).collect();
+        // Every extern is outside Axiom's safety checker. Generated
+        // wrappers vouch for the typed shim interface they construct.
+        unsafe_calls.extend(items.iter().map(|(name, _)| name.clone()));
         for r in &from_words {
             let (sig, body) = record_from_words_loop(r);
             tops.push(format!(
@@ -651,8 +654,8 @@ impl Surface {
             // made the cell or holds the pointer Rust just answered, so it
             // meets the precondition itself and says `effect(unsafe)`
             // alone: a trusted encapsulation, whose callers declare
-            // nothing. A wrapper that calls none says nothing, for the
-            // `close` wrapper's reason.
+            // nothing. Extern calls also require that vouch, including
+            // scalar-only shims; only the close wrapper stays untagged.
             let body = d.wrapper_body();
             let unsafe_tag = if performs_unsafe(&body, &unsafe_calls) {
                 ";@axiom:effect(unsafe)\n"

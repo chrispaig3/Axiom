@@ -31,6 +31,7 @@
 (import Demo)
 
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (main)
   ; NOT REACHED. `bytePlus` ends the process here, and the trailer
   ; below is the assertion - if the boundary ever starts answering

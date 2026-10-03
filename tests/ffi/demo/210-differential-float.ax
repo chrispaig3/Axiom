@@ -10,6 +10,7 @@
   (hypot :: (-> Float Float Float) (symbol "axffi_hypot")))
 
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (main)
   (if (&& (== (hypot 3.0 4.0) 5.0) (&& (== (hypot 0.0 0.0) 0.0) (== (hypot 5.0 12.0) 13.0)))
     {

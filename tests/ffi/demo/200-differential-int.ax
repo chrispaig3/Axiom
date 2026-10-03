@@ -14,6 +14,7 @@
 
 (pub :: agrees (-> Int Int Bool))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (agrees a b)
   (== (add a b) (+ a b)))
 

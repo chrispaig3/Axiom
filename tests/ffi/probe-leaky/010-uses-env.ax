@@ -9,6 +9,7 @@
   (homeLen :: Int (symbol "axffi_home_len")))
 
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (main)
   {
     (println

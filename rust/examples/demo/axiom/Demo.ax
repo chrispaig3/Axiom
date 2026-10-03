@@ -173,6 +173,7 @@
 
 (pub :: counterAdd (-> Counter Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (counterAdd c by)
   (match c
     ((Counter __h0)
@@ -217,6 +218,7 @@
 
 (pub :: counterValue (-> Counter Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (counterValue c)
   (match c
     ((Counter __h0)
@@ -229,6 +231,7 @@
 
 (pub :: doubleInPlace (-> (Vec Int) Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (doubleInPlace xs)
   (let ((__r 
     (doubleInPlaceRaw
@@ -445,6 +448,7 @@
 
 (pub :: pointNorm2 (-> Point Float))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (pointNorm2 p)
   (match p
     ((Point __f0 __f1)
@@ -623,6 +627,7 @@
 
 (pub :: sumF64 (-> (Vec Int) Float))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (sumF64 xs)
   (let ((__r 
     (sumF64Raw
@@ -631,6 +636,7 @@
 
 (pub :: sumRows (-> (Vec (Vec Int)) Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (sumRows rows)
   (let ((__r 
     (sumRowsRaw
@@ -639,6 +645,7 @@
 
 (pub :: sumU16 (-> (Vec Int) Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (sumU16 xs)
   (let ((__r 
     (sumU16Raw
@@ -647,6 +654,7 @@
 
 (pub :: sumWords (-> (Vec Int) Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (sumWords xs)
   (let ((__r 
     (sumWordsRaw

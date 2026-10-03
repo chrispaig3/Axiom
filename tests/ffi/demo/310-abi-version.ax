@@ -17,6 +17,7 @@
   (abiVersion :: Int (symbol "axffi_abi_version")))
 
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (main)
   (if (== abiVersion 2)
     {

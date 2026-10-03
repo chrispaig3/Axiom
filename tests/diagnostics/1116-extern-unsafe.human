@@ -1,0 +1,97 @@
+[1;33mwarning[AX3051][0m[1m: `valueCall` claims `restrict(no-unsafe)` and the claim cannot be checked: `Unsafe` reaches the effect row only as a possible effect - the body names a function without calling it - so its presence is not evidence the body performs it[0m
+  [1;34m--> [0m1116-extern-unsafe.ax:31:6
+[1;34m   |[0m
+[1;34m31 |[0m (fn (valueCall x) (let ((f raw)) (f x)))
+[1;34m   |[0m      [1;33m^^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma limit of the ANALYSIS rather than a defect in the program - AX3037's argument at one remove. There are four readings: an effect present only as POSSIBLE, a row the walk marked incomplete, a body that CALLS one of its own parameters (`#effect-params=`), whose answer is chosen by each caller and cannot be settled here at all, and - for `no-escape` alone - a region fixpoint that hit its round limit before the facts settled, which is a depth limit rather than anything about this declaration. Name the function at the call, stop calling the parameter, shorten the chain, or drop the claim; `no-cast`, `no-wrap` and `no-trap` are checked regardless, because all three are lexical and need no call resolved
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3051` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `direct` claims `restrict(no-unsafe)` and the body performs Unsafe: direct -> raw[0m
+  [1;34m--> [0m1116-extern-unsafe.ax:10:6
+[1;34m   |[0m
+[1;34m10 |[0m (fn (direct x) (raw x))
+[1;34m   |[0m      [1;31m^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mraw (no declaration to point at)
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `direct` calls extern `raw`, whose implementation is outside the safety checker, and its declaration does not say so[0m
+  [1;34m--> [0m1116-extern-unsafe.ax:10:17
+[1;34m   |[0m
+[1;34m10 |[0m (fn (direct x) (raw x))
+[1;34m   |[0m                 [1;31m^^^ an extern call[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `transitive` claims `restrict(no-unsafe)` and the body performs Unsafe: transitive -> direct -> raw[0m
+  [1;34m--> [0m1116-extern-unsafe.ax:15:6
+[1;34m   |[0m
+[1;34m10 |[0m (fn (direct x) (raw x))
+[1;34m   |[0m      [1;36m------ direct[0m
+[1;34m...[0m
+[1;34m15 |[0m (fn (transitive x) (direct x))
+[1;34m   |[0m      [1;31m^^^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mraw (no declaration to point at)
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `nullary` claims `restrict(no-unsafe)` and the body performs Unsafe: nullary -> count[0m
+  [1;34m--> [0m1116-extern-unsafe.ax:20:6
+[1;34m   |[0m
+[1;34m20 |[0m (fn (nullary) count)
+[1;34m   |[0m      [1;31m^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mcount (no declaration to point at)
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `nullary` calls extern `count`, whose implementation is outside the safety checker, and its declaration does not say so[0m
+  [1;34m--> [0m1116-extern-unsafe.ax:20:15
+[1;34m   |[0m
+[1;34m20 |[0m (fn (nullary) count)
+[1;34m   |[0m               [1;31m^^^^^ an extern call[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `imported` claims `restrict(no-unsafe)` and the body performs Unsafe: imported -> ffiFreeWords[0m
+  [1;34m--> [0m1116-extern-unsafe.ax:25:6
+[1;34m   |[0m
+[1;34m25 |[0m (fn (imported) (ffiFreeWords 4096 2))
+[1;34m   |[0m      [1;31m^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mffiFreeWords (no declaration to point at)
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `imported` calls extern `ffiFreeWords`, whose implementation is outside the safety checker, and its declaration does not say so[0m
+  [1;34m--> [0m1116-extern-unsafe.ax:25:17
+[1;34m   |[0m
+[1;34m25 |[0m (fn (imported) (ffiFreeWords 4096 2))
+[1;34m   |[0m                 [1;31m^^^^^^^^^^^^ an extern call[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `valueCall` calls extern `raw`, whose implementation is outside the safety checker, and its declaration does not say so[0m
+  [1;34m--> [0m1116-extern-unsafe.ax:31:28
+[1;34m   |[0m
+[1;34m31 |[0m (fn (valueCall x) (let ((f raw)) (f x)))
+[1;34m   |[0m                            [1;31m^^^ an extern call[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+compilation failed due to 8 previous errors

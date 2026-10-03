@@ -416,6 +416,7 @@
 ; A descriptor to a HANDLE: see the header.
 (:: winHandleOf (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (winHandleOf fd)
   (if (== fd 0)
     (winGetStdHandle (- 0 10))
@@ -500,6 +501,7 @@
 ; exit(code): `ExitProcess` ends every thread, as `exit_group` does.
 (pub :: platformExitWith (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (platformExitWith code)
   (winExitProcess code))
 

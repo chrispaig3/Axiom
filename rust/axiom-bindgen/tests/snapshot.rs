@@ -104,6 +104,11 @@ fn nested_fixture_shape() {
     // A parameter named `cell` is not shadowed: the wrapper's own locals
     // are `__`-prefixed and the call passes the parameter first.
     assert!(fresh.contains("(pub fn (echo cell)"));
+    // Scalar-result wrappers still cross an extern safety boundary.
+    assert!(
+        fresh.contains(";@axiom:effect(io)\n;@axiom:effect(unsafe)\n(pub fn (doubleInPlace xs)")
+    );
+    assert!(fresh.contains(";@axiom:effect(io)\n;@axiom:effect(unsafe)\n(pub fn (thingGet t)"));
     assert!(fresh.contains("(__st (echoRaw cell __c))"));
     // One data type per opaque type, with the overridden stem.
     assert!(fresh.contains("(pub data Thing\n  (Thing Handle))"));

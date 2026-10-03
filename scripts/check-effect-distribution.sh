@@ -968,6 +968,11 @@
 # refinement add compiler helpers. These pins measure those changes;
 # the required/ambient effect boundary is unchanged.
 #
+# Extern declarations now seed Unsafe alongside IO. The five Ffi and five Windows
+# extern rows move from IO to IO,Unsafe in the library view. The
+# diagnostic helper unsafeCalleeKind adds one Alloc,Mut,Unsafe row
+# in the compiler view; reviewed wrapper rows are unchanged.
+#
 # Every bucket is pinned exactly. A refactor that moves functions
 # between buckets fails here, and the failure is a conversation about
 # whether the required/ambient line still sits where it was measured -
@@ -1004,7 +1009,7 @@ have "$(bucket "$work/main.axsym" 'Alloc')" 121 "exactly Alloc"
 have "$(bucket "$work/main.axsym" 'Alloc,IO')" 12 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 7 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 0 "IO,Mut"
-have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 967 "Alloc,Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 968 "Alloc,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Unsafe')" 499 "exactly Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 251 "Alloc,IO,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Mut,Unsafe')" 113 "Mut,Unsafe"
@@ -1052,7 +1057,7 @@ have "$(bucket "$work/lib.axsym" 'Alloc,IO,Mut')" 113 "Alloc,IO,Mut"
 have "$(bucket "$work/lib.axsym" 'Mut')" 30 "exactly Mut"
 have "$(bucket "$work/lib.axsym" 'Alloc')" 112 "exactly Alloc"
 have "$(bucket "$work/lib.axsym" 'Alloc,IO')" 11 "Alloc,IO"
-have "$(bucket "$work/lib.axsym" 'IO')" 19 "exactly IO"
+have "$(bucket "$work/lib.axsym" 'IO')" 9 "exactly IO"
 have "$(bucket "$work/lib.axsym" 'Alloc,Assert,IO,Mut')" 7 "Alloc,Assert,IO,Mut"
 have "$(bucket "$work/lib.axsym" 'IO,Mut')" 5 "IO,Mut"
 have "$(bucket "$work/lib.axsym" 'Alloc,Mut,Unsafe')" 242 "Alloc,Mut,Unsafe"
@@ -1063,7 +1068,7 @@ have "$(bucket "$work/lib.axsym" 'Alloc,Unsafe')" 18 "Alloc,Unsafe"
 have "$(bucket "$work/lib.axsym" 'Alloc,IO,Unsafe')" 59 "Alloc,IO,Unsafe"
 have "$(bucket "$work/lib.axsym" 'Alloc,Assert,IO,Mut,Unsafe')" 0 "Alloc,Assert,IO,Mut,Unsafe"
 have "$(bucket "$work/lib.axsym" 'IO,Mut,Unsafe')" 8 "IO,Mut,Unsafe"
-have "$(bucket "$work/lib.axsym" 'IO,Unsafe')" 14 "IO,Unsafe"
+have "$(bucket "$work/lib.axsym" 'IO,Unsafe')" 24 "IO,Unsafe"
 have "$(bucket "$work/lib.axsym" 'Alloc,IO,Spawn')" 2 "Alloc,IO,Spawn"
 have "$(bucket "$work/lib.axsym" 'Alloc,IO,Mut,Spawn,Unsafe')" 2 "Alloc,IO,Mut,Spawn,Unsafe"
 have "$(bucket "$work/lib.axsym" 'Alloc,Block,IO,Mut')" 12 "Alloc,Block,IO,Mut"

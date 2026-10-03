@@ -4689,8 +4689,9 @@
 ; monotone fixpoint in `inferEffects` propagates them transitively for
 ; free.
 ;
-; That is the whole of MM-FFI-5's third requirement, "a foreign call is
-; an inferred effect like a syscall". `isSyscallPrim` stays a literal
+; Like a syscall, a foreign call seeds IO and Unsafe: the foreign
+; implementation may read, write or free the addresses it receives.
+; `isSyscallPrim` stays a literal
 ; seven-way match on `__syscall0`..`__syscall6`; neither effect walk
 ; learns a new shape; nothing else moves.
 ;
@@ -4724,6 +4725,7 @@
           ; each - and right for the first, since a nullary
           ; extern IS a legitimate bare value.
           (vecPushStr v (builtinEff "IO"))
+          (vecPushStr v (builtinEff "Unsafe"))
           v
         })
       vecNew
@@ -22102,7 +22104,7 @@
 ;           row carries it (`__argc`, `__argv`);
 ;   Alloc   a builtin whose seeded row carries it (`__alloc`, the
 ;           arena primitives);
-;   Unsafe  a raw-memory primitive or a syscall - its row carries `Mut`
+;   Unsafe  an extern, a raw-memory primitive or a syscall - its row carries `Mut`
 ;           or `Alloc` (a syscall's is empty) but never `Unsafe` itself,
 ;           `walkCallHead` adds that at the call site, so `isUnsafePrim`
 ;           and not the row is the test -
@@ -22143,7 +22145,7 @@
           0)
         (if (&& (strEq kind "IO") (|| (== (isSyscallPrim (memGetWordStr ent 0)) 1) (== (memGetWord ent 4) 2)))
           1
-          (if (&& (strEq kind "Unsafe") (|| (== (isUnsafePrim (memGetWordStr ent 0)) 1) (&& (> depth 0) (== (memGetWord ent 9) 2))))
+          (if (&& (strEq kind "Unsafe") (|| (== (memGetWord ent 4) 2) (|| (== (isUnsafePrim (memGetWordStr ent 0)) 1) (&& (> depth 0) (== (memGetWord ent 9) 2)))))
             1
             (if (&& (== (memGetWord ent 3) 1) (== (effIn (memGetWordVec ent 5) (graphEffKey kind)) 1))
               1
@@ -23745,10 +23747,24 @@
         (if (== kind 0)
           (emitUndeclaredUnsafe tc d (vecGet prims p) 0 forges 0)
           (if (== kind 1)
-            (emitUndeclaredUnsafe tc d (vecGet sink c) 1 forges 0)
+            (emitUndeclaredUnsafe tc d (vecGet sink c) (unsafeCalleeKind tc d (vecGet sink c)) forges 0)
             (if (== kind 2)
               (emitUndeclaredUnsafe tc d (vecGet forges (* f 3)) 2 forges f)
               0)))))))
+
+; An extern has no checked body to establish its safety. The same
+; resolved-reference sink carries it and precondition interfaces.
+(pub :: unsafeCalleeKind (-> Int Int Int Int))
+;@axiom:effect(unsafe)
+(pub fn (unsafeCalleeKind tc d site)
+  (let (
+    (_m (memSetWord tc 16 (nodeModule d)))
+    (ent (findFnEnt tc (nodeAName site)))
+    (_m0 (memSetWord tc 16 0))
+  )
+    (if (== ent 0)
+      1
+      (if (== (memGetWord ent 4) 2) 3 1))))
 
 ; The record of `v` - one every `stride` words, its node first - whose
 ; node starts earliest in the source, or -1 when none has a span.
@@ -23848,21 +23864,25 @@
 ; The rest of AX3073's sentence, after the declaration's name.
 (pub :: unsafeOpText (-> Int Int (Vec Int) Int String))
 (pub fn (unsafeOpText site kind forges k)
+  (if (== kind 3)
+    (strConcat (strConcat "calls extern `" (srcSpelling (nodeAName site))) "`, whose implementation is outside the safety checker, and its declaration does not say so")
   (if (== kind 0)
     (if (== (isAsmPrim (nodeAName (spineHead site))) 1)
       "runs inline assembly and its declaration does not say so"
       "touches raw memory and its declaration does not say so")
     (if (== kind 1)
       (strConcat (strConcat "calls `" (srcSpelling (nodeAName site))) "`, whose safety depends on its caller, and its declaration does not say so")
-      (strConcat (unsafeForgeText forges k) ", and its declaration does not say so"))))
+      (strConcat (unsafeForgeText forges k) ", and its declaration does not say so")))))
 
 (pub :: unsafeOpLabel (-> Int Int String))
 (pub fn (unsafeOpLabel site kind)
+  (if (== kind 3)
+    "an extern call"
   (if (== kind 0)
     (graphShownName (nodeAName (spineHead site)))
     (if (== kind 1)
       "a precondition interface"
-      "forges a reference")))
+      "forges a reference"))))
 
 ; "forges a `Hid` out of an `Int` with `cast`", for the `k`th record
 ; of `forges`: node, target, source.
@@ -24258,7 +24278,7 @@
     }))
 
 ; A reference the effect walk resolved, while `checkAxtags` walks one
-; body (`unsafeSink`): pushed when it names a precondition interface, for
+; body (`unsafeSink`): pushed when it names an extern or precondition interface, for
 ; AX3073 to name. A local or a parameter of the same spelling is not
 ; the function, and is not pushed.
 (pub :: unsafeSinkNote (-> Int Int Int Int))
@@ -24272,7 +24292,7 @@
         (let ((ent (findFnEnt tc (nodeAName node))))
           (if (== ent 0)
             0
-            (if (== (memGetWord ent 9) 2)
+            (if (|| (== (memGetWord ent 4) 2) (== (memGetWord ent 9) 2))
               {
                 (vecPush (cast (Vec Int) sink) node)
                 0

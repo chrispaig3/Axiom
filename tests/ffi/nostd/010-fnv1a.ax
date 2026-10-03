@@ -26,6 +26,7 @@
 (import Hash)
 
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (main)
   (if (!= (fnv1a "axiom") 7929549642058804759)
     1

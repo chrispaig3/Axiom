@@ -19,6 +19,7 @@
   (sum5 :: (-> Int Int Int Int Int Int) (symbol "axffi_sum5")))
 
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (main)
   (if (&& (== abiProbe 23061) (&& (== (add 20 22) 42) (&& (== (sum3 1 2 3) 6) (== (sum5
     1

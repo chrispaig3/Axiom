@@ -937,3 +937,6 @@
 0.8.0  S  Statement  repr -> sealed counted reference: automatically finalises and retains its connection
 0.8.0  S  Transaction  repr -> sealed counted reference: automatically rolls back and retains its connection
 0.8.0  F  axqBegin  row -> IO: constructing a transaction installs an IO cleanup callback
+
+# 0.8.0 - foreign implementations are outside the safety checker.
+0.8.0  L  extern  calls seed IO and Unsafe; callers must vouch with `effect(unsafe)`

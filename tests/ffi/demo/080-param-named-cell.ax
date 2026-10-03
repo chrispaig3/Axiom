@@ -17,6 +17,7 @@
 (import Demo)
 
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (main)
   (let ((cell 21))
     (let (

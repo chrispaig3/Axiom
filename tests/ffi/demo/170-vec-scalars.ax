@@ -42,6 +42,7 @@
     (countOnes v (+ i 1) (+ acc (vecGet v i)))))
 
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (main)
   (let (
     (h (halves 5))

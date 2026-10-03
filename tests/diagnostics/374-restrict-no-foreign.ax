@@ -1,6 +1,6 @@
 ; `restrict(no-foreign)`: no call-graph path reaches an `extern` item.
-; The effect row cannot answer this - an extern contributes `IO`, and so
-; does a syscall - so this one walks the graph `symbols --calls` prints
+; Externs and syscalls both contribute IO and Unsafe, so this restriction
+; walks the graph `symbols --calls` prints
 ; for an entry `tcAddExtern` marked (word 4 = 2).
 ;
 ;   `bridges`   calls the extern `add` directly             -> AX3049
@@ -19,11 +19,13 @@
 ;@axiom:restrict(no-foreign)
 (:: bridges (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (bridges n)
   (add n 1))
 
 (:: wrap (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (wrap n)
   (add n 2))
 

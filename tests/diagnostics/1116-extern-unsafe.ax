@@ -1,0 +1,50 @@
+; Extern calls seed Unsafe, including nullary and imported bindings.
+(import Ffi)
+(pub extern "axiom_demo"
+  (raw :: (-> Int Int) (symbol "axffi_raw"))
+  (count :: Int (symbol "axffi_count")))
+
+(:: direct (-> Int Int))
+;@axiom:effect(io)
+;@axiom:restrict(no-unsafe)
+(fn (direct x) (raw x))
+
+(:: transitive (-> Int Int))
+;@axiom:effect(io)
+;@axiom:restrict(no-unsafe)
+(fn (transitive x) (direct x))
+
+(:: nullary Int)
+;@axiom:effect(io)
+;@axiom:restrict(no-unsafe)
+(fn (nullary) count)
+
+(:: imported Int)
+;@axiom:effect(io)
+;@axiom:restrict(no-unsafe)
+(fn (imported) (ffiFreeWords 4096 2))
+
+; Taking an extern as a function value draws the same obligation.
+(:: valueCall (-> Int Int))
+;@axiom:effect(io)
+;@axiom:restrict(no-unsafe)
+(fn (valueCall x) (let ((f raw)) (f x)))
+
+; A local name shadows the extern, so it adds no foreign obligation.
+(:: shadow Int)
+;@axiom:restrict(no-unsafe)
+(fn (shadow) (let ((raw (lambda (x) x))) (raw 1)))
+
+; A reviewed wrapper contains the obligation; its callers stay safe.
+(:: vouched (-> Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (vouched x) (raw x))
+
+(:: safeCaller (-> Int Int))
+;@axiom:effect(io)
+;@axiom:restrict(no-unsafe)
+(fn (safeCaller x) (vouched x))
+
+(:: main Int)
+(fn (main) 0)

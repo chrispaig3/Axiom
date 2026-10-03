@@ -16,6 +16,12 @@ its changelog too.
 
 ## Unreleased
 
+- Extern calls require `effect(unsafe)` and contribute `Unsafe` to
+  their callers' inferred rows. `restrict(no-unsafe)` rejects direct,
+  transitive and imported extern calls. A reviewed wrapper can contain
+  the obligation with `effect(unsafe)`. Tested by
+  `tests/diagnostics/1116-extern-unsafe.ax` and `scripts/check-ffi.sh`.
+
 - Files, TCP sockets and AXQLite connections now close when their last
   owner leaves a normal scope. `openPath` and `openBeneath` answer a
   concrete `File`; use `fileReadLine`, `fileReadAll`, `fileReadInto` and

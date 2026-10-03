@@ -9,4 +9,5 @@
   (ad :: (-> Int Int Int) (symbol "axffi_ad")))
 
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (main) { (println (fmtInt (ad 20 22))) 0 })

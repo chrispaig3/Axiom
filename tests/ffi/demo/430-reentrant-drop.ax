@@ -35,6 +35,7 @@
       (dropLoop (+ i 1)))))
 
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (main)
   (let ((seed (strConcat "ab" "cd")))
     {

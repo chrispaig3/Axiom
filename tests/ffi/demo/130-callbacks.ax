@@ -30,6 +30,7 @@
   (+ a b))
 
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (main)
   ; (1 + 10) + 10
   ; 3 * (3 * 2)

@@ -14,6 +14,7 @@
   (countVowels :: (-> String Int) (symbol "axffi_count_vowels")))
 
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (main)
   {
     (println (fmtInt (countVowels "hello world")))

@@ -233,6 +233,7 @@
 
 (pub :: doubleInPlace (-> (Vec Int) Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (doubleInPlace xs)
   (let ((__r 
     (doubleInPlaceRaw
@@ -499,6 +500,7 @@
 
 (pub :: mean (-> (Vec Int) (Vec Int) Float))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (mean xs weights)
   (let ((__r 
     (meanRaw
@@ -571,6 +573,7 @@
 
 (pub :: pixelBrightness (-> Pixel Float Float))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (pixelBrightness p gain)
   (match p
     ((Pixel __f0 __f1 __f2)
@@ -753,6 +756,7 @@
 
 (pub :: sumRows (-> (Vec (Vec Int)) Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (sumRows rows)
   (let ((__r 
     (sumRowsRaw
@@ -761,6 +765,7 @@
 
 (pub :: thingGet (-> Thing Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (thingGet t)
   (match t
     ((Thing __h0)
@@ -807,6 +812,7 @@
 
 (pub :: thingPair (-> Thing Thing Float Float))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (thingPair a b scale)
   (match a
     ((Thing __h0)
@@ -845,6 +851,7 @@
 
 (pub :: total (-> (Vec Int) Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (total xs)
   (let ((__r 
     (totalRaw

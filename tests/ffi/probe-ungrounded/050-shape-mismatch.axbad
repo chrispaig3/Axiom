@@ -10,4 +10,5 @@
   (add :: (-> Int Int) (symbol "axffi_add")))
 
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (main) { (println (fmtInt (add 20))) 0 })

@@ -16,4 +16,5 @@
 ; error makes it fail for the wrong reason.
 (pub :: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (main) (noSuchThing 1))

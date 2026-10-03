@@ -30,6 +30,7 @@
 ;@axiom:effect(io)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
+;@axiom:effect(unsafe)
 (fn (fpar)
   (let ((p (counterNew 0)))
     (__par_join
@@ -46,6 +47,7 @@
 ;@axiom:effect(io)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
+;@axiom:effect(unsafe)
 (fn (fthread)
   (let ((p (counterNew 0)))
     (__thread_join

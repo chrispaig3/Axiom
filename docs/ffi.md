@@ -1112,8 +1112,11 @@ Eight rules govern the boundary. The code cites them by name:
   zeroes the word before the call, and `ffiHandleClose` zeroes it too.
   `#[axiom_opaque]` generates exactly this, and a hand-written one must
   match it.
-- **C6 — An extern call is `IO`.** Reaching Rust is an effect, like a
-  syscall. It is seeded at registration and propagates transitively.
+- **C6 — An extern call is `IO` and `Unsafe`.** Reaching Rust is an
+  effect, like a syscall. Its implementation is outside the safety
+  checker, so the calling declaration must say `effect(unsafe)`.
+  Both effects are seeded at registration. `Unsafe` propagates until
+  a reviewed wrapper contains it with `effect(unsafe)`.
   There is no separate `FFI` effect, and `;@axiom:effect(ffi)` isn't a
   claim the checker knows.
 - **C7 — No unwinding; a panic aborts.** Axiom's emitter never writes an
