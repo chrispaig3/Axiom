@@ -32,6 +32,16 @@
 //! enable the feature and supplies its own.
 
 use core::alloc::{GlobalAlloc, Layout};
+
+// The allocator's block alignment is MM-ALLOC-3 / invariant I5. Its
+// size crosses axiom_alloc's signed word without narrowing on supported
+// targets; axiom-abi checks the pointer and word widths at compilation.
+const BLOCK_ALIGNMENT: usize = 16;
+const _: () = {
+    assert!(BLOCK_ALIGNMENT.is_power_of_two());
+    assert!(BLOCK_ALIGNMENT >= core::mem::align_of::<axiom_abi::AxWord>());
+    assert!(core::mem::size_of::<isize>() == core::mem::size_of::<i64>());
+};
 // The C spellings, not Rust's byte pointers. The memory intrinsics
 // below are the symbols LLVM assumes every target defines, and rustc's
 // `suspicious_runtime_symbol_definitions` checks the definition against
@@ -313,7 +323,7 @@ unsafe impl GlobalAlloc for AxiomAlloc {
         // Every axiom_alloc block is 16-byte aligned (invariant I5) and
         // reads as zero (I6). A stricter alignment request cannot be
         // served, so refuse rather than return a misaligned block.
-        if layout.align() > 16 {
+        if layout.align() > BLOCK_ALIGNMENT {
             return core::ptr::null_mut();
         }
         // SAFETY: `axiom_alloc` is one of the four runtime symbols

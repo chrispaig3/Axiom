@@ -438,8 +438,8 @@ fn take_bytes(cell: &AxOutCell) -> Vec<u8> {
 }
 
 fn main() {
-    assert_eq!(axiom_ffi::ABI_VERSION, 2);
-    assert_eq!(axiom_ffi::axffi_abi_version(), 2);
+    assert_eq!(axiom_ffi::ABI_VERSION, 3);
+    assert_eq!(axiom_ffi::axffi_abi_version(), 3);
 
     // Scalars: every narrow kind in range, floats as bits, bool as 0/1.
     let two = 2.0f64.to_bits() as AxWord;

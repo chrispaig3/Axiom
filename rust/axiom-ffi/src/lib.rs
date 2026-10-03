@@ -1263,8 +1263,9 @@ pub extern "C" fn axffi_abi_version() -> i64 {
 /// `Vec<Vec<T>>` as `(pairs, n)` of word buffers, `&mut [T]` in place
 /// and the nested `Result<Option<T>, E>` / `Option<Result<T, E>>` over
 /// the same three statuses - because no representation a version-2
-/// crate already uses moved.
-pub const ABI_VERSION: i64 = 2;
+/// crate already uses moved. Version 3 adds the ownership evidence word
+/// to the code pointer signature of an Axiom callback closure.
+pub const ABI_VERSION: i64 = 3;
 
 #[cfg(test)]
 mod tests {

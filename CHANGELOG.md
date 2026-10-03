@@ -16,6 +16,14 @@ its changelog too.
 
 ## Unreleased
 
+- The Rust wire ABI is version 3: callback code takes an ownership
+  evidence word after its environment and argument. Rebuild Rust
+  callback libraries against this ABI. Tested by
+  `tests/ffi/demo/310-abi-version.ax` and `scripts/check-ffi.sh`.
+- Rust ABI builds check the word and pointer widths, string/vector/cell
+  layouts and alignment required by Axiom's 16-byte-aligned blocks.
+  Unsupported pointer widths are refused during compilation.
+  Tested by `scripts/check-ffi.sh`.
 - Rust callbacks pass the closure ABI's ownership evidence word.
   Intermediate curried results are marked as counted closures, and
   scalar results need no reference bit. Tested by

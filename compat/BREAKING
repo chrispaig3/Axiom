@@ -940,3 +940,6 @@
 
 # 0.8.0 - foreign implementations are outside the safety checker.
 0.8.0  L  extern  calls seed IO and Unsafe; callers must vouch with `effect(unsafe)`
+
+# 0.8.0 - counted callback results carry ownership evidence.
+0.8.0  L  closure-abi  Rust ABI 3: callback code takes (environment, argument, ownership evidence); rebuild Rust callback libraries

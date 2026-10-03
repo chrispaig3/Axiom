@@ -1128,12 +1128,13 @@ Eight rules govern the boundary. The code cites them by name:
   it isn't one of the statuses `MM-EXEC-16` reserves. A panic that
   reaches the boundary ends the process with a message. It never
   returns a status.
-- **C8 — The wire has a version.** `axffi_abi_version` answers **2**.
+- **C8 — The wire has a version.** `axffi_abi_version` answers **3**.
   It goes up on any change to a wire representation: the word, the
   `Str` layout, the cell or the statuses. `ffiAbiVersion` reads it from
   Axiom, and `tests/ffi/demo/310-abi-version.ax` pins it. Version 1 had
   statuses 0 and 1. Version 2 added status 2, the drop function and the
-  narrow-int checks.
+  narrow-int checks. Version 3 adds the closure's ownership evidence
+  argument; rebuild Rust callback libraries for this ABI.
 
 ---
 

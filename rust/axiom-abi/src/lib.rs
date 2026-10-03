@@ -34,6 +34,9 @@
 #![no_std]
 #![deny(improper_ctypes_definitions)]
 
+#[cfg(not(target_pointer_width = "64"))]
+compile_error!("axiom-abi requires 64-bit pointers: Axiom values and addresses occupy one i64");
+
 use core::marker::PhantomData;
 use core::slice;
 use core::str;
@@ -575,6 +578,33 @@ pub struct AxVecRepr {
     /// The element storage: `cap` words, `len` of them live.
     pub data: *const i64,
 }
+
+// These layouts are read as fixed word offsets by generated Axiom glue.
+// I5's 16-byte block alignment must also satisfy every Rust payload view.
+const _: () = {
+    use core::mem::{align_of, offset_of, size_of};
+    assert!(size_of::<AxWord>() == 8);
+    assert!(size_of::<usize>() == 8 && size_of::<isize>() == 8);
+    assert!(size_of::<*const u8>() == 8);
+    assert!(size_of::<extern "C" fn(AxWord, AxWord, AxWord) -> AxWord>() == 8);
+    assert!(size_of::<f64>() == size_of::<AxWord>());
+    assert!(align_of::<f64>() == align_of::<AxWord>());
+    assert!(align_of::<u64>() == align_of::<AxWord>());
+    assert!(size_of::<AxStrRepr>() == 24);
+    assert!(offset_of!(AxStrRepr, len) == 0);
+    assert!(offset_of!(AxStrRepr, data) == 8);
+    assert!(offset_of!(AxStrRepr, owner) == 16);
+    assert!(size_of::<AxVecRepr>() == 24);
+    assert!(offset_of!(AxVecRepr, len) == 0);
+    assert!(offset_of!(AxVecRepr, cap) == 8);
+    assert!(offset_of!(AxVecRepr, data) == 16);
+    assert!(size_of::<AxOutCell>() == 16);
+    assert!(offset_of!(AxOutCell, payload) == 0);
+    assert!(offset_of!(AxOutCell, extra) == 8);
+    assert!(16 % align_of::<AxStrRepr>() == 0);
+    assert!(16 % align_of::<AxVecRepr>() == 0);
+    assert!(16 % align_of::<AxOutCell>() == 0);
+};
 
 /// A borrowed view of an Axiom `Vec` of words.
 ///
