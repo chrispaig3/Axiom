@@ -16,6 +16,10 @@ its changelog too.
 
 ## Unreleased
 
+- Rust callbacks pass the closure ABI's ownership evidence word.
+  Intermediate curried results are marked as counted closures, and
+  scalar results need no reference bit. Tested by
+  `tests/ffi/demo/130-callbacks.ax` and `scripts/check-ffi.sh`.
 - Pinned the divergence check's assumption that loops have no `break`
   or `continue` form, including casts after constant-true loops.
   Tested by `tests/diagnostics/1118-no-loop-early-exit.ax` and

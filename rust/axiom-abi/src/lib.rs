@@ -393,8 +393,9 @@ pub trait AxRecord: Sized {
 // An Axiom closure is a heap record whose word 0 is the code address
 // and whose later words are the captures (`self_host/codegen.ax`,
 // "Lambda expressions: capture, lifting, and the record convention").
-// The lifted code is an ordinary C function `i64 (i64 %_env, i64 arg)`
-// that takes the record itself first - a lifted lambda reads its
+// The lifted code is an ordinary C function
+// `i64 (i64 %_env, i64 arg, i64 evidence)` that takes the record itself
+// first - a lifted lambda reads its
 // captures from it, the forwarding thunk a bare top-level function
 // gets as a value ignores it.
 //
@@ -434,22 +435,25 @@ pub trait AxCallback: Copy {
 }
 
 /// One link of the chain: load word 0 of `record` and call it with
-/// the record as the hidden environment and one argument.
+/// the record as the hidden environment, one argument and ownership
+/// evidence. Scalar arguments need no reference bit; an intermediate
+/// result is a counted closure (bit 1).
 ///
 /// # Safety
 /// `record` must be a live closure record.
 #[inline]
-unsafe fn apply_one(record: AxWord, arg: AxWord) -> AxWord {
+unsafe fn apply_one(record: AxWord, arg: AxWord, result_ref: bool) -> AxWord {
     unsafe {
         // SAFETY: the caller promises a live closure record (this
         // function's `# Safety`), and the module note above fixes its
         // shape: word 0 is the code address of a lifted
-        // `i64 (i64 %_env, i64 arg)` the emitter wrote, so the load is
+        // `i64 (i64 %_env, i64 arg, i64 evidence)` the emitter wrote, so the load is
         // in bounds and the transmute names that exact signature - one
         // argument, because the parser curries every lambda.
         let code = *(record as *const AxWord);
-        let f: extern "C" fn(AxWord, AxWord) -> AxWord = core::mem::transmute(code as usize);
-        f(record, arg)
+        let f: extern "C" fn(AxWord, AxWord, AxWord) -> AxWord =
+            core::mem::transmute(code as usize);
+        f(record, arg, if result_ref { 2 } else { 0 })
     }
 }
 
@@ -512,7 +516,7 @@ impl AxFn1 {
         // SAFETY: the `from_raw` contract - a live closure record - is
         // what the generated shim promised when it built this value
         // from an argument word the Axiom caller typed as an arrow.
-        unsafe { apply_one(self.record, a) }
+        unsafe { apply_one(self.record, a, false) }
     }
 }
 
@@ -525,8 +529,8 @@ impl AxFn2 {
         // SAFETY: as `AxFn1::call`; the link is a fresh record the
         // first step answered, owned here and released after use.
         unsafe {
-            let link = apply_one(self.record, a);
-            let v = apply_one(link, b);
+            let link = apply_one(self.record, a, true);
+            let v = apply_one(link, b, false);
             axiom_release(link);
             v
         }
@@ -540,9 +544,9 @@ impl AxFn3 {
     pub fn call(self, a: AxWord, b: AxWord, c: AxWord) -> AxWord {
         // SAFETY: as `AxFn2::call`, one link deeper.
         unsafe {
-            let link1 = apply_one(self.record, a);
-            let link2 = apply_one(link1, b);
-            let v = apply_one(link2, c);
+            let link1 = apply_one(self.record, a, true);
+            let link2 = apply_one(link1, b, true);
+            let v = apply_one(link2, c, false);
             axiom_release(link2);
             axiom_release(link1);
             v
@@ -670,6 +674,20 @@ impl<'a> AxVec<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn callback_supplies_ownership_evidence() {
+        extern "C" fn read_evidence(_env: AxWord, arg: AxWord, ev: AxWord) -> AxWord {
+            arg + ev
+        }
+        let record = [read_evidence as *const () as AxWord];
+        // SAFETY: the fixture supplies the only word apply_one reads,
+        // containing a code pointer with the exact closure signature.
+        unsafe {
+            assert_eq!(apply_one(record.as_ptr() as AxWord, 40, false), 40);
+            assert_eq!(apply_one(record.as_ptr() as AxWord, 40, true), 42);
+        }
+    }
 
     fn str_handle(repr: &AxStrRepr) -> AxStr<'_> {
         // SAFETY: test-only; the repr outlives the view within the test.

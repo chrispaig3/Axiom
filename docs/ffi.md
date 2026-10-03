@@ -622,9 +622,10 @@ writes:
 ```
 
 What crosses is the closure record's address. Word 0 of an Axiom
-closure is its code, an `extern "C" fn(env, arg) -> i64` that takes the
-record itself as `env`. So `AxFn1::call` is one indirect call, with no
-trampoline.
+closure is its code, an `extern "C" fn(env, arg, evidence) -> i64`
+that takes the record itself as `env`. The evidence marks an
+intermediate closure result as counted; scalar arguments and results
+need no reference bits. `AxFn1::call` is one indirect call.
 
 Axiom functions are curried: `(lambda (a b) ...)` is a one-argument
 lambda that answers a one-argument lambda. So `AxFn2::call` and
