@@ -464,22 +464,30 @@ macro_rules! ax_fn {
     ($name:ident, $arity:expr_2021, $doc:expr_2021) => {
         #[doc = $doc]
         ///
-        /// `Copy`, one word: the closure record. Valid for the call the
-        /// shim received it in; see the module note on keeping one.
+        /// `Copy`, one word: the closure record, borrowed for `'a`.
+        /// An exported function cannot keep this value after its call.
+        /// Retaining its raw word needs a separate unsafe ownership proof.
+        ///
+        /// ```compile_fail
+        /// use axiom_abi::AxFn1;
+        /// fn keep(f: AxFn1<'_>) -> AxFn1<'static> { f }
+        /// ```
         #[repr(transparent)]
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-        pub struct $name {
+        pub struct $name<'a> {
             record: AxWord,
+            _life: core::marker::PhantomData<&'a ()>,
             _thread: $crate::NotThreadSafe,
         }
 
-        impl AxCallback for $name {
+        impl AxCallback for $name<'_> {
             const ARITY: usize = $arity;
 
             #[inline]
             unsafe fn from_raw(record: AxWord) -> Self {
                 Self {
                     record,
+                    _life: core::marker::PhantomData,
                     _thread: core::marker::PhantomData,
                 }
             }
@@ -490,7 +498,7 @@ macro_rules! ax_fn {
             }
         }
 
-        impl $name {
+        impl $name<'_> {
             /// The record word, for [`axiom_retain`] / [`axiom_release`].
             #[inline]
             pub fn as_word(self) -> AxWord {
@@ -512,7 +520,7 @@ ax_fn!(
     "An Axiom `(-> Int Int Int Int)` value: three arguments, applied one at a time."
 );
 
-impl AxFn1 {
+impl AxFn1<'_> {
     /// Call the Axiom function with `a`.
     #[inline]
     pub fn call(self, a: AxWord) -> AxWord {
@@ -523,7 +531,7 @@ impl AxFn1 {
     }
 }
 
-impl AxFn2 {
+impl AxFn2<'_> {
     /// Call the Axiom function with `a` and `b`: the first application
     /// answers the inner link, the second the value; the link is then
     /// released.
@@ -540,7 +548,7 @@ impl AxFn2 {
     }
 }
 
-impl AxFn3 {
+impl AxFn3<'_> {
     /// Call the Axiom function with `a`, `b` and `c`, one application
     /// per argument; the two intermediate links are released.
     #[inline]

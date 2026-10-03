@@ -639,6 +639,9 @@ two-argument function reaches `fold3` through
 `(lambda (a b) (plus a b))`, as the diagnostic's help says.
 
 The callback is borrowed (C1): it is valid for the call, not after it.
+`AxFn1`, `AxFn2` and `AxFn3` carry that lifetime in Rust. Use an
+elided lifetime or `'_` in an exported parameter. A callback cannot
+escape into a stored value through safe Rust.
 A shim that stores one takes a share with `axiom_retain` and pairs it
 with `axiom_release`.
 

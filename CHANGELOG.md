@@ -16,6 +16,11 @@ its changelog too.
 
 ## Unreleased
 
+- Rust callback values carry the call's lifetime. Safe export bodies
+  cannot store a borrowed callback for later use; exported parameters
+  accept elided lifetimes and `'_`, and refuse `'static`. Tested by
+  `scripts/check-ffi.sh` and the `AxFn1` compile-fail doctest.
+
 - Type-preserving casts keep ownership and reference evidence, so owned
   temporaries are released once and borrowed aliases stay live.
   Lifetime checks include indirect-call captures and refuse origin

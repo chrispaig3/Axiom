@@ -637,10 +637,20 @@ pub fn classify_param_with(ty: &Type, registry: &dyn Registry) -> Result<Param, 
             {
                 return Ok(Param::Scalar(s));
             }
-            if let Some(arity) = callback_arity(&name)
-                && seg.arguments.is_none()
-            {
-                return Ok(Param::Callback(arity));
+            if let Some(arity) = callback_arity(&name) {
+                let borrowed = seg.arguments.is_none()
+                    || matches!(&seg.arguments, syn::PathArguments::AngleBracketed(a)
+                        if a.args.len() == 1
+                            && matches!(a.args.first(), Some(syn::GenericArgument::Lifetime(l))
+                                if l.ident == "_"));
+                return if borrowed {
+                    Ok(Param::Callback(arity))
+                } else {
+                    Err(refuse_param(
+                        &text,
+                        " (a callback is borrowed for the call; use an elided lifetime or `'_`)",
+                    ))
+                };
             }
             match name.as_str() {
                 "u128" | "i128" => Err(refuse_param(&text, TWO_WORDS)),
@@ -1476,6 +1486,20 @@ mod tests {
             classify_param(&ty("AxFn3")),
             Ok(Param::Callback(3))
         ));
+    }
+
+    #[test]
+    fn callbacks_borrow_for_the_call() {
+        for name in ["AxFn1", "AxFn2", "AxFn3"] {
+            assert!(matches!(
+                classify_param(&ty(&format!("{name}<'_>"))),
+                Ok(Param::Callback(_))
+            ));
+            for lifetime in ["'static", "'a"] {
+                let error = classify_param(&ty(&format!("{name}<{lifetime}>"))).unwrap_err();
+                assert!(error.contains("borrowed for the call"));
+            }
+        }
     }
 
     #[test]
