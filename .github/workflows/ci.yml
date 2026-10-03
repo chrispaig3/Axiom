@@ -643,6 +643,9 @@ jobs:
       - name: Seeded compiler fuzzing finds no crash, and can see one
         run: ./scripts/check-fuzz.sh
 
+      - name: Numeric operands agree from type checking through native execution
+        run: ./scripts/check-numeric-operands.sh
+
       # R-A10: an unused declaration changes nothing else the compiler
       # says. Every program the corpora hold that the compiler accepts
       # gains top-level functions named a to z; its verdict, symbols

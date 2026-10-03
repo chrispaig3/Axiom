@@ -746,6 +746,9 @@ return a `Result`: `addChecked`, `subChecked`, `mulChecked`,
 `+`, `-`, `*`, `/` and the six comparisons also take two `Float`s:
 `(+ 1.5 2.25)` is `3.75`. Both operands must be `Float`. Mixing an
 `Int` with a `Float` is `AX3004`, so convert first with `__intToFloat`.
+
+Tested by `tests/diagnostics/1117-mixed-numeric-operands.ax` and
+`tests/stdlib/700-polymorphic-float.ax`.
 `%`, the bitwise operators and the shifts take `Int`s only.
 
 Float arithmetic is IEEE 754 double precision, with nothing fused or

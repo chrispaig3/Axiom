@@ -10,7 +10,7 @@
 (import Err)
 (import Path)
 (import parser)
-(import typecheck (tyResolve))
+(import typecheck (tyResolve tyIsBareFloat))
 (import namespace)
 (import diag)
 (import expand)
@@ -18358,8 +18358,22 @@
 ; on every call (`fmtInt`, measured: 16 MB over 200,000 calls).
 (pub :: emitExpr (-> Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (emitExpr node cg)
-  (emitExprDispatch node cg))
+  (let ((out (emitExprDispatch node cg)))
+    {
+      ; A polymorphic signature cannot say whether its result is Float.
+      ; The checked application can, including a call through a closure.
+      (if (== (nodeTag node) TAG_E_APP)
+        (let ((stamp (nodeBinderTy node)))
+          (if (if (== stamp 0) false
+                (&& (== (nodeTag stamp) TAG_EVSTAMP)
+                  (== (nodeC stamp) (memGetWord out 36))))
+            (memSetWord out 14 (tyIsBareFloat (tyResolve (nodeA stamp))))
+            out))
+        out)
+      out
+    }))
 
 ; The retain itself, for a leaf `emitExprTail` has just emitted in
 ; tail position: listed in `tailRetain`, and not a block a jump has
@@ -21535,9 +21549,9 @@
 ; An operator's spelling depends on its operands - `fadd` against
 ; `add` - so the two are evaluated one at a time and their float flags
 ; captured, where a plain call can take the whole argument list at
-; once. Either operand being a float makes the operation a float
-; operation; a program mixing the two would be a type error under
-; stage0, and this compiler compiles what it is given.
+; once. The checker requires both operands to have the same numeric
+; type. Refuse a disagreement here too: interpreting integer bits as
+; a double would hide a checker or float-metadata bug.
 (pub :: emitBinop2 (-> String (Vec Int) Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
@@ -21552,14 +21566,16 @@
           (b (strDup (memGetWordStr cg2 2)))
           (bf (memGetWord cg2 14))
         )
-          (if (|| (== af 1) (== bf 1))
-            (emitFBinop fnName a b cg2)
-            (emitIBinop
-              fnName
-              a
-              b
-              cg2
-              snode)))))))
+          (if (!= af bf)
+            (dieCodegenDiag "mixed Int/Float operands reached code generation: " fnName)
+            (if (== af 1)
+              (emitFBinop fnName a b cg2)
+              (emitIBinop
+                fnName
+                a
+                b
+                cg2
+                snode))))))))
 
 ; `sdiv`/`srem` by zero is UNDEFINED in LLVM, and the two targets
 ; disagree about what undefined looks like: on darwin-aarch64
@@ -21746,9 +21762,11 @@
           (b (strDup (memGetWordStr cg2 2)))
           (bf (memGetWord cg2 14))
         )
-          (if (|| (== af 1) (== bf 1))
-            (emitFCmp fnName a b cg2)
-            (emitICmp fnName a b cg2)))))))
+          (if (!= af bf)
+            (dieCodegenDiag "mixed Int/Float operands reached code generation: " fnName)
+            (if (== af 1)
+              (emitFCmp fnName a b cg2)
+              (emitICmp fnName a b cg2))))))))
 
 (pub :: emitICmp (-> String String String Int Int))
 ;@axiom:effect(unsafe)

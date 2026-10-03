@@ -13538,9 +13538,17 @@
   ; `(nodeA head)` instead - the name STRING itself - corrupts the
   ; interned `"=="`, and the symptom is a comparison that stops
   ; answering `Bool` several checks later.
-  (let ((lt (checkExprH tc l 0)))
+  (let ((mut lt (checkExprH tc l 0)))
     (let ((rt (checkExprH tc r 0)))
       {
+        ; The parser marks only the zero it inserts for unary `(- x)`.
+        ; Give that zero Float's tag when x is Float; a written Int zero
+        ; remains an Int and cannot make mixed arithmetic well typed.
+        (if (&& (strEq op "-")
+              (&& (== (nodeTag l) TAG_E_INT)
+                (&& (== (nodeB l) 1) (== (tyIsFloatTy rt) 1))))
+          { (memSetWord l 0 TAG_E_FLT) (set lt mkFloatTy) }
+          0)
         ; A function value where arithmetic needs a number is a shape
         ; error at the operand, not a `{unknown}` downstream: refuse
         ; it audibly (the body is still verified inside).

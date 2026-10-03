@@ -1,0 +1,37 @@
+; Mixed numeric operands are refused before LLVM emission.
+(:: identity (-> a a))
+(fn (identity x) x)
+
+(:: direct Float)
+(fn (direct) (+ 1 2.0))
+
+(:: reversed Float)
+(fn (reversed) (- 2.0 1))
+
+(:: inferred Float)
+(fn (inferred) (let ((x 1)) (* x 2.0)))
+
+(:: polymorphic Float)
+(fn (polymorphic) (/ (identity 1) (identity 2.0)))
+
+(:: compared Bool)
+(fn (compared) (== (identity 1.0) (identity 1)))
+
+; A cast supplies its declared type, so mixing the resulting Int with
+; Float still fails. It is a bit reinterpretation, not a conversion.
+(:: castWord Float)
+(fn (castWord) (+ (cast Int 1.0) 2.0))
+
+(:: castFloat Float)
+(fn (castFloat) (+ (cast Float 1) 2))
+
+; There is no Any top type through which to hide an operand.
+(:: anyValue (-> Any Float))
+(fn (anyValue x) (+ x 1.0))
+
+(:: main Int)
+(fn (main) 0)
+
+; A written integer zero cannot stand in for Float's zero.
+(:: explicitZero Float)
+(fn (explicitZero) (- 0 1.0))

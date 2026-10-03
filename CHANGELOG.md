@@ -16,6 +16,15 @@ its changelog too.
 
 ## Unreleased
 
+- Polymorphic calls and closures preserve their checked `Float` result
+  type during code generation. Arithmetic over two such results now
+  computes floating-point values correctly. The emitter also refuses
+  conflicting numeric operand metadata, and unary negation supplies
+  a zero of the operand's type. Tested by
+  `tests/stdlib/700-polymorphic-float.ax`,
+  `tests/diagnostics/1117-mixed-numeric-operands.ax` and
+  `scripts/check-numeric-operands.sh`.
+
 - Extern calls require `effect(unsafe)` and contribute `Unsafe` to
   their callers' inferred rows. `restrict(no-unsafe)` rejects direct,
   transitive and imported extern calls. A reviewed wrapper can contain

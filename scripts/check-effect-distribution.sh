@@ -973,6 +973,10 @@
 # diagnostic helper unsafeCalleeKind adds one Alloc,Mut,Unsafe row
 # in the compiler view; reviewed wrapper rows are unchanged.
 #
+# emitExpr reads checked application result types to preserve Float
+# metadata. It now declares the unsafe metadata read itself, moving
+# one compiler row from Alloc,IO,Mut to Alloc,IO,Mut,Unsafe.
+#
 # Every bucket is pinned exactly. A refactor that moves functions
 # between buckets fails here, and the failure is a conversation about
 # whether the required/ambient line still sits where it was measured -
@@ -1003,7 +1007,7 @@ rows="$(grep -c '^F ' "$work/main.axsym" || true)"
 (( rows >= 4000 )) && ok "$rows functions listed (floor 4000)" \
   || fail "only $rows functions listed; the floor is 4000 (the corpus moved or the read broke)"
 have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 1631 "exactly Alloc,Mut"
-have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut')" 155 "Alloc,IO,Mut"
+have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut')" 154 "Alloc,IO,Mut"
 have "$(bucket "$work/main.axsym" 'Mut')" 36 "exactly Mut"
 have "$(bucket "$work/main.axsym" 'Alloc')" 121 "exactly Alloc"
 have "$(bucket "$work/main.axsym" 'Alloc,IO')" 12 "Alloc,IO"
@@ -1011,7 +1015,7 @@ have "$(bucket "$work/main.axsym" 'IO')" 7 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 0 "IO,Mut"
 have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 968 "Alloc,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Unsafe')" 499 "exactly Unsafe"
-have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 251 "Alloc,IO,Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 252 "Alloc,IO,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Mut,Unsafe')" 113 "Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,Unsafe')" 9 "Alloc,Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Unsafe')" 56 "Alloc,IO,Unsafe"

@@ -1,0 +1,74 @@
+[1;31merror[AX3002][0m[1m: undefined type `Any`[0m
+  [1;34m--> [0m1117-mixed-numeric-operands.ax:29:5
+[1;34m   |[0m
+[1;34m29 |[0m (:: anyValue (-> Any Float))
+[1;34m   |[0m     [1;31m^^^^^^^^ no type named `Any` is visible here[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0m`Any` is not a builtin type; a lowercase name in type position is a type variable
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3002` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected Float, found Int[0m
+ [1;34m--> [0m1117-mixed-numeric-operands.ax:6:17
+[1;34m  |[0m
+[1;34m6 |[0m (fn (direct) (+ 1 2.0))
+[1;34m  |[0m                 [1;31m^ this has type `Int`, expected `Float`[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected Float, found Int[0m
+ [1;34m--> [0m1117-mixed-numeric-operands.ax:9:23
+[1;34m  |[0m
+[1;34m9 |[0m (fn (reversed) (- 2.0 1))
+[1;34m  |[0m                       [1;31m^ this has type `Int`, expected `Float`[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected Float, found Int[0m
+  [1;34m--> [0m1117-mixed-numeric-operands.ax:12:32
+[1;34m   |[0m
+[1;34m12 |[0m (fn (inferred) (let ((x 1)) (* x 2.0)))
+[1;34m   |[0m                                [1;31m^ this has type `Int`, expected `Float`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected Float, found Int[0m
+  [1;34m--> [0m1117-mixed-numeric-operands.ax:15:23
+[1;34m   |[0m
+[1;34m15 |[0m (fn (polymorphic) (/ (identity 1) (identity 2.0)))
+[1;34m   |[0m                       [1;31m^^^^^^^^ this has type `Int`, expected `Float`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected Float, found Int[0m
+  [1;34m--> [0m1117-mixed-numeric-operands.ax:18:36
+[1;34m   |[0m
+[1;34m18 |[0m (fn (compared) (== (identity 1.0) (identity 1)))
+[1;34m   |[0m                                    [1;31m^^^^^^^^ this has type `Int`, expected `Float`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected Float, found Int[0m
+  [1;34m--> [0m1117-mixed-numeric-operands.ax:23:20
+[1;34m   |[0m
+[1;34m23 |[0m (fn (castWord) (+ (cast Int 1.0) 2.0))
+[1;34m   |[0m                    [1;31m^^^^ this has type `Int`, expected `Float`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected Float, found Int[0m
+  [1;34m--> [0m1117-mixed-numeric-operands.ax:26:35
+[1;34m   |[0m
+[1;34m26 |[0m (fn (castFloat) (+ (cast Float 1) 2))
+[1;34m   |[0m                                   [1;31m^ this has type `Int`, expected `Float`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected Float, found Int[0m
+  [1;34m--> [0m1117-mixed-numeric-operands.ax:37:23
+[1;34m   |[0m
+[1;34m37 |[0m (fn (explicitZero) (- 0 1.0))
+[1;34m   |[0m                       [1;31m^ this has type `Int`, expected `Float`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+compilation failed due to 9 previous errors

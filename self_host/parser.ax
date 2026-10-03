@@ -6313,14 +6313,15 @@
 ; codegen case is gone with this, since nothing can now reach it.
 ;
 ; Rewriting to the two-argument application rather than adding a node
-; keeps every later stage untouched: `(- 0 x)` is a shape both compilers
-; already agree on.
+; keeps the ordinary binary path. Word 2 marks the inserted zero, so
+; the checker can give it the operand's numeric type. A source-written
+; `(- 0 x)` still requires x to be Int.
 (pub :: unaryMinusToBinary (-> Int Int))
 (pub fn (unaryMinusToBinary e)
   (if (== (nodeTag e) TAG_E_APP)
     (let ((head (nodeA e)))
       (if (&& (== (nodeTag head) TAG_E_VAR) (strEq (nodeAName head) "-"))
-        (mkEApp (mkEApp head (mkEInt 0)) (nodeB e))
+        (mkEApp (mkEApp head (mkNode TAG_E_INT 0 1 0)) (nodeB e))
         e))
     e))
 

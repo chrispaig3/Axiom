@@ -1,0 +1,45 @@
+; Checked Float results survive polymorphic calls and closures. Both
+; operands must keep their type: a literal on one side masked the bug.
+(import IO)
+
+(:: identity (-> a a))
+(fn (identity x) x)
+
+(:: choose (-> Bool a a a))
+(fn (choose b x y) (if b x y))
+
+(data Box a (Boxed a))
+
+(:: unbox (-> (Box a) a))
+(fn (unbox box) (match box ((Boxed x) x)))
+
+(type Real = Float)
+(:: real (-> Real Real))
+(fn (real x) x)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (println (__floatToInt (+ (identity 1.0) (identity 2.0))))
+    (println (__floatToInt (- (identity 7.0) (identity 2.0))))
+    (println (__floatToInt (* (identity 3.0) (identity 2.0))))
+    (println (__floatToInt (/ (identity 8.0) (identity 2.0))))
+    (println (< (identity 1.0) (identity 2.0)))
+    (println (== (identity 2.0) (identity 2.0)))
+    (println (< (identity -2.0) (identity -1.0)))
+    (println (> (identity -2.0) (identity -1.0)))
+    (println (__floatToInt (+ (choose true 1.0 9.0) (choose false 9.0 2.0))))
+    (println (__floatToInt (+ (unbox (Boxed 1.0)) (unbox (Boxed 2.0)))))
+    (let ((f (lambda (x) x)))
+      (println (__floatToInt (+ (f 1.0) (f 2.0)))))
+    (println (__floatToInt (+ (identity 1.0) 2.0)))
+    (println (__floatToInt (+ 1.0 (identity 2.0))))
+    (println (__floatToInt (+ (real 1.0) (real 2.0))))
+    ; Casts keep bits; numeric conversion changes the value.
+    (println (__floatToInt (+ (cast Float 4607182418800017408) (identity 2.0))))
+    (println (__floatToInt (+ (__intToFloat 1) (identity 2.0))))
+    (println (+ (identity 1) (identity 2)))
+    (let ((x (identity 2.0))) (println (__floatToInt (- x))))
+    0
+  })
