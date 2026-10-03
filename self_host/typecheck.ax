@@ -3056,13 +3056,13 @@
 ; the `StructEnt`, beside the name and module the lookups key on.
 (pub :: structReprOf (-> Int Int))
 (pub fn (structReprOf d)
-  (+
+  (+ (if (structHasMarker d "sealed") 4 0) (+
     (if (structIsWord d)
       1
       0)
     (if (structIsShared d)
       2
-      0)))
+      0))))
 
 (pub :: structEntIsWord (-> Int Int))
 ;@axiom:effect(unsafe)
@@ -3078,7 +3078,7 @@
 (pub fn (structEntIsShared ent)
   (if (== (structEntIsWord ent) 0)
     0
-    (if (>= (memGetWord ent 4) 2)
+    (if (!= (& (memGetWord ent 4) 2) 0)
       1
       0)))
 
@@ -3868,6 +3868,10 @@
       ; (stdlib/Ffi.ax `ffiHandleClose`); the release runtime makes
       ; the same call when such a block dies
       (regFn fns "__call_word" (mkIntArrow 2))
+      (regFnEff2 fns "__resource_new" (mkTArr (mkTArr mkIntTy mkIntTy) (mkTArr mkIntTy (mkTCon "Handle" vecNew))) (builtinEff "Alloc") (builtinEff "IO"))
+      (regFn fns "__resource_get" (mkTArr (mkTCon "Handle" vecNew) mkIntTy))
+      (regFnEff fns "__resource_close" (mkTArr (mkTCon "Handle" vecNew) mkIntTy) (builtinEff "IO"))
+      (regFnEff fns "__resource_disarm" (mkTArr (mkTCon "Handle" vecNew) mkIntTy) (builtinEff "IO"))
       ; `(__contract cond "message")` - the run-time half of
       ; `;@axiom:pre(...)`/`post(...)`. Not spellable in source in the
       ; sense that matters: `expLowerContracts` is the only writer, and
@@ -6607,13 +6611,12 @@
         1
         0))))
 
-; Is word struct `ent` sealed against the declaration being checked -
-; declared by another module? A heap struct is never sealed here: its
-; privacy is `pub`'s, as it always was.
+; Word structs and explicitly sealed heap structs expose operations,
+; while their module owns construction and field access.
 (pub :: wordSealedHere (-> Int Int Int))
 ;@axiom:effect(unsafe)
 (pub fn (wordSealedHere tc ent)
-  (if (== (structEntIsWord ent) 0)
+  (if (if (== ent 0) true (== (& (memGetWord ent 4) 5) 0))
     0
     (if (== (tcSameModule (memGetWord ent 2) (memGetWord tc 16)) 1)
       0
@@ -6686,7 +6689,7 @@
           (n (nodeAName (vecGet ms i)))
         )
           {
-            (if (|| (strEq n "word") (strEq n "shared"))
+            (if (|| (strEq n "word") (|| (strEq n "shared") (strEq n "sealed")))
               (if (>= (strVecIdx seen n) 0)
                 (emitStructMarkerDiag
                   tc
@@ -10568,9 +10571,9 @@
     ; sealed whatever `pub` says (AX3085), and a PRIVATE one arrives
     ; here because the lookup filtered it - so the answer is the seal,
     ; not "undefined" about a name that plainly exists.
-    (if (== (wordSealedHere tc (tcWordEnt tc name)) 1)
+    (if (== (wordSealedHere tc (findStructAnyVis tc name)) 1)
       {
-        (emitWordSealedBuild tc (tcWordEnt tc name) span)
+        (emitWordSealedBuild tc (findStructAnyVis tc name) span)
         (mkNode TAG_T_ERR 0 0 0)
       }
     (if (&& (!= hidden 0) (== (strInVec (memGetWordVec tc 19) (memGetWordStr hidden 0) 0) 1))
@@ -13136,7 +13139,7 @@
       (showFinish
         tc
         fnd
-        (if (== (structEntIsWord sent) 1)
+        (if (!= (& (memGetWord sent 4) 5) 0)
           (showLit (strConcat "<" (strConcat (memGetWordStr sent 0) ">")) sp)
           (if (== (vecLen fields) 0)
             (showLit "{}" sp)
@@ -16396,6 +16399,8 @@
 ; seed could not accept the tags (`1080-unsafe-syscalls.ax`).
 (pub :: isUnsafePrim (-> String Int))
 (pub fn (isUnsafePrim n)
+  (if (|| (strEq n "__resource_new") (|| (strEq n "__resource_get") (|| (strEq n "__resource_close") (strEq n "__resource_disarm"))))
+    1
   (if (== (isUnsafeRawPrim n) 1)
     1
     (if (== (isAsmPrim n) 1)
@@ -16406,7 +16411,7 @@
         1
         (if (== (isSyscallPrim n) 1)
           1
-          (isUnsafeDevicePrim n)))))))
+          (isUnsafeDevicePrim n))))))))
 
 ; Inline assembly (MM-FFI-9): the instructions may read, write or jump
 ; anywhere, which is this set's definition at its widest.
@@ -17724,13 +17729,13 @@
 (pub :: checkStructConNode (-> Int Int Int))
 (pub fn (checkStructConNode tc e)
   (let ((ent (findStruct tc (nodeAName e))))
-    (if (== (wordSealedHere tc (tcWordEnt tc (nodeAName e))) 1)
+    (if (== (wordSealedHere tc (findStructAnyVis tc (nodeAName e))) 1)
       ; The keyword spelling of a sealed construction: AX3085, as the
       ; application form draws, and for a private word struct too - the
       ; lookup above filtered it, and "undefined type" would be wrong
       ; about a type that exists.
       {
-        (emitWordSealedBuild tc (tcWordEnt tc (nodeAName e)) (nodeSpan e))
+        (emitWordSealedBuild tc (findStructAnyVis tc (nodeAName e)) (nodeSpan e))
         (checkArgsFromIndex tc (nodeBVec e) 0)
         (mkNode TAG_T_ERR 0 0 0)
       }
@@ -17987,13 +17992,13 @@
   (let ((baseTy (checkExprH tc (nodeA e) 0)))
     (if (== (nodeTag baseTy) TAG_T_CON)
       (let ((ent (findStruct tc (nodeAName baseTy))))
-        (if (== (wordSealedHere tc (tcWordEnt tc (nodeAName baseTy))) 1)
+        (if (== (wordSealedHere tc (findStructAnyVis tc (nodeAName baseTy))) 1)
           ; A word struct's field outside its module: AX3086, whatever
           ; `pub` says - and for a private one too, where the lookup
           ; above filtered the declaration and AX3007 would call a field
           ; that exists missing.
           {
-            (emitWordSealedRead tc (tcWordEnt tc (nodeAName baseTy)) (nodeBName e) (nodeSpan e))
+            (emitWordSealedRead tc (findStructAnyVis tc (nodeAName baseTy)) (nodeBName e) (nodeSpan e))
             (mkNode TAG_T_ERR 0 0 0)
           }
         (if (== (checkAmbiguousType tc TY_ANY (nodeAName baseTy) (nodeSpan e)) 1)

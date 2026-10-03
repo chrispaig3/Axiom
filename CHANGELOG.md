@@ -16,6 +16,11 @@ its changelog too.
 
 ## Unreleased
 
+- Resource owners retain a cleanup callback and run it once when their
+  final share is released. Region release optimisation preserves these
+  callbacks, and `sealed` heap structs keep construction and fields in
+  their declaring module. Tested by `tests/stdlib/697-resource-owner.ax`.
+
 <!-- Empty by design until the next change lands. The heading STAYS when a
      release is cut: `scripts/check-gate-lib.sh` reads this file starting at
      `## Unreleased` and takes the two sections below it, so removing the
