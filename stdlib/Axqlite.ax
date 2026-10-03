@@ -19,11 +19,10 @@
 ; every Axiom value as a parameter, or as text (`axqExec`,
 ; `axqPrepare`).
 ;
-; Handles: `Connection`, `Statement` and `Transaction` are sealed word
-; structs over the runtime's handle table, as `Net`'s streams are. A
-; closed connection, a finalized statement or a finished transaction's
-; handle used again stops the program with status 85, and so does a
-; statement used after its connection closed.
+; Connections close, statements finalise and unfinished transactions
+; roll back when their last owner leaves scope. Statements and
+; transactions keep their connection alive. Explicit close still
+; invalidates all aliases; using one afterwards stops with status 85.
 ;
 ; Memory: a connection's and a statement's own state lives in a private
 ; mapping each owns, outside the arena, and goes when it is closed or
@@ -84,18 +83,23 @@
 ; Handles.
 ; ------------------------------------------------------------------
 ; An open database.
-(pub struct Connection word
-  (slot : Int))
+(pub struct Connection sealed
+  (slot : Int)
+  (owner : Handle))
 
 ; A prepared statement: its text, checked against the schema when it
 ; was prepared, and parsed again against the current schema each time it
 ; runs.
-(pub struct Statement word
-  (slot : Int))
+(pub struct Statement sealed
+  (slot : Int)
+  (owner : Handle)
+  (connection : Connection))
 
 ; An open transaction, from `axqBegin`.
-(pub struct Transaction word
-  (slot : Int))
+(pub struct Transaction sealed
+  (slot : Int)
+  (owner : Handle)
+  (connection : Connection))
 
 ; The handle table's kinds: 1 to 7 are the runtime's and the standard
 ; library's, `Axqlite.Pager` takes 11, and `Crypto` 16 up.
@@ -173,11 +177,6 @@
 (:: inTxn (-> Connection Bool))
 (fn (inTxn c)
   (== (connGet c cwInTxn) 1))
-
-; The connection a statement or transaction handle word belongs to.
-(:: connOfSlot (-> Int Connection))
-(fn (connOfSlot s)
-  (Connection s))
 
 (:: misuse (-> String String (Result a Error)))
 (fn (misuse msg where)
@@ -298,7 +297,7 @@
                   m
                   cwPager
                   (cast Int pager))
-                (Ok (Connection h))
+                (Ok (Connection h (__resource_new connDrop h)))
               }))
         )))))
 
@@ -318,6 +317,7 @@
       (let (
         (r (pagerClose pager))
         (_ (sysUnmapPrivate m connBytes))
+        (_ (__resource_disarm c.owner))
       )
         (match r
           ((Ok _) (Ok 0))
@@ -817,6 +817,7 @@
 ; or `axqRollback`; one that fails is undone and the transaction stays
 ; open. No lock is taken until the first statement needs one.
 (pub :: axqBegin (-> Connection (Result Transaction Error)))
+;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 (pub fn (axqBegin c)
   (if (inTxn c)
@@ -824,14 +825,34 @@
     (let ((h (__handle_new txnKind c.slot)))
       (if (== h 0)
         (misuse "the runtime's handle table is full" "axqBegin")
-        (try _ (txnOpen c h) (Ok (Transaction h)))))))
+        (match (txnOpen c h)
+          ((Ok _)
+            (Ok
+              (Transaction
+                h
+                (__resource_new
+                  (lambda (slot) (txnDrop c slot))
+                  h)
+                c))
+          )
+          ((Err e)
+            {
+              (__handle_free txnKind h)
+              (Err e)
+            }
+          ))))))
 
 ; The connection of a transaction handle, retiring the handle. A
 ; transaction handle used again stops the program with status 85.
 (:: txnFinish (-> Transaction Connection))
+;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 (fn (txnFinish t)
-  (Connection (__handle_free txnKind t.slot)))
+  {
+    (__handle_free txnKind t.slot)
+    (__resource_disarm t.owner)
+    t.connection
+  })
 
 ; Commit the transaction: durable when this answers `Ok`. A transaction
 ; COMMIT or ROLLBACK already ended is `axqMisuse`.
@@ -1099,8 +1120,9 @@
 (:: stmtConn (-> Statement Connection))
 ;@axiom:effect(unsafe)
 (fn (stmtConn s)
-  (let ((c (Connection (stmtWord s 1))))
+  (let ((c s.connection))
     {
+      (stmtMap s)
       (__handle_get connKind c.slot)
       c
     }))
@@ -1161,7 +1183,7 @@
                       1
                       0))
                   (memCopy (+ m stmtHeader) (strData text) n)
-                  (Ok (Statement h))
+                  (Ok (Statement h (__resource_new stmtDrop h) c))
                 }))
           ))))))
 
@@ -1198,8 +1220,14 @@
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 (pub fn (axqFinalize s)
-  (let ((m (__handle_free stmtKind s.slot)))
-    (sysUnmapPrivate m (__load64 m 0))))
+  (let (
+    (m (__handle_free stmtKind s.slot))
+    (r (sysUnmapPrivate m (__load64 m 0)))
+  )
+    {
+      (__resource_disarm s.owner)
+      r
+    }))
 
 ; The statement's text parsed again.
 (:: reparse (-> Statement String (Result Parsed Error)))
@@ -1543,3 +1571,52 @@
   (match rd.failure
     ((Some e) (Err e))
     ((None) (Ok value))))
+
+; Cleanup callbacks borrow state: they do not create another owner.
+(:: connDrop (-> Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (connDrop slot)
+  (let ((_ 
+    (axqClose
+      (Connection
+        slot
+        (cast Handle 0)))))
+    0))
+
+(:: stmtDrop (-> Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (stmtDrop slot)
+  (let (
+    (m (__handle_free stmtKind slot))
+    (_ (sysUnmapPrivate m (__load64 m 0)))
+  )
+    0))
+
+(:: txnDrop (-> Connection Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (txnDrop c slot)
+  ; An explicit connection close already rolled back its transaction.
+  (if (==
+    (__load64
+      (cast Int c.owner)
+      1)
+    0)
+    {
+      (__handle_free txnKind slot)
+      0
+    }
+    (if (&& (inTxn c) (== (connGet c cwTxnHandle) slot))
+      (let ((_ 
+        (axqRollback
+          (Transaction
+            slot
+            (cast Handle 0)
+            c))))
+        0)
+      {
+        (__handle_free txnKind slot)
+        0
+      })))

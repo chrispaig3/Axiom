@@ -1,0 +1,93 @@
+; Automatic close, returned owners, aliases, regions and descriptor reuse.
+(import IO)
+(import Sys)
+(import Err)
+(import Str)
+
+(:: requireFile (-> String Int File))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (requireFile path flags)
+  (match (openPath path flags)
+    ((Ok f) f)
+    ((Err e)
+      {
+        (die (errorText e) 1)
+        (cast File 0)
+      }
+    )))
+
+(:: closedFd (-> Int Bool))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (closedFd fd)
+  (let ((buf (strAlloc 1)))
+    (match (sysReadFd fd (strData buf) 1)
+      ((Ok _) false)
+      ((Err e) (== (errCode e) 9)))))
+
+(:: scopeFd Int)
+;@axiom:effect(io)
+(fn (scopeFd)
+  (let (
+    (f (requireFile "/dev/null" oRdonly))
+    (alias f)
+  )
+    (fileFd alias)))
+
+(:: matchFd Int)
+;@axiom:effect(io)
+(fn (matchFd)
+  (match (openPath "/dev/null" oRdonly)
+    ((Ok f) (fileFd f))
+    ((Err e) (die (errorText e) 1))))
+
+(:: regionFd Int)
+;@axiom:effect(io)
+(fn (regionFd)
+  (region r
+    (let ((f (requireFile "/dev/null" oRdonly)))
+      (fileFd f))))
+
+(:: earlyClose (-> File Int))
+;@axiom:effect(io)
+(fn (earlyClose f)
+  (let (
+    (_ (fileClose f))
+    (_ (fileClose f))
+  )
+    0))
+
+(:: reuse Int)
+;@axiom:effect(io)
+(fn (reuse)
+  (let (
+    (f (requireFile "/dev/null" oRdonly))
+    (fd (fileFd f))
+  )
+    {
+      (earlyClose f)
+      (let ((next (requireFile "/dev/null" oRdonly)))
+        {
+          (println (== fd (fileFd next)))
+          (fileFd next)
+        })
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (println (closedFd scopeFd))
+    (println (closedFd matchFd))
+    (println (closedFd regionFd))
+    (println (closedFd reuse))
+    (let ((_ (sysCloseFd 0)))
+      0)
+    (let ((fd scopeFd))
+      {
+        (println (== fd 0))
+        (println (closedFd fd))
+      })
+    0
+  })

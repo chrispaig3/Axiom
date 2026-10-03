@@ -16,6 +16,17 @@ its changelog too.
 
 ## Unreleased
 
+- Files, sockets and databases close themselves. `IO.openPath` and
+  `IO.openBeneath` answer an owned `File` instead of a descriptor; the
+  descriptor closes when the last alias leaves scope, or earlier with
+  `fileClose`. `Net`'s listener and stream own a `File`, and `Axqlite`
+  statements and transactions hold a share of their connection: an
+  abandoned transaction rolls back, and the connection behind an
+  escaped statement or transaction stays alive until the child is
+  done. Using a handle after explicit close still stops the program
+  with status 85. Tested by `tests/stdlib/698-file-lifetime.ax` and
+  `tests/axqlite/616-api-auto-close.ax`.
+
 - Resource owners retain a cleanup callback and run it once when their
   final share is released. Region release optimisation preserves these
   callbacks, and `sealed` heap structs keep construction and fields in

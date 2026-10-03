@@ -5732,7 +5732,7 @@ regenerates it on every run to keep it exact.
 | `Intern` | A string interner: `internNew`, `internFree`, `internIntern`, `internFind`, `internLookup`, `internCount`. |
 | `Sys` | The syscall layer: `sysWriteFd`, `sysReadFd`, `sysWriteAllFd`, `sysReadAllFd`, `sysReadLineFd`, `sysOpenPath`, `sysCloseFd`, `sysExitWith`, `sysFailed`, `sysErrno`, `stdin`/`stdout`/`stderr`. The [filesystem](#work-with-files-and-directories) calls, and processes: `sysSpawn`, `sysRun`, `sysRunPath`, `sysWaitPid`, `sysEnv`, `sysArgc`, `sysArg`, `sysGetPid`, `sysNowMicros`. Shared memory and waiting on it: `sysMapShared`/`sysUnmapShared`, `sysWaitWord`/`sysWakeWord`, the timed `sysWaitWordTimeout` (0 woken, 1 timed out, 2 changed) with `sysTimeoutMicros` and `sysTimedOut`, and `sysChildExited`, which looks at a child without reaping it. |
 | `Path` | Path strings, with no syscalls: `pathDir`, `pathBase`, `pathExt`, `pathStem`, `pathJoin`, `pathReplaceExt`, `pathWithSlash`, `pathIsAbsolute`, `pathLastSlash`, `pathExtIndex`, `pathClean`. |
-| `IO` | The `println` and `eprintln` macros ([Printing and formatting](#printing-and-formatting)), `writeStr` and `writeSlice` (bytes as given, with no newline and no rendering), `readLine`, `readAll` and `readInto`, the [filesystem](#work-with-files-and-directories) calls, `randomBytes`, the [terminal](#terminals) calls, the raw-address `printlnLit`/`readFileLit`, `exit`, `die` and `todo`. |
+| `IO` | The `println` and `eprintln` macros ([Printing and formatting](#printing-and-formatting)), `writeStr` and `writeSlice` (bytes as given, with no newline and no rendering), `readLine`, `readAll` and `readInto` over descriptors, the owned `File` with `fileClose`, `fileReadLine`, `fileReadAll`, `fileReadInto` and `fileWrite`, the [filesystem](#work-with-files-and-directories) calls, `randomBytes`, the [terminal](#terminals) calls, the raw-address `printlnLit`/`readFileLit`, `exit`, `die` and `todo`. |
 | `Ffi` | Helpers a generated Rust binding needs: `ffiHandleNew`/`ffiHandlePtr`/`ffiHandleClose`, the out-cell (`ffiCellNew`, `ffiCellWord`, `ffiCellFree`) and the `Vec` conversions ([ffi.md](ffi.md)). |
 | `Json` | `jsonParse`, `jsonWrite`, and the constructors and accessors between them. Written for JSON-RPC. |
 | `Rpc` | The LSP base protocol's framing over a file descriptor: `rpcReadMsg` (`None` once the stream ends, `Some` every whole frame, an empty one included), `rpcRead`, `rpcWrite`, and the reader `rdNew`/`rdBuf`/`rdFilled`. |
@@ -5851,7 +5851,7 @@ no tag and hold under `restrict(no-unsafe)`.
 
 | Task | `IO` (takes a `Str`) | `Sys` (takes a `char*`) |
 |---|---|---|
-| open one, for a descriptor | `openPath` | `sysOpenPath` |
+| open one, for an owned file | `openPath` | `sysOpenPath` |
 | open one inside a directory, following no link | `openBeneath` | `sysOpenBeneath` |
 | read a whole file | `readFile` | `sysReadFile` |
 | read one line of a descriptor | `readLine` | `sysReadLineFd` |
@@ -5875,11 +5875,14 @@ no tag and hold under `restrict(no-unsafe)`.
 | where am I? | `cwd` | `sysGetCwd` |
 | random bytes | `randomBytes` | `sysRandomBytes` |
 
-The descriptor calls take an `Int` in both layers: `stdin`, or what
-`openPath` answered. `readInto` fills a range of a `String` buffer you
-made with `strAlloc`, and `writeSlice` writes a range of a string. A
-range that runs outside the string stops the program with status 77,
-the index trap, before the kernel sees it.
+`openPath` answers a `File`, not a descriptor. The file closes when
+its last owner leaves scope, or earlier with `fileClose`. Read it
+with `fileReadLine`, `fileReadAll` and `fileReadInto`, and write it
+with `fileWrite`. The descriptor calls take an `Int` in both layers:
+`stdin`, or what `fileFd` borrows from a file. `readInto` fills a
+range of a `String` buffer you made with `strAlloc`, and `writeSlice`
+writes a range of a string. A range that runs outside the string stops
+the program with status 77, the index trap, before the kernel sees it.
 
 `readLine` and `readAll` answer a `Result`, with end of input inside
 the `Ok`: `(Ok None)` for a line, `(Ok "")` for the rest. A read
@@ -5942,6 +5945,8 @@ Three things to know before you use these:
   needs it, and a process that changes directory breaks every relative
   path anything else is holding.
 
+Tested by `tests/stdlib/698-file-lifetime.ax`.
+
 <a id="a-str-is"></a>
 ### Connect over TCP
 
@@ -5987,6 +5992,8 @@ queue straight away, so one program can be both ends.
   (`netPollCreate`, `netPollWait`).
 - A write to a peer that has closed answers `Err`. It doesn't end the
   program with SIGPIPE.
+- A stream or listener closes when its last owner leaves scope.
+  `tcpClose` and `tcpListenerClose` close one early.
 - A closed stream or listener used again stops the program with status
   85, before the descriptor number reaches a file the kernel has since
   given it to.

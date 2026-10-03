@@ -2,22 +2,35 @@
 (import IO)
 (import Vec)
 
-(struct Owner sealed (handle : Handle))
+(struct Owner sealed
+  (handle : Handle))
 
 (:: makeOwner (-> (Vec Int) Int Owner))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 (fn (makeOwner hits n)
-  (Owner (__resource_new (lambda (v) { (vecPush hits v) 0 }) n)))
+  (Owner
+    (__resource_new
+      (lambda (v)
+        {
+          (vecPush hits v)
+          0
+        }
+      )
+      n)))
 
 (:: useOwner (-> Owner Int))
 ;@axiom:effect(unsafe)
-(fn (useOwner o) (__resource_get o.handle))
+(fn (useOwner o)
+  (__resource_get o.handle))
 
 (:: scoped (-> (Vec Int) Int))
 ;@axiom:effect(io)
 (fn (scoped hits)
-  (let ((a (makeOwner hits 7)) (alias a))
+  (let (
+    (a (makeOwner hits 7))
+    (alias a)
+  )
     (+ (useOwner a) (useOwner alias))))
 
 (:: closed (-> (Vec Int) Int))
@@ -25,7 +38,11 @@
 ;@axiom:effect(unsafe)
 (fn (closed hits)
   (let ((a (makeOwner hits 8)))
-    { (__resource_close a.handle) (__resource_close a.handle) 0 }))
+    {
+      (__resource_close a.handle)
+      (__resource_close a.handle)
+      0
+    }))
 
 (:: disarmed (-> (Vec Int) Int))
 ;@axiom:effect(io)
@@ -38,18 +55,24 @@
 ;@axiom:effect(io)
 (fn (regionDrop)
   (let ((hits vecNew))
-    { (region r (let ((a (makeOwner hits 9))) (useOwner a)))
-      (vecGet hits 0) }))
+    {
+      (region r
+        (let ((a (makeOwner hits 9)))
+          (useOwner a)))
+      (vecGet hits 0)
+    }))
 
 (:: main Int)
 ;@axiom:effect(io)
 (fn (main)
   (let ((hits vecNew))
-    { (println (scoped hits))
+    {
+      (println (scoped hits))
       (println (vecGet hits 0))
       (closed hits)
       (disarmed hits)
       (println (vecLen hits))
       (println (vecGet hits 1))
       (println regionDrop)
-      0 }))
+      0
+    }))

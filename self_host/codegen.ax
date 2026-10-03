@@ -16793,7 +16793,7 @@
     (ff (memAlloc 8))
     (_0 (memSetWord ff 0 (- 0 1)))
     (_a (if (== (pairMatchOK cg scrutExpr arms) 1)
-      (if (|| (== (pairWordOnly cg (pairScrutRetTy cg scrutExpr)) 1) (== (scrutineeReleasable node scrutExpr cg) 0))
+      (if (|| (== (pairWordOnly cg (pairScrutRetTy cg scrutExpr)) 1) (== (tailScrutineeReleasable node scrutExpr cg) 0))
         (pairSetSlot cg 1 1)
         cg)
       cg))
@@ -16811,7 +16811,7 @@
     (mergeB (labelStr mn))
     (rel (if (== gotPair 2)
       0
-      (scrutineeReleasable node scrutExpr cg1)))
+      (tailScrutineeReleasable node scrutExpr cg1)))
     (pmark (vecLen (memGetWordVec cg1 42)))
     (_p (if (== rel 1)
       (vecPush
@@ -25906,3 +25906,19 @@
     true
     (&& (dropFreeExpr cg (nodeB (vecGet arms i)))
       (dropFreeArms cg arms (+ i 1)))))
+
+; A reference-returning tail has already retained each borrowed leaf.
+; Returning a field therefore does not keep its consumed Result alive.
+(pub :: tailScrutineeReleasable (-> Int Int Int Int))
+;@axiom:effect(unsafe)
+(pub fn (tailScrutineeReleasable node scrutExpr cg)
+  (if (== (scrutineeReleasable node scrutExpr cg) 1)
+    1
+    (let ((d (memGetWord cg 36)))
+      (if (== d 0)
+        0
+        (if (&& (== (fnResultClass cg (nodeAName d)) 2)
+          (&& (== (valueOwnedRef cg scrutExpr) 1)
+            (== (escapesViaBinders cg (nodeBVec node) 0 0 (binderSummary node)) 0)))
+          1
+          0)))))

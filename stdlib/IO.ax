@@ -283,23 +283,27 @@
   (ioResult (sysRename (ioPath old) (ioPath new)) "renamePath" old))
 
 ; Open `path` with `flags` (`oRdonly`, `oWronlyCreateTrunc`, ...):
-; `(Ok fd)`, or `(Err e)` whose code is the errno. New files get mode
-; 0644. The descriptor is the caller's to close with `sysCloseFd`.
-(pub :: openPath (-> String Int (Result Int Error)))
+; `(Ok file)`, or `(Err e)` whose code is the errno. New files get mode
+; 0644. The file closes when its last owner leaves scope.
+(pub :: openPath (-> String Int (Result File Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 (pub fn (openPath path flags)
-  (ioResult (sysOpenPath (ioPath path) flags) "openPath" path))
+  (match (ioResult (sysOpenPath (ioPath path) flags) "openPath" path)
+    ((Ok fd) (Ok (fileFromFd fd)))
+    ((Err e) (Err e))))
 
 ; Open `rel` for reading inside the directory `root`, following no
-; symbolic link below it: `(Ok fd)`, or `(Err e)`. `rel` must be
+; symbolic link below it: `(Ok file)`, or `(Err e)`. `rel` must be
 ; relative, with no `..` segment; see `Sys.sysOpenBeneath` for the
 ; rules and why it walks one segment at a time.
-(pub :: openBeneath (-> String String (Result Int Error)))
+(pub :: openBeneath (-> String String (Result File Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 (pub fn (openBeneath root rel)
-  (ioResult (sysOpenBeneath (ioPath root) rel) "openBeneath" rel))
+  (match (ioResult (sysOpenBeneath (ioPath root) rel) "openBeneath" rel)
+    ((Ok fd) (Ok (fileFromFd fd)))
+    ((Err e) (Err e))))
 
 ; Create the symbolic link `link` whose content is `target`. Answers
 ; `(Ok 0)`, or `(Err e)` - EEXIST when `link` is already there.
@@ -763,3 +767,63 @@
   (if (< rc 0)
     (Err (mkError (- 0 rc) op))
     (Ok st)))
+
+; An owned file. Aliases share its lifetime; the last owner closes it.
+; Explicit `fileClose` closes it early for every alias.
+(pub struct File sealed
+  (owner : Handle))
+
+(:: fileDrop (-> Int Int))
+;@axiom:effect(io)
+(fn (fileDrop fd)
+  (match (sysCloseFd fd)
+    ((Ok n) n)
+    ((Err e) (- 0 (errCode e)))))
+
+; Transfer ownership of one descriptor into a File.
+(pub :: fileFromFd (-> Int File))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`fd` is an open non-negative descriptor, transferred exactly once; callers must not close it or make another owner)
+(pub fn (fileFromFd fd)
+  (File (__resource_new fileDrop fd)))
+
+; Borrow the descriptor for readiness calls. Keep its owner live and
+; do not close the descriptor; use `fileClose` to close its owner.
+(pub :: fileFd (-> File Int))
+;@axiom:effect(unsafe)
+(pub fn (fileFd f)
+  (__resource_get f.owner))
+
+; Close early, once. Aliases observe the close; dropping them is safe.
+; The descriptor is retired before close and close is never retried.
+(pub :: fileClose (-> File (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (fileClose f)
+  (sysResult "fileClose" (__resource_close f.owner)))
+
+; Read a line, preserving EOF as None and failures as Err.
+(pub :: fileReadLine (-> File (Result (Option String) Error)))
+;@axiom:effect(io)
+(pub fn (fileReadLine f)
+  (readLine (fileFd f)))
+
+; Read the remaining bytes from a file.
+(pub :: fileReadAll (-> File (Result String Error)))
+;@axiom:effect(io)
+(pub fn (fileReadAll f)
+  (readAll (fileFd f)))
+
+; Read into a checked slice of a string buffer.
+(pub :: fileReadInto (-> File String Int Int (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (fileReadInto f buf at count)
+  (readInto (fileFd f) buf at count))
+
+; Write every byte, preserving errors in the result.
+(pub :: fileWrite (-> File String (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (fileWrite f s)
+  (sysResult "fileWrite" (sysWriteAllFd (fileFd f) (strData s) (strLen s) 0)))
