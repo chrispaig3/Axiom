@@ -74,12 +74,12 @@
           (let ((buf (strAlloc 4)))
             {
               (let (
-                (f (readStatus fd buf 2 3))
-                (g (readStatus fd buf (- 0 1) 1))
-                (h (readStatus fd buf 0 4))
+                (f (readStatus (fileFd fd) buf 2 3))
+                (g (readStatus (fileFd fd) buf (- 0 1) 1))
+                (h (readStatus (fileFd fd) buf 0 4))
               )
                 (println "read past the buffer {f}, at a negative offset {g}, the whole buffer {h}: {buf}"))
-              (let ((_ (sysCloseFd fd)))
+              (let ((_ (fileClose fd)))
                 0)
             })
         ))

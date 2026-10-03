@@ -2090,6 +2090,11 @@ its field, whether or not the struct is `pub` (`AX3085`, `AX3086`).
 Another module can name the type in its signatures and pass values on,
 so every `Ticket` it holds is one this module made.
 
+A heap struct can also declare `sealed`: `(pub struct File sealed
+(owner : Handle))`. Its module controls construction and field access,
+while callers can hold it, pass it and return it through its public
+functions. It remains a counted reference.
+
 Add `shared` when every operation the module offers on the type is
 safe from several bindings at once, as in `(struct Chan word shared
 (slot : Int))`. A `parallel` binding may capture a shared handle
@@ -5851,7 +5856,7 @@ no tag and hold under `restrict(no-unsafe)`.
 
 | Task | `IO` (takes a `Str`) | `Sys` (takes a `char*`) |
 |---|---|---|
-| open one, for a descriptor | `openPath` | `sysOpenPath` |
+| open one, with automatic close | `openPath` | `sysOpenPath` |
 | open one inside a directory, following no link | `openBeneath` | `sysOpenBeneath` |
 | read a whole file | `readFile` | `sysReadFile` |
 | read one line of a descriptor | `readLine` | `sysReadLineFd` |
@@ -5875,11 +5880,28 @@ no tag and hold under `restrict(no-unsafe)`.
 | where am I? | `cwd` | `sysGetCwd` |
 | random bytes | `randomBytes` | `sysRandomBytes` |
 
-The descriptor calls take an `Int` in both layers: `stdin`, or what
-`openPath` answered. `readInto` fills a range of a `String` buffer you
-made with `strAlloc`, and `writeSlice` writes a range of a string. A
-range that runs outside the string stops the program with status 77,
-the index trap, before the kernel sees it.
+`openPath` and `openBeneath` answer `(Result File Error)`. Read an
+owned file with `fileReadLine`, `fileReadAll` or `fileReadInto`, and
+write it with `fileWrite`. The last owner closes it on a normal scope
+exit, including inside a `region`. Returning a file keeps it open for
+its caller.
+
+`fileClose` closes early and reports any close error. It is safe to
+call again; other aliases then trap with status 85 when used. Automatic
+cleanup discards close errors. Process exit and trap recovery do not
+unwind owners, so use explicit close when you need its result.
+
+`fileFd` borrows the descriptor for readiness calls. Keep the `File`
+alive and close the owner rather than its borrowed descriptor.
+`fileFromFd` transfers a raw descriptor into a `File`; it requires the
+unsafe tag and exclusive ownership of that descriptor.
+
+Raw descriptor calls still take an `Int`, such as `stdin`. `readInto`
+fills a range of a `String` buffer made with `strAlloc`, and `writeSlice`
+writes a range. An out-of-bounds range traps with status 77 before the
+kernel sees it.
+
+Tested by `tests/stdlib/698-file-lifetime.ax`.
 
 `readLine` and `readAll` answer a `Result`, with end of input inside
 the `Ok`: `(Ok None)` for a line, `(Ok "")` for the rest. A read
@@ -5978,6 +6000,10 @@ HTTP and TLS, are libraries a program brings.
 ping
 ```
 
+Listeners and streams close when their last owner leaves scope.
+`tcpClose` and `tcpListenerClose` close early and report errors. These
+counted resources stay in one binding; `parallel` cannot capture them.
+
 Port 0 asks the kernel for a free port, and `tcpListenerAddr` says
 which one it chose. A loopback connection lands in the listener's
 queue straight away, so one program can be both ends.
@@ -5994,7 +6020,7 @@ queue straight away, so one program can be both ends.
   There's no name lookup, because the only resolver a freestanding
   program could call is the C library's.
 
-Tested by `tests/stdlib/650-net-tcp.ax` and
+Tested by `tests/stdlib/699-net-lifetime.ax` and
 `tests/stdlib/651-net-closed.ax`.
 
 ### Strings are bytes

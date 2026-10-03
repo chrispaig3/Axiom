@@ -97,7 +97,7 @@ two differ.
 | `rowRealNamed` | value | `(-> Row String (Result Float Error))` | `Alloc,Mut` | The column named `name` as a REAL. |
 | `rowTextNamed` | value | `(-> Row String (Result String Error))` | `Alloc,Mut` | The column named `name` as TEXT. |
 | `rowBlobNamed` | value | `(-> Row String (Result String Error))` | `Alloc,Mut` | The column named `name` as a BLOB's bytes. |
-| `axqBegin` | value | `(-> Connection (Result Transaction Error))` | `Alloc,Mut,Unsafe` | Open a transaction. Statements then run inside it until `axqCommit` or `axqRollback`; one that fails is undone and the transaction stays open. No lock is taken until the first statement needs one. |
+| `axqBegin` | value | `(-> Connection (Result Transaction Error))` | `Alloc,IO,Mut,Unsafe` | Open a transaction. Statements then run inside it until `axqCommit` or `axqRollback`; one that fails is undone and the transaction stays open. No lock is taken until the first statement needs one. |
 | `axqCommit` | value | `(-> Transaction (Result Int Error))` | `Alloc,IO,Mut` | Commit the transaction: durable when this answers `Ok`. A transaction COMMIT or ROLLBACK already ended is `axqMisuse`. |
 | `axqRollback` | value | `(-> Transaction (Result Int Error))` | `Alloc,IO,Mut` | Roll the transaction back. |
 | `axqTransaction` | value | `(-> Connection (-> Connection (Result a Error)) (Result a Error))` | `Alloc,IO,Mut` | Run `f` in a transaction: commit when it answers `Ok`, roll back when it answers `Err`, and answer what it answered (or the commit's failure). `f` must not end the transaction itself. |
@@ -1120,7 +1120,7 @@ two differ.
 
 ## `IO`
 
-`stdlib/IO.ax` — 38 public names
+`stdlib/IO.ax` — 46 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -1136,8 +1136,8 @@ two differ.
 | `appendFile` | value | `(-> String String (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Add `s` to the end of `path`, creating it if absent. Answers the `(Ok bytes)`, or `(Err e)` whose code is the errno. |
 | `removeFile` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Remove the file `path`. Answers `(Ok 0)`, or `(Err …)` carrying the errno. |
 | `renamePath` | value | `(-> String String (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Move `old` to `new`, answering `(Ok 0)` or `(Err …)` with the errno. |
-| `openPath` | value | `(-> String Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Open `path` with `flags` (`oRdonly`, `oWronlyCreateTrunc`, ...): `(Ok fd)`, or `(Err e)` whose code is the errno. New files get mode 0644. The descriptor is the caller's to close with `sysCloseFd`. |
-| `openBeneath` | value | `(-> String String (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Open `rel` for reading inside the directory `root`, following no symbolic link below it: `(Ok fd)`, or `(Err e)`. `rel` must be relative, with no `..` segment; see `Sys.sysOpenBeneath` for the rules and why it walks one segment at a time. |
+| `openPath` | value | `(-> String Int (Result File Error))` | `Alloc,IO,Mut,Unsafe` | Open `path` with `flags` (`oRdonly`, `oWronlyCreateTrunc`, ...): `(Ok file)`, or `(Err e)` whose code is the errno. New files get mode 0644. The file closes when its last owner leaves scope. |
+| `openBeneath` | value | `(-> String String (Result File Error))` | `Alloc,IO,Mut,Unsafe` | Open `rel` for reading inside the directory `root`, following no symbolic link below it: `(Ok file)`, or `(Err e)`. `rel` must be relative, with no `..` segment; see `Sys.sysOpenBeneath` for the rules and why it walks one segment at a time. |
 | `makeSymlink` | value | `(-> String String (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Create the symbolic link `link` whose content is `target`. Answers `(Ok 0)`, or `(Err e)` - EEXIST when `link` is already there. |
 | `copyFile` | value | `(-> String String (Result Int Error))` | `Alloc,IO,Mut` | Copy `src` onto `dst`, answering `(Ok bytes)` or `(Err e)`. `dst` is created or truncated. |
 | `fileExists` | value | `(-> String Bool)` | `Alloc,IO,Mut,Unsafe` | True when `path` names something that can be opened for reading - a directory included. `isDir` separates them. |
@@ -1162,6 +1162,14 @@ two differ.
 | `termRaw` | value | `(-> Int Bool (Result TermState Error))` | `Alloc,IO,Mut,Unsafe` | Put the terminal on `fd` into raw mode, saving what it was first: `(Ok state)` to restore it with, or `(Err e)`. With `keepSignals` true, ^C still raises SIGINT; see `Sys.sysTermRaw` for every flag raw mode changes. |
 | `termRestore` | value | `(-> TermState (Result Int Error))` | `Alloc,IO,Unsafe` | Put back the attributes `st` saved, on the descriptor they came from: `(Ok 0)`, or `(Err e)`. |
 | `termSize` | value | `(-> Int (Result TermSize Error))` | `Alloc,IO,Unsafe` | The size of the terminal on `fd`: `(Ok size)`, or `(Err e)` - ENOTTY when `fd` is not a terminal. |
+| `File` | struct |  |  | An owned file. Aliases share its lifetime; the last owner closes it. Explicit `fileClose` closes it early for every alias. |
+| `fileFromFd` | value | `(-> Int File)` | `Alloc,IO,Unsafe` | Transfer ownership of one descriptor into a File. |
+| `fileFd` | value | `(-> File Int)` | `Unsafe` | Borrow the descriptor for readiness calls. Keep its owner live and do not close the descriptor; use `fileClose` to close its owner. |
+| `fileClose` | value | `(-> File (Result Int Error))` | `Alloc,IO,Unsafe` | Close early, once. Aliases observe the close; dropping them is safe. The descriptor is retired before close and close is never retried. |
+| `fileReadLine` | value | `(-> File (Result (Option String) Error))` | `Alloc,IO,Mut` | Read a line, preserving EOF as None and failures as Err. |
+| `fileReadAll` | value | `(-> File (Result String Error))` | `Alloc,IO,Mut` | Read the remaining bytes from a file. |
+| `fileReadInto` | value | `(-> File String Int Int (Result Int Error))` | `Alloc,IO` | Read into a checked slice of a string buffer. |
+| `fileWrite` | value | `(-> File String (Result Int Error))` | `Alloc,IO,Unsafe` | Write every byte, preserving errors in the result. |
 
 ## `Intern`
 
@@ -1281,7 +1289,7 @@ two differ.
 | `tcpListen` | value | `(-> SocketAddr (Result TcpListener Error))` | `Alloc,IO,Mut,Unsafe` | A socket bound to `addr` and listening, with `SO_REUSEADDR` set so a restarted server can bind the port its predecessor left in TIME_WAIT. Port 0 asks the kernel for a free port; `tcpListenerAddr` says which. |
 | `tcpAccept` | value | `(-> TcpListener (Result TcpStream Error))` | `Alloc,IO,Mut` | Wait for the next connection and answer it as a blocking stream. |
 | `tcpListenerAddr` | value | `(-> TcpListener (Result SocketAddr Error))` | `Alloc,IO,Mut` | The address the listener is bound to - the kernel's choice of port when it was asked for port 0. |
-| `tcpListenerClose` | value | `(-> TcpListener (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Close the listener. Its handle is retired first, so any later use of it stops the program with status 85. |
+| `tcpListenerClose` | value | `(-> TcpListener (Result Int Error))` | `Alloc,IO` | Close the listener. Its handle is retired first, so any later use of it stops the program with status 85. |
 | `tcpConnect` | value | `(-> SocketAddr (Result TcpStream Error))` | `Alloc,IO,Mut,Unsafe` | Connect to `addr`, waiting until the connection is made or refused. |
 | `tcpRead` | value | `(-> TcpStream String Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | Read into `buf[at .. at + count)`. Answers how many bytes arrived, and 0 when the peer has closed its side. A range outside `buf` stops the program with status 77 before the kernel sees it, as `IO.readInto` does. |
 | `tcpReadSome` | value | `(-> TcpStream Int (Result String Error))` | `Alloc,IO,Mut,Unsafe` | Up to `max` bytes, as a fresh string: empty when the peer has closed its side. |
@@ -1297,7 +1305,7 @@ two differ.
 | `tcpSetReadTimeout` | value | `(-> TcpStream Int (Result Int Error))` | `Alloc,IO,Mut` | How long a read may wait before it answers `Err` (EAGAIN), in microseconds; 0 waits for ever. |
 | `tcpSetWriteTimeout` | value | `(-> TcpStream Int (Result Int Error))` | `Alloc,IO,Mut` | How long a write may wait before it answers `Err`, in microseconds; 0 waits for ever. |
 | `tcpSetNonBlocking` | value | `(-> TcpStream Bool (Result Int Error))` | `Alloc,IO` | Switch the stream between blocking (`false`) and non-blocking (`true`). |
-| `tcpClose` | value | `(-> TcpStream (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Close the stream. Its handle is retired first, so any later use of it stops the program with status 85. |
+| `tcpClose` | value | `(-> TcpStream (Result Int Error))` | `Alloc,IO` | Close the stream. Its handle is retired first, so any later use of it stops the program with status 85. |
 
 ## `Par`
 

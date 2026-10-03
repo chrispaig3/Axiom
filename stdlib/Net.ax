@@ -13,14 +13,10 @@
 ; and the socket address both are opened on. Anything above TCP - HTTP,
 ; TLS, a resolver - is a library a program brings, built on this.
 ;
-; HANDLES, NOT DESCRIPTORS. `TcpListener` and `TcpStream` are sealed
-; word structs (docs/memory-model.md MM-VAL-10a) whose word is a slot in
-; the runtime's handle table (MM-PAR-8), and the slot holds the
-; descriptor. Only this module makes one. Closing retires the slot
-; before the descriptor is closed, so a stream used after `tcpClose` -
-; or a copy of its handle, or a forged word - stops the program with
-; status 85 instead of reading from whatever file the kernel handed the
-; number to next.
+; `TcpListener` and `TcpStream` own a `File`. Aliases share its lifetime:
+; the last owner closes the descriptor. Explicit close retires it first,
+; so any later use stops with status 85 before a reused descriptor number
+; can reach another resource.
 ;
 ; BLOCKING BY DEFAULT, as `std::net` is. A listener and every stream
 ; this module makes block until they can answer; `tcpSetNonBlocking`
@@ -45,6 +41,7 @@
 (import Err)
 (import Fmt)
 (import Sys)
+(import IO)
 
 ; ------------------------------------------------------------------
 ; Socket addresses.
@@ -474,47 +471,20 @@
 ; The handles.
 ; ------------------------------------------------------------------
 ; A socket listening for connections.
-(pub struct TcpListener word shared
-  (slot : Int))
+(pub struct TcpListener sealed
+  (file : File))
 
 ; One TCP connection.
-(pub struct TcpStream word shared
-  (slot : Int))
-
-; The handle table's kinds: the runtime's forked binding is 1 and its
-; thread 5, `Chan` 2, `Sync` 3 and `Task` 4, and `Crypto.Secret` takes
-; 16 up.
-(:: listenerKind Int)
-(fn (listenerKind)
-  6)
-
-(:: streamKind Int)
-(fn (streamKind)
-  7)
-
-; A handle word for descriptor `fd`, or `Err` after closing `fd` when
-; the table is full. The table stores an address; a descriptor is a
-; small non-negative word and is stored as itself plus one, so no live
-; handle ever names 0.
-(:: netHandle (-> Int Int String (Result Int Error)))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(fn (netHandle kind fd where)
-  (let ((h (__handle_new kind (+ fd 1))))
-    (if (== h 0)
-      (let ((_ (sysCloseFd fd)))
-        (Err (errContextOf (mkError 24 "the runtime's handle table is full") where)))
-      (Ok h))))
+(pub struct TcpStream sealed
+  (file : File))
 
 (:: listenerFdOf (-> TcpListener Int))
-;@axiom:effect(unsafe)
 (fn (listenerFdOf l)
-  (- (__handle_get listenerKind l.slot) 1))
+  (fileFd l.file))
 
 (:: streamFdOf (-> TcpStream Int))
-;@axiom:effect(unsafe)
 (fn (streamFdOf s)
-  (- (__handle_get streamKind s.slot) 1))
+  (fileFd s.file))
 
 ; The listener's descriptor, for `Sys`'s readiness calls. It stays the
 ; listener's: close the listener, not the descriptor.
@@ -568,9 +538,7 @@
                   (Err (errContextOf e "tcpListen")))
               )
               ((Ok _)
-                (match (netHandle listenerKind fd "tcpListen")
-                  ((Ok h) (Ok (TcpListener h)))
-                  ((Err e) (Err e)))
+                (Ok (TcpListener (fileFromFd fd)))
               )))
         )))))
 
@@ -614,6 +582,7 @@
 ; handle. The descriptor is closed on any failure.
 (:: netAdopt (-> Int String (Result TcpStream Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (netAdopt fd where)
   (match (andThen
     (netSetBlocking fd)
@@ -623,9 +592,7 @@
         (Err (errContextOf e where)))
     )
     ((Ok _)
-      (match (netHandle streamKind fd where)
-        ((Ok h) (Ok (TcpStream h)))
-        ((Err e) (Err e)))
+      (Ok (TcpStream (fileFromFd fd)))
     )))
 
 ; The address the listener is bound to - the kernel's choice of port
@@ -639,9 +606,8 @@
 ; it stops the program with status 85.
 (pub :: tcpListenerClose (-> TcpListener (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (tcpListenerClose l)
-  (sysCloseFd (- (__handle_free listenerKind l.slot) 1)))
+  (fileClose l.file))
 
 ; ------------------------------------------------------------------
 ; Streams.
@@ -853,6 +819,5 @@
 ; stops the program with status 85.
 (pub :: tcpClose (-> TcpStream (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (tcpClose s)
-  (sysCloseFd (- (__handle_free streamKind s.slot) 1)))
+  (fileClose s.file))

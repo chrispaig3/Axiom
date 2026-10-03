@@ -50,8 +50,9 @@ text.
 
 ## Open a database
 
-`(axqOpen path opts)` answers a `Connection`, and `(axqClose db)` closes
-it. `openOptions` is the usual choice: it creates the file when it's
+`(axqOpen path opts)` answers `(Result Connection Error)`. A connection
+closes when its last owner leaves scope. `axqClose` closes it early and
+reports errors. `openOptions` is the usual choice: it creates the file when it's
 missing, opens it for reading and writing, and caches 256 pages. Build
 an `OpenOptions` yourself for anything else:
 
@@ -389,8 +390,16 @@ Tested by `tests/axqlite/615-api-two-connections.ax`.
 
 ## Memory
 
-A connection's and a statement's own state live outside Axiom's arena,
-and are freed by `axqClose` and `axqFinalize`. Everything a function
+A connection's and a statement's own state live outside Axiom's arena.
+Their last owner frees this state; `axqClose` and `axqFinalize` also
+release it early. A statement or transaction keeps its connection alive.
+An unfinished transaction rolls back when its last owner leaves scope.
+Automatic cleanup discards errors; explicit close, finalise and rollback
+return their results.
+
+Tested by `tests/axqlite/616-api-auto-close.ax`.
+
+Everything a function
 answers, such as a `Row` or a `String`, is allocated in your arena when
 it answers.
 

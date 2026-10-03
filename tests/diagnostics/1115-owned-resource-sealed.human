@@ -1,0 +1,31 @@
+[1;31merror[AX3086][0m[1m: only module `IO` can read field `owner` of `File`[0m
+ [1;34m--> [0m1115-owned-resource-sealed.ax:5:21
+[1;34m  |[0m
+[1;34m5 |[0m (fn (readOwner f) f.owner)
+[1;34m  |[0m                     [1;31m^^^^^ read outside its module[0m
+[1;34m  |[0m
+ [1;34m = [0m[1mnote: [0ma sealed struct keeps ownership state private; use its module's functions (docs/reference.md Structs)
+ [1;34m = [0m[1;32mhelp: [0muse the functions module `IO` provides: a sealed struct's field stays in its module, `pub` or not
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3086` for a full explanation
+
+[1;31merror[AX3085][0m[1m: only module `IO` can make a `File`[0m
+ [1;34m--> [0m1115-owned-resource-sealed.ax:8:16
+[1;34m  |[0m
+[1;34m8 |[0m (fn (forge h) (File h))
+[1;34m  |[0m                [1;31m^^^^ built outside its module[0m
+[1;34m  |[0m
+ [1;34m = [0m[1mnote: [0ma sealed struct keeps ownership state private; use its module's functions (docs/reference.md Structs)
+ [1;34m = [0m[1;32mhelp: [0mget one from a function module `IO` provides: a sealed struct's constructor stays in its module, `pub` or not
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3085` for a full explanation
+
+[1;31merror[AX3086][0m[1m: only module `Axqlite` can read field `slot` of `Connection`[0m
+  [1;34m--> [0m1115-owned-resource-sealed.ax:11:20
+[1;34m   |[0m
+[1;34m11 |[0m (fn (readSlot c) c.slot)
+[1;34m   |[0m                    [1;31m^^^^ read outside its module[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma sealed struct keeps ownership state private; use its module's functions (docs/reference.md Structs)
+  [1;34m = [0m[1;32mhelp: [0muse the functions module `Axqlite` provides: a sealed struct's field stays in its module, `pub` or not
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3086` for a full explanation
+
+compilation failed due to 3 previous errors

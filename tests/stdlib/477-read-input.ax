@@ -117,15 +117,15 @@
       (match (openPath path oRdonly)
         ((Ok fd)
           {
-            (step (readLine fd))  ; 10
-            (let ((r (readLine fd)))
+            (step (fileReadLine fd))  ; 10
+            (let ((r (fileReadLine fd)))
               {
                 (println (shape r))  ; 300
                 (println (strEq (lineOf r) long))
               })
-            (stepAll (readAll fd))  ; 27
-            (step (readLine fd))  ; -1
-            (let ((_ (sysCloseFd fd))) 0)
+            (stepAll (fileReadAll fd))  ; 27
+            (step (fileReadLine fd))  ; -1
+            (let ((_ (fileClose fd))) 0)
             0
           }
         )

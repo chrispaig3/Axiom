@@ -1,0 +1,12 @@
+create: ok 0
+insert: ok 1
+false
+SELECT v FROM t: 0 rows [v]
+begin text: ok 0
+insert text: ok 1
+escaped statement: 0 rows [v]
+insert escape: ok 1
+commit escaped: ok 0
+SELECT v FROM t: 1 rows [v]
+  9
+close with children: ok 0

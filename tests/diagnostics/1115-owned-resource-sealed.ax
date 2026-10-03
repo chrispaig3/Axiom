@@ -1,0 +1,11 @@
+(import IO)
+(import Axqlite)
+
+(:: readOwner (-> File Handle))
+(fn (readOwner f) f.owner)
+
+(:: forge (-> Handle File))
+(fn (forge h) (File h))
+
+(:: readSlot (-> Connection Int))
+(fn (readSlot c) c.slot)

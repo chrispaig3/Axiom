@@ -891,9 +891,18 @@ the choice is in `docs/subtypes-design.md`.
 I/O is unbuffered: `println` is a direct `write` loop with no flush. So
 output produced before one of these aborts is still visible.
 
-**MM-EXEC-17 (H).** There are **no finalizers, no destructors and no
-atexit hooks.** The operating system reclaims a process's memory at
-exit, and nothing reclaims it before then (`MM-LIFE-1`).
+**MM-EXEC-17 (H).** Releasing the final share of a resource owner
+MUST run its cleanup callback once. Files and sockets close; database
+connections close, statements finalise and unfinished transactions roll
+back. Explicit close retires the owner before cleanup, so later releases
+MUST NOT repeat it. Region release optimisation MUST preserve callbacks.
+
+Process exit and trap recovery do not unwind owners or run atexit hooks.
+Cycles and values escaped through raw words need explicit close. The
+operating system reclaims a process's descriptors at exit.
+
+Tested by `tests/stdlib/697-resource-owner.ax` and
+`tests/axqlite/616-api-auto-close.ax`.
 
 **MM-EXEC-18 (H, 2026-09-27). Interrupt handlers: one at a time, no
 allocation, no recovery, state shared only through the unsafe layer.**

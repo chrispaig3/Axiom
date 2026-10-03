@@ -1,0 +1,77 @@
+; Last-owner close rolls back writes; child handles keep their parent alive.
+(import IO)
+(import Err)
+(import Axqlite)
+(import AxqlKit)
+
+(:: reopen Connection)
+;@axiom:effect(io)
+(fn (reopen)
+  (match (axqOpen "auto.db" openOptions)
+    ((Ok db) db)
+    ((Err e) { (die (errorText e) 1) reopen })))
+
+(:: abandoned (-> Connection Int))
+;@axiom:effect(io)
+(fn (abandoned db)
+  (match (axqBegin db)
+    ((Ok tx)
+      { (kitRun "insert" (axqExec db "INSERT INTO t VALUES (7)")) 0 })
+    ((Err e) (die (errorText e) 1))))
+
+(:: setup Int)
+;@axiom:effect(io)
+(fn (setup)
+  (let ((db (kitOpen "auto.db")))
+    { (kitRun "create" (axqExec db "CREATE TABLE t (v INTEGER)"))
+      (abandoned db)
+      (println (axqInTransaction db))
+      (kitDump db "SELECT v FROM t")
+      (kitRun "begin text" (axqExec db "BEGIN"))
+      (kitRun "insert text" (axqExec db "INSERT INTO t VALUES (8)"))
+      0 }))
+
+(:: escapedStatement (Result Statement Error))
+;@axiom:effect(io)
+(fn (escapedStatement)
+  (let ((db reopen))
+    (axqPrepare db "SELECT v FROM t")))
+
+(:: escapedTransaction (Result Transaction Error))
+;@axiom:effect(io)
+(fn (escapedTransaction)
+  (let ((db reopen))
+    (match (axqBegin db)
+      ((Ok tx)
+        { (kitRun "insert escape" (axqExec db "INSERT INTO t VALUES (9)")) (Ok tx) })
+      ((Err e) (Err e)))))
+
+(:: finishTransaction Int)
+;@axiom:effect(io)
+(fn (finishTransaction)
+  (match escapedTransaction
+    ((Ok tx) { (kitRun "commit escaped" (axqCommit tx)) 0 })
+    ((Err e) (die (errorText e) 1))))
+
+(:: closeWithChildren Int)
+;@axiom:effect(io)
+(fn (closeWithChildren)
+  (let ((db reopen))
+    (match (axqBegin db)
+      ((Ok tx)
+        (match (axqPrepare db "SELECT v FROM t")
+          ((Ok st) { (kitRun "close with children" (axqClose db)) 0 })
+          ((Err e) (die (errorText e) 1))))
+      ((Err e) (die (errorText e) 1)))))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  { setup
+    (match escapedStatement
+      ((Ok st) { (kitRows "escaped statement" (axqQuery st vec0)) 0 })
+      ((Err e) (die (errorText e) 1)))
+    finishTransaction
+    (let ((db reopen)) (kitDump db "SELECT v FROM t"))
+    closeWithChildren
+    0 })

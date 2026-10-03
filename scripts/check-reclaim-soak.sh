@@ -528,8 +528,9 @@ cat > "$work/res.ax" <<'AX'
 
 (:: openFd Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (openFd)
-  (match (openPath "/dev/null" 0)
+  (match (sysOpenPath (__addr "/dev/null") 0)
     ((Ok fd) fd)
     ((Err e) -1)))
 

@@ -55,7 +55,7 @@
       (match (openPath path oRdonly)
         ((Err e) (die "open for read failed" 1))
         ((Ok fd)
-          (let ((r (rdNew fd)))
+          (let ((r (rdNew (fileFd fd))))
             (let ((got (rpcRead r)))
               (let (
                 (n (strLen got))
@@ -66,7 +66,7 @@
                   got))
               )
                 {
-                  (let ((_ (sysCloseFd fd))) 0)
+                  (let ((_ (fileClose fd))) 0)
                   (println "{label}: len={n} consumed={c} avail={a} body={shown}")
                   0
                 })))

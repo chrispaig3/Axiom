@@ -6783,9 +6783,8 @@
     }))
 
 ; ------------------------------------------------------------------
-; The seal, AX3085 and AX3086: a word struct's constructor and field
-; outside its module. A heap struct's privacy is `pub`'s and this does
-; not touch it.
+; The seal, AX3085 and AX3086: word structs and sealed heap structs
+; keep their constructor and fields inside their declaring module.
 ; ------------------------------------------------------------------
 (pub :: emitWordSealedBuild (-> Int Int Int Int))
 ;@axiom:effect(unsafe)
@@ -6801,8 +6800,8 @@
         (strConcat (strConcat (strConcat (strConcat "only module `" (wordEntModuleName ent)) "` can make a `") (memGetWordStr ent 0)) "`")
         0
         0
-        (strConcat (strConcat "get one from a function module `" (wordEntModuleName ent)) "` provides: a word struct's constructor stays in its module, `pub` or not")
-        "a word struct is sealed, so every value of its type is one its module made and no other code can forge one (docs/memory-model.md MM-VAL-10a)") "built outside its module"))
+        (strConcat (strConcat "get one from a function module `" (wordEntModuleName ent)) (if (!= (& (memGetWord ent 4) 1) 0) "` provides: a word struct's constructor stays in its module, `pub` or not" "` provides: a sealed struct's constructor stays in its module, `pub` or not"))
+        (if (!= (& (memGetWord ent 4) 1) 0) "a word struct is sealed, so every value of its type is one its module made and no other code can forge one (docs/memory-model.md MM-VAL-10a)" "a sealed struct keeps ownership state private; use its module's functions (docs/reference.md Structs)")) "built outside its module"))
       0
     }))
 
@@ -6820,8 +6819,8 @@
         (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat "only module `" (wordEntModuleName ent)) "` can read field `") field) "` of `") (memGetWordStr ent 0)) "`")
         0
         0
-        (strConcat (strConcat "use the functions module `" (wordEntModuleName ent)) "` provides: a word struct's field stays in its module, `pub` or not")
-        "a word struct is sealed: what its word means is its module's business, and code that read it could hand the same word to something else (docs/memory-model.md MM-VAL-10a)") "read outside its module"))
+        (strConcat (strConcat "use the functions module `" (wordEntModuleName ent)) (if (!= (& (memGetWord ent 4) 1) 0) "` provides: a word struct's field stays in its module, `pub` or not" "` provides: a sealed struct's field stays in its module, `pub` or not"))
+        (if (!= (& (memGetWord ent 4) 1) 0) "a word struct is sealed: what its word means is its module's business, and code that read it could hand the same word to something else (docs/memory-model.md MM-VAL-10a)" "a sealed struct keeps ownership state private; use its module's functions (docs/reference.md Structs)")) "read outside its module"))
       0
     }))
 
@@ -9548,8 +9547,8 @@
 (pub fn (checkExpr tc e)
   (checkExprH tc e 0))
 
-(pub :: checkExprH (-> Int Int Int Int))
-(pub fn (checkExprH tc e inHead)
+(pub :: checkExprHCore (-> Int Int Int Int))
+(pub fn (checkExprHCore tc e inHead)
   (if (== e 0)
     mkUnitTy
     (let ((tag (nodeTag e)))
@@ -9746,7 +9745,7 @@
 ; joins pairwise exactly as written `if`s do; the laxer join `cond`
 ; had (clause bodies never compared, only a real `else` against the
 ; last clause) goes with it.
-(pub :: checkLam (-> Int Int Int))
+(pub :: checkLamCore (-> Int Int Int))
 ; The syntax-level half of `checkLam`, shared with the defer: a
 ; lambda with no parameters can never be called, so it is refused
 ; rather than built. `(f)` and `f` are the SAME expression - a
@@ -9781,7 +9780,7 @@
 ; fallback all run post-defer), and validating twice would refuse
 ; twice - measured, a duplicated AX3094 on the reserved-literal
 ; fixture.
-(pub fn (checkLam tc e)
+(pub fn (checkLamCore tc e)
   (let (
     (params (nodeAVec e))
     (mark (vecLen (tcScopeVec tc)))
@@ -9879,9 +9878,9 @@
 ;
 ; The rule to keep, therefore, is narrower than "the arrow is ground":
 ; bind what the author WROTE, whatever it is, and never a placeholder.
-(pub :: checkLamAgainst (-> Int Int Int Int))
+(pub :: checkLamAgainstCore (-> Int Int Int Int))
 ;@axiom:effect(unsafe)
-(pub fn (checkLamAgainst tc e arrow)
+(pub fn (checkLamAgainstCore tc e arrow)
   (let ((params (nodeAVec e)))
     (if (|| (!= (vecLen params) 1) (!= (nodeTag arrow) TAG_T_ARR))
       (checkLam tc e)
@@ -28920,3 +28919,31 @@
             (ctInModule tc d (lambda (x) (ctRounds w x cs)))
             (emitCtHits tc d w 0)
           })))))
+
+(pub :: checkExprH (-> Int Int Int Int))
+;@axiom:effect(unsafe)
+(pub fn (checkExprH tc e inHead)
+  (let ((ty (checkExprHCore tc e inHead)))
+    { (if (if (== e 0) false (&& (== (isPendingNode ty) 0) (|| (== (nodeTag e) TAG_E_LAM) (== (nodeTag e) TAG_E_APP))))
+        (setNodeBinderTy e
+          (if (== (nodeTag e) TAG_E_APP)
+            (mkNode TAG_EVSTAMP (tyResolve ty) (evClassOf tc (tyResolve ty)) (memGetWord tc 24))
+            (tyResolve ty)))
+        e)
+      ty }))
+
+(pub :: checkLam (-> Int Int Int))
+(pub fn (checkLam tc e)
+  (let ((ty (checkLamCore tc e)))
+    { (if (if (== e 0) false (&& (== (isPendingNode ty) 0) (|| (== (nodeTag e) TAG_E_LAM) (== (nodeTag e) TAG_E_APP))))
+        (setNodeBinderTy e (tyResolve ty))
+        e)
+      ty }))
+
+(pub :: checkLamAgainst (-> Int Int Int Int))
+(pub fn (checkLamAgainst tc e arrow)
+  (let ((ty (checkLamAgainstCore tc e arrow)))
+    { (if (if (== e 0) false (&& (== (isPendingNode ty) 0) (|| (== (nodeTag e) TAG_E_LAM) (== (nodeTag e) TAG_E_APP))))
+        (setNodeBinderTy e (tyResolve ty))
+        e)
+      ty }))

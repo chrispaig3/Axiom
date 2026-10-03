@@ -925,3 +925,15 @@
 # out-of-range shift exits 84 - so the old name contradicts what it
 # refuses. The old spelling draws AX3052, which lists the new one.
 0.8.0  L  no-untrapped  RENAMED: write `restrict(no-trap)`
+
+# 0.8.0 - owned resources close at their last share. Tested by
+# tests/stdlib/698-file-lifetime.ax, tests/stdlib/699-net-lifetime.ax
+# and tests/axqlite/616-api-auto-close.ax.
+0.8.0  F  openPath  result -> Result File Error: use fileReadLine, fileReadAll, fileReadInto, fileWrite and fileClose
+0.8.0  F  openBeneath  result -> Result File Error: the File closes at its last owner
+0.8.0  S  TcpListener  repr -> sealed counted reference: automatically closes; cannot be captured by parallel
+0.8.0  S  TcpStream  repr -> sealed counted reference: automatically closes; cannot be captured by parallel
+0.8.0  S  Connection  repr -> sealed counted reference: automatically closes at its last owner
+0.8.0  S  Statement  repr -> sealed counted reference: automatically finalises and retains its connection
+0.8.0  S  Transaction  repr -> sealed counted reference: automatically rolls back and retains its connection
+0.8.0  F  axqBegin  row -> IO: constructing a transaction installs an IO cleanup callback

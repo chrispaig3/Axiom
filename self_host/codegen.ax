@@ -587,6 +587,10 @@
       ; `emitHandleRuntime`, MM-PAR-8); 0 leaves the module byte for
       ; byte what it was.
       (vecPush ps 0)
+      ; slot 14: checked arrow of the lifted lambda being emitted.
+      (vecPush ps 0)
+      ; slot 15: proven identity callbacks during a call-site flow scan.
+      (vecPush ps 0)
       (addTypeNamed
         ts
         "Some"
@@ -1393,7 +1397,7 @@
 (pub fn (tailOwnedApp cg e params env)
   (let ((hd (spineHead e)))
     (if (!= (nodeTag hd) TAG_E_VAR)
-      0
+      (if (!= (fldClass cg (checkedValueTy e)) 0) 1 0)
       (let ((n (nodeAName hd)))
         (if (isCastName n)
           ; `(cast T v)`: v's ownership, v being the second
@@ -1430,8 +1434,8 @@
                     0
                     1)
                   (if (|| (>= (envFlagOf env n) 0) (>= (paramIndexIn params n 0) 0))
-                    ; a local function value: no signature, no event 2
-                    0
+                    ; Known reference results obey the closure return contract.
+                    (if (!= (fldClass cg (checkedValueTy e)) 0) 1 0)
                     (if (!= (findFSigCg cg (mangledForCg cg n)) 0)
                       ; a reference-returning global answers ONE share by
                       ; construction - it retains a borrowed tail itself - so
@@ -2078,14 +2082,14 @@
                     (if (isPrimName n)
                       0
                       (if (|| (>= (envFlagOf env n) 0) (>= (paramIndexIn params n 0) 0))
-                        ; a local function value: whatever it was given
-                        (flowMaskAll
+                        ; A proven identity callback returns its own counted share.
+                        (if (flowIdentityCallback cg n) 0 (flowMaskAll
                           cg
                           e
                           n_
                           params
                           env
-                          0)
+                          0))
                         (if (!= (findFSigCg cg (mangledForCg cg n)) 0)
                           (if (== (fnResultClass cg n) 2)
                             ; a counted reference of its own (event 2)
@@ -3197,13 +3201,13 @@
                             0)))
                           0)))))
                 (if (|| (>= (envFlagOf env n) 0) (>= (paramIndexIn params n 0) 0))
-                  (stashAdd cell (parkForms (flowMaskAll
+                  (if (flowIdentityCallback cg n) 0 (stashAdd cell (parkForms (flowMaskAll
                     cg
                     e
                     n_
                     params
                     env
-                    0)))
+                    0))))
                   (if (!= (findFSigCg cg (mangledForCg cg n)) 0)
                     {
                       (stashAdd cell (stashSel
@@ -3579,7 +3583,7 @@
   (let ((e (findFSigCg cg (mangledForCg cg name))))
     (if (== e 0)
       (- 0 1)
-      (let ((res (sigResultTy (memGetWord e 3))))
+      (let ((res (fnDeclaredResultTy (memGetWord e 3) (memGetWord e 6))))
         (if (== res 0)
           1
           (fldClass cg res))))))
@@ -3634,11 +3638,13 @@
             (if (== tg TAG_E_APP)
               (let ((hd (spineHead e)))
                 (if (!= (nodeTag hd) TAG_E_VAR)
-                  0
+                  (if (== (fldClass cg (checkedValueTy e)) 2) 1 0)
                   ; the indexed questions first - most arguments are
                   ; not calls to reference-returning globals, and the
                   ; constructor-table scan is the expensive one
                   (let ((n (nodeAName hd)))
+                    (if (isLocalValue cg n)
+                      (if (== (fldClass cg (checkedValueTy e)) 2) 1 0)
                     (if (!= (fnResultClass cg n) 2)
                       0
                       (if (|| (isCastName n) (|| (isPrimName n) (isLocalValue cg n)))
@@ -3647,7 +3653,7 @@
                           0
                           (if (== (spineArity e) (fnArityCg cg n))
                             1
-                            0)))))))
+                            0))))))))
               (if (== tg TAG_E_IF)
                 (if (== (valueOwnedRef cg (nodeB e)) 1)
                   (valueOwnedRef cg (nodeC e))
@@ -12283,10 +12289,9 @@
 ;   6..15   the callee-saved registers the arm block preserves
 ;   16..    one word per evidence slot, snapshotted at the arm
 ;
-; WHY A JUMP PAST N FRAMES IS SOUND HERE and is not in a language with
-; destructors: there are none, no finalizers and no stack-allocated
-; data, so unwinding degenerates to restoring three things - the stack
-; pointer, the arena and the effect slots. Nothing runs on the way out.
+; Recovery restores the stack pointer, arena and effect slots. It does
+; not unwind frames or run resource cleanup callbacks. Resources that
+; cross a recovery extent need explicit cleanup (MM-EXEC-17).
 ; The N frames of pending `axiom_release` calls the jump abandons are
 ; harmless because the reset reclaims everything above the mark
 ; regardless of any count (MM-ALLOC-13, MM-ALLOC-14) and scrubs all
@@ -15787,7 +15792,7 @@
       acc
       (if (== (memGetWord e 5) 1)
         acc
-        (let ((res (sigResultTy (memGetWord e 3))))
+        (let ((res (fnDeclaredResultTy (memGetWord e 3) (memGetWord e 6))))
           (if (== res 0)
             acc
             (if (!= (fldClass cg res) 2)
@@ -15997,13 +16002,9 @@
 ; signature to `(-> Int Int Int)` compiles the same lambda correctly,
 ; which is the whole diagnosis in one A/B.
 ;
-; ANSWERING 0 IS NOT A GUESS, it is the conservative direction and the
-; one already taken beside it: codegen has no types for a lambda's
-; parameters - the lifted node carries names and a body, no arrow - so
-; a capture it cannot classify goes uncounted, which is exactly what
-; `lamCaptureMask`'s comment calls "captured uncounted - parked" for a
-; let-bound capture. This makes a lambda's own parameter agree with
-; that, trading a leak for a wild pointer.
+; Lifted lambdas now carry their checked arrow in pair slot 14. Their
+; own parameters are classified from that arrow after resolving type
+; placeholders; the enclosing declaration is never used for them.
 ;
 ; Three sibling readers of word 36 - `paramFlowBit`, `paramIsString`
 ; and `paramClassOf` - already refuse to trust the pairing, each by
@@ -16017,7 +16018,7 @@
 ;@axiom:effect(unsafe)
 (pub fn (curParamRefClass cg i)
   (if (== (pairSlot cg 7) 1)
-    0
+    (if (== (fldClass cg (tyResolve (arrowParamTy (pairSlot cg 14) i))) 2) 1 0)
     (let ((d (memGetWord cg 36)))
       (if (== d 0)
         0
@@ -16793,7 +16794,7 @@
     (ff (memAlloc 8))
     (_0 (memSetWord ff 0 (- 0 1)))
     (_a (if (== (pairMatchOK cg scrutExpr arms) 1)
-      (if (|| (== (pairWordOnly cg (pairScrutRetTy cg scrutExpr)) 1) (== (scrutineeReleasable node scrutExpr cg) 0))
+      (if (|| (== (pairWordOnly cg (pairScrutRetTy cg scrutExpr)) 1) (== (tailScrutineeReleasable node scrutExpr cg) 0))
         (pairSetSlot cg 1 1)
         cg)
       cg))
@@ -16811,7 +16812,7 @@
     (mergeB (labelStr mn))
     (rel (if (== gotPair 2)
       0
-      (scrutineeReleasable node scrutExpr cg1)))
+      (tailScrutineeReleasable node scrutExpr cg1)))
     (pmark (vecLen (memGetWordVec cg1 42)))
     (_p (if (== rel 1)
       (vecPush
@@ -17142,7 +17143,8 @@
     (let ((cg1 (emitVar (mkEVar (vecGetStr capNames i)) cg)))
       {
         (vecPush capRegs (strDup (memGetWordStr cg1 2)))
-        (vecPush capFloats (memGetWord cg1 14))
+        (vecPush capFloats (+ (memGetWord cg1 14)
+          (if (captureCounted cg1 (vecGetStr capNames i)) 2 0)))
         (capValues
           cg1
           capNames
@@ -17153,17 +17155,18 @@
 
 ; A lifted lambda, waiting for the enclosing function to close:
 ; word 0 name, word 1 params, word 2 body, word 3 capture names,
-; word 4 capture float flags.
-(pub :: mkLamDesc (-> String (Vec String) Int (Vec a) (Vec Int) Int))
+; word 4 capture float/count flags, word 5 checked arrow.
+(pub :: mkLamDesc (-> String (Vec String) Int (Vec a) (Vec Int) Int Int))
 ;@axiom:effect(unsafe)
-(pub fn (mkLamDesc lname lparams body capNames capFloats)
-  (let ((d (memAlloc 40)))
+(pub fn (mkLamDesc lname lparams body capNames capFloats resultTy)
+  (let ((d (memAlloc 48)))
     {
       (memSetWord d 0 lname)
       (memSetWord d 1 lparams)
       (memSetWord d 2 body)
       (memSetWord d 3 capNames)
       (memSetWord d 4 capFloats)
+      (memSetWord d 5 resultTy)
       d
     }))
 
@@ -17229,12 +17232,9 @@
               ; 0x20004, two payload words and bit 17, the map naming
               ; word 1.)
               ;
-              ; Captures that are `let` bindings stay unretained on
-              ; purpose: nothing releases a binding, so nothing can
-              ; free one out from under a closure. The rule is not
-              ; "retain every capture", it is "retain what something
-              ; else may hand back", and today that is exactly the
-              ; reference parameters.
+              ; Counted immutable bindings also take a captured share.
+              ; Unclassified captures retain the conservative park;
+              ; their outer frame cannot prove a release safe.
               (retainParamCaps cg capNames capRegs 0)
               (storeCaps cg pr capRegs 0)
               (memSetWord cg 21 (vecPush (memGetWordVec cg 21) (mkLamDesc
@@ -17242,7 +17242,8 @@
                 lparams
                 body
                 capNames
-                capFloats)))
+                capFloats
+                (nodeBinderTy node))))
               (memSetWord cg 2 pr)
               (memSetWord cg 14 0)
               cg
@@ -17272,7 +17273,7 @@
     (let ((pi (curParamIndex cg (vecGetStr capNames i))))
       (+
         (if (if (< pi 0)
-          false
+          (== (lookupSymKind cg (vecGetStr capNames i)) 3)
           (== (curParamRefClass cg pi) 1))
           (pow2 (+ 16 (+ 1 i)))
           0)
@@ -17296,7 +17297,7 @@
     (let ((pi (curParamIndex cg (vecGetStr capNames i))))
       (let ((cg1 
         (if (if (< pi 0)
-          false
+          (== (lookupSymKind cg (vecGetStr capNames i)) 3)
           (== (curParamRefClass cg pi) 1))
           (emitRetainOf cg (vecGetStr capRegs i))
           cg)))
@@ -17364,6 +17365,10 @@
     (body (memGetWord d 2))
     (capNames (memGetWordVec d 3))
     (capFloats (memGetWordVec d 4))
+    (checkedTy (memGetWord d 5))
+    (resultTy (if (== checkedTy 0) 0 (tyResolve (nodeB checkedTy))))
+    (savedSelf (memGetWord cg 27))
+    (savedTails (memGetWordVec cg 41))
   )
     (let (
       (paramStr (emitParams lparams cg 0))
@@ -17376,6 +17381,8 @@
       (_6 (memSetWord cg 18 0))
       (_6b (pairSetSlot cg 6 0))
       (_6c (pairSetSlot cg 7 1))
+      (_6e (pairSetSlot cg 14 checkedTy))
+      (_6f (memSetWord cg 27 0))
       (rgnSaved (pairSlot cg 9))
       (_6d (pairSetSlot cg 9 0))
     )
@@ -17404,9 +17411,16 @@
             0
             0)))
             (let ((cg1c (bindCaps cg1b capNames capFloats 0)))
-              (let ((cg2 (emitExpr body cg1c)))
+              (let ((_t (memSetWord cg1c 41
+                (if (!= (fldClass cg1c resultTy) 0)
+                  (let ((tails vecNew)) { (collectTails cg1c body lparams vecNew "" tails) tails })
+                  vecNew))))
+              (let ((cg2 (emitExprTail body cg1c)))
                 (let ((ret (strConcat "  ret i64 " (strConcat (strDup (memGetWordStr cg2 2)) ""))))
-                  (pairSetSlot (pairSetSlot (emitLine (emitLine (closeAllocaMark cg2) ret) "}") 7 0) 9 rgnSaved))))))))))
+                  { (memSetWord cg2 41 savedTails)
+                  (memSetWord cg2 27 savedSelf)
+                  (pairSetSlot cg2 14 0)
+                  (pairSetSlot (pairSetSlot (emitLine (emitLine (closeAllocaMark cg2) ret) "}") 7 0) 9 rgnSaved) }))))))))))
 
 (pub :: bindCaps (-> Int (Vec a) (Vec Int) Int Int))
 ;@axiom:effect(unsafe)
@@ -17422,8 +17436,8 @@
               (evwaDeeper nm)
               nm))
           (strDup (memGetWordStr cg1 2))
-          (vecGet capFloats i)
-          0)
+          (% (vecGet capFloats i) 2)
+          (if (>= (vecGet capFloats i) 2) 3 0))
         (bindCaps cg1 capNames capFloats (+ i 1))
       })))
 
@@ -17476,7 +17490,8 @@
   ; fallback. The record stays one word; the spec's baking
   ; sentence is unreachable under this type system, and
   ; memory-model.md now says so.
-  ; The trailing `%__evwa.h` is IGNORED here and still declared: a
+  ; The trailing `%__evwa.h` also witnesses the result. A borrowed
+  ; polymorphic result takes a share only when its result bit is set. A
   ; thunk is reached through the same code pointer a lambda is, and
   ; `applyOneArg` passes three operands to both. A two-parameter
   ; definition called with three would leave the callee reading a
@@ -17495,7 +17510,9 @@
             ", i64 0")
           "")))
         (let ((cg2 (emitLine cg1 (strConcat (strConcat (strConcat "  %.r = call i64 @" (strConcat (llvmSym (strDup full)) (strConcat "(" (thunkArgStr ar 0)))) (strConcat evTail "")) ")"))))
-          (emitLine (emitLine cg2 "  ret i64 %.r") "}"))))))
+          (let ((cgR (if (&& (== (fnResultClass cg2 full) 1) (== (fnResultOwned cg2 full) 0))
+            (emitRcIfBitOf cg2 "%.r" 1 "%__evwa.h" 1) cg2)))
+            (emitLine (emitLine cgR "  ret i64 %.r") "}")))))))
 
 (pub :: thunkParamStr (-> Int Int String))
 (pub fn (thunkParamStr ar j)
@@ -17555,8 +17572,8 @@
     cg))
 
 ; The four symbol vectors stay parallel by construction: this is the
-; only place that pushes them. `kind` 0 binds a value register, 1 an
-; alloca whose reads load.
+; only place that pushes them. Kind 0 is a value register, 1 a
+; mutable alloca, 2 a TCO alloca and 3 a counted value register.
 (pub :: bindSym (-> Int String String Int Int Int))
 ;@axiom:effect(unsafe)
 (pub fn (bindSym cg name reg isFloat kind)
@@ -18361,7 +18378,10 @@
             (v (strDup (memGetWordStr cg 2)))
             (fl (memGetWord cg 14))
           )
-            (let ((cgR (emitRetainOf cg v)))
+            (let ((cgR
+              (if (&& (== (pairSlot cg 7) 1) (== (fldClass cg (nodeB (pairSlot cg 14))) 1))
+                (emitRcIfBitOf cg v 1 "%__evwa.h" 1)
+                (emitRetainOf cg v))))
               {
                 (memSetWord cgR 2 v)
                 (memSetWord cgR 14 fl)
@@ -18694,7 +18714,8 @@
       rec
       (vecGetStr regs i)
       (constStr 0)
-      snode)))
+      snode
+      (if (>= (+ i 1) (vecLen regs)) 1 0))))
       (let ((cgD 
         (if (== recOwned 1)
           (emitReleaseOf cgR rec)
@@ -19102,7 +19123,7 @@
           0
           (lookupSym cg name))))
         (if (!= symReg 0)
-          (if (>= (lookupSymKind cg name) 1)
+          (if (if (== (lookupSymKind cg name) 3) false (>= (lookupSymKind cg name) 1))
             ; A mutable binding: the register is its storage, and the
             ; value is a fresh load - which is what makes a `set` in
             ; a loop body visible on the next trip's read.
@@ -19693,7 +19714,8 @@
             rec
             a
             ev
-            snode)))
+            snode
+            (if (>= (+ i 1) (vecLen args)) 1 0))))
             (let ((cgD 
               (if (== recOwned 1)
                 (emitReleaseOf cgR rec)
@@ -19721,27 +19743,31 @@
 ; before applying it, `emitApplyRegs` takes registers already
 ; evaluated, which is what an effect operation needs so that an
 ; argument's side effects happen before a missing handler traps.
-(pub :: applyOneArg (-> Int String String String Int Int))
+(pub :: applyOneArg (-> Int String String String Int Int Int))
 ;@axiom:effect(unsafe)
-(pub fn (applyOneArg cg rec a ev snode)
-  (let ((cgL (loadWordAt cg rec 0)))
-    (let (
-      (cp (strDup (memGetWordStr cgL 2)))
-      (fpn (allocReg cgL))
-      (rn (allocReg cgL))
-    )
-      (let (
-        (fp (tmpStr "f" fpn))
-        (r (regStr rn))
-      )
-        {
-          (emitLine cgL (strConcat (strConcat "  " fp) (strConcat " = inttoptr i64 " (strConcat cp " to ptr"))))
-          (emitCallMark snode cgL rn)
-          (emitLine cgL (strConcat (strConcat (strConcat (strConcat "  " r) (strConcat " = call i64 " fp)) (strConcat "(i64 " (strConcat (strDup rec) (strConcat ", i64 " a)))) (strConcat (strConcat ", i64 " ev) (strConcat ")" ""))))
-          (memSetWord cgL 2 r)
-          cgL
+(pub fn (applyOneArg cg rec a ev snode final)
+  (let ((cgE (emitClosureResultWord cg snode final)))
+    (let ((rw (strDup (memGetWordStr cgE 2))) (evn (allocReg cgE)))
+      (let ((fullEv (regStr evn)))
+        { (emitLine cgE (strConcat (strConcat "  " fullEv) (strConcat " = or i64 " (strConcat ev (strConcat ", " rw)))))
+          (let ((cgL (loadWordAt cgE rec 0)))
+            (let (
+              (cp (strDup (memGetWordStr cgL 2)))
+              (fpn (allocReg cgL))
+              (rn (allocReg cgL))
+            )
+              (let (
+                (fp (tmpStr "f" fpn))
+                (r (regStr rn))
+              )
+                {
+                  (emitLine cgL (strConcat (strConcat "  " fp) (strConcat " = inttoptr i64 " (strConcat cp " to ptr"))))
+                  (emitCallMark snode cgL rn)
+                  (emitLine cgL (strConcat (strConcat (strConcat (strConcat "  " r) (strConcat " = call i64 " fp)) (strConcat "(i64 " (strConcat (strDup rec) (strConcat ", i64 " a)))) (strConcat (strConcat ", i64 " fullEv) (strConcat ")" ""))))
+                  (memSetWord cgL 2 r)
+                  cgL
+                })))
         }))))
-
 ; ------------------------------------------------------------------
 ; Freestanding primitives.
 ; ------------------------------------------------------------------
@@ -20371,6 +20397,7 @@
               f
               (constStr 0)
               (constStr 0)
+              0
               0)))
               (let (
                 (r (strDup (memGetWordStr cgA 2)))
@@ -22026,7 +22053,7 @@
 (pub fn (argOwnedRelease cg fnName args i)
   (let ((cls (fnResultClass cg fnName)))
     (if (|| (== cls 0) (== cls 2))
-      (if (&& (== (valueOwnedRef cg (vecGet args i)) 1) (&& (== (isStaticSentinelNode cg (vecGet args i)) 0) (&& (== (isNullaryConNode cg (vecGet args i)) 0) (&& (== (& (fnStashMask cg fnName) (| (paramBit i) (ownerBit i))) 0) (&& (== (& (fnConsumeMask cg fnName) (| (paramBit i) (ownerBit i))) 0) (|| (== cls 2) (== (& (fnRetMask cg fnName) (anyBit i)) 0)))))))
+      (if (&& (== (valueOwnedRef cg (vecGet args i)) 1) (&& (== (isStaticSentinelNode cg (vecGet args i)) 0) (&& (== (isNullaryConNode cg (vecGet args i)) 0) (&& (== (& (fnCallStashMask cg fnName args) (| (paramBit i) (ownerBit i))) 0) (&& (== (& (fnConsumeMask cg fnName) (| (paramBit i) (ownerBit i))) 0) (|| (== cls 2) (== (& (fnRetMask cg fnName) (anyBit i)) 0)))))))
         1
         0)
       0)))
@@ -23862,7 +23889,10 @@
                 (let ((cgT 
                   (if (&& (== rc 1) (&& (== (isStaticSentinelNode cgS argNode) 0) (== (valueOwnedRef cgS argNode) 1)))
                     (emitReleaseOf cgS reg)
-                    cgS)))
+                    (if (&& (>= rc 2) (closureOwnedCall cgS argNode))
+                      (let ((cgW (emitEvwRead cgS)))
+                        (emitRcIfBitOf cgW reg (- rc 2) (strDup (memGetWordStr cgW 2)) 0))
+                      cgS))))
                   (emitFieldStores
                     cgT
                     ptr
@@ -23909,7 +23939,8 @@
             name
             valReg
             valFlag
-            0)
+            (if (|| (== (valueOwnedRef cg1 valExpr) 1)
+              (&& (== (nodeTag valExpr) TAG_E_VAR) (== (lookupSymKind cg1 (nodeAName valExpr)) 3))) 3 0))
           ; a `let` of a REFERENCE FIELD read takes its own share, when
           ; the walk says the binding does not escape: the field's share
           ; is the block's, and a store to the field (event 5) releases
@@ -24111,9 +24142,8 @@
 ; Three shapes escape whatever their position, and each is a place the
 ; invariant above does not reach:
 ;
-;   a LAMBDA that mentions it - a capture takes no share, deliberately
-;     (MM-VAL-15: nothing releases a binding, so nothing may free one
-;     out from under a closure);
+;   a LAMBDA that mentions an unclassified binding. Counted captures
+;     take their own share, so their outer binding may release its own;
 ;   a `set` RHS - a slot store takes no share;
 ;   `cast`, `__addr` and `strData` - the three ways to get a WORD out
 ;     of a reference. A word stashed anywhere is invisible to counting
@@ -24136,6 +24166,8 @@
     (let ((tg (nodeTag e)))
       (if (|| (== tg TAG_E_INT) (|| (== tg TAG_E_FLT) (|| (== tg TAG_E_STR) (== tg TAG_E_CHAR))))
         0
+        (if (== tg TAG_E_LAM)
+          (if (== (lookupSymKind cg name) 3) 0 (mentions name e))
         (if (== tg TAG_E_VAR)
           (if (strEq (nodeAName e) name)
             vp
@@ -24204,15 +24236,16 @@
                     (if (== (escapes
                       cg
                       name
-                      (nodeA e)
+                      (spineHead e)
                       vp2
                       bound) 1)
                       1
-                      (escapes
+                      (escapesSeq
                         cg
                         name
-                        (nodeB e)
+                        (callFlowArgs e)
                         vp2
+                        0
                         bound)))))
               (if (== tg TAG_E_IF)
                 (if (== (escapes
@@ -24263,7 +24296,7 @@
                         0
                         bound) 1)
                         1
-                        (if (== (mentions name (nodeA e)) 1)
+                        (if (== (mayAlias cg name (nodeA e) bound) 1)
                           (escapesViaBinders
                             cg
                             (nodeBVec e)
@@ -24368,7 +24401,7 @@
                                   (nodeC e)
                                   0
                                   bound)))
-                            (mentions name e)))))))))))))))
+                            (mentions name e))))))))))))))))
 
 (pub :: escapesSeq (-> Int String (Vec Int) Int Int Int Int))
 (pub fn (escapesSeq cg name v vp i bound)
@@ -24562,7 +24595,9 @@
       (mentionsArgs name e n_ 0)
       (let ((n (nodeAName hd)))
         (if (strEq n name)
-          (mentions name e)
+          ; Invoking a typed closure borrows its record. Known reference
+          ; results have their own share, and a word cannot own it.
+          (if (== (fldClass cg (checkedValueTy e)) 1) (mentions name e) 0)
           (if (|| (isBinop n) (|| (isCmpOp n) (isAndOr n)))
             0
             (if (isPrimName n)
@@ -24597,7 +24632,7 @@
                     e
                     n_
                     (|
-                      (| (fnStashMask cg n) (fnConsumeMask cg n))
+                      (| (fnCallStashMask cg n (callFlowArgs e)) (fnConsumeMask cg n))
                       (if (&& (== vp 1) (!= (fnResultClass cg n) 2))
                         (bothForms (fnRetMask cg n))
                         0))
@@ -24889,6 +24924,16 @@
     0
     (if (== (nodeTag ty) TAG_T_ARR)
       (sigResultTy (nodeB ty))
+      ty)))
+
+; A function may return an arrow. Peel only its declared parameters,
+; so a nullary function returning a closure still has a reference result.
+(pub :: fnDeclaredResultTy (-> Int Int Int))
+(pub fn (fnDeclaredResultTy ty arity)
+  (if (|| (== ty 0) (<= arity 0))
+    ty
+    (if (== (nodeTag ty) TAG_T_ARR)
+      (fnDeclaredResultTy (nodeB ty) (- arity 1))
       ty)))
 
 ; Is this field read's declared type a machine scalar - `fldClass` 0?
@@ -25718,7 +25763,7 @@
     (emitLine cg "  %record = inttoptr i64 %c to ptr")
     (emitLine cg "  %code = load i64, ptr %record")
     (emitLine cg "  %fn = inttoptr i64 %code to ptr")
-    (emitLine cg "  %r = call i64 %fn(i64 %c, i64 %v)")
+    (emitLine cg "  %r = call i64 %fn(i64 %c, i64 %v, i64 0)")
     (emitLine cg "  call void @axiom_release(i64 %c)")
     (emitLine cg "  ret i64 %r")
     (emitLine cg "done:")
@@ -25897,7 +25942,7 @@
                 (let ((sig (findFSigCg cg (mangledForCg cg n))))
                   (if (== sig 0)
                     false
-                    (dropFreeTy cg (sigResultTy (memGetWord sig 3)) 16)))))
+                    (dropFreeTy cg (fnDeclaredResultTy (memGetWord sig 3) (memGetWord sig 6)) 16)))))
             false))))))
 
 (pub :: dropFreeArms (-> Int (Vec Int) Int Bool))
@@ -25906,3 +25951,108 @@
     true
     (&& (dropFreeExpr cg (nodeB (vecGet arms i)))
       (dropFreeArms cg arms (+ i 1)))))
+
+; A reference-returning tail has already retained each borrowed leaf.
+; Returning a field therefore does not keep its consumed Result alive.
+(pub :: tailScrutineeReleasable (-> Int Int Int Int))
+;@axiom:effect(unsafe)
+(pub fn (tailScrutineeReleasable node scrutExpr cg)
+  (if (== (scrutineeReleasable node scrutExpr cg) 1)
+    1
+    (let ((d (memGetWord cg 36)))
+      (if (== d 0)
+        0
+        (if (&& (== (fnResultClass cg (nodeAName d)) 2)
+          (&& (== (valueOwnedRef cg scrutExpr) 1)
+            (== (escapesViaBinders cg (nodeBVec node) 0 0 (binderSummary node)) 0)))
+          1
+          0)))))
+
+(pub :: captureCounted (-> Int String Bool))
+(pub fn (captureCounted cg name)
+  (let ((pi (curParamIndex cg name)))
+    (if (< pi 0)
+      (== (lookupSymKind cg name) 3)
+      (== (curParamRefClass cg pi) 1))))
+
+; Applications remember their checked result type and reference witness.
+(pub :: checkedValueTy (-> Int Int))
+(pub fn (checkedValueTy e)
+  (let ((t (nodeBinderTy e)))
+    (if (if (== t 0) false (== (nodeTag t) TAG_EVSTAMP)) (nodeA t) t)))
+
+(pub :: closureOwnedCall (-> Int Int Bool))
+(pub fn (closureOwnedCall cg e)
+  (if (== (nodeTag e) TAG_E_APP)
+    (let ((h (spineHead e)))
+      (if (== (nodeTag h) TAG_E_VAR) (isLocalValue cg (nodeAName h)) true))
+    false))
+
+; Bit 0 describes the argument; bit 1 describes the result. Intermediate
+; applications return a closure. Final applications use the checked witness.
+(pub :: emitClosureResultWord (-> Int Int Int Int))
+;@axiom:effect(unsafe)
+(pub fn (emitClosureResultWord cg e final)
+  (if (== final 0)
+    { (memSetWord cg 2 "2") cg }
+    (let ((t (if (== e 0) 0 (nodeBinderTy e))))
+      (let ((w (if (if (== t 0) false (&& (== (nodeTag t) TAG_EVSTAMP) (== (nodeC t) (memGetWord cg 36)))) (nodeB t) 0)))
+        (let ((vs vecNew))
+          { (vecPush vs w)
+            (let ((cgW (emitEvWordVal cg (mkNode TAG_EVSTAMP (memGetWord cg 36) vs vecNew))))
+              (let ((r (regStr (allocReg cgW))))
+                { (emitLine cgW (strConcat (strConcat "  " r) (strConcat " = shl i64 " (strConcat (memGetWordStr cgW 2) ", 1"))))
+                  (memSetWord cgW 2 r) cgW })) })))))
+
+; Refine a conservative higher-order park only for a literal identity
+; callback with a concrete reference result. Its lifted body returns an
+; owned share and cannot store or consume its argument.
+(pub :: flowIdentityCallback (-> Int String Bool))
+;@axiom:effect(unsafe)
+(pub fn (flowIdentityCallback cg n)
+  (let ((v (pairSlot cg 15)))
+    (if (== v 0) false (== (strVecHas (cast (Vec Int) v) n) 1))))
+
+(pub :: literalRefIdentity (-> Int Int Bool))
+;@axiom:effect(unsafe)
+(pub fn (literalRefIdentity cg e)
+  (if (== (nodeTag e) TAG_E_LAM)
+    (let ((ps (nodeAVec e)) (b (nodeB e)) (t (nodeBinderTy e)))
+      (if (&& (== (vecLen ps) 1) (&& (== (nodeTag b) TAG_E_VAR) (if (== t 0) false (== (nodeTag t) TAG_T_ARR))))
+        (&& (strEq (vecGetStr ps 0) (nodeAName b)) (== (fldClass cg (tyResolve (nodeB t))) 2))
+        false))
+    false))
+
+(pub :: callFlowDecl (-> (Vec Int) String Int Int))
+(pub fn (callFlowDecl ds name i)
+  (if (>= i (vecLen ds)) 0
+    (let ((d (vecGet ds i)))
+      (if (&& (== (nodeTag d) TAG_D_FN) (strEq (nodeAName d) name)) d
+        (callFlowDecl ds name (+ i 1))))))
+
+(pub :: fnCallStashMask (-> Int String (Vec Int) Int))
+;@axiom:effect(unsafe)
+(pub fn (fnCallStashMask cg name args)
+  (let ((base (fnStashMask cg name)))
+    (if (== base 0) 0
+      (let ((d (callFlowDecl (memGetWordVec cg 8) (mangledForCg cg name) 0)))
+        (if (== d 0) base
+          (let ((ps (nodeBVec d)) (ids vecNew) (mut i 0))
+            { (while (&& (< i (vecLen ps)) (< i (vecLen args)))
+                { (if (literalRefIdentity cg (vecGet args i)) (vecPush ids (vecGet ps i)) ids)
+                  (set i (+ i 1)) })
+              (if (== (vecLen ids) 0) base
+                (let ((saved (pairSlot cg 15)) (savedDecl (memGetWord cg 36)) (savedMod (memGetWord cg 34)) (cell regionNew))
+                  { (pairSetSlot cg 15 (cast Int ids))
+                    (memSetWord cg 36 d) (memSetWord cg 34 (nodeModule d))
+                    (flowStashes cg (nodeC d) ps vecNew cell)
+                    (let ((mask (regionNet cell)))
+                      { (pairSetSlot cg 15 saved) (memSetWord cg 36 savedDecl) (memSetWord cg 34 savedMod)
+                        mask }) })) }))))))
+
+(pub :: callFlowArgs (-> Int (Vec Int)))
+(pub fn (callFlowArgs e)
+  (let ((xs vecNew) (mut i 0))
+    { (while (< i (spineArity e))
+        { (vecPush xs (spineArgAt e i)) (set i (+ i 1)) })
+      xs }))

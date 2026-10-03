@@ -16,6 +16,17 @@ its changelog too.
 
 ## Unreleased
 
+- Files, TCP sockets and AXQLite connections now close when their last
+  owner leaves a normal scope. `openPath` and `openBeneath` answer a
+  concrete `File`; use `fileReadLine`, `fileReadAll`, `fileReadInto` and
+  `fileWrite`. Statements keep their connection alive and finalise
+  automatically; unfinished transactions roll back. Explicit close
+  reports errors and invalidates aliases. These resource types become
+  sealed counted references and cannot cross a `parallel` boundary.
+  Tested by `tests/stdlib/698-file-lifetime.ax`,
+  `tests/stdlib/699-net-lifetime.ax` and
+  `tests/axqlite/616-api-auto-close.ax`.
+
 - Resource owners retain a cleanup callback and run it once when their
   final share is released. Region release optimisation preserves these
   callbacks, and `sealed` heap structs keep construction and fields in

@@ -95,8 +95,8 @@
         ((Ok fd)
           (let (
             (buf (strAlloc n))
-            (got (readInto fd buf 0 n))
-            (_ (sysCloseFd fd))
+            (got (fileReadInto fd buf 0 n))
+            (_ (fileClose fd))
             (whole (readFile path))
             (_r (removeFile path))
           )
