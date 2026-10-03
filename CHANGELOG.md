@@ -16,6 +16,10 @@ its changelog too.
 
 ## Unreleased
 
+- Remove the `strConcat` bootstrap bridge after advancing the seed.
+  `concat` is the string concatenation API. Tested by
+  `tests/stdlib/190-string-literals.ax` and `scripts/check-compat.sh`.
+
 - Reseed the compiler from the preceding committed seed after the
   `concat` migration. The new seed generates `concat` in format
   expressions. Tested by `scripts/bootstrap-from-seed.sh`; lineage

@@ -14,6 +14,8 @@
 # S struct, T trait, M macro. `docs/compatibility.md` is the policy
 # this file implements.
 
+0.8.0  F  strConcat  renamed to concat; import Str and use (concat a b)
+
 # 0.3.3 - ERR-ADOPT-1 slice 3, the half of it where `-errno` genuinely
 # means a failure. Seven filesystem calls and `copyFile` answer
 # `(Result Int Error)` instead of an Int that is a byte count when

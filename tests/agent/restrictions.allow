@@ -119,6 +119,7 @@ colOf self_host/diag.ax no-io,no-alloc,no-foreign ok
 colOfIx self_host/diag.ax no-io,no-alloc,no-foreign ok
 compares tests/diagnostics/383-restrict-no-wrap.ax no-wrap ok
 compares tests/diagnostics/396-restrict-no-trap.ax no-trap ok
+concat stdlib/Str.ax no-io,no-foreign ok
 confined tests/diagnostics/369-axtag-known-keys.ax no-io ok
 control tests/diagnostics/376-restrict-unknown-name.ax no-io ok
 count tests/stdlib/468-region-signatures.ax no-escape ok
@@ -664,7 +665,6 @@ strAlloc stdlib/Str.ax no-io,no-foreign ok
 strByte stdlib/Str.ax no-io,no-alloc,no-foreign ok
 strCStr stdlib/Str.ax no-io,no-alloc,no-foreign ok
 strCmp stdlib/Str.ax no-io,no-alloc,no-foreign ok
-concat stdlib/Str.ax no-io,no-foreign ok
 strData stdlib/Str.ax no-io,no-alloc,no-foreign ok
 strDup stdlib/Str.ax no-io,no-foreign ok
 strEq stdlib/Str.ax no-io,no-alloc,no-foreign ok

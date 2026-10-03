@@ -302,6 +302,7 @@ collectRow Axqlite.ax Alloc,Mut
 columnRange Axqlite.ax Alloc,Mut
 commitWrites Pager.ax Alloc,IO,Mut,Unsafe
 compareKeyed AxqlExec.ax Alloc,Mut
+concat Str.ax Alloc,Mut,Unsafe
 connGet Axqlite.ax Unsafe
 connPager Axqlite.ax Unsafe
 connSet Axqlite.ax Mut,Unsafe
@@ -1342,7 +1343,6 @@ storeHeader Pager.ax Mut,Unsafe
 strAlloc Str.ax Alloc,Mut,Unsafe
 strByte Str.ax Unsafe
 strCmp Str.ax Unsafe
-concat Str.ax Alloc,Mut,Unsafe
 strData Str.ax Unsafe
 strDup Str.ax Alloc,Mut,Unsafe
 strEq Str.ax Unsafe
