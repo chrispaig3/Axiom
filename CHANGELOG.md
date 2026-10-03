@@ -16,6 +16,11 @@ its changelog too.
 
 ## Unreleased
 
+- Reseed the compiler from the preceding committed seed after the
+  `concat` migration. The new seed generates `concat` in format
+  expressions. Tested by `scripts/bootstrap-from-seed.sh`; lineage
+  and byte reproduction remain covered by the GitHub CI gates.
+
 - Rename `Str.strConcat` to `Str.concat`, including compiler, examples,
   current guides and fixtures. Replace `(strConcat a b)` with
   `(concat a b)`. A temporary bridge lets the preceding seed compile
