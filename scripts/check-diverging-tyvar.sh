@@ -69,6 +69,22 @@ check_of() {  # <file> -> exit status, output on $work/out
 # --------------------------------------------------------------------
 echo "== the unsound shapes are refused =="
 # --------------------------------------------------------------------
+cp "$repo_root/tests/diagnostics/1118-no-loop-early-exit.ax" "$work/early-exit.ax"
+rc="$(check_of early-exit.ax)"
+if (( rc == 1 )) && [[ "$(grep -c 'error\[AX3001\]' "$work/out" || true)" == 4 ]] \
+   && grep -q 'undefined variable `break`' "$work/out" \
+   && grep -q 'undefined variable `continue`' "$work/out"; then
+  ok "break and continue are undefined ordinary names in while and for"
+else
+  bad "the no-early-exit grammar pin changed (exit $rc)"
+  sed 's/^/     /' "$work/out" | head -8
+fi
+if grep -q 'AX3073\|AX3040' "$work/out"; then
+  bad "a constant-true loop's unreachable cast was charged"
+else
+  ok "constant-true loops still waive unreachable forging casts"
+fi
+
 cp "$repo_root/tests/diagnostics/347-result-only-tyvar.ax" "$work/347.ax"
 rc="$(check_of 347.ax)"
 if (( rc == 1 )) && grep -q 'error\[AX3040\]' "$work/out"; then

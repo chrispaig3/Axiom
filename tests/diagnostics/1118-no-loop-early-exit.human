@@ -1,0 +1,37 @@
+[1;31merror[AX3001][0m[1m: undefined variable `break`[0m
+ [1;34m--> [0m1118-no-loop-early-exit.ax:7:33
+[1;34m  |[0m
+[1;34m7 |[0m   (cast Resource { (while true (break)) 1 }))
+[1;34m  |[0m                                 [1;31m^^^^^ no binding named `break` in scope[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mvariables must be defined (via `fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
+
+[1;31merror[AX3001][0m[1m: undefined variable `continue`[0m
+  [1;34m--> [0m1118-no-loop-early-exit.ax:11:33
+[1;34m   |[0m
+[1;34m11 |[0m   (cast Resource { (while true (continue)) 1 }))
+[1;34m   |[0m                                 [1;31m^^^^^^^^ no binding named `continue` in scope[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mvariables must be defined (via `fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
+
+[1;31merror[AX3001][0m[1m: undefined variable `break`[0m
+  [1;34m--> [0m1118-no-loop-early-exit.ax:14:34
+[1;34m   |[0m
+[1;34m14 |[0m (fn (rangeBreak) (for i in 0..3 (break)))
+[1;34m   |[0m                                  [1;31m^^^^^ no binding named `break` in scope[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mvariables must be defined (via `fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
+
+[1;31merror[AX3001][0m[1m: undefined variable `continue`[0m
+  [1;34m--> [0m1118-no-loop-early-exit.ax:17:37
+[1;34m   |[0m
+[1;34m17 |[0m (fn (rangeContinue) (for i in 0..3 (continue)))
+[1;34m   |[0m                                     [1;31m^^^^^^^^ no binding named `continue` in scope[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mvariables must be defined (via `fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
+
+compilation failed due to 4 previous errors

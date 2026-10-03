@@ -1,0 +1,24 @@
+; The divergence oracle assumes a constant-true loop cannot exit early.
+; These names have no special grammar and are undefined ordinary names.
+(struct Resource (name : String))
+
+(:: whileBreak Resource)
+(fn (whileBreak)
+  (cast Resource { (while true (break)) 1 }))
+
+(:: whileContinue Resource)
+(fn (whileContinue)
+  (cast Resource { (while true (continue)) 1 }))
+
+(:: rangeBreak Int)
+(fn (rangeBreak) (for i in 0..3 (break)))
+
+(:: rangeContinue Int)
+(fn (rangeContinue) (for i in 0..3 (continue)))
+
+; An actual constant-true loop still makes the forging cast unreachable.
+(:: forever Resource)
+(fn (forever) (cast Resource { (while true 0) 1 }))
+
+(:: main Int)
+(fn (main) 0)

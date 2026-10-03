@@ -16,6 +16,10 @@ its changelog too.
 
 ## Unreleased
 
+- Pinned the divergence check's assumption that loops have no `break`
+  or `continue` form, including casts after constant-true loops.
+  Tested by `tests/diagnostics/1118-no-loop-early-exit.ax` and
+  `scripts/check-diverging-tyvar.sh`.
 - Polymorphic calls and closures preserve their checked `Float` result
   type during code generation. Arithmetic over two such results now
   computes floating-point values correctly. The emitter also refuses

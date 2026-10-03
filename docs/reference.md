@@ -986,6 +986,10 @@ The body takes any number of expressions, so a loop that updates two
 variables needs no braces. A `while` evaluates to `0`, because a loop
 that ran zero times has no last iteration to take a value from.
 
+Loops have no `break` or `continue` form. Use a mutable flag in the
+condition when you need to stop a `while` early.
+Tested by `tests/diagnostics/1118-no-loop-early-exit.ax`.
+
 `while` is a real loop, so it runs in constant stack at every `--opt`
 level. You can also iterate by recursion, and a self tail call runs in
 constant stack too. Recursion that isn't a tail call is limited by the
