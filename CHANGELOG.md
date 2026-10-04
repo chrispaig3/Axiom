@@ -43,6 +43,10 @@ Tested by `scripts/check-obfuscation.sh`, `scripts/check-task.sh`,
 
 <!-- release-notes: end of highlights -->
 
+- Declare the package gate's foreign-call boundary as Unsafe so the
+  manifest and `--crate` probes reach the archive-resolution checks.
+  Tested by `scripts/check-packages.sh`.
+
 - Update the C ABI probe's Unsafe declaration. Keep the coherence
   litmus's expected final store unchanged when reversing its control's
   writes, so the control fails independently of thread scheduling.

@@ -753,6 +753,7 @@ EOF
 ;@axiom:effect(io)
 (:: main Int)
 
+;@axiom:effect(unsafe)
 (fn (main) (freshAnswer 1))
 EOF
   cat > "$pf/axiom.pkg" <<'EOF'
