@@ -101,6 +101,7 @@ cat > "$work/usec.ax" <<'AX'
 (:: main Int)
 
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   (let ((s "hello, world"))
     {

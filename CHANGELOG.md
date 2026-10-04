@@ -43,6 +43,11 @@ Tested by `scripts/check-obfuscation.sh`, `scripts/check-task.sh`,
 
 <!-- release-notes: end of highlights -->
 
+- Update the C ABI probe's Unsafe declaration. Keep the coherence
+  litmus's expected final store unchanged when reversing its control's
+  writes, so the control fails independently of thread scheduling.
+  Tested by `scripts/check-c-abi.sh` and `scripts/check-atomics.sh`.
+
 - Retain a lambda's returned capture even when an unused global has the
   same name. The ownership walk now includes captured names in scope.
   Tested by `tests/selfhost/1014-lambda-capture-shadows-global.ax` and

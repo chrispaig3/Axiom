@@ -1183,9 +1183,6 @@
     (r1 (__alloc (* 8 n)))
     (r2 (__alloc (* 8 n)))
     (ctr (__alloc 8))
-    (last (if (== mode 3)
-      1
-      2))
     (mut i 0)
     (mut weak 0)
     (mut moved 0)
@@ -1216,7 +1213,9 @@
             (b (__load64 r2 i))
           )
             {
-              (if (|| (&& (== a 2) (== b 1)) (!= (__load64 xs i) last))
+              ; Keep the original final-store expectation in the control.
+              ; Its reversed writes must fail even if the reader misses them.
+              (if (|| (&& (== a 2) (== b 1)) (!= (__load64 xs i) 2))
                 (set weak (+ weak 1))
                 0)
               (if (!= a b)
