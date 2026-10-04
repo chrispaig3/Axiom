@@ -76,14 +76,15 @@ if [[ -z "$prefix" || 206-crash-isolation == "$prefix"* ]]; then
   control="$work/isolation-control"
   mkdir -p "$control"
   cp "$tests"/Store*.ax "$control/"
-  cp "$repo_root/tests/axqlite/206-crash-isolation.ax" "$control/"
-  sed 's/(__proc_join (__proc_spawn work 0))/(work 0)/' \
+  sed '/^;@axiom:effect(spawn)$/d; /^;@axiom:effect(block)$/d' \
+    "$repo_root/tests/axqlite/206-crash-isolation.ax" > "$control/206-crash-isolation.ax"
+  sed '/^;@axiom:effect(spawn)$/d; /^;@axiom:effect(block)$/d; s/(__proc_join (__proc_spawn work 0))/(work 0)/' \
     "$repo_root/tests/axqlite/StoreCrash.ax" > "$control/StoreCrash.ax"
   ran=$((ran + 1))
   if "$axiom" --diagnostic-format=ai check "$control/206-crash-isolation.ax" >"$control/check.log" 2>&1; then
     echo "FAIL isolation-control: a parent-side callback passed the lifetime check"
     failed=$((failed + 1))
-  elif rg -q '^E AX3060 ' "$control/check.log"; then
+  elif grep -q '^E AX3060 ' "$control/check.log"; then
     echo "ok   isolation-control: removing the process boundary is AX3060"
     passed=$((passed + 1))
   else

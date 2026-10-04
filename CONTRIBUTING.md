@@ -481,6 +481,9 @@ jobs that need a compiler get it through the same composite action,
    target (README's *Targets* section lists them).
    `scripts/check-release-targets.sh` refuses a target that is on the
    supported list and has an advisory (`continue-on-error`) leg.
+   After the compiler builds, gates continue after a failed check.
+   Each failure keeps the job failed. Cancelling a job stops the
+   remaining gates.
 3. **FFI.** `check-ffi.sh` on darwin-aarch64. The
    `extern` boundary opens exactly the symbols it declares, the
    generated bindings match a fresh generation, and the `rust/`
