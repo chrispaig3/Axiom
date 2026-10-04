@@ -73,6 +73,7 @@ dup2
 execvp
 exit
 fchmod
+fchmodat
 fchown
 fclonefileat
 fcntl
@@ -138,6 +139,7 @@ posix_spawnattr_setpgroup
 posix_spawnattr_setsigdefault
 posix_spawnp
 pread
+preadv
 pthread_attr_destroy
 pthread_attr_init
 pthread_attr_setstacksize
@@ -163,7 +165,9 @@ pthread_self
 pthread_setname_np
 pthread_threadid_np
 pwrite
+pwritev
 read
+readdir
 readdir_r
 readlink
 readv
@@ -172,6 +176,7 @@ realpath$DARWIN_EXTSN
 recv
 recvfrom
 rename
+renameat
 rmdir
 sched_yield
 send

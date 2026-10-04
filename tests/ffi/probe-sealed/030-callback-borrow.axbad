@@ -1,5 +1,5 @@
 ; The callback may grow the vector while Rust reads a borrowed slice.
-(import Nested)
+(import Nested (visitBorrowed))
 (import Vec)
 
 (:: visit (-> (Vec Int) Int))

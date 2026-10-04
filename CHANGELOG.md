@@ -16,6 +16,16 @@ its changelog too.
 
 ## Unreleased
 
+- Repair the source-unit table used by the compiler's `emitModule`
+  convenience entry and classify an unchecked lambda's result without
+  dereferencing a missing type. Keep the shadowed-constructor region fixture's
+  closure within the reclaimed scope. Extend the shared compiler
+  count sites to ninety-five gates. Scope the callback-borrow probe's
+  imports, handle empty Bash arrays on macOS, and record the Rust
+  standard library's additional filesystem imports. Tested by
+  `scripts/check-bootstrap.sh`, `scripts/check-gate-lib.sh`,
+  `scripts/check-region-reclaim.sh` and `scripts/check-ffi.sh`.
+
 - Refresh the website with executable JSON, date-time, task-pool and
   authenticated asset examples. Run the asset example with compiler
   obfuscation enabled. Update the Rust caller's Unsafe vouch, compiler

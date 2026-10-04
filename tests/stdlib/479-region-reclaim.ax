@@ -19,7 +19,7 @@
 ;   5. A lambda inside a region answers (its body may run after the
 ;      reset, so the depth does not cross the boundary - the release
 ;      stays).
-;   6. A constructor shadowed by a lambda answers (the application
+;   6. A constructor shadowed by a scoped lambda answers (the application
 ;      is a closure call returning an alias, not a construction -
 ;      the local guard keeps the release).
 ;   7. THE WATERLINE COMES BACK. Marks around a region that builds
@@ -85,10 +85,10 @@
           (k 40))))
     ; --- 6. shadowed constructor: an alias, not a block ---
     (println
-      (let ((G (MkBox 7)))
-        (let ((MkBox 
-          (lambda (q) G)))
-          (region r
+      (region r
+        (let ((G (MkBox 7)))
+          (let ((MkBox
+            (lambda (q) G)))
             (useBox (MkBox 1) 2)))))
     ; --- 7. the waterline comes back, releases elided ---
     (let ((m1 __axiom_arena_mark))

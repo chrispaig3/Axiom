@@ -861,7 +861,7 @@ for panic_mode in 'debug' 'release' 'host'; do
   [[ "$panic_mode" == release ]] && panic_flags+=(--release)
   [[ "$panic_mode" == host ]] && panic_flags+=(--features host)
   if panic_out="$(cd rust && cargo test --locked -p axiom-ffi \
-      --test panic_boundary "${panic_flags[@]}" 2>&1)"; then
+      --test panic_boundary ${panic_flags[@]+"${panic_flags[@]}"} 2>&1)"; then
     echo "ok   $panic_mode: panics abort in scalar, status and destructor shims"
   else
     echo "FAIL $panic_mode: panic boundary probes"

@@ -14735,8 +14735,8 @@
 ; refused with the six that exist, not defaulted - emitting the wrong
 ; target's syscall convention is a binary that dies at its first write.
 ; The convenience entry point, for a caller with no path to derive a
-; module search directory from; imports resolve against `self_host/`
-; and `stdlib/` only, as they always did.
+; module search directory from; imports use explicit environment roots
+; and the installed standard library.
 (pub :: emitModule (-> (Vec Int) String String))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
@@ -14755,6 +14755,12 @@
     (bares vecNew)
     (fulls vecNew)
     (eds vecNew)
+    ; Import resolution needs an entry unit even without source text.
+    (units (let ((v vecNew))
+      {
+        (vecPush v (cast Int (CUnit2 "<emitModule>" "" (cast String 0))))
+        v
+      }))
   )
     (let ((allDecls (resolveImports
       decls
@@ -14763,7 +14769,7 @@
       vecNew
       tcode
       ""
-      vecNew)))
+      units)))
       {
         (expandProgram
           allDecls
@@ -18433,9 +18439,10 @@
           (let (
             (v (strDup (memGetWordStr cg 2)))
             (fl (memGetWord cg 14))
+            (lamTy (pairSlot cg 14))
           )
             (let ((cgR
-              (if (&& (== (pairSlot cg 7) 1) (== (fldClass cg (nodeB (pairSlot cg 14))) 1))
+              (if (&& (== (pairSlot cg 7) 1) (== (fldClass cg (if (== lamTy 0) 0 (nodeB lamTy))) 1))
                 (emitRcIfBitOf cg v 1 "%__evwa.h" 1)
                 (emitRetainOf cg v))))
               {
