@@ -4,6 +4,23 @@
 
 (struct Owner sealed (handle : Handle))
 
+; A data result can carry cleanup in any constructor, even when its
+; first constructor contains only words.
+(data DataOwner (DataOwner Int) (ResourceOwner Handle))
+
+(:: makeDataOwner (-> Int DataOwner))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (makeDataOwner n)
+  (ResourceOwner (__resource_new (lambda (v) { (println v) 0 }) n)))
+
+(:: useDataOwner (-> DataOwner Int))
+;@axiom:effect(unsafe)
+(fn (useDataOwner o)
+  (match o
+    ((DataOwner n) n)
+    ((ResourceOwner h) (__resource_get h))))
+
 (:: makeOwner (-> (Vec Int) Int Owner))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
@@ -52,4 +69,6 @@
       (println (vecLen hits))
       (println (vecGet hits 1))
       (println regionDrop)
+      (println (region r (useDataOwner (makeDataOwner 10))))
+      (println (region r (let ((a (makeDataOwner 11))) (useDataOwner a))))
       0 }))

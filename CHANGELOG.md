@@ -41,6 +41,12 @@ Tested by `scripts/check-obfuscation.sh`, `scripts/check-task.sh`,
 
 <!-- release-notes: end of highlights -->
 
+- Resolve data result cleanup through all constructor fields so fresh
+  region values can omit releases while resource callbacks still run.
+  Add the Unsafe vouch to the Windows import-audit probe. Tested by
+  `scripts/check-region-fresh.sh`, `tests/stdlib/697-resource-owner.ax`
+  and `scripts/check-windows-hello.sh`.
+
 - Read the new target help section in the release gate and include
   `Crypto.Obfuscate` in the compatibility census. Tested by
   `scripts/check-release-targets.sh` and `scripts/check-compat.sh`.

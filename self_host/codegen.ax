@@ -25994,8 +25994,34 @@
             (if (|| (strEq n "Option") (strEq n "Vec"))
               (dropFreeTypes cg (nodeBVec ty) (- depth 1) 0)
               (let ((entry (lookupType (memGetWordVec cg 3) n)))
-                (if (== entry 0)
-                  false
+                (if (|| (== entry 0) (== (eKind entry) TF_DATA))
+                  ; Data type names have no complete registry entry.
+                  ; Every constructor must be free of drops;
+                  ; an unknown field or recursive depth limit abstains.
+                  (let ((decls (memGetWordVec cg 8)) (mut i 0)
+                    (mut found false) (mut safe true))
+                    {
+                      (while (< i (vecLen decls))
+                        {
+                          (let ((d (vecGet decls i)))
+                            (if (&& (== (nodeTag d) TAG_D_DATA)
+                              (|| (strEq (nodeAName d) n)
+                                (&& (!= (nodeModule d) 0)
+                                  (strEq (concat (nodeModuleName d) (concat "$" (nodeAName d))) n))))
+                              (let ((ctors (nodeBVec d)) (mut j 0))
+                                {
+                                  (set found true)
+                                  (while (< j (vecLen ctors))
+                                    {
+                                      (set safe (&& safe (dropFreeTypes cg (nodeTyVec (vecGet ctors j)) (- depth 1) 0)))
+                                      (set j (+ j 1))
+                                    })
+                                })
+                              0))
+                          (set i (+ i 1))
+                        })
+                      (&& found safe)
+                    })
                   (dropFreeFields cg entry (- depth 1) 0))))))))))
 
 (pub :: dropFreeTypes (-> Int (Vec Int) Int Int Bool))

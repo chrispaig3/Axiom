@@ -94,6 +94,7 @@ case "$mode" in
 (pub :: main Int)
 
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (main)
   {
     (println "leaky")
