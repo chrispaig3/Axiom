@@ -93,6 +93,16 @@
       ))
   })
 
+; A fault trial owns its address space. The callback may retain a pager
+; in its copied captures; only its integer answer reaches the parent.
+; Joining before the next trial bounds both live children and memory.
+(pub :: faultTrial (-> (-> Int Int) Int))
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(pub fn (faultTrial work)
+  (__proc_join (__proc_spawn work 0)))
+
 ; Open `path` (recovering it), close it, and answer the file's hash; -1
 ; when the open fails.
 (pub :: recoveredHash (-> String Int))
@@ -173,48 +183,52 @@
 ; One crash: `txn` on a copy of `base` with fault `kind` at point `n`,
 ; then a reopen. Answers 1 when the file is the before state, 2 when it
 ; is the after state, and 0 otherwise; plus 4 when a journal header was
-; left behind. Runs in a region of its own, so a sweep of thousands of
-; crashes reuses the same memory.
+; left behind. The transaction runs in an isolated process; its recovery
+; and checks run in a region, so thousands of crashes reuse memory.
 (:: crashOne (-> Tally String String Int (-> Pager (Result Int Error)) Int Int Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (crashOne t label base cache txn kind n before after)
-  (region one
-    (let ((r (runFaulted
+  (let ((trial (lambda (_)
+    (runFaulted
       base
       "crash.db"
       cache
       txn
       kind
       n
-      (+ 100 (% (* n 997) 3900)))))
-      (let (
-        (code (/ r 1000000))
-        (hot (journalHasHeader "crash.db"))
-      )
-        (let ((h (recoveredHash "crash.db")))
-          (let ((where (concat label (concat ", " (concat (faultName kind) (concat " at point " (fmtInt n)))))))
-            {
-              (check t (|| (== h before) (== h after)) (concat where ": the file is exactly the before or the after state"))
-              (if (== kind pagerFaultFail)
-                (check
-                  t
-                  (==
-                    h
-                    (if (== code 0)
-                      after
-                      before))
-                  (concat where ": a failure the transaction answered leaves the state it answered"))
-                0)
-              (+
-                (if (== h before)
-                  1
-                  (if (== h after)
-                    2
+      (+ 100 (% (* n 997) 3900))))))
+    (region one
+      (let ((r (faultTrial trial)))
+        (let (
+          (code (/ r 1000000))
+          (hot (journalHasHeader "crash.db"))
+        )
+          (let ((h (recoveredHash "crash.db")))
+            (let ((where (concat label (concat ", " (concat (faultName kind) (concat " at point " (fmtInt n)))))))
+              {
+                (check t (|| (== h before) (== h after)) (concat where ": the file is exactly the before or the after state"))
+                (if (== kind pagerFaultFail)
+                  (check
+                    t
+                    (==
+                      h
+                      (if (== code 0)
+                        after
+                        before))
+                    (concat where ": a failure the transaction answered leaves the state it answered"))
+                  0)
+                (+
+                  (if (== h before)
+                    1
+                    (if (== h after)
+                      2
+                      0))
+                  (if hot
+                    4
                     0))
-                (if hot
-                  4
-                  0))
-            }))))))
+              })))))))
 
 ; Every fault kind at every point of `txn` on `base`. `rootsBefore`
 ; names the trees in `base`; `rootsAfter`, called once after a clean run
@@ -222,6 +236,8 @@
 ; many crashes were run.
 (pub :: crashSweep (-> Tally String String Int (-> Pager (Result Int Error)) (Vec Int) (-> Int (Vec Int)) Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (pub fn (crashSweep t label base cache txn rootsBefore rootsAfter)
   (let ((points (dryRun
     t
@@ -340,42 +356,46 @@
 ; of it passes, or -1 when it left no journal header.
 (:: prepareHot (-> String Int (-> Pager (Result Int Error)) Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (prepareHot base cache txn n)
-  (region one
-    (let ((_ (runFaulted
+  (let ((trial (lambda (_)
+    (runFaulted
       base
       "crash.db"
       cache
       txn
       pagerFaultPowerLossStrict
       n
-      0)))
-      (if (! (journalHasHeader "crash.db"))
-        -1
-        {
-          (copyOver "crash.db" "hot.db")
-          (copyOver "crash.db-journal" "hot.db-journal")
-          (copyOver "hot.db" "rec.db")
-          (copyOver "hot.db-journal" "rec.db-journal")
-          (match (pagerOpenFaulty
-            "rec.db"
-            false
-            false
-            16
-            0
-            0
-            0
-            false)
-            ((Ok p)
-              (let ((k (pagerFaultPoints p)))
-                {
-                  (let ((_ (pagerClose p)))
-                    0)
-                  k
-                })
-            )
-            ((Err e) 0))
-        }))))
+      0))))
+    (region one
+      (let ((_ (faultTrial trial)))
+        (if (! (journalHasHeader "crash.db"))
+          -1
+          {
+            (copyOver "crash.db" "hot.db")
+            (copyOver "crash.db-journal" "hot.db-journal")
+            (copyOver "hot.db" "rec.db")
+            (copyOver "hot.db-journal" "rec.db-journal")
+            (match (pagerOpenFaulty
+              "rec.db"
+              false
+              false
+              16
+              0
+              0
+              0
+              false)
+              ((Ok p)
+                (let ((k (pagerFaultPoints p)))
+                  {
+                    (let ((_ (pagerClose p)))
+                      0)
+                    k
+                  })
+              )
+              ((Err e) 0))
+          })))))
 
 ; Crash the recovery itself: for every `every`th point of `txn` whose
 ; crash (a strict power loss) leaves a journal header, crash the next
@@ -384,6 +404,8 @@
 ; Answers how many were run.
 (pub :: recoverySweep (-> Tally String String Int (-> Pager (Result Int Error)) Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (pub fn (recoverySweep t label base cache txn every)
   (let (
     (points (dryRun

@@ -43,6 +43,13 @@ Tested by `scripts/check-obfuscation.sh`, `scripts/check-task.sh`,
 
 <!-- release-notes: end of highlights -->
 
+- Run AXQLite faulted transactions in joined, isolated processes. Only
+  the integer result returns to the parent; recovery checks keep their
+  bounded region. The isolation probe runs with and without `--threads`,
+  and removing the process boundary is refused as `AX3060`.
+  Tested by `scripts/check-axqlite.sh` and
+  `tests/axqlite/206-crash-isolation.ax`.
+
 - Declare the package gate's foreign-call boundary as Unsafe so the
   manifest and `--crate` probes reach the archive-resolution checks.
   Tested by `scripts/check-packages.sh`.

@@ -1,0 +1,36 @@
+; Each fault trial may retain fresh values in its private captures.
+; A join returns the whole integer and leaves the parent's captures intact.
+(import Str)
+(import StoreTest)
+(import StoreCrash)
+
+(struct Capture
+  (mut text : String))
+
+(:: main Int)
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(fn (main)
+  (let (
+    (t tallyNew)
+    (capture (Capture "parent"))
+  )
+    {
+      (for i in 0..32
+        (let ((trial (lambda (_)
+          {
+            (set capture.text (strDup "child"))
+            (+ 1234567890000 i)
+          })))
+          (region result
+            (let ((answer (faultTrial trial)))
+              {
+                (check t (== answer (+ 1234567890000 i)) "the full integer crosses the join")
+                (check t (strEq capture.text "parent") "a trial cannot retain into the parent's capture")
+              }))))
+      (let ((trial (lambda (_) -1)))
+        (region result
+          (check t (== (faultTrial trial) -1) "a negative integer crosses the join")))
+      (tallyReport t "206-crash-isolation")
+    }))

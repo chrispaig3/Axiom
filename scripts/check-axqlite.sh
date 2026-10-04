@@ -25,18 +25,16 @@ limit="${AXIOM_AXQLITE_LIMIT:-300}"
 tests="$repo_root/tests/axqlite"
 ran=0; passed=0; failed=0
 
-for src in "$tests"/[0-9][0-9][0-9]-*.ax; do
-  [[ -e "$src" ]] || continue
-  name="$(basename "$src" .ax)"
-  [[ -n "$prefix" && "$name" != "$prefix"* ]] && continue
+run_case() {
+  local name="$1" flag="$2" label="$3"
   ran=$((ran + 1))
-  dir="$work/$name"
+  local dir="$work/$label"
   mkdir -p "$dir/run"
-  if ! ( cd "$tests" && "$axiom" build --input "$name.ax" --output "$dir/prog" ) >"$dir/build.log" 2>&1; then
-    echo "FAIL $name: did not build"
+  if ! ( cd "$tests" && "$axiom" build $flag --input "$name.ax" --output "$dir/prog" ) >"$dir/build.log" 2>&1; then
+    echo "FAIL $label: did not build"
     sed 's/^/    /' "$dir/build.log" | head -8
     failed=$((failed + 1))
-    continue
+    return
   fi
   want_exit=0
   [[ -f "$tests/$name.exit" ]] && want_exit="$(tr -d '[:space:]' < "$tests/$name.exit")"
@@ -44,22 +42,56 @@ for src in "$tests"/[0-9][0-9][0-9]-*.ax; do
     >"$dir/out" 2>"$dir/err"
   rc=$?
   if [[ ! -f "$tests/$name.out" ]]; then
-    echo "FAIL $name: no $name.out beside it"
+    echo "FAIL $label: no $name.out beside it"
     failed=$((failed + 1))
   elif ! cmp -s "$dir/out" "$tests/$name.out"; then
-    echo "FAIL $name: stdout differs from $name.out"
+    echo "FAIL $label: stdout differs from $name.out"
     diff "$tests/$name.out" "$dir/out" | head -12 | sed 's/^/    /'
     sed 's/^/    stderr: /' "$dir/err" | head -4
     failed=$((failed + 1))
   elif [[ "$rc" != "$want_exit" ]]; then
-    echo "FAIL $name: exit $rc, wanted $want_exit"
+    echo "FAIL $label: exit $rc, wanted $want_exit"
     sed 's/^/    stderr: /' "$dir/err" | head -4
     failed=$((failed + 1))
   else
-    echo "ok   $name"
+    echo "ok   $label"
     passed=$((passed + 1))
   fi
+}
+
+for src in "$tests"/[0-9][0-9][0-9]-*.ax; do
+  [[ -e "$src" ]] || continue
+  name="$(basename "$src" .ax)"
+  [[ -n "$prefix" && "$name" != "$prefix"* ]] && continue
+  run_case "$name" "" "$name"
+  # Explicit process isolation must also hold when thread lowering is enabled.
+  if [[ -f "$tests/$name.threads" ]]; then
+    run_case "$name" "--threads" "$name-threads"
+  fi
 done
+
+# Calling the thunk in the parent removes the isolation guarantee. The
+# same probe must then be refused by the region checker, before execution.
+if [[ -z "$prefix" || 206-crash-isolation == "$prefix"* ]]; then
+  control="$work/isolation-control"
+  mkdir -p "$control"
+  cp "$tests"/Store*.ax "$control/"
+  cp "$repo_root/tests/axqlite/206-crash-isolation.ax" "$control/"
+  sed 's/(__proc_join (__proc_spawn work 0))/(work 0)/' \
+    "$repo_root/tests/axqlite/StoreCrash.ax" > "$control/StoreCrash.ax"
+  ran=$((ran + 1))
+  if "$axiom" --diagnostic-format=ai check "$control/206-crash-isolation.ax" >"$control/check.log" 2>&1; then
+    echo "FAIL isolation-control: a parent-side callback passed the lifetime check"
+    failed=$((failed + 1))
+  elif rg -q '^E AX3060 ' "$control/check.log"; then
+    echo "ok   isolation-control: removing the process boundary is AX3060"
+    passed=$((passed + 1))
+  else
+    echo "FAIL isolation-control: refusal was not AX3060"
+    head -8 "$control/check.log" | sed 's/^/    /'
+    failed=$((failed + 1))
+  fi
+fi
 
 # A run that found nothing to run is not a pass.
 if (( ran == 0 )); then
