@@ -904,7 +904,7 @@ ok   testOlder
       { at: '(spelling (jsonNumText (jsonGet doc "amount")))', text: 'Keep 1.25e3 as text; jsonInt reads the signed digits before the fraction or exponent.' },
       { at: '(jsonObjPut doc "ready" (jsonBool 1))', text: 'Object updates mutate the value and return its handle.' },
     ],
-    docs: { label: 'JSON and RPC framing', href: `${LIB}docs/json.md` },
+    docs: { label: 'JSON and RPC framing', href: `${LIB}docs/stdlib.md#json` },
     output: `amount: 1.25e3
 {"amount":1.25e3,"ready":true}`,
     code: `(import IO)

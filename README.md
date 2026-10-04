@@ -227,33 +227,19 @@ this repository's standard library reference.
 
 ## Documentation
 
-| | |
+Start at [Read Axiom's docs](docs/README.md). The main references are:
+
+| Read | Use |
 |---|---|
-| [Language reference](docs/reference.md) | The whole language, from your first program to macros and memory |
-| [Examples](examples/README.md) | Complete programs, each one run in CI |
-| [What's ready today](docs/status.md) | Every feature's status, with the test behind it |
-| [Standard library](docs/stdlib-api.md) | Every public function, generated from the source |
-| [JSON](docs/json.md) | Reading, inspecting and writing documents |
-| [RPC framing](docs/rpc.md) | Reading and writing messages on a byte stream |
-| [String interning](docs/intern.md) | Stable IDs for repeated string contents |
-| [Dates and times](docs/chrono.md) | Calendar values, durations and ISO 8601 text |
-| [Cryptography](docs/crypto.md) | Hashes, authenticated encryption and secret storage |
-| [AxQL](docs/axql.md) | Queries, tables and database files |
-| [Effects](docs/reference.md#effects) | How effects are inferred, declared, restricted and handled |
-| [Diagnostics](docs/diagnostics.md) | Error codes, and the machine-readable formats for tools |
-| [Editor setup](docs/lsp.md) | The language server, and how to connect your editor |
-| [Calling Rust](docs/ffi.md) | The `extern` block, bindings, and Rust calling Axiom |
-| [Optional obfuscation](docs/obfuscation.md) | Protecting source literals and packing embedded assets |
-| [Memory model](docs/memory-model.md) | Allocation, reference counting and regions, in full |
-| [Error model](docs/error-model.md) | `Result`, `Error`, and how failure travels |
-| [Agent harness](docs/agent-harness.md) | Tooling for agents that read and write Axiom |
-| [Symbol metadata](docs/agent-tags.md) | Reading AXSYM and agent annotations |
-| [Compiler inspection](docs/compiler-guide.md) | Representations, import roots, ownership and library layers |
-| [Embedded programs](docs/embedded-guide.md) | Static heaps and freestanding targets |
-| [Restricted profile](docs/restricted-profile.md) | Checking a program against a restricted feature set |
-| [Macros](docs/macro-system.md) | Expansion rules and the syntax query vocabulary |
-| [Compatibility](docs/compatibility.md) | Public interfaces and migration records |
-| [Contributing](CONTRIBUTING.md) | Building the compiler, running the tests, and adding to them |
+| [Language](docs/reference.md) | Syntax, types, effects and tools |
+| [Standard library](docs/stdlib.md) | Recipes, including TCP with Net |
+| [Public API](docs/stdlib-api.md) | Generated signatures and effects |
+| [Examples](examples/README.md) | Complete programs |
+| [Feature status](docs/status.md) | Supported behaviour and limits |
+
+Editor setup, Rust, databases, cryptography and embedded guides are
+linked from the docs index. Compiler contracts and assurance records
+have their own development reading path there.
 
 ## Contributing
 

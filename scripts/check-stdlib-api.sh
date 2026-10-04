@@ -219,6 +219,7 @@ fi
 # names and the comparison below goes red naming every module - which
 # is the direction this should be wrong in.
 ref_modules()    { awk '/^### Modules at a Glance/ { inside = 1; next }
+                        /^## / { inside = 0 }
                         /^### / { inside = 0 }
                         inside && /^\| `/ { print }' "$1" \
                    | sed -n 's/^| `\([^`]*\)`.*/\1/p' | LC_ALL=C sort || true; }

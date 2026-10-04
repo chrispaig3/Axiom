@@ -34,12 +34,20 @@ executable standard-library examples. The work was contributed by
   owners keep their handles private.
 - JSON number parsing, all eight symbol kinds, explicit module roots
   and the refreshed compiler inspection guides are included.
+- A shorter language reference and a consolidated library guide include
+  TCP connections, stream ownership and shutdown with `Net`.
 
 Tested by `scripts/check-obfuscation.sh`, `scripts/check-task.sh`,
 `scripts/check-ffi.sh`, `scripts/check-bootstrap.sh`,
 `scripts/check-compat.sh` and `web/scripts/check-samples.mjs`.
 
 <!-- release-notes: end of highlights -->
+
+- Condense the language reference and collect library recipes in one
+  standard-library guide, including TCP addresses, stream ownership and
+  shutdown with `Net`. Add a short docs index and retain existing
+  chapter links. Tested by `scripts/check-doc-drift.sh`,
+  `tests/docs/verify-doc-code.py` and `web/scripts/smoke.mjs`.
 
 - Keep formatting arguments' checked types and diagnostics together so
   deferred lambda errors are reported once. Measure Windows atomic

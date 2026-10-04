@@ -664,7 +664,9 @@ README.md
 CONTRIBUTING.md
 CHANGELOG.md
 SECURITY.md
+docs/README.md
 docs/reference.md
+docs/stdlib.md
 docs/diagnostics.md
 docs/error-model.md
 docs/ffi.md
