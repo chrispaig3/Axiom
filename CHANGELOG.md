@@ -41,6 +41,13 @@ Tested by `scripts/check-obfuscation.sh`, `scripts/check-task.sh`,
 
 <!-- release-notes: end of highlights -->
 
+- Keep formatting arguments' checked types and diagnostics together so
+  deferred lambda errors are reported once. Measure Windows atomic
+  barriers from independent LLVM reference programs across backend
+  versions. Handle empty accepted-mutant arrays on macOS. Tested by
+  `tests/fuzz/format-lambda-undefined.axfuzz`,
+  `scripts/check-fuzz.sh` and `scripts/check-atomics.sh`.
+
 - Resolve data result cleanup through all constructor fields so fresh
   region values can omit releases while resource callbacks still run.
   Add the Unsafe vouch to the Windows import-audit probe. Tested by

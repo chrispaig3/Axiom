@@ -3134,7 +3134,15 @@
   (wordLower : (Vec Int))
   (wordStructs : Int)
   (unsafe : UState)
-  (parLends : (Vec Int)))
+  (parLends : (Vec Int))
+  (formatChecked : (Vec Int)))
+
+; Word 46, `formatChecked`: a stack of (expression, checked type)
+; pairs, scoped to a formatting rewrite. The argument is checked once
+; to select its renderer; the rewritten call reuses that result while
+; checking the generated head and arguments. Nested formatting pushes
+; and pops its own pair. Deferred lambda stamps and their diagnostics
+; therefore survive together.
 
 ; Word 45, `parLends`: `parallel`'s borrow placeholders (MM-PAR-6b), two
 ; words per form checked so far - the borrow record's name node, whose
@@ -4141,6 +4149,7 @@
           vecNew
           (countWordStructs allDecls 0 0)
           (UState 0 0 vecNew vecNew 0 0)
+          vecNew
           vecNew))))
         {
           (memSetWord tc 30 (tyIdxNew (vecLen allDecls)))
@@ -11789,25 +11798,20 @@
   ; absent one is now spelled `""` rather than `0`. Every reader
   ; below guards on `headIsVar` first, so neither is ever read -
   ; but only one of them has the type the binding claims.
-  ; A rendering the builtin SPLICED - a `String` argument stands
-  ; in for the call, a `Bool` becomes the two-literal `if`
-  ; (`showSplice`) - leaves `e` no longer an application, and
-  ; everything below reads `(nodeA e)` as a callee. So the
-  ; spliced node is checked afresh instead, which is also what
-  ; turns the probe's dropped diagnostics back into reported
-  ; ones. Answered by `showRewrite`, which is 0 on every other
-  ; path it takes.
+  ; Formatting checks its argument once, then checks the rewritten
+  ; expression with that type available in `formatChecked`. Ordinary
+  ; applications follow the argument walk below.
   (let ((head (spineHead e)))
     (let ((headIsVar 
       (if (== (nodeTag head) TAG_E_VAR)
         1
         0)))
-      (let ((spliced 
+      (let ((formatting
         (if (&& (== headIsVar 1) (== inHead 0))
-          (showRewrite tc e head (nodeAName head))
+          (showIsHead (nodeAName head))
           0)))
-        (if (== spliced 1)
-          (checkExprH tc e 0)
+        (if (== formatting 1)
+          (showBuiltin tc e head)
           ; MM-PAR-6, and it answers nothing: a SIDE CHECK, bound and
           ; ignored so the arms below decide this application's type
           ; exactly as they did before. `(spineArgs e 0)` is 2 only at
@@ -12166,63 +12170,6 @@
           (+ i 1))
       })))
 
-; The rendering probe must not REPORT.
-;
-; Choosing a rendering means knowing the argument's type, and the only
-; way to know a type here is to check the expression - so that
-; argument is checked TWICE: once by the probe in `showBuiltin` below,
-; and once by the ordinary argument walk in `checkApp`. Both walks
-; reported, so every diagnostic inside the argument arrived doubled.
-; Measured on an entry file with one trait, one impl and no macros at
-; all: `(sz nope)` answered two identical `AX3001`s.
-;
-; It was latent for as long as traits existed and stayed cheap because
-; nothing in this repository called a trait method on a failing
-; expression. The printing macros make it the common case - every
-; `{hole}` is a `format#` call, so every misspelled hole is a doubled
-; diagnostic - which is what turned a curiosity into a fix.
-;
-; The PROBE's diagnostics are dropped rather than the second walk's,
-; because the second walk is the one whose spans and whose poison the
-; rest of checking reads. Dropping is sound because the two are the
-; same walk over the same node: anything the probe found, the real
-; check finds again a moment later. Nothing else the probe did is
-; undone - a rewritten head, a recorded ambiguity and a poisoned type
-; all survive; only the report is taken back.
-(pub :: tcOutMark (-> Int Int))
-(pub fn (tcOutMark tc)
-  (vecLen (tcOutVec tc)))
-
-(pub :: tcOutTrunc (-> Int Int Int))
-(pub fn (tcOutTrunc tc mark)
-  (if (<= (vecLen (tcOutVec tc)) mark)
-    0
-    {
-      (vecPop (tcOutVec tc))
-      (tcOutTrunc tc mark)
-    }))
-
-; Rewrite a `format#` head to the rendering its argument's static
-; type selects. `e` is the application and `head` its var node.
-;
-; This was `traitRewrite` until 0.6.0, and dispatch was its subject: a
-; head naming a trait method became the implementation
-; `Trait#Type#method` that the dispatch argument's type selected, and
-; the builtin below answered only where no written `impl` claimed the
-; name. Traits were removed, `findTraitOwning` answered 0 for every
-; head from that day on, and what survives is the one arm that was
-; never about traits.
-;
-; Answers what `showBuiltin` answers: 1 when the call was SPLICED, so
-; `e` is no longer an application and must be re-checked, and 0 when
-; the head was rewritten, a diagnostic was emitted, or the head was
-; not `format#` at all.
-(pub :: showRewrite (-> Int Int Int String Int))
-(pub fn (showRewrite tc e head hname)
-  (if (== (showIsHead hname) 1)
-    (showBuiltin tc e head)
-    0))
-
 ; ------------------------------------------------------------------
 ; `format#` - the hole rendering, as a compiler-known head.
 ;
@@ -12340,21 +12287,11 @@
 
 ; Resolve `(format# x)`, `e` the application and `head` its var node.
 ;
-; The argument is PROBED here - checked silently, its diagnostics
-; dropped - because a rendering is chosen from the argument's type and
-; the ordinary argument walk in `checkApp` reports the same findings a
-; moment later. `tcOutMark`/`tcOutTrunc`, above, is that drop.
-;
-; It carried two more parameters until 0.6.0: `at0`, a type the trait
-; dispatcher had already probed, and `report`, which the trait path set
-; to 0 so that a shape with no rendering came back as -1 for the
-; trait's own AX3025 to word. There is one caller now and it wants
-; both defaults, so both are gone and the -1 return with them.
-;
-; Answers 1 when the call was SPLICED (`e` is no longer an application
-; and must be re-checked) and 0 when the head was rewritten or a
-; diagnostic was emitted.
+; The argument's checked type and diagnostics are kept together. The
+; rewritten expression is checked with the argument cached, so an
+; already-grounded lambda need not report its body again.
 (pub :: showBuiltin (-> Int Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (showBuiltin tc e head)
   ; THERE IS NO ARITY ARM, and its absence is deliberate. This
   ; carried one - `(!= (vecLen args) 1)` under an AX3025 reading
@@ -12368,28 +12305,40 @@
   ; deleting it rather than keeping it for comfort. A third producer
   ; has to read this paragraph before it becomes the second thing
   ; that can put a node here.
-  (let ((args (spineArgVec e vecNew)))
-    (let ((arg (vecGet args 0)))
-      (let ((at 
-        (let ((mark (tcOutMark tc)))
-          (let ((probed (checkExprH tc arg 0)))
-            {
-              (tcOutTrunc tc mark)
-              probed
-            }))))
-        (let ((r (showResolve
-          tc
-          e
-          head
-          arg
-          at)))
-          (if (== r (- 0 1))
+  (let ((arg (nodeB e)))
+    (let ((at (checkExprH tc arg 0)))
+      (let ((r (showResolve tc e head arg at)))
+        (if (== r (- 0 1))
+          {
             (showNoRenderingDiag tc arg at)
-            r))))))
+            (mkNode TAG_T_ERR 0 0 0)
+          }
+          ; A refusal leaves the reserved head unchanged. Its
+          ; diagnostic is already reported; checking it again would
+          ; recurse through this same builtin.
+          (if (if (== (nodeTag e) TAG_E_APP)
+            (let ((h (spineHead e)))
+              (if (== (nodeTag h) TAG_E_VAR)
+                (== (showIsHead (nodeAName h)) 1)
+                false))
+            false)
+            (mkNode TAG_T_ERR 0 0 0)
+            (let ((cache (memGetWordVec tc 46)))
+              {
+                ; A String splice copied the argument over `e`.
+                (vecPush cache (if (== r 2) e arg))
+                (vecPush cache at)
+                (let ((answer (checkExprH tc e 0)))
+                  {
+                    (vecPop cache)
+                    (vecPop cache)
+                    answer
+                  })
+              })))))))
 
 (pub :: showResolve (-> Int Int Int Int Int Int))
 (pub fn (showResolve tc e head arg at0)
-  ; RESOLVE FIRST. `at0` is whatever `checkExprH` probed, and that is
+  ; RESOLVE FIRST. `at0` is whatever `checkExprH` checked, and that is
   ; routinely a MINTED PLACEHOLDER that is already BOUND - an
   ; un-annotated `let` over a container binds its element to a fresh
   ; var and pinning later binds that var to the element type
@@ -12472,7 +12421,7 @@
           (memSetWord e i (memGetWord arg i))
           (set i (+ i 1))
         })
-      1
+      2
     }))
 
 ; `(if b "true" "false")` in the application's place. Word 6 is the
@@ -29030,14 +28979,19 @@
 (pub :: checkExprH (-> Int Int Int Int))
 ;@axiom:effect(unsafe)
 (pub fn (checkExprH tc e inHead)
-  (let ((ty (checkExprHCore tc e inHead)))
+  (let ((cache (memGetWordVec tc 46)))
+    (let ((ty (if (if (>= (vecLen cache) 2)
+      (== (vecGet cache (- (vecLen cache) 2)) e)
+      false)
+      (vecGet cache (- (vecLen cache) 1))
+      (checkExprHCore tc e inHead))))
     { (if (if (== e 0) false (&& (== (isPendingNode ty) 0) (|| (== (nodeTag e) TAG_E_LAM) (== (nodeTag e) TAG_E_APP))))
         (setNodeBinderTy e
           (if (== (nodeTag e) TAG_E_APP)
             (mkNode TAG_EVSTAMP (tyResolve ty) (evClassOf tc (tyResolve ty)) (memGetWord tc 24))
             (tyResolve ty)))
         e)
-      ty }))
+      ty })))
 
 (pub :: checkLam (-> Int Int Int))
 (pub fn (checkLam tc e)

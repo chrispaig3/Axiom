@@ -318,18 +318,70 @@ lse_diff() {
   echo "$out"
 }
 
-# a64_dmb_want <target> <level>: how many `dmb ish` the fixture's
-# seq_cst lowering writes. One per `__fence` on every AArch64 target.
-# On windows-aarch64 each store and read-modify-write carries a
-# trailing one as well, and at -O0 a cas carries it on both its success
-# and its failure exit (measured, LLVM 23: 8 at -O0, 6 at -O1..-O3).
+# Measure this backend's Windows SC lowering independently of Axiom.
+# LLVM 18 shares a cmpxchg exit barrier at -O0; LLVM 23 duplicates it
+# across the success and failure exits. The reference uses the same
+# pipeline and returns the old word, as the Axiom primitive does.
+# Count each primitive separately so weakened fixture IR still fails
+# against an unchanged seq_cst reference in section 2.
+win_store_dmb=() win_add_dmb=() win_cas_dmb=()
+for kind in store add cas; do
+  ref="$work/backend-$kind.ll"
+  cat > "$ref" <<'IR'
+target triple = "aarch64-pc-windows-msvc"
+define i64 @probe(ptr %p, i64 %v, i64 %expected) {
+entry:
+IR
+  case "$kind" in
+    store) cat >> "$ref" <<'IR'
+  store atomic i64 %v, ptr %p seq_cst, align 8
+  ret i64 0
+}
+IR
+      ;;
+    add) cat >> "$ref" <<'IR'
+  %old = atomicrmw add ptr %p, i64 %v seq_cst, align 8
+  ret i64 %old
+}
+IR
+      ;;
+    cas) cat >> "$ref" <<'IR'
+  %pair = cmpxchg ptr %p, i64 %expected, i64 %v seq_cst seq_cst, align 8
+  %old = extractvalue { i64, i1 } %pair, 0
+  ret i64 %old
+}
+IR
+      ;;
+  esac
+  for lvl in 0 1 2 3; do
+    ref_asm="$work/backend-$kind.O$lvl.s"
+    if ! asm "$ref" "$ref_asm" "$lvl"; then
+      bad "Windows SC $kind reference -O$lvl: the pipeline failed"
+      exit 1
+    fi
+    barriers="$(cnt "$ref_asm" "$A64_DMB")"
+    if (( barriers == 0 )); then
+      bad "Windows SC $kind reference -O$lvl: no trailing barrier"
+      exit 1
+    fi
+    case "$kind" in
+      store) win_store_dmb[$lvl]="$barriers"; d="$(a64_diff "$ref_asm" 0 1 0 "$barriers")" ;;
+      add) win_add_dmb[$lvl]="$barriers"; d="$(a64_diff "$ref_asm" 0 0 1 "$barriers")" ;;
+      cas) win_cas_dmb[$lvl]="$barriers"; d="$(a64_diff "$ref_asm" 0 0 1 "$barriers")" ;;
+    esac
+    if [[ -n "$d" ]]; then
+      bad "Windows SC $kind reference -O$lvl:$d"
+      exit 1
+    fi
+    ok "Windows SC $kind reference -O$lvl: acquire-release lowering, $barriers trailing barrier(s)"
+  done
+done
+
+# a64_dmb_want <target> <level>: source uses times this backend's
+# measured barriers per primitive, plus each explicit fence.
 a64_dmb_want() {
   if [[ "$1" == windows-* ]]; then
-    if (( $2 == 0 )); then
-      echo $((n_fence + n_store + n_add + 2 * n_cas))
-    else
-      echo $((n_fence + n_store + n_add + n_cas))
-    fi
+    echo $((n_fence + n_store * win_store_dmb[$2] + n_add * win_add_dmb[$2] + n_cas * win_cas_dmb[$2]))
   else
     echo "$n_fence"
   fi

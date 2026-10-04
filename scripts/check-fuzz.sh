@@ -596,9 +596,11 @@ echo "== 2b. the formatter (P4) and --opt 0 against --opt 2 (P5) on the accepted
 # so the default run compares a sample and `--long` ten times as many.
 rundir="$work/run"; mkdir -p "$rundir"
 n4_ok=0 n4_refused=0 n4_fail=0 n5_eligible=0 n5_agree=0 n5_inconc=0 n5_fail=0
+n_accepted=0
 diff_names=() fmt_passed=() diff_agreed=()
-for name in "${ok_names[@]}"; do
+for name in ${ok_names[@]+"${ok_names[@]}"}; do
   IFS=$'\t' read -r _ src ops < <(grep "^$name	" "$mdir/manifest.tsv")
+  n_accepted=$((n_accepted + 1))
   fmt_one "$axc" "$mdir/$name.ax" "$(dirname "$src")"
   case "$f4_verdict" in
     ok) n4_ok=$((n4_ok + 1)); fmt_passed+=("$name") ;;
@@ -616,7 +618,7 @@ for name in "${ok_names[@]}"; do
     rm -f "$mdir/$name".o0 "$mdir/$name".o2
   fi
 done
-echo "   P4: ${#ok_names[@]} accepted mutants formatted: $n4_ok idempotent and still accepted, $n4_refused refused with a code, $n4_fail failed"
+echo "   P4: $n_accepted accepted mutants formatted: $n4_ok idempotent and still accepted, $n4_refused refused with a code, $n4_fail failed"
 echo "   P5: $n5_eligible eligible (of at most $diff_max): $n5_agree agreed, $n5_inconc inconclusive, $n5_fail disagreed"
 if (( n4_fail == 0 && n5_fail == 0 )); then
   ok "the formatter kept every accepted mutant accepted and was idempotent, and --opt 0 and --opt 2 agreed on every program compared"
@@ -652,8 +654,8 @@ echo "== 4. controls: a planted wrapper compiler's failures are reported =="
 # Targets from the run's own verdicts: two it checked OK (IR corruption,
 # and the untouched control) and eight it refused (the NUL and
 # bad-human-report controls).
-if (( ${#ok_names[@]} < 2 || ${#refused_names[@]} < 8 )); then
-  bad "the run produced ${#ok_names[@]} OK and ${#refused_names[@]} refused mutants; the controls need 2 and 8"
+if (( $n_accepted < 2 || $n_refused < 8 )); then
+  bad "the run produced $n_accepted OK and $n_refused refused mutants; the controls need 2 and 8"
 else
   c_badir="${ok_names[0]}" c_clean="${ok_names[1]}"
   c_crash="${refused_names[0]}" c_hang="${refused_names[1]}" c_mute="${refused_names[2]}"
@@ -808,7 +810,7 @@ ROWS
     [[ "$n" != "$c_fmt" && "$n" != "$c_clean" ]] && { c_diff="$n"; break; }
   done
   if [[ -z "$c_fmt" || -z "$c_diff" ]]; then
-    bad "the run left no mutant for the P4 or P5 control (${#ok_names[@]} accepted, ${#diff_names[@]} eligible for P5)"
+    bad "the run left no mutant for the P4 or P5 control ($n_accepted accepted, $n5_eligible eligible for P5)"
   else
     export FUZZ_FMTBREAK="$c_fmt.f1" FUZZ_MISCOMPILE="$c_diff"
     for n in "$c_fmt" "$c_diff" "$c_clean"; do cp "$mdir/$n.ax" "$cdir/$n.ax"; done
