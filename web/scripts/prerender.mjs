@@ -60,7 +60,7 @@ await build({
   // `require('util')` that ESM cannot serve, so Node resolves React.
   packages: 'external',
   absWorkingDir: process.cwd(),
-  define: { 'import.meta.env.BASE_URL': '"/Axiom/"' },
+  define: { 'import.meta.env.BASE_URL': '"/"' },
   loader: { '.css': 'empty', '.png': 'text', '.jpg': 'text' },
 })
 
@@ -138,7 +138,7 @@ if (!doc.includes('</head>')) fail('dist/index.html has no </head> to put the FA
 // because nothing ties og.png to the page.) The two image tags
 // get `?v=` and the first 12 hex of the card's SHA-256, so a changed
 // card is a new URL and an unchanged one keeps its cache.
-const CARD_URL = 'https://chrispaig3.github.io/Axiom/og.png'
+const CARD_URL = 'https://axiomlang.software/og.png'
 const cardKey = createHash('sha256')
   .update(readFileSync(join(process.cwd(), 'dist', 'og.png')))
   .digest('hex')

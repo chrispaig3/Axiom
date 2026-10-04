@@ -47,7 +47,7 @@ await build({
   // node server build pulls in a `require('util')` that ESM cannot serve.
   packages: 'external',
   absWorkingDir: process.cwd(),
-  define: { 'import.meta.env.BASE_URL': '"/Axiom/"' },
+  define: { 'import.meta.env.BASE_URL': '"/"' },
   loader: { '.css': 'empty', '.png': 'text', '.jpg': 'text' },
 })
 

@@ -68,6 +68,20 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
 
+      - id: pages
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
+
+      - name: The custom domain serves the site at its root
+        env:
+          PAGES_HOST: ${{ steps.pages.outputs.host }}
+          PAGES_BASE_PATH: ${{ steps.pages.outputs.base_path }}
+        run: |
+          domain="$(tr -d '[:space:]' < public/CNAME)"
+          [[ "$domain" == "axiomlang.software" ]]
+          [[ "$PAGES_HOST" == "$domain" ]]
+          [[ -z "$PAGES_BASE_PATH" ]]
+          echo "ok   Pages serves https://$domain/"
+
       # `npm ci` rather than `npm install`: it installs exactly what the
       # committed lockfile says and fails if the two disagree, which is
       # the difference between a reproducible build and a build that
@@ -94,8 +108,6 @@ jobs:
       # the day something does, the failure does not have to be
       # diagnosed from a 404.
       - run: touch dist/.nojekyll
-
-      - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
 
       - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
         with:
