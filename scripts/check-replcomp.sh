@@ -229,10 +229,8 @@ PY
   src_root="$work/tree"
 fi
 
-# stage1 resolves `(import replcomp)` through the working directory, so
-# the tree under test has to be reachable from where the compiler runs.
-ln -s "$src_root/self_host" "$work/self_host"
-ln -s "$repo_root/stdlib" "$work/stdlib"
+# Resolve the selected source tree explicitly, including ablated copies.
+export AXIOM_PATH="$src_root/self_host${AXIOM_PATH:+:$AXIOM_PATH}"
 cp "$repo_root"/tests/replcomp/*.session "$repo_root"/tests/replcomp/*.pending "$work/"
 cp "$repo_root/tests/replcomp/drive.ax" "$work/drive.ax"
 

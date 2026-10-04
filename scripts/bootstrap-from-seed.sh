@@ -138,10 +138,9 @@ esac
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
-# The compiler resolves `(import Foo)` against `self_host/` and
-# `stdlib/` relative to its working directory.
-ln -s "$repo_root/stdlib"    "$work/stdlib"
-ln -s "$repo_root/self_host" "$work/self_host"
+# The copied entry file still imports the repository's compiler modules.
+export AXIOM_STDLIB="$repo_root/stdlib"
+export AXIOM_PATH="$repo_root/self_host${AXIOM_PATH:+:$AXIOM_PATH}"
 
 # ---------------------------------------------------------------
 # Integrity: the seed is what the tree says it is.
@@ -301,7 +300,6 @@ cat >"$work/prog/hello.ax" <<'CASE'
 ;@axiom:effect(io)
 (fn (main) { (println "bootstrapped") 42 })
 CASE
-ln -s "$repo_root/stdlib" "$work/prog/stdlib"
 (cd "$work/prog" && "$work/d3/axc" build --input hello.ax --output hello >build.log 2>&1) \
   || { sed 's/^/    /' "$work/prog/build.log" | head -5 >&2; fail "stage3 could not build a program"; }
 out="$("$work/prog/hello")"; got=$?

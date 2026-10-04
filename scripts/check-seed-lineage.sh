@@ -246,7 +246,7 @@ build_reason() { sed 's/\x1b\[[0-9;]*m//g' "$1.err" | grep -m1 -E 'error(\[|:)' 
 # produced" - `check-seed-provenance.sh`'s floors, kept before every cmp.
 emit() {  # <compiler> <wdir> <out.ll>; sets emit_reason on failure
   local comp="$1" w="$2" out="$3" rc
-  ( cd "$w" && AXIOM_STDLIB="$w/stdlib" "$comp" in.ax "$target" > "$out" 2> "$out.err" ); rc=$?
+  ( cd "$w" && AXIOM_STDLIB="$w/stdlib" AXIOM_PATH=self_host "$comp" in.ax "$target" > "$out" 2> "$out.err" ); rc=$?
   if ! grep -q '^target triple' "$out" || (( $(wc -l < "$out") <= 10000 )); then
     emit_reason="rc=$rc, $(wc -l < "$out" | tr -d ' ') lines"
     # `error[` and `error:` are the compiler's own; a bare `error`

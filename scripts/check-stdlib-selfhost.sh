@@ -343,15 +343,10 @@ fi
 # test the tree, and `$axiom` may be a seed-descended binary that
 # predates the change being tested.
 #
-# It runs from `$work` with `stdlib`, `self_host` and `tests` reachable,
-# because a legacy CWD-relative entry in the module search is how the
-# compile harnesses resolve `(import Foo)`. Cases are still handed their
-# REAL path: the module search directory is derived from the argument,
-# and `150-qualified-modules` imports `Q.Inner`, which is
-# `tests/stdlib/Q/Inner.ax` and does not exist beside a copy.
+# Cases keep their real paths so sibling imports resolve beside them.
+# Compiler-internal modules use AXIOM_PATH; gate_init supplies AXIOM_STDLIB.
 echo "== building the compiler under test =="
-ln -s "$repo_root/stdlib" "$work/stdlib"
-ln -s "$repo_root/self_host" "$work/self_host"
+export AXIOM_PATH="$repo_root/self_host${AXIOM_PATH:+:$AXIOM_PATH}"
 ln -s "$repo_root/tests" "$work/tests"
 gate_build_axc axc
 

@@ -121,9 +121,16 @@ grep -q 'define .*@main' pipe_legacy.ll \
 "$s1" emit-llvm hello.ax -o e.ll >/dev/null 2>&1 && grep -q 'define .*@main' e.ll \
   && ok "emit-llvm -o writes IR to a file" || bad "emit-llvm -o"
 
-# The original spelling, which five other gates depend on.
-"$s1" hello.ax >legacy.ll 2>/dev/null && grep -q 'define .*@main' legacy.ll \
+# Deprecation preserves LLVM stdout and gives the migration on stderr.
+"$s1" hello.ax >legacy.ll 2>legacy.err && grep -q 'define .*@main' legacy.ll \
   && ok "the legacy FILE spelling still emits IR to stdout" || bad "legacy spelling"
+grep -q 'deprecated.*axiom emit-llvm FILE' legacy.err \
+  && [[ "$(grep -c 'deprecated' legacy.err)" == 1 ]] \
+  && ! grep -q 'deprecated' legacy.ll \
+  && ok "legacy CLI warns once on stderr and keeps IR clean" || bad "legacy deprecation warning"
+"$s1" --diagnostic-format=ai emit-llvm hello.ax >modern.ll 2>modern.err
+cmp -s modern.ll legacy.ll && ! grep -q 'deprecated' modern.err \
+  && ok "emit-llvm matches the legacy IR without a warning" || bad "legacy migration parity"
 # Redirected to a file and then grepped, like the case above it, and
 # NOT piped into `grep -q`. `set -o pipefail` is on; `grep -q` exits
 # the moment it matches, and the triple is in the first few lines of
@@ -134,9 +141,27 @@ grep -q 'define .*@main' pipe_legacy.ll \
 # luck since it was added; a later change that merely altered the
 # timing made it 8 in 8. The producer's status is the thing under
 # test, so it must not be a pipeline's.
-"$s1" hello.ax linux-x86_64 >legacy_t.ll 2>/dev/null
-grep -q 'x86_64-unknown-linux-gnu' legacy_t.ll \
+"$s1" hello.ax linux-x86_64 >legacy_t.ll 2>legacy_t.err
+grep -q 'x86_64-unknown-linux-gnu' legacy_t.ll && grep -q 'deprecated' legacy_t.err \
   && ok "the legacy FILE TARGET spelling still selects a target" || bad "legacy target"
+
+# Working-directory trees are searched only when explicitly configured.
+mkdir -p "$work/cwd/stdlib" "$work/cwd/self_host" "$work/cwd/entry"
+printf '(pub :: cwdStd Int)\n(pub fn (cwdStd) 20)\n' >"$work/cwd/stdlib/CwdStd.ax"
+printf '(pub :: cwdHost Int)\n(pub fn (cwdHost) 22)\n' >"$work/cwd/self_host/CwdHost.ax"
+printf '(import CwdStd)\n(import CwdHost)\n(fn (main) (+ cwdStd cwdHost))\n' >"$work/cwd/entry/Main.ax"
+(
+  cd "$work/cwd"
+  AXIOM_PATH= "$s1" --diagnostic-format=ai check entry/Main.ax
+) >"$work/cwd-unconfigured.log" 2>&1
+[[ $? == 1 ]] && grep -q 'AX5001' "$work/cwd-unconfigured.log" \
+  && ok "unconfigured CWD module trees are refused" || bad "CWD fallback survived"
+(
+  cd "$work/cwd"
+  AXIOM_PATH="$work/cwd/stdlib:$work/cwd/self_host" "$s1" --diagnostic-format=ai check entry/Main.ax
+) >"$work/cwd-configured.log" 2>&1
+[[ $? == 0 ]] && grep -q '^OK' "$work/cwd-configured.log" \
+  && ok "explicit AXIOM_PATH resolves the same module trees" || bad "explicit module roots"
 
 # Global flags may precede the subcommand, because stage0's do and
 # check-cross-targets.sh relies on it.

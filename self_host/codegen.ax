@@ -4931,11 +4931,6 @@
 ; imports `IO` from any other directory got `cannot read module: IO`
 ; and exit 3. Probed before the change, from a scratch directory.
 ;
-; Those two CWD-relative entries are kept at the END as a fallback,
-; because five harnesses depend on them and breaking all of them in one
-; commit destroys the ability to bisect the only gates that watch
-; stage1. They are history, not the rule.
-;
 ; `sysArg 0` is argv[0] rather than a real `current_exe`. When the
 ; shell finds the compiler on `PATH` it passes the BARE NAME, so
 ; `(pathDir (sysArg 0))` is `""` and the exe-relative entries below
@@ -5016,12 +5011,6 @@
             v
             (cast Int (pathWithSlash sl)))
           (pushExeRelStdlib v (pathDir (sysArg 0)))))
-      (vecPush
-        v
-        (cast Int "self_host/"))
-      (vecPush
-        v
-        (cast Int "stdlib/"))
       v
     }))
 

@@ -117,11 +117,6 @@ checks=0
 ok()  { checks=$((checks + 1)); echo "ok   $*"; }
 bad() { checks=$((checks + 1)); failed=$((failed + 1)); echo "FAIL $*"; }
 
-# stage1 resolves `(import Foo)` against its working directory, so the
-# programs below are compiled from a directory that can see the tree's
-# own stdlib - the same link `check-self-host.sh` makes.
-ln -s "$repo_root/stdlib" "$work/stdlib"
-
 # `run_prog <compiler> <file> <opt>` -> writes stdout+stderr to
 # $work/run.err and answers the exit status.
 run_prog() {

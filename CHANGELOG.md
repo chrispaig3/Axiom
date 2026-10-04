@@ -16,6 +16,18 @@ its changelog too.
 
 ## Unreleased
 
+- Deprecate `axiom FILE [TARGET]` with a warning on standard error.
+  LLVM output and target selection are preserved. Use `axiom
+  emit-llvm FILE [--target TARGET]`. Shorten global help into flag
+  descriptions and notes, including test optimisation defaults.
+  Tested by `scripts/check-driver.sh`.
+
+- Remove implicit working-directory `self_host/` and `stdlib/`
+  module roots. Harnesses now name their compiler and standard-library
+  roots through `AXIOM_PATH` and `AXIOM_STDLIB`; historical seed emits
+  keep explicit relative roots for reproduction. Tested by
+  `scripts/check-driver.sh` and `scripts/check-bootstrap.sh`.
+
 - Add runnable guides for `Json`, `Rpc`, `Intern` and `Agent.Tags`,
   including sentinel results, stream framing and storage lifetimes.
   Link existing library and language guides from the documentation

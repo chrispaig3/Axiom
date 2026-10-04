@@ -918,11 +918,13 @@
                       hostTarget
                       (sysArg i2))))))
             )
-              (let ((ir (compileFile fileName tname 1 0)))
-                {
-                  (replOut ir)
-                  0
-                })))))
+              {
+                (writeStr 2 "warning: `axiom FILE [TARGET]` is deprecated; use `axiom emit-llvm FILE [--target TARGET]`\n")
+                (let ((ir (compileFile fileName tname 1 0)))
+                  {
+                    (replOut ir)
+                    0
+                  })}))))
     }))
 
 ; `axiom buidl f.ax` used to be read as the legacy `axiom FILE TARGET`

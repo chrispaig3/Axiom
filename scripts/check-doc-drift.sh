@@ -1190,11 +1190,20 @@ if RULE not in flat(targets_section):
 
 # 2. the compiler's own table, both by `--help` and by doing it.
 help_text = subprocess.run([axc, "--help"], capture_output=True, text=True).stdout
-m = re.search(r"--target <NAME>\s+([a-z0-9_, -]+)\n", help_text)
+m = re.search(r"^TARGETS:\n(.*?)(?=^\S|\Z)", help_text, re.S | re.M)
 if not m:
-    print("FAIL targets: `axiom --help` has no `--target <NAME>` line to read the accepted names from")
+    print("FAIL targets: `axiom --help` has no TARGETS section")
     sys.exit(1)
-accepted = {n.strip() for n in m.group(1).split(",") if n.strip()}
+def help_names(label):
+    line = re.search(label + r":\s+([a-z0-9_,\s-]+)\.", m.group(1))
+    if not line:
+        print(f"FAIL targets: --help has no {label} list"); sys.exit(1)
+    return {n.strip() for n in line.group(1).split(",") if n.strip()}
+help_supported = help_names("Supported")
+accepted = help_supported | help_names("Source-only")
+if help_supported != readme_list:
+    print(f"FAIL targets: --help supports {sorted(help_supported)}, README supports {sorted(readme_list)}")
+    bad += 1
 work = tempfile.mkdtemp()
 probe = os.path.join(work, "t.ax")
 open(probe, "w").write("(:: main Int)\n\n(fn (main) 0)\n")

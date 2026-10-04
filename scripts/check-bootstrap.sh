@@ -172,10 +172,9 @@ optimised() {
   fi
 }
 
-# Every stage resolves `(import Foo)` against `self_host/` and `stdlib/`
-# relative to its working directory.
-ln -s "$repo_root/stdlib" "$work/stdlib"
-ln -s "$repo_root/self_host" "$work/self_host"
+# Every stage receives the module roots explicitly.
+export AXIOM_STDLIB="$repo_root/stdlib"
+export AXIOM_PATH="$repo_root/self_host${AXIOM_PATH:+:$AXIOM_PATH}"
 
 # ---------------------------------------------------------------
 # The seed, and the fact that it is the seed.
@@ -442,8 +441,6 @@ echo "ok   the installed compiler produces the same golden zoo"
 # ---------------------------------------------------------------
 sweep="$work/sweep"
 mkdir -p "$sweep"
-ln -s "$repo_root/stdlib" "$sweep/stdlib"
-ln -s "$repo_root/self_host" "$sweep/self_host"
 # Helper modules a case imports as a sibling; digit-prefixed files are
 # the cases themselves.
 cp "$repo_root"/tests/selfhost/[A-Z]*.ax "$sweep/" 2>/dev/null || true
@@ -505,7 +502,6 @@ echo "ok   $swept conformance cases, built and run by stage3, answer what their 
 # through its exit status alone and a compiler can get those right with
 # its string handling entirely broken.
 mkdir -p "$work/e2e"
-ln -s "$repo_root/stdlib" "$work/e2e/stdlib"
 cat >"$work/e2e/prog.ax" <<'CASE'
 (import IO)
 (:: main Int)
@@ -945,7 +941,6 @@ nest_src() {
   printf '(:: main Int)\n;@axiom:effect(io)\n(fn (main) { (let ((v vecNew)) (println (fmtHex (f v)))) 0 })\n'
 }
 mkdir -p "$work/nest"
-ln -s "$repo_root/stdlib" "$work/nest/stdlib"
 nest_src 6 >"$work/nest/n6.ax"
 nest_src 14 >"$work/nest/n14.ax"
 # Each run's IR is read for the function before its number is believed:
@@ -962,4 +957,3 @@ echo "ok   a 14-deep mut nest peaks $(( deep - shallow )) KiB above a 6-deep one
 
 echo
 echo "fixpoint reached from $seed_ll: the Axiom compiler reproduces itself, builds itself, and answers $swept cases correctly"
-

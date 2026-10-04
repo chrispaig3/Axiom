@@ -3527,6 +3527,11 @@ travels with the source and the variable travels with the shell. A
 `--crate` flag sits below both: it's something you typed, not something
 the project declared.
 
+The compiler does not add `self_host/` or `stdlib/` from your working
+directory. Set `AXIOM_PATH` for additional modules and `AXIOM_STDLIB`
+for an explicit standard-library root. Paths you configure can be
+relative to the working directory.
+
 Two things follow from this order:
 
 - Your own file can shadow a standard-library module of the same name,
@@ -6278,6 +6283,13 @@ axiom build --threads --input source.ax --output program
 # Carve the heap from a fixed 1 MiB region instead of asking the kernel
 axiom build --heap-ceiling 1048576 --input source.ax --output program
 ```
+
+The legacy `axiom FILE [TARGET]` spelling still emits LLVM IR, with a
+deprecation warning on standard error. Use `axiom emit-llvm FILE`,
+adding `--target TARGET` for a different target. LLVM output stays on
+standard output.
+
+Tested by `scripts/check-driver.sh`.
 
 `--threads` works with `build`, `run` and `test`, on darwin and linux.
 See [parallel](#parallel--bindings-that-run-beside-the-caller) for what

@@ -106,12 +106,7 @@ checks=0
 ok()   { checks=$((checks + 1)); echo "ok   $*"; }
 bad()  { checks=$((checks + 1)); failed=$((failed + 1)); echo "FAIL $*"; }
 
-# The compiler resolves `(import replhist)` against `self_host/`
-# relative to its working directory, so both trees have to be reachable
-# from where the probes are built. Without them the import fails loudly
-# (AX5001), which is the good case; with a STALE copy it would not.
-ln -s "$repo_root/stdlib"    "$work/stdlib"
-ln -s "$repo_root/self_host" "$work/self_host"
+export AXIOM_PATH="$repo_root/self_host${AXIOM_PATH:+:$AXIOM_PATH}"
 
 echo "== building the probes from the working tree =="
 for probe in write read bulk concurrent; do

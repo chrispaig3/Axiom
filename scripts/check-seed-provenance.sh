@@ -239,7 +239,7 @@ regenerate() {
   cp "$src/self_host/main.ax" "$out/in.ax"
   local t
   for t in $targets; do
-    if ! ( cd "$out" && AXIOM_STDLIB="$src/stdlib" ./gen in.ax "$t" \
+    if ! ( cd "$out" && AXIOM_STDLIB="$src/stdlib" AXIOM_PATH=self_host ./gen in.ax "$t" \
              >"$out/axiom-$t.ll" 2>"$out/$t.err" ); then
       echo "     the $t emit failed:" >&2
       head -5 "$out/$t.err" | sed 's/^/       /' >&2
@@ -320,7 +320,7 @@ else
   ln -s "$probe/self_host" "$probe_out/self_host"
   cp "$probe/self_host/main.ax" "$probe_out/in.ax"
   cp "$work/probe-gen" "$probe_out/gen"
-  ( cd "$probe_out" && AXIOM_STDLIB="$probe/stdlib" ./gen in.ax darwin-aarch64 \
+  ( cd "$probe_out" && AXIOM_STDLIB="$probe/stdlib" AXIOM_PATH=self_host ./gen in.ax darwin-aarch64 \
       >"$probe_out/out.ll" 2>"$probe_out/err" ) || true
   # The probe must be a DIFFERENT emission, not an absent one. Without
   # this the probe passed on a zero-line file - which it did, measured,

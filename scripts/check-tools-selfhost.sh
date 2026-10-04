@@ -88,11 +88,8 @@ failed=0
 norm() { sed -E -e "s|[^ ]*\.\./stdlib/|stdlib/|g" -e "s|[^ ]*\.\./self_host/|self_host/|g" -e "s|$repo_root/||g"; }
 
 # Every invocation runs from `$neutral`, a directory containing
-# nothing. The compiler keeps a legacy CWD-relative entry in its module
-# search, so running the sweep from the repository root would let a
-# fixture resolve `(import lexer)` out of self_host/ - which is a
-# property of where the sweep ran, not of the fixture, and it moves 4
-# of the 216 statuses. A neutral directory measures the file.
+# nothing. Explicit relative roots resolve against that directory,
+# so these checks cannot acquire modules from an incidental work tree.
 neutral="$work/neutral"
 mkdir -p "$neutral"
 
@@ -101,11 +98,7 @@ mkdir -p "$neutral"
 # be an older seed-descended binary that predates the change being
 # tested.
 #
-# Deliberately NO stdlib/self_host symlinks in the work directory. The
-# compiler keeps a legacy CWD-relative module search that the compile
-# harnesses depend on, and a salted work directory would let the symbols
-# sweep resolve imports it should not - which flatters the refusal half
-# of the exit-status manifest.
+# There are no stdlib/self_host symlinks in the work directory.
 gate_build_axc axc
 
 # ---------------------------------------------------------------

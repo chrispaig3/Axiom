@@ -128,11 +128,8 @@ gate_init
 filter="${1:-}"
 bless="${AXIOM_BLESS:-0}"
 
-# The compiler resolves `(import Foo)` against `self_host/` and
-# `stdlib/` relative to its working directory, so both have to be
-# reachable from wherever it runs - and the cases run from `$work` so
-# that the filename it prints is a bare `NAME.ax`. The filename is
-# echoed verbatim into every AXDL line and into every golden.
+# Explicit relative module roots keep diagnostic paths reproducible.
+# Cases run from $work so their entry filename is a bare NAME.ax.
 ln -s "$repo_root/stdlib" "$work/stdlib"
 ln -s "$repo_root/self_host" "$work/self_host"
 # The sweep below runs from `$work` and names its inputs by
@@ -152,6 +149,7 @@ ln -s "$repo_root/tests" "$work/tests"
 # repository names it. `verify-axdl-spans.py` refuses an absolute path
 # outright, so this cannot go wrong quietly.
 export AXIOM_STDLIB="stdlib"
+export AXIOM_PATH="self_host${AXIOM_PATH:+:$AXIOM_PATH}"
 
 # Helper MODULES for cases that need more than one file. They live in a
 # subdirectory so the per-case glob below cannot mistake one for a case

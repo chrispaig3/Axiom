@@ -185,11 +185,8 @@ echo "== 1. a satisfied restriction changes no emitted byte =="
 shadow="$work/ir/tree/tests/selfhost"
 mkdir -p "$shadow" "$work/ir"
 for sib in tests/selfhost/*.ax; do ln -s "$repo_root/$sib" "$shadow/$(basename "$sib")"; done
-# Module resolution also searches `self_host/` and `stdlib/` relative
-# to the working directory (`270-lex.ax` imports `lexer`), so the
-# shadow root carries both, as `check-diagnostics.sh`'s work tree does.
-ln -s "$repo_root/self_host" "$work/ir/tree/self_host"
-ln -s "$repo_root/stdlib" "$work/ir/tree/stdlib"
+# Compiler-internal probes, including 270-lex, use an explicit root.
+export AXIOM_PATH="$repo_root/self_host${AXIOM_PATH:+:$AXIOM_PATH}"
 filter_line_attr() {
   # The line-attribution pass (`emitLineTable` in codegen.ax) writes
   # one `; @@line` marker at every call site, plus the filename
@@ -363,8 +360,6 @@ fi
 # does under that gate - 377 imports `RestrictLeaf` from `mods/`.
 mkdir -p "$work/run"
 cp "$repo_root"/tests/diagnostics/mods/*.ax "$work/run/" 2>/dev/null || true
-ln -s "$repo_root/stdlib" "$work/run/stdlib"
-ln -s "$repo_root/self_host" "$work/run/self_host"
 
 echo
 echo "== 2. the fixtures answer, and the controls are silent =="

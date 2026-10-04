@@ -268,6 +268,7 @@ ln -s "$repo_root/tests" "$work/tests"
 # repository names it. `verify-axdl-spans.py` refuses an absolute path
 # outright, so this cannot go wrong quietly.
 export AXIOM_STDLIB="stdlib"
+export AXIOM_PATH="self_host${AXIOM_PATH:+:$AXIOM_PATH}"
 cp "$repo_root"/tests/diagnostics/mods/*.ax "$work/" 2>/dev/null || true
 
 # The renderer under test is the one built FROM SOURCE by `$axiom`, not

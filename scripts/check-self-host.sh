@@ -24,13 +24,9 @@ gate_init
 
 filter="${1:-}"
 
-# stage1 resolves `(import Foo)` by reading `self_host/Foo.ax` or
-# `stdlib/Foo.ax` relative to its working directory, so those have to be
-# reachable from where it runs. Without them every import silently
-# resolves to nothing and the emitted module is missing every function it
-# calls - which looks like a codegen bug and is not one.
-ln -s "$repo_root/stdlib" "$work/stdlib"
-ln -s "$repo_root/self_host" "$work/self_host"
+# Compiler-internal probes use an explicit module root. gate_init
+# already supplies AXIOM_STDLIB for standard-library imports.
+export AXIOM_PATH="$repo_root/self_host${AXIOM_PATH:+:$AXIOM_PATH}"
 
 # Helper modules for cases that import a SIBLING - a shape no case
 # could express while every case was one file, and the one an effect

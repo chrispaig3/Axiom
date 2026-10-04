@@ -64,13 +64,14 @@ filter="${1:-}"
 
 # Build the compiler under test from the CURRENT sources, the way every
 # other *-selfhost gate does: $AXIOM is the builder, never the subject.
-gate_build_axc axc
-
 # stdlib and self_host have to be reachable from the work directory,
 # because `:load` and the server resolve imports relative to the FILE
 # and `check` relative to the entry file's directory.
 ln -s "$repo_root/stdlib" "$work/stdlib"
 ln -s "$repo_root/self_host" "$work/self_host"
+export AXIOM_STDLIB="$work/stdlib"
+export AXIOM_PATH="$work/self_host${AXIOM_PATH:+:$AXIOM_PATH}"
+gate_build_axc axc
 
 pass=0; fail=0; swept=0
 

@@ -62,10 +62,6 @@ checks=0
 ok()  { checks=$((checks + 1)); echo "ok   $*"; }
 bad() { checks=$((checks + 1)); failed=$((failed + 1)); echo "FAIL $*"; }
 
-# stage1 resolves `(import Foo)` against its working directory, so the
-# programs below run from a directory that can see the tree's stdlib.
-ln -sfn "$repo_root/stdlib" "$work/stdlib"
-
 # The fourteen trap statuses MM-EXEC-16 reserves that `emitRuntimeExit`
 # writes. 73 is the FFI's, not the emitter's, and 81 the vector table's
 # module assembly's, so both are absent here by decision.
