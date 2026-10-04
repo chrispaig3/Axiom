@@ -17,34 +17,34 @@
 # S struct, T trait, M macro. `docs/compatibility.md` is the policy
 # this file implements.
 
-0.8.0  RUST  Ret.direct_payload  returns Option<Payload>; handle None for scalar, opaque and status returns
-0.8.0  CLI  symbols-json  JSON symbol output is refused with status 2; use --diagnostic-format=ai
-0.8.0  CLI  legacy-file  FILE [TARGET] now warns on stderr; migrate to emit-llvm FILE [--target TARGET]
-0.8.0  CLI  cwd-modules  implicit self_host/ and stdlib/ search roots removed; set AXIOM_PATH and AXIOM_STDLIB
-0.8.0  F  axsymAt  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
-0.8.0  F  axsymBuild  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
-0.8.0  F  axsymEquals  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
-0.8.0  F  axsymEscapable  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
-0.8.0  F  axsymHash  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
-0.8.0  F  axsymHexVal  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
-0.8.0  F  axsymIsKind  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
-0.8.0  F  axsymMeta  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
-0.8.0  F  axsymMetaScan  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
-0.8.0  F  axsymNewline  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
-0.8.0  F  axsymNid  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
-0.8.0  F  axsymParseFrom  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
-0.8.0  F  axsymPctAt  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
-0.8.0  F  axsymPercent  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
-0.8.0  F  axsymQuote  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
-0.8.0  F  axsymSpace  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
-0.8.0  F  axsymTrimEnd  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
-0.8.0  F  axsymUnpct  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
-0.8.0  F  axsymUnpctFrom  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
-0.8.0  F  symHasTagFrom  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
-0.8.0  F  symTagFrom  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
-0.8.0  F  symTagLastIdx  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
-0.8.0  F  jsonParse  malformed leading-zero, fraction and exponent numbers now return 0
-0.8.0  F  strConcat  renamed to concat; import Str and use (concat a b)
+0.7.8  RUST  Ret.direct_payload  returns Option<Payload>; handle None for scalar, opaque and status returns
+0.7.8  CLI  symbols-json  JSON symbol output is refused with status 2; use --diagnostic-format=ai
+0.7.8  CLI  legacy-file  FILE [TARGET] now warns on stderr; migrate to emit-llvm FILE [--target TARGET]
+0.7.8  CLI  cwd-modules  implicit self_host/ and stdlib/ search roots removed; set AXIOM_PATH and AXIOM_STDLIB
+0.7.8  F  axsymAt  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.7.8  F  axsymBuild  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.7.8  F  axsymEquals  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.7.8  F  axsymEscapable  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.7.8  F  axsymHash  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.7.8  F  axsymHexVal  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.7.8  F  axsymIsKind  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.7.8  F  axsymMeta  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.7.8  F  axsymMetaScan  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.7.8  F  axsymNewline  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.7.8  F  axsymNid  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.7.8  F  axsymParseFrom  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.7.8  F  axsymPctAt  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.7.8  F  axsymPercent  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.7.8  F  axsymQuote  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.7.8  F  axsymSpace  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.7.8  F  axsymTrimEnd  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.7.8  F  axsymUnpct  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.7.8  F  axsymUnpctFrom  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.7.8  F  symHasTagFrom  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.7.8  F  symTagFrom  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.7.8  F  symTagLastIdx  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.7.8  F  jsonParse  malformed leading-zero, fraction and exponent numbers now return 0
+0.7.8  F  strConcat  renamed to concat; import Str and use (concat a b)
 
 # 0.3.3 - ERR-ADOPT-1 slice 3, the half of it where `-errno` genuinely
 # means a failure. Seven filesystem calls and `copyFile` answer
@@ -943,39 +943,39 @@
 # other macro and function in the language.
 0.7.7  M  try!  REMOVED: renamed `try`; drop the `!`
 
-# 0.8.0 - the counted loop is the `for` keyword: `(for i in lo..hi body)`.
-0.8.0  M  range  REMOVED: write `(for i in lo..hi body)`
+# 0.7.8 - the counted loop is the `for` keyword: `(for i in lo..hi body)`.
+0.7.8  M  range  REMOVED: write `(for i in lo..hi body)`
 
-# 0.8.0 - `deriveShow` and `showOr` are removed. Deprecated since
+# 0.7.8 - `deriveShow` and `showOr` are removed. Deprecated since
 # 0.3.8 in favour of `show`, and `show` itself went in 0.7.4 - `(format x)`
 # renders any value in full and is the only spelling left.
-0.8.0  M  deriveShow  REMOVED: write `(format x)`
-0.8.0  M  showOr  REMOVED: write `(format x)`
+0.7.8  M  deriveShow  REMOVED: write `(format x)`
+0.7.8  M  showOr  REMOVED: write `(format x)`
 
-# 0.8.0 - `restrict(no-untrapped)` is renamed `restrict(no-trap)`. The
+# 0.7.8 - `restrict(no-untrapped)` is renamed `restrict(no-trap)`. The
 # corners it named are guarded traps now - `INT_MIN / -1` exits 83, an
 # out-of-range shift exits 84 - so the old name contradicts what it
 # refuses. The old spelling draws AX3052, which lists the new one.
-0.8.0  L  no-untrapped  RENAMED: write `restrict(no-trap)`
+0.7.8  L  no-untrapped  RENAMED: write `restrict(no-trap)`
 
-# 0.8.0 - owned resources close at their last share. Tested by
+# 0.7.8 - owned resources close at their last share. Tested by
 # tests/stdlib/698-file-lifetime.ax, tests/stdlib/699-net-lifetime.ax
 # and tests/axqlite/616-api-auto-close.ax.
-0.8.0  F  openPath  result -> Result File Error: use fileReadLine, fileReadAll, fileReadInto, fileWrite and fileClose
-0.8.0  F  openBeneath  result -> Result File Error: the File closes at its last owner
-0.8.0  S  TcpListener  repr -> sealed counted reference: automatically closes; cannot be captured by parallel
-0.8.0  S  TcpStream  repr -> sealed counted reference: automatically closes; cannot be captured by parallel
-0.8.0  S  Connection  repr -> sealed counted reference: automatically closes at its last owner
-0.8.0  S  Statement  repr -> sealed counted reference: automatically finalises and retains its connection
-0.8.0  S  Transaction  repr -> sealed counted reference: automatically rolls back and retains its connection
-0.8.0  F  axqBegin  row -> IO: constructing a transaction installs an IO cleanup callback
+0.7.8  F  openPath  result -> Result File Error: use fileReadLine, fileReadAll, fileReadInto, fileWrite and fileClose
+0.7.8  F  openBeneath  result -> Result File Error: the File closes at its last owner
+0.7.8  S  TcpListener  repr -> sealed counted reference: automatically closes; cannot be captured by parallel
+0.7.8  S  TcpStream  repr -> sealed counted reference: automatically closes; cannot be captured by parallel
+0.7.8  S  Connection  repr -> sealed counted reference: automatically closes at its last owner
+0.7.8  S  Statement  repr -> sealed counted reference: automatically finalises and retains its connection
+0.7.8  S  Transaction  repr -> sealed counted reference: automatically rolls back and retains its connection
+0.7.8  F  axqBegin  row -> IO: constructing a transaction installs an IO cleanup callback
 
-# 0.8.0 - foreign implementations are outside the safety checker.
-0.8.0  L  extern  calls seed IO and Unsafe; callers must vouch with `effect(unsafe)`
+# 0.7.8 - foreign implementations are outside the safety checker.
+0.7.8  L  extern  calls seed IO and Unsafe; callers must vouch with `effect(unsafe)`
 
-# 0.8.0 - counted callback results carry ownership evidence.
-0.8.0  L  closure-abi  Rust ABI 3: callback code takes (environment, argument, ownership evidence); rebuild Rust callback libraries
-0.8.0  L  rust-raw-shims  Rust raw shims with borrowed inputs or out-cells require unsafe calls; wire signatures stay unchanged
-0.8.0  L  rust-callback-lifetimes  AxFn1/AxFn2/AxFn3 carry a borrow lifetime; exported parameters reject named and static lifetimes; wire signatures stay unchanged
-0.8.0  L  ffi-opaque-owners  generated opaque types are sealed structs; use generated constructors and close functions instead of constructing or destructuring their Handle
-0.8.0  L  ffi-callback-borrows  generated wrappers combining callbacks with live borrowed vectors or opaque owners propagate Unsafe through an explicit caller precondition
+# 0.7.8 - counted callback results carry ownership evidence.
+0.7.8  L  closure-abi  Rust ABI 3: callback code takes (environment, argument, ownership evidence); rebuild Rust callback libraries
+0.7.8  L  rust-raw-shims  Rust raw shims with borrowed inputs or out-cells require unsafe calls; wire signatures stay unchanged
+0.7.8  L  rust-callback-lifetimes  AxFn1/AxFn2/AxFn3 carry a borrow lifetime; exported parameters reject named and static lifetimes; wire signatures stay unchanged
+0.7.8  L  ffi-opaque-owners  generated opaque types are sealed structs; use generated constructors and close functions instead of constructing or destructuring their Handle
+0.7.8  L  ffi-callback-borrows  generated wrappers combining callbacks with live borrowed vectors or opaque owners propagate Unsafe through an explicit caller precondition

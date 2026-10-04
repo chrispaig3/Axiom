@@ -16,6 +16,35 @@ its changelog too.
 
 ## Unreleased
 
+## 0.7.8 — 2026-10-03
+
+Axiom 0.7.8 adds optional binary and authenticated asset obfuscation,
+strengthens region and Rust FFI checks, and refreshes the website with
+executable standard-library examples. The work was contributed by
+@chrispaig3.
+
+- Use `concat` for strings and `try` for Result propagation. Review
+  `compat/BREAKING` for the resource ownership, removed helper and
+  command-line changes in this release.
+- Build executables with `--obfuscate`, or pack assets with
+  `Crypto.Obfuscate` and `examples/axobfuscate/Main.ax`. Runtime
+  inspection can still recover embedded keys and decoded bytes.
+- `Task` streams answers through a fold with bounded reclamation.
+  Rust callbacks borrow their environment for the call, and generated
+  owners keep their handles private.
+- JSON number parsing, all eight symbol kinds, explicit module roots
+  and the refreshed compiler inspection guides are included.
+
+Tested by `scripts/check-obfuscation.sh`, `scripts/check-task.sh`,
+`scripts/check-ffi.sh`, `scripts/check-bootstrap.sh`,
+`scripts/check-compat.sh` and `web/scripts/check-samples.mjs`.
+
+<!-- release-notes: end of highlights -->
+
+- Read the new target help section in the release gate and include
+  `Crypto.Obfuscate` in the compatibility census. Tested by
+  `scripts/check-release-targets.sh` and `scripts/check-compat.sh`.
+
 - Repair the source-unit table used by the compiler's `emitModule`
   convenience entry and classify an unchecked lambda's result without
   dereferencing a missing type. Keep the shadowed-constructor region fixture's

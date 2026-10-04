@@ -16,7 +16,7 @@
 #
 # WHAT IS SHIPPED, AND WHAT IS NOT. Two targets are built and attached:
 # `linux-aarch64` and `darwin-aarch64`, the two README calls supported.
-# The other five are SOURCE-ONLY: no CI leg runs the test battery on
+# The other targets are SOURCE-ONLY: no CI leg runs the test battery on
 # them, so an archive for one would be a binary the battery never saw.
 #
 # Two axes, then. SUPPORTED says whether a CI leg executes what the
@@ -71,8 +71,8 @@ jobs:
       fail-fast: true
       matrix:
         include:
-          # linux-x86_64 is SUPPORTED and TESTED and deliberately not
-          # here - see WHAT IS SHIPPED above. Do not re-add it without
+          # linux-x86_64 is source-only and has no shipped archive.
+          # Do not add it without establishing support and
           # also removing it from `install.sh`'s refusal list, which
           # `scripts/check-release-targets.sh` will otherwise fail.
           - name: linux-aarch64

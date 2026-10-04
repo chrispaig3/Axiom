@@ -121,8 +121,9 @@ echo "== every target the compiler accepts is in exactly one of them =="
 # Targets section says so. A Windows entry in either list would be
 # describing a host that cannot reach this code.
 accepted="$("$axc" --help 2>/dev/null \
-  | sed -n 's/.*--target <NAME>[^a-z]*\(.*\)/\1/p' \
-  | tr ',' '\n' | tr -d ' `' | grep -E '^[a-z0-9_]+-[a-z0-9_]+$' | sort -u)"
+  | sed -n '/^TARGETS:/,/^NOTES:/p' \
+  | sed -E 's/^ *(Supported|Source-only): *//' \
+  | tr ',' '\n' | tr -d ' `.' | grep -E '^[a-z0-9_]+-[a-z0-9_]+$' | sort -u)"
 
 if [[ -z "$accepted" ]]; then
   bad "could not read the accepted-target list from \`--help\`"
@@ -133,6 +134,9 @@ else
   missing=""
   for t in $accepted; do
     [[ "$t" == windows-* ]] && continue
+    # Bare-metal images have a board linker, not an installer host.
+    # The installer derives an OS from uname and never selects one.
+    [[ "$t" == baremetal-* ]] && continue
     # `grep -x` without `-q`, deliberately: `-q` exits on the first
     # match, and under `set -o pipefail` a consumer that exits before
     # the producer finishes turns the pipeline's status into the
@@ -151,7 +155,7 @@ else
     bad "accepted by the compiler and neither built nor refused:$missing"
     echo "     a user on that host gets a 404 from curl instead of a sentence"
   else
-    ok "every non-Windows target the compiler accepts is built or refused"
+    ok "every hosted non-Windows target the compiler accepts is built or refused"
   fi
 fi
 

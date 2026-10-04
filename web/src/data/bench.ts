@@ -47,7 +47,7 @@
 
 export const BENCH_ENV = {
   machine: 'Apple M1, macOS 27.0.1, darwin-aarch64',
-  axiom: 'Axiom 0.7.7',
+  axiom: 'Axiom 0.7.8',
   rust: 'rustc 1.98.1',
   c: 'clang 23.1.2',
   answer: '428343467',
@@ -68,26 +68,26 @@ export const BENCH: BenchRow[] = [
   {
     metric: 'Run time',
     how: '3,000,000 Collatz sequences · hyperfine best of 20, interleaved',
-    axiom: '0.427 s',
-    rust: '0.427 s',
-    c: '0.427 s',
-    note: 'Identical to the millisecond across all three. Axiom emits LLVM IR, so a loop that is only arithmetic and branches gets the machine code the other two get.',
+    axiom: '0.443 s',
+    rust: '0.448 s',
+    c: '0.444 s',
+    note: 'All three finish within five milliseconds of one another. Axiom emits LLVM IR, so a loop that is only arithmetic and branches gets the machine code the other two get.',
   },
   {
     metric: 'Compile to a native binary',
     how: 'one file, cold · hyperfine best of 15, interleaved',
-    axiom: '0.157 s',
-    rust: '0.112 s',
-    c: '0.145 s',
-    note: 'Axiom is the slowest of the three, by forty-five milliseconds against rustc — 1.40x — and twelve behind clang at 1.08x. Published because it is what was measured, by the script beside the sources.',
+    axiom: '0.166 s',
+    rust: '0.117 s',
+    c: '0.151 s',
+    note: 'Axiom is the slowest of the three, by forty-nine milliseconds against rustc at 1.42x, and fifteen behind clang at 1.10x. Published because it is what was measured, by the script beside the sources.',
   },
   {
     metric: 'Binary size',
     how: 'the executable on disk',
-    axiom: '35,688 B',
+    axiom: '35,784 B',
     rust: '469,608 B',
     c: '33,432 B',
-    note: 'Thirteen times smaller than the Rust binary, and within seven percent of C — with no C runtime inside it at all.',
+    note: 'Thirteen times smaller than the Rust binary, and about seven percent larger than C, with no C runtime inside it at all.',
   },
   {
     metric: 'Undefined symbols',
@@ -100,6 +100,12 @@ export const BENCH: BenchRow[] = [
 ]
 
 /*
+ * RE-MEASURED 2026-10-03 by `web/bench/run-bench.sh`, against the
+ * freshly bootstrapped 0.7.8 compiler. Interleaved best of 20 for run
+ * time and 15 for compilation, with the tool versions stated above.
+ * Axiom/Rust/C: 0.443/0.448/0.444 s running, 0.166/0.117/0.151 s
+ * compiling, and 35,784/469,608/33,432 bytes. All print 428343467.
+ *
  * RE-MEASURED 2026-09-30 by `web/bench/run-bench.sh`, against the
  * 0.7.7 compiler. Interleaved, hyperfine best of 15 for the compile
  * row and best of 20 for the run row, on an Apple M1 (macOS 27.0.1,

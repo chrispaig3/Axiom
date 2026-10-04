@@ -215,7 +215,7 @@ axiom check shapes.ax           # type-check and verify effects, no code generat
 axiom test                      # run every function whose name starts with test
 axiom fmt shapes.ax             # the one canonical layout
 axiom explain AX3005            # the full explanation for any error code
-axiom repl                      # Axiom 0.7.7 - REPL
+axiom repl                      # Axiom 0.7.8 - REPL
 ```
 
 `IO` is part of Axiom's own standard library, so the `shapes` binary
