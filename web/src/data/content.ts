@@ -162,9 +162,9 @@ export const STATUS_SOLID: StatusRow[] = [
 export const STATUS_LIMITS: StatusRow[] = [
   { feature: 'Effects', status: 'Enforced; two limits stated', note: 'Two inference gaps, both stated: unresolvable calls are marked incomplete, and constructor allocation is not counted.' },
   { feature: 'Macros', status: 'Partial', note: 'A template cannot generate `import` or a nested `macro`, or test two binders for sameness.' },
-  { feature: 'Concurrency', status: 'Language form, two lowerings', note: '`parallel`, channels, a mutex and task pools; a binding may borrow a `String`. No async, no scheduler.' },
+  { feature: 'Concurrency', status: 'Language form, two lowerings', note: '`parallel`, channels, a mutex and task pools; `taskFold` reclaims each delivered answer under an explicit scalar-only callback contract.' },
   { feature: 'Region syntax', status: 'Checked scope, and annotated signatures with the escape rule', note: 'Scalars leave a region; typed promotion is planned.' },
-  { feature: 'FFI', status: 'Functional', note: 'Rust through `extern` blocks and generated bindings.' },
+  { feature: 'FFI', status: 'Functional', note: 'Rust through `extern` blocks, sealed owners and callbacks borrowed for the call.' },
   { feature: 'Standard library', status: 'Functional', note: 'Collections, cryptography, optional binary obfuscation, dates, JSON, networking and an embedded database.' },
   { feature: 'Error handling', status: 'Functional; adopted at the syscall seam', note: '`Result`, the `try` form, and handlers that skip a bad record without unwinding.' },
   { feature: 'Editor support', status: 'Functional', note: 'Language server plus a tree-sitter grammar.' },
@@ -220,6 +220,22 @@ export const FAQS: Faq[] = [
       'Because the program is already a tree. There is no operator precedence to memorise, no ambiguous parse, and macros operate on the same structure the compiler checks. That uniformity is also what makes the language easy for a tool or an agent to generate correctly.',
       'The editor side is covered: a tree-sitter grammar colours by syntactic role with rainbow brackets, and `axiom fmt` settles layout.',
     ],
+  },
+  {
+    q: 'Can I make a distributed binary harder to inspect?',
+    a: [
+      'Choose `axiom build Main.ax --obfuscate -o app` to mask string literals, scramble internal function names and strip local symbols. Fresh build seeds make each build differ. The mode retains opaque function entries through optimisation and omits source-level backtrace tables.',
+      '`Crypto.Obfuscate` also packs authenticated encrypted assets with context binding, split key shares and explicit key erasure. These features make static inspection harder; someone inspecting the running process can recover embedded keys and decoded data. Static archives do not accept the compiler flag.',
+    ],
+    link: { label: 'Binary and asset obfuscation', href: `${DOCS}/obfuscation.md` },
+  },
+  {
+    q: 'How can tools inspect my program?',
+    a: [
+      '`axiom --diagnostic-format=ai symbols Main.ax --calls` emits AXSYM declarations, stable IDs, author tags, derived effects and call edges. `Agent.Tags` reads that stream, including effect and macro declarations. Use AI format for symbols; JSON format is refused.',
+      '`symbols --mir --axir` exposes analysis and inspection records. Native builds compile the checked, expanded syntax tree to LLVM IR. Use `emit-llvm` to see that output; the legacy `axiom FILE` form is deprecated.',
+    ],
+    link: { label: 'Follow a program through the compiler', href: `${DOCS}/compiler-guide.md` },
   },
   {
     q: 'Do I have to annotate every function\'s effects?',

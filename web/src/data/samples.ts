@@ -61,6 +61,8 @@ export interface Program {
   output: string
   /** `run` unless stated. */
   mode?: 'run' | 'test'
+  /** Compiler options, placed before the input file. */
+  flags?: string[]
   /** A crate directory, relative to the repository, passed as `--crate`. */
   crate?: string
   /** For a program that calls Rust: the crate side, quoted verbatim. */
@@ -75,7 +77,7 @@ const REF = `${LIB}docs/reference.md`
 /** The shell command that produced a program's output. */
 export function commandFor(p: Program): string {
   const verb = p.mode ?? 'run'
-  return `axiom ${verb} ${p.file}${p.crate ? ` --crate ${p.crate}` : ''}`
+  return `axiom ${verb}${p.flags?.length ? ` ${p.flags.join(' ')}` : ''} ${p.file}${p.crate ? ` --crate ${p.crate}` : ''}`
 }
 
 /**
@@ -259,7 +261,7 @@ export const NEW_PROJECT = {
 }
 
 /**
- * The tour: ten small real programs, one per idea, in the order a
+ * The tour: small real programs, one per idea, in the order a
  * newcomer needs them - from the thing every language has to the
  * things only this one does.
  */
@@ -536,7 +538,7 @@ test: 4 pauses recorded, 0 ms slept`,
     lede: "`Vec`, `Map` and a string interner from the standard library, which is written in Axiom and calls no C.",
     points: [
       { at: "(for msg in inbox", text: "`for` walks a `Vec` element by element." },
-      { at: "(let ((id (internIntern words w)))", text: "Each word becomes an id, counted in a `Map`." },
+      { at: "(let ((id (internIntern words w)))", text: "Each word becomes an id, counted in a `Map`. The interner owns its bytes; look them up while it is live." },
       { at: "(byCount (lambda (a b)", text: "The comparator is a lambda that closes over the map." },
       { at: "(let ((ranked (vecSortBy (mapKeys count) byCount)))", text: "`vecSortBy` ranks the ids by count." },
     ],
@@ -892,11 +894,160 @@ ok   testOlder
   (assertEq "older" -1 (versionCmp "1.9.9" "2.0.0")))`,
   },
   {
+    id: 'json',
+    file: 'payload.ax',
+    tab: 'JSON',
+    title: 'Keep a number exactly as it arrived',
+    lede: '`Json` reads, builds and writes values. Check its zero sentinel before accessing fields; `jsonNumText` preserves fractions and exponents without integer conversion.',
+    points: [
+      { at: '(if (== doc 0)', text: 'Invalid input returns zero. A parsed JSON null has its own nonzero handle.' },
+      { at: '(spelling (jsonNumText (jsonGet doc "amount")))', text: 'Keep 1.25e3 as text; jsonInt reads the signed digits before the fraction or exponent.' },
+      { at: '(jsonObjPut doc "ready" (jsonBool 1))', text: 'Object updates mutate the value and return its handle.' },
+    ],
+    docs: { label: 'JSON and RPC framing', href: `${LIB}docs/json.md` },
+    output: `amount: 1.25e3
+{"amount":1.25e3,"ready":true}`,
+    code: `(import IO)
+(import Json)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((doc (jsonParse "{\\\"amount\\\":1.25e3}")))
+    (if (== doc 0)
+      (die "invalid JSON" 1)
+      (let ((spelling (jsonNumText (jsonGet doc "amount"))))
+        {
+          (println "amount: {spelling}")
+          (jsonObjPut doc "ready" (jsonBool 1))
+          (println (jsonWrite doc))
+          0
+        }))))`,
+  },
+  {
+    id: 'chrono',
+    file: 'schedule.ax',
+    tab: 'Dates & times',
+    title: 'Normalise a timestamp, then add a duration',
+    lede: '`Chrono` validates calendar values and returns a Result for parsing and arithmetic. An offset-bearing timestamp can be normalised to UTC; the returned date-time holds no zone field.',
+    points: [
+      { at: '(try start (datetimeParseUtc "2024-02-29T23:30:00+02:00")', text: 'The +02:00 offset is applied before the naive UTC date-time is returned.' },
+      { at: '(try delay (durationParse "PT1H30M")', text: 'try binds each success and propagates an error at either step.' },
+      { at: '(datetimeAdd start delay))))', text: 'Duration arithmetic refuses results outside the supported range.' },
+    ],
+    docs: { label: 'Dates and times', href: `${LIB}docs/chrono.md` },
+    output: '2024-02-29T23:00:00',
+    code: `(import Chrono)
+(import Err)
+(import IO)
+
+(:: arrival (Result NaiveDateTime Error))
+(fn (arrival)
+  (try start (datetimeParseUtc "2024-02-29T23:30:00+02:00") (try delay (durationParse "PT1H30M") (datetimeAdd start delay))))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (match arrival
+    ((Err e) (die (errorText e) 1))
+    ((Ok end)
+      {
+        (println (datetimeToString end))
+        0
+      }
+    )))`,
+  },
+  {
+    id: 'tasks',
+    file: 'jobs.ax',
+    tab: 'Task pools',
+    title: 'Bound the workers, keep submit order',
+    lede: '`Task` runs jobs in forked children, limits concurrency and answer size, then returns one Result per job in submit order. Options add deadlines, cancellation and fail-fast behaviour.',
+    points: [
+      { at: '(answers (taskMap job 4 2 64))', text: 'Four jobs, at most two running at once, with at most 64 bytes in each answer.' },
+      { at: '(for answer in answers', text: 'Answers keep submit order even when workers finish in a different order.' },
+      { at: '((Err e) (println (errorText e)))', text: 'A failed job has an error value in its own slot.' },
+    ],
+    docs: { label: 'Task pools and streaming folds', href: `${REF}#run-tasks-that-answer-values-with-task` },
+    output: `job 0: 0
+job 1: 1
+job 2: 4
+job 3: 9`,
+    code: `(import Err)
+(import IO)
+(import Task)
+(import Vec)
+
+(:: job (-> Int String))
+(fn (job i)
+  (let ((square (* i i)))
+    (format "job {i}: {square}")))
+
+(:: main Int)
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(fn (main)
+  (let ((answers (taskMap job 4 2 64)))
+    {
+      (for answer in answers
+        (match answer
+          ((Ok text) (println text))
+          ((Err e) (println (errorText e)))))
+      0
+    }))`,
+  },
+  {
+    id: 'obfuscation',
+    file: 'asset.ax',
+    tab: 'Asset protection',
+    flags: ['--obfuscate'],
+    title: 'Authenticate an embedded asset',
+    lede: '`Crypto.Obfuscate` seals bytes with a fresh nonce and a context-bound key. Use the packing tool before compilation, and optional --obfuscate for literal masking and internal symbols. Running-process inspection can still recover embedded data.',
+    points: [
+      { at: '(try envelope (obfuscationSeal key "demo/message/v1" "asset opened")', text: 'A context identifies the asset purpose and is authenticated with its bytes.' },
+      { at: '(obfuscationOpen key "demo/message/v1" envelope)))', text: 'Open verifies the tag before returning plaintext.' },
+      { at: '(obfuscationKeyWipe key)', text: 'Erase the key on both success and error before examining the Result.' },
+    ],
+    docs: { label: 'Pack assets and obfuscate executables', href: `${LIB}docs/obfuscation.md` },
+    output: 'asset opened',
+    code: `(import Crypto.Obfuscate)
+(import Err)
+(import IO)
+
+(:: roundTrip (-> ObfuscationKey (Result String Error)))
+;@axiom:effect(io)
+;@axiom:effect(entropy)
+(fn (roundTrip key)
+  (try envelope (obfuscationSeal key "demo/message/v1" "asset opened") (obfuscationOpen key "demo/message/v1" envelope)))
+
+(:: main Int)
+;@axiom:effect(io)
+;@axiom:effect(entropy)
+(fn (main)
+  (match obfuscationKeyGenerate
+    ((Err e) (die (errorText e) 1))
+    ((Ok key)
+      (let ((opened (roundTrip key)))
+        {
+          (obfuscationKeyWipe key)
+          (match opened
+            ((Err e) (die (errorText e) 1))
+            ((Ok text)
+              {
+                (println text)
+                0
+              }
+            ))
+        })
+    )))`,
+  },
+  {
     id: "rust",
     file: "rusty.ax",
     tab: "Calling Rust",
     title: "Rust, one extern away",
-    lede: "Mark Rust functions `#[axiom_export]` and `axiom-bindgen` writes the Axiom module for them. `--crate` builds the archive and links it.",
+    lede: "Mark Rust functions `#[axiom_export]` and `axiom-bindgen` writes the Axiom module for them. `--crate` builds the archive and links it. This caller vouches for the direct scalar extern call with `effect(unsafe)`.",
     points: [
       { at: "(loud (shout \"ships a binary\"))", text: "`shout` takes a borrowed string and returns an owned one." },
       { at: "(c (counterNew 40))", text: "`Counter` is an opaque Rust value behind a counted handle, dropped with its last reference." },
@@ -915,6 +1066,7 @@ Err:     invalid digit found in string`,
 ; #[axiom_export] functions; --crate builds and links its archive.
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   (let (
     (loud (shout "ships a binary"))

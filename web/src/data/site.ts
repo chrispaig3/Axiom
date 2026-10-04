@@ -77,3 +77,14 @@ export const TARGETS: Target[] = [
   { name: 'darwin-aarch64', archive: true, note: 'Apple silicon. Prebuilt archive.' },
   { name: 'linux-aarch64', archive: true, note: 'Prebuilt archive.' },
 ]
+
+/** Source-only entries agree with README's target list on every build. */
+export const SOURCE_ONLY: string[] = [
+  'baremetal-aarch64',
+  'darwin-x86_64',
+  'freebsd-aarch64',
+  'freebsd-x86_64',
+  'linux-x86_64',
+  'windows-aarch64',
+  'windows-x86_64',
+]

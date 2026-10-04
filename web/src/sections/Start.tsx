@@ -6,6 +6,7 @@ import {
   INSTALL_CMD,
   PATH_CMD,
   REPO,
+  SOURCE_ONLY,
   TARGETS,
 } from '../data/site.ts'
 import { SectionHead } from '../components/SectionHead.tsx'
@@ -197,6 +198,9 @@ export function Start() {
                 ['axiom test', 'every function whose name starts with test'],
                 ['axiom fmt', 'the one canonical layout'],
                 ['axiom explain AX3005', 'the full explanation behind any diagnostic code'],
+                ['axiom symbols Main.ax --calls', 'declarations, effects, stable IDs and call edges in AXSYM'],
+                ['axiom emit-llvm Main.ax -o Main.ll', 'inspect the LLVM IR before assembly'],
+                ['axiom build Main.ax --obfuscate -o app', 'optional literal masking and internal symbol scrambling'],
                 ['axiom repl', 'an interactive session, compiled to native code line by line'],
               ].map(([c, d]) => (
                 <div key={c}>
@@ -212,6 +216,14 @@ export function Start() {
                 Set up your editor <ArrowUpRight size={12} />
               </a>{' '}
               for highlighting, go-to-definition, hover and fixes.
+            </p>
+            <p className="hint">
+              Imported modules come from the entry directory, package dependencies and explicit
+              search paths. Set <code>AXIOM_PATH</code> for extra module roots and{' '}
+              <code>AXIOM_STDLIB</code> to override the installed library.{' '}
+              <a href={`${DOCS}/compiler-guide.md`} target="_blank" rel="noreferrer noopener">
+                Module search and compiler inspection <ArrowUpRight size={12} />
+              </a>
             </p>
           </div>
 
@@ -250,15 +262,22 @@ export function Start() {
             </div>
             <p className="hint">
               <code>--target</code> emits for any of them from any host; only the final link needs
-              that target's linker. The other six targets, <code>linux-x86_64</code>,{' '}
-              <code>freebsd-x86_64</code>, <code>freebsd-aarch64</code>, <code>darwin-x86_64</code>,{' '}
-              <code>windows-x86_64</code> and <code>windows-aarch64</code>, are source-only:{' '}
-              <code>--target</code> emits for them, and
+              that target's linker. Source-only targets:{' '}
+              {SOURCE_ONLY.map((target, i) => (
+                <span key={target}>{i > 0 ? ', ' : ''}<code>{target}</code></span>
+              ))}. <code>--target</code> emits for them, and
               CI doesn't run the test battery there.{' '}
               <a href={`${REPO}#targets`} target="_blank" rel="noreferrer noopener">
                 What "supported" means here
               </a>
               .
+            </p>
+            <p className="hint">
+              Bare-metal AArch64 uses a board-defined platform seam and an optional QEMU smoke
+              run. Windows and FreeBSD have narrower bootstrap coverage.{' '}
+              <a href={`${DOCS}/embedded-guide.md`} target="_blank" rel="noreferrer noopener">
+                Embedded targets <ArrowUpRight size={12} />
+              </a>
             </p>
           </div>
         </div>

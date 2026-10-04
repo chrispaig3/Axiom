@@ -165,6 +165,15 @@ const contentSrc = readFileSync(new URL('../src/data/content.ts', import.meta.ur
   else if (JSON.stringify(want) !== JSON.stringify(got)) {
     fail(`TARGETS in site.ts is not README's supported list\n     README: ${want.join(', ')}\n     site:   ${got.join(', ')}`)
   } else console.log(`ok   the ${got.length} targets on the page are README's supported list`)
+
+  const sourceLine = /^Source-only: ([\s\S]*?)\./m.exec(readme)
+  const sourceWant = sourceLine ? [...sourceLine[1].matchAll(/`([a-z0-9_-]+)`/g)].map((m) => m[1]).sort() : []
+  const sourceEntries = /export const SOURCE_ONLY[\s\S]*?\n\]/.exec(siteSrc)?.[0] ?? ''
+  const sourceGot = [...sourceEntries.matchAll(/'([a-z0-9_-]+)'/g)].map((m) => m[1]).sort()
+  if (!sourceWant.length) fail("README.md has no 'Source-only:' line; the target check read nothing")
+  else if (JSON.stringify(sourceWant) !== JSON.stringify(sourceGot)) {
+    fail(`SOURCE_ONLY in site.ts is not README's source-only list\n     README: ${sourceWant.join(', ')}\n     site:   ${sourceGot.join(', ')}`)
+  } else console.log(`ok   the ${sourceGot.length} source-only targets agree with README`)
 }
 
 // STATUS: every row's feature and status are docs/status.md's, exactly.

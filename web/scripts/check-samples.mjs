@@ -147,7 +147,7 @@ for (const p of programs) {
   // absolute: the driver builds and links the archive (cargo must be on
   // PATH; with no cargo the build is refused as AX4004, and so is this).
   const crate = p.crate ? ['--crate', join(repo, p.crate)] : []
-  const r = ax(p.file, p.code, [mode, p.file, ...crate])
+  const r = ax(p.file, p.code, [mode, ...(p.flags ?? []), p.file, ...crate])
   if (r.status !== 0) {
     fail(what, `axiom ${mode} exited ${r.status}\n${trimEnd(plain(r.stderr))}`)
     continue

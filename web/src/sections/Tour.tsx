@@ -11,7 +11,7 @@ import { inline } from '../lib/inline.tsx'
 const FOLD_AT = 36
 
 /**
- * Ten small real programs, one idea each, as a tabbed chapter list.
+ * Small real programs, one idea each, as a tabbed chapter list.
  *
  * Each point beside a program names the line it is about, and hovering
  * or focusing it lights that line. A chapter with a refusal can be

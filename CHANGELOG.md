@@ -16,6 +16,13 @@ its changelog too.
 
 ## Unreleased
 
+- Refresh the website with executable JSON, date-time, task-pool and
+  authenticated asset examples. Run the asset example with compiler
+  obfuscation enabled. Update the Rust caller's Unsafe vouch, compiler
+  inspection commands, library links and source-only target list.
+  Tested by `web/scripts/check-samples.mjs`,
+  `web/scripts/check-claims.mjs` and `web/scripts/smoke.mjs`.
+
 - Read all eight AXSYM kinds in `Agent.Tags`, including effect and
   macro declarations. Validate symbol locations and effect type text
   so diagnostic rows are skipped. Tested by
