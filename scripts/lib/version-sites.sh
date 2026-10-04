@@ -226,4 +226,8 @@ tests/lsp/060-outline.golden|1|lspg_version|lspg_replace
 tests/lsp/070-warning-only.golden|1|lspg_version|lspg_replace
 tests/lsp/080-many-diagnostics.golden|1|lspg_version|lspg_replace
 tests/lsp/090-related-spans.golden|1|lspg_version|lspg_replace
+tests/lsp/100-lint-dead-branch.golden|1|lspg_version|lspg_replace
+tests/lsp/101-lint-bool-if.golden|1|lspg_version|lspg_replace
+tests/lsp/102-lint-unused-let.golden|1|lspg_version|lspg_replace
+tests/lsp/103-lint-nolint.golden|1|lspg_version|lspg_replace
 "

@@ -7826,7 +7826,8 @@
   (let ((i (cgSubcommandIndex)))
     (if (< i 0)
       ""
-      (sysArg i))))
+      (let ((a (sysArg i)))
+        (if (cgSubcommand a) a "")))))
 
 (pub :: cgPositionalIndex (-> Int Int))
 ;@axiom:effect(io)
@@ -7849,7 +7850,10 @@
 (pub :: cgOperandStart Int)
 ;@axiom:effect(io)
 (pub fn (cgOperandStart)
-  (+ (cgSubcommandIndex) 1))
+  (let ((i (cgSubcommandIndex)))
+    (if (< i 0)
+      1
+      (if (cgSubcommand (sysArg i)) (+ i 1) i))))
 
 (pub :: cgPositionalAt String)
 ;@axiom:effect(io)

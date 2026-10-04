@@ -43,6 +43,15 @@ Tested by `scripts/check-obfuscation.sh`, `scripts/check-task.sh`,
 
 <!-- release-notes: end of highlights -->
 
+- Preserve source lines in backtraces through the legacy compiler spelling.
+  The input scan now keeps the filename when no subcommand is present.
+  Register the four lint LSP transcripts as version sites for future bumps.
+  Tested by `scripts/check-driver.sh` and `scripts/check-version.sh`.
+
+- Build the large AXQL parser inputs with one allocation and linear copying,
+  preserving their sizes and expected parser results. Tested by
+  `tests/axqlite/406-parse-limits.ax` and `scripts/check-axqlite.sh`.
+
 - Run AXQLite faulted transactions in joined, isolated processes. Only
   the integer result returns to the parent; recovery checks keep their
   bounded region. The isolation probe runs with and without `--threads`,

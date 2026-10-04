@@ -3,22 +3,20 @@
 (import IO)
 (import Str)
 (import Err)
-(import Vec)
+(import Mem)
 (import Axqlite.AxqlAst)
 (import Axqlite.AxqlParse)
 
 (:: repeat (-> String Int String))
+;@axiom:effect(unsafe)
 (fn (repeat s n)
-  (let ((parts vecNewRef))
+  ; These fixed inputs fit in Int. Allocate their bytes once so input
+  ; construction stays linear and the test measures the parser's budgets.
+  (let ((len (strLen s)) (out (strAlloc (* (strLen s) n))))
     {
       (for i in 0..n
-        (vecPush parts s))
-      (let ((mut out ""))
-        {
-          (for p in parts
-            (set out (concat out p)))
-          out
-        })
+        (memCopy (+ (strData out) (* i len)) (strData s) len))
+      out
     }))
 
 (:: outcome (-> String String))
