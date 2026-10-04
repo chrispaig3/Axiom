@@ -6179,6 +6179,585 @@ primitives underneath, see [Terminals](#terminals).
 Tested by `tests/selfhost/975-key-decode.ax`, which checks the whole
 escape grammar with no terminal involved.
 
+### Hold a growing list
+
+`Vec` is the growable array, `(Vec a)`. It starts empty, doubles when
+it must, and sorts in place:
+
+```scheme
+(import IO)
+(import Vec)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((v vecNew))
+    {
+      (vecPush v 3)
+      (vecPush v 1)
+      (vecPush v 2)
+      (vecSort v)
+      (println (vecLen v))
+      (println (vecGet v 0))
+      (println (vecGet v 2))
+      0
+    }))
+```
+
+```text
+3
+1
+3
+```
+
+| Task | Call |
+|---|---|
+| start empty | `vecNew`, or `vecWithCapacity` when you know the size |
+| add and remove | `vecPush`, `vecPop`, `vecClear` |
+| read | `vecGet`, `vecLast`, `vecTry` |
+| measure | `vecLen`, `vecCap` |
+| order | `vecSort`, `vecSortBy` |
+
+`vecGet` traps when the index is out of range. `vecTry` answers
+`(Option a)` instead, so a missing element is a value your program can
+test. The typed variants read elements back as what they are:
+`vecGetStr` and `vecPushStr` for strings, `vecGetVec` and `vecPushVec`
+for nested vectors.
+
+A vector of handles that should keep those handles alive is
+`vecNewRef` ([Containers that own what they
+hold](#containers-that-own-what-they-hold)). Every name is in the
+`Vec` section of [stdlib-api.md](stdlib-api.md#vec).
+
+Tested by `tests/stdlib/070-vec.ax` and `tests/stdlib/313-vec-try.ax`.
+
+### Map keys to values
+
+`Map` is an open-addressing hash map from `Int` keys to words. Reads
+name their fallback, so a missing key is never a trap:
+
+```scheme
+(import IO)
+(import Map)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((m mapNew))
+    {
+      (mapInsert m 7 100)
+      (mapInsert m 3 300)
+      (println (mapGet m 7 0))
+      (println (mapGet m 9 0))
+      (println (mapLen m))
+      0
+    }))
+```
+
+```text
+100
+0
+2
+```
+
+| Task | Call |
+|---|---|
+| start empty | `mapNew`, or `mapWithCapacity` when you know the size |
+| write | `mapInsert`, `mapRemove` |
+| read | `mapGet` (with a fallback), `mapGetStr`, `mapHas` |
+| walk | `mapKeys` with `mapValues`, which zip |
+| measure | `mapLen`, `mapCap` |
+
+Keys are always `Int`s. Values are words, read back with `mapGet` for
+integers and `mapGetStr` for strings. A table whose values it owns is
+`mapNewRefVals` ([Containers that own what they
+hold](#containers-that-own-what-they-hold)). Every name is in the
+`Map` section of [stdlib-api.md](stdlib-api.md#map).
+
+Tested by `tests/stdlib/080-map.ax`.
+
+### Say what can go wrong
+
+`Err` is the vocabulary for failure: `Result` with its `Ok` and `Err`
+constructors, the `Error` record, and the combinators that keep
+`match` nests flat. Arithmetic that would wrap or trap answers a
+`Result` instead:
+
+```scheme
+(import IO)
+(import Err)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (println (isOk (addChecked 21 21)))
+    (println (isErr (addChecked intMin -1)))
+    0
+  })
+```
+
+```text
+true
+true
+```
+
+| Task | Call |
+|---|---|
+| test a result | `isOk`, `isErr` |
+| take the value | `unwrapOr`, with a fallback |
+| keep going | `mapOk`, `mapErr`, `andThen` |
+| convert | `okOr` from an `Option`, `toOption` to one |
+| explain | `withContext`, `errorText`, `errCode` |
+| stop here on failure | the `try` macro, which returns the `Err` as it is |
+
+`Option` has the same shape for absence: `isSome`, `isNone`,
+`optUnwrapOr`, `optMap`, `optAndThen` and `optOr`. Checked
+arithmetic is `addChecked`, `subChecked`, `mulChecked`, `divChecked`,
+`remChecked`, `shlChecked` and `shrChecked`. The contract behind all
+of it is [error-model.md](error-model.md), and every name is in the
+`Err` section of [stdlib-api.md](stdlib-api.md#err).
+
+Tested by `tests/stdlib/312-checked-arithmetic.ax`.
+
+### Keep going past bad records
+
+`Fallible` is for batch loops where one malformed record must not end
+the run. The deep callee performs the `Fallible` effect, and the
+handler answers it without unwinding:
+
+| Task | Call |
+|---|---|
+| skip bad records | `fallibleSkip` |
+| substitute a value | `fallibleDefault` |
+| count as well | `fallibleCounting` over a `FallibleTally` |
+| test the answer | `fallibleIsSkipped`, against `fallibleSkipped` |
+| read the count | `fallibleTally`, `fallibleCount` |
+
+The handlers compose: `(fallibleCounting t fallibleSkip)` skips and
+counts. The contract is `ERR-REC-7` in
+[error-model.md](error-model.md), and every name is in the `Fallible`
+section of [stdlib-api.md](stdlib-api.md#fallible).
+
+Tested by `tests/stdlib/410-fallible.ax`.
+
+### Render values as text
+
+`Fmt` holds the functions a format specifier selects, and each one
+works on its own:
+
+```scheme
+(import IO)
+(import Fmt)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (println (fmtHex 255))
+    (println (fmtPadZerosLeft "7" 4))
+    (println (fmtFloatPrec 3.14159 2))
+    0
+  })
+```
+
+```text
+ff
+0007
+3.14
+```
+
+| Task | Call |
+|---|---|
+| integers | `fmtInt`, `fmtHex`, `fmtHexUpper` |
+| floats | `fmtFloat`, `fmtFloatPrec` |
+| columns | `fmtPadLeft`, `fmtPadRight`, `fmtPadCenter`, `fmtPadZerosLeft` |
+| measure | `fmtIntWidth` |
+
+The `format` macro itself lives in `Str` and picks these by
+specifier ([Printing and formatting](#printing-and-formatting)).
+Every name is in the `Fmt` section of
+[stdlib-api.md](stdlib-api.md#fmt).
+
+Tested by `tests/stdlib/020-fmt.ax`.
+
+### Parse and print floats
+
+`Float` reads and writes IEEE 754 binary64 values exactly:
+`floatParse` rounds correctly, and `floatToString` prints the
+shortest text that reads back to the same bits:
+
+```scheme
+(import IO)
+(import Float)
+(import Err)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (match (floatParse "0.1")
+      ((Ok x) (println (floatToString x)))
+      ((Err e) (println "no parse")))
+    (println (floatToString 2.0))
+    (println (floatIsNan floatNan))
+    0
+  })
+```
+
+```text
+0.1
+2.0
+true
+```
+
+| Task | Call |
+|---|---|
+| read and write | `floatParse`, `floatToString` |
+| inspect the bits | `floatToBits`, `floatFromBits` |
+| classify | `floatIsNan`, `floatIsInfinite`, `floatIsFinite` |
+| constants | `floatInfinity`, `floatNan` |
+
+Every name is in the `Float` section of
+[stdlib-api.md](stdlib-api.md#float).
+
+Tested by `tests/stdlib/240-float.ax`.
+
+### Work with paths
+
+`Path` cuts up path strings and joins them back together. It performs
+no I/O, so every call is pure:
+
+```scheme
+(import IO)
+(import Path)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (println (pathJoin "notes" "today.txt"))
+    (println (pathExt "notes/today.txt"))
+    (println (pathStem "notes/today.txt"))
+    0
+  })
+```
+
+```text
+notes/today.txt
+.txt
+today
+```
+
+| Task | Call |
+|---|---|
+| split | `pathDir`, `pathBase`, `pathExt`, `pathStem` |
+| join and rewrite | `pathJoin`, `pathReplaceExt`, `pathWithSlash` |
+| test and tidy | `pathIsAbsolute`, `pathClean` |
+
+The extension keeps its dot: `(pathExt "main.ax")` is `".ax"`. Every
+name is in the `Path` section of [stdlib-api.md](stdlib-api.md#path).
+
+Tested by `tests/stdlib/469-path-clean.ax`.
+
+### Parse and write JSON
+
+`Json` reads a document to a handle and writes one back. Parsing
+never fails loudly: `jsonParse` answers `0` on any error, and every
+accessor tolerates `0`:
+
+```scheme
+(import IO)
+(import Json)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((v (jsonParse "{\"name\": \"axiom\", \"n\": 3}")))
+    {
+      (println (jsonGetStr v "name"))
+      (println (jsonGetInt v "n"))
+      0
+    }))
+```
+
+```text
+axiom
+3
+```
+
+| Task | Call |
+|---|---|
+| convert | `jsonParse`, `jsonWrite` |
+| read | `jsonGet`, `jsonGetInt`, `jsonGetStr`, `jsonTag` |
+| build | `jsonNull`, `jsonBool`, `jsonNum`, `jsonStr`, `jsonArr`, `jsonObj` |
+| grow | `jsonArrPush`, `jsonObjPut` |
+| walk | `jsonArrLen`, `jsonArrGet`, `jsonObjLen` |
+
+The module was written for JSON-RPC, so objects keep repeated keys
+and `jsonGet` answers the first. Every name is in the `Json` section
+of [stdlib-api.md](stdlib-api.md#json).
+
+Tested by `tests/stdlib/340-json.ax`.
+
+### Read dates and times
+
+`Chrono` keeps dates, times and durations with no time zones. Parsing
+is strict, and arithmetic that would leave the range answers `Err`
+instead of wrapping:
+
+```scheme
+(import IO)
+(import Chrono)
+(import Err)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (match (dateParse "2024-02-28")
+    ((Err e) (println (errorText e)))
+    ((Ok d)
+      (match (dateAddDays d 1)
+        ((Err e) (println (errorText e)))
+        ((Ok d2) (println (dateToString d2))))))
+  0)
+```
+
+```text
+2024-02-29
+```
+
+| Task | Call |
+|---|---|
+| build | `dateNew`, `timeNew`, `datetimeNew`, `durationFromSeconds` and its siblings |
+| read text | `dateParse`, `timeParse`, `datetimeParse`, `datetimeParseUtc`, `durationParse` |
+| write text | `dateToString`, `timeToString`, `datetimeToString`, `durationToString`, `datetimeFormat` |
+| move | `dateAddDays`, `dateAddMonths`, `timeAdd`, `datetimeAdd`, `durationAdd` |
+| compare | `dateCompare`, `timeCompare`, `datetimeCompare`, `durationCompare` |
+| the clock | `datetimeNowUtc`, read as UTC |
+
+2024 is a leap year, so 28 February plus one day is the 29th. The
+guide is [chrono.md](chrono.md), and every name is in the `Chrono`
+section of [stdlib-api.md](stdlib-api.md#chrono).
+
+Tested by `tests/stdlib/663-chrono-parse.ax` and
+`tests/stdlib/660-chrono-days.ax`.
+
+### Store rows in a file
+
+`Axqlite` is an embedded database in one file, with transactions.
+`axqOpen` answers a connection, `axqExec` runs one statement, and
+prepared statements take bound values:
+
+```scheme
+(import IO)
+(import Err)
+(import Axqlite)
+(import Vec)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (let ((_ (removeFile "ref-example.db"))) 0)
+    (match (axqOpen "ref-example.db" openOptions)
+      ((Err e) (println (errorText e)))
+      ((Ok db)
+        {
+          (let ((_ (axqExec db "CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT NOT NULL)"))) 0)
+          (let ((_ (axqExec db "INSERT INTO t (name) VALUES ('ada')"))) 0)
+          (match (axqPrepare db "SELECT name FROM t")
+            ((Err e) (println (errorText e)))
+            ((Ok st)
+              (match (axqQuery st vecNew)
+                ((Err e) (println (errorText e)))
+                ((Ok rows)
+                  (for r in rows.rows
+                    (println (unwrapOr (rowTextNamed r "name") "?")))))))
+          (let ((_ (axqClose db))) 0)
+          (let ((_ (removeFile "ref-example.db"))) 0)
+        }))
+    0
+  })
+```
+
+```text
+ada
+```
+
+| Task | Call |
+|---|---|
+| open and close | `axqOpen` with `openOptions`, `axqClose` |
+| run text | `axqExec`, `axqExecBatch` for a script |
+| bind values | `axqPrepare`, `axqRun`, `axqQuery`, `axqQueryEach`, `axqFinalize` |
+| group writes | `axqBegin`, `axqCommit`, `axqRollback`, `axqTransaction` |
+| read rows | `rowInt`, `rowText` and their kin, or a `RowReader` |
+
+The `axql` statement macros check at compile time and expand to
+parameterised text, so a value can only enter as a parameter. The
+guide is [axqlite.md](axqlite.md), [axql.md](axql.md) defines the
+query language, and every name is in the `Axqlite` section of
+[stdlib-api.md](stdlib-api.md#axqlite).
+
+Tested by `tests/axqlite/600-api-open.ax` and
+`tests/axqlite/502-axql-select.ax`.
+
+### Hash, seal and sign
+
+The `Crypto` modules hash, authenticate, seal and sign, in constant
+time where secrets are involved. One-way hashing is two calls:
+
+```scheme
+(import IO)
+(import Crypto.Sha2)
+(import Crypto.Bytes)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (println (hexEncode (sha256 "abc")))
+    0
+  })
+```
+
+```text
+ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+```
+
+| Task | Modules |
+|---|---|
+| hash | `Crypto.Sha2`, `Crypto.Sha3`, `Crypto.Blake2b` |
+| authenticate | `Crypto.Hmac` |
+| derive keys | `Crypto.Hkdf` |
+| seal | `Crypto.AesGcm`, `Crypto.ChaCha20Poly1305`, nonces in `Crypto.Aead` |
+| agree and sign | `Crypto.X25519`, `Crypto.Ed25519` |
+| random bytes | `Crypto.Random`, from the kernel |
+| hold keys | `Crypto.Secret`, locked memory outside the arena |
+| bytes and errors | `Crypto.Bytes`, `Crypto.Errors` |
+
+Keys are sealed handles that print as `<SecretBytes>`, and using a
+wiped one stops the program. The guide is [crypto.md](crypto.md),
+and every name is in the `Crypto` sections of
+[stdlib-api.md](stdlib-api.md).
+
+Tested by `tests/crypto/100-sha2.ax`.
+
+### Frame messages for tools
+
+`Rpc` frames the LSP base protocol over a file descriptor: a
+`Content-Length` header and a body. Bodies are JSON
+([Parse and write JSON](#parse-and-write-json)):
+
+| Task | Call |
+|---|---|
+| read a frame | `rpcReadMsg` (`None` at end of input), `rpcRead` |
+| write a frame | `rpcWrite` |
+| the reader | `rdNew`, `rdBuf`, `rdFilled` |
+
+`rpcReadMsg` answers `Some` for every whole frame, an empty one
+included, so a caller that must tell an empty message from a closed
+stream reads with it. Every name is in the `Rpc` section of
+[stdlib-api.md](stdlib-api.md#rpc).
+
+Tested by `tests/stdlib/390-rpc-framing.ax`.
+
+### Wrap values from Rust
+
+`Ffi` holds what a generated Rust binding needs: opaque handles with
+a liveness bit, out-cells for answers that cross back, and the
+conversions between Rust bytes and Axiom containers:
+
+| Task | Call |
+|---|---|
+| hold a Rust value | `ffiHandleNew`, `ffiHandlePtr`, `ffiHandleClose` |
+| answer through a cell | `ffiCellNew`, `ffiCellWord`, `ffiCellFree` |
+| convert | `ffiBytesToStr`, `ffiWordsToVec`, `ffiStrsToVec` |
+
+You rarely call these by hand: `axiom-bindgen` writes the wrappers
+([Calling Rust](#calling-rust), [ffi.md](ffi.md)). Every name is in
+the `Ffi` section of [stdlib-api.md](stdlib-api.md#ffi).
+
+### Intern repeated strings
+
+`Intern` hands each distinct string a small dense id, so a compiler
+can compare ids instead of bytes:
+
+```scheme
+(import IO)
+(import Intern)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((t internNew))
+    {
+      (println (internIntern t "hello"))
+      (println (internIntern t "hello"))
+      (println (internCount t))
+      0
+    }))
+```
+
+```text
+0
+0
+1
+```
+
+| Task | Call |
+|---|---|
+| start empty | `internNew`, `internWithCapacity` |
+| add and look up | `internIntern`, `internFind`, `internLookup` |
+| measure | `internCount`, `internCap` |
+
+Ids run from `0` with no gaps. Every name is in the `Intern`
+section of [stdlib-api.md](stdlib-api.md#intern).
+
+Tested by `tests/stdlib/090-intern.ax`.
+
+### Use the prelude macros
+
+`Pre` is the prelude: `when` and `unless` for one-armed branches,
+and the derive macros that write boilerplate from a declaration:
+
+```scheme
+(import IO)
+(import Pre)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (when true (println "shown"))
+    (unless true (println "hidden"))
+    0
+  })
+```
+
+```text
+shown
+```
+
+`(deriveEq Color)` writes structural equality for a data type, and
+`(deriveArity Shape)` answers how many fields a value's constructor
+carries ([Deriving](#deriving)). Every name is in the `Pre` section
+of [stdlib-api.md](stdlib-api.md#pre).
+
+Tested by `tests/selfhost/374-derive-eq.ax`.
+
+### Find the modules covered elsewhere
+
+The rest of the library is covered where it is used:
+
+| Modules | Read |
+|---|---|
+| `Chan`, `Sync`, `Task`, `Par` | [Concurrency](#concurrency) |
+| `Test` | [Testing](#testing) |
+| `Mem` | [Memory](#memory) |
+| `Sys`, `Sys.Platform` | [Work with files and directories](#work-with-files-and-directories), [Terminals](#terminals) |
+| `Agent.Tags` | [agent-harness.md](agent-harness.md) |
+
 ## AXTAG metadata
 
 An AXTAG is a comment that records a claim about a declaration, for
