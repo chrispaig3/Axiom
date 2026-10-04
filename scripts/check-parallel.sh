@@ -1288,6 +1288,7 @@ cat > "$work/accept-foreign.ax" <<'FOREIGN'
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
 (fn (main)

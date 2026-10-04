@@ -176,6 +176,9 @@ set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
 gate_init
+
+# The tool imports compiler modules through an explicit search root.
+export AXIOM_PATH="$repo_root/self_host${AXIOM_PATH:+:$AXIOM_PATH}"
 gate_build_axc axc
 
 failed=0
@@ -695,7 +698,8 @@ PY
   if [[ $? -ne 0 ]]; then
     return 1
   fi
-  ( cd "$root" && "$axc" build --input tests/mir/mirtool.ax --output "$root/mirtool" ) \
+  ( cd "$root" && AXIOM_PATH="$root/self_host${AXIOM_PATH:+:$AXIOM_PATH}" \
+    "$axc" build --input tests/mir/mirtool.ax --output "$root/mirtool" ) \
     > "$root/build.log" 2>&1
 }
 

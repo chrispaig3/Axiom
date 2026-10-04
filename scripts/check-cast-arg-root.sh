@@ -143,13 +143,17 @@ echo "--- 1. user-level cast count does not grow ---"
 # The incoming trunk census is 465. The seven additional casts in
 # 701-cast-ownership.ax are the regression's subject: temporary,
 # binding, discard, polymorphic store, borrowed alias and nested casts.
+# Two more are regression subjects: 330-obfuscate's generic Err arm
+# follows `die`, so its cast never executes; 1014 reads a live string's
+# count header to verify the returned capture takes a share. Both are
+# MM-VAL-23 evidence, with no new reference forged in application code.
 cast_count="$(git -C "$repo_root" grep -h -o '(cast ' -- stdlib tests examples ':!tests/fuzz' | wc -l | tr -d ' ')"
 if [ "$cast_count" -eq 0 ]; then
   bad "user-level: the cast count read 0 - the measurement is broken, not the tree clean"
-elif [ "$cast_count" -le 472 ]; then
-  ok "user-level (cast count $cast_count <= 472)"
+elif [ "$cast_count" -le 474 ]; then
+  ok "user-level (cast count $cast_count <= 474)"
 else
-  bad "user-level (cast count $cast_count > 472): new casts need a MM-VAL-23 reason and a baseline bump"
+  bad "user-level (cast count $cast_count > 474): new casts need a MM-VAL-23 reason and a baseline bump"
 fi
 
 echo "--- 2. type-preserving casts keep ownership ---"

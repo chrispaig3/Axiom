@@ -204,6 +204,7 @@ digitCount stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
 digitRun stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
 digitValue stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
 digitsAt stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
+direct tests/diagnostics/1116-extern-unsafe.ax no-unsafe violated
 direct tests/diagnostics/372-restrict-no-alloc.ax no-alloc violated
 directiveSpan stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
 dispatch tests/diagnostics/649-restrict-no-escape.ax no-escape unverifiable
@@ -370,6 +371,7 @@ hmacErase stdlib/Crypto/Hmac.ax no-io,no-alloc,no-foreign ok
 honest tests/diagnostics/373-restrict-no-cast.ax no-cast ok
 honest tests/diagnostics/383-restrict-no-wrap.ax no-wrap ok
 honest tests/diagnostics/396-restrict-no-trap.ax no-trap ok
+imported tests/diagnostics/1116-extern-unsafe.ax no-unsafe violated
 indexForUnit self_host/diag.ax no-io,no-alloc,no-foreign ok
 intIsMostNegative stdlib/Fmt.ax no-io,no-alloc,no-foreign ok
 intLitFits self_host/lexer.ax no-io,no-alloc,no-foreign ok
@@ -535,6 +537,7 @@ nested tests/diagnostics/383-restrict-no-wrap.ax no-wrap violated
 nested tests/diagnostics/396-restrict-no-trap.ax no-trap violated
 noUnsafe tests/diagnostics/1081-sys-buffer-calls.ax no-unsafe violated
 none tests/diagnostics/384-restrict-no-alloc-ctor.ax no-alloc ok
+nullary tests/diagnostics/1116-extern-unsafe.ax no-unsafe violated
 orderDiags self_host/diag.ax no-io,no-foreign ok
 packedDay stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
 packedMonth stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
@@ -607,6 +610,7 @@ s3 tests/diagnostics/1080-unsafe-syscalls.ax no-unsafe violated
 s4 tests/diagnostics/1080-unsafe-syscalls.ax no-unsafe violated
 s5 tests/diagnostics/1080-unsafe-syscalls.ax no-unsafe violated
 s6 tests/diagnostics/1080-unsafe-syscalls.ax no-unsafe violated
+safeCaller tests/diagnostics/1116-extern-unsafe.ax no-unsafe ok
 safely tests/diagnostics/1042-no-unsafe-indirect.ax no-unsafe ok
 sc25519IsCanonical stdlib/Crypto/Curve25519Scalar.ax no-io,no-foreign ok
 sc25519MulAdd stdlib/Crypto/Curve25519Scalar.ax no-io,no-foreign ok
@@ -629,6 +633,7 @@ sha2Erase stdlib/Crypto/Sha2.ax no-io,no-alloc,no-foreign ok
 sha512AbsorbIn stdlib/Crypto/Sha2.ax no-io,no-alloc,no-foreign ok
 sha512Blocks stdlib/Crypto/Sha2.ax no-io,no-alloc,no-foreign ok
 sha512FinishIn stdlib/Crypto/Sha2.ax no-io,no-alloc,no-foreign ok
+shadow tests/diagnostics/1116-extern-unsafe.ax no-unsafe ok
 shallow tests/diagnostics/378-restrict-no-cast-deep.ax no-cast ok
 shifts tests/diagnostics/396-restrict-no-trap.ax no-trap violated
 shrU stdlib/Crypto/Ct.ax no-io,no-alloc,no-foreign ok
@@ -716,6 +721,7 @@ tokenLexeme self_host/core.ax no-io,no-alloc,no-foreign ok
 tokenSpan self_host/core.ax no-io,no-alloc,no-foreign ok
 top tests/diagnostics/650-region-fixpoint-cap.ax no-escape violated
 topStrict tests/diagnostics/650-region-fixpoint-cap.ax no-escape,strict violated
+transitive tests/diagnostics/1116-extern-unsafe.ax no-unsafe violated
 tuiCat stdlib/Tui/Edit.ax no-io,no-foreign ok
 tuiVisLen stdlib/Tui/Edit.ax no-io,no-alloc,no-foreign ok
 twice tests/diagnostics/376-restrict-unknown-name.ax no-io,no-io ok
@@ -742,6 +748,7 @@ utf8Valid stdlib/Utf8.ax no-io,no-alloc,no-foreign ok
 utf8ValidFrom stdlib/Utf8.ax no-io,no-alloc,no-foreign ok
 utf8WellFormedAt stdlib/Utf8.ax no-io,no-alloc,no-foreign ok
 utf8Width stdlib/Utf8.ax no-io,no-alloc,no-foreign ok
+valueCall tests/diagnostics/1116-extern-unsafe.ax no-unsafe unverifiable
 vecAppendFrom self_host/core.ax no-io,no-foreign ok
 vecBuild stdlib/Vec.ax no-io,no-foreign ok
 vecBytes stdlib/Vec.ax no-io,no-alloc,no-foreign ok
