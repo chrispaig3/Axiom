@@ -526,7 +526,10 @@ fi
 # `printf` is not a function in this language. This is where the
 # compiler exists, so this is where they are compiled.
 # ---------------------------------------------------------------
-echo "== docs: every documented whole program compiles =="
+echo "== docs: whole programs compile and marked outputs match =="
+if ! python3 "$repo_root/tests/docs/test-doc-code.py"; then
+  failed=$((failed + 1))
+fi
 gate_prose_docs_abs
 if ! python3 "$repo_root/tests/docs/verify-doc-code.py" --compile "$work/axc" \
      "${prose_docs[@]}"; then

@@ -16,6 +16,13 @@ its changelog too.
 
 ## Unreleased
 
+- Add runnable guides for `Json`, `Rpc`, `Intern` and `Agent.Tags`,
+  including sentinel results, stream framing and storage lifetimes.
+  Link existing library and language guides from the documentation
+  index. Explicit `doc-gate:run` markers verify their displayed output,
+  standard input and exit status. Tested by `tests/docs/verify-doc-code.py` and
+  `scripts/check-doc-drift.sh`.
+
 - Audit Rust unreachable assertions across the classifier, proc macros,
   bindgen and generated host bindings. `Ret::direct_payload` now returns
   `Option<Payload>` for every return shape; handle `None` for scalar,

@@ -2,6 +2,12 @@
 """Every Axiom code block in the documentation balances its delimiters,
 and every one that presents itself as a whole PROGRAM compiles.
 
+An optional `<!-- doc-gate:run -->` immediately before a program also
+checks its stdout against the next `text` fence. The marker may carry
+a JSON object with `stdin` and `status`. These programs run from a
+temporary directory and have a 30-second timeout, including compilation.
+Unmarked output examples are not executed by this checker.
+
 WHY BALANCE FOR EVERY BLOCK. Most documented blocks are fragments - a
 column of literals, a bare expression, a `{}` block - and a fragment is
 not a module, so `axiom check` refuses 45 of the 107 that exist and is
@@ -39,8 +45,10 @@ Usage: verify-doc-code.py FILE...
 """
 
 import importlib.util
+import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -60,6 +68,9 @@ FMT = os.path.join(HERE, os.pardir, 'fmt', 'verify-fmt.py')
 # run and capped, because an opt-out nobody counts is how a sweep stops
 # sweeping.
 FENCE = re.compile(r'^```(scheme|axiom)([^\n]*)\n(.*?)^```', re.S | re.M)
+RUN_MARKER = re.compile(r'<!-- doc-gate:run(?: (\{[^\n]*\}))? -->\s*\Z')
+RUN_LINE = re.compile(r'^<!-- doc-gate:run\b.*$', re.M)
+OUTPUT = re.compile(r'^```text\n(.*?)^```', re.S | re.M)
 
 # The floor. Docs shrink, and a regex that stopped matching would report
 # the same silence as a clean sweep.
@@ -114,6 +125,56 @@ def compile_block(axiom, body, where, failures, work, must_fail=False):
     return 1
 
 
+def run_contract(src, block, where, failures):
+    """An explicit marker binds a whole program to its next text block."""
+    marker = RUN_MARKER.search(src[:block.start()])
+    if marker is None:
+        return None
+    try:
+        options = json.loads(marker.group(1) or '{}')
+        if (not isinstance(options, dict)
+                or set(options) - {'stdin', 'status'}
+                or not isinstance(options.get('stdin', ''), str)
+                or type(options.get('status', 0)) is not int
+                or not 0 <= options.get('status', 0) <= 255):
+            raise ValueError('expected optional stdin text and status 0..255')
+    except (ValueError, TypeError) as exc:
+        failures.append('%s: invalid run contract: %s' % (where, exc))
+        return None
+    info = block.group(2)
+    if (not is_program(block.group(3))
+            or any(tag in info for tag in ('fragment', 'refused', 'excerpt'))):
+        failures.append('%s: a run contract requires a whole program' % where)
+        return None
+    next_program = FENCE.search(src, block.end())
+    end = next_program.start() if next_program else len(src)
+    output = OUTPUT.search(src, block.end(), end)
+    if output is None:
+        failures.append('%s: a run contract needs a following text block' % where)
+        return None
+    return options.get('stdin', ''), options.get('status', 0), output.group(1)
+
+
+def run_block(axiom, contract, where, failures, work):
+    stdin, status, stdout = contract
+    try:
+        result = subprocess.run(
+            [axiom, '--diagnostic-format=ai', 'run', os.path.join(work, 'block.ax')],
+            input=stdin, capture_output=True, text=True, cwd=work, timeout=30)
+    except subprocess.TimeoutExpired:
+        failures.append('%s: documented program exceeded 30 seconds' % where)
+        return 0
+    if result.returncode != status:
+        failures.append('%s: run status %d, expected %d: %s'
+                        % (where, result.returncode, status, result.stderr[:160]))
+        return 0
+    if result.stdout != stdout:
+        failures.append('%s: displayed output differs: got %r, expected %r'
+                        % (where, result.stdout[:240], stdout[:240]))
+        return 0
+    return 1
+
+
 def main(argv):
     axiom = None
     if len(argv) > 2 and argv[1] == '--compile':
@@ -127,11 +188,13 @@ def main(argv):
     blocks = 0
     programs = 0
     excerpts = 0
+    runs = 0
     work = tempfile.mkdtemp(prefix='axdoc')
     failures = []
     for path in argv[1:]:
         with open(path, encoding='utf-8') as fh:
             src = fh.read()
+        markers = 0
         for m in FENCE.finditer(src):
             body = m.group(3)
             line = src[:m.start()].count('\n') + 1
@@ -154,6 +217,9 @@ def main(argv):
                     under = True
                     break
             where = '%s:%d' % (os.path.basename(path), line)
+            if RUN_MARKER.search(src[:m.start()]):
+                markers += 1
+            contract = run_contract(src, m, where, failures)
             if 'excerpt' in info:
                 excerpts += 1
                 print('     excerpt (balance not checked): %s' % where)
@@ -167,8 +233,15 @@ def main(argv):
                                 % (where, -depth))
             elif (axiom is not None and 'fragment' not in info
                   and is_program(body)):
-                programs += compile_block(axiom, body, where, failures, work,
-                                          must_fail='refused' in info)
+                compiled = compile_block(axiom, body, where, failures, work,
+                                         must_fail='refused' in info)
+                programs += compiled
+                if compiled and contract is not None:
+                    runs += run_block(axiom, contract, where, failures, work)
+        if markers != len(RUN_LINE.findall(src)):
+            failures.append('%s: a run marker is malformed or detached from its program'
+                            % os.path.basename(path))
+    shutil.rmtree(work)
     for f in failures:
         print('FAIL doc snippet %s' % f)
     if excerpts > MAX_EXCERPTS:
@@ -190,8 +263,8 @@ def main(argv):
             return 1
         print('ok   %d documented Axiom code blocks balance their delimiters '
               '(%d excerpts exempt), %d of them whole programs that compile '
-              'or are refused as documented'
-              % (blocks, excerpts, programs))
+              'or are refused as documented; %d displayed outputs verified'
+              % (blocks, excerpts, programs, runs))
         return 0
     print('ok   %d documented Axiom code blocks balance their delimiters '
           '(%d excerpts exempt)' % (blocks, excerpts))

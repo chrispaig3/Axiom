@@ -690,6 +690,10 @@ docs/cast-arg-root.md
 docs/crypto.md
 docs/obfuscation.md
 docs/chrono.md
+docs/json.md
+docs/rpc.md
+docs/intern.md
+docs/agent-tags.md
 docs/axqlite.md
 docs/axql.md
 docs/axqlite-format.md

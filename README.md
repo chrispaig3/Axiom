@@ -229,6 +229,12 @@ this repository's standard library reference.
 | [Examples](examples/README.md) | Complete programs, each one run in CI |
 | [What's ready today](docs/status.md) | Every feature's status, with the test behind it |
 | [Standard library](docs/stdlib-api.md) | Every public function, generated from the source |
+| [JSON](docs/json.md) | Reading, inspecting and writing documents |
+| [RPC framing](docs/rpc.md) | Reading and writing messages on a byte stream |
+| [String interning](docs/intern.md) | Stable IDs for repeated string contents |
+| [Dates and times](docs/chrono.md) | Calendar values, durations and ISO 8601 text |
+| [Cryptography](docs/crypto.md) | Hashes, authenticated encryption and secret storage |
+| [AxQL](docs/axql.md) | Queries, tables and database files |
 | [Effects](docs/reference.md#effects) | How effects are inferred, declared, restricted and handled |
 | [Diagnostics](docs/diagnostics.md) | Error codes, and the machine-readable formats for tools |
 | [Editor setup](docs/lsp.md) | The language server, and how to connect your editor |
@@ -237,6 +243,11 @@ this repository's standard library reference.
 | [Memory model](docs/memory-model.md) | Allocation, reference counting and regions, in full |
 | [Error model](docs/error-model.md) | `Result`, `Error`, and how failure travels |
 | [Agent harness](docs/agent-harness.md) | Tooling for agents that read and write Axiom |
+| [Symbol metadata](docs/agent-tags.md) | Reading AXSYM and agent annotations |
+| [Embedded programs](docs/embedded-guide.md) | Static heaps and freestanding targets |
+| [Restricted profile](docs/restricted-profile.md) | Checking a program against a restricted feature set |
+| [Macros](docs/macro-system.md) | Expansion rules and the syntax query vocabulary |
+| [Compatibility](docs/compatibility.md) | Public interfaces and migration records |
 | [Contributing](CONTRIBUTING.md) | Building the compiler, running the tests, and adding to them |
 
 ## Contributing
