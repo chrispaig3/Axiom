@@ -154,7 +154,8 @@ def read_asm(path, known=frozenset()):
             m = LABEL.match(line)
             if m:
                 name = m.group(1)
-                if name.startswith(".") or name.startswith("LBB") or name.startswith("Lloh"):
+                if ((name.startswith(".") and name not in known)
+                        or name.startswith("LBB") or name.startswith("Lloh")):
                     # A local label ends the straight-line prologue.
                     done = True
                     continue

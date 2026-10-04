@@ -1644,6 +1644,9 @@ def _tceval(text):
                      "mkCharTy": "Char", "mkSpawnTy": "Spawn"}[text])
     if text.startswith('(mkTVar "') and text.endswith('")'):
         return ([], "?" + text[len('(mkTVar "'):-2])
+    con = re.fullmatch(r'\(mkTCon "([^"]+)" vecNew\)', text)
+    if con:
+        return ([], con.group(1))
     if text.startswith("(mkIntArrow ") and text.endswith(")"):
         n = int(text[len("(mkIntArrow "):-1].strip())
         return (["Int"] * n, "Int")

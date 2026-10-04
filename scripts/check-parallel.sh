@@ -1341,6 +1341,8 @@ if [[ "$(uname -s)" == Linux ]]; then
 
 (:: loop (-> Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (loop i acc)
   (if (>= i $n)
     acc
@@ -1356,6 +1358,8 @@ if [[ "$(uname -s)" == Linux ]]; then
 
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   {
     (println (loop 0 0))

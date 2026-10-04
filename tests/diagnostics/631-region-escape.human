@@ -2,7 +2,7 @@
   [1;34m--> [0m631-region-escape.ax:47:10
 [1;34m   |[0m
 [1;34m47 |[0m         (concat "a" "b"))
-[1;34m   |[0m          [1;31m^^^^^^^^^ this has type `String`[0m
+[1;34m   |[0m          [1;31m^^^^^^ this has type `String`[0m
 [1;34m   |[0m
   [1;34m = [0m[1mnote: [0ma `String` is a descriptor over a second block, a struct is a block and a closure is a record; every one of them would point at reclaimed memory
   [1;34m = [0m[1;32mhelp: [0manswer a scalar - Int, Bool, Char or Float - which survives the reset by value; a reference has to be built outside the region because promotion out of the region is unavailable

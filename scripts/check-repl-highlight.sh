@@ -30,6 +30,8 @@ set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
 gate_init
+# The fixture and generated probes import the working tree's leaf modules.
+export AXIOM_PATH="$repo_root/self_host${AXIOM_PATH:+:$AXIOM_PATH}"
 
 failed=0
 checks=0
@@ -416,7 +418,7 @@ assert s != orig, "the ablation matched nothing in " + p
 open(p, "w").write(s)
 PYEOF
   set +e
-  ( cd "$sandbox" && "$axiom" run "$fixture" >/dev/null 2>&1 )
+  ( cd "$sandbox" && AXIOM_PATH="$sandbox/self_host${AXIOM_PATH:+:$AXIOM_PATH}" "$axiom" run "$fixture" >/dev/null 2>&1 )
   local rc=$?
   set -e
   checks=$((checks + 1))
