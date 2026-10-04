@@ -1267,7 +1267,12 @@ impl Decl {
             | Ret::WordLists(_)
             | Ret::Strs
             | Ret::Record(_)
-            | Ret::Records(_) => payload_axiom_type(&self.ret.direct_payload()),
+            | Ret::Records(_) => payload_axiom_type(
+                &self
+                    .ret
+                    .direct_payload()
+                    .expect("a direct cell return matched this arm"),
+            ),
             Ret::Result(p) => format!("(Result {} String)", payload_axiom_type(p)),
             Ret::Option(p) => format!("(Option {})", payload_axiom_type(p)),
             Ret::ResultOption(p) => format!("(Result (Option {}) String)", payload_axiom_type(p)),
@@ -1454,7 +1459,10 @@ impl Decl {
                 Ex::Let(binds, Box::new(Ex::Block(vec![cell_free, atom("__r")])))
             }
             Ret::Bytes | Ret::Words(_) | Ret::WordLists(_) | Ret::Strs | Ret::Records(_) => {
-                let payload = self.ret.direct_payload();
+                let payload = self
+                    .ret
+                    .direct_payload()
+                    .expect("a direct cell return matched this arm");
                 call.push(atom("__c"));
                 binds.push(("__c".into(), atom("ffiCellNew")));
                 binds.push(("__st".into(), app(call)));

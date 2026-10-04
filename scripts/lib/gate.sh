@@ -700,6 +700,7 @@ docs/assurance/anomalies.md
 docs/assurance/configurations.md
 docs/assurance/demonstrators.md
 docs/assurance/ffi-contract-audit.md
+docs/assurance/rust-assertion-audit.md
 docs/assurance/hazards.md
 docs/assurance/memory-audit.md
 docs/assurance/plan.md

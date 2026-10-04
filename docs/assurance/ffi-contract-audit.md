@@ -60,6 +60,10 @@ Generated wrappers allocate it before the call and release it afterwards.
 Raw Rust callers must also keep it aligned, writable and disjoint from
 arguments. The cell helpers expose these obligations through preconditions.
 
+The [Rust assertion audit](rust-assertion-audit.md) records the
+classifier, macro, bindgen and generated-host invariants. Unsupported
+source shapes are reported before private generation assertions.
+
 ## Remaining review
 
 Panic probes cover scalar returns, fallible out-cells and destructors

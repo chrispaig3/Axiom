@@ -16,6 +16,14 @@ its changelog too.
 
 ## Unreleased
 
+- Audit Rust unreachable assertions across the classifier, proc macros,
+  bindgen and generated host bindings. `Ret::direct_payload` now returns
+  `Option<Payload>` for every return shape; handle `None` for scalar,
+  opaque and status returns. Private generation invariants remain
+  assertions, with malformed-input probes before expansion. Tested by
+  `rust/axiom-ffi-classify/src/lib.rs` and
+  `rust/axiom-ffi-macros/src/lib.rs`.
+
 - Repair `Task` under the capture-aware region checker. `taskFold`
   refreshes one retained arena mark for each delivery and preserves its
   caller precondition; set-up errors also reclaim step allocations.

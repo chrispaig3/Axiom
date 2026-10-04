@@ -395,23 +395,21 @@ impl Ret {
         }
     }
 
-    /// The payload a DIRECT (non-status) cell-carried return puts in
-    /// the cell. The sibling of `status_payload`, for the shapes that
-    /// have no status word.
+    /// The payload of a direct cell-carried return.
     ///
-    /// Both the proc-macro and the binding generator had a private copy
-    /// of this match, under the same name - which is the drift this
-    /// crate's own header says it exists to prevent.
-    pub fn direct_payload(&self) -> Payload {
-        match self {
+    /// Returns `None` for scalars, opaque handles and status returns.
+    /// This query accepts every [`Ret`] variant.
+    pub fn direct_payload(&self) -> Option<Payload> {
+        let payload = match self {
             Ret::Bytes => Payload::Bytes,
             Ret::Words(s) => Payload::Words(*s),
             Ret::WordLists(s) => Payload::WordLists(*s),
             Ret::Strs => Payload::Strs,
             Ret::Record(r) => Payload::Record(r.clone()),
             Ret::Records(r) => Payload::Records(r.clone()),
-            _ => unreachable!("only the cell-carried shapes are direct payloads"),
-        }
+            _ => return None,
+        };
+        Some(payload)
     }
 
     /// The number of words the out-cell must hold: two for every
@@ -1997,6 +1995,60 @@ mod tests {
         assert_eq!(names, vec!["Point", "Line"]);
         assert!(named_types(&[Param::Str], &Ret::Bytes).is_empty());
         assert_eq!(companion_module("Point"), "__axiom_type_Point");
+    }
+
+    #[test]
+    fn direct_payload_is_total_over_return_shapes() {
+        let direct = [
+            Ret::Bytes,
+            Ret::Words(Scalar::I64),
+            Ret::WordLists(Scalar::F64),
+            Ret::Strs,
+            Ret::Record(classify_point()),
+            Ret::Records(classify_point()),
+        ];
+        for ret in direct {
+            assert!(ret.needs_cell());
+            assert!(ret.status_payload().is_none());
+            let payload = ret.direct_payload().expect("direct cell payload");
+            assert!(matches!(
+                (&ret, payload),
+                (Ret::Bytes, Payload::Bytes)
+                    | (Ret::Words(Scalar::I64), Payload::Words(Scalar::I64))
+                    | (Ret::WordLists(Scalar::F64), Payload::WordLists(Scalar::F64))
+                    | (Ret::Strs, Payload::Strs)
+                    | (Ret::Record(_), Payload::Record(_))
+                    | (Ret::Records(_), Payload::Records(_))
+            ));
+        }
+        for ret in [
+            Ret::Scalar(Scalar::I64),
+            Ret::Scalar(Scalar::Unit),
+            Ret::Opaque(classify_opaque()),
+            Ret::Result(Payload::Bytes),
+            Ret::Option(Payload::Words(Scalar::I64)),
+            Ret::ResultOption(Payload::Record(classify_point())),
+            Ret::OptionResult(Payload::Scalar(Scalar::Unit)),
+        ] {
+            assert!(ret.direct_payload().is_none(), "{ret:?}");
+        }
+    }
+
+    #[test]
+    fn malformed_status_wrappers_are_reported_before_payload_dispatch() {
+        for bad in [
+            "Option",
+            "Result",
+            "Option<>",
+            "Result<>",
+            "Result<Option<>, E>",
+            "Option<Result<>>",
+            "std::option::Option<Option<i64>>",
+            "std::result::Result<Result<i64, E>, E>",
+        ] {
+            let error = classify_return(Some(&ty(bad))).expect_err(bad);
+            assert!(error.contains(RETURN_TYPES), "{bad}: {error}");
+        }
     }
 
     #[test]

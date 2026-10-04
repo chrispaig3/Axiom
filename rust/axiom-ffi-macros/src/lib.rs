@@ -948,7 +948,10 @@ fn expand_shim(
             | Ret::Strs
             | Ret::Record(_)
             | Ret::Records(_) => {
-                let store = store_payload(&ret.direct_payload());
+                let store = store_payload(
+                    &ret.direct_payload()
+                        .expect("a direct cell return matched this arm"),
+                );
                 quote! {
                     let v = #body_call;
                     #store
@@ -1123,5 +1126,36 @@ fn record_store(r: &RecordTy) -> TokenStream2 {
         // SAFETY: Axiom glue allocated a cell of at least ARITY words
         // for this call; `cell` is not read again on this path.
         unsafe { ::axiom_ffi::__private::write_record::<#t>(out, &v) };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn refused_signature_shapes_never_reach_shim_assertions() {
+        for source in [
+            "pub fn receiver(&self) -> i64 { 0 }",
+            "pub fn unit(value: ()) -> i64 { 0 }",
+            "pub fn units(value: &[()]) -> i64 { 0 }",
+            "pub fn nested_units(value: &[&[()]]) -> i64 { 0 }",
+            "pub fn narrow_mut(value: &mut [i32]) -> i64 { 0 }",
+            "pub fn float_mut(value: &mut [f32]) -> i64 { 0 }",
+            "pub fn bool_mut(value: &mut [bool]) -> i64 { 0 }",
+            "pub fn optional() -> Option<Option<i64>> { todo!() }",
+        ] {
+            let item: ItemFn = syn::parse_str(source).expect(source);
+            let error = classify_signature(&item, &cls::NoRecords).expect_err(source);
+            assert!(!error.to_string().is_empty(), "{source}");
+            assert!(expand_export(item, cls::ExportAttr::default(), &cls::NoRecords).is_err());
+        }
+    }
+
+    #[test]
+    fn unit_record_fields_are_reported_before_record_assertions() {
+        let item = syn::parse_str("pub struct Bad { pub value: () }").unwrap();
+        let error = expand_record(item).expect_err("unit record field");
+        assert!(error.to_string().contains("value"), "{error}");
     }
 }
