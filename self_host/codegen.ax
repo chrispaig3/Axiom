@@ -17461,7 +17461,9 @@
             (let ((cg1c (bindCaps cg1b capNames capFloats 0)))
               (let ((_t (memSetWord cg1c 41
                 (if (!= (fldClass cg1c resultTy) 0)
-                  (let ((tails vecNew)) { (collectTails cg1c body lparams vecNew "" tails) tails })
+                  ; Captures are borrowed from this closure's environment.
+                  ; Their names shadow globals during the ownership walk.
+                  (let ((tails vecNew)) { (collectTails cg1c body lparams (envWithAll vecNew capNames 0) "" tails) tails })
                   vecNew))))
               (let ((cg2 (emitExprTail body cg1c)))
                 (let ((ret (concat "  ret i64 " (concat (strDup (memGetWordStr cg2 2)) ""))))

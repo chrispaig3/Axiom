@@ -43,6 +43,11 @@ Tested by `scripts/check-obfuscation.sh`, `scripts/check-task.sh`,
 
 <!-- release-notes: end of highlights -->
 
+- Retain a lambda's returned capture even when an unused global has the
+  same name. The ownership walk now includes captured names in scope.
+  Tested by `tests/selfhost/1014-lambda-capture-shadows-global.ax` and
+  `scripts/check-metamorphic.sh`.
+
 - Condense the language reference and collect library recipes in one
   standard-library guide, including TCP addresses, stream ownership and
   shutdown with `Net`. Add a short docs index and retain existing

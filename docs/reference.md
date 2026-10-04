@@ -1424,11 +1424,6 @@ The compiler is itself Axiom. A clean checkout bootstraps from the
 committed seed and requires a self-hosting fixpoint. See
 [compiler inspection](compiler-guide.md) and [contributing](../CONTRIBUTING.md).
 
-```text
-Axiom 0.7.8 (build unstamped)
-```
-
-
 ## Removed features
 
 Traits and `impl` are replaced by capability records. Use `Vec` for
