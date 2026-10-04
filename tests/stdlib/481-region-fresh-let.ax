@@ -1,4 +1,4 @@
-; S4 slice 2, scope-end path (docs/memory-model-v2-design.md §4):
+; S4 slice 2, scope-end path (docs/memory-model.md §4):
 ; inside a `(region r BODY)` a `let` binding whose initialiser the
 ; witness proved fresh needs no scope-end `axiom_release` - the reset
 ; reclaims it in one pointer move. The stamp is the same one the args

@@ -349,7 +349,7 @@ and connect it to terminal I/O. `Test` provides labelled assertions for
 `axiom test`. `Agent.Tags` reads AXSYM declarations, effects and tags.
 
 See [testing](reference.md#testing), [editor setup](lsp.md) and
-[symbol metadata](agent-tags.md). Their signatures are in the
+[symbol metadata](diagnostics.md#read-symbol-tags). Their signatures are in the
 [generated API](stdlib-api.md).
 
 ## Mem and Ffi

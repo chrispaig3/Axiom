@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# S4 slice 1 (docs/memory-model-v2-design.md §4): inside a `(region r
+# S4 slice 1 (docs/memory-model.md §3.6): inside a `(region r
 # BODY)` a value the body itself constructed and drops needs no
 # `axiom_release` - the reset reclaims it in one pointer move - and
 # this is what holds that the elision fires, fires only there, and
@@ -59,7 +59,7 @@
 #      compilers: the probe built by this compiler and by the ablated
 #      one is refused identically. If the hole ever reopened so both
 #      built again, identical answers would still pass.
-#      Recorded in the design note's S4 subsection, not fixed here.
+#      Recorded in the region release gate's S4 subsection, not fixed here.
 #
 # What this gate does NOT cover, stated rather than left to be
 # found: `VAR` operands (def-tracking), field stores (paired
@@ -349,7 +349,7 @@ else
   if [[ "$out_new" != "$out_abl" || "$rc_new" != "$rc_abl" ]]; then
     bad "the probe answers '$out_new'/$rc_new under test against '$out_abl'/$rc_abl ablated - the elision changed it"
   else
-    ok "callee-mediated store reads back '$out_new'/$rc_new both ways - identical, and still wrong (see the design note)"
+    ok "callee-mediated store reads back '$out_new'/$rc_new both ways - identical, and still wrong (see MM-RGN-3 in docs/memory-model.md)"
   fi
 fi
 

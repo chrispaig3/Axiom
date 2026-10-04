@@ -316,7 +316,7 @@
 ; this function could take an `Option` while KEEPING the `no-alloc`
 ; claim above it. A function whose every tail is `None` or `(Some e)`
 ; is emitted as a two-register pair with no block behind it
-; (docs/unboxed-sums-design.md section 5b) - but `tailCallsSelf` is a
+; (docs/error-model.md section 5b) - but `tailCallsSelf` is a
 ; refusal in that eligibility test (`self_host/codegen.ax`, the
 ; `wantsTCO` arm), so the recursive spelling this function carried
 ; until 0.7.5 would have kept the BOXED body and drawn `AX3049`

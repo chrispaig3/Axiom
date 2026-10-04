@@ -1,4 +1,4 @@
-; S4 slice 3, scope-end path (docs/memory-model-v2-design.md §4):
+; S4 slice 3, scope-end path (docs/memory-model.md §4):
 ; inside a `(region r BODY)` a `let` binding whose initialiser is a
 ; join the witness proved fresh - every arm a stamped call or such
 ; a join - needs no scope-end `axiom_release`, because the reset

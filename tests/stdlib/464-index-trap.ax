@@ -7,7 +7,7 @@
 ; functions the runtime block emits, so nothing in `stdlib/` could
 ; reach one. A container that wants to REFUSE an out-of-range index
 ; rather than answer a value needs exactly that:
-; `docs/generics-design.md` section 4 records the decision that
+; `docs/reference.md` section 4 records the decision that
 ; `vecGet` should trap, and the reason it could not - `(-> (Vec a) Int
 ; a)` cannot answer 0, because there is no way to make up an `a`.
 ;

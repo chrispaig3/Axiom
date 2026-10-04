@@ -6,7 +6,7 @@
 ; WHY THE COVERAGE MOVED HERE. `vecPop`'s body answered `0` on an empty
 ; vector, and under `(-> (Vec a) a)` that `0` FABRICATES an `a` -
 ; exactly what `vecGet`'s out-of-range sentinel did before it was made
-; to trap. `docs/generics-design.md` section 4 records the decision for
+; to trap. `docs/reference.md` section 4 records the decision for
 ; `vecGet`, and the paragraph that follows it ("`vecPop` is a second
 ; `vecGet`, and section 4 did not name it") records this one. A caller
 ; who does not know the vector is non-empty bounds the walk by

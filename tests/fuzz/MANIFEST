@@ -15,7 +15,7 @@
 # `.axfuzz`, not `.ax`: a repository-wide sweep (census counts, `fmt`,
 # the tree-sitter parse) reads every `.ax`, and a crasher must not be
 # one. Found, minimized and recorded 2026-09-27; the findings are in
-# docs/assurance/verification.md.
+# docs/diagnostics.md.
 render-spanless-cross.axfuzz	fixed	-	-	-	`check` SIGSEGV in the human renderer: `secNoteText` asked `diagSecCross` before the span, so a restriction path's spanless hop in another unit reached `fmtSpanIx` with a null span (fixed in self_host/render.ax)
 region-nonarrow-sig.axfuzz	fixed	-	-	-	`check` SIGSEGV in the region pass: `rgnKnownCall` asked `rgTyScalar` about `(nthParamTy sig i 0)`, whose fallback 0 (a signature that is not an arrow, `(:: wrapBox ())`) reached `nodeTag` as a null pointer; now refused as AX3004 (fixed in self_host/typecheck.ax)
 dup-param-llc.axfuzz	fixed	-	-	-	a parameter list naming one variable twice checked OK and emitted a `define` llc refuses (redefinition of argument); now AX3006, the duplicate-definition code, at the function's name - `_` included, since a `fn` parameter named `_` is readable (fixed in self_host/typecheck.ax `checkDupParams`; tests/diagnostics/1011)

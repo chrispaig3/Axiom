@@ -2,7 +2,7 @@
 # `parallel`: one surface, two lowerings, the same bytes out of both.
 #
 # `(parallel p ((a e1) (b e2)) body)` runs every binding beside the
-# caller and joins them in argument order (docs/memory-model-v2-design.md
+# caller and joins them in argument order (docs/memory-model.md
 # MM-RGN-7, `self_host/parser.ax` `parseParallelExpr`). Codegen lowers
 # the pair of primitives it desugars to in two ways - PROCESSES by
 # default (fork, one shared page per binding, wait4) and THREADS under

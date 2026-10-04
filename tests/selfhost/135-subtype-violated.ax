@@ -4,7 +4,7 @@
 ;
 ; 80 IS THE CONTRACT TRAP, and sharing it is the point of the case.
 ; A subtype adds no new enforcement mechanism over a `pre`
-; (`docs/subtypes-design.md` Question 1): the conversion is a
+; (`docs/reference.md` Question 1): the conversion is a
 ; compare, a branch, and a call to `@__axiom_contract_fail`, which
 ; `docs/memory-model.md` MM-EXEC-16 reserves status 80 for since
 ; 2026-09-08 (roadmap item 11, D3). A supervisor reading a status

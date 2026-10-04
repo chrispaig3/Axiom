@@ -2,7 +2,7 @@
 # ---------------------------------------------------------------------
 # The arena's - and now the trap path's - assumptions about a hosted
 # operating system, removed and gated, plus the reference port's
-# device leg. docs/embedded-proposal.md 4.1, 4.2, 4.3 and 6, and the
+# device leg. docs/embedded-guide.md and 6, and the
 # gate its section 8 names for all four rows.
 #
 # WHAT THE THREE ITEMS ARE. The emitted allocator asked the kernel for a
@@ -1111,7 +1111,7 @@ fi
 # ---------------------------------------------------------------------
 echo "== A10. section 6: the blink fixture runs under QEMU =="
 # ---------------------------------------------------------------------
-# The reference port's device leg, docs/embedded-proposal.md section 6:
+# The reference port's device leg, docs/embedded-guide.md:
 # the blink fixture built for `baremetal-aarch64` and booted under
 # `qemu-system-aarch64 -machine virt`, its UART bytes and its exit
 # status asserted - plus the oversized ablation, a program too large
@@ -1734,7 +1734,7 @@ fi
 # ---------------------------------------------------------------------
 echo "== A13. a periodic workload on the timer's interrupt, within its budgets =="
 # ---------------------------------------------------------------------
-# docs/assurance/demonstrators.md D-5. `main` initialises once and then
+# docs/embedded-guide.md D-5. `main` initialises once and then
 # only waits; the virtual timer's interrupt, routed through QEMU virt's
 # GICv2 to the `isr(irq)` handler, counts ticks and re-arms; one run of a
 # `restrict(no-alloc, no-recursion, strict)` step per tick. The program
@@ -1810,7 +1810,7 @@ fi
 # ---------------------------------------------------------------------
 echo "== A14. a driver with interrupt and DMA ownership boundaries =="
 # ---------------------------------------------------------------------
-# docs/assurance/demonstrators.md D-6. QEMU virt's fw_cfg has a DMA
+# docs/embedded-guide.md D-6. QEMU virt's fw_cfg has a DMA
 # engine: it reads a descriptor from guest memory and writes the item
 # into a guest buffer. `tests/embedded/dma.ax` reads the file directory
 # that way under a CPU/device ownership protocol whose every step is a
@@ -2076,7 +2076,7 @@ fault_line() { grep -m1 '^axiom: unhandled CPU exception at vector ' "$1"; }
 echo
 echo "== A16. the MMU on: identity-mapped tables, Normal RAM, Device peripherals, both caches =="
 # ---------------------------------------------------------------------
-# docs/embedded-guide.md section 6, docs/memory-model.md MM-EXEC-19.
+# docs/embedded-guide.md, docs/memory-model.md MM-EXEC-19.
 # `_start` builds identity-mapped translation tables with the MMU off
 # (`emitMmuTables`) and then turns the MMU and both caches on
 # (`mmuEnableAsm`): code read-only and executable, read-only data

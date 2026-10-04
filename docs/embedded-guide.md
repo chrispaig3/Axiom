@@ -1,16 +1,7 @@
 # Embedded and OS integration guide — `baremetal-aarch64`
 
-<!-- STATUS. This is the integration guide for the bare-metal port that
-     docs/embedded-proposal.md section 6 built. It says what the port
-     does, what a program on it may rely on, and - in the last section -
-     exactly what was executed where. Every behaviour below was run under
-     QEMU's TCG emulator or checked on emitted code; NOTHING here has run
-     on hardware, and nothing here is a hardware, certification or
-     mission-suitability claim. Where a property is emulator evidence or
-     compile-only evidence, the sentence says which.
-
-     The proposal is the design record and stays one; this is the
-     reference a program's author reads. -->
+The port has been executed under QEMU TCG and checked by emission
+gates. No behaviour here has been validated on hardware.
 
 ## 1. The target in one table
 

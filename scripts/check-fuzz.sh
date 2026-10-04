@@ -906,7 +906,7 @@ else
         elif [[ "$f_verdict" == fail ]]; then
           bad "$file fails DIFFERENTLY: $f_stage - $f_why${f_detail:+ - $f_detail}; MANIFEST says $stage /$sig/"
         else
-          bad "$file no longer fails ($f_verdict): mark it fixed in tests/fuzz/MANIFEST and docs/assurance/verification.md"
+          bad "$file no longer fails ($f_verdict): mark it fixed in tests/fuzz/MANIFEST and CONTRIBUTING.md"
         fi ;;
       *) bad "$file: status '$status' is neither fixed nor open" ;;
     esac

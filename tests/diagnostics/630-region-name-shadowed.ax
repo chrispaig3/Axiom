@@ -1,7 +1,7 @@
 ; A nested `region` reusing an enclosing region's name.
 ;
 ; Regions are ordered by NESTING - MM-RGN-2 of
-; docs/memory-model-v2-design.md: an inner region's extent is inside
+; docs/memory-model.md: an inner region's extent is inside
 ; its enclosing one's, and that is the whole of what "outlives" means
 ; for them. A name that named two open extents at once could not be
 ; placed in that order, so the checker keeps the stack of open regions

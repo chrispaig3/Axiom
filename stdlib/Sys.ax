@@ -188,7 +188,7 @@
 ; What is below it moved: `sysWriteFd` answers `(Result Int Error)`
 ; since 2026-09-03, and this loop matches that call DIRECTLY, which the
 ; emitter reads from two registers with no block built on the success
-; path (`docs/unboxed-sums-design.md`; `scripts/check-unboxed-sums.sh`
+; path (`docs/error-model.md`; `scripts/check-unboxed-sums.sh`
 ; counts the blocks). The match sits in a `let` on purpose: in tail
 ; position the self call under it would lose its loop, and a partial
 ; write is the one case that recurses.

@@ -1,4 +1,4 @@
-; S4 slice 1 (docs/memory-model-v2-design.md §4): inside a
+; S4 slice 1 (docs/memory-model.md §4): inside a
 ; `(region r BODY)` a value the body itself constructed and drops
 ; needs no `axiom_release` - the reset reclaims it in one pointer
 ; move. `scripts/check-region-reclaim.sh` holds the release counts,

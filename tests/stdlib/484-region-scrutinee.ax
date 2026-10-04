@@ -1,4 +1,4 @@
-; S4 slice 4, scrutinee path (docs/memory-model-v2-design.md §4):
+; S4 slice 4, scrutinee path (docs/memory-model.md §4):
 ; inside a `(region r BODY)` a `match` whose scrutinee the witness
 ; proved fresh - a call result, or a join whose every arm is one -
 ; needs no merge-path `axiom_release` for the temporary it

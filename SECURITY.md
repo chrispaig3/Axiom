@@ -98,6 +98,20 @@ way in CI. See `CONTRIBUTING.md` and `bootstrap/README.md`.
 - **`rust/examples/`.** These crates exist to exercise the FFI tests.
   They aren't shipped, and the compiler doesn't depend on them.
 
+## Threat boundaries
+
+Treat fetched source and build dependencies as untrusted inputs. The
+compiler's parser and expander limit nesting and expansion, but other
+compile-time resource exhaustion remains possible. The emitted LLVM IR
+passes through host tools that can change the executable. The runtime
+protects typed containers and live handles; raw casts, `Int` addresses,
+foreign shims and shared pages require the caller's contract. Release
+archives and checksums come from the same origin and are not signed.
+
+See [memory obligations](docs/memory-model.md#program-obligations),
+[FFI safety](docs/ffi.md#safety-contract) and
+[bootstrap threats](bootstrap/THREATS.md).
+
 ## The supply chain
 
 The compiler is self-hosted, so the seed in `bootstrap/` is the root of

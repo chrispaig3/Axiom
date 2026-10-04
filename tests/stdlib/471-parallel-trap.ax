@@ -9,7 +9,7 @@
 ; processes the child dies alone, so `__axiom_par_join_proc` reads its
 ; wait status and exits with the same number - the child wrote the
 ; message. Status 77 is `vecGet`'s out-of-range trap
-; (`docs/generics-design.md` section 4); this case pins it out of both
+; (`docs/reference.md` section 4); this case pins it out of both
 ; lowerings, with `before` on stdout and nothing after the form.
 ;
 ; The join of `a` is what propagates, and `b` - which would have

@@ -724,7 +724,7 @@ floor=8192       # 8 MiB
 # peaks at 444.7 MiB under this gate's own compiler - 0.7% under the
 # ceiling, eaten by the slices between 2026-08-30 and here, exactly
 # the way the 540 -> 420 entry describes. The regions stage (S3 of
-# docs/memory-model-v2-design.md) added 2,005 lines to self_host/ and
+# docs/memory-model.md) added 2,005 lines to self_host/ and
 # crossed it at 454 MiB. Priced the way the two entries above price a
 # move, on `axiom build`-produced binaries, in KiB:
 #

@@ -466,7 +466,7 @@
 ; reads it for a FIELD, `emitFnDef` for a declaration). Codegen
 ; cannot compute it: it has no types.
 ; 1 while the register-pair variant of a function is being emitted
-; (`docs/unboxed-sums-design.md`). It changes exactly two things:
+; (`docs/error-model.md`). It changes exactly two things:
 ; the `define` line's return type and name, and what a TAIL LEAF
 ; that is an eligible constructor emits - a `ret { i64, i64 }`
 ; instead of a block. Every other emitter runs unchanged, because
@@ -566,7 +566,7 @@
       ; it round once per function emitted.
       (vecPush ps 0)
       ; slot 9: region-body depth, for S4's first slice
-      ; (docs/memory-model-v2-design.md §4). 0 outside any `region`
+      ; (docs/memory-model.md §3.6). 0 outside any `region`
       ; body; `emitRegion` counts it up around the body and back
       ; down after, and `emitLamDef` clears it across a lambda body
       ; whose execution may outlive the reset. Read only by
@@ -5468,7 +5468,7 @@
     "internal global"))
 
 ; ------------------------------------------------------------------
-; Threads and `parallel` - S5 and S6 of docs/memory-model-v2-design.md.
+; Threads and `parallel` - S5 and S6 of docs/memory-model.md.
 ;
 ; Six primitives, two runtimes, one predicate. A program spells
 ;
@@ -5485,7 +5485,7 @@
 ; wait status instead of re-raising it; the parser never writes one -
 ; `(parallel ...)` keeps the raising join - and `stdlib/Par.ax`'s
 ; checked pool is the caller they exist for. The two runtimes are
-; the two lowerings of docs/memory-model-v2-design.md §3.3 - PROCESSES
+; the two lowerings of docs/memory-model.md §6 - PROCESSES
 ; by default, because MM-PAR-3 makes their isolation true by
 ; construction and costs nothing (fork, wait4, one shared page per
 ; binding); THREADS under `--threads`, because a thread is what a
@@ -5655,7 +5655,7 @@
   ; bump pointer from a cursor initialised to the same base and carve
   ; the same bytes twice; leaving the cursor shared instead makes it a
   ; data race on the one word the whole heap is built from. Neither is
-  ; a lowering worth emitting, and docs/embedded-proposal.md 7 puts
+  ; a lowering worth emitting, and docs/embedded-guide.md §5 puts
   ; threads out of scope for bare metal for the same reason. So a
   ; static target answers "no threads" here and `main.ax` refuses
   ;   `--threads` on it as AX4006, which already means exactly this.
@@ -9206,7 +9206,7 @@
 
 ; ------------------------------------------------------------------
 ; THE ARENA'S SIZE AND ITS SOURCE OF PAGES, per target.
-; docs/embedded-proposal.md 4.1 and 4.2.
+; docs/embedded-guide.md §§1–2.
 ;
 ; Until 2026-09-04 the chunk size was the literal `1048576` written
 ; twice into `emitAllocator`'s `refill:` block, and `mmap` was the only
@@ -9286,7 +9286,7 @@
 ; is visible in BOTH processes, and a `.bss` array is copied. So a
 ; program that spells `parallel` still names `mmap` on a static target.
 ; That is not a hole this item can close - it is
-; docs/embedded-proposal.md section 7's "threads are out of scope",
+; docs/embedded-guide.md §1's "threads are out of scope",
 ; which a bare-metal port will have to answer for processes as well,
 ; the way windows-x86_64 already does by compiling both primitives to a
 ; trap. `targetHasThreads` below refuses the THREAD half here because
@@ -12500,7 +12500,7 @@
         cg
       })))
 
-; An index out of range: status 77, `docs/generics-design.md` section 4.
+; An index out of range: status 77, `docs/memory-model.md` MM-EXEC-16.
 ;
 ; WHY A TRAP AND NOT AN ANSWER. `vecGet` answered 0, and
 ; `stdlib/Vec.ax`'s own comment calls that "the worse of the two
@@ -20191,12 +20191,12 @@
 ; violated contract and an out-of-range index differ the same way - the
 ; sentence on fd 2 told them apart, the status did not. `__indexTrap`
 ; held 77 on trunk first, so the contract trap is the one that moves.
-; The collision's history is kept in `docs/subtypes-design.md`; what
+; The distinct statuses are in `docs/memory-model.md`; what
 ; was fixed with the move is every party that said 77 about a
 ; contract: this comment, `explain.ax`'s AX3050 page, the AX3050 help
 ; text, `MM-EXEC-16`'s table (which gains the 80 row the contract trap
 ; never had), `docs/error-model.md`, `docs/reference.md`,
-; `docs/contracts-design.md` and `CONTRIBUTING.md`.
+; `docs/reference.md` and `CONTRIBUTING.md`.
 ;
 ; The message arrives as a `Str` HANDLE, whose word 0 is the length and
 ; whose word 1 is the byte pointer (`emitStrEqHelper` reads the same
@@ -22288,7 +22288,7 @@
         (isNullaryConNode cg (spineHead e))
         0))))
 
-; S4 slice 1 (docs/memory-model-v2-design.md §4): a release the
+; S4 slice 1 (docs/memory-model.md §3.6): a release the
 ; region's own reset makes redundant.
 ;
 ; Inside a `(region r BODY)` every allocation lands after the body's
@@ -23145,7 +23145,7 @@
           })))))
 
 ; ------------------------------------------------------------------
-; The register-pair representation (docs/unboxed-sums-design.md).
+; The register-pair representation (docs/error-model.md).
 ;
 ; `(Some v)` is a 16-byte block - `axiom_alloc`, a shape word, a tag, a
 ; refcount and the field - that a matching consumer reads back and
@@ -25521,7 +25521,7 @@
 ; ------------------------------------------------------------------
 ; `(region r EXPR)`: read the allocator's waterline, run the body,
 ; roll the waterline back, answer the body's value. MM-RGN-1, and
-; docs/memory-model-v2-design.md §2.1 is exact about the runtime: there
+; docs/memory-model.md §3.6 is exact about the runtime: there
 ; is none to add. `@__axiom_arena_reset_fn` IS the reset, and it takes
 ; a MARK CELL - three words: the bump, its end and the chunk.
 ;

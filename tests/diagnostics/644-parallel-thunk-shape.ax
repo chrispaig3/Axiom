@@ -1,4 +1,4 @@
-; MM-PAR-6, the opaque-thunk half (docs/memory-model-v2-design.md 3.2b).
+; MM-PAR-6, the opaque-thunk half (docs/memory-model.md 3.2b).
 ;
 ; `checkSpawnCaptures` scans a literal-lambda thunk (`642`) and refuses
 ; a frame-local arrow name (`643`), but a thunk that is neither - a

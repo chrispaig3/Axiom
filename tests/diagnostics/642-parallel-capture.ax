@@ -1,5 +1,5 @@
 ; MM-PAR-6: what a `parallel` binding may CAPTURE
-; (docs/memory-model-v2-design.md section 3.2b).
+; (docs/memory-model.md section 3.2b).
 ;
 ; A binding runs BESIDE its parent, and `axiom_retain`/`axiom_release`
 ; are a plain load-add-store rather than an `atomicrmw`. So a heap

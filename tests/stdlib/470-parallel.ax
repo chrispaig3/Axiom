@@ -1,5 +1,5 @@
 ; `parallel`: the concurrency form, MM-RGN-7 of
-; docs/memory-model-v2-design.md, under the lowering the build selects.
+; docs/memory-model.md, under the lowering the build selects.
 ;
 ; `(parallel p ((a e1) (b e2)) body)` runs every binding's expression
 ; BESIDE the caller, binds the answers in ARGUMENT ORDER, and runs the

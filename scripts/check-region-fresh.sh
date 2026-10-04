@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# S4 slice 2, args path (docs/memory-model-v2-design.md §4): inside a
+# S4 slice 2, args path (docs/memory-model.md §3.6): inside a
 # `(region r BODY)` a call result the witness proved fresh needs no
 # `axiom_release` - the reset reclaims it in one pointer move - and
 # this is what holds that the elision fires, fires only there, and
@@ -81,7 +81,7 @@
 #      both compilers refuse identically. The elision cannot change
 #      that outcome either way, since the reset frees unconditionally;
 #      and if the hole ever reopened, identical answers under both
-#      compilers would still pass. Recorded in the design note's S4
+#      compilers would still pass. Recorded in the region release gate's S4
 #      subsection, closed there too.
 #
 # What this gate does NOT cover, stated rather than left to be
@@ -373,7 +373,7 @@ else
   if [[ "$out_new" != "$out_abl" || "$rc_new" != "$rc_abl" ]]; then
     bad "the probe answers '$out_new'/$rc_new under test against '$out_abl'/$rc_abl ablated - the elision changed it"
   else
-    ok "callee-mediated store reads back '$out_new'/$rc_new both ways - identical, and still wrong (see the design note)"
+    ok "callee-mediated store reads back '$out_new'/$rc_new both ways - identical, and still wrong (see MM-RGN-3 in docs/memory-model.md)"
   fi
 fi
 

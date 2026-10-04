@@ -305,7 +305,7 @@ gate_sha() {
 # `H` are reserved and never emitted. A line shaped like a diagnostic
 # (`X AX3001 ...`) with a letter outside that set would therefore pass
 # every gate that filters before it compares - a gate reporting less
-# than it knows (docs/mir-design.md §5). This answers whether such a
+# than it knows (docs/compiler-guide.md §5). This answers whether such a
 # line is present, printing it and returning nonzero when one is, so
 # the call sites read it beside the filters rather than through them.
 gate_axdl_unknown_kind() {
@@ -672,52 +672,19 @@ docs/error-model.md
 docs/ffi.md
 docs/macro-system.md
 docs/memory-model.md
-docs/memory-model-v2-proposal.md
-docs/memory-model-v2-design.md
 docs/agent-harness.md
 docs/compatibility.md
 docs/lsp.md
 docs/stdlib-api.md
-docs/checked-arithmetic-design.md
-docs/contracts-design.md
-docs/subtypes-design.md
-docs/unboxed-sums-design.md
-docs/generics-design.md
-docs/mir-design.md
+docs/compiler-guide.md
 docs/status.md
-docs/embedded-proposal.md
 docs/embedded-guide.md
 docs/restricted-profile.md
-docs/cast-arg-root.md
 docs/crypto.md
 docs/obfuscation.md
 docs/chrono.md
-docs/json.md
-docs/rpc.md
-docs/intern.md
-docs/agent-tags.md
-docs/compiler-guide.md
 docs/axqlite.md
 docs/axql.md
 docs/axqlite-format.md
-docs/refusal-ledger.md
-docs/roadmap-type-system.md
-docs/assurance/anomalies.md
-docs/assurance/configurations.md
-docs/assurance/demonstrators.md
-docs/assurance/ffi-contract-audit.md
-docs/assurance/rust-assertion-audit.md
-docs/assurance/hazards.md
-docs/assurance/memory-audit.md
-docs/assurance/plan.md
-docs/assurance/qualification.md
-docs/assurance/requirements.md
-docs/assurance/safety-manual.md
-docs/assurance/scorecard.md
-docs/assurance/support-policy.md
-docs/assurance/threats.md
-docs/assurance/tool-qualification.md
-docs/assurance/trusted-components.md
-docs/assurance/verification.md
 DOCS
 }

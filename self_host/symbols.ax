@@ -1611,7 +1611,7 @@
                         ; whose callers must each say `effect(unsafe)`
                         ; themselves. So `grep '#unsafe=trusted'` over
                         ; this stream is the program's trusted set, the
-                        ; list `docs/assurance/trusted-components.md`
+                        ; list `CONTRIBUTING.md`
                         ; counts. A derived key, so an author may not
                         ; spell it (`axtagReservedKey`).
                         (if (== (memGetWord e 9) 1)

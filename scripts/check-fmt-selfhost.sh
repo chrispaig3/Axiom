@@ -243,9 +243,11 @@ else
   LC_ALL=C sort "$work/observed" > "$work/observed.sorted"
   entries="$(wc -l <"$work/table.sorted" | tr -d ' ')"
   distinct="$(awk '{print $2}' "$work/table.sorted" | LC_ALL=C sort -u | wc -l | tr -d ' ')"
-  LC_ALL=C join -j 1 -o 0,1.2,2.2,1.3 "$work/table.sorted" "$work/observed.sorted" \
+  LC_ALL=C join -j 1 -o 0,1.2,2.2,2.3 "$work/table.sorted" "$work/observed.sorted" \
     > "$work/joined"
-  hits="$(wc -l <"$work/joined" | tr -d ' ')"
+  # Identical files share a source hash. Compare every expected mapping,
+  # then count each observed path once so duplicate rows cannot hide gaps.
+  hits="$(awk '{print $4}' "$work/joined" | LC_ALL=C sort -u | wc -l | tr -d ' ')"
   awk '$2 != $3 {print "     " $4 ": golden says " $2 ", the formatter produced " $3}' \
     "$work/joined" > "$work/table.bad"
   bad="$(wc -l <"$work/table.bad" | tr -d ' ')"
@@ -279,21 +281,15 @@ else
   # already reports, and each regeneration would then have to move
   # three.
   if [[ $hits -lt 380 ]]; then
-    echo "FAIL: only $hits of $entries table entries still match a file in the tree;"
+    echo "FAIL: only $hits files in the tree match a pinned source hash;"
     echo "      the floor is 380 (977 of 977 hit today) - the table has decayed and must be regenerated"
     failed=$((failed + 1))
   elif [[ $bad -eq 0 ]]; then
-    echo "ok   $hits of $entries pinned source->formatted mappings reproduced"
+    echo "ok   $hits files reproduce pinned source->formatted mappings"
   fi
 
-  # THE OTHER DIRECTION, and it is the one that went unnoticed. The hit
-  # count above measures how much of the TABLE is still live; it says
-  # nothing about how much of the TREE the table covers. On 2026-08-22
-  # those two numbers had come apart completely: 308 of 354 entries
-  # still matched - comfortably above the floor, reported as healthy -
-  # while 143 of the 451 `.ax` files in the tree had no entry at all,
-  # among them 17 of the 22 compiler sources. A formatter bug in
-  # `codegen.ax`'s shape would have had nothing to disagree with.
+  # Compare covered files with the current population. A growing tree
+  # can have many live mappings while leaving new or edited files unpinned.
   unpinned=$(( $(wc -l <"$work/observed.sorted" | tr -d ' ') - hits ))
   if [[ $unpinned -gt 60 ]]; then
     echo "FAIL: $unpinned .ax files in the tree have no entry in the table"

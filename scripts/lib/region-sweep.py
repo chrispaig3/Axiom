@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The two-region sweep of docs/memory-model-v2-design.md §5, probe 1,
+"""The two-region sweep of docs/memory-model.md MM-RGN-3,
 as a program rather than a number somebody once took.
 
 A function RELATES TWO REGIONS when a store inside it puts a value that

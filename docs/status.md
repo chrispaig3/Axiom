@@ -6,6 +6,48 @@ the status table come the primitive types, cross-compiling, the
 command-line interface and a tour of the compiler's error messages. The list of supported
 targets lives in the README's [Targets](../README.md#targets) section.
 
+## Targets and evidence
+
+CI executes the gate battery on linux-aarch64 and darwin-aarch64. The
+linux-x86_64 bootstrap leg builds from seed and runs a smoke program;
+the other source-only targets are checked by emission or assembly.
+The bare-metal AArch64 examples run under QEMU TCG. No embedded example
+has run on hardware. Freeze the commit, target, `--opt`, runtime profile,
+seed lineage and `opt`, `llc`, `cc` and linker versions for a reproducible
+application build. CI's runner packages are not pinned as a qualified
+toolchain.
+
+## Safety and assurance limits
+
+Axiom and its tools have no qualification or certification for an
+application. The [memory specification](memory-model.md) states the
+language contracts and program obligations. The [restricted profile](restricted-profile.md)
+reports reachable allocation, recursion, foreign calls, spawns and a
+machine-code stack bound. Its result relies on the target, the linker,
+the absence of hidden calls in inline assembly and the whole program's
+roots. Measured latency is not a worst-case execution-time bound.
+
+An integrator must choose a response to every trap, review all Unsafe and
+foreign calls, and verify the executable on its target hardware. The
+compiler's block and decision coverage covers its own test corpus;
+application coverage and independent assessment are absent. QEMU does
+not exercise cache maintenance, bus faults or multicore interference.
+Hardware faults such as ECC errors and radiation upsets require a system
+fault policy.
+
+## Known limitations
+
+| Area | Current limit | Practical response |
+|---|---|---|
+| Memory | Unreachable cycles retain storage; an argument closure returned by a function may keep an extra share | Bound the lifetime with a region or avoid that forwarding shape |
+| Concurrency | `Chan` and `Sync` promise no fairness or priority inheritance; a free racing use is a data race | Use timed calls and free handles after joins |
+| Process cleanup | A killed parent cannot sweep children; grandchildren are reparented | Supervise process trees externally |
+| Foreign calls | Rust and raw `Int` handles can cross checks that typed Axiom code cannot see | Review the foreign contract and keep owners typed |
+| Embedded | QEMU has no cache or bus fault model; the 64 KiB stack guard can be stepped over | Check stack and DMA paths on hardware |
+| Compiler | A large single `let` increases compile time faster than linearly | Split long binding lists into scopes or functions |
+
+For bug reports and the supported version, see [security and support](../SECURITY.md).
+
 ## Implementation status
 
 | Feature | Status | Notes |
@@ -21,7 +63,7 @@ targets lives in the README's [Targets](../README.md#targets) section.
 | Standard library | **Functional** | Sixty-two modules — `Pre`, `Mem`, `Str`, `Utf8`, `Vec`, `Map`, `Fmt`, `Float`, `Err`, `Fallible`, `Intern`, `Sys`, `Path`, `IO`, `Ffi`, `Json`, `Rpc`, `Par`, `Chan`, `Sync`, `Task`, `Net`, `Chrono`, `Axqlite`, `Axqlite.AxqlMacro`, `Axqlite.Value`, `Axqlite.AxqlParse`, `Axqlite.AxqlAst`, `Axqlite.AxqlEval`, `Axqlite.AxqlSchema`, `Axqlite.AxqlExec`, `Axqlite.Btree`, `Axqlite.Record`, `Axqlite.Pager`, `Test`, `Agent.Tags`, `Tui.Keys`, `Tui.Edit`, `Tui.Term`, `Crypto.Random`, `Crypto.Secret`, `Crypto.Bytes`, `Crypto.Sha2`, `Crypto.Sha3`, `Crypto.Blake2b`, `Crypto.Hmac`, `Crypto.Hkdf`, `Crypto.Obfuscate`, `Crypto.AesGcm`, `Crypto.ChaCha20Poly1305`, `Crypto.Aead`, `Crypto.X25519`, `Crypto.Ed25519`, `Crypto.Aes`, `Crypto.Ghash`, `Crypto.ChaCha20`, `Crypto.Poly1305`, `Crypto.Curve25519`, `Crypto.Field25519`, `Crypto.Curve25519Scalar`, `Crypto.Ct`, `Crypto.Errors` — in the order [Modules at a glance](reference.md#modules-at-a-glance) lists them. All are written in Axiom over the syscall primitives. `Vec`, `Map` and `Intern` are golden-tested and validated at 10⁵ elements. At 10⁶ elements with `--opt 2` on darwin-aarch64, they take 1.97×, 1.53× and 1.03× Rust's time with a fast hasher (`--fx`), and 1.96×, 0.67× and 0.88× with Rust's default SipHash. `scripts/bench-datastructures.sh` |
 | Error handling | **Functional; adopted at the syscall seam** | `stdlib/Err.ax` provides `Result`, an `Error` record, `mapErr`, `andThen`, `mapOk`, `okOr`, `toOption`, `withContext`, the `try` form, and `divChecked`, `remChecked`, `shlChecked` and `shrChecked` for the operations that otherwise trap with exit 72. In a propagating loop, recurse in a `match` arm rather than the scrutinee, and `let`-bind an error value that crosses a tail call. For batch jobs, the `Fallible` effect lets the loop's handler skip (`fallibleSkip`), default (`fallibleDefault`) or count (`fallibleCounting`) a bad record without unwinding, at 0 bytes a record (`ERR-REC-7`). Every `Sys` and `IO` call that can fail with an errno returns `(Result Int Error)`. Not yet: `Tui.Keys` and `Tui.Term` each keep one `-1` for "not found" (`compat/SENTINELS`), and `strByte`, `jsonGet` and `jsonParse` answer a bare `0` on failure. `tests/stdlib/371-err-module.ax`, `tests/stdlib/410-fallible.ax`. See [error-model.md](error-model.md) |
 | Syscalls | **Complete** | `__syscall0` to `__syscall6` on Darwin and Linux, x86-64 and AArch64. Errors come back as `-errno` on every platform. `tests/selfhost/230-syscall.ax` |
-| Allocation | **Functional; unbounded by default** | The compiler emits a bump allocator, backed by `mmap` on every supported target or by a static region on a target that declares one ([embedded-proposal.md](embedded-proposal.md)). `--heap-ceiling N` carves N bytes from `.bss` instead. Under it, running out traps with status 70, and `--threads` on a program that spawns is `AX4006`. There's no manual `free`, and defining `axiom_alloc` yourself is `AX3026`. Arena scopes are the reclamation strategy (`MM-ALLOC-22`); the reference counting that already emits stays but won't be extended (`MM-LIFE-2a`), and there's no tracing collector, so `--gc` is refused. A bounded live set keeps bounded memory without freeing a container or resetting an arena (`MM-LIFE-2i`). `tests/stdlib/362-arc-tail-boundary.ax`, `scripts/check-steady-state.sh`. See [memory-model.md](memory-model.md) |
+| Allocation | **Functional; unbounded by default** | The compiler emits a bump allocator, backed by `mmap` on every supported target or by a static region on a target that declares one ([embedded-guide.md](embedded-guide.md)). `--heap-ceiling N` carves N bytes from `.bss` instead. Under it, running out traps with status 70, and `--threads` on a program that spawns is `AX4006`. There's no manual `free`, and defining `axiom_alloc` yourself is `AX3026`. Arena scopes are the reclamation strategy (`MM-ALLOC-22`); the reference counting that already emits stays but won't be extended (`MM-LIFE-2a`), and there's no tracing collector, so `--gc` is refused. A bounded live set keeps bounded memory without freeing a container or resetting an arena (`MM-LIFE-2i`). `tests/stdlib/362-arc-tail-boundary.ax`, `scripts/check-steady-state.sh`. See [memory-model.md](memory-model.md) |
 | Crash diagnosis | **Function and line** | A trap prints its message, then `axiom: backtrace (most recent call first)` and one `  at <function>` line per frame. Frames in your code add the source line and column, as in `at e5 chain.ax:5:22`; runtime-helper frames show only the name. Not yet: there's no DWARF (`-g` is never passed), a SIGSEGV prints nothing, and above `--opt 0` inlined frames don't appear. `tests/stdlib/400-backtrace.ax`, `scripts/check-backtrace.sh` |
 | Releases and versioning | **Functional** | `VERSION` is the single source of truth. A `v*` tag that agrees with it builds release archives for two targets from the committed seed. `axiom version` also prints a build id: a hash of every `.ax` byte under `self_host/` and `stdlib/`, plus the commit. The installer refuses a tampered archive, a missing checksum, or an archive with no `stdlib/`. Every other target is source-only and ships no archive: CI builds the compiler from the seed on `linux-x86_64`, `freebsd-x86_64` and `freebsd-aarch64`, and runs the test battery on none of them. `scripts/check-install.sh`, `scripts/check-release-targets.sh` |
 | Cross-compilation | **Functional** | `--target` selects the ABI and the platform's standard library modules. Every stdlib case is assembled for all seven targets at three optimisation levels and relocation-checked (`scripts/check-cross-targets.sh`). CI runs the test battery on `darwin-aarch64` and `linux-aarch64`, the two supported targets. The other five are source-only: CI bootstraps the compiler on `linux-x86_64` and on `freebsd-x86_64` and `freebsd-aarch64` (real 14.4 kernels in VMs, aarch64 emulated), and the rest are assembled and relocation-checked only; see [Targets](../README.md#targets) |
@@ -37,7 +79,7 @@ targets lives in the README's [Targets](../README.md#targets) section.
 | Type classes | **Replaced** | Traits replaced them, and capability records replaced traits; see the row below |
 | Unions | **Removed** | Use `data` for a tagged sum or `struct` for a product. C interoperability isn't a goal, and `union` stays reserved and reports `AX2004` |
 | Struct layout modifiers | **Removed** | `packed`, `repr(C)` and `align(N)` are `AX2001`. The FFI doesn't need them: a `#[axiom_record]` struct crosses as its fields, one word each ([ffi.md](ffi.md) §8) |
-| Region syntax | **Checked scope, and annotated signatures with the escape rule** | `(region r body)` answers `body`'s value, then rolls the allocator back to where `body` started. Only scalars leave: a non-scalar value, or a non-scalar store to an outer binding, is `AX3059`. A nested region that reuses an open region's name is `AX3058`. A signature can name the region a reference lives in, as in `(:: intern (-> (String @s) (Table @r) (Sym @r)))`, and the escape rule `MM-RGN-3` refuses a store, return or capture that outlives it (`AX3060`–`AX3063`). Annotations don't change the emitted IR, and inside a region the compiler skips releases for values it can prove fresh. Not yet: a reference can't be promoted out of a region. `tests/stdlib/168-region.ax`, `tests/diagnostics/645-region-escape-store.ax`. See [Regions](reference.md#regions) and [memory-model-v2-design.md](memory-model-v2-design.md) §4 |
+| Region syntax | **Checked scope, and annotated signatures with the escape rule** | `(region r body)` answers `body`'s value, then rolls the allocator back to where `body` started. Only scalars leave: a non-scalar value, or a non-scalar store to an outer binding, is `AX3059`. A nested region that reuses an open region's name is `AX3058`. A signature can name the region a reference lives in, as in `(:: intern (-> (String @s) (Table @r) (Sym @r)))`, and the escape rule `MM-RGN-3` refuses a store, return or capture that outlives it (`AX3060`–`AX3063`). Annotations don't change the emitted IR, and inside a region the compiler skips releases for values it can prove fresh. Not yet: a reference can't be promoted out of a region. `tests/stdlib/168-region.ax`, `tests/diagnostics/645-region-escape-store.ax`. See [Regions](reference.md#regions) and [memory-model.md](memory-model.md) §4 |
 | Capability records | **Functional** | An interface is a parameterised struct of functions, such as `(struct ShowOf (a) (render : (-> a String)))`, and an instance is an ordinary value, `(ShowOf fmtInt)`, passed where it's needed. Calling a method is plain application, so a function generic over an interface can call its methods. `trait` and `impl` are reserved and report `AX2004` with migration advice. Rendering needs no record: `(format x)` renders any value from its static type, and `show` isn't a name a program can use. |
 | Effects | **Enforced; two limits stated** | The compiler checks the built-in effects `IO`, `Entropy`, `Spawn`, `Block`, `Pure`, `Alloc`, `Mut`, `Div` and `Unsafe`, declared effects and their `handle` expressions, and AXTAG metadata. A declaration that uses a raw primitive, calls a precondition interface or forges a reference must declare `Unsafe` (`AX3073`). A trusted wrapper ends that obligation; a precondition interface passes it to callers (`MM-EXEC-9d`). IO propagates through calls, so a function that reaches IO without declaring it is `AX3042`; a call through a capability record's field is marked `#effects-incomplete #effects-overapprox`. An effect operation needs a type (`AX3055`), a declared effect can't take a built-in's name (`AX3054`), and a handle list may name only declared effects (`AX3016`). An operation that reaches `main` unhandled is `AX3053`, a warning you can mark intended with `;@axiom:unhandled(trap)`. Two limits: a call the compiler can't resolve reports `#effects-incomplete`, and constructor allocation isn't counted (`MM-EXEC-9a` in [memory-model.md](memory-model.md)). `tests/selfhost/820-effect-handlers.ax`, `tests/diagnostics/450-effect-op-arity.ax` |
 

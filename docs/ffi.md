@@ -5,12 +5,31 @@ how Rust calls back. It covers binding a crate, the types that cross
 the boundary, and the rules each side keeps.
 
 The memory rules behind it are `MM-FFI-1` to `MM-FFI-6` in
-[memory-model.md](memory-model.md) §11. This page is the user-facing
+[memory-model.md](memory-model.md) §7. This page is the user-facing
 contract, so it cites those rules rather than restating them.
-The [contract audit](assurance/ffi-contract-audit.md) lists reviewed
-routes, caller obligations and the remaining Unsafe vouches.
+The [safety contract](#safety-contract) lists caller obligations and
+the remaining Unsafe boundary.
 
 ---
+
+## Safety contract
+
+Generated Axiom owners are sealed and clear their pointer before calling a
+Rust destructor. A wrapper borrows a vector, record, slice or opaque value
+only for the call; a callback must leave those borrowed values live and
+unmodified until it returns. The generated Rust shim rejects overlapping
+mutable slices and repeated nonzero opaque addresses. Returned bytes are
+copied into an Axiom allocation and freed with their original pair.
+
+Raw callers must still provide live, aligned and disjoint addresses for
+out-cells and slices. A checked length cannot prove pointer provenance:
+calling a raw free twice or with a stale address remains unsafe. The
+foreign side decides whether a `Foreign` captured by a thread may be
+shared. An unwind must not cross an `extern "C"` boundary; the
+freestanding panic handler exits with status 73.
+
+Tested by `rust/axiom-ffi/tests/contracts.rs` and
+`rust/axiom-ffi/tests/panic_boundary.rs`.
 
 ## 1. What it is, and is not
 
@@ -1527,29 +1546,3 @@ Each limit below names the fact that stands in the way.
   two Rust threads could each allocate an `AxString` and race on the
   allocator's globals, with no value crossing between them. When Axiom
   calls into Rust, the rule rests on you.
-
----
-
-## 17. History
-
-The FFI's early design drafts describe much that was never built.
-Read them with `git show 3a83f19:docs/ffi-design/00-drafts-2026-08.md`.
-This page keeps what survived: the measured tiers, the three facts
-that shaped the design, and the out-cell protocol. These never
-shipped:
-
-- the drafts' `(pub export axiom ...)` form of the Rust-to-Axiom
-  direction (§10 describes the one that shipped);
-- `ffi.manifest.json`, `ffi.lock`, `--ffi` and `--staticlib`;
-- `__axiom_abi_guard` and `axiom_rt_init`;
-- a distinct `FFI` effect;
-- `(opaque T (drop f))`, with AX3037–AX3046;
-- `Slice` and `Outcome` as types.
-
-The fixtures record what shipped:
-
-- `tests/diagnostics/700`–`702` for the extern discipline;
-- `tests/ffi/demo/080`–`184` for every shape that crosses;
-- `tests/ffi/probe-ungrounded/030`–`050` for grounding and the shape
-  check;
-- `tests/ffi/host/` with `rust/examples/host` for the host direction.

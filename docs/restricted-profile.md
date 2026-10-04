@@ -1,11 +1,8 @@
 # The restricted profile and the resource report
 
-Status: **implemented and verified by `scripts/check-report.sh`** on the
-hosted configurations (H1–H3 in [assurance/configurations.md](assurance/configurations.md)),
-with the stack half read from AArch64 and x86-64 ELF objects. It is a
-qualification-readiness input, not a qualified tool: nothing here is
-approved for any application ([assurance/plan.md](assurance/plan.md)
-keeps those words apart).
+Status: **implemented and verified by `scripts/check-report.sh`** on supported targets, with the stack half read from AArch64 and
+x86-64 ELF objects. The report is a verification input; it has no
+application qualification. See [target evidence](status.md#targets-and-evidence).
 
 `scripts/axiom-report.py` answers three questions about one program:
 
@@ -33,6 +30,26 @@ stack half builds at (default 1, the driver's default). Exit status: 0
 no refusal, 1 refusals, 2 the tool could not answer - a program that
 does not check, a compiler or `llc` failure, an object it cannot read.
 It never exits 0 for an answer it did not compute.
+
+## Using Axiom in a critical system
+
+Run the restricted report with the deployment target, optimisation level
+and a stack budget on every application build. Treat a refusal or an
+unknown result as a build failure. Tag steady-state roots with
+`restrict(no-alloc, no-recursion, strict)` and interrupt entries with
+`;@axiom:isr`. Set `--heap-ceiling` and budget the initial live set.
+Inspect every Unsafe declaration and foreign item reported. The profile
+refuses process and thread spawns; use the hosted concurrency contracts
+only in a separate configuration.
+
+A runtime trap reports a status; it does not bring a system to a safe
+state. Decide how the application responds to out-of-memory, a broken
+contract, a failed join and a CPU fault. On bare metal, an `isr(fault)`
+hook can reset, halt or stop a watchdog. Size the stack with a margin
+and validate the image and fault policy on the board.
+
+See [trap statuses](memory-model.md#14-process-lifecycle),
+[embedded startup](embedded-guide.md) and [known limits](status.md#known-limitations).
 
 ## What it reads
 
@@ -209,7 +226,7 @@ The linker script reserves 8 KiB of stack (`baremetalLinkScript`,
 - **No time bound.** A bounded stack is not a bounded latency, no loop
   is proven to terminate, and nothing here is a WCET analysis.
   Measured maximum latency and a justified worst-case bound are
-  different claims ([assurance/plan.md](assurance/plan.md) milestone D).
+  different claims ([status.md](status.md) milestone D).
 - **Some traps have no edge in the graph.** Count exhaustion from the
   retains the compiler emits, stack exhaustion, and a CPU fault from an
   Unsafe access aren't in any function's trap set. The report names

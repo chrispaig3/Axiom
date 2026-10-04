@@ -76,7 +76,7 @@
 ; outright (tests/diagnostics/384-restrict-no-alloc-ctor.ax). Neither
 ; holds now. A function of exactly this shape - every tail `None` or
 ; `(Some e)` - is emitted as a two-register pair and builds no block
-; on any path (`docs/unboxed-sums-design.md`); a caller that matches
+; on any path (`docs/error-model.md`); a caller that matches
 ; the call directly reads the registers, and only a caller that stores
 ; the answer past its match pays for a block, in its own row.
 ; `scripts/check-unboxed-sums.sh` holds both halves, and the claim

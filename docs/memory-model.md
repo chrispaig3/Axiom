@@ -40,8 +40,7 @@ bind two audiences, and each rule says which:
   part left unchecked. Checking one use of a primitive doesn't
   discharge the obligation for another use of it.
 
-The disposition register is
-[assurance/memory-audit.md](assurance/memory-audit.md).
+Program obligations and their enforcement are summarised below.
 
 ### 0.3 Status markers
 
@@ -84,6 +83,55 @@ A probe's answer is its **exit status**: the low 8 bits of `main`'s
 result (`MM-EXEC-11`). Probes that print use `IO.println` instead.
 
 ---
+
+## Program obligations
+
+The compiler checks typed region escapes and container bounds. Runtime traps
+catch invalid indices, stale handles, invalid resets and count exhaustion.
+An unsafe declaration must state `effect(unsafe)`; a precondition interface
+also states what its caller must establish. These checks do not validate an
+arbitrary address, a foreign object's lifetime or a forged `Int` handle.
+
+| Obligation | Enforcement | Evidence |
+|---|---|---|
+| A reference stays live across a reset or return | Region escape refusals `AX3059`–`AX3063`; traps 75 and 76 | `scripts/check-region-escape.sh` |
+| A cast preserves its type, ownership and lifetime | `MM-VAL-22` and `MM-VAL-23`; forging requires Unsafe | `scripts/check-cast-arg-root.sh` |
+| A container access stays within bounds | `vecGet` and `vecSet` trap 77 before access | `tests/stdlib/525-vec-set-bounds.ax` |
+| A handle is live and belongs to the right module | Sealed types and the runtime handle table; stale use traps 85 | `scripts/check-handles.sh` |
+| Shared mutable words are ordered | `MM-PAR-9` atomics, channel or mutex; the programmer guards raw shared pages | `scripts/check-atomics.sh` |
+| A raw address and a foreign value satisfy their contract | Unsafe boundary and caller review | `tests/diagnostics/1040-forging-cast.ax` |
+| A recovery extent releases external resources | Program obligation: an abort cannot close descriptors or unlock a mutex acquired inside it | `scripts/check-reclaim-soak.sh` |
+
+Unreachable cycles retain their bytes until an arena reset. Reuse is bounded
+by the peaks of the allocator's size classes, so a changing size mix may keep
+old slabs. A closure passed into and returned from a function can retain an
+extra share. Use a region for a bounded lifetime and inspect held, filed and
+mapped bytes with `__axiom_mem_stat` (`MM-ALLOC-24`, `MM-ALLOC-25`).
+
+## Assurance evidence
+
+These IDs group existing guarantees and their executable checks. The `MM-*`
+rules above and below define the contract. H2 (linux-aarch64) and H3
+(darwin-aarch64) run the supported-target gates; H1 (linux-x86_64) builds
+from seed but is source-only. E1 is an emission check. A passing gate on a
+host does not extend its claim to other targets or hardware.
+
+| ID | Contract or boundary | Evidence |
+|---|---|---|
+| R-A1–A4 | Recovery, child sweeps, spawn failure and thread teardown (`MM-PAR-7`) | `scripts/check-parallel.sh` |
+| R-A5, A7, A9 | Allocation refusal, free-list integrity and count overflow (`MM-ALLOC-7a`, `MM-LIFE-2k`, `MM-LIFE-2l`) | `scripts/check-runtime-model.sh` |
+| R-A6, A8, A10 | Unsafe effects, join ownership and name resolution | `scripts/check-diagnostics.sh`, `scripts/check-metamorphic.sh` |
+| R-B1–B3 | Bounds, bounded pools and checked regions | `scripts/check-reclaim-soak.sh`, `scripts/check-region-escape.sh` |
+| R-B4–B6 | Program obligations, foreign captures and trusted Unsafe boundaries | `scripts/check-restrictions.sh` |
+| R-B7–B10 | Iterative release, slab reuse, recovery and typed kernel buffers | `scripts/check-reclaim-soak.sh`, `tests/stdlib/610-typed-io-bounds.ax` |
+| R-C1, C3, C4 | Thread captures, sequentially consistent atomics and happens-before (`MM-PAR-9`) | `scripts/check-atomics.sh` |
+| R-C2, C2a | Mutex, timed task and channel protocols (`MM-PAR-10`–`MM-PAR-13`) | `scripts/check-task.sh`, `scripts/check-protocol-model.sh` |
+| R-C5–C8 | Child cleanup, sealed handles, string lending and ordered results | `scripts/check-parallel.sh`, `scripts/check-handles.sh` |
+| R-D1, D2a–D2e | Restricted profile, device access, fault exits and embedded examples | `scripts/check-report.sh`, `scripts/check-embedded.sh` |
+| R-E1, E2 | Model, fuzz and race evidence; qualification gaps remain | `scripts/check-runtime-model.sh`, `scripts/check-fuzz.sh` |
+
+See [restricted builds](restricted-profile.md), [foreign calls](ffi.md)
+and [implementation status](status.md) for the conditions of use.
 
 ## 1. Execution semantics
 
@@ -611,7 +659,7 @@ The compiler checks where the boundary is declared and that a
 precondition states something. It does not prove that a trusted body
 keeps its promise, or that a caller meets a precondition. Those are
 review obligations, and the trusted set is the list to review
-([assurance/trusted-components.md](assurance/trusted-components.md)).
+([../CONTRIBUTING.md](../CONTRIBUTING.md)).
 
 Tested by `tests/diagnostics/1040-forging-cast.ax` to
 `tests/diagnostics/1043-precondition-tag.ax`. The accepted wrapper in
@@ -879,15 +927,14 @@ statuses. A program **MUST NOT** reuse them as a normal result:
 because traps are `internal` LLVM functions emitted by the runtime
 block, and nothing in `stdlib/` could otherwise reach one. A container
 that refuses an out-of-range index, rather than answering a value,
-needs exactly that (`docs/generics-design.md` §4). The same fixture
+needs exactly that ([the standard library](stdlib.md#strings-and-collections)). The same fixture
 uses the trap in an `Int` result and a `String` result in one program,
 which a concrete-typed trap couldn't do.
 
 Each broken invariant gets its own status. The contract trap takes 80,
 the first free number, so it never shares a status with another trap.
 This follows the FFI's precedent in `docs/ffi.md` §5.1, which took 73
-so a panic and a division by zero stay distinguishable. The history of
-the choice is in `docs/subtypes-design.md`.
+so a panic and a division by zero stay distinguishable. The contract and index traps have distinct statuses: 80 and 77.
 
 I/O is unbuffered: `println` is a direct `write` loop with no flush. So
 output produced before one of these aborts is still visible.
@@ -925,7 +972,7 @@ The rules:
   reaches.
 - **No allocation** (implementation obligation, checked). `isr` implies
   `restrict(no-alloc)`, refused as `AX3049`: the bump allocator is not
-  reentrant (`docs/embedded-proposal.md` section 7), and a handler that
+  reentrant ([embedded guide](embedded-guide.md)), and a handler that
   allocated while the main loop was mid-allocation would corrupt the
   arena. No `region`, no `parallel`, no `Vec` growth, no string
   building, and no `println` - which builds its line.
@@ -1486,7 +1533,7 @@ bytes, and every returned address is 16-byte aligned
 request needs more, the chunk is the request plus a 16-byte header,
 rounded up to `targetArenaGrainBytes`. **Every supported target answers
 1 MiB and 64 KiB.** Both are per-target rows of `codegen.ax`'s table
-(`docs/embedded-proposal.md` 4.1), read at emission time, so a
+([embedded guide](embedded-guide.md)), read at emission time, so a
 program's chunk size is a constant in its text.
 
 The grain is derived from the chunk: where the chunk is smaller than
@@ -1528,7 +1575,7 @@ promise true of a `.bss` region, just as it is of a fresh mapping.
 Exhaustion answers 0, which the `%failed_low` test already treats as a
 refused `mmap`. So it reaches `__axiom_out_of_memory` and exits **70**
 as usual. Only the trap's sentence differs: it names the region instead
-of `mmap`. See `docs/embedded-proposal.md` 4.2 and
+of `mmap`. See [embedded memory](embedded-guide.md) and
 `scripts/check-embedded.sh`.
 
 **MM-ALLOC-4b (H).** The free list is **first fit on the whole
@@ -2299,9 +2346,7 @@ or a reader whose precondition identifies the stored representation.
 ### 3.6 Checked lexical regions
 
 This section is the authoritative contract for the `MM-RGN-*` rules.
-The [design record](memory-model-v2-design.md) keeps the measurements
-and the rejected proposals, but it isn't a second specification. It
-reserved these rule numbers with status **D**. The status each rule
+The retired design record reserved these rule numbers with status **D**. The status each rule
 carries here is what shipped, and planned behaviour is stated
 separately.
 
@@ -2455,8 +2500,7 @@ and `MM-RGN-5a` replaces its role as a freshness witness. Nothing under
 this identifier allocates into an arbitrary outer region or checks
 erased addresses at run time. Passing a mark wouldn't, by itself, let
 the current bump allocator allocate below an inner region's waterline.
-[The design record](memory-model-v2-design.md) keeps the decision and
-its measurement, in §2.5 and §4.
+The limit is reflected in the checked region rules above.
 
 **MM-RGN-5a (H). Freshness evidence is a compile-time stamp.** Once the
 region facts converge, the reporting walk stamps `nodeResWord` 2 on a
@@ -2670,8 +2714,8 @@ There is no tracing collector. A value that nobody releases stays
 allocated until its arena is reset or its process ends. A thread's
 arena is also unmapped when the thread completes (`MM-PAR-6a`). `Handle`
 provides the explicit foreign destructor path (`MM-FFI-6`); it isn't a
-universal finalizer. `MM-LIFE-4` and [the audit](assurance/memory-audit.md)
-cover the lifetime cases and the unsafe obligations. Evidence:
+universal finalizer. `MM-LIFE-4` and [program obligations](#program-obligations)
+cover the lifetime cases and unsafe boundaries. Evidence:
 [the ownership-event fixture](../tests/stdlib/355-arc-events.ax),
 [container reclamation](../scripts/check-container-reclaim.sh), and
 [region scopes](../scripts/check-region-scope.sh).
@@ -4431,7 +4475,7 @@ concurrency: no threads, no tasks, no async, and no scheduler."
 The form is `(parallel p ((a e1) (b e2)) body)`. The parser desugars it
 into `let`s over the `__par_spawn` and `__par_join` primitives, and
 codegen lowers that pair in one of two ways
-([`memory-model-v2-design.md`](memory-model-v2-design.md) §3.3, and
+(the process and thread rules below, and
 [`parallel`](reference.md#parallel--bindings-that-run-beside-the-caller)
 in the reference):
 
@@ -5032,7 +5076,7 @@ That leaves two things the compiler doesn't check:
   for every well-typed call, and a caller of a precondition interface
   vouches for the condition. The compiler checks where those promises
   are declared, not that they are kept. The trusted set is the list to
-  review ([assurance/trusted-components.md](assurance/trusted-components.md)).
+  review ([../CONTRIBUTING.md](../CONTRIBUTING.md)).
 - **A buffer typed `Int`.** `Sys` takes buffer addresses as `Int`s.
   An `Int` is not a reference, so writing `7` where a buffer belongs
   needs no cast and no tag, and the function can't tell a forged or

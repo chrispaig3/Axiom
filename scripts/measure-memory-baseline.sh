@@ -67,7 +67,7 @@
 # is caught at the read instead of being carried into the answer, and
 # the probe dies with no stdout at all. Both are the negative doing
 # its job - a refusal is strictly the better one, and is exactly what
-# `docs/generics-design.md` §4 chose it for: "not a crash, a wrong
+# `docs/reference.md` §4 chose it for: "not a crash, a wrong
 # answer that keeps going" is the failure mode being traded away. The
 # ONE outcome that fails is the ablation running to completion and
 # printing 5, which is the blindness this probe exists to rule out.

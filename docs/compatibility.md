@@ -63,7 +63,7 @@ happens to `jsonHexDigit` in `self_host/render.ax` and `stdlib/Json.ax`.
 
 That doesn't weaken this rule, because `check-compat.sh` compares one
 library against a baseline of the same library. It does matter to
-anything that joins AXSYM to another stream. [MIR design](mir-design.md)
+anything that joins AXSYM to another stream. [MIR and AXIR](compiler-guide.md#mir-and-axir)
 §3 joins `.axir` records to AXSYM rows on the whole header tuple (name,
 location, quoted type and nid) for this reason.
 `scripts/check-mir-projection.sh` checks that the two tuple sequences
@@ -90,8 +90,7 @@ joined.
   `tests/compat/verify-compat.py` is an explicit allowlist, and `#mir-`
   isn't on it, so a dataflow summary that widens or narrows isn't a
   compatibility event. That's the right default while the facts behind
-  it are a lower bound with two sentinels on it ([MIR
-  design](mir-design.md) §4.1). Whether `#mir-escapes=` should become
+  it are a lower bound with two sentinels on it ([MIR and AXIR](compiler-guide.md#mir-and-axir)). Whether `#mir-escapes=` should become
   contract, as `#effects=` is, is a later decision, and it needs the
   round-cap fix first.
 

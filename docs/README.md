@@ -30,8 +30,6 @@ The [generated API](stdlib-api.md) is the complete public-name listing.
 The [memory](memory-model.md), [error](error-model.md) and
 [macro](macro-system.md) specifications define rules and their evidence.
 [Contributing](../CONTRIBUTING.md) covers building, validation and releases.
-The [assurance plan](assurance/plan.md) records engineering milestones,
-verified configurations and qualification gaps.
-
-Designs and proposals describe work under consideration; use the
-language reference and feature status for implemented behaviour.
+The [status page](status.md#safety-and-assurance-limits) gives the
+verified targets and outstanding assurance limits. Historical design
+records remain in Git history.

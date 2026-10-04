@@ -376,8 +376,8 @@ shows the check can fail at all.
 | `check-stdlib-selfhost.sh` | Both corpora compiled and run through the same `llc`/`cc` pipeline at `-O0` and `-O2`, each case fed its `.in` or `/dev/null` as `run-stdlib-tests.sh` does. A `.in` that can't be read, or one with no matching case, fails before any compiler is built |
 | `check-diverging-tyvar.sh` | `AX3040` is an error, and the analysis behind it tells a function that never returns from one that fabricates a value. Eight diverging spellings must be accepted and three fabricating ones refused. Changing one word of an accepted program, so the `(exit 70)` a cast wraps becomes the literal `70`, must get it refused |
 | `check-vec-field-shape.sh` | A `Vec` field maps exactly as the `Int` it replaces. When `fldClass` can't classify a field, the whole block falls back to the leaf shape and loses the reference map for its other fields. A record holding a `Vec` would then read shape word 8, where an `Int` in that slot reads 262152. Four rows, two of which must read a different number, so the equality can't pass vacuously |
-| `check-region-scope.sh` | `(region r body)` is a checked scope (stage S2 of `docs/memory-model-v2-design.md`). A program with no region emits no region cell. Four thousand 64 KiB regions, against the same body without `region`, must show a peak-RSS ratio of at least 8x. `631-region-escape.ax` and `630-region-name-shadowed.ax` draw exactly their `AX3059` and `AX3058` rows. The ablation makes `rgTyScalar` answer 1, rebuilds the compiler, and shows the refused store reading the next allocation's bytes |
-| `check-region-escape.sh` | Region-annotated signatures (`(Str @r)`) and the escape rule, MM-RGN-3. An annotated program and its stripped twin emit byte-identical IR. Five fixtures are refused for the codes they name; an ablated compiler accepts four of them, and the program it lets through reads reclaimed memory. The two-region sweep from §5 of `docs/memory-model-v2-design.md` must stay within its band |
+| `check-region-scope.sh` | `(region r body)` is a checked scope (stage S2 of `docs/memory-model.md`). A program with no region emits no region cell. Four thousand 64 KiB regions, against the same body without `region`, must show a peak-RSS ratio of at least 8x. `631-region-escape.ax` and `630-region-name-shadowed.ax` draw exactly their `AX3059` and `AX3058` rows. The ablation makes `rgTyScalar` answer 1, rebuilds the compiler, and shows the refused store reading the next allocation's bytes |
+| `check-region-escape.sh` | Region-annotated signatures (`(Str @r)`) and the escape rule, MM-RGN-3. An annotated program and its stripped twin emit byte-identical IR. Five fixtures are refused for the codes they name; an ablated compiler accepts four of them, and the program it lets through reads reclaimed memory. The two-region sweep from §5 of `docs/memory-model.md` must stay within its band |
 | `check-type-pinning.sh` | A type placeholder that is bound stays bound, so a let-bound container can't be written at `Int` and read at `String`. Without it, `check` accepts that program with no `cast` written, and it exits 139. There are two halves, because a checker that refused everything would pass the first: the unsound shapes are refused, and the correct ones are still accepted, including two containers pinned to different element types in one scope |
 | `check-diagnostics.sh` | The AXDL corpus against its goldens, with every span recomputed from the fixture's own bytes |
 | `check-degenerate.sh` | Degenerate input gets a diagnostic, not a signal |
@@ -397,7 +397,7 @@ shows the check can fail at all.
 | `check-doc-drift.sh` | Every prose document `gate_prose_docs` lists in `scripts/lib/gate.sh`, this one included, against the tree: every stated count is recomputed, and every fixture a document or a comment names must exist |
 | `check-agent-policy.sh` | The standard library performs exactly the effects it declares, and the set of declarations performing any is the one in `tests/agent/stdlib-effects.allow`. This is the policy from `docs/agent-harness.md` §3.4, run as a gate over AXSYM rather than as a compiler mode, on the allowlist model `check-ffi.sh` uses |
 | `check-frontend-parity.sh` | The frontend's five consumers (`check`, `symbols`, `fmt`, the REPL's `:load` and the language server) agree on the value as well as the verdict |
-| `check-embedded.sh` | The runtime assumptions an embedded port changes (`docs/embedded-proposal.md` 4.1 to 4.3, and section 6): a per-target arena chunk size, pages from `mmap` or a static region, and a trap write that can be silenced. Every supported target must still emit the allocator it always did, and the minimal program imports only the platform's startup set and makes exactly 3 distinct syscalls. Variant compilers with rows of the target table changed must move only the lines those rows reach. With a 256 KiB static arena on the host, a program that fits must answer as the `mmap` build does, and one that outgrows it must exit 70 where the `mmap` build exits 0. A10 boots `tests/embedded/blink.ax` for `baremetal-aarch64` under QEMU: its UART bytes and exit status must match the host build, and an oversized twin must exit 70. It skips loudly when that target or QEMU is missing. `--ablations` requires every ablation to go red |
+| `check-embedded.sh` | The runtime assumptions an embedded port changes (`docs/embedded-guide.md` 4.1 to 4.3, and section 6): a per-target arena chunk size, pages from `mmap` or a static region, and a trap write that can be silenced. Every supported target must still emit the allocator it always did, and the minimal program imports only the platform's startup set and makes exactly 3 distinct syscalls. Variant compilers with rows of the target table changed must move only the lines those rows reach. With a 256 KiB static arena on the host, a program that fits must answer as the `mmap` build does, and one that outgrows it must exit 70 where the `mmap` build exits 0. A10 boots `tests/embedded/blink.ax` for `baremetal-aarch64` under QEMU: its UART bytes and exit status must match the host build, and an oversized twin must exit 70. It skips loudly when that target or QEMU is missing. `--ablations` requires every ablation to go red |
 | `check-memory-baseline.sh` | The managed Life probe holds RSS flat over 2000 generations, where its unmanaged twin grows linearly |
 | `check-cross-targets.sh` | Every target's IR assembles from one host, at every `--opt` level, with no object that isn't position-independent. `--self-test` runs the relocation rules against known input, so the gate's own verdict is tested too |
 | `check-seed-provenance.sh` | The seed is the emission of source in this repository's history. All six seeds are regenerated from the commit that last wrote them and must come back byte-identical, after that commit's sources are checked against the hash in `bootstrap/STAMP`. It runs in its own CI job, because it needs the full history (`fetch-depth: 0`) and several minutes |
@@ -890,6 +890,45 @@ python3 scripts/lib/doc-style.py --axiom .axiom-bin/axiom path/to/page.md
 ```
 
 ---
+
+## Trusted components
+
+Every executable trusts the committed seed and its lineage, the
+self-hosted compiler, the emitted allocator and trap runtime, LLVM's
+optimiser and assembler, the linker, and any linked foreign code.
+`bootstrap/STAMP`, `bootstrap/CHAIN` and their checks record the seed's
+provenance. The host `opt`, `llc`, `cc` and linker come from `PATH`;
+record their versions for a frozen application build. A generated
+Rust binding also trusts its Rust compiler, crates and unsafe shims.
+QEMU provides emulator evidence only.
+
+The toolchain and the gate harness may introduce or miss defects.
+`scripts/check-reproducible.sh` checks repeatability, and gate ablations
+show that planted defects are detected. Neither establishes that every
+accepted program compiles with the intended meaning.
+
+## Verification evidence
+
+The compiler's contract is the [language reference](docs/reference.md)
+and [memory specification](docs/memory-model.md). Diagnostic, runtime,
+formatting, bootstrap and target gates exercise it. The resource report
+is checked by `scripts/check-report.sh`; model and fuzz checks are
+`scripts/check-runtime-model.sh`, `scripts/check-protocol-model.sh`
+and `scripts/check-fuzz.sh`. `scripts/measure-coverage.sh` measures
+compiler block and decision coverage. It does not measure an
+application, establish MC/DC or certify a tool. ThreadSanitizer sees
+threads and globals; it cannot observe forked processes or the arena's
+internal block bounds. Record passes, failures, skips and unverified
+targets separately.
+
+## Releases and support
+
+Publish a version tag only after the trunk CI run for that commit is
+green. Record a defect with a reproducer and a regression before
+closing it. [SECURITY.md](SECURITY.md) defines the supported release,
+response window and private vulnerability channel. Earlier release
+lines receive no fixes. Independent verification and application
+approval remain the deploying organisation's work.
 
 ## Resources
 

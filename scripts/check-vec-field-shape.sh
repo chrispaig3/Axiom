@@ -10,7 +10,7 @@
 # use-after-frees, and only one of those is survivable".
 #
 # THE DEFECT THIS GATE EXISTS FOR. `Vec` became a writable type when
-# it was seeded beside `Option` (`docs/generics-design.md` section 1),
+# it was seeded beside `Option` (`docs/reference.md` section 1),
 # and `fldClass` had no arm for it: not a scalar name, not one of the
 # `String`/`Option`/`Handle` trio, and - being seeded by the checker
 # rather than declared - not in the module's data list either. So it

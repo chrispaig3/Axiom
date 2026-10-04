@@ -2,7 +2,7 @@
 # `;@axiom:isr` marks an interrupt entry point: the hardware calls it
 # by name with no arguments, and it must not allocate.
 #
-# docs/embedded-proposal.md 4.5 is the last of the five compiler rows,
+# docs/embedded-guide.md is the last of the five compiler rows,
 # and both halves existed separately before it: `--emit-staticlib`
 # makes every `pub fn` a C symbol, and `restrict(no-alloc)` is
 # checked. What did not exist was the attribute combining them, so an

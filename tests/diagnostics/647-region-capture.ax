@@ -1,4 +1,4 @@
-; MM-RGN-3 for a CLOSURE (docs/memory-model-v2-design.md §2.3, "captured
+; MM-RGN-3 for a CLOSURE (docs/memory-model.md §2.3, "captured
 ; by anything in a region that outlives s"). A lambda's record holds a
 ; reference to every capture, so its region is where it was made AND
 ; the region of each capture.

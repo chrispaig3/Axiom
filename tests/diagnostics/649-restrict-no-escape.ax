@@ -1,4 +1,4 @@
-; `restrict(no-escape)` (docs/memory-model-v2-design.md §2.7): the
+; `restrict(no-escape)` (docs/memory-model.md §2.7): the
 ; declaration stores nothing it allocates into any of its parameters.
 ; It rides the restriction rail every other claim rides, and reads the
 ; region facts (typecheck.ax, `restrictNoEscape`) rather than the

@@ -88,7 +88,7 @@ plain-language overview and a pointer to the matching reference
 section for readers who don't need the full contract.
 
 **Design records and proposals** are the `*-design.md` and
-`*-proposal.md` pages, `docs/assurance/`, audits and ledgers. They
+`*-proposal.md` pages and short decision records. They
 record a decision and the reasons for it. Keep their conclusions,
 numbers and evidence, but write them in the same plain voice. A dated
 audit keeps its date in the title. The rest of the page doesn't need

@@ -396,8 +396,8 @@ One semantic change comes with the rewrite, and it is deliberate. `cond` never j
 reclaimed when the body ends (docs/reference.md, Regions). The advice
 this paragraph used to give - that allocation lifetime is INFERRED
 from where a value is created and how far it escapes - described a
-model the language withdrew (docs/memory-model-v2-design.md section
-1.4), which is the one thing a reserved word's advice must not do.
+model the language withdrew (docs/memory-model.md section
+3.4), which is the one thing a reserved word's advice must not do.
 A `region` at the top level is not a declaration and reports AX3027
 like any other expression head.
 
@@ -2054,7 +2054,7 @@ syscall ABI, 75 an invalid arena mark, 76 an arena reset past a
 live handle and 77 an out-of-range index. 80 has been the contract
 trap's own row since D3 (2026-09-08); before that it shared 77 with
 the index trap, which is recorded in
-docs/subtypes-design.md rather than left to be rediscovered. There is no
+docs/memory-model.md MM-EXEC-16. There is no. There is no
 flag: a check that is off by default is a comment by default.
 
 WHAT THIS CODE REFUSES is everything about the contract that IS
@@ -2358,7 +2358,7 @@ enclosing one that is still open.
 
 Regions are ORDERED BY NESTING - an inner region's extent is inside
 its enclosing region's, and that order is the whole of what `outlives`
-means for them (docs/memory-model-v2-design.md MM-RGN-2). A name that
+means for them (docs/memory-model.md MM-RGN-2). A name that
 named two open extents at once could not be placed in that order, so
 the checker keeps the stack of open regions and refuses the reuse
 while the outer one is open. The same name in two SIBLING regions is
@@ -2404,8 +2404,8 @@ a region-allocated reference for you - `vecPush` onto an outer vector,
 `memSetWord` into an outer block - and a raw `Int` that is an address.
 Those are the program's obligation under docs/memory-model.md
 MM-ALLOC-16, exactly as they are for a hand-written
-`__axiom_arena_mark`, and typed regions (docs/memory-model-v2-design.md
-section 4, S3) are what close them.
+`__axiom_arena_mark`, and typed regions (docs/memory-model.md
+MM-RGN-3) are what close them.
 
 ### explain AX3060
 AX3060 - a value stored where its region has already ended
@@ -2421,7 +2421,7 @@ two named regions are UNORDERED - neither is known to outlive the
 other. A region opened by `(region r ...)` is inside the region it
 was opened in.
 
-The escape rule (docs/memory-model-v2-design.md, MM-RGN-3): a value
+The escape rule (docs/memory-model.md, MM-RGN-3): a value
 may be stored only into a place its own region OUTLIVES, because the
 place is still readable after the value's region has been reclaimed.
 This code is that rule refusing a store - a `set` on a binding, a
@@ -2455,7 +2455,7 @@ AX3061 - a result that does not live in the region its signature names
 `@r`. A body answering its `@s` parameter, or a value it allocated
 itself, breaks that promise: the caller reads the result in `@r`
 after every shorter region has been reclaimed (MM-RGN-3 at the
-return, docs/memory-model-v2-design.md).
+return, docs/memory-model.md).
 
 A value derived from a parameter annotated `@r` - the parameter
 itself, a field or an element read out of it - is what the signature
@@ -2474,7 +2474,7 @@ A lambda's record holds a reference to every value it captures, so
 the closure lives in the region it was created in AND in the region
 of each capture: it may be stored, or answered, only where every
 capture outlives the place (MM-RGN-3 for closures,
-docs/memory-model-v2-design.md §2.3).
+docs/memory-model.md §3.6).
 
 This is AX3060 or AX3061 with the escaping value a closure, reported
 against the capture that makes it short-lived - the message names it.
@@ -2513,7 +2513,7 @@ and `axiom_release` are a plain load-add-store rather than an
 `atomicrmw` - by design, and everywhere - so two of them on one
 block's count lose an increment, and the block is freed while a live
 reference still names it. Corruption, not a leak (MM-PAR-6,
-docs/memory-model-v2-design.md section 3.2b).
+docs/memory-model.md §6).
 
 A `parallel` binding may BORROW a `String` its parent holds
 (MM-PAR-6b): the form freezes the string's count, and every count it

@@ -7,7 +7,7 @@
 # sharing costs, how small a piece of work a binding pays for, the
 # latency distribution of a task and of a channel hand-off, what a
 # byte of a task's answer costs, and the peak memory of each.
-# `docs/assurance/scorecard.md` quotes the figures.
+# `docs/status.md` quotes the figures.
 #
 #   scripts/bench-concurrency.sh            # REPS runs of each, best and median
 #   REPS=9 REPS2=7 OPT=2 scripts/bench-concurrency.sh

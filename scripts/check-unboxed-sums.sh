@@ -3,7 +3,7 @@
 #
 # `(Some v)` is a 16-byte heap block - `axiom_alloc`, a shape word, a
 # tag, a refcount and the field - which the consumer reads back and
-# hands to `axiom_release`. `docs/unboxed-sums-design.md` measures that
+# hands to `axiom_release`. `docs/error-model.md` measures that
 # wrapper at 11.86 ns and prototypes a `{tag, payload}` register pair
 # that costs 0.36 ns, and its section 4 asks for exactly this gate
 # before any code generation moves:

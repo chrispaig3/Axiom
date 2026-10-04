@@ -364,7 +364,7 @@
 # pairs). Those runs read 1.75s in-process against 1.13s for the same
 # work later the same day, so the machine was around 55% slower - a
 # few percent is below what is resolvable on it.
-# `docs/unboxed-sums-design.md` section 6a carries the whole
+# `docs/error-model.md` section 6a carries the whole
 # comparison. What IS exact is the block count, gated by
 # `scripts/check-unboxed-sums.sh`.
 #
@@ -419,7 +419,7 @@
 # wrong:
 #
 # THE BLOCKER ON FOUR OF THE NINE IS REMOVABLE, and it is measured:
-# `docs/unboxed-sums-design.md` prototypes `(Option Int)` as a
+# `docs/error-model.md` prototypes `(Option Int)` as a
 # {tag, payload} register pair rather than a heap block. The wrapper
 # goes 11.86 ns -> 0.36 ns, 96.9% of the box recovered, through the
 # real opt/llc/cc pipeline. If `(Some v)` does not allocate then
@@ -484,7 +484,7 @@
 # tail is `None` or `(Some e)` once, as a two-register pair, and boxes
 # only at a caller that stores the answer past its match - in that
 # caller, where the checker's mirror of the eligibility test charges it
-# (docs/unboxed-sums-design.md section 5b; scripts/check-unboxed-sums.sh
+# (docs/error-model.md §10; scripts/check-unboxed-sums.sh
 # holds the claim to the emitted IR). So `strHexVal`, `utf8DecodeAt` and
 # `utf8CharAt` answer `(Option Int)` under the same three restrictions
 # they always carried, and `netPollSignalAt` - `Option` was never the

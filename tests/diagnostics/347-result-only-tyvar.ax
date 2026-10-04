@@ -52,7 +52,7 @@
 ; polymorphic EMPTY constructor was refused, so a generic container
 ; could not declare the one function it cannot do without -
 ; `(pub :: vecNew (Vec a))` drew AX3040 with no way around it.
-; `docs/generics-design.md` records what that blocked.
+; `docs/reference.md` records what that blocked.
 (:: emptyOpt (-> Int (Option a)))
 (fn (emptyOpt n)
   None)

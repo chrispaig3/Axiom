@@ -487,7 +487,7 @@ def op_long(rng, text, corpus):
     bindings of one `let` (measured 2026-09-27, emit-llvm: 4,000 in
     0.85s, 8,000 in 4.7s, 16,000 in 24s), so at 20,000 the gate's
     deadline would be measuring that known cliff - recorded in
-    docs/assurance/verification.md - and not a hang.
+    CONTRIBUTING.md - and not a hang.
 
     And the edit stops at 100,000 bytes, where it stopped at 1,000,000:
     `llc -O0` is itself superlinear in one function's basic blocks. A

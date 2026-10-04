@@ -13,7 +13,7 @@
 # decided, and the only honest enforcement is a check compiled INTO the
 # body. Those two invariants contradict each other by construction, and
 # a gate whose sections disagree about what it is asserting is worse
-# than two gates. `docs/contracts-design.md` is the design note.
+# than two gates. `docs/reference.md` is the design note.
 #
 # Seven sections, each with the negative probe that proves it can go
 # red, because `CONTRIBUTING.md`'s rule is that a gate can only see what

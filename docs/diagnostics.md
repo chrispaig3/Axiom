@@ -93,6 +93,23 @@ The exit status follows the severity each diagnostic is rendered with,
 not a list of diagnostic kinds. The severity you see and the behaviour
 you get always agree.
 
+## Read symbol tags
+
+`Agent.Tags` parses AXSYM rows from `axiom symbols --calls`.
+`axsymLine` returns `Option Sym`; `axsymParse` reads a stream. A symbol
+records its kind, name, location, type, NID and metadata. The reader
+accepts all eight declaration kinds and ignores diagnostic lines that
+also begin with `E`. Imported declarations keep their declaring file.
+
+Use `symEffects` for the compiler's derived row and `symTag` for an
+author's AXTAG. `symHasTag` distinguishes an empty tag from an absent
+one. Derived keys follow author tags, so they cannot be shadowed.
+`symAgentTag` and `symHasAgentTag` read `agent:*` annotations; the
+compiler records them, while a consuming tool chooses their policy.
+Effects reached through stored values may escape a static call graph.
+
+Tested by `tests/stdlib/380-agent-tags.ax`.
+
 ## Stable diagnostic codes
 
 Every diagnostic, apart from a few catch-all fallbacks, carries a

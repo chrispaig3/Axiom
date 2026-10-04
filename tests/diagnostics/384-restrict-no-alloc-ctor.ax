@@ -32,7 +32,7 @@
 ;           a function of this shape - a declared `(Option Int)` whose
 ;           every tail is `None` or `(Some e)` - as `@some$pair`,
 ;           answering two registers and building no block on any path
-;           (`docs/unboxed-sums-design.md`), and the checker's mirror of
+;           (`docs/error-model.md`), and the checker's mirror of
 ;           that test (`tcPairFnOK`) charges the leaf nothing. The block
 ;           a caller may still need is built at the CALL, in the caller,
 ;           and charged there: `held` below is that caller.

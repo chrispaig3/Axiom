@@ -9,7 +9,7 @@
 ; failure modes."
 ;
 ; That argument was accepted. `vecGet` REFUSES an out-of-range index
-; now - status 77, `docs/generics-design.md` section 4 - so the wrong
+; now - status 77, `docs/reference.md` section 4 - so the wrong
 ; answer that keeps going is gone, and with it the term this file was
 ; built around: a stored zero and a missing element can no longer be
 ; COMPARED in one program, because reading the missing one ends it.
@@ -76,7 +76,7 @@
       ; keep passing". It started distinguishing them, so this says so.
       ;
       ; `vecGet` REFUSES a missing element now, status 77
-      ; (`docs/generics-design.md` section 4), so the pair cannot be
+      ; (`docs/reference.md` section 4), so the pair cannot be
       ; compared in one program any more - a trap ends it. The refusal
       ; is pinned by `tests/stdlib/464-index-trap.ax` and its `.exit`,
       ; which is the only shape a fixture for a trap can take.

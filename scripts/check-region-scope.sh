@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # `(region r body)` is a CHECKED SCOPE - S2 of
-# docs/memory-model-v2-design.md §4 - and this is what holds it.
+# docs/memory-model.md §3.6 - and this is what holds it.
 #
 # WHAT A REGION IS, one sentence each way. The allocator's waterline
 # is read when the body starts and rolled back when it ends, so

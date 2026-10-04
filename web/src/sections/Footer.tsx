@@ -28,7 +28,7 @@ const COLUMNS: { title: string; links: [string, string][] }[] = [
       ['Diagnostics', `${DOCS}/diagnostics.md`],
       ['Agent harness', `${DOCS}/agent-harness.md`],
       ['Compiler inspection', `${DOCS}/compiler-guide.md`],
-      ['Symbol metadata', `${DOCS}/agent-tags.md`],
+      ['Symbol metadata', `${DOCS}/diagnostics.md#read-symbol-tags`],
       ['Compatibility', `${DOCS}/compatibility.md`],
       ['Status', `${DOCS}/status.md`],
     ],

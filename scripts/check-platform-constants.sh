@@ -596,7 +596,7 @@ kernel32_table_report() {
       sub(/\(.*$/, "", fn)
       # A function whose every tail is `Ok`/`Err` is emitted ONCE, as
       # `@F$pair` returning the register pair, and `@F` is a boxing
-      # wrapper that calls it (docs/unboxed-sums-design.md 5b,
+      # wrapper that calls it (docs/error-model.md 5b,
       # 2026-09-03). `platformWriteFd`/`platformReadFd` answer
       # `(Result Int Error)` since ERR-ADOPT-1, so the WriteFile call
       # this gate reads sits in `@Sys.Platform$platformWriteFd$pair`.

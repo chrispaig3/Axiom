@@ -1,4 +1,4 @@
-; MM-PAR-6, the share-free accept (docs/memory-model-v2-design.md 3.2b).
+; MM-PAR-6, the share-free accept (docs/memory-model.md 3.2b).
 ;
 ; AX3064 refuses every capture but class 0, and class 0 is a PROMISE:
 ; the value takes no share of a count, so no count is raced over. A

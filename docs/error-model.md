@@ -1185,8 +1185,7 @@ expression, or delete the tag to withdraw the claim. `AX3010` and
 blanket refusal. `vecLen`, `vecGet`, `strLen`, `strEq`, `strByte` and
 `memGetWord` carry an empty effect row, while `concat`, `fmtInt` and
 `vecNew` carry `Alloc,Mut`. A contract may compare, index, measure and
-test, but it may not build. The design note is
-[contracts-design.md](contracts-design.md), and
+test, but it may not build. The [reference](reference.md#contracts-pre-and-post) describes the contract syntax, and
 `scripts/check-contracts.sh` is the gate.
 
 `AX3053` means nothing handled a custom effect: a `handle` is the only
@@ -1447,7 +1446,7 @@ runs the direct read and the routed one and compares their answers.
 | `ERR-REC-4` | **H, gated** | `tests/stdlib/490-main-result-ok.ax`, `491-main-result-err.ax` (+ `.out`/`.exit`/`.err`) |
 | `ERR-REC-5` | P | — |
 | `ERR-REC-7` | **H, gated** | `stdlib/Fallible.ax`; `410-fallible.ax`: thirteen values, four of them memory terms with an ablation; `tests/diagnostics/389-unhandled-at-main.ax` for the missing handler, which `AX3053` names at compile time; `scripts/check-steady-state.sh`'s `batch` probe, and `examples/batch-fallible` under the same gate |
-| `ERR-REC-8` | **R, superseded** | Range-constrained subtypes were refused as a type (roadmap item 11, D2), then built: `(subtype N is Int range lo..hi)` (`tests/selfhost/134-subtype-checked.ax`, `135-subtype-violated.ax`), with narrowing conversions checked by the contract trap (80). The `;@axiom:pre(...)` vehicle still stands beside it. `docs/subtypes-design.md` keeps the case for, the reversal and the re-measured counts |
+| `ERR-REC-8` | **R, superseded** | Range-constrained subtypes were refused as a type (roadmap item 11, D2), then built: `(subtype N is Int range lo..hi)` (`tests/selfhost/134-subtype-checked.ax`, `135-subtype-violated.ax`), with narrowing conversions checked by the contract trap (80). The `;@axiom:pre(...)` vehicle still stands beside it. `reference.md` documents the implemented subtype |
 | `ERR-DIAG-1` | H | `mkDiag` is the only channel |
 | `ERR-DIAG-2`, `3` | P | No proposal is open: the last one, `AX3043`, is built (`1008-error-payload-untyped.ax`). `scripts/check-doc-drift.sh` fails on a proposal whose number is spent |
 | `ERR-SUGAR-1` | R | `?` is `AX1001` |
@@ -1481,9 +1480,7 @@ F openLit  "(Int -> Result Int Error)"  #effects=Alloc
 The first builds its message with `concat`, and the second uses a
 literal. A function that pays `Alloc, Mut` cannot carry `pure`, cannot
 pass `restrict(no-alloc)`, and cannot sit in a `handle` checked
-exhaustive against a narrower row. P6 in
-[memory-model-v2-proposal.md](memory-model-v2-proposal.md) was proposed
-to remove this cost. It stays refuted, because its `Mut` half is
+exhaustive against a narrower row. Removing this cost was proposed. It stays refuted, because its `Mut` half is
 unsound, and the migration doesn't need it.
 
 The two populations barely overlap. All 29 failure sentinels, the ones
@@ -1504,7 +1501,7 @@ A function whose every tail is `None` or `(Some e)` is emitted as a
 two-register pair, with no boxed body beside it. A caller that needs a
 block builds it at the call, and the effect walk charges that caller's
 row, not the lookup's
-([unboxed-sums-design.md](unboxed-sums-design.md) §5b). So
+(§10.1). So
 `restrict(no-alloc)` holds for a lookup of that shape, checked against
 its IR. The pair doesn't yet take a function that tail-calls itself,
 which is why `strFindByte` needed a different fix (§10.1).
@@ -1669,7 +1666,7 @@ The slices, in order, each green before the next starts:
    The hot-path calls were held out of this slice for that reason (`netPollSignalAt` also
    for the one below). Once a `Result` became an unboxed pair, a direct
    match builds no block on success
-   ([unboxed-sums-design.md](unboxed-sums-design.md) §5b), and §10.1
+   (§10.1), and §10.1
    records their port. `runTool` in `self_host/driver.ax` unwraps
    at the stdlib boundary, because the compiler's own phases are
    slice 4.
@@ -1782,7 +1779,7 @@ Check `#restrict=` as well as `#effects=`. They answer different
 questions, and `axiom symbols` prints both.
 
 The boxed cost is removable.
-[unboxed-sums-design.md](unboxed-sums-design.md) makes `(Option Int)` a
+The pair lowering makes `(Option Int)` a
 `{tag, payload}` register pair instead of a heap block. Through the
 real `opt`, `llc` and `cc` pipeline, the wrapper goes from 11.86 ns to
 0.36 ns, recovering 96.9% of the box's cost. With `(Some v)` no longer
@@ -1805,7 +1802,7 @@ sorting the sentinels by it changes what finishing the migration means.
 | `stdlib/`, by the census that reads bodies | **9** | **29** |
 | `self_host/`, slice 4's 25 | 21 | 1 |
 | `stdlib/`, after slices 1–4 and the type correction below | 7 | 9 |
-| `stdlib/`, after the box moved to the caller (`docs/unboxed-sums-design.md` §5b) and the two ports it permitted | 3 | 0 |
+| `stdlib/`, after the box moved to the caller (§10.1) and the two ports it permitted | 3 | 0 |
 | `stdlib/`, today, after `strFindByte` became a loop | **2** | **0** |
 
 The floor is two absence rows and no failure rows. The rest of this
@@ -1950,7 +1947,7 @@ A function returning `(Option Int)` or `(Result Int Error)` in the pair
 shape no longer allocates on any path. The emitter writes its body once
 as a two-register pair, and a caller that needs a block builds it at
 the call, where the checker charges it
-(`docs/unboxed-sums-design.md` §5b).
+(§10.1).
 
 The absence column went from 7 to 3, and then to 2.
 

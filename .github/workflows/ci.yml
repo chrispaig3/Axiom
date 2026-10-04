@@ -1079,7 +1079,7 @@ jobs:
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-stack-bound.sh
 
-      # The other two blocking rows of docs/embedded-proposal.md. The
+      # The allocator assumptions described in docs/embedded-guide.md. The
       # arena's chunk size is a per-target constant and `mmap` is one of
       # two backing strategies, chosen at emission time - so a program
       # built for a target with no MMU carries a statically reserved
@@ -1240,9 +1240,7 @@ jobs:
         run: ./scripts/check-cast-arg-root.sh
 
       # What an `Option` costs, counted rather than timed.
-      # `docs/unboxed-sums-design.md` measures the wrapper at 11.86 ns
-      # and prototypes a `{tag, payload}` register pair at 0.36 ns; its
-      # section 4 asks for this gate BEFORE any code generation moves,
+      # The unboxed-pair gate pins the representation and behaviour;
       # so the win is asserted by a number in the emitted module and
       # not by a stopwatch on a shared runner. `optFind` builds one
       # block today and its matching consumer performs one release;

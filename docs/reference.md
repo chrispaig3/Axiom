@@ -377,7 +377,7 @@ operations belong behind an `effect(unsafe)` declaration.
 Signature region annotations describe lifetime relationships. They do
 not name a `region` expression's arena or implement general promotion.
 The current enforcement and remaining gaps are in the
-[memory model](memory-model.md) and [region design](memory-model-v2-design.md).
+[memory model](memory-model.md) and [region design](memory-model.md).
 
 
 ## Type aliases
@@ -737,7 +737,7 @@ for signatures, startup and interrupt assumptions.
 
 `nolint` suppresses the selected editor hints; it does not suppress
 compiler errors. Effect-inference facts and metadata are described in
-[agent tags](agent-tags.md) and [diagnostics](diagnostics.md).
+[symbol tags](diagnostics.md#read-symbol-tags) and [diagnostics](diagnostics.md).
 
 
 ## Modules and imports
@@ -1247,7 +1247,7 @@ interrupt tags affect validation. Descriptive tags remain metadata;
 they do not establish a proof by themselves.
 
 Use `axiom --diagnostic-format=ai symbols file.ax` to inspect accepted
-tags and inferred facts. [Agent tags](agent-tags.md) describes reading
+tags and inferred facts. [Symbol tags](diagnostics.md#read-symbol-tags) describes reading
 those rows, and [diagnostics](diagnostics.md) documents their format.
 
 

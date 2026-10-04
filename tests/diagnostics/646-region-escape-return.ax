@@ -1,4 +1,4 @@
-; MM-RGN-3 at the RETURN (docs/memory-model-v2-design.md §2.3), and
+; MM-RGN-3 at the RETURN (docs/memory-model.md §2.3), and
 ; the one refusal that belongs to the signature alone.
 ;
 ;   1  `pick` answers its `@s` parameter as a `(String @r)`: AX3061.

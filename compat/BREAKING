@@ -321,7 +321,7 @@
 # public, and ZERO `restrict(no-alloc)` claims are refused, because
 # what widens it is the FAILURE path building an `Error` while the
 # success path is two registers read by a direct match (the box moved
-# to the caller on 2026-09-03, docs/unboxed-sums-design.md section 5b).
+# to the caller on 2026-09-03, docs/error-model.md §10).
 # So `println` may allocate, and only when a write fails, and its row
 # says so. `sysWriteAllFd` and `writeStr` keep the Int channel that
 # `println`'s 804 expansions are; that channel is a separate decision.
@@ -374,7 +374,7 @@
 # `__axiom_recover` answers 77 rather than exiting - so a caller that
 # genuinely wants to survive a bad index still can.
 #
-# WHY NOW: `docs/generics-design.md` section 4. `(-> (Vec a) Int a)`
+# WHY NOW: A generic `(-> (Vec a) Int a)`
 # cannot answer 0, because there is no way to make up an `a`, and for a
 # reference element the 0 is a null the caller dereferences. The
 # sentinel had to go before `Vec` could carry an element type.
@@ -382,9 +382,8 @@
 
 # 0.6.4 - `Vec` CARRIES ITS ELEMENT TYPE. `stdlib/Vec.ax` handed out a
 # bare `Int` handle; it hands out a parameterised `(Vec a)` now, and
-# every public name that takes or answers a vector moved with it. This
-# is the port `docs/generics-design.md` section 5 item 5 planned and
-# section 4c measured: 4,432 errors to zero.
+# every public name that takes or answers a vector moved with it. The
+# historical generics design measured this port: 4,432 errors to zero.
 #
 # WHAT A CONSUMER HAS TO DO. The runtime representation did not change
 # - a `(Vec a)` is the same machine word the `Int` was - so this is a

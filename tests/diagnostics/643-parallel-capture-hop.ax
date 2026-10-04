@@ -1,4 +1,4 @@
-; MM-PAR-6, the indirection half (docs/memory-model-v2-design.md 3.2b).
+; MM-PAR-6, the indirection half (docs/memory-model.md 3.2b).
 ;
 ; `checkSpawnCaptures` used to answer 0 for any thunk that was not a
 ; lambda literal, so a spawn through a one-line wrapper smuggled every

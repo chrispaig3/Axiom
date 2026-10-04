@@ -780,7 +780,7 @@ module.exports = grammar({
     // `(Str @r)`, `(Vec Int @r)`, `(String @r)`, `(a @r)` - a REGION
     // ANNOTATION is the last thing inside a type's parentheses
     // (`parseTypeAtomsRgn` in self_host/parser.ax; stage S3 of
-    // docs/memory-model-v2-design.md). On a constructor application it
+    // docs/memory-model.md). On a constructor application it
     // is the optional trailing field above; a keyword type or a type
     // variable takes it through this rule, which is the one place the
     // grammar admits a parenthesised variable - `(a @r)` is valid Axiom
@@ -1034,7 +1034,7 @@ module.exports = grammar({
     ),
 
     // `(region r body)` - a checked allocation scope, MM-RGN-1 of
-    // docs/memory-model-v2-design.md (S2, 2026-09-03). The name is a
+    // docs/memory-model.md (S2, 2026-09-03). The name is a
     // binder and the body is exactly one expression
     // (`self_host/parser.ax`'s `parseRegionExpr`); a second body is a
     // parse error in the compiler and is simply not in this grammar's

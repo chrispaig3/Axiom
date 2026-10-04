@@ -51,7 +51,7 @@
 # this file for them moved no other case's bytes.
 #
 # TWO CASES WERE ADDED for the `region` keyword (2026-09-03, S2 of
-# docs/memory-model-v2-design.md). 210 pins `fpRegion`'s head layout - the name
+# docs/memory-model.md). 210 pins `fpRegion`'s head layout - the name
 # on the head line, the one body indented under it, which is `while`'s layout
 # and not the application layout a two-operand unknown head would get. 211 is
 # the REFUSAL: `(region r)` has no body, `fpRegion` answers `fpBad` for any

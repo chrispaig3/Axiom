@@ -1,4 +1,4 @@
-; MM-RGN-3, the escape rule, at a STORE (docs/memory-model-v2-design.md
+; MM-RGN-3, the escape rule, at a STORE (docs/memory-model.md
 ; §2.3; stage S3 of §4). A value may be stored only into a place its
 ; own region outlives. Four functions, each a different door:
 ;

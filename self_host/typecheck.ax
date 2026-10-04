@@ -1147,7 +1147,7 @@
 ; pinned, and `check` answered OK for a program that exits 139 - an
 ; `Int` read back as a block header with no `cast` written anywhere.
 ; That is `AX3040`'s failure reached without `AX3040`'s coercion, and
-; `docs/generics-design.md` section 4d has the four probes.
+; `scripts/check-type-pinning.sh` keeps the refusal.
 ;
 ; So a placeholder now BINDS. Word 2 of a `TAG_T_VAR` node is 0 until
 ; something pins it; `parser.ax` documents that tag as `a=name`, and
@@ -3016,7 +3016,7 @@
   (unsafe : Int))
 
 ; The region FACTS of this function (`rgnFactsNew`, stage S3 of
-; docs/memory-model-v2-design.md): which parameters its body stores
+; docs/memory-model.md): which parameters its body stores
 ; a fresh value into, which parameters flow into which, and where
 ; its result comes from. 0 until `rgnEnsureFacts` has run, which it
 ; does only for a program that names a region or claims
@@ -3968,7 +3968,7 @@
       (regFnEff fns "__atomic_cas" (mkIntArrow 3) (builtinEff "Mut"))
       (regFnEff fns "__fence" (mkIntArrow 0) (builtinEff "Mut"))
       ; The six `parallel` primitives - S5 and S6 of
-      ; docs/memory-model-v2-design.md, lowered by `emitPrimPar` in
+      ; docs/memory-model.md, lowered by `emitPrimPar` in
       ; codegen.ax. A spawn takes the thunk to run and the word to hand
       ; it and answers a handle; a join takes the handle and answers the
       ; word the thunk answered. `IO`, for the syscall primitives'
@@ -8633,7 +8633,7 @@
     }))
 
 ; ------------------------------------------------------------------
-; Regions, stage S2 of docs/memory-model-v2-design.md §4: `(region r
+; Regions, stage S2 of docs/memory-model.md §3.6: `(region r
 ; EXPR)` is a CHECKED SCOPE with no types yet.
 ;
 ; What the checker does with one, and the two things it refuses:
@@ -8788,7 +8788,7 @@
       (concat (concat (concat (concat "region `" name) "` answers a value of type `") (tyRender ty)) "`, which may point into the memory the region reclaims")
       0
       0
-      "answer a scalar - Int, Bool, Char or Float - which survives the reset by value; a reference has to be built outside the region until typed regions (docs/memory-model-v2-design.md §4, S3) can promote one"
+      "answer a scalar - Int, Bool, Char or Float - which survives the reset by value; a reference has to be built outside the region because promotion out of the region is unavailable"
       "a `String` is a descriptor over a second block, a struct is a block and a closure is a record; every one of them would point at reclaimed memory") (concat (concat "this has type `" (tyRender ty)) "`")))
     0
   })
@@ -20976,7 +20976,7 @@
 ;   no-trap           no INTEGER `/`, `%`, `<<` or `>>` head in     local
 ;                THIS body
 ;
-; `no-wrap` is `docs/checked-arithmetic-design.md`'s slice of the
+; `no-wrap` is `docs/reference.md`'s slice of the
 ; Ada-hardening work: `+`/`-`/`*` lower to plain `add`/`sub`/`mul`
 ; with no `nsw` (silent wraparound on overflow), and `stdlib/Err.ax`'s
 ; `addChecked`/`subChecked`/`mulChecked` are the alternative this
@@ -22593,8 +22593,7 @@
 ; `add`/`sub`/`mul` with no `nsw` (measured: `grep -c 'with\.overflow'
 ; self_host/codegen.ax` is 0), so a wraparound is an act THIS BODY
 ; performs by writing the bare operator, not a fact the effect row or
-; call graph carries. `docs/checked-arithmetic-design.md` is the
-; design note; `stdlib/Err.ax`'s `addChecked`/`subChecked`/
+; call graph carries. `docs/reference.md` defines `no-wrap`; `stdlib/Err.ax`'s `addChecked`/`subChecked`/
 ; `mulChecked` are the sanctioned alternative, and calling one pulls
 ; `Alloc` into this body's row (constructing the `Result` allocates),
 ; which is why `no-wrap` and `no-alloc`, or `no-wrap` and `pure`, are
@@ -22658,7 +22657,7 @@
 ; `for` - an operator the body does not contain, at a span that spells
 ; something else, with no fix available: a loop counter cannot be a
 ; `Result`. The keyword landed 2026-09-03, three days after `no-wrap`,
-; and `docs/checked-arithmetic-design.md`'s phase 1 could not have
+; and `docs/reference.md`'s phase 1 could not have
 ; seen it.
 ;
 ; Skipping it is SOUND and not merely convenient: the body is entered
@@ -22823,7 +22822,7 @@
 ; and `<<`/`>>` trap on an out-of-range shift amount (exit 84) -
 ; so the trapping use is an act THIS BODY performs by writing the
 ; bare operator, not a fact the effect row or call graph carries.
-; `docs/checked-arithmetic-design.md` names this the follow-up its
+; `docs/reference.md` names this the follow-up its
 ; phase 1 deliberately left out; `stdlib/Err.ax`'s
 ; `divChecked`/`remChecked`/`shlChecked`/`shrChecked` are the
 ; sanctioned alternative, and calling one pulls `Alloc` into this
@@ -26173,7 +26172,7 @@
 
 ; ==================================================================
 ; REGIONS, STAGE S3: region-parameterised signatures and the escape
-; rule (docs/memory-model-v2-design.md §2, staged in §4).
+; rule (docs/memory-model.md §3.6).
 ;
 ; WHAT THIS IS. A signature may name the region a reference lives in,
 ; `(:: intern (-> (Str @s) (Table @r) (Sym @r)))`, and MM-RGN-3 is
@@ -26738,7 +26737,7 @@
                     (concat (concat (concat (concat (rgnOriginTextComma rc v) " is stored into ") into) (concat ", which lives in " (rgnRidText rc t))) how)
                     0
                     0
-                    "MM-RGN-3 (docs/memory-model-v2-design.md): a value may be stored only into a place its own region OUTLIVES, because the place is still readable after the value's region has been reclaimed. A region named in a signature (`@r`) outlives the function's own region and is unordered against another name; the function's own region is its caller's. Keep the value in the region of the place it is stored into - allocate it there, or copy it there - or widen the place's annotation to the value's region"))
+                    "MM-RGN-3 (docs/memory-model.md): a value may be stored only into a place its own region OUTLIVES, because the place is still readable after the value's region has been reclaimed. A region named in a signature (`@r`) outlives the function's own region and is unordered against another name; the function's own region is its caller's. Keep the value in the region of the place it is stored into - allocate it there, or copy it there - or widen the place's annotation to the value's region"))
                   (emitDiag (rgnTc rc) (mkDiag
                     SEV_ERROR
                     "AX3062"

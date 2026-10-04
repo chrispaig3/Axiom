@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# S4's success criterion, run at last (docs/memory-model-v2-design.md
+# S4's success criterion, run at last (docs/memory-model.md
 # §4, the S4 table row): "re-run §1.1's ablation and expect the binary
 # win with the RSS win intact - the one measurement that decides
 # whether any of this was worth it". Slices 1-5 each pinned their own

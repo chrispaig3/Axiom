@@ -1,5 +1,5 @@
 ; What the concurrency primitives cost, for `scripts/bench-concurrency.sh`
-; (docs/assurance/scorecard.md). One mode per run, chosen by the first
+; (docs/status.md). One mode per run, chosen by the first
 ; argument. Each mode times itself with `sysTimeoutMicros` around the
 ; work alone - process start-up and the build are outside it - checks
 ; its own answer, and prints `<mode> <answer> <microseconds>`; a wrong

@@ -1,4 +1,4 @@
-; docs/embedded-proposal.md section 6's reference-port probe: the
+; docs/embedded-guide.md section 6's reference-port probe: the
 ; smallest program that proves the loop on a device - initialise,
 ; allocate, write to the UART, reclaim, exit.
 ;

@@ -262,7 +262,7 @@
 ;
 ; THE CALLEE AND THE TRAP HELPER GO THROUGH `saAxSafe`, the parameter
 ; names' escaper, and the header name still does not. That asymmetry
-; is the one docs/mir-design.md §3 argues for: the header tuple is
+; is the one docs/compiler-guide.md §3 argues for: the header tuple is
 ; joined to AXSYM by BYTE equality and must not be escaped where
 ; `symLine` is not, while these two are read by nothing but this file,
 ; and a structural byte in either would silently add an atom to the

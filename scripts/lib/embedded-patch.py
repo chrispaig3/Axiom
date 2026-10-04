@@ -7,13 +7,13 @@ same mechanism, so they live together:
   variant:<code41>:<hostcode>
         THE POSITIVE ONE. Give one target a 4 KiB arena chunk and
         another a 256 KiB statically reserved arena - which is exactly
-        the edit `docs/embedded-proposal.md` section 6 says a bare-metal
+        the edit `docs/embedded-guide.md` section 6 says a bare-metal
         port makes to the target table, and nothing more. The gate then
         asserts what moved and what did not.
 
   silent:<hostcode>
         THE POSITIVE ONE FOR 4.3. Give the host silent traps - the
-        no-op door of `docs/embedded-proposal.md` 4.3 - so the gate can
+        no-op door of `docs/embedded-guide.md` 4.3 - so the gate can
         link, run and listen to a program whose traps exit without
         writing.
 

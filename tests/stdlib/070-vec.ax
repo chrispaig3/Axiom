@@ -45,7 +45,7 @@
       (println (vecCap v))  ; 8, vecDefaultCap
       (println (vecSum v))  ; 0
       ; A pop of an EMPTY vector used to answer 0 and be printed here.
-      ; `vecPop` REFUSES one now (status 77, `docs/generics-design.md`
+      ; `vecPop` REFUSES one now (status 77, `docs/reference.md`
       ; section 4's decision applied to the second accessor that had a
       ; sentinel: under `(-> (Vec a) a)` a `0` fabricates an `a`), so a
       ; fixture that over-pops cannot also print anything afterwards.
@@ -88,7 +88,7 @@
       ;
       ; These four used to call `vecGet` and expect 0. `vecGet` REFUSES
       ; an out-of-range index now (status 77,
-      ; `docs/generics-design.md` section 4), so a fixture that reads
+      ; `docs/reference.md` section 4), so a fixture that reads
       ; past the end cannot also print anything afterwards - the terms
       ; move to `vecTry`, which is what a caller who does not know the
       ; index is good was always supposed to use.

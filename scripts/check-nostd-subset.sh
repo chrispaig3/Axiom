@@ -2,7 +2,7 @@
 # The freestanding subset: eight standard-library modules a bare-metal
 # program may import, gated as a fact rather than intended.
 #
-# docs/embedded-proposal.md 4.4 says `Pre`, `Mem`, `Str`, `Vec`, `Map`,
+# docs/embedded-guide.md says `Pre`, `Mem`, `Str`, `Vec`, `Map`,
 # `Fmt`, `Utf8` and `Err` assume no filesystem, process model or
 # sockets, while `Sys`, `IO`, `Path`, `Net`, `Rpc` and `Par` do - and
 # requires the split to be gated BEFORE the port, because a subset no

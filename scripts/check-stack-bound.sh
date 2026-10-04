@@ -7,7 +7,7 @@
 # question DYNAMICALLY, by bisecting `ulimit -s` until the compiler
 # stops working. That is the only honest answer for a program that
 # recurses, and the compiler does. But it is useless to the embedded
-# reader docs/embedded-proposal.md is written for: you cannot bisect a
+# reader docs/embedded-guide.md is written for: you cannot bisect a
 # microcontroller, and "run it and see" is not a bound. A program that
 # declares `;@axiom:restrict(no-recursion)` has already had its call
 # graph proved acyclic by the compiler (AX3049, scripts/check-restrictions.sh),

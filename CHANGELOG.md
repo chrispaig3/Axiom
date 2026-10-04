@@ -518,6 +518,30 @@ Tested by `scripts/check-obfuscation.sh`, `scripts/check-task.sh`,
   (`(sizeof 99)` answered 8; now it is refused). Tested by
   `tests/diagnostics/1114-sizeof-operand-type.axbad`.
 
+
+The former design and assurance records cited in earlier entries remain
+available in Git history:
+
+```bash
+git show 9496c6e1:docs/assurance/hazards.md
+git show 9496c6e1:docs/assurance/requirements.md
+git show 9496c6e1:docs/assurance/scorecard.md
+git show 9496c6e1:docs/assurance/tool-qualification.md
+git show 9496c6e1:docs/assurance/verification.md
+git show 9496c6e1:docs/memory-model-v2-design.md
+git show 9496c6e1:docs/memory-model-v2-proposal.md
+git show 9496c6e1:docs/checked-arithmetic-design.md
+git show 9496c6e1:docs/contracts-design.md
+git show 9496c6e1:docs/generics-design.md
+git show 9496c6e1:docs/subtypes-design.md
+git show 9496c6e1:docs/unboxed-sums-design.md
+git show 9496c6e1:docs/embedded-proposal.md
+git show 9496c6e1:docs/mir-design.md
+git show 9496c6e1:docs/cast-arg-root.md
+git show 9496c6e1:docs/refusal-ledger.md
+git show 9496c6e1:docs/roadmap-type-system.md
+```
+
 ## 0.7.7 — 2026-09-30
 
 Axiom 0.7.7 grows the standard library: a cryptography suite, dates
@@ -6437,7 +6461,7 @@ seed-skew rule is land, reseed, then use.
 
 **A signature may name the region a reference lives in**, `(:: intern
 (-> (String @s) (Table @r) (Sym @r)))`, and `MM-RGN-3` of
-[memory-model-v2-design.md](docs/memory-model-v2-design.md) §2.3 is
+[memory-model-v2-design.md](https://github.com/chrispaig3/Axiom/blob/9496c6e1/docs/memory-model-v2-design.md) §2.3 is
 checked over every body: a value may be stored into, returned into or
 captured by a place only if its region outlives the place's. Four
 errors — `AX3060` a store, `AX3061` a return, `AX3062` a closure

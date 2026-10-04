@@ -1,4 +1,4 @@
-; `region`, stage S2 of docs/memory-model-v2-design.md §4: a CHECKED
+; `region`, stage S2 of docs/memory-model.md §4: a CHECKED
 ; SCOPE with no types yet.
 ;
 ; `(region r body)` reads the allocator's waterline when `body` starts

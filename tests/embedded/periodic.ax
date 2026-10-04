@@ -1,5 +1,5 @@
 ; A periodic workload on `baremetal-aarch64`, driven by the virtual
-; timer's interrupt (docs/assurance/demonstrators.md D-5).
+; timer's interrupt (docs/embedded-guide.md D-5).
 ;
 ; `main` initialises once - the state block, the interrupt controller,
 ; the timer - and then only waits: `wfi` until the handler has counted a

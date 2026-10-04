@@ -1,5 +1,5 @@
 ; MM-RGN-3 over an UN-annotated region, through a callee
-; (docs/memory-model-v2-design.md §4). S2's scope check cannot see a
+; (docs/memory-model.md §4). S2's scope check cannot see a
 ; store a callee makes through its parameter, so before this fix the
 ; program below checked OK and read back wrong with every gate green
 ; (the adjacent hole S4's gates pinned as identical-either-way). S3's

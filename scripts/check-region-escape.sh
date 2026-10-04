@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # THE ESCAPE RULE, MM-RGN-3, and the compatibility half of MM-RGN-4
-# (docs/memory-model-v2-design.md §2, stage S3 of §4).
+# (docs/memory-model.md §2, stage S3 of §4).
 #
 # Stage S3 lets a signature name the region a reference lives in,
 # `(:: intern (-> (Str @s) (Table @r) (Sym @r)))`, and refuses a store,

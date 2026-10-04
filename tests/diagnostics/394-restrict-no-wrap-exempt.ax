@@ -34,7 +34,7 @@
 ; an operator the source does not contain, with no fix available, since
 ; a loop counter cannot be a `Result`; `floats` was told to call
 ; `addChecked`, which is `(-> Int Int (Result Int Error))` and does not
-; typecheck against a `Float`. See `docs/checked-arithmetic-design.md`.
+; typecheck against a `Float`. See `docs/reference.md`.
 (import Err)
 (import Vec)
 

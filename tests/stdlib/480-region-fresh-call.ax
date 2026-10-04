@@ -1,4 +1,4 @@
-; S4 slice 2, args path (docs/memory-model-v2-design.md §4): inside a
+; S4 slice 2, args path (docs/memory-model.md §4): inside a
 ; `(region r BODY)` a call result the witness proved fresh - the
 ; callee's facts say its answer derives from CUR0, from no parameter,
 ; and from no call the walk could not resolve - needs no

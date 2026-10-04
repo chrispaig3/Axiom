@@ -329,7 +329,7 @@
   53)
 
 ; `(region r EXPR)` - an allocation scope with a lexical extent,
-; MM-RGN-1 of docs/memory-model-v2-design.md. a = the region's NAME as
+; MM-RGN-1 of docs/memory-model.md. a = the region's NAME as
 ; a String, b = the one body expression, c = the NAME token's span
 ; (the anchor for a diagnostic about the name itself - AX3058 - and
 ; what S3's hover and rename will land on), span = the keyword's.
@@ -733,7 +733,7 @@
   })
 
 ; ------------------------------------------------------------------
-; REGION ANNOTATIONS ON TYPE NODES (docs/memory-model-v2-design.md,
+; REGION ANNOTATIONS ON TYPE NODES (docs/memory-model.md,
 ; MM-RGN-4, stage S3). `(Str @r)` is the `Str` type node with the
 ; region name `r` in word 7 - `axtags` on a declaration, and free on
 ; every type node, because a type carries no tags. It lives in a
@@ -1557,7 +1557,7 @@
 ; arm is DELETED rather than kept: the word is a keyword again
 ; (`parseRegionExpr`, 2026-09-03), and the advice it carried -
 ; "allocation lifetime is inferred" - described a model the language
-; withdrew (docs/memory-model-v2-design.md §1.4). The final arm of
+; withdrew (docs/memory-model.md §3.4). The final arm of
 ; each function is a generic sentence no caller reaches today.
 (pub :: removedHelp (-> String String))
 
@@ -4776,8 +4776,8 @@
                         ; resolved to Html's and answered `AX3001: undefined variable i`
                         ; in the body rather than an ambiguity at the import. The container
                         ; half additionally needs an ELEMENT type, which arrived with the
-                        ; parameterised `Vec`; this is item 6 of `docs/generics-design.md`
-                        ; §5, and item 5 is what unblocked it.
+                        ; parameterised `Vec`; this is the container loop in `docs/reference.md`. The typed element
+                        ; accessor makes the desugaring possible.
                         ;
                         ; The keyword span is passed through rather than recovered, exactly
                         ; as the `alloc` arm below does: `advance pos` loses the token.
@@ -5288,7 +5288,7 @@
 
 ; ------------------------------------------------------------------
 ; (region r EXPR) - an allocation scope with a lexical extent, MM-RGN-1
-; of docs/memory-model-v2-design.md §2.1. The runtime it runs on is the
+; of docs/memory-model.md §3.6. The runtime it runs on is the
 ; arena the compiler already emits: the allocator's waterline is read
 ; at entry and rolled back at exit (`emitRegion`), so everything the
 ; body allocated is reclaimed in one pointer move, and the body's
@@ -5303,7 +5303,7 @@
 ; shadow it.
 ;
 ; `region` was REMOVED on the strength of an inference that was then
-; withdrawn (memory-model-v2-design.md §1.4). Measured before this
+; withdrawn (docs/memory-model.md §3.4). Measured before this
 ; arm existed: `(region r 0)` in expression position drew `AX3001
 ; undefined variable region` and a second AX3001 for `r` - the AX2004
 ; arm with its "lifetimes are inferred" advice fired only at the TOP
@@ -5332,7 +5332,7 @@
 
 ; ------------------------------------------------------------------
 ; (parallel p ((a e1) (b e2) ...) body...) - MM-RGN-7 of
-; docs/memory-model-v2-design.md: every binding's expression runs
+; docs/memory-model.md: every binding's expression runs
 ; BESIDE the caller, each in a region of its own; the results are
 ; bound, in ARGUMENT ORDER, and the body runs with them.
 ;

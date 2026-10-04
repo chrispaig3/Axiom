@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# THE RECLAMATION AND REUSE GATE (docs/assurance/requirements.md R-B7 to
+# THE RECLAMATION AND REUSE GATE (docs/memory-model.md R-B7 to
 # R-B9; docs/memory-model.md MM-LIFE-2e, MM-LIFE-2f, MM-ALLOC-22 to 25).
 #
 # What happens to memory, and to what memory stands for, when values die,

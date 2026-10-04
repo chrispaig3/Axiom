@@ -1,5 +1,5 @@
 ; A driver with interrupt and DMA ownership boundaries, on
-; `baremetal-aarch64` (docs/assurance/demonstrators.md D-6).
+; `baremetal-aarch64` (docs/embedded-guide.md D-6).
 ;
 ; The device is QEMU `virt`'s firmware configuration interface, whose
 ; DMA engine reads a descriptor from guest memory and writes the

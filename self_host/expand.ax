@@ -10896,7 +10896,7 @@
 ; and whose `let`-wrapped twin holds `call i64 @loopB`. That is not an
 ; artefact to fix: a `post` must observe the result, so the call it
 ; wraps cannot be a tail call, and Ada's `Post` has the same property.
-; It is stated in `docs/contracts-design.md` and in the reference
+; It is stated in `docs/reference.md` and in the reference
 ; rather than left for someone to measure again.
 ;
 ; `result` IS BOUND BY AN ORDINARY `let`, and a `let`'s initialiser is

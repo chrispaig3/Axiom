@@ -4,7 +4,7 @@
 ;
 ; No compiler runs on this target - it answers only so that a build
 ; FOR the part resolves the module at all. None of the port's values
-; live here: `docs/embedded-proposal.md` 4.1 records why a
+; live here: `docs/embedded-guide.md` §1 records why a
 ; cross-compiling host must not answer the target's constants.
 (pub :: hostTarget String)
 (pub fn (hostTarget)

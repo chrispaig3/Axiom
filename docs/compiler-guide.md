@@ -32,6 +32,33 @@ uses the AST backend; an AXIR file is not a `build` input.
 Tested by `scripts/check-mir-roundtrip.sh` and
 `scripts/check-tools-selfhost.sh`.
 
+## MIR and AXIR
+
+`axiom symbols --axir` writes versioned records. With `--mir`, a record
+may add region facts and a verified SSA body. A lowering outside the
+supported subset leaves the whole body absent. The reader refuses unknown
+line kinds and fields; a normalised file is a fixed point.
+
+```text
+axir 1 <target> <version>
+F <name> <file>:<line>:<c1>-<c2> "<type>" @<nid>
+sig <arity>
+param <index> <name>
+region <flows-cur> <flows-from> <result-from> <result-cur> <unknown>
+blk <label> %<param>...
+op %<n> <opcode> <operand>...
+term <opcode> <operand>...
+end
+```
+
+The header tuple, including its file, joins a record to AXSYM; NID alone
+can collide across modules. `#mir-incomplete` and `#mir-truncated` mean a
+fact is only a lower bound. `--mir` forces the region analysis and can be
+slow. Native builds still use the checked AST backend.
+
+Tested by `scripts/check-mir-roundtrip.sh` and
+`scripts/check-mir-projection.sh`.
+
 ## Find an imported module
 
 A dotted name such as `Crypto.Random` maps to `Crypto/Random`.
@@ -59,7 +86,7 @@ The machine-word representation does not make these types
 interchangeable. A generated sealed owner keeps its `Handle` private.
 Use its generated operations to borrow or close the foreign object.
 See the [memory model](memory-model.md) and
-[FFI contracts](assurance/ffi-contract-audit.md).
+[FFI safety](ffi.md#safety-contract).
 
 ## Choose a name or a new type
 
@@ -96,5 +123,5 @@ normalises it to UTC, then returns a `NaiveDateTime` without an offset
 field. The [date and time guide](chrono.md) explains this convention.
 
 See also: [language reference](reference.md),
-[symbol metadata](agent-tags.md) and
+[symbol metadata](diagnostics.md#read-symbol-tags) and
 [compiler layout](../CONTRIBUTING.md#project-structure).
