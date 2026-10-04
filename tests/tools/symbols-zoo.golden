@@ -14,43 +14,43 @@ F memGetWordVec stdlib/Mem.ax:370:9-22 "(Int -> (Int -> Vec a))" @8de85e3ea2a5f8
 F memSetWord stdlib/Mem.ax:407:9-19 "(Int -> (Int -> (a -> Int)))" @577fd648169c96a8 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #precondition=`addr`%20names%20a%20live%20block%20of%20at%20least%20`index`%20+%201%20words,%20and%20the%20word%20is%20read%20back%20only%20at%20a%20type%20`value`%20has #effects=Mut,Unsafe #unsafe=precondition
 F memGetByte stdlib/Mem.ax:421:9-19 "(Int -> (Int -> Int))" @b36a11af3f07101e #restrict=no-io,no-alloc,no-foreign #effect=unsafe #precondition=`addr`%20names%20at%20least%20`index`%20+%201%20live%20bytes #effects=Unsafe #unsafe=precondition
 F memPutByte stdlib/Mem.ax:428:9-19 "(Int -> (Int -> (Int -> Int)))" @a42c84e86afc6d53 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #precondition=`addr`%20names%20at%20least%20`index`%20+%201%20live%20writable%20bytes #effects=Mut,Unsafe #unsafe=precondition
-F vecDefaultCap stdlib/Vec.ax:81:5-18 "Int" @39b9ebeebcb69140 #restrict=no-io,no-alloc,no-foreign
-F vecNew stdlib/Vec.ax:87:9-15 "Vec a" @42d7eca69e40111f #restrict=no-io,no-foreign #effects=Alloc,Mut
-F vecWithCapacity stdlib/Vec.ax:99:9-24 "(Int -> Vec a)" @a5898d2fb6017e13 #restrict=no-io,no-foreign #effects=Alloc,Mut
-F vecWithCapacityRef stdlib/Vec.ax:106:9-27 "(Int -> Vec a)" @4931b5c5fdddadcc #restrict=no-io,no-foreign #effects=Alloc,Mut
-F vecNewRef stdlib/Vec.ax:112:9-18 "Vec a" @a3810b6416057230 #restrict=no-io,no-foreign #effects=Alloc,Mut
-F vecBytes stdlib/Vec.ax:131:5-13 "(Int -> Int)" @b4fe9e3b3f1693ea #restrict=no-io,no-alloc,no-foreign
-F vecBuild stdlib/Vec.ax:138:5-13 "(Int -> (Int -> Vec a))" @c08cb1d661682775 #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe #unsafe=trusted
-F vecFree stdlib/Vec.ax:178:9-16 "(Vec a -> Int)" @1e43cc6130f92c1d #restrict=no-io,no-alloc,no-foreign #effect=unsafe #precondition=the%20caller%20owns%20the%20share%20it%20releases,%20and%20nothing%20uses%20`v`%20or%20its%20elements'%20storage%20after%20the%20last%20share%20is%20gone #effects=Unsafe #unsafe=precondition
-F vecOwnsRefs stdlib/Vec.ax:195:9-20 "(Vec a -> Bool)" @3ca4292918920a5c #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #unsafe=trusted
-F vecLen stdlib/Vec.ax:205:9-15 "(Vec a -> Int)" @550435a6a8c88c3e #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #unsafe=trusted
-F vecCap stdlib/Vec.ax:213:9-15 "(Vec a -> Int)" @a13fc6a6d379366d #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #unsafe=trusted
-F vecData stdlib/Vec.ax:227:5-12 "(Vec a -> Int)" @f00051722f8ac2c7 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #unsafe=trusted
-F vecGet stdlib/Vec.ax:273:9-15 "(Vec a -> (Int -> a))" @805a0ea6c155b2f9 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #unsafe=trusted
-F vecTry stdlib/Vec.ax:309:9-15 "(Vec a -> (Int -> Option a))" @1057f8a6821016c0 #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Unsafe #unsafe=trusted
-F vecGetStr stdlib/Vec.ax:320:9-18 "(Vec a -> (Int -> String))" @588fcc550a528a44 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #precondition=the%20element%20at%20`i`%20holds%20a%20live%20`String` #effects=Unsafe #unsafe=precondition
-F vecGetVec stdlib/Vec.ax:341:9-18 "(Vec a -> (Int -> Vec b))" @8412825523066371 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #precondition=the%20element%20at%20`i`%20holds%20a%20live%20`Vec`%20of%20the%20element%20type%20the%20caller%20names #effects=Unsafe #unsafe=precondition
-F vecPushStr stdlib/Vec.ax:364:9-19 "(Vec a -> (String -> Vec a))" @25d7fb280bccc022 #restrict=no-io,no-foreign #effect=unsafe #precondition=`v`%20is%20read%20back%20only%20as%20words%20or%20through%20`vecGetStr`%20where%20this%20string%20lands #effects=Alloc,Mut,Unsafe #unsafe=precondition
-F vecPushVec stdlib/Vec.ax:378:9-19 "(Vec a -> (Vec b -> Vec a))" @513ed9282468628f #restrict=no-io,no-foreign #effect=unsafe #precondition=`v`%20is%20read%20back%20only%20as%20words%20or%20through%20`vecGetVec`%20where%20this%20vector%20lands #effects=Alloc,Mut,Unsafe #unsafe=precondition
-F vecSet stdlib/Vec.ax:395:9-15 "(Vec a -> (Int -> (a -> Vec a)))" @177422a685a6c685 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Mut,Unsafe #unsafe=trusted
-F vecReserve stdlib/Vec.ax:423:5-15 "(Vec a -> (Int -> Vec a))" @4ae21562c73b1099 #restrict=no-io,no-foreign #effects=Alloc,Mut
-F vecGrownCap stdlib/Vec.ax:440:5-16 "(Int -> (Int -> Int))" @8566e689bac7953e #restrict=no-io,no-alloc,no-foreign
-F vecReserveExactly stdlib/Vec.ax:453:5-22 "(Vec a -> (Int -> Vec a))" @1481194b090b7ee7 #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe #unsafe=trusted
-F vecPush stdlib/Vec.ax:495:9-16 "(Vec a -> (a -> Vec a))" @c293060dc287a3bb #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe #unsafe=trusted
-F vecPop stdlib/Vec.ax:526:9-15 "(Vec a -> a)" @31549fa694465c32 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Mut,Unsafe #unsafe=trusted
-F vecLast stdlib/Vec.ax:556:9-16 "(Vec a -> a)" @1af3be30b8373b1f #restrict=no-io,no-alloc,no-foreign
-F vecClear stdlib/Vec.ax:568:9-17 "(Vec a -> Vec a)" @319fd64658175a30 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Mut,Unsafe #unsafe=trusted
-F vecDropAt stdlib/Vec.ax:585:5-14 "(Vec a -> (Int -> Vec a))" @e7ce0719824ef143 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Mut,Unsafe #unsafe=trusted
-F vecDropFrom stdlib/Vec.ax:596:5-16 "(Vec a -> (Int -> Vec a))" @d177b3044a2fa582 #restrict=no-io,no-alloc,no-foreign #effects=Mut
-F vecSum stdlib/Vec.ax:616:9-15 "(Vec Int -> Int)" @17aa19a685d446aa #restrict=no-io,no-alloc,no-foreign
-F vecSumFrom stdlib/Vec.ax:621:5-15 "(Vec Int -> (Int -> (Int -> Int)))" @144328c1d8b2116e #restrict=no-io,no-alloc,no-foreign
-F vecHash stdlib/Vec.ax:634:9-16 "(Vec Int -> Int)" @4546b24f9c54ce2f #restrict=no-io,no-alloc,no-foreign
-F vecHashFrom stdlib/Vec.ax:639:5-16 "(Vec Int -> (Int -> (Int -> Int)))" @b034751241e15763 #restrict=no-io,no-alloc,no-foreign
-F vecSwapWords stdlib/Vec.ax:667:5-17 "(Int -> (Int -> (Int -> Int)))" @50a2de2394216031 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #precondition=`d`%20names%20a%20live%20block%20holding%20words%20`i`%20and%20`j` #effects=Mut,Unsafe #unsafe=precondition
-F vecSiftDown stdlib/Vec.ax:680:5-16 "(Int -> (Int -> (Int -> Int)))" @3be531c7b0b56e85 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #precondition=`d`%20names%20a%20live%20block%20of%20at%20least%20`n`%20words #effects=Mut,Unsafe #unsafe=precondition
-F vecSort stdlib/Vec.ax:720:9-16 "(Vec a -> Vec a)" @d7b57bf54b6da257 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Mut,Unsafe #unsafe=trusted
-F vecSiftDownBy stdlib/Vec.ax:744:5-18 "(Int -> (Int -> (Int -> ((Int -> (Int -> Int)) -> Int))))" @cce0ed170bd79054 #effect=unsafe #precondition=`d`%20names%20a%20live%20block%20of%20at%20least%20`n`%20words #effects=Mut,Unsafe #effect-params=cmp #unsafe=precondition
-F vecSortBy stdlib/Vec.ax:797:9-18 "(Vec a -> ((Int -> (Int -> Int)) -> Vec a))" @05b978068f71d6a2 #effect=unsafe #effects=Mut,Unsafe #effect-params=cmp #unsafe=trusted
+F vecDefaultCap stdlib/Vec.ax:79:5-18 "Int" @39b9ebeebcb69140 #restrict=no-io,no-alloc,no-foreign
+F vecNew stdlib/Vec.ax:85:9-15 "Vec a" @42d7eca69e40111f #restrict=no-io,no-foreign #effects=Alloc,Mut
+F vecWithCapacity stdlib/Vec.ax:97:9-24 "(Int -> Vec a)" @a5898d2fb6017e13 #restrict=no-io,no-foreign #effects=Alloc,Mut
+F vecWithCapacityRef stdlib/Vec.ax:104:9-27 "(Int -> Vec a)" @4931b5c5fdddadcc #restrict=no-io,no-foreign #effects=Alloc,Mut
+F vecNewRef stdlib/Vec.ax:110:9-18 "Vec a" @a3810b6416057230 #restrict=no-io,no-foreign #effects=Alloc,Mut
+F vecBytes stdlib/Vec.ax:129:5-13 "(Int -> Int)" @b4fe9e3b3f1693ea #restrict=no-io,no-alloc,no-foreign
+F vecBuild stdlib/Vec.ax:136:5-13 "(Int -> (Int -> Vec a))" @c08cb1d661682775 #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe #unsafe=trusted
+F vecFree stdlib/Vec.ax:176:9-16 "(Vec a -> Int)" @1e43cc6130f92c1d #restrict=no-io,no-alloc,no-foreign #effect=unsafe #precondition=the%20caller%20owns%20the%20share%20it%20releases,%20and%20nothing%20uses%20`v`%20or%20its%20elements'%20storage%20after%20the%20last%20share%20is%20gone #effects=Unsafe #unsafe=precondition
+F vecOwnsRefs stdlib/Vec.ax:193:9-20 "(Vec a -> Bool)" @3ca4292918920a5c #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #unsafe=trusted
+F vecLen stdlib/Vec.ax:203:9-15 "(Vec a -> Int)" @550435a6a8c88c3e #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #unsafe=trusted
+F vecCap stdlib/Vec.ax:211:9-15 "(Vec a -> Int)" @a13fc6a6d379366d #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #unsafe=trusted
+F vecData stdlib/Vec.ax:225:5-12 "(Vec a -> Int)" @f00051722f8ac2c7 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #unsafe=trusted
+F vecGet stdlib/Vec.ax:271:9-15 "(Vec a -> (Int -> a))" @805a0ea6c155b2f9 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #unsafe=trusted
+F vecTry stdlib/Vec.ax:307:9-15 "(Vec a -> (Int -> Option a))" @1057f8a6821016c0 #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Unsafe #unsafe=trusted
+F vecGetStr stdlib/Vec.ax:318:9-18 "(Vec a -> (Int -> String))" @588fcc550a528a44 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #precondition=the%20element%20at%20`i`%20holds%20a%20live%20`String` #effects=Unsafe #unsafe=precondition
+F vecGetVec stdlib/Vec.ax:339:9-18 "(Vec a -> (Int -> Vec b))" @8412825523066371 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #precondition=the%20element%20at%20`i`%20holds%20a%20live%20`Vec`%20of%20the%20element%20type%20the%20caller%20names #effects=Unsafe #unsafe=precondition
+F vecPushStr stdlib/Vec.ax:362:9-19 "(Vec a -> (String -> Vec a))" @25d7fb280bccc022 #restrict=no-io,no-foreign #effect=unsafe #precondition=`v`%20is%20read%20back%20only%20as%20words%20or%20through%20`vecGetStr`%20where%20this%20string%20lands #effects=Alloc,Mut,Unsafe #unsafe=precondition
+F vecPushVec stdlib/Vec.ax:376:9-19 "(Vec a -> (Vec b -> Vec a))" @513ed9282468628f #restrict=no-io,no-foreign #effect=unsafe #precondition=`v`%20is%20read%20back%20only%20as%20words%20or%20through%20`vecGetVec`%20where%20this%20vector%20lands #effects=Alloc,Mut,Unsafe #unsafe=precondition
+F vecSet stdlib/Vec.ax:393:9-15 "(Vec a -> (Int -> (a -> Vec a)))" @177422a685a6c685 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Mut,Unsafe #unsafe=trusted
+F vecReserve stdlib/Vec.ax:421:5-15 "(Vec a -> (Int -> Vec a))" @4ae21562c73b1099 #restrict=no-io,no-foreign #effects=Alloc,Mut
+F vecGrownCap stdlib/Vec.ax:438:5-16 "(Int -> (Int -> Int))" @8566e689bac7953e #restrict=no-io,no-alloc,no-foreign
+F vecReserveExactly stdlib/Vec.ax:451:5-22 "(Vec a -> (Int -> Vec a))" @1481194b090b7ee7 #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe #unsafe=trusted
+F vecPush stdlib/Vec.ax:493:9-16 "(Vec a -> (a -> Vec a))" @c293060dc287a3bb #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe #unsafe=trusted
+F vecPop stdlib/Vec.ax:524:9-15 "(Vec a -> a)" @31549fa694465c32 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Mut,Unsafe #unsafe=trusted
+F vecLast stdlib/Vec.ax:554:9-16 "(Vec a -> a)" @1af3be30b8373b1f #restrict=no-io,no-alloc,no-foreign
+F vecClear stdlib/Vec.ax:566:9-17 "(Vec a -> Vec a)" @319fd64658175a30 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Mut,Unsafe #unsafe=trusted
+F vecDropAt stdlib/Vec.ax:583:5-14 "(Vec a -> (Int -> Vec a))" @e7ce0719824ef143 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Mut,Unsafe #unsafe=trusted
+F vecDropFrom stdlib/Vec.ax:594:5-16 "(Vec a -> (Int -> Vec a))" @d177b3044a2fa582 #restrict=no-io,no-alloc,no-foreign #effects=Mut
+F vecSum stdlib/Vec.ax:614:9-15 "(Vec Int -> Int)" @17aa19a685d446aa #restrict=no-io,no-alloc,no-foreign
+F vecSumFrom stdlib/Vec.ax:619:5-15 "(Vec Int -> (Int -> (Int -> Int)))" @144328c1d8b2116e #restrict=no-io,no-alloc,no-foreign
+F vecHash stdlib/Vec.ax:632:9-16 "(Vec Int -> Int)" @4546b24f9c54ce2f #restrict=no-io,no-alloc,no-foreign
+F vecHashFrom stdlib/Vec.ax:637:5-16 "(Vec Int -> (Int -> (Int -> Int)))" @b034751241e15763 #restrict=no-io,no-alloc,no-foreign
+F vecSwapWords stdlib/Vec.ax:665:5-17 "(Int -> (Int -> (Int -> Int)))" @50a2de2394216031 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #precondition=`d`%20names%20a%20live%20block%20holding%20words%20`i`%20and%20`j` #effects=Mut,Unsafe #unsafe=precondition
+F vecSiftDown stdlib/Vec.ax:678:5-16 "(Int -> (Int -> (Int -> Int)))" @3be531c7b0b56e85 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #precondition=`d`%20names%20a%20live%20block%20of%20at%20least%20`n`%20words #effects=Mut,Unsafe #unsafe=precondition
+F vecSort stdlib/Vec.ax:718:9-16 "(Vec a -> Vec a)" @d7b57bf54b6da257 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Mut,Unsafe #unsafe=trusted
+F vecSiftDownBy stdlib/Vec.ax:742:5-18 "(Int -> (Int -> (Int -> ((Int -> (Int -> Int)) -> Int))))" @cce0ed170bd79054 #effect=unsafe #precondition=`d`%20names%20a%20live%20block%20of%20at%20least%20`n`%20words #effects=Mut,Unsafe #effect-params=cmp #unsafe=precondition
+F vecSortBy stdlib/Vec.ax:795:9-18 "(Vec a -> ((Int -> (Int -> Int)) -> Vec a))" @05b978068f71d6a2 #effect=unsafe #effects=Mut,Unsafe #effect-params=cmp #unsafe=trusted
 F strWrap stdlib/Str.ax:45:9-16 "(Int -> (Int -> String))" @23328120de2f4a36 #restrict=no-io,no-foreign #effect=unsafe #precondition=`bytes`%20names%20`len`%20+%201%20live%20bytes%20ending%20in%20a%20NUL,%20and%20they%20outlive%20the%20string #effects=Alloc,Mut,Unsafe #unsafe=precondition
 F strWrapOwned stdlib/Str.ax:70:9-21 "(Int -> (Int -> (Int -> String)))" @2bbe9929cdf4389f #restrict=no-io,no-foreign #effect=unsafe #precondition=`bytes`%20names%20`len`%20+%201%20live%20bytes%20ending%20in%20a%20NUL,%20and%20`owner`%20is%200%20or%20the%20owned%20block%20holding%20them #effects=Alloc,Mut,Unsafe #unsafe=precondition
 F strAlloc stdlib/Str.ax:94:9-17 "(Int -> String)" @b8ec3bb3fe2acd63 #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe #unsafe=trusted

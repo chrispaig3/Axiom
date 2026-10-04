@@ -36,7 +36,7 @@
 ; if the header ever has to move (a shrinking or arena-compacting
 ; implementation would move it).
 ;
-; RECLAMATION, since 2026-08-24. The header is a counted block whose
+; RECLAMATION. The header is a counted block whose
 ; reference map names word 2, so `vecFree` releases the header and the
 ; data block goes with it; growth hands the abandoned block back to the
 ; allocator's free list rather than leaking it. Whether the ELEMENTS go
@@ -56,10 +56,8 @@
 ;                element is a handle this vector owns a share of, taken
 ;                by `vecPush` and handed back when the vector dies.
 ;
-; The two differ in one word at construction and nowhere else. Until
-; that day this comment read "LEAK ON GROWTH: there is no `free` ...
-; the fix is an allocator with `free`, not a change here" - the
-; allocator grew one (MM-LIFE-2e), and this is the change here.
+; The two differ in one word at construction. Growth releases the old
+; element block after transferring the entries and their owning shares.
 ;
 ; A vector is born owned: the header and its data block are retained
 ; once at construction, so a `Vec` a caller never frees behaves exactly

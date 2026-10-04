@@ -1,9 +1,7 @@
 """The task pool of `stdlib/Task.ax` (MM-PAR-13), transcribed for
 `scripts/lib/protocol-model.py`, which installs it (`install`).
 
-The name is `snake_case` while every sibling script is kebab-case
-because it is loaded as a module (`task_model`), not run as a script —
-kebab-case is unimportable, so the odd one out is the load-bearing one.
+The filename follows the script convention; importlib loads it by path.
 
 WHAT IS TRANSCRIBED. The pool's parent loop, `taskLoop`, and every step it
 takes on shared state or on a child: the token's cancel flag and event
@@ -220,8 +218,8 @@ def install(ns):
     # submit order and needs none, and the check wants it.
     F("taskDeliver", ["st", "s", "slab", "t"], ["slot", "status", "why"], (TASK, "taskDeliver"), [
         ("set", "slot", "slab + %d * s" % SB, "(slot (+ slab (* s slotBytes)))"),
-        ("pload", "status", "st + 3 * s + 1", "(status (+ 0 (taskSt st s 1)))"),
-        ("pload", "why", "st + 3 * s + 2", "(why (+ 0 (taskSt st s 2)))"),
+        ("pload", "status", "st + 3 * s + 1", "(status (taskSt st s 1))"),
+        ("pload", "why", "st + 3 * s + 2", "(why (taskSt st s 2))"),
         ("call", None, "taskResultAt", ["slot", "status", "why", "t"], "(taskResultAt slot status why)"),
         ("ret", "0"),
     ])
@@ -234,7 +232,7 @@ def install(ns):
         ("set", "wake", "graceEnd if cancelling == 1 else -1", "(mut wake (if (== cancelling 1)"),
         ("set", "running", "0"),
         ("set", "answered", "0"),
-        ("set", "t", "head", "(for t in head next"),
+        ("set", "t", "head", "(for t in head..next"),
         ("L", "loop"),
         ("if", "t < nxt", "end"),
         ("set", "s", "t % w"),

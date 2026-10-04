@@ -50,9 +50,9 @@
 ; forever. A rehash discards tombstones, which is what recovers the
 ; space.
 ;
-; LEAK ON GROWTH: rehashing allocates three new arrays and abandons the
-; old three, because there is no `free`. Same trade, and same reasoning,
-; as `Vec`; see that module's comment.
+; Growth allocates new key, value and state arrays. Once live entries
+; have moved, rehashing releases all three old arrays to the free list.
+; Owning maps transfer their value shares without releasing those values.
 (import Mem)
 (import Vec)
 

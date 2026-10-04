@@ -67,8 +67,10 @@ send ordinary logs to a different descriptor.
 
 The length counts UTF-8 bytes. A body of `"é"` has length 2.
 The reader rejects missing, invalid or oversized lengths; its body
-limit is 64 MiB. The writer uses the IO short-write loop and terminates
-on a write failure.
+limit is 64 MiB. The writer uses the IO short-write loop. Its return
+value does not report write failures: `rpcWrite` still returns the
+body's length. If you need to detect a failed write, frame the body
+yourself and check `IO.writeStr`'s negative errno result.
 
 ## Reclaim storage between messages
 

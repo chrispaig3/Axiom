@@ -5622,7 +5622,7 @@ isolation is what makes a task's captures its own.
   exit wait, each on a copy of the library, and each turns its check
   red.
 - `scripts/check-protocol-model.sh` explores the pool, transcribed in
-  `scripts/lib/task_model.py`, in every interleaving of two and three
+  `scripts/lib/task-model.py`, in every interleaving of two and three
   tasks at widths 1 to 3. Each task's body answers, answers over the
   limit, traps, exits unanswered, runs for ever, cannot exit after
   answering, or answers after a while, beside deadlines, a

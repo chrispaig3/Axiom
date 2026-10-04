@@ -21,6 +21,29 @@
 0.8.0  CLI  symbols-json  JSON symbol output is refused with status 2; use --diagnostic-format=ai
 0.8.0  CLI  legacy-file  FILE [TARGET] now warns on stderr; migrate to emit-llvm FILE [--target TARGET]
 0.8.0  CLI  cwd-modules  implicit self_host/ and stdlib/ search roots removed; set AXIOM_PATH and AXIOM_STDLIB
+0.8.0  F  axsymAt  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.8.0  F  axsymBuild  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.8.0  F  axsymEquals  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.8.0  F  axsymEscapable  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.8.0  F  axsymHash  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.8.0  F  axsymHexVal  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.8.0  F  axsymIsKind  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.8.0  F  axsymMeta  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.8.0  F  axsymMetaScan  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.8.0  F  axsymNewline  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.8.0  F  axsymNid  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.8.0  F  axsymParseFrom  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.8.0  F  axsymPctAt  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.8.0  F  axsymPercent  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.8.0  F  axsymQuote  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.8.0  F  axsymSpace  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.8.0  F  axsymTrimEnd  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.8.0  F  axsymUnpct  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.8.0  F  axsymUnpctFrom  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.8.0  F  symHasTagFrom  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.8.0  F  symTagFrom  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.8.0  F  symTagLastIdx  Agent.Tags parser helper made private; use axsymLine, axsymParse and symTag
+0.8.0  F  jsonParse  malformed leading-zero, fraction and exponent numbers now return 0
 0.8.0  F  strConcat  renamed to concat; import Str and use (concat a b)
 
 # 0.3.3 - ERR-ADOPT-1 slice 3, the half of it where `-errno` genuinely

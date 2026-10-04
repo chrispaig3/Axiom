@@ -274,22 +274,9 @@
   (jsonStrVal (jsonGet v key)))
 
 ; ------------------------------------------------------------------
-; Integer rendering
-;
-; `Fmt.fmtInt` exists and does this. It is not imported because
-; `diag.ax` records what happens when a module that carries its own
-; copy of a formatter meets `Fmt` in one program: the bare name goes
-; ambiguous inside `Fmt.ax`'s own body, where no qualification at the
-; call site can reach it. Three lines and no dependency.
-;
-; The most negative integer has no positive counterpart, so it is
-; written out rather than negated.
-; ------------------------------------------------------------------
-; Numbers render through `Fmt.fmtInt`. This file used to carry its own
-; decimal formatter with its own most-negative guard, three lines below
-; a comment saying `Fmt.ax` had already made and fixed that mistake -
-; which is the whole argument for one formatter. `tests/stdlib/340-json.ax`
-; pins both boundaries.
+; Integer rendering uses the imported Fmt.fmtInt, including the most
+; negative Int. Parsed numbers retain their original text instead.
+; Tested by tests/stdlib/340-json.ax.
 ; ------------------------------------------------------------------
 ; Joining
 ;
@@ -758,13 +745,21 @@
         (if (== digits 0)
           (jcFail c)
           0)
+        ; A leading zero is a whole integer part, not a digit prefix.
+        (if (&& (> digits 1) (== (strByte src (+ start neg)) 48))
+          (jcFail c)
+          0)
         ; Fraction and exponent: consumed so the cursor lands after the
         ; whole literal, and kept in the text.
         (if (&& (< p (strLen src)) (== (strByte src p) 46))
           {
             (set p (+ p 1))
-            (while (&& (< p (strLen src)) (&& (>= (strByte src p) 48) (<= (strByte src p) 57)))
-              (set p (+ p 1)))
+            (let ((fraction p))
+              {
+                (while (&& (< p (strLen src)) (&& (>= (strByte src p) 48) (<= (strByte src p) 57)))
+                  (set p (+ p 1)))
+                (if (== p fraction) (jcFail c) 0)
+              })
           }
           0)
         (if (&& (< p (strLen src)) (|| (== (strByte src p) 101) (== (strByte src p) 69)))
@@ -773,8 +768,12 @@
             (if (&& (< p (strLen src)) (|| (== (strByte src p) 43) (== (strByte src p) 45)))
               (set p (+ p 1))
               0)
-            (while (&& (< p (strLen src)) (&& (>= (strByte src p) 48) (<= (strByte src p) 57)))
-              (set p (+ p 1)))
+            (let ((exponent p))
+              {
+                (while (&& (< p (strLen src)) (&& (>= (strByte src p) 48) (<= (strByte src p) 57)))
+                  (set p (+ p 1)))
+                (if (== p exponent) (jcFail c) 0)
+              })
           }
           0)
         (jcSetPos c p)

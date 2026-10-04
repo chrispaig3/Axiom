@@ -28,38 +28,16 @@ two differ.
 
 ## `Agent.Tags`
 
-`stdlib/Agent/Tags.ax` — 32 public names
+`stdlib/Agent/Tags.ax` — 10 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
 | `Meta` | struct |  |  | One `#key` or `#key=value`. A bare flag - `#no_refactor` - has `val` empty, which `symHasTag` distinguishes from an absent key. |
 | `Sym` | struct |  |  | One AXSYM line, parsed. |
-| `axsymSpace` | value | `Int` |  |  |
-| `axsymQuote` | value | `Int` |  |  |
-| `axsymHash` | value | `Int` |  |  |
-| `axsymAt` | value | `Int` |  |  |
-| `axsymEquals` | value | `Int` |  |  |
-| `axsymNewline` | value | `Int` |  |  |
-| `axsymPercent` | value | `Int` |  |  |
-| `axsymIsKind` | value | `(-> Int Bool)` |  | The six KIND letters, and deliberately only those: they are disjoint from AXDL's `E`/`W`/`N`/`H` severity sigils, so a line's first byte says which notation produced it even in a concatenated stream. A seventh kind added to the compiler must be added here, and a line whose first byte is unknown is answered `None` rather than guessed at - a reader that guesses turns a compiler change into silently wrong data. |
-| `axsymTrimEnd` | value | `(-> String String)` | `Alloc,Mut` | Trailing spaces off the end of a slice. The head field is taken as the bytes before the opening quote, which includes the space that separated the location from it. |
-| `axsymEscapable` | value | `(-> Int Bool)` |  | The bytes `saAxMeta` escapes on the way out, restated here because this is the other end of the same wire: space and every control byte (`< 33`), `"`, `#`, `%` and DEL. Anything else is left alone, so a UTF-8 tag value survives. |
-| `axsymHexVal` | value | `(-> Int (Option Int))` |  | One hex digit's value, or `None`. Both cases are accepted: the emitter writes upper, and a reader that took only what one emitter happens to write is pinned to that emitter rather than to the notation. Absence, not failure - `docs/error-model.md` ERR-REC-3 - and `Option` is built in, so this costs the module no import. |
-| `axsymPctAt` | value | `(-> String Int (Option Int))` | `Alloc` | The byte a `%XX` at `i` stands for, or `None` where there is no complete escape. STRICT, and that is the point: only the bytes `saAxSafe` escapes decode, so a literal `%` standing in a value the COMPILER built - a rendered type, a generated `Trait#Type#method` name - is never mistaken for an escape. `%41` stays `%41`. |
-| `axsymUnpct` | value | `(-> String String)` | `Alloc,Mut` | A meta key or value with its escapes undone. The `strFindByte` guard is not an optimisation for its own sake: no AXTAG in this repository contains a byte that is escaped, so every token on every line in the corpus takes the first arm and is returned as it arrived, allocating nothing and copying nothing. |
-| `axsymUnpctFrom` | value | `(-> String Int String String)` | `Alloc,Mut` |  |
-| `axsymMeta` | value | `(-> String Meta)` | `Alloc,Mut` | `#key=value` or a bare `#key`, with the leading `#` already dropped. Both halves are unescaped, because `saAxMeta` escapes both: an AXTAG key is everything from `;@axiom:` to the newline, so a key can carry a space or a `#` just as a value can. |
-| `axsymMetaScan` | value | `(-> String Int Int (Vec Meta) (Vec Meta))` | `Alloc,Mut` | The metadata section, from `at` to the end of the line. A token opens at a `#` whose previous byte is a space, and runs to the byte before the next such `#`. `i` walks; `start` is the open token's first byte, or -1 before the first `#` is seen. |
 | `axsymLine` | value | `(-> String (Option Sym))` | `Alloc,Mut` | One line. `None` for a blank line, for a line whose first byte is not a KIND letter, and for a line with no quoted type - which together are every non-AXSYM line a caller might feed in, including the `compilation failed` trailer and AXDL diagnostics on the same stream. |
-| `axsymBuild` | value | `(-> String Int Int (Option Sym))` | `Alloc,Mut` | The three fields either side of the quoted type, once its bounds are known. Split out because the arms above are a refusal ladder and this is the one path that answers a symbol. |
-| `axsymNid` | value | `(-> String String)` | `Alloc,Mut` | The `@<nid>` between the type and the metadata, empty when absent. It is bounded by the next space rather than by the end, because the metadata follows it on the same line. |
 | `axsymParse` | value | `(-> String (Vec Sym))` | `Alloc,Mut` | A whole AXSYM stream. Lines that are not AXSYM are skipped, so the caller may pass the compiler's output unfiltered. |
-| `axsymParseFrom` | value | `(-> (Vec String) Int (Vec Sym) (Vec Sym))` | `Alloc,Mut` |  |
 | `symTag` | value | `(-> Sym String String)` |  | The value of the LAST `#key` on the line, or empty. Empty is also what a bare flag answers, so a caller distinguishing "absent" from "present with no value" wants `symHasTag`. |
-| `symTagFrom` | value | `(-> (Vec Meta) String Int String)` |  |  |
-| `symTagLastIdx` | value | `(-> (Vec Meta) String Int Int Int)` |  | The index of the last `#key` at or after `i`, or -1. Carried in an accumulator rather than compared on the way out of the recursion, because a bare flag's value is empty and "" cannot tell a later match from no match at all. |
 | `symHasTag` | value | `(-> Sym String Bool)` |  |  |
-| `symHasTagFrom` | value | `(-> (Vec Meta) String Int Bool)` |  |  |
 | `symEffects` | value | `(-> Sym String)` |  | The effect row the CHECKER derived - not what the author claimed. Empty when the declaration performs none. |
 | `symDerivedPure` | value | `(-> Sym Bool)` |  | True when the checker derived no effects at all. This is a statement about the ANALYSIS, not a guarantee about the program: an effect reached through a function value in memory is not in the row, and a built-in effect named by an enclosing `handle` is subtracted from it. A policy that treats this as proof of purity is reading a lower bound as an upper one. |
 | `symAgentTag` | value | `(-> Sym String String)` | `Alloc,Mut` | The `agent:*` namespace, which the compiler records and does not check. `(symAgentTag s "rewrite")` reads `#agent:rewrite`. |

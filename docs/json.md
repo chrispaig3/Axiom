@@ -45,9 +45,12 @@ absence separately.
 
 ## Keep number text
 
-`jsonInt` reads a number's integer part. `jsonNumText` preserves its
+`jsonInt` reads the signed digits before a fraction or exponent:
+`1e3` gives `1`. `jsonNumText` preserves the number's
 original spelling, including a fraction or exponent, and `jsonWrite`
 uses that spelling. There is no floating-point accessor.
+Integer accumulation wraps beyond `Int`'s range. Keep the number text
+when a document can contain integers outside that range.
 
 ```scheme fragment
 (jsonInt (jsonParse "12.5"))       ; 12
@@ -78,7 +81,9 @@ returns `0`.
 ## Input limits
 
 The parser rejects trailing input and nesting beyond its depth budget
-of 64. Parsing failures carry no error location. Values are allocated
+of 64. Numbers reject leading zeroes and require digits after a decimal
+point or exponent marker. Parsing failures carry no error location.
+Values are allocated
 in the arena; this module has no individual-value release operation.
 The writer replaces malformed UTF-8 bytes with `U+FFFD`.
 

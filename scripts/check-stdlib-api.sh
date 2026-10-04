@@ -18,9 +18,8 @@
 # as quietly as a hand-written table.
 #
 # THE TWO SOURCES, AND WHY NEITHER ALONE. Visibility is only in the
-# SOURCE: `axiom symbols` has no `pub` field and emits no row for a
-# macro, so an AXSYM-driven reference would print an `IO` with no
-# `println` and be self-consistent about it. The EFFECT ROW is only in
+# SOURCE: AXSYM carries macro rows but has no `pub` field. Source
+# determines which declarations enter the public reference. The EFFECT ROW is only in
 # AXSYM: it is the compiler's fixpoint over every body, and it is the
 # column an Axiom reference exists for.
 #

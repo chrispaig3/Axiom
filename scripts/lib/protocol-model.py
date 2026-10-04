@@ -8,7 +8,7 @@ word that names its holder, which both share, and its dead-holder test
 and poisoning; the channel's change counter and the waiter announcement
 in word 2; the mutex's guard. `stdlib/Task.ax` (MM-PAR-13) runs a pool of
 forked tasks on a token and a slab; its transcription is in
-`task_model.py`, which this file installs. The load gates
+`task-model.py`, which this file installs. The load gates
 (`scripts/check-chan.sh`, `scripts/check-task.sh`,
 `scripts/check-race.sh`) run them and see the interleavings the hardware
 happened to make. This file is the other half: the same steps,
@@ -50,7 +50,7 @@ environment transitions too, in the scenarios that model a dying binding;
 a binding whose parent is another binding is reaped by nobody, and only
 that parent's `waitid` look sees it exit. The task pool adds a clock that
 moves while the pool waits and nothing else can step, and a sleep that
-only the clock ends (`task_model.py`).
+only the clock ends (`task-model.py`).
 
 WHAT IS CHECKED, in every reachable state:
   mutual exclusion   at most one binding holds a lock;
@@ -67,7 +67,7 @@ WHAT IS CHECKED, in every reachable state:
                      a mutex or channel is poisoned only when its word names
                      a holder that died holding it, a poisoned one is never
                      taken, and a call answers "poisoned" only when it is;
-  the task pool      what `task_model.py` states: every task answers its own
+  the task pool      what `task-model.py` states: every task answers its own
                      slot once, the pool stays within its width, sleeps past
                      no deadline or grace, and reaps every child.
 And, over the whole graph, liveness in the model's terms: from every
@@ -159,7 +159,7 @@ import sys
 CHAN = "Chan.ax"
 SYNC = "Sync.ax"
 SYS = "Sys.ax"
-# The files the transcription is checked against. `task_model.py` adds
+# The files the transcription is checked against. `task-model.py` adds
 # Task.ax, with the process operations its functions must hold.
 SOURCES = [CHAN, SYNC, SYS]
 PROCESS_OPS = {}
@@ -3063,7 +3063,7 @@ def replay(path, verbose=False):
 def _install_task_model():
     import importlib.util
     spec = importlib.util.spec_from_file_location(
-        "task_model", os.path.join(os.path.dirname(os.path.abspath(__file__)), "task_model.py"))
+        "task_model", os.path.join(os.path.dirname(os.path.abspath(__file__)), "task-model.py"))
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     mod.install(globals())

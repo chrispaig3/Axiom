@@ -9,7 +9,7 @@
 # `check-task.sh` and `check-race.sh` run them under load and see the
 # interleavings the hardware happened to make. This gate explores all of
 # them at small bounds, in `scripts/lib/protocol-model.py` and the pool's
-# `scripts/lib/task_model.py`, and then measures on the real binary what
+# `scripts/lib/task-model.py`, and then measures on the real binary what
 # the load gates do not: deadlock and starvation, apart from races.
 #
 # FIVE SECTIONS.

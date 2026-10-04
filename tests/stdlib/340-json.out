@@ -44,6 +44,18 @@ ok   bad empty input
 ok   bad raw control in string
 ok   bad missing colon
 ok   bad unclosed object
+ok   bad number 01
+ok   bad number -01
+ok   bad number 00
+ok   bad number 1.
+ok   bad number 1e
+ok   bad number 1e+
+ok   bad number 1e-
+ok   bad number 0.e1
+ok   keep number 0.5
+ok   keep number 1e+03
+ok   keep number -0.5
+ok   keep number 1E-2
 ok   write null
 ok   write escapes
 ok   write control
@@ -55,5 +67,5 @@ ok   write lone lead byte
 ok   write surrogate bytes
 ok   write well-formed
 ok   depth 8 ok
-checks 57
+checks 69
 failures 0

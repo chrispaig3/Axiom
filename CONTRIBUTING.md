@@ -614,10 +614,15 @@ refuses a Windows host first.
 | Types | `PascalCase` | `Maybe`, `Point`, `Console` |
 | Constructors | `PascalCase` | `Nothing`, `Just`, `Cons` |
 | Type parameters | single lowercase letter | `a`, `b`, `t` |
-| Modules | `PascalCase` | `IO`, `Mem`, `Str` |
+| Public library modules | `PascalCase` | `IO`, `Mem`, `Str` |
 | Stdlib files | `PascalCase.ax` | `IO.ax`, `Mem.ax` |
 | Compiler files | lowercase `.ax` | `lexer.ax`, `typecheck.ax` |
 | Diagnostic codes | `AX` + stage number + 3 digits | `AX3001`, `AX5001` |
+
+The module convention applies to reusable public libraries. Compiler
+implementation modules keep lowercase names; example entry files may
+use `Main.ax` or a descriptive lowercase name. Script filenames use
+kebab-case, including Python modules loaded by path.
 
 ### Diagnostic codes
 

@@ -22,7 +22,7 @@
 [1;34m50 |[0m (fn (leaks b n)
 [1;34m   |[0m      [1;31m^^^^^[0m
 [1;34m   |[0m
-  [1;34m = [0m[1mnote: [0mIO$writeStr (stdlib/IO.ax:44:10-18)
+  [1;34m = [0m[1mnote: [0mIO$writeStr (stdlib/IO.ax:43:10-18)
   [1;34m = [0m[1mnote: [0mSys$sysWriteAllFd (stdlib/Sys.ax:214:10-23)
   [1;34m = [0m[1mnote: [0mSys$sysWriteFd (stdlib/Sys.ax:168:10-20)
   [1;34m = [0m[1mnote: [0m__syscall3 (no declaration to point at)

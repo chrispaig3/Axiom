@@ -1,8 +1,7 @@
 ; IO - console and file I/O, in Axiom.
 ;
-; The whole module is Axiom code over `Sys`, which is Axiom code over the
-; `__syscallN` primitive. Nothing here binds to C, which is what makes
-; `println` a standard-library function rather than a `printf` wrapper.
+; This module uses Sys for kernel calls or platform APIs, depending on
+; the target. Printing needs no C runtime or printf binding.
 ;
 ; Functions that touch the outside world carry `;@axiom:effect(io)`, and
 ; the compiler validates those claims against the syscalls actually

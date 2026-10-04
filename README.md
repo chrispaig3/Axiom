@@ -248,6 +248,7 @@ this repository's standard library reference.
 | [Error model](docs/error-model.md) | `Result`, `Error`, and how failure travels |
 | [Agent harness](docs/agent-harness.md) | Tooling for agents that read and write Axiom |
 | [Symbol metadata](docs/agent-tags.md) | Reading AXSYM and agent annotations |
+| [Compiler inspection](docs/compiler-guide.md) | Representations, import roots, ownership and library layers |
 | [Embedded programs](docs/embedded-guide.md) | Static heaps and freestanding targets |
 | [Restricted profile](docs/restricted-profile.md) | Checking a program against a restricted feature set |
 | [Macros](docs/macro-system.md) | Expansion rules and the syntax query vocabulary |

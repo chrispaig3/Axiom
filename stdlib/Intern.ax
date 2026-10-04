@@ -29,10 +29,9 @@
 ; because it was forgotten.
 ;
 ; WHY THIS DOES NOT REUSE `Map`. `Map`'s keys are `Int`s compared with
-; `==`; interning needs keys compared with `strEq`, and Axiom cannot pass
-; a comparison function as an argument - function values type-check and
-; then emit invalid LLVM (blocker B1 in the self-hosting record). The
-; alternative that does not need function values is `Map` from content
+; `==`; interning needs keys compared with `strEq`. Function values and
+; comparison callbacks work, but `Map` does not accept a key comparator.
+; An alternative is `Map` from content
 ; hash to id, but that is wrong: two distinct strings with the same hash
 ; would be one `Map` key, and the second would silently get the first's
 ; id. Fixing that needs a `Vec` of ids per bucket, i.e. a chained map
@@ -48,8 +47,8 @@
 ; because copying would allocate once per token to no purpose. A caller
 ; that cannot promise stable bytes should intern `(strDup s)`.
 ;
-; LEAK ON GROWTH: rehashing abandons the old table, and `Vec` abandons its
-; old element block. See `Vec`'s module comment.
+; Growth replaces the slot table and returns the old block to the free
+; list. The owning Vec also reclaims its replaced element block.
 (import Mem)
 (import Str)
 (import Vec)
@@ -61,8 +60,9 @@
 ; A polynomial hash mod `mapHashPrime`: h = (h * M + byte) mod P over the
 ; bytes, seeded. This is the string analogue of `Map`'s multiply-mod-prime
 ; integer hash and it is chosen for the same reasons - it needs only
-; `+ * %`, since Axiom has no `^` or `>>` (see the long note in `Map`), and
-; a polynomial hash mod a prime with a random multiplier is a provably
+; `+ * %`. Axiom also has bitwise operators; this interner uses a
+; polynomial hash mod a prime with a fixed multiplier for deterministic
+; content hashing. A random multiplier gives a provably
 ; almost-universal family rather than an empirically good mixer. The
 ; multiplier is fixed rather than per-process for the determinism reason
 ; given in `Map`.
@@ -326,10 +326,8 @@
 
 ; The id for `s`, interning it if its content is new.
 ;
-; RETURNS THE ID ONLY, NOT `(handle, id)`. Axiom has no tuples at runtime,
-; and the two honest ways out are to return one of the pair and make the
-; caller track the other, or to guarantee the handle never moves. This
-; takes the second: the header is mutated in place, and every operation
+; Returns the ID; the caller keeps the stable interner handle. Its
+; header is mutated in place, and every operation
 ; that reallocates - the table here, the `Vec`'s element block - replaces
 ; a pointer *inside* the header rather than the header itself. So an
 ; `Intern` handle is valid for the life of the interner and a caller needs

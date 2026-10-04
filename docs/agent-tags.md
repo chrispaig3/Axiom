@@ -44,6 +44,9 @@ readonly: true
 returns `Vec Sym`, skipping lines outside the symbol notation.
 A `Sym` has `kind`, `name`, `loc`, `ty`, `nid` and `meta` fields.
 The kind is the integer byte value of its AXSYM letter.
+The reader accepts all eight kinds: `F`, `D`, `C`, `S`, `T`, `A`, `E`
+and `M`. Error diagnostics also start with `E`; their location and
+message fields keep them outside the symbol grammar.
 
 Locations belong to the file that declared the symbol, including
 imported modules. `"-"` marks a missing source location. The node ID
@@ -69,6 +72,9 @@ subtracted. It does not prove that running the function has no effects.
 `symHasAgentTag` also handles a flag such as `agent:readonly`.
 The compiler records this namespace without enforcing a policy.
 Your tool decides what those tags permit.
+
+Parsing helpers and delimiter constants are module-private. Use
+`axsymLine`, `axsymParse` and the `sym...` accessors to read the stream.
 
 The reader preserves spaces in metadata values and decodes structural
 bytes escaped as `%XX`. Keep the stream in AXSYM format;

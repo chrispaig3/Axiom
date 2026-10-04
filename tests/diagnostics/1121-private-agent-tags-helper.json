@@ -1,0 +1,2 @@
+{"severity":"error","code":"AX3023","slug":"private-name","message":"`axsymSpace` is private to module `Agent.Tags`","file":"1121-private-agent-tags-helper.ax","span":{"start":{"line":6,"col":3},"end":{"line":6,"col":13},"char_start":104,"char_end":114},"label":"`axsymSpace` is not exported by its module","related":[],"notes":[],"help":["a name leaves its module when its declaration is written `pub`; if the import that brought the module in carries a name list, the name has to appear there too"],"expansion":[]}
+compilation failed due to 1 previous error

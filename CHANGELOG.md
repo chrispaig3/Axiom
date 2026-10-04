@@ -16,6 +16,27 @@ its changelog too.
 
 ## Unreleased
 
+- Read all eight AXSYM kinds in `Agent.Tags`, including effect and
+  macro declarations. Validate symbol locations and effect type text
+  so diagnostic rows are skipped. Tested by
+  `tests/stdlib/380-agent-tags.ax`.
+
+- Make unused `Agent.Tags` parsing helpers private. Read rows with
+  `axsymLine` or `axsymParse`, then use the `sym...` accessors.
+  Tested by `tests/diagnostics/1121-private-agent-tags-helper.ax` and
+  `tests/stdlib/380-agent-tags.ax`.
+
+- Refuse JSON numbers with leading zeroes or missing digits after
+  a decimal point or exponent. Preserve valid number spellings.
+  Tested by `tests/stdlib/340-json.ax`.
+
+- Correct library comments about callbacks, bitwise operators,
+  reclamation and formatting. Add a compiler inspection guide and
+  scope PascalCase to public library modules. Rename the task model
+  script to `task-model.py` and refresh its source witnesses.
+  Tested by `scripts/check-doc-drift.sh` and
+  `scripts/check-protocol-model.sh`.
+
 - Deprecate `axiom FILE [TARGET]` with a warning on standard error.
   LLVM output and target selection are preserved. Use `axiom
   emit-llvm FILE [--target TARGET]`. Shorten global help into flag

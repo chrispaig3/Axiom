@@ -694,6 +694,7 @@ docs/json.md
 docs/rpc.md
 docs/intern.md
 docs/agent-tags.md
+docs/compiler-guide.md
 docs/axqlite.md
 docs/axql.md
 docs/axqlite-format.md

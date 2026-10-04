@@ -40,6 +40,7 @@
 ; tags, so a shadowed `#effects=` loses to the real one even if a byte
 ; ever escapes the escaper.
 (import Str)
+(import Pre (when unless))
 (import Vec)
 
 ; One `#key` or `#key=value`. A bare flag - `#no_refactor` - has `val` empty,
@@ -64,43 +65,38 @@
   (nid : String)
   (meta : (Vec Meta)))
 
-(pub :: axsymSpace Int)
-(pub fn (axsymSpace)
+(:: axsymSpace Int)
+(fn (axsymSpace)
   32)
 
-(pub :: axsymQuote Int)
-(pub fn (axsymQuote)
+(:: axsymQuote Int)
+(fn (axsymQuote)
   34)
 
-(pub :: axsymHash Int)
-(pub fn (axsymHash)
+(:: axsymHash Int)
+(fn (axsymHash)
   35)
 
-(pub :: axsymAt Int)
-(pub fn (axsymAt)
+(:: axsymAt Int)
+(fn (axsymAt)
   64)
 
-(pub :: axsymEquals Int)
-(pub fn (axsymEquals)
+(:: axsymEquals Int)
+(fn (axsymEquals)
   61)
 
-(pub :: axsymNewline Int)
-(pub fn (axsymNewline)
+(:: axsymNewline Int)
+(fn (axsymNewline)
   10)
 
-(pub :: axsymPercent Int)
-(pub fn (axsymPercent)
+(:: axsymPercent Int)
+(fn (axsymPercent)
   37)
 
-; The six KIND letters, and deliberately only those: they are disjoint
-; from AXDL's `E`/`W`/`N`/`H` severity sigils, so a line's first byte
-; says which notation produced it even in a concatenated stream. A
-; seventh kind added to the compiler must be added here, and a line
-; whose first byte is unknown is answered `None` rather than guessed
-; at - a reader that guesses turns a compiler change into silently
-; wrong data.
-(pub :: axsymIsKind (-> Int Bool))
-(pub fn (axsymIsKind b)
+; All eight AXSYM kinds. E is shared with AXDL's error severity,
+; so axsymBuild also checks the location and effect type spelling.
+(:: axsymIsKind (-> Int Bool))
+(fn (axsymIsKind b)
   (if (== b 70)
     true
     (if (== b 68)
@@ -111,13 +107,13 @@
           true
           (if (== b 65)
             true
-            (== b 84)))))))
+            (|| (== b 84) (|| (== b 69) (== b 77)))))))))
 
 ; Trailing spaces off the end of a slice. The head field is taken as
 ; the bytes before the opening quote, which includes the space that
 ; separated the location from it.
-(pub :: axsymTrimEnd (-> String String))
-(pub fn (axsymTrimEnd s)
+(:: axsymTrimEnd (-> String String))
+(fn (axsymTrimEnd s)
   (let ((n (strLen s)))
     (if (== n 0)
       s
@@ -129,8 +125,8 @@
 ; this is the other end of the same wire: space and every control byte
 ; (`< 33`), `"`, `#`, `%` and DEL. Anything else is left alone, so a
 ; UTF-8 tag value survives.
-(pub :: axsymEscapable (-> Int Bool))
-(pub fn (axsymEscapable b)
+(:: axsymEscapable (-> Int Bool))
+(fn (axsymEscapable b)
   (|| (< b 33) (|| (== b 34) (|| (== b 35) (|| (== b 37) (== b 127))))))
 
 ; One hex digit's value, or `None`. Both cases are accepted: the
@@ -138,8 +134,8 @@
 ; happens to write is pinned to that emitter rather than to the
 ; notation. Absence, not failure - `docs/error-model.md` ERR-REC-3 -
 ; and `Option` is built in, so this costs the module no import.
-(pub :: axsymHexVal (-> Int (Option Int)))
-(pub fn (axsymHexVal b)
+(:: axsymHexVal (-> Int (Option Int)))
+(fn (axsymHexVal b)
   (if (&& (>= b 48) (<= b 57))
     (Some (- b 48))
     (if (&& (>= b 65) (<= b 70))
@@ -153,8 +149,8 @@
 ; `saAxSafe` escapes decode, so a literal `%` standing in a value the
 ; COMPILER built - a rendered type, a generated `Trait#Type#method`
 ; name - is never mistaken for an escape. `%41` stays `%41`.
-(pub :: axsymPctAt (-> String Int (Option Int)))
-(pub fn (axsymPctAt s i)
+(:: axsymPctAt (-> String Int (Option Int)))
+(fn (axsymPctAt s i)
   (if (!= (strByte s i) axsymPercent)
     None
     (if (>= (+ i 2) (strLen s))
@@ -177,14 +173,14 @@
 ; contains a byte that is escaped, so every token on every line in the
 ; corpus takes the first arm and is returned as it arrived, allocating
 ; nothing and copying nothing.
-(pub :: axsymUnpct (-> String String))
-(pub fn (axsymUnpct s)
+(:: axsymUnpct (-> String String))
+(fn (axsymUnpct s)
   (match (strFindByte s axsymPercent 0)
     ((None) s)
     ((Some _) (axsymUnpctFrom s 0 ""))))
 
-(pub :: axsymUnpctFrom (-> String Int String String))
-(pub fn (axsymUnpctFrom s i acc)
+(:: axsymUnpctFrom (-> String Int String String))
+(fn (axsymUnpctFrom s i acc)
   (if (>= i (strLen s))
     acc
     (match (axsymPctAt s i)
@@ -195,8 +191,8 @@
 ; Both halves are unescaped, because `saAxMeta` escapes both: an AXTAG
 ; key is everything from `;@axiom:` to the newline, so a key can carry
 ; a space or a `#` just as a value can.
-(pub :: axsymMeta (-> String Meta))
-(pub fn (axsymMeta tok)
+(:: axsymMeta (-> String Meta))
+(fn (axsymMeta tok)
   (match (strFindByte tok axsymEquals 0)
     ((None) (Meta (axsymUnpct tok) ""))
     ((Some cut) (Meta (axsymUnpct (strSlice tok 0 cut)) (axsymUnpct (strSlice tok (+ cut 1) (- (strLen tok) (+ cut 1))))))))
@@ -205,8 +201,8 @@
 ; at a `#` whose previous byte is a space, and runs to the byte before
 ; the next such `#`. `i` walks; `start` is the open token's first byte,
 ; or -1 before the first `#` is seen.
-(pub :: axsymMetaScan (-> String Int Int (Vec Meta) (Vec Meta)))
-(pub fn (axsymMetaScan s i start out)
+(:: axsymMetaScan (-> String Int Int (Vec Meta) (Vec Meta)))
+(fn (axsymMetaScan s i start out)
   (if (>= i (strLen s))
     {
       (if (>= start 0)
@@ -256,27 +252,65 @@
 ; The three fields either side of the quoted type, once its bounds are
 ; known. Split out because the arms above are a refusal ladder and this
 ; is the one path that answers a symbol.
-(pub :: axsymBuild (-> String Int Int (Option Sym)))
-(pub fn (axsymBuild ln q1 q2)
+(:: axsymBuild (-> String Int Int (Option Sym)))
+(fn (axsymBuild ln q1 q2)
   (let ((head (axsymTrimEnd (strSlice ln 2 (- q1 2)))))
     (match (strFindByte head axsymSpace 0)
       ((None) None)
       ((Some cut)
-        (let ((rest (strSlice ln (+ q2 1) (- (strLen ln) (+ q2 1)))))
-          (Some (Sym
+        (let (
+          (rest (strSlice ln (+ q2 1) (- (strLen ln) (+ q2 1))))
+          (name (strSlice head 0 cut))
+          (loc (axsymTrimEnd (strSlice head (+ cut 1) (- (strLen head) (+ cut 1)))))
+          (ty (strSlice ln (+ q1 1) (- q2 (+ q1 1))))
+        )
+          (if (&& (axsymLocation loc)
+                (if (== (strByte ln 0) 69)
+                  (strEq ty (concat "effect " name))
+                  true))
+           (Some (Sym
             (strByte ln 0)
-            (strSlice head 0 cut)
-            (axsymTrimEnd (strSlice head (+ cut 1) (- (strLen head) (+ cut 1))))
-            (strSlice ln (+ q1 1) (- q2 (+ q1 1)))
+            name
+            loc
+            ty
             (axsymNid rest)
-            (axsymMetaScan rest 0 (- 0 1) vecNew))))
+            (axsymMetaScan rest 0 (- 0 1) vecNew)))
+           None))
       ))))
+
+; A symbol location ends in column-column, after its final colon.
+; Paths may contain spaces and colons; AXDL has a slug after the span.
+(:: axsymLocation (-> String Bool))
+(fn (axsymLocation loc)
+  (if (strEq loc "-")
+    true
+    (let ((mut colon (- 0 1)))
+      {
+        (for i in 0..(strLen loc)
+          (when (== (strByte loc i) 58) (set colon i)))
+        (if (< colon 0)
+          false
+          (let ((mut dashes 0) (mut bad 0) (end (strLen loc)))
+            {
+              (for i in (+ colon 1)..end
+                (let ((b (strByte loc i)))
+                  (if (== b 45)
+                    {
+                      (set dashes (+ dashes 1))
+                      (when (|| (== i (+ colon 1)) (== i (- end 1)))
+                        (set bad 1))
+                    }
+                    (unless (&& (>= b 48) (<= b 57))
+                      (set bad 1)))))
+              (&& (== dashes 1) (== bad 0))
+            }))
+      })))
 
 ; The `@<nid>` between the type and the metadata, empty when absent.
 ; It is bounded by the next space rather than by the end, because the
 ; metadata follows it on the same line.
-(pub :: axsymNid (-> String String))
-(pub fn (axsymNid rest)
+(:: axsymNid (-> String String))
+(fn (axsymNid rest)
   (match (strFindByte rest axsymAt 0)
     ((None) "")
     ((Some at)
@@ -292,8 +326,8 @@
   (let ((lines (strSplit text axsymNewline)))
     (axsymParseFrom lines 0 vecNew)))
 
-(pub :: axsymParseFrom (-> (Vec String) Int (Vec Sym) (Vec Sym)))
-(pub fn (axsymParseFrom lines i out)
+(:: axsymParseFrom (-> (Vec String) Int (Vec Sym) (Vec Sym)))
+(fn (axsymParseFrom lines i out)
   (if (>= i (vecLen lines))
     out
     {
@@ -327,8 +361,8 @@
 (pub fn (symTag s key)
   (symTagFrom s.meta key 0))
 
-(pub :: symTagFrom (-> (Vec Meta) String Int String))
-(pub fn (symTagFrom meta key i)
+(:: symTagFrom (-> (Vec Meta) String Int String))
+(fn (symTagFrom meta key i)
   (let ((hit (symTagLastIdx meta key i (- 0 1))))
     (if (< hit 0)
       ""
@@ -339,8 +373,8 @@
 ; accumulator rather than compared on the way out of the recursion,
 ; because a bare flag's value is empty and "" cannot tell a later match
 ; from no match at all.
-(pub :: symTagLastIdx (-> (Vec Meta) String Int Int Int))
-(pub fn (symTagLastIdx meta key i best)
+(:: symTagLastIdx (-> (Vec Meta) String Int Int Int))
+(fn (symTagLastIdx meta key i best)
   (if (>= i (vecLen meta))
     best
     (let ((m (vecGet meta i)))
@@ -356,8 +390,8 @@
 (pub fn (symHasTag s key)
   (symHasTagFrom s.meta key 0))
 
-(pub :: symHasTagFrom (-> (Vec Meta) String Int Bool))
-(pub fn (symHasTagFrom meta key i)
+(:: symHasTagFrom (-> (Vec Meta) String Int Bool))
+(fn (symHasTagFrom meta key i)
   (if (>= i (vecLen meta))
     false
     (let ((m (vecGet meta i)))

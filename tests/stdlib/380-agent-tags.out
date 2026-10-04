@@ -15,3 +15,7 @@ show:(a -> String)
 IO$exit,Show#Int#show,Str$concat
 Alloc,IO
 io
+all eight kinds:
+8
+true
+true

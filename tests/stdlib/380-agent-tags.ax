@@ -41,6 +41,10 @@
 (fn (stream)
   (concat (concat (concat "F shout specimen.ax:11:5-10 \"(Int -> Int)\" @cc70b00d8093fca4 #effect=io #agent:readonly #effects=IO\n" "F quiet specimen.ax:16:5-10 \"(Int -> Int)\" @67cbf1247deb9229 #pure\n") (concat "D Option - \"data Option\" #ctors=Some,None\n" "T Show /p/Show.ax:39:13-17 \"trait Show\" @8318f82fa5e17568 #methods=show:(a -> String)\n")) (concat "F die /p/IO.ax:458:9-12 \"(String -> (Int -> Int))\" @52fb9ccad9feab1b #effect=io #effects=Alloc,IO #calls=IO$exit,Show#Int#show,Str$concat\n" "compilation failed due to 1 previous error\n")))
 
+(:: allKinds String)
+(fn (allKinds)
+  "F memAlloc stdlib/Mem.ax:51:9-17 \"(Int -> Int)\" @0fd03fba89121d1d #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Unsafe #unsafe=trusted\nD Option - \"data Option\" #ctors=Some,None\nC Some - \"(a -> Option a)\" #of=Option\nS Error stdlib/Err.ax:40:13-18 \"struct Error\" @0805ae0b9077d3a6 #fields=code:Int,message:String,context:String\nT Show /p/Show.ax:39:13-17 \"trait Show\" @8318f82fa5e17568 #methods=show:(a -> String)\nA Count tests/fmt/syntax-zoo.ax:26:11-16 \"Int\" @910ecfbfa27ddde2\nE Console tests/fmt/syntax-zoo.ax:209:9-16 \"effect Console\" @5e35620abc5f495d\nM format stdlib/Str.ax:708:13-19 \"macro format\" @f0b2b594fd323246\n")
+
 (:: main Int)
 ;@axiom:effect(io)
 (fn (main)
@@ -83,5 +87,13 @@
           (println (symEffects d))
           (println (symTag d "effect"))
         })
+      (println "all eight kinds:")
+      (println (format (vecLen (axsymParse allKinds))))
+      (println (format (match (axsymLine "E AX3001 bad.ax:1:1-2 undefined-variable \"effect AX3001\"")
+        ((None) true)
+        ((Some s) false))))
+      (println (format (match (axsymLine "E Fake source.ax:1:1-2 \"not an effect type\" @0123456789abcdef")
+        ((None) true)
+        ((Some s) false))))
       0
     }))
