@@ -647,6 +647,7 @@ skipStringBody self_host/lexer.ax no-io,no-alloc,no-foreign ok
 skipWhitespace self_host/lexer.ax no-io,no-alloc,no-foreign ok
 slipped tests/diagnostics/376-restrict-unknown-name.ax no-fo unknown
 slot tests/diagnostics/1020-unsafe-device-primitives.ax no-unsafe ok
+snapshot tests/diagnostics/1120-arena-mark-into.ax no-unsafe violated
 softIo tests/diagnostics/393-restrict-strict.ax no-io unverifiable
 some tests/diagnostics/384-restrict-no-alloc-ctor.ax no-alloc ok
 spanEnd self_host/core.ax no-io,no-alloc,no-foreign ok
