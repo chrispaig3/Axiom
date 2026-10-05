@@ -135,36 +135,10 @@
       n
     }))
 
-; ASCII-lowercased copy, for flag-value comparison - stage0 accepts
-; `HUMAN` and `Json` (`to_ascii_lowercase` in render.rs).
-(pub :: lowerAscii (-> String String))
-;@axiom:effect(unsafe)
-(pub fn (lowerAscii s)
-  (let ((n (strLen s)))
-    (let (
-      (out (strAlloc n))
-      (mut i 0)
-    )
-      {
-        (while (< i n)
-          (let ((c (strByte s i)))
-            {
-              (memPutByte
-                (strData out)
-                i
-                (if (&& (>= c 65) (<= c 90))
-                  (+ c 32)
-                  c))
-              (set i (+ i 1))
-            }))
-        out
-      })))
-
 ; ------------------------------------------------------------------
-; Format names, exactly the aliases stage0 accepts: human|pretty|rustc,
-; ai|agent|compact, json. Answers 0/1/2, or -1 for a name it does not
-; know - the caller owns the fallback warning, because only it knows
-; whether a flag was given at all.
+; Format names: exactly `human`, `ai` and `json`, the three `--help`
+; lists. Answers 0/1/2, or -1 for anything else, which `checkArgs`
+; refuses as a bad flag value before a subcommand runs.
 ; ------------------------------------------------------------------
 (pub :: FMT_HUMAN Int)
 (pub fn (FMT_HUMAN)
@@ -180,14 +154,13 @@
 
 (pub :: parseDiagFormatName (-> String Int))
 (pub fn (parseDiagFormatName s)
-  (let ((v (lowerAscii s)))
-    (if (|| (strEq v "human") (|| (strEq v "pretty") (strEq v "rustc")))
-      FMT_HUMAN
-      (if (|| (strEq v "ai") (|| (strEq v "agent") (strEq v "compact")))
-        FMT_AI
-        (if (strEq v "json")
-          FMT_JSON
-          (- 0 1))))))
+  (if (strEq s "human")
+    FMT_HUMAN
+    (if (strEq s "ai")
+      FMT_AI
+      (if (strEq s "json")
+        FMT_JSON
+        (- 0 1)))))
 
 ; ------------------------------------------------------------------
 ; The human renderer.

@@ -2781,12 +2781,10 @@
 ; first thing. A command line that cannot be honoured should be refused
 ; before the compiler does a minute of work on it.
 ;
-; `--diagnostic-format` is deliberately NOT here: an unknown value there
-; warns and falls back to `human`, which is the retired compiler's
-; behaviour and the right one for a presentation flag - a typo should
-; degrade the report, not fail the build. `--target` is not here either,
-; because `checkedTargetCode` already refuses it by name with the list
-; of valid targets.
+; `--diagnostic-format` takes exactly `human`, `ai` or `json`, the
+; names `--help` lists. `--target` is not here, because
+; `checkedTargetCode` already refuses it by name with the list of valid
+; targets.
 (pub :: checkFlagValue (-> String String Int))
 ;@axiom:effect(io)
 (pub fn (checkFlagValue name v)
@@ -2803,7 +2801,11 @@
           0
           (usageError (concat "error: `--heap-ceiling` takes a positive number of bytes, but was given `" (concat v "`\n"))))
         (usageError (concat "error: `--heap-ceiling` takes a positive number of bytes, but was given `" (concat v "`\n"))))
-      0)))
+      (if (strEq name "--diagnostic-format")
+        (if (>= (parseDiagFormatName v) 0)
+          0
+          (usageError (concat "error: `--diagnostic-format` takes human, ai or json, but was given `" (concat v "`\n"))))
+        0))))
 
 ; Every byte a digit, and at least one byte: the empty string and
 ; anything with a sign, a space or a suffix answers false, so the

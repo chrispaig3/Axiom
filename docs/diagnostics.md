@@ -49,6 +49,9 @@ The same diagnostic comes in three formats. Choose one with
 axiom --diagnostic-format=ai check main.ax
 ```
 
+The three names are spelled exactly as in the table. Any other value
+is refused like a bad flag, with exit status 2.
+
 Every diagnostic is one `Diag` value, defined in
 [`self_host/diag.ax`](../self_host/diag.ax). It's built by whichever
 stage refuses the program: the parser, the macro expander, the type

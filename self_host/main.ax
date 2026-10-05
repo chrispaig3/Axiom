@@ -54,26 +54,17 @@
           ))
         ir))))
 
-; Which diagnostic renderer this invocation wants. `human` is the
-; default, as it is stage0's; the aliases are stage0's; an unknown
-; name warns with stage0's exact text and falls back rather than
-; refusing, so a typo degrades the presentation instead of the build.
-; Bound once per subcommand, BEFORE any diagnostics exist, because
-; stage0 warns at argument-parse time - a clean file with a mistyped
-; flag still gets the warning.
+; Which diagnostic renderer this invocation wants: the one the flag
+; names, and `human` when there is no flag. `checkArgs` has already
+; refused any value other than `human`, `ai` or `json`, so a typo never
+; reaches the default.
 (pub :: diagFormatArg Int)
 ;@axiom:effect(io)
 (pub fn (diagFormatArg)
-  (let ((v (flagValue "--diagnostic-format" 1)))
-    (if (== (strLen v) 0)
-      FMT_HUMAN
-      (let ((c (parseDiagFormatName v)))
-        (if (>= c 0)
-          c
-          {
-            (writeStderrStr (concat "warning: unknown --diagnostic-format '" (concat v "', falling back to 'human' (valid: human, ai, json)\n")))
-            FMT_HUMAN
-          })))))
+  (let ((c (parseDiagFormatName (flagValue "--diagnostic-format" 1))))
+    (if (>= c 0)
+      c
+      FMT_HUMAN)))
 
 ; `symbols` emits AXSYM and nothing else, and this says so out loud
 ; when asked for something else.
@@ -196,7 +187,7 @@
 (pub :: symbolsCheckFormat Int)
 ;@axiom:effect(io)
 (pub fn (symbolsCheckFormat)
-  (if (strEq (lowerAscii (flagValue "--diagnostic-format" 1)) "json")
+  (if (strEq (flagValue "--diagnostic-format" 1) "json")
     (usageError "error: `symbols` has no JSON renderer; use --diagnostic-format=ai for AXSYM or --diagnostic-format=human for a table\n")
     0))
 

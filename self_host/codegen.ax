@@ -7931,9 +7931,8 @@
 ;
 ; The format flag is re-derived from argv here for the same reason
 ; dieImport re-derives the subcommand: driver.ax owns flagValue and
-; importing it from codegen would be a cycle. No fallback warning on
-; an unknown value - main.ax's diagFormatArg already warned once at
-; entry, and warning twice for one typo is chatter.
+; importing it from codegen would be a cycle. An unknown value never
+; reaches here: `checkArgs` refuses it before any subcommand runs.
 (pub :: diagFormatFromArgv Int)
 ;@axiom:effect(io)
 (pub fn (diagFormatFromArgv)

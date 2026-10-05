@@ -174,7 +174,7 @@ for input in "$repo_root/tests/fmt/syntax-zoo.ax" "$work/absent.ax"; do
     fi
   done
 done
-if "$work/axc" --diagnostic-format=JSON symbols "$work/absent.ax" >"$work/refuse.out" 2>"$work/refuse.err"; then
+if "$work/axc" --diagnostic-format=json symbols "$work/absent.ax" >"$work/refuse.out" 2>"$work/refuse.err"; then
   rc=0
 else
   rc=$?

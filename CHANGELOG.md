@@ -16,6 +16,12 @@ its changelog too.
 
 ## Unreleased
 
+- Accept exactly `human`, `ai` and `json` for `--diagnostic-format`.
+  The `pretty`, `rustc`, `agent` and `compact` aliases and other
+  spellings of the case are gone, and an unknown value is refused with
+  exit status 2 instead of a warning and the human format. Tested by
+  `scripts/check-driver.sh`.
+
 - Make `axiom fmt` leave alone what `axiom check` refuses. A
   `(let ((x = 1)) x)` binding is refused instead of rewritten to
   `(x 1)`, and an effect name prints as written, so `(mut)` stays

@@ -17,6 +17,7 @@
 # S struct, T trait, M macro. `docs/compatibility.md` is the policy
 # this file implements.
 
+0.7.9  CLI  diagnostic-format-names  only human, ai and json are accepted; another value exits 2 instead of falling back to human
 0.7.9  CLI  legacy-file  FILE [TARGET] is an unknown command with status 2; use emit-llvm FILE [--target TARGET]
 0.7.8  RUST  Ret.direct_payload  returns Option<Payload>; handle None for scalar, opaque and status returns
 0.7.8  CLI  symbols-json  JSON symbol output is refused with status 2; use --diagnostic-format=ai

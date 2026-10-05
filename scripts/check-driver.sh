@@ -592,6 +592,23 @@ fi
 [[ $rc == 2 ]] && grep -q 'takes no value' u3.err \
   && ok "a boolean flag with =value is refused" || bad "boolean =value (rc=$rc)"
 
+# `--diagnostic-format` takes exactly the three names `--help` lists.
+# Any other value - a former alias, another case, a typo - is a bad
+# flag value: exit 2, named, before anything is checked.
+for v in pretty rustc agent compact AI Json humn; do
+  "$s1" --diagnostic-format="$v" check hello.ax >df.out 2>df.err; rc=$?
+  if [[ $rc == 2 ]] && [[ ! -s df.out ]] \
+     && grep -q "\`--diagnostic-format\` takes human, ai or json, but was given \`$v\`" df.err; then
+    ok "\`--diagnostic-format=$v\` is refused, exit 2"
+  else
+    bad "\`--diagnostic-format=$v\` (rc=$rc): $(head -1 df.err)"
+  fi
+done
+for v in human ai json; do
+  "$s1" check hello.ax --diagnostic-format "$v" >df.out 2>df.err \
+    && ok "\`--diagnostic-format $v\` is accepted" || bad "\`--diagnostic-format $v\` refused"
+done
+
 # ---------------------------------------------------------------
 # A mistyped SUBCOMMAND is refused with the real one suggested.
 #
