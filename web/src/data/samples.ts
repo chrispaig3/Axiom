@@ -669,7 +669,7 @@ test: 4 pauses recorded, 0 ms slept`,
    |                            ^^^^ \`seen\` is bound outside this binding
    |
    = note: MM-PAR-6: a binding runs BESIDE its parent, and \`axiom_retain\`/\`axiom_release\` are a plain load-add-store rather than an \`atomicrmw\` - two threads touching one block's count lose an increment and free a block a live reference still names. The rule is the language's and not the lowering's, so it does not depend on \`--threads\`; \`__proc_spawn\` names the isolated lowering and is exempt
-   = help: pass the value in through the thunk's word argument instead of capturing it, or build a copy of it inside the binding. A \`parallel\` binding may borrow a \`String\` its parent holds; anything else it shares with its parent is a word. To share other read-only input with several workers, use \`stdlib/Par.ax\`, whose forked children read their own copy
+   = help: pass the value in through the thunk's word argument instead of capturing it, or build a copy of it inside the binding. A \`parallel\` binding may borrow a String or an immutable data graph its parent holds. Mutable, unknown and type-changing recursive payloads cannot be borrowed; the structural check examines at most 64 nested types. Use a shared word handle or explicit serialization for other input
    = help: run \`axiom explain AX3064\` for a full explanation
 
 compilation failed due to 1 previous error`,

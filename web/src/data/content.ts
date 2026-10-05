@@ -60,7 +60,7 @@ export const PILLARS: Pillar[] = [
   {
     icon: 'loop',
     title: 'Read the compiler. In Axiom.',
-    body: `The compiler is ${stat('lines')} lines of Axiom. A clean checkout rebuilds it from committed LLVM IR with \`llc\` and a C linker, and stops unless two generations are byte-identical.`,
+    body: `The compiler is over ${stat('lines')} lines of Axiom. A clean checkout rebuilds it from committed LLVM IR with \`llc\` and a C linker, and stops unless two generations are byte-identical.`,
     proof: 'scripts/bootstrap-from-seed.sh',
     href: `${BLOB}/scripts/bootstrap-from-seed.sh`,
   },

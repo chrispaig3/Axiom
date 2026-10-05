@@ -395,11 +395,11 @@ compiler_lines = sum(
     1 for p in sorted(glob.glob("self_host/*.ax"))
     for _ in open(p, encoding="utf-8"))
 claim("`.ax` files in the repo", r"(\d+) `\.ax` files", ax_files)
-# README's opening states the compiler's size, and the website states it
-# too (`web/src/data/site.ts`, checked by `web/scripts/check-claims.mjs`
-# against the same command). Two artifacts, one fact, both recomputed.
-claim("lines of Axiom in the compiler", r"([\d,]+) lines of it",
-      compiler_lines)
+# README's opening states the compiler's size in whole thousands, and
+# the website states it too (`web/src/data/site.ts`, checked by
+# `web/scripts/check-claims.mjs` against the same command).
+claim("lines of Axiom in the compiler", r"over ([\d,]+) lines of it",
+      compiler_lines // 1000 * 1000)
 claim("tree-shape corpus cases", r"(\d+)-case tree-shape corpus", corpus_cases)
 
 print("== status table: every **Complete** row names a fixture that exists ==")
