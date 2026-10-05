@@ -1,0 +1,51 @@
+; Rewalking nested loops keeps each lexical extent's identity.
+(import Str)
+
+(struct Cell (mut s : String))
+
+(:: delayStore (-> Cell String String Int Int))
+(fn (delayStore c outer inner count)
+  (let (
+      (mut s0 outer)
+      (mut s1 outer)
+      (mut s2 outer)
+      (mut s3 outer)
+      (mut s4 outer)
+      (mut s5 outer)
+      (mut s6 outer)
+      (mut s7 outer)
+      (mut n 0)
+    )
+    {
+      (while (< n count)
+        {
+          (let ((mut once 0))
+            (while (< once 1)
+              {
+                (region first (strLen "a"))
+                (region second (strLen "b"))
+                (region third (strLen "c"))
+                (set once 1)
+              }))
+          (set c.s s0)
+          (set s0 s1)
+          (set s1 s2)
+          (set s2 s3)
+          (set s3 s4)
+          (set s4 s5)
+          (set s5 s6)
+          (set s6 s7)
+          (set s7 inner)
+          (set n (+ n 1))
+        })
+      0
+    }))
+
+(:: main Int)
+(fn (main)
+  (region local
+    (let ((c (Cell "outer")))
+      {
+        (delayStore c "outer" (strDup "short") 9)
+        (if (strEq c.s "short") 0 1)
+      })))

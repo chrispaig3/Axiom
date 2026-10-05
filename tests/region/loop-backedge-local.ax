@@ -1,0 +1,28 @@
+; Every reference in the loop belongs to the same extent.
+(import Str)
+
+(struct Cell (mut s : String))
+
+(:: delayStore (-> Cell String String Int Int))
+(fn (delayStore c outer inner count)
+  (let ((mut x outer) (mut y outer) (mut z outer) (mut n 0))
+    {
+      (while (< n count)
+        {
+          (set c.s x)
+          (set x y)
+          (set y z)
+          (set z inner)
+          (set n (+ n 1))
+        })
+      0
+    }))
+
+(:: main Int)
+(fn (main)
+  (region local
+    (let ((c (Cell "outer")))
+      {
+        (delayStore c "outer" (strDup "short") 4)
+        (if (strEq c.s "short") 0 1)
+      })))

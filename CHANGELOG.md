@@ -16,6 +16,17 @@ its changelog too.
 
 ## Unreleased
 
+- Check loop-carried region origins to convergence, including stores delayed
+  through several local aliases. Scoped parallel bindings can borrow immutable
+  data graphs while mutable or unknown payloads remain refused. Shared mapping
+  disposal now requires an explicit Unsafe lifetime obligation.
+  Tested by `scripts/check-region-escape.sh`, `scripts/check-parallel.sh`,
+  `scripts/check-race.sh` and `scripts/check-handles.sh`.
+
+- Validate the selected Windows import archives at member boundaries. Ignore
+  shadowed archives and ordinary object data that resembles an import header.
+  Tested by `scripts/check-driver.sh`.
+
 ## 0.7.8 — 2026-10-03
 
 Axiom 0.7.8 adds optional binary and authenticated asset obfuscation,

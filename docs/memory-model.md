@@ -98,6 +98,7 @@ arbitrary address, a foreign object's lifetime or a forged `Int` handle.
 | A cast preserves its type, ownership and lifetime | `MM-VAL-22` and `MM-VAL-23`; forging requires Unsafe | `scripts/check-cast-arg-root.sh` |
 | A container access stays within bounds | `vecGet` and `vecSet` trap 77 before access | `tests/stdlib/525-vec-set-bounds.ax` |
 | A handle is live and belongs to the right module | Sealed types and the runtime handle table; stale use traps 85 | `scripts/check-handles.sh` |
+| Shared storage is freed after its concurrent users finish | `chanFree`, `mutexFree` and `taskTokenFree` require a caller's Unsafe lifetime obligation (`MM-EXEC-9d`) | `tests/litmus/shared-free-boundary.ax` |
 | Shared mutable words are ordered | `MM-PAR-9` atomics, channel or mutex; the programmer guards raw shared pages | `scripts/check-atomics.sh` |
 | A raw address and a foreign value satisfy their contract | Unsafe boundary and caller review | `tests/diagnostics/1040-forging-cast.ax` |
 | A recovery extent releases external resources | Program obligation: an abort cannot close descriptors or unlock a mutex acquired inside it | `scripts/check-reclaim-soak.sh` |
@@ -2443,6 +2444,12 @@ call may store arguments and fresh values into any argument or capture.
 Its result depends on those captures too. This conservative rule can
 refuse a call whose body would be safe.
 
+Loop back edges widen local origins until they stop changing. Each lexical
+extent keeps its identity across analysis rounds. A store delayed through
+several local aliases is checked against every origin it can eventually hold.
+Tested by `tests/region/escape-loop-backedge.ax`, with same-region and
+repeated-extent controls in `scripts/check-region-escape.sh`.
+
 The checker refuses unrepresentable origins and unconverged facts as
 `AX3060`. Each function can track 61 parameter and lexical-extent
 origins together. An annotation alone adds no extent origin. Split a
@@ -4734,7 +4741,7 @@ design cannot absorb.
   joins in the order written, and a child's completion order isn't
   observable through the form.
 - **No cross-thread reference, values copied or moved: held by refusal
-  (`AX3064`), except a borrowed `String` (`MM-PAR-6b`).** The refusal covers a thunk that is a frame-local name
+  (`AX3064`), except borrowed immutable data (`MM-PAR-6b`).** The refusal covers a thunk that is a frame-local name
   of arrow type. It also covers opaque thunks: a conditional, a match,
   a `let` and a brace block are walked to every lambda they can answer,
   and a call result or a field is refused at the shape. Every shape the
@@ -4778,7 +4785,7 @@ bindings and 6,000 bindings each hold 20 MB of address space
 
 This is sound because nothing a thread allocated is reachable once it
 ends. What crosses the join is a word (`AX3004` at the binding).
-`AX3064` refuses every captured reference and every captured `Vec`,
+`AX3064` refuses every unborrowed reference and every captured `Vec`,
 whose buffer a push would otherwise reallocate out of the thread's
 arena, leaving the parent naming unmapped memory.
 
@@ -4787,8 +4794,9 @@ obligation**: a word that is the address of thread-arena memory,
 laundered through `cast` or stored through a raw address, dangles after
 the join.
 
-**MM-PAR-6b (H). A `parallel` binding may borrow a `String` its parent
-holds.** The binding reads the parent's string, and nothing it does
+**MM-PAR-6b (H). A `parallel` binding may borrow immutable data its parent
+holds.** Strings and `data` values whose fields are recursively immutable
+are accepted. The binding reads the parent's graph, and nothing it does
 changes a count the parent relies on:
 
 ```scheme
@@ -4813,7 +4821,7 @@ changes a count the parent relies on:
 ```
 
 The form keeps a borrow record. Before it builds any binding, it lends
-the record every `String` a binding captures: the block's count, and
+the record every borrowed value a binding captures: the block's count, and
 the count of every block it reaches through a reference map, is saved
 and replaced with -1, the static sentinel that `axiom_retain` and
 `axiom_release` leave alone (`MM-LIFE-2k`). After the last join, and
@@ -4828,12 +4836,14 @@ return except building the bindings, spawning them and joining them.
 That is why only `parallel`'s own bindings borrow: a hand-written
 `__par_spawn` lends nothing, and a `String` it captures is still
 `AX3064`. A string's bytes and owner are immutable in safe code, so a
-read-only share is the whole of what the binding needs. A `Vec`, a
-struct, an `Option` and a function value are not borrowable and stay
-refused. A trap that unwinds past the form's end leaves the lent
+read-only share is the whole of what the binding needs. `Option String`
+and immutable recursive lists are borrowable. A `Vec`, a struct, a
+function value or a data field containing one stays refused. Unknown
+field types and recursion that changes type arguments are refused too.
+A trap that unwinds past the form's end leaves the lent
 blocks frozen, which leaks them and nothing else.
 
-The checker lends only what it accepts: each `String` a binding
+The checker lends only what it accepts: each immutable value a binding
 captures is added to its form's lend list as the capture is checked,
 and a capture with no list to join is refused. Codegen freezes what
 the list names (`emitParLends`, `__axiom_par_lend`).
@@ -4841,6 +4851,9 @@ the list names (`emitParLends`, `__axiom_par_lend`).
 Tested by `tests/stdlib/630-parallel-borrow.ax`, which runs at every
 `--opt` in both lowerings and reads the counts back, and
 `tests/diagnostics/1100-parallel-borrow-refused.ax`.
+`tests/parallel/immutable-borrow.ax` checks structured graphs and restored
+counts; `tests/parallel/immutable-borrow-refused.ax` checks mutable and
+unresolved payloads.
 `scripts/check-race.sh` runs `tests/litmus/borrow-load.ax`, four
 bindings borrowing one string thousands of times, under
 ThreadSanitizer, and the same program with the lends removed must be
@@ -4968,7 +4981,9 @@ a table.
 
 *Limits.* A free that races another binding's operation on the same
 handle is a data race (`MM-PAR-9`): the table catches every use ordered
-after the free, not one already in flight. A `cast` to a handle type
+after the free, not one already in flight. Disposal is a precondition
+interface: its caller must declare Unsafe and finish concurrent users
+before reclaiming their mapping. A `cast` to a handle type
 forges one, which is the unsafe layer's (`MM-VAL-22`). At most 65,536
 handles are live at once: a spawn beyond that is refused as a refused
 fork is (78), and a library call answers `EMFILE`.
@@ -6583,12 +6598,12 @@ four atomic loads, with no allocation and no lock. The markers appear
 only in library modules the committed seed doesn't compile, so the
 compiler builds from the seed unchanged.
 
-One gap remains by choice. A free that races another binding's
+One runtime gap remains. A free that races another binding's
 operation on the same handle is a data race (`MM-PAR-9`): the table
 catches every use ordered after the free, not one already in flight.
-Catching that too would need a count of operations in flight, updated
-on every call, and that is contended traffic on one cache line shared
-by every binding that uses the handle.
+Catching that too needs operation leases and cleanup across recovery,
+dead holders and process boundaries. Until then, disposal requires an
+explicit Unsafe lifetime obligation.
 
 ---
 

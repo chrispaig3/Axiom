@@ -42,6 +42,8 @@
 (:: channelSum (-> Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(block)
+; This function keeps the channel local and spawns no user of it.
+;@axiom:effect(unsafe)
 (fn (channelSum n)
   (match (chanNew 8)
     ((Err e) (- 0 1))

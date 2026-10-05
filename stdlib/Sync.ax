@@ -546,6 +546,7 @@
 (pub :: mutexFree (-> Mutex (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:precondition(no binding can still use this mutex: every holder and waiter has finished before the call)
 (pub fn (mutexFree mx)
   (let ((m (syncRetire mx)))
     (sysUnmapShared m (syncLoad m 4))))

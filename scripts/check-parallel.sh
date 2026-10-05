@@ -143,14 +143,17 @@ bad() { echo "FAIL $*"; failed=$((failed + 1)); }
 fx470="$repo_root/tests/stdlib/470-parallel.ax"
 fx471="$repo_root/tests/stdlib/471-parallel-trap.ax"
 fx630="$repo_root/tests/stdlib/630-parallel-borrow.ax"
-[[ -f "$fx470" && -f "$fx471" && -f "$fx630" ]] || { echo "FAIL: the three fixtures are missing"; exit 1; }
+graph="$repo_root/tests/parallel/immutable-borrow.ax"
+graph_want="$repo_root/tests/parallel/immutable-borrow.out"
+[[ -f "$fx470" && -f "$fx471" && -f "$fx630" && -f "$graph" && -f "$graph_want" ]] \
+  || { echo "FAIL: a parallel fixture or expected output is missing"; exit 1; }
 
 # --------------------------------------------------------------------
 echo "== 1. the fixtures, both lowerings, the same bytes =="
 # --------------------------------------------------------------------
-run_case() {  # <fixture> <flag-or-empty> <tag> -> writes $work/<tag>.out and .status
-  local fx="$1" flag="$2" tag="$3"
-  if ! "$axc" build $flag --input "$fx" --output "$work/$tag.bin" > "$work/$tag.build" 2>&1; then
+run_case() {  # <fixture> <flag-or-empty> <tag> [opt] -> .out and .status
+  local fx="$1" flag="$2" tag="$3" opt="${4:-1}"
+  if ! "$axc" build $flag --opt "$opt" --input "$fx" --output "$work/$tag.bin" > "$work/$tag.build" 2>&1; then
     bad "$tag: would not build"; sed 's/^/     /' "$work/$tag.build" | head -5; return 1
   fi
   ( cd "$work" && "./$tag.bin" > "$work/$tag.out" 2> "$work/$tag.err" ); echo $? > "$work/$tag.status"
@@ -184,6 +187,23 @@ for g in 470-parallel 630-parallel-borrow; do
     bad "$c: the process lowering disagrees with tests/stdlib/$g.out"
     diff "$work/p$c.out" "$repo_root/tests/stdlib/$g.out" | head -10 | sed 's/^/     /'
   fi
+done
+
+# Immutable data graphs: nested scopes, polymorphic constructor fields,
+# closure aliases and restored root/owner counts at every optimisation.
+for lowering in p t; do
+  flag=""; [[ "$lowering" == t ]] && flag="--threads"
+  for opt in 0 1 2 3; do
+    tag="graph-$lowering$opt"
+    if run_case "$graph" "$flag" "$tag" "$opt"; then
+      if [[ "$(cat "$work/$tag.status")" == 0 ]] && cmp -s "$work/$tag.out" "$graph_want"; then
+        ok "immutable graph: $lowering --opt $opt, nested borrows and restored counts"
+      else
+        bad "immutable graph: $lowering --opt $opt, exit $(cat "$work/$tag.status") or unexpected output"
+        diff "$graph_want" "$work/$tag.out" | head -10 | sed 's/^/     /'
+      fi
+    fi
+  done
 done
 
 # --------------------------------------------------------------------
@@ -1220,6 +1240,8 @@ check3064() {  # <file> <want-count> <tag>
     bad "11: $3 draws $got AX3064 line(s), wanted $2"
   fi
 }
+check3064 "$repo_root/tests/diagnostics/1100-parallel-borrow-refused.ax" 3 "unsafe captures beside borrowed String and Option String controls"
+check3064 "$repo_root/tests/parallel/immutable-borrow-refused.ax" 6 "mutable, unknown and unscoped data captures"
 checkok() {  # <file> <tag>
   if "$axc" --diagnostic-format=ai check "$1" > /dev/null 2>&1; then
     ok "11: $2 checks clean"

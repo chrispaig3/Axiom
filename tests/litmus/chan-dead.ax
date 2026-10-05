@@ -250,6 +250,7 @@
 (:: aftermath (-> Chan Int))
 ;@axiom:effect(io)
 ;@axiom:effect(block)
+;@axiom:effect(unsafe)
 (fn (aftermath c)
   {
     (say "send" (bit (chanSend c 5)))

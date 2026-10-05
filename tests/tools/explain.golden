@@ -2501,50 +2501,27 @@ Pass values from one region, give the parameters different region
 names, or name the result's region on a parameter.
 
 ### explain AX3064
-AX3064 - a concurrent binding capturing a reference its parent also holds
+AX3064 - a concurrent binding capturing data it cannot safely share
 
-`(parallel p ((a e1) (b e2)) body)` runs each binding BESIDE the
-caller. A binding's expression is a thunk, and a name it reads from
-the enclosing function is CAPTURED: the same block is then reachable
-from two places that run at the same time.
+A `parallel` binding may borrow a String or an immutable `data` graph
+its parent holds (MM-PAR-6b). Every instantiated field must be a scalar,
+a String or another immutable data value. Mutable structs, containers,
+closures, resources, unknown types and type-changing recursion are
+refused. The form freezes the graph's reference counts before spawning
+and restores them after the last join.
 
-That is safe for a word and unsafe for a reference. `axiom_retain`
-and `axiom_release` are a plain load-add-store rather than an
-`atomicrmw` - by design, and everywhere - so two of them on one
-block's count lose an increment, and the block is freed while a live
-reference still names it. Corruption, not a leak (MM-PAR-6,
-docs/memory-model.md §6).
+Only `parallel`'s own bindings borrow. A hand-written `__par_spawn`
+lends nothing, because its parent can run between spawn and join.
 
-A `parallel` binding may BORROW a `String` its parent holds
-(MM-PAR-6b): the form freezes the string's count, and every count it
-reaches, before it builds any binding, and restores them after the
-last join, so no binding's retain or release reaches the parent. Only
-`parallel`'s own bindings borrow, because the parent runs nothing
-between its spawns and joins; a hand-written `__par_spawn` lends
-nothing. `tests/diagnostics/1100-parallel-borrow-refused.ax` pins
-what stays refused.
+A scalar, a Foreign or a word handle explicitly declared `shared`
+may also be captured. A Foreign object's thread safety is its caller's
+obligation. A Spawn and an unshared word handle are refused. Copy or
+serialise other values into storage owned by the receiving binding.
 
-Anything else a binding shares with its parent is a word: a scalar, a
-`Foreign`, or a handle whose module declares it `shared`, such as a
-`Chan`, a `Mutex` or a `CancelToken` (AX3084). Pass anything else
-through the thunk's word argument, or build a copy inside the
-binding. A `Vec` is refused though it takes no share of a count: two
-bindings could grow one buffer at once, and a buffer a thread grew is
-unmapped when the thread ends. A word struct its module did not
-declare `shared` is refused too, because the module did not build it
-for use from several bindings at once, and so is a `Spawn`: a join
-belongs to the binding that spawned it. A bare `Foreign` is not
-refused: it points into memory Axiom never allocated, so the release
-walk skips it and there is no count to race. A `Handle` is refused,
-because it is a counted block carrying a destructor.
-`tests/diagnostics/655-parallel-capture-foreign.ax` pins those two
-answers side by side, and `tests/diagnostics/1064-parallel-capture-
-handle.ax` the handles.
-
-The rule is the LANGUAGE's, not a lowering's, so it does not depend
-on `--threads`: the process lowering is merely permitted to be laxer
-than the rule. `__proc_spawn` names that lowering by itself - a
-separate address space, so no count is shared - and is exempt.
+The capture rule applies in both lowerings. `__proc_spawn` explicitly
+uses a separate address space and is exempt. Tested by
+`tests/parallel/immutable-borrow.ax` and
+`tests/parallel/immutable-borrow-refused.ax`.
 
 ### explain AX3065
 AX3065 - an AXTAG key the compiler derives and writes itself

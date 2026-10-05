@@ -1377,6 +1377,43 @@ if command -v lld-link > /dev/null 2>&1 && command -v llvm-dlltool > /dev/null 2
     bad "windows-aarch64 build (rc=$rc; machine $(pe_machine_of wahello.exe 2>/dev/null); $(ls wahello* 2>/dev/null | tr '\n' ' '))"
     sed 's/^/     /' wahello.log | head -5
   fi
+  # The first archive in directory order wins. A shadowed x64 archive
+  # must not make an otherwise valid arm64 link fail its machine check.
+  "$s1" build --target=windows-aarch64 --input hello.ax --output washadow --link-search "$work/winlib-arm64" --link-search "$work/winlib" >washadow.log 2>&1; rc=$?
+  if [[ $rc == 0 && -f washadow.exe ]] && [[ "$(pe_machine_of washadow.exe)" == "64aa" ]]; then
+    ok "the Windows machine check uses the first resolved archive and ignores a shadowed x64 library"
+  else
+    bad "a valid first arm64 archive shadowing an x64 one (rc=$rc: $(head -1 washadow.log))"
+  fi
+
+  # An ordinary COFF object's data may contain the bytes of an import
+  # header. Appending that valid, unused member leaves the link valid;
+  # a scanner that looks beyond member headers rejects it incorrectly.
+  cat >win-payload.ll <<'EOF'
+target triple = "aarch64-pc-windows-msvc"
+@archiveMagicData = global [8 x i8] c"\00\00\FF\FF\00\00\64\86"
+EOF
+  llc -filetype=obj win-payload.ll -o win-payload.obj
+  mkdir -p "$work/winlib-payload"
+  python3 - "$work/winlib-arm64/kernel32.lib" win-payload.obj "$work/winlib-payload/kernel32.lib" <<'PY'
+import pathlib
+import sys
+archive = pathlib.Path(sys.argv[1]).read_bytes()
+obj = pathlib.Path(sys.argv[2]).read_bytes()
+header = (b"payload.obj/".ljust(16) + b"0".ljust(12)
+          + b"0".ljust(6) + b"0".ljust(6) + b"100644".ljust(8)
+          + str(len(obj)).encode().ljust(10) + b"`\n")
+assert len(header) == 60 and len(archive) % 2 == 0
+pathlib.Path(sys.argv[3]).write_bytes(archive + header + obj
+                                    + (b"\n" if len(obj) % 2 else b""))
+PY
+  "$s1" build --target=windows-aarch64 --input hello.ax --output wapayload --link-search "$work/winlib-payload" >wapayload.log 2>&1; rc=$?
+  if [[ $rc == 0 && -f wapayload.exe ]] && [[ "$(pe_machine_of wapayload.exe)" == "64aa" ]]; then
+    ok "import-header bytes inside ordinary COFF member data do not change the archive's machine"
+  else
+    bad "import-header bytes in ordinary object data (rc=$rc: $(head -1 wapayload.log))"
+  fi
+
   # And the machine is the target's, not the host's or the import
   # library's: the x64 `kernel32.lib` is refused for an arm64 link,
   # blamed on lld-link, and the hint names the arm64 library it wants.
@@ -1385,6 +1422,12 @@ if command -v lld-link > /dev/null 2>&1 && command -v llvm-dlltool > /dev/null 2
     ok "a windows-aarch64 link against an x64 kernel32.lib is refused (exit 4) and asks for an arm64 one"
   else
     bad "a windows-aarch64 link against an x64 kernel32.lib (rc=$rc: $(head -1 wamix.log))"
+  fi
+  "$s1" build --target=windows-aarch64 --input hello.ax --output wamixfirst --link-search "$work/winlib" --link-search "$work/winlib-arm64" >wamixfirst.log 2>&1; rc=$?
+  if [[ $rc == 4 && ! -f wamixfirst.exe ]] && grep -q 'wrong machine' wamixfirst.log; then
+    ok "a selected x64 import archive is refused even when a later directory has an arm64 one"
+  else
+    bad "a wrong first x64 archive followed by an arm64 one (rc=$rc: $(head -1 wamixfirst.log))"
   fi
   "$s1" build --target=windows-aarch64 --input hello.ax --output walib.a --emit-staticlib --link-search "$work/winlib-arm64" >walib.log 2>&1; rc=$?
   if [[ $rc == 4 && ! -f walib.a ]] && grep -q 'not supported for windows-aarch64' walib.log && grep -q 'AX4003' walib.log; then

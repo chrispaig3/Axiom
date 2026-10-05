@@ -256,6 +256,7 @@
 ;@axiom:effect(io)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
+;@axiom:effect(unsafe)
 (fn (wakeRound)
   (let ((ch (newOr 1)))
     (parallel p (

@@ -92,6 +92,7 @@
 ; 1 if the channel was unmapped, 0 if the kernel refused.
 (:: freedOk (-> Chan Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (freedOk ch)
   (match (chanFree ch)
     ((Ok n) 1)

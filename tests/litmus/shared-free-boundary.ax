@@ -1,0 +1,52 @@
+; Shared mappings may be reclaimed only after their concurrent users
+; finish. Disposal is a caller obligation, so each unvouched free is
+; refused as AX3073. The matching no-unsafe claims draw AX3049.
+(import Chan)
+(import Sync)
+(import Task)
+(import Err)
+
+;@axiom:restrict(no-unsafe)
+;@axiom:effect(io)
+(:: freeChan (-> Chan (Result Int Error)))
+(fn (freeChan c) (chanFree c))
+
+;@axiom:restrict(no-unsafe)
+;@axiom:effect(io)
+(:: freeMutex (-> Mutex (Result Int Error)))
+(fn (freeMutex m) (mutexFree m))
+
+;@axiom:restrict(no-unsafe)
+;@axiom:effect(io)
+(:: freeToken (-> CancelToken (Result Int Error)))
+(fn (freeToken t) (taskTokenFree t))
+
+; Referring to a precondition interface carries the same obligation.
+;@axiom:restrict(no-unsafe,strict)
+(:: chanFreeFn (-> Chan (Result Int Error)))
+(fn (chanFreeFn c) ((let ((f chanFree)) f) c))
+
+;@axiom:restrict(no-unsafe,strict)
+(:: mutexFreeFn (-> Mutex (Result Int Error)))
+(fn (mutexFreeFn m) ((let ((f mutexFree)) f) m))
+
+;@axiom:restrict(no-unsafe,strict)
+(:: tokenFreeFn (-> CancelToken (Result Int Error)))
+(fn (tokenFreeFn t) ((let ((f taskTokenFree)) f) t))
+
+; Declaring Unsafe does not satisfy a no-unsafe restriction.
+;@axiom:restrict(no-unsafe)
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(:: taggedFree (-> Chan (Result Int Error)))
+(fn (taggedFree c) (chanFree c))
+
+; Reading typed state and requesting cancellation remain safe.
+;@axiom:restrict(no-unsafe)
+;@axiom:effect(io)
+;@axiom:effect(block)
+(:: state (-> Chan Mutex CancelToken Bool))
+(fn (state c m t)
+  { (taskCancel t) (|| (chanClosed c) (mutexOwnerDead m)) })
+
+(fn (main) 0)

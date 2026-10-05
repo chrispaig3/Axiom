@@ -93,6 +93,7 @@
 ;@axiom:effect(io)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
+;@axiom:effect(unsafe)
 (fn (run ch cap n)
   (parallel p (
     (fed (feed ch n))

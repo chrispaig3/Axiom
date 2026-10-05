@@ -6181,7 +6181,7 @@
 ; MM-PAR-6b: `parallel`'s borrow scope, in six functions.
 ;
 ; A borrow record is three words, `[entries, len, cap]`; an entry is
-; two, `(block, saved count)`. `__axiom_par_lend` takes one `String` a
+; two, `(block, saved count)`. `__axiom_par_lend` takes one immutable value a
 ; binding borrows, before any binding's closure is built: that block
 ; and every block it reaches through reference maps whose count is not
 ; negative has the count saved and replaced by -1, the static sentinel
@@ -6198,7 +6198,7 @@
 ; SOUND BECAUSE THE PARENT RUNS NOTHING BETWEEN THE LENDS AND THE
 ; RETURN but closure construction, spawns and joins. That is why only
 ; the desugaring of `parallel` names these, and why the checker lets
-; only its thunks capture a `String`, and only one it lent
+; only its thunks capture an immutable graph, and only one it lent
 ; (`capBorrowLend`). A trap that unwinds past the return leaves the lent
 ; blocks frozen, which leaks them and nothing else.
 ; ------------------------------------------------------------------

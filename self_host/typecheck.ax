@@ -11251,7 +11251,7 @@
 ; `(parallel$lends b {})`, which only `parallel`'s desugaring writes
 ; (MM-PAR-6b): the borrow record is checked as any name is, the block is
 ; not checked at all - it is empty now, and what `capBorrowLend` puts in
-; it later is a frame-local `String` by construction - and the pair is
+; it later is a frame-local immutable value by construction - and the pair is
 ; recorded for the form's thunks to find.
 (pub :: checkParLends (-> Int Int Int))
 ;@axiom:effect(unsafe)
@@ -11334,17 +11334,70 @@
       true
       (capBlockNames xs name (+ i 1)))))
 
-; A type a `parallel` binding may borrow: a value reachable only through
-; blocks nothing can mutate from safe code. Today that is `String`,
-; whose bytes and owner chain are immutable.
-(pub :: capTyBorrowable (-> Int Int))
-(pub fn (capTyBorrowable ty)
-  (let ((rt (tyResolve ty)))
-    (if (== rt 0)
+; A scoped borrow may reach only immutable blocks: strings and data
+; constructors whose instantiated fields are themselves borrowable.
+; Structs, containers, closures, foreign resources and unknown types
+; are refused. The runtime lends every mapped child before any spawn.
+(pub :: capTyBorrowable (-> Int Int Int))
+(pub fn (capTyBorrowable tc ty)
+  (capBorrowableIn tc ty vecNew vecNew 0))
+
+; `seen` keys fully instantiated types. `active` holds the data names
+; on this path: recursive uses at the same instantiation are safe, but
+; a recursive type that grows its arguments is refused before an
+; unbounded expansion. Independent instantiations in sibling fields
+; are checked separately. The depth bound also keeps this proof finite.
+(pub :: capBorrowableIn (-> Int Int (Vec String) (Vec String) Int Int))
+;@axiom:effect(unsafe)
+(pub fn (capBorrowableIn tc t seen active depth)
+  (let ((ty (tyExpandAliases tc (tyResolve t) 0)))
+    (if (|| (== ty 0) (>= depth 64))
       0
-      (if (&& (== (nodeTag rt) TAG_T_CON) (strEq (nodeAName rt) "String"))
-        1
-        0))))
+      (if (!= (nodeTag ty) TAG_T_CON)
+        0
+        (if (== (showTyGround ty) 0)
+          0
+          (let ((n (nodeAName ty)))
+            (if (|| (strEq n "String") (|| (strEq n "Int") (|| (strEq n "Float") (|| (strEq n "Bool") (strEq n "Char")))))
+              1
+              (let ((dent (findData tc n)))
+                (if (== dent 0)
+                  0
+                  (let ((ctors (memGetWordVec dent 1)))
+                    ; An abstract data entry such as Vec has no
+                    ; constructors; absence of fields proves nothing.
+                    (if (== (vecLen ctors) 0)
+                      0
+                      (let ((key (showTyName ty)))
+                        (if (>= (strVecIdx seen key) 0)
+                          1
+                          (if (>= (strVecIdx active n) 0)
+                            0
+                            {
+                                (vecPush seen key)
+                                (vecPush active n)
+                                (let ((answer (capBorrowableCtors tc ctors ty seen active depth 0)))
+                                  {
+                                    (vecPop active)
+                                    answer
+                                  })
+                              }))))))))))))))
+
+(pub :: capBorrowableCtors (-> Int (Vec Int) Int (Vec String) (Vec String) Int Int Int))
+(pub fn (capBorrowableCtors tc ctors ty seen active depth i)
+  (if (>= i (vecLen ctors))
+    1
+    (if (== (capBorrowableFields tc (showCtorFieldTys tc (vecGet ctors i) ty) seen active (+ depth 1) 0) 0)
+      0
+      (capBorrowableCtors tc ctors ty seen active depth (+ i 1)))))
+
+(pub :: capBorrowableFields (-> Int (Vec Int) (Vec String) (Vec String) Int Int Int))
+(pub fn (capBorrowableFields tc tys seen active depth i)
+  (if (>= i (vecLen tys))
+    1
+    (if (== (capBorrowableIn tc (vecGet tys i) seen active depth) 0)
+      0
+      (capBorrowableFields tc tys seen active depth (+ i 1)))))
 
 (pub :: capReportFor (-> Int (Vec Int) Int (Vec Int) String Int))
 (pub fn (capReportFor tc occ i seen borrow)
@@ -11448,13 +11501,13 @@
         (capReportFor tc occ (+ i 1) seen borrow)
       })))
 
-; A capture a `parallel` thunk may keep: a `String` (`capTyBorrowable`)
-; lent to the thunk's own form. Answers true - refuse it - otherwise.
+; A capture a `parallel` thunk may keep: an immutable value
+; (`capTyBorrowable`) lent to its own form. True means refuse it.
 (pub :: capNotBorrowed (-> Int String String Int Int Bool))
 (pub fn (capNotBorrowed tc borrow name ty span)
   (if (== (strLen borrow) 0)
     true
-    (if (== (capTyBorrowable ty) 0)
+    (if (== (capTyBorrowable tc ty) 0)
       true
       (== (capBorrowLend tc borrow name span) 0))))
 
@@ -11493,7 +11546,7 @@
                 "` - a type this checker cannot classify, so it cannot promise the block's count is untouched"))))
           0
           0
-          "pass the value in through the thunk's word argument instead of capturing it, or build a copy of it inside the binding. A `parallel` binding may borrow a `String` its parent holds; anything else it shares with its parent is a word. To share other read-only input with several workers, use `stdlib/Par.ax`, whose forked children read their own copy"
+          "pass the value in through the thunk's word argument instead of capturing it, or build a copy of it inside the binding. A `parallel` binding may borrow a String or an immutable data graph its parent holds. Mutable, unknown and type-changing recursive payloads cannot be borrowed; the structural check examines at most 64 nested types. Use a shared word handle or explicit serialization for other input"
           "MM-PAR-6: a binding runs BESIDE its parent, and `axiom_retain`/`axiom_release` are a plain load-add-store rather than an `atomicrmw` - two threads touching one block's count lose an increment and free a block a live reference still names. The rule is the language's and not the lowering's, so it does not depend on `--threads`; `__proc_spawn` names the isolated lowering and is exempt")
         (concat (concat "`" name) "` is bound outside this binding")))
     0
@@ -26419,7 +26472,7 @@
 ;   17 capture mask of the lambda being walked
 ;   18 the capture NAMES of the last lambda walked (Vec String), and
 ;   20 their origin masks (Vec Int), for AX3062 to name the capture
-;   that carries the offending origin   19 spare
+;   that carries the offending origin   19 lexical extent bodies (Vec Int)
 (pub :: rgnCtxNew (-> Int Int Int Int Int))
 ;@axiom:effect(unsafe)
 (pub fn (rgnCtxNew tc d ent report)
@@ -26474,7 +26527,7 @@
       (memSetWord
         rc
         19
-        (cast Int ""))
+        (cast Int (rgnIntVec)))
       (memSetWord
         rc
         20
@@ -26965,21 +27018,72 @@
       acc
       (rgnArgsUnion rc v (+ i 1) (| acc (rgnExpr rc (vecGet v i)))))))
 
-; A loop body is walked twice: a `set` late in the body widens a
-; binding a read early in the body already answered for, and the
-; second pass sees the widened origins. Reporting is off for the
-; first pass so a refusal is written once.
+; A loop's back edge may carry an origin through any number of local
+; bindings before an earlier store observes it. Widen those bindings
+; to a fixpoint before reporting. Each changed round adds at least
+; one of 63 possible bits to an outer binding, so the bound follows
+; from the environment's size. Extent identities stay fixed across
+; these walks (`rgnFormWalk`).
 (pub :: rgnWhile (-> Int Int Int))
 ;@axiom:effect(unsafe)
 (pub fn (rgnWhile rc e)
-  (let ((rep (memGetWord rc 12)))
+  (let (
+    (rep (memGetWord rc 12))
+    (mark (rgnEnvLen rc))
+    (before (rgnIntVec))
+    (limit (+ (* 63 (+ mark 1)) 1))
+    (mut round 0)
+    (mut changed 1)
+    (mut i 0)
+  )
     {
+      (rgnFillInts before mark 0)
       (memSetWord rc 12 0)
-      (rgnExpr rc (nodeA e))
-      (rgnSeq rc (nodeBVec e) 0 0)
+      (while (&& (== changed 1) (< round limit))
+        {
+          (set i 0)
+          (while (< i mark)
+            {
+              (vecSet before i (vecGet (rgnOrigs rc) i))
+              (set i (+ i 1))
+            })
+          (rgnExpr rc (nodeA e))
+          (rgnSeq rc (nodeBVec e) 0 0)
+          (set changed 0)
+          (set i 0)
+          (while (< i mark)
+            {
+              (if (!= (vecGet before i) (vecGet (rgnOrigs rc) i))
+                (set changed 1)
+                0)
+              (set i (+ i 1))
+            })
+          (set round (+ round 1))
+        })
       (memSetWord rc 12 rep)
-      (rgnExpr rc (nodeA e))
-      (rgnSeq rc (nodeBVec e) 0 0)
+      (if (== changed 1)
+        {
+          (memSetWord (rgnTc rc) 28 2)
+          (memSetWord (rgnFacts rc) 5 1)
+          (memSetWord rc 14 1)
+          (if (== rep 1)
+            (emitDiag (rgnTc rc) (mkDiag
+              SEV_ERROR
+              "AX3060"
+              "region-escape"
+              (nodeSpan e)
+              "region safety cannot be proved: loop lifetime analysis did not converge"
+              0
+              0
+              "simplify the loop's lifetime dependencies or split the function into smaller functions"))
+            0)
+          0
+        }
+        {
+          (rgnExpr rc (nodeA e))
+          (rgnSeq rc (nodeBVec e) 0 0)
+          0
+        })
       0
     }))
 
@@ -27263,44 +27367,54 @@
 (pub fn (rgnFormWalk rc body name)
   (let (
     (n (memGetWord rc 3))
-    (k (vecLen (rgnFormParents rc)))
+    (forms (memGetWordVec rc 19))
+    (mut k 0)
     (savedBit (memGetWord rc 7))
     (savedRid (memGetWord rc 8))
   )
-    (if (>= (+ n k) 61)
-      {
-        ; Reusing the enclosing bit would accept an escape as if the
-        ; shorter extent outlived it. An unrepresentable lifetime is
-        ; an unproved lifetime, and emission must stop.
-        (if (== (rgnReport rc) 1)
-          (emitDiag (rgnTc rc) (mkDiag
-            SEV_ERROR
-            "AX3060"
-            "region-escape"
-            (nodeSpan body)
-            "region safety cannot be proved: this function exceeds the lifetime origin capacity"
-            0
-            0
-            "split this function into smaller functions so each region has a distinct tracked origin"))
-          0)
-        (memSetWord (rgnFacts rc) 5 1)
-        0
-      }
-      (let ((bit (<< 1 (+ (+ n 1) k))))
+    {
+      (while (&& (< k (vecLen forms)) (!= (vecGet forms k) body))
+        (set k (+ k 1)))
+      (if (>= (+ n k) 61)
         {
-          (vecPush (rgnFormParents rc) savedRid)
-          (vecPushStr (rgnFormNames rc) name)
-          (memSetWord rc 7 bit)
-          (memSetWord rc 8 (+ (+ (vecLen (rgnRegionNames rc)) 1) k))
-          (let ((v (rgnExpr rc body)))
-            {
-              (memSetWord rc 7 savedBit)
-              (memSetWord rc 8 savedRid)
-              (if (!= (& v bit) 0)
-                (| (& v (^ v bit)) savedBit)
-                v)
-            })
-        }))))
+          ; Reusing the enclosing bit would accept an escape as if the
+          ; shorter extent outlived it. An unrepresentable lifetime is
+          ; an unproved lifetime, and emission must stop.
+          (if (== (rgnReport rc) 1)
+            (emitDiag (rgnTc rc) (mkDiag
+              SEV_ERROR
+              "AX3060"
+              "region-escape"
+              (nodeSpan body)
+              "region safety cannot be proved: this function exceeds the lifetime origin capacity"
+              0
+              0
+              "split this function into smaller functions so each region has a distinct tracked origin"))
+            0)
+          (memSetWord (rgnFacts rc) 5 1)
+          0
+        }
+        (let ((bit (<< 1 (+ (+ n 1) k))))
+          {
+            (if (== k (vecLen forms))
+              {
+                (vecPush forms body)
+                (vecPush (rgnFormParents rc) savedRid)
+                (vecPushStr (rgnFormNames rc) name)
+                0
+              }
+              0)
+            (memSetWord rc 7 bit)
+            (memSetWord rc 8 (+ (+ (vecLen (rgnRegionNames rc)) 1) k))
+            (let ((v (rgnExpr rc body)))
+              {
+                (memSetWord rc 7 savedBit)
+                (memSetWord rc 8 savedRid)
+                (if (!= (& v bit) 0)
+                  (| (& v (^ v bit)) savedBit)
+                  v)
+              })
+          }))}))
 
 ; A recovery point, `(__axiom_recover mark thunk)`: an abort resets the
 ; arena to `mark`, reclaiming everything the thunk allocated, so the

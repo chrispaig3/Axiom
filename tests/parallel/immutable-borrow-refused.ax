@@ -1,0 +1,53 @@
+; Scoped graph borrowing cannot hide a mutable or unknown payload.
+(import Str)
+(import Vec)
+
+(struct Cell (mut text : String))
+(data Wrap (a) (Wrap a))
+(data Growing (a) (Growing a (Growing (Option a))))
+
+(:: container (-> (Option (Vec Int)) Int))
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(fn (container xs)
+  (parallel p ((a (match xs ((Some v) (vecLen v)) ((None) 0)))) a))
+
+(:: mutable (-> (Wrap Cell) Int))
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(fn (mutable x)
+  (parallel p ((a (match x ((Wrap c) (strLen c.text))))) a))
+
+(:: closure (-> (Wrap (-> Int Int)) Int))
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(fn (closure x)
+  (parallel p ((a (match x ((Wrap f) (f 3))))) a))
+
+(:: generic (-> (Option a) Int))
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(fn (generic x)
+  (parallel p ((a (match x ((Some v) 1) ((None) 0)))) a))
+
+(:: growing (-> (Growing String) Int))
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(fn (growing x)
+  (parallel p ((a (match x ((Growing s tail) (strLen s))))) a))
+
+(:: manual (-> (Option String) Int))
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(fn (manual x)
+  (__thread_join (__thread_spawn
+    (lambda (w) (match x ((Some s) (strLen s)) ((None) 0))) 0)))
+
+(:: main Int)
+(fn (main) 0)

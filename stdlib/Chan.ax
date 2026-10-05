@@ -868,6 +868,7 @@
 (pub :: chanFree (-> Chan (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:precondition(no binding can still use this channel: every concurrent user has joined before the call)
 (pub fn (chanFree c)
   (let ((ch (chanRetire c)))
     (sysUnmapShared ch (chanGet ch 7))))

@@ -168,6 +168,26 @@ else
   head -8 "$work/run/closure-local.err"
 fi
 
+# A loop back edge carries aliases beyond a fixed number of walks.
+cp "$repo_root/tests/region/escape-loop-backedge.ax" "$work/run/escape-loop-backedge.ax"
+"$axc" --diagnostic-format=ai check "$work/run/escape-loop-backedge.ax" \
+  > /dev/null 2> "$work/run/escape-loop-backedge.err"
+if grep -q '^E AX3060 .*delayStore.*parameter `inner`' "$work/run/escape-loop-backedge.err"; then
+  ok "a delayed loop alias is refused at the callee's store"
+else
+  bad "a loop back edge hid an escaping alias"
+  head -8 "$work/run/escape-loop-backedge.err"
+fi
+for case in loop-backedge-local loop-extents-stable; do
+  if "$axc" --diagnostic-format=ai run "$repo_root/tests/region/$case.ax" \
+      > "$work/run/$case.out" 2> "$work/run/$case.err"; then
+    ok "$case: valid same-region aliases run to exit 0"
+  else
+    bad "$case: a valid loop failed"
+    head -8 "$work/run/$case.err"
+  fi
+done
+
 # A proof must never reuse an origin bit when the domain is full.
 python3 - "$work/run" <<'PY'
 import pathlib, sys
@@ -242,6 +262,7 @@ abl="$work/tree"
 mkdir -p "$abl"
 cp -R "$repo_root/self_host" "$repo_root/stdlib" "$abl/" || {
   echo "FAIL: could not copy the tree to ablate" >&2; exit 1; }
+cp "$abl/self_host/typecheck.ax" "$work/typecheck.unablated.ax"
 python3 - "$abl/self_host/typecheck.ax" <<'PY'
 import sys
 p = sys.argv[1]
@@ -287,6 +308,7 @@ else
   accepted 648-region-argument
   accepted escape-store
   accepted escape-closure-call
+  accepted escape-loop-backedge
   # 649 rests on the facts, not the pass, and must survive
   checks=$((checks + 1))
   ( cd "$work/run" && AXIOM_STDLIB="$abl/stdlib" "$work/axc-ablated" --diagnostic-format=ai check 649-restrict-no-escape.ax ) > /dev/null 2> "$work/run/649.abl"
@@ -312,6 +334,71 @@ else
       ok "the accepted program does not answer \`hello\` at exit 0 (exit $status, read back: '${got:0:24}') - the stored value was reclaimed"
     fi
     set +e
+  fi
+fi
+
+# Isolate the loop rule: restore the reporting pass and replace only
+# rgnWhile's fixpoint with its former two-pass traversal.
+echo "== 3b. ablation: two walks of a loop body =="
+cp "$work/typecheck.unablated.ax" "$abl/self_host/typecheck.ax"
+python3 - "$abl/self_host/typecheck.ax" "$work/run/escape-loop-backedge.ax" \
+  "$work/run/escape-loop-backedge-run.ax" <<'PY'
+import pathlib, sys
+p = pathlib.Path(sys.argv[1])
+s = p.read_text()
+start = s.index("(pub fn (rgnWhile rc e)")
+end = s.index("\n(pub :: rgnMatch ", start)
+s = s[:start] + """(pub fn (rgnWhile rc e)
+  (let ((rep (memGetWord rc 12)))
+    {
+      (memSetWord rc 12 0)
+      (rgnExpr rc (nodeA e))
+      (rgnSeq rc (nodeBVec e) 0 0)
+      (memSetWord rc 12 rep)
+      (rgnExpr rc (nodeA e))
+      (rgnSeq rc (nodeBVec e) 0 0)
+      0
+    }))
+""" + s[end:]
+p.write_text(s)
+s = pathlib.Path(sys.argv[2]).read_text()
+for old, new in (
+    ("(import Str)", "(import Str)\n(import IO)"),
+    ("(:: main Int)\n(fn (main)", "(:: main Int)\n;@axiom:effect(io)\n(fn (main)"),
+    ("(strLen c.s)", '(let ((replacement (strDup "fresh")))\n'
+                      '        { (println c.s) (println replacement) 0 })'),
+):
+    if s.count(old) != 1:
+        raise SystemExit("loop runtime probe no longer matches its source fixture")
+    s = s.replace(old, new)
+pathlib.Path(sys.argv[3]).write_text(s)
+PY
+if [[ $? -ne 0 ]]; then
+  bad "could not apply the two-pass loop ablation"
+elif ! gate_build_tree "$axc" "$abl" "$abl/stdlib" \
+     "$work/axc-loop-ablated" > "$work/loop-ablated.build.log" 2>&1; then
+  bad "the two-pass loop compiler did not build"
+  head -12 "$work/loop-ablated.build.log"
+else
+  if AXIOM_STDLIB="$abl/stdlib" "$work/axc-loop-ablated" --diagnostic-format=ai \
+      check "$work/run/escape-loop-backedge.ax" > "$work/run/loop-ablated.check" 2>&1; then
+    ok "two-pass ablation accepts the delayed escaping alias"
+  else
+    bad "the loop refusal does not depend on reaching a fixpoint"
+    head -8 "$work/run/loop-ablated.check"
+  fi
+  printf 'short\nfresh\n' > "$work/run/loop-expected.out"
+  if AXIOM_STDLIB="$abl/stdlib" "$work/axc-loop-ablated" --diagnostic-format=ai \
+      run "$work/run/escape-loop-backedge-run.ax" \
+      > "$work/run/loop-ablated.out" 2> "$work/run/loop-ablated.err"; then
+    if cmp -s "$work/run/loop-expected.out" "$work/run/loop-ablated.out"; then
+      bad "the accepted delayed alias still reads its original value after reset"
+    else
+      ok "two-pass ablation exposes a delayed alias reading reclaimed storage"
+    fi
+  else
+    bad "the two-pass runtime probe did not execute"
+    head -8 "$work/run/loop-ablated.err"
   fi
 fi
 

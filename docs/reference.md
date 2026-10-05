@@ -1060,7 +1060,8 @@ process boundaries do not transfer general managed pointers.
 
 ### What a binding may capture
 
-Bindings may capture immutable scalars, borrowed strings and explicitly
+Bindings may capture immutable scalars, borrowed strings and immutable
+`data` graphs, and explicitly
 shared word handles. Mutable bindings, ordinary heap structs, resource
 owners and closures are refused. A shared handle's module must enforce
 synchronisation. Thread arenas and reference counts alone do not make
@@ -1069,6 +1070,8 @@ payload mutation safe.
 Each binding answers an `Int`. Use `Chan` for bounded word channels and
 `Sync` for shared mutexes. Their timeout, close and owner-death behaviour
 is in the [library API](stdlib-api.md#chan).
+Free a channel, mutex or cancellation token after its concurrent users
+finish. Disposal requires `effect(unsafe)` because you establish that lifetime.
 
 ### Run tasks that answer values with `Task`
 

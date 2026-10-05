@@ -137,6 +137,8 @@ chan="$repo_root/tests/litmus/chan-load.ax"
 pipe="$repo_root/examples/concurrency/pipeline.ax"
 atom="$repo_root/tests/litmus/atomics.ax"
 borrow="$repo_root/tests/litmus/borrow-load.ax"
+graph="$repo_root/tests/parallel/immutable-borrow.ax"
+graph_want="$repo_root/tests/parallel/immutable-borrow.out"
 reliance='Sys$sysWaitWordTimeout'
 N=2000   # increments per binding in sync-load's modes
 C=500    # words per producer in chan-load
@@ -387,6 +389,7 @@ for lvl in 0 2; do
   build "$work/pipe-O$lvl" "$pipe" "$lvl"
   build "$work/atom-O$lvl" "$atom" "$lvl"
   build "$work/borrow-O$lvl" "$borrow" "$lvl"
+  build "$work/graph-O$lvl" "$graph" "$lvl"
 done
 if [[ -f "$work/sync-O0.prep" ]]; then
   echo "   sync-load at -O0: $(cat "$work/sync-O0.prep")"
@@ -448,6 +451,17 @@ for lvl in 0 2; do
   bin="$work/borrow-O$lvl"
   if built "$bin" "borrow-load -O$lvl"; then
     clean "borrow-O$lvl" "-O$lvl borrow-load (four bindings borrowing one String)" "ok *" "$bin" "$B"
+  fi
+  # The graph includes recursive data, constructor aliases, closures,
+  # nested parallel scopes and slice owners. No suppression is needed.
+  bin="$work/graph-O$lvl"
+  if built "$bin" "immutable data graph -O$lvl"; then
+    run "graph-O$lvl" "$tsan_off" 120 "$bin"
+    if [[ "$(reports "$err" count)" == 0 && "$out" == "$(cat "$graph_want")" ]] && (( rc == 0 )); then
+      ok "-O$lvl immutable data graph: exact output and no unsuppressed race"
+    else
+      bad "-O$lvl immutable data graph: exit $rc, '$out', $(reports "$err" count) report(s): $(reports "$err" first)"
+    fi
   fi
   bin="$work/atom-O$lvl"
   if built "$bin" "atomics -O$lvl"; then
@@ -615,6 +629,29 @@ PY
     bad "borrow: the IR ablation did not apply"
   fi
 fi
+
+# The same lend-removal control for an immutable data graph at both
+# levels. Its child blocks must be frozen as well as its captured root.
+for lvl in 0 2; do
+  if [[ -f "$work/graph-O$lvl.ll" ]]; then
+    if python3 - "$work/graph-O$lvl.ll" "$work/abl-graph-O$lvl.ll" <<'PY'
+import sys
+lines = open(sys.argv[1], encoding="utf-8").read().split("\n")
+kept = [l for l in lines if not l.lstrip().startswith("call void @__axiom_par_lend(")]
+if len(lines) - len(kept) < 1:
+    sys.exit("no lend call in immutable graph IR")
+open(sys.argv[2], "w", encoding="utf-8").write("\n".join(kept))
+PY
+    then
+      from_ll "$work/abl-graph-O$lvl" "$work/abl-graph-O$lvl.ll" "$lvl" || true
+      if built "$work/abl-graph-O$lvl" "the ablated immutable graph -O$lvl"; then
+        red "immutable graph -O$lvl (lends removed)" "abl-graph-O$lvl" axiom_release "$work/abl-graph-O$lvl"
+      fi
+    else
+      bad "immutable graph -O$lvl: the IR ablation did not apply"
+    fi
+  fi
+done
 
 # ---------------------------------------------------------------------
 echo "== 6. AddressSanitizer: what it can see here =="

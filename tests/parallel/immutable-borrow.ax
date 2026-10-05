@@ -1,0 +1,83 @@
+; expect 0
+; Immutable constructor graphs are lent for the whole parallel extent.
+; The workers build aliases, capture them in closures and lend them again.
+(import IO)
+(import Str)
+
+(data Items (a) (Empty) (Item a (Items a)))
+(data Pair (a b) (Pair a b))
+(data LeftSide (NoLeft) (LeftSide String RightSide))
+(data RightSide (NoRight) (RightSide Int LeftSide))
+
+(:: countOf (-> a Int))
+;@axiom:effect(unsafe)
+(fn (countOf x)
+  (__load64 (- (cast Int x) 16) 0))
+
+(:: size (-> (Items String) Int))
+(fn (size xs)
+  (match xs
+    ((Empty) 0)
+    ((Item s rest) (+ (strLen s) (size rest)))))
+
+(:: work (-> (Items String) Int))
+(fn (work xs)
+  (let ((alias (Some xs))
+        (reader (lambda (w)
+          (match alias ((Some ys) (+ w (size ys))) ((None) w)))))
+    (reader 3)))
+
+(:: nested (-> (Items String) Int))
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(fn (nested xs)
+  (parallel inner ((a (work xs)) (b (size xs))) (+ a b)))
+
+(:: pairSize (-> (Pair (Option Int) (Option String)) Int))
+(fn (pairSize p)
+  (match p
+    ((Pair n s)
+      (+ (match n ((Some k) k) ((None) 0))
+         (match s ((Some text) (strLen text)) ((None) 0))))))
+
+(:: sideSize (-> LeftSide Int))
+(fn (sideSize left)
+  (match left
+    ((NoLeft) 0)
+    ((LeftSide s right)
+      (+ (strLen s)
+         (match right
+           ((NoRight) 0)
+           ((RightSide n tail) (+ n (sideSize tail))))))))
+
+(:: main Int)
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(fn (main)
+  (let ((s (concat "borrowed " "graph"))
+        (slice (strSlice s 9 5))
+        (xs (Item s (Item slice (Empty))))
+        (pair (Pair (Some 7) (Some slice)))
+        (side (LeftSide s (RightSide 4 (NoLeft))))
+        (sc (countOf s))
+        (xc (countOf xs))
+        (pc (countOf pair))
+        (lc (countOf side)))
+    {
+      (let ((mut bits 0))
+        {
+          (for i in 0..64
+            (parallel outer
+              ((a (work xs)) (b (nested xs)) (c (pairSize pair)) (d (sideSize side)))
+              (set bits (+ bits (+ (+ a b) (+ c d))))))
+          (println "{bits}")
+        })
+      (let ((sameS (== sc (countOf s)))
+            (sameX (== xc (countOf xs)))
+            (sameP (== pc (countOf pair)))
+            (sameL (== lc (countOf side))))
+        (println "counts {sameS} {sameX} {sameP} {sameL}"))
+      0
+    }))

@@ -367,6 +367,114 @@
           (appendLinkArgsWindows v linkArgs (+ i 1))
         }))))
 
+; Some lld-link versions accept an x64 short-import archive while
+; producing an arm64 PE. Walk the COFF archive's member boundaries and
+; check short-import headers there. Data inside an ordinary object and
+; the archive's symbol tables cannot be mistaken for an import header.
+; Other object formats and malformed archives remain the linker's
+; responsibility.
+(pub :: winImportMachineMismatch (-> String Int Bool))
+(pub fn (winImportMachineMismatch bytes wantHigh)
+  (if (! (strStartsWith bytes "!<arch>\n"))
+    false
+    (let ((mut i 8) (mut bad false) (len (strLen bytes)))
+      {
+        (while (&& (&& (>= i 0) (<= (+ i 60) len)) (! bad))
+          (if (&& (== (strByte bytes (+ i 58)) 96)
+                (== (strByte bytes (+ i 59)) 10))
+            (match (strParseInt (strTrim (strSlice bytes (+ i 48) 10)))
+              ((None) (set i (- 0 1)))
+              ((Some n)
+                (if (&& (>= n 0) (<= n (- len (+ i 60))))
+                  (let ((p (+ i 60))
+                        (table (&& (== (strByte bytes i) 47)
+                          (|| (== (strByte bytes (+ i 1)) 32)
+                            (== (strByte bytes (+ i 1)) 47)))))
+                    {
+                      (if (&& (! table)
+                            (&& (>= n 20)
+                              (&& (== (strByte bytes p) 0)
+                                (&& (== (strByte bytes (+ p 1)) 0)
+                                  (&& (== (strByte bytes (+ p 2)) 255)
+                                    (&& (== (strByte bytes (+ p 3)) 255)
+                                      (&& (== (strByte bytes (+ p 4)) 0)
+                                        (== (strByte bytes (+ p 5)) 0))))))))
+                        (if (!= (+ (strByte bytes (+ p 6))
+                              (* 256 (strByte bytes (+ p 7))))
+                            (+ 100 (* 256 wantHigh)))
+                          (set bad true)
+                          false)
+                        false)
+                      (set i (+ (+ p n) (% n 2)))
+                    })
+                  (set i (- 0 1)))))
+            (set i (- 0 1))))
+        bad
+      })))
+
+; Resolve each library in directory order, as lld-link does. A later
+; directory's archive with the same name is not part of the link.
+(pub :: windowsArchivePathsOf (-> (Vec Int) (Vec Int)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (windowsArchivePathsOf linkArgs)
+  (let ((dirs vecNew) (libs vecNew) (out vecNew) (mut i 0))
+    {
+      (if (== (cast Int linkArgs) 0)
+        0
+        (while (< i (vecLen linkArgs))
+          {
+            (let ((a (cast String (vecGet linkArgs i))))
+              (if (strStartsWith a "-L")
+                (vecPush dirs (cast Int (strSlice a 2 (- (strLen a) 2))))
+                (if (strStartsWith a "-l")
+                  (vecPush libs (cast Int (strSlice a 2 (- (strLen a) 2))))
+                  (cast (Vec Int) 0))))
+            (set i (+ i 1))
+          }))
+      (set i 0)
+      (while (< i (vecLen libs))
+        {
+          (let ((lib (cast String (vecGet libs i)))
+                (mut d 0) (mut found false))
+            (while (&& (< d (vecLen dirs)) (! found))
+              (let ((path (archivePathIn (cast String (vecGet dirs d)) lib true)))
+                {
+                  (if (fileExists path)
+                    {
+                      (vecPush out (cast Int path))
+                      (set found true)
+                    }
+                    false)
+                  (set d (+ d 1))
+                })))
+          (set i (+ i 1))
+        })
+      out
+    }))
+
+(pub :: windowsArchivesWrongMachine (-> (Vec Int) String Bool))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (windowsArchivesWrongMachine linkArgs winTarget)
+  (let ((paths (windowsArchivePathsOf linkArgs))
+        (wantHigh (if (strEq winTarget "windows-aarch64") 170 134))
+        (mut i 0)
+        (mut bad false))
+    {
+      (while (&& (< i (vecLen paths)) (! bad))
+        {
+          (let ((path (cast String (vecGet paths i))))
+            (if (fileExists path)
+              (if (winImportMachineMismatch (readFile path) wantHigh)
+                (set bad true)
+                false)
+              false))
+          (set i (+ i 1))
+        })
+      bad
+    }))
+
 ; Assemble `llPath` to `objPath`, then link it to `outPath`.
 ; Answers 0, or `exitToolFailed`.
 ;
@@ -460,7 +568,11 @@
           (if (> (strLen winTarget) 0)
             (if cgStaticlib
               (toolFailDiag (concat "`--emit-staticlib` is not supported for " (concat winTarget " yet")) "the Windows link is lld-link's and `ar` has no place in it; an archive for a Windows host is a later phase of the Windows track")
-              (let ((linkArgsW
+              (if (windowsArchivesWrongMachine linkArgs winTarget)
+                (toolFailDiag "lld-link failed"
+                  (concat "the import archive has the wrong machine; put a `kernel32.lib` for "
+                    (concat (if (strEq winTarget "windows-aarch64") "arm64" "x64") " on a `--link-search` directory")))
+                (let ((linkArgsW
                 (let ((v vecNew))
                   {
                     (vecPush
@@ -490,7 +602,7 @@
                         "could not run `lld-link`"
                         "lld-link failed")
                       (concat (concat "lld-link links a " winTarget) (concat " executable; it ships with LLVM's lld (`brew install lld`, `apt-get install lld`, choco's llvm) - put it on PATH, and put a `kernel32.lib` for " (concat (if (strEq winTarget "windows-aarch64") "arm64" "x64") " on a `--link-search` directory"))))
-                    0))))
+                    0)))))
             (if isBaremetal
               ; The bare target links an ELF for QEMU's `-kernel`, not
               ; a hosted executable: `ld.lld` with the port's linker
