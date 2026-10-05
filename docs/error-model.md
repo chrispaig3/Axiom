@@ -122,7 +122,7 @@ refer to:
 | `stdlib/IO.ax` | 11 | `-errno`, forwarded from `Sys` |
 | `stdlib/Utf8.ax` | 6 | `-1` |
 | `stdlib/Map.ax` | 6 | `-1` / absent-key |
-| `stdlib/Json.ax`, `stdlib/Path.ax`, `stdlib/Rpc.ax` | 3 each | `-1` |
+| `stdlib/Cereal.ax`, `stdlib/Path.ax`, `stdlib/Rpc.ax` | 3 each | `-1` |
 | `stdlib/Str.ax`, `stdlib/Intern.ax`, `stdlib/Sys/Platform.darwin.ax` | 2 each | `-1` / `-errno` |
 | `stdlib/Par.ax` | 1 | `-errno`, in the private `parRunWord` only: the one word a join can carry |
 | `stdlib/Vec.ax` | 1 | `-1` |
@@ -155,7 +155,7 @@ sentinel:
 | Passes `-1` as an argument, or sets a local to it, in `stdlib/Sys.ax` | 3 | `netAddrText`'s zero-run seed, `netSignalOpenRaw`'s syscall slot, `sysRandomBytes`' `(set rc (- 0 1))` |
 | A bitwise NOT written as XOR with all ones, `(^ x (- 0 1))` | 2 | `netSetBlocking`, `termFlagClear` |
 | `EVFILT_READ`, a kernel constant that happens to be -1 | 2 | `pollReadFilter` on Darwin and FreeBSD |
-| A private peek | 1 | `Json.ax`'s `jcPeek` |
+| A private peek | 1 | `Cereal.ax`'s `jcPeek` |
 | Renders an `errno` into a message | 1 | `IO.ax`'s `ioResult` |
 
 The two public sentinels that remain, `keyStrEnd` and `keyInFill`

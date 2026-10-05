@@ -1,6 +1,6 @@
-; Json.ax: parsing, serialisation, and the boundaries that bite.
+; Cereal.ax: parsing, serialisation, and the boundaries that bite.
 ;
-; This file exists because `stdlib/Json.ax` arrived with the language
+; This file exists because `stdlib/Cereal.ax` arrived with the language
 ; server and was, for one commit, exercised only through the LSP gate -
 ; which sends small, well-formed, ASCII messages. The cases below are
 ; the ones that gate could not reach.
@@ -8,14 +8,14 @@
 ; The integer boundaries are the point of the first block. The most
 ; negative `Int` has no positive counterpart, `jsonNatStr` recurses on
 ; `(- 0 n)`, and the guard against it cannot be written as a literal.
-; `Json.ax` originally guarded with `(- 0 9223372036854775807)`, which
+; `Cereal.ax` originally guarded with `(- 0 9223372036854775807)`, which
 ; is one GREATER than the value it was meant to catch, so it never
 ; fired on the most negative number and mis-rendered its neighbour.
 ; `Fmt.ax` carries a note about making exactly that mistake; this is
 ; the test that makes it stay fixed.
 (import Str)
 (import IO)
-(import Json)
+(import Cereal)
 
 (:: checks Int)
 (fn (checks)
@@ -52,6 +52,7 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+; JSON consumers use constructor/parse results, including the allowed zero sentinel.
 (fn (main)
   ; --- integer boundaries ----------------------------------------
   (let (
@@ -102,7 +103,7 @@
       ; Backspace and formfeed have no Axiom string escape, so the
       ; expected bytes are built rather than written - with `Str`'s
       ; one-byte constructor, which is where that three-line allocate-
-      ; and-store lives now that `Json` and the driver share it.
+      ; and-store lives now that `Cereal` and the driver share it.
       (set bad (+ bad (eq "u escape backspace" (jsonStrVal (jsonParse "\"\\b\"")) (strFromByte 8))))
       (set bad (+ bad (eq "u escape formfeed" (jsonStrVal (jsonParse "\"\\f\"")) (strFromByte 12))))
       ; Two UTF-8 bytes for U+00E9, four for U+1F600 via a surrogate

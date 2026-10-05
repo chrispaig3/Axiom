@@ -3,7 +3,7 @@
 ;
 ; There were three independent statements of "what is a space" and two
 ; each of "digit" and "alpha", in `lexer.ax`, `format.ax` and
-; `Json.ax`, and nothing compared them. That is not hypothetical:
+; `Cereal.ax`, and nothing compared them. That is not hypothetical:
 ; `isFSpace` admitted VT (11) and FF (12) - inherited from the retired
 ; compiler's `char::is_whitespace`, which this language's lexer never
 ; matched - so `fmt` rewrote a file `check` refuses with AX1001 into

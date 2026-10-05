@@ -59,7 +59,7 @@ same unmangled name get the same nid. For example,
 `axiom symbols self_host/main.ax --builtins --diagnostic-format ai`
 gives two different functions named `die`, one in `stdlib/IO.ax` and
 one in `self_host/main.ax`, the same nid, `@52fb9ccad9feab1b`. The same
-happens to `jsonHexDigit` in `self_host/render.ax` and `stdlib/Json.ax`.
+happens to `jsonHexDigit` in `self_host/render.ax` and `stdlib/Cereal.ax`.
 
 That doesn't weaken this rule, because `check-compat.sh` compares one
 library against a baseline of the same library. It does matter to

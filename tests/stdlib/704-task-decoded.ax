@@ -1,0 +1,123 @@
+; Decoders run in the parent, in submit order, and keep typed heap
+; results alive after delivery. Transport errors bypass the decoder.
+(import IO)
+(import Mem)
+(import Str)
+(import Fmt)
+(import Vec)
+(import Err)
+(import Task)
+
+(struct Parsed
+  (value : Int)
+  (text : String)
+  (parts : (Vec String)))
+
+(:: parseAnswer (-> String (Result Parsed Error)))
+;@axiom:restrict(no-unsafe)
+(fn (parseAnswer s)
+  (match (strParseInt s)
+    ((Some n)
+      (Ok (Parsed n (concat s " decoded") (strSplit (concat s ",a,b") 44))))
+    ((None) (Err (errContextOf (mkError 2111 "expected a number") "answer.value")))))
+
+(:: worker (-> Int String))
+(fn (worker i)
+  (if (== i 2) "bad" (fmtInt i)))
+
+(:: validResult (-> (Result Parsed Error) Int Bool))
+(fn (validResult r i)
+  (match r
+    ((Err e)
+      (&& (== i 2) (&& (== e.code 2111) (== e.context "answer.value"))))
+    ((Ok p)
+      (&&
+        (&& (== p.value i) (== p.text (concat (fmtInt i) " decoded")))
+        (&& (== (vecLen p.parts) 3) (== (vecGet p.parts 2) "b"))))))
+
+(:: decodedOrder Bool)
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+;@axiom:restrict(no-unsafe)
+(fn (decodedOrder)
+  (let (
+    (calls vecNew)
+    (opts (taskWithFailFast (taskOpts 2 64) true))
+    (rs (taskMapDecodedWith worker
+      (lambda (s)
+        {
+          (vecPush calls s)
+          (parseAnswer s)
+        })
+      6 opts))
+    (mut good (&& (== (vecLen calls) 6) (== (vecLen rs) 6)))
+  )
+    {
+      (for i in 0..6
+        (set good (&& good
+          (&& (strEq (vecGet calls i) (worker i)) (validResult (vecGet rs i) i)))))
+      good
+    }))
+
+(:: bypassedErrors (-> Int Int Int Bool))
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+;@axiom:restrict(no-unsafe)
+(fn (bypassedErrors n limit code)
+  (let (
+    (calls vecNew)
+    (rs (taskMapDecoded
+      (lambda (i) "answer too long")
+      (lambda (s)
+        {
+          (vecPush calls s)
+          (parseAnswer s)
+        })
+      n 2 limit))
+    (mut good (&& (== (vecLen calls) 0) (== (vecLen rs) n)))
+  )
+    {
+      (for i in 0..n
+        (match (vecGet rs i)
+          ((Ok p) (set good false))
+          ((Err e) (set good (&& good (== e.code code))))))
+      good
+    }))
+
+(:: emptyPool Bool)
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+;@axiom:restrict(no-unsafe)
+(fn (emptyPool)
+  (let (
+    (zero (taskMapDecoded worker parseAnswer 0 0 64))
+    (negative (taskMapDecoded worker parseAnswer (- 0 4) 2 64))
+  )
+    (&& (== (vecLen zero) 0) (== (vecLen negative) 0))))
+
+(:: clampedWidth Bool)
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+;@axiom:restrict(no-unsafe)
+(fn (clampedWidth)
+  (let ((rs (taskMapDecoded (lambda (i) (fmtInt i)) parseAnswer 3 0 64)))
+    (&& (== (vecLen rs) 3) (validResult (vecGet rs 1) 1))))
+
+(:: main Int)
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+;@axiom:restrict(no-unsafe)
+(fn (main)
+  {
+    (println (if decodedOrder 1 0)) ; 1
+    (println (if (bypassedErrors 4 3 taskTooLargeCode) 1 0)) ; 1
+    (println (if (bypassedErrors 3 1099511627777 22) 1 0)) ; 1
+    (println (if emptyPool 1 0)) ; 1
+    (println (if clampedWidth 1 0)) ; 1
+    0
+  })

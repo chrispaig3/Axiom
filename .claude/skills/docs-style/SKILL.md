@@ -168,7 +168,7 @@ green. The ones that bite most often:
     `Support window:` paragraph, and its `- **Source-only targets.**`
     bullet (or a `- **os-arch.** Not a supported target` one), which
     must name `README.md` and no supported target.
-  - The numbers in "N lines of it", "N `.ax` files" and "N-case
+  - The numbers in "over N lines of it", "over N `.ax` files" and "N-case
     tree-shape corpus".
   - The one paragraph in `docs/agent-harness.md` containing "permitted
     to render as warnings", which lists exactly the codes in

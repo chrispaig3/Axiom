@@ -643,9 +643,17 @@
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 (pub fn (tcpRead s buf at count)
-  (if (|| (|| (< at 0) (< count 0)) (> (+ at count) (strLen buf)))
-    __indexTrap
-    (sysReadFd (streamFdOf s) (+ (strData buf) at) count)))
+  (let ((size (strLen buf)))
+    (if (|| (|| (< at 0) (< count 0))
+            (|| (> at size) (> count (- size at))))
+      __indexTrap
+      (sysReadFd (streamFdOf s) (+ (strData buf) at) count))))
+
+; Read into private mutable storage without exposing a writable String.
+(pub :: tcpReadBuffer (-> TcpStream ReadBuffer Int Int (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (tcpReadBuffer s buf at count)
+  (readBuffer (streamFdOf s) buf at count))
 
 ; Up to `max` bytes, as a fresh string: empty when the peer has closed
 ; its side.

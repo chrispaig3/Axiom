@@ -6,7 +6,7 @@
 ; its own and not its caller's.
 ;
 ; It also talks to the kernel, through `IO`'s typed calls (MM-EXEC-9e):
-; `fileRound` writes a file, reads it back into a buffer and whole, and
+; `fileRound` writes a file, reads it back into a `ReadBuffer` and whole, and
 ; removes it, all by a `String` path; `randomCount` asks for entropy as
 ; a fresh string; `termText` asks for the terminal's size. The raw
 ; `Sys` calls under them hand the kernel addresses, and a `no-unsafe`
@@ -96,8 +96,8 @@
         ((Err e) "open failed")
         ((Ok fd)
           (let (
-            (buf (strAlloc n))
-            (got (fileReadInto fd buf 0 n))
+            (buf (readBufferNew n))
+            (got (fileReadBuffer fd buf 0 n))
             (_ (fileClose fd))
             (whole (readFile path))
             (_r (removeFile path))
@@ -107,7 +107,7 @@
               ((Ok k)
                 (if (fileExists path)
                   "not removed"
-                  (if (&& (== k n) (&& (strEq buf text) (strEq whole text)))
+                  (if (&& (== k n) (&& (strEq (readBufferText buf 0 k) text) (strEq whole text)))
                     "round trip"
                     "mismatch"))
               )))

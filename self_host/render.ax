@@ -559,7 +559,7 @@
 ; header over the original bytes, no copy - and joins once with
 ; `catStrs`, the single linear join this module already uses
 ; everywhere else. An escape-free string is answered back unchanged and
-; touches the allocator not at all, the way `stdlib/Json.ax`'s
+; touches the allocator not at all, the way `stdlib/Cereal.ax`'s
 ; `jsonEscape` answers its own; the worst case is one escape per byte,
 ; O(n).
 ;
@@ -1317,7 +1317,7 @@
 ; (`tests/fuzz/json-*.axfuzz`; 99 of 6,000 `--long` mutants). The
 ; replacement and not a `\u00XX` escape, because `ä` is the
 ; character U+00E4 and not the byte 0xE4 - an escape would state
-; something the file does not say. `stdlib/Json.ax`'s `jsonEscape`,
+; something the file does not say. `stdlib/Cereal.ax`'s `jsonEscape`,
 ; the LSP's writer, takes the same rule; the AXDL and human
 ; renderers write the character itself, U+FFFD.
 (pub :: jsonEsc (-> String String))

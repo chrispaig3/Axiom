@@ -4,7 +4,7 @@
 ; Each task builds a RECORD with a `Vec` in it - the numbers of one
 ; block of a hundred, their sum, and the primes among them - in a forked
 ; child. A record cannot cross: its handle would name the child's arena.
-; So the child ENCODES it as JSON (`stdlib/Json.ax`), `stdlib/Task.ax`
+; So the child ENCODES it as JSON (`stdlib/Cereal.ax`), `stdlib/Task.ax`
 ; carries the bytes back under a per-task limit, and the parent DECODES
 ; them into a record of its own and compares it, field by field and
 ; prime by prime, with the same record computed sequentially. The line
@@ -16,7 +16,7 @@
 (import Vec)
 (import Fmt)
 (import Err)
-(import Json)
+(import Cereal)
 (import Task)
 
 (struct Block
@@ -64,31 +64,36 @@
 (:: encode (-> Block String))
 (fn (encode b)
   (let (
-    (o jsonObj)
-    (arr jsonArr)
+    (primes vecNew)
+    (members vecNew)
   )
     {
       (for k in 0..(vecLen b.primes)
-        (jsonArrPush arr (jsonNum (vecGet b.primes k))))
-      (jsonObjPut o "lo" (jsonNum b.lo))
-      (jsonObjPut o "hi" (jsonNum b.hi))
-      (jsonObjPut o "sum" (jsonNum b.sum))
-      (jsonObjPut o "primes" arr)
-      (jsonWrite o)
+        (vecPush primes (CInt (vecGet b.primes k))))
+      (vecPush members (CerealMember "lo" (CInt b.lo)))
+      (vecPush members (CerealMember "hi" (CInt b.hi)))
+      (vecPush members (CerealMember "sum" (CInt b.sum)))
+      (vecPush members (CerealMember "primes" (CArray primes)))
+      (match (cerealEncode CerealJson (CObject members))
+        ((Ok text) text)
+        ((Err e) ""))
     }))
+
+; The record a document describes, or the error that stopped it.
+(:: decodeBlock (-> String (Result Block Error)))
+(fn (decodeBlock s)
+  (try v (cerealDecode CerealJson s)
+    (try lo (cerealField cerealIntCodec v "lo")
+      (try hi (cerealField cerealIntCodec v "hi")
+        (try sum (cerealField cerealIntCodec v "sum")
+          (try ps (cerealField (cerealVecCodec cerealIntCodec) v "primes")
+            (Ok (Block lo hi sum ps))))))))
 
 (:: decode (-> String Block))
 (fn (decode s)
-  (let (
-    (v (jsonParse s))
-    (ps vecNew)
-  )
-    (let ((arr (jsonGet v "primes")))
-      {
-        (for k in 0..(jsonArrLen arr)
-          (vecPush ps (jsonInt (jsonArrGet arr k))))
-        (Block (jsonGetInt v "lo") (jsonGetInt v "hi") (jsonGetInt v "sum") ps)
-      })))
+  (match (decodeBlock s)
+    ((Ok b) b)
+    ((Err e) (Block 0 0 0 vecNew))))
 
 (:: sameBlock (-> Block Block Bool))
 (fn (sameBlock a b)

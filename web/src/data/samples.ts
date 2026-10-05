@@ -896,33 +896,43 @@ ok   testOlder
   {
     id: 'json',
     file: 'payload.ax',
-    tab: 'JSON',
-    title: 'Keep a number exactly as it arrived',
-    lede: '`Json` reads, builds and writes values. Check its zero sentinel before accessing fields; `jsonNumText` preserves fractions and exponents without integer conversion.',
+    tab: 'Cereal',
+    title: 'Read TOML, check a field, write JSON',
+    lede: '`Cereal` decodes JSON, TOML and YAML into one typed value. A codec reads each field, and a missing or mistyped one is an error that names it.',
     points: [
-      { at: '(if (== doc 0)', text: 'Invalid input returns zero. A parsed JSON null has its own nonzero handle.' },
-      { at: '(spelling (jsonNumText (jsonGet doc "amount")))', text: 'Keep 1.25e3 as text; jsonInt reads the signed digits before the fraction or exponent.' },
-      { at: '(jsonObjPut doc "ready" (jsonBool 1))', text: 'Object updates mutate the value and return its handle.' },
+      { at: '(cerealDecode CerealToml toml)', text: 'Decoding returns a Result, and try hands an error straight back.' },
+      { at: '(cerealField cerealIntCodec config "replicas")', text: 'A missing or non-integer field is an Error naming replicas.' },
+      { at: '(cerealEncode CerealJson config)))))', text: 'The same value writes out as JSON, TOML or YAML.' },
     ],
-    docs: { label: 'JSON and RPC framing', href: `${LIB}docs/stdlib.md#json` },
-    output: `amount: 1.25e3
-{"amount":1.25e3,"ready":true}`,
+    docs: { label: 'Cereal and RPC framing', href: `${LIB}docs/stdlib.md#cereal` },
+    output: `{"name":"payments","replicas":3}`,
     code: `(import IO)
-(import Json)
+(import Err)
+(import Cereal)
+
+(:: toJson (-> String (Result String Error)))
+(fn (toJson toml)
+  (try
+    config
+    (cerealDecode CerealToml toml)
+    (try
+      replicas
+      (cerealField cerealIntCodec config "replicas")
+      (if (< replicas 1)
+        (Err (mkError 22 "replicas must be at least 1"))
+        (cerealEncode CerealJson config)))))
 
 (:: main Int)
 ;@axiom:effect(io)
 (fn (main)
-  (let ((doc (jsonParse "{\\\"amount\\\":1.25e3}")))
-    (if (== doc 0)
-      (die "invalid JSON" 1)
-      (let ((spelling (jsonNumText (jsonGet doc "amount"))))
-        {
-          (println "amount: {spelling}")
-          (jsonObjPut doc "ready" (jsonBool 1))
-          (println (jsonWrite doc))
-          0
-        }))))`,
+  (match (toJson "name = \\"payments\\"\\nreplicas = 3\\n")
+    ((Err e) (die (errorText e) 1))
+    ((Ok json)
+      {
+        (println json)
+        0
+      }
+    )))`,
   },
   {
     id: 'chrono',

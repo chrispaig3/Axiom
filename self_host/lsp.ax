@@ -61,7 +61,7 @@
 (import IO (isDir readFile))
 (import Err)
 (import Path)
-(import Json)
+(import Cereal)
 (import Rpc)
 (import lexer)
 (import parser)

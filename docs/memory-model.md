@@ -714,7 +714,7 @@ address it answers. `sysWaitWord` is a precondition interface, because
 the kernel reads the word.
 
 Out of scope: the modules that hand out raw `Int` handles to records
-they allocate, `Json`, `Intern` and `Rpc`'s reader. A handle is forged
+they allocate: `Cereal`'s `json*` values, `Intern` and `Rpc`'s reader. A handle is forged
 without a cast, so the functions that read one trust their caller
 without a tag saying so.
 
@@ -1767,6 +1767,13 @@ arena reset would give back and counting hasn't, which is where an
 unreachable cycle shows (`MM-LIFE-2f`). The primitive performs `Alloc`,
 as `__axiom_arena_mark` does, so no `pure` body depends on it. It is
 not `Unsafe`: it names no address and writes nothing.
+
+`Mem.memStats` wraps these counts in a `MemoryStats` record with fields
+`heldBytes`, `filedBytes`, `mappedBytes` and `backlogBytes`. It reads
+all counters before allocating that record, so the snapshot excludes
+its own storage. Backlog includes live values and chunk overhead; it
+is not a count of leaks or process RSS. Tested by
+`tests/stdlib/703-memory-stats.ax`.
 
 Filed is one word, slot 0 of `@__axiom_slabs`: a filing adds the
 block's bytes, a pop subtracts them, and a reset zeroes the word with
@@ -5525,6 +5532,16 @@ takes every option (`TaskOpts`), and `taskFold` streams the answers
 into an accumulator instead of keeping them. A task always uses
 `__proc_spawn`, whatever `--threads` says, because `MM-PAR-3`'s
 isolation is what makes a task's captures its own.
+
+`taskMapDecoded` and `taskMapDecodedWith` call a
+`(-> String (Result a Error))` decoder in the parent, in submit order.
+Transport errors pass through unchanged and skip the decoder.
+Decoded values belong to the parent and remain live in the results
+vector; the decoder must bound their storage separately from the
+encoded byte limit. Decoder errors stay in their slots and do not
+trigger worker `failFast`. A slow decoder can delay submission and
+deadline/cancellation handling. Tested by
+`tests/stdlib/704-task-decoded.ax`.
 
 *What it promises.*
 

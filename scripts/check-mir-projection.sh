@@ -36,7 +36,7 @@
 #   2026-09-03 over `symbols self_host/main.ax --builtins`, 4,068 rows
 #   carry a nid and 4,066 are distinct, with `die` (stdlib/IO.ax:501 vs
 #   self_host/main.ax:2009) and `jsonHexDigit` (self_host/render.ax:1184
-#   vs stdlib/Json.ax:453) colliding between genuinely different
+#   vs stdlib/Cereal.ax:453) colliding between genuinely different
 #   functions.
 #
 #   SILENCE BY DEFAULT. Without `--mir`, no row carries the key, and the

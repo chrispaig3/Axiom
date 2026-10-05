@@ -24273,7 +24273,13 @@
 ;@axiom:effect(unsafe)
 (pub fn (unsafeLatePass tc)
   {
-    (unsafeLateRestricts tc (memGetWordVec (memGetWord tc 44) 3) 0)
+    ; Each refusal is reported in its own declaration's unit; put the
+    ; unit back afterwards so the passes that follow report in theirs.
+    (let ((unit (memGetWord tc 14)))
+      {
+        (unsafeLateRestricts tc (memGetWordVec (memGetWord tc 44) 3) 0)
+        (memSetWord tc 14 unit)
+      })
     (unsafeLateRows (memGetWordVec (memGetWord tc 44) 2) 0)
   })
 
@@ -27727,7 +27733,7 @@
                       }
                       0)
                     (let ((mut j 0))
-                      (while (< j (vecLen args))
+                      (while (&& (< j (vecLen args)) (< j (memGetWord f 7)))
                         {
                           (if (!= (& from (<< 1 j)) 0)
                             {
@@ -27773,8 +27779,10 @@
               (if (!= (memGetWord f 4) 0)
                 (set res (memGetWord rc 7))
                 0)
+              ; The facts carry one bit per declared parameter, so a
+              ; surplus argument of an over-applied call has none.
               (set i 0)
-              (while (< i (vecLen args))
+              (while (&& (< i (vecLen args)) (< i (memGetWord f 7)))
                 {
                   (if (!= (& (memGetWord f 3) (<< 1 i)) 0)
                     (set res (| res (vecGet masks i)))
@@ -27810,7 +27818,7 @@
                 {
                   (set ok 1)
                   (set i 0)
-                  (while (< i (vecLen args))
+                  (while (&& (< i (vecLen args)) (< i (memGetWord f 7)))
                     {
                       (if (&& (!= (& (memGetWord f 3) (<< 1 i)) 0) (== (rgTyScalar tc (nthParamTy sig i 0)) 0))
                         (set ok 0)
@@ -27891,6 +27899,8 @@
 ;@axiom:effect(unsafe)
 (pub fn (rgnWalkFn tc d ent report)
   (let (
+    ; A refusal indexes the source of the declaration it is about.
+    (_u (memSetWord tc 14 (unitIndexFor (memGetWordVec tc 13) (nodeModule d))))
     (rc (rgnCtxNew tc d ent report))
     (sig (memGetWord ent 1))
     (params (nodeBVec d))

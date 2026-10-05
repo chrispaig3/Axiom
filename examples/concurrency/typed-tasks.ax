@@ -9,7 +9,7 @@
 ; word, and a histogram of word lengths (a `Vec`). The summary is a
 ; `struct`, and a struct cannot cross a process boundary - its handle
 ; would name the forked child's arena. So each task ENCODES its summary
-; as JSON (`stdlib/Json.ax`), `taskMapWith` carries the bytes home under
+; as JSON (`stdlib/Cereal.ax`), `taskMapWith` carries the bytes home under
 ; a 4 KiB limit per task, and the parent DECODES them into a summary of
 ; its own. That is the whole of typed transfer here: explicit, bounded,
 ; and checked on arrival.
@@ -32,7 +32,7 @@
 (import Vec)
 (import Fmt)
 (import Err)
-(import Json)
+(import Cereal)
 (import Task)
 
 (struct Summary
@@ -84,33 +84,39 @@
       (Summary n longest hist)
     }))
 
+; A Summary as Cereal's common tree, and back, field by field.
+(:: summaryToValue (-> Summary (Result CerealValue Error)))
+(fn (summaryToValue s)
+  (try lengths (cerealToValue (cerealVecCodec cerealIntCodec) s.lengths)
+    (let ((members vecNew))
+      {
+        (vecPush members (CerealMember "words" (CInt s.words)))
+        (vecPush members (CerealMember "longest" (CText s.longest)))
+        (vecPush members (CerealMember "lengths" lengths))
+        (Ok (CObject members))
+      })))
+
+(:: summaryFromValue (-> CerealValue (Result Summary Error)))
+(fn (summaryFromValue v)
+  (try words (cerealField cerealIntCodec v "words")
+    (try longest (cerealField cerealTextCodec v "longest")
+      (try lengths (cerealField (cerealVecCodec cerealIntCodec) v "lengths")
+        (Ok (Summary words longest lengths))))))
+
+(:: summaryCodec (Codec Summary))
+(fn (summaryCodec) (Codec summaryToValue summaryFromValue))
+
 (:: encode (-> Summary String))
 (fn (encode s)
-  (let (
-    (o jsonObj)
-    (arr jsonArr)
-  )
-    {
-      (for b in 0..(vecLen s.lengths)
-        (jsonArrPush arr (jsonNum (vecGet s.lengths b))))
-      (jsonObjPut o "words" (jsonNum s.words))
-      (jsonObjPut o "longest" (jsonStr s.longest))
-      (jsonObjPut o "lengths" arr)
-      (jsonWrite o)
-    }))
+  (match (cerealSerialize CerealJson summaryCodec s)
+    ((Ok text) text)
+    ((Err e) "")))
 
 (:: decode (-> String Summary))
 (fn (decode text)
-  (let (
-    (v (jsonParse text))
-    (hist vecNew)
-  )
-    (let ((arr (jsonGet v "lengths")))
-      {
-        (for b in 0..(jsonArrLen arr)
-          (vecPush hist (jsonInt (jsonArrGet arr b))))
-        (Summary (jsonGetInt v "words") (jsonGetStr v "longest") hist)
-      })))
+  (match (cerealDeserialize CerealJson summaryCodec text)
+    ((Ok s) s)
+    ((Err e) (Summary 0 "" vecNew))))
 
 (:: same (-> Summary Summary Bool))
 (fn (same a b)

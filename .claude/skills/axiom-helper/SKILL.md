@@ -257,7 +257,7 @@ message itself.
 
 Axiom has a standard library written in Axiom (`stdlib/`: `Pre`, `Mem`,
 `Str`, `Utf8`, `Vec`, `Map`, `Fmt`, `Err`, `Fallible`, `Intern`, `Sys`,
-`Path`, `IO`, `Ffi`, `Json`, `Rpc`, `Par`, `Net`, `Test`,
+`Path`, `IO`, `Ffi`, `Cereal`, `Rpc`, `Par`, `Net`, `Test`,
 `Agent.Tags`, `Tui.Keys`, `Tui.Edit`, `Tui.Term`), built on the freestanding
 primitives `__syscall0`-`__syscall6`, `__load8`/`__store8`,
 `__load64`/`__store64`, `__alloc`, and `__addr`. Use it: `(import IO)`

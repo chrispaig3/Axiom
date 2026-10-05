@@ -461,6 +461,19 @@ vecSortBy     Vec.ax  calls the comparator the CALLER supplies, so its row is a 
 vecSiftDownBy Vec.ax  the same call one frame down, `vecSortBy`'s own helper
 taskFoldOne   Task.ax applies the step the CALLER supplies - to the accumulator and index first, then to the answer alone through a local, the one-argument call the region check can accept (MM-PAR-13) - so its row is a lower bound by construction
 taskFold      Task.ax `taskFoldOne` one frame up: the caller's step is the whole of the fold
+cerealToValue Cereal.ax applies the encode function a caller's `Codec` carries, so its row is a lower bound by construction
+cerealFromValue Cereal.ax applies the decode function a caller's `Codec` carries, for the same reason
+cerealField   Cereal.ax `cerealFromValue` on one member: the caller's codec decodes it
+cerealVecCodec Cereal.ax builds a codec whose functions apply the element codec the caller supplies
+cerealVecToValue Cereal.ax applies the caller's element codec to each item
+cerealVecFromValue Cereal.ax applies the caller's element codec to each item
+cerealOptionCodec Cereal.ax builds a codec whose functions apply the inner codec the caller supplies
+cerealOptionToValue Cereal.ax applies the caller's inner codec when a value is present
+cerealOptionFromValue Cereal.ax applies the caller's inner codec unless the value is null
+cerealSerialize Cereal.ax encodes through the caller's codec, then writes text
+cerealSerializeWith Cereal.ax `cerealSerialize` with caller-chosen limits
+cerealDeserialize Cereal.ax reads text, then decodes through the caller's codec
+cerealDeserializeWith Cereal.ax `cerealDeserialize` with caller-chosen limits
 INCOMPLETE
 awk 'NF { print $1, $2 }' "$work/incomplete.exempt" | LC_ALL=C sort -u > "$work/incomplete.exempted"
 grep -F '#effects-incomplete' "$work/rows" | axsym_name_file > "$work/incomplete" || true

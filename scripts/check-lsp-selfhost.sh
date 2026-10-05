@@ -951,8 +951,8 @@ if len(providers) < FLOOR:
     print(f"FAIL the server advertises {len(providers)} capabilities ({sorted(providers)}), under the")
     print(f"     floor of {FLOOR} - a sweep over that few would report coverage it does not have")
     sys.exit(1)
-src=open(os.path.join(repo,"stdlib","Json.ax"),encoding="utf-8").read()
-docs=[("Json.ax", src), ("Json-truncated.ax", src[:len(src)*2//3]), ("empty.ax", "")]
+src=open(os.path.join(repo,"stdlib","Cereal.ax"),encoding="utf-8").read()
+docs=[("Cereal.ax", src), ("Json-truncated.ax", src[:len(src)*2//3]), ("empty.ax", "")]
 bad=0; total=0
 for label,text in docs:
     uri="file://"+os.path.join(repo,"stdlib",label)

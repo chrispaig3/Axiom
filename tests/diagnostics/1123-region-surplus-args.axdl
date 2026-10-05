@@ -1,0 +1,1 @@
+E AX3004 1123-region-surplus-args.ax:11:6-11 type-mismatch "type mismatch: expected function type, found Int" #"this has type `Int`, expected `function type`"

@@ -99,6 +99,7 @@ blake2bKeyBlock stdlib/Crypto/Blake2b.ax no-io,no-alloc,no-foreign ok
 bothWays tests/diagnostics/391-restrict-effect-transparent.ax no-io violated
 bridges tests/diagnostics/374-restrict-no-foreign.ax no-foreign violated
 builds tests/diagnostics/372-restrict-no-alloc.ax no-alloc violated
+bypassedErrors tests/stdlib/704-task-decoded.ax no-unsafe ok
 caller tests/diagnostics/1080-unsafe-syscalls.ax no-unsafe ok
 calls tests/diagnostics/1010-unsafe-primitives.ax no-unsafe violated
 casts tests/diagnostics/375-restrict-unverifiable.ax no-cast violated
@@ -112,6 +113,7 @@ chanFreeFn tests/litmus/shared-free-boundary.ax no-unsafe,strict unproven
 charsToIx self_host/diag.ax no-io,no-alloc,no-foreign ok
 civilCheck stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
 civilFromDays stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
+clampedWidth tests/stdlib/704-task-decoded.ax no-unsafe ok
 clean tests/diagnostics/1020-unsafe-device-primitives.ax no-unsafe violated
 clean tests/diagnostics/375-restrict-unverifiable.ax no-cast ok
 cmpInt stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
@@ -157,6 +159,7 @@ datetimeCompare stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
 datetimeEq stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
 datetimeToUnixSeconds stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
 daysFromCivil stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
+decodedOrder tests/stdlib/704-task-decoded.ax no-unsafe ok
 deep tests/diagnostics/379-restrict-no-recursion.ax no-recursion ok
 deepCaller tests/diagnostics/378-restrict-no-cast-deep.ax no-cast:deep violated
 deepClean tests/diagnostics/378-restrict-no-cast-deep.ax no-cast:deep ok
@@ -221,7 +224,9 @@ ed25519BlockFinish stdlib/Crypto/Ed25519.ax no-io,no-foreign ok
 ed25519Clamp stdlib/Crypto/Ed25519.ax no-io,no-alloc,no-foreign ok
 ed25519HashReduce stdlib/Crypto/Ed25519.ax no-io,no-foreign ok
 emitToken self_host/lexer.ax no-io,no-foreign ok
+emptyPool tests/stdlib/704-task-decoded.ax no-unsafe ok
 entry tests/diagnostics/379-restrict-no-recursion.ax no-recursion violated
+exactSnapshot tests/stdlib/703-memory-stats.ax no-unsafe,no-io ok
 fabricates tests/diagnostics/373-restrict-no-cast.ax no-cast violated
 fe25519Add stdlib/Crypto/Field25519.ax no-io,no-alloc,no-foreign ok
 fe25519CMov stdlib/Crypto/Field25519.ax no-io,no-alloc,no-foreign ok
@@ -502,6 +507,8 @@ lookup tests/stdlib/468-region-signatures.ax no-escape ok
 loopBody tests/diagnostics/394-restrict-no-wrap-exempt.ax no-wrap violated
 looped tests/diagnostics/379-restrict-no-recursion.ax no-recursion ok
 loud tests/diagnostics/392-macro-template-first-tag.ax no-io violated
+main tests/stdlib/703-memory-stats.ax no-unsafe ok
+main tests/stdlib/704-task-decoded.ax no-unsafe ok
 marked tests/diagnostics/1010-unsafe-primitives.ax no-unsafe ok
 measures tests/diagnostics/373-restrict-no-cast.ax no-cast ok
 memAlloc stdlib/Mem.ax no-io,no-foreign ok
@@ -520,6 +527,7 @@ memPutByte stdlib/Mem.ax no-io,no-alloc,no-foreign ok
 memSet stdlib/Mem.ax no-io,no-alloc,no-foreign ok
 memSetFrom stdlib/Mem.ax no-io,no-alloc,no-foreign ok
 memSetWord stdlib/Mem.ax no-io,no-alloc,no-foreign ok
+memStats stdlib/Mem.ax no-io,no-unsafe,no-foreign ok
 mixed tests/diagnostics/376-restrict-unknown-name.ax no-io,no-foo unknown
 mixed tests/diagnostics/394-restrict-no-wrap-exempt.ax no-wrap violated
 mk tests/diagnostics/384-restrict-no-alloc-ctor.ax no-alloc violated
@@ -549,6 +557,7 @@ packedMonth stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
 packedYear stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
 paint self_host/style.ax no-io,no-foreign ok
 pair tests/diagnostics/384-restrict-no-alloc-ctor.ax no-alloc violated
+parseAnswer tests/stdlib/704-task-decoded.ax no-unsafe ok
 parseConfig tests/diagnostics/371-restrict-no-io.ax no-io violated
 pass tests/diagnostics/384-restrict-no-alloc-ctor.ax no-alloc ok
 pastBom self_host/core.ax no-io,no-alloc,no-foreign ok
@@ -616,7 +625,9 @@ s4 tests/diagnostics/1080-unsafe-syscalls.ax no-unsafe violated
 s5 tests/diagnostics/1080-unsafe-syscalls.ax no-unsafe violated
 s6 tests/diagnostics/1080-unsafe-syscalls.ax no-unsafe violated
 safeCaller tests/diagnostics/1116-extern-unsafe.ax no-unsafe ok
+safeDecode tests/stdlib/705-cereal.ax no-unsafe ok
 safely tests/diagnostics/1042-no-unsafe-indirect.ax no-unsafe ok
+saneSnapshot tests/stdlib/703-memory-stats.ax no-unsafe,no-io ok
 sc25519IsCanonical stdlib/Crypto/Curve25519Scalar.ax no-io,no-foreign ok
 sc25519MulAdd stdlib/Crypto/Curve25519Scalar.ax no-io,no-foreign ok
 sc25519Reduce stdlib/Crypto/Curve25519Scalar.ax no-io,no-foreign ok
@@ -629,6 +640,7 @@ scRemoveL stdlib/Crypto/Curve25519Scalar.ax no-io,no-alloc,no-foreign ok
 scaled tests/selfhost/465-restrict-no-wrap-runs.ax no-wrap ok
 scanAxtags self_host/lexer.ax no-io,no-foreign ok
 scanStringEnd self_host/lexer.ax no-io,no-alloc,no-foreign ok
+scopedSnapshots tests/stdlib/703-memory-stats.ax no-unsafe,no-io ok
 sevSigil self_host/diag.ax no-io,no-alloc,no-foreign ok
 sgrForSev self_host/style.ax no-io,no-alloc,no-foreign ok
 sha256AbsorbIn stdlib/Crypto/Sha2.ax no-io,no-alloc,no-foreign ok

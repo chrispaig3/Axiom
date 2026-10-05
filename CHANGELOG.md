@@ -16,6 +16,31 @@ its changelog too.
 
 ## Unreleased
 
+- Report a region refusal in the file that contains it. A library
+  function carrying `restrict(...)` no longer moves later diagnostics
+  in your program onto that library's lines. Tested by
+  `tests/diagnostics/645-region-escape-store.ax`.
+
+- Refuse an over-applied call inside a region as a type error. The
+  region checker crashed on a call with more than 63 arguments. Tested
+  by `tests/diagnostics/1123-region-surplus-args.ax`.
+
+- Read and write JSON, TOML and YAML with `Cereal`, which replaces
+  `Json`. Decode to a typed `CerealValue`, read fields with composable
+  codecs, and bound every decode and encode with `CerealLimits`. The
+  `json*` handle functions moved to `Cereal` unchanged; replace
+  `(import Json)` with `(import Cereal)`. Tested by
+  `tests/stdlib/705-cereal.ax` and `tests/stdlib/706-cereal-yaml.ax`.
+
+- Read input into a `ReadBuffer` with `readBuffer`, `fileReadBuffer`
+  or `tcpReadBuffer`, so a read never writes into a `String` another
+  binding can see. `Mem.memStats` reports the calling arena's held,
+  reusable, mapped and backlog bytes. `taskMapDecoded` decodes each
+  task's answer into a typed value in the parent. Tested by
+  `tests/stdlib/545-no-unsafe-practical.ax`,
+  `tests/stdlib/703-memory-stats.ax` and
+  `tests/stdlib/704-task-decoded.ax`.
+
 - Check a lambda in the tail of a `while` body like any other statement.
   An unknown name or a type error there is now refused before code
   generation instead of reaching `llc`. Tested by

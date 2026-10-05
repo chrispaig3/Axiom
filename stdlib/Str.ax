@@ -370,7 +370,7 @@
 ;
 ; One statement of each rule, because there were three of "what is a
 ; space" and two each of "digit" and "alpha", in `lexer.ax`,
-; `format.ax` and `Json.ax`, and nothing compared them. That is not a
+; `format.ax` and `Cereal.ax`, and nothing compared them. That is not a
 ; hypothetical: `isFSpace` used to admit VT (11) and FF (12) - they
 ; came from the retired compiler's `char::is_whitespace` and the lexer
 ; never accepted them - so `fmt` rewrote a file `check` refuses with

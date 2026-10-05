@@ -220,10 +220,10 @@
 
 ; The `Vec` view of the same word. The cast is at the return,
 ; not the call sites - see `nodeCName`.
-(:: internStrsVec (-> Int (Vec a)))
+(:: internStrsVec (-> Int (Vec String)))
 ;@axiom:effect(unsafe)
 (fn (internStrsVec it)
-  (cast (Vec a) (internStrs it)))
+  (cast (Vec String) (internStrs it)))
 
 (pub :: internCap (-> Int Int))
 ;@axiom:effect(unsafe)

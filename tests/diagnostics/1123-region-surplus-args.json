@@ -1,0 +1,1 @@
+{"severity":"error","code":"AX3004","slug":"type-mismatch","message":"type mismatch: expected function type, found Int","file":"1123-region-surplus-args.ax","span":{"start":{"line":11,"col":6},"end":{"line":11,"col":11},"char_start":380,"char_end":385},"label":"this has type `Int`, expected `function type`","related":[],"notes":[],"help":[],"expansion":[]}

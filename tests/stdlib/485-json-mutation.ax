@@ -1,4 +1,4 @@
-; Json.ax mutation: building arrays by hand and reading them back.
+; Cereal.ax mutation: building arrays by hand and reading them back.
 ;
 ; `tests/stdlib/340-json.ax` covers parsing and serialisation, but the
 ; CONSTRUCTORS and mutators - `jsonArr`, `jsonBool`, `jsonNum`,
@@ -9,7 +9,7 @@
 ; reads (answer 0/empty), and a write of a hand-built array.
 (import Str)
 (import IO)
-(import Json)
+(import Cereal)
 
 (:: eq (-> String String String Int))
 ;@axiom:effect(io)

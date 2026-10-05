@@ -1,0 +1,52 @@
+ok   json record
+ok   toml record
+ok   yaml record
+ok   vector codec
+ok   option codec
+ok   field context
+ok   owned result
+ok   safe facade
+ok   cycle bounded
+ok   exact decimal
+ok   large integer
+ok   int minimum
+ok   json duplicate preservation
+ok   json escapes
+ok   json leading zero
+ok   json empty fraction
+ok   json empty exponent
+ok   json comma
+ok   json trailing
+ok   json control
+ok   utf8 refusal
+ok   invalid numeric value
+ok   integer conversion
+ok   toml dotted tables
+ok   toml arrays
+ok   toml underscores
+ok   toml duplicate
+ok   toml table duplicate
+ok   toml dotted redefinition
+ok   toml inline closed
+ok   toml nested inline closed
+ok   toml bad underscore
+ok   toml integer overflow
+ok   toml null
+ok   toml datetime
+ok   toml array tables
+ok   toml literal control
+ok   toml inline trailing comma
+ok   toml root type
+ok   toml null encode
+ok   input byte boundary
+ok   input byte refusal
+ok   output byte boundary
+ok   output byte refusal
+ok   node boundary
+ok   node refusal
+ok   depth boundary
+ok   depth refusal
+ok   toml path depth
+ok   invalid limits
+ok   typed limit
+failures: 0

@@ -53,7 +53,7 @@
 ; collisions are between genuinely different functions - `die` at
 ; stdlib/IO.ax:501 and at self_host/main.ax:2009 both hash to
 ; @52fb9ccad9feab1b, and `jsonHexDigit` at self_host/render.ax:1184
-; and stdlib/Json.ax:453 both to @9adebbbea99ca85b. The nid is FNV-1a
+; and stdlib/Cereal.ax:453 both to @9adebbbea99ca85b. The nid is FNV-1a
 ; 64 over `DKind:name` with the BARE name, so two modules declaring
 ; the same unmangled name collide by construction. A record's header
 ; line therefore repeats AXSYM's whole tuple verbatim, and a tool

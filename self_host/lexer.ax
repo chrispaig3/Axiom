@@ -11,7 +11,7 @@
 ; Character predicates.
 ; ------------------------------------------------------------------
 ; These three delegate to `Str`. They were three independent
-; statements of one rule across `lexer.ax`, `format.ax` and `Json.ax`,
+; statements of one rule across `lexer.ax`, `format.ax` and `Cereal.ax`,
 ; and `isFSpace` had already drifted once - it admitted VT and FF, so
 ; `fmt` turned a file `check` refuses into one it accepts. The names
 ; stay because callers import them by name; the RULE is in one place.

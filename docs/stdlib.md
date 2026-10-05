@@ -11,7 +11,7 @@ Import `Err` when working with `Result`, and use `try` to propagate errors.
 | failures and arithmetic | [Err, Fallible](#err-and-fallible) |
 | numbers and formatting | [Fmt, Float, Pre](#fmt-float-and-pre) |
 | TCP connections | [Net](#net) |
-| structured data and messages | [Json](#json), [Rpc](#rpc) |
+| structured data and messages | [Cereal](#cereal), [Rpc](#rpc) |
 | dates and durations | [Chrono](#chrono) |
 | databases | [Axqlite](#axqlite) |
 | cryptography and embedded assets | [Crypto](#crypto) |
@@ -185,51 +185,64 @@ all signatures and error behaviour.
 
 Tested by `tests/stdlib/699-net-lifetime.ax` and `tests/stdlib/651-net-closed.ax`.
 
-## Json
+<a id="json"></a>
+## Cereal
 
-`jsonParse` returns a value handle, or 0 for invalid input; `jsonWrite`
-serialises a value.
-JSON numbers retain their spelling as strings, including large integers
-and exponents. Objects preserve repeated keys; `jsonGet` returns the first.
+`Cereal` reads and writes JSON, TOML and YAML through one typed value,
+`CerealValue`. Decode a document, read the fields you need with a
+codec, and encode it again in any of the three formats.
 
+<!-- doc-gate:run -->
 ```scheme
 (import IO)
-(import Json)
+(import Err)
+(import Cereal)
 
 (:: main Int)
 ;@axiom:effect(io)
 (fn (main)
-  (let ((value (jsonParse "{\"count\":1e3}")))
-    (if (== value 0)
-      { (eprintln "invalid JSON") 1 }
-      { (println (jsonWrite value)) 0 })))
+  (match (cerealDecode CerealToml "name = \"axiom\"\nport = 8080\n")
+    ((Err e) { (eprintln (errorText e)) 1 })
+    ((Ok doc)
+      (match (cerealField cerealIntCodec doc "port")
+        ((Err e) { (eprintln (errorText e)) 1 })
+        ((Ok port)
+          (match (cerealEncode CerealJson doc)
+            ((Err e) { (eprintln (errorText e)) 1 })
+            ((Ok json) { (println "port {port}") (println json) 0 })))))))
 ```
 
-Use `jsonGet`, `jsonGetStr`, `jsonGetInt` and the array accessors to
-inspect values. `jsonGet` returns 0 for an absent member; an explicit
-JSON null has a non-zero handle. `jsonGetInt` and `jsonGetStr` return 0 and an empty string
-for missing/wrong-kind values, so test the handle when absence matters.
+```text
+port 8080
+{"name":"axiom","port":8080}
+```
 
-`jsonNumText` preserves a number's full spelling. `jsonInt` reads its
-signed leading digits: `1e3` gives 1 and `12.5` gives 12. Integer
-overflow wraps; there is no floating-point accessor.
+A `CerealValue` is `CNull`, `CBool`, `CInt`, `CNumber` (a decimal kept
+as its spelling), `CText`, `CArray` or `CObject`, whose members keep
+their order. A `Codec a` converts your own type to and from that tree:
+compose `cerealIntCodec`, `cerealTextCodec`, `cerealBoolCodec`,
+`cerealVecCodec` and `cerealOptionCodec`, read members with
+`cerealField`, and use `cerealSerialize` and `cerealDeserialize` to go
+straight between a type and text. A missing or wrongly typed field is
+an `Error` that names its path.
 
-Build values with `jsonObj`, `jsonArr` and the scalar constructors.
-`jsonObjPut` appends a member, including a repeated key; `jsonArrPush`
-appends an element. `jsonBool` takes an integer: 0 is false.
+Every decode and encode is bounded by `CerealLimits`: nesting depth,
+bytes and nodes. `cerealLimits` gives the defaults (depth 64, 1 MiB,
+100,000 nodes); the `...With` forms take your own.
 
-Parsing rejects malformed numbers, trailing data and nesting beyond
-the depth budget of 64. A failure has no location information.
-Values use arena storage without individual release; `jsonWrite`
-replaces malformed UTF-8 bytes with U+FFFD.
+The `json*` functions are the older handle interface, kept for
+JSON-RPC: `jsonParse` returns a handle or 0, `jsonGet` returns 0 for an
+absent member, and the accessors return 0 or an empty string for a
+missing value. Prefer `CerealValue` in new code.
 
-API: [Json](stdlib-api.md#json). Tested by `tests/stdlib/340-json.ax`.
+API: [Cereal](stdlib-api.md#cereal). Tested by
+`tests/stdlib/705-cereal.ax` and `tests/stdlib/706-cereal-yaml.ax`.
 
 ## Rpc
 
 `Rpc` reads and writes `Content-Length` framed messages over a descriptor.
 Create a reader with `rdNew`, read with `rpcReadMsg`, and send with
-`rpcWrite`. Decode the body separately with `Json`.
+`rpcWrite`. Decode the body separately with `Cereal`.
 
 Keep one reader per stream: it retains unread bytes across fragmented
 reads and consecutive frames. `rpcReadMsg` returns `Some` for every
@@ -329,8 +342,15 @@ API: [Crypto modules](stdlib-api.md#cryptosecret).
 
 `Task.taskMap` runs bounded `(-> Int String)` workers and returns ordered
 `Result` values. `taskMapWith` adds deadlines, cancellation and fail-fast
-options. `taskFold` consumes results with a scalar accumulator instead
-of retaining a results vector.
+options. `taskMapDecoded` and `taskMapDecodedWith` decode successful
+answers into typed values in the parent, in submit order; transport
+errors bypass the decoder. The byte limit covers the encoded answer,
+so your decoder must bound its own storage. `taskFold` consumes results
+with a scalar accumulator instead of retaining a results vector.
+
+Decoder errors stay in their result slots; `failFast` applies to worker
+failures. A slow decoder can delay submission and deadline handling.
+Tested by `tests/stdlib/704-task-decoded.ax`.
 
 `Par` runs word workers or external commands. `Chan` passes words
 through a bounded channel; `Sync` provides mutexes with timeout and
@@ -357,6 +377,13 @@ See [testing](reference.md#testing), [editor setup](lsp.md) and
 `Mem` exposes raw allocation and byte/word access. Callers must establish
 validity, bounds, alignment and lifetime behind an Unsafe boundary.
 Prefer typed owners and containers for application code.
+
+`memStats` safely returns a `MemoryStats` snapshot with `heldBytes`,
+`filedBytes`, `mappedBytes` and `backlogBytes`. Counts describe the
+calling binding's arena and exclude the snapshot record itself.
+Backlog is held less reusable storage; it includes live values and
+allocator overhead. It does not count leaks or measure process RSS.
+Tested by `tests/stdlib/703-memory-stats.ax`.
 
 `Ffi` supports generated Rust wrappers: handles, result out-cells and
 byte/vector conversion. Start at the [Rust FFI guide](ffi.md), then use

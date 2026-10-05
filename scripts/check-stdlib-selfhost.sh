@@ -100,7 +100,7 @@
 #
 # That drill left a hole this one closes. `340-json` was 56 golden lines
 # and NO claim, so it was checked by `cmp` alone. Ablating one token of
-# `stdlib/Json.ax` - `jpHexVal`'s lowercase-hex branch, `(- b 97)` to
+# `stdlib/Cereal.ax` - `jpHexVal`'s lowercase-hex branch, `(- b 97)` to
 # `(- b 96)`, so every lowercase digit of a `\uXXXX` escape decodes one
 # too high and a surrogate pair stops being one - and re-blessing
 # `340-json.out` from that build (340-json exits 0, so it carries no

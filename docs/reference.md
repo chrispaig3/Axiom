@@ -1191,7 +1191,7 @@ are exported.
 | `Path` | [API](stdlib-api.md#path) |
 | `IO` | [API](stdlib-api.md#io) |
 | `Ffi` | [API](stdlib-api.md#ffi) |
-| `Json` | [API](stdlib-api.md#json) |
+| `Cereal` | [API](stdlib-api.md#cereal) |
 | `Rpc` | [API](stdlib-api.md#rpc) |
 | `Par` | [API](stdlib-api.md#par) |
 | `Chan` | [API](stdlib-api.md#chan) |

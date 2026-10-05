@@ -1113,7 +1113,7 @@ two differ.
 
 ## `IO`
 
-`stdlib/IO.ax` — 46 public names
+`stdlib/IO.ax` — 53 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -1149,6 +1149,12 @@ two differ.
 | `readLine` | value | `(-> Int (Result (Option String) Error))` | `Alloc,IO,Mut` | One line of `fd` without its newline: `(Ok (Some line))`; `(Ok None)` at end of input when nothing was read; `(Err e)` whose code is the errno, its message `readLine: fd 0: errno 9`. |
 | `readAll` | value | `(-> Int (Result String Error))` | `Alloc,IO,Mut` | Everything left on `fd` to end of input: `(Ok s)`, `(Ok "")` when nothing arrived, or `(Err e)` whose code is the errno. |
 | `readInto` | value | `(-> Int String Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | One `read(2)` of at most `count` bytes from `fd` into the bytes of `buf` that start at byte `at`: `(Ok n)` with `n` the bytes read, `(Ok 0)` at end of input, or `(Err e)` whose code is the errno. |
+| `ReadBuffer` | struct |  |  | Mutable input storage. The constructor and backing string stay private, so safe code cannot alias an immutable String as a writable buffer. |
+| `readBufferNew` | value | `(-> Int ReadBuffer)` | `Alloc,Mut` | Allocate a zeroed input buffer of n bytes. A negative size traps 77. |
+| `readBufferLen` | value | `(-> ReadBuffer Int)` |  | The buffer's capacity, in bytes. |
+| `readBufferByte` | value | `(-> ReadBuffer Int Int)` |  | Read one byte, with the same bounds check as strByte. |
+| `readBufferText` | value | `(-> ReadBuffer Int Int String)` | `Alloc,Mut` | Copy a checked range into an immutable String. Later reads into the buffer do not change the returned bytes. |
+| `readBuffer` | value | `(-> Int ReadBuffer Int Int (Result Int Error))` | `Alloc,IO` | Read at most count bytes into a checked buffer range, returning the count or the OS error. Zero is EOF. ReadBuffer cannot be captured by a parallel binding; its bytes are used by one binding at a time. |
 | `randomBytes` | value | `(-> Int (Result String Error))` | `Alloc,Entropy,IO,Mut,Unsafe` | `n` bytes of kernel entropy as a fresh string: `(Ok bytes)`, or `(Err e)` whose code is the errno. The bytes are for keys, nonces and seeds; `strByte` reads them one at a time. A negative `n` stops the program with status 77. |
 | `TermSize` | struct |  |  | A terminal's size in character cells. A terminal that was never sized reports 0 for both; treat 0 as unknown and fall back to 80x24. |
 | `termSave` | value | `(-> Int (Result TermState Error))` | `Alloc,IO,Unsafe` | The attributes of the terminal on `fd`, saved: `(Ok state)` to hand to `termRestore` later, or `(Err e)` - ENOTTY when `fd` is not a terminal. |
@@ -1162,6 +1168,7 @@ two differ.
 | `fileReadLine` | value | `(-> File (Result (Option String) Error))` | `Alloc,IO,Mut` | Read a line, preserving EOF as None and failures as Err. |
 | `fileReadAll` | value | `(-> File (Result String Error))` | `Alloc,IO,Mut` | Read the remaining bytes from a file. |
 | `fileReadInto` | value | `(-> File String Int Int (Result Int Error))` | `Alloc,IO` | Read into a checked slice of a string buffer. |
+| `fileReadBuffer` | value | `(-> File ReadBuffer Int Int (Result Int Error))` | `Alloc,IO` | Read into a private mutable buffer, preserving errors and EOF. |
 | `fileWrite` | value | `(-> File String (Result Int Error))` | `Alloc,IO,Unsafe` | Write every byte, preserving errors in the result. |
 
 ## `Intern`
@@ -1180,9 +1187,9 @@ two differ.
 | `internFind` | value | `(-> Int String (Option Int))` |  | The id of a string equal in content to `s`, or `None`. |
 | `internIntern` | value | `(-> Int String Int)` | `Alloc,Mut,Unsafe` | The id for `s`, interning it if its content is new. |
 
-## `Json`
+## `Cereal`
 
-`stdlib/Json.ax` — 21 public names
+`stdlib/Cereal.ax` — 49 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -1207,6 +1214,34 @@ two differ.
 | `jsonGetStr` | value | `(-> Int String String)` |  |  |
 | `jsonWrite` | value | `(-> Int String)` | `Alloc,Mut` |  |
 | `jsonParse` | value | `(-> String Int)` | `Alloc,Mut` | Parse a whole document: one value, then nothing but whitespace. Answers 0 on any error, which is why every accessor tolerates 0. |
+| `CerealValue` | data |  |  |  |
+| `CerealMember` | struct |  |  |  |
+| `CerealFormat` | data |  |  |  |
+| `CerealLimits` | struct |  |  |  |
+| `Codec` | data |  |  | A codec converts application values to the common tree and back. Compose these functions for records; no raw reference words cross this interface, and a missing or wrongly typed field is an Error. |
+| `cerealLimits` | value | `CerealLimits` | `Alloc` |  |
+| `cerealObjectGet` | value | `(-> CerealValue String (Option CerealValue))` | `Alloc` |  |
+| `cerealRequired` | value | `(-> CerealValue String (Result CerealValue Error))` | `Alloc,Mut` |  |
+| `cerealInt` | value | `(-> CerealValue (Result Int Error))` | `Alloc,Mut` |  |
+| `cerealText` | value | `(-> CerealValue (Result String Error))` | `Alloc,Mut` |  |
+| `cerealBool` | value | `(-> CerealValue (Result Bool Error))` | `Alloc,Mut` |  |
+| `cerealIntCodec` | value | `(Codec Int)` | `Alloc,Mut` |  |
+| `cerealTextCodec` | value | `(Codec String)` | `Alloc,Mut` |  |
+| `cerealBoolCodec` | value | `(Codec Bool)` | `Alloc,Mut` |  |
+| `cerealValueCodec` | value | `(Codec CerealValue)` | `Alloc` |  |
+| `cerealToValue` | value | `(-> (Codec a) a (Result CerealValue Error))` |  |  |
+| `cerealFromValue` | value | `(-> (Codec a) CerealValue (Result a Error))` |  |  |
+| `cerealVecCodec` | value | `(-> (Codec a) (Codec (Vec a)))` | `Alloc,Mut` |  |
+| `cerealOptionCodec` | value | `(-> (Codec a) (Codec (Option a)))` | `Alloc` |  |
+| `cerealField` | value | `(-> (Codec a) CerealValue String (Result a Error))` | `Alloc,Mut` | Include the field name in a record codec's error context. |
+| `cerealEncodeWith` | value | `(-> CerealFormat CerealLimits CerealValue (Result String Error))` | `Alloc,Mut` |  |
+| `cerealEncode` | value | `(-> CerealFormat CerealValue (Result String Error))` | `Alloc,Mut` |  |
+| `cerealDecodeWith` | value | `(-> CerealFormat CerealLimits String (Result CerealValue Error))` | `Alloc,Mut` |  |
+| `cerealDecode` | value | `(-> CerealFormat String (Result CerealValue Error))` | `Alloc,Mut` |  |
+| `cerealSerialize` | value | `(-> CerealFormat (Codec a) a (Result String Error))` | `Alloc,Mut` |  |
+| `cerealDeserialize` | value | `(-> CerealFormat (Codec a) String (Result a Error))` | `Alloc,Mut` |  |
+| `cerealSerializeWith` | value | `(-> CerealFormat CerealLimits (Codec a) a (Result String Error))` | `Alloc,Mut` |  |
+| `cerealDeserializeWith` | value | `(-> CerealFormat CerealLimits (Codec a) String (Result a Error))` | `Alloc,Mut` |  |
 
 ## `Map`
 
@@ -1243,7 +1278,7 @@ two differ.
 
 ## `Mem`
 
-`stdlib/Mem.ax` — 13 public names
+`stdlib/Mem.ax` — 15 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -1260,10 +1295,12 @@ two differ.
 | `memSetWord` | value | `(-> Int Int a Int)` | `Mut,Unsafe` | Storing a word here is the moment a value can leave the type system's sight: `(cast Int value)` erases whatever `value` was, and the machine word that lands in `addr` is indistinguishable from an integer forever after. That is the whole of MM-LIFE-2c's co-ownership blocker, and the fix is one line - the store takes a SHARE of what it is about to hide. |
 | `memGetByte` | value | `(-> Int Int Int)` | `Unsafe` |  |
 | `memPutByte` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` |  |
+| `MemoryStats` | struct |  |  | Allocator counts for the calling binding's arena, in bytes. `heldBytes` includes live values, reusable blocks, cycles and chunk overhead. `filedBytes` is reusable storage; `backlogBytes` is held less filed, not a live-object or leak count. `mappedBytes` includes active and cached chunks. Threads have separate arenas. |
+| `memStats` | value | `MemoryStats` | `Alloc` | Read the counters before allocating the result, so this snapshot excludes its own record. All fields describe the calling arena only. |
 
 ## `Net`
 
-`stdlib/Net.ax` — 32 public names
+`stdlib/Net.ax` — 33 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -1285,6 +1322,7 @@ two differ.
 | `tcpListenerClose` | value | `(-> TcpListener (Result Int Error))` | `Alloc,IO` | Close the listener. Its handle is retired first, so any later use of it stops the program with status 85. |
 | `tcpConnect` | value | `(-> SocketAddr (Result TcpStream Error))` | `Alloc,IO,Mut,Unsafe` | Connect to `addr`, waiting until the connection is made or refused. |
 | `tcpRead` | value | `(-> TcpStream String Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | Read into `buf[at .. at + count)`. Answers how many bytes arrived, and 0 when the peer has closed its side. A range outside `buf` stops the program with status 77 before the kernel sees it, as `IO.readInto` does. |
+| `tcpReadBuffer` | value | `(-> TcpStream ReadBuffer Int Int (Result Int Error))` | `Alloc,IO` | Read into private mutable storage without exposing a writable String. |
 | `tcpReadSome` | value | `(-> TcpStream Int (Result String Error))` | `Alloc,IO,Mut,Unsafe` | Up to `max` bytes, as a fresh string: empty when the peer has closed its side. |
 | `tcpReadAll` | value | `(-> TcpStream (Result String Error))` | `Alloc,IO,Mut` | Everything until the peer closes its side. |
 | `tcpWrite` | value | `(-> TcpStream String (Result Int Error))` | `Alloc,IO,Unsafe` | Write all of `data`, continuing after a short write. Answers the number of bytes written, which is `strLen data` unless it failed. A peer that has closed answers `Err` EPIPE rather than a signal. |
@@ -1693,7 +1731,7 @@ two differ.
 
 ## `Task`
 
-`stdlib/Task.ax` — 17 public names
+`stdlib/Task.ax` — 19 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -1713,6 +1751,8 @@ two differ.
 | `taskTokenFree` | value | `(-> CancelToken (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Unmap a token. Only once no pool and no task can still reach it; the handle is retired first, so every call after this one - a second `taskTokenFree` included - traps with status 85. |
 | `taskMap` | value | `(-> (-> Int String) Int Int Int (Vec (Result String Error)))` | `Alloc,Block,IO,Mut,Spawn` | `f i` for every `i` in `0 .. n`, at most `width` at once, each answer at most `limit` bytes: one `Result` per task in submit order. No deadline, no fail-fast, a private token. |
 | `taskMapWith` | value | `(-> (-> Int String) Int TaskOpts (Vec (Result String Error)))` | `Alloc,Block,IO,Mut,Spawn` | `taskMap` with every option (`TaskOpts`). |
+| `taskMapDecoded` | value | `(-> (-> Int String) (-> String (Result a Error)) Int Int Int (Vec (Result a Error)))` | `Alloc,Block,IO,Mut,Spawn` | Decode each successful answer in the parent, in submit order. Task failures pass through unchanged and never call `decode`. The encoded answers keep `taskMap`'s byte limit; decoded storage is the decoder's responsibility and the result vector holds n values. |
+| `taskMapDecodedWith` | value | `(-> (-> Int String) (-> String (Result a Error)) Int TaskOpts (Vec (Result a Error)))` | `Alloc,Block,IO,Mut,Spawn` | All task options, with parent-side decoding. Decoder errors belong to their result slots; `failFast` concerns worker failures, not decoding. Delivery calls `decode` before starting more work, so a slow decoder can delay submission and deadline/cancellation handling. |
 | `taskFold` | value | `(-> (-> Int String) Int TaskOpts Int (-> Int Int (Result String Error) Int) Int)` | `Alloc,Block,IO,Mut,Spawn,Unsafe` | Fold the answers in submit order without keeping them: `step acc i r` for each task, starting from `init`, answering the last `acc`. Each answer and everything the step allocates are reclaimed on return. A retained mark cell is refreshed before delivery, then reset after it. The pool's state and the accumulator were allocated before that mark. |
 
 ## `Test`

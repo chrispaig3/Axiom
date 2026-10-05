@@ -79,7 +79,7 @@ Tested by `tests/crypto/020-random.ax`.
 A secret is a handle, not a buffer. `SecretBytes` and every key type in
 the suite are sealed: only the module that declares the type can make
 one or read what's inside. A secret prints as `<SecretBytes>`, so it
-can't reach a log line, a `Json` value or a formatted string by
+can't reach a log line, a `Cereal` value or a formatted string by
 accident. One algorithm's key type can't be passed where another's is
 expected.
 

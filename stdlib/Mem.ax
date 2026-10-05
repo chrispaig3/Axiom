@@ -433,3 +433,26 @@
     (__store8 addr index value)
     addr
   })
+
+; Allocator counts for the calling binding's arena, in bytes.
+; `heldBytes` includes live values, reusable blocks, cycles and chunk
+; overhead. `filedBytes` is reusable storage; `backlogBytes` is held
+; less filed, not a live-object or leak count. `mappedBytes` includes
+; active and cached chunks. Threads have separate arenas.
+(pub struct MemoryStats
+  (heldBytes : Int)
+  (filedBytes : Int)
+  (mappedBytes : Int)
+  (backlogBytes : Int))
+
+; Read the counters before allocating the result, so this snapshot
+; excludes its own record. All fields describe the calling arena only.
+;@axiom:restrict(no-io,no-unsafe,no-foreign)
+(pub :: memStats MemoryStats)
+(pub fn (memStats)
+  (let (
+    (held (__axiom_mem_stat 0))
+    (filed (__axiom_mem_stat 1))
+    (mapped (__axiom_mem_stat 2))
+  )
+    (MemoryStats held filed mapped (- held filed))))

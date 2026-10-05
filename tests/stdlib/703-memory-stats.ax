@@ -1,0 +1,52 @@
+; Memory snapshots have named byte counts, exclude their own record,
+; and remain safe inside a checked region or concurrent binding.
+(import IO)
+(import Mem)
+
+(:: exactSnapshot Bool)
+;@axiom:restrict(no-unsafe,no-io)
+(fn (exactSnapshot)
+  (let (
+    (held (__axiom_mem_stat 0))
+    (filed (__axiom_mem_stat 1))
+    (mapped (__axiom_mem_stat 2))
+    (s memStats)
+  )
+    (&&
+      (&& (== s.heldBytes held) (== s.filedBytes filed))
+      (&& (== s.mappedBytes mapped) (== s.backlogBytes (- held filed))))))
+
+(:: saneSnapshot Bool)
+;@axiom:restrict(no-unsafe,no-io)
+(fn (saneSnapshot)
+  (let ((s memStats))
+    (&&
+      (&& (>= s.heldBytes 0) (>= s.filedBytes 0))
+      (&& (>= s.backlogBytes 0) (>= s.mappedBytes s.heldBytes)))))
+
+(:: scopedSnapshots Bool)
+;@axiom:restrict(no-unsafe,no-io)
+(fn (scopedSnapshots)
+  (let ((mut good true))
+    {
+      (for i in 0..128
+        (region snapshot
+          (set good (&& good exactSnapshot))))
+      good
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+;@axiom:restrict(no-unsafe)
+(fn (main)
+  {
+    (println (if exactSnapshot 1 0)) ; 1
+    (println (if saneSnapshot 1 0)) ; 1
+    (println (if scopedSnapshots 1 0)) ; 1
+    (parallel snapshots
+      ((left (if exactSnapshot 1 0)) (right (if saneSnapshot 1 0)))
+      (println (if (&& (== left 1) (== right 1)) 1 0))) ; 1
+    0
+  })

@@ -103,7 +103,7 @@ stdlib/Float.ax
 stdlib/Fmt.ax
 stdlib/IO.ax
 stdlib/Intern.ax
-stdlib/Json.ax
+stdlib/Cereal.ax
 stdlib/Map.ax
 stdlib/Mem.ax
 stdlib/Net.ax

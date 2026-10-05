@@ -394,7 +394,8 @@ print("== counts: every number the prose documents state is recomputed ==")
 compiler_lines = sum(
     1 for p in sorted(glob.glob("self_host/*.ax"))
     for _ in open(p, encoding="utf-8"))
-claim("`.ax` files in the repo", r"(\d+) `\.ax` files", ax_files)
+# Stated in whole hundreds, so adding a fixture moves no claim.
+claim("`.ax` files in the repo", r"over ([\d,]+) `\.ax` files", ax_files // 100 * 100)
 # README's opening states the compiler's size in whole thousands, and
 # the website states it too (`web/src/data/site.ts`, checked by
 # `web/scripts/check-claims.mjs` against the same command).

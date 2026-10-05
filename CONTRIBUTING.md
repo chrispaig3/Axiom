@@ -101,7 +101,7 @@ axiom/
 │                       clean checkout can build a compiler without one
 ├── stdlib/             standard library, in Axiom (Pre, Mem, Str, Utf8, Vec,
 │                       Map, Fmt, Err, Fallible, Intern, Sys, Path, IO, Ffi,
-│                       Json, Rpc, Par, Chan, Http, Test, Agent.Tags, Tui.Keys,
+│                       Cereal, Rpc, Par, Chan, Http, Test, Agent.Tags, Tui.Keys,
 │                       Tui.Edit, Tui.Term), plus Sys/Platform.<target>.ax
 ├── rust/               the FFI's Rust side, a cargo workspace: axiom-ffi,
 │                       axiom-ffi-macros, axiom-ffi-classify, axiom-abi,
@@ -272,7 +272,7 @@ The compiler lives in `self_host/` and is written in Axiom.
 | Change how diagnostics look | `self_host/render.ax` for the human report and `self_host/style.ax` for its palette. AXDL and JSON are in `self_host/diag.ax` |
 | Work on the formatter, REPL, `symbols` or the language server | `self_host/{format,repl,symbols,lsp}.ax` |
 | Work on the Rust FFI | `self_host/rustbind.ax` and the crates under `rust/`. See [docs/ffi.md](docs/ffi.md) |
-| Add a stdlib function | `stdlib/`: `Pre`, `Mem`, `Str`, `Utf8`, `Vec`, `Map`, `Fmt`, `Err`, `Fallible`, `Intern`, `Sys`, `Path`, `IO`, `Ffi`, `Json`, `Rpc`, `Par`, `Chan`, `Http`, `Test`, `Agent.Tags`, `Tui.Keys`, `Tui.Edit`, `Tui.Term` |
+| Add a stdlib function | `stdlib/`: `Pre`, `Mem`, `Str`, `Utf8`, `Vec`, `Map`, `Fmt`, `Err`, `Fallible`, `Intern`, `Sys`, `Path`, `IO`, `Ffi`, `Cereal`, `Rpc`, `Par`, `Chan`, `Http`, `Test`, `Agent.Tags`, `Tui.Keys`, `Tui.Edit`, `Tui.Term` |
 | Add a new syntax feature | `tree-sitter-axiom/grammar.js`, plus the lexer and the parser and its AST |
 
 ---
@@ -685,7 +685,7 @@ primitives. To add a function:
 
 1. **Add it to the right module** in `stdlib/`: `Pre`, `Mem`, `Str`,
    `Utf8`, `Vec`, `Map`, `Fmt`, `Err`, `Fallible`, `Intern`, `Sys`,
-   `Path`, `IO`, `Ffi`, `Json`, `Rpc`, `Par`, `Chan`, `Http`, `Test`,
+   `Path`, `IO`, `Ffi`, `Cereal`, `Rpc`, `Par`, `Chan`, `Http`, `Test`,
    `Agent.Tags`, `Tui.Keys`, `Tui.Edit` or `Tui.Term`. That's the list
    the [Modules at a glance](docs/reference.md#modules-at-a-glance)
    table prints, in the same order.

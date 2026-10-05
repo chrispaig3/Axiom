@@ -122,7 +122,7 @@ printf '\n; an ablation\n' >> "$sandbox/self_host/main.ax"
 AXIOM_AXC="$planted" run_probe rebuild "a changed self_host/ invalidates it"
 
 # 3. The same for the standard library, which the compiler build also
-#    reads - `self_host/` imports Fmt, Intern, Json, Mem, Path and Rpc,
+#    reads - `self_host/` imports Fmt, Intern, Cereal, Mem, Path and Rpc,
 #    so a stamp over `self_host/` alone would hide six modules.
 stamp_of_sandbox > "$planted.stamp"
 printf '\n; an ablation\n' >> "$sandbox/stdlib/Mem.ax"

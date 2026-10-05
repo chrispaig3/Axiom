@@ -657,7 +657,8 @@
 ; `String` from `strAlloc`, filled a piece at a time. The range is
 ; checked before the call, and one outside `buf` stops the program
 ; with status 77, so the kernel only ever writes bytes `buf` holds.
-; `readAll` and `readLine` are the forms that answer a fresh string.
+; Use ReadBuffer for safe mutable storage, or readAll and readLine for
+; a fresh string. A String may also be an immutable shared view.
 (pub :: readInto (-> Int String Int Int (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
@@ -665,6 +666,40 @@
   (if (ioOutside buf at count)
     __indexTrap
     (sysReadFd fd (+ (strData buf) at) count)))
+
+; Mutable input storage. The constructor and backing string stay private,
+; so safe code cannot alias an immutable String as a writable buffer.
+(pub struct ReadBuffer sealed
+  (bytes : String))
+
+; Allocate a zeroed input buffer of n bytes. A negative size traps 77.
+(pub :: readBufferNew (-> Int ReadBuffer))
+(pub fn (readBufferNew n)
+  (if (< n 0) __indexTrap (ReadBuffer (strAlloc n))))
+
+; The buffer's capacity, in bytes.
+(pub :: readBufferLen (-> ReadBuffer Int))
+(pub fn (readBufferLen buf) (strLen buf.bytes))
+
+; Read one byte, with the same bounds check as strByte.
+(pub :: readBufferByte (-> ReadBuffer Int Int))
+(pub fn (readBufferByte buf at) (strByte buf.bytes at))
+
+; Copy a checked range into an immutable String. Later reads into the
+; buffer do not change the returned bytes.
+(pub :: readBufferText (-> ReadBuffer Int Int String))
+(pub fn (readBufferText buf at count)
+  (if (ioOutside buf.bytes at count)
+    __indexTrap
+    (strDup (strSlice buf.bytes at count))))
+
+; Read at most count bytes into a checked buffer range, returning the
+; count or the OS error. Zero is EOF. ReadBuffer cannot be captured by
+; a parallel binding; its bytes are used by one binding at a time.
+(pub :: readBuffer (-> Int ReadBuffer Int Int (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (readBuffer fd buf at count)
+  (readInto fd buf.bytes at count))
 
 ; ------------------------------------------------------------------
 ; Entropy
@@ -819,6 +854,12 @@
 ;@axiom:effect(io)
 (pub fn (fileReadInto f buf at count)
   (readInto (fileFd f) buf at count))
+
+; Read into a private mutable buffer, preserving errors and EOF.
+(pub :: fileReadBuffer (-> File ReadBuffer Int Int (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (fileReadBuffer f buf at count)
+  (readBuffer (fileFd f) buf at count))
 
 ; Write every byte, preserving errors in the result.
 (pub :: fileWrite (-> File String (Result Int Error)))

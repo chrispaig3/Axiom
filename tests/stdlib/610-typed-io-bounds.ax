@@ -1,15 +1,16 @@
 ; exit 77 (see .exit)
 ;
 ; `IO`'s typed descriptor calls check their range before the kernel
-; sees it (docs/memory-model.md MM-EXEC-9e). `writeSlice` and `readInto`
-; take a `String` and a range inside it, and `randomBytes` a length; a
-; range that is negative or runs past the string's end is the index
+; sees it (docs/memory-model.md MM-EXEC-9e). `writeSlice` takes a
+; `String` and `fileReadBuffer` a `ReadBuffer`, each with a range
+; inside it, and `randomBytes` a length; a range that is negative or
+; runs past the end is the index
 ; trap, status 77, the one `vecGet` raises. It fires BEFORE the syscall,
 ; and that is what the checks below pin, not only the status:
 ;
 ;   - a refused `writeSlice` writes nothing: stdout holds only the lines
 ;     `println` wrote, and the golden has no stray `cdef`;
-;   - a refused `readInto` reads nothing: the next read of the same
+;   - a refused `fileReadBuffer` reads nothing: the next read of the same
 ;     descriptor still answers the file from its first byte;
 ;   - the edges answer rather than trap: an empty range at the very end
 ;     of a string, and a read that fills a buffer exactly.
@@ -29,13 +30,13 @@
     __axiom_arena_mark
     (lambda (x) (writeSlice 1 "abcdef" start len))))
 
-(:: readStatus (-> Int String Int Int Int))
+(:: readStatus (-> File ReadBuffer Int Int Int))
 ;@axiom:effect(io)
-(fn (readStatus fd buf at count)
+(fn (readStatus f buf at count)
   (__axiom_recover
     __axiom_arena_mark
     (lambda (x)
-      (match (readInto fd buf at count)
+      (match (fileReadBuffer f buf at count)
         ((Ok n) n)
         ((Err e) (- 0 (errCode e))))
     )))
@@ -71,14 +72,15 @@
       (match (openPath "axiom-610.tmp" oRdonly)
         ((Err e) (println "open failed"))
         ((Ok fd)
-          (let ((buf (strAlloc 4)))
+          (let ((buf (readBufferNew 4)))
             {
               (let (
-                (f (readStatus (fileFd fd) buf 2 3))
-                (g (readStatus (fileFd fd) buf (- 0 1) 1))
-                (h (readStatus (fileFd fd) buf 0 4))
+                (f (readStatus fd buf 2 3))
+                (g (readStatus fd buf (- 0 1) 1))
+                (h (readStatus fd buf 0 4))
+                (text (readBufferText buf 0 4))
               )
-                (println "read past the buffer {f}, at a negative offset {g}, the whole buffer {h}: {buf}"))
+                (println "read past the buffer {f}, at a negative offset {g}, the whole buffer {h}: {text}"))
               (let ((_ (fileClose fd)))
                 0)
             })

@@ -8,7 +8,7 @@
 ; into the parent's arena. That is the whole of the typed transfer: a
 ; program that wants a record, a `Vec`, a tree back encodes it into
 ; those bytes in the child and decodes them in the parent - JSON
-; (`stdlib/Json.ax`) or a codec of its own. `tests/stdlib/542-task-codec.ax`
+; (`stdlib/Cereal.ax`) or a codec of its own. `tests/stdlib/542-task-codec.ax`
 ; carries a record with a `Vec` in it both ways and compares it with
 ; the sequential answer.
 ;
@@ -1065,6 +1065,48 @@
         0)
       out
     }))
+
+; Decode each successful answer in the parent, in submit order. Task
+; failures pass through unchanged and never call `decode`. The encoded
+; answers keep `taskMap`'s byte limit; decoded storage is the decoder's
+; responsibility and the result vector holds n values.
+(pub :: taskMapDecoded (-> (-> Int String) (-> String (Result a Error)) Int Int Int (Vec (Result a Error))))
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(pub fn (taskMapDecoded f decode n width limit)
+  (taskMapDecodedWith f decode n (taskOpts width limit)))
+
+; All task options, with parent-side decoding. Decoder errors belong to
+; their result slots; `failFast` concerns worker failures, not decoding.
+; Delivery calls `decode` before starting more work, so a slow decoder
+; can delay submission and deadline/cancellation handling.
+(pub :: taskMapDecodedWith (-> (-> Int String) (-> String (Result a Error)) Int TaskOpts (Vec (Result a Error))))
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(pub fn (taskMapDecodedWith f decode n opts)
+  (let ((out vecNew))
+    {
+      (taskRun
+        f
+        n
+        opts
+        (lambda (r)
+          {
+            (vecPush out (taskDecodeResult decode r))
+            0
+          }
+        )
+        0)
+      out
+    }))
+
+(:: taskDecodeResult (-> (-> String (Result a Error)) (Result String Error) (Result a Error)))
+(fn (taskDecodeResult decode r)
+  (match r
+    ((Ok s) (decode s))
+    ((Err e) (Err e))))
 
 ; Fold the answers in submit order without keeping them: `step acc i r`
 ; for each task, starting from `init`, answering the last `acc`.
