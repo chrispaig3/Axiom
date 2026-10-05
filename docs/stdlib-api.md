@@ -379,17 +379,16 @@ two differ.
 
 ## `Chan`
 
-`stdlib/Chan.ax` — 15 public names
+`stdlib/Chan.ax` — 14 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
 | `Chan` | struct |  |  | A channel: one word, a slot in the runtime's handle table (MM-PAR-8) naming the ring's mapping. |
-| `chanOwnerDead` | value | `Int` |  | What a timed call answers on a channel whose lock holder died: the mutex's `syncOwnerDead`, the same code for the same event. Above 255, like `sysTimedOut`, so it cannot be mistaken for a wait status. |
 | `chanNew` | value | `(-> Int (Result Chan Error))` | `Alloc,IO,Mut` | A channel of `cap` words, 1 <= cap <= 1,048,576. Answers the handle, or the mapping's error; a capacity out of range is EINVAL (22 on every target with a syscall ABI), and a handle table with no slot left is EMFILE (24). |
 | `chanSend` | value | `(-> Chan Int Bool)` | `Alloc,Block,IO,Mut` | Send `v`, waiting while the ring is full. `True` once it is in the ring; `False` if the channel is closed - before the call or while it waited - or poisoned (`chanPoisoned`), and then `v` was not sent. |
 | `chanRecv` | value | `(-> Chan (Option Int))` | `Alloc,Block,IO,Mut` | Receive the oldest word, waiting while the ring is empty and open. `None` once the channel is closed AND drained - the end of the stream - or poisoned (`chanPoisoned`). |
-| `chanSendTimeout` | value | `(-> Chan Int Int (Result Bool Error))` | `Alloc,Block,IO,Mut,Unsafe` | `chanSend`, waiting at most `nanos` nanoseconds - for the lock and for room. `Ok True` once `v` is in the ring; `Ok False` if the channel is closed; `Err` with code `sysTimedOut` when the time ran out first, and `Err` with code `chanOwnerDead` when the channel is poisoned - and in each of those `v` was not sent. The ring is looked at once more after the last wait, so a slot that opened as the time ran out is taken rather than refused. A non-positive `nanos` is one look, like `chanTrySend`, that says which it was. |
-| `chanRecvTimeout` | value | `(-> Chan Int (Result (Option Int) Error))` | `Alloc,Block,IO,Mut,Unsafe` | `chanRecv`, waiting at most `nanos` nanoseconds - for the lock and for a word. `Ok (Some w)` the oldest word; `Ok None` the end of the stream (closed and drained); `Err` with code `sysTimedOut` when the time ran out first - the defined answer on timeout, which takes nothing out of the ring - and `Err` with code `chanOwnerDead` when the channel is poisoned. A non-positive `nanos` is one look. |
+| `chanSendTimeout` | value | `(-> Chan Int Int (Result Bool Error))` | `Alloc,Block,IO,Mut,Unsafe` | `chanSend`, waiting at most `nanos` nanoseconds - for the lock and for room. `Ok True` once `v` is in the ring; `Ok False` if the channel is closed; `Err` with code `sysTimedOut` when the time ran out first, and `Err` with code `syncOwnerDead` when the channel is poisoned - and in each of those `v` was not sent. The ring is looked at once more after the last wait, so a slot that opened as the time ran out is taken rather than refused. A non-positive `nanos` is one look, like `chanTrySend`, that says which it was. |
+| `chanRecvTimeout` | value | `(-> Chan Int (Result (Option Int) Error))` | `Alloc,Block,IO,Mut,Unsafe` | `chanRecv`, waiting at most `nanos` nanoseconds - for the lock and for a word. `Ok (Some w)` the oldest word; `Ok None` the end of the stream (closed and drained); `Err` with code `sysTimedOut` when the time ran out first - the defined answer on timeout, which takes nothing out of the ring - and `Err` with code `syncOwnerDead` when the channel is poisoned. A non-positive `nanos` is one look. |
 | `chanTrySend` | value | `(-> Chan Int Bool)` | `Alloc,Block,IO,Mut` | Send without waiting for room: `True` if `v` went into the ring, `False` if it did not - full, closed or poisoned, which `chanClosed` and `chanPoisoned` tell apart, as they do for `chanTryRecv`. A `Bool` rather than a three-way `Int`: a -1 for "closed" is the sentinel convention the error model is migrating away from (`tests/compat/verify-compat.py`). |
 | `chanTryRecv` | value | `(-> Chan (Option Int))` | `Alloc,Block,IO,Mut` | Receive without waiting for a word: the oldest word, or `None` when there is none right now - empty, whether or not it is closed, or poisoned; `chanClosed` and `chanPoisoned` tell them apart. |
 | `chanClose` | value | `(-> Chan Int)` | `Alloc,Block,IO,Mut` | End the stream. Idempotent. Every waiter wakes: a sender to be refused, a receiver to drain and then see `None`. A poisoned channel has ended already, and this changes nothing. |
@@ -1003,9 +1002,9 @@ two differ.
 |---|---|---|---|---|
 | `Result` | data |  |  |  |
 | `Error` | struct |  |  |  |
-| `errDivideByZero` | value | `Int` |  | The codes this module raises itself. A program's own codes live in its own space; these are the ones `ERR-REC-2` needs. |
-| `errOverflow` | value | `Int` |  |  |
-| `errShiftTooWide` | value | `Int` |  |  |
+| `errDivideByZero` | value | `Int` |  | A zero divisor, from `divChecked` and `remChecked`. |
+| `errOverflow` | value | `Int` |  | A result the 64-bit integer cannot hold. |
+| `errShiftTooWide` | value | `Int` |  | A shift amount below 0, or of 64 or more. |
 | `errShortWrite` | value | `Int` |  | A descriptor accepted some bytes and then accepted none, without an errno to say why. It is NOT a syscall error - `write` returned 0, which is a legal answer - so it cannot borrow an errno, and it is not success either, which is exactly why `Sys.sysWriteAllFd` could not express it while it answered an Int. `ERR-REC-3` calls a short write a failure and not an absence: the bytes were meant to go and did not. |
 | `mkError` | value | `(-> Int String Error)` | `Alloc` |  |
 | `errCode` | value | `(-> Error Int)` |  |  |
@@ -1463,7 +1462,7 @@ two differ.
 | `stderr` | value | `Int` |  |  |
 | `sysWriteFd` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | write(2): `Ok` bytes written - possibly fewer than asked, which is what `sysWriteAllFd` below exists to retry - or `Err` carrying the errno. `(Result Int Error)` since 2026-09-03; the sentinel it replaced is recorded in `sysWriteAllFd`'s header, with why it stood and what let it go. |
 | `sysWriteAllFd` | value | `(-> Int Int Int Int Int)` | `Alloc,IO,Unsafe` | THREE OUTCOMES, AND THE Int CHANNEL HELD TWO. Until 2026-08-30 this answered `done` when `write` returned exactly 0 - a short, NON-NEGATIVE count, indistinguishable from the complete one. The comment above calls treating a short write as success "the classic way to truncate output", and that is what this did in the one case it cannot retry. |
-| `sysReadFd` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | read(2): `Ok` bytes read, `Ok 0` at end of input, or `Err` carrying the errno. `(Result Int Error)` since 2026-09-03, on the same terms as `sysWriteFd`: every reader in the tree matches the call directly and pays for no block on the bytes-arrived path. |
+| `sysReadFd` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | read(2): `Ok` bytes read, `Ok 0` at end of input, or `Err` carrying the errno. Every reader in the tree matches the call directly, as `sysWriteAllFd` does, and it pays for no block on the path where bytes arrive. |
 | `sysOpenPath` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | ANSWERS `(Result Int Error)` - the descriptor, or the errno `open` refused with. This is the port `docs/error-model.md` ERR-ADOPT-1 calls the canonical one: a failed open is what a reader checks first when deciding whether the error model is real, and ENOENT, EACCES and EISDIR are three different things a caller does three different things about. As an `Int` they were all "negative". |
 | `sysCloseFd` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Unsafe` | Close a descriptor. |
 | `sysExitWith` | value | `(-> Int Int)` | `IO,Unsafe` |  |

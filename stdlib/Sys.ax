@@ -177,11 +177,11 @@
 ; way to truncate output", and that is what this did in the one case
 ; it cannot retry.
 ;
-; It answers `-errShortWrite` for that case now. The channel still
-; holds two SIGNS, but the three outcomes are distinguishable: a
-; caller asking `< 0` - which every caller already does - sees the
-; descriptor that stopped accepting bytes, where before it read a
-; plausible count and carried on.
+; It answers `-errShortWrite` for that case, a code no errno can be,
+; and it retries EINTR (4 on each syscall target): an interrupted
+; call moved no bytes, so it is no answer. A caller asking `< 0` sees
+; the descriptor that stopped accepting bytes, and never a count that
+; stopped short.
 ;
 ; THIS IS THE PRINTING PATH'S INT CHANNEL, AND IT STAYS AN INT.
 ; `writeStr` answers it, and `println` - 804 expansions - is `writeStr`.
@@ -191,7 +191,7 @@
 ; path (`docs/error-model.md`; `scripts/check-unboxed-sums.sh`
 ; counts the blocks). The match sits in a `let` on purpose: in tail
 ; position the self call under it would lose its loop, and a partial
-; write is the one case that recurses.
+; write and EINTR are the cases that recurse.
 ;
 ; WHAT THE PORT COSTS, MEASURED, AND WHY IT IS TAKEN. The row of this
 ; function, and of `writeStr`, `printLit` and `printlnLit` above it,
@@ -218,16 +218,16 @@
       (match (sysWriteFd fd (+ buf done) (- count done))
         ((Ok k) k)
         ((Err e) (- 0 (errCode e))))))
-      (if (< n 0)
-        n
-        (if (== n 0)
-          (- 0 errShortWrite)
-          (sysWriteAllFd fd buf count (+ done n)))))))
+      (if (== n (- 0 4))
+        (sysWriteAllFd fd buf count done)
+        (< n 0) n
+        (== n 0) (- 0 errShortWrite)
+        (sysWriteAllFd fd buf count (+ done n))))))
 
 ; read(2): `Ok` bytes read, `Ok 0` at end of input, or `Err` carrying
-; the errno. `(Result Int Error)` since 2026-09-03, on the same terms as
-; `sysWriteFd`: every reader in the tree matches the call directly and
-; pays for no block on the bytes-arrived path.
+; the errno. Every reader in the tree matches the call directly, as
+; `sysWriteAllFd` does, and it pays for no block on the path where
+; bytes arrive.
 (pub :: sysReadFd (-> Int Int Int (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)

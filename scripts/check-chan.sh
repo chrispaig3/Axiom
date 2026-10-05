@@ -318,7 +318,7 @@ for lowering in processes threads; do
   done
   dt="$(line "$out" dead-timed)"; set -- $dt
   if [[ "$rc" == 0 && "$(line "$out" holder-status)" == 137 && "${1:-}" == 1004 ]] && soon "${2:-}"; then
-    ok "$lowering: the holder died of SIGKILL (137), and the killer's timed receive answered chanOwnerDead after $((${2} / 1000)) ms"
+    ok "$lowering: the holder died of SIGKILL (137), and the killer's timed receive answered syncOwnerDead after $((${2} / 1000)) ms"
   else
     bad "$lowering: exact exit $rc: $(printf '%s' "$out" | tr '\n' ';')"
   fi

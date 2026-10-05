@@ -69,7 +69,7 @@
 ; anyone can rely on. From then on the channel answers as closed and
 ; drained, without touching the ring: `chanSend` and `chanTrySend`
 ; answer `False`, `chanRecv` and `chanTryRecv` `None`, the timed forms
-; `Err` with code `chanOwnerDead`, `chanClose` changes nothing,
+; `Err` with code `syncOwnerDead`, `chanClose` changes nothing,
 ; `chanClosed` answers `True`, `chanLen` 0, and `chanPoisoned` says
 ; why. `chanFree` takes no lock and frees it as usual. A binding
 ; already asleep - on the lock or on the ring - answers within one
@@ -104,6 +104,9 @@
 (import Mem)
 (import Sys)
 (import Err)
+; `syncOwnerDead`: a timed call on a channel whose lock holder died
+; answers the mutex's code, the same code for the same event.
+(import Sync)
 
 ; ---- the handle ------------------------------------------------------
 ; A channel: one word, a slot in the runtime's handle table (MM-PAR-8)
@@ -136,14 +139,6 @@
 ;@axiom:effect(unsafe)
 (fn (chanRetire c)
   (__handle_free chanKind c.slot))
-
-; ---- codes -------------------------------------------------------------
-; What a timed call answers on a channel whose lock holder died: the
-; mutex's `syncOwnerDead`, the same code for the same event. Above 255,
-; like `sysTimedOut`, so it cannot be mistaken for a wait status.
-(pub :: chanOwnerDead Int)
-(pub fn (chanOwnerDead)
-  1004)
 
 ; The lock word of a poisoned channel. Odd and below 4, so it is never
 ; 0 (free) and never a holder's mark (a pid times 4, plus 1).
@@ -593,7 +588,7 @@
 ; `chanSend`, waiting at most `nanos` nanoseconds - for the lock and for
 ; room. `Ok True` once `v` is in the ring; `Ok False` if the channel is
 ; closed; `Err` with code `sysTimedOut` when the time ran out first, and
-; `Err` with code `chanOwnerDead` when the channel is poisoned - and in
+; `Err` with code `syncOwnerDead` when the channel is poisoned - and in
 ; each of those `v` was not sent. The ring is looked at once more after
 ; the last wait, so a slot that opened as the time ran out is taken
 ; rather than refused. A non-positive `nanos` is one look, like
@@ -652,7 +647,7 @@
       (if (== state 3)
         (Err (mkError sysTimedOut "chanSendTimeout: timed out"))
         (if (== state 4)
-          (Err (mkError chanOwnerDead "chanSendTimeout: a binding died holding the channel"))
+          (Err (mkError syncOwnerDead "chanSendTimeout: a binding died holding the channel"))
           (Ok (== state 1))))
     }))
 
@@ -660,7 +655,7 @@
 ; a word. `Ok (Some w)` the oldest word; `Ok None` the end of the stream
 ; (closed and drained); `Err` with code `sysTimedOut` when the time ran
 ; out first - the defined answer on timeout, which takes nothing out of
-; the ring - and `Err` with code `chanOwnerDead` when the channel is
+; the ring - and `Err` with code `syncOwnerDead` when the channel is
 ; poisoned. A non-positive `nanos` is one look.
 (pub :: chanRecvTimeout (-> Chan Int (Result (Option Int) Error)))
 ;@axiom:effect(io)
@@ -719,7 +714,7 @@
         (if (== state 2)
           (Ok None)
           (if (== state 4)
-            (Err (mkError chanOwnerDead "chanRecvTimeout: a binding died holding the channel"))
+            (Err (mkError syncOwnerDead "chanRecvTimeout: a binding died holding the channel"))
             (Err (mkError sysTimedOut "chanRecvTimeout: timed out")))))
     }))
 

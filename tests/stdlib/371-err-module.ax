@@ -145,7 +145,7 @@
                 (match (mapErr (divChecked 1 0) toCode)
                   ((Ok x) 0)
                   ((Err c) c))
-                101)
+                (+ 100 errDivideByZero))
               (== (valueOr (andThen (divChecked 12 3) double) 0) 8))))))
       (set steps (+ steps 1))
       (set acc (+

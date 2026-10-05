@@ -186,7 +186,7 @@ def F(name, params, locs, src, body):
 # Return codes the drivers read.
 NONE = -1          # chanRecv's None
 TIMED_OUT = -3     # a timed channel call's sysTimedOut
-RECV_POISONED = -4  # chanRecvTimeout's chanOwnerDead
+RECV_POISONED = -4  # chanRecvTimeout's syncOwnerDead
 SENT, CLOSED, SEND_TIMED_OUT, POISONED = 1, 2, 3, 4
 POISON = 3         # chanPoisonMark: the lock word of a poisoned channel
 LOCK_TIMED_OUT, OWNER_DEAD = -1, -2
@@ -788,7 +788,6 @@ NOT_MODELLED = {
         "chanOutOfTime": "time left <= 0 for a timed lock, checked in WRAPPERS",
         "chanSliceNanos": "a constant, the slice",
         "chanPoisonMark": "a constant, the poisoned lock word, checked in WRAPPERS",
-        "chanOwnerDead": "a constant, the timed forms' code for a poisoned channel",
         "chanYes": "reads a look's answer: `Ok True` is 1, anything else 0, the model's look",
         "chanStep": "the charge rule, checked in WRAPPERS",
         "chanGet": "the plain load of a lock-protected word, checked in WRAPPERS",

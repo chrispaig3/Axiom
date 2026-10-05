@@ -108,6 +108,15 @@ its changelog too.
   `tests/stdlib/703-memory-stats.ax` and
   `tests/stdlib/704-task-decoded.ax`.
 
+- Give the standard library's error codes a range no errno can reach.
+  `errDivideByZero`, `errOverflow`, `errShiftTooWide` and `errShortWrite`
+  are 1006 to 1009. They were 1 to 4, which a caller could not tell
+  from EPERM, ENOENT, ESRCH and EINTR in the same `Error.code`.
+  `docs/error-model.md` lists the ranges. `sysWriteAllFd` retries a
+  write that EINTR interrupted. `chanOwnerDead` is removed: a poisoned
+  channel's timed calls answer `syncOwnerDead`, the same 1004. Tested
+  by `tests/stdlib/373-err-code-ranges.ax`.
+
 - Check a lambda in the tail of a `while` body like any other statement.
   An unknown name or a type error there is now refused before code
   generation instead of reaching `llc`. Tested by

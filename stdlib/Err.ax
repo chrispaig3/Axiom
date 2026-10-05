@@ -42,19 +42,40 @@
   (message : String)
   (context : String))
 
-; The codes this module raises itself. A program's own codes live in
-; its own space; these are the ones `ERR-REC-2` needs.
+; ------------------------------------------------------------------
+; Where a code comes from.
+;
+; `Error.code` carries two kinds of number in one field, so their
+; ranges never meet:
+;
+;   1-999      an errno, as the kernel answered it (`Sys.sysResult`,
+;              `IO.ioResult`). The largest on a supported target is
+;              Linux's 133; Darwin stops at 106 and FreeBSD at 97, and
+;              the Windows and bare-metal layers answer the same
+;              numbers.
+;   1000-1999  the standard library's own codes, none of them an errno:
+;              1001-1099 `Sys`, `Task`, `Sync` and this module,
+;              1100-1199 `Crypto`, 1200-1299 `Chrono`,
+;              1300-1399 `Axqlite`, 1400-1499 `Float`.
+;
+; A code is never renumbered or reused within its range. A program's
+; own codes are clear of both ranges from 2000 up.
+; ------------------------------------------------------------------
+
+; A zero divisor, from `divChecked` and `remChecked`.
 (pub :: errDivideByZero Int)
 (pub fn (errDivideByZero)
-  1)
+  1006)
 
+; A result the 64-bit integer cannot hold.
 (pub :: errOverflow Int)
 (pub fn (errOverflow)
-  2)
+  1007)
 
+; A shift amount below 0, or of 64 or more.
 (pub :: errShiftTooWide Int)
 (pub fn (errShiftTooWide)
-  3)
+  1008)
 
 ; A descriptor accepted some bytes and then accepted none, without an
 ; errno to say why. It is NOT a syscall error - `write` returned 0,
@@ -64,7 +85,7 @@
 ; a failure and not an absence: the bytes were meant to go and did not.
 (pub :: errShortWrite Int)
 (pub fn (errShortWrite)
-  4)
+  1009)
 
 (pub :: mkError (-> Int String Error))
 (pub fn (mkError code message)

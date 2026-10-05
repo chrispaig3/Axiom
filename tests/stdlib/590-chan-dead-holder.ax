@@ -7,7 +7,7 @@
 ; (1001): the deadline covers the wait for the lock. Once it is killed and
 ; reaped, the next call finds the holder gone within one 100 ms slice and
 ; poisons the channel: sends answer False, receives None, the timed forms
-; `chanOwnerDead` (1004), close changes nothing, `chanClosed` answers
+; `syncOwnerDead` (1004), close changes nothing, `chanClosed` answers
 ; True, `chanLen` 0 and `chanPoisoned` True, and `chanFree` frees it.
 ;
 ; Taking the lock the way `chanLock` does borrows `stdlib/Chan.ax`'s

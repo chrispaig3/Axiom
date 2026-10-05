@@ -5192,7 +5192,7 @@ channel serves both lowerings without the program choosing.
   |---|---|
   | `chanSend`, `chanTrySend` | `False` |
   | `chanRecv`, `chanTryRecv` | `None` |
-  | `chanSendTimeout`, `chanRecvTimeout` | `Err` with code `chanOwnerDead` (1004, the mutex's `syncOwnerDead`) |
+  | `chanSendTimeout`, `chanRecvTimeout` | `Err` with code `syncOwnerDead` (1004), the mutex's code for the same event |
   | `chanClose` | 0, and changes nothing |
   | `chanClosed` | `True` |
   | `chanLen` | 0 |

@@ -1,0 +1,10 @@
+ok   a missing file answers ENOENT, 2
+ok   ENOENT is no Err code
+ok   divChecked answers errDivideByZero
+ok   shlChecked answers errShiftTooWide
+ok   mulChecked answers errOverflow
+ok   the arithmetic codes are library codes
+ok   the shift and short-write codes are library codes
+ok   the concurrency codes are library codes
+ok   an errno is not a library code
+codes 1006 1007 1008 1009

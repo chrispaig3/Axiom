@@ -241,6 +241,23 @@ conversion between error types is explicit.**
   (context : String))   ; what the caller was doing, "" when none
 ```
 
+`code` holds an errno when the kernel refused a call, and one of the
+standard library's own codes otherwise. The two ranges never meet, so
+a code always says which kind it is:
+
+| Codes | Where they come from |
+|---|---|
+| 1–999 | An errno, as the kernel answered it. The largest on a supported target is Linux's 133. |
+| 1001–1099 | `Sys`, `Task`, `Sync` and `Err`. `errDivideByZero` is 1006, `errOverflow` 1007, `errShiftTooWide` 1008 and `errShortWrite` 1009. |
+| 1100–1199 | `Crypto` |
+| 1200–1299 | `Chrono` |
+| 1300–1399 | `Axqlite` |
+| 1400–1499 | `Float` |
+
+A code is never renumbered or reused within its range. Your program's
+own codes are clear of both from 2000 up. Tested by
+`tests/stdlib/373-err-code-ranges.ax`.
+
 In Rust, `From<E>` lets `?` convert an error on the way out. Axiom has
 no such mechanism, by design. A conversion is an ordinary value the
 caller supplies, and nothing searches for one:
@@ -305,11 +322,10 @@ is gone:
 (fn (main)
   (match (reContext (divChecked 10 0) "splitting the bill")
     ((Ok n) n)
-    ((Err e) { (println (errorText e)) (errCode e) })))
+    ((Err e) { (println (errorText e)) 1 })))
 ```
 
-It prints this and exits with status 1, the code `divChecked` gives a
-division by zero:
+It prints this and exits with status 1:
 
 ```text
 divided by zero while splitting the bill

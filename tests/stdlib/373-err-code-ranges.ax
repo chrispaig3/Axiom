@@ -1,0 +1,54 @@
+; `Error.code` holds an errno from the kernel and the standard
+; library's own codes in one field, so the two ranges must never meet.
+;
+; `errDivideByZero`, `errOverflow`, `errShiftTooWide` and
+; `errShortWrite` were 1 to 4, which are EPERM, ENOENT, ESRCH and EINTR
+; on every syscall target. A caller matching `errOverflow` on the answer
+; of a failed `fileSize` took a missing file for an overflow. They sit
+; at 1006-1009 now, beside the other library codes, and an errno is
+; always below 1000.
+(import Err)
+(import IO)
+(import Sys)
+(import Sync)
+
+; True when `c` is one of the library's own codes.
+(:: libraryCode (-> Int Bool))
+(fn (libraryCode c)
+  (&& (>= c 1000) (< c 2000)))
+
+(:: say (-> Bool String Int))
+;@axiom:effect(io)
+(fn (say ok what)
+  (if ok
+    (println (concat "ok   " what))
+    (println (concat "FAIL " what))))
+
+(:: codeOf (-> (Result Int Error) Int))
+(fn (codeOf r)
+  (match r
+    ((Ok n) 0)
+    ((Err e) (errCode e))))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (missing (codeOf (fileSize "/nonexistent/axiom-373/missing")))
+    (zero (codeOf (divChecked 1 0)))
+    (wide (codeOf (shlChecked 1 64)))
+    (big (codeOf (mulChecked 4611686018427387904 4)))
+  )
+    {
+      (say (== missing 2) "a missing file answers ENOENT, 2")
+      (say (&& (!= missing errOverflow) (!= missing errDivideByZero)) "ENOENT is no Err code")
+      (say (== zero errDivideByZero) "divChecked answers errDivideByZero")
+      (say (== wide errShiftTooWide) "shlChecked answers errShiftTooWide")
+      (say (== big errOverflow) "mulChecked answers errOverflow")
+      (say (&& (libraryCode errDivideByZero) (libraryCode errOverflow)) "the arithmetic codes are library codes")
+      (say (&& (libraryCode errShiftTooWide) (libraryCode errShortWrite)) "the shift and short-write codes are library codes")
+      (say (&& (libraryCode sysTimedOut) (&& (libraryCode syncOwnerDead) (libraryCode syncNotHeld))) "the concurrency codes are library codes")
+      (say (! (libraryCode missing)) "an errno is not a library code")
+      (println "codes {errDivideByZero} {errOverflow} {errShiftTooWide} {errShortWrite}")
+      0
+    }))
