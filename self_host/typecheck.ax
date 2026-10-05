@@ -9613,7 +9613,14 @@
                                 (checkRegion tc e)
                                 {
                                   (checkCondBool tc (nodeA e))
-                                  (checkExprSeq tc (nodeBVec e) 0 mkUnitTy)
+                                  ; The loop discards its body's value,
+                                  ; tail included, so a pending lambda
+                                  ; there is flushed like any statement's.
+                                  (let ((body (nodeBVec e)))
+                                    (let ((t (checkExprSeq tc body 0 mkUnitTy)))
+                                      (if (> (vecLen body) 0)
+                                        (flushPending tc t (spanOf (vecGet body (- (vecLen body) 1))))
+                                        0)))
                                   mkIntTy
                                 })
                               (if (== tag TAG_E_SET)

@@ -1520,7 +1520,7 @@ taskMap Task.ax Alloc,Block,IO,Mut,Spawn
 taskMapWith Task.ax Alloc,Block,IO,Mut,Spawn
 taskOpts Task.ax Alloc
 taskResultAt Task.ax Alloc,Mut
-taskRun Task.ax Alloc,Block,IO,Mut,Spawn
+taskRun Task.ax Alloc,Block,IO,Mut,Spawn,Unsafe
 taskScratch Task.ax Alloc,Unsafe
 taskScratchDone Task.ax Unsafe
 taskSetSt Task.ax Mut

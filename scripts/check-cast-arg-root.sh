@@ -147,13 +147,16 @@ echo "--- 1. user-level cast count does not grow ---"
 # follows `die`, so its cast never executes; 1014 reads a live string's
 # count header to verify the returned capture takes a share. Both are
 # MM-VAL-23 evidence, with no new reference forged in application code.
+# One more is `tests/parallel/immutable-borrow.ax`'s `countOf`, which
+# reads a value's count word to show a scoped immutable borrow takes
+# no share: the MM-VAL-23 reason.
 cast_count="$(git -C "$repo_root" grep -h -o '(cast ' -- stdlib tests examples ':!tests/fuzz' | wc -l | tr -d ' ')"
 if [ "$cast_count" -eq 0 ]; then
   bad "user-level: the cast count read 0 - the measurement is broken, not the tree clean"
-elif [ "$cast_count" -le 474 ]; then
-  ok "user-level (cast count $cast_count <= 474)"
+elif [ "$cast_count" -le 475 ]; then
+  ok "user-level (cast count $cast_count <= 475)"
 else
-  bad "user-level (cast count $cast_count > 474): new casts need a MM-VAL-23 reason and a baseline bump"
+  bad "user-level (cast count $cast_count > 475): new casts need a MM-VAL-23 reason and a baseline bump"
 fi
 
 echo "--- 2. type-preserving casts keep ownership ---"

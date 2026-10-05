@@ -1,0 +1,13 @@
+; A loop discards its body's value, so a lambda in the tail
+; position of a `while` body is checked like any other statement.
+(:: main Int)
+(fn (main)
+  (let ((mut k 0))
+    {
+      (while (< k 1)
+        {
+          (set k (+ k 1))
+          (fn (v) (missing v))
+        })
+      0
+    }))

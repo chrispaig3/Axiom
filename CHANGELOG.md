@@ -16,6 +16,11 @@ its changelog too.
 
 ## Unreleased
 
+- Check a lambda in the tail of a `while` body like any other statement.
+  An unknown name or a type error there is now refused before code
+  generation instead of reaching `llc`. Tested by
+  `tests/diagnostics/1122-while-tail-lambda.ax` and `scripts/check-fuzz.sh`.
+
 - Check loop-carried region origins to convergence, including stores delayed
   through several local aliases. Scoped parallel bindings can borrow immutable
   data graphs while mutable or unknown payloads remain refused. Shared mapping
