@@ -71,9 +71,6 @@ for arg in "$@"; do
   case "$arg" in
     --check) check=1 ;;
     --fx)    fx=1 ;;
-    # `--gc` is refused: there is no collected variant, and ignoring the
-    # flag would label the bump allocator's numbers as a collector's.
-    --gc)    echo "error: --gc was not ported to the self-hosted compiler; there is no collected variant to measure" >&2; exit 2 ;;
     --opt=*) opt="${arg#--opt=}" ;;
     *) echo "unknown option: $arg" >&2; exit 2 ;;
   esac

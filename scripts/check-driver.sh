@@ -673,18 +673,12 @@ for p in nosuch.ax ./frobnicate hello.aax hello ./hello.ax; do
 done
 
 # ---------------------------------------------------------------
-# `--gc` names a capability this compiler does not have.
-#
-# The retired compiler's tracing collector (1,098 lines, deleted with
-# the crate) was not ported. The flag was neither implemented nor
-# rejected, so `axiom --gc build ...` produced a bump-allocator binary
-# and said nothing - while README.md, docs/reference.md and
-# scripts/bench-datastructures.sh all still promised a collector. A
-# silent downgrade of a memory-management request is the one failure its
-# user cannot detect.
+# `--gc` names a collector this compiler does not have, and it is an
+# unknown flag like any other: the ordinary refusal, exit 2, and no
+# binary.
 "$s1" --gc build --input hello.ax --output gcout >gc.out 2>gc.err; rc=$?
-if [[ $rc == 2 ]] && grep -q 'gc' gc.err && [[ ! -f gcout ]]; then
-  ok "\`--gc\` is refused by name rather than silently ignored"
+if [[ $rc == 2 ]] && grep -q 'unrecognised flag `--gc`' gc.err && [[ ! -f gcout ]]; then
+  ok "\`--gc\` is refused as an unrecognised flag"
 else
   bad "--gc (rc=$rc): $(head -1 gc.err)"
 fi
@@ -720,9 +714,8 @@ done
 # COMMANDS, and `--check`, `--builtins`, `--list` and `--no-banner` were
 # accepted but documented nowhere.
 #
-# The list below is every flag `flagArity` in driver.ax accepts, minus
-# `--gc`, which is accepted only to be refused by name. When a flag is
-# added to `flagArity`, it is added here in the same change.
+# The list below is every flag `flagArity` in driver.ax accepts. When a
+# flag is added to `flagArity`, it is added here in the same change.
 "$s1" --help >full-help.txt 2>&1
 missing=""
 for f in --input --output -o --target --opt --heap-ceiling --link-lib --link-search --crate \

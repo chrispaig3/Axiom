@@ -4331,7 +4331,7 @@ side: its `exhaust` witness requires the trap, and the ablation with
 the guard removed must return (`scripts/check-runtime-model.sh` §5).
 
 **MM-LIFE-2 (R).** Axiom has no tracing garbage collector, and `--gc`
-is refused by name rather than silently ignored. The retired Rust
+is refused like any other unknown flag. The retired Rust
 backend had one: conservative and non-moving, with per-chunk
 object-start bitmaps to resolve the interior pointers `strSlice`
 creates, and free-run coalescing that took the self-hosted compiler

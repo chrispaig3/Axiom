@@ -2321,28 +2321,9 @@
 (pub fn (flagArity a)
   (if (|| (strEq a "--input") (|| (strEq a "--output") (|| (strEq a "-o") (|| (strEq a "--target") (|| (strEq a "--opt") (|| (strEq a "--heap-ceiling") (|| (strEq a "--link-lib") (|| (strEq a "--link-search") (|| (strEq a "--crate") (|| (strEq a "--emit-rust-binding") (|| (strEq a "--filter") (strEq a "--diagnostic-format"))))))))))))
     1
-    (if (|| (strEq a "--obfuscate") (|| (strEq a "--emit-llvm") (|| (strEq a "--emit-staticlib") (|| (strEq a "--threads") (|| (strEq a "--check") (|| (|| (strEq a "--builtins") (|| (strEq a "--calls") (|| (strEq a "--mir") (strEq a "--axir")))) (|| (strEq a "--list") (|| (strEq a "--no-banner") (|| (strEq a "--gc") (|| (strEq a "--help") (|| (strEq a "-h") (|| (strEq a "--version") (strEq a "-V")))))))))))))
+    (if (|| (strEq a "--obfuscate") (|| (strEq a "--emit-llvm") (|| (strEq a "--emit-staticlib") (|| (strEq a "--threads") (|| (strEq a "--check") (|| (|| (strEq a "--builtins") (|| (strEq a "--calls") (|| (strEq a "--mir") (strEq a "--axir")))) (|| (strEq a "--list") (|| (strEq a "--no-banner") (|| (strEq a "--help") (|| (strEq a "-h") (|| (strEq a "--version") (strEq a "-V"))))))))))))
       0
       (- 0 1))))
-
-; `--gc` is in the table above in order to be REFUSED by name.
-;
-; The retired compiler had `--gc` as a global boolean that swapped the
-; bump allocator for a 1,098-line mark-sweep collector
-; (axiom-codegen/src/gc.rs, deleted with the rest in 430a138). This
-; compiler has no collector at all. The flag was neither implemented nor
-; rejected, so `axiom --gc build ...` produced a bump-allocator binary
-; and said nothing - while README.md's opening paragraph, docs/reference.md
-; and scripts/bench-datastructures.sh all still promised a collector. A
-; benchmark labelled "axiom under --gc" was measuring the allocator it
-; existed to compare against.
-;
-; A silent downgrade of a memory-management request is exactly the
-; failure its user cannot detect, so this refuses while the collector
-; does not exist. Recorded in the self-hosting record.
-(pub :: flagUnimplemented (-> String Bool))
-(pub fn (flagUnimplemented a)
-  (strEq a "--gc"))
 
 ; `--name=value` split into its two halves.
 (pub :: flagNamePart (-> String String))
@@ -2748,27 +2729,25 @@
             (let ((ar (flagArity name)))
               (if (< ar 0)
                 (usageError (concat "error: unrecognised flag `" (concat name "`\n")))
-                (if (flagUnimplemented name)
-                  (usageError (concat "error: `" (concat name "` is not supported by this compiler.\n       The tracing collector it selected belonged to the retired\n       Rust implementation; this compiler has only the bump\n       allocator.\n")))
-                  (if (&& (== ar 0) (flagHasValuePart a))
-                    (usageError (concat (concat "error: `" (concat name "` takes no value, but `")) (concat (flagValuePart a) "` was given\n")))
-                    (if (&&
-                      (== ar 1)
-                      (if (flagHasValuePart a)
-                        false
-                        true))
-                      (if (>= (+ i 1) sysArgc)
-                        (usageError (concat "error: a value is required for `" (concat name "` but none was given\n")))
-                        {
-                          (checkFlagValue name (sysArg (+ i 1)))
-                          (checkArgsFrom cmd (+ i 2) endOpts)
-                        })
+                (if (&& (== ar 0) (flagHasValuePart a))
+                  (usageError (concat (concat "error: `" (concat name "` takes no value, but `")) (concat (flagValuePart a) "` was given\n")))
+                  (if (&&
+                    (== ar 1)
+                    (if (flagHasValuePart a)
+                      false
+                      true))
+                    (if (>= (+ i 1) sysArgc)
+                      (usageError (concat "error: a value is required for `" (concat name "` but none was given\n")))
                       {
-                        (if (flagHasValuePart a)
-                          (checkFlagValue name (flagValuePart a))
-                          0)
-                        (checkArgsFrom cmd (+ i 1) endOpts)
-                      })))))))))))
+                        (checkFlagValue name (sysArg (+ i 1)))
+                        (checkArgsFrom cmd (+ i 2) endOpts)
+                      })
+                    {
+                      (if (flagHasValuePart a)
+                        (checkFlagValue name (flagValuePart a))
+                        0)
+                      (checkArgsFrom cmd (+ i 1) endOpts)
+                    }))))))))))
 
 ; The values that have exactly one right shape are checked HERE, in the
 ; same walk as the names, so a wrong command line is refused before any

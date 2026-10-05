@@ -16,6 +16,11 @@ its changelog too.
 
 ## Unreleased
 
+- Refuse `--gc` as an unrecognised flag, the same way as any other
+  unknown flag. It still exits with status 2; the separate message
+  about the retired collector is gone. Tested by
+  `scripts/check-driver.sh`.
+
 - Accept exactly `human`, `ai` and `json` for `--diagnostic-format`.
   The `pretty`, `rustc`, `agent` and `compact` aliases and other
   spellings of the case are gone, and an unknown value is refused with
