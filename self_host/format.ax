@@ -2521,27 +2521,23 @@
         (fpP p ")")
       })))
 
-; One binding pair, decomposed: `(x init)`, `(mut x init)`, and the
-; legacy `(x = init)` all normalise to the first two spellings.
-; Answers the kid index where the init begins, or -1 on a shape
-; stage0's `parse_let` would refuse. The init may span two kids - a
-; fused negative literal - so the caller validates it as ONE fused
-; expression element, not one kid.
+; One binding pair, decomposed: `(x init)` or `(mut x init)`.
+; Answers the kid index where the init begins, or -1 on a shape the
+; parser refuses. The init may span two kids - a fused negative
+; literal - so the caller validates it as ONE fused expression element,
+; not one kid; `(x = init)`, which the parser refuses (AX2003), fails
+; that validation and is refused here too.
 (pub :: fpBindInit (-> String Int Int))
 (pub fn (fpBindInit src b)
   (if (!= (fnKind b) FN_PAREN)
     (- 0 1)
-    (let ((i0 
+    (let ((i1 
       (if (&& (> (fnLen b) 0) (fpIsAtomText src (fnKid b 0) "mut"))
-        1
-        0)))
-      (let ((i1 
-        (if (&& (> (fnLen b) (+ i0 1)) (fpIsAtomText src (fnKid b (+ i0 1)) "="))
-          (+ i0 2)
-          (+ i0 1))))
-        (if (>= i1 (fnLen b))
-          (- 0 1)
-          i1)))))
+        2
+        1)))
+      (if (>= i1 (fnLen b))
+        (- 0 1)
+        i1))))
 
 ; The single-binding spelling: the init inline when simple, broken
 ; below the pattern when not.
@@ -4889,15 +4885,12 @@
       }
       (fpBad p))))
 
-; Effect atoms: `mut` is a migration - stage0's lexer had a `Mut` token
-; for it, and this checker knows no effect spelled `mut` (AX3016) - so
-; it prints `Mut`, the spelling that checks. Every other identifier
-; prints verbatim, because `parseEffectNames` takes ANY identifier and
-; the CHECKER decides: `(data)` is AX3016 there, and a lowercase
-; `(alloc)` is accepted outright (`isBuiltinEffect`). This printer used
-; to refuse both as reserved words - stage0's lexer again - and the
-; parity case 131-effect-alloc-kw pinned that refusal for a program
-; `check` answers OK to; it pins the rewrite now.
+; Effect atoms print verbatim, because `parseEffectNames` takes ANY
+; identifier and the CHECKER decides which names an effect list may
+; hold: `(mut)` and `(data)` are AX3016 there unless a declaration
+; introduces them, and the printer cannot see declarations in other
+; modules. Rewriting a spelling here would hand `check` a different
+; program from the one it refused.
 (pub :: fpEffectAtoms (-> Int Int Int))
 (pub fn (fpEffectAtoms p grp)
   (let (
@@ -4912,9 +4905,7 @@
               (if (> j 0)
                 (fpP p " ")
                 p)
-              (if (strEq t "mut")
-                (fpP p "Mut")
-                (fpP p t))
+              (fpP p t)
               (set j (+ j 1))
             })
           {

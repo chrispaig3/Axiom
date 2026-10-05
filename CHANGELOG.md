@@ -16,6 +16,14 @@ its changelog too.
 
 ## Unreleased
 
+- Make `axiom fmt` leave alone what `axiom check` refuses. A
+  `(let ((x = 1)) x)` binding is refused instead of rewritten to
+  `(x 1)`, and an effect name prints as written, so `(mut)` stays
+  `(mut)`. The lowercase `alloc` effect is no longer a second spelling
+  of `Alloc`: undeclared, it is `AX3016`. Tested by
+  `tests/diagnostics/1124-effect-alloc-lowercase.ax` and
+  `scripts/check-fmt-selfhost.sh`.
+
 - Spell an anonymous function `lambda`. `(fn (x) ...)` inside an
   expression is now `AX2004`, with `lambda` as the advice, and `axiom
   fmt` refuses it instead of rewriting it. `fn` still declares a named

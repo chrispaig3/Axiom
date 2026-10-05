@@ -1,0 +1,1 @@
+E AX3016 1124-effect-alloc-lowercase.ax:5:25-30 unknown-effect "unknown effect `alloc`" #"no effect named `alloc` is declared" ?"declare it with `(effect Name (op :: sig))`, import the module that does, or fix the spelling"

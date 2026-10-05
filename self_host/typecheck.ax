@@ -9432,12 +9432,11 @@
         d
         (findEffectDeclFrom effs n (+ i 1))))))
 
-; The six built-in effect names a handle list may name, plus the
-; lowercase `alloc` the checker also answers for. stage0 lexed
-; `IO`/`Pure`/`Mut`/`Div` as keyword tokens and special-cased `Alloc`
-; and `alloc` out of the identifier path, so none of them is ever a
+; The six built-in effect names a handle list may name, each with one
+; spelling: `IO`, `Pure`, `Mut`, `Div`, `Alloc` and `Unsafe`, the last
+; inferred at the raw-memory primitives. None of them is ever a
 ; `Custom` effect - and only `Custom` entries are subject to AX3016 and
-; AX3017. `Unsafe` is the sixth, inferred at the raw-memory primitives.
+; AX3017. A lowercase `alloc` is an ordinary name, like `mut`.
 ;
 ; `Err` WAS A SIXTH AND IS NOT ONE. It was accepted here, which made
 ; `(handle 5 (Err) 0)` check clean, and nothing in the compiler ever
@@ -9465,11 +9464,9 @@
           1
           (if (strEq n "Alloc")
             1
-            (if (strEq n "alloc")
+            (if (strEq n "Unsafe")
               1
-              (if (strEq n "Unsafe")
-                1
-                (isConcEntropyEffect n)))))))))
+              (isConcEntropyEffect n))))))))
 
 ; The three built-in effects that refine `IO`: `Entropy` (the program
 ; drew randomness, so it is not deterministic), `Spawn` (it started
@@ -9534,7 +9531,7 @@
         (concat (concat "`" (nodeAName d)) "` names a built-in effect, and an effect declared with that name can never be handled: a handle list naming it reads as the built-in")
         0
         0
-        "choose another name - the built-in effect names are `IO`, `Pure`, `Alloc`, `Mut`, `Div` and `Unsafe`, and `alloc` is a second spelling of one of them") (concat (concat "`" (nodeAName d)) "` is a built-in effect"))))))
+        "choose another name - the built-in effect names are `IO`, `Pure`, `Alloc`, `Mut`, `Div` and `Unsafe`") (concat (concat "`" (nodeAName d)) "` is a built-in effect"))))))
 
 (pub :: isCastLike (-> String Int))
 (pub fn (isCastLike n)
@@ -15425,10 +15422,7 @@
     (let ((n (nodeAName (vecGet effs i))))
       (if (strEq
         (if (== (isBuiltinEffect n) 1)
-          (builtinEff
-            (if (strEq n "alloc")
-              "Alloc"
-              n))
+          (builtinEff n)
           (customEff n))
         (effDefiniteOf e))
         1

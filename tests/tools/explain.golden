@@ -2250,8 +2250,7 @@ promoting a check - that it refuses a program which works - has no
 instance here: the declaration is unusable in every direction, and
 the fix is a rename.
 
-The reserved names are `IO`, `Pure`, `Alloc`, `Mut`, `Div` and `Unsafe`, plus
-`alloc`, a second spelling of `Alloc` the checker also answers for.
+The reserved names are `IO`, `Pure`, `Alloc`, `Mut`, `Div` and `Unsafe`.
 They are read from `isBuiltinEffect`, the same function a handle list
 asks, so the refusal and the resolution cannot drift apart.
 

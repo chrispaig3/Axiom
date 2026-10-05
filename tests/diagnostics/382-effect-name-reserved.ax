@@ -19,11 +19,10 @@
 ;
 ; The reserved set is `isBuiltinEffect`'s, which is the same question a
 ; handle list asks, so the two cannot drift: `IO`, `Pure`, `Alloc`,
-; `Mut`, `Div`, and the lowercase `alloc` the checker also answers for.
-; `Err` is NOT in it any more.
+; `Mut`, `Div` and `Unsafe`. `Err` is NOT in it any more, and neither is
+; a lowercase spelling of any of them.
 ;
 ;   IO       an effect declared with a built-in's name  -> AX3054
-;   alloc    the lowercase spelling, same answer        -> AX3054
 ;   Err      a handle list naming the retired phantom   -> AX3016
 ;   Console  an ordinary effect, handled                -> silent
 ;
@@ -39,9 +38,6 @@
 ; list naming something undeclared has always drawn.
 (effect IO
   (emit :: (-> Int Int)))
-
-(effect alloc
-  (grab :: (-> Int Int)))
 
 (effect Console
   (log :: (-> String Int)))
