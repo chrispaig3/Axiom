@@ -4,7 +4,7 @@
 
 **The functional systems language. High-level thinking, native-level control.**
 
-<img width="1600" height="900" alt="Axiom — High-level thinking. Native-level control. Electric lime symbol and warm white wordmark on graphite." src="https://raw.githubusercontent.com/chrispaig3/Axiom/trunk/assets/logo/Axiom_Logo.png" />
+<video width="1600" height="900" alt="Axiom — High-level thinking. Native-level control. Electric lime symbol and warm white wordmark on graphite." src="https://github.com/user-attachments/assets/49d07880-c93d-4899-8edf-cf0809a06cb9" />
 
 Axiom lets you model your ideas with algebraic data types and
 exhaustive pattern matching, check side effects at compile time, and
