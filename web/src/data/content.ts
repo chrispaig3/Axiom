@@ -233,7 +233,7 @@ export const FAQS: Faq[] = [
     q: 'How can tools inspect my program?',
     a: [
       '`axiom --diagnostic-format=ai symbols Main.ax --calls` emits AXSYM declarations, stable IDs, author tags, derived effects and call edges. `Agent.Tags` reads that stream, including effect and macro declarations. Use AI format for symbols; JSON format is refused.',
-      '`symbols --mir --axir` exposes analysis and inspection records. Native builds compile the checked, expanded syntax tree to LLVM IR. Use `emit-llvm` to see that output; the legacy `axiom FILE` form is deprecated.',
+      '`symbols --mir --axir` exposes analysis and inspection records. Native builds compile the checked, expanded syntax tree to LLVM IR. Use `emit-llvm` to see that output.',
     ],
     link: { label: 'Follow a program through the compiler', href: `${DOCS}/compiler-guide.md` },
   },

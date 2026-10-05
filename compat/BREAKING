@@ -17,6 +17,7 @@
 # S struct, T trait, M macro. `docs/compatibility.md` is the policy
 # this file implements.
 
+0.7.9  CLI  legacy-file  FILE [TARGET] is an unknown command with status 2; use emit-llvm FILE [--target TARGET]
 0.7.8  RUST  Ret.direct_payload  returns Option<Payload>; handle None for scalar, opaque and status returns
 0.7.8  CLI  symbols-json  JSON symbol output is refused with status 2; use --diagnostic-format=ai
 0.7.8  CLI  legacy-file  FILE [TARGET] now warns on stderr; migrate to emit-llvm FILE [--target TARGET]

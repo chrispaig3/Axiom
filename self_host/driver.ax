@@ -8,33 +8,12 @@
 ; not a compiler, and this is the difference.
 ;
 ; ------------------------------------------------------------------
-; The argument grammar is STRICTLY ADDITIVE, and that is a constraint
-; rather than a courtesy.
-;
-; Five harnesses invoke stage1 as `stage1 FILE [TARGET]` -
-; check-self-host.sh, check-diagnostics.sh (twice), check-bootstrap.sh
-; and check-stdlib-selfhost.sh. A subcommand CLI that replaced that
-; spelling would break all five in the same commit, and they are the
-; only gates that watch stage1 at all: losing them simultaneously means
-; losing the ability to bisect anything that follows. So a first
-; argument that names a known subcommand is parsed as one, and anything
-; else keeps its old meaning as an input path.
-;
-; The cost of that rule is a file literally named `build`, `check`,
-; `run`, `emit-llvm` or `version` with no extension, which is read as a
-; subcommand. `--` now ends option parsing, which is the fix for a
-; filename beginning with a dash; a bare word that collides with a
-; subcommand name is still ambiguous and still resolves to the command.
-;
-; The ambiguity cuts the other way too, and used to cut silently:
-; `axiom buidl f.ax` was read as FILE=`buidl` TARGET=`f.ax` and answered
-; `cannot read input: buidl`, discarding the filename the user had
-; actually typed. `rejectUnknownCommand` (main.ax) breaks that tie by
-; asking the filesystem and then the spelling: a first operand that
-; names nothing that opens is a file only if it is SPELLED as a path -
-; `spelledLikePath` below states the rule - and is otherwise an unknown
-; command, exit 2, with the nearest command name suggested when there
-; is one within two edits.
+; The first operand is always a subcommand. One that names no command
+; is refused by `rejectUnknownCommand` (main.ax) at exit 2, with the
+; nearest command name suggested when there is one within two edits;
+; a file is compiled with `emit-llvm`, `build` or `run`, never as a
+; bare first operand. `--` ends option parsing, which is how a file
+; whose name begins with a dash is named.
 ; ------------------------------------------------------------------
 (import core)
 (import Host)
@@ -2173,7 +2152,7 @@
 ; is a compiler nobody gets past.
 (pub :: usageText String)
 (pub fn (usageText)
-  (concat (concat "Axiom " axiomVersion) "\n\nUSAGE:\n  axiom [OPTIONS] <COMMAND> [ARGS]\n  axiom [OPTIONS] <FILE> [TARGET]   deprecated; use emit-llvm\n\nCOMMANDS:\n  build      compile a source file to an executable\n  check      check syntax and types, emitting no code\n  run        compile and run, forwarding further arguments\n  new        start a project with Main.ax and axiom.pkg\n  fetch      check out the project's registry dependencies\n  test       run every test-named function in a file or directory\n  emit-llvm  print the generated LLVM IR\n  fmt        format a source file in place\n  explain    describe a diagnostic code\n  symbols    list top-level symbols in AXSYM\n  repl       start the interactive read-eval-print loop\n  lsp        run the language server on stdin/stdout\n  version    print the version\n  help       print help, or help <COMMAND> for one command\n\nOPTIONS:\n  --obfuscate        mask literals, scramble symbols and obscure entries\n  --input <PATH>     input file (build, check, run, emit-llvm)\n  --output <PATH>    output file (build, emit-llvm)\n  -o <PATH>          short for --output\n  --target <NAME>    target platform; see the list below (default: host)\n  --opt <0-3>        optimisation (build, run, test; default: manifest opt, else 1)\n  --heap-ceiling <BYTES>  fixed heap size (build, run, test)\n  --filter <TEXT>    run tests whose names contain TEXT (test)\n  --crate <DIR>      generate bindings and link a Rust crate; repeatable\n  --link-lib <NAME>  link an FFI archive; repeatable (build, run)\n  --link-search <DIR>  archive search directory; repeatable (build, run)\n  --emit-llvm        keep generated .ll beside the executable (build)\n  --emit-staticlib   write a static archive (build)\n  --threads          use platform threads for parallel (build, run, test)\n  --emit-rust-binding <PATH>  write host bindings with --emit-staticlib\n  --check            report formatting without writing (fmt)\n  --builtins         include built-in operators (symbols)\n  --calls            include resolved call edges (symbols)\n  --mir              include region facts (symbols)\n  --axir             read or write .axir records instead of AXSYM (symbols)\n  --list             list diagnostic codes (explain)\n  --no-banner        skip the startup banner (repl)\n  --diagnostic-format <human|ai|json>  diagnostic renderer (default: human)\n  -h, --help         print help; accepted before or after the file\n  -V, --version      print the version; before the command\n  --                 end compiler options\n\nTARGETS:\n  Supported: darwin-aarch64, linux-aarch64.\n  Source-only: darwin-x86_64, freebsd-aarch64, freebsd-x86_64,\n               linux-x86_64, windows-aarch64, windows-x86_64,\n               baremetal-aarch64.\n\nNOTES:\n  A bare input path works wherever --input is accepted. Build output\n  defaults to the manifest's name, else output. Windows adds .exe once.\n\n  --crate searches DIR/axiom for modules and DIR/target/release for\n  archives. Archives also use AXIOM_LINK_SEARCH and each AXIOM_PATH\n  entry's ../target/release. An extern library links when found there.\n\n  Static archives need no main; pub functions become C symbols.\n  --mir forces a slower facts fixpoint; --axir --mir includes lowered\n  bodies. Use --diagnostic-format=ai for AXSYM; JSON symbols are refused.\n\n  Threads work on darwin and linux. FreeBSD uses processes and refuses\n  --threads (AX4006). Windows warns AX4007 and spawning exits with 79.\n  Heap exhaustion exits with 70; threaded spawning with a fixed heap\n  is refused (AX4006). Source-only targets are emitted and assembled,\n  executed by no runner; see README, Targets.\n\n  Human diagnostics always include colour, even in redirected output.\n  AI and JSON diagnostics have no colour escapes.\n\nEXIT CODES:\n  0  success\n  1  the program is wrong: unreadable input, syntax or checking failure,\n     a failed test, a missing entry point, or an unresolvable import\n  2  the command line is wrong: unknown command or flag, or flag arity\n  3  a module could not be read or parsed, or the target is unknown\n  4  a native tool failed or is missing (llc, cc; lld-link for Windows)\n"))
+  (concat (concat "Axiom " axiomVersion) "\n\nUSAGE:\n  axiom [OPTIONS] <COMMAND> [ARGS]\n\nCOMMANDS:\n  build      compile a source file to an executable\n  check      check syntax and types, emitting no code\n  run        compile and run, forwarding further arguments\n  new        start a project with Main.ax and axiom.pkg\n  fetch      check out the project's registry dependencies\n  test       run every test-named function in a file or directory\n  emit-llvm  print the generated LLVM IR\n  fmt        format a source file in place\n  explain    describe a diagnostic code\n  symbols    list top-level symbols in AXSYM\n  repl       start the interactive read-eval-print loop\n  lsp        run the language server on stdin/stdout\n  version    print the version\n  help       print help, or help <COMMAND> for one command\n\nOPTIONS:\n  --obfuscate        mask literals, scramble symbols and obscure entries\n  --input <PATH>     input file (build, check, run, emit-llvm)\n  --output <PATH>    output file (build, emit-llvm)\n  -o <PATH>          short for --output\n  --target <NAME>    target platform; see the list below (default: host)\n  --opt <0-3>        optimisation (build, run, test; default: manifest opt, else 1)\n  --heap-ceiling <BYTES>  fixed heap size (build, run, test)\n  --filter <TEXT>    run tests whose names contain TEXT (test)\n  --crate <DIR>      generate bindings and link a Rust crate; repeatable\n  --link-lib <NAME>  link an FFI archive; repeatable (build, run)\n  --link-search <DIR>  archive search directory; repeatable (build, run)\n  --emit-llvm        keep generated .ll beside the executable (build)\n  --emit-staticlib   write a static archive (build)\n  --threads          use platform threads for parallel (build, run, test)\n  --emit-rust-binding <PATH>  write host bindings with --emit-staticlib\n  --check            report formatting without writing (fmt)\n  --builtins         include built-in operators (symbols)\n  --calls            include resolved call edges (symbols)\n  --mir              include region facts (symbols)\n  --axir             read or write .axir records instead of AXSYM (symbols)\n  --list             list diagnostic codes (explain)\n  --no-banner        skip the startup banner (repl)\n  --diagnostic-format <human|ai|json>  diagnostic renderer (default: human)\n  -h, --help         print help; accepted before or after the file\n  -V, --version      print the version; before the command\n  --                 end compiler options\n\nTARGETS:\n  Supported: darwin-aarch64, linux-aarch64.\n  Source-only: darwin-x86_64, freebsd-aarch64, freebsd-x86_64,\n               linux-x86_64, windows-aarch64, windows-x86_64,\n               baremetal-aarch64.\n\nNOTES:\n  A bare input path works wherever --input is accepted. Build output\n  defaults to the manifest's name, else output. Windows adds .exe once.\n\n  --crate searches DIR/axiom for modules and DIR/target/release for\n  archives. Archives also use AXIOM_LINK_SEARCH and each AXIOM_PATH\n  entry's ../target/release. An extern library links when found there.\n\n  Static archives need no main; pub functions become C symbols.\n  --mir forces a slower facts fixpoint; --axir --mir includes lowered\n  bodies. Use --diagnostic-format=ai for AXSYM; JSON symbols are refused.\n\n  Threads work on darwin and linux. FreeBSD uses processes and refuses\n  --threads (AX4006). Windows warns AX4007 and spawning exits with 79.\n  Heap exhaustion exits with 70; threaded spawning with a fixed heap\n  is refused (AX4006). Source-only targets are emitted and assembled,\n  executed by no runner; see README, Targets.\n\n  Human diagnostics always include colour, even in redirected output.\n  AI and JSON diagnostics have no colour escapes.\n\nEXIT CODES:\n  0  success\n  1  the program is wrong: unreadable input, syntax or checking failure,\n     a failed test, a missing entry point, or an unresolvable import\n  2  the command line is wrong: unknown command or flag, or flag arity\n  3  a module could not be read or parsed, or the target is unknown\n  4  a native tool failed or is missing (llc, cc; lld-link for Windows)\n"))
 
 ; One command's help: its synopsis and the flags it actually reads.
 ;
@@ -2534,17 +2513,9 @@
 ;   axiom fmt FILE --help         REWROTE FILE, because `--help` was
 ;                                 only ever recognised at argv[1].
 ;
-; The rule is deliberately the WEAKEST one that kills the class: a flag
-; must EXIST and must be given the right number of values. It does NOT
-; police which subcommand owns which flag. That restraint is a gate
-; constraint, not tidiness - the legacy `axiom FILE [TARGET]` spelling
-; has no subcommand at all, and check-driver.sh requires
-; `axiom --emit-llvm hello.ax` to exit 0 with IR on stdout and
-; `axiom --check nosuch.ax` to name the file it could not read. Under
-; per-subcommand ownership those belong to `build` and `fmt`, so both
-; become usage errors and five gate cases flip. Existence and arity fix
-; the data loss and the silent typos without disturbing a single
-; existing invocation.
+; The rule is the weakest one that kills the class: a flag must EXIST
+; and must be given the right number of values. It does not police
+; which subcommand owns which flag.
 ; ------------------------------------------------------------------
 ; A usage error: the message, a pointer at `--help`, and exit 2.
 ;
@@ -2666,19 +2637,9 @@
 ; edits, not one. A threshold of 1 therefore misses the exact case this
 ; exists to catch, which is how it was first measured.
 ;
-; A wrong suggestion costs nothing here: the caller only asks after the
-; operand has already failed to open, so there is no reading of the
-; argument under which the invocation was going to work.
-;
-; And the SUGGESTION is no longer what decides whether the word was a
-; command. It used to be: a first operand that failed to open was
-; refused only when a command name lay within two edits of it, so
-; `axiom frobnicate` - two edits from nothing - fell through to the
-; legacy `FILE [TARGET]` reading and answered `error: could not
-; read file 'frobnicate': No such file or directory` at exit 1, while `--help`
-; promised 2 for "an unknown command or flag". `spelledLikePath` is
-; the rule that replaced the distance test; the distance now only
-; chooses whether the refusal carries a `did you mean`.
+; A wrong suggestion costs nothing here: the caller only asks once the
+; operand is already refused, so the distance only chooses whether the
+; refusal carries a `did you mean`.
 (pub :: nearestSubcommand (-> String String))
 (pub fn (nearestSubcommand w)
   (nearestSubcommandFrom w subcommandNames 0))
@@ -2692,44 +2653,6 @@
       (if (<= (editDistance w c) 2)
         c
         (nearestSubcommandFrom w v (+ i 1))))))
-
-; Is a first operand that names nothing that opens a PATH, or a word?
-;
-; The legacy `axiom FILE [TARGET]` spelling makes any first operand a
-; filename, and the subcommand grammar makes it a command, so a word
-; that names no existing file has to be read one way or the other with
-; nothing but its spelling to go on. The rule is the spelling: a path
-; a person meant almost always carries a separator or an extension -
-; every source file in this language ends in `.ax` - and a command
-; name never carries either (`emit-llvm` has a dash, and nothing has a
-; dot). So a word with a `/` or a `.` in it is a path and its failure
-; to open is reported as a read failure, exit 1, naming it; a word with
-; neither is an unknown command, exit 2.
-;
-; Weighed against the narrower rule "no `/` and no `.ax` suffix": that
-; one reads a mistyped extension as a mistyped command, so
-; `axiom hello.aax` would answer `unknown command `hello.aax``, which
-; sends the reader to the command list when the fault is in the
-; filename. Any dot is the better cut. What it costs is an
-; extensionless file that does not exist - `axiom notes` for a missing
-; `notes` is an unknown command - and that is the right answer more
-; often than not, and the existing one when it is not: an extensionless
-; file that DOES exist is opened before this is ever asked.
-;
-; A bare `-` is stdin by convention (`looksLikeFlag` declines it for
-; the same reason) and counts as a path.
-;
-; check-driver.sh holds both directions of this - `frobnicate` and
-; `frobnicate hello.ax` are refused at 2 by name, `nosuch.ax` and
-; `./frobnicate` fail to read at 1 by name, and an existing
-; extensionless file is still read as a file.
-(pub :: spelledLikePath (-> String Bool))
-(pub fn (spelledLikePath w)
-  (||
-    (strEq w "-")
-    (||
-      (isSome (strFindByte w 47 0))
-      (isSome (strFindByte w 46 0)))))
 
 ; Is `want` present as a FLAG - anywhere in argv, not as another flag's
 ; value, and not after `--`?

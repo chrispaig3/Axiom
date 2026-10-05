@@ -170,13 +170,15 @@ regenerate() {
   fi
   # The emit runs from a directory holding `in.ax` beside links to the
   # two module trees, the shape `reseed.sh` emits in. The input's name
-  # reaches the output, so it must be `in.ax` here too.
+  # reaches the output, so it must be `in.ax` here too. The command line
+  # is the one the seed's commit emitted with (`seed_emit_argv`).
   ln -s "$src/stdlib"    "$out/stdlib"
   ln -s "$src/self_host" "$out/self_host"
   cp "$src/self_host/main.ax" "$out/in.ax"
   local t
   for t in $targets; do
-    if ! ( cd "$out" && AXIOM_STDLIB="$src/stdlib" AXIOM_PATH=self_host ./gen in.ax "$t" \
+    seed_emit_argv "$repo_root" "$commit" "$t"
+    if ! ( cd "$out" && AXIOM_STDLIB="$src/stdlib" AXIOM_PATH=self_host ./gen "${seed_argv[@]}" \
              >"$out/axiom-$t.ll" 2>"$out/$t.err" ); then
       echo "     the $t emit failed:" >&2
       head -5 "$out/$t.err" | sed 's/^/       /' >&2
@@ -253,7 +255,8 @@ else
   ln -s "$probe/self_host" "$probe_out/self_host"
   cp "$probe/self_host/main.ax" "$probe_out/in.ax"
   cp "$work/probe-gen" "$probe_out/gen"
-  ( cd "$probe_out" && AXIOM_STDLIB="$probe/stdlib" AXIOM_PATH=self_host ./gen in.ax darwin-aarch64 \
+  seed_emit_argv "$repo_root" "$commit" darwin-aarch64
+  ( cd "$probe_out" && AXIOM_STDLIB="$probe/stdlib" AXIOM_PATH=self_host ./gen "${seed_argv[@]}" \
       >"$probe_out/out.ll" 2>"$probe_out/err" ) || true
   # The probe must produce a different emission, not an empty one, or it
   # would pass on a zero-line file.

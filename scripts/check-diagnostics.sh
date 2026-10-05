@@ -201,7 +201,7 @@ for case_file in tests/diagnostics/*.ax tests/diagnostics/*.axbad; do
 
   cp "$case_file" "$work/$name.ax"
 
-  (cd "$work" && ./axc --diagnostic-format=ai "$name.ax" >/dev/null 2>"$work/case.err")
+  (cd "$work" && ./axc --diagnostic-format=ai emit-llvm "$name.ax" >/dev/null 2>"$work/case.err")
   status=$?
   got="$(axdl_only < "$work/case.err")"
 
@@ -376,7 +376,7 @@ for src in self_host/*.ax stdlib/*.ax stdlib/Sys/*.ax tests/stdlib/*.ax \
   # human-rendered warning on a clean-exit file would pass BOTH checks -
   # grep-empty and exit 0 - and this section would go blind to exactly
   # the class of report it exists to refuse.
-  out="$(cd "$work" && ./axc --diagnostic-format=ai "$src" 2>"$work/sweep.err" >/dev/null; echo "$?")"
+  out="$(cd "$work" && ./axc --diagnostic-format=ai emit-llvm "$src" 2>"$work/sweep.err" >/dev/null; echo "$?")"
   diags="$(axdl_only < "$work/sweep.err")"
   if ! gate_axdl_unknown_kind "$work/sweep.err"; then
     echo "FAIL $src (an AXDL line kind outside EWNH on the compiler's own source)"
@@ -416,7 +416,7 @@ done
 # nothing, and report the compiler's own source clean without checking
 # it.
 cp "$repo_root/tests/diagnostics/330-axtag-mismatch.ax" "$work/flipneg.ax"
-(cd "$work" && ./axc --diagnostic-format=ai "flipneg.ax" 2>"$work/flipneg.err" >/dev/null)
+(cd "$work" && ./axc --diagnostic-format=ai emit-llvm "flipneg.ax" 2>"$work/flipneg.err" >/dev/null)
 if [[ -z "$(axdl_only < "$work/flipneg.err")" ]]; then
   echo "FAIL: the sweep pipeline is blind - a known-warning file produced no AXDL through it"
   failed=$((failed + 1))

@@ -109,6 +109,7 @@
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/lib/seed-sums.sh"
 # `--no-stdlib`: this gate never compiles this checkout's sources, and
 # an exported `AXIOM_STDLIB` naming them is exactly the wrong tree for
 # every emission below. `gate_init` may bootstrap `.axiom-bin/axiom`
@@ -244,9 +245,16 @@ build_reason() { sed 's/\x1b\[[0-9;]*m//g' "$1.err" | grep -m1 -E 'error(\[|:)' 
 # A truncated emission is not a mismatch, it is a broken run, and it
 # would compare as "differs" where the honest answer is "nothing was
 # produced" - `check-seed-provenance.sh`'s floors, kept before every cmp.
+#
+# Every emission compared with a commit's seed is spelled the way that
+# commit's reseed spelled it (`seed_emit_argv`, scripts/lib/seed-sums.sh):
+# `emit_as <commit>` chooses it, and `emit` uses the latest choice.
+emit_as() { seed_emit_argv "$repo_root" "$1" "$target"; }
+seed_argv=()
 emit() {  # <compiler> <wdir> <out.ll>; sets emit_reason on failure
   local comp="$1" w="$2" out="$3" rc
-  ( cd "$w" && AXIOM_STDLIB="$w/stdlib" AXIOM_PATH=self_host "$comp" in.ax "$target" > "$out" 2> "$out.err" ); rc=$?
+  (( ${#seed_argv[@]} > 0 )) || { emit_reason="no emission spelling was chosen (emit_as)"; return 1; }
+  ( cd "$w" && AXIOM_STDLIB="$w/stdlib" AXIOM_PATH=self_host "$comp" "${seed_argv[@]}" > "$out" 2> "$out.err" ); rc=$?
   if ! grep -q '^target triple' "$out" || (( $(wc -l < "$out") <= 10000 )); then
     emit_reason="rc=$rc, $(wc -l < "$out" | tr -d ' ') lines"
     # `error[` and `error:` are the compiler's own; a bare `error`
@@ -336,6 +344,7 @@ replay_skip() {  # <prev> <next> <skipped> <dir>
   local got="$matched" note="$stage_note"
   extract "$orphan" "$d/otree" self_host stdlib; workdir "$d/otree" "$d/ow"
   seed_at "$orphan" "$d/orphan.ll"
+  emit_as "$orphan"
   if ladder "$d/seed" "$d/ow" "$d/orphan.ll" 1 orphan; then
     ladder_reason="the ${orphan:0:7} seed REPRODUCES from ${prev:0:7} at $matched - it is not an orphan and needs a row"; return 1
   fi
@@ -346,6 +355,7 @@ replay_skip() {  # <prev> <next> <skipped> <dir>
   emit "$d/ow/orphan.stage2" "$d/ow" "$d/ow/orphan.s3.ll" || { ladder_reason="the orphan's stage3 was not produced ($emit_reason)"; return 1; }
   if ! cmp -s "$d/ow/orphan.s2.ll" "$d/ow/orphan.s3.ll"; then ladder_reason="the ${orphan:0:7} tree reaches no fixpoint from ${prev:0:7}"; return 1; fi
   echo "     ${orphan:0:7} is an orphan: its tree's fixpoint from ${prev:0:7} differs from the committed seed by $(lines_differing "$d/ow/orphan.s3.ll" "$d/orphan.ll") lines"
+  emit_as "$next"
   matched="$got"; stage_note="$note"
 }
 
@@ -414,7 +424,9 @@ replay_walk() {  # <prev> <next> <listfile> <dir>
     local cf; cf="$(resolve "$c")"
     if [[ -n "$cf" && " $walk_seed_commits " == *" $cf "* ]]; then
       seed_at "$c" "$nd/seed.ll"
+      emit_as "$c"
       emit "$new" "$nd/w" "$nd/w/re.ll" || { ladder_reason="step $i (${c}): the new compiler cannot re-emit its own tree ($emit_reason)"; return 1; }
+      emit_as "$next"
       if cmp -s "$nd/w/re.ll" "$nd/seed.ll"; then note=" - re-emits its own seed exactly"
       else note=" - an orphan: re-emission differs from its committed seed by $(lines_differing "$nd/w/re.ll" "$nd/seed.ll") lines"; fi
     fi
@@ -890,6 +902,7 @@ for ((i = first; i < nrows; i++)); do
   if [[ "$method" != rust-anchor ]] && ! has_seed "$from"; then skip "no $target seed at ${from:0:7}; this host cannot build that compiler"; continue; fi
   if ! has_seed "$seed"; then skip "no $target seed at ${seed:0:7}; nothing for this host to compare"; continue; fi
   t0=$SECONDS
+  emit_as "$seed"
   case "$method" in
     rust-anchor)
       if (( ! have_cargo )); then
@@ -982,6 +995,7 @@ first_seed_commit="${row_seed[0]}"
 if [[ "$method" == seed || "$method" == skip || "$method" == mixed-tree ]] && has_seed "$first_seed_commit" && has_seed "$seed" && [[ "$first_seed_commit" != "${row_from[i]}" ]]; then
   d="$work/wrong-from"; mkdir -p "$d"
   matched=""; ladder_reason=""; t0=$SECONDS
+  emit_as "$seed"
   replay_seed "$first_seed_commit" "$seed" "$d"; rc=$?
   if (( rc == 0 )); then
     fail "${row_seed_short[i]} reproduces from the FIRST seed ${first_seed_commit:0:7} at $matched - the newest tree compiles under the oldest compiler, so the replay alone cannot name a predecessor; look before trusting the row's \`from\`"
@@ -997,6 +1011,7 @@ fi
 # compiler just built.
 if (( full && have_cargo )) && [[ -n "$rust_bin" && -x "$rust_bin" ]]; then
   ad="$work/row1"; first_seed="${row_seed[0]}"
+  emit_as "$first_seed"
   # (d) One byte of the `.ax` tree the anchor compiles must move the
   # emission - otherwise the anchor is satisfied by an emitter that
   # ignores its input. `stdlib/Json.ax` asks whether a byte is `e`
@@ -1037,7 +1052,7 @@ if (( full && have_cargo )) && [[ -n "$rust_bin" && -x "$rust_bin" ]]; then
       else
         # The watchdog: 600 s, then the emission is killed and counted
         # as not produced.
-        ( cd "$rd/w" && AXIOM_STDLIB="$rd/tree/stdlib" ./stage1 in.ax "$target" > "$rd/w/out.ll" 2> "$rd/w/out.err" ) &
+        ( cd "$rd/w" && AXIOM_STDLIB="$rd/tree/stdlib" ./stage1 "${seed_argv[@]}" > "$rd/w/out.ll" 2> "$rd/w/out.err" ) &
         wpid=$!; waited=0
         while kill -0 "$wpid" 2>/dev/null && (( waited < 600 )); do sleep 1; waited=$((waited + 1)); done
         if kill -0 "$wpid" 2>/dev/null; then kill "$wpid" 2>/dev/null; wait "$wpid" 2>/dev/null; outcome="its stage1 ran for ${waited}s without finishing and was killed"

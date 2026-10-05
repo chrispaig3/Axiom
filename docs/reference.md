@@ -1277,7 +1277,9 @@ those rows, and [diagnostics](diagnostics.md) documents their format.
 | `explain AX3001`, `explain --list` | explain diagnostics |
 | `repl`, `lsp`, `version`, `help` | interactive session, editor server, version and help |
 
-`axiom help COMMAND` is the option reference. The legacy `axiom file.ax [target]` emission form is deprecated; use `emit-llvm`.
+`axiom help COMMAND` is the option reference. The first operand is
+always a command, so `axiom file.ax` is refused; write
+`axiom emit-llvm file.ax --target TARGET` to emit IR.
 
 ### Build and run
 

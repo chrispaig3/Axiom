@@ -70,10 +70,9 @@ for case_file in tests/selfhost/*.ax; do
     continue
   fi
 
-  # stage1 reads its input from the first argument and writes LLVM to
-  # stdout.
+  # `emit-llvm` writes LLVM to stdout.
   cp "$case_file" "$work/in.ax"
-  if ! (cd "$work" && ./stage1 in.ax >out.ll 2>stage1.err); then
+  if ! (cd "$work" && ./stage1 emit-llvm in.ax >out.ll 2>stage1.err); then
     echo "FAIL $name (stage1 rejected it)"
     sed 's/^/    /' "$work/stage1.err" | head -3
     failed=$((failed + 1))
@@ -133,7 +132,7 @@ done
 # which is why this is not a corpus golden.
 if [[ -z "$filter" ]]; then
   printf '(import NoSuchModule)\n(:: main Int)\n(fn (main) 7)\n' >"$work/in.ax"
-  (cd "$work" && ./stage1 in.ax >/dev/null 2>neg.err)
+  (cd "$work" && ./stage1 emit-llvm in.ax >/dev/null 2>neg.err)
   neg_status=$?
   if [[ "$neg_status" == 1 ]] && grep -q "AX5001" "$work/neg.err" \
      && grep -q "NoSuchModule" "$work/neg.err" \
@@ -165,7 +164,7 @@ if [[ -z "$filter" ]]; then
   rm -rf "$away" && mkdir -p "$away"
   printf '(import IO)\n(:: main Int)\n;@axiom:effect(io)\n(fn (main) { (println "ok") 0 })\n' \
     >"$away/hello.ax"
-  if (cd "$away" && AXIOM_STDLIB="$repo_root/stdlib" "$work/stage1" hello.ax \
+  if (cd "$away" && AXIOM_STDLIB="$repo_root/stdlib" "$work/stage1" emit-llvm hello.ax \
         >hello.ll 2>hello.err) && grep -q 'define .*@main' "$away/hello.ll"; then
     echo "ok   the standard library resolves from an unprepared directory"
     passed=$((passed + 1))
@@ -197,7 +196,7 @@ if [[ -z "$filter" ]]; then
       windows-x86_64)  triple=x86_64-pc-windows-msvc ;;
       windows-aarch64) triple=aarch64-pc-windows-msvc ;;
     esac
-    if (cd "$work" && ./stage1 in.ax "$tgt" >"out-$tgt.ll" 2>tgt.err) \
+    if (cd "$work" && ./stage1 emit-llvm in.ax --target "$tgt" >"out-$tgt.ll" 2>tgt.err) \
        && llc -mtriple="$triple" -relocation-model=pic "$work/out-$tgt.ll" -o /dev/null 2>"$work/llc-$tgt.err"; then
       echo "ok   emit [$tgt] assembles"
       passed=$((passed + 1))

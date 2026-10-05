@@ -135,7 +135,7 @@ build_compiler() {  # <in.ll> <out>
     && cc "$2.o" -o "$2" $link_entry 2>>"$2.err"
 }
 emit() {  # <compiler> <target> <out.ll>: the shape every seed is emitted in
-  ( cd "$work" && AXIOM_STDLIB="$repo_root/stdlib" AXIOM_PATH=self_host "$1" in.ax "$2" > "$3" 2> "$3.err" ) || return 1
+  ( cd "$work" && AXIOM_STDLIB="$repo_root/stdlib" AXIOM_PATH=self_host "$1" emit-llvm in.ax --target "$2" > "$3" 2> "$3.err" ) || return 1
   grep -q '^target triple' "$3" || return 1
   (( $(wc -l < "$3") > 10000 )) || return 1
 }

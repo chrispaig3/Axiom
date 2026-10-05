@@ -660,7 +660,7 @@ jobs:
         run: ./scripts/check-self-host.sh
 
       # The compiler's command line. Other gates drive stage1 as
-      # `stage1 [FILE [TARGET]]` and run llc and cc themselves, so this is
+      # `stage1 emit-llvm FILE` and run llc and cc themselves, so this is
       # the only coverage of `stage1 build`, the command users type. The
       # negative cases matter most: a driver that ignores a child's exit
       # status reports a failed `llc` as success. So PATH is poisoned both

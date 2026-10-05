@@ -1,13 +1,10 @@
 #!/usr/bin/env bash
 # The self-hosted compiler's command-line surface.
 #
-# No gate in this repository ever invoked a compiler DRIVER. Every one of
-# them drives stage1 as `stage1 [FILE [TARGET]]` and runs `llc` and `cc`
-# itself, so stage1's own `build` - the thing a user actually types - was
-# exercised by nothing. That is the gap this closes, and it is the same
-# shape as the gap that hid five miscompiles in `tests/stdlib/` and the
-# libc-linking bug in `check-freestanding.sh`: a surface with no gate is
-# a surface nobody has checked.
+# Most gates drive stage1 as `stage1 emit-llvm FILE` and run `llc` and
+# `cc` themselves, so stage1's own `build` - the thing a user actually
+# types - would otherwise be exercised by nothing. A surface with no
+# gate is a surface nobody has checked.
 #
 # The load-bearing cases are the NEGATIVE ones. A driver that ignores a
 # child's exit status reports a failed `llc` as a successful build, and
@@ -98,12 +95,10 @@ grep -q '^F k /dev/stdin:1:5-6 ' pipe_sym.txt \
   && ok "symbols reads a piped /dev/stdin from its first byte" \
   || bad "symbols over a pipe"
 
-# The legacy spelling probes its positional a second time, to tell a
-# file from a typo'd subcommand - that probe is open-only now.
-printf '(:: main Int)\n(fn (main) 17)\n' | "$s1" /dev/stdin >pipe_legacy.ll 2>/dev/null
-grep -q 'define .*@main' pipe_legacy.ll \
-  && ok "the legacy FILE spelling reads a piped /dev/stdin from its first byte" \
-  || bad "legacy spelling over a pipe"
+printf '(:: main Int)\n(fn (main) 17)\n' | "$s1" emit-llvm /dev/stdin >pipe_emit.ll 2>/dev/null
+grep -q 'define .*@main' pipe_emit.ll \
+  && ok "emit-llvm reads a piped /dev/stdin from its first byte" \
+  || bad "emit-llvm over a pipe"
 
 "$s1" build --input hello.ax --output hi >/dev/null 2>&1 \
   && [[ -x hi ]] && [[ "$(./hi)" == "driver-ok" ]] \
@@ -121,29 +116,30 @@ grep -q 'define .*@main' pipe_legacy.ll \
 "$s1" emit-llvm hello.ax -o e.ll >/dev/null 2>&1 && grep -q 'define .*@main' e.ll \
   && ok "emit-llvm -o writes IR to a file" || bad "emit-llvm -o"
 
-# Deprecation preserves LLVM stdout and gives the migration on stderr.
-"$s1" hello.ax >legacy.ll 2>legacy.err && grep -q 'define .*@main' legacy.ll \
-  && ok "the legacy FILE spelling still emits IR to stdout" || bad "legacy spelling"
-grep -q 'deprecated.*axiom emit-llvm FILE' legacy.err \
-  && [[ "$(grep -c 'deprecated' legacy.err)" == 1 ]] \
-  && ! grep -q 'deprecated' legacy.ll \
-  && ok "legacy CLI warns once on stderr and keeps IR clean" || bad "legacy deprecation warning"
-"$s1" --diagnostic-format=ai emit-llvm hello.ax >modern.ll 2>modern.err
-cmp -s modern.ll legacy.ll && ! grep -q 'deprecated' modern.err \
-  && ok "emit-llvm matches the legacy IR without a warning" || bad "legacy migration parity"
-# Redirected to a file and then grepped, like the case above it, and
-# NOT piped into `grep -q`. `set -o pipefail` is on; `grep -q` exits
-# the moment it matches, and the triple is in the first few lines of
-# ~75 KB of IR, so the compiler is still writing when the read end
-# closes and dies of SIGPIPE - pipeline status 141, reported as a
-# failing target selection. Measured at 4 failures in 8 runs on the
-# compiler this was written against, so the case has been green by
-# luck since it was added; a later change that merely altered the
-# timing made it 8 in 8. The producer's status is the thing under
-# test, so it must not be a pipeline's.
-"$s1" hello.ax linux-x86_64 >legacy_t.ll 2>legacy_t.err
-grep -q 'x86_64-unknown-linux-gnu' legacy_t.ll && grep -q 'deprecated' legacy_t.err \
-  && ok "the legacy FILE TARGET spelling still selects a target" || bad "legacy target"
+# A file is never a bare first operand: `axiom FILE [TARGET]` is an
+# unknown command, refused at 2 with nothing on stdout, and the refusal
+# says which commands compile a file.
+"$s1" hello.ax >posfile.ll 2>posfile.err; rc=$?
+if [[ $rc == 2 ]] && [[ ! -s posfile.ll ]] \
+   && grep -q 'unknown command `hello.ax`' posfile.err \
+   && grep -q 'axiom emit-llvm FILE \[--target TARGET\]' posfile.err; then
+  ok "\`axiom FILE\` is an unknown command that names emit-llvm, exit 2"
+else
+  bad "\`axiom FILE\` (rc=$rc): $(head -1 posfile.err)"
+fi
+"$s1" hello.ax linux-x86_64 >bare_t.ll 2>bare_t.err; rc=$?
+[[ $rc == 2 ]] && [[ ! -s bare_t.ll ]] && grep -q 'unknown command `hello.ax`' bare_t.err \
+  && ok "\`axiom FILE TARGET\` is refused the same way" || bad "\`axiom FILE TARGET\` (rc=$rc)"
+# Redirected to a file and then grepped, NOT piped into `grep -q`.
+# `set -o pipefail` is on; `grep -q` exits the moment it matches, and
+# the triple is in the first few lines of ~75 KB of IR, so the compiler
+# is still writing when the read end closes and dies of SIGPIPE -
+# pipeline status 141, reported as a failing target selection. The
+# producer's status is the thing under test, so it must not be a
+# pipeline's.
+"$s1" emit-llvm hello.ax --target linux-x86_64 >emit_t.ll 2>emit_t.err
+grep -q 'x86_64-unknown-linux-gnu' emit_t.ll \
+  && ok "emit-llvm --target selects a target" || bad "emit-llvm --target"
 
 # Working-directory trees are searched only when explicitly configured.
 mkdir -p "$work/cwd/stdlib" "$work/cwd/self_host" "$work/cwd/entry"
@@ -422,24 +418,17 @@ done
   && ok "\`run --input FILE\` agrees with \`run FILE\`" \
   || bad "run --input (rc=$brc vs $arc)"
 
+# A flag with no subcommand does not make its operand a file: the
+# operand is still the command, so it is refused by name at 2, and a
+# file that exists is not compiled.
 for flag in --emit-llvm --check --builtins --list; do
-  "$s1" "$flag" nosuch-$$.ax >p.out 2>p.err; rc=$?
-  if grep -q "nosuch-$$\.ax" p.err; then
-    ok "\`$flag FILE\` names FILE, not a default"
-  elif grep -q 'in\.ax' p.err; then
-    bad "\`$flag FILE\` swallowed the filename and reported in.ax (rc=$rc)"
+  "$s1" "$flag" hello.ax >p.out 2>p.err; rc=$?
+  if [[ $rc == 2 ]] && [[ ! -s p.out ]] && grep -q 'unknown command `hello.ax`' p.err; then
+    ok "\`$flag FILE\` is an unknown command naming FILE, exit 2"
   else
     bad "\`$flag FILE\` (rc=$rc) said: $(head -1 p.err)"
   fi
 done
-
-# The same flags, with a file that EXISTS, must actually compile it.
-"$s1" --emit-llvm hello.ax >p2.out 2>p2.err; rc=$?
-if [[ $rc == 0 ]] && grep -q '^target triple' p2.out; then
-  ok "\`--emit-llvm FILE\` compiles FILE"
-else
-  bad "\`--emit-llvm FILE\` (rc=$rc): $(head -1 p2.err)"
-fi
 
 # No arguments at all: usage, not a complaint about a file nobody named.
 # The negative grep names the old default-filename complaint
@@ -486,18 +475,14 @@ grep -q 'add `(:: main Int)`' nm.err \
 
 # ...and it must NOT over-fire. These three surfaces analyse a module
 # without producing an executable, so a library with no entry point is
-# perfectly well-formed to them. The legacy no-subcommand spelling is
-# the load-bearing one: check-diagnostics.sh sweeps every file in
-# self_host/, stdlib/, stdlib/Sys/, tests/stdlib/ and tests/selfhost/
-# through it and requires exit 0, and most of those modules have no
-# `main` at all.
+# perfectly well-formed to them. `emit-llvm` is the load-bearing one:
+# check-diagnostics.sh sweeps every file in self_host/, stdlib/,
+# stdlib/Sys/, tests/stdlib/ and tests/selfhost/ through it and
+# requires exit 0, and most of those modules have no `main` at all.
 "$s1" check nomain.ax >/dev/null 2>&1 \
   && ok "\`check\` accepts a module with no \`main\`" || bad "check over-fires AX4001"
 "$s1" emit-llvm nomain.ax >/dev/null 2>&1 \
   && ok "\`emit-llvm\` accepts a module with no \`main\`" || bad "emit-llvm over-fires AX4001"
-"$s1" nomain.ax >legacy-nomain.ll 2>/dev/null && grep -q '^target triple' legacy-nomain.ll \
-  && ok "the legacy spelling accepts a module with no \`main\`" \
-  || bad "the legacy spelling over-fires AX4001 - check-diagnostics.sh sweeps main-less modules through it"
 
 # ---------------------------------------------------------------
 # An empty file is READ, not refused.
@@ -608,13 +593,11 @@ fi
   && ok "a boolean flag with =value is refused" || bad "boolean =value (rc=$rc)"
 
 # ---------------------------------------------------------------
-# A mistyped SUBCOMMAND is a subcommand error, not a file error.
+# A mistyped SUBCOMMAND is refused with the real one suggested.
 #
-# `axiom buidl f.ax` was read as the legacy `FILE TARGET` with
-# FILE=`buidl`, so the answer was `cannot read input: buidl` and the
-# user's real filename was discarded. `buidl`->`build` is a
-# TRANSPOSITION, which plain Levenshtein scores as two edits, so this
-# case is also what pins the suggestion threshold at 2 rather than 1.
+# `buidl`->`build` is a TRANSPOSITION, which plain Levenshtein scores
+# as two edits, so this case is also what pins the suggestion threshold
+# at 2 rather than 1.
 "$s1" buidl hello.ax >tc.out 2>tc.err; rc=$?
 if [[ $rc == 2 ]] && grep -q 'unknown command `buidl`' tc.err && grep -q 'did you mean `build`' tc.err; then
   ok "a mistyped subcommand is refused, and suggests the real one"
@@ -622,30 +605,15 @@ else
   bad "typo'd subcommand (rc=$rc): $(head -1 tc.err)"
 fi
 
-# ...but a real file that merely looks nothing like a command keeps the
-# legacy reading, which is what the five harnesses depend on.
-"$s1" hello.ax >lg.ll 2>/dev/null && grep -q '^target triple' lg.ll \
-  && ok "a real file is still read as a file, not guessed at" || bad "legacy reading lost"
-
 # ---------------------------------------------------------------
-# A word that is no command AND near no command was still read as a
-# file. The suggestion above was the only thing that refused a word,
-# so `axiom frobnicate` - two edits from nothing - fell through to the
-# legacy reading and answered `error: could not read file
-# 'frobnicate': No such file or directory` at exit 1, while the EXIT CODES block of
-# `--help` promised 2 for "an unknown command or flag". The rule that
-# now separates the word from the path is `spelledLikePath` in
-# driver.ax: a first operand that opens as nothing is a path if it
-# carries a `/` or a `.`, and an unknown command if it carries neither.
-#
-# Both directions, and the truth is outside the compiler in each: the
-# probe word names nothing in this directory (asserted, not assumed),
-# the status is the one `--help` prints, and a path is a path by its
-# spelling, which the test itself chose.
+# A word near no command is refused the same way, at the status the
+# EXIT CODES block of `--help` prints for an unknown command, and the
+# refusal says how a file is compiled instead of guessing a command.
 [[ ! -e frobnicate ]] || bad "the probe word \`frobnicate\` names something in $work, so nothing below means anything"
 "$s1" frobnicate >uc.out 2>uc.err; rc=$?
-if [[ $rc == 2 ]] && grep -q 'unknown command `frobnicate`' uc.err && grep -q 'axiom --help' uc.err; then
-  ok "a word that is no command and no path is an unknown command: exit 2, named, pointed at --help"
+if [[ $rc == 2 ]] && grep -q 'unknown command `frobnicate`' uc.err && grep -q 'axiom --help' uc.err \
+   && grep -q 'axiom emit-llvm FILE' uc.err; then
+  ok "a word that is no command is an unknown command: exit 2, named, pointed at emit-llvm and --help"
 else
   bad "unknown command (rc=$rc): $(head -1 uc.err)"
 fi
@@ -673,30 +641,19 @@ else
   bad "\`symbols\` bad file (rc=$rc): $(head -1 pb.err)"
 fi
 
-# The other direction. A path that does not exist is a READ FAILURE at
-# exit 1 naming the path, in both spellings a path has: an extension,
-# or a separator. Under the narrower rule "no `.ax` suffix" the first
-# would still pass and `hello.aax` would be an unknown command, which
-# is why the rule is any dot rather than that suffix.
-for p in nosuch.ax ./frobnicate hello.aax; do
-  [[ ! -e "$p" ]] || bad "the probe path \`$p\` exists in $work"
+# Neither the filesystem nor the spelling decides: a first operand that
+# names a missing path, an existing path, or an extensionless file is
+# refused as a command the same way, and nothing is read or emitted.
+cp hello.ax hello
+for p in nosuch.ax ./frobnicate hello.aax hello ./hello.ax; do
   "$s1" "$p" >rp.out 2>rp.err; rc=$?
-  if [[ $rc == 1 ]] && grep -q "error: could not read file '$p': No such file or directory" rp.err \
-     && ! grep -q 'unknown command' rp.err; then
-    ok "\`$p\` is a path by its spelling: read failure, exit 1, named"
+  if [[ $rc == 2 ]] && [[ ! -s rp.out ]] && grep -q "unknown command \`$p\`" rp.err \
+     && ! grep -q 'could not read' rp.err; then
+    ok "\`$p\` as the first operand is an unknown command, exit 2, named"
   else
     bad "\`$p\` (rc=$rc): $(head -1 rp.err)"
   fi
 done
-
-# And the boundary the rule is drawn at: an extensionless file that
-# EXISTS is opened before its spelling is ever asked about, so it is
-# still a file.
-cp hello.ax hello
-"$s1" hello >bare.ll 2>bare.err; rc=$?
-[[ $rc == 0 ]] && grep -q '^target triple' bare.ll \
-  && ok "an existing extensionless file is still read as a file" \
-  || bad "existing extensionless file (rc=$rc): $(head -1 bare.err)"
 
 # ---------------------------------------------------------------
 # `--gc` names a capability this compiler does not have.

@@ -463,8 +463,8 @@
 ; string when `doEmit` is 0, which is what `check` wants.
 ;
 ; `needMain` is 1 for the subcommands that produce an executable -
-; `build` and `run` - and 0 for `check`, `emit-llvm` and the legacy
-; `axiom FILE` spelling. That split is stage0's: its `build` tested the
+; `build` and `run` - and 0 for `check` and `emit-llvm`. That split is
+; stage0's: its `build` tested the
 ; generated module for an entry point and its `emit_llvm` did not, so a
 ; library module can still be checked and can still have its IR read.
 ;
@@ -851,11 +851,9 @@
                             })
                         }))))))))))))
 
-; The entry point: a subcommand if the first argument names one, and
-; otherwise the original `stage1 FILE [TARGET]` spelling.
-;
-; See `driver.ax` for why that fallback is not optional - five gate
-; scripts use it, and they are the only gates that watch this compiler.
+; The entry point: the subcommand the first operand names. A first
+; operand that names none is an unknown command (`rejectUnknownCommand`),
+; and no operand at all prints the usage.
 (pub :: main Int)
 ;@axiom:effect(io)
 ;@axiom:effect(spawn)
@@ -890,57 +888,15 @@
       (if (strEq first "symbols")
         symbolsCheckFormat
         0)
-      (if (== (strLen first) 0)
-        rejectUnknownCommand
-        0)
       (if (> (strLen first) 0)
         (runSubcommand first)
-        ; The original spelling: the first positional is the input, the
-        ; second is the target. Positions rather than argv indices,
-        ; because a global flag may sit in front of either.
-        ; No subcommand and no file: print the usage rather than a
-        ; complaint about `in.ax`, a filename the user never typed and
-        ; which only exists as this fallback's default. A bare `axiom`
-        ; said `cannot read input: in.ax` and exited 1, which reads as a
-        ; missing file rather than as a missing argument.
-        (let ((i1 (positionalIndex 1)))
-          (if (< i1 0)
-            (die usageText 1)
-            ; `i1` is known good here, so the target scan starts
-            ; one past it unconditionally.
-            (let (
-              (fileName (sysArg i1))
-              (tname (let ((v (flagValue "--target" 1)))
-                (if (> (strLen v) 0)
-                  v
-                  (let ((i2 (positionalIndex (+ i1 1))))
-                    (if (< i2 0)
-                      hostTarget
-                      (sysArg i2))))))
-            )
-              {
-                (writeStr 2 "warning: `axiom FILE [TARGET]` is deprecated; use `axiom emit-llvm FILE [--target TARGET]`\n")
-                (let ((ir (compileFile fileName tname 1 0)))
-                  {
-                    (replOut ir)
-                    0
-                  })}))))
+        ; No subcommand and no operand: print the usage rather than a
+        ; complaint about a file nobody named.
+        (if (< (positionalIndex 1) 0)
+          (die usageText 1)
+          rejectUnknownCommand))
     }))
 
-; `axiom buidl f.ax` used to be read as the legacy `axiom FILE TARGET`
-; with FILE=`buidl`, so the answer was `cannot read input: buidl` - a
-; file error naming a word the user meant as a command, with their
-; actual filename silently discarded.
-;
-; The two readings are genuinely ambiguous, because the legacy spelling
-; makes ANY first positional a filename. The tie is broken by asking
-; the filesystem and then the spelling (`rejectUnknownCommand`, below;
-; the rule is `spelledLikePath` in driver.ax): a first operand that
-; opens is a file, one that does not and is spelled as a path is a
-; file that failed to read, and one that is neither is an unknown
-; command. This paragraph said "within one edit of a subcommand" for
-; as long as the threshold was two, and the distance is no longer the
-; deciding question at all.
 ; ------------------------------------------------------------------
 ; `axiom test`
 ; ------------------------------------------------------------------
@@ -1419,38 +1375,26 @@
               })))
         (testRunFile target filter)))))
 
-; A first operand that is no subcommand, opens as nothing, and is not
-; spelled as a path is an unknown command: exit 2, named, with the
-; nearest command suggested when one is within two edits. The rule
-; that separates the word from the path is `spelledLikePath` in
-; driver.ax, where the reasoning is.
-;
-; Until 2026-09-04 only the suggestion half existed - a word was
-; refused only when a command name was near it - so `axiom frobnicate`
-; was read as the legacy FILE and answered a read failure at exit 1,
-; against the exit-code table `--help` prints.
+; A first operand that is no subcommand is an unknown command: exit 2,
+; named, whether or not it names a file. The refusal suggests the
+; nearest command when one is within two edits, and otherwise says how
+; a file is compiled.
 (pub :: rejectUnknownCommand Int)
 ;@axiom:effect(io)
 (pub fn (rejectUnknownCommand)
   (let ((i (positionalIndex 1)))
     (if (< i 0)
       0
-      ; OPENED, never read: this asks whether the word names a path
-      ; at all, and `sysReadErrno`'s one-byte probe would consume the
-      ; first byte of a piped `/dev/stdin` before `compileFile` ever
-      ; saw it (the measurement is at `sourceReadErrnoFor`). A path
-      ; that opens and then cannot be read - a directory - is not a
-      ; typo either; `compileFile` reports it with its errno.
-      (let ((w (sysArg i)))
-        (if (fileExists w)
-          0
-          (if (spelledLikePath w)
-            0
-            (let ((near (nearestSubcommand w)))
-              (usageError
-                (if (== (strLen near) 0)
-                  (concat "error: unknown command `" (concat w "`\n"))
-                  (concat (concat "error: unknown command `" (concat w "`\n")) (concat "       did you mean `" (concat near "`?\n"))))))))))))
+      (let (
+        (w (sysArg i))
+        (near (nearestSubcommand (sysArg i)))
+      )
+        (usageError
+          (concat
+            (concat "error: unknown command `" (concat w "`\n"))
+            (if (== (strLen near) 0)
+              "       to compile a file, use `axiom emit-llvm FILE [--target TARGET]`, `axiom run FILE` or `axiom build FILE`\n"
+              (concat "       did you mean `" (concat near "`?\n")))))))))
 
 ; `axiom new NAME`: start a project.
 ;

@@ -226,7 +226,7 @@ build_next() {
   cp "$repo_root/self_host/main.ax" "$work/in.ax"
   # The compile itself runs with cwd=$work, where the stdlib/self_host
   # symlinks are, so `(import IO)` resolves for every stage.
-  (cd "$work" && "./$from" in.ax >"$dir/axc.ll" 2>"$dir/axc.ll.err") \
+  (cd "$work" && "./$from" emit-llvm in.ax >"$dir/axc.ll" 2>"$dir/axc.ll.err") \
     || { head -5 "$work/$dir/axc.ll.err" >&2; fail "$from could not compile self_host/main.ax"; }
   # Blame the stage that produced the garbage, not the tool that
   # chokes on it. Ablated with a seed that was a valid Axiom program

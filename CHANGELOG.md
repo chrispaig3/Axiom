@@ -16,6 +16,14 @@ its changelog too.
 
 ## Unreleased
 
+- Remove `axiom FILE [TARGET]`. The first operand is always a command,
+  so a bare file is refused as an unknown command with exit status 2
+  and a pointer to `axiom emit-llvm FILE [--target TARGET]`, `run` and
+  `build`. The bootstrap and reseed scripts emit through `emit-llvm`,
+  and the seed checks replay each committed seed the way its commit
+  emitted it. Tested by `scripts/check-driver.sh` and
+  `scripts/check-seed-lineage.sh`.
+
 - Boot the `baremetal-aarch64` images under QEMU on the darwin-aarch64
   CI leg, where a missing emulator now fails `check-embedded.sh`. Pin
   every Linux job to the Ubuntu 24.04 image and the bootstrap job to the
