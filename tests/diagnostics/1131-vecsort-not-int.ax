@@ -1,0 +1,11 @@
+; `vecSort` orders the words a vector holds, which is numeric order only
+; for `Int`, so a vector of strings is refused. Sort one with `vecSortBy`
+; and `strCmp`.
+(import Vec)
+
+(:: countSorted (-> (Vec String) Int))
+(fn (countSorted v)
+  (vecLen (vecSort v)))
+
+(:: main Int)
+(fn (main) 0)

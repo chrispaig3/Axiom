@@ -1957,6 +1957,6 @@ two differ.
 | `vecClear` | value | `(-> (Vec a) (Vec a))` | `Mut,Unsafe` | Drop every element, keeping the capacity. Returns the handle. |
 | `vecSum` | value | `(-> (Vec Int) Int)` |  | The sum of every element. |
 | `vecHash` | value | `(-> (Vec Int) Int)` |  | A position-sensitive digest of the whole vector. |
-| `vecSort` | value | `(-> (Vec a) (Vec a))` | `Mut,Unsafe` | Sort ascending, in place, by machine word. Answers the vector. |
+| `vecSort` | value | `(-> (Vec Int) (Vec Int))` | `Mut,Unsafe` | Sort a vector of `Int` ascending, in place. Answers the vector. |
 | `vecSortBy` | value | `(-> (Vec a) (-> Int Int Int) (Vec a))` | `Mut,Unsafe` | The same, ordered by a caller's comparison rather than by the word. |
 

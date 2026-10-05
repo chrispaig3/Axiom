@@ -22,6 +22,7 @@
 0.7.9  L  fn-expression  `(fn (x) ...)` inside an expression is AX2004; write `(lambda (x) ...)`
 0.7.9  L  struct-expression  `(struct T ...)` inside an expression is AX2004; call the struct by name, `(T ...)`
 0.7.9  L  alloc-effect  a lowercase `alloc` effect is no longer `Alloc`; write `Alloc`
+0.7.9  F  vecSort  (Vec a) -> (Vec Int): it orders machine words, which is value order only for Int; sort other vectors with vecSortBy
 0.7.9  F  chanOwnerDead  removed: a poisoned channel's timed calls answer syncOwnerDead, the same code 1004
 0.7.8  RUST  Ret.direct_payload  returns Option<Payload>; handle None for scalar, opaque and status returns
 0.7.8  CLI  symbols-json  JSON symbol output is refused with status 2; use --diagnostic-format=ai

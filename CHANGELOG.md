@@ -108,6 +108,11 @@ its changelog too.
   `tests/stdlib/703-memory-stats.ax` and
   `tests/stdlib/704-task-decoded.ax`.
 
+- `vecSort` takes a `(Vec Int)`. It orders the words a vector holds,
+  so a `(Vec String)` came back in allocation order; that call is now
+  refused with `AX3004`. Sort any other element type with `vecSortBy`.
+  Tested by `tests/diagnostics/1131-vecsort-not-int.ax`.
+
 - Give the standard library's error codes a range no errno can reach.
   `errDivideByZero`, `errOverflow`, `errShiftTooWide` and `errShortWrite`
   are 1006 to 1009. They were 1 to 4, which a caller could not tell

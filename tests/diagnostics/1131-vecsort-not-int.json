@@ -1,0 +1,1 @@
+{"severity":"error","code":"AX3004","slug":"type-mismatch","message":"type mismatch: expected Vec Int, found Vec String","file":"1131-vecsort-not-int.ax","span":{"start":{"line":8,"col":20},"end":{"line":8,"col":21},"char_start":255,"char_end":256},"label":"this has type `Vec String`, expected `Vec Int`","related":[],"notes":[],"help":[],"expansion":[]}

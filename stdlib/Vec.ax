@@ -705,17 +705,15 @@
       0
     }))
 
-; Sort ascending, in place, by machine word. Answers the vector.
+; Sort a vector of `Int` ascending, in place. Answers the vector.
 ;
-; BY WORD is the honest description, and it stayed true when the
-; container gained its element type: `a` is RIGID here, so this body
-; cannot ask what an element means - it orders the words the vector
-; holds. For a `(Vec Int)` that is the numeric order a caller wants.
-; For a `(Vec String)` the word is a handle and its order is an
-; allocation order, which is stable within a run and means nothing
-; across runs - use `vecSortBy` with `strCmp`.
+; The body orders the words the vector holds, which is numeric order
+; only for an `Int`: the word of a `String` is a handle, and its order
+; is an allocation order that means nothing. So the signature names
+; `Int`, and any other element type sorts with `vecSortBy` and a
+; comparison, such as `strCmp` for strings.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
-(pub :: vecSort (-> (Vec a) (Vec a)))
+(pub :: vecSort (-> (Vec Int) (Vec Int)))
 ;@axiom:effect(unsafe)
 (pub fn (vecSort v)
   (let (
