@@ -594,6 +594,11 @@
       (vecPush ps 0)
       ; slot 16: opt-in binary obfuscation, set by emitResolvedMode.
       (vecPush ps 0)
+      ; slot 17: the allocas of the OWNING `mut` slots in scope, the
+      ; `mut` twin of word 42's pending `let` releases: a self tail
+      ; call jumps past their scope ends, so `emitTailJump` loads and
+      ; releases each before the jump (`emitLetMAt`, `slotOwns`).
+      (vecPushVec ps vecNew)
       (addTypeNamed
         ts
         "Some"
@@ -1275,8 +1280,9 @@
 ; a `cast`, a local function value, or a function whose result is a
 ; type variable (none of those retains what it is handed back);
 ; a `match` scrutinee built in place; a temporary stored through
-; `set`. Each is the leak direction, and each is narrower than the
-; old rule's "everything not bound to a direct construction".
+; `set` into a slot that only stores (`slotOwns` refused it). Each is
+; the leak direction, and each is narrower than the old rule's
+; "everything not bound to a direct construction".
 ; ------------------------------------------------------------------
 (pub :: inferOwnership (-> Int (Vec Int) Int))
 ;@axiom:effect(unsafe)
@@ -16307,6 +16313,8 @@
       ; their scope ends are past the jump and will not be reached on
       ; this path; the values the slots keep were retained above
       (releasePending cg (memGetWordVec cg 42) 0)
+      ; and every owning `mut` slot still in scope, by what it holds now
+      (releasePendingSlots cg (cast (Vec Int) (pairSlot cg 17)) 0)
       (emitLine cg (concat "  br label %" (memGetWordStr cg 29)))
       (memSetWord cg 31 1)
       (memSetWord cg 2 "0")
@@ -16349,6 +16357,19 @@
       (emitReleaseOf
         cg
         (cast String (vecGet pend i)))
+      pend
+      (+ i 1))))
+
+; The owning `mut` slots' half: each entry is an alloca, and what it
+; holds is loaded at the jump, since a `set` may have replaced the
+; value the slot was bound to.
+(pub :: releasePendingSlots (-> Int (Vec Int) Int Int))
+;@axiom:effect(unsafe)
+(pub fn (releasePendingSlots cg pend i)
+  (if (>= i (vecLen pend))
+    cg
+    (releasePendingSlots
+      (releaseSlotValue cg (cast String (vecGet pend i)))
       pend
       (+ i 1))))
 
@@ -17314,7 +17335,7 @@
     (let ((pi (curParamIndex cg (vecGetStr capNames i))))
       (+
         (if (if (< pi 0)
-          (== (lookupSymKind cg (vecGetStr capNames i)) 3)
+          (>= (lookupSymKind cg (vecGetStr capNames i)) 3)
           (== (curParamRefClass cg pi) 1))
           (pow2 (+ 16 (+ 1 i)))
           0)
@@ -17338,7 +17359,7 @@
     (let ((pi (curParamIndex cg (vecGetStr capNames i))))
       (let ((cg1 
         (if (if (< pi 0)
-          (== (lookupSymKind cg (vecGetStr capNames i)) 3)
+          (>= (lookupSymKind cg (vecGetStr capNames i)) 3)
           (== (curParamRefClass cg pi) 1))
           (emitRetainOf cg (vecGetStr capRegs i))
           cg)))
@@ -17616,7 +17637,9 @@
 
 ; The four symbol vectors stay parallel by construction: this is the
 ; only place that pushes them. Kind 0 is a value register, 1 a
-; mutable alloca, 2 a TCO alloca and 3 a counted value register.
+; mutable alloca, 2 a TCO alloca, 3 a counted value register and 4 a
+; mutable alloca that owns a share of what it holds (`slotOwns`). A
+; capture of kind 3 or 4 takes its own share (`captureCounted`).
 (pub :: bindSym (-> Int String String Int Int Int))
 ;@axiom:effect(unsafe)
 (pub fn (bindSym cg name reg isFloat kind)
@@ -22201,9 +22224,11 @@
             0
             (if (> (vecLen (memGetWordVec cg 42)) 0)
               0
-              (if (> (ownedArgReleases cg fnName args 0) 0)
+              (if (> (vecLen (cast (Vec Int) (pairSlot cg 17))) 0)
                 0
-                1))))))))
+                (if (> (ownedArgReleases cg fnName args 0) 0)
+                  0
+                  1)))))))))
 
 ; `dispatchCall` arms the token for the one call it may mark: a tail
 ; application (3 - no leaf retain owed) whose head is a DEFINED
@@ -24007,6 +24032,9 @@
         (valReg (strDup (memGetWordStr cg1 2)))
         (valFlag (memGetWord cg1 14))
         (mark (symMark cg1))
+        ; asked before the binder exists: `(let ((x x)) ...)` reads the
+        ; slot, and the new `x` must not answer for it
+        (slotAlias (slotReadOf cg1 valExpr))
       )
         {
           (bindSym
@@ -24015,7 +24043,8 @@
             valReg
             valFlag
             (if (|| (== (valueOwnedRef cg1 valExpr) 1)
-              (&& (== (nodeTag valExpr) TAG_E_VAR) (== (lookupSymKind cg1 (nodeAName valExpr)) 3))) 3 0))
+              (|| (== slotAlias 1)
+                (&& (== (nodeTag valExpr) TAG_E_VAR) (== (lookupSymKind cg1 (nodeAName valExpr)) 3)))) 3 0))
           ; a `let` of a REFERENCE FIELD read takes its own share, when
           ; the walk says the binding does not escape: the field's share
           ; is the block's, and a store to the field (event 5) releases
@@ -24035,14 +24064,30 @@
               (binderSummary body)) 0)))
               1
               0)))
-            (let ((cg1 
-              (if (== fieldAlias 1)
+            ; a `let` of an OWNING `mut` slot's value takes its own share
+            ; whatever the walk says: a `set` of the slot releases what it
+            ; held, and the slot's scope end releases its last value, so a
+            ; borrowed alias would dangle past either. The slot's escape
+            ; walk counts on this (`escapes`, the `let` arm), and gives
+            ; the share back at scope end only when the binding does not
+            ; escape itself.
+            (let ((cg1
+              (if (|| (== fieldAlias 1) (== slotAlias 1))
                 (emitRetainOf cg1 valReg)
                 cg1)))
-              (let ((releasable 
+              (let ((releasable
                 (if (== fieldAlias 1)
                   1
-                  (letReleasable cg1 valExpr name body))))
+                  (if (== slotAlias 1)
+                    (if (== (escapes
+                      cg1
+                      name
+                      body
+                      1
+                      (binderSummary body)) 0)
+                      1
+                      0)
+                    (letReleasable cg1 valExpr name body)))))
                 (let ((pmark (vecLen (memGetWordVec cg1 42))))
                   {
                     (if (== releasable 1)
@@ -24077,9 +24122,10 @@
                         ; takes the share for the tail-jump path, which
                         ; keeps its release. Inlined rather than factored
                         ; so no new top-level function moves the
-                        ; effect-distribution pins. `emitLetMAt` needs
-                        ; nothing: a mutable binding keeps its alloca and
-                        ; has no scope-end release to spend.
+                        ; effect-distribution pins. `emitLetMAt` spends
+                        ; no stamp: an owning slot's scope-end release
+                        ; is of whatever the slot holds by then, which
+                        ; no initialiser's witness describes.
                         ; S4 slice 3, scope-end path: a `let` initialiser
                         ; that is a join the witness proved fresh spends
                         ; the same way - same depth gate, same
@@ -24219,7 +24265,8 @@
 ;
 ;   a LAMBDA that mentions an unclassified binding. Counted captures
 ;     take their own share, so their outer binding may release its own;
-;   a `set` RHS - a slot store takes no share;
+;   a `set` RHS - a slot store takes no share, unless the slot owns
+;     what it holds (`slotStoreCounts`);
 ;   `cast`, `__addr` and `strData` - the three ways to get a WORD out
 ;     of a reference. A word stashed anywhere is invisible to counting
 ;     by construction (MM-LIFE-2g's own stated limit), so a binding
@@ -24254,7 +24301,7 @@
             ; - an alias the walk follows - is a different binding, and
             ; an outer counted one of the same spelling vouched for a
             ; capture that took no share
-            (if (&& (== (lookupSymKind cg name) 3) (== (boundIn name bound) 0))
+            (if (&& (>= (lookupSymKind cg name) 3) (== (boundIn name bound) 0))
               0
               (mentions name e))
             (if (== tg TAG_E_VAR)
@@ -24424,13 +24471,19 @@
                               vp
                               bound) 1)
                               1
+                              ; ... except a `let` of an owning `mut` slot read
+                              ; bare, which takes a share of its own
+                              ; (`emitLetAt`, `slotAlias`): where that binding
+                              ; goes is its own business, not the slot's
                               (if (== (mayAlias cg name (nodeB e) bound) 1)
-                                (escapes
-                                  cg
-                                  (nodeAName e)
-                                  (nodeC e)
-                                  vp
-                                  bound)
+                                (if (&& (== tg TAG_E_LET) (&& (== (nodeTag (nodeB e)) TAG_E_VAR) (&& (strEq (nodeAName (nodeB e)) name) (&& (== (slotReadOf cg (nodeB e)) 1) (== (boundIn name bound) 0)))))
+                                  0
+                                  (escapes
+                                    cg
+                                    (nodeAName e)
+                                    (nodeC e)
+                                    vp
+                                    bound))
                                 0)))
                           (if (|| (== tg TAG_E_WHILE) (== tg TAG_E_REGION))
                             (if (== tg TAG_E_REGION)
@@ -24461,8 +24514,10 @@
                               ; tail call kept every iteration's string). And the value
                               ; is walked in argument position for what it PARKS on the
                               ; way: a lambda capturing the binding, a constructor's
-                              ; word field, a callee that stashes it
-                              (if (!= (bindingFlow cg name (nodeB e)) 0)
+                              ; word field, a callee that stashes it. An OWNING slot
+                              ; (`slotOwns`) is the exception: its store retains what
+                              ; it is given, as a field store does
+                              (if (&& (!= (bindingFlow cg name (nodeB e)) 0) (== (slotStoreCounts cg (nodeAName e) bound) 0))
                                 1
                                 (escapes
                                   cg
@@ -25373,7 +25428,12 @@
           (cast String (vecGet v i)))))))
 
 ; A mutable binding: the initialiser's value goes into an alloca, the
-; name binds the alloca (kind 1), and reads load.
+; name binds the alloca, and reads load. A slot of a reference type
+; that `slotOwns` admits holds a share of what it holds (kind 4): the
+; initialiser moves in when it arrives owned and is retained when it
+; is borrowed, `emitSet` releases what a store overwrites, and the
+; scope end releases the last value (MM-LIFE-2c event 3). Any other
+; slot is storage only (kind 1).
 (pub :: emitLetM (-> Int Int Int))
 ;@axiom:effect(io)
 (pub fn (emitLetM node cg)
@@ -25394,31 +25454,103 @@
         (valFlag (memGetWord cg1 14))
         (mark (symMark cg1))
         (an (allocReg cg1))
+        (initOwned (valueOwnedRef cg1 valExpr))
+        (cls (slotClassOf cg1 node))
       )
         (let ((ar (tmpStr "s" an)))
           {
             (emitAlloca cg1 ar)
-            (emitLine cg1 (concat "  store i64 " (concat valReg (concat ", ptr " ar))))
+            ; bound as an owning slot while the walks below run, so a
+            ; lambda capturing it reads as the counted capture it will
+            ; be if they say yes, and set back to kind 1 if they say no
             (bindSym
               cg1
               name
               ar
               valFlag
-              1)
-            (let ((cgB 
-              (if (== tail 1)
-                (emitExprTail body cg1)
-                (emitExpr body cg1))))
-              {
-                (symRestore cgB mark)
-                cgB
-              })
+              (if (== cls 2)
+                4
+                1))
+            (let (
+              (bound
+                (if (== cls 2)
+                  (binderSummary body)
+                  0))
+              (own
+                (if (== cls 2)
+                  (slotOwns cg1 node bound)
+                  0))
+            )
+              (let ((relEnd
+                (if (== own 1)
+                  (slotReleasesAtEnd cg1 node tail bound)
+                  0)))
+                {
+                  (if (&& (== cls 2) (== own 0))
+                    (vecSet
+                      (memGetWordVec cg1 20)
+                      (- (vecLen (memGetWordVec cg1 20)) 1)
+                      1)
+                    (memGetWordVec cg1 20))
+                  (let ((cgI
+                    (if (&& (== own 1) (!= initOwned 1))
+                      (emitRetainOf cg1 valReg)
+                      cg1)))
+                    (let (
+                      (_s (emitLine cgI (concat "  store i64 " (concat valReg (concat ", ptr " ar)))))
+                      (pend (cast (Vec Int) (pairSlot cgI 17)))
+                    )
+                      (let ((pmark (vecLen pend)))
+                        {
+                          ; PENDING while the body emits, as a releasable
+                          ; `let` is: a self tail call jumps past the scope
+                          ; end below and pays it at the jump
+                          (if (== own 1)
+                            (vecPush
+                              pend
+                              (cast Int ar))
+                            pend)
+                          (let ((cgB
+                            (if (== tail 1)
+                              (emitExprTail body cgI)
+                              (emitExpr body cgI))))
+                            {
+                              (memSetWord
+                                (cast Int pend)
+                                0
+                                pmark)
+                              (symRestore cgB mark)
+                              ; The release goes at the scope end, in the block
+                              ; the body left current - not when the body ended
+                              ; in a jump or a `ret`, which paid or cannot be
+                              ; followed.
+                              (if (&& (== relEnd 1) (!= (memGetWord cgB 31) 1))
+                                (let (
+                                  (res (strDup (memGetWordStr cgB 2)))
+                                  (fl (memGetWord cgB 14))
+                                  (cgR (releaseSlotValue cgB ar))
+                                )
+                                  {
+                                    (memSetWord cgR 2 res)
+                                    (memSetWord cgR 14 fl)
+                                    cgR
+                                  })
+                                cgB)
+                            })
+                        })))
+                }))
           })))))
 
 ; `(set name v)` stores into the binding's alloca and evaluates to `v`,
 ; matching stage0. A target with no storage - unbound, immutable, or a
 ; parameter - is refused loudly; stage0 rejects it as AX3012 and this
 ; compiler has no diagnostic channel subtler than dying.
+;
+; An owning slot (kind 4) does what a field store does (event 5): it
+; takes a share of `v` - a move when `v` arrives owned - and only then
+; releases the value it overwrites, so `(set x x)` keeps its block.
+; The old value is loaded after `v` is evaluated, because `v` may read
+; the slot, as `(set s (concat s "x"))` does.
 (pub :: emitSet (-> Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
@@ -25427,25 +25559,475 @@
     (name (nodeAName node))
     (valExpr (nodeB node))
   )
-    (let ((storage (lookupSym cg name)))
+    (let (
+      (storage (lookupSym cg name))
+      (kind (lookupSymKind cg name))
+    )
       (if (== storage 0)
         (dieCodegenDiag "set target is not a mut binding: " name)
-        (if (!= (lookupSymKind cg name) 1)
+        (if (&& (!= kind 1) (!= kind 4))
           (dieCodegenDiag "set target is not a mut binding: " name)
           (let ((cg1 (emitExpr valExpr cg)))
-            (let ((v (strDup (memGetWordStr cg1 2))))
+            (let (
+              (v (strDup (memGetWordStr cg1 2)))
+              (ptr (strDup
+                (cast String storage)))
+            )
               {
-                (emitLine
-                  cg1
-                  (concat
-                    "  store i64 "
-                    (concat v
-                    (concat ", ptr "
-                    (strDup
-                      (cast String storage))))))
+                (if (== kind 4)
+                  (let ((cgR
+                    (if (== (valueOwnedRef cg1 valExpr) 1)
+                      cg1
+                      (emitRetainOf cg1 v))))
+                    (let ((old (regStr (allocReg cgR))))
+                      {
+                        (emitLine cgR (concat "  " (concat old (concat " = load i64, ptr " ptr))))
+                        (emitLine cgR (concat "  store i64 " (concat v (concat ", ptr " ptr))))
+                        (emitReleaseOf cgR old)
+                      }))
+                  (emitLine cg1 (concat "  store i64 " (concat v (concat ", ptr " ptr)))))
                 (memSetWord cg1 2 v)
                 cg1
               })))))))
+
+; Load what the owning slot `ar` holds now, and release it.
+(pub :: releaseSlotValue (-> Int String Int))
+(pub fn (releaseSlotValue cg ar)
+  (let ((r (regStr (allocReg cg))))
+    (emitReleaseOf
+      (emitLine cg (concat "  " (concat r (concat " = load i64, ptr " ar))))
+      r)))
+
+; ------------------------------------------------------------------
+; Which `mut` slots own (MM-LIFE-2c event 3, MM-MUT-1).
+;
+; A read of a slot is a borrow: no count moves. That is sound for an
+; owning slot only while nothing a read produced is still in use when
+; a `set` releases the value it came from, or when the scope end
+; releases the last one. `slotOwns` admits a slot when all of these
+; hold, and each refusal is the leak direction - the slot keeps the
+; storage-only behaviour:
+;
+;   its type is a reference (`fldClass` 2, from the checker's stamp):
+;     a scalar, a `Foreign` and a `Vec` take no counts at all;
+;   no binder under the body reuses its name, so every `x` and every
+;     `(set x ...)` the walks meet is this slot (`slotRebinds`);
+;   no `(set x v)` hands its value to anything but a statement or the
+;     `let`'s own value: a `set` answers the slot's content, borrowed
+;     (`slotSetFlow`);
+;   the slot does not escape in argument position (`escapes`, with the
+;     slot bound as kind 4, so a lambda's capture is a counted one);
+;   no value that may alias the slot is held across a `set` of it
+;     (`slotScan`).
+;
+; The last value is released at the scope end when the `let`'s value
+; cannot carry it either, or - in tail position - when every tail
+; leaf is retained on the way out or is a share of its own
+; (`slotReleasesAtEnd`).
+; ------------------------------------------------------------------
+
+; The reference class of a `mut` slot's type, which the checker stamps
+; on the binding (`checkExprHCore`). A lambda still waiting for its
+; parameter types is a closure, so a reference. An unstamped binding
+; is unclassifiable.
+(pub :: slotClassOf (-> Int Int Int))
+(pub fn (slotClassOf cg node)
+  (let ((t (nodeBinderTy node)))
+    (if (== t 0)
+      1
+      (if (== (nodeTag t) TAG_E_LAM)
+        2
+        (fldClass cg (tyResolve t))))))
+
+; A bare read of an owning slot, as the emitter will resolve it.
+(pub :: slotReadOf (-> Int Int Int))
+(pub fn (slotReadOf cg e)
+  (if (== (nodeTag e) TAG_E_VAR)
+    (if (&& (!= (nodeDefScope e) 1) (== (lookupSymKind cg (nodeAName e)) 4))
+      1
+      0)
+    0))
+
+; Does `(set target v)` under the walk rooted at `bound` store into an
+; owning slot, which takes a share of `v`? Only when no binder under
+; the root reuses the name, so the symbol table's answer is the one
+; the store will meet.
+(pub :: slotStoreCounts (-> Int String Int Int))
+(pub fn (slotStoreCounts cg target bound)
+  (if (&& (== (lookupSymKind cg target) 4) (== (boundIn target bound) 0))
+    1
+    0))
+
+; `bound` is `binderSummary` of the body, shared with
+; `slotReleasesAtEnd`: nothing is emitted between the two.
+(pub :: slotOwns (-> Int Int Int Int))
+(pub fn (slotOwns cg node bound)
+  (let (
+    (name (nodeAName node))
+    (body (nodeC node))
+  )
+    (if (== (slotRebinds name body) 1)
+      0
+      (if (!= (& (slotSetFlow name body 1) 2) 0)
+        0
+        (if (== (escapes
+          cg
+          name
+          body
+          0
+          bound) 1)
+          0
+          (if (!= (& (slotScan cg name body bound) 2) 0)
+            0
+            1))))))
+
+; May the scope end release the slot's last value? When the `let`'s
+; value cannot carry it - no escape in value position, no `set` there
+; - or when the `let` is in tail position and every tail leaf is
+; retained before the scope end (event 2's `tailRetain`) or is a
+; share of its own. Inside a lambda the leaf retain must be the
+; unconditional one.
+(pub :: slotReleasesAtEnd (-> Int Int Int Int Int))
+(pub fn (slotReleasesAtEnd cg node tail bound)
+  (let (
+    (name (nodeAName node))
+    (body (nodeC node))
+  )
+    (if (&& (== (escapes
+      cg
+      name
+      body
+      1
+      bound) 0) (== (slotSetFlow name body 1) 0))
+      1
+      (if (== tail 0)
+        0
+        (if (== (pairSlot cg 7) 1)
+          (let ((lamTy (pairSlot cg 14)))
+            (if (== (fldClass cg (if (== lamTy 0) 0 (nodeB lamTy))) 2)
+              (slotTailCovered cg body)
+              0))
+          (slotTailCovered cg body))))))
+
+; Every value the tail of `e` can answer, as `emitExprTail` will emit
+; it: retained on the way out (it is in word 41), or a share of its own.
+(pub :: slotTailCovered (-> Int Int Int))
+;@axiom:effect(unsafe)
+(pub fn (slotTailCovered cg e)
+  (if (== e 0)
+    1
+    (let ((tg (nodeTag e)))
+      (if (== tg TAG_E_IF)
+        (if (== (slotTailCovered cg (nodeB e)) 1)
+          (slotTailCovered cg (nodeC e))
+          0)
+        (if (== tg TAG_E_BEGIN)
+          (let ((xs (nodeAVec e)))
+            (if (== (vecLen xs) 0)
+              1
+              (slotTailCovered cg (vecGet xs (- (vecLen xs) 1)))))
+          (if (|| (== tg TAG_E_LET) (== tg TAG_E_LETM))
+            (slotTailCovered cg (nodeC e))
+            (if (== tg TAG_E_MATCH)
+              ; a match the tail emitter delegates is emitted as an
+              ; ordinary one, and its arms' leaves are not retained
+              (if (== (pairTailDelegates cg e) 1)
+                0
+                (let (
+                  (arms (nodeBVec e))
+                  (mut i 0)
+                  (mut ok 1)
+                )
+                  {
+                    (while (&& (== ok 1) (< i (vecLen arms)))
+                      {
+                        (set ok (slotTailCovered cg (nodeB (vecGet arms i))))
+                        (set i (+ i 1))
+                      })
+                    ok
+                  }))
+              (if (== (nodeInVec (memGetWordVec cg 41) e 0) 1)
+                1
+                (if (|| (== tg TAG_E_INT) (|| (== tg TAG_E_FLT) (|| (== tg TAG_E_STR) (== tg TAG_E_CHAR))))
+                  1
+                  ; a `set` answers what the slot now holds
+                  (if (== tg TAG_E_SET)
+                    0
+                    (valueOwnedRef cg e)))))))))))
+
+; The child expressions of `e` in evaluation order: how many there
+; are, -1 for a tag these walks do not know, and the i-th. They are
+; counted and indexed in place rather than collected, because the walks
+; below visit every node under each owning slot's scope. A `handle`'s
+; effect names and a field store's field name are not expressions.
+(pub :: slotPartCount (-> Int Int))
+(pub fn (slotPartCount e)
+  (let ((tg (nodeTag e)))
+    (if (|| (== tg TAG_E_INT) (|| (== tg TAG_E_FLT) (|| (== tg TAG_E_STR) (|| (== tg TAG_E_CHAR) (|| (== tg TAG_E_VAR) (== tg TAG_E_QUOTE))))))
+      0
+      (if (== tg TAG_E_APP)
+        (+ 1 (spineArity e))
+        (if (|| (== tg TAG_E_LET) (|| (== tg TAG_E_LETM) (|| (== tg TAG_E_SETF) (== tg TAG_E_HANDLE))))
+          2
+          (if (== tg TAG_E_IF)
+            3
+            (if (|| (== tg TAG_E_SET) (|| (== tg TAG_E_LAM) (|| (== tg TAG_E_REGION) (== tg TAG_E_FIELD))))
+              1
+              (if (== tg TAG_E_BEGIN)
+                (vecLen (nodeAVec e))
+                (if (== tg TAG_E_STRUCTCON)
+                  (vecLen (nodeBVec e))
+                  (if (|| (== tg TAG_E_WHILE) (|| (== tg TAG_E_SUBCHECK) (== tg TAG_E_MATCH)))
+                    (+ 1 (vecLen (nodeBVec e)))
+                    (- 0 1)))))))))))
+
+(pub :: slotPart (-> Int Int Int))
+(pub fn (slotPart e i)
+  (let ((tg (nodeTag e)))
+    (if (== tg TAG_E_APP)
+      (if (== i 0)
+        (spineHead e)
+        (spineArgAt e (- i 1)))
+      (if (|| (== tg TAG_E_LET) (== tg TAG_E_LETM))
+        (if (== i 0)
+          (nodeB e)
+          (nodeC e))
+        (if (|| (== tg TAG_E_SETF) (== tg TAG_E_HANDLE))
+          (if (== i 0)
+            (nodeA e)
+            (nodeC e))
+          (if (== tg TAG_E_IF)
+            (if (== i 0)
+              (nodeA e)
+              (if (== i 1)
+                (nodeB e)
+                (nodeC e)))
+            (if (|| (== tg TAG_E_SET) (|| (== tg TAG_E_LAM) (== tg TAG_E_REGION)))
+              (nodeB e)
+              (if (== tg TAG_E_FIELD)
+                (nodeA e)
+                (if (== tg TAG_E_BEGIN)
+                  (vecGet (nodeAVec e) i)
+                  (if (== tg TAG_E_STRUCTCON)
+                    (vecGet (nodeBVec e) i)
+                    ; `while`, a range check and `match`: the condition,
+                    ; value or scrutinee first
+                    (if (== i 0)
+                      (nodeA e)
+                      (if (== tg TAG_E_MATCH)
+                        (nodeB (vecGet (nodeBVec e) (- i 1)))
+                        (vecGet (nodeBVec e) (- i 1))))))))))))))
+
+; Where the value of a `(set name v)` under `e` goes, given where the
+; value of `e` itself goes (`pos`): 0 a statement, which drops it; 1
+; the `let`'s own value; 2 anywhere else - an argument, an initialiser,
+; a scrutinee, a condition. The answer ORs the positions every `set`
+; of the slot reaches; an unknown tag answers 2.
+(pub :: slotSetFlow (-> String Int Int Int))
+(pub fn (slotSetFlow name e pos)
+  (if (== e 0)
+    0
+    (let (
+      (tg (nodeTag e))
+      (n (slotPartCount e))
+    )
+      (if (< n 0)
+        2
+        (let (
+          (mut r
+            (if (== tg TAG_E_SET)
+              (if (strEq (nodeAName e) name) pos 0)
+              0))
+          (mut i 0)
+        )
+          {
+            (while (< i n)
+              {
+                (set r (| r (slotSetFlow name (slotPart e i) (slotPartPos tg i n pos))))
+                (set i (+ i 1))
+              })
+            r
+          })))))
+
+; The position part i of n of a `tg` node is in, when the node's own
+; value goes to `pos`: a block's last expression, a branch, a `let`'s
+; body, a match arm, a region's body and a `handle`'s body carry the
+; node's position; a block's other expressions and a loop's body drop
+; their values; everything else is used.
+(pub :: slotPartPos (-> Int Int Int Int Int))
+(pub fn (slotPartPos tg i n pos)
+  (if (== tg TAG_E_BEGIN)
+    (if (== i (- n 1)) pos 0)
+    (if (== tg TAG_E_WHILE)
+      (if (== i 0) 2 0)
+      (if (|| (== tg TAG_E_IF) (|| (== tg TAG_E_LET) (|| (== tg TAG_E_LETM) (== tg TAG_E_MATCH))))
+        (if (== i 0) 2 pos)
+        (if (== tg TAG_E_REGION)
+          pos
+          (if (== tg TAG_E_HANDLE)
+            (if (== i 0) pos 2)
+            2))))))
+
+; Bit 0: a `(set name ...)` is under `e`. Bit 1: a value that may alias
+; the slot is still held when one runs (`slotHolds`). An unknown tag
+; answers both.
+(pub :: slotScan (-> Int String Int Int Int))
+(pub fn (slotScan cg name e bound)
+  (if (== e 0)
+    0
+    (let ((n (slotPartCount e)))
+      (if (< n 0)
+        3
+        (let (
+          (mut acc
+            (if (== (nodeTag e) TAG_E_SET)
+              (if (strEq (nodeAName e) name) 1 0)
+              0))
+          (mut mask 0)
+          (mut total 0)
+          (mut i 0)
+        )
+          {
+            (while (< i n)
+              {
+                (let ((r (slotScan cg name (slotPart e i) bound)))
+                  {
+                    (set acc (| acc r))
+                    (if (!= (& r 1) 0)
+                      {
+                        (set total (+ total 1))
+                        (if (< i 62)
+                          (set mask (| mask (<< 1 i)))
+                          0)
+                      }
+                      0)
+                  })
+                (set i (+ i 1))
+              })
+            (if (!= (& acc 2) 0)
+              acc
+              (| acc (slotHolds cg name e n mask total bound)))
+          })))))
+
+; The hazard `slotScan` looks for at one node: a part whose value may
+; alias the slot (`mayAlias`) held while another part runs a `set` of
+; it. `mask` names the parts (below 62) that do, and `total` counts
+; them. A binding holds its initialiser over its body, and a match
+; holds its scrutinee - its binders' block - over its arms. A call, a
+; field store, a keyword construction, a `handle` and a range check
+; hold every part beside every other, in either order. Anything else
+; holds nothing across its parts. A `let` reading the slot bare takes
+; a share of its own (`emitLetAt`), and so does a lambda capturing the
+; slot (`captureCounted`), so neither holds anything either.
+(pub :: slotHolds (-> Int String Int Int Int Int Int Int))
+(pub fn (slotHolds cg name e n mask total bound)
+  (let ((tg (nodeTag e)))
+    (if (== total 0)
+      0
+      (if (|| (== tg TAG_E_LET) (|| (== tg TAG_E_LETM) (== tg TAG_E_MATCH)))
+        (if (== (- total (& mask 1)) 0)
+          0
+          (if (if (== tg TAG_E_LET)
+            (if (== (slotReadOf cg (nodeB e)) 1)
+              (strEq (nodeAName (nodeB e)) name)
+              false)
+            false)
+            0
+            (if (== (slotMayAlias cg name (slotPart e 0) bound) 1)
+              2
+              0)))
+        (if (|| (== tg TAG_E_APP) (|| (== tg TAG_E_SETF) (|| (== tg TAG_E_STRUCTCON) (|| (== tg TAG_E_HANDLE) (== tg TAG_E_SUBCHECK)))))
+          (let (
+            (mut hz 0)
+            (mut j 0)
+          )
+            {
+              (while (&& (== hz 0) (< j n))
+                {
+                  ; a part past the mask counts as setting nothing, so
+                  ; every other part's `set` is held against it
+                  (let ((own
+                    (if (< j 62)
+                      (if (!= (& mask (<< 1 j)) 0) 1 0)
+                      0)))
+                    (if (> (- total own) 0)
+                      (if (== (slotMayAlias cg name (slotPart e j) bound) 1)
+                        (set hz 2)
+                        0)
+                      0))
+                  (set j (+ j 1))
+                })
+              hz
+            })
+          0)))))
+
+; `mayAlias`, less a lambda written in place: what it captures of the
+; slot it holds a share of. A capture of a borrowed alias is that
+; alias's binding's hazard, and `slotHolds` meets it there.
+(pub :: slotMayAlias (-> Int String Int Int Int))
+(pub fn (slotMayAlias cg name e bound)
+  (if (== (nodeTag e) TAG_E_LAM)
+    0
+    (mayAlias cg name e bound)))
+
+; Does a binder under `e` reuse `name` - a `let`, a lambda parameter, a
+; match binder? A tag the walk does not know, or a pattern whose
+; binders it cannot list, answers yes.
+(pub :: slotRebinds (-> String Int Int))
+(pub fn (slotRebinds name e)
+  (if (== e 0)
+    0
+    (let (
+      (tg (nodeTag e))
+      (n (slotPartCount e))
+    )
+      (if (if (|| (== tg TAG_E_LET) (== tg TAG_E_LETM))
+        (strEq (nodeAName e) name)
+        false)
+        1
+        (if (if (== tg TAG_E_LAM)
+          (== (strVecHas (nodeAVec e) name) 1)
+          false)
+          1
+          (if (if (== tg TAG_E_MATCH)
+            (== (slotArmsBind name (nodeBVec e)) 1)
+            false)
+            1
+            (if (< n 0)
+              1
+              (let (
+                (mut r 0)
+                (mut i 0)
+              )
+                {
+                  (while (&& (== r 0) (< i n))
+                    {
+                      (set r (slotRebinds name (slotPart e i)))
+                      (set i (+ i 1))
+                    })
+                  r
+                }))))))))
+
+(pub :: slotArmsBind (-> String (Vec Int) Int))
+(pub fn (slotArmsBind name arms)
+  (let (
+    (mut r 0)
+    (mut i 0)
+  )
+    {
+      (while (&& (== r 0) (< i (vecLen arms)))
+        {
+          (let ((bs (patBindersCg (nodeA (vecGet arms i)) vecNew)))
+            (set r
+              (if (==
+                (cast Int bs)
+                0)
+                1
+                (strVecHas bs name))))
+          (set i (+ i 1))
+        })
+      r
+    }))
 
 ; `while` is a real loop - a branch back to a condition block - and the
 ; whole form evaluates to 0: a loop that ran zero times has no last
@@ -26063,7 +26645,7 @@
 (pub fn (captureCounted cg name)
   (let ((pi (curParamIndex cg name)))
     (if (< pi 0)
-      (== (lookupSymKind cg name) 3)
+      (>= (lookupSymKind cg name) 3)
       (== (curParamRefClass cg pi) 1))))
 
 ; Applications remember their checked result type and reference witness.

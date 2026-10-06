@@ -9532,6 +9532,15 @@
                         (let ((mark (vecLen (tcScopeVec tc))))
                           {
                             (refuseReservedBinder tc (nodeAName e) (nodeSpan e) 0)
+                            ; A `mut` slot's type, for codegen: a slot of a
+                            ; reference type owns what it holds, so `set`
+                            ; and the scope end release it (`emitLetMAt`,
+                            ; MM-LIFE-2c event 3). The emitter cannot type
+                            ; an initialiser that is not an application,
+                            ; and a type variable in it resolves only later.
+                            (if (== tag TAG_E_LETM)
+                              (setNodeBinderTy e initTy)
+                              e)
                             (pushScope
                               (tcScopeVec tc)
                               (nodeA e)
