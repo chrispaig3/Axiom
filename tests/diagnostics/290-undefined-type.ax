@@ -4,11 +4,14 @@
 
 (data Colour (Red))
 
-(:: origin (-> Int Pointt))
-(fn (origin n) (cast Pointt n))
+(:: origin (-> Pointt Int))
+(fn (origin p)
+  0)
 
 (:: paint (-> Colourr Int))
-(fn (paint c) 0)
+(fn (paint c)
+  0)
 
 (:: main Int)
-(fn (main) 0)
+(fn (main)
+  0)

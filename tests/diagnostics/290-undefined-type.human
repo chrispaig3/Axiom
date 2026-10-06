@@ -1,16 +1,16 @@
 [1;31merror[AX3002][0m[1m: undefined type `Pointt`[0m
  [1;34m--> [0m290-undefined-type.ax:7:5
 [1;34m  |[0m
-[1;34m7 |[0m (:: origin (-> Int Pointt))
+[1;34m7 |[0m (:: origin (-> Pointt Int))
 [1;34m  |[0m     [1;31m^^^^^^ no type named `Pointt` is visible here[0m
 [1;34m  |[0m
  [1;34m = [0m[1;32mhelp: [0mcheck for typos, or a missing `data`/`struct`/`type` declaration
  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3002` for a full explanation
 
 [1;31merror[AX3002][0m[1m: undefined type `Colourr`[0m
-  [1;34m--> [0m290-undefined-type.ax:10:5
+  [1;34m--> [0m290-undefined-type.ax:11:5
 [1;34m   |[0m
-[1;34m10 |[0m (:: paint (-> Colourr Int))
+[1;34m11 |[0m (:: paint (-> Colourr Int))
 [1;34m   |[0m     [1;31m^^^^^ no type named `Colourr` is visible here[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mcheck for typos, or a missing `data`/`struct`/`type` declaration
