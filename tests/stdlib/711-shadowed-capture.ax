@@ -1,0 +1,87 @@
+; A lambda that captures a name bound again inside a binding's scope
+; captures the inner binding, not an outer one of the same spelling.
+; Here the inner `y` borrows a field of `x`, so `x` must outlive the
+; closure: its scope end may not release it while the closure lives.
+; Each owner's callback logs its number when its last share goes.
+;
+;   let   `x` is an immutable binding: no owner is released while
+;         the closure lives, and it reads owner 1
+;   mut   the same through a `mut` slot, reading owner 2
+;   text  the same shape over strings, read after other allocations
+;         have had the chance to reuse anything released too early
+(import IO)
+(import Str)
+(import Vec)
+
+(struct Owner sealed (handle : Handle))
+(struct Box (o : Owner))
+(struct Text (s : String))
+
+(:: makeOwner (-> (Vec Int) Int Owner))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (makeOwner hits n)
+  (Owner (__resource_new (lambda (v) { (vecPush hits v) 0 }) n)))
+
+(:: useOwner (-> Owner Int))
+;@axiom:effect(unsafe)
+(fn (useOwner o)
+  (__resource_get o.handle))
+
+(:: viaLet (-> (Vec Int) String (-> Int Int)))
+;@axiom:effect(io)
+(fn (viaLet hits t)
+  (let ((y (concat t "?")))
+    (let ((x (Box (makeOwner hits 1))))
+      (let ((y x.o))
+        (lambda (_) (useOwner y))))))
+
+(:: viaSlot (-> (Vec Int) String (-> Int Int)))
+;@axiom:effect(io)
+(fn (viaSlot hits t)
+  (let ((y (concat t "?")))
+    (let ((mut x (Box (makeOwner hits 2))))
+      (let ((y x.o))
+        (lambda (_) (useOwner y))))))
+
+(:: textLet (-> String (-> Int String)))
+(fn (textLet t)
+  (let ((y (concat t "?")))
+    (let ((x (Text (concat "let-" t))))
+      (let ((y x.s))
+        (lambda (_) (concat y ""))))))
+
+(:: churn Int)
+(fn (churn)
+  (let ((mut j 0) (mut n 0))
+    {
+      (while (< j 300)
+        {
+          (set n (+ n (strLen (concat (fmtInt j) "-garbage"))))
+          (set j (+ j 1))
+        })
+      n
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((a vecNew) (b vecNew))
+    {
+      (let ((f (viaLet a "a")))
+        {
+          (println (vecLen a))
+          (println (f 0))
+        })
+      (let ((g (viaSlot b "b")))
+        {
+          (println (vecLen b))
+          (println (g 0))
+        })
+      (let ((h (textLet "bbbbbbbb")))
+        {
+          (churn)
+          (println (h 0))
+        })
+      0
+    }))

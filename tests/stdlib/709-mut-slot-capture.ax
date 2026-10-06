@@ -1,0 +1,99 @@
+; A lambda that captures a `mut` slot copies the value it holds then
+; (MM-MUT-1) and takes a share of it, so a later `set` of the slot,
+; and the slot's own scope end, release only the slot's share. Each
+; owner's callback logs its number when its last share goes. The same
+; answers at every `--opt` level (`709-mut-slot-capture.optstable`).
+;
+;   overwritten  a closure still reads owner 1 after the slot moved on
+;                to owner 2, and nothing was released while it lived
+;   order        the closure's scope ends first and gives owner 1 back,
+;                then the slot's scope end gives owner 2 back
+;   returned     a closure built over the slot leaves the function:
+;                owner 3, overwritten before the capture, goes at the
+;                `set`; owner 4 lives as long as the closure does
+;   loop         a closure per iteration over a slot reassigned each
+;                time: every owner goes exactly once
+(import IO)
+(import Vec)
+
+(struct Owner sealed (handle : Handle))
+
+(:: makeOwner (-> (Vec Int) Int Owner))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (makeOwner hits n)
+  (Owner (__resource_new (lambda (v) { (vecPush hits v) 0 }) n)))
+
+(:: useOwner (-> Owner Int))
+;@axiom:effect(unsafe)
+(fn (useOwner o)
+  (__resource_get o.handle))
+
+(:: overwritten (-> (Vec Int) Int))
+;@axiom:effect(io)
+(fn (overwritten hits)
+  (let ((mut o (makeOwner hits 1)))
+    (let ((g (lambda (_) (useOwner o))))
+      {
+        (set o (makeOwner hits 2))
+        (+ (* 10 (g 0)) (vecLen hits))
+      })))
+
+(:: keep (-> (Vec Int) (-> Int Int)))
+;@axiom:effect(io)
+(fn (keep hits)
+  (let ((mut o (makeOwner hits 3)))
+    {
+      (set o (makeOwner hits 4))
+      (lambda (_) (useOwner o))
+    }))
+
+(:: returned (-> (Vec Int) Int))
+;@axiom:effect(io)
+(fn (returned hits)
+  (let ((g (keep hits)))
+    (+ (* 10 (g 0)) (vecLen hits))))
+
+(:: loop (-> (Vec Int) Int Int))
+;@axiom:effect(io)
+(fn (loop hits n)
+  (let ((mut o (makeOwner hits 100)) (mut i 0) (mut sum 0))
+    {
+      (while (< i n)
+        {
+          (let ((g (lambda (_) (useOwner o))))
+            {
+              (set o (makeOwner hits (+ 101 i)))
+              (set sum (+ sum (g 0)))
+            })
+          (set i (+ i 1))
+        })
+      sum
+    }))
+
+(:: show (-> (Vec Int) Int))
+;@axiom:effect(io)
+(fn (show hits)
+  (let ((mut i 0))
+    {
+      (while (< i (vecLen hits))
+        {
+          (println (vecGet hits i))
+          (set i (+ i 1))
+        })
+      (vecLen hits)
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((a vecNew) (b vecNew) (c vecNew))
+    {
+      (println (overwritten a))
+      (show a)
+      (println (returned b))
+      (show b)
+      (println (loop c 3))
+      (show c)
+      0
+    }))

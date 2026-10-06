@@ -1,0 +1,171 @@
+; A `mut` slot of a reference type owns what it holds: `set` releases
+; the value it overwrites, and the scope end releases the last one
+; (MM-LIFE-2c event 3, MM-MUT-1). Each line must read `true`, or 0
+; bytes for the arena lines.
+;
+;   1  the File a `set` overwrote is closed at the `set`
+;   2  3,000 reassignments of a File stay within two descriptors
+;   3  the last File is closed when its scope ends
+;   4  a `mut` File never `set` is closed when its scope ends
+;   5  a slot replaced by fresh strings grows the arena 0 bytes per
+;      iteration over 10,000 iterations
+;   6  so does a string rebuilt from itself, `(set s (concat ... s))`
+;   7  so does a slot bound inside a loop body, once per iteration
+;   8  so does a slot holding a closure, replaced each iteration
+;
+; A compiler whose slots only store answers `false` on lines 1, 3 and
+; 4, and line 2 runs out of descriptors (errno 24) under the default
+; limit or reads `false` above it.
+(import IO)
+(import Sys)
+(import Err)
+(import Str)
+
+(:: requireFile (-> String File))
+;@axiom:effect(io)
+(fn (requireFile path)
+  (match (openPath path oRdonly)
+    ((Ok f) f)
+    ((Err e) { (die (errorText e) 1) (requireFile path) })))
+
+(:: closedFd (-> Int Bool))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (closedFd fd)
+  (let ((buf (strAlloc 1)))
+    (match (sysReadFd fd (strData buf) 1)
+      ((Ok _) false)
+      ((Err e) (== (errCode e) 9)))))
+
+(:: closedAtSet Bool)
+;@axiom:effect(io)
+(fn (closedAtSet)
+  (let ((mut f (requireFile "/dev/null")) (first (fileFd f)))
+    { (set f (requireFile "/dev/null")) (closedFd first) }))
+
+(:: boundedFds Bool)
+;@axiom:effect(io)
+(fn (boundedFds)
+  (let ((mut f (requireFile "/dev/null")) (first (fileFd f)) (mut i 0))
+    {
+      (while (< i 3000)
+        {
+          (set f (requireFile "/dev/null"))
+          (set i (+ i 1))
+        })
+      (<= (fileFd f) (+ first 1))
+    }))
+
+(:: lastFd Int)
+;@axiom:effect(io)
+(fn (lastFd)
+  (let ((mut f (requireFile "/dev/null")) (mut n 0))
+    {
+      (set f (requireFile "/dev/null"))
+      (set n (fileFd f))
+      n
+    }))
+
+(:: unsetFd Int)
+;@axiom:effect(io)
+(fn (unsetFd)
+  (let ((mut f (requireFile "/dev/null")))
+    (fileFd f)))
+
+(:: replaced (-> Int Int))
+(fn (replaced n)
+  (let ((mut s "") (mut i 0))
+    {
+      (while (< i n)
+        {
+          (set s (concat "id-" (fmtInt (% i 1000))))
+          (set i (+ i 1))
+        })
+      (strLen s)
+    }))
+
+(:: rebuilt (-> Int Int))
+(fn (rebuilt n)
+  (let ((mut s "abcdefgh") (mut i 0))
+    {
+      (while (< i n)
+        {
+          (set s (concat (strSlice s 1 (strLen s)) "x"))
+          (set i (+ i 1))
+        })
+      (strLen s)
+    }))
+
+(:: perIteration (-> Int Int))
+(fn (perIteration n)
+  (let ((mut i 0) (mut total 0))
+    {
+      (while (< i n)
+        {
+          (let ((mut t (concat "row-" (fmtInt (% i 1000)))))
+            (set total (+ total (strLen t))))
+          (set i (+ i 1))
+        })
+      total
+    }))
+
+(:: adder (-> Int (-> Int Int)))
+(fn (adder k)
+  (lambda (x) (+ x k)))
+
+(:: closures (-> Int Int))
+(fn (closures n)
+  (let ((mut i 0) (mut f (adder 0)))
+    {
+      (while (< i n)
+        {
+          (let ((k i))
+            (set f (lambda (x) (+ x k))))
+          (set i (+ i 1))
+        })
+      (f 1)
+    }))
+
+(:: run (-> Int Int Int))
+(fn (run which n)
+  (if (== which 0)
+    (replaced n)
+    (if (== which 1)
+      (rebuilt n)
+      (if (== which 2)
+        (perIteration n)
+        (closures n)))))
+
+; Bytes the arena's bump grew per iteration, after a warm-up; 999999
+; when the run crossed into a new chunk (see 372-arc-owned-results).
+(:: measure (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (measure which)
+  {
+    (run which 1000)
+    (let ((m0 __axiom_arena_mark))
+      {
+        (run which 10000)
+        (let ((m1 __axiom_arena_mark))
+          (if (!= (__load64 m1 2) (__load64 m0 2))
+            999999
+            (/ (- (__load64 m1 0) (__load64 m0 0)) 10000)))
+      })
+  })
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (println (closedAtSet))
+    (println (boundedFds))
+    (println (closedFd (lastFd)))
+    (println (closedFd (unsetFd)))
+    (let ((mut w 0))
+      (while (< w 4)
+        {
+          (println (measure w))
+          (set w (+ w 1))
+        }))
+    0
+  })
