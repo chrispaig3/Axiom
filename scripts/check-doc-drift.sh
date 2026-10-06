@@ -412,7 +412,7 @@ if len(complete) < 15:
     bad += 1
 for r in complete:
     name = r.split("|")[1].strip()
-    paths = re.findall(r"tests/[\w./-]+\.(?:ax|axbad)", r)
+    paths = re.findall(r"tests/[\w./-]+\.(?:axbad|ax)(?![\w])", r)
     if not paths:
         print(f"FAIL status: **Complete** row {name!r} names no fixture")
         bad += 1
