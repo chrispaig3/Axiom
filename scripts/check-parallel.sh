@@ -1555,8 +1555,10 @@ fi
 # The non-raising forms also overwrote the out-cell before refusing it.
 # A spawn handle captured by another binding is refused where it is
 # written (AX3064, MM-PAR-8), so the probe carries the handle's word
-# across with `cast` - the unsafe layer - to reach the runtime's own
-# refusal, which stays as the check behind the checker's.
+# across with `cast` to reach the runtime's own refusal, which stays as
+# the check behind the checker's. A cast to `Spawn` is not an unsafe
+# operation today (`Par.ax`'s `parHandleOf` records the same limit), so
+# `main` performs none and claims none.
 for kind in proc thread; do
   for form in raising checked; do
     join_expr="(__${kind}_join (cast Spawn hw))"
@@ -1567,7 +1569,6 @@ for kind in proc thread; do
 (import Mem)
 
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
 (fn (main)
