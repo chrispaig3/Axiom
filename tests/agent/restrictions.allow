@@ -287,9 +287,9 @@ fmtSpanIx self_host/diag.ax no-io,no-foreign ok
 fmtSpanParts self_host/diag.ax no-io,no-foreign ok
 forges tests/diagnostics/1042-no-unsafe-indirect.ax no-unsafe violated
 fractionWidth stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
-freeChan tests/litmus/shared-free-boundary.ax no-unsafe violated
-freeMutex tests/litmus/shared-free-boundary.ax no-unsafe violated
-freeToken tests/litmus/shared-free-boundary.ax no-unsafe violated
+freeChan tests/litmus/shared-free-boundary.ax no-unsafe ok
+freeMutex tests/litmus/shared-free-boundary.ax no-unsafe ok
+freeToken tests/litmus/shared-free-boundary.ax no-unsafe ok
 ge25519Add stdlib/Crypto/Curve25519.ax no-io,no-alloc,no-foreign ok
 ge25519Base stdlib/Crypto/Curve25519.ax no-io,no-alloc,no-foreign ok
 ge25519CombTable stdlib/Crypto/Curve25519.ax no-io,no-alloc,no-foreign ok
@@ -547,7 +547,7 @@ native tests/diagnostics/374-restrict-no-foreign.ax no-foreign ok
 nested tests/diagnostics/373-restrict-no-cast.ax no-cast violated
 nested tests/diagnostics/383-restrict-no-wrap.ax no-wrap violated
 nested tests/diagnostics/396-restrict-no-trap.ax no-trap violated
-noUnsafe tests/diagnostics/1081-sys-buffer-calls.ax no-unsafe violated
+noUnsafe tests/diagnostics/1081-sys-buffer-calls.ax no-unsafe ok
 none tests/diagnostics/384-restrict-no-alloc-ctor.ax no-alloc ok
 nullary tests/diagnostics/1116-extern-unsafe.ax no-unsafe violated
 orderDiags self_host/diag.ax no-io,no-foreign ok
@@ -590,6 +590,7 @@ rd16 tests/diagnostics/1020-unsafe-device-primitives.ax no-unsafe violated
 rd32 tests/diagnostics/1020-unsafe-device-primitives.ax no-unsafe violated
 rd64 tests/diagnostics/1020-unsafe-device-primitives.ax no-unsafe violated
 rd8 tests/diagnostics/1020-unsafe-device-primitives.ax no-unsafe violated
+reads tests/diagnostics/1042-no-unsafe-indirect.ax no-unsafe ok
 reads tests/diagnostics/372-restrict-no-alloc.ax no-alloc ok
 reads tests/diagnostics/649-restrict-no-escape.ax no-escape ok
 refuted tests/diagnostics/393-restrict-strict.ax no-io,strict violated
@@ -724,7 +725,7 @@ sumTo tests/selfhost/465-restrict-no-wrap-runs.ax no-wrap ok
 sums tests/diagnostics/372-restrict-no-alloc.ax no-alloc ok
 swaps tests/diagnostics/1010-unsafe-primitives.ax no-unsafe violated
 tag tests/diagnostics/384-restrict-no-alloc-ctor.ax no-alloc ok
-taggedFree tests/litmus/shared-free-boundary.ax no-unsafe violated
+taggedFree tests/litmus/shared-free-boundary.ax no-unsafe ok
 termBufBytes stdlib/Tui/Term.ax no-io,no-alloc,no-foreign ok
 termWsCols stdlib/Tui/Term.ax no-io,no-alloc,no-foreign ok
 termWsRows stdlib/Tui/Term.ax no-io,no-alloc,no-foreign ok
@@ -812,12 +813,12 @@ viaBuiltin tests/diagnostics/377-restrict-witness-path.ax no-io violated
 viaCallback tests/diagnostics/377-restrict-witness-path.ax no-io violated
 viaCap tests/diagnostics/377-restrict-witness-path.ax no-io violated
 viaCap tests/diagnostics/379-restrict-no-recursion.ax no-recursion violated
+viaCell tests/diagnostics/1042-no-unsafe-indirect.ax no-unsafe ok
 viaDeep tests/diagnostics/391-restrict-effect-transparent.ax no-cast:deep unverifiable
 viaField tests/diagnostics/375-restrict-unverifiable.ax no-io unverifiable
 viaForeign tests/diagnostics/391-restrict-effect-transparent.ax no-foreign unverifiable
 viaForge tests/diagnostics/1042-no-unsafe-indirect.ax no-unsafe violated
 viaHelper tests/diagnostics/374-restrict-no-foreign.ax no-foreign violated
-viaInterface tests/diagnostics/1042-no-unsafe-indirect.ax no-unsafe violated
 viaIo tests/diagnostics/391-restrict-effect-transparent.ax no-io unverifiable
 viaModule tests/diagnostics/377-restrict-witness-path.ax no-io violated
 viaPeek tests/diagnostics/1042-no-unsafe-indirect.ax no-unsafe violated
