@@ -141,7 +141,7 @@ cat > "$work/facts.ax" <<'AX'
     (println "hi")
     (countdown 3)
     (ping 4)
-    (apply (fn (x) (+ x 1)) 2)
+    (apply (lambda (x) (+ x 1)) 2)
     (vecLen (build 3))
     (tick)
     (peek 0)
