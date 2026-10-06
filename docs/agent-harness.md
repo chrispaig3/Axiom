@@ -26,7 +26,9 @@ permissions through them. Your tool decides what they mean.
 
 `--calls` shows the edges used by effect inference. An unresolved
 indirect call marks the row `#effects-incomplete`; it is a lower bound,
-not a proof that an effect is absent. `--mir` adds region facts, with
+not a proof that an effect is absent. A call through a field or a local
+that may hold one of several functions isn't listed, because the body
+doesn't make any one of those calls for certain. `--mir` adds region facts, with
 `#mir-incomplete` or `#mir-truncated` when a summary is incomplete.
 It forces a dataflow pass, so use it when those facts are needed.
 
@@ -104,7 +106,8 @@ See the [macro rules](macro-system.md) and
 ## 6. Limits
 
 - Effects through function values stored in memory may be unknown.
-  `#effects-incomplete`, `AX3037` and `AX3038` expose that boundary.
+  A field the program fills only with named functions is followed;
+  `#effects-incomplete`, `AX3037` and `AX3038` expose the rest.
 - `Agent.Tags` reads metadata; it does not validate a policy by itself.
 - AXSYM and AXIR do not turn the internal AST into a stable plugin API.
 - The emitted runtime carries no harness telemetry. Measure in a build
