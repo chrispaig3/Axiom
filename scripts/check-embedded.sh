@@ -1224,7 +1224,11 @@ if ! emit "$axc" "$bm_target" "$work/min.ax" "$work/bm.probe.ll" --diagnostic-fo
   fi
 elif ! command -v qemu-system-aarch64 >/dev/null 2>&1; then
   checks=$((checks + 1))
-  note "qemu-system-aarch64 is not on PATH: the device leg is untestable here, and says so"
+  if [[ "${AXIOM_REQUIRE_QEMU:-0}" == 1 ]]; then
+    bad "qemu-system-aarch64 is not on PATH, and AXIOM_REQUIRE_QEMU=1 says this runner must boot the device leg"
+  else
+    skip "qemu-system-aarch64 is not on PATH: the device leg was not booted"
+  fi
 else
 checks=$((checks + 1))
 prob=0
@@ -1588,9 +1592,15 @@ except subprocess.TimeoutExpired:
 PY
 }
 # A QEMU leg's precondition, said once per section: SKIP, never ok.
+# With AXIOM_REQUIRE_QEMU=1 a missing emulator is a failure, so a runner
+# that is meant to boot these legs cannot quietly skip them.
 qemu_or_skip() {  # qemu_or_skip <section>
   if (( qemu_live )); then return 0; fi
-  skip "$1: qemu-system-aarch64 is not on PATH - nothing was booted, and this is not a pass"
+  if [[ "${AXIOM_REQUIRE_QEMU:-0}" == 1 ]]; then
+    bad "$1: qemu-system-aarch64 is not on PATH, and AXIOM_REQUIRE_QEMU=1 requires it"
+  else
+    skip "$1: qemu-system-aarch64 is not on PATH - nothing was booted, and this is not a pass"
+  fi
   return 1
 }
 
