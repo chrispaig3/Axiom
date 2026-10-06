@@ -41,15 +41,14 @@
 ; primitive choice rather than commenting it.
 ;
 ; What it means HERE is that the safety of every caller's capture rests
-; on ONE fact: this file names `__proc_spawn`. Nothing in the type
-; system will notice if that word changes. So the fact is GATED rather
-; than commented - `scripts/check-parallel.sh` section 6 arm (b) builds
-; this pool with `--threads` and without and requires the two modules to
-; be BYTE-IDENTICAL, which they are (measured: 0 pthread declares and 0
-; `thread_local` lines out of both). Ablated - `__proc_spawn` swapped
-; for `__par_spawn` in a copy of `stdlib/` - the `--threads` build grows
-; 2 pthread declares and 7 thread-local globals and the arm goes red.
-; That gate is standing in for the check the rule cannot make.
+; on ONE fact: this file names `__proc_spawn`. If that word changes to
+; `__par_spawn`, both spawn sites draw AX3064, since each spawns a
+; function-typed local. The fact is GATED as well -
+; `scripts/check-parallel.sh` section 6 arm (b) builds this pool with
+; `--threads` and without and requires the two modules to be
+; BYTE-IDENTICAL, which they are (measured: 0 pthread declares and 0
+; `thread_local` lines out of both), and its flag ablation makes the
+; swap in a copy of `stdlib/` and requires the AX3064 refusal.
 ;
 ; WHY THE RESULT ORDER IS THE SUBMIT ORDER, ALWAYS. Inherited from
 ; `Job.ax` unchanged, for the reason it gave: a pool that answered in
@@ -324,12 +323,10 @@
 ; A NULL-terminated array of char* from a Vec of `String`, which is the
 ; shape `execve` and `posix_spawn` both take.
 ;
-; Every element goes through `strDup`, so each argument the kernel
-; reads is a terminated string `Str` built and owns. A `strSlice` is
-; not built, it is `strWrap` over somebody else's buffer, and its bytes
-; run on into whatever follows; `strCStr` answers such a slice with an
-; unowned copy (Str.ax). `tests/stdlib/300-process.ax` records the same
-; rule for the same reason on its own argv helper, and
+; Every element goes through `strCStr`, so each argument the kernel
+; reads ends where its `String` does. A `strSlice` shares somebody
+; else's buffer, and its bytes run on into whatever follows; `strCStr`
+; answers such a slice with a terminated copy (Str.ax).
 ; `tests/stdlib/476-par-pool.ax` term 2 is the case that catches an
 ; argument that does not end where the `String` does.
 (pub :: parArgvVector (-> (Vec String) Int))
@@ -338,7 +335,7 @@
     (let ((v (memAlloc (* 8 (+ n 1)))))
       {
         (for i in 0..n
-          (memSetWord v i (strCStr (strDup (vecGetStr argv i)))))
+          (memSetWord v i (strCStr (vecGetStr argv i))))
         (memSetWord v n 0)
         v
       })))

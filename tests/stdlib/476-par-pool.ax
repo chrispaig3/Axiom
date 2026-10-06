@@ -20,12 +20,12 @@
 ;      one-line edit that turns this pool into the wrong one.
 ;
 ;   2. THE SLICE. One argument is a `strSlice` of a longer string
-;      rather than a literal. `strCStr` is `strData` and nothing more,
-;      so a slice is NUL-terminated only by accident of what follows it
-;      in memory; `parArgvVector` must `strDup` every element. Ablated
-;      (dropping the strDup), this term makes `sh` receive an argument
-;      with trailing garbage and exit non-zero, so it shows up as a
-;      wrong code rather than as a crash.
+;      rather than a literal, so no NUL follows its bytes.
+;      `parArgvVector` hands every element to `strCStr`, which copies
+;      such a slice into a terminated buffer. Ablated (`strCStr` without
+;      the copy), this term makes `sh` receive an argument with trailing
+;      garbage and exit non-zero, so it shows up as a wrong code rather
+;      than as a crash.
 ;
 ;   3. THE MISSING PROGRAM. A command that does not exist must answer a
 ;      NEGATIVE errno - the program never ran - and must still occupy

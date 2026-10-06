@@ -428,8 +428,9 @@ else
 # that fixture's golden, measured byte for byte before it was deleted,
 # so this arm is
 # the same three discriminating terms `Job` was gated on - submit order
-# under a reversed completion order, a `strSlice` argument that must be
-# `strDup`ed, and a missing program answering `-ENOENT` in its own slot -
+# under a reversed completion order, a `strSlice` argument that must
+# reach the kernel terminated, and a missing program answering `-ENOENT`
+# in its own slot -
 # plus a fourth: an Axiom closure over a captured `Vec`, with no exec at
 # all.
 if run_case "$fx476" "" p476; then
@@ -447,9 +448,8 @@ fi
 # `capSpawnHead` exempts from AX3064 because it NAMES the forked
 # lowering - MM-PAR-3's isolation by construction. A pool that lowered
 # to threads under a flag would be a pool whose safety depended on how
-# it was built, and AX3064 cannot catch that here: `parMapWords` spawns
-# a parameter, and `checkSpawnCaptures` only looks inside a literal
-# lambda. So the fact is measured instead, at its strongest: the module
+# it was built. AX3064 refuses the swap to `__par_spawn` (ablation 2
+# below), and the fact is also measured at its strongest: the module
 # the compiler emits is IDENTICAL with and without `--threads`.
 "$axc" emit-llvm "$fx476" -o "$work/p476.ll" > /dev/null 2>&1
 "$axc" --threads emit-llvm "$fx476" -o "$work/t476.ll" > /dev/null 2>&1
@@ -580,13 +580,13 @@ echo "== 6e. the ablations: each of section 6's claims, deliberately broken =="
 # it was retired (2026-09-04) and `check-compat.sh`'s `probe` still
 # does, and the reason is that a `sed` that matched nothing produces a
 # green "ablation failed to fail" that reads exactly like a passing gate.
-abl_run() {  # <tag> <sed-program> <what-must-change> -> 0 when the ablation is red
-  local tag="$1" prog="$2" what="$3"
+abl_run() {  # <tag> <sed-program> <what-must-change> [module, default Par.ax] -> 0 when the edit landed
+  local tag="$1" prog="$2" what="$3" module="${4:-Par.ax}"
   local copy="$work/abl-$tag"
   rm -rf "$copy"; mkdir -p "$copy"
   cp -r "$repo_root/stdlib" "$copy/stdlib"
-  sed -e "$prog" "$repo_root/stdlib/Par.ax" > "$copy/stdlib/Par.ax"
-  if cmp -s "$repo_root/stdlib/Par.ax" "$copy/stdlib/Par.ax"; then
+  sed -e "$prog" "$repo_root/stdlib/$module" > "$copy/stdlib/$module"
+  if cmp -s "$repo_root/stdlib/$module" "$copy/stdlib/$module"; then
     bad "ablation $tag: the edit did not land - $what was never broken, so the arm proved nothing"
     return 1
   fi
@@ -611,33 +611,50 @@ if abl_run order 's|(lambda (i) (parRunWord (vecGet cmds i)))|(lambda (i) (parRu
   fi
 fi
 
-# ABLATION 1b (arm 6a, term 2): the `strDup` in `parArgvVector` dropped.
-# `strCStr` is `strData` and nothing more, so a `strSlice` handed to the
-# kernel runs on into whatever follows it in memory. 476's term 2 exists
-# for exactly this, and it shows up as a WRONG CODE rather than a crash,
-# which is the only reason the fixture can pin it.
-if abl_run slice 's|(strCStr (strDup (vecGetStr argv i)))|(strCStr (vecGetStr argv i))|' "the argv strDup"; then
-  if AXIOM_STDLIB="$work/abl-slice/stdlib" "$axc" build --input "$fx476" --output "$work/abl-slice.bin" > "$work/abl-slice.build" 2>&1 \
-     && ( cd "$work" && ./abl-slice.bin > "$work/abl-slice.out" 2>/dev/null ) \
+# ABLATION 1b (arm 6a, term 2): `strCStr`'s copy of a slice dropped.
+# `parArgvVector` hands every argument to `strCStr`, and a `String` with
+# no NUL after it is copied there and nowhere else (Str.ax). Without the
+# copy `strCStr` is `strData` and nothing more, so a `strSlice` handed to
+# the kernel runs on into whatever follows it in memory. 476's term 2
+# exists for exactly this, and it shows up as a WRONG CODE rather than a
+# crash, which is the only reason the fixture can pin it. The ablated
+# library must still build: a refused build would read as red here and
+# prove nothing about the term.
+if abl_run slice 's|^    (strCStrCopy s)))$|    (strData s)))|' "strCStr's copy of a slice" Str.ax; then
+  if ! AXIOM_STDLIB="$work/abl-slice/stdlib" "$axc" build --input "$fx476" --output "$work/abl-slice.bin" > "$work/abl-slice.build" 2>&1; then
+    bad "ablation slice: the ablated library did not build, so term 2 was never run against it"
+    sed 's/^/     /' "$work/abl-slice.build" | head -5
+  elif ( cd "$work" && ./abl-slice.bin > "$work/abl-slice.out" 2>/dev/null ) \
      && cmp -s "$work/abl-slice.out" "$gold476"; then
     bad "ablation slice: a non-NUL-terminated argv still answers the golden - term 2 is not discriminating"
   else
-    ok "ablation slice: dropping the argv strDup breaks the golden, so term 2 is measuring the slice"
+    ok "ablation slice: without strCStr's copy a slice reaches the kernel unterminated and the golden breaks, so term 2 is measuring the slice"
   fi
 fi
 
 # ABLATION 2 (arm 6b): `__proc_spawn` swapped for `__par_spawn`. The
-# module then FOLLOWS the flag - measured 2 pthread declares and 7
-# thread-local globals under `--threads` - which is the pool whose
-# safety depends on how it was built, and the one arm 6b exists to
-# refuse.
+# pool would then follow the flag, which is the pool whose safety
+# depends on how it was built. The checker refuses it first: both spawn
+# sites hand `__par_spawn` a function-typed local, whose captures it
+# cannot see, and each draws AX3064. A module that still builds is
+# compared as before; a refusal for any other reason proves nothing.
 if abl_run flag 's/__proc_spawn/__par_spawn/g; s/__proc_join/__par_join/g' "the choice of primitive"; then
-  AXIOM_STDLIB="$work/abl-flag/stdlib" "$axc" emit-llvm "$fx476" -o "$work/abl-flag-p.ll" > /dev/null 2>&1
-  AXIOM_STDLIB="$work/abl-flag/stdlib" "$axc" --threads emit-llvm "$fx476" -o "$work/abl-flag-t.ll" > /dev/null 2>&1
-  if [[ -f "$work/abl-flag-t.ll" ]] && cmp -s "$work/abl-flag-p.ll" "$work/abl-flag-t.ll"; then
-    bad "ablation flag: __par_spawn still gives a flag-independent module - arm 6b cannot fail"
+  if AXIOM_STDLIB="$work/abl-flag/stdlib" "$axc" --diagnostic-format=ai --threads emit-llvm "$fx476" -o "$work/abl-flag-t.ll" > "$work/abl-flag.build" 2>&1; then
+    AXIOM_STDLIB="$work/abl-flag/stdlib" "$axc" emit-llvm "$fx476" -o "$work/abl-flag-p.ll" > /dev/null 2>&1
+    if cmp -s "$work/abl-flag-p.ll" "$work/abl-flag-t.ll"; then
+      bad "ablation flag: __par_spawn still gives a flag-independent module - arm 6b cannot fail"
+    else
+      ok "ablation flag: __par_spawn makes the module follow --threads ($(grep -c '^declare i32 @pthread_' "$work/abl-flag-t.ll" || true) pthread declare(s), $(grep -c 'thread_local' "$work/abl-flag-t.ll" || true) thread_local), so arm 6b is measuring the primitive"
+    fi
   else
-    ok "ablation flag: __par_spawn makes the module follow --threads ($(grep -c '^declare i32 @pthread_' "$work/abl-flag-t.ll" || true) pthread declare(s), $(grep -c 'thread_local' "$work/abl-flag-t.ll" || true) thread_local), so arm 6b is measuring the primitive"
+    n_cap="$(grep -c '^E AX3064 .*/Par\.ax:' "$work/abl-flag.build" || true)"
+    n_err="$(grep -c '^E ' "$work/abl-flag.build" || true)"
+    if (( n_cap > 0 && n_cap == n_err )); then
+      ok "ablation flag: __par_spawn in the pool is refused before it can follow --threads ($n_cap AX3064 site(s) in Par.ax, nothing else)"
+    else
+      bad "ablation flag: the ablated pool failed to build for a reason other than AX3064, so the arm proved nothing"
+      sed 's/^/     /' "$work/abl-flag.build" | head -5
+    fi
   fi
 fi
 
