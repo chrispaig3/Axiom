@@ -35,7 +35,9 @@
 #      golden under a 512 KiB stack. Ten million alternating calls
 #      through `ev`/`od`, through a `let` body and a `match` arm, and
 #      around a three-way cycle; a self call in a `let` body beside
-#      them. A plain call chain that deep needs hundreds of megabytes.
+#      them; a million through `evT`/`odT` with a `mut` slot in scope
+#      of each call. A plain call chain that deep needs hundreds of
+#      megabytes.
 #      The fixture's two REFUSED shapes are two thousand deep, which is
 #      the frames they genuinely cost at `--opt 0` and fits: a first
 #      draft ran them a hundred thousand deep and the whole fixture
@@ -45,7 +47,9 @@
 #      owned temporary (`odS`/`evS`), whose call is followed by the
 #      `axiom_release` that is the reason it cannot be marked. A
 #      refusal that had quietly become a mark would be a use after
-#      free in the callee, and this is where it would show.
+#      free in the callee, and this is where it would show. In `evT`
+#      the owning slot's `axiom_release` comes just before the
+#      `musttail` call, since nothing runs after it.
 #   3. THE ABLATION: the same IR with every `musttail` deleted, through
 #      the same `llc -O0` and `cc`, must die by SIGNAL under the same
 #      512 KiB. The marker is the whole mechanism, so the marker is
@@ -108,14 +112,20 @@ fi
 
 echo "== 2. the IR marks what the design marks, and neither refusal =="
 marked=0
-for callee in od ev odM evL cyA cyB cyC; do
+for callee in od ev odM evL cyA cyB cyC odT evT; do
   if grep -q "musttail call i64 @${callee}(" "$ll"; then
     marked=$((marked + 1))
   else
     bad "no \`musttail\` on the call to \`$callee\`"
   fi
 done
-(( marked == 7 )) && ok "musttail on all seven calls the design marks"
+(( marked == 9 )) && ok "musttail on all nine calls the design marks"
+# an owning `mut` slot in scope pays its release before the jump
+if awk '/axiom_release/{r=NR} /musttail call i64 @odT\(/{if (r > 0 && NR - r <= 2) hit=1; exit} END{exit !hit}' "$ll"; then
+  ok "evT's owning slot is released just before its musttail call"
+else
+  bad "no axiom_release just before evT's musttail call to odT"
+fi
 if grep -q "musttail call i64 @od3(\|musttail call i64 @ev2(" "$ll"; then
   bad "a MISMATCHED prototype was marked musttail - LLVM refuses that under the C convention, and llc would have"
 else

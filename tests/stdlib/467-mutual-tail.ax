@@ -33,6 +33,11 @@
 ;   6. A self tail call in a `let` body, at the same time, so the two
 ;      mechanisms - `emitTailJump`'s loop and `musttail` - are seen
 ;      beside each other in one file.
+;   7. `evT`/`odT`, a `mut` slot in scope of each call. `evT` replaces
+;      its slot's string every call and releases it just before the
+;      jump. `odT` hands on a slot that is never `set` and starts from
+;      its parameter, which holds no share and owes no release. Both
+;      calls stay `musttail`, a million deep.
 (import IO)
 (import Str)
 
@@ -129,6 +134,26 @@
       acc
       (selfLet j (+ acc 1)))))
 
+; --- 7. owning `mut` slots in scope ---
+(:: evT (-> Int String Int))
+
+(:: odT (-> Int String Int))
+
+(fn (evT i tag)
+  (let ((mut s tag))
+    {
+      (set s (concat s "e"))
+      (if (>= i 1000000)
+        (strLen s)
+        (odT (+ i 1) tag))
+    }))
+
+(fn (odT i tag)
+  (let ((mut s tag))
+    (if (>= i 1000000)
+      (strLen s)
+      (evT (+ i 1) s))))
+
 (:: main Int)
 ;@axiom:effect(io)
 (fn (main)
@@ -139,5 +164,6 @@
     (println (ev2 0 0))
     (println (evS 0 ""))
     (println (selfLet 0 0))
+    (println (evT 0 "ab"))
     0
   })

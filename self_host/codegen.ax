@@ -594,10 +594,13 @@
       (vecPush ps 0)
       ; slot 16: opt-in binary obfuscation, set by emitResolvedMode.
       (vecPush ps 0)
-      ; slot 17: the allocas of the OWNING `mut` slots in scope, the
-      ; `mut` twin of word 42's pending `let` releases: a self tail
-      ; call jumps past their scope ends, so `emitTailJump` loads and
-      ; releases each before the jump (`emitLetMAt`, `slotOwns`).
+      ; slot 17: the OWNING `mut` slots in scope, the `mut` twin of
+      ; word 42's pending `let` releases. Each entry is a record built
+      ; by `emitLetMAt`: the slot's alloca, its name, the names that may
+      ; alias it, and 1 when those couldn't be listed (`slotAliases`).
+      ; A tail call jumps past their scope ends, so a self tail call
+      ; (`emitTailJump`) and a mutual one (`emitPlainCall`) load and
+      ; release each before the jump.
       (vecPushVec ps vecNew)
       (addTypeNamed
         ts
@@ -16360,18 +16363,55 @@
       pend
       (+ i 1))))
 
-; The owning `mut` slots' half: each entry is an alloca, and what it
-; holds is loaded at the jump, since a `set` may have replaced the
-; value the slot was bound to.
+; The owning `mut` slots' half: each entry is a slot record (pair
+; slot 17), and what the slot holds is loaded at the jump, since a
+; `set` may have replaced the value it was bound to.
 (pub :: releasePendingSlots (-> Int (Vec Int) Int Int))
 ;@axiom:effect(unsafe)
 (pub fn (releasePendingSlots cg pend i)
   (if (>= i (vecLen pend))
     cg
     (releasePendingSlots
-      (releaseSlotValue cg (cast String (vecGet pend i)))
+      (releaseSlotValue cg (memGetWordStr (vecGet pend i) 0))
       pend
       (+ i 1))))
+
+; May a mutual tail call's `args` hold the value of an owning slot
+; pending from entry i on? A callee borrows its arguments, and the
+; caller can't release after a `musttail` call, so such a call stays a
+; plain one (MM-EXEC-6c). An argument holds the slot's value when it
+; may alias the slot or a binding that may alias it (word 2 of the
+; record, `slotAliases`). A slot whose aliases couldn't be listed
+; (word 3) answers yes.
+(pub :: slotsReachArgs (-> Int (Vec Int) (Vec Int) Int Int))
+;@axiom:effect(unsafe)
+(pub fn (slotsReachArgs cg pend args i)
+  (if (>= i (vecLen pend))
+    0
+    (let ((rec (vecGet pend i)))
+      (if (if (== (memGetWord rec 3) 1)
+        true
+        (== (namesReachArgs cg (memGetWordVec rec 2) args 0) 1))
+        1
+        (slotsReachArgs cg pend args (+ i 1))))))
+
+(pub :: namesReachArgs (-> Int (Vec Int) (Vec Int) Int Int))
+;@axiom:effect(unsafe)
+(pub fn (namesReachArgs cg names args i)
+  (if (>= i (vecLen names))
+    0
+    (if (== (argsMayAlias cg (vecGetStr names i) args 0) 1)
+      1
+      (namesReachArgs cg names args (+ i 1)))))
+
+; Does any of `args` from i on hold a value that may alias `name`?
+(pub :: argsMayAlias (-> Int String (Vec Int) Int Int))
+(pub fn (argsMayAlias cg name args i)
+  (if (>= i (vecLen args))
+    0
+    (if (== (mayAlias cg name (vecGet args i) (binderSummary (vecGet args i))) 1)
+      1
+      (argsMayAlias cg name args (+ i 1)))))
 
 ; The temporary's OWN share, always: the boundary retain above is
 ; the slot's, and a parameter this function parks keeps the slot's
@@ -22000,6 +22040,14 @@
                               ; them - `mustTailOK` is the list of everything
                               ; that could have.
                               {
+                                ; the owning `mut` slots' scope ends are past
+                                ; the jump, so they are paid here, as a self
+                                ; tail call pays them; `mustTailOK` holds that
+                                ; no argument reaches one
+                                (releasePendingSlots
+                                  cgE
+                                  (cast (Vec Int) (pairSlot cgE 17))
+                                  0)
                                 (emitLine cgE (concat (concat (concat "  " r) (concat " = musttail call i64 @" (llvmSym (strDup full)))) (concat "(i64 " (concat argStrT (concat evStr ")")))))
                                 (emitLine cgE (concat "  ret i64 " r))
                                 (memSetWord cgE 2 r)
@@ -22174,7 +22222,10 @@
 ;     retained parameter slots are released after the body,
 ;     `releaseRefParamSlots`);
 ;   * no `let` temporary is pending release at the scope end
-;     (`pendingOwned`, field 42, paid after the body);
+;     (`pendingOwned`, field 42, paid after the body). An owning `mut`
+;     slot in scope (pair slot 17) doesn't stop the mark, unless an
+;     argument may hold its value (`slotsReachArgs`): the call releases
+;     what each one holds before it jumps (`releasePendingSlots`);
 ;   * the prototypes are identical - every parameter is `i64` and both
 ;     return `i64`, so identical means the same COUNT, evidence word
 ;     included: `pairSlot 6` for the caller, `args + takesEv` for the
@@ -22218,9 +22269,9 @@
             0
             (if (> (vecLen (memGetWordVec cg 42)) 0)
               0
-              (if (> (vecLen (cast (Vec Int) (pairSlot cg 17))) 0)
+              (if (> (ownedArgReleases cg fnName args 0) 0)
                 0
-                (if (> (ownedArgReleases cg fnName args 0) 0)
+                (if (== (slotsReachArgs cg (cast (Vec Int) (pairSlot cg 17)) args 0) 1)
                   0
                   1)))))))))
 
@@ -25450,6 +25501,7 @@
         (an (allocReg cg1))
         (initOwned (valueOwnedRef cg1 valExpr))
         (cls (slotClassOf cg1 node))
+        (kept (slotKeptByCaller cg1 node))
       )
         (let ((ar (tmpStr "s" an)))
           {
@@ -25471,7 +25523,7 @@
                   (binderSummary body)
                   0))
               (own
-                (if (== cls 2)
+                (if (&& (== cls 2) (== kept 0))
                   (slotOwns cg1 node bound)
                   0))
             )
@@ -25497,12 +25549,21 @@
                       (let ((pmark (vecLen pend)))
                         {
                           ; PENDING while the body emits, as a releasable
-                          ; `let` is: a self tail call jumps past the scope
-                          ; end below and pays it at the jump
+                          ; `let` is: a tail call jumps past the scope end
+                          ; below and pays it before the jump
                           (if (== own 1)
-                            (vecPush
-                              pend
-                              (cast Int ar))
+                            (let (
+                              (rec (memAlloc 32))
+                              (aliases (:: vecNew (Vec Int)))
+                            )
+                              {
+                                (vecPush aliases (cast Int name))
+                                (memSetWord rec 0 ar)
+                                (memSetWord rec 1 name)
+                                (memSetWord rec 3 (slotAliases cg1 aliases body bound))
+                                (memSetWord rec 2 aliases)
+                                (vecPush pend rec)
+                              })
                             pend)
                           (let ((cgB
                             (if (== tail 1)
@@ -25963,6 +26024,117 @@
   (if (== (nodeTag e) TAG_E_LAM)
     0
     (mayAlias cg name e bound)))
+
+; Is `name` the target of a `set` anywhere under `e`? A tag the walks
+; don't know answers yes.
+(pub :: slotAssigned (-> String Int Int))
+(pub fn (slotAssigned name e)
+  (if (== e 0)
+    0
+    (let ((n (slotPartCount e)))
+      (if (< n 0)
+        1
+        (if (if (== (nodeTag e) TAG_E_SET)
+          (strEq (nodeAName e) name)
+          false)
+          1
+          (let (
+            (mut r 0)
+            (mut i 0)
+          )
+            {
+              (while (&& (== r 0) (< i n))
+                {
+                  (set r (slotAssigned name (slotPart e i)))
+                  (set i (+ i 1))
+                })
+              r
+            }))))))
+
+; A slot that is never `set` and starts from a parameter of the
+; function, or from a literal, holds a value the caller keeps alive for
+; the whole call, exactly as a `let` of the parameter does. It needs no
+; share of its own. Taking one would also make it a pending release
+; that keeps a mutual tail call passing it on from being a jump
+; (MM-EXEC-6c). Asked before the slot's own binder exists.
+(pub :: slotKeptByCaller (-> Int Int Int))
+(pub fn (slotKeptByCaller cg node)
+  (let ((v (nodeB node)))
+    (if (== (slotAssigned (nodeAName node) (nodeC node)) 1)
+      0
+      (if (== (nodeTag v) TAG_E_STR)
+        1
+        (if (if (== (nodeTag v) TAG_E_VAR)
+          (&& (!= (nodeDefScope v) 1) (&& (== (lookupSym cg (nodeAName v)) 0) (>= (curParamIndex cg (nodeAName v)) 0)))
+          false)
+          1
+          0)))))
+
+; The names under `e` whose binding may hold the value of one of
+; `names` (`mayAlias`), appended to `names` in evaluation order, so an
+; alias of an alias is found too: a `let` or `mut` binding whose
+; initialiser may alias one, and every binder of a `match` whose
+; scrutinee may. Answers 1 on a tag the walks don't know, or a pattern
+; whose binders can't be listed.
+(pub :: slotAliases (-> Int (Vec Int) Int Int Int))
+(pub fn (slotAliases cg names e bound)
+  (if (== e 0)
+    0
+    (let ((n (slotPartCount e)))
+      (if (< n 0)
+        1
+        (let (
+          (mut unk 0)
+          (mut i 0)
+        )
+          {
+            (while (&& (== unk 0) (< i n))
+              {
+                (set unk (slotAliases cg names (slotPart e i) bound))
+                ; once the initialiser or scrutinee is walked, before
+                ; the body or the arms
+                (if (&& (== i 0) (== unk 0))
+                  (set unk (slotAliasBinders cg names e bound))
+                  0)
+                (set i (+ i 1))
+              })
+            unk
+          })))))
+
+(pub :: slotAliasBinders (-> Int (Vec Int) Int Int Int))
+(pub fn (slotAliasBinders cg names e bound)
+  (let ((tg (nodeTag e)))
+    (if (|| (== tg TAG_E_LET) (== tg TAG_E_LETM))
+      (if (== (namesMayAlias cg names (nodeB e) bound 0) 1)
+        {
+          (vecPush names (cast Int (nodeAName e)))
+          0
+        }
+        0)
+      (if (== tg TAG_E_MATCH)
+        (if (== (namesMayAlias cg names (nodeA e) bound 0) 1)
+          (slotArmAliases names (nodeBVec e) 0)
+          0)
+        0))))
+
+(pub :: slotArmAliases (-> (Vec Int) (Vec Int) Int Int))
+(pub fn (slotArmAliases names arms i)
+  (if (>= i (vecLen arms))
+    0
+    (if (==
+      (cast Int (patBindersCg (nodeA (vecGet arms i)) names))
+      0)
+      1
+      (slotArmAliases names arms (+ i 1)))))
+
+(pub :: namesMayAlias (-> Int (Vec Int) Int Int Int Int))
+;@axiom:effect(unsafe)
+(pub fn (namesMayAlias cg names e bound i)
+  (if (>= i (vecLen names))
+    0
+    (if (== (mayAlias cg (vecGetStr names i) e bound) 1)
+      1
+      (namesMayAlias cg names e bound (+ i 1)))))
 
 ; Does a binder under `e` reuse `name` - a `let`, a lambda parameter, a
 ; match binder? A tag the walk does not know, or a pattern whose
