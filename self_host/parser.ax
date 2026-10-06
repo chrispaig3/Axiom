@@ -534,7 +534,7 @@
     (__retainref a)
     (__retainref b)
     (__retainref c)
-    (ASTNode
+    (cast Int (ASTNode
       t
       (cast Int a)
       (cast Int b)
@@ -546,7 +546,7 @@
       0
       0
       0
-      0)
+      0))
   })
 
 (pub :: mkNodeAt (-> Int a b c Int Int))
@@ -555,7 +555,7 @@
     (__retainref a)
     (__retainref b)
     (__retainref c)
-    (ASTNode
+    (cast Int (ASTNode
       t
       (cast Int a)
       (cast Int b)
@@ -567,7 +567,7 @@
       0
       0
       0
-      0)
+      0))
   })
 
 (pub :: nodeSpan (-> Int Int))
@@ -936,42 +936,42 @@
 
 (pub :: pOk (-> a Int Int))
 (pub fn (pOk v p)
-  (PResult
+  (cast Int (PResult
     1
     (cast Int v)
     p
     ""
-    ""))
+    "")))
 
 ; `pOk` with the region annotation `parseTypeAtomsRgn` found riding
 ; the `exp` slot, which is "" on every other success and which nothing
 ; reads on one. See that function for why the name travels here.
 (pub :: pOkRgn (-> a Int String Int))
 (pub fn (pOkRgn v p rgn)
-  (PResult
+  (cast Int (PResult
     1
     (cast Int v)
     p
     rgn
-    ""))
+    "")))
 
 (pub :: pErr (-> Int Int))
 (pub fn (pErr p)
-  (PResult
+  (cast Int (PResult
     0
     0
     p
     ""
-    ""))
+    "")))
 
 (pub :: pErrExp (-> Int String Int))
 (pub fn (pErrExp p e)
-  (PResult
+  (cast Int (PResult
     0
     0
     p
     e
-    ""))
+    "")))
 
 (pub :: pResExp (-> Int String))
 (pub fn (pResExp r)
@@ -990,12 +990,12 @@
 ; withdrawn, which is the one thing a reserved word must not do.
 (pub :: pErrRemoved (-> Int String Int))
 (pub fn (pErrRemoved p kw)
-  (PResult
+  (cast Int (PResult
     0
     0
     p
     kw
-    "AX2004"))
+    "AX2004")))
 
 ; A failure that names its own code and expects nothing - AX2005 is the
 ; one, refused before any expectation exists to record. A constructor
@@ -1004,12 +1004,12 @@
 ; is in a position that wants one.
 (pub :: pErrCode (-> Int String Int))
 (pub fn (pErrCode p c)
-  (PResult
+  (cast Int (PResult
     0
     0
     p
     ""
-    c))
+    c)))
 
 ; A module-path segment carrying `/`. `exp` carries the SEGMENT, the way
 ; `pErrRemoved` carries the keyword, because the diagnostic quotes what
@@ -1017,12 +1017,12 @@
 ; path they typed and not a noun.
 (pub :: pErrModSeg (-> Int String Int))
 (pub fn (pErrModSeg p seg)
-  (PResult
+  (cast Int (PResult
     0
     0
     p
     seg
-    "AX2006"))
+    "AX2006")))
 
 ; A C or Rust primitive type name in type position. `exp` carries the
 ; NAME as written, the way `pErrModSeg` carries the segment, because
@@ -1030,24 +1030,24 @@
 ; typed beside the Axiom type it should have been.
 (pub :: pErrSizedTy (-> Int String Int))
 (pub fn (pErrSizedTy p n)
-  (PResult
+  (cast Int (PResult
     0
     0
     p
     n
-    "AX3047"))
+    "AX3047")))
 
 ; A `'` that opens no character literal. The code is the bare word,
 ; the way `for-in` is: the diagnostic keeps its AX2001 code and slug,
 ; and only the message and help are quote-specific.
 (pub :: pErrQuote (-> Int Int))
 (pub fn (pErrQuote p)
-  (PResult
+  (cast Int (PResult
     0
     0
     p
     ""
-    "quote"))
+    "quote")))
 
 ; An `extern` block's library name that is not one. `exp` carries the
 ; ONE offending byte as a one-byte string, and `""` means the name was
@@ -1057,12 +1057,12 @@
 ; and the caret already shows the literal.
 (pub :: pErrExternLib (-> Int String Int))
 (pub fn (pErrExternLib p ch)
-  (PResult
+  (cast Int (PResult
     0
     0
     p
     ch
-    "AX3041"))
+    "AX3041")))
 
 ; The diagnostic for a failed parse, from the failure's token position.
 ;

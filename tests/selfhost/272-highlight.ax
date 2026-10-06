@@ -56,7 +56,7 @@
   (dep : Int)
   (mat : Int))
 
-(:: mkHCase (-> String Int String Int Int Int))
+(:: mkHCase (-> String Int String Int Int HCase))
 (fn (mkHCase src cur cls dep mat)
   (HCase
     src
@@ -65,31 +65,31 @@
     dep
     mat))
 
-(:: hcSrc (-> Int String))
+(:: hcSrc (-> HCase String))
 (fn (hcSrc c)
-  (memGetWordStr c 0))
+  c.src)
 
-(:: hcCur (-> Int Int))
+(:: hcCur (-> HCase Int))
 (fn (hcCur c)
-  (memGetWord c 1))
+  c.cur)
 
-(:: hcCls (-> Int String))
+(:: hcCls (-> HCase String))
 (fn (hcCls c)
-  (memGetWordStr c 2))
+  c.cls)
 
-(:: hcDep (-> Int Int))
+(:: hcDep (-> HCase Int))
 (fn (hcDep c)
-  (memGetWord c 3))
+  c.dep)
 
-(:: hcMat (-> Int Int))
+(:: hcMat (-> HCase Int))
 (fn (hcMat c)
-  (memGetWord c 4))
+  c.mat)
 
 ; ------------------------------------------------------------------
 ; The corpus. One `vecPush` per case, the expectation on the same line
 ; as the buffer it describes.
 ; ------------------------------------------------------------------
-(:: corpus (Vec Int))
+(:: corpus (Vec HCase))
 (fn (corpus)
   (let ((v vecNewRef))
     {
@@ -284,7 +284,7 @@
 
 ; One case, four assertions. 0 when they all hold, else the status
 ; that names which one did not.
-(:: checkCase (-> Int Int Int))
+(:: checkCase (-> HCase Int Int))
 (fn (checkCase c i)
   (let (
     (src (hcSrc c))
@@ -321,7 +321,7 @@
     }))
 
 ; How many of the eleven class letters the corpus actually produced.
-(:: distinctLetters (-> (Vec Int) Int))
+(:: distinctLetters (-> (Vec HCase) Int))
 (fn (distinctLetters v)
   (let (
     (seen (strAlloc 256))

@@ -38,6 +38,15 @@ its changelog too.
   mark cell per worker instead of leaving a 24-byte mark per
   connection. Scoped memory now holds flat. Tested by
   `scripts/check-net.sh`.
+- Return the type your function's body answers. A record, closure,
+  `String` or type variable returned where the signature says `Int` is
+  `AX3004`, as it is in an argument, and so is a lambda whose result
+  disagrees with its factory's declared arrow. Such a value used to
+  pass as a word that nothing released. The compiler's 31 such results
+  now spell `(cast Int ...)`. A refused field read no longer draws a
+  second `AX3004` where its value is used. Tested by
+  `tests/diagnostics/1240-record-through-int.ax` and
+  `tests/diagnostics/1241-result-coercion-shapes.ax`.
 
 - Resolve every macro template binder through its scope record alone
   (`MAC-HYG-9` step M4). The expander's second binder table is gone,

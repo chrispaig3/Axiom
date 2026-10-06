@@ -608,23 +608,23 @@
 (pub fn (histOpenWith interactive cap)
   (let ((path (histResolvePath interactive)))
     (if (== (strLen path) 0)
-      (Hist
+      (cast Int (Hist
         vecNewRef
         ""
         cap
         0
         ""
-        0)
+        0))
       {
         (histEnsureDir path)
         (let ((v (histDecode (readFile path) cap)))
-          (Hist
+          (cast Int (Hist
             v
             path
             cap
             (vecLen v)
             ""
-            1))
+            1)))
       })))
 
 (pub :: histOpen (-> Int Int))

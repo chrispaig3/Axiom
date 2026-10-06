@@ -263,7 +263,7 @@
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: mkHlSpan (-> Int Int Int Int))
 (pub fn (mkHlSpan cls start end)
-  (HlSpan cls start end))
+  (cast Int (HlSpan cls start end)))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: hlSpanCls (-> Int Int))
@@ -297,12 +297,12 @@
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: mkHlBrk (-> Int Int Int Int Int Int))
 (pub fn (mkHlBrk pos open fam partner span)
-  (HlBrk
+  (cast Int (HlBrk
     pos
     open
     fam
     partner
-    span))
+    span)))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: hlBrkPos (-> Int Int))
@@ -341,7 +341,7 @@
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: mkHlScan (-> (Vec Int) (Vec Int) Int))
 (pub fn (mkHlScan spans brks)
-  (HlScan spans brks))
+  (cast Int (HlScan spans brks)))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: hlScanSpans (-> Int (Vec Int)))

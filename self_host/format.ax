@@ -159,7 +159,7 @@
 ; not.
 (pub :: mkFTok (-> Int Int Int Int))
 (pub fn (mkFTok k s e)
-  (FTok k s e))
+  (cast Int (FTok k s e)))
 
 (pub :: ftKind (-> Int Int))
 (pub fn (ftKind t)
@@ -193,7 +193,7 @@
 
 (pub :: mkFCom (-> Int Int Int Int Int))
 (pub fn (mkFCom s e l o)
-  (FCom s e l o))
+  (cast Int (FCom s e l o)))
 
 (pub :: fcStart (-> Int Int))
 (pub fn (fcStart c)
@@ -526,7 +526,7 @@
 
 (pub :: mkFScan (-> (Vec Int) (Vec Int) Int))
 (pub fn (mkFScan t c)
-  (FScan t c))
+  (cast Int (FScan t c)))
 
 (pub :: fsToks (-> Int Int))
 (pub fn (fsToks s)
@@ -1000,12 +1000,12 @@
 
 (pub :: mkFNode (-> Int Int (Vec Int) Int Int Int))
 (pub fn (mkFNode k t ks s e)
-  (FNode
+  (cast Int (FNode
     k
     t
     ks
     s
-    e))
+    e)))
 
 (pub :: fnKind (-> Int Int))
 (pub fn (fnKind n)
@@ -1073,7 +1073,7 @@
 
 (pub :: mkFRead (-> Int Int Int Int))
 (pub fn (mkFRead o n p)
-  (FRead o n p))
+  (cast Int (FRead o n p)))
 
 (pub :: frOk (-> Int Int))
 (pub fn (frOk r)
@@ -1450,7 +1450,7 @@
 
 (pub :: mkFOut (-> Int Int))
 (pub fn (mkFOut _u)
-  (FOut vecNew 0 0 0))
+  (cast Int (FOut vecNew 0 0 0)))
 
 (pub :: foFrags (-> Int Int))
 (pub fn (foFrags o)
@@ -1602,7 +1602,7 @@
 
 (pub :: mkFCq (-> Int Int))
 (pub fn (mkFCq coms)
-  (FCq coms 0))
+  (cast Int (FCq coms 0)))
 
 (pub :: fqComs (-> Int Int))
 (pub fn (fqComs q)
@@ -1810,7 +1810,7 @@
 
 (pub :: mkFPr (-> String Int Int Int Int))
 (pub fn (mkFPr src starts q out)
-  (FPr src starts q out))
+  (cast Int (FPr src starts q out)))
 
 (pub :: fpSrc (-> Int String))
 (pub fn (fpSrc p)

@@ -1,0 +1,32 @@
+; A record returned where the signature says `Int` is a type mismatch
+; (MM-VAL-24). `Int` is not a heap handle: a `Pt` answered through it
+; would leave the caller holding a word the release walk never follows.
+;
+;   `mkPt`    a struct through a declared `Int`, refused as AX3004
+;   `mkBox`   a `data` value the same way, refused as AX3004
+;
+; The control draws nothing:
+;   `mkPt2`   the signature names the type the body answers
+(struct Pt
+  (x : Int)
+  (y : Int))
+
+(data Box
+  (Wrap Int))
+
+(:: mkPt (-> Int Int Int))
+(fn (mkPt a b)
+  (Pt a b))
+
+(:: mkBox (-> Int Int))
+(fn (mkBox n)
+  (Wrap n))
+
+(:: mkPt2 (-> Int Int Pt))
+(fn (mkPt2 a b)
+  (Pt a b))
+
+(:: main Int)
+(fn (main)
+  (let ((p (mkPt2 30 5)))
+    (+ p.x p.y)))

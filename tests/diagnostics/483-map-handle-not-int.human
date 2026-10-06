@@ -1,23 +1,23 @@
 [1;31merror[AX3004][0m[1m: type mismatch: expected Map, found Int[0m
-  [1;34m--> [0m483-map-handle-not-int.ax:60:15
+  [1;34m--> [0m483-map-handle-not-int.ax:50:15
 [1;34m   |[0m
-[1;34m60 |[0m       (mapLen it)
+[1;34m50 |[0m       (mapLen it)
 [1;34m   |[0m               [1;31m^^ this has type `Int`, expected `Map`[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
 
 [1;31merror[AX3004][0m[1m: type mismatch: expected Map, found Int[0m
-  [1;34m--> [0m483-map-handle-not-int.ax:61:15
+  [1;34m--> [0m483-map-handle-not-int.ax:51:15
 [1;34m   |[0m
-[1;34m61 |[0m       (mapGet 12345 1 0)
+[1;34m51 |[0m       (mapGet 12345 1 0)
 [1;34m   |[0m               [1;31m^^^^^ this has type `Int`, expected `Map`[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
 
 [1;31merror[AX3001][0m[1m: undefined variable `Map`[0m
-  [1;34m--> [0m483-map-handle-not-int.ax:62:16
+  [1;34m--> [0m483-map-handle-not-int.ax:52:16
 [1;34m   |[0m
-[1;34m62 |[0m       (mapLen (Map
+[1;34m52 |[0m       (mapLen (Map
 [1;34m   |[0m                [1;31m^^^ no binding named `Map` in scope[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mvariables must be defined (via `fn`, a `let` binding, or a lambda parameter) before they are used; check for typos

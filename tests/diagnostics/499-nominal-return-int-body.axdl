@@ -1,3 +1,4 @@
-E AX3004 499-nominal-return-int-body.ax:53:3-4 type-mismatch "type mismatch: expected Box, found Int" #"this has type `Int`, expected `Box`"
-E AX3004 499-nominal-return-int-body.ax:57:3-4 type-mismatch "type mismatch: expected Pt, found Int" #"this has type `Int`, expected `Pt`"
-E AX3004 499-nominal-return-int-body.ax:61:4-6 type-mismatch "type mismatch: expected Box, found Pt" #"this has type `Pt`, expected `Box`"
+E AX3004 499-nominal-return-int-body.ax:41:3-4 type-mismatch "type mismatch: expected Box, found Int" #"this has type `Int`, expected `Box`"
+E AX3004 499-nominal-return-int-body.ax:45:3-4 type-mismatch "type mismatch: expected Pt, found Int" #"this has type `Int`, expected `Pt`"
+E AX3004 499-nominal-return-int-body.ax:49:4-6 type-mismatch "type mismatch: expected Box, found Pt" #"this has type `Pt`, expected `Box`"
+E AX3004 499-nominal-return-int-body.ax:53:4-6 type-mismatch "type mismatch: expected Int, found Pt" #"this has type `Pt`, expected `Int`"

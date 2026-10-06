@@ -1,0 +1,4 @@
+E AX3004 1241-result-coercion-shapes.ax:24:4-10 type-mismatch "type mismatch: expected Int, found (_a -> Int)" #"this has type `(_a -> Int)`, expected `Int`"
+E AX3004 1241-result-coercion-shapes.ax:29:5-6 type-mismatch "type mismatch: expected Int, found Box" #"this has type `Box`, expected `Int`"
+E AX3004 1241-result-coercion-shapes.ax:33:4-10 type-mismatch "type mismatch: expected (Int -> Int), found (Int -> Box)" #"this has type `(Int -> Box)`, expected `(Int -> Int)`"
+E AX3004 1241-result-coercion-shapes.ax:37:3-4 type-mismatch "type mismatch: expected Int, found a" #"this has type `a`, expected `Int`"

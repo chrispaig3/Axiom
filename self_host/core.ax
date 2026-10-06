@@ -27,7 +27,7 @@
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: mkSpan (-> Int Int Int))
 (pub fn (mkSpan start end)
-  (Span start end))
+  (cast Int (Span start end)))
 
 ; ------------------------------------------------------------------
 ; TokenKind — nullary constructors, one per token shape.
@@ -114,7 +114,7 @@
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: mkToken (-> TokenKind String Int Int))
 (pub fn (mkToken kind lexeme span)
-  (Token kind lexeme span))
+  (cast Int (Token kind lexeme span)))
 
 ; Token accessors for readability.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)

@@ -162,7 +162,7 @@
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: mkDiagBase (-> Int String String Int String String Int))
 (pub fn (mkDiagBase sev code slug span msg label)
-  (Diag
+  (cast Int (Diag
     sev
     code
     slug
@@ -173,7 +173,7 @@
     0
     0
     0
-    0))
+    0)))
 
 ; ------------------------------------------------------------------
 ; Accessors.
@@ -770,7 +770,7 @@
               (cast (Vec Int) 0))
             (set i (+ i 1))
           }))
-      (SrcIx starts chars)
+      (cast Int (SrcIx starts chars))
     }))
 
 ; The 0-based line of `off`: the largest k with `starts[k] <= off`. An

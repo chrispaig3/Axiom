@@ -2338,6 +2338,30 @@ The accessor's declared type must match what the word holds. A default
 value cannot establish the type of a stored word. Use a typed container
 or a reader whose comment names the stored representation.
 
+**MM-VAL-24 (H). A reference becomes a word only through a written
+cast.** A function's body meets its declared result by the comparison
+an argument gets (`tyCompat`), and a declared `Int` is no exception. A
+`String`, a struct, a `data` value with a field, a closure or a type
+variable answered where the signature says `Int` is `AX3004`. So is a
+lambda whose result disagrees with the arrow its factory declares, part
+by part:
+
+```scheme refused
+(data Box
+  (Bx String))
+
+(:: hide (-> Int Int))
+(fn (hide n)
+  (Bx "kept"))       ; AX3004: expected Int, found Box
+```
+
+The explicit route remains: `(cast Int v)` erases `v` as `MM-VAL-22`
+describes.
+
+Evidence: [1240-record-through-int.ax](../tests/diagnostics/1240-record-through-int.ax)
+and [1241-result-coercion-shapes.ax](../tests/diagnostics/1241-result-coercion-shapes.ax)
+pin the refusals.
+
 ### 3.6 Checked lexical regions
 
 This section is the authoritative contract for the `MM-RGN-*` rules.
@@ -6334,7 +6358,7 @@ opposite of that rule's status.
 | Area | Holds today | Planned | Withdrawn | Refused |
 |---|---|---|---|---|
 | Execution | EXEC-1…6d, 8…13, 15…17 | — | — | EXEC-7, EXEC-14 |
-| Representation | VAL-1…11, 10a, 14…20, VAL-22, VAL-23 | — | — | VAL-12, VAL-13 |
+| Representation | VAL-1…11, 10a, 14…20, VAL-22…24 | — | — | VAL-12, VAL-13 |
 | Allocation | ALLOC-1…7, 7a, 8a…16b, ALLOC-22…25 | ALLOC-20 | ALLOC-17…19, ALLOC-21 | ALLOC-8 |
 | Regions | RGN-1…4, 5a, 6 | RGN-7 | RGN-5 | — |
 | Mutation | MUT-1…5a | — | — | MUT-6 |

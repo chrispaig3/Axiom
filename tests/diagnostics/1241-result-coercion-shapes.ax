@@ -1,0 +1,57 @@
+; Every shape by which a body answered a reference through a declared
+; `Int` result, each refused as AX3004 (MM-VAL-24):
+;
+;   `closure`  a lambda, under a bare `Int`
+;   `tail`     a `data` value reached through a `let` tail
+;   `curried`  a lambda answering `Box` under `(-> Int (-> Int Int))`,
+;              refused at the returned function's result
+;   `erase`    a signature's type variable, which a caller may
+;              instantiate at a `String`
+;
+; The controls draw nothing:
+;   `adder`    a lambda whose result is the `Int` it promises
+;   `wrap`     a lambda under an arrow that names `Box`
+;   `same`     a type variable answered where the same variable is
+;              declared
+;   `small`    a subtype answered through its base
+(data Box
+  (Bx String Int))
+
+(subtype Small is Int range 0..9)
+
+(:: closure (-> Int Int))
+(fn (closure n)
+  (lambda (k) (+ n k)))
+
+(:: tail (-> Int Int))
+(fn (tail n)
+  (let ((b (Bx "t" n)))
+    b))
+
+(:: curried (-> Int (-> Int Int)))
+(fn (curried n)
+  (lambda (k) (Bx "c" k)))
+
+(:: erase (-> a Int))
+(fn (erase x)
+  x)
+
+(:: adder (-> Int (-> Int Int)))
+(fn (adder n)
+  (lambda (k) (+ n k)))
+
+(:: wrap (-> Int (-> Int Box)))
+(fn (wrap n)
+  (lambda (k) (Bx "w" k)))
+
+(:: same (-> a a))
+(fn (same x)
+  x)
+
+(:: small (-> Small Int))
+(fn (small s)
+  s)
+
+(:: main Int)
+(fn (main)
+  ((adder (same 1)) (small 2)))

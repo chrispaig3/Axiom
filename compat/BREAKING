@@ -990,3 +990,7 @@
 
 # 0.7.9 - the precondition tag is removed; a contract or a comment states a condition.
 0.7.9  L  precondition-tag  `;@axiom:precondition(...)` is refused as AX3095; state a checkable condition with `;@axiom:pre(...)`, or describe it in a comment
+
+# 0.7.9 - `Int` is not a heap handle in a result. Tested by
+# tests/diagnostics/1241-result-coercion-shapes.ax.
+0.7.9  L  int-result-coercion  a record, closure, String or type variable answered where the signature says Int is AX3004; declare the type the body answers, or write (cast Int v) where a word is meant

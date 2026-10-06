@@ -628,7 +628,7 @@
         1
         2
         vecNew)
-      (CG
+      (cast Int (CG
         vecNew
         0
         ""
@@ -675,7 +675,7 @@
         (- 0 1)
         vecNew
         vecNew
-        ps)
+        ps))
     }))
 
 ; Slot `i` of the register-pair state: 0 mode, 1 arm, 2 names, 3 tag -

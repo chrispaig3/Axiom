@@ -376,6 +376,11 @@ operations belong behind an `effect(unsafe)` declaration. Library
 functions that take a raw address, such as `memGetWord`, trust it, so
 passing one a bad address crashes the program.
 
+A function's result is checked like an argument. A record, closure,
+`String` or type variable returned where the signature says `Int` is
+`AX3004`, so declare the type the body answers. `(cast Int v)` still
+turns a reference into a word that holds no share.
+
 ### Region annotations
 
 Signature region annotations describe lifetime relationships. They do

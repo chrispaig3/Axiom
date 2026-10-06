@@ -145,8 +145,10 @@ the neighbourhood of the corpus.
 
 - A `Vec` isn't released at scope end, and `vecNew` against `vecNewRef`
   decides element ownership by hand.
-- `Int` is accepted where a heap value is expected in a result, so a
-  value can leave through an `Int` and stop being tracked.
+- Safe code can still turn a reference into a word with `(cast Int v)`,
+  or by storing it in an `Int` container slot or through `memSetWord`.
+  A value that leaves this way stops being tracked. A function result
+  can't do it (`MM-VAL-24`).
 - `fileFd` with `sysCloseFd` can close a descriptor its `File` still
   owns.
 - Disposing of a channel or mutex while another binding uses it is a

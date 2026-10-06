@@ -17920,7 +17920,7 @@
                           }))
                       {
                         (emitFieldNotFound tc (nodeBName e) (nodeAName baseTy) (nodeSpan e))
-                        mkI64Ty
+                        (mkNode TAG_T_ERR 0 0 0)
                       })))))))))
       {
         ; A pending base would render its raw node as the "found"
@@ -17930,7 +17930,10 @@
           (if (== (tyIsSilentWild baseTy) 0)
             (emitMismatch tc "struct or data type" (tyRender baseTy) (spanOf (nodeA e)))
             0))
-        mkI64Ty
+        ; Poison, like every other refused read above: the access
+        ; has been reported, and a type made up here would be
+        ; compared again wherever the read flows.
+        (mkNode TAG_T_ERR 0 0 0)
       })))
 
 ; Record on a TAG_E_FIELD / TAG_E_SETF node which struct its field
@@ -25456,94 +25459,39 @@
         0
         (peelArrows (nodeB t) (- n 1))))))
 
-; A signature that promises a FUNCTION where the body answers a
-; concrete non-function is refused, because the emitter believes both
-; halves and they disagree about the shape of the call:
+; A function's body against its declared result. The comparison is
+; the one an argument gets, `tyCompat`, for every declared result,
+; `Int` included (MM-VAL-24). A signature believed over a body that
+; disagrees with it is a miscompile in whichever direction it runs:
 ;
-;   (:: g (-> Int Int Int))
-;   (fn (g a) a)
-;   (fn (main) (g 41 2))
+;   (:: g (-> Int Box))  (fn (g x) 7)           reads 7 as a header
+;   (:: f (-> Int Float))  (fn (f x) 42)        reads 42 as a double
+;   (:: h (-> Int Int))  (fn (h x) (Bx "s"))    erases a counted block
 ;
-; `check` used to accept that. The call site reads the signature -
-; two parameters, one supplied to the definition, so the second is an
-; application of the RESULT - and emits `call @g(41)` followed by a
-; load of word 0 of the answer as a code pointer. The answer is 41.
-; SIGSEGV, no output, exit 139, on a program `check` called OK.
+; The last is the one `Int` used to be exempt from. A `Box` returned
+; through `Int` leaves the caller holding a word the release walk
+; never follows, so the block's share is never given back: 48 bytes
+; held per call, measured. A function that means to hand out a word
+; for a reference says `(cast Int b)`.
 ;
-; Deliberately narrow. `(-> Int (-> Int Int))` and `(-> Int Int Int)`
-; are the SAME type - the parser right-folds - so arity alone cannot
-; tell a curried return from a wrong one, and a function that really
-; does return a closure (`tests/stdlib/140-function-values.ax`) must
-; keep working. So when the declared result IS an arrow, what is
-; refused is only a body whose type is a concrete non-arrow: not a
-; type variable, not poison, not a silent wildcard, all of which mean
-; "not known" rather than "known to be wrong".
+; The arms, in order:
 ;
-; When the declared result is NOT an arrow this used to check nothing
-; at all, and that was the louder half of the same defect. A signature
-; naming a representation the body does not produce is believed by
-; every reader downstream:
+; - A pending body (a lambda nothing has grounded) is refused only
+;   where a ground non-arrow type is declared: a function where a
+;   value goes.
+; - Poison and the silent wildcard say nothing.
+; - A declared SOURCE variable promises the caller a type the caller
+;   chooses, so the body may answer only that same variable.
+; - A minted `_tN` body means "not known" and stays quiet. A source
+;   variable body is known, and meets the declaration like any type.
+; - A declared arrow over a non-arrow body is a shape error: the call
+;   site would load a code pointer out of a value.
+; - Everything else meets `declResultCompat`, part by part through an
+;   arrow, so a lambda answering `Box` under `(-> Int (-> Int Int))`
+;   is refused at its result.
 ;
-;   (:: f (-> Int Float))  (fn (f x) 42)
-;   (println (fmtFloat (f 1)))  ->  0.000000   at exit 0
-;
-; What decides that case is `tyCompat` - the same comparison an
-; argument has always got - for every declared result but one, and the
-; exception is a bare `Int`. `tyReprClash` and `tyParamThroughInt`
-; below are what a declared `Int` gets instead of it, and the comment
-; on each says why it cannot be `tyCompat` THERE.
-;
-; THE CONVENTION IS ONE-DIRECTIONAL, and until 2026-08-31 this check
-; did not know that. `Int` is this language's universal heap handle,
-; so a signature saying `Int` over a body that answers a `Span` is the
-; convention working as intended: the caller receives a word, and code
-; generated from that signature never dereferences it. The REVERSE is
-; not the convention and never was. A signature saying `Box` over a
-; body that answers an `Int` hands the caller a word the caller WILL
-; dereference, because the declaration told it that is safe:
-;
-;   (data Box (Bx String))
-;   (:: g (-> Int Box))  (fn (g x) 7)
-;   (fn (main) (match (g 1) ((Bx s) (strLen s))))
-;
-; `check` printed OK on 0.6.0; the program built and died of SIGSEGV,
-; exit 139, having read 7 as a header address. The SAME mismatch in
-; ARGUMENT position was AX3004 the whole time - `(h 7)` against
-; `(:: h (-> Box Int))` - so the rule was present and applied in one
-; position out of two. That is what the loose comparison here cost:
-; not a missing rule, a rule not applied.
-;
-; A NAME LIST CANNOT CLOSE IT. `tyReprClash` catches a clash only when
-; one of the two names is on `tyIsReprScalar`'s list - `Bool`,
-; `Float`, `Foreign`, `Handle`, `String` - so every `data`, every
-; `struct`, every `Char`, list, tuple, pointer and lambda fell through
-; it, in the one direction that segfaults. Probed one file per row on
-; 0.6.0, all ACCEPTED by `check` and all refused now:
-;
-;   (-> Int Box) over 7          (-> Int P) over 7        P a struct
-;   (-> Int Box) over 'A'        (-> Int Box) over (P 1 2)
-;   (-> Int Box) over (fn (y) y) (-> Int (Opt Int)) over 7
-;   (-> Int [Int]) over 7        (-> Int Char) over 7
-;   (-> Int (Opt Int)) over (Some "s")
-;
-; WHAT IT COSTS, measured rather than guessed, over all 558 `.ax`
-; files in the tree with a compiler built from it: comparing a
-; declared result by `tyCompat` UNCONDITIONALLY newly refuses 29
-; sites, and every single one of them reads `expected Int, found
-; <handle>` - `core.ax`'s `Span` and `Token`, ten `PResult`/`ASTNode`
-; in `parser.ax`, eight `F*` builders in `format.ax`, `diag.ax`'s
-; `Diag` and `SrcIx`, `codegen.ax`'s `CG`, `expand.ax`'s `FmtSpec`,
-; `stdlib/Job.ax`'s `JobPool`, three `*mut Int` in fixtures. NOT ONE
-; site in the tree declares a non-`Int` result over a body that
-; disagrees with it. (That count is of the 558-file tree it names.
-; `stdlib/Job.ax` was deleted at 0.7.4 and its replacement
-; `stdlib/Par.ax` holds no record at all, so one of the 29 is gone; the
-; conclusion is not, and the remaining 28 are the same shape.) So exempting a declared `Int`, and only a
-; declared `Int`, costs the tree nothing and closes every row above.
-;
-; `(cast Box n)` remains the explicit escape, and is what a function
-; that really does mint a nominal value out of a word must now say -
-; the same escape `Str.strWrapOwned` already uses for `String`.
+; `(cast Box n)` is the explicit escape for the reverse direction,
+; minting a nominal value out of a word, and it is unsafe (AX3073).
 (pub :: checkDeclaredReturn (-> Int Int Int Int Int))
 (pub fn (checkDeclaredReturn tc d want got)
   (if (== want 0)
@@ -25552,14 +25500,13 @@
       0
       ; `got` is all but never pending here - the tail infers a
       ; pending body standalone before this runs - but a path that
-      ; bypassed the tail must still judge it: where an arrow, a
-      ; variable, or a BARE `Int` is declared nothing is refused
-      ; (a factory; a generic; a handle may hide behind the `Int`),
-      ; and where any OTHER ground type is declared it is a shape
+      ; bypassed the tail must still judge it: where an arrow or a
+      ; variable is declared nothing is refused (a factory; a
+      ; generic), and where a ground type is declared it is a shape
       ; error - a function where a value goes - refusing audibly
       ; without ever rendering the node.
       (if (== (isPendingNode got) 1)
-        (if (|| (== (nodeTag want) TAG_T_ARR) (|| (== (tyIsGround want) 0) (tyIsBareInt want)))
+        (if (|| (== (nodeTag want) TAG_T_ARR) (== (tyIsGround want) 0))
           0
           (refusePendingOperand tc got (tyRender want) (spanOf (nodeC d))))
       (if (== (tyIsErr got) 1)
@@ -25570,10 +25517,10 @@
             ; A signature promising a type VARIABLE promises the CALLER a
             ; type the caller chooses, so the body may answer only that same
             ; variable. A different one, or any concrete type, breaks the
-            ; promise the same way the `Float`-over-`Int` case two arms down
-            ; does: every reader downstream believes the signature. A minted
-            ; `_tN` body stays quiet, because it means "not known" rather
-            ; than "known to be wrong".
+            ; promise the same way the `Float`-over-`Int` case does: every
+            ; reader downstream believes the signature. A minted `_tN`
+            ; body stays quiet, because it means "not known" rather than
+            ; "known to be wrong".
             ;
             ;   (:: f (-> a b a))  (fn (f x y) y)   was accepted, answered y
             (if (== (nodeTag got) TAG_T_VAR)
@@ -25583,143 +25530,50 @@
                   (emitMismatchTy tc want got (spanOf (nodeC d))))
                 0)
               (emitMismatchTy tc want got (spanOf (nodeC d))))
-            (if (== (nodeTag got) TAG_T_VAR)
+            (if (&& (== (nodeTag got) TAG_T_VAR) (== (tyIsSrcVar got) 0))
               0
-              (if (== (nodeTag want) TAG_T_ARR)
-                (if (== (nodeTag got) TAG_T_ARR)
+              (if (&& (== (nodeTag want) TAG_T_ARR) (!= (nodeTag got) TAG_T_ARR))
+                (if (== (nodeTag got) TAG_T_VAR)
                   0
                   (emitMismatchTy tc want got (spanOf (nodeC d))))
-                ; The handle convention is ONE-DIRECTIONAL, and that
-                ; asymmetry is the whole rule. A declared bare `Int`
-                ; may stand for a handle, so it keeps the two narrow
-                ; carve-outs below and nothing else. Every OTHER
-                ; declared result is compared honestly - by `tyCompat`,
-                ; the comparison an ARGUMENT has always got.
-                (if (tyIsBareInt want)
-                  (if (== (tyReprClash want got) 1)
-                    (emitMismatchTy tc want got (spanOf (nodeC d)))
-                    (if (tyParamThroughInt want got)
-                      (emitMismatchTy tc want got (spanOf (nodeC d)))
-                      ; A WORD STRUCT is not a heap handle: its word is
-                      ; the whole value, and an `Int` result that
-                      ; answered it would unwrap a sealed type through
-                      ; the back door (MM-VAL-10a). Read the field in
-                      ; its module instead.
-                      (if (== (tyIsWordTy tc got) 1)
-                        (emitMismatchTy tc want got (spanOf (nodeC d)))
-                        0)))
-                  ; A DECLARED RESULT THAT MENTIONS A SOURCE TYPE
-                  ; VARIABLE ANYWHERE stays permitted, and this arm is
-                  ; why the rule above is safe to state at all.
-                  ;
-                  ; `tyIsSrcVar` two arms up catches a BARE variable -
-                  ; `(:: f (-> a b a))`. It does not catch one nested
-                  ; inside a type argument, and that shape is
-                  ; deliberately lenient here:
-                  ;
-                  ;   (:: mk (-> Int (Holder (-> a Int))))
-                  ;   (fn (mk n) (H bump))     bump : (-> Int Int)
-                  ;
-                  ; An arrow nested in a type ARGUMENT of the result
-                  ; puts its variable on a LEFT side - the callee does
-                  ; not produce an `a`, whoever calls the returned
-                  ; callback supplies it - so refusing the concrete
-                  ; instantiation is a false positive. That leniency is
-                  ; a decision `scripts/check-diverging-tyvar.sh`
-                  ; records and gates, against the AX3040 rule that
-                  ; used to refuse it; comparing by `tyCompat` here
-                  ; reverses it silently, which is not this rule's to
-                  ; do. Measured: without this arm the gate reports
-                  ; `expected Holder (a -> Int), found Holder
-                  ; (Int -> Int)` and its lenient direction goes red.
-                  (if (== (tyHasSrcVar want) 1)
-                    0
-                    (if (== (tyCompat tc want got) 0)
-                      (if (== (subtypeCompatAllows tc want got) 1)
-                        0
-                        (emitMismatchTy tc want got (spanOf (nodeC d))))
-                      0))))))))))))
+                (if (== (declResultCompat tc want got) 1)
+                  0
+                  (emitMismatchTy tc want got (spanOf (nodeC d)))))))))))))
 
-; 1 when `want` and `got` are two plain type constructors that cannot
-; share a representation, so believing the signature over the body is
-; a miscompile rather than a naming difference.
+; 1 when a body of type `got` may stand where the signature declares
+; `want`. Two arrows meet part by part, so a closure's parameters and
+; its result are each compared. Every other pair meets by `tyCompat`,
+; with a subtype allowed in either direction (`subtypeCompatAllows`),
+; except for one leniency.
 ;
-; This is deliberately NOT `tyCompat`. `Int` is this language's
-; universal heap-handle type, and the whole tree relies on it: the
-; compiler's own `(pub :: mkSpan (-> Int Int Int))` has the body
-; `(Span start end)`, and `format.ax`'s `mkFPr` answers an `FPr`
-; through an `Int` signature. Comparing a declared result with an
-; inferred one through `tyCompat` reports 21 of this repository's 271
-; files, every one of them a handle returned through `Int` on purpose.
+; A DECLARED PART THAT MENTIONS A SOURCE TYPE VARIABLE stays permitted:
 ;
-; `Bool` and `Float` are the two names that are not handles. A `Float`
-; declared over an `Int` body is a silent wrong answer, measured:
+;   (:: mk (-> Int (Holder (-> a Int))))
+;   (fn (mk n) (H bump))     bump : (-> Int Int)
 ;
-;   (:: f (-> Int Float))  (fn (f x) 42)
-;   (println (fmtFloat (f 1)))  ->  0.000000   at exit 0
-;
-; because the integer bit pattern is read as a double and 42 is a
-; denormal. `Bool` over `Int` is the same shape one step less loud -
-; `(if (f 1) 7 9)` answers 7, having read 42 as true.
-;
-; Only argument-free constructors are compared. Anything applied
-; (`Box Int`), any arrow, tuple, list or pointer, and anything either
-; side does not know, stays permitted - the point is to name the two
-; representations that cannot be punned, not to start checking types
-; the handle convention deliberately conflates.
-(pub :: tyReprClash (-> Int Int Int))
-(pub fn (tyReprClash want got)
-  (if (|| (!= (nodeTag want) TAG_T_CON) (!= (nodeTag got) TAG_T_CON))
-    0
-    (if (|| (!= (vecLen (nodeBVec want)) 0) (!= (vecLen (nodeBVec got)) 0))
-      0
-      (if (strEq (nodeAName want) (nodeAName got))
-        0
-        (if (|| (tyIsReprScalar (nodeAName want)) (tyIsReprScalar (nodeAName got)))
+; An arrow nested in a type argument of the result puts its variable on
+; a left side - the callee does not produce an `a`, whoever calls the
+; returned callback supplies it - so refusing the concrete
+; instantiation is a false positive. `scripts/check-diverging-tyvar.sh`
+; records and gates that decision. The leniency is per part: a
+; declared `(-> a Int)` still compares its `Int` result.
+(pub :: declResultCompat (-> Int Int Int Int))
+(pub fn (declResultCompat tc want0 got0)
+  (let ((want (tyResolve want0))
+        (got (tyResolve got0)))
+    (if (|| (== want 0) (== got 0))
+      1
+      (if (&& (== (nodeTag want) TAG_T_ARR) (== (nodeTag got) TAG_T_ARR))
+        (if (== (declResultCompat tc (nodeA want) (nodeA got)) 1)
+          (declResultCompat tc (nodeB want) (nodeB got))
+          0)
+        (if (== (tyHasSrcVar want) 1)
           1
-          0)))))
+          (if (== (tyCompat tc want got) 1)
+            1
+            (subtypeCompatAllows tc want got)))))))
 
-; A PARAMETERISED type answered through a bare `Int`, which the handle
-; convention does NOT cover and which `tyReprClash` above deliberately
-; exempts at its second line.
-;
-; The convention is real: `Int` is this language's universal heap
-; handle, `mkSpan` declares `Int` and answers a `Span`, `mkFPr`
-; answers an `FPr`. Every one of those is a MONOMORPHIC struct, and
-; the handle is the whole value - a caller that knows the convention
-; knows what it holds.
-;
-; A parameterised constructor is different in kind. `(Result Int Error)`
-; through an `Int` keeps the address and throws the type ARGUMENTS
-; away, so nothing downstream can recover what it holds; there is
-; nothing left for the convention to mean. Measured twice on
-; 2026-08-26, both silent:
-;
-;   `IO.makeDir` declared `Int` over a body that became `sysMkdir`'s
-;   `Result`. It returned a HEAP ADDRESS where an errno belonged and
-;   `check` printed OK; a fixture caught it at `got=4372103456 want=0`.
-;
-;   `driver.runTool` did the same one layer up and surfaced as AX4003
-;   at run time, having compiled clean.
-(pub :: tyParamThroughInt (-> Int Int Bool))
-(pub fn (tyParamThroughInt want got)
-  (if (|| (!= (nodeTag want) TAG_T_CON) (!= (nodeTag got) TAG_T_CON))
-    false
-    (if (!= (vecLen (nodeBVec want)) 0)
-      false
-      (if (== (vecLen (nodeBVec got)) 0)
-        false
-        (strEq (nodeAName want) "Int")))))
-
-; The one declared result the handle convention is ABOUT: a bare
-; `Int`, no type arguments. Every other declared result is compared
-; against the body by `tyCompat`.
-;
-; Spelled out rather than folded into `tyReprClash` because the two
-; ask different questions. `tyReprClash` asks "can these two names
-; share a representation", which is symmetric by construction. This
-; asks "is the DECLARED side the one name the convention licenses",
-; and its entire content is that it is NOT symmetric.
+; A bare `Int`, no type arguments.
 (pub :: tyIsBareInt (-> Int Bool))
 (pub fn (tyIsBareInt t)
   (if (== t 0)
@@ -25729,43 +25583,6 @@
       (if (!= (vecLen (nodeBVec t)) 0)
         false
         (strEq (nodeAName t) "Int")))))
-
-(pub :: tyIsReprScalar (-> String Bool))
-(pub fn (tyIsReprScalar name)
-  (|| (strEq name "Bool") (|| (strEq name "Float") (|| (strEq name "Foreign") (|| (strEq name "Handle") (strEq name "String"))))))
-
-; `Foreign` joins `Bool` and `Float` as a name that is NOT a handle.
-; The reason differs from theirs and is worth stating: an `Int`
-; declared where a `Foreign` belongs is not a misread bit pattern, it
-; is a pointer the program invented. MM-FFI-5 requirement 1 asks for
-; a distinct type and this is where the distinction is enforceable -
-; `tyCompat` matches a handle against anything by design, so the
-; declared-return check is the one place a clash is caught at all.
-;
-; Scope, stated, and it is WIDER than a first reading suggests. This
-; function is the declared-return-vs-body check. `Foreign`'s
-; distinctness in ARGUMENT position comes from `tyCompat` above
-; instead, which since the Int/String fiat was deleted on 2026-08-15
-; requires two named constructors to match BY NAME - so passing a
-; `Foreign` where an `Int` is declared is already refused, and
-; MM-FFI-5 requirement 1 holds everywhere a type is compared rather
-; than only at a return. `(cast Foreign x)` is the explicit escape.
-;
-; `String` is the fourth, and its absence was the QA sweep's second
-; critical finding (2026-08-18): with the String/Int fiat deleted a
-; String IS a header pointer and an Int is not, yet
-;
-;   (:: bad (-> Int String))  (fn (bad n) n)
-;   (println (bad 12345))
-;
-; passed `check`, built, and died of SIGSEGV dereferencing 12345 -
-; the one comparison that could have caught it was this list.
-; Turned on, it found three disagreements in the tree, none of them
-; the punning the handle convention protects: `Str.strWrapOwned`
-; builds a header from raw words and now says `(cast String s)`,
-; and `diag.sevSigil` and `codegen.importHelpText` declared `Int`
-; over bodies that were always `String` - signatures corrected.
-; tests/diagnostics/994 pins the refusal as AX3004.
 ; Parameter types: peel the signature's arrows left to right. The
 ; walk keeps its own cursor because a non-arrow signature - or none -
 ; means EVERY parameter is Int (stage0 2185, probed), while arrows

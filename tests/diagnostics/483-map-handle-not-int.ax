@@ -1,21 +1,11 @@
 ; A `Map` handle is a `Map`, and an `Int` is not one.
 ;
-; `Int` is this language's universal heap handle and 498-param-through-int.ax
-; defends it: `mkSpan` declares `Int` and answers a `Span`,
-; `Job.jobPoolNew` answers a `JobPool`, and a 2026-08-10 attempt at a
-; general rule against that flagged 21 of 271 files, every one
-; deliberate. That convention is not being retired here.
-;
-; What it stops buying, and this is the argument for the exception, is
-; anything at all once TWO different modules' handles are the same
-; declared type. `Map` and `Intern` both answer a header address through
-; `Int`, so until 2026-09-03 `(mapLen internNew)` was a well-typed
-; program: `check` said OK, and `mapLen`'s first act at run time was to
-; read word 0 of an intern table and call it a length. `(mapGet 12345 1 0)`
-; was well-typed too. The convention cannot distinguish a map from an
-; intern table from an integer, because under it they are one type.
-; 498's case is a MONOMORPHIC handle whose only producer and only
-; consumers are in one module; this one is not.
+; `Map` and `Intern` both answered a header address through `Int`, so
+; until 2026-09-03 `(mapLen internNew)` was a well-typed program: `check`
+; said OK, and `mapLen`'s first act at run time was to read word 0 of an
+; intern table and call it a length. `(mapGet 12345 1 0)` was well-typed
+; too. While both handles are one declared type, nothing can tell a map
+; from an intern table from an integer.
 ;
 ; `stdlib/Map.ax` therefore declares `(struct Map ...)` over the header
 ; `mapAllocTable` already built, and spells the handle position `Map` in

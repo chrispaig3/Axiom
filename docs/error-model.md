@@ -1601,15 +1601,16 @@ The slices, in order, each green before the next starts:
    `Sys.ax` compiles with no cycle. Read the import graph before you
    trust an ordering claim about it.
 
-   A port can also produce wrong code that the checker cannot see.
+   A port can also produce wrong code that a checker misses.
    `makeDir`'s body
    is one `sysMkdir` call, and its signature says `Int`. When `sysMkdir`
    began answering a `Result`, `makeDir` still type-checked and returned
-   a heap address where an errno belonged, because `Int` is the
-   universal heap-handle type. The compiler accepted it.
+   a heap address where an errno belonged.
    `tests/stdlib/055-filesystem.ax` caught it by printing
-   `got=4372103456 want=0`. A fixture that asserts an observed value
-   covers the ground the type system doesn't.
+   `got=4372103456 want=0`. A declared result is now compared like an
+   argument, so that body is `AX3004` (`MM-VAL-24`). A fixture that
+   asserts an observed value still covers the ground the type system
+   doesn't.
 
    **Processes.** `sysSpawn`, `sysWaitPid`, `sysRun`, `sysRunPath` and
    `sysRandomBytes` answer `(Result Int Error)`. `sysRun`'s three-way

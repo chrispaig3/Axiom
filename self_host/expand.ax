@@ -2454,13 +2454,13 @@
 ; the record with `memGetWord`, so the handle travels as a word.
 (pub :: mkFmtSpec (-> Int Int Int Int Int Int Int))
 (pub fn (mkFmtSpec align zero width prec ty ok)
-  (FmtSpec
+  (cast Int (FmtSpec
     align
     zero
     width
     prec
     ty
-    ok))
+    ok)))
 
 ; The generated call `(f x)`, with `f` resolved the way a template's
 ; free identifier resolves - at the macro's DEFINITION site
