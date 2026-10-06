@@ -1,51 +1,40 @@
 #!/usr/bin/env bash
-# The seed's supply chain: the facts about it are ONE fact, and the
+# The seed's supply chain: its facts agree with each other, and the
 # integrity check it rests on cannot be walked past.
 #
-# WHAT THIS IS NOT. It is not a third seed-trust gate.
-# `check-seed-provenance.sh` (2026-08-25) proves the seed is the
-# emission of source in this history; `check-seed-lineage.sh`
-# (2026-08-29) proves the compiler that emitted it descends by
-# replayable steps from a Rust compiler no Axiom seed ever touched.
-# Those are the trust story and they were green before this file
-# existed. Do not rebuild them here.
+# This is not a third seed-trust gate. `check-seed-provenance.sh` proves
+# the seed is the emission of source in this history, and
+# `check-seed-lineage.sh` proves the compiler that emitted it descends,
+# by replayable steps, from a Rust compiler no Axiom seed ever touched.
+# Do not rebuild those here. This gate holds five properties around them:
 #
-# WHAT IT IS. Five properties around them that nothing held:
+#   1. The seed-target set is one fact. `seed_targets`
+#      (`scripts/lib/seed-sums.sh`) declares it. `reseed.sh` and
+#      `check-seed-provenance.sh` must derive their lists from it, and
+#      `bootstrap/SHA256SUMS`, the `.ll` files and `bootstrap/README.md`'s
+#      box must agree with it. A target missing from the regenerator
+#      would be a seed no gate regenerates.
 #
-#   1. THE SIX-TARGET SET WAS ONE FACT WITH FIVE COPIES. `reseed.sh` and
-#      `check-seed-provenance.sh` each wrote the list out by hand;
-#      `bootstrap/SHA256SUMS`, the `.ll` files on disk and
-#      `bootstrap/README.md`'s box each imply it. Nothing compared them.
-#      A target added to the generator and not to the regenerator would
-#      have been a seed that no gate regenerates - a hole in
-#      `check-seed-provenance.sh` shaped exactly like the target it
-#      forgot, and green.
+#   2. `SHA256SUMS` accounts for every seed. `shasum -a 256 -c` checks
+#      only the rows it is given, so removing a row and replacing the
+#      file it named exits 0. Section 2 runs that attack against the
+#      code a fresh clone runs.
 #
-#   2. `SHA256SUMS` WAS VACUOUS AGAINST A DELETED ROW. Measured
-#      2026-09-03: `shasum -a 256 -c` verifies the rows it is given and
-#      says nothing about a file it was given no row for, so removing a
-#      row and replacing the file it named exits 0. Section 2 runs that
-#      exact attack against the code a fresh clone runs.
+#   3. Every `yes` row of `bootstrap/THREATS.md` names a gate that exists
+#      and that CI runs, or it is a promise nobody keeps.
 #
-#   3. `bootstrap/THREATS.md` NAMES WHAT IS AND IS NOT DEFENDED, and
-#      every `yes` row has to name a gate that exists and that CI runs,
-#      or it is a promise nobody keeps. `pkg.ax`'s header states the
-#      house rule this section enforces: shipping a half-made trust
-#      story is worse than shipping the mechanism it would rest on.
-#
-#   4. THE LINEAGE GATE READS ITS OWN TEXT to assert that no
+#   4. The lineage gate still reads its own text to assert that no
 #      seed-descended Axiom binary runs on its compared path. That
-#      self-read is one deleted line away from being absent, and its
-#      absence is silent - the gate goes on passing. Section 4 requires
-#      the marker and the grep, in that order.
+#      self-read is one deleted line from being absent, and its absence
+#      is silent. Section 4 requires the marker and the grep, in that
+#      order.
 #
-#   5. THE RUST ANCHOR'S SIZE - "28,082 lines" - is what tells a reader
-#      what auditing the trust root costs, and it is stated four times
-#      across two files with nothing comparing them or checking any of
-#      them against `bb730db`.
+#   5. The Rust anchor's size, "28,082 lines", tells a reader what
+#      auditing the trust root costs. Every site that states it must
+#      agree, with each other and with `bb730db`.
 #
-# COST: no compiler, no `llc`, no network. Pure shell over the tree,
-# about a second. It is `gate_init`-free for that reason.
+# It needs no compiler, no `llc` and no network: pure shell over the
+# tree, about a second. That is why it does not use `gate_init`.
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -57,9 +46,8 @@ trap 'rm -rf "$work"' EXIT
 
 failed=0
 # In probe mode a failure is the expected outcome, so it is counted
-# rather than reported. Same shape as `check-seed-lineage.sh`'s
-# `probe_mode`, and for the same reason: the probe must run the real
-# checking code, not a re-description of it.
+# rather than reported. As with `check-seed-lineage.sh`'s `probe_mode`,
+# the probe runs the real checking code rather than a copy of it.
 probe_mode=0
 probe_failed=0
 probe_first=""
@@ -77,14 +65,14 @@ ok() { (( probe_mode )) || echo "ok   $*"; }
 # ---------------------------------------------------------------------
 echo "== 1. the six-target set is one fact, and its copies agree =="
 # ---------------------------------------------------------------------
-# The DECLARATION is `seed_targets`. Everything else is compared to it.
+# The declaration is `seed_targets`. Everything else is compared to it.
 seed_targets | LC_ALL=C sort > "$work/declared"
 ndeclared="$(wc -l < "$work/declared" | tr -d ' ')"
 
 # A floor, because every comparison below is against this file: an empty
-# or truncated declaration would make all four sections agree about
-# nothing and pass. Six today; five is the floor, low enough that
-# retiring one target does not trip it.
+# or truncated declaration would make them all agree about nothing and
+# pass. The floor is 5, low enough that retiring one target does not
+# trip it.
 if (( ndeclared < 5 )); then
   echo "FAIL: seed_targets names only $ndeclared targets; the floor is 5"
   echo "      Every comparison in this section is against that list, so a"
@@ -129,11 +117,9 @@ compare_targets "the .ll files in bootstrap/" "$work/disk"
 compare_targets "bootstrap/SHA256SUMS"        "$work/sums"
 compare_targets "bootstrap/README.md's box"   "$work/readme"
 
-# The two generators must DERIVE their list, not restate it. This is the
-# assertion that keeps the copies from coming back: a handwritten
-# `targets=` line here is exactly what this section was written to
-# retire, and a gate that only compared the files would not see it
-# return.
+# The two generators must derive their list, not restate it. Comparing
+# the files alone would not notice a hand-written `targets=` line
+# returning.
 for s in scripts/reseed.sh scripts/check-seed-provenance.sh; do
   if grep -qE '^[[:space:]]*targets=.*(darwin|linux|freebsd)' "$s"; then
     fail "$s writes the target list out by hand again; it must call seed_targets"
@@ -146,19 +132,18 @@ done
 
 # -- the ablations for section 1 --------------------------------------
 #
-# THE ABLATION, run 2026-09-03. Each probe is a real tampered copy put
-# through the same `compare_targets` above.
+# Each probe puts a tampered copy through the same `compare_targets`,
+# which must refuse it:
 #
 #   (1a) SHA256SUMS with axiom-linux-x86_64.ll's row removed:
 #        "bootstrap/SHA256SUMS (probe) does not name: linux-x86_64"
-#   (1b) a seventh unlisted seed axiom-linux-riscv64.ll on disk:
+#   (1b) an unlisted seed axiom-linux-riscv64.ll on disk:
 #        "the .ll files (probe) names a target seed_targets does not: linux-riscv64"
 #   (1c) README.md's box with the darwin-x86_64 line deleted:
 #        "bootstrap/README.md's box (probe) does not name: darwin-x86_64"
 #
-# and each section is green only because the real files pass the same
-# comparison above - which is the arm that keeps this from being
-# satisfied by a comparator that refuses everything.
+# The real files pass the same comparison above, so a comparator that
+# refuses everything cannot satisfy this section.
 pdir="$work/probe1"; mkdir -p "$pdir"
 cp bootstrap/SHA256SUMS bootstrap/README.md "$pdir/"
 for t in $(cat "$work/declared"); do : > "$pdir/axiom-$t.ll"; done
@@ -202,8 +187,8 @@ echo "== 2. SHA256SUMS accounts for every seed present =="
 # ---------------------------------------------------------------------
 # `seed_sums_verify` is the function `scripts/bootstrap-from-seed.sh`
 # and `scripts/check-bootstrap.sh` call, sourced from the same file.
-# This section runs it - it does not re-implement it - so a probe that
-# passes here is a statement about the code a clone executes.
+# This section runs that function, so a probe that passes here is a
+# statement about the code a clone executes.
 if seed_sums_verify bootstrap 2> "$work/real.log"; then
   ok "the tree's own bootstrap/ passes seed_sums_verify"
 else
@@ -211,15 +196,16 @@ else
   fail "the tree's own bootstrap/ does not pass seed_sums_verify"
 fi
 
-# THE MEASURED ATTACK, against a real copy of the real seeds.
+# The attack, on a copy of the real seeds: drop a row, then replace the
+# seed it named.
 p2="$work/probe2"; mkdir -p "$p2"
 cp bootstrap/*.ll bootstrap/SHA256SUMS "$p2/"
 victim=axiom-linux-x86_64.ll
 grep -v "$victim" "$p2/SHA256SUMS" > "$p2/s" && mv "$p2/s" "$p2/SHA256SUMS"
 echo BACKDOOR > "$p2/$victim"
 
-# The baseline first, so the section states WHY the function exists
-# rather than asserting it. This is the vacuity, run: it must pass.
+# The baseline first: bare `shasum -c` must accept this attack, or the
+# probe below no longer shows what `seed_sums_verify` adds.
 if command -v sha256sum >/dev/null 2>&1; then
   ( cd "$p2" && sha256sum -c SHA256SUMS ) > "$work/bare.log" 2>&1; bare=$?
 else
@@ -272,7 +258,7 @@ ci=".github/workflows/ci.yml"
 [[ -f "$threats" ]] || { echo "FAIL: $threats is missing"; exit 1; }
 [[ -f "$ci" ]] || { echo "FAIL: $ci is missing"; exit 1; }
 
-# check_threats <THREATS.md>
+# threats_rows <THREATS.md>
 # Prints one line per table row: "<n>|<defended>|<scripts named>".
 threats_rows() {
   # `\|` inside a code span is an escaped pipe, not a cell boundary.
@@ -289,19 +275,15 @@ check_threats() { # <THREATS.md>
   rows="$(threats_rows "$1")"
   nrows="$(printf '%s\n' "$rows" | grep -c '|' || true)"
   nyes="$(printf '%s\n' "$rows" | awk -F'|' '$2 ~ /^yes/' | wc -l | tr -d ' ')"
-  # TWO FLOORS, and they are what keep the section from going vacuous.
-  # A parse that stopped matching would find no rows, no `yes` rows and
-  # no bad ones, and report success. Measured 2026-09-03: 11 rows, 6 of
-  # them `yes`. The floors are 8 and 3, low enough that retiring a row
+  # Two floors keep this section from going vacuous: a parse that
+  # stopped matching would find no rows, no `yes` rows and no bad ones,
+  # and pass. The floors (8 and 3) are low enough that retiring a row
   # does not trip them and high enough that a broken parse cannot pass.
   (( nrows >= 8 )) || { fail "$1 parses to only $nrows rows; the floor is 8 (the table moved or the parse broke)"; return; }
   (( nyes  >= 3 )) || { fail "$1 parses to only $nyes 'yes' rows; the floor is 3"; return; }
-  # The document's own count of itself, recomputed. The opening
-  # paragraph tells a reader how much of the table is `yes` before they
-  # read a row of it, and the first draft of that sentence was wrong -
-  # it claimed more rows undefended than defended when six of eleven
-  # said yes. A prose summary of a table two paragraphs above it is
-  # exactly the claim that goes stale silently.
+  # The document's count of itself, recomputed. Its opening paragraph
+  # summarises the table before a reader reaches it, and a prose
+  # summary of a table goes stale silently.
   if ! grep -qF "This table has $nrows rows, $nyes defended," "$1"; then
     fail "$1 parses to $nrows rows, $nyes of them defended, and does not say so:"
     fail "  its opening must read \"This table has $nrows rows, $nyes defended,\""
@@ -331,23 +313,16 @@ nrows_real="$(threats_rows "$threats" | grep -c '|' || true)"
 nyes_real="$(threats_rows "$threats" | awk -F'|' '$2 ~ /^yes/' | wc -l | tr -d ' ')"
 ok "$threats: $nrows_real rows, $nyes_real defended, every defence a gate ci.yml runs"
 
-# -- the ablation for section 3 ---------------------------------------
+# -- the ablations for section 3 --------------------------------------
 #
-# THE ABLATION, run 2026-09-03 against a copy with row 2's cell
-# re-pointed at a script that does not exist:
+# A copy with row 2's cell re-pointed at a script that does not exist:
 #
 #     FAIL: <copy> row 2 names scripts/check-nonexistent.sh, which does not exist
 #
-# against a copy with the table's rows deleted:
+# and a copy with the table's rows deleted:
 #
 #     FAIL: <copy> parses to only 0 rows; the floor is 8 (the table moved
 #           or the parse broke)
-#
-# and against a copy with row 2's cell pointed at a gate that exists but
-# that ci.yml does not run:
-#
-#     FAIL: <copy> row 2 names scripts/check-dead-code.sh, which
-#           .github/workflows/ci.yml does not run
 p5="$work/THREATS.repointed.md"
 sed 's|scripts/check-seed-provenance\.sh|scripts/check-nonexistent.sh|' "$threats" > "$p5"
 if cmp -s "$p5" "$threats"; then
@@ -368,27 +343,17 @@ probe_mode=0
 if (( probe_failed )); then ok "probe: a THREATS.md with no rows trips the floor ($probe_first)"
 else fail "probe: a THREATS.md with every row deleted was accepted"; fi
 
-# A gate named in a 'yes' row that EXISTS but that CI does not run is
-# the third shape, and the one that would let a row be true on a
-# maintainer's machine and false on every push.
+# A gate named in a `yes` row that exists but that CI does not run is
+# the third shape: a row true on a maintainer's machine and false on
+# every push. `check-ci-coverage.sh` requires every `scripts/check-*.sh`
+# to be on a `run:` line, so no real unwired gate exists to point a row
+# at, and a non-gate script would trip the "names no scripts/check-*.sh"
+# arm instead. So this probe removes a real, wired gate from a copy of
+# `ci.yml`, and the unchanged THREATS.md must then be refused for naming
+# it. That exercises the `$ci` lookup and nothing else:
 #
-# THIS PROBE USED TO DOCTOR THE ROW, and it can no longer be written
-# that way. It pointed a cell at `scripts/check-dead-code.sh` - "a real
-# gate that ci.yml genuinely does not run (measured 2026-09-03: five of
-# the 73 gates are local-only)" - and that stopped being true the day
-# `check-ci-coverage.sh` landed, which wired all seven unrun gates in
-# and now REQUIRES every `scripts/check-*.sh` to be named on a `run:`
-# line. So there is no longer any gate that exists, is shaped like a
-# gate, and is unwired: the subject this probe needs cannot exist while
-# that gate holds. Repointing the row at a non-gate script does not
-# rescue it either - the refusal then comes from the "names no
-# scripts/check-*.sh" arm above, so the probe passes while proving
-# nothing about the arm it is here for.
-#
-# So the probe doctors the WORKFLOW instead of the row, which is the
-# thing actually under test: a real, wired gate is removed from a copy
-# of `ci.yml`, and the unchanged THREATS.md must then be refused for
-# naming it. That exercises exactly the `$ci` lookup and nothing else.
+#     FAIL: bootstrap/THREATS.md row 2 names scripts/check-seed-provenance.sh,
+#           which .github/workflows/ci.yml does not run
 p7="$work/ci.unwired.yml"
 grep -v 'scripts/check-seed-provenance\.sh' "$ci" > "$p7"
 if grep -q 'scripts/check-seed-provenance\.sh' "$p7"; then
@@ -402,8 +367,8 @@ ci="$ci_real"
 if (( probe_failed )); then ok "probe: a row naming a gate ci.yml does not run is refused ($probe_first)"
 else fail "probe: a row naming an unwired gate was accepted"; fi
 
-# And the document's count of itself. A copy whose opening paragraph
-# claims one more defended row than the table carries:
+# And the document's count of itself: a copy whose opening paragraph
+# claims one more defended row than the table carries.
 #
 #     FAIL: <copy> parses to 12 rows, 7 of them defended, and does not
 #           say so
@@ -424,12 +389,10 @@ echo
 echo "== 4. the lineage gate still reads its own compared path =="
 # ---------------------------------------------------------------------
 # `check-seed-lineage.sh` asserts, on its own text, that nothing below a
-# marker line reaches for an Axiom binary - the property that makes its
+# marker line reaches for an Axiom binary. That is what makes its
 # double-compile diverse rather than a compiler checking itself. Delete
 # the marker and `sed -n "/marker/,\$p"` matches nothing, the grep finds
-# nothing, and the gate prints "nothing below the marker invokes an
-# Axiom binary" over an empty search. That is a check that cannot fail,
-# in the gate whose subject is trust.
+# nothing, and the gate passes over an empty search.
 lineage="scripts/check-seed-lineage.sh"
 marker='# === the compared path begins here ==='
 
@@ -454,9 +417,8 @@ check_lineage_selfread() { # <script>
     fail "  would be inside the region it is supposed to be checking"
     return
   fi
-  # And the patterns it looks for must still be the four that name an
-  # Axiom binary. A guard that greps for nothing is the same vacuity one
-  # level down.
+  # And it must still look for all four names of an Axiom binary. A
+  # guard that greps for nothing is the same vacuity one level down.
   local pats
   pats="$(sed -n "${gline}p" "$f")"
   for want in '$axiom' 'axiom-bin' 'AXIOM_AXC' 'gate_build_axc'; do
@@ -470,15 +432,12 @@ check_lineage_selfread() { # <script>
 
 check_lineage_selfread "$lineage"
 
-# -- the ablation for section 4 ---------------------------------------
-#
-# THE ABLATION, run 2026-09-03:
+# -- the ablations for section 4 --------------------------------------
 #
 #   (4a) a copy with the marker line deleted:
 #        "FAIL: <copy> no longer carries its '=== the compared path begins
 #         here ===' marker; ..."
-#   (4b) a copy with the self-reading grep deleted but the marker kept -
-#        the shape that stays green today:
+#   (4b) a copy with the self-reading grep deleted but the marker kept:
 #        "FAIL: <copy> keeps the marker but no longer reads itself from it"
 p8="$work/lineage.nomarker.sh"
 grep -vxF "$marker" "$lineage" > "$p8"
@@ -504,13 +463,11 @@ else
   else fail "probe: a copy of $lineage with the self-read deleted was accepted"; fi
 fi
 
-# (4c) The narrowest of the three, and the one the other two would miss:
-# the marker is there, the self-read is there, and it has simply stopped
-# looking for one of the four names. `AXIOM_AXC` is the one dropped here
-# because it is the variable `run-gates.sh` exports to share a compiler
-# across the battery - a lineage gate blind to it would let the shared
-# Axiom binary onto the compared path with every line of the guard still
-# in place.
+# (4c) The narrowest: the marker and the self-read are there, but it has
+# stopped looking for one of the four names. `AXIOM_AXC` is the one
+# dropped, because `run-gates.sh` exports it to share a compiler across
+# the battery. A guard blind to it would let that shared binary onto
+# the compared path.
 #
 #   FAIL: <copy>'s self-read no longer looks for AXIOM_AXC
 p12="$work/lineage.narrowed.sh"
@@ -529,25 +486,19 @@ fi
 echo
 echo "== 5. the Rust anchor's size is one fact too =="
 # ---------------------------------------------------------------------
-# `bb730db` is the trust root: the whole of row 4 rests on a reviewer
-# being able to read it, and "28,082 lines" is the sentence that tells
-# them what reading it costs. It is stated four times - twice in
-# `bootstrap/README.md`, twice in `check-seed-lineage.sh`'s header - and
-# nothing compared them to each other or to the commit.
+# `bb730db` is the trust root: row 4 rests on a reviewer being able to
+# read it, and "28,082 lines" tells them what that costs. The size is
+# stated in `bootstrap/README.md` and in `check-seed-lineage.sh`'s
+# header, and every statement must agree.
 #
-# WHY IT IS NOT A `claim()` IN `check-doc-drift.sh`, which is where the
-# repository's other recomputed numerals live and where the plan for
-# this work put it. That gate runs in the `test` matrix job, whose
-# checkout is the default depth 1: `bb730db` is not in that clone, so a
-# `claim()` computed from it would fail on every CI run, and the only
-# repair would be a skip - a skip inside the sweep that exists to stop
-# claims going unchecked. So the arithmetic lives here, where the two
-# halves can be separated honestly: the four sites are compared to each
-# other ALWAYS, which needs no history at all, and the comparison
-# against the commit runs when the object is present and SAYS SO when it
-# is not. This gate is wired into `seed-provenance`'s job as well as the
-# matrix, and that job has `fetch-depth: 0`, so the git arm does run in
-# CI.
+# This is not a `claim()` in `check-doc-drift.sh`, where the other
+# recomputed numerals live. That gate runs in the `test` matrix job,
+# whose depth-1 checkout has no `bb730db`, so a `claim()` would fail on
+# every run or need a skip. Here the sites are always compared with each
+# other, which needs no history, and with the commit when it is present.
+# When it is absent the gate says so. This gate also runs in the
+# `seed-provenance` job, which has `fetch-depth: 0`, so the git arm does
+# run in CI.
 anchor_numerals() { # <file> - every stated size of the anchor, one per line
   tr '\n' ' ' < "$1" \
     | grep -oE '[0-9][0-9,]*[[:space:]]+lines of Rust' \
@@ -568,7 +519,7 @@ check_anchor_sites() { # <tag> <file>...
   done
   nstated="$(wc -l < "$work/anchor.$tag" | tr -d ' ')"
   # The floor. A reworded sentence that stopped matching would leave
-  # this section comparing an empty set and passing. Four on 2026-09-03.
+  # this section comparing an empty set and passing.
   if (( nstated < 3 )); then
     fail "the anchor's size is stated only $nstated time(s) where this gate looks; the floor is 3"
     fail "  (reword the gate with the sentence, do not narrow the sentence to the gate)"
@@ -611,15 +562,15 @@ check_anchor_sites real "${anchor_sites[@]}"
 
 # -- the ablations for section 5 --------------------------------------
 #
-# THE ABLATION, run 2026-09-03 against a copy of bootstrap/README.md
-# with one of its two numerals changed to 28,083:
+# A copy of bootstrap/README.md with one of its numerals changed to
+# 28,083:
 #
 #     FAIL: the anchor's size is stated 4 times with 2 different numbers
 #
-# and against a copy with both of its sentences deleted, which trips the
-# floor rather than passing over an empty comparison:
+# and a copy with both of its sentences deleted, checked on its own,
+# which trips the floor rather than passing over an empty comparison:
 #
-#     FAIL: the anchor's size is stated only 2 time(s) where this gate
+#     FAIL: the anchor's size is stated only 0 time(s) where this gate
 #           looks; the floor is 3
 p10="$work/README.wrongsize.md"
 sed 's/28,082/28,083/' bootstrap/README.md > "$p10"

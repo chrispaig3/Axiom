@@ -4,82 +4,51 @@
 # R-C2, R-C2a; docs/memory-model.md MM-PAR-10 to MM-PAR-13).
 #
 # `stdlib/Chan.ax` and `stdlib/Sync.ax` build a channel and a mutex from
-# the five atomics and a kernel wait on a word, and `stdlib/Task.ax` a
+# the five atomics and a kernel wait on a word. `stdlib/Task.ax` builds a
 # pool of forked tasks with deadlines and cancellation. `check-chan.sh`,
-# `check-task.sh` and `check-race.sh` run them under load and see the
-# interleavings the hardware happened to make. This gate explores all of
-# them at small bounds, in `scripts/lib/protocol-model.py` and the pool's
-# `scripts/lib/task-model.py`, and then measures on the real binary what
-# the load gates do not: deadlock and starvation, apart from races.
+# `check-task.sh` and `check-race.sh` run them under load. This gate
+# explores every interleaving at small bounds, in
+# `scripts/lib/protocol-model.py` and `scripts/lib/task-model.py`, then
+# measures deadlock and starvation on the real binary.
 #
-# FIVE SECTIONS.
-#
-#   1. The model. Every interleaving of two and three bindings running
-#      the transcribed protocols, at the bounds the model's `scenarios`
-#      states (capacities 1 and 2, one to four words, one- and two-slice
-#      time budgets; more under --long), with spurious wakeups, timeouts,
-#      kills and reaps as environment steps; and the task pool with two
-#      and three tasks at widths 1 to 3, each task's body one of seven
-#      behaviours, and a clock. Every scenario must be clean: mutual
-#      exclusion, exactly-once FIFO delivery, close and end of stream,
-#      the mutex's guard and poisoning, the channel's poisoning only by a
-#      holder that died holding its lock, every task answering exactly
-#      its own slot in submit order, at most `w` children and `w`
-#      handles, nothing started after a cancellation, no sleep past a
-#      running task's deadline or a cancellation's grace, every child
-#      reaped when the pool returns, and no lost wakeup, deadlock or
-#      livelock in the model's terms. Floors: the scenario count, the
-#      states explored, a kernel wait reached in every scenario, and
-#      every transcribed step executed but the three the model names as
-#      unreachable. AN-10's scenario - a sender killed holding the
-#      channel's lock - must be clean.
-#   2. Planted defects. Each protocol mistake the design exists to
-#      prevent - a waiter that parks after releasing the lock, a changer
-#      that reads the waiter count before its change, a release or a
-#      notify that wakes nobody, a lock taken by a plain load and store,
-#      a waiter that sleeps without its mark, a guard compared with the
-#      counter, a dead-holder test that does not re-read the word, a
-#      mutex waiter that never asks `waitid` about its own child; the
-#      channel's dead-holder test, its sliced lock wait, its look at the
-#      waiter's own child and its poisoning compare-and-swap each taken
-#      back; and the pool's deadline kill, its wake times, its grace
-#      kill, its wait for an exit, its slot, its stop on cancellation,
-#      its bounded handles and its reaping, each broken - must be found
-#      as the kind of failure it is, with its schedule printed.
+#   1. The model. Every interleaving of two and three bindings at the
+#      bounds in the model's `scenarios` (more under --long), with
+#      spurious wakeups, timeouts, kills and reaps as environment steps.
+#      Every scenario must be clean: mutual exclusion, exactly-once FIFO
+#      delivery, poisoning, each task answering its own slot, the pool's
+#      width, deadline and grace limits, every child reaped, and no lost
+#      wakeup, deadlock or livelock. Floors: scenarios, states, a kernel
+#      wait in every scenario, and every transcribed step executed but
+#      the three the model excuses. AN-10's scenario, a sender killed
+#      holding the channel's lock, must be clean.
+#   2. Planted defects. Each mistake named in section 2's loop must be
+#      found as the right kind of failure, with its schedule printed.
 #   3. The transcription. Every operation the model cites must still be
-#      in its function in stdlib/, in the model's order, and every
-#      function that touches a channel or mutex word, or a task's
-#      process, must be modelled or excused. Four mutated copies of the
-#      library must each fail it.
-#   4. Replay. An instrumented copy of Chan.ax records every operation
-#      on a channel word in the order it happened;
-#      tests/litmus/chan-trace.ax runs five forked bindings on it, and
-#      the model must accept the record operation by operation, each
-#      answer the model's. A planted change the program's own count
-#      cannot see (a change counter that counts in twos), and a record
-#      with one operation cut, must each be refused.
-#   5. Liveness on the machine, tests/litmus/liveness.ax, both lowerings:
-#      four bindings contending on one mutex for a long run, exact, with
-#      the shares and the worst waits REPORTED (the mutex is not fair,
-#      AN-17); a lock-order inversion between two mutexes and a pair of
-#      channels each waiting on the other, where the timed calls must
-#      all answer sysTimedOut within [T, T + 800 ms], the untimed ones
-#      must be killed by a watchdog with no process left, and the same
-#      programs in a safe order must finish. And the lost-wakeup
-#      signature, counted: a copy of Sync.ax that counts every lock wait
-#      the 100 ms slice ended, reported under contention, with a timed
-#      inversion as the control that must count some.
+#      in its function in stdlib/, in the model's order. Every function
+#      that touches a channel or mutex word, or a task's process, must be
+#      modelled or excused. Four mutated copies of the library must fail.
+#   4. Replay. An instrumented Chan.ax records every channel-word
+#      operation while tests/litmus/chan-trace.ax runs five forked
+#      bindings. The model must accept the record step by step. A change
+#      counter that counts in twos, and a record with one operation cut,
+#      must each be refused.
+#   5. Liveness, tests/litmus/liveness.ax, both lowerings. Four bindings
+#      contend on one mutex, with shares and worst waits reported (the
+#      mutex is not fair, AN-17). In a lock-order inversion and a pair of
+#      channels waiting on each other, timed calls answer sysTimedOut
+#      within [T, T + 800 ms], untimed ones are killed by a watchdog, and
+#      a safe order finishes. A copy of Sync.ax counts lock waits the
+#      100 ms slice ended, the signature of a lost wakeup, and a timed
+#      inversion is the control that must count some.
 #
-# LIMITS. The model is a proof about the model, at its bounds: every
-# access is one step in a sequentially consistent order, the kernel
-# wait is futex's compare-and-sleep, and Linux's 32-bit compare, pid
-# reuse, a zombie seen by any process but its parent, and anything
-# larger than the bounds are outside it. The task pool's clock is the
-# model's: it moves only while the pool waits and nothing else can
-# step. Sections 3 and 4 tie it to the source and to one run of the
-# channel; the mutex and the pool have no replay. Section 5 is the runs made, on
-# this host: a zero is evidence, and the shares are a measurement, not a
-# promise either way.
+# Limits. The model proves things about the model, at its bounds. Each
+# access is one step in a sequentially consistent order, and the kernel
+# wait is futex's compare-and-sleep. Linux's 32-bit compare, pid reuse,
+# a zombie seen by anyone but its parent, and anything past the bounds
+# are outside it. The pool's clock moves only while the pool waits and
+# nothing else can step. The mutex and the pool have no replay. Section
+# 5 measures this host: a zero is evidence, and the shares are reported
+# without a bound.
 #
 # Usage: check-protocol-model.sh [--long]
 set -uo pipefail
@@ -104,8 +73,8 @@ if (( long )); then
 else
   want_scenarios=86; want_states=1300000; budget=900; trace_n=50; starve_ms=1500
 fi
-# Every transcribed step the scenarios execute, and the operations the
-# transcription check matches: what they are on the tree today.
+# Floors at the tree's current counts: transcribed steps the scenarios
+# execute, and operations the transcription check matches.
 want_reached=585
 want_matched=311
 

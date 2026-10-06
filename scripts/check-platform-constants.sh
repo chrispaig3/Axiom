@@ -1,112 +1,63 @@
 #!/usr/bin/env bash
-# Assert that this repository's TWO tables of syscall numbers agree.
+# Assert that this repository's two tables of syscall numbers agree,
+# on every target. They are two copies of one fact:
 #
-# There are two, and they are two copies of one fact:
-#
-#   1. `self_host/codegen.ax` carries `targetMmapNum`, `targetExitNum`
-#      and `targetWriteNum` - the numbers the EMITTED RUNTIME uses.
-#      Every program the compiler produces contains them: the allocator
-#      and the arena map their chunks with one, and three abort paths -
-#      allocator OOM, division by zero, and an unhandled effect - write
-#      a line to fd 2 and exit through the other two.
-#
+#   1. `self_host/codegen.ax` (`targetMmapNum`, `targetExitNum`,
+#      `targetWriteNum`) holds the numbers the emitted runtime uses. The
+#      allocator and the arena map their chunks with one, and three
+#      abort paths (allocator OOM, division by zero, an unhandled effect)
+#      write a line to fd 2 and exit through the other two.
 #   2. `stdlib/Sys/Platform.{darwin,linux-aarch64,linux-x86_64,freebsd}.ax`
-#      carry the same syscalls for the STANDARD LIBRARY, as `sysExit`,
+#      holds the same syscalls for the standard library, as `sysExit`,
 #      `sysWrite` and their neighbours.
 #
-# AND ON WINDOWS THE SAME TWO TABLES ARE NAMES, NOT NUMBERS. Neither
-# Windows target has a syscall ABI: `self_host/codegen.ax`'s runtime exits
-# through `ExitProcess`, writes through `WriteFile` and maps through
-# `VirtualAlloc` (`emitRuntimeExit`/`emitRuntimeWrite`/`emitRuntimeMap`),
-# and `stdlib/Sys/Platform.windows.ax` exits and writes through
-# `platformExitWith`/`platformWriteFd`, which are functions over an
-# `extern "kernel32"` block. The fact with two copies is then WHICH
-# kernel32 entry point each half reaches, and the disagreement this
-# gate would catch is the same one as on Linux with different spelling:
-# a runtime that `TerminateProcess`es where the library `ExitProcess`es.
-# The Windows arm below reads the calls out of the emitted module as
-# the POSIX arm reads the syscall operands, and its census is a floor
-# the same way. `VirtualAlloc` is emitted-only (`mmap` was, until
-# 2026-09-27).
+# A disagreement can hide. Linux `exit` (93 on aarch64, 60 on x86-64)
+# ends only the calling thread, and `exit_group` (94 and 231) ends the
+# process. An abort through `exit` works until a program has a second
+# thread, then leaves the process alive.
 #
-# ONE MORE FACT WITH TWO COPIES, on every target: whether the target
-# HAS a syscall ABI at all. `targetUsesSyscallAsm` in codegen decides
-# whether the runtime emits syscall templates; `Sys.Platform.
-# usesSyscallAbi` decides whether `Sys.ax` calls `__syscallN` or the
-# platform module's own functions. The last section before the probes
-# reads both out of each module and requires them to agree - a platform
-# module claiming a syscall ABI its runtime does not emit would send
-# every `Sys.ax` call into the `__syscallN` trap.
+# Windows has no syscall ABI, so there the tables are kernel32 names.
+# The runtime calls `ExitProcess`, `WriteFile` and `VirtualAlloc`
+# (`emitRuntimeExit`, `emitRuntimeWrite`, `emitRuntimeMap`), and
+# `stdlib/Sys/Platform.windows.ax` exits and writes through
+# `platformExitWith` and `platformWriteFd`, over an `extern "kernel32"`
+# block. Each half must reach the same entry point: a runtime that
+# calls `TerminateProcess` where the library calls `ExitProcess` is the
+# same disagreement. `VirtualAlloc` is emitted-only.
 #
-# Nothing compared them, and they had already disagreed. The comment
-# above `targetExitNum` in `self_host/codegen.ax` records it: the
-# emitted abort paths exited through Linux `exit` (93 on aarch64, 60 on
-# x86-64) while the platform modules exit through `exit_group` (94 and
-# 231) - and `Platform.linux-aarch64.ax` states the rule in as many
-# words, "exit_group (94), not exit (93)", while the compiler emitted 93
-# anyway. It was latent, because `exit` ends the calling thread and
-# nothing Axiom emits has a second one; it stops being latent the moment
-# one of these programs has two threads, and the failure then is a
-# process that aborts and stays alive. It is fixed. Nothing stopped it
-# from recurring, and three abort paths ride on it.
+# On every target, `targetUsesSyscallAsm` in codegen and
+# `Sys.Platform.usesSyscallAbi` must agree on whether a syscall ABI
+# exists. A platform module claiming one its runtime does not emit
+# would send every `Sys.ax` call into the `__syscallN` trap.
 #
-# HOW THE TWO TABLES ARE READ, and why it is not `grep`.
+# Both tables come from one `emit-llvm` per target: the runtime's
+# numbers from the `asm sideeffect` syscall operands, the library's from
+# the bodies of `@Sys.Platform$sysExit` and its neighbours (`ret i64
+# 94`), since the compiler emits the whole selected platform module.
+# Parsing the sources instead would fail green: a pattern that matched
+# nothing would report agreement. The emitted module also holds the
+# value the compiler selects, platform-module resolution included, and
+# a table that goes missing shows as a missing symbol or syscall site.
 #
-# Both come out of ONE `emit-llvm` per target, and neither is a second
-# parse of the source:
+# Every syscall named in both tables is compared (`exit`, `write`,
+# `mmap`, and the `parallel` runtime's four below). The END block fails
+# when the library gains a copy of an emitted-only number, so no copy
+# goes uncompared. The gate also checks each syscall template's errno
+# convention (see the classifier), since it already reads every emitted
+# syscall site.
 #
-#   * the emitted runtime's numbers are read from the `asm sideeffect`
-#     syscall sites in the module - the literal operands the compiler
-#     wrote, which is what the kernel will be handed;
-#   * the standard library's numbers are read from the bodies of
-#     `@Sys.Platform$sysExit`, `@Sys.Platform$sysWrite` and their
-#     neighbours in the SAME module (`ret i64 94`), because the compiler
-#     emits the whole selected platform module whether or not the
-#     program calls into it.
-#
-# Parsing the two sources instead would be brittle in both directions
-# and brittle in the direction that stays green: the codegen table is a
-# chain of `(if (== t 2) ...)` arms whose target codes are assigned
-# somewhere else in the file, the platform table is one
-# `(pub fn (sysExit) 94)` per constant, and a pattern that silently
-# matched nothing would report agreement. Reading the emitted module
-# reads the value the compiler actually SELECTS for a target, which
-# includes the platform-module resolution: `Platform.darwin.ax` serves
-# both darwin targets because no `.darwin-aarch64.ax` exists, and this
-# gate never has to know that. A table that went missing surfaces here
-# as a missing symbol or a missing syscall site, not as silence.
-#
-# WHAT THIS GATE DOES NOT SAY. It asserts AGREEMENT, not correctness:
-# two tables edited to the same wrong number pass it. What the numbers
-# should BE is pinned by the platform modules' own prose and, in the
-# end, by the CI matrix running these programs on the real kernels.
-#
-# WHAT IS COMPARED: every syscall named in both tables - `exit`,
-# `write` and, since 2026-09-27, `mmap`. `mmap` was emitted-only until
-# `stdlib/Chan.ax` needed shared mappings and `Sys.Platform` grew
-# `sysMmapNum`; the guard below that fails when a library copy appears
-# unmapped is what forced the pairing, and it stays for the next one,
-# so the intersection cannot quietly shrink out from under the
-# comparison.
-#
-# AND ONE THING THAT IS NOT A NUMBER: since 2026-08-29 every syscall
-# template the runtime emits is read for its errno convention - the
-# branch-and-negate epilogue that the BSD targets (Darwin, FreeBSD)
-# need and the Linux targets must not have. It lives here because
-# this is the gate that already reads every emitted syscall site per
-# target, and because the day it was needed no other gate could see
-# it: the comment at the classifier records the ablation.
+# Limits: it asserts agreement, not correctness. Two tables edited to
+# the same wrong number pass. The platform modules' prose and the CI
+# matrix, running these programs on real kernels, pin the values.
 
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
 gate_init
 
-# The subject is `self_host/codegen.ax`'s table, so the compiler that
-# emits the probe has to be built from THIS tree. Using `$axiom` - which
-# may be a seed-descended binary older than the change under test -
-# would make an edit to the codegen table invisible to the gate that
-# exists to watch it. About eight seconds.
+# The subject is `self_host/codegen.ax`'s table, so the probe's compiler
+# is built from this tree. `$axiom` may be an older seed-descended
+# binary, which would hide an edit to the codegen table.
 gate_build_axc axc
 
 targets=(darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64 freebsd-x86_64 freebsd-aarch64 windows-x86_64 windows-aarch64)
@@ -114,8 +65,8 @@ targets=(darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64 freebsd-x86_64 
 # Which platform module serves a target, for the failure message to
 # name. The mapping is `targetOsArchSuffix` then `targetOsSuffix` in
 # `self_host/codegen.ax`: `.{os}-{arch}.ax` if it exists, otherwise
-# `.{os}.ax`. Only the linux modules are split by arch today; Darwin
-# and FreeBSD each serve both architectures from one file.
+# `.{os}.ax`. Only the linux modules are split by arch; Darwin and
+# FreeBSD each serve both architectures from one file.
 platform_file() {
   case "$1" in
     darwin-*)  echo "stdlib/Sys/Platform.darwin.ax" ;;
@@ -127,7 +78,7 @@ platform_file() {
 
 # ...and the mapping above must stay true, or every message this gate
 # prints names the wrong file. A more specific module out-ranks the one
-# named here, so its appearance is what would make the mapping a lie.
+# named here, so its appearance would make the mapping wrong.
 for target in "${targets[@]}"; do
   pf="$(platform_file "$target")"
   if [[ ! -f "$pf" ]]; then
@@ -141,26 +92,24 @@ for target in "${targets[@]}"; do
   fi
 done
 
-# The probe. Three properties of it are load-bearing:
+# The probe. Four properties of it matter:
 #
-#   * it imports `Sys.Platform` and NOTHING ELSE. Nothing in that module
-#     performs a syscall - it is constants - so every `asm sideeffect`
-#     in the emitted module is one the BACKEND wrote. Importing `Sys`
-#     would mix the standard library's own `__syscallN` sites into the
-#     same file and the classifier below could no longer tell whose
-#     number it was reading.
-#   * it declares an effect. `__axiom_unhandled_effect` - the third of
-#     the three abort paths - is emitted only for a program that
-#     declares one (`emitEffectGlobals` calls `emitUnhandledTrap` when
-#     the effect table is non-empty), so without this the gate would
-#     compare two of the three exits and say nothing about the third.
-#   * `main` names the two constants under test, so a rename in
-#     `Sys.Platform` fails the probe's own compile with a diagnostic
-#     instead of quietly removing a comparison.
-#   * on the two Windows targets the platform module's functions are emitted
-#     whether or not the probe calls them, so the shims' kernel32 calls
-#     are in the module to read; and `main`'s two constants are 0 there
-#     (there is no number), which the Windows arm never reads.
+#   * It imports `Sys.Platform` and nothing else. That module is
+#     constants and performs no syscall, so every `asm sideeffect` in the
+#     emitted module is one the backend wrote. Importing `Sys` would mix
+#     in the library's own `__syscallN` sites, and the classifier could
+#     not tell whose number it was reading.
+#   * It declares an effect. `__axiom_unhandled_effect`, the third abort
+#     path, is emitted only for a program that declares one
+#     (`emitEffectGlobals` calls `emitUnhandledTrap` when the effect
+#     table is non-empty).
+#   * `main` names the constants under test, so a rename in
+#     `Sys.Platform` fails the probe's own compile instead of quietly
+#     removing a comparison.
+#   * On the two Windows targets the platform module's functions are
+#     emitted whether or not the probe calls them, so the shims' kernel32
+#     calls are there to read. `main`'s constants are 0 there (there is
+#     no number), and the Windows arm never reads them.
 probe="$work/platform-constants-probe.ax"
 cat > "$probe" <<'PROBE'
 (import Sys.Platform)
@@ -174,39 +123,33 @@ cat > "$probe" <<'PROBE'
 PROBE
 
 # Compare one emitted module's two tables, printing one `ok`/`FAIL` line
-# per syscall. A function rather than an inline pipeline for the same
-# reason `absolute_violations` is one in check-cross-targets.sh: the
-# negative probes at the end drive it with deliberately broken modules,
-# and a verdict that is never itself tested is the failure mode this
-# repository has already been bitten by.
+# per syscall. It is a function so the negative probes at the end can
+# drive it with broken modules: a verdict that is never tested proves
+# nothing.
 #
-# It always exits 0 and reports through its OUTPUT. `set -e` does not
-# spare a command substitution, so a helper that exited non-zero on the
-# violation it was asked to print would take the gate down one line
-# before its own result - which is the hazard check-freestanding.sh
-# records having hit.
+# It always exits 0 and reports through its output. `set -e` does not
+# spare a command substitution, so a helper that exited non-zero on a
+# violation would end the gate before printing it.
 platform_table_report() {
   local target="$1" ir="$2" platfile="$3"
   awk -v target="$target" -v platfile="$platfile" '
     BEGIN {
       # syscall -> the `Sys.Platform` constant it must equal, and the
       # `self_host/codegen.ax` function carrying the emitted copy.
-      # A "-" counterpart means emitted-only, deliberately; the END
-      # block below is what keeps that claim honest.
+      # A "-" counterpart means emitted-only; the END block guards that.
       std_of["exit"]  = "sysExit";  cg_of["exit"]  = "targetExitNum"
       std_of["write"] = "sysWrite"; cg_of["write"] = "targetWriteNum"
       std_of["mmap"]  = "sysMmapNum"; cg_of["mmap"] = "targetMmapNum"
 
-      # The census of syscall sites the emitted runtime contains today,
-      # as a floor. Three exits: allocator OOM (status 70), an unhandled
-      # effect (71), division by zero (72). Writes: the three trap
-      # messages, plus the six the backtracer makes - a header, and per
-      # frame the `  at ` prefix, the name or `<unknown>`, and a
-      # newline. Two mmaps: the allocator and the arena. A path that
-      # DISAPPEARS takes the comparison with it and must be noticed; a
-      # path that is ADDED passes the floor and is compared like the
-      # rest, which is why the write floor is left at the number the
-      # traps alone need rather than raised to the count of the day.
+      # The census of runtime syscall sites, as a floor. Three exits:
+      # allocator OOM (status 70), an unhandled effect (71), division by
+      # zero (72). Writes: the three trap messages, plus the backtracer
+      # (a header, and per frame the `  at ` prefix, the name or
+      # `<unknown>`, and a newline). Two mmaps: the allocator and the
+      # arena. A path that disappears takes its comparison with it and
+      # must be noticed. An added path passes the floor and is compared
+      # like the rest, so the write floor stays low instead of tracking
+      # the current count.
       floor_of["exit"] = 3
       floor_of["write"] = 2
       floor_of["mmap"] = 2
@@ -224,8 +167,8 @@ platform_table_report() {
     }
 
     # The copy in the standard library: the constant a platform module
-    # compiles to. Only a literal counts - a constant that stopped being
-    # one is reported as absent below rather than read as zero.
+    # compiles to. Only a literal counts: a constant that stopped being
+    # one is reported as absent below, not read as zero.
     pending != "" && $1 == "ret" {
       if ($3 ~ /^-?[0-9]+$/) stdval[pending] = $3
       pending = ""
@@ -234,7 +177,7 @@ platform_table_report() {
 
     # The copy in the backend: the operands of an emitted syscall.
     /asm sideeffect/ {
-      # Everything after the LAST quote on the line. The two quoted
+      # Everything after the last quote on the line. The two quoted
       # strings are the asm template and its constraint list; no operand
       # and no argument ever contains a quote, so this splits the
       # instruction from its arguments without parsing either string.
@@ -247,12 +190,11 @@ platform_table_report() {
       gsub(/ /, "", args)
       n = split(args, a, ",")
 
-      # WHICH syscall this is, decided by its ARGUMENTS. The number is
-      # the thing under test and so cannot also be the label: reading
-      # "94 means exit" out of a table would make this gate compare the
-      # codegen table against itself. mmap is the only one passing fd
-      # -1; a runtime write goes to fd 2 with a pointer behind it; an
-      # exit passes a status and then six zeros.
+      # Which syscall this is, decided by its arguments. The number is
+      # under test, so it cannot also be the label: reading "94 means
+      # exit" from a table would compare the codegen table with itself.
+      # mmap is the only one passing fd -1; a runtime write goes to fd 2
+      # with a pointer behind it; an exit passes a status and six zeros.
       name = "?"
       if (n == 7 && a[6] == "-1") {
         name = "mmap"
@@ -262,38 +204,28 @@ platform_table_report() {
                  a[6] == "0" && a[7] == "0") {
         name = "exit"
       } else if (args == "") {
-        # NOT A SYSCALL AT ALL. `targetFrameAsm` reads the frame
-        # pointer out of x29 or %rbp for the backtracer - one
-        # instruction, one output register, NO arguments and no
-        # syscall number. It reached this gate as an unclassifiable
-        # syscall the day it was added, which is the gate working:
-        # the census below is a floor, and an asm site nobody read
-        # would be a syscall nobody compared.
-        #
-        # The arm is deliberately narrow. An empty argument list is
+        # Not a syscall. `targetFrameAsm` reads the frame pointer out of
+        # x29 or %rbp for the backtracer: one instruction, one output
+        # register, no arguments and no syscall number. The census is a
+        # floor, and an asm site nobody read would be a syscall nobody
+        # compared, so this arm stays narrow. An empty argument list is
         # the one shape that cannot be a syscall on any of the six
-        # targets, because every one of them passes the number as the
-        # first operand. A template with arguments this gate does not
-        # recognise still fails, as it must.
+        # targets, since each passes the number as the first operand. A
+        # template with arguments this gate does not recognise still
+        # fails.
         name = "-";
         notsys++
         next
       } else if ($0 !~ /svc #|syscall/) {
-        # ALSO NOT A SYSCALL, decided by the INSTRUCTION rather than by
-        # the argument shape. The longjmp half of a recovery point
-        # (`targetRecoverJumpAsm`) restores a stack pointer, a frame
-        # pointer and a branch target from four REGISTERS - it makes no
-        # syscall, and the arm above cannot see that, because its
-        # argument list is not empty.
-        #
-        # `svc` on AArch64 and `syscall` on x86-64 are the only two
-        # instructions that can make a syscall on the six targets, and
-        # `check-cross-targets.sh` already asserts that every syscall
-        # template carries one of them - that is the same discriminator
-        # this arm reads, so the two gates agree on what a syscall
-        # template is rather than each guessing. A template that DOES
-        # carry one and whose arguments this gate does not recognise
-        # still fails, as it must.
+        # Also not a syscall, decided by the instruction. The longjmp
+        # half of a recovery point (`targetRecoverJumpAsm`) restores a
+        # stack pointer, a frame pointer and a branch target from four
+        # registers, so its argument list is not empty. `svc` on AArch64
+        # and `syscall` on x86-64 are the only syscall instructions on
+        # the six targets, and `check-cross-targets.sh` asserts every
+        # syscall template carries one, so the two gates agree on what a
+        # syscall template is. A template that carries one and whose
+        # arguments this gate does not recognise still fails.
         name = "-";
         notsys++
         next
@@ -308,26 +240,20 @@ platform_table_report() {
       count[name]++
       site[name] = site[name] " " a[1] "@" fn
 
-      # THE ERRNO CONVENTION, read off the template BODY. `Sys.ax`
-      # promises `-errno` on every target, and the BSD kernels - Darwin
-      # and FreeBSD - do not answer that way: they set the carry flag
-      # and leave a POSITIVE errno in the result register. So the
-      # template of a BSD target must carry the branch-and-negate
-      # epilogue (`b.cc 1f` / `jnc 1f`, then a negate) and the template
-      # of a Linux target must not, or every failed syscall reads as
-      # success on the one and every failure is negated twice on the
-      # other.
+      # The errno convention, read off the template body. `Sys.ax`
+      # promises `-errno` on every target. The BSD kernels (Darwin,
+      # FreeBSD) instead set the carry flag and leave a positive errno
+      # in the result register. So a BSD template must carry the
+      # branch-and-negate epilogue (`b.cc 1f` / `jnc 1f`, then a negate)
+      # and a Linux template must not. Otherwise every failed syscall
+      # reads as success on BSD, or is negated twice on Linux.
       #
-      # ADDED 2026-08-29 BECAUSE NOTHING ELSE COULD SEE IT. With the
-      # freebsd-aarch64 template replaced by the linux-aarch64 one -
-      # `svc #0`, no epilogue - `check-cross-targets.sh` assembled it
-      # (the string is valid AArch64 and clobbers `cc`), and
-      # `check-self-host.sh` still found six pairwise-distinct modules,
-      # because the triple and the numbers keep the pair apart with or
-      # without the epilogue. Distinctness proves the target argument
-      # is honoured and nothing about template content. This is the
-      # assertion that does, and probes 8 and 9 below show it failing
-      # in both directions.
+      # No other gate sees this. Given the linux-aarch64 template under
+      # the FreeBSD triple, `check-cross-targets.sh` assembles it (valid
+      # AArch64 that clobbers `cc`), and `check-self-host.sh` still finds
+      # distinct modules, since the triple and the numbers keep them
+      # apart. Probes 8 and 9 below show this assertion failing in both
+      # directions.
       bsd = (target ~ /^(darwin|freebsd)-/)
       epi = ($0 ~ /b\.cc 1f|jnc 1f/)
       if (bsd && !epi) {
@@ -349,8 +275,8 @@ platform_table_report() {
       if (badconv == 0 && conv > 0)
         printf "ok   [%s] %d syscall template(s) carry the %s errno form\n", \
                target, conv, (target ~ /^(darwin|freebsd)-/) ? "BSD carry-and-negate" : "Linux -errno"
-      # Fixed order, because `for (x in array)` has none and a gate
-      # whose output reorders itself is a gate nobody diffs.
+      # Fixed order: `for (x in array)` has none, and output that
+      # reorders itself cannot be diffed.
       nn = split("mmap exit write", ord, " ")
       for (i = 1; i <= nn; i++) {
         name = ord[i]
@@ -364,9 +290,9 @@ platform_table_report() {
           continue
         }
 
-        # Every site of one syscall must carry ONE number. Against a
-        # standard-library counterpart that follows from comparing each
-        # site to it; an emitted-only name has none, so it is stated here.
+        # Every site of one syscall must carry one number. Comparing each
+        # site with a standard-library counterpart implies it; an
+        # emitted-only name has none, so it is checked here.
         m = split(site[name], sv, " ")
         first = ""
         split_ok = 1
@@ -383,10 +309,9 @@ platform_table_report() {
         if (!split_ok) continue
 
         if (sn == "-") {
-          # Emitted-only, and it must STAY that way or start being
-          # compared. The day `Sys.Platform` grows an mmap number is the
-          # day this fact has two copies like the others, and the
-          # comparison must be told rather than left to notice nothing.
+          # Emitted-only, and it must stay that way or start being
+          # compared. If `Sys.Platform` grows a copy, fail until it is
+          # mapped in std_of[] above.
           grew = ""
           for (s in stdval)
             if (tolower(s) ~ name) grew = grew " " s
@@ -428,24 +353,19 @@ platform_table_report() {
   ' "$ir"
 }
 
-# The `parallel` runtime's numbers - `fork`, `getpid`, `wait4` and
-# `munmap` - added 2026-09-03 and paired the same way. They are read
-# by the FUNCTION they sit in rather than by argument shape, because
-# a `fork` and a `getpid` pass six zeros after the number exactly as
-# an `exit` does, and the classifier above would read both as exits
-# with the wrong number. `@__axiom_par_spawn_proc` assigns the fork to
-# `%pid` and the getpid (Darwin's normalisation) to `%me`,
+# The `parallel` runtime's numbers (`fork`, `getpid`, `wait4`,
+# `munmap`), paired the same way. They are read by the function they sit
+# in, not by argument shape: `fork` and `getpid` pass six zeros after the
+# number just as `exit` does, and the classifier above would read them
+# as exits with the wrong number. `@__axiom_par_spawn_proc` assigns the
+# fork to `%pid` and the getpid (Darwin's normalisation) to `%me`,
 # `@__axiom_par_join_proc` the wait to `%w`, and `@__axiom_par_finish`
-# the munmap to nothing; each register name is the emitter's own
-# (`emitParProc`, `emitParCommon`) and a rename there fails here as
-# "no site", which is the right failure. The probe below carries one
-# `parallel`, so the runtime is in the module; the census is a floor
-# of one site per number.
-#
-# `munmap` is paired with `Sys.Platform.sysMunmapNum` since 2026-09-27
-# (`stdlib/Chan.ax` unmaps its channels); until then it had no library
-# copy, and the END block's guard for an unmapped copy is what forced
-# the pairing.
+# the munmap to nothing. Each register name is the emitter's own
+# (`emitParProc`, `emitParCommon`), so a rename there fails here as "no
+# site". The probe below carries one `parallel`, so the runtime is in
+# the module; the census is a floor of one site per number. `munmap`
+# pairs with `Sys.Platform.sysMunmapNum`, since `stdlib/Chan.ax` unmaps
+# its channels.
 par_table_report() {
   local target="$1" ir="$2" platfile="$3"
   awk -v target="$target" -v platfile="$platfile" '
@@ -565,13 +485,12 @@ cat > "$par_probe" <<'PROBE'
 PROBE
 
 # The Windows shape of the same comparison. The runtime's kernel32
-# calls are read out of the functions the emitter writes (`axiom_alloc`,
-# `__axiom_*`, `mainCRTStartup`), the library's out of `@Sys.Platform$*`,
-# and everything else in the module is ignored - the probe's own `main`
-# calls platform constants, which are not kernel32. A CamelCase call in
-# a runtime function that is not one of the six the emitter is known to
-# make is a FAIL, not a skip, for the reason the POSIX classifier gives
-# about an unread syscall.
+# calls are read from the functions the emitter writes (`axiom_alloc`,
+# `__axiom_*`, `mainCRTStartup`), the library's from `@Sys.Platform$*`,
+# and the rest of the module is ignored: the probe's own `main` calls
+# platform constants, which are not kernel32. A CamelCase call in a
+# runtime function that is not one of the six the emitter is known to
+# make is a FAIL, not a skip, for the same reason as an unread syscall.
 #
 # Reports through its output and exits 0, like `platform_table_report`.
 kernel32_table_report() {
@@ -594,16 +513,14 @@ kernel32_table_report() {
       fn = $0
       sub(/^.*@/, "", fn)
       sub(/\(.*$/, "", fn)
-      # A function whose every tail is `Ok`/`Err` is emitted ONCE, as
+      # A function whose every tail is `Ok`/`Err` is emitted once, as
       # `@F$pair` returning the register pair, and `@F` is a boxing
-      # wrapper that calls it (docs/error-model.md 5b,
-      # 2026-09-03). `platformWriteFd`/`platformReadFd` answer
-      # `(Result Int Error)` since ERR-ADOPT-1, so the WriteFile call
-      # this gate reads sits in `@Sys.Platform$platformWriteFd$pair`.
-      # Attribute the pair body to the function it specialises, or
-      # the shim table has no row for the name the census asks about
-      # and the gate reads "exposes no function that calls into
-      # kernel32" - which was CI red on every leg on 26df546.
+      # wrapper that calls it (docs/error-model.md). Under
+      # ERR-ADOPT-1 `platformWriteFd`/`platformReadFd` answer
+      # `(Result Int Error)`, so the WriteFile call this gate reads sits
+      # in `@Sys.Platform$platformWriteFd$pair`. Attribute the pair body
+      # to the function it specialises, or the shim table has no row for
+      # the name the census asks about.
       sub(/\$pair$/, "", fn)
       inplat = (fn ~ /^Sys\.Platform\$/)
       inrt = (fn ~ /^(axiom_alloc$|__axiom_|mainCRTStartup$)/)
@@ -697,21 +614,13 @@ status=0
 
 for target in "${targets[@]}"; do
   ir="$work/$target.ll"
-  # EMITTED AS A STATIC LIBRARY, and the reason is the pruner. Since
-  # 2026-08-31 the emitter drops definitions no program can reach, so a
-  # probe that never divides carries no divide-by-zero trap and one
-  # that never invokes its effect carries no unhandled-effect trap -
-  # both of which this gate's census counts, and both of which every
-  # program used to carry.
-  #
-  # Lowering the census would be the wrong repair: this gate compares
-  # syscall OPERANDS between the emitted runtime and the platform
-  # module, and a site that is not emitted is a comparison that does
-  # not happen. `--emit-staticlib` prunes nothing - it is the one mode
-  # the pruner exempts, because a library's callers are not in the
-  # tree - so it emits the runtime whole, which is the shape this gate
-  # is about. Measured on the probe: 13 defines normally, 121 as a
-  # staticlib.
+  # Emitted as a static library because of the pruner. The emitter
+  # drops definitions no program can reach, so a probe that never
+  # divides has no divide-by-zero trap, and one that never invokes its
+  # effect has no unhandled-effect trap. This census counts both.
+  # `--emit-staticlib` is the one mode the pruner exempts, since a
+  # library's callers are not in the tree, so it emits the runtime whole.
+  # Lowering the census instead would drop those comparisons.
   if ! "$axc" --target="$target" emit-llvm --emit-staticlib "$probe" -o "$ir" >"$work/emit.log" 2>&1; then
     echo "FAIL [$target]: emit-llvm refused the probe"
     sed 's/^/    /' "$work/emit.log" | head -8
@@ -722,11 +631,10 @@ for target in "${targets[@]}"; do
     windows-*) report="$(kernel32_table_report "$target" "$ir" "$(platform_file "$target")")" ;;
     *)
       report="$(platform_table_report "$target" "$ir" "$(platform_file "$target")")"
-      # The `parallel` runtime's four numbers, from a second module:
-      # the probe above is a staticlib and spawns nothing, so the
-      # runtime is not in it; this one spawns once and names the
-      # constants beside it. A refusal to emit is a FAIL here, not a
-      # skip - the six POSIX targets all lower `parallel` to processes.
+      # The `parallel` runtime's four numbers come from a second module:
+      # the staticlib probe spawns nothing, so that runtime is not in
+      # it. A refusal to emit is a FAIL, not a skip, since all six POSIX
+      # targets lower `parallel` to processes.
       par_ir="$work/par-$target.ll"
       if ! "$axc" --target="$target" emit-llvm "$par_probe" -o "$par_ir" >"$work/par-emit.log" 2>&1; then
         report="$report
@@ -741,9 +649,8 @@ $(par_table_report "$target" "$par_ir" "$(platform_file "$target")")"
   report="$report
 $(syscall_abi_report "$target" "$ir" "$(platform_file "$target")")"
   printf '%s\n' "$report"
-  # `if`, not `&& status=1`: a failing `grep -q` at the end of an `&&`
-  # list is the whole list failing, and `set -e` would end the run
-  # there - on the targets that PASS.
+  # `if`, not `&& status=1`: when `grep -q` fails, the whole list
+  # fails, and `set -e` would end the run on a target that passes.
   if grep -q '^FAIL' <<< "$report"; then
     status=1
   fi
@@ -752,15 +659,12 @@ done
 # ---------------------------------------------------------------
 # Negative probes.
 #
-# Everything above asserts that two numbers are equal, and equality is
-# also what a classifier that matched nothing, an extractor that read no
-# constants, or an empty module would report. So the comparison is shown
-# FAILING, against real emitted modules with one number changed - the
-# extractor, the classifier and the comparison all run for real, and the
-# mutation is the only difference between the green run and the red one.
+# Equality is also what a classifier that matched nothing, an extractor
+# that read no constants, or an empty module would report. So each probe
+# shows the comparison failing on a real emitted module with one number
+# changed: extractor, classifier and comparison all run for real.
 #
-# linux-aarch64 is the subject because it is the target the historical
-# disagreement was on.
+# Most probes mutate the linux-aarch64 module.
 # ---------------------------------------------------------------
 echo "--- negative probes: the comparison can fail ---"
 
@@ -783,15 +687,14 @@ mutate_stdlib_constant() {
 }
 
 # Rewrite the number the emitted runtime exits through. An exit site is
-# the one whose operands end in five zeros - a write has three after its
-# length, an mmap has `-1` before its last - so this needs none of the
-# numbers under test to find them.
+# the one whose operands end in five zeros (a write has three after its
+# length, an mmap has `-1` before its last), so finding it needs none of
+# the numbers under test.
 #
-# `all` rewrites every exit site, which is what a wrong `targetExitNum`
-# produces: one function answers one number per target and all three
-# abort paths call it. `one` rewrites the first, which is a shape
-# codegen cannot produce today and is exactly what the report's
-# one-number-per-target assertion exists for.
+# `all` rewrites every exit site, as a wrong `targetExitNum` would: one
+# function answers one number per target and all three abort paths call
+# it. `one` rewrites the first. Codegen cannot produce that shape today;
+# the report's one-number-per-target assertion exists for it.
 mutate_emitted_exits() {
   awk -v newval="$1" -v scope="${2:-all}" '
     /asm sideeffect/ && /i64 0, i64 0, i64 0, i64 0, i64 0\)$/ {
@@ -822,9 +725,9 @@ probe_expects() {
   fi
 }
 
-# 0. The control. The same helper on the UNMUTATED module of the same
-#    target reports no violation, so every probe below is one edit away
-#    from a green run rather than from a broken one.
+# 0. The control. The same helper on the unmutated module of the same
+#    target reports no violation, so each probe below is one edit away
+#    from a green run.
 if grep -q '^FAIL' <<< "$(platform_table_report linux-aarch64 "$real" "$plat")"; then
   echo "FAIL negative probe: the unmutated linux-aarch64 module already reports a violation"
   probe_failures=$((probe_failures + 1))
@@ -832,37 +735,35 @@ else
   echo "ok   negative probe: the unmutated module reports none, so the probes below isolate one edit"
 fi
 
-# 1. THE HISTORICAL BUG, reconstructed from the standard library's side:
+# 1. The `exit`/`exit_group` mismatch from the library's side:
 #    `Sys.Platform.sysExit` says `exit` (93) where the emitted runtime
 #    exits through `exit_group` (94).
 mutate_stdlib_constant sysExit 93 < "$real" > "$work/p1.ll"
 probe_expects "a platform module that says exit (93) where the runtime says exit_group (94)" \
   "$work/p1.ll" 'exit: the emitted runtime uses 94 in @.*, Sys.Platform.sysExit is 93'
 
-# 2. And from the BACKEND's side, which is the direction it actually
-#    happened in: codegen emitting 93 against a platform module that
-#    says 94. All three abort paths move together, because they read
-#    one `targetExitNum`.
+# 2. The same mismatch from the backend's side: codegen emitting 93
+#    against a platform module that says 94. All three abort paths move
+#    together, because they read one `targetExitNum`.
 mutate_emitted_exits 93 all < "$real" > "$work/p2.ll"
 probe_expects "a runtime that exits through 93 where the platform module says 94" \
   "$work/p2.ll" 'exit: the emitted runtime uses 93 in @__axiom_[a-z_]+, Sys.Platform.sysExit is 94'
 
-# 2b. The other assertion the report makes about the emitted side: the
-#     three abort paths must exit through ONE number. Nothing in
-#     codegen can produce a split today - they share a function - which
-#     is why this is probed rather than waited for.
+# 2b. The three abort paths must exit through one number. Codegen
+#     cannot produce a split today, since they share a function, so this
+#     is probed instead of waited for.
 mutate_emitted_exits 93 one < "$real" > "$work/p2b.ll"
 probe_expects "abort paths that exit through two different numbers" \
   "$work/p2b.ll" 'exit: the emitted runtime uses 9[34] in @__axiom_[a-z_]+ and 9[34] elsewhere'
 
-# 3. `write` is compared too, and separately - probe 1 must not have
-#    passed because the comparison flags everything.
+# 3. `write` is compared too, and separately: probe 1 must not pass
+#    merely because the comparison flags everything.
 mutate_stdlib_constant sysWrite 1 < "$real" > "$work/p3.ll"
 probe_expects "a platform module carrying the x86-64 write number on aarch64" \
   "$work/p3.ll" 'write: the emitted runtime uses 64 in @.*, Sys.Platform.sysWrite is 1'
 
 # 4. Vacuity, first direction: a module with no syscall sites at all
-#    must be reported as such rather than as agreement. This is what a
+#    must be reported as such, not as agreement. This is what a
 #    classifier that stopped matching would look like.
 grep -v 'asm sideeffect' "$real" > "$work/p4.ll"
 probe_expects "an emitted runtime with no syscall sites is not agreement" \
@@ -874,17 +775,16 @@ mutate_stdlib_constant sysExit '%no_longer_a_constant' < "$real" > "$work/p5.ll"
 probe_expects "a platform constant that stopped being one reads as absent" \
   "$work/p5.ll" 'exposes no integer constant .sysExit.'
 
-# 6. `mmap` is compared since the library grew `sysMmapNum` (this probe
-#    was the guard that demanded it): a platform module carrying the
-#    x86-64 mmap number on aarch64 disagrees with the runtime's 222.
+# 6. `mmap` is compared too: a platform module carrying the x86-64 mmap
+#    number on aarch64 disagrees with the runtime's 222.
 mutate_stdlib_constant sysMmapNum 9 < "$real" > "$work/p6.ll"
 probe_expects "a platform module carrying the x86-64 mmap number on aarch64" \
   "$work/p6.ll" 'mmap: the emitted runtime uses 222 in @.*, Sys.Platform.sysMmapNum is 9'
 
-# 7. A syscall shape the classifier does not know is a FAIL, not a skip.
-#    Today the emitted runtime makes exactly three kinds of call; the
-#    fourth one somebody adds must not slip past uncompared. The line
-#    below is an `openat`-shaped call, which matches none of the three.
+# 7. A syscall shape the classifier does not know is a FAIL, not a
+#    skip. The emitted runtime makes three kinds of call today, and a
+#    fourth must not slip past uncompared. The line below is an
+#    `openat`-shaped call, which matches none of the three.
 awk '/asm sideeffect/ && !hit {
        print; hit = 1
        line = $0
@@ -896,12 +796,10 @@ awk '/asm sideeffect/ && !hit {
 probe_expects "an unrecognised syscall shape is reported, not skipped" \
   "$work/p7.ll" 'cannot classify'
 
-# 8. THE ERRNO CONVENTION, BSD side: a FreeBSD module whose AArch64
-#    template lost its carry epilogue - which is exactly the module the
-#    linux-aarch64 string would produce under the FreeBSD triple, the
-#    ablation that showed no other gate could see this. The mutation
-#    must have matched, or the probe would be comparing the module to
-#    itself.
+# 8. The errno convention, BSD side: a FreeBSD module whose AArch64
+#    template lost its carry epilogue, which is what the linux-aarch64
+#    string would produce under the FreeBSD triple. The mutation must
+#    match, or the probe would compare the module with itself.
 bsdreal="$work/freebsd-aarch64.ll"
 bsdplat="stdlib/Sys/Platform.freebsd.ax"
 sed 's/svc #0\\0Ab\.cc 1f\\0Aneg x0, x0\\0A1:/svc #0/g' "$bsdreal" > "$work/p8.ll"
@@ -925,10 +823,9 @@ else
 fi
 
 # ---------------------------------------------------------------
-# The Windows shape can fail too, and the syscall-ABI agreement can.
-#
-# Same discipline: real emitted modules, one edit each, the report
-# functions above run for real.
+# Negative probes for the Windows shape and the syscall-ABI agreement:
+# real emitted modules, one edit each, the report functions run for
+# real.
 # ---------------------------------------------------------------
 echo "--- negative probes: the Windows comparison can fail ---"
 wreal="$work/windows-x86_64.ll"
@@ -956,9 +853,9 @@ else
 fi
 
 # w1. The runtime exits through a name the library does not: one
-#     `ExitProcess` site rewritten to `TerminateProcess` - a plausible
-#     wrong answer, it is a real kernel32 export - inside a runtime
-#     function, so the classifier meets a name it does not know.
+#     `ExitProcess` site in a runtime function becomes
+#     `TerminateProcess`, a real kernel32 export, so the classifier meets
+#     a name it does not know.
 awk '/^define / { rt = ($0 ~ /@__axiom_out_of_memory/) }
      rt && /call i64 @ExitProcess\(/ && !hit { sub(/@ExitProcess\(/, "@TerminateProcess("); hit = 1 }
      { print }' "$wreal" > "$work/w1.ll"

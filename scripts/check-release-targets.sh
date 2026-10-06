@@ -1,55 +1,37 @@
 #!/usr/bin/env bash
-# THE SHIPPED-TARGET LIST IS ONE FACT WITH TWO COPIES, and they are on
-# opposite sides of the project: `.github/workflows/release.yml` decides
-# what gets BUILT and attached, and `scripts/install.sh` decides what a
-# user's machine is told when it asks for an archive. If those two
-# disagree, exactly one of two things happens, and both are silent:
+# Checks that the release matrix, the installer and README's *Targets*
+# section agree on which targets ship and which are supported.
 #
-#   a target in the matrix and in the refusal list  - the release
-#     builds and uploads an archive that `install.sh` then refuses to
-#     fetch. Work done, nobody served.
+# `.github/workflows/release.yml` decides which archives a release
+# builds. `scripts/install.sh` decides which targets it refuses to fetch,
+# so a host gets a sentence instead of an HTTP status. If the two
+# disagree, the failure is silent:
 #
-#   a target in neither                             - `install.sh`
-#     tries to download an artifact no job produced and the user gets
-#     a 404 from `curl`, which reads as "the project is broken" rather
-#     than "build it yourself".
+#   built and refused   the release uploads an archive install.sh
+#                       never fetches
+#   neither             install.sh downloads an artifact no job made,
+#                       and the user gets a 404 from curl
 #
-# The second is the one that actually happened in kind: before
-# `darwin-x86_64` was added to the refusal list, a Rosetta host got a
-# bare download failure. The refusal exists so a host gets a sentence
-# instead of an HTTP status, and this gate exists so the sentence
-# cannot drift away from the matrix that makes it necessary.
+# Supported and shipped are separate axes. Supported means a CI leg
+# executes what the compiler emits for that target (README, Targets).
+# `check-doc-drift.sh` holds that list to `--help` and
+# `docs/reference.md`. Shipped means a release carries a prebuilt archive.
 #
-# TWO AXES, NOT ONE. `docs/memory-model.md` is not the reference here;
-# README's *Targets* section is. SUPPORTED means a CI leg executes what
-# the compiler emits for that target - `check-doc-drift.sh` holds that
-# list to `--help` and to `docs/reference.md`. SHIPPED means a release
-# carries a prebuilt archive. They are independent, and every
-# combination but one is currently real:
+#   supported + shipped      allowed
+#   supported + unshipped    needs a Tests leg in ci.yml or a README reason
+#   unsupported + unshipped  README's Source-only targets
+#   unsupported + shipped    refused: an untested binary looks supported
 #
-#   supported + shipped      linux-aarch64, darwin-aarch64
-#   supported + unshipped    none today; the arm below still holds
-#                            one to a Tests leg if it comes back
-#   unsupported + unshipped  every other target, which README names
-#                            SOURCE-ONLY
-#   unsupported + shipped    forbidden - it is the state that makes an
-#                            untested binary look supported, and the
-#                            check at the bottom refuses it
-#
-# SOURCE-ONLY is README's `Source-only:` line: no archive, no Tests leg,
-# and a build from the seed. The last section holds each one to that:
-# not on the supported list, not shipped, and either a `Bootstrap from
-# seed (<target>)` leg in ci.yml or a README sentence naming the target
-# that says no runner builds it (darwin-x86_64) or
-# that the compiler doesn't run there (windows-x86_64, windows-aarch64).
+# A source-only target has no archive and no Tests leg, and builds from
+# the seed. It needs a `Bootstrap from seed (<target>)` leg in ci.yml, or
+# a README sentence naming it that says no runner builds it
+# (darwin-x86_64, baremetal-aarch64) or the compiler doesn't run there
+# (windows-*).
 set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
 gate_init
-# Built rather than borrowed. The accepted-target list is read from the
-# compiler's own `--help`, and a gate that falls back to "could not
-# read it" whenever no binary happens to be lying around is a gate that
-# reports less than it knows - `.axiom-bin/` is empty on a clean
-# checkout, which is most of them.
+# Build the compiler: the accepted-target list comes from its `--help`,
+# and `.axiom-bin/` is empty on a clean checkout.
 gate_build_axc axc
 
 failed=0
@@ -74,9 +56,8 @@ done
 shipped="$(sed -n 's/^ *- name: \([a-z0-9_]*-[a-z0-9_]*\) *$/\1/p' "$release_yml" | sort -u)"
 
 # `install.sh`'s refusal list: every target named in a `case` arm that
-# calls `build_it`. Read as the arms themselves rather than as one
-# regex over the file, so a target mentioned in a COMMENT is not
-# counted as refused.
+# calls `build_it`. Only the arms are read, so a target named in a
+# comment doesn't count as refused.
 refused="$(awk '
   /^ *(linux|darwin|freebsd)-[a-z0-9_]*(\|[a-z0-9_-]*)*\)$/ {
     line = $0
@@ -115,11 +96,9 @@ fi
 echo
 echo "== every target the compiler accepts is in exactly one of them =="
 # --------------------------------------------------------------------
-# The compiler's own table is the universe, minus the Windows targets:
-# hosting the compiler on Windows is a later phase, `install.sh` dies
-# on `uname -s` before it ever forms a target string, and README's
-# Targets section says so. A Windows entry in either list would be
-# describing a host that cannot reach this code.
+# The universe is the compiler's `--help` table, minus Windows. The
+# compiler doesn't run there, and `install.sh` exits on `uname -s`
+# before it forms a target string.
 accepted="$("$axc" --help 2>/dev/null \
   | sed -n '/^TARGETS:/,/^NOTES:/p' \
   | sed -E 's/^ *(Supported|Source-only): *//' \
@@ -137,16 +116,9 @@ else
     # Bare-metal images have a board linker, not an installer host.
     # The installer derives an OS from uname and never selects one.
     [[ "$t" == baremetal-* ]] && continue
-    # `grep -x` without `-q`, deliberately: `-q` exits on the first
-    # match, and under `set -o pipefail` a consumer that exits before
-    # the producer finishes turns the pipeline's status into the
-    # producer's SIGPIPE death (141) - so a target the list DOES
-    # contain reads as missing. That is exactly the failure CI showed
-    # on 2026-09-23: `darwin-x86_64` printed in the refused list two
-    # lines above the FAIL naming it as missing, with `line 137:
-    # printf: write error: Broken pipe` beside it. Without `-q` grep
-    # reads to EOF, the producer always completes, and the exit status
-    # is the match result alone. Same semantics, no race.
+    # `grep -x` without `-q`. Under `set -o pipefail`, `-q` exits on the
+    # first match, printf dies of SIGPIPE (141), and a listed target
+    # reads as missing. Reading to EOF leaves the match as the status.
     if ! printf '%s\n' $shipped $refused | grep -x "$t" >/dev/null; then
       missing="$missing $t"
     fi
@@ -163,10 +135,8 @@ fi
 echo
 echo "== an unshipped target that IS supported keeps its CI leg =="
 # --------------------------------------------------------------------
-# The one thing that would make dropping an artifact dishonest: saying
-# a target is supported, publishing nothing for it, AND quietly not
-# testing it either. For every target that README lists as supported
-# and release.yml does not build, `ci.yml` must still run a leg.
+# A target README lists as supported and release.yml doesn't build
+# must still have a Tests leg in `ci.yml`.
 readme_supported="$(sed -n '/^### Targets/,/^### /p' "$readme" \
   | tr '\n' ' ' \
   | sed -n 's/.*Supported: \([^.]*\)\..*/\1/p' \
@@ -176,13 +146,8 @@ if [[ -z "$readme_supported" ]]; then
   bad "could not read README's \`Supported:\` list - the check below would pass vacuously"
 else
   ok "README lists supported: $(printf '%s ' $readme_supported)"
-  # A supported, unshipped target must still be EXECUTED somewhere, or
-  # the word "supported" stops meaning anything. There is one standing
-  # exception and it is grandfathered IN THE README rather than here:
-  # `darwin-x86_64` predates the rule and is executed by no runner,
-  # which that section says in as many words. So the test is "has a leg
-  # OR is explained", and an unexplained one fails - silence is what
-  # this refuses, not the exception itself.
+  # A supported, unshipped target passes if it has a leg or if README
+  # explains that it is executed by no runner. An unexplained gap fails.
   targets_section="$(sed -n '/^### Targets/,/^## /p' "$readme")"
   # A Tests leg only: a `- name: <t>` row of the `test:` job's matrix,
   # or a job of its own named `Tests (<t>)`. Any `- name: <t>` in the
@@ -197,18 +162,9 @@ else
   gap=""; excused=""
   for t in $readme_supported; do
     if printf '%s\n' $shipped | grep -x "$t" >/dev/null; then continue; fi
-    # TWO SPELLINGS, and missing the second was a real defect found on
-    # 2026-08-30. A matrix target appears as `- name: linux-x86_64`,
-    # but a target with a job of its own appears only in that job's
-    # display name - `name: Tests (freebsd-x86_64)`, which does not
-    # contain `name: freebsd-x86_64`. This check would have reported
-    # freebsd-x86_64 and windows-x86_64 as supported with no CI leg the
-    # moment they were promoted, which is a false alarm on the two
-    # targets it exists to protect.
     if printf '%s\n' $test_legs | grep -x "$t" >/dev/null; then continue; fi
-    # The target and the reason in ONE sentence. Anywhere in the section
-    # is vacuous: every supported name is in the section's own
-    # `Supported:` line, so any of them would be excused.
+    # The target and the reason must share one sentence. Matching the
+    # whole section would excuse every name on its `Supported:` line.
     if tr '\n' ' ' <<<"$targets_section" | sed 's/\. /.\n/g' \
        | grep -F -- "\`$t\`" | grep -qiE "executed by no runner|no runner for it"; then
       excused="$excused $t"
@@ -227,24 +183,13 @@ else
     ok "every supported-but-unshipped target still has a ci.yml leg"
   fi
 
-  # NO SUPPORTED TARGET MAY HAVE AN ADVISORY LEG, and until 2026-08-30
-  # nothing anywhere asserted this. `continue-on-error: true` is the
-  # single line that decides whether a leg can fail the workflow, every
-  # document in the tree defines promotion as its removal, and
-  # `grep -rn continue-on-error scripts/` returned zero hits: the act
-  # that constitutes support was checked by nothing. A leg could have
-  # been made advisory again - to get a red build green - and every
-  # gate here would have stayed quiet while the word went hollow.
+  # No supported target may have an advisory leg. `continue-on-error:
+  # true` decides whether a leg can fail the workflow, and promoting a
+  # target means removing it.
   adv=""
   for t in $readme_supported; do
-    # `index`, NOT a dynamic regex. Written as `-v pat="Tests \($t\)"`
-    # first, and awk's `-v` processes the escapes before the regex ever
-    # sees them: `\(` became `(`, so the pattern read as a GROUP and
-    # matched `name: Tests freebsd-x86_64`, which appears nowhere. The
-    # check passed on a tree with `continue-on-error` injected back onto
-    # the FreeBSD leg - vacuous, in the arm whose whole subject is a
-    # word going hollow. Caught by ablating it, which is why the
-    # ablation below runs.
+    # `index`, not a regex. awk's `-v` processes escapes first, so
+    # `\(` in a `-v` pattern becomes a group and the match is vacuous.
     job="$(awk -v want="name: Tests ($t)" '
       index($0, want) { found = 1; next }
       found && index($0, "continue-on-error") { print "advisory"; exit }
@@ -280,12 +225,12 @@ echo
 echo "== a source-only target is built from the seed in CI, and nothing more =="
 # --------------------------------------------------------------------
 # README's `Source-only:` line names the targets with no archive and no
-# Tests leg. Each must be off the supported list and off the release
-# matrix, and CI must build the compiler there from the seed - a
-# `bootstrap-no-rust` matrix row spelling it `- name: <target>`, or a
-# job named `Bootstrap from seed (<target>)` - unless a README sentence
-# naming it says no runner builds it or the compiler doesn't run there.
-# A missing line fails rather than passing over nothing.
+# Tests leg. Each must be off the supported list and the release matrix.
+# CI must build the compiler there from the seed: a `bootstrap-no-rust`
+# row `- name: <target>`, or a job named `Bootstrap from seed (<target>)`.
+# The exception is a README sentence naming the target that says no
+# runner builds it or the compiler doesn't run there. A missing
+# `Source-only:` line fails.
 targets_section="$(sed -n '/^### Targets/,/^## /p' "$readme")"
 source_only="$(sed -n '/^### Targets/,/^## /p' "$readme" \
   | tr '\n' ' ' \

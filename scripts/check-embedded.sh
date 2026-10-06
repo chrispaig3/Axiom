@@ -1,201 +1,122 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------
-# The arena's - and now the trap path's - assumptions about a hosted
-# operating system, removed and gated, plus the reference port's
-# device leg. docs/embedded-guide.md and 6, and the
-# gate its section 8 names for all four rows.
+# The bare-metal port's gate: the arena and the trap path without a
+# hosted operating system, the device primitives, and the
+# `baremetal-aarch64` target under QEMU. docs/embedded-guide.md is the
+# guide; its section 7 lists where each section below runs.
 #
-# WHAT THE THREE ITEMS ARE. The emitted allocator asked the kernel for a
-# MEGABYTE the first time a program allocated, and `mmap` was the only
-# way a chunk could ever arrive. On a Cortex-M4-class part with 192 KiB
-# of SRAM the first allocation fails, and there is no `mmap` for it to
-# fail in. So:
+# A hosted allocator asks the kernel for a megabyte on first use, and
+# `mmap` is its only source of chunks. A Cortex-M4-class part with
+# 192 KiB of SRAM has neither, so three choices are per target:
 #
-# WHAT THE TWO ITEMS ARE. The emitted allocator asked the kernel for a
-# MEGABYTE the first time a program allocated, and `mmap` was the only
-# way a chunk could ever arrive. On a Cortex-M4-class part with 192 KiB
-# of SRAM the first allocation fails, and there is no `mmap` for it to
-# fail in. So:
-#
-#   4.1  the chunk size is a per-target constant, `targetArenaChunkBytes`,
-#        beside the syscall numbers in `self_host/codegen.ax`'s target
-#        table - not the literal `1048576` written twice into
-#        `emitAllocator`.
-#   4.2  the source of pages is a per-target STRATEGY. Zero from
+#   4.1  the chunk size is a constant, `targetArenaChunkBytes`, beside
+#        the syscall numbers in `self_host/codegen.ax`'s target table.
+#   4.2  the source of pages is a strategy. Zero from
 #        `targetArenaStaticBytes` means `mmap` (or `VirtualAlloc`);
-#        non-zero means a single statically reserved region that
+#        non-zero means one statically reserved region that
 #        `emitArenaCarve` bumps a cursor through. `emitRuntimeMap`
-#        branches on it once, at EMISSION time, so the emitted program
-#        contains exactly one of the two and the other costs it nothing,
-#        not even a branch.
-#   4.3  the trap's write is a per-target STRATEGY. Zero from
-#        `targetTrapSilent` means today's `write(2, ...)` (or
-#        `WriteFile`); non-zero means no write at all, while the abort,
-#        the backtrace walk and the exit with the trap's own status all
-#        still run. `emitRuntimeWrite` - the single door the backtrace
-#        writer delegates to - branches on it once, at EMISSION time,
-#        so a silent program carries a comment where each write was and
-#        no branch for one.
+#        branches on it once, at emission time, so the program contains
+#        one strategy and pays nothing for the other, not even a branch.
+#   4.3  the trap's write is a strategy. Zero from `targetTrapSilent`
+#        means `write(2, ...)` (or `WriteFile`); non-zero means no
+#        write, while the abort, the backtrace walk and the exit with
+#        the trap's status still run. `emitRuntimeWrite`, the one door
+#        the backtrace writer uses, branches on it at emission time, so
+#        a silent program carries a comment where each write was.
 #
-# THE CONSTRAINT THAT DECIDES WHETHER THIS IS CORRECT is that it is a
-# REFACTOR for every supported target and a new capability only for a
-# bare-metal one. Every supported target answers 1 MiB and `mmap`, so
-# every supported target must emit the bytes it has always emitted -
-# `check-mir.sh` asserts `emit-llvm` byte-identity for its own routing
-# and would go red if this moved one, which would be the right red.
-# A1 pins those bytes per target; A3 recomputes the three figures
-# section 2 of the proposal prices the whole port against.
+# For every supported target this is a refactor. Each answers 1 MiB and
+# `mmap`, so each must emit the bytes it always has; `check-mir.sh`
+# asserts `emit-llvm` byte-identity for its own routing and goes red if
+# this moves one. A1 pins those bytes per target.
 #
-# WHY A VARIANT COMPILER, AND WHY THAT IS NOT A DODGE. No supported
-# target declares a small chunk or a static arena - that is the whole
-# content of "this moves nothing for a hosted target" - so a gate that
-# ran only the tree's compiler could assert that the literals had been
-# REMOVED and nothing whatever about what replaced them. That is the
-# shape of a check that cannot fail. A4/A5/A6 therefore build a second
-# compiler from a copy of `self_host/` with two rows of the target table
-# changed, which is exactly the edit a bare-metal port makes and nothing
-# more:
+# Why variant compilers: no supported target declares a small chunk or
+# a static arena, so the tree's compiler alone can show only that the
+# literals are gone, not what replaced them. A4-A6 build a second
+# compiler from a copy of `self_host/` with two rows of the target
+# table changed, which is the edit a bare-metal port makes:
 #
-#   * one target that is NOT the host gets a 4 KiB chunk. Its IR must
-#     move in exactly the lines that carry the constant, and the targets
-#     neither row touches must not move a byte. That is 4.1 stated as a
-#     difference rather than as an absence.
-#   * the HOST target gets a 256 KiB static arena, so the result can be
-#     LINKED AND RUN here. A static arena is not bare-metal-only: it is
-#     a `.bss` array and a cursor, which a hosted OS runs perfectly
-#     well, and running it is what turns 4.2 from an emission into a
-#     fact. A6 runs one program that fits and one that does not, and
-#     requires the same answer as the `mmap` arena for the first and
-#     status 70 for the second.
-#   * A9 builds a THIRD compiler, silent on the host, for the same
-#     reason: a no-op trap write runs perfectly well here, and running
-#     it is what turns 4.3 from an emission into the statuses it keeps.
+#   * a target that is not the host gets a 4 KiB chunk. Its IR must move
+#     in exactly the lines that carry the constant, and targets neither
+#     row touches must not move a byte.
+#   * the host gets a 256 KiB static arena, so the result can be linked
+#     and run here. A static arena is a `.bss` array and a cursor, which
+#     a hosted OS runs fine. A6 runs one program that fits, which must
+#     match the `mmap` build, and one that does not, which must exit 70.
+#   * A9 builds a third compiler, silent on the host, for the same
+#     reason: a no-op trap write runs fine here, so 4.3's statuses can
+#     be checked by running it.
 #
-# WHAT IT ASSERTS.
-#   A1  SEVEN TARGETS EMIT TODAY'S ALLOCATOR. Every supported target's
-#       IR carries the four chunk lines, and the keep helper carries the
-#       two grain lines, with the values they had before 4.1 - 1 MiB and
-#       64 KiB.
-#   A2  THE SOURCE HAS ONE SPELLING OF IT. `1048576` appears in
-#       `codegen.ax` exactly once, in the table. A second spelling is a
-#       target that cannot move its own chunk size, which is the defect
-#       4.1 exists to remove.
-#   A3  THE MEASURED BASELINE, RECOMPUTED. The minimal program imports
-#       nothing but the platform's own startup set, makes EXACTLY THREE
-#       distinct syscalls, and on the format the proposal measured - a
-#       Mach-O - its size is inside the proposal's flash budget. Those
-#       are section 2's figures and the port is priced on them. The
-#       import set is per FORMAT (a Mach-O imports nothing, an ELF
-#       carries crt1's startup hooks), and the file size is per LINKER:
-#       the identical program is 16,416 bytes from gcc and ld.bfd and
-#       71,168 from clang and lld, so on ELF and PE it is printed and
-#       not gated - see the paragraphs at A3 for both lessons, each of
-#       which was a red leg first.
-#   A4  4.1 - ONE TARGET MOVES AND THE REST DO NOT. Every line that
-#       differs is one of the pairs the constant reaches, and the
-#       untouched targets are byte-identical.
-#   A5  4.2 - THE STATIC TARGET EMITS THE OTHER STRATEGY. Region,
-#       cursor, end and carve present; NO `mmap`; three distinct
-#       syscalls become two; and the trap names the strategy that ran
-#       out. Against a control - the same probe, the same target, the
-#       tree's own compiler - which must show the opposite of every one
-#       of those, because "the static build has no mmap" means nothing
-#       unless the other build has one.
-#   A6  4.2 - AND IT RUNS. A program that fits in the region prints what
-#       the `mmap` build of the same source prints; a program that does
-#       not exits 70 with the arena's sentence, while the `mmap` build
-#       of THAT source exits 0 - so the 70 is the region's verdict and
-#       not the program's size.
-#   A7  THE CEILING FLAG: the same verdicts without a variant compiler.
-#       `--heap-ceiling N` on a SUPPORTED target carves N bytes from a
-#       `.bss` region instead of the kernel's pages - the 4.2 strategy
-#       selected per build rather than per target. The fitting program
-#       answers as the `mmap` build does, the overflowing one exits 70
-#       with the arena's sentence against a control that exits 0, the
-#       emitted IR carries the region at the asked size with the chunk
-#       capped by it and no `mmap`, and the flag's own refusals
+# What it asserts:
+#   A1  Every supported target's IR carries the four chunk lines, and
+#       the keep helper the two grain lines, at 1 MiB and 64 KiB.
+#   A2  `1048576` appears in `codegen.ax` once, in the table. A second
+#       spelling is a target that cannot move its own chunk size.
+#   A3  The minimal program imports nothing but the platform's own
+#       startup set and makes exactly three distinct syscalls. On
+#       Mach-O its size is inside the 24 KiB flash budget; on ELF and
+#       PE the size is the linker's, so it is printed and not gated.
+#   A4  4.1: one target's chunk moves. Every line that differs is one
+#       the constant reaches, and the untouched targets are
+#       byte-identical.
+#   A5  4.2: the static target emits region, cursor, end and carve, no
+#       `mmap`, two distinct syscalls instead of three, and a trap that
+#       names the arena. A control (same probe, same target, the tree's
+#       compiler) must show the opposite of each, or "no mmap" means
+#       nothing.
+#   A6  4.2 runs. A program that fits in the region prints what its
+#       `mmap` build prints. One that does not exits 70 with the arena's
+#       sentence while its `mmap` build exits 0, so the 70 is the
+#       region's verdict, not the program's size.
+#   A7  `--heap-ceiling N` on a supported target: A6's verdicts from a
+#       flag, with no variant compiler. The build carves N bytes from a
+#       `.bss` region, the IR carries the region at that size with the
+#       chunk capped by it and no `mmap`, and the flag's refusals
 #       (non-numeric, zero, missing value, `--threads` on a spawning
 #       program) each go red when broken.
-#   A8  4.3 - EVERY SUPPORTED TARGET WRITES ITS TRAPS. A dividing
-#       probe carries one fd-2 write per trap and backtrace line on
-#       every target (the error handle's, on Windows), and the silent
-#       strategy's default is one row answering 0.
-#   A9  4.3 - AND SILENCE TRAPS CORRECTLY. A second variant compiler,
-#       silent on the host, suppresses exactly the lines A8 counts and
-#       no others; both binaries exit 72, the tree's naming the
-#       division on fd 2 and the silent one's fd 2 empty.
-#   A10 SECTION 6 - BLINK UNDER QEMU. The fixtures in
-#       `tests/embedded/` built for `baremetal-aarch64` and booted
-#       under `qemu-system-aarch64 -machine virt`: blink's UART bytes
-#       must equal the host build's stdout byte for byte with the
-#       same exit status, and the oversized ablation must exit with
-#       the status `tests/stdlib/314-out-of-memory.exit` pins against
-#       a control that exits 0. Skips loudly when the target has not
-#       landed or QEMU is not on PATH, and for no other reason.
-#   A11 THE DEVICE PRIMITIVES, COMPILE-ONLY (docs/memory-model.md
-#       MM-FFI-8). Each volatile width is its own `load/store volatile
-#       iN` at natural alignment; the writes survive `opt -O2` where a
-#       control's plain double write does not; `llc` keeps each width;
-#       every `__arm_` primitive is its instruction; and AX4008 draws
-#       the target line. Needs no QEMU, so it runs on every host.
-#   A12 THE EXCEPTION VECTOR TABLE. Every bare-metal executable
-#       carries one and `_start` installs it; an unbound vector exits
-#       81 with the fault's registers on the UART, `isr(irq)` wires
-#       the IRQ slot, AX4008 refuses a binding no target honours.
-#       IR-level on every host; `tests/embedded/fault.ax` under QEMU.
-#   A13 A PERIODIC WORKLOAD ON THE TIMER'S INTERRUPT.
-#       `tests/embedded/periodic.ax`: the restricted profile refuses
-#       nothing across the whole program and bounds its stack under a
-#       2 KiB budget, on every host; under QEMU, twenty steps run on
-#       twenty real timer interrupts through the GICv2 and equal the
-#       straight run. Drill: the handler's end-of-interrupt write
-#       deleted, and the guest must not finish.
-#   A14 A DRIVER WITH INTERRUPT AND DMA OWNERSHIP BOUNDARIES.
-#       `tests/embedded/dma.ax` reads fw_cfg's file directory by DMA
-#       under an explicit CPU/device ownership protocol and a timer
-#       deadline, and the DMA copy must equal the data register's.
-#       Drills: a read while the device owns the buffer must trap 80
-#       (the contract), and a transfer never started must end at the
-#       deadline, not hang.
-#   A15 INLINE ASSEMBLY (docs/memory-model.md MM-FFI-9). Every target
-#       emits its own architecture's arm, `sideeffect` with a memory
-#       clobber; `opt -O2` keeps an unread block, and loses it once
-#       both are removed; AX4008 refuses a reached form with no arm;
-#       under QEMU, `tests/embedded/asm-el.ax` reads CurrentEL at EL1.
-#   A16 THE MMU ON (docs/memory-model.md MM-EXEC-19). `_start` builds
-#       identity-mapped tables and turns the MMU and both caches on;
-#       the descriptors are decoded, not matched; periodic.ax and
-#       dma.ax carry the same `_start`; under QEMU,
-#       `tests/embedded/mmu.ax` reads SCTLR, TCR and MAIR back and the
-#       image's layout symbols are checked. Drill `mmuoff`.
-#   A17 A STACK OVERFLOW ENDS AT THE GUARD. `tests/embedded/overflow.ax`
-#       under QEMU: a translation fault with FAR in the image's own
-#       guard, named, exit 81. Drills `guard` and `excstack`.
-#   A18 CODE READ-ONLY, DATA EXECUTE-NEVER, THE REST UNMAPPED.
-#       `code-write.ax`, `exec-data.ax`, `unmapped.ax` under QEMU, each
-#       ESR and FAR read off the report. Drill `codewrite`.
-#   A19 THE FAULT HOOK. `isr(fault)`: every trap exit takes the trap
-#       entry, AX4008 off bare metal and for two hooks, the profile
-#       bounds the fault exit; under QEMU the hook chooses the exit
-#       after a fault (`fault-hook.ax`), after a trap (`trap-hook.ax`)
-#       and by resetting (`fault-reset.ax`). Drill `hookoff`.
-#   A20 A FAULT INSIDE THE HOOK. `fault-in-hook.ax` under QEMU: reported
-#       once, the fixed 81, the hook not re-entered. Drill `reenter`.
+#   A8  4.3: on every supported target a dividing probe carries one
+#       fd-2 write per trap and backtrace line (the error handle's, on
+#       Windows), and the silent default is one row answering 0.
+#   A9  4.3: a variant compiler silent on the host suppresses exactly
+#       the lines A8 counts and no others. Both binaries exit 72; the
+#       tree's names the division on fd 2 and the silent one's fd 2 is
+#       empty.
+#   A10 Blink under QEMU. The fixtures in `tests/embedded/` built for
+#       `baremetal-aarch64` and booted under
+#       `qemu-system-aarch64 -machine virt`: blink's UART bytes must
+#       equal the host build's stdout with the same exit status, and
+#       the oversized twin must exit with the status
+#       `tests/stdlib/314-out-of-memory.exit` pins, against a control
+#       that exits 0. Without QEMU on PATH the leg says it is untestable.
+#   A11 Device primitives, compile-only (docs/memory-model.md MM-FFI-8):
+#       volatile widths, barriers and AX4008's target line.
+#   A12 The exception vector table: an unbound vector exits 81 with the
+#       fault's registers, and `isr(irq)` wires the IRQ slot.
+#   A13 A periodic workload on the timer's interrupt, within its budgets.
+#   A14 A DMA driver with interrupt and ownership boundaries.
+#   A15 Inline assembly (docs/memory-model.md MM-FFI-9).
+#   A16 The MMU and caches on (docs/memory-model.md MM-EXEC-19).
+#   A17 A stack overflow ends at the guard.
+#   A18 Code read-only, data execute-never, the rest unmapped.
+#   A19 The `isr(fault)` hook chooses the exit after a fault or a trap.
+#   A20 A fault inside the hook takes the fixed exit, once.
+# A11 needs no QEMU. A12-A20 each boot a fixture from `tests/embedded/`
+# under QEMU, and all but A14, A18 and A20 also run a compile-level
+# check on every host. Each section's own comment says what it asserts
+# and which drills reach it.
 #
-# SKIPS. The QEMU legs of A12-A20 print SKIP, count as skipped and
-# never as ok, and the summary says how many. CI runners have no QEMU,
-# so there they skip - which is said, not passed.
+# Skips. The QEMU legs of A12-A20 print SKIP and count as skipped, never
+# as ok, and the summary says how many. CI runners have no QEMU, so
+# there they skip.
 #
-# ABLATIONS. `AXIOM_ABLATE=<name>` copies `self_host/` to a scratch
-# directory, breaks ONE thing in `codegen.ax` there, builds every
-# compiler this gate uses from the broken copy, and the gate must FAIL.
-# The patch is applied by exact string match by
-# `scripts/lib/embedded-patch.py`, which ABORTS if the string is not
-# there: an ablation that silently does not apply is a drill proving the
-# gate can pass. `--ablations` runs all twenty and requires each to go
-# red. The six from `mmuoff` on each break an IR-level check on every
-# host as well as their QEMU leg, so they go red without QEMU too; with
-# it, the guest's own output goes red beside the IR.
+# Ablations. `AXIOM_ABLATE=<name>` copies `self_host/` to a scratch
+# directory, breaks one thing in `codegen.ax` there, builds every
+# compiler this gate uses from the broken copy, and the gate must fail.
+# `scripts/lib/embedded-patch.py` applies each patch by exact string
+# match and aborts if the string is missing, so a drill that does not
+# apply cannot pass as red. `--ablations` runs all twenty and requires
+# each to go red. The six from `mmuoff` on also break an IR-level check
+# on every host, so they go red without QEMU too; with it, the guest's
+# own output goes red beside the IR.
 #
 #   chunk     every target answers 4 KiB                   -> A1
 #   literal   `refill:` goes back to the hardcoded 1 MiB   -> A2, A4
@@ -226,14 +147,10 @@
 #   hookoff   the `isr(fault)` binding is ignored          -> A19
 #   reenter   a fault inside the hook calls it again       -> A20
 #
-# WHAT THIS GATE DOES NOT COVER, said here rather than left to be
-# discovered: the board itself. The bare-metal TARGET is in the tree -
-# triple, `Sys/Platform.baremetal-aarch64.ax`, linker script - and
-# A10 boots it under QEMU, UART bytes, exit status and the 70 all
-# asserted - but `qemu-system-aarch64 -machine virt` is an emulator
-# and not hardware, and where it is not on PATH the leg skips loudly.
-# 4.4 and 4.5 are done under their own gates
-# (`check-nostd-subset.sh`, `check-isr.sh`).
+# Not covered: real hardware. `qemu-system-aarch64 -machine virt` is an
+# emulator, and where it is not on PATH the QEMU legs skip. The
+# freestanding subset and the `isr` attribute's rules have their own
+# gates (`check-nostd-subset.sh`, `check-isr.sh`).
 #
 # Usage:
 #   scripts/check-embedded.sh              # the gate
@@ -244,29 +161,25 @@
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
-# `imports_of` - the undefined-symbol reader that dispatches on the
-# object's own magic (MZ, ELF, Mach-O) rather than on the host. A3 uses
-# it; see the paragraph there for why the host is the wrong thing to
-# dispatch on.
+# `imports_of` lists undefined symbols, dispatching on the object's own
+# magic (MZ, ELF, Mach-O) rather than on the host. A3 uses it.
 source "$(dirname "${BASH_SOURCE[0]}")/lib/imports.sh"
 
-# WHAT THE PLATFORM'S OWN STARTUP PUTS IN AN EXECUTABLE, and nothing
-# else may appear beside it in A3.
+# What the platform's own startup puts in an executable. A3 allows
+# nothing else beside it.
 #
-# Enumerated rather than counted, because "six imports" is satisfied by
-# any six and this must fail when the runtime pulls in a seventh - or
-# when one of these six is replaced by `malloc`. It is the same shape
-# `scripts/platform-allow.windows.txt` takes for the same reason
-# (`docs/memory-model.md` MM-FFI-5: enumerate what is permitted, do not
-# forbid a list of names somebody has to keep up to date).
+# Enumerated rather than counted: "six imports" is satisfied by any six,
+# and this must fail when the runtime pulls in a seventh or swaps one
+# for `malloc`. `scripts/platform-allow.windows.txt` has the same shape
+# for the same reason (`docs/memory-model.md` MM-FFI-5: enumerate what
+# is permitted).
 #
 # The four `_ITM_*`/`__gmon_start__`/`__cxa_finalize` entries are weak
-# crt hooks glibc's crt1 references and no allocator can reach; the two
-# real ones are `__libc_start_main`, which calls `main`, and `abort`,
-# which crt1 references from its own stack-guard path. None is a libc
-# function the compiler could emit a call to - `check-freestanding.sh`
-# holds that line separately, over the IR, where a call would appear
-# before the linker ever ran.
+# crt hooks that glibc's crt1 references and no allocator can reach. The
+# two real ones are `__libc_start_main`, which calls `main`, and
+# `abort`, which crt1 references from its stack-guard path. None is a
+# libc function the compiler could emit a call to; `check-freestanding.sh`
+# holds that line over the IR.
 #
 # On Mach-O this list matches nothing and A3's count stays 0.
 crt_startup='_ITM_deregisterTMCloneTable|_ITM_registerTMCloneTable|__gmon_start__'
@@ -285,10 +198,8 @@ if [[ "${1:-}" == "--ablations" ]]; then
     if AXIOM_ABLATE="$ab" bash "$self" > "/tmp/embedded-ablate-$ab.log" 2>&1; then
       echo "FAIL ablation '$ab' left the gate GREEN - it checks nothing about this."
     elif grep -q '^ *ABORT' "/tmp/embedded-ablate-$ab.log"; then
-      # A drill whose patch did not apply exits non-zero and would
-      # otherwise be counted as a success - the exact shape of a check
-      # that cannot fail, in the code whose job is to prove this one
-      # can.
+      # A drill whose patch did not apply exits non-zero too, and must
+      # not be counted as red.
       grep -E '^ *ABORT' "/tmp/embedded-ablate-$ab.log" | head -3 | sed 's/^/     /'
       echo "FAIL ablation '$ab' never applied, so it drilled nothing. Re-anchor it."
     else
@@ -310,9 +221,9 @@ gate_init
 
 failed=0
 checks=0
-# A SKIP is its own word and its own count, never a pass: A12-A15 skip
-# where QEMU is not on PATH - every CI runner today - and the summary
-# says how many did, so a green run that booted nothing reads as one.
+# A skip has its own word and count, never a pass. The QEMU legs of
+# A12-A20 skip where QEMU is not on PATH (every CI runner), and the
+# summary says how many, so a green run that booted nothing reads as one.
 skipped=0
 note() { echo "ok   $1"; }
 bad()  { echo "FAIL $1"; failed=$((failed + 1)); }
@@ -321,8 +232,8 @@ abort() { echo "ABORT: $1" >&2; exit 1; }
 
 # ---------------------------------------------------------------------
 # The tree under test: the working one, or a scratch copy with one thing
-# broken in it. The ablated tree is what BOTH compilers below are built
-# from, so a drill is visible on both sides of every comparison.
+# broken in it. Every compiler below is built from it, so a drill shows
+# on both sides of each comparison.
 # ---------------------------------------------------------------------
 src_root="$repo_root"
 if [[ -n "${AXIOM_ABLATE:-}" ]]; then
@@ -334,9 +245,8 @@ if [[ -n "${AXIOM_ABLATE:-}" ]]; then
   echo "== building the compiler under test from the ABLATED tree =="
   if ! gate_build_tree "$axiom" "$src_root" "$AXIOM_STDLIB" "$work/axc-abl" \
         > "$work/ablbuild.log" 2>&1; then
-    # A drill that makes the compiler fail to BUILD is still a non-zero
-    # exit, but it is red for the wrong reason and would hide whether
-    # the assertion it aims at can fail. Say which it was.
+    # A drill that stops the compiler building is red for the wrong
+    # reason, and hides whether its assertion can fail. Say so.
     echo "FAIL the ablated tree does not build a compiler, so this drill breaks the"
     echo "     build rather than the emitter and says nothing about the assertion."
     sed 's/^/    /' "$work/ablbuild.log" | head -12
@@ -348,10 +258,9 @@ else
 fi
 
 # ---------------------------------------------------------------------
-# The eight hosted targets, and their codes READ FROM `targetCode`
-# rather than restated here. A list this gate typed out itself would go stale beside
-# the table it is about, and the variant edit below is written in terms
-# of the codes.
+# The eight hosted targets. Their codes are read from `targetCode`, not
+# restated, so they cannot go stale beside the table; the variant edit
+# below is written in terms of the codes.
 # ---------------------------------------------------------------------
 targets=(darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64 freebsd-x86_64 freebsd-aarch64 windows-x86_64 windows-aarch64)
 
@@ -370,13 +279,13 @@ if (( n_codes != 9 )); then
        and every assertion below is written in terms of those codes."
 fi
 code_of() { printf '%s\n' "$codes_raw" | awk -v n="$1" '$1==n{print $2}'; }
-# Code 7 is the bare-metal port's, and it is pinned here: the loops
-# below cover the eight hosted targets only, so a bare-metal row that
-# moved a hosted target's bytes would pass them all.
+# Code 7 is the bare-metal target's, pinned here: the loops below cover
+# only the eight hosted targets, so a bare-metal row that moved a hosted
+# target's bytes would pass them all.
 [[ "$(code_of baremetal-aarch64)" == "7" ]] \
   || abort "baremetal-aarch64 is not code 7 in targetCode"
 
-# The host, so that A6 can LINK AND RUN what A5 emits.
+# The host, so A6 can link and run what A5 emits.
 case "$(uname -s)" in
   Darwin)  host_os=darwin ;;
   Linux)   host_os=linux ;;
@@ -392,9 +301,8 @@ host_target="$host_os-$host_arch"
 host_code="$(code_of "$host_target")"
 [[ -n "$host_code" ]] || abort "the host target $host_target is not in targetCode"
 
-# 4.1's witness is a target that is NOT the host, so the two rows the
-# variant sets never land on one target and the targets that are left
-# really are untouched.
+# 4.1's witness is a target other than the host, so the variant's two
+# rows never land on one target and the rest really are untouched.
 t41=""
 for t in "${targets[@]}"; do
   [[ "$t" == "$host_target" ]] && continue
@@ -405,15 +313,14 @@ code41="$(code_of "$t41")"
 echo "gate: host is $host_target (code $host_code); 4.1's witness is $t41 (code $code41)"
 
 # ---------------------------------------------------------------------
-# The probes. Two are written here and one is a fixture already in the
-# tree, because a fixture is a file the `.ax` census counts and these
-# two need to exist only while the gate runs.
+# The probes. Most are written here rather than added as fixtures: a
+# fixture is a file the `.ax` census counts, and these need to exist
+# only while the gate runs.
 #
-# `min.ax` is section 2's minimal program, verbatim. `165-arena-keep.ax`
-# is the case in the corpus that makes the emitter write
-# `__axiom_arena_reset_keeping_fn`, which is the arena's SECOND
-# allocation path and carries the second copy of the grain - without it
-# A1 and A4 would cover one of the two sites.
+# `min.ax` is the minimal program. `165-arena-keep.ax` is the corpus case
+# that makes the emitter write `__axiom_arena_reset_keeping_fn`, the
+# arena's second allocation path, which carries the second copy of the
+# grain. Without it A1 and A4 would cover one of the two sites.
 # ---------------------------------------------------------------------
 printf '(:: main Int)\n\n(fn (main) 0)\n' > "$work/min.ax"
 keep_probe="$repo_root/tests/stdlib/165-arena-keep.ax"
@@ -454,7 +361,7 @@ cat > "$work/fit.ax" <<'AX'
   }
 )
 AX
-# The same program asking for 2,000 blocks - 1,056,000 bytes, which does
+# The same program asking for 2,000 blocks: 1,056,000 bytes, which does
 # not fit in a 256 KiB region and does fit in `mmap`'s megabytes. The
 # sum of 1..2000 is 2,001,000.
 sed 's/(chain 100 0)/(chain 2000 0)/' "$work/fit.ax" > "$work/oom.ax"
@@ -465,18 +372,15 @@ emit() {  # emit <compiler> <target> <source> <out> [extra flags...]
 }
 
 # The distinct syscall numbers an emitted program uses. The number is
-# the first argument after the constraint string's closing quote, which
-# is where every `asm sideeffect` syscall this emitter writes puts it -
-# and the two inline-asm sites that are NOT syscalls (the recover jump,
-# the backtracer's frame read) pass a register or nothing there, so they
-# fall out of the match rather than having to be excluded by name.
+# the first argument after the constraint string's closing quote, where
+# every `asm sideeffect` syscall this emitter writes puts it. The two
+# inline-asm sites that are not syscalls (the recover jump, the
+# backtracer's frame read) pass a register or nothing there, so they
+# fall out of the match.
 #
-# The number is cut off the front with `sed` rather than pulled out with
-# a second `grep -oE '[0-9]+'`, because a second grep also finds the
-# `64` in `i64`: the first run of this gate reported FOUR distinct
-# syscalls for the minimal program - 64, 33554433, 33554436, 33554629 -
-# and would have been "fixed" by relaxing the assertion from three to
-# four, which is the shape of a check drifting to match its own bug.
+# The number is cut off the front with `sed`. A second
+# `grep -oE '[0-9]+'` would also find the `64` in `i64` and count a
+# fourth syscall.
 syscall_nums() { grep 'asm sideeffect' "$1" | grep -o '"(i64 [0-9][0-9]*' | sed 's/^"(i64 //' | sort -un; }
 
 CHUNK_BIG='  %big = icmp ugt i64 %need, 1048576'
@@ -535,11 +439,9 @@ fi
 echo "== A2. the chunk size has exactly one spelling in the source =="
 # ---------------------------------------------------------------------
 checks=$((checks + 1))
-# COMMENT LINES ARE NOT SPELLINGS. The paragraph above the table says
-# what the literal used to be and what a bare-metal row looks like, and
-# both name the number; counting those made this read 3 on its first
-# run. What the check is about is a second place the emitter could take
-# the value FROM, so the count is over lines that are not comments.
+# Comment lines are not spellings: the paragraph above the table names
+# the number too. The check is about a second place the emitter could
+# take the value from, so it counts only lines that are not comments.
 n_lit=$(grep -v '^[[:space:]]*;' "$src_root/self_host/codegen.ax" | grep -c '1048576' || true)
 if [[ "$n_lit" != "1" ]]; then
   bad "\`1048576\` appears $n_lit times in codegen.ax; it must appear once, in
@@ -559,34 +461,18 @@ if ! "$axc" build --input "$work/min.ax" --output "$work/min" --opt 2 > "$work/b
   sed 's/^/    /' "$work/build.log" | head -10
 else
   size=$(wc -c < "$work/min" | tr -d ' ')
-  # THE CLAIM IS "NOTHING BUT THE PLATFORM'S OWN STARTUP", NOT "ZERO",
-  # and until 2026-09-04 this arm said zero. Zero is a DARWIN fact: a
-  # Mach-O executable that calls no libc function imports no symbol at
-  # all, so `nm -u` is empty and the number read like a property of the
-  # runtime. It is a property of the object format. On Linux the same
-  # program imports SIX symbols by construction - four weak crt hooks
-  # (`_ITM_deregisterTMCloneTable`, `_ITM_registerTMCloneTable`,
-  # `__gmon_start__`, `__cxa_finalize`) and two real ones
-  # (`__libc_start_main`, `abort`) - because `cc` links crt1, and both
-  # Linux legs went red for a program behaving exactly as intended.
+  # The claim is "nothing but the platform's own startup", not "zero".
+  # Zero is a Mach-O fact: an executable that calls no libc function
+  # imports nothing. On Linux the same program imports six symbols,
+  # because `cc` links crt1 (the `crt_startup` list above).
+  # `check-thread-local.sh` shares this trap; run
+  # `scripts/run-gates-linux.sh` before pushing a gate written on a Mac.
   #
-  # This is the SECOND time that exact sentence has been written in this
-  # repository. `check-thread-local.sh` asserted `nm -u` was empty for a
-  # program that spawns no thread, failed on the same six symbols, and
-  # its header now records the lesson; `scripts/run-gates-linux.sh`
-  # exists because of it. This gate was written on a Mac and encoded the
-  # same assumption anyway, which is what that script is for and why it
-  # is run before a push rather than after.
-  #
-  # So the assertion is the one the proposal is actually about: the
-  # minimal program imports NO LIBC FUNCTION and nothing the platform's
-  # own startup did not put there. `imports_of` is
-  # `check-freestanding.sh`'s reader, shared through `lib/imports.sh`;
-  # it dispatches on the object's own magic rather than on the host, and
-  # strips ELF's `@GLIBC_2.34` versions and Mach-O's leading underscore
-  # - the one edit each convention requires. On Darwin the permitted set
-  # matches nothing, the count stays 0, and this arm asserts exactly
-  # what it asserted before.
+  # So the minimal program must import no libc function and nothing the
+  # platform's startup did not put there. `imports_of` is shared with
+  # `check-freestanding.sh` through `lib/imports.sh`. It dispatches on
+  # the object's magic and strips ELF's `@GLIBC_2.34` versions and
+  # Mach-O's leading underscore.
   imports_of "$work/min" | LC_ALL=C sort > "$work/min.imports"
   undef=$(grep -c . "$work/min.imports" || true)
   stray="$(grep -vE "^($crt_startup)$" "$work/min.imports" || true)"
@@ -605,46 +491,22 @@ else
      Section 2 calls the three the whole of it, and the port is priced on that."
     ok=0
   fi
-  # A budget, not a golden, and the reason is worth stating because the
-  # obvious alternative is an equality. Section 2 measured 17,472 bytes
-  # and that is what this prints from `$work` - but building the same
-  # source with the same compiler to a LONGER path measures 17,480,
-  # because a Mach-O carries paths the linker chose. An equality here
-  # would be an assertion about where the gate's temporary directory
-  # landed. The proposal's flash budget for the runtime plus a minimal
-  # program is 24 KiB, and the floor stops a failed link from reading as
-  # a win.
+  # A budget, not a golden: a Mach-O carries paths the linker chose, so
+  # the same source linked to a longer path is a few bytes larger. The
+  # flash budget for the runtime plus a minimal program is 24 KiB, and
+  # the floor stops a failed link from reading as a win.
   #
-  # AND THE BAND IS THE PROPOSAL'S, WHICH MEASURED A MACH-O - so it is
-  # asserted on that format and on no other. A hosted executable's file
-  # size is the LINKER's page policy, not the runtime's: the identical
-  # program, from byte-identical IR, is 71,168 bytes linked by clang and
-  # lld on the aarch64 Ubuntu 24.04 image `run-gates-linux.sh` runs
-  # (lld pads to a 64 KiB max-page-size) and 16,416 bytes linked by gcc
-  # and ld.bfd on GitHub's x86_64 runner. Measured 2026-09-04, and
-  # measured because this arm's second draft gave ELF a band of its own
-  # (32..96 KiB) derived from the first number, and the x86_64 leg went
-  # red on the second - the same mistake as asserting Mach-O's band on
-  # ELF, one level up. Two supported linkers that disagree by 4.3x on
-  # the same input are not measuring the runtime, so on ELF and PE the
-  # size is printed above and gated nowhere. The proposal's 24 KiB is a
-  # claim about the FREESTANDING build that links no crt (A5 and A6
-  # exercise it), and about the Mach-O it was measured on, and that is
-  # where it stays.
+  # The band is asserted on Mach-O only. A hosted ELF's file size is the
+  # linker's page policy, not the runtime's: identical IR links to about
+  # 16 KiB with gcc and ld.bfd, and about 70 KiB with clang and lld,
+  # which pads to a 64 KiB max-page-size. So on ELF and PE the size is
+  # printed and gated nowhere. The 24 KiB is really about the
+  # freestanding build that links no crt, which A5 and A6 exercise.
   #
-  # THE FORMAT IS READ BY `object_format`, `lib/imports.sh`'s one
-  # reader, and not by this gate. The first draft of this arm read the
-  # magic itself - `head -c4 | tr -d '\0'`, then `ELF*)` - and the ELF
-  # magic is `\x7fELF`: the DEL byte is not a NUL, `tr` kept it, and
-  # the arm never matched. Every Linux build fell to the Mach-O band
-  # and a 71,168-byte ELF read as over 24 KiB, which is exactly the
-  # failure the arm was written to remove, one line below the sentence
-  # explaining it. The podman battery (`scripts/run-gates-linux.sh`)
-  # caught it before a push did, on 2026-09-04; the darwin run of the
-  # same draft printed `tr: Illegal byte sequence` on the Mach-O magic
-  # under a UTF-8 locale and passed anyway. Bytes are not text, and a
-  # reader that turns them into hex first is the only one this
-  # repository keeps.
+  # The format comes from `object_format` in `lib/imports.sh`, which
+  # reads the magic as hex. Don't read it as text here: the ELF magic
+  # starts with a DEL byte that `tr -d '\0'` keeps, and `tr` rejects the
+  # Mach-O magic under a UTF-8 locale.
   fmt="$(object_format "$work/min")" || fmt="unreadable"
   case "$fmt" in
     macho)
@@ -669,8 +531,8 @@ python3 "$repo_root/scripts/lib/embedded-patch.py" \
   "variant:$code41:$host_code" "$work/vtree/self_host/codegen.ax" || exit 1
 if ! gate_build_tree "$axiom" "$work/vtree" "$AXIOM_STDLIB" "$work/vaxc" \
       > "$work/vbuild.log" 2>&1; then
-  # THIS IS A RED, NOT AN ABORT. A target table whose rows cannot take a
-  # different value is 4.1 not being a constant.
+  # A failed variant build is a red: a target table whose rows cannot
+  # take a different value means 4.1's constant is not one.
   bad "the variant compiler does not build - a target table whose rows cannot take
      a different value is not a table"
   sed 's/^/    /' "$work/vbuild.log" | head -15
@@ -689,15 +551,11 @@ emit "$vaxc" "$t41" "$keep_probe"   "$work/v.keep.$t41.ll" || bad "[$t41] the va
 emit "$axc"  "$t41" "$keep_probe"   "$work/keep.$t41.ll"   || bad "[$t41] the tree's compiler could not emit the keep probe"
 
 # Every line that differs must be one of the pairs the constant reaches,
-# AND every one of those pairs must be among the lines that differ. Both
-# directions are load-bearing and the second was missing on the first
-# draft: with only "no strays", the `grain` drill - which stops the
-# round-up following the chunk - left `%big` and `%chunk` moving, no
-# stray, and a count of exactly 8, and the gate stayed GREEN over a
-# 4 KiB-chunk target still rounding to 64 KiB. A check that cannot see
-# the thing it was written for is this repository's most common defect,
-# and it was sitting in the assertion whose subject is a constant
-# reaching the emitter.
+# and every one of those pairs must be among the lines that differ. Both
+# directions matter. With only "no strays", the `grain` drill (the
+# round-up stops following the chunk) leaves `%big` and `%chunk` moving
+# with no stray, and the gate stays green over a 4 KiB-chunk target that
+# still rounds to 64 KiB.
 expected_moves="< |  %big = icmp ugt i64 %need, 1048576
 > |  %big = icmp ugt i64 %need, 4096
 < |  %rounded0 = add i64 %need, 65535
@@ -731,11 +589,10 @@ while IFS= read -r want; do
   grep -Fxq -- "$want" "$work/seen.keys" || missing="$missing
        $want"
 done <<< "$expected_moves"
-# 20 diff lines on 2026-09-04: `refill:`'s four in each of the two
-# probes, plus the keep helper's own two, each counted on both of
-# diff's sides. The floor is what stops "nothing moved" from reading as
-# "nothing strayed"; the completeness check below is what stops "some of
-# it moved" from doing the same.
+# The expected diff is `refill:`'s four lines in each probe plus the keep
+# helper's own two, each counted on both sides. The floor stops "nothing
+# moved" reading as "nothing strayed"; the completeness check stops
+# "some of it moved" doing the same.
 if (( moved < 8 )); then
   bad "[$t41] changing the chunk row moved $moved lines of IR. The constant is not
      reaching the emitter - which is exactly what 4.1 was before this."
@@ -780,12 +637,10 @@ sll="$work/v.min.$host_target.ll"
 hll="$work/min.$host_target.ll"
 sn=$(syscall_nums "$sll" | grep -c . || true)
 hn=$(syscall_nums "$hll" | grep -c . || true)
-# `comm` wants both inputs in ITS collation, and `syscall_nums` sorts
-# numerically for the reader: on darwin the three numbers happen to be
-# in lexical order too, on Linux `1 9 231` is not, and the x86_64 leg
-# printed "comm: file 1 is not in sorted order" - a warning today, and
-# `comm` is documented to answer wrongly rather than fail when it is
-# ignored. Re-sort both sides under the one collation `comm` runs in.
+# `comm` needs both inputs in its own collation, but `syscall_nums`
+# sorts numerically: Linux's `1 9 231` is not in lexical order, and
+# `comm` answers wrongly on unsorted input instead of failing. Re-sort
+# both sides under the collation `comm` runs in.
 gone="$(LC_ALL=C comm -23 <(syscall_nums "$hll" | LC_ALL=C sort) <(syscall_nums "$sll" | LC_ALL=C sort) | tr '\n' ' ')"
 prob=0
 grep -q '^@__axiom_arena = internal global \[262144 x i8\] zeroinitializer, align 16$' "$sll" \
@@ -807,11 +662,9 @@ if [[ "$hn" != "3" ]]; then
      syscalls, not 3, so 'two' above would not mean 'mmap is gone'"
   prob=1
 fi
-# ANCHORED ON THE DEFINITION, not on the prefix. `@__axiom_arena_mark_fn`
-# and `@__axiom_arena_reset_fn` are in every program's runtime and start
-# with the same eleven characters, so the loose grep called the region
-# present in a program that has no region - reported on this gate's
-# first run.
+# Anchored on the definition: `@__axiom_arena_mark_fn` and
+# `@__axiom_arena_reset_fn` are in every runtime and share the prefix,
+# so a loose grep would find a region in a program that has none.
 if grep -q '^@__axiom_arena = ' "$hll"; then
   bad "the tree's own compiler emits an arena region for $host_target - the strategy
      is not off by default, and A5 would pass with 4.2 unwritten"
@@ -866,12 +719,10 @@ fi
 # ---------------------------------------------------------------------
 echo "== A7. --heap-ceiling: the bounded mode on a supported target =="
 # ---------------------------------------------------------------------
-# The same two programs A6 runs, but the region comes from a FLAG on
-# the tree's own compiler rather than from a variant target table: no
-# second compiler is built here at all. 262144 is the same 256 KiB A6
-# uses, so the verdicts must match it exactly - and the `=` spelling
-# carries the overflow leg, so both spellings the reader accepts are
-# exercised rather than one.
+# The same two programs A6 runs, but the region comes from a flag on the
+# tree's own compiler, with no variant compiler. 262144 is A6's 256 KiB,
+# so the verdicts must match it. The overflow leg uses the `=` spelling,
+# so both spellings the reader accepts are exercised.
 checks=$((checks + 1))
 ceil_fit="$(run_probe "$axc" "$work/fit.ax" fit.ceil --heap-ceiling 262144)"
 ceil_oom="$(run_probe "$axc" "$work/oom.ax" oom.ceil --heap-ceiling=262144)"
@@ -895,11 +746,10 @@ if ! grep -q 'out of memory (arena exhausted)' "$work/oom.ceil.err" 2>/dev/null;
 fi
 (( prob )) || note "under a ceiling the fitting program answers 5050 and the larger exits 70"
 
-# The IR behind those verdicts: the asked region, the chunk capped by
-# it (262144, not the table's 1048576 and not the variant's 4096 -
-# this is what distinguishes the flag path from both), no `mmap`, and
-# the renamed trap. Against the no-flag control, which must show the
-# opposite of every one.
+# The IR behind those verdicts: the asked region, the chunk capped by it
+# (262144, which tells the flag path from the table's 1048576 and the
+# variant's 4096), no `mmap`, and the renamed trap. The no-flag control
+# must show the opposite of each.
 checks=$((checks + 1))
 if ! emit "$axc" "$host_target" "$work/fit.ax" "$work/ceil.fit.ll" --heap-ceiling 262144; then
   bad "emit-llvm failed under --heap-ceiling"
@@ -923,8 +773,8 @@ else
 fi
 
 # The flag's own refusals. Each is a wrong command line, so each must
-# exit 2 naming the flag - and each is planted here rather than
-# described, because a refusal that is never refused is the defect.
+# exit 2 naming the flag. Each is run here, so a refusal that stops
+# refusing goes red.
 checks=$((checks + 1))
 prob=0
 refuse() { # refuse <label> <args...>: exit 2 naming --heap-ceiling
@@ -939,19 +789,14 @@ refuse "non-numeric" --heap-ceiling banana
 refuse "zero" --heap-ceiling 0
 refuse "missing value" --heap-ceiling
 if (( prob == 0 )); then
-  # The refusal names the flag in every case, which is what makes each
-  # of the three a pointed refusal rather than a bare status.
   note "non-numeric, zero and missing values each exit 2 naming the flag"
 fi
 
-# `--threads` on a spawning program under a ceiling is AX4006 at BUILD
-# time: one cursor cannot serve two bump pointers, and the refusal is
-# the existing diagnostic rather than a new one. As a DIFFERENTIAL:
-# the same program with `--threads` and no ceiling must build here, so
-# the refusal below is the ceiling's doing and not the target's. Where
-# the plain threads build already fails (a host with no thread
-# runtime), the property is untestable and the leg says so instead of
-# passing over a refusal it did not cause.
+# `--threads` on a spawning program under a ceiling is AX4006 at build
+# time: one cursor cannot serve two bump pointers. The same program with
+# `--threads` and no ceiling must build, so the refusal is the ceiling's
+# doing and not the target's. On a host with no thread runtime the plain
+# build fails, and the leg says the property is untestable there.
 checks=$((checks + 1))
 cat > "$work/par7.ax" <<'AX'
 (:: main Int)
@@ -978,15 +823,11 @@ fi
 # ---------------------------------------------------------------------
 echo "== A8. 4.3: every supported target writes its traps to fd 2 =="
 # ---------------------------------------------------------------------
-# The proposal's default: a trap reports its sentence before it exits.
-# `emitRuntimeWrite` is the single door - the backtrace writer
-# delegates to it - so one probe exercises every site: a division by
-# zero for the div guard's trap, plus the backtrace its handler walks.
-# On the six syscall targets a trap write is an `asm sideeffect` line
-# carrying fd 2; the probe's own `println` carries fd 1, which is what
-# makes the pattern the trap's and not the program's. On Windows the
-# discriminator is the handle: -12 is STD_ERROR_HANDLE, -11 the
-# program's own stdout.
+# The default: a trap reports its sentence before it exits.
+# `emitRuntimeWrite` is the single door (the backtrace writer delegates
+# to it), so one probe exercises every site: a division by zero for the
+# div guard's trap, plus the backtrace its handler walks. The probe's
+# own `println` goes to fd 1, so an fd-2 write is the trap's.
 checks=$((checks + 1))
 cat > "$work/divtrap.ax" <<'AX'
 (import IO)
@@ -1002,13 +843,12 @@ cat > "$work/divtrap.ax" <<'AX'
 )
 AX
 prob=0
-# Trap writes per emitted module, by target. On the six syscall
-# targets a trap write is an `asm sideeffect` line carrying fd 2 -
-# both halves are load-bearing: `, i64 2, i64 ` alone also matches a
-# `memSetWord` of the word 2, and `asm sideeffect` alone is every
-# syscall the module makes. On Windows the discriminator is the
-# handle: -12 is STD_ERROR_HANDLE, -11 the program's own stdout, and
-# both go through `WriteFile`.
+# Trap writes per emitted module, by target. On the six syscall targets
+# a trap write is an `asm sideeffect` line carrying fd 2, and both
+# halves matter: `, i64 2, i64 ` alone also matches a `memSetWord` of
+# the word 2, and `asm sideeffect` alone is every syscall. On Windows
+# both streams go through `WriteFile`, so the handle tells them apart:
+# -12 is STD_ERROR_HANDLE, -11 the program's stdout.
 trapwrites() {
   if [[ "$2" == windows-* ]]; then grep -c 'GetStdHandle(i64 -12)' "$1" || true
   else grep 'asm sideeffect' "$1" | grep -c ', i64 2, i64 ' || true; fi
@@ -1032,8 +872,8 @@ done
 
 # The default has one spelling, held the way A2 holds 4.1's: a second
 # spelling is a target that cannot choose silence. The row is two lines
-# in the current normal form (`fn` heads stand alone), so the check
-# reads the header and the line under it as one spelling.
+# in normal form (`fn` heads stand alone), so the check reads the header
+# and the line under it as one spelling.
 checks=$((checks + 1))
 prob=0
 spell="$(grep -A1 '^(pub fn (targetTrapSilent t)$' "$src_root/self_host/codegen.ax")"
@@ -1111,52 +951,39 @@ fi
 # ---------------------------------------------------------------------
 echo "== A10. section 6: the blink fixture runs under QEMU =="
 # ---------------------------------------------------------------------
-# The reference port's device leg, docs/embedded-guide.md:
-# the blink fixture built for `baremetal-aarch64` and booted under
-# `qemu-system-aarch64 -machine virt`, its UART bytes and its exit
-# status asserted - plus the oversized ablation, a program too large
-# for the reserved region, which must exit with the status
-# tests/stdlib/314-out-of-memory.exit pins against a control that
-# exits 0.
+# The blink fixture built for `baremetal-aarch64` and booted under
+# `qemu-system-aarch64 -machine virt`, its UART bytes and exit status
+# asserted. Its oversized twin, too large for the reserved region, must
+# exit with the status tests/stdlib/314-out-of-memory.exit pins, against
+# a control that exits 0.
 #
-# THE CONTRACT THIS LEG NEEDS FROM THE PORT (section 6 items 1-3), so
-# a red here names which half broke it:
+# What this leg needs from the target, so a red names which part broke:
 #
 #   * `--target baremetal-aarch64` is accepted, and `build` for it
 #     links one aarch64 ELF: the linker script places it in `virt`
 #     RAM and the reset vector sets sp and branches to `main`.
 #   * `println` and the trap sentences reach the PL011 UART at
 #     0x09000000, observable on stdio under `-nographic`.
-#   * the guest's exit status N surfaces as the qemu process's own
-#     status N, through a semihosting SYS_EXIT - `hlt #0xf000` with
-#     x0 = 0x18 and x1 pointing at two words, reason 0x20026
-#     (`ADP_Stopped_ApplicationExit`) and the status. That is the
-#     shape rust-embedded/qemu-exit's AArch64 backend uses, and the
-#     flags below are what the shape needs: `-semihosting` with
-#     `target=native`, `-monitor none` so stdio carries the UART and
-#     nothing else, `-no-reboot` so a faulting guest exits instead of
-#     resetting. Measured against hand-built guests: subcodes 0, 5
-#     and 70 surface as 0, 5 and 70 with the UART bytes exact and
-#     qemu's stderr empty - and the block is two 64-bit words,
-#     because two 32-bit ones read the reason as 0x4600020026 and
-#     every nonzero status came back 1.
+#   * the guest's exit status N is the qemu process's status N, through
+#     a semihosting SYS_EXIT: `hlt #0xf000` with x0 = 0x18 and x1
+#     pointing at two words, reason 0x20026
+#     (`ADP_Stopped_ApplicationExit`) and the status, as
+#     rust-embedded/qemu-exit's AArch64 backend does. Hence the flags:
+#     `-semihosting` with `target=native`, `-monitor none` so stdio
+#     carries only the UART, and `-no-reboot` so a faulting guest exits
+#     instead of resetting. The block must be two 64-bit words; as two
+#     32-bit words the reason reads as 0x4600020026 and every nonzero
+#     status comes back 1.
 #
-# TWO SKIPS, both loud. The target does not exist until section 6's
-# items 1-3 land: the probe is an `emit-llvm`, and exit 3 naming
-# `unknown target` is the ONLY answer that skips - any other failure
-# is the port's, and fails. And QEMU is a host tool no runner image
-# promises: without `qemu-system-aarch64` on PATH the device is
-# untestable here, as `check-ffi.sh` is without cargo, and the leg
-# says so instead of passing over hardware it never booted.
+# The probe is an `emit-llvm`. Exit 3 naming `unknown target` is
+# reported and passed over; any other failure is the target's, and
+# fails. Without `qemu-system-aarch64` on PATH the device is untestable
+# here, as `check-ffi.sh` is without cargo, and the leg says so.
 #
-# NO ABLATION DRILL, and the absence is load-bearing rather than lazy:
-# every drill in `embedded-patch.py` anchors on a string in
-# `codegen.ax`, and the port's emission - the UART writer, the exit
-# door - is not in this tree yet, so there is nothing to anchor on.
-# The comparisons prove themselves meanwhile: an empty UART fails
-# blink against its 18 hosted bytes, and a status that never leaves 0
-# fails the 70. The merge that lands the port owes this leg a drill
-# anchored on its emission.
+# No drill in `embedded-patch.py` breaks the UART writer or the exit
+# door. The comparisons stand in for one: an empty UART fails blink
+# against its 18 hosted bytes, and a status that never leaves 0 fails
+# the 70.
 bm_target=baremetal-aarch64
 blink="$repo_root/tests/embedded/blink.ax"
 blinkoom="$repo_root/tests/embedded/blink-oom.ax"
@@ -1186,11 +1013,10 @@ ok = len(d) == 20 and d[:4] == b'\x7fELF' and d[5] == 1 and d[18] == 183 and d[1
 sys.exit(0 if ok else 1)
 PY
 }
-# Boot under QEMU and print the guest's status - or TIMEOUT, when the
-# guest never exits. The timeout is generous because a hung guest
-# spins host CPU under TCG until it is killed; a healthy one is out
-# in seconds. `python3` because macOS ships no `timeout(1)` and the
-# gate runs on macos-14 too.
+# Boot under QEMU and print the guest's status, or TIMEOUT when the
+# guest never exits. The timeout is generous: a hung guest spins host
+# CPU under TCG until it is killed, and a healthy one exits in seconds.
+# `python3` because macOS ships no `timeout(1)`.
 qemu_run() {  # qemu_run <elf> <uart_out> <qemu_err>
   python3 - "$1" "$2" "$3" <<'PY'
 import subprocess, sys
@@ -1208,9 +1034,9 @@ PY
 }
 
 # The probe exercises target resolution and nothing else, so its
-# failure modes are the target's. The accepted-target list is printed
-# with the skip, so a port that landed under another NAME shows up as
-# a mismatch in every log rather than as a quiet wait.
+# failures are the target's. The compiler's answer is printed, so a
+# target renamed elsewhere shows up in the log rather than as a quiet
+# pass.
 if ! emit "$axc" "$bm_target" "$work/min.ax" "$work/bm.probe.ll" --diagnostic-format=ai; then
   checks=$((checks + 1))
   if grep -q 'unknown target' "$work/emit.log" 2>/dev/null; then
@@ -1306,27 +1132,26 @@ echo "== A11. device primitives: volatile at device widths, barriers, AX4008 =="
 # ---------------------------------------------------------------------
 # docs/memory-model.md MM-FFI-8. The eight volatile accesses and the
 # fifteen `__arm_*` primitives (`tcRegDevicePrims`, `emitPrimDevice`),
-# asserted on what the compiler EMITS - no QEMU, so this section runs on
+# asserted on what the compiler emits. No QEMU, so this section runs on
 # every host, CI runners included:
 #
-#   * each width is ONE `load volatile iN` / `store volatile iN` with
+#   * each width is one `load volatile iN` / `store volatile iN` with
 #     natural alignment, two of each in a probe that writes every
 #     register twice and reads it twice;
-#   * the volatile writes SURVIVE `opt -O2`, and the proof that this
-#     means something is a CONTROL: the same double write through the
-#     plain `__store8`/`__store64`, whose dead first store `opt`
-#     deletes. A volatile that the optimiser could have removed but
-#     didn't is the only evidence the keyword is doing its job;
-#   * `llc` keeps each WIDTH - strb/strh/str w/str x and their loads -
+#   * the volatile writes survive `opt -O2`, against a control: the same
+#     double write through the plain `__store8`/`__store64`, whose dead
+#     first store `opt` deletes. A volatile the optimiser could have
+#     removed but didn't is the evidence the keyword works;
+#   * `llc` keeps each width (strb/strh/str w/str x and their loads),
 #     because a 32-bit device register read as two halves is a wrong
 #     program even when the value is right;
 #   * every `__arm_*` is its instruction, in the IR and in the AArch64
 #     assembly;
 #   * AX4008 draws the target line: the volatile set emits for x86-64,
 #     the EL0 tier (barriers, counter reads) for an aarch64 host, the
-#     EL1 tier only for baremetal-aarch64 - and an EL1 primitive in a
-#     function nothing calls is NOT refused, because the check reads
-#     the pruned module.
+#     EL1 tier only for baremetal-aarch64. An EL1 primitive in a
+#     function nothing calls is accepted, because the check reads the
+#     pruned module.
 #
 # Drills: `volatile` strips the keyword from both emitters (the probe's
 # accesses become ordinary and `opt` deletes the first store), `barrier`
@@ -1416,7 +1241,7 @@ cat > "$work/arm.ax" <<'AX'
 (fn (main)
   (sys (memAlloc 64)))
 AX
-# The EL0 tier alone - what an aarch64 host may run - and an EL1
+# The EL0 tier alone (what an aarch64 host may run), and an EL1
 # primitive in a function nothing calls.
 cat > "$work/el0.ax" <<'AX'
 (import IO)
@@ -1472,8 +1297,8 @@ else
   awk '/^define .*@twice\(/{on=1} on{print} on&&/^}/{exit}' "$work/plain.O2.ll" > "$work/plain.twice.ll"
   [[ -s "$work/vol.twice.ll" && -s "$work/plain.twice.ll" ]] \
     || { bad "opt -O2 left no @twice in the probe or the control to count in"; prob=1; }
-  # The FIRST of each pair is the store nothing reads before it is
-  # overwritten - a dead store, unless it is volatile.
+  # The first of each pair is overwritten before anything reads it: a
+  # dead store, unless it is volatile.
   for pat in "store volatile i8 11," "store volatile i16 1111," \
              "store volatile i32 33333333," "store volatile i64 5555555555555,"; do
     grep -qF -- "$pat" "$work/vol.twice.ll" \
@@ -1551,10 +1376,10 @@ fi
 (( prob )) || note "AX4008: __arm_ refused off AArch64, the EL1 tier off bare metal, the EL0 tier and volatile accepted, a dead use pruned"
 checks=$((checks + 1))
 prob=0
-# And they RUN on this host: the volatile probe answers 22*2+2222*2+
-# 44444444*2+6666666666666*2 = 13333422226708 - the second write of
-# every pair, read back twice at its own width - and on an aarch64 host
-# the EL0 tier executes.
+# And they run on this host. The volatile probe answers 22*2+2222*2+
+# 44444444*2+6666666666666*2 = 13333422226708: the second write of every
+# pair, read back twice at its own width. On an aarch64 host the EL0
+# tier executes.
 vol_run="$(run_probe "$axc" "$work/vol.ax" vol.host)"
 [[ "$vol_run" == "0 13333422226708" ]] \
   || { bad "the volatile probe answered [$vol_run] on this host, not [0 13333422226708]"; prob=1; }
@@ -1569,10 +1394,9 @@ fi
 
 # ---------------------------------------------------------------------
 # The QEMU sections below share one runner and one precondition. The
-# runner takes the machine and a timeout: A13 and A14 need a GICv2 (`virt`'s
-# default has moved between QEMU releases, so it is named), and a
-# healthy guest here is out in a second or two, so a hang is 60s rather
-# than A10's 120.
+# runner takes the machine and a timeout. A13 and A14 name a GICv2,
+# because `virt`'s default differs between QEMU releases. A healthy
+# guest here exits in a second or two, so a hang is 60s, not A10's 120.
 # ---------------------------------------------------------------------
 qemu_live=1
 command -v qemu-system-aarch64 >/dev/null 2>&1 || qemu_live=0
@@ -1608,14 +1432,14 @@ qemu_or_skip() {  # qemu_or_skip <section>
 echo "== A12. the exception vector table: a fault is a status, the IRQ vector a tag =="
 # ---------------------------------------------------------------------
 # Every baremetal-aarch64 executable carries a vector table
-# (`emitBaremetalVectors`, TRUSTED assembly: docs/embedded-guide.md
+# (`emitBaremetalVectors`, trusted assembly: docs/embedded-guide.md
 # section 5). `_start` turns the FP unit on and points VBAR_EL1 at it;
 # every slot but a bound IRQ reaches `@__axiom_cpu_exception`, which
 # writes the vector offset, ESR_EL1, ELR_EL1 and FAR_EL1 to the UART and
 # exits 81 (MM-EXEC-16); `;@axiom:isr(irq)` wires slot 5 (current EL,
 # SPx, IRQ) to a save/call/restore/`eret` entry around the tagged
-# function. Before this a synchronous exception jumped through whatever
-# VBAR_EL1 held at reset and the guest spun until killed.
+# function. Without the table, a synchronous exception jumps through
+# whatever VBAR_EL1 held at reset and the guest spins until killed.
 #
 # Compile-level half, every host: the table's shape in the IR, the
 # `_start` writes, `+strict-align` on the bare target's attribute group
@@ -1623,8 +1447,8 @@ echo "== A12. the exception vector table: a fault is a status, the IRQ vector a 
 # a binding no target can honour. QEMU half: `tests/embedded/fault.ax`
 # takes an alignment fault and must exit 81 with the report.
 #
-# Drill: `vbar` drops VBAR_EL1's write from `_start` - the IR check
-# goes red, and under QEMU the fault is a hang again.
+# Drill: `vbar` drops VBAR_EL1's write from `_start`. The IR check goes
+# red, and under QEMU the fault is a hang again.
 cat > "$work/isr.ax" <<'AX'
 ;@axiom:isr(irq)
 (:: onTick Int)
@@ -1744,25 +1568,25 @@ fi
 # ---------------------------------------------------------------------
 echo "== A13. a periodic workload on the timer's interrupt, within its budgets =="
 # ---------------------------------------------------------------------
-# docs/embedded-guide.md D-5. `main` initialises once and then
-# only waits; the virtual timer's interrupt, routed through QEMU virt's
-# GICv2 to the `isr(irq)` handler, counts ticks and re-arms; one run of a
-# `restrict(no-alloc, no-recursion, strict)` step per tick. The program
-# checks itself (the timed steps equal the same steps run straight
-# through, and every counted tick is a step, a miss, or the one that
-# lands after the last step) and ends `ok`.
+# docs/embedded-guide.md, Interrupt handlers. `main` initialises once
+# and then only waits; the virtual timer's interrupt, routed through
+# QEMU virt's GICv2 to the `isr(irq)` handler, counts ticks and re-arms;
+# one run of a `restrict(no-alloc, no-recursion, strict)` step per tick.
+# The program checks itself (the timed steps equal the same steps run
+# straight through, and every counted tick is a step, a miss, or the one
+# that lands after the last step) and ends `ok`.
 #
 # Compile-level half, every host: `scripts/axiom-report.py` under the
-# restricted profile refuses nothing across the whole program - the
+# restricted profile refuses nothing across the whole program, and the
+# stack bound read from the machine code fits a 2 KiB budget. The
 # handler and the step are steady roots, so an allocation reachable from
-# either is RP-5 - and the stack bound read from the machine code fits
-# a 2 KiB budget. QEMU half: the boot, and a drill.
+# either is RP-5. QEMU half: the boot, and a drill.
 #
-# Drill (a copy of the PROGRAM, not the compiler): the handler's
+# Drill (a copy of the program, not the compiler): the handler's
 # end-of-interrupt write deleted. The GICv2 then keeps the timer's
 # interrupt active and never delivers it again, so the guest waits in
-# `wfi` for ever; it must not finish, which is what shows the boot above
-# rode on the interrupt and not on a loop that would end anyway.
+# `wfi` for ever. It must not finish: that shows the boot above rode on
+# the interrupt and not on a loop that would end anyway.
 periodic="$repo_root/tests/embedded/periodic.ax"
 [[ -f "$periodic" ]] || abort "$periodic is gone; A13 has no workload."
 checks=$((checks + 1))
@@ -1820,8 +1644,8 @@ fi
 # ---------------------------------------------------------------------
 echo "== A14. a driver with interrupt and DMA ownership boundaries =="
 # ---------------------------------------------------------------------
-# docs/embedded-guide.md D-6. QEMU virt's fw_cfg has a DMA
-# engine: it reads a descriptor from guest memory and writes the item
+# docs/embedded-guide.md, Interrupt handlers. QEMU virt's fw_cfg has a
+# DMA engine: it reads a descriptor from guest memory and writes the item
 # into a guest buffer. `tests/embedded/dma.ax` reads the file directory
 # that way under a CPU/device ownership protocol whose every step is a
 # contract checked on every call (give: clean, DSB, device owns; take:
@@ -1831,7 +1655,7 @@ echo "== A14. a driver with interrupt and DMA ownership boundaries =="
 # register. The two copies must be equal, and the directory non-empty:
 # the DMA really wrote the buffer.
 #
-# Two drills, each a copy of the PROGRAM:
+# Two drills, each a copy of the program:
 #   misuse  `dmaTake` deleted, so the driver reads the buffer while the
 #           device owns it: the contract must stop it, status 80;
 #   silent  the doorbell deleted, so the transfer never starts: the
@@ -1906,13 +1730,13 @@ echo "== A15. inline assembly: the target's arm, kept, refused where it has none
 # MM-FFI-9, on every host: (1) each target's IR holds the arm for its
 # architecture and no other, every block `sideeffect` and clobbering
 # memory, with the constraints the operands give; (2) `opt -O2` keeps a
-# block whose result nothing reads, while the same block made
-# removable - neither attribute, and `nounwind willreturn memory(none)`
-# on the call, which LLVM asks of any call it deletes - is lost: the
-# control showing `opt` would drop a block it could prove inert;
-# (3) a reached form with no arm for the target is AX4008
-# and an unreached one is accepted. Under QEMU, (4) a bare-metal
-# program reads CurrentEL, which only EL1 may, through `asm`.
+# block whose result nothing reads, and loses the same block made
+# removable (neither attribute, plus `nounwind willreturn memory(none)`
+# on the call, which LLVM asks of any call it deletes); that control
+# shows `opt` would drop a block it could prove inert; (3) a reached
+# form with no arm for the target is AX4008 and an unreached one is
+# accepted. Under QEMU, (4) a bare-metal program reads CurrentEL, which
+# only EL1 may, through `asm`.
 # Drill: `asmfx` drops `sideeffect` from the emitter, and (1) goes red.
 asmprog="$repo_root/tests/stdlib/581-inline-asm.ax"
 asmel="$repo_root/tests/embedded/asm-el.ax"
@@ -2060,9 +1884,9 @@ for s in secs:
             print('%s=%d' % (n, value))
 PY
 }
-# Exit 0 when the report on the UART names a FAR in [lo, hi) - and, with
-# a fifth argument, an ELR equal to the FAR. Each bound is a symbol of
-# the image or a number.
+# Exit 0 when the report on the UART names a FAR in [lo, hi) and, with a
+# fifth argument, an ELR equal to the FAR. Each bound is a symbol of the
+# image or a number.
 far_in() {  # far_in <elf> <uart> <lo> <hi> [elr=far]
   local elf="$1" uart="$2" lo="$3" hi="$4" same="${5:-}"
   python3 - "$uart" "$lo" "$hi" "$same" <<PY
@@ -2097,8 +1921,8 @@ echo "== A16. the MMU on: identity-mapped tables, Normal RAM, Device peripherals
 #
 # Compile-level, every host: `_start`'s order (vector table, tables,
 # enable, `main`) and every register the enable writes; the builder's
-# descriptors DECODED - read-only, execute-never, attribute index,
-# shareability and the access flag per kind, not their bytes; the guard
+# descriptors decoded (read-only, execute-never, attribute index,
+# shareability and the access flag per kind), not their bytes; the guard
 # a 0; periodic.ax and dma.ax (A13, A14) carrying the same `_start`, so
 # those runs are runs with the MMU and caches on; the host untouched.
 # QEMU: `tests/embedded/mmu.ax` reads SCTLR_EL1, TCR_EL1 and MAIR_EL1
@@ -2106,10 +1930,9 @@ echo "== A16. the MMU on: identity-mapped tables, Normal RAM, Device peripherals
 # the 64 KiB guard, the 8 KiB stack, the 4 KiB guard and the 8 KiB
 # fault stack between them.
 #
-# TCG models no caches: C and I read back set, and nothing is cached
+# TCG models no caches: C and I read back set with nothing cached
 # behind them, so a missing clean or invalidate can't turn anything red
-# here. The cache maintenance in `dma.ax` is now meaningful in principle
-# and still unobservable.
+# here, and the cache maintenance in `dma.ax` is unobservable.
 #
 # Drill: `mmuoff` drops the SCTLR_EL1 write, and mmu.ax reads M = 0.
 mmuprog="$repo_root/tests/embedded/mmu.ax"
@@ -2224,12 +2047,11 @@ echo "== A17. a stack overflow ends at the guard, and says so =="
 # translation fault on a write, ESR_EL1 0x96000047, FAR in [__axiom_rw_end,
 # __axiom_stack_lo) of the image that ran. The fault exit switches to
 # its own stack before it touches memory, writes the report and the
-# stack-overflow line, and exits 81. With the MMU off, as before, the
-# same program ran through the arena into the code and hung.
+# stack-overflow line, and exits 81.
 #
 # Drills: `guard` maps the guard, so the stack runs on through `.bss`
-# and `.data` and faults elsewhere - a permission fault at read-only
-# data, not a translation fault in the guard; `excstack` leaves the
+# and `.data` and faults elsewhere: a permission fault at read-only
+# data, not a translation fault in the guard. `excstack` leaves the
 # fault exit on the overflowed stack, so it faults on its first push
 # for ever and reports nothing.
 ovprog="$repo_root/tests/embedded/overflow.ax"
@@ -2271,8 +2093,8 @@ fi
 echo
 echo "== A18. code is read-only, data is execute-never, and the rest is not mapped =="
 # ---------------------------------------------------------------------
-# Three faults taken on purpose, each read off the guest's report and
-# judged against the image's own symbols:
+# Three faults, each read off the guest's report and judged against the
+# image's own symbols:
 #   code-write.ax  a store to the code region: a level-3 permission fault
 #                  on a write, ESR 0x9600004f, FAR in [0x40000000,
 #                  __axiom_rx_end);
@@ -2281,7 +2103,6 @@ echo "== A18. code is read-only, data is execute-never, and the rest is not mapp
 #                  0x8600000f, ELR = FAR in [__axiom_ro_end, __axiom_rw_end);
 #   unmapped.ax    a read of address 0: a level-2 translation fault,
 #                  ESR 0x96000006, FAR 0.
-# With the MMU off, as before, all three ran on and printed NOT REACHED.
 #
 # Drill: `codewrite` maps code read-write (and leaves WXN off, which
 # would otherwise make the code unrunnable), and the store succeeds.
@@ -2321,7 +2142,7 @@ echo "== A19. the fault hook: isr(fault) chooses what happens after a fault or a
 # exception after its report line, a software trap (70-85) after its
 # sentence. It runs on the fault stack with D, A, I and F masked and no
 # recovery point armed, gets the fixed exit's status, the vector offset
-# (-1 for a trap), ESR, ELR and FAR, and answers the exit status - or
+# (-1 for a trap), ESR, ELR and FAR, and answers the exit status or
 # never returns.
 #
 # Compile-level, every host: with a hook, every trap exit branches to
@@ -2336,7 +2157,7 @@ echo "== A19. the fault hook: isr(fault) chooses what happens after a fault or a
 #   fault-reset.ax  the marker, then PSCI SYSTEM_RESET through `hvc`:
 #                   QEMU (`-no-reboot`) exits 0 and nothing follows.
 #
-# Drill: `hookoff` ignores the binding - 81, 72 and 81 come back, and
+# Drill: `hookoff` ignores the binding, so 81, 72 and 81 come back with
 # no marker.
 fhprog="$repo_root/tests/embedded/fault-hook.ax"
 for p in fault-hook trap-hook fault-reset fault-in-hook; do
@@ -2450,7 +2271,7 @@ echo "== A20. a fault inside the hook takes the fixed exit, once =="
 # 81 without calling the hook again.
 #
 # Drill: `reenter` removes that check, so every fault calls the hook
-# again - it faults again, for ever, and the guest never finishes.
+# again. It faults again, for ever, and the guest never finishes.
 if qemu_or_skip "A20 a fault inside the hook under QEMU"; then
   checks=$((checks + 1))
   prob=0

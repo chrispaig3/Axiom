@@ -1,34 +1,19 @@
 #!/usr/bin/env bash
 # Install a released Axiom without cloning the repository.
 #
-# Until this file the only documented way to get a compiler was to clone
-# the whole repository and run a four-stage bootstrap - four full
-# compiler builds, and `cargo` and Node for anyone who then wanted to
-# run the gates. That is the right path for a contributor and the wrong
-# one for someone who wants to try the language.
+# This is the path for trying the language. Contributors clone the
+# repository and bootstrap from the seed instead.
 #
-# WHAT IT WILL NOT DO. It will not install a binary for a platform this
-# project has never executed. `darwin-x86_64` is assembled and
-# byte-compared by `check-cross-targets.sh` and run by no runner
-# anywhere, so there is no release artifact for it and this script says
-# so rather than handing over something untested. Building from the seed
-# still works there, and that is what it points at.
+# It installs only targets whose test battery runs in CI. A source-only
+# target such as `darwin-x86_64` has no release archive, so the script
+# says so and points at building from the seed, which works there.
 #
-# It also verifies the SHA-256 the release publishes beside each
-# archive. A download that is checked only by "the server said 200" is
-# not checked.
+# It verifies the SHA-256 the release publishes beside each archive.
 #
-# THE VERIFICATION IS THE POINT, AND IT USED TO BE VACUOUS. The first
-# version of this file ended by compiling `(fn (main) 42)` - a program
-# that imports NOTHING - and reported success when it exited 42. That
-# check cannot fail for the two ways an install is actually broken:
-# an archive that shipped no `stdlib/`, and a `stdlib/` the compiler
-# cannot locate. Both were reproduced against a real archive: with
-# `stdlib/` deleted outright the 42-program still built and still
-# exited 42. So the probe below imports a standard-library module, and
-# it runs the compiler the way the line above it tells the user to -
-# by its bare name, found on PATH - because that was the invocation
-# form that did not work.
+# Before replacing anything, it builds and runs a probe that imports a
+# standard-library module, invoking the compiler by its bare name on
+# PATH as the user will. A program that imports nothing would still pass
+# with no `stdlib/`, or with one the compiler cannot find.
 
 set -euo pipefail
 
@@ -57,13 +42,9 @@ USAGE
 
 die() { echo "install.sh: $*" >&2; exit 1; }
 
-# `--version` and `--prefix` each REQUIRE a value. Written as
-# `VERSION="${2:-}"; shift 2` this silently did the wrong thing twice
-# over: with no value left, `${2:-}` set the variable EMPTY and then
-# `shift 2` failed against a one-element argument list, which under
-# `set -e` ended the script at that line with no message and status 1.
-# A user who typed `--version` and forgot the number got no output at
-# all. Both halves are checked here instead.
+# `--version` and `--prefix` each require a value, checked before the
+# shift: under `set -e`, `shift 2` with one argument left ends the script
+# with status 1 and no message.
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --version)
@@ -96,14 +77,13 @@ case "$arch" in
 esac
 target="$os_name-$arch_name"
 
-# THE TARGETS WITH NO ARTIFACT are README's SOURCE-ONLY targets:
-# darwin-x86_64, freebsd-aarch64, freebsd-x86_64 and linux-x86_64 here
-# (the Windows targets never get this far - a Windows host dies on
-# `uname -s` above). No CI leg runs the test battery on them, so no
-# archive exists and the platform carries no support promise; the
-# seed is the way to install. CI does build the compiler from the seed
-# on linux-x86_64 and freebsd-x86_64, which the message does not claim
-# for the other two.
+# The targets with no release archive are README's source-only targets:
+# darwin-x86_64, freebsd-aarch64, freebsd-x86_64 and linux-x86_64 here.
+# A Windows host has already stopped at `uname -s` above. No CI leg runs
+# the test battery on these, so they carry no support promise and the
+# seed is the way to install. CI does build from the seed on
+# linux-x86_64 and freebsd-x86_64; the message does not claim that for
+# the other two.
 #
 # `scripts/check-release-targets.sh` holds this list and
 # `release.yml`'s build matrix to each other, so a target cannot end up
@@ -133,53 +113,36 @@ esac
 
 # ---- the prefix this is allowed to overwrite ------------------------
 #
-# Further down, the old `bin/` and `stdlib/` are removed before the new
-# ones are moved into place, and `rm -rf` over a path this script did
-# not create is the most damaging thing in the file. `--prefix
-# /usr/local` is a completely ordinary thing to type and it would have
-# taken /usr/local/bin with it - every locally installed binary on the
-# machine. `--prefix /` would have taken /bin.
+# The install replaces `$prefix/bin`, `$prefix/stdlib` and
+# `$prefix/docs`, so an ordinary `--prefix /usr/local` would take every
+# locally installed binary with it. The prefix must be absolute, must not
+# be a filesystem root or a shared system directory, and must not be a
+# git checkout: the default `~/.axiom` may already be a clone of this
+# repository.
 #
-# So the prefix must be absolute, must not be a filesystem root or a
-# shared system directory, and must not be a directory that is already
-# something else: a git checkout is refused by name, because the author
-# of this file has the Axiom repository at ~/.axiom, which is also this
-# script's DEFAULT prefix - the no-argument one-liner in the README
-# would have deleted the repository's own stdlib/.
-#
-# THE COMPARISON IS OF PHYSICAL DIRECTORIES, NOT OF SPELLINGS. Until
-# 2026-09-26 it stripped one trailing slash and compared the string, so
-# `--prefix "$HOME"` was refused and `--prefix "$HOME/."` - the same
-# directory - was accepted, and the install then deleted `$HOME/bin`
-# and `$HOME/docs`. Reproduced by an audit in a scratch HOME with two
-# sentinel files, both of which the second spelling destroyed. `..`,
-# a doubled slash and a symlink to a protected directory were the same
-# hole under other names. So the prefix is resolved first - every `.`
-# and `..` taken out, every symlink in the part that exists followed
-# (`physical_path` below) - and every protected directory is resolved
-# the same way before the two are compared. On macOS that matters for
+# The comparison is of physical directories, not spellings. `$HOME/.`,
+# `..`, a doubled slash and a symlink can all name a protected directory.
+# So the prefix is resolved first (`physical_path` below), and each
+# protected directory is resolved the same way. On macOS that matters for
 # the list itself: `/etc` and `/var` are symlinks into `/private`.
 #
-# The list is the first line of defence, not the only one. A directory
-# nobody listed can hold things too, which is what the ownership check
-# after the download is for.
+# The list is the first line of defence. The ownership record after the
+# download covers directories nobody listed.
 
 # `physical_path <absolute path>`: the directory the path names once the
-# kernel has resolved it, printed. Components that exist are resolved
-# with `cd -P`, so a symlink anywhere in them is followed; once one does
-# not exist, the rest cannot be symlinks and is resolved lexically - a
-# `..` there undoes the component before it, which is what `mkdir -p`
-# will do with the same spelling. Fails (status 1) when an existing
-# component is not a directory, including a dangling symlink: nothing
-# can be installed beneath it.
+# kernel has resolved it, printed. Existing components are resolved with
+# `cd -P`, so a symlink anywhere in them is followed. Past the first
+# missing one, the rest cannot be symlinks and is resolved lexically: a
+# `..` undoes the component before it, as `mkdir -p` would. Fails
+# (status 1) when an existing component is not a directory, including a
+# dangling symlink.
 #
-# Written for bash 3.2, because that is `/bin/bash` on macOS and this
+# Written for bash 3.2, which is `/bin/bash` on macOS, because this
 # script is piped into whatever `bash` the user has.
 #
-# Every join is `${out%/}/<name>`, never `$out/<name>`: from the root
-# the second spells `//var`, and POSIX lets a leading `//` mean
-# something else, so bash's `pwd -P` keeps it - measured, `/var` then
-# resolved to `//private/var` and the same directory had two answers.
+# Every join is `${out%/}/<name>`, never `$out/<name>`: from the root the
+# second spells `//var`, and POSIX lets a leading `//` mean something
+# else. `pwd -P` keeps it, so one directory would have two answers.
 physical_path() {
   local out="/" comp exists=1
   local -a comps
@@ -224,8 +187,8 @@ PREFIX="$(physical_path "$given_prefix")" \
 [[ "$PREFIX" != "/" ]] || die "--prefix may not be the filesystem root (got '$given_prefix')"
 
 # Every directory refused outright, each resolved as the prefix was. A
-# directory that does not exist on this machine cannot hold anything,
-# and resolving it would fail, so it is skipped rather than compared.
+# directory missing on this machine holds nothing and would fail to
+# resolve, so it is skipped.
 for protected in /usr /usr/local /usr/bin /usr/sbin /usr/lib /bin /sbin /etc /var \
                  /opt /opt/homebrew /Library /System /Applications /private "$HOME"; do
   [[ -n "$protected" && -d "$protected" ]] || continue
@@ -245,11 +208,9 @@ for tool in curl tar; do
   command -v "$tool" >/dev/null 2>&1 || die "$tool is required and is not on PATH"
 done
 
-# `llc` and a C compiler are not needed to DOWNLOAD a compiler; they are
-# needed for it to compile anything, including the probe at the end of
-# this script. Checked here rather than discovered there, because the
-# failure at the end reads as "the compiler you just installed is
-# broken" when the truth is that a prerequisite is missing.
+# `llc` and a C compiler aren't needed to download a compiler, but the
+# probe needs them to build anything. Checking here keeps a missing
+# prerequisite from reading as "the compiler you installed is broken".
 missing=""
 command -v llc >/dev/null 2>&1 || missing="llc"
 if ! command -v cc >/dev/null 2>&1 \
@@ -283,18 +244,13 @@ sha() { $sha_cmd "$@"; }
 
 # ---- resolve --------------------------------------------------------
 # `AXIOM_BASE_URL` names the directory the two files are fetched from,
-# and exists so `scripts/check-install.sh` can serve a release it built
-# itself. It is not a back door: setting it takes the same access as
-# setting `PATH`, and anyone with that can replace `curl`. What it must
-# NOT do is weaken a real install, so it is honoured only when it is
-# set, and it changes WHERE the archive comes from and nothing about
-# what is then required of it - the checksum file is still mandatory,
-# the comparison still happens, and the installed compiler still has to
-# build and run a program that imports the standard library.
-# The protocol restriction travels with the base. A real install is
-# `--proto '=https'` and stays that way; a base the caller named is
-# allowed the two schemes a local test server can speak, and NOTHING
-# else - so this cannot be talked into `scp://` or `dict://`.
+# so `scripts/check-install.sh` can serve a release it built itself.
+# Setting it takes the same access as setting `PATH`, which could
+# replace `curl` outright, so it opens nothing new. It changes only
+# where the archive comes from: the checksum file is still mandatory and
+# the probe still runs. A real install stays `--proto '=https'`. A base
+# the caller named also allows the http and file schemes a local test
+# server needs, and nothing else, so it cannot reach `scp://` or `dict://`.
 fetch_proto="=https"
 if [[ -n "${AXIOM_BASE_URL:-}" ]]; then
   base="$AXIOM_BASE_URL"
@@ -304,13 +260,9 @@ if [[ -n "${AXIOM_BASE_URL:-}" ]]; then
 elif [[ "$VERSION" == "latest" ]]; then
   base="https://github.com/$REPO/releases/latest/download"
   echo "==> resolving the latest release of $REPO"
-  # The two failure modes here are DIFFERENT and used to report the
-  # same thing. `curl | grep | grep | head` exits with the status of
-  # `head`, which is 0 whenever it wrote anything - so `|| die "could
-  # not reach the GitHub release API"` fired for an unreachable API and
-  # for a repository with no releases alike, and the second case is the
-  # one this repository was in until its first tag existed. Capture the
-  # curl separately so the two can be told apart.
+  # The curl runs on its own so an unreachable API and a repository with
+  # no releases give different messages. In one pipeline ending in
+  # `head`, a single `|| die` cannot tell them apart.
   api="$(curl -fsSL --proto '=https' --tlsv1.2 \
       "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null)" \
     || die "could not reach the GitHub release API for $REPO"
@@ -325,8 +277,8 @@ else
 fi
 
 # The version reaches a URL and a filesystem path below. It comes from
-# a flag or an environment variable, so it is checked rather than
-# trusted - the same rule `check-version.sh` applies to `VERSION`.
+# a flag or an environment variable, so it is checked, as
+# `check-version.sh` checks `VERSION`.
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
   || die "version '$VERSION' is not MAJOR.MINOR.PATCH"
 
@@ -346,7 +298,7 @@ got="$(sha "$work/$name.tar.gz" | awk '{print $1}')"
 [[ "$want" == "$got" ]] || die "checksum mismatch: expected $want, got $got"
 echo "    ok $got"
 
-# Unpack BEFORE removing anything: a corrupt archive should not have
+# Unpack before removing anything: a corrupt archive should not have
 # already deleted the installation it was going to replace.
 tar -xzf "$work/$name.tar.gz" -C "$work"
 [[ -x "$work/$name/bin/axiom" ]] || die "the archive holds no bin/axiom"
@@ -355,25 +307,19 @@ tar -xzf "$work/$name.tar.gz" -C "$work"
 
 # ---- what this script may replace ----------------------------------
 #
-# The names an installation consists of. `docs/` is OPTIONAL in an
-# archive and REQUIRED of the archive builder, which is not an
-# inconsistency: this script is fetched fresh and may be pointed at a
-# release that predates docs/ shipping, and refusing to install 0.5.0
-# because it lacks a directory 0.6.0 introduced would be this script
-# breaking older releases as it improved. `check-install.sh` asserts
-# the current tree's archive carries it.
+# The names an installation consists of. `docs/` is optional here, so
+# this script, fetched fresh, can still install a release that predates
+# it. `check-install.sh` requires the current tree's archive to carry it.
 managed="bin stdlib docs LICENSE README.md CHANGELOG.md"
 
-# THE OWNERSHIP RECORD. A path resolving to no protected directory can
-# still hold things this script did not put there - `--prefix ~/tools`
-# with a `bin/` of the user's own - and replacing `$prefix/bin` would
-# delete them exactly as the `$HOME/.` spelling did. So an install
-# writes `.axiom-install`: a header, then one `file <path>` line per
-# file it placed. Before anything is replaced, every file under every
-# managed name that already exists must be one the record lists; one
-# that is not is named and the install is refused, with nothing
-# touched. Names the prefix does not have are simply created, and
-# entries that are not managed names are never read or moved.
+# The ownership record. A prefix that is no protected directory can still
+# hold files this script did not put there, such as `--prefix ~/tools`
+# with a `bin/` of the user's own. So an install writes `.axiom-install`:
+# a header, then one `file <path>` line per file it placed. Before
+# anything is replaced, every existing file under a managed name must be
+# in the record; otherwise the install names it and stops, touching
+# nothing. Missing names are created, and other entries are never read
+# or moved.
 marker="$PREFIX/.axiom-install"
 marker_head="axiom-install 1"
 
@@ -382,14 +328,12 @@ files_under() {
   ( cd "$PREFIX" && find "$1" \( -type f -o -type l \) -print ) | LC_ALL=C sort
 }
 
-# INSTALLS FROM BEFORE THE RECORD EXISTED have none, and refusing every
-# one of them would strand every user on the version they have. They
-# are recognised by SHAPE, and the shape is narrow on purpose: `bin/`
-# holding exactly `bin/axiom`, `stdlib/` holding only `.ax` files,
-# `docs/` holding only `.md` files - every earlier archive, and nothing
-# a user's own directory is likely to be. The three prose files count
-# as ours only beside such a `bin/axiom`. Anything else is unrelated
-# and refused.
+# Installs that predate the record have none, and refusing them would
+# strand their users. They are recognised by a narrow shape that every
+# earlier archive has and a user's own directory is unlikely to: `bin/`
+# holding exactly `bin/axiom`, `stdlib/` only `.ax` files and `docs/`
+# only `.md` files. The three prose files count as ours only beside such
+# a `bin/axiom`. Anything else is refused.
 legacy_owns() {  # <name>
   case "$1" in
     bin)    [[ "$(files_under bin)" == "bin/axiom" ]] ;;
@@ -426,15 +370,13 @@ done
 
 # ---- stage, verify, then switch -------------------------------------
 #
-# THE NEW INSTALLATION IS PROVED BEFORE THE OLD ONE IS TOUCHED. This
-# used to delete the old `bin/`, `stdlib/` and `docs/`, move the new
-# ones in, and only then run the probe below - so an archive whose
-# compiler could not build a program left the user with no working
-# compiler at all. Now the archive is assembled in a staging directory
-# INSIDE the prefix (same filesystem, so the switch is renames), the
-# probe runs against the staged compiler, and only a staged compiler
-# that passed is moved into place. The old tree is renamed aside first
-# and removed last; a rename that fails puts it back.
+# The new installation is proved before the old one is touched, so a
+# broken archive never leaves the user without a working compiler. The
+# archive is assembled in a staging directory inside the prefix (same
+# filesystem, so the switch is renames), and the probe runs against the
+# staged compiler. Only a compiler that passed is moved into place. The
+# old tree is renamed aside first and removed last; a failed rename puts
+# it back.
 mkdir -p "$PREFIX"
 stage="$PREFIX/.axiom-stage.$$"
 aside="$PREFIX/.axiom-old.$$"
@@ -449,13 +391,12 @@ for m in $managed; do
   if [[ -e "$work/$name/$m" ]]; then mv "$work/$name/$m" "$stage/$m"; fi
 done
 
-# ---- an install that does not run is not an install -----------------
+# ---- probe the staged compiler --------------------------------------
 #
-# The probe IMPORTS a standard-library module, so an archive with no
-# `stdlib/` - or a `stdlib/` the compiler cannot locate - fails here
-# rather than passing. And it runs from a directory of its own, so the
-# module cannot be resolved through the compiler's working-directory
-# fallback and report success for the wrong reason.
+# The probe imports a standard-library module, so an archive with no
+# `stdlib/`, or one the compiler cannot locate, fails here. It runs from
+# a directory of its own, so the compiler's working-directory fallback
+# cannot resolve the module for it.
 echo "==> checking the new compiler before installing it"
 probe="$work/probe"
 mkdir -p "$probe"
@@ -473,13 +414,11 @@ cat >"$probe/probe.ax" <<'AX'
 )
 AX
 
-# By BARE NAME on PATH, which is the invocation the line printed at the
-# end of this script tells the user to adopt. `AXIOM_STDLIB` is unset
-# for the probe on purpose: if it were set, this would pass without
-# saying anything about the installation. The staged tree has the
-# installed shape - `bin/` beside `stdlib/` - so what resolves here
-# resolves after the renames below. Answers 0, or 1 with the reason on
-# stderr.
+# By bare name on PATH, as the message at the end tells the user to run
+# it. `AXIOM_STDLIB` and `AXIOM_PATH` are unset, or the probe would pass
+# without saying anything about the installation. The staged tree has
+# the installed shape, `bin/` beside `stdlib/`, so what resolves here
+# resolves after the renames. Answers 0, or 1 with the reason on stderr.
 verify_compiler() {  # <tree holding bin/ and stdlib/>
   if ! (
     cd "$probe"

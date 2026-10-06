@@ -8,181 +8,105 @@
 #   scripts/run-gates.sh --profile expensive      # platform, bootstrap and measurement gates only
 #   AXIOM_GATE_JOBS=4 scripts/run-gates.sh
 #
-# PROFILES. `fast` is the edit-and-rerun set: the gates the full run of
-# 2026-09-27 measured at 15 seconds or less that do not need the
-# machine to themselves - thirty of them, about a minute of wall clock
-# on a warm cache (see CONTRIBUTING.md "Which command runs what" for
-# the measurement). What it leaves out is priced, not forgotten: the
-# two corpora (`check-self-host`, `check-stdlib-selfhost`), the
-# diagnostics goldens, the formatter, LSP and tools sweeps, and the
-# reclamation gates cost one to five minutes EACH. `full` - the default
-# - is every gate. `expensive` is the platform/bootstrap/measurement
+# Profiles. `fast` is the edit-and-rerun set: gates that take 15 seconds
+# or less and do not need the machine to themselves. CONTRIBUTING.md
+# ("Which command runs what") has the timings. It leaves out the two
+# corpora (`check-self-host`, `check-stdlib-selfhost`), the diagnostics
+# goldens, the formatter, LSP and tools sweeps, and the reclamation
+# gates, which cost one to five minutes each. `full`, the default, is
+# every gate. `expensive` is the platform, bootstrap and measurement
 # tail for scheduled runs and release checks.
 #
-# WHY IT IS FASTER, AND WHY THAT IS NOT A TRICK. Every gate that tests
-# the working tree starts by building the compiler from `self_host/`,
-# and `gate_build_axc` already knows how not to: point `AXIOM_AXC` at a
-# binary whose `.stamp` matches `gate_source_stamp`, and the gate copies
-# it instead of spending a build. `scripts/build-shared-axc.sh` writes
-# exactly that pair. So this builds ONCE, exports it, and the gates that
-# would each have rebuilt the same 60,881 lines stop doing so.
+# One shared compiler. A gate that tests the working tree builds the
+# compiler from `self_host/` unless `AXIOM_AXC` names a binary whose
+# `.stamp` matches `gate_source_stamp`; then `gate_build_axc` copies it.
+# `scripts/build-shared-axc.sh` writes that pair, so this builds once
+# and exports it. Each gate then only copies the compiler into its own
+# `$work`, so parallel gates never write the same path. Without
+# `AXIOM_AXC` they would race to build into the same cache.
 #
-# That much was already available serially. What this adds is running
-# them CONCURRENTLY, which is only safe because of the line above: with
-# `AXIOM_AXC` set, a gate's use of the compiler is a `cp` into its own
-# `$work`, so two gates never write the same path. Without it they would
-# race to build into the same cache.
-#
-# WHAT STAYS SERIAL, AND WHY. Four gates read a clock
+# What stays serial (SERIAL_RE below): any gate whose verdict depends on
+# how much wall time passes inside it. These run one at a time, after
+# the parallel pool. Some read a clock
 # (`check-bootstrap`, `check-container-reclaim`, `check-recover`,
-# `check-steady-state`) and several more assert a ratio or a memory
-# figure. A measurement taken while fifteen compilers share the machine
-# is not the measurement the gate means to take - it would fail on a
-# loaded laptop and pass on an idle one, which is the definition of a
-# flaky gate and worse than a slow one. They run alone, after the rest.
-#
-# `check-ffi` and `check-bootstrap` also drive `cargo`, which is its own
-# parallel build; nesting that inside this one oversubscribes the
-# machine and slows BOTH.
-#
-# `check-stack-bound` is in the list for a DIFFERENT reason, and it is
-# worth stating because the usual one does not apply: it reads no clock
-# and compares no ratio. What it does is bisect `ulimit -s` on a
-# fixture, reading the exit status - 0, or death by SIGSEGV. Stack depth
-# is deterministic and load-independent, so the measurement itself is
-# not at risk. The bisection's ASSUMPTION is: it reads every non-zero
-# status as "ran out of stack", and under memory pressure from fifteen
-# concurrent compilers a run could fail for some other reason at a limit
-# above the true floor, moving the reported floor up. That is a
-# load-sensitive failure even though the quantity is not.
-#
-# `check-repl-history` joined on 2026-09-04 for a THIRD reason, and it
-# is the one this list had not seen: the gate is not measuring a
-# quantity at all, it is measuring a RACE. Its D3 arm forks six REPL
-# processes that each append 200 entries and then compact a shared file,
-# and the design carries a documented one-syscall window - an append
-# landing between the size re-check and the rename is lost - so the
-# assertion is a FLOOR (995 of 1200) rather than "all of them". Under
-# load that window widens, because what widens it is scheduling delay
-# between two syscalls. Measured: red in the Linux battery running two
-# gates at a time on a 4-CPU VM, green on the same tree and the same
-# container when run alone.
-#
-# So the rule this list encodes is broader than a clock or a ratio: a
-# gate whose verdict depends on how much wall time elapses INSIDE it
-# belongs here, and a race window is that even though nothing in it is
-# timed.
-#
-# The list was WRONG ONCE and the way it was wrong is worth recording:
+# `check-steady-state`) or assert a memory figure. Some compare two
+# timings as a ratio, which is just as load-sensitive:
 # `check-type-namespace` asserts that naming the last type in a table
-# costs the same as naming the first, and it was left in the parallel
-# set because it does not read a clock -- it compares two measurements
-# to each other. Under load it reported 1.42x and failed; alone it
-# passes. A gate that compares two timings is as load-sensitive as one
-# that reads a clock, and the tell is the RATIO, not the clock.
+# costs the same as naming the first.
 #
-# THIS RUNS THE SAME GATES THE SAME WAY. It does not pass them flags
-# or interpret their output beyond the exit status. A gate that fails
-# here fails when run by hand.
+# `check-stack-bound` bisects `ulimit -s` and reads every non-zero exit
+# as "out of stack". Stack depth is load-independent, but a failure from
+# memory pressure would move the reported floor up.
 #
-# ONE GATE CANNOT BE RUN THAT WAY, and it is NAMED rather than skipped
-# quietly. `check-windows-hello.sh` is two halves on two machines - it
-# emits for both Windows targets on any host under `--emit DIR` and links and
-# EXECUTES on a Windows runner under `--run DIR` - so a bare invocation
-# is a usage error, not a result. Globbed in and run bare it failed in
-# 0s on every local run, which made this battery permanently red and
-# taught its reader to skim the FAILED list instead of reading it. That
-# is the cost being paid here: a gate whose failure means nothing
-# devalues the ones whose failure means something.
+# `check-repl-history` asserts a floor on a race. Its D3 arm forks six
+# REPLs that append to one shared file and compact it. An append landing
+# between the size re-check and the rename is lost, a documented
+# one-syscall window, so it requires 995 of 1200. Scheduling delay under
+# load widens that window.
 #
-# So it is listed below, excluded from the run, and PRINTED as not run
-# with the reason. Not run and silent would be the worse defect of the
-# two - the whole point of naming it is that the reader can see the
-# battery is not the whole story.
+# `check-ffi` and `check-bootstrap` also drive `cargo`, which builds in
+# parallel itself. Nesting it inside this pool oversubscribes the
+# machine.
+#
+# A gate runs here exactly as it runs by hand: no extra flags, and only
+# its exit status is read.
+#
+# Not run (NOTRUN_RE below). `check-windows-hello.sh` has two halves on
+# two machines: `--emit DIR` emits for both Windows targets on any host,
+# and `--run DIR` links and executes on a Windows runner. A bare
+# invocation is a usage error, so it is excluded and printed as not run,
+# with the reason. A gate whose failure means nothing teaches readers to
+# skim the FAILED list.
 
 set -uo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-# Gates a bare invocation cannot run at all, with the reason each is
-# printed with. Excluded from the run and reported, never silent.
+# Gates a bare invocation cannot run, and the reason printed for them.
+# They are reported as not run, never skipped silently.
 NOTRUN_RE='check-(windows-hello)\.sh$'
 NOTRUN_WHY='needs --emit DIR on any host and --run DIR on a Windows runner; a bare run is a usage error, not a result'
 
-# Gates whose result depends on having the machine to themselves.
-# `check-compat` joined on 2026-09-01, and it is the first member added
-# for a reason that is neither a clock nor a ratio. It shells out to
-# `git diff --quiet` over a regenerated baseline and rebuilds its own
-# probe compilers; under six-way parallelism it failed three times in
-# one evening - "a public name leaves the API", "adding a public name
-# was not reported ADDED" - and passed alone every time, three for
-# three. A gate that fails for load is worse than a slow one: it
-# teaches its reader to re-run rather than to read, which is the habit
-# `run-gates.sh`'s own header exists to prevent.
+# Gates whose result depends on having the machine to themselves (the
+# header gives the rule). A gate that fails under load is worse than a
+# slow one: it teaches its reader to re-run instead of reading.
 #
-# `check-net` joined on 2026-09-03, and it is the clearest case yet of
-# the rule the header states two paragraphs up - the tell is the RATIO,
-# not the clock. It serves 20,400 real HTTP requests over loopback and
-# asserts that every byte sent comes back; under six-way parallelism it
-# reported "varied-size run echoed 5983 of 10000" and failed. Run alone
-# immediately afterwards, on the same tree and the same compiler, it
-# passed. Nothing about the server is timing-dependent by design; what
-# is load-dependent is a socket's buffers and the scheduler's
-# willingness to drain them while fifteen compilers are running, and a
-# short read is indistinguishable at the assertion from a server that
-# lost data.
+# `check-compat` runs `git diff --quiet` over a regenerated baseline and
+# rebuilds its own probe compilers. Under parallel load it reports
+# spurious API changes that do not reproduce alone.
 #
-# `check-race` joined on 2026-09-29. It runs `examples/concurrency/
-# pipeline.ax` under ThreadSanitizer, whose instrumentation slows a
-# program several times over, and that example's consumer stops after
-# 2 s with no word and its sends wait at most 1 s. At `-O0`, beside five
-# other gates, it answered `FAILED` once with no race reported; the gate
-# alone passed on the same tree and compiler.
+# `check-net` serves thousands of HTTP requests over loopback and
+# asserts every byte comes back. Under load the scheduler drains socket
+# buffers slowly, and a short read looks the same as lost data.
+#
+# `check-race` runs `examples/concurrency/pipeline.ax` under
+# ThreadSanitizer, which slows it several times over. The example's
+# consumer stops after 2 s with no word and its sends wait at most 1 s,
+# so under load it can fail with no race reported.
 #
 # `check-protocol-model` reads the clock: its timed locks and receives
 # must answer within [T, T + 800 ms], and its starvation run measures
 # waits. Its model also runs four worker processes of its own.
 SERIAL_RE='check-(race|protocol-model|bootstrap|container-reclaim|reclaim-soak|recover|steady-state|memory-baseline|arena-reset-rate|name-scale|type-namespace|degenerate|stack-depth|stack-bound|concurrent-run|reproducible|ffi|seed-provenance|lsp-selfhost|compat|net|repl-history)\.sh$'
 
-# THE TWO REPL GATES ARE NOT HERE, and they were nearly added on
-# 2026-08-31 on the strength of a comment. `check-repl-selfhost.sh`'s
-# header said every REPL on the machine writes /tmp/axiom-repl-1
-# because `fmtIntStr` answers "1" above 3, so two REPLs at once corrupt
-# each other - and `check-repl-tui.sh` starts several. Both halves of
-# that were fixed before it was written down as live: `repl.ax` uses
-# `decStr` (distinctness, 2026-08-08) and a private
-# `<tmp>/axiom-repl-<pid>.d` at mode 0700 created with an exclusive
-# `sysMkdir` (predictability, 2026-08-23), and its own comment says so.
-# MEASURED 2026-08-31 before removing the entry: six `axiom repl`
-# processes run at once each answered their own expression correctly
-# (101, 202, 303, 404, 505, 606) and left nothing in /tmp. Serialising
-# on a stale comment costs the battery two of its slowest gates for
-# nothing, which is why the measurement came first.
+# The two REPL gates (`check-repl-selfhost`, `check-repl-tui`) stay
+# parallel. `repl.ax` gives each REPL a private
+# `<tmp>/axiom-repl-<pid>.d`, mode 0700, created with an exclusive
+# `sysMkdir`, so concurrent REPLs never share a file. Serialising them
+# would cost the battery two of its slowest gates for nothing.
 
-# A NOTE ON ONE GATE THAT IS DELIBERATELY *NOT* IN EITHER LIST ABOVE,
-# because it looks like it should be in both. `check-terminal-restore.sh`
-# drives a TERMINAL: it puts one into raw mode and asserts it comes back
-# byte for byte. Neither the serial list nor the not-run list is right
-# for it, and the reasons are worth stating where the lists are.
+# `check-terminal-restore.sh` is in neither list. It puts a terminal
+# into raw mode and asserts it comes back byte for byte. It is not
+# serial: every assertion is a byte equality or an errno, and it drives
+# a pty it allocates with `openpty`, so load cannot move its verdict.
+# Its only timing is a 30-second deadline for a probe that takes
+# milliseconds. It is not NOTRUN: `openpty` needs `/dev/ptmx`, not a
+# controlling terminal, so it runs in CI steps with no tty. It never
+# touches fd 0/1/2 of whatever invoked it.
 #
-#   Not SERIAL. That list is for gates whose RESULT depends on having
-#   the machine to themselves - they time something, or measure memory,
-#   or drive cargo. This one measures nothing: every assertion is a byte
-#   equality or an errno, and neither moves under load. The terminal it
-#   drives is a pty it allocates for itself with `openpty`, so there is
-#   no shared device to contend for and no other gate it can disturb.
-#   The only load-sensitive thing in it is the driver's 30-second
-#   deadline for a probe that finishes in milliseconds.
-#
-#   Not NOTRUN. It needs a pty, but it does NOT need a controlling
-#   terminal - `openpty` is an operation on `/dev/ptmx`, which a CI step
-#   with no tty has - so it runs here, in the Linux container, and on
-#   every runner. It never touches fd 0/1/2 of whatever invoked it.
-#
-# If a future environment genuinely cannot give it a pty, the gate exits
-# NON-ZERO saying so rather than passing quietly, and the deliberate fix
-# is to name it in NOTRUN_RE above - a visible edit in a reviewed file,
-# which is where that decision belongs.
+# If an environment cannot give it a pty, the gate exits non-zero and
+# says so. The fix is then to name it in NOTRUN_RE above, a reviewed
+# edit.
 
 jobs="${AXIOM_GATE_JOBS:-}"
 if [[ -z "$jobs" ]]; then
@@ -208,11 +132,10 @@ while (( $# )); do
   esac
   shift
 done
-# The corpora and the diagnostics goldens are named here by their
-# absence: they are `full`-tier by cost (see PROFILES above), so this
-# lists only gates that answer in seconds on a warm cache. A gate that
-# grows past that belongs in `full`, and `check-gate-lib.sh` requires
-# every name here to be a script that exists.
+# Gates that answer in seconds on a warm cache. The corpora and the
+# diagnostics goldens are `full`-tier by cost (see Profiles above), and
+# a gate that grows slower belongs there too. `check-gate-lib.sh`
+# requires every name here to be a script that exists.
 FAST_RE='check-(type-pinning|gate-lib|ci-coverage|vec-field-shape|cast-arg-root|tail-position|agent-policy|agent-calls|c-abi|nostd-subset|platform-constants|seed-supply-chain|terminal-restore|version|windows-entry|diverging-tyvar|mir-projection|frontend-parity|trap-statuses|backtrace|test-runner|packages|doc-drift|diagnostic-coverage|examples|repl-highlight|tail-calls|install|release-targets)\.sh$'
 EXPENSIVE_RE='check-(bootstrap|seed-lineage|seed-provenance|ddc|cross-targets|embedded|windows-hello|reproducible|memory-baseline|arena-reset-rate|container-reclaim|reclaim-soak|steady-state|recover|name-scale|type-namespace|degenerate|stack-bound|stack-depth)\.sh$'
 all=(); omitted=()
@@ -237,18 +160,12 @@ for g in "${all[@]}"; do
   else par+=("$g"); fi
 done
 
-# LONGEST FIRST. The parallel pool used to start gates in glob order,
-# so the slowest ones - `check-restrictions`, `check-render-selfhost`,
-# `check-tools-selfhost`, all late in the alphabet and each 3-5 minutes
-# - started last and ran on after the rest had drained, with five of
-# six slots idle. Measured on the 2026-09-27 full run: 3,793 gate-
-# seconds in the pool over 6 slots is 632s of work, and the pool took
-# 845s. Ordering by the duration each gate took in the most recent run
-# that recorded it is the classic longest-processing-time schedule; a
-# gate with no history sorts FIRST, because an unknown is the one most
-# likely to be a new long pole. It changes WHEN a gate starts and
-# nothing about what it runs or how its verdict is read, and the serial
-# list keeps its written order.
+# Start the parallel pool longest first, ordered by each gate's duration
+# in the most recent run that recorded it (a longest-processing-time
+# schedule). Otherwise the slowest gates can start last and run on with
+# most slots idle. A gate with no history sorts first, as the likeliest
+# new long pole. This changes only when a gate starts; the serial list
+# keeps its written order.
 report_root="${AXIOM_GATE_REPORT_DIR:-$PWD/.axiom-shared/runs}"
 gate_history() {  # "<script basename> <seconds>", newest run first, one per gate
   local f
@@ -284,15 +201,15 @@ repo_root="$PWD"
 # the stamp each gate will compute (`gate_config_stamp` records it).
 export AXIOM_STDLIB="$repo_root/stdlib"
 mkdir -p "$report_root" || exit 1
-# Keep the twenty newest earlier runs. Each holds a 3 MB compiler snapshot and
-# every gate's log; they are evidence for the run they describe and
-# history for the schedule above, not an archive.
+# Keep the twenty newest earlier runs. Each holds a compiler snapshot
+# and every gate's log: evidence for that run, and history for the
+# schedule above.
 ls -dt "$report_root"/run.* 2>/dev/null | tail -n +21 | while IFS= read -r old; do
   rm -rf "$old"
 done
-# And the eighty most recently used ablated-tree compilers
-# (`gate_build_tree`), about two generations of the thirty-five a full
-# battery builds. Pruned here, before any gate starts, never by a gate.
+# Keep the eighty most recently used ablated-tree compilers
+# (`gate_build_tree`), about two full batteries' worth. Prune them here,
+# before any gate starts, never from inside a gate.
 tree_cache="${AXIOM_GATE_CACHE:-$repo_root/.axiom-shared/cache}"
 if [[ "$tree_cache" != off && -d "$tree_cache" ]]; then
   ls -t "$tree_cache"/tree-* 2>/dev/null | grep -v '\.sha$' | tail -n +81 |
@@ -352,11 +269,10 @@ run_one() { # run_one <script>
   fi
 }
 
-# `"${par[@]}"` on an EMPTY array is an unbound-variable error under
-# `set -u` on bash 3.2, which the macOS runner ships - so a filter that
-# selects only serial gates (`run-gates.sh seed-provenance`) died here
-# after building the shared compiler. Guard the expansion, do not drop
-# `set -u`.
+# `"${par[@]}"` on an empty array is an unbound-variable error under
+# `set -u` in bash 3.2, which the macOS runner ships. A filter that
+# selects only serial gates (`run-gates.sh seed-provenance`) hits it.
+# Guard the expansion and keep `set -u`.
 if (( ${#par[@]} )); then
   echo "== ${#par[@]} gate(s), $jobs at a time =="
   for g in "${par[@]}"; do
@@ -377,14 +293,12 @@ if (( completed != expected )); then
   echo "FAIL: expected $expected gate results, received $completed; see $out" >&2
   exit 1
 fi
-# PARTS THAT DID NOT RUN. A gate's exit status says whether what it
-# checked held; it does not say whether it checked everything. Gates in
-# this tree print a line beginning `SKIP` (or `skip`) for a section the
-# host cannot exercise - no `git`, no `ulimit -s`, an `llc` without
-# `--stack-usage-file`, a REPL case the model does not cover - and that
-# line used to reach only the gate's own log. It is collected here and
-# printed with the verdict, so "passed" is never read as "passed in
-# full" when it was not.
+# Collect skipped sections. A gate's exit status says whether what it
+# checked held, not whether it checked everything. Gates print a line
+# starting `SKIP` (or `skip`) for a section the host cannot exercise:
+# no `git`, no `ulimit -s`, an `llc` without `--stack-usage-file`, a
+# REPL case the model does not cover. Printing them with the verdict
+# keeps "passed" from reading as "passed in full".
 : > "$out/SKIPS"
 for g in ${par[@]+"${par[@]}"} ${ser[@]+"${ser[@]}"}; do
   [[ -n "$g" ]] || continue
@@ -396,10 +310,9 @@ skipped="$(wc -l < "$out/SKIPS" | tr -d ' ')"
 printf 'profile=%s\nselected=%s\nexecuted=%s\nnot_selected=%s\nnot_run=%s\nskipped_sections=%s\nelapsed_seconds=%s\n' \
   "$profile" "${#all[@]}" "$completed" "${#omitted[@]}" "${#notrun[@]}" "$skipped" "$elapsed" > "$out/SUMMARY"
 echo "not selected: ${#omitted[@]}; not run here: ${#notrun[@]}; logs: $out"
-# `grep -c` EXITS 1 when the count is zero, so `|| echo 0` appends a
-# SECOND zero and the variable becomes "0\n0" - which `(( ))` then
-# refuses with a syntax error, after the gates have already run. Count
-# with awk, which exits 0 whatever it counted.
+# Count with awk, not `grep -c`: `grep -c` exits 1 on a zero count, so
+# `|| echo 0` would give "0\n0", which `(( ))` rejects after the gates
+# have run.
 pass="$(awk '/^PASS/{n++} END{print n+0}' "$out/RESULTS" 2>/dev/null)"
 fail="$(awk '/^FAIL/{n++} END{print n+0}' "$out/RESULTS" 2>/dev/null)"
 

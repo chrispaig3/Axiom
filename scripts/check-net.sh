@@ -1,121 +1,65 @@
 #!/usr/bin/env bash
-# Assert that a pre-forked Axiom server holds its memory flat across ten
-# thousand connections - whether their sizes are uniform or vary by
-# three orders of magnitude - and that this script could tell if it did
-# not.
+# Checks that a pre-forked Axiom server holds its memory flat across ten
+# thousand connections, whether their sizes are uniform or vary by three
+# orders of magnitude, and that this script would see it if it did not.
 #
-# This is the acceptance measurement for the socket work, and it is the
-# first thing in this tree that tests the MEMORY PLAN rather than a
-# syscall. The plan's premise for backend services is that a request
-# handler is an arena scope: `__axiom_arena_mark` before the work,
-# `__axiom_arena_reset` after it, and the watermark rewinds every
-# connection - so a stateless service can run on bounded memory without
-# waiting for reference counting to be finished. Nothing had tested that
-# claim. This does.
+# The memory plan treats a request handler as an arena scope:
+# `__axiom_arena_mark` before the work and `__axiom_arena_reset` after
+# it, so the watermark rewinds every connection. A stateless service then
+# runs on bounded memory without reference counting. This gate tests
+# that claim.
 #
-# WHY IT IS NOT IN THE FAST BATTERY. It runs two servers, drives ten
-# thousand real loopback connections through each, and reads RSS out of
-# `ps`. That is a minute or so and a lot of file descriptors, which is
-# the same reason `check-ffi.sh` stands outside the battery. `ci.yml` is
-# the authority on what runs where.
+# It stays out of the fast battery, as `check-ffi.sh` does: two servers,
+# ten thousand real loopback connections each and RSS read from `ps`
+# take a minute or so and many file descriptors. `ci.yml` decides what
+# runs where.
 #
-# THE ABLATION IS THE POINT, and it is built in rather than bolted on.
-# The server takes the arena as a FLAG, so this script runs the same
-# binary twice: once with the handler scoped and once without. A gate
-# that only ever saw flat memory could be flat because the measurement
-# is broken - reading the wrong pid, sampling after the workers died,
-# `ps` printing nothing. The unscoped run must GROW, and by a lot, or
-# the flat one proves nothing. That is `check-memory-baseline.sh`'s
-# managed/unmanaged/ablated shape applied to a server.
+# The server takes the arena as a flag, so the same binary runs scoped
+# and unscoped. A flat reading could come from a broken measurement (the
+# wrong pid, workers already dead, `ps` printing nothing), so the
+# unscoped run must grow, and by a lot. This is
+# `check-memory-baseline.sh`'s managed/unmanaged/ablated shape applied to
+# a server.
 #
-# MEASURED when this was written, two workers, peak worker RSS:
+# Unscoped memory grows with total allocation, because the bump allocator
+# reclaims nothing without a reset (MM-ALLOC-4a). The response is built
+# by repeated `concat`, about 16 KiB of garbage per connection, so there
+# is something real to reclaim.
 #
-#     scoped     1,000 conns      192 KiB
-#     scoped    10,000 conns      608 KiB
-#     unscoped   1,000 conns   19,136 KiB
-#     unscoped  10,000 conns  190,128 KiB     <- 313x the scoped run
+# The criterion is a ratio of growth, not a ceiling. Every worker also
+# grows by a small per-connection process overhead (descriptor churn and
+# the kernel's socket accounting), the same with the arena on or off.
+# Comparing the two arms' growth cancels it; comparing either to a fixed
+# number does not.
 #
-# The unscoped column is linear in TOTAL ALLOCATION because the
-# allocator is a bump allocator that never frees (MM-ALLOC-4a). The
-# response is built by repeated `concat` on purpose - about 16 KiB of
-# unreachable intermediates per connection - so there is something real
-# to reclaim.
-#
-# THE CRITERION IS A RATIO, NOT A CEILING, AND THAT IS A MEASURED
-# DECISION. The scoped column is not perfectly flat either: it grows
-# about 48 bytes per connection. That looked like a leak until the
-# control was run - the same server with the response loop set to ZERO
-# iterations, so the handler allocates nothing at all:
-#
-#     0 concats, scoped     1,000 / 10,000 / 40,000  ->  160 / 576 / 1,968 KiB
-#     0 concats, UNSCOPED   1,000 / 10,000 / 40,000  ->  128 / 544 / 1,936 KiB
-#
-# The two are the same, and the arena flag is irrelevant when there is
-# nothing to reclaim. So that 48 bytes is per-connection process
-# overhead - descriptor churn and the kernel's socket accounting - and
-# not the Axiom heap, which IS flat. Both arms of the real measurement
-# carry the same baseline, so comparing them to each other cancels it
-# and comparing either to an absolute number does not. An earlier
-# version of this gate asserted "within 2x of a small run" and failed on
-# that baseline while the allocator was behaving perfectly.
-#
-# FRAGMENTATION IS TESTED TOO, AND IT DOES NOT RATCHET. `MM-ALLOC-4b`
-# says free chunks are never split and never coalesced, and first fit
-# runs over the whole mapping - so a workload whose request sizes VARY
-# was expected to climb even with the arena, one un-reusable chunk at a
-# time. The third measurement below is that workload: response sizes
-# cycle from 8 to 488 concatenations, about 1 KiB to 3.8 MiB of
-# intermediates per connection, which crosses the 1 MiB chunk boundary
-# in both directions on every cycle.
-#
-# It plateaus. Measured 3,968 / 4,192 / 4,864 KiB at 1,000 / 5,000 /
-# 20,000 connections - it starts at the peak working set of the LARGEST
-# single connection, which is the honest cost of serving one, and then
-# grows 47 bytes per connection after that, which is the same process
-# baseline the control below establishes. So the arena reclaims across
-# chunk boundaries, and worker recycling is not needed to bound this
-# workload. That is a planned item retired by measurement rather than
-# built.
+# Fragmentation is tested too. MM-ALLOC-4b never splits or coalesces
+# free chunks, so varied request sizes could ratchet memory upward. The
+# third measurement cycles responses from 8 to 488 concatenations (about
+# 1 KiB to 3.8 MiB per connection), crossing the 1 MiB chunk boundary
+# both ways on every cycle. It must plateau: it starts at the largest
+# connection's working set and then grows only by the process overhead.
 #
 # ---------------------------------------------------------------------
-# THE ADDRESS ARMS, WHICH MEASURE NOTHING. Everything above is one
-# claim about memory. The two arms at the bottom are a different
-# claim - that the socket layer can say WHO connected, and can do it
-# over both address families - and they are here rather than in
-# `tests/stdlib/` because they need a real second process on the other
-# end of the connection. `tests/stdlib/317-peer-address.ax` is the same
-# property with one process being both ends; this is the one where the
-# client is not us.
+# The two address arms at the end check a different claim: the socket
+# layer reports who connected, over IPv4 and IPv6. They need a real
+# second process on the other end; `tests/stdlib/317-peer-address.ax`
+# covers the case where one process is both ends.
 #
-# THE ASSERTION IS THE ADDRESS, NOT THAT A CALL RETURNED. That
-# distinction is this script's own, one layer up: the memory arms
-# compare two runs to each other rather than to a constant, because a
-# constant can be met by a measurement that reads nothing. An address
-# arm has the same hole - a server that answered `127.0.0.1` to
-# everything would pass any check that only looked at the address - so
-# the driver BINDS ITS SOURCE PORT, to a number derived from this
-# script's pid at run time, and a different one per connection. The
-# expected lines are therefore three distinct endpoints that no fixed
-# answer, no reuse of the previous peer, and no report of the
-# LISTENER's own address can produce.
+# The assertion is the address itself. A server that answered
+# `127.0.0.1` to everything would pass a check that only looked for an
+# address, so the driver binds a distinct source port per connection,
+# derived from this script's pid. No fixed answer, reused previous peer
+# or listener address can produce the expected lines.
 #
-# THE IPv6 ARM PROVES THREE THINGS AT ONCE and cannot separate them,
-# which is the point of running it as one round trip: `afInet6` has to
-# be this platform's number or `socket` answers -47/-97 EAFNOSUPPORT;
-# the length has to come off the family or `bind` answers -22 EINVAL,
-# because `sockaddr_in6` is 28 bytes and the literal 16 that used to be
-# there is refused; and the address has to be built into the right
-# sixteen bytes or the connection goes somewhere else. The server exits
-# 2 on a failed bind and never prints its `pids` line, so any of the
-# three shows up as this arm timing out on that line rather than as a
-# wrong address.
+# The IPv6 arm checks three things in one round trip: `afInet6` is this
+# platform's number (or `socket` answers -47/-97 EAFNOSUPPORT), the
+# address length comes from the family (`sockaddr_in6` is 28 bytes, or
+# `bind` answers -22 EINVAL), and the address lands in the right sixteen
+# bytes. The server exits 2 on a failed bind and never prints its `pids`
+# line, so any of these shows up as a timeout on that line.
 #
-# WHAT THIS STILL DOES NOT TEST: nothing here keeps per-connection
-# state, so this is the STATELESS case the plan scoped to and not
-# keep-alive, where the live set outlives the request and the arena
-# boundary stops being free. And both address arms are LOOPBACK: they
-# establish that the peer the kernel reports is the peer that
-# connected, not that a globally routed address survives anything.
+# Not covered: per-connection state (keep-alive, where the live set
+# outlives the request), and addresses beyond loopback.
 
 set -uo pipefail
 
@@ -139,9 +83,9 @@ srv="$work/echo-server"
   exit 1
 }
 
-# The driver. Sequential on purpose: a concurrent client would make the
-# connection count a function of how fast the machine is, and this gate
-# asserts a memory ratio rather than a rate.
+# The driver. It runs sequentially, because a concurrent client would
+# make the connection count depend on machine speed, and this gate
+# asserts a memory ratio, not a rate.
 cat > "$work/drive.py" <<'PY'
 import socket, sys
 port, n = int(sys.argv[1]), int(sys.argv[2])
@@ -159,9 +103,8 @@ print(ok)
 PY
 
 # The address driver. Every connection binds its source port before it
-# connects, which is what makes the peer the server reports a number
-# this script already knows - see the header. Sequential and tiny: this
-# arm asserts three strings, not a rate.
+# connects, so the peer the server reports is a number this script
+# already knows. It asserts three strings, not a rate.
 cat > "$work/drive-addr.py" <<'PY'
 import socket, sys
 port, host, src, n = int(sys.argv[1]), sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
@@ -185,9 +128,9 @@ PY
 
 # run_peer_server <port> <host> <v6 0|1> <source base> <connections>
 #
-# Runs ONE worker with the peer report on, drives `n` connections from
-# `n` consecutive bound source ports, and leaves the server's own
-# output in `$work/peer.<port>.out`. Echoes "<echoed>".
+# Runs one worker with the peer report on, drives `n` connections from
+# `n` consecutive bound source ports, and leaves the server's output in
+# `$work/peer.<port>.out`. Echoes "<echoed>".
 run_peer_server() {
   local port="$1" host="$2" v6="$3" src="$4" n="$5"
   local out="$work/peer.$port.out"
@@ -221,11 +164,10 @@ run_peer_server() {
   echo "$echoed"
 }
 
-# check_peers <port> <host> <bracketed host> <source base> <connections>
+# check_peers <port> <host> <bracketed host> <source base> <connections> <label>
 #
-# Compares the `peer` lines the server printed against the endpoints the
-# driver actually connected from, and prints the difference when they
-# are not the same.
+# Compares the `peer` lines the server printed with the endpoints the
+# driver connected from, and prints the difference when they differ.
 check_peers() {
   local port="$1" host="$2" shown="$3" src="$4" n="$5" what="$6"
   local out="$work/peer.$port.out" i expected actual
@@ -246,7 +188,7 @@ check_peers() {
   return 0
 }
 
-# run <arena 0|1> <port> <connections>  ->  echoes "<echoed> <peakRssKiB>"
+# run_server <arena 0|1> <port> <connections> [<varied 0|1>]  ->  echoes "<echoed> <peakRssKiB>"
 run_server() {
   local arena="$1" port="$2" n="$3" varied="${4:-0}"
   local out="$work/srv.$port.out"
@@ -271,8 +213,8 @@ run_server() {
   local echoed
   echoed="$(python3 "$work/drive.py" "$port" "$n")"
 
-  # Peak across the pool, sampled while the workers are still alive -
-  # after the SIGTERM there is nothing to read.
+  # Peak across the pool, sampled while the workers are alive: after the
+  # SIGTERM there is nothing to read.
   local peak=0 r
   for p in $pids; do
     r="$(ps -o rss= -p "$p" 2>/dev/null | tr -d ' ')"
@@ -306,18 +248,16 @@ else
   echo "ok   $conns_large connections, all echoed, peak worker RSS ${a_large_rss} KiB"
 fi
 
-# Growth across the scoped runs is reported rather than asserted: it is
-# the process baseline measured above, not the heap, and pinning it here
-# would pin the kernel's socket accounting.
+# Scoped growth is reported, not asserted. It is the process overhead,
+# not the heap, and pinning it would pin the kernel's socket accounting.
 echo "     scoped growth ${a_small_rss} -> ${a_large_rss} KiB over $(( conns_large / conns_small ))x the connections"
 
 
 # ---------------------------------------------------------------
-# The ablation. Everything above asserts a NUMBER STAYING SMALL, and a
-# broken measurement produces that too. So the same binary is run with
-# the arena off, where the bump allocator's watermark must track total
-# allocation - and if it does not, this script cannot see growth and its
-# green above means nothing.
+# The ablation. A broken measurement also keeps a number small, so the
+# same binary runs with the arena off. The watermark must then track
+# total allocation; if this script cannot see that growth, the flat
+# result above means nothing.
 # ---------------------------------------------------------------
 echo "== ablation: with the handler unscoped, the same measurement must see growth =="
 read -r n_small_ok n_small_rss < <(run_server 0 $((base_port + 2)) "$conns_small") || status=1
@@ -332,30 +272,25 @@ else
   echo "ok   negative probe: unscoped RSS grew $(( n_large_rss / (n_small_rss > 0 ? n_small_rss : 1) ))x, so the flat result above is a real one"
 fi
 
-# THE CLAIM, IN ONE LINE. Both arms ran the same binary against the same
-# load and differ only in whether the handler was an arena scope, so the
-# ratio of their GROWTH - each arm's large run over its own small one -
-# is the allocator's behaviour with the process baseline cancelled out.
-# Measured at 313x on darwin-aarch64; the floor is 50x, which is far
-# enough below to survive a slower machine and far enough above to
-# catch an arena that stopped reclaiming.
+# The claim in one number. Both arms run the same binary on the same load
+# and differ only in the arena scope. Each arm's growth (its large run
+# minus its small run) drops the process overhead, so the ratio of the
+# two growths is the allocator's behaviour.
 #
-# GROWTH, NOT TOTALS, and that is a correction. This divided the two
-# arms' totals and called the baseline cancelled, which a quotient does
-# not do: on FreeBSD 14.4/arm64 (2026-08-29) the scoped worker sat at
-# 2208 KiB - the dynamic libc and rtld the base `cc` links in, resident
-# - against a few hundred on Darwin, and the same flat arena read as
-# "only 31x". Subtracting each arm's small run first leaves what the
-# handler's connections added, which is the quantity this sentence
-# was always about. A scoped arm whose growth is a fiftieth of the
-# unscoped arm's still fails, which is the case the floor exists for.
+# Dividing totals would not cancel the overhead. On FreeBSD the dynamic
+# libc and rtld keep a scoped worker near 2 MiB resident, which drags a
+# flat arena's ratio far down.
+#
+# The floor is 50x. A darwin-aarch64 run gives a ratio of a few hundred,
+# so the floor survives a slower machine and still catches an arena that
+# has stopped reclaiming.
 unscoped_growth=$(( n_large_rss - n_small_rss ))
 scoped_growth=$(( a_large_rss - a_small_rss ))
 ratio=$(( unscoped_growth / (scoped_growth > 0 ? scoped_growth : 1) ))
 # ---------------------------------------------------------------
 # Fragmentation. Same binary, same arena, but the response size cycles
 # across three orders of magnitude, so free chunks of many sizes are
-# produced and reused. `MM-ALLOC-4b` is the reason to expect a ratchet.
+# made and reused. MM-ALLOC-4b is why a ratchet is possible.
 # ---------------------------------------------------------------
 echo "== varying the request size must not ratchet the watermark =="
 read -r v_small_ok v_small_rss < <(run_server 1 $((base_port + 4)) "$conns_small" 1) || status=1
@@ -365,8 +300,8 @@ if [[ "${v_large_ok:-0}" != "$conns_large" ]]; then
   echo "FAIL: varied-size run echoed $v_large_ok of $conns_large"; status=1
 fi
 # The floor is the largest single connection's working set, which is
-# real work and not growth, so the comparison is between two runs of the
-# SAME shape at different lengths.
+# real work, not growth. So the comparison is between two runs of the
+# same shape at different lengths.
 if (( v_large_rss > v_small_rss * 2 )); then
   echo "FAIL: with varying request sizes RSS went ${v_small_rss} -> ${v_large_rss} KiB."
   echo "     Free chunks are not being reused across sizes - MM-ALLOC-4b ratcheting."
@@ -376,10 +311,9 @@ else
 fi
 
 # ---------------------------------------------------------------
-# The peer address. `netAccept` passed NULL for `accept`'s two
-# out-parameters and the peer was gone by the time it returned;
-# `netAcceptFrom` takes a buffer instead. Nothing in this script could
-# tell the difference before - `grep -c peer` over it answered 0.
+# The peer address. `netAccept` discards the peer that `accept` reports;
+# `netAcceptFrom` fills a buffer with it, and the server prints one
+# `peer` line per connection.
 # ---------------------------------------------------------------
 echo "== the server reports the address each connection came from =="
 addr_src=$(( 25000 + ($$ % 3000) ))
@@ -393,10 +327,9 @@ check_peers $((base_port + 6)) 127.0.0.1 127.0.0.1 "$addr_src" "$peer_conns" \
   "IPv4" || status=1
 
 # ---------------------------------------------------------------
-# IPv6. One round trip that cannot pass unless `afInet6` is this
-# platform's number, the address length came off the family rather than
-# the literal 16, and `netAddr6` wrote `::1` into the right sixteen
-# bytes.
+# IPv6. One round trip that passes only if `afInet6` is this platform's
+# number, the address length comes from the family, and `netAddr6`
+# writes `::1` into the right sixteen bytes.
 # ---------------------------------------------------------------
 echo "== a v6 listener on ::1 round-trips and reports v6 peers =="
 v6_src=$(( addr_src + 100 ))

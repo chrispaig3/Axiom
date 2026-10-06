@@ -1,71 +1,33 @@
 #!/usr/bin/env bash
-# Assert that every place this project states its own version says the
-# same thing, and that it is the thing `VERSION` says.
+# Checks that every place the project states its version agrees with
+# `VERSION` at the repository root.
 #
-# WHY THIS GATE EXISTS. The version is a bare literal in every file
-# `scripts/lib/version-sites.sh` names, across five formats - Axiom
-# sources, Cargo entries, tree-sitter manifests, checked-in LSP
-# transcripts and prose documents - and nothing held them to a single
-# source of truth. The totals are printed below rather than restated
-# here: this header said eleven for as long as it existed, and the
-# table it describes has not been eleven since.
+# The version is a bare literal in every file
+# `scripts/lib/version-sites.sh` names: Axiom sources, Cargo entries,
+# tree-sitter manifests, checked-in LSP transcripts and prose documents.
+# The totals are printed below.
 #
-# It is NOT true that nothing compared them before this file, and the
-# first version of this header said so; `check-driver.sh` (`22f2c19`,
-# the same day) already pinned `self_host/repl.ax`, `self_host/lsp.ax`,
-# the first `rust/Cargo.toml` key and all eight `tests/lsp/*.golden`
-# files to what the built BINARY prints, and CI runs it. Those stay
-# where they are and are not duplicated here.
+# `check-driver.sh` pins some of these literals to what the built binary
+# prints, which passes when every site agrees on the wrong number.
+# `VERSION` is what the release tag, the archive name and the install
+# script read, so every literal must match it. Some sites, such as the
+# `[workspace.dependencies]` keys, the tree-sitter manifests and the
+# prose banners, have no other gate. Without this, a binary whose
+# `--version` disagrees with its archive reaches users unnoticed.
 #
-# What this adds is the part that check could not express: a source of
-# truth OUTSIDE the compiler. `check-driver.sh` compares the literals to
-# the binary, so a tree where every site says `9.9.9` in agreement is
-# green there. `VERSION` is the number the release tag, the archive name
-# and the install script all read, so it is the number the literals must
-# match - and the three `[workspace.dependencies]` keys, the two
-# tree-sitter manifests and the two prose banners are reached by nothing
-# else at all.
+# A version is a promise about an interface, and every site that states
+# one must agree: that is this gate. A build id is a fact about bytes
+# that only the binary carries: `scripts/check-build-id.sh` holds it.
 #
-# It matters more than a tidiness gate, and it stopped being a
-# prediction on 2026-08-24: `v0.2.0` is cut, so these numbers have been
-# read from outside this repository. (This paragraph argued from "there
-# are ZERO git tags today" until 2026-08-25, which was true when it was
-# written and is the kind of claim that expires without anything
-# noticing.) A binary whose `--version` disagrees with the archive it
-# shipped in is the kind of thing that is discovered by a user rather
-# than by CI.
+# `VERSION` is a file because the Cargo workspace and the tree-sitter
+# manifests can't import an Axiom module. One exported constant for the
+# Axiom sites would still help, alongside this.
 #
-# THE OTHER HALF OF P6 IS NOW HELD, ELSEWHERE. This paragraph used to
-# read "what this gate still does NOT hold is ... a shipped binary
-# names its VERSION and not its COMMIT, so two builds of different
-# trees at one version are indistinguishable to whoever has the
-# binary." Since 2026-08-25 `axiom version` prints a BUILD ID beside
-# the version - a hash of every `.ax` byte the compiler was built
-# from, plus the commit when git can say one - and
-# `scripts/check-build-id.sh` is the gate. The split of labour is
-# exact and worth keeping straight: a version is a promise about an
-# interface and every site that states one must agree, which is this
-# file; a build id is a fact about bytes and only the binary can carry
-# it, which is that one.
-#
-# `VERSION` at the repository root is the single source of truth, and
-# it is a file rather than a constant in `self_host/` on purpose: the
-# Cargo workspace and the tree-sitter manifests cannot import an Axiom
-# module, so a shared Axiom constant would still leave eight of the
-# eleven sites ungated. A file every format can read keeps ONE number
-# authoritative for all of them. Single-sourcing the three Axiom sites
-# behind one exported constant is still worth doing and does not
-# replace this.
-#
-# THE SITES ARE NAMED WITH THEIR COUNTS, NOT DISCOVERED. A grep for the
-# current version string would pass vacuously the moment a site stopped
-# containing it, which is the exact drift this exists to catch - so each
-# site is listed with the pattern that must yield the version AND with
-# how many times it must yield it. A count rather than a floor, because
-# a floor is how `rust/Cargo.toml` could shrink from four version keys
-# to one and still pass: the survivor agrees with `VERSION`, and the
-# three that stopped matching are invisible to a test that only asks
-# whether the file said the number at all.
+# Each site is named with the pattern that must yield the version and the
+# exact number of times it must yield it. A grep for the current version
+# would pass the moment a site stopped containing it. A floor would let
+# `rust/Cargo.toml` shrink from four version keys to one and still pass,
+# because the survivor agrees and the three lost keys are invisible.
 
 set -euo pipefail
 
@@ -82,22 +44,17 @@ if [[ ! "$want" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
 fi
 echo "== VERSION says $want =="
 
-# The readers, the writers and the site list all live in one file, which
-# `scripts/bump-version.sh` sources too. That is the point: the bump and
-# the check cannot disagree about what the sites ARE, because there is
-# only one list. See scripts/lib/version-sites.sh.
+# The readers, the writers and the site list live in
+# scripts/lib/version-sites.sh, which `scripts/bump-version.sh` sources
+# too, so the bump and the check share one list.
 source "$(dirname "${BASH_SOURCE[0]}")/lib/version-sites.sh"
 
 # <file> <expected-count> <extractor>. The extractor prints every
 # version this file states, one per line.
 #
-# `README.md` and `docs/reference.md` are here because they quote the
-# REPL banner, which contains the version, and both were bumped by
-# hand. README states it TWICE since 2026-08-25: the REPL banner and
-# the `axiom version` line in CLI Commands, which now shows the build
-# id beside the version. The count is what catches a third appearing. The gate a reader would assume covers them does not:
-# `check-repl-selfhost.sh` drives the REPL as `repl --no-banner`, so the
-# two lines those documents pin are the two lines that gate never sees.
+# The `ax_version` sites quote the REPL or `axiom version` banner, and
+# the count catches a new copy. `check-repl-selfhost.sh` drives the
+# REPL as `repl --no-banner`, so it never sees these lines.
 SITES="$VERSION_SITES"
 
 extract() { "$2" < "$1" || true; }
@@ -140,9 +97,8 @@ echo "     $total sites over $(printf '%s' "$SITES" | grep -c .) files"
 
 echo
 echo "== the built compiler reports it too =="
-# The literal agreeing with `VERSION` is not the same claim as the
-# BINARY agreeing with it - that is `22f2c19`'s lesson, where a version
-# assertion passed on a compiler that could have printed anything.
+# The literals agreeing with `VERSION` is a separate claim from the
+# binary agreeing with it.
 gate_build_axc axc
 got="$("$axc" version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
 if [[ "$got" != "$want" ]]; then
@@ -154,19 +110,13 @@ fi
 
 echo
 echo "== negative probe: every extractor sees a disagreement =="
-# A gate that has never been observed red is not evidence. This mutates
-# a copy of EVERY named file and requires its own extractor to read the
-# mutation back - all four extractors and all eleven sites, where the
-# first version of this probe ran one extractor over one file and left
-# the other three unexercised.
-#
-# The count is asserted on the mutant too, so an extractor that
-# half-matches - reading three of `rust/Cargo.toml`'s four keys, say -
-# fails here rather than in six months.
+# Mutate a copy of every named file and require its extractor to read
+# the mutation back, so every extractor and site is seen to go red. The
+# count is checked on the mutant too, so an extractor that reads three of
+# `rust/Cargo.toml`'s four keys fails here.
 probed=0
-# The dots are escaped: an unescaped `0.2.0` is a regex matching
-# `0X2Y0`, so the mutation would land in places the assertions never
-# look and the probe would be measuring its own sloppiness.
+# Escape the dots: an unescaped `0.2.0` is a regex matching `0X2Y0`, so
+# the mutation could land where the assertions never look.
 want_re="$(printf '%s' "$want" | sed 's/\./\\./g')"
 while IFS='|' read -r file expect fn _writer; do
   [[ -z "$file" ]] && continue
@@ -193,22 +143,17 @@ echo "     $probed extractor/site pairs observed red"
 
 echo
 echo "== the support window names this minor and the next =="
-# Newest-release-only, formalised as a per-minor window (item 02's
-# bus-factor work): each minor line is supported until the next minor
-# lands, one supported minor at a time, no LTS. `SECURITY.md` states
-# it; this section holds it. The minor and the next minor are DERIVED
-# from `VERSION` here, so a minor cut that leaves the old window behind
-# fails - and moving the paragraph is deliberately a hand edit, not a
-# `bump-version.sh` rewrite: re-affirming the policy is the point, and
-# a script cannot do it. Patch bumps need no touch: the minor and the
-# next do not move under them.
+# `SECURITY.md` states the support window: each minor line is supported
+# until the next minor lands, one at a time, with no LTS. The minor and
+# the next are derived from `VERSION`, so cutting a minor without moving
+# the window fails. `bump-version.sh` leaves the paragraph alone: moving
+# it is a hand edit that re-affirms the policy. Patch bumps don't move it.
 major="${want%%.*}"; minor_n="${want#*.}"; minor_n="${minor_n%%.*}"
 minor="$major.$minor_n"; next="$major.$((10#$minor_n + 1)).0"
 check_window() { # <file> -> 0 when its window paragraph holds
   local f="$1" para
-  # Lines are joined before the search: the phrases are claims about
-  # words, and a reflow must not read as a policy change (nor a policy
-  # change hide as a reflow - the mutants below move words, not lines).
+  # Lines are joined before the search, so a reflow doesn't read as a
+  # policy change. The mutants below move words, not lines.
   para="$(sed -n '/^Support window:/,/^$/p' "$f" | tr '\n' ' ')"
   [[ -n "$para" ]] || return 1
   grep -qF "the $minor line" <<<"$para" || return 1
@@ -235,11 +180,8 @@ win_probe() { # <label> <mutant>
   fi
 }
 win_mutant() { # <label> <out> <sed-expr>...: mutate, refuse an unchanged
-  # mutant, then probe. The guard is load-bearing, not hygiene: a
-  # reflow of SECURITY.md can move the words a `-e` anchors on, and a
-  # mutation that changes no byte is a probe that passes while proving
-  # nothing - measured while writing this, on the wrapped "one
-  # supported minor" sentence.
+  # mutant, then probe. A reflow of SECURITY.md can move the words an
+  # `-e` anchors on, and a mutation that changes no byte proves nothing.
   local label="$1" out="$2"; shift 2
   sed "$@" SECURITY.md > "$out"
   if cmp -s "$out" SECURITY.md; then

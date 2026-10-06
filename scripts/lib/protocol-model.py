@@ -1086,7 +1086,7 @@ F("trySender", ["ch", "s", "n"], ["k", "r"], None, [
     ("call", None, "chanClose", ["ch"]),
     ("ret", "0"),
 ])
-# Polls: closed is read BEFORE the empty try, so an empty try after a
+# Polls: closed is read before the empty try, so an empty try after a
 # close has seen everything the channel will ever hold.
 F("tryReceiver", ["ch"], ["c", "r"], None, [
     ("L", "loop"),
@@ -1292,9 +1292,9 @@ def scenarios(long=False):
     out.append(S("chan threads cap 1: 1 sender x2, 1 receiver", "chan", chan_mem(1),
                  [("sender", (0, 1, 2, 1)), ("receiver", (0,))], pids=[1, 1]))
     # A forked binding killed anywhere, the channel's lock held or not
-    # (AN-10). Every live binding must still finish: a waiter finds the
-    # holder dead when a slice times out after its parent has reaped it -
-    # or at once, when the waiter IS that parent - so timeouts and reaps
+    # (AN-10). Every live binding must still finish. A waiter finds the
+    # holder dead when a slice times out after its parent has reaped it,
+    # or at once when the waiter is that parent, so timeouts and reaps
     # count as progress. A closer keeps the stream finite when the sender
     # dies before it sends.
     out.extend(chan_kill_scenarios())
@@ -1349,7 +1349,7 @@ def chan_kill_scenarios():
     kp = ("n", "t", "r")
     return [
         # AN-10 itself: the timed receive gives up at its first answer that
-        # is not a word, which must now come - poisoned or timed out.
+        # is not a word, which must come, poisoned or timed out.
         an10_scenario(),
         S("chan cap 1: a killable sender, a receiver and a closer", "chan", chan_mem(1),
           [("sender", (0, 1, 1, 0)), ("watchingReceiver", (0,)), ("closer", (0,))], killable=(0,),
@@ -1380,9 +1380,10 @@ def chan_kill_scenarios():
 
 
 # AN-10: a sender killed holding the channel's lock, beside a timed
-# receive that gives up at its first answer that is not a word. Before
-# the lock named its holder this was a deadlock the model found; now it
-# must be clean, and the planted regressions below must find it again.
+# receive that gives up at its first answer that is not a word. The lock
+# word names its holder, so a waiter can find that holder dead: the
+# scenario must be clean, and the planted regressions below must find it
+# stuck.
 def an10_scenario():
     return Scenario("chan cap 1: a killable sender, a timed receiver (AN-10)", "chan", chan_mem(1),
                     [("sender", (0, 1, 1, 1)), ("timedReceiverOnce", (0, 1, scratch(1, 1)))], killable=(0,),
@@ -2339,8 +2340,8 @@ def d_plain_lock(fns):
             [("uload", "r", "ch"), ("if", "r == 0", "slow"), ("astore", "ch", "me")])
 
 
-# AN-10's regressions: each takes back one part of the fix, and the
-# dead-holder scenarios must find the channel stuck again.
+# AN-10's regressions: each removes one part of the dead-holder handling,
+# and the dead-holder scenarios must find the channel stuck.
 def d_chan_no_dead_test(fns):
     replace(fns, "chanHolderDead", [("set", "owner", "w // 4", "(/ w 4)")], [("ret", "0")])
 
@@ -2544,8 +2545,8 @@ def check_source(stdlib, verbose=True):
         for sname in NOT_MODELLED[f]:
             if sname not in fns[f]:
                 failures.append("%s %s: listed in NOT_MODELLED and gone from the source" % (f, sname))
-        # Every atomic and every wait or wake - and in Task.ax every process
-        # operation - sits in a function the model transcribes or a wrapper
+        # Every atomic, wait and wake, and in Task.ax every process
+        # operation, sits in a function the model transcribes or a wrapper
         # it checks. Comments are blanked first.
         code_only = re.sub(r";[^\n]*", lambda m: " " * len(m.group(0)), texts[f])
         ops = r"__atomic_\w+|sysWaitWord\w*|sysWakeWord\w*" + ("|" + PROCESS_OPS[f] if f in PROCESS_OPS else "")
@@ -2569,8 +2570,8 @@ def check_source(stdlib, verbose=True):
 # answer to be the model's.
 # ---------------------------------------------------------------------
 # `instrument DIR` rewrites DIR/Chan.ax (a copy of the standard library)
-# so that every operation on a channel word - each atomic, each plain
-# chanGet/chanPut, each wait and each wake - is made under a trace lock
+# so that every operation on a channel word (each atomic, each plain
+# chanGet/chanPut, each wait and each wake) is made under a trace lock
 # and recorded: `<pid> <op> <word> <a> <b> <answer>`, op 1 load, 2
 # store, 3 add, 4 cas, 5 get, 6 put, 7 a wait begins (a expected,
 # answer the word's value then), 8 that wait returned (answer its code),

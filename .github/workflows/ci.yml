@@ -1,37 +1,22 @@
 name: CI
 
-# Staged so that a cheap failure is reported before an expensive one:
-# formatting and lints gate the test job, and the test job gates the
-# cross-platform matrix. Every job needs `llc` and a linker, because the
-# interesting tests compile and *run* Axiom programs rather than only
-# type-checking them - a syscall lowering that assembles but returns the
-# wrong value is exactly the class of bug a type-check-only CI misses.
+# Staged so a cheap failure reports before an expensive one: every
+# expensive job needs `grammar`, which needs no compiler. Every job that
+# tests needs `llc` and a linker, because the tests compile and run Axiom
+# programs. A syscall lowering that assembles but returns the wrong value
+# is the bug a type-check-only CI misses.
 
 on:
   push:
-    # `trunk` is this repository's only branch. This said `main` from
-    # the day the workflow was added, so no push had ever triggered a
-    # run - the gates were green only on pull requests and local
-    # batteries, and a week of self-hosting work landed with CI
-    # structurally silent. A trigger that names a branch that does
-    # not exist is indistinguishable in the checks tab from a quiet
-    # success.
+    # `trunk` is this repository's only branch. A trigger naming a branch
+    # that doesn't exist looks like a quiet success in the checks tab.
     branches: [trunk]
-    # THE WEBSITE IS NOT THE COMPILER. `web/` is a React app with its
-    # own build, its own claim checker and its own deploy workflow
-    # (`pages.yml`); a push that touches only it has nothing this
-    # battery can measure, and it was running all five legs - about
-    # half an hour of runner time per commit, and website commits come
-    # in bursts.
+    # `web/` has its own build, claim checker and deploy workflow
+    # (`pages.yml`), and nothing in this battery measures it.
     #
-    # STATED AS AN EXCLUSION, NOT AN INCLUSION, and that is the whole
-    # care here. A `paths:` allowlist is a second list of what the
-    # compiler is made of, and the day someone adds a directory the
-    # list does not name, CI goes silent over it - the same shape as
-    # the `main`/`trunk` defect above, which left a week of
-    # self-hosting work with CI structurally quiet. `paths-ignore`
-    # fails the other way: a new directory runs the battery until
-    # somebody decides it should not.
+    # Written as `paths-ignore` because a `paths:` allowlist goes silent
+    # over any directory it doesn't name. With `paths-ignore`, a new
+    # directory runs the battery until someone decides it shouldn't.
     paths-ignore:
       - 'web/**'
       - '.github/workflows/pages.yml'
@@ -39,97 +24,47 @@ on:
     paths-ignore:
       - 'web/**'
       - '.github/workflows/pages.yml'
-  # The nightly and the button exist for TWO jobs. `seed-lineage-full`:
-  # replaying every row of `bootstrap/CHAIN` from the Rust anchor is
-  # forty minutes and needs cargo, which is a poor neighbour for a pull
-  # request and the wrong cadence for a table that moves at a reseed.
-  # And `long-evidence`: the fuzzer's full budget and the executable
-  # model's every trace, which a push runs a sample of.
-  # Every other job `needs: grammar`, and `grammar` is skipped on these
-  # two triggers, so they run nothing else - a skipped `needs` skips
-  # its dependents.
+  # The nightly and the button run two jobs. `seed-lineage-full` replays
+  # every row of `bootstrap/CHAIN` from the Rust anchor, which is slow and
+  # needs cargo. `long-evidence` runs the fuzzer's full budget and every
+  # trace of the executable model. Every other job needs `grammar`, which
+  # is skipped on these triggers, so nothing else runs.
   schedule:
     - cron: '17 4 * * *'
   workflow_dispatch:
 
-# No `env:` block. It used to set `CARGO_TERM_COLOR` and `RUSTFLAGS: -D
-# warnings`, both of which outlived the Rust compiler they configured.
-# Cargo is back - the FFI workspace under `rust/` is a cargo workspace,
-# and the `ffi` job below builds and tests it - but a repository-wide
-# `-D warnings` is not the promise those crates want, and the
-# reproducibility property the old block claimed is gated for real by
-# `scripts/check-reproducible.sh`.
+# No `env:` block. A repository-wide `RUSTFLAGS: -D warnings` isn't the
+# promise the FFI crates under `rust/` want, and reproducibility is gated
+# by `scripts/check-reproducible.sh`.
 
-# The token every job runs with. There was no `permissions:` block
-# anywhere in this file, which does not mean "no permissions" - it means
-# each job holds whatever the repository default grants, and for a
-# repository created before GitHub changed that default it is
-# read/write on `contents`. That token sat in the environment of the
-# `grammar` job below while it ran an unpinned npm package's install
-# script, on every pull request, before any other job started.
-#
-# `contents: read` is enough for every job, checked rather than
-# assumed: every one of them checks the tree out, provisions a compiler
-# from `bootstrap/`, and runs a script under `scripts/`. None pushes,
-# opens a comment, cuts a release or reads a secret - `grep -nE
-# 'GITHUB_TOKEN|secrets\.|id-token|packages:'` over this file and
-# .github/actions/provision/action.yml matches nothing, and no job
-# uploads an artifact. Adding a job that needs more should raise the
-# scope on THAT job, not here.
+# Every job gets `contents: read`. Without this block a job holds the
+# repository default, which can be read/write. No job pushes, comments,
+# releases, reads a secret or uploads an artifact; the one token use is
+# `scope`'s read-only `gh api` calls with `github.token`. Outside this
+# comment, `grep -nE 'GITHUB_TOKEN|secrets\.|id-token|packages:'` over
+# this file and .github/actions/provision/action.yml matches nothing.
+# Raise the scope on the one job that needs more.
 permissions:
   contents: read
 
-# Third-party and first-party actions alike are pinned to a commit SHA
-# with the version in a trailing comment, because a tag is a mutable ref
-# on GitHub: `v4` is deliberately re-pointed at every v4.x release, and
-# even a full `v4.4.0` can be force-moved by whoever holds the
-# repository. The 2025 tj-actions/changed-files compromise was exactly
-# that - every version tag moved to one malicious commit - so a tag pin
-# would not have helped and a SHA pin would have. `dtolnay/rust-toolchain`
-# is worse than a tag: `stable` is a BRANCH, force-pushed on every Rust
-# release, so `@stable` was running whatever it pointed at that morning.
-# Update these by editing both the SHA and the comment together.
+# Every action is pinned to a commit SHA, with the version in a trailing
+# comment, because a tag is a mutable ref. `v4` moves with every v4.x
+# release, and even `v4.4.0` can be force-moved, so a compromised action
+# repository can point every tag at one malicious commit.
+# `dtolnay/rust-toolchain@stable` is a branch, force-pushed on every Rust
+# release. Update the SHA and the comment together.
 
 jobs:
-  # The cheap gate that fails first. It used to be `cargo fmt` and
-  # `cargo clippy` over the Rust compiler; with that compiler deleted,
-  # the equivalent cheap check is the one thing here that needs no
-  # compiler at all - the tree-sitter grammar must still parse every
-  # `.ax` file in the repository. A grammar that has drifted from the
-  # parser is the failure this catches before anything expensive runs.
-  # WHAT THIS CHANGE COSTS A DOCUMENTATION COMMIT, AND WHY IT EXISTS.
-  # `paths-ignore` above skips a run only when EVERY changed file
-  # matches it, which is the correct rule and is why it did nothing on
-  # the two website commits that provoked this job: each also touched
-  # `CHANGELOG.md`, and one touched `docs/`. Two README-only pushes on
-  # 2026-09-04 each spent about two hours of runner time across five
-  # legs to re-prove a compiler nobody had changed.
+  # Decides whether a change touched anything outside the documentation
+  # surface. The answer gates `grammar`, which every expensive job needs.
+  # `CHANGELOG.md` and `docs/` can't go in `paths-ignore` because gates
+  # read them, so a documentation change runs the `docs` job instead of
+  # the platform legs, the FFI matrix and the bootstrap and seed jobs.
   #
-  # The obvious fix - add `CHANGELOG.md` and `docs/**` to
-  # `paths-ignore` - is wrong, and measurably so. Both are gate INPUTS:
-  # `check-doc-drift.sh` re-renders this repository's `doc-gate:render`
-  # blocks with the compiler and resolves every `tests/` path named in
-  # `CHANGELOG.md`, and `check-gate-lib.sh` reads both. Ignoring them
-  # would make those gates structurally silent, which is the same
-  # failure as the `main`/`trunk` trigger that left a week of work with
-  # CI quiet.
-  #
-  # So the split is by SCOPE rather than by suppression. This job asks
-  # one question - did this change touch anything outside the
-  # documentation surface? - and the answer gates `grammar`, which
-  # every expensive job already needs. A documentation change still
-  # runs the gates that read documentation; it stops running five
-  # platform legs, the FFI matrix, the bootstrap ladder and the seed
-  # jobs.
-  #
-  # IT FAILS THE SAFE WAY, and that is the whole care here. `docs_only`
-  # is true only when EVERY changed path matches the list below, so a
-  # path the list does not name makes it FALSE and the full battery
-  # runs. The list is therefore not a second description of what the
-  # compiler is made of - the failure mode a `paths:` allowlist has -
-  # because being absent from it costs runner time rather than
-  # coverage. Anything that cannot be enumerated (a force push, a first
-  # push, an API that will not answer) is also false.
+  # It fails safe: `docs_only` is true only when every changed path
+  # matches the list below. An unlisted path, or a change that can't be
+  # enumerated (a force push, a first push, an API that won't answer),
+  # runs everything.
   scope:
     name: What this change touches
     if: github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'
@@ -147,10 +82,9 @@ jobs:
         run: |
           set -uo pipefail
 
-          # The changed-file list, from the API rather than a checkout:
-          # answering this question with `git diff` needs the history
-          # that `fetch-depth: 0` buys, which on this repository is
-          # slower than the job it is deciding whether to skip.
+          # The changed-file list comes from the API: `git diff` would
+          # need `fetch-depth: 0`, which is slower here than the job it
+          # might skip.
           if [[ -n "${PR:-}" ]]; then
             files="$(gh api --paginate "repos/$REPO/pulls/$PR/files" \
                        --jq '.[].filename' 2>/dev/null)" || files=""
@@ -171,16 +105,12 @@ jobs:
           echo "changed files:"
           printf '%s\n' "$files" | sed 's/^/    /'
 
-          # THE DOCUMENTATION SURFACE, spelled out. A path here is one
-          # that cannot change what the compiler does. `web/**` is
-          # already excluded by `paths-ignore` and is listed anyway,
-          # because this job must reach the right answer for a commit
-          # that touches `web/` AND `CHANGELOG.md` - which is exactly
-          # the commit that provoked it.
-          #
-          # `docs/**` is here and `scripts/**` is NOT: a gate script is
-          # the compiler's test surface, and a change to one must run
-          # it. `tests/**` is not here for the same reason.
+          # The documentation surface: paths that can't change what the
+          # compiler does. `web/**` is listed although `paths-ignore`
+          # excludes it, so a commit touching both `web/` and
+          # `CHANGELOG.md` gets the right answer. `scripts/**` and
+          # `tests/**` aren't here: a change to a gate or a fixture must
+          # run the gates.
           outside=0
           while IFS= read -r f; do
             [[ -z "$f" ]] && continue
@@ -203,13 +133,11 @@ jobs:
 
   grammar:
     name: Tree-sitter grammar
-    # Not on the nightly or the button: those are `seed-lineage-full`'s,
-    # and skipping this job skips the nine that need it.
-    #
-    # AND NOT ON A DOCUMENTATION-ONLY CHANGE, which is the same lever
-    # used for the same reason: every expensive job needs this one, so
-    # one `if:` here skips all of them. `scope` decides, and it decides
-    # false whenever it cannot be sure - see its header.
+    # The cheap gate that fails first, and it needs no compiler. Skipped
+    # on the nightly and the button, which belong to `seed-lineage-full`
+    # and `long-evidence`, and on a documentation-only change. Every
+    # expensive job needs this one, so one `if:` here skips them all.
+    # `scope` answers false whenever it can't be sure.
     needs: scope
     if: >-
       github.event_name != 'schedule'
@@ -219,52 +147,30 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       # The CLI the grammar gate shells out to (npm wrapper as locked,
-      # native binary against a recorded hash). The `docs` job uses this
-      # same action before its own tree-sitter step: it runs that gate
-      # on the documentation-only path where this job is skipped, and a
-      # gate whose CLI was never installed fails rather than skips.
+      # native binary against a recorded hash). The `docs` job installs it
+      # too: it runs the same gate where this job is skipped, and a gate
+      # whose CLI is missing fails.
       - uses: ./.github/actions/tree-sitter
 
-      # The grammar has to accept every `.ax` file in the repository.
-      # Nothing here compiles anything: the check parses checked-in
-      # sources, so only the tree-sitter CLI is needed.
+      # The grammar must accept every `.ax` file in the repository. The
+      # check parses checked-in sources, so only the tree-sitter CLI is
+      # needed.
       - name: Every .ax file parses under the checked-in grammar
         run: ./scripts/check-tree-sitter.sh
 
-      # THIS FILE IS MAINTAINED BY HAND AND DRIFTS, so something has to
-      # hold it to the tree. `run-gates.sh` globs `scripts/check-*.sh`
-      # and therefore cannot drift; this file names its gates one at a
-      # time, because it also decides which job and which platform each
-      # one belongs to - and on 2026-09-04 seven of the 78 gate scripts
-      # turned out to be named by no step at all. All seven passed,
-      # which is the point: a gate no job runs is indistinguishable
-      # from a gate that passes, and this file already says so twice in
-      # the words of the last two people who found it.
-      #
-      # It runs here, in the cheap job, because it reads two lists of
-      # file names and needs no compiler.
+      # This file names its gates one at a time, because it also decides
+      # each gate's job and platform, so it can drift. `run-gates.sh`
+      # globs `scripts/check-*.sh` and can't. A gate no step runs looks
+      # exactly like a gate that passes. It runs in the cheap job because
+      # it reads two lists of file names and needs no compiler.
       - name: Every gate in the tree is run by a step in this file
         run: ./scripts/check-ci-coverage.sh
 
-  # THE OTHER HALF OF `scope`, AND THE REASON IT IS NOT A SUPPRESSION.
-  # Skipping the platform legs on a documentation change is only
-  # defensible if the claims a documentation change CAN break are still
-  # checked. They are, here, on one runner: this job is what the five
-  # legs were running that a `CHANGELOG.md` edit could actually falsify.
-  #
-  # It is the mirror image of `scope`'s rule. `scope` names the paths
-  # that cannot change what the compiler does; this job runs the gates
-  # that read those paths. A gate belongs here when its subject is a
-  # document - `check-doc-drift.sh` re-renders every `doc-gate:render`
-  # block with the compiler and resolves every `tests/` path named in
-  # `CHANGELOG.md`; `check-version.sh` reads the nineteen version
-  # sites, five of which are documents; `check-stdlib-api.sh` rebuilds
-  # `docs/stdlib-api.md` with `axdoc` and diffs it; `check-tree-sitter.sh`
-  # parses the `.ax` blocks the documents carry.
-  #
-  # It builds the compiler, because most of those gates need one. That
-  # is about eight minutes against the two hours of runner time the
-  # matrix spends, which is the whole point of the split.
+  # The other half of `scope`: on a documentation-only change, the gates
+  # that read documents run here, on one runner. A gate belongs here when
+  # its subject is a document, as with `check-doc-drift.sh`,
+  # `check-version.sh`, `check-stdlib-api.sh` and `check-tree-sitter.sh`.
+  # It builds the compiler, because most of them need one.
   docs:
     name: Documentation gates
     needs: scope
@@ -286,22 +192,18 @@ jobs:
       - name: The documents state what the tree does
         run: ./scripts/check-doc-drift.sh
 
-      # Every site states the same version - README.md, SECURITY.md and
-      # docs/ are five of the nineteen.
+      # Several of the version sites are documents: README.md, SECURITY.md
+      # and docs/.
       - name: Every site states the same version
         run: ./scripts/check-version.sh
 
-      # `docs/stdlib-api.md` is `axdoc`'s output, so it is a golden
-      # rather than a document, and an edit to it by hand is a drift
-      # this catches.
+      # `docs/stdlib-api.md` is `axdoc`'s output, so a hand edit to it is
+      # drift this catches.
       - name: The stdlib API reference is what the library says
         run: ./scripts/check-stdlib-api.sh
 
-      # The documents carry `.ax` blocks, and the grammar must parse
-      # them. `grammar` is skipped on this path, so this is the one
-      # place that still asks - and the CLI it shells out to is
-      # installed here rather than inherited, because nothing earlier
-      # in this job provides it.
+      # The documents carry `.ax` blocks, and the grammar must parse them.
+      # `grammar` is skipped on this path, so the CLI is installed here.
       - uses: ./.github/actions/tree-sitter
       - name: Every .ax file parses under the checked-in grammar
         run: ./scripts/check-tree-sitter.sh
@@ -328,28 +230,27 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # ninety-five of the gates below build the compiler under test from
-    # `self_host/`, each producing a compiler that emits identical IR.
-    # One step builds it; `gate_build_axc` reuses it while the tree's
-    # source stamp matches, rebuilds when it does not, and REFUSES when
-    # the path names no build product at all - so an ablation of
-    # `self_host/` stays visible to every one of them and a mis-set
-    # variable cannot read as a quiet success.
-    # `scripts/check-gate-lib.sh` is the probe that proves that.
+    # Ninety-five of the gates below build the compiler under test from
+    # `self_host/`. One step builds it, and `gate_build_axc` reuses it
+    # while the tree's source stamp matches, rebuilds when it doesn't, and
+    # refuses a path that names no build product. So an ablation of
+    # `self_host/` stays visible to every gate, and a mis-set variable
+    # can't read as a quiet success. `scripts/check-gate-lib.sh` is the
+    # probe.
     env:
       AXIOM_AXC: ${{ github.workspace }}/.axiom-shared/axc
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      # `llc` is not on the default PATH on either runner image, and the
+      # `llc` isn't on the default PATH on either runner image, and the
       # compiler shells out to it by name. `llvm-readobj` comes from the
-      # same package and is what the cross-target gate uses to reject
+      # same package; the cross-target gate uses it to reject
       # non-position-independent objects.
       - uses: ./.github/actions/provision
 
-      # Before anything that needs it. A failure here is a compiler that
-      # does not build from the tree, which every gate below would
-      # otherwise report one at a time and more slowly.
+      # Built once, before anything that needs it. A failure here is a
+      # compiler that doesn't build from the tree, which every gate below
+      # would otherwise report one at a time.
       - name: Build the compiler under test once
         id: compiler
         run: ./scripts/build-shared-axc.sh "$AXIOM_AXC"
@@ -358,221 +259,165 @@ jobs:
       # cancellation still stops the job, and a failed gate keeps its
       # failed outcome while later gates run.
 
-      # And immediately, the probe that the sharing above cannot hide a
-      # change to `self_host/`. It plants a builder that CANNOT BUILD,
-      # so "the cache was used" and "the cache was not" are the only two
-      # outcomes and each is read directly rather than inferred.
+      # First, the probe that the shared build can't hide a change to
+      # `self_host/`. It plants a builder that can't build, so whether the
+      # cache was used is read directly.
       - name: The shared artifact cannot hide a source change
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-gate-lib.sh
 
-      # One number. The version is a bare literal in eleven places
-      # across five file formats, and nothing held them to a source of
-      # truth outside the compiler - `check-driver.sh` compares them to
-      # what the BINARY prints, which a tree agreeing on `9.9.9` passes.
-      # `VERSION` is what the tag, the archive name and the installer
-      # read, so it is what the literals must match. That matters more
-      # now that a tag makes those numbers something a stranger reads.
+      # The version is a bare literal in every file
+      # `scripts/lib/version-sites.sh` lists, in several formats.
+      # `check-driver.sh` compares some of them to what the binary prints,
+      # which a tree agreeing on `9.9.9` passes. `VERSION` is what the
+      # tag, the archive name and the installer read, so it is what the
+      # literals must match.
       - name: Every site states the same version
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-version.sh
 
-      # The other half of that one. `check-version.sh` holds every site
-      # that STATES the version to `VERSION`, which is a promise about
-      # an interface; this holds the binary to naming the TREE it was
-      # built from, which is a fact about bytes. Without it two builds
-      # of two different trees at one version are the same binary to
-      # whoever holds one.
+      # `check-version.sh` holds every site that states the version, a
+      # promise about an interface. This holds the binary to naming the
+      # tree it was built from, a fact about bytes. Without it, two builds
+      # of different trees at one version can't be told apart.
       - name: A shipped binary names the tree it was built from
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-build-id.sh
 
-      # The seed's supply chain, and it runs HERE rather than beside
-      # `seed-provenance` for two reasons. It needs no compiler, no
-      # `llc` and no history - it is a second of shell over the tree -
-      # so it does not belong in a seven-minute job with `fetch-depth:
-      # 0`. And this matrix is three operating systems, which is where
-      # `scripts/lib/seed-sums.sh` gets exercised under the bash 3.2 the
-      # macOS runner ships, on the one code path a fresh clone with no
-      # Axiom toolchain executes.
+      # The seed's supply chain. It runs here, not beside
+      # `seed-provenance`, because it needs no compiler, `llc` or history,
+      # and this matrix exercises `scripts/lib/seed-sums.sh` under the
+      # bash 3.2 macOS ships: the path a fresh clone runs.
       #
-      # It is the gate `bootstrap/THREATS.md` rows 1, 10 and 11 name.
-      # A `yes` row naming a gate this file does not run is exactly what
-      # its section 3 refuses, so removing this step turns those three
-      # rows red rather than turning them into quiet fiction.
+      # It is the gate `bootstrap/THREATS.md` rows 1, 10 and 11 name. That
+      # file's section 3 refuses a `yes` row naming a gate this file
+      # doesn't run, so removing this step turns those rows red.
       - name: The seed's supply chain is one fact, and its sums are not vacuous
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-seed-supply-chain.sh
 
-      # The bus-factor mitigation: after the clone, the checkout plus
-      # the host's `llc` and `cc` are sufficient, with no maintainer on
-      # the other end. This holds the bootstrap closure to that - the
-      # script may source exactly `scripts/lib/seed-sums.sh` and invoke
-      # no network tool - so a new dependency fails here on every OS
-      # rather than stranding a stranger. No compiler, no toolchain, a
-      # second of shell; the network-disabled build it records was
-      # measured by hand in podman, not in this step.
+      # The bus-factor mitigation: after the clone, the checkout plus the
+      # host's `llc` and `cc` are enough, with no maintainer on the other
+      # end. This holds the bootstrap closure to that: the script may
+      # source only `scripts/lib/seed-sums.sh` and invoke no network tool,
+      # so a new dependency fails here on every OS. The network-disabled
+      # build it records is checked by hand in podman, not in this step.
       - name: The bootstrap needs no maintainer to run
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-offline-bootstrap.sh
 
-      # These cases were also run by the deleted Rust test suite, as
-      # `stdlib_golden`. This script is now their only runner, which is
-      # the reason it was kept alive alongside that suite for so long.
+      # Every case in `tests/stdlib/`, compiled, run and compared with its
+      # `.out`, `.exit` and `.err` goldens.
       - name: Standard-library golden tests
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/run-stdlib-tests.sh
 
-      # `axiom test` - the runner and the assertions a stranger writes
-      # their own tests with. It sits beside the goldens above rather
-      # than replacing them: the goldens pin a whole program's output
-      # byte for byte, which is the right shape for a fixture whose
-      # subject IS what it printed, and no assertion library replaces
-      # that. What this adds is the shape those goldens cannot express -
-      # a failure that names itself, and a run that carries on past one.
-      #
-      # Its negative probe is the part worth the cycles: every
-      # `assertEq` in the passing fixture is mutated in turn and each
-      # mutant must exit 1 with a FAIL line. A test runner whose tests
-      # cannot fail is the exact defect a test runner is for.
+      # `axiom test`: the runner and the assertions users write their own
+      # tests with. The goldens above pin a whole program's output byte
+      # for byte. This adds a failure that names itself and a run that
+      # carries on past one. Its negative probe mutates each `assertEq` in
+      # the passing fixture in turn, and each mutant must exit 1 with a
+      # FAIL line: a test runner whose tests can't fail checks nothing.
       - name: The test runner, its assertions and their isolation
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-test-runner.sh
 
-      # AX3040 is an error since 2026-08-25, and the thing that made
-      # that possible is an analysis that tells a diverging function
-      # from a cast. This asserts the DISTINCTION rather than the
-      # diagnostic - the diagnostics corpus already pins the text, the
-      # span and the severity. Its probe changes ONE WORD in the
-      # accepted program and requires it to be refused, because an
-      # analysis that answered "diverges" for everything would pass
-      # every acceptance check and refuse nothing.
+      # AX3040 is an error, which rests on an analysis that tells a
+      # diverging function from a cast. This checks the distinction; the
+      # diagnostics corpus pins the text, span and severity. Its probe
+      # changes one word in the accepted program and requires a refusal,
+      # because an analysis that answered "diverges" for everything would
+      # pass every acceptance check.
       - name: A fabricated value is refused and a diverging one is not
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-diverging-tyvar.sh
 
-      # `fldClass` has three answers and the third - UNCLASSIFIABLE -
-      # forces the whole block to the LEAF shape, so a field type it
-      # does not know costs the record's OTHER fields their reference
-      # map. `Vec` became a writable type without an arm there, and a
-      # record holding one read shape word 8 where the same record
-      # with an `Int` in that slot reads 262152: the String sibling's
-      # share was never handed back, with no diagnostic and every gate
-      # green. The table has four rows so that the equality cannot
-      # pass vacuously - two of them must read a DIFFERENT number.
+      # `fldClass` has three answers. The third, unclassifiable, forces
+      # the whole block to the leaf shape, so an unknown field type
+      # silently costs the record's other fields their reference map. A
+      # record holding a `Vec` must map exactly as one holding an `Int` in
+      # that slot. The table has four rows so the equality can't pass
+      # vacuously: two must differ.
       - name: A Vec field maps exactly as the Int it replaces
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-vec-field-shape.sh
 
       # `(region r body)` is a checked scope: the waterline comes back
-      # when the body ends, the value and every store out of it must
-      # be a scalar (AX3059), a nested region may not reuse an open
-      # name (AX3058), and a program that writes no region emits no
-      # region cell. The gate's fourth check rebuilds the compiler with
-      # the refusal ablated and shows the refused store reading the
-      # next allocation's bytes - what AX3059 stands between a program
-      # and.
+      # when the body ends, the value and every store out of it must be a
+      # scalar (AX3059), a nested region may not reuse an open name
+      # (AX3058), and a program with no region emits no region cell. The
+      # fourth check ablates the refusal and shows the refused store
+      # reading the next allocation's bytes.
       - name: A region is a checked scope, and the refusal is not vacuous
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-region-scope.sh
 
-      # `tyCompat` compared types and recorded nothing, so a minted
-      # placeholder matched anything and went on matching anything.
-      # Sound for a value read once; unsound for one BOUND and used
-      # twice, which is what a container is - a let-bound box written
-      # at `Int` and read at `String` checked OK and exited 139, with
-      # no `cast` written anywhere. A placeholder from INSTANTIATION
-      # now binds. Two halves: the unsound shapes must be refused, and
-      # the correct ones - including two boxes pinned to DIFFERENT
-      # types in one scope - must still be accepted, or a checker that
-      # refused everything would pass.
+      # A type placeholder from instantiation binds. An unbound one
+      # matches anything, so a let-bound box written at `Int` and read at
+      # `String` would check and then crash, with no `cast` written. Two
+      # halves: the unsound shapes must be refused, and the correct ones,
+      # including two boxes pinned to different types in one scope, must
+      # still be accepted, so a checker that refused everything fails.
       - name: A bound type placeholder stays bound
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-type-pinning.sh
 
       # A signature may name the region a reference lives in, and the
-      # escape rule refuses a store, a return or a capture whose place
-      # outlives the value. Held four ways: an annotated program and its
-      # stripped twin emit byte-identical IR; the fixtures are refused by
-      # code and name; a compiler with the pass ablated accepts them and
-      # the program it lets through reads reclaimed memory; and the
-      # two-region sweep of the design note is a band, not a number.
+      # escape rule refuses a store, return or capture whose place
+      # outlives the value. Annotated and stripped programs emit identical
+      # IR, the fixtures are refused by code and name, and an ablated
+      # compiler lets one read reclaimed memory.
       - name: Region annotations change nothing, and the escape rule refuses
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-region-escape.sh
 
-      # S4's first slice: inside a region body a value the body
-      # itself constructed needs no release, because the reset
-      # reclaims it. Six release sites gone from one fixture's IR
-      # and nothing else, the RSS flat across 300,000 regions, and
-      # an ablation that answers 0 bringing all six back.
+      # S4's first slice: a value a region body constructs needs no
+      # release, because the reset reclaims it. Six release sites leave
+      # one fixture's IR and nothing else changes, RSS stays flat, and an
+      # ablation brings them back.
       - name: In-region constructions are reset-reclaimed
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-region-reclaim.sh
 
-      # S4's second slice, args path: a call result the witness
-      # proves fresh, handed to a call inside a region body, needs
-      # no release for the same reason. Seven release sites gone
-      # from a second fixture's IR and nothing else, the RSS flat
-      # across 300,000 regions of fresh calls, and an ablation of
-      # the args-path spend bringing all seven back. A reader's
-      # result, no region, a `let`-bound result and a closure call
-      # keep theirs.
+      # S4's second slice, args path: a fresh call result passed to a call
+      # in a region body needs no release. Seven sites leave a second
+      # fixture's IR, RSS stays flat, and the ablation brings them back.
       - name: Fresh call results are reset-reclaimed as arguments
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-region-fresh.sh
 
-      # S4's second slice, scope-end path: a `let` binding whose
-      # initialiser the witness proves fresh needs no scope-end
-      # release for the same reason. Eight release sites gone from
-      # a third fixture's IR and nothing else, the RSS flat across
-      # 300,000 regions of bound fresh calls, and an ablation of
-      # the scope-end spend bringing all eight back. A reader, no
-      # region and a closure call keep theirs.
+      # S4's second slice, scope-end path: a `let` bound to a fresh call
+      # needs no scope-end release. Eight sites leave a third fixture's
+      # IR, RSS stays flat, and the ablation brings them back.
       - name: Let-bound fresh results are reset-reclaimed at scope end
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-region-fresh-let.sh
 
-      # S4's third slice, args path: a join (`if`, `cond`, `match`)
-      # whose every arm the witness proves fresh needs no release
-      # for the single value it answers. Seven release sites gone
-      # from a fourth fixture's IR and nothing else, the RSS flat
-      # across 300,000 regions of fresh joins, and an ablation of
-      # the args-path join spend bringing all seven back. A reader
-      # arm, a construction arm, no region, a `let`-bound join and
-      # a closure-call arm keep theirs.
+      # S4's third slice, args path: a join (`if`, `cond`, `match`) whose
+      # every arm is fresh needs no release. Seven sites leave a fourth
+      # fixture's IR, RSS stays flat, and the ablation brings them back.
       - name: Fresh joins are reset-reclaimed as arguments
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-region-phi.sh
 
-      # S4's third slice, scope-end path: a `let` binding whose
-      # initialiser is a join the witness proves fresh needs no
-      # scope-end release for the same reason. Eight release sites
-      # gone from a fifth fixture's IR and nothing else, the RSS
-      # flat across 300,000 regions of bound fresh joins, and an
-      # ablation of the scope-end join spend bringing all eight
-      # back. A reader arm, no region and a closure-call arm keep
-      # theirs.
+      # S4's third slice, scope-end path: a `let` bound to a fresh join
+      # needs no scope-end release. Eight sites leave a fifth fixture's
+      # IR, RSS stays flat, and the ablation brings them back.
       - name: Let-bound fresh joins are reset-reclaimed at scope end
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-region-phi-let.sh
 
-      # S4's fourth slice, scrutinee path: a `match` whose scrutinee
-      # the witness proves fresh - a call result, or a join whose
-      # every arm is one - needs no merge-path release for the
-      # temporary it consumed. Eight release sites gone from a sixth
-      # fixture's IR and nothing else, the RSS flat across 300,000
-      # regions of fresh scrutinees, and an ablation of the
-      # scrutinee spend bringing all eight back. A reader, escaping
-      # binders, no region, a `let` binding and a construction keep
-      # theirs.
+      # S4's fourth slice, scrutinee path: a `match` on a fresh scrutinee
+      # needs no merge-path release for its temporary. Eight sites leave a
+      # sixth fixture's IR, RSS stays flat, and the ablation brings them
+      # back.
       - name: Fresh scrutinee temporaries are reset-reclaimed
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-region-scrutinee.sh
 
-      # S4's success criterion, run at last: the §1.1 ablation re-run -
-      # the binary win with the RSS win intact, three workloads against
-      # one fully-ablated compiler.
+      # S4's success criterion, the §1.1 ablation: the binary win with the
+      # RSS win intact, three workloads against one fully ablated
+      # compiler.
       - name: S4 verdict holds end to end
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-region-verdict.sh
@@ -586,77 +431,64 @@ jobs:
         run: ./scripts/check-runtime-model.sh
 
       # R-C3: the five atomic primitives in machine code for all seven
-      # targets at -O0..-O3 - each ordering instruction counted against
-      # the fixture's uses, a no-atomics control clean, and IR weakenings
-      # required to turn the count red - then store-buffering,
-      # message-passing, load-buffering, 2+2W, R, S, counter and the four
-      # coherence litmus tests on two `--threads` threads, WRC, ISA2 and
-      # 3.SB on three and IRIW on four, the fenced variants, on this
-      # runner, beside controls that must show the outcomes the zeros
-      # exclude; and the LSE lowering, counted and run.
+      # targets at -O0..-O3, each ordering instruction counted, with IR
+      # weakenings that must turn the count red. The standard litmus
+      # tests, fenced variants included, run on two to four `--threads`
+      # threads on this runner, beside controls that must show the
+      # outcomes the zeros exclude. The LSE lowering is counted and run.
       - name: Atomics lower to their ordering instructions and hold on two threads
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-atomics.sh
 
-      # R-C2's first half, MM-PAR-10: `stdlib/Chan.ax` under load - three
-      # producers into three consumers in both lowerings, every word
-      # received exactly once; a waiter that sleeps in the kernel; a
-      # receive nobody satisfies still blocked at 2 s; and the lock and
-      # the wake each ablated on a copy of the standard library and
-      # required to turn the load red.
+      # R-C2's first half, MM-PAR-10: `stdlib/Chan.ax` under load. Three
+      # producers feed three consumers in both lowerings, every word
+      # received exactly once; a waiter sleeps in the kernel; a receive
+      # nobody satisfies is still blocked at 2 s; and the lock and the
+      # wake, each ablated on a copy of the library, must turn the load
+      # red.
       - name: A bounded channel carries every word once, in both lowerings
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-chan.sh
 
-      # MM-PAR-8's typed handles: a freed or forged channel or mutex
-      # traps 85 at every --opt and in both lowerings instead of reading
-      # an unmapped page; the handle table holds under four bindings at
-      # once, and exactly one of two racing frees returns; `build` and
-      # `build --threads` both refuse a captured unshared handle; and
-      # three ablations - the table's check, the channel's retirement,
-      # the free's compare - each turn it red.
+      # MM-PAR-8's typed handles: a freed or forged channel or mutex traps
+      # 85 at every --opt and in both lowerings. The handle table holds
+      # under four bindings, and exactly one of two racing frees returns.
+      # `build` and `build --threads` both refuse a captured unshared
+      # handle. Three ablations (the table's check, the channel's
+      # retirement, the free's compare) each turn it red.
       - name: A freed or forged handle traps, and the handle table holds under concurrency
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-handles.sh
 
-      # R-C2's second half, MM-PAR-11..13: `stdlib/Sync.ax`'s mutex holds
-      # four bindings' plain increments exact in both lowerings beside an
-      # unlocked control that must lose some; timed receive, send and lock
-      # answer within [T, T + slack]; a SIGKILLed holder is found; and
-      # `stdlib/Task.ax`'s pool answers traps, deadlines, oversized
-      # answers and cancellations in their slots with every pid reaped,
-      # takes its tasks with it when the parent traps, keeps memory flat
-      # when folding - nine ablations on copies of the library each
-      # turning it red - and runs examples/concurrency/.
+      # R-C2's second half, MM-PAR-11..13: `stdlib/Sync.ax`'s mutex keeps
+      # increments exact beside an unlocked control that must lose some,
+      # and timed waits answer within [T, T + slack]. `stdlib/Task.ax`'s
+      # pool answers traps, deadlines and cancellations in their slots and
+      # reaps every pid. Nine ablations each turn it red, and
+      # examples/concurrency/ runs.
       - name: A mutex excludes, timed waits keep time, and tasks fail, time out and cancel in their slots
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-task.sh
 
-      # R-E1's schedule exploration and R-C2's liveness limits:
-      # `scripts/lib/protocol-model.py` explores every interleaving of two
-      # and three bindings running the transcribed Chan.ax and Sync.ax
-      # protocols - exclusion, exactly-once FIFO delivery, close, the
-      # guard, poisoning, and no lost wakeup or deadlock - and must find
-      # each of ten planted protocol defects with its schedule; the
-      # transcription is checked against stdlib/, and a recorded run of
-      # the channel replays through the model. Then, on this runner, the
-      # mutex's starvation is measured, and a lock-order inversion and a
-      # channel pair must time out under the timed calls and stay
-      # deadlocked under a watchdog without them.
+      # R-E1's schedule exploration and R-C2's liveness limits.
+      # `scripts/lib/protocol-model.py` explores every interleaving of the
+      # transcribed channel, mutex and task-pool protocols, and must find
+      # each planted defect with its schedule. The transcription is
+      # checked against stdlib/, and a recorded channel run replays
+      # through the model. On this runner, mutex starvation is measured,
+      # and a lock-order inversion and a channel pair must time out under
+      # timed calls and stay deadlocked under a watchdog without them.
       - name: The protocols hold in every interleaving explored, and deadlock is measured apart from races
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-protocol-model.sh
 
       # R-E1's race detector: ThreadSanitizer over `--threads` programs.
-      # sync-load's unlocked control must be reported as a data race; the
-      # mutex, a stale guard, the channel, the pipeline example and the
-      # seq_cst litmus rows must be clean at --opt 0 and 2; the one
-      # suppression (MM-PAR-12's stated plain read in
-      # `sysWaitWordTimeout`) must match and must hide nothing else; the
-      # mutex's CAS, the channel's lock and an atomic add, each ablated,
-      # must be reported; and ASan must see a string literal overread.
-      # The provision step installs the sanitizer runtimes, so here a
-      # missing one fails rather than skips.
+      # The unlocked control must be reported, the synchronised programs
+      # must be clean at --opt 0 and 2, and the one suppression
+      # (MM-PAR-12's plain read in `sysWaitWordTimeout`) must hide nothing
+      # else. Three ablations must be reported, and ASan must see a string
+      # literal overread. The provision step installs the sanitizer
+      # runtimes, so a missing one fails here.
       - name: ThreadSanitizer reports the unlocked control and nothing in the synchronised programs
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         env:
@@ -664,13 +496,11 @@ jobs:
         run: ./scripts/check-race.sh
 
       # The fuzzing half of R-E1: 600 mutants of the corpus from a fixed
-      # seed, each held to three properties - `check` answers with a code
-      # or exits 0 (never a signal, a hang or a trap status), a refusal's
-      # JSON is well formed, and IR from a program `check` accepted is IR
-      # `llc` accepts. A planted wrapper compiler's crash, hang, silent
-      # refusal, trap, false exit 0, bad JSON and bad IR must each be
-      # reported, and the stored reproducers in tests/fuzz/ replay: fixed
-      # ones pass, open ones still fail exactly as recorded.
+      # seed. `check` must answer with a code or exit 0, never a signal,
+      # hang or trap; a refusal's JSON must be well formed; and accepted
+      # IR must pass `llc`. A planted wrapper compiler's failures must
+      # each be reported, and the reproducers in tests/fuzz/ replay as
+      # recorded.
       - name: Seeded compiler fuzzing finds no crash, and can see one
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-fuzz.sh
@@ -688,101 +518,78 @@ jobs:
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-metamorphic.sh
 
-      # R-D1: `scripts/axiom-report.py`, the per-function resource report
-      # read off the compiler's own call graph and effect rows, and the
-      # restricted profile's refusals (recursion, indirect calls,
-      # foreign items, spawns, allocation under a steady root) - each
-      # fixture refused by exactly its rule, each rule ablated. Then the
-      # stack bound from AArch64 machine code (`.stack_sizes` frames,
-      # CALL26/JUMP26 edges, tail cycles as loops), held to the sum of
-      # its path and to llvm-readobj's reading of the same object.
+      # R-D1: `scripts/axiom-report.py`, the per-function resource report,
+      # and the restricted profile's refusals (recursion, indirect calls,
+      # foreign items, spawns, allocation under a steady root), each rule
+      # ablated. The stack bound from AArch64 machine code is held to the
+      # sum of its path and to llvm-readobj's reading.
       - name: The resource report and the restricted profile refuse what they claim to
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-report.sh
 
-      # The FFI boundary is a C ABI, and until this gate the only thing
-      # that exercised it was a Rust crate. `check-ffi.sh` below is
-      # excellent and it tests the Rust CLIENT: cargo, `#[axiom_export]`,
-      # `axiom-bindgen`, the generated host binding. None of that is the
-      # boundary. The boundary is `declare i64 @sym(i64, ...)` and a
-      # `-l` flag, and a plain C archive bound with `cc` and `ar` was
-      # measured working on the first attempt - untested, undocumented
-      # for C users, and one refactor away from breaking silently.
-      #
-      # This runs no cargo. That is the point: the ABI keeps a test that
-      # survives the Rust workspace being changed, moved or removed.
+      # The FFI boundary is a C ABI: `declare i64 @sym(i64, ...)` and a
+      # `-l` flag. `check-ffi.sh` tests the Rust client (cargo,
+      # `#[axiom_export]`, `axiom-bindgen`, the generated host binding).
+      # This binds a plain C archive with `cc` and `ar` and runs no cargo,
+      # so the ABI keeps a test whatever happens to the Rust workspace.
       - name: A plain C archive binds through the ABI, with no Rust
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-c-abi.sh
 
-      # The standard library's API reference is GENERATED, by an Axiom
-      # program, and this regenerates it and diffs. It is the strongest
-      # form the doc-drift rule takes: `check-doc-drift.sh` recomputes
-      # the numbers a document states, and this recomputes the whole
-      # document.
-      #
-      # It also runs the generator, which is this repository's worked
-      # example of a real program - so the example is exercised by CI
-      # rather than left to rot the way an example nothing depends on
-      # does.
+      # The standard library's API reference is generated by an Axiom
+      # program; this regenerates it and diffs. `check-doc-drift.sh`
+      # recomputes the numbers a document states, and this recomputes the
+      # whole document. It also exercises the generator, the repository's
+      # worked example of a real program.
       - name: The stdlib API reference is what the library says
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-stdlib-api.sh
 
-      # The version number is a claim about compatibility, and this is
-      # what makes it one. `check-version.sh` proves the number is
-      # STATED in nineteen places; this proves it was EARNED, by
-      # diffing the public surface against the baseline the last
-      # release published. A removed, retyped or effect-widened public
+      # The version number is a claim about compatibility.
+      # `check-version.sh` checks it is stated consistently; this checks
+      # it is earned, by diffing the public surface against the last
+      # release's baseline. A removed, retyped or effect-widened public
       # name fails unless `compat/BREAKING` declares it.
       - name: The public surface agrees with the last release's baseline
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-compat.sh
 
-      # `axiom.pkg`: a project declares its dependencies, and two of
-      # them may not provide one module. Every project this gate uses
-      # is built in its work directory, and every module answers a
-      # distinct number, so the EXIT STATUS says which file the
-      # resolver chose - a gate that only asserted "it built" would
-      # pass on the wrong module being found, which is the failure
-      # this exists to catch.
+      # `axiom.pkg`: a project declares its dependencies, and two of them
+      # may not provide one module. Every module answers a distinct
+      # number, so the exit status says which file the resolver chose. A
+      # gate that only checked "it built" would pass with the wrong module
+      # found.
       - name: A project declares what it depends on
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-packages.sh
 
-      # The one script a stranger pipes into bash, and nothing ran it.
-      # This serves a release built from this tree over the loopback,
-      # installs it, and requires three bad releases to be refused - a
-      # tampered archive, one with no checksum, one with no `stdlib/`.
-      # Its own probe deletes `install.sh`'s comparison in a copy and
-      # requires the tampered case to stop being refused, because a
-      # verification test that passes against an unverifying installer
-      # is testing something else.
+      # `install.sh` is the script users pipe into bash. This serves a
+      # release built from this tree over loopback, installs it, and
+      # requires three bad releases to be refused: a tampered archive, one
+      # with no checksum, and one with no `stdlib/`. Its probe deletes
+      # `install.sh`'s comparison in a copy, and the tampered case must
+      # then be accepted: a test that passes against an installer that
+      # verifies nothing is testing something else.
       - name: The installer installs, and refuses what it should
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-install.sh
 
-      # WHAT SHIPS AND WHAT IS SUPPORTED ARE TWO LISTS, and they live on
-      # opposite sides of the project: `release.yml`'s build matrix and
-      # `install.sh`'s refusal arms. Neither way of disagreeing is loud.
-      # A target in both uploads an archive the installer will not
-      # fetch; a target in neither hands the user a bare `curl` 404
-      # where a sentence belongs. Every target but the two shipped ones
-      # is source-only, and the installer refuses each with a
+      # What ships and what is supported are two lists: `release.yml`'s
+      # build matrix and `install.sh`'s refusal arms. A target in both
+      # uploads an archive the installer won't fetch; a target in neither
+      # gets a bare `curl` 404. Every target but the shipped ones is
+      # source-only, and the installer refuses each with a
       # build-from-source sentence.
       - name: The release matrix and the installer's refusals agree
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-release-targets.sh
 
-      # The acceptance measurement for the socket work, and the only gate
-      # here whose subject is MEMORY rather than an answer: a pre-forked
+      # The acceptance measurement for the socket work: a pre-forked
       # server must hold its heap flat across ten thousand connections
-      # when the request handler is an arena scope. It earns a place in
-      # CI despite driving twenty thousand real loopback connections
-      # because it takes about four seconds - the criterion is a RATIO
-      # against the same binary with the arena switched off, so it is not
-      # sensitive to how fast the runner is, only to whether the
-      # allocator still reclaims.
+      # when the request handler is an arena scope. The criterion is a
+      # ratio against the same binary with the arena off, so runner speed
+      # doesn't matter, only whether the allocator still reclaims. It
+      # takes a few seconds.
       - name: Server memory holds across ten thousand connections
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-net.sh
@@ -802,126 +609,82 @@ jobs:
       - name: AXQLite stores, recovers, and answers AXQL
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-axqlite.sh
-      # The examples/ DIRECTORY is swept: every tracked file a source or
-      # a static asset, none executable, every program named in
-      # examples/README.md and README.md linking there. A 156 KB Mach-O
-      # sat in examples/web from d1e4a71 until 2026-09-03 with every
-      # gate green, because every gate read file contents and none read
-      # the file list. This was the examples half of check-web.sh, whose
-      # other half served the templated web example in examples/web -
-      # every page byte for byte, the escaper bypassed, the path check
-      # compiled out, the arena switched off - and measured its memory
-      # the way check-net.sh above does; that example and the Html DSL
-      # it rendered through were deleted on 2026-09-04, and the sweep
-      # kept its gate. It runs no Axiom program and builds no compiler.
+      # Sweeps examples/: every tracked file is a source or a static
+      # asset, none is executable, every program is named in
+      # examples/README.md, and README.md links there. Content gates can't
+      # see a stray binary; this one reads the file list. It runs no Axiom
+      # program and builds no compiler.
       - name: examples/ holds sources, and every program in it is documented
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-examples.sh
 
-      # A terminal put into raw mode must come back byte for byte. It
-      # runs on every leg because the numbers it exercises are
-      # per-target: `struct termios` is 72 bytes on Darwin and 36 on
-      # Linux, `c_cc` starts at 32 there and 17 here, and ISIG is 0x80
-      # against 0x1 - so this is exactly the kind of gate that passes on
-      # one leg and means nothing about the other.
-      #
-      # IT NEEDS A PTY AND NOT A TERMINAL, which is why a CI step can run
-      # it at all: it calls `openpty` and drives the pty it gets, never
-      # the step's own descriptors, so having no controlling terminal is
-      # not an obstacle. If it ever cannot get one it EXITS NON-ZERO
-      # saying so - it is written not to skip, because a gate that goes
-      # green when it could not run is counted as coverage that does not
-      # exist. It needs no git history, so the default shallow checkout
-      # is fine.
+      # A raw-mode terminal must come back byte for byte. It runs on every
+      # leg because the layout is per-target: `struct termios` is 72 bytes
+      # on Darwin and 36 on Linux, and `c_cc` and ISIG differ too. It
+      # drives a pty from `openpty`, never the step's own descriptors, so
+      # CI can run it. With no pty it exits non-zero instead of skipping,
+      # because a gate that goes green when it couldn't run is coverage
+      # that doesn't exist.
       - name: A raw-mode terminal is restored byte for byte
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-terminal-restore.sh
 
       # Both halves on every leg: no libc on this host, and every
       # windows-x86_64 and windows-aarch64 declare on the reviewed
-      # allowlist - the Windows IR is emitted cross, so each leg reads it.
+      # allowlist. The Windows IR is emitted cross, so each leg reads it.
       - name: Freestanding check
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-freestanding.sh
 
-      # The subset half of the same claim, and it belongs beside the
-      # one above: eight standard-library modules a bare-metal program
-      # may import, with closed imports, no extern blocks, and one
-      # probe over all of them importing nothing a hello world does
-      # not - on every target.
+      # The subset half of the same claim: the standard-library modules a
+      # bare-metal program may import, with closed imports, no extern
+      # blocks, and one probe importing all of them and nothing a hello
+      # world doesn't. Runs on every target.
       - name: Freestanding subset check
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-nostd-subset.sh
 
-      # The other claim about the linked binary's symbol table, and it
-      # belongs beside the one above because both are answered by `nm`
-      # on a real executable rather than by reading IR. A hello world
-      # must contain only what it can reach: every `define` the emitter
-      # writes is reachable from `main` by a walk the gate implements
-      # itself, `nm` on the LINKED binary names nothing that walk could
-      # not reach, and an address-taken callback - a bare reference
-      # through a thunk, a comparator through a lifted lambda -
-      # survives the pass and still answers. Turning the pass off in a
-      # shadow tree must name 361 of 397 symbols, which is the
-      # ablation.
+      # Also answered by `nm` on a real executable: a hello world contains
+      # only what the gate's own walk reaches from `main`, and an
+      # address-taken callback survives and still answers. The ablation
+      # turns the pass off and requires the dropped symbols back.
       - name: A program contains only what it uses
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-dead-code.sh
 
-      # It runs in the matrix rather than on a single host because it
-      # compiles, assembles and *runs* the output of the self-hosted
-      # compiler, and both the syscall numbers and the object format are
-      # platform-specific.
-      #
-      # This replaces a `Game of Life` step that invoked
-      # `scripts/check-game-of-life.sh`. That script was removed in
-      # 720a0d5 along with the sample it ran, but the step referencing it
-      # was not, so every run of this job failed on a missing file - which
-      # is why "CI green on all four targets" needs re-establishing rather
-      # than citing.
+      # Runs in the matrix because it compiles, assembles and runs the
+      # self-hosted compiler's output, and both the syscall numbers and
+      # the object format are platform-specific.
       - name: Self-hosted compiler conformance
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-self-host.sh
 
-      # The compiler's command-line surface, which until this gate
-      # existed was exercised by nothing: every other gate drives stage1
-      # as `stage1 [FILE [TARGET]]` and runs llc and cc itself, so
-      # `stage1 build` - the thing a user types - had no coverage at all.
-      #
-      # Its load-bearing cases are the negative ones. A driver that
-      # ignores a child's exit status reports a failed `llc` as a
-      # successful build while every positive test still passes, so the
-      # script poisons PATH in two directions: a failing tool must fail
-      # the build, and a missing `opt` must not.
+      # The compiler's command line. Other gates drive stage1 as
+      # `stage1 [FILE [TARGET]]` and run llc and cc themselves, so this is
+      # the only coverage of `stage1 build`, the command users type. The
+      # negative cases matter most: a driver that ignores a child's exit
+      # status reports a failed `llc` as success. So PATH is poisoned both
+      # ways: a failing tool must fail the build, and a missing `opt` must
+      # not.
       - name: Self-hosted compiler driver
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-driver.sh
 
-      # The differential gate, and it was not here. It exists because
-      # nothing ran `tests/stdlib/` through stage1 and five miscompiles
-      # were hiding in the gap - and then it ran only when somebody
-      # typed its name, which is the same gap one level up. This file's
-      # own risk table calls that out: a tool with no CI gate is
-      # silently broken, as `fmt` was.
-      #
-      # It compiles every case in BOTH corpora with both compilers,
-      # puts each one's IR through the identical llc/cc pipeline at
-      # -O0 and -O2, and compares exit status and stdout. Holding the
-      # toolchain constant is what makes it a comparison of the two
-      # compilers rather than of two build pipelines.
+      # The differential gate: every case in both corpora compiled by both
+      # compilers, each one's IR put through the identical llc/cc pipeline
+      # at -O0 and -O2, and exit status and stdout compared. Holding the
+      # toolchain constant makes it a comparison of the compilers, not of
+      # two pipelines.
       - name: Differential behaviour between the compilers
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-stdlib-selfhost.sh
 
       # The AXDL corpus against checked-in goldens, plus the half a
-      # re-bless cannot satisfy: verify-axdl-spans.py recomputes every
-      # span claim from the FIXTURE'S own bytes, so a wrong column
-      # blessed into a golden still fails. This was a three-way
-      # differential against the Rust compiler until that compiler was
-      # deleted; a differential does not fail when its reference
-      # disappears, so the arm was removed rather than repointed. It
-      # also fails on any diagnostic at all against the compiler's own
-      # source, where a false positive would stop it compiling itself.
+      # re-bless can't satisfy: verify-axdl-spans.py recomputes every span
+      # from the fixture's own bytes, so a wrong column blessed into a
+      # golden still fails. It also fails on any diagnostic against the
+      # compiler's own source, where a false positive would stop it
+      # compiling itself.
       - name: The AXDL corpus, and every span against the fixtures
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-diagnostics.sh
@@ -936,256 +699,178 @@ jobs:
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-diagnostic-coverage.sh
 
-      # `;@axiom:restrict(...)` is a claim the checker refuses when the
-      # analysis it already performed contradicts it. The gate tags every
-      # fn of 168 corpus programs restricted and requires identical IR,
-      # AXSYM and diagnostics - except AX3051 on exactly the rows the
-      # fixpoint marks incomplete - then plants five violations and
-      # requires one diagnostic each, then removes the hook and requires
-      # the six fixtures to stop answering. The Ada track wrote the gate
-      # and not this step (2026-08-29); a gate no job runs is a script.
+      # `;@axiom:restrict(...)` is a claim the checker refuses when its
+      # own analysis contradicts it. The gate tags every fn of the corpus
+      # programs restricted and requires identical IR, AXSYM and
+      # diagnostics, except AX3051 on exactly the rows the fixpoint marks
+      # incomplete. It plants five violations and requires one diagnostic
+      # each, then removes the hook and requires the six fixtures to stop
+      # answering.
       - name: Restriction claims are answered, and a restricted corpus does not move
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-restrictions.sh
 
-      # `;@axiom:isr` marks an interrupt entry point - no parameters,
-      # no allocation, exported beside a plain function under
-      # `--emit-staticlib`, with both halves ablated. It belongs
-      # beside the restriction gate because it is checked as one.
+      # `;@axiom:isr` marks an interrupt entry point: no parameters, no
+      # allocation, exported beside a plain function under
+      # `--emit-staticlib`, with both halves ablated. It sits beside the
+      # restriction gate because it is checked as one.
       - name: Interrupt entry points take no parameters and do not allocate
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-isr.sh
 
-      # `;@axiom:pre(...)`/`post(...)`: the one claim in this namespace
-      # the checker cannot refuse, because there is no value analysis
-      # to refuse it with - so it is compiled into the body and checked
-      # on every call, and a failure exits 80. This gate is the pair to
-      # the one above and deliberately not a section of it: a
-      # restriction changes no emitted byte, a contract is emitted
-      # bytes, and one script cannot assert both. Two ablations - the
-      # lowering hook and the checking hook - each required to go red.
+      # `;@axiom:pre(...)` and `post(...)` are claims the checker can't
+      # refuse, because it has no value analysis. So they are compiled
+      # into the body and checked on every call, and a failure exits 80. A
+      # separate gate from the one above: a restriction changes no emitted
+      # byte, and a contract is emitted bytes. Two ablations, the lowering
+      # hook and the checking hook, must each go red.
       - name: Contracts are compiled in and checked, and a failure says which
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-contracts.sh
 
-      # Every trap owns its exit status, and the table says which.
-      # The contract trap shared 77 with the index trap while both
-      # gates stayed green, because no gate compared one trap's
-      # status to another's. This one censuses the emitter, reads
-      # the MM-EXEC-16 table out of the documents, runs seven traps
-      # and requires seven distinct statuses.
+      # Every trap owns its exit status, and the table says which. Two
+      # traps sharing a status would leave both their gates green. This
+      # censuses the emitter, reads the MM-EXEC-16 table from the
+      # documents, runs seven traps and requires seven distinct statuses.
       - name: Every trap exits its own status, and the table agrees
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-trap-statuses.sh
 
-      # Degenerate input answers with a diagnostic, not with a signal.
-      # `axiom check` on `(fn (main) ())` was SIGSEGV - exit 139, no
-      # output, nothing on stderr - and so were twenty-two other
-      # positions of the same two characters, seven of them inside
-      # `check`, which is what `axiom lsp` runs for every keystroke.
-      #
-      # No gate above could see it, and the reason is the point of this
-      # one: every other suite asks what the compiler PRINTED, and a
-      # process killed by a signal prints nothing, so it satisfies any
-      # check written as "the output must not contain X". This one asks
+      # Degenerate input, such as `(fn (main) ())`, answers with a
+      # diagnostic, not a signal. Much of it reaches `check`, which
+      # `axiom lsp` runs on every keystroke. Other suites ask what the
+      # compiler printed, and a process killed by a signal prints nothing,
+      # so it satisfies any "must not contain X" check. This one asks
       # about the process.
       - name: Degenerate input is diagnosed, not fatal
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-degenerate.sh
 
       # A name the frontend accepts is a name the backend can emit.
-      # `foo'`, `a+b` and `set!` are legal Axiom names - the lexer, the
-      # parser, the checker, `fmt` and `symbols` all took them - and
-      # codegen wrote them into LLVM unquoted, where they are not legal
-      # at all, so twelve of the sixteen bytes `isIdentChar` admits
-      # exited 4 with `opt` blamed for the compiler's own output.
-      #
-      # It is the same blind spot as the two above: all 1,629 top-level
-      # names in `stdlib/` and `self_host/` are inside LLVM's set, so no
-      # sweep over real code can find it. This one sweeps the RULE - all
-      # 94 printable bytes, in three positions - and every probe must
-      # either be refused with a span or run to 42.
+      # `foo'`, `a+b` and `set!` are legal Axiom names, and LLVM needs
+      # them quoted. Real code can't find a gap here: every top-level name
+      # in `stdlib/` and `self_host/` is inside LLVM's set. So this sweeps
+      # the rule, all 94 printable bytes in three positions, and every
+      # probe must be refused with a span or run to 42.
       - name: Every legal name is an emittable name
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-symbol-names.sh
 
-      # WHICH FUNCTION DIED. Before this, a trapping program yielded a
-      # status and one line, and the three SIGSEGVs the stack-depth gate
-      # below records were each diagnosed only by attaching `lldb` - a
-      # tool a worker dying inside a pre-forked pool does not have. The
-      # answer is `"frame-pointer"="all"` on the one attribute group,
-      # a table of address-beside-name over every symbol the module
-      # defines, and a walker that resolves each return address at
-      # `ra - 1`. Emitted text only: no `-g`, no `!dbg`, no seed move.
-      #
-      # The gate pins the whole trace byte for byte at `--opt 0`, checks
-      # every name it prints against `nm` at every optimisation level,
-      # and ablates the attribute per target to prove the check
-      # discriminates. It also records, with the measurement, why the
-      # roadmap's "five functions at every optimisation level" is not
-      # assertable: above `--opt 0` the five frames are not lost, they
-      # are never pushed.
+      # Which function died. A trapping program prints its frames from
+      # emitted text alone: `"frame-pointer"="all"`, an address-to-name
+      # table, and a walker that resolves each return address at `ra - 1`.
+      # No `-g` or `!dbg`. The gate pins the trace byte for byte at
+      # `--opt 0`, checks every name against `nm` at every level, and
+      # ablates the attribute per target. Above `--opt 0`, inlined frames
+      # are never pushed, so frame counts aren't asserted there.
       - name: A dying program names the frames it died in
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-backtrace.sh
 
-      # How much STACK the compiler needs, bisected and reported. This
-      # backend eliminates only SELF tail calls and a `let` body is not a
-      # tail position, so `(let ((e (vecGet v i))) (if ... e (recur ...)))`
-      # - the shape most of `typecheck.ax` is written in - costs one real
-      # frame per table entry. That has produced three SIGSEGVs here, each
-      # presenting as a crash in whatever was being compiled rather than in
-      # the walk. Nothing measured it until now; the answer is ~216 KiB
-      # against an 8 MiB default, so the conversions are not urgent, and
-      # this is how we find out when that stops being true.
+      # How much stack the compiler needs, bisected and reported. This
+      # backend eliminates only self tail calls, and a `let` body isn't a
+      # tail position, so
+      # `(let ((e (vecGet v i))) (if ... e (recur ...)))`, the shape most
+      # of `typecheck.ax` uses, costs one frame per table entry. An
+      # overflow looks like a crash in whatever was being compiled. The
+      # gate reports the need against the 8 MiB default.
       - name: Checking the compiler fits in a small stack
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-stack-depth.sh
 
-      # MM-EXEC-6b, PINNED rather than fixed. A `match` on a direct call
+      # MM-EXEC-6b, pinned rather than fixed. A `match` on a direct call
       # to a pair-returning function loses tail position when the payload
-      # is a reference, so a program written in tail position overflows
-      # the stack anyway. This gate REQUIRES the crash, alongside two
-      # controls - the scrutinee `let`-bound, and an `Int` payload -
-      # which must both pass, so the defect is localised to the
-      # intersection rather than being a test that deep recursion
-      # overflows. It goes red the day the defect is fixed, which is the
-      # point: a defect's own demonstration is an assertion. Under
+      # is a reference, so a tail-recursive program still overflows. This
+      # gate requires the crash, with two controls that must pass (the
+      # scrutinee `let`-bound, and an `Int` payload), so the defect stays
+      # localised. It goes red once the defect is fixed. Under
       # `ulimit -s 512` it reproduces at 20,000 iterations instead of the
-      # 2,000,000 the default stack needs, which is what makes it
-      # gateable at all.
+      # 2,000,000 the default stack needs, which keeps it fast enough to
+      # gate.
       - name: A match on a direct call still loses tail position
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-tail-position.sh
 
-      # The STATIC half of the same question, and the one an embedded
-      # target actually needs: "this binary needs at most N bytes",
-      # computed from the call graph rather than bisected, because you
-      # cannot bisect a microcontroller. A program under
-      # `restrict(no-recursion)` has already had its graph proved
-      # acyclic, and an acyclic weighted graph has a longest path. The
-      # gate checks the arithmetic against a measurement (a 400-frame
-      # chain computes 204,864 B against a 193 KiB bisected floor, and
-      # 800 more frames cost 400 KiB by both accounts), cross-checks
-      # its portable prologue parse against `llc --stack-usage-file`
-      # over all 3,767 functions of the compiler, and requires the
-      # compiler ITSELF to be refused with a named cycle rather than
-      # handed a number. Hello world needs 192 bytes.
-      #
-      # `--stack-usage-file` is LLVM 19+, so the cross-check SKIPS
-      # loudly on the apt llvm-18 legs and runs on the Homebrew llvm
-      # macOS leg. Everything else runs everywhere.
+      # The static half: "this binary needs at most N bytes", computed
+      # from the call graph because a microcontroller can't be bisected. A
+      # `restrict(no-recursion)` program's graph is acyclic, so it has a
+      # longest path. The arithmetic is checked against a bisected
+      # measurement and `llc --stack-usage-file`, and the compiler itself
+      # must be refused with a named cycle. That flag is LLVM 19+, so the
+      # cross-check skips loudly on the apt llvm-18 legs.
       - name: A no-recursion program's stack need is computed, and checked against a measurement
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-stack-bound.sh
 
-      # The allocator assumptions described in docs/embedded-guide.md. The
-      # arena's chunk size is a per-target constant and `mmap` is one of
-      # two backing strategies, chosen at emission time - so a program
-      # built for a target with no MMU carries a statically reserved
-      # region and no `mmap`, and one built for any supported target
-      # carries exactly the bytes it always did. The second half is what
-      # makes this more than an absence check: a SECOND compiler is
-      # built from a copy of `self_host/` with two rows of the target
-      # table changed, and the target given a 256 KiB static arena has
-      # to build a program that RUNS - same answer as the `mmap` build,
-      # and status 70 when it outgrows the region against a control that
-      # exits 0. Costs one extra compiler build. A10 is the reference
-      # port's device leg: the blink fixture for `baremetal-aarch64`,
-      # booted under QEMU with its UART bytes and exit status asserted -
-      # skipping loudly until the port lands and where QEMU is absent.
+      # The allocator assumptions in docs/embedded-guide.md. The arena's
+      # chunk size is a per-target constant, and a target with no MMU gets
+      # a static region instead of `mmap`; supported targets keep exactly
+      # their bytes. A second compiler with two target-table rows changed
+      # must build a program on a 256 KiB static arena that answers as the
+      # `mmap` build does and exits 70 when it outgrows the region. A10,
+      # the blink fixture for `baremetal-aarch64` under QEMU, skips loudly
+      # where QEMU is absent.
       - name: The arena's chunk size is a target constant and mmap is one of two strategies
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-embedded.sh
 
-      # A tail call runs in constant stack at `--opt 0`: a self call in
-      # every tail position, and a mutual call whose prototypes match,
-      # which `emitPlainCall` marks `musttail` - LLVM's guaranteed tail
-      # call. The fixture runs ten million alternating calls under a
-      # 512 KiB stack; the ablation deletes the marker from the same IR
-      # and requires the program to die by signal, because the marker is
-      # the whole mechanism and a fixture that survived without it would
-      # be measuring the stack rather than the guarantee. The two
-      # refusals - a mismatched prototype, an owned temporary handed over
-      # - must stay plain calls, the second with its release after it.
+      # A tail call runs in constant stack at `--opt 0`: self calls, and
+      # mutual calls with matching prototypes, which `emitPlainCall` marks
+      # `musttail`. Ten million alternating calls run under a 512 KiB
+      # stack, and deleting the marker must kill the program by signal, so
+      # the fixture measures the guarantee and not the stack. A mismatched
+      # prototype and an owned temporary handed over must stay plain
+      # calls.
       - name: A mutual tail call runs in constant stack at --opt 0, and the marker is proved to be why
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-tail-calls.sh
 
-      # A module's PRIVATE declarations must cost no more to resolve
-      # than its public ones. `findFnEnt` was indexed and its note
-      # recorded what was left linear on purpose - the private-name
-      # path - which is exactly the shape that rots unwatched. The gate
-      # was written, and then run by nobody for eight days.
+      # A module's private declarations must cost no more to resolve than
+      # its public ones. `findFnEnt` is indexed, and the private-name path
+      # is the one that would go linear unwatched.
       - name: Private names resolve as cheaply as public ones
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-name-scale.sh
 
-      # A type name must mean what its own module says it means. Type
-      # declarations are not rewritten to `Mod$Name` the way functions
-      # are, and the lookup took the first match in a list ordered by
-      # IMPORT ORDER - so two modules that each declared a `Config` had
-      # one winner for the whole program and the loser's own bodies were
-      # compiled against the winner's field offsets, at exit 0, with the
-      # answer changing when an unrelated `(import ...)` line moved.
+      # A type name means what its own module says. Type declarations
+      # aren't rewritten to `Mod$Name` the way functions are, so a lookup
+      # by import order would give two modules' `Config` one winner and
+      # compile the loser's bodies against the wrong field offsets, at
+      # exit 0.
       #
-      # The scale half of the same gate is not decoration: module-aware
-      # resolution CANNOT exit on the first match, so without the index
-      # that landed with it, every type reference becomes a full scan of
-      # the program's types. Measured on the reverted compiler: 26.88x.
+      # The scale half matters too: module-aware resolution can't stop at
+      # the first match, so without the index every type reference scans
+      # all the program's types.
       - name: A type name resolves by module, and in constant time
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-type-namespace.sh
 
-      # A fault inside a recovery point must be an answer, and a fault
-      # outside one must still stop the process. The three traps - out
-      # of memory, an unhandled effect, a division by zero - wrote a
-      # sentence to fd 2 and exited, which is the whole containment a
-      # worker in a pre-forked pool had. `__axiom_recover` gives them
-      # an arena mark to abort to.
-      #
-      # Four optimisation levels per case, and that is not thoroughness
-      # for its own sake: the mechanism is a `setjmp` in inline
-      # assembly whose correctness rests on what the clobber list and
-      # the block's own save/restore pair say about registers, and that
-      # is exactly the kind of claim that is true at -O0 and false
-      # above it. Measured on a prototype with the save/restore pair
-      # deleted: correct at -O0, SIGSEGV at -O1, -O2 and -O3.
-      #
-      # The 100,000-abort loop is paired with an ablated twin that must
-      # GROW, because a flat line also reads flat when the measurement
-      # is broken. Measured: 1,376 KiB against 419,328 KiB.
+      # A trap inside a recovery point is an answer; outside one it still
+      # stops the process. `__axiom_recover` gives the three traps an
+      # arena mark to abort to. Each case runs at four optimisation
+      # levels, because the mechanism is a `setjmp` in inline assembly
+      # whose clobbers can hold at -O0 and fail above it. The
+      # 100,000-abort loop has an ablated twin that must grow, since a
+      # broken measurement also reads flat.
       - name: A trap inside a recovery point is an answer, not an exit
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-recover.sh
 
-      # A container that is dropped must give its elements back. Every
-      # other memory gate here is reset-BASED - `measure-memory-baseline`
-      # and `check-net` bracket their work in a mark and a reset - so
-      # until this one existed nothing asserted the OTHER half: a
-      # program that never resets, allocates containers in a loop, drops
-      # them, and must not grow. That is the shape of a server, an agent
-      # loop, and a compiler pass run twice.
-      #
-      # Every probe ships in two spellings that differ by one word, and
-      # the gate asserts the two DISAGREE by more than 5x. If both go
-      # flat it is red; if both grow it is red. It can only pass if
-      # reclamation is happening AND the instrument can see it.
+      # A dropped container gives its elements back in a program that
+      # never resets: a server, an agent loop, a compiler pass run twice.
+      # The other memory gates bracket their work in a mark and a reset.
+      # Every probe has two spellings a word apart that must disagree by
+      # more than 5x, so it passes only if reclamation happens and the
+      # instrument sees it.
       - name: A dropped container gives its elements back
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-container-reclaim.sh
 
-      # And the acceptance measurement above that one: a bounded LIVE
-      # SET must have bounded memory in a process that frees no
-      # container and resets no arena. Three magnitudes - 20k, 200k, 2M
-      # - because a plateau is what distinguishes steady state from a
-      # slope, and a log-shaped leak passes any two-point ratio test.
-      #
-      # It earned its keep on its first run: `mapNeedsGrow` counts
-      # tombstones, so a 256-entry window over 200,000 inserts grew its
-      # table to ~524,288 slots and the process to 10 MB - a bounded
-      # live set with unbounded memory - with every other gate in this
-      # file green across it, the container gate included.
+      # A bounded live set has bounded memory in a process that frees no
+      # container and resets no arena. Three magnitudes (20k, 200k, 2M),
+      # because a plateau tells steady state from a slope, and a
+      # log-shaped leak passes any two-point ratio. A map whose growth
+      # counts tombstones is the kind of leak this catches.
       - name: A bounded live set has bounded memory
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-steady-state.sh
@@ -1200,34 +885,23 @@ jobs:
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-reclaim-soak.sh
 
-      # And the cost this repository carried on every fallible call
-      # until 2026-08-25: the block a call returning `Result` answers
-      # was reclaimed under no spelling - 32 bytes a call, linear in
-      # the thing an error model exists to make ordinary
-      # (docs/error-model.md ERR-MEM-4). `370-error-propagation.ax`
-      # term 32 asserts it is reclaimed now, and this gate asserts
-      # that the compiler is WHY: it turns off the one word the fix
-      # turns on, rebuilds, and requires the fixture to go red at term
-      # 32 and at no other term. A flat line that no ablation can bend
-      # is not evidence of reclamation.
+      # The block a call returning `Result` answers must be reclaimed
+      # (docs/error-model.md ERR-MEM-4), or every fallible call leaks 32
+      # bytes. `370-error-propagation.ax` term 32 asserts it. This gate
+      # turns off the one word that does it, rebuilds, and requires the
+      # fixture to go red at term 32 and no other. A flat line no ablation
+      # can bend is no evidence.
       - name: A fallible call's block is reclaimed, and one word is what does it
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-fallible-reclaim.sh
 
-      # The same argument for the application through a CLOSURE, which
-      # gave back nothing at all where a direct call has given back its
-      # owned temporaries since MM-LIFE-2g. A two-argument handler is a
-      # curried chain, and the record its first step answers was simply
-      # dropped - 32 bytes an application, which `stdlib/Fallible.ax`
-      # had written down as a REASON ITS OPERATION TAKES ONE ARGUMENT.
-      # A language decision resting on a compiler defect.
-      # `460-closure-reclaim.ax`'s byte terms assert it is given back;
-      # this gate asserts the compiler is why, by ablating the one word
-      # in each of the two walkers and requiring the fixture to go red
-      # at the byte terms and green at the two that check the chains
-      # still ANSWER correctly - so an ablation that broke the program
-      # instead of restoring the leak reads differently from one that
-      # did not.
+      # The same for an application through a closure: the record a
+      # curried chain's first step answers must be given back, as a direct
+      # call's owned temporaries are (MM-LIFE-2g).
+      # `460-closure-reclaim.ax` asserts it. The ablation removes the one
+      # word in each walker; the byte terms must go red while the answers
+      # stay right, so a broken program reads differently from a restored
+      # leak.
       - name: A closure chain's intermediate record is reclaimed, and one word in each walker is what does it
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-closure-reclaim.sh
@@ -1239,117 +913,65 @@ jobs:
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-cast-arg-root.sh
 
-      # What an `Option` costs, counted rather than timed.
-      # The unboxed-pair gate pins the representation and behaviour;
-      # so the win is asserted by a number in the emitted module and
-      # not by a stopwatch on a shared runner. `optFind` builds one
-      # block today and its matching consumer performs one release;
-      # both go to 0 when the specialisation lands, in the same commit
-      # that moves the code generator. Two probes keep it honest - a
-      # second construction must raise the count, and moving the
-      # construction to another function must leave this one at zero.
+      # What an `Option` costs, counted in the emitted module rather than
+      # timed. `optFind` builds one block and its consumer performs one
+      # release; specialising it moves both to 0, and that commit updates
+      # this gate. A second construction must raise the count, and moving
+      # the construction elsewhere must leave this function at zero.
       - name: What an Option construction costs, in blocks
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-unboxed-sums.sh
 
-      # What LLVM's vectorizer does with an Axiom loop, counted in the
-      # IR rather than timed. `opt -O2` already vectorizes a `for` over
-      # a `(Vec Int)` that only reads (width 2, 3.1x measured) and a
-      # byte scan over a String (width 16, 1.9x); the driver's default
-      # `--opt 1` runs no vectorizer at all. The one emitter change
-      # this holds is the trap runtime being `noreturn cold`: before
-      # it, every inlined `vecGet` carried the trap's two syscalls and
-      # backtrace call into the hot loop - 1,518 copies in the
-      # compiler's own IR at --opt 2, 1,685 at --opt 1 - and a call
-      # that returned into the loop was an exit the vectorizer refused
-      # to reason about. 2 copies now, the compiler binary 6.9%
-      # smaller, three more of its loops vectorized (98 -> 101). The
-      # Collatz `while` is the control that must NOT vectorize, and the
-      # ablation blanks the attributes, rebuilds, and requires the
+      # What LLVM's vectorizer does with an Axiom loop, counted in the IR
+      # at `opt -O2`: a read-only `(Vec Int)` loop and a String byte scan
+      # vectorize, and the Collatz `while` must not. The trap runtime is
+      # `noreturn cold`, so an inlined `vecGet` keeps the trap out of the
+      # hot loop. The ablation blanks the attributes and requires the trap
       # copies back inside the loop.
       - name: The loops that vectorize still do, and the trap stays out of line
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-simd.sh
 
-      # And the release traffic that could not free anything. Measured
-      # 2026-08-31 over the compiler's own emitted IR (`emit-llvm
-      # self_host/main.ax`, 197,562 lines, 3,469 functions), by
-      # classifying every release site by what DEFINES the value it
-      # releases: 5,762 of 10,849 - 53.1% - were static string
-      # literals. A bare literal is the address of a `@strhdr_*`
-      # constant whose count word is the sentinel -1, so
-      # `@axiom_release` loads a count, compares it against -1, and
-      # returns. Over half the release traffic in the largest Axiom
-      # program there is, doing nothing, and the operand's definition
-      # said so at compile time. 5762 -> 5 now, the residue from
-      # release paths that hold no AST node to ask; 10,849 -> 5,117
-      # sites in total, with emitted output byte-identical.
-      #
-      # The obvious fix - `valueOwnedRef` answering 0 for `TAG_E_STR` -
-      # is the wrong one, and assertion 2 is what keeps that honest.
-      # That predicate answers 1 on purpose, so `(if c "lit" (mkStr))`
-      # stays owned and the OTHER branch's share is still given back;
-      # answering 0 silences this release and LEAKS that one. So
-      # `isStaticSentinelNode` is asked at the two sites that emit a
-      # release for a value that IS the literal - argument position and
-      # the block-construction field store - and the join reasoning is
-      # untouched. The ablation turns the predicate's answer off,
-      # rebuilds the compiler from the ablated tree and requires the
-      # count back in the thousands: a count no ablation can move is
-      # not evidence.
+      # A release of a static string literal does nothing (its count word
+      # is the sentinel -1), so `isStaticSentinelNode` drops it at compile
+      # time. It is asked only where the released value is the literal
+      # itself: argument position and the block-construction field store.
+      # Making `valueOwnedRef` answer 0 for `TAG_E_STR` instead would leak
+      # the other branch of `(if c "lit" (mkStr))`; assertion 2 guards
+      # that. The ablation requires the count back in the thousands.
       - name: A release on a static string literal is not emitted, and one predicate is what does it
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-static-release.sh
 
-      # The effect fixpoint's worklist. One round of two passes in
-      # opposite directions collapses a linear chain in either
-      # declaration order, which is why the two orders a human writes
-      # are both fast; it does not collapse the order a GENERATOR
-      # produces - a helper emitted beside each of its callers - where
-      # each round advanced the frontier by one pair and paid for a
-      # full walk of every body. 56s at n=8000, against 0.09s for the
-      # same call graph declared in order. This asserts a RATIO, so a
-      # slow runner cannot fail it, and then ablates the one line that
-      # chooses the frontier and requires the ratio to come back: an
-      # assertion that passes with the feature removed is testing
-      # nothing. It also requires `symbols --calls` to be byte-identical
-      # across that ablation, because a wrong frontier shows up as one
-      # missing effect in 3,496 rows rather than as a crash.
+      # The effect fixpoint's worklist. Without it, the declaration order
+      # a generator produces (a helper beside each caller) takes one round
+      # per pair. The gate asserts a ratio, so a slow runner can't fail
+      # it, ablates the frontier and requires the ratio back, and requires
+      # `symbols --calls` unchanged across the ablation: a wrong frontier
+      # shows up as one missing effect, not a crash.
       - name: The effect fixpoint is a worklist, and the frontier is what makes it one
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-effect-fixpoint.sh
 
-      # `#effects-incomplete` says a row is a LOWER bound, and a claim of
-      # absence over one cannot be answered - AX3037, AX3038, AX3051, all
-      # warnings rather than verdicts. The mark used to fire on the
-      # ARGUMENT's shape, so `(cmp (memGetWord d r) (memGetWord d k))`
-      # made `vecSortBy` a lower bound on the strength of two machine
-      # words its own signature calls integers. It fires on the CALLEE'S
-      # DECLARED POSITION now. Four controls must KEEP the mark - a type
-      # variable, an arrow position, a mixed callee, a head that is not a
-      # name - because deleting the mark outright would otherwise pass,
-      # and the ablation drops the type test and requires the two
-      # complete rows to go back to lower bounds.
+      # `#effects-incomplete` marks a row as a lower bound, where AX3037,
+      # AX3038 and AX3051 are warnings rather than verdicts. The mark
+      # fires on the callee's declared position, not the argument's shape.
+      # Four controls must keep it (a type variable, an arrow position, a
+      # mixed callee, a non-name head), so deleting the mark outright
+      # fails, and the ablation must turn the two complete rows back into
+      # lower bounds.
       - name: An unfollowed argument is a hole only where the signature says it could be one
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-effect-argpos.sh
 
-      # The emitted runtime's eight mutable globals and the one
-      # predicate that decides their storage class. Under `fork`,
-      # MM-PAR-3 gets memory safety for free - every process-wide
-      # mutable global is private after the fork. Under threads it is
-      # BOUGHT, by making the identical set thread-local, and the set is
-      # an enumeration rather than a sentence. The half worth more is
-      # the one that does nothing: a program that spawns no thread must
-      # be byte-identical, because on Darwin a thread-local access is an
-      # indirect call through libSystem's `__tlv_bootstrap` and would
-      # take every program in the tree out of MM-FFI-1's tier 1. And
-      # local-exec is mandatory rather than preferred - the default
-      # model needs a dynamic resolver, which check-freestanding
-      # refuses - so the gate requires the resolver absent AND requires
-      # it to appear when `(localexec)` is dropped, on both Linux
-      # targets, whose markers differ: x86-64 calls `__tls_get_addr`,
-      # AArch64 uses TLS descriptors and never names it.
+      # The runtime's mutable globals: private after a `fork`,
+      # thread-local under threads (MM-PAR-3). A program that spawns no
+      # thread must be byte-identical, because a Darwin thread-local
+      # access goes through `__tlv_bootstrap` and would leave MM-FFI-1's
+      # tier 1. Local-exec is mandatory, since the default model needs a
+      # dynamic resolver that check-freestanding refuses. The resolver
+      # must appear when `(localexec)` is dropped, on both Linux targets,
+      # whose markers differ.
       - name: The runtime's mutable globals move in a program that spawns a thread, and nothing else does
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-thread-local.sh
@@ -1363,96 +985,67 @@ jobs:
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-parallel.sh
 
-      # The mid-level IR's first slice - a representation, a lowering
-      # for a real subset, a printer and a verifier, in
-      # `self_host/mir.ax`, which NOTHING in the compiler imports yet.
-      # A printer gate would be hollow: its goldens are whatever the
-      # lowering last printed. So the anchor is a differential - each
-      # fixture compiled and run by the real compiler, then lowered and
-      # run by `self_host/mireval.ax`, with the two stdouts required to
-      # be byte-identical - plus a floor on how much of `self_host/`
-      # and `stdlib/` lowers end to end (2,000 of 4,796 functions
-      # today), so a rule that narrowed its subset to keep the
-      # differential green is what goes red. Three orthogonal
-      # ablations: swapping a binary operator's operands must break the
-      # goldens and the differential while the verifier stays SILENT;
-      # dropping every `br` must make the verifier speak about exactly
-      # the fixtures whose goldens carry a `condbr`; and making an `if`
-      # answer its then-arm's register instead of the join's parameter
-      # must fire the DOMINANCE rule and nothing else, which is the only
-      # thing that stops that rule being a check that cannot fail.
+      # The mid-level IR in `self_host/mir.ax`. Printer goldens alone would
+      # only repeat what the lowering last printed, so each fixture runs
+      # through the real compiler and through `self_host/mireval.ax`, and
+      # the stdouts must match. A floor on how much of `self_host/` and
+      # `stdlib/` lowers stops the subset shrinking to stay green. Three
+      # ablations are each caught by exactly the check they target: the
+      # goldens and differential, the verifier's branch check, and the
+      # dominance rule.
       - name: The mid-level IR lowers, prints, verifies and evaluates to what the compiler answers
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-mir.sh
 
-      # The record file that carries that IR out of the compiler, and
-      # the two claims about it that the gate above does not make.
-      #
-      # Round trip: emit, read back, emit again, byte-identical over
-      # the stdlib corpus and `self_host/main.ax` - 4,862 records. A
-      # golden is deliberately NOT used here, and
-      # `check-tools-selfhost.sh`'s header records why: both AXSYM
-      # goldens were once re-blessed clean against a compiler emitting
-      # a shifted column. The reader is proved to DECOMPOSE rather than
-      # pass lines through, which is the assertion a passthrough reader
-      # fails while passing every other check in the file.
+      # The `.axir` record file that carries that IR out of the compiler.
+      # Round trip: emit, read back and emit again, byte-identical over
+      # the stdlib corpus and `self_host/main.ax`. No golden, because a
+      # golden can be re-blessed against a wrong emitter. The reader must
+      # decompose each record, which a reader that passes lines through
+      # would fail.
       - name: The .axir record file survives its own reader
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-mir-roundtrip.sh
 
-      # And the projection: every `#mir-*` key `symbols --mir` prints
-      # is re-derivable from the raw region words of the record whose
-      # whole header tuple matches that row, so the gate compares two
-      # independent derivations rather than one number twice. It also
-      # holds the truncation sentinel to the boundary it reports -
-      # present at call-chain depth 41, absent at 5 - which is the only
-      # assertion in the tree watching `rgnRounds`' 40-round cap.
+      # The projection: every `#mir-*` key `symbols --mir` prints is
+      # re-derivable from the raw region words of the record whose whole
+      # header tuple matches that row, so two independent derivations are
+      # compared. It also watches `rgnRounds`' round cap, which is the
+      # program's own size: `#mir-truncated` must be absent at call-chain
+      # depth 5 and at depth 60, with the escape carried up to f0's row.
       - name: Every published dataflow key is the record's own words
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-mir-projection.sh
 
-      # And what a reset COSTS, which is the roadmap's P8 and the one
-      # thing no gate here measured: every timing gate asserts a ratio,
-      # deliberately, so a slow runner cannot fail it - which left rate
-      # uncovered. This makes the rate a ratio anyway, by running one
-      # program in three spellings a word apart. Its negative probe
-      # deletes the scrub from the EMITTED IR and rebuilds, so the two
-      # binaries differ in the scrub and nothing else.
-      #
-      # About five seconds: three builds and twenty short runs.
+      # What a reset costs, the roadmap's P8. Timing gates here assert
+      # ratios, which a slow runner can't fail, so this one makes rate a
+      # ratio too: one program in three spellings a word apart. Its
+      # negative probe deletes the scrub from the emitted IR and rebuilds,
+      # so the two binaries differ only in the scrub. Three builds and
+      # twenty short runs.
       - name: What an arena reset costs, and that the scrub is what costs it
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-arena-reset-rate.sh
 
-      # Two `axiom run`s in one directory must not corrupt each other.
-      # The scratch name was a fixed literal in the working directory,
-      # so concurrent runs overwrote each other's intermediates - and
-      # the failure was not a crash but a WRONG ANSWER: one program
-      # returning another's result, exit 0, nothing on stderr.
-      #
-      # No other gate could see it, because every other gate runs one
-      # compiler at a time or gives each case its own directory. This is
-      # also the prerequisite for any parallel work: no job pool can be
-      # trusted while a filename is shared.
+      # Two `axiom run`s in one directory must not corrupt each other. A
+      # shared scratch name makes one program return another's result, at
+      # exit 0 with nothing on stderr. Other gates run one compiler at a
+      # time or give each case its own directory, so only this one can see
+      # it. Any parallel job pool depends on it.
       - name: Concurrent runs in one directory do not collide
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-concurrent-run.sh
 
-      # `fmt` is the tool that had no gate, and it had six independent
-      # ways of silently destroying a source file. This formats a copy of
-      # the whole repository and re-runs the suites against it, so a
-      # formatter change that alters what a program means fails here.
+      # Formats a copy of the whole repository and re-runs the suites
+      # against it, so a formatter change that alters what a program means
+      # fails here.
       - name: Formatter round-trip
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-fmt.sh
 
-      # The formatter, pinned without a second compiler. This was a
-      # differential against the Rust `fmt` until that compiler was
-      # deleted - and a differential does not FAIL when its reference
-      # disappears, it passes by comparing a compiler with itself. So
-      # the reference is now a checked-in corpus golden keyed by source
-      # hash, plus the idempotence and preservation properties and the
-      # `tests/fmt/parity/*.axp` refusal bank.
+      # The formatter, pinned by a checked-in corpus golden keyed by
+      # source hash, plus the idempotence and preservation properties and
+      # the `tests/fmt/parity/*.axp` refusal bank.
       - name: Formatter goldens, idempotence and refusals
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-fmt-selfhost.sh
@@ -1466,27 +1059,22 @@ jobs:
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-tools-selfhost.sh
 
-      # The standard library performs exactly the effects it declares,
-      # and the set of declarations performing any is the one on file.
-      # `docs/agent-harness.md` §3.4's Agent.Policy, and a GATE rather
-      # than a compiler mode for the reason that document gives: the
-      # only boundary policy that has ever worked here is `check-ffi.sh`
-      # comparing a binary's symbols against a checked-in manifest with
-      # a negative probe, and this is that shape over the AXSYM stream.
-      # It found two stdlib functions performing I/O without claiming it
-      # on its first run.
+      # The standard library performs exactly the effects it declares, and
+      # the set of declarations performing any is the one on file
+      # (`docs/agent-harness.md` §3.4, Agent.Policy). It is a gate rather
+      # than a compiler mode for the reason that document gives. It has
+      # the `check-ffi.sh` shape: a checked-in manifest and a negative
+      # probe, here over the AXSYM stream.
       - name: The standard library declares what it performs
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-agent-policy.sh
 
-      # The other half of the same walk. `inferEffects` resolves a call
-      # edge for every effect it attributes and used to drop it, so a
-      # row could say `#effects=IO` and not which call put it there.
-      # `symbols --calls` prints the edge; this asserts the graph and
-      # the effect rows are two views of one walk - no callee effect
-      # escapes its caller, every inferred effect has an edge, and every
-      # IO reaches a syscall or an extern. Opt-in, so the symbols golden
-      # does not move.
+      # The other half of the same walk. `symbols --calls` prints the call
+      # edge behind each effect `inferEffects` attributes. This asserts
+      # the graph and the effect rows are two views of one walk: no callee
+      # effect escapes its caller, every inferred effect has an edge, and
+      # every IO reaches a syscall or an extern. Opt-in, so the symbols
+      # golden doesn't move.
       - name: The call graph explains the effect rows
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-agent-calls.sh
@@ -1494,52 +1082,35 @@ jobs:
       # The distribution behind "only IO is required": `Alloc` and `Mut`
       # stay ambient because requiring them would tag nearly every
       # effectful function. This pins the full bucket histogram in two
-      # views - if the population moves, the required/ambient line is
-      # revisited in the diff rather than retuned here.
+      # views. If the population moves, revisit the required/ambient line
+      # in the diff instead of retuning it here.
       - name: The ambient-effect distribution sits where measured
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-effect-distribution.sh
 
-      # Syscall numbers are written down TWICE in this repository - once
-      # in `self_host/codegen.ax` for the runtime the compiler emits
-      # (the allocator's mmap, and the exit and write of three abort
-      # paths), once in `stdlib/Sys/Platform.*.ax` for the standard
-      # library - and nothing compared them. They had already
-      # disagreed: the emitted abort paths exited through Linux `exit`
-      # (93/60) while the platform modules use `exit_group` (94/231),
-      # and `Platform.linux-aarch64.ax` said "exit_group (94), not exit
-      # (93)" while the compiler emitted 93. Latent only until one of
-      # these programs has a second thread, at which point the abort
-      # ends a thread and the process stays alive.
-      #
-      # It runs in the matrix like its neighbours but is not really a
-      # per-runner check - it reads all seven targets from whichever
-      # host it is on, out of `emit-llvm` rather than out of the
-      # sources, so the source-only targets, which no Tests leg runs,
-      # are covered here rather than never. About eight seconds, almost all of it building the
-      # compiler under test, which it must: the codegen table is half of
-      # what it compares.
+      # Syscall numbers are written twice: in `self_host/codegen.ax` for
+      # the emitted runtime, and in `stdlib/Sys/Platform.*.ax` for the
+      # library. If they disagree, say `exit` against `exit_group`, an
+      # abort in a threaded program ends one thread and the process lives
+      # on. It reads all seven targets from `emit-llvm` on whichever host
+      # it runs, so source-only targets are covered too.
       - name: The two tables of syscall numbers agree
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-platform-constants.sh
 
-      # The Windows entry shim's command-line and environment parsers,
-      # cut out of the emitted Windows IR and executed HERE, on the
-      # host, against known answers - the one part of a Windows binary
-      # this matrix can run before a Windows leg exists, and the part
-      # whose wrong answers look plausible rather than crash.
+      # The Windows entry shim's command-line and environment parsers, cut
+      # out of the emitted Windows IR and run on this host against known
+      # answers. They are the part of a Windows binary this matrix can
+      # run, and their wrong answers look plausible instead of crashing.
       - name: The Windows entry shim's parsers answer on this host
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-windows-entry.sh
 
-      # The native human and JSON diagnostic renderers, pinned without a
-      # second compiler: checked-in goldens, cross-checked against the
-      # AXDL goldens, exit statuses DERIVED from the golden's own
-      # severity column, every quoted source row checked against the
-      # fixture, and the escape stream checked against the palette
-      # `self_host/style.ax` declares. Never a byte comparison with the
-      # Rust compiler's human output: that output was the `ariadne`
-      # crate's, an internal of a compiler that has been deleted.
+      # The native human and JSON diagnostic renderers: checked-in
+      # goldens, cross-checked against the AXDL goldens, exit statuses
+      # derived from the golden's severity column, every quoted source row
+      # checked against the fixture, and the escape stream checked against
+      # the palette `self_host/style.ax` declares.
       - name: Human and JSON diagnostic renderers
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-render-selfhost.sh
@@ -1553,35 +1124,31 @@ jobs:
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-repl-selfhost.sh
 
-      # The three surfaces the piped-session gate above cannot reach,
-      # because each of them only exists in front of a TERMINAL.
+      # The three surfaces the piped-session gate above can't reach,
+      # because each exists only in front of a terminal.
       #
       # A real pty: arrows, control keys, Alt- prefixes and multi-byte
       # characters decoded; Ctrl-C a key rather than a signal; the
-      # terminal restored byte-exact on both exit paths; and the
-      # wrapped screen matched against an independent model at the
-      # deferred-wrap boundary and away from it.
+      # terminal restored byte-exact on both exit paths; and the wrapped
+      # screen matched against an independent model at the deferred-wrap
+      # boundary and away from it.
       - name: The REPL on a real terminal
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-repl-tui.sh
 
-      # History, and it is the one gate here whose assertion is a FLOOR
-      # rather than a total: its D3 arm forks six REPLs that each append
-      # 200 entries and compact a shared file, and the design carries a
-      # documented one-syscall window - an append landing between the
-      # size re-check and the rename is lost - so it requires 995 of
-      # 1200. That window widens under load, which is why
-      # `run-gates.sh` serialises it locally. A CI job runs its steps
-      # one at a time, so it has the machine here.
+      # History, asserted as a floor rather than a total. Its D3 arm forks
+      # six REPLs that each append 200 entries and compact a shared file.
+      # The design has a documented one-syscall window (an append between
+      # the size re-check and the rename is lost), so it requires 995 of
+      # 1200. The window widens under load, so `run-gates.sh`
+      # serialises it locally; a CI job runs its steps one at a time.
       - name: REPL history, across concurrent sessions
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-repl-history.sh
 
-      # Completion, and the highlighter. The highlighter is the second
-      # implementation of a rule the tree-sitter queries already carry,
-      # which is the shape this repository has been bitten by before -
-      # the formatter is a second implementation of the grammar - so it
-      # is pinned rather than trusted.
+      # Completion and the highlighter. The highlighter is a second
+      # implementation of a rule the tree-sitter queries carry, so it is
+      # pinned rather than trusted.
       - name: REPL completion
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-replcomp.sh
@@ -1590,25 +1157,21 @@ jobs:
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-repl-highlight.sh
 
-      # The language server. The first tool surface that is NOT a port
-      # of a stage0 tool - there is no `axiom lsp` in the Rust compiler
-      # - so it cannot be a two-sided differential and is the
-      # native-surface shape instead: a checked-in golden for the
-      # framed session bytes, PLUS every published diagnostic checked
-      # against what stage0's own AXDL reports for the same file,
-      # including the column, converted from stage0's 1-based character
-      # index into LSP's 0-based UTF-16 code unit. The conversion is
-      # what the negative test ablates, and a version of this gate that
-      # compared only line numbers passed with it removed.
+      # The language server: a checked-in golden for the framed session
+      # bytes, plus every published diagnostic checked against what
+      # stage0's AXDL reports for the same file. That includes the column,
+      # converted from stage0's 1-based character index to LSP's 0-based
+      # UTF-16 code unit. The negative test ablates the conversion, which
+      # a line-number comparison alone would miss.
       - name: Language server
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-lsp-selfhost.sh
 
-      # The measurement that re-opens MAC-TOOL-3: editor requests read
-      # the raw parse tree, so a name only the expansion knows goes
-      # unanswered. This pins the population of generated names and
-      # the count of requests that want one - if either moves, the
-      # decision is revisited in the diff rather than retuned here.
+      # The measurement that re-opens MAC-TOOL-3: editor requests read the
+      # raw parse tree, so a name only the expansion knows goes
+      # unanswered. This pins the population of generated names and the
+      # count of requests that want one. If either moves, revisit the
+      # decision in the diff instead of retuning it here.
       - name: Generated-name demand behind the raw-tree rule
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-macro-demand.sh
@@ -1622,70 +1185,49 @@ jobs:
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-scope-equiv.sh
 
-      # The normative documents drift because they are maintained by
-      # hand: nine claims in README.md and docs/reference.md were
-      # measurably false on 2026-08-10, including a benchmark ratio this
-      # repository had already corrected in another file and "No LSP
-      # yet" forty lines below the row listing the LSP. Correcting them
-      # by hand is a treadmill - seven stale file counts have been fixed
-      # one at a time across this project's history - so every count is
-      # recomputed, every **Complete** row must name a fixture that
-      # exists, and the diagnostic registry is compared BOTH ways
-      # (a code constructed but never reached by a corpus fixture
-      # escapes the emitted->listed check that already existed).
+      # The normative documents are maintained by hand and drift. So every
+      # count is recomputed, every **Complete** row must name a fixture
+      # that exists, and the diagnostic registry is compared both ways: a
+      # code constructed but reached by no corpus fixture escapes the
+      # emitted-to-listed check.
       - name: Documentation agrees with the tree
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-doc-drift.sh
 
-      # The frontend has five consumers - check, symbols, fmt, the
-      # REPL's :load and the language server - each reaching
+      # The frontend has five consumers (check, symbols, fmt, the REPL's
+      # :load and the language server), each reaching
       # parseModuleWith/resolveImports/checkModule through its own call
-      # site, and until this gate nothing compared them. Three of the
-      # four defects it is seeded with exist because a NEW consumer
-      # re-derived a rule the frontend already had. It asserts the
-      # VALUE as well as the verdict, which is the assertion none of
-      # the other gates can make: every one of those defects passed
-      # `check` at exit 0 and differed only in what the program then
-      # computed.
+      # site. The gate is seeded with four defects, three of them a new
+      # consumer re-deriving a rule the frontend already had. It asserts
+      # the value as well as the verdict: those defects pass `check` at
+      # exit 0 and differ only in what the program computes.
       - name: Frontend parity across its five consumers
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-frontend-parity.sh
 
-      # Diverse double-compile of the subset corpus: the seed-built
-      # compiler and an independent Python interpreter execute the same
-      # eight programs and must agree with each other and with the
-      # `; expect N` each states. Every other gate asks the
-      # seed-descended compiler to grade its own work; a defect in the
-      # seed reproduces through stage2 == stage3 untouched. The gate
-      # plants exactly that class - one flipped comparison in emitted
-      # IR - and requires the independent comparison to fail where the
-      # fixpoint cannot. The interpreter covers the subset only and
-      # shares a maintainer with the compiler; both limits are stated
-      # in the gate's header and in bootstrap/THREATS.md row 12.
+      # Diverse double-compile: the seed-built compiler and an independent
+      # Python interpreter run the subset corpus and must agree with each
+      # other and each `; expect N`. A seed defect survives stage2 ==
+      # stage3, so the gate plants a flipped comparison in emitted IR and
+      # requires the independent check to catch it. Its limits are in the
+      # gate's header and bootstrap/THREATS.md row 12.
       - name: Diverse double-compile of the subset corpus
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-ddc.sh
 
-      # The P2 memory-model exit criterion: one Life board advanced
-      # 2000 generations stays under 4 MiB when the loop carries the
-      # explicit mark/copy/reset contract, grows linearly when it
-      # does not, and CORRUPTS when the reset drops its copy - all
-      # three measured, the third proving the gate can see the
-      # unsoundness class. Automation of the contract is a future
-      # slice, gated on static pointerhood (Int is the universal
-      # handle type; String unifies with Int by fiat).
+      # The P2 memory-model exit criterion: a Life board advanced 2000
+      # generations stays under 4 MiB with the explicit mark/copy/reset
+      # contract, grows linearly without it, and corrupts when the reset
+      # drops its copy. The third case shows the gate can see the
+      # unsoundness class.
       - name: Memory baseline (managed flat, unmanaged linear)
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-memory-baseline.sh
 
-  # `rust/` is a cargo workspace with five crates, a trybuild suite and
-  # a bindgen snapshot suite, and `scripts/check-ffi.sh` is the gate
-  # `docs/memory-model.md` MM-FFI-5 requires - the one that enumerates
-  # the external symbols the FFI opens rather than forbidding all of
-  # them. None of it ran here: `tests/ffi/` (40 fixtures) was read by
-  # exactly one script, and that script was read by nothing. Which is
-  # the same gap this file's own risk note names - a tool with no CI
-  # gate is silently broken, as `fmt` was.
+  # `rust/` is a cargo workspace with a trybuild suite and a bindgen
+  # snapshot suite. `scripts/check-ffi.sh` is the gate
+  # `docs/memory-model.md` MM-FFI-5 requires: it enumerates the external
+  # symbols the FFI opens rather than forbidding all of them.
   ffi:
     name: FFI (${{ matrix.name }})
     needs: grammar
@@ -1698,25 +1240,20 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      # `toolchain: stable` is spelled out because the ref no longer
-      # says it. This action's only branches ARE toolchain names -
-      # `@stable` selected the toolchain and the code in one ref - and
-      # `stable` is force-pushed on every Rust release, so pinning the
-      # SHA freezes six-monthly-moving action code at a reviewed commit.
-      # The input defaults to `stable` at this SHA and the action reads
-      # `inputs.toolchain` alone, never `github.action_ref`, so the pin
-      # does not change which Rust gets installed - but naming it keeps
-      # that true if the default ever changes, and tells the next reader
-      # what the hex was for.
+      # `toolchain: stable` is spelled out because the ref is a SHA. The
+      # action's branches are toolchain names and `stable` is force-pushed
+      # on every Rust release, so the SHA freezes the action code at a
+      # reviewed commit. The action reads `inputs.toolchain`, never
+      # `github.action_ref`, so naming it keeps stable installed if the
+      # default changes.
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable branch @ 2026-08-05
         with:
           toolchain: stable
-      # THE DECLARED MINIMUM, installed beside stable, because a minimum
-      # nothing builds on is a guess: `rust/Cargo.toml` said 1.85 for
-      # weeks while the code needed 1.88. The version is READ from that
-      # file rather than repeated here, so the two cannot disagree, and
-      # `check-ffi.sh` fails under CI if this toolchain is missing - so
-      # deleting this step turns the job red rather than quiet.
+      # The declared minimum, installed beside stable, because a minimum
+      # nothing builds on is a guess. The version is read from
+      # `rust/Cargo.toml` so the two can't disagree. `check-ffi.sh` fails
+      # under CI without this toolchain, so deleting the step turns the
+      # job red.
       - name: Install the Rust minimum rust/Cargo.toml declares
         run: rustup toolchain install "$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' rust/Cargo.toml)" --profile minimal
       - uses: ./.github/actions/provision
@@ -1727,37 +1264,28 @@ jobs:
       - name: The FFI opens exactly the door it declares
         run: ./scripts/check-ffi.sh
 
-      # The crates' own suites: the classifier's unit tests, the
-      # 21-case trybuild bank of rejected `#[axiom_export]` shapes, and
-      # the bindgen snapshots. `axiom-host` is excluded because it
-      # links an Axiom archive that check-ffi.sh builds, not cargo.
+      # The crates' own suites: the classifier's unit tests, the trybuild
+      # bank of rejected `#[axiom_export]` shapes, and the bindgen
+      # snapshots. `axiom-host` is excluded because it links an Axiom
+      # archive that check-ffi.sh builds, not cargo.
       - name: The FFI crates' own tests
         run: cd rust && cargo test --workspace --exclude axiom-host
 
   # ---------------------------------------------------------------
-  # FreeBSD is SOURCE-ONLY (README, Targets), like linux-x86_64: this
-  # job builds the compiler from `bootstrap/axiom-freebsd-x86_64.ll` on
-  # a real FreeBSD 14 kernel, in a VM on the Ubuntu runner
-  # (KVM-accelerated - the hosted runners expose /dev/kvm), and runs no
-  # test battery there. The bootstrap runs the compiler it builds to a
-  # fixpoint and runs one program with it, which is the whole promise
-  # of the tier; `check-release-targets.sh` requires this leg by name.
+  # FreeBSD is source-only (README, Targets), like linux-x86_64. This job
+  # builds the compiler from `bootstrap/axiom-freebsd-x86_64.ll` in a
+  # KVM-accelerated FreeBSD 14 VM, runs it to a fixpoint and runs one
+  # program, with no test battery. `check-release-targets.sh` requires
+  # this leg by name.
   #
-  # PINNING, AND WHAT IT DOES NOT PIN. The action is pinned to a commit
-  # SHA like every other action in this file, which pins the
-  # JavaScript that boots the VM. It does not pin the disk image:
-  # vmactions builds its images from the official FreeBSD release VM
-  # images and the action fetches them from its own releases at run
-  # time, with `release: "14.4"` naming which. What runs in this job is
-  # FreeBSD 14.4 as vmactions packaged it, and a compromise of that
-  # packaging would reach this job. What the job can reach is bounded
-  # the way every job here is - `permissions: contents: read`, no
-  # secret, no upload, no push.
+  # The action's SHA pins the code that boots the VM, not the disk image,
+  # which vmactions fetches at run time (`release: "14.4"`). The job's
+  # reach is bounded like every job here: `contents: read`, no secret, no
+  # upload.
   #
-  # `prepare` and `run` execute under sh inside the VM (the action
-  # ignores `usesh` now). The bootstrap is bash, and `llc` comes from
-  # the LLVM package under `/usr/local/llvm*/bin`; `cc` is the base
-  # system's clang.
+  # `prepare` and `run` execute under sh in the VM. The bootstrap is bash,
+  # `llc` comes from the LLVM package under `/usr/local/llvm*/bin`, and
+  # `cc` is the base system's clang.
   # ---------------------------------------------------------------
   test-freebsd:
     name: Bootstrap from seed (freebsd-x86_64)
@@ -1779,12 +1307,11 @@ jobs:
             uname -a; llc --version | head -2; cc --version | head -1
             ./scripts/bootstrap-from-seed.sh --install .axiom-bin
 
-  # freebsd-aarch64 is on the same tier: the same bootstrap in a
-  # FreeBSD 14.4 VM, with `arch: aarch64`. The action boots an aarch64
-  # guest on the x86_64 runner by emulation, 10-30 times slower than
-  # the KVM guest above, so the leg does the bootstrap alone - no gates -
-  # and has a longer budget: the x86_64 bootstrap takes under four
-  # minutes, so even the slow end of emulation fits well inside it.
+  # freebsd-aarch64 is on the same tier: the same bootstrap in a FreeBSD
+  # 14.4 VM, with `arch: aarch64`. The guest is emulated, 10 to 30 times
+  # slower than the KVM guest above, so the leg runs the bootstrap alone,
+  # with a longer budget. The x86_64 bootstrap takes under four minutes,
+  # so even the slow end of emulation fits inside it.
   # ---------------------------------------------------------------
   test-freebsd-aarch64:
     name: Bootstrap from seed (freebsd-aarch64)
@@ -1839,41 +1366,22 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/provision
 
-      # `stage2 == stage3` is the criterion the whole self-hosting effort
-      # is aimed at, and the script that checks it was in the tree but
-      # wired into nothing - so a regression in it would have been found
-      # by whoever next ran it by hand.
+      # `stage2 == stage3`: the self-hosting fixpoint.
 
       - name: stage2 and stage3 are byte-identical
         run: ./scripts/check-bootstrap.sh
 
-  # The other half of the seed's story, and the half nothing checked
-  # until 2026-08-25. `bootstrap` above proves the seed can BUILD this
-  # source. This proves the seed IS the output of source in this
-  # repository's history, by regenerating all six files from the
-  # commit that last wrote the six `.ll` files and requiring byte-identity.
+  # `bootstrap` proves the seed can build this source. This proves the
+  # seed is the output of source in this repository's history: it
+  # regenerates all six seeds from the commit that last wrote them and
+  # requires byte-identity. It has its own job because it needs
+  # `fetch-depth: 0` and a compiler build plus six whole-compiler
+  # emissions.
   #
-  # ITS OWN JOB, for two reasons that are both about the checkout. It
-  # needs `fetch-depth: 0`: the default shallow clone has one commit,
-  # and `git log -- bootstrap/*.ll` on it cannot find the commit that wrote
-  # a directory it never fetched - the gate would report "no commit
-  # touches bootstrap/" rather than a wrong answer, but it would report
-  # it on every run. And it costs a compiler build plus six
-  # whole-compiler emissions, about seven minutes, which is a poor
-  # neighbour for the `test` job's fifty-one steps.
-  #
-  # ONE LEG, DELIBERATELY, and the reason is worth writing down because
-  # the obvious improvement is a two-leg matrix. The seed is generated
-  # on darwin-aarch64 and regenerated here on ubuntu: that is two
-  # operating systems reaching the same 1,235,917 lines of IR, and
-  # `check-seed-provenance.sh`'s second-witness section now prints which
-  # case each run is. A darwin leg would make the property survive a
-  # change in where the seed is generated - but this job is seven
-  # minutes, macOS runner minutes bill at ten times ubuntu's, and the
-  # leg that would matter is the one that is already here. What a
-  # maintainer needs is to SEE the property lapse, which the report
-  # gives for free; adding the second leg is the lever to pull if the
-  # generating host ever moves.
+  # One leg: the seed is generated on darwin-aarch64, so regenerating it
+  # on ubuntu already gives two operating systems, and
+  # `check-seed-provenance.sh` prints which case each run is. Add a darwin
+  # leg if the generating host moves.
   seed-provenance:
     name: The seed is its source's emission
     needs: grammar
@@ -1884,43 +1392,29 @@ jobs:
           fetch-depth: 0
       - uses: ./.github/actions/provision
 
-      # The same gate the `test` matrix runs, and it runs here too for
-      # ONE arm: its section 5 compares the anchor's stated size against
-      # `bb730db`, which a depth-1 checkout does not have. There it says
-      # so and compares only the four prose sites to each other; here,
-      # under `fetch-depth: 0`, it counts the commit. Two seconds, and
-      # without it the git half of that check would run nowhere in CI.
+      # The same gate the `test` matrix runs, here for one arm: its
+      # section 5 compares the anchor's stated size against `bb730db`,
+      # which a depth-1 checkout lacks. There it compares only the prose
+      # sites to each other; here, with `fetch-depth: 0`, it counts the
+      # commit.
       - name: The anchor's stated size, against the anchor
         run: ./scripts/check-seed-supply-chain.sh
 
       - name: Regenerate all six seeds from the source they came from
         run: ./scripts/check-seed-provenance.sh
 
-  # The seed's ANCESTRY. `seed-provenance` proves the seed is its own
-  # tree's emission; this proves the compiler that emitted it is on a
-  # chain that begins outside Axiom - the rows of `bootstrap/CHAIN` that
-  # `bootstrap/CHAIN.checkpoint` does not certify, replayed, and never
-  # fewer than the newest: the previous seed built with `llc` and `cc`
-  # compiles the tree of the seed in the tree and must reproduce it.
-  # `scripts/check-seed-lineage.sh` reads the whole table's structure
-  # every time it runs, and RECOMPUTES the checkpoint's digest from
-  # `bootstrap/CHAIN` before it skips a single row - a covered row that
-  # moved voids the checkpoint, and the gate then replays every row from
-  # the Rust anchor and goes red. So this job cannot be made cheap by
-  # editing the table it checks; it can only be made expensive.
+  # The seed's ancestry: the compiler that emitted the seed is on a chain
+  # that begins outside Axiom. It replays the rows of `bootstrap/CHAIN`
+  # that `bootstrap/CHAIN.checkpoint` doesn't certify, always including
+  # the newest. `scripts/check-seed-lineage.sh` recomputes the
+  # checkpoint's digest first, so editing a covered row voids it and
+  # forces a full replay. `fetch-depth: 0` because it walks the history of
+  # `bootstrap/*.ll`.
   #
-  # `fetch-depth: 0` for the reason the two jobs above it need it: the
-  # gate walks the history for every commit that ever wrote
-  # `bootstrap/*.ll`, and a shallow clone has none of them. It refuses
-  # by name rather than passing when it finds none.
-  #
-  # Only when the push or pull request touched `bootstrap/`. A
-  # workflow-level `paths:` filter would gate every job here, and a
-  # third-party changed-files action is a supply-chain decision this
-  # file does not make lightly, so the step asks git: the diff against
-  # the pull request's base, or against the push's `before`. When
-  # neither is answerable (a new branch's first push) it runs, which
-  # is the safe direction. The skip is printed by name.
+  # It runs only when the change touched `bootstrap/`, asked of git rather
+  # than a `paths:` filter, which would gate every job, or a third-party
+  # changed-files action, which would be one more supply-chain dependency.
+  # With no base to diff against it runs; when it skips, it says so.
   seed-lineage:
     name: The seed reproduces from the seed before it
     needs: grammar
@@ -1955,23 +1449,17 @@ jobs:
         if: steps.touched.outputs.run == 'true'
         run: ./scripts/check-seed-lineage.sh
 
-  # Every row, from the Rust anchor: cargo builds the compiler at
-  # `bb730db`, it reproduces the first seed, and each seed after that
-  # is reproduced from the one before - thirteen links and a
-  # seventy-commit walk. Nightly, and on the button; `grammar` is
-  # skipped on both triggers so nothing else runs.
+  # Every row from the Rust anchor: cargo builds the compiler at
+  # `bb730db`, it reproduces the first seed, and each later seed is
+  # reproduced from the one before. Nightly and on the button.
   #
-  # This job does NOT bless `bootstrap/CHAIN.checkpoint`, and the
-  # workflow holds `contents: read` so it could not commit one. A gate
-  # that advances its own trust anchor whenever it passes proves
-  # nothing, and a nightly that did it would advance it unwatched. The
-  # checkpoint is advanced by a person, with `AXIOM_BLESS=1
-  # scripts/check-seed-lineage.sh --full`, in the diff that a reviewer
-  # reads. What this job is for is the other direction: it re-derives
-  # every row from `bb730db` daily whatever the checkpoint says, so a
-  # prefix that was certified wrongly has a day to live.
-  # `dtolnay/rust-toolchain` is pinned to the same SHA the `ffi` job
-  # pins, for the reason stated above it.
+  # It never blesses `bootstrap/CHAIN.checkpoint`: a gate that advances
+  # its own trust anchor proves nothing, and `contents: read` can't
+  # commit one. A person does, with
+  # `AXIOM_BLESS=1 scripts/check-seed-lineage.sh --full`, in a reviewed
+  # diff. This job re-derives every row whatever the checkpoint says, so
+  # a wrongly certified prefix is caught within a day.
+  # `dtolnay/rust-toolchain` uses the same SHA as the `ffi` job.
   seed-lineage-full:
     name: The seed lineage replays from the Rust anchor
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
@@ -1987,14 +1475,11 @@ jobs:
       - name: Every row of bootstrap/CHAIN replays, and the anchor's probes go red
         run: ./scripts/check-seed-lineage.sh --full
 
-  # The long evidence. A push runs the fuzzer's 600-mutant sample, the
-  # model's traces at `--opt` 0 and 3, and the protocol model at its
-  # small bounds; the budgets behind them - 6,000 mutants, every trace at
-  # every level, and three bindings sending two words each - are minutes
-  # each, so they run here, nightly and on the button, rather than on
-  # every push. A
-  # budget nobody runs is a claim nobody checks; scheduling it keeps the
-  # coverage, and a red here is a red like any other.
+  # The long evidence. A push runs samples: the fuzzer's 600 mutants, the
+  # model's traces at `--opt` 0 and 3, and the protocol model at small
+  # bounds. The full budgets (6,000 mutants, every trace at every level,
+  # the larger protocol bounds) take minutes each, so they run nightly and
+  # on the button. A red here is a red like any other.
   long-evidence:
     name: The fuzzer's full budget and the model's every trace
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
@@ -2025,27 +1510,14 @@ jobs:
         run: ./scripts/check-reproducible.sh
 
   # ---------------------------------------------------------------
-  # The load-bearing job. Every other one here PROVISIONS a compiler
-  # from `bootstrap/` and gets on with testing something; this one
-  # tests the provisioning itself, end to end, as the thing under test:
-  # seed -> stage1 -> stage2 -> stage3, byte-identical at the top, and
-  # a program compiled and run by the result.
-  #
-  # If it is green, a clean checkout of this repository produces a
-  # working Axiom compiler with nothing but `llc` and a C linker. That
-  # was the precondition for deleting the Rust crates, and it is now
-  # the precondition for the repository being buildable at all.
-  #
-  # It is also what fails when the committed seed goes stale - when
-  # self_host/ starts using something the seed cannot compile - and
-  # `scripts/reseed.sh` is the fix. Run on both architectures because
-  # the seed is per-target and a wrong syscall table in one of them is
-  # invisible from the other.
-  #
-  # For linux-x86_64 this leg is the promise itself: the target is
-  # source-only (README, Targets), no Tests leg runs there, and
-  # `check-release-targets.sh` requires this leg for every target README
-  # names so.
+  # The load-bearing job: it tests the provisioning every other job relies
+  # on, `seed -> stage1 -> stage2 -> stage3`, byte-identical at the top,
+  # plus a program compiled and run by the result. Green means a clean
+  # checkout builds Axiom with only `llc` and a C linker. A stale seed
+  # fails here; `scripts/reseed.sh` is the fix. Both architectures run
+  # because the seed is per-target. For linux-x86_64, a source-only
+  # target, this leg is the whole promise, and `check-release-targets.sh`
+  # requires it.
   # ---------------------------------------------------------------
   bootstrap-no-rust:
     name: Bootstrap from seed (${{ matrix.name }})
@@ -2061,9 +1533,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      # Not `./.github/actions/provision`: that action ends by INSTALLING
-      # the result, and what this job tests is the build itself, on the
-      # two architectures where nothing else builds a seed from scratch.
+      # Not `./.github/actions/provision`: that action installs the
+      # result, and this job tests the build itself.
       - name: Install LLVM tools (Linux)
         if: runner.os == 'Linux'
         run: |

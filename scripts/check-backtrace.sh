@@ -1,73 +1,34 @@
 #!/usr/bin/env bash
-# Assert that a dying Axiom program says WHICH FUNCTION died.
+# Check that a dying Axiom program names the functions on its stack.
 #
-# WHAT THIS EXISTS FOR. Until 2026-08-24 a trapping program yielded a
-# status and one line - "axiom: division by zero" and 72 - which answers
-# what happened and nothing at all about where. `check-stack-depth.sh`
-# records three SIGSEGVs whose cause was found only by attaching
-# `lldb`, and a worker dying inside a pre-forked pool has no `lldb`
-# attached and no second chance: the supervisor respawns it and the
-# frame that died is gone. Function-level frames answer most of
-# production triage; that is what is gated here.
+# Without a backtrace, a trap gives a status and one line, such as
+# "axiom: division by zero" and 72. That says what happened, not where.
+# A worker dying in a pre-forked pool has no debugger attached, and once
+# the supervisor respawns it the frame is gone. Function-level frames
+# answer most production triage.
 #
-# THE MECHANISM, in three pieces, none of them debug metadata:
+# The mechanism has three pieces, none of them debug metadata:
 #   1. `"frame-pointer"="all"` on the module's one attribute group, so
-#      the chain is walkable on all four targets. Checked in §5.
+#      the chain is walkable on every target. Checked in §5.
 #   2. `@__axiom_symtab`, an address-beside-name table over every symbol
-#      the module defines, emitted as ordinary constant data. Checked in
-#      §6.
+#      the module defines, emitted as ordinary constant data. Checked in §6.
 #   3. `@__axiom_backtrace`, which walks the chain and resolves each
 #      return address. Checked in §1-§4.
-# `-g` is still never passed, there is still no `!dbg` anywhere, and the
-# committed seed still compiles `self_host/` unchanged - the whole
-# addition is emitted text.
+# `-g` is never passed and there is no `!dbg` anywhere. The whole
+# mechanism is emitted text, so the committed seed compiles `self_host/`
+# unchanged.
 #
-# ------------------------------------------------------------------
-# THE ROADMAP ASKED FOR SOMETHING THIS GATE CANNOT ASSERT, AND THE
-# MEASUREMENT IS WHY.
-#
-# The roadmap's acceptance line reads: "a 5-deep chain names five
-# functions, at every optimisation level." The first half holds and is
-# §1. The second half does not, and it is not the backtracer that
-# fails it - it is that AT `--opt 1` AND ABOVE THERE IS NO FIVE-DEEP
-# CHAIN. Measured on this host, darwin-aarch64, LLVM 22.1.8, with the
-# five-function chain in §1 and a divisor read from `sysArgc` so
-# nothing folds:
-#
-#   --opt 0   frames: __axiom_div_by_zero e5 d4 c3 b2 a1 __axiom_user_main main
-#   --opt 1   frames: __axiom_div_by_zero main
-#   --opt 2   frames: __axiom_div_by_zero main
-#   --opt 3   frames: __axiom_div_by_zero main
-#
-# Disassembling the `--opt 1` binary shows why: `_main` contains the
-# whole chain and ends `bl ___axiom_div_by_zero`. The five frames were
-# not lost by the walker, they were never pushed.
-#
-# Two ways to satisfy the sentence as written were tried and are
-# recorded because they are the obvious ones:
-#
-#   - MUTUAL RECURSION, a1 -> b2 -> c3 -> d4 -> e5 -> a1, on the theory
-#     that a call inside a strongly connected component is one the
-#     inliner leaves alone. It is not: at every level above 0 LLVM
-#     inlined a1 and b2 into main and left three frames, not five.
-#   - AN INDIRECT CALL through a lambda pulled out of a `Vec`, which no
-#     optimiser can devirtualise. `__call_word` on a lambda handle
-#     faulted (exit 138) before reaching the trap; making that work is
-#     a separate question about the lambda calling convention and does
-#     not belong in this gate.
-#
-# So this gate asserts the thing that is actually true and is worth
-# more: THE WALKER NAMES EXACTLY THE FRAMES THAT ARE ON THE STACK, AT
-# EVERY OPTIMISATION LEVEL. §1 pins all eight frames byte for byte
-# where all eight exist. §2 checks every level, and checks each printed
-# name against `nm` - a source outside the compiler, as this
-# repository's gates are required to have - so a walker that invented
-# a plausible name would fail even where the frame count is not
-# predictable.
-#
-# That distinction is not academic. §3 exists because the first
-# implementation DID invent a plausible name.
-# ------------------------------------------------------------------
+# The roadmap asks for "a 5-deep chain names five functions, at every
+# optimisation level". At `--opt 1` and above there is no five-deep
+# chain: LLVM inlines it into `main`, so the trace reads
+# `__axiom_div_by_zero main`. Mutual recursion does not stop the inliner.
+# So the gate asserts what holds at every level: the walker names
+# exactly the frames that are on the stack.
+#   §1 pins all eight frames byte for byte at `--opt 0`.
+#   §2 checks every printed name at every level against `nm`, a source
+#      outside the compiler, so an invented name fails even where the
+#      frame count is unpredictable.
+#   §3 pins the ra-1 lookup, which otherwise names a plausible wrong frame.
 
 set -euo pipefail
 
@@ -91,30 +52,23 @@ want() { # want <label> <expected> <actual>
   fi
 }
 
-# check_map <label> <trace> <map> <exact> [count]: every LOCATED
-# frame (`at FN FILE:L:C`) must match a map row byte for byte, and
-# with exact=1 the located multiset must equal the map
-# (order-insensitive). Map rows are `FN FILE:L:C`, one per expected
-# located frame - duplicates allowed (recursion prints one row per
-# frame, all alike except the innermost). Bare frames (`at FN`)
-# assert nothing either way: runtime helpers and generated wrappers
-# have no source node. `__axiom_user_main` needs no exemption: it IS
-# the user's renamed main, so calls in its body attribute exactly
-# like any user function's (a body with no calls stays bare, as
-# `oom` shows). Always returns 0 (like `bad`), so bare calls are safe
-# under `set -e`; the verdict is in $map_failed, and failures count
-# unless count is 0 - the tamper probe below expects the mismatch,
-# and counting it would fail the gate for passing.
+# check_map <label> <trace> <map> <exact> [count]
+# Every located frame (`at FN FILE:L:C`) must match a map row byte for
+# byte. With exact=1 the located multiset must equal the map, in any
+# order. Map rows are `FN FILE:L:C`, one per expected located frame, so
+# recursion repeats rows. Bare frames (`at FN`) assert nothing: runtime
+# helpers and generated wrappers have no source node.
+# `__axiom_user_main` is the user's renamed main, so it is located like
+# any user function. Always returns 0, so bare calls are safe under
+# `set -e`. The verdict is in $map_failed. Pass count=0 when a mismatch
+# is the expected result, as in the tamper probe.
 map_failed=0
 check_map() {
   local label="$1" trace="$2" map="$3" exact="$4" count="${5:-1}"
   map_failed=0
-  # The filters end `|| true`: an empty selection is legitimate input
-  # (a trace with no located frames at all), and under `pipefail` a
-  # filtering grep that selects nothing exits 1 - which must report
-  # through the comparisons below, not kill the gate. Braced, because
-  # `||` binds looser than `|` and a bare `a | b || true | c` would
-  # rewire the pipeline instead of guarding it.
+  # A trace with no located frames is valid input, and under `pipefail`
+  # a grep that selects nothing exits 1, hence `|| true`. The braces
+  # matter: `||` binds looser than `|`.
   { printf '%s\n' "$trace" | sed -n 's/^  at //p' | grep . | grep ' ' || true; } \
     | LC_ALL=C sort > "$work/map.got"
   LC_ALL=C sort "$map" > "$work/map.want"
@@ -137,9 +91,8 @@ check_map() {
   return 0
 }
 
-# The five-deep chain. `sysArgc` is read at run time, so the divisor is
-# not a constant and neither the trap nor the chain can be folded away
-# before `llc` sees them.
+# The five-deep chain. The divisor comes from `sysArgc` at run time, so
+# neither the trap nor the chain folds away before `llc` sees them.
 cat > "$work/chain.ax" <<'PROBE'
 (import Sys)
 
@@ -195,24 +148,20 @@ build_at 0 "$work/chain0"
 got="$(run_err "$work/chain0")"
 o0_status="$(last_rc)"
 
-# The expected LINES come from the fixture's own bytes, never from a
-# golden alone: each `at` line below is assembled from a line number
-# `grep` read out of chain.ax just now, so a wrong line blessed into
-# this file still fails. `lineno <pattern>` is the line holding it;
-# `linecol <pattern>` its column (awk's index, 1-based, like the
-# compiler prints).
+# Expected lines come from the fixture's own bytes, never from a golden:
+# each `at` line is built from a line number read out of chain.ax, so a
+# wrong line written into this file still fails. `lineno <file> <pattern>`
+# is the line holding the pattern, and `linecol` its 1-based column, as
+# the compiler prints it.
 lineno()  { grep -nF "$2" "$1" | head -1 | cut -d: -f1; }
 linecol() { awk -v pat="$2" 'index($0, pat) { print index($0, pat); exit }' "$1"; }
-# Column of WORD on a known line. `linecol` finds a pattern's own
-# start, which for a `(name)` call pattern is the paren - one short
-# of the name the trace points at. Pin the line first, then index
-# the word itself.
+# `colat <file> <line> <word>` is the column of a word on a known line.
+# `linecol` on a `(name)` pattern finds the paren, one short of the name
+# the trace points at.
 colat()   { awk -v n="$2" -v pat="$3" 'NR==n { print index($0, pat); exit }' "$1"; }
 fx="$work/chain.ax"
-# What the binary prints is the basename, never the build dir: argv
-# spells absolute workdirs, and those must not leak into binaries or
-# traces. Every expectation below is assembled with the basename;
-# the line numbers still come from the file's bytes via $fx.
+# The binary prints the basename, never the build dir, so absolute
+# workdirs never leak into binaries or traces.
 fxb="$(basename "$fx")"
 e5l="$(lineno "$fx" '/ 100 n)))')"
 e5c="$(linecol "$fx" '/ 100 n)))')"
@@ -227,14 +176,11 @@ a1c="$(linecol "$fx" 'b2 n)))')"
 mnl="$(lineno "$fx" 'a1 (- sysArgc 1)))')"
 mnc="$(linecol "$fx" 'a1 (- sysArgc 1)))')"
 
-# Eight frames and not seven: `__axiom_user_main` is the compiler's
-# rename of the user's `main`, and `main` is the argv wrapper the
-# emitter writes around it. Both are real frames and both are named,
-# because a trace that silently drops the runtime's own frames is a
-# trace whose omissions the reader cannot know about. The runtime
-# frames stay bare - no row can exist for code with no source node -
-# while every user frame carries the file and line the fixture above
-# names for it.
+# Eight frames: `__axiom_user_main` is the compiler's rename of the
+# user's `main`, and `main` is the argv wrapper around it. Both are real
+# frames and both are named, so the trace hides nothing from the reader.
+# Runtime frames stay bare, having no source node. Every user frame
+# carries its file and line.
 read -r -d '' expected <<TRACE || true
 axiom: division by zero
 axiom: backtrace (most recent call first)
@@ -257,10 +203,8 @@ else
   bad "--opt 0: status $o0_status, expected 72"
 fi
 
-# No build dir in the trace: the binary prints basenames, so the
-# workdir the fixture was built from must appear nowhere in it. A
-# compiler that embedded argv's absolute path would fail every map
-# above on principle; this names the reason.
+# No build dir in the trace. A compiler that embedded argv's absolute
+# path would fail every map above; this check names the reason.
 if grep -qF "$work" <<<"$got"; then
   bad "--opt 0: the trace leaks the build dir"
   grep -F "$work" <<<"$got" | head -3 | sed 's/^/       /'
@@ -271,20 +215,16 @@ fi
 echo
 echo "--- 2. every optimisation level: every name printed is a real frame ---"
 
-# THE INDEPENDENT SOURCE. `nm` reads the linked binary's symbol table,
-# which the compiler does not write - the linker does, from the object
-# `llc` produced. A walker that printed a name it had invented, or read
-# a name out of the wrong table entry, passes every check that compares
-# its output against itself and fails this one.
+# The independent source. `nm` reads the linked binary's symbol table,
+# which the linker writes, not the compiler. A walker that invented a
+# name, or read the wrong table entry, passes any self-comparison and
+# fails this one.
 #
-# `symbol_names <binary>` prints one symbol name per line. `nm -j` is
-# the spelling Apple's and GNU's nm share; FreeBSD's base `nm` is ELF
-# Tool Chain's, which has no `-j` and exits 1 - under `set -eo
-# pipefail` that ended this gate silently after "--opt 0: 8 frames
-# named" on FreeBSD 14.4/arm64 (2026-08-29) - and FreeBSD's base
-# `llvm-nm` takes it. Whichever answers is the linker's table either
-# way; an empty answer fails the comparison below by construction,
-# because every printed frame is then a name no table has.
+# `symbol_names <binary>` prints one symbol name per line. Apple's and
+# GNU's nm take `-j`. FreeBSD's base `nm` (ELF Tool Chain) does not, and
+# under `pipefail` its exit 1 would end the gate silently, so fall back
+# to `llvm-nm`. An empty answer fails the comparison below, since every
+# printed frame is then a name no table has.
 symbol_names() {
   nm -j "$1" 2>/dev/null && return 0
   llvm-nm -j "$1" 2>/dev/null
@@ -311,37 +251,19 @@ for opt in 0 1 2 3; do
     bad "--opt $opt: $nframes frames named, and a trace this short asserts nothing"
   fi
 
-  # `nm` prints Mach-O symbols with a leading underscore and ELF
-  # symbols without one, so both spellings are accepted; what is
-  # asserted is that the name EXISTS, not how the platform spells it.
+  # `nm` prints Mach-O symbols with a leading underscore and ELF symbols
+  # without, so the set holds both spellings. Stripping `_` instead would
+  # eat a real character on ELF, turning `__axiom_div_by_zero` into
+  # `_axiom_div_by_zero`.
   #
-  # ACCEPTED, not REWRITTEN, and the difference was a Linux-only red on
-  # trunk. This was one `sed 's/^_//'`, which is the Mach-O convention
-  # applied unconditionally: on ELF there is no prefix to strip, so it
-  # ate a real character and turned `__axiom_div_by_zero` into
-  # `_axiom_div_by_zero`. Every emitted-runtime name is `__`-prefixed
-  # and every one of them failed; `main`, `a1`..`e5` passed, because
-  # they have no underscore for the sed to take. The comment above said
-  # the right thing and the line below it did not do it.
-  #
-  # Both spellings now go in the set, so a name matches whichever
-  # platform spelled it.
-  #
-  # Since lines landed, a frame is a name plus an optional location:
-  # the `nm` half reads the name (the first word) and the line half
-  # (§7) reads the rest. A walker that invented a plausible
-  # `name:line` pair fails here on the name even where the line
-  # happens to be right.
+  # A frame is a name plus an optional location. This check reads the
+  # name (the first word) and §7 reads the line, so an invented
+  # `name:line` pair fails here even where the line is right.
   symbol_names "$work/c$opt" | sed -e 'p' -e 's/^_//' | LC_ALL=C sort -u > "$work/syms.txt"
-  # `<unknown>` is the walker's honest answer for an address outside
-  # every table entry - a crt startup frame past `main` at --opt 1 and
-  # above, where sibling jumps elide the frames above the highest
-  # surviving one and the next fp points past the table (freebsd-x86_64
-  # prints one at --opt 1,2,3 with line attribution, 9 frames with the
-  # five user frames intact and located). It is not an invented name,
-  # and §7 still pins every user frame with its line - a user frame
-  # mis-resolved as unknown would fail there for a missing located row.
-  # What this checks is that no other printed name is invented.
+  # `<unknown>` is the walker's answer for an address outside every table
+  # entry, such as a crt startup frame past `main` above `--opt 0`, where
+  # the next fp points past the table. It is not an invented name. A user
+  # frame mis-resolved as unknown still fails §7 for a missing located row.
   unknown=""
   while IFS= read -r f; do
     [[ -n "$f" ]] || continue
@@ -357,13 +279,11 @@ for opt in 0 1 2 3; do
     printf '%s\n' "$frames" | sed 's/^/       at /' | head -15
   fi
 
-  # First and last frames are the OPTIMISER's to decide above `--opt
-  # 0`: the trap fn inlines away (no frame to print first) and a
-  # sibling jump can elide the frames above the highest surviving one
-  # (nothing to stop at). §1 pins both ends where every frame exists;
-  # here the walk's honesty is that every frame it DOES print is
-  # genuine, which the `nm` check above and the line map in §7 assert.
-  # What stays unconditional is how the process dies.
+  # Above `--opt 0` the optimiser decides the first and last frames: the
+  # trap function inlines away, and a sibling jump can elide the frames
+  # above the highest survivor. §1 pins both ends where every frame
+  # exists. Here every printed frame must be genuine (the `nm` check
+  # above and §7's line map), and the exit status never changes.
   [[ "$st" == "72" ]] \
     && ok "--opt $opt: exit 72" \
     || bad "--opt $opt: exit $st, expected 72"
@@ -372,23 +292,16 @@ done
 echo
 echo "--- 3. the return address is resolved at ra-1, not ra ---"
 
-# THE BUG THIS PINS, because it is the one the first implementation
-# shipped and it is invisible to any check that does not know the
-# layout. A return address points at the byte AFTER the call. When the
-# call is a function's last instruction, that byte is the next
-# function's entry, and a nearest-preceding-symbol lookup answers with
-# the next function - a real name, a real symbol, and the wrong frame.
+# A return address points at the byte after the call. When the call is a
+# function's last instruction, that byte is the next function's entry,
+# so a nearest-preceding-symbol lookup names the wrong frame with a real
+# symbol. On darwin-aarch64 at --opt 1, `_main` ends with
+# `bl ___axiom_div_by_zero` and `_axiom_alloc` starts right after it, so
+# resolving ra prints `main` as `axiom_alloc`.
 #
-# Measured before the fix, darwin-aarch64 at --opt 1: `_main` ends
-# `bl ___axiom_div_by_zero` at 0x528 and `_axiom_alloc` begins at
-# 0x52c, and the frame that was `main` printed as `axiom_alloc`. The
-# program allocates nothing.
-#
-# At `--opt 0` the trap frame exists, so the assertion is exact: the
-# frame under it is `e5` at the division's own line (derived above),
-# and not `axiom_alloc`. Above 0 the trap inlines away and there is no
-# under-trap frame to assert about; the line map in §7 covers whatever
-# survives there instead.
+# At `--opt 0` the trap frame exists, so the check is exact: the frame
+# under it is `e5` at the division's line. Above 0 the trap inlines away,
+# and §7's line map covers whatever survives.
 trace="$(run_err "$work/c0")"
 under="$(printf '%s\n' "$trace" | sed -n 's/^  at //p' | sed -n '2p')"
 if [[ "$under" == "e5 $fxb:$e5l:$e5c" ]]; then
@@ -400,20 +313,15 @@ fi
 echo
 echo "--- 4. all three traps, and each one names itself first ---"
 
-# The family is `emitDivTrap` (72), `emitOomTrap` (70) and
-# `emitUnhandledTrap` (71). All three are on the same emitted shape and
-# all three must carry the trace; the unhandled-effect one is emitted
-# only when a program declares an effect, which is exactly the kind of
-# conditional emission that gets left behind.
-# 2^60, the size `tests/stdlib/314-out-of-memory.ax` uses and for the
-# reason it records: macOS overcommits, so a request for 1 TiB
-# SUCCEEDS and never reaches the failure path, and the size has to be
-# past the user address space on every target so the mapping is
-# refused rather than merely unbacked. It was 2^47 until FreeBSD
-# 14.4/arm64 granted that (48-bit user space, no overcommit
-# accounting); a number that fits somewhere makes this probe exit 0
-# there and assert nothing, which is how the number was rediscovered
-# the first time too.
+# The trap family is `emitDivTrap` (72), `emitOomTrap` (70) and
+# `emitUnhandledTrap` (71), and all three must carry the trace. The
+# unhandled-effect trap is emitted only when a program declares an
+# effect, a conditional emission that is easy to leave behind.
+#
+# The allocation is 2^60 bytes, as in `tests/stdlib/314-out-of-memory.ax`.
+# macOS overcommits, so 1 TiB succeeds, and FreeBSD/arm64 grants 2^47.
+# The size must exceed the user address space on every target. A size
+# that fits somewhere makes this probe exit 0 there and assert nothing.
 cat > "$work/oom.ax" <<'PROBE'
 (import Mem)
 
@@ -463,8 +371,8 @@ done
 oomloc="$(lineno "$work/oom.ax" 'memAlloc 1152921504606846976)')"
 oomcol="$(linecol "$work/oom.ax" 'memAlloc 1152921504606846976)')"
 printf 'outer %s:%s:%s\n' "oom.ax" "$oomloc" "$oomcol" > "$work/oom.map"
-# `main`'s body is the bare reference `outer` - a nullary call, which
-# marks like any other, so the user's renamed frame is located too.
+# `main`'s body is the bare reference `outer`, a nullary call. It marks
+# like any other call, so the user's renamed frame is located too.
 umloc="$(lineno "$work/oom.ax" '(main) outer)')"
 umcol="$(colat "$work/oom.ax" "$umloc" 'outer')"
 printf '__axiom_user_main %s:%s:%s\n' "oom.ax" "$umloc" "$umcol" >> "$work/oom.map"
@@ -472,9 +380,9 @@ oomtrace="$(run_err "$work/oom")"
 check_map "oom: the allocating frame carries its call site" "$oomtrace" "$work/oom.map" 1
 ueloc="$(lineno "$work/ue.ax" 'ask 1)')"
 uecol="$(linecol "$work/ue.ax" 'ask 1)')"
-# `main` (the user's) never appears: it is renamed to
-# `__axiom_user_main` at emission, so only the C wrapper's bare `main`
-# can print - which asserts nothing and is not listed.
+# The user's `main` is renamed to `__axiom_user_main` at emission. Only
+# the C wrapper's bare `main` prints, which asserts nothing, so the map
+# leaves it out.
 printf '__axiom_user_main %s:%s:%s\n' "ue.ax" "$ueloc" "$uecol" > "$work/ue.map"
 uetrace="$(run_err "$work/ue")"
 check_map "ue: the performing frame carries its call site" "$uetrace" "$work/ue.map" 1
@@ -482,31 +390,18 @@ check_map "ue: the performing frame carries its call site" "$uetrace" "$work/ue.
 echo
 echo "--- 5. the frame pointer is kept on every target, and the attribute is why ---"
 
-# FIVE OF THE SIX TARGETS CANNOT BE RUN HERE, but all six can be
-# ASSEMBLED here, which is the technique `check-cross-targets.sh`
-# already rests on. So the assertion is made on the prologue `llc`
-# emits rather than on a program that ran.
+# Only one of the six targets runs here, but `llc` assembles all six, as
+# `check-cross-targets.sh` relies on. So the check reads the prologue
+# `llc` emits per target, with and without the attribute: a live
+# ablation that needs no compiler build.
 #
-# A CORRECTION, because the first draft of this gate carried the wrong
-# claim in this comment. It said Darwin/arm64 keeps a frame pointer by
-# ABI and that ablating the attribute there would change nothing, so
-# the ablation would discriminate on three targets and not four.
-# Measured: it discriminates on ALL FOUR. The confusion is that
-# Darwin/arm64 does emit `stp x29, x30, [sp, #-16]!` without the
-# attribute - it saves the pair - but it does not follow it with
-# `mov x29, sp`, so x29 still holds the CALLER frame and the chain is
-# not walkable. Saving the register and establishing the frame pointer
-# are different things, and only the second one is what a walker needs;
-# `___axiom_div_by_zero` at --opt 1 is a function in the tree that does
-# the first and not the second. That is why the test below greps for
-# `mov x29, sp` and not for `stp`.
+# The check greps for `mov x29, sp`, not `stp`. Without the attribute,
+# Darwin/arm64 still saves the pair with `stp x29, x30, [sp, #-16]!` but
+# never sets `mov x29, sp`, so x29 holds the caller's frame and the chain
+# is not walkable. `___axiom_div_by_zero` at --opt 1 is such a function.
 #
-# So the assertion is made on the prologue `llc` emits, per target,
-# with and without the attribute. That is a live ablation rather than a
-# recorded one: it costs four `llc` invocations and no compiler build.
-# The backend names `llc --version` prints, which are not the target
-# triples: AArch64 and X86, spelled as `check-cross-targets.sh` spells
-# them.
+# AArch64 and X86 are the backend names `llc --version` prints, not
+# target triples, spelled as `check-cross-targets.sh` spells them.
 for arch in AArch64 X86; do
   llc --version | grep -q "$arch" || {
     echo "error: this llc has no $arch backend; cannot verify every target" >&2
@@ -539,27 +434,23 @@ for target in darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64 freebsd-x8
     && ok "[$target] llc -O2 establishes a frame pointer in a non-leaf function" \
     || bad "[$target] llc -O2 emitted no frame pointer - the chain is not walkable"
 
-  # THE ABLATION, run rather than recorded: take the attribute away and
-  # assemble the same module again.
+  # The ablation: remove the attribute and assemble the same module again.
   sed 's/ "frame-pointer"="all"//' "$work/t.ll" > "$work/t.noattr.ll"
   if [[ "$(fp_probe "$target" "$work/t.noattr.ll")" == "omitted" ]]; then
     ok "[$target] ablation: without the attribute the frame pointer is gone"
     ablated=$((ablated + 1))
   else
-    # Not a failure on its own - a target whose ABI mandates a frame
-    # pointer would land here honestly, and the positive check above
-    # still holds for it. The floor below is what keeps a run where
-    # NOTHING discriminates from reading as a pass.
+    # Not a failure alone: a target whose ABI mandates a frame pointer
+    # lands here, and the positive check above still holds for it. The
+    # floor below stops a run where nothing discriminates from passing.
     ok "[$target] ablation: the frame pointer survives the attribute being removed"
   fi
 done
 
-# An ablation that never fires is not an ablation. All four
-# discriminated on 2026-08-24, and all six on 2026-08-29 when the
-# FreeBSD pair joined; the floor is one below the count, so that a
-# future toolchain making one target keep frame pointers by default is
-# not a spurious failure, while a run where the attribute has stopped
-# mattering anywhere still goes red.
+# An ablation that never fires proves nothing. All six targets
+# discriminate, and the floor is one below that. A toolchain that makes
+# one target keep frame pointers by default is then no spurious failure,
+# while an attribute that stops mattering everywhere still fails.
 if (( ablated >= 5 )); then
   ok "the ablation discriminates on $ablated of 6 targets (6 on 2026-08-29)"
 else
@@ -575,37 +466,24 @@ defines="$(grep -c '^define ' "$work/chain.ll" || true)"
 rows="$(sed -n '/^@__axiom_symtab = /,/^\]/p' "$work/chain.ll" | grep -c 'ptrtoint' || true)"
 stated="$(sed -n 's/^@__axiom_symtab_n = internal constant i64 //p' "$work/chain.ll")"
 
-# The walker resolves a return address to the greatest table entry at
-# or below it, so a function MISSING from the table is not a gap - it
-# is a wrong answer, silently attributed to whichever function precedes
-# it. Completeness is therefore the property, not coverage: every
-# `define` in the module, including the lifted lambdas, the thunks, the
-# argv wrapper and the runtime helpers, or the trace lies.
+# The walker resolves a return address to the greatest table entry at or
+# below it, so a function missing from the table is silently reported as
+# the function before it. The table must hold every `define`: lifted
+# lambdas, thunks, the argv wrapper and the runtime helpers included.
 #
-# `defines` counts the walker's own three, which are emitted after the
-# table is built and are deliberately not in it: `@__axiom_backtrace`
-# never appears as a frame (the first return address read is the one in
-# ITS frame, which is its caller), `@__axiom_bt_name` has returned
-# before anything is read, and `@__axiom_lineinit` fills the address
-# array and returns before the walk starts.
+# `defines` also counts the walker's own three, which are emitted after
+# the table and are not in it. `@__axiom_backtrace` never appears as a
+# frame, since the first return address it reads is its caller's.
+# `@__axiom_bt_name` returns before anything is read, and
+# `@__axiom_lineinit` fills the address array before the walk starts.
 want "every define is in the table, but for the walker's own three" \
       "$((defines - 3))" "$rows"
 want "the table states its own row count" "$rows" "$stated"
 
-# NOT a row COUNT. This was `rows >= 200`, calibrated on "a probe
-# importing Sys had 275 on 2026-08-24" - a count of everything
-# `(import Sys)` dragged in, most of which this probe never calls. Dead
-# code is stripped now, so the same probe emits 16 rows and the floor
-# went red on a module that got BETTER. A floor drawn round a corpus
-# population expires the moment the population legitimately moves.
-#
-# What the floor was defending is that the table is not empty or
-# degenerate, because an empty one resolves every address to
-# <unknown> - and the probe itself says what "not degenerate" means:
-# it writes a six-deep chain on purpose, and §2 walks a real trace
-# through it. So the assertion is that those six are NAMED, which is
-# the property, cannot pass vacuously on a small table, and cannot
-# expire when the module's size changes again.
+# The table must not be empty or degenerate, since an empty table
+# resolves every address to <unknown>. A row-count floor expires when
+# dead-code stripping changes the module's size. So the check is that
+# the probe's own six functions are named, which cannot pass vacuously.
 chain_missing=""
 for fn in main a1 b2 c3 d4 e5; do
   grep -q "ptrtoint (ptr @$fn to i64)" "$work/chain.ll" \
@@ -617,12 +495,10 @@ else
   bad "the table is missing$chain_missing - the walker cannot name a frame it has no entry for"
 fi
 
-# And the names in it must be the symbols the linker emitted. This is
-# the same `nm` cross-check as §2, applied to the table rather than to
-# one trace, so a name mangled differently in the table than in the
-# `define` would be caught even if no frame ever landed on it.
-# Both spellings, for the reason §2 records: stripping the Mach-O
-# prefix unconditionally eats a real character on ELF.
+# The names in the table must be symbols the linker emitted. This is §2's
+# `nm` cross-check applied to the whole table, so a name mangled
+# differently in the table than in its `define` fails even if no frame
+# lands on it. Both spellings go in the set, as in §2.
 symbol_names "$work/chain0" | sed -e 'p' -e 's/^_//' | LC_ALL=C sort -u > "$work/syms.txt"
 missing=0
 while IFS= read -r sym; do
@@ -630,20 +506,14 @@ while IFS= read -r sym; do
   grep -qxF "$sym" "$work/syms.txt" || missing=$((missing + 1))
 done < <(grep -o 'ptrtoint (ptr @[A-Za-z0-9_.$]* to i64), i64 ptrtoint (ptr @__axiom_symn' \
            "$work/chain.ll" | sed 's/ptrtoint (ptr @//; s/ to i64.*//')
-# What is asserted is the direction that can be wrong: names in the
-# table that the linker never emitted. `internal` symbols can be
-# stripped, so a small residue would be honest - but a LARGE one would
-# mean the table is naming things that do not exist, and the walker
-# would be resolving addresses against fiction. 0 of 275 were missing
-# on 2026-08-24, and 0 of 16 after dead code stopped being emitted.
+# The direction that can be wrong is table names the linker never
+# emitted. `internal` symbols can be stripped, so a small residue is
+# fine, but a large one means the walker resolves against names that do
+# not exist.
 #
-# `found` is the anti-vacuousness half: without it a table of one row
-# that happened to resolve would pass. It was 20 - a second floor
-# calibrated on the unpruned population, and it failed this gate while
-# `missing` was 0, printing "0 of 16 table names are in no symbol
-# table" and blaming the emitter for the number that was RIGHT. Six is
-# the probe's own chain, which the check above has just established is
-# present, so the guard rests on that fact rather than on a snapshot.
+# `found` stops a one-row table that happens to resolve from passing.
+# Its floor is the probe's own six functions, which the check above
+# established, rather than a snapshot of the table's size.
 found=$((rows - missing))
 if (( missing * 4 <= rows && found >= 6 )); then
   ok "$found of $rows table names resolve in the linked symbol table ($missing do not)"
@@ -654,10 +524,9 @@ fi
 echo
 echo "--- 7. lines come from the fixture's bytes, not from a golden ---"
 echo "     (the roadmap's acceptance for this item)"
-# The map is derived twice: once here, afresh, and once in §1. The
-# two derivations agree today; if either ever stops deriving from the
-# bytes - a hardcoded line smuggled in - the shift probe below (which
-# moves every line) tells them apart.
+# The map is derived here afresh, and again in §1. If either stops
+# deriving from the bytes, the shift probe in §7c, which moves every
+# line, tells them apart.
 {
   echo "e5 $fxb:$(lineno "$fx" '/ 100 n)))'):$(linecol "$fx" '/ 100 n)))')"
   echo "d4 $fxb:$(lineno "$fx" 'e5 n)))'):$(linecol "$fx" 'e5 n)))')"
@@ -669,10 +538,9 @@ echo "     (the roadmap's acceptance for this item)"
 for opt in 0 1 2 3; do
   trace="$(run_err "$work/c$opt")"
   st="$(last_rc)"
-  # Whatever the optimiser kept, every located frame answers with the
-  # fixture's line for it; subset, because frames it removed have no
-  # line to check. Exit preserved separately - a right line with a
-  # wrong death would still fail below.
+  # Whatever the optimiser kept, every located frame carries the
+  # fixture's line. The match is a subset, since removed frames have no
+  # line. The exit status is checked separately.
   check_map "--opt $opt: every located frame carries the fixture's line" "$trace" "$work/chain.map" 0
   [[ "$st" == "72" ]] \
     && ok "--opt $opt: exit 72 beside located lines" \
@@ -681,15 +549,13 @@ done
 
 echo
 echo "--- 7b. a tampered line table fails the derived lines ---"
-# The ablation a golden cannot do: rewrite one row's line in the
-# EMITTED IR, rebuild through llc/cc, and require the trace to follow
-# the tamper (proving the walker reads the table) while the derived
-# expectation goes red (proving the gate reads the fixture). e5's rows
-# carry `i64 5, i64 22` - the DIV line and column §1 derived - and
-# they occur exactly twice: one row per trap site, the divide-by-zero
-# block and the overflow block, both wearing the division's span. A
-# third site, or one row going missing, means the anchor moved and the
-# probe is measuring itself.
+# The ablation a golden cannot do: rewrite one row's line in the emitted
+# IR and rebuild through llc and cc. The trace must follow the tamper
+# (the walker reads the table) while the derived expectation fails (the
+# gate reads the fixture). e5's rows carry `i64 5, i64 22`, the
+# division's line and column from §1. They occur exactly twice, one per
+# trap site: divide-by-zero and overflow. Any other count means the
+# anchor moved; re-anchor it.
 "$axc" emit-llvm --diagnostic-format=ai "$work/chain.ax" -o "$work/tamper.ll" >/dev/null 2>&1
 anchor="$(grep -c 'i64 5, i64 22,' "$work/tamper.ll" || true)"
 if [[ "$anchor" != "2" ]]; then
@@ -705,8 +571,7 @@ else
     [[ "$st" == "72" ]] \
       && ok "tampered metadata still exits 72 - the defect is in the lines, not the behaviour" \
       || bad "tampered metadata exits $st, expected 72"
-    # Silent by design: this comparison's verdict is the line
-    # below, but it still counts as a check above.
+    # Silent: the line below reports this comparison's verdict.
     check_map "tampered table" "$trace" "$work/chain.map" 1 0 >/dev/null 2>&1
     if (( map_failed )); then
       ok "a linetab claiming line 99 fails the derived line 5"
@@ -725,8 +590,8 @@ fi
 echo
 echo "--- 7c. shifted lines still match, because nothing is blessed ---"
 # Three blank lines and a comment above the chain move every derived
-# number down by four. A golden would fail here on principle; the
-# derivation moves with the bytes.
+# line down by four. A golden would fail here; the derivation moves
+# with the bytes.
 { echo ""; echo ""; echo ""; echo "; shifted down by four"; cat "$work/chain.ax"; } > "$work/shifted.ax"
 "$axc" build --input "$work/shifted.ax" --output "$work/shifted" --opt 0 >"$work/build.log" 2>&1 \
   || { bad "the shifted probe would not build"; sed 's/^/    /' "$work/build.log" | head -6; }
@@ -773,11 +638,9 @@ check_map "recursion: five frames share a name and a call line, the sixth names 
 
 echo
 echo "--- 7e. nullary calls mark too: a bare reference is still a call ---"
-# `(boom)` with no arguments is a variable reference by the time it
-# reaches the emitter, and that path used to emit its call with no
-# marker - a frame with a name and no line. The reference node
-# carries the span, so it marks like every other call site; this
-# probe would print a bare `at wrap` if that ever regressed.
+# `(boom)` with no arguments reaches the emitter as a variable
+# reference. The reference node carries the span, so it marks like any
+# other call site. A regression prints a bare `at wrap`.
 cat > "$work/nullary.ax" <<'PROBE'
 (:: boom Int)
 (fn (boom) (/ 1 0))

@@ -1,52 +1,44 @@
 #!/usr/bin/env bash
-# `scripts/install.sh` is the one script strangers run, and nothing
-# checked it.
+# Gate for `scripts/install.sh`, the script `README.md` tells newcomers
+# to pipe into bash. It fetches an archive and a checksum, compares
+# them, unpacks, installs, and builds a program that imports the
+# standard library to prove the result works.
 #
-# It is what `README.md` tells a newcomer to pipe into bash. It fetches
-# an archive and a checksum, compares them, unpacks, installs, and
-# proves the result works by building a program that imports the
-# standard library. Every one of those steps was written carefully and
-# none of them was ever executed by a gate - so the failure mode is the
-# one this repository names most often: a check nobody has seen fail.
+# What it serves: a release built here from the compiler under test, the
+# tree's `stdlib/` and the three prose files, assembled as `release.yml`
+# assembles one, with its `.sha256` beside it. `python3 -m http.server`
+# serves it on loopback, and `install.sh` reaches it through
+# `AXIOM_BASE_URL`. That variable changes where the archive comes from,
+# and nothing about what is then required of it.
 #
-# WHAT IT SERVES. A release this script BUILDS: the compiler under
-# test, the tree's `stdlib/`, and the three prose files, assembled the
-# way `release.yml` assembles one, with its `.sha256` beside it, served
-# over `python3 -m http.server` on the loopback. `install.sh` reaches
-# it through `AXIOM_BASE_URL`, which exists for this and is documented
-# in that script as not being a back door - it changes WHERE the
-# archive comes from and nothing about what is then required of it.
+# The four install cases:
 #
-# THE FOUR CASES, and three of them are the negative ones:
+#   1. A well-formed release installs, and the installed compiler builds
+#      and runs a program that imports the standard library from a
+#      directory of its own.
+#   2. A tampered archive (one byte) is refused. This is the assertion
+#      the whole download exists for.
+#   3. A missing checksum file is refused, not installed unverified.
+#   4. An archive with no `stdlib/` is refused: a compiler that cannot
+#      find its library is not an installation.
 #
-#   1. A well-formed release installs, and the installed compiler
-#      builds and runs a program that imports the standard library
-#      from a directory of its own.
-#   2. A TAMPERED archive - one byte - is refused. This is the
-#      assertion the whole download exists for.
-#   3. A MISSING checksum file is refused rather than installed
-#      unverified.
-#   4. An archive with no `stdlib/` is refused, because a compiler
-#      that cannot find its library is not an installation.
+# A probe on the gate itself deletes the comparison in a copy of
+# `install.sh`, and case 2 must then stop being refused.
 #
-# And a probe on the gate itself: with `install.sh`'s comparison
-# deleted in a copy, case 2 must stop being refused. A verification
-# test that passes against an unverifying installer is testing nothing.
+# Cases 5 to 9 plant files the installer did not put there, in a
+# scratch HOME, never the real one. They require that:
 #
-# THE DESTRUCTIVE HALF, cases 5-9, added 2026-09-26 after an audit
-# installed into `--prefix "$HOME/."` and lost two files the string
-# comparison had been written to protect. They plant files the
-# installer did not put there - in a scratch HOME, never the real one -
-# and require that every spelling of a protected directory is refused
-# (5), that a directory of somebody else's is not replaced (6), that an
-# upgrade replaces exactly what the ownership record lists (7), that an
-# install from before the record is recognised by its shape (8), and
-# that a release whose compiler fails leaves the working install in
-# place (9). Each of the three guards is then removed in a copy of the
-# installer and must be seen to stop refusing: the ownership check and
-# the staged probe then cost the file they guard, and `$HOME/.` gets
-# past the list - where the ownership check, the next guard down, is
-# seen to catch it.
+#   5. every spelling of a protected directory is refused;
+#   6. a directory of somebody else's is not replaced;
+#   7. an upgrade replaces exactly what the ownership record lists;
+#   8. an install from before the record is recognised by its shape;
+#   9. a release whose compiler fails leaves the working install alone.
+#
+# Each of the three guards is then removed in a copy of the installer
+# and must be seen to stop refusing. Without the ownership check or the
+# staged probe, the file each guards is lost. Without physical_path,
+# `$HOME/.` gets past the protected list, and the ownership check must
+# catch it.
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
@@ -75,21 +67,16 @@ esac
 target="$os-$arch"
 
 # --------------------------------------------------------------------
-# WHETHER THIS HOST'S TARGET SHIPS AT ALL, and what to check if it does
-# not.
+# Whether this host's target ships an archive at all.
 #
-# `release.yml` stopped building `linux-x86_64` on 2026-08-30 - the
-# target is still supported and still runs this whole battery, only the
-# prebuilt archive is gone - and `install.sh` therefore refuses that
-# host with a build-from-source message instead of fetching a 404. On
-# such a host the four cases below cannot run: there is no install path
-# to exercise. What CAN be checked, and is, is that the refusal happens
-# and says the right thing.
+# Some supported targets get no prebuilt archive from `release.yml`, and
+# `install.sh` refuses them with a build-from-source message instead of
+# fetching a 404. On such a host there is no install path to exercise,
+# so the gate checks the refusal and what it says.
 #
-# The shipped list is read from `release.yml`'s matrix rather than
-# repeated here, so this gate cannot disagree with the workflow it is
-# describing. `scripts/check-release-targets.sh` holds that matrix and
-# `install.sh`'s refusal list to each other.
+# The shipped list is read from `release.yml`'s matrix, so this gate
+# cannot disagree with the workflow. `scripts/check-release-targets.sh`
+# holds that matrix and `install.sh`'s refusal list to each other.
 # --------------------------------------------------------------------
 release_yml="$repo_root/.github/workflows/release.yml"
 [[ -f "$release_yml" ]] || { echo "FAIL: $release_yml is missing"; exit 1; }
@@ -139,11 +126,10 @@ sha_of() {
   else shasum -a 256 "$1" | awk '{print $1}'; fi
 }
 
-# Copy the TRACKED files under <dir> into <dest>, as the working tree
-# holds them. The release workflow copies from a clean checkout, and a
-# plain `cp -R` here also copied whatever else sat in the directory: a
-# Finder `docs/.DS_Store` made the staged docs/ fail case 8's
-# only-`.md` shape, a red no release could produce.
+# Copy the tracked files under <dir> into <dest>, as the working tree
+# holds them. The release workflow copies from a clean checkout; a plain
+# `cp -R` would also pick up strays such as a Finder `docs/.DS_Store`,
+# which fails case 8's only-`.md` shape.
 copy_tracked() {  # <dir> <dest>
   ( cd "$repo_root" && git ls-files -z -- "$1" | tar --null -T - -cf - ) \
     | tar -xf - -C "$2"
@@ -167,11 +153,8 @@ assemble() {  # [--no-stdlib]
 
 assemble
 echo "== serving a release built from this tree =="
-# The port is CHOSEN here rather than read back from the server. Asking
-# the kernel for 0 and parsing `http.server`'s banner works until the
-# banner's wording moves, and it did: the first version of this gate
-# reported "the local server never reported a port" against a server
-# that was serving. Binding a port Python just proved free is one
+# Choose the port here instead of parsing `http.server`'s banner, whose
+# wording can change. Binding a port Python just proved free costs one
 # syscall of race and no parsing.
 port="$(python3 -c 'import socket
 s = socket.socket()
@@ -184,8 +167,7 @@ python3 -m http.server "$port" --bind 127.0.0.1 --directory "$serve" \
 http_pid=$!
 trap 'kill "$http_pid" 2>/dev/null || true; rm -rf "$work"' EXIT
 base="http://127.0.0.1:$port"
-# Wait for it to answer rather than for it to print: what matters is
-# that a fetch works, and that is what the loop asks.
+# Wait until a fetch works, not until the server prints.
 up=0
 for _ in $(seq 1 100); do
   if curl -fsS --proto '=http' -o /dev/null "$base/$name.tar.gz.sha256" 2>/dev/null; then
@@ -218,16 +200,12 @@ else
   sed 's/^/     /' "$work/install.log" | tail -10
 fi
 
-# `docs/` REACHES THE INSTALLED PREFIX, and this is asserted rather than
-# assumed because the README became a front door in 0.6.0: it points at
+# `docs/` must reach the installed prefix. README points at
 # `docs/reference.md` and the rest instead of restating them, so an
-# archive that carries the pointer and not the target leaves an
-# installed user strictly worse off than before the README was cut.
+# archive without them leaves an installed user with dead links.
 #
-# The count is a floor, not an equality. Documents get added; a gate
-# that demanded the exact number would go red on every new one and
-# teach whoever hit it to edit the number rather than think. Zero, or
-# one, is the failure this catches: a `cp` that silently copied
+# The count is a floor, so adding a document never turns the gate red.
+# Zero or one is the failure it catches: a `cp` that silently copied
 # nothing.
 doc_n=$(find "$work/prefix/docs" -name '*.md' 2>/dev/null | wc -l | tr -d ' ')
 if [[ -d "$work/prefix/docs" ]] && (( doc_n >= 8 )); then
@@ -236,10 +214,8 @@ else
   bad "the installed prefix has $doc_n document(s) under docs/; the floor is 8"
   echo "     the README points at these; shipping it without them is a dead link"
 fi
-# install.sh proves this itself, and it is asserted again here from
-# outside: the claim is that the INSTALLED compiler works, and a gate
-# that trusted the installer's own report would be reading the thing
-# under test.
+# `install.sh` runs this check itself. The gate repeats it from outside
+# instead of trusting the installer's own report.
 probe="$work/probe"
 mkdir -p "$probe"
 cat > "$probe/p.ax" <<'AX'
@@ -271,7 +247,7 @@ fi
 echo
 echo "== 2. one tampered byte is refused =="
 # --------------------------------------------------------------------
-# The archive is corrupted AFTER its checksum was published, which is
+# The archive is corrupted after its checksum was published, which is
 # what a tampered mirror looks like.
 cp "$serve/$name.tar.gz" "$work/good.tar.gz"
 printf 'x' >> "$serve/$name.tar.gz"
@@ -289,9 +265,9 @@ fi
 echo
 echo "== the probe on this gate: an installer that does not verify =="
 # --------------------------------------------------------------------
-# With the comparison deleted, case 2 must stop being refused -
-# otherwise something OTHER than the checksum was rejecting the
-# tampered archive and case 2 proves nothing about verification.
+# With the comparison deleted, case 2 must stop being refused.
+# Otherwise something other than the checksum rejected the tampered
+# archive, and case 2 proves nothing about verification.
 sed 's/^\[\[ "\$want" == "\$got" \]\].*/true/' \
   "$repo_root/scripts/install.sh" > "$work/unverifying.sh"
 if cmp -s "$repo_root/scripts/install.sh" "$work/unverifying.sh"; then
@@ -334,12 +310,10 @@ else
 fi
 
 # --------------------------------------------------------------------
-# THE DESTRUCTIVE HALF. Everything below plants files the installer
-# must not delete and asks it to install on top of them - so every
-# directory involved is under `$work`, INCLUDING the home directory:
-# `HOME` is pointed at a scratch directory for each run, because the
-# refusal under test is "this prefix is your home", and a regression
-# in it must cost a sentinel file, never a real one.
+# The destructive half. Everything below plants files the installer
+# must not delete and installs on top of them, so every directory is
+# under `$work`, HOME included. A regression in the "this prefix is
+# your home" refusal must cost a sentinel file, never a real one.
 # --------------------------------------------------------------------
 home_run() {  # <home> <prefix> [installer] - like install_run, with HOME set
   local home="$1" prefix="$2" script="${3:-$repo_root/scripts/install.sh}"
@@ -371,9 +345,8 @@ assemble
 echo
 echo "== 5. every spelling of the home directory is the home directory =="
 # --------------------------------------------------------------------
-# The audit's reproduction was `--prefix "$HOME/."`: refused as "$HOME",
-# accepted with the dot, and both sentinels gone. Each spelling below
-# names the same directory; each must be refused, and nothing deleted.
+# Each spelling below names the same directory, `$HOME/.` among them.
+# Each must be refused, and nothing deleted.
 fake_home="$work/home"
 plant_home "$fake_home"
 ln -s "$fake_home" "$work/homelink"
@@ -453,9 +426,9 @@ rm -f "$work/prefix/bin/extra"
 echo
 echo "== 8. an install from before the record is recognised by its shape =="
 # --------------------------------------------------------------------
-# Every install made before 2026-09-26 has no `.axiom-install`. Its
-# shape - bin/ holding only `axiom`, stdlib/ only `.ax`, docs/ only
-# `.md` - is what lets it be upgraded rather than stranded.
+# An install made before the ownership record has no `.axiom-install`.
+# Its shape (bin/ holding only `axiom`, stdlib/ only `.ax`, docs/ only
+# `.md`) lets it be upgraded instead of stranded.
 cp -R "$work/prefix" "$work/legacy"
 rm -f "$work/legacy/.axiom-install"
 rc="$(home_run "$fake_home" "$work/legacy")"
@@ -470,10 +443,10 @@ fi
 echo
 echo "== 9. a release whose compiler does not work leaves the old one =="
 # --------------------------------------------------------------------
-# The archive is well-formed and correctly checksummed; its compiler
-# is a script that fails. The install must refuse it AND the working
-# install already in the prefix must be untouched - the property that
-# staging exists for. Before it, the old tree was deleted first.
+# The archive is well-formed and correctly checksummed, but its
+# compiler is a script that fails. The install must refuse it and leave
+# the working install in the prefix untouched: the property staging
+# exists for.
 assemble
 printf '#!/bin/sh\nexit 3\n' > "$work/broken-axiom"
 chmod +x "$work/broken-axiom"
@@ -498,31 +471,15 @@ assemble
 echo
 echo "== the probes on the destructive half: each guard, removed, must cost =="
 # --------------------------------------------------------------------
-# Three copies of install.sh, each with one guard taken out by an exact
-# line replacement whose match count is asserted first - `sed` that
-# matches nothing produces a copy identical to the original and an
-# ablation that proves nothing.
+# Three copies of install.sh, each with one guard removed by an exact
+# line replacement. The seam must match install.sh once, and the copy
+# must have lost it and gained the replacement once. Otherwise the
+# "ablated" copy is the real installer and its probe proves nothing.
 #
-# THE COPY IS CHECKED AS WELL AS THE ORIGINAL, because a seam that
-# matches install.sh once can still be missed by the tool doing the
-# replacing - and was. This used `awk -v old="$2"`, and `-v` runs its
-# value through awk's string-escape processing. Seam A ends in the
-# line-continuation backslash, and what a lone trailing `\` becomes is
-# the awk's choice: BWK awk (macOS) and mawk keep it, gawk DROPS it. So
-# under gawk `$0 == old` matched nothing, the "ablated" copy was
-# install.sh byte for byte, and probe A ran the real installer and
-# watched it refuse `$HOME/.` - reported as "still refused", a message
-# that points at physical_path and not at the copy. Reproduced
-# 2026-09-27 in `run-gates-linux.sh`'s Ubuntu 24.04 aarch64 image, where
-# `awk` is gawk 5.2.1; it is why probe A failed on all three
-# linux-aarch64 CI runs it had, identically, and passed on darwin.
-# (linux-x86_64 never reaches it: that target ships no archive, so this
-# gate stops at the refusal check above.)
-#
-# The two strings now travel through ENVIRON, which no awk
-# escape-processes, and the copy must have lost the seam and gained the
-# replacement exactly once. A replacement that silently did not happen
-# is named for what it is.
+# The strings travel through ENVIRON, not `awk -v`. `-v` escape-processes
+# its value, and seam A ends in a line-continuation `\`: gawk (the `awk`
+# on Ubuntu) drops a lone trailing `\`, while BWK awk and mawk keep it,
+# so under gawk the seam would match nothing.
 ablated() {  # <out> <exact line> <replacement>
   local n had
   n="$(grep -cxF -- "$2" "$repo_root/scripts/install.sh" || true)"
@@ -544,20 +501,16 @@ ablated() {  # <out> <exact line> <replacement>
 # A. The spelling compared instead of the directory: `$HOME/.` must get
 #    past the protected list.
 #
-#    GETTING PAST IT IS ASSERTED, not read off a missing refusal. A log
-#    without "which is $HOME" is also what a run that died BEFORE the
-#    comparison writes - a copy that no longer parses (drop the seam's
-#    trailing `\` from the replacement and the next line is a bare
-#    `|| die`), a tool it looks for first - and that run proves nothing
-#    about physical_path. So it must be seen to reach the download,
-#    which install.sh starts only once every prefix guard has passed.
+#    Getting past it is asserted, not inferred from a missing refusal.
+#    A run that died before the comparison also lacks "which is $HOME":
+#    a copy that no longer parses (drop the replacement's trailing `\`
+#    and the next line is a bare `|| die`), or a missing tool. So the run
+#    must reach the download, which install.sh starts only once every
+#    prefix guard has passed.
 #
-#    What stops it after that is the ownership check: the scratch
-#    home's `bin/` holds a file no install recorded. This comment used
-#    to say the sentinels were then deleted; that was true before the
-#    record existed and nothing checked it after. It is asserted now,
-#    against a refusal that names THIS run's prefix, because a second
-#    line of defence nobody has seen hold is a comment and not a guard.
+#    The ownership check must then stop it, since the scratch home's
+#    `bin/` holds a file no install recorded. The refusal must name this
+#    run's prefix, and both sentinels must survive.
 if ablated "$work/spelling.sh" \
      'PREFIX="$(physical_path "$given_prefix")" \' 'PREFIX="${given_prefix%/}" \'; then
   plant_home "$fake_home"

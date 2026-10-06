@@ -1,65 +1,50 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------
-# REPL identifier completion, pinned WITHOUT A TERMINAL.
+# REPL identifier completion, checked without a terminal.
 #
-# `self_host/replcomp.ax` answers a question - "what are the candidates
-# at this cursor, and what should the screen show" - and answers it as
-# a value. No file descriptor, no key, no protocol. That is a design
-# choice made FOR this gate: the interesting half of tab completion is
-# which names are offered and in what order, and a pty harness would
-# put a terminal emulator between that question and its answer for no
-# gain. So `tests/replcomp/drive.ax` supplies a session, a buffer and a
-# cursor offset from the command line and prints what the module
-# answers, and everything below asserts on text.
+# `self_host/replcomp.ax` answers "what are the candidates at this
+# cursor, and what should the screen show" as a value: no file
+# descriptor, no key, no protocol. `tests/replcomp/drive.ax` takes a
+# session, a buffer and a cursor offset on the command line and prints
+# the answer, and everything below asserts on that text. A pty harness
+# would add a terminal emulator and check nothing more.
 #
-# WHAT IS DELIBERATELY OUT OF SCOPE: the key bindings. Nothing here
-# says that Tab is byte 9 or that Shift-Tab is `ESC [ Z`, because
-# nothing in `replcomp.ax` says so either - `replComplTab` takes a
-# direction, and the line editor that owns `self_host/repl.ax` decides
-# which keys produce it. When that editor lands, the gate that covers
-# it covers the binding.
+# Key bindings are out of scope. `replComplTab` takes a direction, and
+# the line editor in `self_host/repl.ax` decides which keys produce it.
 #
-# NOTHING HERE IS BLESSED. Every expected set is recomputed, from
-# artifacts the module under test does not write:
+# Nothing here is blessed. Every expected set is recomputed from files
+# the module under test does not write:
 #
 #   * the colon-command vocabulary, from the `(strEq w ":...")`
-#     dispatch sites in `self_host/repl.ax`. `replcomp.ax` carries its
-#     own copy of that list and must - it cannot import `repl.ax`,
-#     because `repl.ax` is its future consumer and the import would
-#     close a cycle - so the copy is checked instead, the way
-#     `check-lsp-selfhost.sh` checks `lspKeywords` against
-#     `parser.ax`'s `kwEq` sites.
+#     dispatch sites in `self_host/repl.ax`. `replcomp.ax` keeps its own
+#     copy, because `repl.ax` imports it and importing `repl.ax` back
+#     would close a cycle. The copy is checked instead, the way
+#     `check-lsp-selfhost.sh` checks `lspKeywords` against `parser.ax`'s
+#     `kwEq` sites.
 #   * the imported-name set, from `(pub :: ...)` in `stdlib/Str.ax`.
-#   * the gather cap, from `LSP_COMPL_MAX`'s own definition in
-#     `self_host/lsp.ax` - the constant `replcomp.ax` inherits by
-#     importing `lspComplWants` rather than reimplementing the filter.
+#   * the gather cap, from `LSP_COMPL_MAX`'s definition in
+#     `self_host/lsp.ax`, which `replcomp.ax` inherits by importing
+#     `lspComplWants`.
 #
-# There is nothing for `AXIOM_BLESS` to write, and a re-bless cannot
-# make this gate green.
+# `AXIOM_BLESS` has nothing to write, so a re-bless cannot make this
+# gate green.
 #
-# THE ONE NAME THAT EXISTS IN NO FILE. Layer 4 completes
-# `zzsessionhelper`, a name typed into a session and never written to
-# disk - the whole point of REPL completion as distinct from the LSP's,
-# which only ever sees documents. "No file contains it" is a CHECKED
-# claim: the gate greps the tree for that spelling first and refuses to
-# run if it finds it anywhere but the one fixture and this script.
+# Layer 4 completes `zzsessionhelper`, a name typed into a session and
+# never written to disk: that is what REPL completion adds over the
+# LSP's. The gate first greps the tree for that spelling and refuses to
+# run if it appears anywhere but the one fixture and this script.
 #
-# THE COMPILER. This gate does not call `gate_build_axc`, and that is
-# not an oversight. `gate_build_axc` exists so that a gate whose
-# SUBJECT is the compiler tests the compiler in the working tree. The
-# subject here is one module, `self_host/replcomp.ax`, which the driver
-# imports from the working tree on every run - so an ablation of it is
-# visible to this gate whichever compiler compiled it, which is the
-# property that function exists to provide. Building a second compiler
-# first would cost a minute per run and check nothing more.
+# This gate does not call `gate_build_axc`. Its subject is one module,
+# which the driver imports from the working tree on every run, so an
+# ablation of it is visible whichever compiler compiled it. Building a
+# second compiler would cost a minute per run and check nothing more.
 #
-# ABLATIONS. `AXIOM_ABLATE=<name>` copies `self_host/` to a scratch
-# directory, breaks one thing in `replcomp.ax` there, and runs the
-# whole gate against the broken copy - which must FAIL. The patch is
-# applied by exact string match and the run ABORTS if the string is not
-# found, because an ablation that silently does not apply is a drill
-# that proves the gate can pass, which is the opposite of the point.
-# `--ablations` runs all of them and requires each to go red.
+# Ablations: `AXIOM_ABLATE=<name>` copies `self_host/` to a scratch
+# directory, breaks one thing in `replcomp.ax` there, and runs the whole
+# gate against the copy, which must fail. Each patch applies by exact
+# string match, and the run aborts if the string is missing: a drill
+# that does not apply proves nothing. `--ablations` runs them all and
+# requires each to go red.
 #
 #   matcher   `replComplOffer` stops asking `lspComplWants`
 #   session   this session's own declarations are never offered
@@ -73,11 +58,11 @@
 #   fits      the menu renders however narrow the terminal is, so a
 #             row wraps and the editor erases too few
 #   selrange  a selection index outside the vector is trusted, which
-#             is a SEGFAULT rather than a wrong answer
+#             is a segfault rather than a wrong answer
 #
 # Usage:
 #   scripts/check-replcomp.sh              # the gate
-#   scripts/check-replcomp.sh --ablations  # the six drills, each red
+#   scripts/check-replcomp.sh --ablations  # every drill, each must go red
 #   AXIOM_ABLATE=lcp scripts/check-replcomp.sh
 # ---------------------------------------------------------------------
 
@@ -97,11 +82,9 @@ if [[ "${1:-}" == "--ablations" ]]; then
     if AXIOM_ABLATE="$ab" bash "$self" > "/tmp/replcomp-ablate-$ab.log" 2>&1; then
       echo "FAIL ablation '$ab' left the gate GREEN - it checks nothing about this."
     elif grep -q '^ *ABORT: ablation' "/tmp/replcomp-ablate-$ab.log"; then
-      # A drill whose patch did not apply exits non-zero and would
-      # otherwise be counted as a success - the exact shape of a check
-      # that cannot fail, in the code whose job is to prove this one
-      # can. It happened for real: `axiom fmt` reflowed three anchors
-      # and three drills silently became no-ops.
+      # A drill whose patch did not apply exits non-zero, and would
+      # otherwise count as red while drilling nothing. `axiom fmt`
+      # reflowing an anchor is the usual cause.
       grep -E '^ *ABORT' "/tmp/replcomp-ablate-$ab.log" | head -2 | sed 's/^/     /'
       echo "FAIL ablation '$ab' never applied, so it drilled nothing. Re-anchor it."
     else
@@ -320,8 +303,8 @@ fi
 echo "== 4. a name this session defined, which no file contains =="
 # --------------------------------------------------------------
 # `.axiom-shared/` is the battery's own output, gitignored like
-# `.axiom-bin/`: its run logs hold THIS gate's earlier output, name
-# included, so a second battery in one checkout aborted here on the
+# `.axiom-bin/`. Its run logs hold this gate's earlier output, name
+# included, so a second battery in one checkout would abort here on the
 # first one's log.
 stray="$(grep -rl 'zzsessionhelper' "$repo_root" \
           --exclude-dir=.git --exclude-dir=.claude --exclude-dir=.axiom-bin \
@@ -458,12 +441,11 @@ else
   diff <(echo "$tabs_want") <(echo "$tabs_out") | sed 's/^/     /'
 fi
 
-# The width is the TERMINAL'S, threaded through the state machine
-# rather than assumed. At 16 columns the same two candidates no longer
-# share a row, so the list step is two rows deep instead of one and the
-# editor has two rows to erase. A `replComplTab` holding a literal 80 -
-# which it did for one draft - answers the first sequence and gets this
-# one wrong, which is the only way to tell the two apart from a
+# The width is the terminal's, threaded through the state machine. At
+# 16 columns the same two candidates no longer share a row, so the list
+# step is two rows deep and the editor has two rows to erase. A
+# `replComplTab` holding a literal 80 passes the first sequence and
+# fails this one, which is the only way to tell the two apart from a
 # transcript.
 checks=$((checks + 1))
 narrow="$(drive 040-ambiguous.session none.pending "hel" 3 tabs "++" 16)"
@@ -477,12 +459,11 @@ else
   echo "$narrow" | sed 's/^/     /'
 fi
 
-# WORD 2 IS NON-EMPTY EXACTLY WHEN THERE IS SOMETHING TO PRINT. The
+# Word 2 is non-empty exactly when there is something to print. The
 # editor writes word 2 and then erases `rows` rows on the next
-# keystroke; bytes with no rows would never be erased, and rows with no
-# bytes would erase a menu that was never printed. The exact lengths
-# are not pinned - they move with the fixture's labels and say nothing -
-# but the correspondence is.
+# keystroke: bytes with no rows would never be erased, and rows with no
+# bytes would erase a menu never printed. The exact lengths move with
+# the fixture's labels, so only the correspondence is pinned.
 checks=$((checks + 1))
 pairs_bad="$(paste -d' ' <(echo "$tabs_raw" | grep '^BUF ' | awk '{print $6}') \
                         <(echo "$tabs_raw" | grep '^ESCBYTES ' | awk '{print $2}') \
@@ -497,10 +478,9 @@ fi
 # --------------------------------------------------------------
 echo "== 9b. Escape puts back what was typed, and erases what it printed =="
 # --------------------------------------------------------------
-# The erase is asserted by ITS BYTE COUNT and by carrying no newline,
-# which is the property that matters and the one a transcript cannot
-# show: `replComplErase` moves down with `ESC [ B` rather than a
-# newline, because a newline at the bottom of the screen SCROLLS and
+# The erase is asserted by its byte count and by carrying no newline,
+# which a transcript cannot show. `replComplErase` moves down with
+# `ESC [ B`, because a newline at the bottom of the screen scrolls and
 # takes the input line out from under the editor's redraw. One row is
 # `ESC [ B` (3) + `ESC [ 2K` (4) + `ESC [ 1A` (4) = 11 bytes.
 checks=$((checks + 1))
@@ -551,23 +531,21 @@ fi
 # --------------------------------------------------------------
 echo "== 10b. no menu is ever wider than the terminal it was laid out for =="
 # --------------------------------------------------------------
-# EXHAUSTIVE, because the interesting widths are the ones nobody picks
-# by hand. Every width from 1 to 100, plus the three a terminal query
-# can answer that are not widths at all: 0 (a pty that was never
-# sized, through a SUCCESSFUL ioctl - stdlib/Sys.ax says so on
-# `sysTermSize`), and -25/-9 (ENOTTY and EBADF, which is what an
-# editor hands over if it passes `sysTermSize`'s return value where it
-# meant `sysTermCols`' field). Four selection states each, including
-# two that are OUT OF RANGE for the candidate vector.
+# Exhaustive, because the interesting widths are the ones nobody picks
+# by hand: every width from 1 to 100, plus three a terminal query can
+# answer that are not widths. 0 is a pty that was never sized, through
+# a successful ioctl (see `sysTermSize` in stdlib/Sys.ax). -25 and -9
+# are ENOTTY and EBADF, which an editor passes if it hands over
+# `sysTermSize`'s return value where it meant `sysTermCols`' field.
+# Each width runs four selection states, two of them out of range.
 #
 # Three properties, on every one of them:
 #   * the reported row count equals the rendered newline count;
 #   * no rendered line is wider than the terminal, counting neither
 #     escapes nor UTF-8 continuation bytes;
-#   * zero rows means zero bytes - the editor must not be told to
-#     erase nothing while something was printed, or the reverse.
+#   * zero rows means zero bytes, and the reverse.
 #
-# The sweep runs inside ONE process, in `runSweep`, because a
+# The sweep runs inside one process, in `runSweep`, because a
 # subprocess per width would cost more than the check.
 sweep_ok=1
 sweep_crashed=0
@@ -581,10 +559,8 @@ for fx in 050-imports.session 040-ambiguous.session 010-stdlib.session; do
     010-stdlib.session)    sb=strIs; sc=5 ;;
   esac
   if ! out="$(drive "$fx" none.pending "$sb" "$sc" sweep 2>&1)"; then
-    # A harness that DIED is not a sweep that found nothing. Without
-    # this arm the failure surfaced as "the sweep produced only 8
-    # layouts", which names the floor rather than the segfault that
-    # tripped it.
+    # A harness that died is not a sweep that found nothing. Report the
+    # crash here, or the only symptom is the layout floor below.
     sweep_ok=0
     sweep_crashed=1
     bad "the harness DIED part-way through the width sweep ($fx, prefix \`$sb\`)"

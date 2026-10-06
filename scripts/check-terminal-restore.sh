@@ -1,90 +1,61 @@
 #!/usr/bin/env bash
-# Assert that a program which puts a terminal into raw mode puts it back
-# EXACTLY as it found it.
+# A program that puts a terminal into raw mode puts it back exactly as
+# it found it.
 #
-# WHY THIS GATE EXISTS. `stdlib/Sys.ax` grew `sysTermSave`, `sysTermRaw`
-# and `sysTermRestore` so that a REPL can read keys one at a time. The
-# failure mode of that trio is not a wrong answer, it is a wrecked
-# machine: a program that exits without restoring hands the user a shell
-# with no echo, no line editing and no ^C, and the only recovery is
-# `stty sane` typed blind into a terminal that is not showing what is
-# typed. Nothing in this repository could see that happen. Every other
-# gate runs with its stdin on a pipe, where `sysIsatty` is false and the
-# whole path is skipped, so the raw-mode code was reachable by exactly
-# nobody and green everywhere.
+# `stdlib/Sys.ax`'s `sysTermSave`, `sysTermRaw` and `sysTermRestore` let
+# a REPL read keys one at a time. A program that exits without restoring
+# leaves the user a shell with no echo, no line editing and no ^C, and
+# `stty sane` typed blind is the only way out. Every other gate but
+# `check-repl-tui.sh` runs its program with stdin on a pipe, where
+# `sysIsatty` is false and this path is skipped.
 #
-# THE CHECK THAT LOOKS RIGHT AND PROVES NOTHING, stated here because it
-# is the one this gate is shaped to avoid. Save the attributes, enter
-# raw mode, restore, read the attributes back, compare. That passes
-# PERFECTLY when `sysTermRaw` does nothing at all - the bytes match
-# because nothing ever changed them - so it is satisfied by the
-# complete absence of the feature it is meant to defend. The round trip
-# is therefore asserted TOGETHER with its own precondition: the state
-# while raw must DIFFER from the state saved. Check 2 below is that
-# inequality, and ablation B drives it.
+# A save, raw, restore, compare round trip passes when `sysTermRaw`
+# does nothing at all, because nothing changed the bytes. So the round
+# trip is asserted together with its precondition: the state while raw
+# must differ from the state saved. Check 2 below is that inequality,
+# and a no-op `sysTermRaw` must turn it red.
 #
-# TWO WITNESSES, AND THEY ARE INDEPENDENT ON PURPOSE.
+# Two independent witnesses:
 #
 #   * The Axiom probe compares all `sysTermStateBytes` bytes with
-#     `memCmp` - 72 of them on Darwin, 36 on Linux, 44 on FreeBSD - so
-#     the assertion is byte-exact rather than "the flags look right".
-#     It reads through the same library it is testing.
-#   * The Python driver holds the pty's other end and asks the KERNEL,
+#     `memCmp` (72 on Darwin, 36 on Linux, 44 on FreeBSD), so the
+#     assertion is byte-exact. It reads through the library it tests.
+#   * The Python driver holds the pty's other end and asks the kernel,
 #     through `termios.tcgetattr`, from outside the process. It uses
-#     Python's own `termios.ISIG`, not the constant in
-#     `Sys/Platform.*.ax`, so a wrong `tiosIsig` in the platform module
-#     is caught here rather than confirmed by itself.
+#     Python's own `termios.ISIG`, so a wrong `tiosIsig` in
+#     `Sys/Platform.*.ax` is caught here rather than confirmed by itself.
 #
-# A single witness would be enough to catch a broken restore and would
-# NOT be enough to catch a broken constant, because a probe that reads
-# and writes through one wrong definition agrees with itself.
+# One witness catches a broken restore but not a broken constant: a
+# probe that reads and writes through one wrong definition agrees with
+# itself.
 #
 # ------------------------------------------------------------------
-# SAFETY. THIS GATE MANIPULATES TERMINAL STATE, AND IT MUST NEVER
-# MANIPULATE YOURS.
+# Safety. This gate changes terminal state and must never change yours.
 #
-#   1. It operates only on a PSEUDO-TERMINAL IT ALLOCATES ITSELF
-#      (`pty.openpty`). The Axiom probe's fd 0, 1 and 2 are the slave
-#      end of that pty, dup2'd over in the forked child. The invoking
-#      shell's descriptors are never handed to anything that calls
-#      `sysTermRaw`, and the probe takes no fd argument that could be
-#      pointed at one.
-#   2. It needs no controlling terminal, which is what lets it run on a
-#      CI runner. `openpty` is an operation on `/dev/ptmx`, not a
-#      request for the terminal the job was started from.
-#   3. It restores on EVERY exit path, including a failed assertion and
-#      an interrupt. The driver restores the pty under `try/finally`;
-#      this script arms a `trap` that puts the CALLER's terminal back
-#      the way it found it, if the caller had one at all. That second
-#      trap defends against a future edit to this file rather than
-#      against anything it does today - the point of the promise is
-#      that it survives the next person, and a gate that reports a
-#      failure and leaves the developer in raw mode has done more
-#      damage than the bug it found.
+#   1. It works only on a pseudo-terminal it allocates (`pty.openpty`).
+#      The probe's fd 0, 1 and 2 are the pty's slave end, dup2'd in the
+#      forked child. The probe takes no fd argument that could point at
+#      the invoking shell's terminal.
+#   2. It needs no controlling terminal, so it runs on CI. `openpty`
+#      opens `/dev/ptmx`; it does not ask for the job's terminal.
+#   3. It restores on every exit path, including a failed assertion and
+#      an interrupt. The driver restores the pty under `try/finally`,
+#      and this script's `trap` restores the caller's terminal, if there
+#      is one. That trap guards against a future edit to this file: a
+#      gate that leaves the developer in raw mode does more damage than
+#      the bug it finds.
 # ------------------------------------------------------------------
 #
-# WHEN IT CANNOT RUN, IT FAILS. LOUDLY. It does not skip.
+# When it cannot run, it fails. It does not skip.
 #
-# This gate needs `python3` and a pty. `python3` is already a hard
-# dependency of twenty other gates here, and a pty is available to any
-# process that can open `/dev/ptmx` - which is every Linux, macOS and
-# FreeBSD runner, with or without a controlling terminal. So "cannot
-# run here" is a real and rare condition, and it is reported with the
-# battery's own words - `NOT RUN HERE (1), needs ...` - AND a non-zero
-# exit.
-#
-# THE EXIT CODE IS THE WHOLE POINT AND IT WAS A DELIBERATE CHOICE. A
-# gate that returns 0 when it could not run reads as coverage: it is
-# counted in `run-gates.sh`'s pass total and it is green on the CI leg,
-# and the property nobody is checking is the one everybody believes is
-# checked. That is strictly worse than having no gate, because no gate
-# is at least visible. `scripts/run-gates.sh` has a mechanism for a
-# gate that genuinely cannot run somewhere - `NOTRUN_RE`, which
-# EXCLUDES it from the battery and prints why - and putting a gate
-# there is a visible edit in a reviewed file. That is where the
-# decision belongs. It is not a valve this script may pull on its own
-# at runtime, and there is deliberately no environment variable that
-# turns this gate into a pass.
+# It needs `python3` and a pty, which every Linux, macOS and FreeBSD
+# runner provides, with or without a controlling terminal. If either is
+# missing it prints `NOT RUN HERE (1), needs ...` and exits non-zero. A
+# gate that exits 0 when it could not run is counted as a pass by
+# `run-gates.sh` and by CI, so it reads as coverage nobody has. That is
+# worse than no gate, which is at least visible. To exclude this gate
+# somewhere, name it in `scripts/run-gates.sh`'s NOTRUN_RE, which is a
+# reviewed edit. No environment variable turns it into a pass.
 
 set -euo pipefail
 
@@ -92,11 +63,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
 gate_init
 gate_build_axc axc
 
-# SAFETY NET 1 (see the block above): remember the caller's terminal, if
-# the caller has one, and put it back however this script exits. Nothing
-# below should ever change it. This exists so that a future edit which
-# does - a probe run without the pty, a debugging `stty` left behind -
-# cannot escape the file.
+# Safety item 3 above: remember the caller's terminal, if there is one,
+# and put it back however this script exits. Nothing below should change
+# it; this catches a future edit that does, such as a probe run without
+# the pty or a debugging `stty` left behind.
 caller_tty_state=""
 if [[ -t 0 ]]; then caller_tty_state="$(stty -g 2>/dev/null || true)"; fi
 restore_caller_tty() {
@@ -117,14 +87,13 @@ command -v python3 >/dev/null || {
 }
 
 # ------------------------------------------------------------------
-# The probe. One Axiom program, run twice: `keepSignals` is its only
-# argument, and every fact it learns is printed as a KEY=VALUE line so
-# that this script asserts on values rather than on prose it greps.
+# The probe: one Axiom program, run twice with `keepSignals` as its only
+# argument. It prints every fact as a KEY=VALUE line, so this script
+# asserts on values rather than on prose.
 #
-# It works on fd 0, which in the child the driver forks is the pty
-# slave. It takes no descriptor argument on purpose - a probe that
-# could be pointed at fd 0 of the invoking shell is a probe that will
-# one day be pointed there.
+# It works on fd 0, the pty slave in the driver's forked child, and
+# takes no descriptor argument: a probe that could be pointed at the
+# invoking shell's fd 0 eventually would be.
 # ------------------------------------------------------------------
 cat > "$work/probe.ax" <<'AX'
 (import Sys)
@@ -207,9 +176,8 @@ cat > "$work/probe.ax" <<'AX'
 )
 AX
 
-# The negative half: the same calls against things that are NOT
-# terminals. No pty, no driver - it runs with its stdin on a pipe,
-# which is what every other gate in this repository gives a program.
+# The negative half: the same calls against things that are not
+# terminals. It runs with stdin on a pipe, with no pty and no driver.
 cat > "$work/neg.ax" <<'AX'
 (import Sys)
 (import IO)
@@ -252,14 +220,12 @@ echo "== building the probes =="
 ok "both probes built"
 
 # ------------------------------------------------------------------
-# The driver. Allocates the pty, forks the probe onto it, samples the
-# kernel's own view of the terminal at three moments, and prints its
-# findings as more KEY=VALUE lines - prefixed `PY_` so the two
-# witnesses can never be confused for one another in the output.
+# The driver allocates the pty, forks the probe onto it, samples the
+# kernel's view of the terminal at three moments, and prints KEY=VALUE
+# lines prefixed `PY_`, so the two witnesses never mix in the output.
 #
-# It sizes the pty with TIOCSWINSZ first, so that `sysTermSize` has a
-# definite answer to find rather than a zero a pty may legitimately
-# report.
+# It sets the pty's size with TIOCSWINSZ first, so `sysTermSize` has a
+# definite answer rather than the zero a pty may report.
 # ------------------------------------------------------------------
 cat > "$work/drive.py" <<'PY'
 import os, pty, sys, termios, fcntl, struct, select, time
@@ -365,14 +331,12 @@ if before != after:
 sys.stdout.write(out.decode("utf-8", "replace").replace("\r\n", "\n"))
 PY
 
-# `v <file> <KEY>` - the value of one KEY=VALUE line, or the empty
+# `v <file> <KEY>`: the value of one KEY=VALUE line, or the empty
 # string. Anchored, so `KEY` never matches `OTHER_KEY`.
 v() { sed -n "s/^$2=//p" "$1" | tail -1 | tr -d '\r'; }
 
-# The two errno values the negative paths must answer, taken from THIS
-# host rather than written down. They agree on Darwin, Linux and
-# FreeBSD today; reading them here means the gate does not depend on
-# that continuing to be true.
+# The errno values the negative paths must answer, read from this host
+# so the gate does not depend on them matching across platforms.
 e_notty="$(python3 -c 'import errno; print(errno.ENOTTY)')"
 e_badf="$(python3 -c 'import errno; print(errno.EBADF)')"
 
@@ -380,10 +344,9 @@ e_badf="$(python3 -c 'import errno; print(errno.EBADF)')"
 # run_pty <keepSignals> <label>
 # ------------------------------------------------------------------
 run_pty() {
-  # Split across statements rather than one `local a=.. b=$a`: bash 3.2,
-  # which the macOS runner ships, does not reliably see the first
-  # assignment from the second on the same line, and `set -u` turns
-  # that into "keep: unbound variable" at the first call.
+  # One `local` per variable: bash 3.2, which macOS ships, does not
+  # reliably see an earlier assignment on the same `local` line, and
+  # `set -u` turns that into an unbound-variable error.
   local keep="$1"
   local label="$2"
   local log="$work/pty-$keep.log"
@@ -412,10 +375,9 @@ run_pty() {
 
   local sb; sb="$(v "$log" STATE_BYTES)"
 
-  # 0a. The probe ran on a terminal at all. Everything below is vacuous
-  #     without this: on a pipe every call short-circuits and the round
-  #     trip is exact because nothing ever happened. This is the ONE
-  #     condition that makes the rest meaningless, so it is the one
+  # 0a. The probe ran on a terminal. Without that every check below is
+  #     vacuous: on a pipe each call short-circuits and the round trip
+  #     is exact because nothing happened. It is the only numbered check
   #     that returns early.
   if [[ "$(v "$log" ISATTY0)" == 1 ]]; then
     ok "[$label] the probe ran on a pty, and sysIsatty agrees ($sb-byte state)"
@@ -425,17 +387,12 @@ run_pty() {
     return
   fi
 
-  # 0b. THE PROBE FINISHED. It is a separate question from 0a, and
-  #     conflating the two made this gate misreport its own most
-  #     important ablation: with `sysTermRaw` stubbed to a no-op the
-  #     probe reached the pty perfectly well (ISATTY0=1) and then hung,
-  #     because a terminal still in CANONICAL mode does not return from
-  #     read() until it sees a newline, and the driver deliberately
-  #     sends one byte that is not one. The old wording said "the probe
-  #     did not run on a terminal" while printing the evidence that it
-  #     had. Diagnose the hang as what it is, and carry on checking the
-  #     lines the probe did manage to print - RAW_DIFFERS is one of
-  #     them, and it is the finding that explains the hang.
+  # 0b. The probe finished. This is separate from 0a: with `sysTermRaw`
+  #     a no-op, the probe runs on the pty (ISATTY0=1) and then hangs.
+  #     A terminal still in canonical mode does not return from read()
+  #     until it sees a newline, and the driver sends one byte that is
+  #     not one. Report the hang as a hang and keep checking what the
+  #     probe did print: RAW_DIFFERS is the line that explains it.
   if [[ "$(v "$log" PROBE_DONE)" == 1 ]]; then
     ok "[$label] the probe ran to completion"
   else
@@ -450,7 +407,7 @@ run_pty() {
     fi
   fi
 
-  # 1. THE ROUND TRIP IS BYTE-EXACT. Both witnesses.
+  # 1. The round trip is byte-exact, by both witnesses.
   local saved after
   saved="$(v "$log" SAVED)"; after="$(v "$log" AFTER)"
   if [[ -n "$saved" && "$saved" == "$after" && "$(v "$log" ROUND_TRIP_EXACT)" == 1 ]]; then
@@ -466,8 +423,8 @@ run_pty() {
     bad "[$label] the kernel disagrees that the terminal was restored: $(v "$log" PY_DIFF)"
   fi
 
-  # 2. RAW MODE ACTUALLY TOOK EFFECT. Without this, check 1 is passed
-  #    by a sysTermRaw that does nothing whatsoever.
+  # 2. Raw mode took effect. Without this, a sysTermRaw that does
+  #    nothing passes check 1.
   if [[ "$(v "$log" RAW_DIFFERS)" == 1 ]]; then
     ok "[$label] raw mode changed the state (the saved bytes and the live bytes differ)"
   else
@@ -486,9 +443,8 @@ run_pty() {
     bad "[$label] sysTermRaw WROTE THROUGH the caller's saved buffer - the original is lost"
   fi
 
-  # 4. ICANON off is observable, not just declared: one byte came back
-  #    with no newline sent. An empty KEY_RC means the read never
-  #    returned at all, which is the same finding said louder.
+  # 4. ICANON is really off: one byte came back with no newline sent.
+  #    An empty KEY_RC means the read never returned.
   if [[ "$(v "$log" KEY_RC)" == 1 && "$(v "$log" KEY_BYTE)" == 65 ]]; then
     ok "[$label] a single keypress returned from read() with no newline - ICANON is really off"
   elif [[ -z "$(v "$log" KEY_RC)" ]]; then
@@ -518,9 +474,8 @@ run_pty() {
     bad "[$label] sysTermSize answered $(v "$log" ROWS)x$(v "$log" COLS), want $(v "$log" PY_WANT_ROWS)x$(v "$log" PY_WANT_COLS)"
   fi
 
-  # 7. ISIG FOLLOWS THE CALLER'S ARGUMENT, both ways, judged by
-  #    Python's own termios.ISIG rather than by the platform module
-  #    under test.
+  # 7. ISIG follows the caller's argument, both ways, judged by
+  #    Python's termios.ISIG rather than the platform module under test.
   local want_isig="$keep"
   if [[ "$(v "$log" PY_ISIG_DURING)" == "$want_isig" ]]; then
     if [[ "$keep" == 1 ]]; then
@@ -545,8 +500,8 @@ echo "== on a pty, full raw (keepSignals=0) =="
 run_pty 0 "raw"
 
 # ------------------------------------------------------------------
-# The negative half: things that are not terminals must answer errors,
-# not silence and not a fabricated success.
+# The negative half: things that are not terminals must answer the
+# matching errno, never a fabricated success.
 # ------------------------------------------------------------------
 echo
 echo "== not a terminal: a pipe, and a descriptor that is not open =="
@@ -580,11 +535,10 @@ else
 fi
 
 # ------------------------------------------------------------------
-# NEGATIVE PROBE ON THE GATE ITSELF. Every comparison above is an
-# equality between two strings this script pulled out of a log, and a
-# comparison that cannot fail is not a comparison - which is this
-# repository's most common defect. So corrupt one byte of a captured
-# `AFTER` and require the byte-exact check to reject it.
+# A negative probe on the gate itself. Every comparison above is an
+# equality between two strings pulled from a log, and a comparison that
+# cannot fail checks nothing. So flip one bit of the captured SAVED
+# state and require the comparison to tell them apart.
 # ------------------------------------------------------------------
 echo
 echo "== negative probe: the byte-exact comparison can actually fail =="

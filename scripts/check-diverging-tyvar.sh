@@ -1,40 +1,26 @@
 #!/usr/bin/env bash
-# AX3040 tells a diverging function from a cast, and the difference is
-# the whole reason it is an error.
+# AX3040 tells a diverging function from a cast, and that difference is
+# what lets it be an error:
 #
-# WHAT IT USED TO BE. A warning, deliberately, because the rule
-# conflated two signatures and only one of them is unsound:
+#     (:: conjure (-> Int a))     ; body casts a word out: unsound
+#     (:: panic   (-> String a))  ; body never returns: sound
 #
-#     (:: conjure (-> Int a))     ; body CASTS a word out
-#     (:: panic   (-> String a))  ; body NEVER RETURNS
-#
-# Measured on the tree before this landed: both checked clean with the
-# identical diagnostic, and then `conjure` exited 139 and `panic` ran
-# correctly. `tests/diagnostics/severity.policy` recorded that
-# promoting it needed "a way to tell divergence from a cast" first.
-#
-# WHAT THIS GATE ASSERTS. Not that the diagnostic exists - the
-# diagnostics corpus already pins its text, its span and its severity.
-# This asserts the DISTINCTION, in both directions, and that the
-# accepted half still runs:
+# The diagnostics corpus pins the text, span and severity. This gate
+# checks the distinction in both directions, and that the accepted half
+# still runs:
 #
 #   1. The unsound shapes are refused: `check` exits 1.
-#   2. The diverging shape is accepted, and the program it belongs to
-#      compiles, runs, and answers on BOTH its paths - the returning
-#      one and the one that does not return.
-#   3. Delegation is followed. `rethrow` and `sneak` have the same
-#      shape and opposite truths, and only what they CALL separates
-#      them.
+#   2. The diverging shape is accepted, and its program compiles, runs
+#      and answers on both paths: the one that returns and the one that
+#      does not.
+#   3. Delegation is followed. `rethrow` and `sneak` have the same shape
+#      and opposite answers; only what they call separates them.
 #   4. `;@axiom:raw` still exempts, on either half of a declaration.
 #
-# AND THE NEGATIVE PROBE, which is the part that makes the acceptance
-# worth anything. Acceptance is easy to get by accident: an analysis
-# that answered "diverges" for everything would pass 2, 3 and 4 and
-# refuse nothing. So the gate takes the ACCEPTED program and changes
-# ONE WORD - the `(exit 70)` a cast is wrapped around becomes the
-# literal `70` - and requires it to be refused. Same file, same
-# declaration, same signature; the only difference is whether the
-# thing being coerced returns.
+# Acceptance is easy to get by accident: an analysis that answered
+# "diverges" for everything would pass 2, 3 and 4. So the negative probe
+# changes one word of the accepted program, turning the `(exit 70)` a
+# cast wraps into the literal `70`, and requires a refusal.
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
@@ -46,20 +32,10 @@ checks=0
 ok()  { echo "ok   $*"; checks=$((checks + 1)); }
 bad() { echo "FAIL $*"; failed=$((failed + 1)); }
 
-# NO `set +e`/`set -e` PAIR HERE, AND THAT IS THE FIX RATHER THAN THE
-# OMISSION. This script runs under `set -uo pipefail` and deliberately
-# NOT under `-e`: every check reports and carries on, which is the whole
-# point of counting them. The pair that used to wrap this body therefore
-# turned `-e` ON - `set +e` was a no-op, `set -e` was not - and from the
-# first call onward the gate ran with a mode nobody asked for.
-#
-# It cost nothing while the gate was green and everything when it was
-# not. Measured 2026-08-25, ablating the variance flip: the gate found
-# 7 failures, printed 2 of them, and died on a bare `grep` whose only
-# job was to dump context for a failure it had already reported - 10
-# checks after it never ran at all. A gate that reports less the worse
-# things are is the failure mode this repository names most often, and
-# it was in the gate, not in the compiler.
+# The script runs under `set -uo pipefail` without `-e`, so every check
+# reports and the run carries on. Never wrap a body in `set +e`/`set -e`:
+# the `set -e` turns `-e` on, and the first context-dumping `grep` that
+# finds nothing then kills the gate before it reports the rest.
 check_of() {  # <file> -> exit status, output on $work/out
   ( cd "$work" && "$axc" check "$1" ) >"$work/out" 2>&1
   local rc=$?
@@ -92,9 +68,8 @@ if (( rc == 1 )) && grep -q 'error\[AX3040\]' "$work/out"; then
 else
   bad "347-result-only-tyvar.ax exited $rc"; sed 's/^/     /' "$work/out" | head -6
 fi
-# ...and its two controls in that file are NOT refused for the wrong
-# reason: `witnessed` (the variable is in a parameter) and `declared`
-# (tagged raw) must draw nothing.
+# Its two controls must draw nothing: `witnessed` (the variable is in a
+# parameter) and `declared` (tagged raw).
 for name in witnessed declared; do
   if grep -q "\`$name\`" "$work/out"; then
     bad "347: $name was diagnosed, and it is a control"
@@ -112,8 +87,8 @@ else
   bad "352 exited $rc and refused: ${got:-nothing}"
   echo "     wanted exactly: conjure mixed sneak"
 fi
-# The two that must NOT be refused are the delegation case and its
-# target: `rethrow` diverges because `panic` does, and nothing about
+# The two that must not be refused are the delegation case and its
+# target: `rethrow` diverges because `panic` does, though nothing in
 # `rethrow`'s own body says so.
 for name in panic rethrow; do
   if grep -q "\`$name\` returns type variable" "$work/out"; then
@@ -135,9 +110,9 @@ if (( rc == 0 )) && ! grep -q 'AX3040' "$work/out"; then
 else
   bad "976-diverging-tyvar.ax exited $rc"; sed 's/^/     /' "$work/out" | head -6
 fi
-# The returning path. `main` is `(pick 7)`, and the fixture's own
-# `; expect 7` says so - which `check-self-host.sh` also reads, so the
-# two gates agree about this number by construction.
+# The returning path: `main` is `(pick 7)`. The expected status comes
+# from the fixture's `; expect` line, which `check-self-host.sh` also
+# reads, so the two gates cannot disagree about it.
 want="$(sed -n '1s/^; expect \([0-9]*\).*/\1/p' "$src")"
 [[ -n "$want" ]] || { echo "FAIL: $src has no '; expect N' first line"; exit 1; }
 ( cd "$work" && "$axc" run 976.ax ) >/dev/null 2>&1
@@ -147,13 +122,11 @@ if [[ "$rc" == "$want" ]]; then
 else
   bad "it answered $rc, its own '; expect' says $want"
 fi
-# The path that does NOT return. `pick` is called with a negative
-# number, `panic` is entered, and the program must stop there - with
-# the status `panic` chose and the message it wrote, not with a
-# fabricated value flowing back to a caller.
-# The fixture went through the stacked-closer reformat, so the anchor
-# joins `main`'s two lines before substituting; the `;}` keeps BSD sed
-# honest where GNU accepts either.
+# The path that does not return. `pick` gets a negative number and
+# enters `panic`, and the program must stop there with the status and
+# message `panic` chose, not with a fabricated value.
+# `main` spans two lines, so the sed joins them before substituting.
+# The `;}` keeps BSD sed happy where GNU accepts either.
 sed '/(fn (main)$/{N;s/(pick 7)/(pick (- 0 1))/;}' "$src" > "$work/976neg.ax"
 if cmp -s "$src" "$work/976neg.ax"; then
   bad "the diverging-path probe changed nothing - its anchor has moved"
@@ -172,9 +145,9 @@ echo
 echo "== negative probe: one word, and the accepted program is refused =="
 # --------------------------------------------------------------------
 # `(cast a (exit 70))` diverges because `(exit 70)` never returns.
-# `(cast a 70)` is the same coercion around a value that does. If the
-# analysis could not tell those apart it would be answering the same
-# thing for every program, and everything above it would be vacuous.
+# `(cast a 70)` is the same coercion around a value that does. An
+# analysis that could not tell them apart would answer the same for
+# every program, and every check above would be vacuous.
 if ! grep -q '(cast a (exit 70))' "$src"; then
   echo "FAIL: the probe's anchor '(cast a (exit 70))' is gone from $src"
   exit 1
@@ -187,10 +160,9 @@ else
   bad "the one-word mutant exited $rc without an AX3040 error"
   sed 's/^/     /' "$work/out" | head -6
 fi
-# The other direction of the same probe: `sysExitWith` is the base
-# case, so spelling the divergence with it directly must also be
-# accepted - otherwise the acceptance is a special case for `IO.exit`
-# rather than an analysis.
+# The other direction: `sysExitWith` is the base case, so a divergence
+# spelled with it directly must also be accepted. Otherwise acceptance
+# would be a special case for `IO.exit`, not an analysis.
 sed 's/(cast a (exit 70))/(cast a (sysExitWith 70))/; s/^(import IO)$/(import IO)\n\n(import Sys)/' "$src" > "$work/976sys.ax"
 rc="$(check_of 976sys.ax)"
 if (( rc == 0 )); then
@@ -203,16 +175,12 @@ fi
 echo
 echo "== every way this language has of not returning =="
 # --------------------------------------------------------------------
-# The rule §1b states about checks like this one: "a zero-population
-# sweep catches a rule that is too wide. Only writing new programs in
-# the language's idiom catches one that is too narrow." So the shapes
-# are written out, here, and every one of them must be accepted.
-#
-# Six of the seven passed the first version of this analysis and the
-# seventh did not: an endless `while` followed by a `cast` no execution
-# reaches. That is a correct program, and refusing it would have been
-# the exact failure §1b refused to ship - so the analysis grew two arms
-# rather than the corpus losing a shape.
+# A zero-population sweep catches a rule that is too wide. Only new
+# programs written in the language's idiom catch one that is too narrow.
+# So every way of not returning is written out here, and each must be
+# accepted. Shape 7, an endless `while` followed by a `cast` no
+# execution reaches, is a correct program too. When a shape here is
+# refused, fix the analysis; never drop the shape.
 cat > "$work/shapes.ax" <<'AX'
 (import IO)
 
@@ -288,9 +256,8 @@ else
   bad "these diverging spellings were refused: ${refused:-<none, but exit was $rc>}"
   sed 's/^/     /' "$work/out" | head -8
 fi
-# And the sweep is not vacuous: the same file with ONE of them made to
-# return must be refused, so a run that accepted everything would fail
-# here rather than read as eight successes.
+# The sweep can fail: with one shape made to return, the same file must
+# be refused, so a run that accepted everything cannot read as success.
 sed 's/(fn (pSelf m) (pSelf m))/(fn (pSelf m) (cast a 1))/' "$work/shapes.ax" > "$work/shapes2.ax"
 rc="$(check_of shapes2.ax)"
 if (( rc == 1 )) && grep -q '`pSelf`' "$work/out"; then
@@ -303,9 +270,9 @@ fi
 echo
 echo "== the escape hatch, on either half of a declaration =="
 # --------------------------------------------------------------------
-# An AXTAG attaches to a declaration group and a function is normally
-# two of them. Reading the tag from only one half cost nothing while
-# this was a warning and would cost a refused program now.
+# An AXTAG attaches to a declaration group, and a function is normally
+# two groups: its signature and its `fn`. A tag on either half must
+# exempt it, or a tagged program is refused.
 for where in sig fn; do
   if [[ "$where" == sig ]]; then
     printf ';@axiom:raw\n(:: rawGet (-> Int a))\n;@axiom:effect(unsafe)\n(fn (rawGet w) (cast a w))\n\n(:: main Int)\n\n(fn (main) 0)\n' > "$work/raw.ax"
@@ -319,8 +286,8 @@ for where in sig fn; do
     bad "\`;@axiom:raw\` above the $where did not exempt it (exit $rc)"
   fi
 done
-# And the tag is not a blanket: an untagged declaration in the same
-# file is still refused, so the exemption is per-declaration.
+# The tag is not a blanket: an untagged declaration in the same file is
+# still refused, so the exemption is per declaration.
 printf ';@axiom:raw\n(:: rawGet (-> Int a))\n;@axiom:effect(unsafe)\n(fn (rawGet w) (cast a w))\n\n(:: alsoRaw (-> Int a))\n;@axiom:effect(unsafe)\n(fn (alsoRaw w) (cast a w))\n\n(:: main Int)\n\n(fn (main) 0)\n' > "$work/raw2.ax"
 rc="$(check_of raw2.ax)"
 if (( rc == 1 )) && grep -q 'alsoRaw' "$work/out" && ! grep -q '`rawGet`' "$work/out"; then
@@ -334,18 +301,17 @@ fi
 echo
 echo "== the same unsoundness one level in: a callback's own parameter =="
 # --------------------------------------------------------------------
-# Everything above asks about the RESULT. Until 2026-08-25 that was the
-# whole rule, and it missed the identical dereference through a
-# function-typed parameter, because a rule that reads SIDES files a
-# variable inside a callback under "the caller supplies it":
+# Everything above asks about the result. The same fabrication can
+# happen through a function-typed parameter, where the callee must make
+# the `a` it hands its callback:
 #
 #     (:: demand (-> (-> a Int) Int))
 #     (fn (demand f) (f (cast a 42)))
 #     (demand strLen)
 #
-# Measured on the compiler before the fix: `check` answered OK and the
-# binary exited 139. `explain AX3040` recorded it as what the rule did
-# not catch; the spine is split by VARIANCE now and it does.
+# A rule that asks only whether the variable sits in a parameter files
+# this under "the caller supplies it", and the binary exits 139. So the
+# spine is split by variance.
 cp "$repo_root/tests/diagnostics/353-callback-tyvar.ax" "$work/353.ax"
 rc="$(check_of 353.ax)"
 got="$(grep -oE '`[a-zA-Z]+` (must produce|returns)' "$work/out" | grep -oE '^`[a-zA-Z]+`' | tr -d '`' | sort -u | tr '\n' ' ' || true)"
@@ -355,12 +321,11 @@ else
   bad "353 exited $rc and refused: ${got:-nothing}"
   echo "     wanted exactly: alsoResult demand divDemand"
 fi
-# `divDemand` DIVERGES, so the returned-variable arm is honestly silent
-# about it - `for all a` is the true type of a function that never
-# returns. What must not be silent is the `a` it fabricates for its
-# callback on the way there. This is the one case that distinguishes
-# "the arms subtract" from "the arms decide", and subtracting is what
-# the first version did: measured, check OK, exit 139.
+# `divDemand` diverges, so the returned-variable arm is rightly silent:
+# `forall a` is the true type of a function that never returns. The `a`
+# it fabricates for its callback on the way must still be refused.
+# Divergence excuses the result only; letting it excuse the callback
+# arm too accepts this program, and its binary exits 139.
 if grep -q '`divDemand` must produce' "$work/out" \
    && ! grep -q '`divDemand` returns type variable' "$work/out"; then
   ok "divDemand: the diverging result is excused, the fabricated argument is not"
@@ -368,10 +333,10 @@ else
   bad "divDemand came from the wrong arm, or from both"
   { grep '`divDemand`' "$work/out" || true; } | sed 's/^/     /' | head -4
 fi
-# The controls. `witnessed` is the shape all ordinary higher-order code
-# has - `b` on the RIGHT of the callback's arrow, `a` also a parameter -
-# and a rule that reported it would refuse `map`. `declared` is the
-# escape hatch on this arm.
+# The controls. `witnessed` is the shape of ordinary higher-order code
+# (`b` on the right of the callback's arrow, `a` also a parameter), and
+# a rule that reported it would refuse `map`. `declared` is the escape
+# hatch on this arm.
 for name in witnessed declared; do
   if grep -q "\`$name\`" "$work/out"; then
     bad "353: $name was diagnosed, and it is a control"
@@ -379,10 +344,10 @@ for name in witnessed declared; do
     ok "353: $name draws nothing"
   fi
 done
-# `alsoResult` has its variable in the callback AND in the result, so
-# both arms could claim it. It must draw ONE diagnostic - the arms
-# subtract, they do not overlap - and it must be the returned-variable
-# one, because that is the arm a divergence fixpoint can still answer.
+# `alsoResult` has its variable in the callback and in the result, so
+# both arms could claim it. It must draw one diagnostic, from the
+# returned-variable arm, because that is the arm a divergence fixpoint
+# can still answer.
 n="$(grep -c 'error\[AX3040\]' "$work/out" || true)"
 a="$(grep 'AX3040' "$work/out" | grep -c '`alsoResult`' || true)"
 if (( n == 3 )) && (( a == 1 )) && grep -q '`alsoResult` returns type variable' "$work/out"; then
@@ -390,9 +355,9 @@ if (( n == 3 )) && (( a == 1 )) && grep -q '`alsoResult` returns type variable' 
 else
   bad "353 drew $n AX3040s (wanted 3) and $a for alsoResult (wanted 1)"
 fi
-# Emission order IS report order in this compiler - nothing sorts
-# diagnostics afterwards - so two arms sweeping separately reported the
-# later declaration first. They are one declaration-ordered sweep.
+# Emission order is report order: nothing sorts diagnostics afterwards.
+# The two arms are one declaration-ordered sweep, so `demand`, declared
+# first, must be reported first.
 first="$(grep -oE '`(demand|alsoResult)`' "$work/out" | head -1)"
 if [[ "$first" == '`demand`' ]]; then
   ok "the two arms report in declaration order, not arm order"
@@ -404,13 +369,11 @@ fi
 echo
 echo "== negative probe: the side of the inner arrow, and nothing else =="
 # --------------------------------------------------------------------
-# The sharpest form this probe has. Two files with the SAME body, the
-# same nesting depth and the same one type variable; the only
-# difference is which side of the callback's arrow it sits on. Left is
-# a value this function must produce and cannot; right is one the
-# caller's own function produces. If the analysis were counting nesting
-# rather than variance, both would answer the same and every check
-# above would be describing a rule that does not exist.
+# Two files with the same body, nesting depth and type variable; only
+# the side of the callback's arrow differs. On the left it is a value
+# this function must produce and cannot; on the right, one the caller's
+# function produces. An analysis counting nesting instead of variance
+# would answer both the same.
 printf '(:: demand (-> (-> a Int) Int))\n\n(fn (demand f) 0)\n\n(:: main Int)\n\n(fn (main) 0)\n' > "$work/varL.ax"
 printf '(:: demand (-> (-> Int a) Int))\n\n(fn (demand f) 0)\n\n(:: main Int)\n\n(fn (main) 0)\n' > "$work/varR.ax"
 rcL="$(check_of varL.ax)"
@@ -420,19 +383,16 @@ if (( rcL == 1 )) && (( rcR == 0 )); then
 else
   bad "the variance probe answered $rcL / $rcR (wanted 1 / 0)"
 fi
-# THE OVER-APPROXIMATION, ASSERTED RATHER THAN LEFT TO BE FOUND. Those
-# two bodies are `0`: neither calls its callback, so neither actually
-# fabricates anything, and the left one is refused for a value it does
-# not make. The rule reads the signature. `explain AX3040` says so, and
-# this is the check that keeps that sentence true - if the analysis
-# ever grows a body walk, this goes red and the sentence comes out.
+# The known over-approximation. Both bodies are `0` and never call the
+# callback, yet the left one is refused, because the rule reads the
+# signature. `explain AX3040` says so. If the analysis grows a body walk,
+# this check goes red and that sentence must change.
 if (( rcL == 1 )); then
   ok "and the rule reads the SIGNATURE: a body that never calls f is refused too"
 fi
-# The witness, added as one parameter. Same callback, same call, and
-# now the caller hands over the value that decides what `a` is - so it
-# is accepted, and it RUNS, which is the half acceptance is worth
-# anything for.
+# The witness: one more parameter, of type `a`. The caller now hands
+# over the value that decides what `a` is, so it is accepted, and it
+# must also run.
 printf '(import Str)\n\n(:: demand (-> (-> a Int) a Int))\n\n(fn (demand f x) (f x))\n\n(:: main Int)\n\n(fn (main) (demand strLen "hello"))\n' > "$work/wit.ax"
 rc="$(check_of wit.ax)"
 ( cd "$work" && "$axc" run wit.ax ) >/dev/null 2>&1
@@ -442,14 +402,11 @@ if (( rc == 0 )) && (( run == 5 )); then
 else
   bad "the witnessed spelling exited $rc and ran to $run (wanted 0 and 5)"
 fi
-# The change reads BOTH ways, and this is the half a rule that only
-# tightened would not have. An arrow nested inside a type ARGUMENT in
-# the RESULT puts its variable on a left side - the callee does not
-# produce it, whoever calls the returned callback does - and the old
-# side-reading rule refused it. Measured against the compiler before
-# this change: `AX3040`, a false positive. `Holder` is a parameterised
-# `data` because an arrow may not be a type argument to anything else
-# in this language.
+# Variance also relaxes the rule. An arrow nested in a type argument of
+# the result puts its variable on a left side: whoever calls the
+# returned callback produces it, not the callee. A rule that reads only
+# sides refuses this correct program. `Holder` is a parameterised `data`
+# because an arrow can be a type argument to nothing else.
 cat > "$work/lenient.ax" <<'AX'
 (data Holder a
   (H a))
@@ -473,9 +430,9 @@ else
   bad "the lenient direction exited $rc"; sed 's/^/     /' "$work/out" | head -6
 fi
 
-# And ordinary polymorphic higher-order code, at two DIFFERENT types in
-# one program, compiles and runs. This is the population the rule could
-# most easily have broken.
+# Ordinary polymorphic higher-order code, at two different types in one
+# program, compiles and runs. This is the population the rule could most
+# easily break.
 cat > "$work/hof.ax" <<'AX'
 (import Str)
 
@@ -504,18 +461,18 @@ fi
 echo
 echo "== what the diagnostic is guarding, run rather than argued =="
 # --------------------------------------------------------------------
-# `;@axiom:raw` exempts the declaration from the REPORT and changes no
-# code, so the exempted program is exactly what used to compile. It is
-# built and RUN here, and it dies - which is the whole claim. A gate
-# that only asserted "a diagnostic appears" would pass just as well
-# against a rule that refused correct programs for a made-up reason.
+# `;@axiom:raw` exempts a declaration from the report and changes no
+# code, so this program is what the rule guards against: it checks
+# clean, builds, and dies. A gate that only asserted "a diagnostic
+# appears" would pass just as well against a rule that refused correct
+# programs.
 printf '(import Str)\n\n;@axiom:raw\n(:: demand (-> (-> a Int) Int))\n;@axiom:effect(unsafe)\n(fn (demand f) (f (cast a 42)))\n\n(:: main Int)\n\n(fn (main) (demand strLen))\n' > "$work/boom.ax"
 rc="$(check_of boom.ax)"
 ( cd "$work" && "$axc" run boom.ax ) >/dev/null 2>&1
 run=$?
-# `>= 128` rather than `== 139` because the number is the SIGNAL, and
-# only the fact that one arrived is portable. It was 139 (SIGSEGV) on
-# darwin-aarch64 on 2026-08-25 - 42 dereferenced as a String pointer.
+# `>= 128`, not `== 139`: only the arrival of a signal is portable, not
+# its number. On darwin-aarch64 it is SIGSEGV (139), 42 dereferenced as
+# a String pointer.
 if (( rc == 0 )) && (( run >= 128 )); then
   ok "the exempted program checks clean, builds, and is killed by a signal ($run)"
 else

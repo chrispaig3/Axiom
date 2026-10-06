@@ -3,20 +3,16 @@
 #
 # `__atomic_load`, `__atomic_store`, `__atomic_add`, `__atomic_cas` and
 # `__fence` lower to sequentially consistent LLVM atomics with no target
-# arm (`emitPrimAtomic`, self_host/codegen.ax). What LLVM then makes of
-# `seq_cst` on each ISA was stated in that comment and checked by
-# nothing: `check-freestanding.sh` says they lower inline, and
-# `check-cross-targets.sh` says the objects relocate, and neither looks
-# at an instruction. This gate does, and then runs them.
+# arm (`emitPrimAtomic`, self_host/codegen.ax). `check-freestanding.sh`
+# checks they lower inline and `check-cross-targets.sh` that the objects
+# relocate. This gate checks the instructions, then runs them.
 #
-# FOUR SECTIONS.
-#
-#   1. MACHINE CODE. tests/stdlib/440-atomics.ax spells each primitive
+#   1. Machine code. tests/stdlib/440-atomics.ax spells each primitive
 #      a known number of times on one straight-line path. It is emitted
 #      for every target the compiler knows, put through the driver's own
 #      pipeline (opt -O<n>, llc -O<n> -relocation-model=pic) to assembly
 #      at -O0..-O3, and the ordering instructions are counted. Each count
-#      must EQUAL the source's uses of its primitive:
+#      must equal the source's uses of its primitive:
 #
 #        x86-64   store -> xchg          add -> lock xadd
 #                 cas   -> lock cmpxchg  fence -> lock or to the stack
@@ -26,152 +22,97 @@
 #                 add, cas -> one ldaxr/stlxr loop each, or LSE's
 #                             ldaddal/casal      fence -> dmb ish
 #
-#      and AArch64 may show no exclusive or LSE form without both
-#      acquire and release (ldxr, stxr, ldadd, ldadda, ldaddl, cas,
-#      casa, casl). windows-aarch64 adds barriers: LLVM ends every
-#      seq_cst store and read-modify-write there with a trailing
-#      `dmb ish`, because MSVC's runtime does not implement seq_cst
-#      loads with `ldar` and a release store alone would not order
-#      against them. `a64_dmb_want` states that count. A program with
-#      no atomics (010-hello) must count
-#      ZERO of every one on every target and level - so the counts are
-#      the primitives' own, not the runtime's.
+#      AArch64 may show no exclusive or LSE form without both acquire
+#      and release (`A64_WEAK`). On windows-aarch64, LLVM ends every
+#      seq_cst store and read-modify-write with a trailing `dmb ish`:
+#      MSVC's runtime does not implement seq_cst loads with `ldar`, and
+#      a release store alone would not order against them.
+#      `a64_dmb_want` states that count. A program with no atomics
+#      (010-hello) must count zero of every one on every target and
+#      level, so the counts are the primitives' own, not the runtime's.
 #
-#      The x86-64 LOAD is not in the table because it cannot be: under
-#      the standard mapping a seq_cst load on x86 is a plain `mov`, the
-#      ordering being paid by the store's `xchg`. Section 2 measures that
-#      instead of asserting it.
+#      The x86-64 load is not in the table: under the standard mapping a
+#      seq_cst load on x86 is a plain `mov`, and the store's `xchg` pays
+#      for the ordering. Section 2 measures that instead.
 #
-#   2. ABLATIONS. Each weakening of the emitted IR must turn section 1's
-#      check red on the ISA that can show it - store -> monotonic (both),
-#      load -> monotonic (AArch64), add/cas -> monotonic (AArch64, at -O2
-#      only: at -O0 LLVM lowers every AArch64 read-modify-write with
-#      ldaxr/stlxr whatever its ordering, so section 1's rmw rows at -O0
-#      hold for ANY ordering and say nothing), the fence deleted (both) -
-#      and each seam must match exactly the
-#      source's count of lines, so an emitter change that moves the
-#      spelling cannot make an ablation silently apply to nothing. The
-#      x86-64 load weakened to monotonic must leave the assembly
-#      byte-identical: that is the invisibility above, measured.
+#   2. Ablations. Each weakening of the emitted IR must turn section 1
+#      red on the ISA that can show it: store -> monotonic (both), load
+#      -> monotonic (AArch64), add/cas -> monotonic (AArch64, -O2 only;
+#      see the rows below), fence deleted (both). Each seam must match
+#      exactly the source's count of lines, so an emitter change cannot
+#      make an ablation silently apply to nothing. The x86-64 load
+#      weakened to monotonic must leave the assembly byte-identical,
+#      which measures the invisibility above.
 #
-#   3. LITMUS, ON THIS HOST. tests/litmus/atomics.ax, built with
+#   3. Litmus, on this host. tests/litmus/atomics.ax, built with
 #      `--threads` at --opt 0..3, runs fifteen families on two threads
-#      (three for wrc, isa2 and 3.sb, four for iriw), each printing
+#      (three for wrc, isa2 and 3.sb, four for iriw). Each prints
 #      `<forbidden> <witnessed>`. A run is 500,000 rounds (200,000 for
-#      iriw, wrc, isa2 and 3.sb); an atomic or fence row is three runs
-#      per level, and a required control gets up to five runs to show:
+#      iriw, wrc, isa2 and 3.sb). An atomic or fence row gets three runs
+#      per level, and a required control gets up to five runs to show.
 #
-#        sb sc | sb fence   forbidden 0 in every run
-#        mp sc | mp fence   forbidden 0 in every run, flag seen > 0
-#        add sc | add cas   forbidden (lost updates) 0 in every run
-#        lb sc              forbidden 0 in every run, both loads 0 > 0
-#        2+2w sc            forbidden 0 in every run, x 2 and y 2 > 0
-#        r sc | r fence     forbidden (y ends 2, x read 0) 0 in every
-#                           run; y ends 1 with x read 1 > 0, the one
-#                           outcome only interleaved accesses give
-#        s sc | s fence     forbidden (x ends 2, y read 1) 0 in every
-#                           run; x ends 1 with y read 0 > 0, likewise
-#        3.sb sc            forbidden (all three loads 0) 0 in every
-#                           run; all three loads 1 > 0, the one outcome
-#                           no order of whole bindings gives
-#        iriw sc            forbidden 0 in every run, each reader's
-#                           half of the outcome seen > 0
-#        wrc sc | isa2 sc   forbidden 0 in every run, the chain (R1 saw
-#                           the write, R2 saw R1's) formed > 0
-#        corr sc            forbidden 0 in every run, reads straddling
-#                           the store > 0
-#        coww sc            forbidden 0 in every run, the reader saw x
-#                           change > 0
-#        cowr sc | corw sc  forbidden 0 in every run, the other
-#                           binding's store read > 0
-#        sb plain           CONTROL: forbidden > 0 in some run
-#        add split          CONTROL: forbidden > 0 in some run
-#        mp | lb | 2+2w | r | s | 3.sb | iriw | wrc | isa2 reorder
-#        corr | coww | cowr | corw reorder
-#                           CONTROL: forbidden > 0 in some run. The
-#                           reordering is written into the program with
-#                           the atomics, so sequential consistency allows
-#                           the outcome and any host can show it: these
-#                           prove the harness sees it when it happens.
-#                           mp's, r's and s's second binding swaps its
-#                           two accesses and makes the second wait for
-#                           the first binding's store; 3.sb's bindings
-#                           each load, wait until all three have, then
-#                           store. Waiting for the event, as wrc's reader
-#                           does, shows the outcome in nearly every round
-#                           on a host where a fixed pause is too short.
-#                           isa2's R2 does the same beside its writer's
-#                           pause: with the pause alone, linux-aarch64
-#                           showed nothing at -O1 and -O2 in 5 runs.
-#                           For the four coherence families it is the
-#                           only control there can be: x86-64 and AArch64
-#                           keep every aligned access to one word
-#                           coherent, plain or atomic, so their plain
-#                           rows show nothing on any host this runs on
-#        2+2w plain         CONTROL on darwin-aarch64 at -O1..-O3 only;
-#                           reported elsewhere (below)
-#        mp plain           reported, not required - x86 hardware never
-#                           reorders this pattern, so at -O0 there is
-#                           nothing to show and a requirement would fail
-#                           on the one ISA whose answer is "correct"
-#        wrc | isa2 plain   reported, not required. On darwin-aarch64
-#                           wrc plain showed its outcome once or twice
-#                           in some runs of 200,000 rounds (R1's store
-#                           does not depend on its load, so the core may
-#                           pass it ahead); x86-64 is TSO and forbids it
-#        corr | coww | cowr | corw plain
-#                           reported, not required, and expected 0 on
-#                           every host: hardware coherence
-#        lb | iriw plain    reported, not required. x86-64 is TSO, which
-#        2+2w plain         forbids all three outcomes for plain accesses.
-#                           On darwin-aarch64 (Apple M1, 2026-09-28, idle
-#                           and with every core busy) lb plain showed in
-#                           0 of 98 runs. iriw plain showed in 15 of 76,
-#                           at every level but in bursts: 4 of 4 in each
-#                           of two gate runs, 3 of 40 in a batch of runs.
-#                           2+2w plain showed in 138 of 141 runs at
-#                           -O1..-O3 and 22 of 47 at -O0, so it is
-#                           required at -O1..-O3, with five tries. Other
-#                           AArch64 cores, linux-aarch64's among them,
-#                           were not measured, so it is reported there.
-#                           (ARMv8's multi-copy atomicity forbids iriw
-#                           only when each reader's loads stay in order,
-#                           as `ldar` keeps them; plain loads may pass
-#                           each other)
+#      Every `sc`, `fence` and `cas` row must show its forbidden outcome
+#      0 times in every run. Every row but sb's and add's must also show
+#      its witness more than 0 times: the outcome that proves the threads
+#      overlapped, named in `litmus_rows`. Without the witness, a zero
+#      tests nothing.
 #
-#        r | s | 3.sb plain reported, not required. x86-64 is TSO, which
-#                           allows r and 3.sb (a store waits in the
+#      Controls must show the forbidden outcome in some run: `sb plain`,
+#      `add split` and every `reorder` row. A reorder row writes
+#      the reordering into the program with the atomics, so sequential
+#      consistency allows the outcome and any host can show it. In mp, r,
+#      s, 3.sb, wrc and isa2 the reordered access waits for the other
+#      binding's event, since a fixed pause can be too short. For the four
+#      coherence families (corr, coww, cowr, corw) it is the only control
+#      there can be: x86-64 and AArch64 keep every aligned access to one
+#      word coherent, plain or atomic.
+#
+#      A control that never shows its outcome is a failure: the zeros
+#      would then mean only that this harness cannot see a reordering.
+#
+#      Plain rows are reported, not required, since hardware may never
+#      show them:
+#
+#        mp plain           x86 never reorders it, so at -O0 there is
+#                           nothing to show
+#        lb, iriw plain     x86-64 is TSO and forbids both. Apple silicon
+#                           shows lb rarely if ever, and iriw in bursts
+#        2+2w plain         TSO forbids it. Required on Apple silicon at
+#                           -O1..-O3, where it shows in nearly every run;
+#                           at -O0 it shows in only about half. Other
+#                           AArch64 cores are unmeasured
+#        wrc, isa2 plain    TSO forbids them. Apple silicon shows wrc
+#                           rarely: R1's store does not depend on its
+#                           load, so the core may pass it ahead
+#        r, s, 3.sb plain   TSO allows r and 3.sb (a store waits in the
 #                           buffer while the next load runs) and forbids
-#                           s. On darwin-aarch64 (M1) and linux-aarch64
-#                           (podman on an M1), r plain and 3.sb plain
-#                           showed their outcomes at every level in
-#                           every run measured; s plain showed at
-#                           -O1..-O3 on linux-aarch64 and seldom on
-#                           darwin-aarch64. x86-64 was not measured
+#                           s. AArch64 shows r and 3.sb at every level,
+#                           and s less reliably. x86-64 is unmeasured
+#        corr, coww, cowr, corw plain
+#                           expected 0 on every host: hardware coherence
 #
-#      A control that never shows its outcome is a FAILURE, not a pass:
-#      the zeros above it would then mean only that this harness cannot
-#      see a reordering at all.
+#      ARMv8's multi-copy atomicity forbids iriw only when each reader's
+#      loads stay in order, as `ldar` keeps them. Plain loads may pass
+#      each other.
 #
-#      THE FENCE ROWS put `__fence` between plain accesses, which race:
+#      The fence rows put `__fence` between plain accesses, which race.
 #      MM-PAR-9 gives a racing plain access no defined value, so these
 #      rows measure what this compiler and this hardware make of a
 #      `fence seq_cst` between plain accesses (`dmb ish` on AArch64, a
 #      locked `or` on x86-64), not a promise of the language.
 #
-#      DEPENDENCY VARIANTS ARE NOT RUN: Axiom cannot state one. The
-#      language has one ordering, seq_cst, so the only access a
-#      dependency could order is a plain load that races, whose value
-#      MM-PAR-9 leaves undefined. LLVM keeps no dependency it can compute
-#      away either: an address `f - f` from a loaded f folds to 0 at -O2,
-#      and the two loads issue independently. A row would test LLVM's
-#      current choices on an undefined program.
+#      Dependency variants are not run, because Axiom cannot state one.
+#      The language has one ordering, seq_cst, so the only access a
+#      dependency could order is a racing plain load, whose value
+#      MM-PAR-9 leaves undefined. LLVM also folds a computable dependency
+#      away: an address `f - f` from a loaded f becomes 0 at -O2.
 #
 #   4. LSE. The driver calls llc with no -mcpu or -mattr, and llc picks
 #      no LSE-capable CPU for any seed triple, `arm64-apple-macosx`
-#      included (clang would choose apple-m1; llc does not), so section 1's
-#      LL/SC loops are what every AArch64 build runs, an M1's included.
-#      This section asks for the ARMv8.1 atomics by flag and counts again:
+#      included (clang would choose apple-m1; llc does not). So section
+#      1's LL/SC loops are what every AArch64 build runs, an M1's
+#      included. This section asks for the ARMv8.1 atomics by flag and
+#      counts again:
 #
 #        4a. The fixture and the control through the same pipeline with
 #            -mattr=+lse for all three AArch64 targets, -mcpu=apple-m1
@@ -180,9 +121,8 @@
 #              load -> ldar   store -> stlr   add -> ldaddal
 #              cas  -> casal  fence -> dmb ish
 #            with no exclusive (an LL/SC loop where LSE was asked for)
-#            and no LSE or RCpc form short of acquire-release (ldadd,
-#            ldadda, ldaddl, stadd, staddl, cas, casa, casl, swp, swpa,
-#            swpl, ldapr, ldapur). There is no exchange primitive, so no
+#            and no LSE or RCpc form short of acquire-release
+#            (`A64_LSE_WEAK`). There is no exchange primitive, so no
 #            `swpal` is expected. The control must count zero.
 #        4b. add/cas weakened to monotonic, acquire and release, with
 #            +lse at -O0 and -O2, and the load weakened to acquire under
@@ -191,28 +131,26 @@
 #            rows discriminate where section 2's cannot.
 #        4c. On a host that executes LSE (Darwin's
 #            hw.optional.arm.FEAT_LSE, or `atomics` in Linux's
-#            /proc/cpuinfo), the litmus program is built by the driver
-#            with llc wrapped to append -mattr=+lse, at every level. The
-#            wrapper must have run once, and the binary's disassembly
-#            must hold ldaddal and casal and no exclusive or weaker form.
-#            Then the sb, mp and add rows, and their controls, run from
-#            it. Any other host reports that it did not run them; Apple
+#            /proc/cpuinfo), the driver builds the litmus program with
+#            llc wrapped to append -mattr=+lse, at every level. The
+#            wrapper must run once, and the binary's disassembly must
+#            hold ldaddal and casal and no exclusive or weaker form. The
+#            sb, mp and add rows and their controls then run from it.
+#            Any other host reports that it did not run them; Apple
 #            silicon must.
 #
-# LIMITS. Sections 1 and 4 are one fixture's shapes, as this LLVM lowers
+# Limits. Sections 1 and 4 are one fixture's shapes, as this LLVM lowers
 # them: section 1 for targets named by triple with no CPU, which is what
 # the driver builds, and section 4 with LSE asked for by flag, which the
 # driver never does. Machine code cannot tell every ordering apart on
-# AArch64: a release store and a seq_cst one are both `stlr`, an
-# acq_rel read-modify-write is `ldaddal`/`casal` like a seq_cst one, and
-# without RCpc an acquire load is `ldar`. Section 3 is the rounds run, on
-# this host, at these levels: an absent outcome is evidence, not proof,
+# AArch64: a release store and a seq_cst one are both `stlr`, an acq_rel
+# read-modify-write is `ldaddal`/`casal` like a seq_cst one, and without
+# RCpc an acquire load is `ldar`. Section 3 covers the rounds run, on
+# this host, at these levels. An absent outcome is evidence, not proof,
 # and a litmus pass on x86 says nothing about AArch64. The fifteen
-# families are the classic two-, three- and four-thread shapes, not an
-# exhaustive suite: the dependency variants cannot be written (above),
-# and the rest of the catalogue is not run. The linux-x86_64,
-# linux-aarch64 and darwin-aarch64 CI legs are the three hosts it runs
-# on.
+# families are the classic two-, three- and four-thread shapes; the rest
+# of the catalogue is not run. The linux-x86_64, linux-aarch64 and
+# darwin-aarch64 CI legs are the hosts it runs on.
 #
 # Usage: check-atomics.sh
 set -uo pipefail
@@ -235,8 +173,8 @@ litmus="$repo_root/tests/litmus/atomics.ax"
 x86_targets="linux-x86_64 darwin-x86_64 freebsd-x86_64 windows-x86_64"
 a64_targets="linux-aarch64 darwin-aarch64 freebsd-aarch64 windows-aarch64"
 
-# The source's own count of each primitive, comments stripped - COUNTED,
-# not typed, so a fixture that gains a use moves the expectation with it.
+# The source's own count of each primitive, comments stripped. Counting
+# it means a fixture that gains a use moves the expectation with it.
 uses() { sed 's/;.*//' "$fixture" | grep -o "$1" | wc -l | tr -d ' '; }
 n_load="$(uses '(__atomic_load ')"
 n_store="$(uses '(__atomic_store ')"
@@ -318,12 +256,13 @@ lse_diff() {
   echo "$out"
 }
 
-# Measure this backend's Windows SC lowering independently of Axiom.
-# LLVM 18 shares a cmpxchg exit barrier at -O0; LLVM 23 duplicates it
-# across the success and failure exits. The reference uses the same
-# pipeline and returns the old word, as the Axiom primitive does.
-# Count each primitive separately so weakened fixture IR still fails
-# against an unchanged seq_cst reference in section 2.
+# Measure this backend's Windows SC lowering independently of Axiom,
+# since the barrier count varies by LLVM version: LLVM 18 shares a
+# cmpxchg exit barrier at -O0, and LLVM 23 duplicates it across the
+# success and failure exits. The reference uses the same pipeline and
+# returns the old word, as the Axiom primitive does. Each primitive is
+# counted separately, so weakened fixture IR still fails against an
+# unchanged seq_cst reference in section 2.
 win_store_dmb=() win_add_dmb=() win_cas_dmb=()
 for kind in store add cas; do
   ref="$work/backend-$kind.ll"
@@ -429,10 +368,10 @@ ablate() {
 }
 
 # kind  isa  levels  want-matches  seam. The levels are where the ISA
-# can show the weakening: at -O0 LLVM lowers EVERY AArch64 read-modify-
-# write with acquire-release exclusives (ldaxr/stlxr), monotonic or not -
-# measured 2026-09-27, LLVM 23 - and only -O1 and up weaken it to
-# ldxr/stxr, so the rmw row is measured at -O2 alone.
+# can show the weakening. At -O0 LLVM lowers every AArch64
+# read-modify-write with acquire-release exclusives (ldaxr/stlxr),
+# monotonic or not; only -O1 and up weaken it to ldxr/stxr. So the rmw
+# row runs at -O2 alone.
 while read -r kind isa levels want subst; do
   t=linux-x86_64; [[ "$isa" == a64 ]] && t=linux-aarch64; [[ "$isa" == w64 ]] && t=windows-aarch64
   for lvl in ${levels//,/ }; do
@@ -481,8 +420,8 @@ ROWS
 # ---------------------------------------------------------------------
 echo "== 3. litmus on this host, two, three and four threads =="
 runs=3
-# Apple silicon, the one host the 2+2w plain requirement was measured
-# on: `uname` answers Darwin arm64 nowhere else.
+# Apple silicon, the one host that requires 2+2w plain: `uname` answers
+# Darwin arm64 nowhere else.
 apple=0; [[ "$(uname -s) $(uname -m)" == "Darwin arm64" ]] && apple=1
 # run_once <bin> <family> <mode> -> sets $r_f $r_w; 1 on a bad run
 run_once() {

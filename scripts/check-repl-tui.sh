@@ -1,104 +1,57 @@
 #!/usr/bin/env bash
 # The REPL's terminal interface, on a terminal.
 #
-# WHY THIS GATE EXISTS. `replInteractive` is true only when fd 0 AND
-# fd 1 are terminals, and every gate in this repository runs its
-# subject with both on a pipe. So the decoder, the editor, the redraw
-# and the raw-mode bracket are, to the entire existing battery,
-# unreachable code that is green because nothing runs it - the same
-# hole `check-terminal-restore.sh` was written to close one layer
-# further down, and for the same reason. This drives the REPL on a
-# pseudo-terminal it allocates itself and asserts what lands on the
-# screen.
+# `replInteractive` is true only when fd 0 and fd 1 are both terminals,
+# and every other gate runs its subject on pipes. So the decoder, the
+# editor, the redraw and the raw-mode bracket run nowhere else. This
+# gate drives the REPL on a pseudo-terminal it allocates and asserts
+# what lands on the screen. `check-terminal-restore.sh` covers the same
+# gap one layer down.
 #
-# THE ONE CONSTRAINT THAT MAKES ANY OF THIS SAFE is not checked here.
-# `check-repl-selfhost.sh` pins the PIPED surface byte for byte across
-# 14 sessions and that is the contract; this gate is its inverse and
-# the two are only meaningful together. Layer 1 below runs the same
-# session BOTH ways and requires them to DIFFER, because "no escapes
-# off a TTY" and "escapes on one" are each satisfied by a build in
-# which the other side is dead code.
+# `check-repl-selfhost.sh` pins the piped surface byte for byte. This
+# gate is its inverse, and the two mean something only together. Layer 1
+# runs one session both ways and requires the transcripts to differ:
+# "no escapes off a TTY" and "escapes on one" are each satisfied by a
+# build in which the other side is dead code.
 #
-# ------------------------------------------------------------------
-# SAFETY. IT NEVER TOUCHES THE CALLER'S TERMINAL.
-#
+# It never touches the caller's terminal:
 #   1. Everything interactive runs against a pty from `pty.openpty()`.
-#      The child's fd 0, 1 and 2 are the slave end; the invoking
-#      shell's descriptors are never handed to anything that calls
-#      `sysTermRaw`.
+#      The child's fd 0, 1 and 2 are the slave end, so the invoking
+#      shell's descriptors never reach anything that calls `sysTermRaw`.
 #   2. The driver restores the pty under `try/finally` on every exit
-#      path, and this script arms a `trap` that puts the CALLER's
-#      terminal back if it had one. That second trap defends against a
-#      future edit to this file rather than against anything it does
-#      today: a gate that reports a failure and leaves the developer
-#      in raw mode has done more damage than the bug it found.
-#   3. It never runs a bare `waitpid`. A REPL left in raw mode with
-#      nothing to read blocks forever, and a gate that hangs where it
-#      should fail is worse than no gate.
-# ------------------------------------------------------------------
+#      path, and this script's `trap` restores the caller's terminal if
+#      it had one. The trap guards against future edits: a gate that
+#      leaves the developer in raw mode does more harm than the bug it
+#      found.
+#   3. It never runs a bare `waitpid`. A REPL in raw mode with nothing to
+#      read blocks forever, and a gate that hangs instead of failing is
+#      worse than none. Each driver step has a 25-second stall deadline.
 #
-# WHEN IT CANNOT RUN, IT FAILS. It does not skip. `python3` is already
-# a hard dependency of check-repl-selfhost.sh's own layer 4a and of
-# twenty other gates, and a pty is available to any process that can
-# open /dev/ptmx. "Cannot run here" is reported with the battery's
-# words - `NOT RUN HERE (1), needs ...` - AND a non-zero exit, for the
-# reason check-terminal-restore.sh spells out at length: a gate that
+# When it cannot run, it fails rather than skipping. `python3` is already
+# a hard dependency of other gates, including check-repl-selfhost.sh, and
+# any process that can open /dev/ptmx can get a pty. It reports
+# `NOT RUN HERE (1), needs ...` and exits non-zero, because a gate that
 # returns 0 when it could not run reads as coverage.
 #
-# IT RUNS IN PARALLEL WITH EVERYTHING, INCLUDING THE OTHER REPL GATE,
-# and that is a measurement rather than an assumption.
-# check-repl-selfhost.sh's header carried a HAZARD saying otherwise -
-# every REPL on the machine writing /tmp/axiom-repl-1 because
-# `fmtIntStr` answers "1" above 3 - and this gate was written to obey
-# it. The hazard had been fixed twice before it was read: repl.ax uses
-# `decStr` for the pid and a private `<tmp>/axiom-repl-<pid>.d` at mode
-# 0700. Probed 2026-08-31: six `axiom repl` processes at once answered
-# 101, 202, 303, 404, 505 and 606, and left nothing in /tmp. Both
-# headers now say so, and neither gate is in run-gates.sh's serial
-# list.
+# It runs in parallel with everything, including check-repl-selfhost.sh.
+# Each REPL works in its own `<tmp>/axiom-repl-<pid>.d` at mode 0700, so
+# concurrent sessions share no files, and neither gate is in
+# run-gates.sh's serial list.
 #
-# ABLATION DRILLS, run at introduction 2026-08-31 with their OBSERVED
-# results, because a layer whose comment claims more than the layer
-# checks is the defect this repository records most often.
-#
-#   A. `replInteractive` pinned to 0, so the interactive branch is
-#      dead. 15 of 38 checks FAILED, and the first of them named the
-#      cause: "pty: 0 ESC bytes. Either replInteractive answered false
-#      on a real terminal, or the driver's child did not get the pty."
-#      Layer 2 went red (Ctrl-C reached the kernel and killed the
-#      child), layer 3 stalled at step 0 with no `result 13`, `9`, `3`,
-#      `15` or `42`, and layer 4's Ctrl-D path never exited.
-#
-#      THIS DRILL FOUND A WEAK CHECK, which is what a drill is for.
-#      Layer 1's "the two transcripts DIFFER" PASSED under it, because
-#      a pty in cooked mode expands every LF into CR LF and the two
-#      streams differ by carriage returns alone even when the editor
-#      never ran. It now compares them CR-stripped, and fails.
-#
-#      It also found that the driver's single 180-second budget made a
-#      wholly broken build take minutes to report. Each step now has
-#      its own 25-second stall deadline.
-#
-#   B. The forced `\n\r` at `C % W == 0` deleted from
-#      `ledRefreshFull`. EXACTLY 2 of 42 checks failed, both of them
-#      the phantom column and nothing else:
-#          FAIL [W=20, content exactly one row]    cursor 0,0 want 1,0
-#          FAIL [W=20, content exactly three rows] cursor 2,0 want 3,0
-#      The mid-row cases stayed green, the GRID stayed correct in both
-#      failing cases - the text looked right and only the cursor was a
-#      row high, which is exactly why this bug survives review - and
-#      layers 1, 2, 3, 4 and 6 stayed green. So did
-#      `scripts/check-repl-selfhost.sh`, run under the same ablation:
-#      "14 sessions passed (10 byte, 4 shape), 8 cross-path cases, all
-#      checks passed". That is the measured proof that layer 5 sees
-#      something no other check in this repository can: the deferred
-#      wrap is invisible to anything that does not model a terminal.
-#
-#   C. `ledLeft` made a no-op. 6 of 38 checks failed, ALL of them in
-#      layer 3 - no `result 13` (the arrows did not move), and then no
-#      `result 9`, `3`, `15` or `42` because Ctrl-A is built from
-#      `ledLeft` and the line was never cleared. Layers 1, 2, 4, 5 and
-#      6 stayed green.
+# Ablation drills, and what each one shows:
+#   A. `replInteractive` pinned to 0. Layer 1's ESC count names the
+#      cause, layer 2's Ctrl-C kills the child, layer 3 stalls at step 0
+#      and layer 4's Ctrl-D path never exits. Layer 1 compares the
+#      transcripts with CRs stripped, because a cooked pty turns every LF
+#      into CR LF, and the raw streams differ even with no editor.
+#   B. The forced `\n\r` at `C % W == 0` removed from `ledRefreshFull`.
+#      Only layer 5's two exact-row cases fail, on the cursor: the text
+#      looks right and the cursor sits a row high. Every other layer and
+#      `scripts/check-repl-selfhost.sh` stay green, so only layer 5 sees
+#      the deferred wrap.
+#   C. `ledLeft` made a no-op. Only layer 3 fails: no `result 13`, then
+#      no `result 9`, `3`, `15` or `42`, because Ctrl-A is built from
+#      `ledLeft` and the line is never cleared.
 #
 # Usage:  scripts/check-repl-tui.sh
 
@@ -108,7 +61,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
 gate_init
 gate_build_axc axc
 
-# SAFETY NET (see the block above).
+# Safety net: restore the caller's terminal on exit (see the header).
 caller_tty_state=""
 if [[ -t 0 ]]; then caller_tty_state="$(stty -g 2>/dev/null || true)"; fi
 restore_caller_tty() {
@@ -134,16 +87,16 @@ for f in "$drive" "$screen"; do
 done
 
 # The prompt's visible width, which the driver's readiness marker and
-# every expected grid below depend on. Read from the SOURCE rather
-# than written down twice, so a prompt that changes width fails here
-# with its own message instead of as a mysterious timeout.
+# every expected grid below depend on. It is read from the source, so a
+# prompt that changes width fails here with its own message rather than
+# as a timeout.
 pcols="$(python3 - "$repo_root/self_host/repl.ax" <<'PYX'
 import re, sys
 src = open(sys.argv[1]).read()
 # The normal form puts the single body form on its own line, so
 # the anchor must allow whitespace between the head and the body.
-# An anchor that forbids the newline fails on a formatted tree,
-# measured 2026-09-22 as -1, no match at all.
+# An anchor that forbids the newline finds no match (-1) on a
+# formatted tree.
 m = re.search(r'\(pub fn \(replPromptMain\)\s+\(paint \w+ "([^"]*)"\)\)', src)
 print(len(m.group(1)) if m else -1)
 PYX
@@ -219,12 +172,9 @@ else
   bad "pty: 0 ESC bytes. Either replInteractive answered false on a real terminal, or the"
   echo "     driver's child did not get the pty. Every check below would pass vacuously."
 fi
-# CR-STRIPPED, and that is not a nicety. A pty in cooked mode expands
-# every LF the REPL writes into CR LF, so the two transcripts differ by
-# carriage returns alone even when the editor never ran - measured
-# while ablating `replInteractive` to false, where this check passed
-# and said the two branches both executed. Stripping CR removes the
-# terminal's own contribution and leaves only the editor's.
+# Compare with CRs stripped. A pty in cooked mode expands every LF the
+# REPL writes into CR LF, so the raw transcripts differ even when the
+# editor never ran. Stripping CR leaves only the editor's contribution.
 LC_ALL=C tr -d '\r' < "$work/pipe.bin" > "$work/pipe.nocr"
 LC_ALL=C tr -d '\r' < "$work/ptyrun.bin" > "$work/pty.nocr"
 if ! cmp -s "$work/pipe.nocr" "$work/pty.nocr"; then
@@ -252,9 +202,9 @@ echo "== layer 2: raw mode is really entered (Ctrl-C is a KEY, not a signal) =="
 # =================================================================
 # `sysTermRaw` is called with keepSignals 0, which clears ISIG. Byte 3
 # is then an ordinary key the editor turns into a cancelled line, and
-# the REPL survives to answer the next expression. If raw mode were
-# NOT entered, the kernel turns byte 3 into SIGINT, the child dies,
-# and there is no `result 3` and no clean exit.
+# the REPL survives to answer the next expression. Without raw mode the
+# kernel turns byte 3 into SIGINT, the child dies, and there is no
+# `result 3` and no clean exit.
 mkscript "$work/l2.json" <<'PYX'
 import json, sys
 json.dump([["prompt"],
@@ -285,10 +235,10 @@ fi
 echo
 echo "== layer 3: the decoder and the editor are live on a real terminal =="
 # =================================================================
-# Each of these produces a value that only a WORKING path can produce.
+# Each of these produces a value that only a working path can produce.
 #   arrows:    (+ 111 2) with three Lefts and a Delete is 13, not 113
 #   ctrl-a/k:  a killed line leaves nothing behind, so the answer is 9
-#   utf-8:     one Backspace removes a CHARACTER; removing one BYTE of
+#   utf-8:     one Backspace removes a character; removing one byte of
 #              `é` leaves a stray 0xC3 and the parse fails
 #   alt-b:     a word motion lands before `111`, not inside it
 mkscript "$work/l3.json" <<'PYX'
@@ -303,7 +253,7 @@ json.dump([["prompt"],
            ["send", "b'(+ 12 3)'"], ["quiet", 250],
            ["send", "b'\\x01'"], ["send", "b'\\x0b'"], ["quiet", 250],
            ["send", "b'(+ 4 5)\\r'"], ["prompt"],
-           # one Backspace over a 2-byte character removes the CHARACTER
+           # one Backspace over a 2-byte character removes the character
            ["send", "b'(+ 1 2)\\xc3\\xa9'"], ["quiet", 250],
            ["send", "b'\\x7f\\r'"], ["prompt"],
            # Alt-b twice lands before `12345`; Alt-d kills the whole word
@@ -311,13 +261,11 @@ json.dump([["prompt"],
            ["send", "b'\\x1bb'"], ["send", "b'\\x1bb'"], ["quiet", 250],
            ["send", "b'\\x1bd'"], ["quiet", 250],
            ["send", "b'8\\r'"], ["prompt"],
-           # A LONE ESC, sent on its own and left to time out. It must
-           # resolve to the Escape key - unbound, so nothing happens -
-           # and the `)` that follows 300ms later must be an ordinary
-           # character. A decoder that held the prefix would read
-           # Alt-`)`, insert nothing, and leave the form unbalanced;
-           # the next ["prompt"] would then never arrive, because the
-           # REPL would be showing the continuation prompt instead.
+           # A lone ESC, left to time out. It must resolve to the
+           # Escape key, which is unbound, and the `)` sent 300ms later
+           # must be an ordinary character. A decoder that held the
+           # prefix would read Alt-`)` and leave the form unbalanced,
+           # so the REPL would show the continuation prompt instead.
            ["send", "b'(+ 40 2'"], ["quiet", 250],
            ["send", "b'\\x1b'"], ["quiet", 300],
            ["send", "b')\\r'"], ["prompt"],
@@ -363,10 +311,9 @@ fi
 echo
 echo "== layer 4: the terminal comes back, on both exit paths =="
 # =================================================================
-# `check-terminal-restore.sh` proves the primitive. This proves that
-# THE REPL uses it correctly - including that `:quit`'s `sysExitWith
-# 0`, which fires from deep inside the colon dispatch, lands in cooked
-# mode and so cannot leak raw.
+# `check-terminal-restore.sh` proves the primitive. This proves the REPL
+# uses it correctly, including that `:quit`'s `sysExitWith 0`, deep in
+# the colon dispatch, runs in cooked mode and so cannot leak raw.
 check_restored() {   # check_restored <tag> <label>
   local t="$1" l="$2"
   if [[ "$(v "$work/$t.err" PY_TERMIOS_EXACT)" == 1 ]]; then
@@ -398,17 +345,16 @@ fi
 echo
 echo "== layer 5: the redraw is correct where the line WRAPS =="
 # =================================================================
-# The screen is modelled INDEPENDENTLY, twice over: tests/repl/tui/
+# The screen is modelled independently, twice over. tests/repl/tui/
 # screen.py replays the editor's real bytes onto a grid with a
-# terminal's deferred-wrap rule, and separately COMPUTES the grid the
+# terminal's deferred-wrap rule, and separately computes the grid the
 # key script implies with plain string slicing. Neither side is a
-# checked-in value, so there is nothing an AXIOM_BLESS could launder.
+# checked-in value, so there is nothing for AXIOM_BLESS to launder.
 #
-# The widths and lengths are chosen so that one case lands the content
-# EXACTLY on a row boundary - the phantom column, where a terminal
-# holds the cursor at column W with the wrap pending. That case is the
-# reason ledRefreshFull emits a forced newline, and drill B above is
-# it being removed.
+# Some cases land the content exactly on a row boundary: the phantom
+# column, where a terminal holds the cursor at column W with the wrap
+# pending. That is why ledRefreshFull emits a forced newline, which
+# drill B removes.
 wrap_case() {   # wrap_case <cols> <text> <label>
   local cols="$1" text="$2" label="$3"
   python3 - "$work/w.json" "$text" <<'PYX' > /dev/null
@@ -453,9 +399,9 @@ json.dump({'rows':24,'cols':int(sys.argv[2]),'prompt':'axiom> ','typed':sys.argv
     echo "     row boundary and the forced newline in ledRefreshFull is missing or wrong."
   fi
 }
-# 7 + 13 = 20 = 1 x 20. THE PHANTOM COLUMN.
+# 7 + 13 = 20 = 1 x 20. The phantom column.
 wrap_case 20 "abcdefghijklm"                             "W=20, content exactly one row"
-# 7 + 53 = 60 = 3 x 20. THE PHANTOM COLUMN, three rows down.
+# 7 + 53 = 60 = 3 x 20. The phantom column, three rows down.
 wrap_case 20 "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0" "W=20, content exactly three rows"
 # 7 + 46 = 53, which is 2 rows and 13 columns: an ordinary mid-row cursor.
 wrap_case 20 "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRST" "W=20, mid-row"
@@ -469,10 +415,9 @@ echo
 echo "== layer 6: structural, and mostly free from the compiler =="
 # =================================================================
 # `restrict` is transitive and typecheck.ax answers a violation with
-# AX3049 at SEV_ERROR, so a `sysWriteFd` added to any decoder or
-# editor function fails the BUILD and the whole battery goes red - not
-# one script. These greps catch the direction the compiler cannot: a
-# function added WITHOUT the claim, which is never asked.
+# AX3049 at SEV_ERROR, so a `sysWriteFd` added to any decoder or editor
+# function fails the build. These greps catch what the compiler cannot:
+# a function added without the claim, which is never asked.
 tty_sites="$(LC_ALL=C grep -rl 'sysIsatty' "$repo_root"/self_host/*.ax | wc -l | tr -d ' ')"
 tty_lines="$(LC_ALL=C grep -rh 'sysIsatty' "$repo_root"/self_host/*.ax | wc -l | tr -d ' ')"
 if [[ "$tty_lines" == 1 && "$tty_sites" == 1 ]]; then
@@ -491,16 +436,13 @@ for m in Keys Edit; do
   fi
 done
 
-# THE TUI IS STANDARD LIBRARY, AND MUST NOT REACH BACK INTO THE
-# COMPILER. That is the whole reason it lives in stdlib/Tui rather than
-# self_host: a library any Axiom program can use, with the REPL as its
-# first caller rather than its owner. One `(import lexer)` for a word
-# rule, or one `(import diag)` for a decimal formatter, and it is a
-# compiler module again wearing a different path. The two rules it
-# WOULD have borrowed - the word boundary and the display width - are a
-# caller-supplied `wordChars` and `tuiVisLen`, and
-# tests/selfhost/978-line-editor.ax sweeps both against the compiler's
-# own statements so that independence does not become drift.
+# The TUI is standard library and must not import the compiler. It lives
+# in stdlib/Tui so any Axiom program can use it, with the REPL as its
+# first caller. One `(import lexer)` for a word rule would make it a
+# compiler module again. The two rules it would borrow, the word boundary
+# and the display width, are a caller-supplied `wordChars` and
+# `tuiVisLen`. tests/selfhost/978-line-editor.ax sweeps both against the
+# compiler's own rules, so they cannot drift apart.
 compiler_mods="core|Host|lexer|parser|diag|render|typecheck|expand|codegen|driver|style|repl|symbols|namespace|explain|format|lsp|pkg|build|rustbind|main"
 tui_leaks="$(LC_ALL=C grep -rhE "^\(import ($compiler_mods)\)" "$repo_root"/stdlib/Tui/*.ax | wc -l | tr -d ' ')"
 tui_files="$(ls "$repo_root"/stdlib/Tui/*.ax | wc -l | tr -d ' ')"
@@ -549,23 +491,17 @@ fi
 echo
 echo "== negative probe: the screen comparison can actually fail =="
 # =================================================================
-# Every assertion in layer 5 is an equality between two things this
-# script computed, and a comparison that cannot fail is not a
-# comparison. Flip one byte of a real transcript and require the model
-# to reject it.
+# Every assertion in layer 5 compares two things this script computed.
+# Flip one byte of a real transcript and require the model to reject it.
 checks=$((checks + 1))
 python3 - "$work/wrap37.bin" "$work/corrupt.bin" "$(v "$work/wrap37.err" PY_MARK_at)" <<'PYX'
 import sys
 d = bytearray(open(sys.argv[1], "rb").read())
-# Inside the REPLAYED prefix, and a byte that is definitely SCREEN
-# CONTENT. Corrupting past the mark would leave the compared bytes
-# untouched, and corrupting a byte inside an escape sequence would
-# test the model rather than the editor - the first attempt flipped
-# the `C` of a cursor-forward and moved the cursor without touching
-# the grid, so the probe reported that the grid comparison had no
-# teeth when what it had actually corrupted was a motion. Lowercase
-# letters are content here; `m` is excluded because it is the SGR
-# final the painted prompt ends with.
+# Flip a screen-content byte inside the replayed prefix. A byte past
+# the mark is never compared. A byte inside an escape sequence tests the
+# model, not the editor: flipping the `C` of a cursor-forward moves the
+# cursor without touching the grid. Lowercase letters are content here;
+# `m` is excluded because it is the SGR final the painted prompt ends with.
 for i in range(int(sys.argv[3]) - 1, -1, -1):
     if 0x61 <= d[i] <= 0x7A and d[i] != 0x6D:
         d[i] = d[i] ^ 1

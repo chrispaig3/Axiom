@@ -2,61 +2,29 @@
 # `axiom.pkg`: a project says what it depends on, and two dependencies
 # may not provide one module.
 #
-# WHAT A DEPENDENCY WAS BEFORE THIS. A directory on `$AXIOM_PATH`. That
-# is a real mechanism and it stays, but nothing recorded what a program
-# depended on: the list lived in whoever's shell was running the
-# compiler, it did not travel with the source, and two directories
-# providing a module of the same name resolved first-wins by
-# environment order - silently, with the loser's modules compiled
-# against declarations from a package they had never named. That is the
-# value-namespace twin of the type collision `AX3044` closed on
-# 2026-08-24, and it had the same failure mode: a wrong answer at exit
-# 0.
+# Without a manifest, a dependency is a directory on `$AXIOM_PATH`,
+# which lives in the shell, not the source. Two directories providing
+# one module would then resolve first-wins by environment order,
+# silently and at exit 0. This is the value-namespace twin of the type
+# collision `AX3044` refuses.
 #
-# EVERY PROJECT HERE IS BUILT BY THIS SCRIPT, in `$work`, rather than
-# checked in under `tests/`. A package fixture is a directory TREE -
-# a manifest, two or three module directories, an entry file - and the
-# thing a reader needs is the shape, which is legible here and would be
-# spread over eight files there. It also keeps `tests/` free of `.ax`
-# files that exist to be found by a search path rather than compiled by
-# a sweep.
+# Every project is built here in `$work`. A package fixture is a
+# directory tree, and its shape reads better in one script than spread
+# over eight files under `tests/`. It also keeps `.ax` files that exist
+# to be found on a search path out of the sweeps over `tests/`.
 #
-# HOW EACH POSITIVE CASE IS READ. Every module answers a distinct
-# number and the program exits with it, so the EXIT STATUS says which
-# file the resolver chose. A gate that only asserted "it built" would
-# pass on the wrong module being found, which is the entire failure
-# this exists to catch.
+# Every module answers a distinct number and the program exits with it,
+# so the exit status shows which file the resolver chose. A check that
+# only asked "did it build" would pass with the wrong module found.
 #
-# THE SECOND HALF, added 2026-08-31: a manifest line that means nothing
-# is refused, and `name` is read. Measured on the 0.6.1 binary before
-# either landed, three different mistakes produced one identical
-# output - `error[AX5001]: cannot resolve import `Widget``, exit 1:
+# A manifest line that means nothing (an unknown key, a key with no
+# value) is refused at its line number, and each case asserts the line
+# number as well as the text. `name` sets the file `build` writes.
 #
-#     dependd vendor/lib          a misspelled key
-#     depend                      a key with no value
-#     depend<TAB>vendor/lib       a tab where the parser wanted a space
-#
-# In all three the manifest that caused it was never named, and in the
-# third the file was not even wrong. Each now has a case below that
-# asserts the LINE NUMBER as well as the text, because "somewhere in
-# this file" is the diagnostic these replace. `name`, over the same
-# binary, was parsed and read by nothing: `axiom build app.ax` in a
-# project called `myapp` wrote `output`, like every other project on
-# the machine. The two checks that pin its replacement are a pair on
-# purpose - `myapp` exists AND `output` does not - because a build that
-# wrote both would satisfy the first and have changed nothing.
-#
-# EVERY TEXT ASSERTION IS `grep -q PATTERN <<<"$out"`, never
-# `printf '%s' "$out" | grep -q PATTERN`, and the difference is a real
-# flake rather than a style: `grep -q` exits the moment it matches, so
-# `printf` on the other end of the pipe takes SIGPIPE and answers 141,
-# and `set -o pipefail` above makes 141 the PIPELINE's status - so a
-# refusal that was correct reports as a failure, and only once the
-# message is long enough for printf to still be writing. Measured
-# 2026-09-03: the crate/depend clash below failed with
-# `printf: write error: Broken pipe` printed above a FAIL whose own
-# output, quoted underneath it, contained every string the greps were
-# looking for. A here-string has no second process and cannot do this.
+# Every text assertion is `grep -q PATTERN <<<"$out"`. In
+# `printf ... | grep -q`, grep exits on its first match, printf takes
+# SIGPIPE (141), and `pipefail` turns a correct refusal into a failure
+# once the message is long. A here-string has no second process.
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
@@ -89,14 +57,13 @@ app() {  # <path> <name>
 EOF
 }
 
-# A CRATE directory, as `crate` defines one: a `Cargo.toml` beside an
+# A crate directory, as `crate` defines one: a `Cargo.toml` beside an
 # `axiom/` holding the generated binding module.
 #
-# NO `src/`, NO ARCHIVE AND NO CARGO. Everything this gate asserts
-# about `crate` other than the one ablation at the end is true of a
-# crate that has never been built, which is what keeps `check-packages`
-# in the parallel, cargo-free set - `check-ffi.sh` owns the half where
-# a real archive is linked.
+# It has no `src/` and no archive. Apart from the no-cargo check at the
+# end, everything asserted about `crate` holds for an unbuilt crate,
+# which keeps this gate in the parallel, cargo-free set. `check-ffi.sh`
+# links a real archive.
 crate_dir() {  # <dir> <cargo-name> <module> <n>
   mkdir -p "$1/axiom"
   cat > "$1/Cargo.toml" <<EOF
@@ -134,10 +101,9 @@ got="$(run_app "$p" app.ax)"
 [[ "$got" == 11 ]] && ok "the dependency's module answered ($got)" \
                    || bad "expected 11 from vendor/lib/Widget.ax, got $got"
 
-# THE NEGATIVE PROBE for the whole mechanism: with the manifest gone
-# and nothing else changed, the same program must fail to resolve. If
-# it still built, something other than `axiom.pkg` was finding the
-# module and every assertion above is measuring that instead.
+# Negative probe for the whole mechanism: with the manifest gone and
+# nothing else changed, the same program must fail to resolve. If it
+# still builds, something other than `axiom.pkg` is finding the module.
 mv "$p/axiom.pkg" "$p/axiom.pkg.off"
 got="$(run_app "$p" app.ax)"
 [[ "$got" != 11 ]] && ok "without the manifest the same program fails ($got)" \
@@ -148,9 +114,9 @@ mv "$p/axiom.pkg.off" "$p/axiom.pkg"
 echo
 echo "== the entry file's own directory still wins =="
 # --------------------------------------------------------------------
-# A project must be able to shadow a dependency's module with its own,
-# which is the rule the standard library has always had and the reason
-# `depend` sits AFTER the entry directory in the search order.
+# A project can shadow a dependency's module with its own, as it can a
+# library module, so `depend` sits after the entry directory in the
+# search order.
 mod "$p" Widget 22
 got="$(run_app "$p" app.ax)"
 [[ "$got" == 22 ]] && ok "a sibling module shadows the dependency ($got)" \
@@ -191,8 +157,7 @@ got="$(run_app "$p2" src/app.ax)"
 echo
 echo "== two dependencies providing one module are refused =="
 # --------------------------------------------------------------------
-# The headline property. Before this, whichever directory came first
-# won and nothing said the other existed.
+# The headline property: no first-wins resolution between dependencies.
 p3="$work/p3"
 mkdir -p "$p3"
 mod "$p3/a" Widget 55
@@ -217,9 +182,8 @@ else
   bad "the clash was not refused as expected (exit $got)"
   printf '%s\n' "$out" | sed 's/^/     /' | head -8
 fi
-# It must be refused by `check` too, not only by `run`: a project that
-# type-checks and cannot be built is a project whose editor says it is
-# fine.
+# `check` must refuse it too, or an editor would call a project fine
+# that cannot be built.
 set +e
 ( cd "$p3" && "$axc" check app.ax ) >/dev/null 2>&1
 got=$?
@@ -227,7 +191,7 @@ set -e
 [[ "$got" == 3 ]] && ok "\`check\` refuses it too ($got)" \
                   || bad "\`check\` exited $got, expected 3"
 # ...and with one of the two removed it builds, so the refusal is about
-# the CLASH and not about the manifest having two `depend` lines.
+# the clash, not about two `depend` lines.
 rm -f "$p3/b/Widget.ax"
 mod "$p3/b" Gadget 77
 got="$(run_app "$p3" app.ax)"
@@ -276,13 +240,9 @@ got="$(run_app "$p5" app.ax)"
 [[ "$got" == 88 ]] && ok "comments and blanks ignored ($got)" \
                    || bad "expected 88, got $got"
 
-# A TAB between the key and its value. The split used to be
-# `strStartsWith line "depend "` - one literal space - so this manifest
-# declared nothing and the program reported `AX5001: cannot resolve
-# import Widget` at exit 1, naming every directory it had searched and
-# never the file that was meant to have added one. `printf` rather than
-# a heredoc because the tab is the whole point and must be visible in
-# the source of this gate.
+# A tab between the key and its value must split like a space.
+# Otherwise this manifest declares nothing and the import fails with
+# AX5001. `printf` keeps the tab visible in this script.
 printf 'name\tsyntax\ndepend\tvendor/lib\n' > "$p5/axiom.pkg"
 got="$(run_app "$p5" app.ax)"
 [[ "$got" == 88 ]] && ok "a TAB between key and value is a key and a value ($got)" \
@@ -292,19 +252,14 @@ got="$(run_app "$p5" app.ax)"
 echo
 echo "== a manifest line that means nothing is refused, at its line number =="
 # --------------------------------------------------------------------
-# The class this closes: three different mistakes all used to be read as
-# silence, and all three reported as the SAME thing - the modules the
-# line would have provided going missing, one at a time, against the
-# import rather than against the manifest.
-#
-# Each case below asserts the LINE NUMBER as well as the text, because
-# "somewhere in this file" is the diagnostic these replace.
+# A meaningless line is refused against the manifest. Read as silence,
+# it would surface later as a missing module, reported against the
+# import. Each case asserts the line number as well as the text.
 
-# `dependency` is not `depend` and must not be read as one: if it were,
+# `dependency` is not `depend` and must not be read as one. If it were,
 # `other/` would join the search path and this project would report a
-# CLASH. So the refusal must name the unknown key and must not be the
-# overlap message - that pair is what pins the prefix rule now that an
-# unknown key is loud.
+# clash. So the refusal must name the unknown key and must not be the
+# overlap message: that pair pins the prefix rule.
 cat > "$p5/axiom.pkg" <<'EOF'
 name       syntax
 
@@ -324,7 +279,7 @@ else
   printf '%s\n' "$out" | sed 's/^/     /' | head -6
 fi
 
-# A key with no value. `depend` alone used to contribute nothing.
+# A key with no value.
 cat > "$p5/axiom.pkg" <<'EOF'
 name       syntax
 depend
@@ -341,10 +296,9 @@ else
   printf '%s\n' "$out" | sed 's/^/     /' | head -6
 fi
 
-# A second `name`. `pkgValue` answers the FIRST, so the second is a line
-# the file contains and the compiler ignores - and now that `name` picks
-# the executable's file name, silently ignoring one is silently writing
-# to the other one's path.
+# A second `name`. `pkgValue` answers the first, so the second would be
+# ignored. Since `name` picks the executable's file name, that would
+# silently write to the other name's path.
 cat > "$p5/axiom.pkg" <<'EOF'
 name       one
 name       two
@@ -361,9 +315,8 @@ else
   printf '%s\n' "$out" | sed 's/^/     /' | head -6
 fi
 
-# `version` too - a separate arm in `pkgCheckLines` with its own
-# counter, so a gate that only checked `name` would leave half the rule
-# unexercised.
+# `version` too: it is a separate arm in `pkgCheckLines` with its own
+# counter, which a check of `name` alone would leave unexercised.
 cat > "$p5/axiom.pkg" <<'EOF'
 name       syntax
 version    0.1.0
@@ -381,9 +334,8 @@ else
   printf '%s\n' "$out" | sed 's/^/     /' | head -6
 fi
 
-# ...and `depend` is NOT one of those keys: repeating it is how a
-# project declares two dependencies, so the check above must be about
-# `name` and `version` and not about repetition.
+# ...and `depend` is not one of those keys: repeating it is how a
+# project declares two dependencies.
 cat > "$p5/axiom.pkg" <<'EOF'
 name       two-deps
 depend     vendor/lib
@@ -419,9 +371,8 @@ fi
 echo
 echo "== \`name\` is what \`build\` writes when the command line is silent =="
 # --------------------------------------------------------------------
-# `name` was parsed, recorded and read by nothing, which made it
-# indistinguishable from a key the compiler had never heard of - and
-# made every project on the machine build to a file called `output`.
+# With no `--output`, `build` writes the manifest's `name`, not
+# `output`.
 p7="$work/p7"
 mkdir -p "$p7"
 mod "$p7/vendor/lib" Widget 11
@@ -441,12 +392,11 @@ else
   bad "\`build\` did not write \`myapp\` (exit $got)"
   printf '%s\n' "$out" | sed 's/^/     /' | head -6
 fi
-# The negative half, and the reason this is two checks rather than one:
-# a `build` that wrote BOTH files would satisfy the assertion above and
-# have changed nothing.
+# The negative half: a `build` that wrote both files would satisfy the
+# assertion above and have changed nothing.
 [[ ! -e "$p7/output" ]] && ok "and did not write \`output\`" \
                         || bad "\`output\` was written too - the default did not move"
-# The executable must be the PROGRAM, not merely a file of the right
+# The executable must be the program, not just a file of the right
 # name: it exits with the dependency's answer.
 set +e
 ( cd "$p7" && ./myapp ); got=$?
@@ -469,11 +419,10 @@ set -e
   && ok "-o still wins over the manifest's name" \
   || bad "-o did not win over the manifest's name"
 
-# The name is a FILE name in the WORKING DIRECTORY, not a path beside
-# the manifest - the one sentence in the reference that a reader is
-# most likely to assume the other way round. Built from the project
-# root with the entry file in `src/`, the executable lands at the root
-# beside `axiom.pkg`; built from inside `src/`, it lands in `src/`.
+# The name is a file name in the working directory, not a path beside
+# the manifest, which readers often assume the other way round. Built
+# from the project root with the entry file in `src/`, the executable
+# lands at the root. Built from inside `src/`, it lands in `src/`.
 p9="$work/p9"
 mkdir -p "$p9/src"
 mod "$p9/vendor/lib" Widget 44
@@ -495,9 +444,7 @@ set -e
   && ok "...and to the working directory when that is \`src\`, not beside the manifest" \
   || bad "expected \$p9/src/nestedapp when built from src/"
 
-# And a tree with no manifest is unchanged: `output`, as it always was.
-# This is the check that stops the feature from being "every build is
-# now named after something".
+# A tree with no manifest still builds to `output`.
 p8="$work/p8"
 mkdir -p "$p8"
 mod "$p8" Widget 7
@@ -514,18 +461,13 @@ set -e
 echo
 echo "== \`crate\` declares a NATIVE dependency, and the manifest is what finds it =="
 # --------------------------------------------------------------------
-# THE GAP THIS CLOSES, measured on 0.7.3 before it did. One source
-# tree, one `libaxiom_greeter.a` already on disk, two ways of saying
-# so: `AXIOM_PATH=vendor/greeter/axiom axiom build app.ax` exited 0 and
-# the program ran; `depend vendor/greeter/axiom` in `axiom.pkg` exited
-# 4 with `error[AX4004]: no archive is linked`. The environment could
-# describe the project and the project could not, which is the exact
-# inversion of what a manifest is for.
+# `crate DIR` declares a native dependency in the manifest, as
+# `--crate DIR` does on the command line: `DIR/axiom/` joins the module
+# search path, and the crate's `target/release` directories join the
+# link search path.
 #
-# The module half is checked HERE, with no cargo and no archive,
-# because a crate's `axiom/` module joining the search path is the
-# property that has to hold on every machine. `check-ffi.sh` owns the
-# archive half.
+# The module half is checked here, with no cargo and no archive, because
+# it must hold on every machine. `check-ffi.sh` owns the archive half.
 pc="$work/pc"
 mkdir -p "$pc"
 crate_dir "$pc/vendor/greeter" axiom-greeter Greeter 42
@@ -538,11 +480,10 @@ got="$(run_app "$pc" app.ax)"
 [[ "$got" == 42 ]] && ok "the crate's generated module answered ($got)" \
                    || bad "expected 42 from vendor/greeter/axiom/Greeter.ax, got $got"
 
-# THE NEGATIVE PROBE, the same shape as the one the whole mechanism
-# has at the top: with the manifest gone and nothing else changed, the
-# module must stop resolving. Without it this section would pass if
-# anything at all - a stray `AXIOM_PATH`, the entry directory - were
-# what found `Greeter`.
+# Negative probe, as for `depend` above: with the manifest gone and
+# nothing else changed, the module must stop resolving. Otherwise a
+# stray `AXIOM_PATH` or the entry directory could be what finds
+# `Greeter`.
 mv "$pc/axiom.pkg" "$pc/axiom.pkg.off"
 got="$(run_app "$pc" app.ax)"
 [[ "$got" != 42 ]] && ok "without the manifest the crate's module is not found ($got)" \
@@ -553,8 +494,8 @@ mv "$pc/axiom.pkg.off" "$pc/axiom.pkg"
 echo
 echo "== a \`crate\` that is not a crate is refused =="
 # --------------------------------------------------------------------
-# Three refusals, and the middle one is what makes `crate` mean crate
-# rather than be a second spelling of `depend`.
+# Three refusals. The middle one keeps `crate` from being a second
+# spelling of `depend`.
 crate_case() {  # <manifest-value> <needle> <what>
   cat > "$pc/axiom.pkg" <<EOF
 name   native
@@ -574,14 +515,13 @@ EOF
 }
 crate_case vendor/nowhere 'vendor/nowhere' "a crate directory that is not there"
 
-# A directory of modules with no `Cargo.toml`. If `crate` accepted it,
-# `crate` and `depend` would be two names for one key and the manifest
-# would have stopped saying which kind of dependency this is.
+# A directory of modules with no `Cargo.toml`. Accepting it would make
+# `crate` and `depend` two names for one key.
 mkdir -p "$pc/vendor/plain/axiom"
 crate_case vendor/plain 'Cargo.toml' "a crate directory with no Cargo.toml"
 
-# `DIR/axiom/` is written by `axiom-bindgen`, and a manifest `crate`
-# does not run it - so the refusal has to say what to run.
+# `DIR/axiom/` is written by `axiom-bindgen`, which a manifest `crate`
+# does not run, so the refusal must say what to run.
 mkdir -p "$pc/vendor/nobind"
 printf '[package]\nname = "axiom-nobind"\n' > "$pc/vendor/nobind/Cargo.toml"
 crate_case vendor/nobind 'axiom/' "a crate with no generated module directory"
@@ -590,9 +530,8 @@ crate_case vendor/nobind 'axiom/' "a crate with no generated module directory"
 echo
 echo "== a crate and a \`depend\` may not provide one module =="
 # --------------------------------------------------------------------
-# The headline property is about the SEARCH PATH, not about which key
-# put a directory on it: both land in one list and the loser's modules
-# would compile against a package they never named either way.
+# The clash rule covers the whole search path, whichever key put a
+# directory on it: `crate` and `depend` land in one list.
 mod "$pc/local" Greeter 77
 cat > "$pc/axiom.pkg" <<'EOF'
 name   native
@@ -612,7 +551,7 @@ else
   bad "the crate/depend clash was not refused as expected (exit $got)"
   printf '%s\n' "$out" | sed 's/^/     /' | head -8
 fi
-# ...and with the clash gone it builds, so this is about the CLASH.
+# ...and with the clash gone it builds, so this is about the clash.
 rm -f "$pc/local/Greeter.ax"
 mod "$pc/local" Gadget 88
 got="$(run_app "$pc" app.ax)"
@@ -623,14 +562,10 @@ got="$(run_app "$pc" app.ax)"
 echo
 echo "== a dependency may not provide a standard-library module =="
 # --------------------------------------------------------------------
-# MEASURED ON 0.7.3, and it is the reason this section exists rather
-# than a hazard someone imagined: a `depend` directory holding a copy
-# of `stdlib/Fmt.ax` whose `fmtInt` answered `"HIJACKED"` made the
-# program print HIJACKED, at exit 0, with no diagnostic. `depend` sits
-# ABOVE the library in the search order, so the replacement was for the
-# WHOLE program - every module that imports `Fmt`, not only the one
-# that wanted the dependency. A package manager that ships that is a
-# supply-chain surface wearing a search path.
+# `depend` sits above the library in the search order. A dependency's
+# own `Fmt.ax` would replace `stdlib/Fmt.ax` for the whole program,
+# silently and at exit 0, not only for the module that wanted the
+# dependency. That is a supply-chain hole, so it is refused.
 ps="$work/ps"
 mkdir -p "$ps"
 mod "$ps/vendor/lib" Fmt 91
@@ -653,11 +588,10 @@ else
   printf '%s\n' "$out" | sed 's/^/     /' | head -8
 fi
 
-# THE ABLATION, and it is the one that matters: the SAME file in the
-# ENTRY FILE's own directory must still build and still shadow.
-# docs/reference.md documents that as intended - it is how a project
-# overrides a library module - and a refusal that caught both would be
-# a refusal that broke a feature rather than closed a hole.
+# The ablation: the same file in the entry file's own directory must
+# still build and shadow. That is how a project overrides a library
+# module (docs/reference.md's search order), so the refusal must not
+# catch it.
 rm -rf "$ps/vendor" "$ps/axiom.pkg"
 mod "$ps" Fmt 91
 got="$(run_app "$ps" app.ax)"
@@ -668,13 +602,10 @@ got="$(run_app "$ps" app.ax)"
 echo
 echo "== two dependencies may not provide one NESTED module =="
 # --------------------------------------------------------------------
-# THE HEADLINE PROPERTY WAS TOP-LEVEL ONLY, measured on 0.7.3: two
-# `depend` directories each holding `Sub/Widget.ax` - the file
-# `(import Sub.Widget)` resolves to - built and exited 55, first-wins
-# and silent. `pkgFirstShared` did one `sysReadDir` and never
-# descended, and this gate could not see it either, because the `mod`
-# helper above only ever wrote TOP-LEVEL modules. A fixture that cannot
-# express the failure is a gate that cannot fail.
+# The clash rule covers nested modules too. Two `depend` directories
+# each holding `Sub/Widget.ax`, the file `(import Sub.Widget)` resolves
+# to, must be refused, so `pkgFirstShared` has to descend. The fixture
+# writes nested modules so this check can fail.
 pn="$work/pn"
 mkdir -p "$pn"
 mod "$pn/a/Sub" Widget 55
@@ -698,9 +629,8 @@ else
   bad "the nested clash was not refused as expected (exit $got)"
   printf '%s\n' "$out" | sed 's/^/     /' | head -8
 fi
-# ABLATION: with one of the two gone the project builds and exits with
-# the survivor's number - so the refusal is about the CLASH and not
-# about nesting, which is what it did before and must keep doing.
+# Ablation: with one of the two gone the project builds and exits with
+# the survivor's number, so the refusal is about the clash, not nesting.
 rm -f "$pn/b/Sub/Widget.ax"
 got="$(run_app "$pn" app.ax)"
 [[ "$got" == 55 ]] && ok "with one removed the nested module resolves normally ($got)" \
@@ -710,19 +640,14 @@ got="$(run_app "$pn" app.ax)"
 echo
 echo "== a manifest \`crate\` NEVER runs cargo =="
 # --------------------------------------------------------------------
-# THE LOAD-BEARING ABLATION for the one decision this key is built
-# around. `--crate DIR` on the command line DOES spawn cargo - measured
-# on 0.7.3 against a crate with no `target/`: `axiom build app.ax
-# --crate mycrate` printed `axiom: building crate ... with cargo (no
-# archive found)`, cargo ran, and `mycrate/target/` appeared. A command
-# line is a person asking. `axiom.pkg` is a checked-in file that
-# arrives with a clone, and docs/reference.md says the compiler
-# executes no code from a source file - so the manifest must not.
+# `--crate DIR` on the command line runs cargo when no archive exists,
+# because a command line is a person asking. `axiom.pkg` arrives with a
+# clone, and the compiler executes no code from a source file
+# (docs/ffi.md), so a manifest `crate` must not run cargo.
 #
-# The check is a PAIR, and neither half means anything alone: the
-# manifest build must leave `target/` absent, AND the identical
-# directory passed as `--crate` must create it. Without the second
-# half, a fixture cargo could never have built would pass.
+# The check is a pair. The manifest build must leave `target/` absent,
+# and the same directory passed as `--crate` must create it. Without
+# the second half, a fixture cargo could never build would pass.
 if ! command -v cargo > /dev/null 2>&1; then
   echo "skip: cargo not on PATH - the no-execution ablation needs it for its"
   echo "      POSITIVE control (\`--crate\` must create target/). The half that"
@@ -774,7 +699,7 @@ EOF
     && ok "...and fresh/target does not exist: the manifest ran no build system" \
     || bad "fresh/target was created from a MANIFEST line - the compiler executed another project's build system"
 
-  # THE POSITIVE CONTROL. Same directory, same compiler, one flag.
+  # The positive control: same directory, same compiler, one flag.
   set +e
   ( cd "$pf" && "$axc" build app.ax --output prog2 --crate fresh ) >"$work/pf.log" 2>&1
   got=$?
@@ -791,9 +716,8 @@ EOF
   [[ "$got" == 42 ]] && ok "and the program it built answers 42 through the archive" \
                      || bad "./prog2 exited $got, expected 42"
 
-  # ...and NOW the manifest alone is enough, because the archive is
-  # there. This is the sentence the design owes its users: you build
-  # the crate once, and the manifest carries it from then on.
+  # ...and now the manifest alone is enough, because the archive exists.
+  # Build the crate once, and the manifest carries it from then on.
   set +e
   ( cd "$pf" && "$axc" build app.ax --output prog3 ) >"$work/pf3.log" 2>&1
   got=$?
@@ -814,9 +738,8 @@ fi
 echo
 echo "== a project with no manifest is unaffected =="
 # --------------------------------------------------------------------
-# Every gate in this repository compiles without one, so this is the
-# case that must not have changed. It is asserted rather than assumed
-# because the manifest walk runs on every module lookup.
+# Most builds in this repository have no manifest. The manifest walk
+# runs on every module lookup, so this case is asserted, not assumed.
 p6="$work/p6"
 mkdir -p "$p6"
 mod "$p6" Widget 7

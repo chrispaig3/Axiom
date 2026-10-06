@@ -1,137 +1,67 @@
 #!/usr/bin/env bash
 #
-# A TYPE NAME MEANS WHAT ITS OWN MODULE SAYS IT MEANS - and finding out
-# which declaration that is must not cost a scan of the program.
+# A type name means what its own module says it means, and finding that
+# declaration does not cost a scan of the program.
 #
-# WHY THIS EXISTS. `mangleDecl` (self_host/namespace.ax) rewrites `fn`
-# and `::` declarations to `Mod$name` on the way into the merged
-# declaration list and rewrites nothing else, so `data`, `struct` and
-# `type` names arrive spelled exactly as their module wrote them. The
-# lookups that read them - `findStructFrom`, `findDataFrom`,
-# `findCtorFrom`, `tcAliasFindFrom` - were linear scans that returned
-# the FIRST match, and that list is ordered dependencies-first by
-# import order. So:
+# `mangleDecl` (self_host/namespace.ax) renames `fn` and `::`
+# declarations to `Mod$name` and nothing else, so `data`, `struct` and
+# `type` names reach the merged declaration list as their module wrote
+# them. A lookup that took the first match by name would depend on
+# import order:
 #
 #     TeamA.ax  (pub struct Config (port : Int) (retries : Int))
 #     TeamB.ax  (pub struct Config (retries : Int) (port : Int))
 #               (pub fn (bPort) (let ((c (Config 3 99))) c.port))
 #     app.ax    (import TeamA) (import TeamB) (fn (main) (bPort))
 #
-#     axiom check app.ax   ->  OK, exit 0
-#     axiom run   app.ax   ->  exit 3      TeamA's slot 0
-#     imports swapped      ->  exit 99
+# The right answer is 99. A first-match lookup compiles TeamB's own
+# function against TeamA's field offsets and answers 3, with no
+# diagnostic. The same root turns a `data` collision into AX3005, an
+# arity difference into AX3008 and an alias collision into AX3004, each
+# blamed on the module that wrote its code correctly.
 #
-# TeamB's own function, reading TeamB's own struct, was compiled
-# against TeamA's field offsets - and the answer changed when an
-# unrelated line moved. No diagnostic, at any level, from any pass.
-# Three more classes fell out of the same root, all on programs that
-# are individually valid: a `data` collision drew AX3005 inside the
-# innocent module listing constructors its type does not have, an
-# arity difference drew AX3008 there against a shape it never wrote,
-# and a `type` alias collision drew AX3004s in both directions.
+# What each section asserts:
 #
-# WHAT IS ASSERTED HERE, in the order the sections run:
+#   1  Resolution. The two-team probe answers 99 with the imports in
+#      both orders. Either order alone is half a test: a first-match
+#      lookup also answers 99 when TeamB comes first. A control (TeamB
+#      alone) shows 99 needs no collision, and a mutant of TeamB that
+#      reads its other field must not answer 99, which proves the
+#      section reads a real exit status.
 #
-#   1  RESOLUTION.  The two-team probe answers 99 with the imports in
-#      BOTH orders - order-independence is the property, and either
-#      order alone is half a test (the B-first order answered 99
-#      before the fix, by accident). Plus the control - TeamB alone,
-#      no collision - so 99 is not arriving for some reason of its
-#      own. Plus a MUTANT of TeamB whose `bPort` reads the other
-#      field, which must NOT answer 99: that is what proves this
-#      section reads a real exit status rather than passing on air.
+#   2  Refusal. A bare reference that two modules can both answer and
+#      neither owns is AX3044, naming both modules. Asserted for
+#      `struct`, `data` and `type`, each with a control that drops one
+#      import and must check clean, so the diagnostic is charged to the
+#      collision.
 #
-#   2  REFUSAL.  A bare reference that two modules can both answer and
-#      neither owns is AX3044, naming BOTH modules. Asserted for
-#      `struct`, for `data` and for `type` alias, and each one paired
-#      with its own control - the same program with one import
-#      removed, which must check clean, so the diagnostic is charged
-#      to the collision and not to the reference existing.
+#   3  The escapes. An import name list decides what a module exports
+#      to this program, so `(import TeamA (aPort))` hides TeamA's
+#      `Config` and the reference resolves. Qualification (`TeamC::Cfg`)
+#      is the other. AX3044's help text names both, so both run here.
 #
-#   3  THE ESCAPE.  An import name list decides what a module exports
-#      to this program, so `(import TeamA (aPort))` leaves TeamA's
-#      `Config` invisible and the reference resolves. This is the fix
-#      AX3044's help text tells the reader to make, and a help text
-#      naming a fix nobody checked is how this repository's
-#      diagnostics have been wrong before.
+#   4  One file, two aliases. Two `(type Amt = ...)` in one file are
+#      AX3006, as two `(struct Amt ...)` are.
 #
-#   4  ONE FILE, TWO ALIASES.  `declNamespace` put TAG_D_ALIAS in
-#      NS_NONE, so two `(type Amt = ...)` in one file were silent
-#      while two `(struct Amt ...)` were AX3006. Same class, same
-#      change.
+#   5  Scale. Module-aware resolution cannot stop at the first match:
+#      deciding that a name is unambiguous means seeing every
+#      declaration of it. Without an index that is a scan of the whole
+#      type table at every type reference. Two programs differ only in
+#      the type their references name: the first of 2N declarations,
+#      or the last. A scan pays 2N times as much for the last; a bucket
+#      keyed on the name pays the same for both.
 #
-#   5  SCALE.  Rules (a)-(d) cannot exit on the first match: deciding
-#      that a name is unambiguous means looking at every declaration
-#      of it. On the old linear list that turns an early-exit scan
-#      into a full scan of the program's types AT EVERY TYPE
-#      REFERENCE - which is why the semantics and the index had to
-#      land in one change, and this section is what re-asks it. Two
-#      byte-identical programs but for four digits: 16,000 struct
-#      declarations and 192,000 type references (8,000 and 48,000
-#      until 2026-08-29; see the note at N/K), where one names the
-#      FIRST declaration in the table and the other the LAST. A scan
-#      pays one comparison against 8,000; a bucket keyed on the name
-#      pays one entry either way.
+# The in-gate controls cannot show this gate red against a compiler
+# with the defect, because that needs a second compiler build. To run
+# that ablation by hand, revert the module-aware type lookup in
+# `self_host/typecheck.ax` and `self_host/explain.ax` in a copy of the
+# tree and run this script from that copy. `gate_build_axc` builds the
+# copy's compiler (a shared `AXIOM_AXC` is skipped, as its stamp no
+# longer matches), and sections 1, 2, 4 and 5 should fail.
 #
-# NEGATIVE PROBE, RUN. Sections 1-4 each carry an in-gate control, and
-# section 1 carries a mutant, all described above - but no in-gate
-# control can show this gate red against the compiler that had the
-# defect, because that costs a second compiler build. So the ablation
-# was performed by hand, once, on 2026-08-24: `self_host/typecheck.ax`
-# and `self_host/explain.ax` reverted to the parent commit, the
-# compiler that tree builds handed to `gate_build_axc` through
-# `AXIOM_AXC`, this script run unchanged. It reported
-#
-#     11 of 18 check(s) failed        (exit 1)
-#
-# and the eleven were, verbatim, colour stripped:
-#
-#   FAIL TeamA imported first, TeamB's own Config: `run ab.ax` exited 3, want 99
-#   FAIL both modules resolve their own (99 + 7): `run both.ax` exited 10, want 106
-#   FAIL mutant: TeamB reading its other field is not 99: `run mut.ax` exited 99,
-#        which this probe is built to make impossible
-#   FAIL arity variant: NarrowB compiles against its own shape: `run run.ax` exited 1, want 99
-#        error[AX3008]: struct `Config` expects 3 field(s), found 2
-#         --> NarrowB.ax:7:27
-#   FAIL arity variant: the entry file's bare Config: no-AX3044 missing:WideA
-#   FAIL data: ShB's match is exhaustive over ITS Shade: `run run.ax` exited 1, want 22
-#        error[AX3005]: non-exhaustive pattern match: missing Aa, Ab
-#         --> ShB.ax:8:10
-#   FAIL data: the entry file's bare Shade: no-AX3044 missing:ShA
-#   FAIL alias: AlB's Amount is Int inside AlB: `run run.ax` exited 1, want 42
-#        error[AX3004]: type mismatch: expected Float, found Int
-#         --> AlB.ax:5:25
-#   FAIL alias: the entry file's bare Amount: no-AX3044 missing:AlA
-#   FAIL two `type Amt` in one file: `check two.ax` exited 0 - the reference was
-#        resolved, not refused
-#   FAIL scale: naming the LAST type in the table now costs 26.88x what naming the
-#        first one costs
-#     check-type-namespace: 8000 types, 48000 references  first 0.38s  last 10.08s
-#       ratio 26.88 (bound 1.40)
-#
-# The three carets are worth reading twice: every one of them is
-# anchored inside the module that wrote the code CORRECTLY, blaming it
-# for a shape another module declared. The mutant line is the same
-# defect wearing the gate's own clothes - `c.retries` inside TeamMut
-# resolved to TeamA's `retries` and answered 99, which is why the
-# mutant is a namespace probe and not merely a wiring check.
-#
-# On the compiler this tree builds, the same run: `all 18 checks
-# passed`, and
-#
-#     check-type-namespace: 8000 types, 48000 references
-#       first 0.44s  last 0.45s  ratio 1.01 (bound 1.40)
-#
-# The bound is 1.40 rather than something tighter because it is placed
-# between two measurements and shaved to neither: 1.01 below it, 26.88
-# above. See check-name-scale.sh's note on how a floor expires.
-#
-# WHAT THE INDEX COST, stated because the honest number is not zero.
-# `first 0.38s -> 0.44s` is the linear scan's BEST case - a name that
-# hit on comparison one - and the index is ~0.06s slower there,
-# building 8,000 entries nothing looks at twice. `last 10.08s ->
-# 0.45s` is its worst. On the compiler's own source, where the type
-# table is 46 entries, `check self_host/main.ax` went 0.53s -> 0.48s.
+# The scale bound is 1.40. An indexed lookup measures close to 1, and a
+# linear scan more than ten times that. See check-name-scale.sh's note
+# on how a floor expires.
 
 set -uo pipefail
 
@@ -143,10 +73,9 @@ gate_build_axc axc
 failed=0
 checks=0
 
-# `run` writes an executable beside the entry file, so every probe gets
-# its own directory - and the module search path is the ENTRY FILE's
-# directory, which is what makes two modules of the same name in two
-# probes not see each other.
+# `run` writes an executable beside the entry file, and modules are
+# found in the entry file's directory. One directory per probe keeps
+# same-named modules in different probes apart.
 mk() { mkdir -p "$work/$1"; }
 
 # ok_exit <dir> <entry> <want> <label>
@@ -195,17 +124,16 @@ ok_clean() {
 # ok_diag <dir> <entry> <code> <label> <must-appear>...
 #
 # Refused, with that code, and every remaining argument present in the
-# message. The module NAMES are passed in that way: "names both
-# modules" is the assertion, and a check that only looked for the code
-# would pass on a diagnostic that named neither, which is precisely
-# what the old compiler emitted.
+# message. The module names are passed that way because "names both
+# modules" is the assertion; a check for the code alone would pass a
+# diagnostic that named neither.
 ok_diag() {
   local d="$1" entry="$2" code="$3" label="$4"; shift 4
   local out rc bad="" w
   checks=$((checks + 1))
   # Twice: once for the exit status, once for the text with the colour
-  # escapes stripped. A pipeline's `$?` is the LAST stage's, so reading
-  # the status off the `sed` would have made every one of these pass.
+  # escapes stripped. A pipeline's `$?` is the last stage's, so reading
+  # the status off the `sed` would pass every case.
   ( cd "$work/$d" && "$axc" check "$entry" >/dev/null 2>&1 ); rc=$?
   out="$( cd "$work/$d" && "$axc" check "$entry" 2>&1 | sed 's/\x1b\[[0-9;]*m//g' )"
   if (( rc == 0 )); then
@@ -249,9 +177,9 @@ cat > "$work/two/TeamB.ax" <<'EOF'
 
 (pub fn (bPort) (let ((c (Config 3 99))) c.port))
 EOF
-# The mutant: TeamB's own code reading its OTHER field. The honest
-# answer is 3, so a harness that is not really reading exit statuses -
-# or a probe that answers 99 for a reason of its own - is caught here.
+# The mutant: TeamB's own code reading its other field. The right answer
+# is 3, so a harness that ignores exit statuses, or a probe that answers
+# 99 for some reason of its own, is caught here.
 cat > "$work/two/TeamMut.ax" <<'EOF'
 (pub struct Config
   (retries : Int)
@@ -278,8 +206,8 @@ not_exit two mut.ax  99 "mutant: TeamB reading its other field is not 99"
 # ---------------------------------------------------------------
 echo "== refusal: an unresolvable bare type name is AX3044, naming both =="
 
-# struct, with an ARITY difference between the two - the variant that
-# used to refuse the innocent module against a shape it never wrote.
+# struct, with an arity difference between the two: a first-match lookup
+# refuses NarrowB as AX3008 against WideA's shape.
 mk arity
 cat > "$work/arity/WideA.ax" <<'EOF'
 (pub struct Config
@@ -372,12 +300,10 @@ cp "$work/two/TeamA.ax" "$work/two/TeamB.ax" "$work/esc/"
 printf '(import TeamA (aPort))\n(import TeamB)\n(:: pick (-> Config Int))\n(fn (pick c) c.port)\n(:: main Int)\n(fn (main) (pick (Config 3 99)))\n' > "$work/esc/narrow.ax"
 ok_exit esc narrow.ax 99 "\`(import TeamA (aPort))\` resolves the reference to TeamB"
 
-# And the escape the help text names since `Mod::Name` parses in type
-# position: qualification picks one declaration out of the collision,
-# and the field read proves WHICH one - `port` is first in TeamC and
-# second in TeamD, so resolving to the wrong module answers 99. A
-# help text naming a fix nobody checked is how this repository's
-# diagnostics have been wrong before, so this case runs the fix.
+# The other escape the help text names: `Mod::Name` in type position
+# picks one declaration out of the collision. The field read shows
+# which: `port` is first in TeamC and second in TeamD, so the wrong
+# module answers 99.
 mk qual
 cat > "$work/qual/TeamC.ax" <<'EOF'
 (pub struct Cfg
@@ -414,13 +340,9 @@ ok_clean dup one.ax "control: one \`type Amt\` is not a duplicate"
 # 5. scale: the lookup must not grow with the type table
 # ---------------------------------------------------------------
 echo "== scale: a type reference costs the same in a table twice the size =="
-# 8000 and 24000 since 2026-08-29: at 4000/6000 the darwin runner checked
-# either program in under the floor once phase D's name recording was
-# indexed (the same change that indexed mangleHasIn), and a ratio of two
-# timer-resolution numbers reports whatever it likes. Measured on the
-# development machine: 4000/6000 0.12 s a side, 8000/16000 0.28 s,
-# 8000/24000 0.36 s - the last is the default, three and a half floors
-# of margin on a runner that read under one.
+# The defaults keep each check a few times above FLOOR on a fast runner.
+# Smaller programs finish under it, and a ratio of two timer-resolution
+# numbers means nothing.
 N="${N:-8000}"
 K="${K:-24000}"
 W="${W:-8}"
@@ -430,22 +352,17 @@ REPS="${REPS:-3}"
 # the ratio reports whatever it likes. Raise N or K, never this.
 FLOOR="0.10"
 
-# The two programs are BYTE-IDENTICAL apart from four digits: 2N struct
-# declarations with zero-padded, equal-length names, then K signature
-# and definition pairs each naming one of those types W times. `a`
-# names the FIRST declaration in the table and `b` names the LAST, so
-# a forward scan pays one comparison in `a` and 2N in `b`, while a
-# bucket keyed on the name pays one entry in both. Same declaration
-# count, same line count, same byte count, same reference count - the
-# ratio is the scan and nothing else.
+# The two programs are byte-identical apart from the type name every
+# reference uses: 2N struct declarations with zero-padded, equal-length
+# names, then K signature and definition pairs each naming one of those
+# types W times. `a` names the first declaration in the table and `b`
+# the last, so a forward scan pays one comparison in `a` and 2N in `b`,
+# while a bucket keyed on the name pays one entry in both. Every other
+# count is equal, so the ratio measures the scan and nothing else.
 #
-# No imports, deliberately: `mangleDecl` runs only over IMPORTED
-# declarations, and when this gate was written it was quadratic in
-# their count (the note in check-name-scale.sh about a per-doubling
-# exponent that swamped the thing being measured; that scan was
-# indexed on 2026-08-29 and the same gate now holds the exponent
-# down). A confound charged to both sides is still a confound when it
-# is that large; here there is none to charge.
+# No imports: `mangleDecl` runs only over imported declarations, so
+# leaving them out keeps its cost out of the ratio. A large cost on both
+# sides still pulls the ratio towards 1 and would hide a scan.
 python3 - "$work" "$N" "$K" "$W" <<'PY'
 import sys
 work, n, k, w = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4])
@@ -471,8 +388,8 @@ best_of() { # best_of <entry>
     s=$(python3 -c 'import time;print(time.monotonic())')
     out="$( cd "$work" && "$axc" check "$entry" 2>&1 )"; rc=$?
     e=$(python3 -c 'import time;print(time.monotonic())')
-    # A compiler that dies early is a very fast compiler and would pass
-    # any ratio; this repository has been fooled by exactly that.
+    # A compiler that dies early is fast and would pass any ratio, so a
+    # failed or silent check fails the gate.
     if (( rc != 0 )); then
       echo "FAIL scale: \`check $entry\` exited $rc - this measured a failure, not a compile" >&2
       printf '%s\n' "$out" | tail -5 >&2

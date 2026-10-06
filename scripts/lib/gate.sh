@@ -1,104 +1,59 @@
 # ---------------------------------------------------------------------
-# The preamble every gate had its own copy of.
-#
-# Twenty-four of the scripts beside this one opened with the same
-# fifteen lines: find the repository root from `$BASH_SOURCE`, cd
-# there, resolve `$AXIOM` or build one from the committed seed, export
-# `AXIOM_STDLIB`, make a work directory and arm the trap that removes
-# it. Eighteen went on to build the compiler under test from
-# `self_host/` with the same seven.
-#
-# Copies drift, and these had:
-#
-#   - `check-doc-drift.sh` never grew the seed-bootstrap block, so on a
-#     checkout with no `.axiom-bin/` it failed with "no compiler at ..."
-#     while its twenty-three peers built one and carried on.
-#   - the same failure ran under two spellings, "could not bootstrap a
-#     compiler" and "... a compiler from bootstrap/", nine ways and
-#     fourteen.
-#   - the build-the-subject block wrote its log to `$work/build.log` in
-#     most scripts and `$work/s1build.log` or `$work/s1.log` in others,
-#     spelled the output `-o` here and `--output` there, and reported
-#     the first 8 lines of the log on failure, or 20, or none at all -
-#     and a gate that swallows the log is a gate whose failure mode is
-#     "FAIL: could not build", with no way to see why.
-#
-# None of that is a difference anyone chose, so it lives here once. A
-# gate now opens with:
+# The preamble every gate shares. A gate opens with:
 #
 #     source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
 #     gate_init
 #     gate_build_axc axc
 #
-# after which `$repo_root`, `$axiom`, `$work` and `$axc` mean in every
-# gate what they meant in the twenty-four that spelled them out.
+# after which `$repo_root`, `$axiom`, `$work` and `$axc` mean the same
+# thing in every gate. Hand-written copies of this preamble drift in
+# their bootstrap step, error wording, log paths and how much of a
+# failed build log they print, so it lives here once.
 #
-# What this file deliberately does NOT hold: anything that runs the
-# compiler, counts cases or reports results. Those differ per gate for
-# real reasons, and a helper that unified them would be a framework a
-# reader had to learn before they could read a single gate. The rule is
-# the one this repository applies to its own sources - share what is
-# identical, leave what differs where the reader will find it.
+# This file holds nothing that runs the compiler, counts cases or
+# reports results. Those differ per gate for real reasons, and keeping
+# them in the gate keeps each gate readable on its own.
 # ---------------------------------------------------------------------
 
 # gate_init [--no-stdlib]
 #
 # Sets, in the calling script:
-#   repo_root  the repository root, and cd's there
-#   axiom      the compiler that BUILDS the subject, resolved in this
-#              order and PRINTED either way, so the choice is never
-#              invisible:
-#                1. `$AXIOM`, when set - unconditionally, even to a
-#                   path that turns out to be broken. A caller who
-#                   names a compiler gets that compiler; gate_init does
-#                   not second-guess it.
-#                2. otherwise `$AXIOM_AXC`, when it is set AND
-#                   executable - the compiler UNDER TEST that
-#                   `gate_build_axc`'s content-addressed cache already
-#                   trusts. Without this arm, a gate that never calls
-#                   `gate_build_axc` ignores `$AXIOM_AXC` entirely and
-#                   falls through to arm 3 - `check-fmt.sh` is the one
-#                   that bit us: `AXIOM_AXC=/path/to/new
-#                   ./scripts/check-fmt.sh` built and tested
-#                   `.axiom-bin/axiom`, the stale INSTALLED binary,
-#                   and said nothing about it.
-#                3. otherwise `.axiom-bin/axiom`, bootstrapped from
-#                   `bootstrap/` when it is not there yet.
-#   work       a fresh temporary directory, removed on exit
+#   repo_root   the repository root, and cd's there
+#   axiom       the compiler that builds the subject. It is printed, and
+#               resolved in this order:
+#                 1. `$AXIOM`, when set, even to a broken path. A caller
+#                    who names a compiler gets that compiler.
+#                 2. otherwise `$AXIOM_AXC`, when it is set and
+#                    executable: the compiler under test, which
+#                    `gate_build_axc`'s cache already trusts. Without
+#                    this arm, a gate that never calls `gate_build_axc`
+#                    (such as `check-fmt.sh`) would silently test the
+#                    installed binary instead.
+#                 3. otherwise `.axiom-bin/axiom`, bootstrapped from
+#                    `bootstrap/` when it is not there yet.
+#   link_entry  see `gate_link_entry`
+#   work        a fresh temporary directory, removed on exit
 # and exports AXIOM_STDLIB, so a compiler invoked from anywhere
-# resolves THIS checkout's stdlib rather than one beside some other
+# resolves this checkout's stdlib rather than one beside some other
 # binary.
 #
-# --no-stdlib suppresses that export, for the three gates that point
-# the compiler at a stdlib of their own: `check-fmt.sh` and
+# --no-stdlib suppresses that export, for gates that must not resolve
+# this checkout's stdlib through it. `check-fmt.sh` and
 # `check-frontend-parity.sh` run against a copy of the tree, and a
-# repo-rooted export would quietly test the original instead; and
+# repo-rooted export would test the original instead.
 # `check-doc-drift.sh` resolves its probe imports through the working
-# directory it compiles from.
+# directory it compiles from, and `check-seed-lineage.sh` compiles
+# sources from other trees.
 #
-# THE RESOLVED COMPILER IS RUN ONCE, HERE, AND MUST ANSWER, because
-# `-x` is not proof of life. Overwriting `.axiom-bin/axiom` IN PLACE -
-# a `cp` onto an existing file, which truncates and rewrites the same
-# inode, rather than a `mv` over it - leaves a binary that `codesign -v`
-# still calls valid while macOS SIGKILLs every exec of it (exit 137, no
-# output) until the inode is replaced. `scripts/bootstrap-from-seed.sh`
-# hit this for real on 2026-08-28, installing by rename because of it.
-# Reproduced again 2026-08-31 to confirm before writing this: racing a
-# `cp` of a second binary against a tight loop of `axiom --version`
-# turned most of the loop's remaining exits to 137 with empty output,
-# and the exec run immediately AFTER the race had also stopped - the
-# poisoning outlives the write that caused it, on this machine for at
-# least several seconds, and `rm`-then-copy (a fresh inode) cleared it
-# immediately where overwriting again did not.
-#
-# That is exactly the shape `check-fmt.sh` hit live: `FAIL <file>` with
-# an EMPTY message, 559 times, before anyone realised the compiler
-# itself was dead rather than 559 files. A gate that loops the compiler
-# over a corpus has no way to tell "the file is bad" from "the compiler
-# is dead" from inside the loop - both print nothing - so the check
-# belongs here, once, before any loop starts: one clear refusal, naming
-# the path, the exit status, and the SIGKILL cause when the status says
-# so, instead of hundreds of empty ones downstream.
+# The resolved compiler is run once here and must answer, because `-x`
+# is not proof of life. On macOS, a binary overwritten in place (a `cp`
+# onto an existing file, which keeps the inode) still passes
+# `codesign -v`, but the kernel SIGKILLs every exec of it (exit 137, no
+# output) until the inode is replaced. A gate that loops a dead
+# compiler over a corpus would report every file as failing with an
+# empty message. One refusal here, naming the path, the status and the
+# likely cause, replaces hundreds of empty ones downstream.
+# `scripts/bootstrap-from-seed.sh` installs by rename for this reason.
 gate_init() {
   local want_stdlib=1
   [[ "${1:-}" == "--no-stdlib" ]] && want_stdlib=0
@@ -157,29 +112,22 @@ gate_init() {
 #
 # What a gate adds to `cc` when it links a compiler or a test program:
 # `-e _main` on Darwin, nothing anywhere else. `gate_init` puts it in
-# `$link_entry`, which the link lines pass UNQUOTED so that it
-# word-splits into two arguments on Darwin and into none elsewhere.
+# `$link_entry`, which the link lines pass unquoted so that it splits
+# into two arguments on Darwin and into none elsewhere.
 #
-# Eight link lines passed `-e _main` unconditionally until 2026-08-29,
-# and nothing said why. On Mach-O it is ld64's default, so it was
-# never load-bearing. On Linux, GNU ld warns "cannot find entry symbol
-# _main; defaulting to <address>" and starts at the beginning of
-# `.text`, which is crt1's `_start` - green by luck, on every Linux
-# run this repository has had. FreeBSD's `/usr/bin/ld` is lld, and
-# lld's answer is different. Measured 2026-08-29 with LLD 23.1 on a
-# freebsd-x86_64 object of `tests/stdlib/010-hello.ax`:
+# On Mach-O, `-e _main` is ld64's default and harmless. Elsewhere there
+# is no `_main`. GNU ld warns and starts at `.text`, which happens to be
+# crt1's `_start`. FreeBSD's `/usr/bin/ld` is lld, which links
+# successfully with an entry point of 0 (here, a freebsd-x86_64 object
+# of `tests/stdlib/010-hello.ax`):
 #
 #     ld.lld -e _main hello.o -o a.out
 #     ld.lld: warning: cannot find entry symbol _main; not setting start address
 #     exit 0;  llvm-readobj -h: Entry: 0x0
 #
-# with `main` in `.text` at 0x206090 and `-e main` landing there. So
-# under lld an unresolved `-e` is a link that SUCCEEDS and a binary
-# whose first instruction is at address 0: the seed would have linked
-# on the FreeBSD leg and died before `main`, and "could not link the
-# seed" would never have fired, because the link did not fail. The
-# flag is therefore Darwin's alone, and kept there rather than deleted
-# so that Darwin's link line is byte for byte what it has been.
+# That binary dies before `main` with no link error to explain it, so
+# the flag is Darwin's alone. Darwin keeps it so that its link line
+# stays byte for byte the same.
 gate_link_entry() {
   case "$(uname -s)" in
     Darwin) echo "-e _main" ;;
@@ -189,15 +137,14 @@ gate_link_entry() {
 
 # gate_source_stamp
 #
-# A hash of everything the compiler-under-test is built FROM: every
-# `.ax` the build reads - `self_host/` and the stdlib modules it
-# imports, 43 files and 2.5 MB today - plus the builder binary itself.
-# 0.04s to compute, against ~100s to build.
+# A hash of everything the compiler under test is built from: every
+# `.ax` the build reads (`self_host/` and the stdlib), the builder
+# binary, the toolchain and the environment the compiler reads. It is
+# cheap next to a build.
 #
-# This exists so `gate_build_axc`'s cache can be content-addressed. It
-# is the whole safety argument, so it must stay a SUPERSET of the
-# build's real inputs: a file the build reads and this does not hash is
-# a file whose ablation the cache would hide.
+# `gate_build_axc`'s cache is keyed on it, so it must stay a superset
+# of the build's real inputs. A file the build reads and this does not
+# hash is a file whose ablation the cache would hide.
 gate_source_stamp() {
   {
     printf '%s\n' 'gate-cache-v3: native build, default optimization'
@@ -208,21 +155,21 @@ gate_source_stamp() {
   } | gate_sha
 }
 
-# The environment the COMPILER reads while it builds. Every `sysEnv`
-# in `self_host/` and `stdlib/` was read on 2026-09-27; these are the
-# ones that can change what a build of `self_host/main.ax` produces:
-# AXIOM_STDLIB and AXIOM_PATH choose which module files an import
-# resolves to, AXIOM_LINK_SEARCH what the link line finds, and
-# AXIOM_MIR_EMIT / AXIOM_VERIFY_SCOPES switch extra work on. The rest
-# (HOME, XDG_CONFIG_HOME, TMPDIR, AXIOM_REPL_HISTORY) are read only by
-# the REPL and the package commands, and PATH is covered by the
-# toolchain stamp's resolved tools.
+# The environment the compiler reads while it builds: the `sysEnv`
+# reads in `self_host/` and `stdlib/` that can change what a build of
+# `self_host/main.ax` produces. AXIOM_STDLIB and AXIOM_PATH choose which
+# module files an import resolves to, AXIOM_LINK_SEARCH what the link
+# line finds, and AXIOM_MIR_EMIT / AXIOM_VERIFY_SCOPES switch extra work
+# on. The rest (HOME, XDG_CONFIG_HOME, TMPDIR, AXIOM_REPL_HISTORY) are
+# read only by the REPL and the package commands, and PATH is covered
+# by the toolchain stamp's resolved tools. A new build-affecting
+# `sysEnv` read belongs here.
 #
-# The stdlib is recorded as the directory a build would READ, resolved
-# physically, with `gate_init`'s default when unset: the source stamp
+# The stdlib is recorded as the directory a build would read, resolved
+# physically, with `gate_init`'s default when unset. The source stamp
 # hashes `$repo_root/stdlib`'s bytes, so a build pointed at a different
-# stdlib must not match an artifact built against this one. A caller
-# that computes a stamp without `gate_init` (run-gates.sh) exports the
+# stdlib must not match a binary built against this one. A caller that
+# computes a stamp without `gate_init` (`run-gates.sh`) exports the
 # same default first, or every consumer would miss.
 gate_config_stamp() {
   local lib="${AXIOM_STDLIB:-$repo_root/stdlib}"
@@ -254,29 +201,25 @@ gate_toolchain_stamp() {
 
 # gate_seed_source_stamp <root>
 #
-# The same hash WITHOUT the builder: a pure function of the `.ax` bytes
-# under `<root>/self_host` and `<root>/stdlib`, and of their paths.
+# The source part of that hash, without the builder: a function of the
+# paths and bytes of every `.ax` under `<root>/self_host` and
+# `<root>/stdlib`.
 #
-# It takes a root rather than reading `$repo_root` because its second
-# caller is `check-seed-provenance.sh`, which computes it over a tree
-# extracted from git at another commit and compares the two. That is
-# the whole point of splitting it out: "which sources is this?" is a
-# question about a tree, and "which compiler would this cache serve?"
-# is a question about a tree AND the binary that built it. Answering
-# the first with the second would make the seed's recorded provenance
-# depend on whichever compiler happened to be on the machine.
+# It takes a root because `check-seed-provenance.sh` also computes it
+# over a tree extracted from git at another commit. "Which sources is
+# this?" is a question about a tree alone. Folding in the builder would
+# make the seed's recorded provenance depend on whichever compiler was
+# on the machine.
 gate_seed_source_stamp() {
   local root="$1" list f
-  # The PATH LIST first, then every byte. Contents alone would miss a
+  # The path list first, then every byte. Contents alone would miss a
   # file added empty or renamed; paths alone would miss an edit.
   #
-  # `find` rather than a glob, because a glob matching nothing is a
-  # `cat` failure and under `set -euo pipefail` that ends the GATE
-  # rather than the stamp - measured while writing this, and it
-  # presented as a gate that printed its first heading and stopped.
+  # `find` rather than a glob: a glob matching nothing makes `cat` fail,
+  # and under `set -euo pipefail` that silently ends the whole gate.
   #
-  # Relative paths and `LC_ALL=C sort`: the stamp is a property of the
-  # tree, not of where it was checked out or of the runner's locale.
+  # Relative paths and `LC_ALL=C sort` keep the stamp independent of the
+  # checkout path and the runner's locale.
   list="$( cd "$root" && find self_host stdlib -name '*.ax' -type f 2>/dev/null \
              | LC_ALL=C sort )"
   {
@@ -287,9 +230,8 @@ gate_seed_source_stamp() {
   } | gate_sha
 }
 
-# `sha256sum` on Linux, `shasum -a 256` on macOS - the same fallback
-# `bootstrap-from-seed.sh` already carries, because the runner ships
-# one or the other and not both.
+# `sha256sum` on Linux, `shasum -a 256` on macOS: each runner ships
+# only one of them.
 gate_sha() {
   if command -v sha256sum >/dev/null 2>&1; then
     sha256sum "$@" | cut -d' ' -f1
@@ -301,13 +243,12 @@ gate_sha() {
 # gate_axdl_unknown_kind <file>: refuse an AXDL line kind no filter knows.
 #
 # Every `axdl_only`-shaped filter in the battery keeps `^[EWNH] ` lines
-# and drops the rest. `E` and `W` are what the corpus emits; `N` and
-# `H` are reserved and never emitted. A line shaped like a diagnostic
-# (`X AX3001 ...`) with a letter outside that set would therefore pass
-# every gate that filters before it compares - a gate reporting less
-# than it knows (docs/compiler-guide.md §5). This answers whether such a
-# line is present, printing it and returning nonzero when one is, so
-# the call sites read it beside the filters rather than through them.
+# and drops the rest. The corpus emits `E` and `W`; `N` and `H` are
+# reserved. A diagnostic-shaped line (`X AX3001 ...`) with any other
+# letter would slip past every gate that filters before it compares
+# (docs/compiler-guide.md §5). This prints such lines and returns
+# nonzero when there are any, so call sites check beside the filters
+# rather than through them.
 gate_axdl_unknown_kind() {
   local f="$1" bad
   bad="$(grep -E '^[A-Z] AX[0-9]{4} ' "$f" 2>/dev/null | grep -vE '^[EWNH] ' || true)"
@@ -320,61 +261,37 @@ gate_axdl_unknown_kind() {
 
 # gate_build_axc <varname> [output-path]
 #
-# Builds the compiler under test from the CURRENT `self_host/` sources
+# Builds the compiler under test from the current `self_host/` sources
 # and assigns its path to <varname>, defaulting to `$work/<varname>`.
 #
-# `$axiom` supplies *a* compiler, not *the* compiler: it may be an
-# older seed-descended binary that predates the change being tested, so
-# every gate whose subject is the compiler builds one from the tree
-# first - which is also what makes an ablation of `self_host/` visible
-# to that gate rather than invisible.
+# `$axiom` may be an older seed-descended binary that predates the
+# change being tested. A gate whose subject is the compiler builds one
+# from the tree first, which is what makes an ablation of `self_host/`
+# visible to it.
 #
-# THE CACHE, AND WHY IT DOES NOT COST THAT PROPERTY. Ninety-five gates
-# call this, each rebuilding the same 60,881 lines. Measured on the
-# three CI legs on 2026-08-24: the `test` job took 17m38s / 18m54s /
-# 10m01s before the cache and 10m48s / 11m51s / 7m46s after it, so the
-# duplicated builds were about sixteen minutes of every run.
-# `$AXIOM_AXC` lets one CI step build it once.
+# Ninety-five gates call this, so `$AXIOM_AXC` lets one CI step build
+# the compiler once (`scripts/build-shared-axc.sh`). That cache is
+# content-addressed: the binary is used only when `$AXIOM_AXC.stamp`
+# equals `gate_source_stamp` for the tree as it is now. Change a byte
+# the build reads and the stamp moves, so an ablation of `self_host/`
+# stays visible with nothing to invalidate by hand.
 #
-# An env var naming a prebuilt compiler is exactly how this function's
-# own reason for existing gets deleted, so the cache is CONTENT-
-# ADDRESSED rather than trusted: the artifact is used only when
-# `$AXIOM_AXC.stamp` equals `gate_source_stamp` for the tree as it is
-# right now. Change a byte anywhere the build reads and the stamp
-# moves, the cache misses, and a fresh compiler is built - so an
-# ablation of `self_host/` is visible BY CONSTRUCTION, not by anyone
-# remembering to invalidate anything.
+# A stale stamp and an absent one mean different things:
 #
-# A STALE STAMP AND AN ABSENT ONE ARE NOT THE SAME EVENT, and until
-# 2026-08-24 this function treated them as one. Both fell through to
-# "build it yourself", which is correct for the first and a silent
-# failure for the second: `AXIOM_AXC=.axiom-bin/axiom` - a seed
-# compiler, no stamp beside it - was ignored and every gate went
-# GREEN, having quietly paid the build the variable was set to avoid.
-# The roadmap that asked for this cache also asked that pointing it at
-# the seed go red, and it did not.
-#
-# So they are now separated by what the stamp SAYS rather than by what
-# the caller meant:
-#
-#   stamp present and equal   -> reuse. The artifact was built from
-#                                this tree by this builder.
-#   stamp present and different -> build. The tree moved; that is the
-#                                whole point of the content address,
-#                                and `check-fmt.sh` reaches it on every
-#                                run by design (it runs its inner gates
-#                                against a COPY of the tree).
-#   no stamp, no artifact, or a
-#   non-executable artifact   -> REFUSE. Nothing was built here. A
-#                                path that does not name a stamped
-#                                build product is a mistake in the
-#                                caller, not a cache miss, and it must
-#                                be as loud as one.
+#   stamp present and equal     -> reuse. The binary was built from
+#                                  this tree by this builder.
+#   stamp present and different -> build. The tree moved. `check-fmt.sh`
+#                                  reaches this on every run, since it
+#                                  runs its inner gates on a copy.
+#   no stamp, no binary, or a
+#   non-executable binary       -> refuse. A path that names no stamped
+#                                  build product is a caller mistake,
+#                                  and ignoring it would let a seed
+#                                  compiler stand in, silently green.
 #
 # `scripts/check-gate-lib.sh` is the negative probe: it plants a
 # builder that cannot build and asserts the cache is used when the
-# stamp matches, NOT used when it does not, and refused when there is
-# no stamp at all.
+# stamp matches, not used when it differs, and refused when it is absent.
 #
 # The build log is kept at `$work/<varname>.build.log` and its first
 # twenty lines are printed on failure.
@@ -426,34 +343,31 @@ gate_build_axc() {
 
 # gate_build_tree <builder> <root> <stdlib> <out> [build flag ...]
 #
-# Build `<root>/self_host/main.ax` with <builder> into <out>, reading
-# the standard library at <stdlib>: the compiler of an ABLATED tree,
+# Builds `<root>/self_host/main.ax` with <builder> into <out>, reading
+# the standard library at <stdlib>: the compiler of an ablated tree,
 # which is how most negative controls in this battery prove their gate
-# can fail. The stdlib is an argument because the call sites differ on
-# purpose - some ablate a module in the copy and must read it, others
-# build the copied `self_host/` against the gate's `$AXIOM_STDLIB` -
-# and each passes what it read before. <out> must be absolute.
+# can fail. The stdlib is an argument because call sites differ: some
+# ablate a module in the copy and must read it, others build the copied
+# `self_host/` against the gate's `$AXIOM_STDLIB`. <out> must be
+# absolute.
 #
-# WHY A CACHE, AND WHY IT IS SAFE. Thirty-five of these builds ran in
-# every full battery, about 18s each: over ten minutes of CPU spent
-# re-deriving binaries whose inputs had not changed since the last
-# run. The result is a pure function of what the key hashes - every
-# `.ax` under `<root>/self_host`, every `.ax` in the stdlib the build
-# reads (paths and bytes, `gate_ax_tree_stamp`), the builder binary,
-# the toolchain, the compiler-read environment and the flags. Measured
-# on 2026-09-27 before relying on it: the compiler built from two
-# copies of one tree at different paths is byte-identical and names
-# neither path, so the directory a tree sits in is correctly NOT an
-# input. A one-byte ablation is a different key and a fresh build.
+# Results are cached, since the battery repeats many of these builds
+# with unchanged inputs. The key hashes everything the result depends
+# on: every `.ax` under `<root>/self_host` and in <stdlib> (paths and
+# bytes, `gate_ax_tree_stamp`), the builder binary, the toolchain, the
+# compiler-read environment and the flags. The tree's own directory is
+# not an input: compilers built from two copies of one tree at
+# different paths are byte-identical and name neither path. A one-byte
+# ablation is a different key and a fresh build.
 #
 # Entries live in `$AXIOM_GATE_CACHE` (default
-# `$repo_root/.axiom-shared/cache`), are published by `mv` of a
-# completed build (never visible half-written; two gates racing to
-# publish one key write identical bytes), and are re-hashed against
-# the digest recorded beside them on every hit, so a damaged entry is
-# rebuilt rather than trusted. `AXIOM_GATE_CACHE=off` disables it.
-# `check-gate-lib.sh` holds the hit, the miss on a changed byte, a
-# changed builder and changed flags, and the damaged-entry rebuild.
+# `$repo_root/.axiom-shared/cache`). A completed build is published by
+# `mv`, so no entry is ever visible half-written, and two gates racing
+# on one key write identical bytes. Every hit is re-hashed against the
+# digest stored beside it, so a damaged entry is rebuilt rather than
+# trusted. `AXIOM_GATE_CACHE=off` disables the cache. `check-gate-lib.sh`
+# tests the hit, the miss on a changed byte, builder or flags, and the
+# damaged-entry rebuild.
 gate_build_tree() {
   local builder="$1" root="$2" lib="$3" out="$4"; shift 4
   local cache key entry tmp rc=0
@@ -496,28 +410,21 @@ gate_build_tree() {
 }
 
 # gate_timeout <seconds> <command ...>: run a command under a deadline,
-# answering its own status, or 124 when the deadline killed it - GNU
-# `timeout`'s contract. macOS ships no `timeout` (coreutils' is
-# `gtimeout`, and only where Homebrew put it), so a gate that called
-# `timeout` directly passed on the Linux legs and failed every darwin
-# run with status 127, "command not found", which the gate then read as
-# the program's own answer. The fallback is perl, which both runners and
-# every macOS install carry: fork, exec the command, SIGTERM it at the
-# deadline. A command killed by a signal answers 128+signal, as with
-# `timeout`.
+# answering its own status, or 124 when the deadline killed it (GNU
+# `timeout`'s contract). macOS ships no `timeout`, and Homebrew's
+# `gtimeout` is not always installed. Calling `timeout` there fails with
+# 127, which a gate would read as the program's own answer. The
+# fallback is perl, which every runner and macOS install carries. A
+# command killed by a signal answers 128+signal, as with `timeout`.
 #
-# THE WHOLE PROCESS GROUP, not the one child, since 2026-09-27. GNU
-# `timeout` runs the command in a group of its own and signals the
-# group; this fallback signalled only its direct child. A program whose
-# `parallel` bindings are FORKED children left them running after the
-# kill, holding the `$(...)` pipe open, so a gate reading the output
-# hung instead of failing at its deadline - an independent review of
-# `scripts/check-chan.sh` measured a 2 s timeout on a stuck forked
-# receive returning only when the orphan was killed by hand at 15 s.
-# The child is now a group leader (set on both sides of the fork, so no
-# signal can race it), the deadline sends TERM to the group and KILL a
-# second later, and an INT or TERM to this wrapper is passed on to the
-# group, since the group is no longer the terminal's.
+# Like GNU `timeout`, the fallback signals the whole process group. A
+# program whose `parallel` bindings are forked children would otherwise
+# leave them running after the kill, holding the `$(...)` pipe open, so
+# the gate would hang instead of failing at its deadline. The child is
+# made a group leader on both sides of the fork, so no signal can race
+# it. The deadline sends TERM to the group and KILL a second later. An
+# INT or TERM to this wrapper is passed on to the group, since the
+# group is no longer the terminal's.
 gate_timeout() {
   local secs="$1"; shift
   if command -v timeout >/dev/null 2>&1; then
@@ -544,17 +451,12 @@ gate_timeout() {
 
 # max_rss_kb <command ...>: the peak resident set of one run, in KiB.
 #
-# Eleven gates carried this function byte for byte, each with its own
-# copy of the comment explaining it; it lives here once now. Two rules
-# it carries, both learned the hard way:
-#
-# - `ru_maxrss` is BYTES on Darwin and kilobytes on every other kernel,
-#   FreeBSD included, and FreeBSD's `time` takes `-l` too - so keying
-#   the division on the flag read 1392 KiB as "1 KiB" on FreeBSD
-#   14.4/arm64 (2026-08-29). The divisor is the kernel's, not the flag's.
-# - `measure-memory-baseline.sh`'s rule: FAIL rather than skip when
-#   neither `time` answers. A measurement that silently measures
-#   nothing is how the last RSS regression hid.
+# - `ru_maxrss` is bytes on Darwin and kilobytes on every other kernel,
+#   FreeBSD included. FreeBSD's `time` also takes `-l`, so the divisor
+#   is keyed on the kernel, never on which flag works.
+# - Fail rather than skip when neither `time` answers, as
+#   `measure-memory-baseline.sh` does. A measurement that silently
+#   measures nothing hides a regression.
 max_rss_kb() {
   local div=1
   [[ "$(uname -s)" == Darwin ]] && div=1024
@@ -571,8 +473,9 @@ max_rss_kb() {
 }
 
 # gate_ax_tree_stamp <dir> <subdir>: paths then bytes of every `.ax`
-# under <dir>/<subdir>, relative to <dir> - `gate_seed_source_stamp`'s
-# recipe for one directory, so a renamed or added-empty file moves it.
+# under <dir>/<subdir>, relative to <dir>. It is
+# `gate_seed_source_stamp`'s recipe for one directory, so a renamed or
+# added-empty file moves it.
 gate_ax_tree_stamp() {
   local list f
   list="$( cd "$1" && find "$2" -name '*.ax' -type f 2>/dev/null | LC_ALL=C sort )"
@@ -586,36 +489,22 @@ gate_ax_tree_stamp() {
 
 # The prose documents that carry Axiom code and cite fixtures.
 #
-# Three gates swept this list and each kept its own hand-written copy -
-# `check-tree-sitter.sh`, `check-tools-selfhost.sh` and, in a Python
-# heredoc, `check-doc-drift.sh`. They had already diverged: two of them
-# named a retired spelling of the macro document and the third named
-# that plus two more, so `docs/ffi.md` and `docs/diagnostics.md` were
-# swept by none of them. A document outside a sweep's list is invisible
-# to it, which is the sentence `check-tree-sitter.sh` already carried
-# about a list that was missing two entries.
+# Every prose sweep (`check-doc-drift.sh`, `check-tree-sitter.sh`,
+# `check-tools-selfhost.sh` and others) reads this one list, so no
+# document is swept by some gates and missed by others. It is
+# hand-written, since a sweep cannot discover a document it was never
+# told about. `check-doc-drift.sh` checks it in both directions: every
+# name here exists, and every document under `docs/` is named here.
 #
-# The list is hand-written on purpose - a sweep cannot discover a
-# document it was never told about - but a hand-written list drifts in
-# BOTH directions, and both are now checked by `check-doc-drift.sh`:
-# a name here that is not in the tree, and a document in the tree that
-# is not named here. The first direction is why that check exists. On
-# 2026-08-23 two documents were deleted and left in this list, and the
-# three gates that sweep it did not report drift - they died on a
-# Python traceback before reaching their own first assertion, in 11
-# seconds of CI, because a list entry is opened before it is checked.
+# `gate_prose_docs` prints them repo-relative. `gate_prose_docs_abs`
+# fills the array `prose_docs` with `$repo_root` prefixed. It is a
+# function rather than `mapfile` because the macOS runner ships bash
+# 3.2, which has no `mapfile`.
 #
-# `gate_prose_docs` prints them repo-relative;
-# `gate_prose_docs_abs` fills the array `prose_docs` with `$repo_root`
-# prefixed - a function rather than `mapfile`, because the macOS runner
-# ships bash 3.2 and has no `mapfile`.
-# The list is checked here rather than by each caller, because the
-# caller is a Python heredoc that opens what it is given: a name with no
-# file behind it surfaces as a traceback from inside the sweep, which
-# reads as a broken gate and not as the drift it is. Three gates failed
-# that way on 2026-08-23 and the first of them took 11 seconds to say
-# nothing useful. A missing document is a one-line refusal now, from the
-# gate that noticed, naming the list it came from.
+# `gate_prose_docs_abs` checks every name before returning it. Its
+# callers hand the list to Python, which opens what it is given, so a
+# missing file would surface as a traceback and read as a broken gate.
+# Here it is a one-line refusal naming this list.
 gate_prose_docs_abs() {
   local d missing=0
   prose_docs=()
@@ -632,30 +521,23 @@ gate_prose_docs_abs() {
   (( missing == 0 )) || exit 1
 }
 
-# `docs/stdlib-api.md` is here because it is a document under `docs/`
-# and `check-doc-drift.sh` fails one that is in no sweep's list - a
-# rule worth keeping even for a GENERATED file. Its own gate,
-# `check-stdlib-api.sh`, is stronger than any prose sweep: it
-# regenerates the whole document and diffs it. What the sweeps add is
-# the two things a regeneration cannot see, because the generator
-# would reproduce them faithfully - a link to a document that no
-# longer exists, and a fixture path that no longer resolves.
+# Why some entries are here:
 #
-# `CHANGELOG.md` is here because `release.yml` passes it to
-# `gh release create --notes-file`: it is the first document a stranger
-# reads, and it was the ONE prose file in the tree that no sweep
-# opened - while opening with the claim that every claim in it carries
-# the gate that establishes it.
+# `docs/stdlib-api.md` is generated, and `check-stdlib-api.sh`
+# regenerates and diffs the whole page. The sweeps add the two things a
+# regeneration cannot see, because the generator would reproduce them
+# faithfully: a link to a document that no longer exists, and a fixture
+# path that no longer resolves.
 #
-# `bootstrap/README.md` and `bootstrap/THREATS.md` are here because they
-# are the tree's TRUST story, and until 2026-09-03 they were the part of
-# it that no sweep opened - 14 KB of prose making provenance claims,
-# every one of them a comment. The gates under them
-# (`check-seed-provenance.sh`, `check-seed-lineage.sh`,
-# `check-seed-supply-chain.sh`) are strong; the prose describing them was
-# ungated, which is the exact shape of the defect this repository names
-# most often. `check-seed-supply-chain.sh` holds THREATS.md's rows to
-# real gates; this holds both files' links, fixture paths and numerals.
+# `CHANGELOG.md` becomes the release notes (`release.yml` passes it to
+# `gh release create --notes-file`), so it is the first document a
+# stranger reads.
+#
+# `bootstrap/README.md` and `bootstrap/THREATS.md` carry the tree's
+# provenance claims. `check-seed-provenance.sh`, `check-seed-lineage.sh`
+# and `check-seed-supply-chain.sh` gate the seed itself, and the last
+# holds THREATS.md's rows to real gates. The sweeps hold both files'
+# links, fixture paths and numerals.
 gate_prose_docs() {
   cat <<'DOCS'
 bootstrap/README.md

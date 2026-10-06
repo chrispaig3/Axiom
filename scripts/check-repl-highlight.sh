@@ -1,29 +1,24 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------
-# The REPL highlighter: the three things `tests/selfhost/272-highlight.ax`
-# cannot say from inside a single fixture.
+# The REPL highlighter: what `tests/selfhost/272-highlight.ax` cannot
+# check from inside a single fixture.
 #
-# The fixture is the primary gate and it runs for free, on every build,
-# inside `check-self-host.sh`'s and `check-bootstrap.sh`'s existing
-# sweep of `tests/selfhost/*.ax` - twenty buffers a person could be
-# part-way through typing, each with its classification, its paren
-# depth and its matching-delimiter answer written by hand beside it,
-# plus a negative control, an escape-byte floor and a distinct-letter
-# floor. What it cannot do is compare itself with a module it does not
-# import, read its own source, or prove it is able to go red at all.
-# Those are the four layers here.
+# The fixture is the primary gate. It runs in the sweep of
+# `tests/selfhost/*.ax` by `check-self-host.sh` and `check-bootstrap.sh`:
+# twenty part-typed buffers, each with its classification, paren depth
+# and matching delimiter written by hand, plus a negative control, an
+# escape-byte floor and a distinct-letter floor. It cannot compare itself
+# with a module it does not import, read its own source, or prove it can
+# fail. The layers below do those.
 #
-# THIS SCRIPT DOES NOT CALL `gate_build_axc`, deliberately. It does not
-# test the compiler built from `self_host/`; it tests `replhl.ax` - a
-# leaf module - and for that the resolved `$axiom` compiling a fixture
-# that IMPORTS the working tree's `self_host/replhl.ax` makes every
-# ablation of that file visible, which is the whole property
-# `gate_build_axc` buys elsewhere. Staying out of that count also
-# keeps this gate off the six prose sites `check-gate-lib.sh` sweeps.
+# This gate tests the leaf module `self_host/replhl.ax`, not the
+# compiler, so it does not call `gate_build_axc`. The resolved `$axiom`
+# compiles a fixture that imports the working tree's `replhl.ax`, so
+# every edit to that file is visible. Staying out of `gate_build_axc`
+# also keeps this gate out of the count `check-gate-lib.sh` checks.
 #
-# Run order: nothing here writes the working tree, and nothing here
-# touches `/tmp/axiom-repl-<pid>.d`, so it is safe beside the two REPL
-# gates rather than serial with them.
+# Nothing here writes the working tree or touches
+# `/tmp/axiom-repl-<pid>.d`, so it can run beside the two REPL gates.
 # ---------------------------------------------------------------------
 
 set -euo pipefail
@@ -40,12 +35,11 @@ fixture=tests/selfhost/272-highlight.ax
 module=self_host/replhl.ax
 
 # ---------------------------------------------------------------------
-# LAYER 1 - the fixture answers what its own first line says.
+# Layer 1: the fixture answers what its own first line says.
 #
-# The expected status is READ from the file rather than typed here.
-# Two copies of a number are two things to keep in step, and this is
-# the gate whose subject is a classifier that must not be blessed into
-# agreement with itself.
+# The expected status is read from the file, not copied here. A second
+# copy is one more number that could be blessed into agreement with the
+# classifier it checks.
 # ---------------------------------------------------------------------
 want="$(sed -n '1s/^; expect \([0-9]*\).*/\1/p' "$fixture")"
 checks=$((checks + 1))
@@ -77,42 +71,35 @@ else
 fi
 
 # ---------------------------------------------------------------------
-# LAYER 2 - THE RECONCILIATION, which is why this script exists.
+# Layer 2: the reconciliation, which is why this script exists.
 #
-# `replParenDepth` (repl.ax:1406) decides whether the REPL waits for
-# another physical line. That answer is PIPED-SURFACE behaviour, so the
-# highlighter may not change it - and the highlighter has its own,
-# typed bracket walk, because `replParenDepth`'s single mixed counter
-# cannot tell `( ]` from a balanced form. Two walks over the same
-# brackets is exactly the shape that drifts, and the drift's symptom is
-# the worst kind: the prompt says the form is closed while the REPL
-# sits waiting for another line.
+# `replParenDepth` in repl.ax decides whether the REPL waits for another
+# line. That is piped-surface behaviour, so the highlighter may not
+# change it. The highlighter keeps its own typed bracket walk, because
+# `replParenDepth`'s single mixed counter cannot tell `( ]` from a
+# balanced form. Two walks over the same brackets drift, and the symptom
+# is the prompt calling a form closed while the REPL waits for a line.
 #
-# So they are compared, on a corpus that is REAL SOURCE rather than a
-# hand-picked list: every line of three compiler modules, and every
-# PREFIX of every line, which is the mid-edit state a person types
-# through. The fixture cannot do this - importing `repl` means
-# importing `driver` and `codegen`, sixty thousand lines, in a case
-# that `check-self-host.sh` builds on every run.
+# So they are compared on real source: every prefix of every line of
+# three compiler modules, the mid-edit states a person types through.
+# The fixture cannot do this, because importing `repl` pulls in `driver`
+# and `codegen`, far too much for a case built on every run.
 #
-# The same sweep carries the two whole-buffer invariants at scale,
-# with the cursor at the edit point - which is the call the editor
-# actually makes on every keystroke:
+# The same sweep checks two whole-buffer invariants at scale, with the
+# cursor at the edit point, as the editor calls it on every keystroke:
 #
-#   the HlSpans partition [0, strLen pre) - contiguous, non-empty,
+#   the HlSpans partition [0, strLen pre): contiguous, non-empty,
 #   starting at 0 and ending exactly at the end          total coverage
 #   visLen (replHlPaint pre cur 0) == visLen pre         the wrap property
 #
-# Coverage is re-derived HERE from the public span accessors rather
-# than asked of `replHlClass`, whose result is one `strAlloc` of the
-# source length and therefore has that length whatever the scanner
-# did. That spelling was written first and was a check that could not
-# fail; it is named rather than quietly replaced.
+# Coverage is re-derived from the public span accessors. `replHlClass`
+# answers one `strAlloc` of the source length whatever the scanner did,
+# so a check that asked it could never fail.
 #
-# Twenty hand-written cases pin the CLASSIFICATION; eighty thousand
-# real ones pin that nothing anywhere drops a byte, runs a comment
-# scan off the end, or paints a slice at the wrong offset. Neither is
-# the other's substitute.
+# The fixture's hand-written cases pin the classification. The sweep's
+# real buffers pin that nothing drops a byte, runs a comment scan off
+# the end, or paints a slice at the wrong offset. Neither replaces the
+# other.
 # ---------------------------------------------------------------------
 cat > "$work/reconcile.ax" <<'AXEOF'
 (import Str)
@@ -296,24 +283,18 @@ else
 fi
 
 # ---------------------------------------------------------------------
-# LAYER 3 - the twelve declaration heads exist twice, and the copy is
-# checked.
+# Layer 3: the declaration heads exist twice, and the copy is checked.
 #
-# `isDeclLine` (repl.ax:221) holds them inline inside one boolean over a
-# whole LINE, so it is not callable as a name predicate, and this
-# subsystem does not modify repl.ax. `hlIsDeclHead` is therefore a
-# copy - and the comment directly under `isDeclLine` records what an
-# unchecked copy of this exact list already cost once, when `impl` was
-# missing from it and a trait implementation typed at the prompt was
-# read as an application.
+# `isDeclLine` in repl.ax holds them inline in one boolean over a whole
+# line, so it is not callable as a name predicate, and this subsystem
+# does not modify repl.ax. `hlIsDeclHead` is a copy. A head missing from
+# a copy sends that declaration down the expression path; the note under
+# `isDeclLine` shows what that did to `impl`.
 # ---------------------------------------------------------------------
-# 2026-09-21: the range used to end at the first bare-`)` line, which
-# worked while `isDeclLine`'s body closed on its own line. The
-# formatter's normal form has since joined it, so the range ran past
-# the boolean into `replDispatch`'s command arms - words the copy must
-# never hold, since they are not declaration heads - and the gate
-# compared 31 words against 12. The range now ends at the head block's
-# blank line, which is what the copy has always been a copy of.
+# The sed range ends at the blank line after the function. The formatter
+# joins the closing parens onto the boolean's last line, so a range
+# ending at a bare `)` line would run on into `replDispatch`'s command
+# words, which are not declaration heads.
 heads_of() {  # <file> <function name> -> the quoted words, sorted
   sed -n "/pub fn ($2 /,/^$/p" "$1" \
     | grep -o '(strEq [a-z]* "[^"]*")' \
@@ -339,14 +320,13 @@ else
 fi
 
 # ---------------------------------------------------------------------
-# LAYER 4 - no tenth colour.
+# Layer 4: no tenth colour.
 #
 # Every colour the highlighter uses must be one of style.ax's nine
-# exported constants. The language half-enforces this already: ESC has
-# no literal spelling (`isEscapeChar` accepts exactly \n \t \r \\ \" \'
-# \0), so a colour cannot be written inline as an escape - but an SGR
-# PARAMETER string can be, and `(paint "1;31" x)` would compile fine
-# and put a tenth colour in a file nobody looks at for a palette.
+# exported constants. ESC has no literal spelling (`isEscapeChar` accepts
+# exactly \n \t \r \\ \" \' \0), so a colour cannot be written inline
+# as an escape. An SGR parameter string can be: `(paint "1;31" x)` would
+# compile and hide a tenth colour outside the palette.
 # ---------------------------------------------------------------------
 used="$(grep -o 'SGR_[A-Z]*' "$module" | LC_ALL=C sort -u)"
 n_used="$(printf '%s\n' "$used" | grep -c . || true)"
@@ -369,9 +349,9 @@ else
   fi
 fi
 
-# An SGR parameter string spelled by hand. `"1;31"`, `"93"`, `"0"` -
-# anything that is only digits and semicolons - is a colour, and the
-# palette is the only place one may live.
+# An SGR parameter string spelled by hand. Any string of only digits and
+# semicolons, such as `"1;31"`, `"93"` or `"0"`, is a colour, and colours
+# live only in the palette.
 checks=$((checks + 1))
 if grep -n '"[0-9][0-9;]*"' "$module" | grep -v '^[0-9]*:;' >"$work/inline.txt"; then
   echo "FAIL: $module spells an SGR parameter string of its own:"
@@ -382,20 +362,18 @@ else
 fi
 
 # ---------------------------------------------------------------------
-# THE NEGATIVE CONTROLS - the part that proves layer 1 can fail.
+# The negative controls: proof that layer 1 can fail.
 #
-# Layer 1 as stated is passed perfectly by a highlighter that is wired
-# in and does nothing, and by one whose expectations were edited to
-# agree with it. So the module is copied to a scratch tree, broken two
-# ways, and the fixture is REQUIRED to notice - each with the exact
-# status that names the break. Neither probe writes the working tree.
+# Layer 1 alone passes a highlighter that is wired in and does nothing,
+# and one whose expectations were edited to agree with it. So the module
+# is copied to a scratch tree and broken two ways, and the fixture must
+# notice each with the exact status that names the break. Neither probe
+# writes the working tree.
 #
-# The two breaks are the two defects this subsystem was actually at
-# risk of. The first is the one this repository has already paid for
-# once: `fpIsReservedWord` reserved thirty-two words in EVERY position
-# and was deleted on 2026-08-28 because it made `fmt` refuse
-# `(fn (g data) data)` while `check` accepted it. The second is a
-# highlighter that is present, imported and silent.
+# The two breaks are this subsystem's real risks. The first paints a
+# keyword in every position, not only at a form head, so the ordinary
+# name `data` in case 1, `(fn (g data) data)`, reads as a keyword. The
+# second is a highlighter that is present, imported and silent.
 # ---------------------------------------------------------------------
 probe() {  # <label> <python edit> <expected status>
   local label="$1" edit="$2" expect="$3"
@@ -404,11 +382,9 @@ probe() {  # <label> <python edit> <expected status>
   mkdir -p "$sandbox/tests/selfhost"
   cp -R self_host "$sandbox/self_host"
   cp "$fixture" "$sandbox/tests/selfhost/"
-  # The edit must actually LAND. A `replace` that matched nothing
-  # would leave the module intact, the fixture would answer 42, and
-  # this probe would report "the fixture cannot see this break" about
-  # a break that was never made - a probe lying in the direction that
-  # looks like a real finding.
+  # The edit must land. A `replace` that matched nothing would leave the
+  # module intact, the fixture would answer 42, and this probe would
+  # blame the fixture for missing a break that was never made.
   python3 - "$sandbox/$module" <<PYEOF
 import sys
 p = sys.argv[1]

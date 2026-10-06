@@ -1,177 +1,76 @@
 #!/usr/bin/env bash
-# THE MID-LEVEL IR: WHAT IT PRINTS, WHAT IT MEANS, AND HOW MUCH OF
-# THE TREE GOES THROUGH IT.
+# The mid-level IR: what it prints, what it means, and how much of the
+# tree goes through it.
 #
-# `self_host/mir.ax` is an IR between the checked AST and
-# `codegen.ax`: a representation, a lowering, a printer and a
-# verifier. `self_host/mireval.ax` is a reference evaluator over it.
-# `codegen.ax` EMITS FROM the IR for one measured subset of functions
-# (slice 2, §6); the evaluator is still test-only, because it is what
-# §4 compares the compiler against.
+# `self_host/mir.ax` is an IR between the checked AST and `codegen.ax`:
+# a representation, a lowering, a printer and a verifier.
+# `self_host/mireval.ax` is a reference evaluator over it, used only by
+# tests. `codegen.ax` emits a subset of functions from the IR (§6).
 #
-# THE HOLLOW VERSION OF THIS GATE, which is what every assertion
-# below is shaped against: compile the fixtures, print their IR,
-# compare against the checked-in goldens, exit 0. That version
-# passes with a lowering that means nothing at all - the goldens are
-# whatever the lowering last printed, and `AXIOM_BLESS=1` here
-# rewrites them. A printer gate pins the FORM of the IR and says
-# nothing about its MEANING.
+# Goldens pin the form of the IR, not its meaning: `AXIOM_BLESS=1`
+# rewrites them from whatever the lowering prints. So the anchor is §4,
+# a differential the goldens cannot satisfy. The real compiler builds and
+# runs each fixture, the evaluator runs its lowered IR, and the two
+# stdouts must be byte-identical. ABLATION 1 is a lowering rule with the
+# wrong meaning, and §4 catches it even with §2's goldens freshly blessed.
 #
-# So the anchor is §4, a differential the goldens cannot satisfy:
+# The sections:
 #
-#   for each fixture, the REAL COMPILER builds and runs it, the
-#   EVALUATOR runs the lowered IR of the same file, and the two
-#   stdouts must be byte-identical.
+#   1. The driver builds. `tests/mir/mirtool.ax` imports `mir`, `mireval`
+#      and the frontend. `mireval` is outside `self_host/main.ax`'s import
+#      graph, so this build is the only thing that notices it breaking.
+#   2. The printer, against `tests/mir/NAME.mir`, byte for byte. It is the
+#      only check that sees the text, which the `.mir` tooling reads.
+#   3. The verifier is silent on every fixture. `mirVerify` checks block
+#      identity, one terminator per block, single assignment, definition
+#      before use, real branch targets, block-argument arity and dominance.
+#   4. The differential, described above.
+#   5. Positive controls, so §4 cannot pass on empty or identical outputs.
+#   6. The compiler emits from the IR, byte-identical to the AST walk, with
+#      a floor on how many functions take the IR path.
+#   6b. The coverage floor: how much of `self_host/` and `stdlib/` lowers.
+#   7. The operator table, against `codegen.ax`'s. `mir.ax` carries its
+#      own copy of `binopToLLVM` and `cmpToLLVM`, since `codegen.ax`
+#      imports `mir` and importing them back would be a cycle.
+#   8. The ablations, each in a shadow tree with the driver (or, for the
+#      third, the whole compiler) rebuilt from it. Each must turn its own
+#      checks red and leave the others green: two ablations that fire the
+#      same check are one ablation written twice.
+#   9. The division guard, read off the compiler's own emitted IR.
 #
-# The reference there is the 97,680 lines of compiler this change did
-# not touch - `cat self_host/*.ax | wc -l` less `mir.ax` and
-# `mireval.ax`, which nothing in that compiler imports. A lowering rule that quietly means something other than the
-# source it came from fails §4 with §2's goldens freshly blessed and
-# every other check green - and that is drilled rather than asserted:
-# ABLATION 1 below is exactly such a rule.
+# The ablations:
 #
-# THE SECTIONS.
+#   1. Swaps a binary operator's operands in `mLowerApp`. The IR stays
+#      well formed, so §3 stays silent, and §2 and §4 go red.
+#   2. Drops every `br` in `mlcTerm`. §3 reports `has 0 terminators, want
+#      exactly 1` on each fixture whose golden has a `condbr`, and stays
+#      silent on the rest, so a verifier that complains about everything
+#      fails too.
+#   3. Removes the constant fold from `mirEmitInsts` in `codegen.ax`. §6's
+#      comparison goes red, and the routing-off output must not move, or
+#      the red is about something other than the IR path.
+#   4. Answers a join block's parameter with one arm's register. Only the
+#      dominance rule fires, on every branching fixture and no other.
+#   5. Deletes the cast erasure, so a conversion refuses. §2 and §4 go red
+#      on the fixtures whose sources cast; §3 stays silent, since a
+#      refusal produces no IR.
+#   6. Answers the `true` constant as 0. §2 and §4 go red on the fixtures
+#      spelling a boolean literal; §3 stays silent.
+#   7. Lowers `%` to `srex`, which no rule writes. §3 names it on the
+#      fixtures whose goldens carry an `srem`, and stays silent on the rest.
+#   8. Rebinds the loop exit to the loop's entry values. §2 and §4 go red
+#      on the fixtures whose goldens carry an applied `condbr`; §3 stays
+#      silent, since an entry value dominates the exit too.
 #
-#   1. THE DRIVER BUILDS. `tests/mir/mirtool.ax` imports `mir`,
-#      `mireval` and the whole frontend, and is compiled by the
-#      compiler under test. `mir` is inside `self_host/main.ax`'s
-#      import graph now and would be noticed breaking; `mireval` is
-#      not, and this is the only thing that would.
+# Which fixtures each ablation must move is derived from the goldens or
+# the fixture sources, never listed by hand.
 #
-#   2. THE PRINTER, against `tests/mir/NAME.mir`, byte for byte. The
-#      regenerable half, and it is here for the reason a golden is
-#      ever here: it is the only check that sees the TEXT, which is
-#      the contract the `.mir` tooling reads.
+# Usage:  scripts/check-mir.sh
+#         AXIOM_BLESS=1 scripts/check-mir.sh
 #
-#   3. THE VERIFIER IS SILENT on every fixture. `mirVerify` checks
-#      block identity, exactly one terminator per block, single
-#      assignment, every register defined before use, every branch
-#      target real, block-argument arity, and DOMINANCE. Silence is
-#      the passing answer, which is the shape most easily faked - so
-#      ABLATION 2 breaks the IR and requires it to speak, and
-#      requires it to stay silent about the one fixture the break
-#      does not reach.
-#
-#   4. THE DIFFERENTIAL. Described above.
-#
-#   5. POSITIVE CONTROLS, so §4 cannot pass on two empty files.
-#      Every fixture must print exactly 20 non-empty lines, and the
-#      outputs must be as many DISTINCT files as there are fixtures
-#      - a suite that all printed the same twenty lines would
-#      satisfy §4 against a lowering that ignored its input.
-#      One fixture, `090-callargs`, is there for a hole the other
-#      eight left: every one of them calls a ONE-argument function,
-#      so a lowering that reversed a call's argument list, or an
-#      evaluator that bound the callee's parameters backwards,
-#      would print the same lines on both sides of §4 and match
-#      its golden.
-#
-#   6. THE COMPILER EMITS FROM THE IR. This section used to assert
-#      the opposite - that nothing imported `mir`, so `emit-llvm`
-#      could not have moved. `codegen.ax` imports it now, and
-#      `mirEmitOrWalk` emits the single-block arithmetic subset FROM
-#      the IR. The claim that nothing moved is therefore made where
-#      it can still be checked: the routing has an OFF switch, and
-#      `AXIOM_MIR_EMIT=0` against the default must be byte-identical
-#      over `self_host/main.ax`, every stdlib module and every
-#      `tests/selfhost` and `tests/stdlib` program.
-#
-#      With a FLOOR on how many functions took the IR path, printed
-#      every run, because a routing that fell back to the walk for
-#      everything answers "identical" too. The count is read off the
-#      emitted text (`AXIOM_MIR_EMIT=mark`), and stripping the marks
-#      must reproduce the unmarked emission - so it is a measurement
-#      of that text and not a report about it. ABLATION 3 breaks one
-#      emission rule and requires the comparison to go red.
-#
-#   6b. THE COVERAGE FLOOR. The lowering handles a SUBSET, and
-#      refuses anything else outright, so a rule that narrowed itself
-#      to keep §4 green would leave every other check passing. This
-#      lowers every module in `self_host/` and `stdlib/` and requires
-#      the count not to fall; it PRINTS the live number, so drift is
-#      visible long before it is a failure. It also requires the
-#      count to be a strict subset of the corpus, because "everything
-#      lowered" would mean the counter, not the lowering, is what
-#      changed.
-#
-#   7. THE OPERATOR TABLE, against `codegen.ax`'s. `mir.ax` cannot
-#      import `codegen.ax` - the arrow runs the other way now, and a
-#      cycle is what the two tables exist to avoid - so it carries
-#      its own copy of `binopToLLVM` + `cmpToLLVM`.
-#      `mirtool optable` is the one place in the tree that imports
-#      both, and all sixteen operators must agree. The seventeenth row
-#      must DISAGREE: `codegen.ax` answers "add" for a name it never
-#      expects to be handed, and `mir.ax` answers "", which is what
-#      makes the lowering refuse rather than emit a wrong opcode.
-#
-#   8. THE ABLATIONS, each in a shadow tree with the driver - or, for
-#      the third, the whole compiler - rebuilt from it, and each
-#      chosen so that they are ORTHOGONAL: each must turn its own
-#      checks red and leave the others' green, because two ablations
-#      that fire the same check are one ablation written twice.
-#
-#      ABLATION 1 swaps a binary operator's operands in
-#      `mLowerApp`. The IR stays well formed - so §3 must stay
-#      SILENT - and its meaning changes, so §2 and §4 must go red.
-#      Measured on 010-arith: the first line goes from 25 to 2.
-#
-#      ABLATION 2 drops every `br` terminator in `mlcTerm`. Every
-#      fixture whose golden contains a `condbr` must then be reported
-#      as `has 0 terminators, want exactly 1`, and every fixture
-#      whose golden does not must stay SILENT - a verifier that
-#      shouted about everything would pass the first half and fail
-#      the second. Which fixtures are which is read off the goldens
-#      rather than listed here.
-#
-#      ABLATION 3 removes the CONSTANT FOLD from `mirEmitInsts` in
-#      `codegen.ax` and rebuilds the compiler from the shadow tree.
-#      §6's byte comparison must then go red - and, in the same
-#      breath, the ablated compiler must still emit the reference
-#      text with the routing OFF, or the red would be about something
-#      other than the IR path.
-#
-#      ABLATION 4 answers a join block's parameter with one arm's
-#      register instead. Terminators, single assignment and
-#      reachability all still hold, so it is the DOMINANCE rule
-#      alone that must fire, on every branching fixture and none
-#      other.
-#
-#      ABLATION 5 deletes the cast erasure: a conversion refuses
-#      instead of answering its value's register. §2 and §4 must go
-#      red exactly on the fixtures whose sources cast - derived
-#      from each fixture's own bytes, not listed - while §3 stays
-#      silent everywhere, since a refusal produces no IR at all.
-#
-#      ABLATION 6 answers the `true` constant as 0. §2 and §4 must
-#      go red exactly on the fixtures spelling a boolean literal -
-#      derived from each fixture's source outside comments and
-#      strings, not listed - while §3 stays silent, since the IR
-#      stays well formed with the wrong meaning.
-#
-#      ABLATION 7 corrupts one binop spelling: `%` lowers to `srex`,
-#      which no rule writes. §3 must name it on exactly the fixtures
-#      whose goldens carry an `srem` - derived from the goldens, not
-#      listed - and stay silent on the rest. Ablations 1 and 2 break
-#      operands and terminators; neither reaches what a binop is
-#      called, which is the second axis of the closed opcode set.
-#
-#      ABLATION 8 rebinds the exit to the loop's ENTRY values instead
-#      of its exit parameters: every post-loop read answers what the
-#      `mut` held before the first trip. §2 and §4 must go red exactly
-#      on the fixtures whose goldens carry an applied `condbr` - a
-#      `condbr` line holding a paren, which only the loop lowering
-#      writes - derived from the goldens, not listed, while §3 stays
-#      silent, since an entry value dominates the exit as soundly as
-#      the parameter does. The back-edge is deliberately NOT the seam:
-#      answering stale values there diverges rather than
-#      mis-answering, and a drill that hangs is not a drill. (The
-#      loop's own 0 answer is pinned the other way: fixture 140 binds
-#      it as `w` and prints it, so §4 answers for the rule every run
-#      without a drill of its own.)
-#
-# AXIOM_BLESS=1 rewrites the §2 goldens and nothing else. It cannot
-# write `self_host/mir.ax`, the fixtures, `codegen.ax` or the corpus,
-# which is why §3 to §9 survive a bless.
+# A bless rewrites the §2 goldens and nothing else. It cannot write
+# `mir.ax`, the fixtures, `codegen.ax` or the corpus, so §3 to §9 still
+# hold after one.
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
@@ -186,9 +85,8 @@ checks=0
 ok()  { echo "ok   $1"; checks=$((checks + 1)); }
 bad() { echo "FAIL $1"; checks=$((checks + 1)); failed=$((failed + 1)); }
 
-# How many values each fixture's `probe` is asked for. The fixtures'
-# own `emit` counts to the same number; if the two ever disagreed §5
-# would report the line counts before §4 compared the bytes.
+# How many values each fixture's `probe` is asked for. Each fixture's
+# own `emit` counts to the same number, and §5 checks that they agree.
 PROBES=20
 
 # ---------------------------------------------------------------
@@ -244,11 +142,10 @@ for f in "${fixtures[@]}"; do
     diff "$golden" "$got" | head -12 | sed 's/^/     /'
   fi
 
-  # The fixture convention, checked rather than assumed: every
-  # function named probe* is in the subset and lowers, and `emit` is
-  # not and does not. The second half is what keeps the refusal path
-  # live - a lowering that lowered EVERYTHING would be a lowering
-  # that had stopped refusing, and no golden would say so.
+  # The fixture convention: every `probe*` function lowers, and `emit`
+  # refuses. The second half keeps the refusal path live, since a
+  # freshly blessed golden would not notice a lowering that stopped
+  # refusing.
   if grep -q '^fn probe(' "$got"; then
     ok "$n: probe lowered"
   else
@@ -293,16 +190,10 @@ for f in "${fixtures[@]}"; do
     sed 's/^/     /' "$work/$n.build" | head -10
     continue
   fi
-  # A TRAPPING FIXTURE EXITS NONZERO ON PURPOSE, so the status is
-  # compared rather than refused. Refusing it - which this did - meant
-  # a fixture whose whole point is the trap failed here with a message
-  # about the wrong thing.
-  #
-  # THREE equalities, not two. `NAME.exit` states the status the
-  # fixture is supposed to reach, and native and evaluator are each
-  # checked against IT as well as against each other: two sides alone
-  # would agree happily if both drifted together, which is the shape
-  # this repository refuses elsewhere.
+  # A trapping fixture exits nonzero, so the status is compared with
+  # `NAME.exit` (0 when absent). The native run and the evaluator are
+  # each checked against that file as well as against each other: two
+  # sides that drifted together would still agree.
   want_exit=0
   [[ -f "${f%.ax}.exit" ]] && want_exit="$(tr -d ' \n' < "${f%.ax}.exit")"
   "$work/$n.bin" > "$work/$n.native" 2>"$work/$n.native.err"; nst=$?
@@ -335,8 +226,8 @@ for f in "${fixtures[@]}"; do
   n="$(basename "$f" .ax)"
   [[ -f "$work/$n.native" ]] || { short="$short $n(missing)"; continue; }
   lines="$(wc -l < "$work/$n.native" | tr -d ' ')"
-  # A fixture that traps stops early on purpose, and says how early in
-  # `NAME.lines`; everything else prints the bank's $PROBES.
+  # A fixture that traps stops early, and `NAME.lines` says how early.
+  # Every other fixture prints $PROBES lines.
   want_lines="$PROBES"
   [[ -f "${f%.ax}.lines" ]] && want_lines="$(tr -d ' \n' < "${f%.ax}.lines")"
   [[ "$lines" == "$want_lines" ]] || short="$short $n($lines want $want_lines)"
@@ -369,28 +260,17 @@ fi
 echo
 echo "--- 6. the compiler emits from the IR, and how much of it ---"
 # ---------------------------------------------------------------
-# THE ASSERTION THAT USED TO BE HERE said that no module imported
-# `mir`, and that `axiom emit-llvm self_host/main.ax` was identical
-# with `mir.ax` deleted. Slice 2 deletes it on purpose: `codegen.ax`
-# imports `mir` now, and `mirEmitOrWalk` emits a measured subset of
-# functions FROM the IR rather than from the AST walk.
+# `codegen.ax` imports `mir`, and `mirEmitOrWalk` emits a subset of
+# functions from the IR instead of the AST walk. The routing has an off
+# switch, `AXIOM_MIR_EMIT=0`, so one compiler is compared with itself
+# over one tree. That isolates the routing from everything else, byte
+# for byte, on the compiler and on every corpus program.
 #
-# What replaces it is the same claim, made where it can still be
-# checked. The routing has an OFF switch - `AXIOM_MIR_EMIT=0` - so
-# the comparison is ONE compiler against ITSELF over ONE tree, which
-# is what isolates the routing from everything else the import
-# brought with it. Byte for byte, on the largest Axiom program there
-# is and on 325 smaller ones.
-#
-# Then a FLOOR, printed every run, because "identical" is also what a
-# routing that had fallen back to zero functions would answer, and
-# every other check here would still pass - which is this
-# repository's most common defect. The count is read off the EMITTED
-# TEXT rather than claimed: `AXIOM_MIR_EMIT=mark` writes one
-# `  ; mir` comment inside each function the IR emitted, and
-# stripping those comments back out must reproduce the unmarked
-# emission exactly. So the number cannot be a report about a path
-# nothing took, and the marks cannot be moving anything themselves.
+# A floor on routed functions is printed every run, because a routing
+# that fell back to the walk everywhere also answers "identical". The
+# count is read off the emitted text: `AXIOM_MIR_EMIT=mark` writes one
+# `  ; mir` line inside each function the IR emitted. Stripping those
+# lines must reproduce the unmarked emission, so the marks move nothing.
 if grep -q '^(import mir)$' self_host/codegen.ax; then
   ok "codegen.ax imports mir - the seam is live"
 else
@@ -401,13 +281,11 @@ if grep -q 'mirEmitOrWalk' self_host/codegen.ax; then
 else
   bad "codegen.ax has no mirEmitOrWalk - the import is there and the routing is not"
 fi
-# THE IMPORTER SET IS EXACT, not merely non-empty. Slice 2 replaced
-# "nothing imports mir" with "these things do", and an exact set is the
-# only version of that which still says something: a third consumer
-# arriving silently is what a `grep -q` would miss, and each consumer
-# is a place the IR's shape becomes load-bearing.
+# The set of importers is exact. A new consumer arriving unnoticed is
+# what a `grep -q` would miss, and each consumer makes the IR's shape
+# load-bearing somewhere else.
 #
-#   codegen.ax   emits from it (slice 2)
+#   codegen.ax   emits from it
 #   axir.ax      projects it into the `.axir` record file
 #   mireval.ax   evaluates it, and is §4's independent reference
 want_mir="axir.ax codegen.ax mireval.ax"
@@ -418,9 +296,8 @@ else
   bad "the importers of mir have moved: want [$want_mir], got [$got_mir]"
 fi
 
-# `mireval` is the reference evaluator and is still test-only: it is
-# what §4 compares the compiler against, and a compiler that imported
-# its own reference would be comparing one walk with itself.
+# `mireval` stays test-only: §4 compares the compiler against it, and a
+# compiler that imported its own reference would be compared with itself.
 ev_importers="$(grep -l -E '^\(import mireval\)' self_host/*.ax | grep -v '^self_host/mireval\.ax$' | tr '\n' ' ')"
 if [[ -z "$ev_importers" ]]; then
   ok "no compiler module imports mireval - §4's reference is still independent"
@@ -429,10 +306,9 @@ else
 fi
 
 # The corpus: the compiler itself, every stdlib module, and every
-# `tests/selfhost` and `tests/stdlib` program. The stdlib modules
-# contribute no routed functions of their own - compiled as an entry
-# file a library keeps only what its `main` reaches - and they are
-# here for the other half of the claim, that nothing moved.
+# `tests/selfhost` and `tests/stdlib` program. A stdlib module compiled
+# as an entry file keeps only what its `main` reaches, so it routes
+# nothing; it is here to show that nothing moved.
 mir_corpus=()
 while IFS= read -r line; do
   mir_corpus+=("$line")
@@ -512,14 +388,12 @@ fi
 echo
 echo "--- 6b. the coverage floor: how much of the corpus lowers ---"
 # ---------------------------------------------------------------
-# The lowering handles a SUBSET and refuses anything else outright,
-# so a rule that narrowed itself to keep §4 green would leave every
-# other check passing. This lowers every module in `self_host/` and
-# `stdlib/` and requires the count not to fall; it PRINTS the live
-# number, so drift is visible long before it is a failure. It also
-# requires the count to be a strict subset of the corpus, because
-# "everything lowered" would mean the counter, not the lowering, is
-# what changed.
+# The lowering handles a subset and refuses everything else, so a rule
+# that narrowed itself to keep §4 green would leave every other check
+# passing. This lowers every module in `self_host/` and `stdlib/`,
+# prints the live count so drift shows early, and fails below FLOOR.
+# The count must stay a strict subset of the corpus: "everything
+# lowered" would mean the counter changed, not the lowering.
 FLOOR=2250
 CORPUS_FLOOR=4700
 tot_l=0
@@ -568,12 +442,11 @@ else
   bad "mirtool optable printed $n_rows rows, expected 17"
   sed 's/^/     /' "$work/optable" | head -19
 fi
-# Fields are counted from the END, not the start: the `|` operator's
-# own row is `||or|or`, four fields, so `$2 != $3` compares two halves
-# of the name and the row misreads as disagreeing with an empty name.
-# `mine` is always the second-to-last field and `cg` the last whatever
-# the name holds, because neither spelling ever contains a bar - and
-# the report prints the whole row, since `$1` of that row is empty.
+# Fields are counted from the end. The `|` operator's own row is
+# `||or|or`, four fields, so `$2 != $3` would compare two halves of the
+# name. Neither spelling contains a bar, so `mine` is always field NF-1
+# and `cg` field NF. The report prints the whole row, since that row's
+# `$1` is empty.
 disagree="$(awk -F'|' 'NR <= 16 && $(NF-1) != $NF { print $0 }' "$work/optable" | tr '\n' ' ')"
 if [[ -z "$disagree" && "$n_rows" == "17" ]]; then
   ok "all sixteen operators carry the spelling codegen.ax already emits"
@@ -581,7 +454,7 @@ else
   bad "mir.ax and codegen.ax disagree on: $disagree"
   sed 's/^/     /' "$work/optable"
 fi
-# Row 17 is a name that is not an operator. The two MUST differ, or
+# Row 17 is a name that is not an operator. The two must differ, or
 # `mBinOp`'s refusal has been replaced by codegen's fall-through and
 # a mistyped call would lower to an `add`.
 last_mine="$(awk -F'|' 'NR == 17 { print $(NF-1) }' "$work/optable")"
@@ -609,81 +482,58 @@ ablate() {
 import re, sys
 p, which = sys.argv[1], sys.argv[2]
 s = open(p, encoding="utf-8").read()
-# THE SEAMS ARE MATCHED WHITESPACE-INSENSITIVELY, and that is not
-# tidiness. `axiom fmt` rewrites a file IN PLACE and puts a long
-# constructor's arguments on ONE line separated by runs of spaces.
-# Ablation 1's seam was written against the unformatted spelling of
-# `mLowApp`'s `MO_BIN` emission, `mir.ax` was formatted afterwards,
-# and the seam then appeared ZERO times: the ablation could not be
-# built, so this gate reported a failure it could not explain in
-# place of the evidence it exists to produce. A seam that this
-# repository's own formatter can invalidate is a check that stops
-# firing, so both are written with `\s+` between atoms - and both
-# still assert the seam matches EXACTLY ONCE, which is what makes a
-# vanished seam loud instead of silent.
+# Seams match whitespace-insensitively. `axiom fmt` rewrites a file in
+# place and can put a long constructor's arguments on one line, separated
+# by runs of spaces, so atoms are joined with `\s+`. Each seam must still
+# match exactly once, so a vanished seam fails loudly.
 if which == "1":
-    # A binary operator's operands, swapped. Well-formed IR, wrong
-    # meaning - `sub`, `sdiv`, `srem` and every comparison invert.
+    # A binary operator's operands, swapped. Well-formed IR with the
+    # wrong meaning: `sub`, `sdiv`, `srem` and every comparison invert.
     pat = re.compile(r"(MO_BIN\s+\(mlcFresh lc\)\s+)\(vecGet out 0\)(\s+)\(vecGet out 1\)")
     rep = r"\g<1>(vecGet out 1)\g<2>(vecGet out 0)"
 elif which == "2":
-    # Every unconditional branch dropped. The branchless fixture is
-    # untouched; every other block loses its terminator.
+    # Every unconditional branch dropped. Branchless fixtures are
+    # untouched; elsewhere each block that ended in a `br` has no
+    # terminator.
     pat = re.compile(r"\(if\s+(\(>\s+\(vecLen lc\.cur\.term\)\s+0\))(\s+0\s+\{\s+\(vecPush lc\.cur\.term n\))")
     rep = r"(if (|| \g<1> (== n.op MT_BR))\g<2>"
 elif which == "4":
-    # An `if` answers the THEN arm's register instead of the join
-    # block's parameter. Every block still has its terminator and
-    # every register is still defined exactly once, so ablations 1
-    # and 2's checks say nothing; the only thing wrong with the
-    # result is that the definition sits in a block which does not
-    # DOMINATE the use. Scoped to `mLowerIf` by the function head:
-    # the `&&`/`||` desugar ends its own join the same way, and an
-    # unscoped seam matches both constructs instead of one.
+    # An `if` answers the then arm's register instead of the join
+    # block's parameter. Every block keeps its terminator and every
+    # register is defined once; the only fault is a definition in a
+    # block that does not dominate the use. Scoped to `mLowerIf` by the
+    # function head: the `&&`/`||` desugar ends its join the same way.
     pat = re.compile(r"(\(pub fn \(mLowerIf[\s\S]*?\(set lc\.cur bj\)\s+)pj")
     rep = r"\g<1>r1"
 elif which == "5":
     # The cast erasure, removed: a conversion refuses instead of
-    # answering its value's register. Every probe that casts goes
-    # from lowered to refused, so the goldens and the differential
-    # move while the verifier stays silent - nothing ill-formed is
-    # produced, which is what distinguishes this drill from
-    # ablations 2 and 4.
-    # Scoped to `mLowerApp` by the function head: the `&&`/`||`
-    # desugar lowers its right-hand side through the same call shape,
-    # and an unscoped seam matches both instead of one.
+    # answering its value's register. The goldens and the differential
+    # move, and the verifier stays silent because nothing ill-formed is
+    # produced. Scoped to `mLowerApp` by the function head: the
+    # `&&`/`||` desugar lowers its right-hand side through the same call.
     pat = re.compile(r"(\(pub fn \(mLowerApp[\s\S]*?)\(mLower\s+lc\s+env\s+\(vecGet\s+args\s+1\)\)")
     rep = r"\g<1>(- 0 1)"
 elif which == "6":
-    # `true` lowered as 0: the boolean constant answers the wrong
-    # value. Well-formed IR with the wrong meaning, so the goldens
-    # and the differential move while the verifier stays silent -
-    # the same shape as ablation 1, for the constant the operand
-    # swap cannot reach. (The replacement is assembled without a
-    # literal quote: this seam runs inside a quoted heredoc, and a
-    # backslash-escaped quote would land in the source as AX1001.)
+    # `true` lowered as 0: well-formed IR with the wrong meaning, like
+    # ablation 1, for the constant an operand swap cannot reach. The
+    # replacement builds its quotes with `chr(34)`: a backslash-escaped
+    # quote in this quoted heredoc lands in the source as AX1001.
     pat = re.compile(r"\(mlcFresh lc\)\s+1\s+0\s+\"\"")
     rep = "(mlcFresh lc)        0        0        " + chr(34) + chr(34)
 elif which == "7":
-    # One binop spelling corrupted: `%` lowers to `srex`, which no
-    # rule writes and no consumer reads. The seam names the `mBinOp`
-    # row, not the bare spelling: `srem` also appears in `mIsDivOp`
-    # and `mIsBinSpelling`, and those two keep the true set - which
-    # is what makes the verifier fire and the guard disappear. (Plain
-    # quotes, not `chr(34)`: single-quoted raw strings carry them
-    # through the quoted heredoc untouched.)
+    # `%` lowers to `srex`, which no rule writes and no consumer reads.
+    # The seam names the `mBinOp` row, not the bare spelling: `srem`
+    # also appears in `mIsDivOp` and `mIsBinSpelling`, which keep the
+    # true set, so the verifier fires. Single-quoted raw strings carry
+    # plain quotes through the quoted heredoc untouched.
     pat = re.compile(r'\(strEq nm "%"\)\s+"srem"')
     rep = r'(strEq nm "%")  "srex"'
 elif which == "8":
-    # The exit rebinds to the ENTRY values instead of the exit
-    # parameters: every post-loop read answers what the `mut` held
-    # before the first trip. Well-formed IR with the wrong meaning,
-    # so the goldens and the differential move while the verifier
-    # stays silent - the same shape as ablations 1 and 6, for the
-    # rule neither reaches. Scoped to `mLowerWhile` by the function
-    # head; the `px` rebind is the only one of the three that names
-    # the exit's parameters, so the seam cannot land on the header's
-    # or the body's.
+    # The exit rebinds to the entry values instead of the exit
+    # parameters, so every read after the loop answers what the `mut`
+    # held before the first trip. Well-formed IR with the wrong meaning.
+    # Scoped to `mLowerWhile` by the function head; the `px` rebind is
+    # the only one of the three that names the exit's parameters.
     pat = re.compile(r"(\(pub fn \(mLowerWhile[\s\S]*?mRebind\s+env\s+names\s+)px(\s+0\))")
     rep = r"\g<1>entryRegs\g<2>"
 else:
@@ -717,10 +567,8 @@ else
     n="$(basename "$f" .ax)"
     "$a1" lower "$f" > "$work/abl1.$n.mir" 2>/dev/null
     cmp -s "$work/abl1.$n.mir" "tests/mir/$n.mir" || n_red_print=$((n_red_print + 1))
-    # The braces catch the SHELL's own "Segmentation fault" line, which
-    # a redirect on the command alone does not: an ablated evaluator
-    # that dies is still a red, but the message would be mistaken for
-    # this gate crashing.
+    # The braces also catch the shell's own "Segmentation fault" line,
+    # which would otherwise read as this gate crashing.
     { "$a1" run "$f" "$PROBES" > "$work/abl1.$n.out" 2>/dev/null; } 2>/dev/null
     (( $? > 128 )) && n_crashed=$((n_crashed + 1))
     cmp -s "$work/abl1.$n.out" "$work/$n.native" || n_red_diff=$((n_red_diff + 1))
@@ -737,18 +585,16 @@ else
   else
     bad "ABLATION 1: §4 goes red on only $n_red_diff of $n_fix - the differential is not reading the operands"
   fi
-  # Every fixture is written so that the swap answers a WRONG NUMBER
-  # rather than diverging. A crash is still a red, but it is a red
-  # that would also appear if the machine were broken, so it is not
-  # the evidence this ablation is here to produce.
+  # Every fixture is written so the swap answers a wrong number instead
+  # of diverging. A crash is still red, but a broken machine would crash
+  # too, so it is not this ablation's evidence.
   if (( n_crashed == 0 )); then
     ok "ABLATION 1: every red is a wrong answer, not a crash"
   else
     bad "ABLATION 1: $n_crashed fixtures died instead of answering; see 050-mutual's header"
   fi
-  # The whole point of having two ablations: this one produces IR
-  # that is WELL FORMED and wrong, so the verifier must have nothing
-  # to say. If it complained here, §3 and §4 would be one check.
+  # This ablation's IR is well formed and wrong, so the verifier must
+  # say nothing. If it complained here, §3 and §4 would be one check.
   if (( n_verify_noise == 0 )); then
     ok "ABLATION 1: §3 stays silent - a well-formed IR with the wrong meaning"
   else
@@ -768,12 +614,10 @@ else
   wrong=""
   for f in "${fixtures[@]}"; do
     n="$(basename "$f" .ax)"
-    # Which fixtures have a branch to drop is derived from the
-    # CHECKED-IN golden, not from a list written here: a `condbr` in
-    # NAME.mir means the lowering made blocks for that fixture, and
-    # dropping `br` must then break it. A hand-written list would go
-    # stale the moment a fixture was added, and would silently excuse
-    # the very fixture that stopped branching.
+    # Which fixtures branch is read from the checked-in golden: a
+    # `condbr` in NAME.mir means the lowering made blocks, and dropping
+    # `br` must break them. A hand-written list would go stale when a
+    # fixture is added, and would excuse a fixture that stopped branching.
     if grep -q 'condbr' "tests/mir/$n.mir"; then
       n_branchy=$((n_branchy + 1))
       expect=speak
@@ -811,22 +655,15 @@ fi
 
 # --- ABLATION 3: the constant fold, removed ---
 #
-# §6's byte comparison is the acceptance of the whole slice, and a
-# comparison of a compiler with itself is exactly the shape that can
-# pass while measuring nothing. So one emission rule is broken and
-# the comparison must go RED.
+# A compiler compared with itself could pass while measuring nothing,
+# so one emission rule is broken and §6's comparison must go red.
 #
-# The rule is the fold. `MO_CONST` emits no line and consumes no
-# register number - `emitExpr`'s `TAG_E_INT` path puts the literal
-# straight into the operand of whatever reads it - and the ablation
-# makes it take a number instead. Every register after a literal then
-# shifts, which is the failure mode this slice is most exposed to.
-#
-# TWO ASSERTIONS, not one. The comparison must go red WITH the
-# routing on, and the ablated compiler must still emit the reference
-# text with the routing OFF - otherwise the break would be somewhere
-# else in the compiler and the red would prove nothing about the IR
-# path.
+# The rule is the fold. `MO_CONST` emits no line and takes no register
+# number: like `emitExpr`'s `TAG_E_INT` path, it puts the literal
+# straight into its reader's operand. The ablation makes it take a
+# number, so every later register shifts, the failure this path is most
+# exposed to. With the routing off, the ablated compiler must still emit
+# the reference text, or the red proves nothing about the IR path.
 ablate_codegen() {
   local root="$work/abl3"
   rm -rf "$root"
@@ -836,10 +673,8 @@ ablate_codegen() {
 import re, sys
 p = sys.argv[1]
 s = open(p, encoding="utf-8").read()
-# Whitespace-insensitive between atoms, for the reason ABLATION 1's
-# seam records: `axiom fmt` rewrites a file IN PLACE and runs a long
-# constructor's arguments together on one line, and a seam its own
-# formatter can invalidate is a check that stops firing.
+# Whitespace-insensitive between atoms, for the reason the `ablate`
+# seams give: `axiom fmt` can rejoin a long constructor's arguments.
 pat = re.compile(r"\(vecSet\s+ops\s+n\.dst\s+\(cast\s+Int\s+\(constStr\s+n\.a\)\)\s*\)")
 rep = "(vecSet ops n.dst (cast Int (regStr (allocReg cg))))"
 hits = len(pat.findall(s))
@@ -882,26 +717,21 @@ fi
 echo
 echo "--- 9. the guard, at the emitted bytes ---"
 # ---------------------------------------------------------------
-# THE EVALUATOR IS NOT THE ONLY WITNESS, and it must not be. §4 proves
-# the IR and the compiled program agree; this proves the compiled
-# program still WRAPS EVERY DIVISION, read straight off the compiler's
-# own emitted IR with no evaluator in the loop. An emitter that began
-# dropping guards while the evaluator dropped them too would satisfy
-# §4 and fail here.
+# §4 shows the IR and the compiled program agree. This shows the
+# compiled program still guards every division, read straight off the
+# compiler's own emitted IR with no evaluator involved. An emitter and
+# an evaluator that dropped guards together would pass §4 and fail here.
 #
-# The property is an exact correspondence in both directions: every
-# `sdiv`/`srem` is the first instruction of a `divok_` block, and every
-# `divok_` block starts with one.
+# The correspondence is exact both ways: every `sdiv`/`srem` is the first
+# instruction of a `divok_` block, and every `divok_` block starts with one.
 "$axc" emit-llvm --input self_host/main.ax > "$work/self.ll" 2>"$work/self.ll.err" || {
   bad "could not emit the compiler's own IR"
 }
 if [[ -s "$work/self.ll" ]]; then
   n_divzero="$(grep -c '^divzero_' "$work/self.ll" || true)"
   n_divok="$(grep -c '^divok_' "$work/self.ll" || true)"
-  # ANCHORED TO THE INSTRUCTION SHAPE, not to the name. A bare grep for
-  # the symbol also matches its `declare` line, which made this count 94
-  # against 93 divisions on the first run - the same family as the
-  # `check-recover` grep that matched a backtrace symbol table.
+  # Match the call instruction, not the bare symbol, which would also
+  # count the symbol's `declare` line.
   n_helper="$(grep -cE '^ *(%[^ ]+ = )?(tail )?call .*@__axiom_div_by_zero\(' "$work/self.ll" || true)"
   n_div="$(grep -cE '= (sdiv|srem) i64' "$work/self.ll" || true)"
   # a division not immediately preceded by its divok_ label
@@ -928,12 +758,10 @@ if [[ -s "$work/self.ll" ]]; then
 fi
 
 # --- ABLATION 4: the join's parameter replaced by one arm's register ---
-# WITHOUT THIS, THE DOMINANCE CHECK CANNOT FAIL. Ablations 1 and 2
-# reach the operand order and the terminator count; neither produces
-# an IR whose definitions are all present and all single-assigned and
-# still out of reach of their uses. That is the shape block
-# parameters exist to make impossible to write by accident - and a
-# rule that only ever answers "fine" is not a rule.
+# Without this drill the dominance check is never seen to fail.
+# Ablations 1 and 2 reach operand order and terminator count; neither
+# produces IR whose definitions are all present and single-assigned yet
+# out of reach of their uses, the shape block parameters exist to prevent.
 if ! ablate 4; then
   bad "ABLATION 4 could not be built"
   sed 's/^/     /' "$work/abl4/build.log" 2>/dev/null | head -10
@@ -962,10 +790,8 @@ else
     bad "ABLATION 4: §3 answered wrongly for:$wrong4"
     sed 's/^/     /' "$work/abl4.020-if.verify" 2>/dev/null | head -6
   fi
-  # Every complaint must be the DOMINANCE one. If the terminator or
-  # single-assignment rules fired here too, this ablation and
-  # ablation 2 would be reporting the same thing and only one of them
-  # would be evidence.
+  # Every complaint must be the dominance one. If the terminator or
+  # single-assignment rules fired too, this would duplicate ablation 2.
   if (( n_domlines == n_lines4 && n_lines4 > 0 )); then
     ok "ABLATION 4: all $n_lines4 complaints are the dominance rule, not a side effect"
   else
@@ -975,14 +801,10 @@ else
 fi
 
 # --- ABLATION 5: the cast erasure, removed ---
-# WITHOUT THIS, THE ERASURE IS UNPINNED. Ablations 1, 2 and 4 all
-# leave a conversion alone: with the erasure deleted every probe
-# that casts goes from lowered to refused, and nothing else moves.
-# Which fixtures those are is derived from the fixture SOURCES -
-# `(cast ` in NAME.ax - not from a list written here, for ablation
-# 2's reason: a hand-written list goes stale the moment a fixture
-# gains or loses a cast, and would silently excuse the very fixture
-# that stopped converting.
+# Without this drill the cast erasure is unpinned: ablations 1, 2 and 4
+# leave conversions alone. With the erasure deleted, every probe that
+# casts refuses and nothing else moves. The casting fixtures are read
+# from the sources (`(cast ` in NAME.ax), for ablation 2's reason.
 if ! ablate 5; then
   bad "ABLATION 5 could not be built"
   sed 's/^/     /' "$work/abl5/build.log" 2>/dev/null | head -10
@@ -1028,12 +850,10 @@ else
 fi
 
 # --- ABLATION 6: `true` answers 0 ---
-# WITHOUT THIS, THE CONSTANT IS UNPINNED. Ablation 1 swaps operands,
-# which a constant survives; nothing else in the drill set touches
-# what a literal answers. Which fixtures those are is derived from
-# the fixture SOURCES - a bare `true` or `false` outside comments
-# and string literals - not from a list written here, for ablation
-# 2's reason.
+# Without this drill a literal's value is unpinned: an operand swap
+# leaves a constant alone. The boolean fixtures are read from the
+# sources (a bare `true` or `false` outside comments and strings), for
+# ablation 2's reason.
 if ! ablate 6; then
   bad "ABLATION 6 could not be built"
   sed 's/^/     /' "$work/abl6/build.log" 2>/dev/null | head -10
@@ -1082,11 +902,10 @@ else
 fi
 
 # --- ABLATION 7: a binop spelling corrupted ---
-# WITHOUT THIS, THE SPELLING AXIS IS UNPINNED. Ablations 1 and 2
-# break operands and terminators; neither touches what a binop is
-# CALLED. Which fixtures those are is derived from the CHECKED-IN
-# goldens - an `srem` in NAME.mir - not from a list written here,
-# for ablation 2's reason.
+# Without this drill a binop's spelling is unpinned: ablations 1 and 2
+# break operands and terminators, not what a binop is called. The
+# `srem` fixtures are read from the checked-in goldens, for ablation
+# 2's reason.
 if ! ablate 7; then
   bad "ABLATION 7 could not be built"
   sed 's/^/     /' "$work/abl7/build.log" 2>/dev/null | head -10
@@ -1131,12 +950,15 @@ else
 fi
 
 # --- ABLATION 8: the exit answers the entry values ---
-# WITHOUT THIS, THE EXIT REBIND IS UNPINNED. Ablations 1 and 6
-# move operands and constants, and neither reaches which registers
-# the names past the loop answer. Which fixtures those are is
-# derived from the CHECKED-IN goldens - a `condbr` line holding a
-# paren, the applied form only the loop lowering writes - not from
-# a list written here, for ablation 2's reason.
+# Without this drill the exit rebind is unpinned: ablations 1 and 6
+# move operands and constants, not which registers the names after a
+# loop answer. The looping fixtures are read from the goldens (a
+# `condbr` line holding a paren, the applied form only the loop lowering
+# writes), for ablation 2's reason.
+#
+# The seam is the exit, not the back-edge: stale values on the back-edge
+# make the loop diverge, and a drill must not hang. The loop's own 0
+# answer needs no drill: `140-while` binds it as `w` and prints it.
 if ! ablate 8; then
   bad "ABLATION 8 could not be built"
   sed 's/^/     /' "$work/abl8/build.log" 2>/dev/null | head -10

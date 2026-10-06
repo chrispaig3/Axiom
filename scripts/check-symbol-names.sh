@@ -1,124 +1,77 @@
 #!/usr/bin/env bash
 # A name the frontend accepts is a name the backend can emit.
 #
-# Nothing in this repository asserted that, and it was false for twelve
-# of the sixteen bytes `isIdentChar` admits. Axiom's identifier set is
-# deliberately wide - `! * + / < > = % & | ' ^` are name characters, so
-# that `(+ a b)` is a call and `set!` and `foo'` are names - and
-# `codegen.ax` wrote every name into LLVM unquoted, where the legal set
-# is only `[-A-Za-z0-9$._]`. So this was a complete program:
-#
-#   (:: foo' (-> Int Int))
-#   (fn (foo' n) n)
-#   (:: main Int)
-#   (fn (main) (foo' 42))
-#
-# accepted by the lexer, the parser, the checker, `fmt` and `symbols`,
-# and then:
+# Axiom's identifier set is wide: `! * + / < > = % & | ' ^` are name
+# characters, so `(+ a b)` is a call and `set!` and `foo'` are names.
+# LLVM's bare symbol set is only `[-A-Za-z0-9$._]`. Written unquoted, a
+# name outside it passes the lexer, the parser, the checker, `fmt` and
+# `symbols`, and then fails in `opt`:
 #
 #   opt: error: expected '(' in function argument list
 #   define i64 @foo'(i64 %n) #0 {
 #   error[AX4003]: opt failed  --> <toolchain>
 #
-# The compiler blaming the native toolchain for its own output, with no
-# span into the source, for a program it had just called well typed.
-# Measured 2026-08-09, one probe per shape as a function name and again
-# as a parameter name: `plain` and `x-5` ran and answered 42; `foo'`,
-# `a+b`, `set!`, `a*b`, `a=b`, `a^b`, `a<b`, `a|b`, `a&b`, `a%b`, `a/b`
-# and `a>b` all exited 4. `x-5` survived only because `-` happens to be
-# legal in both sets.
+# That blames the toolchain for the compiler's own output, with no span
+# into the source.
 #
-# WHY NO GATE COULD SEE IT. The same shape as the empty form, as block
-# comments, as private declarations: all 1,625 distinct top-level names
-# in `stdlib/` and `self_host/` are already inside LLVM's set - counted
-# as the `fn`/`define` heads plus the `::` subjects over those two
-# trees' 35 files, of which 0 carry an operator byte at all - and every
-# apostrophe in either tree is inside a comment or a string. The corpus
-# is written by people solving problems in Axiom, and nobody's problem
-# needed a prime. A sweep over real code cannot find this; only a sweep
-# over the *rule* can.
+# A sweep over real code cannot find this. Every top-level name in
+# `stdlib/` and `self_host/` is already inside LLVM's set, and every
+# apostrophe there is in a comment or a string. Only a sweep over the
+# rule can.
 #
-# So this gate asks the question the corpus does not. For every
-# printable byte - all 94, not the sixteen the lexer happens to admit,
-# because which bytes those are is the other side of the agreement and
-# must be free to move - it builds three probes: the byte inside a
-# function name, at the start of one, and inside a parameter name. Each
-# one has to reach exactly one of two outcomes:
+# So for every printable byte the gate builds three probes: the byte
+# inside a function name, at the start of one, and inside a parameter
+# name. It tries all 94 bytes, not only those `isIdentChar` admits,
+# because that set is the other side of the agreement and may change.
+# Each probe must reach one of two outcomes:
 #
-#   REFUSED  by `check`, with a diagnostic carrying a code and a span
-#            into the probe. A refusal the user cannot act on is not an
-#            outcome, it is a hang with an exit status.
-#   ACCEPTED by `check`, and then it must BUILD and RUN and answer 42.
+#   refused   by `check`, with a diagnostic carrying a code and a span
+#             into the probe. A refusal the user cannot act on does not
+#             count.
+#   accepted  by `check`, and then it must build, run and answer 42.
 #
-# There is no third outcome, and "accepted, then killed by `opt`" was
-# the third outcome for twelve bytes. `symbols` decides which arm
-# applies: if the frontend reports a function whose name is exactly the
-# probe's, the frontend accepted that NAME, and the backend is then
-# obliged to emit it. That is the whole property in one sentence, and
-# it is deliberately not phrased in terms of `isIdentChar` - asking the
-# lexer what it admits and then checking the backend against that
-# answer is one implementation grading itself.
+# `symbols` decides which arm applies. If the frontend reports a
+# function whose name is exactly the probe's, it accepted that name, and
+# the backend must emit it. The property is not phrased in terms of
+# `isIdentChar`: asking the lexer what it admits and checking the
+# backend against that answer is one implementation grading itself.
 #
-# WHAT WAS DONE ABOUT IT. `llvmSym` (codegen.ax) quotes a name LLVM
-# cannot read bare, routed through the sites that write a user's name
-# into IR: the function definition, the parameter list, the parameter
-# reference, the tail-loop store, the `ptrtoint` of a function value,
-# the three `call` sites, and the effect slot's global with its loads
-# and stores. Compiler-generated names (`_lam_N`, `_thunk_N`, `%aN`,
-# `label_N`) are not routed - they are inside the set by construction,
-# and this gate is what proves the distinction holds.
+# `llvmSym` (codegen.ax) quotes a name LLVM cannot read bare. Every site
+# that writes a user's name into IR goes through it: the function
+# definition, the parameter list, the parameter reference, the tail-loop
+# store, the `ptrtoint` of a function value, the three `call` sites, and
+# the effect slot's global with its loads and stores. Compiler-generated
+# names (`_lam_N`, `_thunk_N`, `%aN`, `label_N`) are inside the set by
+# construction and skip it; this gate shows that distinction holds.
 #
-# MEASURED, before the gate was written:
-#   - quoted symbols assemble on ALL FOUR targets at -O0 and -O2.
-#     `define i64 @"foo'"` and `%"n'"` and `@"g!x"` through
-#     `llc -mtriple=<t> -relocation-model=pic -filetype=obj`, exit 0
-#     for arm64-apple-macosx14.0.0, x86_64-apple-macosx14.0.0,
-#     aarch64-unknown-linux-gnu and x86_64-unknown-linux-gnu, and `nm`
-#     shows the names surviving into the object intact (`_foo'`,
-#     `_a+b`, `_set!`). So the fix is quoting, not mangling: the symbol
-#     a debugger shows is still the name the programmer wrote.
-#   - the change is a no-op on this tree, to the byte. The compiler's
-#     own IR - 2,342,271 bytes of it - is IDENTICAL emitted by a
-#     compiler with `llvmSym` and one without, and contains zero quoted
-#     names. That is why `check-bootstrap.sh`'s IR identity and
-#     `check-reproducible.sh` cannot move.
+# Quoting rather than mangling keeps the symbol a debugger shows equal to
+# the name the programmer wrote. Quoted symbols assemble on every target,
+# and `nm` shows them intact (`_foo'`, `_a+b`, `_set!`). The compiler's
+# own IR contains no quoted names, so `check-bootstrap.sh`'s IR identity
+# and `check-reproducible.sh` are unaffected.
 #
-# NEGATIVE TEST, run 2026-08-09 against this version of this script.
-# `llvmSym` ablated to the identity - `(pub fn (llvmSym name) name)` -
-# in a scratch COPY of the tree, and this script run with its repo root
-# pointed at that copy, so the compiler under test is built from the
-# ablated source rather than merely by it. Exit 1, 42 of 290:
+# Negative test: ablate `llvmSym` to the identity,
+# `(pub fn (llvmSym name) name)`, in a scratch copy of the tree, and run
+# this script with its repo root pointed at the copy, so the compiler
+# under test is built from the ablated source. It fails every sweep probe
+# that needs quoting, the self-tail-call, lambda-capture, nullary-call,
+# function-value-thunk and effect-slot probes, `opt-2`, and the
+# quoted-path floor. Two checks still pass, as they should: "plain names
+# are unquoted" catches over-quoting, which the identity cannot do; and
+# a constructor is a tag, not an emitted symbol. The ablation costs a
+# compiler build, so it is not run on every invocation.
 #
-#   35  sweep probes, every one "the frontend accepted this name and
-#       the backend could not emit it (AX4003 from the toolchain)" -
-#       which is exactly the 35 that need quoting in a good build, so
-#       the two halves account for each other with nothing left over
-#    5  self-tail-call, lambda-capture, nullary-call,
-#       function-value-thunk and effect-slot, each ran to 4
-#    1  opt-2, build failed on `define i64 @a+b(i64 %n)`
-#    1  the quoted-path floor, 0 where the floor is 12
-#
-# Restored: 290/290, exit 0. Two of the checks here do NOT move under
-# that ablation, and both are supposed not to: "plain names are
-# unquoted" is an over-quoting check, which the identity satisfies; and
-# the `constructor` probe passes, because a constructor is a tag rather
-# than an emitted symbol - it is in the bank to show that a
-# `Val'`-shaped constructor works at all, not to exercise quoting.
-#
-# The ablation is not re-run on every invocation because it costs a
-# compiler build; it is reproduced by that one-line edit.
-#
-# Requires: a compiler, and the native toolchain (`opt`/`llc`/`cc`),
-# since the accepting arm is only meaningful if it actually runs.
+# Requires a compiler and the native toolchain (`opt`, `llc`, `cc`),
+# since the accepting arm means something only if it runs.
 
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
 gate_init
 
-# Built from the tree, the way every other self-hosting gate does it, so
-# that an ablation of `self_host/` is visible here rather than hidden
-# behind whatever binary `AXIOM` happens to name.
+# Built from the tree, like every other self-hosting gate, so an ablation
+# of `self_host/` shows here instead of hiding behind whatever binary
+# `AXIOM` names.
 gate_build_axc axc "$work/axiom"
 
 d="$work/p"; mkdir -p "$d"
@@ -126,8 +79,8 @@ probes=0; failed=0; accepted=0; refused=0; quoted=0
 accepted_chars=""
 
 # probe <label> <the name> <kind>
-#   kind `fn`    - the name is a top-level function's
-#   kind `param` - the name is a parameter's
+#   kind `fn`:    the name is a top-level function's
+#   kind `param`: the name is a parameter's
 #
 # Writes the source with printf '%s' so that no byte of the name is ever
 # read by the shell as a format, an escape or an expansion.
@@ -151,8 +104,7 @@ probe() {
   out="$( (cd "$d" && "$axc" --diagnostic-format=ai check p.ax) 2>&1 )"; st=$?
 
   # 1. No signal, ever. A process killed by a signal produces no output,
-  #    so it satisfies every assertion phrased about output - which is
-  #    exactly how the empty form survived `check-fmt-selfhost.sh`.
+  #    so it satisfies every assertion phrased about output.
   if [[ $st -ge 128 ]]; then
     echo "FAIL $label: check was killed by a signal (exit $st)"
     failed=$((failed + 1)); return
@@ -171,31 +123,29 @@ probe() {
 
   accepted=$((accepted + 1))
 
-  # Did the frontend accept this as a NAME, or did it accept some other
-  # program? `symbols` is the frontend's own answer, and it is the only
-  # thing that makes 42 the right expectation.
+  # Did the frontend accept this as a name, or as some other program?
+  # `symbols` is the frontend's own answer, and only that makes 42 the
+  # right expectation.
   symst=0
   ( cd "$d" && "$axc" --diagnostic-format=ai symbols p.ax ) >"$d/sym.txt" 2>&1 || symst=$?
   if [[ $symst -ge 128 ]]; then
     echo "FAIL $label: symbols was killed by a signal (exit $symst)"
     failed=$((failed + 1)); return
   fi
-  # For a parameter probe the name to look for is `f`, not the parameter:
-  # `symbols` reports top-level declarations. That is not a weaker
-  # assertion, because the parameter's acceptance is already proved by
-  # `check` succeeding - the body IS the parameter, so a name that did
-  # not bind is `AX3001`, and a name that split into two tokens changes
-  # the arity and makes `(f 42)` a partial application (`AX3013`).
-  # Either way the probe would have taken the refusing arm above.
+  # For a parameter probe the name to look for is `f`, since `symbols`
+  # reports top-level declarations. `check` succeeding already proves the
+  # parameter was accepted. The body is the parameter, so a name that did
+  # not bind is `AX3001`, and a name split into two tokens changes the
+  # arity and makes `(f 42)` a partial application (`AX3013`). Either way
+  # the probe takes the refusing arm above.
   local want_name="$nm" is_name=0
   [[ "$kind" == param ]] && want_name="f"
   while read -r kindcol namecol _rest; do
     [[ "$kindcol" == "F" && "$namecol" == "$want_name" ]] && is_name=1
   done < "$d/sym.txt"
 
-  # 3. The accepting arm. It has to run, and the toolchain has to not be
-  #    the one to refuse it - that refusal is the defect this file is
-  #    named after.
+  # 3. The accepting arm. It has to run, and the toolchain must not
+  #    refuse it: that refusal is the defect this gate exists for.
   runout="$( (cd "$d" && "$axc" --diagnostic-format=ai run p.ax) 2>&1 )"; runst=$?
   if [[ $runst -ge 128 ]]; then
     echo "FAIL $label: accepted, then run was killed by a signal (exit $runst)"
@@ -216,9 +166,8 @@ probe() {
   # A gate that never reaches the quoted path proves nothing about it.
   if [[ $is_name -eq 1 ]]; then
     accepted_chars="$accepted_chars$label"$'\n'
-    # Both sigils. A parameter is quoted as `%"p+q"`, and counting only
-    # `@` missed all twelve parameter probes - 23 where 35 were due,
-    # which is how this line came to be written the long way.
+    # Both sigils: a parameter is quoted as `%"p+q"`, so counting only
+    # `@` would miss every parameter probe.
     if ( cd "$d" && "$axc" emit-llvm p.ax -o ir.ll ) >/dev/null 2>&1; then
       grep -qE '[@%]"' "$d/ir.ll" && quoted=$((quoted + 1))
     fi
@@ -240,7 +189,7 @@ done
 # ---------------------------------------------------------------
 echo "== the constructs that emit a name through another door =="
 
-# struct <label> <expected exit>; source on stdin.
+# struct_probe <label> <expected exit>; source on stdin.
 struct_probe() {
   local label="$1" want="$2" out st
   probes=$((probes + 1))
@@ -308,25 +257,17 @@ struct_probe function-value-thunk 42 <<'AXEOF'
 AXEOF
 
 # An effect slot is a global named after the effect, with loads and
-# stores around the handler. The slot is ALSO the registry's key, so
-# this pins that the quoting happens at emission and not in the key -
-# get that wrong and the global's definition and its loads disagree.
+# stores around the handler. The slot is also the registry's key, so
+# this pins that quoting happens at emission, not in the key. Otherwise
+# the global's definition and its loads disagree.
 #
-# The handler takes ONE parameter because `op'` takes one argument.
-# `emitApplyRegs` applies the handler to the OPERATION's arguments, one
-# per indirect call, and every handler in the corpus is written that way
-# - including `tests/selfhost/820-effect-handlers.ax`, which curries a
-# two-argument operation's handler by hand as
-# `(lambda (p) (lambda (q) ...))`.
-#
-# This probe used to be written `(lambda (v k) v)`, which answered 42
-# only because a multi-parameter lambda silently DROPPED its surplus
-# parameters - it had no representation at all, and the second one bound
-# nothing. Now that `(lambda (v k) b)` means `(lambda (v) (lambda (k) b))`,
-# applying it to `op'`'s single argument correctly yields the inner
-# closure, and the probe read its address (48). The old spelling was
-# asserting the bug; the subject of this probe - where the quoting
-# happens - is untouched either way.
+# The handler takes one parameter because `op'` takes one argument.
+# `emitApplyRegs` applies the handler to the operation's arguments, one
+# per indirect call. `(lambda (v k) b)` means
+# `(lambda (v) (lambda (k) b))`, so a two-parameter handler here would
+# answer with the inner closure's address.
+# `tests/selfhost/820-effect-handlers.ax` curries a two-argument
+# operation's handler by hand as `(lambda (p) (lambda (q) ...))`.
 struct_probe effect-slot 42 <<'AXEOF'
 (effect E' (op' :: (-> Int Int)))
 (:: user (-> Int Int))
@@ -357,10 +298,9 @@ for f in bare qual; do
     failed=$((failed + 1))
   fi
 done
-# The mangled form has to be the quoted one, not a bare `@M$g+h`. The
-# failing branch of the emit is a FAILURE and not a skip: a check that
-# quietly disappears when its command errors is the `check-tree-sitter`
-# hazard, and reports success without having looked.
+# The mangled form must be quoted as a whole, not a bare `@M$g+h`. A
+# failed emit counts as a failure: a check that quietly disappears when
+# its command errors reports success without having looked.
 probes=$((probes + 1))
 if ! ( cd "$xm" && "$axc" emit-llvm bare.ax -o xm.ll ) >/dev/null 2>&1; then
   echo "FAIL cross-module: emit-llvm failed, so the mangled name was never inspected"
@@ -387,10 +327,9 @@ else
 fi
 
 # ---------------------------------------------------------------
-# The quoting has to be MINIMAL. Everything above passes just as well
-# from a `llvmSym` that quotes unconditionally - and that version would
-# rewrite every symbol in the bootstrap, so the property is not "it
-# runs", it is "a name LLVM can read bare is emitted bare".
+# The quoting must be minimal. Everything above passes just as well with
+# a `llvmSym` that always quotes, which would rewrite every symbol in the
+# bootstrap. So a name LLVM can read bare must be emitted bare.
 # ---------------------------------------------------------------
 echo "== a plain name is still emitted bare =="
 probes=$((probes + 1))
@@ -422,10 +361,10 @@ if [[ $refused -eq 0 || $accepted -eq 0 ]]; then
   echo "FAIL: the sweep produced one outcome only ($accepted accepted, $refused refused)"
   failed=$((failed + 1))
 fi
-# Twelve bytes of `isIdentChar` are outside LLVM's set, in three
+# Twelve bytes of `isIdentChar` are outside LLVM's set, each in three
 # positions, so a correct compiler quotes on well over twelve probes.
-# The floor is deliberately below the measured 36 so that widening
-# `isIdentChar` does not have to move it.
+# The floor of 12 sits well below that, so changing `isIdentChar` need
+# not move it.
 if [[ $quoted -lt 12 ]]; then
   echo "FAIL: only $quoted probes exercised the quoted path; the floor is 12."
   echo "      A sweep that never reaches it proves nothing about it."

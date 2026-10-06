@@ -1,58 +1,32 @@
 #!/usr/bin/env bash
-# The effect fixpoint's worklist, and the shape it exists to survive.
+# The effect fixpoint's worklist, and the declaration order it exists
+# to survive.
 #
-# WHAT THIS IS ABOUT. `inferEffects` is a monotone fixpoint over the
-# call graph, and until 2026-08-30 every round re-walked EVERY body.
-# One round of two passes in opposite directions (2026-08-25) collapses
-# a linear chain in either declaration order to a single round, which
-# is why the two orders a human writes are both fast. What it does not
-# collapse is an order that defeats both passes at once - `f2 f1 f4 f3
-# f6 f5 ...`, a helper emitted beside each of its callers, which is
-# what a GENERATOR produces. There each round advances the frontier by
-# one pair and pays for a full walk to do it.
+# `inferEffects` is a monotone fixpoint over the call graph. Each round
+# makes two passes in opposite directions, so a linear chain in either
+# declaration order settles in one round. An order that defeats both
+# passes, `f2 f1 f4 f3 f6 f5 ...`, takes one round per pair. A generator
+# that emits a helper beside each caller produces exactly that. The
+# worklist re-walks only the frontier, so that order costs what the
+# plain one does.
 #
-# Measured on this tree the day the worklist landed, one chain of N
-# functions with the effect at the bottom, only the declaration order
-# varying:
+# Three assertions:
 #
-#   n      callers first   pairs swapped   pairs swapped
-#                                          (with worklist)
-#   1000       0.02 s          1.34 s          0.02 s
-#   2000       0.03 s          3.88 s          0.03 s
-#   4000       0.05 s         14.33 s          0.06 s
-#   8000       0.09 s         56.05 s          0.10 s
+#   1. A ratio: `swap / fwd <= 3`. A ratio holds under unknown load; an
+#      absolute time only shows the machine was idle.
+#   2. The same answer. `symbols --calls` over `self_host/main.ax` must
+#      match byte for byte between the tree's compiler and one with the
+#      frontier ablated. A wrong frontier shows up as a missing effect
+#      on one row, with no crash.
+#   3. The negative probe. The ablated compiler must read `swap / fwd >
+#      10`. A compiler with no worklist passes 2 trivially, and 1 on a
+#      fast machine, so without this the gate would still pass with the
+#      worklist removed. The ablation makes `nextFrontier` return every
+#      declaration.
 #
-# 560x at n=8000, and the pathological order now costs what the plain
-# one does.
-#
-# WHAT IS ASSERTED, AND WHY IN THIS ORDER.
-#
-#   1. A RATIO, not a time. `swap / fwd <= 3` on one machine under
-#      unknown load says the two orders cost the same; "swap under
-#      0.2s" says the machine was idle. `check-type-namespace.sh`
-#      learned this the hard way and its note is the reason this gate
-#      is written as a comparison from its first line.
-#
-#   2. THE SAME ANSWER. `symbols --calls` over `self_host/main.ax`,
-#      byte for byte, from the tree's compiler and from one with the
-#      frontier ablated. The worklist may change what the fixpoint
-#      COSTS and must not change what it ANSWERS, and a fixpoint is
-#      exactly the kind of thing where a wrong frontier shows up as a
-#      missing effect on one row out of 3,495 rather than as a crash.
-#
-#   3. THE NEGATIVE PROBE. The ablated compiler must read `swap / fwd
-#      > 10`. Assertions 1 and 2 are both satisfied by a compiler that
-#      never had a worklist - 2 trivially, and 1 on a fast enough
-#      machine with a small enough N - so without this the gate would
-#      be green on the code it exists to hold. `nextFrontier` is one
-#      line and the ablation replaces its body with "every declaration
-#      is dirty", which is precisely the behaviour the worklist
-#      replaced.
-#
-# The chains are GENERATED here rather than checked in: they are 24,000
-# lines at the size this needs, they carry no information a reader
-# wants, and a generator is the only way the size can be raised when a
-# machine gets fast enough for the ratio to stop discriminating.
+# The chains are generated here: they are large, carry nothing a reader
+# wants, and N can rise if machines get fast enough for the ratio to stop
+# discriminating.
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
@@ -64,10 +38,8 @@ checks=0
 ok()  { echo "ok   $*"; checks=$((checks + 1)); }
 bad() { echo "FAIL $*"; failed=$((failed + 1)); }
 
-# N is a compromise: big enough that the quadratic dominates process
-# startup (at n=500 the unfixed compiler takes 0.55s, which is only 25x
-# a `check` that does nothing), small enough that the ablated arm below
-# does not take a minute. 2000 is 3.88s unfixed against 0.03s fixed.
+# N is big enough that the quadratic dominates process startup, and
+# small enough that the ablated arm below stays well under a minute.
 N=2000
 
 # f1 -> f2 -> ... -> fN, the effect at the bottom. Two files, the same
@@ -97,9 +69,8 @@ with open(out, "w") as fh:
 PY
 }
 
-# Seconds, to two places, of one `check`. `python3` rather than `time`
-# because the two `time` spellings disagree about their output format
-# and this gate needs a number it can divide.
+# Seconds, to two places, of one `check`. Timed in python3 because the
+# `time` keyword and `/usr/bin/time` print different formats.
 secs() {
   python3 - "$@" <<'PY'
 import subprocess, sys, time
@@ -111,13 +82,9 @@ PY
 
 ratio() { python3 -c "import sys; a=float(sys.argv[1]); b=max(float(sys.argv[2]),0.01); print(f'{a/b:.1f}')" "$1" "$2"; }
 
-# BOTH SIDES WARM, and this is not a nicety. The first `check` of a run
-# pays for the file cache and the dynamic loader, and on the first
-# writing of this gate that landed on the FAST side: `fwd 0.33s, swap
-# 0.03s, ratio 0.1x` - a pass, arrived at by mismeasuring the
-# denominator by 10x. A ratio is only load-insensitive when both of its
-# terms were taken under the same conditions, so each file is checked
-# once and thrown away before it is timed.
+# Warm each file before timing it. The first `check` of a run pays for
+# the file cache and the dynamic loader, which can skew one term of the
+# ratio by 10x and turn a failure into a pass.
 warm() { "$1" check "$2" >/dev/null 2>&1 || true; }
 
 gen_chain fwd  "$N" "$work/fwd.ax"
@@ -141,8 +108,8 @@ else
   bad "swap/fwd is ${r}x, over the 3x ceiling - the worklist is not doing its work"
 fi
 
-# Both must actually have CHECKED. A compiler that refused both files
-# would have a fine ratio and no meaning.
+# Both files must check clean. A compiler that refused both would have
+# a fine ratio and no meaning.
 for f in fwd swap; do
   if ! "$axc" check "$work/$f.ax" >/dev/null 2>&1; then
     bad "$f.ax does not check - the timings above are of a failure"
@@ -154,16 +121,14 @@ ok "both orders check clean, so the times are of a completed inference"
 echo
 echo "== 2. and answers the same thing =="
 # --------------------------------------------------------------------
-# The frontier ablated to "everything is dirty", which is the behaviour
-# the worklist replaced. Anchored on `nextFrontier`'s own body, so a
-# rename upstream is a loud failure here rather than a silent no-op.
+# Ablate the frontier to "everything is dirty". The seam is
+# `nextFrontier`'s own body, so a rename fails here instead of
+# silently ablating nothing.
 abl="$work/tree"
 mkdir -p "$abl"
 cp -R "$repo_root/self_host" "$repo_root/stdlib" "$abl/"
-# 2026-09-21: the formatter's normal-form move split `nextFrontier`'s
-# one-line body across two lines. The rule is unchanged, so the
-# sentinel follows the spelling: the whole two-line definition,
-# counted exactly.
+# The formatter puts the body on its own line, so the seam is the whole
+# two-line definition, counted exactly.
 seam_old='(pub fn (nextFrontier next decls)
   next)'
 seam_new='(pub fn (nextFrontier next decls)
