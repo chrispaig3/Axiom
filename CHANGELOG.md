@@ -70,17 +70,23 @@ its changelog too.
 - Release what a `mut` local of a reference type holds. `(set x v)`
   releases the value it overwrites, and the scope end releases the last
   one. Reassigning a `File` in a loop now closes each old descriptor,
-  and `(set s (concat s "x"))` no longer leaks the old string. A lambda
-  that captures the slot takes its own share. A slot the compiler can't
-  prove safe keeps the storage-only behaviour. Tested by
-  `tests/stdlib/708-mut-slot-reassign.ax`,
-  `tests/stdlib/709-mut-slot-capture.ax` and
+  and `(set s (concat s "x"))` no longer leaks the old string. A slot
+  the compiler can't prove safe keeps the storage-only behaviour.
+  Tested by `tests/stdlib/708-mut-slot-reassign.ax` and
   `tests/stdlib/710-mut-slot-return.ax`.
 
-- Keep a binding alive while a closure may still read part of it. In
-  `(let ((y x.s)) (lambda (_) y))` under an outer `y`, the closure read
-  freed memory once `x`'s scope ended. Tested by
+- Count a closure's capture by the binding it reads. A lambda that
+  captures an owning `mut` slot takes its own share, so a later `set`
+  can't free what the closure holds. A `let` that rebinds an `Int`
+  parameter's name as a string, `(let ((s (concat "a" "b"))) (lambda
+  (_) s))`, was captured as the parameter, and the closure read freed
+  memory. Tested by `tests/stdlib/709-mut-slot-capture.ax` and
   `tests/stdlib/711-shadowed-capture.ax`.
+
+- Keep a binding alive while a closure may still read part of it. In
+  `(let ((y x.s)) (lambda (_) y))`, where an outer `y` holds its own
+  share, the closure read freed memory once `x`'s scope ended. Tested
+  by `tests/stdlib/711-shadowed-capture.ax`.
 
 - Boot the `baremetal-aarch64` images under QEMU on the darwin-aarch64
   CI leg, where a missing emulator now fails `check-embedded.sh`. Pin

@@ -269,16 +269,19 @@ emitter marks a call when all of the following hold (`mustTailOK` in
   prototypes carry the closure record, or a self-tail-call loop, whose
   retained parameter slots are released after the body.
 - No `let` temporary is waiting to be released at the end of the
-  scope.
+  scope. An owning `mut` slot doesn't stop the mark: the caller
+  releases what the slot holds just before the call, as a self tail
+  call does at its jump.
 - The two prototypes are identical. Every parameter is `i64`, so this
   means the same parameter count, the hidden evidence word included,
   and both return `i64`.
 - No argument is an owned temporary that the caller would release
-  after the call.
+  after the call, and none may hold the value of an owning `mut` slot.
 
 `tests/stdlib/467-mutual-tail.ax` runs ten million alternating calls
 through `ev`/`od`, through a `let` body and a `match` arm, and around a
-three-way cycle. `scripts/check-tail-calls.sh` runs these at
+three-way cycle, and a million with an owning `mut` slot in scope of
+each call. `scripts/check-tail-calls.sh` runs these at
 `--opt 0` under a 512 KiB stack, then deletes the marker from the same
 IR and requires the program to die by signal.
 
@@ -296,11 +299,11 @@ either for unbounded recursion:
    the runtime's callback trampoline and every `extern` boundary. It is
    recorded here as the measured next step, and isn't built.
 2. **A call that hands over an owned temporary**, such as
-   `(od (+ i 1) (concat s "x"))`. The caller releases the temporary
-   after the callee returns (`MM-LIFE-2c` event 3). Releasing it before
-   the call would free a block the callee is about to read, and moving
-   the release into the callee would change the convention for every
-   function.
+   `(od (+ i 1) (concat s "x"))`, or the value of a `mut` slot that
+   owns it. The caller releases the value after the callee returns
+   (`MM-LIFE-2c` event 3). Releasing it before the call would free a
+   block the callee is about to read, and moving the release into the
+   callee would change the convention for every function.
 
 These two shapes run in constant space only at `--opt 1` and above,
 and only while the release after them is dead. That depends on LLVM's
@@ -2612,8 +2615,10 @@ Evidence: `mkParallel` in [parser.ax](../self_host/parser.ax),
 which `(set x v)` assigns. It lowers to an `alloca` with loads and
 stores, is invisible outside its function, and is captured by snapshot
 (`MM-VAL-16`). It performs no effect, because nothing else can observe
-a local's mutation. A slot of a reference type owns what it holds, so
-`set` releases the value it overwrites (`MM-LIFE-2c` event 3).
+a local's mutation. A slot of a reference type usually owns what it
+holds, so `set` releases the value it overwrites. `MM-LIFE-2c` event 3
+lists the slots that only store, such as one whose type is a type
+variable or a `Vec`.
 
 ```scheme
 (:: main Int)
@@ -3120,9 +3125,11 @@ The binding escapes wherever that guarantee stops:
   its capture takes a share too. That holds only while no binder in
   the scope reuses the name, since the walk can't otherwise tell which
   binding the lambda reads (`tests/stdlib/711-shadowed-capture.ax`);
-- when it is the right-hand side of a `set` into a `mut` slot that
-  only stores, since that store takes no share. A slot that owns its
-  value takes one, as a field store does;
+- when it is the right-hand side of a `set` into a `mut` slot whose
+  type isn't a reference, such as a type variable or a `Vec`, since
+  that store takes no share. A store into a slot of a reference type
+  takes one, as a field store does, and a slot that only stores keeps
+  it;
 - under `cast`, `__addr`, `strData` or `strOwner`, the four ways to get
   a word out of a reference, which counting cannot see (`MM-LIFE-2g`'s
   own stated limit).
@@ -3178,17 +3185,17 @@ which is also why `MM-LIFE-2e`'s acceptance measurements cannot move.
 This part of the event is for programs.
 
 **Event 3 emits for `mut` slots**
-(`tests/stdlib/708-mut-slot-reassign.ax`, `709-mut-slot-capture.ax`
-and `710-mut-slot-return.ax`). A `mut` local whose type is a reference
-owns what it holds:
+(`tests/stdlib/708-mut-slot-reassign.ax` and `710-mut-slot-return.ax`).
+A `mut` local whose type is a reference owns what it holds:
 
 - Its initialiser moves in when it arrives owned, and is retained when
   it is borrowed.
 - `(set x v)` does the same for `v`, then releases the value it
   overwrote. A `File` reassigned in a loop closes each old descriptor
   at the `set`.
-- The scope end releases the last value. So does a self tail call
-  that jumps past the scope end (event 4).
+- The scope end releases the last value. So does a tail call that
+  jumps past the scope end: a self tail call (event 4), or a mutual
+  one marked `musttail` (`MM-EXEC-6c`).
 - A lambda that captures the slot takes a share of the value it copies
   (`MM-VAL-16`), and its record's death gives it back.
 
@@ -3234,18 +3241,26 @@ compiler gives a slot ownership only when it can show that
   another.
 
 A `let` that reads the slot whole takes a share of its own, so
-`(let ((old s)) (set s (concat old "!")))` keeps `old` intact. A slot
-the compiler can't prove safe keeps the storage-only behaviour:
-nothing is retained and nothing is released. So does a slot whose
-type is a type variable or a `Vec`, which a `let` never releases
-either. A slot of type `Int`, `Float`, `Bool`, `Char` or `Foreign`
-takes no counts at all.
+`(let ((old s)) (set s (concat old "!")))` keeps `old` intact. A `set`
+that stores one slot's value into another takes a share for the slot
+it stores into, as a field store does, whichever slot was declared
+first. So `(set prev s)` never stops `s` owning.
+
+A slot the compiler can't prove safe keeps the storage-only
+behaviour: nothing is retained and nothing is released. So does a
+slot whose type is a type variable or a `Vec`, which a `let` never
+releases either. A slot that is never `set` and starts from a
+parameter or a literal needs no share, as a `let` of the parameter
+needs none, so it only stores too. A slot of type `Int`, `Float`,
+`Bool`, `Char` or `Foreign` takes no counts at all.
 
 The last value stays when the `let`'s value may carry it. In tail
 position it is still released, after event 2 has retained every value
-the body can answer. A slot replaced by fresh strings, rebuilt from
-itself, bound once per loop iteration, or holding a closure grows the
-arena 0 bytes per iteration over 10,000 iterations.
+the body can answer. A returned `let` that read the slot whole gives
+its own share back the same way. A slot replaced by fresh strings,
+rebuilt from itself, bound once per loop iteration, holding a closure,
+or stored into a sibling slot grows the arena 0 bytes per iteration
+over 10,000 iterations.
 
 **Events 2 and 3 emit, with owned temporaries**
 (`tests/stdlib/372-arc-owned-results.ax`, where every shape reads 0
@@ -3483,8 +3498,11 @@ These still leak, which is the safe direction:
   value, or to a function whose result is a type variable, since none
   of those retains what it hands back;
 - a temporary that a `match` binder escapes from;
-- a temporary stored through `set` into a `mut` slot that only stores:
-  one whose type isn't a reference, or one `slotOwns` refuses;
+- a reference stored through `set` into a `mut` slot that only stores,
+  one whose type is a type variable or a `Vec` or one `slotOwns`
+  refuses. An owned temporary moves in, and a store that another
+  binding's release counts on takes a share. The slot gives back
+  neither;
 - the last value of an owning `mut` slot when the `let`'s value may
   carry it outside tail position;
 - the last value of a `let` or `mut` slot in a function that answers a
