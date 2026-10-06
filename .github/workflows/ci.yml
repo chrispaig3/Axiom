@@ -68,7 +68,7 @@ jobs:
   scope:
     name: What this change touches
     if: github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       docs_only: ${{ steps.q.outputs.docs_only }}
     steps:
@@ -143,7 +143,7 @@ jobs:
       github.event_name != 'schedule'
       && github.event_name != 'workflow_dispatch'
       && needs.scope.outputs.docs_only != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       # The CLI the grammar gate shells out to (npm wrapper as locked,
@@ -178,7 +178,7 @@ jobs:
       github.event_name != 'schedule'
       && github.event_name != 'workflow_dispatch'
       && needs.scope.outputs.docs_only == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       AXIOM_AXC: ${{ github.workspace }}/.axiom-shared/axc
     steps:
@@ -807,11 +807,19 @@ jobs:
       # a static region instead of `mmap`; supported targets keep exactly
       # their bytes. A second compiler with two target-table rows changed
       # must build a program on a 256 KiB static arena that answers as the
-      # `mmap` build does and exits 70 when it outgrows the region. A10,
-      # the blink fixture for `baremetal-aarch64` under QEMU, skips loudly
-      # where QEMU is absent.
+      # `mmap` build does and exits 70 when it outgrows the region. The
+      # darwin-aarch64 leg installs QEMU and requires it, so the
+      # `baremetal-aarch64` images (A10 and A12 to A20) boot there; on
+      # the Linux leg those legs report SKIP.
+      - name: Install QEMU for the bare-metal images
+        if: ${{ !cancelled() && steps.compiler.outcome == 'success' && runner.os == 'macOS' }}
+        run: |
+          brew install qemu
+          qemu-system-aarch64 --version | head -1
       - name: The arena's chunk size is a target constant and mmap is one of two strategies
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
+        env:
+          AXIOM_REQUIRE_QEMU: ${{ runner.os == 'macOS' && '1' || '0' }}
         run: ./scripts/check-embedded.sh
 
       # A tail call runs in constant stack at `--opt 0`: self calls, and
@@ -1290,7 +1298,7 @@ jobs:
   test-freebsd:
     name: Bootstrap from seed (freebsd-x86_64)
     needs: grammar
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -1316,7 +1324,7 @@ jobs:
   test-freebsd-aarch64:
     name: Bootstrap from seed (freebsd-aarch64)
     needs: grammar
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 240
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -1337,7 +1345,7 @@ jobs:
   cross:
     name: Cross-target codegen
     needs: grammar
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/provision
@@ -1361,7 +1369,7 @@ jobs:
   bootstrap:
     name: Self-hosting fixpoint
     needs: grammar
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/provision
@@ -1385,7 +1393,7 @@ jobs:
   seed-provenance:
     name: The seed is its source's emission
     needs: grammar
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -1418,7 +1426,7 @@ jobs:
   seed-lineage:
     name: The seed reproduces from the seed before it
     needs: grammar
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -1463,7 +1471,7 @@ jobs:
   seed-lineage-full:
     name: The seed lineage replays from the Rust anchor
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -1483,7 +1491,7 @@ jobs:
   long-evidence:
     name: The fuzzer's full budget and the model's every trace
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/provision
@@ -1501,7 +1509,7 @@ jobs:
   reproducible:
     name: Reproducible build
     needs: grammar
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/provision
@@ -1527,7 +1535,7 @@ jobs:
       matrix:
         include:
           - name: linux-x86_64
-            os: ubuntu-latest
+            os: ubuntu-24.04
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
@@ -1535,16 +1543,19 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       # Not `./.github/actions/provision`: that action installs the
       # result, and this job tests the build itself.
+      # The same pinned LLVM majors as the provisioning action.
       - name: Install LLVM tools (Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y llvm clang
-          echo "$(llvm-config --bindir)" >> "$GITHUB_PATH"
+          sudo apt-get install -y llvm-18 clang-18
+          echo "/usr/lib/llvm-18/bin" >> "$GITHUB_PATH"
       - name: Install LLVM tools (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew install llvm
-          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+          brew install llvm@23
+          echo "$(brew --prefix llvm@23)/bin" >> "$GITHUB_PATH"
+      - name: Record the toolchain
+        run: llc --version | head -2
       - name: Build the compiler from the committed seed
         run: ./scripts/bootstrap-from-seed.sh

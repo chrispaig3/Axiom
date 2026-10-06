@@ -34,7 +34,7 @@ that passes on one doesn't extend its claim to another.
 | LLVM | 23 (Homebrew `llvm@23`) | 18 (Ubuntu `llvm-18`) | the host's |
 | Runtime | processes by default, `--threads` | processes by default, `--threads` | one thread plus `isr(irq)` and `isr(fault)` |
 | Heap | `mmap` arena | `mmap` arena | static arena with `--heap-ceiling` |
-| Runs in CI | the whole test battery | the whole test battery | compile-time checks; emulator runs locally |
+| Runs in CI | the whole test battery | the whole test battery | compile-time checks, and the QEMU runs on the H3 leg |
 
 CI also builds the compiler from the seed on `linux-x86_64`, and on
 `freebsd-x86_64` and `freebsd-aarch64` in virtual machines, and
@@ -116,8 +116,9 @@ ThreadSanitizer. It covers the thread lowering only.
 | R-D2c | A periodic interrupt workload and a DMA driver keep their budgets and ownership protocol | `MM-EXEC-18` | `tests/embedded/periodic.ax`, `tests/embedded/dma.ax` |
 | R-D2e | The MMU and caches are on before `main`, with read-only code, non-executable data and stack guards | `MM-EXEC-19` | `tests/embedded/overflow.ax` |
 
-R-D2b, R-D2c and R-D2e run under QEMU. CI has no emulator yet, so
-those runs are local only.
+R-D2b, R-D2c and R-D2e run under QEMU on the darwin-aarch64 CI leg.
+Emulator evidence is not hardware evidence: QEMU models no caches,
+timing or bus faults.
 
 ### E. The evidence itself
 
@@ -173,7 +174,7 @@ the neighbourhood of the corpus.
 | No plans written against a licensed standard | Development, verification, configuration and tool plans agreed with the assessor | licensed standards, assessor |
 | No structural coverage of application object code | Statement, decision or MC/DC coverage on the target, plus analysis of compiler-added code | target, tools |
 | Compiler-added code (counting, traps, the allocator, start-up) isn't traced to source | A per-construct analysis with tests reaching every emitted path | work |
-| Nothing has run on embedded hardware; CI doesn't boot the emulator | A named board running the embedded checks; QEMU on a CI runner | hardware |
+| Nothing has run on embedded hardware; only QEMU boots the images | A named board running the embedded checks | hardware |
 | No worst-case execution time or multicore interference analysis | Static or measurement-based timing analysis on the target processor | hardware, tools |
 | No tool qualification data for the compiler or the report tool | Tool operational requirements, a qualification plan and traced test cases for one frozen configuration | assessor |
 | LLVM is outside the project's control | Verify the executable rather than the toolchain, or use a qualified backend | assessor |

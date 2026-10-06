@@ -501,5 +501,7 @@ builds.
 | the fault hook's shape, recursion and waiting refused, each rule ablated | compile-only, every host | `check-isr.sh` |
 | caches, cache maintenance, timing, bus faults, anything on hardware | **nothing** | none |
 
-Where `qemu-system-aarch64` isn't on PATH, as on every CI runner, the
-QEMU sections skip and say so. A skip is not a pass.
+The darwin-aarch64 CI leg installs QEMU and sets `AXIOM_REQUIRE_QEMU=1`,
+so these sections run there and a missing emulator fails the gate.
+Elsewhere, where `qemu-system-aarch64` isn't on PATH, they skip and say
+so. A skip is not a pass.

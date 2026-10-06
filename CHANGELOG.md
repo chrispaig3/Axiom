@@ -16,6 +16,12 @@ its changelog too.
 
 ## Unreleased
 
+- Boot the `baremetal-aarch64` images under QEMU on the darwin-aarch64
+  CI leg, where a missing emulator now fails `check-embedded.sh`. Pin
+  every Linux job to the Ubuntu 24.04 image and the bootstrap job to the
+  same LLVM majors as the rest of CI. Tested by
+  `scripts/check-embedded.sh` and `scripts/check-ci-coverage.sh`.
+
 - Read [docs/assurance.md](docs/assurance.md) for each guarantee the
   compiler and runtime make, the evidence behind it, the reference
   configurations, the known defects and the gaps to qualification.
