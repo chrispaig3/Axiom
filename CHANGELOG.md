@@ -108,6 +108,14 @@ its changelog too.
   `tests/stdlib/703-memory-stats.ax` and
   `tests/stdlib/704-task-decoded.ax`.
 
+- Refuse an AXTAG key one slip from a key the compiler checks, with
+  `AX3039` as an error. `;@axiom:restirct(no-alloc)` and
+  `;@axiom:deprecatd(...)` passed silently, and `;@axiom:Effect(Pure)`
+  was a warning while `check` said OK, so each claim was dropped. Two
+  swapped neighbours now count as a slip, and `deprecated` is a checked
+  key. Namespace a key of your own, such as `;@axiom:my:port(...)`.
+  Tested by `tests/diagnostics/1134-axtag-near-miss.ax`.
+
 - Refuse a type alias that declares type parameters, with `AX3096` at
   the declaration. `(type Pair (a) = (Vec a))` was accepted and never
   expanded, so every use failed `AX3004` far from the cause. Write the

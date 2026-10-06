@@ -1558,28 +1558,26 @@ perform.
 ### explain AX3039
 AX3039 - an AXTAG key one slip from a key the compiler checks
 
-The AXTAG key namespace is OPEN on purpose: a key the compiler does
-not know is metadata, it is recorded, and nothing checks it. That is
-not what this reports.
+The AXTAG key namespace is open: a key the compiler does not know is
+metadata, it is recorded, and nothing checks it. This error is about a
+key one slip away from a key the compiler does check, such as
+`effect(...)`, `restrict(...)`, `pre(...)`, `post(...)` or
+`deprecated(...)`. A slip is a change of case, one character inserted,
+dropped or changed, or two neighbouring characters swapped:
 
-This reports a key one edit - or one change of case - away from one
-the compiler checks. Eight are: `effect(...)`, `restrict(...)`, `raw`,
-`pre(...)`, `post(...)`, `isr`, `precondition(...)` and
-`unhandled(trap)` on an `effect` declaration. `;@axiom:efect(io)` is not an effect claim. Nothing
-validates it, so a body performing IO under it draws no AX3010 at
-all: the tag reads like a guarantee and buys silence, which is worse
-than writing no tag, because a reader spends trust on it.
+    ;@axiom:efect(io)            ; did you mean `effect`?
+    ;@axiom:restirct(no-alloc)   ; did you mean `restrict`?
 
-Purity is the exception, and an error rather than this warning:
-`pure`, or a slip of it such as `pur`, is AX3078, because purity is
-written one way, `;@axiom:effect(pure)`.
+Nothing validates a misspelled key, so a body performing IO under
+`;@axiom:efect(pure)` draws no AX3010. The tag reads like a guarantee
+and buys silence, so the build is refused.
 
-A key containing `:` is never reported. `agent:readonly` is namespaced
-and deliberate, and its distance from a checked key is not evidence
-about anything.
+Purity has its own code: `pure`, or a slip of it such as `pur`, is
+AX3078, because purity is written one way, `;@axiom:effect(pure)`.
 
-Fix the spelling - or, if the key really is your own metadata,
-namespace it so it cannot be mistaken for a claim.
+A key containing `:` is never reported. Fix the spelling, or, if the
+key really is your own metadata, namespace it so it cannot be mistaken
+for a claim: `;@axiom:my:port(8080)`.
 
 ### explain AX3040
 AX3040 - a type variable the caller chooses and the callee produces
@@ -2703,8 +2701,10 @@ A tag belongs to the declaration after it, and the keys the compiler
 checks are checked on some declarations only: `effect(...)`, `raw`,
 `pre(...)`, `post(...)`, `restrict(...)` and `isr` on a
 function, through its `(:: ...)` or its `(fn ...)`, and
-`unhandled(trap)` on an `effect` declaration. Anywhere else the claim
-is recorded and nothing reads it:
+`unhandled(trap)` on an `effect` declaration. `deprecated(...)` goes
+on any declaration `axiom symbols` lists, which leaves out an import,
+an `extern` block and a `subtype`. Anywhere else the claim is recorded
+and nothing reads it:
 
     ;@axiom:restrict(no-alloc)
     (data Sample

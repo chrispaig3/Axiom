@@ -1134,7 +1134,7 @@ This section records the codes below. All of them are built, and
 | `AX3036` `extern-type` | an `extern` item whose type can't cross the boundary | |
 | `AX3037` `axtag-unverifiable` | an `effect(pure)` claim over a call the effect walk can't resolve | A warning. |
 | `AX3038` `effect-unverifiable` | the same condition under a `handle` | A warning. |
-| `AX3039` `axtag-key-typo` | an AXTAG key one edit away from a key the compiler checks | A warning. |
+| `AX3039` `axtag-key-typo` | an AXTAG key one slip away from a key the compiler checks: a change of case, one edit, or two neighbours swapped | `tests/diagnostics/1134-axtag-near-miss.ax` |
 | `AX3040` `result-only-tyvar` | a type variable the caller chooses and the callee produces | The slug names the shape it was built for and stays as the machine key. The rule also covers a function-typed parameter's own variable. |
 | `AX3041` `extern-library-name` | an `extern` block's library name that isn't one | Reported by the parser. |
 | `AX3042` `undeclared-effect` | a function that performs a required effect (`IO`, `Entropy`, `Spawn` or `Block`) and doesn't declare it | |

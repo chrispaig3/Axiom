@@ -303,8 +303,8 @@
       ; `strLen` off a null handle and took the renderer down with
       ; SIGSEGV. `renderDiagJson` tests for it at the same read; so
       ; does this. Found again here the same way, by the gate: 070 and
-      ; 080 both carry an AX3039 with no label, and the server exited
-      ; -11 on both.
+      ; 080 both carried a diagnostic with no label, and the server
+      ; exited -11 on both.
       (let ((lab 
         (if (==
           (cast Int (diagLabel d))

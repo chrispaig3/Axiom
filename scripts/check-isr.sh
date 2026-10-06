@@ -10,8 +10,8 @@
 #
 #   1. Refusals. `651-isr-params` draws AX3010 at the declaration, and
 #      `652-isr-alloc` draws AX3049 naming `no-alloc` with the call
-#      chain to the allocation. A typo (`isrr`) suggests `isr` as
-#      warning AX3039. The errors fail the check; the warning does not.
+#      chain to the allocation. A typo (`isrr`) draws AX3039
+#      suggesting `isr`. All three are errors and fail the check.
 #   2. Staticlib. A probe with a `pub` ISR and a `pub` plain function
 #      archives both symbols. The plain one is the control that shows
 #      the gate measures `isr`, not the export. Fixture 652 is refused
@@ -66,10 +66,10 @@ cat > "$work/typo.ax" <<'TYPO'
 (fn (main) 0)
 TYPO
 "$axc" --diagnostic-format=ai check "$work/typo.ax" > "$work/typo.out" 2> "$work/typo.err"; rctypo=$?
-if [[ "$rctypo" == 0 ]] && grep -q '^W AX3039 .*did you mean `isr`' "$work/typo.err"; then
-    ok "typo: isrr suggests isr as a warning and still builds"
+if [[ "$rctypo" == 1 ]] && grep -q '^E AX3039 .*did you mean `isr`' "$work/typo.err"; then
+    ok "typo: isrr suggests isr as an error and fails"
 else
-  bad "typo: exit $rctypo, wanted success with an AX3039 suggesting isr"
+  bad "typo: exit $rctypo, wanted failure with an AX3039 suggesting isr"
   head -3 "$work/typo.err" | sed 's/^/     /'
 fi
 

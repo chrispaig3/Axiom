@@ -1256,6 +1256,12 @@ functions and signatures. Effect claims, restrictions, contracts and
 interrupt tags affect validation. Descriptive tags remain metadata;
 they do not establish a proof by themselves.
 
+A key one slip from a checked key, such as `;@axiom:restirct(no-alloc)`
+or `;@axiom:Effect(io)`, is refused with `AX3039`, so a claim never
+drops out unnoticed. Give a key of your own a namespace, such as
+`;@axiom:my:owner(storage)`, and it is recorded without being checked.
+Tested by `tests/diagnostics/1134-axtag-near-miss.ax`.
+
 Use `axiom --diagnostic-format=ai symbols file.ax` to inspect accepted
 tags and inferred facts. [Symbol tags](diagnostics.md#read-symbol-tags) describes reading
 those rows, and [diagnostics](diagnostics.md) documents their format.

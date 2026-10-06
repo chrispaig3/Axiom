@@ -1,0 +1,62 @@
+; A key one slip from a key the compiler checks is refused, so a claim
+; is never dropped while `check` says OK. A slip is a change of case,
+; one byte inserted, dropped or changed, or two neighbours swapped.
+;
+; `restirct` swaps two letters of `restrict`, `deprecatd` drops one
+; from `deprecated`, and `Effect` changes case. The controls stay
+; silent: the spelled keys, a namespaced key of your own one slip from
+; `post`, and a key near nothing the compiler checks.
+;
+; `deprecated` is read off a declaration's `axiom symbols` row, so it
+; is refused above an `extern` block, which has none (AX3077), and
+; accepted above a `data`, which has one.
+(import IO)
+
+;@axiom:restirct(no-alloc)
+(:: swapped (-> Int Int))
+(fn (swapped n)
+  n)
+
+;@axiom:deprecatd(use fresh)
+(:: dropped (-> Int Int))
+(fn (dropped n)
+  n)
+
+;@axiom:Effect(Pure)
+(:: cased (-> Int Int))
+;@axiom:effect(io)
+(fn (cased n)
+  (println "x"))
+
+;@axiom:restrict(no-alloc)
+(:: spelled (-> Int Int))
+(fn (spelled n)
+  n)
+
+;@axiom:deprecated(use spelled)
+(:: retired (-> Int Int))
+(fn (retired n)
+  n)
+
+;@axiom:deprecated(use spelled)
+(data Old
+  (OldA)
+  (OldB))
+
+;@axiom:deprecated(use spelled)
+(extern "c"
+  (cOld :: (-> Int Int) (symbol "c_old")))
+
+;@axiom:my:port(8080)
+(:: namespaced (-> Int Int))
+(fn (namespaced n)
+  n)
+
+;@axiom:owner(storage)
+(:: novel (-> Int Int))
+(fn (novel n)
+  n)
+
+(:: main Int)
+(fn (main)
+  0)

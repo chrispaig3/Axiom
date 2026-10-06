@@ -37,7 +37,7 @@
 ; derived keys AFTER the author's tags and `symTagFrom` answers the
 ; LAST match, so a policy reading the row is told `IO` about a function
 ; that writes to fd 1. It is also the only declaration here that
-; diagnoses anything - AX3039, a warning, exit 0 - which is the point
+; diagnoses anything - AX3065, an error - which is the point
 ; of the file: three of these four forgeries are silent.
 ;
 ; `Held` pins the ordering for the kinds whose derived key was emitted

@@ -565,7 +565,7 @@ When you encounter an error code in AXDL output:
    after the first fix is a different question, not the same one.
 4. Verify the fix by re-running `axiom --diagnostic-format=ai check source.ax` and confirming zero errors.
 5. Check for `W` lines even on a successful build. `AX3010` moves the
-   exit status now, but `AX3037`/`AX3038`/`AX3039` do not — and those
+   exit status now, but `AX3037`/`AX3038` do not — and those
    are the AXTAG claims the compiler could NOT check, which is the set
    worth reading by hand.
 

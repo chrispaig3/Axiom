@@ -1,0 +1,38 @@
+[1;31merror[AX3077][0m[1m: the `deprecated` tag on `c` is never checked: it is an `extern` block[0m
+  [1;34m--> [0m1134-axtag-near-miss.ax:47:9
+[1;34m   |[0m
+[1;34m47 |[0m (extern "c"
+[1;34m   |[0m         [1;31m^^^ tag not checked here[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mthe tag was recorded and nothing read it, so the claim it looks like was never made; an unrecognised key is still legal metadata
+  [1;34m = [0m[1;32mhelp: [0m`deprecated(...)` belongs above a declaration `axiom symbols` lists: a function, a `data`, a `struct`, a type alias, a macro or an `effect`; move it there, or drop it
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3077` for a full explanation
+
+[1;31merror[AX3039][0m[1m: AXTAG key typo on `swapped`: unrecognised key `restirct`; did you mean `restrict`?[0m
+  [1;34m--> [0m1134-axtag-near-miss.ax:17:6
+[1;34m   |[0m
+[1;34m17 |[0m (fn (swapped n)
+[1;34m   |[0m      [1;31m^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0man unrecognised key is recorded and never checked, so the claim this looks like was not made. Fix the spelling, or namespace a key of your own, such as `;@axiom:my:KEY(...)`, so it cannot be mistaken for a claim
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3039` for a full explanation
+
+[1;31merror[AX3039][0m[1m: AXTAG key typo on `dropped`: unrecognised key `deprecatd`; did you mean `deprecated`?[0m
+  [1;34m--> [0m1134-axtag-near-miss.ax:22:6
+[1;34m   |[0m
+[1;34m22 |[0m (fn (dropped n)
+[1;34m   |[0m      [1;31m^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0man unrecognised key is recorded and never checked, so the claim this looks like was not made. Fix the spelling, or namespace a key of your own, such as `;@axiom:my:KEY(...)`, so it cannot be mistaken for a claim
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3039` for a full explanation
+
+[1;31merror[AX3039][0m[1m: AXTAG key typo on `cased`: unrecognised key `Effect`; did you mean `effect`?[0m
+  [1;34m--> [0m1134-axtag-near-miss.ax:28:6
+[1;34m   |[0m
+[1;34m28 |[0m (fn (cased n)
+[1;34m   |[0m      [1;31m^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0man unrecognised key is recorded and never checked, so the claim this looks like was not made. Fix the spelling, or namespace a key of your own, such as `;@axiom:my:KEY(...)`, so it cannot be mistaken for a claim
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3039` for a full explanation
+
+compilation failed due to 4 previous errors

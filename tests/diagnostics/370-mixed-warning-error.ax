@@ -1,12 +1,10 @@
-(:: w Int)
-;@axiom:restrct(no-io)
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(fn (w)
-  {
-    (__syscall3 1 1 0 0)
-    0
-  })
+(struct Box
+  (f : (-> Int Int)))
+
+(:: w (-> Box Int))
+;@axiom:effect(pure)
+(fn (w b)
+  (b.f 0))
 
 (:: main Int)
 (fn (main)

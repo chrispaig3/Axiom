@@ -24499,9 +24499,15 @@
 ; silent. What this catches is the one shape that COSTS something:
 ; `;@axiom:efect(pure)` is not a purity claim, so nothing checks it as
 ; one, and a body performing IO under it draws no AX3010 at all. A slip
-; of `pure` itself is AX3078, an error, since purity has one spelling. The tag reads
+; of `pure` itself is AX3078, since purity has one spelling. The tag reads
 ; like a guarantee and buys silence instead, which is worse than
 ; writing nothing - a reader spends trust on it.
+;
+; AN ERROR, so the dropped claim cannot pass as a clean build. A slip
+; is a change of case, one byte inserted, dropped or changed, or two
+; neighbours swapped (`axtagSlip`). A key of the author's own that
+; happens to sit one slip from a checked one is namespaced, which no
+; slip test reads.
 ;
 ; A key containing `:` is left alone by construction. `agent:readonly`
 ; is namespaced and deliberate, and its distance from `pure` is not
@@ -24517,8 +24523,8 @@
     ; PURITY FIRST: `pure` and every slip of it (`pur`, `Pure`) are
     ; refused, because purity is written one way, `effect(pure)`.
     ; RESERVED BEFORE NEAR-MISS, and the order is the point. `effects`
-    ; is one edit from `effect`, so the near-miss arm would have
-    ; reported it as a typo - a WARNING, and about the wrong thing.
+    ; is one edit from `effect`, so the near-miss arm would report it
+    ; as a typo, which is about the wrong thing.
     ; It is not a misspelling of an author's key; it is the compiler's
     ; key, spelled correctly.
     (if (== (axtagIsPureSpelling key) 1)
@@ -24847,7 +24853,8 @@
 ; AX3077: a key the compiler checks, on a declaration it can't check it
 ; on. A tag belongs to the declaration after it, and `restrict(...)`,
 ; `effect(...)`, `pure`, `raw`, `pre`, `post` and `isr` are checked on
-; a function alone, `unhandled` on an `effect` alone. Above a `data`,
+; a function alone, `unhandled` on an `effect` alone, and `deprecated`
+; on any declaration with a symbol row. Above a `data`,
 ; a `struct`, an import, a macro or an alias, the claim was recorded
 ; and nothing ever read it, so `;@axiom:restrict(no-alloc)` in the
 ; wrong place said nothing while looking like a guarantee. An unknown
@@ -24899,6 +24906,12 @@
 (pub fn (axtagKeyFits tag key)
   (if (|| (== tag TAG_D_MACROCALL) (== tag TAG_D_SYNFOR))
     1
+    ; `deprecated` is read off a declaration's symbol row, and an
+    ; import, an `extern` block and a `subtype` have none.
+    (strEq key "deprecated")
+    (if (|| (== tag TAG_D_IMPORT) (|| (== tag TAG_D_EXTERN) (== tag TAG_D_SUBTYPE)))
+      0
+      1)
     (if (|| (== tag TAG_D_FN) (== tag TAG_D_SIG))
       (if (strEq key "unhandled")
         0
@@ -24919,8 +24932,10 @@
         "an import"
         (if (== tag TAG_D_MACRO)
           "a macro"
-          (if (|| (== tag TAG_D_ALIAS) (== tag TAG_D_SUBTYPE))
+          (if (== tag TAG_D_ALIAS)
             "a type alias"
+            (== tag TAG_D_SUBTYPE)
+            "a `subtype`"
             (if (== tag TAG_D_EFFECT)
               "an `effect` declaration"
               (if (== tag TAG_D_EXTERN)
@@ -24941,6 +24956,8 @@
       0
       (if (strEq key "unhandled")
         "`unhandled(trap)` belongs above an `effect` declaration; move it there, or drop it"
+        (strEq key "deprecated")
+        "`deprecated(...)` belongs above a declaration `axiom symbols` lists: a function, a `data`, a `struct`, a type alias, a macro or an `effect`; move it there, or drop it"
         "a checked claim belongs above the function it describes - its `(:: ...)` or its `(fn ...)`; move it there, or drop it")
       "the tag was recorded and nothing read it, so the claim it looks like was never made; an unrecognised key is still legal metadata") "tag not checked here"))))
 
@@ -25018,7 +25035,7 @@
 ; forging there is no later key to win. The ordering is a second line
 ; of defence; this is the first.
 ;
-; AN ERROR, like AX3052 and AX3054 and unlike AX3039. The argument is
+; AN ERROR, like AX3052, AX3054 and AX3039. The argument is
 ; AX3052's verbatim: accepting it would let a tag read like a
 ; guarantee and buy silence. `restrict`, `pure`, `effect`, `pre`,
 ; `post`, `unhandled` and `raw` are the author's to write and are not
@@ -25093,7 +25110,11 @@
 
 (pub :: axtagKnownKey (-> String Int))
 (pub fn (axtagKnownKey key)
-  (if (strEq key "effect")
+  ; `deprecated(...)` is read: each use of the name draws AX3048, and
+  ; `scripts/check-compat.sh` lets a release retire it.
+  (if (strEq key "deprecated")
+    1
+    (strEq key "effect")
     1
     (if (strEq key "raw")
       1
@@ -25110,27 +25131,24 @@
               ; that buys silence, exactly as for the others.
               (if (strEq key "isr")
                 1
-                ; `precondition` is checked too (AX3079, AX3080) and
-                ; moves what every caller owes (R-B6), so a slip of it
-                ; is the costliest of these to miss.
-                (if (strEq key "precondition")
+                ; `syscall(...)` seeds a syscall number's own effect
+                ; row (`syscallTagEffects`), so a slip of it would
+                ; drop an effect every caller of the number owes.
+                (if (strEq key "syscall")
                   1
-                  ; `syscall(...)` seeds a syscall number's own effect
-                  ; row (`syscallTagEffects`), so a slip of it would
-                  ; drop an effect every caller of the number owes.
-                  (if (strEq key "syscall")
+                  ; `ct(...)` is checked (AX3092), so a slip of it
+                  ; would publish a constant-time promise nobody
+                  ; checked.
+                  (if (strEq key "ct")
                     1
-                    ; `ct(...)` is checked (AX3092), so a slip of it
-                    ; would publish a constant-time promise nobody
-                    ; checked.
-                    (if (strEq key "ct")
-                      1
-                      0)))))))))))
+                    0))))))))))
 
 (pub :: axtagNearMiss (-> String String))
 (pub fn (axtagNearMiss key)
   (if (== (axtagKnownKey key) 1)
     ""
+    (== (axtagSlip key "deprecated") 1)
+    "deprecated"
     (if (== (axtagSlip key "effect") 1)
       "effect"
       (if (== (axtagSlip key "raw") 1)
@@ -25145,13 +25163,11 @@
                 "unhandled"
                 (if (== (axtagSlip key "isr") 1)
                   "isr"
-                  (if (== (axtagSlip key "precondition") 1)
-                    "precondition"
-                    (if (== (axtagSlip key "syscall") 1)
-                      "syscall"
-                      (if (== (axtagSlip key "ct") 1)
-                        "ct"
-                        ""))))))))))))
+                  (if (== (axtagSlip key "syscall") 1)
+                    "syscall"
+                    (if (== (axtagSlip key "ct") 1)
+                      "ct"
+                      "")))))))))))
 
 (pub :: axtagSlip (-> String String Int))
 (pub fn (axtagSlip key known)
@@ -25161,7 +25177,7 @@
       1
       (if (<= (levenshtein key known) 1)
         1
-        0))))
+        (axtagSwapped key known)))))
 
 (pub :: emitAxtagKeyTypo (-> Int Int String String Int))
 ; The message leads with the DECLARATION, not with the key, because
@@ -25176,14 +25192,14 @@
   (if (== (nodeSpan d) 0)
     0
     (emitDiag tc (mkDiag
-      SEV_WARNING
+      SEV_ERROR
       "AX3039"
       "axtag-key-typo"
       (nodeSpan d)
       (concat (concat (concat (concat (concat "AXTAG key typo on `" (bareOf (nodeAName d))) "`: unrecognised key `") key) "`; did you mean `") (concat want "`?"))
       0
       0
-      "an unrecognised key is recorded and never checked, so the claim this looks like was not made; the keys that are checked are `effect(...)` (purity is `effect(pure)`), `restrict(...)`, `pre(...)`, `post(...)`, `isr` and `unhandled(trap)` on an `effect` declaration"))))
+      "an unrecognised key is recorded and never checked, so the claim this looks like was not made. Fix the spelling, or namespace a key of your own, such as `;@axiom:my:KEY(...)`, so it cannot be mistaken for a claim"))))
 
 (pub :: axtagCloseAt (-> String Int))
 (pub fn (axtagCloseAt content)
@@ -25218,6 +25234,33 @@
   (if (&& (>= c 65) (<= c 90))
     (+ c 32)
     c))
+
+; 1 when `a` is `b` with two neighbouring bytes swapped, `restirct` for
+; `restrict`. Levenshtein counts a swap as two edits, so the distance
+; test in `axtagSlip` misses the commonest slip of the hand.
+(pub :: axtagSwapped (-> String String Int))
+(pub fn (axtagSwapped a b)
+  (if (!= (strLen a) (strLen b))
+    0
+    (axtagSwappedAt a b 0)))
+
+(pub :: axtagSwappedAt (-> String String Int Int))
+(pub fn (axtagSwappedAt a b i)
+  (if (>= (+ i 1) (strLen a))
+    0
+    (if (== (strByte a i) (strByte b i))
+      (axtagSwappedAt a b (+ i 1))
+      (if (&& (== (strByte a i) (strByte b (+ i 1))) (== (strByte a (+ i 1)) (strByte b i)))
+        (axtagSameFrom a b (+ i 2))
+        0))))
+
+(pub :: axtagSameFrom (-> String String Int Int))
+(pub fn (axtagSameFrom a b i)
+  (if (>= i (strLen a))
+    1
+    (if (== (strByte a i) (strByte b i))
+      (axtagSameFrom a b (+ i 1))
+      0)))
 
 ; A `pure` claim is contradicted by ANY concrete effect.
 (pub :: axtagContradicted (-> Int Int String (Vec a) Int))

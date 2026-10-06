@@ -1,8 +1,11 @@
-(:: pure (-> Int Int))
-;@axiom:restrct(no-io)
-(fn (pure x)
-  x)
+(struct Box
+  (f : (-> Int Int)))
+
+(:: pure (-> Box Int))
+;@axiom:effect(pure)
+(fn (pure b)
+  (b.f 1))
 
 (:: main Int)
 (fn (main)
-  (pure 1))
+  0)

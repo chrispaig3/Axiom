@@ -1060,7 +1060,7 @@
 ;   ;@axiom:effects(Alloc)
 ;   (fn (leak n) { (println "io") n })
 ;
-; is a legal, well-formed AXTAG. It draws AX3039 - a WARNING, exit 0 -
+; is a well-formed AXTAG. It draws AX3065 - a reserved key, an error -
 ; and used to render `#effects=Alloc #effects=IO`, first match `Alloc`,
 ; on a function that writes to stdout. Four of these seven derived keys
 ; were emitted BEFORE the author's tags until this change (`D`, `S`,

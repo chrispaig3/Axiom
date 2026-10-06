@@ -193,10 +193,10 @@ instead of `REMOVED`, and it isn't breaking. Deprecating and removing
 in the same release doesn't qualify: the baseline is the last release,
 so a notice added this cycle isn't in it.
 
-The check needs no compiler change to see the notice. The AXTAG key
-namespace is open: an unknown key parses, is recorded and is re-emitted
-on the AXSYM line, so `;@axiom:deprecated(...)` arrives as
-`#deprecated=`. The check adds the reading.
+The check reads the notice from the AXSYM line, where
+`;@axiom:deprecated(...)` arrives as `#deprecated=` on any declaration
+that has a row. A misspelled key, such as `;@axiom:deprecatd(...)`, is
+refused with `AX3039`, so a notice can't go missing quietly.
 
 The annotation isn't part of the contract. If it were, adding a notice
 would look like a signature change and be refused as breaking, which
