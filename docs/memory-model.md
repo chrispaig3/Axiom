@@ -1463,7 +1463,9 @@ value silently, while an extra record word costs nothing.
 
 **MM-VAL-16 (H).** A `mut` local is captured as **the value it held
 when the record was built**. A closure never sees a later `set`
-(`MM-MUT-1`).
+(`MM-MUT-1`). When the slot owns its value (`MM-LIFE-2c` event 3), the
+capture takes a share of it, so a later `set` can't free what the
+closure holds. Tested by `tests/stdlib/709-mut-slot-capture.ax`.
 
 **MM-VAL-17 (H).** A closure record built from a bare top-level
 function points at a **forwarding thunk** `_thunk_N`. The thunk ignores
@@ -2610,7 +2612,8 @@ Evidence: `mkParallel` in [parser.ax](../self_host/parser.ax),
 which `(set x v)` assigns. It lowers to an `alloca` with loads and
 stores, is invisible outside its function, and is captured by snapshot
 (`MM-VAL-16`). It performs no effect, because nothing else can observe
-a local's mutation.
+a local's mutation. A slot of a reference type owns what it holds, so
+`set` releases the value it overwrites (`MM-LIFE-2c` event 3).
 
 ```scheme
 (:: main Int)
@@ -2904,12 +2907,13 @@ reclaiming at zero), or, where the event says so, neither:
    borrowed argument therefore retains it first.
 3. **Frame slots own.** A reference bound or `set` into a local slot is
    owned by the slot: an owned value moves in, and a borrowed one is
-   retained on the way in. `(set x v)` releases the owned value it
-   overwrites (`MM-MUT-1`), which is sound because the slot retained
-   what it holds, whatever its provenance. A returning frame, or event
-   4's boundary, releases every live owned slot that did not escape by
-   being returned or stored. The elision licence below keeps the
-   common borrow, bind and read shape free of count traffic.
+   retained on the way in. `(set x v)` takes its share of `v` first and
+   then releases the value it overwrites (`MM-MUT-1`), which is sound
+   because the slot retained what it holds, whatever its provenance. A
+   returning frame, or event 4's boundary, releases every live owned
+   slot that did not escape by being returned or stored. The elision
+   licence below keeps the common borrow, bind and read shape free of
+   count traffic.
 4. **A self tail call is a release boundary, and its function owns its
    reference parameters.** Entry retains each reference parameter
    once. Without that, the first iteration would hold its arguments
@@ -3111,9 +3115,14 @@ The binding escapes wherever that guarantee stops:
 - when it is the `let`'s own value, since nothing took a share on the
   way out;
 - when a lambda mentions it, since a capture takes no share
-  (`MM-VAL-15`);
-- when it is the right-hand side of a `set`, since a slot store takes
-  none;
+  (`MM-VAL-15`). A binding that holds a share of its own, an owned
+  initialiser or a `mut` slot that owns its value, is the exception:
+  its capture takes a share too. That holds only while no binder in
+  the scope reuses the name, since the walk can't otherwise tell which
+  binding the lambda reads (`tests/stdlib/711-shadowed-capture.ax`);
+- when it is the right-hand side of a `set` into a `mut` slot that
+  only stores, since that store takes no share. A slot that owns its
+  value takes one, as a field store does;
 - under `cast`, `__addr`, `strData` or `strOwner`, the four ways to get
   a word out of a reference, which counting cannot see (`MM-LIFE-2g`'s
   own stated limit).
@@ -3167,6 +3176,76 @@ Direct constructions alone barely reach the compiler itself. It builds
 its records through `mk*` functions that return `Int`-declared handles,
 which is also why `MM-LIFE-2e`'s acceptance measurements cannot move.
 This part of the event is for programs.
+
+**Event 3 emits for `mut` slots**
+(`tests/stdlib/708-mut-slot-reassign.ax`, `709-mut-slot-capture.ax`
+and `710-mut-slot-return.ax`). A `mut` local whose type is a reference
+owns what it holds:
+
+- Its initialiser moves in when it arrives owned, and is retained when
+  it is borrowed.
+- `(set x v)` does the same for `v`, then releases the value it
+  overwrote. A `File` reassigned in a loop closes each old descriptor
+  at the `set`.
+- The scope end releases the last value. So does a self tail call
+  that jumps past the scope end (event 4).
+- A lambda that captures the slot takes a share of the value it copies
+  (`MM-VAL-16`), and its record's death gives it back.
+
+```scheme
+(import IO)
+(import Str)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((mut s "") (mut i 0))
+    {
+      (while (< i 1000)
+        {
+          (set s (concat "row-" (fmtInt i)))
+          (set i (+ i 1))
+        })
+      (println s)
+      0
+    }))
+```
+
+```text
+row-999
+```
+
+Each `set` frees the string it replaces, so the loop runs in the
+memory of one row. Reads of `s` stay borrows, with no count traffic.
+
+A borrow is sound only while nothing a read produced is still in use
+when a `set` or the scope end releases the value it came from. So the
+compiler gives a slot ownership only when it can show that
+(`slotOwns` in [codegen.ax](../self_host/codegen.ax)):
+
+- no binder in the slot's scope reuses its name;
+- the value of a `(set x v)` goes nowhere but a statement or the
+  `let`'s own value;
+- the slot doesn't escape by a route listed above for a `let`, apart
+  from a lambda's capture, which takes a share of its own;
+- no value that may alias the slot is held across a `set` of it. That
+  covers a `let` or `match` over part of it whose body sets it, and a
+  call or construction that reads it in one argument and sets it in
+  another.
+
+A `let` that reads the slot whole takes a share of its own, so
+`(let ((old s)) (set s (concat old "!")))` keeps `old` intact. A slot
+the compiler can't prove safe keeps the storage-only behaviour:
+nothing is retained and nothing is released. So does a slot whose
+type is a type variable or a `Vec`, which a `let` never releases
+either. A slot of type `Int`, `Float`, `Bool`, `Char` or `Foreign`
+takes no counts at all.
+
+The last value stays when the `let`'s value may carry it. In tail
+position it is still released, after event 2 has retained every value
+the body can answer. A slot replaced by fresh strings, rebuilt from
+itself, bound once per loop iteration, or holding a closure grows the
+arena 0 bytes per iteration over 10,000 iterations.
 
 **Events 2 and 3 emit, with owned temporaries**
 (`tests/stdlib/372-arc-owned-results.ax`, where every shape reads 0
@@ -3404,7 +3483,15 @@ These still leak, which is the safe direction:
   value, or to a function whose result is a type variable, since none
   of those retains what it hands back;
 - a temporary that a `match` binder escapes from;
-- a temporary stored through `set`;
+- a temporary stored through `set` into a `mut` slot that only stores:
+  one whose type isn't a reference, or one `slotOwns` refuses;
+- the last value of an owning `mut` slot when the `let`'s value may
+  carry it outside tail position;
+- the last value of a `let` or `mut` slot in a function that answers a
+  register pair, such as one returning `(Option Int)`: its `ret` leaves
+  before the scope end;
+- a binding that a lambda captures when a binder in its scope reuses
+  its name;
 - a `let` whose value is a field of the block it binds;
 - a join of an owned temporary with a borrowed arm (a parameter or a
   field) stored into a field: the field retains, and the owned arm's

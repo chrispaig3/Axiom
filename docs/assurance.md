@@ -82,6 +82,13 @@ is in [the memory model](memory-model.md)).
 | R-B9 | A recovery point allocates nothing, and a contained trap leaves the heap consistent | `MM-ALLOC-23` | `tests/stdlib/560-recover-record.ax` |
 | R-B10 | A typed read or write checks its range before the kernel sees it | `MM-EXEC-9e` | `tests/stdlib/610-typed-io-bounds.ax` |
 | — | Releasing the last share of a `File`, socket or database connection closes it once | `MM-EXEC-17` | `tests/stdlib/697-resource-owner.ax`, `tests/stdlib/698-file-lifetime.ax` |
+| — | A `mut` local of a reference type releases the value a `set` overwrites and its last value at scope end, each once, and a lambda that captured it keeps its own share | `MM-MUT-1`, `MM-VAL-16` | `tests/stdlib/708-mut-slot-reassign.ax`, `tests/stdlib/709-mut-slot-capture.ax`, `tests/stdlib/710-mut-slot-return.ax` |
+
+A `mut` local releases only when the compiler can show that no read of
+it is still in use at the `set` or the scope end, and never when its
+type is a type variable or a `Vec`. Any other `mut` local keeps what it
+held: the memory stays allocated and a `File` stays open.
+[The memory model](memory-model.md) lists those shapes under event 3.
 
 A function that performs an unsafe operation says `effect(unsafe)`,
 which makes it a trusted encapsulation. Nothing proves a trusted body
@@ -136,8 +143,6 @@ the neighbourhood of the corpus.
 
 ## Known defects
 
-- `set` on a `mut` local doesn't release the value it overwrites, so a
-  `File` reassigned in a loop can run out of descriptors.
 - A `Vec` isn't released at scope end, and `vecNew` against `vecNewRef`
   decides element ownership by hand.
 - `Int` is accepted where a heap value is expected in a result, so a
