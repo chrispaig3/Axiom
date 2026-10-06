@@ -238,9 +238,144 @@ else
   bad "460-signature-type-variable.ax missing: AX3040 accept/reject shape unpinned"
 fi
 
+echo "--- 4. the compiler's erasures do not grow ---"
+# An ERASURE is a cast that turns a reference into a word: its operand
+# is a `String`, `Vec`, `Handle`, struct, `data` type with a field,
+# closure, tuple or a signature's type variable, and its target is a
+# word nothing dereferences (`Int`, `Foreign`, an alias of either, a
+# number). The block's share is never given back and nothing
+# downstream can say what the word was (MM-VAL-24). `symbols` prints
+# `#erasures=n` on each function whose body has n of them, judged by
+# the operand's TYPE once the body is typed (`eraseSettle` in
+# `self_host/typecheck.ax`), so `(cast Int c)` of a `Char` is not one,
+# and `(cast Foreign s)` or `(cast Word p)` through an alias is.
+#
+# The compiler's own total is the work of retiring `Int` as its heap
+# handle, and it may only fall. The ratchet is <=; a commit that adds
+# an erasure to `self_host/` must lower another or update this number
+# with its reason.
+#
+# Baseline 836 measured 2026-10-06: 804 on trunk `fc7ef7c0`, plus the
+# 31 results that returned a record through a declared `Int` and now
+# write `(cast Int ...)` because the implicit coercion is gone, plus
+# one in `tcWalkDecls` opening the erasure-site list itself.
+erasure_pin=836
+erasure_sum() {  # <axsym> -> the #erasures= total over self_host/ rows
+  awk '$1 == "F" && index($3, "self_host/") == 1 {
+         for (i = 4; i <= NF; i++)
+           if ($i ~ /^#erasures=[0-9]+$/) { v = $i; sub(/^#erasures=/, "", v); t += v }
+       }
+       END { print t + 0 }' "$1"
+}
+"$axc" --diagnostic-format=ai symbols self_host/main.ax > "$work/main.axsym" 2> "$work/main.err" || true
+sh_rows="$(awk '$1 == "F" && index($3, "self_host/") == 1' "$work/main.axsym" | wc -l | tr -d ' ')"
+if (( sh_rows < 4000 )); then
+  bad "symbols listed $sh_rows compiler functions (floor 4000): the read broke"
+  sed 's/^/     /' "$work/main.err" | head -4
+else
+  erasures="$(erasure_sum "$work/main.axsym")"
+  if (( erasures == 0 )); then
+    bad "the compiler's erasure count read 0 - the measurement is broken, not the tree clean"
+  elif (( erasures <= erasure_pin )); then
+    ok "compiler erasures $erasures <= $erasure_pin, over $sh_rows functions"
+  else
+    bad "compiler erasures $erasures > $erasure_pin: a new erasure needs another removed, or a reason and a new pin"
+    awk '$1 == "F" && index($3, "self_host/") == 1 && / #erasures=/ { for (i = 4; i <= NF; i++) if ($i ~ /^#erasures=/) print "     " $2, $3, $i }' "$work/main.axsym" \
+      | sort -t= -k2 -rn | head -10
+  fi
+fi
+# Every compiler module that writes a cast must be in the closure the
+# sum reads, or its erasures would never be counted.
+outside=""
+for f in $(git -C "$repo_root" grep -l '(cast ' -- 'self_host/*.ax'); do
+  grep -q " $f:" "$work/main.axsym" || outside="$outside $f"
+done
+if [[ -z "$outside" ]]; then
+  ok "every self_host module with a cast is in self_host/main.ax's closure"
+else
+  bad "modules with casts outside the counted closure:$outside"
+fi
+# The count follows the operand's type, not the spelling.
+cat > "$work/erase.ax" <<'EOF'
+(data Box
+  (Bx String))
+
+(data Color
+  (Red)
+  (Green))
+
+(type Word = Int)
+
+(:: str (-> String Int))
+(fn (str s)
+  (cast Int s))
+
+(:: box (-> Box Int))
+(fn (box b)
+  (cast Int b))
+
+(:: vec (-> (Vec Int) Int))
+(fn (vec v)
+  (cast Int v))
+
+(:: tv (-> a Int))
+(fn (tv x)
+  (cast Int x))
+
+(:: fgn (-> String Foreign))
+(fn (fgn s)
+  (cast Foreign s))
+
+(:: alias (-> Box Word))
+(fn (alias b)
+  (cast Word b))
+
+(:: two (-> String String Int))
+(fn (two a b)
+  (+ (cast Int a) (cast Int b)))
+
+(:: chr (-> Char Int))
+(fn (chr c)
+  (cast Int c))
+
+(:: color (-> Color Int))
+(fn (color c)
+  (cast Int c))
+
+(:: num (-> Int Float))
+(fn (num n)
+  (cast Float n))
+
+(:: main Int)
+(fn (main)
+  0)
+EOF
+"$axc" --diagnostic-format=ai symbols "$work/erase.ax" > "$work/erase.axsym" 2> "$work/erase.err" || true
+got_erase="$(awk '$1 == "F" { n = 0; for (i = 4; i <= NF; i++) if ($i ~ /^#erasures=/) { n = $i; sub(/^#erasures=/, "", n) } print $2 "=" n }' "$work/erase.axsym" \
+  | grep -E '^(str|box|vec|tv|fgn|alias|two|chr|color|num|main)=' | tr '\n' ' ')"
+want_erase="str=1 box=1 vec=1 tv=1 fgn=1 alias=1 two=2 chr=0 color=0 num=0 main=0 "
+if [[ "$got_erase" == "$want_erase" ]]; then
+  ok "erasures are counted by operand type: a reference, a type variable and an alias count; a Char, an enum and a number do not"
+else
+  bad "the erasure probe read: ${got_erase:-nothing}"
+  echo "     wanted: $want_erase"
+  sed 's/^/     /' "$work/erase.err" | head -4
+fi
+# The sum reads compiler rows only, and every key on them.
+printf '%s\n' \
+  'F a self_host/x.ax:1:5-6 "Int" @0000000000000001 #effects=Alloc #erasures=3' \
+  'F b self_host/y.ax:2:5-6 "Int" @0000000000000002 #erasures=1 #unsafe=trusted' \
+  'F c stdlib/Mem.ax:3:5-6 "Int" @0000000000000003 #erasures=5' \
+  'F d self_host/z.ax:4:5-6 "Int" @0000000000000004 #calls=e' > "$work/synthetic.axsym"
+if [[ "$(erasure_sum "$work/synthetic.axsym")" == 4 ]]; then
+  ok "the sum counts compiler rows and skips the library's"
+else
+  bad "the sum of a synthetic stream read $(erasure_sum "$work/synthetic.axsym"), not 4"
+fi
+
 echo
 if [ "$failed" -gt 0 ]; then
   echo "check-cast-arg-root: $failed of $checks checks failed"
   exit 1
 fi
-echo "check-cast-arg-root: $checks checks - cast census bounded, ownership preserved, AX3040 pinned"
+echo "check-cast-arg-root: $checks checks - cast census bounded, ownership preserved, AX3040 pinned, erasures ratcheted"

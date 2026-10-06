@@ -916,8 +916,10 @@ jobs:
 
       # Proven type-preserving casts keep the operand's ownership and
       # evidence. Compare release counts with the uncast spelling and
-      # a scalar control, beside the census of reinterpretations.
-      - name: Type-preserving casts keep ownership and scalar casts take no share
+      # a scalar control, beside the census of reinterpretations. The
+      # compiler's casts of a reference to a word, counted by operand
+      # type from `symbols`, may only fall.
+      - name: Type-preserving casts keep ownership, scalar casts take no share, and erasures only fall
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-cast-arg-root.sh
 

@@ -11,11 +11,11 @@ F memCmpFrom stdlib/Mem.ax:310:5-15 "(Int -> (Int -> (Int -> (Int -> Int))))" @4
 F memGetWord stdlib/Mem.ax:340:9-19 "(Int -> (Int -> Int))" @b5f8fe0f14e0113c #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #unsafe=trusted
 F memGetWordStr stdlib/Mem.ax:356:9-22 "(Int -> (Int -> String))" @b8fd4c3ebafbabfb #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #unsafe=trusted
 F memGetWordVec stdlib/Mem.ax:370:9-22 "(Int -> (Int -> Vec a))" @8de85e3ea2a5f886 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #unsafe=trusted
-F memSetWord stdlib/Mem.ax:408:9-19 "(Int -> (Int -> (a -> Int)))" @577fd648169c96a8 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Mut,Unsafe #unsafe=trusted
+F memSetWord stdlib/Mem.ax:408:9-19 "(Int -> (Int -> (a -> Int)))" @577fd648169c96a8 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Mut,Unsafe #unsafe=trusted #erasures=1
 F memGetByte stdlib/Mem.ax:422:9-19 "(Int -> (Int -> Int))" @b36a11af3f07101e #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #unsafe=trusted
 F memPutByte stdlib/Mem.ax:429:9-19 "(Int -> (Int -> (Int -> Int)))" @a42c84e86afc6d53 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Mut,Unsafe #unsafe=trusted
 F memStats stdlib/Mem.ax:451:9-17 "MemoryStats" @f535de6b02c0706b #restrict=no-io,no-unsafe,no-foreign #effects=Alloc
-F addrOf stdlib/Mem.ax:481:9-15 "(a -> Addr)" @846cdce4820a33d5
+F addrOf stdlib/Mem.ax:481:9-15 "(a -> Addr)" @846cdce4820a33d5 #erasures=1
 F addrEq stdlib/Mem.ax:486:9-15 "(Addr -> (Addr -> Bool))" @844ac9e481ed2d26
 F addrHash stdlib/Mem.ax:494:9-17 "(Addr -> Int)" @41a37d020fa3f8e4
 F addrShr33 stdlib/Mem.ax:502:5-14 "(Int -> Int)" @32e937cf9c7e40c5
@@ -26,11 +26,11 @@ F vecWithCapacityRef stdlib/Vec.ax:104:9-27 "(Int -> Vec a)" @4931b5c5fdddadcc #
 F vecNewRef stdlib/Vec.ax:110:9-18 "Vec a" @a3810b6416057230 #restrict=no-io,no-foreign #effects=Alloc,Mut
 F vecBytes stdlib/Vec.ax:129:5-13 "(Int -> Int)" @b4fe9e3b3f1693ea #restrict=no-io,no-alloc,no-foreign
 F vecBuild stdlib/Vec.ax:136:5-13 "(Int -> (Int -> Vec a))" @c08cb1d661682775 #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe #unsafe=trusted
-F vecFree stdlib/Vec.ax:176:9-16 "(Vec a -> Int)" @1e43cc6130f92c1d #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #unsafe=trusted
-F vecOwnsRefs stdlib/Vec.ax:192:9-20 "(Vec a -> Bool)" @3ca4292918920a5c #restrict=no-io,no-alloc,no-foreign
-F vecLen stdlib/Vec.ax:201:9-15 "(Vec a -> Int)" @550435a6a8c88c3e #restrict=no-io,no-alloc,no-foreign
-F vecCap stdlib/Vec.ax:208:9-15 "(Vec a -> Int)" @a13fc6a6d379366d #restrict=no-io,no-alloc,no-foreign
-F vecData stdlib/Vec.ax:221:5-12 "(Vec a -> Int)" @f00051722f8ac2c7 #restrict=no-io,no-alloc,no-foreign
+F vecFree stdlib/Vec.ax:176:9-16 "(Vec a -> Int)" @1e43cc6130f92c1d #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #unsafe=trusted #erasures=1
+F vecOwnsRefs stdlib/Vec.ax:192:9-20 "(Vec a -> Bool)" @3ca4292918920a5c #restrict=no-io,no-alloc,no-foreign #erasures=1
+F vecLen stdlib/Vec.ax:201:9-15 "(Vec a -> Int)" @550435a6a8c88c3e #restrict=no-io,no-alloc,no-foreign #erasures=1
+F vecCap stdlib/Vec.ax:208:9-15 "(Vec a -> Int)" @a13fc6a6d379366d #restrict=no-io,no-alloc,no-foreign #erasures=1
+F vecData stdlib/Vec.ax:221:5-12 "(Vec a -> Int)" @f00051722f8ac2c7 #restrict=no-io,no-alloc,no-foreign #erasures=1
 F vecGet stdlib/Vec.ax:266:9-15 "(Vec a -> (Int -> a))" @805a0ea6c155b2f9 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #unsafe=trusted
 F vecTry stdlib/Vec.ax:302:9-15 "(Vec a -> (Int -> Option a))" @1057f8a6821016c0 #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Unsafe #unsafe=trusted
 F vecGetStr stdlib/Vec.ax:313:9-18 "(Vec a -> (Int -> String))" @588fcc550a528a44 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #unsafe=trusted
@@ -40,11 +40,11 @@ F vecPushVec stdlib/Vec.ax:368:9-19 "(Vec a -> (Vec b -> Vec a))" @513ed92824686
 F vecSet stdlib/Vec.ax:384:9-15 "(Vec a -> (Int -> (a -> Vec a)))" @177422a685a6c685 #restrict=no-io,no-alloc,no-foreign #effects=Mut
 F vecReserve stdlib/Vec.ax:411:5-15 "(Vec a -> (Int -> Vec a))" @4ae21562c73b1099 #restrict=no-io,no-foreign #effects=Alloc,Mut
 F vecGrownCap stdlib/Vec.ax:428:5-16 "(Int -> (Int -> Int))" @8566e689bac7953e #restrict=no-io,no-alloc,no-foreign
-F vecReserveExactly stdlib/Vec.ax:441:5-22 "(Vec a -> (Int -> Vec a))" @1481194b090b7ee7 #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe #unsafe=trusted
-F vecPush stdlib/Vec.ax:483:9-16 "(Vec a -> (a -> Vec a))" @c293060dc287a3bb #restrict=no-io,no-foreign #effects=Alloc,Mut
-F vecPop stdlib/Vec.ax:513:9-15 "(Vec a -> a)" @31549fa694465c32 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Mut,Unsafe #unsafe=trusted
+F vecReserveExactly stdlib/Vec.ax:441:5-22 "(Vec a -> (Int -> Vec a))" @1481194b090b7ee7 #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe #unsafe=trusted #erasures=2
+F vecPush stdlib/Vec.ax:483:9-16 "(Vec a -> (a -> Vec a))" @c293060dc287a3bb #restrict=no-io,no-foreign #effects=Alloc,Mut #erasures=1
+F vecPop stdlib/Vec.ax:513:9-15 "(Vec a -> a)" @31549fa694465c32 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Mut,Unsafe #unsafe=trusted #erasures=1
 F vecLast stdlib/Vec.ax:543:9-16 "(Vec a -> a)" @1af3be30b8373b1f #restrict=no-io,no-alloc,no-foreign
-F vecClear stdlib/Vec.ax:555:9-17 "(Vec a -> Vec a)" @319fd64658175a30 #restrict=no-io,no-alloc,no-foreign #effects=Mut
+F vecClear stdlib/Vec.ax:555:9-17 "(Vec a -> Vec a)" @319fd64658175a30 #restrict=no-io,no-alloc,no-foreign #effects=Mut #erasures=1
 F vecDropAt stdlib/Vec.ax:571:5-14 "(Vec a -> (Int -> Vec a))" @e7ce0719824ef143 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Mut,Unsafe #unsafe=trusted
 F vecDropFrom stdlib/Vec.ax:582:5-16 "(Vec a -> (Int -> Vec a))" @d177b3044a2fa582 #restrict=no-io,no-alloc,no-foreign #effects=Mut
 F vecSum stdlib/Vec.ax:602:9-15 "(Vec Int -> Int)" @17aa19a685d446aa #restrict=no-io,no-alloc,no-foreign
@@ -61,9 +61,9 @@ F strWrapOwned stdlib/Str.ax:68:9-21 "(Int -> (Int -> (Int -> String)))" @2bbe99
 F strAlloc stdlib/Str.ax:91:9-17 "(Int -> String)" @b8ec3bb3fe2acd63 #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe #unsafe=trusted
 F strFromLit stdlib/Str.ax:115:9-19 "(Int -> String)" @6206421c05dd1a83 #restrict=no-io,no-foreign #effects=Alloc,Mut
 F cstrLen stdlib/Str.ax:121:9-16 "(Int -> (Int -> Int))" @4883f0a813371906 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #unsafe=trusted
-F strLen stdlib/Str.ax:132:9-15 "(String -> Int)" @eda5fda2fbb7e0d9 #restrict=no-io,no-alloc,no-foreign
-F strData stdlib/Str.ax:143:9-16 "(String -> Int)" @67465baef4d86a22 #restrict=no-io,no-alloc,no-foreign
-F strOwner stdlib/Str.ax:152:9-17 "(String -> Int)" @8e64d8cc385f2c0d #restrict=no-io,no-alloc,no-foreign
+F strLen stdlib/Str.ax:132:9-15 "(String -> Int)" @eda5fda2fbb7e0d9 #restrict=no-io,no-alloc,no-foreign #erasures=1
+F strData stdlib/Str.ax:143:9-16 "(String -> Int)" @67465baef4d86a22 #restrict=no-io,no-alloc,no-foreign #erasures=1
+F strOwner stdlib/Str.ax:152:9-17 "(String -> Int)" @8e64d8cc385f2c0d #restrict=no-io,no-alloc,no-foreign #erasures=1
 F strByte stdlib/Str.ax:164:9-16 "(String -> (Int -> Int))" @b744777f3cb15078 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #unsafe=trusted
 F strCStr stdlib/Str.ax:176:9-16 "(String -> Int)" @c481b6861daac77a #restrict=no-io,no-foreign #effects=Alloc,Mut
 F strIsEmpty stdlib/Str.ax:183:9-19 "(String -> Bool)" @a83222c0759c013b #restrict=no-io,no-alloc,no-foreign

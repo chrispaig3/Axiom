@@ -51,8 +51,10 @@ its changelog too.
 - Compare values by identity with `Mem.addrOf`, which answers a sealed
   `Addr` word that `addrEq` compares and `addrHash` hashes. An `Addr`
   takes no share: a function whose declared result is a word struct
-  keeps none of its arguments alive. Tested by
-  `tests/stdlib/810-addr-identity.ax`.
+  keeps none of its arguments alive. `symbols` prints `#erasures=n` on
+  a function whose body casts a reference to a word, and
+  `scripts/check-cast-arg-root.sh` holds the compiler's total to a
+  ratchet. Tested by `tests/stdlib/810-addr-identity.ax`.
 
 - Resolve every macro template binder through its scope record alone
   (`MAC-HYG-9` step M4). The expander's second binder table is gone,

@@ -3252,6 +3252,13 @@
 ;   6 `evPending`   the evidence witnesses no pin had reached yet when
 ;                    their call was checked (`evNotePending`), asked
 ;                    again once the body is typed (`evSettle`).
+;   7 `eraseSites`  a Vec while `tcCheckFn` checks one body, 0
+;                    otherwise: every `cast` in it whose target is a
+;                    word (`castNoteForge`), three words each, judged
+;                    once the body is typed (`eraseSettle`).
+;   8 `eraseCounts` pairs (entry, n): each declaration whose body erases
+;                    a reference to a word n times, which `symbols`
+;                    prints as `#erasures=n` (`tcErasuresOf`).
 (struct UState
   (unsafeSink : Int)
   (forgeSites : Int)
@@ -3259,7 +3266,9 @@
   (unsafePending : (Vec Int))
   (ctClaimed : Int)
   (ctResults : Int)
-  (evPending : (Vec EvPend)))
+  (evPending : (Vec EvPend))
+  (eraseSites : Int)
+  (eraseCounts : (Vec Int)))
 
 ; One evidence witness kept for `evSettle`: a call is checked in program
 ; order, and the pin that decides its witness may come later in the
@@ -4213,7 +4222,7 @@
           vecNew
           vecNew
           (countWordStructs allDecls 0 0)
-          (UState 0 0 vecNew vecNew 0 0 vecNewRef)
+          (UState 0 0 vecNew vecNew 0 0 vecNewRef 0 vecNew)
           vecNew
           vecNew))))
         {
@@ -13823,15 +13832,29 @@
   (let ((sites (memGetWord (memGetWord tc 44) 1)))
     (if (== sites 0)
       0
-      (if (&& (== (castMayForge tc tgt src) 1) (== (divTailOk (memGetWordVec tc 10) val vecNew 0) 0))
-        (let ((v (cast (Vec Int) sites)))
-          {
-            (vecPush v e)
-            (vecPush v tgt)
-            (vecPush v src)
-            0
-          })
-        0))))
+      (if (== (divTailOk (memGetWordVec tc 10) val vecNew 0) 1)
+        0
+        (if (== (castMayForge tc tgt src) 1)
+          (let ((v (cast (Vec Int) sites)))
+            {
+              (vecPush v e)
+              (vecPush v tgt)
+              (vecPush v src)
+              0
+            })
+          ; A word target: the cast may ERASE a reference, which is
+          ; judged with the body for the reason above
+          ; (`eraseSettle`).
+          (let ((ev (memGetWord (memGetWord tc 44) 7)))
+            (if (|| (== ev 0) (!= (castTyClass tc tgt) 0))
+              0
+              (let ((v (cast (Vec Int) ev)))
+                {
+                  (vecPush v e)
+                  (vecPush v tgt)
+                  (vecPush v src)
+                  0
+                }))))))))
 
 ; `(cast Type v)`, `(sizeof Type)`, `(alignof Type)`: argument zero is
 ; a TYPE, and a type name is not a variable reference - checking it
@@ -20607,11 +20630,14 @@
                   ; `checkAxtags` to answer and `unsafeLatePass` to
                   ; follow.
                   (memSetWord (memGetWord tc 44) 1 (cast Int vecNew))
+                  (memSetWord (memGetWord tc 44) 7 (cast Int vecNew))
                   (tcCheckFn tc d)
                   (unsafeSettleForges tc)
+                  (eraseSettle tc d)
                   (checkAxtags tc d)
                   (unsafeNoteForgeDecl tc d)
                   (memSetWord (memGetWord tc 44) 1 0)
+                  (memSetWord (memGetWord tc 44) 7 0)
                 }
                 ; A subtype declaration carries no body: validate the
                 ; base names a known type (v1: exactly `Int`) and the
@@ -23734,6 +23760,68 @@
       (unsafeSettleFrom tc sites kept (+ i 3))
     }))
 
+; ERASING CASTS. `(cast Int s)` with `s` a `String` keeps the word and
+; drops the type: the block's share is never given back, and nothing
+; downstream can say what the word was. That is the reverse of a
+; forging cast, and the same three types decide it: the target is a
+; word nobody dereferences (`castTyClass` 0), and the operand is a
+; reference (1) or a type variable the signature wrote, which a caller
+; may instantiate at one. A minted `_tN` the body never pinned says
+; nothing, and a cast whose value never returns erases nothing
+; (`castNoteForge` drops it).
+;
+; Counted per declaration, once the body is typed, and printed by
+; `symbols` as `#erasures=n`. `scripts/check-cast-arg-root.sh` sums the
+; compiler's and holds the total to a ratchet.
+(pub :: castErases (-> Int Int Int Int))
+(pub fn (castErases tc tgt src)
+  (if (!= (castTyClass tc tgt) 0)
+    0
+    (let ((k (castTyClass tc src)))
+      (if (== k 1)
+        1
+        (if (&& (== k 2) (== (tyIsSrcVar (castNormTy tc src)) 1))
+          1
+          0)))))
+
+(pub :: eraseSettle (-> Int Int Int))
+;@axiom:effect(unsafe)
+(pub fn (eraseSettle tc d)
+  (let ((ev (memGetWord (memGetWord tc 44) 7)))
+    (if (== ev 0)
+      0
+      (let ((n (eraseCountFrom tc (cast (Vec Int) ev) 0 0)))
+        (if (== n 0)
+          0
+          (let ((ent (restrictOwnEnt tc d)))
+            (if (== ent 0)
+              0
+              {
+                (vecPush (memGetWordVec (memGetWord tc 44) 8) ent)
+                (vecPush (memGetWordVec (memGetWord tc 44) 8) n)
+                0
+              })))))))
+
+(pub :: eraseCountFrom (-> Int (Vec Int) Int Int Int))
+(pub fn (eraseCountFrom tc sites i acc)
+  (if (>= (+ i 2) (vecLen sites))
+    acc
+    (eraseCountFrom tc sites (+ i 3) (+ acc (castErases tc (vecGet sites (+ i 1)) (vecGet sites (+ i 2)))))))
+
+; How many references `ent`'s body erases to a word, 0 for a declaration
+; that erases none or was never checked.
+(pub :: tcErasuresOf (-> Int Int Int))
+(pub fn (tcErasuresOf tc ent)
+  (eraseLookup (memGetWordVec (memGetWord tc 44) 8) ent 0))
+
+(pub :: eraseLookup (-> (Vec Int) Int Int Int))
+(pub fn (eraseLookup pairs ent i)
+  (if (>= (+ i 1) (vecLen pairs))
+    0
+    (if (== (vecGet pairs i) ent)
+      (vecGet pairs (+ i 1))
+      (eraseLookup pairs ent (+ i 2)))))
+
 ; After a body is checked: a function whose body forges is remembered
 ; (`forgeDecls`), for the late pass to follow and to charge its row.
 (pub :: unsafeNoteForgeDecl (-> Int Int Int))
@@ -24787,7 +24875,11 @@
                           ; trusted set.
                           (if (strEq key "unsafe")
                             1
-                            (axtagReservedMir key)))))))))))))))
+                            ; `#erasures=` is the checker's count of a
+                            ; body's erasing casts (`eraseSettle`).
+                            (if (strEq key "erasures")
+                              1
+                              (axtagReservedMir key))))))))))))))))
 
 ; Split out rather than continued inline: the `#mir-*` set is one
 ; workstream's and moves with it, and a reader adding a seventh key
@@ -25472,7 +25564,8 @@
 ; through `Int` leaves the caller holding a word the release walk
 ; never follows, so the block's share is never given back: 48 bytes
 ; held per call, measured. A function that means to hand out a word
-; for a reference says `(cast Int b)`.
+; for a reference says `(cast Int b)`, and one that wants identity
+; uses `Mem.addrOf`.
 ;
 ; The arms, in order:
 ;

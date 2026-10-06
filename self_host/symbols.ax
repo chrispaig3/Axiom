@@ -1600,6 +1600,13 @@
                         (if (== (memGetWord e 9) 1)
                           (vecPush metas "unsafe=trusted")
                           (cast (Vec String) 0))
+                        ; `#erasures=n`: how many casts in the body turn a
+                        ; reference into a word (`eraseSettle`). A derived
+                        ; key, so an author may not spell it.
+                        (let ((ne (tcErasuresOf tc e)))
+                          (if (> ne 0)
+                            (vecPush metas (concat "erasures=" (fmtInt ne)))
+                            (cast (Vec String) 0)))
                         (if (&& (== mir 1) (== isB 0))
                           (symMirMetas e (saGet (memGetWordVec sm 16) (memGetWordVec sm 17) name) trunc metas)
                           0)

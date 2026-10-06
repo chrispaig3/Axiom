@@ -2365,6 +2365,9 @@ Evidence: [1240-record-through-int.ax](../tests/diagnostics/1240-record-through-
 and [1241-result-coercion-shapes.ax](../tests/diagnostics/1241-result-coercion-shapes.ax)
 pin the refusals. [810-addr-identity.ax](../tests/stdlib/810-addr-identity.ax)
 makes 10,000 `addrOf` calls and holds no bytes.
+[check-cast-arg-root.sh](../scripts/check-cast-arg-root.sh) counts the
+compiler's remaining erasures by operand type and holds them to a
+ratchet.
 
 ### 3.6 Checked lexical regions
 
