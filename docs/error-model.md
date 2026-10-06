@@ -1105,7 +1105,9 @@ first. Three rules keep the numbering straight:
 - A new code takes the next number above the highest one in use, the
   *free end*, and never a number from the reserved block.
 - A retired number **MUST NOT** be reused. `AX3008`, `AX3032`,
-  `AX3075`, `AX3079` and `AX3080` are retired.
+  `AX3075`, `AX3079` and `AX3080` are retired. `AX3081`, `AX3082`,
+  `AX3083`, `AX3087` and `AX3088` were skipped and never assigned, and
+  the same rule covers them.
 
 No codes are proposed right now. When one is, it goes in this table:
 

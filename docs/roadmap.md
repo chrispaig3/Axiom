@@ -69,7 +69,7 @@ integrator would still need.
 | A misspelt checked AXTAG key is an error | Done | `AX3039` |
 | An `effect(unsafe)` claim is judged by what the body itself performs | Done | `AX3010`, `tests/diagnostics/1200-unsafe-claim-open-row.ax` |
 | A statically certain defect or a refuted claim is an error, not a warning | In progress | `tests/diagnostics/severity.policy` |
-| Retired and never-assigned codes are recorded and never reused | In progress | `ERR-DIAG-2` |
+| Retired and never-assigned codes are recorded and never reused | Done | `ERR-DIAG-2` |
 | A check after an error is poisoned, not cascaded | Planned | `ERR-DIAG-3` |
 | A cast to a spawn handle counts as forging | Not started | |
 | Two signatures for one name are refused, instead of the later one winning | Done | `tests/diagnostics/1255-duplicate-signature.ax` |

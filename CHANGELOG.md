@@ -16,6 +16,11 @@ its changelog too.
 
 ## Unreleased
 
+- Treat `AX3081`, `AX3082`, `AX3083`, `AX3087` and `AX3088` as retired.
+  They were skipped and never assigned, so the never-reuse rule now
+  names them, and a retired number that is built or explained again
+  fails the registry check. Tested by `scripts/check-doc-drift.sh`.
+
 - Refuse an `effect(unsafe)` claim on a higher-order function whose
   body performs no unsafe operation itself, as `AX3010`. A function
   that calls a parameter or a field used to escape the check, so a

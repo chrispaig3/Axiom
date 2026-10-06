@@ -173,6 +173,30 @@ else
 fi
 
 # ---------------------------------------------------------------
+# 1c. the RETIRED numbers, against the same constructed set
+# ---------------------------------------------------------------
+# ERR-DIAG-2 says a retired number is never reused, and lists them: the
+# codes the compiler built and later removed, and the numbers it skipped
+# and never assigned. A number in that list that is constructed or
+# explained again has been reused, whatever it now means. The list is
+# the bullet that opens "A retired number", up to the next bullet.
+echo "== registry: no retired number is reused =="
+retired="$(awk '/^- A retired number/ { on = 1 } on && /^- / && !/^- A retired number/ { on = 0 } on && /^$/ { on = 0 } on' "$model" \
+             | grep -ohE 'AX[0-9]{4}' | sort -u)"
+nr="$(printf '%s\n' "$retired" | grep -c .)"
+if (( nr < 10 )); then
+  echo "FAIL registry: only $nr retired number(s) read from $model; the floor is 10 (the list moved or the grep stopped matching)"
+  failed=$((failed+1))
+fi
+reused="$(comm -12 <(printf '%s\n' "$retired") <(printf '%s\n%s\n' "$constructed" "$listed" | sort -u) | tr '\n' ' ')"
+if [[ -n "${reused// /}" ]]; then
+  echo "FAIL registry: $model lists these as retired, and the compiler builds or explains them: $reused"
+  failed=$((failed+1))
+else
+  echo "ok   $nr retired number(s) in $model, none of them reused"
+fi
+
+# ---------------------------------------------------------------
 # 1d. a document against its OWN defect table
 # ---------------------------------------------------------------
 # `docs/memory-model.md` §9.0 is the register of defects this
