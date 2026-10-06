@@ -15,31 +15,25 @@
 
 (:: loadAt (-> Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`a` names a live word, and one not 8-byte aligned traps 82)
 (fn (loadAt a)
   (__atomic_load a))
 
 (:: storeAt (-> Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`a` names a live word, and one not 8-byte aligned traps 82)
 (fn (storeAt a)
   (__atomic_store a 7))
 
 (:: addAt (-> Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`a` names a live word, and one not 8-byte aligned traps 82)
 (fn (addAt a)
   (__atomic_add a 1))
 
 (:: casAt (-> Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`a` names a live word, and one not 8-byte aligned traps 82)
 (fn (casAt a)
   (__atomic_cas a 0 1))
 
 (:: which (-> Int Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`a` names a live word, and one not 8-byte aligned traps 82)
 (fn (which k a)
   (if (== k 0)
     (loadAt a)
@@ -50,8 +44,6 @@
         (casAt a)))))
 
 (:: trapped (-> Int Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`a` names a live word, and one not 8-byte aligned traps 82)
 (fn (trapped k a)
   (__axiom_recover
     __axiom_arena_mark
@@ -59,7 +51,6 @@
 
 (:: main Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (main)
   (let ((p (memAlloc 32)))
     {

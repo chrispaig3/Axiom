@@ -43,8 +43,6 @@
 ; this module goes through here.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: strWrap (-> Int Int String))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`bytes` names `len` + 1 live bytes ending in a NUL, and they outlive the string)
 (pub fn (strWrap bytes len)
   (strWrapOwned bytes len 0))
 
@@ -69,7 +67,6 @@
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: strWrapOwned (-> Int Int Int String))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`bytes` names `len` + 1 live bytes ending in a NUL, and `owner` is 0 or the owned block holding them)
 (pub fn (strWrapOwned bytes len owner)
   (let ((s (memAllocMapped 24 4)))
     {
@@ -113,10 +110,9 @@
 ; else: a syscall's output buffer.
 ;
 ; Cost is one scan for the length; the bytes are never copied.
+; The bytes must outlive the string.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: strFromLit (-> Int String))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`cstr` names live NUL-terminated bytes that outlive the string)
 (pub fn (strFromLit cstr)
   (strWrap cstr (cstrLen cstr 0)))
 
@@ -124,7 +120,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: cstrLen (-> Int Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`addr` names live bytes with a NUL at or after `i`)
 (pub fn (cstrLen addr i)
   (if (== (__load8 addr i) 0)
     i
@@ -135,7 +130,6 @@
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strLen (-> String Int))
-;@axiom:effect(unsafe)
 (pub fn (strLen s)
   ; The one place a `String` is read AS a word address - the handle
   ; crossing into the Mem boundary is spelled with the cast, so the
@@ -147,7 +141,6 @@
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strData (-> String Int))
-;@axiom:effect(unsafe)
 (pub fn (strData s)
   (memGetWord
     (cast Int s)
@@ -157,7 +150,6 @@
 ; (a literal's, a syscall buffer's, an arena keep block's interior).
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strOwner (-> String Int))
-;@axiom:effect(unsafe)
 (pub fn (strOwner s)
   (memGetWord
     (cast Int s)
@@ -200,7 +192,6 @@
 ; first.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strCmp (-> String String Int))
-;@axiom:effect(unsafe)
 (pub fn (strCmp a b)
   (let (
     (la (strLen a))
@@ -235,7 +226,6 @@
 ; holds under the change.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strEq (-> String String Bool))
-;@axiom:effect(unsafe)
 (pub fn (strEq a b)
   (let ((la (strLen a)))
     (if (!= la (strLen b))
@@ -283,7 +273,6 @@
 ; An owned, NUL-terminated copy of `s`.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: strDup (-> String String))
-;@axiom:effect(unsafe)
 (pub fn (strDup s)
   (let ((len (strLen s)))
     (let ((out (strAlloc len)))
@@ -294,7 +283,6 @@
 
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: concat (-> String String String))
-;@axiom:effect(unsafe)
 (pub fn (concat a b)
   (let (
     (la (strLen a))
@@ -320,7 +308,6 @@
 ; `Str` owns it, so it lives until its arena is reset.
 ;@axiom:restrict(no-io,no-foreign)
 (:: strCStrCopy (-> String Int))
-;@axiom:effect(unsafe)
 (fn (strCStrCopy s)
   (let (
     (n (strLen s))
@@ -382,7 +369,6 @@
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strStartsWith (-> String String Bool))
-;@axiom:effect(unsafe)
 (pub fn (strStartsWith s prefix)
   (let ((lp (strLen prefix)))
     (if (> lp (strLen s))
@@ -598,7 +584,6 @@
 ; are unchanged.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: strFind (-> String String Int (Option Int)))
-;@axiom:effect(unsafe)
 (pub fn (strFind s needle from)
   (let (
     (len (strLen s))

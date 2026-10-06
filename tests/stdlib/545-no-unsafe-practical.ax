@@ -5,18 +5,15 @@
 ; functions is a trusted encapsulation, whose raw loads and stores are
 ; its own and not its caller's.
 ;
-; It also talks to the kernel, through `IO`'s typed calls (MM-EXEC-9e):
-; `fileRound` writes a file, reads it back into a `ReadBuffer` and whole, and
+; It also talks to the kernel, through `IO`'s typed calls: `fileRound`
+; writes a file, reads it back into a `ReadBuffer` and whole, and
 ; removes it, all by a `String` path; `randomCount` asks for entropy as
-; a fresh string; `termText` asks for the terminal's size. The raw
-; `Sys` calls under them hand the kernel addresses, and a `no-unsafe`
-; function calling one is refused; these hand it only bytes a `String`
-; holds, so the restriction holds through them too.
+; a fresh string; `termText` asks for the terminal's size. These hand
+; the kernel only bytes a `String` holds.
 ;
-; `firstByte` is a trusted wrapper written here. Its body calls
-; `memGetByte`, a precondition interface, and makes the precondition
-; true itself by checking the length first, so it says `effect(unsafe)`
-; alone. Its callers, `work` included, say nothing about it.
+; `firstByte` checks the length before it calls `memGetByte`, a trusted
+; `Mem` function, so it needs no tag. Its callers, `work` included, say
+; nothing about it either.
 (import IO)
 (import Mem)
 (import Str)
@@ -29,7 +26,6 @@
 (import Sys)
 
 (:: firstByte (-> String Int))
-;@axiom:effect(unsafe)
 (fn (firstByte s)
   (if (== (strLen s) 0)
     0
@@ -43,7 +39,6 @@
 ;@axiom:effect(io)
 ;@axiom:effect(block)
 ; This function keeps the channel local and spawns no user of it.
-;@axiom:effect(unsafe)
 (fn (channelSum n)
   (match (chanNew 8)
     ((Err e) (- 0 1))

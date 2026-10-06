@@ -54,7 +54,6 @@
 ; Sleep for up to a minute: only a kill ends it in time.
 (:: stubborn (-> Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(block)
 (fn (stubborn page)
   {

@@ -24,7 +24,6 @@
 
 (:: kat (-> Tally String Int Int String Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (kat t s seed want label)
   (let ((got (pagerChecksum (strData s) (strLen s) seed)))
     {

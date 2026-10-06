@@ -17,7 +17,6 @@
 
 (:: main Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (main)
   (let ((mut i 20000))
     (let ((mut acc 0))

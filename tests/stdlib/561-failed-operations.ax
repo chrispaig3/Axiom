@@ -45,7 +45,6 @@
 
 ; 10,000 allocations of 48 bytes: how many came back with a nonzero word
 (:: dirty (-> Int Int Int))
-;@axiom:effect(unsafe)
 (fn (dirty k bad)
   (if (== k 0)
     bad

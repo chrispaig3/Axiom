@@ -77,7 +77,6 @@
 ; which several tools read back out of their own argv.
 (pub :: runTool (-> String (Vec Int) Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
 (pub fn (runTool tool args)
@@ -109,7 +108,6 @@
       })))
 
 (pub :: fillArgv (-> Int (Vec Int) Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (fillArgv v args i n)
   (if (>= i n)
     0
@@ -934,7 +932,6 @@
 ; the package name without a leading `axiom-`.
 (pub :: crateModuleName (-> String String String))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (crateModuleName dir pkg)
   (let (
     (entries (sysReadDir (strCStr (concat dir "axiom"))))
@@ -1290,7 +1287,6 @@
 ; can explain.
 (pub :: addCrateDirs (-> (Vec Int) (Vec Int) (Vec Int) Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (addCrateDirs v dirs crates)
   (let ((mut c 0))
     {
@@ -1304,7 +1300,6 @@
 
 (pub :: addTargetDirs (-> (Vec Int) (Vec Int) (Vec Int) Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (addTargetDirs v dirs td i)
   (if (>= i (vecLen td))
     0
@@ -2626,7 +2621,6 @@
   (nearestSubcommandFrom w subcommandNames 0))
 
 (pub :: nearestSubcommandFrom (-> String (Vec Int) Int String))
-;@axiom:effect(unsafe)
 (pub fn (nearestSubcommandFrom w v i)
   (if (>= i (vecLen v))
     ""

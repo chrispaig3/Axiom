@@ -16,7 +16,7 @@
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
            [1;35m;@axiom:effect(unsafe)[0m
-  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag makes the declaration a trusted encapsulation, whose callers inherit nothing. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
 
 [1;31merror[AX3049][0m[1m: `s1` claims `restrict(no-unsafe)` and the body performs Unsafe: s1 -> __syscall1[0m
@@ -37,7 +37,7 @@
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
            [1;35m;@axiom:effect(unsafe)[0m
-  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag makes the declaration a trusted encapsulation, whose callers inherit nothing. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
 
 [1;31merror[AX3049][0m[1m: `s2` claims `restrict(no-unsafe)` and the body performs Unsafe: s2 -> __syscall2[0m
@@ -58,7 +58,7 @@
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
            [1;35m;@axiom:effect(unsafe)[0m
-  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag makes the declaration a trusted encapsulation, whose callers inherit nothing. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
 
 [1;31merror[AX3049][0m[1m: `s3` claims `restrict(no-unsafe)` and the body performs Unsafe: s3 -> __syscall3[0m
@@ -79,7 +79,7 @@
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
            [1;35m;@axiom:effect(unsafe)[0m
-  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag makes the declaration a trusted encapsulation, whose callers inherit nothing. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
 
 [1;31merror[AX3049][0m[1m: `s4` claims `restrict(no-unsafe)` and the body performs Unsafe: s4 -> __syscall4[0m
@@ -100,7 +100,7 @@
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
            [1;35m;@axiom:effect(unsafe)[0m
-  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag makes the declaration a trusted encapsulation, whose callers inherit nothing. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
 
 [1;31merror[AX3049][0m[1m: `s5` claims `restrict(no-unsafe)` and the body performs Unsafe: s5 -> __syscall5[0m
@@ -121,7 +121,7 @@
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
            [1;35m;@axiom:effect(unsafe)[0m
-  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag makes the declaration a trusted encapsulation, whose callers inherit nothing. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
 
 [1;31merror[AX3049][0m[1m: `s6` claims `restrict(no-unsafe)` and the body performs Unsafe: s6 -> __syscall6[0m
@@ -142,7 +142,7 @@
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
            [1;35m;@axiom:effect(unsafe)[0m
-  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag makes the declaration a trusted encapsulation, whose callers inherit nothing. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
 
 [1;31merror[AX3049][0m[1m: `fillsAt` claims `restrict(no-unsafe)` and the body performs Unsafe: fillsAt -> __syscall3[0m
@@ -163,7 +163,7 @@
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
            [1;35m;@axiom:effect(unsafe)[0m
-  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag makes the declaration a trusted encapsulation, whose callers inherit nothing. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
 
 [1;31merror[AX3049][0m[1m: `h0` claims `restrict(no-unsafe)` and the body performs Unsafe: h0 -> __handle_new[0m
@@ -184,7 +184,7 @@
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
            [1;35m;@axiom:effect(unsafe)[0m
-  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag makes the declaration a trusted encapsulation, whose callers inherit nothing. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
 
 [1;31merror[AX3049][0m[1m: `h1` claims `restrict(no-unsafe)` and the body performs Unsafe: h1 -> __handle_get[0m
@@ -205,7 +205,7 @@
 [1;34m    |[0m
    [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
             [1;35m;@axiom:effect(unsafe)[0m
-   [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+   [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag makes the declaration a trusted encapsulation, whose callers inherit nothing. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
    [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
 
 [1;31merror[AX3049][0m[1m: `h2` claims `restrict(no-unsafe)` and the body performs Unsafe: h2 -> __handle_free[0m
@@ -226,7 +226,7 @@
 [1;34m    |[0m
    [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
             [1;35m;@axiom:effect(unsafe)[0m
-   [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+   [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag makes the declaration a trusted encapsulation, whose callers inherit nothing. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
    [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
 
 [1;31merror[AX3010][0m[1m: AXTAG mismatch on `quiet`: `effect(pure)` claim contradicted: body performs IO, Unsafe[0m
@@ -246,7 +246,7 @@
 [1;34m    |[0m
    [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
             [1;35m;@axiom:effect(unsafe)[0m
-   [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+   [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag makes the declaration a trusted encapsulation, whose callers inherit nothing. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
    [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
 
 compilation failed due to 24 previous errors

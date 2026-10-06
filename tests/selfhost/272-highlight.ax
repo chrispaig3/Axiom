@@ -66,27 +66,22 @@
     mat))
 
 (:: hcSrc (-> Int String))
-;@axiom:effect(unsafe)
 (fn (hcSrc c)
   (memGetWordStr c 0))
 
 (:: hcCur (-> Int Int))
-;@axiom:effect(unsafe)
 (fn (hcCur c)
   (memGetWord c 1))
 
 (:: hcCls (-> Int String))
-;@axiom:effect(unsafe)
 (fn (hcCls c)
   (memGetWordStr c 2))
 
 (:: hcDep (-> Int Int))
-;@axiom:effect(unsafe)
 (fn (hcDep c)
   (memGetWord c 3))
 
 (:: hcMat (-> Int Int))
-;@axiom:effect(unsafe)
 (fn (hcMat c)
   (memGetWord c 4))
 
@@ -327,7 +322,6 @@
 
 ; How many of the eleven class letters the corpus actually produced.
 (:: distinctLetters (-> (Vec Int) Int))
-;@axiom:effect(unsafe)
 (fn (distinctLetters v)
   (let (
     (seen (strAlloc 256))

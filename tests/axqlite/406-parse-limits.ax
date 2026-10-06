@@ -8,7 +8,6 @@
 (import Axqlite.AxqlParse)
 
 (:: repeat (-> String Int String))
-;@axiom:effect(unsafe)
 (fn (repeat s n)
   ; These fixed inputs fit in Int. Allocate their bytes once so input
   ; construction stays linear and the test measures the parser's budgets.

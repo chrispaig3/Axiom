@@ -63,7 +63,6 @@
 ; a wide span would pay it per character.
 ; ------------------------------------------------------------------
 (pub :: repByte (-> Int Int String))
-;@axiom:effect(unsafe)
 (pub fn (repByte n ch)
   (let ((m 
     (if (< n 0)
@@ -693,22 +692,18 @@
   (sgr : String))
 
 (pub :: rowSpan (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (rowSpan r)
   (memGetWord r 0))
 
 (pub :: rowCh (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (rowCh r)
   (memGetWord r 1))
 
 (pub :: rowMsg (-> Int String))
-;@axiom:effect(unsafe)
 (pub fn (rowMsg r)
   (memGetWordStr r 2))
 
 (pub :: rowSgr (-> Int String))
-;@axiom:effect(unsafe)
 (pub fn (rowSgr r)
   (memGetWordStr r 3))
 
@@ -812,7 +807,6 @@
 ; span, which is a SIGSEGV in `spanStart`. Found by
 ; `scripts/check-fuzz.sh` (tests/fuzz/render-spanless-cross.axfuzz).
 (pub :: secNoteText (-> Int Int (Vec Int) (Vec Int) String))
-;@axiom:effect(unsafe)
 (pub fn (secNoteText d i units ixs)
   (if (== (diagSecSpan d i) 0)
     (concat (diagSecMsg d i) " (no declaration to point at)")
@@ -883,7 +877,6 @@
 ; parenthetical repeats fmtSpan's exact text, so the derivation is a
 ; concatenation and not a re-parse.
 (pub :: traceNoteText (-> Int Int (Vec Int) (Vec Int) String))
-;@axiom:effect(unsafe)
 (pub fn (traceNoteText d i units ixs)
   (let ((base (concat (concat "in this expansion of `" (diagTraceName d i)) "`")))
     (let (
@@ -936,7 +929,6 @@
 ; can be wider than the primary's, and two blocks whose bars do not
 ; line up read as two reports.
 (pub :: traceGutterWidth (-> Int (Vec Int) (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (traceGutterWidth d units ixs w0)
   (let (
     (mut i 0)
@@ -1132,7 +1124,6 @@
 ; Every diagnostic, each rendered against the source file its `unit`
 ; field names - the same table renderDiagsUnits (AXDL) reads.
 (pub :: renderDiagsHumanUnits (-> (Vec Int) (Vec Int) String))
-;@axiom:effect(unsafe)
 (pub fn (renderDiagsHumanUnits ds units)
   ; ONE index per unit for the whole report. The number of
   ; diagnostics is uncapped and each used to rescan its source from
@@ -1583,7 +1574,6 @@
       (concat (concat (concat (concat (concat "\"help\":" (jsonHelpArray d)) (jsonFixField d src ix file)) ",\"expansion\":") (jsonTraceArray d units ixs)) "}"))))
 
 (pub :: renderDiagsJsonUnits (-> (Vec Int) (Vec Int) String))
-;@axiom:effect(unsafe)
 (pub fn (renderDiagsJsonUnits ds units)
   ; One index per unit for the whole report, as the other two
   ; surfaces build.

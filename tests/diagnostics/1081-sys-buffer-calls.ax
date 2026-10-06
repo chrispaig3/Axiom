@@ -1,20 +1,18 @@
 ; Every `Sys` call that hands the kernel an address its caller chose is
-; a precondition interface (docs/memory-model.md MM-EXEC-9e), so a call
-; to one is an unsafe operation in the caller. Before R-B10's third
-; step these took an `Int` and said nothing: `(sysReadFd 0 buf 64)`
-; with `buf` any word was ordinary safe code, and the kernel wrote 64
-; bytes wherever `buf` pointed.
+; a trusted encapsulation (docs/memory-model.md MM-EXEC-9d), so its
+; caller needs no tag and a call to it is ordinary safe code. The kernel
+; reads or writes wherever the address points, so a bad address still
+; crashes the program; nothing here checks it.
 ;
-; One untagged declaration per interface, each refused as AX3073 at the
-; call: the descriptor reads and writes, the path calls, entropy, the
-; terminal calls, the shared-memory unmap and wait, and the raw forms
-; in `IO`. `pureRead` claims `pure` over `sysReadFd` and draws
-; AX3010 instead. `noUnsafe` claims `restrict(no-unsafe)` over
-; `sysRandomBytes` and draws AX3049 beside its AX3073.
+; One untagged declaration per call, each accepted: the descriptor
+; reads and writes, the path calls, entropy, the terminal calls, the
+; shared-memory unmap and wait, and the raw forms in `IO`. `noUnsafe`
+; claims `restrict(no-unsafe)` over `sysRandomBytes` and is accepted
+; too. `pureRead` claims `pure` over `sysReadFd` and draws AX3010 for
+; the IO it performs.
 ;
-; The controls stay silent under `restrict(no-unsafe)`: `typed` does
-; the same work through the typed companions in `IO`, which take a
-; `String` or answer a fresh one.
+; `typed` does the same work through the typed companions in `IO`,
+; which take a `String` or answer a fresh one.
 (import Sys)
 (import IO)
 (import Str)

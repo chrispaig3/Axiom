@@ -4,8 +4,8 @@
 [1;34m12 |[0m (fn (onFault status vector esr elr far)
 [1;34m   |[0m      [1;31m^^^^^^^[0m
 [1;34m   |[0m
-  [1;34m = [0m[1mnote: [0mStr$concat (stdlib/Str.ax:298:10-16)
-  [1;34m = [0m[1mnote: [0mStr$strAlloc (stdlib/Str.ax:96:10-18)
+  [1;34m = [0m[1mnote: [0mStr$concat (stdlib/Str.ax:286:10-16)
+  [1;34m = [0m[1mnote: [0mStr$strAlloc (stdlib/Str.ax:93:10-18)
   [1;34m = [0m[1mnote: [0mMem$memAlloc (stdlib/Mem.ax:53:10-18)
   [1;34m = [0m[1mnote: [0m__alloc (no declaration to point at)
   [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked

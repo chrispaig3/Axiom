@@ -34,7 +34,6 @@
 
 (:: closedFd (-> Int Bool))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (closedFd fd)
   (let ((buf (strAlloc 1)))
     (match (sysReadFd fd (strData buf) 1)

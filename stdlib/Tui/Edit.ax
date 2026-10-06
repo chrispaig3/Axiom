@@ -219,7 +219,6 @@
 ; nothing else needs it.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledFree (-> LineEd Int))
-;@axiom:effect(unsafe)
 (pub fn (ledFree ed)
   {
     (vecFree ed.left)
@@ -262,7 +261,6 @@
 ; arena's reset was measured at under 1% (MM-ALLOC-22).
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledRangeStr (-> LineEd Int Int String))
-;@axiom:effect(unsafe)
 (pub fn (ledRangeStr ed s cnt)
   (let (
     (n (ledLen ed))
@@ -531,7 +529,6 @@
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledKillPush (-> LineEd String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (ledKillPush ed text dir)
   {
     (if (&& (== ed.lastKill dir) (> (vecLen ed.ring) 0))
@@ -631,7 +628,6 @@
 
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledYank (-> LineEd Int))
-;@axiom:effect(unsafe)
 (pub fn (ledYank ed)
   (if (== (vecLen ed.ring) 0)
     0
@@ -645,7 +641,6 @@
 ; `ledApply`, so pressed cold this is a refusal that changes nothing.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledYankPop (-> LineEd Int))
-;@axiom:effect(unsafe)
 (pub fn (ledYankPop ed)
   (if (|| (== ed.yankLen 0) (< (vecLen ed.ring) 2))
     0
@@ -725,7 +720,6 @@
 ; because the refresh below is what needs it.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: tuiCat (-> (Vec String) String))
-;@axiom:effect(unsafe)
 (pub fn (tuiCat v)
   (let (
     (n (vecLen v))
@@ -850,7 +844,6 @@
 ; bytes. 65 A up, 66 B down, 67 C forward, 68 D back.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledCup (-> Int Int String))
-;@axiom:effect(unsafe)
 (pub fn (ledCup n final)
   (if (< n 1)
     ""
@@ -867,7 +860,6 @@
 ; `ESC [ H ESC [ 2 J` - cursor home, erase the whole screen. Ctrl-L.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledClearScreen (-> Int String))
-;@axiom:effect(unsafe)
 (pub fn (ledClearScreen _u)
   (let ((out (strAlloc 7)))
     {
@@ -887,7 +879,6 @@
 ; leaves the old line's tail on the screen.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledEraseRow (-> Int String))
-;@axiom:effect(unsafe)
 (pub fn (ledEraseRow _u)
   (let ((out (strAlloc 4)))
     {

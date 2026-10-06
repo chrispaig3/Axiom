@@ -76,7 +76,6 @@
 
 (:: main Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (main)
   (let (
     (acc (memAlloc 8))

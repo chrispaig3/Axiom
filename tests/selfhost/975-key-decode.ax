@@ -45,7 +45,6 @@
 
 ; ESC followed by `rest`.
 (:: esc (-> String String))
-;@axiom:effect(unsafe)
 (fn (esc rest)
   (let ((n (strLen rest)))
     (let ((s (strAlloc (+ n 1))))

@@ -47,7 +47,7 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: hkdfErase (-> Int Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`p` names `n` live writable bytes and `n` is a positive multiple of 8)
+;@axiom:pre((&& (> n 0) (== (& n 7) 0)))
 (fn (hkdfErase p n)
   {
     (for i in 0..(- (/ n 8) 1)
@@ -65,7 +65,6 @@
 (pub :: hkdfSha256ExpandRaw (-> Int Int Int Int Int Int Int))
 ;@axiom:ct(*prk)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`prk` names `prkLen` live bytes, `info` names `infoLen` live bytes, `out` names `len` live writable bytes, and `len` is 1 to 8160)
 (pub fn (hkdfSha256ExpandRaw prk prkLen info infoLen out len)
   (let (
     (chains (memAlloc 64))
@@ -98,7 +97,6 @@
 (pub :: hkdfSha512ExpandRaw (-> Int Int Int Int Int Int Int))
 ;@axiom:ct(*prk)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`prk` names `prkLen` live bytes, `info` names `infoLen` live bytes, `out` names `len` live writable bytes, and `len` is 1 to 16320)
 (pub fn (hkdfSha512ExpandRaw prk prkLen info infoLen out len)
   (let (
     (chains (memAlloc 128))
@@ -131,8 +129,6 @@
 ; before this returns. Answers 0.
 (pub :: hkdfSha256Raw (-> Int Int Int Int Int Int Int Int Int))
 ;@axiom:ct(*ikm)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`ikm`, `salt` and `info` name `ikmLen`, `saltLen` and `infoLen` live bytes, `out` names `len` live writable bytes, and `len` is 1 to 8160)
 (pub fn (hkdfSha256Raw ikm ikmLen salt saltLen info infoLen out len)
   (let ((prk (memAlloc 32)))
     {
@@ -145,8 +141,6 @@
 ; to 16320. Answers 0.
 (pub :: hkdfSha512Raw (-> Int Int Int Int Int Int Int Int Int))
 ;@axiom:ct(*ikm)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`ikm`, `salt` and `info` name `ikmLen`, `saltLen` and `infoLen` live bytes, `out` names `len` live writable bytes, and `len` is 1 to 16320)
 (pub fn (hkdfSha512Raw ikm ikmLen salt saltLen info infoLen out len)
   (let ((prk (memAlloc 64)))
     {
@@ -162,8 +156,6 @@
 ; scratch is erased either way.
 (:: hkdfSeal (-> Int Int (Result SecretBytes Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`p` names `n` live writable bytes, `n` a positive multiple of 8)
 (fn (hkdfSeal p n)
   (let ((r (secretFromAddr p n)))
     {
@@ -187,7 +179,6 @@
 ; pseudorandom key HMAC(salt, ikm). An empty salt is 32 zero bytes.
 (pub :: hkdfSha256Extract (-> String SecretBytes (Result SecretBytes Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (hkdfSha256Extract salt ikm)
   (let ((prk (memAlloc 32)))
     {
@@ -200,7 +191,6 @@
 ; to 8160; otherwise `cryptoInvalidLength`.
 (pub :: hkdfSha256Expand (-> SecretBytes String Int (Result SecretBytes Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (hkdfSha256Expand prk info len)
   (if (< (secretLen prk) 32)
     (cryptoLengthErr "an HKDF-SHA-256 pseudorandom key is at least 32 bytes" "hkdfSha256Expand")
@@ -222,7 +212,6 @@
 ; otherwise `cryptoInvalidLength`.
 (pub :: hkdfSha256 (-> SecretBytes String String Int (Result SecretBytes Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (hkdfSha256 ikm salt info len)
   (match (hkdfCheckLen len 32 "hkdfSha256")
     ((Err e) (Err e))
@@ -241,7 +230,6 @@
 ; HMAC(salt, ikm). An empty salt is 64 zero bytes.
 (pub :: hkdfSha512Extract (-> String SecretBytes (Result SecretBytes Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (hkdfSha512Extract salt ikm)
   (let ((prk (memAlloc 64)))
     {
@@ -254,7 +242,6 @@
 ; otherwise `cryptoInvalidLength`.
 (pub :: hkdfSha512Expand (-> SecretBytes String Int (Result SecretBytes Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (hkdfSha512Expand prk info len)
   (if (< (secretLen prk) 64)
     (cryptoLengthErr "an HKDF-SHA-512 pseudorandom key is at least 64 bytes" "hkdfSha512Expand")
@@ -276,7 +263,6 @@
 ; otherwise `cryptoInvalidLength`.
 (pub :: hkdfSha512 (-> SecretBytes String String Int (Result SecretBytes Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (hkdfSha512 ikm salt info len)
   (match (hkdfCheckLen len 64 "hkdfSha512")
     ((Err e) (Err e))

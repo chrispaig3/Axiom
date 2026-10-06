@@ -13,7 +13,6 @@
   (lambda (n) s))
 
 (:: main Int)
-;@axiom:effect(unsafe)
 (fn (main)
   (let ((text (concat "keep" "alive"))
         (read (reader text))

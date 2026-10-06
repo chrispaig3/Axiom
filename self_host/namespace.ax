@@ -112,7 +112,6 @@
 ; Is `name` in `bares`? The indexed form of `mangleHasIn`, and the
 ; one every writer here asks.
 (pub :: mangleIdxHas (-> Int (Vec String) String Bool))
-;@axiom:effect(unsafe)
 (pub fn (mangleIdxHas idx bares name)
   {
     (mangleIdxSync idx bares)
@@ -127,7 +126,6 @@
 ; `(vecSet fulls i name)`, so a miss that reached the index is a wild
 ; WRITE - it would store into the word before the vector's first.
 (pub :: mangleIdxIndexOf (-> Int (Vec String) String (Option Int)))
-;@axiom:effect(unsafe)
 (pub fn (mangleIdxIndexOf idx bares name)
   {
     (mangleIdxSync idx bares)
@@ -278,7 +276,6 @@
 ; hold and is emitted unchanged - an undefined symbol reported by
 ; `opt` against generated code.
 (pub :: mangleDecl (-> Int String Int (Vec String) (Vec String) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (mangleDecl node modName idx bares fulls exported)
   (if (==
     (cast Int modName)
@@ -384,7 +381,6 @@
 ; rather than beside its first caller because its SECOND caller is
 ; the filter test below, which expansion needs.
 (pub :: seenHasIn (-> (Vec String) String Int Bool))
-;@axiom:effect(unsafe)
 (pub fn (seenHasIn seen name i)
   (if (>= i (vecLen seen))
     false

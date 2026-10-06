@@ -41,7 +41,6 @@
 ; combined call, 1 extract then expand, 2 the by-address form.
 (:: derive (-> Int Int String String String Int String))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (derive alg route ikm salt info len)
   (match (secretFromString ikm)
     ((Err _) "")

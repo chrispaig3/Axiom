@@ -25,7 +25,6 @@
 ; Run `axiom check FILE` and answer its exit status.
 (:: check (-> String String Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
 (fn (check axiom file)

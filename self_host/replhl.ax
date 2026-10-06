@@ -267,19 +267,16 @@
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: hlSpanCls (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (hlSpanCls s)
   (memGetWord s 0))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: hlSpanStart (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (hlSpanStart s)
   (memGetWord s 1))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: hlSpanEnd (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (hlSpanEnd s)
   (memGetWord s 2))
 
@@ -309,31 +306,26 @@
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: hlBrkPos (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (hlBrkPos b)
   (memGetWord b 0))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: hlBrkOpen (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (hlBrkOpen b)
   (memGetWord b 1))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: hlBrkFam (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (hlBrkFam b)
   (memGetWord b 2))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: hlBrkPartner (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (hlBrkPartner b)
   (memGetWord b 3))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: hlBrkSpan (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (hlBrkSpan b)
   (memGetWord b 4))
 
@@ -353,13 +345,11 @@
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: hlScanSpans (-> Int (Vec Int)))
-;@axiom:effect(unsafe)
 (pub fn (hlScanSpans s)
   (memGetWordVec s 0))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: hlScanBrks (-> Int (Vec Int)))
-;@axiom:effect(unsafe)
 (pub fn (hlScanBrks s)
   (memGetWordVec s 1))
 
@@ -913,7 +903,6 @@
 ; A cursor of -1 means "no cursor", so no bracket is marked.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: replHlClass (-> String Int String))
-;@axiom:effect(unsafe)
 (pub fn (replHlClass src cursor)
   (let (
     (sc (hlScan src))

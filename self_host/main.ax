@@ -168,7 +168,6 @@
 ; not a silent short file.
 (pub :: symbolsAxirReadBack (-> String Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (symbolsAxirReadBack src)
   (if (axirLooksLikeFile src)
     (let (
@@ -442,7 +441,6 @@
         }))))
 
 (pub :: strInVecStr (-> (Vec String) String Int Bool))
-;@axiom:effect(unsafe)
 (pub fn (strInVecStr v s i)
   (if (>= i (vecLen v))
     false
@@ -1026,7 +1024,6 @@
 ; entry into - one allocation per test, never freed, in a process that
 ; is about to exec or exit.
 (pub :: testMkRec (-> String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (testMkRec name xfail)
   (let ((v (memAlloc (* 2 8))))
     {
@@ -1122,7 +1119,6 @@
 ; the generated program was emitting the hole syntax instead of
 ; interpolating it.
 (pub :: testCallLines (-> (Vec Int) Int Int String))
-;@axiom:effect(unsafe)
 (pub fn (testCallLines names hasSetup hasTeardown)
   (let (
     (n (vecLen names))
@@ -1186,7 +1182,6 @@
 ; pointer, failed, and `test` exited 4 with nothing on either stream.
 ; `runArgv` beside it has the shape this must have.
 (pub :: testArgv (-> String Int))
-;@axiom:effect(unsafe)
 (pub fn (testArgv name)
   (let ((v (memAlloc (* 2 8))))
     {
@@ -1208,7 +1203,6 @@
 ; fails.
 (pub :: testRunFile (-> String String Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
 ;@axiom:effect(entropy)
@@ -1329,7 +1323,6 @@
 ; directory.
 (pub :: testMain Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
 ;@axiom:effect(entropy)
@@ -1510,7 +1503,6 @@
 ; checkout and which names the process that owned it.
 (pub :: fetchUrls (-> (Vec Int) String Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
 (pub fn (fetchUrls urls base i)
@@ -2362,7 +2354,6 @@
 ; otherwise be ambiguous can be forced across with `--`.
 (pub :: runArgv (-> String Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (runArgv name)
   ; In manifest mode the operands after `--` are PROGRAM arguments -
   ; `runInputOperand` read the first of them as nothing, so starting
@@ -2393,7 +2384,6 @@
 ; marker, not an argument the program asked for.
 (pub :: fillRunArgv (-> Int Int Int Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (fillRunArgv v from to slot)
   (if (>= from to)
     {

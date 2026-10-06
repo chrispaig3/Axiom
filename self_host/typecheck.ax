@@ -111,7 +111,6 @@
     }))
 
 (pub :: tyVarIndex (-> (Vec String) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (tyVarIndex names name i)
   (if (>= i (vecLen names))
     (- 0 1)
@@ -445,7 +444,6 @@
 ; diagnostics. The swapper either restores filtered (a flush keeps
 ; what it keeps) or restores bare (a first pass discards all).
 (pub :: outvecSwapOut (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (outvecSwapOut tc)
   (let ((real (memGetWord tc 4)))
     {
@@ -454,7 +452,6 @@
     }))
 
 (pub :: outvecSwapIn (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (outvecSwapIn tc real)
   {
     (memSetWord tc 4 real)
@@ -830,7 +827,6 @@
 ; parameters alike): the defer (or an earlier level) resolved it,
 ; so it is not forward.
 (pub :: groundNameInPrefix (-> (Vec Int) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (groundNameInPrefix prefix name i)
   (if (>= i (vecLen prefix))
     0
@@ -912,7 +908,6 @@
             }))))))
 
 (pub :: deferResolveCaps (-> Int (Vec Int) (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (deferResolveCaps tc acc ents i)
   (if (>= i (vecLen acc))
     0
@@ -1242,7 +1237,6 @@
 ; `(Vec a)` cannot be equal finite types, so it MUST return 0. Merely
 ; declining to record that equation would forget a real constraint.
 (pub :: tyPin (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (tyPin v t)
   (if (== v t)
     1
@@ -1688,7 +1682,6 @@
                 t))))))))
 
 (pub :: tyInstVar (-> Int String (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (tyInstVar tc name env i)
   (if (>= i (vecLen env))
     (let ((fresh (freshInstVar tc)))
@@ -1942,7 +1935,6 @@
 ; `"__evwa."` at depth 0 and `"__evwa.<d>"` above it - the enclosing
 ; lambda's own word, captured into this one's record.
 (pub :: lamVarDepth (-> Int String Int))
-;@axiom:effect(unsafe)
 (pub fn (lamVarDepth tc n)
   (let ((st (memGetWordVec tc 32)))
     (if (==
@@ -1970,7 +1962,6 @@
 ; counted in lambdas and not in words - a ground parameter between two
 ; variable ones must not renumber them.
 (pub :: lamVarPush (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lamVarPush tc n)
   (let ((st (memGetWordVec tc 32)))
     (let ((v 
@@ -1988,7 +1979,6 @@
       })))
 
 (pub :: lamVarTrunc (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lamVarTrunc tc n)
   (let ((st (memGetWordVec tc 32)))
     (if (==
@@ -1998,7 +1988,6 @@
       (scopeTrunc st n))))
 
 (pub :: evClassOf (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (evClassOf tc t)
   (if (== t 0)
     0
@@ -2097,7 +2086,6 @@
 ; poisoned signature stamps all zeros through an EMPTY env - no
 ; fill can land, so the zeros survive.
 (pub :: tyInstStamped (-> Int Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (tyInstStamped tc t e)
   (if (== (tyHasSrcVar t) 0)
     t
@@ -2149,7 +2137,6 @@
 ; A reinterpretation still classifies 0: it can erase an ownership
 ; relation the checker cannot recover from the resulting word.
 (pub :: evStampFill (-> Int Int Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (evStampFill tc e funcTy argTy)
   ; The application's own answer, beside the argument's: 1 when the
   ; arrow's result is a proven word (see `evResultWord`), 0
@@ -2368,7 +2355,6 @@
 ; interleaves names that hash together and that does not disturb the
 ; order.
 (pub :: firstDefiner (-> (Vec Int) Int Int String Int))
-;@axiom:effect(unsafe)
 (pub fn (firstDefiner bs i ns name)
   (let ((v (vecGetVec bs (% (fnIdxHash name) (vecLen bs)))))
     (if (==
@@ -2383,7 +2369,6 @@
         0))))
 
 (pub :: firstDefinerScan (-> (Vec Int) Int Int String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (firstDefinerScan v i ns name k)
   (if (>= k (vecLen v))
     (- 0 1)
@@ -2453,7 +2438,6 @@
     }))
 
 (pub :: dupIdxPut (-> (Vec Int) String Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (dupIdxPut bs name ns i)
   (let ((b (% (fnIdxHash name) (vecLen bs))))
     (if (== (vecGet bs b) 0)
@@ -2694,7 +2678,6 @@
 ; a private `M$f` behind it is still AX3015, and saying so here is
 ; what keeps it from becoming an undefined symbol at link time.
 (pub :: isDefined (-> (Vec (Vec String)) String Int))
-;@axiom:effect(unsafe)
 (pub fn (isDefined bs name)
   (let ((v (vecGetVec bs (% (fnIdxHash name) (vecLen bs)))))
     (if (==
@@ -2704,7 +2687,6 @@
       (defIdxHas v name 0))))
 
 (pub :: defIdxHas (-> (Vec String) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (defIdxHas v name k)
   (if (>= k (vecLen v))
     0
@@ -2763,7 +2745,6 @@
     }))
 
 (pub :: defIdxAddExternKeys (-> (Vec (Vec String)) (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (defIdxAddExternKeys bs names i)
   (if (==
     (cast Int names)
@@ -2848,7 +2829,6 @@
       })))
 
 (pub :: checkImportNameList (-> String (Vec Int) Int (Vec Int) (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (checkImportNameList modName names sp allDecls out i)
   (if (>= i (vecLen names))
     0
@@ -2960,11 +2940,9 @@
 ; `unsafe` is the declaration's place in the unsafe boundary (R-B6,
 ; `MM-EXEC-9d`), read off its tags by `tcUnsafeRoles` before the
 ; effect fixpoint runs: 0 for a declaration that says nothing, 1 for a
-; TRUSTED encapsulation - `;@axiom:effect(unsafe)` alone, whose author
+; TRUSTED encapsulation - `;@axiom:effect(unsafe)`, whose author
 ; vouches that every well-typed call is safe, so its callers inherit
-; no `Unsafe` - and 2 for a PRECONDITION interface, which also carries
-; `;@axiom:precondition(...)`: its safety depends on its caller, so a
-; call to it is an unsafe operation of the caller's own.
+; no `Unsafe`.
 (pub struct FnEnt
   (name : String)
   (ty : Int)
@@ -3028,7 +3006,6 @@
       0))))
 
 (pub :: structEntIsWord (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (structEntIsWord ent)
   (if (== ent 0)
     0
@@ -3037,7 +3014,6 @@
       0)))
 
 (pub :: structEntIsShared (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (structEntIsShared ent)
   (if (== (structEntIsWord ent) 0)
     0
@@ -3133,8 +3109,8 @@
 ;
 ;   0 `unsafeSink`  a Vec while `checkAxtags` walks one body's effects,
 ;                    0 otherwise: every reference that walk resolves to
-;                    a precondition interface is pushed here, so AX3073
-;                    names the call the way it names a primitive.
+;                    an extern is pushed here, so AX3073 names the
+;                    call the way it names a primitive.
 ;   1 `forgeSites`  a Vec while `tcCheckFn` checks one body, 0
 ;                    otherwise: every `cast` in it that may forge
 ;                    (`castNoteForge`), narrowed to the ones that do
@@ -3350,7 +3326,6 @@
 ; complete before the first suppression is asked. Appended, for the
 ; reason every field before it was.
 (pub :: tcFns (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (tcFns tc)
   (memGetWord tc 0))
 
@@ -3362,7 +3337,6 @@
   (cast (Vec a) (tcFns tc)))
 
 (pub :: tcDatas (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (tcDatas tc)
   (memGetWord tc 1))
 
@@ -3374,7 +3348,6 @@
   (cast (Vec a) (tcDatas tc)))
 
 (pub :: tcStructs (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (tcStructs tc)
   (memGetWord tc 2))
 
@@ -3386,7 +3359,6 @@
   (cast (Vec a) (tcStructs tc)))
 
 (pub :: tcScope (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (tcScope tc)
   (memGetWord tc 3))
 
@@ -3398,7 +3370,6 @@
   (cast (Vec a) (tcScope tc)))
 
 (pub :: tcOut (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (tcOut tc)
   (memGetWord tc 4))
 
@@ -3410,22 +3381,18 @@
   (cast (Vec a) (tcOut tc)))
 
 (pub :: tcCounter (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (tcCounter tc)
   (memGetWord tc 5))
 
 (pub :: tcBumpCounter (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (tcBumpCounter tc)
   (memSetWord tc 5 (+ (memGetWord tc 5) 1)))
 
 (pub :: tcFrameBase (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (tcFrameBase tc)
   (memGetWord tc 6))
 
 (pub :: tcMacros (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (tcMacros tc)
   (memGetWord tc 7))
 
@@ -3437,7 +3404,6 @@
   (cast (Vec a) (tcMacros tc)))
 
 (pub :: tcEffects (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (tcEffects tc)
   (memGetWord tc 8))
 
@@ -3449,7 +3415,6 @@
   (cast (Vec a) (tcEffects tc)))
 
 (pub :: tcAliases (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (tcAliases tc)
   (memGetWord tc 17))
 
@@ -3461,7 +3426,6 @@
   (cast (Vec a) (tcAliases tc)))
 
 (pub :: tcSubtypes (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (tcSubtypes tc)
   (memGetWord tc 38))
 
@@ -3592,7 +3556,6 @@
 ; A primitive with two effects: `IO` and the refinement that says what
 ; kind of IO - a spawn is `IO` and `Spawn`, a join `IO` and `Block`.
 (pub :: regFnEff2 (-> (Vec Int) String Int String String (Vec Int)))
-;@axiom:effect(unsafe)
 (pub fn (regFnEff2 fns name ty eff1 eff2)
   (let ((ent (regFnEff fns name ty eff1)))
     {
@@ -3790,7 +3753,6 @@
     }))
 
 (pub :: tcNew (-> (Vec Int) (Vec Int) (Vec Int) Int))
-;@axiom:effect(unsafe)
 (pub fn (tcNew entryDecls allDecls units)
   (let (
     (fns vecNew)
@@ -4153,8 +4115,8 @@
           (ambBuild tc allDecls 0)
           ; Every function's place in the unsafe boundary, read off its
           ; tags, BEFORE the fixpoint: a trusted callee's `Unsafe` stops
-          ; at it, and a precondition interface's reaches every caller
-          ; (`effUnionCallee`), so the rows need the roles to be right.
+          ; at it (`effUnionCallee`), so the rows need the roles to be
+          ; right.
           (tcUnsafeRoles tc allDecls 0)
           ; Effects are inferred once, after every declaration is
           ; registered and before any body is checked, because an
@@ -4632,7 +4594,6 @@
 ; which is the same silence with no report behind it - `(effect E
 ; (op))` checked clean and `(op 1 2 3)` SIGSEGVed.
 (pub :: tcAddEffectOp (-> Int String Int String Int))
-;@axiom:effect(unsafe)
 (pub fn (tcAddEffectOp tc name ty effName)
   (tcPushFn
     tc
@@ -4674,7 +4635,6 @@
 ; bare-value refusal and the AX3009/AX3013 saturation check. An extern
 ; therefore gets arity checking that `foreign` never had.
 (pub :: tcAddExtern (-> Int String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (tcAddExtern tc name ty)
   (tcPushFn
     tc
@@ -4764,7 +4724,6 @@
 ; Union into `acc`, answering 1 when anything was added - the
 ; fixpoint's "changed" signal.
 (pub :: effUnion (-> (Vec a) (Vec a) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (effUnion acc src i)
   (if (>= i (vecLen src))
     0
@@ -4777,7 +4736,6 @@
         }))))
 
 (pub :: effAdd (-> (Vec a) String Int))
-;@axiom:effect(unsafe)
 (pub fn (effAdd acc e)
   (if (== (effIn acc e) 1)
     0
@@ -4808,7 +4766,6 @@
       })))
 
 (pub :: tvNamesToNodes (-> (Vec Int) (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (tvNamesToNodes tvs acc i)
   (if (==
     (cast Int tvs)
@@ -4852,7 +4809,6 @@
     (ctorArrowOf fieldTys (mkTArr (vecGet fieldTys i) acc) (- i 1))))
 
 (pub :: tcCollectSig (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (tcCollectSig tc d)
   (let ((ty 
     (if (== (nodeTy d) 0)
@@ -4889,7 +4845,6 @@
   })
 
 (pub :: tcCollectFn (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (tcCollectFn tc d)
   (let ((ent0 (fnEntExact tc (nodeAName d))))
     (let ((ent 
@@ -4922,7 +4877,6 @@
 ; matches through its suffix.
 ; ------------------------------------------------------------------
 (pub :: findFnEntExact (-> (Vec Int) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (findFnEntExact fns name i)
   (if (>= i (vecLen fns))
     0
@@ -4932,7 +4886,6 @@
         (findFnEntExact fns name (+ i 1))))))
 
 (pub :: findFnEntSuffix (-> (Vec Int) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (findFnEntSuffix fns name i)
   (if (>= i (vecLen fns))
     0
@@ -5050,7 +5003,6 @@
     }))
 
 (pub :: privIdxBuild (-> (Vec String) Int))
-;@axiom:effect(unsafe)
 (pub fn (privIdxBuild privs)
   (if (==
     (cast Int privs)
@@ -5092,7 +5044,6 @@
     0))
 
 (pub :: findFnEntVisibleExactFrom (-> (Vec (Vec String)) (Vec Int) String String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (findFnEntVisibleExactFrom privs fns name curMod i)
   (if (>= i (vecLen fns))
     0
@@ -5123,7 +5074,6 @@
     0))
 
 (pub :: findFnEntVisibleSuffixFrom (-> (Vec (Vec String)) (Vec Int) String String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (findFnEntVisibleSuffixFrom privs fns name curMod i)
   (if (>= i (vecLen fns))
     0
@@ -5156,7 +5106,6 @@
 ; reports `use of undefined value` against generated code, at exit 4,
 ; blaming the toolchain. The clean AX3023 is this function's job.
 (pub :: findFnEnt (-> Int String Int))
-;@axiom:effect(unsafe)
 (pub fn (findFnEnt tc name)
   (let ((m (memGetWord tc 16)))
     (let ((local 
@@ -5196,7 +5145,6 @@
 ; declaration for them. `mangledForCg` makes the same choice, through
 ; the module view `mangleRecordModuleView` records.
 (pub :: fnEntOutOfModuleScope (-> Int Int String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (fnEntOutOfModuleScope tc m name e)
   (if (== m 0)
     0
@@ -5338,7 +5286,6 @@
       })))
 
 (pub :: fnIdxAdd (-> (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (fnIdxAdd bs ent)
   (let ((b (% (fnIdxHash (memGetWordStr ent 0)) (vecLen bs))))
     (if (== (vecGet bs b) 0)
@@ -5357,14 +5304,12 @@
       })))
 
 (pub :: fnIdxGet (-> (Vec Int) String Int))
-;@axiom:effect(unsafe)
 (pub fn (fnIdxGet bs name)
   (if (== (vecGet bs (% (fnIdxHash name) (vecLen bs))) 0)
     0
     (fnIdxScan (vecGetVec bs (% (fnIdxHash name) (vecLen bs))) name 0)))
 
 (pub :: fnIdxScan (-> (Vec Int) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (fnIdxScan v name i)
   (if (>= i (vecLen v))
     0
@@ -5378,7 +5323,6 @@
 ; the slow way, and is why the three push sites also maintain the index
 ; when it exists rather than relying on an ordering.
 (pub :: fnEntExact (-> Int String Int))
-;@axiom:effect(unsafe)
 (pub fn (fnEntExact tc name)
   (if (== (memGetWord tc 20) 0)
     (findFnEntExact (tcFnsVec tc) name 0)
@@ -5405,14 +5349,12 @@
 ;
 ; The suffix pass is deliberately left alone; see the index's note.
 (pub :: fnEntVisibleExact (-> Int (Vec (Vec String)) String String Int))
-;@axiom:effect(unsafe)
 (pub fn (fnEntVisibleExact tc privs name curMod)
   (if (== (memGetWord tc 20) 0)
     (findFnEntVisibleExact privs (tcFnsVec tc) name curMod)
     (fnIdxGetVisible (memGetWordVec tc 20) privs name curMod)))
 
 (pub :: fnIdxGetVisible (-> (Vec Int) (Vec (Vec String)) String String Int))
-;@axiom:effect(unsafe)
 (pub fn (fnIdxGetVisible bs privs name curMod)
   (let ((v (vecGetVec bs (% (fnIdxHash name) (vecLen bs)))))
     (if (==
@@ -5427,7 +5369,6 @@
         0))))
 
 (pub :: fnIdxScanVisible (-> (Vec Int) (Vec (Vec String)) String String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (fnIdxScanVisible v privs name curMod i)
   (if (>= i (vecLen v))
     0
@@ -5462,7 +5403,6 @@
 ; So the answer is identical and the allocation is gone.
 ; ------------------------------------------------------------------
 (pub :: fnEntQual (-> Int String String Int))
-;@axiom:effect(unsafe)
 (pub fn (fnEntQual tc m name)
   (if (== (memGetWord tc 20) 0)
     (findFnEntExact (tcFnsVec tc) (concat (concat m "$") name) 0)
@@ -5475,7 +5415,6 @@
   (fnIdxHashFrom name 0 (% (+ (* (fnIdxHashFrom m 0 fnIdxSeed) fnIdxMul) 36) fnIdxPrime)))
 
 (pub :: fnIdxGetQual (-> (Vec Int) String String Int))
-;@axiom:effect(unsafe)
 (pub fn (fnIdxGetQual bs m name)
   (let ((v (vecGetVec bs (% (fnIdxHashQual m name) (vecLen bs)))))
     (if (==
@@ -5485,7 +5424,6 @@
       (fnIdxScanQual v m name 0))))
 
 (pub :: fnIdxScanQual (-> (Vec Int) String String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (fnIdxScanQual v m name i)
   (if (>= i (vecLen v))
     0
@@ -5508,7 +5446,6 @@
 
 ; Keep the indexes in step with a push. A no-op before they exist.
 (pub :: fnIdxNote (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (fnIdxNote tc ent)
   {
     (if (== (memGetWord tc 20) 0)
@@ -5589,7 +5526,6 @@
       })))
 
 (pub :: fnSufIdxAdd (-> (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (fnSufIdxAdd bs ent)
   {
     (fnSufIdxPut bs (memGetWordStr ent 0) ent)
@@ -5611,7 +5547,6 @@
     }))
 
 (pub :: fnSufIdxPut (-> (Vec Int) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (fnSufIdxPut bs key ent)
   (let ((b (% (fnIdxHash key) (vecLen bs))))
     (if (== (vecGet bs b) 0)
@@ -5630,7 +5565,6 @@
       })))
 
 (pub :: fnSufIdxGet (-> (Vec Int) String Int))
-;@axiom:effect(unsafe)
 (pub fn (fnSufIdxGet bs name)
   (let ((v (vecGetVec bs (% (fnIdxHash name) (vecLen bs)))))
     (if (==
@@ -5640,7 +5574,6 @@
       (fnSufIdxScan v name 0))))
 
 (pub :: fnSufIdxScan (-> (Vec Int) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (fnSufIdxScan v name i)
   (if (>= i (vecLen v))
     0
@@ -5650,7 +5583,6 @@
         (fnSufIdxScan v name (+ i 1))))))
 
 (pub :: fnSufIdxGetVisible (-> (Vec Int) (Vec (Vec String)) String String Int))
-;@axiom:effect(unsafe)
 (pub fn (fnSufIdxGetVisible bs privs name curMod)
   (let ((v (vecGetVec bs (% (fnIdxHash name) (vecLen bs)))))
     (if (==
@@ -5665,7 +5597,6 @@
         0))))
 
 (pub :: fnSufIdxScanVisible (-> (Vec Int) (Vec (Vec String)) String String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (fnSufIdxScanVisible v privs name curMod i)
   (if (>= i (vecLen v))
     0
@@ -5690,14 +5621,12 @@
 ; shape as `fnEntExact`, and 0 during collection means the scan
 ; answers, which is the same answer the slow way.
 (pub :: fnEntSuffix (-> Int String Int))
-;@axiom:effect(unsafe)
 (pub fn (fnEntSuffix tc name)
   (if (== (memGetWord tc 26) 0)
     (findFnEntSuffix (tcFnsVec tc) name 0)
     (fnSufIdxGet (memGetWordVec tc 26) name)))
 
 (pub :: fnEntVisibleSuffix (-> Int (Vec (Vec String)) String String Int))
-;@axiom:effect(unsafe)
 (pub fn (fnEntVisibleSuffix tc privs name curMod)
   (if (== (memGetWord tc 26) 0)
     (findFnEntVisibleSuffix privs (tcFnsVec tc) name curMod)
@@ -5867,7 +5796,6 @@
 ; puts it in `tcDatas`/`tcStructs`/`tcAliases`, so the index and the
 ; Vec can never be out of step - collection itself looks names up.
 (pub :: tyIdxPut (-> Int String Int Int Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (tyIdxPut tc name kind m ent owner)
   (let ((bs (memGetWordVec tc 30)))
     (if (==
@@ -5899,7 +5827,6 @@
           })))))
 
 (pub :: tyIdxAddData (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (tyIdxAddData tc ent)
   {
     (tyIdxPut
@@ -5913,7 +5840,6 @@
   })
 
 (pub :: tyIdxAddCtors (-> Int Int (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (tyIdxAddCtors tc owner ctors i)
   (if (>= i (vecLen ctors))
     0
@@ -5955,7 +5881,6 @@
 ; asks `declMatches` - which is `nameMatches` for a bare reference and
 ; a real module comparison for a qualified one.
 (pub :: tyEntMatches (-> Int Int String Int))
-;@axiom:effect(unsafe)
 (pub fn (tyEntMatches te kind ref)
   (if (== kind TY_ANY)
     (if (== (memGetWord te 1) TY_CTOR)
@@ -5968,7 +5893,6 @@
 ; A constructor's key is its DATA TYPE's, which is what
 ; `findCtorFrom` asked before this and what `collectPrivates` records.
 (pub :: tyPrivKey (-> Int String))
-;@axiom:effect(unsafe)
 (pub fn (tyPrivKey te)
   (if (== (memGetWord te 4) 0)
     (privKey (memGetWord te 2) (memGetWordStr te 0))
@@ -6070,7 +5994,6 @@
 ; a span, and answering 0 here would turn one AX3044 into an AX3002
 ; cascade about a type that plainly exists.
 (pub :: tyFind (-> Int Int String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (tyFind tc kind name last)
   (let ((v (tyIdxBucket tc name)))
     (if (==
@@ -6160,7 +6083,6 @@
 ; frees. Measured on the scale probe (8,000 struct declarations,
 ; 32,000 type references): 0.29s with the Vec, 0.23s without.
 (pub :: tyMultiDecl (-> Int Int String Int))
-;@axiom:effect(unsafe)
 (pub fn (tyMultiDecl tc kind name)
   (let ((v (tyIdxBucket tc name)))
     (if (==
@@ -6200,7 +6122,6 @@
 ; `definingModules` answers the same question from a table built at
 ; collection; this one reads the bucket, which is the same one entry.
 (pub :: tyAmbigMods (-> Int Int String (Vec a)))
-;@axiom:effect(unsafe)
 (pub fn (tyAmbigMods tc kind name)
   (let ((v (tyIdxBucket tc name)))
     (if (==
@@ -6386,7 +6307,6 @@
 ; program - `ctorHiddenModule`, which walks the datas a reference may
 ; NOT name in order to say "private" instead of "no such name".
 (pub :: ctorInData (-> (Vec Int) String String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (ctorInData ctors declMod name i)
   (if (>= i (vecLen ctors))
     0
@@ -6511,7 +6431,6 @@
 ; The word struct a type NAME denotes, or 0 - at once when the program
 ; declares none (word 43).
 (pub :: tcWordEnt (-> Int String Int))
-;@axiom:effect(unsafe)
 (pub fn (tcWordEnt tc n)
   (if (== (memGetWord tc 43) 0)
     0
@@ -6588,7 +6507,6 @@
 ; Word structs and explicitly sealed heap structs expose operations,
 ; while their module owns construction and field access.
 (pub :: wordSealedHere (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (wordSealedHere tc ent)
   (if (if (== ent 0) true (== (& (memGetWord ent 4) 5) 0))
     0
@@ -6606,7 +6524,6 @@
 ; evidence could read).
 ; ------------------------------------------------------------------
 (pub :: checkStructMarkers (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (checkStructMarkers tc d)
   (let (
     (ms (structMarkers d))
@@ -6718,7 +6635,6 @@
 ; keep their constructor and fields inside their declaring module.
 ; ------------------------------------------------------------------
 (pub :: emitWordSealedBuild (-> Int Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (emitWordSealedBuild tc ent span)
   (if (== span 0)
     0
@@ -6737,7 +6653,6 @@
     }))
 
 (pub :: emitWordSealedRead (-> Int Int String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (emitWordSealedRead tc ent field span)
   (if (== span 0)
     0
@@ -6758,7 +6673,6 @@
 ; The declaring module's name, for a message: its dotted path, or
 ; `main` for the entry file.
 (pub :: wordEntModuleName (-> Int String))
-;@axiom:effect(unsafe)
 (pub fn (wordEntModuleName ent)
   (if (== (memGetWord ent 2) 0)
     "the entry file"
@@ -6785,7 +6699,6 @@
 ; it.
 ; ------------------------------------------------------------------
 (pub :: wordLowerRecord (-> Int Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (wordLowerRecord tc site operand)
   (let ((v (memGetWordVec tc 42)))
     {
@@ -6795,7 +6708,6 @@
     }))
 
 (pub :: wordLowerApply (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (wordLowerApply tc)
   (let (
     (v (memGetWordVec tc 42))
@@ -6812,7 +6724,6 @@
 
 ; Every one of an AST node's twelve words, from `src` over `dst`.
 (pub :: nodeCopyInto (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (nodeCopyInto dst src)
   (if (== dst src)
     0
@@ -7246,7 +7157,6 @@
     }))
 
 (pub :: tcExpandFieldAliases (-> Int (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (tcExpandFieldAliases tc decls i)
   (if (>= i (vecLen decls))
     0
@@ -7326,7 +7236,6 @@
 ; registered every `data`, `struct` and `type` - a signature may name
 ; a type declared later in the file, or in another module.
 (pub :: tcCheckSigTypes (-> Int (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (tcCheckSigTypes tc decls i)
   (if (>= i (vecLen decls))
     0
@@ -7477,7 +7386,6 @@
               "this type")))))))
 
 (pub :: tcExpandSigAliases (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (tcExpandSigAliases tc d)
   (if (== (tyHasAliasCon tc (nodeTy d)) 0)
     0
@@ -8014,7 +7922,6 @@
 ; The sets are disjoint by construction (`firstDemanded` subtracts the
 ; result's variables), so the common shapes still draw exactly one.
 (pub :: emitTyvarFor (-> Int (Vec Int) (Vec a) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (emitTyvarFor tc decls div d)
   ; THE CHEAP TEST FIRST, and it is a performance rule rather than a
   ; style one. Both lookups below - `rawTagged` and `findFnBody` -
@@ -8280,12 +8187,10 @@
 
 ; Does this declaration carry `;@axiom:<key>` exactly?
 (pub :: declHasAxtag (-> Int String Int))
-;@axiom:effect(unsafe)
 (pub fn (declHasAxtag d key)
   (declHasAxtagFrom (memGetWordVec d 7) key 0))
 
 (pub :: declHasAxtagFrom (-> (Vec Int) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (declHasAxtagFrom tags key i)
   (if (==
     (cast Int tags)
@@ -8301,7 +8206,6 @@
 ; such key. A tag record is (word 0 = whole text, word 1 = key,
 ; word 2 = value), the shape `declHasAxtagFrom` reads word 1 of.
 (pub :: axtagValueOf (-> Int String String))
-;@axiom:effect(unsafe)
 (pub fn (axtagValueOf d key)
   (axtagValueFrom (memGetWordVec d 7) key 0))
 
@@ -8311,7 +8215,6 @@
 ; Measured the hard way: the tag reached AXSYM as
 ; `#deprecated=use%20vecLen` while the lookup here saw nothing.
 (pub :: axtagKeyOf (-> Int String))
-;@axiom:effect(unsafe)
 (pub fn (axtagKeyOf t)
   (let ((txt (memGetWordStr t 1)))
     (match (strFindByte txt 40 0)
@@ -8327,7 +8230,6 @@
 ; with one paren fewer than the author wrote. A value with no `)` at
 ; all still answers "", as it always did.
 (pub :: axtagTextValue (-> Int String))
-;@axiom:effect(unsafe)
 (pub fn (axtagTextValue t)
   (let ((txt (memGetWordStr t 1)))
     (match (strFindByte txt 40 0)
@@ -8352,7 +8254,6 @@
         (axtagValueFrom tags key (+ i 1))))))
 
 (pub :: tcCheckSigTypeOf (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (tcCheckSigTypeOf tc d)
   (let ((bad (tyUnknownCon tc (nodeTy d))))
     (if (== bad 0)
@@ -8421,7 +8322,6 @@
 ; A struct's field type by name, or -1 when absent. Fields are the
 ; parser's TAG_FIELD nodes: name in a, parsed type in ty.
 (pub :: structFieldTy (-> Int String Int))
-;@axiom:effect(unsafe)
 (pub fn (structFieldTy ent fname)
   (structFieldTyFrom (memGetWordVec ent 1) fname 0))
 
@@ -8441,7 +8341,6 @@
 ; refused as AX3007 before it asks. The marker rides in word c of the
 ; parser's TAG_FIELD node (`parseOneField`).
 (pub :: structFieldMut (-> Int String Int))
-;@axiom:effect(unsafe)
 (pub fn (structFieldMut ent fname)
   (structFieldMutFrom (memGetWordVec ent 1) fname 0))
 
@@ -8461,7 +8360,6 @@
 ; returning a closure has arrow depth 2 but arity 1, so depth would
 ; wrongly flag legal code).
 (pub :: repArity (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (repArity ent)
   (if (>= (memGetWord ent 2) 0)
     (memGetWord ent 2)
@@ -8525,7 +8423,6 @@
 ; spans of their own: the declaration (or lambda) anchors every
 ; refusal, the way `checkDupParams` already anchors AX3006.
 (pub :: refuseReservedParams (-> Int (Vec Int) Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (refuseReservedParams tc params span i)
   (if (>= i (vecLen params))
     0
@@ -8535,7 +8432,6 @@
     }))
 
 (pub :: sEntTy (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (sEntTy ent)
   (memGetWord ent 3))
 
@@ -8550,7 +8446,6 @@
       (Some i))))
 
 (pub :: scopeFindIdxFrom (-> (Vec Int) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (scopeFindIdxFrom scope name i)
   (if (< i 0)
     (- 0 1)
@@ -8566,7 +8461,6 @@
   (scopeFindFrameFrom (tcScopeVec tc) name (- (vecLen (tcScopeVec tc)) 1) (tcFrameBase tc)))
 
 (pub :: scopeFindFrameFrom (-> (Vec Int) String Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (scopeFindFrameFrom scope name i base)
   (if (< i base)
     0
@@ -8640,14 +8534,12 @@
 ; The scope length when the innermost region opened, or -1 outside
 ; any: a scope entry below it was bound OUTSIDE the region.
 (pub :: rgInnerMark (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (rgInnerMark tc)
   (if (< (rgInner tc) 0)
     (- 0 1)
     (memGetWord (vecGet (tcRegionsVec tc) (rgInner tc)) 1)))
 
 (pub :: rgInnerName (-> Int String))
-;@axiom:effect(unsafe)
 (pub fn (rgInnerName tc)
   (memGetWordStr (vecGet (tcRegionsVec tc) (rgInner tc)) 0))
 
@@ -8657,7 +8549,6 @@
   (rgFindFrom (tcRegionsVec tc) name (rgInner tc)))
 
 (pub :: rgFindFrom (-> (Vec Int) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (rgFindFrom rs name i)
   (if (< i 0)
     (- 0 1)
@@ -8745,7 +8636,6 @@
   })
 
 (pub :: emitRegionStoreEscape (-> Int String String Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (emitRegionStoreEscape tc rname bname ty span)
   {
     ; The span joins the refused set S3's reporting walk suppresses:
@@ -8827,7 +8717,6 @@
 ; judged after the pop so a diagnostic about the value names the
 ; region that just closed. The form's type is its body's.
 (pub :: checkRegion (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (checkRegion tc e)
   (let ((name (nodeAName e)))
     {
@@ -9227,7 +9116,6 @@
                                                 0))))))))))))))))))))))))
 
 (pub :: strInVec (-> (Vec a) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (strInVec v n i)
   (if (>= i (vecLen v))
     0
@@ -9236,7 +9124,6 @@
       (strInVec v n (+ i 1)))))
 
 (pub :: isMacroName (-> Int String Int))
-;@axiom:effect(unsafe)
 (pub fn (isMacroName tc n)
   (let ((qm (modOf n)))
     (if (!= qm 0)
@@ -9749,7 +9636,6 @@
       (refuseReservedParams tc params (nodeSpan e) 0)
     }))
 
-;@axiom:effect(unsafe)
 ; No validation here: every caller checks a node the defer
 ; already validated (flush, grounding, and `checkLamAgainst`'s
 ; fallback all run post-defer), and validating twice would refuse
@@ -9854,7 +9740,6 @@
 ; The rule to keep, therefore, is narrower than "the arrow is ground":
 ; bind what the author WROTE, whatever it is, and never a placeholder.
 (pub :: checkLamAgainstCore (-> Int Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (checkLamAgainstCore tc e arrow)
   (let ((params (nodeAVec e)))
     (if (|| (!= (vecLen params) 1) (!= (nodeTag arrow) TAG_T_ARR))
@@ -10007,7 +9892,6 @@
 ; modules too it went quadratic and stage1 stopped terminating on any
 ; stdlib-sized input. stage0 keeps a map for the same reason.
 (pub :: definingModules (-> Int String (Vec Int)))
-;@axiom:effect(unsafe)
 (pub fn (definingModules tc n)
   (let ((e (ambFind tc n)))
     (if (== e 0)
@@ -10043,7 +9927,6 @@
     }))
 
 (pub :: ambFind (-> Int String Int))
-;@axiom:effect(unsafe)
 (pub fn (ambFind tc n)
   (let ((bs (memGetWordVec tc 21)))
     (if (==
@@ -10058,7 +9941,6 @@
           (ambFindIn v n 0))))))
 
 (pub :: ambFindIn (-> (Vec Int) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (ambFindIn v n i)
   (if (>= i (vecLen v))
     0
@@ -10112,7 +9994,6 @@
           })))))
 
 (pub :: ambIdxPut (-> (Vec Int) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (ambIdxPut bs n ent)
   (let ((b (% (fnIdxHash n) (vecLen bs))))
     (if (== (vecGet bs b) 0)
@@ -10167,7 +10048,6 @@
               0)))))))
 
 (pub :: ambRecordAll (-> Int (Vec Int) Int String Int))
-;@axiom:effect(unsafe)
 (pub fn (ambRecordAll tc v i m)
   (if (>= i (vecLen v))
     0
@@ -10186,7 +10066,6 @@
     }))
 
 (pub :: tcAllDecls (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (tcAllDecls tc)
   (memGetWord tc 10))
 
@@ -10215,7 +10094,6 @@
       0)))
 
 (pub :: unitIndexForFrom (-> (Vec Int) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (unitIndexForFrom units m i)
   (if (>= i (vecLen units))
     0
@@ -10226,7 +10104,6 @@
         (unitIndexForFrom units m (+ i 1))))))
 
 (pub :: emitDiag (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (emitDiag tc d)
   {
     (diagSetUnit d (memGetWord tc 14))
@@ -10235,7 +10112,6 @@
   })
 
 (pub :: joinModules (-> (Vec Int) Int String String))
-;@axiom:effect(unsafe)
 (pub fn (joinModules v i acc)
   (if (>= i (vecLen v))
     acc
@@ -10247,7 +10123,6 @@
         (concat (concat acc ", ") (vecGetStr v i))))))
 
 (pub :: joinQualified (-> (Vec Int) String Int String String))
-;@axiom:effect(unsafe)
 (pub fn (joinQualified v n i acc)
   (if (>= i (vecLen v))
     acc
@@ -10261,7 +10136,6 @@
           (concat (concat acc " or ") one))))))
 
 (pub :: checkVar (-> Int Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (checkVar tc e inHead)
   ; `result` inside a contract, naming nothing: AX3050, not the
   ; AX3001 every other unresolved name gets. The cheap word test is
@@ -10385,7 +10259,6 @@
 ; The bare-value refusals. Answers 1 when the reference was refused
 ; (poison the expression), 0 to continue resolving.
 (pub :: checkBareValue (-> Int String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (checkBareValue tc name span)
   (let ((ent (findFnEnt tc name)))
     (if (!= ent 0)
@@ -10535,7 +10408,6 @@
   })
 
 (pub :: emitUndefinedVar (-> Int String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (emitUndefinedVar tc name span)
   (let ((hidden
     (if (== (memGetWord tc 19) 0)
@@ -10564,7 +10436,6 @@
 ; lookup filters them - but as `AX3001`/`AX3003`, which say the name
 ; does not exist when it plainly does.
 (pub :: ctorHiddenModule (-> Int String Int))
-;@axiom:effect(unsafe)
 (pub fn (ctorHiddenModule tc name)
   (if (== (memGetWord tc 19) 0)
     0
@@ -10576,7 +10447,6 @@
       0)))
 
 (pub :: ctorHiddenIn (-> (Vec Int) (Vec (Vec String)) String String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (ctorHiddenIn datas privs curMod name i)
   (if (>= i (vecLen datas))
     0
@@ -10612,7 +10482,6 @@
   (|| (strEq n "Ok") (|| (strEq n "Err") (strEq n "Result"))))
 
 (pub :: emitUndefinedVarPlain (-> Int String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (emitUndefinedVarPlain tc name span)
   (let ((best newBest))
     {
@@ -11214,7 +11083,6 @@
 ; it later is a frame-local immutable value by construction - and the pair is
 ; recorded for the form's thunks to find.
 (pub :: checkParLends (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (checkParLends tc e)
   (let ((bvar (nodeB (nodeA e))))
     {
@@ -11228,7 +11096,6 @@
 ; named `parallel$_` and the form's number. Answers that number, or ""
 ; for any other lambda, whose captures keep AX3064's refusal.
 (pub :: capSpawnBorrowId (-> Int String))
-;@axiom:effect(unsafe)
 (pub fn (capSpawnBorrowId lam)
   (let ((ps (nodeAVec lam)))
     (if (== (vecLen ps) 1)
@@ -11241,7 +11108,6 @@
 ; The borrow block of the form numbered `id`: the most recent placeholder
 ; whose record is named `parallel$b` and that number, or 0.
 (pub :: capBorrowBlock (-> Int String Int))
-;@axiom:effect(unsafe)
 (pub fn (capBorrowBlock tc id)
   (let (
     (v (memGetWordVec tc 45))
@@ -11302,7 +11168,6 @@
 ; unbounded expansion. Independent instantiations in sibling fields
 ; are checked separately. The depth bound also keeps this proof finite.
 (pub :: capBorrowableIn (-> Int Int (Vec String) (Vec String) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (capBorrowableIn tc t seen active depth)
   (let ((ty (tyExpandAliases tc (tyResolve t) 0)))
     (if (|| (== ty 0) (>= depth 64))
@@ -11647,7 +11512,6 @@
 ; constructors. `true` and `false` are Bool spellings, not names,
 ; and a miss is 0 rather than a second AX3001.
 (pub :: storeVarTy (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (storeVarTy tc v)
   (let ((name (nodeAName v)))
     (if (|| (strEq name "true") (strEq name "false"))
@@ -12292,7 +12156,6 @@
 ; rewritten expression is checked with the argument cached, so an
 ; already-grounded lambda need not report its body again.
 (pub :: showBuiltin (-> Int Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (showBuiltin tc e head)
   ; THERE IS NO ARITY ARM, and its absence is deliberate. This
   ; carried one - `(!= (vecLen args) 1)` under an AX3025 reading
@@ -12413,7 +12276,6 @@
 ; The argument node itself is left as it was - nothing else points
 ; at it, and an AST node is never released (MM-LIFE-2c).
 (pub :: showSplice (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (showSplice e arg)
   (let ((mut i 0))
     {
@@ -12428,7 +12290,6 @@
 ; `(if b "true" "false")` in the application's place. Word 6 is the
 ; stamp the `format#` head may have been given and is cleared with it.
 (pub :: showSpliceBool (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (showSpliceBool e arg)
   (let ((sp (nodeSpan e)))
     {
@@ -12443,7 +12304,6 @@
 ; The head renamed to a library function, resolved to the spelling the
 ; program actually holds (`showHelperName`).
 (pub :: showRewriteTo (-> Int Int String String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (showRewriteTo tc head mod name sp)
   (let ((full (showHelperName tc mod name sp)))
     (if (== (strLen full) 0)
@@ -12460,7 +12320,6 @@
 ; `(show#T x vecNew)`, the inner application built here and the outer
 ; node `e` re-pointed at it.
 (pub :: showRewriteGen (-> Int Int Int Int Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (showRewriteGen tc e head arg ty withSeen)
   (let ((nm (showEnsure tc ty (spanOf e))))
     (if (== (strLen nm) 0)
@@ -12615,7 +12474,6 @@
 ; declaration's parameters with the type's arguments, which is what a
 ; constructor pattern does for the same question.
 (pub :: showCtorFieldTys (-> Int Int Int (Vec Int)))
-;@axiom:effect(unsafe)
 (pub fn (showCtorFieldTys tc ctor ty)
   (tyInstVec
     tc
@@ -12630,7 +12488,6 @@
 ; `seen` is the generation-time visited set, keyed on the rendered
 ; type, so a recursive type is asked once.
 (pub :: showDerivable (-> Int Int (Vec String) Int))
-;@axiom:effect(unsafe)
 (pub fn (showDerivable tc t seen)
   (let ((ty (tyExpandAliases tc t 0)))
     (if (== ty 0)
@@ -12662,7 +12519,6 @@
                     }))))))))))
 
 (pub :: showSeenName (-> (Vec String) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (showSeenName seen key i)
   (if (>= i (vecLen seen))
     0
@@ -12751,7 +12607,6 @@
 ; carry; it is what lets the emitter record the name under
 ; itself.
 (pub :: showDeclare (-> Int String Int (Vec String) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (showDeclare tc nm ty params sp)
   (let ((sig (mkNodeAt
     TAG_D_SIG
@@ -12784,7 +12639,6 @@
 ; own walk and clears them; both belong to the function being checked
 ; around this call, so they are put back.
 (pub :: showFinish (-> Int Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (showFinish tc fnd body)
   (let (
     (m (memGetWord tc 16))
@@ -12925,7 +12779,6 @@
 ; and, for a type none of whose constructors carries a field, the
 ; `match` alone: nothing to recurse into, nothing to guard.
 (pub :: showGenData (-> Int Int String Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (showGenData tc ty nm sp dent)
   (let ((fnd (showDeclare
     tc
@@ -12952,7 +12805,6 @@
         }))))
 
 (pub :: showCtorsHaveFields (-> (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (showCtorsHaveFields ctors i)
   (if (>= i (vecLen ctors))
     0
@@ -13004,7 +12856,6 @@
 ; One arm per constructor: `((C) "C")`, or `((D f0 f1) "(D " f0 " " f1 ")")`
 ; with each field rendered by `showFieldExpr` at this instantiation.
 (pub :: showGenArms (-> Int (Vec Int) Int (Vec Int) Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (showGenArms tc ctors ty arms sp i)
   (if (>= i (vecLen ctors))
     0
@@ -13078,7 +12929,6 @@
 ; program never wrote. The same answer inside the module keeps the one
 ; type rendering one way wherever it is printed.
 (pub :: showGenStruct (-> Int Int String Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (showGenStruct tc ty nm sp sent)
   (let ((fnd (showDeclare
     tc
@@ -13482,7 +13332,6 @@
 ; `equalityIsStringly` for when that fires and why it cannot fire on an
 ; ordinary `Int`.
 (pub :: checkNumeric (-> Int String Int Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (checkNumeric tc op l r head)
   ; Word 1 of the head VAR node is the operator's name. Writing
   ; `(nodeA head)` instead - the name STRING itself - corrupts the
@@ -13645,7 +13494,6 @@
                   0)))))))))
 
 (pub :: castConClass (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (castConClass tc t)
   (let ((n (nodeAName t)))
     (if (|| (strEq n "String") (|| (strEq n "Vec") (strEq n "Handle")))
@@ -13672,7 +13520,6 @@
 ; (`ctorAllocArity`). `Vec`'s entry has no constructors at all and
 ; never reaches this - it is answered by name above.
 (pub :: castDataAllNullary (-> (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (castDataAllNullary ctors i)
   (if (>= i (vecLen ctors))
     1
@@ -13848,7 +13695,6 @@
 ; remaining arguments are ordinary expressions. A cast's result is
 ; the named type; sizeof/alignof answer Int.
 (pub :: checkCastForm (-> Int Int String Int))
-;@axiom:effect(unsafe)
 (pub fn (checkCastForm tc e hname)
   ; The value's type is kept for the forging rule. `checkCastArgs`
   ; stamps nothing at index 1, so checking it here first and the
@@ -14227,7 +14073,6 @@
 ; (reporting it again would double the diagnostic). Answers 1 when
 ; refused.
 (pub :: checkSaturation (-> Int Int Int String Int))
-;@axiom:effect(unsafe)
 (pub fn (checkSaturation tc e head hname)
   (if (!= (scopeFindFrame tc hname) 0)
     0
@@ -14327,7 +14172,6 @@
 ; above has ruled out a sealed word struct: an ambiguous name, the
 ; field count, then each argument against its field's declared type.
 (pub :: checkStructConAt (-> Int (Vec Int) Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (checkStructConAt tc args span ent)
   (if (== (checkAmbiguousType tc TY_ANY (memGetWordStr ent 0) span) 1)
     ; Poison rather than "the first one" - `tyFind` answered a
@@ -14606,7 +14450,6 @@
 ; A type whose every arm is nullary is already immediate, and the
 ; emitter answers 0 for it.
 (pub :: tcCtorOfArity (-> Int String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (tcCtorOfArity tc name want)
   (let ((c (rfindCtor tc name)))
     (if (== c 0)
@@ -14626,7 +14469,6 @@
                     1))))))))))
 
 (pub :: tcDataAllNullary (-> (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (tcDataAllNullary ctors i)
   (if (==
     (cast Int ctors)
@@ -14667,7 +14509,6 @@
     (strVecHas pn full)))
 
 (pub :: tcIsPairEnt (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (tcIsPairEnt tc ent)
   (if (== ent 0)
     0
@@ -14676,7 +14517,6 @@
 ; `pairFwdOK`: a saturated direct call to a pair function whose head
 ; no `let` on the path and no parameter has bound.
 (pub :: tcPairFwdOK (-> Int Int (Vec Int) (Vec Int) Int))
-;@axiom:effect(unsafe)
 (pub fn (tcPairFwdOK tc e bound pn)
   (if (!= (nodeTag e) TAG_E_APP)
     0
@@ -14823,7 +14663,6 @@
 ; `inferEffectsOne` arranges, because the callee lookups are
 ; visibility-scoped.
 (pub :: tcPairFnOK (-> Int Int (Vec Int) (Vec Int) Int))
-;@axiom:effect(unsafe)
 (pub fn (tcPairFnOK tc d pn acc)
   (if (!= (nodeTag d) TAG_D_FN)
     0
@@ -14855,7 +14694,6 @@
 ; the emitter's: a forwarding leaf makes one function's answer depend
 ; on another's, so the scan repeats until a pass adds nothing.
 (pub :: tcPairFnsBuild (-> Int (Vec Int) (Vec Int)))
-;@axiom:effect(unsafe)
 (pub fn (tcPairFnsBuild tc decls)
   (let (
     (pn vecNew)
@@ -14899,7 +14737,6 @@
 ; restriction check's own re-walk sees the same sites the fixpoint
 ; did.
 (pub :: tcPairSitesOf (-> Int Int (Vec Int)))
-;@axiom:effect(unsafe)
 (pub fn (tcPairSitesOf tc d)
   (let ((sites vecNew))
     {
@@ -14962,7 +14799,6 @@
 ; (`spineHead e`) and `restrictEmitWraps` reads the same way, so the
 ; two agree on identity without either holding a type.
 (pub :: tcFloatOpAdd (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (tcFloatOpAdd tc h)
   {
     (vecPush (memGetWordVec tc 37) h)
@@ -14970,7 +14806,6 @@
   })
 
 (pub :: tcFloatOpIn (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (tcFloatOpIn tc h)
   (tcNodeIn (memGetWordVec tc 37) h))
 
@@ -14981,7 +14816,6 @@
 ; `pairTailDelegates` routing the case it cannot release to
 ; `emitMatch`), so there is no tail-position case here.
 (pub :: tcPairMatchOK (-> Int Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (tcPairMatchOK tc e bound)
   (let ((s (nodeA e)))
     (if (!= (nodeTag s) TAG_E_APP)
@@ -15029,7 +14863,6 @@
 
 ; A one-effect row, for the possible spelling.
 (pub :: tcAllocRow (Vec Int))
-;@axiom:effect(unsafe)
 (pub fn (tcAllocRow)
   (let ((v vecNew))
     {
@@ -15090,7 +14923,6 @@
 ; position `i` hold one" - and only the type node can answer that.
 ; `escapeArgs` is where it is asked.
 (pub :: bodyScopeOf (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (bodyScopeOf tc d)
   (let ((ent (findFnEnt tc (nodeAName d))))
     (let ((sig 
@@ -15255,7 +15087,6 @@
     }))
 
 (pub :: effUnionUnhandled (-> Int (Vec a) (Vec Int) (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (effUnionUnhandled tc acc inner effs i)
   (if (>= i (vecLen inner))
     0
@@ -15470,7 +15301,6 @@
 ; constructor that allocates nothing" have the same consequence here,
 ; and no caller needs to tell them apart.
 (pub :: ctorAllocArity (-> Int String Int))
-;@axiom:effect(unsafe)
 (pub fn (ctorAllocArity tc n)
   (let ((ctor (rfindCtor tc n)))
     (if (!= ctor 0)
@@ -15497,7 +15327,6 @@
 ; constructor application allocates its block and a call to a pair
 ; function boxes the pair it gets back - in THIS body, which is where
 ; the charge lands.
-;@axiom:effect(unsafe)
 (pub fn (walkCallHead tc n args bound acc unboxed)
   (if (== (bsIsLocal bound n) 1)
     ; Calling a local or a parameter. If it aliases a parameter,
@@ -15624,10 +15453,8 @@
             ; A raw-memory primitive performs `Unsafe` alongside whatever
             ; `Mut` or `Alloc` its seeded row already carries: `regFnEff`
             ; holds one effect, so the second is added here, where the
-            ; row is read. A call to a precondition interface is an
-            ; unsafe operation of this body's for the same reason: what
-            ; makes it safe is an argument this body chose.
-            (if (|| (== (isUnsafePrim n) 1) (== (memGetWord ent 9) 2))
+            ; row is read.
+            (if (== (isUnsafePrim n) 1)
               (effAdd acc (builtinEff "Unsafe"))
               0)
             ; Instantiate the callee's transparent positions
@@ -15800,7 +15627,6 @@
 ; and an edge list that grew per round would be a set rendered as a
 ; multiset.
 (pub :: tcNoteCall (-> Int String Int))
-;@axiom:effect(unsafe)
 (pub fn (tcNoteCall tc name)
   (let ((acc (memGetWordVec tc 29)))
     (if (==
@@ -15861,7 +15687,6 @@
 ; whether the walk can see a call, which is exactly what argument
 ; position tells it.
 (pub :: effRefSiteAt (-> Int String Int (Vec a) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (effRefSiteAt tc n bound acc mark)
   (if (== (bsIsLocal bound n) 1)
     0
@@ -15923,9 +15748,8 @@
             ; A raw-memory primitive named without being called carries
             ; `Unsafe` the way its seeded row carries `Mut` or `Alloc`:
             ; possible where the row arrives possible, definite where
-            ; it arrives definite. A precondition interface named here
-            ; carries it the same way, for the call-site reason above.
-            (if (|| (== (isUnsafePrim n) 1) (== (memGetWord ent 9) 2))
+            ; it arrives definite.
+            (if (== (isUnsafePrim n) 1)
               (if (&& (== mark 1) (== (tyIsArrow (memGetWord ent 1)) 1))
                 (effAdd acc (effPossibleOf (builtinEff "Unsafe")))
                 (effAdd acc (builtinEff "Unsafe")))
@@ -16060,7 +15884,6 @@
   (effAnyPossibleOnlyFrom v 0))
 
 (pub :: effAnyPossibleOnlyFrom (-> (Vec a) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (effAnyPossibleOnlyFrom v i)
   (if (>= i (vecLen v))
     0
@@ -16081,7 +15904,6 @@
     }))
 
 (pub :: effDefiniteOnlyInto (-> (Vec Int) (Vec a) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (effDefiniteOnlyInto out v i)
   (if (>= i (vecLen v))
     0
@@ -16111,7 +15933,6 @@
 ; incompleteness marker travels as itself. Answers 1 when anything was
 ; added, as `effUnion` does.
 (pub :: effUnionPossible (-> (Vec a) (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (effUnionPossible acc src i)
   (if (>= i (vecLen src))
     0
@@ -16126,10 +15947,8 @@
 ; the bare `;@axiom:effect(unsafe)` tag means - the author vouches that
 ; every well-typed call is safe - and it is what lets
 ; `restrict(no-unsafe)` admit a body that pushes to a `Vec`: `vecPush`
-; performs the raw store, its callers do not. A precondition
-; interface's `Unsafe` is not stopped; the call site adds it besides.
+; performs the raw store, its callers do not.
 (pub :: effUnionCallee (-> (Vec a) Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (effUnionCallee acc ent possible)
   (if (== (memGetWord ent 9) 1)
     (effUnionTrusted acc (memGetWordVec ent 5) possible 0)
@@ -16138,7 +15957,6 @@
       (effUnion acc (memGetWordVec ent 5) 0))))
 
 (pub :: effUnionTrusted (-> (Vec a) (Vec Int) Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (effUnionTrusted acc src possible i)
   (if (>= i (vecLen src))
     0
@@ -16178,7 +15996,6 @@
   (effJoinFrom (effSorted v) 0 ""))
 
 (pub :: effJoinFrom (-> (Vec Int) Int String String))
-;@axiom:effect(unsafe)
 (pub fn (effJoinFrom v i acc)
   (if (>= i (vecLen v))
     acc
@@ -16204,7 +16021,6 @@
 ; Deduplicated BY NAME: a row may carry both spellings of one effect
 ; (`b:IO` and `~b:IO`), and it is one effect to every sentence that
 ; renders this.
-;@axiom:effect(unsafe)
 (pub fn (effSortInto out v i)
   (if (>= i (vecLen v))
     0
@@ -16218,7 +16034,6 @@
     }))
 
 (pub :: effNameIn (-> (Vec Int) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (effNameIn v name i)
   (if (>= i (vecLen v))
     0
@@ -16235,7 +16050,6 @@
     }))
 
 (pub :: effShiftDown (-> (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (effShiftDown out i)
   (if (<= i 0)
     0
@@ -16452,7 +16266,6 @@
     fnty)))
 
 (pub :: bsNames (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (bsNames b)
   (memGetWord b 0))
 
@@ -16464,7 +16277,6 @@
   (cast (Vec a) (bsNames b)))
 
 (pub :: bsParams (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (bsParams b)
   (memGetWord b 1))
 
@@ -16476,7 +16288,6 @@
   (cast (Vec a) (bsParams b)))
 
 (pub :: bsCallable (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (bsCallable b)
   (memGetWord b 2))
 
@@ -16488,7 +16299,6 @@
   (cast (Vec a) (bsCallable b)))
 
 (pub :: bsEparams (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (bsEparams b)
   (memGetWord b 3))
 
@@ -16502,7 +16312,6 @@
 ; The enclosing function's declared type, or 0 when it has none. Every
 ; derived scope shares it, exactly as `params` and `callable` do.
 (pub :: bsFnTy (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (bsFnTy b)
   (memGetWord b 4))
 
@@ -16546,7 +16355,6 @@
   (bsFindFrom (bsNamesVec b) n (- (vecLen (bsNamesVec b)) 1)))
 
 (pub :: bsFindFrom (-> (Vec Int) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (bsFindFrom names n i)
   (if (< i 0)
     0
@@ -16555,7 +16363,6 @@
       (bsFindFrom names n (- i 1)))))
 
 (pub :: nameIndexIn (-> (Vec Int) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (nameIndexIn v n i)
   (if (>= i (vecLen v))
     (- 0 1)
@@ -16576,7 +16383,6 @@
 ; for, or -1. A shadow entry answers with the alias it recorded; an
 ; unshadowed name falls through to the parameter list.
 (pub :: bsParamAlias (-> Int String Int))
-;@axiom:effect(unsafe)
 (pub fn (bsParamAlias b n)
   (let ((ent (bsFind b n)))
     (if (!= ent 0)
@@ -16662,7 +16468,6 @@
 ; "already attributed where it was bound" about two kinds of binder
 ; that are nothing of the sort.
 (pub :: bsWithParams (-> Int (Vec Int) Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (bsWithParams b params pidx i)
   (if (>= i (vecLen params))
     b
@@ -16729,7 +16534,6 @@
 ; stated reason - termination must not depend on the walk staying
 ; monotone if it ever changes.
 (pub :: inferEffects (-> Int (Vec Int) Int))
-;@axiom:effect(unsafe)
 (pub fn (inferEffects tc decls)
   {
     ; The pair set depends on signatures and syntax only, so it is
@@ -16801,7 +16605,6 @@
 ; Split out of the pass below so the pass can be walked in EITHER
 ; direction over the same work - see `inferEffectsRound`.
 (pub :: inferEffectsOne (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (inferEffectsOne tc d)
   (if (!= (nodeTag d) TAG_D_FN)
     0
@@ -16871,7 +16674,6 @@
 ; The value is a comma list of the three names. A name outside them is
 ; AX3052's refusal, reported by `checkSyscallTag` where the tag stands.
 (pub :: syscallTagEffects (-> Int Int (Vec Int)))
-;@axiom:effect(unsafe)
 (pub fn (syscallTagEffects tc d)
   (let ((out vecNew))
     {
@@ -16897,7 +16699,6 @@
         }))))
 
 (pub :: syscallNamesInto (-> (Vec Int) (Vec String) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (syscallNamesInto out names i)
   (if (>= i (vecLen names))
     0
@@ -17028,7 +16829,6 @@
 ; `inferEffectsOne` states: a private function is invisible to a
 ; lookup made from nowhere, so the module has to be set first.
 (pub :: callersIdxAddDecl (-> Int (Vec (Vec Int)) (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (callersIdxAddDecl tc bs decls i)
   (let ((d (vecGet decls i)))
     (if (!= (nodeTag d) TAG_D_FN)
@@ -17039,7 +16839,6 @@
           (callersIdxAddEdges bs (memGetWordVec ent 7) 0 i))))))
 
 (pub :: callersIdxAddEdges (-> (Vec (Vec Int)) (Vec Int) Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (callersIdxAddEdges bs calls i who)
   (if (==
     (cast Int calls)
@@ -17053,7 +16852,6 @@
       })))
 
 (pub :: callersIdxPut (-> (Vec (Vec Int)) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (callersIdxPut bs name who)
   (let ((e (callersIdxFind bs name)))
     (if (== e 0)
@@ -17100,7 +16898,6 @@
         (callersIdxFindIn v name 0)))))
 
 (pub :: callersIdxFindIn (-> (Vec Int) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (callersIdxFindIn v name i)
   (if (>= i (vecLen v))
     0
@@ -17204,7 +17001,6 @@
 ; the same `0` guard `inferEffectsOne` makes - it simply has no callers
 ; to wake.
 (pub :: markCallers (-> Int (Vec (Vec Int)) (Vec Int) (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (markCallers tc bs marks next d)
   (let ((ent (restrictOwnEnt tc d)))
     (if (== ent 0)
@@ -17480,7 +17276,6 @@
     0))
 
 (pub :: checkUnhandled (-> Int (Vec a) (Vec Int) Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (checkUnhandled tc inner effs i span)
   (if (>= i (vecLen inner))
     0
@@ -17527,7 +17322,6 @@
 ; parameter masked as a shadow of itself is invisible to the
 ; transparency marks.
 (pub :: handleScopeOf (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (handleScopeOf tc)
   (let ((base (bsNew (memGetWord tc 11) (memGetWord tc 12) vecNew (curFnSigTy tc))))
     (seedFrameBinders base (tcScopeVec tc) (tcFrameBase tc))))
@@ -17541,7 +17335,6 @@
 ; call through a parameter in there asks which of that parameter's
 ; argument positions could hold a function.
 (pub :: curFnSigTy (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (curFnSigTy tc)
   (let ((d (memGetWord tc 24)))
     (if (== d 0)
@@ -17552,7 +17345,6 @@
           (memGetWord ent 1))))))
 
 (pub :: seedFrameBinders (-> Int (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (seedFrameBinders b scope i)
   (if (>= i (vecLen scope))
     b
@@ -17669,7 +17461,6 @@
 ; the fields never mention has no entry, which answers a fresh
 ; wildcard so the arity of the TCon still matches the declaration.
 (pub :: structTvNodes (-> (Vec Int) (Vec Int) (Vec Int) Int (Vec Int)))
-;@axiom:effect(unsafe)
 (pub fn (structTvNodes env tvs out i)
   (if (>= i (vecLen tvs))
     out
@@ -17681,7 +17472,6 @@
     }))
 
 (pub :: structTvLookup (-> (Vec Int) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (structTvLookup env name i)
   (if (>= i (vecLen env))
     mkSilentWild
@@ -17846,7 +17636,6 @@
 ; build, and substituting positionally through it would invent a
 ; correspondence.
 (pub :: structSubstField (-> Int Int (Vec Int) Int))
-;@axiom:effect(unsafe)
 (pub fn (structSubstField ent fty args)
   (let ((tvs (memGetWordVec ent 3)))
     (if (== fty (- 0 1))
@@ -17864,13 +17653,11 @@
             (structSubstFrom fty tvs args 0)))))))
 
 (pub :: structSubstFrom (-> Int (Vec Int) (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (structSubstFrom fty tvs args i)
   (if (>= i (vecLen tvs))
     fty
     (structSubstFrom (tyPinVar fty (vecGetStr tvs i) (vecGet args i)) tvs args (+ i 1))))
 
-;@axiom:effect(unsafe)
 (pub fn (checkField tc e)
   (let ((baseTy (checkExprH tc (nodeA e) 0)))
     (if (== (nodeTag baseTy) TAG_T_CON)
@@ -18031,7 +17818,6 @@
   (dataFieldOwnerFrom (tcDatasVec tc) fname 0))
 
 (pub :: dataFieldOwnerFrom (-> (Vec Int) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (dataFieldOwnerFrom datas fname i)
   (if (>= i (vecLen datas))
     0
@@ -18043,12 +17829,10 @@
 ; values may then be immediate tags, and a field load on an immediate
 ; dereferences a small integer.
 (pub :: dataHasNullary (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (dataHasNullary dent)
   (dataHasNullaryIn (memGetWordVec dent 1) 0))
 
 (pub :: dataHasNullaryIn (-> (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (dataHasNullaryIn ctors i)
   (if (>= i (vecLen ctors))
     0
@@ -18079,7 +17863,6 @@
 ; The declared index of fname in the first constructor that declares
 ; it, else -1.
 (pub :: dataFirstDeclIdx (-> (Vec Int) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (dataFirstDeclIdx ctors fname i)
   (if (>= i (vecLen ctors))
     (- 0 1)
@@ -18095,7 +17878,6 @@
 ; rendering equal to ty0's, else 0. A constructor with no declared
 ; names - nullary or positional - disagrees by construction.
 (pub :: dataCtorsAgree (-> (Vec Int) String Int Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (dataCtorsAgree ctors fname i idx ty0)
   (if (>= i (vecLen ctors))
     1
@@ -18150,7 +17932,6 @@
   })
 
 (pub :: dataFieldTyFrom (-> (Vec Int) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (dataFieldTyFrom datas fname i)
   (if (>= i (vecLen datas))
     0
@@ -18160,7 +17941,6 @@
         (dataFieldTyFrom datas fname (+ i 1))))))
 
 (pub :: dataFieldTyInCtors (-> (Vec Int) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (dataFieldTyInCtors ctors fname i)
   (if (>= i (vecLen ctors))
     0
@@ -18179,7 +17959,6 @@
                   mkI64Ty)))))))))
 
 (pub :: declaredFieldIndex (-> (Vec Int) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (declaredFieldIndex declared fname i)
   (if (>= i (vecLen declared))
     (- 0 1)
@@ -18284,7 +18063,6 @@
 ; otherwise AX3001 with candidates from scope alone.
 ; ------------------------------------------------------------------
 (pub :: checkSet (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (checkSet tc e)
   (let ((mut valTy (checkExprH tc (nodeB e) 0)))
     (let ((name (nodeAName e)))
@@ -18448,7 +18226,6 @@
 ; entry-file sig-less `fn` also stays AX3001: a plain `fn` never
 ; parks a scope entry in stage0 either.
 (pub :: setTargetCovered (-> Int String Int))
-;@axiom:effect(unsafe)
 (pub fn (setTargetCovered tc name)
   (setTargetCoveredFrom (memGetWordVec tc 10) name 0))
 
@@ -18613,7 +18390,6 @@
 ; vector at all. The vector is `(Vec Int)` - names are words, read
 ; with `vecGetStr` - whatever its elements were pushed as.
 (pub :: strsHasName (-> (Vec Int) String String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (strsHasName v name bare i)
   (if (|| (== (cast Int v) 0) (>= i (vecLen v)))
     0
@@ -18622,7 +18398,6 @@
       (strsHasName v name bare (+ i 1)))))
 
 (pub :: checkRecursionInScrutinee (-> Int Int Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (checkRecursionInScrutinee tc e scrutTy errsBefore)
   (let ((d (memGetWord tc 24)))
     (if (|| (== d 0) (!= (nodeTag d) TAG_D_FN))
@@ -18645,7 +18420,6 @@
                   ""
                   "bind the scrutinee in a `let` and answer the recursive call from a match arm, where the self call is a tail call and the loop conversion fires") (concat (concat "recursive call to `" (bareOf name)) "`")))))))))))
 
-;@axiom:effect(unsafe)
 (pub fn (checkMatch tc e)
   (let (
     (errsBefore (countErrorDiags (tcOutVec tc)))
@@ -18943,7 +18717,6 @@
 ; constructor arms TOGETHER cover the type is `checkExhaustiveMatrix`'s
 ; question, and it has to look at sub-patterns to answer it.
 (pub :: recordCoverage (-> Int (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (recordCoverage pat covered catchall)
   ; A NAMED constructor arm covers its constructor exactly as a
   ; positional one does - stage0's exhaustiveness treats `PCon` and
@@ -19053,7 +18826,6 @@
 ; omitted field becomes `_` - the same spine `checkPatternTyped`
 ; builds, so the two agree on what each field position holds.
 (pub :: patCtorArgs (-> Int Int (Vec Int)))
-;@axiom:effect(unsafe)
 (pub fn (patCtorArgs tc pat)
   (let ((tag (nodeTag pat)))
     (if (== tag TAG_E_APP)
@@ -19093,7 +18865,6 @@
 
 ; Any row whose first column binds unconditionally.
 (pub :: colHasWild (-> (Vec (Vec Int)) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (colHasWild matrix i)
   (if (>= i (vecLen matrix))
     0
@@ -19103,7 +18874,6 @@
 
 ; Any row whose first column tests constructor `cn`.
 (pub :: colHasCtor (-> (Vec (Vec Int)) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (colHasCtor matrix cn i)
   (if (>= i (vecLen matrix))
     0
@@ -19166,7 +18936,6 @@
 
 ; Any row whose first column is the literal `lit`.
 (pub :: colHasBoolLit (-> (Vec (Vec Int)) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (colHasBoolLit matrix lit i)
   (if (>= i (vecLen matrix))
     0
@@ -19292,7 +19061,6 @@
 ; leaves the rest as written; it mints nothing, so the placeholder
 ; numbering every later diagnostic in the file renders is untouched.
 (pub :: matCtorsExh (-> Int (Vec (Vec Int)) (Vec Int) (Vec Int) Int Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (matCtorsExh tc matrix rest ctors ty missOut i)
   (if (>= i (vecLen ctors))
     1
@@ -19337,7 +19105,6 @@
                 t))))))))
 
 (pub :: tyEnvSubstVar (-> Int String (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (tyEnvSubstVar t name env i)
   (if (>= i (vecLen env))
     t
@@ -19379,7 +19146,6 @@
 ; what the diagnostic already says.
 ; ------------------------------------------------------------------
 (pub :: tcEntrySrc (-> Int String))
-;@axiom:effect(unsafe)
 (pub fn (tcEntrySrc tc)
   (if (!= (memGetWord tc 14) 0)
     ""
@@ -19676,7 +19442,6 @@
 ; The arms, or "" when one of the missing names is not this type's
 ; own top-level hole.
 (pub :: missingArmsText (-> Int Int (Vec (Vec Int)) (Vec Int) Int String))
-;@axiom:effect(unsafe)
 (pub fn (missingArmsText tc scrutTy matrix missing indent)
   (let ((dent (findData tc (nodeAName scrutTy))))
     (if (== dent 0)
@@ -19709,7 +19474,6 @@
 ; The field count of the constructor `cn` names among `ctors`
 ; (CtorEnt word 1 is its field types), or -1.
 (pub :: ctorArityIn (-> (Vec Int) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (ctorArityIn ctors cn i)
   (if (>= i (vecLen ctors))
     (- 0 1)
@@ -19732,7 +19496,6 @@
 ; diagnostic. `mod` is the module the import must name, or "" for the
 ; last import of any module.
 (pub :: importTodoHelp (-> Int Int String Int))
-;@axiom:effect(unsafe)
 (pub fn (importTodoHelp tc d src)
   (let ((imp (lastImportOf (memGetWordVec tc 9) "IO" 0 0)))
     (if (!= imp 0)
@@ -19800,7 +19563,6 @@
 ; `scrut` is the scrutinee NODE: its span is the anchor, and its shape
 ; is what the fix reads when the match has no arms yet.
 (pub :: checkExhaustiveMatrix (-> Int (Vec Int) Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (checkExhaustiveMatrix tc arms scrutTy scrut)
   (let ((span (spanOf scrut)))
     (if (== span 0)
@@ -19867,7 +19629,6 @@
 ; a matrix COLUMN, which is the only place the answer was ever
 ; correct, so the pair had no remaining caller.
 (pub :: joinComma (-> (Vec Int) Int String String))
-;@axiom:effect(unsafe)
 (pub fn (joinComma xs i acc)
   (if (>= i (vecLen xs))
     acc
@@ -19895,7 +19656,6 @@
 ; checkPatternTypedAt).
 ; ------------------------------------------------------------------
 (pub :: checkPatternTyped (-> Int Int Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (checkPatternTyped tc pat scrutTy fitTy)
   (let ((tag (nodeTag pat)))
     (if (== tag TAG_E_VAR)
@@ -20111,7 +19871,6 @@
 ; AX3004 at the constructor's name, expected the constructor's type;
 ; the arguments are still bound so the arm's body checks once.
 (pub :: checkCtorPattern (-> Int String (Vec Int) Int Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (checkCtorPattern tc cname args span scrutTy envTy)
   (let ((ctor (findCtor tc cname)))
     (if (== ctor 0)
@@ -20311,7 +20070,6 @@
           0)))))
 
 (pub :: emitUndefinedCtor (-> Int String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (emitUndefinedCtor tc cname span)
   (if (== span 0)
     0
@@ -20386,7 +20144,6 @@
       })))
 
 (pub :: levInitRow (-> Int Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (levInitRow row lb j)
   (if (> j lb)
     0
@@ -20396,7 +20153,6 @@
     }))
 
 (pub :: levRows (-> String String Int Int Int Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (levRows a b la lb prev cur i)
   (if (> i la)
     (memGetWord prev lb)
@@ -20422,7 +20178,6 @@
     }))
 
 (pub :: levCols (-> String String Int Int Int Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (levCols a b lb prev cur i j)
   (if (> j lb)
     0
@@ -20458,7 +20213,6 @@
       c)))
 
 (pub :: levCopyRow (-> Int Int Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (levCopyRow src dst lb j)
   (if (> j lb)
     0
@@ -20484,7 +20238,6 @@
 ; A cell holding the best candidate found so far and its distance, so
 ; the search can run over two sequences without rebuilding a list.
 (pub :: newBest Int)
-;@axiom:effect(unsafe)
 (pub fn (newBest)
   (let ((c (memAlloc 16)))
     {
@@ -20496,7 +20249,6 @@
 ; A `__` primitive is offered only to a `__` query: `__stor8` should
 ; hear about `__store8`, and `store` should not.
 (pub :: offerCandidate (-> Int String String Int))
-;@axiom:effect(unsafe)
 (pub fn (offerCandidate best name cand)
   (if (||
     (strEq cand name)
@@ -20516,7 +20268,6 @@
         0))))
 
 (pub :: offerScope (-> Int String (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (offerScope best name scope i)
   ; MAC-HYG-3a: a scope entry introduced by a macro template is
   ; gensym-renamed (`tmpvar.0`), which no source can spell. Offering
@@ -20546,7 +20297,6 @@
           })))))
 
 (pub :: offerFnEnts (-> Int String (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (offerFnEnts best name fns i)
   (if (>= i (vecLen fns))
     0
@@ -20556,7 +20306,6 @@
     }))
 
 (pub :: offerCtorEnts (-> Int String (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (offerCtorEnts best name datas i)
   (if (>= i (vecLen datas))
     0
@@ -20566,7 +20315,6 @@
     }))
 
 (pub :: offerCtorsOf (-> Int String (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (offerCtorsOf best name ctors i)
   (if (>= i (vecLen ctors))
     0
@@ -20673,7 +20421,6 @@
 ; order stage0 reports in (probed with two bad modules and a bad
 ; entry). Each declaration's `module` stamp picks the unit its spans
 ; index.
-;@axiom:effect(unsafe)
 (pub fn (tcWalkDecls tc i)
   (let ((decls (memGetWordVec tc 10)))
     (if (>= i (vecLen decls))
@@ -20752,7 +20499,6 @@
 ; beside `#effects=IO` while `check` said OK. `symbols` keys tags by
 ; name and was right: a signature has no body to contradict a claim.
 (pub :: checkAxtags (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (checkAxtags tc d)
   ; THERE IS NO EARLY RETURN FOR AN UNTAGGED DECLARATION, and its
   ; absence is the point. `(if (&& (== own 0) (== sig 0)) 0 ...)`
@@ -20777,8 +20523,8 @@
           36
           (cast Int (tcPairSitesOf tc d))))
         ; `unsafeSink` is live for exactly this walk: every reference it
-        ; resolves to a precondition interface lands in `sink`, which
-        ; is where AX3073 finds the call to name.
+        ; resolves to an extern lands in `sink`, which is where AX3073
+        ; finds the call to name.
         (sink vecNew)
         (_k (memSetWord
           (memGetWord tc 44)
@@ -20839,8 +20585,6 @@
           ; A `restrict(no-unsafe)` this row could not refute is asked
           ; once more after every body is typed (`unsafeLatePass`).
           (unsafeNotePending tc d own sig eff)
-          ; `;@axiom:precondition(...)` has a shape (AX3079, AX3080).
-          (checkPreconditionTags tc d own sig)
           ; `;@axiom:ct(...)` holds of the body (AX3092, AX3093).
           (checkCtClaim tc d)
           ; A declaration that made ANY effect claim belongs to AX3010,
@@ -21014,7 +20758,6 @@
 ; compiler has said it checks. AX3016 refuses an unknown effect name
 ; in a `handle` list for the same reason.
 (pub :: checkRestricts (-> Int Int (Vec Int) (Vec Int) (Vec a) Int))
-;@axiom:effect(unsafe)
 (pub fn (checkRestricts tc d own sig eff)
   (let ((rs vecNew))
     {
@@ -21090,7 +20833,6 @@
     (tagsHaveIsrIn own 0)))
 
 (pub :: tagsHaveIsrIn (-> (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (tagsHaveIsrIn tags i)
   (if (==
     (cast Int tags)
@@ -21147,7 +20889,6 @@
 ; (`mkTArr`), each from `Int`, ending in `Int`. A declaration the table
 ; has no entry for is not asked: there is nothing to compare.
 (pub :: isrFaultSigOk (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (isrFaultSigOk tc d)
   (let (
     (ps (nodeBVec d))
@@ -21194,7 +20935,6 @@
       (isrVectorIn own 0))))
 
 (pub :: isrVectorIn (-> (Vec Int) Int String))
-;@axiom:effect(unsafe)
 (pub fn (isrVectorIn tags i)
   (if (==
     (cast Int tags)
@@ -21262,7 +21002,6 @@
       "a handler bound to a vector runs while the code it interrupted is stopped - until it returns, for `isr(irq)`, and for good, for `isr(fault)` - so anything it waits for can't come. Every blocking library call ends in a system call, which baremetal-aarch64 answers with trap 74, and `__arm_wfi` in an IRQ handler sleeps with the interrupt that would wake it masked. Set a flag the main loop reads instead, and do the waiting there. A fault hook may halt in `wfi`: never returning is one of its answers")))))
 
 (pub :: restrictHasStrict (-> (Vec String) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (restrictHasStrict rs i)
   (if (>= i (vecLen rs))
     0
@@ -21378,7 +21117,6 @@
     }))
 
 (pub :: checkRestrictsFrom (-> Int Int (Vec String) Int (Vec a) Int))
-;@axiom:effect(unsafe)
 (pub fn (checkRestrictsFrom tc d rs i eff)
   (if (>= i (vecLen rs))
     0
@@ -21529,7 +21267,6 @@
 ; with the index rather than a crash, because a diagnostic is not the
 ; place to discover that.
 (pub :: restrictParamName (-> Int Int String))
-;@axiom:effect(unsafe)
 (pub fn (restrictParamName d k)
   (let ((ps (nodeBVec d)))
     (if (==
@@ -21769,7 +21506,6 @@
   })
 
 (pub :: graphCycleEdges (-> Int (Vec Int) Int (Vec Int) (Vec String) Int))
-;@axiom:effect(unsafe)
 (pub fn (graphCycleEdges tc calls i stack done)
   (if (>= i (vecLen calls))
     0
@@ -21812,7 +21548,6 @@
       (Some i))))
 
 (pub :: graphStackIndexFrom (-> (Vec Int) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (graphStackIndexFrom stack name i)
   (if (>= i (vecLen stack))
     (- 0 1)
@@ -21862,7 +21597,6 @@
 ; throw the vector away, which is exactly why the `->` chain lived
 ; only inside the quoted string.
 (pub :: witnessTextOf (-> Int (Vec Int) String String))
-;@axiom:effect(unsafe)
 (pub fn (witnessTextOf tc path e)
   (if (==
     (cast Int path)
@@ -21897,7 +21631,6 @@
 ; `inferEffectsOne` states why: a private function is invisible to a
 ; lookup made from nowhere.
 (pub :: restrictOwnEnt (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (restrictOwnEnt tc d)
   (let ((_m (memSetWord tc 16 (nodeModule d))))
     (let ((ent (findFnEnt tc (nodeAName d))))
@@ -21992,9 +21725,7 @@
 ;   Unsafe  an extern, a raw-memory primitive or a syscall - its row carries `Mut`
 ;           or `Alloc` (a syscall's is empty) but never `Unsafe` itself,
 ;           `walkCallHead` adds that at the call site, so `isUnsafePrim`
-;           and not the row is the test -
-;           or a precondition interface other than the start, which
-;           the call site charges the same way (`MM-EXEC-9d`);
+;           and not the row is the test;
 ;   cast    a function other than the start (`depth` > 0; the start's
 ;           own casts are reported at their spans by the local walk)
 ;           whose declaration's body holds a `cast` head;
@@ -22004,7 +21735,6 @@
 ;           see, because a cast forges by a type the walk runs before
 ;           (`unsafeLatePass`).
 (pub :: graphSeeds (-> Int Int String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (graphSeeds tc ent kind depth)
   (if (strEq kind "extern")
     (if (== (memGetWord ent 4) 2)
@@ -22030,7 +21760,7 @@
           0)
         (if (&& (strEq kind "IO") (|| (== (isSyscallPrim (memGetWordStr ent 0)) 1) (== (memGetWord ent 4) 2)))
           1
-          (if (&& (strEq kind "Unsafe") (|| (== (memGetWord ent 4) 2) (|| (== (isUnsafePrim (memGetWordStr ent 0)) 1) (&& (> depth 0) (== (memGetWord ent 9) 2)))))
+          (if (&& (strEq kind "Unsafe") (|| (== (memGetWord ent 4) 2) (== (isUnsafePrim (memGetWordStr ent 0)) 1)))
             1
             (if (&& (== (memGetWord ent 3) 1) (== (effIn (memGetWordVec ent 5) (graphEffKey kind)) 1))
               1
@@ -22052,7 +21782,6 @@
 ; an extern is reached or it is not, and a cast is a seed by
 ; definition.
 (pub :: graphOwnSource (-> Int Int String Int))
-;@axiom:effect(unsafe)
 (pub fn (graphOwnSource tc ent kind)
   (if (|| (strEq kind "extern") (|| (strEq kind "cast") (|| (strEq kind "forge") (|| (strEq kind "syscall") (strEq kind "wfi")))))
     0
@@ -22082,7 +21811,6 @@
 ; an operation was already counted by neither arm for IO, Alloc,
 ; `extern` or `cast`. It changes exactly the custom case.
 (pub :: graphAnyCalleeCarries (-> Int (Vec Int) Int String Int))
-;@axiom:effect(unsafe)
 (pub fn (graphAnyCalleeCarries tc calls i kind)
   (if (>= i (vecLen calls))
     0
@@ -22102,7 +21830,6 @@
 ; RESOLVED entry (`Mod$name`), which is the exact-name index's key,
 ; and visibility was decided when the edge was recorded.
 (pub :: graphEnqueue (-> Int (Vec Int) Int (Vec Int) (Vec Int) (Vec String) Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (graphEnqueue tc calls i queue parent seen from skipTrusted)
   (if (>= i (vecLen calls))
     0
@@ -22154,7 +21881,6 @@
   (graphRenderFrom path 0 ""))
 
 (pub :: graphRenderFrom (-> (Vec Int) Int String String))
-;@axiom:effect(unsafe)
 (pub fn (graphRenderFrom path i acc)
   (if (>= i (vecLen path))
     acc
@@ -22179,7 +21905,6 @@
 ; `Trait#Type#method` is found like any other - and a builtin or an
 ; extern has no declaration and casts nothing.
 (pub :: graphDeclCasts (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (graphDeclCasts tc ent)
   (if (!= (memGetWord ent 3) 0)
     0
@@ -22932,7 +22657,6 @@
 ; field both show as `asm` (`graphShownName`) and `symbols --calls`
 ; keeps as `__asm.N`, since a program may name a function `asm`.
 (pub :: restrictHopSec (-> Int Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (restrictHopSec tc dg ent)
   (let ((dd (restrictHopDecl tc ent)))
     (if (== dd 0)
@@ -22948,7 +22672,6 @@
 ; readily as one in the entry file; word 13 is the unit table the
 ; caller turns `nodeModule` into an index against.
 (pub :: restrictHopDecl (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (restrictHopDecl tc ent)
   (if (!= (memGetWord ent 3) 0)
     0
@@ -23034,7 +22757,6 @@
 ; AX3051: unverifiable, a warning - the claim is neither refuted nor
 ; acquitted, and the reason is the analysis's rather than the body's.
 (pub :: emitRestrictUnverifiable (-> Int Int String String (Vec Int) Int))
-;@axiom:effect(unsafe)
 (pub fn (emitRestrictUnverifiable tc d r why path)
   (if (== (nodeSpan d) 0)
     0
@@ -23170,7 +22892,6 @@
 ; declared result type is in hand - `checkAxtags` runs after the frame
 ; is truncated and has neither.
 (pub :: checkContracts (-> Int Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (checkContracts tc d resTy)
   (let ((tags vecNew))
     {
@@ -23202,7 +22923,6 @@
     }))
 
 (pub :: checkOneContract (-> Int Int Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (checkOneContract tc d t resTy)
   (let ((p (contractExprOf t)))
     (if (== p 0)
@@ -23251,7 +22971,6 @@
 ; `BScope` per call, so replacing its word 1 with the copy and
 ; extending its callable list by one is local to this check.
 (pub :: checkContractPurity (-> Int Int Int Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (checkContractPurity tc d t p resTy)
   (let (
     (sc (bodyScopeOf tc d))
@@ -23285,7 +23004,6 @@
     }))
 
 (pub :: effDropUnsafeInto (-> (Vec Int) (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (effDropUnsafeInto out v i)
   (if (>= i (vecLen v))
     0
@@ -23311,7 +23029,6 @@
 ; and quoted `;pre`, which is a diagnostic pointing one place and
 ; naming another - AX3039's own recorded defect, one code over.
 (pub :: contractSpanOf (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (contractSpanOf t)
   (let ((txt (contractTextOf t)))
     (if (== (strLen txt) 0)
@@ -23321,7 +23038,6 @@
 ; The source text a contract diagnostic leads with, backticked: the
 ; expression, or the whole tag when there is none.
 (pub :: contractLead (-> Int String))
-;@axiom:effect(unsafe)
 (pub fn (contractLead t)
   (let ((txt (contractTextOf t)))
     (if (== (strLen txt) 0)
@@ -23345,7 +23061,6 @@
 ; AX3050 for `result` naming nothing, reported from `checkVar` so that
 ; the question is total - see the `inContract` field's own note.
 (pub :: emitContractResult (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (emitContractResult tc e)
   (let ((t (memGetWord tc 34)))
     (if (== (nodeSpan e) 0)
@@ -23396,7 +23111,6 @@
     (axtagsClaimAt tags 0)))
 
 (pub :: axtagsClaimAt (-> (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (axtagsClaimAt tags i)
   (if (>= i (vecLen tags))
     0
@@ -23572,9 +23286,8 @@
 ;
 ;   a raw primitive     the thirty-six `isUnsafePrim` names, `__load64`,
 ;                       `__retain` and `__syscall3` among them;
-;   a precondition call a call to, or a reference to, a function whose
-;                       tags say `;@axiom:precondition(...)` - it is
-;                       safe only for the arguments this body chose;
+;   an extern call      a call to, or a reference to, an `extern` item,
+;                       whose implementation the checker cannot see;
 ;   a forging cast      `(cast T x)` into a reference `x` is not already
 ;                       (`castForges`): `(cast Hid 7)` checked OK here
 ;                       and died at run time with SIGSEGV.
@@ -23584,11 +23297,9 @@
 ; would tag 3,910 of the 4,021 effectful functions in this tree
 ; (`scripts/check-effect-distribution.sh`); the obligation sits where
 ; the operation is performed instead, the way AX3071 and AX3072 refuse
-; a prim call's shape rather than its callers. The tag alone makes a
-; TRUSTED encapsulation: its author vouches that every well-typed call
-; is safe, and its callers inherit nothing (`effUnionCallee`). With
-; `precondition(...)` beside it the obligation passes on instead, and a
-; call to it is one of these operations in the caller.
+; a prim call's shape rather than its callers. The tag makes a TRUSTED
+; encapsulation: its author vouches that every well-typed call is
+; safe, and its callers inherit nothing (`effUnionCallee`).
 ;
 ; EVERY DECLARATION THAT DID NOT SAY `effect(unsafe)` IS ASKED, whatever
 ; else it claimed. Only the unclaimed were until R-B6, the way only the
@@ -23622,25 +23333,13 @@
         (unsafeSiteStart forges f 3))))
         (if (== kind 0)
           (emitUndeclaredUnsafe tc d (vecGet prims p) 0 forges 0)
+          ; An extern has no checked body to establish its safety; the
+          ; resolved-reference sink carries every one this body names.
           (if (== kind 1)
-            (emitUndeclaredUnsafe tc d (vecGet sink c) (unsafeCalleeKind tc d (vecGet sink c)) forges 0)
+            (emitUndeclaredUnsafe tc d (vecGet sink c) 3 forges 0)
             (if (== kind 2)
               (emitUndeclaredUnsafe tc d (vecGet forges (* f 3)) 2 forges f)
               0)))))))
-
-; An extern has no checked body to establish its safety. The same
-; resolved-reference sink carries it and precondition interfaces.
-(pub :: unsafeCalleeKind (-> Int Int Int Int))
-;@axiom:effect(unsafe)
-(pub fn (unsafeCalleeKind tc d site)
-  (let (
-    (_m (memSetWord tc 16 (nodeModule d)))
-    (ent (findFnEnt tc (nodeAName site)))
-    (_m0 (memSetWord tc 16 0))
-  )
-    (if (== ent 0)
-      1
-      (if (== (memGetWord ent 4) 2) 3 1))))
 
 ; The record of `v` - one every `stride` words, its node first - whose
 ; node starts earliest in the source, or -1 when none has a span.
@@ -23675,8 +23374,8 @@
     (- 0 1)
     (spanStart (spanOf (vecGet v (* k stride))))))
 
-; Which of the three kinds starts first: 0 a primitive, 1 a
-; precondition call, 2 a forging cast, -1 none. Each argument is a
+; Which of the three kinds starts first: 0 a primitive, 1 an extern
+; call, 2 a forging cast, -1 none. Each argument is a
 ; start offset, or -1 when that kind has no site; a tie goes to the
 ; kind named first.
 (pub :: unsafeEarliestKind (-> Int Int Int Int))
@@ -23700,9 +23399,9 @@
         b
         a))))
 
-; `site` is the primitive's application, the precondition reference, or
-; the cast, as `kind` says; `forges` and `k` name the cast's record when
-; it is one.
+; `site` is the primitive's application (`kind` 0), the extern
+; reference (3) or the cast (2); `forges` and `k` name the cast's
+; record when it is one.
 (pub :: emitUndeclaredUnsafe (-> Int Int Int Int (Vec Int) Int Int))
 (pub fn (emitUndeclaredUnsafe tc d site kind forges k)
   (let ((sp (spanOf site)))
@@ -23730,10 +23429,7 @@
               (if (< at 0)
                 (diagAddHelp dg "write `;@axiom:effect(unsafe)` above the declaration")
                 (diagAddFixHelp dg "write `;@axiom:effect(unsafe)` above the declaration" (mkSpan at at) ";@axiom:effect(unsafe)\n"))
-              (if (== kind 1)
-                (diagAddNote dg (unsafePreconditionNote tc d site))
-                0)
-              (diagAddHelp dg "this fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so")
+              (diagAddHelp dg "this fires where the unsafe operation is performed, not up the call chain. The tag makes the declaration a trusted encapsulation, whose callers inherit nothing. If the operation is not wanted here the fix is to stop performing it, not to stop saying so")
               (emitDiag tc (diagSetLabel dg (unsafeOpLabel site kind)))
             }))))))
 
@@ -23746,9 +23442,7 @@
     (if (== (isAsmPrim (nodeAName (spineHead site))) 1)
       "runs inline assembly and its declaration does not say so"
       "touches raw memory and its declaration does not say so")
-    (if (== kind 1)
-      (concat (concat "calls `" (srcSpelling (nodeAName site))) "`, whose safety depends on its caller, and its declaration does not say so")
-      (concat (unsafeForgeText forges k) ", and its declaration does not say so")))))
+    (concat (unsafeForgeText forges k) ", and its declaration does not say so"))))
 
 (pub :: unsafeOpLabel (-> Int Int String))
 (pub fn (unsafeOpLabel site kind)
@@ -23756,9 +23450,7 @@
     "an extern call"
   (if (== kind 0)
     (graphShownName (nodeAName (spineHead site)))
-    (if (== kind 1)
-      "a precondition interface"
-      "forges a reference"))))
+    "forges a reference")))
 
 ; "forges a `Hid` out of an `Int` with `cast`", for the `k`th record
 ; of `forges`: node, target, source.
@@ -23777,71 +23469,15 @@
       (castArrowOf (nodeBVec t) 0)
       t)))
 
-; The precondition the callee states, looked up under the calling
-; declaration's own module - the reference was resolved there, and a
-; private helper is invisible from anywhere else.
-(pub :: unsafePreconditionNote (-> Int Int Int String))
-;@axiom:effect(unsafe)
-(pub fn (unsafePreconditionNote tc d site)
-  (let (
-    (_m (memSetWord tc 16 (nodeModule d)))
-    (ent (findFnEnt tc (nodeAName site)))
-    (_m0 (memSetWord tc 16 0))
-  )
-    (let ((txt
-      (if (== ent 0)
-        ""
-        (preconditionTextOf tc (memGetWordStr ent 0)))))
-      (if (== (strLen txt) 0)
-        "a call to it is safe only when its caller makes its precondition true, which is what `effect(unsafe)` here says this declaration does"
-        (concat (concat (concat (concat "`" (srcSpelling (nodeAName site))) "` requires: ") txt) ". A call to it is safe only when its caller makes that true, which is what `effect(unsafe)` here says this declaration does")))))
-
-; The `precondition(...)` text a function's own tags or its
-; signature's state, or "" - joined with "; " when it states several.
-(pub :: preconditionTextOf (-> Int String String))
-;@axiom:effect(unsafe)
-(pub fn (preconditionTextOf tc name)
-  (let ((dd (declByName (memGetWordVec tc 10) name 0)))
-    (if (== dd 0)
-      ""
-      (preconditionJoin (sigAxtagsFor tc name) (preconditionJoin (memGetWordVec dd 7) "" 0) 0))))
-
-(pub :: preconditionJoin (-> (Vec Int) String Int String))
-(pub fn (preconditionJoin tags acc i)
-  (if (==
-    (cast Int tags)
-    0)
-    acc
-    (if (>= i (vecLen tags))
-      acc
-      (let ((t (vecGet tags i)))
-        (preconditionJoin
-          tags
-          (if (strEq (axtagKeyOf t) "precondition")
-            (let ((v (strTrimBlanks (axtagTextValue t))))
-              (if (== (strLen v) 0)
-                acc
-                (if (== (strLen acc) 0)
-                  v
-                  (concat (concat acc "; ") v))))
-            acc)
-          (+ i 1))))))
-
-; The unsafe role a declaration's tags give it (FnEnt word 9): 2 when
-; either tag set states a precondition - with or without
-; `effect(unsafe)`, which AX3079 asks for separately, so a caller is
-; still charged for a call it cannot see is safe - 1 for
-; `effect(unsafe)` alone, 0 otherwise.
+; The unsafe role a declaration's tags give it (FnEnt word 9): 1 for
+; `effect(unsafe)`, a trusted encapsulation, 0 otherwise.
 (pub :: unsafeRoleOfTags (-> Int (Vec Int) (Vec Int) Int))
 (pub fn (unsafeRoleOfTags tc sig own)
-  (if (== (tagsHaveKey sig own "precondition") 1)
-    2
-    (if (== (tagsClaimUnsafe tc sig own) 1)
-      1
-      0)))
+  (if (== (tagsClaimUnsafe tc sig own) 1)
+    1
+    0))
 
 (pub :: tcUnsafeRoles (-> Int (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (tcUnsafeRoles tc decls i)
   (if (>= i (vecLen decls))
     0
@@ -23861,25 +23497,6 @@
           0))
       (tcUnsafeRoles tc decls (+ i 1))
     }))
-
-; Does either tag set carry a tag keyed `key`?
-(pub :: tagsHaveKey (-> (Vec Int) (Vec Int) String Int))
-(pub fn (tagsHaveKey sig own key)
-  (if (== (tagsHaveKeyIn sig key 0) 1)
-    1
-    (tagsHaveKeyIn own key 0)))
-
-(pub :: tagsHaveKeyIn (-> (Vec Int) String Int Int))
-(pub fn (tagsHaveKeyIn tags key i)
-  (if (==
-    (cast Int tags)
-    0)
-    0
-    (if (>= i (vecLen tags))
-      0
-      (if (strEq (axtagKeyOf (vecGet tags i)) key)
-        1
-        (tagsHaveKeyIn tags key (+ i 1))))))
 
 ; Does either tag set claim `effect(unsafe)`, in any spelling the claim
 ; check itself resolves to the built-in `Unsafe` (`axtagEffectOf`)?
@@ -23924,101 +23541,10 @@
           1
           (tagsClaimPureIn tags (+ i 1)))))))
 
-; AX3079 and AX3080: `;@axiom:precondition(...)` states what a caller
-; must make true for a call to be safe.
-;
-; It rides on `effect(unsafe)` or it is refused (AX3079). A function
-; whose body performs nothing unsafe has no such obligation to pass on,
-; and one whose body does must say so first - the pair is what makes a
-; call to it an unsafe operation of the caller's, and a precondition
-; alone would change what callers owe while the declaration itself
-; claimed nothing. The role is still read off the precondition
-; (`unsafeRoleOfTags`), so the callers are charged either way and the
-; refusal is the only diagnostic.
-;
-; And it states something (AX3080): an empty precondition would make
-; every call an unsafe operation while telling the caller nothing to
-; check, and it is the text `symbols` and AX3073 hand the caller.
-(pub :: checkPreconditionTags (-> Int Int (Vec Int) (Vec Int) Int))
-(pub fn (checkPreconditionTags tc d own sig)
-  (if (== (tagsHaveKey sig own "precondition") 0)
-    0
-    {
-      (if (== (tagsClaimUnsafe tc sig own) 1)
-        0
-        (emitPreconditionWithoutUnsafe tc d))
-      (if (== (tagsPreconditionEmpty sig own) 1)
-        (emitPreconditionEmpty tc d)
-        0)
-    }))
-
-(pub :: tagsPreconditionEmpty (-> (Vec Int) (Vec Int) Int))
-(pub fn (tagsPreconditionEmpty sig own)
-  (if (== (tagsPreconditionEmptyIn sig 0) 1)
-    1
-    (tagsPreconditionEmptyIn own 0)))
-
-(pub :: tagsPreconditionEmptyIn (-> (Vec Int) Int Int))
-(pub fn (tagsPreconditionEmptyIn tags i)
-  (if (==
-    (cast Int tags)
-    0)
-    0
-    (if (>= i (vecLen tags))
-      0
-      (let ((t (vecGet tags i)))
-        (if (&& (strEq (axtagKeyOf t) "precondition") (== (strLen (strTrimBlanks (axtagTextValue t))) 0))
-          1
-          (tagsPreconditionEmptyIn tags (+ i 1)))))))
-
-(pub :: emitPreconditionWithoutUnsafe (-> Int Int Int))
-(pub fn (emitPreconditionWithoutUnsafe tc d)
-  (if (== (nodeSpan d) 0)
-    0
-    (let (
-      (src (tcEntrySrc tc))
-      (dg (mkDiag
-        SEV_ERROR
-        "AX3079"
-        "precondition-without-unsafe"
-        (nodeSpan d)
-        (concat (concat "`" (bareOf (nodeAName d))) "` states a precondition and does not say `effect(unsafe)`")
-        0
-        0
-        0))
-    )
-      (let ((at
-        (if (== (strLen src) 0)
-          (- 0 1)
-          (effectTagInsertAt src (spanStart (nodeSpan d))))))
-        {
-          (if (< at 0)
-            (diagAddHelp dg "write `;@axiom:effect(unsafe)` above the declaration, beside the precondition")
-            (diagAddFixHelp dg "write `;@axiom:effect(unsafe)` above the declaration, beside the precondition" (mkSpan at at) ";@axiom:effect(unsafe)\n"))
-          (diagAddNote dg "a precondition is what a caller must make true for a call to an unsafe interface to be safe. The pair makes every call to this function an unsafe operation of its caller's; a precondition on a function that says nothing unsafe would change what its callers owe while it claimed nothing itself. If the body performs nothing unsafe, drop the precondition")
-          (emitDiag tc (diagSetLabel dg "precondition without `effect(unsafe)`"))
-        }))))
-
-(pub :: emitPreconditionEmpty (-> Int Int Int))
-(pub fn (emitPreconditionEmpty tc d)
-  (if (== (nodeSpan d) 0)
-    0
-    (emitDiag tc (diagSetLabel (mkDiagNote
-      SEV_ERROR
-      "AX3080"
-      "precondition-empty"
-      (nodeSpan d)
-      (concat (concat "the precondition on `" (bareOf (nodeAName d))) "` states nothing")
-      0
-      0
-      "write what a caller must make true, such as `;@axiom:precondition(addr names a live block of n bytes)`"
-      "every call to this function is an unsafe operation of its caller's, and the precondition is the text that tells the caller what to check. `symbols` prints it, and so does the diagnostic a caller draws") "empty precondition"))))
-
 ; `forgeSites` as a Vec: the forging casts `tcCheckFn` recorded in the body
 ; being checked, three words each (node, target, source), or an empty
 ; Vec outside a checked body.
 (pub :: unsafeForgeSitesOf (-> Int (Vec Int)))
-;@axiom:effect(unsafe)
 (pub fn (unsafeForgeSitesOf tc)
   (if (== (memGetWord (memGetWord tc 44) 1) 0)
     vecNew
@@ -24029,7 +23555,6 @@
 ; each source reads as the type it ends up with (`castMayForge` says
 ; why the cast itself cannot ask).
 (pub :: unsafeSettleForges (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (unsafeSettleForges tc)
   (if (== (memGetWord (memGetWord tc 44) 1) 0)
     0
@@ -24059,7 +23584,6 @@
 ; After a body is checked: a function whose body forges is remembered
 ; (`forgeDecls`), for the late pass to follow and to charge its row.
 (pub :: unsafeNoteForgeDecl (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (unsafeNoteForgeDecl tc d)
   (if (== (vecLen (unsafeForgeSitesOf tc)) 0)
     0
@@ -24076,7 +23600,6 @@
 ; Only such a claim can still be refuted there, and only by a forging
 ; callee the fixpoint could not see.
 (pub :: unsafeNotePending (-> Int Int (Vec Int) (Vec Int) (Vec a) Int))
-;@axiom:effect(unsafe)
 (pub fn (unsafeNotePending tc d own sig eff)
   (if (== (effMay eff (builtinEff "Unsafe")) 1)
     0
@@ -24112,7 +23635,6 @@
 ; function it would name draws AX3073 itself. It is the restriction's
 ; own answer, in the place its author looks.
 (pub :: unsafeLatePass (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (unsafeLatePass tc)
   {
     ; Each refusal is reported in its own declaration's unit; put the
@@ -24126,7 +23648,6 @@
   })
 
 (pub :: unsafeLateRestricts (-> Int (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (unsafeLateRestricts tc pending i)
   (if (>= i (vecLen pending))
     0
@@ -24150,7 +23671,6 @@
     }))
 
 (pub :: unsafeLateRows (-> (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (unsafeLateRows forged i)
   (if (>= i (vecLen forged))
     0
@@ -24160,8 +23680,8 @@
     }))
 
 ; A reference the effect walk resolved, while `checkAxtags` walks one
-; body (`unsafeSink`): pushed when it names an extern or precondition interface, for
-; AX3073 to name. A local or a parameter of the same spelling is not
+; body (`unsafeSink`): pushed when it names an extern, for AX3073 to
+; name. A local or a parameter of the same spelling is not
 ; the function, and is not pushed.
 (pub :: unsafeSinkNote (-> Int Int Int Int))
 ;@axiom:effect(unsafe)
@@ -24174,7 +23694,7 @@
         (let ((ent (findFnEnt tc (nodeAName node))))
           (if (== ent 0)
             0
-            (if (|| (== (memGetWord ent 4) 2) (== (memGetWord ent 9) 2))
+            (if (== (memGetWord ent 4) 2)
               {
                 (vecPush (cast (Vec Int) sink) node)
                 0
@@ -24249,7 +23769,6 @@
           "It still works, and it still compiles - a deprecation is a notice, not a refusal. It may be removed in a later release, and `compat/BREAKING`'s rule lets that happen without a declared break precisely because this notice shipped first") (concat "declared `;@axiom:deprecated(" (concat repl ")`"))))))))
 
 (pub :: deprecatedFor (-> Int String String))
-;@axiom:effect(unsafe)
 (pub fn (deprecatedFor tc name)
   {
     (if (== (memGetWord tc 31) 0)
@@ -24314,7 +23833,6 @@
       })))
 
 (pub :: sigAxtagsFrom (-> (Vec Int) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (sigAxtagsFrom tagged name i)
   (if (==
     (cast Int tagged)
@@ -24337,7 +23855,6 @@
 ; answered is skipped - which is the union-then-check-once rule
 ; `restrictSplit` keeps with `strInVec`.
 (pub :: axtagContentSeen (-> (Vec Int) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (axtagContentSeen tags content i)
   (if (==
     (cast Int tags)
@@ -24353,7 +23870,6 @@
 ; another set. The signature's walk passes 0 and checks everything;
 ; the function's own walk passes the signature's set.
 (pub :: checkAxtagsFromSkipping (-> Int Int (Vec Int) Int (Vec a) (Vec Int) (Vec Int) Int))
-;@axiom:effect(unsafe)
 (pub fn (checkAxtagsFromSkipping tc d tags i eff eparams skip)
   (if (>= i (vecLen tags))
     0
@@ -24377,7 +23893,6 @@
     }))
 
 (pub :: checkAxtagsFrom (-> Int Int (Vec Int) Int (Vec a) (Vec Int) Int))
-;@axiom:effect(unsafe)
 (pub fn (checkAxtagsFrom tc d tags i eff eparams)
   (if (>= i (vecLen tags))
     0
@@ -24492,7 +24007,6 @@
       "a list here was read as ONE effect spelled with the comma in it, which nothing declares - so the claim could never be satisfied, and AX3010 reported it missing from a body that performed it. `restrict(...)` takes a comma list; `effect(...)` does not") "one effect per `effect(...)` tag"))))
 
 (pub :: effTagLines (-> (Vec String) Int String String))
-;@axiom:effect(unsafe)
 (pub fn (effTagLines names i acc)
   (if (>= i (vecLen names))
     acc
@@ -24600,7 +24114,6 @@
 ; an unchecked `fn` with parameters. A parameter or `let` of unknown
 ; type keeps AX3004.
 (pub :: signatureNeeded (-> Int String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (signatureNeeded tc hname headIsVar)
   (if (|| (!= headIsVar 1) (!= (scopeFindFrame tc hname) 0))
     0
@@ -24696,7 +24209,6 @@
         (entryMainDecl decls (+ i 1))))))
 
 (pub :: checkUnhandledAtMain (-> Int (Vec Int) Int))
-;@axiom:effect(unsafe)
 (pub fn (checkUnhandledAtMain tc decls)
   (let ((d (entryMainDecl decls 0)))
     (if (== d 0)
@@ -24719,7 +24231,6 @@
 ; spellings and the marker together, and it cannot fall behind a new
 ; tag the way three separate tests could.
 (pub :: checkUnhandledRow (-> Int Int Int (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (checkUnhandledRow tc d ent eff i)
   (if (>= i (vecLen eff))
     0
@@ -24758,7 +24269,6 @@
 ; multi-operation effect cannot be handled at all (AX3017), so naming
 ; one of its operations would point at the wrong half of the problem.
 (pub :: unhandledOpText (-> Int String String))
-;@axiom:effect(unsafe)
 (pub fn (unhandledOpText tc name)
   (let ((decl (findEffectDecl tc name)))
     (if (== decl 0)
@@ -24794,7 +24304,6 @@
 ; is the whole answer in that case; a related span that points at the
 ; wrong file is worse than none.
 (pub :: unhandledRelSpan (-> Int Int (Vec Int) Int))
-;@axiom:effect(unsafe)
 (pub fn (unhandledRelSpan tc d path)
   (if (==
     (cast Int path)
@@ -24813,7 +24322,6 @@
 ; related SPAN is non-zero, which is the predicate `unhandledRelSpan`
 ; answers, so the empty string is never rendered.
 (pub :: unhandledRelText (-> (Vec Int) String))
-;@axiom:effect(unsafe)
 (pub fn (unhandledRelText path)
   (if (==
     (cast Int path)
@@ -24827,7 +24335,6 @@
 ; replaces a related span the renderer could not place, so the report
 ; still says WHERE without pointing at the wrong bytes.
 (pub :: unhandledElsewhereText (-> Int Int (Vec Int) String))
-;@axiom:effect(unsafe)
 (pub fn (unhandledElsewhereText tc d path)
   (if (== (unhandledRelSpan tc d path) 0)
     (if (==
@@ -24854,7 +24361,6 @@
 ; `effect` declaration is as free to carry metadata as a function is;
 ; what is checked here is the one slip that costs something.
 (pub :: checkEffectDeclAxtags (-> Int (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (checkEffectDeclAxtags tc decls i)
   (if (>= i (vecLen decls))
     0
@@ -24876,7 +24382,6 @@
 ; wrong place said nothing while looking like a guarantee. An unknown
 ; key stays legal: the namespace is open (`axtagKeyTypo`).
 (pub :: checkStrayAxtags (-> Int (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (checkStrayAxtags tc decls i)
   (if (>= i (vecLen decls))
     0
@@ -24884,9 +24389,23 @@
       (let ((d (vecGet decls i)))
         (if (== (nodeAxtags d) 0)
           0
-          (strayAxtagsOf tc d (memGetWordVec d 7) 0)))
+          (strayAxtagsInUnit tc d)))
       (checkStrayAxtags tc decls (+ i 1))
     }))
+
+; One declaration's tags, reported in that declaration's own unit. This
+; pass runs in `tcNew`, before `tcWalkDecls` stamps word 14 for each
+; declaration, so without the stamp a misplaced tag in an IMPORTED
+; module rendered its caret against the entry file. The unit is put
+; back for the passes that follow.
+(pub :: strayAxtagsInUnit (-> Int Int Int))
+(pub fn (strayAxtagsInUnit tc d)
+  (let (
+    (was (memGetWord tc 14))
+    (_u (memSetWord tc 14 (unitIndexFor (memGetWordVec tc 13) (nodeModule d))))
+    (_r (strayAxtagsOf tc d (memGetWordVec d 7) 0))
+  )
+    (memSetWord tc 14 was)))
 
 (pub :: strayAxtagsOf (-> Int Int (Vec Int) Int Int))
 (pub fn (strayAxtagsOf tc d tags i)
@@ -24898,12 +24417,13 @@
           (emitAxtagPureSpelling tc d key)
           (if (&& (== (axtagKnownKey key) 1) (== (axtagKeyFits (nodeTag d) key) 0))
             (emitAxtagStray tc d key)
-            0)))
+            (if (== (axtagIsPrecondition d key) 1)
+              (emitPreconditionRemoved tc d)
+              0))))
       (strayAxtagsOf tc d tags (+ i 1))
     }))
 
 (pub :: checkStrayImportAxtags (-> Int (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (checkStrayImportAxtags tc decls i)
   (if (>= i (vecLen decls))
     0
@@ -24976,6 +24496,32 @@
         "`deprecated(...)` belongs above a declaration `axiom symbols` lists: a function, a `data`, a `struct`, a type alias, a macro or an `effect`; move it there, or drop it"
         "a checked claim belongs above the function it describes - its `(:: ...)` or its `(fn ...)`; move it there, or drop it")
       "the tag was recorded and nothing read it, so the claim it looks like was never made; an unrecognised key is still legal metadata") "tag not checked here"))))
+
+; AX3095: `;@axiom:precondition(...)`, a tag that was removed. It is
+; refused wherever it stands, the way AX3078 refuses `pure`: read as
+; open metadata it would still look like a claim, and nothing checks
+; it. A declaration-macro invocation hands its tags to what it
+; generates, so its own are answered there.
+(pub :: axtagIsPrecondition (-> Int String Int))
+(pub fn (axtagIsPrecondition d key)
+  (if (|| (== (nodeTag d) TAG_D_MACROCALL) (== (nodeTag d) TAG_D_SYNFOR))
+    0
+    (strEqCI key "precondition")))
+
+(pub :: emitPreconditionRemoved (-> Int Int Int))
+(pub fn (emitPreconditionRemoved tc d)
+  (if (== (nodeSpan d) 0)
+    0
+    (emitDiag tc (diagSetLabel (mkDiagNote
+      SEV_ERROR
+      "AX3095"
+      "precondition-removed"
+      (nodeSpan d)
+      (concat (concat "`" (bareOf (nodeAName d))) "` carries `;@axiom:precondition(...)`, a tag that was removed")
+      0
+      0
+      "state a checkable condition with `;@axiom:pre(...)`, or describe it in a comment"
+      "`;@axiom:pre(...)` already states a condition, and checks it on every call; a function whose body performs an unsafe operation says `;@axiom:effect(unsafe)` and is a trusted encapsulation, whose callers owe nothing the compiler checks") "removed tag"))))
 
 (pub :: checkEffectDeclTags (-> Int Int (Vec Int) Int Int))
 (pub fn (checkEffectDeclTags tc d tags i)
@@ -25082,10 +24628,10 @@
                         1
                         (if (strEq key "calls")
                           1
-                          ; `symbols` writes `#unsafe=trusted` and
-                          ; `#unsafe=precondition` from the tags it read
-                          ; (R-B6), and an author's copy would read as
-                          ; the compiler's verdict on the trusted set.
+                          ; `symbols` writes `#unsafe=trusted` from the
+                          ; tags it read (R-B6), and an author's copy
+                          ; would read as the compiler's verdict on the
+                          ; trusted set.
                           (if (strEq key "unsafe")
                             1
                             (axtagReservedMir key)))))))))))))))
@@ -25550,7 +25096,6 @@
       "name the function at the call, or drop the claim: an unresolved call may perform anything"))))
 
 (pub :: tcCheckFn (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (tcCheckFn tc d)
   ; Set BEFORE the entry lookup: `nodeA d` is already this module's
   ; mangled name, so the lookup is unaffected, but every reference the
@@ -25715,7 +25260,6 @@
 ; function's name and names the parameter in the message. Reported
 ; once per repeated name, at its second occurrence.
 (pub :: checkDupParams (-> Int Int (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (checkDupParams tc d params i)
   (if (>= i (vecLen params))
     0
@@ -25738,7 +25282,6 @@
 
 ; How many of `v`'s first `end` entries equal `s`.
 (pub :: strCountIn (-> (Vec Int) String Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (strCountIn v s i end)
   (if (>= i end)
     0
@@ -26229,7 +25772,6 @@
 ;   per parameter (the callee the fresh value went in through, "" for
 ;   this body)   7 nparams
 (pub :: rgnFactsNew (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (rgnFactsNew n)
   (let (
     (f (memAlloc 64))
@@ -26274,7 +25816,6 @@
     }))
 
 (pub :: rgnFillStrs (-> (Vec String) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (rgnFillStrs v n)
   (if (>= (vecLen v) n)
     0
@@ -26285,7 +25826,6 @@
 
 ; The facts of an entry, made on first demand.
 (pub :: rgnFactsOf (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (rgnFactsOf ent n)
   (if (!= (memGetWord ent 8) 0)
     (memGetWord ent 8)
@@ -26347,7 +25887,6 @@
 ; declaration list's `::` nodes; the type trees are small and this is
 ; the whole cost of this stage for a program that never writes `@`.
 (pub :: rgnProgramUsesRegions (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (rgnProgramUsesRegions tc)
   (rgnDeclsUseRegions (memGetWordVec tc 10) 0))
 
@@ -26372,7 +25911,6 @@
 ;   20 their origin masks (Vec Int), for AX3062 to name the capture
 ;   that carries the offending origin   19 lexical extent bodies (Vec Int)
 (pub :: rgnCtxNew (-> Int Int Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (rgnCtxNew tc d ent report)
   (let (
     (rc (memAlloc 176))
@@ -26434,58 +25972,47 @@
     }))
 
 (pub :: rgnTc (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (rgnTc rc)
   (memGetWord rc 0))
 
 (pub :: rgnNames (-> Int (Vec String)))
-;@axiom:effect(unsafe)
 (pub fn (rgnNames rc)
   (memGetWordVec rc 4))
 
 (pub :: rgnOrigs (-> Int (Vec Int)))
-;@axiom:effect(unsafe)
 (pub fn (rgnOrigs rc)
   (memGetWordVec rc 5))
 
 (pub :: rgnBinds (-> Int (Vec Int)))
-;@axiom:effect(unsafe)
 (pub fn (rgnBinds rc)
   (memGetWordVec rc 6))
 
 (pub :: rgnRegionNames (-> Int (Vec String)))
-;@axiom:effect(unsafe)
 (pub fn (rgnRegionNames rc)
   (memGetWordVec rc 9))
 
 (pub :: rgnFormParents (-> Int (Vec Int)))
-;@axiom:effect(unsafe)
 (pub fn (rgnFormParents rc)
   (memGetWordVec rc 10))
 
 (pub :: rgnFormNames (-> Int (Vec String)))
-;@axiom:effect(unsafe)
 (pub fn (rgnFormNames rc)
   (memGetWordVec rc 11))
 
 (pub :: rgnParamRids (-> Int (Vec Int)))
-;@axiom:effect(unsafe)
 (pub fn (rgnParamRids rc)
   (memGetWordVec rc 15))
 
 (pub :: rgnReport (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (rgnReport rc)
   (memGetWord rc 12))
 
 (pub :: rgnFacts (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (rgnFacts rc)
   (memGetWord rc 13))
 
 ; All parameter bits of this function, as a mask.
 (pub :: rgnParamMask (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (rgnParamMask rc)
   (let ((n (memGetWord rc 3)))
     (if (>= n 62)
@@ -26495,7 +26022,6 @@
 ; The bits that mean "fresh in some region of this body": CUR0 and
 ; every form. For the facts a caller reads, both are "fresh".
 (pub :: rgnFreshMask (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (rgnFreshMask rc)
   (let (
     (n (memGetWord rc 3))
@@ -26507,7 +26033,6 @@
 
 ; The identity of a declared region NAME, minting it on first sight.
 (pub :: rgnNameRid (-> Int String Int))
-;@axiom:effect(unsafe)
 (pub fn (rgnNameRid rc name)
   (let ((k (strVecIdx (rgnRegionNames rc) name)))
     (if (>= k 0)
@@ -26519,7 +26044,6 @@
 
 ; The region identity of one origin bit.
 (pub :: rgnOriginRid (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (rgnOriginRid rc bit)
   (let ((n (memGetWord rc 3)))
     (if (== bit 0)
@@ -26563,7 +26087,6 @@
 
 ; ---- rendering, for the messages ----
 (pub :: rgnRidText (-> Int Int String))
-;@axiom:effect(unsafe)
 (pub fn (rgnRidText rc rid)
   (let ((m (vecLen (rgnRegionNames rc))))
     (if (== rid 0)
@@ -26576,7 +26099,6 @@
             (concat (concat "region `" nm) "`")))))))
 
 (pub :: rgnOriginText (-> Int Int String))
-;@axiom:effect(unsafe)
 (pub fn (rgnOriginText rc bit)
   (let ((n (memGetWord rc 3)))
     (if (< bit 0)
@@ -26589,7 +26111,6 @@
 
 ; The same, followed by the comma a relative clause closes with.
 (pub :: rgnOriginTextComma (-> Int Int String))
-;@axiom:effect(unsafe)
 (pub fn (rgnOriginTextComma rc bit)
   (if (&& (> bit 0) (<= bit (memGetWord rc 3)))
     (concat (rgnOriginText rc bit) ",")
@@ -26650,7 +26171,6 @@
     }))
 
 (pub :: rgnEmitEscape (-> Int Int Int String String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (rgnEmitEscape rc bad span into how valNode)
   (if (== (rgnReport rc) 0)
     0
@@ -26701,7 +26221,6 @@
 
 ; ---- the environment ----
 (pub :: rgnBind (-> Int String Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (rgnBind rc name mask rid)
   {
     (vecPushStr (rgnNames rc) name)
@@ -26731,7 +26250,6 @@
   (rgnEnvFindFrom rc name (- (vecLen (rgnNames rc)) 1)))
 
 (pub :: rgnEnvFindFrom (-> Int String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (rgnEnvFindFrom rc name i)
   (if (< i 0)
     (- 0 1)
@@ -26741,7 +26259,6 @@
 
 ; ---- facts recording ----
 (pub :: rgnFactsOr (-> Int Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (rgnFactsOr rc word mask)
   (let ((f (rgnFacts rc)))
     (if (== (| (memGetWord f word) mask) (memGetWord f word))
@@ -26795,7 +26312,6 @@
 
 ; ---- the walk ----
 (pub :: rgnExpr (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (rgnExpr rc e)
   (if (== e 0)
     0
@@ -26868,7 +26384,6 @@
                                   0))))))))))))))))
 
 (pub :: rgnVar (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (rgnVar rc e)
   (let ((idx (rgnEnvFind rc (nodeAName e))))
     (if (< idx 0)
@@ -26921,7 +26436,6 @@
 ; from the environment's size. Extent identities stay fixed across
 ; these walks (`rgnFormWalk`).
 (pub :: rgnWhile (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (rgnWhile rc e)
   (let (
     (rep (memGetWord rc 12))
@@ -26996,7 +26510,6 @@
       1)))
 
 (pub :: rgnArms (-> Int (Vec Int) Int Int Int Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (rgnArms rc arms i s acc mnode allok)
   (if (>= i (vecLen arms))
     ; Every arm walked: stamp the match iff every arm body carries
@@ -27037,7 +26550,6 @@
 ; A pattern's binders take the scrutinee's origins: a field of a
 ; value lives where the value does.
 (pub :: rgnBindPat (-> Int Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (rgnBindPat rc pat s)
   (if (== pat 0)
     0
@@ -27164,7 +26676,6 @@
 ; mask carries origins and not env indices.
 ; Add the inner lambda's captures to the outer's lists, by name.
 (pub :: rgnMergeCaps (-> (Vec String) (Vec Int) (Vec String) (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (rgnMergeCaps names masks outNames outMasks i)
   (if (>= i (vecLen names))
     0
@@ -27187,7 +26698,6 @@
 ; The name of the last lambda's capture that carries origin `bit`,
 ; when the value at `node` IS that lambda; "" otherwise.
 (pub :: rgnCaptureFor (-> Int Int Int String))
-;@axiom:effect(unsafe)
 (pub fn (rgnCaptureFor rc node bit)
   (if (== node 0)
     ""
@@ -27201,7 +26711,6 @@
 ; closure's own record is blamed, because "the closure captures `s`"
 ; is the fix's address and "a value allocated here" is not.
 (pub :: rgnCaptureBad (-> Int Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (rgnCaptureBad rc node tgtRid)
   (if (== node 0)
     0
@@ -27219,7 +26728,6 @@
         (rgnCaptureBadFrom rc masks tgtRid (+ i 1))))))
 
 (pub :: rgnCaptureFrom (-> (Vec String) (Vec Int) Int Int String))
-;@axiom:effect(unsafe)
 (pub fn (rgnCaptureFrom names masks bit i)
   (if (>= i (vecLen names))
     ""
@@ -27234,7 +26742,6 @@
     cap))
 
 (pub :: rgnBindParams (-> Int (Vec String) Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (rgnBindParams rc params i mask)
   (if (==
     (cast Int params)
@@ -27259,7 +26766,6 @@
 ; of it anywhere older is MM-RGN-3's refusal. A `(region r ...)` form
 ; and a recovery point's thunk (`rgnRecoverForm`) both come here.
 (pub :: rgnFormWalk (-> Int Int String Int))
-;@axiom:effect(unsafe)
 (pub fn (rgnFormWalk rc body name)
   (let (
     (n (memGetWord rc 3))
@@ -27352,7 +26858,6 @@
 
 ; ---- calls ----
 (pub :: rgnApp (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (rgnApp rc e)
   (let (
     (head (spineHead e))
@@ -27414,7 +26919,6 @@
 ; and write its captures, so those origins participate in both sides
 ; of the lifetime relation, including calls with no reference arguments.
 (pub :: rgnUnknownCall (-> Int (Vec Int) Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (rgnUnknownCall rc args span captures)
   (let (
     (masks (rgnIntVec))
@@ -27470,7 +26974,6 @@
 ; through a handle are the two shapes that matter; everything else
 ; answers a word.
 (pub :: rgnBuiltinCall (-> Int String (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (rgnBuiltinCall rc n args span)
   (let (
     (masks (rgnIntVec))
@@ -27754,7 +27257,6 @@
 ; The i-th parameter's NAME of a callee, from its `fn` declaration,
 ; or its index when the declaration is not at hand.
 (pub :: rgnCalleeParamName (-> Int String Int String))
-;@axiom:effect(unsafe)
 (pub fn (rgnCalleeParamName tc callee i)
   (let ((d (rgnDeclOf tc callee)))
     (if (== d 0)
@@ -27764,7 +27266,6 @@
         (fmtInt i)))))
 
 (pub :: rgnDeclOf (-> Int String Int))
-;@axiom:effect(unsafe)
 (pub fn (rgnDeclOf tc name)
   (rgnDeclOfFrom (memGetWordVec tc 10) name 0))
 
@@ -27873,7 +27374,6 @@
       })))
 
 (pub :: rgnEmitReturn (-> Int Int Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (rgnEmitReturn rc bad span bodyNode)
   (if (== (rgnReport rc) 0)
     0
@@ -27909,7 +27409,6 @@
 
 ; ---- the driver ----
 (pub :: rgnCheckAll (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (rgnCheckAll tc)
   (if (== (rgnProgramUsesRegions tc) 1)
     {
@@ -27950,7 +27449,6 @@
 ; checked in the middle of `tcWalkDecls`. TC word 28 records that it
 ; has run.
 (pub :: rgnEnsureFacts (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (rgnEnsureFacts tc)
   (if (!= (memGetWord tc 28) 0)
     0
@@ -28007,7 +27505,6 @@
 ; ACCEPTED, on a body that provably stores a fresh allocation into its
 ; parameter. Declaration order is why this hid so long - the same chain
 ; written leaf-first converges in two passes at any depth.
-;@axiom:effect(unsafe)
 (pub fn (rgnRounds tc decls round limit)
   (if (>= round limit)
     ; The cap was reached with facts still moving. TWO consumers need
@@ -28029,7 +27526,6 @@
 ; converging. Read by the AXSYM/AXIR projection, which must not
 ; publish an under-approximation without saying so.
 (pub :: rgnFactsTruncated (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (rgnFactsTruncated tc)
   (if (== (memGetWord tc 28) 2)
     1
@@ -28037,7 +27533,6 @@
 
 ; One walk over every `fn`; answers whether any facts changed.
 (pub :: rgnPass (-> Int (Vec Int) Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (rgnPass tc decls i report)
   (if (&& (== i 0) (&& (== report 1) (== (rgnFactsTruncated tc) 1)))
     {
@@ -28089,7 +27584,6 @@
 ; unresolved call is the conservative assumption, not a finding, and
 ; the claim over it is unverifiable rather than refuted.
 (pub :: rgnResolvedCulprit (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (rgnResolvedCulprit f i)
   (if (>= i (memGetWord f 7))
     (- 0 1)
@@ -28233,7 +27727,6 @@
 ; tag naming nothing pushes the empty name, so it is reported rather
 ; than read as a claim of nothing.
 (pub :: ctCollect (-> (Vec Int) (Vec String) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (ctCollect tags cs i)
   (if (==
     (cast Int tags)
@@ -28263,7 +27756,6 @@
 ; A function's claim, from its signature and its `fn` together. Empty
 ; when it makes none.
 (pub :: ctClaimOf (-> Int Int (Vec String)))
-;@axiom:effect(unsafe)
 (pub fn (ctClaimOf tc d)
   (let ((cs vecNew))
     {
@@ -28346,7 +27838,6 @@
 ; The declared name a call's head resolves to, the way the checker
 ; resolves it: a call names its callee bare, even across modules.
 (pub :: ctResolve (-> Int String String))
-;@axiom:effect(unsafe)
 (pub fn (ctResolve tc n)
   (let ((ent (findFnEnt tc n)))
     (if (== ent 0)
@@ -28356,7 +27847,6 @@
 ; Run `f` over `d` with the checker's current module set to `d`'s,
 ; which is what `findFnEnt` resolves a bare name against.
 (pub :: ctInModule (-> Int Int (-> Int Int) Int))
-;@axiom:effect(unsafe)
 (pub fn (ctInModule tc d f)
   (let ((saved (memGetWord tc 16)))
     {
@@ -28985,7 +28475,6 @@
           })))))
 
 (pub :: checkExprH (-> Int Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (checkExprH tc e inHead)
   (let ((cache (memGetWordVec tc 46)))
     (let ((ty (if (if (>= (vecLen cache) 2)

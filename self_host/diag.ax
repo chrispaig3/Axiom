@@ -180,43 +180,36 @@
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagSev (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (diagSev d)
   (memGetWord d 0))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagCode (-> Int String))
-;@axiom:effect(unsafe)
 (pub fn (diagCode d)
   (memGetWordStr d 1))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagSlug (-> Int String))
-;@axiom:effect(unsafe)
 (pub fn (diagSlug d)
   (memGetWordStr d 2))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagSpan (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (diagSpan d)
   (memGetWord d 3))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagMsg (-> Int String))
-;@axiom:effect(unsafe)
 (pub fn (diagMsg d)
   (memGetWordStr d 4))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagLabel (-> Int String))
-;@axiom:effect(unsafe)
 (pub fn (diagLabel d)
   (memGetWordStr d 5))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagUnit (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (diagUnit d)
   (memGetWord d 6))
 
@@ -224,7 +217,6 @@
 ; without the site having to name a local.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagSetLabel (-> Int String Int))
-;@axiom:effect(unsafe)
 (pub fn (diagSetLabel d s)
   {
     (memSetWord d 5 s)
@@ -233,7 +225,6 @@
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagSetUnit (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (diagSetUnit d u)
   (memSetWord d 6 u))
 
@@ -241,7 +232,6 @@
 ; was never touched and when its vector is empty.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagCountAt (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (diagCountAt d w)
   (let ((v (memGetWordVec d w)))
     (if (==
@@ -253,7 +243,6 @@
 ; The slot's vector, allocating it on first use.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: diagVecAt (-> Int Int (Vec a)))
-;@axiom:effect(unsafe)
 (pub fn (diagVecAt d w)
   (let ((v (memGetWordVec d w)))
     (if (==
@@ -273,13 +262,11 @@
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagSecSpan (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (diagSecSpan d i)
   (memGetWord (vecGet (memGetWordVec d 7) i) 0))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagSecMsg (-> Int Int String))
-;@axiom:effect(unsafe)
 (pub fn (diagSecMsg d i)
   (memGetWordStr (vecGet (memGetWordVec d 7) i) 1))
 
@@ -289,7 +276,6 @@
 ; also depends on whether there is a unit table to resolve it against.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagSecUnit (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (diagSecUnit d i)
   (memGetWord (vecGet (memGetWordVec d 7) i) 2))
 
@@ -339,7 +325,6 @@
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagNote (-> Int Int String))
-;@axiom:effect(unsafe)
 (pub fn (diagNote d i)
   (vecGetStr (memGetWordVec d 8) i))
 
@@ -350,19 +335,16 @@
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagHelpMsg (-> Int Int String))
-;@axiom:effect(unsafe)
 (pub fn (diagHelpMsg d i)
   (memGetWordStr (vecGet (memGetWordVec d 9) i) 0))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagHelpFixSpan (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (diagHelpFixSpan d i)
   (memGetWord (vecGet (memGetWordVec d 9) i) 1))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagHelpFixText (-> Int Int String))
-;@axiom:effect(unsafe)
 (pub fn (diagHelpFixText d i)
   (memGetWordStr (vecGet (memGetWordVec d 9) i) 2))
 
@@ -373,19 +355,16 @@
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagTraceName (-> Int Int String))
-;@axiom:effect(unsafe)
 (pub fn (diagTraceName d i)
   (memGetWordStr (vecGet (memGetWordVec d 10) i) 0))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagTraceSpan (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (diagTraceSpan d i)
   (memGetWord (vecGet (memGetWordVec d 10) i) 1))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagTraceUnit (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (diagTraceUnit d i)
   (memGetWord (vecGet (memGetWordVec d 10) i) 2))
 
@@ -467,7 +446,6 @@
 ; call.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagDisarmFixes (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (diagDisarmFixes d)
   (let ((hs (memGetWordVec d 9)))
     (if (==
@@ -729,7 +707,6 @@
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: srcIxStarts (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (srcIxStarts x)
   (memGetWord x 0))
 
@@ -742,7 +719,6 @@
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: srcIxChars (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (srcIxChars x)
   (memGetWord x 1))
 
@@ -857,7 +833,6 @@
 ; renders against a DIFFERENT source than the diagnostic's own.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: unitIndexes (-> (Vec Int) (Vec Int)))
-;@axiom:effect(unsafe)
 (pub fn (unitIndexes units)
   (let (
     (out vecNew)
@@ -1134,7 +1109,6 @@
 ; when `units` is, on the single-unit path.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: renderDiagIx (-> Int String String (Vec Int) Int (Vec Int) String))
-;@axiom:effect(unsafe)
 (pub fn (renderDiagIx d src file units ix ixs)
   (let ((parts vecNew))
     {
@@ -1292,7 +1266,6 @@
 ; names the one its spans index.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: renderDiagsUnits (-> (Vec Int) (Vec Int) String))
-;@axiom:effect(unsafe)
 (pub fn (renderDiagsUnits ds units)
   ; A linear join rather than the old recursive concat fold, whose
   ; peak was measured at 829 MiB RSS for a 2000-diagnostic file - the
@@ -1339,7 +1312,6 @@
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: catStrs (-> (Vec String) String))
-;@axiom:effect(unsafe)
 (pub fn (catStrs v)
   (let (
     (n (vecLen v))

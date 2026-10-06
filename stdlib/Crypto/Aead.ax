@@ -73,7 +73,6 @@
 ; Anything else answers `cryptoInvalidLength`: other nonce lengths
 ; exist in GCM, and this suite does not take them.
 (pub :: aeadNonceFromBytes (-> String (Result AeadNonce Error)))
-;@axiom:effect(unsafe)
 (pub fn (aeadNonceFromBytes b)
   (if (!= (strLen b) aeadNonceLen)
     (cryptoLengthErr "a nonce must be 12 bytes" "aeadNonceFromBytes")
@@ -129,7 +128,6 @@
     (nonceSequenceStart prefix position "nonceSequenceResume")))
 
 (:: nonceSequenceStart (-> String Int String (Result NonceSequence Error)))
-;@axiom:effect(unsafe)
 (fn (nonceSequenceStart prefix position where)
   (if (!= (strLen prefix) 4)
     (cryptoLengthErr "a sequence prefix must be 4 bytes" where)
@@ -145,7 +143,6 @@
 ; sequence never wraps round to a nonce it has given out. A state
 ; that is not 12 bytes answers `cryptoInvalidLength`.
 (pub :: nonceSequenceNext (-> NonceSequence (Result AeadNonce Error)))
-;@axiom:effect(unsafe)
 (pub fn (nonceSequenceNext seq)
   (let ((s seq.state))
     (if (!= (strLen s) 12)
@@ -163,7 +160,6 @@
 ; sealing, so a restart can resume after every nonce already given
 ; out. -1 for a state that is not 12 bytes.
 (pub :: nonceSequencePosition (-> NonceSequence Int))
-;@axiom:effect(unsafe)
 (pub fn (nonceSequencePosition seq)
   (let ((s seq.state))
     (if (!= (strLen s) 12)

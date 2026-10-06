@@ -119,32 +119,26 @@
 
 (:: bnLen (-> Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`p` is a big integer from `bnNew`)
 (fn (bnLen p)
   (__load64 p 0))
 
 (:: bnLimb (-> Int Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`p` is a big integer from `bnNew` and `i` is below `bnCap`)
 (fn (bnLimb p i)
   (__load64 p (+ i 1)))
 
 (:: bnPut (-> Int Int Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`p` is a big integer from `bnNew` and `i` is below `bnCap`)
 (fn (bnPut p i v)
   (__store64 p (+ i 1) v))
 
 (:: bnSetLen (-> Int Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`p` is a big integer from `bnNew`)
 (fn (bnSetLen p n)
   (__store64 p 0 n))
 
 ; Drop leading zero limbs, so the length is exact and zero is length 0.
 (:: bnTrim (-> Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`p` is a big integer from `bnNew`)
 (fn (bnTrim p)
   (let ((mut n (bnLen p)))
     {
@@ -155,8 +149,7 @@
 
 ; `p` = `v`, for any non-negative `v`.
 (:: bnSetInt (-> Int Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`p` is a big integer from `bnNew` and `v` is not negative)
+;@axiom:pre((>= v 0))
 (fn (bnSetInt p v)
   (let (
     (mut x v)
@@ -173,8 +166,6 @@
     }))
 
 (:: bnCopy (-> Int Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`dst` and `src` are big integers from `bnNew`)
 (fn (bnCopy dst src)
   (let ((n (bnLen src)))
     {
@@ -185,8 +176,7 @@
 
 ; `p` = `p` * `k` + `add`, for `k` and `add` below 2^28.
 (:: bnMulAdd (-> Int Int Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`p` is a big integer from `bnNew` with room for one more limb, and `k` and `add` are below 2^28)
+;@axiom:pre((&& (&& (>= k 0) (< k 268435456)) (&& (>= add 0) (< add 268435456))))
 (fn (bnMulAdd p k add)
   (let (
     (n (bnLen p))
@@ -209,8 +199,6 @@
 
 ; `p` = `p` * 10^`n`.
 (:: bnMulPow10 (-> Int Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`p` is a big integer from `bnNew` with room for the product)
 (fn (bnMulPow10 p n)
   (let ((mut left n))
     {
@@ -229,8 +217,6 @@
 
 ; `p` = `p` * 5^`n`.
 (:: bnMulPow5 (-> Int Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`p` is a big integer from `bnNew` with room for the product)
 (fn (bnMulPow5 p n)
   (let ((mut left n))
     {
@@ -249,8 +235,6 @@
 
 ; `p` = `p` * 2^`n`.
 (:: bnShl (-> Int Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`p` is a big integer from `bnNew` with room for the product)
 (fn (bnShl p n)
   (let (
     (whole (/ n 28))
@@ -276,8 +260,6 @@
 
 ; `p` = `p` / 2, rounding down.
 (:: bnShr1 (-> Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`p` is a big integer from `bnNew`)
 (fn (bnShr1 p)
   (let (
     (mut i (- (bnLen p) 1))
@@ -296,8 +278,6 @@
 
 ; -1, 0 or 1 as `a` is less than, equal to or greater than `b`.
 (:: bnCmp (-> Int Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`a` and `b` are trimmed big integers from `bnNew`)
 (fn (bnCmp a b)
   (let (
     (la (bnLen a))
@@ -330,8 +310,6 @@
 
 ; `a` = `a` - `b`, where `a` is at least `b`.
 (:: bnSub (-> Int Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`a` and `b` are trimmed big integers from `bnNew` and `a` is at least `b`)
 (fn (bnSub a b)
   (let (
     (la (bnLen a))
@@ -362,8 +340,6 @@
 
 ; The number of bits in `p`: 0 for zero.
 (:: bnBitLen (-> Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`p` is a trimmed big integer from `bnNew`)
 (fn (bnBitLen p)
   (let ((n (bnLen p)))
     (if (== n 0)
@@ -383,8 +359,7 @@
 
 ; `p` = `p` / `k`, answering the remainder, for `k` below 2^28.
 (:: bnDivSmall (-> Int Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`p` is a big integer from `bnNew` and `k` is from 1 to 2^28 - 1)
+;@axiom:pre((&& (>= k 1) (< k 268435456)))
 (fn (bnDivSmall p k)
   (let (
     (mut i (- (bnLen p) 1))
@@ -404,8 +379,6 @@
 
 ; `p`'s value, when it is below 2^62.
 (:: bnToInt (-> Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`p` is a big integer from `bnNew` whose value is below 2^62)
 (fn (bnToInt p)
   (let (
     (mut i (- (bnLen p) 1))
@@ -423,8 +396,6 @@
 ; Divide `a` by `b` where the quotient is below 2^62: answers the
 ; quotient and leaves the remainder in `a`. `b` is destroyed.
 (:: bnDivLong (-> Int Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`a` and `b` are trimmed big integers from `bnNew`, `b` is not zero, and `a` / `b` is below 2^62)
 (fn (bnDivLong a b)
   (let ((shift (- (bnBitLen a) (bnBitLen b))))
     (if (< shift 0)
@@ -544,8 +515,6 @@
 ; The binary64 nearest to `d` * 10^`e10`, ties to even, for a trimmed,
 ; non-zero big integer `d`.
 (:: nearest (-> Bool Int Int Float))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`d` is a trimmed, non-zero big integer from `bnNew` below 10^802, and `e10` keeps the value between 10^-327 and 10^311)
 (fn (nearest neg d e10)
   (let (
     (num bnNew)
@@ -623,7 +592,6 @@
 ; The number that `s` spells, correctly rounded to the nearest
 ; binary64, ties to even. See the module comment for the syntax.
 (pub :: floatParse (-> String (Result Float Error)))
-;@axiom:effect(unsafe)
 (pub fn (floatParse s)
   (let (
     (n (strLen s))
@@ -776,7 +744,6 @@
 ; is consumed.
 (:: bnDecimal (-> Int String))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`p` is a trimmed, non-zero big integer from `bnNew` below 10^800)
 (fn (bnDecimal p)
   (let (
     (buf (strAlloc 800))
@@ -1010,7 +977,6 @@
 ; The shortest text that `floatParse` reads back to exactly `x`, in
 ; Python's `repr` format: `0.1`, `2.0`, `1e+22`, `-0.0`, `inf`, `nan`.
 (pub :: floatToString (-> Float String))
-;@axiom:effect(unsafe)
 (pub fn (floatToString x)
   (let ((bits (floatToBits x)))
     (let (

@@ -1,0 +1,18 @@
+; A misplaced or removed tag in an imported module is reported in that
+; module's own source. Here `TagStray` carries a `restrict(...)` tag
+; above a `data` declaration (AX3077) and a removed `precondition(...)`
+; tag (AX3095), and both lines must point into `TagStray.ax`. The
+; stray-tag pass runs before the body walk stamps each declaration's
+; unit, so it stamps the unit itself.
+;
+; The entry file's own misplaced tag, on `Mode`, stays here.
+(import TagStray)
+
+;@axiom:restrict(no-io)
+(data Mode
+  (Fast)
+  (Slow))
+
+(:: main Int)
+(fn (main)
+  (halve 4))

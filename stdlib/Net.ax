@@ -64,7 +64,6 @@
 ; length and a family it knows. Every function taking one asks first,
 ; because the struct is public and could be built from any string.
 (:: sockOk (-> SocketAddr Bool))
-;@axiom:effect(unsafe)
 (fn (sockOk a)
   (let ((s a.bytes))
     (if (!= (strLen s) netAddrMaxBytes)
@@ -75,7 +74,6 @@
 ; The address `a.b.c.d:port`. Each part must be in range: 0..255 for
 ; the octets and 0..65535 for the port.
 (pub :: socketAddrV4 (-> Int Int Int Int Int (Result SocketAddr Error)))
-;@axiom:effect(unsafe)
 (pub fn (socketAddrV4 a b c d port)
   (if (|| (|| (< a 0) (> a 255)) (|| (< b 0) (> b 255)))
     (netBadAddr "an IPv4 octet is outside 0..255" "socketAddrV4")
@@ -98,7 +96,6 @@
 ; The address `[g0:g1:...:g7]:port` from eight 16-bit groups, each in
 ; 0..65535. `groups` must hold exactly eight.
 (pub :: socketAddrV6 (-> (Vec Int) Int (Result SocketAddr Error)))
-;@axiom:effect(unsafe)
 (pub fn (socketAddrV6 groups port)
   (if (!= (vecLen groups) 8)
     (netBadAddr "an IPv6 address has eight groups" "socketAddrV6")
@@ -410,8 +407,6 @@
 ; bytes and then two of 255 (RFC 4291 section 2.5.5.2). The sixteen
 ; address bytes start at 8 in both layouts `Sys.netAddr6` writes.
 (:: mappedV4 (-> Int Bool))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`p` names a live IPv6 socket address)
 (fn (mappedV4 p)
   (let ((mut z 0))
     {
@@ -423,8 +418,6 @@
 ; The IP text of a live address, with an IPv4-mapped address in RFC 5952
 ; section 5's mixed form, as `std::net` prints it.
 (:: ipTextOf (-> Int String))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`p` names a live socket address Net built)
 (fn (ipTextOf p)
   (if (&& (== (netAddrFamily p) afInet6) (mappedV4 p))
     (concat "::ffff:" (concat (fmtInt (memGetByte p 20)) (concat "." (concat (fmtInt (memGetByte p 21)) (concat "." (concat (fmtInt (memGetByte p 22)) (concat "." (fmtInt (memGetByte p 23)))))))))
@@ -434,7 +427,6 @@
 ; the RFC 5952 form: lower-case, the longest run of zero groups as
 ; `::`, and an IPv4-mapped address as `::ffff:a.b.c.d`.
 (pub :: socketAddrText (-> SocketAddr String))
-;@axiom:effect(unsafe)
 (pub fn (socketAddrText a)
   (if (sockOk a)
     (let ((p (strData a.bytes)))
@@ -445,7 +437,6 @@
 
 ; The IP address alone, with no port and no brackets.
 (pub :: socketAddrIp (-> SocketAddr String))
-;@axiom:effect(unsafe)
 (pub fn (socketAddrIp a)
   (if (sockOk a)
     (ipTextOf (strData a.bytes))
@@ -453,7 +444,6 @@
 
 ; The port, or -1 for an address this module did not build.
 (pub :: socketAddrPort (-> SocketAddr Int))
-;@axiom:effect(unsafe)
 (pub fn (socketAddrPort a)
   (if (sockOk a)
     (netAddrPort (strData a.bytes))
@@ -461,7 +451,6 @@
 
 ; Whether the address is IPv6.
 (pub :: socketAddrIsV6 (-> SocketAddr Bool))
-;@axiom:effect(unsafe)
 (pub fn (socketAddrIsV6 a)
   (if (sockOk a)
     (== (netAddrFamily (strData a.bytes)) afInet6)
@@ -502,7 +491,6 @@
 ; `MSG_NOSIGNAL` on each write instead, so this answers `Ok` there.
 (:: netNoSigPipe (-> Int (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (netNoSigPipe fd)
   (if (== soNoSigPipe 0)
     (Ok 0)
@@ -521,7 +509,6 @@
 ; Port 0 asks the kernel for a free port; `tcpListenerAddr` says which.
 (pub :: tcpListen (-> SocketAddr (Result TcpListener Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (tcpListen addr)
   (if (! (sockOk addr))
     (netBadAddr "not built by Net" "tcpListen")
@@ -546,8 +533,6 @@
 ; kept.
 (:: netListenOn (-> Int Int (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`p` names a live socket address Net built)
 (fn (netListenOn fd p)
   (andThen
     (netSetOptInt
@@ -582,7 +567,6 @@
 ; handle. The descriptor is closed on any failure.
 (:: netAdopt (-> Int String (Result TcpStream Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (netAdopt fd where)
   (match (andThen
     (netSetBlocking fd)
@@ -615,7 +599,6 @@
 ; Connect to `addr`, waiting until the connection is made or refused.
 (pub :: tcpConnect (-> SocketAddr (Result TcpStream Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (tcpConnect addr)
   (if (! (sockOk addr))
     (netBadAddr "not built by Net" "tcpConnect")
@@ -641,7 +624,6 @@
 ; does.
 (pub :: tcpRead (-> TcpStream String Int Int (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (tcpRead s buf at count)
   (let ((size (strLen buf)))
     (if (|| (|| (< at 0) (< count 0))
@@ -659,7 +641,6 @@
 ; its side.
 (pub :: tcpReadSome (-> TcpStream Int (Result String Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (tcpReadSome s max)
   (if (< max 0)
     __indexTrap
@@ -753,7 +734,6 @@
 ; `getpeername` or `getsockname` into a fresh address.
 (:: netNameOf (-> Int Bool String (Result SocketAddr Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (netNameOf fd peer where)
   (let (
     (s (strAlloc netAddrMaxBytes))
@@ -769,7 +749,6 @@
 ; write is sent at once rather than held to be joined with the next.
 (pub :: tcpSetNoDelay (-> TcpStream Bool (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (tcpSetNoDelay s on)
   (netSetOptInt
     (streamFdOf s)
@@ -796,7 +775,6 @@
 
 (:: netSetTimeout (-> Int Int Int String (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (netSetTimeout fd opt micros where)
   (if (< micros 0)
     (Err (errContextOf (mkError 22 "a timeout is not negative") where))

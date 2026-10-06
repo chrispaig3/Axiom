@@ -27,7 +27,6 @@
 (import Mem)
 
 (:: fill (-> Int Int))
-;@axiom:effect(unsafe)
 (fn (fill p)
   {
     (for i in 0..8
@@ -36,7 +35,6 @@
   })
 
 (:: sum (-> Int Int))
-;@axiom:effect(unsafe)
 (fn (sum p)
   (let ((mut acc 0))
     {
@@ -55,7 +53,6 @@
 
 (:: main Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (main)
   (let ((kept (fill (memAlloc 64))))
     (let ((inside 

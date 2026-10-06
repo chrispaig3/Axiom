@@ -16,7 +16,6 @@
 ; when the key length is not one AES takes. `inPlace` runs the kernel
 ; with the same address for input and output.
 (:: aesRun (-> Bool Bool String String String))
-;@axiom:effect(unsafe)
 (fn (aesRun enc inPlace key data)
   (let (
     (kl (strLen key))
@@ -73,7 +72,6 @@
     }))
 
 (:: expandLeavesWorkClean (-> String Bool))
-;@axiom:effect(unsafe)
 (fn (expandLeavesWorkClean key)
   (let (
     (sched (strAlloc (aesScheduleBytes (strLen key))))
@@ -85,7 +83,6 @@
     }))
 
 (:: expandRefuses (-> Int Bool))
-;@axiom:effect(unsafe)
 (fn (expandRefuses kl)
   (let (
     (key (strAlloc 40))

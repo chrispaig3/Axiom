@@ -197,7 +197,6 @@
 ; and any unretained views into it must not be used after release.
 (pub :: internFree (-> Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(the caller owns the share it releases, and nothing uses `it` or a string view of it after the last share is gone)
 (pub fn (internFree it)
   {
     (__release it)
@@ -214,7 +213,6 @@
 ; rather than call `internLookup` in a loop and pay a bounds check per
 ; string.
 (:: internStrs (-> Int Int))
-;@axiom:effect(unsafe)
 (fn (internStrs it)
   (memGetWord it 0))
 
@@ -226,12 +224,10 @@
   (cast (Vec String) (internStrs it)))
 
 (pub :: internCap (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (internCap it)
   (memGetWord it 1))
 
 (:: internTable (-> Int Int))
-;@axiom:effect(unsafe)
 (fn (internTable it)
   (memGetWord it 2))
 
@@ -250,7 +246,6 @@
 ; inside `strLen` instead of a visible empty string. The cost is a 17-byte
 ; allocation on a path that only a buggy caller takes.
 (pub :: internLookup (-> Int Int String))
-;@axiom:effect(unsafe)
 (pub fn (internLookup it id)
   (if (< id 0)
     (strAlloc 0)
@@ -300,7 +295,6 @@
       (Some id))))
 
 (:: internFindFrom (-> Int String Int Int Int))
-;@axiom:effect(unsafe)
 (fn (internFindFrom it s i left)
   (if (<= left 0)
     (- 0 1)
@@ -336,7 +330,6 @@
 ; down here because it is a real constraint on future work and not
 ; obvious from the signatures.
 (pub :: internIntern (-> Int String Int))
-;@axiom:effect(unsafe)
 (pub fn (internIntern it s)
   (let ((existing (internFindFrom it s (internSlotOf s (internCap it)) (internCap it))))
     (if (>= existing 0)
@@ -358,7 +351,6 @@
 ; The id is `vecLen` *before* the push, which is what makes ids dense: the
 ; nth distinct string interned gets id n.
 (:: internAdd (-> Int String Int))
-;@axiom:effect(unsafe)
 (fn (internAdd it s)
   (let ((id (internCount it)))
     {
@@ -372,8 +364,6 @@
 ; No key comparison happens here: `internIntern` has already established
 ; that the content is absent, so the first empty slot is the right one.
 (:: internPlace (-> Int Int Int Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`slot` is below `cap`, the capacity of `it`'s table)
 (fn (internPlace it id i left)
   (if (<= left 0)
     it
@@ -393,7 +383,7 @@
 ; Having a dense id space pays for itself here.
 (:: internRehash (-> Int Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`newCap` is a power of two above twice the interned count)
+;@axiom:pre((&& (> newCap 0) (== (& newCap (- newCap 1)) 0)))
 (fn (internRehash it newCap)
   (let (
     (old (internTable it))
@@ -414,7 +404,6 @@
     }))
 
 (:: internReplaceFrom (-> Int Int Int))
-;@axiom:effect(unsafe)
 (fn (internReplaceFrom it id)
   (if (>= id (internCount it))
     it

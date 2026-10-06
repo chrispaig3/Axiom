@@ -14,7 +14,6 @@
 (import Mem)
 
 (pub :: paint (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (paint p n)
   (let ((mut i 0))
     {
@@ -28,7 +27,6 @@
 
 ; How many of `n` bytes at `p` are NOT what `paint` wrote.
 (pub :: wrong (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (wrong p n)
   (let (
     (mut i 0)

@@ -779,7 +779,6 @@
 ; `chronoClockUnavailable`.
 (pub :: datetimeNowUtc (Result NaiveDateTime Error))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (datetimeNowUtc)
   (let ((buf (memAlloc 16)))
     (match (sysNowRealtimeNanos buf)
@@ -820,7 +819,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: putDec (-> Int Int Int Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`p + off` names `width` live writable bytes)
 (fn (putDec p off v width)
   (let (
     (mut x v)
@@ -840,7 +838,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: putByte (-> Int Int Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`p + off` names a live writable byte)
 (fn (putByte p off c)
   {
     (__store8 p off c)
@@ -849,7 +846,6 @@
 
 ; `v`, at least 0, in decimal.
 (:: decimal (-> Int String))
-;@axiom:effect(unsafe)
 (fn (decimal v)
   (let ((n (digitCount v)))
     (let ((s (strAlloc n)))
@@ -870,8 +866,6 @@
 ; Write year `y` at `p + off` as `yearWidth` says.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: putYear (-> Int Int Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`p + off` names `yearWidth y` live writable bytes)
 (fn (putYear p off y)
   (if (&& (>= y 0) (<= y 9999))
     (putDec p off y 4)
@@ -912,8 +906,6 @@
 ; not zero.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: putFraction (-> Int Int Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`p + off` names `fractionWidth f` + 1 live writable bytes)
 (fn (putFraction p off f)
   (if (== f 0)
     off
@@ -928,8 +920,6 @@
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: putDate (-> Int Int Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`p + off` names `dateWidth packed` live writable bytes)
 (fn (putDate p off packed)
   (let (
     (a (putYear p off (packedYear packed)))
@@ -949,8 +939,6 @@
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: putTime (-> Int Int Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`p + off` names `timeWidth ns` live writable bytes)
 (fn (putTime p off ns)
   (let (
     (a (putDec p off (/ ns nsPerHour) 2))
@@ -962,7 +950,6 @@
 ; `d` in ISO 8601 extended format: `2024-02-29`, or `-000044-03-15`
 ; for a year outside 0 to 9999.
 (pub :: dateToString (-> Date String))
-;@axiom:effect(unsafe)
 (pub fn (dateToString d)
   (let ((packed (civilFromDays d.slot)))
     (let ((s (strAlloc (dateWidth packed))))
@@ -974,7 +961,6 @@
 ; `t` as `HH:MM:SS`, with a fraction only when it is not zero and
 ; without trailing zeros: `14:05:09`, `14:05:09.5`.
 (pub :: timeToString (-> Time String))
-;@axiom:effect(unsafe)
 (pub fn (timeToString t)
   (let ((s (strAlloc (timeWidth t.slot))))
     {
@@ -984,7 +970,6 @@
 
 ; `dt` as its date, `T` and its time: `2024-02-29T14:05:09.5`.
 (pub :: datetimeToString (-> NaiveDateTime String))
-;@axiom:effect(unsafe)
 (pub fn (datetimeToString dt)
   (let ((packed (civilFromDays dt.date.slot)))
     (let ((s (strAlloc (+ (+ (dateWidth packed) 1) (timeWidth dt.time.slot)))))
@@ -998,7 +983,6 @@
 ; `PT1H30M`, `PT0.5S`, `-PT36H`, and `PT0S` for zero. A unit that is
 ; zero is left out.
 (pub :: durationToString (-> Duration String))
-;@axiom:effect(unsafe)
 (pub fn (durationToString d)
   (let (
     (a (if (< d.slot 0)
@@ -1593,7 +1577,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: putName (-> Int Int String Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`p + off` names `n` live writable bytes)
 (fn (putName p off name n)
   {
     (for k in 0..n
@@ -1603,8 +1586,6 @@
 
 ; Write one directive's output at `p + off` and answer the new offset.
 (:: putDirective (-> Int Int Int Int Int Int Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`p + off` names the directive's width in live writable bytes)
 (fn (putDirective p off c packed wd yday ns)
   (match c
     (37 (putByte p off 37))
@@ -1627,8 +1608,6 @@
 
 ; Write `pattern`'s output, already measured and valid, at `p`.
 (:: formatWrite (-> String Int Int Int Int Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`p` names the measured length in live writable bytes)
 (fn (formatWrite pattern p packed wd yday ns)
   (let (
     (n (strLen pattern))
@@ -1662,7 +1641,6 @@
 ; `pattern` filled in from day `days` at `ns` nanoseconds after
 ; midnight; `mask` says which parts the value has.
 (:: formatParts (-> String Int Int Int String (Result String Error)))
-;@axiom:effect(unsafe)
 (fn (formatParts pattern mask days ns where)
   (let (
     (packed (civilFromDays days))

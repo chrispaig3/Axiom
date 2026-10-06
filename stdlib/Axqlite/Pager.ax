@@ -194,7 +194,6 @@
 ; is the checksum of every page and journal record.
 (pub :: pagerChecksum (-> Int Int Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`addr` names `len` live bytes)
 (pub fn (pagerChecksum addr len seed)
   (let (
     (mut i 0)
@@ -261,7 +260,6 @@
 ; The `n` bytes (1..8) at `addr + off`, big-endian and unsigned.
 (pub :: pagerGetBe (-> Int Int Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`addr + off` names `n` live bytes)
 (pub fn (pagerGetBe addr off n)
   (let ((mut v 0))
     {
@@ -273,7 +271,6 @@
 ; Store the low `n` bytes of `v` big-endian at `addr + off`.
 (pub :: pagerPutBe (-> Int Int Int Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`addr + off` names `n` live writable bytes)
 (pub fn (pagerPutBe addr off n v)
   {
     (for i in 0..n
@@ -484,13 +481,11 @@
 
 (:: st (-> Int Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`m` is a live pager mapping)
 (fn (st m i)
   (__load64 m i))
 
 (:: stSet (-> Int Int Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`m` is a live pager mapping)
 (fn (stSet m i v)
   {
     (__store64 m i v)
@@ -498,8 +493,6 @@
   })
 
 (:: stAdd (-> Int Int Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`m` is a live pager mapping)
 (fn (stAdd m i d)
   (stSet m i (+ (st m i) d)))
 
@@ -510,7 +503,6 @@
   (__handle_get pagerKind p.slot))
 
 (:: scratch (-> Int Int))
-;@axiom:effect(unsafe)
 (fn (scratch m)
   (+ m (st m wScratchOff)))
 
@@ -533,12 +525,10 @@
   (+ (scratch m) 12288))
 
 (:: dbPath (-> Int Int))
-;@axiom:effect(unsafe)
 (fn (dbPath m)
   (+ m (st m wDbPathOff)))
 
 (:: jPath (-> Int Int))
-;@axiom:effect(unsafe)
 (fn (jPath m)
   (+ m (st m wJPathOff)))
 
@@ -565,8 +555,6 @@
 ; answers how many arrived (fewer only at the end of the file).
 (:: ioRead (-> Int Int Int Int Int (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`buf` names `len` live writable bytes)
 (fn (ioRead m fd buf len off)
   (let (
     (mut done 0)
@@ -605,8 +593,6 @@
 ; Write all `len` bytes at `off`, retrying short writes.
 (:: writeAll (-> Int Int Int Int (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`buf` names `len` live bytes)
 (fn (writeAll fd buf len off)
   (let (
     (mut done 0)
@@ -643,7 +629,6 @@
 ; 0 do it, 1 fail it, 2 tear it, 3 drop it (the power is off).
 (:: ioPoint (-> Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (ioPoint m)
   (if (== (st m wPowerOff) 1)
     3
@@ -670,14 +655,11 @@
       })))
 
 (:: strictArmed (-> Int Bool))
-;@axiom:effect(unsafe)
 (fn (strictArmed m)
   (&& (>= (st m wFaultKind) 4) (== (st m wFaultFired) 0)))
 
 (:: ioWrite (-> Int Int Int Int Int (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`buf` names `len` live bytes)
 (fn (ioWrite m fd buf len off)
   (let ((act (ioPoint m)))
     (if (== act 3)
@@ -714,7 +696,6 @@
 
 (:: ioSync (-> Int Int (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (ioSync m fd)
   (let ((act (ioPoint m)))
     (if (|| (== act 3) (== act 2))
@@ -738,7 +719,6 @@
 
 (:: ioTruncate (-> Int Int Int (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (ioTruncate m fd len)
   (let ((act (ioPoint m)))
     (if (|| (== act 3) (== act 2))
@@ -771,7 +751,6 @@
 ; ------------------------------------------------------------------
 (:: undoEnsure (-> Int Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (undoEnsure m need)
   (let (
     (cap (st m wUndoCap))
@@ -943,18 +922,15 @@
 ; page's structure since it was read.
 ; ------------------------------------------------------------------
 (:: fMeta (-> Int Int Int))
-;@axiom:effect(unsafe)
 (fn (fMeta m f)
   (+ (+ m (st m wMetaOff)) (* f 48)))
 
 (:: fAddr (-> Int Int Int))
-;@axiom:effect(unsafe)
 (fn (fAddr m f)
   (+ (+ m (st m wFramesOff)) (* f 4096)))
 
 ; The frame whose bytes start at `a`.
 (:: frameOf (-> Int Int Int))
-;@axiom:effect(unsafe)
 (fn (frameOf m a)
   (/ (- a (+ m (st m wFramesOff))) 4096))
 
@@ -977,12 +953,10 @@
   })
 
 (:: hashHome (-> Int Int Int))
-;@axiom:effect(unsafe)
 (fn (hashHome m pgno)
   (& (shr (* (+ pgno 1) xP1) 21) (- (st m wHashSize) 1)))
 
 (:: hashTab (-> Int Int))
-;@axiom:effect(unsafe)
 (fn (hashTab m)
   (+ m (st m wHashOff)))
 
@@ -1130,7 +1104,6 @@
 ; Set the checksum of the page in frame `f` and write it to the file.
 (:: writeFrame (-> Int Int (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (writeFrame m f)
   (let (
     (pgno (fPgno m f))
@@ -1159,7 +1132,6 @@
 ; Make the journal durable before any page it protects reaches the file.
 (:: syncJournalIfDirty (-> Int (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (syncJournalIfDirty m)
   (if (== (st m wJDirty) 0)
     (Ok 0)
@@ -1176,7 +1148,6 @@
 ; journal that protects it is synced.
 (:: evict (-> Int Int (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (evict m f)
   (let ((pgno (fPgno m f)))
     (if (< pgno 0)
@@ -1277,7 +1248,6 @@
 ; Note an I/O error or corruption inside a write transaction: the
 ; transaction can now only be rolled back.
 (:: txnFail (-> Int (Result a Error) (Result a Error)))
-;@axiom:effect(unsafe)
 (fn (txnFail m r)
   (match r
     ((Ok v) (Ok v))
@@ -1406,7 +1376,6 @@
 ; missing; without it a missing journal answers `Ok -1`.
 (:: journalOpen (-> Int Bool (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (journalOpen m create)
   (if (>= (st m wJFd) 0)
     (Ok (st m wJFd))
@@ -1429,7 +1398,6 @@
 ; a header with the original page count and a fresh salt.
 (:: journalStart (-> Int (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (journalStart m)
   (try
     fd
@@ -1469,8 +1437,6 @@
 ; Append page `pgno`'s original bytes, at `a`, to the journal.
 (:: journalAppend (-> Int Int Int (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`a` names the 4096 bytes of page `pgno` as the file holds them)
 (fn (journalAppend m pgno a)
   (try
     _
@@ -1506,7 +1472,6 @@
 ; -1 otherwise.
 (:: journalHeaderCount (-> Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`h` names 512 live bytes)
 (fn (journalHeaderCount h)
   (if (!= (memCmp h (strData jMagic) 15) 0)
     -1
@@ -1518,8 +1483,6 @@
 
 ; Whether the record in `b` is whole and verifies under `salt`.
 (:: recordValid (-> Int Int Bool))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`b` names 4108 live bytes)
 (fn (recordValid b salt)
   (&& (== (pagerGetBe b 4100 8) (pagerChecksum b 4100 salt)) (< (pagerGetBe b 0 4) maxPages)))
 
@@ -1527,7 +1490,6 @@
 ; that verifies.
 (:: journalHot (-> Int (Result Bool Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (journalHot m)
   (try
     fd
@@ -1556,7 +1518,6 @@
 ; Zero the journal's header, and sync it when `sync`.
 (:: journalInvalidate (-> Int Bool (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (journalInvalidate m sync)
   (let ((h (hdrBuf m)))
     {
@@ -1579,7 +1540,6 @@
 ; and synced, then the journal invalidated. Answers the records copied.
 (:: recover (-> Int (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (recover m)
   (try
     fd
@@ -1676,7 +1636,6 @@
 ; ------------------------------------------------------------------
 (:: flockOp (-> Int Int (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (flockOp m op)
   (match (sysFlock (st m wDbFd) op)
     ((Ok n) (Ok n))
@@ -1688,7 +1647,6 @@
 
 (:: unlock (-> Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (unlock m)
   {
     (let ((_ (sysFlock (st m wDbFd) sysLockRelease)))
@@ -1774,8 +1732,6 @@
 
 ; Write the header words into page 0's bytes at `a`.
 (:: storeHeader (-> Int Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`a` names 4096 live writable bytes)
 (fn (storeHeader m a)
   {
     (memSet a 0 4096)
@@ -1808,7 +1764,6 @@
 ; header. Nothing is held when it answers `Err`.
 (:: lockShared (-> Int (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (lockShared m)
   (try
     _
@@ -1891,7 +1846,6 @@
 ; Whether the bytes at `a` are all zero.
 (:: allZero (-> Int Int Bool))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`a` names `n` live bytes)
 (fn (allZero a n)
   (let (
     (mut i 0)
@@ -1913,7 +1867,6 @@
 ; its header.
 (:: fileIsBlank (-> Int (Result Bool Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (fileIsBlank m)
   (let ((a (pageBuf m)))
     (try
@@ -1990,7 +1943,6 @@
 ; first lock, which reads and checks the header anyway.
 (:: prepareFile (-> Int (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (prepareFile m)
   (match (flockOp m (| sysLockShared sysLockNonBlocking))
     ((Err e)
@@ -2154,7 +2106,6 @@
 ; the program with status 85.
 (pub :: pagerClose (-> Pager (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (pagerClose p)
   (let ((m (pm p)))
     (let ((r 
@@ -2185,7 +2136,6 @@
 ; the file.
 (pub :: pagerBeginRead (-> Pager (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (pagerBeginRead p)
   (let ((m (pm p)))
     (if (> (st m wLock) 0)
@@ -2196,7 +2146,6 @@
 ; the transaction's end releases every lock.
 (pub :: pagerEndRead (-> Pager (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (pagerEndRead p)
   (let ((m (pm p)))
     (if (== (st m wLock) 1)
@@ -2210,7 +2159,6 @@
 ; header are in hand.
 (:: startTxn (-> Int (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (startTxn m)
   (let ((orig (st m wPageCount)))
     (let ((len (roundUp (+ (/ orig 8) 1) 4096)))
@@ -2241,7 +2189,6 @@
 ; `Ok` at once inside a write transaction.
 (pub :: pagerBeginWrite (-> Pager (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (pagerBeginWrite p)
   (let ((m (pm p)))
     (if (== (st m wReadOnly) 1)
@@ -2285,7 +2232,6 @@
 ; End the transaction's bookkeeping and release every lock.
 (:: endTxn (-> Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (endTxn m)
   {
     (if (> (st m wBitmapLen) 0)
@@ -2301,7 +2247,6 @@
 ; Put the file back as it was when the transaction began, and end it.
 (:: rollbackTxn (-> Int (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (rollbackTxn m)
   (let ((r 
     (if (== (st m wDbTouched) 1)
@@ -2368,7 +2313,6 @@
 ; transaction.
 (pub :: pagerRollback (-> Pager (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (pagerRollback p)
   (let ((m (pm p)))
     (if (== (st m wInWrite) 0)
@@ -2377,7 +2321,6 @@
 
 ; The dirty frames, as (page number, frame) pairs sorted by page number.
 (:: dirtyFrames (-> Int (Vec Int)))
-;@axiom:effect(unsafe)
 (fn (dirtyFrames m)
   (let ((keys vecNew))
     {
@@ -2394,7 +2337,6 @@
 ; The commit protocol, up to and including its commit point.
 (:: commitWrites (-> Int (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (commitWrites m)
   (try
     a
@@ -2454,7 +2396,6 @@
 ; then exactly as it was before the transaction.
 (pub :: pagerCommit (-> Pager (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (pagerCommit p)
   (let ((m (pm p)))
     (if (== (st m wInWrite) 0)
@@ -2489,7 +2430,6 @@
 ; may be changed.
 (:: writablePage (-> Int Int Bool (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (writablePage m pgno pin)
   (if (== (st m wInWrite) 0)
     (axqErr axqMisuse "a page can change only inside a write transaction" "pagerWrite")
@@ -2519,7 +2459,6 @@
 ; Start an operation: pages fetched from now on stay cached until the
 ; next call. Answers the operation's number.
 (pub :: pagerOpBegin (-> Pager Int))
-;@axiom:effect(unsafe)
 (pub fn (pagerOpBegin p)
   (let ((m (pm p)))
     {
@@ -2533,7 +2472,6 @@
 (pub :: pagerGet (-> Pager Int (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(the address is used only until the next `pagerOpBegin`, and nothing is written through it)
 (pub fn (pagerGet p pgno)
   (let ((m (__handle_get pagerKind p.slot)))
     (try f (fetch m pgno true) (Ok (fAddr m f)))))
@@ -2543,7 +2481,6 @@
 (pub :: pagerGetTransient (-> Pager Int (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(the address is used only until the next pager call, and nothing is written through it)
 (pub fn (pagerGetTransient p pgno)
   (let ((m (__handle_get pagerKind p.slot)))
     (try f (fetch m pgno false) (Ok (fAddr m f)))))
@@ -2554,7 +2491,6 @@
 (pub :: pagerWrite (-> Pager Int (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(the address is used only until the next `pagerOpBegin`, and only the page's first 4088 bytes are written)
 (pub fn (pagerWrite p pgno)
   (writablePage (__handle_get pagerKind p.slot) pgno true))
 
@@ -2563,7 +2499,6 @@
 (pub :: pagerWriteTransient (-> Pager Int (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(the address is used only until the next pager call, and only the page's first 4088 bytes are written)
 (pub fn (pagerWriteTransient p pgno)
   (writablePage (__handle_get pagerKind p.slot) pgno false))
 
@@ -2662,7 +2597,6 @@
 ; The header's fields.
 ; ------------------------------------------------------------------
 (:: needLock (-> Int String (Result Int Error)))
-;@axiom:effect(unsafe)
 (fn (needLock m where)
   (if (== (st m wLock) 0)
     (axqErr axqMisuse "the pager holds no lock: begin a read or a write first" where)
@@ -2670,25 +2604,21 @@
 
 ; 0 with no lock, 1 holding the shared lock, 2 in a write transaction.
 (pub :: pagerLockLevel (-> Pager Int))
-;@axiom:effect(unsafe)
 (pub fn (pagerLockLevel p)
   (st (pm p) wLock))
 
 ; Whether a write transaction is open.
 (pub :: pagerInWrite (-> Pager Bool))
-;@axiom:effect(unsafe)
 (pub fn (pagerInWrite p)
   (== (st (pm p) wInWrite) 1))
 
 ; Whether the pager was opened read-only.
 (pub :: pagerIsReadOnly (-> Pager Bool))
-;@axiom:effect(unsafe)
 (pub fn (pagerIsReadOnly p)
   (== (st (pm p) wReadOnly) 1))
 
 ; How many pages the database has, header included. Needs a lock.
 (pub :: pagerPageCount (-> Pager (Result Int Error)))
-;@axiom:effect(unsafe)
 (pub fn (pagerPageCount p)
   (let ((m (pm p)))
     (try _ (needLock m "pagerPageCount") (Ok (st m wPageCount)))))
@@ -2696,7 +2626,6 @@
 ; The change counter: one more after every commit that changed
 ; anything. Needs a lock.
 (pub :: pagerChangeCounter (-> Pager (Result Int Error)))
-;@axiom:effect(unsafe)
 (pub fn (pagerChangeCounter p)
   (let ((m (pm p)))
     (try _ (needLock m "pagerChangeCounter") (Ok (st m wCounter)))))
@@ -2704,7 +2633,6 @@
 ; The schema version, which `pagerBumpSchemaVersion` raises. Needs a
 ; lock.
 (pub :: pagerSchemaVersion (-> Pager (Result Int Error)))
-;@axiom:effect(unsafe)
 (pub fn (pagerSchemaVersion p)
   (let ((m (pm p)))
     (try _ (needLock m "pagerSchemaVersion") (Ok (st m wSchemaVer)))))
@@ -2713,7 +2641,6 @@
 ; write transaction; it commits with it.
 (pub :: pagerBumpSchemaVersion (-> Pager (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (pagerBumpSchemaVersion p)
   (let ((m (pm p)))
     (try
@@ -2727,7 +2654,6 @@
 ; One of the header's eight spare words, `slot` 0..7, for the layer
 ; above (a next table id, say). Needs a lock.
 (pub :: pagerMeta (-> Pager Int (Result Int Error)))
-;@axiom:effect(unsafe)
 (pub fn (pagerMeta p slot)
   (let ((m (pm p)))
     (if (|| (< slot 0) (> slot 7))
@@ -2737,7 +2663,6 @@
 ; Set spare header word `slot` to `v`. Inside a write transaction.
 (pub :: pagerSetMeta (-> Pager Int Int (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (pagerSetMeta p slot v)
   (let ((m (pm p)))
     (if (|| (< slot 0) (> slot 7))
@@ -2752,14 +2677,12 @@
 
 ; The first page of the free list, 0 when it is empty. Needs a lock.
 (pub :: pagerFreeListHead (-> Pager (Result Int Error)))
-;@axiom:effect(unsafe)
 (pub fn (pagerFreeListHead p)
   (let ((m (pm p)))
     (try _ (needLock m "pagerFreeListHead") (Ok (st m wFreeHead)))))
 
 ; How many pages the free list holds. Needs a lock.
 (pub :: pagerFreeListCount (-> Pager (Result Int Error)))
-;@axiom:effect(unsafe)
 (pub fn (pagerFreeListCount p)
   (let ((m (pm p)))
     (try _ (needLock m "pagerFreeListCount") (Ok (st m wFreeCount)))))
@@ -2769,7 +2692,6 @@
 ; page once per read rather than on every access.
 (pub :: pagerChecked (-> Pager Int Bool))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`a` is an address this pager answered in the current operation)
 (pub fn (pagerChecked p a)
   (let ((m (__handle_get pagerKind p.slot)))
     (== (__load64 (fMeta m (frameOf m a)) 4) 1)))
@@ -2778,7 +2700,6 @@
 ; caller and needs no check.
 (pub :: pagerSetChecked (-> Pager Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`a` is an address this pager answered in the current operation)
 (pub fn (pagerSetChecked p a)
   (let ((m (__handle_get pagerKind p.slot)))
     {
@@ -2789,7 +2710,6 @@
 ; A number that changes whenever a page is written, allocated or freed:
 ; a scan compares it across a callback to learn whether the tree moved.
 (pub :: pagerWriteSeq (-> Pager Int))
-;@axiom:effect(unsafe)
 (pub fn (pagerWriteSeq p)
   (st (pm p) wWriteSeq))
 
@@ -2805,7 +2725,6 @@
 ; counted, which is how a test learns how many a transaction has.
 (pub :: pagerFaultArm (-> Pager Int Int Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (pagerFaultArm p kind at arg)
   (let ((m (pm p)))
     {
@@ -2828,7 +2747,6 @@
 ; and would otherwise spend their time waiting on the drive. Never for
 ; data anyone keeps.
 (pub :: pagerSetDurable (-> Pager Bool Int))
-;@axiom:effect(unsafe)
 (pub fn (pagerSetDurable p durable)
   (stSet
     (pm p)
@@ -2840,13 +2758,11 @@
 ; How many writes, syncs and truncates have happened since the fault
 ; was armed.
 (pub :: pagerFaultPoints (-> Pager Int))
-;@axiom:effect(unsafe)
 (pub fn (pagerFaultPoints p)
   (st (pm p) wFaultCount))
 
 ; Whether the armed fault has fired.
 (pub :: pagerFaultFired (-> Pager Bool))
-;@axiom:effect(unsafe)
 (pub fn (pagerFaultFired p)
   (== (st (pm p) wFaultFired) 1))
 
@@ -2854,7 +2770,6 @@
 ; writes, 2 syncs, 3 cache hits, 4 cache misses, 5 pages spilled
 ; before commit, 6 journal records written.
 (pub :: pagerStat (-> Pager Int Int))
-;@axiom:effect(unsafe)
 (pub fn (pagerStat p which)
   (if (|| (< which 0) (> which 6))
     0

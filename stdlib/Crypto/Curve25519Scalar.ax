@@ -63,7 +63,6 @@
 (:: scLoad (-> Int Int Int Int))
 ;@axiom:ct(*w, *p)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`w` names `n` live writable words and `p` 4n live bytes)
 (fn (scLoad w p n)
   {
     (for i in 0..n
@@ -77,7 +76,6 @@
 (:: scAboveL (-> Int Int))
 ;@axiom:ct(*x)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`x` names 8 live words, each below 2^32)
 (fn (scAboveL x)
   (let ((mut carry 1))
     {
@@ -92,7 +90,6 @@
 (:: scRemoveL (-> Int Int Int))
 ;@axiom:ct(*r, *x)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`r` and `x` each name 8 live words, each below 2^32)
 (fn (scRemoveL r x)
   (let ((above (scAboveL x)))
     (let ((mask (& (ctMaskFromBit above) mask32)) (mut carry above))
@@ -114,7 +111,6 @@
 (:: scModL (-> Int Int Int))
 ;@axiom:ct(*out, *x)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`out` names 32 live writable bytes and `x` 16 live words, each below 2^32)
 (fn (scModL out x)
   (let ((xr (memAlloc 200)))
     {
@@ -160,8 +156,6 @@
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: sc25519Reduce (-> Int Int Int))
 ;@axiom:ct(*out, *in)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`out` names 32 live writable bytes and `in` 64 live bytes, not overlapping)
 (pub fn (sc25519Reduce out in)
   (let ((x (memAlloc 128)))
     {
@@ -176,7 +170,6 @@
 (pub :: sc25519MulAdd (-> Int Int Int Int Int))
 ;@axiom:ct(*out, *a, *b, *c)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`out` names 32 live writable bytes and `a`, `b`, `c` 32 live bytes each, none overlapping `out`)
 (pub fn (sc25519MulAdd out a b c)
   (let ((w (memAlloc 256)))
     (let ((p w) (wa (+ w 128)) (wb (+ w 192)))
@@ -207,8 +200,6 @@
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: sc25519IsCanonical (-> Int Int))
 ;@axiom:ct(*s)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`s` names 32 live bytes)
 (pub fn (sc25519IsCanonical s)
   (let ((x (memAlloc 64)))
     {

@@ -12,7 +12,6 @@
 (import Kat)
 
 (:: mac (-> String String String))
-;@axiom:effect(unsafe)
 (fn (mac key msg)
   (let (
     (tag (strAlloc 16))
@@ -30,7 +29,6 @@
 
 ; Whether the state was wiped: poly1305Mac leaves it all zeros.
 (:: stateWiped (-> String String Bool))
-;@axiom:effect(unsafe)
 (fn (stateWiped key msg)
   (let (
     (tag (strAlloc 16))

@@ -87,7 +87,6 @@ emit_probe() {
 (import Str)
 
 (:: build (-> Int Int))
-;@axiom:effect(unsafe)
 (fn (build n)
   (let ((v $ctor) (mut i 0))
     {
@@ -117,11 +116,8 @@ AX
       # keeps both spellings the same shape - a statement each, in the
       # same position - so the difference is reclamation and not the
       # optimiser seeing a smaller function.
-      # A free is a precondition interface's call (MM-EXEC-9d), so the
-      # functions that free declare it; the held spelling frees nothing
-      # and declares nothing.
-      local freeMap='(mapFree m)' freeIt='(internFree it)' tag=';@axiom:effect(unsafe)'
-      if [[ "$variant" == held ]]; then freeMap='(+ 0 0)'; freeIt='(+ 0 0)'; tag=''; fi
+      local freeMap='(mapFree m)' freeIt='(internFree it)'
+      if [[ "$variant" == held ]]; then freeMap='(+ 0 0)'; freeIt='(+ 0 0)'; fi
       cat > "$out" <<AX
 ; $n iterations, each building a 32-entry ref-valued Map and a
 ; 40-string Intern and dropping both. Variant: $variant.
@@ -132,7 +128,6 @@ AX
 (import Fmt)
 
 (:: buildMap (-> Int Int))
-$tag
 (fn (buildMap n)
   (let ((m mapNewRefVals) (mut i 0))
     {
@@ -142,7 +137,6 @@ $tag
     }))
 
 (:: buildIntern (-> Int Int))
-$tag
 (fn (buildIntern n)
   (let ((it internNew) (mut i 0))
     {

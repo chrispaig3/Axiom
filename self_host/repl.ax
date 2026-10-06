@@ -142,7 +142,6 @@
 ; discriminates anyway.
 (pub :: replReadLine (-> Int (Option String)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (replReadLine _u)
   (let (
     (buf (memAlloc 8))
@@ -787,7 +786,6 @@
 
 ; A one-byte Str. strAlloc zeroes, so the NUL is already in place.
 (pub :: byteAsStr (-> Int String))
-;@axiom:effect(unsafe)
 (pub fn (byteAsStr b)
   (let ((s (strAlloc 1)))
     {
@@ -1350,7 +1348,6 @@
 
 (pub :: replCompile (-> String Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (replCompile wrapper)
   (let ((tr (replTryCompile wrapper)))
     (if (== (memGetWord tr 0) 1)
@@ -1392,7 +1389,6 @@
 ; for both.
 (pub :: replCompileExpr (-> String String String Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (replCompileExpr declsSrc exprLine tyStr)
   (let ((tr (replTryCompile (replWrapper declsSrc exprLine tyStr 0))))
     (if (== (memGetWord tr 0) 1)
@@ -1616,7 +1612,6 @@
 ; One expression, end to end: type, announce, wrap, compile, run.
 (pub :: replExpr (-> String String Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
 (pub fn (replExpr declsSrc line)
@@ -1712,7 +1707,6 @@
 ; that does not open with `(`), so parsing and paren-counting see the
 ; same forms in the same order and agree on the count.
 (pub :: replDropMatching (-> String Int String String))
-;@axiom:effect(unsafe)
 (pub fn (replDropMatching src tag name)
   (let ((dr (parseDecls (lex src) 0 vecNew)))
     (if (== (memGetWord dr 0) 0)
@@ -1808,7 +1802,6 @@
 ; would mean if the second definition simply overwrote the first.
 (pub :: replDecl (-> String String String))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (replDecl declsSrc line)
   (let ((dr (parseDecls (lex line) 0 vecNew)))
     (if (== (memGetWord dr 0) 0)
@@ -1890,7 +1883,6 @@
 ; :type - the argument as typed, colon, its type. Does not evaluate.
 (pub :: replCmdType (-> String String Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (replCmdType declsSrc arg)
   (if (== (strLen arg) 0)
     {
@@ -2012,7 +2004,6 @@
 
 (pub :: replCmdLlvm (-> String String Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (replCmdLlvm declsSrc arg)
   (if (== (strLen arg) 0)
     {
@@ -2183,7 +2174,6 @@
 ; duration) over the joined rest.
 (pub :: replDispatchColonMulti (-> String String String String))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
 (pub fn (replDispatchColonMulti declsSrc w rest)
@@ -2224,7 +2214,6 @@
 ; ------------------------------------------------------------------
 (pub :: replColon (-> String String Int String))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
 (pub fn (replColon declsSrc line hist)
@@ -2529,7 +2518,6 @@
 ; that render is recorded divergent until someone needs it.
 (pub :: replCmdDefs (-> String Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (replCmdDefs declsSrc)
   {
     (replOut "Definitions in scope:\n")

@@ -102,8 +102,6 @@
 ; prefix, then A = [a]B encoded as the public key.
 ;@axiom:restrict(no-io,no-foreign)
 (:: ed25519BlockFinish (-> Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`h` is a live Ed25519 key block whose seed is set)
 (fn (ed25519BlockFinish h)
   (region scratch
     (let ((p (secretBlockAddr ed25519Kind h)) (pt (memAlloc ge25519P3Bytes)))
@@ -121,7 +119,6 @@
 (:: ed25519Clamp (-> Int Int))
 ;@axiom:ct(*a)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`a` names 32 live writable bytes)
 (fn (ed25519Clamp a)
   {
     (__store8 a 0 (& (__load8 a 0) 248))
@@ -132,7 +129,6 @@
 ; A fresh key from a random 32-byte seed.
 (pub :: ed25519KeyGenerate (Result Ed25519SecretKey Error))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(entropy)
 (pub fn (ed25519KeyGenerate)
   (match (secretBlockNew ed25519Kind ed25519BlockBytes)
@@ -157,7 +153,6 @@
 ; themselves.
 (pub :: ed25519KeyFromSecret (-> SecretBytes (Result Ed25519SecretKey Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (ed25519KeyFromSecret s)
   (if (!= (secretLen s) 32)
     (cryptoLengthErr "an Ed25519 private key is a 32-byte seed" "ed25519KeyFromSecret")
@@ -174,7 +169,6 @@
 ; program with status 85. Answers 0.
 (pub :: ed25519KeyWipe (-> Ed25519SecretKey Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (ed25519KeyWipe k)
   (secretBlockFree ed25519Kind k.slot))
 
@@ -182,21 +176,17 @@
 ; key, the standard serialisation. `ed25519KeyFromSecret` reads it back.
 (pub :: ed25519KeyExport (-> Ed25519SecretKey (Result SecretBytes Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (ed25519KeyExport k)
   (secretFromAddr (secretBlockAddr ed25519Kind k.slot) 32))
 
 ; The public key of `k`.
 (pub :: ed25519PublicKey (-> Ed25519SecretKey Ed25519PublicKey))
-;@axiom:effect(unsafe)
 (pub fn (ed25519PublicKey k)
   (Ed25519PublicKey (bytesFromAddr (+ (secretBlockAddr ed25519Kind k.slot) 96) 32)))
 
 ; 1 when the 32 bytes at `p` decode strictly to a point (RFC 8032,
 ; section 5.1.3), 0 otherwise.
 (:: ed25519Decodes (-> Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`p` names 32 live bytes)
 (fn (ed25519Decodes p)
   (region scratch
     (let ((h (memAlloc ge25519P3Bytes)))
@@ -209,7 +199,6 @@
 ; encoding of a point: y below p, x recoverable, and no sign bit on
 ; x = 0.
 (pub :: ed25519PublicKeyFromBytes (-> String (Result Ed25519PublicKey Error)))
-;@axiom:effect(unsafe)
 (pub fn (ed25519PublicKeyFromBytes s)
   (if (!= (strLen s) 32)
     (cryptoLengthErr "an Ed25519 public key is 32 bytes" "ed25519PublicKeyFromBytes")
@@ -226,7 +215,6 @@
 ; length, and `cryptoInvalidEncoding` when R is not the strict
 ; encoding of a point or S is not below L.
 (pub :: ed25519SignatureFromBytes (-> String (Result Ed25519Signature Error)))
-;@axiom:effect(unsafe)
 (pub fn (ed25519SignatureFromBytes s)
   (if (!= (strLen s) 64)
     (cryptoLengthErr "an Ed25519 signature is 64 bytes" "ed25519SignatureFromBytes")
@@ -250,8 +238,6 @@
 ;@axiom:restrict(no-io,no-foreign)
 (:: ed25519HashReduce (-> Int Int Int Int Int String Int))
 ;@axiom:ct(*out, *p, *q)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`out` names 32 live writable bytes, `p` `n` live bytes and `q` `m` live bytes)
 (fn (ed25519HashReduce out p n q m msg)
   (let ((h sha512New))
     {
@@ -270,7 +256,6 @@
 ; || msg) mod L, R = [r]B, k = SHA-512(R || A || msg) mod L, S = (r +
 ; k a) mod L.
 (pub :: ed25519Sign (-> Ed25519SecretKey String Ed25519Signature))
-;@axiom:effect(unsafe)
 (pub fn (ed25519Sign k msg)
   (let ((p (secretBlockAddr ed25519Kind k.slot)) (sig (bytesNew 64)))
     {
@@ -294,7 +279,6 @@
 ; whenever [S]B - [k]A does not encode to R. See HOW VERIFICATION
 ; DECIDES above.
 (pub :: ed25519Verify (-> Ed25519PublicKey String Ed25519Signature Bool))
-;@axiom:effect(unsafe)
 (pub fn (ed25519Verify pk msg sig)
   (let ((a pk.bytes) (s sig.bytes))
     (if (|| (!= (strLen a) 32) (!= (strLen s) 64))

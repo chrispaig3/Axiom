@@ -13,7 +13,6 @@
 ; GHASH_H(data) from a zero start, absorbed in two calls split at byte
 ; `cut` (a multiple of 16).
 (:: ghash (-> String String Int String))
-;@axiom:effect(unsafe)
 (fn (ghash h data cut)
   (let (
     (y (strAlloc 16))

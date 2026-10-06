@@ -118,19 +118,16 @@
 ; ------------------------------------------------------------------
 (:: be16 (-> Int Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`a + off` names 2 live bytes)
 (fn (be16 a off)
   (| (<< (__load8 a off) 8) (__load8 a (+ off 1))))
 
 (:: be32 (-> Int Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`a + off` names 4 live bytes)
 (fn (be32 a off)
   (| (| (<< (__load8 a off) 24) (<< (__load8 a (+ off 1)) 16)) (| (<< (__load8 a (+ off 2)) 8) (__load8 a (+ off 3)))))
 
 (:: put16 (-> Int Int Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`a + off` names 2 live writable bytes)
 (fn (put16 a off v)
   {
     (__store8 a off (& (>> v 8) 255))
@@ -140,7 +137,6 @@
 
 (:: put32 (-> Int Int Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`a + off` names 4 live writable bytes)
 (fn (put32 a off v)
   {
     (__store8 a off (& (>> v 24) 255))
@@ -154,7 +150,6 @@
 ; right child.
 (:: nType (-> Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`a` names a checked node's page)
 (fn (nType a)
   (__load8 a 0))
 
@@ -163,32 +158,22 @@
   (|| (== t 1) (== t 3)))
 
 (:: nCount (-> Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`a` names a checked node's page)
 (fn (nCount a)
   (be16 a 2))
 
 (:: nContent (-> Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`a` names a checked node's page)
 (fn (nContent a)
   (be16 a 4))
 
 (:: nFree (-> Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`a` names a checked node's page)
 (fn (nFree a)
   (be16 a 6))
 
 (:: nRight (-> Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`a` names a checked node's page)
 (fn (nRight a)
   (be32 a 8))
 
 (:: cellOff (-> Int Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`a` names a checked node's page)
 (fn (cellOff a i)
   (be16 a (+ 12 (* 2 i))))
 
@@ -208,16 +193,12 @@
 ; The size of the cell at offset `q`. Both kinds keep their key at
 ; `q + 6`; a leaf's key length is at `q`, an interior node's at `q + 4`.
 (:: cellBytes (-> Int Int Bool Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`a` names a checked node's page)
 (fn (cellBytes a q leaf)
   (if leaf
     (leafCellBytes (be16 a q) (be32 a (+ q 2)))
     (+ 6 (be16 a (+ q 4)))))
 
 (:: cellKeyLen (-> Int Int Bool Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`a` names a checked node's page)
 (fn (cellKeyLen a q leaf)
   (if leaf
     (be16 a q)
@@ -226,16 +207,12 @@
 ; The child at position `j` of an interior node: cell `j`'s child, or
 ; the right child when `j` is the cell count.
 (:: childAt (-> Int Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`a` names a checked node's page)
 (fn (childAt a j)
   (if (< j (nCount a))
     (be32 a (cellOff a j))
     (nRight a)))
 
 (:: setChildAt (-> Int Int Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`a` names a checked node's page)
 (fn (setChildAt a j child)
   (if (< j (nCount a))
     (put32 a (cellOff a j) child)
@@ -244,7 +221,6 @@
 ; Compare `xl` bytes at `x` with `yl` bytes at `y`: memcmp, then length.
 (:: cmpBytes (-> Int Int Int Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`x` names `xl` live bytes and `y` names `yl`)
 (fn (cmpBytes x xl y yl)
   (let (
     (n (if (< xl yl)
@@ -267,8 +243,6 @@
 ; In a leaf: twice the position of the first cell whose key is at least
 ; the search key, plus one when that key equals it.
 (:: leafSearch (-> Int Int Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`a` is a checked leaf and `k` names `kl` live bytes)
 (fn (leafSearch a k kl)
   (let (
     (mut lo 0)
@@ -300,8 +274,6 @@
 ; In an interior node: the position of the child that holds the key,
 ; the first cell whose key is greater than it, else the right child.
 (:: childFor (-> Int Int Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`a` is a checked interior node and `k` names `kl` live bytes)
 (fn (childFor a k kl)
   (let (
     (mut lo 0)
@@ -325,8 +297,6 @@
 
 ; A copy of the key of the cell at `q`.
 (:: keyAt (-> Int Int Bool String))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`a` is a checked node and `q` one of its cells)
 (fn (keyAt a q leaf)
   (let ((kl (cellKeyLen a q leaf)))
     (let ((s (strAlloc kl)))
@@ -340,8 +310,6 @@
 ; ------------------------------------------------------------------
 ; Copies of every cell of the node at `a`, in key order.
 (:: cellsOf (-> Int (Vec String)))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`a` is a checked node)
 (fn (cellsOf a)
   (let (
     (leaf (isLeafType (nType a)))
@@ -362,12 +330,10 @@
 
 ; The key inside a cell held as a string.
 (:: cellKey (-> String Bool String))
-;@axiom:effect(unsafe)
 (fn (cellKey c leaf)
   (keyAt (strData c) 0 leaf))
 
 (:: interiorCell (-> Int String String))
-;@axiom:effect(unsafe)
 (fn (interiorCell child key)
   (let ((c (strAlloc (+ 6 (strLen key)))))
     {
@@ -378,7 +344,6 @@
     }))
 
 (:: withChild (-> String Int String))
-;@axiom:effect(unsafe)
 (fn (withChild c child)
   (let ((d (strDup c)))
     {
@@ -452,7 +417,6 @@
 ; right child `right`. The cells must fit.
 (:: writeNode (-> Int Int (Vec String) Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`a` names a writable page and `cells` fit in it)
 (fn (writeNode a t cells right)
   (let (
     (n (vecLen cells))
@@ -476,15 +440,11 @@
 
 ; Gather the node's cells at the end of the page, leaving one gap.
 (:: defrag (-> Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`a` is a checked, writable node)
 (fn (defrag a)
   (writeNode a (nType a) (cellsOf a) (nRight a)))
 
 ; Insert `cell` at position `i` of the node at `a`, which has room.
 (:: insertCell (-> Int Int String Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`a` is a checked, writable node with room for `cell`)
 (fn (insertCell a i cell)
   (let (
     (len (strLen cell))
@@ -512,8 +472,6 @@
 
 ; Remove the cell at position `i` of the node at `a`.
 (:: removeCell (-> Int Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`a` is a checked, writable node with a cell at `i`)
 (fn (removeCell a i)
   (let (
     (n (nCount a))
@@ -537,8 +495,6 @@
 ; Check the structure of the node at `a`: its type, its header, every
 ; cell's offset and extent, and that the free count adds up.
 (:: checkNode (-> Int Int (Result Int Error)))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`a` names a 4096-byte page)
 (fn (checkNode a pgno)
   (let (
     (t (nType a))
@@ -588,7 +544,6 @@
 ; it for changing. Pinned until the next `pagerOpBegin`.
 (:: node (-> Pager Int Bool (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (node p pgno write)
   (try
     a
@@ -616,8 +571,6 @@
 ; Answers the leaf's page number.
 (:: descend (-> Pager Int Int Int Int Int (Vec Int) (Vec Int) (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`k` names `kl` live bytes when `mode` is 0)
 (fn (descend p pg kind mode k kl pages idxs)
   (let (
     (mut cur pg)
@@ -673,7 +626,6 @@
 ; The kind of the tree rooted at `root`.
 (:: treeKind (-> Pager Int (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (treeKind p root)
   (try a (node p root false) (Ok (kindOf (nType a)))))
 
@@ -685,7 +637,6 @@
 (:: writeChain (-> Pager Int Int (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`src` names `len` live bytes)
 (fn (writeChain p src len)
   (let (
     (mut off 0)
@@ -749,7 +700,6 @@
 (:: walkChain (-> Pager Int Int Int Bool (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`dst` is 0 or names `len` live writable bytes)
 (fn (walkChain p first dst len free)
   (let (
     (mut pg first)
@@ -811,8 +761,6 @@
 ; The value of the leaf cell at `q`, fresh in the caller's arena.
 (:: readValue (-> Pager Int Int (Result String Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`a` is a checked leaf pinned in this operation and `q` one of its cells)
 (fn (readValue p a q)
   (let (
     (klen (be16 a q))
@@ -838,7 +786,6 @@
 ; overflow chain when it doesn't fit.
 (:: buildLeafCell (-> Pager String String (Result String Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (buildLeafCell p key value)
   (let (
     (klen (strLen key))
@@ -868,8 +815,6 @@
 ; Remove leaf cell `i`, freeing its overflow chain.
 (:: removeLeafCell (-> Pager Int Int (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`a` is a checked, writable leaf pinned in this operation)
 (fn (removeLeafCell p a i)
   (let ((q (cellOff a i)))
     (let (
@@ -898,7 +843,6 @@
 ; A new page holding a node of type `t`.
 (:: newNode (-> Pager Int (Vec String) Int (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (newNode p t cells right)
   (try
     pg
@@ -916,7 +860,6 @@
 ; leaf holds the tree's largest keys.
 (:: onRightEdge (-> Pager (Vec Int) (Vec Int) (Result Bool Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (onRightEdge p pages idxs)
   (let (
     (mut edge true)
@@ -949,7 +892,6 @@
 ; child `c` split, and `r` holds its upper half. Splits upward as needed.
 (:: insertInterior (-> Pager (Vec Int) (Vec Int) Int Int String Int (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (insertInterior p pages idxs level c sep r)
   (let (
     (pg (vecGet pages level))
@@ -1015,8 +957,6 @@
 ; ascending inserts fill their pages; otherwise the bytes split evenly.
 (:: splitLeaf (-> Pager (Vec Int) (Vec Int) Int Int String (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`a` is the path's leaf, checked, writable and pinned in this operation)
 (fn (splitLeaf p pages idxs a i cell)
   (let (
     (cells (insertAt (cellsOf a) i cell))
@@ -1069,7 +1009,6 @@
 ; Answers true when the key is new.
 (:: insertKey (-> Pager Int String String Bool String (Result Bool Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (insertKey p root key value replace where)
   (if (> (strLen key) btreeMaxKey)
     (axqErr axqTooBig "a key is at most 1000 bytes" where)
@@ -1140,7 +1079,6 @@
 ; through it. Remove that child's slot, and collapse what that empties.
 (:: removeChild (-> Pager (Vec Int) (Vec Int) Int (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (removeChild p pages idxs level)
   (let (
     (pg (vecGet pages level))
@@ -1190,7 +1128,6 @@
 ; Delete `key`; answers whether it was there.
 (:: deleteKey (-> Pager Int String (Result Bool Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (deleteKey p root key)
   (if (! (pagerInWrite p))
     (writeRefused p "btreeDelete")
@@ -1237,7 +1174,6 @@
 ; when the tree has no more leaves that way.
 (:: nextLeaf (-> Pager Int (Vec Int) (Vec Int) Bool (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (nextLeaf p kind pages idxs forward)
   (let (
     (mut result -3)
@@ -1319,7 +1255,6 @@
 
 ; The smallest key after `k`: `k` with a zero byte added.
 (:: keyAfter (-> String String))
-;@axiom:effect(unsafe)
 (fn (keyAfter k)
   (let ((s (strAlloc (+ (strLen k) 1))))
     {
@@ -1331,7 +1266,6 @@
 ; without `wantValue` each value passed is "".
 (:: scanTree (-> Pager Int (Option String) (Option String) Bool Bool (-> String String (Result Bool Error)) (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (scanTree p root lo hi forward wantValue f)
   (let ((_ (pagerOpBegin p)))
     (try
@@ -1520,8 +1454,6 @@
 ; ------------------------------------------------------------------
 ; The child page numbers of the interior node at `a`, left to right.
 (:: childrenOf (-> Int (Vec Int)))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`a` is a checked interior node)
 (fn (childrenOf a)
   (let ((out vecNew))
     {
@@ -1533,7 +1465,6 @@
 ; Entries in the subtree at `pg`.
 (:: countTree (-> Pager Int Int Int (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (countTree p pg kind depth)
   (if (> depth maxDepth)
     (corrupt "a B-tree is deeper than 40 levels" "btreeCount")
@@ -1578,7 +1509,6 @@
 ; removed.
 (:: freeTree (-> Pager Int Int Bool Int (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (freeTree p pg kind keep depth)
   (if (> depth maxDepth)
     (corrupt "a B-tree is deeper than 40 levels" "btreeDrop")
@@ -1734,7 +1664,6 @@
 ; The value stored under `key`, fresh in the caller's arena, or `None`.
 (pub :: btreeGet (-> Pager Int String (Result (Option String) Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (btreeGet p root key)
   (let (
     (_ (pagerOpBegin p))
@@ -1805,7 +1734,6 @@
 ; last key it passed.
 (pub :: btreeScan (-> Pager Int (Option String) (Option String) Bool (-> String String (Result Bool Error)) (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (btreeScan p root lo hi forward f)
   (scanTree
     p
@@ -1873,7 +1801,6 @@
 ; The tree's height: 1 when the root is a leaf.
 (pub :: btreeHeight (-> Pager Int (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (btreeHeight p root)
   (let (
     (_ (pagerOpBegin p))
@@ -1957,7 +1884,6 @@
 ; `lo` <= key < `hi`, one depth for every leaf, and its overflow chains.
 (:: checkTree (-> Pager Check Int Int (Option String) (Option String) Int Bool (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (checkTree p ck pg kind lo hi depth isRoot)
   (if (> depth maxDepth)
     (corrupt "a B-tree is deeper than 40 levels" "btreeCheck")

@@ -260,7 +260,6 @@
 
 (:: runCommands (-> Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (runCommands _u)
   (let (
     (cs replCommands)

@@ -103,7 +103,6 @@
 
 (:: main Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (main)
   {
     ; --- 1. join of two fresh calls in a region ---

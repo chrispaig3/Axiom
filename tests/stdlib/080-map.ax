@@ -87,7 +87,6 @@
 
 (pub :: main Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (main)
   ; --- a fresh Map is empty and total ---
   (let (

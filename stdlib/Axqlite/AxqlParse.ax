@@ -535,7 +535,6 @@
 ; The bytes of `src[from .. to)` with each doubled `q` read as one.
 ; `pairs` is how many doubled quotes there are.
 (:: unquote (-> String Int Int Int Int String))
-;@axiom:effect(unsafe)
 (fn (unquote src from to q pairs)
   (if (== pairs 0)
     (strSlice src from (- to from))
@@ -605,7 +604,6 @@
 
 ; X'hex': an even number of hex digits between the quotes.
 (:: lexBlob (-> Lx Int))
-;@axiom:effect(unsafe)
 (fn (lexBlob lx)
   (let (
     (src lx.src)

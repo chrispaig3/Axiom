@@ -119,8 +119,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ge25519D (-> Int Int))
 ;@axiom:ct(*out)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`out` names 10 live writable words)
 (pub fn (ge25519D out)
   (fe25519Set out -10913610 13857413 -15372611 6949391 114729 -8787816 -6275908 -3247719 -18696448 -12055116))
 
@@ -128,8 +126,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ge25519D2 (-> Int Int))
 ;@axiom:ct(*out)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`out` names 10 live writable words)
 (pub fn (ge25519D2 out)
   (fe25519Set out -21827239 -5839606 -30745221 13898782 229458 15978800 -12551817 -6495438 29715968 9444199))
 
@@ -138,8 +134,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ge25519Base (-> Int Int))
 ;@axiom:ct(*h)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`h` names a live writable P3)
 (pub fn (ge25519Base h)
   {
     (fe25519Set (gX h) -14297830 -7645148 16144683 -16471763 27570974 -2696100 -26142465 8378389 20764389 8758491)
@@ -152,8 +146,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ge25519P3Zero (-> Int Int))
 ;@axiom:ct(*h)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`h` names a live writable P3)
 (pub fn (ge25519P3Zero h)
   {
     (fe25519Zero (gX h))
@@ -166,8 +158,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ge25519P2Zero (-> Int Int))
 ;@axiom:ct(*h)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`h` names a live writable P2)
 (pub fn (ge25519P2Zero h)
   {
     (fe25519Zero (gX h))
@@ -182,8 +172,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ge25519P1P1ToP2 (-> Int Int Int))
 ;@axiom:ct(*r, *p)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`r` names a live writable P2 and `p` a live P1P1, not overlapping)
 (pub fn (ge25519P1P1ToP2 r p)
   {
     (fe25519Mul (gX r) (gX p) (gT p))
@@ -195,8 +183,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ge25519P1P1ToP3 (-> Int Int Int))
 ;@axiom:ct(*r, *p)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`r` names a live writable P3 and `p` a live P1P1, not overlapping)
 (pub fn (ge25519P1P1ToP3 r p)
   {
     (fe25519Mul (gX r) (gX p) (gT p))
@@ -210,8 +196,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ge25519P3ToCached (-> Int Int Int Int))
 ;@axiom:ct(*r, *p, *t)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`r` names a live writable Cached, `p` a live P3 and `t` 10 live writable words, none overlapping)
 (pub fn (ge25519P3ToCached r p t)
   {
     (fe25519Add (gX r) (gY p) (gX p))
@@ -226,8 +210,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ge25519P2Dbl (-> Int Int Int Int))
 ;@axiom:ct(*r, *p, *t)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`r` names a live writable P1P1, `p` a live P2 and `t` 10 live writable words, none overlapping)
 (pub fn (ge25519P2Dbl r p t)
   {
     (fe25519Sq (gX r) (gX p))
@@ -246,8 +228,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ge25519Add (-> Int Int Int Int Int))
 ;@axiom:ct(*r, *p, *q, *t)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`r` names a live writable P1P1, `p` a live P3, `q` a live Cached and `t` 10 live writable words, `r` and `t` overlapping nothing)
 (pub fn (ge25519Add r p q t)
   {
     (fe25519Add (gX r) (gY p) (gX p))
@@ -267,8 +247,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ge25519Sub (-> Int Int Int Int Int))
 ;@axiom:ct(*r, *p, *q, *t)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`r` names a live writable P1P1, `p` a live P3, `q` a live Cached and `t` 10 live writable words, `r` and `t` overlapping nothing)
 (pub fn (ge25519Sub r p q t)
   {
     (fe25519Add (gX r) (gY p) (gX p))
@@ -288,8 +266,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ge25519Madd (-> Int Int Int Int Int))
 ;@axiom:ct(*r, *p, *q, *t)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`r` names a live writable P1P1, `p` a live P3, `q` a live Precomp and `t` 10 live writable words, `r` and `t` overlapping nothing)
 (pub fn (ge25519Madd r p q t)
   {
     (fe25519Add (gX r) (gY p) (gX p))
@@ -312,7 +288,6 @@
 (pub :: ge25519ToBytes (-> Int Int Int))
 ;@axiom:ct(*s, *h)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`s` names 32 live writable bytes and `h` a live P2)
 (pub fn (ge25519ToBytes s h)
   (let ((w (memAlloc 240)))
     (let ((recip w) (x (+ w 80)) (y (+ w 160)))
@@ -330,7 +305,6 @@
 ; above it.
 (:: geYCanonical (-> Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`s` names 32 live bytes)
 (fn (geYCanonical s)
   (let ((mut all 255))
     {
@@ -352,7 +326,6 @@
 ; its negation, with the two canonicity checks added.
 (pub :: ge25519FromBytesVartime (-> Int Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`h` names a live writable P3 and `s` 32 live bytes)
 (pub fn (ge25519FromBytesVartime h s)
   (if (== (geYCanonical s) 0)
     -1
@@ -408,8 +381,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ge25519P3Neg (-> Int Int))
 ;@axiom:ct(*h)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`h` names a live writable P3)
 (pub fn (ge25519P3Neg h)
   {
     (fe25519Neg (gX h) (gX h))
@@ -436,8 +407,6 @@
 ; b_comb_high; tests/crypto/302-curve25519-group.ax recomputes them.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ge25519CombTable (-> Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`t` names 3840 live writable bytes)
 (pub fn (ge25519CombTable t)
   {
     (fe25519Set (+ t 0) -6816601 -2324159 -22559413 124364 18015490 8373481 19993724 1979872 -18549925 9085059)
@@ -496,7 +465,6 @@
 (:: geBit (-> Int Int Int))
 ;@axiom:ct(*s)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`s` names 32 live bytes and 0 <= `i` < 256)
 (fn (geBit s i)
   (& (>> (__load8 s (>> i 3)) (& i 7)) 1))
 
@@ -507,8 +475,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: geCombAdd (-> Int Int Int Int Int Int Int Int))
 ;@axiom:ct(*h, *s, *c, *ta, *r)
-;@axiom:effect(unsafe)
-;@axiom:precondition(each address names live writable memory of its kind, none overlapping)
 (fn (geCombAdd h comb s i c ta r)
   (let ((teeth (| (| (geBit s i) (<< (geBit s (+ i 32)) 1))
                   (| (<< (geBit s (+ i 64)) 2) (<< (geBit s (+ i 96)) 3)))))
@@ -537,7 +503,6 @@
 (pub :: ge25519ScalarMultBase (-> Int Int Int))
 ;@axiom:ct(*h, *a)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`h` names a live writable P3 and `a` 32 live bytes, not overlapping)
 (pub fn (ge25519ScalarMultBase h a)
   (let ((w (memAlloc 4608)))
     (let (
@@ -583,7 +548,6 @@
 ; ref10's `slide`, a signed sliding window.
 (:: geSlide (-> Int Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`r` names 256 live writable words and `a` 32 live bytes)
 (fn (geSlide r a)
   {
     (for i in 0..256
@@ -633,8 +597,6 @@
 ; points at `tbl`. `t` is a P1P1, `u` and `p2` P3s, `fe` a field
 ; element, all scratch.
 (:: geOddMultiples (-> Int Int Int Int Int Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(each address names live writable memory of its kind, none overlapping)
 (fn (geOddMultiples tbl p t u p2 fe)
   {
     (ge25519P3ToCached tbl p fe)
@@ -653,7 +615,6 @@
 ; and the P3 `A`. Variable time: for verification only.
 (pub :: ge25519DoubleScalarMultVartime (-> Int Int Int Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`r` names a live writable P2, `A` a live P3, and `a` and `b` 32 live bytes each)
 (pub fn (ge25519DoubleScalarMultVartime r a A b)
   (let ((w (memAlloc 10720)))
     (let (

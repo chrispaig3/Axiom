@@ -84,10 +84,11 @@
 ;
 ; A zero-byte request keeps MM-ALLOC-8b's behaviour exactly: no block,
 ; no header, nothing stamped.
+; Every word `map` marks must hold zero or an owned reference whenever
+; the block can be released.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: memAllocMapped (-> Int Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(every word `map` marks holds zero or an owned reference whenever the block can be released)
 (pub fn (memAllocMapped bytes map)
   (let ((h (__alloc bytes)))
     (if (== bytes 0)
@@ -157,13 +158,14 @@
 ; `mapRemove` - has to zero it, or the walk spends a share of a handle
 ; the caller still holds. That is a use-after-free rather than a leak,
 ; and it is the one obligation this form puts on its user.
+; `h` must be a live leaf block of at least `n` words, each zero or an
+; owned reference.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: memMarkArray (-> Int Int Int))
 ; `n` is masked to 47 bits before it is shifted, so a count nobody can
 ; hold cannot push a 1 into bit 63 and make the shape word negative -
 ; `codegen.ax`'s `shapeBits` rests on that word being non-negative.
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`h` is a live leaf block of at least `n` words, each zero or an owned reference)
 (pub fn (memMarkArray h n)
   {
     (__store64 (- h 8) 0 (| (| (__load64 (- h 8) 0) 32768) (<< (& n 140737488355327) 16)))
@@ -193,10 +195,11 @@
 ; and `mapRehashCap`'s abandoned value array, neither of which ever
 ; carried a record map - and the name says what it does: it makes the
 ; block a leaf, and a leaf has no map.
+; `h` must be a live block whose map's shares were already released or
+; handed on.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: memMarkLeaf (-> Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`h` is a live block, and the shares its map names were released or handed on first)
 (pub fn (memMarkLeaf h)
   {
     (__store64 (- h 8) 0 (& (__load64 (- h 8) 0) 32767))
@@ -242,10 +245,9 @@
 ; Copies forwards, so overlapping ranges are only safe when
 ; `dst <= src`; `memMove` is not provided yet rather than being
 ; provided wrongly.
+; `dst` and `src` must each name `count` live bytes.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: memCopy (-> Int Int Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`dst` and `src` each name `count` live bytes, and `dst` is not above `src` where they overlap)
 (pub fn (memCopy dst src count)
   (memCopyFrom dst src count 0))
 
@@ -272,7 +274,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: memCopyFrom (-> Int Int Int Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`dst` and `src` each name `count` live bytes)
 (fn (memCopyFrom dst src count start)
   {
     (for i in start..count
@@ -281,17 +282,15 @@
   })
 
 ; Set `count` bytes at `addr` to `value` (low 8 bits). Returns `addr`.
+; `addr` must name `count` live writable bytes.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: memSet (-> Int Int Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`addr` names `count` live writable bytes)
 (pub fn (memSet addr value count)
   (memSetFrom addr value count 0))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: memSetFrom (-> Int Int Int Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`addr` names `count` live writable bytes)
 (fn (memSetFrom addr value count start)
   {
     (for i in start..count
@@ -301,17 +300,15 @@
 
 ; Compare `count` bytes. 0 if equal, otherwise the signed difference of
 ; the first differing byte pair (so the result orders like `memcmp`).
+; `a` and `b` must each name `count` live bytes.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: memCmp (-> Int Int Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`a` and `b` each name `count` live bytes)
 (pub fn (memCmp a b count)
   (memCmpFrom a b count 0))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: memCmpFrom (-> Int Int Int Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`a` and `b` each name `count` live bytes)
 (fn (memCmpFrom a b count start)
   (let (
     (mut i start)
@@ -338,10 +335,10 @@
 ; because that is the truth about a machine word - it used to answer a
 ; type variable, which let the CALLER name any type at all and get it,
 ; including a reference, which then dereferenced. See `AX3040`.
+; `addr` must name a live block of at least `index` + 1 words.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: memGetWord (-> Int Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`addr` names a live block of at least `index` + 1 words)
 (pub fn (memGetWord addr index)
   (__load64 addr index))
 
@@ -353,10 +350,11 @@
 ; type, and deliberately not at those call sites: a cast at an argument
 ; root classifies the value's evidence 0 and drops its retain or its
 ; release (docs/memory-model.md MM-LIFE-2e, measured).
+; `addr` must name a live block of at least `index` + 1 words, and that
+; word must hold a live `String`.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: memGetWordStr (-> Int Int String))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`addr` names a live block of at least `index` + 1 words, and that word holds a live `String`)
 (pub fn (memGetWordStr addr index)
   (cast String (memGetWord addr index)))
 
@@ -366,10 +364,11 @@
 ; that carries the type, for the reason `memGetWordStr` gives: a cast
 ; at an argument root classifies that value's evidence 0 and drops its
 ; retain or its release (docs/memory-model.md MM-VAL-22, measured).
+; `addr` must name a live block of at least `index` + 1 words, and that
+; word must hold a live `Vec` of the element type the caller names.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: memGetWordVec (-> Int Int (Vec a)))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`addr` names a live block of at least `index` + 1 words, and that word holds a live `Vec` of the element type the caller names)
 (pub fn (memGetWordVec addr index)
   (cast (Vec a) (memGetWord addr index)))
 
@@ -403,10 +402,11 @@
 ; walk never counted, so the owner's release frees a block this word
 ; still names. Store references through here (or `Ffi.ax`'s handle
 ; close path), never with a bare `__store64`.
+; `addr` must name a live block of at least `index` + 1 words, and the
+; word must be read back only at a type `value` has.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: memSetWord (-> Int Int a Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`addr` names a live block of at least `index` + 1 words, and the word is read back only at a type `value` has)
 (pub fn (memSetWord addr index value)
   {
     (__retainref value)
@@ -417,17 +417,17 @@
     addr
   })
 
+; `addr` must name at least `index` + 1 live bytes.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: memGetByte (-> Int Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`addr` names at least `index` + 1 live bytes)
 (pub fn (memGetByte addr index)
   (__load8 addr index))
 
+; `addr` must name at least `index` + 1 live writable bytes.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: memPutByte (-> Int Int Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`addr` names at least `index` + 1 live writable bytes)
 (pub fn (memPutByte addr index value)
   {
     (__store8 addr index value)

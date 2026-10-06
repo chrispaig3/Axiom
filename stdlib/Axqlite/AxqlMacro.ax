@@ -88,7 +88,6 @@
 
 ; The finished query.
 (pub :: axqlFinish (-> QueryBuilder Query))
-;@axiom:effect(unsafe)
 (pub fn (axqlFinish qb)
   (let ((mut n 0))
     {
@@ -111,7 +110,6 @@
 ; `name` as AXQL writes a name: bare when it can be, else in double
 ; quotes with each `"` inside doubled.
 (pub :: axqlQuoteName (-> String String))
-;@axiom:effect(unsafe)
 (pub fn (axqlQuoteName name)
   (if (axqlNameNeedsQuotes name)
     (let (

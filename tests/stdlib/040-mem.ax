@@ -3,7 +3,6 @@
 
 (pub :: main Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (main)
   (let (
     (a (memAlloc 8))

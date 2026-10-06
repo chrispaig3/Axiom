@@ -672,9 +672,9 @@ else
 (import Fmt)
 (import Mem)
 
+; The probe reads past `p` on purpose, for ASan to report.
 (:: peek (-> Int Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(the probe reads past `p` on purpose, for ASan to report)
 (fn (peek p i)
   (__load64 p i))
 
@@ -687,7 +687,6 @@ else
 
 (:: main Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (main)
   (let (
     (k (argInt 2))

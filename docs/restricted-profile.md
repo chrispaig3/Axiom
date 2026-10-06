@@ -61,8 +61,8 @@ transitive effect row, a fixpoint the checker computes), `#calls=`
 its own parameters), `#effects-incomplete` and `#effects-possible=`
 (the row's admissions that it is a bound), `#effect=` (declared
 effects - `#effect=unsafe` is `AX3073`'s checked marker of a body that
-performs an unsafe operation itself, and `#unsafe=` says whether it is
-a trusted encapsulation or a precondition interface), `#isr`,
+performs an unsafe operation itself, and `#unsafe=trusted` marks it a
+trusted encapsulation), `#isr`,
 `#restrict=`, and `#extern`, which `symbols` prints on an `extern`
 item since this profile landed: without it an extern row is a function
 with no calls and `#effects=IO`, which is also what a body writing one
@@ -96,8 +96,8 @@ and any `--root NAME`. Everything reachable from them is held to:
 
 And it lists, without refusing, the obligations that are the explicit
 trusted boundary rather than defects: every reachable function that
-calls an Unsafe primitive directly (their preconditions are stated in
-[memory-model.md](memory-model.md) `MM-EXEC-9c`), every function holding
+calls an Unsafe primitive directly (what each primitive needs is stated
+in [memory-model.md](memory-model.md) `MM-EXEC-9c`), every function holding
 an `asm` form, allowed or not, every kernel entry
 (`__syscallN`; on `baremetal-aarch64` the compiler lowers these to the
 no-syscall trap, status 74), and the stack analysis's own assumptions.

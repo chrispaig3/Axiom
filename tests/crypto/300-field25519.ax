@@ -23,7 +23,6 @@
 
 ; The canonical encoding of the field element at `c`.
 (:: enc (-> Int String))
-;@axiom:effect(unsafe)
 (fn (enc c)
   (let ((s (bytesNew 32)))
     {
@@ -34,7 +33,6 @@
 ; Operation `op` on `a` and `b`, as the vector file spells its answer.
 ; `inPlace` writes the result over the first operand instead.
 (:: compute (-> String String String Bool String))
-;@axiom:effect(unsafe)
 (fn (compute op a b inPlace)
   (let ((w (memAlloc 400)))
     (let ((fa w) (fb (+ w 80)) (c (+ w 160)) (t1 (+ w 240)) (t2 (+ w 320)))

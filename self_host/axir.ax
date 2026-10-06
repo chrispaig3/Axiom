@@ -181,7 +181,6 @@
 ; with no parameters renders `-`, because an empty field would make
 ; the line's arity depend on its content.
 (pub :: axirRegionLine (-> Int Int String))
-;@axiom:effect(unsafe)
 (pub fn (axirRegionLine f np)
   (let (
     (ff (memGetWordVec f 2))
@@ -293,7 +292,6 @@
 ; two questions are one line apart and there they are a whole pass
 ; apart.
 (pub :: axirBlockLines (-> MBlock (Vec String) Int))
-;@axiom:effect(unsafe)
 (pub fn (axirBlockLines b out)
   (let ((mut ok 1))
     {
@@ -327,7 +325,6 @@
 ; failed - a partial body, which is exactly what `mLowerFn` goes out
 ; of its way never to answer.
 (pub :: axirBodyLines (-> MFunc (Vec String) Int))
-;@axiom:effect(unsafe)
 (pub fn (axirBodyLines f parts)
   (let (
     (body vecNew)
@@ -361,7 +358,6 @@
 ; ARE the shape of that curve, and doubling them would have been paid
 ; on the largest module in the tree.
 (pub :: axirDeclFor (-> Int String Int))
-;@axiom:effect(unsafe)
 (pub fn (axirDeclFor sm key)
   (cast Int (saGet (memGetWordVec sm 16) (memGetWordVec sm 26) key)))
 
@@ -392,7 +388,6 @@
 ; in order - so a drift here reddens a gate rather than producing a
 ; file that joins to the wrong row.
 (pub :: axirRender (-> Int Int Int String String))
-;@axiom:effect(unsafe)
 (pub fn (axirRender tc builtins mir target)
   (let (
     (units (memGetWordVec tc 13))
@@ -491,7 +486,6 @@
 ; the field position, because the only quoted field in the grammar is
 ; the type and `saAxSafe` escapes a `"` inside every other one.
 (pub :: axirTokens (-> String Int Int (Vec String)))
-;@axiom:effect(unsafe)
 (pub fn (axirTokens s i e)
   (let (
     (out vecNew)
@@ -522,7 +516,6 @@
 ; One error record, so that the shape of a refusal is the shape of a
 ; line.
 (pub :: axirErr (-> String (Vec Int)))
-;@axiom:effect(unsafe)
 (pub fn (axirErr msg)
   (let (
     (rec vecNew)
@@ -538,7 +531,6 @@
     }))
 
 (pub :: axirIsErr (-> (Vec Int) Bool))
-;@axiom:effect(unsafe)
 (pub fn (axirIsErr recs)
   (if (== (vecLen recs) 1)
     (strEq (vecGetStr (vecGetVec recs 0) 0) "axir-error")
@@ -647,7 +639,6 @@
     }))
 
 (pub :: axirRead (-> String (Vec Int)))
-;@axiom:effect(unsafe)
 (pub fn (axirRead text)
   (let (
     (n (strLen text))
@@ -691,7 +682,6 @@
 ; two together are what `scripts/check-mir-roundtrip.sh` measures.
 ; ------------------------------------------------------------------
 (pub :: axirWrite (-> (Vec Int) String))
-;@axiom:effect(unsafe)
 (pub fn (axirWrite recs)
   (let (
     (parts vecNew)
@@ -738,7 +728,6 @@
 ; The round trip itself: read, then write. Answers "" when the parse
 ; refused, and pushes the message onto `msg`.
 (pub :: axirReemit (-> String (Vec String) String))
-;@axiom:effect(unsafe)
 (pub fn (axirReemit text msg)
   (let ((recs (axirRead text)))
     (if (axirIsErr recs)

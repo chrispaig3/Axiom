@@ -86,7 +86,6 @@
 (:: x25519Clamp (-> Int Int Int))
 ;@axiom:ct(*e, *k)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`e` names 32 live writable bytes and `k` 32 live bytes)
 (fn (x25519Clamp e k)
   {
     (ctCopy e k 32)
@@ -99,8 +98,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: x25519CSwap (-> Int Int Int Int Int Int))
 ;@axiom:ct(m, *x2, *z2, *x3, *z3)
-;@axiom:effect(unsafe)
-;@axiom:precondition(each address names a live writable field element)
 (fn (x25519CSwap m x2 z2 x3 z3)
   {
     (fe25519CSwap m x2 x3)
@@ -113,8 +110,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: x25519LadderStep (-> Int Int Int Int Int Int Int Int))
 ;@axiom:ct(*x2, *z2, *x3, *z3, *t0, *t1)
-;@axiom:effect(unsafe)
-;@axiom:precondition(each address names a live writable field element)
 (fn (x25519LadderStep x1 x2 z2 x3 z3 t0 t1)
   {
     (fe25519Sub t0 x3 z3)
@@ -145,7 +140,6 @@
 (pub :: x25519ScalarMultAddr (-> Int Int Int Int))
 ;@axiom:ct(*out, *k)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`out`, `k` and `u` each name 32 live bytes, and `out` is writable)
 (pub fn (x25519ScalarMultAddr out k u)
   (region scratch
     (let ((w (memAlloc 592)))
@@ -188,7 +182,6 @@
 ; both are 32 bytes. For known-answer tests and protocols that specify
 ; the raw function; key agreement wants `x25519`.
 (pub :: x25519ScalarMult (-> String String (Result String Error)))
-;@axiom:effect(unsafe)
 (pub fn (x25519ScalarMult k u)
   (if (|| (!= (strLen k) 32) (!= (strLen u) 32))
     (cryptoLengthErr "X25519 takes a 32-byte scalar and a 32-byte u-coordinate" "x25519ScalarMult")
@@ -215,8 +208,6 @@
 ; already the private key.
 ;@axiom:restrict(no-io,no-foreign)
 (:: x25519BlockFinish (-> Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`h` is a live X25519 key block whose private key is set)
 (fn (x25519BlockFinish h)
   (let ((p (secretBlockAddr x25519Kind h)))
     (x25519ScalarMultAddr (+ p 32) p (strData x25519BasePoint))))
@@ -224,7 +215,6 @@
 ; A fresh random private key and its public key.
 (pub :: x25519KeyGenerate (Result X25519SecretKey Error))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(entropy)
 (pub fn (x25519KeyGenerate)
   (match (secretBlockNew x25519Kind x25519BlockBytes)
@@ -249,7 +239,6 @@
 ; derive the key themselves.
 (pub :: x25519KeyFromSecret (-> SecretBytes (Result X25519SecretKey Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (x25519KeyFromSecret s)
   (if (!= (secretLen s) 32)
     (cryptoLengthErr "an X25519 private key is 32 bytes" "x25519KeyFromSecret")
@@ -266,7 +255,6 @@
 ; program with status 85. Answers 0.
 (pub :: x25519KeyWipe (-> X25519SecretKey Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (x25519KeyWipe k)
   (secretBlockFree x25519Kind k.slot))
 
@@ -275,13 +263,11 @@
 ; somewhere you trust.
 (pub :: x25519KeyExport (-> X25519SecretKey (Result SecretBytes Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (x25519KeyExport k)
   (secretFromAddr (secretBlockAddr x25519Kind k.slot) 32))
 
 ; The public key of `k`.
 (pub :: x25519PublicKey (-> X25519SecretKey X25519PublicKey))
-;@axiom:effect(unsafe)
 (pub fn (x25519PublicKey k)
   (X25519PublicKey (bytesFromAddr (+ (secretBlockAddr x25519Kind k.slot) 32) 32)))
 

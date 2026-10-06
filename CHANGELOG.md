@@ -16,6 +16,27 @@ its changelog too.
 
 ## Unreleased
 
+- State a condition a caller must meet as a `;@axiom:pre(...)`
+  contract, or in a comment. The `;@axiom:precondition(...)` tag is
+  gone: a written one is refused as `AX3095`, and `AX3079` and
+  `AX3080` are retired. A function that says `;@axiom:effect(unsafe)`
+  is a trusted encapsulation, so a call to a raw-address or handle
+  function such as `memGetWord`, `sysReadFd` or `vecFree` needs no tag,
+  and `restrict(no-unsafe)` admits it. The trade-off: safe code can
+  crash by passing one of them a bad address or handle. `symbols` no
+  longer prints `#unsafe=precondition`. Tested by
+  `tests/diagnostics/1041-trusted-call.ax` and
+  `tests/diagnostics/1043-precondition-removed.ax`.
+
+- Check the library's argument conditions where the arguments can show
+  them. `fileFromFd` refuses a negative descriptor and `secretBlockNew`
+  a handle kind outside 16 to 63, each with status 80. Tested by
+  `tests/stdlib/707-library-pre.ax`.
+
+- Report a misplaced or removed tag in an imported module against that
+  module's source. `AX3077` used to point into the importing file.
+  Tested by `tests/diagnostics/1140-stray-tag-imported.ax`.
+
 - Remove the compiler's unreferenced functions, and its handling of
   the `[T]` list type node, which the parser never builds. Programs
   compile exactly as before: `[T]` is still `AX2004`, with `(Vec T)` as

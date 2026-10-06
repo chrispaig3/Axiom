@@ -577,15 +577,13 @@ impl Surface {
         // shim chunks. Module-private: the record's shape is this
         // crate's, and two generated modules never see each other's.
         //
-        // A rebuild loop reads words at an address it is handed, so it
-        // is a precondition interface (MM-EXEC-9d): it says
-        // `effect(unsafe)` and what the address must name, and every
-        // wrapper that calls it declares the unsafe operation itself.
-        let mut unsafe_calls: Vec<String> =
-            PRECONDITION_CALLS.iter().map(|s| s.to_string()).collect();
+        // A rebuild loop reads words through `ffiWordAt`, a trusted
+        // `Ffi` function, so it performs nothing unsafe itself and
+        // carries no tag.
+        //
         // Every extern is outside Axiom's safety checker. Generated
         // wrappers vouch for the typed shim interface they construct.
-        unsafe_calls.extend(items.iter().map(|(name, _)| name.clone()));
+        let unsafe_calls: Vec<String> = items.iter().map(|(name, _)| name.clone()).collect();
         for r in &from_words {
             let (sig, body) = record_from_words_loop(r);
             tops.push(format!(
@@ -593,11 +591,7 @@ impl Surface {
                 r.name,
                 r.arity()
             ));
-            tops.push(format!(
-                ";@axiom:effect(unsafe)\n;@axiom:precondition(`__p` names `__n` * {} live words)\n{body}",
-                r.arity()
-            ));
-            unsafe_calls.push(from_words_name(&r.name));
+            tops.push(body);
         }
         for r in &to_words {
             let (sig, body) = record_to_words_loop(r);
@@ -630,7 +624,12 @@ impl Surface {
             if !d.needs_wrapper() {
                 continue;
             }
-            tops.push(format!("(pub :: {} {})", d.axiom_name, d.wrapper_type()));
+            tops.push(format!(
+                "{}(pub :: {} {})",
+                d.callback_note(),
+                d.axiom_name,
+                d.wrapper_type()
+            ));
             let params: Vec<String> = d.params.iter().map(|(n, _)| n.clone()).collect();
             // Every wrapper here CALLS the extern symbol, and a call across
             // the FFI boundary performs `IO`. Since 2026-08-25 a function
@@ -643,23 +642,19 @@ impl Surface {
             // process; tagging it would be a FALSE claim and `AX3010`
             // refuses one of those just as hard.
             //
-            // A wrapper that reads its out-cell, frees it, or builds a
-            // `Handle` calls a precondition interface of `Ffi`'s, which is
-            // an unsafe operation of its own (`AX3073`, MM-EXEC-9d). It
-            // made the cell or holds the pointer Rust just answered, so it
-            // meets the precondition itself and says `effect(unsafe)`
-            // alone: a trusted encapsulation, whose callers declare
-            // nothing. Extern calls also require that vouch, including
-            // scalar-only shims; only the close wrapper stays untagged.
+            // A call to an extern is an unsafe operation (`AX3073`,
+            // MM-EXEC-9d), so a wrapper that makes one says
+            // `effect(unsafe)`: a trusted encapsulation, whose callers
+            // declare nothing. That includes scalar-only shims; only the
+            // close wrapper stays untagged.
             let body = d.wrapper_body();
             let unsafe_tag = if performs_unsafe(&body, &unsafe_calls) {
                 ";@axiom:effect(unsafe)\n"
             } else {
                 ""
             };
-            let callback_tag = d.callback_precondition();
             tops.push(format!(
-                ";@axiom:effect(io)\n{unsafe_tag}{callback_tag}{}",
+                ";@axiom:effect(io)\n{unsafe_tag}{}",
                 sexp::decl_fn(&d.axiom_name, &params, &body)
             ));
         }
@@ -892,23 +887,9 @@ fn record_from_cell(r: &RecordTy, binds: &mut Vec<(String, Ex)>) {
     binds.push(("__r".into(), app(ctor)));
 }
 
-/// The `Ffi` functions whose safety depends on their caller. Each says
-/// `;@axiom:precondition(...)` in `stdlib/Ffi.ax`, so a call to one is
-/// an unsafe operation of the caller's (`AX3073`, MM-EXEC-9d).
-const PRECONDITION_CALLS: &[&str] = &[
-    "ffiBytesToStr",
-    "ffiCellFree",
-    "ffiCellWord",
-    "ffiHandleNew",
-    "ffiStrsToVec",
-    "ffiWordAt",
-    "ffiWordListsToVec",
-    "ffiWordsToVec",
-];
-
 /// Does `e` name one of `calls` anywhere - as a head, or as a value
-/// handed on? A name is enough: the checker counts a reference to a
-/// precondition interface as a call to it.
+/// handed on? A name is enough: the checker counts a reference to an
+/// extern as a call to it.
 fn performs_unsafe(e: &Ex, calls: &[String]) -> bool {
     match e {
         Ex::Atom(s) => calls.iter().any(|c| c == s),
@@ -1283,8 +1264,8 @@ impl Decl {
 
     /// A callback may re-enter Axiom while Rust holds these references.
     /// Their mutation and early-close obligations belong to the caller,
-    /// so this wrapper cannot contain Unsafe by an unconditional vouch.
-    fn callback_precondition(&self) -> String {
+    /// and nothing checks them, so the wrapper's comment says so.
+    fn callback_note(&self) -> String {
         if !self
             .params
             .iter()
@@ -1308,7 +1289,7 @@ impl Decl {
             String::new()
         } else {
             format!(
-                ";@axiom:precondition(callbacks must not mutate, grow, close or release borrowed arguments: {})\n",
+                "; Callbacks must not mutate, grow, close or release borrowed arguments: {}.\n",
                 borrowed.join(", ")
             )
         }

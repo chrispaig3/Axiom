@@ -90,7 +90,6 @@
   (__spawn_pid h))
 
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
 (fn (main)

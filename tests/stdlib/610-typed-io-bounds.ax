@@ -1,7 +1,7 @@
 ; exit 77 (see .exit)
 ;
 ; `IO`'s typed descriptor calls check their range before the kernel
-; sees it (docs/memory-model.md MM-EXEC-9e). `writeSlice` takes a
+; sees it (docs/memory-model.md MM-EXEC-9f). `writeSlice` takes a
 ; `String` and `fileReadBuffer` a `ReadBuffer`, each with a range
 ; inside it, and `randomBytes` a length; a range that is negative or
 ; runs past the end is the index

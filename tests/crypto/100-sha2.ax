@@ -25,7 +25,6 @@
 ; when it is true. The state is used twice: once for a throwaway
 ; message, whose final resets it, then for `msg`.
 (:: streamOf (-> Int String Int Bool String))
-;@axiom:effect(unsafe)
 (fn (streamOf alg msg c viaAddr)
   (let ((n (strLen msg)) (p (strData msg)))
     (if (== alg 256)

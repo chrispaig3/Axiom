@@ -124,7 +124,6 @@
 ; negative capacity to one word.
 (pub :: parMapWords (-> (-> Int Int) Int Int (Vec Int)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
 (pub fn (parMapWords f n width)
@@ -177,7 +176,6 @@
 ; calls `parMapWordsChecked`.
 (:: parJoinChecked (-> Spawn Int (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(block)
 (fn (parJoinChecked h cell)
   (let ((w (__proc_join_nr h cell)))
@@ -235,7 +233,6 @@
 ; finished first, and otherwise `Err` its wait status, which is 137.
 (:: parJoinKilled (-> Spawn Int (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(block)
 (fn (parJoinKilled h cell)
   (let ((w (__proc_join_nr h cell)))
@@ -336,7 +333,6 @@
 ; `tests/stdlib/476-par-pool.ax` term 2 is the case that catches an
 ; argument that does not end where the `String` does.
 (pub :: parArgvVector (-> (Vec String) Int))
-;@axiom:effect(unsafe)
 (pub fn (parArgvVector argv)
   (let ((n (vecLen argv)))
     (let ((v (memAlloc (* 8 (+ n 1)))))
@@ -364,7 +360,6 @@
 ; means.
 (pub :: parRunOne (-> (Vec String) (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
 (pub fn (parRunOne argv)

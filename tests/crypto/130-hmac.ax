@@ -25,7 +25,6 @@
   (verifies : Bool))
 
 (:: pieces256 (-> HmacSha256 String Int String))
-;@axiom:effect(unsafe)
 (fn (pieces256 m msg c)
   (let ((n (strLen msg)) (mut off 0) (mut turn 0))
     {
@@ -44,7 +43,6 @@
     }))
 
 (:: pieces512 (-> HmacSha512 String Int String))
-;@axiom:effect(unsafe)
 (fn (pieces512 m msg c)
   (let ((n (strLen msg)) (mut off 0) (mut turn 0))
     {
@@ -64,7 +62,6 @@
 
 (:: macs (-> Int String String Int Macs))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (macs alg key msg c)
   (let ((none (Macs "" "" "" "" false)) (n (strLen msg)))
     (match (secretFromString key)
@@ -135,7 +132,6 @@
 ; The tag of `msg` from a streaming state keyed by address, fed in two
 ; pieces.
 (:: rawStreamed (-> Int String String String))
-;@axiom:effect(unsafe)
 (fn (rawStreamed alg key msg)
   (let ((n (strLen msg)))
     (if (== alg 256)

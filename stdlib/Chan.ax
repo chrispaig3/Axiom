@@ -237,7 +237,6 @@
 ; Whether `pid` is this process's own child and has exited, unreaped.
 (:: chanChildEnded (-> Int Bool))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(block)
 (fn (chanChildEnded pid)
   (let ((buf (chanBlock sysChildPollBytes)))
@@ -362,7 +361,6 @@
 
 (:: chanBlockDone (-> Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`b` is a block `chanBlock` or `chanScratch` answered, handed back once and not used after)
 (fn (chanBlockDone b)
   {
     (__release b)
@@ -487,7 +485,6 @@
 ; Name a fresh ring in the handle table, or unmap it and say why not.
 (:: chanNamed (-> Int Int (Result Chan Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (chanNamed ch len)
   (let ((h (chanName ch)))
     (if (== h 0)
@@ -595,7 +592,6 @@
 ; `chanTrySend`, that says which it was.
 (pub :: chanSendTimeout (-> Chan Int Int (Result Bool Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(block)
 (pub fn (chanSendTimeout c v nanos)
   (let (
@@ -659,7 +655,6 @@
 ; poisoned. A non-positive `nanos` is one look.
 (pub :: chanRecvTimeout (-> Chan Int (Result (Option Int) Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(block)
 (pub fn (chanRecvTimeout c nanos)
   (let (
@@ -862,8 +857,6 @@
 ; It takes no lock, so a poisoned channel is freed like any other.
 (pub :: chanFree (-> Chan (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
-;@axiom:precondition(no binding can still use this channel: every concurrent user has joined before the call)
 (pub fn (chanFree c)
   (let ((ch (chanRetire c)))
     (sysUnmapShared ch (chanGet ch 7))))

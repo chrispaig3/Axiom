@@ -35,7 +35,6 @@
 ; time, alternating the String and address forms. The state first
 ; hashes a throwaway message, whose final resets it with the same key.
 (:: streamOf (-> Int String String Int String))
-;@axiom:effect(unsafe)
 (fn (streamOf outLen key msg c)
   (match (blake2bNewKeyed outLen key)
     ((Err _) "")

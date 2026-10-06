@@ -34,7 +34,6 @@
   (tyRender (nodeTy (vecGet decls i))))
 
 (:: main Int)
-;@axiom:effect(unsafe)
 (fn (main)
   (let ((src (concat (concat (concat "(:: apply (-> (-> Int Int) Int Int))\n" "(:: pick (-> (Maybe Int) (* Int) Int))\n") (concat "(:: unit (-> () Int))\n" "(:: main Int)\n")) "(:: pf (-> String Int))\n")))
     (let ((pr (parseModule (lex src))))

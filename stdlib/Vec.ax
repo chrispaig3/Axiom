@@ -175,7 +175,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: vecFree (-> (Vec a) Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(the caller owns the share it releases, and nothing uses `v` or its elements' storage after the last share is gone)
 (pub fn (vecFree v)
   {
     (__release
@@ -191,7 +190,6 @@
 ; and not a test of the data block's shape word: see `vecBuild`.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: vecOwnsRefs (-> (Vec a) Bool))
-;@axiom:effect(unsafe)
 (pub fn (vecOwnsRefs v)
   (==
     (memGetWord
@@ -201,7 +199,6 @@
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: vecLen (-> (Vec a) Int))
-;@axiom:effect(unsafe)
 (pub fn (vecLen v)
   (memGetWord
     (cast Int v)
@@ -209,7 +206,6 @@
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: vecCap (-> (Vec a) Int))
-;@axiom:effect(unsafe)
 (pub fn (vecCap v)
   (memGetWord
     (cast Int v)
@@ -223,7 +219,6 @@
 ; that wants the data pointer can already read word 2 itself.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: vecData (-> (Vec a) Int))
-;@axiom:effect(unsafe)
 (fn (vecData v)
   (memGetWord
     (cast Int v)
@@ -317,7 +312,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: vecGetStr (-> (Vec a) Int String))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(the element at `i` holds a live `String`)
 (pub fn (vecGetStr v i)
   (cast String (vecGet v i)))
 
@@ -338,7 +332,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: vecGetVec (-> (Vec a) Int (Vec b)))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(the element at `i` holds a live `Vec` of the element type the caller names)
 (pub fn (vecGetVec v i)
   (cast (Vec b) (vecGet v i)))
 
@@ -361,7 +354,6 @@
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: vecPushStr (-> (Vec a) String (Vec a)))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`v` is read back only as words or through `vecGetStr` where this string lands)
 (pub fn (vecPushStr v s)
   {
     (__retainref s)
@@ -375,7 +367,6 @@
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: vecPushVec (-> (Vec a) (Vec b) (Vec a)))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`v` is read back only as words or through `vecGetVec` where this vector lands)
 (pub fn (vecPushVec v x)
   {
     (__retainref x)
@@ -391,7 +382,6 @@
 ; silently dropping a write lets a failed update look successful.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: vecSet (-> (Vec a) Int a (Vec a)))
-;@axiom:effect(unsafe)
 (pub fn (vecSet v i x)
   (if (< i 0)
     __indexTrap
@@ -491,7 +481,6 @@
 ; invisible until the vector happened to grow.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: vecPush (-> (Vec a) a (Vec a)))
-;@axiom:effect(unsafe)
 (pub fn (vecPush v x)
   (let ((len (vecLen v)))
     {
@@ -564,7 +553,6 @@
 ; many iterations allocates once in total.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: vecClear (-> (Vec a) (Vec a)))
-;@axiom:effect(unsafe)
 (pub fn (vecClear v)
   {
     (if (vecOwnsRefs v)
@@ -663,8 +651,6 @@
 ; a sorted input, which is the input a caller most often has.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: vecSwapWords (-> Int Int Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`d` names a live block holding words `i` and `j`)
 (fn (vecSwapWords d i j)
   (let ((t (memGetWord d i)))
     {
@@ -676,8 +662,6 @@
 ; Restore the heap property at `root`, over the first `n` words.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: vecSiftDown (-> Int Int Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`d` names a live block of at least `n` words)
 (fn (vecSiftDown d root n)
   (let (
     (mut r root)
@@ -714,7 +698,6 @@
 ; comparison, such as `strCmp` for strings.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: vecSort (-> (Vec Int) (Vec Int)))
-;@axiom:effect(unsafe)
 (pub fn (vecSort v)
   (let (
     (n (vecLen v))
@@ -738,8 +721,6 @@
     }))
 
 (:: vecSiftDownBy (-> Int Int Int (-> Int Int Int) Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`d` names a live block of at least `n` words)
 (fn (vecSiftDownBy d root n cmp)
   (let (
     (mut r root)
@@ -791,7 +772,6 @@
 ; and never diverge in behaviour, because the fixture below sorts one
 ; input both ways and requires the same answer.
 (pub :: vecSortBy (-> (Vec a) (-> Int Int Int) (Vec a)))
-;@axiom:effect(unsafe)
 (pub fn (vecSortBy v cmp)
   (let (
     (n (vecLen v))

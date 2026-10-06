@@ -72,7 +72,6 @@
 ; source, drawn straight into the secret store.
 (pub :: chacha20Poly1305KeyGenerate (Result ChaCha20Poly1305Key Error))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(entropy)
 (pub fn (chacha20Poly1305KeyGenerate)
   (match (secretBlockRandom cpKind 32)
@@ -84,7 +83,6 @@
 ; protocols that derive one; `s` is left as it was.
 (pub :: chacha20Poly1305KeyFromSecret (-> SecretBytes (Result ChaCha20Poly1305Key Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (chacha20Poly1305KeyFromSecret s)
   (if (!= (secretLen s) 32)
     (cryptoLengthErr "a ChaCha20-Poly1305 key is 32 bytes" "chacha20Poly1305KeyFromSecret")
@@ -96,7 +94,6 @@
 ; you trust. The key itself stays live.
 (pub :: chacha20Poly1305KeyExport (-> ChaCha20Poly1305Key (Result SecretBytes Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (chacha20Poly1305KeyExport k)
   (secretFromAddr (secretBlockAddr cpKind k.slot) 32))
 
@@ -104,7 +101,6 @@
 ; program with status 85. Answers 0.
 (pub :: chacha20Poly1305KeyWipe (-> ChaCha20Poly1305Key Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (chacha20Poly1305KeyWipe k)
   (secretBlockFree cpKind k.slot))
 
@@ -131,8 +127,6 @@
 ; len(aad) || len(ct).
 (:: cpTag (-> Int Int Int Int Int Int Int Int Int))
 ;@axiom:ct(*key, *work)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`key` names 32 live bytes, `work` `cpWorkBytes` zeroed writable bytes, 8-byte aligned, `nonce` 12 bytes, `aad` `aadLen` bytes, `ct` `ctLen` bytes and `tag` 16 writable bytes)
 (fn (cpTag key work nonce aad aadLen ct ctLen tag)
   (let (
     (st (+ work 128))
@@ -154,8 +148,6 @@
 ; depend on where they differ.
 (:: cpTagMatches (-> Int Int Bool))
 ;@axiom:ct(*a, *b)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`a` and `b` each name 16 live bytes)
 (fn (cpTagMatches a b)
   (ctEqAddr a b 16))
 
@@ -167,7 +159,6 @@
 ; `cryptoLimitExceeded`.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: chacha20Poly1305Seal (-> ChaCha20Poly1305Key AeadNonce String String (Result String Error)))
-;@axiom:effect(unsafe)
 (pub fn (chacha20Poly1305Seal key nonce aad plaintext)
   (let (
     (n nonce.bytes)
@@ -214,7 +205,6 @@
 ; Nothing is decrypted unless the tag matches.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: chacha20Poly1305Open (-> ChaCha20Poly1305Key AeadNonce String String (Result String Error)))
-;@axiom:effect(unsafe)
 (pub fn (chacha20Poly1305Open key nonce aad sealed)
   (let (
     (n nonce.bytes)

@@ -17,9 +17,9 @@
 ; `quiet` claims `pure` over a syscall and draws AX3010 naming `Unsafe`
 ; beside `IO`. `ioOnly` claims `effect(io)` and not `effect(unsafe)`,
 ; which is AX3073 on its own. The controls stay silent: `declared`
-; says `effect(unsafe)` with its precondition, `wrapped` makes that
-; precondition true from a `String` it holds, and `caller` claims
-; `restrict(no-unsafe)` over the trusted `wrapped`.
+; says `effect(unsafe)`, a trusted encapsulation, `wrapped` passes it
+; a `String`'s bytes with no tag of its own, and `caller` claims
+; `restrict(no-unsafe)` over `wrapped`.
 (import Sys)
 (import Str)
 
@@ -118,13 +118,11 @@
 (:: declared (-> Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`buf` names `n` live bytes)
 (fn (declared buf n)
   (__syscall3 sysWrite 1 buf n))
 
 (:: wrapped (-> String Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (wrapped s)
   (declared (strData s) (strLen s)))
 

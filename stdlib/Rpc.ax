@@ -87,7 +87,6 @@
   67108864)
 
 (pub :: rdNew (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (rdNew fd)
   (let ((r (memAlloc 32)))
     {
@@ -99,22 +98,18 @@
     }))
 
 (:: rdFd (-> Int Int))
-;@axiom:effect(unsafe)
 (fn (rdFd r)
   (memGetWord r 0))
 
 (pub :: rdBuf (-> Int String))
-;@axiom:effect(unsafe)
 (pub fn (rdBuf r)
   (memGetWordStr r 1))
 
 (pub :: rdFilled (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (rdFilled r)
   (memGetWord r 2))
 
 (pub :: rdConsumed (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (rdConsumed r)
   (memGetWord r 3))
 
@@ -128,8 +123,6 @@
 ; capacity - a partially-read large message is exactly the case - so
 ; the new buffer is at least as big as what it has to hold.
 (pub :: rdReseat (-> Int Int Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`r` is a reader `rdNew` answered, and `addr` names `u` live bytes)
 (pub fn (rdReseat r addr u)
   (let ((buf 
     (strAlloc
@@ -147,7 +140,6 @@
 ; Move the live region to the front, and double the buffer if it is
 ; still full afterwards. Answers nothing useful; it mutates `r`.
 (:: rdCompact (-> Int Int))
-;@axiom:effect(unsafe)
 (fn (rdCompact r)
   (let (
     (buf (rdBuf r))
@@ -177,7 +169,6 @@
 ; file, negative on error.
 (:: rdFill (-> Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (rdFill r)
   {
     (if (>= (rdFilled r) (strLen (rdBuf r)))
@@ -332,7 +323,6 @@
 ; request behind it unanswered (found by `scripts/lib/lspfuzz.py`).
 (pub :: rpcReadMsg (-> Int (Option String)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (rpcReadMsg r)
   ; 1. A complete header block.
   (let (

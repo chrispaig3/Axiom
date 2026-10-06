@@ -352,6 +352,8 @@ def cut(path, old, new):
         sys.exit("seam in %s found %d times" % (path, s.count(old)))
     open(path, "w", encoding="utf-8").write(s.replace(old, new))
 sync = os.path.join(d, "stdlib", "Sync.ax")
+cut(sync, ";@axiom:effect(io)\n;@axiom:effect(block)\n(fn (syncAcquire m b timed)",
+    ";@axiom:effect(io)\n;@axiom:effect(unsafe)\n;@axiom:effect(block)\n(fn (syncAcquire m b timed)")
 cut(sync, "                      (let ((code (sysWaitWordTimeout m w slice)))\n                        {",
     "                      (let ((code (sysWaitWordTimeout m w slice)))\n                        {\n"
     "                          (if (== code 1)\n                            {\n"
@@ -361,7 +363,7 @@ cut(sync, "                      (let ((code (sysWaitWordTimeout m w slice)))\n 
 # A mutex is a sealed handle, so the program reads the two counters
 # through a reader the copy exports rather than from the page itself.
 with open(sync, "a", encoding="utf-8") as f:
-    f.write("\n(pub :: syncSliceCount (-> Mutex Int Int))\n;@axiom:effect(unsafe)\n"
+    f.write("\n(pub :: syncSliceCount (-> Mutex Int Int))\n"
             "(pub fn (syncSliceCount mx i)\n  (memGetWord (syncAt mx) i))\n")
 prog = os.path.join(d, "liveness.ax")
 # Printed before `(shares res)`, which stays the run's answer.

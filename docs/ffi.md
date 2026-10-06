@@ -669,10 +669,10 @@ The callback is borrowed (C1): it is valid for the call, not after it.
 elided lifetime or `'_` in an exported parameter. A callback cannot
 escape into a stored value through safe Rust.
 When a callback shares a call with borrowed vectors or opaque owners,
-the generated wrapper declares a caller precondition. The callback must
-keep those borrows valid: no mutation, growth, early close or release.
-The caller needs `effect(unsafe)` to accept that obligation. Slices
-copied into temporary Rust storage have no such caller precondition.
+the generated wrapper's comment names them. The callback must keep
+those borrows valid: no mutation, growth, early close or release.
+Nothing checks this, so it is the caller's obligation. Slices copied
+into temporary Rust storage carry no such obligation.
 
 Tested by `tests/ffi/probe-sealed/030-callback-borrow.axbad`.
 A shim that stores one takes a share with `axiom_retain` and pairs it

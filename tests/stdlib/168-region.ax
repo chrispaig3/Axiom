@@ -56,14 +56,12 @@
 ; above `before`'s. A region that reclaimed nothing would answer 0 by
 ; tens of KiB.
 (:: reclaimed (-> Int Int Int))
-;@axiom:effect(unsafe)
 (fn (reclaimed before after)
   (if (<= (- (memGetWord after 0) (memGetWord before 0)) 48)
     1
     0))
 
 (:: burn (-> Int Int))
-;@axiom:effect(unsafe)
 (fn (burn n)
   (if (<= n 0)
     0
@@ -88,7 +86,6 @@
 
 (:: main Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (main)
   {
     ; --- 1. the value passes through ---

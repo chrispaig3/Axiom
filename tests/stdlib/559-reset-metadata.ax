@@ -30,7 +30,6 @@
 
 ; fill `p` (`words` words) with a pattern derived from `tag`
 (:: pat (-> Int Int Int Int))
-;@axiom:effect(unsafe)
 (fn (pat p words tag)
   {
     (for i in 0..words
@@ -39,7 +38,6 @@
   })
 
 (:: patOk (-> Int Int Int Int))
-;@axiom:effect(unsafe)
 (fn (patOk p words tag)
   (let ((mut bad 0))
     {
@@ -51,7 +49,6 @@
     }))
 
 (:: zeroOk (-> Int Int Int))
-;@axiom:effect(unsafe)
 (fn (zeroOk p words)
   (let ((mut bad 0))
     {

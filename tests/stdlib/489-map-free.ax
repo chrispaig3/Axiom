@@ -25,7 +25,6 @@
     }))
 
 (:: buildFreeSized (-> Int Int))
-;@axiom:effect(unsafe)
 (fn (buildFreeSized n)
   (let ((m (mapWithCapacityRefVals 32)) (mut i 0))
     {
@@ -35,7 +34,6 @@
     }))
 
 (:: buildFreeNullary (-> Int Int))
-;@axiom:effect(unsafe)
 (fn (buildFreeNullary n)
   (let ((m mapNewRefVals) (mut i 0))
     {
@@ -57,7 +55,6 @@
 
 (:: main Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (main)
   (let (
     (mut bad 0)

@@ -20,8 +20,6 @@
 ; The errno behind a failed rename, or 0 when it succeeded.
 (:: renameCode (-> Int Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`a` and `b` each name live NUL-terminated bytes)
 (fn (renameCode a b)
   (match (sysRename a b)
     ((Ok v) 0)
@@ -29,7 +27,6 @@
 
 (:: main Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (main)
   ; --- append -----------------------------------------------------
   ; It CREATES when the file is absent, which is what makes an

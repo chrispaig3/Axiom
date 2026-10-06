@@ -107,7 +107,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: blake2bCount (-> Int Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`ctr` names 2 live writable words and `inc` is 0 to 128)
 (fn (blake2bCount ctr inc)
   (let ((t0 (+ (__load64 ctr 0) inc)))
     {
@@ -136,7 +135,6 @@
 (:: blake2bBlocks (-> Int Int Int Int Int Int))
 ;@axiom:ct(*cv, *p)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`cv` names 8 live writable words, `ctr` 2, and `p` names 128 * `nblocks` live bytes)
 (fn (blake2bBlocks cv ctr p nblocks mode)
   (let (
     (inc
@@ -345,8 +343,6 @@
 ; BLAKE2b. Answers 0.
 (pub :: blake2bCompress (-> Int Int Int Bool Int))
 ;@axiom:ct(*p)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`st` names 10 live writable words, `p` names 128 live bytes, and `inc` is 0 to 128)
 (pub fn (blake2bCompress st p inc last)
   {
     (blake2bCount (+ st 64) inc)
@@ -374,7 +370,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: blake2bErase (-> Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`st` names a live writable BLAKE2b state blob)
 (fn (blake2bErase st)
   {
     (for i in 0..37
@@ -388,7 +383,6 @@
 (:: blake2bKeyBlock (-> Int Int Int Int))
 ;@axiom:ct(*key)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`buf` names 128 live writable bytes, `key` names `keyLen` live bytes, and `keyLen` is 0 to 64)
 (fn (blake2bKeyBlock buf key keyLen)
   {
     (b2Copy buf key keyLen)
@@ -402,7 +396,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: blake2bInit (-> Int Int Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`st` names a live writable BLAKE2b state blob, `outLen` is 1 to 64 and `keyLen` 0 to 64)
 (fn (blake2bInit st outLen keyLen)
   {
     (__store64 st 0 (^ 7640891576956012808 (^ 16842752 (^ (<< keyLen 8) outLen))))
@@ -438,7 +431,6 @@
 (:: blake2bAbsorbIn (-> Int Int Int Int Int Int))
 ;@axiom:ct(*cv, *buf, *p)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`cv` names 8 live writable words, `ctr` 6 that passed `blake2bBlobOk`, `buf` 128 live writable bytes, and `p` names `n` live bytes)
 (fn (blake2bAbsorbIn cv ctr buf p n)
   (if (< n 0)
     -1
@@ -492,8 +484,6 @@
 ; `blake2bAbsorbIn` on the state blob at `st`.
 (:: blake2bAbsorb (-> Int Int Int Int))
 ;@axiom:ct(*p)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`st` names a live writable BLAKE2b state blob that passed `blake2bBlobOk`, and `p` names `n` live bytes)
 (fn (blake2bAbsorb st p n)
   (blake2bAbsorbIn st (+ st 64) (+ st 112) p n))
 
@@ -506,7 +496,6 @@
 (:: blake2bFinishIn (-> Int Int Int Int Int))
 ;@axiom:ct(*cv, *buf, *out)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`cv` names 8 live writable words, `ctr` 6 that passed `blake2bBlobOk`, `buf` 128 live writable bytes, and `out` names the digest length in live writable bytes)
 (fn (blake2bFinishIn cv ctr buf out)
   (let ((have (__load64 ctr 2)) (outLen (__load64 ctr 3)))
     {
@@ -522,8 +511,6 @@
 ; `blake2bFinishIn` on the state blob at `st`.
 (:: blake2bFinish (-> Int Int Int))
 ;@axiom:ct(*out)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`st` names a live writable BLAKE2b state blob that passed `blake2bBlobOk`, and `out` names its digest length in live writable bytes)
 (fn (blake2bFinish st out)
   (blake2bFinishIn st (+ st 64) (+ st 112) out))
 
@@ -558,7 +545,6 @@
 (pub :: blake2bAddr (-> Int Int Int Int Int Int Int))
 ;@axiom:ct(*key, *p)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`out` names `outLen` live writable bytes, `outLen` is 1 to 64, `key` names `keyLen` live bytes, `keyLen` is 0 to 64, and `p` names `n` live bytes)
 (pub fn (blake2bAddr out outLen key keyLen p n)
   (let ((st (memAlloc blake2bStateBytes)))
     {
@@ -573,7 +559,6 @@
 ; key is unkeyed BLAKE2b. A digest length outside 1 to 64 or a key over
 ; 64 bytes answers `cryptoInvalidLength`.
 (pub :: blake2b (-> Int String String (Result String Error)))
-;@axiom:effect(unsafe)
 (pub fn (blake2b outLen key msg)
   (if (|| (< outLen 1) (> outLen 64))
     (cryptoLengthErr "a BLAKE2b digest is 1 to 64 bytes" "blake2b")
@@ -587,7 +572,6 @@
 
 ; The 64-byte unkeyed BLAKE2b digest of `msg` (BLAKE2b-512).
 (pub :: blake2b512 (-> String String))
-;@axiom:effect(unsafe)
 (pub fn (blake2b512 msg)
   (let ((out (strAlloc 64)))
     {
@@ -597,7 +581,6 @@
 
 ; The 32-byte unkeyed BLAKE2b digest of `msg` (BLAKE2b-256).
 (pub :: blake2b256 (-> String String))
-;@axiom:effect(unsafe)
 (pub fn (blake2b256 msg)
   (let ((out (strAlloc 32)))
     {
@@ -618,7 +601,6 @@
 (:: blake2bMake (-> Int Int Int Blake2b))
 ;@axiom:ct(*key)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`outLen` is 1 to 64, `key` names `keyLen` live bytes and `keyLen` is 0 to 64)
 (fn (blake2bMake outLen key keyLen)
   (let ((s (strAlloc blake2bStateBytes)))
     (let ((st (strData s)))
@@ -631,7 +613,6 @@
 ; A fresh unkeyed hash with an `outLen`-byte digest, or
 ; `cryptoInvalidLength` when `outLen` is outside 1 to 64.
 (pub :: blake2bNew (-> Int (Result Blake2b Error)))
-;@axiom:effect(unsafe)
 (pub fn (blake2bNew outLen)
   (if (|| (< outLen 1) (> outLen 64))
     (cryptoLengthErr "a BLAKE2b digest is 1 to 64 bytes" "blake2bNew")
@@ -641,7 +622,6 @@
 ; `cryptoInvalidLength` when `outLen` is outside 1 to 64 or `key` is
 ; over 64 bytes. The state keeps a copy of the key until it is wiped.
 (pub :: blake2bNewKeyed (-> Int String (Result Blake2b Error)))
-;@axiom:effect(unsafe)
 (pub fn (blake2bNewKeyed outLen key)
   (if (|| (< outLen 1) (> outLen 64))
     (cryptoLengthErr "a BLAKE2b digest is 1 to 64 bytes" "blake2bNewKeyed")
@@ -651,7 +631,6 @@
 
 ; `blake2bNewKeyed` with a key held in the secret store.
 (pub :: blake2bNewKeyedSecret (-> Int SecretBytes (Result Blake2b Error)))
-;@axiom:effect(unsafe)
 (pub fn (blake2bNewKeyedSecret outLen key)
   (if (|| (< outLen 1) (> outLen 64))
     (cryptoLengthErr "a BLAKE2b digest is 1 to 64 bytes" "blake2bNewKeyedSecret")
@@ -663,8 +642,6 @@
 ; live BLAKE2b state or `n` is negative, and then absorbs nothing.
 (pub :: blake2bUpdateAddr (-> Blake2b Int Int Int))
 ;@axiom:ct(*p)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`p` names `n` live bytes)
 (pub fn (blake2bUpdateAddr h p n)
   (let ((s h.state))
     (if (blake2bBlobOk s)
@@ -673,7 +650,6 @@
 
 ; Absorb `msg`. Answers 0, or -1 when `h` is not a live BLAKE2b state.
 (pub :: blake2bUpdate (-> Blake2b String Int))
-;@axiom:effect(unsafe)
 (pub fn (blake2bUpdate h msg)
   (blake2bUpdateAddr h (strData msg) (strLen msg)))
 
@@ -699,7 +675,6 @@
 ; An independent copy of `h`, which goes on from the same point. It
 ; holds its own copy of any key.
 (pub :: blake2bCopy (-> Blake2b Blake2b))
-;@axiom:effect(unsafe)
 (pub fn (blake2bCopy h)
   (let ((s h.state))
     (Blake2b (bytesFromAddr (strData s) (strLen s)))))

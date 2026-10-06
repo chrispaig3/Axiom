@@ -80,7 +80,7 @@ is in [the memory model](memory-model.md)).
 | R-B7 | A dead chain of any depth is released without deep recursion, and no share is released twice | `MM-LIFE-2k` | `tests/stdlib/555-release-deep-chain.ax`, `scripts/check-reclaim-soak.sh` |
 | R-B8 | Reuse is bounded by the allocator's size classes, and held, reusable and mapped bytes are readable with `memStats` | `MM-ALLOC-24`, `MM-ALLOC-25` | `tests/stdlib/703-memory-stats.ax`, `scripts/check-reclaim-soak.sh` |
 | R-B9 | A recovery point allocates nothing, and a contained trap leaves the heap consistent | `MM-ALLOC-23` | `tests/stdlib/560-recover-record.ax` |
-| R-B10 | A typed read or write checks its range before the kernel sees it | `MM-EXEC-9e` | `tests/stdlib/610-typed-io-bounds.ax` |
+| R-B10 | A typed read or write checks its range before the kernel sees it | `MM-EXEC-9f` | `tests/stdlib/610-typed-io-bounds.ax` |
 | — | Releasing the last share of a `File`, socket or database connection closes it once | `MM-EXEC-17` | `tests/stdlib/697-resource-owner.ax`, `tests/stdlib/698-file-lifetime.ax` |
 | — | A `mut` local of a reference type releases the value a `set` overwrites and its last value at scope end, each once, and a lambda that captured it keeps its own share | `MM-MUT-1`, `MM-VAL-16` | `tests/stdlib/708-mut-slot-reassign.ax`, `tests/stdlib/709-mut-slot-capture.ax` |
 

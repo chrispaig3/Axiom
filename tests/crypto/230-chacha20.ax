@@ -14,7 +14,6 @@
 
 ; `text` XORed with the keystream from block `counter`.
 (:: chacha (-> Bool String String Int String String))
-;@axiom:effect(unsafe)
 (fn (chacha inPlace key nonce counter text)
   (let (
     (n (strLen text))
@@ -40,7 +39,6 @@
 
 ; The next counter chacha20Xor answers: one past the last block used.
 (:: nextCounter (-> String String Int Int Int))
-;@axiom:effect(unsafe)
 (fn (nextCounter key nonce counter n)
   (let (
     (buf (strAlloc n))

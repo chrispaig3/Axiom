@@ -42,7 +42,6 @@
 ; `netWouldBlock` so that "not yet" and "broken" stay distinct.
 (:: acceptFromSoon (-> Int Int Int Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (acceptFromSoon lsn peer lenb tries)
   (let ((c 
     (match (netAcceptFrom lsn peer netAddrMaxBytes lenb)
@@ -62,7 +61,6 @@
 ; is what a caller should pass; this one exists to be wrong on purpose.
 (:: acceptFromCapSoon (-> Int Int Int Int Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (acceptFromCapSoon lsn peer cap lenb tries)
   (let ((c 
     (match (netAcceptFrom lsn peer cap lenb)
@@ -98,7 +96,6 @@
 
 (:: main Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (main)
   ; ------------------------------------------------------- IPv4
   (let ((base (+ 40000 (% sysGetPid 20000))))

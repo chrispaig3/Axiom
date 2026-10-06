@@ -987,3 +987,6 @@
 0.7.8  L  rust-callback-lifetimes  AxFn1/AxFn2/AxFn3 carry a borrow lifetime; exported parameters reject named and static lifetimes; wire signatures stay unchanged
 0.7.8  L  ffi-opaque-owners  generated opaque types are sealed structs; use generated constructors and close functions instead of constructing or destructuring their Handle
 0.7.8  L  ffi-callback-borrows  generated wrappers combining callbacks with live borrowed vectors or opaque owners propagate Unsafe through an explicit caller precondition
+
+# 0.7.9 - the precondition tag is removed; a contract or a comment states a condition.
+0.7.9  L  precondition-tag  `;@axiom:precondition(...)` is refused as AX3095; state a checkable condition with `;@axiom:pre(...)`, or describe it in a comment

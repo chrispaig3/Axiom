@@ -45,7 +45,6 @@
 ; Sleep on a word nobody changes.
 (:: nap (-> Int Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(block)
 (fn (nap idle ms)
   {

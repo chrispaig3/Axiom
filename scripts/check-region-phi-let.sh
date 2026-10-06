@@ -336,7 +336,6 @@ cat > "$work/evil.ax" <<'AX'
 (:: main Int)
 
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (main)
   (let ((c (Cell (MkBox 0))))
     {

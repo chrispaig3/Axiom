@@ -297,7 +297,6 @@
 ; `372-decl-macro.ax` was `AX3001 undefined variable
 ; x` for `(fn (nm x) (+ (target x) extra))`.
 (pub :: expMacros (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expMacros env)
   (memGetWord env 0))
 
@@ -309,7 +308,6 @@
   (cast (Vec a) (expMacros env)))
 
 (pub :: expOut (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expOut env)
   (memGetWord env 1))
 
@@ -321,12 +319,10 @@
   (cast (Vec a) (expOut env)))
 
 (pub :: expDepth (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expDepth env)
   (memGetWord env 3))
 
 (pub :: expDecls (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expDecls env)
   (memGetWord env 4))
 
@@ -341,7 +337,6 @@
 ; there is not. `expMacModName` is the String view; see `nodeCName` in
 ; parser.ax for why the cast lives in the accessor.
 (pub :: expMacMod (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expMacMod env)
   (memGetWord env 5))
 
@@ -353,12 +348,10 @@
 ; The quoting site, as a word: a String when there is one and 0 when
 ; there is not.
 (pub :: expQSite (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expQSite env)
   (memGetWord env 17))
 
 (pub :: expBares (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expBares env)
   (memGetWord env 14))
 
@@ -370,7 +363,6 @@
   (cast (Vec a) (expBares env)))
 
 (pub :: expFulls (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expFulls env)
   (memGetWord env 15))
 
@@ -382,7 +374,6 @@
   (cast (Vec a) (expFulls env)))
 
 (pub :: expMods (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expMods env)
   (memGetWord env 16))
 
@@ -400,7 +391,6 @@
 ; when `bares` is 0 - both sites that would ask it are guarded on
 ; that already.
 (pub :: expMidx (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expMidx env)
   (memGetWord env 23))
 
@@ -473,14 +463,12 @@
   10000)
 
 (pub :: expBlown (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expBlown env)
   (memGetWord env 8))
 
 ; Report once, then stay reported: every node after the first refusal
 ; would otherwise emit its own copy.
 (pub :: expBlow (-> Int Int String Int))
-;@axiom:effect(unsafe)
 (pub fn (expBlow env sp msg)
   {
     (if (== (memGetWord env 8) 0)
@@ -502,7 +490,6 @@
   })
 
 (pub :: expSetDepth (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expSetDepth env d)
   {
     (memSetWord env 3 d)
@@ -510,7 +497,6 @@
   })
 
 (pub :: expSetMacMod (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expSetMacMod env m)
   {
     (memSetWord env 5 m)
@@ -676,7 +662,6 @@
 
 ; A fresh identifier. See the header for why `.` is the marker.
 (pub :: expFresh (-> Int String String))
-;@axiom:effect(unsafe)
 (pub fn (expFresh env base)
   (let ((n (memGetWord env 2)))
     {
@@ -804,7 +789,6 @@
         0))))
 
 (pub :: expFindMacro (-> Int String Int))
-;@axiom:effect(unsafe)
 (pub fn (expFindMacro env name)
   (let (
     (site (memGetWordStr env 9))
@@ -911,7 +895,6 @@
   (expBoundFrom bs name (- (vecLen bs) 1)))
 
 (pub :: expBoundFrom (-> (Vec Int) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expBoundFrom bs name i)
   (if (< i 0)
     0
@@ -935,7 +918,6 @@
 ; only the index form below survives, for the lockstep comparison.
 ; ------------------------------------------------------------------
 (pub :: expRenPush (-> (Vec Int) String String (Vec Int)))
-;@axiom:effect(unsafe)
 (pub fn (expRenPush ren old new)
   {
     (vecPushStr ren old)
@@ -950,7 +932,6 @@
   (expRenLookupIdxFrom ren name (- (vecLen ren) 2)))
 
 (pub :: expRenLookupIdxFrom (-> (Vec Int) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expRenLookupIdxFrom ren name i)
   (if (< i 0)
     (- 0 1)
@@ -990,7 +971,6 @@
 ; chain pop always truncates the records pushed under it.
 ; ------------------------------------------------------------------
 (pub :: expScVerify (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expScVerify env)
   (memGetWord env 28))
 
@@ -1007,7 +987,6 @@
 ; A fresh scope id. Ungated since M2: the chain is the decision
 ; procedure's, not the checker's.
 (pub :: expScNextId (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expScNextId env)
   (let ((n (+ (memGetWord env 24) 1)))
     {
@@ -1019,7 +998,6 @@
 ; template stack against the for-stack, which is the decision
 ; procedure's innermost rule, not the checker's.
 (pub :: expScNextSeq (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expScNextSeq env)
   (let ((n (+ (memGetWord env 27) 1)))
     {
@@ -1065,7 +1043,6 @@
 ; nothing, nested invocations expand in the output walk afterwards -
 ; so the save/restore is belt and braces, house style.
 (pub :: expScEnterInst (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expScEnterInst env)
   (let ((prev (memGetWord env 25)))
     {
@@ -1076,7 +1053,6 @@
     }))
 
 (pub :: expScExitInst (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expScExitInst env prev)
   {
     (memSetWord env 25 prev)
@@ -1089,7 +1065,6 @@
 ; site, which resets beside it), while the declaration's for-bindings
 ; stay live across it.
 (pub :: expScEnterDeclInst (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expScEnterDeclInst env)
   (let ((prev (memGetWord env 25)))
     {
@@ -1102,7 +1077,6 @@
 ; beside it. The chain is NOT touched: the body substitutes under the
 ; declaration's generation, whose for-bindings are live here.
 (pub :: expScResetTpl (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expScResetTpl env)
   {
     (memSetWord env 26 vecNew)
@@ -1172,7 +1146,6 @@
 ; part on, only the drift of one track against the other, and M4
 ; retires that with the second track.
 (pub :: expScCheckRef (-> Int (Vec Int) String Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expScCheckRef env ren name sbpos isp)
   (if (== (expScVerify env) 0)
     0
@@ -1223,7 +1196,6 @@
   (expParamIndexFrom params name (- (vecLen params) 1)))
 
 (pub :: expParamIndexFrom (-> (Vec Int) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expParamIndexFrom params name i)
   (if (< i 0)
     (- 0 1)
@@ -1505,7 +1477,6 @@
   (spelling : String))
 
 (pub :: expForStack (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expForStack env)
   (memGetWord env 13))
 
@@ -1532,7 +1503,6 @@
         (expForLookupFrom fs name (- i 1))))))
 
 (pub :: expUpperFirst (-> String String))
-;@axiom:effect(unsafe)
 (pub fn (expUpperFirst s)
   (if (== (strLen s) 0)
     s
@@ -1617,7 +1587,6 @@
 ; run with `defer` off, so a name nothing declares is still this
 ; refusal, with the same words.
 (pub :: expQueryMissing (-> Int Int String String a Int))
-;@axiom:effect(unsafe)
 (pub fn (expQueryMissing env sp msg help m)
   (if (== (memGetWord env 29) 1)
     {
@@ -1847,7 +1816,6 @@
 ; filter is a fact about the importer, and the query is asked on the
 ; other side of it.
 (pub :: expFindDeclNamed (-> Int String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expFindDeclNamed env t visibleOnly)
   (expFindDeclNamedFrom
     (expDeclsVec env)
@@ -2199,7 +2167,6 @@
       })))
 
 (pub :: expPushBinderVars (-> (Vec Int) (Vec Int) Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expPushBinderVars out names isp i)
   (if (>= i (vecLen names))
     0
@@ -2236,7 +2203,6 @@
     (expForBindOfFrom fs name (- (vecLen fs) 1))))
 
 (pub :: expForBindOfFrom (-> (Vec Int) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expForBindOfFrom fs name i)
   (if (< i 0)
     0
@@ -2254,7 +2220,6 @@
 ; (MAC-CAP-5's own rule). Answers the node to splice - `true`,
 ; `false`, or a refusal's poison 0-literal.
 (pub :: expEvalSame (-> Int (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expEvalSame env qargs isp)
   (if (!= (vecLen qargs) 2)
     {
@@ -2758,7 +2723,6 @@
 ; into the user's own file. Word 11 exists for exactly this and is
 ; the reason it is not overwritten by the template walk.
 (pub :: expFmtErr (-> Int Int Int String String Int))
-;@axiom:effect(unsafe)
 (pub fn (expFmtErr env from to msg help)
   {
     (expEmit env (expMarkUnit env (mkDiagNote
@@ -2939,7 +2903,6 @@
 ; code contains no test of a format flag - `{n:>8x}` becomes exactly
 ; `(fmtPadLeft (fmtHex n) 8)` and carries no specifier with it.
 (pub :: expFmtHole (-> Int Int Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expFmtHole env v spec vsp)
   (let (
     (align (memGetWord spec 0))
@@ -3050,7 +3013,6 @@
       (expFmtCloseAt body (+ i 1) n))))
 
 (pub :: expFmtParse (-> Int Int Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expFmtParse env lit isp nl)
   ; The body's first byte, in source: past the opening quote.
   ; A literal whose span the expander lost falls back to the
@@ -3422,12 +3384,10 @@
 
 ; How many elements one evaluated binding set iterates.
 (pub :: expIterLen (-> (Vec a) Int))
-;@axiom:effect(unsafe)
 (pub fn (expIterLen seqs)
   (vecLen (vecGet (vecGetVec seqs 0) 1)))
 
 (pub :: expEvalFold (-> Int (Vec Int) (Vec Int) (Vec Int) (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expEvalFold env qargs params args ren isp)
   (if (!= (vecLen qargs) 4)
     {
@@ -3531,7 +3491,6 @@
             }))))))
 
 (pub :: expIterSameLen (-> (Vec (Vec Int)) Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expIterSameLen seqs n i)
   (if (>= i (vecLen seqs))
     1
@@ -3588,7 +3547,6 @@
 ; template sees the whole zipped tuple while it is instantiated, and
 ; one mark/truncate around the group pops them together.
 (pub :: expIterPush (-> Int (Vec a) Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expIterPush env seqs idx j)
   (if (>= j (vecLen seqs))
     0
@@ -3893,7 +3851,6 @@
 
 ; Does the TEMPLATE bind this name around the substitution in flight?
 (pub :: expTplBound (-> Int String Int))
-;@axiom:effect(unsafe)
 (pub fn (expTplBound env name)
   (let ((tb (memGetWordVec env 21)))
     (if (==
@@ -3903,7 +3860,6 @@
       (expTplBoundIn tb name 0))))
 
 (pub :: expTplBoundIn (-> (Vec Int) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expTplBoundIn tb name i)
   (if (>= i (vecLen tb))
     0
@@ -3912,7 +3868,6 @@
       (expTplBoundIn tb name (+ i 1)))))
 
 (pub :: expSeqBinds (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expSeqBinds env)
   (memGetWord env 20))
 
@@ -4165,7 +4120,6 @@
             isp))))))
 
 (pub :: substTpl (-> Int (Vec Int) (Vec Int) (Vec Int) Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (substTpl tpl params args ren env isp)
   (if (== tpl 0)
     0
@@ -4681,7 +4635,6 @@
     0))
 
 (pub :: substLamParamsIn (-> (Vec Int) (Vec Int) (Vec Int) (Vec Int) Int Int (Vec String) Int (Vec String)))
-;@axiom:effect(unsafe)
 (pub fn (substLamParamsIn ps params args ren env isp acc i)
   (if (>= i (vecLen ps))
     acc
@@ -5351,7 +5304,6 @@
 ; do not exist. Inside an instantiation (`expDepth` > 0) every node
 ; visited is expansion-produced (or reached through one), so both
 ; budgets apply there and only there.
-;@axiom:effect(unsafe)
 (pub fn (expandExpr e env bs)
   (if (== e 0)
     0
@@ -5545,7 +5497,6 @@
     0))
 
 (pub :: expandArmsIn (-> (Vec Int) Int (Vec Int) (Vec Int) Int (Vec Int)))
-;@axiom:effect(unsafe)
 (pub fn (expandArmsIn arms env bs acc i)
   (if (>= i (vecLen arms))
     acc
@@ -5671,7 +5622,6 @@
 ; reference; this walk is the third resolver and asks the same bit.
 ; ------------------------------------------------------------------
 (pub :: expandVarRef (-> Int Int (Vec Int) Int))
-;@axiom:effect(unsafe)
 (pub fn (expandVarRef e env bs)
   (if (&& (== (expBound bs (nodeAName e)) 1) (== (nodeDefScope e) 0))
     e
@@ -5867,7 +5817,6 @@
 ; (word 11), as `expandVarRef`'s refusals are. Answers 1, so a caller
 ; can record the refusal as it reports it.
 (pub :: expAsmBad (-> Int Int String Int))
-;@axiom:effect(unsafe)
 (pub fn (expAsmBad env sp msg)
   {
     (expEmit env (expMarkUnit env (mkDiagNote
@@ -5920,7 +5869,6 @@
 ; `ins` and `inVals` are the input constraints and value nodes in the
 ; order written, `regs` every register an operand or clobber names.
 (pub :: expAsmArmBody (-> String (Vec Int) Int Int (Vec Int) (Vec Int) String))
-;@axiom:effect(unsafe)
 (pub fn (expAsmArmBody arch parts arm env bs vals)
   (if (|| (== (vecLen parts) 0) (!= (nodeTag (vecGet parts 0)) TAG_E_STR))
     {
@@ -6115,7 +6063,6 @@
 ; assumed to read and write memory and the flags, so the optimiser
 ; moves no load or store across one and keeps no flag live through it.
 (pub :: expAsmConstraints (-> String (Vec String) (Vec String) (Vec String) String))
-;@axiom:effect(unsafe)
 (pub fn (expAsmConstraints arch outc ins clobs)
   (let (
     (mut s "")
@@ -6355,7 +6302,6 @@
       (expAsmColon s (+ i 1)))))
 
 (pub :: expAsmNameAt (-> (Vec String) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expAsmNameAt names nm i)
   (if (>= i (vecLen names))
     (- 0 1)
@@ -6624,7 +6570,6 @@
 ; `(macro (loopy x) (loopy x))` from a segfault into a diagnostic.
 ; ------------------------------------------------------------------
 (pub :: expandInstantiate (-> Int (Vec Int) Int (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expandInstantiate mac args env bs isp)
   (let ((d (+ (expDepth env) 1)))
     (if (> d expDepthLimit)
@@ -6703,7 +6648,6 @@
 ; on env word 20, exactly as declaration instantiation does, and the
 ; iteration stack starts empty for the same reason.
 (pub :: expandExprRuleInstantiate (-> Int (Vec Int) Int (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expandExprRuleInstantiate mac m env bs isp)
   (let ((d (+ (expDepth env) 1)))
     (if (> d expDepthLimit)
@@ -6841,7 +6785,6 @@
 ; place would rewrite it against no arguments at all.
 ; ------------------------------------------------------------------
 (pub :: expandDecl (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expandDecl d env)
   (if (== d 0)
     0
@@ -6862,7 +6805,6 @@
       0)))
 
 (pub :: expandDeclsIn (-> (Vec Int) Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expandDeclsIn decls env i)
   (if (>= i (vecLen decls))
     0
@@ -6890,7 +6832,6 @@
 ; Module 0 (the entry file) resolves to unit 0, so stamping is safe
 ; on every path.
 (pub :: expMarkUnit (-> Int Int a Int))
-;@axiom:effect(unsafe)
 (pub fn (expMarkUnit env dg m)
   {
     (diagSetUnit dg (expUnitOfMod (memGetWordVec env 12) m))
@@ -6898,7 +6839,6 @@
   })
 
 (pub :: expCheckMacros (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expCheckMacros env i)
   (if (>= i (vecLen (expMacrosVec env)))
     0
@@ -6921,7 +6861,6 @@
 ; reads node B, which is rule zero's, and a duplicate in a later rule
 ; is the same silent wrong answer at the same cost (MAC-LANG-2).
 (pub :: expCheckRuleParams (-> Int Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expCheckRuleParams mac env i)
   (let ((rules (memGetWordVec mac 9)))
     (if (==
@@ -6961,7 +6900,6 @@
 ; can split its arguments anywhere - and a macro system that picks for
 ; you is one whose expansion nobody can predict.
 (pub :: expCheckRuleEllipsis (-> Int Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expCheckRuleEllipsis mac env i)
   (let ((rules (memGetWordVec mac 9)))
     (if (==
@@ -7015,7 +6953,6 @@
 ; rule checks. Literals are list-scoped, so the used set is the
 ; UNION across rules: a literal spelled in any rule is live.
 (pub :: expCheckRuleLiterals (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expCheckRuleLiterals mac env)
   (let ((rules (memGetWordVec mac 9)))
     (if (==
@@ -7050,7 +6987,6 @@
       })))
 
 (pub :: expCollectUsedVec (-> (Vec Int) (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expCollectUsedVec used union i)
   (if (>= i (vecLen used))
     0
@@ -7078,7 +7014,6 @@
         0))))
 
 (pub :: expCheckLiteralsUsedIn (-> Int (Vec Int) (Vec Int) Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expCheckLiteralsUsedIn mac lits union env i)
   (if (>= i (vecLen lits))
     0
@@ -7115,7 +7050,6 @@
     (expRepCount reps (+ i 1) (+ n (vecGet reps i)))))
 
 (pub :: expEllipsisDiag (-> Int String String String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expEllipsisDiag env name msg help isp)
   (expEmit env (expMarkUnit env (mkDiagNote
     SEV_ERROR
@@ -7129,7 +7063,6 @@
     "a template MUST use a repeated binding under an ellipsis of the same depth (macro-system.md MAC-LANG-16): a name bound to a SEQUENCE is many forms, and every position that takes one form needs to be told which") (memGetWord env 11))))
 
 (pub :: expCheckRuleArities (-> Int Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expCheckRuleArities mac env i)
   (let ((rules (memGetWordVec mac 9)))
     (if (==
@@ -7219,7 +7152,6 @@
 ; property of the macro, and a macro is now a list of rules
 ; (MAC-LANG-14).
 (pub :: expCheckTplKinds (-> Int Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expCheckTplKinds mac env i)
   (let ((rules (memGetWordVec mac 9)))
     (if (==
@@ -7880,7 +7812,6 @@
 
 ; Accumulators into `SeqBind`s, in binder order.
 (pub :: expSealSeqs (-> (Vec Int) (Vec Int) (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expSealSeqs binders accs seqs i)
   (if (>= i (vecLen binders))
     1
@@ -7909,7 +7840,6 @@
   (expSeqLookupFrom seqs name 0))
 
 (pub :: expSeqLookupFrom (-> (Vec Int) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expSeqLookupFrom seqs name i)
   (if (>= i (vecLen seqs))
     0
@@ -7960,7 +7890,6 @@
   (concat (expShapeElems (expRuleSpells r) 0 (concat "(" name)) ")"))
 
 (pub :: expShapeElems (-> (Vec Int) Int String String))
-;@axiom:effect(unsafe)
 (pub fn (expShapeElems spells i acc)
   (if (>= i (vecLen spells))
     acc
@@ -8068,7 +7997,6 @@
 ; 9), so a marker name arriving here is one written OUTSIDE a macro.
 ; Corpus population when the reservation landed: zero.
 (pub :: expCheckDeclNames (-> (Vec Int) Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expCheckDeclNames decls env i)
   (if (>= i (vecLen decls))
     0
@@ -8141,7 +8069,6 @@
     }))
 
 (pub :: expCheckDupParams (-> Int Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expCheckDupParams mac env i)
   ; A RULE-FORM macro's node B is rule zero's slot 0, which since
   ; MAC-LANG-15 holds a `syntax/pat` MARKER wherever an element is not
@@ -8154,7 +8081,6 @@
     (expCheckDupParamsIn mac (nodeBVec mac) env i)))
 
 (pub :: expCheckDupParamsIn (-> Int (Vec Int) Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expCheckDupParamsIn mac ps env i)
   (let ((ps ps))
     (if (>= i (vecLen ps))
@@ -8190,7 +8116,6 @@
 ; to. Answers nothing: the declarations are rewritten in place.
 ; ------------------------------------------------------------------
 (pub :: expandProgram (-> (Vec Int) (Vec Int) (Vec Int) (Vec Int) (Vec Int) (Vec String) (Vec String) (Vec Int) Int (Vec Int)))
-;@axiom:effect(unsafe)
 (pub fn (expandProgram entryDecls decls out frames units bares fulls mods scVerify)
   (let ((env
     (cast Int (MEnv
@@ -8285,7 +8210,6 @@
   128)
 
 (pub :: expandDeclPhase (-> (Vec Int) (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expandDeclPhase entryDecls decls env)
   {
     ; Rounds run with queries deferring (`expQueryMissing`) while
@@ -8309,7 +8233,6 @@
 ; Is an invocation still waiting - neither expanded nor refused?
 ; After a round that generated nothing, only a deferred one can be.
 (pub :: expAnyWaiting (-> (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expAnyWaiting decls i)
   (if (>= i (vecLen decls))
     0
@@ -8319,7 +8242,6 @@
         (expAnyWaiting decls (+ i 1))))))
 
 (pub :: expandDeclRounds (-> (Vec Int) (Vec Int) Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expandDeclRounds entryDecls decls env round)
   (if (>= round expDeclMacroRounds)
     (let ((d (expFirstMacroCall decls 0)))
@@ -8371,7 +8293,6 @@
 ; invocation is marked (word 3 = 1) and reported once - it stays in
 ; the list, the driver's error gate keeps it from the checker.
 (pub :: expandDeclRound (-> (Vec Int) (Vec Int) Int Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expandDeclRound entryDecls decls env i progress)
   (if (>= i (vecLen decls))
     progress
@@ -8398,7 +8319,6 @@
           progress)))))
 
 (pub :: expDeclCallErr (-> Int Int String String String Int))
-;@axiom:effect(unsafe)
 (pub fn (expDeclCallErr env d msg help note)
   {
     (expEmit env (expMarkUnit env (mkDiagNote
@@ -8491,7 +8411,6 @@
 ; are the same contents in the same order, which is why the 49
 ; rule-form macros already in the tree emit identical IR.
 (pub :: expInstantiateDecl (-> (Vec Int) (Vec Int) Int Int Int (Vec Int) Int))
-;@axiom:effect(unsafe)
 (pub fn (expInstantiateDecl entryDecls decls env d mac m)
   (let (
     (isp (nodeSpan d))
@@ -9465,7 +9384,6 @@
     1
     (nodeVis t)))
 
-;@axiom:effect(unsafe)
 (pub fn (expBuildOneDecl t params args env isp)
   (let ((tag (nodeTag t)))
     (if (== tag TAG_D_FN)
@@ -9764,7 +9682,6 @@
 ; An `effect` template's operations, both vectors at once. Answers 1,
 ; or 0 with the refusal already emitted.
 (pub :: expBuildEffectOps (-> (Vec Int) (Vec Int) (Vec Int) (Vec Int) Int Int (Vec Int) (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expBuildEffectOps ops ofs params args env isp outOps outFs i)
   (if (>= i (vecLen ops))
     1
@@ -10316,7 +10233,6 @@
 ; invocation node - words 0-4, 6 and 9; module stays 0, vis is
 ; stamped 1, and the AXTAGs are re-homed by `expGiveTags`.
 (pub :: expCopyDeclInto (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expCopyDeclInto d g)
   {
     (memSetWord d 0 (memGetWord g 0))
@@ -10444,7 +10360,6 @@
 ; Recorded after the names are final, so a mangled module-side product
 ; is recorded under the name a reader will see.
 (pub :: expRecordGens (-> Int (Vec Int) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expRecordGens env made macName i)
   (if (== (memGetWord env 18) 0)
     0
@@ -10540,7 +10455,6 @@
     (expGiveTagsIn d made tags 0)))
 
 (pub :: expGiveTagsIn (-> Int (Vec Int) Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expGiveTagsIn d made tags i)
   (if (>= i (vecLen made))
     ; no fn generated: first declaration keeps them
@@ -10622,7 +10536,6 @@
           0)))))
 
 (pub :: expUnitMod (-> (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expUnitMod units idx)
   (if (||
     (==
@@ -10641,7 +10554,6 @@
     (expUnitOfModFrom units m 0)))
 
 (pub :: expUnitOfModFrom (-> (Vec Int) a Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expUnitOfModFrom units m i)
   (if (>= i (vecLen units))
     0
@@ -10727,7 +10639,6 @@
 ; what it left out - a truncation nobody counts is how a reader stops
 ; being able to trust the ones that are shown.
 (pub :: expAttachFrom (-> Int (Vec Int) (Vec Int) Int Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (expAttachFrom d table units dmod j seen)
   (if (>= j (vecLen table))
     seen
@@ -10860,7 +10771,6 @@
 ; gone rather than made cleverer - any shape-based test of the body is
 ; forgeable by the body.
 (pub :: expLowerOne (-> Int (Vec Int) Int))
-;@axiom:effect(unsafe)
 (pub fn (expLowerOne d tags)
   (if (== (vecLen tags) 0)
     0

@@ -55,7 +55,6 @@
 ; Sleep `ms` milliseconds on a word nobody changes.
 (:: nap (-> Int Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(block)
 (fn (nap idle ms)
   {
@@ -287,7 +286,6 @@
 
 (:: kernelRound (-> Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
 (fn (kernelRound x)
@@ -321,7 +319,6 @@
 
 (:: main Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
 (fn (main)

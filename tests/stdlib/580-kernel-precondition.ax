@@ -1,9 +1,8 @@
 ; A declaration whose only unsafe work is handing a word to the kernel
-; can say what its caller must make true (docs/memory-model.md
-; MM-EXEC-9e). `put`'s body is one `write(2)`: the kernel reads `n`
-; bytes at `buf`, so `put` is a precondition interface, and `main`,
-; which passes the bytes of a `String` it holds, is a trusted
-; encapsulation over it.
+; says `effect(unsafe)` (docs/memory-model.md MM-EXEC-9d). `put`'s body
+; is one `write(2)`: the kernel reads `n` bytes at `buf`. `put` is a
+; trusted encapsulation, so `main`, which passes the bytes of a
+; `String` it holds, needs no tag of its own.
 ;
 ; The committed seed before this rule refused `put`'s tags with AX3010
 ; ("`effect(unsafe)` claim unsupported: missing Unsafe"), because the
@@ -14,13 +13,11 @@
 (:: put (-> Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`buf` names `n` live bytes)
 (fn (put buf n)
   (__syscall3 sysWrite 1 buf n))
 
 (:: main Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (main)
   (let ((s "a word the kernel reads\n"))
     {

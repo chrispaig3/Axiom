@@ -74,7 +74,6 @@
 (pub :: fe25519Set (-> Int Int Int Int Int Int Int Int Int Int Int Int))
 ;@axiom:ct(*out, h0, h1, h2, h3, h4, h5, h6, h7, h8, h9)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`out` names 10 live writable words)
 (pub fn (fe25519Set out h0 h1 h2 h3 h4 h5 h6 h7 h8 h9)
   {
     (__store64 out 0 h0)
@@ -94,8 +93,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: fe25519Zero (-> Int Int))
 ;@axiom:ct(*out)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`out` names 10 live writable words)
 (pub fn (fe25519Zero out)
   (fe25519Set out 0 0 0 0 0 0 0 0 0 0))
 
@@ -103,8 +100,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: fe25519One (-> Int Int))
 ;@axiom:ct(*out)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`out` names 10 live writable words)
 (pub fn (fe25519One out)
   (fe25519Set out 1 0 0 0 0 0 0 0 0 0))
 
@@ -113,7 +108,6 @@
 (pub :: fe25519Copy (-> Int Int Int))
 ;@axiom:ct(*out, *a)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`out` and `a` each name 10 live words)
 (pub fn (fe25519Copy out a)
   {
     (for i in 0..10
@@ -125,8 +119,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: fe25519SqrtM1 (-> Int Int))
 ;@axiom:ct(*out)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`out` names 10 live writable words)
 (pub fn (fe25519SqrtM1 out)
   (fe25519Set out -32595792 -7943725 9377950 3500415 12389472 -272473 -25146209 -2005654 326686 11406482))
 
@@ -138,7 +130,6 @@
 (pub :: fe25519Add (-> Int Int Int Int))
 ;@axiom:ct(*out, *a, *b)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`out`, `a` and `b` each name 10 live words)
 (pub fn (fe25519Add out a b)
   {
     (for i in 0..10
@@ -151,7 +142,6 @@
 (pub :: fe25519Sub (-> Int Int Int Int))
 ;@axiom:ct(*out, *a, *b)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`out`, `a` and `b` each name 10 live words)
 (pub fn (fe25519Sub out a b)
   {
     (for i in 0..10
@@ -164,7 +154,6 @@
 (pub :: fe25519Neg (-> Int Int Int))
 ;@axiom:ct(*out, *a)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`out` and `a` each name 10 live words)
 (pub fn (fe25519Neg out a)
   {
     (for i in 0..10
@@ -181,7 +170,6 @@
 (pub :: fe25519Mul (-> Int Int Int Int))
 ;@axiom:ct(*out, *a, *b)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`out`, `a` and `b` each name 10 live words)
 (pub fn (fe25519Mul out a b)
   (let (
       (f0 (__load64 a 0)) (f1 (__load64 a 1)) (f2 (__load64 a 2)) (f3 (__load64 a 3)) (f4 (__load64 a 4))
@@ -220,7 +208,6 @@
 (pub :: fe25519Sq (-> Int Int Int))
 ;@axiom:ct(*out, *a)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`out` and `a` each name 10 live words)
 (pub fn (fe25519Sq out a)
   (let (
       (f0 (__load64 a 0)) (f1 (__load64 a 1)) (f2 (__load64 a 2)) (f3 (__load64 a 3)) (f4 (__load64 a 4))
@@ -257,7 +244,6 @@
 (pub :: fe25519Sq2 (-> Int Int Int))
 ;@axiom:ct(*out, *a)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`out` and `a` each name 10 live words)
 (pub fn (fe25519Sq2 out a)
   (let (
       (f0 (__load64 a 0)) (f1 (__load64 a 1)) (f2 (__load64 a 2)) (f3 (__load64 a 3)) (f4 (__load64 a 4))
@@ -296,8 +282,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: feCarryStore (-> Int Int Int Int Int Int Int Int Int Int Int Int))
 ;@axiom:ct(*out, h0, h1, h2, h3, h4, h5, h6, h7, h8, h9)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`out` names 10 live writable words)
 (fn (feCarryStore out h0 h1 h2 h3 h4 h5 h6 h7 h8 h9)
   (let (
       (c0 (>> (+ h0 33554432) 26)) (h1 (+ h1 c0)) (h0 (- h0 (<< c0 26)))
@@ -320,8 +304,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: feCarryStore2 (-> Int Int Int Int Int Int Int Int Int Int Int Int))
 ;@axiom:ct(*out, h0, h1, h2, h3, h4, h5, h6, h7, h8, h9)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`out` names 10 live writable words)
 (fn (feCarryStore2 out h0 h1 h2 h3 h4 h5 h6 h7 h8 h9)
   (let (
       (c9 (>> (+ h9 16777216) 25)) (h0 (+ h0 (* c9 19))) (h9 (- h9 (<< c9 25)))
@@ -343,7 +325,6 @@
 (pub :: fe25519Mul121666 (-> Int Int Int))
 ;@axiom:ct(*out, *a)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`out` and `a` each name 10 live words)
 (pub fn (fe25519Mul121666 out a)
   (feCarryStore2 out
     (* (__load64 a 0) 121666) (* (__load64 a 1) 121666) (* (__load64 a 2) 121666)
@@ -355,8 +336,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: feSqN (-> Int Int Int Int))
 ;@axiom:ct(*out, *a)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`out` and `a` each name 10 live words)
 (fn (feSqN out a n)
   {
     (fe25519Sq out a)
@@ -369,8 +348,6 @@
 ; 254 squarings and 11 multiplications, whatever `a` is).
 (pub :: fe25519Invert (-> Int Int Int))
 ;@axiom:ct(*out, *a)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`out` and `a` each name 10 live words)
 (pub fn (fe25519Invert out a)
   (let ((t (memAlloc 320)))
     (let ((t0 t) (t1 (+ t 80)) (t2 (+ t 160)) (t3 (+ t 240)))
@@ -404,8 +381,6 @@
 ; roots in point decoding (ref10's pow22523 chain).
 (pub :: fe25519Pow22523 (-> Int Int Int))
 ;@axiom:ct(*out, *a)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`out` and `a` each name 10 live words)
 (pub fn (fe25519Pow22523 out a)
   (let ((t (memAlloc 240)))
     (let ((t0 t) (t1 (+ t 80)) (t2 (+ t 160)))
@@ -443,8 +418,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: fe25519CSwap (-> Int Int Int Int))
 ;@axiom:ct(m, *f, *g)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`f` and `g` each name 10 live writable words)
 (pub fn (fe25519CSwap m f g)
   (ctSwapWords m f g 10))
 
@@ -454,7 +427,6 @@
 (pub :: fe25519CMov (-> Int Int Int Int))
 ;@axiom:ct(m, *f, *g)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`f` and `g` each name 10 live words, `f` writable)
 (pub fn (fe25519CMov m f g)
   {
     (for i in 0..10
@@ -471,7 +443,6 @@
 (:: ld24le (-> Int Int Int))
 ;@axiom:ct(*p)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`p` + `off` names 3 live bytes)
 (fn (ld24le p off)
   (| (__load8 p off)
     (| (<< (__load8 p (+ off 1)) 8)
@@ -483,8 +454,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: fe25519FromBytes (-> Int Int Int))
 ;@axiom:ct(*out, *p)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`out` names 10 live writable words and `p` 32 live bytes)
 (pub fn (fe25519FromBytes out p)
   (feCarryStore2 out
     (ld32le p 0)
@@ -508,7 +477,6 @@
 (pub :: fe25519ToBytes (-> Int Int Int))
 ;@axiom:ct(*p, *a)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`p` names 32 live writable bytes and `a` 10 live words)
 (pub fn (fe25519ToBytes p a)
   (let (
       (h0 (__load64 a 0)) (h1 (__load64 a 1)) (h2 (__load64 a 2)) (h3 (__load64 a 3)) (h4 (__load64 a 4))
@@ -577,7 +545,6 @@
 (pub :: fe25519IsNegative (-> Int Int))
 ;@axiom:ct(*a)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`a` names 10 live words)
 (pub fn (fe25519IsNegative a)
   (let ((s (memAlloc 32)))
     {
@@ -594,7 +561,6 @@
 (pub :: fe25519IsZero (-> Int Int))
 ;@axiom:ct(*a)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`a` names 10 live words)
 (pub fn (fe25519IsZero a)
   (let ((s (memAlloc 32)) (mut acc 0))
     {

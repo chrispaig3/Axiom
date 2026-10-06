@@ -58,7 +58,6 @@
 
 (:: fill (-> Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (fill i)
   (if (>= i bigCount)
     0
@@ -69,7 +68,6 @@
 
 (:: drain (-> Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (drain i)
   (if (>= i bigCount)
     0
@@ -89,7 +87,6 @@
 
 (:: main Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (main)
   ; --- a directory is never empty ---------------------------------
   (let (

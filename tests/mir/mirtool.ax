@@ -119,7 +119,6 @@
 ; differ.
 (:: parseOnly (-> String (Vec Int)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (parseOnly path)
   (let ((src (readFile path)))
     (let ((pr (parseModuleWith (lex src) (scanAxtags src))))

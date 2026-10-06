@@ -191,7 +191,6 @@
 (pub :: ld32le (-> Int Int Int))
 ;@axiom:ct(*p)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`p` + `off` names 4 live bytes)
 (pub fn (ld32le p off)
   (| (__load8 p off) (| (<< (__load8 p (+ off 1)) 8) (| (<< (__load8 p (+ off 2)) 16) (<< (__load8 p (+ off 3)) 24)))))
 
@@ -199,23 +198,18 @@
 (pub :: ld32be (-> Int Int Int))
 ;@axiom:ct(*p)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`p` + `off` names 4 live bytes)
 (pub fn (ld32be p off)
   (| (<< (__load8 p off) 24) (| (<< (__load8 p (+ off 1)) 16) (| (<< (__load8 p (+ off 2)) 8) (__load8 p (+ off 3))))))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ld64le (-> Int Int Int))
 ;@axiom:ct(*p)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`p` + `off` names 8 live bytes)
 (pub fn (ld64le p off)
   (| (ld32le p off) (<< (ld32le p (+ off 4)) 32)))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ld64be (-> Int Int Int))
 ;@axiom:ct(*p)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`p` + `off` names 8 live bytes)
 (pub fn (ld64be p off)
   (| (<< (ld32be p off) 32) (ld32be p (+ off 4))))
 
@@ -223,7 +217,6 @@
 (pub :: st32le (-> Int Int Int Int))
 ;@axiom:ct(*p, v)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`p` + `off` names 4 live writable bytes)
 (pub fn (st32le p off v)
   {
     (__store8 p off (& v 255))
@@ -237,7 +230,6 @@
 (pub :: st32be (-> Int Int Int Int))
 ;@axiom:ct(*p, v)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`p` + `off` names 4 live writable bytes)
 (pub fn (st32be p off v)
   {
     (__store8 p off (& (>> v 24) 255))
@@ -250,8 +242,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: st64le (-> Int Int Int Int))
 ;@axiom:ct(*p, v)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`p` + `off` names 8 live writable bytes)
 (pub fn (st64le p off v)
   {
     (st32le p off (& v 4294967295))
@@ -261,8 +251,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: st64be (-> Int Int Int Int))
 ;@axiom:ct(*p, v)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`p` + `off` names 8 live writable bytes)
 (pub fn (st64be p off v)
   {
     (st32be p off (shrU v 32))
@@ -280,7 +268,6 @@
 (pub :: ctEqAddr (-> Int Int Int Bool))
 ;@axiom:ct(*a, *b)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`a` and `b` each name `n` live bytes)
 (pub fn (ctEqAddr a b n)
   (let ((mut d 0))
     {
@@ -300,7 +287,6 @@
 (pub :: ctWipe (-> Int Int Int))
 ;@axiom:ct(*p)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`p` names `n` live writable bytes)
 (pub fn (ctWipe p n)
   {
     (for i in 0..n
@@ -316,7 +302,6 @@
 (pub :: ctCopy (-> Int Int Int Int))
 ;@axiom:ct(*dst, *src)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`dst` and `src` each name `n` live bytes, and the ranges do not overlap)
 (pub fn (ctCopy dst src n)
   {
     (for i in 0..n
@@ -331,7 +316,6 @@
 (pub :: ctSwapWords (-> Int Int Int Int Int))
 ;@axiom:ct(m, *a, *b)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`a` and `b` each name `n` live writable words)
 (pub fn (ctSwapWords m a b n)
   {
     (for i in 0..n

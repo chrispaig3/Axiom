@@ -72,7 +72,6 @@
 ; Sleep `ms` milliseconds on a word nobody changes.
 (:: nap (-> Int Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(block)
 (fn (nap idle ms)
   {
@@ -104,7 +103,6 @@
 
 (:: bump (-> Mutex Int Int Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(block)
 (fn (bump m cell n locked)
   {
@@ -142,8 +140,6 @@
 ; ---- timed ---------------------------------------------------------------
 (:: elapsedSince (-> Int Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`buf` names 16 live writable bytes)
 (fn (elapsedSince buf t0)
   (- (sysTimeoutMicros buf) t0))
 
@@ -179,7 +175,6 @@
 ; Hold the lock for `ms`, raising `flag` once it is held.
 (:: holdFor (-> Mutex Int Int Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(block)
 (fn (holdFor m flag idle ms)
   (match (mutexLock m)
@@ -196,7 +191,6 @@
 ; Wait for `flag`, then time a lock that may wait `ms`.
 (:: lockAfter (-> Mutex Int Int Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(block)
 (fn (lockAfter m flag ms what)
   (let ((buf (memAlloc 16)))
@@ -232,7 +226,6 @@
 
 (:: recvWithin (-> Chan Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(block)
 (fn (recvWithin ch ms)
   (let ((buf (memAlloc 16)))
@@ -242,7 +235,6 @@
 
 (:: timed (-> Int Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
 (fn (timed idle ms)
@@ -290,7 +282,6 @@
 ; ---- dead ----------------------------------------------------------------
 (:: holdForever (-> Mutex Int Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(block)
 (fn (holdForever m flag idle)
   (match (mutexLock m)
@@ -312,7 +303,6 @@
 
 (:: dead (-> Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
 (fn (dead idle)
@@ -360,7 +350,6 @@
 ; Take the lock, raise `flag`, and end: the binding exits holding it.
 (:: lockAndExit (-> Mutex Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(block)
 (fn (lockAndExit m flag)
   (match (mutexLock m)
@@ -385,7 +374,6 @@
 
 (:: awaitFlag (-> Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(block)
 (fn (awaitFlag flag)
   {
@@ -397,7 +385,6 @@
 ; A timed lock of `ms` milliseconds, reported as `what`.
 (:: timedLock (-> Mutex Int String Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(block)
 (fn (timedLock m ms what)
   (let ((buf (memAlloc 16)))
@@ -407,7 +394,6 @@
 
 (:: zombie (-> Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
 (fn (zombie idle)
@@ -476,7 +462,6 @@
 ; accepted, 2 own unlocks refused, 3 the barrier.
 (:: staleDoubler (-> Mutex Int Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(block)
 (fn (staleDoubler m cell n)
   {
@@ -500,7 +485,6 @@
 
 (:: staleUser (-> Mutex Int Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(block)
 (fn (staleUser m cell n)
   {
@@ -521,7 +505,6 @@
 
 (:: stale (-> Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
 (fn (stale n)
@@ -624,7 +607,6 @@
 
 (:: main Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
 (fn (main)

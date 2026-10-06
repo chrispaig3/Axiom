@@ -88,7 +88,7 @@ Tested by `scripts/check-agent-calls.sh` and
 
 Apply an AXDL `~>` fix as a byte-range edit, then run `axiom check`
 on the resulting source. Run `axiom fmt --check` when formatting
-matters. An agent-written `effect`, `restrict` or `precondition` tag
+matters. An agent-written `effect`, `restrict` or `pre` tag
 has the same compiler checks as a human-written one. A string in an
 `agent:*` tag alone supplies no permission or safety proof.
 

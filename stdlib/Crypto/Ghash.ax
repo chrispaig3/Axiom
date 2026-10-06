@@ -114,7 +114,6 @@
 (:: ghashTailWord (-> Int Int Int Int Int))
 ;@axiom:ct(*p)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`p` + `off` names `n` live bytes)
 (fn (ghashTailWord p off n half)
   (let ((mut w 0))
     {
@@ -136,8 +135,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ghashUpdate (-> Int Int Int Int Int))
 ;@axiom:ct(*y, *h, *data)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`y` names 16 live writable bytes, `h` 16 live bytes, and `data` `len` live bytes)
 (pub fn (ghashUpdate y h data len)
   (let (
     (h1 (ld64be h 0))

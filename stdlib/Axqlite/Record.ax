@@ -67,7 +67,6 @@
 ; Store the low `n` bytes of `v` big-endian at `a + off`.
 (:: putBe (-> Int Int Int Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`a + off` names `n` live writable bytes)
 (fn (putBe a off n v)
   {
     (for i in 0..n
@@ -79,7 +78,6 @@
 ; at 8 the top bit lands in the sign).
 (:: getBe (-> Int Int Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`a + off` names `n` live bytes)
 (fn (getBe a off n)
   (let ((mut v 0))
     {
@@ -228,8 +226,6 @@
 
 ; A fresh string holding the `n` bytes at `a + off`.
 (:: bytesAt (-> Int Int Int String))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`a + off` names `n` live bytes)
 (fn (bytesAt a off n)
   (let ((s (strAlloc n)))
     {
@@ -241,8 +237,6 @@
 ; record `size` bytes long at `a`, and the offset just past it; `Err`
 ; when the payload runs past the end.
 (:: readPayload (-> Int Int Int Int (Result Value Error)))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`a` names `size` live bytes)
 (fn (readPayload a size code at)
   (if (== code 0)
     (Ok VNull)
@@ -268,8 +262,6 @@
 ; How many payload bytes a value of type `code` at `at` takes, reading
 ; its length where it has one; -1 when that runs past `size`.
 (:: payloadSpan (-> Int Int Int Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`a` names `size` live bytes)
 (fn (payloadSpan a size code at)
   (if (== code 0)
     0
@@ -327,7 +319,6 @@
 
 ; How many columns a record holds.
 (pub :: recColumnCount (-> String (Result Int Error)))
-;@axiom:effect(unsafe)
 (pub fn (recColumnCount rec)
   (if (< (strLen rec) 2)
     (corrupt "a record shorter than its column count" "recColumnCount")
@@ -407,7 +398,6 @@
 ; The 8-byte key of a table row: the rowid big-endian with its sign bit
 ; flipped, so bytewise order is numeric order.
 (pub :: keyRowid (-> Int String))
-;@axiom:effect(unsafe)
 (pub fn (keyRowid n)
   (let ((out (strAlloc 8)))
     {
@@ -417,7 +407,6 @@
 
 ; The rowid a table key holds.
 (pub :: keyRowidOf (-> String (Result Int Error)))
-;@axiom:effect(unsafe)
 (pub fn (keyRowidOf k)
   (if (!= (strLen k) 8)
     (corrupt "a table key is not 8 bytes" "keyRowidOf")
@@ -425,7 +414,6 @@
 
 ; The rowid in the last 8 bytes of an index key.
 (pub :: keyIndexRowid (-> String (Result Int Error)))
-;@axiom:effect(unsafe)
 (pub fn (keyIndexRowid k)
   (let ((n (strLen k)))
     (if (< n 8)
@@ -489,7 +477,6 @@
 
 (:: putNum (-> Int Int Num Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`a + at` names 11 live writable bytes)
 (fn (putNum a at num)
   (if (== num.sign 0)
     {
@@ -528,7 +515,6 @@
 
 (:: putEscaped (-> Int Int Int String Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`a + at` names enough live writable bytes for the escaped string)
 (fn (putEscaped a at tag s)
   (let (
     (src (strData s))
@@ -569,7 +555,6 @@
 
 (:: putValueKey (-> Int Int Value Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`a + at` names `valueKeyBytes v` live writable bytes)
 (fn (putValueKey a at v)
   (match v
     ((VNull)
@@ -587,7 +572,6 @@
 ; index on those columns stores before the rowid. A NaN answers
 ; `axqType`.
 (pub :: keyEncode (-> (Vec Value) (Result String Error)))
-;@axiom:effect(unsafe)
 (pub fn (keyEncode vals)
   (let (
     (mut size 0)
@@ -626,8 +610,6 @@
 ; The number a key's 10 exponent-and-mantissa bytes at `a + at` hold,
 ; `neg` when the tag said negative.
 (:: numFromKey (-> Int Int Bool Value))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`a + at` names 10 live bytes)
 (fn (numFromKey a at neg)
   (let (
     (ex (if neg
@@ -670,7 +652,6 @@
 ; ends; `None` when the terminator is missing or an escape is invalid.
 (:: unescape (-> Int Int Int (Option (Vec Int))))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`a` names `n` live bytes)
 (fn (unescape a at n)
   (let (
     (bytes vecNew)

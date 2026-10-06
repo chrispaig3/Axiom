@@ -6,7 +6,6 @@
 (import Err)
 
 (:: allocationStep (-> Int Int (Result String Error) Int))
-;@axiom:effect(unsafe)
 (fn (allocationStep acc i r)
   (let ((p (memAlloc 131072)))
     {

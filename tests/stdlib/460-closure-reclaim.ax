@@ -230,7 +230,6 @@
   ))
 
 (:: main Int)
-;@axiom:effect(unsafe)
 (fn (main)
   (let (
     (mut acc 0)

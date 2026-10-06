@@ -1102,8 +1102,8 @@ first. Three rules keep the numbering straight:
 - A proposal renumbers when the compiler spends its number first.
 - A new code takes the next number above the highest one in use, the
   *free end*, and never a number from the reserved block.
-- A retired number **MUST NOT** be reused. `AX3008` and `AX3032` are
-  retired.
+- A retired number **MUST NOT** be reused. `AX3008`, `AX3032`,
+  `AX3079` and `AX3080` are retired.
 
 No codes are proposed right now. When one is, it goes in this table:
 
@@ -1158,12 +1158,11 @@ This section records the codes below. All of them are built, and
 | `AX3070` `unsafe-field-access` | a field read on a `data` type with a nullary constructor beside a fielded one | Split from `AX3008`. |
 | `AX3071` `unretained-store` | a bare `__store64` of a reference-typed value through `cast` | `tests/diagnostics/1002-unretained-store.ax` |
 | `AX3072` `addr-nonliteral` | `__addr` of anything but a string literal | `tests/diagnostics/1003-addr-nonliteral.ax` |
-| `AX3073` `undeclared-unsafe` | a declaration performs a raw primitive, calls a precondition interface or forges a reference without `;@axiom:effect(unsafe)` | An error. `tests/diagnostics/1004-undeclared-unsafe.ax`, `tests/diagnostics/1040-forging-cast.ax`, `tests/diagnostics/1041-precondition-call.ax` |
-| `AX3079` `precondition-without-unsafe` | `;@axiom:precondition(...)` appears without `effect(unsafe)` | An error. `tests/diagnostics/1043-precondition-tag.ax` |
-| `AX3080` `precondition-empty` | a precondition states nothing | An error. `tests/diagnostics/1043-precondition-tag.ax` |
+| `AX3073` `undeclared-unsafe` | a declaration performs a raw primitive, calls an `extern` or forges a reference without `;@axiom:effect(unsafe)` | An error. `tests/diagnostics/1004-undeclared-unsafe.ax`, `tests/diagnostics/1040-forging-cast.ax`, `tests/diagnostics/1116-extern-unsafe.ax` |
 | `AX3089` `signature-needed` | a function with no signature, called from inside its own body or from a declaration above it, before its type is known | An error. `tests/diagnostics/1032-signature-needed.ax` |
 | `AX3090` `recover-thunk-unseen` | a recovery point's thunk that isn't a lambda written at the call or a top-level function, so the region check can't walk it | An error. `tests/diagnostics/1033-recover-escape.ax` |
 | `AX3091` `inline-asm` | an `asm` form the compiler can't lower: an unknown architecture or operand kind, a second arm for one architecture, a template naming no operand, a second output, or a register an arm can't name | An error, where the form is written. `tests/diagnostics/1044-inline-asm.ax` |
+| `AX3095` `precondition-removed` | a `;@axiom:precondition(...)` tag, which the language no longer has | An error wherever the tag stands. `tests/diagnostics/1043-precondition-removed.ax` |
 
 Every warning in the table is listed, with its reason, in
 `tests/diagnostics/severity.policy`. The `restrict(...)` codes are
@@ -1237,14 +1236,14 @@ four corpus fixtures `270`, `390`, `395` and `480` are their primaries.
 frees a block the stored word still names. `AX3072` exists because
 anything but a string literal has no interned bytes behind it.
 
-`AX3073` covers every primitive in `MM-EXEC-9c`, a call to a
-precondition interface and a cast that forges a reference. The
-operation's declaration must say `effect(unsafe)`. A declaration with
-that tag alone is a trusted wrapper: its caller inherits no unsafe
-obligation. Add `precondition(...)` when callers must meet a condition
-the wrapper cannot establish itself. Every call to that interface is
-then an unsafe operation in the caller. `AX3079` refuses a precondition
-without `effect(unsafe)`, and `AX3080` refuses an empty one.
+`AX3073` covers every primitive in `MM-EXEC-9c`, a call to an
+`extern` and a cast that forges a reference. The operation's
+declaration must say `effect(unsafe)`, and that makes it a trusted
+wrapper: its caller inherits no unsafe obligation. A condition a caller
+must meet is a `;@axiom:pre(...)` contract when the arguments can show
+it, and a comment otherwise. `AX3095` refuses the removed
+`;@axiom:precondition(...)` tag, and its old checks `AX3079` and
+`AX3080` are retired.
 
 `AX3076` was spent on 2026-09-27 by `effect-tag-list`: an
 `;@axiom:effect(...)` tag naming more than one effect -

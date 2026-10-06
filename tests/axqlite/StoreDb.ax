@@ -73,7 +73,6 @@
 ; XXH64 of a file's bytes, or -1 when it can't be read.
 (pub :: fileHash (-> String Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (fileHash path)
   (if (! (fileExists path))
     -1

@@ -1,10 +1,10 @@
 ; expect 42
 ; A trusted encapsulation written in a program (R-B6,
 ; docs/memory-model.md MM-EXEC-9d). `Cells` keeps words in a raw block
-; and checks every index against its length, so its functions make
-; `memGetWord`'s and `memSetWord`'s preconditions true themselves and
-; say `;@axiom:effect(unsafe)` alone. `cellsOf` forges a `Cells` out of
-; the block it has just built, which is the one place that is honest.
+; and checks every index against its length before it reads or writes
+; one through `Mem`'s trusted word functions. `cellsOf` forges a
+; `Cells` out of the block it has just built, which is the one place
+; that is honest, so it says `;@axiom:effect(unsafe)`.
 ;
 ; `sum` and `main` use it with no tag, and `sum` claims
 ; `restrict(no-unsafe)`, which holds: a trusted function's `Unsafe`
@@ -26,14 +26,12 @@
     })))
 
 (:: cellGet (-> Cells Int Int))
-;@axiom:effect(unsafe)
 (fn (cellGet c i)
   (if (|| (< i 0) (>= i c.len))
     __indexTrap
     (memGetWord c.base i)))
 
 (:: cellSet (-> Cells Int Int Int))
-;@axiom:effect(unsafe)
 (fn (cellSet c i v)
   (if (|| (< i 0) (>= i c.len))
     __indexTrap

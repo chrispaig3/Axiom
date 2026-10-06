@@ -53,7 +53,6 @@
   (public k))
 
 (:: publicParam (-> Int Int Int))
-;@axiom:effect(unsafe)
 ;@axiom:ct(*p, k)
 (fn (publicParam p k)
   (ctWipe p k))

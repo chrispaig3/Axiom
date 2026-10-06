@@ -35,8 +35,6 @@
 
 ; A fresh copy of `n` bytes at `p`.
 (pub :: bytesFromAddr (-> Int Int String))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`p` names `n` live bytes)
 (pub fn (bytesFromAddr p n)
   (let ((s (bytesNew n)))
     {
@@ -46,7 +44,6 @@
 
 ; The 4 bytes of `v`'s low 32 bits, most significant first.
 (pub :: bytesU32Be (-> Int String))
-;@axiom:effect(unsafe)
 (pub fn (bytesU32Be v)
   (let ((s (bytesNew 4)))
     {
@@ -56,7 +53,6 @@
 
 ; The 4 bytes of `v`'s low 32 bits, least significant first.
 (pub :: bytesU32Le (-> Int String))
-;@axiom:effect(unsafe)
 (pub fn (bytesU32Le v)
   (let ((s (bytesNew 4)))
     {
@@ -66,7 +62,6 @@
 
 ; The 8 bytes of `v`, most significant first.
 (pub :: bytesU64Be (-> Int String))
-;@axiom:effect(unsafe)
 (pub fn (bytesU64Be v)
   (let ((s (bytesNew 8)))
     {
@@ -76,7 +71,6 @@
 
 ; The 8 bytes of `v`, least significant first.
 (pub :: bytesU64Le (-> Int String))
-;@axiom:effect(unsafe)
 (pub fn (bytesU64Le v)
   (let ((s (bytesNew 8)))
     {
@@ -113,7 +107,6 @@
 ; compare a tag, a digest of a secret, or anything else an attacker
 ; could learn from how long a comparison took.
 (pub :: bytesEqCt (-> String String Bool))
-;@axiom:effect(unsafe)
 (pub fn (bytesEqCt a b)
   (if (!= (strLen a) (strLen b))
     false

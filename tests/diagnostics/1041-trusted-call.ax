@@ -1,0 +1,48 @@
+; A call to a trusted encapsulation is not an unsafe operation of the
+; caller's (R-B6, docs/memory-model.md MM-EXEC-9d). A function that
+; says `;@axiom:effect(unsafe)` vouches for every well-typed call, so
+; its callers need no tag, even when it takes a raw address.
+;
+; Accepted: `peek` calls `Mem.memGetWord`, `heading` reads a vector
+; slot back as a `String` with `vecGetStr`, and `useLocal` calls
+; `loadAt`, a trusted function written here. `pure` claims purity over
+; the call to `loadAt`, and the claim holds: the callee's `Unsafe`
+; stays with it.
+;
+; Refused: `vouched` says `effect(unsafe)` over a body that only calls
+; `loadAt`. It performs nothing unsafe itself, so the claim is
+; unsupported, which is AX3010.
+(import Mem)
+(import Str)
+(import Vec)
+
+(:: peek (-> Int Int))
+(fn (peek addr)
+  (memGetWord addr 0))
+
+(:: heading (-> (Vec Int) String))
+(fn (heading v)
+  (vecGetStr v 0))
+
+(:: loadAt (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (loadAt a)
+  (__load64 a 0))
+
+(:: useLocal (-> Int Int))
+(fn (useLocal a)
+  (loadAt a))
+
+(:: pure (-> Int Int))
+;@axiom:effect(pure)
+(fn (pure a)
+  (loadAt a))
+
+(:: vouched (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (vouched a)
+  (loadAt a))
+
+(:: main Int)
+(fn (main)
+  0)

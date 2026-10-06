@@ -30,7 +30,6 @@
 ; Run this program again as a child in `mode`.
 (:: spawnChild (-> String (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(spawn)
 (fn (spawnChild mode)
   (let (
@@ -48,7 +47,6 @@
 ; Microseconds on the clock.
 (:: now Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (now)
   (unwrapOr (sysNowMicros (memAlloc 16)) 0))
 

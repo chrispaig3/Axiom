@@ -39,7 +39,6 @@
 ; A bound, listening, non-blocking socket on `port`, or a negative.
 (:: listenOn (-> Int Int Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (listenOn addr optb port)
   (match netSocketTcp
     ((Err e) (- 0 1))
@@ -71,8 +70,6 @@
 
 ; Whether `fd` is among the `n` events in `buf`.
 (:: hasFd (-> Int Int Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`buf` holds at least `n` live poll records)
 (fn (hasFd buf n fd)
   (let ((mut i 0))
     (let ((mut found 0))
@@ -89,7 +86,6 @@
 
 (:: main Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (main)
   (let ((base (+ 20000 (% sysGetPid 9000))))
     (let ((addr (memAlloc 16)))

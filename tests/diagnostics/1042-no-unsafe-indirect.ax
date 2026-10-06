@@ -1,22 +1,21 @@
 ; `restrict(no-unsafe)` refuses a body that performs an unsafe
 ; operation, or reaches one through a callee that is not a trusted
 ; encapsulation (R-B6, docs/memory-model.md MM-EXEC-9d). The walk stops
-; at a function that says `effect(unsafe)` without a precondition.
+; at a function that says `effect(unsafe)`.
 ;
 ; Refused, directly: `forges` casts a word into a `Box`, and `peeks`
-; calls `memGetWord`. Each draws AX3073 beside its AX3049, as a raw
-; primitive does.
+; loads a word with `__load64`. Each draws AX3073 beside its AX3049.
 ;
 ; Refused, through one indirection: `viaForge` calls `boxOf`, which
-; forges and says nothing, and `viaPeek` calls `wordAt`, which calls
-; `memGetWord` and says nothing. Both callees draw AX3073, and the
-; restriction names the path. `viaForge` is declared before `boxOf`, so
-; the answer does not depend on which body is checked first.
-; `viaInterface` calls `cellAt`, a precondition interface, which is an
-; unsafe operation of its own.
+; forges and says nothing, and `viaPeek` calls `wordAt`, which loads
+; and says nothing. Both callees draw AX3073, and the restriction names
+; the path. `viaForge` is declared before `boxOf`, so the answer does
+; not depend on which body is checked first.
 ;
-; Accepted: `pushes` fills a `Vec` and builds a `String`, and `safely`
-; calls `firstByte`, a trusted wrapper written here.
+; Accepted: `pushes` fills a `Vec` and builds a `String`, `safely`
+; calls `firstByte`, a trusted wrapper written here, `viaCell` calls
+; `cellAt`, another, and `reads` calls `memGetWord`, a trusted `Mem`
+; function that takes a raw address.
 (import Mem)
 (import Str)
 (import Vec)
@@ -33,7 +32,7 @@
 (:: peeks (-> Int Int))
 ;@axiom:restrict(no-unsafe)
 (fn (peeks a)
-  (memGetWord a 0))
+  (__load64 a 0))
 
 (:: viaForge (-> Int Int))
 ;@axiom:restrict(no-unsafe)
@@ -47,7 +46,7 @@
 
 (:: wordAt (-> Int Int))
 (fn (wordAt a)
-  (memGetWord a 1))
+  (__load64 a 1))
 
 (:: viaPeek (-> Int Int))
 ;@axiom:restrict(no-unsafe)
@@ -56,14 +55,18 @@
 
 (:: cellAt (-> Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`c` names a live block of at least 3 words)
 (fn (cellAt c)
-  (memGetWord c 2))
+  (__load64 c 2))
 
-(:: viaInterface (-> Int Int))
+(:: viaCell (-> Int Int))
 ;@axiom:restrict(no-unsafe)
-(fn (viaInterface c)
+(fn (viaCell c)
   (cellAt c))
+
+(:: reads (-> Int Int))
+;@axiom:restrict(no-unsafe)
+(fn (reads c)
+  (memGetWord c 0))
 
 (:: pushes (-> Int Int))
 ;@axiom:restrict(no-unsafe)
@@ -80,7 +83,7 @@
 (fn (firstByte s)
   (if (== (strLen s) 0)
     0
-    (memGetByte (strData s) 0)))
+    (__load8 (strData s) 0)))
 
 (:: safely (-> String Int))
 ;@axiom:restrict(no-unsafe)

@@ -363,7 +363,6 @@
 ; released share; aliases cannot be used after the last share is released.
 (pub :: mapFree (-> Map Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(the caller owns the share it releases, and nothing uses `m` after the last share is gone)
 (pub fn (mapFree m)
   {
     (__release
@@ -393,7 +392,6 @@
 ; no-op on a `mapNew` table, which owns nothing it holds.
 (:: mapDropVal (-> Map Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`i` is a slot below the table's capacity)
 (fn (mapDropVal m i)
   (if (mapOwnsVals m)
     (let (
@@ -430,7 +428,6 @@
 ; `mapLiveFrom` would have stepped over - reads the word it holds, 0 or
 ; a removed entry's leftover, and that is the caller's error.
 (pub :: mapKeyAt (-> Map Int Int))
-;@axiom:effect(unsafe)
 (pub fn (mapKeyAt m i)
   (if (< i 0)
     __indexTrap
@@ -441,7 +438,6 @@
 ; The value in slot `i`. See `mapKeyAt` above for the bounds rule
 ; and why `mapStateAt` is not exported beside these two.
 (pub :: mapValAt (-> Map Int Int))
-;@axiom:effect(unsafe)
 (pub fn (mapValAt m i)
   (if (< i 0)
     __indexTrap
@@ -450,7 +446,6 @@
       (memGetWord m.vals i))))
 
 (:: mapStateAt (-> Map Int Int))
-;@axiom:effect(unsafe)
 (fn (mapStateAt m i)
   (memGetByte m.states i))
 
@@ -534,7 +529,6 @@
 ; on a path with no recursion anywhere, which inlines into every
 ; caller; the call survives only for keys that actually collide.
 (:: mapFindSlot (-> Map Int Int))
-;@axiom:effect(unsafe)
 (fn (mapFindSlot m key)
   (let (
     (cap (mapCap m))
@@ -564,8 +558,6 @@
               (- cap 1))))))))
 
 (:: mapFindLoop (-> Int Int Int Int Int Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`states` and `keys` are one table's arrays of `cap` slots, and `i` is below `cap`)
 (fn (mapFindLoop states keys cap key i left)
   (if (<= left 0)
     (- 0 1)
@@ -663,7 +655,6 @@
 ; and the one `vecGetStr` uses.
 (pub :: mapGetStr (-> Map Int String String))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(a value stored under `key` is a live `String`)
 (pub fn (mapGetStr m key dflt)
   (let ((i (mapFindSlot m key)))
     (if (< i 0)
@@ -736,7 +727,6 @@
 ; single insert push `used` to `cap` and leave the next lookup's probe
 ; with no empty slot to stop at.
 (pub :: mapInsert (-> Map Int a Int))
-;@axiom:effect(unsafe)
 (pub fn (mapInsert m key value)
   {
     (if (mapNeedsGrow m)
@@ -761,7 +751,6 @@
 ; home slot. A tombstone there falls into the loop remembering it, so
 ; the reuse rule is exactly the loop's.
 (:: mapInsertNoGrow (-> Map Int a Int))
-;@axiom:effect(unsafe)
 (fn (mapInsertNoGrow m key value)
   (let (
     (cap (mapCap m))
@@ -812,8 +801,6 @@
               (- cap 1))))))))
 
 (:: mapInsertLoop (-> Map Int Int Int Int Int a Int Int Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`keys`, `vals` and `states` are `m`'s arrays of `cap` slots, and `i` is below `cap`)
 (fn (mapInsertLoop m keys vals states cap key value i firstTomb left)
   (if (<= left 0)
     0
@@ -899,8 +886,6 @@
 ; stack-dependent, and this is the layer everything else is going to
 ; trust.
 (:: mapFillAt (-> Map Int Int Int Int Int a Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`keys`, `vals` and `states` are `m`'s arrays, and `i` is one of their slots)
 (fn (mapFillAt m keys vals states i key value consumesEmpty)
   {
     (memSetWord keys i key)
@@ -923,7 +908,6 @@
 ; `len` drops, `used` does not - the slot is still not available to a
 ; probe as a stopping point, and only a rehash reclaims it.
 (pub :: mapRemove (-> Map Int Int))
-;@axiom:effect(unsafe)
 (pub fn (mapRemove m key)
   (let ((i (mapFindSlot m key)))
     (if (< i 0)
@@ -962,7 +946,7 @@
 ; is why `mapRemove` can be O(1) and still leave the table healthy.
 (:: mapRehash (-> Map Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`newCap` is a power of two above twice the live count)
+;@axiom:pre((&& (> newCap 0) (== (& newCap (- newCap 1)) 0)))
 (fn (mapRehash m newCap)
   (let (
     (oldCap (mapCap m))
@@ -1016,8 +1000,6 @@
 ; Walk the old arrays, placing every live entry into the new ones.
 ; Returns how many were placed.
 (:: mapReinsertLoop (-> Int Int Int Int Int Int Int Int Int Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(the six arrays are two tables' arrays of `newCap` and `oldCap` slots, and `i` is below `oldCap`)
 (fn (mapReinsertLoop newKeys newVals newStates newCap oldKeys oldVals oldStates oldCap i cnt)
   (if (>= i oldCap)
     cnt
@@ -1065,8 +1047,6 @@
 ; full table here means a bug elsewhere, and dropping the entry is a
 ; wrong answer a test can see, where an unbounded scan is a hang.
 (:: mapPlaceLoop (-> Int Int Int Int Int Int Int Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`keys`, `vals` and `states` are one table's arrays of `cap` slots with a free one, and `i` is below `cap`)
 (fn (mapPlaceLoop keys vals states cap key value i left)
   (if (<= left 0)
     0

@@ -49,7 +49,6 @@
 
 (:: main Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (main)
   ; Block first, or the default disposition kills us before
   ; anything can observe the signal.

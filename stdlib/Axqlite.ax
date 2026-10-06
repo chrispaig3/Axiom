@@ -352,7 +352,6 @@
     ((VBlob b) (blobText b))))
 
 (:: blobText (-> String String))
-;@axiom:effect(unsafe)
 (fn (blobText b)
   (let (
     (n (strLen b))
@@ -375,7 +374,6 @@
 
 ; `s` as an AXQL text literal: in single quotes, each quote doubled.
 (pub :: axqlQuoteText (-> String String))
-;@axiom:effect(unsafe)
 (pub fn (axqlQuoteText s)
   (let (
     (n (strLen s))

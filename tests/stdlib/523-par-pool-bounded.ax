@@ -72,7 +72,6 @@
 ; result escapes its region and neither mark is read after the reset.
 (:: storageWords Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
 (fn (storageWords)
@@ -92,7 +91,6 @@
 
 (:: storageChecked Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
 (fn (storageChecked)

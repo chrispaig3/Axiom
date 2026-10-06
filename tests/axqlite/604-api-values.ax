@@ -11,7 +11,6 @@
 (import AxqlKit)
 
 (:: allBytes String)
-;@axiom:effect(unsafe)
 (fn (allBytes)
   (let ((s (strAlloc 256)))
     {

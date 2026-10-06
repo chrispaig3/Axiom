@@ -54,7 +54,6 @@
 ; Mutation is confined to the allocated input buffer; parsed keys,
 ; string values and exact-number spellings must remain independent.
 (:: ownedResult Bool)
-;@axiom:effect(unsafe)
 (fn (ownedResult)
   (let ((source (strDup "{\"key\":\"value\",\"number\":1.20e3}")))
     (match (cerealDecode CerealJson source)

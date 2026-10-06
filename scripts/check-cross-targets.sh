@@ -245,7 +245,7 @@ done
 echo "--- syscall templates declare ~{cc} on every target ---"
 ccwork="$(mktemp -d)"
 trap 'rm -rf "$ccwork"' EXIT
-printf '(import Sys)\n(:: main Int)\n;@axiom:effect(io)\n;@axiom:effect(unsafe)\n(fn (main) { (sysWriteFd 1 0 0) 0 })\n' > "$ccwork/cc.ax"
+printf '(import Sys)\n(:: main Int)\n;@axiom:effect(io)\n(fn (main) { (sysWriteFd 1 0 0) 0 })\n' > "$ccwork/cc.ax"
 export AXIOM_STDLIB="${AXIOM_STDLIB:-$(pwd)/stdlib}"
 # The differential below compares the seed's templates (`$axiom`) with
 # the tree's (`$axc`).
@@ -368,7 +368,7 @@ pework="$(mktemp -d)"
 # directories.
 trap 'rm -rf "$pework" "$ccwork" "$work"' EXIT
 mkdir -p "$pework/d2" "$pework/d3"
-printf '(import Sys)\n(:: main Int)\n;@axiom:effect(io)\n;@axiom:effect(unsafe)\n(fn (main) { (sysWriteFd 1 0 0) 0 })\n' > "$pework/pe.ax"
+printf '(import Sys)\n(:: main Int)\n;@axiom:effect(io)\n(fn (main) { (sysWriteFd 1 0 0) 0 })\n' > "$pework/pe.ax"
 for target in "${targets[@]}"; do
   if ! "$axc" --target="$target" emit-llvm "$pework/pe.ax" -o "$pework/pe.ll" >/dev/null 2>&1; then
     echo "FAIL [$target]: the path-independence probe would not compile"

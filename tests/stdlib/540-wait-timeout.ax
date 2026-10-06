@@ -36,8 +36,6 @@
 ; 1 when at least `ms` milliseconds passed since `t0`.
 (:: waited (-> Int Int Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`buf` names 16 live writable bytes)
 (fn (waited buf t0 ms)
   (bit (>= (- (sysTimeoutMicros buf) t0) (* ms 1000))))
 
@@ -45,7 +43,6 @@
 ; how the first look went (0 running, 1 ended, 2 the look failed).
 (:: firstLook (-> Int Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(block)
 (fn (firstLook pid pbuf)
   (match (sysChildExited pid pbuf)
@@ -54,7 +51,6 @@
 
 (:: awaitEnd (-> Int Int Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(block)
 (fn (awaitEnd pid pbuf idle)
   (let ((mut seen 0))
@@ -75,7 +71,6 @@
 ; A child that answers 42 once the word at `w` stops holding 7.
 (:: spawnWaiter (-> Int Spawn))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
 (fn (spawnWaiter w)
@@ -96,7 +91,6 @@
 
 (:: main Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
 (fn (main)

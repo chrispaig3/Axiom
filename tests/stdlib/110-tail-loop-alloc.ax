@@ -28,7 +28,6 @@
 ; A fresh 2-word cell holding `(i, i*i)`, appended to `box`'s vector.
 ; Returns `box`, so the caller can thread it through a tail call.
 (pub :: addCell (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (addCell box i)
   (let ((cell (memAlloc 16)))
     {
@@ -53,7 +52,6 @@
 
 ; Number of cells that still read back as `(i, i*i)`.
 (pub :: intactFrom (-> (Vec Int) Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (intactFrom cells i acc)
   (if (>= i (vecLen cells))
     acc
@@ -67,7 +65,6 @@
 
 (pub :: main Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (main)
   (let (
     (box (cast Int (Box vecNew 0)))

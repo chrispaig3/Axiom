@@ -25,7 +25,6 @@
 
 (:: main Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (main)
   ; not there to begin with, and a size query on it fails
   (let (

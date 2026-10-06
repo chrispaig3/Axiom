@@ -2603,9 +2603,9 @@ INSTRUMENT_SEAMS = [
 
 TRACE_AX = r'''
 ; ---- the trace: scripts/check-protocol-model.sh's instrumented copy ----
-; Each helper is a precondition interface: it takes a raw address the
-; caller vouches for, so an instrumented function keeps the Unsafe its
-; replaced primitive gave it.
+; Each helper takes a raw address and is trusted: a helper whose body
+; performs the primitive says `effect(unsafe)`, and `instrument` drops
+; the claim of a function the replaced primitive alone supported.
 ; Every operation on a channel word, recorded in the order it happened:
 ; a trace lock is held across each. The record lives one page past the
 ; channel's words (so a traced channel holds at most 504): word 0 the
@@ -2620,7 +2620,6 @@ TRACE_AX = r'''
 
 (:: trEnter (-> Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`addr` or `ch` is a word of a live traced channel, whose trace area is mapped)
 (fn (trEnter t)
   {
     (while (!= (__atomic_cas t 0 1) 0)
@@ -2630,14 +2629,12 @@ TRACE_AX = r'''
 
 (:: trLeave (-> Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`addr` or `ch` is a word of a live traced channel, whose trace area is mapped)
 (fn (trLeave t)
   (__atomic_store t 0))
 
 (:: trNote (-> Int Int Int Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`addr` or `ch` is a word of a live traced channel, whose trace area is mapped)
 (fn (trNote addr op a b r)
   (let ((t (trArea addr)))
     (if (== (__load64 t 1) 1)
@@ -2663,7 +2660,6 @@ TRACE_AX = r'''
 (:: trLoad (-> Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`addr` or `ch` is a word of a live traced channel, whose trace area is mapped)
 (fn (trLoad a)
   (let ((t (trArea a)))
     {
@@ -2679,7 +2675,6 @@ TRACE_AX = r'''
 (:: trStore (-> Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`addr` or `ch` is a word of a live traced channel, whose trace area is mapped)
 (fn (trStore a v)
   (let ((t (trArea a)))
     {
@@ -2693,7 +2688,6 @@ TRACE_AX = r'''
 (:: trAdd (-> Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`addr` or `ch` is a word of a live traced channel, whose trace area is mapped)
 (fn (trAdd a d)
   (let ((t (trArea a)))
     {
@@ -2709,7 +2703,6 @@ TRACE_AX = r'''
 (:: trCas (-> Int Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`addr` or `ch` is a word of a live traced channel, whose trace area is mapped)
 (fn (trCas a old new)
   (let ((t (trArea a)))
     {
@@ -2725,7 +2718,6 @@ TRACE_AX = r'''
 (:: trGet (-> Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`addr` or `ch` is a word of a live traced channel, whose trace area is mapped)
 (fn (trGet ch i)
   (let ((t (trArea ch)))
     {
@@ -2741,7 +2733,6 @@ TRACE_AX = r'''
 (:: trPut (-> Int Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`addr` or `ch` is a word of a live traced channel, whose trace area is mapped)
 (fn (trPut ch i v)
   (let ((t (trArea ch)))
     {
@@ -2756,7 +2747,6 @@ TRACE_AX = r'''
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 ;@axiom:effect(block)
-;@axiom:precondition(`addr` or `ch` is a word of a live traced channel, whose trace area is mapped)
 (fn (trWaitFor addr expected nanos)
   (let ((t (trArea addr)))
     {
@@ -2774,8 +2764,6 @@ TRACE_AX = r'''
 
 (:: trWake (-> Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`addr` or `ch` is a word of a live traced channel, whose trace area is mapped)
 (fn (trWake addr)
   (let ((t (trArea addr)))
     {
@@ -2797,7 +2785,6 @@ TRACE_AX = r'''
 (:: trFree (-> Int (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`ch` names a live, traced ring, unmapped here, that nothing touches afterwards)
 (fn (trFree ch)
   (let (
     (t (trArea ch))
@@ -2868,6 +2855,16 @@ def instrument(stdlib_dir, extra=()):
         m = re.search(r"^((?:;@axiom:[^\n]*\n)*)(\((?:pub )?fn \(%s[ )])" % re.escape(name), s, re.M)
         if m and ";@axiom:effect(io)" not in m.group(1):
             s = s[:m.start(2)] + ";@axiom:effect(io)\n" + s[m.start(2):]
+    # A function whose only unsafe operations were the primitives the
+    # seams replaced now calls trusted trace helpers instead, so its
+    # `effect(unsafe)` claim would be unsupported (AX3010): drop it.
+    for name, text in sorted(code.items()):
+        if re.search(r"\((?:__|cast )", text):
+            continue
+        m = re.search(r"^((?:;@axiom:[^\n]*\n)*)(\((?:pub )?fn \(%s[ )])" % re.escape(name), s, re.M)
+        if m and ";@axiom:effect(unsafe)\n" in m.group(1):
+            tags = m.group(1).replace(";@axiom:effect(unsafe)\n", "", 1)
+            s = s[:m.start(1)] + tags + s[m.end(1):]
     s += TRACE_AX
     open(p, "w", encoding="utf-8").write(s)
     return report, sorted(io)

@@ -32,7 +32,6 @@
 (:: chanOp (-> Int Chan Int))
 ;@axiom:effect(io)
 ;@axiom:effect(block)
-;@axiom:effect(unsafe)
 (fn (chanOp k c)
   (if (== k 0)
     {
@@ -109,7 +108,6 @@
 (:: mutexOp (-> Int Mutex Int))
 ;@axiom:effect(io)
 ;@axiom:effect(block)
-;@axiom:effect(unsafe)
 (fn (mutexOp k m)
   (if (== k 0)
     (okBit (mutexLock m))
@@ -171,7 +169,6 @@
 (:: main Int)
 ;@axiom:effect(io)
 ;@axiom:effect(block)
-;@axiom:effect(unsafe)
 (fn (main)
   (match (chanNew 4)
     ((Ok c)

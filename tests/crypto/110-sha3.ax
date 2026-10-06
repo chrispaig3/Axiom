@@ -44,7 +44,6 @@
 ; address form when `viaAddr` is true. The state first hashes a
 ; throwaway message, whose final resets it.
 (:: streamOf (-> Int String Int Bool String))
-;@axiom:effect(unsafe)
 (fn (streamOf alg msg c viaAddr)
   (let ((h (newOf alg)) (n (strLen msg)) (p (strData msg)) (mut off 0))
     {
@@ -83,7 +82,6 @@
 ; and squeezed `s` bytes at a time, alternating the String and address
 ; forms. A copy taken after absorbing squeezes the same bytes.
 (:: xofOf (-> Int String Int Int Int Bool String))
-;@axiom:effect(unsafe)
 (fn (xofOf alg msg outLen a s fromCopy)
   (let (
     (n (strLen msg))
@@ -152,7 +150,6 @@
 ; SHA3VS Monte Carlo: 1000 iterations of md = SHA3-`alg`(md) from
 ; `seed`, through the address forms and two buffers.
 (:: monte (-> Int String String))
-;@axiom:effect(unsafe)
 (fn (monte alg seed)
   (let ((d (strLen seed)) (a (bytesFromAddr (strData seed) (strLen seed))) (b (bytesNew (strLen seed))))
     (let ((pa (strData a)) (pb (strData b)))
@@ -187,7 +184,6 @@
 ; file's header): 1000 outputs, each over the first 16 bytes of the one
 ; before, zero-padded, at a length the one before chose.
 (:: shakeMonte (-> Int Int Int Int String String))
-;@axiom:effect(unsafe)
 (fn (shakeMonte alg minLen maxLen outLen0 prev)
   (let ((m (bytesNew 16)) (mut cur prev) (mut outLen outLen0))
     {

@@ -91,8 +91,6 @@
   [93mAX3076[0m  an `effect(...)` tag naming more than one effect  (effect-tag-list)
   [93mAX3077[0m  a checked AXTAG key on a declaration that can't carry it  (axtag-misplaced)
   [93mAX3078[0m  purity written any way but `effect(pure)`  (pure-tag-spelling)
-  [93mAX3079[0m  a precondition without `effect(unsafe)`  (precondition-without-unsafe)
-  [93mAX3080[0m  a precondition that states nothing  (precondition-empty)
   [93mAX3084[0m  a struct marker that is unknown or does not fit  (struct-marker)
   [93mAX3085[0m  a word struct built outside its module  (word-struct-sealed)
   [93mAX3086[0m  a word struct's field read outside its module  (word-struct-sealed-field)
@@ -102,6 +100,7 @@
   [93mAX3092[0m  a constant-time claim the body breaks  (ct-claim-violated)
   [93mAX3093[0m  a constant-time claim that names no parameter  (ct-claim-malformed)
   [93mAX3094[0m  a binding or declaration named `true` or `false`  (reserved-literal)
+  [93mAX3095[0m  a `;@axiom:precondition(...)` tag, which was removed  (precondition-removed)
   [93mAX3096[0m  a type alias with type parameters  (parameterised-alias)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
@@ -2631,11 +2630,10 @@ Spell the literal, or read bytes out of a value with `strData` (`stdlib/Str.ax`)
 ### explain AX3073
 AX3073 - a function performs an unsafe operation and does not declare it
 
-The body performs an unsafe operation, and its declaration does not say `;@axiom:effect(unsafe)`. There are four:
+The body performs an unsafe operation, and its declaration does not say `;@axiom:effect(unsafe)`. There are three:
 
 - an extern call, whose implementation is outside the safety checker;
 - a raw primitive, such as `__load64`, `__store8`, `__retain` or `__addr`;
-- a call to a precondition interface, a function tagged `;@axiom:precondition(...)` because its safety depends on what its caller passes, such as `Mem.memGetWord`;
 - a forging cast: `(cast T x)` where `T` is a reference - a `String`, a `Vec`, a `Handle`, a struct, a `data` type with a field, a function, a tuple or a type variable - and `x` is not already a `T`.
 
     (struct Hid (name : String) (n : Int))
@@ -2643,7 +2641,7 @@ The body performs an unsafe operation, and its declaration does not say `;@axiom
 
 Here `peek` makes a `Hid` out of an `Int`, and reading `h.n` reads whatever that word points at.
 
-Write `;@axiom:effect(unsafe)` on a line of its own, directly above the `fn` (below the `::` signature when there is one). That tag alone makes the function a trusted encapsulation: you vouch that every well-typed call to it is safe, and its callers inherit nothing. When its safety depends on its arguments, write `;@axiom:precondition(...)` beside it as well, saying what a caller must make true. Every call to it is then an unsafe operation of the caller's.
+Write `;@axiom:effect(unsafe)` on a line of its own, directly above the `fn` (below the `::` signature when there is one). That tag makes the function a trusted encapsulation: you vouch that every well-typed call to it is safe, and its callers inherit nothing.
 
 A cast that only observes is not unsafe: a reference read as an `Int`, a number converted, a `Foreign` read as an `Int` or back, a value cast to the type it already has. Nor is a cast of a value that never returns, such as `(cast a (exit 70))`.
 
@@ -2737,26 +2735,6 @@ claim while nothing checked it.
 Write `;@axiom:effect(pure)` above the function, on its `(:: ...)`
 or its `(fn ...)`. The claim is checked as before: a body that
 performs anything draws AX3010.
-
-### explain AX3079
-AX3079 - a precondition without `effect(unsafe)`
-
-A `;@axiom:precondition(...)` tag says what a caller must make true for a call to be safe. It belongs on an unsafe interface, so it rides on `;@axiom:effect(unsafe)`:
-
-    ;@axiom:effect(unsafe)
-    ;@axiom:precondition(`a` names a live word)
-    (fn (loadAt a) (__load64 a 0))
-
-With both tags, every call to the function is an unsafe operation of the caller's (AX3073). A precondition alone would change what callers owe while the function itself claimed nothing. If the body performs nothing unsafe, drop the precondition; otherwise add `;@axiom:effect(unsafe)`.
-
-### explain AX3080
-AX3080 - a precondition that states nothing
-
-`;@axiom:precondition()` names no condition. Every call to the function is an unsafe operation of its caller's, and the precondition is the text that tells the caller what to check: `symbols` prints it as `#precondition=`, and the AX3073 a caller draws quotes it.
-
-Write the condition as a caller would check it:
-
-    ;@axiom:precondition(`buf` names 16 live writable bytes)
 
 ### explain AX3084
 AX3084 - a struct marker that is unknown or does not fit
@@ -2923,6 +2901,20 @@ So the names are reserved: literals everywhere, bindable nowhere.
 A bare `true` in a `match` pattern already TESTS the literal and
 binds nothing, which is the same rule from the pattern side.
 Choose another name.
+
+### explain AX3095
+AX3095 - a `;@axiom:precondition(...)` tag, which was removed
+
+Axiom has no `precondition` tag. A condition is written one way, as a contract: `;@axiom:pre(...)` is compiled into the function and checked on every call, and a failure exits 80.
+
+State a condition you can check from the arguments with `pre`, and describe one you can't, such as passing a live address, in an ordinary comment:
+
+    ; `a` must name a live block of `n` words.
+    ;@axiom:effect(unsafe)
+    ;@axiom:pre((>= n 1))
+    (fn (lastWord a n) (__load64 a (- n 1)))
+
+A function whose body performs an unsafe operation says `;@axiom:effect(unsafe)`, and that makes it a trusted encapsulation: its callers owe nothing the compiler checks. The `precondition` tag is refused wherever it stands, so it can't read like a checked claim.
 
 ### explain AX3096
 AX3096 - a type alias with type parameters
@@ -3399,8 +3391,6 @@ run `axiom explain --list` to see all known codes
   [93mAX3076[0m  an `effect(...)` tag naming more than one effect  (effect-tag-list)
   [93mAX3077[0m  a checked AXTAG key on a declaration that can't carry it  (axtag-misplaced)
   [93mAX3078[0m  purity written any way but `effect(pure)`  (pure-tag-spelling)
-  [93mAX3079[0m  a precondition without `effect(unsafe)`  (precondition-without-unsafe)
-  [93mAX3080[0m  a precondition that states nothing  (precondition-empty)
   [93mAX3084[0m  a struct marker that is unknown or does not fit  (struct-marker)
   [93mAX3085[0m  a word struct built outside its module  (word-struct-sealed)
   [93mAX3086[0m  a word struct's field read outside its module  (word-struct-sealed-field)
@@ -3410,6 +3400,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3092[0m  a constant-time claim the body breaks  (ct-claim-violated)
   [93mAX3093[0m  a constant-time claim that names no parameter  (ct-claim-malformed)
   [93mAX3094[0m  a binding or declaration named `true` or `false`  (reserved-literal)
+  [93mAX3095[0m  a `;@axiom:precondition(...)` tag, which was removed  (precondition-removed)
   [93mAX3096[0m  a type alias with type parameters  (parameterised-alias)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)

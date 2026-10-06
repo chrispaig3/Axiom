@@ -44,7 +44,6 @@
 ; A fresh 32-byte master key from the operating system's entropy source.
 (pub :: obfuscationKeyGenerate (Result ObfuscationKey Error))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(entropy)
 (pub fn (obfuscationKeyGenerate)
   (match (secretBlockRandom obfuscationKind 32)
@@ -54,7 +53,6 @@
 ; Copy a 32-byte secret into a master key, leaving the secret live.
 (pub :: obfuscationKeyFromSecret (-> SecretBytes (Result ObfuscationKey Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (obfuscationKeyFromSecret s)
   (if (!= (secretLen s) 32)
     (cryptoLengthErr "an obfuscation key is 32 bytes" "obfuscationKeyFromSecret")
@@ -85,7 +83,6 @@
 ; Erase and free the master key. Later use stops with status 85.
 (pub :: obfuscationKeyWipe (-> ObfuscationKey Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (obfuscationKeyWipe k)
   (secretBlockFree obfuscationKind k.slot))
 
@@ -94,7 +91,6 @@
 ; length prefix. Both intermediate SecretBytes are wiped either way.
 (:: obfuscationDerive (-> ObfuscationKey String String (Result ChaCha20Poly1305Key Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (obfuscationDerive k nonce context)
   (match (secretFromAddr (secretBlockAddr obfuscationKind k.slot) 32)
     ((Err e) (Err e))

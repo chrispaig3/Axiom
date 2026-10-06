@@ -63,7 +63,6 @@
 (:: freedSend Int)
 ;@axiom:effect(io)
 ;@axiom:effect(block)
-;@axiom:effect(unsafe)
 (fn (freedSend)
   (match (chanNew 4)
     ((Ok c)
@@ -81,7 +80,6 @@
 (:: freedLock Int)
 ;@axiom:effect(io)
 ;@axiom:effect(block)
-;@axiom:effect(unsafe)
 (fn (freedLock)
   (match (mutexNew)
     ((Ok m)
@@ -99,7 +97,6 @@
 
 (:: doubleFree Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (doubleFree)
   (match (chanNew 4)
     ((Ok c)
@@ -222,7 +219,6 @@
 ; ---- sibling --------------------------------------------------------------
 (:: freeIt (-> Chan Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (freeIt c)
   (match (chanFree c)
     ((Ok z) 1)

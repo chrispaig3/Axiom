@@ -1,4 +1,6 @@
 ; The callback may grow the vector while Rust reads a borrowed slice.
+; Nothing checks that: the generated wrapper is trusted, and its comment
+; states the obligation its caller carries.
 (import Nested (visitBorrowed))
 (import Vec)
 

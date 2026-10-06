@@ -279,7 +279,6 @@
 ; print in order, each as ` #meta`.
 ; ------------------------------------------------------------------
 (pub :: symLine (-> String String String String String (Vec String) String))
-;@axiom:effect(unsafe)
 (pub fn (symLine kind name loc ty nid metas)
   (let ((mut s kind))
     {
@@ -314,7 +313,6 @@
 ; has tens of declarations, not thousands.
 ; ------------------------------------------------------------------
 (pub :: saIdx (-> (Vec String) String Int))
-;@axiom:effect(unsafe)
 (pub fn (saIdx names key)
   (let (
     (mut i 0)
@@ -361,7 +359,6 @@
 
 ; Insert-if-absent (stage0's `or_insert`).
 (pub :: saPutSoft (-> (Vec String) (Vec Int) String (Vec Int) Int))
-;@axiom:effect(unsafe)
 (pub fn (saPutSoft names vals key val)
   (if (< (saIdx names key) 0)
     {
@@ -413,7 +410,6 @@
 ; arrives sorted (probed: `Beta,zeta`), and byte order is what Rust's
 ; string ordering is.
 (pub :: saSort (-> (Vec String) (Vec String)))
-;@axiom:effect(unsafe)
 (pub fn (saSort v)
   (let ((mut i 1))
     {
@@ -435,7 +431,6 @@
     }))
 
 (pub :: saJoinComma (-> (Vec a) String))
-;@axiom:effect(unsafe)
 (pub fn (saJoinComma v)
   (let ((mut s ""))
     {
@@ -713,7 +708,6 @@
     ((Some _) true)))
 
 (pub :: smCollect (-> Int Int (Vec Int) Int))
-;@axiom:effect(unsafe)
 (pub fn (smCollect sm d units)
   (if (smGenerated (nodeAName d))
     0
@@ -905,7 +899,6 @@
       })))
 
 (pub :: smNid (-> Int String String Int))
-;@axiom:effect(unsafe)
 (pub fn (smNid sm name variant)
   (saPut (memGetWordVec sm 12) (memGetWordVec sm 13) name variant))
 
@@ -956,7 +949,6 @@
 ; signature's tags before the function's, and a tag written on both
 ; renders once.
 (pub :: smTagsUnion (-> (Vec Int) (Vec Int) (Vec Int)))
-;@axiom:effect(unsafe)
 (pub fn (smTagsUnion have more)
   (let (
     (out vecNew)
@@ -983,7 +975,6 @@
     }))
 
 (pub :: smTagsHas (-> (Vec Int) String Int))
-;@axiom:effect(unsafe)
 (pub fn (smTagsHas tags txt)
   (let (
     (mut i 0)
@@ -1022,7 +1013,6 @@
 ; The location string for `key` in the span namespace held at map
 ; slots (nIx, sIx, uIx), or "" when the name has no recorded span.
 (pub :: smLocReal (-> Int Int Int Int String (Vec Int) String))
-;@axiom:effect(unsafe)
 (pub fn (smLocReal sm nIx sIx uIx key units)
   (let ((i (saIdx (memGetWordVec sm nIx) key)))
     (if (< i 0)
@@ -1036,7 +1026,6 @@
 ; The nid for `key`, or "" for a name with no recorded declaration
 ; (builtins, effect operations).
 (pub :: smNidFor (-> Int String String))
-;@axiom:effect(unsafe)
 (pub fn (smNidFor sm key)
   (let ((i (saIdx (memGetWordVec sm 12) key)))
     (if (< i 0)
@@ -1067,7 +1056,6 @@
 ; `A`, `T`), which is why the ordering is stated here rather than left
 ; to whichever site is read first.
 (pub :: smTagMetas (-> Int String (Vec String) Int))
-;@axiom:effect(unsafe)
 (pub fn (smTagMetas sm key metas)
   (let ((tags (saGet (memGetWordVec sm 14) (memGetWordVec sm 15) key)))
     (if (==
@@ -1142,7 +1130,6 @@
     }))
 
 (pub :: symPad (-> String Int String))
-;@axiom:effect(unsafe)
 (pub fn (symPad s w)
   (let ((have (symCharLen s)))
     (if (>= have w)
@@ -1602,21 +1589,17 @@
                           (vecPush metas "extern")
                           (cast (Vec String) 0))
                         ; `#unsafe=`: the declaration's place in the unsafe
-                        ; boundary (R-B6, FnEnt word 9). `trusted` is a
-                        ; bare `;@axiom:effect(unsafe)` - its author
-                        ; vouches for every well-typed call, and callers
-                        ; inherit nothing - and `precondition` is one
-                        ; whose callers must each say `effect(unsafe)`
-                        ; themselves. So `grep '#unsafe=trusted'` over
-                        ; this stream is the program's trusted set, the
-                        ; list `CONTRIBUTING.md`
-                        ; counts. A derived key, so an author may not
-                        ; spell it (`axtagReservedKey`).
+                        ; boundary (R-B6, FnEnt word 9). `trusted` is
+                        ; `;@axiom:effect(unsafe)` - its author vouches
+                        ; for every well-typed call, and callers inherit
+                        ; nothing. So `grep '#unsafe=trusted'` over this
+                        ; stream is the program's trusted set, the list
+                        ; `docs/assurance.md` asks a reviewer to read. A
+                        ; derived key, so an author may not spell it
+                        ; (`axtagReservedKey`).
                         (if (== (memGetWord e 9) 1)
                           (vecPush metas "unsafe=trusted")
-                          (if (== (memGetWord e 9) 2)
-                            (vecPush metas "unsafe=precondition")
-                            (cast (Vec String) 0)))
+                          (cast (Vec String) 0))
                         (if (&& (== mir 1) (== isB 0))
                           (symMirMetas e (saGet (memGetWordVec sm 16) (memGetWordVec sm 17) name) trunc metas)
                           0)

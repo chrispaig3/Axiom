@@ -109,7 +109,6 @@
       })))
 
 (:: scA3 Int)
-;@axiom:effect(unsafe)
 (fn (scA3)
   (let (
     (f (mkReader 0))
@@ -156,7 +155,6 @@
       })))
 
 (:: scB1 Int)
-;@axiom:effect(unsafe)
 (fn (scB1)
   (let (
     (s (mkS 0))
@@ -181,7 +179,6 @@
     }))
 
 (:: scB2 Int)
-;@axiom:effect(unsafe)
 (fn (scB2)
   (let (
     (s (mkS 0))
@@ -203,7 +200,6 @@
     }))
 
 (:: popped Int)
-;@axiom:effect(unsafe)
 (fn (popped)
   (let ((v (vecNewRef)))
     {
@@ -222,7 +218,6 @@
   (popped))
 
 (:: scB4 Int)
-;@axiom:effect(unsafe)
 (fn (scB4)
   (let (
     (s (mkS 0))
@@ -334,7 +329,6 @@
     }))
 
 (:: scE1 Int)
-;@axiom:effect(unsafe)
 (fn (scE1)
   (let (
     (h (ffiHandleNew 12345 0))

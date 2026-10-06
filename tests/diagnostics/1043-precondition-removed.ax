@@ -1,0 +1,53 @@
+; Axiom has no `precondition` tag. A written one is refused wherever it
+; stands (AX3095), so it can't read like a checked claim.
+;
+;   `loose`   the tag on a function that performs nothing unsafe
+;   `stated`  the tag on a signature, beside `effect(unsafe)` below it
+;   `Pair`    the tag above a `data` declaration
+;
+; `slip` is the control: `precondtion` is one edit from the removed key,
+; and an unrecognised key is open metadata, so it draws nothing.
+; `forged` writes `unsafe(...)`, the key `symbols` writes itself: AX3065.
+; `noted` and `checked` are what replace the tag: a condition nothing can
+; check in an ordinary comment, and one the arguments show as a
+; `;@axiom:pre(...)` contract, checked on every call.
+
+(:: loose (-> Int Int))
+;@axiom:precondition(`a` names a live word)
+(fn (loose a)
+  (+ a 1))
+
+;@axiom:precondition(`a` names a live block of at least two words)
+(:: stated (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (stated a)
+  (__load64 a 1))
+
+;@axiom:precondition(never read)
+(data Pair
+  (Pair Int Int))
+
+(:: slip (-> Int Int))
+;@axiom:precondtion(`a` names a live word)
+(fn (slip a)
+  (+ a 1))
+
+(:: forged (-> Int Int))
+;@axiom:unsafe(trusted)
+(fn (forged a)
+  (+ a 1))
+
+; `a` must name a live block of at least two words.
+(:: noted (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (noted a)
+  (__load64 a 1))
+
+(:: checked (-> Int Int Int))
+;@axiom:pre((>= n 1))
+(fn (checked a n)
+  (+ a (- n 1)))
+
+(:: main Int)
+(fn (main)
+  0)

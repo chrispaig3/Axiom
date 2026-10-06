@@ -362,7 +362,6 @@
     }))
 
 (pub :: rbCtor (-> String (Vec Int) (Vec Int) (Vec Int)))
-;@axiom:effect(unsafe)
 (pub fn (rbCtor name tys names)
   (let ((v vecNew))
     {
@@ -899,7 +898,6 @@
 ; failure here is a compiler bug and says so.
 (pub :: rbAppendShims (-> (Vec Int) (Vec Int) Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (rbAppendShims decls pubNames)
   (let ((src (rbShimSource decls pubNames)))
     (let ((toks (lex src)))

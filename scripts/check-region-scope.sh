@@ -146,7 +146,6 @@ probe() {  # <open> <close> -> a program on stdout
 
 (:: burn (-> Int Int))
 
-;@axiom:effect(unsafe)
 (fn (burn n)
   (if (<= n 0)
     0

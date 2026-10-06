@@ -72,7 +72,6 @@
 ; times before giving up.
 (:: rndrFill (-> Int Int (Result Int Error)))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`p` names `n` live writable bytes)
 (fn (rndrFill p n)
   (if (== rndrPresent 0)
     (cryptoErr cryptoEntropyUnavailable "the CPU has no RNDR register (FEAT_RNG)" "randomFill")
@@ -109,9 +108,7 @@
 ; bytes at `p` are unspecified and must not be used.
 (pub :: randomFill (-> Int Int (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(entropy)
-;@axiom:precondition(`p` names `n` live writable bytes)
 (pub fn (randomFill p n)
   (if (< n 0)
     (cryptoLengthErr "a negative byte count" "randomFill")
@@ -142,7 +139,6 @@
 ; `n` secure random bytes.
 (pub :: secureRandomBytes (-> Int (Result String Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(entropy)
 (pub fn (secureRandomBytes n)
   (if (< n 0)
@@ -155,7 +151,6 @@
 ; A uniformly random 64-bit word (any Int, negative included).
 (pub :: randomWord (Result Int Error))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(entropy)
 (pub fn (randomWord)
   (let ((b (memAlloc 8)))
@@ -188,7 +183,6 @@
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 ;@axiom:effect(entropy)
-;@axiom:precondition(`st` names a live three-word state: buffer address, word count, next index)
 (fn (belowFrom st bound mask k)
   (let (
     (mut r -1)
@@ -240,14 +234,12 @@
 ; what was drawn.
 (:: drawDone (-> Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`st` is a live draw state)
 (fn (drawDone st)
   (ctWipe (__load64 st 0) (* 8 (__load64 st 1))))
 
 ; A uniformly random Int in 0..bound-1. `bound` must be at least 1.
 (pub :: randomBelow (-> Int (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(entropy)
 (pub fn (randomBelow bound)
   (if (< bound 1)
@@ -282,7 +274,6 @@
 ; one kernel call per 32 or so positions rather than one each.
 (pub :: randomShuffle (-> (Vec a) (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(entropy)
 (pub fn (randomShuffle v)
   (let (

@@ -87,8 +87,6 @@
 
 ; A `Vec` of `Point` answered by Rust: 2 words per element, rebuilt here.
 (:: __pointFromWords (-> (Vec Point) Int Int Int (Vec Point)))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`__p` names `__n` * 2 live words)
 (fn (__pointFromWords __v __p __n __i)
   (if (>= __i __n)
     __v

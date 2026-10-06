@@ -56,11 +56,8 @@ def inventory(rows):
             if 'unsafe' in fields.get('effect', '').split(','):
                 raise ValueError(f"{row['name']}: unsafe declaration has no boundary role")
             continue
-        if role not in ('trusted', 'precondition'):
+        if role != 'trusted':
             raise ValueError(f"{row['name']}: unknown unsafe role {role!r}")
-        precondition = fields.get('precondition')
-        if role == 'precondition' and not precondition:
-            raise ValueError(f"{row['name']}: caller precondition has no text")
         callers = [
             {'name': caller['name'], 'location': caller['location']}
             for caller in rows
@@ -68,7 +65,7 @@ def inventory(rows):
         ]
         boundaries.append({
             'name': row['name'], 'location': row['location'], 'role': role,
-            'precondition': precondition, 'effects': list(filter(None, fields.get('effects', '').split(','))),
+            'effects': list(filter(None, fields.get('effects', '').split(','))),
             'calls': sorted(row['calls']),
             'callers': sorted(callers, key=lambda caller: (caller['location'], caller['name'])),
         })

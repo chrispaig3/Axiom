@@ -256,10 +256,8 @@ cp -R "$repo_root/self_host" "$repo_root/stdlib" "$abl/" || {
 # it reads every element with `vecGetStr`. A scan under its own name
 # keeps the ablation independent of `mangleHasIn`'s signature.
 # `check-contracts.sh`'s `guard-restored` ablation uses the same shape.
-# The restored scan is a precondition interface because `vecGetStr` is
-# one (R-B6): an untagged caller is AX3073, and a trusted one would
-# leave `mangleIdxHas`'s own `effect(unsafe)` with nothing to support
-# it (AX3010).
+# The restored scan carries no tag: `vecGetStr` is a trusted
+# encapsulation (R-B6), so the scan performs nothing unsafe itself.
 if ! python3 - "$abl/self_host/namespace.ax" <<'PY'
 import sys
 p = sys.argv[1]
@@ -278,8 +276,6 @@ new = """(pub fn (mangleIdxHas idx bares name)
   })
 
 (pub :: mangleScanIn (-> (Vec String) String Int Bool))
-;@axiom:effect(unsafe)
-;@axiom:precondition(every element of `bares` is a live `String`)
 (pub fn (mangleScanIn bares bare i)
   (if (>= i (vecLen bares))
     false
@@ -338,15 +334,12 @@ cp -R "$repo_root/self_host" "$repo_root/stdlib" "$abl1/" || {
 
 # Anchored on the whole function. `fnEntVisibleSuffix` reads slot 26
 # with the same two-branch shape, so a substitution anchored on the `if`
-# alone would edit whichever came first. The `effect(unsafe)` tag goes
-# with the index read: the scan alone performs no unsafe operation, and
-# a claim with nothing under it is AX3010 (R-B6).
+# alone would edit whichever came first.
 if ! python3 - "$abl1/self_host/typecheck.ax" <<'PY_ABL'
 import sys
 p = sys.argv[1]
 s = open(p).read()
-old = ''';@axiom:effect(unsafe)
-(pub fn (fnEntVisibleExact tc privs name curMod)
+old = '''(pub fn (fnEntVisibleExact tc privs name curMod)
   (if (== (memGetWord tc 20) 0)
     (findFnEntVisibleExact privs (tcFnsVec tc) name curMod)
     (fnIdxGetVisible (memGetWordVec tc 20) privs name curMod)))'''
@@ -493,7 +486,6 @@ anchor = "(pub :: boundIn (-> String Int Int))"
 if s.count(anchor) != 1:
     sys.exit("the boundIn anchor matched %d times, wanted 1" % s.count(anchor))
 scan = """(pub :: boundInScan (-> String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (boundInScan name sum)
   (if (== (memGetWord sum 0) 1)
     1

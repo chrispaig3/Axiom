@@ -42,7 +42,6 @@
 ; NUL-terminated bytes, so both are copied through `strDup` - a slice of
 ; a larger string shares storage and stops at no NUL.
 (pub :: argv2 (-> String String Int))
-;@axiom:effect(unsafe)
 (pub fn (argv2 a b)
   (let ((v (memAlloc 24)))
     {
@@ -56,7 +55,6 @@
 ; nothing at all when `e` is "" - which is how a child gets a `PATH`
 ; that is unset rather than empty.
 (pub :: envp1 (-> String Int))
-;@axiom:effect(unsafe)
 (pub fn (envp1 e)
   (let ((v (memAlloc 16)))
     (if (== (strLen e) 0)
@@ -84,7 +82,6 @@
 ; waits, so the parent's line and the child's cannot cross.
 (pub :: probe (-> String String Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
 (pub fn (probe label env)
@@ -103,7 +100,6 @@
 ; the migration itself.
 (:: searchAnswer (-> String Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
 (fn (searchAnswer name)

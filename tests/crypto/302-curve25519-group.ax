@@ -14,7 +14,6 @@
 (import Kat)
 
 (:: encP2 (-> Int String))
-;@axiom:effect(unsafe)
 (fn (encP2 h)
   (let ((s (bytesNew 32)))
     {
@@ -23,7 +22,6 @@
     }))
 
 (:: encFe (-> Int String))
-;@axiom:effect(unsafe)
 (fn (encFe c)
   (let ((s (bytesNew 32)))
     {
@@ -33,7 +31,6 @@
 
 ; [k]B.
 (:: base (-> String String))
-;@axiom:effect(unsafe)
 (fn (base k)
   (let ((h (memAlloc ge25519P3Bytes)))
     {
@@ -43,7 +40,6 @@
 
 ; [a]A + [b]B, or a message when A does not decode.
 (:: double (-> String String String String))
-;@axiom:effect(unsafe)
 (fn (double a enc b)
   (let ((pa (memAlloc ge25519P3Bytes)) (r (memAlloc ge25519P2Bytes)))
     (if (!= (ge25519FromBytesVartime pa (strData enc)) 0)
@@ -72,7 +68,6 @@
 ; The encoding of comb entry `j`, after checking its third coordinate
 ; is 2dxy.
 (:: combEntry (-> Int String))
-;@axiom:effect(unsafe)
 (fn (combEntry j)
   (let ((tbl (memAlloc 3840)) (p (memAlloc ge25519P2Bytes)) (w (memAlloc 320)))
     (let ((e (+ tbl (* j 240))) (lhs w) (rhs (+ w 80)) (k (+ w 160)) (xy (+ w 240)))

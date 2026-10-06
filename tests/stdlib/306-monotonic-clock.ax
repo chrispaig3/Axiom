@@ -42,7 +42,6 @@
 
 (:: main Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (main)
   (let ((buf (memAlloc 16)))
     (let ((b2 (memAlloc 16)))

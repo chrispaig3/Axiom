@@ -58,7 +58,6 @@
 (:: chachaDoubleRound (-> Int Int))
 ;@axiom:ct(*s)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`s` names 16 live writable words, each below 2^32)
 (fn (chachaDoubleRound s)
   (let (
     (x0 (__load64 s 0))
@@ -179,7 +178,6 @@
 (pub :: chacha20Block (-> Int Int Int Int Int))
 ;@axiom:ct(*key, *out)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`out` names `chacha20BlockBytes` live writable bytes, 8-byte aligned, `key` 32 live bytes and `nonce` 12 live bytes)
 (pub fn (chacha20Block out key counter nonce)
   (let (
     (k0 (ld32le key 0))
@@ -255,7 +253,6 @@
 (pub :: chacha20Xor (-> Int Int Int Int Int Int Int Int))
 ;@axiom:ct(*key, *src, *work)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`key` names 32 live bytes, `nonce` 12 live bytes, `src` and `dst` `len` live bytes (`dst` writable), and `work` `chacha20BlockBytes` live writable bytes, 8-byte aligned)
 (pub fn (chacha20Xor key nonce counter src dst len work)
   (let (
     (mut off 0)

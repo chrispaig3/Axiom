@@ -62,7 +62,6 @@
 ; `n` (assumed non-negative) in base 10.
 ;@axiom:restrict(no-io,no-foreign)
 (:: fmtNat (-> Int String))
-;@axiom:effect(unsafe)
 (fn (fmtNat n)
   (let ((width (fmtIntWidth n)))
     (let ((out (strAlloc width)))
@@ -76,7 +75,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: fmtDigits (-> Int Int Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`buf` names at least `at` + 1 live writable bytes, and `n` is non-negative with at most `at` + 1 digits)
 (fn (fmtDigits buf n at)
   (let ((digit (+ 48 (% n 10))))
     {
@@ -112,7 +110,6 @@
 
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: fmtHex (-> Int String))
-;@axiom:effect(unsafe)
 (pub fn (fmtHex n)
   (if (== n 0)
     "0"
@@ -133,7 +130,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: fmtHexDigits (-> Int Int Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`buf` names at least `at` + 1 live writable bytes, and `n` has at most `at` + 1 hexadecimal digits)
 (fn (fmtHexDigits buf n at)
   (let ((nibble (& n 15)))
     (let ((digit 
@@ -151,7 +147,6 @@
 ; `s` padded on the left with spaces to at least `width` bytes.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: fmtPadLeft (-> String Int String))
-;@axiom:effect(unsafe)
 (pub fn (fmtPadLeft s width)
   (let ((len (strLen s)))
     (if (>= len width)
@@ -166,7 +161,6 @@
 ; `s` padded on the right with spaces to at least `width` bytes.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: fmtPadRight (-> String Int String))
-;@axiom:effect(unsafe)
 (pub fn (fmtPadRight s width)
   (let ((len (strLen s)))
     (if (>= len width)
@@ -183,7 +177,6 @@
 ; column of centred labels line up with a left-aligned header.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: fmtPadCenter (-> String Int String))
-;@axiom:effect(unsafe)
 (pub fn (fmtPadCenter s width)
   (let ((len (strLen s)))
     (if (>= len width)
@@ -233,7 +226,6 @@
 ; runtime test of a compile-time constant.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: fmtHexUpper (-> Int String))
-;@axiom:effect(unsafe)
 (pub fn (fmtHexUpper n)
   (if (== n 0)
     "0"
@@ -247,7 +239,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: fmtHexDigitsUpper (-> Int Int Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`buf` names at least `at` + 1 live writable bytes, and `n` has at most `at` + 1 hexadecimal digits)
 (fn (fmtHexDigitsUpper buf n at)
   (let ((nibble (& n 15)))
     (let ((digit 

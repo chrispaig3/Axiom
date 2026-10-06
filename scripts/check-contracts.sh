@@ -437,8 +437,7 @@ ablate "no-checking" typecheck.ax \
 # `expHeadIsContract` takes the `(Vec Int)` it answers. It still asks
 # whether the body looks lowered, which keeps this a probe of section 6.
 ablate "guard-restored" expand.ax \
-  ";@axiom:effect(unsafe)
-(pub fn (expLowerOne d tags)
+  "(pub fn (expLowerOne d tags)
   (if (== (vecLen tags) 0)
     0" \
   "(pub :: expWasLowered (-> Int Int))
@@ -476,7 +475,6 @@ ablate "guard-restored" expand.ax \
   )
 )
 
-;@axiom:effect(unsafe)
 (pub fn (expLowerOne d tags)
   (if (|| (== (vecLen tags) 0) (== (expWasLowered (nodeC d)) 1))
     0" \

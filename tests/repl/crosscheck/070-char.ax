@@ -4,7 +4,6 @@
 
 (:: main Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (main)
   {
     (let ((s (strAlloc 1)))

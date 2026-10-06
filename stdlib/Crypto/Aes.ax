@@ -157,7 +157,6 @@
 (:: aesSbox (-> Int Int))
 ;@axiom:ct(*q)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`q` names 8 live writable words)
 (fn (aesSbox q)
   (let (
     (x0 (__load64 q 7))
@@ -303,7 +302,6 @@
 (:: aesInvAffine (-> Int Int))
 ;@axiom:ct(*q)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`q` names 8 live writable words)
 (fn (aesInvAffine q)
   (let (
     (q0 (^ (__load64 q 0) -1))
@@ -330,8 +328,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: aesInvSbox (-> Int Int))
 ;@axiom:ct(*q)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`q` names 8 live writable words)
 (fn (aesInvSbox q)
   {
     (aesInvAffine q)
@@ -349,7 +345,6 @@
 (:: aesOrtho (-> Int Int))
 ;@axiom:ct(*q)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`q` names 8 live writable words)
 (fn (aesOrtho q)
   (let (
     (q0 (__load64 q 0))
@@ -423,7 +418,6 @@
 (:: aesInterleaveIn (-> Int Int Int Int Int Int Int))
 ;@axiom:ct(*q, w0, w1, w2, w3)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`q` names 8 live writable words and `i` is 0..3)
 (fn (aesInterleaveIn q i w0 w1 w2 w3)
   (let (
     (x0 (aesSpread w0))
@@ -442,7 +436,6 @@
 (:: aesInterleaveOut (-> Int Int Int Int Int))
 ;@axiom:ct(*q, *dst)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`q` names 8 live words, `i` is 0..3, and `dst` + `off` names 16 live writable bytes)
 (fn (aesInterleaveOut q i dst off)
   (let (
     (a (__load64 q i))
@@ -462,8 +455,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: aesLoadBlocks (-> Int Int Int Int))
 ;@axiom:ct(*q, *src)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`q` names 8 live writable words and `src` names 16 * `n` live bytes)
 (fn (aesLoadBlocks q src n)
   {
     (for i in 0..4
@@ -490,8 +481,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: aesStoreBlocks (-> Int Int Int Int))
 ;@axiom:ct(*q, *dst)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`q` names 8 live writable words and `dst` names 16 * `n` live writable bytes)
 (fn (aesStoreBlocks q dst n)
   {
     (aesOrtho q)
@@ -523,7 +512,6 @@
 (:: aesAddRoundKey (-> Int Int Int))
 ;@axiom:ct(*q, *sk)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`q` names 8 live writable words and `sk` 8 live words)
 (fn (aesAddRoundKey q sk)
   {
     (for i in 0..8
@@ -540,7 +528,6 @@
 (:: aesShiftMixAdd (-> Int Int Int))
 ;@axiom:ct(*q, *sk)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`q` names 8 live writable words and `sk` 8 live words)
 (fn (aesShiftMixAdd q sk)
   (let (
     (q0 (aesShiftRow (__load64 q 0)))
@@ -580,7 +567,6 @@
 (:: aesShiftAdd (-> Int Int Int))
 ;@axiom:ct(*q, *sk)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`q` names 8 live writable words and `sk` 8 live words)
 (fn (aesShiftAdd q sk)
   {
     (for i in 0..8
@@ -593,7 +579,6 @@
 (:: aesInvShiftRows (-> Int Int))
 ;@axiom:ct(*q)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`q` names 8 live writable words)
 (fn (aesInvShiftRows q)
   {
     (for i in 0..8
@@ -607,7 +592,6 @@
 (:: aesAddInvMix (-> Int Int Int))
 ;@axiom:ct(*q, *sk)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`q` names 8 live writable words and `sk` 8 live words)
 (fn (aesAddInvMix q sk)
   (let (
     (q0 (^ (__load64 q 0) (__load64 sk 0)))
@@ -649,8 +633,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: aesEncryptState (-> Int Int Int Int))
 ;@axiom:ct(*sk, *q)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`sk` names 8 * (`nr` + 1) live words from `aesKeyExpand`, and `q` names 8 live writable words)
 (fn (aesEncryptState nr sk q)
   {
     (aesAddRoundKey q sk)
@@ -668,8 +650,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: aesDecryptState (-> Int Int Int Int))
 ;@axiom:ct(*sk, *q)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`sk` names 8 * (`nr` + 1) live words from `aesKeyExpand`, and `q` names 8 live writable words)
 (fn (aesDecryptState nr sk q)
   {
     (aesAddRoundKey q (+ sk (* 64 nr)))
@@ -706,7 +686,6 @@
 (:: aesSubWord (-> Int Int Int))
 ;@axiom:ct(*q, x)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`q` names 8 live writable words)
 (fn (aesSubWord q x)
   {
     (__store64 q 0 x)
@@ -724,7 +703,6 @@
 (:: aesExpandWord (-> Int Int Int Int))
 ;@axiom:ct(*out, c)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`out` + 8 * `v` names 4 live writable words)
 (fn (aesExpandWord out v c)
   (let (
     (x0 (& c aesK1111))
@@ -748,7 +726,6 @@
 (pub :: aesKeyExpand (-> Int Int Int Int Int))
 ;@axiom:ct(*out, *key, *work)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`key` names `keyLen` live bytes, `out` names `aesScheduleBytes keyLen` live writable bytes, `work` names `aesKeyWorkBytes` live writable bytes, 8-byte aligned, and none of them overlap)
 (pub fn (aesKeyExpand out key keyLen work)
   (let ((nr (aesRounds keyLen)))
     (if (== nr 0)
@@ -824,8 +801,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: aesEncryptBlocks (-> Int Int Int Int Int Int Int))
 ;@axiom:ct(*sk, *src, *dst, *q)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`sk` names the schedule for `nr` rounds, `src` and `dst` name 16 * `n` live bytes (`dst` writable), and `q` names `aesStateBytes` live writable bytes, 8-byte aligned)
 (pub fn (aesEncryptBlocks sk nr src dst n q)
   (let ((mut b 0))
     {
@@ -848,8 +823,6 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: aesDecryptBlocks (-> Int Int Int Int Int Int Int))
 ;@axiom:ct(*sk, *q)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`sk` names the schedule for `nr` rounds, `src` and `dst` name 16 * `n` live bytes (`dst` writable), and `q` names `aesStateBytes` live writable bytes, 8-byte aligned)
 (pub fn (aesDecryptBlocks sk nr src dst n q)
   (let ((mut b 0))
     {
@@ -888,7 +861,6 @@
 (pub :: aesCtr32Xor (-> Int Int Int Int Int Int Int Int Int))
 ;@axiom:ct(*sk, *work, *src, *dst)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`sk` names the schedule for `nr` rounds, `work` names `aesCtrWorkBytes` live writable bytes, 8-byte aligned, `iv` names 12 live bytes, and `src` and `dst` name `len` live bytes (`dst` writable))
 (pub fn (aesCtr32Xor sk nr work iv ctr src dst len)
   (let (
     (q work)

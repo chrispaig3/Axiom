@@ -28,8 +28,8 @@
 
 ; `ws` is a `(Vec String)`, so `vecGet` answers the `String` itself.
 ; `vecGetStr` reads a slot of a vector of any element type as a
-; `String`, which is a precondition its caller vouches for
-; (`effect(unsafe)`, MM-EXEC-9d); a typed vector needs no vouching.
+; `String`, and nothing checks that the slot holds one; a typed vector
+; makes the question moot.
 (pub :: wordAt (-> (Vec String) Int String))
 (pub fn (wordAt v i)
   (vecGet v i))

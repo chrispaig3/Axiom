@@ -1,6 +1,7 @@
 ; Shared mappings may be reclaimed only after their concurrent users
-; finish. Disposal is a caller obligation, so each unvouched free is
-; refused as AX3073. The matching no-unsafe claims draw AX3049.
+; finish. Nothing checks that: `chanFree`, `mutexFree` and
+; `taskTokenFree` are trusted, so each free below is accepted under
+; `restrict(no-unsafe)`, and a use after it traps on the handle table.
 (import Chan)
 (import Sync)
 (import Task)
@@ -21,7 +22,8 @@
 (:: freeToken (-> CancelToken (Result Int Error)))
 (fn (freeToken t) (taskTokenFree t))
 
-; Referring to a precondition interface carries the same obligation.
+; A free reached through a local is a call the walk can't follow, so
+; `strict` refuses it (AX3057).
 ;@axiom:restrict(no-unsafe,strict)
 (:: chanFreeFn (-> Chan (Result Int Error)))
 (fn (chanFreeFn c) ((let ((f chanFree)) f) c))
@@ -34,7 +36,7 @@
 (:: tokenFreeFn (-> CancelToken (Result Int Error)))
 (fn (tokenFreeFn t) ((let ((f taskTokenFree)) f) t))
 
-; Declaring Unsafe does not satisfy a no-unsafe restriction.
+; Claiming Unsafe over a body that performs none is unsupported (AX3010).
 ;@axiom:restrict(no-unsafe)
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)

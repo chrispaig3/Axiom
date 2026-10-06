@@ -31,7 +31,6 @@
 ; Build a one-character `Str` from a `Char`, which is what the REPL does
 ; to print a character result.
 (pub :: charToStr (-> Char String))
-;@axiom:effect(unsafe)
 (pub fn (charToStr c)
   (let ((s (strAlloc 1)))
     {

@@ -88,9 +88,9 @@ result (`MM-EXEC-11`). Probes that print use `IO.println` instead.
 
 The compiler checks typed region escapes and container bounds. Runtime traps
 catch invalid indices, stale handles, invalid resets and count exhaustion.
-An unsafe declaration must state `effect(unsafe)`; a precondition interface
-also states what its caller must establish. These checks do not validate an
-arbitrary address, a foreign object's lifetime or a forged `Int` handle.
+An unsafe declaration must state `effect(unsafe)`. These checks do not
+validate an arbitrary address, a foreign object's lifetime or a forged `Int`
+handle.
 
 | Obligation | Enforcement | Evidence |
 |---|---|---|
@@ -98,7 +98,7 @@ arbitrary address, a foreign object's lifetime or a forged `Int` handle.
 | A cast preserves its type, ownership and lifetime | `MM-VAL-22` and `MM-VAL-23`; forging requires Unsafe | `scripts/check-cast-arg-root.sh` |
 | A container access stays within bounds | `vecGet` and `vecSet` trap 77 before access | `tests/stdlib/525-vec-set-bounds.ax` |
 | A handle is live and belongs to the right module | Sealed types and the runtime handle table; stale use traps 85 | `scripts/check-handles.sh` |
-| Shared storage is freed after its concurrent users finish | `chanFree`, `mutexFree` and `taskTokenFree` require a caller's Unsafe lifetime obligation (`MM-EXEC-9d`) | `tests/litmus/shared-free-boundary.ax` |
+| Shared storage is freed after its concurrent users finish | Program obligation: `chanFree`, `mutexFree` and `taskTokenFree` are trusted (`MM-EXEC-9d`), and a use after the free traps 85 | `tests/litmus/shared-free-boundary.ax` |
 | Shared mutable words are ordered | `MM-PAR-9` atomics, channel or mutex; the programmer guards raw shared pages | `scripts/check-atomics.sh` |
 | A raw address and a foreign value satisfy their contract | Unsafe boundary and caller review | `tests/diagnostics/1040-forging-cast.ax` |
 | A recovery extent releases external resources | Program obligation: an abort cannot close descriptors or unlock a mutex acquired inside it | `scripts/check-reclaim-soak.sh` |
@@ -575,9 +575,9 @@ Inline assembly is in the set as well: an `asm` form (`MM-FFI-9`)
 lowers to a primitive of its own, and the diagnostics name it `asm`
 (`tests/diagnostics/1045-inline-asm-unsafe.ax`).
 
-`AX3073` also covers calls to precondition interfaces and casts that
-forge references. `MM-EXEC-9d` defines where a declaration must state
-its unsafe boundary.
+`AX3073` also covers calls to an `extern` and casts that forge
+references. `MM-EXEC-9d` defines where a declaration must state its
+unsafe boundary.
 
 Tested by `tests/diagnostics/1010-unsafe-primitives.ax` (the sixteen),
 `tests/diagnostics/1080-unsafe-syscalls.ax` (the seven syscalls and the
@@ -593,10 +593,8 @@ stay silent under every rule.
 operations:
 
 - a primitive in `MM-EXEC-9c`;
-- a call to, or a reference to, a *precondition interface*: a function
-  whose tags say `;@axiom:precondition(...)` as well as
-  `effect(unsafe)`, because its safety depends on what its caller
-  passes, such as `Mem.memGetWord`;
+- a call to, or a reference to, an `extern` item, whose body the
+  checker can't see (`tests/diagnostics/1116-extern-unsafe.ax`);
 - a *forging cast*: `(cast T x)`, where `T` is a reference type and
   `x` isn't already a `T`. The reference types are `String`, `Vec`,
   `Handle`, a struct, a `data` type with a field, a function, a
@@ -636,23 +634,21 @@ A cast is judged once its whole body is typed, so the type a value
 ends up with decides. An empty vector cast to `(Vec String)` and then
 filled with `Int`s forges, wherever the push is written.
 
-The two tags give a declaration one of two roles:
+The tag makes a declaration a *trusted encapsulation*. Its author
+vouches that every well-typed call is safe, so its `Unsafe` ends at the
+declaration: a caller's inferred row doesn't carry it, and a caller
+needs no tag. `vecPush`, `concat` and `mapInsert` are trusted.
+`symbols` reports the role as `#unsafe=trusted`, so the trusted set of
+a program is one `grep`.
 
-- A *trusted encapsulation* says `effect(unsafe)` alone. Its author
-  vouches that every well-typed call is safe, so its `Unsafe` ends at
-  the declaration: a caller's inferred row doesn't carry it, and a
-  caller needs no tag. `vecPush`, `concat` and `mapInsert` are
-  trusted.
-- A *precondition interface* says `effect(unsafe)` and
-  `;@axiom:precondition(...)`. The text states what a caller must make
-  true. Every call is an unsafe operation in the caller, so it carries
-  `Unsafe` into the caller's row. `memGetWord`, `vecGetStr`, `vecFree`
-  and `strWrap` are precondition interfaces.
-
-A precondition without `effect(unsafe)` is `AX3079`, and an empty one
-is `AX3080`. `symbols` reports each role as `#unsafe=trusted` or
-`#unsafe=precondition` (the text rides along as `#precondition=`), so
-the trusted set of a program is one `grep`.
+Functions that take a raw address or handle are trusted too, such as
+`memGetWord`, `vecGetStr`, `vecFree` and `sysReadFd`. That is the
+trade-off: safe code can still crash by passing one of them a bad
+address or handle, because an `Int` carries no proof of what it points
+at. State a condition the arguments can show as a `;@axiom:pre(...)`
+contract, which is checked on every call and traps 80, and describe
+the rest in a comment. A `;@axiom:precondition(...)` tag is refused as
+`AX3095`.
 
 `restrict(no-unsafe)` refuses a body that performs an unsafe operation
 or reaches one through a callee that is not a trusted encapsulation,
@@ -661,20 +657,20 @@ cast in a callee that says nothing is found after every body is typed,
 because the checker learns a cast's source type only there; the answer
 does not depend on which is declared first.
 
-The compiler checks where the boundary is declared and that a
-precondition states something. It does not prove that a trusted body
-keeps its promise, or that a caller meets a precondition. Those are
-review obligations, and the trusted set is the list to review
-([../CONTRIBUTING.md](../CONTRIBUTING.md)).
+The compiler checks where the boundary is declared. It does not prove
+that a trusted body keeps its promise, or that a caller passes it a live
+address. Those are review obligations, and the trusted set is the list
+to review ([assurance.md](assurance.md#using-axiom-in-a-safety-related-system)).
 
 Tested by `tests/diagnostics/1040-forging-cast.ax` to
-`tests/diagnostics/1043-precondition-tag.ax`. The accepted wrapper in
+`tests/diagnostics/1043-precondition-removed.ax` and by
+`tests/stdlib/707-library-pre.ax`. The accepted wrapper in
 `tests/selfhost/1010-trusted-wrapper.ax` and the ordinary workload in
 `tests/stdlib/545-no-unsafe-practical.ax`, which claims
 `restrict(no-unsafe)` over `Vec`, `Map`, `Str`, `Chan` and `Task`, keep
 the trusted side compiling.
 
-**MM-EXEC-9e (H). No safe interface hands a caller's word to the
+**MM-EXEC-9e (W). No safe interface hands a caller's word to the
 kernel, or to a primitive, as an address.** A declaration that passes
 a word it didn't make to an address argument of a `__syscallN`, of a
 platform function or of an `Unsafe` primitive **MUST** be a
@@ -687,48 +683,27 @@ way **MUST** be private to its module, so that only the module builds
 one or reads or sets a field. Another module can still name the type
 in a signature.
 
-Every `Sys` call that hands the kernel an address to read or write is
-a precondition interface. That covers the descriptor reads and writes
-(`sysReadFd`, `sysWriteFd`, `sysWriteAllFd`), every call taking a
-NUL-terminated path (`sysOpenPath`, `sysReadFile`, `sysWriteFile`,
-`sysRename`, `sysFileExists` and the rest), `sysRandomBytes` and the
-terminal calls. It covers the socket-address readers, the poll and
-signal calls, the clock reads, `sysChildExited`, `sysSpawn` and the
-`sysRun` family, `sysUnmapShared` and the word waits too. So are `IO`'s `readFileLit` and `printlnLit`,
-`rdReseat` and `Fmt`'s digit writers. `KeyIn` and `IO`'s `TermState`
-are private. A syscall is an unsafe
-operation of its own (`MM-EXEC-9c`), so a function that makes one says
-`effect(unsafe)`, and `restrict(no-unsafe)` refuses
-`(__syscall3 sysRandomNum 4096 64 0)`.
+*Withdrawn:* the precondition tag was removed, so a function that
+hands the kernel a caller's address is a trusted encapsulation like any
+other (`MM-EXEC-9d`). `sysReadFd`, `sysOpenPath`, `sysRandomBytes`, the
+terminal calls, `sysUnmapShared` and `sysWaitWord` take the address as
+an `Int`, `restrict(no-unsafe)` admits a call to each, and a bad address
+crashes the program. The typed calls' range check, the half that still
+holds, is `MM-EXEC-9f`. Tested by `tests/diagnostics/1081-sys-buffer-calls.ax`,
+which accepts an untagged call to each descriptor, path, entropy,
+terminal, unmap and wait function, and `tests/stdlib/580-kernel-precondition.ax`.
 
-Ordinary code uses `IO`'s typed calls instead, which are trusted
-encapsulations. Every path is a `String`. `writeStr` and `writeSlice`
+**MM-EXEC-9f (H). `IO`'s typed descriptor calls check their range
+before the kernel sees it.** Ordinary code uses them instead of the
+raw `Sys` calls. Every path is a `String`. `writeStr` and `writeSlice`
 write a string or a range of one, `readInto` reads into a range of a
 `String` buffer, and `readLine`, `readAll` and `randomBytes` answer
 fresh strings. `termSave`, `termRaw`, `termRestore` and `termSize` keep
 a terminal's saved settings in a `TermState`. A range outside its
 string is the index trap, status 77, before the kernel is called
-(`tests/stdlib/610-typed-io-bounds.ax`).
-
-What the kernel does with the word decides three calls. `sysWakeWord`
-is trusted: `futex(FUTEX_WAKE)` and `__ulock_wake` use the address only
-to find a wait queue and never read or write it, and a wake that
-reaches another waiter is a spurious wake, which every waiter already
-tolerates. `sysMapShared` is trusted, because the kernel chooses the
-address it answers. `sysWaitWord` is a precondition interface, because
-the kernel reads the word.
-
-Out of scope: the modules that hand out raw `Int` handles to records
-they allocate: `Cereal`'s `json*` values, `Intern` and `Rpc`'s reader. A handle is forged
-without a cast, so the functions that read one trust their caller
-without a tag saying so.
-
-Tested by `tests/diagnostics/1081-sys-buffer-calls.ax`, which refuses
-an untagged call to each descriptor, path, entropy, terminal, unmap and
-wait interface and accepts the typed calls under `restrict(no-unsafe)`,
-`tests/stdlib/580-kernel-precondition.ax`
-and `tests/stdlib/545-no-unsafe-practical.ax`, which does file,
-entropy and terminal work under `restrict(no-unsafe)`.
+(`tests/stdlib/610-typed-io-bounds.ax`). `tests/stdlib/545-no-unsafe-practical.ax`
+does file, entropy and terminal work this way under
+`restrict(no-unsafe)`.
 
 **MM-EXEC-10 (H).** Handlers for a declared effect are installed by
 `handle` and dispatch through a per-effect evidence slot:
@@ -2342,10 +2317,10 @@ Callers then see that declared type, and the evidence word is computed
 from it:
 
 ```scheme
+; Word `i` at `a` must hold a live `String`.
 ;@axiom:raw
 (:: getStr (-> Int Int String))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(word `i` at `a` holds a live `String`)
 (fn (getStr a i) (cast String (memGetWord a i)))
 
 (memSetWord p 0 (getStr p 0))     ; evidence word 1, releases emitted
@@ -2357,7 +2332,7 @@ The cast still forges a reference out of a word, so the accessor says
 
 The accessor's declared type must match what the word holds. A default
 value cannot establish the type of a stored word. Use a typed container
-or a reader whose precondition identifies the stored representation.
+or a reader whose comment names the stored representation.
 
 ### 3.6 Checked lexical regions
 
@@ -5095,9 +5070,9 @@ a table.
 
 *Limits.* A free that races another binding's operation on the same
 handle is a data race (`MM-PAR-9`): the table catches every use ordered
-after the free, not one already in flight. Disposal is a precondition
-interface: its caller must declare Unsafe and finish concurrent users
-before reclaiming their mapping. A `cast` to a handle type
+after the free, not one already in flight. Disposal is trusted: its
+caller must finish concurrent users before reclaiming their mapping,
+and nothing checks that. A `cast` to a handle type
 forges one, which is the unsafe layer's (`MM-VAL-22`). At most 65,536
 handles are live at once: a spawn beyond that is refused as a refused
 fork is (78), and a library call answers `EMFILE`.
@@ -5189,12 +5164,12 @@ location two bindings can both reach, and the language builds none:
 
 So a race needs one of two routes:
 
-- **The unsafe layer.** A primitive, a call to a precondition
-  interface, or a cast that forges a reference requires
-  `effect(unsafe)` at its declaration (`MM-EXEC-9d`).
+- **The unsafe layer.** A primitive or a cast that forges a reference
+  requires `effect(unsafe)` at its declaration (`MM-EXEC-9d`).
   `restrict(no-unsafe)` refuses them directly and through untrusted
-  callees. It admits a trusted encapsulation such as `vecPush`, whose
-  author takes responsibility for its raw operations. A cast from a
+  callees. It admits a trusted encapsulation such as `vecPush` or
+  `memGetWord`, whose author takes responsibility for its raw
+  operations. A cast from a
   word to a handle is one such operation (`MM-VAL-22`).
 - **An `extern` call**, whose side decides (`MM-FFI-7`).
   `restrict(no-foreign)` refuses it, and admits ordinary code.
@@ -5202,10 +5177,11 @@ So a race needs one of two routes:
 That leaves two things the compiler doesn't check:
 
 - **What the unsafe layer promises.** A trusted encapsulation vouches
-  for every well-typed call, and a caller of a precondition interface
-  vouches for the condition. The compiler checks where those promises
-  are declared, not that they are kept. The trusted set is the list to
-  review ([../CONTRIBUTING.md](../CONTRIBUTING.md)).
+  for every well-typed call, and one that takes a raw address trusts
+  its caller to pass a live one. The compiler checks where those
+  promises are declared, not that they are kept. The trusted set is
+  the list to review
+  ([assurance.md](assurance.md#using-axiom-in-a-safety-related-system)).
 - **A buffer typed `Int`.** `Sys` takes buffer addresses as `Int`s.
   An `Int` is not a reference, so writing `7` where a buffer belongs
   needs no cast and no tag, and the function can't tell a forged or
@@ -5756,10 +5732,11 @@ deadline/cancellation handling. Tested by
 *Program obligations.*
 
 - `taskFold`'s step may keep only what its `Int` accumulator carries.
-  The pool uses raw marks under this caller precondition. Checked regions
-  refuse opaque callbacks whose captures might retain a scoped value.
-  A step that stores an answer or grows a captured `Vec` names reclaimed
-  memory, which is why `taskFold` claims `effect(unsafe)`.
+  The pool resets a raw arena mark after each step, so a step that
+  stores an answer or grows a captured `Vec` names reclaimed memory.
+  Nothing checks this: checked regions refuse opaque callbacks whose
+  captures might retain a scoped value, and the pool's delivery, which
+  resets the mark, is trusted.
 - A token passed in is shared state: cancelling it cancels every pool
   using it. Free it only once no pool and no task can still use it.
 
@@ -6728,8 +6705,8 @@ One runtime gap remains. A free that races another binding's
 operation on the same handle is a data race (`MM-PAR-9`): the table
 catches every use ordered after the free, not one already in flight.
 Catching that too needs operation leases and cleanup across recovery,
-dead holders and process boundaries. Until then, disposal requires an
-explicit Unsafe lifetime obligation.
+dead holders and process boundaries. Until then, finishing concurrent
+users before a free is the caller's obligation, and nothing checks it.
 
 ---
 

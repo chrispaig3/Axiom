@@ -162,17 +162,14 @@
   (FTok k s e))
 
 (pub :: ftKind (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (ftKind t)
   (memGetWord t 0))
 
 (pub :: ftStart (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (ftStart t)
   (memGetWord t 1))
 
 (pub :: ftEnd (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (ftEnd t)
   (memGetWord t 2))
 
@@ -199,22 +196,18 @@
   (FCom s e l o))
 
 (pub :: fcStart (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (fcStart c)
   (memGetWord c 0))
 
 (pub :: fcEnd (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (fcEnd c)
   (memGetWord c 1))
 
 (pub :: fcLine (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (fcLine c)
   (memGetWord c 2))
 
 (pub :: fcOwnLine (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (fcOwnLine c)
   (memGetWord c 3))
 
@@ -536,7 +529,6 @@
   (FScan t c))
 
 (pub :: fsToks (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (fsToks s)
   (memGetWord s 0))
 
@@ -548,7 +540,6 @@
   (cast (Vec a) (fsToks s)))
 
 (pub :: fsComs (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (fsComs s)
   (memGetWord s 1))
 
@@ -1017,17 +1008,14 @@
     e))
 
 (pub :: fnKind (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (fnKind n)
   (memGetWord n 0))
 
 (pub :: fnTok (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (fnTok n)
   (memGetWord n 1))
 
 (pub :: fnKids (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (fnKids n)
   (memGetWord n 2))
 
@@ -1039,12 +1027,10 @@
   (cast (Vec a) (fnKids n)))
 
 (pub :: fnStart (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (fnStart n)
   (memGetWord n 3))
 
 (pub :: fnEnd (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (fnEnd n)
   (memGetWord n 4))
 
@@ -1090,17 +1076,14 @@
   (FRead o n p))
 
 (pub :: frOk (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (frOk r)
   (memGetWord r 0))
 
 (pub :: frNode (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (frNode r)
   (memGetWord r 1))
 
 (pub :: frPos (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (frPos r)
   (memGetWord r 2))
 
@@ -1470,7 +1453,6 @@
   (FOut vecNew 0 0 0))
 
 (pub :: foFrags (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (foFrags o)
   (memGetWord o 0))
 
@@ -1482,12 +1464,10 @@
   (cast (Vec a) (foFrags o)))
 
 (pub :: foNl (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (foNl o)
   (memGetWord o 1))
 
 (pub :: foIndent (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (foIndent o)
   (memGetWord o 2))
 
@@ -1497,12 +1477,10 @@
 ; the mechanism that keeps stage1's exit status equal to stage0's: the
 ; shapes stage0 cannot parse are the shapes this printer will not print.
 (pub :: foBad (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (foBad o)
   (memGetWord o 3))
 
 (pub :: foSetBad (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (foSetBad o)
   {
     (memSetWord o 3 1)
@@ -1510,7 +1488,6 @@
   })
 
 (pub :: foPush (-> Int String Int))
-;@axiom:effect(unsafe)
 (pub fn (foPush o s)
   {
     (vecPush (foFragsVec o) s)
@@ -1540,7 +1517,6 @@
   (foPush o "\n"))
 
 (pub :: foPushIndent (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (foPushIndent o)
   {
     (memSetWord o 2 (+ (foIndent o) 1))
@@ -1548,7 +1524,6 @@
   })
 
 (pub :: foPopIndent (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (foPopIndent o)
   {
     (memSetWord
@@ -1583,7 +1558,6 @@
 ; Join the fragments: measure, allocate once, copy - the same shape
 ; `renderCG` uses, and for the same reason.
 (pub :: foFinish (-> Int String))
-;@axiom:effect(unsafe)
 (pub fn (foFinish o)
   (let (
     (v (foFragsVec o))
@@ -1631,7 +1605,6 @@
   (FCq coms 0))
 
 (pub :: fqComs (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (fqComs q)
   (memGetWord q 0))
 
@@ -1643,12 +1616,10 @@
   (cast (Vec a) (fqComs q)))
 
 (pub :: fqNext (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (fqNext q)
   (memGetWord q 1))
 
 (pub :: fqAdvance (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (fqAdvance q)
   {
     (memSetWord q 1 (+ (fqNext q) 1))
@@ -1842,12 +1813,10 @@
   (FPr src starts q out))
 
 (pub :: fpSrc (-> Int String))
-;@axiom:effect(unsafe)
 (pub fn (fpSrc p)
   (memGetWordStr p 0))
 
 (pub :: fpStarts (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (fpStarts p)
   (memGetWord p 1))
 
@@ -1859,12 +1828,10 @@
   (cast (Vec a) (fpStarts p)))
 
 (pub :: fpQ (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (fpQ p)
   (memGetWord p 2))
 
 (pub :: fpOut (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (fpOut p)
   (memGetWord p 3))
 
@@ -5293,7 +5260,6 @@
 ; chains them first), and emit with the comment queue threaded
 ; through.
 (pub :: fmtPrint (-> String (Vec Int) Int (Vec Int) Int))
-;@axiom:effect(unsafe)
 (pub fn (fmtPrint src forms coms starts)
   (let (
     (o (mkFOut 0))
@@ -5462,12 +5428,10 @@
   (text : String))
 
 (pub :: fzOk (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (fzOk r)
   (memGetWord r 0))
 
 (pub :: fzText (-> Int String))
-;@axiom:effect(unsafe)
 (pub fn (fzText r)
   (memGetWordStr r 1))
 
@@ -5687,7 +5651,6 @@
           (cast Int (FRes 1 (concat (strSlice src 0 skip) (fzText r)))))))))
 
 (pub :: fmtFormatBody (-> String Int))
-;@axiom:effect(unsafe)
 (pub fn (fmtFormatBody src)
   (let ((r1 (fmtOnce src 1)))
     (if (== (fzOk r1) 0)

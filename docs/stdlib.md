@@ -274,7 +274,6 @@ with `internFind`, and recover bytes with `internLookup`.
 
 (:: main Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (main)
   (let ((names internNew)
         (id (internIntern names "compile")))

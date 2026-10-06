@@ -421,7 +421,6 @@
   (lspSeenFrom seen name 0))
 
 (pub :: lspSeenFrom (-> (Vec String) String Int Bool))
-;@axiom:effect(unsafe)
 (pub fn (lspSeenFrom seen name i)
   (if (>= i (vecLen seen))
     false
@@ -431,7 +430,6 @@
 
 (pub :: lspPreflight (-> (Vec Int) Int String (Vec String) String))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspPreflight decls tcode entryDir seen)
   (let (
     (mut i 0)
@@ -763,7 +761,6 @@
 ;           one type, and an index is not a name
 ;   word 7  the suppression map's code vectors, parallel to word 4
 (pub :: lspLintContext (-> String Int))
-;@axiom:effect(unsafe)
 (pub fn (lspLintContext src)
   (let ((lx (memAlloc 64)))
     {
@@ -801,7 +798,6 @@
 ; arrive with eligible 0: they resolve references but are never
 ; reported, for the reasons the header gives.
 (pub :: lspLintPush (-> Int String Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspLintPush lx name span eligible)
   (let ((b (memAlloc 40)))
     {
@@ -828,7 +824,6 @@
 ; owns that verdict and this walk must not invent a second one about
 ; the same bytes.
 (pub :: lspLintUse (-> Int String Int))
-;@axiom:effect(unsafe)
 (pub fn (lspLintUse lx name)
   (let (
     (scope (memGetWordVec lx 1))
@@ -849,7 +844,6 @@
 ; Whether any binding of `name` is in scope: what keeps a rebased
 ; `true` from reading as the boolean.
 (pub :: lspLintScopeHas (-> Int String Bool))
-;@axiom:effect(unsafe)
 (pub fn (lspLintScopeHas lx name)
   (let (
     (scope (memGetWordVec lx 1))
@@ -872,7 +866,6 @@
 ; invariant `check_range` asks of every diagnostic this server
 ; publishes.
 (pub :: lspLintPop (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspLintPop lx n)
   (let (
     (scope (memGetWordVec lx 1))
@@ -898,7 +891,6 @@
 ; One lint record: span, code, message, owner. Suppression is checked
 ; once, at flush, so recording never needs the map.
 (pub :: lspLintRecord (-> Int Int String String Int))
-;@axiom:effect(unsafe)
 (pub fn (lspLintRecord lx span code msg)
   (let ((r (memAlloc 32)))
     {
@@ -1043,7 +1035,6 @@
 ; false positive, so coverage here is the correctness property, and
 ; it is held by construction against that walk's case list.
 (pub :: lspLintWalk (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspLintWalk lx e)
   (if (== e 0)
     0
@@ -1129,7 +1120,6 @@
 ; imports, which hold no expressions. A top-level macro invocation's
 ; arguments are ordinary expressions and are walked.
 (pub :: lspLintWalkDecl (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspLintWalkDecl lx d)
   (let ((tag (nodeTag d)))
     {
@@ -1162,7 +1152,6 @@
 ; owner both halves share. Two parallel vectors, owners beside code
 ; vectors, because a vector holds one type and a name is not a Vec.
 (pub :: lspLintSuppBuild (-> Int (Vec Int) Int))
-;@axiom:effect(unsafe)
 (pub fn (lspLintSuppBuild lx decls)
   (let ((mut i 0))
     {
@@ -1181,7 +1170,6 @@
 ; read; every other key belongs to the checker or to someone else's
 ; metadata and is left where it lay.
 (pub :: lspLintSuppDecl (-> Int String (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspLintSuppDecl lx owner tags i)
   (if (>= i (vecLen tags))
     0
@@ -1195,7 +1183,6 @@
 ; the first `(` and the value runs to the last `)`, `ctCloseAt`'s
 ; rule, which is also what lets a value hold parens of its own.
 (pub :: lspLintTagCodes (-> Int String String Int))
-;@axiom:effect(unsafe)
 (pub fn (lspLintTagCodes lx owner content)
   (let ((op 
     (match (strFindByte content 40 0)
@@ -1226,7 +1213,6 @@
 ; there gains the codes (a tag above each half is two entries for
 ; one declaration), else the owner is entered with them.
 (pub :: lspLintSuppAdd (-> Int String (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspLintSuppAdd lx owner codes i)
   (if (>= i (vecLen codes))
     0
@@ -1267,7 +1253,6 @@
 ; which is what makes a misspelled suppression visible as the lint
 ; it failed to quiet rather than as a verdict about the tag.
 (pub :: lspLintSuppressed (-> Int String String Bool))
-;@axiom:effect(unsafe)
 (pub fn (lspLintSuppressed lx owner code)
   (let (
     (owners (memGetWordVec lx 4))
@@ -1310,7 +1295,6 @@
 
 ; Publish every unsuppressed record into `out`.
 (pub :: lspLintFlush (-> Int Int String (Vec Int) Int))
-;@axiom:effect(unsafe)
 (pub fn (lspLintFlush lx out src ix)
   (let (
     (recs (memGetWordVec lx 3))
@@ -1851,7 +1835,6 @@
 ; for every other word in the file.
 (pub :: lspDefinition (-> String String Int String Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspDefinition src uri params gen)
   (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
     (if (== (memGetWord pr 0) 0)
@@ -1908,7 +1891,6 @@
 ; null rather than a diagnostic, for the reason `lspResolveFor` gives.
 (pub :: lspDefinitionImported (-> String String (Vec Int) String Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspDefinitionImported path src decls w)
   (let ((r (lspResolveFor path src decls)))
     (if (== r 0)
@@ -2181,7 +2163,6 @@
 ; path does not resolve, the word falls through to the ordinary
 ; lookup below rather than answering null outright.
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspHover src uri params gen)
   (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
     (if (== (memGetWord pr 0) 0)
@@ -2319,7 +2300,6 @@
 ; hovering an imported name is asking.
 (pub :: lspHoverImported (-> String String (Vec Int) String Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspHoverImported path src decls w range)
   (let ((r (lspResolveFor path src decls)))
     (if (== r 0)
@@ -2768,7 +2748,6 @@
         }))))
 
 (pub :: lspDocumentSymbols (-> String Int))
-;@axiom:effect(unsafe)
 (pub fn (lspDocumentSymbols src)
   (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
     (if (== (memGetWord pr 0) 0)
@@ -2999,7 +2978,6 @@
 
 (pub :: lspCompletion (-> String String Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspCompletion src uri params)
   (let (
     (ix (lspLineIndex src))
@@ -3086,7 +3064,6 @@
 ; into. One `sysReadDir` per search root; nothing is read or parsed.
 (pub :: lspComplModules (-> Int (Vec String) String String Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspComplModules out seen path typed)
   (let (
     (tcode (checkedTargetCode hostTarget))
@@ -3136,7 +3113,6 @@
 
 ; `Crypto.Tui` as the directory path `Crypto/Tui`.
 (pub :: lspDotsToSlashes (-> String String))
-;@axiom:effect(unsafe)
 (pub fn (lspDotsToSlashes s)
   (let ((parts (strSplit s 46)) (mut out "") (mut i 0))
     {
@@ -3149,7 +3125,6 @@
     }))
 
 (pub :: lspComplKeywords (-> Int (Vec String) String Int))
-;@axiom:effect(unsafe)
 (pub fn (lspComplKeywords out seen prefix)
   (let (
     (kws lspKeywords)
@@ -3253,7 +3228,6 @@
 ; half-typed imports are the normal state of a file being edited.
 (pub :: lspComplImported (-> Int (Vec String) String String (Vec Int) String Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspComplImported out seen path src decls prefix)
   (let ((r (lspResolveFor path src decls)))
     (if (== r 0)
@@ -3372,7 +3346,6 @@
   (docFindFrom uris uri 0))
 
 (pub :: docFindFrom (-> (Vec String) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (docFindFrom uris uri i)
   (if (>= i (vecLen uris))
     (- 0 1)
@@ -3397,7 +3370,6 @@
       })))
 
 (pub :: docText (-> (Vec String) (Vec a) String String))
-;@axiom:effect(unsafe)
 (pub fn (docText uris texts uri)
   (let ((i (docFind uris uri)))
     (if (< i 0)
@@ -3436,7 +3408,6 @@
       })))
 
 (pub :: docGen (-> (Vec String) (Vec a) String String))
-;@axiom:effect(unsafe)
 (pub fn (docGen uris gens uri)
   (let ((i (docFind uris uri)))
     (if (< i 0)
@@ -3485,7 +3456,6 @@
 ; so it crosses the boundary like the text or the first request after
 ; every edit answers from an empty one.
 (pub :: lspSnapshot (-> (Vec String) (Vec String) (Vec String) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspSnapshot uris texts gens r)
   (let (
     (n (vecLen uris))
@@ -3546,7 +3516,6 @@
 ; ever grow, so the third vector lags the first by construction until
 ; its own writer runs, and the snapshot must not read past its end.
 (pub :: lspGenAt (-> (Vec String) Int String))
-;@axiom:effect(unsafe)
 (pub fn (lspGenAt gens j)
   (if (>= j (vecLen gens))
     "[]"
@@ -3560,7 +3529,6 @@
 ; it: a `Str` inside the block has no NUL terminator after it, and
 ; `strCStr` is what hands a uri to anything outside this module.
 (pub :: lspRestore (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspRestore b)
   (let (
     (n (memGetWord b 1))
@@ -3892,7 +3860,6 @@
   (lspNavOccurrencesProbe src decls 0))
 
 (pub :: lspNavOccurrencesProbe (-> String (Vec Int) Int (Vec a)))
-;@axiom:effect(unsafe)
 (pub fn (lspNavOccurrencesProbe src decls probe)
   (let (
     (nv (lspNavContext src decls probe))
@@ -3908,7 +3875,6 @@
     }))
 
 (pub :: lspNavContext (-> String (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspNavContext src decls probe)
   (let ((nv (memAlloc 56)))
     {
@@ -3940,7 +3906,6 @@
 ; local, keyed by its start.
 ; ------------------------------------------------------------------
 (pub :: lspNavLocalIndex (-> String (Vec Int) Int Int (Vec Int)))
-;@axiom:effect(unsafe)
 (pub fn (lspNavLocalIndex src decls rs re)
   (let (
     (nv (lspNavContext src decls 0))
@@ -3993,7 +3958,6 @@
 ; The bucket table: `fnIdxBuckets` slots, each 0 or a Vec of the byte
 ; offsets that hash there.
 (pub :: lspNavLocalStarts (-> (Vec Int) (Vec Int)))
-;@axiom:effect(unsafe)
 (pub fn (lspNavLocalStarts occs)
   (let (
     (nb (fnIdxBuckets (vecLen occs)))
@@ -4019,7 +3983,6 @@
     }))
 
 (pub :: lspNavIntPut (-> (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspNavIntPut bs v)
   (let ((b (% v (vecLen bs))))
     {
@@ -4037,7 +4000,6 @@
     }))
 
 (pub :: lspNavLocalIndexHas (-> (Vec Int) Int Bool))
-;@axiom:effect(unsafe)
 (pub fn (lspNavLocalIndexHas bs off)
   (if (== (vecLen bs) 0)
     false
@@ -4064,7 +4026,6 @@
           })))))
 
 (pub :: lspNavEmit (-> Int String Int Int String Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspNavEmit nv name span role key bkind idx)
   (let ((o (memAlloc 56)))
     {
@@ -4188,7 +4149,6 @@
 
 ; An entry is (name, key); a bucket is a Vec of entries or 0.
 (pub :: lspNavTopPut (-> (Vec Int) String String Int))
-;@axiom:effect(unsafe)
 (pub fn (lspNavTopPut bs name key)
   (let ((b (% (fnIdxHash name) (vecLen bs))))
     (let ((v 
@@ -4217,7 +4177,6 @@
           })))))
 
 (pub :: lspNavTopSlot (-> (Vec Int) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspNavTopSlot v name k)
   (if (>= k (vecLen v))
     (- 0 1)
@@ -4228,7 +4187,6 @@
 ; The key `name` is declared under, or "" when this document does not
 ; declare it.
 (pub :: lspNavTopGet (-> (Vec Int) String String))
-;@axiom:effect(unsafe)
 (pub fn (lspNavTopGet bs name)
   (if (== (vecLen bs) 0)
     ""
@@ -4245,7 +4203,6 @@
 ; The scope stack.
 ; ------------------------------------------------------------------
 (pub :: lspNavPush (-> Int String String Int))
-;@axiom:effect(unsafe)
 (pub fn (lspNavPush nv name key)
   (let ((scope (memGetWordVec nv 2)))
     {
@@ -4255,7 +4212,6 @@
     }))
 
 (pub :: lspNavPopN (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspNavPopN nv k)
   (let (
     (scope (memGetWordVec nv 2))
@@ -4273,7 +4229,6 @@
 
 ; The key the innermost binding of `name` carries, or "".
 (pub :: lspNavScopeFind (-> (Vec Int) String String))
-;@axiom:effect(unsafe)
 (pub fn (lspNavScopeFind scope name)
   (let (
     (mut i (- (vecLen scope) 2))
@@ -4291,7 +4246,6 @@
     }))
 
 (pub :: lspNavScopeHasKey (-> (Vec Int) String Bool))
-;@axiom:effect(unsafe)
 (pub fn (lspNavScopeHasKey scope key)
   (let (
     (mut i (- (vecLen scope) 1))
@@ -4316,7 +4270,6 @@
 ; reference to the same imported name lands, so the two are the same
 ; name, as they are to the compiler.
 (pub :: lspNavResolve (-> Int String String))
-;@axiom:effect(unsafe)
 (pub fn (lspNavResolve nv name)
   (let ((k (lspNavScopeFind (memGetWordVec nv 2) name)))
     (if (!= (strLen k) 0)
@@ -4346,7 +4299,6 @@
 ; occurrences once.
 ; ------------------------------------------------------------------
 (pub :: lspNavProbe (-> String String Int))
-;@axiom:effect(unsafe)
 (pub fn (lspNavProbe newName key)
   (let ((p (memAlloc 24)))
     {
@@ -4357,7 +4309,6 @@
     }))
 
 (pub :: lspNavProbeAt (-> Int String String Int))
-;@axiom:effect(unsafe)
 (pub fn (lspNavProbeAt nv name key)
   (let ((p (memGetWord nv 4)))
     (if (== p 0)
@@ -4539,7 +4490,6 @@
 ; The walk: declarations.
 ; ------------------------------------------------------------------
 (pub :: lspNavWalkDecl (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspNavWalkDecl nv d)
   (let ((tag (nodeTag d)))
     {
@@ -4671,7 +4621,6 @@
 ; A type reference, under the type table's key or `?name` for a type
 ; this document does not declare - `Int`, an imported `data`.
 (pub :: lspNavTypeRef (-> Int String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspNavTypeRef nv name sp)
   (if (lspNavIsTypeWord name)
     (let ((t (lspNavTopGet (memGetWordVec nv 6) name)))
@@ -4690,7 +4639,6 @@
 ; Every span from `i` on as a type reference, except the spellings in
 ; `tvs` (0 for none).
 (pub :: lspNavTypeRefs (-> Int (Vec Int) (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspNavTypeRefs nv spans tvs i)
   (if (>= i (vecLen spans))
     0
@@ -4730,7 +4678,6 @@
 ; offset order - a field name is skipped, a type variable is skipped,
 ; and the rest name types.
 (pub :: lspNavTypesData (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspNavTypesData nv d)
   (if (== (nodeSpan d) 0)
     0
@@ -4784,7 +4731,6 @@
 ; `:`, and the `mut` marker is the identifier before one - the
 ; parser's own test (`parseOneField`), made on bytes.
 (pub :: lspNavTypesStruct (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspNavTypesStruct nv d)
   (if (== (nodeSpan d) 0)
     0
@@ -4815,7 +4761,6 @@
 ; are the alias's own parameters, which `parseAliasDecl` reads the
 ; same way; what follows is the type.
 (pub :: lspNavTypesAlias (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspNavTypesAlias nv d)
   (if (== (nodeSpan d) 0)
     0
@@ -4847,7 +4792,6 @@
 ; walking them as expressions would resolve against the empty
 ; top-level scope, which is a second claim needing its own gate.)
 (pub :: lspNavTypesSubtype (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspNavTypesSubtype nv d)
   (if (== (nodeSpan d) 0)
     0
@@ -4898,7 +4842,6 @@
 ; parameter is pushed as soon as it is emitted, so a second parameter
 ; spelling the first is seen by the rename probe as a collision.
 (pub :: lspNavWalkFn (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspNavWalkFn nv d)
   (let (
     (params (nodeBVec d))
@@ -5034,7 +4977,6 @@
 ; at the name's own bytes: `{name}` and `{name:SPEC}`, with `{{` and
 ; `}}` as literal braces and a backslash escaping the byte after it.
 (pub :: lspNavHoles (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspNavHoles nv lit)
   (let (
     (src (memGetWordStr nv 0))
@@ -5092,7 +5034,6 @@
 ; A reference, under the key it resolves to. `_` is a wildcard and
 ; never a name.
 (pub :: lspNavRef (-> Int String Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspNavRef nv name span role)
   (if (strEq name "_")
     0
@@ -5165,7 +5106,6 @@
 ; their own. A lambda written INSIDE another has its own keyword and
 ; its own span, so it is not part of the chain.
 (pub :: lspNavWalkLam (-> Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspNavWalkLam nv e)
   (let (
     (sp (nodeSpan e))
@@ -5338,7 +5278,6 @@
       (+ a (lspNavWalkPatVec nv pats (+ i 1))))))
 
 (pub :: lspNavCtorRef (-> Int String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspNavCtorRef nv name span)
   (if (|| (== span 0) (strEq name "_"))
     0
@@ -5360,7 +5299,6 @@
 ; The occurrence under byte `off`, or 0. Spans do not overlap, so the
 ; first hit is the only one.
 (pub :: lspNavAt (-> (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspNavAt occs off)
   (let (
     (n (vecLen occs))
@@ -5384,7 +5322,6 @@
 
 ; The BINDER occurrence a local key was made from, or 0.
 (pub :: lspNavBinderOf (-> (Vec Int) String Int))
-;@axiom:effect(unsafe)
 (pub fn (lspNavBinderOf occs key)
   (let (
     (n (vecLen occs))
@@ -5436,7 +5373,6 @@
 
 ; Whether any occurrence spells `name`.
 (pub :: lspNavNamed (-> (Vec Int) String Bool))
-;@axiom:effect(unsafe)
 (pub fn (lspNavNamed occs name)
   (let (
     (n (vecLen occs))
@@ -5488,7 +5424,6 @@
 ; or `_`, which are never occurrences; and a parameter whose span
 ; could not be recovered.
 (pub :: lspNavRenamable (-> Int Bool))
-;@axiom:effect(unsafe)
 (pub fn (lspNavRenamable o)
   (let ((key (memGetWordStr o 3)))
     (|| (lspNavIsTop key) (&& (> (strLen key) 0) (== (strByte key 0) 64)))))
@@ -5555,7 +5490,6 @@
 ; JSON shapes.
 ; ------------------------------------------------------------------
 (pub :: lspNavLocations (-> Int String String (Vec Int) (Vec Int) Int))
-;@axiom:effect(unsafe)
 (pub fn (lspNavLocations out uri src ix sel)
   (let ((mut i 0))
     {
@@ -5570,7 +5504,6 @@
 ; TextEdits, one per occurrence, in source order - which is offset
 ; order, and the spans of two occurrences never overlap.
 (pub :: lspNavEdits (-> String (Vec Int) (Vec Int) String Int))
-;@axiom:effect(unsafe)
 (pub fn (lspNavEdits src ix sel newName)
   (let (
     (out jsonArr)
@@ -5635,7 +5568,6 @@
 
 (pub :: lspNavImporters (-> String (Vec String) (Vec a) (Vec Int)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspNavImporters uri uris texts)
   (let (
     (target (lspNavAbs (lspUriToPath uri)))
@@ -5676,7 +5608,6 @@
 ; nothing that document declares - a local or a declaration of its
 ; own would shadow the import, and is a different name.
 (pub :: lspNavForeignSel (-> (Vec a) Int String (Vec Int)))
-;@axiom:effect(unsafe)
 (pub fn (lspNavForeignSel texts pair bare)
   (lspNavSameKey (lspNavOccurrences (vecGetStr texts (memGetWord pair 0)) (memGetWordVec pair 1)) (concat "?" bare) 1))
 
@@ -5688,7 +5619,6 @@
 ; the declaring file is not open.
 (pub :: lspNavHomeUri (-> String String (Vec Int) String (Vec String) String))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspNavHomeUri path src decls w uris)
   (let ((r (lspResolveFor path src decls)))
     (if (== r 0)
@@ -5716,7 +5646,6 @@
 ; ------------------------------------------------------------------
 (pub :: lspReferences (-> String String Int (Vec String) (Vec a) String Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspReferences src uri params uris texts gen)
   (let ((decls (lspNavParse src)))
     (if (==
@@ -5774,7 +5703,6 @@
 
 (pub :: lspNavForeignLocations (-> Int String String (Vec String) (Vec a) Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspNavForeignLocations out uri bare uris texts)
   (let (
     (imps (lspNavImporters uri uris texts))
@@ -5840,7 +5768,6 @@
 ; each occurrence with the kind of use it is.
 ; ------------------------------------------------------------------
 (pub :: lspDocumentHighlight (-> String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspDocumentHighlight src params)
   (let ((decls (lspNavParse src)))
     (if (==
@@ -5875,7 +5802,6 @@
 ; refusals.
 ; ------------------------------------------------------------------
 (pub :: lspPrepareRename (-> String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspPrepareRename src params)
   (let ((decls (lspNavParse src)))
     (if (==
@@ -5910,7 +5836,6 @@
 ; ------------------------------------------------------------------
 (pub :: lspRename (-> String String Int (Vec String) (Vec a) Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspRename src uri params uris texts)
   (let ((decls (lspNavParse src)))
     (if (==
@@ -5946,7 +5871,6 @@
                   newName)))))))))
 
 (pub :: lspRenameLocal (-> String String (Vec Int) (Vec Int) (Vec Int) String String Int))
-;@axiom:effect(unsafe)
 (pub fn (lspRenameLocal src uri ix decls occs key newName)
   (let ((probe (lspNavProbe newName key)))
     {
@@ -5958,7 +5882,6 @@
 
 (pub :: lspRenameTop (-> String String (Vec Int) (Vec Int) String String (Vec String) (Vec a) Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspRenameTop src uri ix occs key newName uris texts)
   (if (lspNavNamed occs newName)
     jsonNull
@@ -6012,7 +5935,6 @@
 ; local whose binder has no anchor - jumping to a declaration of the
 ; same name would be the wrong of the two answers.
 (pub :: lspNavLocalDefinition (-> String String (Vec Int) (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspNavLocalDefinition src uri ix decls off)
   (let ((occs (lspNavOccurrences src decls)))
     (let ((o (lspNavAt occs off)))
@@ -6201,7 +6123,6 @@
   (lspShapeBindGetIn pairs name 0))
 
 (pub :: lspShapeBindGetIn (-> (Vec Int) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspShapeBindGetIn pairs name i)
   (if (>= i (vecLen pairs))
     0
@@ -6212,7 +6133,6 @@
 ; A parameter's index, or -1. A variable that names no parameter is
 ; not the call's to bind.
 (pub :: lspShapeParamAt (-> (Vec String) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspShapeParamAt params name i)
   (if (>= i (vecLen params))
     (- 0 1)
@@ -6326,7 +6246,6 @@
         (+ i 1)))))
 
 (pub :: lspShapeConBuild (-> String (Vec String) (Vec Int) Int (Vec Int) Int))
-;@axiom:effect(unsafe)
 (pub fn (lspShapeConBuild tname params pairs i acc)
   (if (>= i (vecLen params))
     (mkTCon tname acc)
@@ -6459,7 +6378,6 @@
 ; from this document only; anything imported is the next
 ; slice's read.
 (pub :: lspShapeVar (-> (Vec Int) (Vec Int) Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspShapeVar decls occs e fuel)
   (let ((name (nodeAName e)))
     (if (strEq name "true")
@@ -6705,7 +6623,6 @@
 ; no value to read - unknown, until the call sites that could
 ; type them are a slice of their own.
 (pub :: lspShapeOfBinder (-> (Vec Int) (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspShapeOfBinder decls occs b)
   (if (== b 0)
     0
@@ -6748,7 +6665,6 @@
 ;   lambda param, pattern variable
 ;             the name, then the line it is bound on
 (pub :: lspNavLocalHover (-> String (Vec Int) (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspNavLocalHover src decls ix wsp)
   (let ((occs (lspNavOccurrences src decls)))
     (let ((o (lspNavAt occs (spanStart wsp))))
@@ -6910,7 +6826,6 @@
 ; definition the same way.
 (pub :: lspDeclarationImported (-> String String (Vec Int) String Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspDeclarationImported path src decls w)
   (let ((r (lspResolveFor path src decls)))
     (if (== r 0)
@@ -6934,7 +6849,6 @@
 ; `lspUnitOf`'s -1 means.
 (pub :: lspUnitLocation (-> (Vec Int) Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspUnitLocation units d)
   (if (== d 0)
     jsonNull
@@ -7197,7 +7111,6 @@
 ; declare `name` as a `fn`. Answers 0 when any of those fails, and
 ; every caller turns that into null.
 (pub :: lspChSubject (-> Int (Vec String) (Vec a) Int))
-;@axiom:effect(unsafe)
 (pub fn (lspChSubject params uris texts)
   (let ((item (jsonGet params "item")))
     (let (
@@ -7228,7 +7141,6 @@
 ; `callHierarchy/incomingCalls`: who calls this function.
 (pub :: lspIncomingCalls (-> Int (Vec String) (Vec a) Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspIncomingCalls params uris texts)
   (let ((s (lspChSubject params uris texts)))
     (if (== s 0)
@@ -7261,7 +7173,6 @@
 ; that declares its own `name` shadows the import and its sites belong
 ; to that declaration instead, which is exactly what the key says.
 (pub :: lspChIncomingIn (-> Int String String (Vec Int) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspChIncomingIn out ouri osrc odecls name foreign)
   (let (
     (want (if (== foreign 1)
@@ -7297,7 +7208,6 @@
 ; The same, over every OPEN document that imports the item's file.
 (pub :: lspChIncomingImporters (-> Int String String (Vec String) (Vec a) Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspChIncomingImporters out uri name uris texts)
   (let (
     (imps (lspNavImporters uri uris texts))
@@ -7324,7 +7234,6 @@
 ; every range under it, and a client that received the same function
 ; twice would draw it twice.
 (pub :: lspChGroupPush (-> (Vec Int) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspChGroupPush groups key span)
   (let (
     (n (vecLen groups))
@@ -7379,7 +7288,6 @@
 ; the first callee that needs it, rather than per callee.
 (pub :: lspOutgoingCalls (-> Int (Vec String) (Vec a) Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspOutgoingCalls params uris texts)
   (let ((s (lspChSubject params uris texts)))
     (if (== s 0)
@@ -7435,7 +7343,6 @@
 ; when the resolver did not attribute the declaration to a unit.
 (pub :: lspChImportedItem (-> Int String Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspChImportedItem r name)
   (let (
     (allDecls (memGetWordVec r 0))
@@ -7643,7 +7550,6 @@
 ; when the resolver did not attribute the declaration to a unit.
 (pub :: lspThImportedItem (-> Int String Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspThImportedItem r name)
   (let (
     (allDecls (memGetWordVec r 0))
@@ -7665,7 +7571,6 @@
 ; that does not parse are all null.
 (pub :: lspPrepareTypeHierarchy (-> String String Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspPrepareTypeHierarchy src uri params)
   (let ((decls (lspNavParse src)))
     (if (==
@@ -7722,7 +7627,6 @@
 ; those holds, and every caller turns that into null. Word 4 is the
 ; declaration, or 0 for a builtin subject.
 (pub :: lspThSubject (-> Int (Vec String) (Vec a) Int))
-;@axiom:effect(unsafe)
 (pub fn (lspThSubject params uris texts)
   (let ((item (jsonGet params "item")))
     (let (
@@ -7756,7 +7660,6 @@
 ; `[]` and not null: the subject resolved and the answer is empty.
 (pub :: lspSupertypes (-> Int (Vec String) (Vec a) Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspSupertypes params uris texts)
   (let ((s (lspThSubject params uris texts)))
     (if (== s 0)
@@ -7799,7 +7702,6 @@
 ; open document, each in declaration order. `[]` when the search ran
 ; and found nothing; null when the subject did not resolve.
 (pub :: lspSubtypes (-> Int (Vec String) (Vec a) Int))
-;@axiom:effect(unsafe)
 (pub fn (lspSubtypes params uris texts)
   (let ((s (lspThSubject params uris texts)))
     (if (== s 0)
@@ -8208,7 +8110,6 @@
 ; ------------------------------------------------------------------
 (pub :: lspSignatureHelp (-> String String Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspSignatureHelp src uri params)
   (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
     (if (== (memGetWord pr 0) 0)
@@ -8332,7 +8233,6 @@
 ; own text; else an imported constructor.
 (pub :: lspViewSigImported (-> String String (Vec Int) String Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspViewSigImported path src decls head)
   (let ((r (lspResolveFor path src decls)))
     (if (== r 0)
@@ -8412,7 +8312,6 @@
 ; names the module of an imported one, after the type, so the label
 ; still reads as the call.
 (pub :: lspViewSigFn (-> String (Vec Int) Int String Int))
-;@axiom:effect(unsafe)
 (pub fn (lspViewSigFn dsrc ddecls d origin)
   (let (
     (sig (lspFindSig ddecls (nodeAName d) (- (vecLen ddecls) 1)))
@@ -8573,7 +8472,6 @@
     }))
 
 (pub :: lspViewIdxAdd (-> (Vec Int) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspViewIdxAdd idx name node)
   (let ((slot (lspViewIdxSlot name)))
     (let ((bucket 
@@ -8594,7 +8492,6 @@
       })))
 
 (pub :: lspViewIdxFind (-> (Vec Int) String Int))
-;@axiom:effect(unsafe)
 (pub fn (lspViewIdxFind idx name)
   (let ((bucket (vecGetVec idx (lspViewIdxSlot name))))
     (if (==
@@ -8627,7 +8524,6 @@
 ; a half-typed import - is this document alone.
 (pub :: lspViewFnIndexFor (-> String String (Vec Int) (Vec a)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspViewFnIndexFor path src decls)
   (let ((r (lspResolveFor path src decls)))
     (lspViewFnIndex
@@ -8703,7 +8599,6 @@
 ; ------------------------------------------------------------------
 (pub :: lspInlayHints (-> String String Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspInlayHints src uri params)
   (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
     (if (== (memGetWord pr 0) 0)
@@ -9332,7 +9227,6 @@
 ; the start of the item the bytes hold at that position, for as many
 ; arguments as the call has and the declaration names.
 (pub :: lspViewHintsCall (-> Int String (Vec Int) (Vec Int) (Vec Int) Int (Vec Int) Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspViewHintsCall out src ix fns locals head args rs re)
   ; A head that is a local is not a call to the `fn` it is
   ; spelled like; the walk that knows the scopes says which.
@@ -9681,7 +9575,6 @@
 ; ------------------------------------------------------------------
 (pub :: lspDocumentLinks (-> String String Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspDocumentLinks src uri)
   (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
     (if (== (memGetWord pr 0) 0)
@@ -9740,7 +9633,6 @@
 ; ------------------------------------------------------------------
 (pub :: lspWorkspaceSymbols (-> (Vec String) (Vec a) Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspWorkspaceSymbols uris texts params)
   (let (
     (query (jsonGetStr params "query"))
@@ -9834,7 +9726,6 @@
 ; made once, when it first has a symbol to place.
 (pub :: lspViewSymsImported (-> Int (Vec String) String String String (Vec Int) Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspViewSymsImported out seen query path src decls)
   (let ((r (lspResolveFor path src decls)))
     (if (== r 0)
@@ -9931,7 +9822,6 @@
 ; The URI and line index of unit `u`, made on first use.
 (pub :: lspViewUnitPrep (-> (Vec String) (Vec Int) Int Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspViewUnitPrep uuris uixs unit u)
   (if (== (vecGet uixs u) 0)
     {
@@ -10144,7 +10034,6 @@
 ; ------------------------------------------------------------------
 (pub :: lspFixExpand (-> String String (Vec Int) Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspFixExpand path src decls)
   (let ((r (lspResolveFor path src decls)))
     (if (== r 0)
@@ -10225,7 +10114,6 @@
 ; ------------------------------------------------------------------
 (pub :: lspCodeAction (-> String String Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspCodeAction src uri params)
   (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
     (if (== (memGetWord pr 0) 0)
@@ -10459,7 +10347,6 @@
 ; declarations) and 1.87x with no signatures at all (2,000 walks of
 ; the checker's table), against 0.72x for a one-line range.
 (pub :: lspSigAssists (-> Int (Vec Int) (Vec Int) (Vec Int) (Vec Int) String String (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspSigAssists out decls rawVis sigs entries src uri ix want)
   (let (
     (n (vecLen rawVis))
@@ -10504,7 +10391,6 @@
 ; request keys its `fn` index by, and its own find, because an entry
 ; is not a node and has no module word to prefer by.
 (pub :: lspFixEntryIndex (-> (Vec Int) (Vec a)))
-;@axiom:effect(unsafe)
 (pub fn (lspFixEntryIndex fns)
   (let (
     (idx lspViewIdxNew)
@@ -10521,7 +10407,6 @@
     }))
 
 (pub :: lspFixEntryFind (-> (Vec Int) String Int))
-;@axiom:effect(unsafe)
 (pub fn (lspFixEntryFind idx name)
   (let ((bucket (vecGetVec idx (lspViewIdxSlot name))))
     (if (==
@@ -10667,7 +10552,6 @@
 ; records `lspLintDoc` publishes, minus the suppressed ones, so an
 ; assist is never offered for a Hint the client cannot see.
 (pub :: lspLintRecs (-> String (Vec Int) (Vec Int)))
-;@axiom:effect(unsafe)
 (pub fn (lspLintRecs src decls)
   (let (
     (lx (lspLintContext src))
@@ -10720,7 +10604,6 @@
 ; over what expansion made is a walk over a DAG, and one nested macro
 ; made it 2^115 paths long.
 (pub :: lspLintAssists (-> Int String String (Vec Int) (Vec Int) (Vec Int) Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspLintAssists out src uri ix decls recs want)
   (let (
     (seen vecNew)
@@ -10871,7 +10754,6 @@
 ; Whether the declaration already carries a tag of that key, by the
 ; tag content's head - `unhandled(abort)` starts with `unhandled`.
 (pub :: lspDeclHasTagKey (-> Int String Bool))
-;@axiom:effect(unsafe)
 (pub fn (lspDeclHasTagKey d key)
   (if (== (memGetWord d 7) 0)
     false
@@ -11020,7 +10902,6 @@
 ; already, so it is not this assist's question.
 (pub :: lspImportAssists (-> Int Int String String (Vec Int) (Vec Int) String (Vec String) Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspImportAssists out d src uri ix decls path seen)
   (let ((sp (diagSpan d)))
     (if (== sp 0)
@@ -11151,7 +11032,6 @@
 ; ------------------------------------------------------------------
 (pub :: lspFixSearch (-> String String (Vec String)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspFixSearch name path)
   (let (
     (tcode (checkedTargetCode hostTarget))
@@ -11190,7 +11070,6 @@
 ; entry file named with no directory - and is listed as `./`.
 (pub :: lspFixScanDir (-> String String String Int String String Int String (Vec String) (Vec String) Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspFixScanDir dir rel modPrefix depth name path tcode entryDir found seen)
   (let ((names 
     (sysReadDir
@@ -11278,7 +11157,6 @@
 ; file for the module name, which is the ladder's shadowing rule.
 (pub :: lspFixConsider (-> String String String String Int String (Vec String) (Vec String) Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspFixConsider full mod name path tcode entryDir found seen)
   (if (|| (strEq full path) (>= (strVecIdx seen mod) 0))
     0
@@ -11522,7 +11400,6 @@
 
 (pub :: lspPublicOffer (-> Int Int String String (Vec Int) (Vec Int) (Vec Int) (Vec Int) String String Int (Vec String) Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspPublicOffer out d src uri ix decls allDecls units mod name decl seen)
   (let ((key (concat mod (concat "$" name))))
     (if (>= (strVecIdx seen key) 0)
@@ -11940,7 +11817,6 @@
 ; at byte N; a `~` key is a binder no byte anchors, and is refused
 ; because its place cannot be told.
 (pub :: lspFixFreeIn (-> (Vec Int) Int Int Int Int Bool))
-;@axiom:effect(unsafe)
 (pub fn (lspFixFreeIn occs ws we fs fe)
   (let (
     (n (vecLen occs))
@@ -12035,7 +11911,6 @@
 ; ------------------------------------------------------------------
 (pub :: lspTypeDefinition (-> String String Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspTypeDefinition src uri params)
   (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
     (if (== (memGetWord pr 0) 0)
@@ -12251,7 +12126,6 @@
 ; attribute to a unit, because this is the end of the chain.
 (pub :: lspCtorDefinitionImported (-> (Vec Int) (Vec Int) String Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspCtorDefinitionImported allDecls units name)
   (let ((dat (lspFindCtorDataImported allDecls name (- (vecLen allDecls) 1))))
     (let ((c (lspCtorNodeOf dat name)))
@@ -12275,7 +12149,6 @@
 ; constructor. `range` is still the word in the document being edited,
 ; which is a different file - the same split `lspHoverImported` makes.
 (pub :: lspHoverCtorImported (-> (Vec Int) (Vec Int) String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspHoverCtorImported allDecls units name range)
   (let ((dat (lspFindCtorDataImported allDecls name (- (vecLen allDecls) 1))))
     (if (== (lspCtorNodeOf dat name) 0)
@@ -12298,7 +12171,6 @@
 ; type of `Circle` is `Shape`.
 (pub :: lspTypeCtorImported (-> (Vec Int) (Vec Int) String Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspTypeCtorImported allDecls units name)
   (let ((dat (lspFindCtorDataImported allDecls name (- (vecLen allDecls) 1))))
     (if (== (lspCtorNodeOf dat name) 0)
@@ -12377,7 +12249,6 @@
 ; `fn` when `t` is 0, and the module declaring a type name.
 (pub :: lspTypeLocationImported (-> String String String (Vec Int) String Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspTypeLocationImported path src uri decls w given)
   (let ((r (lspResolveFor path src decls)))
     (if (== r 0)
@@ -12437,7 +12308,6 @@
 ; is decoded from the URI the request named.
 ; ------------------------------------------------------------------
 (pub :: lspCodeLens (-> String String Int))
-;@axiom:effect(unsafe)
 (pub fn (lspCodeLens src uri)
   (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
     (if (== (memGetWord pr 0) 0)
@@ -12508,7 +12378,6 @@
 ; ------------------------------------------------------------------
 (pub :: lspGenFill (-> String String String))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspGenFill path src)
   (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
     (if (== (memGetWord pr 0) 0)
@@ -12588,7 +12457,6 @@
 ; the resolution is handle-bound to the list it ran on.
 (pub :: lspGenOneCall (-> String String (Vec Int) Int (Vec Int) Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspGenOneCall path src decls idx out)
   (let ((pr2 (parseModuleWith (lex src) (scanAxtags src))))
     (if (== (memGetWord pr2 0) 0)
@@ -12680,7 +12548,6 @@
             isSig))))))
 
 (pub :: lspGenTempUpsert (-> (Vec Int) (Vec Int) String String Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspGenTempUpsert tmp tsig nm code isSig)
   (let (
     (n (vecLen tmp))
@@ -12719,7 +12586,6 @@
 ; The temporary list into the answer, first invocation winning whole
 ; entries: a name already there keeps its span, macro and text.
 (pub :: lspGenTempFlush (-> (Vec Int) (Vec Int) (Vec Int) String Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspGenTempFlush tmp tsig out macName hs he)
   (let (
     (n (vecLen tmp))
@@ -12741,7 +12607,6 @@
     }))
 
 (pub :: lspGenOutPush (-> (Vec Int) String String String Int Int Int))
-;@axiom:effect(unsafe)
 (pub fn (lspGenOutPush out nm code macName hs he)
   (let (
     (n (vecLen out))
@@ -12775,7 +12640,6 @@
 
 ; Entries to the cached JSON: one object per name.
 (pub :: lspGenToJson (-> (Vec Int) Int))
-;@axiom:effect(unsafe)
 (pub fn (lspGenToJson out)
   (let (
     (arr jsonArr)
@@ -12887,7 +12751,6 @@
 ; ------------------------------------------------------------------
 (pub :: lspExpandMacro (-> String String Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (lspExpandMacro src uri params)
   (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
     (if (== (memGetWord pr 0) 0)
@@ -13174,7 +13037,6 @@
     }))
 
 (pub :: lspAnyNl (-> (Vec a) Int Bool))
-;@axiom:effect(unsafe)
 (pub fn (lspAnyNl parts i)
   (if (>= i (vecLen parts))
     false
@@ -13396,7 +13258,6 @@
       (concat " " (lspRenderTypeR t ren)))))
 
 (pub :: lspRenamed (-> (Vec a) String String))
-;@axiom:effect(unsafe)
 (pub fn (lspRenamed ren name)
   (if (==
     (cast Int ren)
@@ -13599,7 +13460,6 @@
     }))
 
 (pub :: lspParts4 (-> String String String String (Vec String)))
-;@axiom:effect(unsafe)
 (pub fn (lspParts4 a b c d)
   (let ((v (lspParts3 a b c)))
     {
@@ -13650,7 +13510,6 @@
 ; `(lambda (x y) body)`: the curried chain of one-parameter lambdas
 ; re-merged, and a zero-parameter one written `()`.
 (pub :: lspRenderLam (-> Int Int String))
-;@axiom:effect(unsafe)
 (pub fn (lspRenderLam e ind)
   (let (
     (names vecNew)
@@ -13669,7 +13528,6 @@
     }))
 
 (pub :: lspJoinNames (-> (Vec a) Int String))
-;@axiom:effect(unsafe)
 (pub fn (lspJoinNames names i)
   (if (>= i (vecLen names))
     ""
@@ -13709,7 +13567,6 @@
     }))
 
 (pub :: lspJoinStrs (-> (Vec a) Int String String))
-;@axiom:effect(unsafe)
 (pub fn (lspJoinStrs xs i sep)
   (if (>= i (vecLen xs))
     ""
@@ -13854,7 +13711,6 @@
     (concat (lspRenderAxtags (nodeAxtagsVec d) ind) (lspRenderDeclBody d ind))))
 
 (pub :: lspRenderAxtags (-> (Vec Int) Int String))
-;@axiom:effect(unsafe)
 (pub fn (lspRenderAxtags tags ind)
   (if (==
     (cast Int tags)
@@ -14019,7 +13875,6 @@
           ")")))))
 
 (pub :: lspRenderNamedFields (-> (Vec Int) (Vec Int) Int String))
-;@axiom:effect(unsafe)
 (pub fn (lspRenderNamedFields names tys i)
   (if (>= i (vecLen names))
     ""
@@ -14108,7 +13963,6 @@
 ; stored it - each rule's slot 0 its parameter names and slot 1 its
 ; template declarations.
 (pub :: lspRenderMacro (-> Int Int String))
-;@axiom:effect(unsafe)
 (pub fn (lspRenderMacro d ind)
   (if (!= (nodeC d) 0)
     (concat (concat (concat (concat (lspPubOf d) "macro (") (lspRenderName (nodeAName d))) (concat (lspParamsOf (nodeBVec d)) ")\n")) (concat (lspPad (+ ind 2)) (concat (lspRenderExpr (nodeC d) (+ ind 2)) ")")))

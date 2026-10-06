@@ -86,47 +86,23 @@ bad() { echo "FAIL $*"; failed=$((failed + 1)); }
 sentence="axiom: not a live handle (freed, or never made)"
 load="$repo_root/tests/litmus/handle-load.ax"
 
-echo "== disposal requires a declared lifetime obligation =="
+echo "== disposal is a trusted call =="
+# `chanFree`, `mutexFree` and `taskTokenFree` say `effect(unsafe)`
+# themselves, so a body under `restrict(no-unsafe)` may call them: a use
+# after the free traps on the handle table (section 1), not on the
+# unmapped pages. What stays refused is what the walk cannot follow (a
+# free reached through a local under `strict`, AX3057) and a claim the
+# body does not support (AX3010).
 boundary="$repo_root/tests/litmus/shared-free-boundary.ax"
 rc=0
 "$axc" --diagnostic-format=ai check "$boundary" > "$work/free.out" 2> "$work/free.err" || rc=$?
-if [[ "$rc" == 1 ]] && [[ $(grep -c '^E AX3073 ' "$work/free.err") == 6 ]] &&
-   [[ $(grep -c '^E AX3049 ' "$work/free.err") == 4 ]] &&
+if [[ "$rc" == 1 ]] && [[ $(grep -c '^E ' "$work/free.err") == 4 ]] &&
    [[ $(grep -c '^E AX3057 ' "$work/free.err") == 3 ]] &&
-   [[ $(grep -c '^E ' "$work/free.err") == 13 ]]; then
-  ok "all three frees and their function values require Unsafe; restrictions still refuse tagged calls"
+   [[ $(grep -c '^E AX3010 ' "$work/free.err") == 1 ]]; then
+  ok "all three frees are accepted under no-unsafe; strict indirect calls and an unsupported claim are refused"
 else
   bad "shared disposal boundary: exit $rc or unexpected diagnostics"
   head -16 "$work/free.err"
-fi
-
-# Remove only the disposal preconditions. The same compiler and source
-# must lose every lifetime-boundary refusal. Strict indirect calls still
-# fail closed, and the tagged call's removed Unsafe claim is unsupported.
-cp -R "$repo_root/stdlib" "$work/free-lib"
-python3 - "$work/free-lib" <<'PY'
-from pathlib import Path
-import sys
-root = Path(sys.argv[1])
-for name in ('Chan.ax', 'Sync.ax', 'Task.ax'):
-    p = root / name
-    s = p.read_text()
-    lines = s.splitlines(keepends=True)
-    removed = [line for line in lines if line.startswith(';@axiom:precondition(no binding')
-               or line.startswith(';@axiom:precondition(no pool')]
-    assert len(removed) == 1, (name, removed)
-    p.write_text(''.join(line for line in lines if line not in removed))
-PY
-rc=0
-AXIOM_STDLIB="$work/free-lib" "$axc" --diagnostic-format=ai check "$boundary" \
-  > "$work/free-ablated.out" 2> "$work/free-ablated.err" || rc=$?
-if [[ "$rc" == 1 ]] && [[ $(grep -c '^E ' "$work/free-ablated.err") == 4 ]] &&
-   [[ $(grep -c '^E AX3057 ' "$work/free-ablated.err") == 3 ]] &&
-   [[ $(grep -c '^E AX3010 ' "$work/free-ablated.err") == 1 ]]; then
-  ok "removing the disposal preconditions removes every lifetime-boundary refusal"
-else
-  bad "disposal ablation was refused by another rule"
-  head -12 "$work/free-ablated.err"
 fi
 
 echo "== 1. freed and forged handles trap 85 at every --opt =="

@@ -1,0 +1,11 @@
+; A module whose tags the stray-tag pass refuses. Companion to 1140:
+; each refusal must point into this file, not the file importing it.
+
+;@axiom:restrict(no-alloc)
+(pub data Shade
+  (Light)
+  (Dark))
+
+;@axiom:precondition(`n` is positive)
+(pub fn (halve n)
+  (/ n 2))

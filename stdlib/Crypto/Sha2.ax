@@ -48,8 +48,7 @@
 ; the state blob and the scratch memory of the one-shot forms, not
 ; values the processor held in registers or spilled to the stack. The
 ; `...Addr` and `...Raw...` functions are the hazardous layer for other
-; Crypto modules: they take addresses and check nothing their
-; preconditions leave to the caller.
+; Crypto modules: they take addresses and trust them.
 (import Mem)
 (import Str)
 (import Crypto.Ct)
@@ -62,7 +61,7 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: sha2Erase (-> Int Int Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`st` names `first` + `n` live writable words, `n` at least 1)
+;@axiom:pre((>= n 1))
 (fn (sha2Erase st first n)
   {
     (for i in first..(+ first (- n 1))
@@ -234,7 +233,6 @@
 (:: sha256Blocks (-> Int Int Int Int))
 ;@axiom:ct(*cv, *p)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`cv` names 8 live writable words and `p` names 64 * `nblocks` live bytes)
 (fn (sha256Blocks cv p nblocks)
   (let (
     (mut a (sha2Ld64le cv 0))
@@ -425,7 +423,6 @@
 ; nothing absorbed and the partial block wiped.
 (:: sha256Init (-> Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`st` names a live writable SHA-256 state blob)
 (fn (sha256Init st)
   {
     (__store64 st 0 1779033703)
@@ -449,7 +446,6 @@
 (:: sha256AbsorbIn (-> Int Int Int Int Int Int))
 ;@axiom:ct(*cv, *buf, *p)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`cv` names 8 live writable words, `ctr` 2, `buf` 64 live writable bytes, and `p` names `n` live bytes)
 (fn (sha256AbsorbIn cv ctr buf p n)
   (let ((total (__load64 ctr 0)))
     (if (|| (< n 0) (|| (< total 0) (> n (- sha256MaxBytes total))))
@@ -494,8 +490,6 @@
 ; `sha256AbsorbIn` on the SHA-256 state blob at `st`.
 (:: sha256Absorb (-> Int Int Int Int))
 ;@axiom:ct(*p)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`st` names a live writable SHA-256 state blob and `p` names `n` live bytes)
 (fn (sha256Absorb st p n)
   (sha256AbsorbIn st (+ st 64) (+ st 80) p n))
 
@@ -507,7 +501,7 @@
 (:: sha256FinishIn (-> Int Int Int Int Int Int))
 ;@axiom:ct(*cv, *buf, *out)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`cv` names 8 live writable words, `ctr` 2, `buf` 64 live writable bytes, and `out` names 4 * `nwords` live writable bytes, `nwords` at most 8)
+;@axiom:pre((<= nwords 8))
 (fn (sha256FinishIn cv ctr buf out nwords)
   (let ((have (& (__load64 ctr 1) 63)) (total (__load64 ctr 0)))
     {
@@ -532,14 +526,11 @@
 ; `sha256FinishIn` on the SHA-256 state blob at `st`.
 (:: sha256Finish (-> Int Int Int Int))
 ;@axiom:ct(*out)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`st` names a live writable SHA-256 state blob and `out` names 4 * `nwords` live writable bytes, `nwords` at most 8)
 (fn (sha256Finish st out nwords)
   (sha256FinishIn st (+ st 64) (+ st 80) out nwords))
 
 ; A fresh SHA-256 hash with nothing absorbed.
 (pub :: sha256New Sha256)
-;@axiom:effect(unsafe)
 (pub fn (sha256New)
   (let ((s (strAlloc sha256StateBytes)))
     {
@@ -553,8 +544,6 @@
 ; message would pass the length limit, and then absorbs nothing.
 (pub :: sha256UpdateAddr (-> Sha256 Int Int Int))
 ;@axiom:ct(*p)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`p` names `n` live bytes)
 (pub fn (sha256UpdateAddr h p n)
   (let ((s h.state))
     (if (! (sha2BlobOk s sha256StateBytes))
@@ -564,7 +553,6 @@
 ; Absorb `msg`. Answers 0, or -1 when `h` is not a SHA-256 state or the
 ; message would pass the length limit, and then absorbs nothing.
 (pub :: sha256Update (-> Sha256 String Int))
-;@axiom:effect(unsafe)
 (pub fn (sha256Update h msg)
   (sha256UpdateAddr h (strData msg) (strLen msg)))
 
@@ -572,7 +560,6 @@
 ; fresh hash, its partial block wiped, ready for another message. A
 ; value that is not a SHA-256 state answers the empty string.
 (pub :: sha256Final (-> Sha256 String))
-;@axiom:effect(unsafe)
 (pub fn (sha256Final h)
   (let ((s h.state))
     (if (! (sha2BlobOk s sha256StateBytes))
@@ -587,7 +574,6 @@
 ; An independent copy of `h`, which goes on from the same point. Prime
 ; one state with a shared prefix, then copy it once per message.
 (pub :: sha256Copy (-> Sha256 Sha256))
-;@axiom:effect(unsafe)
 (pub fn (sha256Copy h)
   (let ((s h.state))
     (Sha256 (bytesFromAddr (strData s) (strLen s)))))
@@ -595,7 +581,6 @@
 ; Erase everything `h` holds and leave it a fresh hash. Answers 0, or
 ; -1 with nothing written when `h` is not a SHA-256 state.
 (pub :: sha256Wipe (-> Sha256 Int))
-;@axiom:effect(unsafe)
 (pub fn (sha256Wipe h)
   (let ((s h.state))
     (if (sha2BlobOk s sha256StateBytes)
@@ -609,8 +594,6 @@
 ; `out`. Answers 0. The scratch state is wiped before it returns.
 (pub :: sha256Addr (-> Int Int Int Int))
 ;@axiom:ct(*p)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`p` names `n` live bytes and `out` names 32 live writable bytes)
 (pub fn (sha256Addr p n out)
   (let ((st (memAlloc sha256StateBytes)))
     {
@@ -622,7 +605,6 @@
 
 ; The 32-byte SHA-256 digest of `msg`.
 (pub :: sha256 (-> String String))
-;@axiom:effect(unsafe)
 (pub fn (sha256 msg)
   (let ((out (strAlloc 32)))
     {
@@ -689,7 +671,6 @@
 (:: sha512Blocks (-> Int Int Int Int))
 ;@axiom:ct(*cv, *p)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`cv` names 8 live writable words and `p` names 128 * `nblocks` live bytes)
 (fn (sha512Blocks cv p nblocks)
   (let (
     (mut a (sha2Ld64le cv 0))
@@ -901,15 +882,12 @@
 ; Reset the state at `st`: nothing absorbed and the partial block
 ; wiped. The chaining value is the caller's to set.
 (:: sha512Clear (-> Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`st` names a live writable SHA-512 state blob)
 (fn (sha512Clear st)
   (sha2Erase st 8 18))
 
 ; Set the state at `st` to SHA-512's initial value (section 5.3.5).
 (:: sha512Init (-> Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`st` names a live writable SHA-512 state blob)
 (fn (sha512Init st)
   {
     (__store64 st 0 7640891576956012808)
@@ -926,7 +904,6 @@
 ; Set the state at `st` to SHA-384's initial value (section 5.3.4).
 (:: sha384Init (-> Int Int))
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`st` names a live writable SHA-512 state blob)
 (fn (sha384Init st)
   {
     (__store64 st 0 -3766243637369397544)
@@ -950,7 +927,6 @@
 (:: sha512AbsorbIn (-> Int Int Int Int Int Int))
 ;@axiom:ct(*cv, *buf, *p)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`cv` names 8 live writable words, `ctr` 2, `buf` 128 live writable bytes, and `p` names `n` live bytes)
 (fn (sha512AbsorbIn cv ctr buf p n)
   (let ((total (__load64 ctr 0)))
     (if (|| (< n 0) (|| (< total 0) (> n (- sha512MaxBytes total))))
@@ -995,8 +971,6 @@
 ; `sha512AbsorbIn` on the SHA-512 state blob at `st`.
 (:: sha512Absorb (-> Int Int Int Int))
 ;@axiom:ct(*p)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`st` names a live writable SHA-512 state blob and `p` names `n` live bytes)
 (fn (sha512Absorb st p n)
   (sha512AbsorbIn st (+ st 64) (+ st 80) p n))
 
@@ -1009,7 +983,7 @@
 (:: sha512FinishIn (-> Int Int Int Int Int Int))
 ;@axiom:ct(*cv, *buf, *out)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`cv` names 8 live writable words, `ctr` 2, `buf` 128 live writable bytes, and `out` names 8 * `nwords` live writable bytes, `nwords` at most 8)
+;@axiom:pre((<= nwords 8))
 (fn (sha512FinishIn cv ctr buf out nwords)
   (let ((have (& (__load64 ctr 1) 127)) (total (__load64 ctr 0)))
     {
@@ -1035,14 +1009,11 @@
 ; `sha512FinishIn` on the SHA-512 state blob at `st`.
 (:: sha512Finish (-> Int Int Int Int))
 ;@axiom:ct(*out)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`st` names a live writable SHA-512 state blob and `out` names 8 * `nwords` live writable bytes, `nwords` at most 8)
 (fn (sha512Finish st out nwords)
   (sha512FinishIn st (+ st 64) (+ st 80) out nwords))
 
 ; A fresh SHA-512 hash with nothing absorbed.
 (pub :: sha512New Sha512)
-;@axiom:effect(unsafe)
 (pub fn (sha512New)
   (let ((s (strAlloc sha512StateBytes)))
     {
@@ -1055,8 +1026,6 @@
 ; absorbs nothing.
 (pub :: sha512UpdateAddr (-> Sha512 Int Int Int))
 ;@axiom:ct(*p)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`p` names `n` live bytes)
 (pub fn (sha512UpdateAddr h p n)
   (let ((s h.state))
     (if (! (sha2BlobOk s sha512StateBytes))
@@ -1066,7 +1035,6 @@
 ; Absorb `msg`. Answers 0, or -1 when `h` is not a SHA-512 state or the
 ; message would pass the length limit, and then absorbs nothing.
 (pub :: sha512Update (-> Sha512 String Int))
-;@axiom:effect(unsafe)
 (pub fn (sha512Update h msg)
   (sha512UpdateAddr h (strData msg) (strLen msg)))
 
@@ -1074,7 +1042,6 @@
 ; fresh hash, its partial block wiped. A value that is not a SHA-512
 ; state answers the empty string.
 (pub :: sha512Final (-> Sha512 String))
-;@axiom:effect(unsafe)
 (pub fn (sha512Final h)
   (let ((s h.state))
     (if (! (sha2BlobOk s sha512StateBytes))
@@ -1088,7 +1055,6 @@
 
 ; An independent copy of `h`, which goes on from the same point.
 (pub :: sha512Copy (-> Sha512 Sha512))
-;@axiom:effect(unsafe)
 (pub fn (sha512Copy h)
   (let ((s h.state))
     (Sha512 (bytesFromAddr (strData s) (strLen s)))))
@@ -1096,7 +1062,6 @@
 ; Erase everything `h` holds and leave it a fresh hash. Answers 0, or
 ; -1 with nothing written when `h` is not a SHA-512 state.
 (pub :: sha512Wipe (-> Sha512 Int))
-;@axiom:effect(unsafe)
 (pub fn (sha512Wipe h)
   (let ((s h.state))
     (if (sha2BlobOk s sha512StateBytes)
@@ -1110,8 +1075,6 @@
 ; `out`. Answers 0. The scratch state is wiped before it returns.
 (pub :: sha512Addr (-> Int Int Int Int))
 ;@axiom:ct(*p)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`p` names `n` live bytes and `out` names 64 live writable bytes)
 (pub fn (sha512Addr p n out)
   (let ((st (memAlloc sha512StateBytes)))
     {
@@ -1123,7 +1086,6 @@
 
 ; The 64-byte SHA-512 digest of `msg`.
 (pub :: sha512 (-> String String))
-;@axiom:effect(unsafe)
 (pub fn (sha512 msg)
   (let ((out (strAlloc 64)))
     {
@@ -1133,7 +1095,6 @@
 
 ; A fresh SHA-384 hash with nothing absorbed.
 (pub :: sha384New Sha384)
-;@axiom:effect(unsafe)
 (pub fn (sha384New)
   (let ((s (strAlloc sha512StateBytes)))
     {
@@ -1146,8 +1107,6 @@
 ; absorbs nothing.
 (pub :: sha384UpdateAddr (-> Sha384 Int Int Int))
 ;@axiom:ct(*p)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`p` names `n` live bytes)
 (pub fn (sha384UpdateAddr h p n)
   (let ((s h.state))
     (if (! (sha2BlobOk s sha512StateBytes))
@@ -1157,7 +1116,6 @@
 ; Absorb `msg`. Answers 0, or -1 when `h` is not a SHA-384 state or the
 ; message would pass the length limit, and then absorbs nothing.
 (pub :: sha384Update (-> Sha384 String Int))
-;@axiom:effect(unsafe)
 (pub fn (sha384Update h msg)
   (sha384UpdateAddr h (strData msg) (strLen msg)))
 
@@ -1165,7 +1123,6 @@
 ; fresh hash, its partial block wiped. A value that is not a SHA-384
 ; state answers the empty string.
 (pub :: sha384Final (-> Sha384 String))
-;@axiom:effect(unsafe)
 (pub fn (sha384Final h)
   (let ((s h.state))
     (if (! (sha2BlobOk s sha512StateBytes))
@@ -1179,7 +1136,6 @@
 
 ; An independent copy of `h`, which goes on from the same point.
 (pub :: sha384Copy (-> Sha384 Sha384))
-;@axiom:effect(unsafe)
 (pub fn (sha384Copy h)
   (let ((s h.state))
     (Sha384 (bytesFromAddr (strData s) (strLen s)))))
@@ -1187,7 +1143,6 @@
 ; Erase everything `h` holds and leave it a fresh hash. Answers 0, or
 ; -1 with nothing written when `h` is not a SHA-384 state.
 (pub :: sha384Wipe (-> Sha384 Int))
-;@axiom:effect(unsafe)
 (pub fn (sha384Wipe h)
   (let ((s h.state))
     (if (sha2BlobOk s sha512StateBytes)
@@ -1201,8 +1156,6 @@
 ; `out`. Answers 0. The scratch state is wiped before it returns.
 (pub :: sha384Addr (-> Int Int Int Int))
 ;@axiom:ct(*p)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`p` names `n` live bytes and `out` names 48 live writable bytes)
 (pub fn (sha384Addr p n out)
   (let ((st (memAlloc sha512StateBytes)))
     {
@@ -1214,7 +1167,6 @@
 
 ; The 48-byte SHA-384 digest of `msg`.
 (pub :: sha384 (-> String String))
-;@axiom:effect(unsafe)
 (pub fn (sha384 msg)
   (let ((out (strAlloc 48)))
     {
@@ -1235,8 +1187,6 @@
 
 ; Make the `sha256RawSize` bytes at `st` a fresh SHA-256 state. Answers 0.
 (pub :: sha256RawInit (-> Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`st` names `sha256RawSize` live writable bytes)
 (pub fn (sha256RawInit st)
   (sha256Init st))
 
@@ -1244,8 +1194,6 @@
 ; past the length limit, and then absorbs nothing.
 (pub :: sha256RawUpdate (-> Int Int Int Int))
 ;@axiom:ct(*p)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`st` names a raw SHA-256 state and `p` names `n` live bytes)
 (pub fn (sha256RawUpdate st p n)
   (sha256Absorb st p n))
 
@@ -1253,8 +1201,6 @@
 ; then reset the state to a fresh one. Answers 0.
 (pub :: sha256RawFinal (-> Int Int Int))
 ;@axiom:ct(*out)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`st` names a raw SHA-256 state and `out` names 32 live writable bytes)
 (pub fn (sha256RawFinal st out)
   {
     (sha256Finish st out 8)
@@ -1268,7 +1214,6 @@
 (pub :: sha256RawResume (-> Int Int Int Int))
 ;@axiom:ct(*chain)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`st` names `sha256RawSize` live writable bytes, `chain` names 32 live bytes, and `count` is a multiple of 64)
 (pub fn (sha256RawResume st chain count)
   {
     (sha256Init st)
@@ -1285,7 +1230,6 @@
 (pub :: sha256RawChain (-> Int Int Int))
 ;@axiom:ct(*out)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`st` names a raw SHA-256 state and `out` names 32 live writable bytes)
 (pub fn (sha256RawChain st out)
   (if (!= (& (__load64 st 9) 63) 0)
     -1
@@ -1302,8 +1246,6 @@
 
 ; Make the `sha512RawSize` bytes at `st` a fresh SHA-512 state. Answers 0.
 (pub :: sha512RawInit (-> Int Int))
-;@axiom:effect(unsafe)
-;@axiom:precondition(`st` names `sha512RawSize` live writable bytes)
 (pub fn (sha512RawInit st)
   (sha512Init st))
 
@@ -1312,8 +1254,6 @@
 ; nothing.
 (pub :: sha512RawUpdate (-> Int Int Int Int))
 ;@axiom:ct(*p)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`st` names a raw SHA-512 state and `p` names `n` live bytes)
 (pub fn (sha512RawUpdate st p n)
   (sha512Absorb st p n))
 
@@ -1321,8 +1261,6 @@
 ; `out`, then reset the state to a fresh SHA-512 one. Answers 0.
 (pub :: sha512RawFinal (-> Int Int Int))
 ;@axiom:ct(*out)
-;@axiom:effect(unsafe)
-;@axiom:precondition(`st` names a raw SHA-512 state and `out` names 64 live writable bytes)
 (pub fn (sha512RawFinal st out)
   {
     (sha512Finish st out 8)
@@ -1335,7 +1273,6 @@
 (pub :: sha512RawResume (-> Int Int Int Int))
 ;@axiom:ct(*chain)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`st` names `sha512RawSize` live writable bytes, `chain` names 64 live bytes, and `count` is a multiple of 128)
 (pub fn (sha512RawResume st chain count)
   {
     (sha512Init st)
@@ -1351,7 +1288,6 @@
 (pub :: sha512RawChain (-> Int Int Int))
 ;@axiom:ct(*out)
 ;@axiom:effect(unsafe)
-;@axiom:precondition(`st` names a raw SHA-512 state and `out` names 64 live writable bytes)
 (pub fn (sha512RawChain st out)
   (if (!= (& (__load64 st 9) 127) 0)
     -1

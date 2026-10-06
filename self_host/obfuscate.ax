@@ -192,7 +192,6 @@
 ; no deterministic fallback. Ordinary builds never draw entropy here.
 (pub :: obfuscateIr (-> String (Result String Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(entropy)
 (pub fn (obfuscateIr ir)
   (let ((random (strAlloc 8)))

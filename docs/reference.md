@@ -372,7 +372,9 @@ explicit low-level contract described in [diagnostics](diagnostics.md).
 
 `cast` changes the declared representation type. It does not make a
 raw address valid or extend its lifetime. Raw memory and foreign
-operations belong behind an `effect(unsafe)` declaration.
+operations belong behind an `effect(unsafe)` declaration. Library
+functions that take a raw address, such as `memGetWord`, trust it, so
+passing one a bad address crashes the program.
 
 ### Region annotations
 
@@ -996,7 +998,7 @@ undo external I/O. See [error recovery](error-model.md).
 ### Inline assembly
 
 The low-level layer includes raw memory, syscalls, volatile MMIO and
-`asm`. These require explicit preconditions and Unsafe vouches. Inline
+`asm`. A function that uses them says `;@axiom:effect(unsafe)`. Inline
 assembly operands, clobbers and target checks are in the
 [embedded guide](embedded-guide.md).
 
@@ -1078,7 +1080,8 @@ Each binding answers an `Int`. Use `Chan` for bounded word channels and
 `Sync` for shared mutexes. Their timeout, close and owner-death behaviour
 is in the [library API](stdlib-api.md#chan).
 Free a channel, mutex or cancellation token after its concurrent users
-finish. Disposal requires `effect(unsafe)` because you establish that lifetime.
+finish. A use after the free traps 85, but nothing catches a free
+that races a use still in flight.
 
 ### Run tasks that answer values with `Task`
 
@@ -1109,7 +1112,8 @@ with `--crate DIR` or the manifest's `crate` entry.
 `#[axiom_export]` and `axiom-bindgen` generate Rust shims and Axiom
 wrappers. Generated owners are sealed; use their operations rather
 than manufacturing handles. Callbacks borrow their environment for the
-call. Borrowing wrappers may impose additional caller preconditions.
+call. A borrowing wrapper's comment names the arguments a callback must
+leave alone.
 
 Use [the Rust FFI guide](ffi.md) for supported wire types, callbacks,
 hosting Axiom with `--emit-staticlib`, linking and panic boundaries.

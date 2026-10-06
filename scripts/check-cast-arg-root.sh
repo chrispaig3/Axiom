@@ -55,7 +55,7 @@ echo "--- 1. user-level cast count does not grow ---"
 # position in `(-> Float Int)`/`(-> Int Float)` - the same shape as
 # the float-bits pair the 439 baseline names. Three are AXQLite's:
 # `connPager` casts the mapping's word back to `Pager` at a return
-# under `effect(unsafe)` with the liveness precondition stated;
+# under `effect(unsafe)`;
 # `(cast Int pager)` is the store half of that round-trip, a
 # reference decaying to a word rather than a word forged into one;
 # `(cast Byte c)` narrows an `Int` for `strFromByte`, scalar to
@@ -164,7 +164,6 @@ cat > "$work/cast3.ax" <<'EOF'
 (import Mem)
 (import Str)
 (:: main Int)
-;@axiom:effect(unsafe)
 (fn (main)
   (let ((p (memAlloc 8)))
     {
@@ -176,7 +175,6 @@ cat > "$work/cast4.ax" <<'EOF'
 (import Mem)
 (import Str)
 (:: main Int)
-;@axiom:effect(unsafe)
 (fn (main)
   (let ((p (memAlloc 8)))
     {
@@ -212,7 +210,6 @@ fi
 cat > "$work/scalar.ax" <<'EOF'
 (import Mem)
 (:: main Int)
-;@axiom:effect(unsafe)
 (fn (main)
   (let ((p (memAlloc 8)))
     { (memSetWord p 0 (cast Int 7)) 0 }))
