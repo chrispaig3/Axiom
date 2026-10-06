@@ -738,7 +738,7 @@ module.exports = grammar({
           optional(field('region', $.region_annotation)), ')'),
     ),
 
-    // `(Str @r)`, `(Vec Int @r)`, `(String @r)`, `(a @r)` - a REGION
+    // `(String @r)`, `(Vec Int @r)`, `(a @r)` - a REGION
     // ANNOTATION is the last thing inside a type's parentheses
     // (`parseTypeAtomsRgn` in self_host/parser.ax; stage S3 of
     // docs/memory-model.md). On a constructor application it

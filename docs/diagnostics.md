@@ -748,7 +748,7 @@ Tested by `tests/diagnostics/330-axtag-mismatch.ax`.
 ### Region checks
 
 A signature can name the region a reference lives in, such as
-`(Str @r)` (see [Region annotations](reference.md#region-annotations)).
+`(String @r)` (see [Region annotations](reference.md#region-annotations)).
 After every body is typed, the escape rule checks those names:
 
 - `AX3060`: a store whose place outlives the value.

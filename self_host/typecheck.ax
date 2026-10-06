@@ -26235,7 +26235,7 @@
 ; rule (docs/memory-model.md §3.6).
 ;
 ; WHAT THIS IS. A signature may name the region a reference lives in,
-; `(:: intern (-> (Str @s) (Table @r) (Sym @r)))`, and MM-RGN-3 is
+; `(:: keep (-> (Vec String @r) (String @s) Int))`, and MM-RGN-3 is
 ; then checked over every body: a value MUST NOT be stored into,
 ; returned into, or captured by anything in a region that outlives
 ; its own. A signature naming no region is region-monomorphic in the

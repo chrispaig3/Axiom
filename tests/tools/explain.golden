@@ -2418,7 +2418,10 @@ AX3060 - a value stored where its region has already ended
 
 A signature may name the REGION a reference lives in:
 
-    (:: intern (-> (Str @s) (Table @r) (Sym @r)))
+    (import Vec)
+
+    (:: remember (-> (Vec String @r) (String @s) Int))
+    (fn (remember v x) { (vecPush v x) 0 })
 
 `@s` and `@r` are region parameters, chosen by the caller through
 the arguments, as type variables are. A region named in a signature
@@ -2434,7 +2437,8 @@ This code is that rule refusing a store - a `set` on a binding, a
 field write, a raw `__store64`, or a store a CALLEE makes through its
 parameter, which the compiler reads off the callee's body: `vecPush`
 stores its second parameter into its first, so `(vecPush v x)` is
-refused when `x`'s region does not outlive `v`'s.
+refused when `x`'s region does not outlive `v`'s, which is why
+`remember` is refused.
 
 A function that names no region is region-monomorphic in its
 caller's region (MM-RGN-4): everything it allocates lives there, so
@@ -2457,7 +2461,7 @@ than 61 parameter and lexical-extent origins.
 ### explain AX3061
 AX3061 - a result that does not live in the region its signature names
 
-`(:: pick (-> (Str @s) (Str @r) (Str @r)))` promises a value in
+`(:: pick (-> (String @s) (String @r) (String @r)))` promises a value in
 `@r`. A body answering its `@s` parameter, or a value it allocated
 itself, breaks that promise: the caller reads the result in `@r`
 after every shorter region has been reclaimed (MM-RGN-3 at the
@@ -2492,13 +2496,13 @@ place is stored like any other value.
 AX3063 - a region the callee's signature names and the arguments do not agree on
 
 A region parameter is instantiated ONCE per call, like a type
-variable. `(:: pair (-> (Str @r) (Str @r) Int))` asks for two values
+variable. `(:: pair (-> (String @r) (String @r) Int))` asks for two values
 from one region, and `(pair x y)` with `x` in `@s` and `y` in `@t` -
 two regions the callee's body may not tell apart - is refused, because
 the body was checked on the promise that they are one.
 
 The same code refuses a signature whose RESULT names a region no
-parameter supplies, `(:: orphan (-> Int (Str @q)))`: a region is chosen
+parameter supplies, `(:: orphan (-> Int (String @q)))`: a region is chosen
 by the caller through an argument, and a region named only in the
 result is one the callee would have to invent - the shape AX3040
 refuses for a type variable.

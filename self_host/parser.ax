@@ -731,7 +731,7 @@
 
 ; ------------------------------------------------------------------
 ; REGION ANNOTATIONS ON TYPE NODES (docs/memory-model.md,
-; MM-RGN-4, stage S3). `(Str @r)` is the `Str` type node with the
+; MM-RGN-4, stage S3). `(String @r)` is the `String` type node with the
 ; region name `r` in word 7 - `axtags` on a declaration, and free on
 ; every type node, because a type carries no tags. It lives in a
 ; spare word rather than in a wrapper node ON PURPOSE: the whole type
@@ -3090,7 +3090,7 @@
           (parseTypeAtoms tokens (memGetWord r 2) (vecPush acc (memGetWord r 1))))))))
 
 ; The same run of atoms, admitting ONE region annotation `@r` as the
-; LAST element before the `)`: `(Str @r)`, `(Vec Int @r)`, `(a @r)`.
+; LAST element before the `)`: `(String @r)`, `(Vec Int @r)`, `(a @r)`.
 ; The name (without its `@`) travels back in the result's `exp` slot -
 ; the String `pOk` writes "" into, which nothing reads on a success -
 ; and the caller hangs it on the node it built with `tyWithRegion`.

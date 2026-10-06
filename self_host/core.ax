@@ -104,7 +104,7 @@
   (span : Int))
 
 ; `@r` - a REGION ANNOTATION, read only in type position:
-; `(Str @r)` names the region a value lives in (docs/memory-model.md
+; `(String @r)` names the region a value lives in (docs/memory-model.md
 ; MM-RGN-4). `@` was AX1001 and stays so unless an identifier starts
 ; right after it; in expression position the token is AX2001, so a
 ; program cannot bind a name that begins with `@`. Appended, so no

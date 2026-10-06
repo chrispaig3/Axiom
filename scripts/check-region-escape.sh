@@ -3,7 +3,7 @@
 # (docs/memory-model.md §2, stage S3 of §4).
 #
 # Stage S3 lets a signature name the region a reference lives in,
-# `(:: intern (-> (Str @s) (Table @r) (Sym @r)))`, and refuses a store,
+# `(:: keep (-> (Vec String @r) (String @s) Int))`, and refuses a store,
 # a return or a capture that would let a value be read after its
 # region is reclaimed. Two claims rest on it, and this gate holds both
 # from the outside:

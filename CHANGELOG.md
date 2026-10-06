@@ -16,6 +16,11 @@ its changelog too.
 
 ## Unreleased
 
+- Write the region examples in `axiom explain AX3060`, `AX3061` and
+  `AX3063` and in the diagnostics guide over `String`. They named a
+  `Str` type that does not exist; each now refuses with the code it
+  explains. Tested by `scripts/check-tools-selfhost.sh`.
+
 - Build a struct by calling its name, `(Pt 3 4)`. The keyword spelling
   `(struct Pt 3 4)` in an expression is now `AX2004`, with the call as
   the advice, and `axiom fmt` refuses it too. `struct` still declares.
