@@ -616,7 +616,7 @@
 ; first, and this is the bit that tells them not to.
 ;
 ; A template's own binders never carry it: they are gensym-renamed
-; (MAC-HYG-3) and resolve through the rename table long before the
+; (MAC-HYG-3) and resolve through their scope records long before the
 ; free-identifier arm is reached.
 (pub :: nodeDefScope (-> Int Int))
 (pub fn (nodeDefScope n)

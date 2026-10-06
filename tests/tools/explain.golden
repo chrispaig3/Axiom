@@ -87,7 +87,6 @@
   [93mAX3072[0m  `__addr` of anything but a string literal  (addr-nonliteral)
   [93mAX3073[0m  a function performs an unsafe operation and does not declare it  (undeclared-unsafe)
   [93mAX3074[0m  a macro parameter standing where the template keeps a name  (macro-parameter-name-position)
-  [93mAX3075[0m  renaming and scope resolution part on a macro reference  (scope-divergence)
   [93mAX3076[0m  an `effect(...)` tag naming more than one effect  (effect-tag-list)
   [93mAX3077[0m  a checked AXTAG key on a declaration that can't carry it  (axtag-misplaced)
   [93mAX3078[0m  purity written any way but `effect(pure)`  (pure-tag-spelling)
@@ -2656,13 +2655,6 @@ THIS IS A WARNING, and the positions are why. Each is a name, not an expression,
 
 To mean the literal name, give the parameter another name so the template says what it means. To choose a field per invocation, bind the name with an enclosing `syntax/for` over `syntax/fields` - a name the iteration binds substitutes, and the warning stays off it. The severity is recorded in tests/diagnostics/severity.policy with that reason.
 
-### explain AX3075
-AX3075 - renaming and scope resolution part on a macro reference
-
-This diagnostic only fires under AXIOM_VERIFY_SCOPES=1, the MAC-HYG-9 equivalence check (docs/macro-system.md). The expander carries scope sets beside the rename table: every template binder is a (name, scopes) pair, and a reference resolves to the innermost binder of either kind. Here the scope track and the rename table answered different binders for one reference.
-
-What remains is drift between the two tracks, and the message says so: a template binder pushed or truncated one track without the other. That is a compiler bug rather than a program bug - the track is new, and a missed pairing is its failure mode. The diagnostic's other shape, the precedence parting where renaming answered a template binder and scopes would have taken a for-binding, retired with the tier rule at M3: innermost-wins is the shipped rule now, and `tests/diagnostics/1009-macro-for-innermost.ax` pins what it means for the one program that ever parted.
-
 ### explain AX3076
 AX3076 - an `effect(...)` tag naming more than one effect
 
@@ -3387,7 +3379,6 @@ run `axiom explain --list` to see all known codes
   [93mAX3072[0m  `__addr` of anything but a string literal  (addr-nonliteral)
   [93mAX3073[0m  a function performs an unsafe operation and does not declare it  (undeclared-unsafe)
   [93mAX3074[0m  a macro parameter standing where the template keeps a name  (macro-parameter-name-position)
-  [93mAX3075[0m  renaming and scope resolution part on a macro reference  (scope-divergence)
   [93mAX3076[0m  an `effect(...)` tag naming more than one effect  (effect-tag-list)
   [93mAX3077[0m  a checked AXTAG key on a declaration that can't carry it  (axtag-misplaced)
   [93mAX3078[0m  purity written any way but `effect(pure)`  (pure-tag-spelling)

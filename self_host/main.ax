@@ -612,15 +612,7 @@
                             units
                             bares
                             fulls
-                            mods
-                            (if (strEq (sysEnv "AXIOM_VERIFY_SCOPES") "")
-                              ; Scope verification rides an environment
-                              ; variable rather than a flag (no driver
-                              ; plumbing, no `--help` honesty to keep):
-                              ; `AXIOM_VERIFY_SCOPES=1` runs the MAC-HYG-9
-                              ; equivalence check over every expansion.
-                              0
-                              1))
+                            mods)
                           ; The expander's OWN refusals get the frames too.
                           ; They are diagnostics from inside an expansion by
                           ; construction - AX3021, AX3027, AX3028 - and the
@@ -1922,10 +1914,7 @@
                                           units
                                           bares
                                           fulls
-                                          mods
-                                          (if (strEq (sysEnv "AXIOM_VERIFY_SCOPES") "")
-                                            0
-                                            1))))
+                                          mods)))
                                         (let ((_stop 
                                           (if (> (countErrorDiags eds) 0)
                                             {

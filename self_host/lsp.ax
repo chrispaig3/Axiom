@@ -582,8 +582,7 @@
                             units
                             bares
                             fulls
-                            mods
-                            0)
+                            mods)
                           v
                         }))
                     )
@@ -10052,8 +10051,7 @@
           units
           (memGetWordVec r 2)
           (memGetWordVec r 3)
-          (memGetWordVec r 4)
-          0)))
+          (memGetWordVec r 4))))
           (let ((b (memAlloc 40)))
             {
               (memSetWord b 0 allDecls)

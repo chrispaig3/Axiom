@@ -5,13 +5,13 @@
 ; struct's fields; each for-body `g` resolves to the iteration -
 ; the inner binder - so the field names `x` and `y` arrive where
 ; no variable is bound, and the checker refuses both as AX3001.
-; Before M3 the ren-first tier rule answered the `let`'s 41, and
-; this program lived in tests/selfhost/ as 1003, answering 41 and
-; diverging under AXIOM_VERIFY_SCOPES=1 as the scope-equiv gate's
-; positive control. The flip moved it here: what the verifier used
-; to flag as a parting is now the shipped answer, and a field name
-; arriving unbound is the checker's true AX3001, pinned by this
-; fixture's golden.
+; The opposite precedence, template binder first, would answer the
+; `let`'s 41; it was the expander's rule before M3, when this program
+; answered 41 as a selfhost case. Scope resolution takes the inner
+; binder whatever its kind, so a field name arriving unbound is the
+; checker's true AX3001, pinned by this fixture's golden. The rule is
+; MAC-HYG-9's M3 step in docs/macro-system.md, and M4 left it as the
+; only resolution the expander has.
 (struct Point
   (x : Int)
   (y : Int))

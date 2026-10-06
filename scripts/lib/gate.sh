@@ -160,9 +160,9 @@ gate_source_stamp() {
 # reads in `self_host/` and `stdlib/` that can change what a build of
 # `self_host/main.ax` produces. AXIOM_STDLIB and AXIOM_PATH choose which
 # module files an import resolves to, AXIOM_LINK_SEARCH what the link
-# line finds, and AXIOM_MIR_EMIT / AXIOM_VERIFY_SCOPES switch extra work
-# on. The rest (HOME, XDG_CONFIG_HOME, TMPDIR, AXIOM_REPL_HISTORY) are
-# read only by the REPL and the package commands, and PATH is covered
+# line finds, and AXIOM_MIR_EMIT switches extra work on. The rest
+# (HOME, XDG_CONFIG_HOME, TMPDIR, AXIOM_REPL_HISTORY) are read only by
+# the REPL and the package commands, and PATH is covered
 # by the toolchain stamp's resolved tools. A new build-affecting
 # `sysEnv` read belongs here.
 #
@@ -178,8 +178,7 @@ gate_config_stamp() {
   printf '%s\n' "stdlib=$lib" \
     "AXIOM_PATH=${AXIOM_PATH:-}" \
     "AXIOM_LINK_SEARCH=${AXIOM_LINK_SEARCH:-}" \
-    "AXIOM_MIR_EMIT=${AXIOM_MIR_EMIT:-}" \
-    "AXIOM_VERIFY_SCOPES=${AXIOM_VERIFY_SCOPES:-}"
+    "AXIOM_MIR_EMIT=${AXIOM_MIR_EMIT:-}"
 }
 
 # Build inputs outside the Axiom source tree. Keep this separate from
@@ -270,7 +269,7 @@ gate_axdl_unknown_kind() {
 # from the tree first, which is what makes an ablation of `self_host/`
 # visible to it.
 #
-# Ninety-five gates call this, so `$AXIOM_AXC` lets one CI step build
+# Ninety-four gates call this, so `$AXIOM_AXC` lets one CI step build
 # the compiler once (`scripts/build-shared-axc.sh`). That cache is
 # content-addressed: the binary is used only when `$AXIOM_AXC.stamp`
 # equals `gate_source_stamp` for the tree as it is now. Change a byte
@@ -382,8 +381,7 @@ gate_build_tree() {
       gate_toolchain_stamp
       printf '%s\n' "AXIOM_PATH=${AXIOM_PATH:-}" \
         "AXIOM_LINK_SEARCH=${AXIOM_LINK_SEARCH:-}" \
-        "AXIOM_MIR_EMIT=${AXIOM_MIR_EMIT:-}" \
-        "AXIOM_VERIFY_SCOPES=${AXIOM_VERIFY_SCOPES:-}"
+        "AXIOM_MIR_EMIT=${AXIOM_MIR_EMIT:-}"
     } | gate_sha )"
     entry="$cache/tree-$key"
     if [[ -x "$entry" && -f "$entry.sha" ]]; then

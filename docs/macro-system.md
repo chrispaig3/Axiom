@@ -1081,8 +1081,9 @@ Hygiene works in two directions. A binder that a template introduces
 must not capture a name from the call site (§3.1, §3.2). A free
 identifier in a template must mean what it meant where the macro was
 written (§3.3). Both hold today. §3.4 records the four holes hygiene
-had, all now closed, and `MAC-HYG-9` covers the planned move to scope
-sets.
+had, all now closed, and `MAC-HYG-9` covers scope sets: the expander
+resolves template binders through them, and literal comparison doesn't
+use them yet.
 
 ### 3.1 Binders a template introduces
 
@@ -1355,37 +1356,30 @@ needs the pairs:
 
 The migration has four steps:
 
-- **M1, landed.** The expander carries a scope track beside the rename
-  table `ren`: `(name, scopes)` records for every template binder and
-  `syntax/for` binding (its state words 24 to 28). Under
-  `AXIOM_VERIFY_SCOPES=1`, every reference the rename table hits is resolved both ways, and a
-  parting is `AX3075`.
+- **M1, landed.** Every template binder and `syntax/for` binding has
+  a `(name, scopes)` record, and every instantiation and `syntax/for`
+  element walk introduces a fresh scope (the expander's state words 24
+  to 27).
 - **M2, landed.** Lookup sites resolve through scope records, taking
   the innermost visible binder, and answer the record's assigned
-  spelling. Template binders still took precedence over `syntax/for`
-  bindings at this step. Goldens stayed byte-identical, selfhost
-  answers stayed identical and the bootstrap fixpoint held. `ren` is
-  still written in lockstep, but no longer read for decisions.
+  spelling.
 - **M3, landed.** Precedence is innermost-wins. `syntax/for` bindings
   take part as ordinary inner binders, ordered against template binders
-  by push order. The one corpus program where the two orders differed,
-  a `syntax/for` binding inside a template `let` of the same spelling,
-  is `tests/diagnostics/1009-macro-for-innermost.ax`. It draws two
-  `AX3001`, because the field names `x` and `y` arrive where no
-  variable is bound. `AX3075`'s precedence shape retired with the old
-  order, and every other golden stayed byte-identical.
-- **M4, planned.** Delete `ren`: its pushes, lookups, truncations and
-  lockstep asserts. Spelling assignment stays on the `fresh` counter at
-  the same push sites, so output bytes still don't move, and the test
-  battery proves it. `AX3075`'s remaining shape, drift, retires with
-  the second track, and its number is never reused. After M4, binders
-  are `(name, scopes)` pairs from push to emission.
+  by push order. In `tests/diagnostics/1009-macro-for-innermost.ax`, a
+  `syntax/for` binding sits inside a template `let` of the same
+  spelling. The inner binding wins, so the field names `x` and `y`
+  arrive where no variable is bound, and the program draws two
+  `AX3001`.
+- **M4, landed.** The scope records are the expander's only binder
+  table. `AX3075`, the code for a disagreement between them and a
+  second table, is retired, and its number is never reused. Spelling
+  assignment stays on the `fresh` counter at the push sites, so a
+  binder's output spelling depends only on push order. Binders are
+  `(name, scopes)` pairs from push to emission.
 
-Until M4, `AXIOM_VERIFY_SCOPES=1` still checks the two tracks against
-each other. Any `AX3075` now means drift: a push or truncation that
-reached one track and not the other. That is a compiler bug, not a
-program bug. `scripts/check-scope-equiv.sh` runs the checkable corpus
-in this mode and pins the absence of `AX3075`.
+The test battery holds the migration to its obligation. The five cases
+above answer the values given, and the emitted IR is deterministic
+(`MAC-EXP-12`).
 
 **MAC-HYG-10 (H).** When a binder position holds a macro
 parameter, the binder takes the argument's name and **MUST NOT** be
@@ -1405,8 +1399,8 @@ which arrives through a different parameter, still reads `v`. The
 result would be `` AX3001 undefined variable `v` ``.
 
 A template that binds and reads through the same parameter hides the
-problem. In `(macro (m x e) (let ((x e)) x))`, the rename table maps
-both of the template's `x`s to the same fresh name. The answer comes out
+problem. In `(macro (m x e) (let ((x e)) x))`, scope resolution answers
+both of the template's `x`s with the same fresh name. The answer comes out
 right for the wrong reason, and the caller's chosen name appears nowhere
 in the output. Only a macro that takes a separate body shows the
 difference.
@@ -1420,11 +1414,10 @@ discarding the argument.
 
 All three binder positions the expander owns follow the rule: `let`
 and `let mut` binders, `lambda` parameters and match-arm pattern
-binders (`expBinderParam` in `self_host/expand.ax`). Nothing goes onto
-the rename stack for such a binder. A reference to the parameter
-elsewhere in the template already substitutes to the same identifier
-through the ordinary parameter path, so a rename entry would be a second
-route to one answer.
+binders (`expBinderParam` in `self_host/expand.ax`). Such a binder gets
+no scope record. A reference to the parameter elsewhere in the template
+already substitutes to the same identifier through the ordinary
+parameter path, so a record would be a second route to one answer.
 
 The reverse direction is unaffected and belongs to `MAC-HYG-8`. A
 template's free identifier that the caller's binder happens to shadow
@@ -1572,8 +1565,8 @@ The details, query by query:
   deterministic, so every mention within one expansion gets the same
   sequence, and `#` can't appear in a user identifier. Each identifier
   is a template binder that `MAC-HYG-2` renames. A mention in a pattern
-  splices them as binders, and later mentions land on the same renamed
-  binders through the rename table.
+  splices them as binders, and later mentions resolve to the same
+  renamed binders through their scope records.
 - `syntax/for` works in match-arm, template-declaration and
   call-argument positions. The for-variable substitutes in constructor
   patterns, field-name positions and name positions. Iterations nest,

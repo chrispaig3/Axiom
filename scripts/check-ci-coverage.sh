@@ -304,18 +304,19 @@ ${lone_ind}  fi"
   ablate "scripts/$lone inside \`if false\` in the script" "$work/j.yml" "$want (named in a step, but the step's script is not straight-line"
 fi
 
-# The audit's copy: the real `check-scope-equiv.sh` step turned into an
-# echo of itself. It reproduces one known failure, so the gate is named
-# here rather than chosen, and the seam's count fails instead of going
-# quiet if the step moves or the gate is renamed.
-se_n="$(grep -cE '^ +run: \./scripts/check-scope-equiv\.sh$' "$ci_yml" || true)"
+# The audit's copy: a real single-step gate turned into an echo of
+# itself. The audit's own target, `check-scope-equiv.sh`, went with the
+# second hygiene track (MAC-HYG-9 M4), so the seam is the step that
+# stood beside it, and the seam's count fails instead of going quiet if
+# the step moves or the gate is renamed.
+se_n="$(grep -cE '^ +run: \./scripts/check-macro-demand\.sh$' "$ci_yml" || true)"
 if [[ "$se_n" != 1 ]]; then
-  bad "ablation I's seam, a single \`run: ./scripts/check-scope-equiv.sh\` line, matches $se_n lines"
+  bad "ablation I's seam, a single \`run: ./scripts/check-macro-demand.sh\` line, matches $se_n lines"
 else
-  sed -E 's|^( +run: )\./scripts/check-scope-equiv\.sh$|\1echo ./scripts/check-scope-equiv.sh|' \
+  sed -E 's|^( +run: )\./scripts/check-macro-demand\.sh$|\1echo ./scripts/check-macro-demand.sh|' \
     "$ci_yml" > "$work/audit.yml"
-  ablate "the audit's copy: check-scope-equiv.sh echoed" "$work/audit.yml" \
-         "scripts/check-scope-equiv.sh is on disk and no CI step runs it"
+  ablate "the audit's copy: check-macro-demand.sh echoed" "$work/audit.yml" \
+         "scripts/check-macro-demand.sh is on disk and no CI step runs it"
 fi
 
 # --------------------------------------------------------------------

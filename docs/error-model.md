@@ -1103,7 +1103,7 @@ first. Three rules keep the numbering straight:
 - A new code takes the next number above the highest one in use, the
   *free end*, and never a number from the reserved block.
 - A retired number **MUST NOT** be reused. `AX3008`, `AX3032`,
-  `AX3079` and `AX3080` are retired.
+  `AX3075`, `AX3079` and `AX3080` are retired.
 
 No codes are proposed right now. When one is, it goes in this table:
 
@@ -1245,6 +1245,11 @@ it, and a comment otherwise. `AX3095` refuses the removed
 `;@axiom:precondition(...)` tag, and its old checks `AX3079` and
 `AX3080` are retired.
 
+`AX3075` (`scope-divergence`) is retired too. It reported the macro
+expander's scope records disagreeing with a second binder table, and
+the expander keeps one table (`MAC-HYG-9` step M4 in
+[macro-system.md](macro-system.md)).
+
 `AX3076` was spent on 2026-09-27 by `effect-tag-list`: an
 `;@axiom:effect(...)` tag naming more than one effect -
 `effect(io, unsafe)` - which was read as ONE custom effect spelled with
@@ -1367,8 +1372,8 @@ fixed, and `B2` was resolved by removal in 0.6.0.
 Fixed.** `(macro (bind! x e body) (let ((x e)) body))` put the
 caller's `body` outside the binding `x` introduced, so `body` couldn't
 see it and drew `AX3001` (`undefined-variable`). A macro that binds and
-reads through the *same* parameter worked, because the rename table
-mapped the template's `x` to the gensym on both sides:
+reads through the *same* parameter worked, because both of the
+template's `x`s resolved to the gensym:
 
 ```scheme
 (macro (bindSelf! x e) (let ((x e)) x))

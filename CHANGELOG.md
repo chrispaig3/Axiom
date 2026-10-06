@@ -16,6 +16,16 @@ its changelog too.
 
 ## Unreleased
 
+- Resolve every macro template binder through its scope record alone
+  (`MAC-HYG-9` step M4). The expander's second binder table is gone,
+  and with it the `AXIOM_VERIFY_SCOPES` environment variable, the
+  cross-check it switched on and `scripts/check-scope-equiv.sh`.
+  `AX3075` is retired and never reused. Expansion is unchanged: the
+  previous compiler and this one emit byte-identical IR for
+  `self_host/main.ax` and every `tests/selfhost` and `tests/stdlib`
+  case. Ninety-four gates now build the compiler under test. Tested by `scripts/check-bootstrap.sh` and
+  `tests/diagnostics/1009-macro-for-innermost.ax`.
+
 - State a condition a caller must meet as a `;@axiom:pre(...)`
   contract, or in a comment. The `;@axiom:precondition(...)` tag is
   gone: a written one is refused as `AX3095`, and `AX3079` and

@@ -4,17 +4,17 @@
 # (`scripts/check-doc-drift.sh` holds that in both directions), and every
 # code a `check` build can emit should have a primary golden pinning its
 # code, span, severity and exit status (`scripts/check-diagnostics.sh`).
-# The eleven codes below satisfy the first and not the second: they are
+# The ten codes below satisfy the first and not the second: they are
 # real construction sites, and no `.axdl` golden names one of them as
 # its primary diagnostic.
 #
 # This is a hole in the corpus and it is written down rather than left
-# to be discovered. It is compared as a SET, not a count: a twelfth
+# to be discovered. It is compared as a SET, not a count: an eleventh
 # code without a primary fixture fails the gate, and closing a hole is
 # this file losing a line and `tests/diagnostics/` gaining a fixture.
 # Measured 2026-09-23: 90 constructed, 81 with a primary golden
-# (AX3022 retired by tests/diagnostics/591-macro-set-target.ax); AX3075
-# and AX4008 (2026-09-27, build-time, R-D2) joined since.
+# (AX3022 retired by tests/diagnostics/591-macro-set-target.ax); AX4008
+# (2026-09-27, build-time, R-D2) joined since.
 #
 # Each entry names the construction site, why no `.axdl` fixture pins
 # it, and what DOES cover the path today (a different suite, or
@@ -80,15 +80,3 @@ AX4008
 # not by a check-surface .axdl. Alternative coverage: PARTIAL (LSP
 # golden, no .axdl).
 AX5001
-
-# AX3075 (self_host/expand.ax: expScEmit). Scope/rename divergence.
-# Fires only under AXIOM_VERIFY_SCOPES=1, which the diagnostics
-# harness never sets, so no `.axdl` golden can pin it: a checked-in
-# golden would mismatch on every re-bless. Since M3 only the drift
-# shape remains - a missed push/truncation pairing, a compiler bug -
-# and scripts/check-scope-equiv.sh pins its absence over the corpus
-# (the precedence shape and its positive control retired with the
-# tier rule; the old control now pins AX3001 as
-# tests/diagnostics/1009-macro-for-innermost.ax). Alternative
-# coverage: PARTIAL (drift gate, no .axdl, no positive leg).
-AX3075

@@ -2,7 +2,7 @@
 # Build the compiler under test once, and stamp it so the gates trust
 # it.
 #
-# Ninety-five gates call `gate_build_axc`. With a shared artifact, none
+# Ninety-four gates call `gate_build_axc`. With a shared artifact, none
 # of them rebuilds the compiler, which saves a large share of each CI
 # test leg.
 #
@@ -112,7 +112,7 @@ if ! cmp -s "$work/a.ll" "$work/b.ll"; then
   echo "    --- $a_lines lines vs $b_lines lines, first difference at line \
 $(cmp "$work/a.ll" "$work/b.ll" 2>&1 | sed 's/.*line //')" >&2
   echo "      The shared artifact is therefore NOT the compiler a gate would" >&2
-  echo "      have built, and ninety-five gates would be testing something else." >&2
+  echo "      have built, and ninety-four gates would be testing something else." >&2
   exit 1
 fi
 

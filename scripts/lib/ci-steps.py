@@ -5,9 +5,8 @@ Used by `scripts/check-ci-coverage.sh`. It answers one question per gate:
 is there a step that invokes `scripts/check-<name>.sh` in a way whose
 failure fails the workflow? A MENTION is not that. Until 2026-09-26 the
 gate answered it by stripping comments and grepping the whole file, and
-an audit turned the real `check-scope-equiv.sh` invocation into
-`echo ./scripts/check-scope-equiv.sh` in a copy of `ci.yml`: the gate
-still said every script was run. A step's `name:`, an `echo`, a step
+an audit turned a real gate's invocation into an `echo` of itself in a
+copy of `ci.yml`: the gate still said every script was run. A step's `name:`, an `echo`, a step
 behind `if: false`, a job nothing can start, `continue-on-error: true`
 and a trailing `|| true` are all mentions of the same kind.
 

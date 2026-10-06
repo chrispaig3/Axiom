@@ -9,7 +9,7 @@
 ;                          mention introduces them as binders (which
 ;                          hygiene renames like any template binder)
 ;                          and the fold's mention lands on the SAME
-;                          renamed binders through the rename table
+;                          renamed binders through their scope records
 ;   (syntax/fold && true ((xi ...) (yi ...)) tpl)
 ;                          the right-fold (&& tpl1 (&& tpl2 true)) -
 ;                          parallel sequences zip in lockstep, and

@@ -230,7 +230,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # Ninety-five of the gates below build the compiler under test from
+    # Ninety-four of the gates below build the compiler under test from
     # `self_host/`. One step builds it, and `gate_build_axc` reuses it
     # while the tree's source stamp matches, rebuilds when it doesn't, and
     # refuses a path that names no build product. So an ablation of
@@ -1183,15 +1183,6 @@ jobs:
       - name: Generated-name demand behind the raw-tree rule
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         run: ./scripts/check-macro-demand.sh
-
-      # MAC-HYG-9's equivalence slice: scope sets ride beside the rename
-      # table under AXIOM_VERIFY_SCOPES=1, and every reference the table
-      # hits resolves both ways. The corpus must agree everywhere; the
-      # one shape that differs by design is the positive control, which
-      # must diverge under verify and check clean without it.
-      - name: Scope sets agree with renaming
-        if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
-        run: ./scripts/check-scope-equiv.sh
 
       # The normative documents are maintained by hand and drift. So every
       # count is recomputed, every **Complete** row must name a fixture
