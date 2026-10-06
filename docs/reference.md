@@ -385,7 +385,10 @@ The current enforcement and remaining gaps are in the
 ## Type aliases
 
 `(type Name = String)` gives another name to `String`; the two are
-interchangeable. Parameterised aliases are not expanded.
+interchangeable. An alias takes no type parameters: `(type Pair (a) =
+(Vec a))` is refused with `AX3096` where you declare it. Write the
+target type where you use it, or declare a `struct` or `data` type.
+Tested by `tests/diagnostics/1133-alias-params.ax`.
 
 ### Range-constrained subtypes
 

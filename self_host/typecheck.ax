@@ -7045,14 +7045,15 @@
                 vecNew
                 0))
               ; An alias's TARGET may itself name one, so the
-              ; expansion is re-entered rather than returned.
-              ; Parameterised aliases need substitution and are
-              ; not covered: only the zero-parameter spelling
-              ; expands, which is the one `docs/reference.md`
-              ; documents and the only one `symbols` prints.
-              (if (!= (vecLen (nodeBVec t)) 0)
-                t
-                (tyExpandAliases tc (nodeB al) (+ depth 1)))))
+              ; expansion is re-entered rather than returned. An
+              ; alias declaring parameters is refused at its
+              ; declaration (AX3096), and its uses are poison so
+              ; that refusal is the only report.
+              (if (== (aliasHasParams al) 1)
+                mkTErr
+                (if (!= (vecLen (nodeBVec t)) 0)
+                  t
+                  (tyExpandAliases tc (nodeB al) (+ depth 1))))))
           (if (== tg TAG_T_ARR)
             (mkTArr (tyExpandAliases tc (nodeA t) depth) (tyExpandAliases tc (nodeB t) depth))
             (if (== tg TAG_T_TUP)
@@ -7177,10 +7178,48 @@
               (nodeModule d)
               d
               0)
+            (if (== (aliasHasParams d) 1)
+              (emitAliasParams tc d)
+              0)
           }
           0))
       (tcCollectAliasDecls tc decls (+ i 1))
     }))
+
+; 1 when an alias declares type parameters: `(type Pair (a) = (Vec a))`
+; or `(type Pair a = (Vec a))`. `(type Names () = ...)` declares none.
+(pub :: aliasHasParams (-> Int Int))
+(pub fn (aliasHasParams d)
+  (let ((tvs (nodeCVec d)))
+    (if (==
+      (cast Int tvs)
+      0)
+      0
+      (if (> (vecLen tvs) 0)
+        1
+        0))))
+
+; AX3096: an alias with type parameters, refused where it is declared.
+;
+; An alias is replaced by its target wherever it is written
+; (`tyExpandAliases`), and there is no substitution for an alias's
+; parameters, so the form was accepted and never expanded: every use
+; failed AX3004 against its own target, far from the declaration that
+; caused it. Its uses expand to poison instead, so the one report here
+; is the whole report.
+(pub :: emitAliasParams (-> Int Int Int))
+(pub fn (emitAliasParams tc d)
+  (if (== (nodeSpan d) 0)
+    0
+    (emitDiag tc (diagSetLabel (mkDiag
+      SEV_ERROR
+      "AX3096"
+      "parameterised-alias"
+      (nodeSpan d)
+      (concat (concat "type alias `" (bareOf (nodeAName d))) "` declares type parameters, and an alias takes none")
+      0
+      0
+      "write the target type where you use it, or declare a `struct` or `data` type with these parameters for a new type of your own") "an alias names one existing type"))))
 
 ; Collect TAG_D_SUBTYPE declarations into tcSubtypes for lookup by name.
 ; Registered in the type index like aliases so signatures may name
@@ -15670,15 +15709,13 @@
 ;                                 signature already holds the arrow and
 ;                                 `tyIsCallable` sees it - the row is
 ;                                 still a lower bound;
-;   (type Fn2 a = (-> a a))       NOT expanded, nominal by design, and
-;                                 the checker refuses both halves of
-;                                 the worry: applying one is `AX3004
-;                                 expected function type, found Fn2
-;                                 Int`, and handing an arrow to a
-;                                 `Fn2 Int` position is `AX3004` too.
+;   (type Fn2 a = (-> a a))       refused at its declaration
+;                                 (AX3096), and its uses are poison.
 ;
-; So no well-typed program can put a function where a nominal type is
-; declared, which is the same fact this whole rule rests on.
+; A `data` or `struct` name is nominal: applying one is `AX3004
+; expected function type`, and handing an arrow to one is `AX3004`
+; too. So no well-typed program can put a function where a nominal
+; type is declared, which is the same fact this whole rule rests on.
 (pub :: escapeArgs (-> Int (Vec Int) Int (Vec a) Int Int))
 (pub fn (escapeArgs bound args i acc cty)
   (if (>= i (vecLen args))

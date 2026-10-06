@@ -1,0 +1,19 @@
+[1;31merror[AX3096][0m[1m: type alias `Pair` declares type parameters, and an alias takes none[0m
+ [1;34m--> [0m1133-alias-params.ax:5:7
+[1;34m  |[0m
+[1;34m5 |[0m (type Pair (a) = (Vec a))
+[1;34m  |[0m       [1;31m^^^^ an alias names one existing type[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mwrite the target type where you use it, or declare a `struct` or `data` type with these parameters for a new type of your own
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3096` for a full explanation
+
+[1;31merror[AX3096][0m[1m: type alias `Two` declares type parameters, and an alias takes none[0m
+ [1;34m--> [0m1133-alias-params.ax:6:7
+[1;34m  |[0m
+[1;34m6 |[0m (type Two a = (Vec a))
+[1;34m  |[0m       [1;31m^^^ an alias names one existing type[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mwrite the target type where you use it, or declare a `struct` or `data` type with these parameters for a new type of your own
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3096` for a full explanation
+
+compilation failed due to 2 previous errors

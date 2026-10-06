@@ -102,6 +102,7 @@
   [93mAX3092[0m  a constant-time claim the body breaks  (ct-claim-violated)
   [93mAX3093[0m  a constant-time claim that names no parameter  (ct-claim-malformed)
   [93mAX3094[0m  a binding or declaration named `true` or `false`  (reserved-literal)
+  [93mAX3096[0m  a type alias with type parameters  (parameterised-alias)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -2923,6 +2924,24 @@ A bare `true` in a `match` pattern already TESTS the literal and
 binds nothing, which is the same rule from the pattern side.
 Choose another name.
 
+### explain AX3096
+AX3096 - a type alias with type parameters
+
+A `type` alias gives an existing type a second name, and it takes no
+type parameters:
+
+    (type Names = (Vec String))     ; an alias
+    (type Pair (a) = (Vec a))       ; refused
+
+An alias is replaced by its target wherever it is written, and there
+is nothing to substitute for a parameter. Accepting the form would
+leave every use failing AX3004 against its own target, far from the
+declaration that caused it.
+
+Write the target type where you use it, `(Vec Int)` for `(Pair Int)`.
+For a new type with parameters of its own, declare a `struct` or a
+`data` type.
+
 ### explain AX4001
 AX4001 - no `main` function
 
@@ -3391,6 +3410,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3092[0m  a constant-time claim the body breaks  (ct-claim-violated)
   [93mAX3093[0m  a constant-time claim that names no parameter  (ct-claim-malformed)
   [93mAX3094[0m  a binding or declaration named `true` or `false`  (reserved-literal)
+  [93mAX3096[0m  a type alias with type parameters  (parameterised-alias)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)

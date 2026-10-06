@@ -108,6 +108,12 @@ its changelog too.
   `tests/stdlib/703-memory-stats.ax` and
   `tests/stdlib/704-task-decoded.ax`.
 
+- Refuse a type alias that declares type parameters, with `AX3096` at
+  the declaration. `(type Pair (a) = (Vec a))` was accepted and never
+  expanded, so every use failed `AX3004` far from the cause. Write the
+  target type where you use it, or declare a `struct` or `data` type.
+  Tested by `tests/diagnostics/1133-alias-params.ax`.
+
 - `Linear` is no longer a built-in type. Linear types were removed, but
   the constructor `linear T` used to build still checked as a type, so
   `(-> (Linear Int) Int)` compiled and enforced nothing. It is now an
