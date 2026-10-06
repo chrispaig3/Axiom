@@ -103,8 +103,7 @@
 (import parser)
 
 ; ------------------------------------------------------------------
-; Opcodes. Instructions are 1..9, terminators 10..19, and `mIsTerm`
-; is the only place that split is written down.
+; Opcodes. Instructions are 1..9 and terminators 10..19.
 ; ------------------------------------------------------------------
 (pub :: MO_CONST Int)
 (pub fn (MO_CONST)
@@ -155,10 +154,6 @@
 (pub :: MT_TRAP Int)
 (pub fn (MT_TRAP)
   14)
-
-(pub :: mIsTerm (-> Int Bool))
-(pub fn (mIsTerm op)
-  (>= op 10))
 
 ; ------------------------------------------------------------------
 ; One instruction or terminator.

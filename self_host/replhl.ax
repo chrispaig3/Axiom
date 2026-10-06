@@ -1001,12 +1001,6 @@
         (catStrs parts)
       })))
 
-; The whole buffer, painted, with no cursor - the plain entry point.
-;@axiom:restrict(no-io,no-foreign)
-(pub :: replHlLine (-> String String))
-(pub fn (replHlLine src)
-  (replHlPaint src (- 0 1) 0))
-
 ; Source and cursor to the byte offset of the MATCHING delimiter.
 ;
 ;   >= 0  the partner's offset

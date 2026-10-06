@@ -189,8 +189,8 @@ def char_off(lines, line, col):
     """The character offset of 1-based (line, col), from the fixture's text.
 
     Every earlier line contributes its characters plus its newline. This
-    is the same count `charsBetween src 0 off` makes over the bytes, and
-    deliberately not the same number a byte offset would give.
+    is the count `charsToIx` (self_host/diag.ax) makes over the bytes:
+    characters, not the bytes a byte offset would count.
     """
     if line - 1 > len(lines):
         raise ValueError('line %d past end of file' % line)

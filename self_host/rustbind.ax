@@ -414,11 +414,9 @@
             (mkNode TAG_T_CON (nodeA t) (rbSubstAll (nodeBVec t) vars args) 0))
           (if (== tag TAG_T_ARR)
             (mkNode TAG_T_ARR (rbSubst (nodeA t) vars args) (rbSubst (nodeB t) vars args) 0)
-            (if (== tag TAG_T_LIST)
-              (mkNode TAG_T_LIST (rbSubst (nodeA t) vars args) 0 0)
-              (if (== tag TAG_T_TUP)
-                (mkNode TAG_T_TUP (rbSubstAll (nodeAVec t) vars args) 0 0)
-                t))))))))
+            (if (== tag TAG_T_TUP)
+              (mkNode TAG_T_TUP (rbSubstAll (nodeAVec t) vars args) 0 0)
+              t)))))))
 
 (pub :: rbSubstAll (-> (Vec Int) (Vec Int) (Vec Int) (Vec Int)))
 (pub fn (rbSubstAll ts vars args)
@@ -1896,13 +1894,11 @@
           (nodeAName t)
           (if (== tag TAG_T_ARR)
             (concat "(->" (concat (rbSpellSpine t) ")"))
-            (if (== tag TAG_T_LIST)
-              (concat "[" (concat (rbSpellType (nodeA t)) "]"))
-              (if (== tag TAG_T_TUP)
-                (if (== (vecLen (nodeAVec t)) 0)
-                  "()"
-                  (concat "(Tuple" (concat (rbSpellEach (nodeAVec t) 0) ")")))
-                "?"))))))))
+            (if (== tag TAG_T_TUP)
+              (if (== (vecLen (nodeAVec t)) 0)
+                "()"
+                (concat "(Tuple" (concat (rbSpellEach (nodeAVec t) 0) ")")))
+              "?")))))))
 
 (pub :: rbSpellEach (-> (Vec Int) Int String))
 (pub fn (rbSpellEach v i)

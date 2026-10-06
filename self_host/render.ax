@@ -109,32 +109,6 @@
       i
     }))
 
-; Characters (non-continuation bytes) in [a, b).
-;
-; No longer on any hot path: the JSON surface's `char_start`/`char_end`
-; used to call it as `charsBetween src 0 off`, a scan from byte 0 per
-; span, and now calls `charsToIx` (diag.ax) instead. It is kept because
-; it is the DEFINITION those counts are checked against -
-; `tests/diagnostics/verify-json.py` names it as the semantics its
-; derivation reproduces - and because a character count over an
-; arbitrary byte range has no other spelling here.
-(pub :: charsBetween (-> String Int Int Int))
-(pub fn (charsBetween src a b)
-  (let (
-    (mut i a)
-    (mut n 0)
-  )
-    {
-      (while (< i b)
-        {
-          (if (utf8IsCont (strByte src i))
-            0
-            (set n (+ n 1)))
-          (set i (+ i 1))
-        })
-      n
-    }))
-
 ; ------------------------------------------------------------------
 ; Format names: exactly `human`, `ai` and `json`, the three `--help`
 ; lists. Answers 0/1/2, or -1 for anything else, which `checkArgs`

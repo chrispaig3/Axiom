@@ -155,7 +155,7 @@
               }
               (if (== tag TAG_T_TUP)
                 (tyVarsIntoAll (nodeAVec t) 0 names)
-                (if (|| (== tag TAG_T_LIST) (== tag TAG_T_PTR))
+                (if (== tag TAG_T_PTR)
                   (tyVarsInto (nodeA t) names)
                   0)))))))))
 
@@ -186,11 +186,9 @@
               (concat (concat (concat (concat "(" (tyRenderIn (nodeA t) names)) " -> ") (tyRenderIn (nodeB t) names)) ")")
               (if (== tag TAG_T_TUP)
                 (concat (concat "(" (tyRenderJoin (nodeAVec t) 0 "" names)) ")")
-                (if (== tag TAG_T_LIST)
-                  (concat (concat "[" (tyRenderIn (nodeA t) names)) "]")
-                  (if (== tag TAG_T_PTR)
-                    (concat "*" (tyRenderIn (nodeA t) names))
-                    "{unknown}"))))))))))
+                (if (== tag TAG_T_PTR)
+                  (concat "*" (tyRenderIn (nodeA t) names))
+                  "{unknown}")))))))))
 
 (pub :: tyRenderApp (-> String (Vec Int) Int (Vec String) String))
 (pub fn (tyRenderApp acc args i names)
@@ -1226,7 +1224,7 @@
                 (tyOccurs v (nodeB r)))
               (if (== tg TAG_T_TUP)
                 (tyOccursVec v (nodeAVec r) 0)
-                (if (|| (== tg TAG_T_LIST) (== tg TAG_T_PTR))
+                (if (== tg TAG_T_PTR)
                   (tyOccurs v (nodeA r))
                   0)))))))))
 
@@ -1354,11 +1352,9 @@
                   (if (== (vecLen (nodeAVec a)) (vecLen (nodeAVec b)))
                     (tyCompatVec tc (nodeAVec a) (nodeAVec b) 0)
                     0)
-                  (if (&& (== ta TAG_T_LIST) (== tb TAG_T_LIST))
+                  (if (&& (== ta TAG_T_PTR) (== tb TAG_T_PTR))
                     (tyCompat tc (nodeA a) (nodeA b))
-                    (if (&& (== ta TAG_T_PTR) (== tb TAG_T_PTR))
-                      (tyCompat tc (nodeA a) (nodeA b))
-                      0))))))))))))
+                    0)))))))))))
 
 (pub :: tyCompatVec (-> Int (Vec Int) (Vec Int) Int Int))
 (pub fn (tyCompatVec tc xs ys i)
@@ -1371,21 +1367,7 @@
 ; Subtype table lookup. A `subtype` declaration names a new type whose
 ; values are a subset of its base type's, bounded by 1-2 Int expressions
 ; in the declaration's c slot (a Vec of EXPR nodes, not types).
-; Does type `b` name a subtype whose base is compatible with `a`?
-; Answers 1 when `b` is a subtype declaration whose base type is
-; compatible with `a`. `tc` is explicit — `tyCompat` stays pure and
-; call sites that have `tc` ask this instead.
-(pub :: tySubtypeOf (-> Int Int Int Int))
-(pub fn (tySubtypeOf tc a b)
-  (if (!= (nodeTag b) TAG_T_CON)
-    0
-    (let ((base (tySubtypeBase tc b)))
-      (if (== base 0)
-        0
-        (if (== (tyCompat tc a base) 1)
-          1
-          0)))))
-
+;
 ; The subtype declaration node for a type node, or 0.
 (pub :: tySubtypeDecl (-> Int Int Int))
 (pub fn (tySubtypeDecl tc name)
@@ -1411,13 +1393,6 @@
     (if (== d 0)
       0
       (nodeB d))))
-
-; 1 when the type node names a known subtype, else 0.
-(pub :: isSubtypeTy (-> Int Int Int))
-(pub fn (isSubtypeTy tc ty)
-  (if (!= (tySubtypeDecl tc ty) 0)
-    1
-    0))
 
 ; Return the bounds Vec handle (as Int) for a subtype type node,
 ; or 0 when the type is not a known subtype. The Vec holds 1-2 EXPR
@@ -1651,7 +1626,7 @@
               (tyHasSrcVar (nodeB t)))
             (if (== tg TAG_T_TUP)
               (tyHasSrcVarVec (nodeAVec t) 0)
-              (if (|| (== tg TAG_T_LIST) (== tg TAG_T_PTR))
+              (if (== tg TAG_T_PTR)
                 (tyHasSrcVar (nodeA t))
                 0))))))))
 
@@ -1708,11 +1683,9 @@
                 env
                 vecNew
                 0))
-              (if (== tg TAG_T_LIST)
-                (mkNode TAG_T_LIST (tyInstIn tc (nodeA t) env) 0 0)
-                (if (== tg TAG_T_PTR)
-                  (mkTPtr (tyInstIn tc (nodeA t) env))
-                  t)))))))))
+              (if (== tg TAG_T_PTR)
+                (mkTPtr (tyInstIn tc (nodeA t) env))
+                t))))))))
 
 (pub :: tyInstVar (-> Int String (Vec Int) Int Int))
 ;@axiom:effect(unsafe)
@@ -1784,7 +1757,7 @@
             }
             (if (== tg TAG_T_TUP)
               (sigTyVarsVec (nodeAVec t) acc)
-              (if (|| (== tg TAG_T_LIST) (== tg TAG_T_PTR))
+              (if (== tg TAG_T_PTR)
                 (sigTyVarsInto (nodeA t) acc)
                 0))))))))
 
@@ -1819,7 +1792,7 @@
               (tyHasPoison (nodeB t)))
             (if (== tg TAG_T_TUP)
               (tyHasPoisonVec (nodeAVec t))
-              (if (|| (== tg TAG_T_LIST) (== tg TAG_T_PTR))
+              (if (== tg TAG_T_PTR)
                 (tyHasPoison (nodeA t))
                 0))))))))
 
@@ -2084,23 +2057,21 @@
             (if (== (vecLen (nodeAVec t)) 0)
               0
               1)
-            (if (== tg TAG_T_LIST)
-              1
-              (if (== tg TAG_T_CON)
-                (let ((n (nodeAName t)))
-                  (if (== (evScalarName n) 1)
-                    0
-                    (if (|| (strEq n "String") (strEq n "Handle"))
-                      1
-                      ; A WORD STRUCT, and `Spawn`: one machine word that
-                      ; takes no share (MM-VAL-10a). Asked before
-                      ; `evDataTyKnown`, which answers 1 for every
-                      ; struct and would retain a handle as if it were
-                      ; a block.
-                      (if (== (tcWordTyName tc n) 1)
-                        0
-                        (evDataTyKnown tc n)))))
-                0))))))))
+            (if (== tg TAG_T_CON)
+              (let ((n (nodeAName t)))
+                (if (== (evScalarName n) 1)
+                  0
+                  (if (|| (strEq n "String") (strEq n "Handle"))
+                    1
+                    ; A WORD STRUCT, and `Spawn`: one machine word that
+                    ; takes no share (MM-VAL-10a). Asked before
+                    ; `evDataTyKnown`, which answers 1 for every
+                    ; struct and would retain a handle as if it were
+                    ; a block.
+                    (if (== (tcWordTyName tc n) 1)
+                      0
+                      (evDataTyKnown tc n)))))
+              0)))))))
 
 ; MEET over every occurrence of one variable: unset takes the new
 ; class, agreement keeps it, and ANY disagreement - including a
@@ -2260,16 +2231,7 @@
                   (nodeAVec at)
                   castArg)
                 0)
-              (if (== tg TAG_T_LIST)
-                (if (&& (!= at 0) (== (nodeTag at) TAG_T_LIST))
-                  (evWalk
-                    tc
-                    st
-                    (nodeA pt)
-                    (nodeA at)
-                    castArg)
-                  0)
-                0))))))))
+              0)))))))
 
 (pub :: evWalkVec (-> Int Int (Vec Int) (Vec Int) Int Int))
 (pub fn (evWalkVec tc st ps as castArg)
@@ -6374,11 +6336,9 @@
           (tyAmbigCon tc (nodeB t)))
         (if (== (nodeTag t) TAG_T_TUP)
           (tyAmbigConVec tc (nodeAVec t) 0)
-          (if (== (nodeTag t) TAG_T_LIST)
+          (if (== (nodeTag t) TAG_T_PTR)
             (tyAmbigCon tc (nodeA t))
-            (if (== (nodeTag t) TAG_T_PTR)
-              (tyAmbigCon tc (nodeA t))
-              0)))))))
+            0))))))
 
 (pub :: tyAmbigConVec (-> Int (Vec Int) Int Int))
 (pub fn (tyAmbigConVec tc xs i)
@@ -6474,7 +6434,8 @@
 ;     declared `Int` result may not answer one (`checkDeclaredReturn`),
 ;     so the only word a caller holds is one its module made. `pub`
 ;     exports the NAME, so an importer's signatures can speak of it.
-;     A `cast` to one is the unsafe layer's (`tyForgesWord` below).
+;     A `cast` to one is a forging cast, which belongs to the unsafe
+;     layer (`castForges`, AX3073).
 ;   * IT IS CAPTURED ONLY WHEN SHARED. A concurrent binding may capture
 ;     a word struct declared `shared` - its module built it for use
 ;     from every binding at once - and no other word struct (AX3064,
@@ -6634,49 +6595,6 @@
     (if (== (tcSameModule (memGetWord ent 2) (memGetWord tc 16)) 1)
       0
       1)))
-
-; Does type `ty` mention, anywhere in it, a word type the declaration
-; being checked may not make: `Spawn`, or a word struct another module
-; declared?
-; This is the question a FORGING cast asks - `(cast Chan w)` outside
-; `Chan.ax` makes a handle out of a word the table never issued, and
-; `(cast (Vec Chan) v)` a vector of them. The unsafe layer owns casts
-; (MM-VAL-22), and a cast whose target this answers 1 for is one of its
-; forging casts; this predicate is the half of that rule a sealed
-; handle needs. Nothing in this section calls it.
-(pub :: tyForgesWord (-> Int Int Int))
-(pub fn (tyForgesWord tc ty0)
-  (let ((ty (tyResolve ty0)))
-    (if (== ty 0)
-      0
-      (let ((tg (nodeTag ty)))
-        (if (== tg TAG_T_CON)
-          (if (== (tyForgesWordName tc (nodeAName ty)) 1)
-            1
-            (tyForgesWordVec tc (nodeBVec ty) 0))
-          (if (== tg TAG_T_ARR)
-            (if (== (tyForgesWord tc (nodeA ty)) 1)
-              1
-              (tyForgesWord tc (nodeB ty)))
-            (if (== tg TAG_T_TUP)
-              (tyForgesWordVec tc (nodeAVec ty) 0)
-              (if (|| (== tg TAG_T_LIST) (== tg TAG_T_PTR))
-                (tyForgesWord tc (nodeA ty))
-                0))))))))
-
-(pub :: tyForgesWordName (-> Int String Int))
-(pub fn (tyForgesWordName tc n)
-  (if (strEq n "Spawn")
-    1
-    (wordSealedHere tc (tcWordEnt tc n))))
-
-(pub :: tyForgesWordVec (-> Int (Vec Int) Int Int))
-(pub fn (tyForgesWordVec tc xs i)
-  (if (>= i (vecLen xs))
-    0
-    (if (== (tyForgesWord tc (vecGet xs i)) 1)
-      1
-      (tyForgesWordVec tc xs (+ i 1)))))
 
 ; ------------------------------------------------------------------
 ; The declaration rules, AX3084. A marker is `word` or `shared`, each
@@ -6990,11 +6908,9 @@
           (tyUnknownCon tc (nodeB t)))
         (if (== (nodeTag t) TAG_T_TUP)
           (tyUnknownConVec tc (nodeAVec t) 0)
-          (if (== (nodeTag t) TAG_T_LIST)
+          (if (== (nodeTag t) TAG_T_PTR)
             (tyUnknownCon tc (nodeA t))
-            (if (== (nodeTag t) TAG_T_PTR)
-              (tyUnknownCon tc (nodeA t))
-              0)))))))
+            0))))))
 
 ; The String view of `tyUnknownCon`. Only ask it where the word is
 ; known non-zero. The cast is here, at a return inside a signature that
@@ -7094,7 +7010,7 @@
             (tyHasAliasCon tc (nodeB t)))
           (if (== tg TAG_T_TUP)
             (tyHasAliasConVec tc (nodeAVec t) 0)
-            (if (|| (== tg TAG_T_LIST) (== tg TAG_T_PTR))
+            (if (== tg TAG_T_PTR)
               (tyHasAliasCon tc (nodeA t))
               0)))))))
 
@@ -7144,11 +7060,9 @@
                 depth
                 vecNew
                 0))
-              (if (== tg TAG_T_LIST)
-                (mkNode TAG_T_LIST (tyExpandAliases tc (nodeA t) depth) 0 0)
-                (if (== tg TAG_T_PTR)
-                  (mkTPtr (tyExpandAliases tc (nodeA t) depth))
-                  t)))))))))
+              (if (== tg TAG_T_PTR)
+                (mkTPtr (tyExpandAliases tc (nodeA t) depth))
+                t))))))))
 
 (pub :: tyExpandAliasesVec (-> Int (Vec Int) Int (Vec Int) Int (Vec Int)))
 (pub fn (tyExpandAliasesVec tc xs depth acc i)
@@ -7512,16 +7426,14 @@
           (concat (concat "the type variable `" (nodeAName t)) "`")
           (if (== tg TAG_T_TUP)
             "a tuple"
-            (if (== tg TAG_T_LIST)
-              "a list"
-              (if (== tg TAG_T_CON)
-                (let ((n (nodeAName t)))
-                  (if (|| (== (evScalarName n) 1) (|| (strEq n "String") (|| (strEq n "Foreign") (|| (strEq n "Char") (strEq n "Bool")))))
-                    (if (== (vecLen (nodeBVec t)) 0)
-                      (cast String 0)
-                      (concat (concat "`" n) "` applied to type arguments"))
-                    (concat (concat "the type `" n) "`")))
-                "this type"))))))))
+            (if (== tg TAG_T_CON)
+              (let ((n (nodeAName t)))
+                (if (|| (== (evScalarName n) 1) (|| (strEq n "String") (|| (strEq n "Foreign") (|| (strEq n "Char") (strEq n "Bool")))))
+                  (if (== (vecLen (nodeBVec t)) 0)
+                    (cast String 0)
+                    (concat (concat "`" n) "` applied to type arguments"))
+                  (concat (concat "the type `" n) "`")))
+              "this type")))))))
 
 (pub :: tcExpandSigAliases (-> Int Int Int))
 ;@axiom:effect(unsafe)
@@ -8189,7 +8101,7 @@
             (sigSplitPolarVec (nodeBVec t) pol pos neg)
             (if (== tg TAG_T_TUP)
               (sigSplitPolarVec (nodeAVec t) pol pos neg)
-              (if (|| (== tg TAG_T_LIST) (== tg TAG_T_PTR))
+              (if (== tg TAG_T_PTR)
                 (sigSplitPolar (nodeA t) pol pos neg)
                 0))))))))
 
@@ -8452,11 +8364,9 @@
         (mkTArr (tyPoisonUnknown tc (nodeA t)) (tyPoisonUnknown tc (nodeB t)))
         (if (== (nodeTag t) TAG_T_TUP)
           (mkTTup (tyPoisonUnknownVec tc (nodeAVec t) vecNew 0))
-          (if (== (nodeTag t) TAG_T_LIST)
-            (mkNode TAG_T_LIST (tyPoisonUnknown tc (nodeA t)) 0 0)
-            (if (== (nodeTag t) TAG_T_PTR)
-              (mkTPtr (tyPoisonUnknown tc (nodeA t)))
-              t)))))))
+          (if (== (nodeTag t) TAG_T_PTR)
+            (mkTPtr (tyPoisonUnknown tc (nodeA t)))
+            t))))))
 
 (pub :: tyPoisonUnknownVec (-> Int (Vec Int) (Vec Int) Int (Vec Int)))
 (pub fn (tyPoisonUnknownVec tc xs out i)
@@ -11282,12 +11192,6 @@
           ""))
       "")))
 
-(pub :: capSpawnBorrows (-> Int Int))
-(pub fn (capSpawnBorrows lam)
-  (if (> (strLen (capSpawnBorrowId lam)) 0)
-    1
-    0))
-
 ; The borrow block of the form numbered `id`: the most recent placeholder
 ; whose record is named `parallel$b` and that number, or 0.
 (pub :: capBorrowBlock (-> Int String Int))
@@ -12151,11 +12055,7 @@
               (if (&& (== (nodeTag argTy) TAG_T_TUP) (== (vecLen (nodeAVec param)) (vecLen (nodeAVec argTy))))
                 (pinShapeVec rest (nodeAVec param) (nodeAVec argTy) 0)
                 rest)
-              (if (== pt TAG_T_LIST)
-                (if (== (nodeTag argTy) TAG_T_LIST)
-                  (pinShape rest (nodeA param) (nodeA argTy))
-                  rest)
-                rest))))))))
+              rest)))))))
 
 (pub :: pinShapeVec (-> Int (Vec Int) (Vec Int) Int Int))
 (pub fn (pinShapeVec rest ps as i)
@@ -12203,11 +12103,9 @@
                 rep
                 vecNew
                 0))
-              (if (== tg TAG_T_LIST)
-                (mkNode TAG_T_LIST (tyPinVar (nodeA t) name rep) 0 0)
-                (if (== tg TAG_T_PTR)
-                  (mkTPtr (tyPinVar (nodeA t) name rep))
-                  t)))))))))
+              (if (== tg TAG_T_PTR)
+                (mkTPtr (tyPinVar (nodeA t) name rep))
+                t))))))))
 
 (pub :: tyPinVarVec (-> (Vec Int) String Int (Vec Int) Int (Vec Int)))
 (pub fn (tyPinVarVec xs name rep acc i)
@@ -12625,10 +12523,8 @@
             (if (== (showTyGround (nodeA t)) 1)
               (showTyGround (nodeB t))
               0)
-            (if (|| (== tg TAG_T_TUP) (== tg TAG_T_LIST))
-              (if (== tg TAG_T_TUP)
-                (showTyGroundVec (nodeAVec t) 0)
-                (showTyGround (nodeA t)))
+            (if (== tg TAG_T_TUP)
+              (showTyGroundVec (nodeAVec t) 0)
               (if (== tg TAG_T_PTR)
                 (showTyGround (nodeA t))
                 1))))))))
@@ -13690,7 +13586,7 @@
             (if (== (strLen (nodeAName t)) 0)
               3
               2)
-            (if (|| (== tg TAG_T_ARR) (== tg TAG_T_LIST))
+            (if (== tg TAG_T_ARR)
               1
               (if (== tg TAG_T_TUP)
                 (if (== (vecLen (nodeAVec t)) 0)
@@ -13802,7 +13698,7 @@
                   0)
                 (if (== ta TAG_T_TUP)
                   (castSameVec tc (nodeAVec a) (nodeAVec b) 0)
-                  (if (|| (== ta TAG_T_LIST) (== ta TAG_T_PTR))
+                  (if (== ta TAG_T_PTR)
                     (castSameTy tc (nodeA a) (nodeA b))
                     0)))))))))))
 
@@ -14618,25 +14514,6 @@
         1
         0))))
 
-; `pairPayloadClass`: the class of the payload `cname` carries under
-; the declared result `rt`, positionally.
-(pub :: tcPairPayloadClass (-> Int Int String Int))
-(pub fn (tcPairPayloadClass tc rt cname)
-  (let ((args (nodeBVec rt)))
-    (if (==
-      (cast Int args)
-      0)
-      (- 0 1)
-      (if (strEq cname "Err")
-        (if (< (vecLen args) 2)
-          (- 0 1)
-          (tcFldClass tc (vecGet args 1)))
-        (if (strEq cname "Some")
-          (tcFldClass tc (vecGet args 0))
-          (if (strEq cname "Ok")
-            (tcFldClass tc (vecGet args 0))
-            (- 0 1)))))))
-
 ; `cgTakesEvidence`: a source type variable in any PARAMETER position
 ; of the arrow means the function takes a hidden evidence word, which
 ; the emitter refuses to pair.
@@ -14655,7 +14532,7 @@
               (tcTyHasSrcVar (nodeB t)))
             (if (== tg TAG_T_TUP)
               (tcTyVecHasSrcVar (nodeAVec t) 0)
-              (if (|| (== tg TAG_T_LIST) (== tg TAG_T_PTR))
+              (if (== tg TAG_T_PTR)
                 (tcTyHasSrcVar (nodeA t))
                 0))))))))
 
@@ -16111,7 +15988,6 @@
 ;   effDefinite v X      `b:X`/`c:X` present - the body performs X
 ;   effPossible v X      `~b:X`/`~c:X` present - it may
 ;   effMay v X           either - the upper bound AX3011 needs
-;   effPossibleOnly v X  possible and not definite - the excuse
 ;   effPartial v         unchanged: `?:incomplete`, a LOWER bound
 ;
 ; `X` is always the DEFINITE spelling (`builtinEff`/`customEff`); the
@@ -16152,12 +16028,6 @@
 (pub fn (effMay v x)
   (if (== (effIn v x) 1)
     1
-    (effPossible v x)))
-
-(pub :: effPossibleOnly (-> (Vec a) String Int))
-(pub fn (effPossibleOnly v x)
-  (if (== (effIn v x) 1)
-    0
     (effPossible v x)))
 
 ; Is some member of the row possible and not definite? This is what
@@ -19474,11 +19344,9 @@
             (mkTArr (tyEnvSubst (nodeA t) env) (tyEnvSubst (nodeB t) env))
             (if (== tg TAG_T_TUP)
               (mkTTup (tyEnvSubstVec (nodeAVec t) env vecNew 0))
-              (if (== tg TAG_T_LIST)
-                (mkNode TAG_T_LIST (tyEnvSubst (nodeA t) env) 0 0)
-                (if (== tg TAG_T_PTR)
-                  (mkTPtr (tyEnvSubst (nodeA t) env))
-                  t)))))))))
+              (if (== tg TAG_T_PTR)
+                (mkTPtr (tyEnvSubst (nodeA t) env))
+                t))))))))
 
 (pub :: tyEnvSubstVar (-> Int String (Vec Int) Int Int))
 ;@axiom:effect(unsafe)
@@ -26436,7 +26304,7 @@
             (tyVecHasRegion (nodeBVec t) 0)
             (if (== tg TAG_T_TUP)
               (tyVecHasRegion (nodeAVec t) 0)
-              (if (|| (== tg TAG_T_LIST) (== tg TAG_T_PTR))
+              (if (== tg TAG_T_PTR)
                 (tyHasRegion (nodeA t))
                 0))))))))
 

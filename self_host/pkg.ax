@@ -941,17 +941,6 @@
           (- 0 1)
           (- (strByte v 0) 48))))))
 
-; The manifest's entry file: its `main`, or "". The caller answers
-; `Main.ax` beside the manifest when this is empty, so a project that
-; follows the convention writes no key at all.
-(pub :: pkgMainEntry (-> String String))
-;@axiom:effect(io)
-(pub fn (pkgMainEntry entryDir)
-  (let ((mf (pkgFindManifest entryDir)))
-    (if (== (strLen mf) 0)
-      ""
-      (pkgValue (readFile mf) "main"))))
-
 ; The project file for a manifest-mode invocation: the manifest's
 ; `main` resolved against the manifest's own directory, else
 ; `Main.ax` beside it, or "" when no manifest is found at all.

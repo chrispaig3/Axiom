@@ -16,6 +16,12 @@ its changelog too.
 
 ## Unreleased
 
+- Remove the compiler's unreferenced functions, and its handling of
+  the `[T]` list type node, which the parser never builds. Programs
+  compile exactly as before: `[T]` is still `AX2004`, with `(Vec T)` as
+  the advice. Tested by `tests/diagnostics/944-removed-list-type.axbad`
+  and `scripts/check-bootstrap.sh`.
+
 - Write the region examples in `axiom explain AX3060`, `AX3061` and
   `AX3063` and in the diagnostics guide over `String`. They named a
   `Str` type that does not exist; each now refuses with the code it

@@ -1611,21 +1611,9 @@
             i
           })))))
 
-; The macro declaration this document makes under `name`, or 0. The
-; LAST one wins, which is `MAC-LANG-11`'s rule - the same answer the
-; expander would give a reference at that name.
-(pub :: lspFindMacroDecl (-> (Vec Int) String Int Int))
-(pub fn (lspFindMacroDecl decls name i)
-  (if (< i 0)
-    0
-    (let ((d (vecGet decls i)))
-      (if (&& (== (nodeTag d) TAG_D_MACRO) (&& (strEq (nodeAName d) name) (!= (nodeSpan d) 0)))
-        d
-        (lspFindMacroDecl decls name (- i 1))))))
-
-; The same walk over every declaration KIND the outline already lists -
-; a function, a `data`, a `struct` or a macro - rather than over macros
-; alone.
+; The declaration this document makes under `name`, or 0, over every
+; declaration KIND the outline already lists - a function, a `data`, a
+; `struct` or a macro.
 ;
 ; `lspWantsSymbol` is reused deliberately: `documentSymbol` and
 ; `definition` answering different sets of names is the drift this
@@ -1637,9 +1625,9 @@
 ; it, and jumping to the signature when the body is one line below is
 ; the wrong of the two answers.
 ;
-; LAST WINS, which is the existing scan's rule and worth keeping: a
-; file that declares a name twice is already ill-formed, and the last
-; one is what the expander would have used.
+; LAST WINS, which is `MAC-LANG-11`'s rule for macros and worth keeping
+; for the rest: a file that declares a name twice is already
+; ill-formed, and the last one is what the expander would have used.
 (pub :: lspFindDecl (-> (Vec Int) String Int Int))
 (pub fn (lspFindDecl decls name i)
   (if (< i 0)
@@ -2547,12 +2535,6 @@
   (if (== sp 0)
     false
     (&& (>= off (spanStart sp)) (< off (spanEnd sp)))))
-
-; The declaration's own source text. The span names the NAME; the form
-; around it is what a reader asked for.
-(pub :: lspDeclText (-> String Int String))
-(pub fn (lspDeclText src sp)
-  (lspFormText src (lspFormStart src (spanStart sp))))
 
 ; The comment block written directly above the form at `o`, as prose.
 ;
@@ -13435,11 +13417,9 @@
             (concat (concat "(->" (lspRenderArrow t ren)) ")")
             (if (== tag TAG_T_TUP)
               (concat (concat "(" (lspRenderTypes (nodeAVec t) 0 "" ren)) ")")
-              (if (== tag TAG_T_LIST)
-                (concat (concat "[" (lspRenderTypeR (nodeA t) ren)) "]")
-                (if (== tag TAG_T_PTR)
-                  (concat (concat "(* " (lspRenderTypeR (nodeA t) ren)) ")")
-                  "{unknown}")))))))))
+              (if (== tag TAG_T_PTR)
+                (concat (concat "(* " (lspRenderTypeR (nodeA t) ren)) ")")
+                "{unknown}"))))))))
 
 ; The parameters and result of an arrow chain, each preceded by a
 ; space; the first element of a tuple gets none.
@@ -13542,7 +13522,7 @@
               (lspTyVarNames (nodeA t) out)
               (lspTyVarNames (nodeB t) out)
             }
-            (if (|| (== tag TAG_T_LIST) (== tag TAG_T_PTR))
+            (if (== tag TAG_T_PTR)
               (lspTyVarNames (nodeA t) out)
               0)))))))
 
@@ -13570,7 +13550,7 @@
             (&& (lspTyKnown (nodeA t)) (lspTyKnown (nodeB t)))
             (if (== tag TAG_T_TUP)
               (lspTysKnown (nodeAVec t) 0)
-              (if (|| (== tag TAG_T_LIST) (== tag TAG_T_PTR))
+              (if (== tag TAG_T_PTR)
                 (lspTyKnown (nodeA t))
                 false))))))))
 

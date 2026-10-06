@@ -3733,7 +3733,7 @@
             }
             (if (== tg TAG_T_TUP)
               (cgSigVarsVec (nodeAVec t) acc)
-              (if (|| (== tg TAG_T_LIST) (== tg TAG_T_PTR))
+              (if (== tg TAG_T_PTR)
                 (cgSigVarsInto (nodeA t) acc)
                 0))))))))
 
@@ -13577,16 +13577,6 @@
 (pub :: labelName (-> String String))
 (pub fn (labelName ln)
   (strSlice ln 0 (- (strLen ln) 1)))
-
-(pub :: defineFnName (-> String String))
-(pub fn (defineFnName ln)
-  (match (strFindByte ln 64 0)
-    ((None) "")
-    ((Some at)
-      (match (strFindByte ln 40 (+ at 1))
-        ((None) "")
-        ((Some paren) (strSlice ln (+ at 1) (- paren (+ at 1)))))
-    )))
 
 ; The LLVM spelling of a `define`'s symbol - `@name` for plain names,
 ; `@"name"` for names that need quoting (a `#` or other non-plain byte
@@ -24995,30 +24985,6 @@
                 1
                 (binderCollectArms set v (+ i 1)))
             }))))))
-
-(pub :: strInVecCg (-> (Vec Int) String Int Int))
-;@axiom:effect(unsafe)
-(pub fn (strInVecCg v name i)
-  (if (==
-    (cast Int v)
-    0)
-    0
-    (if (>= i (vecLen v))
-      0
-      (if (strEq
-        (cast String (vecGet v i))
-        name)
-        1
-        (strInVecCg v name (+ i 1))))))
-
-; The result type at the end of a signature's arrow spine, or 0.
-(pub :: sigResultTy (-> Int Int))
-(pub fn (sigResultTy ty)
-  (if (== ty 0)
-    0
-    (if (== (nodeTag ty) TAG_T_ARR)
-      (sigResultTy (nodeB ty))
-      ty)))
 
 ; A function may return an arrow. Peel only its declared parameters,
 ; so a nullary function returning a closure still has a reference result.

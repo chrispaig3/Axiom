@@ -145,11 +145,9 @@
                         }))
                     (concat s ")")
                   })
-                (if (== tag TAG_T_LIST)
-                  (concat "[" (concat (symTy (nodeA t)) "]"))
-                  (if (== tag TAG_T_PTR)
-                    (concat "*" (symTy (nodeA t)))
-                    "{unknown}"))))))))))
+                (if (== tag TAG_T_PTR)
+                  (concat "*" (symTy (nodeA t)))
+                  "{unknown}")))))))))
 
 ; ------------------------------------------------------------------
 ; A row's fresh type variables, numbered from that row (AN-37).

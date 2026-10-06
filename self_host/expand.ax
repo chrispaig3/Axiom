@@ -357,11 +357,6 @@
 (pub fn (expQSite env)
   (memGetWord env 17))
 
-(pub :: expQSiteName (-> Int String))
-;@axiom:effect(unsafe)
-(pub fn (expQSiteName env)
-  (cast String (expQSite env)))
-
 (pub :: expBares (-> Int Int))
 ;@axiom:effect(unsafe)
 (pub fn (expBares env)
@@ -4119,52 +4114,6 @@
         help
         "the field name and `handle`'s effect list substitute nothing (macro-system.md MAC-EXP-14b)")))))
 
-; The first parameter name a TYPE node mentions, or null. Mirrors
-; `expSubstTy`'s traversal - constructor and variable names, both
-; sides of an arrow, tuple elements, list and pointer subjects -
-; because the question is what the verbatim passthrough keeps, and
-; that is exactly the set substitution would have rewritten. Any
-; other tag answers null: a shape substitution does not read is not
-; one it can miskeep.
-(pub :: expTyParamName (-> Int (Vec Int) String))
-;@axiom:effect(unsafe)
-(pub fn (expTyParamName t params)
-  (if (== t 0)
-    (cast String 0)
-    (let ((tag (nodeTag t)))
-      (if (== tag TAG_T_CON)
-        (let ((n (nodeAName t)))
-          (if (>= (expParamIndex params n) 0)
-            n
-            (expTyVecParamName (nodeBVec t) params 0)))
-        (if (== tag TAG_T_VAR)
-          (let ((n (nodeAName t)))
-            (if (>= (expParamIndex params n) 0)
-              n
-              (cast String 0)))
-          (if (== tag TAG_T_ARR)
-            (let ((l (expTyParamName (nodeA t) params)))
-              (if (!= (cast Int l) 0)
-                l
-                (expTyParamName (nodeB t) params)))
-            (if (== tag TAG_T_TUP)
-              (expTyVecParamName (nodeAVec t) params 0)
-              (if (== tag TAG_T_LIST)
-                (expTyParamName (nodeA t) params)
-                (if (== tag TAG_T_PTR)
-                  (expTyParamName (nodeA t) params)
-                  (cast String 0))))))))))
-
-(pub :: expTyVecParamName (-> (Vec Int) (Vec Int) Int String))
-;@axiom:effect(unsafe)
-(pub fn (expTyVecParamName v params i)
-  (if (|| (== (cast Int v) 0) (>= i (vecLen v)))
-    (cast String 0)
-    (let ((n (expTyParamName (vecGet v i) params)))
-      (if (!= (cast Int n) 0)
-        n
-        (expTyVecParamName v params (+ i 1))))))
-
 ; The first parameter name a `handle` effect list mentions, or null.
 ; The list holds spanned var nodes (the parser keeps one per name so
 ; AX3016 can anchor at it); the warning anchors at the invocation
@@ -7376,11 +7325,6 @@
 ; `name.N` with an unspellable separator, so one never spells a
 ; literal by accident.
 ; ------------------------------------------------------------------
-; The reserved spelling a declared literal takes in patterns.
-(pub :: expLitSpelling (-> String String))
-(pub fn (expLitSpelling name)
-  (concat "syntax/literal " name))
-
 ; A builtin operator spelling: the eighteen primitives the checker
 ; registers for every program (typecheck.ax `regFn`), which resolve
 ; although no declaration spells them. The list going stale fails
@@ -9378,21 +9322,14 @@
                   args
                   env
                   isp))
-                (if (== tag TAG_T_LIST)
-                  (mkNode TAG_T_LIST (expSubstTy
+                (if (== tag TAG_T_PTR)
+                  (mkTPtr (expSubstTy
                     (nodeA t)
                     params
                     args
                     env
-                    isp) 0 0)
-                  (if (== tag TAG_T_PTR)
-                    (mkTPtr (expSubstTy
-                      (nodeA t)
-                      params
-                      args
-                      env
-                      isp))
-                    t))))))))))
+                    isp))
+                  t)))))))))
 
 ; One side of a type-position join: a bare type name, resolved the way
 ; a name position resolves. A nested join is a type node of its own,

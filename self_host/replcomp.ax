@@ -198,11 +198,6 @@
 (pub fn (rcOrigin c)
   (memGetWord c 1))
 
-(pub :: rcTag (-> Int Int))
-;@axiom:effect(unsafe)
-(pub fn (rcTag c)
-  (memGetWord c 2))
-
 (pub :: rcDetail (-> Int String))
 ;@axiom:effect(unsafe)
 (pub fn (rcDetail c)
@@ -550,16 +545,6 @@
     (memSetWord e 4 0)
     e
   })
-
-(pub :: replComplEnvDeclsSrc (-> Int String))
-;@axiom:effect(unsafe)
-(pub fn (replComplEnvDeclsSrc e)
-  (memGetWordStr e 0))
-
-(pub :: replComplEnvPending (-> Int String))
-;@axiom:effect(unsafe)
-(pub fn (replComplEnvPending e)
-  (memGetWordStr e 1))
 
 ; The joined names of every `(import ...)` in a declaration list.
 ;

@@ -369,9 +369,6 @@
 ; `cond` is AX2004 in `parseInner` now, so no node carries it. Its
 ; place is the variadic `if` - `(if t1 b1 t2 b2 ... els)`, desugared
 ; to the nested chain right in `parseIfExpr` - and `match`.
-(pub :: TAG_E_COND Int)
-(pub fn (TAG_E_COND)
-  31)
 
 ; Type expression nodes, produced by parseType. The type checker is
 ; the only consumer; codegen never reads them.
@@ -391,9 +388,9 @@
 (pub fn (TAG_T_TUP)
   35)
 
-(pub :: TAG_T_LIST Int)  ; a=inner
-(pub fn (TAG_T_LIST)
-  36)
+; 36 was TAG_T_LIST, the `[T]` list type, and is not reused, for the
+; reason 31 is not. `[T]` is AX2004 in `parseType`, so no node carries
+; it; `(Vec T)` is the spelling.
 
 (pub :: TAG_T_PTR Int)  ; a=inner
 (pub fn (TAG_T_PTR)
@@ -755,11 +752,6 @@
 (pub fn (tyRegion t)
   (memGetWord t 7))
 
-(pub :: tyRegionName (-> Int String))
-;@axiom:effect(unsafe)
-(pub fn (tyRegionName t)
-  (memGetWordStr t 7))
-
 (pub :: tySetRegion (-> Int String Int))
 ;@axiom:effect(unsafe)
 (pub fn (tySetRegion t r)
@@ -852,13 +844,6 @@
 (pub :: mkEBegin (-> (Vec Int) Int))
 (pub fn (mkEBegin xs)
   (mkNode TAG_E_BEGIN xs 0 0))
-
-; A subtype conversion check: value, bounds Vec (1-2 EXPR nodes),
-; message. The ty slot carries the target subtype; set by the caller
-; via `setNodeTy` (the checker), since this constructor leaves it 0.
-(pub :: mkESubcheck (-> Int (Vec Int) Int Int))
-(pub fn (mkESubcheck v b m)
-  (mkNode TAG_E_SUBCHECK v b m))
 
 ; Span-carrying variants. A diagnostic about a declaration points at
 ; its *name*, so the name token's span is the one worth keeping - and
