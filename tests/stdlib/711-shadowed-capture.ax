@@ -9,6 +9,9 @@
 ;   mut   the same through a `mut` slot, reading owner 2
 ;   text  the same shape over strings, read after other allocations
 ;         have had the chance to reuse anything released too early
+;   param a `let`, then a `mut` slot, that rebinds an `Int` parameter's
+;         name as a string a lambda captures: the capture takes a share
+;         of the string, read after the same churn
 (import IO)
 (import Str)
 (import Vec)
@@ -51,6 +54,19 @@
       (let ((y x.s))
         (lambda (_) (concat y ""))))))
 
+(:: letOverParam (-> Int (-> Int String)))
+(fn (letOverParam s)
+  (let ((s (concat "let-" (fmtInt s))))
+    (lambda (_) (concat s ""))))
+
+(:: slotOverParam (-> Int (-> Int String)))
+(fn (slotOverParam n)
+  (let ((mut n (fmtInt n)))
+    {
+      (set n (concat "mut-" n))
+      (lambda (_) n)
+    }))
+
 (:: churn Int)
 (fn (churn)
   (let ((mut j 0) (mut n 0))
@@ -82,6 +98,12 @@
         {
           (churn)
           (println (h 0))
+        })
+      (let ((p (letOverParam 5)) (q (slotOverParam 6)))
+        {
+          (churn)
+          (println (p 0))
+          (println (q 0))
         })
       0
     }))

@@ -17315,9 +17315,9 @@
 ; The index of `name` in the enclosing function's parameter list, or
 ; -1. `cg 17` is that list, set by `emitFnDef` before the body runs.
 ; A lambda record's shape word: `k + 1` words, and a map bit for
-; capture i (payload word 1 + i) iff it is a reference-class
-; parameter, the captures `retainParamCaps` retains. Past the map's
-; 47 words the record is a leaf, as a constructor's would be.
+; capture i (payload word 1 + i) iff the capture takes a share
+; (`captureCounted`), the captures `retainParamCaps` retains. Past the
+; map's 47 words the record is a leaf, as a constructor's would be.
 (pub :: lamShapeConst (-> Int (Vec a) Int Int))
 (pub fn (lamShapeConst cg capNames k)
   (let ((cnt (paddedWords (+ k 1))))
@@ -17332,14 +17332,11 @@
 (pub fn (lamShapeBits cg capNames i)
   (if (>= i (vecLen capNames))
     0
-    (let ((pi (curParamIndex cg (vecGetStr capNames i))))
-      (+
-        (if (if (< pi 0)
-          (>= (lookupSymKind cg (vecGetStr capNames i)) 3)
-          (== (curParamRefClass cg pi) 1))
-          (pow2 (+ 16 (+ 1 i)))
-          0)
-        (lamShapeBits cg capNames (+ i 1))))))
+    (+
+      (if (captureCounted cg (vecGetStr capNames i))
+        (pow2 (+ 16 (+ 1 i)))
+        0)
+      (lamShapeBits cg capNames (+ i 1)))))
 
 (pub :: curParamIndex (-> Int String Int))
 ;@axiom:effect(unsafe)
@@ -17356,14 +17353,11 @@
 (pub fn (retainParamCaps cg capNames capRegs i)
   (if (>= i (vecLen capNames))
     cg
-    (let ((pi (curParamIndex cg (vecGetStr capNames i))))
-      (let ((cg1 
-        (if (if (< pi 0)
-          (>= (lookupSymKind cg (vecGetStr capNames i)) 3)
-          (== (curParamRefClass cg pi) 1))
-          (emitRetainOf cg (vecGetStr capRegs i))
-          cg)))
-        (retainParamCaps cg1 capNames capRegs (+ i 1))))))
+    (let ((cg1
+      (if (captureCounted cg (vecGetStr capNames i))
+        (emitRetainOf cg (vecGetStr capRegs i))
+        cg)))
+      (retainParamCaps cg1 capNames capRegs (+ i 1)))))
 
 (pub :: storeCaps (-> Int String (Vec String) Int Int))
 ;@axiom:effect(unsafe)
@@ -24296,11 +24290,11 @@
         (if (|| (== tg TAG_E_INT) (|| (== tg TAG_E_FLT) (|| (== tg TAG_E_STR) (== tg TAG_E_CHAR))))
           0
           (if (== tg TAG_E_LAM)
-            ; a counted capture only when the symbol table's binding is
-            ; the one the lambda sees: a name bound again under the root
-            ; - an alias the walk follows - is a different binding, and
-            ; an outer counted one of the same spelling vouched for a
-            ; capture that took no share
+            ; a capture takes its own share when the binding the lambda
+            ; reads is counted (`captureCounted`). The symbol table names
+            ; that binding only when nothing under the root binds the
+            ; name again; an alias the walk follows is bound under the
+            ; root, so its capture is a plain mention
             (if (&& (>= (lookupSymKind cg name) 3) (== (boundIn name bound) 0))
               0
               (mentions name e))
@@ -26641,12 +26635,24 @@
           1
           0)))))
 
+; Does a lambda's capture of `name` take a share of its own? The
+; capture reads the binding `emitVar` resolves: the innermost symbol,
+; or, when there is none, the enclosing function's parameter. A
+; parameter's TCO slot (kind 2) is that parameter. So a local that
+; shadows a parameter answers for itself: a counted `let` (kind 3) or
+; an owning `mut` slot (kind 4) takes a share, and anything else takes
+; none, whatever the parameter's type. The escape walk's lambda arm
+; asks the same question of the same table (`escapes`), and
+; `lamShapeBits` and `retainParamCaps` ask this one, so the share a
+; capture is counted for is the share the record holds.
 (pub :: captureCounted (-> Int String Bool))
 (pub fn (captureCounted cg name)
-  (let ((pi (curParamIndex cg name)))
-    (if (< pi 0)
-      (>= (lookupSymKind cg name) 3)
-      (== (curParamRefClass cg pi) 1))))
+  (if (if (== (lookupSym cg name) 0) true (== (lookupSymKind cg name) 2))
+    (let ((pi (curParamIndex cg name)))
+      (if (< pi 0)
+        false
+        (== (curParamRefClass cg pi) 1)))
+    (>= (lookupSymKind cg name) 3)))
 
 ; Applications remember their checked result type and reference witness.
 (pub :: checkedValueTy (-> Int Int))
