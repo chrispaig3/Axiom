@@ -425,7 +425,6 @@ keyStrEnd stdlib/Tui/Keys.ax no-io,no-alloc,no-foreign ok
 keyStrMax stdlib/Tui/Keys.ax no-io,no-alloc,no-foreign ok
 keyTildeFn stdlib/Tui/Keys.ax no-io,no-alloc,no-foreign ok
 keyTildeKind stdlib/Tui/Keys.ax no-io,no-alloc,no-foreign ok
-kw tests/diagnostics/384-restrict-no-alloc-ctor.ax no-alloc violated
 ld24le stdlib/Crypto/Field25519.ax no-io,no-alloc,no-foreign ok
 ld32be stdlib/Crypto/Ct.ax no-io,no-alloc,no-foreign ok
 ld32le stdlib/Crypto/Ct.ax no-io,no-alloc,no-foreign ok
