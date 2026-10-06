@@ -602,6 +602,12 @@
       ; (`emitTailJump`) and a mutual one (`emitPlainCall`) load and
       ; release each before the jump.
       (vecPushVec ps vecNew)
+      ; slot 18: the `set` nodes an escape walk counted as taking a
+      ; share before their slot was emitted (`slotStoreCounts`). A
+      ; store listed here takes one even when its slot only stores
+      ; (`emitSet`). Emptied per function body, since a walk never
+      ; reaches into another body.
+      (vecPushVec ps vecNew)
       (addTypeNamed
         ts
         "Some"
@@ -15702,6 +15708,7 @@
       (_5 (memSetWord cg 17 params))
       (_5r (memSetWord cg 41 (borrowedTailLeaves cg name body params)))
       (_5p (memSetWord cg 42 vecNew))
+      (_5s (memSetWord (pairSlot cg 18) 0 0))
       (_6 (memSetWord
         cg
         18
@@ -17479,6 +17486,7 @@
       (_6c (pairSetSlot cg 7 1))
       (_6e (pairSetSlot cg 14 checkedTy))
       (_6f (memSetWord cg 27 0))
+      (_6s (memSetWord (pairSlot cg 18) 0 0))
       (rgnSaved (pairSlot cg 9))
       (_6d (pairSetSlot cg 9 0))
     )
@@ -24310,8 +24318,8 @@
 ;
 ;   a LAMBDA that mentions an unclassified binding. Counted captures
 ;     take their own share, so their outer binding may release its own;
-;   a `set` RHS - a slot store takes no share, unless the slot owns
-;     what it holds (`slotStoreCounts`);
+;   a `set` RHS - a slot store takes no share, unless it stores into
+;     a slot of a reference type (`slotStoreCounts`);
 ;   `cast`, `__addr` and `strData` - the three ways to get a WORD out
 ;     of a reference. A word stashed anywhere is invisible to counting
 ;     by construction (MM-LIFE-2g's own stated limit), so a binding
@@ -24559,10 +24567,11 @@
                               ; tail call kept every iteration's string). And the value
                               ; is walked in argument position for what it PARKS on the
                               ; way: a lambda capturing the binding, a constructor's
-                              ; word field, a callee that stashes it. An OWNING slot
-                              ; (`slotOwns`) is the exception: its store retains what
-                              ; it is given, as a field store does
-                              (if (&& (!= (bindingFlow cg name (nodeB e)) 0) (== (slotStoreCounts cg (nodeAName e) bound) 0))
+                              ; word field, a callee that stashes it. A slot of a
+                              ; reference type is the exception: its store retains
+                              ; what it is given, as a field store does
+                              ; (`slotStoreCounts`)
+                              (if (&& (!= (bindingFlow cg name (nodeB e)) 0) (== (slotStoreCounts cg e bound) 0))
                                 1
                                 (escapes
                                   cg
@@ -25501,6 +25510,7 @@
         (an (allocReg cg1))
         (initOwned (valueOwnedRef cg1 valExpr))
         (cls (slotClassOf cg1 node))
+        (regMark (vecLen (cast (Vec Int) (pairSlot cg1 18))))
         (kept (slotKeptByCaller cg1 node))
       )
         (let ((ar (tmpStr "s" an)))
@@ -25532,11 +25542,17 @@
                   (slotReleasesAtEnd cg1 node tail bound)
                   0)))
                 {
+                  ; a refused slot is storage only, and the stores its
+                  ; walks registered (`slotStoreCounts`) protected a
+                  ; release it won't make
                   (if (&& (== cls 2) (== own 0))
-                    (vecSet
-                      (memGetWordVec cg1 20)
-                      (- (vecLen (memGetWordVec cg1 20)) 1)
-                      1)
+                    {
+                      (memSetWord (pairSlot cg1 18) 0 regMark)
+                      (vecSet
+                        (memGetWordVec cg1 20)
+                        (- (vecLen (memGetWordVec cg1 20)) 1)
+                        1)
+                    }
                     (memGetWordVec cg1 20))
                   (let ((cgI
                     (if (&& (== own 1) (!= initOwned 1))
@@ -25605,7 +25621,9 @@
 ; takes a share of `v` - a move when `v` arrives owned - and only then
 ; releases the value it overwrites, so `(set x x)` keeps its block.
 ; The old value is loaded after `v` is evaluated, because `v` may read
-; the slot, as `(set s (concat s "x"))` does.
+; the slot, as `(set s (concat s "x"))` does. A store an escape walk
+; counted before its slot was emitted (pair slot 18) takes the same
+; share in a slot that only stores, and keeps it.
 (pub :: emitSet (-> Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
@@ -25640,7 +25658,13 @@
                         (emitLine cgR (concat "  store i64 " (concat v (concat ", ptr " ptr))))
                         (emitReleaseOf cgR old)
                       }))
-                  (emitLine cg1 (concat "  store i64 " (concat v (concat ", ptr " ptr)))))
+                  (let ((cgR
+                    (if (if (== (nodeInVec (cast (Vec Int) (pairSlot cg1 18)) node 0) 1)
+                      (== (valueOwnedRef cg1 valExpr) 0)
+                      false)
+                      (emitRetainOf cg1 v)
+                      cg1)))
+                    (emitLine cgR (concat "  store i64 " (concat v (concat ", ptr " ptr))))))
                 (memSetWord cg1 2 v)
                 cg1
               })))))))
@@ -25682,9 +25706,9 @@
 ; ------------------------------------------------------------------
 
 ; The reference class of a `mut` slot's type, which the checker stamps
-; on the binding (`checkExprHCore`). A lambda still waiting for its
-; parameter types is a closure, so a reference. An unstamped binding
-; is unclassifiable.
+; on the binding (`checkExprHCore`) and on each `set` of it
+; (`checkSet`). A lambda still waiting for its parameter types is a
+; closure, so a reference. An unstamped node is unclassifiable.
 (pub :: slotClassOf (-> Int Int Int))
 (pub fn (slotClassOf cg node)
   (let ((t (nodeBinderTy node)))
@@ -25703,15 +25727,33 @@
       0)
     0))
 
-; Does `(set target v)` under the walk rooted at `bound` store into an
-; owning slot, which takes a share of `v`? Only when no binder under
-; the root reuses the name, so the symbol table's answer is the one
-; the store will meet.
-(pub :: slotStoreCounts (-> Int String Int Int))
-(pub fn (slotStoreCounts cg target bound)
-  (if (&& (== (lookupSymKind cg target) 4) (== (boundIn target bound) 0))
-    1
-    0))
+; Does the store `e`, a `(set target v)` under the walk rooted at
+; `bound`, take a share of `v`? A store into an owning slot (kind 4)
+; does. When a binder under the root reuses the name, the symbol table
+; doesn't name the slot the store will meet, and a slot bound under the
+; root isn't emitted yet, so whether it will own isn't known. So a store
+; into any slot of a reference type (the checker's stamp on `e`) that
+; isn't known to own is registered to take a share (`emitSet`, pair
+; slot 18), and the answer doesn't depend on which of two sibling
+; slots was declared first. A slot that only stores keeps that share:
+; the leak direction.
+(pub :: slotStoreCounts (-> Int Int Int Int))
+;@axiom:effect(unsafe)
+(pub fn (slotStoreCounts cg e bound)
+  (let ((target (nodeAName e)))
+    (if (if (== (boundIn target bound) 0)
+      (== (lookupSymKind cg target) 4)
+      false)
+      1
+      (if (== (slotClassOf cg e) 2)
+        (let ((reg (cast (Vec Int) (pairSlot cg 18))))
+          {
+            (if (== (nodeInVec reg e 0) 1)
+              reg
+              (vecPush reg e))
+            1
+          })
+        0))))
 
 ; `bound` is `binderSummary` of the body, shared with
 ; `slotReleasesAtEnd`: nothing is emitted between the two.

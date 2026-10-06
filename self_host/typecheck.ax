@@ -18325,6 +18325,13 @@
                     0
                   }))))
               {
+                ; The slot's type, for codegen, as the `mut` binder
+                ; carries it: a store into a slot of a reference type
+                ; may take a share of what it stores (`emitSet`,
+                ; `slotStoreCounts`, MM-LIFE-2c event 3).
+                (if (== (memGetWord ent 1) 1)
+                  (setNodeBinderTy e (sEntTy ent))
+                  e)
                 ; A pending lambda stored into a cell escapes the
                 ; bindings: flush it (verify standalone, drop only
                 ; the `{unknown}` refusals) and skip the comparison,
