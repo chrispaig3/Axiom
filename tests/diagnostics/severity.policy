@@ -62,12 +62,12 @@ AX3037
 #          correct program: refusing it would make dispatch through a
 #          stored function unwriteable rather than unverified.
 AX3038
-# AX3039 - an AXTAG key one edit from `pure` or `effect`. The key
-#          namespace is open by decision, so an unknown key is not an
-#          error and this does not make it one; it reports the shape
-#          that costs something, where a typo means the claim was
-#          never checked.
-AX3039
+# AX3039 - an AXTAG key one slip from a key the compiler checks. An
+#          error, and no longer listed here. The key namespace stays
+#          open, but a slip of a checked key drops a claim the author
+#          wrote, and a build that ships it publishes a guarantee
+#          nothing checked. A key of the author's own is namespaced
+#          (`my:KEY`), and no slip test reads a namespaced key.
 # AX3040 - PROMOTED TO AN ERROR 2026-08-25, and no longer listed here.
 #          It is left as a comment because this file's whole subject is
 #          which codes may be warnings, and a code that stopped being
@@ -148,7 +148,7 @@ AX3051
 # AX3048 `deprecated-name` - a reference to a name its own declaration
 #          marks `;@axiom:deprecated(...)`. A warning by DESIGN and not
 #          as a staging step, which is the whole difference between
-#          this and the four above. The name still works and still
+#          this and the three above. The name still works and still
 #          compiles: refusing it here would make deprecation and
 #          removal the same event, and separating those two is the
 #          only thing a deprecation notice is for.
@@ -165,7 +165,7 @@ AX3048
 # AX3053 `unhandled-operation` - `main`'s effect row still carries a
 #          custom effect, so an operation of it would find the evidence
 #          slot empty and the process would exit 71. A warning by
-#          DESIGN, like AX3048 above and unlike the four staged ones,
+#          DESIGN, like AX3048 above and unlike the three staged ones,
 #          and the reason is that the evidence is one-sided in BOTH
 #          directions at once. Measured on the two closure shapes, on
 #          the tree that introduced the code:

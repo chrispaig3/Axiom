@@ -41,9 +41,8 @@ unverifiable, the compiler reports a warning. Add `strict` to a
 restriction when an unknown answer must refuse the build.
 
 `tests/diagnostics/severity.policy` is the checked allowlist of codes
-permitted to render as warnings: `AX3037`, `AX3038`, `AX3039`,
-`AX3043`, `AX3045`, `AX3046`, `AX3048`, `AX3051`, `AX3053` and
-`AX3074`.
+permitted to render as warnings: `AX3037`, `AX3038`, `AX3043`,
+`AX3045`, `AX3046`, `AX3048`, `AX3051`, `AX3053` and `AX3074`.
 
 The same file records why each warning remains one. Diagnostic
 severity and the policy gate are separate: a warning can still fail
