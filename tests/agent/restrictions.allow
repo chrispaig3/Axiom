@@ -602,7 +602,6 @@ replHistText self_host/repl.ax no-io,no-foreign ok
 replHistUp self_host/repl.ax no-io,no-foreign ok
 replHlClass self_host/replhl.ax no-io,no-foreign ok
 replHlDepth self_host/replhl.ax no-io,no-foreign ok
-replHlLine self_host/replhl.ax no-io,no-foreign ok
 replHlMatch self_host/replhl.ax no-io,no-foreign ok
 replHlPaint self_host/replhl.ax no-io,no-foreign ok
 replIsHistDown self_host/repl.ax no-io,no-alloc,no-foreign ok
