@@ -24121,9 +24121,11 @@
             ; whatever the walk says: a `set` of the slot releases what it
             ; held, and the slot's scope end releases its last value, so a
             ; borrowed alias would dangle past either. The slot's escape
-            ; walk counts on this (`escapes`, the `let` arm), and gives
-            ; the share back at scope end only when the binding does not
-            ; escape itself.
+            ; walk counts on this (`escapes`, the `let` arm). The share
+            ; goes back at scope end when the binding doesn't escape, or
+            ; when it escapes only as the value of a `let` in tail
+            ; position whose every tail leaf is retained on the way out
+            ; (`slotReleasesAtEnd`), as an owning slot's last value does.
             (let ((cg1
               (if (|| (== fieldAlias 1) (== slotAlias 1))
                 (emitRetainOf cg1 valReg)
@@ -24132,14 +24134,15 @@
                 (if (== fieldAlias 1)
                   1
                   (if (== slotAlias 1)
-                    (if (== (escapes
-                      cg1
-                      name
-                      body
-                      1
-                      (binderSummary body)) 0)
-                      1
-                      0)
+                    (let ((bnd (binderSummary body)))
+                      (if (== (escapes
+                        cg1
+                        name
+                        body
+                        0
+                        bnd) 1)
+                        0
+                        (slotReleasesAtEnd cg1 node tail bnd)))
                     (letReleasable cg1 valExpr name body)))))
                 (let ((pmark (vecLen (memGetWordVec cg1 42))))
                   {

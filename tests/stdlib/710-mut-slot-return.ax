@@ -10,6 +10,9 @@
 ;           through a branch, and a slot inside a self tail call loop
 ;   text    what came back is intact, read after other allocations
 ;           have had the chance to reuse anything released too early
+;   alias   a `let` alias of the slot is what the function returns:
+;           the overwritten owner goes at the `set`, the returned one
+;           when the caller's binding ends, and each goes once
 (import IO)
 (import Str)
 (import Vec)
@@ -41,6 +44,22 @@
 (fn (owner hits)
   (let ((o (pick hits)))
     (+ (* 100 (useOwner o)) (+ (* 10 (vecLen hits)) (if (> (vecLen hits) 0) (vecGet hits 0) 9)))))
+
+(:: aliased (-> (Vec Int) Owner))
+;@axiom:effect(io)
+(fn (aliased hits)
+  (let ((mut o (makeOwner hits 7)))
+    (let ((t o))
+      {
+        (set o (makeOwner hits 8))
+        t
+      })))
+
+(:: alias (-> (Vec Int) Int))
+;@axiom:effect(io)
+(fn (alias hits)
+  (let ((o (aliased hits)))
+    (+ (* 10 (useOwner o)) (vecLen hits))))
 
 (:: build (-> Int String))
 (fn (build n)
@@ -108,6 +127,11 @@
     {
       (println (owner hits))
       (println (vecLen hits))
+      (let ((more vecNew))
+        {
+          (println (alias more))
+          (println (vecLen more))
+        })
       (let ((a (build 12)) (b (branch 9)) (c (spin 4 "hello")))
         {
           (let ((mut j 0))
