@@ -1526,13 +1526,16 @@
 ;      worth checking rather than assuming: if it can only fail when
 ;      the lowering is broken, then it is a test of the lowering.
 ;
-; Check 9 is the one that costs something. Dominators are computed by
-; the textbook iterative dataflow over a bit matrix - `dom[b]` is the
-; set of blocks that dominate `b`, initialised to everything and
-; narrowed to `{b} u (intersection over predecessors)` until nothing
-; moves. Functions here have a handful of blocks, so an n-by-n matrix
-; and a fixpoint loop is the cheap implementation as well as the
-; obvious one.
+; Check 9 is the one that costs something. The dominators come from
+; Cooper, Harvey and Kennedy's iterative algorithm: each block reached
+; from block 0 gets its immediate dominator, the intersection of its
+; predecessors' already placed, in reverse postorder until nothing
+; moves. The dominator tree that leaves is numbered on the way in and
+; on the way out, so "x dominates y" is one interval test. Memory is
+; linear in the blocks. An n-by-n matrix is not: the unrolled hash
+; rounds lower to thousands of blocks (`sha512Blocks` to 5,460), and
+; the matrix, with the predecessor lists it rebuilt for every row on
+; every pass, held 13 GB for `Crypto.Sha2` alone.
 ; ------------------------------------------------------------------
 (pub :: mFill (-> (Vec Int) Int Int (Vec Int)))
 (pub fn (mFill v n x)
@@ -1543,11 +1546,20 @@
       (mFill v (- n 1) x)
     }))
 
-; `dom` is a flat n*n matrix of 0/1: `dom[y*n + x]` is 1 when block x
-; dominates block y.
+; 1 when block x dominates block y. `dom[b]` is b's entry number in the
+; dominator tree and `dom[n + b]` its exit number, both -1 for a block
+; that block 0 does not reach. Such a block is dominated by every block,
+; which is the answer the dominator equations give it, so its uses are
+; left to check 8.
 (pub :: mDomAt (-> (Vec Int) Int Int Int Int))
 (pub fn (mDomAt dom n y x)
-  (vecGet dom (+ (* y n) x)))
+  (if (< (vecGet dom y) 0)
+    1
+    (if (< (vecGet dom x) 0)
+      0
+      (if (&& (<= (vecGet dom x) (vecGet dom y)) (<= (vecGet dom (+ n y)) (vecGet dom (+ n x))))
+        1
+        0))))
 
 (pub :: mSuccs (-> MBlock (Vec Int) (Vec Int)))
 (pub fn (mSuccs b out)
@@ -1591,151 +1603,153 @@
       (mReachSuccs f seen ss (+ i 1))
     }))
 
-; One pass of the dominator fixpoint over block `b`: intersect the
-; predecessors' rows, add `b` itself, and answer 1 if the row moved.
-(pub :: mDomRefineRow (-> (Vec Int) Int Int (Vec Int) Int Int))
-(pub fn (mDomRefineRow dom n b preds x)
-  (if (>= x n)
+; Every block's predecessors, computed once. A branch to a block that
+; does not exist names no predecessor: check 5 reports it.
+(pub :: mPredsAll (-> MFunc (Vec (Vec Int))))
+(pub fn (mPredsAll f)
+  (let (
+    (n (vecLen f.blocks))
+    (preds vecNew)
+  )
+    {
+      (for b in 0..n
+        (vecPush preds vecNew))
+      (for p in 0..n
+        (let ((ss (mSuccs (vecGet f.blocks p) vecNew)))
+          (for i in 0..(vecLen ss)
+            (let ((s (vecGet ss i)))
+              (if (&& (>= s 0) (< s n))
+                {
+                  (vecPush (vecGet preds s) p)
+                  0
+                }
+                0)))))
+      preds
+    }))
+
+; The blocks reached from `b`, in depth-first postorder, onto `post`.
+; `seen` is one word per block, and a branch to a block that does not
+; exist is skipped, as `mReach` skips it.
+(pub :: mPostOrder (-> MFunc (Vec Int) (Vec Int) Int Int))
+(pub fn (mPostOrder f seen post b)
+  (if (|| (< b 0) (>= b (vecLen f.blocks)))
     0
-    (let (
-      (want (if (== x b)
-        1
-        (mDomMeet
-          dom
-          n
-          preds
-          x
-          0
-          (- 0 1))))
-      (have (mDomAt dom n b x))
-    )
-      (if (== want have)
-        (mDomRefineRow
-          dom
-          n
-          b
-          preds
-          (+ x 1))
+    (if (== (vecGet seen b) 1)
+      0
+      (let ((ss (mSuccs (vecGet f.blocks b) vecNew)))
         {
-          (vecSet dom (+ (* b n) x) want)
-          (+ 1 (mDomRefineRow
-            dom
-            n
-            b
-            preds
-            (+ x 1)))
+          (vecSet seen b 1)
+          (for i in 0..(vecLen ss)
+            (mPostOrder f seen post (vecGet ss i)))
+          (vecPush post b)
+          0
         }))))
 
-; The intersection over `preds` of "does x dominate p". `acc` starts
-; at -1 meaning "no predecessor seen yet"; a block with no
-; predecessors keeps its row, which is what leaves an unreachable
-; block dominated by everything - check 8 reports it separately
-; rather than letting it corrupt check 9.
-(pub :: mDomMeet (-> (Vec Int) Int (Vec Int) Int Int Int Int))
-(pub fn (mDomMeet dom n preds x i acc)
-  (if (>= i (vecLen preds))
-    (if (< acc 0)
-      1
-      acc)
-    (let ((v (mDomAt dom n (vecGet preds i) x)))
-      (mDomMeet
-        dom
-        n
-        preds
-        x
-        (+ i 1)
-        (if (< acc 0)
-          v
-          (if (&& (== acc 1) (== v 1))
-            1
-            0))))))
+; The nearest block that dominates both `a` and `b`: climb from
+; whichever has the lower postorder number until the two meet.
+(pub :: mDomIntersect (-> (Vec Int) (Vec Int) Int Int Int))
+(pub fn (mDomIntersect idom po a b)
+  (if (== a b)
+    a
+    (if (< (vecGet po a) (vecGet po b))
+      (mDomIntersect idom po (vecGet idom a) b)
+      (mDomIntersect idom po a (vecGet idom b)))))
 
-(pub :: mPredsOf (-> MFunc Int (Vec Int) Int (Vec Int)))
-(pub fn (mPredsOf f b out i)
-  (if (>= i (vecLen f.blocks))
-    out
+; One pass over the reached blocks in reverse postorder, block 0 (the
+; last in postorder) excepted. Each takes the intersection of the
+; predecessors that already have an immediate dominator; one that
+; block 0 does not reach never gets one, so it never takes part.
+; Answers how many blocks moved.
+(pub :: mIdomPass (-> (Vec (Vec Int)) (Vec Int) (Vec Int) (Vec Int) Int))
+(pub fn (mIdomPass preds post idom po)
+  (let (
+    (mut moved 0)
+    (mut k (- (vecLen post) 2))
+  )
     {
-      (mPredsOfOne
-        f
-        b
-        out
-        i
-        (mSuccs (vecGet f.blocks i) vecNew)
-        0)
-      (mPredsOf f b out (+ i 1))
+      (while (>= k 0)
+        (let (
+          (b (vecGet post k))
+          (ps (vecGet preds b))
+          (mut nd (- 0 1))
+        )
+          {
+            (for i in 0..(vecLen ps)
+              (let ((p (vecGet ps i)))
+                (if (< (vecGet idom p) 0)
+                  0
+                  {
+                    (set nd (if (< nd 0)
+                      p
+                      (mDomIntersect idom po p nd)))
+                    0
+                  })))
+            (if (== nd (vecGet idom b))
+              0
+              {
+                (vecSet idom b nd)
+                (set moved (+ moved 1))
+                0
+              })
+            (set k (- k 1))
+          }))
+      moved
     }))
 
-(pub :: mPredsOfOne (-> MFunc Int (Vec Int) Int (Vec Int) Int Int))
-(pub fn (mPredsOfOne f b out p ss i)
-  (if (>= i (vecLen ss))
-    0
-    {
-      (if (== (vecGet ss i) b)
-        {
-          (vecPush out p)
-          0
-        }
-        0)
-      (mPredsOfOne
-        f
-        b
-        out
-        p
-        ss
-        (+ i 1))
-    }))
-
-(pub :: mDomPass (-> MFunc (Vec Int) Int Int Int Int))
-(pub fn (mDomPass f dom n b moved)
-  (if (>= b n)
-    moved
-    (mDomPass
-      f
-      dom
-      n
-      (+ b 1)
-      (+ moved (mDomRefineRow
-        dom
-        n
-        b
-        (mPredsOf f b vecNew 0)
-        0)))))
-
-(pub :: mDomFix (-> MFunc (Vec Int) Int Int Int))
-(pub fn (mDomFix f dom n fuel)
+(pub :: mIdomFix (-> (Vec (Vec Int)) (Vec Int) (Vec Int) (Vec Int) Int Int))
+(pub fn (mIdomFix preds post idom po fuel)
   (if (<= fuel 0)
     0
-    (if (== (mDomPass
-      f
-      dom
-      n
-      1
-      0) 0)
+    (if (== (mIdomPass preds post idom po) 0)
       0
-      (mDomFix f dom n (- fuel 1)))))
+      (mIdomFix preds post idom po (- fuel 1)))))
 
-; The dominator matrix: block 0 dominated only by itself, every other
-; row starting at "dominated by everything" and narrowing.
+; Number the dominator tree below `x` from `clock`: the entry number
+; into `dom[x]`, the exit number into `dom[n + x]`. Answers the next
+; free number.
+(pub :: mDomNumber (-> (Vec (Vec Int)) (Vec Int) Int Int Int Int))
+(pub fn (mDomNumber kids dom n x clock)
+  (let (
+    (ks (vecGet kids x))
+    (mut c (+ clock 1))
+  )
+    {
+      (vecSet dom x clock)
+      (for i in 0..(vecLen ks)
+        (set c (mDomNumber kids dom n (vecGet ks i) c)))
+      (vecSet dom (+ n x) c)
+      (+ c 1)
+    }))
+
+; The numbered dominator tree `mDomAt` reads.
 (pub :: mDominators (-> MFunc (Vec Int)))
 (pub fn (mDominators f)
   (let (
     (n (vecLen f.blocks))
-    (dom vecNew)
+    (preds (mPredsAll f))
+    (post vecNew)
+    (po (mFill vecNew n (- 0 1)))
+    (idom (mFill vecNew n (- 0 1)))
+    (kids vecNew)
+    (dom (mFill vecNew (* 2 n) (- 0 1)))
   )
     {
-      (mFill dom (* n n) 1)
-      (mDomZeroRow0 dom n 1)
-      (mDomFix f dom n (+ (* n n) 4))
+      (mPostOrder f (mFill vecNew n 0) post 0)
+      (for k in 0..(vecLen post)
+        (vecSet po (vecGet post k) k))
+      (vecSet idom 0 0)
+      (mIdomFix preds post idom po (+ n 2))
+      (for x in 0..n
+        (vecPush kids vecNew))
+      (for x in 1..n
+        (if (< (vecGet idom x) 0)
+          0
+          {
+            (vecPush (vecGet kids (vecGet idom x)) x)
+            0
+          }))
+      (mDomNumber kids dom n 0 0)
       dom
-    }))
-
-(pub :: mDomZeroRow0 (-> (Vec Int) Int Int Int))
-(pub fn (mDomZeroRow0 dom n x)
-  (if (>= x n)
-    0
-    {
-      (vecSet dom x 0)
-      (mDomZeroRow0 dom n (+ x 1))
     }))
 
 ; ------------------------------------------------------------------

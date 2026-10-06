@@ -19,6 +19,13 @@
 # `op` and `term` lines for every function that `mLowerFn` in
 # `self_host/mir.ax` lowers and `mirVerify` passes.
 #
+# `--mir` must not cost a multiple of what the plain stream costs: its
+# peak memory is held to four times the plain stream's, for each input.
+# The compiler's own entry measures 2.7 times (the region fixpoint), the
+# probe 1.1 times. The verifier's dominators were once an n-by-n matrix,
+# and the probe's unrolled hash rounds (5,460 blocks in one function)
+# made that 26 times, 19 GB: more than a CI runner has.
+#
 # The hand-written fixtures in `tests/axir/` cover what the compiler
 # does not write. `body.axir` names blocks `entry` and `loop` and uses
 # opcodes this IR does not have: the grammar is a format, and a reader
@@ -99,6 +106,30 @@ fi
   printf '(:: main Int)\n\n(fn (main) 0)\n'
 } > "$work/probe.ax"
 
+# peak_kb <report> <command...>: run the command with its own stdout and
+# stderr, and write its peak memory in KiB to <report>. Darwin's
+# "peak memory footprint" counts compressed pages, which its resident
+# set does not, so it is preferred where `time` prints it. `ru_maxrss`
+# is bytes on Darwin and KiB elsewhere, as in `max_rss_kb`.
+peak_kb() {
+  local rep="$1"; shift
+  if /usr/bin/time -l true >/dev/null 2>&1; then
+    local div=1
+    if [[ "$(uname -s)" == Darwin ]]; then div=1024; fi
+    /usr/bin/time -l -o "$rep.time" "$@" || return
+    awk -v div="$div" '
+      /peak memory footprint/ { fp = int($1 / 1024) }
+      /maximum resident set size/ { rss = int($1 / div) }
+      END { print (fp > 0 ? fp : rss) }' "$rep.time" > "$rep"
+  elif /usr/bin/time -v true >/dev/null 2>&1; then
+    /usr/bin/time -v -o "$rep.time" "$@" || return
+    awk -F: '/Maximum resident set size/ { print int($2) }' "$rep.time" > "$rep"
+  else
+    echo "FAIL: no usable time(1), so the --mir stream's memory cannot be measured"
+    exit 1
+  fi
+}
+
 records=0
 bodies=0
 # Both streams, because they are different files: `--mir` adds the
@@ -106,16 +137,16 @@ bodies=0
 # forces the region-facts fixpoint.
 for src in "$work/probe.ax" self_host/main.ax; do
   name="$(basename "$src" .ax)"
-  ( cd "$(dirname "$src")" && AXIOM_STDLIB="$repo_root/stdlib" \
-      "$axc" symbols --axir "$(basename "$src")" ) > "$work/$name.a.axir"
+  ( cd "$(dirname "$src")" && export AXIOM_STDLIB="$repo_root/stdlib" && \
+      peak_kb "$work/$name.a.kb" "$axc" symbols --axir "$(basename "$src")" ) > "$work/$name.a.axir"
   "$axc" symbols --axir "$work/$name.a.axir" > "$work/$name.b.axir"
   if ! cmp -s "$work/$name.a.axir" "$work/$name.b.axir"; then
     echo "FAIL: $src does not round-trip; first difference:"
     diff "$work/$name.a.axir" "$work/$name.b.axir" | head -10 | sed 's/^/     /'
     exit 1
   fi
-  ( cd "$(dirname "$src")" && AXIOM_STDLIB="$repo_root/stdlib" \
-      "$axc" symbols --axir --mir "$(basename "$src")" ) > "$work/$name.m.axir"
+  ( cd "$(dirname "$src")" && export AXIOM_STDLIB="$repo_root/stdlib" && \
+      peak_kb "$work/$name.m.kb" "$axc" symbols --axir --mir "$(basename "$src")" ) > "$work/$name.m.axir"
   "$axc" symbols --axir "$work/$name.m.axir" > "$work/$name.m2.axir"
   if ! cmp -s "$work/$name.m.axir" "$work/$name.m2.axir"; then
     echo "FAIL: $src does not round-trip under --mir; first difference:"
@@ -128,6 +159,23 @@ for src in "$work/probe.ax" self_host/main.ax; do
   bodies=$(( bodies + b ))
   echo "ok   $src: $n records, $b of them with a lowered body, identical after read-back"
 done
+# The memory bound the header states, per input.
+for name in probe main; do
+  a_kb="$(cat "$work/$name.a.kb")"; m_kb="$(cat "$work/$name.m.kb")"
+  if ! [[ "$a_kb" =~ ^[0-9]+$ && "$m_kb" =~ ^[0-9]+$ ]] || (( a_kb == 0 )); then
+    echo "FAIL: no peak memory was read for $name (plain '$a_kb' KiB, --mir '$m_kb' KiB)."
+    echo "      A bound over an empty measurement holds for anything."
+    exit 1
+  fi
+  if (( m_kb > 4 * a_kb )); then
+    echo "FAIL: the --mir stream for $name peaked at $(( m_kb / 1024 )) MiB, more than four"
+    echo "      times the plain stream's $(( a_kb / 1024 )) MiB. Something the bodies or the"
+    echo "      region facts keep grows faster than the program does."
+    exit 1
+  fi
+  echo "ok   $name: --mir peaked at $(( m_kb / 1024 )) MiB against $(( a_kb / 1024 )) MiB for the plain stream (bound: four times)"
+done
+
 # A floor, because an emitter that wrote only the magic line would
 # round-trip flawlessly.
 if (( records < 400 )); then

@@ -16,6 +16,11 @@ its changelog too.
 
 ## Unreleased
 
+- Check dominance in a lowered body in memory linear in its blocks.
+  `symbols --axir --mir` over every standard library module peaked at
+  19 GB, most of it for the unrolled SHA-2 and Keccak rounds, and now
+  peaks under 1 GB. Tested by `scripts/check-mir-roundtrip.sh`.
+
 - Take a share at a store whose element type a pin decides. In
   `(let ((out vecNewRef)) ...)`, a push of a `String` decides `out`'s
   element type, and `(vecSet out k (vecGet out j))` read it as unknown:
