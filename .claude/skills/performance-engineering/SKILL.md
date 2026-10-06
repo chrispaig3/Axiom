@@ -34,7 +34,7 @@ and abandoned the previous copy: peak was the *sum* of every
 intermediate, growing with the square of the output. Measuring the total
 length once and copying into a single buffer took one self-compile from
 16,973,522,240 bytes peak and 11.54 s to 72,958,912 bytes and 0.85 s,
-with byte-identical output (`docs/self-hosting.md`).
+with byte-identical output (the stage2 == stage3 fixpoint in `scripts/bootstrap-from-seed.sh` checks that half).
 
 Three things that example is here to teach:
 

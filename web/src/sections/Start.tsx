@@ -135,8 +135,8 @@ const INSTALLS: Tab[] = [
         <Command command={BOOTSTRAP_CMD} />
         <Command command={'export PATH="$PWD/.axiom-bin:$PATH"'} />
         <p className="hint">
-          Any macOS, Linux or FreeBSD host, and the only way in on the source-only ones such as{' '}
-          <code>linux-x86_64</code>. <code>bootstrap/</code> holds the compiler's own LLVM IR, so this
+          CI builds from source on Apple silicon, Linux and FreeBSD, and it is the only way in on
+          source-only hosts such as <code>linux-x86_64</code>. <code>bootstrap/</code> holds the compiler's own LLVM IR, so this
           needs nothing but the prerequisites, and no network after the clone.
         </p>
       </>
@@ -274,7 +274,7 @@ export function Start() {
             </p>
             <p className="hint">
               Bare-metal AArch64 uses a board-defined platform seam and an optional QEMU smoke
-              run. Windows and FreeBSD have narrower bootstrap coverage.{' '}
+              run. The compiler doesn't run on Windows: cross-compile to it from Linux or macOS.{' '}
               <a href={`${DOCS}/embedded-guide.md`} target="_blank" rel="noreferrer noopener">
                 Embedded targets <ArrowUpRight size={12} />
               </a>

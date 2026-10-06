@@ -178,15 +178,17 @@ green. The ones that bite most often:
     `~~ID~~ | **CLOSED**` defect rows.
   - The reference's `### Modules at a Glance` heading, spelled exactly
     that way (the one exception to sentence case), its `` | `Module` | ``
-    rows, and the sentence opening "Twenty-four modules, all of them
-    Axiom source". `docs/status.md`'s Standard library row keeps the
-    form `| Standard library | **…** | Twenty-four modules — `A`, … — …`.
+    rows, and the sentence opening "<Spelled> modules, all of them Axiom
+    source" (for example "Sixty-two modules"). `docs/status.md`'s
+    Standard library row keeps the form
+    `| Standard library | **…** | <Spelled> modules — `A`, … — …`.
     `scripts/check-stdlib-api.sh` reads all of it, and the spelled
     number tracks the module count.
-  - "eighty-four gates" in `CONTRIBUTING.md` and in the Unreleased
-    section of `CHANGELOG.md` (`scripts/check-gate-lib.sh`).
+  - The spelled gate count ("ninety-five gates") in every count site
+    `scripts/check-gate-lib.sh` lists: `CONTRIBUTING.md`,
+    `.github/workflows/ci.yml` and the gate scripts it names.
   - `bootstrap/README.md`'s `axiom-<target>.ll` box lines, its two
-    "28,082 lines" sentences, and `bootstrap/THREATS.md`'s table and its
+    "N lines" sentences, and `bootstrap/THREATS.md`'s table and its
     "This table has N rows, M defended," sentence
     (`scripts/check-seed-supply-chain.sh`).
 - **`docs/status.md` rows.** The feature column and the bold status

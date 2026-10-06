@@ -44,7 +44,7 @@ export function Status() {
         <div className="status">
           <Column title="Complete" tone="ok" rows={STATUS_SOLID} />
           <Column title="Working, with stated limits" tone="warn" rows={STATUS_LIMITS} />
-          <Column title="Removed on purpose" tone="muted" rows={STATUS_REMOVED} />
+          <Column title="Removed" tone="muted" rows={STATUS_REMOVED} />
         </div>
 
         <p className="aside">

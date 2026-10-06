@@ -156,9 +156,9 @@ export function Benchmark() {
                   <code>web/bench/</code>
                 </a>
                 , and <code>run-bench.sh</code> beside them produces every cell of this table, so it
-                can be re-run rather than taken on trust. Go and Haskell are absent on purpose: no
-                toolchain for either was on the machine, and this project does not publish a number
-                it has not measured. One micro-benchmark says nothing about allocation-heavy work,
+                can be re-run rather than taken on trust. Go and Haskell are absent because no
+                toolchain for either was on the machine, and this project publishes only numbers
+                it has measured. One micro-benchmark says nothing about allocation-heavy work,
                 which{' '}
                 <a
                   href={`${BLOB}/scripts/bench-datastructures.sh`}

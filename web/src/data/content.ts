@@ -154,7 +154,7 @@ export const STATUS_SOLID: StatusRow[] = [
   { feature: 'Structs', status: 'Complete', note: 'Per-field `mut`, generic parameters, automatic rendering.' },
   { feature: 'Lambda / function values', status: 'Complete', note: 'Closures, partial application, `_` holes.' },
   { feature: 'Loops', status: 'Complete', note: '`for` over ranges and containers, `while`.' },
-  { feature: 'Syscalls', status: 'Complete', note: 'Eight targets, no libc between you and the kernel.' },
+  { feature: 'Syscalls', status: 'Complete', note: 'No libc between your program and the kernel on any of the eight hosted targets.' },
   { feature: 'Module visibility', status: 'Complete', note: 'Only `pub` leaves a module.' },
   { feature: 'Self-hosting', status: 'Done', note: 'The Rust compiler it replaced has been deleted.' },
 ]
@@ -210,7 +210,7 @@ export const FAQS: Faq[] = [
     q: 'What does "no libc" actually mean?',
     a: [
       'The code Axiom generates, and its standard library, reach the kernel through raw syscalls: printing, allocation, files, processes and sockets included. `scripts/check-freestanding.sh` fails the build if the generated IR calls a C library function or the executable imports one.',
-      'The final link is done by your system C compiler, which on Linux adds the C runtime\'s startup code; on macOS arm64, `nm -u` on a compiled program is empty. An `extern` block to Rust is the one deliberate door, and a `no_std` crate adds no C library function through it.',
+      'The final link is done by your system C compiler, which on Linux adds the C runtime\'s startup code; on macOS arm64, `nm -u` on a compiled program is empty. An `extern` block to Rust is the one way out, and a `no_std` crate adds no C library function through it.',
     ],
     link: { label: 'The freestanding gate', href: `${BLOB}/scripts/check-freestanding.sh` },
   },
