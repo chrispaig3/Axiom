@@ -13,8 +13,8 @@
 # Two properties matter most:
 #
 #   1. It assembles at `-O0` as well as higher levels. The x86 backend
-#      emits an absolute relocation at `-O0` that `-O2` hides, and `-O0`
-#      is what `--opt 0` selects.
+#      can emit an absolute relocation at `-O0` that `-O2` hides, and
+#      `-O0` is what `--opt 0` selects.
 #
 #   2. It inspects relocations rather than only checking that `llc`
 #      exited zero. An absolute relocation assembles cleanly and fails
@@ -45,10 +45,10 @@ targets=(darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64 freebsd-x86_64 
 # appears at only one of them is still a shipped bug.
 #
 # 1 is the default (`driver.ax`: `(flagValue "--opt" 1)`), so it is the
-# level every unflagged `axiom run` and `axiom build` uses. 0 is where
-# the x86 backend emits `R_X86_64_32S` against `.bss`, the failure this
-# script exists for. 2 is the setting recommended for deeply recursive
-# code.
+# level every unflagged `axiom run` and `axiom build` uses. 0 is the
+# only level where the x86 backend can emit `R_X86_64_32S` against
+# `.bss`, the failure this script exists for. 2 is the setting
+# recommended for deeply recursive code.
 opt_levels=(0 1 2)
 
 # Absolute relocations, split by width and by where they are legal. The
@@ -339,14 +339,14 @@ done
 #
 # Every fixpoint comparison in this repository (`stage2 == stage3` in
 # check-bootstrap.sh and bootstrap-from-seed.sh, the reproducibility
-# gate) compares objects built from two files. If the assembler records
-# where its input came from, those comparisons compare paths instead of
-# what the compiler emitted.
+# gate) compares artifacts built from two files. If the assembler
+# records where its input came from, those comparisons compare paths
+# instead of what the compiler emitted.
 #
 # On ELF and COFF, `llc` writes the input filename into the object (an
 # STT_FILE symbol on ELF, a `.file` symbol on COFF); Mach-O drops it.
 # Fixpoint builds therefore assemble files with the same basename in
-# different directories. Breaking that fails on ELF and COFF hosts but
+# different directories. Breaking that fails on Linux and FreeBSD but
 # not on Darwin, as "IR matched but their objects differ", with nothing
 # wrong in the compiler.
 #

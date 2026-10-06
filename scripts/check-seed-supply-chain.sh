@@ -71,8 +71,8 @@ ndeclared="$(wc -l < "$work/declared" | tr -d ' ')"
 
 # A floor, because every comparison below is against this file: an empty
 # or truncated declaration would make them all agree about nothing and
-# pass. The floor is 5, low enough that retiring one target does not
-# trip it.
+# pass. Six targets are declared and the floor is 5, low enough that
+# retiring one target does not trip it.
 if (( ndeclared < 5 )); then
   echo "FAIL: seed_targets names only $ndeclared targets; the floor is 5"
   echo "      Every comparison in this section is against that list, so a"
@@ -562,8 +562,8 @@ check_anchor_sites real "${anchor_sites[@]}"
 
 # -- the ablations for section 5 --------------------------------------
 #
-# A copy of bootstrap/README.md with one of its numerals changed to
-# 28,083:
+# A copy of bootstrap/README.md with both of its numerals changed to
+# 28,083, checked beside the lineage gate's two:
 #
 #     FAIL: the anchor's size is stated 4 times with 2 different numbers
 #

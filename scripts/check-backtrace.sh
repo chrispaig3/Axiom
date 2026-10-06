@@ -18,12 +18,12 @@
 # mechanism is emitted text, so the committed seed compiles `self_host/`
 # unchanged.
 #
-# The roadmap asks for "a 5-deep chain names five functions, at every
-# optimisation level". At `--opt 1` and above there is no five-deep
-# chain: LLVM inlines it into `main`, so the trace reads
-# `__axiom_div_by_zero main`. Mutual recursion does not stop the inliner.
-# So the gate asserts what holds at every level: the walker names
-# exactly the frames that are on the stack.
+# A five-deep chain cannot name five functions at every optimisation
+# level. At `--opt 1` and above there is no five-deep chain: LLVM
+# inlines it into `main`, so the trace reads `__axiom_div_by_zero main`.
+# Mutual recursion does not stop the inliner. So the gate asserts what
+# holds at every level: the walker names exactly the frames that are on
+# the stack.
 #   §1 pins all eight frames byte for byte at `--opt 0`.
 #   §2 checks every printed name at every level against `nm`, a source
 #      outside the compiler, so an invented name fails even where the

@@ -288,10 +288,10 @@ else
   echo "ok   negative probe: the IR checks flag libc calls and llvm.mem* intrinsics"
 fi
 
-# 2. The language refuses `foreign`, which named a symbol with no
-#    `extern` declaration behind it. A sweep over programs that do not
-#    call libc cannot show that none could, so this checks that
-#    `foreign` is refused as a removed construct.
+# 2. The language refuses `foreign`, which emitted a call to a symbol
+#    the module never declared. A sweep over programs that do not call
+#    libc cannot show that none could, so this checks that `foreign` is
+#    refused as a removed construct.
 ffi="$work/ffi-probe.ax"
 cat > "$ffi" <<'PROBE'
 (foreign posix_spawn :: (-> Int Int Int Int Int Int) = "posix_spawn")

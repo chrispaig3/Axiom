@@ -1,5 +1,5 @@
 # ---------------------------------------------------------------------
-# The preamble every gate shares. A gate opens with:
+# The preamble the gates share. A gate opens with:
 #
 #     source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
 #     gate_init
@@ -10,9 +10,10 @@
 # their bootstrap step, error wording, log paths and how much of a
 # failed build log they print, so it lives here once.
 #
-# This file holds nothing that runs the compiler, counts cases or
-# reports results. Those differ per gate for real reasons, and keeping
-# them in the gate keeps each gate readable on its own.
+# Apart from building compilers, this file holds nothing that runs the
+# compiler, counts cases or reports results. Those differ per gate for
+# real reasons, and keeping them in the gate keeps each gate readable
+# on its own.
 # ---------------------------------------------------------------------
 
 # gate_init [--no-stdlib]
@@ -218,8 +219,8 @@ gate_seed_source_stamp() {
   # `find` rather than a glob: a glob matching nothing makes `cat` fail,
   # and under `set -euo pipefail` that silently ends the whole gate.
   #
-  # Relative paths and `LC_ALL=C sort` keep the stamp independent of the
-  # checkout path and the runner's locale.
+  # Relative paths and `LC_ALL=C sort`: the stamp is a property of the
+  # tree, not of where it was checked out or of the runner's locale.
   list="$( cd "$root" && find self_host stdlib -name '*.ax' -type f 2>/dev/null \
              | LC_ALL=C sort )"
   {
@@ -489,12 +490,13 @@ gate_ax_tree_stamp() {
 
 # The prose documents that carry Axiom code and cite fixtures.
 #
-# Every prose sweep (`check-doc-drift.sh`, `check-tree-sitter.sh`,
-# `check-tools-selfhost.sh` and others) reads this one list, so no
-# document is swept by some gates and missed by others. It is
-# hand-written, since a sweep cannot discover a document it was never
-# told about. `check-doc-drift.sh` checks it in both directions: every
-# name here exists, and every document under `docs/` is named here.
+# Every prose sweep (`check-doc-drift.sh`, `check-tree-sitter.sh` and
+# `check-tools-selfhost.sh`) reads this one list, so no document is
+# swept by some gates and missed by others. It is hand-written, since a
+# sweep cannot discover a document it was never told about.
+# `check-doc-drift.sh` holds its `docs/` entries to the tree in both
+# directions: every one exists, and every page under `docs/` is named
+# here.
 #
 # `gate_prose_docs` prints them repo-relative. `gate_prose_docs_abs`
 # fills the array `prose_docs` with `$repo_root` prefixed. It is a

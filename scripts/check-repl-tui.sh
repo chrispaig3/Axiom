@@ -45,10 +45,10 @@
 #      transcripts with CRs stripped, because a cooked pty turns every LF
 #      into CR LF, and the raw streams differ even with no editor.
 #   B. The forced `\n\r` at `C % W == 0` removed from `ledRefreshFull`.
-#      Only layer 5's two exact-row cases fail, on the cursor: the text
-#      looks right and the cursor sits a row high. Every other layer and
-#      `scripts/check-repl-selfhost.sh` stay green, so only layer 5 sees
-#      the deferred wrap.
+#      Only layer 5's two W=20 exact-row cases fail, on the cursor: the
+#      text looks right and the cursor sits a row high. Every other layer
+#      and `scripts/check-repl-selfhost.sh` stay green, so only layer 5
+#      sees the deferred wrap.
 #   C. `ledLeft` made a no-op. Only layer 3 fails: no `result 13`, then
 #      no `result 9`, `3`, `15` or `42`, because Ctrl-A is built from
 #      `ledLeft` and the line is never cleared.
@@ -491,8 +491,9 @@ fi
 echo
 echo "== negative probe: the screen comparison can actually fail =="
 # =================================================================
-# Every assertion in layer 5 compares two things this script computed.
-# Flip one byte of a real transcript and require the model to reject it.
+# Every assertion in layer 5 compares two things this script computed,
+# and a comparison that cannot fail would pass unnoticed. Flip one byte
+# of a real transcript and require the model to reject it.
 checks=$((checks + 1))
 python3 - "$work/wrap37.bin" "$work/corrupt.bin" "$(v "$work/wrap37.err" PY_MARK_at)" <<'PYX'
 import sys

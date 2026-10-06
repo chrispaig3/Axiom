@@ -353,7 +353,8 @@ else
 
   # Flat, stated two ways. The ceiling is easy to check against the
   # numbers above. The delta survives a machine with a different
-  # baseline RSS.
+  # baseline RSS. A healthy run peaks near 1.4 MiB at both counts, so
+  # both limits leave a wide margin.
   if (( rss_100k > 32768 )); then
     echo "FAIL 100,000 aborts peaked at ${rss_100k} KiB, over the 32 MiB ceiling"
     status=1
@@ -510,10 +511,10 @@ fi
 #                        the longjmp
 #
 # A register in none of them can carry a value across the block. `x18`
-# is the classic case: reserved on Darwin, but an ordinary caller-saved
-# temporary on Linux and FreeBSD, where LLVM prefers it because the
-# block does not clobber it. The symptom is a SIGSEGV (exit 139) with
-# empty stdout and stderr on those targets only.
+# is the case in point: reserved on Darwin, but an ordinary caller-saved
+# temporary on Linux and FreeBSD, where LLVM prefers it whenever the
+# block does not clobber it. Left out there, it shows as a SIGSEGV
+# (exit 139) with empty stdout and stderr.
 #
 # The check does not restate the caller-saved set, which is easy to get
 # wrong. It walks the whole register file and puts each register in a
