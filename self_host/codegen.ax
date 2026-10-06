@@ -24249,7 +24249,12 @@
         (if (|| (== tg TAG_E_INT) (|| (== tg TAG_E_FLT) (|| (== tg TAG_E_STR) (== tg TAG_E_CHAR))))
           0
           (if (== tg TAG_E_LAM)
-            (if (== (lookupSymKind cg name) 3)
+            ; a counted capture only when the symbol table's binding is
+            ; the one the lambda sees: a name bound again under the root
+            ; - an alias the walk follows - is a different binding, and
+            ; an outer counted one of the same spelling vouched for a
+            ; capture that took no share
+            (if (&& (== (lookupSymKind cg name) 3) (== (boundIn name bound) 0))
               0
               (mentions name e))
             (if (== tg TAG_E_VAR)
