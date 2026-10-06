@@ -1,54 +1,26 @@
 #!/usr/bin/env bash
-# A release on a STATIC is not emitted, and one predicate is what does it.
+# Checks that no release is emitted for a static string literal, and that
+# one predicate, `isStaticSentinelNode`, is what removes it.
 #
-# `MM-LIFE-2b`'s header sits at handle-16 on every counted block. For a
-# bare string literal the block is a `@strhdr_*` constant and the count
-# word is the sentinel `-1`, so `@axiom_release` handles it by loading
-# the count, comparing against `-1`, and returning. The call is a call
-# that cannot free anything.
+# The `MM-LIFE-2b` header sits at handle-16 on every counted block. For a
+# bare string literal the block is a `@strhdr_*` constant whose count word
+# is the sentinel `-1`, so `@axiom_release` loads the count, sees `-1` and
+# returns. Such a call can never free anything. Without the elision the
+# compiler's own IR has thousands of them; with it the binary is smaller
+# and its output unchanged.
 #
-# WHAT THIS WAS, MEASURED 2026-08-31 over the compiler's own emitted IR
-# (`emit-llvm self_host/main.ax`, 197,562 lines, 3,469 functions), by
-# classifying every `axiom_release` site by what DEFINES the value it
-# releases:
+# Why not make `valueOwnedRef` answer 0 for `TAG_E_STR`: it answers 1 so
+# that `(if c "lit" (mkStr))` stays owned and the other branch's share is
+# given back. Answering 0 would leak that share. Instead,
+# `isStaticSentinelNode` is asked only at the four sites that release a
+# value that is itself the literal: argument, field, `let` scope end and
+# tail-call temporary. Check 2 guards the join.
 #
-#     5762  53.1%  a static string literal (@strhdr_*)
-#     4636  42.7%  the result of a call (callee-allocated, owned)
-#      338   3.1%  a load - a field or a frame slot
-#      110   1.0%  a phi
-#        3   0.0%  a parameter (borrowed)
-#
-# Over half the release traffic in the largest Axiom program there is,
-# doing nothing, and the operand's definition said so at compile time.
-# Deleting those 5,762 out of the IR by hand and rebuilding gave
-# byte-identical output, a 5.3% smaller binary, and peak RSS at or
-# below baseline - which is arithmetic, not luck: deleting a call that
-# frees nothing cannot cost memory. The compiler change that replaced
-# that by-hand edit measures 5.6% on its own binary; the two differ
-# because the by-hand version edited ONE emission of the IR and this
-# one reaches every emission including the compiler's own bootstrap.
-#
-# WHY IT IS NOT `valueOwnedRef` ANSWERING 0, which is the obvious fix
-# and is wrong. That predicate answers 1 for `TAG_E_STR` deliberately -
-# its own comment says "a static: immortal, and releasing it is a
-# no-op, so a branch answering one does not stop the join being owned"
-# - because `(if c "lit" (mkStr))` has to stay owned for the OTHER
-# branch's share to be given back. Answering 0 there silences this
-# release and LEAKS that one. So `isStaticSentinelNode` is asked at the
-# four sites that emit a release for a value that IS the literal -
-# argument, field, `let` scope end, and tail-call temporary - and
-# the join reasoning is untouched. The gate's second assertion is what
-# keeps that distinction honest.
-#
-# THE ABLATION. `isStaticSentinelNode` in `self_host/codegen.ax` answers
-# 1 for `TAG_E_STR`. Turning that answer into 0 is the whole fix
-# undone: the predicate still exists, still runs, and never fires. The
-# gate rebuilds the compiler from the ablated tree and requires the
-# static-release count to go back up into the thousands. A count that
-# no ablation can move is not evidence.
-#
-# Cost: one extra compiler build, the same price
-# `check-fallible-reclaim.sh` pays for the same reason.
+# The ablation flips `isStaticSentinelNode`'s answer for `TAG_E_STR` to 0
+# in a copy of the tree, rebuilds the compiler, and requires the count to
+# climb back into the thousands. A count no ablation can move is not
+# evidence. It costs one extra compiler build, as
+# `check-fallible-reclaim.sh` does.
 #
 # Usage:
 #   scripts/check-static-release.sh
@@ -66,9 +38,9 @@ checks=0
 ok()  { echo "ok   $*"; checks=$((checks + 1)); }
 bad() { echo "FAIL $*"; failed=$((failed + 1)); }
 
-# Count `axiom_release` sites whose operand is defined, in the same
-# define, by a `ptrtoint ... @strhdr_*` - the static-string form and
-# the only one `emitStrExpr` writes. Prints "<static> <total> <hdrs>".
+# Count `axiom_release` sites whose operand is defined in the same
+# function by a `ptrtoint ... @strhdr_*`, the only static-string form
+# `emitStrExpr` writes. Prints "<static> <total> <hdrs>".
 count_static_releases() {
   python3 - "$1" <<'PY'
 import re, sys
@@ -92,15 +64,13 @@ PY
 }
 
 # ---------------------------------------------------------------
-# 1. A fixture whose literals sit in BOTH guarded positions.
+# 1. A fixture with a literal in each guarded position.
 # ---------------------------------------------------------------
-# `argOf` puts one in argument position (`releaseOwnedArgs`) and `Box`
-# puts one in a constructor field (the block-construction store). Both
-# are the shapes that emitted a release before 2026-08-31, and both
-# must emit none now. `letOf` binds one (the `let` scope-end release
-# in `emitLetAt`) and `tailOf` passes one to a self tail call (the
-# argument temporary `releaseTailTemps` hands back) - the two shapes
-# that emitted one before 2026-09-26, and both must emit none now.
+# `argOf` puts one in argument position (`releaseOwnedArgs`), `Box` in a
+# constructor field (the block-construction store), `letOf` in a `let`
+# binding (the scope-end release in `emitLetAt`) and `tailOf` in a self
+# tail call (the temporary `releaseTailTemps` hands back). None may emit
+# a release.
 echo "== a literal in argument, field, let and tail position emits no release =="
 cat > "$work/lit.ax" <<'AX'
 (import Str)
@@ -145,14 +115,11 @@ else
 fi
 
 # ---------------------------------------------------------------
-# 2. The join stays owned - the thing the obvious fix would break.
+# 2. The join stays owned, which the obvious fix would break.
 # ---------------------------------------------------------------
-# `(if c "lit" (strDup ...))` is owned by `valueOwnedRef` BECAUSE the
-# literal answers 1 there. If someone "simplifies" this change by
-# making that predicate answer 0 for TAG_E_STR, this arm's share stops
-# being given back and the leak is silent. So the gate requires the
-# join to still emit a release: the literal's is gone, the join's is
-# not, and the two are different questions.
+# `valueOwnedRef` treats `(if c "lit" (strDup ...))` as owned because the
+# literal answers 1 there. Making it answer 0 for TAG_E_STR would silently
+# leak the other arm's share, so the join must still emit a release.
 echo "== a join over a literal and a real string still gives its share back =="
 cat > "$work/join.ax" <<'AX'
 (import Str)
@@ -187,16 +154,14 @@ else
 fi
 
 # ---------------------------------------------------------------
-# 3. The corpus figure, over the largest Axiom program there is.
+# 3. The compiler's own IR, the largest Axiom program in the tree.
 # ---------------------------------------------------------------
-# No residue: every release path that holds an AST node asks the
-# predicate, so a static release in this census is a missed elision
-# and the cap is 0. (The census is syntactic - an operand DEFINED by
-# a literal. Static VALUES behind a `load`, like a literal a caller
-# passed into a callee's parameter slot, are nodeless by
-# construction and invisible here; that is a different slice, not a
-# residue of this one.) The header floor is what keeps a compiler
-# that emitted no literals at all from passing.
+# Every release path that holds an AST node asks the predicate, so any
+# static release here is a missed elision and the cap is 0. The census is
+# syntactic: it sees operands defined by a literal. A static value behind
+# a `load`, such as a literal passed into a parameter slot, has no node
+# and is out of its scope. The header floor stops a compiler that emits
+# no literals at all from passing.
 echo "== the compiler's own IR: zero static releases =="
 if ! "$axc" emit-llvm "$repo_root/self_host/main.ax" -o "$work/self.ll" >"$work/self.log" 2>&1; then
   bad "could not emit IR for self_host/main.ax"
@@ -221,16 +186,14 @@ mkdir -p "$abl"
 cp -R "$repo_root/self_host" "$repo_root/stdlib" "$abl/" || {
   echo "FAIL: could not copy the tree to ablate" >&2; exit 1; }
 
-# The one answer the fix turns on. The predicate keeps existing and
-# keeps being called; it just never fires - so an ablation that broke
-# the build would read differently from one that restored the defect.
+# Flip the one answer the fix turns on. The predicate still exists and
+# still runs, so a broken build reads differently from a restored defect.
 python3 - "$abl/self_host/codegen.ax" <<'PY'
 import sys
 p = sys.argv[1]
 s = open(p, encoding="utf-8").read()
-# 2026-09-21: the formatter's normal-form move folded the tail's
-# stray closers up (`0)))` on one line). The predicate is unchanged,
-# so the ablation follows the spelling and flips the same `1` to `0`.
+# `old` follows the formatter's spelling, closers folded onto the last
+# line. Only the `1` for TAG_E_STR changes.
 old = """(pub fn (isStaticSentinelNode cg e)
   (if (== e 0)
     0
@@ -265,10 +228,9 @@ else
     else
       ok "ablated: $ast static releases (against $sst from the tree) - the predicate is what removes them"
     fi
-    # AND THE FIXTURE, which is what keeps check 1 from being vacuous.
-    # It asserts a zero, and a fixture that reached none of the guarded
-    # sites would produce a zero too. The ablated compiler must find
-    # all four.
+    # The fixture too: check 1 asserts a zero, which a fixture reaching
+    # none of the guarded sites would also produce. The ablated compiler
+    # must find all four.
     checks=$((checks + 1))
     if "$work/axc-ablated" emit-llvm "$work/lit.ax" -o "$work/lit-abl.ll" \
          >"$work/lit-abl.log" 2>&1; then

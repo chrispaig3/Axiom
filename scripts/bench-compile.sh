@@ -1,73 +1,38 @@
 #!/usr/bin/env bash
-# Where a compile actually spends its time.
+# Where a compile spends its time, stage by stage.
 #
-# This project has no compile-time profile and never has. The only
-# wall-clock figure anywhere in it is the `concat` fix - a self-compile
-# went 11.54s to 0.85s when a quadratic concatenation in code generation
-# was replaced (the self-hosting record). The lesson recorded there is the
-# reason this script exists:
+# It answers which side of the process boundary the time is on. Work
+# inside the Axiom process (lex, parse, resolve, expand, check, emit) and
+# work outside it (`opt`, `llc`, `cc`) need different fixes. The outside
+# work can already run in parallel with standard-library primitives.
+# Splitting code generation into several LLVM modules is the largest
+# compiler change available and the only one that risks the
+# byte-identical fixpoint. Wait until this table shows the toolchain is
+# where the time goes.
 #
-#   "The self-hosted compiler's dominant cost was not lexing, parsing,
-#    checking or lowering. It was the last line of code generation."
+# Method, shared with `bench-datastructures.sh`:
 #
-# Nobody predicted that, and nothing has measured where the time goes
-# since. P5's remaining deliverable is a "published performance profile";
-# this is it.
+#   - Each stage is timed as a whole process doing the real work, since
+#     that is what a user waits for.
+#   - The figure is the best of REPS hyperfine runs (`--runs REPS
+#     --warmup 0`). Interference only slows a run, so the minimum is the
+#     closest estimate of the cost.
+#   - Process startup is timed separately, with the same binary doing
+#     nothing, and subtracted. At these durations `execve` and dynamic
+#     linking are a real fraction of the total.
 #
-# WHAT IT DECIDES. Any plan to parallelise the compiler has to know which
-# side of the process boundary the time is on. Work inside the Axiom
-# process (lex, parse, resolve, expand, check, emit) and work outside it
-# (`opt`, `llc`, `cc`) need completely different answers, and the second
-# is already parallelisable with primitives the standard library ships
-# today. Splitting code generation into several LLVM modules is the
-# largest available compiler change and the only one that puts the
-# byte-identical fixpoint at risk; it should not be attempted until this
-# table says the toolchain is where the time is.
+# The stages overlap. `emit-llvm` repeats everything `check` does, so the
+# difference between them is printed as its own row: lowering and the
+# write. `check` returns before any IR exists (the `doEmit` test in
+# `compileFile`, `self_host/main.ax`). That matters because `axiom lsp`
+# runs `check` on every keystroke.
 #
-# METHODOLOGY, inherited from `bench-datastructures.sh`:
+# It prints a table and never fails on a threshold: a wall-clock bound on
+# a shared runner is a flaky test.
 #
-#   - Every stage is timed as a WHOLE PROCESS doing the real work, not
-#     as an in-process timer, because that is what a user waits for.
-#   - Best of REPS runs, not the mean. The distribution is one-sided -
-#     interference only ever makes a run slower - so the minimum is the
-#     closest estimate of the cost itself.
-#   - The instrument is hyperfine: `--runs REPS --warmup 0`, and the
-#     figure is the minimum of its per-run times. Process startup is
-#     measured separately, with the same binary doing nothing, and
-#     subtracted. At these durations `execve` plus dynamic linking is
-#     a real fraction of the total, and it is not compilation.
-#
-# The stages are NOT a partition and the script does not pretend they
-# are. `emit-llvm` re-does everything `check` does and then writes the
-# result out, so the difference between them is printed as its own row
-# rather than left to the reader.
-#
-# THAT ROW IS LOWERING AND THE WRITE, and this comment said otherwise
-# for months. It read: "`compileFile` calls `emitResolved`
-# unconditionally (`main.ax:320`) - `doEmit` decides whether the IR is
-# WRITTEN, not whether it is generated. So `axiom check` already pays
-# for code generation and then throws it away."
-#
-# It does not. `main.ax:340` reads `(if (== doEmit 0) "" ...
-# (emitResolved ...))`, so `check` returns before a byte of IR exists.
-# Measured two ways rather than re-read: `check` is 0.70s against
-# `emit-llvm` 2.54s on `main.ax` (hyperfine best of 5, Apple M1,
-# 2026-09-17), and eight sampling profiles of `axiom
-# check` contain ZERO `codegen$` frames. The cited line number was stale
-# as well.
-#
-# It matters because `check` is what `axiom lsp` runs on every
-# keystroke, and the old note priced that keystroke with a code
-# generator in it.
-#
-# This prints a table. It does not fail on a threshold - a wall-clock
-# bound on a shared runner is a flaky test, which is the same call
-# `bench-datastructures.sh` makes and for the same reason.
-#
-# THE ABLATION, which is what stops this being a stopwatch pointed at
-# nothing: run it again with `--opt 0`. The `opt` and `llc` rows must
+# The ablation: run again with `--opt 0`. The `opt` and `llc` rows must
 # move and the `check` row must not. If every row moves together, the
-# script is measuring process startup and not compilation.
+# script is measuring process startup, not compilation.
 #
 # Usage:
 #   scripts/bench-compile.sh                 # the compiler itself
@@ -96,9 +61,8 @@ for t in opt llc cc "${HYPERFINE:-hyperfine}"; do
   command -v "$t" >/dev/null 2>&1 || { echo "FAIL: $t is not on PATH; this script measures it" >&2; exit 1; }
 done
 
-# Best-of-REPS wall clock in seconds, timed by hyperfine. Lifted from
-# `bench-datastructures.sh` so the two profiles are comparable: the
-# figure is the minimum of hyperfine's per-run times.
+# Best-of-REPS wall clock in seconds: the minimum of hyperfine's per-run
+# times. It matches `bench-datastructures.sh`, so the two profiles compare.
 time_best() {
   HF_BIN="${HYPERFINE:-hyperfine}" python3 - "$REPS" "$@" <<'PY'
 import json, os, shlex, subprocess, sys, tempfile
@@ -119,14 +83,13 @@ pct() { python3 -c "print(f'{100.0 * $1 / $2:5.1f}')"; }
 
 echo "measuring $input at --opt $opt, best of $REPS runs..."
 
-# Startup baselines. Each tool doing as close to nothing as it can while
-# still loading and linking.
+# Startup baselines: each tool loading and linking, then doing nothing.
 ax_startup="$(time_best "$axiom" version)"
 opt_startup="$(time_best opt --version)"
 llc_startup="$(time_best llc --version)"
 cc_startup="$(time_best cc --version)"
 
-# The IR the toolchain stages actually consume, produced once up front.
+# The IR the toolchain stages consume, produced once up front.
 "$axiom" emit-llvm "$input" -o "$work/m.ll" >/dev/null 2>&1 \
   || { echo "FAIL: could not emit IR for $input" >&2; exit 1; }
 ir_lines="$(wc -l < "$work/m.ll" | tr -d ' ')"
@@ -152,7 +115,7 @@ t_cc="$(sub   "$raw_cc"    "$cc_startup")"
 t_build="$(sub "$raw_build" "$ax_startup")"
 t_lower="$(sub "$t_emit" "$t_check")"
 
-# The two sides of the process boundary, which is the whole question.
+# The two sides of the process boundary.
 in_proc="$t_emit"
 external="$(python3 -c "print(f'{$t_opt + $t_llc + $t_cc:.4f}')")"
 total="$(python3 -c "print(f'{$in_proc + $external:.4f}')")"
@@ -181,9 +144,8 @@ printf 'startup        axiom %ss, opt %ss, llc %ss, cc %ss (subtracted)\n' \
        "$(python3 -c "print(f'{$cc_startup:.4f}')")"
 printf 'host           %s %s\n' "$(uname -s)" "$(uname -m)"
 
-# `axiom build` should be within reach of the sum; a large gap means a
-# stage this table does not name is doing real work, which is worth
-# knowing rather than rounding away.
+# `axiom build` should land near the sum. A large gap means a stage this
+# table does not name is doing real work.
 gap="$(python3 -c "
 s, b = $total, $t_build
 print('the sum and the end-to-end build agree' if abs(b - s) <= 0.35 * max(b, s)

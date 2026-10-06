@@ -1,47 +1,39 @@
 #!/usr/bin/env bash
-# The freestanding subset: eight standard-library modules a bare-metal
-# program may import, gated as a fact rather than intended.
+# The freestanding subset: the eight standard-library modules a
+# bare-metal program may import, checked rather than assumed.
 #
-# docs/embedded-guide.md says `Pre`, `Mem`, `Str`, `Vec`, `Map`,
-# `Fmt`, `Utf8` and `Err` assume no filesystem, process model or
-# sockets, while `Sys`, `IO`, `Path`, `Net`, `Rpc` and `Par` do - and
-# requires the split to be gated BEFORE the port, because a subset no
-# gate holds is an intention. This is that gate, in three arms that
-# fail for three different breakages:
+# docs/embedded-guide.md says `Pre`, `Mem`, `Str`, `Vec`, `Map`, `Fmt`,
+# `Utf8` and `Err` assume no filesystem, process model or sockets, while
+# `Sys`, `IO`, `Path`, `Net`, `Rpc` and `Par` do. This gate holds that
+# split in three arms, each catching a different breakage:
 #
-#   1. CLOSURE. The transitive imports of every subset module stay
-#      inside the subset, read off the `(import ...)` lines with a
-#      fixed-point walk written here. A `Str` that started importing
-#      `Sys` would still build, still pass every golden, and quietly
-#      stop being freestanding; this arm is what would notice. Dotted
-#      names count as their top level (`Sys.Platform` is `Sys`), and
-#      files are read only for modules inside the subset, so an
+#   1. Closure. The transitive imports of every subset module stay inside
+#      the subset, found by a fixed-point walk over the `(import ...)`
+#      lines. A `Str` that imported `Sys` would still build and pass every
+#      golden; only this arm notices. A dotted name counts as its top
+#      level (`Sys.Platform` is `Sys`). Only subset files are read, so an
 #      outside name is reported rather than followed.
-#   2. NO EXTERN. No subset module declares an `extern` block. An
-#      `extern` item is the one other door out of a freestanding
-#      program besides an import: it names a symbol no bare-metal
-#      target provides, and nothing in the import closure can see it.
-#      The pattern is `^\((pub )?extern "` - a block header with its
-#      library string - which prose mentions (`an extern block`) and
-#      compiler identifiers (`externTypeRefusal`) do not match.
-#   3. END TO END. One probe importing all eight builds for every
-#      supported target, and its import surface is the hello world's:
-#      linked imports on the host, IR declares elsewhere. A
-#      DIFFERENTIAL, not a list - no libc-name table is duplicated
-#      here (that table is check-freestanding.sh's, and two copies of
-#      one fact is how a boundary silently widens). Any libc call the
-#      subset started emitting shows up as a declare the hello world
-#      does not carry. The probe CALLS into seven of the eight - the
-#      eighth, `Pre`, is macros, which leave no symbol to grep for -
-#      and each call is asserted in the IR, so a use cannot be deleted
+#   2. No extern. No subset module declares an `extern` block, the other
+#      way out of a freestanding program: it names a symbol no bare-metal
+#      target provides, and the import walk can't see it. The pattern
+#      `^\((pub )?extern "` matches a block header with its library
+#      string, and not prose (`an extern block`) or identifiers
+#      (`externTypeRefusal`).
+#   3. End to end. One probe importing all eight builds for every
+#      supported target, and its import surface must equal hello world's:
+#      linked imports on the host, IR declares elsewhere. The comparison
+#      is differential, so check-freestanding.sh's libc-name table has
+#      no second copy here to drift from it. A libc call the subset starts
+#      emitting shows up as a declare hello doesn't carry. The probe calls
+#      into seven of the eight (`Pre` is macros, which leave no symbol)
+#      and each call is asserted in the IR, so a use can't be deleted
 #      while its import stays.
 #
-# THE ABLATIONS, each on a copy of `stdlib/` the checkout never sees:
-# a planted `(import Sys)` in `Str` must redden arm 1, and a planted
-# `extern` block in `Mem` must redden arm 2. Each asserts its plant
-# landed before believing the red, for check-compat.sh's `probe`
-# reason: a `sed` matching nothing produces a green "ablation failed
-# to fail" that reads exactly like a passing gate.
+# The ablations run on a copy of `stdlib/`: a planted `(import Sys)` in
+# `Str` must turn arm 1 red, and a planted `extern` block in `Mem` must
+# turn arm 2 red. Each checks its plant landed before reading the arm,
+# so a plant that missed is reported as one and never read as an arm
+# that can't fail.
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
@@ -56,8 +48,8 @@ checks=0
 ok()  { echo "ok   $*"; checks=$((checks + 1)); }
 bad() { echo "FAIL $*"; failed=$((failed + 1)); }
 
-# The library under test: the checkout's, unless a caller points
-# elsewhere (the ablations do).
+# The library under test: the checkout's, unless an ablation points
+# elsewhere.
 LIBROOT="$repo_root/stdlib"
 
 for m in $SUBSET; do
@@ -169,9 +161,9 @@ cat > "$work/nostd-probe.ax" <<'AX'
 AX
 printf '(:: main Int)\n\n(fn (main) 0)\n' > "$work/nostd-hello.ax"
 
-# Seven of the eight leave a symbol in the IR; the eighth, Pre, is
-# macros, which expand away - its import resolves or the build below
-# fails, which is its whole assertion.
+# Seven of the eight leave a symbol in the IR. `Pre` is macros, which
+# expand away, so its only assertion is that its import resolves and the
+# build below succeeds.
 checks=$((checks + 1))
 if ! "$axc" emit-llvm --input "$work/nostd-probe.ax" --output "$work/nostd-probe.ll" > "$work/nostd.emit" 2>&1; then
   bad "the subset probe would not emit:"
@@ -203,10 +195,10 @@ else
   fi
 fi
 
-# Every target: IR declares, probe against hello. A libc call the
-# subset started emitting is a declare hello does not carry. The
-# runtime declares alone are the floor: an empty declare list on
-# either side means the reader broke, not that the surface is clean.
+# Every target: IR declares, probe against hello. A libc call the subset
+# starts emitting is a declare hello doesn't carry. On Windows the runtime
+# always declares some functions, so an empty list for hello there means
+# the reader broke.
 checks=$((checks + 1))
 prob=0
 for t in darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64 freebsd-x86_64 freebsd-aarch64 windows-x86_64 windows-aarch64; do
@@ -240,7 +232,7 @@ abl_copy() {
   rm -rf "$work/abl-$1"; mkdir -p "$work/abl-$1"
   cp -r "$repo_root/stdlib" "$work/abl-$1/stdlib"
 }
-# ABLATION 1: Str imports Sys. Arm 1 must name Sys.
+# Ablation 1: Str imports Sys. Arm 1 must name Sys.
 abl_copy import-sys
 printf '(import Sys)\n' >> "$work/abl-import-sys/stdlib/Str.ax"
 if ! grep -q '^(import Sys)$' "$work/abl-import-sys/stdlib/Str.ax"; then
@@ -254,7 +246,7 @@ else
   fi
   LIBROOT="$repo_root/stdlib"
 fi
-# ABLATION 2: Mem gains an extern block. Arm 2 must name it.
+# Ablation 2: Mem gains an extern block. Arm 2 must name it.
 abl_copy extern-mem
 printf '(pub extern "nope"\n  (nope :: (-> Int Int) (symbol "axffi_nope")))\n' >> "$work/abl-extern-mem/stdlib/Mem.ax"
 if ! grep -q '^(pub extern "nope"' "$work/abl-extern-mem/stdlib/Mem.ax"; then

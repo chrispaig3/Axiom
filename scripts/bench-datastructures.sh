@@ -1,79 +1,43 @@
 #!/usr/bin/env bash
-# Compare Axiom's `Vec`, `Map` and `Intern` against the Rust equivalents
-# the compiler currently uses, at the scale a self-hosted compiler works
-# at.
+# Compares Axiom's `Vec`, `Map` and `Intern` against their Rust
+# equivalents, at the scale a self-hosted compiler works at.
 #
-# This is the throughput half of B3; the correctness half is
-# `tests/stdlib/200-scale.ax`, which is a CI gate. This one prints a
-# table rather than failing a build, because a wall-clock threshold on a
-# shared CI runner is a flaky test. Pass `--check` to enforce the
-# roadmap's "within 2x" exit criterion anyway. Timings are measured with
-# hyperfine; see `web/bench/README.md` for the methodology (whole
-# process, best of N, interleaved where commands are compared).
+# This is the throughput half of B3; the correctness half is the CI test
+# `tests/stdlib/200-scale.ax`. It prints a table without failing, because
+# a wall-clock threshold on a shared runner is a flaky test. Pass
+# `--check` to enforce the "within 2x" bound. Timings come from
+# hyperfine, and `web/bench/README.md` describes the method.
 #
-# METHODOLOGY, because the obvious way to write this measures the wrong
-# thing in two directions at once:
+# Method:
 #
-#   - Both sides are timed as *whole processes*, doing identical work
-#     and printing the same answer. Timing Rust with `Instant` inside
-#     the process while timing Axiom with a shell clock compares a loop
-#     against a loop plus `execve`, `mmap` and dynamic linking. At these
-#     durations that gap is most of the measurement.
+#   - Both sides are timed as whole processes doing identical work.
+#     Timing Rust in-process and Axiom from the shell would charge
+#     `execve`, `mmap` and dynamic linking to Axiom alone, which at these
+#     durations is most of the measurement.
+#   - Each figure is the best of REPS runs after one warmup. Interference
+#     only slows a run, so the minimum is the closest estimate of the cost.
+#   - Startup is measured with an empty program in each language and
+#     subtracted, leaving the work.
+#   - Both programs read N and a round count R from argv, and Rust passes
+#     every value through `black_box`, so neither compiler can fold the
+#     loop. Each prints a checksum that must equal the closed form.
+#   - A side's work is conclusive only when it is at least its launch
+#     cost and ten times the launch jitter from the same run. Until both
+#     are, R is multiplied by four, up to `RMAX`. Otherwise the side is
+#     INCONCLUSIVE, with no ratio, and `--check` exits 3.
+#   - Every hyperfine sample is kept as JSON in `BENCH_OUT`, or in a fresh
+#     directory whose path is printed.
 #
-#   - Process startup is measured separately, with a program of each
-#     language that does nothing, and subtracted. What remains is the
-#     work, which is what the criterion is about.
+# Two asymmetries remain, and are reported:
 #
-#   - The Rust side reads its size from `argv` and passes every value
-#     through `black_box`. Without that, `rustc` proves the sum of
-#     `0..N` is a constant and deletes the loop - the first version of
-#     this script reported Rust doing 100,000 pushes and reads in 200
-#     microseconds, which is not a fast `Vec`, it is no `Vec` at all.
-#
-# Two asymmetries remain, and neither can be removed, so they are
-# reported rather than hidden:
-#
-#   - Rust's default `HashMap` hasher is SipHash-1-3, which is
-#     DoS-resistant and slower than the multiplicative hash
-#     `stdlib/Map.ax` uses. `--fx` switches Rust to a fast
-#     non-cryptographic hasher, which is the map a compiler would
-#     actually pick, since a symbol table has no adversary. Read the
-#     default run as flattering Axiom and the `--fx` run as the fair
-#     one.
-#
-#   - The two sides free differently. Axiom bump-allocates from
-#     `mmap`-ed chunks it never unmaps; a block whose count reaches zero
-#     goes onto a per-size-class free list the next allocation of that
-#     size reuses (docs/memory-model.md MM-ALLOC-2, MM-LIFE-2e). Rust's
-#     `Drop` returns memory to the system allocator. (This line said
-#     Axiom "never frees" until 2026-09-26, which stopped being true when
-#     the release path landed.)
-#
-# A RATIO IS ONLY PRINTED WHEN BOTH SIDES WERE MEASURED, and until
-# 2026-09-26 it was printed regardless. Each side's work is its best
-# whole-process time minus its best empty-process time, and when launch
-# jitter exceeded the work that difference went to zero or below and was
-# clamped to one microsecond - so `N=100000 REPS=3` reported Vec at
-# "1204.00x", a ratio over an invented denominator, and `--check` would
-# have failed the build on it; the default scale then hit the floor on
-# the OTHER side and reported 0.00x. Now:
-#
-#   - Both programs read N and a round count R from argv, so neither
-#     compiler can fold the workload (the Axiom side used to have N
-#     compiled in), and both print a checksum the script requires to
-#     equal the closed form for (N, R) - equal work, verified, not
-#     assumed.
-#   - A side's work is CONCLUSIVE only when it is at least its own
-#     launch cost and at least ten times the launch jitter measured in
-#     the same run. Until both sides are, R is multiplied by four (to
-#     `RMAX`, 256 by default) and both are measured again; the table
-#     reports time per round.
-#   - A side that never becomes conclusive is reported INCONCLUSIVE,
-#     with no ratio, and `--check` exits 3 for it: an unverifiable
-#     bound is not a pass and not a failure of the bound.
-#   - Every hyperfine sample - the empty programs' included - is kept as
-#     JSON in the output directory (`BENCH_OUT`, or a fresh one whose
-#     path is printed), not just the minima.
+#   - Rust's default `HashMap` hasher, SipHash-1-3, resists DoS and is
+#     slower than `stdlib/Map.ax`'s multiplicative hash. `--fx` gives Rust
+#     the fast hasher a compiler would pick, since a symbol table has no
+#     adversary, and is the fair run.
+#   - Axiom bump-allocates from `mmap`-ed chunks it never unmaps, reusing
+#     freed blocks from per-size-class free lists (docs/memory-model.md
+#     MM-ALLOC-2, MM-LIFE-2e). Rust's `Drop` returns memory to the system
+#     allocator.
 #
 # Usage:
 #   scripts/bench-datastructures.sh              # table only
@@ -98,22 +62,17 @@ RMAX="${RMAX:-256}"
   || { echo "error: N, REPS, ROUNDS and RMAX must be positive integers" >&2; exit 2; }
 check=0
 fx=0
-# Axiom's optimisation level. The Rust side is always `rustc -O`, so
-# comparing against Axiom's default `-O0` measures the absence of an
-# optimiser as much as the data structure. `--opt 2` is what the
-# roadmap recommends for real work and is the level the criterion
-# should be read at; `--opt 0` shows what the structures cost unaided.
+# Axiom's optimisation level. The Rust side is always `rustc -O`, so an
+# unoptimised Axiom measures the missing optimiser as much as the data
+# structure. Read the bound at `--opt 2`; `--opt 0` shows what the
+# structures cost unaided.
 opt="${OPT:-2}"
 for arg in "$@"; do
   case "$arg" in
     --check) check=1 ;;
     --fx)    fx=1 ;;
-    # `--gc` used to set a flag that was passed to the compiler,
-    # silently ignored by it, and then printed in the results banner -
-    # so the table said "axiom under --gc" while measuring the bump
-    # allocator. Refused rather than quietly dropped: a benchmark that
-    # answers a question it did not measure is worse than one that
-    # declines to.
+    # `--gc` is refused: there is no collected variant, and ignoring the
+    # flag would label the bump allocator's numbers as a collector's.
     --gc)    echo "error: --gc was not ported to the self-hosted compiler; there is no collected variant to measure" >&2; exit 2 ;;
     --opt=*) opt="${arg#--opt=}" ;;
     *) echo "unknown option: $arg" >&2; exit 2 ;;
@@ -125,13 +84,13 @@ command -v "${HYPERFINE:-hyperfine}" > /dev/null || { echo "error: hyperfine not
 
 # ------------------------------------------------------------------
 # The Axiom side. Each structure is its own program, so one's
-# allocation behaviour cannot skew another's timing, and each does
-# insert *and* lookup - the operation mix the criterion names.
+# allocation behaviour cannot skew another's timing. Each does insert
+# and lookup, the operation mix the criterion names.
 # ------------------------------------------------------------------
 
 # Each Axiom program reads N (argv 1) and a round count R (argv 2) at
-# RUN time, builds a fresh structure R times, and prints the sum of what
-# it read back - the checksum `measure` below holds to a closed form.
+# run time, builds a fresh structure R times, and prints the sum of what
+# it read back. `expect` below gives the closed form that sum must equal.
 ax_args='(import Sys)
 (import Str)
 ; argv[i] as an Int, 0 when it is absent or not a number
@@ -343,8 +302,8 @@ print(f"{min(t):.6f} {max(t):.6f}")' "$out_dir/$1.json"
 }
 
 # The checksum each program must print for N and R: the sum of what one
-# round reads back, R times. Vec reads k back, Map 3k, and the interner
-# the ids 0..N-1 - on both sides, which is what makes the work equal.
+# round reads back, R times. Vec reads k back, Map 3k and the interner
+# the ids 0..N-1, on both sides, which is what makes the work equal.
 expect() {  # <structure> <rounds>
   python3 -c 'import sys
 n, r, b = int(sys.argv[1]), int(sys.argv[2]), sys.argv[3]

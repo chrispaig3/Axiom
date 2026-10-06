@@ -1,55 +1,40 @@
 #!/usr/bin/env bash
-# A PLACEHOLDER THAT IS BOUND STAYS BOUND.
+# Check that a bound type placeholder stays bound.
 #
-# `tyCompat` compared types and recorded nothing, so a minted
-# placeholder matched anything and went on matching anything. For a
-# value read once that is a sound under-approximation - the file said
-# so, "under-report, never mis-report". For a value BOUND and then
-# used twice it is not, and a container is exactly that:
+# `tyCompat` (self_host/typecheck.ax) pins an instantiation placeholder
+# to the type it first meets. Without that, a let-bound container could
+# take a different element type at each use:
 #
 #     (let ((v vecNew))
 #       { (vecPush v 42) (needVec (vecGet v 0)) })
 #
-# Each `vecPush` matched its OWN fresh placeholder, the `let`'s was
-# never pinned, and `check` answered OK for a program that exits 139 -
-# an `Int` read back as a block header with NO `cast` written
-# anywhere. That is `AX3040`'s own failure reached without `AX3040`'s
-# coercion.
+# `check` would accept that program, and it exits 139: an `Int` read
+# back as a block header with no `cast` written anywhere. That is
+# `AX3040`'s failure reached without `AX3040`'s coercion.
 #
-# WHAT THIS GATE ASSERTS, and why it is in two halves. A checker that
-# refused everything would pass every refusal below, so the accepted
-# half is not decoration: it is what keeps the refusals meaningful.
+# The gate has two halves. A checker that refused everything would pass
+# every refusal, so the accepted half keeps the refusals meaningful.
 #
-#   REFUSED - the hole, in both shapes:
+#   Refused, with AX3004:
 #     1. one let-bound container written at `Int` and then at `String`
 #     2. an element stored as `Int` and read back at a reference type
 #
-#   ACCEPTED - what pinning must not break:
-#     3. the same container used at ONE type throughout
-#     4. a rigid source variable is still rigid, and still generic:
-#        `(-> a a Int)` takes two of the same thing, at any type
-#     5. PINNING IS PER BINDING, not global: two containers from the
-#        same polymorphic constructor may be pinned to DIFFERENT
-#        element types in one scope. A global substitution would pass
-#        every other check here and fail this one.
+#   Accepted:
+#     3. the same container used at one type throughout
+#     4. a rigid source variable stays rigid and generic: `(-> a a Int)`
+#        takes two of the same thing, at any type
+#     5. pinning is per binding: two containers from one polymorphic
+#        constructor may hold different element types in one scope. A
+#        global substitution would pass every other check and fail this.
 #
-# Recursive equations must be refused too. Declining to RECORD
-# `a = Vec a` while reporting compatibility lets a self-containing
-# vector later become `Vec String`. Direct and indirect cycles below
-# must draw AX3004; finite nesting and nominal recursive ADTs must
-# still compile and RUN, so refusing every nested type cannot pass.
+# Recursive equations are refused too. Leaving `a = Vec a` unrecorded
+# while reporting a match would let a self-containing vector later become
+# `Vec String`, so direct and indirect cycles must draw AX3004. Finite
+# nesting and nominal recursive ADTs must still compile and run, so
+# refusing every nested type cannot pass.
 #
-# Together those are the four obligations the patch names, checked
-# from the outside: only an instantiation placeholder binds (4), the
-# binding follows the BINDING and not the program (5), and it is what
-# closes 1 and 2.
-#
-# NOT asserted here, deliberately: that an UNDECLARED function may be
-# used at two types. It may not, and it could not before pinning
-# either - `(fn (untyped x) x)` applied to an `Int` and a `String` is
-# refused by both compilers. That is a pre-existing rule about
-# inference without generalisation, and writing it down here as
-# though pinning caused it would be a false attribution.
+# Not checked here: an undeclared function used at two types. Inference
+# without generalisation refuses that, independently of pinning.
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"

@@ -1,32 +1,22 @@
 #!/usr/bin/env bash
 # A shipped binary names the tree it was built from.
 #
-# WHAT WAS MISSING. `axiom version` printed `axiom (self-hosted) 0.2.0`
-# and nothing else, so two builds of two DIFFERENT trees at one version
-# were the same binary to whoever held one. `check-version.sh` has
-# named that gap in its own header since it was written: it holds every
-# site that STATES the version to `VERSION`, which is a promise about
-# an interface, and says nothing about what was built.
+# `check-version.sh` holds every site that states the version to
+# `VERSION`. This gate checks the build id, which says what was built:
 #
-# WHAT THIS ASSERTS, in the order the claims depend on each other:
-#
-#   1. An unstamped build says `unstamped` - not a version, not a zero
-#      hash, not an empty string. An absent id must read as its own
-#      absence or it reads as an answer.
-#   2. The id is a FUNCTION OF THE SOURCE: the same tree twice gives
-#      the same id, and one changed byte anywhere under `self_host/`
-#      or `stdlib/` gives a different one. This is the whole property,
-#      and it is checked without building, because it is a property of
-#      the id and not of the compiler.
-#   3. The id REACHES THE BINARY. One build, one assertion: what
-#      `--print-id` says is what `axiom version` reports.
-#   4. The banner is still parseable. Three other gates grep a semver
-#      out of this line; a build id that broke them would be found by
-#      those gates in some other run and blamed on something else.
+#   1. An unstamped build says `unstamped`, so a missing id never reads
+#      as a version, a zero hash or an empty string.
+#   2. The id is a function of the source: the same tree gives the same
+#      id, and one changed byte under `self_host/` or `stdlib/` moves it.
+#      This is checked without building, because it is a property of
+#      the id, not of the compiler.
+#   3. The id reaches the binary: `axiom version` reports the stamp.
+#   4. The banner still yields the semver that three other gates grep,
+#      so a build id that breaks them fails here and not in their runs.
 #   5. Building a stamped compiler does not modify the tree.
 #
-# The one-byte probe is the negative one and it is not optional: an id
-# that never moves passes 1, 3, 4 and 5 while proving nothing at all.
+# The one-byte probe is the negative case. An id that never moves
+# passes 1, 3, 4 and 5 while proving nothing.
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
@@ -40,10 +30,9 @@ bad() { echo "FAIL $*"; failed=$((failed + 1)); }
 # --------------------------------------------------------------------
 echo "== an unstamped build says so =="
 # --------------------------------------------------------------------
-# `gate_build_axc` is a plain `axiom build` over `self_host/`, which is
-# what a contributor runs and what the bootstrap ladder runs. It must
-# NOT be stamped: if it were, `check-bootstrap.sh` would be comparing
-# two binaries carrying a value neither source contains.
+# `gate_build_axc` is the plain `axiom build` that contributors and the
+# bootstrap ladder run. It must stay unstamped, or `check-bootstrap.sh`
+# would compare binaries carrying a value neither source contains.
 gate_build_axc axc
 plain="$("$axc" version 2>&1)"
 if [[ "$plain" == *"(build unstamped)"* ]]; then
@@ -51,11 +40,10 @@ if [[ "$plain" == *"(build unstamped)"* ]]; then
 else
   bad "a plain build reports: $plain"
 fi
-# And the literal is in the source, spelled the way the stamper looks
-# for it. A rename here silently produces `unstamped` releases. The
-# match is two lines - the formatter split `(pub fn (axiomBuildId)`
-# from its `"unstamped")` in 2026-09-16 and every single-line pattern
-# written before that stopped matching, on every platform at once.
+# The literal must be spelled the way the stamper looks for it, or
+# releases silently report `unstamped`. The formatter puts
+# `(pub fn (axiomBuildId)` and `"unstamped")` on separate lines, so the
+# match spans two lines.
 if grep -A1 -Fx '(pub fn (axiomBuildId)' "$repo_root/self_host/build.ax" | grep -qFx '  "unstamped")'; then
   ok "self_host/build.ax holds the literal build-stamped.sh rewrites"
 else
@@ -73,9 +61,8 @@ if [[ -n "$id1" ]] && [[ "$id1" == "$id2" ]]; then
 else
   bad "the id is not stable: '$id1' then '$id2'"
 fi
-# The hash half must be twelve hex characters. A shorter one would
-# collide sooner than anyone would look; a longer one is a change
-# somebody should have to mean.
+# The hash is twelve hex characters. A shorter one collides sooner, and
+# a longer one should be a reviewed change.
 hash_part="${id1%% *}"
 if [[ "$hash_part" =~ ^[0-9a-f]{12}$ ]]; then
   ok "its first field is twelve hex characters"
@@ -83,12 +70,9 @@ else
   bad "its first field is '$hash_part', not twelve hex characters"
 fi
 
-# THE NEGATIVE PROBE. One byte, in a copy, and the id must move. The
-# byte is chosen in a file the compiler's own build reads, and the
-# change is to a function BODY rather than a comment - though for this
-# hash a comment would move it too, and that is deliberate: two trees
-# that differ only in a comment are still two trees, and a reader
-# holding two binaries wants to know they are not the same source.
+# The negative probe: append a comment to a source file in a copy, and
+# the id must move. Two trees that differ only in a comment are still
+# different source.
 probe="$work/probe"
 mkdir -p "$probe"
 cp -R "$repo_root/self_host" "$probe/self_host"
@@ -113,10 +97,8 @@ fi
 echo
 echo "== the id reaches the binary =="
 # --------------------------------------------------------------------
-# ONE build, with an explicit id, because the assertion is that the
-# string the stamper chose is the string the binary reports - and an
-# explicit id makes that unmistakable, where the computed one could in
-# principle match by accident.
+# One build with an explicit id, so the reported string can only have
+# come from the stamper.
 marker="probe-$(printf '%s' "$id1" | tr -d ' ' | cut -c1-8)-stamped"
 if ./scripts/build-stamped.sh "$work/stamped" "$marker" >"$work/stamp.log" 2>&1; then
   got="$("$work/stamped" version 2>&1)"
@@ -125,8 +107,7 @@ if ./scripts/build-stamped.sh "$work/stamped" "$marker" >"$work/stamp.log" 2>&1;
   else
     bad "a stamped build reports '$got', wanted '(build $marker)'"
   fi
-  # ...and the two binaries disagree, which is the sentence this whole
-  # gate is about: two builds at one VERSION, distinguishable.
+  # Two builds at one version must be distinguishable.
   if [[ "$got" != "$plain" ]]; then
     ok "the stamped and unstamped binaries report different builds at one version"
   else
@@ -148,8 +129,9 @@ if [[ "$sem" == "$want" ]]; then
 else
   bad "\`axiom version\` yields '$sem', VERSION says '$want'"
 fi
-# `check-version.sh`'s extractor, run here rather than described, so a
-# banner change that breaks it fails in the commit that made it.
+# The `ax_version` reader `check-version.sh` sources from
+# `lib/version-sites.sh`, run here so a banner change that breaks it
+# fails in the commit that made it.
 if grep -qE 'Axiom [0-9]+\.[0-9]+\.[0-9]+ \(build' <<< "$plain"; then
   ok "check-version.sh's own pattern still matches the banner"
 else
@@ -167,9 +149,9 @@ fi
 echo
 echo "== stamping does not modify the tree =="
 # --------------------------------------------------------------------
-# The rewrite happens in a copy. If it ever happened in place, every
-# build after the first would report `-dirty` and
-# `check-fmt-selfhost.sh` would format the rewrite into the repository.
+# The stamper rewrites a copy. An in-place rewrite would mark every
+# later build `-dirty`, and `check-fmt-selfhost.sh` would format it into
+# the repository.
 if grep -A1 -Fx '(pub fn (axiomBuildId)' "$repo_root/self_host/build.ax" | grep -qFx '  "unstamped")'; then
   ok "self_host/build.ax still says \`unstamped\` after a stamped build"
 else

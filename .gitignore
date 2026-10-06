@@ -1,5 +1,4 @@
-# macOS Finder metadata. One of these was committed at the root and
-# nothing here would have stopped the next.
+# macOS Finder metadata.
 .DS_Store
 **/.DS_Store
 
@@ -7,30 +6,20 @@
 **/*.bak
 
 # tree-sitter build artifacts and the locally installed CLI. The
-# lockfile is NOT one of them and is committed - it used to be listed
-# below `*.dll` here, and that line was half of why the grammar job
-# had nothing pinning anything. The other half was `--no-save` on the
-# install line in ci.yml, which stops a lockfile being written at all;
-# between them, no run of the job that gates every other job resolved
-# the CLI or any transitive dependency against a recorded hash. Measured
-# 2026-08-23: `npm install --prefix tree-sitter-axiom --no-save
-# tree-sitter-cli` installed 0.26.13 - the `latest` dist-tag - while
-# package.json asked for ^0.26.12, and wrote no lockfile. A lockfile is
-# a source input, and `npm ci` cannot run without one.
+# lockfile is committed: `npm ci` can't run without it, and it is what
+# pins the CLI and its dependencies.
 tree-sitter-axiom/node_modules/
 tree-sitter-axiom/*.dylib
 tree-sitter-axiom/*.so
 tree-sitter-axiom/*.dll
 
 # The compiler a gate provisions for itself from `bootstrap/`, via
-# `scripts/bootstrap-from-seed.sh --install`. Built, not committed -
-# `bootstrap/` is the committed artifact.
+# `scripts/bootstrap-from-seed.sh --install`. `bootstrap/` is the
+# committed artifact.
 .axiom-bin/
-# The compiler `scripts/run-gates.sh` builds ONCE and every gate in a
-# battery copies (`scripts/build-shared-axc.sh` writes the pair, `ci.yml`
-# exports it as `AXIOM_AXC`). It sat untracked and unignored until
-# 2026-09-04 - one `git add -A` after a battery away from a 2.4 MB
-# binary in the history, which is how `.axiom-audit/` got there once.
+# The compiler `scripts/run-gates.sh` builds once for every gate in a
+# battery to copy (`scripts/build-shared-axc.sh` writes the pair, `ci.yml`
+# exports it as `AXIOM_AXC`). Ignored so `git add -A` can't commit it.
 .axiom-shared/
 
 # Worktrees created by tooling.
@@ -40,21 +29,16 @@ tree-sitter-axiom/*.dll
 __pycache__/
 *.pyc
 
-# Cargo's build artifacts. `rust/` is the only cargo project in this
-# repository - it is the FFI's Rust side - so the pattern is scoped to
-# it rather than written as a bare `target/` at the root: the compiler
-# itself is written in Axiom and builds with `llc` and `cc`, and nothing
-# outside rust/ produces a target/ directory. The generated `.ax`
-# binding modules under rust/examples/*/axiom/ are NOT ignored: they are
-# committed so `axiom check` and `axiom fmt` work on a checkout with no
-# cargo, which is the same property scripts/bootstrap-from-seed.sh has.
+# Cargo's build artifacts. `rust/` is the only cargo project here (the
+# FFI's Rust side), so the pattern is scoped to it. The generated `.ax`
+# binding modules under rust/examples/*/axiom/ are committed, so
+# `axiom check` and `axiom fmt` work on a checkout with no cargo.
 rust/target/
 rust/examples/*/target/
 
-# The website under `web/`. `package-lock.json` is NOT here and is
-# committed, for the reason the tree-sitter lockfile above is: the Pages
-# workflow runs `npm ci`, which cannot run without one, and a build that
-# resolves its own dependency versions is not reproducible.
+# The website under `web/`. `package-lock.json` is committed: the Pages
+# workflow runs `npm ci`, which needs it, and a build that resolves its
+# own dependency versions isn't reproducible.
 web/node_modules/
 web/dist/
 web/.smoke-entry.tsx
@@ -66,36 +50,16 @@ web/.samples-bundle.mjs
 web/.prerender-entry.tsx
 web/.prerender-bundle.mjs
 
-# `axiom run` builds into the WORKING DIRECTORY. self_host/main.ax:1668
-# names the scratch executable `axiom_temp_output.<pid>`, and the
-# `sysUnlink` that removes it is reached only after the child RETURNS.
-# A clean run therefore leaves nothing and an interrupted one leaves
-# the executable.
-#
-# REPRODUCED 2026-09-03, because the shape of the leak decides whether
-# one line here is enough: `axiom run examples/web/server.ax 8961 1 1`
-# from a scratch directory, then SIGTERM to the runner - a server is
-# how you interrupt a `run`, since it is the program that does not
-# return on its own - leaves `axiom_temp_output.99072`, mode 755, a
-# 113,880-byte arm64 Mach-O. Only the executable: `buildToExecutable`
-# removes its own `.ll`, `.o` and `.opt.ll`. That is exactly the shape
-# of `examples/web/axiom_temp_output.92420`, a 156 KB arm64 Mach-O
-# committed in d1e4a71, which lived in the tree until 2026-09-03 with
-# every gate green because nothing was looking at the file list.
-#
-# This line stops the next one; `scripts/check-examples.sh`'s hygiene
-# sweep (`check-web.sh`'s until the web example was deleted, 2026-09-04)
-# is what notices one committed past it, under any name.
+# `axiom run` builds into the working directory and names the scratch
+# executable `axiom_temp_output.<pid>`. It removes the executable only
+# after the child returns, so an interrupted run (a server stopped with
+# SIGTERM, say) leaves it behind. `scripts/check-examples.sh`'s hygiene
+# sweep catches one committed under `examples/`, under any name.
 axiom_temp_output.*
 
-# Scratch files the HTTP stdlib fixtures write into the WORKING
-# DIRECTORY. tests/stdlib/431-http-response.ax writes resp.tmp and
-# fail.tmp, tests/stdlib/432-http-router.ax writes out.tmp, pub/ and
-# secret.txt - each via a relative path, so a manual `axiom run` from
-# the repository root leaves them beside the checkout. The gates run
-# each case in an isolated $work/$name directory and never see these;
-# this stops a manual run from showing up as untracked files or, worse,
-# from being committed by `git add -A`.
+# Scratch names a program can write by relative path into the working
+# directory. No file in the tree writes them; the lines keep a stray one
+# from a manual `axiom run` at the root out of `git add -A`.
 fail.tmp
 out.tmp
 resp.tmp

@@ -43,16 +43,16 @@ def die(msg):
 
 
 # --------------------------------------------------------------------
-# The ablations. Each is (anchor, replacement, which assertion it aims
-# at) - the third is documentation, printed when the drill applies, so
-# a reader of the log knows what was supposed to go red.
+# The ablations. Each is (anchor, replacement, the assertion it aims at).
+# The third is printed when the drill applies, so the log says what
+# should go red. A drill with two edits gives a list of (anchor,
+# replacement) pairs and None.
 # --------------------------------------------------------------------
 ABLATIONS = {
-    # Every target answers 4 KiB, so the supported targets stop emitting
-    # the allocator they have always emitted. Anchored on the row's
-    # current body (baremetal grew the `t == 7` arm over four lines, so
-    # the pre-baremetal one-line body is gone); the VARIANT edit does
-    # not anchor on the body at all - see `replace_defn`.
+    # Every target answers 4 KiB, so the supported targets' emitted
+    # allocator changes. Anchored on the row's whole body, `t == 7` arm
+    # included; the variant edit anchors on the header instead (see
+    # `replace_defn`).
     "chunk": (
         """(pub fn (targetArenaChunkBytes t)
   (if (== t 7)
@@ -61,11 +61,10 @@ ABLATIONS = {
         "(pub fn (targetArenaChunkBytes t) 4096)",
         "A1 - the supported targets' emitted chunk",
     ),
-    # `refill:` goes back to what it was before 4.1: the literal, twice,
-    # written into the emitted text. The table still exists and still
-    # answers; nothing reads it. The anchor is the four lines as they
-    # stand - the two chunk lines read the EFFECTIVE chunk since the
-    # ceiling flag landed, and re-anchoring here is part of that move.
+    # `refill:` writes the literal chunk and grain into the emitted text.
+    # The table still exists and answers, but nothing reads it. The two
+    # chunk lines in the anchor read the effective chunk, which the heap
+    # ceiling flag can change, so re-anchor here if that code moves.
     "literal": (
         """    (emitLine cg (concat "  %big = icmp ugt i64 %need, " (concat (fmtInt (arenaChunkBytes (memGetWord cg 26))) "")))
     (emitLine cg (concat "  %rounded0 = add i64 %need, " (concat (fmtInt (- (targetArenaGrainBytes (memGetWord cg 26)) 1)) "")))
@@ -88,13 +87,10 @@ ABLATIONS = {
         "A4 - the grain moving with the chunk",
     ),
     # `emitRuntimeMap` forgets the strategy: a static target still asks
-    # for pages the way a hosted one does. The comparison is neutered
-    # with a huge constant rather than replaced by `false`: the effect
-    # walk prunes a literal-`false` branch, which would leave
-    # `emitRuntimeMap` performing no IO against its `effect(io)` tag
-    # and fail the BUILD on AX3010 - red for the wrong reason, hiding
-    # whether A5 can fail. An opaque comparison keeps the call (and the
-    # tag) while taking the branch nowhere any region reaches.
+    # for pages as a hosted one does. A huge constant neuters the
+    # comparison. The effect walk would prune a literal `false` branch,
+    # leaving no IO under the `effect(io)` tag, and the build would fail
+    # on AX3010: red for the wrong reason, hiding whether A5 can fail.
     "strategy": (
         """  (if (> (arenaStaticBytes (memGetWord cg 26)) 0)
     (emitArenaCarve cg sizeExpr)
@@ -118,12 +114,11 @@ ABLATIONS = {
         """    (emitLine cg "  %addr = select i1 %ar_fit, i64 %ar_cur, i64 %ar_cur")""",
         "A6 - exhaustion reaching __axiom_out_of_memory",
     ),
-    # The flag is never read, so a ceiling build is a mmap build in
-    # disguise: the region, the capped growth and the 70 all vanish.
-    # The replacement still scans argv (for a flag that is never
-    # passed), because a body that reads nothing while keeping its
-    # `effect(io)` tag would fail the build on AX3010 instead - red
-    # for the wrong reason, hiding whether A7 can fail.
+    # The flag is never read, so a ceiling build behaves as an mmap
+    # build: the region, the capped growth and exit 70 all vanish. The
+    # replacement still scans argv for a flag never passed. A body that
+    # reads nothing under its `effect(io)` tag would fail the build on
+    # AX3010, hiding whether A7 can fail.
     "ceiling": (
         """(pub fn (heapCeilingBytes)
   (ceilingScan 1))""",
@@ -131,7 +126,7 @@ ABLATIONS = {
         "A7 - the flag reaching the emitter at all",
     ),
     # The silent branch never fires, so a silent target still writes:
-    # the strategy row is read and ignored. Aims at A9's absence half.
+    # the strategy row is read and ignored.
     "trapwrite": (
         """  (if (== (targetTrapSilent (memGetWord cg 26)) 1)
     (emitLine cg "  ; trap message suppressed: the target asked for silent traps")""",
@@ -140,7 +135,7 @@ ABLATIONS = {
         "A9 - the silent branch carrying the write away",
     ),
     # Every target is silent, so the supported targets stop emitting
-    # the trap writes they have always emitted. Aims at A8.
+    # their trap writes.
     "allsilent": (
         """(pub fn (targetTrapSilent t)
   0)""",
@@ -148,10 +143,9 @@ ABLATIONS = {
         "A8 - the supported targets' emitted trap writes",
     ),
     # The device primitives lose `volatile`: both emitters write an
-    # ordinary load and store, so the probe's dead-looking first write
-    # is `opt`'s to delete and every volatile count in A11 is 0. TWO
-    # edits, one drill - the keyword is one property of one family, and
-    # stripping half of it would leave A11 half-tested.
+    # ordinary load and store. `opt` may then delete the probe's
+    # dead-looking first write, and every volatile count in A11 is 0.
+    # Two edits, one drill: stripping only one leaves A11 half-tested.
     "volatile": (
         [(""" = load volatile " (concat ty ", ptr ")) (concat pr (concat ", align " """,
           """ = load " (concat ty ", ptr ")) (concat pr (concat ", align " """),
@@ -176,27 +170,25 @@ ABLATIONS = {
   (if (>= (devicePrimBits nm) 0)""",
         "A11 - AX4008 drawing the target line",
     ),
-    # `_start` stops writing VBAR_EL1: the table is still emitted and
-    # linked, and nothing points the core at it, so a fault jumps
-    # through the reset value and spins - the hang the table exists to
-    # end. The FP enable and the ISB stay, so the drill removes exactly
-    # the installation.
+    # `_start` stops writing VBAR_EL1. The table is still emitted and
+    # linked, but nothing points the core at it, so a fault jumps
+    # through the reset value and spins. The FP enable and the ISB stay,
+    # so the drill removes only the installation.
     "vbar": (
         '\\\\0Amsr vbar_el1, x9\\\\0Aisb',
         '\\\\0Aisb',
         "A12 - the vector table being installed",
     ),
-    # An `asm` form's block with an output loses `sideeffect`: the
-    # memory clobber still keeps it here, so the drill is read off the
-    # emitted attributes, which is what the rule promises.
+    # An `asm` block with an output loses `sideeffect`. The memory
+    # clobber still keeps it here, so A15 reads the emitted attributes,
+    # which is what the rule promises.
     "asmfx": (
         '(concat "  " r) " = call i64 asm sideeffect \\"")',
         '(concat "  " r) " = call i64 asm \\"")',
         "A15 - every inline-asm block being sideeffect",
     ),
     # `_start` builds the tables and never writes SCTLR_EL1: MAIR, TCR
-    # and TTBR0 are set and nothing turns the MMU or the caches on, which
-    # is the port as it was.
+    # and TTBR0 are set and nothing turns the MMU or the caches on.
     "mmuoff": (
         '\\\\0Aorr x9, x9, x10\\\\0Amsr sctlr_el1, x9\\\\0Aisb',
         '\\\\0Aorr x9, x9, x10\\\\0Aisb',
@@ -210,19 +202,17 @@ ABLATIONS = {
         '(emitLine cg (concat "  %a3 = select i1 %isg, i64 " (concat (fmtInt mmuAttrData) ", i64 %a4")))',
         "A17 - the guard below the stack not mapped",
     ),
-    # The fault exit no longer switches to the fault stack: a fault
-    # taken with sp in the guard faults again on its first push, for
-    # ever, and nothing is reported.
+    # The fault exit doesn't switch to the fault stack: a fault taken
+    # with sp in the guard faults again on its first push, for ever, and
+    # nothing is reported.
     "excstack": (
         '(emitAsmLine cg "mov sp, x9")\n      (emitAsmLine cg "mrs x1, esr_el1")',
         '(emitAsmLine cg "mrs x1, esr_el1")',
         "A17 - the fault exit running on its own stack",
     ),
-    # Code is mapped read-write, and WXN - which would make any
-    # writable page execute-never, and so the code unrunnable - is left
-    # off with it. TWO edits, one drill: the property is that code can't
-    # be written, and either edit alone leaves it true or the program
-    # dead.
+    # Code is mapped read-write, and WXN is left off with it, since WXN
+    # makes any writable page execute-never. Two edits, one drill:
+    # either alone leaves code read-only or the program dead.
     "codewrite": (
         [("""(pub fn (mmuAttrCode)
   (+ mmuPageNormal (+ 128 (<< 1 54))))""",
@@ -359,8 +349,8 @@ def main():
     elif name in ABLATIONS:
         old, new, aims = ABLATIONS[name]
         label = "ablation %s (aims at %s)" % (name, aims)
-        # A drill is one edit, or - where one property has two emission
-        # sites - a list of them, every one of which must apply.
+        # A drill is one edit, or a list of edits where one property has
+        # two emission sites. Every edit must apply.
         edits = old if isinstance(old, list) else [(old, new)]
         n_edits = len(edits)
         for o, nw in edits:

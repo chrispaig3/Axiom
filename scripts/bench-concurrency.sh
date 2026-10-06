@@ -1,78 +1,39 @@
 #!/usr/bin/env bash
-# What the concurrency primitives cost on this machine: spawn and join
-# in both lowerings, a task's round trip and its answer's copy, the
-# mutex with and without contention, a channel's throughput and its
-# uncontended send and receive, and the spread of a task's latency.
-# Then, in a second half: how a CPU-bound workload scales, what false
-# sharing costs, how small a piece of work a binding pays for, the
-# latency distribution of a task and of a channel hand-off, what a
-# byte of a task's answer costs, and the peak memory of each.
-# `docs/status.md` quotes the figures.
+# What the concurrency primitives cost on this machine. The first half
+# times spawn and join in both lowerings, a task's round trip and the
+# copy of its answer, the mutex with and without contention, a channel's
+# throughput and its uncontended send and receive, and the spread of a
+# task's latency. The second half times how CPU-bound work scales, what
+# false sharing costs, the smallest work a binding pays for, task and
+# channel latency, the cost of a byte of a task's answer, and peak
+# memory. `docs/memory-model.md` cites it for the cost of an uncontended
+# send and receive.
 #
 #   scripts/bench-concurrency.sh            # REPS runs of each, best and median
 #   REPS=9 REPS2=7 OPT=2 scripts/bench-concurrency.sh
 #   W_SCALE=500000000 scripts/bench-concurrency.sh   # a shorter scaling run
 #
-# THE PROGRAM IS tests/litmus/conc-bench.ax. Each mode times its own
-# work with the clock `sysTimeoutMicros` reads, so process start-up and
-# the build are outside every figure, and checks its own answer: a
-# wrong answer prints WRONG, and this script stops rather than report a
-# time for work that was not done.
+# The program is tests/litmus/conc-bench.ax. Each mode times its own work
+# with the clock `sysTimeoutMicros` reads, so start-up and the build stay
+# outside every figure. Each mode also checks its own answer: a wrong one
+# prints WRONG, and this script stops rather than time work not done.
 #
-# WHAT THE FIGURES ARE. The best of REPS runs is the cost without
-# interference, and the median says how much interference there was.
-# They are measurements on one machine at one moment, not bounds, and
-# the latency percentiles in particular are the scheduler's as much as
-# the runtime's. This is not a gate: it asserts nothing but that every
-# answer was right, and exits 0 when it was.
+# The best of REPS runs is the cost without interference, and the median
+# shows how much interference there was. The figures are measurements on
+# one machine, not bounds, and the latency percentiles reflect the
+# scheduler as much as the runtime. This is not a gate: it asserts only
+# that every answer was right, and exits 0 when it was.
 #
-# THE SECOND HALF'S METHOD (`.claude/skills/performance-engineering`).
-# `scripts/lib/benchrun.py` runs every command of a table round-robin,
-# one repetition of each in turn, REPS2 rounds, so a background load
-# lands on every command alike; it stops at the first run whose output
-# is not the sequential program's answer. Scaling is timed as whole
-# processes with the start-up of the same binary running `nop`
-# subtracted; the other tables use the program's own clock. Every
-# speedup divides the same work done in one loop by the parallel time,
-# best by best and median by median. Peak RSS is `/usr/bin/time`'s
-# `ru_maxrss`: for a forked lowering that is the largest single
-# process, parent or child, not their sum, and `taskMap`'s slab is a
-# shared mapping each child touches.
-#
-# MEASURED 2026-09-29 on Apple M1 (4 performance and 4 efficiency
-# cores; `sysctl hw.cachelinesize` 128), --opt 2, best of 5 with the
-# median in brackets, while other work held the load average near 6.5.
-# A second run (best of 7, load 2 rising to 8) agreed on scaling, grain
-# and false sharing and moved the latency tails. Width 8 spans both
-# core kinds, so it cannot reach 8x.
-#
-#   scaling, 2e9 terms (1.39 s alone)   width 2      width 4      width 8
-#     `parallel`, processes             1.99 (1.69)  3.29 (2.82)  4.28 (3.44)
-#     `parallel`, threads               1.98 (1.94)  3.10 (2.91)  3.88 (3.72)
-#     parMapWords                       1.98 (1.67)  3.32 (2.70)  3.97 (3.45)
-#   grain, 4 bindings a form, speedup over one loop:
-#     work per binding  7 us: processes 0.06, threads 0.29
-#                      68 us: processes 0.46, threads 1.21
-#                     684 us: processes 1.45, threads 1.93
-#   false sharing, ns per atomic add, 4 bindings:
-#     stride 8 (one line) 19.6 processes, 18.6 threads; stride 64 2.6, 3.4;
-#     stride 128 1.9, 1.9; stride 256 2.0, 1.9
-#   spawn and join per binding: processes 129 us (138), threads 28.5 (29.6)
-#   a task's answer: 94 us fixed, then 0.16 to 0.19 ns a byte to 1 MiB
-#   latency, us, p50 / p99 / max: a one-task pool 167 / 372 / 1247, the
-#     same pool in a --threads build 805 / 1663 / 19393 (its fork goes
-#     through libSystem there, MM-PAR-7); a channel round trip between
-#     two bindings 7 / 22 / 301 processes, 6 / 29 / 236 threads
-#   peak RSS: 1.7 to 2.1 MiB for every scaling, grain and spawn run;
-#     a pool of 8 answering 64 B, 64 KiB, 1 MiB: 2.2, 28 and 62 MiB,
-#     most of it the slab the children touch
+# On a machine with four performance and four efficiency cores, width 8
+# spans both kinds and can't reach 8x. On Darwin a pool in a `--threads`
+# build forks through libSystem (MM-PAR-7), which shows in its latency.
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
 gate_init
-# The compiler `gate_init` resolved ($AXIOM, $AXIOM_AXC, or the installed
-# one), as `bench-par.sh` uses it: a measurement builds no compiler of its
-# own, and so is not one of the gates `check-gate-lib.sh` counts.
+# Use the compiler `gate_init` resolved ($AXIOM, $AXIOM_AXC or the
+# installed one), as `bench-par.sh` does. A measurement builds no compiler
+# of its own, so `check-gate-lib.sh` doesn't count it as a gate.
 axc="$axiom"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
@@ -141,17 +102,19 @@ out="$(gate_timeout 300 "$work/cb-processes" latency 500 2>&1)" || { echo "error
 echo "one-task pool round trip, 500 in a row: $(printf '%s' "$out" | sed 's/^latency 500 //') (microseconds)"
 
 # =====================================================================
-# THE SECOND HALF: scaling, false sharing, grain and latency, measured
-# the way `.claude/skills/performance-engineering/SKILL.md` requires.
-# `scripts/lib/benchrun.py` runs every command of a table ROUND-ROBIN,
-# one repetition of each in turn for REPS2 rounds, checks each run's
-# output against the answer the sequential program gives, and reports
-# the best and the median. Whole-process figures have the start-up of
-# the same binary running `nop` subtracted; in-process figures are the
-# program's own clock around the work alone. Peak RSS is one more run
-# of each under /usr/bin/time: the largest single process, which for
-# the process lowering is the largest of the parent and its children,
-# not their sum.
+# The second half: scaling, false sharing, grain and latency, measured
+# as `.claude/skills/performance-engineering/SKILL.md` describes.
+# `scripts/lib/benchrun.py` runs every command of a table round-robin,
+# one repetition of each per round for REPS2 rounds, so background load
+# lands on every command alike. It checks each run's output against the
+# sequential program's answer and reports the best and the median.
+# Whole-process figures subtract the start-up of the same binary running
+# `nop`; in-process figures use the program's own clock. Every speedup
+# divides the one-loop time by the parallel time, best by best and median
+# by median. Peak RSS is `ru_maxrss` from one more run under
+# /usr/bin/time. For the process lowering that is the largest single
+# process, parent or child, not their sum, and `taskMap`'s slab is a
+# shared mapping each child touches.
 REPS2="${REPS2:-5}"
 W_SCALE="${W_SCALE:-2000000000}"
 bench="$repo_root/scripts/lib/benchrun.py"
@@ -237,10 +200,10 @@ PY
 
 # ---- false sharing ------------------------------------------------------
 # K bindings each add 1 to a word of their own, N times, with an atomic
-# read-modify-write; the words are S bytes apart in one page. This host
-# is Apple M1, whose cache line is 128 bytes (`sysctl hw.cachelinesize`):
-# S 8 puts every word in one line, S 64 two words per line, S 128 and
-# 256 one word per line.
+# read-modify-write; the words are S bytes apart in one page. On Apple M1
+# the cache line is 128 bytes (`sysctl hw.cachelinesize`), so S 8 puts
+# every word in one line, S 64 two words per line, and S 128 and 256 one
+# word per line.
 spec="$work/fshare.spec"
 : > "$spec"
 N_FS=2000000
@@ -305,12 +268,12 @@ for label, _, _ in rows:
         statistics.median(x["p99"] for x in g), max(x["max"] for x in g)))
 PY
 
-# ---- process against thread, and what a byte costs ---------------------
+# ---- what a byte of a task's answer costs ------------------------------
 echo
 echo "== what crosses: a task's answer through Task's slab, processes only (a thread binding answers a word) =="
-# The cost of a byte is the SLOPE: each size's time per task less the
-# 64-byte answer's, over the extra bytes, since a task's fixed cost
-# (fork, join, the wake) dwarfs 64 bytes.
+# The cost of a byte is the slope: each size's time per task less the
+# 64-byte answer's, over the extra bytes. A task's fixed cost (fork, join,
+# the wake) dwarfs 64 bytes.
 base=""
 for bytes in 64 65536 1048576; do
   n=2000; (( bytes >= 65536 )) && n=400; (( bytes >= 1048576 )) && n=50

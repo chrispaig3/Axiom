@@ -1,42 +1,30 @@
 #!/usr/bin/env bash
-# MM-EXEC-6b, PINNED: a `match` on a direct call loses tail position
-# when the payload is a reference.
+# MM-EXEC-6b, pinned defect: a `match` on a direct call loses tail
+# position when the payload is a reference.
 #
-# THIS GATE ASSERTS A DEFECT, which is unusual here and deliberate.
-# `tests/tailpos/crash.ax` is written in tail position - the recursive
-# call is the whole of its `Some` arm - and it overflows the stack
-# anyway, because `codegen.ax` routes a match whose scrutinee is a
-# direct call to a pair-returning function through `emitMatch` rather
-# than `emitMatchTail` when the payload is a reference. So the frame is
-# not reused and the stack grows once per iteration.
+# This gate asserts a defect. `tests/tailpos/crash.ax` makes its
+# recursive call in tail position, as the whole of its `Some` arm, and
+# still overflows the stack. `codegen.ax` sends a match on a direct call
+# to a pair-returning function through `emitMatch` instead of
+# `emitMatchTail` when the payload is a reference, so no frame is reused.
 #
-# WHY PIN IT RATHER THAN FIX IT. The fix is in `emitMatchTail`, which is
-# the same region MIR slice 2 is rewriting, and two changes fighting
-# over that function is how a subtle tail-position bug acquires a second
-# one. This file converts "there is a reproducible segfault in the
-# compiler" into "there is one, and here is exactly how much we know
-# about it" - and it will go RED the day someone fixes it, which is the
-# point: a defect's own demonstration is an assertion, the same rule
-# `tests/docs/verify-doc-code.py`'s `refused` marker applies to a block
-# a document quotes as broken.
+# The fix belongs in `emitMatchTail`, the region MIR slice 2 rewrites,
+# and two changes to one tail-position function invite a second defect,
+# so the defect is pinned here instead. A fix turns section 2 red:
+# delete this gate and record the fix in CHANGELOG.md.
 #
-# WHAT MAKES IT NOT A TEST THAT DEEP RECURSION OVERFLOWS. Two controls,
-# each one change away from the crashing program and each required to
-# PASS:
+# Two controls, each one change away from `crash.ax`, must pass:
 #
-#   boxed.ax    the scrutinee `let`-bound before the match
-#   intpay.ax   an `Int` payload instead of a `String`
+#   boxed.ax    binds the scrutinee with `let` before the match
+#   intpay.ax   uses an `Int` payload instead of a `String`
 #
-# Either change alone makes the same program iterate in constant stack.
-# So the defect is the INTERSECTION - a reference payload AND a
-# direct-call scrutinee - and if a control ever fails, `crash.ax` has
-# stopped being evidence for the thing it names.
+# Either change alone runs in constant stack, so the defect needs both a
+# reference payload and a direct-call scrutinee. If a control fails,
+# `crash.ax` no longer isolates MM-EXEC-6b.
 #
-# WHY IT IS FAST. On the default stack the crash needs 2,000,000
-# iterations, which is why this was never gated. Under `ulimit -s 512`
-# it fails at 20,000 and both controls still pass there - measured, and
-# the threshold sits between 5,000 and 10,000. `check-stack-depth.sh`
-# established the reduced-ulimit idiom in this battery.
+# A default stack needs 2,000,000 iterations to crash. Under
+# `ulimit -s 512`, as in `check-stack-depth.sh`, 20,000 is enough: the
+# overflow comes between 5,000 and 10,000, and both controls still pass.
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
@@ -49,8 +37,8 @@ bad() { echo "FAIL $*"; failed=$((failed + 1)); }
 
 gate_build_axc axc
 
-# A shell that cannot lower its own stack limit can measure nothing
-# here. Say so rather than passing.
+# A shell that cannot lower its stack limit measures nothing, so skip
+# and say so.
 if ! ( ulimit -s 512 ) 2>/dev/null; then
   echo "SKIP: this shell cannot set ulimit -s (nothing to measure)"
   exit 0
@@ -58,9 +46,9 @@ fi
 
 run_at_512() {
   local bin="$1" rc
-  # The outer shell prints its own "Segmentation fault" line when the
-  # child dies on a signal, and that line is noise here: the crash IS
-  # the expected result. Redirect the SHELL's stderr, not the child's.
+  # When the child dies on a signal, the outer shell prints its own
+  # "Segmentation fault" line. The crash is expected here, so silence the
+  # shell's stderr as well as the child's.
   { ( ulimit -s 512; "$bin" >/dev/null 2>&1 ); } 2>/dev/null
   rc=$?
   echo "$rc"
@@ -100,8 +88,8 @@ done
 
 echo
 echo "--- 3. the controls answer, rather than merely exiting 0 ---"
-# A program that printed nothing would exit 0 too. Each control must
-# report the iteration count it actually reached.
+# A program that printed nothing would also exit 0, so each control
+# must print the iteration count it reached.
 for n in boxed intpay; do
   [[ -x "$work/$n" ]] || continue
   out="$( ( ulimit -s 512; "$work/$n" ) 2>/dev/null )"

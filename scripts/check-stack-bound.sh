@@ -1,77 +1,44 @@
 #!/usr/bin/env bash
 #
-# "This binary needs at most N bytes of stack", computed rather than
-# measured, and checked against a measurement.
+# Compute "this binary needs at most N bytes of stack", and check the
+# computation against a measurement.
 #
-# WHY THIS EXISTS. `scripts/check-stack-depth.sh` answers the same
-# question DYNAMICALLY, by bisecting `ulimit -s` until the compiler
-# stops working. That is the only honest answer for a program that
-# recurses, and the compiler does. But it is useless to the embedded
-# reader docs/embedded-guide.md is written for: you cannot bisect a
-# microcontroller, and "run it and see" is not a bound. A program that
-# declares `;@axiom:restrict(no-recursion)` has already had its call
-# graph proved acyclic by the compiler (AX3049, scripts/check-restrictions.sh),
-# and an acyclic weighted graph has a longest path. This gate computes
-# it, and then proves the computation right by measuring the same
-# program the slow way.
+# `scripts/check-stack-depth.sh` bisects `ulimit -s`, which suits the
+# recursive compiler but not a microcontroller (docs/embedded-guide.md).
+# Under `;@axiom:restrict(no-recursion)` the compiler proves the call
+# graph acyclic (AX3049, scripts/check-restrictions.sh), so it has a
+# longest path, and `scripts/lib/stack-bound.py` computes it.
 #
-# WHAT THE PROPOSAL GOT WRONG, and why this gate is not where 4.6 said
-# it would be. Section 4.6 said "the emitter knows each frame's size".
-# It does not. `axiom` emits LLVM *text* IR and shells out
-# (self_host/driver.ax, `IR -> opt -> llc -> cc`); frame layout is
-# LLVM's register allocator's decision, taken after codegen.ax has
-# stopped running. So the sizes come from the same llc invocation the
-# driver already makes - either llc's own `--stack-usage-file`, or a
-# prologue parse of `llc -filetype=asm`. The analysis lives in
-# `scripts/lib/stack-bound.py`; no compiler source is touched.
+# Frame sizes come from llc, which lays out frames after `axiom` hands
+# over text IR (self_host/driver.ax, `IR -> opt -> llc -> cc`). They are
+# read from llc's `--stack-usage-file`, or parsed from the prologues in
+# `llc -filetype=asm`.
 #
-# The other correction the proposal needs: its "32 KiB hello world"
-# stack figure is the HOST process's dyld and libc startup, not the
-# Axiom program. The program's own need is 192 bytes, and A6 gates it.
+# Assertions:
+#   A1  Two no-recursion chains, 400 and 1200 frames, at --opt 0. Each
+#       bound is within 32 KiB of the bisected `ulimit -s` floor, and
+#       the two bounds' difference matches the floors' within 16 KiB,
+#       which cancels the per-process constant.
+#   A2  Over every compiler function, the prologue parse agrees with
+#       llc's stack-usage table, which is what lets the parse stand alone
+#       where llc has no table. Without a table it is skipped, loudly.
+#   A3  Every frame is `static`: a variable-sized alloca would leave no
+#       static bound. A3b checks the line-table rule has stores to see.
+#   A4  The compiler's own IR is refused with a named cycle.
+#   A5  A recursive fixture under `restrict(no-recursion)` draws AX3049
+#       from the compiler. Untagged, the analyzer refuses the same cycle.
+#   A6  Hello world at --opt 1 gets a bound under a ceiling.
 #
-# WHAT IT ASSERTS.
-#   A1  ARITHMETIC. Two generated no-recursion chain programs, 400 and
-#       1200 frames deep, built at --opt 0. Each computed bound is
-#       within 32 KiB of that binary's bisected `ulimit -s` floor, and
-#       the DIFFERENCE of the two bounds matches the difference of the
-#       two floors within 16 KiB. The difference is the sharper half:
-#       it cancels the per-process constant entirely.
-#   A2  THE EXTRACTOR IS RIGHT. Over all ~3,767 functions of the
-#       compiler itself, the portable prologue parse agrees with llc's
-#       own stack-usage table function for function. This is what earns
-#       the portable path its trust on a toolchain that has no such
-#       table - and it is SKIPPED LOUDLY, never silently, when llc
-#       cannot produce one.
-#   A3  NO DYNAMIC FRAMES. Every one of those frames is reported
-#       `static`. If emitted IR ever grew a variable-sized alloca, no
-#       static bound would exist at all, and nothing else in the tree
-#       asserts that it has not.
-#   A4  IT REFUSES RATHER THAN GUESSES. The compiler's own IR must be
-#       REFUSED with a named cycle, not handed a number.
-#   A5  THE TWO HALVES AGREE. A recursive fixture under
-#       `restrict(no-recursion)` is refused by the COMPILER as AX3049
-#       naming the cycle; the same source with the tag deleted compiles
-#       and is then refused by the ANALYZER with a cycle. The static
-#       claim and the static analysis reach the same verdict.
-#   A6  THE HEADLINE, GATED. Hello world at --opt 1 gets a bound under
-#       a ceiling, reported either way.
-#
-# ABLATIONS. `AXIOM_ABLATE_STACK_BOUND` is read by the analyzer and
-# nowhere else, and each of the three is asserted here to turn a
-# specific assertion red:
+# Ablations. `AXIOM_ABLATE_STACK_BOUND` is read only by the analyzer,
+# and each value must turn one assertion red:
 #   flat        charge only the root's own frame  -> A1 collapses
 #   nocycle     do not refuse a cyclic graph      -> A4 gets a number
 #   noindirect  drop the symbol-table exclusion   -> A6 unboundable
 #
-# WHY THE TOLERANCE IS TWO-SIDED, and must stay that way. The measured
-# floor is sometimes BELOW the computed bound: `ulimit -s L` does not
-# grant exactly L. Measured with a C recursion probe, darwin hands back
-# roughly L + 3-4 KiB and the Linux gate container roughly L - 13 KiB,
-# and the offset is per-BINARY, scattering about 12 KiB peak-to-peak.
-# The bisection itself is exactly reproducible (three consecutive runs
-# of the same binary all answered 193 KiB). So a one-sided assertion
-# here would be a statement about the host's stack accounting, not
-# about the bound. Do not "fix" this into `bound <= measured`.
+# Keep the tolerance two-sided. `ulimit -s L` does not grant exactly L:
+# darwin grants a few KiB more, the Linux gate container about 13 KiB
+# less, and the offset varies by binary over about 12 KiB. A one-sided
+# check would test the host's stack accounting, not the bound.
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
@@ -86,27 +53,23 @@ note() { echo "$@"; }
 fail() { echo "FAIL: $*" >&2; failed=$((failed + 1)); }
 
 # --------------------------------------------------------------------
-# Toolchain probe. `llc --stack-usage-file` exists in LLVM 23 (Homebrew,
-# darwin) and NOT in LLVM 18.1.3, which is what the Linux gate image and
-# CI's apt llvm carry. A2 and A3 need it; everything else runs from the
-# prologue parse alone. A silent skip here would be exactly the vacuous
-# check this repository keeps finding in itself, so it is announced.
+# Toolchain probe. LLVM 18's llc, in the Linux gate image and CI's apt
+# llvm, has no `--stack-usage-file`; newer ones such as Homebrew's do.
+# A2, A3 and A3b need it. Everything else runs from the prologue parse.
+# The skip is announced, never silent.
 # --------------------------------------------------------------------
-# NOTE the redirection to a file rather than a pipe. Under `pipefail`,
-# `llc --help-list-hidden | grep -q X` reports FAILURE when grep matches:
-# grep exits at the first hit, llc dies of SIGPIPE, and 141 propagates.
-# Written as a pipe, this probe answered "no such flag" on the LLVM 23
-# that has it, and silently skipped A2 and A3 on the only leg that can
-# run them - a vacuous skip rather than a vacuous check, and just as bad.
+# Write llc's help to a file, not a pipe. Under `pipefail`,
+# `llc --help-list-hidden | grep -q X` fails when grep matches: grep
+# exits at the first hit, llc dies of SIGPIPE, and 141 propagates. The
+# flag would then read as missing on every llc, skipping A2, A3 and A3b.
 su_ok=0
 llc --help-list-hidden >"$work/llc-help.txt" 2>/dev/null || true
 if grep -q -- '--stack-usage-file' "$work/llc-help.txt"; then su_ok=1; fi
 llcver="$(llc --version 2>/dev/null | grep -i 'LLVM version' | head -1 | sed 's/^ *//')"
 note "== llc: ${llcver:-unknown} ; stack-usage-file: $([[ $su_ok == 1 ]] && echo yes || echo no) =="
 
-# Reproduce the driver's pipeline exactly: emit-llvm gives PRE-opt IR
-# (driver.ax keeps that, not what llc consumed), so opt and llc must be
-# run here at the same level `axiom build --opt N` would use.
+# Reproduce the driver's pipeline. emit-llvm gives pre-opt IR, so opt
+# and llc run here at the level `axiom build --opt N` would use.
 #   pipeline <source> <optlevel> <prefix>
 pipeline() {
   local src="$1" lvl="$2" pre="$3"
@@ -136,16 +99,13 @@ bound_args() {
   if (( su_ok )) && [[ -s "$work/$pre.su" ]]; then printf ' --su %s' "$work/$pre.su"; fi
 }
 
-# The smallest `ulimit -s` at which a binary still exits 0, bisected.
-# The half-limit run must die by SIGNAL, for the same reason
-# check-stack-depth.sh insists on it: without that, a binary that fails
-# for an unrelated reason is indistinguishable from one that ran out of
-# stack, and the number below would mean nothing.
+# bisect <binary>: the smallest `ulimit -s`, in KiB, at which the binary
+# still exits 0. Any non-zero exit below that reads as out of stack, so
+# a binary that fails for another reason gives a meaningless floor.
 run_at() {
   local kib="$1"
-  # stderr of the whole subshell is discarded: the runs BELOW the floor
-  # die by SIGSEGV on purpose, and bash announces each one. The exit
-  # status is what is being read, not the message.
+  # Discard the subshell's stderr: runs below the floor die by SIGSEGV,
+  # and bash announces each one. Only the exit status matters.
   ( ulimit -s "$kib" 2>/dev/null || exit 200; "$2" >/dev/null 2>&1 ) 2>/dev/null
   echo $?
 }
@@ -161,13 +121,12 @@ bisect() {
 }
 
 # --------------------------------------------------------------------
-# The chain fixtures. Generated, not checked in: at K=60 live locals
-# they are ~700 KB of source, and every path a document names is
-# resolved by check-doc-drift.sh, so no document may name these.
-# K=60 is chosen to make each frame fat (512 bytes on aarch64) so the
-# 400-frame difference is far larger than the host's per-process
-# scatter; the combining `+` after the call is what keeps the frame
-# alive across it, so neither tail-call rewrite can flatten the chain.
+# The chain fixtures are generated, not checked in: at K=60 live locals
+# they are about 700 KB of source. Documents must not name them, since
+# check-doc-drift.sh resolves every path a document names. K=60 makes
+# each frame fat, so the difference between the chains dwarfs the host's
+# per-process scatter. The `+` after each call keeps the frame live
+# across it, so no tail-call rewrite can flatten the chain.
 # --------------------------------------------------------------------
 gen_chain() {
   python3 - "$1" "$2" <<'PY'
@@ -192,17 +151,14 @@ PY
 }
 
 # ====================================================================
-# A1 - the arithmetic, against a measurement.
+# A1: the arithmetic, against a measurement.
 #
-# --opt 0 IS REQUIRED and is not a convenience. At --opt 1 the LLVM
-# inliner flattens a deep arithmetic chain to `ret i64 0` (measured: a
-# 300-function chain's bound falls from 9,664 bytes to 16). Both
-# answers are correct - the flattened program really does need 16 bytes
-# - but only --opt 0 exercises the path arithmetic this assertion is
-# about.
+# --opt 0 is required. At --opt 1 the inliner flattens a deep chain to
+# `ret i64 0`, whose bound is correctly a few bytes, so only --opt 0
+# exercises the path arithmetic.
 # ====================================================================
-# Plain variables, not an associative array: the gates run under
-# /bin/bash, which on darwin is 3.2 and has no `declare -A`.
+# Plain variables rather than an associative array: darwin's /bin/bash
+# is 3.2 and has no `declare -A`.
 b400=""; b1200=""; m400=""; m1200=""
 a1_ok=1
 for n in 400 1200; do
@@ -254,10 +210,8 @@ if (( a1_ok )) && [[ -n "$b400" && -n "$b1200" ]]; then
     fail "A1: 800 more frames cost ${db} KiB computed but ${dm} KiB measured, differing by ${slope} KiB"
   fi
 
-  # ABLATION for A1. `flat` charges only the root's own frame, so the
-  # chain's bound collapses to a couple of words and the agreement above
-  # becomes impossible. If this still passed, A1 would be measuring
-  # nothing.
+  # Ablation for A1. `flat` charges only the root's own frame, so the
+  # chain's bound collapses to a couple of words and A1 must reject it.
   checks=$((checks + 1))
   fb="$(AXIOM_ABLATE_STACK_BOUND=flat python3 "$analyzer" $(bound_args chain400) 2>&1 |
         sed -n 's/^BOUND from main: \([0-9]*\) bytes$/\1/p')"
@@ -269,7 +223,7 @@ if (( a1_ok )) && [[ -n "$b400" && -n "$b1200" ]]; then
 fi
 
 # ====================================================================
-# A2, A3, A4 - all three from ONE emit of the compiler's own IR.
+# A2, A3 and A4, all from one emit of the compiler's own IR.
 # ====================================================================
 if pipeline "self_host/main.ax" 0 "selfhost"; then
   if (( su_ok )) && [[ -s "$work/selfhost.su" ]]; then
@@ -284,11 +238,10 @@ if pipeline "self_host/main.ax" 0 "selfhost"; then
       sed -n '2,8p' <<<"$cc_out" | sed 's/^/    /' >&2
     fi
 
-    # A3. The `.su` table's third column is `static` or `dynamic`; a
-    # dynamic frame is a variable-sized alloca, and one anywhere in
-    # emitted IR would mean no static bound exists for any program
-    # reaching it. The analyzer refuses on one (exit 2); here we assert
-    # the stronger structural fact directly, over every row.
+    # A3. The `.su` table's third column is `static` or `dynamic`. A
+    # dynamic frame is a variable-sized alloca, and no program reaching
+    # one has a static bound. The analyzer refuses on one (exit 2); this
+    # asserts the stronger fact over every row.
     checks=$((checks + 1))
     ndyn="$(awk -F'\t' '$3 != "static" && NF >= 3' "$work/selfhost.su" | wc -l | tr -d ' ')"
     nrow="$(wc -l <"$work/selfhost.su" | tr -d ' ')"
@@ -299,12 +252,10 @@ if pipeline "self_host/main.ax" 0 "selfhost"; then
       awk -F'\t' '$3 != "static" && NF >= 3' "$work/selfhost.su" | head -5 | sed 's/^/    /' >&2
     fi
 
-    # A3b. The analyzer's blockaddress rule (line-table stores) must be
-    # exercised, not vacuously true: the analyzed IR has to contain a
-    # healthy population of them. If the emitter ever stops marking
-    # calls, this trips before the rule can silently atrophy. Floor 100
-    # is two orders under self_host's ~10k, so ordinary refactoring
-    # cannot brush it; only losing the markers can.
+    # A3b. The analyzer's blockaddress rule (line-table stores) must
+    # have stores to act on. If the emitter stops marking calls, this
+    # trips. The floor of 100 is about two orders below self_host's
+    # count, so only losing the markers can reach it.
     checks=$((checks + 1))
     nba="$(grep -c 'blockaddress(@' "$work/selfhost.ll" || true)"
     if (( nba >= 100 )); then
@@ -320,9 +271,9 @@ if pipeline "self_host/main.ax" 0 "selfhost"; then
     note "      cover them; run-gates.sh on darwin does."
   fi
 
-  # A4. The compiler recurses, so it has no static bound - and the
-  # analyzer must say so, naming a cycle vertex, rather than returning
-  # some number derived from a partial walk.
+  # A4. The compiler recurses, so it has no static bound. The analyzer
+  # must say so and name a cycle vertex, not return a number from a
+  # partial walk.
   checks=$((checks + 1))
   a4_out="$(python3 "$analyzer" $(bound_args selfhost) 2>&1)"
   a4_rc=$?
@@ -333,8 +284,8 @@ if pipeline "self_host/main.ax" 0 "selfhost"; then
     tail -3 <<<"$a4_out" | sed 's/^/    /' >&2
   fi
 
-  # ABLATION for A4. `nocycle` closes the cycle silently and returns a
-  # number. A4 must reject that.
+  # Ablation for A4. `nocycle` closes the cycle silently and returns a
+  # number, which A4 must reject.
   checks=$((checks + 1))
   nb="$(AXIOM_ABLATE_STACK_BOUND=nocycle python3 "$analyzer" $(bound_args selfhost) 2>&1 |
         sed -n 's/^BOUND from main: \([0-9]*\) bytes$/\1/p')"
@@ -346,7 +297,7 @@ if pipeline "self_host/main.ax" 0 "selfhost"; then
 fi
 
 # ====================================================================
-# A5 - the compiler's static claim and this static analysis agree.
+# A5: the compiler's static claim and this analysis agree.
 # ====================================================================
 cat >"$work/rec.ax" <<'AX'
 ;@axiom:restrict(no-recursion)
@@ -365,8 +316,8 @@ else
   sed 's/^/    /' <<<"$rec_out" | head -6 >&2
 fi
 
-# The same source with the claim deleted compiles, and is then refused
-# by the ANALYZER for the same reason the compiler gave.
+# The same source with the tag deleted compiles, and the analyzer then
+# refuses it for the reason the compiler gave.
 grep -v 'restrict(no-recursion)' "$work/rec.ax" >"$work/rec2.ax"
 checks=$((checks + 1))
 if pipeline "$work/rec2.ax" 0 "rec2"; then
@@ -380,11 +331,10 @@ if pipeline "$work/rec2.ax" 0 "rec2"; then
 fi
 
 # ====================================================================
-# A6 - the embedded headline, gated.
+# A6: hello world's bound, under a ceiling.
 #
-# The ceiling is deliberately loose: the point is that the number is
-# REPORTED every run, so a regression is visible in the log long before
-# it is red. 192 bytes today against a 4 KiB ceiling.
+# The ceiling is loose. The number is printed every run, so a regression
+# shows in the log long before it turns red.
 # ====================================================================
 cat >"$work/hi.ax" <<'AX'
 (import IO)
@@ -410,12 +360,10 @@ if pipeline "$work/hi.ax" 1 "hi"; then
     fi
   fi
 
-  # ABLATION for A6. `noindirect` stops excluding @__axiom_symtab, the
-  # backtrace table that lists EVERY function in the program. Every
-  # function then looks address-taken, the one indirect call site in
-  # the runtime's drop glue resolves to all of them, and hello world
-  # stops being boundable. This is the assertion that the exclusion is
-  # doing real work rather than being decoration.
+  # Ablation for A6. `noindirect` stops excluding @__axiom_symtab, the
+  # backtrace table that lists every function. Every function then looks
+  # address-taken, the one indirect call in the runtime's drop glue
+  # resolves to all of them, and hello world becomes unboundable.
   checks=$((checks + 1))
   ab="$(AXIOM_ABLATE_STACK_BOUND=noindirect python3 "$analyzer" $(bound_args hi) 2>&1 |
         sed -n 's/^BOUND from main: \([0-9]*\) bytes$/\1/p')"
@@ -427,21 +375,14 @@ if pipeline "$work/hi.ax" 1 "hi"; then
 fi
 
 # --------------------------------------------------------------------
-# A GATE THAT RAN NOTHING MUST NOT REPORT SUCCESS.
+# A gate that ran nothing must not pass.
 #
-# Every assertion above is guarded by something that can decline to run
-# it: a fixture that would not build, a shell that cannot set
-# `ulimit -s`, a toolchain with no stack-usage table. Each of those
-# prints a reason - but a run in which HALF of them declined still
-# reached the bottom of this file and said "passed", and nothing here
-# would have noticed. That is this repository's most common defect
-# arriving by the back door: not a check that cannot fail, but a check
-# that was never reached.
-#
-# So the count is asserted. Twelve assertions when llc offers a
-# stack-usage table, ten without it (A2 and A3 are the two that need
-# one, and they announce themselves when they skip). Anything less means
-# a guard above declined silently, and the reason is in the log.
+# Every assertion above has a guard that can decline to run it: a
+# fixture that would not build, a shell that cannot set `ulimit -s`, a
+# toolchain with no stack-usage table. Each prints a reason, and this
+# count fails the run when any declined. It is one per `checks`
+# increment above: ten, or thirteen when llc offers a stack-usage table
+# for A2, A3 and A3b.
 # --------------------------------------------------------------------
 expected=10
 (( su_ok )) && expected=13

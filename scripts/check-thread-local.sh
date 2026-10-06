@@ -1,72 +1,38 @@
 #!/usr/bin/env bash
-# The emitted runtime's mutable globals, and the one predicate that
-# decides their storage class.
+# Check which runtime globals become thread-local, and that a program
+# without threads pays nothing for it.
 #
-# WHAT THIS IS ABOUT. `docs/memory-model.md` MM-PAR-3 gets memory safety
-# across processes for free: every process-wide mutable global is
-# private after a `fork`. Under THREADS that property is not free, it is
-# BOUGHT - by making the identical set of globals thread-local - and the
-# set is not a sentence anyone wrote, it is an enumeration of `@__axiom_`
-# in `self_host/codegen.ax`. There are eight:
+# MM-PAR-3 (`docs/memory-model.md`) gets private globals per process
+# from `fork`. Threads need the same set made thread-local: the eight
+# `@__axiom_` globals in `self_host/codegen.ax`.
 #
 #   @__axiom_bump  _bump_end  _chunk  _free  _high   the allocator's
 #   @__axiom_slabs                                   4,097 class heads
 #   @__axiom_recover_top                             the armed point
 #   @__axiom_ev_<Effect>                             one per effect
 #
-# `@__axiom_argc` and `@__axiom_argv` are deliberately NOT among them:
-# they are written once in `@main`'s prologue, before any thread can
-# exist, and never again. Every constant is shareable by construction.
+# A threaded program also moves the child registry's two globals
+# (MM-PAR-7), for ten. `@__axiom_argc` and `@__axiom_argv` stay shared:
+# `@main`'s prologue writes them once, before any thread can exist.
 #
-# THE HALF WORTH MORE IS THE ONE THAT DOES NOTHING. A program that
-# spawns no thread must be byte-identical to what the compiler emitted
-# before any of this existed, on every target - and Darwin is why. A
-# thread-local access there is not an addressing mode, it is an
-# INDIRECT CALL through libSystem's `__tlv_bootstrap`, measured below at
-# one undefined symbol where the same program off the flag has zero. A
-# language that made every program pay that for a feature it never used
-# would have left `MM-FFI-1`'s tier 1 for everyone. This is the shape
-# `ERR-REC-6` already established for recovery points: a mechanism a
-# program does not ask for costs it nothing, measured rather than
-# argued.
+# A program that spawns no thread must emit no thread-local storage. On
+# Darwin a thread-local access is an indirect call through libSystem's
+# `__tlv_bootstrap`, and paying that unasked would take every program
+# out of `MM-FFI-1`'s tier 1. `ERR-REC-6` sets the same rule for
+# recovery points.
 #
-# THE ON PATH IS A PROGRAM NOW, NOT AN ABLATION. Until 2026-09-03
-# `cgThreads` was the constant `false` - no primitive existed for a
-# program to name - so this gate reached the ON path by rewriting the
-# predicate's body and rebuilding a compiler. `cgThreads` is a scan of
-# the resolved declarations now (`parScan` in codegen.ax): the same
-# probe with one `(__thread_spawn ...)` joined in its body IS the ON
-# program, built by the compiler under test with no edit to it. The
-# assertions did not move: the eight and nothing else, the OFF path's
-# zero TLS imports, and local-exec on every target that has one. What
-# the ON program adds beyond the storage class is its thread runtime -
-# `@__axiom_par_entry`, `@__axiom_par_spawn_thread`, the pthread
-# declares - and assertion 3 names it rather than counting changed
-# lines, because "sixteen lines moved" was a fact about an ablation
-# that no longer describes the path.
+# `cgThreads` (`parScan` in codegen.ax) scans the resolved declarations,
+# so the compiler under test reaches the ON path unedited: the ON probe
+# is the OFF one with a joined `(__thread_spawn ...)` in its body.
 #
-# LOCAL-EXEC IS NOT A PREFERENCE. A bare `thread_local` takes the
-# general-dynamic model, which needs a dynamic resolver, which is a
-# dynamic link, which `scripts/check-freestanding.sh` refuses at zero
-# undefined symbols. Assertion 5 requires the resolver to be absent and
-# assertion 6 requires it to APPEAR when `(localexec)` is dropped -
-# because an assertion that a symbol is missing is satisfied by a
-# compiler that emits nothing at all, and this gate exists to hold a
-# storage class rather than to observe one. Assertion 6 still ablates a
-# compiler, for the spelling: that is a fact about the emitter's text
-# no program can select.
-#
-# THE MARKER DIFFERS BY ARCHITECTURE, and assuming it did not would have
-# made half of assertion 6 vacuous. Measured here, general-dynamic
-# against local-exec on the same program:
-#
-#   linux-x86_64     __tls_get_addr x13     ->  %fs:...@TPOFF
-#   linux-aarch64    tlsdesc x152           ->  tprel x66
-#
-# AArch64 uses TLS DESCRIPTORS and never names `__tls_get_addr`, so a
-# gate grepping only for that symbol would have passed on an aarch64
-# build that imports `__tlsdesc_resolve` through the PLT. Both markers
-# are checked, on both targets.
+# The TLS model must be local-exec. General-dynamic needs a dynamic
+# resolver and so a dynamic link, which `scripts/check-freestanding.sh`
+# refuses. Assertion 5 requires the resolver to be absent, which a
+# compiler that emitted nothing would also satisfy. So assertion 6
+# rebuilds the compiler without `(localexec)`, a spelling no program can
+# select, and requires the resolver to appear. x86-64 marks it with
+# `__tls_get_addr`, while AArch64 uses TLS descriptors (`tlsdesc`) and
+# never names it, so both markers are checked on both targets.
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
@@ -88,9 +54,9 @@ done
 # One program that reaches every one of the eight: it allocates (the
 # five words and the slabs), declares an effect and handles it (the
 # evidence slot), and arms a recovery point (`@__axiom_recover_top`).
-# `SPAWN` is the one line the ON program adds: a thread that runs
-# `build` and is joined before the answer is printed, so both programs
-# write the same bytes.
+# The spawn line is the only difference in the ON program: it runs
+# `build` on a thread and joins it before the answer is printed, so both
+# programs write the same bytes.
 mkprobe() {  # <path> <spawn-line> <extra-effects>
   cat > "$1" <<PROBE
 (import IO)
@@ -152,22 +118,13 @@ fi
 echo
 echo "== 2. off: and imports no thread-local machinery =="
 # --------------------------------------------------------------------
-# THE CLAIM IS ABOUT TLS, NOT ABOUT ZERO, and the first version of this
-# arm said zero. It asserted `nm -u` was empty, which is a DARWIN fact:
-# on Linux the same program imports six symbols by construction - four
-# weak crt hooks (`_ITM_*`, `__gmon_start__`, `__cxa_finalize`) and two
-# real ones (`__libc_start_main`, `abort`) - so the arm failed CI on
-# both Linux legs for a program that was behaving exactly as intended.
-# Measured there: SIX off and SIX on, identical, which is the property
-# this gate actually exists to hold and which "zero" could not express.
-#
-# So the assertion is the one the flag is about: a program that spawns
-# no thread imports no TLS RUNTIME SYMBOL, on any format. `imports_of`
-# is `check-freestanding.sh`'s reader, which dispatches on the object's
-# own magic rather than on the host and strips ELF's `@GLIBC_2.34`
-# versions and Mach-O's leading underscore - the edit each convention
-# requires. Assertion 4 then holds the delta, which is where Darwin's
-# one extra symbol shows up.
+# The claim is about TLS and thread symbols only. On Linux this probe
+# imports crt hooks (`_ITM_*`, `__gmon_start__`, `__cxa_finalize`),
+# `__libc_start_main` and `abort` with or without threads, so a
+# zero-import check would fail there. `imports_of` is `check-freestanding.sh`'s
+# reader: it dispatches on the object's own magic, not the host, and
+# strips ELF's `@GLIBC_2.34` versions and Mach-O's leading underscore.
+# Assertion 4 checks the delta, where Darwin's extra symbol shows up.
 source "$(dirname "${BASH_SOURCE[0]}")/lib/imports.sh"
 tls_syms='__tlv_bootstrap|__tls_get_addr|__tlsdesc_resolve|_tlv_bootstrap'
 # `fork` too, on Darwin: a module with threads forks its process
@@ -184,8 +141,9 @@ else
   bad "$tls_off TLS/thread symbol(s) imported by a program that spawns no thread"
   grep -E "^($thread_syms)$" "$work/off.imports" | sed 's/^/     /'
 fi
-# And the floor: a reader that answered nothing would satisfy the line
-# above whatever the binary held.
+# The floor: a reader that answered nothing would satisfy the line
+# above whatever the binary held. On Darwin an executable that calls no
+# libc function imports nothing, so the floor applies only elsewhere.
 if [[ "$n_off" -gt 0 || "$(uname -s)" == Darwin ]]; then
   ok "the import reader answers for this object format ($n_off import(s))"
 else
@@ -214,18 +172,18 @@ done
 if [[ "$wrong" == 0 ]]; then
   ok "all ten globals moved to thread_local(localexec)"
 fi
-# TEN since 2026-09-27: the eight, plus the child registry's head and
-# its sequence counter (MM-PAR-7) - per thread because each thread
-# sweeps the children IT spawned, and a shared list would be two
-# threads linking pages into one unsynchronised structure.
+# Ten: the eight, plus the child registry's head and sequence counter
+# (MM-PAR-7). They are per thread because each thread sweeps the
+# children it spawned. A shared list would have two threads linking
+# pages into one unsynchronised structure.
 if [[ "$tl_on" == 10 ]]; then
   ok "and $tl_on thread_local global(s) in the whole module - the eight and the registry's two, nothing else"
 else
   bad "$tl_on thread_local globals, expected exactly 10"
   grep 'thread_local' "$work/on.ll" | sed 's/^/     /' | head -12
 fi
-# argc/argv must NOT have moved: they are written once in @main's
-# prologue, before any thread exists.
+# argc/argv must not move: they are written once in @main's prologue,
+# before any thread exists.
 if grep -q '@__axiom_arg[cv] = internal thread_local' "$work/on.ll"; then
   bad "@__axiom_argc/argv moved; they are write-once and shared by design"
 else
@@ -239,10 +197,8 @@ for sym in '@__axiom_par_entry' '@__axiom_par_spawn_thread' '@__axiom_par_join_t
     bad "the thread runtime lacks $sym"
   fi
 done
-# Everything ELSE in the module is the OFF module: strip the eight
-# storage-class lines and the runtime's own definitions, and the two
-# must agree line for line on what remains - the user's code did not
-# change because a thread exists.
+# strip_rt drops the thread runtime's globals, declares and definitions,
+# and turns each local-exec global back into a plain one.
 strip_rt() {
   awk '
     /^@__axiom_par_/ { next }
@@ -253,11 +209,9 @@ strip_rt() {
   ' "$1"
 }
 strip_rt "$work/on.ll" > "$work/on.stripped"
-# The OFF probe differs from the ON one by the one line it spells, so
-# the comparison is of the two emitted `main`s less that line's own
-# code: assert instead that no line of the ON module outside the
-# runtime and the eight is a line the OFF module could not have -
-# i.e. nothing else grew a `thread_local`.
+# The two probes differ in their spawn line, so the modules cannot be
+# compared line for line. Instead, assert that nothing outside the
+# runtime and the moved globals grew a `thread_local`.
 if grep -q 'thread_local' "$work/on.stripped"; then
   bad "a thread_local survived outside the eight globals"
 else
@@ -278,14 +232,11 @@ if [[ "$o_off" == "$o_on" && "$r_off" == "$r_on" ]]; then
 else
   bad "behaviour moved: off exit $r_off [$o_off], on exit $r_on [$o_on]"
 fi
-# THE DELTA IS THE MEASUREMENT. What a thread costs is exactly the
-# symbols the ON binary imports that the OFF one does not: the two
-# pthread entry points on every target, and on Darwin `__tlv_bootstrap`
-# - a thread-local access there is an indirect call through libSystem,
-# not an addressing mode. On Linux and FreeBSD local-exec TLS needs no
-# resolver, so the delta is the pthread pair alone and the six crt
-# imports are identical on both sides. Anything else appearing here is
-# the runtime pulling in machinery nobody asked it for.
+# What a thread costs is the imports the ON binary has and the OFF one
+# lacks: the pthread pair everywhere, plus `__tlv_bootstrap` on Darwin.
+# Local-exec TLS on Linux and FreeBSD needs no resolver, so there the
+# delta is the pthread pair alone. Anything outside `thread_syms` is the
+# runtime pulling in machinery nobody asked for.
 imports_of "$work/on.bin" | LC_ALL=C sort > "$work/on.imports"
 comm -13 "$work/off.imports" "$work/on.imports" > "$work/added"
 n_added="$(grep -c . "$work/added" || true)"
@@ -301,11 +252,9 @@ fi
 echo
 echo "== 5. on: local-exec, so no dynamic TLS resolver, on any target that has threads =="
 # --------------------------------------------------------------------
-# Both markers on both targets: x86-64 general-dynamic calls
-# `__tls_get_addr`, AArch64 uses TLS descriptors and never names it.
-# The ON program emits only for a target with a thread runtime
-# (AX4006 elsewhere, `scripts/check-parallel.sh`), so the three targets
-# the previous version of this arm listed become the two Linux ones.
+# Both markers on both targets, as the header explains. The ON program
+# emits only for a target with a thread runtime (AX4006 elsewhere, see
+# `scripts/check-parallel.sh`), so the two Linux targets are checked.
 dyn_tls() {  # <compiler> <target> <program> -> count of dynamic-TLS markers
   local c="$1" t="$2" prog="$3"
   "$c" --target="$t" emit-llvm "$prog" > "$work/t.ll" 2>/dev/null

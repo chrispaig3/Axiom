@@ -1,72 +1,41 @@
 #!/usr/bin/env bash
-# WHAT AN `Option` COSTS, COUNTED IN THE EMITTED IR.
+# Count what an `Option` costs in the emitted IR.
 #
-# `(Some v)` is a 16-byte heap block - `axiom_alloc`, a shape word, a
-# tag, a refcount and the field - which the consumer reads back and
-# hands to `axiom_release`. `docs/error-model.md` measures that
-# wrapper at 11.86 ns and prototypes a `{tag, payload}` register pair
-# that costs 0.36 ns, and its section 4 asks for exactly this gate
-# before any code generation moves:
+# A boxed `(Some v)` is a 16-byte heap block (`axiom_alloc`, a shape
+# word, a tag, a refcount and the field) that the consumer reads back
+# and hands to `axiom_release`. The register-pair lowering described in
+# `docs/error-model.md` returns `{tag, payload}` instead. This gate
+# counts `axiom_alloc` calls for fixtures with a known number of matched
+# lookups, with a probe that forces the boxed path and must move the
+# count.
 #
-#   count `axiom_alloc` calls in the emitted IR for a fixture with a
-#   known number of matched lookups, with an ablation that forces the
-#   boxed path and must move the count
+# A count, not a timing: a wall-clock bound on a shared runner is flaky
+# (see `bench-compile.sh`), while the number of heap blocks is an exact
+# property of the emitted module. A timing gate would go red on a noisy
+# runner and stay green on a representation regression.
 #
-# WHY A COUNT AND NOT A TIMING. `bench-compile.sh` is explicit that a
-# wall-clock bound on a shared runner is a flaky test, and the ratio
-# gates that exist here measure scaling rather than constants. The
-# number of heap blocks a construction costs is neither: it is a
-# property of the emitted module, it is exact, and it is the thing the
-# optimisation is about. A timing gate would go red on a noisy runner
-# and stay green on a representation regression; this does the reverse.
+# Each section asserts one thing, and its comment gives the detail:
 #
-# WHAT IT ASSERTS.
+#   1. Behaviour is fixed: the fixture answers 249500 at `--opt` 0, 1
+#      and 2. A faster wrong answer is not the goal.
+#   2. The specialisation happened, and then it is free: the
+#      `{ i64, i64 }` variant exists and the match calls it once, the
+#      variant builds ALLOC_EXPECT blocks, and the consumer performs
+#      RELEASE_EXPECT releases. Existence is checked first, because a
+#      function that was never emitted also builds no blocks.
+#   3. A reference payload and a `Result` specialise too, and give their
+#      shares back.
+#  3b. A match in tail position specialises too.
+#   4. A scrutinee that is not a direct call is boxed in the caller,
+#      which also proves `calls_in` reads the IR.
+#   5. `restrict(no-alloc)` holds for the function and is refused
+#      (AX3049) on a caller that boxes.
+#   6. The checker's unboxing test agrees with the emitter's over the
+#      compiler itself.
 #
-#   1. BEHAVIOUR IS FIXED. The fixture answers 249500 at `--opt` 0, 1
-#      and 2. Any representation change has to keep this, and it is
-#      first because a faster wrong answer is not the goal.
-#
-#   2. THE SPECIALISATION HAPPENED, AND THEN THAT IT IS FREE, in that
-#      order. `@optFind$pair` is defined and returns `{ i64, i64 }`;
-#      the match calls it once and reads the tag and payload with two
-#      `extractvalue`s; the variant builds ALLOC_EXPECT blocks and the
-#      consumer performs RELEASE_EXPECT releases, both 0. The order
-#      matters: a zero block count is satisfied just as well by a
-#      function that was never emitted, so the existence check comes
-#      first or the rest asserts an optimisation by absence of
-#      evidence. Both were 1 before the specialisation landed.
-#
-#   3. A REFERENCE PAYLOAD AND A RESULT specialise too, and give their
-#      shares back: the arena must not move under 40,000 iterations.
-#
-#   4. THE BOX MOVED TO THE CALLER, AND IS COUNTED THERE. A scrutinee
-#      that is not a direct call - a `let`-bound one - is boxed at the
-#      CALL, in the caller's definition: `viaLet` builds one block and
-#      `optFind$pair` none. That is also what proves `calls_in` reads
-#      the IR at all: without it the zeroes above could be an awk
-#      range that never opened. A name with no definition reads 0.
-#      The boxing wrapper `@optFind` is asserted from a fixture that
-#      names the function as a VALUE, because an unreferenced wrapper
-#      is pruned from the module like any unreferenced definition.
-#
-#   5. THE `no-alloc` CLAIM HOLDS FOR THE FUNCTION AND IS CHARGED TO
-#      THE CALLER THAT BOXES. `check` accepts `restrict(no-alloc)` on
-#      the pair-shaped lookup and on a caller that matches it directly,
-#      and refuses it (AX3049) on a caller that `let`-binds the answer.
-#      `symbols` reads the same split. Before 2026-09-03 the first of
-#      those was refused: the boxed `@F` was still emitted beside the
-#      pair, so the function genuinely could allocate.
-#
-#   6. THE CHECKER AND THE EMITTER AGREE OVER THE COMPILER ITSELF.
-#      `scripts/lib/alloc-rows.py` holds every function of the
-#      self-compile whose row lacks `Alloc` to a definition with no
-#      `axiom_alloc`. The checker's eligibility test is a MIRROR of the
-#      emitter's, in another file; this is what notices them drifting.
-#
-# THE FIXTURE LIVES HERE, in a heredoc, rather than under `tests/`.
-# Every `.ax` added to `tests/selfhost/` is swept by several gates that
-# carry population counts, so a fixture whose only reader is this gate
-# would move numbers in gates that have nothing to say about it.
+# The fixtures live here in heredocs, not under `tests/`. Several gates
+# carry population counts over `tests/selfhost/`, so a fixture only this
+# gate reads would move numbers in gates with nothing to say about it.
 #
 # Usage:
 #   scripts/check-unboxed-sums.sh
@@ -84,30 +53,25 @@ checks=0
 ok()  { checks=$((checks + 1)); echo "ok   $*"; }
 bad() { checks=$((checks + 1)); failed=$((failed + 1)); echo "FAIL $*"; }
 
-# The counts this tree's code generation produces. Both were 1 before
-# the register-pair specialisation landed and are 0 after; a rise is a
-# representation regression.
+# Blocks the pair variant builds, and releases its matching consumer
+# performs. A rise is a representation regression.
 ALLOC_EXPECT=0
 RELEASE_EXPECT=0
-# What a scrutinee that is not a DIRECT call costs, and WHERE: the
-# `let`-bound answer is boxed in the caller's own definition, one
-# block, which is what proves `calls_in` can read a nonzero count at
-# all. The wrapper `@optFind`, the symbol a reference-as-a-value
-# reaches, boxes the same way - one block, in the wrapper.
+# Blocks a `let`-bound scrutinee costs, built in the caller's own
+# definition. The boxing wrapper `@optFind` builds one too.
 BOX_IN_CALLER_EXPECT=1
 # Bytes the arena bump may move over 20,000 iterations of each
-# reference-carrying loop. A leaked payload is 32 bytes and up per
-# iteration, so a real leak is megabytes and this bound is not close.
+# reference-carrying loop. A leaked payload is 32 bytes or more per
+# iteration, so a real leak moves megabytes, far past this bound.
 ARENA_BOUND=4096
 GOLDEN=249500
 
 mkdir -p "$work/us"
 
-# `optFind` is the canonical absence shape - the form `internFind`,
-# `pathLastSlash`, `pathExtIndex`, `strHexVal`, `utf8DecodeAt`,
-# `utf8CharAt` and `keyStrEnd` are every one written in: a guard, a
-# `None`, and a `(Some e)`. `sum` consumes it by matching the DIRECT
-# call, which is the only site shape the specialisation rewrites.
+# `optFind` is the canonical absence shape: a guard, a `None` and a
+# `(Some e)`, the form of `internFind`, `pathLastSlash` and similar
+# lookups. `sum` matches the direct call, the only site shape the
+# specialisation rewrites.
 write_fixture() {
   cat > "$1" <<'AX'
 (import IO)
@@ -144,8 +108,8 @@ AX
 
 # `calls_in <ir> <fn> <symbol>`: how many times `symbol` is called
 # inside the definition of `fn`. Anchored on `define ... @fn(` and the
-# closing brace, so a call in a neighbouring function is not counted -
-# check 4 is what proves that anchoring holds.
+# closing brace, so a call in a neighbouring function is not counted.
+# Check 4 proves the anchoring holds.
 calls_in() {
   awk -v f="$2" -v s="$3" '
     $0 ~ ("^define .*@" f "\\(") { inside = 1 }
@@ -181,10 +145,8 @@ echo "== 2. cost: the blocks an Option construction and its match cost =="
   || { bad "could not emit IR for the fixture"; }
 
 if [[ -f "$work/us/us.ll" ]]; then
-  # FIRST that the specialisation happened at all. Without this, the
-  # two zeroes below are satisfied just as well by a function that was
-  # never emitted - a check that cannot fail, asserting an optimisation
-  # by the absence of evidence.
+  # First, that the specialisation happened at all. A function that was
+  # never emitted would also satisfy the two zeroes below.
   if grep -q '^define { i64, i64 } @optFind\$pair(' "$work/us/us.ll"; then
     ok "\`optFind\` has a register-pair variant, returning { i64, i64 }"
   else
@@ -218,17 +180,16 @@ fi
 echo
 echo "== 3. a REFERENCE payload, and a Result: specialised, and no leak =="
 # ------------------------------------------------------------------
-# The two shapes the first slice refused. `(Option String)` carries a
-# share the block used to own; `(Result Int Error)` carries a MACHINE
-# WORD in one arm and a share in the other, so the release belongs to
-# the arm and not to the match.
+# `(Option String)` carries a share. `(Result Int Error)` carries a
+# machine word in one arm and a share in the other, so the release
+# belongs to the arm, not the match.
 #
 # The arena mark is the instrument (`tests/stdlib/370-error-propagation.ax`
-# uses the same cell: word 0 is the bump, word 2 is the chunk). A
-# leaked payload is 32 bytes and up per iteration, so 20,000
-# iterations of each would move megabytes; the bound below is 4096 and
-# the measured figure is ~208. A chunk crossing answers -1 and fails,
-# because a flat line through a moved chunk would be unmeasurable.
+# uses the same cell: word 0 is the bump, word 2 is the chunk). A leaked
+# payload is 32 bytes or more per iteration, so 20,000 iterations of
+# each would move megabytes against a bound of 4096. A chunk crossing
+# answers -1 and fails, because a moved chunk makes the figure
+# meaningless.
 cat > "$work/us/ref.ax" <<'AX'
 (import IO)
 
@@ -302,16 +263,16 @@ if ! "$axc" emit-llvm --input "$work/us/ref.ax" -o "$work/us/ref.ll" > "$work/us
   bad "the reference/Result fixture did not compile"
   sed 's/^/     /' "$work/us/ref.log" | head -10
 else
-  # By NAME. A count of every pair variant in the module reads the
-  # standard library's too - `sysResult` is one - and moves whenever
-  # one of those changes shape, which is not this fixture's subject.
+  # By name. A count of every pair variant in the module includes the
+  # standard library's, such as `sysResult`, which change shape for
+  # reasons unrelated to this fixture.
   if grep -q '^define { i64, i64 } @nameOf\$pair(' "$work/us/ref.ll" \
      && grep -q '^define { i64, i64 } @half\$pair(' "$work/us/ref.ll"; then
     ok "both \`nameOf\` and \`half\` get a register-pair variant"
   else
     bad "a pair variant is missing for a reference payload or a Result"
   fi
-  # `Err`'s payload is a share and `Ok`'s is a word, so exactly ONE of
+  # `Err`'s payload is a share and `Ok`'s is a word, so exactly one of
   # the two arms may release. Releasing both is a wild read of an Int.
   hr="$(calls_in "$work/us/ref.ll" loopRes axiom_release)"
   if (( hr == 1 )); then
@@ -324,8 +285,8 @@ else
 fi
 
 if "$axc" build --opt 2 --input "$work/us/ref.ax" --output "$work/us/ref" > /dev/null 2>&1; then
-  # No `mapfile`: the macOS runner ships bash 3.2, which is why
-  # `gate_prose_docs_abs` is a function rather than a `mapfile` too.
+  # Read the lines with `sed`, not `mapfile`: the macOS runner ships
+  # bash 3.2.
   "$work/us/ref" > "$work/us/ref.out" 2>&1 || true
   r0="$(sed -n '1p' "$work/us/ref.out")"
   r1="$(sed -n '2p' "$work/us/ref.out")"
@@ -350,17 +311,15 @@ fi
 echo
 echo "== 3b. a match in TAIL position specialises too =="
 # ------------------------------------------------------------------
-# `emitMatch` and `emitMatchTail` are two emitters, and the first
-# version of this hooked only one. A match that IS a function's tail
-# went through the other and kept the boxed path - invisible in the
-# section above, because its fixture's match sits inside an argument.
+# `emitMatch` and `emitMatchTail` are separate emitters, and each needs
+# the hook. A match that is a function's tail goes through the second,
+# which section 3 cannot see because its match sits inside an argument.
 #
-# The tail hook is armed only where `scrutineeReleasable` answers 0.
-# An arm in tail position may emit its own `ret`, and a release written
-# after the arms would sit past it, unreachable - a leak rather than a
-# diagnostic. Refusing that case is cheaper than reasoning about which
-# arms fall through, and it costs nothing here: every `Option Int`
-# lookup in this tree is in it.
+# The tail hook is armed only where `scrutineeReleasable` answers 0. An
+# arm in tail position may emit its own `ret`, so a release after the
+# arms would be unreachable: a leak with no diagnostic. Skipping that
+# case is simpler than tracking which arms fall through, and every
+# `Option Int` lookup in the tree qualifies.
 cat > "$work/us/tail.ax" <<'AX'
 (import IO)
 
@@ -420,12 +379,11 @@ echo
 echo "== 4. negative probe: a scrutinee that is not a direct call is boxed, in the caller =="
 # ------------------------------------------------------------------
 # The instrument check. If `calls_in` matched nothing, section 2's
-# zeroes would read 0 for that reason rather than for the
-# optimisation. A `let`-bound scrutinee is outside the rewrite, so a
-# block must still be built - and since 2026-09-03 it is built at the
-# CALL, in `viaLet`, where the checker charges it; the callee's body
-# (`optFind$pair`) builds none on any path, and `@optFind` is the
-# boxing wrapper a bare reference reaches.
+# zeroes would read 0 for that reason alone. A `let`-bound scrutinee is
+# outside the rewrite, so a block is still built, at the call in
+# `viaLet`, where the checker charges it. The callee's body
+# (`optFind$pair`) builds none on any path, and `@optFind` is the boxing
+# wrapper a bare reference reaches.
 cat > "$work/us/indirect.ax" <<'AX'
 (import IO)
 
@@ -477,9 +435,9 @@ else
   fi
 fi
 
-# The wrapper. `applyIt` takes `optFind` as a VALUE, so the module
-# keeps `@optFind`, and that definition is where a call through the
-# value boxes.
+# The wrapper. An unreferenced wrapper is pruned like any unreferenced
+# definition, so `applyIt` takes `optFind` as a value: the module keeps
+# `@optFind`, and a call through the value boxes there.
 cat > "$work/us/value.ax" <<'AX'
 (import IO)
 
@@ -594,9 +552,9 @@ if [[ "$rl" == "0" && "$rd" == "0" && "$rs" == "1" ]]; then
 else
   bad "symbols: Alloc on look=$rl direct=$rd stored=$rs, wanted 0, 0 and 1"
 fi
-# And the IR agrees with the row, function by function. Emitted from
-# a copy WITHOUT the claims: `stored`'s refusal is an error, and a
-# program with an error emits nothing.
+# The IR must agree with the row, function by function. Emit from a copy
+# without the claims: `stored`'s refusal is an error, and a program with
+# an error emits nothing.
 sed '/^;@axiom:restrict/d' "$work/us/claim.ax" > "$work/us/claim-untagged.ax"
 if "$axc" emit-llvm --input "$work/us/claim-untagged.ax" -o "$work/us/claim.ll" > /dev/null 2>&1; then
   cl="$(calls_in "$work/us/claim.ll" 'look\$pair' axiom_alloc)"
@@ -615,11 +573,11 @@ fi
 echo
 echo "== 6. the checker's mirror against the emitter, over the compiler itself =="
 # ------------------------------------------------------------------
-# Every function the compiler compiles into itself, held by
-# `scripts/lib/alloc-rows.py`: a row without \`Alloc\` names a
-# definition without \`axiom_alloc\`. The two predicates that decide
-# which functions are unboxed live in two files (`pairFnOK`,
-# `tcPairFnOK`); this is the check that they have not drifted.
+# Every function the compiler compiles into itself, checked by
+# `scripts/lib/alloc-rows.py`: a row without `Alloc` names a definition
+# without `axiom_alloc`. The two predicates that decide which functions
+# are unboxed live in two files (`pairFnOK`, `tcPairFnOK`), and this
+# checks they have not drifted.
 if "$axc" emit-llvm --input "$repo_root/self_host/main.ax" -o "$work/us/self.ll" > "$work/us/self.log" 2>&1 \
    && "$axc" symbols --diagnostic-format=ai "$repo_root/self_host/main.ax" > "$work/us/self.syms" 2>/dev/null; then
   if out="$(python3 "$repo_root/scripts/lib/alloc-rows.py" "$work/us/self.syms" "$work/us/self.ll" 2>&1)"; then

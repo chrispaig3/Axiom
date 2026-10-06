@@ -1,83 +1,50 @@
 #!/usr/bin/env bash
-# Assert that the `.axir` record file survives a trip through its own
-# reader unchanged, that its reader REFUSES what its grammar does not
-# spell, and - the part that makes the first claim mean anything - that
-# the reader is not a passthrough.
+# Check that the `.axir` record file survives a trip through its own
+# reader unchanged, that the reader refuses what its grammar does not
+# spell, and that the reader is not a passthrough.
 #
-# WHY A ROUND TRIP AND NOT A GOLDEN. A golden here would churn on every
-# change to what the checker records and would be exactly as strong as
-# whoever last blessed it. `check-tools-selfhost.sh`'s own header
-# records what that costs: both AXSYM goldens were re-blessed clean
-# against a compiler emitting a start column shifted by one, and the
-# only thing that caught it was `verify-axsym.py`, which re-derives
-# every claim from the source instead of comparing to a blessing.
+# A round trip, not a golden: a golden churns with every change to what
+# the checker records and is only as strong as whoever last blessed it.
 # `emit | read | emit == emit` is a property a re-bless cannot satisfy.
 #
-# WHY THE THIRD CLAIM EXISTS. `emit | read | emit == emit` is satisfied
-# perfectly by a reader that keeps the raw lines and hands them back -
-# the vacuous check this repository names as its most common defect,
-# and it would be an easy accident here, because a line-oriented format
-# invites `readlines` as an implementation. So a NON-NORMAL file goes
-# in too: same facts, doubled spaces, a nid written with the sigil the
-# writer would emit and nothing else changed. A decomposing reader
-# normalises it and the output DIFFERS from the input; a passthrough
-# hands it straight back. The gate demands the difference, and then
-# demands that the normalised form is a fixed point.
+# A reader that keeps raw lines and hands them back also satisfies it,
+# and a line-oriented format invites `readlines`. So a non-normal file
+# goes in too: the same facts with doubled spaces. A decomposing reader
+# normalises it, so the output must differ from the input and the
+# normalised form must be a fixed point.
 #
-# WHAT IS IN THE CORPUS. A probe importing every stdlib module, and the
-# compiler's own `self_host/` entry, which is the largest module this
-# repository has - each emitted TWICE, once as `--axir` and once as
-# `--axir --mir`, because those are two different files and only the
-# second carries a body. The hand-written `.axir` fixtures are beside
-# them, and since 2026-09-04 they are a supplement rather than the
-# whole evidence for `blk`, `op` and `term`: `symbols --axir --mir` now
-# writes those lines for every function `self_host/mir.ax`'s `mLowerFn`
-# lowers and `mirVerify` passes. Measured on this tree the same day:
-# 389 of the probe's 839 records carry a body and 1,457 of
-# `self_host/main.ax`'s 4,097 do.
+# The corpus is a probe importing every stdlib module, plus the
+# compiler's own `self_host/` entry. Each is emitted twice, as `--axir`
+# and as `--axir --mir`, because only the second carries bodies: `blk`,
+# `op` and `term` lines for every function that `mLowerFn` in
+# `self_host/mir.ax` lowers and `mirVerify` passes.
 #
-# WHAT THE FIXTURES STILL COVER, therefore, is what the compiler does
-# NOT write - `tests/axir/body.axir` names blocks `entry` and `loop`
-# and uses opcodes this IR does not have, because the grammar is a
-# format rather than a spelling of one lowering, and a reader that
-# accepted only today's output would refuse tomorrow's.
+# The hand-written fixtures in `tests/axir/` cover what the compiler
+# does not write. `body.axir` names blocks `entry` and `loop` and uses
+# opcodes this IR does not have: the grammar is a format, and a reader
+# that accepted only today's output would refuse tomorrow's.
 #
-# ABLATIONS (each must turn this gate red):
-#   1. make `axirWrite` drop the `@nid` from the header - the corpus
-#      round trip stops matching, because the reader decomposed a nid
-#      the writer then did not put back.
-#   2. make `axirRead` keep raw lines instead of decomposing them - the
-#      non-normal file comes back byte-identical and the "it changed"
-#      assertion fires.
-#   3. delete an arm from `axirKindArityMin` so an unknown kind is
-#      accepted - a `.bad` fixture stops being refused.
-# Four more landed with the body lines on 2026-09-04, each run in a
-# shadow tree with the compiler rebuilt from it, and each recorded with
-# what it did to the sections it did NOT fire - because "this ablation
-# reddens the gate" says less than "this ablation reddens THIS section
-# and leaves the others green":
-#   4. drop the `(== mir 1)` guard around `axirLowered` in
-#      `axirRender`. The DEFAULT stream grows body lines and §"only
-#      under --mir" fires on the probe's very first record. The corpus
-#      round trip above stayed GREEN through it - which is the whole
-#      reason that section exists.
-#   5. make `axirLowered` answer 0 for every declaration. Both corpora
-#      then report "839 records, 0 of them with a lowered body,
-#      identical after read-back" and the round trip is PERFECT; only
-#      the body floor fires. An emitter that stopped emitting is
-#      invisible to `emit | read | emit == emit`, and this is the
-#      measurement that says so.
-#   6. stop `axirWrite` putting the `%` back on a `blk` parameter. The
-#      `--mir` round trip breaks on the first join block - `blk bb3 %5`
-#      comes back as `blk bb3 5` - because the reader stripped a sigil
-#      the writer then did not restore.
-#   7. remove the `blk` arm from `axirDecompose` AND the `%` from
-#      `axirWrite`, so `blk` is raw on both sides. Every section above
-#      goes green again, including the passthrough probe, and the ONLY
-#      thing that fires is `blk-param-without-sigil.bad` no longer
-#      being refused. That fixture is the sole evidence for the reader
-#      arm once both halves are removed together, which is why it is
-#      in the corpus.
+# Ablations, each of which must turn this gate red:
+#   1. Make `axirWrite` drop the `@nid` from the header: the corpus
+#      round trip stops matching.
+#   2. Make `axirRead` keep raw lines instead of decomposing them: the
+#      non-normal file comes back byte-identical.
+#   3. Delete an arm from `axirKindArityMin` so an unknown kind is
+#      accepted: a `.bad` fixture stops being refused.
+#   4. Drop the `(== mir 1)` guard around `axirLowered` in `axirRender`:
+#      the default stream grows body lines and "only under --mir" fires.
+#      The corpus round trip stays green, which is why that section
+#      exists.
+#   5. Make `axirLowered` answer 0 for every declaration: the round trip
+#      is perfect and only the body floor fires. An emitter that stopped
+#      emitting is invisible to `emit | read | emit == emit`.
+#   6. Stop `axirWrite` putting the `%` back on a `blk` parameter: the
+#      `--mir` round trip breaks on the first join block (`blk bb3 %5`
+#      comes back as `blk bb3 5`).
+#   7. Remove the `blk` arm from `axirDecompose` and the `%` from
+#      `axirWrite` together: every section stays green except the
+#      refusal of `blk-param-without-sigil.bad`, the only evidence for
+#      that reader arm.
 
 set -euo pipefail
 
@@ -85,12 +52,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
 gate_init
 gate_build_axc axc
 
-# `--axir` is a flag, and the driver's flag table is CLOSED: an unknown
-# flag exits 2 before printing anything. Without this probe the whole
-# gate would die on its first invocation under `set -e` and report
-# nothing - a gate whose failure mode is silence cannot be told from a
-# gate that did not run. (check-agent-calls.sh's precedent, and it was
-# written after exactly that happened.)
+# `--axir` is a flag, and the driver's flag table is closed: an unknown
+# flag exits 2 before printing anything. Probe it first, or the gate
+# would die on its first call under `set -e` and report nothing, which
+# looks the same as a gate that did not run.
 printf '(:: main Int)\n\n(fn (main) 0)\n' > "$work/flagprobe.ax"
 set +e
 "$axc" symbols --axir "$work/flagprobe.ax" >/dev/null 2>&1
@@ -111,8 +76,8 @@ fi
 
 echo "== the emitted corpus round-trips byte for byte =="
 # The probe imports every stdlib module, so the corpus is derived from
-# the tree and a module is covered the day it lands - check-agent-calls'
-# construction, for its reason.
+# the tree and covers a module as soon as it lands, as in
+# `check-agent-calls.sh`.
 : > "$work/modules"
 for f in stdlib/*.ax stdlib/*/*.ax; do
   [[ -e "$f" ]] || continue
@@ -136,14 +101,9 @@ fi
 
 records=0
 bodies=0
-# Both streams, because they are two different files: `--mir` adds the
-# `region` line and the whole body, and a round trip that only ever saw
-# the shorter one would say nothing about the half this gate's name is
-# about. `--mir` forces the region-facts fixpoint and is the slow one -
-# measured 2026-09-04 on this tree, `--axir --mir self_host/main.ax` is
-# 31.7s against 7.2s without it, and almost all of that is the fixpoint
-# rather than the lowering: the AXSYM `symbols --mir` on the same file,
-# which lowers nothing, is 37.6s.
+# Both streams, because they are different files: `--mir` adds the
+# `region` line and the whole body. `--mir` is the slow one, because it
+# forces the region-facts fixpoint.
 for src in "$work/probe.ax" self_host/main.ax; do
   name="$(basename "$src" .ax)"
   ( cd "$(dirname "$src")" && AXIOM_STDLIB="$repo_root/stdlib" \
@@ -168,7 +128,7 @@ for src in "$work/probe.ax" self_host/main.ax; do
   bodies=$(( bodies + b ))
   echo "ok   $src: $n records, $b of them with a lowered body, identical after read-back"
 done
-# A floor, because an emitter that answered the magic line alone would
+# A floor, because an emitter that wrote only the magic line would
 # round-trip flawlessly.
 if (( records < 400 )); then
   echo "FAIL: only $records records over the whole corpus; the floor is 400"
@@ -178,24 +138,20 @@ fi
 
 echo
 echo "== the body lines are written under --mir and nowhere else =="
-# THREE CLAIMS, and the third is the one a round trip cannot make.
+# Three claims, and the third is one a round trip cannot make.
 #
-# 1. the default stream carries no body at all. `--axir` is the stream
-#    every tool that does not want to pay for the region fixpoint
-#    reads, and a body appearing there unasked would move a file
-#    nobody asked to move.
-# 2. `--mir` is ADDITIVE ON THE BYTE LEVEL: delete every `blk`, `op`
-#    and `term` line from it and what is left is the default stream,
-#    modulo the `region` line `--mir` was already adding. That is
-#    check-mir-projection.sh's silence property, spelled for this
+# 1. The default stream carries no body. Tools that do not want to pay
+#    for the region fixpoint read `--axir`, and a body there would move
+#    a file nobody asked to move.
+# 2. `--mir` is additive at the byte level: delete every `blk`, `op` and
+#    `term` line and the default stream is left, apart from the `region`
+#    line. This is check-mir-projection.sh's silence property for this
 #    stream.
-# 3. a FLOOR and an OPCODE CENSUS. `emit | read | emit == emit` is
-#    satisfied perfectly by an emitter that writes no bodies, so the
-#    round trip above cannot tell a lowering that works from one that
-#    refuses everything. The census is derived from `mir.ax`'s own
-#    operator table and `axir.ax`'s own terminator writer rather than
-#    listed here, so an opcode added to either must be reached by the
-#    corpus or say why not.
+# 3. A floor and an opcode census. An emitter that writes no bodies
+#    passes the round trip, which cannot tell a working lowering from
+#    one that refuses everything. The census comes from `mir.ax`'s
+#    operator table and `axir.ax`'s terminator writer, so the corpus
+#    must reach any opcode added to either.
 for name in probe main; do
   if grep -qE '^(blk|op|term) ' "$work/$name.a.axir"; then
     echo "FAIL: the default \`--axir\` stream for $name carries body lines. They cost"
@@ -205,9 +161,8 @@ for name in probe main; do
     exit 1
   fi
   grep -vE '^(blk|op|term) ' "$work/$name.m.axir" > "$work/$name.stripped"
-  # `--mir` adds the region line too, and did before this landed; the
-  # claim here is only about the body, so the region lines come out of
-  # both sides.
+  # `--mir` also adds the region line. This claim is only about the
+  # body, so region lines come out of both sides.
   grep -v '^region ' "$work/$name.stripped" > "$work/$name.stripped.noregion"
   grep -v '^region ' "$work/$name.a.axir" > "$work/$name.a.noregion"
   if ! cmp -s "$work/$name.a.noregion" "$work/$name.stripped.noregion"; then
@@ -224,11 +179,10 @@ if (( bodies < 800 )); then
   echo "      trip most of all."
   exit 1
 fi
-# The opcode census, derived rather than listed. `mBinOp` answers the
-# MIR spelling of an Axiom binary operator on its own line; `axirOpLine`
+# The opcode census, derived from the sources. `mBinOp` answers the MIR
+# spelling of an Axiom binary operator on its own line; `axirOpLine`
 # spells the two non-operator opcodes and `axirTermLine` the five
-# terminators. If a spelling is added to any of them, the corpus has to
-# reach it.
+# terminators. The corpus must reach every spelling they produce.
 opwords="$(sed -n '/^(pub fn (mBinOp nm)/,/^)$/p' self_host/mir.ax \
   | grep -oE '^ *"[a-z]+"$' | tr -d ' "' | LC_ALL=C sort -u)"
 opwords="$opwords
@@ -273,8 +227,8 @@ echo "ok   $bodies bodies, $nop opcodes and $nterm terminators all reached, $wit
 echo
 echo "== the hand-written fixtures round-trip too =="
 # `body.axir` carries block labels and opcodes this IR does not have,
-# which is the point: the grammar is a format, not a spelling of one
-# lowering. `lowered.axir` is the emitted shape verbatim.
+# because the grammar is a format independent of any one lowering.
+# `lowered.axir` is the emitted shape verbatim.
 fixtures=0
 for f in tests/axir/*.axir; do
   [[ -e "$f" ]] || continue
@@ -292,10 +246,8 @@ if (( fixtures < 1 )); then
   echo "      that exercises those arms at all."
   exit 1
 fi
-# A separate name from `$bodies` above, which counts the EMITTED
-# corpus. One variable for both was one variable: the summary line at
-# the bottom reported "4936 records (2 with a lowered body)", the
-# fixture count, having lost the 1,846 the corpus had.
+# Kept apart from `$bodies`, which counts the emitted corpus, so the
+# summary line reports that count and not the fixtures'.
 fixbodies=$(grep -l '^blk ' tests/axir/*.axir 2>/dev/null | wc -l | tr -d ' ')
 if (( fixbodies < 1 )); then
   echo "FAIL: $fixtures fixtures and not one carries a \`blk\` line, so the"
@@ -331,7 +283,7 @@ if ! cmp -s "$work/nonnormal.1" "$work/nonnormal.2"; then
   diff "$work/nonnormal.1" "$work/nonnormal.2" | head -10 | sed 's/^/     /'
   exit 1
 fi
-# And what it normalised to has to be the facts, not a shorter file.
+# The normal form must hold the same facts, not a shorter file.
 if [[ "$(wc -l < "$work/nonnormal.1" | tr -d ' ')" != "5" ]]; then
   echo "FAIL: the normalised form has $(wc -l < "$work/nonnormal.1" | tr -d ' ') lines, not 5."
   echo "      The reader dropped something rather than reformatting it."
@@ -378,9 +330,9 @@ echo "ok   $bad malformed fixtures refused, each with a message"
 
 echo
 echo "== the magic line is what selects the reader =="
-# Not the extension. `.axir` under a `.ax` name must still read back,
-# and a source file must still compile whatever it is called - that is
-# the whole reason the first line says `axir 1`.
+# The magic line selects the reader, not the extension: an `.axir` file
+# named `.ax` must still read back, and a source file must compile
+# whatever it is called.
 cp "$work/nonnormal.1" "$work/disguised.ax"
 "$axc" symbols --axir "$work/disguised.ax" > "$work/disguised.out"
 if ! cmp -s "$work/nonnormal.1" "$work/disguised.out"; then

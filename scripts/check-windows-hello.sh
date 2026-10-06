@@ -1,56 +1,49 @@
 #!/usr/bin/env bash
 # A hello world for both Windows targets, windows-x86_64 and
-# windows-aarch64: emitted on any host, linked and EXECUTED on a Windows
-# runner, its output compared byte for byte with the golden, and its
-# imports held to `scripts/platform-allow.windows.txt`.
+# windows-aarch64. It is emitted on any host, then linked and executed on
+# a Windows runner. Its output must match the golden byte for byte, and
+# its imports must stay within `scripts/platform-allow.windows.txt`.
 #
-# This is the gate that decides whether a Windows target is on its way
-# to being supported at all - README's Targets section defines supported
-# as "a CI leg executes what the compiler emits there", and this is the
-# executing. It runs in two halves, on two machines, because the two
-# halves need two toolchains:
+# README's Targets section calls a target supported when "a CI job
+# executes what the compiler emits there". For Windows, this gate is
+# that execution. It runs in two halves on two machines, because each
+# half needs its own toolchain:
 #
 #   --emit DIR     on a host with the tree's compiler: emit the hello
 #                  case and the leaky probe for each Windows target into
-#                  DIR/<target>/, beside the golden they must answer. The
+#                  DIR/<target>/, beside the golden they must match. The
 #                  `cross` CI job runs this half.
 #
 #   --run DIR [TARGET]
-#                  on a Windows runner with LLVM: for each target in DIR,
-#                  assemble every module with `llc`, generate import
-#                  libraries for that machine with `llvm-dlltool` from
-#                  `.def` files written here (no Windows SDK is needed or
-#                  consulted), link with `lld-link -machine:<m>`, check
-#                  the PE's machine type, and read the imports back
-#                  through `scripts/lib/imports.sh`'s reader. Then RUN
-#                  hello.exe for the runner's own target - TARGET, or the
-#                  one `uname -m` names - and require the golden's bytes
-#                  and exit 0. The other target is linked and says
-#                  "NOT EXECUTED" in its own verdict line.
+#                  on a Windows runner with LLVM, for each target in DIR:
+#                  assemble each module with `llc`, generate import
+#                  libraries with `llvm-dlltool` from `.def` files written
+#                  here, link with `lld-link -machine:<m>`, check the PE's
+#                  machine type, and read the imports back through
+#                  `scripts/lib/imports.sh`. Then run hello.exe for the
+#                  runner's own target (TARGET, or the one `uname -m`
+#                  names) and require exit 0 and the golden's bytes. The
+#                  other target is linked and reports "NOT EXECUTED".
 #
-#   --link DIR     the assemble/link/imports part of --run for every
-#                  target and NOT the execution, for a host that cannot
-#                  run a PE. It prints "not executed" in its own verdict
-#                  lines so that it can never be mistaken for the gate.
+#   --link DIR     everything --run does except execution, for a host
+#                  that cannot run a PE. Its verdict lines say "not
+#                  executed", so it is never mistaken for the gate.
 #
-# NO C COMPILER, NO SDK. The Windows path is llc, llvm-dlltool and
-# lld-link, by decision (design Q2); `kernel32.lib` is generated from a
-# `.def` listing exactly the names on the allowlist, which is also why
-# an unpermitted import fails to LINK here before the reader ever sees
-# it - the "undefined symbol" lld-link prints is turned into the same
-# sentence the allowlist check prints, so the failure names the import.
-# One allowlist serves both architectures: the runtime and
+# No C compiler and no Windows SDK: the path is llc, llvm-dlltool and
+# lld-link (design Q2). `kernel32.lib` is generated from a `.def` listing
+# exactly the allowlisted names, so an unpermitted kernel32 import fails
+# to link before the import reader sees it. The script prints lld-link's
+# undefined symbols, so that failure still names the import. One
+# allowlist serves both architectures, because the runtime and
 # `Sys/Platform.windows.ax` reach the same kernel32 names on each.
 #
-# NEGATIVE PROBES, per target, in --run and --link:
-#   1. (--run, the executed target) the golden, corrupted by one byte,
-#      must not match the output the run produced - a comparison that
-#      cannot fail is not a comparison;
-#   2. the leaky probe - an Axiom program with an `extern "user32"`
-#      binding of `MessageBoxA` - is linked against a user32 import
-#      library the script generates, and its `.exe` must be REFUSED by
-#      the allowlist check. The failure is the passing outcome, exactly
-#      as `check-ffi.sh`'s `leaky` crate.
+# Negative probes, per target:
+#   1. (--run, executed target only) the golden with one byte appended
+#      must not match the output, so the comparison can fail.
+#   2. The leaky probe binds user32's `MessageBoxA` through `extern` and
+#      links against a generated user32 import library. The allowlist
+#      check must refuse its `.exe`: that refusal is the passing outcome,
+#      as with `check-ffi.sh`'s `leaky` crate.
 
 set -euo pipefail
 
@@ -70,9 +63,9 @@ win_allow="$repo_root/scripts/platform-allow.windows.txt"
 
 win_targets=(windows-x86_64 windows-aarch64)
 
-# The machine each target is spelled as by the three tools that care:
-# llvm-dlltool's `-m`, lld-link's `-machine:`, and the COFF header
-# `llvm-readobj --file-headers` prints.
+# How each tool spells a target's machine: llvm-dlltool's `-m`,
+# lld-link's `-machine:` and the COFF header `llvm-readobj
+# --file-headers` prints.
 dlltool_machine() { case "$1" in windows-x86_64) echo i386:x86-64 ;; windows-aarch64) echo arm64 ;; esac; }
 link_machine()    { case "$1" in windows-x86_64) echo x64 ;; windows-aarch64) echo arm64 ;; esac; }
 pe_machine()      { case "$1" in windows-x86_64) echo IMAGE_FILE_MACHINE_AMD64 ;; windows-aarch64) echo IMAGE_FILE_MACHINE_ARM64 ;; esac; }
@@ -83,8 +76,8 @@ case "$mode" in
     source "$here/lib/gate.sh"
     gate_init
     gate_build_axc axc
-    # The leaky probe: user32's MessageBoxA, bound the way any extern is.
-    # `(symbol ...)` is spelled so the linker name is unambiguous.
+    # The leaky probe binds user32's MessageBoxA like any other extern.
+    # `(symbol ...)` pins the linker name.
     cat > "$work/leaky.ax" <<'AX'
 (import IO)
 
@@ -109,14 +102,15 @@ AX
       "$axc" --target="$t" emit-llvm tests/stdlib/010-hello.ax -o "$d/hello.ll"
       cp tests/stdlib/010-hello.out "$d/hello.out"
       "$axc" --target="$t" emit-llvm "$work/leaky.ax" -o "$d/leaky.ll"
-      # The allowlist travels with the modules, so the run half compares
-      # against the list of THIS commit and not the runner's checkout.
+      # The allowlist travels with the modules, so the run half checks
+      # against this commit's list rather than the runner's checkout.
       cp "$win_allow" "$d/platform-allow.windows.txt"
       for f in hello.ll hello.out leaky.ll platform-allow.windows.txt; do
         [[ -s "$d/$f" ]] || { echo "FAIL --emit [$t]: $d/$f is missing or empty"; exit 1; }
       done
-      # The module must say which machine it is for: a target that fell
-      # through to another's triple would link on the wrong half below.
+      # Each module must open with its own target's triple. A target that
+      # fell through to another's triple would be assembled for the wrong
+      # machine.
       for f in hello.ll leaky.ll; do
         if [[ "$(head -1 "$d/$f")" != "target triple = \"$(triple_of "$t")\"" ]]; then
           echo "FAIL --emit [$t]: $d/$f opens with '$(head -1 "$d/$f")', not the $(triple_of "$t") triple"
@@ -136,9 +130,9 @@ AX
         [[ -s "$dir/$t/$f" ]] || { echo "FAIL: $dir/$t/$f is missing or empty; run --emit first"; exit 1; }
       done
     done
-    # Which target this runner executes. Named on the command line, or
-    # read from the machine; a runner this cannot place is a usage
-    # error rather than a guess, since a guess would execute nothing.
+    # Which target this runner executes: named on the command line, or
+    # read from `uname -m`. An unknown machine is a usage error, since a
+    # wrong guess would execute nothing.
     if [[ "$mode" == "--run" ]]; then
       if [[ -z "$run_target" ]]; then
         case "$(uname -m 2>/dev/null)" in
@@ -162,38 +156,34 @@ AX
       mkdir -p "$w"
       allow="$src/platform-allow.windows.txt"
 
-      # The import libraries, for this target's machine. kernel32's
-      # `.def` is the allowlist itself, so the link can resolve exactly
-      # what the list permits; user32's exists for the leaky probe alone.
+      # Import libraries for this target's machine. kernel32's `.def` is
+      # the allowlist, so the link resolves exactly what the list
+      # permits. user32's exists only for the leaky probe.
       { printf 'LIBRARY kernel32.dll\nEXPORTS\n'; permitted_windows "$allow"; } > "$w/kernel32.def"
       printf 'LIBRARY user32.dll\nEXPORTS\nMessageBoxA\n' > "$w/user32.def"
       llvm-dlltool -m "$(dlltool_machine "$t")" -d "$w/kernel32.def" -l "$w/kernel32.lib"
       llvm-dlltool -m "$(dlltool_machine "$t")" -d "$w/user32.def" -l "$w/user32.lib"
 
-      # Assemble and link one module. Prints nothing on success; on a
-      # failed link, prints the undefined symbols as the allowlist would.
+      # Assemble and link one module. Silent on success; a failed link
+      # prints its undefined symbols.
       link_one() {  # <name> <extra .lib...>
         local name="$1"; shift
         llc -filetype=obj -O1 -relocation-model=pic "$src/$name.ll" -o "$w/$name.obj" 2>"$w/$name.llc.err" \
           || { echo "FAIL $name [$t]: llc refused the module"; sed 's/^/    /' "$w/$name.llc.err" | head -5; return 1; }
-        # Dash-form flags, not `/out:`: under Git-bash on the Windows leg,
-        # MSYS converts an argument that begins with `/` into a Windows
-        # path, and `/out:x.exe` reached lld-link as
-        # `C:\Program Files\Git\out;...\x.exe` (the leg's first run,
-        # 2026-08-29). lld-link accepts both spellings everywhere.
+        # Use dash-form flags such as `-out:`. Under Git Bash, MSYS turns
+        # an argument starting with `/` into a Windows path, so `/out:x.exe`
+        # reaches lld-link as `C:\Program Files\Git\out;...\x.exe`.
+        # lld-link accepts both spellings.
         if ! lld-link -subsystem:console -entry:mainCRTStartup "-machine:$(link_machine "$t")" "-out:$w/$name.exe" "$w/$name.obj" "$w/kernel32.lib" "$@" >"$w/$name.link.log" 2>&1; then
           echo "FAIL $name [$t]: lld-link failed"
           { grep -o 'undefined symbol: [A-Za-z_][A-Za-z0-9_]*' "$w/$name.link.log" || true; } | sed 's/^/    /' | sort -u
           sed 's/^/    /' "$w/$name.link.log" | head -5
           return 1
         fi
-        # The PE says which machine it is for. A module that assembled
-        # for the other architecture would already have failed to link
-        # against this machine's import library; this reads the answer
-        # back rather than inferring it from a link that succeeded.
-        # `grep` without `-q`: under `pipefail`, `-q` exiting on the
-        # first match can turn the reader's SIGPIPE into a failed test
-        # (check-release-targets.sh records the day it did).
+        # Read the PE's machine type back instead of inferring it from a
+        # successful link. `grep` without `-q`: under `pipefail`, `-q`
+        # exits on the first match and the reader's SIGPIPE can fail the
+        # pipeline.
         if ! llvm-readobj --file-headers "$w/$name.exe" | grep "Machine: $(pe_machine "$t")" >/dev/null; then
           echo "FAIL $name [$t]: $name.exe is not a $(pe_machine "$t") image: $(llvm-readobj --file-headers "$w/$name.exe" | grep -m1 'Machine:' | tr -s ' ')"
           return 1

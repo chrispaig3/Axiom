@@ -1,97 +1,52 @@
 #!/usr/bin/env bash
 #
-# How much STACK the compiler needs to check the largest Axiom program
-# there is, as a number, bisected and reported.
+# Measures how much stack the compiler needs to check the largest Axiom
+# program in the tree, `self_host/main.ax`, by bisection.
 #
-# WHY THIS EXISTS. When this gate was written, a `let` body was not a
-# tail position for the SELF tail call rewrite (codegen.ax's
-# `tailCallsSelf`), so the shape
+# The frames-per-entry hazard: recursion that costs one stack frame per
+# table entry or per source byte. It crashes with SIGSEGV inside whatever
+# is being compiled, far from the walk that caused it. The self and mutual
+# tail-call rewrites (`scripts/check-tail-calls.sh`) remove most of it,
+# including a tail call in a `let` body. Three shapes still cost a frame
+# per iteration: a combining step that runs after the call, a mutual call
+# across arities, and a call handing over an owned temporary
+# (docs/memory-model.md MM-EXEC-6c).
 #
-#     (let ((e (vecGet v i))) (if ... e (recur ...)))
+# This gate turns that whole class into one number that regresses
+# visibly, for a handful of sub-second runs. It asserts:
+#   * The minimum stack at which `check self_host/main.ax` succeeds is
+#     under a ceiling. It is printed either way, so growth shows in the
+#     log before it fails.
+#   * At half that minimum the process dies by a signal, not just a
+#     non-zero exit. A run that failed for an unrelated reason would
+#     otherwise look like one that ran out of stack, and any number would
+#     pass.
+#   * The successful run prints `OK`. A compiler that exits 0 having done
+#     nothing needs very little stack.
 #
-# cost one real stack frame per loop iteration. `typecheck.ax` is
-# written almost entirely in that shape and contains no `while` at all,
-# so a dozen of its table walks were one frame per table entry. That
-# produced three separate SIGSEGVs in this repository's history, each
-# presenting as a crash in whatever was being compiled rather than in
-# the walk: `memCopyFrom` on a few hundred KB, `lookupByIdx` 25 frames
-# deep in stage2, and `scanAxtagsFrom` one frame per source byte.
+# The figure comes from exit statuses, not from a golden file, so there
+# is nothing to re-bless.
 #
-# A `let` body IS a tail position since 2026-08-22, and a MUTUAL tail
-# call of matching prototype is a `musttail` since 2026-09-03
-# (`scripts/check-tail-calls.sh`); this header said otherwise for
-# twelve days, which is why the sentence above is now in the past
-# tense. What still costs a frame per iteration is what neither
-# rewrite reaches: a recursion whose combining step runs AFTER the
-# call, a mutual call across arities, and a call handing over an
-# owned temporary (docs/memory-model.md MM-EXEC-6c).
-#
-# Nothing measured it. The alternative to this gate was converting every
-# such walk to a `while` - a large diff across the most
-# correctness-critical file in the tree, competing for the same lines as
-# real work, to buy headroom nobody had priced. Measured first instead:
-# `check self_host/main.ax` needs about 224 KiB against an 8 MiB
-# default, which is roughly 36x headroom. The conversions are not
-# urgent; knowing when that stops being true is.
-#
-# So this gate turns the whole frames-per-entry class into ONE number
-# that regresses visibly, and costs a handful of sub-second runs.
-#
-# WHAT IT ASSERTS.
-#   * The minimum stack at which `check self_host/main.ax` succeeds,
-#     found by bisection, is under a ceiling. Reported either way, so a
-#     change that doubles it is visible in the log before it is a
-#     failure.
-#   * At half that minimum the process must die by SIGNAL - exit 139,
-#     not merely non-zero. Without this half the bisection could report
-#     any number at all and the ceiling would still pass: a run that
-#     failed for an unrelated reason looks identical to one that ran out
-#     of stack. This is the repository's standing rule that an assertion
-#     about the PROCESS beats one about its output.
-#   * The successful run must print `OK`. A compiler that exits 0 having
-#     done nothing needs very little stack.
-#
-# NOT A DIFFERENTIAL, and it does not need to be: the quantity is the
-# compiler's own resource use, and the assertion is derived from the
-# process's exit status rather than from any output a re-bless could
-# rewrite.
-#
-# THE STATIC HALF OF THE SAME QUESTION is `;@axiom:restrict(no-recursion)`
-# (docs/reference.md, AXTAG Keys; scripts/check-restrictions.sh): a
-# declaration under it may reach no cycle in the call graph, which is
-# the property that makes a region's stack need bounded by its depth
-# rather than by its input. This gate measures the compiler's need
-# dynamically because the compiler is written in the recursive shape
-# above and claims no such restriction; a region that does claim one
-# is refused at `check` time with the cycle rendered.
-#
-# That last clause used to end "and needs no measuring", which is now
-# half true and was always the less useful half. Such a region needs no
-# BISECTION, because its need can be COMPUTED: `scripts/check-stack-bound.sh`
-# sums frame sizes along the longest path of the acyclic call graph and
-# reports "this binary needs at most N bytes". The two gates are a pair
-# and do not overlap - this one measures what recursion costs a program
-# that has it, that one computes what a program without it needs, and
-# each covers exactly the case the other cannot.
+# `;@axiom:restrict(no-recursion)` is the static half
+# (docs/restricted-profile.md, scripts/check-restrictions.sh). A
+# declaration under it reaches no cycle in the call graph, so
+# `scripts/check-stack-bound.sh` can compute its stack need from frame
+# sizes. The compiler recurses and claims no such restriction, so this
+# gate measures it instead.
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
 gate_init
 
-# The ceiling is deliberately loose. The measured need on darwin-aarch64
-# is ~224 KiB; a ceiling of 1 MiB still catches a regression that makes
-# the requirement grow with program size - which is the failure this
-# exists for - while leaving room for another platform's frame layout
-# and another toolchain's spilling decisions. A tight ceiling here would
-# be a gate about the host, not about the compiler.
+# The ceiling is loose. It still catches a need that grows with program
+# size, and leaves room for other platforms' frame layouts and other
+# toolchains' spilling. A tight ceiling would fail on host differences.
 ceiling_kib=1024
 subject="self_host/main.ax"
 
-# Measure a compiler built from the CURRENT sources, not whichever binary
-# happens to be installed: the property is about the code in this tree,
-# and `$AXIOM` here is only the builder - the same division of labour the
-# other `*-selfhost` gates use, and the reason pointing `AXIOM=` at an
-# old binary does not ablate any of them.
+# Measure a compiler built from the current sources. `$AXIOM` is only the
+# builder, as in the other `*-selfhost` gates, so pointing it at an old
+# binary does not change what is measured.
 if ! gate_build_tree "$axiom" "$repo_root" "$AXIOM_STDLIB" "$work/stage1" \
        --opt 1 >"$work/build.log" 2>&1; then
   echo "FAIL: could not build a compiler from self_host/" >&2
@@ -147,8 +102,8 @@ if (( need > ceiling_kib )); then
   exit 1
 fi
 
-# The other half: at half the requirement it must die by SIGNAL. Without
-# this the bisection above could report anything and still pass.
+# The other half: at half the requirement it must die by a signal.
+# Without this, the bisection above could report anything and still pass.
 half=$(( need / 2 ))
 (( half < 8 )) && half=8
 r="$(run_at "$half")"

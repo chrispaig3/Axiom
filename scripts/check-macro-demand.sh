@@ -1,37 +1,27 @@
 #!/usr/bin/env bash
-# Generated-name demand: the measurement that re-opens MAC-TOOL-3.
+# Generated-name demand: the measurement that would re-open MAC-TOOL-3.
 #
-# WHAT STANDS. `docs/macro-system.md` MAC-TOOL-3 (H, 2026-08-15): editor
-# requests read the raw parse tree and expand nothing, because expansion
-# is bounded but not free (MAC-EXP-10: 41.4 s on a fan-out probe) and an
-# editor cannot wait. The visible consequence is that a name only the
-# expansion knows - `tagColour` from `(deriveTag Colour)`, `w1` from a
-# declaration macro - goes unanswered: definition and hover are null,
-# references are empty, completion does not offer it.
+# `docs/macro-system.md` MAC-TOOL-3 (H): editor requests read the raw
+# parse tree and expand nothing, because expansion is bounded but not
+# free (MAC-EXP-10). A name only the expansion knows, such as `tagColour`
+# from `(deriveTag Colour)`, is answered by `definition`, `declaration`,
+# `hover` and `references` from a cache filled at `didOpen`. Completion
+# does not offer it.
 #
-# WHAT RE-OPENS IT. Roadmap item 08: measurement of how often generated
-# names are wanted. Two numbers, both pinned here:
+# Roadmap item 08 asks how often generated names are wanted. This gate
+# pins two numbers:
 #
-#   population  every `#generated=` AXSYM row over the corpus that can
-#               carry one - 130 today, all in tests/selfhost's decl-macro
-#               family plus one frontend case, none in stdlib or the
-#               compiler itself. The surface that could want locating.
-#               130 since tests/selfhost/1008-macro-query-order.ax: its
-#               `eqMode` is generated to test expansion ORDER, which is
-#               not a user wanting a generated name located, so
-#               MAC-TOOL-3 stands.
-#   demand      requests in tests/lsp/drive.py targeting a generated
-#               name - 4 today (definition, declaration and hover
-#               answered from the cache, references seeing the
-#               invocation then the use site, on the generated
-#               `tagShape` call), each asserting the cached shape
-#               inline. The want, answered without moving expansion.
+#   population  `#generated=` AXSYM rows over the corpus and a probe
+#               importing all of stdlib. At the pin, every row comes
+#               from a test fixture, none from stdlib or the compiler.
+#   demand      requests in tests/lsp/drive.py tagged
+#               `MAC-TOOL-3-demand`. They target the generated
+#               `tagShape` call and assert the cached answer inline.
 #
-# A pin, not a ceiling: if either number moves, this gate fails and the
-# conversation is whether MAC-TOOL-3 still holds - a new decl-macro user
-# in stdlib, or expansion starting to answer, is exactly the evidence
-# the decision was waiting for. The threshold is therefore movement
-# itself, reviewed in the diff rather than tuned in the gate.
+# Either number moving fails the gate. Then review whether MAC-TOOL-3
+# still holds: a decl-macro user in stdlib, or a request that needs
+# expansion, is the evidence it waits for. Re-bless by updating
+# WANT_POPULATION or WANT_DEMAND in the same diff.
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
@@ -54,10 +44,9 @@ for src in tests/selfhost/*.ax tests/frontend/*.ax self_host/main.ax; do
   n="$("$axc" --diagnostic-format=ai symbols "$src" 2>/dev/null | grep -c '#generated=' || true)"
   population=$((population + n))
 done
-# The stdlib side: one probe importing every module, so the stream is
-# the whole library's (the shape scripts/check-agent-policy.sh uses).
-# A file-by-file sweep here would resolve each module standalone and
-# miss what only the merged namespace shows.
+# The stdlib side: one probe importing every module, as
+# scripts/check-agent-policy.sh does. A file-by-file sweep would resolve
+# each module alone and miss what only the merged namespace shows.
 : > "$work/modfiles"
 for f in stdlib/*.ax stdlib/*/*.ax; do
   [[ -e "$f" ]] || continue
@@ -77,8 +66,8 @@ swept=$((swept + 1))
 n="$("$axc" --diagnostic-format=ai symbols "$work/probe.ax" 2>/dev/null | grep -c '#generated=' || true)"
 population=$((population + n))
 
-# A sweep that reads fewer files than it should reports the population
-# it was looking for. 197 corpus files plus the stdlib probe today.
+# A floor on files swept, so a glob that stops matching fails here and
+# not as a population change.
 if (( swept < 150 )); then
   fail "swept $swept file(s), floor is 150 - the corpus shrank or a glob stopped matching"
 else
@@ -92,9 +81,8 @@ fi
 
 echo
 echo "== demand: requests targeting a generated name =="
-# The behaviour itself is pinned inline in drive.py (each asserts the
-# cached shape); what is pinned here is that the probes still exist.
-# A demand probe deleted quietly is demand measured quietly.
+# drive.py asserts each answer. This counts the probes, so deleting one
+# fails here.
 demand="$(grep -c 'MAC-TOOL-3-demand' tests/lsp/drive.py || true)"
 if (( demand == WANT_DEMAND )); then
   ok "demand is $demand generated-name requests in drive.py, as pinned"
@@ -104,9 +92,8 @@ fi
 
 echo
 echo "== the pin refuses a doctored count =="
-# A pin that accepts everything is the vacuous check this repository
-# finds most often: the comparison below is the whole gate, so the
-# probe exercises it directly.
+# Negative probes: a doctored count must be refused, or the pins
+# above could never fail.
 if (( 116 == WANT_POPULATION )); then
   fail "probe: a population of 116 against a pin of $WANT_POPULATION was accepted - the comparison cannot fail"
 else

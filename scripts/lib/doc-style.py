@@ -102,8 +102,8 @@ def anchors_of(text):
 
 # ---------------------------------------------------------- the gates
 
-# The same patterns `scripts/check-doc-drift.sh` uses. Kept in step by
-# hand; if that gate changes one, change it here.
+# The same patterns `scripts/check-doc-drift.sh` uses, kept in step by
+# hand: if that gate changes one, change it here.
 EXT = (r'axbad|axp|ax|py|sh|out|golden|axdl|human|json|in|allow|axir|bad|err|'
        r'exit|hist|lines|markers|mir|optstable|pending|policy|repl|session')
 TESTS_PATH = re.compile(r'tests/[\w./-]+\.(?:' + EXT + r')(?![\w])')
@@ -157,7 +157,7 @@ STOCK = [
     r'\bcomprehensive\b', r'\bfriendly guide\b', r"\byou're in the right place\b",
     r'\bwalk you through\b', r'\beverything you need to know\b', r'\bIt is worth noting\b',
     r'\bNote that\b', r'\bIn other words\b', r'\bIt should be noted\b',
-    # Defensive emphasis this project's docs used to lean on.
+    # Defensive emphasis.
     r'\bdeliberately\b', r'\bon purpose\b', r'\bnot an afterthought\b', r'\bthe whole point\b',
     r'\bstated here\b', r'\bsaid out loud\b', r'\bnamed rather than\b', r'\brather than left\b',
     r'\bthe one copy\b', r'\bload-bearing\b', r'\bin those words\b', r'\bhonest(?:ly)?\b',

@@ -263,7 +263,7 @@ class Corpus:
 # ---------------------------------------------------------------------
 # The mutations. Each takes (rng, text, corpus) and answers
 # (new_text, description) or None when it does not apply to this text
-# (no string literal to edit, say) - the caller then draws another.
+# (no string literal to edit, say); the caller then draws another.
 
 EDGE_INTS = [
     "0", "-0", "1", "-1", "2", "7", "8", "15", "16", "63", "64", "255", "256",
@@ -636,10 +636,9 @@ def cmd_diff(args, pos):
 
 
 CODE_RE = re.compile(r"AX[0-9]{4}\Z")
-# `renderFailTrailer` (self_host/render.ax): printed after a failed
-# compilation "in every format", stage0's behaviour, so it is part of
-# the JSON-mode contract rather than a stray line - but only as the
-# LAST line, and only spelled exactly so.
+# `renderFailTrailer` (self_host/render.ax) prints this after a failed
+# compilation in every format, so the JSON-mode contract allows it, but
+# only as the last line and only spelled exactly so.
 TRAILER_RE = re.compile(r"compilation failed due to [0-9]+ previous errors?\Z")
 
 
@@ -745,11 +744,11 @@ def cmd_json(pos):
     return 1 if bad else 0
 
 
-# One SGR colour sequence - the only escape the human renderer writes.
-# Its parameters must be one of self_host/style.ax's palette entries
-# (the render gate's check 5 reads the same table), or `0`, the reset:
-# a source file that smuggles `ESC [ 31 m` into a quoted line writes a
-# sequence of exactly this SHAPE, so the shape alone would excuse it.
+# One SGR colour sequence, the only escape the human renderer writes.
+# Its parameters must be a palette entry in self_host/style.ax (the
+# render gate's check 5 reads the same table) or `0`, the reset. The
+# shape alone would excuse a source file that smuggles `ESC [ 31 m`
+# into a quoted line.
 SGR_RE = re.compile(rb"\x1b\[([0-9;]*)m")
 
 
@@ -806,14 +805,11 @@ def cmd_human(pos):
     return 1 if bad else 0
 
 
-# A corpus that is not the tree, and the digest of 200 mutants of it at
-# seed 1. The tree's own mutants move with every edit to any `.ax`, so
-# no digest of them can be pinned; this one can, and pinning it is what
-# makes "the same seed gives the same mutants on every host" a CHECK on
-# each CI leg rather than a property asserted by one host about itself.
-# A deliberate change to the mutations changes it: re-run
-# `fuzz.py selftest`, read the digest it reports, and update this line
-# in the same commit.
+# A fixed corpus and the digest of 200 mutants of it at seed 1. The
+# tree's own mutants move with every `.ax` edit, so only this digest can
+# be pinned, and every CI leg checks it: same seed, same mutants. A
+# change to the mutations changes it: run `fuzz.py selftest` and copy
+# the digest it reports into PINNED_DIGEST in the same commit.
 PINNED_CORPUS = {
     "a.ax": '(import IO)\n\n(:: main Int)\n;@axiom:effect(io)\n(fn (main)\n'
             '  {\n    (println "hi \\n")\n    (let ((x 42) (y -7)) (+ x y))\n  })\n',

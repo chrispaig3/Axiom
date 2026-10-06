@@ -1,55 +1,37 @@
 #!/usr/bin/env bash
 # Structural coverage of the compiler's object code over its own test
-# corpora: the measurement qualification asks for and this repository
-# did not have. A MEASUREMENT, not a gate - like
+# corpora, as qualification asks for. This is a measurement: like
 # `measure-memory-baseline.sh`, it reports a number and fails only when
-# the instrument itself is broken.
+# the instrument itself is broken. `--quick` takes every fifth file.
 #
 #   scripts/measure-coverage.sh [--json PATH] [--quick]
 #
-# HOW. The compiler under test is rebuilt from `self_host/main.ax`
-# through the driver's own pipeline - `emit-llvm`, `opt -O1`, `llc -O1
-# -relocation-model=pic`, `cc` - with one pass added after `opt`:
-# SanitizerCoverage, one 8-bit counter per basic block with pruning OFF
-# (`-sanitizer-coverage-prune-blocks=0`), plus a table of block
-# addresses. `scripts/lib/axcov.c` is linked in: at start-up it moves
-# the counters' pages onto a file-backed shared mapping, so a run that
-# ends in a trap's raw `exit` syscall - which no destructor sees - is
-# recorded like one that returns, and a forked `parallel` child's
-# blocks land in the same file as its parent's. `scripts/lib/coverage.py`
-# ORs the runs and attributes each block to a function by symbol.
+# The compiler is rebuilt through the driver's own pipeline with
+# SanitizerCoverage added after `opt`: one 8-bit counter per basic
+# block, pruning off, plus a table of block addresses.
+# `scripts/lib/axcov.c` moves the counters onto a file-backed shared
+# mapping at start-up, so a run ending in a trap's raw `exit` syscall,
+# which no destructor sees, is still recorded, and a forked `parallel`
+# child shares its parent's file. `scripts/lib/coverage.py` merges runs
+# and attributes blocks to functions by symbol.
 #
-# THE CORPORA RUN, from the repository root: `check` over every
-# tests/diagnostics fixture (the front end and the diagnostics),
-# `emit-llvm` over tests/stdlib and tests/selfhost (the back end),
-# `emit-llvm self_host/main.ax` (the self-compile), `fmt --check` over
-# tests/fmt, `symbols --calls` and `explain` (the tools). `--quick` takes
-# every fifth file of each corpus.
+# Before reporting, it checks the instrument: (1) counters leave the
+# emitted IR byte-identical; (2) the backtracer is entered in a program
+# that divides by zero and not in a clean one; (3) every run leaves
+# both a counter and a metadata file, since a run that dies during
+# start-up leaves one without the other; (4) a branch on the argument
+# count reads one outcome, then both after a second run.
 #
-# THE INSTRUMENT IS CHECKED BEFORE IT IS BELIEVED:
-#   1. the instrumented compiler emits byte-identical IR to the plain
-#      one on a sample of inputs - the counters changed nothing it does;
-#   2. two small programs through the same pipeline: the backtracer is
-#      entered in the one that divides by zero and not in the one that
-#      does not - hits are recorded, trap paths included, and they are
-#      not recorded everywhere;
-#   3. every run left a counter file and a metadata file (a run that
-#      died before start-up finished would leave one without the other);
-#   4. a program branching on its argument count reads its decision as
-#      one outcome of two after a run with no argument, and both after a
-#      second run with one.
+# It reports block coverage at --opt 1 and decision coverage of the
+# same code. Each branch and switch outcome has its own counter, because
+# level 3 splits critical edges first (`coverage.py decisions`).
 #
-# WHAT THE NUMBERS ARE: block coverage of the object code at --opt 1 over
-# the inputs run, and decision coverage of the same object code - every
-# conditional branch and switch of the instrumented IR, each outcome a
-# counter of its own because level 3 splits critical edges first
-# (`coverage.py decisions`). Not MC/DC: a decision's conditions are the
-# source's, and below the front end nothing keeps them. A block LLVM deleted
-# is in neither the numerator nor the denominator. SanitizerCoverage
-# does not instrument a function whose entry block ends in
-# `unreachable` - the single-block trap exits - so those are reached
-# only through their callers' blocks. Blocks are attributed by symbol,
-# so code LLVM inlined is counted in the function it was inlined into.
+# Limits. This is not MC/DC: a decision's conditions are the source's,
+# and nothing below the front end keeps them. A block LLVM deleted is in
+# neither numerator nor denominator. SanitizerCoverage skips a function
+# whose entry block ends in `unreachable` (the single-block trap exits),
+# so those count only through their callers. Inlined code counts in the
+# function it was inlined into.
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
@@ -128,9 +110,9 @@ else
 fi
 
 # The decision half: a program that branches on its argument count.
-# Run with none, its first decision must read one outcome hit and one
-# not; run again with an argument, both. A decision report that could
-# not see an outcome missed would read 1 1 the first time.
+# Run with none, its first decision reads one outcome hit and one not;
+# run again with an argument, both. A report blind to a missed outcome
+# would read 1 1 the first time.
 printf '(import IO)\n\n(:: main Int)\n;@axiom:effect(io)\n(fn (main)\n  {\n    (if (> (__argc) 1)\n      (println "an argument")\n      (println "none"))\n    0\n  })\n' > "$work/arg.ax"
 if "$axc" emit-llvm "$work/arg.ax" -o "$work/arg.ll" >/dev/null 2>&1 && instrument "$work/arg.ll" "$work/arg" > /dev/null 2>&1; then
   mkdir -p "$work/c-arg"
@@ -156,10 +138,9 @@ d="$work/runs"
 mkdir -p "$d"
 nth() { if (( quick )); then awk 'NR % 5 == 1'; else cat; fi; }
 runs=0
-# One run of the instrumented compiler. Argument orders are the ones
-# the gates already use; `fmt` in particular is spelled `fmt FILE
-# --check`, because `fmt` without `--check` rewrites the file in place
-# and this loop runs over the repository.
+# One run of the instrumented compiler, with the argument orders the
+# gates use. `fmt` takes `--check`, because without it `fmt` rewrites
+# the file in place, and this loop runs over the repository.
 run_one() {  # run_one <mode> <file>
   case "$1" in
     check) "$cov" --diagnostic-format=ai check "$2" ;;

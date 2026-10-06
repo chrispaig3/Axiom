@@ -1,96 +1,49 @@
 #!/usr/bin/env bash
-# The REPL's history survives the process that wrote it, and two REPLs
-# at once do not eat each other's.
+# Check that the REPL's history survives the process that wrote it, and
+# that two REPLs at once do not lose each other's entries.
 #
-# WHY THIS GATE EXISTS SEPARATELY FROM THE FIXTURE. `tests/selfhost/
-# 979-repl-history.ax` already drives the codec, the ring, browsing and
-# reverse search - thirty-eight assertions, no terminal, no filesystem.
-# What it cannot do is tell a file that was WRITTEN from a ring that was
-# merely never dropped: everything it asserts is true of a build with
-# `sysAppendFile` deleted. That distinction needs two processes, and two
-# processes need a script.
+# `tests/selfhost/979-repl-history.ax` covers the codec, ring, browsing
+# and reverse search without a filesystem, and passes even with
+# `sysAppendFile` deleted. Telling a written file from a live ring needs
+# two processes.
 #
-# WHY IT CAN FAIL, which is the property this repository asks of a gate
-# before anything else. `self_host/replhist.ax` never asks whether a
-# terminal is present; `histOpen` takes `interactive` as an ordinary
-# Int. So this gate drives BOTH directions with ONE BINARY - the same
-# `write` probe, run twice, differing only in the Int it passes - and
-# asserts the file exists in one and does not exist in the other. A
-# module that called isatty itself would leave only the "no file"
-# direction reachable from a script, and "no file" is exactly what a
-# module that writes nothing at all produces. That is the vacuous shape
-# this repository refuses, and arm B is the assertion that closes it.
+# `histOpen` (self_host/replhist.ax) takes `interactive` as an Int and
+# never checks for a terminal itself. A module that called isatty would
+# show a script only the "no file" direction, which a module that writes
+# nothing also produces. So one `write` binary, run with each value, must
+# create the file once and not the other time, and arm B holds that.
 #
-# THE COMPILER. This gate builds its probes with `$axiom` rather than
-# with `gate_build_axc`, and the difference matters here in the other
-# direction from usual: the SUBJECT is `self_host/replhist.ax`, a leaf
-# module with no compiler in it, and every probe below is compiled from
-# the working tree on every run - so an ablation of the module is
-# visible whichever compiler reads it, which is what the four drills at
-# the bottom of this header confirm by measurement. `check-net.sh` is
-# the precedent for a gate that builds its probe with `$axiom`.
-# `gate_init` prints which compiler it resolved, so the choice is never
-# invisible.
+# The probes are built with `$axiom`, not `gate_build_axc`: the subject
+# is a leaf module with no compiler in it, compiled from the working
+# tree into every probe, so any compiler sees an edit to it.
+# `check-net.sh` does the same.
 #
-# THE FORMAT IS RE-DERIVED IN PYTHON, below, and never by calling the
-# module under test. A gate that decoded the file with `histDecode`
-# would agree with any format the module happened to write, including
-# one that lost a line break; the Python is the second opinion, and
-# `tests/repl/history/basic.hist` - a checked-in golden written by hand
-# from the format section of the module's header - is the third.
+# The format is decoded independently in Python, never with
+# `histDecode`, which would agree with any format the module wrote.
+# `tests/repl/history/basic.hist`, written by hand from the module's
+# format notes, is a third opinion.
 #
-# ABLATION DRILLS, run at introduction on 2026-08-31 against a copy of
-# the tree, each a single edit, with the exact failure recorded. A
-# drill that does not turn this gate red is a gate defect.
+# Ablation drills. Each single edit below, made to a copy of the tree,
+# must turn this gate red. A drill that does not is a gate defect.
 #
-#   1. Drop the TAB prefix in `histEncode`, so the file becomes one
-#      record per PHYSICAL line - the naive format this one exists to
-#      not be. 3 of 18 red:
-#        FAIL A2: the file does not match tests/repl/history/basic.hist
-#          (the diff shows the leading TABs gone from four lines)
-#        FAIL A3+A4+A5: the independent decoder disagrees with the format
-#            python decode found 11 entries, want 8
-#        FAIL A6: read.ax answered 4 of 14 checks
-#      - which is the brief's defect in its own words: eleven records
-#      where eight entries were recorded. `tests/selfhost/
-#      979-repl-history.ax` answers 31 of 38 against the same edit.
-#   2. Make `histOpen` ignore its `interactive` argument. 3 of 18 red -
-#      and note that arms A, C and D stay GREEN, which is the whole
-#      reason arm B exists:
-#        FAIL B2a: write answered 18 non-interactively, want 8
-#        FAIL B2b: a history file exists after a non-interactive session
-#        FAIL B3: the interactive flag did not decide whether a file appeared
-#   3. Make `histKeepLast` keep the OLDEST `cap` entries instead of the
-#      newest. The COUNT is still 1000, so only the by-value arm moves,
-#      1 of 18 red:
-#        FAIL C2: the compacted file is not what the cap promises
-#            the newest entry (bulk 1399) is not in the compacted file
-#            the oldest entry (bulk 0) is still in the compacted file
-#   4. Replace `sysAppendFile` with `sysWriteFile` in `histRecord` -
-#      the same bytes, without O_APPEND. 7 of 18 red, including:
-#        FAIL D2: concurrent appends lost or corrupted entries
-#            tag t1 wrote 200 entries, 0 survived   (t3: 1 survived)
-#        FAIL C1: compaction did NOT run - 1400 entries did not cross histMaxBytes
-#      Six processes and 1200 entries reduced to one line.
-#   5. Make `histClose` compact from THIS SESSION'S RING instead of
-#      from the file. Arms A, B, C and D2 all stay green - the file is
-#      never rewritten in any of them - and only D3 moves, 1 of 18 red:
-#        FAIL D3: a concurrent compaction corrupted or discarded history
-#            332 entries survived six concurrent compactions; the floor is 995
-#      (and, on another run, "tag c6 has no entries left at all"). This
-#      is the drill that says why D3 is a separate arm from D2.
+#   1. Drop the TAB prefix in `histEncode`, so each physical line is a
+#      record. A2, A3+A4+A5 and A6 fail: eleven records where eight
+#      entries were written.
+#   2. Make `histOpen` ignore `interactive`. B2a, B2b and B3 fail, while
+#      arms A, C and D stay green, which is why arm B exists.
+#   3. Make `histKeepLast` keep the oldest `cap` entries. The count is
+#      still 1000, so only C2, which checks entries by value, fails.
+#   4. Use `sysWriteFile` instead of `sysAppendFile` in `histRecord`:
+#      the same bytes without O_APPEND. Several arms fail, among them D2
+#      with entries lost and C1.
+#   5. Make `histClose` compact from the session's ring instead of from
+#      the file. Only D3 fails, which is why D3 is separate from D2.
 #
-# TWO MORE CLAIMS THE COMPILER ITSELF GATES, on every build rather than
-# in this script, probed the same way on 2026-08-31:
-#   * removing `;@axiom:effect(io)` from `histRecord` draws
-#     "error[AX3042]: `histRecord` performs IO and its declaration does
-#     not say so";
+# The compiler enforces two more claims on every build:
+#   * removing `;@axiom:effect(io)` from `histRecord` draws AX3042;
 #   * adding a `sysReadFile` inside `histEncode`, which claims
-#     `restrict(no-io)`, draws "error[AX3049]: `histEncode` claims
-#     `restrict(no-io)` and the body performs IO: histEncode ->
-#     Sys$sysReadFile -> Sys$sysCloseFd -> __syscall1".
-#   So the codec staying pure and the file layer saying what it does
-#   are refusals, not comments.
+#     `restrict(no-io)`, draws AX3049.
+# So the codec stays pure and the file layer declares its IO.
 #
 # Usage:
 #   scripts/check-repl-history.sh
@@ -121,10 +74,9 @@ for probe in write read bulk concurrent; do
 done
 ok "four probes built"
 
-# The Python decoder: the file format read back by something that is
-# not the module under test. Kept to the format's own rules and nothing
-# else - first line verbatim, a leading TAB continues the entry with
-# exactly one TAB removed, a blank line closes it.
+# The Python decoder reads the format by its own rules and nothing else:
+# the first line verbatim, a leading TAB continues the entry with exactly
+# one TAB removed, and a blank line closes it.
 decoder="$work/decode.py"
 cat > "$decoder" <<'PY'
 import sys
@@ -146,12 +98,12 @@ def decode(text):
 PY
 
 # ---------------------------------------------------------------
-# A. THE ROUND TRIP, ACROSS TWO PROCESSES.
+# A. The round trip, across two processes.
 #
-# `write` records ten entries (two of which must be refused), closes,
-# and exits `10*persist + entries`. The file is then compared with a
-# hand-written golden, decoded independently in Python, and finally
-# read back by a SECOND process that must find every entry.
+# `write` records ten entries, two of which must be refused, closes, and
+# exits `10*persist + entries`. The file is compared with a hand-written
+# golden, decoded independently in Python, and read back by a second
+# process that must find every entry.
 # ---------------------------------------------------------------
 echo "== A: an entry recorded by one process is there for the next =="
 a="$work/A"; mkdir -p "$a"
@@ -209,11 +161,11 @@ else
 fi
 
 # ---------------------------------------------------------------
-# B. THE OFF DIRECTIONS - both of them, with the same binary.
+# B. History that is off, both ways, with the same binary.
 #
-# B1 is `AXIOM_REPL_HISTORY=off`. B2 is the one that matters: the
-# environment is IDENTICAL to arm A's and only `interactive` changes,
-# so "no file" cannot be explained by "nothing was configured".
+# B1 sets `AXIOM_REPL_HISTORY=off`. B2 matters more: the environment is
+# identical to arm A's and only `interactive` changes, so "no file"
+# cannot be explained by "nothing was configured".
 # ---------------------------------------------------------------
 echo "== B: history that is off writes nothing, and it is off for a reason =="
 b="$work/B"; mkdir -p "$b"
@@ -244,9 +196,9 @@ else
 fi
 
 # The pairing. Arm A wrote a file into the same shape of directory with
-# the same variables set; the ONLY difference was the Int. Stated
-# separately so that a build in which nothing ever writes fails here
-# with a message about the pairing rather than passing B and A both.
+# the same variables set, and only the Int differed. It is checked
+# separately so a build that never writes fails with a message about the
+# pairing.
 if [[ -f "$hist" && "$found" == 0 ]]; then
   ok "B3: the same binary wrote a file with interactive=1 and none with 0"
 else
@@ -254,10 +206,10 @@ else
 fi
 
 # ---------------------------------------------------------------
-# C. THE CAP AND COMPACTION, BY VALUE.
+# C. The cap and compaction, by value.
 #
 # A count alone cannot tell a trim that kept the newest 1000 from one
-# that kept the oldest 1000, so this asks which entries are there.
+# that kept the oldest 1000, so this checks which entries are there.
 # ---------------------------------------------------------------
 echo "== C: the file is compacted to the cap, keeping the newest =="
 c="$work/C"; mkdir -p "$c"
@@ -296,13 +248,13 @@ else bad "C2: the compacted file is not what the cap promises"
 fi
 
 # ---------------------------------------------------------------
-# D. TWO REPLS AT ONCE.
+# D. Two REPLs at once.
 #
-# Six processes, 200 uniquely-tagged entries each, one file, no
-# compaction (1200 short entries stay well under histMaxBytes). The
-# assertion is PER PROCESS - each tag's own 200 entries - because
-# check-concurrent-run.sh's header records what an aggregate count
-# hides: one process reporting another's work, exit 0, empty stderr.
+# Six processes append 200 uniquely tagged entries each to one file.
+# 1200 short entries stay well under histMaxBytes, so nothing compacts.
+# The check is per process, each tag's own 200, because an aggregate
+# count hides one process reporting another's work (see
+# check-concurrent-run.sh).
 # ---------------------------------------------------------------
 echo "== D: six sessions appending to one file lose nothing =="
 d="$work/D"; mkdir -p "$d"
@@ -351,23 +303,18 @@ then ok "D2: all 1200 entries present, none garbled, none duplicated"
 else bad "D2: concurrent appends lost or corrupted entries"
 fi
 
-# D3: THE SAME SIX, BUT LARGE ENOUGH THAT EVERY ONE OF THEM COMPACTS.
-# 1200 entries of ~260 bytes is ~310 KB, over `histMaxBytes`, so every
-# process rewrites the file at close instead of only appending to it.
-# This is the riskiest path in the module and the one the brief asks
-# about, so it is measured rather than argued.
+# D3: the same six, with entries large enough that every process
+# compacts. 1200 entries of about 260 bytes exceed `histMaxBytes`, so
+# each process rewrites the file at close instead of only appending.
+# This is the module's riskiest path.
 #
-# WHAT IS ASSERTED, AND WHY IT IS NOT "EVERY ENTRY SURVIVES". Compaction
-# carries a documented one-syscall window - an append landing between
-# the size re-check and the rename is lost - so "all 1200" is not a
-# property this design HAS, and a gate asserting it would be a gate that
-# flakes. What IS guaranteed is that nothing is invented, nothing is
-# doubled, and no session's history is wholesale replaced by another's:
-# compaction rebuilds from the FILE, so a rewrite by c1 carries c2..c6
-# forward. The floor is 995 because the cap alone accounts for the drop
-# from 1200 to 1000, and anything below that is not the window - it is
-# a session's work being thrown away, which is the failure that must
-# not be silent.
+# Not every entry survives. Compaction has a documented one-syscall
+# window: an append landing between the size re-check and the rename is
+# lost, so requiring all 1200 would flake. What is guaranteed is that
+# nothing is invented, nothing is doubled, and no session's history is
+# replaced by another's, because compaction rebuilds from the file. The
+# cap accounts for the drop to 1000, and the floor of 995 allows for the
+# window. Anything lower means a session's work was thrown away.
 echo "== D3: ... and again, large enough that all six compact =="
 d3="$work/D3"; mkdir -p "$d3"
 d3hist="$d3/hist"
@@ -415,25 +362,23 @@ else bad "D3: a concurrent compaction corrupted or discarded history"
 fi
 
 # ---------------------------------------------------------------
-# E. THE STATIC FLOOR - two spellings that are bugs rather than style,
-# anchored at one named file so a rename shows up as a missing match.
+# E. Two spellings that are bugs, checked in one named file so a rename
+# shows up as a missing match.
 # ---------------------------------------------------------------
 echo "== E: the two spellings that are bugs are not in the module =="
 mod="$repo_root/self_host/replhist.ax"
 
-# CODE, NOT PROSE. `sed 's/;.*$//'` first, the same way
-# check-doc-drift.sh reads construction sites out of `self_host/*.ax`:
-# this module's header EXPLAINS both hazards below by name, and a sweep
-# that read the comments would refuse the file for documenting the bug
-# it does not have. Measured on this gate's first run - both refusals
-# fired, on their own explanations. Line numbers survive the strip
+# Search code, not comments. `sed 's/;.*$//'` strips them the way
+# check-doc-drift.sh reads construction sites in `self_host/*.ax`. The
+# module's header names both hazards, and a search that read comments
+# would refuse the file for documenting them. Line numbers survive,
 # because `sed` deletes the tail of a line and never the line.
 code="$work/replhist.code"
 sed 's/;.*$//' "$mod" > "$code"
 
-# `sysEnv`'s answer SHARES the environment block and is not
-# NUL-terminated (Sys.ax:912-915), so handing it to a syscall as a path
-# reads on into the next environment string.
+# `sysEnv`'s answer shares the environment block and is not
+# NUL-terminated, so passing it to a syscall as a path reads on into the
+# next environment string.
 if grep -nE '\((strData|strCStr) \(sysEnv' "$code" >/dev/null; then
   bad "E1: replhist.ax hands a raw sysEnv slice to a syscall"
   grep -nE '\((strData|strCStr) \(sysEnv' "$code" | sed 's/^/    /'
@@ -441,9 +386,9 @@ else
   ok "E1: no un-copied sysEnv value reaches a syscall"
 fi
 
-# `driver$fmtIntStr` renders 0, 1, 2, 3 and answers "1" for everything
-# else; using it for a pid is what made every REPL on one machine write
-# to one scratch name (repl.ax:752-766).
+# `driver$fmtIntStr` renders 0, 1, 2 and 3 and answers "1" for anything
+# else. Used for a pid, it gives every REPL on a machine the same
+# scratch name.
 if grep -n 'fmtIntStr' "$code" >/dev/null; then
   bad "E2: replhist.ax uses fmtIntStr, which renders only 0..3"
 else
@@ -455,10 +400,9 @@ else
   bad "E3: the compaction temp name no longer carries a fmtInt pid"
 fi
 
-# THE GREPS ARE PROVEN ABLE TO FIRE. Two patterns that must match
-# nothing are two patterns a typo would also make match nothing, and a
-# check that cannot fail is the defect this repository names most
-# often. So each is run against a planted line that it must find.
+# Prove the searches can fire. A pattern that must match nothing would
+# also match nothing after a typo, so each runs against a planted line
+# it must find.
 planted="$work/planted.ax"
 printf '%s\n' '(fn (x) (sysOpenPath (strCStr (sysEnv "HOME")) 0))' \
               '(fn (y) (fmtIntStr 7))' > "$planted"

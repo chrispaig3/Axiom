@@ -1,51 +1,43 @@
 #!/usr/bin/env bash
 # The runtime against an executable model of its own rules.
 #
-# `scripts/lib/runtime-model.py` is a second, independent statement of
-# what the allocator, the arena (mark/reset), lexical regions and the
-# block header's count word do - written from docs/memory-model.md
-# (MM-ALLOC-3/6/7a/8b/12/14, MM-LIFE-2b/2d/2e/2k/2l, MM-RGN-1/2/6), not
-# transliterated from the IR. It drives itself through fixed witness
-# traces and seeded random traces and writes each one out as an Axiom
-# program whose every step is followed by the model's prediction of
-# every observable word: the handle's offset and alignment, its count
-# and shape words, its payload, the bump pointer, the mark cell, and
-# after a reset the bytes the reset reclaimed. This gate compiles each
-# program with the compiler under test, runs it, and requires the
-# runtime to agree at every check. Its docstring states the invariants,
-# the scope and - at more length - the NON-scope.
-#
-# SIX SECTIONS.
+# `scripts/lib/runtime-model.py` restates what the allocator, the arena
+# (mark/reset), lexical regions and the block header's count word do. It
+# is written from docs/memory-model.md (MM-ALLOC-3/6/7a/8b/12/14,
+# MM-LIFE-2b/2d/2e/2k/2l, MM-RGN-1/2/6), not transliterated from the IR.
+# It writes fixed witness traces and seeded random traces as Axiom
+# programs, each step followed by the model's prediction of every
+# observable word. This gate compiles each program with the compiler under
+# test, runs it, and requires the runtime to agree at every check. The
+# model's docstring states the invariants, the scope and what is out of it.
 #
 #   1. The model alone: many seeds, every invariant after every step.
-#      Says nothing about the runtime; says the generator is valid.
-#   2. Every trace at --opt 0 and --opt 3 (all four under --long):
-#      stdout `0 0` (first failing check, failures) and the trace's exit
-#      status - 0, or for a terminal trace the trap's 70 and its sentence.
-#   3. The canary: a trace whose model is deliberately wrong at ONE
-#      check must report exactly that check and exactly one failure.
-#      Without it, "every check passed" could mean "no check can fail".
-#   4. The hand pipeline's control: the witness IR, emitted by the
-#      compiler under test and built by THIS script through the
-#      driver's own opt/llc/cc steps at -O1, must still pass - so the
-#      ablations in 5 are red because of what they change, not because
+#      This validates the generator, not the runtime.
+#   2. Every trace at --opt 0 and --opt 3 (all four under --long). Stdout
+#      must read `0 0` (first failing check, failure count). The exit
+#      status is 0, or 70 with the trap's sentence for a terminal trace
+#      such as the exhaustion boundary.
+#   3. The canary: a trace whose model is wrong at one check must report
+#      exactly that check and one failure. Without it, "every check
+#      passed" could mean "no check can fail".
+#   4. The hand pipeline's control: the witness IR, built by this script
+#      through the driver's opt/llc/cc steps at -O1, must still pass. So
+#      the ablations in 5 fail because of what they change, not because
 #      the hand pipeline differs from the driver's.
-#   5. Six mutation witnesses, each rewriting ONE rule in the emitted
-#      runtime and required to turn its witness trace red at a named
-#      check: `dead` (MM-LIFE-2k: a stray release decrements a filed
-#      block's link), `reset` (MM-LIFE-2e: no slab scrub), `scrub`
-#      (MM-ALLOC-6: no handout wipe), `region` (MM-RGN-1: a region's
-#      exit forgets its reset), `exhaust` (MM-LIFE-2l: no count-limit
-#      trap, so the count wraps), `classes` (MM-ALLOC-25: requests keep
-#      their exact size, so a block born above 1 KiB is off its class).
-#      `reset` goes red at the filed-bytes check first: the scrub it
-#      deletes is also what zeroes MM-ALLOC-24's count.
-#   6. The exhaustion boundary is a terminal trace in section 2.
+#   5. Six mutation witnesses. Each rewrites one rule in the emitted
+#      runtime and must turn its witness trace red at a named check:
+#      `dead` (MM-LIFE-2k: a stray release decrements a filed block's
+#      link), `reset` (MM-LIFE-2e: no slab scrub), `scrub` (MM-ALLOC-6:
+#      no handout wipe), `region` (MM-RGN-1: a region's exit forgets its
+#      reset), `exhaust` (MM-LIFE-2l: no count-limit trap, so the count
+#      wraps), `classes` (MM-ALLOC-25: requests keep their exact size, so
+#      a block born above 1 KiB is off its class). `reset` fails first at
+#      the filed-bytes check, because the scrub it deletes also zeroes
+#      MM-ALLOC-24's count.
 #
-# LIMITS, stated here because a green gate invites reading more into it:
-# agreement on the traces run, at the levels run, on this host; one
-# thread, one chunk, leaf blocks, valid marks. The model is not a proof
-# of the runtime and the runtime passing is not a proof of the model.
+# Limits: agreement on the traces run, at the levels run, on this host;
+# one thread, one chunk, leaf blocks, valid marks. Neither the model nor
+# the runtime proves the other.
 #
 # Usage: check-runtime-model.sh [--long] [--seeds S,S,...]
 set -uo pipefail
@@ -98,7 +90,7 @@ if ! summary="$(python3 "$model" "${gen_args[@]}" 2>&1)"; then
 fi
 echo "   $summary"
 
-# name expect_exit expect_stderr canary_check, one row per trace
+# name expect_exit canary_check expect_stderr, one row per trace
 python3 - "$traces/manifest.json" > "$work/rows" <<'PY'
 import json, sys
 for r in json.load(open(sys.argv[1])):
@@ -190,7 +182,7 @@ done
 
 # ---------------------------------------------------------------------
 echo "== 5. mutation witnesses: each ablated rule turns its trace red =="
-# <kind> <the label prefix of the FIRST check that must disagree>
+# <kind> <the label prefix of the first check that must disagree>
 while read -r kind expect; do
   expect="${expect//_/ }"
   if ! python3 "$model" ablate "$kind" "$work/$kind.ll" "$work/$kind.ablated.ll" > "$work/$kind.ablate" 2>&1; then

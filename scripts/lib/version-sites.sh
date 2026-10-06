@@ -1,63 +1,42 @@
-# Every place in the tree that states the version, with the pattern that
-# reads it AND the rewrite that moves it.
+# Every place in the tree that states the version, with the reader that
+# extracts it and the writer that rewrites it.
 #
-# WHY THIS FILE EXISTS. `check-version.sh` already knew every site and
-# how to read each one - that is the hard half, and it was the only half
-# automated. Bumping was one hand edit per site across four file
-# formats, which is exactly the shape that produces a release where two
-# of them are missed and the gate catches it after the tag is cut.
+# `check-version.sh` and `bump-version.sh` both source this file, so the
+# check and the bump share one list. A second copy would drift silently:
+# the bump would rewrite one set of sites and the gate would check another.
 #
-# THE COUNT IS NOT WRITTEN DOWN HERE, deliberately. `VERSION_SITES`
-# below IS the count, `check-version.sh` prints the totals it derives
-# from this table on every run, and a number restated in prose beside a
-# list is a second copy of the list with no gate on it - which is the
-# failure this file exists to prevent, one level up. It was already
-# wrong when this paragraph said seventeen.
+# The number of sites isn't written here. `VERSION_SITES` is the count,
+# and `check-version.sh` prints the totals on every run. A number in prose
+# would be a copy of the list with no gate on it.
 #
-# The list lives HERE, once, and both the gate and `bump-version.sh`
-# source it. A copy in the bump script would be a second list to keep in
-# step with the first, and the failure mode of that is silent: the bump
-# rewrites sixteen sites, the gate checks seventeen, and the number they
-# disagree about is the one nobody edited.
-#
-# EVERY EXTRACTOR HAS A REPLACER WITH THE SAME SHAPE. They are written as
-# a pair on purpose: a replacer whose pattern is looser than its
-# extractor's rewrites text the gate is not looking at, and one that is
-# tighter leaves a site behind. Keep the two in step, and when you add a
-# site add both halves.
+# Every reader has a writer with the same pattern. A looser writer
+# rewrites text the gate isn't reading, and a tighter one leaves a site
+# behind. When you add a site, add both halves.
 
 # --- readers: print every version the file states, one per line -------
 ax_version()   { grep -oE 'Axiom [0-9]+\.[0-9]+\.[0-9]+ (\(build|- REPL)' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'; }
 axv_version()  { grep -A1 -F '(pub fn (axiomVersion)' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'; }
-# No `-o` on the first grep: GNU grep drops `-A` context under `-o`
-# while BSD keeps it, so the version on the next line was invisible
-# on Linux (measured 2026-09-19: check-version failed every Tests
-# leg there while green here). `-A1 -F` reads identically on both.
+# No `-o` on the first grep: GNU grep drops `-A` context under `-o` and
+# BSD keeps it, so the next-line version would vanish on Linux.
+# `-A1 -F` behaves the same on both.
 lsp_version()  { grep -oE '"version" \(jsonStr "[0-9]+\.[0-9]+\.[0-9]+"\)' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'; }
 toml_version() { grep -oE '^version = "[0-9]+\.[0-9]+\.[0-9]+"|version = "[0-9]+\.[0-9]+\.[0-9]+" }' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'; }
 json_version() { grep -oE '"version": "[0-9]+\.[0-9]+\.[0-9]+"' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'; }
-# The language server's `serverInfo` as it appears in a CHECKED-IN LSP
+# The language server's `serverInfo` as it appears in a checked-in LSP
 # transcript: no space after the colon, unlike the manifests above.
 lspg_version() { grep -oE '"version":"[0-9]+\.[0-9]+\.[0-9]+"' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'; }
-# `SECURITY.md`'s supported-release line. A security policy naming a
-# version nothing holds to `VERSION` is a policy that goes stale
-# silently, which is the one failure mode a security document cannot
-# afford - so the sentence is a site like any other.
+# `SECURITY.md`'s supported-release line. A security policy must not go
+# stale silently, so the sentence is a site like any other.
 sec_version()  { grep -oE 'The supported release is \*\*[0-9]+\.[0-9]+\.[0-9]+\*\*' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'; }
 
-# A `Cargo.lock`'s entry for a workspace member, which is a site's
-# OUTPUT the way `tree-sitter-axiom/src/parser.c` is: cargo derives it
-# from `rust/Cargo.toml`, and a bump that moves the manifest and not the
-# lock leaves the two disagreeing until the next `cargo build` quietly
-# fixes it. 0.3.1 shipped with both lockfiles still reading 0.3.0, and
-# what found it was a gate battery running `cargo test` - not a check.
+# A `Cargo.lock` entry for a workspace member. Cargo derives it from
+# `rust/Cargo.toml`, but a bump that moves the manifest and not the lock
+# leaves the two disagreeing until the next `cargo build`.
 #
-# TWO PACKAGES ARE EXCLUDED BY NAME. `axiom-leaky` and `axiom-nostd` are
-# example crates carrying their own `0.1.0`, deliberately, and naming
-# them here is what makes that choice visible - the same argument
-# `check-stdlib-api.sh` gives for naming its module list rather than
-# globbing it. A third-party package's version is never read: the awk
-# only prints a version that FOLLOWS an `axiom-` name line.
+# `axiom-leaky` and `axiom-nostd` are example crates with their own
+# `0.1.0`, so they are excluded by name, which keeps that choice visible.
+# Third-party versions are never read: the awk prints only a version that
+# follows an `axiom-` name line.
 lock_version()  {
   awk '/^name = "axiom-/ { n = $3; gsub(/"/, "", n); next }
        /^version = "/ {
@@ -68,25 +47,16 @@ lock_version()  {
        }'
 }
 
-# THE WEBSITE IS A VERSION SITE, and it went stale the first time it
-# could. `web/src/data/site.ts` holds the version the page shows as its
-# kicker and `web/src/data/bench.ts` labels the benchmark row with the
-# compiler that produced it - and 0.6.2 shipped with both still reading
-# 0.6.1, because `web/scripts/check-claims.mjs` guards the four DERIVED
-# counts (`.ax` files, lines, codes, gates) and nothing guarded the one
-# number that is not derived from the tree.
-#
-# A benchmark labelled with the wrong compiler is the worse of the two:
-# the counts are re-derived on every deploy and cannot lie, but a row
-# saying "Axiom 0.6.1" beside a number measured on 0.6.2 is a claim
-# about a build nobody ran.
+# `web/src/data/site.ts` holds the version the page shows as its kicker.
+# `web/scripts/check-claims.mjs` guards the counts derived from the tree,
+# but not this number, so it is a site here.
 web_version()  { grep -oE "'[0-9]+[.][0-9]+[.][0-9]+'" | grep -oE '[0-9]+[.][0-9]+[.][0-9]+'; }
 
 # --- writers: rewrite this file's versions to $2 ----------------------
 #
-# `sed` to a temp file and move it, rather than `-i`: BSD `sed` needs an
-# argument to `-i` and GNU `sed` refuses one, and this repository's gates
-# run on both.
+# `sed` to a temp file and copy it back, rather than `-i`: BSD `sed`
+# needs an argument to `-i`, GNU `sed` refuses one, and the gates run on
+# both.
 _rewrite() { # _rewrite <file> <sed-expr>
   local f="$1" e="$2" t
   t="$(mktemp)"
@@ -123,19 +93,14 @@ toml_replace() {
   _rewrite "$1" "s/(version = \")[0-9]+\.[0-9]+\.[0-9]+(\" \})/\1$2\2/g"
 }
 
-# `web/package-lock.json` states the site's own version TWICE - once at
-# the top level and once as the `""` entry under `packages` - and then
-# states a `"version"` for every dependency it locks, which is why
-# `json_version` cannot read it: that extractor would answer with three
-# hundred npm packages' versions. It anchors on the site's own name and
-# takes only the version that FOLLOWS it, exactly as `lock_version`
-# does for the Cargo locks and for the same reason.
+# `web/package-lock.json` states the site's own version twice, at the top
+# level and in the `""` entry under `packages`, then a `"version"` for
+# every locked dependency. `json_version` would read them all, so this
+# anchors on the site's name and takes only the version that follows it,
+# as `lock_version` does.
 #
-# THE LOCK IS A SITE'S OUTPUT, not a site somebody edits. `npm install`
-# rewrites it from `web/package.json`. That is the trap both Cargo locks
-# fell into - they shipped a release still stating the version before
-# it, because nothing read them - and it is why the lock is listed here
-# beside the manifest rather than left to npm to keep in step.
+# `npm install` rewrites the lock from `web/package.json`, but it is
+# listed beside the manifest so that a bump can't leave it behind.
 npmlock_version() {
   awk '/"name": "axiom-site"/ { n = 1; next }
        n && /"version": "/ {
@@ -159,48 +124,28 @@ npmlock_replace() {
   rm -f "$t"
 }
 
-# <file>|<expected-count>|<reader>|<writer>
-#
-# THE LSP GOLDENS ARE SITES. Each pins the server's `serverInfo.version`,
-# so every release moved eight checked-in transcripts by hand.
-# `check-driver.sh` already cross-checks those goldens against the built
-# binary and caught the miss when 0.3.0 was cut - which is the gate
-# working, and also eight files the bump did not know about. Listing
-# them here is what makes the bump and the check agree about them.
-#
-# The count is a COUNT and not a floor, and `check-version.sh`'s header
-# records why: `rust/Cargo.toml` could shrink from four version keys to
-# one and still pass a floor, because the survivor agrees and the three
-# that stopped matching are invisible to a test that only asks whether
-# the file said the number at all.
-# README.md STATED IT TWICE UNTIL 0.6.0, and the count moving from 2 to 1
-# is a deliberate change rather than a site going quiet. The README was
-# 2071 lines and restated the reference; it is a 639-line front door now,
-# and the `### Example session` that carried the second banner - a quoted
-# REPL greeting - moved to `docs/reference.md`. No banner went with it, on
-# purpose: `docs/reference.md|1` is itself a counted site, so adding one
-# there would have broken that count to fix this one.
-#
-# The gate caught the drop on the release battery, which is the whole
-# reason the count is here rather than a bare "does the file mention it".
-# `bench.ts` spells it inside the row LABEL - `'Axiom 0.6.1'` - so the
-# quote does not sit against the digits and `web_version` cannot see it.
-# Anchored on the word instead, which is also what makes the claim
-# checkable: the label names the compiler that produced the number.
+# `web/src/data/bench.ts` names the compiler inside the row label, as
+# `'Axiom X.Y.Z'`, so the quote isn't next to the digits and `web_version`
+# can't see it. This reader anchors on the word instead. A row labelled
+# with the wrong compiler claims a measurement nobody ran.
 webbench_version() { grep -oE "Axiom [0-9]+[.][0-9]+[.][0-9]+" | grep -oE '[0-9]+[.][0-9]+[.][0-9]+'; }
 
 web_replace()  { _rewrite "$1" "s/'[0-9]+[.][0-9]+[.][0-9]+'/'$2'/g"; }
 webbench_replace() { _rewrite "$1" "s/(Axiom )[0-9]+[.][0-9]+[.][0-9]+/\\1$2/g"; }
 
-# TWO README-SHAPED SITES SINCE 2026-09-03. The `axiom version` banner
-# README carried moved to `docs/status.md` with the CLI section when the
-# README was cut from 75,806 bytes to 6,825; README kept a banner of its
-# own, the REPL greeting in Quick start, which needs no build hash to be
-# true. BOTH are counted, because an uncounted copy of the version is
-# exactly the drift this file exists to stop - `bump-version.sh` would
-# have left the moved one at the old number and nothing would have said
-# so. (Comments cannot go inside the string below: it is a plain
-# variable, not a heredoc, and a `#` line in it is parsed as a site.)
+# <file>|<expected-count>|<reader>|<writer>
+#
+# Each count is exact, not a floor; `check-version.sh`'s header says why.
+# README's Quick start carries the REPL greeting, `docs/status.md` the
+# `axiom version` banner and `docs/reference.md` a REPL session. Each is
+# counted, because the bump leaves an uncounted copy at the old number.
+#
+# The LSP goldens pin the server's `serverInfo.version`. `check-driver.sh`
+# cross-checks them against the built binary, and listing them here lets
+# the bump move them too.
+#
+# Comments can't go inside the string below: it is a plain variable, not a
+# heredoc, and a `#` line in it is parsed as a site.
 VERSION_SITES="
 web/src/data/site.ts|1|web_version|web_replace
 web/src/data/bench.ts|1|webbench_version|webbench_replace

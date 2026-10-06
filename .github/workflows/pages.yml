@@ -1,22 +1,17 @@
 name: Pages
 
-# The website, and only the website.
+# Builds and deploys the website, and nothing else.
 #
-# This workflow is deliberately independent of `ci.yml`: it shares no
-# job, needs nothing from the gate battery, and runs no Axiom code. A
-# copy change must not be able to turn the compiler's CI red, and a red
-# gate must not be able to hold up a typo fix on the site.
-#
-# It is also scoped by path, so the ordinary case - a commit that
-# touches only `self_host/` or `stdlib/` - starts nothing here at all.
+# It is independent of `ci.yml`: it shares no job, needs nothing from the
+# gate battery and runs no Axiom code. A copy change can't turn the
+# compiler's CI red, and a red gate can't hold up a typo fix on the site.
+# The path filter means a commit touching only `self_host/` or `stdlib/`
+# starts nothing here.
 
 on:
   push:
-    # `trunk` is this repository's only branch. Naming a branch that does
-    # not exist is how `ci.yml` sat structurally silent for a week; the
-    # same mistake here would be invisible in a different way, because a
-    # Pages deploy that never runs looks exactly like a site nobody has
-    # changed.
+    # `trunk` is the only branch. A misspelt branch here fails silently:
+    # a deploy that never runs looks just like a site nobody changed.
     branches: [trunk]
     paths:
       - 'web/**'
@@ -27,18 +22,15 @@ on:
   # Manual, for a re-deploy after changing the Pages source in Settings.
   workflow_dispatch:
 
-# NOTHING at the workflow level; each job asks for its own. Until
-# 2026-09-26 `pages: write` and `id-token: write` were granted here, to
-# BOTH jobs - so `npm ci`, the build and every package it ran held a
-# token that could publish the site. The build job reads; only the
-# deploy job, which runs no repository code and one pinned action, can
-# write. `ci.yml` and `release.yml` already scope their tokens this way.
+# No permissions at the workflow level; each job asks for its own. The
+# build job runs `npm ci` and every package it installs, so it only reads.
+# Only the deploy job, which runs no repository code and one pinned
+# action, can publish. `ci.yml` and `release.yml` scope tokens the same way.
 permissions: {}
 
-# One deployment at a time. `cancel-in-progress: false` because a
-# half-finished deploy is worse than a queued one: cancelling between
-# the upload and the publish leaves the site on the previous artifact
-# with a green check against the new commit.
+# One deployment at a time, and a running one is never cancelled:
+# cancelling between the upload and the publish leaves the site on the
+# previous artifact with a green check against the new commit.
 concurrency:
   group: pages
   cancel-in-progress: false
@@ -47,15 +39,14 @@ defaults:
   run:
     working-directory: web
 
-# EVERY ACTION IS PINNED TO A COMMIT, as in `ci.yml` and `release.yml`:
-# a major tag like `v4` is moved by its owner, so `@v4` runs whatever
-# that repository published last. Each SHA below is the commit its
-# major tag pointed at on 2026-09-26, so pinning changed nothing that
-# runs; moving one is now a reviewed edit to this file.
+# Every action is pinned to a commit, as in `ci.yml` and `release.yml`.
+# Its owner can move a tag like `@v4` at any time; a SHA moves only by a
+# reviewed edit to this file. The trailing comment names the release.
 jobs:
   build:
     runs-on: ubuntu-latest
-    # The checkout, and `configure-pages` reading the site's settings.
+    # Read access for the checkout and for `configure-pages`, which reads
+    # the site's settings.
     permissions:
       contents: read
       pages: read
@@ -82,31 +73,24 @@ jobs:
           [[ -z "$PAGES_BASE_PATH" ]]
           echo "ok   Pages serves https://$domain/"
 
-      # `npm ci` rather than `npm install`: it installs exactly what the
-      # committed lockfile says and fails if the two disagree, which is
-      # the difference between a reproducible build and a build that
-      # happened to work today.
+      # `npm ci` installs exactly what the committed lockfile says, and
+      # fails if the lockfile and `package.json` disagree.
       - run: npm ci
 
-      # `npm run build` is three things in order: `check-claims.mjs`, which
-      # holds the four figures on the page to the tree they describe and
-      # fails the deploy when trunk has moved under them; `tsc -b`; then
-      # the bundle. A stale number is a failed build, not a live page.
+      # `npm run build` runs `check-claims.mjs` first, which holds the
+      # page's figures to the tree they describe, so a stale number fails
+      # the deploy. Then come `tsc -b`, the bundle and the prerender.
       - run: npm run build
 
-      # Renders the whole component tree in Node and asserts on the
-      # result: no React warning, one `h1`, no skipped heading level,
-      # every in-page anchor resolving, every `target=_blank` carrying
-      # `rel=noopener`. There is no browser here, so this is the closest
-      # thing to opening the page.
+      # Renders the component tree in Node, as the nearest thing to opening
+      # the page, and asserts: no React warning, one `h1`, no skipped
+      # heading level, every in-page anchor resolves, and every
+      # `target=_blank` carries `rel=noopener`.
       - run: node scripts/smoke.mjs
 
-      # Pages serves the artifact from a static host, not from Jekyll,
-      # but the default pipeline still strips paths beginning with `_`
-      # unless this file is present. Vite emits hashed assets under
-      # `assets/`, so nothing depends on it today - it is here so that
-      # the day something does, the failure does not have to be
-      # diagnosed from a 404.
+      # Without `.nojekyll`, the Pages pipeline strips paths that begin
+      # with `_`. Vite's hashed assets live under `assets/`, so nothing
+      # needs it yet; it keeps a future `_` path from becoming a 404.
       - run: touch dist/.nojekyll
 
       - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
@@ -116,9 +100,9 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
-    # What `deploy-pages` needs, and nothing else: `pages: write`
-    # publishes, `id-token: write` is the OIDC token the deployment is
-    # attested with. No checkout, so no `contents`.
+    # Only what `deploy-pages` needs: `pages: write` publishes, and
+    # `id-token: write` is the OIDC token that attests the deployment.
+    # There is no checkout, so no `contents`.
     permissions:
       pages: write
       id-token: write

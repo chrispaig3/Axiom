@@ -1,31 +1,25 @@
 # Cut a release when a `v*` tag is pushed.
 #
-# `ci.yml` deliberately does none of this. Its header says so: no job
-# there "pushes, opens a comment, cuts a release, uploads an artifact or
-# reads a secret", and it runs with `permissions: contents: read`. That
-# is the right posture for a workflow that runs on every pull request
-# from anywhere, and it is why releasing lives in its own file with its
-# own, narrower trigger.
+# `ci.yml` runs on every pull request with `permissions: contents: read`
+# and never pushes, uploads or reads a secret. Releasing lives here, with
+# its own narrower trigger, so only this file needs write access.
 #
-# THE TAG IS NOT TRUSTED. A tag is a string a human typed, and the one
-# thing that must never ship is a binary whose `--version` disagrees
-# with the archive it came in. So the first job asserts the tag equals
-# `VERSION` equals what the built compiler prints, and nothing is
-# uploaded until it passes. `scripts/check-version.sh` is the same gate
-# CI already runs, invoked here for the same reason.
+# The tag is not trusted. A binary whose `--version` disagrees with its
+# archive must never ship, so the first job checks that the tag,
+# `VERSION` and the built compiler agree before anything is uploaded.
+# It runs `scripts/check-version.sh`, the same gate CI runs.
 #
-# WHAT IS SHIPPED, AND WHAT IS NOT. Two targets are built and attached:
-# `linux-aarch64` and `darwin-aarch64`, the two README calls supported.
-# The other targets are SOURCE-ONLY: no CI leg runs the test battery on
-# them, so an archive for one would be a binary the battery never saw.
+# Two targets are built and attached: `linux-aarch64` and
+# `darwin-aarch64`, the two README calls supported. The other targets
+# are source-only: no CI leg runs the test battery on them, so an archive
+# for one would hold a binary the battery never saw.
 #
-# Two axes, then. SUPPORTED says whether a CI leg executes what the
-# compiler emits there; SHIPPED says whether a release carries a
-# prebuilt archive. `scripts/install.sh` must refuse every unshipped
-# target with a build-from-source message rather than a 404, and
-# `scripts/check-release-targets.sh` holds this matrix, that script's
-# refusal list and README's Supported and Source-only lines to each
-# other, so none of them can drift apart silently.
+# Supported means a CI leg executes what the compiler emits there.
+# Shipped means a release carries a prebuilt archive.
+# `scripts/install.sh` refuses every unshipped target with a message to
+# build from source. `scripts/check-release-targets.sh` keeps this
+# matrix, that refusal list and README's Supported and Source-only lines
+# in step.
 #
 # The seed remains the supported way to build from source on any host.
 
@@ -71,10 +65,9 @@ jobs:
       fail-fast: true
       matrix:
         include:
-          # linux-x86_64 is source-only and has no shipped archive.
-          # Do not add it without establishing support and
-          # also removing it from `install.sh`'s refusal list, which
-          # `scripts/check-release-targets.sh` will otherwise fail.
+          # linux-x86_64 is source-only. Adding it needs a CI leg that
+          # supports it and its removal from `install.sh`'s refusal list,
+          # or `scripts/check-release-targets.sh` fails.
           - name: linux-aarch64
             os: ubuntu-24.04-arm
           - name: darwin-aarch64
@@ -84,29 +77,23 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/provision
 
-      # From the SEED, not from `.axiom-bin/`. This is the path a
-      # consumer takes, so it is the path the artifact should come out
-      # of: seed -> stage1 -> stage2 -> stage3, with stage2 and stage3
-      # required byte-identical, and stage3 is what ships.
+      # Build from the committed seed, the path a consumer takes:
+      # seed -> stage1 -> stage2 -> stage3. Stage2 and stage3 must be
+      # byte-identical, and stage3 builds the shipped binary below.
       - name: Bootstrap from the committed seed
         run: ./scripts/bootstrap-from-seed.sh --install "$RUNNER_TEMP/out"
 
-      # STAMPED, and this is the one place the distinction matters. The
-      # ladder above ships `stage3` - the compiler that came out of the
-      # fixpoint - and a fixpoint compiler is by definition one whose
-      # source contains no build-time value, so `stage3` says
-      # `(build unstamped)`. A binary that names its VERSION and not the
-      # tree it came from is indistinguishable from any other build at
-      # that version, which is the roadmap's P6 and what
-      # `scripts/check-build-id.sh` is about.
+      # A fixpoint compiler's source holds no build-time value, so
+      # `stage3` reports `(build unstamped)`. Such a binary cannot be told
+      # apart from any other build at its version
+      # (`scripts/check-build-id.sh`).
       #
       # So `stage3` builds one more compiler, from a `self_host/` that
-      # differs from the fixpoint's input in exactly one string
-      # literal. The fixpoint property is untouched - the ladder ran,
-      # and `stage2 == stage3` was required before this step exists -
-      # and what ships is the fixpoint compiler's output over a source
-      # a reader can regenerate: `scripts/build-stamped.sh` prints the
-      # id and asserts the binary reports it.
+      # differs from the fixpoint's input in one string literal. The
+      # fixpoint check has already passed. What ships is the fixpoint
+      # compiler's output over source a reader can regenerate:
+      # `scripts/build-stamped.sh` prints the id and checks that the
+      # binary reports it.
       - name: Stamp the shipped binary with the tree it came from
         run: |
           AXIOM="$RUNNER_TEMP/out/axiom" ./scripts/build-stamped.sh "$RUNNER_TEMP/out/axiom-stamped"
@@ -138,17 +125,13 @@ jobs:
           cp "$RUNNER_TEMP/out/axiom" "$d/bin/axiom"
           cp -R stdlib "$d/stdlib"
           cp LICENSE README.md CHANGELOG.md "$d/"
-          # `docs/` ships too. The README is a front door that points at
-          # these; an archive carrying the pointer and not the target
-          # leaves an installed user with a dead link and no reference,
-          # which is what shipping the README alone used to mean.
+          # `docs/` ships too: the README links into it, and an installed
+          # user needs the reference those links point at.
           cp -R docs "$d/docs"
           tar -czf "$d.tar.gz" "$d"
-          # `sha256sum` on the Linux images, `shasum` on macOS. Picking
-          # one and hoping is how a matrix leg fails at the last step;
-          # `scripts/install.sh` chooses between the same two names on
-          # the consuming side and this mirrors it, so the file it
-          # writes is the file that script knows how to read.
+          # `sha256sum` on the Linux images, `shasum` on macOS.
+          # `scripts/install.sh` picks between the same two tools, so it
+          # can read the file written here.
           if command -v sha256sum >/dev/null 2>&1; then
             sha256sum "$d.tar.gz" > "$d.tar.gz.sha256"
           else
@@ -157,26 +140,15 @@ jobs:
           cat "$d.tar.gz.sha256"
           echo "ARCHIVE=$d.tar.gz" >> "$GITHUB_ENV"
 
-      # A tarball that unpacks to a compiler that cannot compile is
-      # worse than no tarball. This is the same anti-vacuousness rule
-      # `bootstrap-from-seed.sh` applies to its own output.
+      # A tarball whose compiler cannot compile is worse than none, the
+      # same rule `bootstrap-from-seed.sh` applies to its own output.
       #
-      # AND IT HAS TO BE THE RIGHT PROGRAM, RUN FROM THE RIGHT PLACE.
-      # This step used to compile `(fn (main) 42)`, which imports
-      # nothing, so it could not fail for an archive that shipped no
-      # `stdlib/` - reproduced against a real archive with `stdlib/`
-      # deleted: it still built and still exited 42. Adding an import
-      # was not enough on its own either: a `run:` block's working
-      # directory is the CHECKOUT, which has a `stdlib/` of its own,
-      # and the compiler's last-resort search entry is a
-      # working-directory-relative `stdlib/`. The stdlib-less archive
-      # passed again, borrowing the repository's. So the probe imports
-      # a module AND runs from a directory that has no `stdlib/`.
-      #
-      # It also invokes the compiler by BARE NAME on PATH, because that
-      # is what `scripts/install.sh` prints and what a user therefore
-      # does; the absolute-path form this used to test is the one form
-      # that resolves the stdlib even when the PATH form cannot.
+      # The probe imports a module, so an archive without `stdlib/`
+      # fails it. It runs from a directory with no `stdlib/`, because the
+      # compiler's last-resort search is a working-directory `stdlib/`
+      # and the checkout has one. It calls the compiler by bare name on
+      # PATH, as `scripts/install.sh` tells users to: the absolute-path
+      # form finds the stdlib even where the PATH form cannot.
       - name: The archive works when unpacked somewhere else
         run: |
           v="$(tr -d '[:space:]' < VERSION)"
@@ -217,8 +189,7 @@ jobs:
     name: Publish the release
     needs: build
     runs-on: ubuntu-latest
-    # The one job in this repository that may write, scoped to the one
-    # job that needs to.
+    # Write access is scoped to this job, the only one that needs it.
     permissions:
       contents: write
     steps:
@@ -236,20 +207,9 @@ jobs:
           v="$(tr -d '[:space:]' < VERSION)"
           ls -l dist
 
-          # THIS RELEASE'S SECTION, not the whole changelog.
-          #
-          # `--notes-file CHANGELOG.md` shipped the entire file, and on
-          # v0.3.4 that finally hit GitHub's ceiling:
-          #
-          #     HTTP 422: Validation Failed
-          #     body is too long (maximum is 125000 characters)
-          #
-          # The file was 132,366 characters; this release's own section
-          # is 7,032. Every build had already succeeded, so the failure
-          # was three platforms of correct artifacts and no release.
-          #
-          # It was also always the wrong content: a reader opening
-          # v0.3.4 wants v0.3.4's notes, not every note since 0.2.0.
+          # Publish this release's section of the changelog, not the
+          # whole file. GitHub caps a release body at 125,000 characters,
+          # and a reader opening a release wants that release's notes.
           notes="$(mktemp)"
           awk -v tag="## $v " '
             index($0, tag) == 1 { f = 1 }
@@ -257,9 +217,8 @@ jobs:
             f { print }
           ' CHANGELOG.md > "$notes"
 
-          # A section that is missing or empty must STOP the release
-          # rather than publish an empty body - the same rule the rest
-          # of this repository applies to a golden with no content.
+          # A missing or empty section stops the release instead of
+          # publishing an empty body, as an empty golden fails elsewhere.
           if [[ ! -s "$notes" ]]; then
             echo "FAIL: CHANGELOG.md has no '## $v' section to publish as notes." >&2
             echo "      The release body would have been empty." >&2
@@ -267,15 +226,14 @@ jobs:
           fi
           echo "release notes: $(wc -c < "$notes") characters, $(wc -l < "$notes") lines"
 
-          # A SECTION TOO LONG FOR ONE RELEASE BODY publishes its
-          # highlights. 0.7.6's section, with everything since 0.7.5
-          # folded in, measured about 173,000 bytes against the same
-          # 125,000-character ceiling. Such a section opens with a
-          # highlights block that ends at the line
-          # `<!-- release-notes: end of highlights -->`, and the body
-          # is that block plus a link to the whole section at the tag.
-          # A long section with no marker stops the release instead of
-          # being cut at an arbitrary line.
+          # A section too long for one release body publishes its
+          # highlights. The section opens with a highlights block ending
+          # at the line `<!-- release-notes: end of highlights -->`, and
+          # the body is that block plus a link to the whole section at
+          # the tag. A long section with no marker stops the release
+          # instead of being cut at an arbitrary line. `wc -c` counts
+          # bytes, never fewer than characters, so a section within the
+          # 120,000-byte threshold fits under the cap.
           if (( $(wc -c < "$notes") > 120000 )); then
             short="$(mktemp)"
             if ! awk '/^<!-- release-notes: end of highlights -->$/ { found = 1; exit }

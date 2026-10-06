@@ -1,41 +1,24 @@
 #!/usr/bin/env bash
-# Axiom's FFI boundary is a C ABI, and this is the gate that says so.
+# Axiom's FFI boundary is a C ABI, and this gate binds a plain C
+# library to prove it.
 #
-# WHY THIS EXISTS. `docs/ffi.md` documents the boundary as one machine
-# word per argument and one word back, `extern "C" fn(i64, ...) -> i64`,
-# and the emitter writes an ordinary `declare i64 @sym(i64, ...)` for
-# every `extern` item. Nothing about that is Rust. But every FFI fixture
-# in this repository is a Rust crate, and `check-ffi.sh` mentions cargo
-# or Rust forty-six times against two mentions of a C compiler - so the
-# thing the documentation calls the boundary was tested only through one
-# client of it, and the claim "you can bind a C library" was true,
-# untested, and invisible to anyone reading the gates.
+# `docs/ffi.md` documents the boundary as one machine word per argument
+# and one word back, `extern "C" fn(i64, ...) -> i64`, and the emitter
+# writes an ordinary `declare i64 @sym(i64, ...)` for every `extern`.
+# `check-ffi.sh` tests it through Rust crates. This gate uses only `cc`
+# and `ar`, so the ABI keeps a test if the Rust workspace changes.
 #
-# Measured 2026-08-25, before this gate existed: a three-function C
-# archive built with `cc -c` and `ar rcs`, bound with an ordinary
-# `extern` block and `--link-lib`/`--link-search`, compiled and ran and
-# answered 42, 42 and 832040 on the first attempt. No cargo, no
-# `#[axiom_export]`, no `axiom-bindgen`, no crate. The capability was
-# already there; what was missing was anything that would notice it
-# breaking.
-#
-# WHAT IT ASSERTS
-#   1. A plain C static archive binds and answers - three arities.
+# It asserts:
+#   1. A plain C static archive binds and answers, at three arities.
 #   2. A `String` crosses and C reads it through the documented header
 #      (word 0 the byte length, word 1 the NUL-terminated bytes), with
 #      no helper library on the C side.
-#   3. The mechanism, not just the outcome: the emitted module carries
-#      `; axiom-extern-lib <name>`, which is how `axiom build` knows
-#      what to link without being told twice.
-#   4. NEGATIVE - a symbol no archive defines is refused at `AX4004`
-#      rather than dying in the linker.
-#   5. NEGATIVE - dropping `--link-search` must fail, because otherwise
-#      assertion 1 could be passing for some reason other than the flag.
-#
-# WHAT IT DELIBERATELY DOES NOT DO: build anything Rust. That is
-# `check-ffi.sh`'s job and it does it well. This gate exists precisely
-# so that the ABI has a test that survives the Rust workspace being
-# changed, moved, or removed.
+#   3. The emitted module carries `; axiom-extern-lib <name>`, which is
+#      how `axiom build` knows what to link.
+#   4. Negative: a symbol no archive defines is refused at `AX4004`
+#      rather than in the linker.
+#   5. Negative: dropping `--link-search` fails, so assertion 1 can't
+#      pass for a reason other than the flag.
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
@@ -152,13 +135,10 @@ echo
 echo "== the mechanism, not only the outcome =="
 # --------------------------------------------------------------------
 # The library name reaches the driver through a comment the emitter
-# writes beside the `declare` lines. Asserting the emitted text rather
-# than only the exit status means a change that links by some other
-# route fails here rather than passing quietly.
+# writes beside the `declare` lines. Checking the emitted text catches
+# a change that links by some other route.
 # `--emit-llvm` writes the module beside the output as `<output>.ll`,
-# so the file to read is `emit.ll` from `--output emit` - measured; a
-# gate that guessed `usec.ll` found nothing and reported a skip, which
-# is the failure mode this repository calls a check that cannot fail.
+# so `--output emit` gives `emit.ll`, not `usec.ll`.
 set +e
 ( cd "$work" && "$axc" build --input usec.ax --output emit --emit-llvm \
     --link-lib axcprobe --link-search "$lib" ) >"$work/emit.log" 2>&1
@@ -174,8 +154,7 @@ if [[ -s "$ll" ]] && grep -q '; axiom-extern-lib axcprobe' "$ll"; then
 else
   bad "the emitted module does not carry \`; axiom-extern-lib axcprobe\`"
 fi
-# The declaration is the whole claim of this gate: an ordinary C
-# prototype over machine words, with nothing Rust-shaped about it.
+# The declaration is an ordinary C prototype over machine words.
 if [[ -s "$ll" ]] && grep -qE '^declare i64 @axc_add\(i64, i64\)' "$ll"; then
   ok "and declares it with the C ABI: \`declare i64 @axc_add(i64, i64)\`"
 else
@@ -187,8 +166,8 @@ fi
 echo
 echo "== negative probes: each assertion above can fail =="
 # --------------------------------------------------------------------
-# A symbol no archive defines must be refused BEFORE the linker, at
-# AX4004, which is the grounding pass reading `declare` lines.
+# A symbol no archive defines must be refused before the linker, at
+# AX4004, by the grounding pass that reads `declare` lines.
 sed 's/(symbol "axc_add")/(symbol "axc_not_there")/' "$work/usec.ax" > "$work/ghost.ax"
 rc="$(build_c ghost.ax ghost)"
 if (( rc != 0 )) && grep -q 'AX4004' "$work/build.log"; then
@@ -198,8 +177,8 @@ else
   sed 's/^/     /' "$work/build.log" | head -6
 fi
 
-# And the flag is what links it: without --link-search the same program
-# must fail, so assertion 1 cannot be passing for another reason.
+# Without --link-search the same program must fail, so assertion 1
+# can't pass for another reason.
 set +e
 ( cd "$work" && "$axc" build --input usec.ax --output nolink --link-lib axcprobe ) \
   >"$work/nolink.log" 2>&1

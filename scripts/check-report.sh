@@ -10,15 +10,15 @@
 #      a call chain sums, a diamond takes the heavier arm, a tail call
 #      replaces its caller's frame, a cycle of tail calls is a loop, a
 #      cycle through a call is unbounded, and code with no frame size
-#      is unbounded - whatever order the roots are visited in.
+#      is unbounded, in whatever order the roots are visited.
 #   2. Facts read off `symbols --calls`: the per-function marks of a
-#      program that has one of everything (allocation, IO, recursion
-#      direct and mutual, a call through a parameter, a spawn, an isr),
-#      compared exactly - and `#extern`, the compiler's own marker. Then
+#      program with one of everything (allocation, IO, recursion direct
+#      and mutual, a call through a parameter, a spawn, an isr),
+#      compared exactly, and `#extern`, the compiler's own marker. Then
 #      the trap statuses each function may end the process with, for a
 #      program with one source of each (division, bounds, a contract, an
-#      atomic, an arena reset, an unhandled effect, a shift),
-#      compared exactly.
+#      atomic, an arena reset, an unhandled effect, a shift), compared
+#      exactly.
 #   3. The profile: tests/profile/ok-*.ax pass with exit 0; each
 #      tests/profile/rpN-*.ax is refused with exit 1 by exactly the rule
 #      its name gives, and by no other. RP-8 is an interrupt handler that
@@ -31,22 +31,22 @@
 #      unbounded; a 64-byte budget is refused; every reported bound is
 #      the sum of the frames on its own path; and the tool's ELF reader
 #      agrees with `llvm-readobj --stack-sizes`, an independent parser,
-#      on every function's frame (SKIP, named, where llvm-readobj is
-#      absent - never a pass).
+#      on every function's frame. Without llvm-readobj that check is a
+#      named SKIP, never a pass. Section 4b asks the same of x86-64.
 #   5. Ablations: a copy of the tool with one rule's refusal disabled
-#      must stop refusing that rule's fixture (so the fixture is caught
-#      by the rule it names, not by accident), and a copy whose bound
-#      treats calls as tail calls must call tree recursion bounded (so
-#      section 4's unbounded verdict is the algorithm's, not luck). A
-#      copy with no trap leaves must get section 2's trap sets wrong,
-#      and one with no blocking kernel entries must pass RP-8's fixture.
+#      must stop refusing that rule's fixture, so the fixture is caught
+#      by the rule it names. A copy without the call-cycle check, or one
+#      that never reads E8 as an x86-64 call, must call tree recursion
+#      bounded, so the unbounded verdict is the algorithm's. A copy with
+#      no trap leaves must get section 2's trap sets wrong, and one with
+#      no blocking kernel entries must pass RP-8's fixture.
 #
-# What a green run does NOT show: that a bounded stack is a bounded
-# latency (it is not; nothing here is a WCET bound), anything about
-# targets other than AArch64 ELF for the stack half, or traps the graph
-# has no edge for (count exhaustion from emitted retains, stack
-# exhaustion, a CPU fault from an Unsafe access), which the report
-# names as obligations.
+# What a green run does not show: that a bounded stack is a bounded
+# latency (nothing here is a WCET bound), anything about targets other
+# than AArch64 and x86-64 ELF for the stack half, or traps the graph has
+# no edge for (count exhaustion from emitted retains, stack exhaustion,
+# a CPU fault from an Unsafe access), which the report names as
+# obligations.
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
@@ -193,9 +193,7 @@ fi
 
 # Trap statuses, one source of each, compared exactly. `traps` is
 # transitive: `main` answers what `dv` and `half` can end the process
-# with. (Until 0.8.0 the report also listed the `INT_MIN / -1` and
-# overshift corners per function as `undefined`; they trap now, so
-# this section's third column went with them.)
+# with.
 cat > "$work/traps.ax" <<'AX'
 (import Vec)
 
@@ -358,7 +356,7 @@ PY
   done
   # An independent reader of the same object: every frame the tool read
   # from `.stack_sizes` equals what llvm-readobj says, and it read them
-  # all. Two ELF parsers agreeing is the check on the first one.
+  # all. A second ELF parser is the check on the tool's own.
   readobj="$(command -v llvm-readobj || true)"
   if [[ -z "$readobj" ]]; then
     skip "llvm-readobj not on PATH: the frame reader is not cross-checked here"
@@ -464,7 +462,7 @@ fi
 
 echo
 echo "== 5. ablations: each rule is what refuses its fixture =="
-# A copy of the tool with ONE site disabled. The seam is an exact
+# A copy of the tool with one site disabled. The seam is an exact
 # string and must match exactly once, or the ablation proves nothing.
 ablate() {  # ablate <name> <from> <to>: writes $work/abl-<name>.py
   python3 - "$tool" "$work/abl-$1.py" "$2" "$3" <<'PY'
@@ -499,9 +497,9 @@ RP-5|rp5-steady.ax|--steady step
 RP-8|rp8-blocking.ax|
 RP-9|rp9-asm.ax|
 ROWS
-# The derivations: with no trap leaves the exact statuses above must
-# come out wrong, and with no blocking kernel entry RP-8's fixture must
-# pass. Each shows the fact is read off the graph, not assumed.
+# With no trap leaves the exact statuses above must come out wrong, and
+# with no blocking kernel entry RP-8's fixture must pass. Each shows the
+# fact is read off the graph.
 if ablate traps "TRAP_LEAVES = {" "TRAP_LEAVES = {} and {"; then
   if trapfacts "$work/abl-traps.py" "$work/a-traps.got" && ! diff -q "$work/traps.want" "$work/a-traps.got" >/dev/null; then
     ok "ablation traps: with no trap leaves, $(diff "$work/traps.want" "$work/a-traps.got" | grep -c '^>') rows come out wrong"
@@ -537,10 +535,9 @@ if ablate x86call "                if op == 0xE8:" "                if False:"; 
 else
   bad "ablation x86call: the seam did not match exactly once"
 fi
-# The bound: a copy that ignores a call edge inside a cycle - treating
-# recursion as if it held no frame - must answer the selftest wrong and
-# call tree recursion bounded. Section 4's UNBOUNDED is then the
-# algorithm's verdict, not an accident of the graph.
+# A copy that ignores a call edge inside a cycle, treating recursion as
+# if it held no frame, must fail the selftest and call tree recursion
+# bounded. Then section 4's unbounded verdict is the algorithm's.
 if ablate cycle "elif any(g in cs for g in calls.get(f, ())):" "elif False:"; then
   if python3 "$work/abl-cycle.py" --selftest > "$work/abl-self.out" 2>&1; then
     bad "ablation cycle: the selftest still passes with the call-cycle check removed"

@@ -1,80 +1,44 @@
 #!/usr/bin/env bash
-# The measurement that drives the memory-model schedule (§2.2 of
-# the roadmap, restored) - and, once reclamation lands, the
-# before/after evidence for it.
+# How peak memory grows with work, and with --gate, whether the explicit
+# arena contract reclaims it.
 #
-# The probe is a 24x24 Game of Life: one board (~10 KiB of Vec) live
-# at any moment, advanced by the EXACT shape §4.1 names as the hard
-# case - `(advance (step board) (- n 1))`, a tail call whose
-# activation never returns, so a per-activation arena's watermark
-# never rewinds. Under the current bump allocator, peak RSS is linear
-# in GENERATIONS while live data stays flat: memory tracks total
-# allocations, not reachable data. This is the shape of every
-# compiler pass, request handler and macro expansion, which is why
-# the memory model is the hinge of the roadmap rather than one item
-# on a list.
+# The probe is a 24x24 Game of Life: one board (about 10 KiB of Vec)
+# live at a time, advanced by `(advance (step board) (- n 1))`. That is a
+# tail call whose activation never returns, so a per-activation arena's
+# watermark never rewinds. Under the bump allocator, peak RSS grows with
+# the generation count while live data stays flat. Compiler passes,
+# request handlers and macro expansions share this shape.
 #
-# The historical numbers (measured before the game_of_life/ demo was
-# removed in 720a0d5, at --opt 2): 10 generations = 5.2 MiB, 80 =
-# 31.8 MiB, 2000 = 744 MiB. This script reproduces the methodology;
-# the population line printed by the probe pins that the computation
-# is real (a glider on a torus returns to its shape every 96 steps,
-# so population is a function of N the optimiser cannot fold away
-# without doing the work).
+# The board holds a lone glider, so the printed population is 5 at every
+# generation. It pins that every step really ran, and the optimiser
+# can't fold it away without doing the work.
 #
-# TWO variants of the same program run at every count:
+# Two variants run at every count:
 #
-#   unmanaged - the loop as anyone would write it. Linear RSS,
-#     ~16 KiB per generation, forever. The "before".
-#   managed - the SAME loop bracketed by the explicit arena
-#     primitives, in the shape the adversarial review of the
-#     automatic-insertion plan proved sound and measured FLAT
-#     (population 5, ~1.4 MiB RSS, 80 through 20,000 generations):
-#     mark once before the loop; each iteration steps, copies the
-#     new board UP, resets to the mark, copies DOWN from the
-#     up-copy, whose bytes sit above the restored pointer and
-#     survive because reset moves the pointer and scrubs nothing -
-#     and the down-copy's own allocation is the only allocation in
-#     the window. `vecWithCapacity` keeps the copies exact, so the
-#     down-copy can never reach its source. The "after".
+#   unmanaged  The loop as anyone would write it. RSS grows linearly.
+#   managed    The same loop bracketed by the explicit arena primitives.
+#              Mark once before the loop. Each iteration steps, copies
+#              the new board up, resets to the mark, then copies it down
+#              from the up-copy. The up-copy's bytes sit above the
+#              restored pointer and survive, because reset moves the
+#              pointer and scrubs nothing. The down-copy's allocation is
+#              the only one in the window, and `vecWithCapacity` keeps
+#              the copies exact, so it never reaches its source. RSS
+#              stays flat.
 #
-# The managed variant is the programmer-written contract that the
-# §4.1 automation will eventually infer. Automation itself was
-# re-scoped OUT of the first slice by adversarial review (three
-# lenses, a judge, five probes): the copyable-set trigger is
-# unsound because Int is the universal heap-handle type (String
-# unifies with Int BY FIAT, typecheck.ax:180), reset strands
-# chunks mapped after the mark (~320 KiB/iteration measured on a
-# chunk-crossing loop), and a compiler-inserted copy was tried
-# once before and removed for exactly the pointer-blindness reason
-# (the ArenaCompact story, the self-hosting record). Those three are
-# the automation slice's named prerequisites.
+# The managed variant is the contract an automatic arena pass would have
+# to infer.
 #
-# --gate: enforce the managed numbers (this is the P2 slice-1 exit
-# criterion made durable): both populations exactly 5 at 2000
-# generations, managed max RSS under 4096 KiB (measured ~1.4 MiB;
-# the ceiling leaves headroom for the allocator's 1 MiB chunk
-# quantization), and the DELIBERATELY-UNSOUND variant (reset with
-# no copy - the exact shape the review's p4 probe measured
-# corrupting) must NOT complete with population 5, proving the check
-# discriminates the unsoundness this contract exists to prevent.
+# --gate checks the contract. Both populations must be exactly 5 at 2000
+# generations, and managed peak RSS must stay under 4096 KiB, which
+# leaves room for the allocator's 1 MiB chunks. An ablated variant
+# (reset with no copy) must not exit cleanly printing 5, which shows the
+# check can see the unsoundness the contract prevents.
 #
-# THE NEGATIVE HAS TWO PASSING SHAPES SINCE `vecGet` TRAPPED, and
-# only one of them existed when it was written. The ablated board is
-# read through `vecGet`, which answered 0 out of range; the corruption
-# therefore showed up as a WRONG POPULATION. `vecGet` now refuses an
-# out-of-range index (`__indexTrap`, status 77), so the same ablation
-# is caught at the read instead of being carried into the answer, and
-# the probe dies with no stdout at all. Both are the negative doing
-# its job - a refusal is strictly the better one, and is exactly what
-# `docs/reference.md` §4 chose it for: "not a crash, a wrong
-# answer that keeps going" is the failure mode being traded away. The
-# ONE outcome that fails is the ablation running to completion and
-# printing 5, which is the blindness this probe exists to rule out.
-#
-# Read as an unconditional error, the trap turned this gate red on
-# trunk for three CI legs (2026-09-02) - the ablation was working
-# better than before and the gate could not say so.
+# Either of two outcomes passes the negative: the probe dies at the read
+# with no output, because `vecGet` traps out of range (`__indexTrap`,
+# status 77), or it prints a wrong population. Only a clean exit
+# printing 5 fails.
 #
 # Usage:
 #   scripts/measure-memory-baseline.sh              # 10 80 500 2000
@@ -98,12 +62,11 @@ if [[ ${#counts[@]} -eq 0 ]]; then
   if [[ "$gate" == 1 ]]; then counts=(2000); else counts=(10 80 500 2000); fi
 fi
 
-# Darwin's `time -l` reports bytes; GNU's `time -v` reports kilobytes,
-# and so does FreeBSD's `time -l`: `ru_maxrss` is the kernel's unit,
-# bytes on Darwin alone, so the divisor is keyed on the kernel rather
-# than on which flag answered. Fail rather than skip when neither
-# answers: a measurement script that silently measures nothing is how
-# the last RSS regression hid.
+# `ru_maxrss` is bytes on Darwin and kilobytes elsewhere, FreeBSD
+# included, though FreeBSD's `time` also takes `-l`. So the divisor is
+# keyed on the kernel, not on which flag works. Fail rather than skip
+# when neither works: a measurement that silently measures nothing hides
+# a regression.
 max_rss_kb() {
   local div=1
   [[ "$(uname -s)" == Darwin ]] && div=1024
@@ -119,10 +82,10 @@ max_rss_kb() {
   fi
 }
 
-# emit_probe VARIANT N OUTFILE - one Life program, three spellings of
-# `advance`: unmanaged (allocate forever), managed (the sound
-# explicit mark/copy-up/reset/copy-down), ablated (reset with NO
-# copy - the measured-unsound shape the gate's negative rests on).
+# emit_probe VARIANT N OUTFILE: one Life program with three versions of
+# `advance`. unmanaged allocates forever; managed marks, copies up,
+# resets and copies down; ablated resets with no copy, the unsound shape
+# the gate's negative uses.
 emit_probe() {
   local variant="$1" n="$2" out="$3"
   local advance
@@ -279,17 +242,14 @@ for variant in unmanaged managed; do
 done
 
 if [[ "$gate" == 1 ]]; then
-  # The negative: reset with NO copy is the exact unsoundness the
-  # explicit contract guards against, and it must be VISIBLE - the
-  # adversarial review measured this shape corrupting the board
-  # (population 0) because step's vecPush immediately reallocates
-  # over the reset region. If the ablated probe prints 5, the
-  # population check cannot see the corruption class and the gate
-  # is vacuous.
-  # Run it directly rather than through `build_and_measure`: that
-  # helper reports a non-zero exit as a gate failure, and here a
-  # non-zero exit is the ablation being CAUGHT. RSS is not wanted
-  # either - this probe is about the answer, not the footprint.
+  # The negative: reset with no copy is the unsoundness the contract
+  # guards against, and the check must see it. Step's `vecPush`
+  # reallocates over the reset region at once and corrupts the board.
+  # If the ablated probe prints 5, the population check is blind and
+  # the gate is vacuous.
+  # Run it directly: `build_and_measure` treats a non-zero exit as a
+  # failure, and here it means the ablation was caught. The probe is
+  # about the answer, so RSS isn't measured.
   emit_probe ablated 80 "$work/life_ablated_80.ax"
   if ! "$axiom" build --input "$work/life_ablated_80.ax" \
        --output "$work/life_ablated_80" --opt 2 \

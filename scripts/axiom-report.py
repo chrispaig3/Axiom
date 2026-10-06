@@ -223,9 +223,8 @@ def load_source_graph(axiom, src, target):
     p = subprocess.run(cmd, capture_output=True)
     out = p.stdout.decode('utf-8', 'replace')
     err = p.stderr.decode('utf-8', 'replace')
-    # An error is an AXDL line on stderr. `E` is also the AXSYM kind of
-    # an `effect` declaration on stdout, so a program declaring an effect
-    # was read as one that does not check.
+    # An error is an AXDL line on stderr. Only stderr is read for errors:
+    # `E` is also the AXSYM kind of an `effect` declaration on stdout.
     errors = [l for l in err.splitlines() if re.match(r'E AX\d{4} ', l)]
     if errors:
         raise ReportError('the program does not check:\n' + '\n'.join(errors[:10]))
@@ -509,11 +508,11 @@ def ir_facts(ir):
             dynamic.add(cur)
         if re.search(r'\bcall\b[^(]*\basm\b', line):
             asm.add(cur)
-        # Two shapes name a function without letting its address
-        # flow anywhere a call could read it: `icmp` (the result is an
-        # i1 - the backtracer asks "is this return address main?") and
-        # `blockaddress(@f, %bb)` (a LABEL's address, for the line
-        # table; no call instruction can take one).
+        # Two shapes name a function without letting its address flow
+        # anywhere a call could read it: `icmp`, whose result is an i1
+        # (the backtracer asks "is this return address main?"), and
+        # `blockaddress(@f, %bb)`, a label's address for the line table,
+        # which no call instruction can take.
         is_icmp = re.match(r'^\s*%[-A-Za-z0-9_.]+\s*=\s*icmp\b', line) is not None
         for mm in re.finditer(IRNAME, line):
             n = mm.group(1).strip('"')
@@ -726,12 +725,11 @@ def stack_bound(axiom, src, target, opt, roots, workdir):
                 if t != caller:
                     tails.setdefault(caller, set()).add(t)
             # Any other relocation naming a function (ADRP/ADD pairs,
-            # literal pools) is how the IR's own uses of that address
-            # compile - including uses that let nothing flow: an
-            # `icmp` against `@main`, a `blockaddress` for the line
-            # table. Which of them ESCAPE is decided on the IR
-            # (`ir_facts`), which can tell those shapes apart; the
-            # relocation cannot.
+            # literal pools) compiles one of the IR's own uses of that
+            # address, including uses that let nothing flow: an `icmp`
+            # against `@main`, a `blockaddress` for the line table.
+            # `ir_facts` decides which uses escape, because the IR can
+            # tell those shapes apart and the relocation cannot.
         if x86:
             # Variable-length instructions can't be scanned for an
             # indirect call without decoding; the IR's indirect sites
@@ -908,8 +906,9 @@ def build_report(args):
     if args.stack:
         machine_roots = list(args.stack_root) or (['_start'] if args.target == 'baremetal-aarch64' else ['main'])
         machine_roots += [fns[q].name for q in isrs if fns[q].name not in machine_roots]
-        # A fault hook runs on the fault stack, from the fault exit: bound
-        # that exit - the report, the hook's door and the hook - there.
+        # A fault hook runs on the fault stack, from the fault exit, so
+        # the exit's roots are bounded there, covering the report, the
+        # hook's door and the hook.
         if fault_hooks and args.target == 'baremetal-aarch64':
             machine_roots += [r for r in FAULT_ROOTS if r not in machine_roots]
         work = tempfile.mkdtemp(prefix='axiom-report.')
@@ -958,8 +957,8 @@ def build_report(args):
                 refuse('RP-8', '%s may block: %s' % (s, last), (hit or [s]) + ([last] if last else []))
         # RP-7
         if stack is not None:
-            # One interrupt's frames sit on top of the interrupted stack;
-            # a fault hook's never do - it runs on the fault stack.
+            # One interrupt's frames sit on top of the interrupted stack.
+            # A fault hook's never do, because it runs on the fault stack.
             worst_isr = 0
             for q in isrs:
                 if q in fault_hooks:

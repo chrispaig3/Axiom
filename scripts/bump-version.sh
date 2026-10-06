@@ -3,35 +3,22 @@
 #
 #   scripts/bump-version.sh 0.3.0
 #
-# WHAT THIS REPLACED. `VERSION` is the authority, and every site
-# `scripts/lib/version-sites.sh` names restates it: the compiler's own
-# banner, the REPL's, the language server's `serverInfo`, four keys in
-# `rust/Cargo.toml`, two tree-sitter manifests, eight checked-in LSP
-# transcripts, `SECURITY.md`'s supported-release line, and the REPL
-# banner as quoted in `README.md` (twice) and `docs/reference.md`. Every
-# one of those was a hand edit. `check-version.sh` would catch a miss -
-# it did, when 0.3.0 was cut, with every site still reading 0.2.0 - but
-# catching it is not the same as not doing it, and a gate that fires
-# after the tag is cut has fired too late.
+# `VERSION` is the authority. Every site in `scripts/lib/version-sites.sh`
+# restates it: the compiler and language-server sources, the Cargo and
+# npm manifests and lockfiles, the LSP transcripts, the website data,
+# `SECURITY.md`, and the banners quoted in `README.md`, `docs/status.md`
+# and `docs/reference.md`.
 #
-# IT DOES NOT OWN THE LIST. The sites, the readers and the writers live
-# in `scripts/lib/version-sites.sh`, which `check-version.sh` sources
-# too. A second copy here would be a list to keep in step with the
-# first, and that failure is silent: the bump rewrites sixteen, the gate
-# checks seventeen, and the one they disagree about is the one nobody
-# edited.
+# The sites, with each one's reader and writer, live only in
+# `version-sites.sh`, which `check-version.sh` also sources. A second
+# list here could drift from the gate's without anyone noticing.
 #
-# IT PROVES ITS OWN WORK. The last thing it does is run
-# `check-version.sh`, and it exits non-zero if that fails. So the script
-# cannot report success over a site its writer missed - the writer and
-# the reader are a pair, and this is where the pair is tested. Nothing
-# else here needs to be trusted.
+# The script ends by running `check-version.sh` and exits non-zero if it
+# fails, so it can't report success over a site its writer missed.
 #
-# WHAT IT DELIBERATELY DOES NOT DO: it does not touch `CHANGELOG.md`,
-# does not commit, and does not tag. A release note is prose somebody
-# writes, and `docs/` records that a `v*` tag is what fires
-# `release.yml` - so cutting one is a decision, not a side effect of
-# renumbering.
+# It doesn't edit `CHANGELOG.md`, commit or tag. A release note is prose
+# someone writes, and a `v*` tag fires `release.yml`, so cutting one is
+# a decision of its own.
 
 set -euo pipefail
 
@@ -66,9 +53,8 @@ while IFS='|' read -r file expect reader writer; do
     exit 1
   fi
   "$writer" "$file" "$new"
-  # The reader is the gate's, so this count is the gate's question asked
-  # early: a writer that rewrote the wrong shape shows up here rather
-  # than three minutes later.
+  # The reader is the gate's, so a writer that rewrote the wrong shape
+  # fails here, before the slower full check.
   n="$("$reader" < "$file" | grep -c . || true)"
   if (( n != expect )); then
     echo "FAIL $file: states $n version(s) after rewriting, expected $expect" >&2
@@ -78,10 +64,9 @@ while IFS='|' read -r file expect reader writer; do
   echo "ok   $file ($n)"
 done <<< "$VERSION_SITES"
 
-# The compiler's banner is compiled from `self_host/main.ax`, so the
-# built binary keeps saying the old number until it is rebuilt.
-# `check-version.sh` checks the BINARY as well as the sources, which is
-# why this is a step and not a footnote.
+# The compiler's banner is compiled in, so the built binary states the
+# old number until it is rebuilt, and `check-version.sh` reads the
+# binary as well as the sources.
 echo
 echo "== rebuilding, because check-version reads the built compiler too =="
 if ! scripts/bootstrap-from-seed.sh --install .axiom-bin >/dev/null 2>&1; then
@@ -90,28 +75,17 @@ if ! scripts/bootstrap-from-seed.sh --install .axiom-bin >/dev/null 2>&1; then
 fi
 echo "ok   .axiom-bin/axiom rebuilt"
 
-# THE SITE THAT IS GENERATED FROM ANOTHER SITE, and the reason this
-# step exists rather than a footnote saying "remember to regenerate".
+# `tree-sitter-axiom/src/parser.c` is generated from `tree-sitter.json`,
+# a version site, and compiles the version into the language's metadata.
+# Rewriting the JSON alone leaves the parser stating the old number, and
+# `check-tree-sitter.sh` then fails with "regenerating changed the
+# checked-in parser", which looks like a grammar change.
+# `check-version.sh` can't catch it, because the parser is a site's
+# output rather than a site.
 #
-# `tree-sitter-axiom/tree-sitter.json` is a version site, and
-# `tree-sitter-axiom/src/parser.c` is GENERATED from it - the version
-# is compiled into the language's metadata struct. So rewriting the
-# JSON leaves the checked-in parser stating the old number, and
-# `check-tree-sitter.sh` fails with "regenerating changed the
-# checked-in parser", which reads like a grammar change and is not one.
-#
-# It is not a hypothetical: 0.3.0 shipped with `src/parser.c` in the
-# release commit, regenerated by hand, and 0.3.1 pushed a red CI before
-# anyone noticed the two facts were the same fact. `check-version.sh`
-# cannot catch it - the parser is not a version site, it is a site's
-# OUTPUT - so this script's "it proves its own work" claim was true of
-# every site except the one it could not see.
-#
-# Regenerating needs the tree-sitter CLI, which is a dev dependency and
-# may be absent. Absent, this REFUSES rather than warning: the whole
-# point of the script is that it does not report success over a tree it
-# has left broken, and a warning at the top of a hundred lines of `ok`
-# is a warning nobody reads.
+# Regenerating needs the tree-sitter CLI, a dev dependency that may be
+# missing. Without it the script fails rather than warns, so it never
+# reports success over a tree it has left broken.
 echo
 echo "== regenerating the tree-sitter parser, which states the version too =="
 ts_cli="tree-sitter-axiom/node_modules/.bin/tree-sitter"

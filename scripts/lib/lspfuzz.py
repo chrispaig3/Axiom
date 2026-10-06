@@ -329,11 +329,10 @@ ASCII_ONLY = [False]
 
 
 def body_bytes(obj):
-    # `allow_nan=False`: Python would otherwise write `Infinity`, which
-    # is not JSON, into a message the oracle then expects answered.
-    # A session drawn ASCII-only writes every non-ASCII character as a
-    # `\u` escape, so a raw byte that is not UTF-8 arrives as a lone
-    # surrogate escape instead.
+    # `allow_nan=False`: otherwise Python writes `Infinity`, which isn't
+    # JSON, into a message the oracle expects answered. An ASCII-only
+    # session writes each non-ASCII character as a `\u` escape, so a raw
+    # byte that isn't UTF-8 arrives as a lone surrogate escape.
     return json.dumps(obj, ensure_ascii=ASCII_ONLY[0], separators=(",", ":"),
                       allow_nan=False).encode("utf-8", "surrogateescape")
 
@@ -480,7 +479,7 @@ class Session:
             self.summary.append("change")
             return
         if kind == "incremental":
-            # The server syncs FULL documents; a client that sends an
+            # The server syncs whole documents. A client that sends an
             # incremental change anyway must not bring it down.
             uri, text = doc
             ch = rng.choice([
@@ -1146,7 +1145,8 @@ def cmd_selftest():
         if got != want:
             print("the oracle judged %s as %r (%s), wanted %r" % (what, got, why, want))
             return 1
-    # A session with a broken frame allows 0 or 1 and relaxes what follows.
+    # A session with a broken frame allows exit 0 or 1 and relaxes what
+    # follows.
     brk = sess[:2] + [chunk("raw", b"Content-Length: x\r\n\r\n{}", "break")] + sess[3:]
     for rc in (0, 1):
         v, stage, why, _ = judge(brk, root, rc, False, fr(a1) + fr(a2), 5)

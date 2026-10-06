@@ -214,8 +214,8 @@ def install(ns):
         ("ghost", "tDeliver", ["t", str(R_TRAP), "status", "why", "-1"]),
         ("ret", "0"),
     ])
-    # `t`, the task's index, is the model's: the sink takes the answers in
-    # submit order and needs none, and the check wants it.
+    # `t`, the task's index, exists only in the model. The sink takes the
+    # answers in submit order and needs none; the check uses it.
     F("taskDeliver", ["st", "s", "slab", "t"], ["slot", "status", "why"], (TASK, "taskDeliver"), [
         ("set", "slot", "slab + %d * s" % SB, "(slot (+ slab (* s slotBytes)))"),
         ("pload", "status", "st + 3 * s + 1", "(status (taskSt st s 1))"),

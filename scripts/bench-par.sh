@@ -1,48 +1,32 @@
 #!/usr/bin/env bash
-# Baselines for the parallel pool: what `parMapWords` and `parRunAll`
-# cost on this machine BEFORE the per-slot accounting rework, so the
-# rework has something to beat besides its own aspirations.
+# What the parallel pool's `parMapWords` and `parRunAll` cost on this
+# machine, as a baseline for changes to the pool's accounting.
 #
-# Three workloads, each its own whole process printing a checksum -
-# a program that prints anything else is not running this workload,
-# and its timing means nothing beside these figures:
+#   scripts/bench-par.sh                # best of 20 runs at --opt 2
+#   REPS=9 OPT=0 scripts/bench-par.sh
+#
+# Three workloads, each a whole process that prints a checksum. A
+# program that prints anything else isn't running the workload, and its
+# timing means nothing:
 #
 #   spawn   4000 trivial thunks at width 8 (fork/join round trips)
 #   alloc   2000 thunks each summing a fresh 2000-word Vec (join
-#           under allocation - the path per-slot accounting touches)
+#           under allocation)
 #   runall  800 true(1) at width 8, end to end through parRunAll
 #
-# METHODOLOGY, inherited from `bench-datastructures.sh` (and see
-# `web/bench/README.md`): whole processes timed by hyperfine, best
-# of REPS (the distribution is one-sided), process startup measured
-# separately with a program that does nothing and subtracted. Work
-# sizes are fixed in the programs, not argv - these are baselines,
-# not a scaling study. The scaling study, widths 1 to 8 in both
-# lowerings against the sequential program, is the second half of
+# The method is `bench-datastructures.sh`'s (see `web/bench/README.md`).
+# Hyperfine times whole processes, the figure is the best of REPS runs
+# because noise only ever adds time, and the startup of a program that
+# does nothing is subtracted. Work sizes are fixed in the programs. The
+# scaling study across widths 1 to 8 is the second half of
 # `scripts/bench-concurrency.sh`.
 #
-# COMPARING AGAINST THESE FIGURES has one rule: interleave. Time the
-# old and new binaries round-robin, one repetition each in turn, and
-# keep the minima - blocks compare two different load conditions,
-# and a background anything landing on one block is a gap that was
-# never there. `web/bench/run-bench.sh` shows the shape.
+# To compare two builds, interleave: time the old and new binaries
+# round-robin, one repetition each, and keep the minima. Separate blocks
+# run under different load. `web/bench/run-bench.sh` shows the shape.
 #
-# BASELINES (best of 20, startup subtracted, --opt 2). Measured
-# 2026-09-25 on Apple M1, 8 cores, trunk 139382b1:
-#
-#   spawn   0.2916s
-#   alloc   0.1447s
-#   runall  0.3922s
-#
-# Beat these with the per-slot rework, interleaved per the rule
-# above, or explain in the commit why the accounting costs what it
-# costs. A rework that cannot show its margin against this table
-# has not finished.
-#
-# This is not a gate: it prints figures and exits 0 when every
-# checksum answers. It has no verdict column because there is no
-# criterion yet - the per-slot rework's margin is unknown until it
-# is measured, and a threshold written before that is a wish.
+# This is not a gate. It prints figures, sets no threshold, and exits 0
+# when every checksum answers.
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
@@ -147,9 +131,8 @@ for b in empty spawn alloc runall; do
   }
 done
 
-# The checksums. A program that prints anything else is not running
-# the workload its timing would be filed under. (A case function, not
-# an associative array: macOS ships bash 3.2, which has none.)
+# The expected checksums. A case function stands in for an associative
+# array, which macOS's bash 3.2 lacks.
 expect_of() {
   case "$1" in
     spawn)  printf '7998000' ;;
@@ -168,11 +151,9 @@ done
 echo "checksums answer."
 
 time_best() {
-  # `--shell none`: hyperfine's own shell calibration is noisier than
-  # the startup probe it would time (one pass read 46us for an
-  # execve that costs 2ms). The commands here are bare paths, so no
-  # shell feature is lost. This is a deliberate deviation from the
-  # shared harness, for the reason hyperfine's own warning gives.
+  # `--shell none`, unlike the shared harness: hyperfine's shell
+  # calibration is noisier than the startup probe it would correct.
+  # The commands are bare paths, so no shell feature is lost.
   HF_BIN="${HYPERFINE:-hyperfine}" python3 - "$REPS" "$@" <<'PY'
 import json, os, shlex, subprocess, sys, tempfile
 reps = int(sys.argv[1])

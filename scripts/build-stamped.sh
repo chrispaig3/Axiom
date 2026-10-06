@@ -1,57 +1,42 @@
 #!/usr/bin/env bash
 # Build a compiler that names the tree it was built from.
 #
-# `axiom version` prints a version and a BUILD ID. The version is a
-# promise about an interface; the build id is a fact about bytes, and
-# without it two builds of two different trees at one version are the
-# same binary to whoever holds one - the half of the roadmap's P6 that
-# `scripts/check-version.sh` has named in its header since it was
-# written.
+# `axiom version` prints a version and a build id. The version is a
+# promise about an interface. The build id names the source bytes, so
+# two builds of different trees at one version can be told apart.
 #
-# WHAT THE ID IS. Two parts, and the first is the load-bearing one:
+# The id has two parts:
 #
 #   <12 hex>            the first twelve characters of
-#                       `gate_seed_source_stamp` - a hash of every
-#                       `.ax` byte under `self_host/` and `stdlib/`,
-#                       and of their paths. This is what distinguishes
-#                       trees, and it distinguishes them even when they
-#                       are the same commit with an edit in the working
-#                       directory, which a commit hash cannot.
-#   <commit>[-dirty]    what git says, when git can say anything. This
-#                       is a CONVENIENCE - it turns the hash into
-#                       something a human can look up - and it is
-#                       explicitly not the identity: `-dirty` is
-#                       appended when `self_host/` or `stdlib/` has
-#                       uncommitted changes, and the whole part is
-#                       omitted outside a git checkout, which is what a
-#                       release tarball is.
+#                       `gate_seed_source_stamp`, a hash of every `.ax`
+#                       byte and path under `self_host/` and `stdlib/`.
+#                       This is the identity. It tells trees apart even
+#                       when they share a commit and differ only in the
+#                       working directory.
+#   <commit>[-dirty]    what git says, for a human to look up. `-dirty`
+#                       means `self_host/` or `stdlib/` has uncommitted
+#                       changes. The part is omitted outside a git
+#                       checkout, such as a release tarball.
 #
-# The hash is taken over the tree AS IT STANDS, before the stamp is
-# written - so the id names the source you can check out, not the
-# scratch copy this script compiles. That is deliberate: a build id
-# that included itself would be uncomputable, and one taken after the
-# rewrite would name a tree that exists nowhere.
+# The hash covers the tree before the stamp is written, so the id names
+# source you can check out. An id that covered its own stamp could not
+# be computed.
 #
-# NOTHING IN THE TREE IS MODIFIED. `self_host/` is copied to a scratch
-# directory and `build.ax` is rewritten there. That is not tidiness: a
-# script that edits a tracked file to build leaves the tree dirty on
-# every run, which would make the `-dirty` suffix above true of every
-# build after the first, and `check-fmt-selfhost.sh` would format the
-# rewrite back into the repository.
+# The tree is never modified: `self_host/` is copied to a scratch
+# directory and `build.ax` is rewritten there. Editing the tracked file
+# would mark every later build `-dirty`, and `check-fmt-selfhost.sh`
+# would format the rewrite back into the repository.
 #
 # Usage:  ./scripts/build-stamped.sh <output-path> [build-id]
 #         ./scripts/build-stamped.sh --print-id
 #
 # The optional second argument overrides the computed id, for a release
-# that wants to stamp a tag name. `scripts/check-build-id.sh` uses it
-# to prove the stamp is what reaches the binary.
+# that stamps a tag name. `scripts/check-build-id.sh` uses it to check
+# that the stamp reaches the binary.
 #
-# `--print-id` computes the id and prints it WITHOUT building, so the
-# gate can check the id's own properties - that it is deterministic,
-# that one changed source byte moves it, that a dirty tree says so -
-# without paying a ninety-second compiler build for each. The build
-# itself is then one assertion rather than four: that this exact string
-# is what the binary reports.
+# `--print-id` prints the id without building. The gate uses it to test
+# the id's properties (deterministic, moved by one source byte, marks a
+# dirty tree) without a ninety-second compiler build for each.
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
@@ -87,13 +72,10 @@ else
   id="$(compute_id)"
 fi
 
-# The literal this replaces is declared in `self_host/build.ax` and is
-# asserted to be there before anything is copied: a `sed` that matches
-# nothing is a build that silently ships `unstamped`, which is the one
-# outcome this script exists to prevent. Two lines, not one: the
-# formatter split the declaration from its value in 2026-09-16, so the
-# guard joins them with `N` exactly the way `axv_replace` already does
-# for `axiomVersion` in version-sites.sh.
+# `self_host/build.ax` must hold the literal this replaces: a `sed` that
+# matches nothing would silently ship `unstamped`. The formatter puts the
+# declaration and its value on two lines, so the guard joins them with
+# `N`, as `axv_replace` does for `axiomVersion` in version-sites.sh.
 src="$repo_root/self_host/build.ax"
 [[ -f "$src" ]] || { echo "FAIL: $src is missing" >&2; exit 1; }
 if ! grep -A1 -Fx '(pub fn (axiomBuildId)' "$src" | grep -qFx '  "unstamped")'; then
@@ -101,8 +83,8 @@ if ! grep -A1 -Fx '(pub fn (axiomBuildId)' "$src" | grep -qFx '  "unstamped")'; 
   echo "      Looked for: (pub fn (axiomBuildId) on one line, \`  \"unstamped\")\` on the next" >&2
   exit 1
 fi
-# ...and the id must not contain a `\`, `&` or `"`, which would either
-# be eaten by `sed`'s replacement syntax or end the Axiom literal.
+# The id must not contain `\`, `&` or `"`: `sed`'s replacement syntax
+# would eat them, or they would end the Axiom literal.
 case "$id" in
   *'\'*|*'&'*|*'"'*)
     echo "FAIL: the build id contains a character that cannot go in the literal: $id" >&2
@@ -122,9 +104,8 @@ if ! AXIOM_STDLIB="$repo_root/stdlib" "$axiom" build \
   exit 1
 fi
 
-# The claim this script makes is about the BINARY, so it asks the
-# binary. A stamp that reached the source and not the executable is
-# exactly the failure a `sed` guard cannot see.
+# Ask the binary itself: a stamp that reached the source but not the
+# executable is a failure the `sed` guard cannot see.
 got="$("$out" version 2>&1 || true)"
 if [[ "$got" != *"(build $id)"* ]]; then
   echo "FAIL: the built compiler does not report the stamp." >&2

@@ -1,65 +1,46 @@
 #!/usr/bin/env bash
-# Assert that the effect walk decides "is this unfollowed argument a
-# hole?" from the CALLEE'S DECLARED ARGUMENT POSITION, and not from the
-# argument's shape.
+# The effect walk decides whether an unfollowed argument is a hole from
+# the callee's declared argument position, not from the argument's
+# shape.
 #
-# WHAT THE RULE IS. `#effects-incomplete` marks a row as a LOWER bound:
-# the walk met a call it could not resolve, so an effect absent from the
-# row is not evidence that the body does not perform it. A claim of
-# absence over such a row cannot be answered - `;@axiom:effect(pure)` draws
-# `AX3037`, `restrict(no-io)` draws `AX3051`, a `handle` draws `AX3038`,
-# each a warning rather than a verdict.
+# `#effects-incomplete` marks a row as a lower bound: the walk met a
+# call it could not resolve, so an effect missing from the row may still
+# happen. A claim of absence over such a row draws a warning instead of
+# a verdict: `;@axiom:effect(pure)` draws `AX3037`, `restrict(no-io)`
+# draws `AX3051` and a `handle` draws `AX3038`.
 #
-# A call through an effect-transparent parameter used to set that mark
-# for every argument the walk could not follow, whatever the callee's
-# signature said the argument WAS. `vecSiftDownBy` calls
-# `(cmp (memGetWord d r) (memGetWord d k))` and `cmp` is declared
-# `(-> Int Int Int)`: two loads into two `Int` positions. Measured on
-# this tree at 0.6.1, before the type was consulted:
+# The rule is `paramCallablesOf`'s, asked one level down. An arrow, a
+# type variable or poison can hold a callable value. A concrete `Int`
+# cannot, and a value passed to an `Int` position hides no effect,
+# because applying it is `AX3004` and the program does not compile. So
+# `vecSiftDownBy`, which passes two loads to `cmp :: (-> Int Int Int)`,
+# has a complete row, and so does `vecSortBy`.
 #
-#   F vecSiftDownBy ... #effects=Mut #effects-incomplete #effect-params=cmp
-#   F vecSortBy     ... #effects=Mut #effects-incomplete #effect-params=cmp
+# A `symbols` golden would not hold this: re-blessing it would hide a
+# regression. A lost mark is the silent direction, since it turns three
+# warnings into verdicts nobody asked for. So this asserts the rule,
+# shape by shape, with controls that must keep the mark, as
+# `check-agent-policy.sh` does.
 #
-# The standard library's sort published its row as a lower bound on the
-# strength of two machine words its own signature calls integers, and
-# `restrict(no-io)` over anything reaching it came back `AX3051 cannot
-# be checked` rather than OK.
+# Four of the eight probe rows are controls that must keep
+# `#effects-incomplete`, each for a different reason:
 #
-# The rule now is `paramCallablesOf`'s, asked one level down: an arrow,
-# a type variable or poison can hold a callable value; a concrete `Int`
-# cannot, and a value handed to an `Int` position can hide no effect,
-# because applying it is `AX3004` and the program does not compile.
+#   twiceVar   the position is a type variable, which a caller may
+#              instantiate to an arrow, so the same body as `twiceInt`
+#              stays a lower bound
+#   applyArr   the position is an arrow, so the callee can call what
+#              lands there
+#   pairPos    one `Int` position and one arrow position, each handed
+#              an unfollowable value: the rule is per position
+#   viaField   the head is not a name, a different row of `MM-EXEC-9a`
+#              that this rule does not touch
 #
-# WHY A GATE AND NOT A GOLDEN. A population golden over `symbols` output
-# would go green again the moment someone re-blessed it, which is
-# exactly how a regression in this mark would land: the mark going
-# MISSING is the silent direction, since it turns three unverifiable
-# warnings into verdicts nobody asked for. So this asserts the
-# DISCRIMINATION, shape by shape, with controls that must keep the mark
-# - `check-agent-policy.sh`'s model, where `__atomic_load` carries no
-# `Mut` precisely so the other four rows still mean something.
+# Without them, deleting the mark outright would pass sections 1 and 3.
 #
-# THE CONTROLS ARE THE POINT. Four of the eight probe rows must KEEP
-# `#effects-incomplete`, and each fails for a different reason:
-#
-#   twiceVar   the position is a type VARIABLE, which a caller may
-#              instantiate to an arrow - the one case where the same
-#              body as `twiceInt` must stay a lower bound
-#   applyArr   the position is an arrow, so the callee really can call
-#              what lands there
-#   pairPos    a callee with an `Int` position AND an arrow position,
-#              handed an unfollowable value in each: per position, not
-#              per call
-#   viaField   the head is not a name at all - a different row of
-#              `MM-EXEC-9a`, which this change does not touch
-#
-# Without them, deleting the mark outright passes assertions 1 and 3.
-#
-# THE ABLATION restores the pre-fix condition in a shadow tree - the
-# type test dropped from `escapeArgs` - rebuilds, and requires the
-# "must be absent" rows to go red while the controls stay green. It
-# costs one compiler build, which is what `check-effect-fixpoint.sh`
-# pays for the same guarantee.
+# The ablation drops the type test from `escapeArgs` in a shadow tree,
+# rebuilds, and requires the must-be-absent rows to regain the mark
+# while the controls keep it. It costs one compiler build, like
+# `check-effect-fixpoint.sh`.
 
 set -euo pipefail
 
@@ -73,10 +54,9 @@ ok()  { echo "ok   $*"; checks=$((checks + 1)); }
 bad() { echo "FAIL $*"; failed=$((failed + 1)); }
 
 # --------------------------------------------------------------------
-# The probe. Eight declarations, four that must carry the mark and
-# three that must not, plus `main`. Written out rather than generated:
-# every line of it is a claim about one shape, and a generator would
-# put a layer between the shape and the reader.
+# The probe: eight declarations. Four must carry the mark, two must
+# not, and `mkFn` and `main` support them. It is written by hand because
+# each line is a claim about one shape.
 # --------------------------------------------------------------------
 mkdir -p "$work/probe"
 cat > "$work/probe/argpos.ax" <<'AX'
@@ -110,7 +90,7 @@ cat > "$work/probe/argpos.ax" <<'AX'
 (fn (main) 0)
 AX
 
-# `<compiler> <outfile>` - the probe's AXSYM rows, own file only.
+# probe_rows <compiler> <outfile>: the probe file's own AXSYM rows.
 probe_rows() {
   ( cd "$work/probe" && AXIOM_STDLIB="$repo_root/stdlib" \
       "$1" --diagnostic-format=ai symbols argpos.ax ) \
@@ -122,9 +102,9 @@ has_mark() {
   grep -qE "^F $2 .*#effects-incomplete" "$1"
 }
 
-# The two halves of the rule, named once so the ablation can re-use
-# them. ABSENT: the callee's position cannot hold a function.
-# PRESENT: it can, or the head was never resolved at all.
+# The two halves of the rule, named once so the ablation can reuse them.
+# `absent`: the callee's position cannot hold a function. `present`: it
+# can, or the head was never resolved.
 absent=(twiceInt onlyInt)
 present=(twiceVar applyArr pairPos viaField)
 
@@ -176,11 +156,10 @@ done
 echo
 echo "== 3. the library's own sort, which is what found this =="
 # --------------------------------------------------------------------
-# `vecSortBy`/`vecSiftDownBy` are the real-corpus instance. Asserted
-# against the tree's stdlib rather than a copy, and asserted in BOTH
-# directions: the mark is gone AND the row it belongs to is still there.
-# Without the second half, an effect walk that stopped reporting
-# anything at all would pass this.
+# `vecSortBy` and `vecSiftDownBy` are the real-library case, checked
+# against the tree's stdlib. Both directions are asserted: the mark is
+# gone, and the row still says `Mut` through `cmp`. Otherwise a walk
+# that reported nothing at all would pass.
 mkdir -p "$work/lib"
 cat > "$work/lib/lib.ax" <<'AX'
 (import Vec)
@@ -223,7 +202,7 @@ for d in vecSortBy vecSiftDownBy; do
 done
 
 # The control: `dispatch` is `((h.run) n)`, a head that is not a name,
-# and nothing here may touch it.
+# so it keeps the mark.
 checks=$((checks + 1))
 if grep -qE '^F dispatch .*#effects-incomplete' "$work/librows"; then
   echo "ok   dispatch is still a lower bound - dispatch through a struct field is a different row of MM-EXEC-9a"
@@ -237,27 +216,16 @@ fi
 echo
 echo "== 4. and the type test is what does it (ablation) =="
 # --------------------------------------------------------------------
-# The seam is `escapeArgs`'s condition, matched whole so a rename or a
-# reformat upstream is a loud failure here rather than a silent no-op.
-#
-# It was one such loud failure on 2026-09-01, and the report was right.
-# The `Vec` port gave `escapeArgs` the signature
-# `(-> Int (Vec Int) Int (Vec a) Int Int)`: `acc` is a container now and
-# not a bare word, so its absent test is spelled the way the port spells
-# every absent container - `(!= (cast Int acc) 0)` where it read
-# `(!= acc 0)`. The RULE this gate names did not move. The type test on
-# `(arrowParamTy cty i)` is the same conjunct of the same condition, and
-# the ablation still drops exactly it and nothing else; only the
-# sentinel's spelling changed, so only the string changed.
+# The seam is `escapeArgs`'s whole condition, matched exactly once, so
+# a rename or reformat upstream fails here loudly instead of ablating
+# nothing. The ablation drops only the `(arrowParamTy cty i)` type test.
+# When a port or the formatter respells the condition without changing
+# the rule, update both strings to the new spelling.
 abl="$work/tree"
 mkdir -p "$abl"
 cp -R "$repo_root/self_host" "$repo_root/stdlib" "$abl/"
-# 2026-09-21: the formatter's normal-form move broke `escapeArgs`'s
-# condition across seven lines (the same move the 2026-09-01 note above
-# records for the annotation). The rule is unchanged - three conjuncts,
-# same `&&` nesting - so the sentinel follows the spelling: the whole
-# block, counted exactly, and the ablation drops exactly the callable
-# conjunct and nothing else.
+# The condition as the formatter lays it out, then the same block with
+# the callable conjunct removed.
 seam_old='      (if (&&
         (== (escapeValue bound (vecGet args i)) 0)
         (&&

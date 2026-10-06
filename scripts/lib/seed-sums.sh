@@ -1,57 +1,38 @@
 # The seed set, and the check that `bootstrap/SHA256SUMS` covers it.
 #
-# WHY THIS IS ITS OWN FILE AND NOT `gate.sh`. Two of the four consumers
-# cannot have `gate.sh`. `scripts/bootstrap-from-seed.sh` is the path a
-# fresh clone with no Axiom toolchain takes, and it deliberately sources
-# nothing (its own comment says so): `gate.sh`'s preamble is what it
-# would be running if there were already a compiler. `scripts/reseed.sh`
-# sources `gate.sh` but never calls `gate_init`, for the same reason.
-# So the seed-integrity check lives HERE - pure shell, no `$AXIOM`, no
-# work directory, no trap, nothing built - and every consumer sources
-# this one file. That is the point: the gate that probes this code must
-# probe the code a clone actually runs, not a second copy of it.
+# It is pure shell, kept out of `gate.sh`, because some consumers must
+# not run the gate preamble. `scripts/bootstrap-from-seed.sh` runs on a
+# fresh clone with no Axiom toolchain and sources nothing else, and
+# `scripts/reseed.sh` never calls `gate_init`. So this file needs no
+# `$AXIOM`, work directory or trap, and builds nothing. Every consumer
+# sources it, so the gate that probes it probes the code a clone runs.
 #
-# WHAT `seed_sums_verify` ADDS TO `shasum -c`, WHICH IS THE WHOLE REASON
-# IT EXISTS. `shasum -a 256 -c SHA256SUMS` checks every row it is given
-# and says nothing about a row it was NOT given. Measured 2026-09-03 in
-# a three-file scratch directory: delete `axiom-b.ll`'s row, replace
-# `axiom-b.ll` with the word BACKDOOR, and the check prints
+# `shasum -a 256 -c SHA256SUMS` checks only the rows it is given. Drop a
+# seed's row, replace the seed, and it still prints OK for the rest and
+# exits 0. So `seed_sums_verify` compares the rows and the `.ll` files on
+# disk as sets, in both directions, before checking any hash.
 #
-#     axiom-a.ll: OK
-#     axiom-c.ll: OK
+# The on-disk set is read at run time, not from `seed_targets`, because a
+# new target's seed can land before every list learns its name. A fresh
+# clone asks "is every seed I have covered?", not "is the list current?".
+# `scripts/check-seed-supply-chain.sh` holds the lists to each other.
 #
-# and exits 0. Until this file existed, that was the outcome on the one
-# path that has no CI, no compiler and no second opinion. A corruption
-# check that a deletion walks past is not even a corruption check.
-#
-# So the rows and the files on disk are compared as SETS, both
-# directions, before a single hash is verified. The set on disk is
-# derived at run time rather than read from `seed_targets` below,
-# because those two facts are allowed to differ for one commit - a new
-# target's seed lands before every list learns its name - and the fresh
-# clone's question is "is every seed I have covered", not "is the list
-# current". `scripts/check-seed-supply-chain.sh` is where the lists are
-# held to each other.
-#
-# This changes what SHA256SUMS proves and nothing more. It is still a
-# corruption check and not a trust check - the hash and the file are
-# committed together and move together, which is what
-# `check-seed-provenance.sh` and `check-seed-lineage.sh` answer. What it
-# is now is a corruption check that a deletion cannot walk past.
+# This is a corruption check, not a trust check: a seed and its hash are
+# committed together. `check-seed-provenance.sh` and
+# `check-seed-lineage.sh` answer the trust question.
 
 # The six targets a seed is committed for, one per line.
 #
-# CONSUMERS, and a new one belongs in this list:
+# Consumers (add any new one here):
 #   scripts/reseed.sh                    generates one seed per target
 #   scripts/check-seed-provenance.sh     regenerates and compares all six
 #   scripts/check-seed-supply-chain.sh   holds the five copies together
 #
-# NOT a consumer, and conflating them would be a real error:
-# `scripts/check-cross-targets.sh` names EIGHT targets. Two of them,
-# `windows-x86_64` and `windows-aarch64`, are ones the compiler
-# cross-emits for and which have no seed in `bootstrap/`, because
-# hosting the compiler on Windows is a later phase. "Targets the compiler emits" and "targets a clone can
-# bootstrap on" are two different facts and one list cannot be both.
+# `scripts/check-cross-targets.sh` keeps its own, longer list. It adds
+# `windows-x86_64` and `windows-aarch64`, which the compiler cross-emits
+# for but which have no seed, because the compiler does not run on
+# Windows. Targets the compiler emits and targets a clone can bootstrap
+# on are different facts, so one list cannot serve both.
 seed_targets() {
   cat <<'TARGETS'
 darwin-aarch64
@@ -65,11 +46,10 @@ TARGETS
 
 # seed_sums_verify <bootstrap-dir>
 #
-# 0 when every `.ll` in the directory is named by exactly one row of its
+# Returns 0 when every `.ll` in the directory has exactly one row in its
 # SHA256SUMS, every row names a file that is there, and every hash
-# matches. Non-zero otherwise, with the reason on stderr, naming the
-# file rather than leaving it to surface as a link error three steps
-# downstream.
+# matches. Otherwise it returns non-zero and names the file on stderr, so
+# the fault does not surface later as a link error.
 seed_sums_verify() {
   local dir="$1" sums="$1/SHA256SUMS" rc=0 tmp
   if [[ ! -f "$sums" ]]; then
@@ -78,10 +58,9 @@ seed_sums_verify() {
   fi
   tmp="$(mktemp -d)" || return 1
 
-  # The files present, and the rows. `shasum` writes `<hash>  <name>`
-  # with two spaces, so the name is everything after the first run of
-  # blanks - `awk '{print $2}'` would truncate a name containing one,
-  # which no seed has and which the bare-name check below refuses.
+  # The files present, and the rows. `shasum` writes `<hash>  <name>`, so
+  # the name is everything after the first run of blanks. `awk '{print $2}'`
+  # would truncate a name containing a blank.
   ls -1 "$dir" 2>/dev/null | grep '\.ll$' | LC_ALL=C sort > "$tmp/on-disk"
   sed -n 's/^[0-9a-fA-F]\{64\}[[:space:]][[:space:]]*//p' "$sums" \
     | LC_ALL=C sort > "$tmp/listed"
@@ -92,27 +71,24 @@ seed_sums_verify() {
     return 1
   fi
 
-  # A row naming `../elsewhere.ll` would be verified from beside the
-  # sums file and compared against something outside it.
+  # A row naming `../elsewhere.ll` would verify a file outside the directory.
   if grep -q '/' "$tmp/listed"; then
     echo "$sums names a path rather than a bare filename:" >&2
     grep '/' "$tmp/listed" | sed 's/^/    /' >&2
     rc=1
   fi
 
-  # Two rows for one file: the second is never reached by a reader
-  # deciding what the seed should hash to, and `shasum -c` verifies the
-  # file twice rather than reporting the disagreement between them.
+  # Two rows for one file leave its expected hash ambiguous, and
+  # `shasum -c` checks the file twice without reporting the duplicate.
   if [[ "$(LC_ALL=C sort -u "$tmp/listed" | wc -l)" != "$(wc -l < "$tmp/listed")" ]]; then
     echo "$sums names a file more than once:" >&2
     LC_ALL=C uniq -d "$tmp/listed" | sed 's/^/    /' >&2
     rc=1
   fi
 
-  # The two directions, separately, because they are two different
-  # facts. A seed on disk with no row is the one that walks past
-  # `shasum -c` unremarked; a row with no seed is a file that went
-  # missing, which `shasum -c` does already report.
+  # Each direction separately. A seed with no row is the case `shasum -c`
+  # misses. A row with no seed is a missing file, which `shasum -c` does
+  # report.
   if [[ -n "$(LC_ALL=C comm -23 "$tmp/on-disk" "$tmp/listed")" ]]; then
     echo "$dir holds a seed that $sums does not name - its bytes are checked by nothing:" >&2
     LC_ALL=C comm -23 "$tmp/on-disk" "$tmp/listed" | sed 's/^/    /' >&2
@@ -129,8 +105,8 @@ seed_sums_verify() {
     return 1
   fi
 
-  # Only now the hashes, and from beside the files, because the rows
-  # name them bare.
+  # Only now the hashes, run from inside the directory because the rows
+  # name the files bare.
   if command -v sha256sum >/dev/null 2>&1; then
     (cd "$dir" && sha256sum -c SHA256SUMS) > "$tmp/log" 2>&1 || rc=1
   else

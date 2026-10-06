@@ -185,8 +185,8 @@ class Model:
         self.reclaimed = {}     # offset -> Block, reclaimed by the LAST reset
         self.filed = 0          # MM-ALLOC-24: bytes on the free lists, headers included
 
-    # --- links: the runtime stores ADDRESSES; the model stores offsets
-    # and says how to spell the address in the program.
+    # --- links: the runtime stores addresses; the model stores offsets
+    # and spells the address in the program.
     def head(self, cls):
         pool = self.free.get(cls, [])
         return pool[-1] if pool else None
@@ -232,7 +232,7 @@ class Model:
         if block.count == 0 and block.filable:
             cls = class_down(block.size) // 16
             previous = self.head(cls)
-            # MM-LIFE-2k: the link, ENCODED. `None` (empty list) is 0.
+            # MM-LIFE-2k: the link, encoded. `None` (empty list) is 0.
             block.count = ("link", previous)
             self.free.setdefault(cls, []).append(offset)
             self.filed += block.size + 16
@@ -459,12 +459,12 @@ class Trace:
         self.declare(name)
         cell = self.model.mark(name)
         self.op(f"(set {name} __axiom_arena_mark)")
-        # The cell is an allocation like any other, so it may reuse a
-        # filed slot - and any stale name for that slot is gone, exactly
-        # as in allocate. Without this the dead handle reads live again
-        # (its offset's count is the cell's 0, not a link tuple) and the
-        # generator drives it: seed-1001 wrote its mark cell's saved bump
-        # through h45 and the reset then restored garbage.
+        # The cell is an ordinary allocation, so it may reuse a filed
+        # slot; drop any stale name for that slot, as allocate does.
+        # Otherwise the dead handle reads as live (its count is the cell's
+        # 0, not a link tuple) and the generator keeps driving it: a write
+        # through it corrupts the mark's saved bump, and the reset then
+        # restores garbage.
         for other, o in list(self.handles.items()):
             if o == cell:
                 del self.handles[other]
@@ -477,7 +477,7 @@ class Trace:
     def after_restore(self, what):
         self.waterline(what)
         # MM-ALLOC-14: the reset wrote no byte of what it reclaimed. Read
-        # it back BEFORE anything is allocated over it.
+        # it back before anything is allocated over it.
         for o, b in sorted(self.model.reclaimed.items()):
             self.check(f"(== (__load64 (+ origin {b.header}) 0) {self.model.count_word(b)})",
                        f"{what} leaves reclaimed header at {o} (MM-ALLOC-14)")
@@ -621,7 +621,7 @@ def witness(kind, perturb=None):
     t.allocate("a", 32)
     t.retain("a")
     if kind == "dead":
-        # MM-LIFE-2k: a second release of a FILED block must touch nothing.
+        # MM-LIFE-2k: a second release of a filed block must touch nothing.
         t.allocate("b", 32)
         t.retain("b")
         t.release("a")
@@ -803,7 +803,7 @@ def all_traces(seeds, steps):
 
 
 # ----------------------------------------------------------------------
-# Mutation witnesses: each rewrites ONE rule of the emitted runtime.
+# Mutation witnesses: each rewrites one rule of the emitted runtime.
 # ----------------------------------------------------------------------
 
 def function_body(text, name):
@@ -822,7 +822,7 @@ def replace_once(body, old, new, what):
 def ablate(kind, source, target):
     text = source.read_text()
     if kind == "dead":
-        # the pre-MM-LIFE-2k release: only -1 is left alone
+        # a release without MM-LIFE-2k: only -1 is left alone
         m = function_body(text, "axiom_release")
         body = replace_once(m.group(1), "  %stat = icmp slt i64 %c, 0", "  %stat = icmp eq i64 %c, -1", kind)
     elif kind == "reset":
@@ -848,7 +848,7 @@ def ablate(kind, source, target):
                             "  br label %increment", kind)
     elif kind == "region":
         # a region's normal exit forgets its reset. A region exit hands the
-        # reset its STACK cell (`ptrtoint ptr %cell`); a raw reset hands it
+        # reset its stack cell (`ptrtoint ptr %cell`); a raw reset hands it
         # a mark word. Only the first kind is removed, and the region
         # witness has exactly two.
         m = function_body(text, "__axiom_user_main")

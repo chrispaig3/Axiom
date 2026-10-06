@@ -1,37 +1,23 @@
 #!/usr/bin/env bash
-# The Windows entry shim's parsers, executed on THIS host.
+# The Windows entry shim's parsers, executed on this host.
 #
-# `mainCRTStartup` (self_host/codegen.ax, `emitWinEntry`) reads the
-# process's command line and environment as UTF-16 from kernel32 and
-# lays them out as the POSIX vector `Sys.ax` already reads -
-# argv[0..argc-1], NULL, envp[0..m-1], NULL - narrowed to UTF-8. The
-# split follows the rules `CommandLineToArgvW` documents, and a wrong
-# rule produces a PLAUSIBLE argv rather than a crash: a path with a
-# space split in two, a trailing backslash eaten, a `""` dropped. No
-# runner in this repository executes a Windows binary, so those rules
-# would otherwise be checked by nothing until someone typed a path with
-# a space on a machine this tree has never seen.
+# `mainCRTStartup` (self_host/codegen.ax, `emitWinEntry`) narrows the
+# UTF-16 command line and environment to UTF-8 and lays them out as the
+# POSIX vector `Sys.ax` reads. The split follows `CommandLineToArgvW`'s
+# rules. A wrong rule yields a plausible argv, not a crash: a path split
+# at its space, a trailing backslash eaten, a `""` dropped.
 #
-# But the parsing is not Windows-specific - it is loads and stores over
-# memory, in functions that call nothing but each other. So this gate
-# emits a module for each Windows target (windows-x86_64 and
-# windows-aarch64), cuts the `@__axiom_win_*` helpers out of each,
-# assembles them for THE HOST under the host's own triple, links them
-# to a C harness (libc is fine in a harness; it is not Axiom's output),
-# and runs them against command lines and environment blocks with
-# known answers. What executes is the bytes the emitter wrote for
-# Windows, on the machine at hand.
+# The parsers are plain loads and stores in functions that call only
+# each other, so this gate cuts the `@__axiom_win_*` helpers out of the
+# windows-x86_64 and windows-aarch64 modules, assembles them for the
+# host and runs them from a C harness against known answers. The
+# harness may use libc, since it isn't Axiom's output. The kernel32
+# calls themselves need a Windows machine
+# (`check-windows-hello.sh --run`), which no CI job provides.
 #
-# WHAT THIS DOES NOT SHOW: that `GetCommandLineW` is called, that the
-# vector reaches `@__axiom_argc`/`@__axiom_argv`, that `ExitProcess`
-# ends the process. Those are the entry's calls into kernel32 and only
-# a Windows runner sees them. The CI leg for that is a later phase, and
-# until it exists the README's Targets section says so.
-#
-# NEGATIVE PROBES. Two rules are ablated in the extracted IR and the
-# harness must disagree with the golden on exactly the cases that spend
-# them - a gate that cannot go red on a wrong rule would be asserting
-# that the harness ran, not that the parser is right.
+# Negative probes ablate two rules in the extracted IR. The harness must
+# then disagree with the golden on the cases that use them, or the gate
+# would only show that the harness ran.
 
 set -euo pipefail
 
@@ -42,10 +28,9 @@ gate_build_axc axc
 status=0
 
 # The modules the helpers are cut from, one per Windows target. Any
-# program with an entry carries them; the hello case is the smallest.
-# Both architectures emit the same shim - it is plain IR with no
-# inline assembly - and both are cut and run, so a shim that one
-# target's emission bent would answer the golden wrongly here.
+# program with an entry carries them, and the hello case is the
+# smallest. Both architectures emit the same plain-IR shim, and both
+# are run, so one target's emission bending it fails the golden.
 win_targets=(windows-x86_64 windows-aarch64)
 for t in "${win_targets[@]}"; do
   if ! "$axc" --target="$t" emit-llvm tests/stdlib/010-hello.ax -o "$work/win-$t.ll" >"$work/emit.log" 2>&1; then
@@ -56,10 +41,10 @@ for t in "${win_targets[@]}"; do
 done
 
 # Cut every `define internal i64 @__axiom_win_...` through its closing
-# brace, drop `internal` so the harness can name them, keep the module's
-# own `attributes #0` - the functions carry `#0`, and `no-builtins` is
-# what stops the host's optimiser turning the narrowing loop into a
-# libc call - and give the whole thing the host's triple.
+# brace, drop `internal` so the harness can name them, and use the
+# host's triple. The module's `attributes #0` comes too: its
+# `no-builtins` stops the host's optimiser turning the narrowing loop
+# into a libc call.
 host_triple="$(llc --version | sed -n 's/.*Default target: *//p' | head -1)"
 if [[ -z "$host_triple" ]]; then
   echo "FAIL: could not read the host triple from \`llc --version\`"
@@ -83,14 +68,13 @@ for t in "${win_targets[@]}"; do
     exit 1
   fi
 done
-# The negative probes below ablate one copy; windows-x86_64's is it.
+# The negative probes below ablate the windows-x86_64 copy.
 cp "$work/shim-windows-x86_64.ll" "$work/shim.ll"
 
-# The harness. `u""` literals are UTF-16 on every host this runs on
-# (clang and gcc agree); `char16_t` is spelled out because macOS ships
-# no <uchar.h>. Each case prints `argc=N` then one `[arg]` line per
-# argument; an environment block prints `envc=N units=U` then its
-# entries.
+# The harness. `u""` literals are UTF-16 under both clang and gcc, and
+# `char16_t` is spelled out because macOS ships no <uchar.h>. Each case
+# prints `argc=N` and then one `[arg]` line per argument. An environment
+# block prints `envc=N units=U` and then its entries.
 cat > "$work/harness.c" <<'C'
 #include <stdio.h>
 #include <stdlib.h>
@@ -148,9 +132,9 @@ int main(void) {
 }
 C
 
-# The golden. Every line is what the rules above produce for the case
-# beside it in the harness; the two non-ASCII lines are the UTF-8 of
-# U+00E9, U+1D11E and U+FFFD, written as bytes so the file is bytes.
+# The golden: what the rules produce for each harness case, in order.
+# The two non-ASCII lines hold the UTF-8 of U+00E9, U+1D11E and U+FFFD
+# as octal escapes.
 printf 'argc=3\n[prog.exe]\n[a]\n[b]\n' > "$work/expected"
 printf 'argc=3\n[C:\\Program Files\\x.exe]\n[a b]\n[c]\n' >> "$work/expected"
 printf 'argc=3\n[p]\n["q"]\n[r]\n' >> "$work/expected"

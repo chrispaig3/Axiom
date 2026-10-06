@@ -66,13 +66,12 @@ import os
 import re
 import sys
 
-# Globals whose initializers list function addresses for BACKTRACES, not
-# for calling.  @__axiom_symtab is the address->name table the runtime
-# walks when a program aborts, and it names every function in the
-# program; @__axiom_bt_mainaddr is the one-entry `main` anchor beside
-# it.  Counting these as address-taken would make every function a
-# possible indirect target and no program would ever be boundable -
-# which is exactly what the `noindirect` ablation demonstrates.
+# Globals whose initialisers list function addresses for backtraces, not
+# for calling. @__axiom_symtab is the address->name table the runtime
+# walks when a program aborts, and it names every function.
+# @__axiom_bt_mainaddr is the one-entry `main` anchor beside it. Counting
+# these as address-taken would make every function a possible indirect
+# target, and no program would be boundable (the `noindirect` ablation).
 SYMTAB_GLOBALS = {"__axiom_symtab", "__axiom_bt_mainaddr"}
 
 ABLATE = os.environ.get("AXIOM_ABLATE_STACK_BOUND", "")
@@ -107,12 +106,11 @@ def read_su(path):
     return sizes, dynamic
 
 
-# AArch64 prologue: a pre-index writeback push moves sp by N; a plain
-# `sub sp, sp, #N` (optionally shifted left 12) allocates the frame.  A
-# NON-writeback `stp x29, x30, [sp, #144]` is a spill INTO a frame that
-# `sub` already allocated and must not be counted twice - that shape is
-# what codegen$resolveDecls emits, and double-counting it is the first
-# thing the cross-check catches.
+# AArch64 prologue: a pre-index writeback push moves sp by N, and a plain
+# `sub sp, sp, #N` (optionally shifted left 12) allocates the frame. A
+# non-writeback `stp x29, x30, [sp, #144]` spills into a frame `sub`
+# already allocated, so it is not counted again. codegen$resolveDecls
+# emits that shape, and the cross-check catches a double count.
 A64_PUSH = re.compile(r"^\s*(?:stp|str)\s+[\w]+\s*,\s*(?:[\w]+\s*,\s*)?\[sp,\s*#-(\d+)\]!")
 A64_SUB = re.compile(r"^\s*sub\s+sp,\s*sp,\s*#(\d+)(?:\s*,\s*lsl\s*#(\d+))?")
 X86_PUSH = re.compile(r"^\s*push[qlw]?\s+%\w+")
@@ -218,39 +216,35 @@ CALL = re.compile(
     r'\b(musttail|tail|notail)?\s*(?:call|invoke)\b[^@%]*?@("[^"]+"|[\w.$]+)\s*\(')
 ICALL = re.compile(r'\b(?:musttail|tail|notail)?\s*(?:call|invoke)\b[^\n]*?\s(%[\w.]+)\s*\(')
 # LLVM quotes an identifier containing `$` in some outputs and not in
-# others: self_host's emitted IR has @Str$strLen, the same module after
-# `opt` has @"Str$strLen".  Both forms must be scanned - matching only
-# the bare one leaves the symbol table unread, and the address-taken set
-# silently empty.
+# others: self_host's emitted IR has @Str$strLen, and the same module
+# after `opt` has @"Str$strLen". Both forms must be scanned, or the
+# symbol table goes unread and the address-taken set is silently empty.
 PTRTOINT_INSTR = re.compile(r'(?<!\()\bptrtoint ptr @("[^"]+"|[\w.$]+) to i64')
 PTRTOINT_CONST = re.compile(r'\bptrtoint\s*\(\s*ptr @("[^"]+"|[\w.$]+) to i64\s*\)')
 # A block address taken for the backtrace line table:
 # `store i64 ptrtoint (ptr blockaddress(@fn, %LLn) to i64), ...`.
-# Consumed WITHOUT joining the taken set: the address is mid-function,
-# and nothing can be indirectly called through it - the walker only
-# compares return addresses against it. Treating it as address-taken
-# would make every function with a marked call an indirect target of
-# everything and leave no program boundable; leaving it unconsumed
-# trips the default-deny below, which is how this rule earned its
-# test (the line-table land broke A2 on every leg the day it landed).
+# It is consumed without joining the taken set: the address is
+# mid-function, and the walker only compares return addresses against
+# it. Treating it as address-taken would make every function with a
+# marked call an indirect target and no program boundable. Leaving it
+# unconsumed trips the default-deny below. check-stack-bound.sh A3b
+# keeps this rule exercised.
 BLOCKADDR = re.compile(r'\bblockaddress\(@("[^"]+"|[\w.$]+),')
 ANY_AT = re.compile(r'@("[^"]+"|[\w.$]+)')
-# `%r = icmp ne i64 %frame, ptrtoint (ptr @main to i64)` - an address used
-# ONLY as the operand of an integer comparison.  This is how the runtime's
-# backtrace walker recognises the bottom of the stack.  `icmp` yields an
-# i1, so the address flows nowhere and nothing can be called through it;
-# treating it as address-taken would make `main` an indirect target of
-# itself and leave hello world unboundable.  Narrow on purpose: only a
-# comparison, and only when the comparison is the whole instruction.
+# `%r = icmp ne i64 %frame, ptrtoint (ptr @main to i64)`: an address used
+# only as an operand of an integer comparison, which is how the backtrace
+# walker finds the bottom of the stack. `icmp` yields an i1, so nothing
+# can be called through the address. Counting it as address-taken would
+# make `main` an indirect target of itself and leave hello world
+# unboundable. The exemption applies only when the comparison is the
+# whole instruction.
 ICMP_LINE = re.compile(r'^\s*%[\w.]+\s*=\s*icmp\b')
 # An LLVM byte-array literal: c"...", with \XX escapes and no bare quote.
-# The lookbehind is load-bearing. A QUOTED IR identifier whose last
-# character is `c` - @"expand$expandRec" - ends with the two characters
-# `c"`, and without the lookbehind this pattern started matching there
-# and swallowed the rest of the line. On the compiler's own symbol
-# table, one such name ate 130 of the entries that follow it, which
-# presented as "130 function addresses I cannot classify" rather than as
-# a parsing bug. A byte-array literal's `c` always begins a token.
+# The lookbehind matters. A quoted IR identifier ending in `c`, such as
+# @"expand$expandRec", ends with the characters `c"`. Without the
+# lookbehind the pattern matches there and swallows the rest of the line,
+# which shows up as unclassified function addresses, not as a parsing
+# bug. A byte-array literal's `c` always begins a token.
 CSTR = re.compile(r'(?<![\w$."])c"(?:[^"\\]|\\.)*"')
 
 
@@ -317,21 +311,21 @@ def classify_line(m, line, lineno, cur, curglobal):
     """
     # A metadata definition (`!0 = !{ptr @f, ptr @g}`) names functions
     # but materialises no address: metadata is dropped before lowering
-    # and no call can flow through it.  `opt` attaches these to a module
-    # for its own bookkeeping, so hello world has ten of them; counting
-    # them as address-taken would make every listed function an indirect
-    # target for no reason.  Nothing else at module scope is skipped.
+    # and no call can flow through it. `opt` attaches these for its own
+    # bookkeeping, even to hello world. Counting them would make every
+    # listed function an indirect target. Nothing else at module scope
+    # is skipped.
     if cur is None and line.startswith("!"):
         return
 
-    # Strip LLVM byte-array literals before looking for names.  The
-    # compiler's own codegen emits IR AS TEXT, so self_host's module is
-    # full of string constants like
+    # Strip LLVM byte-array literals before looking for names. The
+    # compiler emits IR as text, so self_host's module is full of string
+    # constants like
     #     @str_2355 = private constant [44 x i8] c"define internal i64 @__axiom_div_by_zero() \00"
-    # The `@__axiom_div_by_zero` in there is a character sequence the
-    # compiler will one day print, not a reference to anything in THIS
-    # module.  Reading it as an address escape refused the compiler for
-    # the wrong reason, and hid the cycle A4 is about.
+    # That `@__axiom_div_by_zero` is text the compiler prints, not a
+    # reference to anything in this module. Reading it as an address
+    # escape would refuse the compiler for the wrong reason and hide the
+    # cycle A4 checks.
     line = CSTR.sub('c""', line)
 
     consumed = []
@@ -367,9 +361,8 @@ def classify_line(m, line, lineno, cur, curglobal):
     if cur is not None and ICALL.search(line):
         m.indirect[cur] += 1
 
-    # Whatever FUNCTION @names are left over on this line are
-    # unaccounted for.  Data globals are skipped: they are not addresses
-    # anything can be called through.
+    # Any function @names left on this line are unaccounted for. Data
+    # globals are skipped: nothing can be called through them.
     for raw in ANY_AT.findall(line):
         name = raw.strip('"')
         if name in consumed:
@@ -467,8 +460,8 @@ def main():
         if disagree or missing:
             sys.exit(EXIT_CROSSCHECK)
 
-    # Prefer llc's own numbers when we have them; the prologue parse is
-    # the portable fallback, and --cross-check is what earns that trust.
+    # Prefer llc's own numbers when present. The prologue parse is the
+    # portable fallback, trusted because --cross-check holds it to llc's.
     sizes = dict(asm_sizes)
     sizes.update(su_sizes)
 

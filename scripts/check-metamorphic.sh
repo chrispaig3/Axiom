@@ -6,62 +6,55 @@
 #   scripts/check-metamorphic.sh --long     # also the compiler and every
 #                                           # stdlib module as an entry file
 #
-# WHY. Every other gate holds the compiler to answers somebody wrote
-# down: an exit status, a golden, a fixed point. None of them can see a
-# name one part of a program uses leaking into another part, because
-# no fixture was written with the colliding name in it. This one
-# supplies the collision. For every program the compiler accepts it
-# appends top-level functions nobody calls, named like the names
-# programs are full of (`a`, `e`, `k`, `t`, ...), each performing IO,
-# and requires the compiler's answers about the ORIGINAL program to
-# stay put (`scripts/lib/metamorphic.py` states the relation, R1 to R3):
-# the verdict and diagnostics, every original declaration's `symbols`
-# row, and every original function's emitted body.
+# Other gates hold the compiler to answers someone wrote down: an exit
+# status, a golden, a fixed point. None can see a name from one part of
+# a program leaking into another, because no fixture holds the colliding
+# name. This gate supplies the collision. For every program the compiler
+# accepts, it appends uncalled top-level functions with common names
+# (`a`, `e`, `k`, `t`, ...), each performing IO. The answers about the
+# original program must not move: the verdict and diagnostics, every
+# original declaration's `symbols` row, and every original function's
+# emitted body. `scripts/lib/metamorphic.py` states the relations, R1
+# to R3.
 #
-# Its first run, on 2026-09-28, found three defects no gate had seen:
-# `(cast a x)`'s type operand walked as a reference, a nullary function
-# compiled in place of a parameter of the same name (wrong code:
-# `tests/selfhost/1007-param-shadows-nullary.ax` answered 101 for 11,
-# or faulted), and a named pattern's binders missing from the effect
-# walk. `tests/selfhost/1006-cast-type-operand.ax` and `1007` pin them.
+# `tests/selfhost/1006-cast-type-operand.ax` and
+# `tests/selfhost/1007-param-shadows-nullary.ax` pin defects this
+# relation found, and section 3 ablates their fixes.
 #
-# SIX SECTIONS.
-#   1. The comparator's selftest: each of R1-R3 reported on a planted
-#      difference, the two runtime tables that enumerate every function
-#      allowed to differ, fresh type variables compared by order.
-#   2. The relation over tests/stdlib, tests/selfhost and examples.
-#      A floor on the files that were actually tested, so a glob that
-#      stops matching can't pass by testing nothing.
-#   2b. The second relation: reversing a program's top-level
-#      declarations (imports first, a `::` with its `fn`) changes
-#      neither its verdict nor any `symbols` row. Two programs a
-#      reordering refuses show a known limit (AN-39: a function with no
-#      signature called above its definition), 770 once and 1012,
-#      whose `main` calls two, twice. Each must still fail exactly as
-#      recorded below, so a fix updates the list. AN-40, a
-#      macro query answered before its subject was generated, is fixed.
-#   2c. The third relation: moving every `::` to just below its own
-#      `fn` changes no verdict and no `symbols` row, NID included
-#      (AN-41: a NID hashed whichever declaration came last).
-#   2d. The fourth relation: an entry-file function named like a
-#      library function the program's modules call changes nothing
-#      (AN-52: an entry file's `strLen` captured `IO`'s call to
-#      `Str`'s, and an entry file's `errorText` turned off the
-#      `main :: Result` dispatch).
-#   2e. The fifth relation: ten unsigned functions appended change no
-#      verdict and no `symbols` row, with fresh type variables
-#      compared as written (AN-37: `symbols` printed a counter shared
-#      by the whole module, so an unsigned function's row moved).
-#   3. Eight compilers each rebuilt with one of the fixes taken out
-#      (`gate_build_tree`), and the relation required to FAIL under
-#      each: the gate watches the defects it was built on.
-#   4. `--long` only: the compiler's own entry module and every stdlib
-#      module as an entry file (about two minutes more).
+# Sections:
+#   1. The comparator's selftest: each of R1 to R3 reported on a planted
+#      difference, the two runtime tables listing every function allowed
+#      to differ, and fresh type variables compared by order.
+#   2. The relation over tests/stdlib, tests/selfhost and examples, with
+#      a floor on the files actually tested, so a glob that stops
+#      matching cannot pass by testing nothing.
+#   2b. Reversing a program's top-level declarations (imports first, a
+#      `::` kept with its `fn`) changes neither its verdict nor any
+#      `symbols` row, macro queries included (AN-40). Two programs show
+#      a known limit, AN-39: a function with no signature called above
+#      its definition. 770 diverges once, 1012 twice. Each must still
+#      fail exactly as listed below, so a fix updates the list.
+#   2c. Moving every `::` to just below its `fn` changes no verdict and
+#      no `symbols` row. A function's NID does not depend on which of
+#      its declarations comes last (AN-41).
+#   2d. An entry-file function named like a library function the
+#      program's modules call changes nothing (AN-52). An entry file's
+#      `strLen` must not capture `IO`'s call to `Str`'s, and its
+#      `errorText` must not turn off the `main :: Result` dispatch.
+#   2e. Appending ten unsigned functions changes no verdict and no
+#      `symbols` row, with fresh type variables compared as written.
+#      Each row numbers its own fresh variables (AN-37).
+#   3. Eight compilers, each rebuilt with one fix taken out
+#      (`gate_build_tree`), must fail the relation, so the gate still
+#      sees the defects it was built on.
+#   4. `--long` only: the compiler's entry module and every stdlib
+#      module as an entry file, about two minutes more.
 #
-# WHAT IT CANNOT SEE. Only the names it adds, and only programs the
-# compiler accepts: a refused program's free names are the names this
-# adds, so its answer may rightly change (`tests/diagnostics/1009-
-# macro-for-innermost.ax`). IR is compared as text.
+# Limits: it tests only the names it adds, and only programs the
+# compiler accepts. A refused program's free names may be the very
+# names this adds, so its answer can rightly change
+# (`tests/diagnostics/1009-macro-for-innermost.ax`). IR is compared as
+# text.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
 gate_init
@@ -102,7 +95,7 @@ else
   grep '^DIVERGED' "$work/corpus.log" | cut -c1-400 | sed 's/^/     /' || true
   tail -5 "$work/corpus.log" | sed 's/^/     /'
 fi
-# 333 programs kept it on 2026-09-28; the corpus only grows.
+# The corpus only grows, so the floor sits safely below its size.
 if [[ -n "$kept" && "$kept" -ge 300 ]]; then
   ok "$kept accepted programs tested, at least 300"
 else
@@ -128,8 +121,8 @@ else
   grep -E '^(DIVERGED|FIXED|MISSING|UNPARSED)' "$work/reorder.log" | cut -c1-400 | sed 's/^/     /' || true
   tail -3 "$work/reorder.log" | sed 's/^/     /'
 fi
-# 259 permuted programs kept it on 2026-09-28. The known divergences
-# are also the proof that the harness sees a verdict change.
+# The two known divergences also prove the harness sees a verdict
+# change.
 if [[ -n "$permuted" && "$permuted" -ge 250 && "${held:-0}" -eq 2 ]]; then
   ok "$permuted reordered programs tested, at least 250, and both known divergences seen"
 else
@@ -162,8 +155,8 @@ else
   grep '^DIVERGED' "$work/shadow.log" | cut -c1-400 | sed 's/^/     /' || true
   tail -3 "$work/shadow.log" | sed 's/^/     /'
 fi
-# 185 programs called a library function they don't name, and kept
-# the relation, on 2026-09-29.
+# Only programs that call a library function whose name the entry file
+# never mentions get a shadow, hence the lower floor.
 if [[ -n "$shadowed" && "$shadowed" -ge 170 ]]; then
   ok "$shadowed programs tested with their library calls shadowed, at least 170"
 else
@@ -182,8 +175,8 @@ else
   bad "appending unsigned functions changed something (floor 300 programs): ${summary:-no summary}"
   grep -E '^(DIVERGED|UNPARSED)' "$work/fresh.log" | cut -c1-400 | sed 's/^/     /' || true
 fi
-# Most programs print no fresh variable at all, so the relation watches
-# AN-37 through the ones that do. Require them to still print one.
+# Most programs print no fresh variable, so the relation sees AN-37
+# only through those that do. These two must still print one.
 for p in tests/selfhost/770-over-application.ax tests/selfhost/1012-fresh-names.ax; do
   if ( cd "$repo_root/$(dirname "$p")" && "$axc" --diagnostic-format=ai symbols "$(basename "$p")" ) 2>/dev/null \
       | grep -qE '^F [a-zA-Z]+ .*"[^"]*_t0[^"]*"'; then
@@ -199,7 +192,7 @@ trio=(tests/stdlib/020-fmt.ax tests/stdlib/070-vec.ax tests/stdlib/210-struct-va
 # a copy of self_host/ with one exact span replaced, and require the
 # relation (section 2's `run` unless named) to fail on the three
 # programs above, or on the one program named. A span that no longer
-# matches exactly once is a failure of this gate, not a pass.
+# matches exactly once fails the gate.
 ablate() {
   local name="$1" file="$2" from="$3" to="$4" relation="${5:-run}"
   local progs=("${trio[@]}")

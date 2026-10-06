@@ -1,44 +1,27 @@
 #!/usr/bin/env bash
-# `axiom test`: the runner, the assertions, and the isolation that is
-# the only reason a runner is more than a convention.
+# Check `axiom test`: the runner, the assertions and the isolation
+# between tests.
 #
-# WHAT THIS GATE IS ABOUT. A test runner's characteristic defect is a
-# test that does not run and is not reported - a skipped test reads
-# exactly like a passing one, which is this repository's name for a
-# check that cannot fail. So the assertions here are, in order of how
-# much they matter:
+# A skipped test reads exactly like a passing one. The assertions here,
+# most important first:
 #
-#   1. A failing test FAILS. Nothing else in this file is worth
-#      anything if a mutated assertion still exits 0, so that is the
-#      negative probe and it runs against every passing fixture.
-#   2. Every test declared is a test reported. The report is compared
-#      against a list derived from the fixture's own bytes by `grep`,
-#      which is a source outside the compiler - the same argument
-#      `check-backtrace.sh` makes for checking its frame names against
-#      `nm`.
-#   3. One failure ends ONE test. `mixed-tests.ax` fails in the three
-#      ways an Axiom program can stop without returning, and the test
-#      declared AFTER all three still reports `ok`.
-#   4. A file with no test is a failure, and a `test`-named function
-#      that takes parameters is refused by name.
-#   5. `;@axiom:expect` flips the verdict and nothing else: a
-#      tagged test that fails is `xfail` and does not count against
-#      the run, and a tagged test that does NOT fail is `FAIL` and
-#      does - `xfail-tests.ax` carries both, so the tag cannot be used
-#      to silence a test that is actually broken.
+#   1. A failing test fails: every mutated assertion must go red.
+#   2. Every test declared is reported, checked against a `grep` of the
+#      fixture, a source outside the compiler (as `check-backtrace.sh`
+#      checks frames against `nm`).
+#   3. One failure ends one test, and the run carries on.
+#   4. A file with no test fails, and a `test`-named function that takes
+#      parameters is refused by name.
+#   5. `;@axiom:expect` flips the verdict and nothing else: a tagged
+#      test that fails is `xfail`, and one that passes is `FAIL`.
 #   6. `assertFloatNear`'s tolerance is inclusive at the boundary and
-#      still catches a real mismatch outside it - `float-near-tests.ax`
-#      carries both, for the same reason as 5: a comparison that always
-#      passes is worse than no comparison.
+#      still catches a real mismatch.
 #
-# WHY THE FIXTURES ARE COPIED INTO $work. `axiom test` writes its
-# generated driver beside the file under test, because that is where
-# the file's own imports resolve from. Running the gate against
-# `tests/testrunner/` directly would therefore write into the
-# repository - briefly, and removed on every path out, but a gate that
-# writes into the tree is a gate that can leave something in it. The
-# copy also makes the last assertion possible: after every run, the
-# working copy must hold exactly the files it started with.
+# The fixtures are copied into $work because `axiom test` writes its
+# generated driver beside the file under test, where the file's imports
+# resolve. Running in `tests/testrunner/` would write into the tree. The
+# copy also lets the last check confirm the runs left exactly the files
+# they started with.
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
@@ -92,10 +75,10 @@ fi
 echo
 echo "== the negative probe: a mutated assertion must go red =="
 # --------------------------------------------------------------------
-# Every `assertEq` in the passing suite, one at a time, with its
-# expected value replaced by one that cannot be right. Each mutant
-# must exit 1 AND name the test it broke - exiting 1 for some other
-# reason would pass a weaker check.
+# Mutate every `assertEq` in the passing suite, one at a time, to an
+# expected value that cannot be right. Each mutant must exit 1 and name
+# the test it broke: exiting 1 for another reason would pass a weaker
+# check.
 mutants=0
 while IFS=: read -r line _; do
   [[ -z "$line" ]] && continue
@@ -128,6 +111,8 @@ fi
 echo
 echo "== one failure ends one test, and the run carries on =="
 # --------------------------------------------------------------------
+# `mixed-tests.ax` fails in the three ways an Axiom program can stop
+# without returning, then declares one more test that must still pass.
 set +e
 mixed="$(axiom_test suite/mixed-tests.ax)"; rc=$?
 set -e
@@ -140,14 +125,14 @@ else
   sed 's/^/     /' "$work/mixed.diff"
 fi
 
-# The claim the golden encodes, restated so a re-blessed golden cannot
-# quietly lose it: the LAST test still ran.
+# Restate the golden's claim so a re-blessed golden cannot lose it: the
+# last test still ran.
 if printf '%s\n' "$mixed" | grep -qx "ok   testTheLastOneStillRuns"; then
   ok "the test declared after all three failures still ran"
 else
   bad "the test after the failures did not run - isolation is broken"
 fi
-# And the line the failed assertion must NOT have reached.
+# The line after the failed assertion must not have run.
 if printf '%s\n' "$mixed" | grep -q "unreachable"; then
   bad "execution continued past a failed assertion"
 else
@@ -159,10 +144,9 @@ echo
 echo "== \`;@axiom:expect\` flips the verdict, and only the verdict =="
 # --------------------------------------------------------------------
 # `xfail-tests.ax`: a tagged test that fails is `xfail` and does not
-# count against the run; a tagged test that does NOT fail is `FAIL`
-# and does - so the tag cannot be used to silence a broken test, only
-# to say a real failure is expected. One case tags the `::` signature
-# rather than the `fn`, the other half `testExpectFail` falls back to.
+# count against the run; a tagged test that passes is `FAIL` and does.
+# One case tags the `::` signature instead of the `fn`, the half
+# `testExpectFail` falls back to.
 set +e
 xf="$(axiom_test suite/xfail-tests.ax)"; rc=$?
 set -e
@@ -175,8 +159,7 @@ else
   sed 's/^/     /' "$work/xfail.diff"
 fi
 
-# The claims the golden encodes, restated so a re-blessed golden cannot
-# quietly lose any of them.
+# Restate the golden's claims so a re-blessed golden cannot lose them.
 if printf '%s\n' "$xf" | grep -qx "xfail testXFailReportsTheFailureAsExpected - a failed assertion, or an unhandled effect (status 71), as expected"; then
   ok "a tagged test that fails is reported xfail, not FAIL"
 else
@@ -207,9 +190,9 @@ fi
 echo
 echo "== \`assertFloatNear\` compares within a tolerance, inclusively =="
 # --------------------------------------------------------------------
-# `float-near-tests.ax`: within epsilon, exactly at it (inclusive), and
-# far enough outside it that the assertion still catches a real
-# mismatch - an assertion that always passes is worse than none.
+# `float-near-tests.ax` compares within epsilon, exactly at it, and far
+# enough outside it to catch a real mismatch. An assertion that always
+# passes is worse than none.
 set +e
 fn_out="$(axiom_test suite/float-near-tests.ax)"; rc=$?
 set -e
@@ -259,8 +242,8 @@ if (( rc != 0 )) \
 else
   bad "arity-tests.ax exited $rc without naming the function: $arout"
 fi
-# The refusal must not be a silent skip: the OTHER test in that file
-# must not have run either.
+# A refusal must not be a silent skip: the other test in that file must
+# not have run either.
 if printf '%s\n' "$arout" | grep -q '^ok '; then
   bad "the file was refused and something still ran"
 else
@@ -271,11 +254,10 @@ fi
 echo
 echo "== \`setup\` and \`teardown\` run around every test =="
 # --------------------------------------------------------------------
-# `setup-tests.ax`: a `setup` hook appending "s" and a `teardown` hook
-# appending "t" around two tests appending "1" and "2" to one log, so
-# each test asserts the prefix the hooks before it must have written.
-# Had either hook not run, an assertion would fail - which is what
-# makes the golden evidence rather than a transcript.
+# `setup-tests.ax`: a `setup` hook appends "s" and a `teardown` hook
+# appends "t" around two tests that append "1" and "2" to one log. Each
+# test asserts the prefix the hooks must have written, so a hook that
+# did not run fails an assertion and the golden is evidence.
 set +e
 hookout="$(axiom_test suite/setup-tests.ax)"; rc=$?
 set -e
@@ -288,10 +270,9 @@ else
   sed 's/^/     /' "$work/setup.diff"
 fi
 
-# The claims the golden encodes, restated so a re-blessed golden cannot
-# quietly lose them: both tests ran, in order, which is only possible
-# when setup ran before the first and teardown closed it before the
-# second's setup.
+# Restate the golden's claims so a re-blessed golden cannot lose them.
+# Both tests pass in order only if setup ran before the first and
+# teardown closed it before the second's setup.
 if printf '%s\n' "$hookout" | grep -qx "ok   testFirstSeesSetup" \
    && printf '%s\n' "$hookout" | grep -qx "ok   testSecondSeesTeardown"; then
   ok "both tests passed in declaration order, so both hooks ran per test"
@@ -305,9 +286,8 @@ echo
 echo "== a trapping \`teardown\` fails its test, and only its test =="
 # --------------------------------------------------------------------
 # `teardown-fails.ax`: one passing test closed by a teardown that
-# divides by zero. The failure belongs to the test it closed, so the
-# report is one FAIL at status 72 and the exit is 1 - teardown runs
-# inside the test's own recovery point, not outside it.
+# divides by zero. Teardown runs inside the test's own recovery point,
+# so the report is one FAIL at status 72 and the exit is 1.
 set +e
 tdout="$(axiom_test suite/teardown-fails.ax)"; rc=$?
 set -e
@@ -332,8 +312,8 @@ echo
 echo "== a \`setup\` hook with parameters is refused by name =="
 # --------------------------------------------------------------------
 # `setup-arity-tests.ax` mirrors `arity-tests.ax` for the hook: a
-# `setup` taking a parameter would never be run correctly, so the file
-# is refused naming the hook and its arity, and nothing in it runs.
+# `setup` that takes a parameter cannot be run correctly, so the file is
+# refused, naming the hook and its arity, and nothing in it runs.
 set +e
 saout="$(axiom_test suite/setup-arity-tests.ax)"; rc=$?
 set -e
@@ -396,34 +376,27 @@ echo
 echo '== the Assert tag is load-bearing =='
 # --------------------------------------------------------------------
 # `stdlib/Test.ax` declares its `Assert` effect under
-# `;@axiom:unhandled(trap)`, and that tag is the only reason the
-# generated runner compiles without a diagnostic. AX3053 reports a
-# custom effect that reaches `main` with no handler; the driver this
-# gate builds wraps every test in a lambda inside its `main`, so every
-# assertion in the file under test reaches `main` undischarged, which
-# is exactly the shape AX3053 names. Without the tag the runner draws
-# it on every suite.
+# `;@axiom:unhandled(trap)`, and only that tag keeps the generated
+# runner free of diagnostics. AX3053 reports a custom effect that
+# reaches `main` with no handler. The driver wraps every test in a
+# lambda inside its `main`, so every assertion reaches `main`
+# undischarged, and without the tag every suite draws AX3053.
 #
-# A tag nothing checks is a comment, so this is checked BY REMOVAL: a
-# shadow tree with its own `stdlib/` (the resolver looks in
-# `<file>/../stdlib/`), the tag line deleted from that copy alone, and
-# the warning required to appear. The positive control runs first and
-# is the half that matters most - a compiler that reported AX3053 on
-# every suite would satisfy the removal arm and fail this one.
+# The tag is checked by removal: a shadow tree with its own `stdlib/`
+# (the resolver looks in `<file>/../stdlib/`), the tag deleted from that
+# copy alone, and the warning required to appear. The positive control
+# runs first: a compiler that reported AX3053 on every suite would pass
+# the removal arm and fail the control.
 shadow="$work/shadow"
 mkdir -p "$shadow/stdlib" "$shadow/suite"
 cp -R "$repo_root/stdlib/." "$shadow/stdlib/"
 cp "$fixtures/pass-tests.ax" "$shadow/suite/"
 
-# `AXIOM_STDLIB` IS THE WHOLE TRICK, AND IT ALMOST ATE THIS ARM.
-# `gate_init` exports it at the repository root so that a compiler
-# invoked from anywhere resolves THIS checkout's stdlib; it wins over
-# the path search, so the first version of this arm deleted the tag
-# from a copy the compiler never opened. Both runs read the real
-# `stdlib/Test.ax`, both were silent, the positive control passed - for
-# the wrong reason - and only the removal arm went red, which is the
-# vacuous check this repository names as its commonest defect, caught
-# by the one assertion written to fail.
+# `AXIOM_STDLIB` must name the shadow copy. `gate_init` exports it at the
+# repository root and it wins over the path search, so without this
+# override both runs read the real `stdlib/Test.ax`, the tag is deleted
+# from a copy the compiler never opens, and the control passes for the
+# wrong reason.
 shadow_test() {
   ( cd "$shadow" && AXIOM_STDLIB="$shadow/stdlib" \
       "$axc" --diagnostic-format=ai test suite/pass-tests.ax ) 2>&1
@@ -437,8 +410,8 @@ else
   ok 'with ;@axiom:unhandled(trap) on Assert, the generated runner is silent'
 fi
 
-# The tag line, and only it. `grep -c` first, so a rename upstream is a
-# loud failure here rather than a silently vacuous removal.
+# Delete the tag line and only it. Count it first, so a renamed tag
+# fails here instead of making the removal vacuous.
 tagline=';@axiom:unhandled(trap)'
 n="$(grep -c -F -x "$tagline" "$shadow/stdlib/Test.ax" || true)"
 if [[ "$n" != 1 ]]; then
@@ -453,7 +426,7 @@ else
     bad "the tag was deleted and no AX3053 appeared: the claim is not load-bearing"
     printf '%s\n' "$stripped_out" | head -5 | sed 's/^/     /'
   fi
-  # And the suite still RAN - the warning must not have cost the build.
+  # The suite must still run: the warning must not cost the build.
   if printf '%s\n' "$stripped_out" | grep -qx "5 test(s), 0 failed"; then
     ok 'and it is a warning: the suite still built and all 5 tests ran'
   else
@@ -466,18 +439,16 @@ fi
 echo
 echo "== nothing is left behind =="
 # --------------------------------------------------------------------
-# The generated driver and the built executable are both scratch, and
-# both are unlinked on every path out - including the ones where the
-# build failed and where the file was refused. Every run above has
-# happened by now, so what is on disk here is the residue of all of
-# them.
+# The generated driver and the built executable are scratch, removed on
+# every path out, including a failed build and a refused file. Every run
+# above has finished, so anything left here is residue from one of them.
 residue="$(find "$work" \( -name '.axiom-test.*' -o -name 'axiom_test_output.*' -o -name '*.ll' -o -name '*.o' \) -print)"
 if [[ -z "$residue" ]]; then
   ok "no generated driver, executable or intermediate survives a run"
 else
   bad "a run left files behind:"; printf '%s\n' "$residue" | sed 's/^/     /'
 fi
-# And the fixtures themselves are untouched.
+# The fixtures themselves must be untouched.
 if diff -r -q "$fixtures" "$suite" --exclude='*.out' >/dev/null 2>&1; then
   ok "the fixtures under test are byte-identical to the originals"
 else

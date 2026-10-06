@@ -1,109 +1,31 @@
 #!/usr/bin/env bash
-# Assert that `;@axiom:pre(...)` and `;@axiom:post(...)` are CHECKED -
-# statically where the compiler can decide, and at RUN TIME where it
-# cannot - and that a compiler which stops doing either fails here
-# rather than passing in silence.
+# Check that `;@axiom:pre(...)` and `;@axiom:post(...)` are enforced:
+# statically where the compiler can decide, and at run time where it
+# cannot. A compiler that stops doing either fails here.
 #
-# WHY THIS GATE IS NOT A SECTION OF `check-restrictions.sh`. A
-# restriction is a claim the checker refutes from analysis it already
-# performs, and `check-restrictions.sh` section 1 spends its largest
-# section proving that a restriction "changes no emitted byte". A
-# contract is the opposite kind of claim: this compiler has no value
-# analysis at all, so `(> n 0)` about an unseen caller cannot be
-# decided, and the only honest enforcement is a check compiled INTO the
-# body. Those two invariants contradict each other by construction, and
-# a gate whose sections disagree about what it is asserting is worse
-# than two gates. `docs/reference.md` is the design note.
+# This is its own gate, apart from `check-restrictions.sh`, which proves
+# a restriction changes no emitted byte. A contract needs a check
+# compiled into the body, because the compiler has no value analysis to
+# decide `(> n 0)` about an unseen caller. `docs/reference.md` has the
+# design note.
 #
-# Seven sections, each with the negative probe that proves it can go
-# red, because `CONTRIBUTING.md`'s rule is that a gate can only see what
-# it actually looks at:
+# Seven sections, each with a negative probe that shows it can go red:
 #
-#   1. A VIOLATED CONTRACT ABORTS, WITH ITS OWN STATUS AND ITS OWN
-#      SENTENCE. A `pre` that does not hold and a `post` that does not
-#      hold each exit 80 - a status of its own beside 70/71/72
-#      (MM-EXEC-16), 73 (the FFI boundary), 74 (no syscall ABI), 75
-#      (an arena reset to an invalid mark, MM-ALLOC-16a), 76 (a reset
-#      past a live handle), 77 (an out-of-range index), 78/79
-#      (parallel) - and write a
-#      line on fd 2 naming the KIND, the FUNCTION and the CONTRACT AS
-#      WRITTEN. Asserted at every optimisation level, since the check
-#      is ordinary emitted code and `opt` is free to move it.
-#
-#      AND IT IS CONTAINABLE, which is a claim `docs/error-model.md`
-#      ERR-REC-6 now makes and therefore has to be checked here.
-#      `@__axiom_contract_fail` opens with `__axiom_recover_abort`, the
-#      way the division trap does and the way the arena's bad-mark trap
-#      deliberately does NOT, so a violated contract inside
-#      `(__axiom_recover mark thunk)` answers **80** to the arming call
-#      instead of ending the process - and outside one it still ends
-#      it. Both halves in one program, for the reason
-#      `403-recover-div.ax` gives for its own: with `__axiom_recover`
-#      unreferenced the whole mechanism is dead code and the armed test
-#      folds to false, so a fixture that only ever traps outside an
-#      extent tests a trap with no branch in it.
-#
-#   2. A SATISFIED CONTRACT CHANGES NO ANSWER. The same programs with
-#      the contract satisfied exit with the value the body computes,
-#      and a copy with every contract tag DELETED emits the same answer
-#      - so a contract that holds is invisible to the program, which
-#      is the half section 1 cannot state.
-#
-#   3. THE SYMBOL IS DEFINED WHERE IT IS CALLED, AND NOWHERE ELSE.
-#      A program with a contract emits `call ... @__axiom_contract_fail`
-#      AND `define internal ... @__axiom_contract_fail`; a program with
-#      no contract emits NEITHER. Both halves matter and they close
-#      different failures. `emitDivTrap`'s own note records the first:
-#      a runtime helper emitted only when the program looks like it
-#      needs one is a call to a symbol nothing defines, found at `opt`
-#      rather than here - which is why `emitContractTrap` runs
-#      unconditionally, beside the division trap. The second is
-#      `pruneDeadDefs` (2026-08-31), which walks the rendered line
-#      buffer and drops every `define` no root reaches, so the helper
-#      the emitter always writes survives only where something calls
-#      it. Unconditional at the emitter, absent from the module: that
-#      is how a program stating no contract pays nothing for the
-#      mechanism, byte for byte.
-#
-#   4. THE STATIC HALF ANSWERS, AND THE CONTROLS ARE SILENT.
-#      `tests/diagnostics/385-contract-malformed.ax` must draw AX3050
-#      on each of its seven malformed contracts and NOTHING on any of
-#      its controls - `guarded`, `ensured`, `measures`, `onTheSig` and
-#      `names` are what keep the rule from being a blanket refusal, and
-#      `measures` in particular is the measurement behind the purity
-#      rule: `strLen` carries an empty effect row, so a predicate can
-#      be written at all. `constructs` is the arm this check INHERITED:
-#      a fieldful `data` constructor contributed nothing to the effect
-#      row until 2026-08-31 (`MM-EXEC-9a`), and the purity rule reads
-#      that row, so a contract that constructed was accepted. The fix
-#      landed in `restrict(no-alloc)`'s pass; this arm is what says the
-#      contract check got it too.
-#
-#   5. THE COST IS THE ONE THE DESIGN NAMES. A `pre` does not cost the
-#      tail-call rewrite and a `post` does, measured on one
-#      self-recursive function three ways: bare and under a `pre` its
-#      IR holds no call to itself, and under a `post` it does. That is
-#      inherent - a postcondition must observe the result, so the call
-#      it wraps is not in tail position - and stating it in a gate is
-#      what keeps it from being rediscovered as a regression.
-#
-#   6. A PROGRAM CANNOT TURN ITS OWN CONTRACT OFF. `__contract` is a
-#      primitive a source program can spell - it is registered in `fns`
-#      and intercepted by `checkApp`, exactly as `__streq` is - and the
-#      lowering used to skip any body that already LOOKED lowered. So
-#      `(fn (f n) { (__contract true "never\n") (/ n 2) })` under a
-#      violated `;@axiom:pre` checked OK and exited 0: one expression
-#      in the body withdrew a claim the tag still made. Both arms of
-#      that guard are asserted here, the block and the `result` bind,
-#      and both must still exit 80.
-#
-#   7. THE COMPILER THAT STOPS ANSWERING IS CAUGHT. Three compilers are
-#      built from copies of `self_host/`: one whose `expandProgram` no
-#      longer calls `expLowerContracts` (the single lowering hook), one
-#      whose `tcCheckFn` no longer calls `checkContracts` (the single
-#      checking hook), and one with the shape guard PUT BACK. Sections
-#      1, 4 and 6 must fail against them, one each. Without this the
-#      whole file is a compiler agreeing with itself.
+#   1. A violated `pre` or `post` exits 80 at every `--opt` level and
+#      names the kind, the function and the contract on fd 2. Inside
+#      `__axiom_recover` it answers 80 to the arming call instead
+#      (`docs/error-model.md` ERR-REC-6). 80 is the contract trap's own
+#      status among those MM-EXEC-16 reserves in `docs/memory-model.md`.
+#   2. A satisfied contract changes no answer.
+#   3. `@__axiom_contract_fail` is defined where it is called, and
+#      nowhere else.
+#   4. The static half refuses each malformed contract with AX3050, and
+#      the controls draw nothing.
+#   5. A `pre` keeps the tail-call rewrite and a `post` spends it.
+#   6. A program cannot turn its own contract off.
+#   7. Compilers built with a hook removed, or the shape guard put back,
+#      fail sections 1, 4 and 6. Without this the file is a compiler
+#      agreeing with itself.
 
 set -euo pipefail
 
@@ -117,8 +39,8 @@ checks=0
 ok()  { checks=$((checks + 1)); echo "ok   $*"; }
 bad() { checks=$((checks + 1)); failed=$((failed + 1)); echo "FAIL $*"; }
 
-# `run_prog <compiler> <file> <opt>` -> writes stdout+stderr to
-# $work/run.err and answers the exit status.
+# `run_prog <compiler> <file> <opt>` -> writes stdout to $work/run.out
+# and stderr to $work/run.err, and answers the exit status.
 run_prog() {
   local cc="$1" f="$2" o="$3" rc=0
   ( cd "$work" && "$cc" run --opt "$o" --input "$f" >"$work/run.out" 2>"$work/run.err" ) || rc=$?
@@ -149,7 +71,11 @@ AX
 
 # Both halves of ERR-REC-6 in one program: the first call is inside a
 # recovery point and its status comes back as a value, the second is
-# outside every one and ends the program.
+# outside every one and ends the program. They share a program for the
+# reason `403-recover-div.ax` gives: with `__axiom_recover` unreferenced,
+# the armed test folds to false and the trap has no branch to test.
+# `@__axiom_contract_fail` opens with `__axiom_recover_abort`, as the
+# division trap does.
 cat > "$work/recover.ax" <<'AX'
 (import IO)
 
@@ -193,9 +119,10 @@ AX
 # ---------------------------------------------------------------
 echo "== 1. a violated contract exits 80 and says which contract =="
 # ---------------------------------------------------------------
-# `section1 <compiler>` -> 0 when every claim holds, 1 otherwise. It is
-# a function so that section 6 can run the SAME claims against an
-# ablated compiler and require them to fail.
+# `section1 <compiler> [quiet]` answers 0 when every claim holds and 1
+# otherwise. Section 7 runs the same claims against an ablated compiler
+# and requires them to fail. Every `--opt` level is checked, since the
+# check is ordinary emitted code that `opt` may move.
 section1() {
   local cc="$1" quiet="${2:-0}" bad_here=0 o rc
   for o in 0 1 2 3; do
@@ -239,9 +166,9 @@ section1 "$axc" || true
 # ---------------------------------------------------------------
 echo "== 2. a satisfied contract changes no answer =="
 # ---------------------------------------------------------------
-# The tags DELETED, not the file rewritten: the two programs differ by
-# exactly the two comment lines, so a difference in the answer is the
-# contract's and nothing else's.
+# Delete the tags instead of rewriting the file: the two programs differ
+# by exactly the two comment lines, so any difference in the answer is
+# the contract's.
 grep -v '^;@axiom:' "$work/held.ax" > "$work/held-untagged.ax"
 rc_t=0; run_prog "$axc" held.ax 1        || rc_t=$?
 rc_u=0; run_prog "$axc" held-untagged.ax 1 || rc_u=$?
@@ -270,13 +197,14 @@ if (( n_call0 == 0 && n_def0 == 0 )); then
 else
   bad "a contract-free program has $n_call0 calls and $n_def0 definitions; expected 0 and 0"
 fi
-# THE PRUNER IS WHAT MAKES THAT 0, NOT A CONDITIONAL EMITTER, and the
-# difference has to be pinned or this section reads the same either
-# way. Two more programs say which it is. `plain.ax` DIVIDES, so the
-# division trap is reachable in it and must survive; `bare.ax` does
-# nothing at all, so every unconditional helper must go. A
-# `emitContractTrap` quietly made conditional would satisfy the count
-# above and fail nothing - these two are what notice.
+# The pruner makes that 0, not a conditional emitter. `emitContractTrap`
+# runs unconditionally, beside the division trap, because a helper
+# emitted only when the program seems to need it can leave a call to an
+# undefined symbol that only `opt` finds. `pruneDeadDefs` then drops
+# every `define` no root reaches. The untagged program divides, so its
+# division trap must survive; `bare.ax` does nothing, so every
+# unconditional helper must go. A conditional `emitContractTrap` would
+# pass the count above, and these two notice.
 cat > "$work/bare.ax" <<'AX'
 (:: main Int)
 
@@ -302,9 +230,12 @@ fi
 echo "== 4. the static half answers, and the controls are silent =="
 # ---------------------------------------------------------------
 fixture="tests/diagnostics/385-contract-malformed.ax"
-# The six declarations whose contract must be refused, and the five
-# whose contract must not be mentioned by ANY code - not just by
-# AX3050, so that a control breaking some other way is caught here too.
+# The seven declarations whose contract must be refused, and the five
+# controls that no diagnostic may name, so a control breaking some other
+# way is caught too. The controls keep the rule from being a blanket
+# refusal: `measures` shows a predicate can call `strLen`, whose effect
+# row is empty. `constructs` checks that a fieldful `data` constructor
+# counts in the effect row the purity rule reads (MM-EXEC-9a).
 refused=(wrongType notOne noValue resultInPre noSignature allocates constructs)
 controls=(guarded ensured measures onTheSig names)
 
@@ -320,10 +251,10 @@ section4() {
     (( quiet )) || bad "385 draws $n AX3050s, expected 7"
     bad_here=1
   fi
-  # Each refusal names its own declaration, or - for the three whose
-  # message leads with the offending TEXT rather than the name - is
-  # anchored by its line. The line is read out of the fixture so that
-  # editing the fixture cannot silently retarget the check.
+  # Each refusal is anchored by its line, because three of the messages
+  # lead with the offending text instead of the name. The line is read
+  # out of the fixture, so editing the fixture cannot silently retarget
+  # the check.
   for d in "${refused[@]}"; do
     local ln
     ln=$(grep -n "^(fn ($d " "$repo_root/$fixture" | head -1 | cut -d: -f1)
@@ -333,9 +264,7 @@ section4() {
       continue
     fi
     # The tag sits above the `::` above the `fn`, within the four lines
-    # before it. The line is read out of the fixture rather than
-    # written down here, so editing the fixture cannot silently
-    # retarget the check at a line that no longer holds the contract.
+    # before it.
     if grep -E "^E AX3050 [^ ]*:($((ln - 4))|$((ln - 3))|$((ln - 2))|$((ln - 1))):" "$work/fx.axdl" >/dev/null; then
       (( quiet )) || ok "\`$d\`'s contract is refused"
     else
@@ -360,8 +289,9 @@ echo "== 5. a \`pre\` keeps the tail-call rewrite and a \`post\` spends it =="
 # ---------------------------------------------------------------
 # One function, three ways. `tailCallsSelf` rewrites a self tail call
 # into a loop, so the IR of the bare and `pre`-tagged versions holds no
-# `call ... @loop`; a `post` binds the body to `result` and the call
-# moves into a `let` INITIALISER, which is not a tail position.
+# `call ... @loop`. A postcondition must observe the result, so a `post`
+# binds the body to `result` and the call moves into a `let`
+# initialiser, which is not a tail position.
 mk_loop() {  # <tag-lines> <out>
   { printf '%s' "$1"
     cat <<'AX'
@@ -384,7 +314,7 @@ done
 self_bare=$(grep -c 'call i64 @loop(' "$work/loop-bare.ll" || true)
 self_pre=$(grep -c 'call i64 @loop(' "$work/loop-pre.ll" || true)
 self_post=$(grep -c 'call i64 @loop(' "$work/loop-post.ll" || true)
-# One call in every version: `main`'s. The rewrite shows as the ABSENCE
+# One call in every version: `main`'s. The rewrite shows as the absence
 # of a second one, inside `loop` itself.
 if (( self_bare == 1 && self_pre == 1 )); then
   ok "a \`pre\` keeps the tail-call rewrite (one @loop call, main's, in both)"
@@ -422,14 +352,12 @@ AX
 # ---------------------------------------------------------------
 echo "== 6. a program cannot turn its own contract off =="
 # ---------------------------------------------------------------
-# `__contract` IS spellable: it is registered in `fns` and intercepted
-# in `checkApp` the way `__streq` is, so "not a name a source program
-# can reach" was never true of it. The lowering's old idempotence guard
-# read the body's SHAPE - a block whose first statement applies
-# `__contract`, under an optional `result` binding - and a body that
-# happened to have that shape got no check at all. Both files below are
-# a violated contract wearing the shape the guard recognised, and both
-# must abort anyway.
+# `__contract` is spellable: it is registered in `fns` and intercepted
+# in `checkApp`, as `__streq` is. A lowering guard that reads the body's
+# shape (a block whose first statement applies `__contract`, under an
+# optional `result` binding) would skip the check for any body with that
+# shape. Both files below are a violated contract in that shape, and
+# both must abort.
 section6() {
   local cc="$1" quiet="${2:-0}" bad_here=0 rc
   rc=0; run_prog "$cc" forge-pre.ax 1 || rc=$?
@@ -453,10 +381,10 @@ section6 "$axc" || true
 # ---------------------------------------------------------------
 echo "== 7. a compiler that stops answering fails sections 1, 4 and 6 =="
 # ---------------------------------------------------------------
-# `ablate <name> <sed-script> <section>`: build a compiler from a copy
-# of `self_host/` with one hook removed, and require the named section
-# to FAIL against it. The copy is a copy; nothing here touches the
-# tree.
+# `ablate <name> <file> <from> <to> <section>`: build a compiler from a
+# copy of `self_host/` with `from` replaced by `to` in `file`, and
+# require the named section to fail against it. Nothing here touches
+# the tree.
 ablate() {
   local name="$1" file="$2" from="$3" to="$4" section="$5"
   local dir="$work/ablate-$name"
@@ -499,19 +427,15 @@ ablate "no-checking" typecheck.ax \
   "              0" \
   section4
 
-# THE THIRD ABLATION PUTS A DEFECT BACK rather than taking a hook out,
-# because that is what section 6 watches: the shape guard this pass
-# used to carry, restored verbatim under two fresh names. It is written
-# as one replacement of `expLowerOne`'s header so that the two helper
-# definitions ride in with it; the `(pub :: expLowerOne ...)` signature
-# above the anchor still covers the function the replacement re-opens.
+# The third ablation puts a defect back instead of removing a hook,
+# because that is what section 6 watches: the shape guard, restored
+# under two fresh names. It replaces `expLowerOne`'s header so the two
+# helper definitions ride in with it; the `(pub :: expLowerOne ...)`
+# signature above the anchor still covers the function it reopens.
 #
-# RE-ANCHORED 2026-09-02 for `(Vec a)`. The restored guard reads a
-# `TAG_E_BEGIN`'s statements, which was `(nodeA b)` while a `Vec` was
-# an `Int`; the typed accessor is `nodeAVec`, and `expHeadIsContract`
-# takes the `(Vec Int)` it answers. The DEFECT is unchanged - the guard
-# still asks whether the body LOOKS lowered - which is what keeps this
-# probe a probe of section 6 rather than of the port.
+# The guard reads a `TAG_E_BEGIN`'s statements through `nodeAVec`, and
+# `expHeadIsContract` takes the `(Vec Int)` it answers. It still asks
+# whether the body looks lowered, which keeps this a probe of section 6.
 ablate "guard-restored" expand.ax \
   ";@axiom:effect(unsafe)
 (pub fn (expLowerOne d tags)

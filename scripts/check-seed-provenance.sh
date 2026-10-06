@@ -1,61 +1,34 @@
 #!/usr/bin/env bash
-# The committed seed IS the emission of source in this repository's own
-# history, and here is the regeneration that says so.
+# Check that the committed seed is the emission of source in this
+# repository's history, by regenerating it.
 #
-# WHAT THIS ADDS, AND TO WHAT. `bootstrap/SHA256SUMS` is a hash and a
-# file committed together, so it moves when they move: it reports a
-# DAMAGED seed, and `bootstrap/README.md` has always said so in its own
-# words - "a corruption check, not a trust check". `check-bootstrap.sh`
-# adds the other half a clone needs, that the seed can BUILD this
-# source, by building it. Neither asks the question this one asks:
+# `bootstrap/SHA256SUMS` catches a damaged seed, and `check-bootstrap.sh`
+# shows the seed can build this source. This gate asks the remaining
+# question: is the seed the output of source anyone can read?
 #
-#     is the seed the output of source anyone can read?
+# It proves the seed is a reproducible build product of reviewable
+# source on all six targets. A tamper then has to be findable in `.ax`
+# files, not only in the LLVM IR beside them (`wc -l bootstrap/*.ll`
+# shows how much IR that is). It cannot answer Ken Thompson's attack:
+# the compiler that regenerates the seed is itself seed-descended.
+# `check-seed-lineage.sh` covers that by replaying every seed from the
+# one before it, back to the Rust compiler at `bb730db`, which no Axiom
+# seed touched.
 #
-# Until 2026-08-25 nothing in the repository related the 5 MB of
-# generated text under `bootstrap/` to any source at all, in either
-# direction. A seed defining a function that has never existed in this
-# repository passed every gate green, and the one file that claimed a
-# provenance fact - `bootstrap/STAMP` - was wrong, because nothing read
-# it. See STAMP for what it said and what it should have said.
+# The provenance commit is found from git, not read from a file.
+# `reseed.sh` cannot record it, because the seed is generated from a
+# dirty tree and lands in the next commit. STAMP's `Source stamp:` is
+# the falsifiable half: the commit's sources must hash to it before
+# anything is regenerated.
 #
-# WHAT IT PROVES, AND WHAT IT CANNOT. It proves the seed is a build
-# product of reviewable source, reproducibly, on six targets: a
-# tampered seed now has to be a tamper somebody can find by reading
-# `.ax` files rather than the LLVM IR beside them - `wc -l
-# bootstrap/*.ll`, which read 205,986 lines per target and 1,235,917 in
-# all on 2026-09-03. The numeral used to be written here as 139,638 and
-# was three reseeds stale, in the header of the gate whose whole subject
-# is a recorded fact going quietly wrong; the command is what to run.
-# It does NOT answer
-# Ken Thompson - the compiler that regenerates the seed here is itself
-# seed-descended, so a compiler that reproduces a backdoor in its own
-# output reproduces it here too. Nothing a single implementation can
-# check answers that. `check-seed-lineage.sh` is the answer that exists:
-# it replays every seed from the one before it, back to the Rust
-# compiler at `bb730db`, which no Axiom seed ever touched.
+# The seed is the six `.ll` files, not the `bootstrap/` directory. A
+# commit that only edits `bootstrap/STAMP` or `bootstrap/README.md`
+# changes metadata about the seed and must not read as a reseed.
 #
-# WHY THE COMMIT IS FOUND RATHER THAN READ. The seed's provenance
-# commit cannot be recorded by `reseed.sh`, because it does not exist
-# yet when `reseed.sh` runs - the seed is generated from a dirty tree
-# and lands in the NEXT commit. That is exactly how the old
-# `Generated from commit:` line came to be wrong. So the commit is
-# derived from git, and STAMP's `Source stamp:` is the falsifiable
-# half: the commit's sources must hash to it before anything is
-# regenerated.
-#
-# THE SEED IS THE SIX `.ll` FILES, NOT THE DIRECTORY. The first
-# version of this asked for the last commit to touch `bootstrap/`, and
-# it went red on the very commit that added this gate - because that
-# commit rewrote `bootstrap/STAMP` and `bootstrap/README.md`, which are
-# metadata ABOUT the seed and not the seed. A later commit that only
-# corrects a sentence in the README must not be read as a reseed. The
-# check caught its own author, which is the property this file is for.
-#
-# COST. One compiler build plus six whole-compiler emissions - four
-# took about five minutes, so budget seven. It is its own CI job for
-# that reason, and it needs the full history - `fetch-depth: 0` -
-# because a shallow clone cannot see the commit that introduced a file
-# it did not fetch.
+# It costs one compiler build plus six whole-compiler emissions, about
+# seven minutes, so it is its own CI job. It needs the full history
+# (`fetch-depth: 0`) because a shallow clone cannot see the commit that
+# introduced a file it did not fetch.
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
@@ -66,10 +39,10 @@ fail() { echo "FAIL: $*"; failed=$((failed + 1)); }
 
 command -v git >/dev/null || { echo "FAIL: git is not on PATH"; exit 1; }
 
-# The declaration is `seed_targets` in scripts/lib/seed-sums.sh; this
-# used to be a second handwritten copy of it. If the two ever disagreed
-# this gate would regenerate a set of seeds that is not the set
-# `reseed.sh` writes, and pass.
+# The target list comes from `seed_targets` in scripts/lib/seed-sums.sh,
+# the list `reseed.sh` writes. A handwritten copy could drift and pass
+# while regenerating a different set, so check-seed-supply-chain.sh
+# refuses one here.
 source "$(dirname "${BASH_SOURCE[0]}")/lib/seed-sums.sh"
 targets="$(seed_targets | tr '\n' ' ')"
 
@@ -91,9 +64,9 @@ if [[ ! "$want_files" =~ ^[0-9]+$ ]] || (( want_files == 0 )); then
 fi
 echo "ok   STAMP claims ${want_stamp:0:12}… over $want_files source files"
 
-# The old spelling must not come back. It is not merely superseded: it
-# named a commit the seed does not correspond to, and a reader who
-# trusts it is misled in the one file whose subject is provenance.
+# STAMP must not record a `Generated from commit:` line. `reseed.sh`
+# cannot know the commit the seed lands in, so such a line names the
+# wrong commit.
 if grep -q '^Generated from commit:' "$stamp_file"; then
   fail "$stamp_file has gone back to recording a commit; see its own note"
 else
@@ -104,50 +77,18 @@ fi
 echo
 echo "== the second witness =="
 # --------------------------------------------------------------------
-# WHAT THIS SECTION IS AND IS NOT. Everything below it regenerates the
-# seed and requires byte-identity; that is the gate. This is a REPORT
-# about the regeneration that follows, and it does not fail, because
-# there is nothing here that a checkout can be wrong about: nothing can
-# verify where a file was written, and a `Generated on host:` line is a
-# claim the machine that wrote it makes about itself.
+# This section reports and never fails: a `Generated on host:` line is
+# the writing machine's unverifiable claim about itself.
 #
-# It is worth printing anyway. The committed seed is generated on
-# darwin-aarch64 and this gate regenerates it on `ubuntu-latest`, so
-# every green run is two operating systems and two toolchains reaching
-# the same 1.2 M lines of IR - Wheeler's second witness in the weak,
-# same-source sense. That was true before this line existed and named
-# nowhere, which means it could have become one host and one toolchain
-# without anything noticing. Now the run says which case it is.
+# When the seed was generated on another host, such as a darwin seed
+# regenerated by CI on `ubuntu-latest`, a green run is two systems and
+# toolchains reaching the same IR: Wheeler's second witness, in the weak
+# same-source sense. On the same host the report withholds that claim.
 #
-# ABSENT IS NOT AGREEMENT. A STAMP written before `reseed.sh` learned to
-# record the host has no such line, and this reports it as absent rather
-# than reading silence as either answer - the same distinction
-# `check-seed-lineage.sh`'s (e4) probe exists to hold. The line arrives
-# at the next real reseed; hand-writing one into STAMP would make STAMP
-# disagree with what `reseed.sh` emits, in the one file whose whole
-# subject is a recorded fact nobody could have got wrong when it was
-# written.
-#
-# THE ABLATION, run 2026-09-03 on darwin-aarch64, by putting a synthetic
-# `Generated on host:` line into a copy of STAMP and restoring it after.
-# All three branches were exercised:
-#
-#   line absent (the committed STAMP as it stands):
-#     --   STAMP records no generating host: this seed predates the line,
-#          so whether the regeneration below is a second witness is
-#          UNKNOWN. It arrives at the next reseed. Absent, not agreed.
-#
-#   `Generated on host: darwin-aarch64 (21.1.0)` - the host running it:
-#     --   regenerating on darwin-aarch64, which is also where the seed
-#          was generated ... not a second witness.
-#
-#   `Generated on host: linux-x86_64 (18.1.8)`:
-#     ok   second witness: generated on linux-x86_64 (18.1.8),
-#          regenerated here on darwin-aarch64.
-#
-# The middle case is the one that matters: a report that said "second
-# witness" whatever it read would be worth nothing, and it WITHHOLDS the
-# claim when the two hosts are the same.
+# A STAMP without the line is reported as absent, never as agreement,
+# as `check-seed-lineage.sh`'s (e4) probe also holds. Do not hand-write
+# the line, since STAMP must match what `reseed.sh` emits. To exercise
+# each branch, put a synthetic line into a copy of STAMP.
 gen_host="$(sed -n 's/^Generated on host: *//p' "$stamp_file" | sed 's/[[:space:]]*$//')"
 case "$(uname -s)" in
   Darwin)  here_os=darwin ;;
@@ -210,20 +151,16 @@ fi
 echo
 echo "== regenerating all six seeds from those sources =="
 # --------------------------------------------------------------------
-# `reseed.sh`'s own procedure, reproduced here rather than invoked,
-# because that script writes into `bootstrap/` and this one must not
-# touch the tree: it builds a compiler from the named sources and emits
+# `reseed.sh`'s procedure, reproduced rather than invoked because that
+# script writes into `bootstrap/` and this one must not touch the tree.
+# It builds a compiler from the named sources and emits
 # `self_host/main.ax` once per target.
 #
-# `AXIOM_STDLIB` IS SET FOR BOTH STEPS, and the second one is the one
-# that matters. `gate_init` exports this checkout's `stdlib/`, so an
-# emit that inherited it would compile a self_host from the seed's
-# commit against TODAY's standard library - which is not the source
-# STAMP names, and which is a moving target by construction. It also
-# does not merely produce a different answer: measured while writing
-# this, it FAILED to compile, because `vecGet`'s return type changed
-# after that commit. A gate whose regeneration silently used the wrong
-# sources would compare the wrong two things.
+# `AXIOM_STDLIB` is set for both steps, and the emit is the one that
+# matters. `gate_init` exports this checkout's `stdlib/`, so an emit that
+# inherited it would compile the seed commit's self_host against today's
+# standard library. That is not the source STAMP names, and it may not
+# even compile.
 regenerate() {
   local src="$1" out="$2" log="$3"
   rm -rf "$out"; mkdir -p "$out"
@@ -232,8 +169,8 @@ regenerate() {
     return 1
   fi
   # The emit runs from a directory holding `in.ax` beside links to the
-  # two module trees, which is the shape `reseed.sh` emits in - and the
-  # input's NAME reaches the output, so it has to be `in.ax` here too.
+  # two module trees, the shape `reseed.sh` emits in. The input's name
+  # reaches the output, so it must be `in.ax` here too.
   ln -s "$src/stdlib"    "$out/stdlib"
   ln -s "$src/self_host" "$out/self_host"
   cp "$src/self_host/main.ax" "$out/in.ax"
@@ -245,11 +182,9 @@ regenerate() {
       head -5 "$out/$t.err" | sed 's/^/       /' >&2
       return 1
     fi
-    # `reseed.sh`'s own two sanity checks, for the same reason it has
-    # them: a TRUNCATED emit is not a mismatch, it is a broken run, and
-    # comparing it would report "differs" where the honest answer is
-    # "nothing was produced". The negative probe below would otherwise
-    # pass on an empty file.
+    # `reseed.sh`'s two sanity checks. A truncated emit means the run
+    # broke, and comparing it would report "differs" when nothing was
+    # produced.
     grep -q '^target triple' "$out/axiom-$t.ll" || {
       echo "     the $t emit has no target triple - it is not an LLVM module" >&2
       return 1
@@ -287,22 +222,20 @@ fi
 echo
 echo "== negative probe: a one-byte source change must move the seed =="
 # --------------------------------------------------------------------
-# The regeneration above is worth nothing if it would agree with
-# anything. This perturbs ONE source file in a copy of the tree and
-# requires the emission to stop matching. It is deliberately a change
-# to a function body rather than to a comment: a comment does not reach
-# the IR, so a probe built on one would pass while proving nothing.
+# The regeneration above means nothing if it would agree with anything.
+# This changes one function body in a copy of the tree and requires the
+# emission to stop matching. A comment change never reaches the IR, so
+# it would prove nothing.
 #
-# Only ONE target is regenerated here. The property under test is "the
-# comparison can fail", which one target establishes, and the other
-# three would cost four minutes to restate it.
+# One target is enough to show the comparison can fail, and the rest
+# would cost minutes.
 probe="$work/probe"
 cp -R "$tree" "$probe"
 victim="$probe/stdlib/Path.ax"
 [[ -f "$victim" ]] || { echo "FAIL: the probe's victim file is missing"; exit 1; }
 # `pathIsAbsolute` asks whether byte 0 is `/` (47). Ask about `\` (92)
-# instead: one literal, one instruction, and it cannot be optimised
-# away because the function is exported.
+# instead: one literal, one instruction, and the function is exported,
+# so it cannot be optimised away.
 if ! grep -q '(== (strByte p 0) 47)' "$victim"; then
   echo "FAIL: the probe's anchor is gone from stdlib/Path.ax - re-derive it"
   exit 1
@@ -322,9 +255,8 @@ else
   cp "$work/probe-gen" "$probe_out/gen"
   ( cd "$probe_out" && AXIOM_STDLIB="$probe/stdlib" AXIOM_PATH=self_host ./gen in.ax darwin-aarch64 \
       >"$probe_out/out.ll" 2>"$probe_out/err" ) || true
-  # The probe must be a DIFFERENT emission, not an absent one. Without
-  # this the probe passed on a zero-line file - which it did, measured,
-  # while the emit above was reaching for the wrong standard library.
+  # The probe must produce a different emission, not an empty one, or it
+  # would pass on a zero-line file.
   if ! grep -q '^target triple' "$probe_out/out.ll" \
      || (( $(wc -l <"$probe_out/out.ll") < 10000 )); then
     fail "the probe emitted nothing to compare - it would pass on an empty file"
@@ -347,28 +279,19 @@ fi
 echo
 echo "== negative probe: the wrong commit must be reported wrong =="
 # --------------------------------------------------------------------
-# The commit is DERIVED here, so the failure this guards against is the
-# derivation silently landing on a tree that happens to hash right.
-# `${commit}^` is the tree the old STAMP named - the commit before the
-# seed - which is the exact mistake that was live until 2026-08-25.
+# The commit is derived, so this guards against the derivation landing
+# on a different tree that happens to hash right.
 #
-# THE TREE COMPARED AGAINST IS THE ONE BEFORE THE SOURCES LAST MOVED.
-# `moved` is the commit that last touched a `.ax` file at or before the
-# seed commit; when a reseed rides in the commit that changed
-# `self_host/` - every reseed until 2026-08-29 - that IS the seed
-# commit and `${moved}^` is its parent, the old STAMP's mistake
-# exactly. It is further back when a commit carries the seed alone.
-# That happened the day the FreeBSD targets arrived: their names had to
-# land one commit BEFORE their seeds, because only a compiler that
-# knows a target can emit its seed, so the seed commit's parent was the
-# same source tree and the stamp agreed with it, as it must -
-# regenerating from either gives the same bytes. Comparing against the
-# parent read that agreement as "the stamp cannot tell them apart" and
-# went red on a seed that was exactly its source's emission. What this
-# asserts is that STAMP distinguishes TREES, and two commits with one
-# tree are one tree; so a seed-only commit's parent is REQUIRED to hash
-# the same, and the tree before the sources last moved is required not
-# to.
+# `moved` is the last commit at or before the seed commit to touch a
+# `.ax` file, and `${moved}^` is the tree before the sources last moved.
+# That tree must hash differently. When the seed rides in the commit
+# that changed the sources, `moved` is the seed commit itself.
+#
+# A commit can carry the seed alone. A new target's name must land one
+# commit before its seed, since only a compiler that knows a target can
+# emit its seed. That commit's parent is then the same source tree and
+# must hash the same: STAMP identifies trees, and two commits with one
+# tree are one tree.
 parent="$(git -C "$repo_root" rev-parse --verify "${commit}^" 2>/dev/null || true)"
 moved="$(git -C "$repo_root" log -1 --format=%H "$commit" -- 'self_host/*.ax' 'stdlib/*.ax' 2>/dev/null || true)"
 before="$(git -C "$repo_root" rev-parse --verify "${moved}^" 2>/dev/null || true)"

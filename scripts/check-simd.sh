@@ -1,83 +1,38 @@
 #!/usr/bin/env bash
-# WHAT LLVM'S VECTORIZER DOES WITH AN AXIOM LOOP, COUNTED IN THE IR.
+# Counts, in the IR, what LLVM's vectorizers do with Axiom loops.
 #
-# Axiom emits LLVM IR and the driver hands it to `opt`, so "automatic
-# SIMD" is a question about the SHAPE of the emitted loops: the loop
-# and SLP vectorizers run inside `opt -O2` and `-O3` already, and what
-# decides whether a loop becomes `<2 x i64>` arithmetic is whether the
-# emitter gave them something they can prove things about. Measured
-# 2026-09-03 with `opt --pass-remarks-output` over four fixtures, and
-# recorded in docs/reference.md's Optimisation section:
+# The driver hands the emitted IR to `opt`, whose loop and SLP vectorizers
+# run at `-O2` and above, so whether a loop vectorizes depends on the
+# shape the emitter gives it. `--opt 1`, the default, runs no vectorizer.
 #
-#   a `for` over a `(Vec Int)` summing     VECTORIZED at --opt 2
-#                                          (width 2, interleave 4; 3.1x)
-#   a byte scan over a String              VECTORIZED (width 16; 1.9x)
-#   an in-place map through `vecSet`       refused: the range check's
-#                                          trap was an EXIT inside the
-#                                          loop, and the ownership
-#                                          branch keeps a call there
-#   `web/bench/collatz.ax`'s `while`       refused, correctly: the trip
-#                                          count is data-dependent
+# The emitter property this gate holds is the trap runtime being
+# `noreturn cold` (`trapFnAttrs`, self_host/codegen.ax). The inliner leaves
+# a cold callee as a call, and a noreturn call ends in `unreachable`
+# instead of an edge back into the loop. Without it, `vecGet` and every
+# accessor like it carry the trap's body into each hot loop.
 #
-# `--opt 1`, the driver's default, runs NO vectorizer - LLVM enables
-# both at speedup level 2 - so every number above is about `--opt 2`.
+# It counts instead of timing: a wall-clock bound on a shared runner is
+# flaky, and whether a loop vectorized is exact. It asserts:
 #
-# THE ONE EMITTER CHANGE THIS GATE HOLDS is the trap runtime being
-# `noreturn cold` (`trapFnAttrs`, self_host/codegen.ax). Before it,
-# `Vec$vecGet` and every accessor like it was inlined everywhere and
-# carried the trap's body - two syscalls and a `@__axiom_backtrace`
-# call - into 1,518 hot functions of the compiler's own IR at --opt 2
-# and 1,685 at --opt 1; after, 2, the definition and one call that
-# `opt` keeps. The compiler binary is 6.9% smaller for it (2,153,352 ->
-# 2,004,600 bytes, `__TEXT` 8.7% smaller), and three more of its loops
-# vectorize (98 -> 101). A cold callee is one the inliner leaves as a
-# call, and a noreturn callee is one whose call is followed by
-# `unreachable` rather than an edge back into the loop.
+#   1. The reduction and the byte scan give the same answer at --opt 0,
+#      1 and 2. A faster wrong answer is no use.
+#   2. Both loops vectorize at --opt 2: `opt` reports `Vectorized` for
+#      `sumVec` and `countA`, and their bodies carry `<N x i64>` and
+#      `<N x i8>` operations. The width isn't pinned, because each
+#      target's baseline CPU decides it.
+#   3. The Collatz `while` (`web/bench/collatz.ax`), whose trip count is
+#      data-dependent, has no `vector.body`. This proves the reader can
+#      answer zero, so check 2 can't pass on a grep that matches anything.
+#   4. The index trap is defined `noreturn cold`; after `opt -O2` the
+#      in-place map's body holds no copy of it, and the module still
+#      calls it. The ablation blanks `trapFnAttrs` to `#0` in a copy of
+#      the tree, rebuilds, and requires the copies to come back. A count
+#      no ablation can move is not evidence.
+#   5. The compiler's own IR stays within SELF_COPIES_MAX and
+#      SELF_VECTORIZED_MIN below. Both figures are printed.
 #
-# WHY COUNTS AND NOT TIMINGS. `bench-compile.sh` is explicit that a
-# wall-clock bound on a shared runner is a flaky test. Whether a loop
-# was vectorized is a property of the emitted module, exact, and it is
-# the thing this is about; the speedups above are DECLARED, measured on
-# an idle machine, and not asserted here.
-#
-# WHAT IT ASSERTS.
-#
-#   1. BEHAVIOUR IS FIXED. The reduction answers the same number at
-#      --opt 0, 1 and 2, and the byte scan does too. A faster wrong
-#      answer is not the goal, and it is first for that reason.
-#
-#   2. THE TWO LOOPS THAT VECTORIZE STILL DO, at the level the driver
-#      uses for `--opt 2`: `opt` reports `Vectorized` for `sumVec` and
-#      for `countA`, and their bodies carry `<N x i64>` and `<N x i8>`
-#      operations. The width is not pinned: the baseline CPU of each
-#      release target decides it (NEON and SSE2 are both 128 bits), and
-#      a gate that pinned 2 would fail on a runner with wider vectors
-#      while the compiler was correct.
-#
-#   3. A LOOP THAT MUST NOT VECTORIZE IS NOT. The Collatz `while` has a
-#      data-dependent trip count, so `steps` has no `vector.body`. This
-#      is what proves the reader can answer zero; without it, 2 could
-#      be satisfied by a grep that matched everything.
-#
-#   4. THE TRAP STAYS OUT OF LINE. The emitted module defines the index
-#      trap `noreturn cold`, and after `opt -O2` the in-place map's
-#      body holds NO copy of the trap's message address and the module
-#      still CALLS the trap. Then the ablation: `trapFnAttrs` blanked to
-#      `#0` in a copy of the tree, the compiler rebuilt from it, and
-#      the copies must come back into the same function. A count no
-#      ablation can move is not evidence.
-#
-#   5. THE COMPILER'S OWN IR, as a census rather than a floor that
-#      pretends to be exact: its trap copies at --opt 2 are at most 2,
-#      and at least 8 of its loops vectorize (101 on 2026-09-03, 10 on
-#      linux-aarch64 and 15 on darwin-aarch64 with line attribution on
-#      2026-09-08 - see the entry on SELF_VECTORIZED_MIN below). The
-#      numbers are printed so a reader can see them move.
-#
-# THE FIXTURES LIVE HERE, in heredocs, rather than under `tests/`,
-# for the reason `check-unboxed-sums.sh` gives: every `.ax` added to a
-# test directory moves population counts in gates that have nothing to
-# say about vectorization.
+# The fixtures live in heredocs, not under `tests/`, because every `.ax`
+# added there moves population counts in unrelated gates.
 #
 # Usage:
 #   scripts/check-simd.sh
@@ -99,39 +54,20 @@ command -v opt >/dev/null || { echo "FAIL: opt is not on PATH; this gate reads i
 
 SUM_GOLDEN=24999975000000
 BYTES_GOLDEN=10485760
-# The compiler's own IR: copies of the index trap left inlined at
-# --opt 2 (2 = the definition and the one call `opt` keeps), and a
-# floor on the loops the vectorizer accepts.
+# The compiler's own IR at --opt 2. SELF_COPIES_MAX bounds the inlined
+# copies of the index trap: 2 is the definition and the one call `opt`
+# keeps. SELF_VECTORIZED_MIN is a floor on the loops the vectorizer takes.
 #
-# 50 -> 8 on 2026-09-08, at the line-attribution slice, and this is the
-# entry that prices it. Measured on this gate's own path, `emit-llvm
-# self_host/main.ax` then `opt -O2 --pass-remarks-filter=loop-vectorize`,
-# in vectorized-loop counts:
+# The floor is low because `emitCallMark` opens a fresh label, with a `br`
+# to it, for every call the spine lowers. That splits blocks, so the
+# compiler's loops, which carry calls, are multi-block and the vectorizer
+# gives up. The `br` is folded away above --opt 0, but only after the
+# vectorizer reads the shape. The call-free fixtures in check 2 still
+# vectorize.
 #
-#   linux-aarch64 (ubuntu 24.04, llvm 18.1.3, CI's leg)   10
-#   darwin-aarch64 (brew llvm 23.1.0, this machine)       15
-#   linux-aarch64, markers ablated (emitCallMark no-op)   92
-#
-# The 101 on 2026-09-03 was the same census on the tree before this
-# slice; the ablated 92 is the same source with the markers switched
-# off, so the 92 -> 10 delta is the markers and nothing else. Each
-# `emitCallMark` opens a fresh label with a `br` to it for every call
-# the spine lowers, splitting one basic block into two. A reduction
-# over a `(Vec Int)` still vectorizes (sections 2-3 above prove it on
-# the fixtures this gate owns), but the compiler's own loops - string
-# appends, vec reserves, JSON joins - carry calls inside the loop body,
-# and the vectorizer gives up on the multi-block shape. The `br` is
-# folded away above --opt 0, but the vectorizer reads the shape before
-# the fold, which is why the small fixtures survive and the census
-# does not.
-#
-# The trap half is unchanged: 2 copies on both legs, against the bound
-# of 2, so `noreturn cold` still holds the trap out of line. What moved
-# is only the vectorizer census, and sections 2-4 still prove the two
-# user loops vectorize, the control does not, and the trap stays out.
-# 8 leaves 20% under the measured 10, the margin this gate keeps; the
-# next reader who finds the same margin should move the floor rather
-# than assume the shape is back.
+# The census varies with platform and LLVM version. The floor sits about
+# 20% under the lowest CI leg; when the census moves, re-measure and
+# reset it with the same margin.
 SELF_COPIES_MAX=2
 SELF_VECTORIZED_MIN=8
 
@@ -259,8 +195,7 @@ cat > "$work/simd/steps.ax" <<'EOF'
 EOF
 
 # The in-place map through the real accessors: every element read and
-# written is bounds-checked, so this is where the trap's body used to
-# be inlined into the loop.
+# written is bounds-checked, so an inlined trap body would land here.
 cat > "$work/simd/bump.ax" <<'EOF'
 (import IO)
 
@@ -303,13 +238,9 @@ cat > "$work/simd/bump.ax" <<'EOF'
 EOF
 
 # One function's body out of a module, for a grep to read. The name is
-# matched with `index`, not a regex: passed through `awk -v`, the `\(`
-# that would anchor the parameter list loses its backslash and opens a
-# group instead, the regex never matches, and every check over the
-# body reads an EMPTY body. The first run of this gate did exactly
-# that - two "no vector operation" failures on loops `opt` had just
-# reported vectorized, and an ablation that could not put the trap
-# back into a body it was not reading. The ablation is what said so.
+# matched with `index`, not a regex: through `awk -v`, the `\(` that
+# anchors the parameter list loses its backslash and opens a group. The
+# regex then never matches, and every check reads an empty body.
 fn_body() {  # <ll> <name>
   awk -v fn="$2" '/^define / && index($0, "@" fn "(") {p=1} p {print} p && /^}/ {exit}' "$1"
 }
@@ -427,9 +358,7 @@ python3 - "$abl/self_host/codegen.ax" <<'PY'
 import sys
 p = sys.argv[1]
 s = open(p, encoding="utf-8").read()
-# 2026-09-21: the formatter's normal-form move split the one-line
-# body across two lines. The attribute is unchanged, so the ablation
-# follows the spelling.
+# `old` follows the formatter's spelling, with the body on its own line.
 old = '(pub fn (trapFnAttrs)\n  "noreturn cold #0")'
 new = '(pub fn (trapFnAttrs)\n  "#0")'
 if s.count(old) != 1:

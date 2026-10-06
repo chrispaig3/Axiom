@@ -1,62 +1,44 @@
 #!/usr/bin/env bash
-# Degenerate input answers with a diagnostic, not with a signal.
+# Check that degenerate input gets a diagnostic and never kills the
+# compiler with a signal.
 #
-# `axiom check` on `(fn (main) ())` died of SIGSEGV: exit 139, no output,
-# no diagnostic, nothing on stderr. So did twenty-two other programs, all
-# of them the same two characters in a different position, and seven of
-# them inside `check` itself - which is the entry point `axiom lsp` calls
-# for every keystroke, so an editor buffer holding the parenthesis pair a
-# user types before they type anything else killed the language server
-# mid-session (measured: returncode -11 after the second `didChange`).
+# A process killed by a signal prints nothing, so it passes every check
+# written as "the output must not contain X". Suites that compare output
+# with a golden, a second implementation or the compiler itself cannot
+# see a crash. This gate asserts on the process instead:
 #
-# The cause was a sentinel travelling in the success channel. `parseInner`
-# answered `(pOk 0 (advance pos))` for `()` - a SUCCESSFUL parse whose
-# node handle is 0, which is the handle every producer in `parser.ax` uses
-# to mean "there is no node here". Nothing downstream guards a node it was
-# told it has, so `checkExpr` and `emitExpr` both dereferenced it.
+#   1. No run of `check`, `fmt --check` or `symbols` is killed by a
+#      signal, on any case. This cannot be blessed or satisfied by
+#      silence.
+#   2. A refusal says why: exit 1 needs an `E AX....` line the user can
+#      act on.
+#   3. An acceptance prints no error.
+#   4. Each case's `check` status is pinned, so changing one is a visible
+#      decision.
 #
-# THE POINT OF THIS GATE IS NOT THE EMPTY FORM. It is that no gate in this
-# repository asked the question the empty form answers wrongly. Every other
-# suite compares the compiler with a golden, with a second implementation,
-# or with itself - and a process that dies by signal produces no output, so
-# it satisfies every check written as "the output must not contain X". That
-# is exactly how it survived: `check-fmt-selfhost.sh` §5b re-reads every
-# formatted output and fails if it carries an AX1xxx or AX2xxx, and
-# `tests/fmt/parity/170-empty-tuple.axp` is the file `(fn (f) ())`. The
-# formatted output was fed to `check`, `check` died before printing
-# anything, the grep found no diagnostic, and the case passed - in CI, for
-# as long as that case has existed.
+# The parser must never report success with node handle 0, the value
+# every producer in `parser.ax` uses for "no node here". Nothing
+# downstream guards a node it was told it has, so `checkExpr` and
+# `emitExpr` would dereference it.
 #
-# So the assertions here are about the PROCESS, not about its output:
+# `axiom lsp` runs `check` on every keystroke, and `()` is what a buffer
+# holds before the user types anything else. A crash there ends the
+# editing session, so the last section drives the language server too.
 #
-#   1. no invocation may be killed by a signal - `check`, `fmt --check`
-#      and `symbols`, on every case. This one cannot be blessed, cannot be
-#      satisfied by silence, and is the whole reason the file exists.
-#   2. a refusal must SAY something: exit 1 with no `E AX....` line is a
-#      refusal the user cannot act on, and is how `dieImport` used to read.
-#   3. an acceptance must not print an error.
-#   4. the pinned exit status per case, so a change to any of them is
-#      deliberate rather than noticed later.
-#
-# The bank is deliberately wider than the bug. Two thirds of these cases
-# were already correct when it was written; they are here because this
-# project's history is that the next defect of a class arrives in the
-# member nobody probed, and a standing bank of small adversarial inputs
-# catches what a sweep over real code cannot - every file in `tests/` and
-# `self_host/` is written by someone solving a problem, so it contains no
-# empty forms at all.
+# The bank is wider than any one defect. Code in `tests/` and
+# `self_host/` is written to solve problems and holds no empty forms, so
+# a sweep over it cannot find what these small adversarial inputs do.
 #
 # Requires: a compiler. Builds the one under test from `self_host/`, so
-# `AXIOM=<any working compiler>` measures the tree, not the binary.
+# `AXIOM=<any working compiler>` tests the tree, not the binary.
 
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
 gate_init
 
-# The compiler under test is built from the tree, the way every other
-# self-hosting gate does it: `AXIOM` supplies *a* compiler, not *the*
-# compiler, so an ablation of `self_host/` is visible here.
+# Build the compiler under test from the tree, so an ablation of
+# `self_host/` shows here. `AXIOM` only supplies a compiler to build with.
 gate_build_axc axc "$work/axiom"
 
 cases=0; failed=0; signals=0; accepted=0; refused=0; codes=""
@@ -68,15 +50,15 @@ deg() {
   cases=$((cases + 1))
   cat > "$work/c/p.ax"
 
-  # Captured first, then tested. A pipeline's status is its LAST command's,
-  # and under `pipefail` `if ! cmd | grep -q` reads backwards the moment
-  # `cmd` fails - which for this bank is most of the time.
+  # Capture first, then test. Under `pipefail`, `if ! cmd | grep -q`
+  # reads backwards whenever `cmd` fails, which in this bank is most of
+  # the time.
   out="$( (cd "$work/c" && "$axc" --diagnostic-format=ai check p.ax) 2>&1 )"; st=$?
   ( cd "$work/c" && "$axc" fmt --check p.ax ) >/dev/null 2>&1; fmtst=$?
   ( cd "$work/c" && "$axc" --diagnostic-format=ai symbols p.ax ) >/dev/null 2>&1; symst=$?
 
-  # 1. No signal. 128+n is how the shell reports a killed child, and no
-  #    subcommand of this compiler exits above 4 on purpose.
+  # 1. No signal. The shell reports a killed child as 128+n, and no
+  #    compiler subcommand chooses an exit status above 4.
   local sig=0
   for pair in "check:$st" "fmt:$fmtst" "symbols:$symst"; do
     if [[ ${pair#*:} -ge 128 ]]; then
@@ -116,9 +98,8 @@ deg() {
 
 echo "== degenerate forms: none may die by signal =="
 
-# The empty form `()` in every position an expression can appear.
-# Twenty of these; every one of them was a SIGSEGV with no diagnostic
-# before the parser stopped answering `pOk 0` for it.
+# The empty form `()` in every position an expression can appear, each
+# refused with a diagnostic, and a few `if` and `cond` shapes beside them.
 deg empty-body 1 <<'AXEOF'
 (:: main Int)
 (fn (main) ())
@@ -231,9 +212,8 @@ deg empty-macro-arg 1 <<'AXEOF'
 (fn (main) (m ()))
 AXEOF
 
-# Other degenerate bracketings, and the declaration forms with an
-# empty body. Most of these were already right; they are here so a
-# change to one of them has to be deliberate.
+# Other degenerate bracketings, and declaration forms with an empty
+# body, pinned so a change to any of them is a visible decision.
 deg empty-brace 1 <<'AXEOF'
 (:: main Int)
 (fn (main) {})
@@ -260,12 +240,9 @@ deg empty-let-binds 0 <<'AXEOF'
 (:: main Int)
 (fn (main) (let () 0))
 AXEOF
-# Refused, not accepted, since 2026-08-10: a lambda with no parameters
-# can never be called - `(f)` and `f` are the same expression - so this
-# used to check clean and evaluate to the closure record's ADDRESS. A
-# clean AX3068 is the outcome this bank exists to prefer; what it pins
-# either way is that the empty parameter list does not take the
-# compiler down.
+# A lambda with no parameters can never be called, since `(f)` and `f`
+# are the same expression, so it is refused with AX3068. The case pins
+# that the empty parameter list does not take the compiler down.
 deg empty-lambda-params 1 <<'AXEOF'
 (:: main Int)
 (fn (main) ((lambda () 1)))
@@ -296,13 +273,10 @@ deg import-empty-names 0 <<'AXEOF'
 (:: main Int)
 (fn (main) 0)
 AXEOF
-# `(trait T)`, `(impl T)` and `(type)` are a recognised keyword with a
-# shape the parser cannot read, and they used to be ACCEPTED - these three
-# expectations were `0`. That was `skipUnknownDecl` swallowing the form
-# and answering `TAG_NIL`, a successful parse of nothing, which is the
-# same tolerance that made four DOCUMENTED declarations vanish at exit 0
-# (the self-hosting record). It is a refusal now, so these are `1`: AX2003
-# with a span on the keyword, and no signal.
+# `(trait T)`, `(impl T)` and `(type)` are a known keyword in a shape the
+# parser cannot read. Each is refused with AX2003, spanning the keyword.
+# `skipUnknownDecl` must not answer `TAG_NIL` for them: a successful
+# parse of nothing lets a declaration vanish at exit 0.
 deg empty-trait 1 <<'AXEOF'
 (trait T)
 (:: main Int)
@@ -339,18 +313,13 @@ deg empty-type-decl 1 <<'AXEOF'
 (fn (main) 0)
 AXEOF
 
-# Type position. `()` IS a type - the empty tuple - and stays one.
-# `ascribe-unit` is the case that proves the two positions are
-# separate: `(:: 1 ())` parses its type with `parseExpr`.
-# EXPECTS 1 SINCE 2026-08-31, and the change is a fix rather than a
-# regression. `()` is a type and stays one; what changed is that a body
-# answering `Int` under a declared `()` is now `AX3004`, because the
-# declared-result comparison stopped permitting every non-`Int`
-# mismatch. There is no way to satisfy this signature honestly - `()`
-# in EXPRESSION position is `AX2001`, so nothing can produce a unit
-# value - which is why the old exit 0 was the type hole and not a
-# feature. The degenerate property this case exists for is unchanged:
-# the compiler answers, with a diagnostic, rather than crashing.
+# Type position. `()` is a type, the empty tuple. `ascribe-unit` shows
+# the two positions are separate: `(:: 1 ())` parses its type with
+# `parseExpr`.
+# `sig-unit-type` is AX3004: the body answers `Int` under a declared
+# `()`. No body can satisfy that signature, because `()` in expression
+# position is AX2001. The case pins that the compiler answers with a
+# diagnostic.
 deg sig-unit-type 1 <<'AXEOF'
 (:: main ())
 (fn (main) 0)
@@ -378,8 +347,8 @@ deg ascribe-unit 1 <<'AXEOF'
 (fn (main) (:: 1 ()))
 AXEOF
 
-# Nesting, well inside the parser's depth guard (which fires between
-# 1,000 and 5,000 - AX2005, measured).
+# Nesting, well inside the parser's depth guard (AX2005), which fires
+# somewhere between 1,000 and 5,000 levels.
 deg deep-parens-200 0 <<'AXEOF'
 (:: main Int)
 (fn (main) (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 (+ 1 0))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
@@ -392,12 +361,10 @@ deg deep-list-200 1 <<'AXEOF'
 (:: main Int)
 (fn (main) [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[1]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]])
 AXEOF
-# EXPECTS 1 SINCE 2026-08-31, same cause: the body is `0` and the
-# declared result is a 200-deep tuple, which is now `AX3004` rather
-# than accepted. The point of the case is the DEPTH - that 200 nested
-# constructors neither blow the parser's recursion limit nor the
-# checker's stack - and a type error at the end proves the compiler
-# walked the whole thing to compare it.
+# The body is `0` and the declared result is 200 levels deep, so this is
+# AX3004. The case is about depth: 200 nested constructors must not
+# exhaust the parser's or the checker's stack. The type error shows the
+# checker walked the whole type to compare it.
 deg deep-type-200 1 <<'AXEOF'
 (:: main (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* (* Int)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
 (fn (main) 0)
@@ -545,8 +512,8 @@ printf '(:: main Int)\n(fn (main) 0)\n\000' > "$work/nul.ax"
 deg nul-byte 1 < "$work/nul.ax"
 
 # ---------------------------------------------------------------
-# Floors. This section reports mostly by silence, and a `deg` that
-# stopped being called reports the same silence from zero cases.
+# Floors. Most cases pass silently, and a `deg` that stopped being
+# called would be just as silent, so check the counts.
 # ---------------------------------------------------------------
 echo "     $cases cases: $accepted accepted, $refused refused, $signals killed by a signal"
 if [[ $cases -lt 80 ]]; then
@@ -557,9 +524,9 @@ if [[ $accepted -eq 0 || $refused -eq 0 ]]; then
   echo "FAIL: the bank produced one outcome only ($accepted accepted, $refused refused)"
   failed=$((failed + 1))
 fi
-# A bank that refuses everything with one code is a bank that stopped
-# distinguishing its cases. Nine distinct codes were measured when this
-# was written; the floor is deliberately below that.
+# A bank that refuses everything with one code has stopped telling its
+# cases apart. The floor sits below the number of codes the bank draws,
+# so one case moving to another code does not fail the gate.
 distinct="$(sort -u <<<"$codes" | grep -c 'AX' || true)"
 if [[ $distinct -lt 6 ]]; then
   echo "FAIL: the refusals name $distinct distinct diagnostic codes; the floor is 6"
@@ -571,18 +538,14 @@ fi
 # ---------------------------------------------------------------
 # The language server survives the same input.
 #
-# This is the user-visible half, and it is not implied by the section
-# above: `check` is a process that exits, so a crash there costs one
-# diagnostic; the server is a process that must still be there for the
-# next keystroke, so a crash there costs the session. The document below
-# holds `()` for exactly one edit - which is what typing a form looks
-# like from the server's side - and the server has to answer every
-# `didChange` and then its own shutdown.
+# A crash in `check` costs one diagnostic. A crash in the server costs
+# the editing session. The document holds `()` for one edit, which is
+# how typing a form looks to the server, and the server must answer
+# every `didChange` and then its own shutdown.
 #
-# "Answered the shutdown" is the load-bearing assertion. A server that
-# dies quietly after publishing its first diagnostics still produces a
-# plausible-looking stdout; only the reply to the last request proves it
-# was alive at the end.
+# The shutdown reply is the assertion that matters. A server that dies
+# after its first diagnostics still prints plausible stdout; only the
+# reply to the last request shows it was alive at the end.
 # ---------------------------------------------------------------
 echo "== the language server survives an unfinished form =="
 lsp_out="$(python3 - "$axc" "$work" <<'PY' 2>&1
