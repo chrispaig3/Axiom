@@ -33,7 +33,9 @@ compiler's block and decision coverage covers its own test corpus;
 application coverage and independent assessment are absent. QEMU does
 not exercise cache maintenance, bus faults or multicore interference.
 Hardware faults such as ECC errors and radiation upsets require a system
-fault policy.
+fault policy. The [assurance page](assurance.md) lists each guarantee
+with its evidence, the reference configurations and the gaps to
+qualification.
 
 ## Known limitations
 

@@ -132,7 +132,9 @@ host does not extend its claim to other targets or hardware.
 | R-E1, E2 | Model, fuzz and race evidence; qualification gaps remain | `scripts/check-runtime-model.sh`, `scripts/check-fuzz.sh` |
 
 See [restricted builds](restricted-profile.md), [foreign calls](ffi.md)
-and [implementation status](status.md) for the conditions of use.
+and [implementation status](status.md) for the conditions of use, and
+[assurance](assurance.md) for each guarantee's evidence, the reference
+configurations and the gaps to qualification.
 
 ## 1. Execution semantics
 

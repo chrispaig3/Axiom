@@ -30,6 +30,6 @@ The [generated API](stdlib-api.md) is the complete public-name listing.
 The [memory](memory-model.md), [error](error-model.md) and
 [macro](macro-system.md) specifications define rules and their evidence.
 [Contributing](../CONTRIBUTING.md) covers building, validation and releases.
-The [status page](status.md#safety-and-assurance-limits) gives the
-verified targets and outstanding assurance limits. Historical design
+The [assurance page](assurance.md) maps each guarantee to its evidence
+and lists the gaps to qualification. Historical design
 records remain in Git history.

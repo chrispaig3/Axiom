@@ -16,6 +16,11 @@ its changelog too.
 
 ## Unreleased
 
+- Read [docs/assurance.md](docs/assurance.md) for each guarantee the
+  compiler and runtime make, the evidence behind it, the reference
+  configurations, the known defects and the gaps to qualification.
+  Tested by `scripts/check-doc-drift.sh`.
+
 - Pin the CI toolchain to LLVM 18 on Linux runners and LLVM 23 on
   macOS runners, and record `opt`, `llc`, `clang`, `ld.lld` and
   `lld-link` versions in every run. A runner image with another LLVM

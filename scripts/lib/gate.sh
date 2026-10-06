@@ -680,6 +680,7 @@ docs/compiler-guide.md
 docs/status.md
 docs/embedded-guide.md
 docs/restricted-profile.md
+docs/assurance.md
 docs/crypto.md
 docs/obfuscation.md
 docs/chrono.md
