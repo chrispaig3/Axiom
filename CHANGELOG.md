@@ -147,7 +147,7 @@ its changelog too.
   the declaration. `(type Pair (a) = (Vec a))` was accepted and never
   expanded, so every use failed `AX3004` far from the cause. Write the
   target type where you use it, or declare a `struct` or `data` type.
-  Tested by `tests/diagnostics/1133-alias-params.ax`.
+  Tested by `tests/diagnostics/1133-alias-params.axbad`.
 
 - `Linear` is no longer a built-in type. Linear types were removed, but
   the constructor `linear T` used to build still checked as a type, so

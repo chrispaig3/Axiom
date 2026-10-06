@@ -388,7 +388,7 @@ The current enforcement and remaining gaps are in the
 interchangeable. An alias takes no type parameters: `(type Pair (a) =
 (Vec a))` is refused with `AX3096` where you declare it. Write the
 target type where you use it, or declare a `struct` or `data` type.
-Tested by `tests/diagnostics/1133-alias-params.ax`.
+Tested by `tests/diagnostics/1133-alias-params.axbad`.
 
 ### Range-constrained subtypes
 
