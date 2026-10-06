@@ -1,0 +1,37 @@
+; `strCStr` hands a syscall a NUL-terminated address. A slice that stops
+; short of its parent's end has no NUL after it, so it gets a terminated
+; copy; a string a NUL already follows is passed as it is.
+;
+; Before the copy, the byte after `head` was the parent's space (32),
+; so a syscall given `(strCStr head)` read on into " world".
+(import IO)
+(import Str)
+
+; The byte at `p + i`, where a C reader of the address would stop.
+(:: byteAt (-> Int Int Int))
+;@axiom:effect(unsafe)
+(fn (byteAt p i)
+  (__load8 p i))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (whole "hello world")
+    (head (strSlice whole 0 5))
+    (tail (strSlice whole 6 5))
+  )
+    (let (
+      (headEnd (byteAt (strCStr head) 5))
+      (tailEnd (byteAt (strCStr tail) 5))
+      (wholeShared (== (strCStr whole) (strData whole)))
+      (tailShared (== (strCStr tail) (strData tail)))
+      (headCopied (!= (strCStr head) (strData head)))
+      (headSame (== (byteAt (strCStr head) 0) (byteAt (strData head) 0)))
+    )
+      {
+        (println "byte after head {headEnd}, after tail {tailEnd}")
+        (println "whole shared {wholeShared}, tail shared {tailShared}")
+        (println "head copied {headCopied}, same first byte {headSame}")
+        0
+      })))

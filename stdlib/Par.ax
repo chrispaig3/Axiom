@@ -327,15 +327,14 @@
 ; A NULL-terminated array of char* from a Vec of `String`, which is the
 ; shape `execve` and `posix_spawn` both take.
 ;
-; Every element goes through `strDup`, and that is not defensive
-; copying - it is required. `strCStr` is `strData` and nothing more
-; (Str.ax), so it is NUL-terminated only because every `String` that
-; module BUILDS is. A `strSlice` is not built, it is `strWrap` over
-; somebody else's buffer, so its bytes run on into whatever follows and
-; the kernel reads a path or an argument that does not end where the
-; `String` does. `tests/stdlib/300-process.ax` records the same rule for
-; the same reason on its own argv helper, and
-; `tests/stdlib/476-par-pool.ax` term 2 is the case that catches it.
+; Every element goes through `strDup`, so each argument the kernel
+; reads is a terminated string `Str` built and owns. A `strSlice` is
+; not built, it is `strWrap` over somebody else's buffer, and its bytes
+; run on into whatever follows; `strCStr` answers such a slice with an
+; unowned copy (Str.ax). `tests/stdlib/300-process.ax` records the same
+; rule for the same reason on its own argv helper, and
+; `tests/stdlib/476-par-pool.ax` term 2 is the case that catches an
+; argument that does not end where the `String` does.
 (pub :: parArgvVector (-> (Vec String) Int))
 ;@axiom:effect(unsafe)
 (pub fn (parArgvVector argv)

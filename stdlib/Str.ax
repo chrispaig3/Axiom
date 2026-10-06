@@ -178,14 +178,14 @@
       0
       (__load8 (strData s) i))))
 
-; The bytes of `s` as a NUL-terminated address, for handing to a
-; syscall.
-;
-; Free: every `Str` this module builds is already NUL-terminated.
-;@axiom:restrict(no-io,no-alloc,no-foreign)
+; The bytes of `s` as a NUL-terminated address, for a syscall: free
+; when a NUL follows `s`, and a fresh copy for a short slice.
+;@axiom:restrict(no-io,no-foreign)
 (pub :: strCStr (-> String Int))
 (pub fn (strCStr s)
-  (strData s))
+  (if (strTerminated s)
+    (strData s)
+    (strCStrCopy s)))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strIsEmpty (-> String Bool))
@@ -248,8 +248,8 @@
 ; The `count` bytes of `s` starting at `start`, sharing `s`'s storage.
 ;
 ; A slice is *not* NUL-terminated unless it happens to end where `s`
-; does, so `strCStr` must not be called on one; `strDup` produces an
-; owned, terminated copy when that is needed. Sharing rather than
+; does, so `strCStr` copies one, and `strDup` makes a copy
+; that outlives an arena reset. Sharing rather than
 ; copying is the whole point - a tokenizer that copied every lexeme
 ; would allocate once per token.
 ;
@@ -306,6 +306,30 @@
         (memCopy (+ (strData out) la) (strData b) lb)
         out
       })))
+
+; True when a NUL follows the bytes of `s`, so `strData` is already a C
+; string. The read is in bounds for every `Str`: one built here owns
+; its terminator, and the byte after a slice lies inside its parent.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: strTerminated (-> String Bool))
+;@axiom:effect(unsafe)
+(fn (strTerminated s)
+  (== (__load8 (strData s) (strLen s)) 0))
+
+; A fresh NUL-terminated copy of the bytes of `s`, for `strCStr`. No
+; `Str` owns it, so it lives until its arena is reset.
+;@axiom:restrict(no-io,no-foreign)
+(:: strCStrCopy (-> String Int))
+;@axiom:effect(unsafe)
+(fn (strCStrCopy s)
+  (let (
+    (n (strLen s))
+    (p (memAlloc (+ (strLen s) 1)))
+  )
+    {
+      (memCopy p (strData s) n)
+      p
+    }))
 
 ; ------------------------------------------------------------------
 ; Searching

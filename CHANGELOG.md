@@ -108,6 +108,12 @@ its changelog too.
   `tests/stdlib/703-memory-stats.ax` and
   `tests/stdlib/704-task-decoded.ax`.
 
+- `strCStr` answers a NUL-terminated address for a slice too. A slice
+  that stops short of its parent's end has no NUL after it, so a
+  syscall given its address read on into the parent's bytes. It now
+  gets a terminated copy, and a string a NUL already follows is still
+  passed without one. Tested by `tests/stdlib/375-cstr-slice.ax`.
+
 - `vecSort` takes a `(Vec Int)`. It orders the words a vector holds,
   so a `(Vec String)` came back in allocation order; that call is now
   refused with `AX3004`. Sort any other element type with `vecSortBy`.

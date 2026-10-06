@@ -1408,7 +1408,7 @@ two differ.
 | `strData` | value | `(-> String Int)` | `Unsafe` |  |
 | `strOwner` | value | `(-> String Int)` | `Unsafe` | The block owning this string's bytes, or 0 for bytes no block owns (a literal's, a syscall buffer's, an arena keep block's interior). |
 | `strByte` | value | `(-> String Int Int)` | `Unsafe` | The byte at `i`, or 0 when `i` is out of range. |
-| `strCStr` | value | `(-> String Int)` |  | The bytes of `s` as a NUL-terminated address, for handing to a syscall. |
+| `strCStr` | value | `(-> String Int)` | `Alloc,Mut` | The bytes of `s` as a NUL-terminated address, for a syscall: free when a NUL follows `s`, and a fresh copy for a short slice. |
 | `strIsEmpty` | value | `(-> String Bool)` |  |  |
 | `strCmp` | value | `(-> String String Int)` | `Unsafe` | 0 when equal; otherwise negative if `a` sorts before `b`, positive if after - lexicographic by unsigned byte, with a shorter prefix sorting first. |
 | `strEq` | value | `(-> String String Bool)` | `Unsafe` | Equality, which is NOT `strCmp a b == 0` even though it answers the same thing. `strCmp` must produce an ORDERING, so it memcmps the shared prefix before it ever looks at the lengths - and equality does not need the ordering. Two strings of different lengths are unequal whatever their bytes say, so checking the length first turns the commonest case, a miss, into two word loads and a compare. |

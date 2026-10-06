@@ -61,27 +61,29 @@ F strLen stdlib/Str.ax:137:9-15 "(String -> Int)" @eda5fda2fbb7e0d9 #restrict=no
 F strData stdlib/Str.ax:149:9-16 "(String -> Int)" @67465baef4d86a22 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #unsafe=trusted
 F strOwner stdlib/Str.ax:159:9-17 "(String -> Int)" @8e64d8cc385f2c0d #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #unsafe=trusted
 F strByte stdlib/Str.ax:172:9-16 "(String -> (Int -> Int))" @b744777f3cb15078 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #unsafe=trusted
-F strCStr stdlib/Str.ax:186:9-16 "(String -> Int)" @c481b6861daac77a #restrict=no-io,no-alloc,no-foreign
+F strCStr stdlib/Str.ax:184:9-16 "(String -> Int)" @c481b6861daac77a #restrict=no-io,no-foreign #effects=Alloc,Mut
 F strIsEmpty stdlib/Str.ax:191:9-19 "(String -> Bool)" @a83222c0759c013b #restrict=no-io,no-alloc,no-foreign
 F strCmp stdlib/Str.ax:202:9-15 "(String -> (String -> Int))" @7d1efca2bc01048e #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #unsafe=trusted
 F strEq stdlib/Str.ax:237:9-14 "(String -> (String -> Bool))" @4ee168f65eaa3fec #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #unsafe=trusted
 F strSlice stdlib/Str.ax:259:9-17 "(String -> (Int -> (Int -> String)))" @c1ced650f3717fa8 #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe #unsafe=trusted
 F strDup stdlib/Str.ax:285:9-15 "(String -> String)" @a890bfa2d4a6809f #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe #unsafe=trusted
 F concat stdlib/Str.ax:296:9-15 "(String -> (String -> String))" @aa4aeeb285d641c3 #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe #unsafe=trusted
-F strFindByte stdlib/Str.ax:342:9-20 "(String -> (Int -> (Int -> Option Int)))" @38cfa6a2400e724f #restrict=no-io,no-alloc,no-foreign
-F strStartsWith stdlib/Str.ax:360:9-22 "(String -> (String -> Bool))" @6f8a115feaeda283 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #unsafe=trusted
-F strIsDigit stdlib/Str.ax:390:9-19 "(Int -> Bool)" @3896c3e2e54af473 #restrict=no-io,no-alloc,no-foreign
-F strIsAlpha stdlib/Str.ax:397:9-19 "(Int -> Bool)" @92f6658af52ff1ce #restrict=no-io,no-alloc,no-foreign
-F strIsSpace stdlib/Str.ax:411:9-19 "(Int -> Bool)" @d84830fe78ed2530 #restrict=no-io,no-alloc,no-foreign
-F strHexVal stdlib/Str.ax:432:9-18 "(Int -> Option Int)" @9d2dd21191ab219a #restrict=no-io,no-alloc,no-foreign
-F strIsHexDigit stdlib/Str.ax:443:9-22 "(Int -> Bool)" @2b97165574231c58 #restrict=no-io,no-alloc,no-foreign
-F strSplit stdlib/Str.ax:466:9-17 "(String -> (Int -> Vec String))" @999c5d68d9676692 #restrict=no-io,no-foreign #effects=Alloc,Mut
-F strSplitFrom stdlib/Str.ax:475:9-21 "(String -> (Int -> (Int -> (Vec String -> Int))))" @5e61889eee5022b6 #restrict=no-io,no-foreign #effects=Alloc,Mut
-F strFromByte stdlib/Str.ax:507:9-20 "(Byte -> String)" @cc6843692d250f9c #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe #unsafe=trusted
-F strLower stdlib/Str.ax:535:9-17 "(String -> String)" @8705466b1ec7adbf #restrict=no-io,no-foreign #post=(%3D%3D%20(strLen%20result)%20(strLen%20s)) #effect=unsafe #effects=Alloc,Mut,Unsafe #unsafe=trusted
-F strFind stdlib/Str.ax:576:9-16 "(String -> (String -> (Int -> Option Int)))" @e124649e206d9a15 #restrict=no-io,no-foreign #effect=unsafe #effects=Unsafe #unsafe=trusted
-F strTrim stdlib/Str.ax:602:9-16 "(String -> String)" @1659542ba70f16f2 #restrict=no-io,no-foreign #effects=Alloc,Mut
-F strParseInt stdlib/Str.ax:631:9-20 "(String -> Option Int)" @65f528e7dd0a78ee #restrict=no-io,no-foreign
+F strTerminated stdlib/Str.ax:314:5-18 "(String -> Bool)" @3c5511515d43b753 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #unsafe=trusted
+F strCStrCopy stdlib/Str.ax:322:5-16 "(String -> Int)" @b4a404cfdcf343a7 #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe #unsafe=trusted
+F strFindByte stdlib/Str.ax:366:9-20 "(String -> (Int -> (Int -> Option Int)))" @38cfa6a2400e724f #restrict=no-io,no-alloc,no-foreign
+F strStartsWith stdlib/Str.ax:384:9-22 "(String -> (String -> Bool))" @6f8a115feaeda283 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #unsafe=trusted
+F strIsDigit stdlib/Str.ax:414:9-19 "(Int -> Bool)" @3896c3e2e54af473 #restrict=no-io,no-alloc,no-foreign
+F strIsAlpha stdlib/Str.ax:421:9-19 "(Int -> Bool)" @92f6658af52ff1ce #restrict=no-io,no-alloc,no-foreign
+F strIsSpace stdlib/Str.ax:435:9-19 "(Int -> Bool)" @d84830fe78ed2530 #restrict=no-io,no-alloc,no-foreign
+F strHexVal stdlib/Str.ax:456:9-18 "(Int -> Option Int)" @9d2dd21191ab219a #restrict=no-io,no-alloc,no-foreign
+F strIsHexDigit stdlib/Str.ax:467:9-22 "(Int -> Bool)" @2b97165574231c58 #restrict=no-io,no-alloc,no-foreign
+F strSplit stdlib/Str.ax:490:9-17 "(String -> (Int -> Vec String))" @999c5d68d9676692 #restrict=no-io,no-foreign #effects=Alloc,Mut
+F strSplitFrom stdlib/Str.ax:499:9-21 "(String -> (Int -> (Int -> (Vec String -> Int))))" @5e61889eee5022b6 #restrict=no-io,no-foreign #effects=Alloc,Mut
+F strFromByte stdlib/Str.ax:531:9-20 "(Byte -> String)" @cc6843692d250f9c #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe #unsafe=trusted
+F strLower stdlib/Str.ax:559:9-17 "(String -> String)" @8705466b1ec7adbf #restrict=no-io,no-foreign #post=(%3D%3D%20(strLen%20result)%20(strLen%20s)) #effect=unsafe #effects=Alloc,Mut,Unsafe #unsafe=trusted
+F strFind stdlib/Str.ax:600:9-16 "(String -> (String -> (Int -> Option Int)))" @e124649e206d9a15 #restrict=no-io,no-foreign #effect=unsafe #effects=Unsafe #unsafe=trusted
+F strTrim stdlib/Str.ax:626:9-16 "(String -> String)" @1659542ba70f16f2 #restrict=no-io,no-foreign #effects=Alloc,Mut
+F strParseInt stdlib/Str.ax:655:9-20 "(String -> Option Int)" @65f528e7dd0a78ee #restrict=no-io,no-foreign
 F errDivideByZero stdlib/Err.ax:66:9-24 "Int" @029f54fed7ccc8c4
 F errOverflow stdlib/Err.ax:71:9-20 "Int" @d27666f207e5c0cc
 F errShiftTooWide stdlib/Err.ax:76:9-24 "Int" @6a505014b69f075b
@@ -273,33 +275,34 @@ F add2 tests/fmt/syntax-zoo.ax:170:5-9 "(Int -> (Int -> Int))" @09ea3a86d3c3a984
 F ignoresIts tests/fmt/syntax-zoo.ax:173:5-15 "(Int -> (Int -> Int))" @3bd4ee8d4490ed38
 F holeExample tests/fmt/syntax-zoo.ax:176:5-16 "Int" @cf2ca28645662d19
 F misc tests/fmt/syntax-zoo.ax:182:5-9 "(Rec -> Int)" @a624386346f1362f
-F qualified tests/fmt/syntax-zoo.ax:188:5-14 "(Int -> Int)" @6e608b2ecabed39f #effects=Alloc
-F last tests/fmt/syntax-zoo.ax:192:5-9 "(Int -> Int)" @436b6f6ddf64413b
+F keyword_forms tests/fmt/syntax-zoo.ax:195:5-18 "(Int -> Int)" @81b1a8cbfde09fae #effects=Alloc
+F qualified tests/fmt/syntax-zoo.ax:201:5-14 "(Int -> Int)" @6e608b2ecabed39f #effects=Alloc
+F last tests/fmt/syntax-zoo.ax:205:5-9 "(Int -> Int)" @436b6f6ddf64413b
 F log - "(String -> Int)" #effects=Console
 F send - "(Int -> (Int -> Int))" #effects=Wire
 F recv - "(Int -> Int)" #effects=Wire
-F handled tests/fmt/syntax-zoo.ax:203:5-12 "(Int -> Int)" @8aed8da9c866693b #effects=Alloc
-F scoped tests/fmt/syntax-zoo.ax:207:5-11 "(Int -> Int)" @456a949d82a7c7bf
-F aBox tests/fmt/syntax-zoo.ax:228:5-9 "Box Int" @06331c8640b36edb #effects=Alloc
+F handled tests/fmt/syntax-zoo.ax:216:5-12 "(Int -> Int)" @8aed8da9c866693b #effects=Alloc
+F scoped tests/fmt/syntax-zoo.ax:220:5-11 "(Int -> Int)" @456a949d82a7c7bf
+F aBox tests/fmt/syntax-zoo.ax:241:5-9 "Box Int" @06331c8640b36edb #effects=Alloc
 F store - "(Box Int -> Int)" #effects=Boxes
-F interiors tests/fmt/syntax-zoo.ax:266:5-14 "(*Box Int -> (Box Int -> Int))" @9ab1e7805f0e9380
-F typed_exprs tests/fmt/syntax-zoo.ax:269:5-16 "(Int -> Int)" @81369cab7bd3cafe #effect=unsafe #effects=Alloc,Unsafe #unsafe=trusted
-F helperD tests/fmt/syntax-zoo.ax:311:5-12 "(Int -> Int)" @882707b1b1adf681
-F zeroParam tests/fmt/syntax-zoo.ax:314:5-14 "Int" @3beac987ddf32d0a
-F bigNums tests/fmt/syntax-zoo.ax:317:5-12 "Int" @dd7253ccf2a8d5b6
-F addTwo tests/fmt/syntax-zoo.ax:320:5-11 "(Int -> (Int -> Int))" @5d1e51e3da8ca0ac
-F spine tests/fmt/syntax-zoo.ax:323:5-10 "Int" @b90b9fd2b6072666
-F redundantParens tests/fmt/syntax-zoo.ax:326:5-20 "(Int -> Int)" @1e81a579343438b5
-F oneBlock tests/fmt/syntax-zoo.ax:329:5-13 "(Int -> Int)" @0a7b44cba65e02ae
-F manyBody tests/fmt/syntax-zoo.ax:332:5-13 "(Int -> Int)" @a31645c57f2b7230
-F curried tests/fmt/syntax-zoo.ax:335:5-12 "(Int -> (Int -> Int))" @8e5e55c0dcd4848b
-F unitArg tests/fmt/syntax-zoo.ax:344:5-12 "(() -> Int)" @6cefab6aa3adb3a3
-F negatives tests/fmt/syntax-zoo.ax:350:5-14 "Int" @c1e7a0698a782505
-F splitTags tests/fmt/syntax-zoo.ax:383:5-14 "(Int -> Int)" @1149cb6053381fbc #no_refactor #effect=pure
-F beside tests/fmt/syntax-zoo.ax:391:5-11 "(Int -> Int)" @aa727b9b975db469 #effect=io #effect=spawn #effect=block #effects=Alloc,Block,IO,Spawn
-F alone tests/fmt/syntax-zoo.ax:397:5-10 "(Int -> Int)" @03ff16d88044c27e #effect=io #effect=spawn #effect=block #effects=Alloc,Block,IO,Spawn
-F restrictedTwice tests/fmt/syntax-zoo.ax:410:5-20 "(Int -> Int)" @09253db9ca4471fa #restrict=no-io,no-cast
-F regionKeep tests/fmt/syntax-zoo.ax:417:5-15 "(Vec String -> (String -> (a -> Int)))" @a46706b1069fed62
+F interiors tests/fmt/syntax-zoo.ax:279:5-14 "(*Box Int -> (Box Int -> Int))" @9ab1e7805f0e9380
+F typed_exprs tests/fmt/syntax-zoo.ax:282:5-16 "(Int -> Int)" @81369cab7bd3cafe #effect=unsafe #effects=Alloc,Unsafe #unsafe=trusted
+F helperD tests/fmt/syntax-zoo.ax:324:5-12 "(Int -> Int)" @882707b1b1adf681
+F zeroParam tests/fmt/syntax-zoo.ax:327:5-14 "Int" @3beac987ddf32d0a
+F bigNums tests/fmt/syntax-zoo.ax:330:5-12 "Int" @dd7253ccf2a8d5b6
+F addTwo tests/fmt/syntax-zoo.ax:333:5-11 "(Int -> (Int -> Int))" @5d1e51e3da8ca0ac
+F spine tests/fmt/syntax-zoo.ax:336:5-10 "Int" @b90b9fd2b6072666
+F redundantParens tests/fmt/syntax-zoo.ax:339:5-20 "(Int -> Int)" @1e81a579343438b5
+F oneBlock tests/fmt/syntax-zoo.ax:342:5-13 "(Int -> Int)" @0a7b44cba65e02ae
+F manyBody tests/fmt/syntax-zoo.ax:345:5-13 "(Int -> Int)" @a31645c57f2b7230
+F curried tests/fmt/syntax-zoo.ax:348:5-12 "(Int -> (Int -> Int))" @8e5e55c0dcd4848b
+F unitArg tests/fmt/syntax-zoo.ax:357:5-12 "(() -> Int)" @6cefab6aa3adb3a3
+F negatives tests/fmt/syntax-zoo.ax:363:5-14 "Int" @c1e7a0698a782505
+F splitTags tests/fmt/syntax-zoo.ax:396:5-14 "(Int -> Int)" @1149cb6053381fbc #no_refactor #effect=pure
+F beside tests/fmt/syntax-zoo.ax:404:5-11 "(Int -> Int)" @aa727b9b975db469 #effect=io #effect=spawn #effect=block #effects=Alloc,Block,IO,Spawn
+F alone tests/fmt/syntax-zoo.ax:410:5-10 "(Int -> Int)" @03ff16d88044c27e #effect=io #effect=spawn #effect=block #effects=Alloc,Block,IO,Spawn
+F restrictedTwice tests/fmt/syntax-zoo.ax:423:5-20 "(Int -> Int)" @09253db9ca4471fa #restrict=no-io,no-cast
+F regionKeep tests/fmt/syntax-zoo.ax:430:5-15 "(Vec String -> (String -> (a -> Int)))" @a46706b1069fed62
 D Option - "data Option" #ctors=Some,None
 C Some - "(a -> Option a)" #of=Option
 C None - "Option a" #of=Option
@@ -314,23 +317,23 @@ C Empty tests/fmt/syntax-zoo.ax:32:4-9 "Shape" #of=Shape
 D Tree tests/fmt/syntax-zoo.ax:34:7-11 "data Tree" @a1a9ddbf67cfeaaf #ctors=Leaf,Node
 C Leaf tests/fmt/syntax-zoo.ax:35:4-8 "Tree a" #of=Tree
 C Node tests/fmt/syntax-zoo.ax:36:4-8 "(Tree a -> (a -> (Tree a -> Tree a)))" #of=Tree
-D Box tests/fmt/syntax-zoo.ax:225:11-14 "data Box" @649cdc153a9e31b4 #ctors=B
-C B tests/fmt/syntax-zoo.ax:226:4-5 "(a -> Box a)" #of=Box
-D Wrapped tests/fmt/syntax-zoo.ax:243:7-14 "data Wrapped" @456b706b2b771a60 #ctors=W
-C W tests/fmt/syntax-zoo.ax:244:4-5 "(Box Int -> Wrapped)" #of=Wrapped
+D Box tests/fmt/syntax-zoo.ax:238:11-14 "data Box" @649cdc153a9e31b4 #ctors=B
+C B tests/fmt/syntax-zoo.ax:239:4-5 "(a -> Box a)" #of=Box
+D Wrapped tests/fmt/syntax-zoo.ax:256:7-14 "data Wrapped" @456b706b2b771a60 #ctors=W
+C W tests/fmt/syntax-zoo.ax:257:4-5 "(Box Int -> Wrapped)" #of=Wrapped
 S MemoryStats stdlib/Mem.ax:442:13-24 "struct MemoryStats" @d2f42a7c23bd4fde #fields=heldBytes:Int,filedBytes:Int,mappedBytes:Int,backlogBytes:Int
 S Error stdlib/Err.ax:40:13-18 "struct Error" @0805ae0b9077d3a6 #fields=code:Int,message:String,context:String
 S Rec tests/fmt/syntax-zoo.ax:55:13-16 "struct Rec" @7e8483a9aaef3fde #fields=n:Int,counter:Int,on:Bool,ratio:Float,label:String
-S ZooCap tests/fmt/syntax-zoo.ax:233:9-15 "struct ZooCap" @565a8bdeb3d12664 #fields=render:(a -> String)
-S ZooPair tests/fmt/syntax-zoo.ax:236:9-16 "struct ZooPair" @149f38cfa5316df8 #fields=fst:a,snd:b
-S Holder tests/fmt/syntax-zoo.ax:240:9-15 "struct Holder" @39a2b36e5f606cfe #fields=item:Box Int
-S RecTwin tests/fmt/syntax-zoo.ax:374:13-20 "struct RecTwin" @1e39f8cfc9405c78 #fields=n:Int,counter:Int,on:Bool,ratio:Float,label:String
+S ZooCap tests/fmt/syntax-zoo.ax:246:9-15 "struct ZooCap" @565a8bdeb3d12664 #fields=render:(a -> String)
+S ZooPair tests/fmt/syntax-zoo.ax:249:9-16 "struct ZooPair" @149f38cfa5316df8 #fields=fst:a,snd:b
+S Holder tests/fmt/syntax-zoo.ax:253:9-15 "struct Holder" @39a2b36e5f606cfe #fields=item:Box Int
+S RecTwin tests/fmt/syntax-zoo.ax:387:13-20 "struct RecTwin" @1e39f8cfc9405c78 #fields=n:Int,counter:Int,on:Bool,ratio:Float,label:String
 A Count tests/fmt/syntax-zoo.ax:26:11-16 "Int" @910ecfbfa27ddde2
-A BoxedCount tests/fmt/syntax-zoo.ax:231:11-21 "Box Int" @ce5c1ba8305ca704
-M format stdlib/Str.ax:708:13-19 "macro format" @f0b2b594fd323246
+A BoxedCount tests/fmt/syntax-zoo.ax:244:11-21 "Box Int" @ce5c1ba8305ca704
+M format stdlib/Str.ax:732:13-19 "macro format" @f0b2b594fd323246
 M try stdlib/Err.ax:442:13-16 "macro try" @c3830f2ec9fc2f82
 M twice tests/fmt/syntax-zoo.ax:93:9-14 "macro twice" @a0ee9867b2571b97
-M defRecTwin tests/fmt/syntax-zoo.ax:366:8-18 "macro defRecTwin" @175bc52ff43ee048
-E Console tests/fmt/syntax-zoo.ax:196:9-16 "effect Console" @5e35620abc5f495d
-E Wire tests/fmt/syntax-zoo.ax:199:9-13 "effect Wire" @f3f0a43895c12689
-E Boxes tests/fmt/syntax-zoo.ax:252:9-14 "effect Boxes" @244d27b945c772d1
+M defRecTwin tests/fmt/syntax-zoo.ax:379:8-18 "macro defRecTwin" @175bc52ff43ee048
+E Console tests/fmt/syntax-zoo.ax:209:9-16 "effect Console" @5e35620abc5f495d
+E Wire tests/fmt/syntax-zoo.ax:212:9-13 "effect Wire" @f3f0a43895c12689
+E Boxes tests/fmt/syntax-zoo.ax:265:9-14 "effect Boxes" @244d27b945c772d1

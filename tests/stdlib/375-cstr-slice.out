@@ -1,0 +1,3 @@
+byte after head 0, after tail 0
+whole shared true, tail shared true
+head copied true, same first byte true

@@ -1249,7 +1249,8 @@ recover what is stored there.
 
 The bytes are NUL-terminated as well as length-counted. So `strCStr`
 hands a path to a syscall without copying, and a `Str` may contain an
-interior NUL.
+interior NUL. A slice that stops short of its parent's end has no NUL
+after it, so `strCStr` gives it a terminated copy.
 
 `strSlice` **shares** the original's bytes instead of copying them.
 A slice keeps its parent's buffer live and points into its middle
@@ -5885,10 +5886,12 @@ which is well-defined only if the source stays readable across the
 reset. Kernel memory does, but a reclaimed chunk's interior may not.
 
 **MM-FFI-4 (H, program obligation).** `strCStr` hands a `Str`'s bytes
-to a syscall without copying, relying on `MM-VAL-7`'s NUL terminator.
-A program that builds a `Str` by any other route than the `Str` module,
-including `__store8` into a buffer it allocated, **MUST** keep that
-terminator, or the syscall reads past the end.
+to a syscall without copying when `MM-VAL-7`'s NUL terminator follows
+them, and copies them first when it does not, as for a slice that stops
+short of its parent's end (`tests/stdlib/375-cstr-slice.ax`). A program
+that builds a `Str` by any other route than the `Str` module, including
+`__store8` into a buffer it allocated, **MUST** keep that terminator,
+or the syscall reads past the end.
 
 **MM-FFI-5 (H, discharged).** The FFI meets all four minimum
 requirements this clause set for it.
