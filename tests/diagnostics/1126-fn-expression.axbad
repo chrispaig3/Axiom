@@ -1,0 +1,4 @@
+; `fn` in expression position is AX2004: an anonymous function is
+; spelled `lambda`, and `fn` only declares a named function.
+(:: main Int)
+(fn (main) ((fn (x) x) 0))

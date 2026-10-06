@@ -166,7 +166,9 @@ A lambda is a function value. It can capture values in its enclosing scope.
 
 
 This prints `105`. Function parameters and record fields may hold
-arrows such as `(-> Int Int)`.
+arrows such as `(-> Int Int)`. A lambda is always spelled `lambda`:
+`fn` declares a named function at the top level, and `(fn (x) ...)`
+inside an expression is refused with `AX2004`.
 
 ### Partial application
 

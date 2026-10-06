@@ -1,0 +1,1 @@
+E AX2004 1126-fn-expression.ax:4:14-16 removed-construct "`fn` in expression position is refused: an anonymous function is `lambda`" #"an anonymous function had two spellings, `(fn (x) ...)` and `(lambda (x) ...)`; `lambda` is the one, and `fn` only declares" ?"write `lambda` for an anonymous function: `(lambda (x) (+ x 1))`"

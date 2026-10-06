@@ -7,7 +7,7 @@
       (while (< k 1)
         {
           (set k (+ k 1))
-          (fn (v) (missing v))
+          (lambda (v) (missing v))
         })
       0
     }))

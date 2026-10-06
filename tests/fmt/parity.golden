@@ -1,9 +1,13 @@
 # The refusal bank: what `axiom fmt` does to each tests/fmt/parity/*.axp case.
 #
 # One `### <case> (exit N)` line per case, followed by the formatted bytes when
-# it formatted at all. 73 cases: 38 rewrites and 35 refusals, which is why this
+# it formatted at all. 72 cases: 38 rewrites and 34 refusals, which is why this
 # file can tell a formatter that always succeeds from one that always refuses -
 # check-fmt-selfhost.sh requires both outcomes to be present.
+#
+# ONE CASE WAS ADDED when `fn` in expression position became AX2004. 205 is
+# the refusal: `check` refuses `((fn (x) x) 1)` and names `lambda`, so `fmt`
+# refuses it too instead of rewriting it to a lambda.
 #
 # 092 FORMATS since 2026-09-29 (AN-59): a negative literal pattern checks and
 # runs, so refusing it, as the retired stage0 parser did, refused a program the
@@ -349,6 +353,7 @@
       i)
   })
 ### 204-fn-bare-name-refused.axp (exit 1)
+### 205-fn-expression-refused.axp (exit 1)
 ### 210-region-head-layout.axp (exit 0)
 (fn (f xs)
   {

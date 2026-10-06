@@ -336,6 +336,10 @@ instead of being silently reinterpreted as an ordinary identifier.
 `(fn (add x y) (+ x y))`, and `(fn (answer) 42)` for a function with no
 parameters. A bare name, `(fn answer 42)`, is `AX2001`.
 
+`fn` in expression position was a second spelling of `lambda`. An
+anonymous function is `(lambda (x) (+ x 1))`; `fn` declares a named
+function at the top level, and nested anywhere else it is refused.
+
 `union` is gone because C interoperability is no longer a goal of the
 language, and an untagged union cannot be pattern-matched safely - its
 variants are not distinguishable at run time. Use `data` for a tagged

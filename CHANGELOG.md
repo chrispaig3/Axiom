@@ -16,6 +16,12 @@ its changelog too.
 
 ## Unreleased
 
+- Spell an anonymous function `lambda`. `(fn (x) ...)` inside an
+  expression is now `AX2004`, with `lambda` as the advice, and `axiom
+  fmt` refuses it instead of rewriting it. `fn` still declares a named
+  function. Tested by `tests/diagnostics/1126-fn-expression.axbad` and
+  `scripts/check-fmt-selfhost.sh`.
+
 - Remove `axiom FILE [TARGET]`. The first operand is always a command,
   so a bare file is refused as an unknown command with exit status 2
   and a pointer to `axiom emit-llvm FILE [--target TARGET]`, `run` and

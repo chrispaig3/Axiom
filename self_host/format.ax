@@ -2192,12 +2192,12 @@
 ; in `check` and refused here.
 (pub :: fpIsRefusedHead (-> String Bool))
 (pub fn (fpIsRefusedHead t)
-  ; `cond` joins `consume` and `begin` here: `check` refuses all three
-  ; at the parser (AX2004), so `fmt` refuses them with it rather than
-  ; printing what no compiler accepts. `cond` stays a keyword head
-  ; (see `isKeywordHead`) exactly as `consume` does, so the refusal -
-  ; not the application layout - is what a `(cond ...)` reaches.
-  (|| (strEq t "consume") (|| (strEq t "begin") (|| (strEq t "cond") (strEq t "alloc")))))
+  ; `check` refuses every one of these at the parser in expression
+  ; position (AX2004), so `fmt` refuses them with it rather than
+  ; printing what no compiler accepts. `cond` and `fn` stay keyword
+  ; heads (see `isKeywordHead`) exactly as `consume` does, so the
+  ; refusal - not the application layout - is what they reach.
+  (|| (strEq t "consume") (|| (strEq t "begin") (|| (strEq t "cond") (|| (strEq t "alloc") (strEq t "fn"))))))
 
 ; The same rule in DECLARATION position, and the two words it names are
 ; `trait` and `impl`.
@@ -3409,15 +3409,8 @@
                   ; declaring a program well-formed that segfaulted the compiler
                   ; that was about to read it.
                   (fpBad p)
-                  ; `fn` in EXPRESSION position is a lambda. `parseInner`
-                  ; accepts both spellings and says so ("stage0 spells an
-                  ; anonymous function `lambda`; expression position `fn` is
-                  ; stage1's older spelling and both stay"), and this printer
-                  ; knew only one - so every file using it was refused
-                  ; outright, with no line and no reason, by the tool a CI
-                  ; formatting gate runs.
                   (let ((h (fnHeadText src n)))
-                    (if (|| (strEq h "lambda") (strEq h "fn"))
+                    (if (strEq h "lambda")
                       (fpLambda p n)
                       (if (strEq h "let")
                         (fpLet p n)

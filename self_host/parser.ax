@@ -1369,6 +1369,11 @@
                       "AX2004"
                       "removed-construct"
                       (tokenSpan tok)
+                      (if (strEq exp "fn")
+                        ; `fn` is still Axiom - it declares a named
+                        ; function - so only its expression spelling is
+                        ; refused, and the heading says which.
+                        "`fn` in expression position is refused: an anonymous function is `lambda`"
                       (if (strEq exp "deriving")
                         ; Five of the eight get their own verb:
                         ; union/foreign (and region, until it returned)
@@ -1389,7 +1394,7 @@
                               "`[T]` checked as a type no value could inhabit, and is now refused"
                               (if (strEq exp "tuple")
                                 "`(A B)` checked as a type no value could inhabit, and is now refused"
-                                (concat (concat "`" exp) "` is no longer part of Axiom"))))))
+                                (concat (concat "`" exp) "` is no longer part of Axiom")))))))
                       0
                       ""
                       (removedHelp exp))
@@ -1572,6 +1577,8 @@
     "`alloc` was refused rather than implemented: the form typed as a pointer and evaluated to the constant 0, so a program holding one held no memory"
   (if (strEq kw "define")
     "`define` was the old spelling of `fn`, read as the same declaration; a language with two spellings of one thing makes every reader learn both"
+  (if (strEq kw "fn")
+    "an anonymous function had two spellings, `(fn (x) ...)` and `(lambda (x) ...)`; `lambda` is the one, and `fn` only declares"
   (if (strEq kw "begin")
     (concat "`begin` was replaced by `{ }` brace blocks and implicit " "sequencing; it was an ordinary name to the parser afterwards, so using one drew `AX3001 undefined variable begin`, which named no replacement")
     (if (strEq kw "union")
@@ -1592,13 +1599,15 @@
                     (concat (concat "`[T]` was refused rather than implemented: the form checked in " "signatures while no literal, no pattern and no runtime representation existed behind it - ") "a reader met the syntax in the reference, wrote it, and got a parse error. Sequences are `(Vec T)`")
                     (if (strEq kw "tuple")
                       (concat (concat "`(A B)` was refused rather than implemented: the form checked in " "signatures while no literal, no pattern and no runtime representation existed behind it. ") "Products are `struct`, sums are `data`")
-                      (concat (concat "`" kw) "` was removed"))))))))))))))
+                      (concat (concat "`" kw) "` was removed")))))))))))))))
 
 (pub fn (removedHelp kw)
   (if (strEq kw "alloc")
     "allocate with `__alloc`, or use `vecNew`, `strAlloc` or a struct: `(alloc T n)` typed `*mut T` and evaluated to 0, so it never allocated anything"
   (if (strEq kw "define")
     "write `fn`: `(fn (add x y) (+ x y))`, and `(fn (answer) 42)` for a function with no parameters"
+  (if (strEq kw "fn")
+    "write `lambda` for an anonymous function: `(lambda (x) (+ x 1))`"
   (if (strEq kw "begin")
     (concat "use a brace block: `{ a b c }` sequences expressions and answers " "the last one, which is what `(begin a b c)` meant - and a `fn` body already sequences, so the wrapper is usually just deletable")
     (if (strEq kw "union")
@@ -1619,7 +1628,7 @@
                     (concat "write `(Vec T)` for a sequence: `vecNew`, `vecGet`, `vecPush` and " "`(for x in xs body)` are its surface")
                     (if (strEq kw "tuple")
                       (concat "write a `struct` for a product of named fields, or `data` for a " "tagged sum - both are inhabited, matched and reclaimed")
-                      "run `axiom explain AX2004`")))))))))))))
+                      "run `axiom explain AX2004`"))))))))))))))
 
 ; ------------------------------------------------------------------
 ; Token helpers.
@@ -4744,10 +4753,11 @@
           ; `pub` marks a top-level declaration. In an expression it
           ; used to be skipped, so `(pub "x")` read as `("x")`.
           (pErrExp pos "an expression")
+          ; An anonymous function is spelled `lambda`. `fn` declares a
+          ; named function at the top level, and in expression position
+          ; it is refused with that advice (AX2004).
           (if (kwEq name kwFn)
-            (parseLamExpr tokens (advance pos))
-            ; stage0 spells an anonymous function `lambda`; expression
-            ; position `fn` is stage1's older spelling and both stay.
+            (pErrRemoved pos "fn")
             (if (kwEq name "lambda")
               (parseLamExpr tokens (advance pos))
               (if (kwEq name kwLet)

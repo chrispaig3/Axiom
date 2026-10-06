@@ -1,1 +1,1 @@
-E AX3001 1122-while-tail-lambda.ax:10:20-27 undefined-variable "undefined variable `missing`" #"no binding named `missing` in scope" ?"variables must be defined (via `fn`, a `let` binding, or a lambda parameter) before they are used; check for typos"
+E AX3001 1122-while-tail-lambda.ax:10:24-31 undefined-variable "undefined variable `missing`" #"no binding named `missing` in scope" ?"variables must be defined (via `fn`, a `let` binding, or a lambda parameter) before they are used; check for typos"
