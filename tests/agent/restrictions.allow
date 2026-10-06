@@ -667,6 +667,7 @@ softIo tests/diagnostics/393-restrict-strict.ax no-io unverifiable
 some tests/diagnostics/384-restrict-no-alloc-ctor.ax no-alloc ok
 spanEnd self_host/core.ax no-io,no-alloc,no-foreign ok
 spanStart self_host/core.ax no-io,no-alloc,no-foreign ok
+spelled tests/diagnostics/1134-axtag-near-miss.ax no-alloc ok
 srcIxChars self_host/diag.ax no-io,no-alloc,no-foreign ok
 srcIxStarts self_host/diag.ax no-io,no-alloc,no-foreign ok
 srcLineIndex self_host/diag.ax no-io,no-foreign ok
@@ -685,7 +686,8 @@ stores tests/diagnostics/1010-unsafe-primitives.ax no-unsafe violated
 stores tests/diagnostics/649-restrict-no-escape.ax no-escape violated
 strAlloc stdlib/Str.ax no-io,no-foreign ok
 strByte stdlib/Str.ax no-io,no-alloc,no-foreign ok
-strCStr stdlib/Str.ax no-io,no-alloc,no-foreign ok
+strCStr stdlib/Str.ax no-io,no-foreign ok
+strCStrCopy stdlib/Str.ax no-io,no-foreign ok
 strCmp stdlib/Str.ax no-io,no-alloc,no-foreign ok
 strData stdlib/Str.ax no-io,no-alloc,no-foreign ok
 strDup stdlib/Str.ax no-io,no-foreign ok
@@ -708,6 +710,7 @@ strSlice stdlib/Str.ax no-io,no-foreign ok
 strSplit stdlib/Str.ax no-io,no-foreign ok
 strSplitFrom stdlib/Str.ax no-io,no-foreign ok
 strStartsWith stdlib/Str.ax no-io,no-alloc,no-foreign ok
+strTerminated stdlib/Str.ax no-io,no-alloc,no-foreign ok
 strToInt self_host/core.ax no-io,no-alloc,no-foreign ok
 strToIntFrom self_host/core.ax no-io,no-alloc,no-foreign ok
 strTrim stdlib/Str.ax no-io,no-foreign ok

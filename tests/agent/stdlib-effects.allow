@@ -1056,6 +1056,7 @@ orderAccess AxqlExec.ax Alloc
 orderExpr AxqlExec.ax Alloc,Mut
 orderTerms AxqlExec.ax Alloc,Mut
 overflow AxqlEval.ax Alloc,Mut
+ownerLive Axqlite.ax Unsafe
 pageMsg Btree.ax Alloc,Mut
 pageMsg Pager.ax Alloc,Mut
 pagerAbandon Pager.ax Alloc,IO,Mut
@@ -1443,6 +1444,8 @@ stmtWord Axqlite.ax Unsafe
 storeHeader Pager.ax Mut,Unsafe
 strAlloc Str.ax Alloc,Mut,Unsafe
 strByte Str.ax Unsafe
+strCStr Str.ax Alloc,Mut
+strCStrCopy Str.ax Alloc,Mut,Unsafe
 strCmp Str.ax Unsafe
 strData Str.ax Unsafe
 strDup Str.ax Alloc,Mut,Unsafe
@@ -1457,6 +1460,7 @@ strSlice Str.ax Alloc,Mut,Unsafe
 strSplit Str.ax Alloc,Mut
 strSplitFrom Str.ax Alloc,Mut
 strStartsWith Str.ax Unsafe
+strTerminated Str.ax Unsafe
 strTrim Str.ax Alloc,Mut
 strWrap Str.ax Alloc,Mut,Unsafe
 strWrapOwned Str.ax Alloc,Mut,Unsafe
