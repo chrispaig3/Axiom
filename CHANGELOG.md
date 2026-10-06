@@ -108,6 +108,12 @@ its changelog too.
   `tests/stdlib/703-memory-stats.ax` and
   `tests/stdlib/704-task-decoded.ax`.
 
+- `Linear` is no longer a built-in type. Linear types were removed, but
+  the constructor `linear T` used to build still checked as a type, so
+  `(-> (Linear Int) Int)` compiled and enforced nothing. It is now an
+  undefined type (`AX3002`) with advice to write the wrapped type.
+  Tested by `tests/diagnostics/1132-linear-not-a-type.ax`.
+
 - `strCStr` answers a NUL-terminated address for a slice too. A slice
   that stops short of its parent's end has no NUL after it, so a
   syscall given its address read on into the parent's bytes. It now

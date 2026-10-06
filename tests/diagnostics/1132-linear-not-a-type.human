@@ -1,0 +1,10 @@
+[1;31merror[AX3002][0m[1m: undefined type `Linear`[0m
+ [1;34m--> [0m1132-linear-not-a-type.ax:5:5
+[1;34m  |[0m
+[1;34m5 |[0m (:: keep (-> (Linear Int) Int))
+[1;34m  |[0m     [1;31m^^^^ no type named `Linear` is visible here[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mlinear types were removed and `Linear` is not a type: write the wrapped type itself
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3002` for a full explanation
+
+compilation failed due to 1 previous error

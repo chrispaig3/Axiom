@@ -1,0 +1,1 @@
+E AX3002 1132-linear-not-a-type.ax:5:5-9 undefined-type "undefined type `Linear`" #"no type named `Linear` is visible here" ?"linear types were removed and `Linear` is not a type: write the wrapped type itself"

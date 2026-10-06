@@ -4441,9 +4441,8 @@ of old source:
 - `(linear T)` in type position built the nominal type `Linear T`,
   which is incompatible with `T`: passing `x : linear Int` where `Int`
   was expected was `AX3004 expected Int, found Linear Int`. `Linear T`
-  written directly still parses and behaves this way. `Linear` has no
-  declaration, arity check or constructors, so `(Linear)` and
-  `(Linear Int Bool)` are accepted.
+  written directly is now an undefined type, `AX3002`, with advice to
+  write `T` (`tests/diagnostics/1132-linear-not-a-type.ax`).
 - `linear` is a keyword in type position only. In expression position
   it is an ordinary identifier, and as `cast`'s type argument
   `(linear T)` still builds a different, lowercase constructor
@@ -6797,8 +6796,6 @@ That was `MM-LIFE-7`'s point: the syntax existing was no evidence that
 the discipline did. `linear` buys nothing today, because it does not
 parse.
 
-What survives is the type barrier from the constructor the keyword used
-to build. Handing `x` to an `Int` parameter in
-`(:: mk (-> (Linear Int) Int))` is still
-`AX3004 expected Int, found Linear Int`. `Linear` has no declaration, no
-arity check and no constructors.
+The constructor the keyword used to build is gone too:
+`(:: mk (-> (Linear Int) Int))` is refused as an undefined type
+(`AX3002`), like any name with no declaration.

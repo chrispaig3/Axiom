@@ -1,0 +1,9 @@
+; `Linear` is not a builtin type. Linear types were removed (`linear` is
+; AX2004), and the constructor the keyword used to build is an unknown
+; name in type position like any other.
+
+(:: keep (-> (Linear Int) Int))
+(fn (keep x) 0)
+
+(:: main Int)
+(fn (main) 0)

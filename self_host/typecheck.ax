@@ -6882,11 +6882,9 @@
     (cast Int (typeKeywordCanon name))
     0)
     1
-    (if (strEq name "Linear")
+    (if (== (tyIdxHas tc TY_ANY name) 1)
       1
-      (if (== (tyIdxHas tc TY_ANY name) 1)
-        1
-        0))))
+      0)))
 
 ; The name of the first type constructor in `t` that resolves to
 ; nothing, or 0. A known head with an unknown ARGUMENT is still a
@@ -6921,13 +6919,15 @@
 (pub fn (tyUnknownConName tc t)
   (cast String (tyUnknownCon tc t)))
 
-; The help for an unknown type name: migration advice for the four
+; The help for an unknown type name: migration advice for the five
 ; removed builtins and for a `*` glued to a name, the generic
 ; sentence for anything else. `Integer` was the old spelling of
 ; `Int`; `Unit` and `Void` were the empty tuple, which is `()`;
 ; `Any` was the top type Axiom does not have, and a lowercase name
-; generalises the way one was written for. `*` is an identifier
-; character, so `*Int` lexes as one name rather than a pointer.
+; generalises the way one was written for. `Linear` was the
+; constructor `linear T` built, which outlived the keyword's refusal
+; (AX2004) and enforced nothing. `*` is an identifier character, so
+; `*Int` lexes as one name rather than a pointer.
 (pub :: tyRemovedBuiltinHelp (-> String String))
 (pub fn (tyRemovedBuiltinHelp n)
   (if (strEq n "Integer")
@@ -6938,6 +6938,8 @@
     "write `()`: `Void` is not a builtin type"
     (strEq n "Any")
     "`Any` is not a builtin type; a lowercase name in type position is a type variable"
+    (strEq n "Linear")
+    "linear types were removed and `Linear` is not a type: write the wrapped type itself"
     (strStartsWith n "*")
     "spell a pointer `(* T)`: `*` joins the name without the space"
     "check for typos, or a missing `data`/`struct`/`type` declaration"))
