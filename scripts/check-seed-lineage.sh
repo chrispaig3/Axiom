@@ -110,6 +110,7 @@ set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/lib/seed-sums.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/lib/seed-emit.sh"
 # `--no-stdlib`: this gate never compiles this checkout's sources, and
 # an exported `AXIOM_STDLIB` naming them is exactly the wrong tree for
 # every emission below. `gate_init` may bootstrap `.axiom-bin/axiom`
@@ -247,7 +248,7 @@ build_reason() { sed 's/\x1b\[[0-9;]*m//g' "$1.err" | grep -m1 -E 'error(\[|:)' 
 # produced" - `check-seed-provenance.sh`'s floors, kept before every cmp.
 #
 # Every emission compared with a commit's seed is spelled the way that
-# commit's reseed spelled it (`seed_emit_argv`, scripts/lib/seed-sums.sh):
+# commit's reseed spelled it (`seed_emit_argv`, scripts/lib/seed-emit.sh):
 # `emit_as <commit>` chooses it, and `emit` uses the latest choice.
 emit_as() { seed_emit_argv "$repo_root" "$1" "$target"; }
 seed_argv=()

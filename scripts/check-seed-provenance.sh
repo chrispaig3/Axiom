@@ -44,6 +44,7 @@ command -v git >/dev/null || { echo "FAIL: git is not on PATH"; exit 1; }
 # while regenerating a different set, so check-seed-supply-chain.sh
 # refuses one here.
 source "$(dirname "${BASH_SOURCE[0]}")/lib/seed-sums.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/lib/seed-emit.sh"
 targets="$(seed_targets | tr '\n' ' ')"
 
 # --------------------------------------------------------------------
@@ -135,6 +136,27 @@ extract() {
 
 tree="$work/tree"
 extract "$commit" "$tree"
+
+# The compiler that builds the seed commit's compiler is the committed
+# seed for this host, turned into a binary the way
+# `bootstrap-from-seed.sh` does. It is that commit's own compiler, so it
+# accepts that commit's source whatever later commits have tightened.
+# Today's compiler would refuse it as soon as the language rejects a
+# spelling the seed commit still used.
+seedc_dir="$work/seedc"; mkdir -p "$seedc_dir"
+seed_ll="$repo_root/bootstrap/axiom-$here_host.ll"
+[[ -f "$seed_ll" ]] || { echo "FAIL: bootstrap/ holds no seed for $here_host"; exit 1; }
+seed_in="$seed_ll"
+if command -v opt > /dev/null 2>&1 && opt -O1 "$seed_ll" -S -o "$seedc_dir/seed.opt.ll" 2>/dev/null; then
+  seed_in="$seedc_dir/seed.opt.ll"
+fi
+if ! llc -filetype=obj -relocation-model=pic "$seed_in" -o "$seedc_dir/seed.o" 2>"$seedc_dir/llc.err" \
+   || ! cc "$seedc_dir/seed.o" -o "$seedc_dir/axc" $(gate_link_entry) 2>"$seedc_dir/cc.err"; then
+  echo "FAIL: could not build a compiler from bootstrap/axiom-$here_host.ll"
+  head -3 "$seedc_dir/llc.err" "$seedc_dir/cc.err" 2>/dev/null | sed 's/^/     /'
+  exit 1
+fi
+seedc="$seedc_dir/axc"
 got_stamp="$(gate_seed_source_stamp "$tree")"
 got_files="$(cd "$tree" && find self_host stdlib -name '*.ax' -type f | wc -l | tr -d ' ')"
 if [[ "$got_stamp" == "$want_stamp" ]] && [[ "$got_files" == "$want_files" ]]; then
@@ -164,7 +186,7 @@ echo "== regenerating all six seeds from those sources =="
 regenerate() {
   local src="$1" out="$2" log="$3"
   rm -rf "$out"; mkdir -p "$out"
-  if ! AXIOM_STDLIB="$src/stdlib" "$axiom" build \
+  if ! AXIOM_STDLIB="$src/stdlib" "$seedc" build \
          --input "$src/self_host/main.ax" --output "$out/gen" >"$log" 2>&1; then
     return 1
   fi
@@ -245,7 +267,7 @@ fi
 sed -i.bak 's/(== (strByte p 0) 47)/(== (strByte p 0) 92)/' "$victim"
 rm -f "$victim.bak"
 probe_out="$work/probe-out"
-if ! AXIOM_STDLIB="$probe/stdlib" "$axiom" build \
+if ! AXIOM_STDLIB="$probe/stdlib" "$seedc" build \
        --input "$probe/self_host/main.ax" --output "$work/probe-gen" >"$work/probe.log" 2>&1; then
   fail "the probe tree does not build - the probe is measuring itself"
   tail -10 "$work/probe.log" | sed 's/^/     /'
