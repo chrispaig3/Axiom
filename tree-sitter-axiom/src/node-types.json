@@ -130,10 +130,6 @@
         "named": true
       },
       {
-        "type": "struct_construction",
-        "named": true
-      },
-      {
         "type": "type_signature",
         "named": true
       },
@@ -1857,32 +1853,6 @@
           "named": true
         }
       ]
-    }
-  },
-  {
-    "type": "struct_construction",
-    "named": true,
-    "fields": {
-      "argument": {
-        "multiple": true,
-        "required": false,
-        "types": [
-          {
-            "type": "_expression",
-            "named": true
-          }
-        ]
-      },
-      "name": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "identifier",
-            "named": true
-          }
-        ]
-      }
     }
   },
   {

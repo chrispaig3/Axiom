@@ -4091,16 +4091,16 @@
 
 ; ------------------------------------------------------------------
 ; MAC-EXP-14b: a macro parameter standing where a template keeps a
-; NAME rather than substituting an expression. Three positions pass
-; their name through verbatim - the field of `.` and `set`, the type
-; of a struct construction, the effect list of `handle` - so a parameter there is read as a literal name and
+; NAME rather than substituting an expression. Two positions pass
+; their name through verbatim - the field of `.` and `set`, and the
+; effect list of `handle` - so a parameter there is read as a literal name and
 ; its argument is evaluated and discarded. Deliberate, and silent:
 ; AX3074 warns rather than refuses, at the invocation under the
 ; macro's frame, because refusing would break the templates that
 ; mean the literal spelling. A field name an enclosing `syntax/for`
 ; iteration binds substitutes from the iteration (section 10.3's
-; getters), so that case stays quiet; the other three positions
-; consult no such binding, and anything naming a parameter warns.
+; getters), so that case stays quiet; the effect list consults no
+; such binding, and anything naming a parameter warns.
 ; ------------------------------------------------------------------
 (pub :: expWarnNamePos (-> (Vec Int) String Int Int Int String String Int))
 (pub fn (expWarnNamePos params name forShielded env isp position help)
@@ -4117,7 +4117,7 @@
         0
         0
         help
-        "the field name, the struct type name and `handle`'s effect list substitute nothing (macro-system.md MAC-EXP-14b)")))))
+        "the field name and `handle`'s effect list substitute nothing (macro-system.md MAC-EXP-14b)")))))
 
 ; The first parameter name a TYPE node mentions, or null. Mirrors
 ; `expSubstTy`'s traversal - constructor and variable names, both

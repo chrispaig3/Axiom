@@ -158,8 +158,6 @@
     module: (identifier) @module
     name: (identifier) @function.call))
 
-(struct_construction name: (identifier) @constructor)
-
 ; Regions are named scopes, and `@r` in a type points back at one.
 (region_annotation) @label
 (region_expression name: (identifier) @label)

@@ -1,8 +1,7 @@
 ; expect 42
-; `(struct Name field...)` builds a struct and is distinct from
-; `(Name ...)`. It is a keyword-headed form: read as an application of
-; a bare name it drew a false AX3001, and two, since its type name
-; landed where an argument goes.
+; A struct is built by calling its name: `(P 40 2)` fills the fields in
+; declaration order. The keyword spelling `(struct P 40 2)` is refused
+; in expression position (tests/diagnostics/1125-struct-expression.axbad).
 (struct P
   (x : Int)
   (y : Int))
@@ -10,6 +9,6 @@
 (:: main Int)
 (fn (main)
   (let (
-    (p (struct P 40 2))
+    (p (P 40 2))
   )
     (+ p.x p.y)))

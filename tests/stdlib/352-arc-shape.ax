@@ -95,7 +95,7 @@
             (cast Int (BoxOne 5))))
             (set acc (+ acc (* 32 (b2i (== (__load64 (- b 16) 1) 4))))))
           (let ((t 
-            (cast Int (struct STwo "hi" 9))))
+            (cast Int (STwo "hi" 9))))
             (set acc (+ acc (* 16 (b2i (== (__load64 (- t 16) 1) 65540))))))
           (set acc (+ acc (* 8 (b2i (== (__alloc 17) p)))))
           (let ((s2 (strDup "x")))

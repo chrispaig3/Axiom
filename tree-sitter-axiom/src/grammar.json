@@ -2550,10 +2550,6 @@
         },
         {
           "type": "SYMBOL",
-          "name": "struct_construction"
-        },
-        {
-          "type": "SYMBOL",
           "name": "block"
         },
         {
@@ -3584,42 +3580,6 @@
         }
       ]
     },
-    "struct_construction": {
-      "type": "SEQ",
-      "members": [
-        {
-          "type": "STRING",
-          "value": "("
-        },
-        {
-          "type": "STRING",
-          "value": "struct"
-        },
-        {
-          "type": "FIELD",
-          "name": "name",
-          "content": {
-            "type": "SYMBOL",
-            "name": "identifier"
-          }
-        },
-        {
-          "type": "REPEAT",
-          "content": {
-            "type": "FIELD",
-            "name": "argument",
-            "content": {
-              "type": "SYMBOL",
-              "name": "_expression"
-            }
-          }
-        },
-        {
-          "type": "STRING",
-          "value": ")"
-        }
-      ]
-    },
     "block": {
       "type": "SEQ",
       "members": [
@@ -3871,27 +3831,6 @@
   ],
   "conflicts": [
     [
-      "struct_declaration",
-      "struct_construction"
-    ],
-    [
-      "struct_declaration",
-      "_expression"
-    ],
-    [
-      "type_parameters",
-      "application"
-    ],
-    [
-      "type_parameters",
-      "_expression"
-    ],
-    [
-      "field_declaration",
-      "_expression"
-    ],
-    [
-      "type_parameters",
       "field_declaration",
       "_expression"
     ],

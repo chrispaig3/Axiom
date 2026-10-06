@@ -72,4 +72,4 @@
       (+
         (* 5 (b2i (eqLevel OnLevel OnLevel)))
         (spanBounds
-          (struct Bounds 3 10))))))
+          (Bounds 3 10))))))

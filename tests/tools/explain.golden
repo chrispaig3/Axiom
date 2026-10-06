@@ -340,6 +340,10 @@ parameters. A bare name, `(fn answer 42)`, is `AX2001`.
 anonymous function is `(lambda (x) (+ x 1))`; `fn` declares a named
 function at the top level, and nested anywhere else it is refused.
 
+`struct` in expression position was a second spelling of a struct
+constructor call. Build a struct by calling its name with the fields
+in declaration order, `(Pt 3 4)`; `struct` declares the type.
+
 `union` is gone because C interoperability is no longer a goal of the
 language, and an untagged union cannot be pattern-matched safely - its
 variants are not distinguishable at run time. Use `data` for a tagged
@@ -503,9 +507,8 @@ resolves, and there is nothing to run.
 AX3002 - undefined type
 
 A name in TYPE position - a signature, a field's type, a `cast`
-target, the head of a `(struct Name ...)` construction - names no
-built-in type, no `data`, no `struct` and no `type` alias visible in
-this module:
+target - names no built-in type, no `data`, no `struct` and no `type`
+alias visible in this module:
 
     (:: origin (-> Int Piont))
 
@@ -2646,7 +2649,7 @@ This fires where the operation is performed, not up the call chain, and it asks 
 ### explain AX3074
 AX3074 - a macro parameter standing where the template keeps a name
 
-Three positions in a macro template keep the name they are written with rather than substituting the argument: the field of `.` and `set`, the type of a struct construction, and `handle`'s effect list (docs/macro-system.md MAC-EXP-14b). A parameter standing in one is read as a literal name, and the argument it was given is evaluated and discarded - `(macro (getf s f) s.f)` invoked as `(getf p 0)` reads field `f`, not field `0`.
+Two positions in a macro template keep the name they are written with rather than substituting the argument: the field of `.` and `set`, and `handle`'s effect list (docs/macro-system.md MAC-EXP-14b). A parameter standing in one is read as a literal name, and the argument it was given is evaluated and discarded - `(macro (getf s f) s.f)` invoked as `(getf p 0)` reads field `f`, not field `0`.
 
 THIS IS A WARNING, and the positions are why. Each is a name, not an expression, and keeping the spelling is deliberate - templates have always meant the literal there - so refusing would break programs that mean it. What the warning reports is the parameter, which promises a per-invocation choice the position cannot honour.
 
@@ -2775,7 +2778,7 @@ is a marker written twice.
 AX3085 - a word struct built outside its module
 
 A struct declared `word` is sealed. Only the module that declares it
-can build one, with `(Chan w)` or `(struct Chan w)`, whether or not the
+can build one, with `(Chan w)`, whether or not the
 struct is `pub`:
 
     (import Chan)

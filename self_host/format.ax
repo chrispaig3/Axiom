@@ -2194,10 +2194,10 @@
 (pub fn (fpIsRefusedHead t)
   ; `check` refuses every one of these at the parser in expression
   ; position (AX2004), so `fmt` refuses them with it rather than
-  ; printing what no compiler accepts. `cond` and `fn` stay keyword
-  ; heads (see `isKeywordHead`) exactly as `consume` does, so the
-  ; refusal - not the application layout - is what they reach.
-  (|| (strEq t "consume") (|| (strEq t "begin") (|| (strEq t "cond") (|| (strEq t "alloc") (strEq t "fn"))))))
+  ; printing what no compiler accepts. `cond`, `fn` and `struct` stay
+  ; keyword heads (see `isKeywordHead`) exactly as `consume` does, so
+  ; the refusal - not the application layout - is what they reach.
+  (|| (strEq t "consume") (|| (strEq t "begin") (|| (strEq t "cond") (|| (strEq t "alloc") (|| (strEq t "fn") (strEq t "struct")))))))
 
 ; The same rule in DECLARATION position, and the two words it names are
 ; `trait` and `impl`.
@@ -3492,35 +3492,12 @@
                                                         (fpType p (vecGet elems 1))
                                                         (fpP p ")")
                                                       }))
-                                                  (if (strEq h "struct")
-                                                    (if (< (fnLen n) 2)
-                                                      (fpBad p)
-                                                      (let (
-                                                        (nameN (fnKid n 1))
-                                                        (args (fpExprElems n 2))
-                                                        (mut j 0)
-                                                      )
-                                                        (if (if (== (fnKind nameN) FN_ATOM)
-                                                          (== (ftKind (fnTok nameN)) FT_IDENT)
-                                                          false)
-                                                          {
-                                                            (fpP p "(struct ")
-                                                            (fpP p (fnText src nameN))
-                                                            (while (< j (vecLen args))
-                                                              {
-                                                                (fpP p " ")
-                                                                (fpExpr p (vecGet args j))
-                                                                (set j (+ j 1))
-                                                              })
-                                                            (fpP p ")")
-                                                          }
-                                                          (fpBad p))))
-                                                    ; Any other identifier head is an
-                                                    ; application, as `parseInner` falls
-                                                    ; through to `parseAppForm`: `(data 1)`
-                                                    ; calls whatever `data` is bound to,
-                                                    ; and the checker says what that is.
-                                                    (fpApp p n))))))))))))))))))))))))))
+                                                  ; Any other identifier head is an
+                                                  ; application, as `parseInner` falls
+                                                  ; through to `parseAppForm`: `(data 1)`
+                                                  ; calls whatever `data` is bound to,
+                                                  ; and the checker says what that is.
+                                                  (fpApp p n)))))))))))))))))))))))))
 
 ; ------------------------------------------------------------------
 ; Anchors: `Expr::span()` as a byte offset.

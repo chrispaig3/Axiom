@@ -86,45 +86,7 @@ module.exports = grammar({
   // keywords are possible - which is every parenthesised form.
   word: $ => $.identifier,
 
-  // `(struct Name ...)` is a declaration when its body is
-  // `(field : Type)` items and a construction when its body is
-  // expressions - a distinction that only becomes visible at the `:`,
-  // which is past the point where an LR parser has to commit.
-  //
-  // This is the one place a declared conflict is the right answer rather
-  // than a workaround. The alternatives the generator offers are a
-  // precedence on one rule or the other, and both would be assertions
-  // that one reading is always preferred, which is false: `(struct Point
-  // (x : Int))` and `(struct Point 1 2)` are both correct and neither is
-  // more likely. Letting the GLR parser carry both interpretations until
-  // the body decides is exactly the mechanism for that. For the genuinely
-  // ambiguous empty body `(struct Point)`, rule order decides, and either
-  // answer highlights identically.
   conflicts: $ => [
-    [$.struct_declaration, $.struct_construction],
-    // `(struct Chan word shared (slot : Int))`: a bare name after the
-    // struct's name is a representation marker if this is a declaration
-    // and an argument if it is a construction, and the two readings
-    // diverge only at the body - the same ambiguity as the line above,
-    // named at the rules the generator reports.
-    [$.struct_declaration, $._expression],
-    // The same ambiguity one level down: in `(struct Point () ...)` the
-    // `()` is an empty type parameter list if this is a declaration and an
-    // empty-tuple argument if it is a construction. It has to be listed
-    // separately because the generator reports conflicts between the
-    // specific rules that collide, not between their parents.
-    [$.type_parameters, $.application],
-    // `(struct Point (x : Int))`: after `struct Point`, a `(` followed by
-    // a name begins a type parameter list *and* a field declaration, and
-    // the two only diverge at the `:` two tokens later. As long as the
-    // parameters were the `type_variable` *token*, the choice fell to the
-    // lexer, which cannot see that far - so every `struct` with fields
-    // failed to parse, and with them most of `self_host/`. Spelling the
-    // parameters as `identifier` (see `type_parameters`) moves the
-    // decision to the parser, and this declares the ambiguity it then
-    // has to resolve: `(struct P (x))` is a parameter list or a
-    // construction whose argument is `(x)`.
-    [$.type_parameters, $._expression],
     // `(struct S (msg String))`: with the `:` gone, a field declaration
     // and an application of `msg` to `String` are the same tokens, and
     // they diverge nowhere - the whole point of the `:` is that it is
@@ -132,16 +94,17 @@ module.exports = grammar({
     // (AX3056) rather than choosing a reading. The grammar still has to
     // PARSE it, because the fixture pinning that refusal is a `.ax`
     // file like any other and check-tree-sitter parses all of them. So
-    // the ambiguity is declared and rule order decides, exactly as it
-    // does for the empty `(struct Point)` body above: either answer
+    // the ambiguity is declared and rule order decides: either answer
     // highlights identically, and neither is a claim about which
     // reading is right.
     [$.field_declaration, $._expression],
-    // And the same three-way, because a `(` after a struct's name may
-    // still be opening the type-parameter list: `(struct S (msg
-    // String))` is a parameter list, a field declaration and an
-    // application until the body ends.
-    [$.type_parameters, $.field_declaration, $._expression],
+    // `(struct Point (x : Int))`: after `struct Point`, a `(` followed by
+    // a name begins a type parameter list *and* a field declaration, and
+    // the two only diverge at the `:` two tokens later. Spelling the
+    // parameters as `identifier` (see `type_parameters`) rather than a
+    // `type_variable` token moves that decision from the lexer, which
+    // cannot see that far, to the parser, and this declares the
+    // ambiguity it then has to resolve.
     [$.type_parameters, $.field_declaration],
     // `(data Foo (a))`: with lowercase constructor names admitted for the
     // rule-form splice (`(c)` rebuilt per element, MAC-LANG-16 v3), a
@@ -499,9 +462,7 @@ module.exports = grammar({
     // records every bare name there (`collectStructMarkers`) and its
     // checker decides what each one means (AX3084), so this rule takes
     // any identifier, as the parser does, and leaves the refusal to the
-    // checker. Until the body's first `(`, a marker and a construction's
-    // bare-name argument are the same token, which is the conflict this
-    // rule already declares with `struct_construction`.
+    // checker.
     struct_declaration: $ => seq(
       '(', optional(field('visibility', 'pub')), 'struct',
       field('name', choice($.identifier, $.syntax_join_name)),
@@ -933,7 +894,6 @@ module.exports = grammar({
       $.alignof_expression,
       $.cast_expression,
       $.type_signature,
-      $.struct_construction,
       $.block,
       $.list_literal,
       $.removed_form,
@@ -1172,13 +1132,6 @@ module.exports = grammar({
 
     cast_expression: $ => seq(
       '(', 'cast', field('type', $._type), field('operand', $._expression), ')',
-    ),
-
-    struct_construction: $ => seq(
-      '(', 'struct',
-      field('name', $.identifier),
-      repeat(field('argument', $._expression)),
-      ')',
     ),
 
     // `{ e1 e2 ... }` - sequencing, value of the last expression.

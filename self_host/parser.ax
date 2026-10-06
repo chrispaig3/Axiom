@@ -423,14 +423,11 @@
 (pub fn (TAG_E_CHAR)
   39)
 
-; `(struct Name field...)` in EXPRESSION position - stage0's
-; parse_struct_con, a construction form distinct from the application
-; spelling `(Name field...)`. Without it the form parsed as an
-; application of a variable named `struct`, and a VALID program drew
-; two false AX3001s (one for `struct`, one for the type name), which
-; is the failure the whole checker is written to avoid. a=name,
-; b=Vec of argument nodes; the span is the NAME's, which is where
-; stage0 anchors every diagnostic about the form.
+; `(struct Name field...)` in expression position, the keyword
+; spelling of `(Name field...)`. `parseInner` refuses that spelling
+; (AX2004) and builds a struct from the application, so no parser path
+; makes this node. a=name, b=Vec of argument nodes, spanned at the
+; name.
 (pub :: TAG_E_STRUCTCON Int)
 (pub fn (TAG_E_STRUCTCON)
   40)
@@ -1370,10 +1367,12 @@
                       "removed-construct"
                       (tokenSpan tok)
                       (if (strEq exp "fn")
-                        ; `fn` is still Axiom - it declares a named
-                        ; function - so only its expression spelling is
+                        ; `fn` and `struct` are still Axiom - they
+                        ; declare - so only their expression spelling is
                         ; refused, and the heading says which.
                         "`fn` in expression position is refused: an anonymous function is `lambda`"
+                      (if (strEq exp "struct")
+                        "`struct` in expression position is refused: a struct is built by calling its name"
                       (if (strEq exp "deriving")
                         ; Five of the eight get their own verb:
                         ; union/foreign (and region, until it returned)
@@ -1394,7 +1393,7 @@
                               "`[T]` checked as a type no value could inhabit, and is now refused"
                               (if (strEq exp "tuple")
                                 "`(A B)` checked as a type no value could inhabit, and is now refused"
-                                (concat (concat "`" exp) "` is no longer part of Axiom")))))))
+                                (concat (concat "`" exp) "` is no longer part of Axiom"))))))))
                       0
                       ""
                       (removedHelp exp))
@@ -1579,6 +1578,8 @@
     "`define` was the old spelling of `fn`, read as the same declaration; a language with two spellings of one thing makes every reader learn both"
   (if (strEq kw "fn")
     "an anonymous function had two spellings, `(fn (x) ...)` and `(lambda (x) ...)`; `lambda` is the one, and `fn` only declares"
+  (if (strEq kw "struct")
+    "a struct value had two spellings, `(struct Pt 3 4)` and `(Pt 3 4)`; the call is the one, and `struct` only declares"
   (if (strEq kw "begin")
     (concat "`begin` was replaced by `{ }` brace blocks and implicit " "sequencing; it was an ordinary name to the parser afterwards, so using one drew `AX3001 undefined variable begin`, which named no replacement")
     (if (strEq kw "union")
@@ -1599,7 +1600,7 @@
                     (concat (concat "`[T]` was refused rather than implemented: the form checked in " "signatures while no literal, no pattern and no runtime representation existed behind it - ") "a reader met the syntax in the reference, wrote it, and got a parse error. Sequences are `(Vec T)`")
                     (if (strEq kw "tuple")
                       (concat (concat "`(A B)` was refused rather than implemented: the form checked in " "signatures while no literal, no pattern and no runtime representation existed behind it. ") "Products are `struct`, sums are `data`")
-                      (concat (concat "`" kw) "` was removed")))))))))))))))
+                      (concat (concat "`" kw) "` was removed"))))))))))))))))
 
 (pub fn (removedHelp kw)
   (if (strEq kw "alloc")
@@ -1608,6 +1609,8 @@
     "write `fn`: `(fn (add x y) (+ x y))`, and `(fn (answer) 42)` for a function with no parameters"
   (if (strEq kw "fn")
     "write `lambda` for an anonymous function: `(lambda (x) (+ x 1))`"
+  (if (strEq kw "struct")
+    "call the struct's name with its fields in declaration order: `(Pt 3 4)`"
   (if (strEq kw "begin")
     (concat "use a brace block: `{ a b c }` sequences expressions and answers " "the last one, which is what `(begin a b c)` meant - and a `fn` body already sequences, so the wrapper is usually just deletable")
     (if (strEq kw "union")
@@ -1628,7 +1631,7 @@
                     (concat "write `(Vec T)` for a sequence: `vecNew`, `vecGet`, `vecPush` and " "`(for x in xs body)` are its surface")
                     (if (strEq kw "tuple")
                       (concat "write a `struct` for a product of named fields, or `data` for a " "tagged sum - both are inhabited, matched and reclaimed")
-                      "run `axiom explain AX2004`"))))))))))))))
+                      "run `axiom explain AX2004`")))))))))))))))
 
 ; ------------------------------------------------------------------
 ; Token helpers.
@@ -4809,13 +4812,12 @@
                               (parseParallelExpr tokens (advance pos) (tokenSpan kw))
                               (if (kwEq name "set")
                                 (parseSetExpr tokens (advance pos))
-                                ; The three keyword-headed forms stage0 parses here that
-                                ; stage1 used to leave to parseAppForm. Each arrived as an
-                                ; application of a bare name and drew a false AX3001 on a
-                                ; program stage0 compiles in silence; `struct` drew two,
-                                ; since its type name landed where an argument goes.
+                                ; `struct` declares a type. A struct is built by
+                                ; calling its name, `(Pt 3 4)`, so the keyword in
+                                ; expression position is refused with that advice
+                                ; (AX2004) rather than read as an application.
                                 (if (kwEq name kwStruct)
-                                  (parseStructConExpr tokens (advance pos))
+                                  (pErrRemoved pos "struct")
                                   ; `consume` is RESERVED, not parsed. It was a
                                   ; parse-time IDENTITY that kept the `Linear`
                                   ; wrapper: consuming twice was accepted and the
@@ -5529,31 +5531,6 @@
     (concat (parIndexName (/ i 36)) (parIndexName (% i 36)))))
 
 ; ------------------------------------------------------------------
-; (struct Name field...) - struct construction in expression position,
-; stage0's parse_struct_con. The node carries the NAME'S span because
-; every diagnostic stage0 produces about this form anchors there:
-; AX3002 when the name resolves to no struct, AX3067 on a field-count
-; mismatch (`expr.span()` of an EStructCon is its name's), and only a
-; field's own AX3004 anchors at an argument.
-; ------------------------------------------------------------------
-(pub :: parseStructConExpr (-> (Vec Int) Int Int))
-;@axiom:effect(unsafe)
-(pub fn (parseStructConExpr tokens pos)
-  (if (peekIs tokens pos TK_IDENT)
-    (let (
-      (nameTok (vecGet tokens pos))
-      (argsR (parseExprList tokens (advance pos) vecNew))
-    )
-      (if (== (memGetWord argsR 0) 0)
-        argsR
-        (pOk (mkNodeAt
-          TAG_E_STRUCTCON
-          (tokenLexeme nameTok)
-          (memGetWord argsR 1)
-          0
-          (tokenSpan nameTok)) (memGetWord argsR 2))))
-    (pErr pos)))
-
 ; (handle body (Effect...) handler) - stage0's parse_handle. The
 ; effect list is OPTIONAL: stage0 only reads one when the next token
 ; opens a paren, and otherwise goes straight to the handler.

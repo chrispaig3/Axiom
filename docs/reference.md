@@ -540,7 +540,9 @@ before using `.field`.
 ```
 
 
-A mutable field is declared `(mut x : Int)` and assigned with
+A struct is built by calling its name, `(Point 1 2)`; `struct` only
+declares, and `(struct Point 1 2)` in an expression is refused with
+`AX2004`. A mutable field is declared `(mut x : Int)` and assigned with
 `(set p.x 9)`. Structs may have type parameters and function fields.
 Each function field must carry its complete arrow type.
 

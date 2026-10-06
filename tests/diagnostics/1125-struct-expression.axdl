@@ -1,0 +1,1 @@
+E AX2004 1125-struct-expression.ax:8:22-28 removed-construct "`struct` in expression position is refused: a struct is built by calling its name" #"a struct value had two spellings, `(struct Pt 3 4)` and `(Pt 3 4)`; the call is the one, and `struct` only declares" ?"call the struct's name with its fields in declaration order: `(Pt 3 4)`"

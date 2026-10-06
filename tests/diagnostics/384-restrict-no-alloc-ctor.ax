@@ -21,7 +21,6 @@
 ;
 ;   `mk`    matches on a `data` constructor it builds     -> AX3049
 ;   `pair`  builds a struct positionally                  -> AX3049
-;   `kw`    builds the same struct, keyword spelling      -> AX3049
 ;   `tag`   answers a NULLARY constructor                 -> silent:
 ;           an immediate tag with no block behind it, and the emitted
 ;           body holds no `axiom_alloc` at all.  This arm is the half
@@ -82,11 +81,6 @@
   (P n n))
 
 ;@axiom:restrict(no-alloc)
-(:: kw (-> Int P))
-(fn (kw n)
-  (struct P n n))
-
-;@axiom:restrict(no-alloc)
 (:: tag (-> Int W))
 (fn (tag n)
   (Empty))
@@ -124,7 +118,6 @@
 (fn (main)
   (let (
     (p (pair 5))
-    (q (kw 6))
   )
     (+
       (mk 1)
@@ -135,13 +128,11 @@
           (+
             p.a
             (+
-              q.b
+              (match (some 7)
+                ((Some x) x)
+                (None 0))
               (+
-                (match (some 7)
+                (held 9)
+                (match (none 8)
                   ((Some x) x)
-                  (None 0))
-                (+
-                  (held 9)
-                  (match (none 8)
-                    ((Some x) x)
-                    (None 0)))))))))))
+                  (None 0))))))))))

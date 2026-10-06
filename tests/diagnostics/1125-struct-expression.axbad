@@ -1,0 +1,8 @@
+; `struct` in expression position is AX2004: a struct is built by
+; calling its name, `(P 40 2)`, and `struct` only declares the type.
+(struct P
+  (x : Int)
+  (y : Int))
+
+(:: main Int)
+(fn (main) (let ((p (struct P 40 2))) p.x))

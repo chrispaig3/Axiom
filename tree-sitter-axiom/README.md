@@ -92,9 +92,7 @@ parsing carry both readings. These are the main ones:
 
 | Conflict | Ambiguity |
 |---|---|
-| `struct_declaration` / `struct_construction` | `(struct Point ...)` is a declaration if the body is `(field : Type)` items, and a construction if it is expressions. The difference shows only at the `:`. |
-| `type_parameters` / `application` | The same ambiguity one level down: `()` in `(struct Point () ...)`. |
-| `type_parameters` / `_expression` | Once more for `(struct P (x))`, where the group is a parameter list or a construction argument. The two diverge at a `:` two tokens further on than the lexer can see. Spelling the parameters as `identifier`, not a `type_variable` token, moves that decision to the parser. |
+| `type_parameters` / `field_declaration` | In `(struct P (x : Int))`, the group after the name is a parameter list or a field. The two diverge at a `:` two tokens further on than the lexer can see. Spelling the parameters as `identifier`, not a `type_variable` token, moves that decision to the parser. |
 | `effect` / `_expression` | `(foo)` after a handle body is a one-element custom effect list, or the handler. `parseHandleExpr` resolves this greedily: it reads an effect list whenever the token after the body opens a paren. Rule order reproduces that. |
 
 The rest cover `(struct S (msg String))`, a field with no `:` that the

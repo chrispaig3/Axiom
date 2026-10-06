@@ -924,14 +924,13 @@ replaced" can't be implemented there. A conforming implementation
 extent. An IDE feature such as "select this expansion" needs extents,
 and that changes every construction site in the parser.
 
-**MAC-EXP-14b (H).** Three positions inside otherwise-handled template
+**MAC-EXP-14b (H).** Two positions inside otherwise-handled template
 forms are not substituted. A macro parameter placed in one is used as a
 literal name, not replaced by its argument:
 
 | Form | Unsubstituted position |
 |---|---|
 | field access / field store | the field name |
-| struct construction | the type name |
 | `handle` | the effect-name list |
 
 Each position is a name, not an expression, so this is by design. It is
@@ -1470,7 +1469,7 @@ invocation, under the macro's frame.
 
 **MAC-CAP-1 (H).** Every form a template can contain has a substitution
 case: application, `if`, `match` and its arms, `let`, `let mut`, `set`,
-`while`, field access, field store, struct construction, `lambda`,
+`while`, field access, field store, `lambda`,
 block, `handle`, and every literal. A variadic `if`
 substitutes as the nested `if`s it stands for. Lists and tuples need no
 case of their own, because `[T]` and tuple types are type nodes: a
@@ -2397,7 +2396,7 @@ that its output parses and means what the tree meant:
   document and requiring an outline of exactly the generated name.
 - The second half was checked on a template that holds a mutable
   `let`, a block, `set`, `while`, `match`, a two-parameter lambda,
-  struct construction, field access, an escaped string, a char, a
+  field access, an escaped string, a char, a
   float, a negative literal, and a generated `data`, `type` and
   `struct`. `check` on the rendering reported exactly the diagnostics
   it reported on the template.

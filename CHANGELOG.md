@@ -16,6 +16,13 @@ its changelog too.
 
 ## Unreleased
 
+- Build a struct by calling its name, `(Pt 3 4)`. The keyword spelling
+  `(struct Pt 3 4)` in an expression is now `AX2004`, with the call as
+  the advice, and `axiom fmt` refuses it too. `struct` still declares.
+  The tree-sitter grammar drops its `struct_construction` node. Tested
+  by `tests/diagnostics/1125-struct-expression.axbad` and
+  `tests/selfhost/730-struct-con-expr.ax`.
+
 - Refuse `--gc` as an unrecognised flag, the same way as any other
   unknown flag. It still exits with status 2; the separate message
   about the retired collector is gone. Tested by

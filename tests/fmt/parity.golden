@@ -1,9 +1,13 @@
 # The refusal bank: what `axiom fmt` does to each tests/fmt/parity/*.axp case.
 #
 # One `### <case> (exit N)` line per case, followed by the formatted bytes when
-# it formatted at all. 71 cases: 36 rewrites and 35 refusals, which is why this
+# it formatted at all. 72 cases: 36 rewrites and 36 refusals, which is why this
 # file can tell a formatter that always succeeds from one that always refuses -
 # check-fmt-selfhost.sh requires both outcomes to be present.
+#
+# ONE CASE WAS ADDED when `struct` in expression position became AX2004. 206
+# is the refusal: `check` refuses `(struct P 1 2)` and names the call
+# `(P 1 2)`, so `fmt` refuses it too instead of printing it back.
 #
 # THREE CASES CHANGED when `fmt` stopped rewriting spellings `check` refuses.
 # 181 `(let ((x = 1)) x)` is AX2003 in the parser and is now refused here
@@ -353,6 +357,7 @@
   })
 ### 204-fn-bare-name-refused.axp (exit 1)
 ### 205-fn-expression-refused.axp (exit 1)
+### 206-struct-expression-refused.axp (exit 1)
 ### 210-region-head-layout.axp (exit 0)
 (fn (f xs)
   {

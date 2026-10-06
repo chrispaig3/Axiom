@@ -1,7 +1,6 @@
 ; A handle is built only by its own module (docs/memory-model.md
 ; MM-VAL-10a, MM-PAR-8). `Chan` and `Mutex` are `pub`, so this file can
-; name them, but building one from a word - in either spelling - is
-; AX3085. The channel `chanNew` answers is the control.
+; name them, but building one from a word is AX3085. The channel `chanNew` answers is the control.
 (import Chan)
 (import Sync)
 (import Err)
@@ -15,9 +14,6 @@
       {
         (chanSend good 1)
         (chanSend (Chan 5) 1)
-        (chanSend
-          (struct Chan 5)
-          1)
         (mutexOwnerDead (Mutex 7))
         0
       }

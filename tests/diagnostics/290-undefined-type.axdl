@@ -1,2 +1,2 @@
-E AX3002 290-undefined-type.ax:10:13-19 undefined-type "undefined type `Pointt`" #"no type named `Pointt` is visible here" ?"check for typos, or a missing `data`/`struct`/`type` declaration"
-E AX3002 290-undefined-type.ax:11:13-19 undefined-type "undefined type `Colour`" #"no type named `Colour` is visible here" ?"check for typos, or a missing `data`/`struct`/`type` declaration"
+E AX3002 290-undefined-type.ax:7:5-11 undefined-type "undefined type `Pointt`" #"no type named `Pointt` is visible here" ?"check for typos, or a missing `data`/`struct`/`type` declaration"
+E AX3002 290-undefined-type.ax:10:5-10 undefined-type "undefined type `Colourr`" #"no type named `Colourr` is visible here" ?"check for typos, or a missing `data`/`struct`/`type` declaration"

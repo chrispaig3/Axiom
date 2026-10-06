@@ -82,7 +82,7 @@
     {
       (let ((seed (wide 0)))
         (let ((sl 
-          (struct Slot seed 0)))
+          (Slot seed 0)))
           (let ((b1 (memAlloc 200)))
             {
               (churn sl 1000)
@@ -96,7 +96,7 @@
         (b (strDup "bbbb"))
       )
         (let ((sl 
-          (struct Slot a 0)))
+          (Slot a 0)))
           {
             (set sl.s b)
             (set acc (+ acc (* 16 (b2i (== (cnt a) 1)))))
@@ -106,7 +106,7 @@
       ; --- 4: a self-assignment is not a free ---------------------
       (let ((c (strDup "cccc")))
         (let ((sl 
-          (struct Slot c 0)))
+          (Slot c 0)))
           {
             (set sl.s sl.s)
             (set acc (+ acc (* 4 (b2i (== (strByte sl.s 0) 99)))))
@@ -115,7 +115,7 @@
       ; --- 2: a scalar field is left alone ------------------------
       (let ((d (strDup "dddd")))
         (let ((sl 
-          (struct Slot d 7)))
+          (Slot d 7)))
           {
             (set sl.n 9)
             (set acc (+ acc (* 2 (b2i (&& (== sl.n 9) (== (cnt d) 2))))))

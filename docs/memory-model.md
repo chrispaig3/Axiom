@@ -1371,9 +1371,9 @@ literal tests that add nothing to constructor coverage (`MAC-HYG-5`
 measured why), and having both is exhaustive.
 
 **MM-VAL-10 (H).** A `struct` is a heap block of `fields * 8` bytes,
-with field *i* at word *i* in declaration order, and **no tag**. The
-keyword form `(struct P a b)` and the application form `(P a b)` build
-the identical block.
+with field *i* at word *i* in declaration order, and **no tag**.
+`(P a b)` builds it; `(struct P a b)` in expression position is refused
+with `AX2004`.
 
 **MM-VAL-10a (H). A `word` struct is one machine word, sealed to its
 module.** A struct declared with the marker `word` isn't a heap block.
@@ -1823,7 +1823,7 @@ the same rounding must see memory grow.
 | Construct | Block |
 |---|---|
 | a constructor with fields | `(1 + arity) * 8` bytes under representation 0/2 |
-| `(struct P ...)` / `(P ...)` for a struct | `fields * 8` bytes, no tag |
+| `(P ...)` for a struct | `fields * 8` bytes, no tag |
 | `Str` construction, `strDup`, `concat`, `strAlloc` | 2-word header, plus bytes where not shared |
 | a `lambda` that is evaluated | closure record, `(1 + captures) * 8` bytes |
 | `Vec`, `Map`, `Intern` operations | library-level, over `memAlloc` |

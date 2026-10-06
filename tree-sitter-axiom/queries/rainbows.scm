@@ -66,7 +66,6 @@
   (sizeof_expression)
   (alignof_expression)
   (cast_expression)
-  (struct_construction)
   (block)
   (list_literal)
   (application)
