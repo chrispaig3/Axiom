@@ -55,7 +55,7 @@ two differ.
 | `Statement` | struct |  |  | A prepared statement: its text, checked against the schema when it was prepared, and parsed again against the current schema each time it runs. |
 | `Transaction` | struct |  |  | An open transaction, from `axqBegin`. |
 | `axqOpen` | value | `(-> String OpenOptions (Result Connection Error))` | `Alloc,IO,Mut,Unsafe` | Open the database at `path`. A missing file is created when `opts.create` is true, and is `axqIoFailed` otherwise; a file that isn't an AXQLite database is `axqNotADatabase`. |
-| `axqClose` | value | `(-> Connection (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Close the connection, rolling back a transaction it has open. The handle is retired first, so any later use of it stops the program with status 85. Statements prepared on it must still be finalized. |
+| `axqClose` | value | `(-> Connection (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Close the connection, rolling back a transaction it has open. Closing it again answers `Ok`, as `fileClose` does; any other later use stops the program with status 85. Statements prepared on it must still be finalized. |
 | `axqValueText` | value | `(-> Value String)` | `Alloc,Mut` | A value written as AXQL would write it as a literal: an INTEGER in decimal, a REAL in the shortest form that reads back exactly, TEXT in single quotes with `''` for a quote, a BLOB as x'hex', and NULL. |
 | `axqlQuoteText` | value | `(-> String String)` | `Alloc,Mut,Unsafe` | `s` as an AXQL text literal: in single quotes, each quote doubled. |
 | `Row` | struct |  |  | One result row: the column names, shared by every row of a result, and the values. |
@@ -87,7 +87,7 @@ two differ.
 | `axqStatementText` | value | `(-> Statement String)` | `Alloc,Mut,Unsafe` | The statement's text, copied into the caller's arena. |
 | `axqParamCount` | value | `(-> Statement Int)` |  | How many parameters the statement takes. |
 | `axqPrepare` | value | `(-> Connection String (Result Statement Error))` | `Alloc,IO,Mut,Unsafe` | Parse `text` and check its table and column names against the current schema. The statement parses its text again each time it runs, so a schema change after this re-prepares it; a statement whose table is gone then answers `axqSchema`. |
-| `axqFinalize` | value | `(-> Statement (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Finalize the statement, freeing its mapping. Its handle is retired, so any later use stops the program with status 85. |
+| `axqFinalize` | value | `(-> Statement (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Finalize the statement, freeing its mapping. Finalizing it again answers `Ok`; any other later use stops the program with status 85. |
 | `axqParamIndex` | value | `(-> Statement String (Result Int Error))` | `Alloc,Mut` | The index in a statement's parameter vector (from 0) of the named parameter `name`, written with its colon: `":id"`. |
 | `axqRun` | value | `(-> Statement (Vec Value) (Result Int Error))` | `Alloc,IO,Mut` | Run a statement that returns no rows with `params`, one per parameter. Answers the rows changed. A SELECT is `axqMisuse`: use `axqQuery` or `axqQueryEach`. |
 | `axqQuery` | value | `(-> Statement (Vec Value) (Result Rows Error))` | `Alloc,IO,Mut` | Run a SELECT with `params` and answer all its rows. |

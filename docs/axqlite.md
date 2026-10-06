@@ -397,7 +397,12 @@ An unfinished transaction rolls back when its last owner leaves scope.
 Automatic cleanup discards errors; explicit close, finalise and rollback
 return their results.
 
-Tested by `tests/axqlite/616-api-auto-close.ax`.
+Closing a connection or finalising a statement a second time answers
+`Ok`, as `fileClose` does, and so does closing through an alias. Any
+other use after a close stops the program with status 85.
+
+Tested by `tests/axqlite/616-api-auto-close.ax` and
+`tests/stdlib/376-axq-close-twice.ax`.
 
 Everything a function
 answers, such as a `Row` or a `String`, is allocated in your arena when

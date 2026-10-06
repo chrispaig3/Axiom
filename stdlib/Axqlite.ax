@@ -22,7 +22,8 @@
 ; Connections close, statements finalise and unfinished transactions
 ; roll back when their last owner leaves scope. Statements and
 ; transactions keep their connection alive. Explicit close still
-; invalidates all aliases; using one afterwards stops with status 85.
+; invalidates all aliases: closing or finalising one again answers `Ok`,
+; and any other use stops with status 85.
 ;
 ; Memory: a connection's and a statement's own state lives in a private
 ; mapping each owns, outside the arena, and goes when it is closed or
@@ -301,27 +302,39 @@
               }))
         )))))
 
-; Close the connection, rolling back a transaction it has open. The
-; handle is retired first, so any later use of it stops the program with
-; status 85. Statements prepared on it must still be finalized.
+; Close the connection, rolling back a transaction it has open. Closing
+; it again answers `Ok`, as `fileClose` does; any other later use stops
+; the program with status 85. Statements prepared on it must still be
+; finalized.
 (pub :: axqClose (-> Connection (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 (pub fn (axqClose c)
-  (if (> (connGet c cwReaders) 0)
-    (misuse "a query is still running on this connection" "axqClose")
-    (let (
-      (pager (connPager c))
-      (m (__handle_free connKind c.slot))
-    )
+  (if (! (ownerLive c.owner))
+    (Ok 0)
+    (if (> (connGet c cwReaders) 0)
+      (misuse "a query is still running on this connection" "axqClose")
       (let (
-        (r (pagerClose pager))
-        (_ (sysUnmapPrivate m connBytes))
-        (_ (__resource_disarm c.owner))
+        (pager (connPager c))
+        (m (__handle_free connKind c.slot))
       )
-        (match r
-          ((Ok _) (Ok 0))
-          ((Err e) (Err (errContextOf e "axqClose"))))))))
+        (let (
+          (r (pagerClose pager))
+          (_ (sysUnmapPrivate m connBytes))
+          (_ (__resource_disarm c.owner))
+        )
+          (match r
+            ((Ok _) (Ok 0))
+            ((Err e) (Err (errContextOf e "axqClose")))))))))
+
+; True until `owner` is closed or disarmed: the runtime clears word 1 of
+; a resource then. A drop callback's borrowed view has no owner, and the
+; runtime runs a drop only while its owner is live.
+(:: ownerLive (-> Handle Bool))
+;@axiom:effect(unsafe)
+(fn (ownerLive owner)
+  (let ((w (cast Int owner)))
+    (|| (== w 0) (!= (__load64 w 1) 0))))
 
 ; ------------------------------------------------------------------
 ; Values as text.
@@ -1199,15 +1212,17 @@
   (let ((ex (axqlExec (connPager c) parsed.text vecNewRef false)))
     (try schema (axqlLoadSchema ex.pager) (axqlCheckNames ex schema parsed.stmt))))
 
-; Finalize the statement, freeing its mapping. Its handle is retired,
-; so any later use stops the program with status 85.
+; Finalize the statement, freeing its mapping. Finalizing it again
+; answers `Ok`; any other later use stops the program with status 85.
 (pub :: axqFinalize (-> Statement (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 (pub fn (axqFinalize s)
-  (let ((m (__handle_free stmtKind s.slot))
-        (r (sysUnmapPrivate m (__load64 m 0))))
-    { (__resource_disarm s.owner) r }))
+  (if (! (ownerLive s.owner))
+    (Ok 0)
+    (let ((m (__handle_free stmtKind s.slot))
+          (r (sysUnmapPrivate m (__load64 m 0))))
+      { (__resource_disarm s.owner) r })))
 
 ; The statement's text parsed again.
 (:: reparse (-> Statement String (Result Parsed Error)))
@@ -1571,7 +1586,7 @@
 ;@axiom:effect(unsafe)
 (fn (txnDrop c slot)
   ; An explicit connection close already rolled back its transaction.
-  (if (== (__load64 (cast Int c.owner) 1) 0)
+  (if (! (ownerLive c.owner))
     { (__handle_free txnKind slot) 0 }
     (if (&& (inTxn c) (== (connGet c cwTxnHandle) slot))
       (let ((_ (axqRollback (Transaction slot (cast Handle 0) c)))) 0)

@@ -108,6 +108,12 @@ its changelog too.
   `tests/stdlib/703-memory-stats.ax` and
   `tests/stdlib/704-task-decoded.ax`.
 
+- Close an Axqlite connection or finalise a statement a second time and
+  get `Ok`, as `fileClose` does, through the same binding or an alias.
+  A second `axqClose` or `axqFinalize` stopped the program with status
+  85. Any other use after a close still does. Tested by
+  `tests/stdlib/376-axq-close-twice.ax`.
+
 - Refuse an AXTAG key one slip from a key the compiler checks, with
   `AX3039` as an error. `;@axiom:restirct(no-alloc)` and
   `;@axiom:deprecatd(...)` passed silently, and `;@axiom:Effect(Pure)`

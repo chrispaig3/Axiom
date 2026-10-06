@@ -1,0 +1,38 @@
+; Closing a connection or finalizing a statement a second time answers
+; `Ok`, as `fileClose` does, and an alias sees the first close. Any
+; other use after a close still stops with status 85
+; (`tests/axqlite/612-api-closed.ax`).
+(import IO)
+(import Err)
+(import Axqlite)
+
+(:: step (-> String (Result Int Error) Int))
+;@axiom:effect(io)
+(fn (step label r)
+  (match r
+    ((Ok n) (println "{label}: ok {n}"))
+    ((Err e)
+      (let ((t (errorText e)))
+        (println "{label}: {t}"))
+    )))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (match (axqOpen "twice.db" openOptions)
+    ((Ok db)
+      (match (axqPrepare db "SELECT 1")
+        ((Ok st)
+          (let ((alias db))
+            {
+              (step "finalize" (axqFinalize st))
+              (step "finalize again" (axqFinalize st))
+              (step "close" (axqClose db))
+              (step "close again" (axqClose db))
+              (step "close the alias" (axqClose alias))
+              0
+            })
+        )
+        ((Err e) 2))
+    )
+    ((Err e) 1)))
