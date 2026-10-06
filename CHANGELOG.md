@@ -16,6 +16,16 @@ its changelog too.
 
 ## Unreleased
 
+- Take a share at a store whose element type a pin decides. In
+  `(let ((out vecNewRef)) ...)`, a push of a `String` decides `out`'s
+  element type, and `(vecSet out k (vecGet out j))` read it as unknown:
+  the store took no share while `vecSet` released the element it
+  displaced. The checker now reads the pin, including one made later
+  in the body. AXQLite's sorted query results hit this once `mut` slots
+  owned their values, and `508-axql-indexes` answered wrong rows. Its
+  mismatch message now fills in its values too. Tested by
+  `tests/stdlib/820-evidence-pinned-witness.ax`.
+
 - Resolve every macro template binder through its scope record alone
   (`MAC-HYG-9` step M4). The expander's second binder table is gone,
   and with it the `AXIOM_VERIFY_SCOPES` environment variable, the

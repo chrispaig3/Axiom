@@ -2012,8 +2012,22 @@
         ; that body is a String. There is no shadowing to confuse it
         ; with: type variables come from the signature being checked,
         ; and expressions cannot introduce their own.
+        ;
+        ; A PINNED placeholder is the type it was pinned to. `out` in
+        ; `(let ((out vecNewRef)) ...)` is `(Vec _iN)`, and the first
+        ; `vecPush` of a `String` pins `_iN`; a later
+        ; `(vecSet out k (vecGet out j))` witnesses `a` only through
+        ; `_iN`. Read as "says nothing", that store took no share
+        ; while `vecSet` released the element it displaced.
+        ;
+        ; ONE PIN AT A TIME, so the lambda question above is asked of
+        ; every link: a captured vector's element pinned to the
+        ; enclosing lambda's own parameter is that parameter, whatever
+        ; the parameter is later pinned to.
         (if (>= (lamVarDepth tc (nodeAName t)) 0)
           (- EV_LAMARG (lamVarDepth tc (nodeAName t)))
+          (if (&& (== (tyIsMintedVar t) 1) (!= (nodeB t) 0))
+            (evClassOf tc (nodeB t))
           (if (== (tyIsSrcVar t) 1)
             (let ((sv (memGetWordVec tc 23)))
               (if (==
@@ -2039,7 +2053,7 @@
             ; site to 0, so the cell stored x uncounted with no map
             ; bit while the flow model trusted the store (event 6)
             ; and the caller released the temporary under it
-            (- 0 1)))
+            (- 0 1))))
         (if (== tg TAG_T_ARR)
           1
           (if (== tg TAG_T_TUP)
@@ -2168,60 +2182,86 @@
                       st
                       (nodeA funcTy)
                       argTy
-                      castArg)))))))))
+                      castArg
+                      0)))))))))
   })
 
-(pub :: evWalk (-> Int Int Int Int Int Int))
-(pub fn (evWalk tc st pt at castArg)
+; Co-walk the parameter tree beside the argument's type. `late` is 0
+; while the call is checked, and 1 when `evSettle` replays a witness
+; after the body is typed.
+;
+; A WITNESS THROUGH A PIN WAITS FOR THE BODY. A placeholder is pinned in
+; program order, and a call checked before the pin that decides it
+; would read "says nothing": in a loop body, `(vecPush b (vecGet a i))`
+; can come before the `(vecPush a s)` that says `a` holds Strings. So
+; while the call is checked, a placeholder argument says nothing, as it
+; always has, and the pair is kept for `evSettle`. In the replay the
+; structural arms read the argument through its pins, and a
+; `(Vec _iN)` parameter met by a placeholder pinned to `(Vec String)`
+; has a witness inside it.
+(pub :: evWalk (-> Int Int Int Int Int Int Int))
+(pub fn (evWalk tc st pt at0 castArg late)
   (if (== pt 0)
     0
-    (let ((tg (nodeTag pt)))
+    (let (
+      (tg (nodeTag pt))
+      (at (if (== late 1)
+        (tyResolve at0)
+        at0))
+    )
       (if (== tg TAG_T_VAR)
         (evWalkVar
           tc
           st
           pt
-          at
-          castArg)
-        (if (== tg TAG_T_CON)
-          (if (&& (!= at 0) (&& (== (nodeTag at) TAG_T_CON) (strEq (nodeAName pt) (nodeAName at))))
-            (evWalkVec
-              tc
-              st
-              (nodeBVec pt)
-              (nodeBVec at)
-              castArg)
-            0)
-          (if (== tg TAG_T_ARR)
-            (if (&& (!= at 0) (== (nodeTag at) TAG_T_ARR))
-              {
-                (evWalk
-                  tc
-                  st
-                  (nodeA pt)
-                  (nodeA at)
-                  castArg)
-                (evWalk
-                  tc
-                  st
-                  (nodeB pt)
-                  (nodeB at)
-                  castArg)
-              }
+          at0
+          castArg
+          late)
+        (if (&& (== late 0) (&& (== castArg 0) (== (tyIsMintedVar at0) 1)))
+          (evNotePending tc st pt at0 0)
+          (if (== tg TAG_T_CON)
+            (if (&& (!= at 0) (&& (== (nodeTag at) TAG_T_CON) (strEq (nodeAName pt) (nodeAName at))))
+              (evWalkVec
+                tc
+                st
+                (nodeBVec pt)
+                (nodeBVec at)
+                castArg
+                late)
               0)
-            (if (== tg TAG_T_TUP)
-              (if (&& (!= at 0) (== (nodeTag at) TAG_T_TUP))
-                (evWalkVec
-                  tc
-                  st
-                  (nodeAVec pt)
-                  (nodeAVec at)
-                  castArg)
+            (if (== tg TAG_T_ARR)
+              (if (&& (!= at 0) (== (nodeTag at) TAG_T_ARR))
+                {
+                  (evWalk
+                    tc
+                    st
+                    (nodeA pt)
+                    (nodeA at)
+                    castArg
+                    late)
+                  (evWalk
+                    tc
+                    st
+                    (nodeB pt)
+                    (nodeB at)
+                    castArg
+                    late)
+                }
                 0)
-              0)))))))
+              (if (== tg TAG_T_TUP)
+                (if (&& (!= at 0) (== (nodeTag at) TAG_T_TUP))
+                  (evWalkVec
+                    tc
+                    st
+                    (nodeAVec pt)
+                    (nodeAVec at)
+                    castArg
+                    late)
+                  0)
+                0))))))))
 
-(pub :: evWalkVec (-> Int Int (Vec Int) (Vec Int) Int Int))
-(pub fn (evWalkVec tc st ps as castArg)
+(pub :: evWalkVec (-> Int Int (Vec Int) (Vec Int) Int Int Int))
+(pub fn (evWalkVec tc st ps as castArg late)
   (if (||
     (==
       (cast Int ps)
@@ -2239,15 +2279,30 @@
               st
               (vecGet ps i)
               (vecGet as i)
-              castArg)
+              castArg
+              late)
             (set i (+ i 1))
           })
         0
       })))
 
-(pub :: evWalkVar (-> Int Int Int Int Int Int))
+; One variable's witness, met into its slot.
+;
+; While the call is checked, an instantiation placeholder says nothing,
+; pinned or not, unless it is the enclosing lambda's own parameter
+; (`evClassOf` answers that first), and the pair waits for `evSettle`.
+;
+; In the replay the placeholder is read through its pins, and a slot
+; already holding `EV_LAMARG` keeps it. Another witness of the same call
+; said the value is the enclosing lambda's own argument, and the
+; application's word answers for that argument. A pinned witness names
+; the same type, but the lambda's own placeholder is often a `_tN` that
+; nothing pins, so the two can disagree only where the checker accepted
+; an argument it knew nothing about. Met as a disagreement, they would
+; collapse to 0 and drop the share the application asks for.
+(pub :: evWalkVar (-> Int Int Int Int Int Int Int))
 ;@axiom:effect(unsafe)
-(pub fn (evWalkVar tc st pt at castArg)
+(pub fn (evWalkVar tc st pt at castArg late)
   ; the minted placeholder is one shared node per variable, so
   ; identity finds its source name
   (let ((env (nodeCVec st)))
@@ -2273,19 +2328,87 @@
               (cast String src))))
             (if (< idx 0)
               0
-              (let ((w (nodeBVec st)))
-                {
-                  (vecSet
-                    w
-                    idx
-                    (evMeet
-                      (vecGet w idx)
-                      (if (== castArg 1)
+              (let (
+                (w (nodeBVec st))
+                (early (&& (== late 0) (&& (== castArg 0) (&& (== (tyIsMintedVar at) 1) (< (lamVarDepth tc (nodeAName at)) 0)))))
+              )
+                (if early
+                  (evNotePending tc st pt at 0)
+                  (let ((c (if (== castArg 1)
+                    0
+                    (evClassOf tc at))))
+                    (if (&& (== late 1) (< (vecGet w idx) (- 0 1)))
+                      0
+                      {
+                        (vecSet
+                          w
+                          idx
+                          (evMeet (vecGet w idx) c))
                         0
-                        (evClassOf tc at))))
-                  0
-                }))))
+                      })))))))
       })))
+
+; Keep a witness for `evSettle`. `st` and `pt` name a stamp and the
+; parameter tree the witness meets, or `node` names an application
+; whose own `ty` slot holds the class (a closure application's
+; argument, a cast's surplus argument) with `st` 0.
+(pub :: evNotePending (-> Int Int Int Int Int Int))
+(pub fn (evNotePending tc st pt at node)
+  {
+    (vecPush
+      (evPendingOf tc)
+      (EvPend
+        st
+        pt
+        at
+        node
+        (memGetWord tc 23)))
+    0
+  })
+
+; An application's class, kept when no pin has reached its placeholder
+; yet. One already pinned has its answer: `evClassOf` reads pins.
+(pub :: evNotePendingNode (-> Int Int Int Int Int))
+(pub fn (evNotePendingNode tc e at c)
+  (if (!= c (- 0 1))
+    0
+    (if (== (tyIsMintedVar (tyResolve at)) 0)
+      0
+      (evNotePending tc 0 0 at e))))
+
+; The pending witnesses, TC word 44's word 6.
+(pub :: evPendingOf (-> Int (Vec EvPend)))
+(pub fn (evPendingOf tc)
+  (memGetWordVec (memGetWord tc 44) 6))
+
+; Replay every pending witness now that its body is typed: a stamp's
+; through `evWalk` in its late mode, an application's by asking its
+; class again. A placeholder still unpinned says nothing, and its slot
+; keeps the answer it already has.
+(pub :: evSettle (-> Int Int))
+(pub fn (evSettle tc)
+  (let ((ps (evPendingOf tc)))
+    (if (== (vecLen ps) 0)
+      0
+      (let ((sv0 (memGetWord tc 23)))
+        {
+          (for p in ps
+            {
+              (memSetWord tc 23 p.sigVars)
+              (if (== p.node 0)
+                (evWalk tc p.st p.pt p.at 0 1)
+                (let ((c (evClassOf tc p.at)))
+                  (if (< c 0)
+                    0
+                    {
+                      (setNodeTy p.node c)
+                      0
+                    })))
+            })
+          (memSetWord tc 23 sv0)
+          (vecClear ps)
+          0
+        }))))
 
 ; ------------------------------------------------------------------
 ; Which namespace a declaration defines into, or 0 for a declaration
@@ -3126,13 +3249,31 @@
 ;   4 `ctClaimed`   every declaration with a `ct(...)` claim, found the
 ;                    first time one is checked (`ctTable`), 0 before.
 ;   5 `ctResults`   the result taint of each, beside it (`ctSummary`).
+;   6 `evPending`   the evidence witnesses no pin had reached yet when
+;                    their call was checked (`evNotePending`), asked
+;                    again once the body is typed (`evSettle`).
 (struct UState
   (unsafeSink : Int)
   (forgeSites : Int)
   (forgeDecls : (Vec Int))
   (unsafePending : (Vec Int))
   (ctClaimed : Int)
-  (ctResults : Int))
+  (ctResults : Int)
+  (evPending : (Vec EvPend)))
+
+; One evidence witness kept for `evSettle`: a call is checked in program
+; order, and the pin that decides its witness may come later in the
+; body. `st` and `pt` are the stamp and the parameter tree the witness
+; meets, or `st` is 0 and `node` is an application whose own `ty` slot
+; holds the class. `sigVars` is TC word 23 when the witness was kept,
+; so a placeholder pinned to one of the function's own type variables
+; is read against that function.
+(struct EvPend
+  (st : Int)
+  (pt : Int)
+  (at : Int)
+  (node : Int)
+  (sigVars : Int))
 
 ; Word 18 was `traits`, the `trait` declaration nodes `symbols`
 ; walked, and word 28 was `implIdx`, every `impl` declaration
@@ -4072,7 +4213,7 @@
           vecNew
           vecNew
           (countWordStructs allDecls 0 0)
-          (UState 0 0 vecNew vecNew 0 0)
+          (UState 0 0 vecNew vecNew 0 0 vecNewRef)
           vecNew
           vecNew))))
         {
@@ -11827,12 +11968,15 @@
                                 ; own caller has not named - and the second is
                                 ; not knowledge. Both under-retain, which
                                 ; leaks.
-                                (setNodeTy
-                                  e
-                                  (let ((c (evClassOf tc argTy)))
-                                    (if (< c 0)
-                                      0
-                                      c)))
+                                (let ((c (evClassOf tc argTy)))
+                                  {
+                                    (setNodeTy
+                                      e
+                                      (if (< c 0)
+                                        0
+                                        c))
+                                    (evNotePendingNode tc e argTy c)
+                                  })
                                 ; A bare `__store64` of a reference, refused
                                 ; here - after this level's argument is
                                 ; checked, so the operand below was checked
@@ -13926,12 +14070,18 @@
           (groundStandalone tc at0 (spanOf (vecGet args i)))
           at0))))
         (if (>= i 2)
-          (setNodeTy
-            (castAppNodeAt e (- (- n 1) i))
-            (let ((c (evClassOf tc at)))
-              (if (< c 0)
-                0
-                c)))
+          (let (
+            (site (castAppNodeAt e (- (- n 1) i)))
+            (c (evClassOf tc at))
+          )
+            {
+              (setNodeTy
+                site
+                (if (< c 0)
+                  0
+                  c))
+              (evNotePendingNode tc site at c)
+            })
           0))
       (checkCastArgs
         tc
@@ -25231,6 +25381,8 @@
                   (memSetWord ent 1 (ctorArrowOf ptys bodyTy (- (vecLen ptys) 1)))
                   0)
                 (scopeTrunc (tcScopeVec tc) base)
+                ; Every pin this body makes has been made.
+                (evSettle tc)
                 (memSetWord tc 16 0)
                 (memSetWord tc 23 0)
                 (memSetWord tc 24 0)
@@ -27665,6 +27817,8 @@
         (checkStrayImportAxtags tc entryDecls 0)
         (checkMissingDefs (defIdxBuild allDecls) entryDecls out 0)
         (tcWalkDecls tc 0)
+        ; A witness noted outside any function body.
+        (evSettle tc)
         ; The unsafe boundary's questions that needed every body typed
         ; first (R-B6): a forging callee under `restrict(no-unsafe)`,
         ; and the forging bodies' rows.

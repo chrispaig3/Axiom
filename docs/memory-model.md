@@ -4046,6 +4046,22 @@ collapse the site to 0. The cell would then store x uncounted with no
 map bit, while the flow model trusted the store (event 6). The caller
 would release the temporary under it: a use-after-free.
 
+A placeholder pinned to a type is a witness of that type. In
+`(let ((out vecNewRef)) ...)`, `out` is `(Vec _iN)`, and the first
+push of a `String` pins `_iN`. A later
+`(vecSet out k (vecGet out j))` witnesses the element only through
+`_iN`. The checker reads such a witness once the body is typed,
+through its pins, so a pin made after the call counts too. A loop body
+that reads one vector before the push that types it is that case.
+Without the pin, both stores take no share while `vecSet` or
+`vecClear` releases one, which is a use-after-free.
+
+A stamp slot that already holds the enclosing lambda's own argument
+keeps it when a pinned witness is read: the application's bit answers
+for that argument. The pin is read one link at a time, so a
+placeholder pinned to that parameter answers the application's bit
+too. Tested by `tests/stdlib/820-evidence-pinned-witness.ax`.
+
 Codegen passes the word at every direct call. The signature decides
 whether it is present, and the stamp decides its value. Lambdas capture
 it as an ordinary capture, a self-tail-call recomputes it into a slot

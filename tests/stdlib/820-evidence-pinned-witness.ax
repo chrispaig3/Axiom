@@ -1,0 +1,162 @@
+; A store into a `vecNewRef` vector takes a share even when the call's
+; only witness of the element type is a placeholder pinned elsewhere in
+; the body (MM-LIFE-2d). The elements are handles whose destructor
+; records its value, so an early release shows as an early record.
+; Each line must read `true`.
+;
+;   1  `(vecSet out 1 (vecGet out 0))` after a push has pinned `out`
+;      keeps a share of the copied element: only the element it
+;      displaced is destroyed, and overwriting slot 0 destroys nothing
+;   2  the shift `sortLines` in tests/axqlite/AxqlLogic.ax makes, one
+;      slot to the right inside a `mut` loop, keeps every element
+;      alive while the vector holds it
+;   3  `(vecPush b (vecGet a i))` checked before the push that pins
+;      `a`, in a loop body, keeps a share: clearing `a` runs only the
+;      destructor of the element `b` never received
+;   4  the same with the store made by a local closure, applied to an
+;      argument pinned later in the loop
+;   5  a local closure applied to an element of a vector a push has
+;      already pinned, so the application's own word says "a reference"
+;
+; A compiler that classifies the placeholder as saying nothing passes
+; evidence 0, the store takes no share, and the release `vecSet` or
+; `vecClear` makes reaches a count of zero while another slot still
+; holds the element. Lines 1 and 2 then read `false` with that
+; compiler, lines 3 and 4 read `false` until the late pin is asked
+; again once the body is typed, and line 5 reads `false` while the
+; application's word is read off the placeholder.
+(import IO)
+(import Vec)
+
+(:: mk (-> (Vec Int) Int Handle))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (mk hits n)
+  (__resource_new
+    (lambda (v)
+      {
+        (vecPush hits v)
+        0
+      }
+    )
+    n))
+
+; The value a live handle carries.
+(:: valueOf (-> Handle Int))
+;@axiom:effect(unsafe)
+(fn (valueOf h)
+  (__resource_get h))
+
+; Whether the destructors recorded exactly `want`, in order.
+(:: same (-> (Vec Int) (Vec Int) Bool))
+(fn (same got want)
+  (&& (== (vecLen got) (vecLen want)) (sameFrom got want 0)))
+
+(:: sameFrom (-> (Vec Int) (Vec Int) Int Bool))
+(fn (sameFrom got want i)
+  (if (>= i (vecLen got))
+    true
+    (&& (== (vecGet got i) (vecGet want i)) (sameFrom got want (+ i 1)))))
+
+(:: copied (-> (Vec Int) Bool))
+;@axiom:effect(io)
+(fn (copied hits)
+  (let ((out vecNewRef))
+    {
+      (vecPush out (mk hits 1))
+      (vecPush out (mk hits 2))
+      (vecSet out 1 (vecGet out 0))
+      (vecSet out 0 (mk hits 3))
+      (let ((seen (vecLen hits)))
+        (&& (== seen 1) (&& (== (vecGet hits 0) 2) (== (valueOf (vecGet out 1)) 1))))
+    }))
+
+(:: shifted (-> (Vec Int) Bool))
+;@axiom:effect(io)
+(fn (shifted hits)
+  (let ((out vecNewRef))
+    {
+      (vecPush out (mk hits 10))
+      (vecPush out (mk hits 20))
+      (vecPush out (mk hits 30))
+      (let ((mut k (- (vecLen out) 1)))
+        (while (> k 0)
+          {
+            (vecSet out k (vecGet out (- k 1)))
+            (set k (- k 1))
+          }))
+      (vecSet out 0 (mk hits 40))
+      (let ((alive (vecLen hits)))
+        (&& (same hits (vecPush vecNew 30)) (&& (== alive 1) (== (valueOf (vecGet out 1)) 10))))
+    }))
+
+(:: gathered (-> (Vec Int) Bool))
+;@axiom:effect(io)
+(fn (gathered hits)
+  (let (
+    (a vecNewRef)
+    (b vecNewRef)
+    (mut i 0)
+  )
+    {
+      (while (< i 4)
+        {
+          (if (> i 0)
+            (vecPush b (vecGet a (- i 1)))
+            b)
+          (vecPush a (mk hits (+ 100 i)))
+          (set i (+ i 1))
+        })
+      (vecClear a)
+      (&& (same hits (vecPush vecNew 103)) (== (valueOf (vecGet b 2)) 102))
+    }))
+
+(:: parked (-> (Vec Int) Bool))
+;@axiom:effect(io)
+(fn (parked hits)
+  (let (
+    (a vecNewRef)
+    (b vecNewRef)
+    (mut i 0)
+  )
+    (let ((park (lambda (x) (vecPush b x))))
+      {
+        (while (< i 4)
+          {
+            (if (> i 0)
+              (park (vecGet a (- i 1)))
+              b)
+            (vecPush a (mk hits (+ 200 i)))
+            (set i (+ i 1))
+          })
+        (vecClear a)
+        (&& (same hits (vecPush vecNew 203)) (== (valueOf (vecGet b 2)) 202))
+      })))
+
+(:: applied (-> (Vec Int) Bool))
+;@axiom:effect(io)
+(fn (applied hits)
+  (let (
+    (a vecNewRef)
+    (b vecNewRef)
+  )
+    (let ((park (lambda (x) (vecPush b x))))
+      {
+        (vecPush a (mk hits 300))
+        (vecPush a (mk hits 301))
+        (park (vecGet a 0))
+        (vecClear a)
+        (&& (same hits (vecPush vecNew 301)) (== (valueOf (vecGet b 0)) 300))
+      })))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (println (copied vecNew))
+    (println (shifted vecNew))
+    (println (gathered vecNew))
+    (println (parked vecNew))
+    (println (applied vecNew))
+    0
+  })
