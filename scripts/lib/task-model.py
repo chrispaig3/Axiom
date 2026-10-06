@@ -752,6 +752,9 @@ def install(ns):
         "taskTokenFor": "the caller's token or a fresh one", "taskOwnsToken": "whether to free it",
         "taskWidth": "clamps the width to 1..n: the model's scenarios pass it clamped",
         "taskMap": "an entry: a sink that keeps every answer", "taskMapWith": "an entry, with every option",
+        "taskMapDecoded": "an entry: taskMap's sink, decoding each answer in the parent",
+        "taskMapDecodedWith": "an entry, with every option, decoding each answer in the parent",
+        "taskDecodeResult": "the decoding sink's step on the delivered answer: a failure passes through",
         "taskFold": "an entry: a sink that folds the answers inside a region",
         "taskFoldOne": "the fold's sink: one step on the delivered answer",
     }
