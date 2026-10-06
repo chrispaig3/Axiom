@@ -68,7 +68,7 @@ integrator would still need.
 |---|---|---|
 | A misspelt checked AXTAG key is an error | Done | `AX3039` |
 | An `effect(unsafe)` claim is judged by what the body itself performs | Done | `AX3010`, `tests/diagnostics/1200-unsafe-claim-open-row.ax` |
-| A statically certain defect or a refuted claim is an error, not a warning | In progress | `tests/diagnostics/severity.policy` |
+| A statically certain defect or a refuted claim is an error, not a warning | In progress | `tests/diagnostics/severity.policy`; `AX3043` is the one left |
 | Retired and never-assigned codes are recorded and never reused | Done | `ERR-DIAG-2` |
 | A check after an error is poisoned, not cascaded | Planned | `ERR-DIAG-3` |
 | A cast to a spawn handle counts as forging | Not started | |

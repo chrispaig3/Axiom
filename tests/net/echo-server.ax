@@ -56,6 +56,19 @@
     ((Some v) v)
     ((None) 0)))
 
+; A listener setup step that must succeed: its answer, or a line naming
+; the step and its errno and exit 2, as a failed bind does below.
+(:: setupOrExit (-> String (Result Int Error) Int))
+;@axiom:effect(io)
+(fn (setupOrExit what r)
+  (match r
+    ((Ok v) v)
+    ((Err e)
+      {
+        (println (concat (concat what " failed: errno ") (fmtInt (errCode e))))
+        (sysExitWith 2)
+      })))
+
 ; Whether an environment variable is set to exactly "1". `sysEnv`
 ; answers "" for a variable that is not set, so an unset name and a
 ; name set to anything else both read as off - the gate sets these to
@@ -193,7 +206,12 @@
                                             {
                                               (let ((m (__axiom_arena_mark_into markCell)))
                                                 {
-                                                  (netSetBlocking con)
+                                                  ; A descriptor left non-blocking
+                                                  ; answers the read below with
+                                                  ; an `Err`, which skips the
+                                                  ; response, so the failure is
+                                                  ; handled there.
+                                                  (let ((_ (netSetBlocking con))) 0)
                                                   ; INSIDE THE MARK, so the
                                                   ; rendering is garbage
                                                   ; the reset takes with
@@ -219,7 +237,10 @@
                                                         (+ 8 (* 32 (% served 16)))
                                                         32))
                                                     0)
-                                                  (sysCloseFd con)
+                                                  ; A close error leaves nothing
+                                                  ; to undo: the descriptor is
+                                                  ; gone either way.
+                                                  (let ((_ (sysCloseFd con))) 0)
                                                   (if (== arenaOn 1)
                                                     (__axiom_arena_reset m)
                                                     0)
@@ -229,7 +250,7 @@
                                       ))
                                     (set e (+ e 1))
                                   }))))))
-                      (sysCloseFd pfd)
+                      (let ((_ (sysCloseFd pfd))) 0)
                       served
                     }))
               ))))))))
@@ -266,12 +287,12 @@
                     )
                     ((Ok lsn)
                       {
-                        (netSetOptInt
+                        (setupOrExit "setsockopt" (netSetOptInt
                           lsn
                           solSocket
                           soReuseAddr
                           1
-                          optb)
+                          optb))
                         ; The address decides the length `netBind` passes,
                         ; so the only thing that changes between the two
                         ; families here is which builder writes the buffer.
@@ -318,9 +339,9 @@
                               (sysExitWith 2)
                             }
                           ))
-                        (netListen lsn 512)
-                        (netSetNonBlocking lsn)
-                        (sysSignalBlock (sysSigBit sigTerm) setbuf)
+                        (setupOrExit "listen" (netListen lsn 512))
+                        (setupOrExit "fcntl" (netSetNonBlocking lsn))
+                        (setupOrExit "sigprocmask" (sysSignalBlock (sysSigBit sigTerm) setbuf))
                         (let ((mut w 0))
                           (while (< w nworkers)
                             {
@@ -346,7 +367,7 @@
                                 })
                               (println s)
                             }))
-                        (sysCloseFd lsn)
+                        (let ((_ (sysCloseFd lsn))) 0)
                         (let ((mut r 0))
                           (while (< r (vecLen pids))
                             {

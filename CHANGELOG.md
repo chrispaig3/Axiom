@@ -16,6 +16,20 @@ its changelog too.
 
 ## Unreleased
 
+- Refuse a `Result` dropped in statement position, as the error
+  `AX3046`. Bind a deliberate discard to `_`. **BREAKING**. Tested by
+  `tests/diagnostics/1006-discarded-result.ax`.
+
+- Refuse a macro parameter that stands where a template keeps a name,
+  as the error `AX3074`. Rename the parameter to mean the literal name,
+  or bind the field with `syntax/for`. **BREAKING**. Tested by
+  `tests/diagnostics/1007-macro-param-name-position.ax`.
+
+- Refuse `;@axiom:effect(div)` as the new error `AX3110`. Nothing
+  infers `Div`, so no body can support the claim. Keep the intent in a
+  comment or a key of your own, such as `;@axiom:my:div`.
+  **BREAKING**. Tested by `tests/diagnostics/359-div-not-inferred.ax`.
+
 - Refuse an operation that reaches `main` with no handler, as the error
   `AX3053`. The check follows a custom effect to where its operation
   runs: a lambda counts where it is called, a closure a `handle`

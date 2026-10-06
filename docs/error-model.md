@@ -1145,7 +1145,7 @@ This section records the codes below. All of them are built, and
 | `AX3043` `error-payload-untyped` | a reference smuggled through a field declared `Int` | A warning. `tests/diagnostics/1008-error-payload-untyped.ax` |
 | `AX3044` `ambiguous-type` | a bare type name declared in more than one imported module | Reported by the namespace pass. |
 | `AX3045` `recursion-in-scrutinee` | a self-recursive call in the scrutinee of a `match` | A warning. `ERR-PROP-4` |
-| `AX3046` `discarded-result` | a `Result`-typed expression in statement position, its value unused | A warning. |
+| `AX3046` `discarded-result` | a `Result`-typed expression in statement position, its value unused | An error. A deliberate discard binds it to `_`. `tests/diagnostics/1006-discarded-result.ax` |
 | `AX3047` `sized-integer-type` | a C or Rust primitive spelling in type position | Without it, the name is read as a type variable and silently accepted. |
 | `AX3048` `deprecated-name` | a reference to a name its declaration marks `;@axiom:deprecated` | A warning by design. |
 | `AX3049` `restriction-violated` | a `restrict(...)` claim the declaration breaks | An error. |
@@ -1167,6 +1167,7 @@ This section records the codes below. All of them are built, and
 | `AX3090` `recover-thunk-unseen` | a recovery point's thunk that isn't a lambda written at the call or a top-level function, so the region check can't walk it | An error. `tests/diagnostics/1033-recover-escape.ax` |
 | `AX3091` `inline-asm` | an `asm` form the compiler can't lower: an unknown architecture or operand kind, a second arm for one architecture, a template naming no operand, a second output, or a register an arm can't name | An error, where the form is written. `tests/diagnostics/1044-inline-asm.ax` |
 | `AX3095` `precondition-removed` | a `;@axiom:precondition(...)` tag, which the language no longer has | An error wherever the tag stands. `tests/diagnostics/1043-precondition-removed.ax` |
+| `AX3110` `axtag-never-checked` | an `effect(div)` claim, which names an effect nothing infers | An error, because no body can ever support it. `tests/diagnostics/359-div-not-inferred.ax` |
 
 Every warning in the table is listed, with its reason, in
 `tests/diagnostics/severity.policy`. The `restrict(...)` codes are

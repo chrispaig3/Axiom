@@ -1,16 +1,16 @@
 ; AX3074: a macro parameter standing where a template keeps a name.
-; Three warnings, one per unsubstituted position - the field of `.`
-; and `set`, and `handle`'s effect list - and the program still checks clean: each
-; position is deliberate, so the diagnostic warns rather than
-; refuses. The argument each parameter was given is evaluated and
-; discarded; the NAME is what the expansion keeps, which is why every
-; parameter here shares its spelling with something real - field `x`
-; and `y`, effect `Ask` - so each
-; expansion is well-typed and nothing but the warning reports.
+; Three errors, one per unsubstituted position - the field of `.`
+; and `set`, and `handle`'s effect list. The argument each parameter
+; was given is evaluated and discarded; the NAME is what the expansion
+; keeps, which is why every parameter here shares its spelling with
+; something real - field `x` and `y`, effect `Ask` - so each expansion
+; is well-typed and nothing but AX3074 reports. Renaming the parameter
+; says the literal is meant, and `syntax/for` says a field is chosen
+; per invocation.
 ; Silent on purpose: `getx` names a literal field with no parameter
 ; behind it, and `getall`'s `f` is bound by the enclosing
 ; `syntax/for` - the iteration substitutes it, so there is nothing
-; verbatim to warn about.
+; verbatim to report.
 (struct Point (x : Int) (mut y : Int))
 (struct One (a : Int))
 

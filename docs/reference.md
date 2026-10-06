@@ -513,7 +513,7 @@ effects omitted from a function's declaration are diagnosed.
 | `IO` | syscalls and external calls |
 | `Alloc` | allocation or arena reset |
 | `Mut` | mutation |
-| `Div` | possible divergence |
+| `Div` | possible divergence. Nothing infers it, so an `effect(div)` claim is refused (`AX3110`) |
 | `Unsafe` | caller-established low-level obligations |
 | `Spawn`, `Block`, `Entropy` | process/task creation, waiting, and randomness |
 

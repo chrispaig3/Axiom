@@ -1,5 +1,5 @@
-; A `Result` answered where no one reads it. AX3046.
-; One warning per discarded statement, on the call: `dropIt` bare,
+; A `Result` answered where no one reads it. AX3046, an error.
+; One per discarded statement, on the call: `dropIt` bare,
 ; the `closeIt` tail of a `let` (the binder is not the value), and a
 ; macro expanding to a match answering a `Result` (the rule reads the
 ; expanded shape, backtrace and all - the macro is local so the frame

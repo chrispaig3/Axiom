@@ -9888,7 +9888,7 @@
       (if (== at 0)
         0
         (emitDiag tc (diagSetLabel (mkDiag
-          SEV_WARNING
+          SEV_ERROR
           "AX3046"
           "discarded-result"
           at
@@ -26783,6 +26783,11 @@
 ; Every claimed effect but `Unsafe`, answered from the row.
 (pub :: axtagUnsupportedRow (-> Int Int String String (Vec a) (Vec Int) Int))
 (pub fn (axtagUnsupportedRow tc d val want eff eparams)
+  ; `Div` is NEVER INFERRED, so a claim of it is answered before the
+  ; row is read: no body, no callback and no unresolved call can ever
+  ; supply it (`emitAxtagNeverChecked`).
+  (if (== (effNeverInferred want) 1)
+    (emitAxtagNeverChecked tc d val)
   ; `effMay`: a claimed effect the body MAY perform - through a
   ; value it named, or a dispatch the walk could not resolve - is
   ; not missing. The claim reads the upper bound, as AX3011 does.
@@ -26802,34 +26807,8 @@
     ; documented as not permitted to make.
     (if (&& (== (axtagCouldExist tc want) 1) (|| (> (vecLen eparams) 0) (== (effPartial eff) 1)))
       0
-      ; `Div` is NEVER INFERRED. It is a built-in name a claim can
-      ; spell and the walk has no producer for, so `missing Div` is
-      ; not a fact about the body - it is a fact about the
-      ; analysis, and refusing a build over it accuses the author
-      ; of something the compiler never looked for. That made it a
-      ; trap the day AX3010 became an error: a `div` claim went
-      ; from a warning nobody had to act on to a build that cannot
-      ; be fixed except by deleting the claim.
-      ;
-      ; So it routes to AX3037 - the code for a claim the walk is
-      ; not in a position to check - with its own wording, because
-      ; AX3037's usual message names an unresolved CALL and there
-      ; is no call involved here.
-      ;
-      ; Inferring it is not the fix. The cheapest sound rule (a
-      ; self-call, or any `while`) marks 65% of this compiler
-      ; divergent and calls the syntax zoo's own counted loop
-      ; non-terminating - measured, and recorded in
-      ; `docs/reference.md`.
-      (if (== (effNeverInferred want) 1)
-        (emitAxtagNotInferred tc d val)
-        (emitAxtag tc d (concat (concat (concat "`effect(" val) ")` claim unsupported: missing ") (effRender want)))))))
+      (emitAxtag tc d (concat (concat (concat "`effect(" val) ")` claim unsupported: missing ") (effRender want)))))))
 
-; Only a CUSTOM effect can fail to exist; the built-ins always do.
-; AX3037 for an effect the walk has no producer for at all. Distinct
-; wording from the unresolved-call case on purpose: "the compiler does
-; not infer this" and "the compiler could not follow your call" send a
-; reader to different places, and only one of them is about their code.
 ; The built-in effect name NOTHING PRODUCES. `Div` is spellable - a
 ; handle list may write it, and it is not a custom effect - and the walk
 ; has no producer for it: measured over `self_host/` and `stdlib/`, ZERO
@@ -26849,19 +26828,32 @@
     1
     0))
 
-(pub :: emitAxtagNotInferred (-> Int Int String Int))
-(pub fn (emitAxtagNotInferred tc d val)
+; AX3110: a claim of an effect nothing in the compiler infers. It is
+; not a limit a better-placed call would lift, which is what AX3037
+; reports: no edit to the body can make it answerable, so the claim is
+; a guarantee nothing will ever back, and a reader of `symbols` or the
+; tag would spend trust on it. It was AX3037, a warning, until a claim
+; the compiler cannot back stopped being allowed to pass as one. The
+; intent has places that do not read as a guarantee: a comment, or a
+; key of the author's own (`my:div`), which no check reads.
+;
+; Inferring `Div` is not the fix. The cheapest sound rule (a self-call,
+; or any `while`) marks 65% of this compiler divergent and calls the
+; syntax zoo's own counted loop non-terminating - measured, and
+; recorded in `docs/reference.md`.
+(pub :: emitAxtagNeverChecked (-> Int Int String Int))
+(pub fn (emitAxtagNeverChecked tc d val)
   (if (== (nodeSpan d) 0)
     0
     (emitDiag tc (mkDiag
-      SEV_WARNING
-      "AX3037"
-      "axtag-unverifiable"
+      SEV_ERROR
+      "AX3110"
+      "axtag-never-checked"
       (nodeSpan d)
-      (concat (concat (concat "AXTAG unverifiable on `" (bareOf (nodeAName d))) "`: ") (concat (concat "`effect(" val) ")` cannot be checked: nothing in the compiler infers that effect, so no body ever supplies it"))
+      (concat (concat (concat "AXTAG never checked on `" (bareOf (nodeAName d))) "`: ") (concat (concat "`effect(" val) ")` names an effect nothing in the compiler infers, so no body can support the claim"))
       0
       0
-      "`Div` is spellable and never inferred - zero of this repository's 2,094 effectful rows carry it. The claim is recorded and nothing validates it. Divergence is not inferred because the cheapest sound rule - a self-call, or any `while` - marks most of a real program non-terminating; `(handle BODY (Pure) 0)` is the construct that does refuse, and it measures IO, Alloc, Mut and Unsafe"))))
+      "keep the intent in a comment, or in a key of your own such as `;@axiom:my:div`, which no check reads. Divergence is not inferred: the cheapest sound rule - a self-call, or any `while` - marks most of a real program non-terminating"))))
 
 (pub :: axtagCouldExist (-> Int String Int))
 (pub fn (axtagCouldExist tc e)

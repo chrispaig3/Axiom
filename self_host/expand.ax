@@ -3927,13 +3927,14 @@
 ; NAME rather than substituting an expression. Two positions pass
 ; their name through verbatim - the field of `.` and `set`, and the
 ; effect list of `handle` - so a parameter there is read as a literal name and
-; its argument is evaluated and discarded. Deliberate, and silent:
-; AX3074 warns rather than refuses, at the invocation under the
-; macro's frame, because refusing would break the templates that
-; mean the literal spelling. A field name an enclosing `syntax/for`
-; iteration binds substitutes from the iteration (section 10.3's
-; getters), so that case stays quiet; the effect list consults no
-; such binding, and anything naming a parameter warns.
+; its argument is evaluated and discarded. AX3074 refuses it, at the
+; invocation under the macro's frame: the template says a parameter
+; and a literal at once, and each meaning has a spelling that says
+; it - another name for the parameter when the literal is meant, an
+; enclosing `syntax/for` when a field is chosen per invocation. A field
+; name that iteration binds substitutes from it (section 10.3's
+; getters), so that case stays quiet; the effect list consults no such
+; binding, and anything naming a parameter is refused.
 ; ------------------------------------------------------------------
 (pub :: expWarnNamePos (-> (Vec Int) String Int Int Int String String Int))
 (pub fn (expWarnNamePos params name forShielded env isp position help)
@@ -3942,7 +3943,7 @@
     (if (&& (== forShielded 1) (!= (cast Int (expForLookup env name)) 0))
       0
       (expEmit env (mkDiagNote
-        SEV_WARNING
+        SEV_ERROR
         "AX3074"
         "macro-parameter-name-position"
         isp

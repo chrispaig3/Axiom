@@ -1,39 +1,22 @@
-; `effect(div)` is a claim about something the compiler never looks
-; for, so it is AX3037 - unverifiable - and not AX3010.
-;
-; This was a trap the day AX3010 became an error. `Div` is a built-in
-; effect name that any claim can spell and the walk has NO PRODUCER
-; for: nothing anywhere contributes it. So `missing Div` was never a
-; fact about the body - it is a fact about the analysis - and once
-; AX3010 refused builds, a `div` claim went from a warning nobody had
-; to act on to a build that cannot be fixed except by deleting the
-; claim. A diagnostic no edit can satisfy is worse than none.
+; `effect(div)` names an effect nothing in the compiler infers, so no
+; body can ever support the claim: it is AX3110, an error, and not
+; AX3010, whose message would accuse the body of missing something the
+; compiler never looks for.
 ;
 ; Inferring it is not the answer, and that is measured rather than
 ; assumed: the cheapest sound rule - a self-call, or any `while` -
 ; marks 65% of this compiler divergent and calls the syntax zoo's own
 ; counted loop non-terminating.
 ;
-; `diverges` really does not return, and still draws the warning,
-; which is the point: the walk does not infer divergence for a body
-; that HAS it either. The claim is recorded and nothing validates it.
+; `diverges` really does not return, and is still refused: the walk
+; does not infer divergence for a body that HAS it either. `apply`
+; calls its parameter, and an open row buys the claim nothing, since no
+; callback can supply what nothing produces.
 ;
-; `Err` USED TO BE in a position that looked like this one and was
-; not, and it is gone. It was spellable in a HANDLE list and nothing
-; ever inferred it, so the name resolved and denoted nothing - while
-; the AXTAG claim path lowercases its value and found no declaration,
-; so `;@axiom:effect(err)` was read as an undeclared CUSTOM effect and
-; reported `missing err`. The two spellings disagreed about whether the
-; name existed. `Err` was retired as a built-in effect name on
-; 2026-08-30 (`AX3054`'s commit): a handle list naming it draws
-; `AX3016` like any other undeclared name, which is what the tag path
-; was already saying. `div` is now the only value that resolves to a
-; built-in nothing produces, which is what makes this fixture's subject
-; a class of one.
-;
-; `honest` is the control. A claim naming an effect that HAS a
-; producer stays AX3010 when the body does not support it - the split
-; is per-effect, not a blanket softening of the check.
+; `noted` keeps the same intent in a key of its own, which no check
+; reads, and draws nothing. `honest` is the control: a claim naming an
+; effect that HAS a producer stays AX3010 when the body does not
+; support it.
 (:: quiet (-> Int Int))
 ;@axiom:effect(div)
 (fn (quiet n)
@@ -43,6 +26,16 @@
 ;@axiom:effect(div)
 (fn (diverges n)
   (diverges n))
+
+(:: apply (-> (-> Int Int) Int Int))
+;@axiom:effect(div)
+(fn (apply k n)
+  (k n))
+
+(:: noted (-> Int Int))
+;@axiom:my:div
+(fn (noted n)
+  (noted n))
 
 (:: honest (-> Int Int))
 ;@axiom:effect(mut)

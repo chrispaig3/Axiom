@@ -1,8 +1,8 @@
-[1;33mwarning[AX3074][0m[1m: this macro's template uses its parameter `x` as a field name, which is kept as written rather than replaced by its argument[0m
+[1;31merror[AX3074][0m[1m: this macro's template uses its parameter `x` as a field name, which is kept as written rather than replaced by its argument[0m
   [1;34m--> [0m1007-macro-param-name-position.ax:32:8
 [1;34m   |[0m
 [1;34m32 |[0m       (getf p 0)
-[1;34m   |[0m        [1;33m^^^^[0m
+[1;34m   |[0m        [1;31m^^^^[0m
 [1;34m   |[0m
   [1;34m--> [0m1007-macro-param-name-position.ax:18:9
 [1;34m   |[0m
@@ -13,11 +13,11 @@
   [1;34m = [0m[1;32mhelp: [0mrename the parameter to mean the literal field, or bind the field name with an enclosing `syntax/for`
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3074` for a full explanation
 
-[1;33mwarning[AX3074][0m[1m: this macro's template uses its parameter `y` as a field name, which is kept as written rather than replaced by its argument[0m
+[1;31merror[AX3074][0m[1m: this macro's template uses its parameter `y` as a field name, which is kept as written rather than replaced by its argument[0m
   [1;34m--> [0m1007-macro-param-name-position.ax:33:8
 [1;34m   |[0m
 [1;34m33 |[0m       (setf p 0 3)
-[1;34m   |[0m        [1;33m^^^^[0m
+[1;34m   |[0m        [1;31m^^^^[0m
 [1;34m   |[0m
   [1;34m--> [0m1007-macro-param-name-position.ax:19:9
 [1;34m   |[0m
@@ -28,11 +28,11 @@
   [1;34m = [0m[1;32mhelp: [0mrename the parameter to mean the literal field, or bind the field name with an enclosing `syntax/for`
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3074` for a full explanation
 
-[1;33mwarning[AX3074][0m[1m: this macro's template uses its parameter `Ask` as a handled effect name, which is kept as written rather than replaced by its argument[0m
+[1;31merror[AX3074][0m[1m: this macro's template uses its parameter `Ask` as a handled effect name, which is kept as written rather than replaced by its argument[0m
   [1;34m--> [0m1007-macro-param-name-position.ax:35:8
 [1;34m   |[0m
 [1;34m35 |[0m       (runask 41 0)
-[1;34m   |[0m        [1;33m^^^^^^[0m
+[1;34m   |[0m        [1;31m^^^^^^[0m
 [1;34m   |[0m
   [1;34m--> [0m1007-macro-param-name-position.ax:24:9
 [1;34m   |[0m
@@ -43,3 +43,4 @@
   [1;34m = [0m[1;32mhelp: [0mrename the parameter to mean the literal effect
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3074` for a full explanation
 
+compilation failed due to 3 previous errors

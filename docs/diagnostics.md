@@ -733,6 +733,7 @@ The type checker validates the tags it can:
 | `AX3051` | warning | a restriction over a row the walk couldn't close |
 | `AX3052` | error | a name in `restrict(...)` that isn't a restriction. The list is closed ([AXTAG metadata](reference.md#axtag-metadata)) |
 | `AX3057` | error | with `strict`, a restriction the walk couldn't settle |
+| `AX3110` (`axtag-never-checked`) | error | an `effect(div)` claim. Nothing infers `Div`, so no body can support it. Record the intent in a comment or a key of your own, such as `;@axiom:my:div` |
 
 Because `AX3010` and `AX3049` are errors, a successful build means
 every claim the compiler could check holds.

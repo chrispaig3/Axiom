@@ -101,6 +101,7 @@
   [93mAX3094[0m  a binding or declaration named `true` or `false`  (reserved-literal)
   [93mAX3095[0m  a `;@axiom:precondition(...)` tag, which was removed  (precondition-removed)
   [93mAX3096[0m  a type alias with type parameters  (parameterised-alias)
+  [93mAX3110[0m  an effect claim nothing in the compiler can check  (axtag-never-checked)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -1518,7 +1519,8 @@ it, and so is an effect every stored function performs.
 
 This is not the claim being wrong. It is the claim being unCHECKABLE
 here, and the two need different answers - correct the tag, or resolve
-the call - which is why this is not AX3010.
+the call - which is why this is not AX3010. A claim nothing in the
+compiler can EVER check, `effect(div)`, is AX3110, an error.
 
 The silence it replaced was the worse half of a real hole. The effect
 walk answers a lower bound; a claim of ABSENCE cannot be validated
@@ -1885,16 +1887,16 @@ as a right answer. The usual shape is a call kept for its effects - closing a de
 setting an option - whose fallible answer the author never looks at.
 
 Match on it, propagate it with `try`, or bind it to `_` if the discard
-is deliberate: a wildcard binding is the discard made explicit, and the warning stays off it.
+is deliberate: a wildcard binding is the discard made explicit, and the check stays off it.
 Ten close-error ignores in `stdlib/Sys.ax` spell it that way.
 
-THIS IS A WARNING, and a deliberate discard is why. A program that drops an error on purpose
-is correct, and an error would refuse it alongside the accidents. What is reported is a
+THIS IS AN ERROR. The compiler knows the error is dropped - this is not a guess about
+the program - and a deliberate discard has its own spelling, which costs one binding and
+says what the author meant. What is reported is a
 `Result`-typed non-last block item - `{ }` bodies and `while` bodies,
 which is the statement position the rule names. What is not reported: an arm answering a
 `Result`, which answers its whole `if` or `match`; a tail value, which
-flows onward; and a poisoned item, which a diagnostic elsewhere already owns. The severity is
-recorded in tests/diagnostics/severity.policy with that reason.
+flows onward; and a poisoned item, which a diagnostic elsewhere already owns.
 
 ### explain AX3047
 AX3047 - a C or Rust primitive type name in type position
@@ -2671,11 +2673,11 @@ This fires where the operation is performed, not up the call chain, and it asks 
 ### explain AX3074
 AX3074 - a macro parameter standing where the template keeps a name
 
-Two positions in a macro template keep the name they are written with rather than substituting the argument: the field of `.` and `set`, and `handle`'s effect list (docs/macro-system.md MAC-EXP-14b). A parameter standing in one is read as a literal name, and the argument it was given is evaluated and discarded - `(macro (getf s f) s.f)` invoked as `(getf p 0)` reads field `f`, not field `0`.
+Two positions in a macro template keep the name they are written with rather than substituting the argument: the field of `.` and `set`, and `handle`'s effect list (docs/macro-system.md MAC-EXP-14b). A parameter standing in one is read as a literal name, and the argument it was given is not used there - `(macro (getf s f) s.f)` invoked as `(getf p 0)` reads field `f`, not field `0`, and the `0` is evaluated and discarded.
 
-THIS IS A WARNING, and the positions are why. Each is a name, not an expression, and keeping the spelling is deliberate - templates have always meant the literal there - so refusing would break programs that mean it. What the warning reports is the parameter, which promises a per-invocation choice the position cannot honour.
+THIS IS AN ERROR. The template says two things at once - a parameter, which promises a per-invocation choice, in a position that keeps the spelling - and the compiler always picks the second. Which one the author meant is the one thing it cannot know, and either meaning has a spelling that says it.
 
-To mean the literal name, give the parameter another name so the template says what it means. To choose a field per invocation, bind the name with an enclosing `syntax/for` over `syntax/fields` - a name the iteration binds substitutes, and the warning stays off it. The severity is recorded in tests/diagnostics/severity.policy with that reason.
+To mean the literal name, give the parameter another name so the template says what it means. To choose a field per invocation, bind the name with an enclosing `syntax/for` over `syntax/fields` - a name the iteration binds substitutes, and the check stays off it.
 
 ### explain AX3076
 AX3076 - an `effect(...)` tag naming more than one effect
@@ -2954,6 +2956,32 @@ declaration that caused it.
 Write the target type where you use it, `(Vec Int)` for `(Pair Int)`.
 For a new type with parameters of its own, declare a `struct` or a
 `data` type.
+
+### explain AX3110
+AX3110 - an effect claim nothing in the compiler can check
+
+`;@axiom:effect(div)` claims divergence, and nothing in the compiler
+infers `Div`: no body ever supplies it, so the claim can never be
+checked, here or anywhere.
+
+    ;@axiom:effect(div)
+    (fn (spin n) (spin n))
+
+This is an ERROR. A tag in the checked `effect(...)` key is read as a
+guarantee - by a person, an agent, or `axiom symbols` - and this one
+can never be backed. It is not a limit a better-placed call would
+lift, which is what AX3037 reports: no edit to the body makes it
+answerable.
+
+Move the intent where it is recorded and not checked: a comment, or a
+key of your own such as `;@axiom:my:div`. Divergence is not inferred
+because the cheapest sound rule - a self-call, or any `while` - marks
+most of a real program non-terminating (docs/reference.md).
+`(handle BODY (Pure) 0)` is the construct that does refuse a body,
+and it measures IO, Alloc, Mut and Unsafe.
+
+A claim naming an effect the walk DOES produce stays AX3010 when the
+body does not support it.
 
 ### explain AX4001
 AX4001 - no `main` function
@@ -3422,6 +3450,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3094[0m  a binding or declaration named `true` or `false`  (reserved-literal)
   [93mAX3095[0m  a `;@axiom:precondition(...)` tag, which was removed  (precondition-removed)
   [93mAX3096[0m  a type alias with type parameters  (parameterised-alias)
+  [93mAX3110[0m  an effect claim nothing in the compiler can check  (axtag-never-checked)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)

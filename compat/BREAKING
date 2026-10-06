@@ -1023,6 +1023,10 @@
 # 0.7.9 - a claim the compiler can't back, or a defect it can prove, is an error.
 0.7.9  L  unhandled-operation  AX3053 is an error: a `main` that reaches a custom effect's operation with no handler no longer builds; install a `handle`, or tag a deliberate abort `;@axiom:unhandled(trap)`
 0.7.9  L  field-dispatch  a call through a field is resolved through the functions the program stores there, so an effect they all perform needs its claim (AX3010, AX3042, AX3049)
+0.7.9  L  discarded-result  AX3046 is an error: match a `Result` in statement position, or bind a deliberate discard to `_`
+0.7.9  L  macro-parameter-name-position  AX3074 is an error: rename a macro parameter that stands where a field or effect name is kept, or bind the field with `syntax/for`
+0.7.9  L  effect-div-claim  `;@axiom:effect(div)` is refused as AX3110: nothing infers `Div`; keep the intent in a comment or a key of your own such as `;@axiom:my:div`
+
 
 0.7.9  F  ioResult  private: IO's own errno-to-Error wrapper; the path functions still put the path in their message
 0.7.9  F  openBeneath  removed with no replacement; nothing called it

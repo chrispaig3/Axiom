@@ -54,13 +54,16 @@
 #          is for the unanswerable, and a code that becomes answerable
 #          leaves it.
 #
-#          A call through a field the program fills only with named
-#          functions is resolved through them, so a claim over one gets
-#          AX3010 where they all perform the effect. What stays here is
-#          a field that also holds a value the walk cannot name, and an
-#          effect only some of them perform. The answer is to name the
-#          function at the call, or store only named functions in the
-#          field.
+#          Two things left it that way. A call through a field the
+#          program fills only with named functions is resolved through
+#          them, so a claim over one gets AX3010 where they all perform
+#          the effect; what stays here is a field that also holds a
+#          value the walk cannot name, and an effect only some of them
+#          perform. And `effect(div)`, which no analysis checks or ever
+#          will, is AX3110, an error: no edit to a body answers it, so
+#          it was a claim the compiler could not back passing as a
+#          notice. The answer for the rest is to name the function at
+#          the call, or store only named functions in the field.
 AX3037
 # AX3038 - a `handle` whose body reaches a call the walk cannot
 #          resolve, so the handled-effects list cannot be checked.
@@ -196,42 +199,39 @@ AX3048
 # AX3045 `recursion-in-scrutinee` - a self-recursive call in the
 #          scrutinee of a `match`. Evaluating the scrutinee runs
 #          before any arm, so the call is never in tail position and
-#          every nesting level holds a frame. A warning by DESIGN,
-#          like AX3048 above: a recursion that runs
+#          every nesting level holds a frame. A limit of the
+#          ANALYSIS: whether the depth stays bounded depends on the
+#          input, which the compiler does not see. A recursion that runs
 #          bounded is correct, and an error would refuse working
 #          programs to catch the ones that overflow - measured on
 #          the error model's pair at 32 bytes a call, SIGSEGV at
 #          262,144 nesting levels against 5,000,000 flat for the
 #          arm-tail rewrite the help names
-#          (`docs/error-model.md` ERR-PROP-3/4).
+#          (`docs/error-model.md` ERR-PROP-3/4). The answer is that
+#          rewrite, or a `let` that binds the recursive call's answer
+#          first, which says the call is meant to hold its frame.
 AX3045
-# AX3046 `discarded-result` - a `Result`-typed expression in statement
-#          position, its value unused. A warning by DESIGN, like the
-#          three above: a deliberate discard - a close error ignored,
-#          an option set best-effort - is correct, and an error would
-#          refuse it alongside the accidents. The deliberate spelling
-#          is a wildcard binding: `(let ((_ (sysCloseFd fd))) 0)` reads
-#          the discard, and the warning stays off it. Ten such
-#          spellings in `stdlib/Sys.ax` are the evidence the exemption
-#          is real rather than hoped for.
-AX3046
-# AX3074 `macro-parameter-name-position` - a macro parameter standing
-#          where the template keeps a name: the field of `.`/`set`,
-#          a struct construction's type, or `handle`'s effect list.
-#          A warning by DESIGN, like the four above: each position is
-#          deliberately a name rather than an
-#          expression, and templates have always meant the literal
-#          spelling there, so an error would refuse working programs
-#          to catch the accidents. The deliberate spellings are a
-#          renamed parameter for the literal name, and an enclosing
-#          `syntax/for` for a field chosen per invocation - a name the
-#          iteration binds substitutes, and the warning stays off it
-#          (`docs/macro-system.md` MAC-EXP-14b).
-AX3074
+# AX3046 `discarded-result` - PROMOTED TO AN ERROR, and no longer
+#          listed here. It was a warning because a deliberate discard
+#          is correct - but a deliberate discard already had its own
+#          spelling, `(let ((_ (sysCloseFd fd))) 0)`, which the check
+#          never reported. So nothing about the program was uncertain:
+#          the compiler knows the error is dropped, and the only open
+#          question was whether the author meant it, which the binding
+#          answers. tests/net/echo-server.ax had eight bare discards;
+#          its listener setup now stops on a failure, and its close
+#          calls bind `_`.
+# AX3074 `macro-parameter-name-position` - PROMOTED TO AN ERROR, and no
+#          longer listed here. A parameter standing where the template
+#          keeps a name says two things at once, and the argument it
+#          was given is discarded. Neither meaning was beyond the
+#          analysis: a renamed parameter says the literal is meant, and
+#          an enclosing `syntax/for` says a field is chosen per
+#          invocation (`docs/macro-system.md` MAC-EXP-14b).
 # AX3043 `error-payload-untyped` - a reference smuggled through a
 #          field declared `Int`, via a `cast` that launders the
-#          operand's type. A warning by DESIGN, like the five above:
-#          the program is well-typed, and an error would refuse a cast
+#          operand's type. A warning by DESIGN: the program is
+#          well-typed, and an error would refuse a cast
 #          the author wrote on purpose alongside the leaks. The
 #          deliberate spelling is the field's real type on the
 #          declaration. Only what the checker can see is reported - a

@@ -938,17 +938,18 @@ easy to miss, though. A conforming implementation
 **SHOULD** diagnose a macro parameter in one of these positions instead
 of passing its name through.
 
-This implementation warns. A parameter in one of the three positions
-draws `AX3074` (`macro-parameter-name-position`) at the invocation,
-under the macro's expansion frame. It is a warning, not a refusal,
-because refusing would break templates that mean the literal spelling.
-A field name that an enclosing `syntax/for` binds is exempt, since the
-iteration substitutes it.
+This implementation refuses it. A parameter in one of the three
+positions draws `AX3074` (`macro-parameter-name-position`), an error,
+at the invocation, under the macro's expansion frame. Both meanings
+have a spelling that says them: a template that means the literal name
+gives the parameter another name, and one that chooses a field per
+invocation binds it with an enclosing `syntax/for`. A field name that
+an enclosing `syntax/for` binds is exempt, since the iteration
+substitutes it.
 
-Tested by `tests/diagnostics/1007-macro-param-name-position.ax`: four
-warnings (field access and field store each draw one) over a program
-that still checks clean, and nothing for a literal field or a
-`syntax/for`-bound field.
+Tested by `tests/diagnostics/1007-macro-param-name-position.ax`: three
+errors (field access, field store and the effect list each draw one),
+and nothing for a literal field or a `syntax/for`-bound field.
 
 **MAC-EXP-15 (H).** Because of `MAC-EXP-14`, a diagnostic from inside
 an expansion anchors at the invocation, in the file being compiled. It
