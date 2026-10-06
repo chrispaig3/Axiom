@@ -1573,18 +1573,16 @@ abandoned.
 This policy could in principle ratchet memory upward. On a stateless
 workload, it doesn't. `scripts/check-net.sh`'s third measurement is built to make it
 ratchet: a request handler whose response size cycles from 8 to 488
-concatenations, about 1 KiB to 3.8 MiB of intermediates per connection.
+steps, about 1 KiB to 3.8 MiB of blocks per connection.
 That produces and reuses free chunks of many sizes, and crosses the
 1 MiB chunk boundary in both directions on every cycle.
 
-Peak worker RSS is 3,968, 4,192 and 4,864 KiB at 1,000, 5,000 and
-20,000 connections. It starts at the working set of the largest single
-connection, which is the real cost of serving one. It then grows about
-47 bytes per connection, which is the per-connection process baseline
-the gate establishes with a zero-allocation control, and not the Axiom
-heap. The gate asserts the plateau (a run 100× longer must stay within
-2× of the short one) rather than a ceiling, because a ceiling would pin
-the kernel's socket accounting.
+Peak worker RSS is 4,032 KiB at 1,000 connections and 4,048 KiB at
+10,000. It starts at the working set of the largest single connection,
+which is the real cost of serving one, and then holds. The gate asserts
+the plateau (a run 50× longer must stay within 2× of the short one)
+rather than a ceiling, because a ceiling would pin the kernel's socket
+accounting.
 
 The measurement covers **the stateless case** only: nothing keeps
 per-connection state, and the live set at each reset is empty.
@@ -1850,16 +1848,22 @@ state the exception described.
 Evidence is a gated workload. `scripts/check-net.sh` builds one
 pre-forked server (`tests/net/echo-server.ax`) and runs it twice under
 the same load. The only difference is whether a mark and a reset
-bracket the request handler. Each connection builds its response by
-repeated `concat`, leaving about 16 KiB of unreachable intermediates
-to reclaim. Peak worker RSS:
+bracket the request handler. Each connection builds a response the way
+repeated `concat` does, from raw `memAlloc` blocks, and leaves about
+16 KiB of them unreachable. Counting never frees a raw block, so only
+the reset reclaims them. The same loop over strings holds flat without
+the bracket, because counting reclaims `concat`'s intermediates. Peak
+worker RSS:
 
 | connections | handler scoped | handler unscoped |
 |---|---|---|
-| 1,000 | **192 KiB** | 19,136 KiB |
-| 10,000 | **608 KiB** | 190,128 KiB |
+| 1,000 | **144 KiB** | 10,992 KiB |
+| 10,000 | **192 KiB** | 130,848 KiB |
 
-That is 100× at a thousand connections and 313× at ten thousand. The
+That is 76× at a thousand connections and 681× at ten thousand. The
+handler refreshes one mark cell per worker with
+`__axiom_arena_mark_into`. A fresh `__axiom_arena_mark` per connection
+would leave its 24-byte cell below every mark (`MM-ALLOC-12`). The
 gate requires at least 50×, which leaves room for a slower machine and
 still catches an arena that stopped rewinding. It also carries a
 negative probe: the unscoped run **MUST** grow past 2× between the two
@@ -2760,7 +2764,7 @@ happens today, and each is withdrawn with this rule, in the same sense.
 The arena replaced it because Axiom's target workload is a stateless
 request/response service, and the reclamation that fits it is the arena
 scope. `MM-ALLOC-22` measures a request handler bracketed by a mark and
-a reset at 100–313× less memory than the same binary unscoped, checked
+a reset at 76–681× less memory than the same binary unscoped, checked
 with a negative probe. The same pair holds the language server at 840
 bytes per edit, against 193,247 with the boundary removed. The arena is
 the strategy, not a bridge to counting. Reference counting is no longer
@@ -4166,9 +4170,10 @@ and every rule in §3.3 stays load-bearing."*
 ARC is not landing (`MM-LIFE-2a`, withdrawn), and the three primitives
 are the reclamation strategy (`MM-ALLOC-22`). The clause's own second
 half is the argument against its first: they remain the only
-whole-program reclamation there is. Refusing them would take a
-stateless service from 608 KiB at ten thousand connections to 190,128
-KiB, and the language server from 840 bytes per edit to 193,247.
+whole-program reclamation there is for garbage counting can't see.
+Refusing them would take a stateless service from 192 KiB at ten
+thousand connections to 130,848 KiB, and the language server from 840
+bytes per edit to 193,247.
 
 A runtime guard replaces the refusal. An arena reset scrubs the 4,097
 slab heads first, because a release-to-zero inside an arena extent
@@ -4240,9 +4245,9 @@ strategy that ordered it. Refusing `__axiom_arena_mark` and its pair
 would take the language server from 840 bytes per edit to 193 KB per
 edit, because nothing else reclaims what it reclaims. A second, larger
 workload says the same. A pre-forked server's request handler is
-bracketed by the same pair. Without the bracket it needs 100 times the
-memory at a thousand connections (19,136 KiB against 192) and 313 times
-at ten thousand (190,128 KiB against 608). `scripts/check-net.sh` gates
+bracketed by the same pair. Without the bracket it needs 76 times the
+memory at a thousand connections (10,992 KiB against 144) and 681 times
+at ten thousand (130,848 KiB against 192). `scripts/check-net.sh` gates
 that with a negative probe, and `MM-ALLOC-22` states it as a rule. That isn't a program with an unusual
 memory profile. It is the shape the project targets.
 
@@ -6448,7 +6453,7 @@ only written down.
 | `tests/selfhost/371-main-recursive.ax` | EXEC-15a: exits 5, where the unfixed compiler exits 4 |
 | `tests/stdlib/314-out-of-memory.ax` | EXEC-16's status 70 and ALLOC-7: the sentence pinned in `.err` and the status in `.exit`, each checked on its own, reached deterministically at 2^60 bytes |
 | `tests/stdlib/312-checked-arithmetic.ax` | VAL-3b's remedy: `addChecked`, `subChecked` and `mulChecked` at every boundary they have, with byte-identical stdout at `--opt` 0, 1, 2 and 3 |
-| `scripts/check-net.sh` | ALLOC-22 (a request handler scoped as an arena uses 100–313× less memory than the same binary unscoped, with the negative probe that makes the flat column mean something) and ALLOC-4b (request sizes varying across three orders of magnitude don't ratchet the watermark) |
+| `scripts/check-net.sh` | ALLOC-22 (a request handler scoped as an arena uses 76–681× less memory than the same binary unscoped, with the negative probe that makes the flat column mean something) and ALLOC-4b (request sizes varying across three orders of magnitude don't ratchet the watermark) |
 | `tests/stdlib/557-cycle-backlog.ax` | LIFE-2f's cost and ALLOC-24: 64 bytes a two-node knot, none for a chain, a broken knot or a scoped one |
 | `tests/stdlib/558-size-classes.ax` | ALLOC-25 and ALLOC-24: each request's class, reuse across sizes of one class, and the exact filed count of one block per class |
 | `tests/stdlib/560-recover-record.ax` | ALLOC-23: an arm allocates nothing, whether its thunk answers or traps |
@@ -6595,7 +6600,7 @@ section keeps the record of that decision. Three of the four reasons
 below are still true, and the strategy still lost.
 
 What beat it was a workload. A stateless request handler bracketed by
-an arena mark and reset uses 100–313× less memory than the same binary
+an arena mark and reset uses 76–681× less memory than the same binary
 unscoped, gated with a negative probe (`MM-ALLOC-22`). Reason 2 is the
 one that dissolved. The loop that never returns was ARC's decisive
 case, and a request handler isn't that loop: it is an activation that
@@ -6663,7 +6668,7 @@ annotation the compiler derives.
 
 `MM-ALLOC-12`–`MM-ALLOC-16` are what a programmer uses. `MM-ALLOC-22`
 is the rule and `scripts/check-net.sh` is the measurement: a request
-handler scoped as an arena uses 100–313× less memory than the same
+handler scoped as an arena uses 76–681× less memory than the same
 binary unscoped, with the LSP's 840 bytes per edit beside it. Their
 gates are also what proved the allocator could be trusted at all. The
 automation was meant to be built over them. The ARC design that was

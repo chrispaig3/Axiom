@@ -21,21 +21,24 @@
 # `check-memory-baseline.sh`'s managed/unmanaged/ablated shape applied to
 # a server.
 #
-# Unscoped memory grows with total allocation, because the bump allocator
-# reclaims nothing without a reset (MM-ALLOC-4a). The response is built
-# by repeated `concat`, about 16 KiB of garbage per connection, so there
-# is something real to reclaim.
+# Unscoped memory grows with total allocation. The handler builds its
+# response the way repeated `concat` does, about 16 KiB per connection,
+# but from raw `memAlloc` blocks. Counting never frees a raw block, so
+# only a reset reclaims it. Strings would not do: counting reclaims
+# `concat`'s intermediates by itself, and the unscoped arm would hold
+# flat too.
 #
-# The criterion is a ratio of growth, not a ceiling. Every worker also
-# grows by a small per-connection process overhead (descriptor churn and
-# the kernel's socket accounting), the same with the arena on or off.
-# Comparing the two arms' growth cancels it; comparing either to a fixed
-# number does not.
+# The criterion is a ratio of growth, not a ceiling. Anything a worker
+# grows by per connection in both arms alike, such as the kernel's
+# socket accounting, cancels in the ratio; a fixed ceiling would pin it.
+# The handler refreshes one mark cell per worker. A fresh
+# `__axiom_arena_mark` per connection leaves its 24-byte cell below the
+# mark (MM-ALLOC-12), and that would show here as growth in both arms.
 #
 # Fragmentation is tested too. MM-ALLOC-4b never splits or coalesces
 # free chunks, so varied request sizes could ratchet memory upward. The
-# third measurement cycles responses from 8 to 488 concatenations (about
-# 1 KiB to 3.8 MiB per connection), crossing the 1 MiB chunk boundary
+# third measurement cycles responses from 8 to 488 steps (about 1 KiB
+# to 3.8 MiB per connection), crossing the 1 MiB chunk boundary
 # both ways on every cycle. It must plateau: it starts at the largest
 # connection's working set and then grows only by the process overhead.
 #
@@ -248,8 +251,8 @@ else
   echo "ok   $conns_large connections, all echoed, peak worker RSS ${a_large_rss} KiB"
 fi
 
-# Scoped growth is reported, not asserted. It is the process overhead,
-# not the heap, and pinning it would pin the kernel's socket accounting.
+# Scoped growth is reported, not asserted: pinning it would pin the
+# kernel's socket accounting.
 echo "     scoped growth ${a_small_rss} -> ${a_large_rss} KiB over $(( conns_large / conns_small ))x the connections"
 
 

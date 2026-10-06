@@ -9,13 +9,13 @@
 ;
 ; WHAT IS NEW HERE IS THE ARENA, AND IT IS A FLAG SO THE GATE CAN RUN
 ; BOTH WAYS. Every connection does real allocating work - it builds a
-; kilobyte response by repeated `concat`, which is the quadratic
-; shape `render.ax`'s `ctlEsc` was, so one connection allocates about
-; 16 KiB and none of it is reachable once the socket closes. Under a
-; bump allocator that never frees, ten thousand of those is a hundred
-; and sixty megabytes of watermark. With `__axiom_arena_mark` before
-; the work and `__axiom_arena_reset` after it, the watermark rewinds
-; every connection and the worker holds flat.
+; kilobyte response the quadratic way repeated `concat` does, so one
+; connection allocates about 16 KiB and none of it is reachable once
+; the socket closes. The blocks are raw, the class of garbage only the
+; arena reclaims (see `respond`), so without the reset ten thousand
+; connections are a hundred and sixty megabytes of watermark. With a
+; mark before the work and `__axiom_arena_reset` after it, the
+; watermark rewinds every connection and the worker holds flat.
 ;
 ; That is the plan's whole bet about backend services stated as a
 ; program: a request handler is an arena scope, and the memory model
@@ -65,35 +65,59 @@
 (fn (envOn name)
   (strEq (sysEnv name) "1"))
 
-; The per-connection work, and the reason this file exists. The response
-; is built by repeated concatenation, so the intermediates are garbage
-; the instant the next one is made - about 16 KiB of it per call, none
-; reachable after the write.
+; The per-connection work, and the reason this file exists. Each step
+; allocates a block one piece longer than the last and copies the last
+; into it, which is what `(set s (concat s piece))` does - about 16 KiB
+; per call, none of it reachable after the write.
+;
+; THE BLOCKS ARE RAW, BECAUSE COUNTING RECLAIMS `concat`. A `mut` slot
+; owns what it holds (MM-LIFE-2c event 3), so each `set` of a string
+; gives the previous one back, and the same loop over strings holds flat
+; with the arena off: the gate's unscoped arm would have nothing to
+; show. `memAlloc` hands a block out at count zero, which no release
+; frees, so these blocks are the class of garbage the arena exists for
+; (MM-ALLOC-22): what counting can't see, like the language server's
+; per-message AST.
+;
+; The response the client checks is the byte it sent. The kilobyte is
+; not written anywhere: it is the ALLOCATION this case exists to
+; measure, and writing it would measure the socket instead. Every byte
+; of it is stored, so its pages are resident and RSS sees them.
 (:: respond (-> Int String Int Int))
 ;@axiom:effect(io)
 (fn (respond con byte reps)
-  (let ((mut s ""))
-    (let ((mut i 0))
-      {
-        (while (< i reps)
+  (let (
+    (piece "0123456789abcdef0123456789abcdef")
+    (mut s 0)
+    (mut n 0)
+    (mut i 0)
+  )
+    {
+      (while (< i reps)
+        (let ((next (memAlloc (+ n 32))))
           {
-            (set s (concat s "0123456789abcdef0123456789abcdef"))
+            (memCopy next s n)
+            (memCopy (+ next n) (strData piece) 32)
+            (set s next)
+            (set n (+ n 32))
             (set i (+ i 1))
-          })
-        ; The response the client checks is the byte it sent. The
-        ; kilobyte above is not written anywhere: it is the ALLOCATION
-        ; this case exists to measure, and writing it would measure the
-        ; socket instead. `strLen` is what keeps it from being dead.
-        (if (> (strLen s) 0)
-          (writeSlice con byte 0 1)
-          0)
-      })))
+          }))
+      (if (> n 0)
+        (writeSlice con byte 0 1)
+        0)
+    }))
 
 ; `reportPeer` costs an address buffer and a `socklen_t` cell per
 ; WORKER, allocated here beside the poll buffers and therefore above
 ; every arena mark - so the peer arm does not add anything the reset
 ; has to rewind, and the memory arms measure the same handler whether
 ; it is on or off.
+;
+; THE MARK CELL IS PER WORKER TOO. `__axiom_arena_mark` allocates its
+; 24-byte cell below the position it records, so no reset reclaims it
+; (MM-ALLOC-12): a mark per connection leaves a cell per connection,
+; 240 KB over ten thousand of them, in both arms alike.
+; `__axiom_arena_mark_into` refreshes one cell allocated here instead.
 (:: serve (-> Int Int Int Bool Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
@@ -103,6 +127,7 @@
     (ts (memAlloc 16))
     (peer (memAlloc netAddrMaxBytes))
     (lenb (memAlloc 8))
+    (markCell (memAlloc 24))
   )
     (let ((setbuf (memAlloc 16)))
       (let ((scratch (memAlloc 256)))
@@ -166,7 +191,7 @@
                                             ; reset; nothing built while
                                             ; answering does.
                                             {
-                                              (let ((m __axiom_arena_mark))
+                                              (let ((m (__axiom_arena_mark_into markCell)))
                                                 {
                                                   (netSetBlocking con)
                                                   ; INSIDE THE MARK, so the

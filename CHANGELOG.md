@@ -26,6 +26,14 @@ its changelog too.
   mismatch message now fills in its values too. Tested by
   `tests/stdlib/820-evidence-pinned-witness.ax`.
 
+- Measure the server arena with garbage only the arena reclaims.
+  Counting now frees the echo server's `concat` intermediates, so its
+  unscoped arm held flat and `scripts/check-net.sh` failed. The handler
+  builds its response from raw `memAlloc` blocks, and refreshes one
+  mark cell per worker instead of leaving a 24-byte mark per
+  connection. Scoped memory now holds flat. Tested by
+  `scripts/check-net.sh`.
+
 - Resolve every macro template binder through its scope record alone
   (`MAC-HYG-9` step M4). The expander's second binder table is gone,
   and with it the `AXIOM_VERIFY_SCOPES` environment variable, the
