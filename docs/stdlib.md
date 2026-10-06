@@ -384,6 +384,12 @@ Backlog is held less reusable storage; it includes live values and
 allocator overhead. It does not count leaks or measure process RSS.
 Tested by `tests/stdlib/703-memory-stats.ax`.
 
+`addrOf` answers where a value lives as a sealed `Addr`, which
+`addrEq` compares and `addrHash` hashes. It is the way to ask whether
+two values are one, or to key a table by identity, without erasing a
+value into an `Int`. An `Addr` takes no share, so compare two only
+while both values are live. Tested by `tests/stdlib/810-addr-identity.ax`.
+
 `Ffi` supports generated Rust wrappers: handles, result out-cells and
 byte/vector conversion. Start at the [Rust FFI guide](ffi.md), then use
 the generated operations for each sealed owner.

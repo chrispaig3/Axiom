@@ -1277,7 +1277,7 @@ two differ.
 
 ## `Mem`
 
-`stdlib/Mem.ax` — 15 public names
+`stdlib/Mem.ax` — 19 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -1296,6 +1296,10 @@ two differ.
 | `memPutByte` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` | `addr` must name at least `index` + 1 live writable bytes. |
 | `MemoryStats` | struct |  |  | Allocator counts for the calling binding's arena, in bytes. `heldBytes` includes live values, reusable blocks, cycles and chunk overhead. `filedBytes` is reusable storage; `backlogBytes` is held less filed, not a live-object or leak count. `mappedBytes` includes active and cached chunks. Threads have separate arenas. |
 | `memStats` | value | `MemoryStats` | `Alloc` | Read the counters before allocating the result, so this snapshot excludes its own record. All fields describe the calling arena only. |
+| `Addr` | struct |  |  | Where a value lives, as one sealed word. Make one with `addrOf`; compare with `addrEq`; hash with `addrHash`. An `Addr` takes no share and keeps nothing alive, and nothing turns it back into the value. Compare two only while both values are live, because a freed block's address is handed out again. An immediate value - an `Int`, a `Char`, a nullary constructor - is its own word, so its `Addr` is that word. |
+| `addrOf` | value | `(-> a Addr)` |  | The address of `x`. The same value always answers the same `Addr`; two values answer equal ones only if they are one value, or are equal immediates. |
+| `addrEq` | value | `(-> Addr Addr Bool)` |  | Whether `a` and `b` are the address of one value. |
+| `addrHash` | value | `(-> Addr Int)` |  | A hash of the address, for a table keyed by identity. Equal addresses hash equally, and the result is in [0, 2^63). Block addresses share their low bits, so the word goes through murmur3's 64-bit finaliser first, as `Map.mapHash` does to a key. |
 
 ## `Net`
 

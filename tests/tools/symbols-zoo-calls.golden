@@ -15,6 +15,10 @@ F memSetWord stdlib/Mem.ax:408:9-19 "(Int -> (Int -> (a -> Int)))" @577fd648169c
 F memGetByte stdlib/Mem.ax:422:9-19 "(Int -> (Int -> Int))" @b36a11af3f07101e #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #calls=__load8 #unsafe=trusted
 F memPutByte stdlib/Mem.ax:429:9-19 "(Int -> (Int -> (Int -> Int)))" @a42c84e86afc6d53 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Mut,Unsafe #calls=__store8 #unsafe=trusted
 F memStats stdlib/Mem.ax:451:9-17 "MemoryStats" @f535de6b02c0706b #restrict=no-io,no-unsafe,no-foreign #effects=Alloc #calls=-,__axiom_mem_stat
+F addrOf stdlib/Mem.ax:481:9-15 "(a -> Addr)" @846cdce4820a33d5
+F addrEq stdlib/Mem.ax:486:9-15 "(Addr -> (Addr -> Bool))" @844ac9e481ed2d26 #calls===
+F addrHash stdlib/Mem.ax:494:9-17 "(Addr -> Int)" @41a37d020fa3f8e4 #calls=&,*,-,Mem$addrShr33,^
+F addrShr33 stdlib/Mem.ax:502:5-14 "(Int -> Int)" @32e937cf9c7e40c5 #calls=&,>>
 F vecDefaultCap stdlib/Vec.ax:79:5-18 "Int" @39b9ebeebcb69140 #restrict=no-io,no-alloc,no-foreign
 F vecNew stdlib/Vec.ax:85:9-15 "Vec a" @42d7eca69e40111f #restrict=no-io,no-foreign #effects=Alloc,Mut #calls=Vec$vecDefaultCap,Vec$vecWithCapacity
 F vecWithCapacity stdlib/Vec.ax:97:9-24 "(Int -> Vec a)" @a5898d2fb6017e13 #restrict=no-io,no-foreign #effects=Alloc,Mut #calls=Vec$vecBuild
@@ -321,6 +325,7 @@ C B tests/fmt/syntax-zoo.ax:226:4-5 "(a -> Box a)" #of=Box
 D Wrapped tests/fmt/syntax-zoo.ax:243:7-14 "data Wrapped" @456b706b2b771a60 #ctors=W
 C W tests/fmt/syntax-zoo.ax:244:4-5 "(Box Int -> Wrapped)" #of=Wrapped
 S MemoryStats stdlib/Mem.ax:442:13-24 "struct MemoryStats" @d2f42a7c23bd4fde #fields=heldBytes:Int,filedBytes:Int,mappedBytes:Int,backlogBytes:Int
+S Addr stdlib/Mem.ax:475:13-17 "struct Addr" @074d77c38bf9a023 #fields=slot:Int #repr=word,shared
 S Error stdlib/Err.ax:40:13-18 "struct Error" @0805ae0b9077d3a6 #fields=code:Int,message:String,context:String
 S Rec tests/fmt/syntax-zoo.ax:55:13-16 "struct Rec" @7e8483a9aaef3fde #fields=n:Int,counter:Int,on:Bool,ratio:Float,label:String
 S ZooCap tests/fmt/syntax-zoo.ax:233:9-15 "struct ZooCap" @565a8bdeb3d12664 #fields=render:(a -> String)

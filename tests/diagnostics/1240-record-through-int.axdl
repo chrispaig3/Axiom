@@ -1,2 +1,2 @@
-E AX3004 1240-record-through-int.ax:19:4-6 type-mismatch "type mismatch: expected Int, found Pt" #"this has type `Pt`, expected `Int`"
-E AX3004 1240-record-through-int.ax:23:4-8 type-mismatch "type mismatch: expected Int, found Box" #"this has type `Box`, expected `Int`"
+E AX3004 1240-record-through-int.ax:23:4-6 type-mismatch "type mismatch: expected Int, found Pt" #"this has type `Pt`, expected `Int`"
+E AX3004 1240-record-through-int.ax:27:4-8 type-mismatch "type mismatch: expected Int, found Box" #"this has type `Box`, expected `Int`"

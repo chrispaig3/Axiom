@@ -5,8 +5,12 @@
 ;   `mkPt`    a struct through a declared `Int`, refused as AX3004
 ;   `mkBox`   a `data` value the same way, refused as AX3004
 ;
-; The control draws nothing:
+; The controls draw nothing, and each is the fix for one of the two:
 ;   `mkPt2`   the signature names the type the body answers
+;   `same`    identity asked through `Mem.addrOf`, which keeps the
+;             address as an `Addr` instead of erasing the value
+(import Mem)
+
 (struct Pt
   (x : Int)
   (y : Int))
@@ -26,7 +30,13 @@
 (fn (mkPt2 a b)
   (Pt a b))
 
+(:: same (-> Pt Pt Bool))
+(fn (same p q)
+  (addrEq (addrOf p) (addrOf q)))
+
 (:: main Int)
 (fn (main)
   (let ((p (mkPt2 30 5)))
-    (+ p.x p.y)))
+    (if (same p p)
+      (+ p.x p.y)
+      0)))

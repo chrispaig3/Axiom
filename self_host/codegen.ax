@@ -1713,7 +1713,9 @@
                 (let ((st0 (| (regionNet cell) (tyvarSlotsMask cg e d))))
                   (let (
                     (st (| (memGetWord e 7) (| st0 (arrivalToWord st0))))
-                    (rt (| (memGetWord e 8) (flowMask cg (nodeC d) (nodeBVec d) vecNew)))
+                    (rt (if (== (fsigResultIsWord cg e) 1)
+                      0
+                      (| (memGetWord e 8) (flowMask cg (nodeC d) (nodeBVec d) vecNew))))
                     (_z (mutMemoClose cg))
                     ; what the open region consumed, net of its counts,
                     ; widened to the word half like the stash summary:
@@ -1731,6 +1733,27 @@
                         (inferFlowsPass cg decls (+ i 1) 1)
                       })))
               })))))))
+
+; A function whose declared result is a WORD STRUCT answers nothing the
+; caller must keep alive. A word struct is one word that takes no share
+; (MM-VAL-10a), sealed so that only its module reads the word, and no
+; module dereferences one: `Chan`, `Mutex` and the keys hold a handle
+; table's slot, `Date` and its siblings a value, and `Mem.Addr` an
+; address that is only compared and hashed. So its result aliases no
+; parameter, whatever the body computed the word from - the same
+; reading `binderIsWord` gives a word-struct binder. Without it
+; `(addrOf v)` read as a pointer into `v`, and the caller kept `v`
+; alive for good: 48 bytes held per call.
+(pub :: fsigResultIsWord (-> Int Int Int))
+;@axiom:effect(unsafe)
+(pub fn (fsigResultIsWord cg e)
+  (let ((res (fnDeclaredResultTy (memGetWord e 3) (memGetWord e 6))))
+    (if (|| (== res 0) (!= (nodeTag res) TAG_T_CON))
+      0
+      (let ((t (lookupType (memGetWordVec cg 3) (cast String (nodeA res)))))
+        (if (== t 0)
+          0
+          (if (== (eKind t) TF_WORD) 1 0))))))
 
 ; A self-tail-calling function's TYPE-VARIABLE and `Int` parameters,
 ; every form: the loop's slot for such a parameter takes no retain

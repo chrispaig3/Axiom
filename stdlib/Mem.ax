@@ -456,3 +456,49 @@
     (mapped (__axiom_mem_stat 2))
   )
     (MemoryStats held filed mapped (- held filed))))
+
+; ------------------------------------------------------------------
+; Identity
+;
+; `(cast Int v)` keeps a reference's word and drops its type, so the
+; block's share is never given back and nothing downstream can say
+; what the word was (docs/memory-model.md MM-VAL-24). Asking whether
+; two values are the same object, or keying a table by identity, needs
+; neither: it needs the address as a value of its own type.
+; ------------------------------------------------------------------
+; Where a value lives, as one sealed word. Make one with `addrOf`;
+; compare with `addrEq`; hash with `addrHash`. An `Addr` takes no share
+; and keeps nothing alive, and nothing turns it back into the value.
+; Compare two only while both values are live, because a freed block's
+; address is handed out again. An immediate value - an `Int`, a `Char`,
+; a nullary constructor - is its own word, so its `Addr` is that word.
+(pub struct Addr word shared
+  (slot : Int))
+
+; The address of `x`. The same value always answers the same `Addr`;
+; two values answer equal ones only if they are one value, or are equal
+; immediates.
+(pub :: addrOf (-> a Addr))
+(pub fn (addrOf x)
+  (Addr (cast Int x)))
+
+; Whether `a` and `b` are the address of one value.
+(pub :: addrEq (-> Addr Addr Bool))
+(pub fn (addrEq a b)
+  (== a.slot b.slot))
+
+; A hash of the address, for a table keyed by identity. Equal addresses
+; hash equally, and the result is in [0, 2^63). Block addresses share
+; their low bits, so the word goes through murmur3's 64-bit finaliser
+; first, as `Map.mapHash` does to a key.
+(pub :: addrHash (-> Addr Int))
+(pub fn (addrHash a)
+  (let ((x (* (^ a.slot (addrShr33 a.slot)) (- 0 49064778989728563))))
+    (let ((y (* (^ x (addrShr33 x)) (- 0 4265267296055464877))))
+      (& (^ y (addrShr33 y)) 9223372036854775807))))
+
+; The logical right shift by 33 that the finaliser needs: `>>` fills
+; with the sign bit, and the mask keeps only the 31 bits the shift moved.
+(:: addrShr33 (-> Int Int))
+(fn (addrShr33 h)
+  (& (>> h 33) 2147483647))

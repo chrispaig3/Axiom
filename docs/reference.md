@@ -379,7 +379,9 @@ passing one a bad address crashes the program.
 A function's result is checked like an argument. A record, closure,
 `String` or type variable returned where the signature says `Int` is
 `AX3004`, so declare the type the body answers. `(cast Int v)` still
-turns a reference into a word that holds no share.
+turns a reference into a word that holds no share. To compare values
+by identity, use `addrOf` (see
+[Compare values by identity](#compare-values-by-identity)).
 
 ### Region annotations
 
@@ -999,6 +1001,45 @@ covered by the [memory contract](memory-model.md).
 
 Recovery points catch runtime traps in an isolated extent. They cannot
 undo external I/O. See [error recovery](error-model.md).
+
+### Compare values by identity
+
+`addrOf` from `Mem` answers where a value lives as an `Addr`. Two
+values are the same value exactly when their addresses are equal:
+
+```scheme
+(import IO)
+(import Mem)
+
+(data Box
+  (Bx String))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (a (Bx "one"))
+    (b (Bx "one"))
+    (c a)
+  )
+    {
+      (println (if (addrEq (addrOf a) (addrOf c)) "a is c" "a is not c"))
+      (println (if (addrEq (addrOf a) (addrOf b)) "a is b" "a is not b"))
+      0
+    }))
+```
+
+```text
+a is c
+a is not b
+```
+
+`addrHash` hashes an `Addr` for a table keyed by identity. An `Addr`
+takes no share and keeps nothing alive, and nothing turns it back into
+the value. Compare two only while both values are live, because a
+freed block's address is reused.
+
+Tested by `tests/stdlib/810-addr-identity.ax`.
 
 ### Inline assembly
 

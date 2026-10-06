@@ -2355,12 +2355,16 @@ by part:
   (Bx "kept"))       ; AX3004: expected Int, found Box
 ```
 
-The explicit route remains: `(cast Int v)` erases `v` as `MM-VAL-22`
-describes.
+Two explicit routes remain. `(cast Int v)` erases `v` as `MM-VAL-22`
+describes. `Mem.addrOf` answers a sealed `Addr` word (`MM-VAL-10a`)
+that compares and hashes `v`'s identity and takes no share. A function
+whose declared result is a word struct aliases none of its parameters,
+so `(addrOf v)` leaves `v`'s release where it was.
 
 Evidence: [1240-record-through-int.ax](../tests/diagnostics/1240-record-through-int.ax)
 and [1241-result-coercion-shapes.ax](../tests/diagnostics/1241-result-coercion-shapes.ax)
-pin the refusals.
+pin the refusals. [810-addr-identity.ax](../tests/stdlib/810-addr-identity.ax)
+makes 10,000 `addrOf` calls and holds no bytes.
 
 ### 3.6 Checked lexical regions
 
