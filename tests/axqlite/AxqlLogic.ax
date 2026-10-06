@@ -274,7 +274,7 @@
           (wn (fmtInt (vecLen want)))
           (bn (fmtInt (+ bad 1)))
         )
-          (fail run line "row {bn}: wanted {w}, got {g} ({wn} rows wanted, {gn} got)")))
+          (fail run line (format "row {bn}: wanted {w}, got {g} ({wn} rows wanted, {gn} got)"))))
     }))
 
 ; Run the records of `lines` from `i`.
