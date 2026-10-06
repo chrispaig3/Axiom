@@ -497,6 +497,7 @@ lineStartOfIx self_host/diag.ax no-io,no-alloc,no-foreign ok
 lineStartScan self_host/diag.ax no-io,no-alloc,no-foreign ok
 loads tests/diagnostics/1010-unsafe-primitives.ax no-unsafe violated
 local tests/diagnostics/374-restrict-no-foreign.ax no-foreign ok
+logIt tests/diagnostics/1201-field-dispatch.ax no-io violated
 lookup tests/stdlib/468-region-signatures.ax no-escape ok
 loopBody tests/diagnostics/394-restrict-no-wrap-exempt.ax no-wrap violated
 looped tests/diagnostics/379-restrict-no-recursion.ax no-recursion ok
@@ -762,7 +763,7 @@ utf8Valid stdlib/Utf8.ax no-io,no-alloc,no-foreign ok
 utf8ValidFrom stdlib/Utf8.ax no-io,no-alloc,no-foreign ok
 utf8WellFormedAt stdlib/Utf8.ax no-io,no-alloc,no-foreign ok
 utf8Width stdlib/Utf8.ax no-io,no-alloc,no-foreign ok
-valueCall tests/diagnostics/1116-extern-unsafe.ax no-unsafe unverifiable
+valueCall tests/diagnostics/1116-extern-unsafe.ax no-unsafe violated
 vecAppendFrom self_host/core.ax no-io,no-foreign ok
 vecBuild stdlib/Vec.ax no-io,no-foreign ok
 vecBytes stdlib/Vec.ax no-io,no-alloc,no-foreign ok
