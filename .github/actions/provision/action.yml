@@ -1,13 +1,11 @@
 name: Provision an Axiom compiler
 description: >
-  Install the LLVM tools the gates shell out to, then turn the committed
-  seed into a working compiler at .axiom-bin/axiom.
+  Install the pinned LLVM tools the gates shell out to, record their
+  versions, then turn the committed seed into a working compiler at
+  .axiom-bin/axiom.
 
-# Five jobs in ci.yml opened with these same two steps, and the LLVM
-# install was pasted into all five while the six-line comment above the
-# provisioning step was pasted into four - including two jobs that run a
-# single sub-minute script underneath it. A composite action is the only
-# way GitHub Actions lets a workflow say a sequence once.
+# Every job that needs a compiler uses this action, so the toolchain is
+# chosen and recorded in one place.
 runs:
   using: composite
   steps:
@@ -20,31 +18,46 @@ runs:
     # `lld-link` on every host - cross, from an import library
     # `llvm-dlltool` generates - as the negative probe that its PE
     # reader sees imports at all. No Windows SDK is involved anywhere.
-    # `libclang-rt-dev` is clang's sanitizer runtimes
+    # `libclang-rt-18-dev` is clang's sanitizer runtimes
     # (`libclang_rt.tsan*`, `libclang_rt.asan*`), which
     # `check-race.sh` links; a preinstalled clang need not carry them.
     # Homebrew's llvm ships them.
+    #
+    # The LLVM major version is pinned per runner OS: 18 is Ubuntu
+    # 24.04's own toolchain and 23 is the Homebrew series the macOS leg
+    # runs. Changing either is a toolchain change, so it is made here
+    # and in `want` below, together.
     - name: Install LLVM tools (Linux)
       if: runner.os == 'Linux'
       shell: bash
       run: |
         sudo apt-get update
-        sudo apt-get install -y llvm clang lld libclang-rt-dev
-        echo "$(llvm-config --bindir)" >> "$GITHUB_PATH"
-    # `brew --prefix <formula>` prints the path a formula *would* be
-    # installed at and exits zero even when it is absent, so the version
-    # of this that resolved the prefix first appended a non-existent
-    # directory to PATH and reported success - surfacing one step later
-    # as `llc: command not found`. Install first, then resolve.
+        sudo apt-get install -y llvm-18 clang-18 lld-18 libclang-rt-18-dev
+        echo "/usr/lib/llvm-18/bin" >> "$GITHUB_PATH"
+    # `brew --prefix <formula>` exits zero even when the formula is
+    # absent, so install first, then resolve the prefix.
     - name: Install LLVM tools (macOS)
       if: runner.os == 'macOS'
       shell: bash
       run: |
-        brew install llvm lld
-        echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+        brew install llvm@23 lld
+        echo "$(brew --prefix llvm@23)/bin" >> "$GITHUB_PATH"
         echo "$(brew --prefix lld)/bin" >> "$GITHUB_PATH"
-    - shell: bash
-      run: llc --version && lld-link --version
+    # The toolchain record for this run, and a hard stop if the runner
+    # image delivered a different LLVM major than the one pinned above.
+    - name: Record the toolchain
+      shell: bash
+      run: |
+        want=18
+        [[ "$RUNNER_OS" == macOS ]] && want=23
+        for tool in opt llc clang ld.lld lld-link; do
+          printf '%-9s %s\n' "$tool" "$("$tool" --version 2>&1 | head -1)"
+        done
+        got="$(llc --version | sed -n 's/.*LLVM version \([0-9][0-9]*\).*/\1/p' | head -1)"
+        if [[ "$got" != "$want" ]]; then
+          echo "::error::expected LLVM $want on $RUNNER_OS, found ${got:-none}"
+          exit 1
+        fi
 
     # Every gate needs a compiler, and there is no longer one to build
     # from source in the usual sense - the compiler IS the source.

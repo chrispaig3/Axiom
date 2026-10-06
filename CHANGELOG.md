@@ -16,6 +16,11 @@ its changelog too.
 
 ## Unreleased
 
+- Pin the CI toolchain to LLVM 18 on Linux runners and LLVM 23 on
+  macOS runners, and record `opt`, `llc`, `clang`, `ld.lld` and
+  `lld-link` versions in every run. A runner image with another LLVM
+  major stops the job at provisioning.
+
 - Report a region refusal in the file that contains it. A library
   function carrying `restrict(...)` no longer moves later diagnostics
   in your program onto that library's lines. Tested by
