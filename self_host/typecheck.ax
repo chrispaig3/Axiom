@@ -6840,7 +6840,7 @@
 ; was accepted, and the diagnostic that eventually arrived was an
 ; AX3004 at the CALLER - blaming the caller's `Int` for the declarer's
 ; typo. AX3002 had exactly one construction site in this file and it
-; is the `(struct Name ...)` expression, so no signature, annotation
+; was the `(struct Name ...)` expression, so no signature, annotation
 ; or field type had ever been resolved against anything.
 ;
 ; Type VARIABLES need no check: `lexStartsLower` sends every
@@ -9538,21 +9538,19 @@
                                     (checkField tc e)
                                     (if (== tag TAG_E_HANDLE)
                                       (checkHandle tc e)
-                                      (if (== tag TAG_E_STRUCTCON)
-                                        (checkStructConNode tc e)
-                                        (if (== tag TAG_E_SUBCHECK)
-                                            {
-                                              (checkExprH tc (nodeA e) 0)
-                                              (checkSubtypeBounds tc (nodeBVec e) 0)
-                                              (if (!= (nodeC e) 0)
-                                                (checkExprH tc (nodeC e) 0)
-                                                0)
-                                              (let ((tt (nodeTy e)))
-                                                (if (!= tt 0)
-                                                  tt
-                                                  mkSilentWild))
-                                            }
-                                            mkSilentWild)))))))))))))))))))))
+                                      (if (== tag TAG_E_SUBCHECK)
+                                          {
+                                            (checkExprH tc (nodeA e) 0)
+                                            (checkSubtypeBounds tc (nodeBVec e) 0)
+                                            (if (!= (nodeC e) 0)
+                                              (checkExprH tc (nodeC e) 0)
+                                              0)
+                                            (let ((tt (nodeTy e)))
+                                              (if (!= tt 0)
+                                                tt
+                                                mkSilentWild))
+                                          }
+                                          mkSilentWild))))))))))))))))))))
 
 (pub :: checkExprSeq (-> Int (Vec Int) Int Int Int))
 (pub fn (checkExprSeq tc v i last)
@@ -10859,7 +10857,7 @@
                           bound
                           acc
                           done)
-                        (if (|| (== tag TAG_E_INT) (|| (== tag TAG_E_FLT) (|| (== tag TAG_E_STR) (|| (== tag TAG_E_CHAR) (|| (== tag TAG_E_QUOTE) (|| (== tag TAG_E_STRUCTCON) (|| (== tag TAG_E_WHILE) (== tag TAG_E_SETF))))))))
+                        (if (|| (== tag TAG_E_INT) (|| (== tag TAG_E_FLT) (|| (== tag TAG_E_STR) (|| (== tag TAG_E_CHAR) (|| (== tag TAG_E_QUOTE) (|| (== tag TAG_E_WHILE) (== tag TAG_E_SETF)))))))
                           0
                           (capOpaqueOnce tc e tag done))))))))))))))
 
@@ -11061,16 +11059,14 @@
                                 (capScanIn (nodeB e) bound acc)
                                 (if (== tag TAG_E_FIELD)
                                   (capScanIn (nodeA e) bound acc)
-                                  (if (== tag TAG_E_STRUCTCON)
-                                    (capScanVec (nodeBVec e) 0 bound acc)
-                                    ; `cond` is AX2004: the parser builds
-                                    ; none, so no arm scans one.
-                                    (if (== tag TAG_E_MATCH)
-                                      {
-                                        (capScanIn (nodeA e) bound acc)
-                                        (capScanArms (nodeBVec e) 0 bound acc)
-                                      }
-                                      0))))))))))))))
+                                  ; `cond` is AX2004: the parser builds
+                                  ; none, so no arm scans one.
+                                  (if (== tag TAG_E_MATCH)
+                                    {
+                                      (capScanIn (nodeA e) bound acc)
+                                      (capScanArms (nodeBVec e) 0 bound acc)
+                                    }
+                                    0)))))))))))))
         acc
       })))
 
@@ -14277,11 +14273,9 @@
     t
   })
 
-; The shared half, reached from both construction spellings: the
-; application form `(P 1 2)` above, and the keyword form
-; `(struct P 1 2)` below. stage0 checks them through different AST
-; nodes but with identical rules and identical message text, so one
-; body serves both and the strings cannot drift apart.
+; The construction check proper for `(P 1 2)`, once `checkStructCon`
+; above has ruled out a sealed word struct: an ambiguous name, the
+; field count, then each argument against its field's declared type.
 (pub :: checkStructConAt (-> Int (Vec Int) Int Int Int))
 ;@axiom:effect(unsafe)
 (pub fn (checkStructConAt tc args span ent)
@@ -15139,47 +15133,27 @@
                             (walkEffects tc (nodeB e) bound acc)
                             (if (== tag TAG_E_FIELD)
                               (walkEffects tc (nodeA e) bound acc)
-                              (if (== tag TAG_E_STRUCTCON)
-                                ; The KEYWORD spelling of the same act
-                                ; the spine walk now attributes:
-                                ; `(struct P a b)` allocates exactly
-                                ; what `(P a b)` does, and the two
-                                ; reach different nodes. Attributing
-                                ; one and not the other would make the
-                                ; row depend on which spelling the
-                                ; author picked.
+                              ; `cond` is AX2004: the parser builds
+                              ; none, so no arm walks one's effects.
+                              (if (== tag TAG_E_MATCH)
                                 {
-                                  (if (> (ctorAllocArity tc (nodeAName e)) 0)
-                                    (effAdd acc (builtinEff "Alloc"))
+                                  ; A match whose scrutinee is a direct
+                                  ; call the emitter answers in two
+                                  ; registers is recorded BEFORE the
+                                  ; scrutinee is walked, so the call
+                                  ; below is charged no box.
+                                  (if (== (tcPairMatchOK tc e bound) 1)
+                                    (tcSiteAdd tc (nodeA e))
                                     0)
-                                  (walkEffectsVec
+                                  (walkEffects tc (nodeA e) bound acc)
+                                  (walkEffectsArms
                                     tc
                                     (nodeBVec e)
                                     0
                                     bound
                                     acc)
                                 }
-                                ; `cond` is AX2004: the parser builds
-                                ; none, so no arm walks one's effects.
-                                (if (== tag TAG_E_MATCH)
-                                  {
-                                    ; A match whose scrutinee is a direct
-                                    ; call the emitter answers in two
-                                    ; registers is recorded BEFORE the
-                                    ; scrutinee is walked, so the call
-                                    ; below is charged no box.
-                                    (if (== (tcPairMatchOK tc e bound) 1)
-                                      (tcSiteAdd tc (nodeA e))
-                                      0)
-                                    (walkEffects tc (nodeA e) bound acc)
-                                    (walkEffectsArms
-                                      tc
-                                      (nodeBVec e)
-                                      0
-                                      bound
-                                      acc)
-                                  }
-                                  0))))))))))))))))
+                                0)))))))))))))))
 
 (pub :: walkEffectsVec (-> Int (Vec Int) Int Int (Vec a) Int))
 (pub fn (walkEffectsVec tc v i bound acc)
@@ -16627,7 +16601,7 @@
 (pub :: notCallableShape (-> Int Int))
 (pub fn (notCallableShape e)
   (let ((t (nodeTag e)))
-    (if (|| (== t TAG_E_INT) (|| (== t TAG_E_STR) (|| (== t TAG_E_FLT) (|| (== t TAG_E_CHAR) (== t TAG_E_STRUCTCON)))))
+    (if (|| (== t TAG_E_INT) (|| (== t TAG_E_STR) (|| (== t TAG_E_FLT) (== t TAG_E_CHAR))))
       1
       0)))
 
@@ -17617,45 +17591,6 @@
                 (+ dynN 1)
                 formSpan))))))))
 
-; `(struct Name field...)` - the keyword construction form. A name
-; that resolves to no struct is AX3002, the twelfth diagnostic and
-; the only one whose subject is a TYPE. Two details are stage0's and
-; neither is guessable: the arguments are NOT checked when the name
-; misses (stage0 returns TError straight from the `None` arm, so an
-; undefined variable among the fields goes unreported), and the help
-; is fixed prose with no "did you mean" - `SemError::UndefinedType`
-; is constructed with `suggestion: None` at its one emission site, so
-; a suggestion is unreachable however close a struct name sits.
-(pub :: checkStructConNode (-> Int Int Int))
-(pub fn (checkStructConNode tc e)
-  (let ((ent (findStruct tc (nodeAName e))))
-    (if (== (wordSealedHere tc (findStructAnyVis tc (nodeAName e))) 1)
-      ; The keyword spelling of a sealed construction: AX3085, as the
-      ; application form draws, and for a private word struct too - the
-      ; lookup above filtered it, and "undefined type" would be wrong
-      ; about a type that exists.
-      {
-        (emitWordSealedBuild tc (findStructAnyVis tc (nodeAName e)) (nodeSpan e))
-        (checkArgsFromIndex tc (nodeBVec e) 0)
-        (mkNode TAG_T_ERR 0 0 0)
-      }
-    (if (== ent 0)
-      {
-        (if (!= (nodeSpan e) 0)
-          (emitDiag tc (diagSetLabel (mkDiag
-            SEV_ERROR
-            "AX3002"
-            "undefined-type"
-            (nodeSpan e)
-            (concat (concat "undefined type `" (nodeAName e)) "`")
-            0
-            0
-            (tyRemovedBuiltinHelp (nodeAName e))) (concat (concat "no type named `" (nodeAName e)) "` is visible here")))
-          0)
-        (mkNode TAG_T_ERR 0 0 0)
-      }
-      (wordLowerIfWord tc ent e (nodeBVec e) (checkStructConAt tc (nodeBVec e) (nodeSpan e) ent))))))
-
 (pub :: checkStructFields (-> Int (Vec Int) (Vec Int) Int Int))
 
 ; Each field's declared type, instantiated through ONE shared env so a
@@ -18581,19 +18516,17 @@
                                   (if (!= a 0)
                                     a
                                     (selfCallIn (nodeC e) name bare nullary shadowed)))
-                                (if (== tg TAG_E_STRUCTCON)
-                                  (selfCallInVec (nodeBVec e) name bare nullary shadowed 0)
-                                  (if (== tg TAG_E_SUBCHECK)
-                                      (let ((a (selfCallIn (nodeA e) name bare nullary shadowed)))
-                                        (if (!= a 0)
-                                          a
-                                          (let ((b (selfCallInVec (nodeBVec e) name bare nullary shadowed 0)))
-                                            (if (!= b 0)
-                                              b
-                                              (if (== (nodeC e) 0)
-                                                0
-                                                (selfCallIn (nodeC e) name bare nullary shadowed))))))
-                                      0))))))))))))))))))
+                                (if (== tg TAG_E_SUBCHECK)
+                                    (let ((a (selfCallIn (nodeA e) name bare nullary shadowed)))
+                                      (if (!= a 0)
+                                        a
+                                        (let ((b (selfCallInVec (nodeBVec e) name bare nullary shadowed 0)))
+                                          (if (!= b 0)
+                                            b
+                                            (if (== (nodeC e) 0)
+                                              0
+                                              (selfCallIn (nodeC e) name bare nullary shadowed))))))
+                                    0)))))))))))))))))
 
 ; The first self-call across a vector of expressions, in order, or 0.
 (pub :: selfCallInVec (-> (Vec Int) String String Int Int Int Int))
@@ -22353,16 +22286,14 @@
                             (castScanIn (nodeB e) acc)
                             (if (== tag TAG_E_FIELD)
                               (castScanIn (nodeA e) acc)
-                              (if (== tag TAG_E_STRUCTCON)
-                                (castScanVec (nodeBVec e) 0 acc)
-                                ; `cond` is AX2004: the parser builds
-                                ; none, so no arm scans one for casts.
-                                (if (== tag TAG_E_MATCH)
-                                  {
-                                    (castScanIn (nodeA e) acc)
-                                    (castScanArms (nodeBVec e) 0 acc)
-                                  }
-                                  0))))))))))))
+                              ; `cond` is AX2004: the parser builds
+                              ; none, so no arm scans one for casts.
+                              (if (== tag TAG_E_MATCH)
+                                {
+                                  (castScanIn (nodeA e) acc)
+                                  (castScanArms (nodeBVec e) 0 acc)
+                                }
+                                0)))))))))))
         acc
       })))
 
@@ -22460,17 +22391,15 @@
                             (unsafeScanIn (nodeB e) acc)
                             (if (== tag TAG_E_FIELD)
                               (unsafeScanIn (nodeA e) acc)
-                              (if (== tag TAG_E_STRUCTCON)
-                                (unsafeScanVec (nodeBVec e) 0 acc)
-                                ; `cond` is AX2004: the parser builds
-                                ; none, so no arm scans one for raw-memory
-                                ; calls.
-                                (if (== tag TAG_E_MATCH)
-                                  {
-                                    (unsafeScanIn (nodeA e) acc)
-                                    (unsafeScanArms (nodeBVec e) 0 acc)
-                                  }
-                                  0))))))))))))
+                              ; `cond` is AX2004: the parser builds
+                              ; none, so no arm scans one for raw-memory
+                              ; calls.
+                              (if (== tag TAG_E_MATCH)
+                                {
+                                  (unsafeScanIn (nodeA e) acc)
+                                  (unsafeScanArms (nodeBVec e) 0 acc)
+                                }
+                                0)))))))))))
         acc
       })))
 
@@ -22690,16 +22619,14 @@
                               (wrapScanIn (nodeB e) acc))
                             (if (== tag TAG_E_FIELD)
                               (wrapScanIn (nodeA e) acc)
-                              (if (== tag TAG_E_STRUCTCON)
-                                (wrapScanVec (nodeBVec e) 0 acc)
-                                ; `cond` is AX2004: the parser builds
-                                ; none, so no arm scans one for wraps.
-                                (if (== tag TAG_E_MATCH)
-                                  {
-                                    (wrapScanIn (nodeA e) acc)
-                                    (wrapScanArms (nodeBVec e) 0 acc)
-                                  }
-                                  0))))))))))))
+                              ; `cond` is AX2004: the parser builds
+                              ; none, so no arm scans one for wraps.
+                              (if (== tag TAG_E_MATCH)
+                                {
+                                  (wrapScanIn (nodeA e) acc)
+                                  (wrapScanArms (nodeBVec e) 0 acc)
+                                }
+                                0)))))))))))
         acc
       })))
 
@@ -22864,16 +22791,14 @@
                             (trapScanIn (nodeB e) acc)
                             (if (== tag TAG_E_FIELD)
                               (trapScanIn (nodeA e) acc)
-                              (if (== tag TAG_E_STRUCTCON)
-                                (trapScanVec (nodeBVec e) 0 acc)
-                                ; `cond` is AX2004: the parser builds
-                                ; none, so no arm scans one for traps.
-                                (if (== tag TAG_E_MATCH)
-                                  {
-                                    (trapScanIn (nodeA e) acc)
-                                    (trapScanArms (nodeBVec e) 0 acc)
-                                  }
-                                  0))))))))))))
+                              ; `cond` is AX2004: the parser builds
+                              ; none, so no arm scans one for traps.
+                              (if (== tag TAG_E_MATCH)
+                                {
+                                  (trapScanIn (nodeA e) acc)
+                                  (trapScanArms (nodeBVec e) 0 acc)
+                                }
+                                0)))))))))))
         acc
       })))
 
@@ -26840,11 +26765,9 @@
                                   (rgnExpr rc (nodeC e))
                                   b
                                 })
-                              (if (== tag TAG_E_STRUCTCON)
-                                (| (memGetWord rc 7) (rgnArgsUnion rc (nodeBVec e) 0 0))
-                                (if (== tag TAG_E_REGION)
-                                    (rgnRegionForm rc e)
-                                    0)))))))))))))))))
+                              (if (== tag TAG_E_REGION)
+                                  (rgnRegionForm rc e)
+                                  0))))))))))))))))
 
 (pub :: rgnVar (-> Int Int Int))
 ;@axiom:effect(unsafe)
@@ -28835,18 +28758,13 @@
                                 (ctEval w (nodeC e))
                                 0
                               }
-                              (if (== tag TAG_E_STRUCTCON)
-                                (let ((ts (ctEvalArgs w (nodeBVec e))))
-                                  (if (> (ctMaxTo ts (vecLen ts)) 0)
-                                    2
-                                    0))
-                                (if (== tag TAG_E_HANDLE)
-                                    (let ((t (ctEval w (nodeA e))))
-                                      {
-                                        (ctEval w (nodeC e))
-                                        t
-                                      })
-                                    0)))))))))))))))))
+                              (if (== tag TAG_E_HANDLE)
+                                  (let ((t (ctEval w (nodeA e))))
+                                    {
+                                      (ctEval w (nodeC e))
+                                      t
+                                    })
+                                  0))))))))))))))))
 
 (pub :: ctBindParams (-> CtWalk (Vec String) (Vec String) Int Int))
 (pub fn (ctBindParams w ps cs i)

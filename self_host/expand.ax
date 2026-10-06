@@ -4599,50 +4599,14 @@
                                   isp)
                                 isp)
                             }
-                            (if (== tag TAG_E_STRUCTCON)
-                              {
-                                (expWarnNamePos params (nodeAName tpl) 0 env isp "a struct type name" "rename the parameter to mean the literal type")
-                                (mkNodeAt
-                                  TAG_E_STRUCTCON
-                                  (nodeA tpl)
-                                  (substVec
-                                    (nodeBVec tpl)
-                                    params
-                                    args
-                                    ren
-                                    env
-                                    isp)
-                                  0
-                                  isp)
-                              }
-                              (if (== tag TAG_E_HANDLE)
-                                  (let ((en (expHandleParamName (nodeBVec tpl) params 0)))
-                                    {
-                                      (if (== (cast Int en) 0)
-                                        0
-                                        (expWarnNamePos params en 0 env isp "a handled effect name" "rename the parameter to mean the literal effect"))
-                                      (mkNodeAt
-                                        TAG_E_HANDLE
-                                        (substTpl
-                                          (nodeA tpl)
-                                          params
-                                          args
-                                          ren
-                                          env
-                                          isp)
-                                        (nodeB tpl)
-                                        (substTpl
-                                          (nodeC tpl)
-                                          params
-                                          args
-                                          ren
-                                          env
-                                          isp)
-                                        isp)
-                                    })
-                                  (if (== tag TAG_E_MATCH)
+                            (if (== tag TAG_E_HANDLE)
+                                (let ((en (expHandleParamName (nodeBVec tpl) params 0)))
+                                  {
+                                    (if (== (cast Int en) 0)
+                                      0
+                                      (expWarnNamePos params en 0 env isp "a handled effect name" "rename the parameter to mean the literal effect"))
                                     (mkNodeAt
-                                      TAG_E_MATCH
+                                      TAG_E_HANDLE
                                       (substTpl
                                         (nodeA tpl)
                                         params
@@ -4650,34 +4614,54 @@
                                         ren
                                         env
                                         isp)
-                                      (substArms
-                                        (nodeBVec tpl)
+                                      (nodeB tpl)
+                                      (substTpl
+                                        (nodeC tpl)
                                         params
                                         args
                                         ren
                                         env
                                         isp)
-                                      0
                                       isp)
-                                    ; `cond` is AX2004, so no template holds
-                                    ; one: the refusal below owns the arm.
-                                    ; --- the refusal ------------------------------------------
-                                    ; Reached only by a tag added to the parser and not to this
-                                    ; function. Returning `tpl` here is what made eight separate
-                                    ; miscompiles silent; refusing is what stops the ninth.
-                                    {
-                                      (expEmit env (mkDiagNote
-                                        SEV_ERROR
-                                        "AX3021"
-                                        "macro-template-unsupported"
-                                        isp
-                                        "this macro template contains a form the expander cannot substitute into"
-                                        0
-                                        0
-                                        "rewrite the template without this form, or add a case for it to `substTpl` in self_host/expand.ax"
-                                        "the expansion was refused rather than emitted, because substituting nothing here would silently leave the template's own identifiers in the generated code"))
-                                      (mkEInt 0)
-                                    })))))))))))))))))
+                                  })
+                                (if (== tag TAG_E_MATCH)
+                                  (mkNodeAt
+                                    TAG_E_MATCH
+                                    (substTpl
+                                      (nodeA tpl)
+                                      params
+                                      args
+                                      ren
+                                      env
+                                      isp)
+                                    (substArms
+                                      (nodeBVec tpl)
+                                      params
+                                      args
+                                      ren
+                                      env
+                                      isp)
+                                    0
+                                    isp)
+                                  ; `cond` is AX2004, so no template holds
+                                  ; one: the refusal below owns the arm.
+                                  ; --- the refusal ------------------------------------------
+                                  ; Reached only by a tag added to the parser and not to this
+                                  ; function. Returning `tpl` here is what made eight separate
+                                  ; miscompiles silent; refusing is what stops the ninth.
+                                  {
+                                    (expEmit env (mkDiagNote
+                                      SEV_ERROR
+                                      "AX3021"
+                                      "macro-template-unsupported"
+                                      isp
+                                      "this macro template contains a form the expander cannot substitute into"
+                                      0
+                                      0
+                                      "rewrite the template without this form, or add a case for it to `substTpl` in self_host/expand.ax"
+                                      "the expansion was refused rather than emitted, because substituting nothing here would silently leave the template's own identifiers in the generated code"))
+                                    (mkEInt 0)
+                                  }))))))))))))))))
 
 ; A lambda's parameter list is a Vec of NAMES. Each is a binder the
 ; template introduces and is renamed - unless it is a MACRO parameter,
@@ -5496,34 +5480,27 @@
                               (nodeB e)
                               (expandExpr (nodeC e) env bs)
                               sp)
-                            (if (== tag TAG_E_STRUCTCON)
-                              (mkNodeAt
-                                TAG_E_STRUCTCON
-                                (nodeA e)
-                                (expandVec (nodeBVec e) env bs)
-                                0
-                                sp)
-                              (if (== tag TAG_E_HANDLE)
+                            (if (== tag TAG_E_HANDLE)
+                                (mkNodeAt
+                                  TAG_E_HANDLE
+                                  (expandExpr (nodeA e) env bs)
+                                  (nodeB e)
+                                  (expandExpr (nodeC e) env bs)
+                                  sp)
+                                (if (== tag TAG_E_MATCH)
                                   (mkNodeAt
-                                    TAG_E_HANDLE
+                                    TAG_E_MATCH
                                     (expandExpr (nodeA e) env bs)
-                                    (nodeB e)
-                                    (expandExpr (nodeC e) env bs)
+                                    (expandArms (nodeBVec e) env bs)
+                                    0
                                     sp)
-                                  (if (== tag TAG_E_MATCH)
-                                    (mkNodeAt
-                                      TAG_E_MATCH
-                                      (expandExpr (nodeA e) env bs)
-                                      (expandArms (nodeBVec e) env bs)
-                                      0
-                                      sp)
-                                    ; Anything else has no expression children to walk - a pattern
-                                    ; node reached out of position, or a tag this pass does not
-                                    ; recognise. Unlike a TEMPLATE, ordinary code holds no
-                                    ; parameter references, so passing it through is safe.
-                                    ; (`cond` is AX2004: the parser builds
-                                    ; none, so no arm walks one.)
-                                    e)))))))))))))))))
+                                  ; Anything else has no expression children to walk - a pattern
+                                  ; node reached out of position, or a tag this pass does not
+                                  ; recognise. Unlike a TEMPLATE, ordinary code holds no
+                                  ; parameter references, so passing it through is safe.
+                                  ; (`cond` is AX2004: the parser builds
+                                  ; none, so no arm walks one.)
+                                  e))))))))))))))))
 
 (pub :: expPushNames (-> (Vec Int) (Vec Int) Int Int))
 (pub fn (expPushNames ns bs i)
@@ -8853,19 +8830,17 @@
                             (if (== (tplExprHasRepeat (nodeA e)) 1)
                               1
                               (tplExprHasRepeat (nodeC e)))
-                            (if (== tag TAG_E_STRUCTCON)
-                              (tplVecHasRepeat (nodeBVec e) 0)
-                              (if (== tag TAG_E_HANDLE)
+                            (if (== tag TAG_E_HANDLE)
+                                (if (== (tplExprHasRepeat (nodeA e)) 1)
+                                  1
+                                  (tplExprHasRepeat (nodeC e)))
+                                (if (== tag TAG_E_MATCH)
                                   (if (== (tplExprHasRepeat (nodeA e)) 1)
                                     1
-                                    (tplExprHasRepeat (nodeC e)))
-                                  (if (== tag TAG_E_MATCH)
-                                    (if (== (tplExprHasRepeat (nodeA e)) 1)
-                                      1
-                                      (tplArmsHaveRepeat (nodeBVec e) 0))
-                                    ; `cond` is AX2004: no template holds
-                                    ; one, so nothing here repeats one.
-                                    0)))))))))))))))))
+                                    (tplArmsHaveRepeat (nodeBVec e) 0))
+                                  ; `cond` is AX2004: no template holds
+                                  ; one, so nothing here repeats one.
+                                  0))))))))))))))))
 
 (pub :: tplVecHasRepeat (-> (Vec Int) Int Int))
 (pub fn (tplVecHasRepeat es i)

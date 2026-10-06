@@ -1115,14 +1115,12 @@
                               (lspLintWalk lx (nodeA e))
                               (lspLintWalk lx (nodeC e))
                             }
-                            (if (== tag TAG_E_STRUCTCON)
-                              (lspLintWalkVec lx (nodeBVec e) 0)
-                              (if (== tag TAG_E_HANDLE)
-                                  {
-                                    (lspLintWalk lx (nodeA e))
-                                    (lspLintWalk lx (nodeC e))
-                                  }
-                                  0))))))))))))))))
+                            (if (== tag TAG_E_HANDLE)
+                                {
+                                  (lspLintWalk lx (nodeA e))
+                                  (lspLintWalk lx (nodeC e))
+                                }
+                                0)))))))))))))))
 
 ; One declaration: a fresh scope under its own name, its parameters
 ; bound over its body. Macro bodies are not entered - templates are
@@ -5012,18 +5010,13 @@
                               (lspNavWalk nv (nodeA e))
                               (lspNavWalk nv (nodeC e))
                             }
-                            (if (== tag TAG_E_STRUCTCON)
-                              {
-                                (lspNavRef nv (nodeAName e) (nodeSpan e) NAV_READ)
-                                (lspNavWalkVec nv (nodeBVec e))
-                              }
-                              (if (== tag TAG_E_HANDLE)
-                                  {
-                                    (lspNavWalk nv (nodeA e))
-                                    (lspNavWalkEffects nv (nodeBVec e) 0)
-                                    (lspNavWalk nv (nodeC e))
-                                  }
-                                  0))))))))))))))))
+                            (if (== tag TAG_E_HANDLE)
+                                {
+                                  (lspNavWalk nv (nodeA e))
+                                  (lspNavWalkEffects nv (nodeBVec e) 0)
+                                  (lspNavWalk nv (nodeC e))
+                                }
+                                0)))))))))))))))
 
 ; `(println "...")`, `(eprintln "...")` or `(format "...")`, with the
 ; literal as the argument: the one place a string's `{name}` is a hole.
@@ -6636,27 +6629,6 @@
                 args
                 fuel))))))))
 
-; `(struct Name ...)`: the named struct, verified like any other
-; construction.
-(pub :: lspShapeStructCon (-> (Vec Int) (Vec Int) Int Int Int))
-(pub fn (lspShapeStructCon decls occs e fuel)
-  (let ((d (lspFindTypeDecl decls (nodeAName e) (- (vecLen decls) 1))))
-    (if (|| (== d 0) (!= (nodeTag d) TAG_D_STRUCT))
-      0
-      (let ((raw (nodeBVec e)))
-        (lspShapeCon
-          decls
-          occs
-          (nodeAName e)
-          (lspShapeTyParams d)
-          (lspShapeFieldTys (nodeBVec d) 0 vecNew)
-          (if (==
-            (cast Int raw)
-            0)
-            vecNew
-            raw)
-          fuel)))))
-
 ; A field read: the field's declared type, with the base's
 ; arguments in place of the struct's parameters. The base is
 ; whatever shape the walk resolved - a parameter, a `let`, a
@@ -6722,13 +6694,11 @@
                         (lspShapeOf decls occs (nodeC e) fuel)
                         (if (== tag TAG_E_MATCH)
                           (lspShapeMatch decls occs (nodeBVec e) fuel)
-                          (if (== tag TAG_E_STRUCTCON)
-                            (lspShapeStructCon decls occs e fuel)
-                            (if (== tag TAG_E_FIELD)
-                              (lspShapeField decls occs e fuel)
-                              (if (|| (== tag TAG_E_SET) (== tag TAG_E_SETF))
-                                mkIntTy
-                                0))))))))))))))))
+                          (if (== tag TAG_E_FIELD)
+                            (lspShapeField decls occs e fuel)
+                            (if (|| (== tag TAG_E_SET) (== tag TAG_E_SETF))
+                              mkIntTy
+                              0)))))))))))))))
 
 ; A binder's shape: a parameter's from its signature, a `let`'s
 ; from its value. A lambda parameter or pattern variable carries
@@ -9088,20 +9058,72 @@
                   (nodeAVec e)
                   rs
                   re)
-                (if (== tag TAG_E_STRUCTCON)
-                  (lspViewHintsVec
-                    out
-                    src
-                    ix
-                    fns
-                    locals
-                    decls
-                    occs
-                    (nodeBVec e)
-                    rs
-                    re)
-                  (if (|| (== tag TAG_E_WHILE) (== tag TAG_E_REGION))
-                    (if (== tag TAG_E_REGION)
+                (if (|| (== tag TAG_E_WHILE) (== tag TAG_E_REGION))
+                  (if (== tag TAG_E_REGION)
+                    (lspViewHintsExpr
+                      out
+                      src
+                      ix
+                      fns
+                      locals
+                      decls
+                      occs
+                      (nodeB e)
+                      rs
+                      re)
+                    {
+                      (lspViewHintsExpr
+                        out
+                        src
+                        ix
+                        fns
+                        locals
+                        decls
+                        occs
+                        (nodeA e)
+                        rs
+                        re)
+                      (lspViewHintsVec
+                        out
+                        src
+                        ix
+                        fns
+                        locals
+                        decls
+                        occs
+                        (nodeBVec e)
+                        rs
+                        re)
+                    })
+                  (if (== tag TAG_E_MATCH)
+                    {
+                      (lspViewHintsExpr
+                        out
+                        src
+                        ix
+                        fns
+                        locals
+                        decls
+                        occs
+                        (nodeA e)
+                        rs
+                        re)
+                      (lspViewHintsArms
+                        out
+                        src
+                        ix
+                        fns
+                        locals
+                        decls
+                        occs
+                        (nodeBVec e)
+                        rs
+                        re)
+                    }
+                    ; `cond` is AX2004: the parser builds none, so
+                    ; no arm hints one. A variadic `if` arrives as
+                    ; nested `if`s.
+                    (if (== tag TAG_E_SET)
                       (lspViewHintsExpr
                         out
                         src
@@ -9113,7 +9135,7 @@
                         (nodeB e)
                         rs
                         re)
-                      {
+                      (if (== tag TAG_E_FIELD)
                         (lspViewHintsExpr
                           out
                           src
@@ -9125,121 +9147,57 @@
                           (nodeA e)
                           rs
                           re)
-                        (lspViewHintsVec
-                          out
-                          src
-                          ix
-                          fns
-                          locals
-                          decls
-                          occs
-                          (nodeBVec e)
-                          rs
-                          re)
-                      })
-                    (if (== tag TAG_E_MATCH)
-                      {
-                        (lspViewHintsExpr
-                          out
-                          src
-                          ix
-                          fns
-                          locals
-                          decls
-                          occs
-                          (nodeA e)
-                          rs
-                          re)
-                        (lspViewHintsArms
-                          out
-                          src
-                          ix
-                          fns
-                          locals
-                          decls
-                          occs
-                          (nodeBVec e)
-                          rs
-                          re)
-                      }
-                      ; `cond` is AX2004: the parser builds none, so
-                      ; no arm hints one. A variadic `if` arrives as
-                      ; nested `if`s.
-                      (if (== tag TAG_E_SET)
-                        (lspViewHintsExpr
-                          out
-                          src
-                          ix
-                          fns
-                          locals
-                          decls
-                          occs
-                          (nodeB e)
-                          rs
-                          re)
-                        (if (== tag TAG_E_FIELD)
-                          (lspViewHintsExpr
-                            out
-                            src
-                            ix
-                            fns
-                            locals
-                            decls
-                            occs
-                            (nodeA e)
-                            rs
-                            re)
-                          (if (== tag TAG_E_SETF)
-                            {
-                              (lspViewHintsExpr
-                                out
-                                src
-                                ix
-                                fns
-                                locals
-                                decls
-                                occs
-                                (nodeA e)
-                                rs
-                                re)
-                              (lspViewHintsExpr
-                                out
-                                src
-                                ix
-                                fns
-                                locals
-                                decls
-                                occs
-                                (nodeC e)
-                                rs
-                                re)
-                            }
-                            (if (== tag TAG_E_HANDLE)
-                                {
-                                  (lspViewHintsExpr
-                                    out
-                                    src
-                                    ix
-                                    fns
-                                    locals
-                                    decls
-                                    occs
-                                    (nodeA e)
-                                    rs
-                                    re)
-                                  (lspViewHintsExpr
-                                    out
-                                    src
-                                    ix
-                                    fns
-                                    locals
-                                    decls
-                                    occs
-                                    (nodeC e)
-                                    rs
-                                    re)
-                                }
-                                0)))))))))))))))
+                        (if (== tag TAG_E_SETF)
+                          {
+                            (lspViewHintsExpr
+                              out
+                              src
+                              ix
+                              fns
+                              locals
+                              decls
+                              occs
+                              (nodeA e)
+                              rs
+                              re)
+                            (lspViewHintsExpr
+                              out
+                              src
+                              ix
+                              fns
+                              locals
+                              decls
+                              occs
+                              (nodeC e)
+                              rs
+                              re)
+                          }
+                          (if (== tag TAG_E_HANDLE)
+                              {
+                                (lspViewHintsExpr
+                                  out
+                                  src
+                                  ix
+                                  fns
+                                  locals
+                                  decls
+                                  occs
+                                  (nodeA e)
+                                  rs
+                                  re)
+                                (lspViewHintsExpr
+                                  out
+                                  src
+                                  ix
+                                  fns
+                                  locals
+                                  decls
+                                  occs
+                                  (nodeC e)
+                                  rs
+                                  re)
+                              }
+                              0))))))))))))))
 
 (pub :: lspViewHintsVec (-> Int String (Vec Int) (Vec Int) (Vec Int) (Vec Int) (Vec Int) (Vec Int) Int Int Int))
 (pub fn (lspViewHintsVec out src ix fns locals decls occs xs rs re)
@@ -13609,21 +13567,19 @@
         (concat (concat (lspRenderExpr (nodeA e) ind) ".") (nodeBName e))
         (if (== tag TAG_E_SETF)
           (lspRenderForm (lspParts3 "set" (concat (concat (lspRenderExpr (nodeA e) (+ ind 2)) ".") (nodeBName e)) (lspRenderExpr (nodeC e) (+ ind 2))) ind)
-          (if (== tag TAG_E_STRUCTCON)
-            (lspRenderForm (lspPartsExprs (lspParts2 "struct" (lspRenderName (nodeAName e))) (nodeBVec e) 0 (+ ind 2)) ind)
-            (if (== tag TAG_E_HANDLE)
-                (lspRenderHandle e ind)
-                (if (== tag TAG_E_QUOTE)
-                  (lspRenderForm (lspParts2 "quote" (lspRenderExpr (nodeA e) (+ ind 2))) ind)
-                  (if (== tag TAG_P_CON0)
-                    (concat (concat "(" (lspRenderName (nodeAName e))) ")")
-                    (if (== tag TAG_P_CONNAMED)
-                      (lspRenderConNamed e ind)
-                      (if (== tag TAG_M_FOR)
-                        (lspRenderSynFor e ind)
-                        (if (== tag TAG_M_ARM)
-                          (lspRenderArm e ind)
-                          (concat (concat "(syntax/unrenderable " (fmtInt tag)) ")")))))))))))))
+          (if (== tag TAG_E_HANDLE)
+              (lspRenderHandle e ind)
+              (if (== tag TAG_E_QUOTE)
+                (lspRenderForm (lspParts2 "quote" (lspRenderExpr (nodeA e) (+ ind 2))) ind)
+                (if (== tag TAG_P_CON0)
+                  (concat (concat "(" (lspRenderName (nodeAName e))) ")")
+                  (if (== tag TAG_P_CONNAMED)
+                    (lspRenderConNamed e ind)
+                    (if (== tag TAG_M_FOR)
+                      (lspRenderSynFor e ind)
+                      (if (== tag TAG_M_ARM)
+                        (lspRenderArm e ind)
+                        (concat (concat "(syntax/unrenderable " (fmtInt tag)) ")"))))))))))))
 
 (pub :: lspParts2 (-> String String (Vec String)))
 (pub fn (lspParts2 a b)
