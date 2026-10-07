@@ -109,7 +109,6 @@ chacha20Poly1305Open stdlib/Crypto/ChaCha20Poly1305.ax no-io,no-foreign ok
 chacha20Poly1305Seal stdlib/Crypto/ChaCha20Poly1305.ax no-io,no-foreign ok
 chacha20Xor stdlib/Crypto/ChaCha20.ax no-io,no-alloc,no-foreign ok
 chachaDoubleRound stdlib/Crypto/ChaCha20.ax no-io,no-alloc,no-foreign ok
-chanFreeFn tests/litmus/shared-free-boundary.ax no-unsafe,strict unproven
 charsToIx self_host/diag.ax no-io,no-alloc,no-foreign ok
 civilCheck stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
 civilFromDays stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
@@ -287,9 +286,6 @@ fmtSpanIx self_host/diag.ax no-io,no-foreign ok
 fmtSpanParts self_host/diag.ax no-io,no-foreign ok
 forges tests/diagnostics/1042-no-unsafe-indirect.ax no-unsafe violated
 fractionWidth stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
-freeChan tests/litmus/shared-free-boundary.ax no-unsafe ok
-freeMutex tests/litmus/shared-free-boundary.ax no-unsafe ok
-freeToken tests/litmus/shared-free-boundary.ax no-unsafe ok
 ge25519Add stdlib/Crypto/Curve25519.ax no-io,no-alloc,no-foreign ok
 ge25519Base stdlib/Crypto/Curve25519.ax no-io,no-alloc,no-foreign ok
 ge25519CombTable stdlib/Crypto/Curve25519.ax no-io,no-alloc,no-foreign ok
@@ -540,7 +536,6 @@ mkHlSpan self_host/replhl.ax no-io,no-foreign ok
 mkSpan self_host/core.ax no-io,no-foreign ok
 mkToken self_host/core.ax no-io,no-foreign ok
 mulNs stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
-mutexFreeFn tests/litmus/shared-free-boundary.ax no-unsafe,strict unproven
 named tests/diagnostics/391-restrict-effect-transparent.ax no-io ok
 native tests/diagnostics/374-restrict-no-foreign.ax no-foreign ok
 nested tests/diagnostics/373-restrict-no-cast.ax no-cast violated
@@ -675,7 +670,6 @@ st32be stdlib/Crypto/Ct.ax no-io,no-alloc,no-foreign ok
 st32le stdlib/Crypto/Ct.ax no-io,no-alloc,no-foreign ok
 st64be stdlib/Crypto/Ct.ax no-io,no-alloc,no-foreign ok
 st64le stdlib/Crypto/Ct.ax no-io,no-alloc,no-foreign ok
-state tests/litmus/shared-free-boundary.ax no-unsafe ok
 step tests/embedded/periodic.ax no-alloc,no-recursion,strict ok
 step tests/profile/ok-periodic.ax no-alloc,no-recursion,strict ok
 stepCharToken self_host/lexer.ax no-io,no-foreign ok
@@ -724,7 +718,6 @@ sumTo tests/selfhost/465-restrict-no-wrap-runs.ax no-wrap ok
 sums tests/diagnostics/372-restrict-no-alloc.ax no-alloc ok
 swaps tests/diagnostics/1010-unsafe-primitives.ax no-unsafe violated
 tag tests/diagnostics/384-restrict-no-alloc-ctor.ax no-alloc ok
-taggedFree tests/litmus/shared-free-boundary.ax no-unsafe ok
 termBufBytes stdlib/Tui/Term.ax no-io,no-alloc,no-foreign ok
 termWsCols stdlib/Tui/Term.ax no-io,no-alloc,no-foreign ok
 termWsRows stdlib/Tui/Term.ax no-io,no-alloc,no-foreign ok
@@ -737,7 +730,6 @@ timeMinute stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
 timeNanosecond stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
 timeSecond stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
 timeWidth stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
-tokenFreeFn tests/litmus/shared-free-boundary.ax no-unsafe,strict unproven
 tokenKind self_host/core.ax no-io,no-alloc,no-foreign ok
 tokenLexeme self_host/core.ax no-io,no-alloc,no-foreign ok
 tokenSpan self_host/core.ax no-io,no-alloc,no-foreign ok
