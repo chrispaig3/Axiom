@@ -1047,10 +1047,58 @@ Tested by `tests/stdlib/810-addr-identity.ax`.
 
 ### Inline assembly
 
-The low-level layer includes raw memory, syscalls, volatile MMIO and
-`asm`. A function that uses them says `;@axiom:effect(unsafe)`. Inline
-assembly operands, clobbers and target checks are in the
-[embedded guide](embedded-guide.md).
+`asm` runs instructions the language has no form for. A function that
+uses it says `;@axiom:effect(unsafe)`, because the compiler can't see
+what the instructions do. Callers of that function inherit nothing.
+
+```scheme
+(import IO)
+
+(:: add (-> Int Int Int))
+;@axiom:effect(unsafe)
+(fn (add x y)
+  (asm
+    (aarch64 "add {r}, {a}, {b}" (out r) (in a x) (in b y))
+    (x86_64 "leaq ({a},{b}), {r}" (out r) (in a x) (in b y))))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (println (fmtInt (add 40 2)))
+    0
+  })
+```
+
+```text
+42
+```
+
+- **Arms.** Each arm names an architecture, `aarch64` or `x86_64`, at
+  most once. Building for a target whose architecture has no arm is
+  refused (`AX4008`).
+- **The template** is a string literal. `{name}` stands for an operand's
+  register, `{name:w}` for a narrower view of it (`w` on AArch64, `k` on
+  x86-64), and `{{` and `}}` for literal braces.
+- **Operands** are `(in name value)`, `(out name)` and
+  `(inout name value)`. Each can name a register, as in
+  `(in a "x8" x)`. `(clobber "x9")` names a register the instructions
+  write. An arm answers at most one value.
+- **Reserved registers.** No operand or clobber may name the stack
+  pointer, the frame pointer or AArch64's `x18`.
+
+The compiler checks the form: its arms, operands and registers
+(`AX3091`). It doesn't check the instructions. The template reaches the
+assembler as written, so a mistake in its text fails when `llc`
+assembles it. Not yet: that failure is reported as `AX4003` with no
+location; see the [roadmap](roadmap.md#tools).
+
+The restricted profile refuses `asm` unless `--allow-asm` names the
+function (`RP-9`). The rule is `MM-FFI-9` in the
+[memory model](memory-model.md).
+
+Tested by `tests/stdlib/581-inline-asm.ax` and
+`tests/diagnostics/1044-inline-asm.ax`.
 
 
 ## Concurrency

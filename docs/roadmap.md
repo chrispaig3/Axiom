@@ -104,6 +104,7 @@ integrator would still need.
 | Item | State |
 |---|---|
 | Debug information (DWARF), a message on SIGSEGV, and inlined frames in backtraces | Not started |
+| An assembler error inside an `asm` template is reported at the form | Not started |
 | The test runner runs tests in parallel | Not started |
 | The language server answers inside macro invocations | Not started |
 | Packages can pin a version | Not started |

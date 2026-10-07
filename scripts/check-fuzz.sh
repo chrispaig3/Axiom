@@ -190,7 +190,8 @@ deadline=120
 # the check would prove only that the control works.
 #
 # fuzz_one <compiler> <input.ax> <AXIOM_PATH> <deadline>
-#   f_verdict  ok | refused | target (AX4008 at emit, P3's exception) | fail
+#   f_verdict  ok | refused | target (AX4008 at emit, P3's exception)
+#              | asmtext (llc refused only an `asm` template's own text) | fail
 #   f_stage    where it failed: check | json | emit | llc
 #   f_why      the harness's sentence
 #   f_detail   the failing tool's own first relevant line (for the JSON
@@ -288,6 +289,15 @@ fuzz_one() {
   if (( rc != 0 )); then
     f_stage=llc f_why="llc $(describe_rc "$rc") on the IR emit-llvm wrote"
     f_detail="$( { grep -a -m1 'error:' "$b.lerr" || true; } | sed 's/.*error: //' | cut -c1-200)"
+    # An `asm` template reaches the assembler as the program wrote it
+    # (docs/reference.md, Inline assembly). When every error llc reports is
+    # located in `<inline asm>`, the IR is sound and the assembler
+    # refused the template's own text, as it would from hand-written
+    # assembly. Exit 1 with any other error line is still a failure.
+    if (( rc == 1 )) && grep -a -q 'error:' "$b.lerr" \
+       && ! grep -a 'error:' "$b.lerr" | grep -a -v -q '^<inline asm>:'; then
+      f_verdict=asmtext
+    fi
     return
   fi
   f_llc=1 f_verdict=ok
@@ -507,7 +517,7 @@ echo "   reproduce any mutant I: scripts/check-fuzz.sh --seed $seed --only I --k
 
 # ---------------------------------------------------------------------
 echo "== 2. $count mutants through check, the JSON renderer, emit-llvm and llc =="
-n_run=0 n_parsed=0 n_ok=0 n_emitted=0 n_llc=0 n_refused=0 n_fail=0 n_known=0 n_target=0
+n_run=0 n_parsed=0 n_ok=0 n_emitted=0 n_llc=0 n_refused=0 n_fail=0 n_known=0 n_target=0 n_asm=0
 : > "$work/json.list"; : > "$work/json.names"
 : > "$work/human.list"; : > "$work/human.names"
 ok_names=() refused_names=()
@@ -525,6 +535,7 @@ while IFS=$'\t' read -r name src ops; do
   case "$f_verdict" in
     ok) ok_names+=("$name") ;;
     target) n_target=$((n_target + 1)) ;;
+    asmtext) n_asm=$((n_asm + 1)) ;;
     refused)
       n_refused=$((n_refused + 1)); refused_names+=("$name")
       printf '%s\n' "$f_json" >> "$work/json.list"
@@ -583,7 +594,7 @@ while IFS=$'\t' read -r hf why; do
   fi
 done < "$work/human.bad"
 
-echo "   $n_run run in $((SECONDS - t0))s: $n_parsed parsed, $n_ok checked OK, $n_emitted emitted, $n_llc llc-accepted, $n_target refused at emit by AX4008 for this host, $n_refused refused ($n_json with well-formed JSON); $n_human human reports terminal-safe; $n_known known-open (XFAIL), $n_fail new failures"
+echo "   $n_run run in $((SECONDS - t0))s: $n_parsed parsed, $n_ok checked OK, $n_emitted emitted, $n_llc llc-accepted, $n_target refused at emit by AX4008 for this host, $n_asm asm templates the assembler refused, $n_refused refused ($n_json with well-formed JSON); $n_human human reports terminal-safe; $n_known known-open (XFAIL), $n_fail new failures"
 if (( n_fail == 0 )); then
   ok "no mutant crashed, hung, refused without a code, broke the JSON contract, wrote an unsafe human report or produced IR llc rejects ($n_known known-open)"
 fi
