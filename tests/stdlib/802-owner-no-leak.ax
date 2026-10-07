@@ -64,7 +64,7 @@
 ;@axiom:effect(io)
 ;@axiom:effect(block)
 (fn (keep n)
-  (let ((v vecNewRef))
+  (let ((v vecNew))
     {
       (for i in 0..n
         (match (chanNew 1)
