@@ -306,6 +306,7 @@ ghashBmul64 stdlib/Crypto/Ghash.ax no-io,no-alloc,no-foreign ok
 ghashRev64 stdlib/Crypto/Ghash.ax no-io,no-alloc,no-foreign ok
 ghashTailWord stdlib/Crypto/Ghash.ax no-io,no-alloc,no-foreign ok
 ghashUpdate stdlib/Crypto/Ghash.ax no-io,no-alloc,no-foreign ok
+guessed tests/diagnostics/1225-descriptor-hole.ax no-unsafe ok
 h0 tests/diagnostics/1080-unsafe-syscalls.ax no-unsafe violated
 h1 tests/diagnostics/1080-unsafe-syscalls.ax no-unsafe violated
 h2 tests/diagnostics/1080-unsafe-syscalls.ax no-unsafe violated
@@ -317,6 +318,7 @@ hardIo tests/diagnostics/393-restrict-strict.ax no-io,strict unproven
 hardRec tests/diagnostics/393-restrict-strict.ax no-recursion,strict unproven
 hasAxiomPrefix self_host/lexer.ax no-io,no-alloc,no-foreign ok
 held tests/diagnostics/384-restrict-no-alloc-ctor.ax no-alloc violated
+hijack tests/diagnostics/1225-descriptor-hole.ax no-unsafe ok
 histAllBlank self_host/replhist.ax no-io,no-alloc,no-foreign ok
 histAt self_host/replhist.ax no-io,no-alloc,no-foreign ok
 histBrowseDown self_host/replhist.ax no-io,no-alloc,no-foreign ok
@@ -576,6 +578,7 @@ putFraction stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
 putName stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
 putTime stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
 putYear stdlib/Chrono.ax no-io,no-alloc,no-foreign ok
+quiet tests/diagnostics/1225-descriptor-hole.ax no-io violated
 quiet tests/diagnostics/377-restrict-witness-path.ax no-io,no-alloc ok
 quoteBody self_host/diag.ax no-io,no-foreign ok
 quoteHexDigit self_host/diag.ax no-io,no-foreign ok

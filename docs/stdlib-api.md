@@ -1111,7 +1111,7 @@ two differ.
 
 ## `IO`
 
-`stdlib/IO.ax` — 65 public names
+`stdlib/IO.ax` — 67 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -1122,6 +1122,8 @@ two differ.
 | `fileClose` | value | `(-> File (Result Int Error))` | `Alloc,IO,Unsafe` | Close early, once: `(Ok 0)`, or `(Err e)` carrying the errno of the close - on a written file, where a deferred write error surfaces. Aliases observe the close, and any later use of one traps 85. The descriptor is retired before the close and the close is never retried. Closing a standard stream retires that value only. |
 | `writeStr` | value | `(-> File String Int)` | `Alloc,IO` | Write all of `s` to `f`, returning the number of bytes written or a negative errno. This is the printing path's answer: `println` is `(writeStr stdout ...)`, and a statement that prints does not have to bind a `Result`. `fileWrite` answers the same write as a `Result`. |
 | `writeSlice` | value | `(-> File String Int Int Int)` | `Alloc,IO` | Write the `len` bytes of `s` that start at byte `start`, all of them, returning the number written or a negative errno - `writeStr` over a part of a string, with no copy. |
+| `writeOut` | value | `(-> String Int)` | `Alloc,IO` | Write all of `s` to standard output, or to standard error: the bytes written, or a negative errno. `println` and `eprintln` are these with the line built at expansion time. They make no `File`, so printing allocates nothing on the way out; `(writeStr stdout s)` is the same write through a `File`. |
+| `writeErr` | value | `(-> String Int)` | `Alloc,IO` |  |
 | `fileWrite` | value | `(-> File String (Result Int Error))` | `Alloc,IO` | Write every byte of `s` to `f`: `(Ok n)`, or `(Err e)` whose code is the errno of the write that failed. |
 | `println` | macro |  |  |  |
 | `eprintln` | macro |  |  |  |
