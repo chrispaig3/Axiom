@@ -12,6 +12,7 @@ feature you need. Detailed compiler contracts are linked separately.
 
 The [generated API](stdlib-api.md) is the complete public-name listing.
 [What's ready today](status.md) records feature and target limits.
+The [1.0 roadmap](roadmap.md) is the one plan for what's left.
 
 ## Go further
 

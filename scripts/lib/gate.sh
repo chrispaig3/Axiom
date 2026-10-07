@@ -560,6 +560,7 @@ docs/lsp.md
 docs/stdlib-api.md
 docs/compiler-guide.md
 docs/status.md
+docs/roadmap.md
 docs/embedded-guide.md
 docs/restricted-profile.md
 docs/assurance.md

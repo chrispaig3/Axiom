@@ -226,7 +226,7 @@ The linker script reserves 8 KiB of stack (`baremetalLinkScript`,
 - **No time bound.** A bounded stack is not a bounded latency, no loop
   is proven to terminate, and nothing here is a WCET analysis.
   Measured maximum latency and a justified worst-case bound are
-  different claims ([status.md](status.md) milestone D).
+  different claims ([assurance.md](assurance.md#gaps-to-qualification)).
 - **Some traps have no edge in the graph.** Count exhaustion from the
   retains the compiler emits, stack exhaustion, and a CPU fault from an
   Unsafe access aren't in any function's trap set. The report names

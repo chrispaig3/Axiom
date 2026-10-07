@@ -14,6 +14,14 @@ The short version:
 
 - Describe what is true now. History, dates and "used to" belong in
   `CHANGELOG.md`, which is append-only and keeps its own record.
+- Keep one roadmap. Planned work and everything left before 1.0 live
+  only in `docs/roadmap.md`. Other pages describe what is true now; a
+  limit gets one "Not yet" line and a link to the roadmap. When work
+  lands, update its roadmap row in the same commit.
+- Don't scatter documentation. Extend the page that owns a topic
+  instead of adding a thin new one. When a page's content moves, delete
+  the old page in the same change and update its links, the gate lists
+  and the website.
 - Don't narrate CI gates or the document's own conventions in user
   pages. Cite evidence quietly: one "Tested by `tests/...`" line, not a
   story.

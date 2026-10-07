@@ -811,9 +811,8 @@ When you change the compiler:
    reference.
 3. Read [docs/diagnostics.md](docs/diagnostics.md) for the diagnostic
    and symbol notation.
-4. Read [docs/status.md](docs/status.md) for what's done and what
-   isn't. There's no separate roadmap; the status page is where to see
-   what's ready.
+4. Read [docs/status.md](docs/status.md) for what's ready today, and
+   [docs/roadmap.md](docs/roadmap.md) for what's left before 1.0.
 
 ### Submitting a PR
 

@@ -62,6 +62,20 @@ them when you touch a page.
 | Internals in a newcomer section | LLVM globals in the "Literals" section | A short *Under the hood* note at the end, or a link to the specification. |
 | Throat-clearing | "Welcome! Whether you're…", "A friendly, comprehensive guide…", "This document describes…" | Open with what the page gives the reader, in one or two sentences. |
 
+## One roadmap, no thin pages
+
+Planned work has one home: `docs/roadmap.md`, the 1.0 roadmap. A guide
+or specification states what is true now. Where it has a limit, it
+says so in one "Not yet" line and links the roadmap instead of
+keeping its own plan. A specification's **P** rule is the exception:
+it stays where it is, and the roadmap links to it.
+
+When work lands, change its roadmap row in the same commit. Before
+adding a page, find the page that owns the topic and extend it. When a
+page's content moves somewhere else, delete the page in the same
+change and update every link, `gate_prose_docs` in
+`scripts/lib/gate.sh`, and the website.
+
 ## Page shapes
 
 **Guides** are pages people learn from: `README.md`, `docs/reference.md`,

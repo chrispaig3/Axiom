@@ -6,6 +6,8 @@ the status table come the primitive types, cross-compiling, the
 command-line interface and a tour of the compiler's error messages. The list of supported
 targets lives in the README's [Targets](../README.md#targets) section.
 
+What is left before 1.0 is in the [roadmap](roadmap.md).
+
 ## Targets and evidence
 
 CI executes the gate battery on linux-aarch64 and darwin-aarch64. The
@@ -49,26 +51,6 @@ qualification.
 | Compiler | A large single `let` increases compile time faster than linearly | Split long binding lists into scopes or functions |
 
 For bug reports and the supported version, see [security and support](../SECURITY.md).
-
-## Memory and concurrency milestones
-
-The v0.7.8 release is deferred while reference counting and regions gain
-stronger safety guarantees. The hosted reference configurations are
-linux-aarch64 and darwin-aarch64 at `--opt` 0–3, using processes and threads.
-The embedded reference is baremetal-aarch64 under the restricted profile,
-executed in QEMU; hardware validation remains open.
-
-| Milestone | Required evidence before completion |
-|---|---|
-| Ownership and lifetime checks | Reject delayed loop escapes; keep valid same-region programs; review every trusted Unsafe boundary |
-| Typed concurrency | Scoped immutable graphs; owned task inputs and results; cleanup across joins, cancellation and failure |
-| Bounded execution | Fixed worker, queue, memory and stack budgets; exhaustion and shutdown tests |
-| Release readiness | Supported-target CI passes, reproducible toolchain records and independent review of remaining defects |
-
-Shared mutable heap graphs, automatic disposal leases and general typed
-thread results remain open. The existing [contract and evidence matrix](memory-model.md#assurance-evidence)
-records the implemented rules. Application qualification still requires its
-own hardware, process and independent assessment.
 
 ## Implementation status
 
