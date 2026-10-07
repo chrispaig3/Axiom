@@ -881,17 +881,14 @@ mapInsertNoGrow Map.ax Mut
 mapKeys Map.ax Alloc,Mut
 mapLiveFrom Map.ax Alloc
 mapNew Map.ax Alloc,Mut
-mapNewRefVals Map.ax Alloc,Mut
 mapOk Err.ax Alloc
 mapPlaceLoop Map.ax Mut
 mapRehash Map.ax Alloc,Mut,Unsafe
 mapReinsertLoop Map.ax Mut
 mapRemove Map.ax Mut
 mapRow Axqlite.ax Alloc,Mut
-mapSized Map.ax Alloc,Mut
 mapValues Map.ax Alloc,Mut
 mapWithCapacity Map.ax Alloc,Mut
-mapWithCapacityRefVals Map.ax Alloc,Mut
 markPage Btree.ax Alloc,Mut,Unsafe
 matchRow AxqlExec.ax Alloc,Mut
 maxKey AxqlExec.ax Alloc
@@ -1622,7 +1619,6 @@ vecGet Vec.ax Unsafe
 vecGetStr Vec.ax Unsafe
 vecGetVec Vec.ax Unsafe
 vecNew Vec.ax Alloc,Mut
-vecNewRef Vec.ax Alloc,Mut
 vecPop Vec.ax Mut,Unsafe
 vecPush Vec.ax Alloc,Mut
 vecPushStr Vec.ax Alloc,Mut,Unsafe
@@ -1637,7 +1633,6 @@ vecSortBy Vec.ax Mut
 vecSwapWords Vec.ax Mut
 vecTry Vec.ax Alloc,Unsafe
 vecWithCapacity Vec.ax Alloc,Mut
-vecWithCapacityRef Vec.ax Alloc,Mut
 visitRow AxqlExec.ax Alloc,Mut
 walkChain Btree.ax Alloc,IO,Mut,Unsafe
 withChild Btree.ax Alloc,Mut

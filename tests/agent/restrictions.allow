@@ -450,7 +450,6 @@ ledDispatch stdlib/Tui/Edit.ax no-io,no-foreign ok
 ledEnd stdlib/Tui/Edit.ax no-io,no-foreign ok
 ledEraseOld stdlib/Tui/Edit.ax no-io,no-foreign ok
 ledEraseRow stdlib/Tui/Edit.ax no-io,no-foreign ok
-ledFree stdlib/Tui/Edit.ax no-io,no-foreign ok
 ledHome stdlib/Tui/Edit.ax no-io,no-foreign ok
 ledInsert stdlib/Tui/Edit.ax no-io,no-foreign ok
 ledInsertStr stdlib/Tui/Edit.ax no-io,no-foreign ok
@@ -791,7 +790,6 @@ vecHashFrom stdlib/Vec.ax no-io,no-alloc,no-foreign ok
 vecLast stdlib/Vec.ax no-io,no-alloc,no-foreign ok
 vecLen stdlib/Vec.ax no-io,no-alloc,no-foreign ok
 vecNew stdlib/Vec.ax no-io,no-foreign ok
-vecNewRef stdlib/Vec.ax no-io,no-foreign ok
 vecOwnsRefs stdlib/Vec.ax no-io,no-alloc,no-foreign ok
 vecPop stdlib/Vec.ax no-io,no-alloc,no-foreign ok
 vecPush stdlib/Vec.ax no-io,no-foreign ok
@@ -807,7 +805,6 @@ vecSumFrom stdlib/Vec.ax no-io,no-alloc,no-foreign ok
 vecSwapWords stdlib/Vec.ax no-io,no-alloc,no-foreign ok
 vecTry stdlib/Vec.ax no-io,no-foreign ok
 vecWithCapacity stdlib/Vec.ax no-io,no-foreign ok
-vecWithCapacityRef stdlib/Vec.ax no-io,no-foreign ok
 viaAlloc tests/diagnostics/391-restrict-effect-transparent.ax no-alloc unverifiable
 viaBuiltin tests/diagnostics/377-restrict-witness-path.ax no-io violated
 viaCallback tests/diagnostics/377-restrict-witness-path.ax no-io violated
