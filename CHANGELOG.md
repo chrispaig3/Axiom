@@ -16,6 +16,8 @@ its changelog too.
 
 ## Unreleased
 
+## 0.7.8 — 2026-10-07
+
 - Refuse a `Result` dropped in statement position, as the error
   `AX3046`. Bind a deliberate discard to `_`. **BREAKING**. Tested by
   `tests/diagnostics/1006-discarded-result.ax`.
@@ -411,8 +413,6 @@ its changelog too.
 - Validate the selected Windows import archives at member boundaries. Ignore
   shadowed archives and ordinary object data that resembles an import header.
   Tested by `scripts/check-driver.sh`.
-
-## 0.7.8 — 2026-10-03
 
 Axiom 0.7.8 adds optional binary and authenticated asset obfuscation,
 strengthens region and Rust FFI checks, and refreshes the website with

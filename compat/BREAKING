@@ -17,36 +17,36 @@
 # S struct, T trait, M macro. `docs/compatibility.md` is the policy
 # this file implements.
 
-0.7.9  CLI  diagnostic-format-names  only human, ai and json are accepted; another value exits 2 instead of falling back to human
-0.7.9  CLI  legacy-file  FILE [TARGET] is an unknown command with status 2; use emit-llvm FILE [--target TARGET]
-0.7.9  L  fn-expression  `(fn (x) ...)` inside an expression is AX2004; write `(lambda (x) ...)`
-0.7.9  L  struct-expression  `(struct T ...)` inside an expression is AX2004; call the struct by name, `(T ...)`
-0.7.9  L  alloc-effect  a lowercase `alloc` effect is no longer `Alloc`; write `Alloc`
-0.7.9  F  parMapWordsChecked  effect-transparent in f: a caller now performs whatever the function it passes performs
-0.7.9  L  duplicate-signature  a second signature for one name is AX3006; keep one signature for each function
-0.7.9  L  axtag-key-typo  a key one slip from a checked key, such as restirct or Effect, is AX3039, an error; fix the spelling, or namespace a key of your own as my:KEY
-0.7.9  F  strCStr  row gains Alloc,Mut: a slice that stops short of its parent is copied so the address ends in a NUL
-0.7.9  F  vecSort  (Vec a) -> (Vec Int): it orders machine words, which is value order only for Int; sort other vectors with vecSortBy
-0.7.9  F  chanOwnerDead  removed: a poisoned channel's timed calls answer syncOwnerDead, the same code 1004
-0.7.9  F  vecNewRef  removed: vecNew owns its elements when its first element's type is counted
-0.7.9  F  vecWithCapacityRef  removed: vecWithCapacity owns its elements when its first element's type is counted
-0.7.9  F  mapNewRefVals  removed: mapNew owns its values when its first value's type is counted
-0.7.9  F  mapWithCapacityRefVals  removed: mapWithCapacity owns its values when its first value's type is counted
-0.7.9  F  ledFree  removed: a LineEd owns its gap vectors and releases them when it dies; freeing them by hand released them twice
-0.7.9  L  vec-released  a Vec is released when its last reference goes, with what it owns; keep a vector whose word you store as an Int alive through a typed reference
-0.7.9  L  retainref-answer  __retainref answers 1 when it took a share because its argument's type is counted, and 0 otherwise; it answered 0 always
-0.7.9  F  mutexUnlock  removed: a lock is released when the MutexGuard its lock call answered goes out of scope
-0.7.9  F  syncNotHeld  removed: nothing unlocks by hand, so no call answers it
-0.7.9  S  MutexGuard  a sealed resource owner rather than a word: its end releases the lock
-0.7.9  F  mutexTryLock  row gains Alloc: the guard it answers is an owner, allocated at the lock
-0.7.9  F  chanFree  removed: a channel is freed when its last owner lets go
-0.7.9  F  mutexFree  removed: a mutex is freed when its last owner, a guard included, lets go
-0.7.9  F  taskTokenFree  removed: a cancellation token is freed when its last owner lets go
-0.7.9  S  Chan  a sealed shared owner rather than a word: a parallel form lends it, and a hand-written spawn can't capture it
-0.7.9  S  Mutex  a sealed shared owner rather than a word: a parallel form lends it, and a hand-written spawn can't capture it
-0.7.9  S  CancelToken  a sealed shared owner rather than a word: a parallel form lends it, and a hand-written spawn can't capture it
-0.7.9  L  shared-heap-struct  `shared` on a heap struct needs `sealed`, and such a struct takes no mut field and no type parameters (AX3084)
-0.7.9  L  arena-mark-cell  a cell passed to __axiom_arena_mark_into must hold 32 bytes: a fourth word keeps the owner registry's counter
+0.7.8  CLI  diagnostic-format-names  only human, ai and json are accepted; another value exits 2 instead of falling back to human
+0.7.8  CLI  legacy-file  FILE [TARGET] is an unknown command with status 2; use emit-llvm FILE [--target TARGET]
+0.7.8  L  fn-expression  `(fn (x) ...)` inside an expression is AX2004; write `(lambda (x) ...)`
+0.7.8  L  struct-expression  `(struct T ...)` inside an expression is AX2004; call the struct by name, `(T ...)`
+0.7.8  L  alloc-effect  a lowercase `alloc` effect is no longer `Alloc`; write `Alloc`
+0.7.8  F  parMapWordsChecked  effect-transparent in f: a caller now performs whatever the function it passes performs
+0.7.8  L  duplicate-signature  a second signature for one name is AX3006; keep one signature for each function
+0.7.8  L  axtag-key-typo  a key one slip from a checked key, such as restirct or Effect, is AX3039, an error; fix the spelling, or namespace a key of your own as my:KEY
+0.7.8  F  strCStr  row gains Alloc,Mut: a slice that stops short of its parent is copied so the address ends in a NUL
+0.7.8  F  vecSort  (Vec a) -> (Vec Int): it orders machine words, which is value order only for Int; sort other vectors with vecSortBy
+0.7.8  F  chanOwnerDead  removed: a poisoned channel's timed calls answer syncOwnerDead, the same code 1004
+0.7.8  F  vecNewRef  removed: vecNew owns its elements when its first element's type is counted
+0.7.8  F  vecWithCapacityRef  removed: vecWithCapacity owns its elements when its first element's type is counted
+0.7.8  F  mapNewRefVals  removed: mapNew owns its values when its first value's type is counted
+0.7.8  F  mapWithCapacityRefVals  removed: mapWithCapacity owns its values when its first value's type is counted
+0.7.8  F  ledFree  removed: a LineEd owns its gap vectors and releases them when it dies; freeing them by hand released them twice
+0.7.8  L  vec-released  a Vec is released when its last reference goes, with what it owns; keep a vector whose word you store as an Int alive through a typed reference
+0.7.8  L  retainref-answer  __retainref answers 1 when it took a share because its argument's type is counted, and 0 otherwise; it answered 0 always
+0.7.8  F  mutexUnlock  removed: a lock is released when the MutexGuard its lock call answered goes out of scope
+0.7.8  F  syncNotHeld  removed: nothing unlocks by hand, so no call answers it
+0.7.8  S  MutexGuard  a sealed resource owner rather than a word: its end releases the lock
+0.7.8  F  mutexTryLock  row gains Alloc: the guard it answers is an owner, allocated at the lock
+0.7.8  F  chanFree  removed: a channel is freed when its last owner lets go
+0.7.8  F  mutexFree  removed: a mutex is freed when its last owner, a guard included, lets go
+0.7.8  F  taskTokenFree  removed: a cancellation token is freed when its last owner lets go
+0.7.8  S  Chan  a sealed shared owner rather than a word: a parallel form lends it, and a hand-written spawn can't capture it
+0.7.8  S  Mutex  a sealed shared owner rather than a word: a parallel form lends it, and a hand-written spawn can't capture it
+0.7.8  S  CancelToken  a sealed shared owner rather than a word: a parallel form lends it, and a hand-written spawn can't capture it
+0.7.8  L  shared-heap-struct  `shared` on a heap struct needs `sealed`, and such a struct takes no mut field and no type parameters (AX3084)
+0.7.8  L  arena-mark-cell  a cell passed to __axiom_arena_mark_into must hold 32 bytes: a fourth word keeps the owner registry's counter
 0.7.8  RUST  Ret.direct_payload  returns Option<Payload>; handle None for scalar, opaque and status returns
 0.7.8  CLI  symbols-json  JSON symbol output is refused with status 2; use --diagnostic-format=ai
 0.7.8  CLI  legacy-file  FILE [TARGET] now warns on stderr; migrate to emit-llvm FILE [--target TARGET]
@@ -1009,142 +1009,142 @@
 0.7.8  L  ffi-opaque-owners  generated opaque types are sealed structs; use generated constructors and close functions instead of constructing or destructuring their Handle
 0.7.8  L  ffi-callback-borrows  generated wrappers combining callbacks with live borrowed vectors or opaque owners propagate Unsafe through an explicit caller precondition
 
-# 0.7.9 - the precondition tag is removed; a contract or a comment states a condition.
-0.7.9  L  precondition-tag  `;@axiom:precondition(...)` is refused as AX3095; state a checkable condition with `;@axiom:pre(...)`, or describe it in a comment
+# 0.7.8 - the precondition tag is removed; a contract or a comment states a condition.
+0.7.8  L  precondition-tag  `;@axiom:precondition(...)` is refused as AX3095; state a checkable condition with `;@axiom:pre(...)`, or describe it in a comment
 
-# 0.7.9 - `Int` is not a heap handle in a result, and `Mem` gains a typed
+# 0.7.8 - `Int` is not a heap handle in a result, and `Mem` gains a typed
 # address. Tested by tests/diagnostics/1241-result-coercion-shapes.ax and
 # tests/stdlib/810-addr-identity.ax.
-0.7.9  L  int-result-coercion  a record, closure, String or type variable answered where the signature says Int is AX3004; declare the type the body answers, write (cast Int v) where a word is meant, or use Mem.addrOf for identity
-0.7.9  S  Addr  added to Mem: a program importing Mem and another module that exports Addr now qualifies the bare name (AX3014)
-0.7.9  F  addrOf  added to Mem: a program importing Mem and another module that exports addrOf now qualifies the bare name (AX3014)
-0.7.9  F  addrEq  added to Mem: a program importing Mem and another module that exports addrEq now qualifies the bare name (AX3014)
-0.7.9  F  addrHash  added to Mem: a program importing Mem and another module that exports addrHash now qualifies the bare name (AX3014)
+0.7.8  L  int-result-coercion  a record, closure, String or type variable answered where the signature says Int is AX3004; declare the type the body answers, write (cast Int v) where a word is meant, or use Mem.addrOf for identity
+0.7.8  S  Addr  added to Mem: a program importing Mem and another module that exports Addr now qualifies the bare name (AX3014)
+0.7.8  F  addrOf  added to Mem: a program importing Mem and another module that exports addrOf now qualifies the bare name (AX3014)
+0.7.8  F  addrEq  added to Mem: a program importing Mem and another module that exports addrEq now qualifies the bare name (AX3014)
+0.7.8  F  addrHash  added to Mem: a program importing Mem and another module that exports addrHash now qualifies the bare name (AX3014)
 
-# 0.7.9 - a claim the compiler can't back, or a defect it can prove, is an error.
-0.7.9  L  unhandled-operation  AX3053 is an error: a `main` that reaches a custom effect's operation with no handler no longer builds; install a `handle`, or tag a deliberate abort `;@axiom:unhandled(trap)`
-0.7.9  L  field-dispatch  a call through a field is resolved through the functions the program stores there, so an effect they all perform needs its claim (AX3010, AX3042, AX3049)
-0.7.9  L  discarded-result  AX3046 is an error: match a `Result` in statement position, or bind a deliberate discard to `_`
-0.7.9  L  macro-parameter-name-position  AX3074 is an error: rename a macro parameter that stands where a field or effect name is kept, or bind the field with `syntax/for`
-0.7.9  L  effect-div-claim  `;@axiom:effect(div)` is refused as AX3110: nothing infers `Div`; keep the intent in a comment or a key of your own such as `;@axiom:my:div`
+# 0.7.8 - a claim the compiler can't back, or a defect it can prove, is an error.
+0.7.8  L  unhandled-operation  AX3053 is an error: a `main` that reaches a custom effect's operation with no handler no longer builds; install a `handle`, or tag a deliberate abort `;@axiom:unhandled(trap)`
+0.7.8  L  field-dispatch  a call through a field is resolved through the functions the program stores there, so an effect they all perform needs its claim (AX3010, AX3042, AX3049)
+0.7.8  L  discarded-result  AX3046 is an error: match a `Result` in statement position, or bind a deliberate discard to `_`
+0.7.8  L  macro-parameter-name-position  AX3074 is an error: rename a macro parameter that stands where a field or effect name is kept, or bind the field with `syntax/for`
+0.7.8  L  effect-div-claim  `;@axiom:effect(div)` is refused as AX3110: nothing infers `Div`; keep the intent in a comment or a key of your own such as `;@axiom:my:div`
 
 
-0.7.9  F  ioResult  private: IO's own errno-to-Error wrapper; the path functions still put the path in their message
-0.7.9  F  openBeneath  removed with no replacement; nothing called it
-0.7.9  F  makeSymlink  removed with no replacement; nothing called it
-0.7.9  F  sysOpenBeneath  removed with no replacement; nothing called it
-0.7.9  F  sysSymlink  removed with no replacement; nothing called it
-0.7.9  F  fileReadInto  removed: it wrote into a String, which may be an immutable shared view; read with fileRead into a ReadBuffer
-0.7.9  F  tcpRead  takes a ReadBuffer instead of a String buffer: (tcpRead stream buf at count) with buf from readBufferNew
-0.7.9  F  sysReadFile  removed from Sys: use IO.readFile with a String path
-0.7.9  F  sysWriteFile  removed from Sys: use IO.writeFile with a String path
-0.7.9  F  sysAppendFile  removed from Sys: use IO.appendFile with a String path
-0.7.9  F  sysRename  removed from Sys: use IO.renamePath with String paths
-0.7.9  F  sysUnlink  removed from Sys: use IO.removeFile with a String path
-0.7.9  F  sysMkdir  removed from Sys: use IO.makeDirMode, or IO.makeDir for 0755
-0.7.9  F  sysRmdir  removed from Sys: use IO.removeDir with a String path
-0.7.9  F  sysFileExists  removed from Sys: use IO.fileExists with a String path
-0.7.9  F  sysFileSize  removed from Sys: use IO.fileSize with a String path
-0.7.9  F  sysIsDir  removed from Sys: use IO.isDir with a String path
-0.7.9  F  sysReadErrno  removed from Sys: use IO.readErrno with a String path
-0.7.9  F  sysOpenPath  removed from Sys: use IO.openPath, which answers an owned File
-0.7.9  F  sysDirMode  removed from Sys: IO.makeDir creates with 0755
-0.7.9  F  sysReadDir  removed from Sys: use IO.listDir, which sorts by byte and drops . and ..
-0.7.9  F  sysGetCwd  removed from Sys: use IO.cwd
-0.7.9  F  sysReadAllFd  removed from Sys: use IO.readAll
-0.7.9  F  sysReadLineFd  removed from Sys: use IO.readLine
-0.7.9  F  sysTermSave  removed from Sys: use IO.termSave, which answers a sealed TermState
-0.7.9  F  sysTermRestore  removed from Sys: use IO.termRestore
-0.7.9  F  sysTermRaw  removed from Sys: use IO.termRaw
-0.7.9  F  sysTermSize  removed from Sys: use IO.termSize, which answers a TermSize
-0.7.9  F  sysTermRows  removed from Sys: read the rows field of IO.termSize's answer
-0.7.9  F  sysTermCols  removed from Sys: read the cols field of IO.termSize's answer
-0.7.9  F  sysTermStateBytes  removed from Sys: IO's TermState sizes its own buffer
-0.7.9  F  sysTermSizeBytes  removed from Sys: IO.termSize sizes its own buffer
-0.7.9  F  sysFailed  removed: test a raw answer with (< r 0)
-0.7.9  F  sysErrno  removed: negate a raw answer, or read Error.code from a Result
-0.7.9  F  sysWriteFd  private: write with IO.writeStr, or Sys.sysWriteAllFd for bytes at an address
-0.7.9  F  sysWriteAllFd  (Int Int Int Int -> Int) becomes (Int Int Int -> Int): drop the trailing 0, the loop's own accumulator
-0.7.9  F  printlnLit  removed: write (println "...") for a literal, or (println (strFromLit p)) for NUL-terminated bytes
-0.7.9  F  readFileLit  removed: use readFile with a String path
-0.7.9  F  randomBytes  removed from IO: use Crypto.Random, which also covers bare metal
-0.7.9  F  sysGetPid  renamed sysPid
-0.7.9  F  netPollCreate  removed: IO.pollerNew answers a Poller that owns its kqueue or epoll descriptor
-0.7.9  F  netPollAddRead  removed: IO.pollerAdd watches a File under a token
-0.7.9  F  netPollDelRead  removed: IO.pollerRemove
-0.7.9  F  netPollWait  removed: IO.pollerWait
-0.7.9  F  netPollFdAt  removed: IO.pollerToken answers the token an event carries, never a descriptor
-0.7.9  F  netPollBufBytes  removed: a Poller owns its event buffer
-0.7.9  F  netPollSignalAt  removed: IO.pollerSignal
-0.7.9  F  netSignalOpen  removed: IO.pollerAddSignals
-0.7.9  F  sysRead  renamed sysReadNum: a syscall number ends in Num
-0.7.9  F  sysWrite  renamed sysWriteNum
-0.7.9  F  sysOpen  renamed sysOpenNum
-0.7.9  F  sysClose  renamed sysCloseNum
-0.7.9  F  sysExit  renamed sysExitNum
-0.7.9  F  sysLseek  renamed sysLseekNum
-0.7.9  F  sysPosixSpawn  renamed sysPosixSpawnNum
-0.7.9  F  sysWait4  renamed sysWait4Num
-0.7.9  F  sysFork  renamed sysForkNum
-0.7.9  F  sysExecve  renamed sysExecveNum
-0.7.9  F  termRawLeave  row gains Alloc,Mut: it restores through IO.termRestore and clears the state it held
-0.7.9  F  termReadSize  row gains Alloc: it asks IO.termSize, which answers a TermSize
-0.7.9  F  stdin  Int becomes an IO File that never closes descriptor 0: pass it where the number went
-0.7.9  F  stdout  Int becomes an IO File that never closes descriptor 1: pass it where the number went
-0.7.9  F  stderr  Int becomes an IO File that never closes descriptor 2: pass it where the number went
-0.7.9  F  writeStr  (Int String -> Int) becomes (File String -> Int): write to stdout, stderr or a File openPath answered
-0.7.9  F  writeSlice  (Int String Int Int -> Int) becomes (File String Int Int -> Int)
-0.7.9  F  readLine  (Int -> ...) becomes (File -> ...): read stdin or a File openPath answered
-0.7.9  F  readAll  (Int -> ...) becomes (File -> ...): read stdin or a File openPath answered
-0.7.9  F  readInto  (Int String Int Int -> ...) becomes (File String Int Int -> ...)
-0.7.9  F  termSize  (Int -> ...) becomes (File -> ...): ask stdin or stdout
-0.7.9  F  termRaw  (Int Bool -> Result TermState Error) becomes (File Bool -> Result TermGuard Error): releasing the guard, or termRestore, restores the terminal
-0.7.9  F  termRestore  takes the TermGuard termRaw answered
-0.7.9  F  termSave  removed: termRaw saves the attributes it changes, and its guard restores them
-0.7.9  F  fileFd  removed: no function answers the descriptor a File owns; watch a File with pollerAdd
-0.7.9  F  fileFromFd  removed: a File comes from openPath, a socket from IO's socket calls or Net
-0.7.9  F  fileReadLine  removed: readLine takes a File
-0.7.9  F  fileReadAll  removed: readAll takes a File
-0.7.9  F  readBuffer  removed: fileRead reads a File into a ReadBuffer
-0.7.9  F  tcpStreamFd  removed: watch a stream with pollerAddStream
-0.7.9  F  tcpListenerFd  removed: watch a listener with pollerAddListener
-0.7.9  F  sysWriteAllFd  removed from the public surface: write a File with writeStr or fileWrite
-0.7.9  F  sysReadFd  removed from the public surface: read a File with fileRead, readInto, readLine or readAll
-0.7.9  F  sysCloseFd  removed from the public surface: close a File with fileClose, or let its last share go
-0.7.9  F  sysIsatty  removed: IO.isTerminal takes a File
-0.7.9  F  netSocketTcp  removed: Net's tcpListen and tcpConnect, or IO.socketOpen, answer an owned socket
-0.7.9  F  netSocketTcp6  removed: Net's tcpListen and tcpConnect, or IO.socketOpen, answer an owned socket
-0.7.9  F  netBind  removed: IO.socketBind on a File
-0.7.9  F  netListen  removed: IO.socketListen on a File
-0.7.9  F  netAccept  removed: Net.tcpAccept, or IO.socketAccept, answers an owned socket
-0.7.9  F  netAcceptFrom  removed: accept with Net.tcpAccept and ask Net.tcpPeerAddr
-0.7.9  F  netAddrLenRead  removed with netAcceptFrom
-0.7.9  F  netSetBlocking  removed: Net's tcpSetNonBlocking false, or IO.fileSetNonBlocking
-0.7.9  F  netSetNonBlocking  removed: Net's tcpSetNonBlocking true, or IO.fileSetNonBlocking
-0.7.9  F  netConnect  removed: IO.socketConnect on a File, or Net.tcpConnect
-0.7.9  F  netShutdown  removed: IO.socketShutdown on a File, or Net.tcpShutdown
-0.7.9  F  netSetOptInt  removed: IO.socketSetInt on a File
-0.7.9  F  netSetOptBytes  removed: IO.socketSetTimeout on a File
-0.7.9  F  netGetSockName  removed: IO.socketAddr on a File, or Net.tcpLocalAddr
-0.7.9  F  netGetPeerName  removed: IO.socketAddr on a File, or Net.tcpPeerAddr
-0.7.9  F  sysOpenRw  removed: private to Axqlite's pager, the one owner of those descriptors
-0.7.9  F  sysOpenRo  removed: private to Axqlite's pager
-0.7.9  F  sysPread  removed: private to Axqlite's pager
-0.7.9  F  sysPwrite  removed: private to Axqlite's pager
-0.7.9  F  sysFsync  removed: private to Axqlite's pager
-0.7.9  F  sysFtruncate  removed: private to Axqlite's pager
-0.7.9  F  sysFdSize  removed: private to Axqlite's pager
-0.7.9  F  sysFlock  removed: private to Axqlite's pager
-0.7.9  F  sysLockShared  removed: private to Axqlite's pager
-0.7.9  F  sysLockExclusive  removed: private to Axqlite's pager
-0.7.9  F  sysLockNonBlocking  removed: private to Axqlite's pager
-0.7.9  F  sysLockRelease  removed: private to Axqlite's pager
-0.7.9  F  mkKeyIn  (Int Int -> KeyIn) becomes (File Int -> KeyIn): pass stdin
-0.7.9  F  rdNew  (Int -> Int) becomes (File -> Int): pass stdin or a File
-0.7.9  F  rpcWrite  (Int String -> Int) becomes (File String -> Int): pass stdout or a File
-0.7.9  F  acceptNonblockFlag  removed from Sys.Platform: IO.socketAccept answers a blocking socket and sets the mode itself
-0.7.9  F  tcpSetNonBlocking  row gains Mut: the error names the IO operation that failed
-0.7.9  F  tcpShutdown  row gains Mut: the error names the IO operation that failed
-0.7.9  F  tcpWrite  row loses Unsafe and gains Mut: the send is IO's, and its error names the operation
-0.7.9  F  fileRead  row gains Mut: it reads the File's descriptor through IO's owner cast
-0.7.9  F  tcpRead  row gains Mut: the read is IO's fileRead on the stream's File
+0.7.8  F  ioResult  private: IO's own errno-to-Error wrapper; the path functions still put the path in their message
+0.7.8  F  openBeneath  removed with no replacement; nothing called it
+0.7.8  F  makeSymlink  removed with no replacement; nothing called it
+0.7.8  F  sysOpenBeneath  removed with no replacement; nothing called it
+0.7.8  F  sysSymlink  removed with no replacement; nothing called it
+0.7.8  F  fileReadInto  removed: it wrote into a String, which may be an immutable shared view; read with fileRead into a ReadBuffer
+0.7.8  F  tcpRead  takes a ReadBuffer instead of a String buffer: (tcpRead stream buf at count) with buf from readBufferNew
+0.7.8  F  sysReadFile  removed from Sys: use IO.readFile with a String path
+0.7.8  F  sysWriteFile  removed from Sys: use IO.writeFile with a String path
+0.7.8  F  sysAppendFile  removed from Sys: use IO.appendFile with a String path
+0.7.8  F  sysRename  removed from Sys: use IO.renamePath with String paths
+0.7.8  F  sysUnlink  removed from Sys: use IO.removeFile with a String path
+0.7.8  F  sysMkdir  removed from Sys: use IO.makeDirMode, or IO.makeDir for 0755
+0.7.8  F  sysRmdir  removed from Sys: use IO.removeDir with a String path
+0.7.8  F  sysFileExists  removed from Sys: use IO.fileExists with a String path
+0.7.8  F  sysFileSize  removed from Sys: use IO.fileSize with a String path
+0.7.8  F  sysIsDir  removed from Sys: use IO.isDir with a String path
+0.7.8  F  sysReadErrno  removed from Sys: use IO.readErrno with a String path
+0.7.8  F  sysOpenPath  removed from Sys: use IO.openPath, which answers an owned File
+0.7.8  F  sysDirMode  removed from Sys: IO.makeDir creates with 0755
+0.7.8  F  sysReadDir  removed from Sys: use IO.listDir, which sorts by byte and drops . and ..
+0.7.8  F  sysGetCwd  removed from Sys: use IO.cwd
+0.7.8  F  sysReadAllFd  removed from Sys: use IO.readAll
+0.7.8  F  sysReadLineFd  removed from Sys: use IO.readLine
+0.7.8  F  sysTermSave  removed from Sys: use IO.termSave, which answers a sealed TermState
+0.7.8  F  sysTermRestore  removed from Sys: use IO.termRestore
+0.7.8  F  sysTermRaw  removed from Sys: use IO.termRaw
+0.7.8  F  sysTermSize  removed from Sys: use IO.termSize, which answers a TermSize
+0.7.8  F  sysTermRows  removed from Sys: read the rows field of IO.termSize's answer
+0.7.8  F  sysTermCols  removed from Sys: read the cols field of IO.termSize's answer
+0.7.8  F  sysTermStateBytes  removed from Sys: IO's TermState sizes its own buffer
+0.7.8  F  sysTermSizeBytes  removed from Sys: IO.termSize sizes its own buffer
+0.7.8  F  sysFailed  removed: test a raw answer with (< r 0)
+0.7.8  F  sysErrno  removed: negate a raw answer, or read Error.code from a Result
+0.7.8  F  sysWriteFd  private: write with IO.writeStr, or Sys.sysWriteAllFd for bytes at an address
+0.7.8  F  sysWriteAllFd  (Int Int Int Int -> Int) becomes (Int Int Int -> Int): drop the trailing 0, the loop's own accumulator
+0.7.8  F  printlnLit  removed: write (println "...") for a literal, or (println (strFromLit p)) for NUL-terminated bytes
+0.7.8  F  readFileLit  removed: use readFile with a String path
+0.7.8  F  randomBytes  removed from IO: use Crypto.Random, which also covers bare metal
+0.7.8  F  sysGetPid  renamed sysPid
+0.7.8  F  netPollCreate  removed: IO.pollerNew answers a Poller that owns its kqueue or epoll descriptor
+0.7.8  F  netPollAddRead  removed: IO.pollerAdd watches a File under a token
+0.7.8  F  netPollDelRead  removed: IO.pollerRemove
+0.7.8  F  netPollWait  removed: IO.pollerWait
+0.7.8  F  netPollFdAt  removed: IO.pollerToken answers the token an event carries, never a descriptor
+0.7.8  F  netPollBufBytes  removed: a Poller owns its event buffer
+0.7.8  F  netPollSignalAt  removed: IO.pollerSignal
+0.7.8  F  netSignalOpen  removed: IO.pollerAddSignals
+0.7.8  F  sysRead  renamed sysReadNum: a syscall number ends in Num
+0.7.8  F  sysWrite  renamed sysWriteNum
+0.7.8  F  sysOpen  renamed sysOpenNum
+0.7.8  F  sysClose  renamed sysCloseNum
+0.7.8  F  sysExit  renamed sysExitNum
+0.7.8  F  sysLseek  renamed sysLseekNum
+0.7.8  F  sysPosixSpawn  renamed sysPosixSpawnNum
+0.7.8  F  sysWait4  renamed sysWait4Num
+0.7.8  F  sysFork  renamed sysForkNum
+0.7.8  F  sysExecve  renamed sysExecveNum
+0.7.8  F  termRawLeave  row gains Alloc,Mut: it restores through IO.termRestore and clears the state it held
+0.7.8  F  termReadSize  row gains Alloc: it asks IO.termSize, which answers a TermSize
+0.7.8  F  stdin  Int becomes an IO File that never closes descriptor 0: pass it where the number went
+0.7.8  F  stdout  Int becomes an IO File that never closes descriptor 1: pass it where the number went
+0.7.8  F  stderr  Int becomes an IO File that never closes descriptor 2: pass it where the number went
+0.7.8  F  writeStr  (Int String -> Int) becomes (File String -> Int): write to stdout, stderr or a File openPath answered
+0.7.8  F  writeSlice  (Int String Int Int -> Int) becomes (File String Int Int -> Int)
+0.7.8  F  readLine  (Int -> ...) becomes (File -> ...): read stdin or a File openPath answered
+0.7.8  F  readAll  (Int -> ...) becomes (File -> ...): read stdin or a File openPath answered
+0.7.8  F  readInto  (Int String Int Int -> ...) becomes (File String Int Int -> ...)
+0.7.8  F  termSize  (Int -> ...) becomes (File -> ...): ask stdin or stdout
+0.7.8  F  termRaw  (Int Bool -> Result TermState Error) becomes (File Bool -> Result TermGuard Error): releasing the guard, or termRestore, restores the terminal
+0.7.8  F  termRestore  takes the TermGuard termRaw answered
+0.7.8  F  termSave  removed: termRaw saves the attributes it changes, and its guard restores them
+0.7.8  F  fileFd  removed: no function answers the descriptor a File owns; watch a File with pollerAdd
+0.7.8  F  fileFromFd  removed: a File comes from openPath, a socket from IO's socket calls or Net
+0.7.8  F  fileReadLine  removed: readLine takes a File
+0.7.8  F  fileReadAll  removed: readAll takes a File
+0.7.8  F  readBuffer  removed: fileRead reads a File into a ReadBuffer
+0.7.8  F  tcpStreamFd  removed: watch a stream with pollerAddStream
+0.7.8  F  tcpListenerFd  removed: watch a listener with pollerAddListener
+0.7.8  F  sysWriteAllFd  removed from the public surface: write a File with writeStr or fileWrite
+0.7.8  F  sysReadFd  removed from the public surface: read a File with fileRead, readInto, readLine or readAll
+0.7.8  F  sysCloseFd  removed from the public surface: close a File with fileClose, or let its last share go
+0.7.8  F  sysIsatty  removed: IO.isTerminal takes a File
+0.7.8  F  netSocketTcp  removed: Net's tcpListen and tcpConnect, or IO.socketOpen, answer an owned socket
+0.7.8  F  netSocketTcp6  removed: Net's tcpListen and tcpConnect, or IO.socketOpen, answer an owned socket
+0.7.8  F  netBind  removed: IO.socketBind on a File
+0.7.8  F  netListen  removed: IO.socketListen on a File
+0.7.8  F  netAccept  removed: Net.tcpAccept, or IO.socketAccept, answers an owned socket
+0.7.8  F  netAcceptFrom  removed: accept with Net.tcpAccept and ask Net.tcpPeerAddr
+0.7.8  F  netAddrLenRead  removed with netAcceptFrom
+0.7.8  F  netSetBlocking  removed: Net's tcpSetNonBlocking false, or IO.fileSetNonBlocking
+0.7.8  F  netSetNonBlocking  removed: Net's tcpSetNonBlocking true, or IO.fileSetNonBlocking
+0.7.8  F  netConnect  removed: IO.socketConnect on a File, or Net.tcpConnect
+0.7.8  F  netShutdown  removed: IO.socketShutdown on a File, or Net.tcpShutdown
+0.7.8  F  netSetOptInt  removed: IO.socketSetInt on a File
+0.7.8  F  netSetOptBytes  removed: IO.socketSetTimeout on a File
+0.7.8  F  netGetSockName  removed: IO.socketAddr on a File, or Net.tcpLocalAddr
+0.7.8  F  netGetPeerName  removed: IO.socketAddr on a File, or Net.tcpPeerAddr
+0.7.8  F  sysOpenRw  removed: private to Axqlite's pager, the one owner of those descriptors
+0.7.8  F  sysOpenRo  removed: private to Axqlite's pager
+0.7.8  F  sysPread  removed: private to Axqlite's pager
+0.7.8  F  sysPwrite  removed: private to Axqlite's pager
+0.7.8  F  sysFsync  removed: private to Axqlite's pager
+0.7.8  F  sysFtruncate  removed: private to Axqlite's pager
+0.7.8  F  sysFdSize  removed: private to Axqlite's pager
+0.7.8  F  sysFlock  removed: private to Axqlite's pager
+0.7.8  F  sysLockShared  removed: private to Axqlite's pager
+0.7.8  F  sysLockExclusive  removed: private to Axqlite's pager
+0.7.8  F  sysLockNonBlocking  removed: private to Axqlite's pager
+0.7.8  F  sysLockRelease  removed: private to Axqlite's pager
+0.7.8  F  mkKeyIn  (Int Int -> KeyIn) becomes (File Int -> KeyIn): pass stdin
+0.7.8  F  rdNew  (Int -> Int) becomes (File -> Int): pass stdin or a File
+0.7.8  F  rpcWrite  (Int String -> Int) becomes (File String -> Int): pass stdout or a File
+0.7.8  F  acceptNonblockFlag  removed from Sys.Platform: IO.socketAccept answers a blocking socket and sets the mode itself
+0.7.8  F  tcpSetNonBlocking  row gains Mut: the error names the IO operation that failed
+0.7.8  F  tcpShutdown  row gains Mut: the error names the IO operation that failed
+0.7.8  F  tcpWrite  row loses Unsafe and gains Mut: the send is IO's, and its error names the operation
+0.7.8  F  fileRead  row gains Mut: it reads the File's descriptor through IO's owner cast
+0.7.8  F  tcpRead  row gains Mut: the read is IO's fileRead on the stream's File

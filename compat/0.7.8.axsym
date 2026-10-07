@@ -4,7 +4,11 @@ A OptFloat stdlib/Axqlite/AxqlMacro.ax @bbfb0d98bef53e02 "Option Float"
 A OptInt stdlib/Axqlite/AxqlMacro.ax @11e13bec7c5fb339 "Option Int"
 A OptString stdlib/Axqlite/AxqlMacro.ax @c01a8ae6974c32c1 "Option String"
 A RowId stdlib/Axqlite/AxqlMacro.ax @0bb31177694a372c "Int"
+C Codec stdlib/Cereal.ax - "((a -> Result CerealValue Error) -> ((CerealValue -> Result a Error) -> Codec a))" #of=Codec
 D Access stdlib/Axqlite/AxqlExec.ax @32250aa3d5da77a9 "data Access" #ctors=AFull,ARowid,ARowidRange,AIndex,ANone
+D CerealFormat stdlib/Cereal.ax @5c438dbaa2d27a54 "data CerealFormat" #ctors=CerealJson,CerealToml,CerealYaml
+D CerealValue stdlib/Cereal.ax @a733144d540133e8 "data CerealValue" #ctors=CNull,CBool,CInt,CNumber,CText,CArray,CObject
+D Codec stdlib/Cereal.ax @4b6fbd78ef78b1ab "data Codec" #ctors=Codec
 D Expr stdlib/Axqlite/AxqlAst.ax @34c0db3c91ea0cf8 "data Expr" #ctors=ELit,EName,ECol,EParam,ENeg,ENot,EBin,EIsNull
 D Result stdlib/Err.ax @b9f5acf9ecf678ba "data Result" #ctors=Ok,Err
 D Stmt stdlib/Axqlite/AxqlAst.ax @28af8a83dc17b555 "data Stmt" #ctors=SCreateTable,SDropTable,SCreateIndex,SDropIndex,SInsert,SUpdate,SDelete,SSelect,SBegin,SCommit,SRollback
@@ -40,30 +44,32 @@ F LED_RING_MAX stdlib/Tui/Edit.ax @c020b3012fa2e00e "Int"
 F MOD_ALT stdlib/Tui/Keys.ax @48a0a2038cb16f11 "Int"
 F MOD_CTRL stdlib/Tui/Keys.ax @aa64b4f7dae50dcb "Int"
 F MOD_SHIFT stdlib/Tui/Keys.ax @2b80244b09a5ba2a "Int"
-F acceptNonblockFlag stdlib/Sys/Platform.ax @897180219612fc65 "Int"
 F add32 stdlib/Crypto/Ct.ax @9cae2b19d57b997f "(Int -> (Int -> Int))"
 F addChecked stdlib/Err.ax @5d660b40b8422a2f "(Int -> (Int -> Result Int Error))" #effects=Alloc
+F addrEq stdlib/Mem.ax @844ac9e481ed2d26 "(Addr -> (Addr -> Bool))"
+F addrHash stdlib/Mem.ax @41a37d020fa3f8e4 "(Addr -> Int)"
+F addrOf stdlib/Mem.ax @846cdce4820a33d5 "(a -> Addr)"
 F aeadNonceBytes stdlib/Crypto/Aead.ax @6a8f578c97cb8e76 "(AeadNonce -> String)"
-F aeadNonceFromBytes stdlib/Crypto/Aead.ax @6e3d5083842d80ca "(String -> Result AeadNonce Error)" #effects=Alloc,Mut,Unsafe
+F aeadNonceFromBytes stdlib/Crypto/Aead.ax @6e3d5083842d80ca "(String -> Result AeadNonce Error)" #effects=Alloc,Mut
 F aeadNonceLen stdlib/Crypto/Aead.ax @48ac8c714336d232 "Int"
 F aeadNonceRandom stdlib/Crypto/Aead.ax @872f048b3fe715c4 "Result AeadNonce Error" #effects=Alloc,Entropy,IO,Mut
 F aeadTagLen stdlib/Crypto/Aead.ax @1df60eb873b9662b "Int"
-F aes128GcmKeyExport stdlib/Crypto/AesGcm.ax @94df0a35836e77d1 "(Aes128GcmKey -> Result SecretBytes Error)" #effects=Alloc,IO,Mut,Unsafe
-F aes128GcmKeyFromSecret stdlib/Crypto/AesGcm.ax @03813e2b9dd5a08f "(SecretBytes -> Result Aes128GcmKey Error)" #effects=Alloc,IO,Mut,Unsafe
-F aes128GcmKeyGenerate stdlib/Crypto/AesGcm.ax @6c560c69b5ed1e94 "Result Aes128GcmKey Error" #effects=Alloc,Entropy,IO,Mut,Unsafe
-F aes128GcmKeyWipe stdlib/Crypto/AesGcm.ax @bac71d3b1515c220 "(Aes128GcmKey -> Int)" #effects=Alloc,IO,Mut,Unsafe
-F aes128GcmOpen stdlib/Crypto/AesGcm.ax @2c01ca645fae89ec "(Aes128GcmKey -> (AeadNonce -> (String -> (String -> Result String Error))))" #effects=Alloc,Mut,Unsafe
-F aes128GcmSeal stdlib/Crypto/AesGcm.ax @e128da4cca3a77b5 "(Aes128GcmKey -> (AeadNonce -> (String -> (String -> Result String Error))))" #effects=Alloc,Mut,Unsafe
-F aes256GcmKeyExport stdlib/Crypto/AesGcm.ax @f6c1db94f2a91211 "(Aes256GcmKey -> Result SecretBytes Error)" #effects=Alloc,IO,Mut,Unsafe
-F aes256GcmKeyFromSecret stdlib/Crypto/AesGcm.ax @fbf339c1ef3519cf "(SecretBytes -> Result Aes256GcmKey Error)" #effects=Alloc,IO,Mut,Unsafe
-F aes256GcmKeyGenerate stdlib/Crypto/AesGcm.ax @68e23361d3c21ad4 "Result Aes256GcmKey Error" #effects=Alloc,Entropy,IO,Mut,Unsafe
-F aes256GcmKeyWipe stdlib/Crypto/AesGcm.ax @05c27b3fd678f460 "(Aes256GcmKey -> Int)" #effects=Alloc,IO,Mut,Unsafe
-F aes256GcmOpen stdlib/Crypto/AesGcm.ax @c1ea249b92cc392c "(Aes256GcmKey -> (AeadNonce -> (String -> (String -> Result String Error))))" #effects=Alloc,Mut,Unsafe
-F aes256GcmSeal stdlib/Crypto/AesGcm.ax @77113483fd5826f5 "(Aes256GcmKey -> (AeadNonce -> (String -> (String -> Result String Error))))" #effects=Alloc,Mut,Unsafe
+F aes128GcmKeyExport stdlib/Crypto/AesGcm.ax @94df0a35836e77d1 "(Aes128GcmKey -> Result SecretBytes Error)" #effects=Alloc,IO,Mut
+F aes128GcmKeyFromSecret stdlib/Crypto/AesGcm.ax @03813e2b9dd5a08f "(SecretBytes -> Result Aes128GcmKey Error)" #effects=Alloc,IO,Mut
+F aes128GcmKeyGenerate stdlib/Crypto/AesGcm.ax @6c560c69b5ed1e94 "Result Aes128GcmKey Error" #effects=Alloc,Entropy,IO,Mut
+F aes128GcmKeyWipe stdlib/Crypto/AesGcm.ax @bac71d3b1515c220 "(Aes128GcmKey -> Int)" #effects=Alloc,IO,Mut
+F aes128GcmOpen stdlib/Crypto/AesGcm.ax @2c01ca645fae89ec "(Aes128GcmKey -> (AeadNonce -> (String -> (String -> Result String Error))))" #effects=Alloc,Mut
+F aes128GcmSeal stdlib/Crypto/AesGcm.ax @e128da4cca3a77b5 "(Aes128GcmKey -> (AeadNonce -> (String -> (String -> Result String Error))))" #effects=Alloc,Mut
+F aes256GcmKeyExport stdlib/Crypto/AesGcm.ax @f6c1db94f2a91211 "(Aes256GcmKey -> Result SecretBytes Error)" #effects=Alloc,IO,Mut
+F aes256GcmKeyFromSecret stdlib/Crypto/AesGcm.ax @fbf339c1ef3519cf "(SecretBytes -> Result Aes256GcmKey Error)" #effects=Alloc,IO,Mut
+F aes256GcmKeyGenerate stdlib/Crypto/AesGcm.ax @68e23361d3c21ad4 "Result Aes256GcmKey Error" #effects=Alloc,Entropy,IO,Mut
+F aes256GcmKeyWipe stdlib/Crypto/AesGcm.ax @05c27b3fd678f460 "(Aes256GcmKey -> Int)" #effects=Alloc,IO,Mut
+F aes256GcmOpen stdlib/Crypto/AesGcm.ax @c1ea249b92cc392c "(Aes256GcmKey -> (AeadNonce -> (String -> (String -> Result String Error))))" #effects=Alloc,Mut
+F aes256GcmSeal stdlib/Crypto/AesGcm.ax @77113483fd5826f5 "(Aes256GcmKey -> (AeadNonce -> (String -> (String -> Result String Error))))" #effects=Alloc,Mut
 F aesCtr32Xor stdlib/Crypto/Aes.ax @d04d4ea982869f19 "(Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> Int))))))))" #effects=Mut,Unsafe
 F aesCtrWorkBytes stdlib/Crypto/Aes.ax @9e2c2beff41f45a7 "Int"
-F aesDecryptBlocks stdlib/Crypto/Aes.ax @3d9274625c9690ed "(Int -> (Int -> (Int -> (Int -> (Int -> (Int -> Int))))))" #effects=Mut,Unsafe
-F aesEncryptBlocks stdlib/Crypto/Aes.ax @d3c8f8dbc076c339 "(Int -> (Int -> (Int -> (Int -> (Int -> (Int -> Int))))))" #effects=Mut,Unsafe
+F aesDecryptBlocks stdlib/Crypto/Aes.ax @3d9274625c9690ed "(Int -> (Int -> (Int -> (Int -> (Int -> (Int -> Int))))))" #effects=Mut
+F aesEncryptBlocks stdlib/Crypto/Aes.ax @d3c8f8dbc076c339 "(Int -> (Int -> (Int -> (Int -> (Int -> (Int -> Int))))))" #effects=Mut
 F aesKeyExpand stdlib/Crypto/Aes.ax @6097a2ff238e3f89 "(Int -> (Int -> (Int -> (Int -> Int))))" #effects=Mut,Unsafe
 F aesKeyWorkBytes stdlib/Crypto/Aes.ax @f74eaab6fbba3793 "Int"
 F aesRounds stdlib/Crypto/Aes.ax @06079cd2995b7f27 "(Int -> Int)"
@@ -72,7 +78,7 @@ F aesStateBytes stdlib/Crypto/Aes.ax @bc18db2f31c1fc1e "Int"
 F afInet stdlib/Sys/Platform.ax @d27a836ebaf1ed16 "Int"
 F afInet6 stdlib/Sys/Platform.ax @981a7527a915ed60 "Int"
 F andThen stdlib/Err.ax @7e9d9a86e9e8b953 "(Result a e -> ((a -> Result b e) -> Result b e))" #effect-params=f #effects=Alloc
-F appendFile stdlib/IO.ax @4b78265d73feae45 "(String -> (String -> Result Int Error))" #effects=Alloc,IO,Mut,Unsafe
+F appendFile stdlib/IO.ax @4b78265d73feae45 "(String -> (String -> Result Int Error))" #effects=Alloc,IO,Mut
 F assertEq stdlib/Test.ax @db796e9e71ce46bb "(String -> (Int -> (Int -> Int)))" #effects=Alloc,Assert,IO,Mut
 F assertFalse stdlib/Test.ax @152cbbcfab6e58d0 "(String -> (Bool -> Int))" #effects=Alloc,Assert,IO,Mut
 F assertFloatNear stdlib/Test.ax @51eb557a67761927 "(String -> (Float -> (Float -> (Float -> Int))))" #effects=Alloc,Assert,IO,Mut
@@ -131,7 +137,7 @@ F axqlEntryRecord stdlib/Axqlite/AxqlSchema.ax @5c172e98435eb6c8 "(String -> (St
 F axqlEval stdlib/Axqlite/AxqlEval.ax @7a081078f12820d5 "(Expr -> (Vec Value -> (Int -> (Vec Value -> Result Value Error))))" #effects=Alloc,Mut
 F axqlExec stdlib/Axqlite/AxqlExec.ax @67e8b778e6aa14e2 "(Pager -> (String -> (Vec Value -> (Bool -> Exec))))" #effects=Alloc,Mut
 F axqlFindEntry stdlib/Axqlite/AxqlSchema.ax @b1e63f93e55e5eb8 "(Schema -> (String -> Option SchemaEntry))" #effects=Alloc
-F axqlFinish stdlib/Axqlite/AxqlMacro.ax @2c05b37b5194aa28 "(QueryBuilder -> Query)" #effects=Alloc,Mut,Unsafe
+F axqlFinish stdlib/Axqlite/AxqlMacro.ax @2c05b37b5194aa28 "(QueryBuilder -> Query)" #effects=Alloc,Mut
 F axqlFold stdlib/Axqlite/AxqlEval.ax @dbd9336d35ac30cc "(Expr -> (Vec Value -> Result Expr Error))" #effects=Alloc,Mut
 F axqlIndexHasNull stdlib/Axqlite/AxqlSchema.ax @478caa6c59022f66 "(IndexDef -> (Vec Value -> Bool))"
 F axqlIndexPrefix stdlib/Axqlite/AxqlSchema.ax @b5fac7300522e6d9 "(IndexDef -> (Vec Value -> Result String Error))" #effects=Alloc,Mut
@@ -158,8 +164,8 @@ F axqlPut stdlib/Axqlite/AxqlMacro.ax @aae081dcc7077754 "(QueryBuilder -> (Strin
 F axqlPutColumn stdlib/Axqlite/AxqlMacro.ax @88ad3731c09b7f06 "(QueryBuilder -> (String -> (String -> Int)))" #effects=Alloc,Mut
 F axqlPutName stdlib/Axqlite/AxqlMacro.ax @85d7a9953d31a32f "(QueryBuilder -> (String -> Int))" #effects=Alloc,Mut
 F axqlPutParam stdlib/Axqlite/AxqlMacro.ax @094421d81c7cb615 "(QueryBuilder -> (Value -> Int))" #effects=Alloc,Mut
-F axqlQuoteName stdlib/Axqlite/AxqlMacro.ax @ab210d44a257c452 "(String -> String)" #effects=Alloc,Mut,Unsafe
-F axqlQuoteText stdlib/Axqlite.ax @47e12bf12fee681a "(String -> String)" #effects=Alloc,Mut,Unsafe
+F axqlQuoteName stdlib/Axqlite/AxqlMacro.ax @ab210d44a257c452 "(String -> String)" #effects=Alloc,Mut
+F axqlQuoteText stdlib/Axqlite.ax @47e12bf12fee681a "(String -> String)" #effects=Alloc,Mut
 F axqlReadBlob stdlib/Axqlite.ax @1cf6de079d25ce3c "(RowReader -> (String -> String))" #effects=Alloc,Mut
 F axqlReadInt stdlib/Axqlite.ax @ccf222d2de453e7c "(RowReader -> (String -> Int))" #effects=Alloc,Mut
 F axqlReadOptBlob stdlib/Axqlite.ax @4bfa63ccf220f5fb "(RowReader -> (String -> Option String))" #effects=Alloc,Mut
@@ -188,18 +194,18 @@ F b64Encode stdlib/Crypto/Bytes.ax @7fc0794e80c645a3 "(String -> String)" #effec
 F b64EncodeNoPad stdlib/Crypto/Bytes.ax @c6f27ef8d94886fd "(String -> String)" #effects=Alloc,Mut
 F b64UrlDecode stdlib/Crypto/Bytes.ax @55b72475eef172cc "(String -> Result String Error)" #effects=Alloc,Mut
 F b64UrlEncode stdlib/Crypto/Bytes.ax @89575c5479cb2210 "(String -> String)" #effects=Alloc,Mut
-F blake2b stdlib/Crypto/Blake2b.ax @9face8d91685565c "(Int -> (String -> (String -> Result String Error)))" #effects=Alloc,Mut,Unsafe
-F blake2b256 stdlib/Crypto/Blake2b.ax @46c3bb050bf3fe21 "(String -> String)" #effects=Alloc,Mut,Unsafe
-F blake2b512 stdlib/Crypto/Blake2b.ax @1b5ff004f35ab1d4 "(String -> String)" #effects=Alloc,Mut,Unsafe
+F blake2b stdlib/Crypto/Blake2b.ax @9face8d91685565c "(Int -> (String -> (String -> Result String Error)))" #effects=Alloc,Mut
+F blake2b256 stdlib/Crypto/Blake2b.ax @46c3bb050bf3fe21 "(String -> String)" #effects=Alloc,Mut
+F blake2b512 stdlib/Crypto/Blake2b.ax @1b5ff004f35ab1d4 "(String -> String)" #effects=Alloc,Mut
 F blake2bAddr stdlib/Crypto/Blake2b.ax @babbeaef8d1a810f "(Int -> (Int -> (Int -> (Int -> (Int -> (Int -> Int))))))" #effects=Alloc,Mut,Unsafe
-F blake2bCompress stdlib/Crypto/Blake2b.ax @b91b7bff4457d5b0 "(Int -> (Int -> (Int -> (Bool -> Int))))" #effects=Mut,Unsafe
-F blake2bCopy stdlib/Crypto/Blake2b.ax @ea49b90152c26821 "(Blake2b -> Blake2b)" #effects=Alloc,Mut,Unsafe
+F blake2bCompress stdlib/Crypto/Blake2b.ax @b91b7bff4457d5b0 "(Int -> (Int -> (Int -> (Bool -> Int))))" #effects=Mut
+F blake2bCopy stdlib/Crypto/Blake2b.ax @ea49b90152c26821 "(Blake2b -> Blake2b)" #effects=Alloc,Mut
 F blake2bFinal stdlib/Crypto/Blake2b.ax @c583c08c53d47fd4 "(Blake2b -> String)" #effects=Alloc,Mut,Unsafe
-F blake2bNew stdlib/Crypto/Blake2b.ax @2b3cbe0349c0607a "(Int -> Result Blake2b Error)" #effects=Alloc,Mut,Unsafe
-F blake2bNewKeyed stdlib/Crypto/Blake2b.ax @5c7e583eb995b128 "(Int -> (String -> Result Blake2b Error))" #effects=Alloc,Mut,Unsafe
-F blake2bNewKeyedSecret stdlib/Crypto/Blake2b.ax @ef48612714c228f4 "(Int -> (SecretBytes -> Result Blake2b Error))" #effects=Alloc,Mut,Unsafe
-F blake2bUpdate stdlib/Crypto/Blake2b.ax @aff4741d927637bd "(Blake2b -> (String -> Int))" #effects=Mut,Unsafe
-F blake2bUpdateAddr stdlib/Crypto/Blake2b.ax @4ac5f3778d9442ca "(Blake2b -> (Int -> (Int -> Int)))" #effects=Mut,Unsafe
+F blake2bNew stdlib/Crypto/Blake2b.ax @2b3cbe0349c0607a "(Int -> Result Blake2b Error)" #effects=Alloc,Mut
+F blake2bNewKeyed stdlib/Crypto/Blake2b.ax @5c7e583eb995b128 "(Int -> (String -> Result Blake2b Error))" #effects=Alloc,Mut
+F blake2bNewKeyedSecret stdlib/Crypto/Blake2b.ax @ef48612714c228f4 "(Int -> (SecretBytes -> Result Blake2b Error))" #effects=Alloc,Mut
+F blake2bUpdate stdlib/Crypto/Blake2b.ax @aff4741d927637bd "(Blake2b -> (String -> Int))" #effects=Mut
+F blake2bUpdateAddr stdlib/Crypto/Blake2b.ax @4ac5f3778d9442ca "(Blake2b -> (Int -> (Int -> Int)))" #effects=Mut
 F blake2bWipe stdlib/Crypto/Blake2b.ax @0777da5aef976397 "(Blake2b -> Int)" #effects=Mut,Unsafe
 F btreeCheck stdlib/Axqlite/Btree.ax @9e417ef516f8b669 "(Pager -> (Vec Int -> Result Int Error))" #effects=Alloc,IO,Mut,Unsafe
 F btreeClear stdlib/Axqlite/Btree.ax @0fc4e5d1722004f8 "(Pager -> (Int -> Result Int Error))" #effects=Alloc,IO,Mut
@@ -208,8 +214,8 @@ F btreeCreate stdlib/Axqlite/Btree.ax @3beef4f3eec475ef "(Pager -> (Int -> Resul
 F btreeDelete stdlib/Axqlite/Btree.ax @de70a21257ed9854 "(Pager -> (Int -> (String -> Result Bool Error)))" #effects=Alloc,IO,Mut
 F btreeDrop stdlib/Axqlite/Btree.ax @704dd075f361e2be "(Pager -> (Int -> Result Int Error))" #effects=Alloc,IO,Mut
 F btreeFirstKey stdlib/Axqlite/Btree.ax @4f0945e95743b75a "(Pager -> (Int -> Result Option String Error))" #effects=Alloc,IO,Mut
-F btreeGet stdlib/Axqlite/Btree.ax @252687f59f1255b1 "(Pager -> (Int -> (String -> Result Option String Error)))" #effects=Alloc,IO,Mut,Unsafe
-F btreeHeight stdlib/Axqlite/Btree.ax @f844644f913b3618 "(Pager -> (Int -> Result Int Error))" #effects=Alloc,IO,Mut,Unsafe
+F btreeGet stdlib/Axqlite/Btree.ax @252687f59f1255b1 "(Pager -> (Int -> (String -> Result Option String Error)))" #effects=Alloc,IO,Mut
+F btreeHeight stdlib/Axqlite/Btree.ax @f844644f913b3618 "(Pager -> (Int -> Result Int Error))" #effects=Alloc,IO,Mut
 F btreeIndex stdlib/Axqlite/Btree.ax @563088aea51f37cd "Int"
 F btreeInsertNew stdlib/Axqlite/Btree.ax @d315968b4dffa5a8 "(Pager -> (Int -> (String -> (String -> Result Bool Error))))" #effects=Alloc,IO,Mut
 F btreeLastKey stdlib/Axqlite/Btree.ax @03bcc945de37148e "(Pager -> (Int -> Result Option String Error))" #effects=Alloc,IO,Mut
@@ -218,35 +224,56 @@ F btreePut stdlib/Axqlite/Btree.ax @ec0920f60fa0af1c "(Pager -> (Int -> (String 
 F btreeScan stdlib/Axqlite/Btree.ax @ce3d6a053aebec9e "(Pager -> (Int -> (Option String -> (Option String -> (Bool -> ((String -> (String -> Result Bool Error)) -> Result Int Error))))))" #effect-params=f #effects=Alloc,IO,Mut
 F btreeSchemaRoot stdlib/Axqlite/Btree.ax @deafa969398484a0 "Int"
 F btreeTable stdlib/Axqlite/Btree.ax @955b55aa70b123b9 "Int"
-F bytesEqCt stdlib/Crypto/Bytes.ax @febf2ceb94107827 "(String -> (String -> Bool))" #effects=Mut,Unsafe
-F bytesFromAddr stdlib/Crypto/Bytes.ax @54b365ae445a77a9 "(Int -> (Int -> String))" #effects=Alloc,Mut,Unsafe
+F bytesEqCt stdlib/Crypto/Bytes.ax @febf2ceb94107827 "(String -> (String -> Bool))" #effects=Mut
+F bytesFromAddr stdlib/Crypto/Bytes.ax @54b365ae445a77a9 "(Int -> (Int -> String))" #effects=Alloc,Mut
 F bytesNew stdlib/Crypto/Bytes.ax @be79a294a0cd2268 "(Int -> String)" #effects=Alloc,Mut
-F bytesU32Be stdlib/Crypto/Bytes.ax @04843f9727b0bfad "(Int -> String)" #effects=Alloc,Mut,Unsafe
-F bytesU32Le stdlib/Crypto/Bytes.ax @04552b9727892cef "(Int -> String)" #effects=Alloc,Mut,Unsafe
-F bytesU64Be stdlib/Crypto/Bytes.ax @13098bc0cce2baa2 "(Int -> String)" #effects=Alloc,Mut,Unsafe
-F bytesU64Le stdlib/Crypto/Bytes.ax @133897c0cd0a3fc8 "(Int -> String)" #effects=Alloc,Mut,Unsafe
+F bytesU32Be stdlib/Crypto/Bytes.ax @04843f9727b0bfad "(Int -> String)" #effects=Alloc,Mut
+F bytesU32Le stdlib/Crypto/Bytes.ax @04552b9727892cef "(Int -> String)" #effects=Alloc,Mut
+F bytesU64Be stdlib/Crypto/Bytes.ax @13098bc0cce2baa2 "(Int -> String)" #effects=Alloc,Mut
+F bytesU64Le stdlib/Crypto/Bytes.ax @133897c0cd0a3fc8 "(Int -> String)" #effects=Alloc,Mut
 F bytesXor stdlib/Crypto/Bytes.ax @67eefd946fce1e6f "(String -> (String -> Result String Error))" #effects=Alloc,Mut,Unsafe
+F cerealBool stdlib/Cereal.ax @9764becea8600887 "(CerealValue -> Result Bool Error)" #effects=Alloc,Mut
+F cerealBoolCodec stdlib/Cereal.ax @90eed58b472ad21f "Codec Bool" #effects=Alloc,Mut
+F cerealDecode stdlib/Cereal.ax @67a54fd6ced7b965 "(CerealFormat -> (String -> Result CerealValue Error))" #effects=Alloc,Mut
+F cerealDecodeWith stdlib/Cereal.ax @2b3578000d324509 "(CerealFormat -> (CerealLimits -> (String -> Result CerealValue Error)))" #effects=Alloc,Mut
+F cerealDeserialize stdlib/Cereal.ax @b04f318c0f172256 "(CerealFormat -> (Codec a -> (String -> Result a Error)))" #effects=Alloc,Mut
+F cerealDeserializeWith stdlib/Cereal.ax @7c8ee9a8a7ad69f2 "(CerealFormat -> (CerealLimits -> (Codec a -> (String -> Result a Error))))" #effects=Alloc,Mut
+F cerealEncode stdlib/Cereal.ax @b7ec792b62b892f1 "(CerealFormat -> (CerealValue -> Result String Error))" #effects=Alloc,Mut
+F cerealEncodeWith stdlib/Cereal.ax @76878fbe9b1116c5 "(CerealFormat -> (CerealLimits -> (CerealValue -> Result String Error)))" #effects=Alloc,Mut
+F cerealField stdlib/Cereal.ax @8015f66712558acd "(Codec a -> (CerealValue -> (String -> Result a Error)))" #effects=Alloc,Mut
+F cerealFromValue stdlib/Cereal.ax @57f2463a027a0e64 "(Codec a -> (CerealValue -> Result a Error))"
+F cerealInt stdlib/Cereal.ax @2be6f348732c4e5c "(CerealValue -> Result Int Error)" #effects=Alloc,Mut
+F cerealIntCodec stdlib/Cereal.ax @dcbc8f4bbd27e58e "Codec Int" #effects=Alloc,Mut
+F cerealLimits stdlib/Cereal.ax @5a6cbdda528ddf27 "CerealLimits" #effects=Alloc
+F cerealObjectGet stdlib/Cereal.ax @0b74a6a465c39b74 "(CerealValue -> (String -> Option CerealValue))" #effects=Alloc
+F cerealOptionCodec stdlib/Cereal.ax @7a9a3fca89d9a350 "(Codec a -> Codec Option a)" #effects=Alloc
+F cerealRequired stdlib/Cereal.ax @7dc9e69a41d3bd8e "(CerealValue -> (String -> Result CerealValue Error))" #effects=Alloc,Mut
+F cerealSerialize stdlib/Cereal.ax @9c4ed227cf6327ff "(CerealFormat -> (Codec a -> (a -> Result String Error)))" #effect-params=value #effects=Alloc,Mut
+F cerealSerializeWith stdlib/Cereal.ax @fb7f43f0f3de9fe7 "(CerealFormat -> (CerealLimits -> (Codec a -> (a -> Result String Error))))" #effect-params=value #effects=Alloc,Mut
+F cerealText stdlib/Cereal.ax @e11b1a7b07f16614 "(CerealValue -> Result String Error)" #effects=Alloc,Mut
+F cerealTextCodec stdlib/Cereal.ax @c27aeebbc3556686 "Codec String" #effects=Alloc,Mut
+F cerealToValue stdlib/Cereal.ax @3a19a2a763597c3f "(Codec a -> (a -> Result CerealValue Error))" #effect-params=value
+F cerealValueCodec stdlib/Cereal.ax @ecace94029f2f852 "Codec CerealValue" #effects=Alloc
+F cerealVecCodec stdlib/Cereal.ax @b5cf6db5532690cf "(Codec a -> Codec Vec a)" #effects=Alloc,Mut
 F chacha20Block stdlib/Crypto/ChaCha20.ax @b049145fd99424f6 "(Int -> (Int -> (Int -> (Int -> Int))))" #effects=Mut,Unsafe
 F chacha20BlockBytes stdlib/Crypto/ChaCha20.ax @d6be80882f7be19d "Int"
-F chacha20Poly1305KeyExport stdlib/Crypto/ChaCha20Poly1305.ax @3f2cb2de20c502c5 "(ChaCha20Poly1305Key -> Result SecretBytes Error)" #effects=Alloc,IO,Mut,Unsafe
-F chacha20Poly1305KeyFromSecret stdlib/Crypto/ChaCha20Poly1305.ax @41a5f773da18250b "(SecretBytes -> Result ChaCha20Poly1305Key Error)" #effects=Alloc,IO,Mut,Unsafe
-F chacha20Poly1305KeyGenerate stdlib/Crypto/ChaCha20Poly1305.ax @dab6351de70ba070 "Result ChaCha20Poly1305Key Error" #effects=Alloc,Entropy,IO,Mut,Unsafe
-F chacha20Poly1305KeyWipe stdlib/Crypto/ChaCha20Poly1305.ax @6e99efd00cbf5eec "(ChaCha20Poly1305Key -> Int)" #effects=Alloc,IO,Mut,Unsafe
-F chacha20Poly1305Open stdlib/Crypto/ChaCha20Poly1305.ax @7e1e0da45f27b9d0 "(ChaCha20Poly1305Key -> (AeadNonce -> (String -> (String -> Result String Error))))" #effects=Alloc,Mut,Unsafe
-F chacha20Poly1305Seal stdlib/Crypto/ChaCha20Poly1305.ax @8c52b54adaea5441 "(ChaCha20Poly1305Key -> (AeadNonce -> (String -> (String -> Result String Error))))" #effects=Alloc,Mut,Unsafe
+F chacha20Poly1305KeyExport stdlib/Crypto/ChaCha20Poly1305.ax @3f2cb2de20c502c5 "(ChaCha20Poly1305Key -> Result SecretBytes Error)" #effects=Alloc,IO,Mut
+F chacha20Poly1305KeyFromSecret stdlib/Crypto/ChaCha20Poly1305.ax @41a5f773da18250b "(SecretBytes -> Result ChaCha20Poly1305Key Error)" #effects=Alloc,IO,Mut
+F chacha20Poly1305KeyGenerate stdlib/Crypto/ChaCha20Poly1305.ax @dab6351de70ba070 "Result ChaCha20Poly1305Key Error" #effects=Alloc,Entropy,IO,Mut
+F chacha20Poly1305KeyWipe stdlib/Crypto/ChaCha20Poly1305.ax @6e99efd00cbf5eec "(ChaCha20Poly1305Key -> Int)" #effects=Alloc,IO,Mut
+F chacha20Poly1305Open stdlib/Crypto/ChaCha20Poly1305.ax @7e1e0da45f27b9d0 "(ChaCha20Poly1305Key -> (AeadNonce -> (String -> (String -> Result String Error))))" #effects=Alloc,Mut
+F chacha20Poly1305Seal stdlib/Crypto/ChaCha20Poly1305.ax @8c52b54adaea5441 "(ChaCha20Poly1305Key -> (AeadNonce -> (String -> (String -> Result String Error))))" #effects=Alloc,Mut
 F chacha20Xor stdlib/Crypto/ChaCha20.ax @148928b63918e00a "(Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> Int)))))))" #effects=Mut,Unsafe
 F chanCap stdlib/Chan.ax @7f1730b8617b6e35 "(Chan -> Int)"
 F chanClose stdlib/Chan.ax @1e09607ed8d3cced "(Chan -> Int)" #effects=Alloc,Block,IO,Mut
 F chanClosed stdlib/Chan.ax @ddbb808a6fe48ccb "(Chan -> Bool)" #effects=Alloc,Block,IO,Mut
-F chanFree stdlib/Chan.ax @ff7b3034e1040f15 "(Chan -> Result Int Error)" #effects=Alloc,IO,Mut,Unsafe
 F chanLen stdlib/Chan.ax @bbc03fb883d8ff06 "(Chan -> Int)" #effects=Alloc,Block,IO,Mut
 F chanNew stdlib/Chan.ax @aa6d06b87a088fd7 "(Int -> Result Chan Error)" #effects=Alloc,IO,Mut
-F chanOwnerDead stdlib/Chan.ax @87452277807277f8 "Int"
 F chanPoisoned stdlib/Chan.ax @8c210155c715020a "(Chan -> Bool)"
 F chanRecv stdlib/Chan.ax @d9670bd077cb48d3 "(Chan -> Option Int)" #effects=Alloc,Block,IO,Mut
-F chanRecvTimeout stdlib/Chan.ax @2b6a762036e3653e "(Chan -> (Int -> Result Option Int Error))" #effects=Alloc,Block,IO,Mut,Unsafe
+F chanRecvTimeout stdlib/Chan.ax @2b6a762036e3653e "(Chan -> (Int -> Result Option Int Error))" #effects=Alloc,Block,IO,Mut
 F chanSend stdlib/Chan.ax @750c69c965559ce1 "(Chan -> (Int -> Bool))" #effects=Alloc,Block,IO,Mut
-F chanSendTimeout stdlib/Chan.ax @67ed944025d6567c "(Chan -> (Int -> (Int -> Result Bool Error)))" #effects=Alloc,Block,IO,Mut,Unsafe
+F chanSendTimeout stdlib/Chan.ax @67ed944025d6567c "(Chan -> (Int -> (Int -> Result Bool Error)))" #effects=Alloc,Block,IO,Mut
 F chanTryRecv stdlib/Chan.ax @8b58bcd70141e750 "(Chan -> Option Int)" #effects=Alloc,Block,IO,Mut
 F chanTrySend stdlib/Chan.ax @08b59adcff559116 "(Chan -> (Int -> Bool))" #effects=Alloc,Block,IO,Mut
 F childPollKind stdlib/Sys/Platform.ax @36bd998094030714 "Int"
@@ -259,7 +286,7 @@ F chronoParseFailed stdlib/Chrono.ax @18a809f697447eaa "Int"
 F clockHasMonotonic stdlib/Sys/Platform.ax @9718b6249aa77bff "Int"
 F clockIsGettimeofday stdlib/Sys/Platform.ax @48d4af426412da35 "Int"
 F clockMonotonicId stdlib/Sys/Platform.ax @2897092e9f7766b0 "Int"
-F concat stdlib/Str.ax @aa4aeeb285d641c3 "(String -> (String -> String))" #effects=Alloc,Mut,Unsafe
+F concat stdlib/Str.ax @aa4aeeb285d641c3 "(String -> (String -> String))" #effects=Alloc,Mut
 F copyFile stdlib/IO.ax @9c31bf69483ba434 "(String -> (String -> Result Int Error))" #effects=Alloc,IO,Mut
 F cryptoAuthErr stdlib/Crypto/Errors.ax @c2c5a593d432975f "(String -> Result a Error)" #effects=Alloc
 F cryptoAuthFailed stdlib/Crypto/Errors.ax @5d783cb2007c4dd5 "Int"
@@ -304,7 +331,7 @@ F dateMin stdlib/Chrono.ax @9384bc4c36a7ae79 "Date"
 F dateMonth stdlib/Chrono.ax @5e00b3cb4fa5392b "(Date -> Int)"
 F dateNew stdlib/Chrono.ax @883a9a4c2f8465bf "(Int -> (Int -> (Int -> Result Date Error)))" #effects=Alloc
 F dateParse stdlib/Chrono.ax @765a68e9aeffbb02 "(String -> Result Date Error)" #effects=Alloc
-F dateToString stdlib/Chrono.ax @c3074df05b955193 "(Date -> String)" #effects=Alloc,Mut,Unsafe
+F dateToString stdlib/Chrono.ax @c3074df05b955193 "(Date -> String)" #effects=Alloc,Mut
 F dateWeekday stdlib/Chrono.ax @efd34d87dc6634d3 "(Date -> Int)"
 F dateYear stdlib/Chrono.ax @85941a1b86e2a9aa "(Date -> Int)"
 F datetimeAdd stdlib/Chrono.ax @55871fc756039a4d "(NaiveDateTime -> (Duration -> Result NaiveDateTime Error))" #effects=Alloc
@@ -313,11 +340,11 @@ F datetimeEq stdlib/Chrono.ax @4545c2f2557b7760 "(NaiveDateTime -> (NaiveDateTim
 F datetimeFormat stdlib/Chrono.ax @b5c37be15f724a7d "(String -> (NaiveDateTime -> Result String Error))" #effects=Alloc,Mut
 F datetimeFromUnix stdlib/Chrono.ax @f0f9b8575fdfd278 "(Int -> (Int -> Result NaiveDateTime Error))" #effects=Alloc
 F datetimeNew stdlib/Chrono.ax @d2dda5c70bcc45d8 "(Date -> (Time -> NaiveDateTime))" #effects=Alloc
-F datetimeNowUtc stdlib/Chrono.ax @fc6f5bdf0ee08ef4 "Result NaiveDateTime Error" #effects=Alloc,IO,Mut,Unsafe
+F datetimeNowUtc stdlib/Chrono.ax @fc6f5bdf0ee08ef4 "Result NaiveDateTime Error" #effects=Alloc,IO,Mut
 F datetimeParse stdlib/Chrono.ax @581f3ae0777fecf1 "(String -> Result NaiveDateTime Error)" #effects=Alloc
 F datetimeParseUtc stdlib/Chrono.ax @4b3d95a1d7b97cd1 "(String -> Result NaiveDateTime Error)" #effects=Alloc
 F datetimeSub stdlib/Chrono.ax @cc724dc798b46e1c "(NaiveDateTime -> (Duration -> Result NaiveDateTime Error))" #effects=Alloc
-F datetimeToString stdlib/Chrono.ax @ccdb26b9a3ea7c16 "(NaiveDateTime -> String)" #effects=Alloc,Mut,Unsafe
+F datetimeToString stdlib/Chrono.ax @ccdb26b9a3ea7c16 "(NaiveDateTime -> String)" #effects=Alloc,Mut
 F datetimeToUnixSeconds stdlib/Chrono.ax @e6131273c3388da2 "(NaiveDateTime -> Int)"
 F datetimeUntil stdlib/Chrono.ax @084c36cca59093fe "(NaiveDateTime -> (NaiveDateTime -> Result Duration Error))" #effects=Alloc
 F die stdlib/IO.ax @52fb9ccad9feab1b "(String -> (Int -> Int))" #effects=Alloc,IO,Mut
@@ -341,24 +368,24 @@ F durationNanos stdlib/Chrono.ax @c2691089f6764822 "(Duration -> Int)"
 F durationNeg stdlib/Chrono.ax @8f40b8380fd45bbf "(Duration -> Duration)"
 F durationParse stdlib/Chrono.ax @f41471862e726ff2 "(String -> Result Duration Error)" #effects=Alloc
 F durationSub stdlib/Chrono.ax @79af283894c50743 "(Duration -> (Duration -> Result Duration Error))" #effects=Alloc
-F durationToString stdlib/Chrono.ax @cb0ac0d604720c03 "(Duration -> String)" #effects=Alloc,Mut,Unsafe
+F durationToString stdlib/Chrono.ax @cb0ac0d604720c03 "(Duration -> String)" #effects=Alloc,Mut
 F durationZero stdlib/Chrono.ax @795727e97a8e4b71 "Duration"
 F eAgain stdlib/Sys/Platform.ax @e069fc6f4f9b397a "Int"
 F eExist stdlib/Sys/Platform.ax @4a860ff9c061ee75 "Int"
 F eIsDir stdlib/Sys/Platform.ax @6b013530d7d877b5 "Int"
 F eTimedOut stdlib/Sys/Platform.ax @aa549db068f60e37 "Int"
 F eXdev stdlib/Sys/Platform.ax @29287ef0ba89a22d "Int"
-F ed25519KeyExport stdlib/Crypto/Ed25519.ax @6e44fb64d13d9329 "(Ed25519SecretKey -> Result SecretBytes Error)" #effects=Alloc,IO,Mut,Unsafe
-F ed25519KeyFromSecret stdlib/Crypto/Ed25519.ax @3add2500aea2bfe7 "(SecretBytes -> Result Ed25519SecretKey Error)" #effects=Alloc,IO,Mut,Unsafe
-F ed25519KeyGenerate stdlib/Crypto/Ed25519.ax @8855bacb781c6d7c "Result Ed25519SecretKey Error" #effects=Alloc,Entropy,IO,Mut,Unsafe
-F ed25519KeyWipe stdlib/Crypto/Ed25519.ax @9d64b18c1139d3a8 "(Ed25519SecretKey -> Int)" #effects=Alloc,IO,Mut,Unsafe
-F ed25519PublicKey stdlib/Crypto/Ed25519.ax @ed4c04a2dea5a79c "(Ed25519SecretKey -> Ed25519PublicKey)" #effects=Alloc,Mut,Unsafe
+F ed25519KeyExport stdlib/Crypto/Ed25519.ax @6e44fb64d13d9329 "(Ed25519SecretKey -> Result SecretBytes Error)" #effects=Alloc,IO,Mut
+F ed25519KeyFromSecret stdlib/Crypto/Ed25519.ax @3add2500aea2bfe7 "(SecretBytes -> Result Ed25519SecretKey Error)" #effects=Alloc,IO,Mut
+F ed25519KeyGenerate stdlib/Crypto/Ed25519.ax @8855bacb781c6d7c "Result Ed25519SecretKey Error" #effects=Alloc,Entropy,IO,Mut
+F ed25519KeyWipe stdlib/Crypto/Ed25519.ax @9d64b18c1139d3a8 "(Ed25519SecretKey -> Int)" #effects=Alloc,IO,Mut
+F ed25519PublicKey stdlib/Crypto/Ed25519.ax @ed4c04a2dea5a79c "(Ed25519SecretKey -> Ed25519PublicKey)" #effects=Alloc,Mut
 F ed25519PublicKeyBytes stdlib/Crypto/Ed25519.ax @408e30f913f4999f "(Ed25519PublicKey -> String)"
-F ed25519PublicKeyFromBytes stdlib/Crypto/Ed25519.ax @6c84269197a4c2c7 "(String -> Result Ed25519PublicKey Error)" #effects=Alloc,Mut,Unsafe
-F ed25519Sign stdlib/Crypto/Ed25519.ax @31c3399c645d3275 "(Ed25519SecretKey -> (String -> Ed25519Signature))" #effects=Alloc,Mut,Unsafe
+F ed25519PublicKeyFromBytes stdlib/Crypto/Ed25519.ax @6c84269197a4c2c7 "(String -> Result Ed25519PublicKey Error)" #effects=Alloc,Mut
+F ed25519Sign stdlib/Crypto/Ed25519.ax @31c3399c645d3275 "(Ed25519SecretKey -> (String -> Ed25519Signature))" #effects=Alloc,Mut
 F ed25519SignatureBytes stdlib/Crypto/Ed25519.ax @e2f2e943edd84835 "(Ed25519Signature -> String)"
-F ed25519SignatureFromBytes stdlib/Crypto/Ed25519.ax @2424c3cacb5018c9 "(String -> Result Ed25519Signature Error)" #effects=Alloc,Mut,Unsafe
-F ed25519Verify stdlib/Crypto/Ed25519.ax @f6629a9e41bb5b29 "(Ed25519PublicKey -> (String -> (Ed25519Signature -> Bool)))" #effects=Alloc,Mut,Unsafe
+F ed25519SignatureFromBytes stdlib/Crypto/Ed25519.ax @2424c3cacb5018c9 "(String -> Result Ed25519Signature Error)" #effects=Alloc,Mut
+F ed25519Verify stdlib/Crypto/Ed25519.ax @f6629a9e41bb5b29 "(Ed25519PublicKey -> (String -> (Ed25519Signature -> Bool)))" #effects=Alloc,Mut
 F errCode stdlib/Err.ax @cc1e4529d6664c73 "(Error -> Int)"
 F errContext stdlib/Err.ax @fe4f05b820694e19 "(Error -> String)"
 F errContextOf stdlib/Err.ax @b862d60d2e00078c "(Error -> (String -> Error))" #effects=Alloc
@@ -369,6 +396,7 @@ F errShiftTooWide stdlib/Err.ax @6a505014b69f075b "Int"
 F errShortWrite stdlib/Err.ax @b166d14415d631b7 "Int"
 F errorText stdlib/Err.ax @f35171f54885d954 "(Error -> String)" #effects=Alloc,Mut
 F exit stdlib/IO.ax @74897aa4bb126f5b "(Int -> Int)" #effects=IO
+F fDupFdCloexec stdlib/Sys/Platform.ax @f485ebd5afb09197 "Int"
 F fFullFsync stdlib/Sys/Platform.ax @a565fe393bd1c47f "Int"
 F fGetFl stdlib/Sys/Platform.ax @586088fc3a85778b "Int"
 F fGetPath stdlib/Sys/Platform.ax @7c3930a7ed86acda "Int"
@@ -383,25 +411,25 @@ F fallibleTally stdlib/Fallible.ax @7535875284b25edc "FallibleTally" #effects=Al
 F fe25519Add stdlib/Crypto/Field25519.ax @882826e99613737b "(Int -> (Int -> (Int -> Int)))" #effects=Mut,Unsafe
 F fe25519Bytes stdlib/Crypto/Field25519.ax @057a7f313b07f413 "Int"
 F fe25519CMov stdlib/Crypto/Field25519.ax @042706fb711b6935 "(Int -> (Int -> (Int -> Int)))" #effects=Mut,Unsafe
-F fe25519CSwap stdlib/Crypto/Field25519.ax @8af34b64d3524962 "(Int -> (Int -> (Int -> Int)))" #effects=Mut,Unsafe
+F fe25519CSwap stdlib/Crypto/Field25519.ax @8af34b64d3524962 "(Int -> (Int -> (Int -> Int)))" #effects=Mut
 F fe25519Copy stdlib/Crypto/Field25519.ax @28a785fc163618c5 "(Int -> (Int -> Int))" #effects=Mut,Unsafe
-F fe25519FromBytes stdlib/Crypto/Field25519.ax @38719512127ebae3 "(Int -> (Int -> Int))" #effects=Mut,Unsafe
-F fe25519Invert stdlib/Crypto/Field25519.ax @770ed4f0fbf6191c "(Int -> (Int -> Int))" #effects=Alloc,Mut,Unsafe
+F fe25519FromBytes stdlib/Crypto/Field25519.ax @38719512127ebae3 "(Int -> (Int -> Int))" #effects=Mut
+F fe25519Invert stdlib/Crypto/Field25519.ax @770ed4f0fbf6191c "(Int -> (Int -> Int))" #effects=Alloc,Mut
 F fe25519IsNegative stdlib/Crypto/Field25519.ax @18897faab394dfcf "(Int -> Int)" #effects=Alloc,Mut,Unsafe
 F fe25519IsZero stdlib/Crypto/Field25519.ax @00357586f67ebae2 "(Int -> Int)" #effects=Alloc,Mut,Unsafe
 F fe25519Mul stdlib/Crypto/Field25519.ax @67ba7ce98456e136 "(Int -> (Int -> (Int -> Int)))" #effects=Mut,Unsafe
 F fe25519Mul121666 stdlib/Crypto/Field25519.ax @d55f93fed639adda "(Int -> (Int -> Int))" #effects=Mut,Unsafe
 F fe25519Neg stdlib/Crypto/Field25519.ax @6f089ce988172696 "(Int -> (Int -> Int))" #effects=Mut,Unsafe
-F fe25519One stdlib/Crypto/Field25519.ax @7968c3e98e7413dc "(Int -> Int)" #effects=Mut,Unsafe
-F fe25519Pow22523 stdlib/Crypto/Field25519.ax @910a561df126938a "(Int -> (Int -> Int))" #effects=Alloc,Mut,Unsafe
+F fe25519One stdlib/Crypto/Field25519.ax @7968c3e98e7413dc "(Int -> Int)" #effects=Mut
+F fe25519Pow22523 stdlib/Crypto/Field25519.ax @910a561df126938a "(Int -> (Int -> Int))" #effects=Alloc,Mut
 F fe25519Set stdlib/Crypto/Field25519.ax @269bf6e9f08af248 "(Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> Int)))))))))))" #effects=Mut,Unsafe
 F fe25519Sq stdlib/Crypto/Field25519.ax @9500cf037af66550 "(Int -> (Int -> Int))" #effects=Mut,Unsafe
 F fe25519Sq2 stdlib/Crypto/Field25519.ax @26c524e9f0ae4586 "(Int -> (Int -> Int))" #effects=Mut,Unsafe
-F fe25519SqrtM1 stdlib/Crypto/Field25519.ax @9b571c5191145050 "(Int -> Int)" #effects=Mut,Unsafe
+F fe25519SqrtM1 stdlib/Crypto/Field25519.ax @9b571c5191145050 "(Int -> Int)" #effects=Mut
 F fe25519Sub stdlib/Crypto/Field25519.ax @26d30ce9f0ba5a1a "(Int -> (Int -> (Int -> Int)))" #effects=Mut,Unsafe
 F fe25519ToBytes stdlib/Crypto/Field25519.ax @c655f949bb6ca0f8 "(Int -> (Int -> Int))" #effects=Mut,Unsafe
-F fe25519Zero stdlib/Crypto/Field25519.ax @2a707a375f02d76a "(Int -> Int)" #effects=Mut,Unsafe
-F ffiBytesToStr stdlib/Ffi.ax @56498f1f27cd76b3 "(Int -> (Int -> String))" #effects=Alloc,Mut,Unsafe
+F fe25519Zero stdlib/Crypto/Field25519.ax @2a707a375f02d76a "(Int -> Int)" #effects=Mut
+F ffiBytesToStr stdlib/Ffi.ax @56498f1f27cd76b3 "(Int -> (Int -> String))" #effects=Alloc,Mut
 F ffiCellFree stdlib/Ffi.ax @f0c2245811af4f34 "(Int -> Int)" #effects=Unsafe
 F ffiCellNew stdlib/Ffi.ax @210c0ee259ee3940 "Int" #effects=Alloc
 F ffiCellNewN stdlib/Ffi.ax @15b6589ecfcaf2ca "(Int -> Int)" #effects=Alloc,Unsafe
@@ -413,149 +441,146 @@ F ffiHandlePtr stdlib/Ffi.ax @983c0fc5300b1bd2 "(Handle -> Int)" #effects=Unsafe
 F ffiStatusErr stdlib/Ffi.ax @bbd6ec830034703f "Int"
 F ffiStatusNone stdlib/Ffi.ax @f24d67e0f160a4b2 "Int"
 F ffiStatusOk stdlib/Ffi.ax @16e3c9978c2d8b82 "Int"
-F ffiStrsToVec stdlib/Ffi.ax @c78214df73ea4c6f "(Int -> (Int -> Vec String))" #effects=Alloc,Mut,Unsafe
-F ffiWordAt stdlib/Ffi.ax @184cc722da2ed5af "(Int -> (Int -> Int))" #effects=Unsafe
-F ffiWordListsToVec stdlib/Ffi.ax @736f6ad949ba6110 "(Int -> (Int -> Vec Vec Int))" #effects=Alloc,Mut,Unsafe
-F ffiWordsToVec stdlib/Ffi.ax @075584dad1fda964 "(Int -> (Int -> Vec Int))" #effects=Alloc,Mut,Unsafe
+F ffiStrsToVec stdlib/Ffi.ax @c78214df73ea4c6f "(Int -> (Int -> Vec String))" #effects=Alloc,Mut
+F ffiWordAt stdlib/Ffi.ax @184cc722da2ed5af "(Int -> (Int -> Int))"
+F ffiWordListsToVec stdlib/Ffi.ax @736f6ad949ba6110 "(Int -> (Int -> Vec Vec Int))" #effects=Alloc,Mut
+F ffiWordsToVec stdlib/Ffi.ax @075584dad1fda964 "(Int -> (Int -> Vec Int))" #effects=Alloc,Mut
 F fileClose stdlib/IO.ax @4c2fe4255d35a823 "(File -> Result Int Error)" #effects=Alloc,IO,Unsafe
-F fileExists stdlib/IO.ax @957c6f005e5962fd "(String -> Bool)" #effects=Alloc,IO,Mut,Unsafe
-F fileFd stdlib/IO.ax @6bd338c8940cc507 "(File -> Int)" #effects=Unsafe
-F fileFromFd stdlib/IO.ax @2eed0aafb85a50b7 "(Int -> File)" #effects=Alloc,IO,Unsafe
-F fileReadAll stdlib/IO.ax @bd5921690f444dc4 "(File -> Result String Error)" #effects=Alloc,IO,Mut
-F fileReadInto stdlib/IO.ax @73b5e2c6c0b19443 "(File -> (String -> (Int -> (Int -> Result Int Error))))" #effects=Alloc,IO
-F fileReadLine stdlib/IO.ax @3d5abfaeaf708ba7 "(File -> Result Option String Error)" #effects=Alloc,IO,Mut
-F fileSize stdlib/IO.ax @9c1d10204ae6561c "(String -> Result Int Error)" #effects=Alloc,IO,Mut,Unsafe
-F fileWrite stdlib/IO.ax @66a78d4119e15d5c "(File -> (String -> Result Int Error))" #effects=Alloc,IO,Unsafe
+F fileExists stdlib/IO.ax @957c6f005e5962fd "(String -> Bool)" #effects=Alloc,IO,Mut
+F fileRead stdlib/IO.ax @97b1cd2721c6a1e5 "(File -> (ReadBuffer -> (Int -> (Int -> Result Int Error))))" #effects=Alloc,IO,Mut
+F fileSetNonBlocking stdlib/IO.ax @d18526e7cffd30c1 "(File -> (Bool -> Result Int Error))" #effects=Alloc,IO,Mut
+F fileSize stdlib/IO.ax @9c1d10204ae6561c "(String -> Result Int Error)" #effects=Alloc,IO,Mut
+F fileWrite stdlib/IO.ax @66a78d4119e15d5c "(File -> (String -> Result Int Error))" #effects=Alloc,IO
 F floatFromBits stdlib/Float.ax @f56bc69579802577 "(Int -> Float)"
 F floatInfinity stdlib/Float.ax @72fb9fa3d078a1ff "Float"
 F floatIsFinite stdlib/Float.ax @b3cef4e0056079b4 "(Float -> Bool)"
 F floatIsInfinite stdlib/Float.ax @dc1bbafaa6e02b77 "(Float -> Bool)"
 F floatIsNan stdlib/Float.ax @addcdc7c5822cbe4 "(Float -> Bool)"
 F floatNan stdlib/Float.ax @9bc952c2e6563518 "Float"
-F floatParse stdlib/Float.ax @f01716d023663702 "(String -> Result Float Error)" #effects=Alloc,Mut,Unsafe
+F floatParse stdlib/Float.ax @f01716d023663702 "(String -> Result Float Error)" #effects=Alloc,Mut
 F floatParseFailed stdlib/Float.ax @4560f5c41296cef3 "Int"
 F floatToBits stdlib/Float.ax @9fb98aca2aef28a2 "(Float -> Int)"
-F floatToString stdlib/Float.ax @e6f2c0c7af122593 "(Float -> String)" #effects=Alloc,Mut,Unsafe
+F floatToString stdlib/Float.ax @e6f2c0c7af122593 "(Float -> String)" #effects=Alloc,Mut
 F fmtFloat stdlib/Fmt.ax @2bf4996fc763ed24 "(Float -> String)" #effects=Alloc,Mut
 F fmtFloatPrec stdlib/Fmt.ax @ea5df8d40446e07a "(Float -> (Int -> String))" #effects=Alloc,Mut
-F fmtHex stdlib/Fmt.ax @ded1877943829b97 "(Int -> String)" #effects=Alloc,Mut,Unsafe
-F fmtHexUpper stdlib/Fmt.ax @69395a9a100cf1a1 "(Int -> String)" #effects=Alloc,Mut,Unsafe
+F fmtHex stdlib/Fmt.ax @ded1877943829b97 "(Int -> String)" #effects=Alloc,Mut
+F fmtHexUpper stdlib/Fmt.ax @69395a9a100cf1a1 "(Int -> String)" #effects=Alloc,Mut
 F fmtInt stdlib/Fmt.ax @e931a47949df77df "(Int -> String)" #effects=Alloc,Mut
 F fmtIntWidth stdlib/Fmt.ax @9cad3c09486818d1 "(Int -> Int)"
-F fmtPadCenter stdlib/Fmt.ax @d4ec77aeafee7c72 "(String -> (Int -> String))" #effects=Alloc,Mut,Unsafe
-F fmtPadLeft stdlib/Fmt.ax @c1ae7a7c49727db6 "(String -> (Int -> String))" #effects=Alloc,Mut,Unsafe
-F fmtPadRight stdlib/Fmt.ax @9a1e0b25bf6c290b "(String -> (Int -> String))" #effects=Alloc,Mut,Unsafe
+F fmtPadCenter stdlib/Fmt.ax @d4ec77aeafee7c72 "(String -> (Int -> String))" #effects=Alloc,Mut
+F fmtPadLeft stdlib/Fmt.ax @c1ae7a7c49727db6 "(String -> (Int -> String))" #effects=Alloc,Mut
+F fmtPadRight stdlib/Fmt.ax @9a1e0b25bf6c290b "(String -> (Int -> String))" #effects=Alloc,Mut
 F fmtPadZerosLeft stdlib/Fmt.ax @5956b543e920a6f3 "(String -> (Int -> String))" #effects=Alloc,Mut,Unsafe
 F forkChildIsZero stdlib/Sys/Platform.ax @d2e5b0de4127a1a5 "Int"
 F fsyncUsesFullFsync stdlib/Sys/Platform.ax @0df4b1a93f4556b6 "Int"
-F ge25519Add stdlib/Crypto/Curve25519.ax @b1e915db5fd8f0ba "(Int -> (Int -> (Int -> (Int -> Int))))" #effects=Mut,Unsafe
-F ge25519Base stdlib/Crypto/Curve25519.ax @85f50fbca7ee3c82 "(Int -> Int)" #effects=Mut,Unsafe
+F ge25519Add stdlib/Crypto/Curve25519.ax @b1e915db5fd8f0ba "(Int -> (Int -> (Int -> (Int -> Int))))" #effects=Mut
+F ge25519Base stdlib/Crypto/Curve25519.ax @85f50fbca7ee3c82 "(Int -> Int)" #effects=Mut
 F ge25519CachedBytes stdlib/Crypto/Curve25519.ax @c76c19135c22be14 "Int"
-F ge25519CombTable stdlib/Crypto/Curve25519.ax @cbf17746f815a5e6 "(Int -> Int)" #effects=Mut,Unsafe
-F ge25519D stdlib/Crypto/Curve25519.ax @b37c47895f36c1a1 "(Int -> Int)" #effects=Mut,Unsafe
-F ge25519D2 stdlib/Crypto/Curve25519.ax @32ef216cca0aecc9 "(Int -> Int)" #effects=Mut,Unsafe
+F ge25519CombTable stdlib/Crypto/Curve25519.ax @cbf17746f815a5e6 "(Int -> Int)" #effects=Mut
+F ge25519D stdlib/Crypto/Curve25519.ax @b37c47895f36c1a1 "(Int -> Int)" #effects=Mut
+F ge25519D2 stdlib/Crypto/Curve25519.ax @32ef216cca0aecc9 "(Int -> Int)" #effects=Mut
 F ge25519DoubleScalarMultVartime stdlib/Crypto/Curve25519.ax @76f415ff351ef160 "(Int -> (Int -> (Int -> (Int -> Int))))" #effects=Alloc,Mut,Unsafe
 F ge25519FromBytesVartime stdlib/Crypto/Curve25519.ax @0bdd8e8f9e6b227a "(Int -> (Int -> Int))" #effects=Alloc,Mut,Unsafe
-F ge25519Madd stdlib/Crypto/Curve25519.ax @6217105e88db4465 "(Int -> (Int -> (Int -> (Int -> Int))))" #effects=Mut,Unsafe
+F ge25519Madd stdlib/Crypto/Curve25519.ax @6217105e88db4465 "(Int -> (Int -> (Int -> (Int -> Int))))" #effects=Mut
 F ge25519P1P1Bytes stdlib/Crypto/Curve25519.ax @ef71f261426ac242 "Int"
-F ge25519P1P1ToP2 stdlib/Crypto/Curve25519.ax @36afec9dcff9b14c "(Int -> (Int -> Int))" #effects=Mut,Unsafe
-F ge25519P1P1ToP3 stdlib/Crypto/Curve25519.ax @36afed9dcff9b2ff "(Int -> (Int -> Int))" #effects=Mut,Unsafe
+F ge25519P1P1ToP2 stdlib/Crypto/Curve25519.ax @36afec9dcff9b14c "(Int -> (Int -> Int))" #effects=Mut
+F ge25519P1P1ToP3 stdlib/Crypto/Curve25519.ax @36afed9dcff9b2ff "(Int -> (Int -> Int))" #effects=Mut
 F ge25519P2Bytes stdlib/Crypto/Curve25519.ax @638e4cea16d3659c "Int"
-F ge25519P2Dbl stdlib/Crypto/Curve25519.ax @18accfa6a527fb75 "(Int -> (Int -> (Int -> Int)))" #effects=Mut,Unsafe
-F ge25519P2Zero stdlib/Crypto/Curve25519.ax @bb756a9483f86d1b "(Int -> Int)" #effects=Mut,Unsafe
+F ge25519P2Dbl stdlib/Crypto/Curve25519.ax @18accfa6a527fb75 "(Int -> (Int -> (Int -> Int)))" #effects=Mut
+F ge25519P2Zero stdlib/Crypto/Curve25519.ax @bb756a9483f86d1b "(Int -> Int)" #effects=Mut
 F ge25519P3Bytes stdlib/Crypto/Curve25519.ax @846e5510cbc196c9 "Int"
-F ge25519P3Neg stdlib/Crypto/Curve25519.ax @675c0c9e451fd3a4 "(Int -> Int)" #effects=Mut,Unsafe
-F ge25519P3ToCached stdlib/Crypto/Curve25519.ax @08c57cdae726f645 "(Int -> (Int -> (Int -> Int)))" #effects=Mut,Unsafe
-F ge25519P3Zero stdlib/Crypto/Curve25519.ax @af20cc54df8cd678 "(Int -> Int)" #effects=Mut,Unsafe
+F ge25519P3Neg stdlib/Crypto/Curve25519.ax @675c0c9e451fd3a4 "(Int -> Int)" #effects=Mut
+F ge25519P3ToCached stdlib/Crypto/Curve25519.ax @08c57cdae726f645 "(Int -> (Int -> (Int -> Int)))" #effects=Mut
+F ge25519P3Zero stdlib/Crypto/Curve25519.ax @af20cc54df8cd678 "(Int -> Int)" #effects=Mut
 F ge25519PrecompBytes stdlib/Crypto/Curve25519.ax @d56d06d3a035adea "Int"
 F ge25519ScalarMultBase stdlib/Crypto/Curve25519.ax @9228569ce5535208 "(Int -> (Int -> Int))" #effects=Alloc,Mut,Unsafe
-F ge25519Sub stdlib/Crypto/Curve25519.ax @161cffdb07a2faf3 "(Int -> (Int -> (Int -> (Int -> Int))))" #effects=Mut,Unsafe
+F ge25519Sub stdlib/Crypto/Curve25519.ax @161cffdb07a2faf3 "(Int -> (Int -> (Int -> (Int -> Int))))" #effects=Mut
 F ge25519ToBytes stdlib/Crypto/Curve25519.ax @aa378eb51ebb6939 "(Int -> (Int -> Int))" #effects=Alloc,Mut,Unsafe
-F ghashUpdate stdlib/Crypto/Ghash.ax @bd8870cc090d9ea5 "(Int -> (Int -> (Int -> (Int -> Int))))" #effects=Mut,Unsafe
+F ghashUpdate stdlib/Crypto/Ghash.ax @bd8870cc090d9ea5 "(Int -> (Int -> (Int -> (Int -> Int))))" #effects=Mut
 F hexDecode stdlib/Crypto/Bytes.ax @221bd6612fec95ee "(String -> Result String Error)" #effects=Alloc,Mut,Unsafe
 F hexEncode stdlib/Crypto/Bytes.ax @33e7afc67ac987e6 "(String -> String)" #effects=Alloc,Mut,Unsafe
-F hkdfSha256 stdlib/Crypto/Hkdf.ax @11919297f3716c27 "(SecretBytes -> (String -> (String -> (Int -> Result SecretBytes Error))))" #effects=Alloc,IO,Mut,Unsafe
-F hkdfSha256Expand stdlib/Crypto/Hkdf.ax @fa198de839c95747 "(SecretBytes -> (String -> (Int -> Result SecretBytes Error)))" #effects=Alloc,IO,Mut,Unsafe
+F hkdfSha256 stdlib/Crypto/Hkdf.ax @11919297f3716c27 "(SecretBytes -> (String -> (String -> (Int -> Result SecretBytes Error))))" #effects=Alloc,IO,Mut
+F hkdfSha256Expand stdlib/Crypto/Hkdf.ax @fa198de839c95747 "(SecretBytes -> (String -> (Int -> Result SecretBytes Error)))" #effects=Alloc,IO,Mut
 F hkdfSha256ExpandRaw stdlib/Crypto/Hkdf.ax @f96f617e46314667 "(Int -> (Int -> (Int -> (Int -> (Int -> (Int -> Int))))))" #effects=Alloc,Mut,Unsafe
-F hkdfSha256Extract stdlib/Crypto/Hkdf.ax @7a1bfe70161f22c4 "(String -> (SecretBytes -> Result SecretBytes Error))" #effects=Alloc,IO,Mut,Unsafe
-F hkdfSha256Raw stdlib/Crypto/Hkdf.ax @92836414d7939687 "(Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> Int))))))))" #effects=Alloc,Mut,Unsafe
-F hkdfSha512 stdlib/Crypto/Hkdf.ax @0a34e397efa3f66e "(SecretBytes -> (String -> (String -> (Int -> Result SecretBytes Error))))" #effects=Alloc,IO,Mut,Unsafe
-F hkdfSha512Expand stdlib/Crypto/Hkdf.ax @3b18a5d2013936ca "(SecretBytes -> (String -> (Int -> Result SecretBytes Error)))" #effects=Alloc,IO,Mut,Unsafe
+F hkdfSha256Extract stdlib/Crypto/Hkdf.ax @7a1bfe70161f22c4 "(String -> (SecretBytes -> Result SecretBytes Error))" #effects=Alloc,IO,Mut
+F hkdfSha256Raw stdlib/Crypto/Hkdf.ax @92836414d7939687 "(Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> Int))))))))" #effects=Alloc,Mut
+F hkdfSha512 stdlib/Crypto/Hkdf.ax @0a34e397efa3f66e "(SecretBytes -> (String -> (String -> (Int -> Result SecretBytes Error))))" #effects=Alloc,IO,Mut
+F hkdfSha512Expand stdlib/Crypto/Hkdf.ax @3b18a5d2013936ca "(SecretBytes -> (String -> (Int -> Result SecretBytes Error)))" #effects=Alloc,IO,Mut
 F hkdfSha512ExpandRaw stdlib/Crypto/Hkdf.ax @1daafef8383118d4 "(Int -> (Int -> (Int -> (Int -> (Int -> (Int -> Int))))))" #effects=Alloc,Mut,Unsafe
-F hkdfSha512Extract stdlib/Crypto/Hkdf.ax @b2b6b44792b6abe3 "(String -> (SecretBytes -> Result SecretBytes Error))" #effects=Alloc,IO,Mut,Unsafe
-F hkdfSha512Raw stdlib/Crypto/Hkdf.ax @3ca4b60ddfe6fb88 "(Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> Int))))))))" #effects=Alloc,Mut,Unsafe
-F hmacSha256 stdlib/Crypto/Hmac.ax @671a9ebba7360253 "(HmacSha256Key -> (String -> String))" #effects=Alloc,Mut,Unsafe
-F hmacSha256Chains stdlib/Crypto/Hmac.ax @756ea5c6fc3d97d1 "(Int -> (Int -> (Int -> Int)))" #effects=Alloc,Mut,Unsafe
-F hmacSha256Copy stdlib/Crypto/Hmac.ax @e66bf676121ba05a "(HmacSha256 -> HmacSha256)" #effects=Alloc,Mut,Unsafe
-F hmacSha256Final stdlib/Crypto/Hmac.ax @b26da1ad0636ab79 "(HmacSha256 -> String)" #effects=Alloc,Mut,Unsafe
-F hmacSha256FinalAddr stdlib/Crypto/Hmac.ax @4d5faa279e3cab76 "(HmacSha256 -> (Int -> Int))" #effects=Alloc,Mut,Unsafe
-F hmacSha256KeyExport stdlib/Crypto/Hmac.ax @f0ec7b0762cb13c8 "(HmacSha256Key -> Result SecretBytes Error)" #effects=Alloc,IO,Mut,Unsafe
-F hmacSha256KeyFromSecret stdlib/Crypto/Hmac.ax @ab09a6b31a649206 "(SecretBytes -> Result HmacSha256Key Error)" #effects=Alloc,IO,Mut,Unsafe
+F hkdfSha512Extract stdlib/Crypto/Hkdf.ax @b2b6b44792b6abe3 "(String -> (SecretBytes -> Result SecretBytes Error))" #effects=Alloc,IO,Mut
+F hkdfSha512Raw stdlib/Crypto/Hkdf.ax @3ca4b60ddfe6fb88 "(Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> Int))))))))" #effects=Alloc,Mut
+F hmacSha256 stdlib/Crypto/Hmac.ax @671a9ebba7360253 "(HmacSha256Key -> (String -> String))" #effects=Alloc,Mut
+F hmacSha256Chains stdlib/Crypto/Hmac.ax @756ea5c6fc3d97d1 "(Int -> (Int -> (Int -> Int)))" #effects=Alloc,Mut
+F hmacSha256Copy stdlib/Crypto/Hmac.ax @e66bf676121ba05a "(HmacSha256 -> HmacSha256)" #effects=Alloc,Mut
+F hmacSha256Final stdlib/Crypto/Hmac.ax @b26da1ad0636ab79 "(HmacSha256 -> String)" #effects=Alloc,Mut
+F hmacSha256FinalAddr stdlib/Crypto/Hmac.ax @4d5faa279e3cab76 "(HmacSha256 -> (Int -> Int))" #effects=Alloc,Mut
+F hmacSha256KeyExport stdlib/Crypto/Hmac.ax @f0ec7b0762cb13c8 "(HmacSha256Key -> Result SecretBytes Error)" #effects=Alloc,IO,Mut
+F hmacSha256KeyFromSecret stdlib/Crypto/Hmac.ax @ab09a6b31a649206 "(SecretBytes -> Result HmacSha256Key Error)" #effects=Alloc,IO,Mut
 F hmacSha256KeyGenerate stdlib/Crypto/Hmac.ax @c8df4ecc93c4e39d "Result HmacSha256Key Error" #effects=Alloc,Entropy,IO,Mut
-F hmacSha256KeyWipe stdlib/Crypto/Hmac.ax @09cb098b8b10db31 "(HmacSha256Key -> Int)" #effects=Alloc,IO,Mut,Unsafe
-F hmacSha256New stdlib/Crypto/Hmac.ax @b1e20d04a2ec36c3 "(HmacSha256Key -> HmacSha256)" #effects=Alloc,Mut,Unsafe
-F hmacSha256NewChains stdlib/Crypto/Hmac.ax @9135f2353cf142a1 "(Int -> HmacSha256)" #effects=Alloc,Mut,Unsafe
-F hmacSha256NewRaw stdlib/Crypto/Hmac.ax @f74aafbeb1aaade3 "(Int -> (Int -> HmacSha256))" #effects=Alloc,Mut,Unsafe
-F hmacSha256Raw stdlib/Crypto/Hmac.ax @c03f91041a507c93 "(Int -> (Int -> (Int -> (Int -> (Int -> Int)))))" #effects=Alloc,Mut,Unsafe
-F hmacSha256Update stdlib/Crypto/Hmac.ax @35ca2b915b7b77f2 "(HmacSha256 -> (String -> Int))" #effects=Mut,Unsafe
-F hmacSha256UpdateAddr stdlib/Crypto/Hmac.ax @e2c5fee2171d73a1 "(HmacSha256 -> (Int -> (Int -> Int)))" #effects=Mut,Unsafe
-F hmacSha256Verify stdlib/Crypto/Hmac.ax @e7956d882510b87e "(HmacSha256Key -> (String -> (String -> Bool)))" #effects=Alloc,Mut,Unsafe
+F hmacSha256KeyWipe stdlib/Crypto/Hmac.ax @09cb098b8b10db31 "(HmacSha256Key -> Int)" #effects=Alloc,IO,Mut
+F hmacSha256New stdlib/Crypto/Hmac.ax @b1e20d04a2ec36c3 "(HmacSha256Key -> HmacSha256)" #effects=Alloc,Mut
+F hmacSha256NewChains stdlib/Crypto/Hmac.ax @9135f2353cf142a1 "(Int -> HmacSha256)" #effects=Alloc,Mut
+F hmacSha256NewRaw stdlib/Crypto/Hmac.ax @f74aafbeb1aaade3 "(Int -> (Int -> HmacSha256))" #effects=Alloc,Mut
+F hmacSha256Raw stdlib/Crypto/Hmac.ax @c03f91041a507c93 "(Int -> (Int -> (Int -> (Int -> (Int -> Int)))))" #effects=Alloc,Mut
+F hmacSha256Update stdlib/Crypto/Hmac.ax @35ca2b915b7b77f2 "(HmacSha256 -> (String -> Int))" #effects=Mut
+F hmacSha256UpdateAddr stdlib/Crypto/Hmac.ax @e2c5fee2171d73a1 "(HmacSha256 -> (Int -> (Int -> Int)))" #effects=Mut
+F hmacSha256Verify stdlib/Crypto/Hmac.ax @e7956d882510b87e "(HmacSha256Key -> (String -> (String -> Bool)))" #effects=Alloc,Mut
 F hmacSha256Wipe stdlib/Crypto/Hmac.ax @7e293810620371a8 "(HmacSha256 -> Int)" #effects=Mut
-F hmacSha512 stdlib/Crypto/Hmac.ax @a4823fbbca35b442 "(HmacSha512Key -> (String -> String))" #effects=Alloc,Mut,Unsafe
-F hmacSha512Chains stdlib/Crypto/Hmac.ax @9978bf40857c9624 "(Int -> (Int -> (Int -> Int)))" #effects=Alloc,Mut,Unsafe
-F hmacSha512Copy stdlib/Crypto/Hmac.ax @4d7cf17c5b6e27ef "(HmacSha512 -> HmacSha512)" #effects=Alloc,Mut,Unsafe
-F hmacSha512Final stdlib/Crypto/Hmac.ax @51848a33ec4b50de "(HmacSha512 -> String)" #effects=Alloc,Mut,Unsafe
-F hmacSha512FinalAddr stdlib/Crypto/Hmac.ax @fc5a9895cb49901d "(HmacSha512 -> (Int -> Int))" #effects=Alloc,Mut,Unsafe
-F hmacSha512KeyExport stdlib/Crypto/Hmac.ax @a8d43718f21ecc1f "(HmacSha512Key -> Result SecretBytes Error)" #effects=Alloc,IO,Mut,Unsafe
-F hmacSha512KeyFromSecret stdlib/Crypto/Hmac.ax @adee0d9e2b4dec25 "(SecretBytes -> Result HmacSha512Key Error)" #effects=Alloc,IO,Mut,Unsafe
+F hmacSha512 stdlib/Crypto/Hmac.ax @a4823fbbca35b442 "(HmacSha512Key -> (String -> String))" #effects=Alloc,Mut
+F hmacSha512Chains stdlib/Crypto/Hmac.ax @9978bf40857c9624 "(Int -> (Int -> (Int -> Int)))" #effects=Alloc,Mut
+F hmacSha512Copy stdlib/Crypto/Hmac.ax @4d7cf17c5b6e27ef "(HmacSha512 -> HmacSha512)" #effects=Alloc,Mut
+F hmacSha512Final stdlib/Crypto/Hmac.ax @51848a33ec4b50de "(HmacSha512 -> String)" #effects=Alloc,Mut
+F hmacSha512FinalAddr stdlib/Crypto/Hmac.ax @fc5a9895cb49901d "(HmacSha512 -> (Int -> Int))" #effects=Alloc,Mut
+F hmacSha512KeyExport stdlib/Crypto/Hmac.ax @a8d43718f21ecc1f "(HmacSha512Key -> Result SecretBytes Error)" #effects=Alloc,IO,Mut
+F hmacSha512KeyFromSecret stdlib/Crypto/Hmac.ax @adee0d9e2b4dec25 "(SecretBytes -> Result HmacSha512Key Error)" #effects=Alloc,IO,Mut
 F hmacSha512KeyGenerate stdlib/Crypto/Hmac.ax @e6f109a9b6dc7356 "Result HmacSha512Key Error" #effects=Alloc,Entropy,IO,Mut
-F hmacSha512KeyWipe stdlib/Crypto/Hmac.ax @f00ac6687f23801a "(HmacSha512Key -> Int)" #effects=Alloc,IO,Mut,Unsafe
-F hmacSha512New stdlib/Crypto/Hmac.ax @97f695570039700c "(HmacSha512Key -> HmacSha512)" #effects=Alloc,Mut,Unsafe
-F hmacSha512NewChains stdlib/Crypto/Hmac.ax @1c315dd7aba969d2 "(Int -> HmacSha512)" #effects=Alloc,Mut,Unsafe
-F hmacSha512NewRaw stdlib/Crypto/Hmac.ax @fedfb1ec010cf522 "(Int -> (Int -> HmacSha512))" #effects=Alloc,Mut,Unsafe
-F hmacSha512Raw stdlib/Crypto/Hmac.ax @bc5d39571556c23c "(Int -> (Int -> (Int -> (Int -> (Int -> Int)))))" #effects=Alloc,Mut,Unsafe
-F hmacSha512Update stdlib/Crypto/Hmac.ax @a6eaf6435ab4bd3b "(HmacSha512 -> (String -> Int))" #effects=Mut,Unsafe
-F hmacSha512UpdateAddr stdlib/Crypto/Hmac.ax @90221fa4a0bfe334 "(HmacSha512 -> (Int -> (Int -> Int)))" #effects=Mut,Unsafe
-F hmacSha512Verify stdlib/Crypto/Hmac.ax @dbecec3cf6d6797b "(HmacSha512Key -> (String -> (String -> Bool)))" #effects=Alloc,Mut,Unsafe
+F hmacSha512KeyWipe stdlib/Crypto/Hmac.ax @f00ac6687f23801a "(HmacSha512Key -> Int)" #effects=Alloc,IO,Mut
+F hmacSha512New stdlib/Crypto/Hmac.ax @97f695570039700c "(HmacSha512Key -> HmacSha512)" #effects=Alloc,Mut
+F hmacSha512NewChains stdlib/Crypto/Hmac.ax @1c315dd7aba969d2 "(Int -> HmacSha512)" #effects=Alloc,Mut
+F hmacSha512NewRaw stdlib/Crypto/Hmac.ax @fedfb1ec010cf522 "(Int -> (Int -> HmacSha512))" #effects=Alloc,Mut
+F hmacSha512Raw stdlib/Crypto/Hmac.ax @bc5d39571556c23c "(Int -> (Int -> (Int -> (Int -> (Int -> Int)))))" #effects=Alloc,Mut
+F hmacSha512Update stdlib/Crypto/Hmac.ax @a6eaf6435ab4bd3b "(HmacSha512 -> (String -> Int))" #effects=Mut
+F hmacSha512UpdateAddr stdlib/Crypto/Hmac.ax @90221fa4a0bfe334 "(HmacSha512 -> (Int -> (Int -> Int)))" #effects=Mut
+F hmacSha512Verify stdlib/Crypto/Hmac.ax @dbecec3cf6d6797b "(HmacSha512Key -> (String -> (String -> Bool)))" #effects=Alloc,Mut
 F hmacSha512Wipe stdlib/Crypto/Hmac.ax @304db022be974319 "(HmacSha512 -> Int)" #effects=Mut
 F intMin stdlib/Err.ax @f0cd39212565a998 "Int"
-F internCap stdlib/Intern.ax @3c482e9ca4af6ba5 "(Int -> Int)" #effects=Unsafe
+F internCap stdlib/Intern.ax @3c482e9ca4af6ba5 "(Int -> Int)"
 F internCount stdlib/Intern.ax @08a34d2974e1f73e "(Int -> Int)"
 F internFind stdlib/Intern.ax @f306270f42e9422c "(Int -> (String -> Option Int))"
 F internFree stdlib/Intern.ax @1ab32b0ec872e7a5 "(Int -> Int)" #effects=Unsafe
-F internIntern stdlib/Intern.ax @c0cfda926f640ae3 "(Int -> (String -> Int))" #effects=Alloc,Mut,Unsafe
-F internLookup stdlib/Intern.ax @9bf565b62b573151 "(Int -> (Int -> String))" #effects=Alloc,Mut,Unsafe
+F internIntern stdlib/Intern.ax @c0cfda926f640ae3 "(Int -> (String -> Int))" #effects=Alloc,Mut
+F internLookup stdlib/Intern.ax @9bf565b62b573151 "(Int -> (Int -> String))" #effects=Alloc,Mut
 F internNew stdlib/Intern.ax @679e049cbd3c8d47 "Int" #effects=Alloc,Mut
 F internSlotOf stdlib/Intern.ax @bdbb2540203f874e "(String -> (Int -> Int))"
 F internWithCapacity stdlib/Intern.ax @49340d6b26eeec1b "(Int -> Int)" #effects=Alloc,Mut
-F ioResult stdlib/IO.ax @fb972d7262a48622 "(Result Int Error -> (String -> (String -> Result Int Error)))" #effects=Alloc,Mut
 F ipprotoTcp stdlib/Sys/Platform.ax @ecca44c5ec42fd5f "Int"
-F isDir stdlib/IO.ax @01f4aa63b443d24e "(String -> Bool)" #effects=Alloc,IO,Mut,Unsafe
+F isDir stdlib/IO.ax @01f4aa63b443d24e "(String -> Bool)" #effects=Alloc,IO,Mut
 F isErr stdlib/Err.ax @f7427963ada0c9e2 "(Result a e -> Bool)"
 F isNone stdlib/Err.ax @663ca817f9615dd1 "(Option a -> Bool)"
 F isOk stdlib/Err.ax @ae1736447ed221d1 "(Result a e -> Bool)"
 F isSome stdlib/Err.ax @607c94fa42bbf2d3 "(Option a -> Bool)"
-F jsonArr stdlib/Json.ax @68fd4aae235e9684 "Int" #effects=Alloc,Mut
-F jsonArrGet stdlib/Json.ax @9dc0bd1e8f64ad80 "(Int -> (Int -> Int))" #effects=Unsafe
-F jsonArrLen stdlib/Json.ax @c917861ea7f36c0b "(Int -> Int)" #effects=Unsafe
-F jsonArrPush stdlib/Json.ax @819eb37c323d1480 "(Int -> (Int -> Int))" #effects=Alloc,Mut,Unsafe
-F jsonBool stdlib/Json.ax @63bfe8fe663f3099 "(Int -> Int)" #effects=Alloc,Mut
-F jsonBoolVal stdlib/Json.ax @4f07fe2945c54ea8 "(Int -> Int)" #effects=Unsafe
-F jsonGet stdlib/Json.ax @9b833cae3f92f92b "(Int -> (String -> Int))"
-F jsonGetInt stdlib/Json.ax @e1e94afcdb24e824 "(Int -> (String -> Int))"
-F jsonGetStr stdlib/Json.ax @9e2ac6fd451ece52 "(Int -> (String -> String))"
-F jsonInt stdlib/Json.ax @241000adfc6e73fa "(Int -> Int)" #effects=Unsafe
-F jsonIsNull stdlib/Json.ax @88cdf14f2e462408 "(Int -> Bool)"
-F jsonNull stdlib/Json.ax @7dfed8da8fca8928 "Int" #effects=Alloc,Mut
-F jsonNum stdlib/Json.ax @5e1c24ae1c943007 "(Int -> Int)" #effects=Alloc,Mut
-F jsonNumText stdlib/Json.ax @9cd00a1ecdad5ec0 "(Int -> String)" #effects=Unsafe
-F jsonObj stdlib/Json.ax @56f8f8ae18f75e2e "Int" #effects=Alloc,Mut
-F jsonObjLen stdlib/Json.ax @76ce7fbfd05c0055 "(Int -> Int)" #effects=Unsafe
-F jsonObjPut stdlib/Json.ax @693cf1c059a50feb "(Int -> (String -> (Int -> Int)))" #effects=Alloc,Mut,Unsafe
-F jsonParse stdlib/Json.ax @583896fb23d65be0 "(String -> Int)" #effects=Alloc,Mut
-F jsonStr stdlib/Json.ax @04662cae7b3fb694 "(String -> Int)" #effects=Alloc,Mut
-F jsonStrVal stdlib/Json.ax @af44ac2e7c51150b "(Int -> String)" #effects=Unsafe
-F jsonWrite stdlib/Json.ax @6e98a942b19afa70 "(Int -> String)" #effects=Alloc,Mut
+F isTerminal stdlib/IO.ax @a295d8b125c4fe43 "(File -> Bool)" #effects=Alloc,IO,Mut
+F jsonArr stdlib/Cereal.ax @68fd4aae235e9684 "Int" #effects=Alloc,Mut
+F jsonArrGet stdlib/Cereal.ax @9dc0bd1e8f64ad80 "(Int -> (Int -> Int))"
+F jsonArrLen stdlib/Cereal.ax @c917861ea7f36c0b "(Int -> Int)"
+F jsonArrPush stdlib/Cereal.ax @819eb37c323d1480 "(Int -> (Int -> Int))" #effects=Alloc,Mut
+F jsonBool stdlib/Cereal.ax @63bfe8fe663f3099 "(Int -> Int)" #effects=Alloc,Mut
+F jsonBoolVal stdlib/Cereal.ax @4f07fe2945c54ea8 "(Int -> Int)"
+F jsonGet stdlib/Cereal.ax @9b833cae3f92f92b "(Int -> (String -> Int))"
+F jsonGetInt stdlib/Cereal.ax @e1e94afcdb24e824 "(Int -> (String -> Int))"
+F jsonGetStr stdlib/Cereal.ax @9e2ac6fd451ece52 "(Int -> (String -> String))"
+F jsonInt stdlib/Cereal.ax @241000adfc6e73fa "(Int -> Int)"
+F jsonIsNull stdlib/Cereal.ax @88cdf14f2e462408 "(Int -> Bool)"
+F jsonNull stdlib/Cereal.ax @7dfed8da8fca8928 "Int" #effects=Alloc,Mut
+F jsonNum stdlib/Cereal.ax @5e1c24ae1c943007 "(Int -> Int)" #effects=Alloc,Mut
+F jsonNumText stdlib/Cereal.ax @9cd00a1ecdad5ec0 "(Int -> String)"
+F jsonObj stdlib/Cereal.ax @56f8f8ae18f75e2e "Int" #effects=Alloc,Mut
+F jsonObjLen stdlib/Cereal.ax @76ce7fbfd05c0055 "(Int -> Int)"
+F jsonObjPut stdlib/Cereal.ax @693cf1c059a50feb "(Int -> (String -> (Int -> Int)))" #effects=Alloc,Mut
+F jsonParse stdlib/Cereal.ax @583896fb23d65be0 "(String -> Int)" #effects=Alloc,Mut
+F jsonStr stdlib/Cereal.ax @04662cae7b3fb694 "(String -> Int)" #effects=Alloc,Mut
+F jsonStrVal stdlib/Cereal.ax @af44ac2e7c51150b "(Int -> String)"
+F jsonWrite stdlib/Cereal.ax @6e98a942b19afa70 "(Int -> String)" #effects=Alloc,Mut
 F keccakF1600 stdlib/Crypto/Sha3.ax @e5686239a25dce4a "(Int -> Int)" #effects=Mut,Unsafe
 F keyCompare stdlib/Axqlite/Record.ax @67ec61d1f6411949 "(String -> (String -> Int))"
 F keyCsiEnd stdlib/Tui/Keys.ax @f5e74cd22e414608 "(String -> (Int -> (Int -> Int)))"
@@ -563,20 +588,20 @@ F keyCsiMax stdlib/Tui/Keys.ax @b0b2ead20714f813 "Int"
 F keyCsiParam stdlib/Tui/Keys.ax @c4333006ec366158 "(String -> (Int -> (Int -> (Int -> Int))))"
 F keyCsiPrivate stdlib/Tui/Keys.ax @6fc0d76a6e6cfac6 "(String -> (Int -> (Int -> Bool)))"
 F keyDecode stdlib/Axqlite/Record.ax @3b040f0fdfc71a34 "(String -> Result Vec Value Error)" #effects=Alloc,Mut,Unsafe
-F keyEncode stdlib/Axqlite/Record.ax @367199b4954e94a8 "(Vec Value -> Result String Error)" #effects=Alloc,Mut,Unsafe
+F keyEncode stdlib/Axqlite/Record.ax @367199b4954e94a8 "(Vec Value -> Result String Error)" #effects=Alloc,Mut
 F keyEncodeValue stdlib/Axqlite/Record.ax @527ae67f03d2a159 "(Value -> Result String Error)" #effects=Alloc,Mut
 F keyEscTimeoutMs stdlib/Tui/Term.ax @719f0e84ccb612de "Int"
 F keyFinalKind stdlib/Tui/Keys.ax @955b7ea6920d8020 "(Int -> Int)"
 F keyFromCsi stdlib/Tui/Keys.ax @3519efe05f5932a7 "(String -> (Int -> (Int -> (Int -> KeyEv))))" #effects=Alloc
 F keyFromSs3 stdlib/Tui/Keys.ax @a86289e00f0b5f55 "(String -> (Int -> (Int -> KeyEv)))" #effects=Alloc
-F keyInFill stdlib/Tui/Term.ax @7d9ec065647d3950 "(KeyIn -> (Int -> Int))" #effects=Alloc,IO,Mut,Unsafe
+F keyInFill stdlib/Tui/Term.ax @7d9ec065647d3950 "(KeyIn -> (Int -> Int))" #effects=Alloc,IO,Mut
 F keyInPending stdlib/Tui/Term.ax @1a964a782d0406d4 "(KeyIn -> Int)"
-F keyIndexRowid stdlib/Axqlite/Record.ax @481f0c475a7961d7 "(String -> Result Int Error)" #effects=Alloc,Unsafe
+F keyIndexRowid stdlib/Axqlite/Record.ax @481f0c475a7961d7 "(String -> Result Int Error)" #effects=Alloc
 F keyNext stdlib/Tui/Term.ax @29d7fcf18a5047af "(KeyIn -> KeyEv)" #effects=Alloc,IO,Mut
 F keyPrefixEnd stdlib/Axqlite/Record.ax @62112e8786dd9c33 "(String -> Option String)" #effects=Alloc,Mut,Unsafe
 F keyResolve stdlib/Tui/Keys.ax @2e6f3e0a5e0cb052 "(String -> (Int -> (Int -> KeyEv)))" #effects=Alloc
-F keyRowid stdlib/Axqlite/Record.ax @d1f6ae5d8e3c4e03 "(Int -> String)" #effects=Alloc,Mut,Unsafe
-F keyRowidOf stdlib/Axqlite/Record.ax @abf06493ddae2126 "(String -> Result Int Error)" #effects=Alloc,Unsafe
+F keyRowid stdlib/Axqlite/Record.ax @d1f6ae5d8e3c4e03 "(Int -> String)" #effects=Alloc,Mut
+F keyRowidOf stdlib/Axqlite/Record.ax @abf06493ddae2126 "(String -> Result Int Error)" #effects=Alloc
 F keyScan stdlib/Tui/Keys.ax @ca0fa414211b21f7 "(String -> (Int -> (Int -> KeyEv)))" #effects=Alloc,Mut
 F keyScanAlt stdlib/Tui/Keys.ax @d6018c4d4b92b1ba "(String -> (Int -> (Int -> KeyEv)))" #effects=Alloc,Mut
 F keyScanCsi stdlib/Tui/Keys.ax @c459434d4179e75c "(String -> (Int -> (Int -> KeyEv)))" #effects=Alloc
@@ -593,35 +618,34 @@ F kindIndex stdlib/Axqlite/AxqlSchema.ax @164697723c716557 "String"
 F kindTable stdlib/Axqlite/AxqlSchema.ax @25d3578d428b407b "String"
 F ld32be stdlib/Crypto/Ct.ax @c77b4ae4ead2239b "(Int -> (Int -> Int))" #effects=Unsafe
 F ld32le stdlib/Crypto/Ct.ax @c78f2ee4eae29d11 "(Int -> (Int -> Int))" #effects=Unsafe
-F ld64be stdlib/Crypto/Ct.ax @c8a4030f19790064 "(Int -> (Int -> Int))" #effects=Unsafe
-F ld64le stdlib/Crypto/Ct.ax @c8c5f70f1995d266 "(Int -> (Int -> Int))" #effects=Unsafe
+F ld64be stdlib/Crypto/Ct.ax @c8a4030f19790064 "(Int -> (Int -> Int))"
+F ld64le stdlib/Crypto/Ct.ax @c8c5f70f1995d266 "(Int -> (Int -> Int))"
 F ledApply stdlib/Tui/Edit.ax @8b03e50a0b3383c0 "(LineEd -> (KeyEv -> (Vec String -> Int)))" #effects=Alloc,Mut
 F ledBackspace stdlib/Tui/Edit.ax @6c1e68eca5648c63 "(LineEd -> Int)" #effects=Mut
 F ledByWord stdlib/Tui/Edit.ax @e61076c572c7b419 "(KeyEv -> Bool)"
 F ledCharCols stdlib/Tui/Edit.ax @04b9fc3f33a78443 "(Int -> Int)"
 F ledCharKey stdlib/Tui/Edit.ax @2a28ad9610357b77 "(LineEd -> (KeyEv -> Int))" #effects=Alloc,Mut
-F ledClearScreen stdlib/Tui/Edit.ax @b62b2c8bc7038bf5 "(Int -> String)" #effects=Alloc,Mut,Unsafe
+F ledClearScreen stdlib/Tui/Edit.ax @b62b2c8bc7038bf5 "(Int -> String)" #effects=Alloc,Mut
 F ledColOf stdlib/Tui/Edit.ax @5a8fba9e070e47af "(LineEd -> (Int -> Int))"
 F ledCols stdlib/Tui/Edit.ax @3425773b36bfb267 "(LineEd -> Int)"
 F ledColsBefore stdlib/Tui/Edit.ax @dc75abef3448f960 "(LineEd -> (Int -> Int))"
 F ledContentCols stdlib/Tui/Edit.ax @5606914a6c81ff7a "(LineEd -> Int)"
 F ledCpAt stdlib/Tui/Edit.ax @0857973b1dcba662 "(LineEd -> (Int -> Int))"
 F ledCtrlKey stdlib/Tui/Edit.ax @4c60aa238c9cd2dc "(LineEd -> (KeyEv -> (Vec String -> Int)))" #effects=Alloc,Mut
-F ledCup stdlib/Tui/Edit.ax @d6d7287bb8cda878 "(Int -> (Int -> String))" #effects=Alloc,Mut,Unsafe
+F ledCup stdlib/Tui/Edit.ax @d6d7287bb8cda878 "(Int -> (Int -> String))" #effects=Alloc,Mut
 F ledCursor stdlib/Tui/Edit.ax @cfd551451dbfee8e "(LineEd -> Int)"
 F ledDelete stdlib/Tui/Edit.ax @a6a5e73cc7747a67 "(LineEd -> Int)" #effects=Mut
 F ledDispatch stdlib/Tui/Edit.ax @6a58bca113982a6e "(LineEd -> (KeyEv -> (Vec String -> Int)))" #effects=Alloc,Mut
 F ledEnd stdlib/Tui/Edit.ax @a3eb4c7b9c42b801 "(LineEd -> Int)" #effects=Alloc,Mut
 F ledEraseOld stdlib/Tui/Edit.ax @faf379918ea971b3 "(LineEd -> (Vec String -> Int))" #effects=Alloc,Mut
-F ledEraseRow stdlib/Tui/Edit.ax @5cb75d91c6bd7c7a "(Int -> String)" #effects=Alloc,Mut,Unsafe
-F ledFree stdlib/Tui/Edit.ax @d85ea81165fe4662 "(LineEd -> Int)" #effects=Unsafe
+F ledEraseRow stdlib/Tui/Edit.ax @5cb75d91c6bd7c7a "(Int -> String)" #effects=Alloc,Mut
 F ledHome stdlib/Tui/Edit.ax @90cc60e0c6de82bb "(LineEd -> Int)" #effects=Alloc,Mut
 F ledInsert stdlib/Tui/Edit.ax @feea3e67181c4569 "(LineEd -> (Int -> Int))" #effects=Alloc,Mut
 F ledInsertStr stdlib/Tui/Edit.ax @b5c4ff60881f8074 "(LineEd -> (String -> Int))" #effects=Alloc,Mut
 F ledIsKillKey stdlib/Tui/Edit.ax @4b8868f5bbac3973 "(KeyEv -> Bool)"
 F ledIsWord stdlib/Tui/Edit.ax @b91187adf114fb2c "(LineEd -> (Int -> Bool))"
 F ledIsYankKey stdlib/Tui/Edit.ax @8bafd8ec63e08a84 "(KeyEv -> Bool)"
-F ledKillPush stdlib/Tui/Edit.ax @4aa00cbfbb3ac908 "(LineEd -> (String -> (Int -> Int)))" #effects=Alloc,Mut,Unsafe
+F ledKillPush stdlib/Tui/Edit.ax @4aa00cbfbb3ac908 "(LineEd -> (String -> (Int -> Int)))" #effects=Alloc,Mut
 F ledKillToEnd stdlib/Tui/Edit.ax @df8bc4efd90aa7da "(LineEd -> Int)" #effects=Alloc,Mut
 F ledKillToStart stdlib/Tui/Edit.ax @f8bf1c744315832f "(LineEd -> Int)" #effects=Alloc,Mut
 F ledKillWordLeft stdlib/Tui/Edit.ax @ff5b143bc5958a75 "(LineEd -> Int)" #effects=Alloc,Mut
@@ -631,7 +655,7 @@ F ledLen stdlib/Tui/Edit.ax @5467d17b6ec807c3 "(LineEd -> Int)"
 F ledNavKey stdlib/Tui/Edit.ax @c921be56d210f7e0 "(LineEd -> (KeyEv -> Int))" #effects=Alloc,Mut
 F ledNew stdlib/Tui/Edit.ax @66791a7b7939bb2a "(Vec String -> (String -> LineEd))" #effects=Alloc,Mut
 F ledNotWord stdlib/Tui/Edit.ax @312c4006820ffe55 "(LineEd -> (Int -> Bool))"
-F ledRangeStr stdlib/Tui/Edit.ax @e3d2487d0c28e30c "(LineEd -> (Int -> (Int -> String)))" #effects=Alloc,Mut,Unsafe
+F ledRangeStr stdlib/Tui/Edit.ax @e3d2487d0c28e30c "(LineEd -> (Int -> (Int -> String)))" #effects=Alloc,Mut
 F ledRefresh stdlib/Tui/Edit.ax @64067646e1c55c17 "(LineEd -> (Vec String -> Int))" #effects=Alloc,Mut
 F ledRefreshFull stdlib/Tui/Edit.ax @8baeca5b1e112952 "(LineEd -> (Vec String -> Int))" #effects=Alloc,Mut,Unsafe
 F ledRefreshFullPainted stdlib/Tui/Edit.ax @2de1f432d481077f "(LineEd -> (Vec String -> (String -> Int)))" #effects=Alloc,Mut,Unsafe
@@ -649,14 +673,13 @@ F ledSnapshot stdlib/Tui/Edit.ax @f61e73df68820868 "(LineEd -> String)" #effects
 F ledWordLeft stdlib/Tui/Edit.ax @8e4076c674dc8a85 "(LineEd -> Int)" #effects=Alloc,Mut
 F ledWordRight stdlib/Tui/Edit.ax @788483c4fd8ecf1e "(LineEd -> Int)" #effects=Alloc,Mut
 F ledWordRightSpan stdlib/Tui/Edit.ax @8c82db645b3213a6 "(LineEd -> Int)"
-F ledYank stdlib/Tui/Edit.ax @f5c47d6af8f54ca5 "(LineEd -> Int)" #effects=Alloc,Mut,Unsafe
-F ledYankPop stdlib/Tui/Edit.ax @47311103f2c04130 "(LineEd -> Int)" #effects=Alloc,Mut,Unsafe
-F listDir stdlib/IO.ax @57dff7eef5f36852 "(String -> Vec String)" #effects=Alloc,IO,Mut,Unsafe
+F ledYank stdlib/Tui/Edit.ax @f5c47d6af8f54ca5 "(LineEd -> Int)" #effects=Alloc,Mut
+F ledYankPop stdlib/Tui/Edit.ax @47311103f2c04130 "(LineEd -> Int)" #effects=Alloc,Mut
+F listDir stdlib/IO.ax @57dff7eef5f36852 "(String -> Vec String)" #effects=Alloc,IO,Mut
 F madvNoDump stdlib/Sys/Platform.ax @6cebc98a90575f7e "Int"
-F makeDir stdlib/IO.ax @46d7f559c3f07f88 "(String -> Result Int Error)" #effects=Alloc,IO,Mut,Unsafe
+F makeDir stdlib/IO.ax @46d7f559c3f07f88 "(String -> Result Int Error)" #effects=Alloc,IO,Mut
 F makeDirAll stdlib/IO.ax @950f2260f3d815eb "(String -> Result Int Error)" #effects=Alloc,IO,Mut
-F makeDirMode stdlib/IO.ax @14aeb99b8d33a8fb "(String -> (Int -> Result Int Error))" #effects=Alloc,IO,Mut,Unsafe
-F makeSymlink stdlib/IO.ax @5d03f495e3dd10e8 "(String -> (String -> Result Int Error))" #effects=Alloc,IO,Mut,Unsafe
+F makeDirMode stdlib/IO.ax @14aeb99b8d33a8fb "(String -> (Int -> Result Int Error))" #effects=Alloc,IO,Mut
 F mapCap stdlib/Map.ax @3947946cfee63541 "(Map -> Int)"
 F mapErr stdlib/Err.ax @6f8c866d1e49e9be "(Result a e -> ((e -> f) -> Result a f))" #effect-params=f #effects=Alloc
 F mapFree stdlib/Map.ax @cbe9505f107d7421 "(Map -> Int)" #effects=Unsafe
@@ -665,33 +688,31 @@ F mapGetStr stdlib/Map.ax @1f84fbdb8b692e80 "(Map -> (Int -> (String -> String))
 F mapHas stdlib/Map.ax @0df1c46ce6591dd1 "(Map -> (Int -> Bool))"
 F mapHash stdlib/Map.ax @0aee7e0b696d815b "(Int -> Int)"
 F mapHashPrime stdlib/Map.ax @ef36d4419605fae6 "Int"
-F mapInsert stdlib/Map.ax @244a57c351f2134a "(Map -> (Int -> (a -> Int)))" #effects=Alloc,Mut,Unsafe
-F mapKeyAt stdlib/Map.ax @47abcf2ca2f6b1f7 "(Map -> (Int -> Int))" #effects=Unsafe
+F mapInsert stdlib/Map.ax @244a57c351f2134a "(Map -> (Int -> (a -> Int)))" #effects=Alloc,Mut
+F mapKeyAt stdlib/Map.ax @47abcf2ca2f6b1f7 "(Map -> (Int -> Int))"
 F mapKeys stdlib/Map.ax @899a9af3be769303 "(Map -> Vec Int)" #effects=Alloc,Mut
 F mapLen stdlib/Map.ax @323c736cfb5e07fa "(Map -> Int)"
 F mapLiveFrom stdlib/Map.ax @bfd30d50c5c21111 "(Map -> (Int -> Option Int))" #effects=Alloc
 F mapNew stdlib/Map.ax @20101a6cf0d571ab "Map" #effects=Alloc,Mut
-F mapNewRefVals stdlib/Map.ax @94b7d46f2ee7b3c8 "Map" #effects=Alloc,Mut
 F mapNextSlot stdlib/Map.ax @e86f41fbfa43f396 "(Int -> (Int -> Int))"
 F mapOk stdlib/Err.ax @64ad9b7011061ab5 "(Result a e -> ((a -> b) -> Result b e))" #effect-params=f #effects=Alloc
 F mapOwnsVals stdlib/Map.ax @e0a52f43702a3b4e "(Map -> Bool)"
 F mapPrivateAnon stdlib/Sys/Platform.ax @ef4c2938ecef99dc "Int"
-F mapRemove stdlib/Map.ax @184469ffdca5e7c7 "(Map -> (Int -> Int))" #effects=Mut,Unsafe
+F mapRemove stdlib/Map.ax @184469ffdca5e7c7 "(Map -> (Int -> Int))" #effects=Mut
 F mapRoundUpPow2 stdlib/Map.ax @0a1dd60fc0710248 "(Int -> Int)"
 F mapSharedAnon stdlib/Sys/Platform.ax @226414bf4a63f6a0 "Int"
 F mapSlotOf stdlib/Map.ax @4faf7ec86ee769fa "(Int -> (Int -> Int))"
 F mapSumKeys stdlib/Map.ax @9fe04993ac45d8d2 "(Map -> Int)"
 F mapSumVals stdlib/Map.ax @dda5e233698be162 "(Map -> Int)"
 F mapUsed stdlib/Map.ax @734a6de206e41d7a "(Map -> Int)"
-F mapValAt stdlib/Map.ax @615a868f91bd0d7f "(Map -> (Int -> Int))" #effects=Unsafe
+F mapValAt stdlib/Map.ax @615a868f91bd0d7f "(Map -> (Int -> Int))"
 F mapValues stdlib/Map.ax @ed3dfdf5a429f0b1 "(Map -> Vec Int)" #effects=Alloc,Mut
 F mapWithCapacity stdlib/Map.ax @d426ac78cbdeecb7 "(Int -> Map)" #effects=Alloc,Mut
-F mapWithCapacityRefVals stdlib/Map.ax @18bf6a1aac5bd5dc "(Int -> Map)" #effects=Alloc,Mut
 F mask32 stdlib/Crypto/Ct.ax @3bf20872272bdd62 "Int"
 F memAlloc stdlib/Mem.ax @0fd03fba89121d1d "(Int -> Int)" #effects=Alloc,Unsafe
 F memAllocMapped stdlib/Mem.ax @cdcfd5fd6fed28da "(Int -> (Int -> Int))" #effects=Alloc,Mut,Unsafe
-F memCmp stdlib/Mem.ax @30029e7d2389e32c "(Int -> (Int -> (Int -> Int)))" #effects=Unsafe
-F memCopy stdlib/Mem.ax @3082f9a36dd5daa5 "(Int -> (Int -> (Int -> Int)))" #effects=Mut,Unsafe
+F memCmp stdlib/Mem.ax @30029e7d2389e32c "(Int -> (Int -> (Int -> Int)))"
+F memCopy stdlib/Mem.ax @3082f9a36dd5daa5 "(Int -> (Int -> (Int -> Int)))" #effects=Mut
 F memGetByte stdlib/Mem.ax @b36a11af3f07101e "(Int -> (Int -> Int))" #effects=Unsafe
 F memGetWord stdlib/Mem.ax @b5f8fe0f14e0113c "(Int -> (Int -> Int))" #effects=Unsafe
 F memGetWordStr stdlib/Mem.ax @b8fd4c3ebafbabfb "(Int -> (Int -> String))" #effects=Unsafe
@@ -699,56 +720,32 @@ F memGetWordVec stdlib/Mem.ax @8de85e3ea2a5f886 "(Int -> (Int -> Vec a))" #effec
 F memMarkArray stdlib/Mem.ax @d007f6fd2106dcb2 "(Int -> (Int -> Int))" #effects=Mut,Unsafe
 F memMarkLeaf stdlib/Mem.ax @7d30ebb403b48901 "(Int -> Int)" #effects=Mut,Unsafe
 F memPutByte stdlib/Mem.ax @a42c84e86afc6d53 "(Int -> (Int -> (Int -> Int)))" #effects=Mut,Unsafe
-F memSet stdlib/Mem.ax @b8cc3a7d70814fa8 "(Int -> (Int -> (Int -> Int)))" #effects=Mut,Unsafe
+F memSet stdlib/Mem.ax @b8cc3a7d70814fa8 "(Int -> (Int -> (Int -> Int)))" #effects=Mut
 F memSetWord stdlib/Mem.ax @577fd648169c96a8 "(Int -> (Int -> (a -> Int)))" #effects=Mut,Unsafe
+F memStats stdlib/Mem.ax @f535de6b02c0706b "MemoryStats" #effects=Alloc
 F mkError stdlib/Err.ax @a209679fd0d09783 "(Int -> (String -> Error))" #effects=Alloc
-F mkKeyIn stdlib/Tui/Term.ax @824a4f3487a56f4d "(Int -> (Int -> KeyIn))" #effects=Alloc,IO,Mut,Unsafe
+F mkKeyIn stdlib/Tui/Term.ax @824a4f3487a56f4d "(File -> (Int -> KeyIn))" #effects=Alloc,IO,Mut
 F msgNoSignal stdlib/Sys/Platform.ax @378a3112fec9bb4b "Int"
 F mulChecked stdlib/Err.ax @a9a6c99c92231704 "(Int -> (Int -> Result Int Error))" #effects=Alloc
-F mutexFree stdlib/Sync.ax @75dc14fe8600751c "(Mutex -> Result Int Error)" #effects=Alloc,IO,Mut,Unsafe
 F mutexLock stdlib/Sync.ax @df500fc9c3264dd9 "(Mutex -> Result MutexGuard Error)" #effects=Alloc,Block,IO,Mut
-F mutexLockTimeout stdlib/Sync.ax @00fc2e99b279a4b4 "(Mutex -> (Int -> Result MutexGuard Error))" #effects=Alloc,Block,IO,Mut,Unsafe
+F mutexLockTimeout stdlib/Sync.ax @00fc2e99b279a4b4 "(Mutex -> (Int -> Result MutexGuard Error))" #effects=Alloc,Block,IO,Mut
 F mutexNew stdlib/Sync.ax @7049a14b29ba3408 "Result Mutex Error" #effects=Alloc,IO,Mut
 F mutexOwnerDead stdlib/Sync.ax @635d9ba2c4d32b5b "(Mutex -> Bool)"
-F mutexTryLock stdlib/Sync.ax @d459e601a67517b0 "(Mutex -> Option MutexGuard)" #effects=IO,Mut
-F mutexUnlock stdlib/Sync.ax @ea56713fb828aa3a "(Mutex -> (MutexGuard -> Result Int Error))" #effects=Alloc,IO,Mut
-F netAccept stdlib/Sys.ax @d44bcc0c82ad6d3e "(Int -> Result Int Error)" #effects=Alloc,IO,Unsafe
-F netAcceptFrom stdlib/Sys.ax @c209e279dbfdd47a "(Int -> (Int -> (Int -> (Int -> Result Int Error))))" #effects=Alloc,IO,Mut,Unsafe
-F netAddr4 stdlib/Sys.ax @4ad9d34e7db15afb "(Int -> (Int -> (Int -> (Int -> (Int -> (Int -> Int))))))" #effects=Mut,Unsafe
+F mutexTryLock stdlib/Sync.ax @d459e601a67517b0 "(Mutex -> Option MutexGuard)" #effects=Alloc,IO,Mut
+F netAddr4 stdlib/Sys.ax @4ad9d34e7db15afb "(Int -> (Int -> (Int -> (Int -> (Int -> (Int -> Int))))))" #effects=Mut
 F netAddr4Bytes stdlib/Sys.ax @973e1cebca08db8e "Int"
-F netAddr6 stdlib/Sys.ax @4ad9d54e7db15e61 "(Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> Int))))))))))" #effects=Mut,Unsafe
+F netAddr6 stdlib/Sys.ax @4ad9d54e7db15e61 "(Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> Int))))))))))" #effects=Mut
 F netAddr6Bytes stdlib/Sys.ax @2111a3e8ab253338 "Int"
-F netAddrFamily stdlib/Sys.ax @49a9661cbdbe4a51 "(Int -> Int)" #effects=Unsafe
-F netAddrLenRead stdlib/Sys.ax @28fe8ae23b4b5ff8 "(Int -> Int)" #effects=Unsafe
+F netAddrFamily stdlib/Sys.ax @49a9661cbdbe4a51 "(Int -> Int)"
 F netAddrMaxBytes stdlib/Sys.ax @ba5d073b0ea5ae48 "Int"
-F netAddrPort stdlib/Sys.ax @6b7955d8ce0d3b1e "(Int -> Int)" #effects=Unsafe
-F netAddrSize stdlib/Sys.ax @430910e4a91c3d44 "(Int -> Int)" #effects=Unsafe
-F netAddrText stdlib/Sys.ax @7bdbffbb2ce89d36 "(Int -> String)" #effects=Alloc,Mut,Unsafe
-F netAddrTextPort stdlib/Sys.ax @95961b37b6f26d61 "(Int -> String)" #effects=Alloc,Mut,Unsafe
-F netBind stdlib/Sys.ax @708fb7b1dcc54b0d "(Int -> (Int -> Result Int Error))" #effects=Alloc,IO,Unsafe
-F netConnect stdlib/Sys.ax @abde39582a93b33c "(Int -> (Int -> Result Int Error))" #effects=Alloc,IO,Unsafe
-F netGetPeerName stdlib/Sys.ax @fa78f85fd5751ee1 "(Int -> (Int -> (Int -> (Int -> Result Int Error))))" #effects=Alloc,IO,Mut,Unsafe
-F netGetSockName stdlib/Sys.ax @2b72bb3632c77ea9 "(Int -> (Int -> (Int -> (Int -> Result Int Error))))" #effects=Alloc,IO,Mut,Unsafe
-F netListen stdlib/Sys.ax @052af9572f4e0479 "(Int -> (Int -> Result Int Error))" #effects=Alloc,IO,Unsafe
-F netPollAddRead stdlib/Sys.ax @1dac906fb2cad372 "(Int -> (Int -> (Int -> Result Int Error)))" #effects=Alloc,IO,Mut,Unsafe
-F netPollBufBytes stdlib/Sys.ax @30bd22d0c275a8ab "(Int -> Int)"
-F netPollCreate stdlib/Sys.ax @202f96129c0da6d7 "Result Int Error" #effects=Alloc,IO,Unsafe
-F netPollDelRead stdlib/Sys.ax @334c269a51684844 "(Int -> (Int -> (Int -> Result Int Error)))" #effects=Alloc,IO,Mut,Unsafe
-F netPollFdAt stdlib/Sys.ax @53e9d386428e9f20 "(Int -> (Int -> Int))" #effects=Unsafe
-F netPollSignalAt stdlib/Sys.ax @31dccd6ea15f5d32 "(Int -> (Int -> (Int -> (Int -> Option Int))))" #effects=IO,Unsafe
-F netPollWait stdlib/Sys.ax @9ac8670341fa8f56 "(Int -> (Int -> (Int -> (Int -> (Int -> Result Int Error)))))" #effects=Alloc,IO,Mut,Unsafe
-F netSetBlocking stdlib/Sys.ax @b898cb1963c78685 "(Int -> Result Int Error)" #effects=Alloc,IO,Unsafe
-F netSetNonBlocking stdlib/Sys.ax @896cfa31823b8a4a "(Int -> Result Int Error)" #effects=Alloc,IO
-F netSetOptBytes stdlib/Sys.ax @17fe68cf2fab0c0a "(Int -> (Int -> (Int -> (Int -> (Int -> Result Int Error)))))" #effects=Alloc,IO,Unsafe
-F netSetOptInt stdlib/Sys.ax @6a7d1023edc5cbb0 "(Int -> (Int -> (Int -> (Int -> (Int -> Result Int Error)))))" #effects=Alloc,IO,Mut,Unsafe
-F netShutdown stdlib/Sys.ax @4a7d2fbde4864590 "(Int -> (Int -> Result Int Error))" #effects=Alloc,IO,Unsafe
-F netSignalOpen stdlib/Sys.ax @ff035e77a4e003a6 "(Int -> (Int -> (Int -> (Int -> Result Int Error))))" #effects=Alloc,IO,Mut,Unsafe
-F netSocketTcp stdlib/Sys.ax @a65dd9667467f042 "Result Int Error" #effects=Alloc,IO,Unsafe
-F netSocketTcp6 stdlib/Sys.ax @1968dd17cc9d951c "Result Int Error" #effects=Alloc,IO,Unsafe
+F netAddrPort stdlib/Sys.ax @6b7955d8ce0d3b1e "(Int -> Int)"
+F netAddrSize stdlib/Sys.ax @430910e4a91c3d44 "(Int -> Int)"
+F netAddrText stdlib/Sys.ax @7bdbffbb2ce89d36 "(Int -> String)" #effects=Alloc,Mut
+F netAddrTextPort stdlib/Sys.ax @95961b37b6f26d61 "(Int -> String)" #effects=Alloc,Mut
 F netWouldBlock stdlib/Sys.ax @c706a365e1f7ebac "(Int -> Bool)"
 F nonceSequenceNew stdlib/Crypto/Aead.ax @5020483ad48b4563 "(String -> Result NonceSequence Error)" #effects=Alloc,Mut
-F nonceSequenceNext stdlib/Crypto/Aead.ax @b24be0f728cbb8ca "(NonceSequence -> Result AeadNonce Error)" #effects=Alloc,Mut,Unsafe
-F nonceSequencePosition stdlib/Crypto/Aead.ax @9b8a7c4e5b0a1520 "(NonceSequence -> Int)" #effects=Unsafe
+F nonceSequenceNext stdlib/Crypto/Aead.ax @b24be0f728cbb8ca "(NonceSequence -> Result AeadNonce Error)" #effects=Alloc,Mut
+F nonceSequencePosition stdlib/Crypto/Aead.ax @9b8a7c4e5b0a1520 "(NonceSequence -> Int)"
 F nonceSequenceResume stdlib/Crypto/Aead.ax @f4cad0872e5fdda8 "(String -> (Int -> Result NonceSequence Error))" #effects=Alloc,Mut
 F oCloexec stdlib/Sys/Platform.ax @5d1159b74379760d "Int"
 F oCreat stdlib/Sys/Platform.ax @f6636ffaec9beb4d "Int"
@@ -759,10 +756,10 @@ F oRdonly stdlib/Sys/Platform.ax @bea12e59bc90ac1c "Int"
 F oRdwr stdlib/Sys/Platform.ax @57f3cb9c9339bfff "Int"
 F oWronlyCreateAppend stdlib/Sys/Platform.ax @26a10abfaabe5f03 "Int"
 F oWronlyCreateTrunc stdlib/Sys/Platform.ax @20f55868f574f56b "Int"
-F obfuscationKeyFromSecret stdlib/Crypto/Obfuscate.ax @4c5d2c2077cbae75 "(SecretBytes -> Result ObfuscationKey Error)" #effects=Alloc,IO,Mut,Unsafe
+F obfuscationKeyFromSecret stdlib/Crypto/Obfuscate.ax @4c5d2c2077cbae75 "(SecretBytes -> Result ObfuscationKey Error)" #effects=Alloc,IO,Mut
 F obfuscationKeyFromShares stdlib/Crypto/Obfuscate.ax @8fb7821bf9377525 "(String -> (String -> Result ObfuscationKey Error))" #effects=Alloc,IO,Mut,Unsafe
-F obfuscationKeyGenerate stdlib/Crypto/Obfuscate.ax @8a69b3bc1b0c2d26 "Result ObfuscationKey Error" #effects=Alloc,Entropy,IO,Mut,Unsafe
-F obfuscationKeyWipe stdlib/Crypto/Obfuscate.ax @63060b0bb196da6a "(ObfuscationKey -> Int)" #effects=Alloc,IO,Mut,Unsafe
+F obfuscationKeyGenerate stdlib/Crypto/Obfuscate.ax @8a69b3bc1b0c2d26 "Result ObfuscationKey Error" #effects=Alloc,Entropy,IO,Mut
+F obfuscationKeyWipe stdlib/Crypto/Obfuscate.ax @63060b0bb196da6a "(ObfuscationKey -> Int)" #effects=Alloc,IO,Mut
 F obfuscationMaxBytes stdlib/Crypto/Obfuscate.ax @25a9c8975f5f8d57 "Int"
 F obfuscationOpen stdlib/Crypto/Obfuscate.ax @d38dc3f6980e033a "(ObfuscationKey -> (String -> (String -> Result String Error)))" #effects=Alloc,IO,Mut
 F obfuscationSeal stdlib/Crypto/Obfuscate.ax @0fad860e25e77b8f "(ObfuscationKey -> (String -> (String -> Result String Error)))" #effects=Alloc,Entropy,IO,Mut
@@ -783,65 +780,64 @@ F opNe stdlib/Axqlite/AxqlAst.ax @7993595183d37231 "Int"
 F opOr stdlib/Axqlite/AxqlAst.ax @7997545183d75289 "Int"
 F opSub stdlib/Axqlite/AxqlAst.ax @c6210b82a4ac8396 "Int"
 F opText stdlib/Axqlite/AxqlAst.ax @98f8dec21ea96343 "(Int -> String)"
-F openBeneath stdlib/IO.ax @e8b06f223f748556 "(String -> (String -> Result File Error))" #effects=Alloc,IO,Mut,Unsafe
 F openNeedsDirFd stdlib/Sys/Platform.ax @d12588b93c717bad "Int"
 F openOptions stdlib/Axqlite.ax @6dddabb89a8789e3 "OpenOptions" #effects=Alloc
-F openPath stdlib/IO.ax @42bb74d1c14db960 "(String -> (Int -> Result File Error))" #effects=Alloc,IO,Mut,Unsafe
+F openPath stdlib/IO.ax @42bb74d1c14db960 "(String -> (Int -> Result File Error))" #effects=Alloc,IO,Mut
 F optAndThen stdlib/Err.ax @89260c14169ebce2 "(Option a -> ((a -> Option b) -> Option b))" #effect-params=f
 F optMap stdlib/Err.ax @1e5045cee49c1156 "(Option a -> ((a -> b) -> Option b))" #effect-params=f #effects=Alloc
 F optOr stdlib/Err.ax @9f2916831fbd7f1d "(Option a -> (Option a -> Option a))" #effects=Alloc
 F optUnwrapOr stdlib/Err.ax @5843089a10bee3c2 "(Option a -> (a -> a))"
 F pagerAbandon stdlib/Axqlite/Pager.ax @2746173299920d8f "(Pager -> Int)" #effects=Alloc,IO,Mut
 F pagerAlloc stdlib/Axqlite/Pager.ax @3ed41d7a58608ef7 "(Pager -> Result Int Error)" #effects=Alloc,IO,Mut,Unsafe
-F pagerBeginRead stdlib/Axqlite/Pager.ax @d4ba69c72ff02c1f "(Pager -> Result Int Error)" #effects=Alloc,IO,Mut,Unsafe
-F pagerBeginWrite stdlib/Axqlite/Pager.ax @b483aa4f1d4d84be "(Pager -> Result Int Error)" #effects=Alloc,IO,Mut,Unsafe
-F pagerBumpSchemaVersion stdlib/Axqlite/Pager.ax @730ddb04ba306e0b "(Pager -> Result Int Error)" #effects=Alloc,IO,Mut,Unsafe
-F pagerChangeCounter stdlib/Axqlite/Pager.ax @f833e4d274db0162 "(Pager -> Result Int Error)" #effects=Alloc,Unsafe
+F pagerBeginRead stdlib/Axqlite/Pager.ax @d4ba69c72ff02c1f "(Pager -> Result Int Error)" #effects=Alloc,IO,Mut
+F pagerBeginWrite stdlib/Axqlite/Pager.ax @b483aa4f1d4d84be "(Pager -> Result Int Error)" #effects=Alloc,IO,Mut
+F pagerBumpSchemaVersion stdlib/Axqlite/Pager.ax @730ddb04ba306e0b "(Pager -> Result Int Error)" #effects=Alloc,IO,Mut
+F pagerChangeCounter stdlib/Axqlite/Pager.ax @f833e4d274db0162 "(Pager -> Result Int Error)" #effects=Alloc
 F pagerChecked stdlib/Axqlite/Pager.ax @18977efeb45966f7 "(Pager -> (Int -> Bool))" #effects=Unsafe
 F pagerChecksum stdlib/Axqlite/Pager.ax @a86026cc2e385949 "(Int -> (Int -> (Int -> Int)))" #effects=Unsafe
-F pagerClose stdlib/Axqlite/Pager.ax @7e7c57e31aff3af2 "(Pager -> Result Int Error)" #effects=Alloc,IO,Mut,Unsafe
-F pagerCommit stdlib/Axqlite/Pager.ax @3489cbeb56dbba83 "(Pager -> Result Int Error)" #effects=Alloc,IO,Mut,Unsafe
-F pagerEndRead stdlib/Axqlite/Pager.ax @053bf31e92161c07 "(Pager -> Result Int Error)" #effects=Alloc,IO,Mut,Unsafe
-F pagerFaultArm stdlib/Axqlite/Pager.ax @dc96802c6304018c "(Pager -> (Int -> (Int -> (Int -> Int))))" #effects=Alloc,IO,Mut,Unsafe
+F pagerClose stdlib/Axqlite/Pager.ax @7e7c57e31aff3af2 "(Pager -> Result Int Error)" #effects=Alloc,IO,Mut
+F pagerCommit stdlib/Axqlite/Pager.ax @3489cbeb56dbba83 "(Pager -> Result Int Error)" #effects=Alloc,IO,Mut
+F pagerEndRead stdlib/Axqlite/Pager.ax @053bf31e92161c07 "(Pager -> Result Int Error)" #effects=Alloc,IO,Mut
+F pagerFaultArm stdlib/Axqlite/Pager.ax @dc96802c6304018c "(Pager -> (Int -> (Int -> (Int -> Int))))" #effects=Alloc,IO,Mut
 F pagerFaultFail stdlib/Axqlite/Pager.ax @ba0a2c730890adfa "Int"
-F pagerFaultFired stdlib/Axqlite/Pager.ax @4efb44b97857a04e "(Pager -> Bool)" #effects=Unsafe
-F pagerFaultPoints stdlib/Axqlite/Pager.ax @1c0b4a4e5535db2d "(Pager -> Int)" #effects=Unsafe
+F pagerFaultFired stdlib/Axqlite/Pager.ax @4efb44b97857a04e "(Pager -> Bool)"
+F pagerFaultPoints stdlib/Axqlite/Pager.ax @1c0b4a4e5535db2d "(Pager -> Int)"
 F pagerFaultPowerLoss stdlib/Axqlite/Pager.ax @c3800cb5bb50b10c "Int"
 F pagerFaultPowerLossDatabase stdlib/Axqlite/Pager.ax @a8e0c2505c841881 "Int"
 F pagerFaultPowerLossJournal stdlib/Axqlite/Pager.ax @b5fde958370315ab "Int"
 F pagerFaultPowerLossStrict stdlib/Axqlite/Pager.ax @a8f3fc68c011ad11 "Int"
 F pagerFaultTear stdlib/Axqlite/Pager.ax @71d38600d9570812 "Int"
 F pagerFree stdlib/Axqlite/Pager.ax @dd2b9d76e05835d4 "(Pager -> (Int -> Result Int Error))" #effects=Alloc,IO,Mut,Unsafe
-F pagerFreeListCount stdlib/Axqlite/Pager.ax @482d8df5c2bb9d23 "(Pager -> Result Int Error)" #effects=Alloc,Unsafe
-F pagerFreeListHead stdlib/Axqlite/Pager.ax @62f114ab9774c75e "(Pager -> Result Int Error)" #effects=Alloc,Unsafe
+F pagerFreeListCount stdlib/Axqlite/Pager.ax @482d8df5c2bb9d23 "(Pager -> Result Int Error)" #effects=Alloc
+F pagerFreeListHead stdlib/Axqlite/Pager.ax @62f114ab9774c75e "(Pager -> Result Int Error)" #effects=Alloc
 F pagerGet stdlib/Axqlite/Pager.ax @32677d4ccb15b152 "(Pager -> (Int -> Result Int Error))" #effects=Alloc,IO,Mut,Unsafe
 F pagerGetBe stdlib/Axqlite/Pager.ax @8904448c249aca6f "(Int -> (Int -> (Int -> Int)))" #effects=Unsafe
 F pagerGetTransient stdlib/Axqlite/Pager.ax @41625f204b2c414c "(Pager -> (Int -> Result Int Error))" #effects=Alloc,IO,Mut,Unsafe
-F pagerInWrite stdlib/Axqlite/Pager.ax @178b92e20c744aa0 "(Pager -> Bool)" #effects=Unsafe
-F pagerIsReadOnly stdlib/Axqlite/Pager.ax @f00536cf1b612604 "(Pager -> Bool)" #effects=Unsafe
-F pagerLockLevel stdlib/Axqlite/Pager.ax @b0b13567bfe9f1e9 "(Pager -> Int)" #effects=Unsafe
-F pagerMeta stdlib/Axqlite/Pager.ax @face64d07382d26b "(Pager -> (Int -> Result Int Error))" #effects=Alloc,Unsafe
-F pagerOpBegin stdlib/Axqlite/Pager.ax @49e7cd0b76b457fa "(Pager -> Int)" #effects=Mut,Unsafe
+F pagerInWrite stdlib/Axqlite/Pager.ax @178b92e20c744aa0 "(Pager -> Bool)"
+F pagerIsReadOnly stdlib/Axqlite/Pager.ax @f00536cf1b612604 "(Pager -> Bool)"
+F pagerLockLevel stdlib/Axqlite/Pager.ax @b0b13567bfe9f1e9 "(Pager -> Int)"
+F pagerMeta stdlib/Axqlite/Pager.ax @face64d07382d26b "(Pager -> (Int -> Result Int Error))" #effects=Alloc
+F pagerOpBegin stdlib/Axqlite/Pager.ax @49e7cd0b76b457fa "(Pager -> Int)" #effects=Mut
 F pagerOpen stdlib/Axqlite/Pager.ax @16ffcabf6a7e2db6 "(String -> (Bool -> (Bool -> (Int -> Result Pager Error))))" #effects=Alloc,IO,Mut
 F pagerOpenFaulty stdlib/Axqlite/Pager.ax @f54fe19acdadb359 "(String -> (Bool -> (Bool -> (Int -> (Int -> (Int -> (Int -> (Bool -> Result Pager Error))))))))" #effects=Alloc,IO,Mut,Unsafe
-F pagerPageCount stdlib/Axqlite/Pager.ax @cb7f0287c5f9219c "(Pager -> Result Int Error)" #effects=Alloc,Unsafe
+F pagerPageCount stdlib/Axqlite/Pager.ax @cb7f0287c5f9219c "(Pager -> Result Int Error)" #effects=Alloc
 F pagerPageSize stdlib/Axqlite/Pager.ax @641ea955da2f5c34 "Int"
 F pagerPutBe stdlib/Axqlite/Pager.ax @0cb7236f9d4fc862 "(Int -> (Int -> (Int -> (Int -> Int))))" #effects=Mut,Unsafe
-F pagerRollback stdlib/Axqlite/Pager.ax @fda0a954f79e0c96 "(Pager -> Result Int Error)" #effects=Alloc,IO,Mut,Unsafe
-F pagerSchemaVersion stdlib/Axqlite/Pager.ax @10917d28f5b0287b "(Pager -> Result Int Error)" #effects=Alloc,Unsafe
+F pagerRollback stdlib/Axqlite/Pager.ax @fda0a954f79e0c96 "(Pager -> Result Int Error)" #effects=Alloc,IO,Mut
+F pagerSchemaVersion stdlib/Axqlite/Pager.ax @10917d28f5b0287b "(Pager -> Result Int Error)" #effects=Alloc
 F pagerSetChecked stdlib/Axqlite/Pager.ax @235f44a0a2e9b77f "(Pager -> (Int -> Int))" #effects=Mut,Unsafe
-F pagerSetDurable stdlib/Axqlite/Pager.ax @70c3008793411129 "(Pager -> (Bool -> Int))" #effects=Mut,Unsafe
-F pagerSetMeta stdlib/Axqlite/Pager.ax @d4bd88bb558d3b93 "(Pager -> (Int -> (Int -> Result Int Error)))" #effects=Alloc,IO,Mut,Unsafe
-F pagerStat stdlib/Axqlite/Pager.ax @74b654189a9f0e2c "(Pager -> (Int -> Int))" #effects=Unsafe
+F pagerSetDurable stdlib/Axqlite/Pager.ax @70c3008793411129 "(Pager -> (Bool -> Int))" #effects=Mut
+F pagerSetMeta stdlib/Axqlite/Pager.ax @d4bd88bb558d3b93 "(Pager -> (Int -> (Int -> Result Int Error)))" #effects=Alloc,IO,Mut
+F pagerStat stdlib/Axqlite/Pager.ax @74b654189a9f0e2c "(Pager -> (Int -> Int))"
 F pagerUsable stdlib/Axqlite/Pager.ax @d280c9eaaf38d6f2 "Int"
 F pagerWrite stdlib/Axqlite/Pager.ax @ee01a65e43487191 "(Pager -> (Int -> Result Int Error))" #effects=Alloc,IO,Mut,Unsafe
-F pagerWriteSeq stdlib/Axqlite/Pager.ax @2e6412de80a3e0f8 "(Pager -> Int)" #effects=Unsafe
+F pagerWriteSeq stdlib/Axqlite/Pager.ax @2e6412de80a3e0f8 "(Pager -> Int)"
 F pagerWriteTransient stdlib/Axqlite/Pager.ax @be5cfecefdf94859 "(Pager -> (Int -> Result Int Error))" #effects=Alloc,IO,Mut,Unsafe
-F parArgvVector stdlib/Par.ax @b5259d65eba2907f "(Vec String -> Int)" #effects=Alloc,Mut,Unsafe
-F parMapWords stdlib/Par.ax @2af1a9463822b1e9 "((Int -> Int) -> (Int -> (Int -> Vec Int)))" #effects=Alloc,Block,IO,Mut,Spawn,Unsafe
-F parMapWordsChecked stdlib/Par.ax @aef3fc20d956631a "((Int -> Int) -> (Int -> (Int -> Vec Result Int Error)))" #effects=Alloc,Block,IO,Mut,Spawn,Unsafe
+F parArgvVector stdlib/Par.ax @b5259d65eba2907f "(Vec String -> Int)" #effects=Alloc,Mut
+F parMapWords stdlib/Par.ax @2af1a9463822b1e9 "((Int -> Int) -> (Int -> (Int -> Vec Int)))" #effect-params=f #effects=Alloc,Block,IO,Mut,Spawn
+F parMapWordsChecked stdlib/Par.ax @aef3fc20d956631a "((Int -> Int) -> (Int -> (Int -> Vec Result Int Error)))" #effect-params=f #effects=Alloc,Block,IO,Mut,Spawn,Unsafe
 F parRunAll stdlib/Par.ax @870195ef0b7035da "(Vec Vec String -> (Int -> Vec Int))" #effects=Alloc,Block,IO,Mut,Spawn
-F parRunOne stdlib/Par.ax @0c4740eec5830dbd "(Vec String -> Result Int Error)" #effects=Alloc,Block,IO,Mut,Spawn,Unsafe
+F parRunOne stdlib/Par.ax @0c4740eec5830dbd "(Vec String -> Result Int Error)" #effects=Alloc,Block,IO,Mut,Spawn
 F pathBase stdlib/Path.ax @de1bcc0189423689 "(String -> String)" #effects=Alloc,Mut
 F pathClean stdlib/Path.ax @22b2ce2ef94dd5d5 "(String -> String)" #effects=Alloc,Mut
 F pathDir stdlib/Path.ax @4d9676176b81d873 "(String -> String)" #effects=Alloc,Mut
@@ -864,44 +860,57 @@ F pollReadFilter stdlib/Sys/Platform.ax @2a42e21130434f1c "Int"
 F pollSignalFilter stdlib/Sys/Platform.ax @505ea806bac66894 "Int"
 F pollSigsetSize stdlib/Sys/Platform.ax @a184d63c46ffcbc0 "Int"
 F pollUsesKqueue stdlib/Sys/Platform.ax @1908ec81ed6473d2 "Int"
+F pollerAdd stdlib/IO.ax @f3806e70c062758c "(Poller -> (File -> (Int -> Result Int Error)))" #effects=Alloc,IO,Mut
+F pollerAddListener stdlib/Net.ax @26bb9a24842956cc "(Poller -> (TcpListener -> (Int -> Result Int Error)))" #effects=Alloc,IO,Mut
+F pollerAddSignals stdlib/IO.ax @40ab7a24b82f6031 "(Poller -> (Int -> (Int -> Result Int Error)))" #effects=Alloc,IO,Mut,Unsafe
+F pollerAddStream stdlib/Net.ax @436ded9d571fb614 "(Poller -> (TcpStream -> (Int -> Result Int Error)))" #effects=Alloc,IO,Mut
+F pollerClose stdlib/IO.ax @b54cdb7f7efcac9b "(Poller -> Result Int Error)" #effects=Alloc,IO,Unsafe
+F pollerNew stdlib/IO.ax @a4c9107093955cf9 "(Int -> Result Poller Error)" #effects=Alloc,IO,Mut,Unsafe
+F pollerRemove stdlib/IO.ax @f7fa5dd9d49af245 "(Poller -> (File -> Result Int Error))" #effects=Alloc,IO,Mut
+F pollerRemoveListener stdlib/Net.ax @2d7cfa91c577ebd1 "(Poller -> (TcpListener -> Result Int Error))" #effects=Alloc,IO,Mut
+F pollerRemoveStream stdlib/Net.ax @e9f04af056186fc5 "(Poller -> (TcpStream -> Result Int Error))" #effects=Alloc,IO,Mut
+F pollerSignal stdlib/IO.ax @7d75dcd23811dcc1 "(Poller -> (Int -> Option Int))" #effects=Alloc,IO
+F pollerToken stdlib/IO.ax @fb91557b71a4497a "(Poller -> (Int -> Int))"
+F pollerWait stdlib/IO.ax @baf2a30941e804f8 "(Poller -> (Int -> Result Int Error))" #effects=Alloc,IO,Mut,Unsafe
 F poly1305AbsorbPadded stdlib/Crypto/Poly1305.ax @c341985161adc351 "(Int -> (Int -> (Int -> Int)))" #effects=Mut,Unsafe
 F poly1305Blocks stdlib/Crypto/Poly1305.ax @da52428fa4f93f54 "(Int -> (Int -> (Int -> (Int -> Int))))" #effects=Mut,Unsafe
 F poly1305Finish stdlib/Crypto/Poly1305.ax @783d8e04f0d17455 "(Int -> (Int -> Int))" #effects=Mut,Unsafe
 F poly1305Init stdlib/Crypto/Poly1305.ax @516933a943a15ce0 "(Int -> (Int -> Int))" #effects=Mut,Unsafe
 F poly1305Mac stdlib/Crypto/Poly1305.ax @e6b8c05cda4e0b5d "(Int -> (Int -> (Int -> (Int -> (Int -> Int)))))" #effects=Mut,Unsafe
 F poly1305StateBytes stdlib/Crypto/Poly1305.ax @ab703bb7e2b6b0aa "Int"
-F printlnLit stdlib/IO.ax @92593fe7cb210315 "(Int -> Int)" #effects=Alloc,IO,Unsafe
 F randomAvailable stdlib/Crypto/Random.ax @0a52e6b10cea72bf "Bool" #effects=Entropy,Mut
-F randomBelow stdlib/Crypto/Random.ax @627d92e27b2a0999 "(Int -> Result Int Error)" #effects=Alloc,Entropy,IO,Mut,Unsafe
-F randomBytes stdlib/IO.ax @657a6df560946b3f "(Int -> Result String Error)" #effects=Alloc,Entropy,IO,Mut,Unsafe
-F randomFill stdlib/Crypto/Random.ax @89adad555544cce5 "(Int -> (Int -> Result Int Error))" #effects=Alloc,Entropy,IO,Mut,Unsafe
+F randomBelow stdlib/Crypto/Random.ax @627d92e27b2a0999 "(Int -> Result Int Error)" #effects=Alloc,Entropy,IO,Mut
+F randomFill stdlib/Crypto/Random.ax @89adad555544cce5 "(Int -> (Int -> Result Int Error))" #effects=Alloc,Entropy,IO,Mut
 F randomIsGetentropy stdlib/Sys/Platform.ax @e644f15320868f39 "Int"
 F randomMaxChunk stdlib/Sys/Platform.ax @671fe1e243b8cebf "Int"
 F randomRange stdlib/Crypto/Random.ax @791b362bacf38821 "(Int -> (Int -> Result Int Error))" #effects=Alloc,Entropy,IO,Mut
-F randomShuffle stdlib/Crypto/Random.ax @e8322073d772d5e5 "(Vec a -> Result Int Error)" #effects=Alloc,Entropy,IO,Mut,Unsafe
+F randomShuffle stdlib/Crypto/Random.ax @e8322073d772d5e5 "(Vec a -> Result Int Error)" #effects=Alloc,Entropy,IO,Mut
 F randomTokenHex stdlib/Crypto/Random.ax @53ef680875ce811e "(Int -> Result String Error)" #effects=Alloc,Entropy,IO,Mut
 F randomTokenUrl stdlib/Crypto/Random.ax @28d28f085d711faa "(Int -> Result String Error)" #effects=Alloc,Entropy,IO,Mut
 F randomUsesRndr stdlib/Sys/Platform.ax @e741486fbca4a9ce "Int"
-F randomWord stdlib/Crypto/Random.ax @d6f0f8d8aa000754 "Result Int Error" #effects=Alloc,Entropy,IO,Mut,Unsafe
-F rdBuf stdlib/Rpc.ax @77cc5cd95dc4bd9a "(Int -> String)" #effects=Unsafe
-F rdConsumed stdlib/Rpc.ax @a9d98ecf5017c5b7 "(Int -> Int)" #effects=Unsafe
-F rdFilled stdlib/Rpc.ax @db45387b8a489b01 "(Int -> Int)" #effects=Unsafe
-F rdNew stdlib/Rpc.ax @12b851d92553e459 "(Int -> Int)" #effects=Alloc,Mut,Unsafe
-F rdReseat stdlib/Rpc.ax @e2a88306163b65c9 "(Int -> (Int -> (Int -> Int)))" #effects=Alloc,Mut,Unsafe
-F readAll stdlib/IO.ax @0a2dd1c02ebd670a "(Int -> Result String Error)" #effects=Alloc,IO,Mut
-F readErrno stdlib/IO.ax @ea6c0775f6a25f61 "(String -> Int)" #effects=Alloc,IO,Mut,Unsafe
-F readFile stdlib/IO.ax @bd195d65a3722851 "(String -> String)" #effects=Alloc,IO,Mut,Unsafe
-F readFileLit stdlib/IO.ax @93f6acb216f0baba "(Int -> String)" #effects=Alloc,IO,Mut,Unsafe
-F readInto stdlib/IO.ax @82b17c4cfed7952d "(Int -> (String -> (Int -> (Int -> Result Int Error))))" #effects=Alloc,IO,Unsafe
-F readLine stdlib/IO.ax @28939934d9051f1d "(Int -> Result Option String Error)" #effects=Alloc,IO,Mut
+F randomWord stdlib/Crypto/Random.ax @d6f0f8d8aa000754 "Result Int Error" #effects=Alloc,Entropy,IO,Mut
+F rdBuf stdlib/Rpc.ax @77cc5cd95dc4bd9a "(Int -> String)"
+F rdConsumed stdlib/Rpc.ax @a9d98ecf5017c5b7 "(Int -> Int)"
+F rdFilled stdlib/Rpc.ax @db45387b8a489b01 "(Int -> Int)"
+F rdNew stdlib/Rpc.ax @12b851d92553e459 "(File -> Int)" #effects=Alloc,Mut
+F rdReseat stdlib/Rpc.ax @e2a88306163b65c9 "(Int -> (Int -> (Int -> Int)))" #effects=Alloc,Mut
+F readAll stdlib/IO.ax @0a2dd1c02ebd670a "(File -> Result String Error)" #effects=Alloc,IO,Mut
+F readBufferByte stdlib/IO.ax @4e44eb8bee57afcf "(ReadBuffer -> (Int -> Int))"
+F readBufferLen stdlib/IO.ax @c6f772bf0a0aaebc "(ReadBuffer -> Int)"
+F readBufferNew stdlib/IO.ax @d84abdbf13db3c81 "(Int -> ReadBuffer)" #effects=Alloc,Mut
+F readBufferText stdlib/IO.ax @cb9c35d386033b6e "(ReadBuffer -> (Int -> (Int -> String)))" #effects=Alloc,Mut
+F readErrno stdlib/IO.ax @ea6c0775f6a25f61 "(String -> Int)" #effects=Alloc,IO,Mut
+F readFile stdlib/IO.ax @bd195d65a3722851 "(String -> String)" #effects=Alloc,IO,Mut
+F readInto stdlib/IO.ax @82b17c4cfed7952d "(File -> (String -> (Int -> (Int -> Result Int Error))))" #effects=Alloc,IO,Mut
+F readLine stdlib/IO.ax @28939934d9051f1d "(File -> Result Option String Error)" #effects=Alloc,IO,Mut
 F recColumn stdlib/Axqlite/Record.ax @e763b882ef905101 "(String -> (Int -> Result Value Error))" #effects=Alloc,Mut,Unsafe
-F recColumnCount stdlib/Axqlite/Record.ax @0288c004b2674cb8 "(String -> Result Int Error)" #effects=Alloc,Unsafe
+F recColumnCount stdlib/Axqlite/Record.ax @0288c004b2674cb8 "(String -> Result Int Error)" #effects=Alloc
 F recDecode stdlib/Axqlite/Record.ax @e4da845abacbef5d "(String -> Result Vec Value Error)" #effects=Alloc,Mut,Unsafe
 F recEncode stdlib/Axqlite/Record.ax @0540902245fa5819 "(Vec Value -> Result String Error)" #effects=Alloc,Mut,Unsafe
 F remChecked stdlib/Err.ax @8fb62ce3aababe76 "(Int -> (Int -> Result Int Error))" #effects=Alloc
-F removeDir stdlib/IO.ax @a936e27accf6c276 "(String -> Result Int Error)" #effects=Alloc,IO,Mut,Unsafe
-F removeFile stdlib/IO.ax @9ee28d98af09ee49 "(String -> Result Int Error)" #effects=Alloc,IO,Mut,Unsafe
-F renamePath stdlib/IO.ax @628b17483d92c17a "(String -> (String -> Result Int Error))" #effects=Alloc,IO,Mut,Unsafe
+F removeDir stdlib/IO.ax @a936e27accf6c276 "(String -> Result Int Error)" #effects=Alloc,IO,Mut
+F removeFile stdlib/IO.ax @9ee28d98af09ee49 "(String -> Result Int Error)" #effects=Alloc,IO,Mut
+F renamePath stdlib/IO.ax @628b17483d92c17a "(String -> (String -> Result Int Error))" #effects=Alloc,IO,Mut
 F rotl32 stdlib/Crypto/Ct.ax @eca74408319ac0bd "(Int -> (Int -> Int))"
 F rotl64 stdlib/Crypto/Ct.ax @ec964008318c46be "(Int -> (Int -> Int))"
 F rotr32 stdlib/Crypto/Ct.ax @95fb1a08007fa75f "(Int -> (Int -> Int))"
@@ -922,101 +931,101 @@ F rowTextNamed stdlib/Axqlite.ax @ffc29e873b3a93b7 "(Row -> (String -> Result St
 F rowValue stdlib/Axqlite.ax @c4adc17b0e68b53e "(Row -> (Int -> Result Value Error))" #effects=Alloc,Mut
 F rowValueNamed stdlib/Axqlite.ax @7fbd5bd2c40fd53b "(Row -> (String -> Result Value Error))" #effects=Alloc,Mut
 F rpcRead stdlib/Rpc.ax @71be0acbedd462ce "(Int -> String)" #effects=Alloc,IO,Mut
-F rpcReadMsg stdlib/Rpc.ax @a3460a5f87bb421b "(Int -> Option String)" #effects=Alloc,IO,Mut,Unsafe
-F rpcWrite stdlib/Rpc.ax @8401ff9bdbad5391 "(Int -> (String -> Int))" #effects=Alloc,IO,Mut
-F sc25519IsCanonical stdlib/Crypto/Curve25519Scalar.ax @4f392b8d96ceb63d "(Int -> Int)" #effects=Alloc,Mut,Unsafe
+F rpcReadMsg stdlib/Rpc.ax @a3460a5f87bb421b "(Int -> Option String)" #effects=Alloc,IO,Mut
+F rpcWrite stdlib/Rpc.ax @8401ff9bdbad5391 "(File -> (String -> Int))" #effects=Alloc,IO,Mut
+F sc25519IsCanonical stdlib/Crypto/Curve25519Scalar.ax @4f392b8d96ceb63d "(Int -> Int)" #effects=Alloc,Mut
 F sc25519MulAdd stdlib/Crypto/Curve25519Scalar.ax @0d6ce6f542838310 "(Int -> (Int -> (Int -> (Int -> Int))))" #effects=Alloc,Mut,Unsafe
-F sc25519Reduce stdlib/Crypto/Curve25519Scalar.ax @e2eec26cf43bf21f "(Int -> (Int -> Int))" #effects=Alloc,Mut,Unsafe
-F secretAddr stdlib/Crypto/Secret.ax @ac484dd54c841524 "(SecretBytes -> Int)" #effects=Unsafe
+F sc25519Reduce stdlib/Crypto/Curve25519Scalar.ax @e2eec26cf43bf21f "(Int -> (Int -> Int))" #effects=Alloc,Mut
+F secretAddr stdlib/Crypto/Secret.ax @ac484dd54c841524 "(SecretBytes -> Int)"
 F secretBlockAddr stdlib/Crypto/Secret.ax @4f5d444009e2fcb7 "(Int -> (Int -> Int))" #effects=Unsafe
 F secretBlockFree stdlib/Crypto/Secret.ax @0b4031275f7d9c9a "(Int -> (Int -> Int))" #effects=Alloc,IO,Mut,Unsafe
-F secretBlockFrom stdlib/Crypto/Secret.ax @0b2b05275f6af5cc "(Int -> (Int -> (Int -> Result Int Error)))" #effects=Alloc,IO,Mut,Unsafe
+F secretBlockFrom stdlib/Crypto/Secret.ax @0b2b05275f6af5cc "(Int -> (Int -> (Int -> Result Int Error)))" #effects=Alloc,IO,Mut
 F secretBlockLen stdlib/Crypto/Secret.ax @806d5296dc19196b "(Int -> (Int -> Int))" #effects=Unsafe
 F secretBlockLocked stdlib/Crypto/Secret.ax @8fe290feac567aea "(Int -> (Int -> Bool))" #effects=Unsafe
 F secretBlockNew stdlib/Crypto/Secret.ax @927eab96e68ae802 "(Int -> (Int -> Result Int Error))" #effects=Alloc,IO,Mut,Unsafe
-F secretBlockRandom stdlib/Crypto/Secret.ax @a3dfb6b852366dab "(Int -> (Int -> Result Int Error))" #effects=Alloc,Entropy,IO,Mut,Unsafe
-F secretEq stdlib/Crypto/Secret.ax @02e4e00e7e51c4c1 "(SecretBytes -> (SecretBytes -> Bool))" #effects=Mut,Unsafe
-F secretExposeCopy stdlib/Crypto/Secret.ax @511c2a4b15fe3042 "(SecretBytes -> String)" #effects=Alloc,Mut,Unsafe
-F secretFromAddr stdlib/Crypto/Secret.ax @9b2082f99e3b7020 "(Int -> (Int -> Result SecretBytes Error))" #effects=Alloc,IO,Mut,Unsafe
-F secretFromString stdlib/Crypto/Secret.ax @dc3a0d4a51024d12 "(String -> Result SecretBytes Error)" #effects=Alloc,IO,Mut,Unsafe
+F secretBlockRandom stdlib/Crypto/Secret.ax @a3dfb6b852366dab "(Int -> (Int -> Result Int Error))" #effects=Alloc,Entropy,IO,Mut
+F secretEq stdlib/Crypto/Secret.ax @02e4e00e7e51c4c1 "(SecretBytes -> (SecretBytes -> Bool))" #effects=Mut
+F secretExposeCopy stdlib/Crypto/Secret.ax @511c2a4b15fe3042 "(SecretBytes -> String)" #effects=Alloc,Mut
+F secretFromAddr stdlib/Crypto/Secret.ax @9b2082f99e3b7020 "(Int -> (Int -> Result SecretBytes Error))" #effects=Alloc,IO,Mut
+F secretFromString stdlib/Crypto/Secret.ax @dc3a0d4a51024d12 "(String -> Result SecretBytes Error)" #effects=Alloc,IO,Mut
 F secretIsLocked stdlib/Crypto/Secret.ax @fad866d3e2163f49 "(SecretBytes -> Bool)"
 F secretLen stdlib/Crypto/Secret.ax @fee746a081a1c86a "(SecretBytes -> Int)"
-F secretRandom stdlib/Crypto/Secret.ax @97ad3231c7602f5c "(Int -> Result SecretBytes Error)" #effects=Alloc,Entropy,IO,Mut,Unsafe
-F secretWipe stdlib/Crypto/Secret.ax @da312a6f48daf3d0 "(SecretBytes -> Int)" #effects=Alloc,IO,Mut,Unsafe
-F secureRandomBytes stdlib/Crypto/Random.ax @5cb60a7c4dbbbb74 "(Int -> Result String Error)" #effects=Alloc,Entropy,IO,Mut,Unsafe
+F secretRandom stdlib/Crypto/Secret.ax @97ad3231c7602f5c "(Int -> Result SecretBytes Error)" #effects=Alloc,Entropy,IO,Mut
+F secretWipe stdlib/Crypto/Secret.ax @da312a6f48daf3d0 "(SecretBytes -> Int)" #effects=Alloc,IO,Mut
+F secureRandomBytes stdlib/Crypto/Random.ax @5cb60a7c4dbbbb74 "(Int -> Result String Error)" #effects=Alloc,Entropy,IO,Mut
 F seekEnd stdlib/Sys/Platform.ax @ffd6d76db53ee6f4 "Int"
 F seekSet stdlib/Sys/Platform.ax @9bb0af6e0d80b0bd "Int"
-F sha256 stdlib/Crypto/Sha2.ax @275cbf7b993b876c "(String -> String)" #effects=Alloc,Mut,Unsafe
-F sha256Addr stdlib/Crypto/Sha2.ax @ed44c1abb15c877f "(Int -> (Int -> (Int -> Int)))" #effects=Alloc,Mut,Unsafe
-F sha256Copy stdlib/Crypto/Sha2.ax @19d98fbd747e1771 "(Sha256 -> Sha256)" #effects=Alloc,Mut,Unsafe
-F sha256Final stdlib/Crypto/Sha2.ax @6839523a431c0c04 "(Sha256 -> String)" #effects=Alloc,Mut,Unsafe
-F sha256New stdlib/Crypto/Sha2.ax @e6c4b56be21f3b4a "Sha256" #effects=Alloc,Mut,Unsafe
+F sha256 stdlib/Crypto/Sha2.ax @275cbf7b993b876c "(String -> String)" #effects=Alloc,Mut
+F sha256Addr stdlib/Crypto/Sha2.ax @ed44c1abb15c877f "(Int -> (Int -> (Int -> Int)))" #effects=Alloc,Mut
+F sha256Copy stdlib/Crypto/Sha2.ax @19d98fbd747e1771 "(Sha256 -> Sha256)" #effects=Alloc,Mut
+F sha256Final stdlib/Crypto/Sha2.ax @6839523a431c0c04 "(Sha256 -> String)" #effects=Alloc,Mut
+F sha256New stdlib/Crypto/Sha2.ax @e6c4b56be21f3b4a "Sha256" #effects=Alloc,Mut
 F sha256RawChain stdlib/Crypto/Sha2.ax @edfb82d7c1ad5bbf "(Int -> (Int -> Int))" #effects=Mut,Unsafe
-F sha256RawFinal stdlib/Crypto/Sha2.ax @1a90e4c32521955e "(Int -> (Int -> Int))" #effects=Mut,Unsafe
-F sha256RawInit stdlib/Crypto/Sha2.ax @d82e5aee293beca8 "(Int -> Int)" #effects=Mut,Unsafe
+F sha256RawFinal stdlib/Crypto/Sha2.ax @1a90e4c32521955e "(Int -> (Int -> Int))" #effects=Mut
+F sha256RawInit stdlib/Crypto/Sha2.ax @d82e5aee293beca8 "(Int -> Int)" #effects=Mut
 F sha256RawResume stdlib/Crypto/Sha2.ax @fa71e46618f8e38d "(Int -> (Int -> (Int -> Int)))" #effects=Mut,Unsafe
 F sha256RawSize stdlib/Crypto/Sha2.ax @0674b11d97f5dcab "Int"
-F sha256RawUpdate stdlib/Crypto/Sha2.ax @1d2d57a0eecb22bb "(Int -> (Int -> (Int -> Int)))" #effects=Mut,Unsafe
-F sha256Update stdlib/Crypto/Sha2.ax @95c8e2aec74876ed "(Sha256 -> (String -> Int))" #effects=Mut,Unsafe
-F sha256UpdateAddr stdlib/Crypto/Sha2.ax @6b4b9c95bf23fcda "(Sha256 -> (Int -> (Int -> Int)))" #effects=Mut,Unsafe
-F sha256Wipe stdlib/Crypto/Sha2.ax @35849221d7535767 "(Sha256 -> Int)" #effects=Mut,Unsafe
-F sha384 stdlib/Crypto/Sha2.ax @1e57a47b9405cd34 "(String -> String)" #effects=Alloc,Mut,Unsafe
-F sha384Addr stdlib/Crypto/Sha2.ax @bcb8049341e518a7 "(Int -> (Int -> (Int -> Int)))" #effects=Alloc,Mut,Unsafe
-F sha384Copy stdlib/Crypto/Sha2.ax @729d52a5526fcc19 "(Sha384 -> Sha384)" #effects=Alloc,Mut,Unsafe
-F sha384Final stdlib/Crypto/Sha2.ax @93402a377d1b09cc "(Sha384 -> String)" #effects=Alloc,Mut,Unsafe
-F sha384New stdlib/Crypto/Sha2.ax @d25d24dbf270ce52 "Sha384" #effects=Alloc,Mut,Unsafe
-F sha384Update stdlib/Crypto/Sha2.ax @afb104947c4b9175 "(Sha384 -> (String -> Int))" #effects=Mut,Unsafe
-F sha384UpdateAddr stdlib/Crypto/Sha2.ax @e078796dbcfbe522 "(Sha384 -> (Int -> (Int -> Int)))" #effects=Mut,Unsafe
-F sha384Wipe stdlib/Crypto/Sha2.ax @795743fe5132341f "(Sha384 -> Int)" #effects=Mut,Unsafe
-F sha3Copy stdlib/Crypto/Sha3.ax @ab121e8845bbabdd "(Sha3 -> Sha3)" #effects=Alloc,Mut,Unsafe
+F sha256RawUpdate stdlib/Crypto/Sha2.ax @1d2d57a0eecb22bb "(Int -> (Int -> (Int -> Int)))" #effects=Mut
+F sha256Update stdlib/Crypto/Sha2.ax @95c8e2aec74876ed "(Sha256 -> (String -> Int))" #effects=Mut
+F sha256UpdateAddr stdlib/Crypto/Sha2.ax @6b4b9c95bf23fcda "(Sha256 -> (Int -> (Int -> Int)))" #effects=Mut
+F sha256Wipe stdlib/Crypto/Sha2.ax @35849221d7535767 "(Sha256 -> Int)" #effects=Mut
+F sha384 stdlib/Crypto/Sha2.ax @1e57a47b9405cd34 "(String -> String)" #effects=Alloc,Mut
+F sha384Addr stdlib/Crypto/Sha2.ax @bcb8049341e518a7 "(Int -> (Int -> (Int -> Int)))" #effects=Alloc,Mut
+F sha384Copy stdlib/Crypto/Sha2.ax @729d52a5526fcc19 "(Sha384 -> Sha384)" #effects=Alloc,Mut
+F sha384Final stdlib/Crypto/Sha2.ax @93402a377d1b09cc "(Sha384 -> String)" #effects=Alloc,Mut
+F sha384New stdlib/Crypto/Sha2.ax @d25d24dbf270ce52 "Sha384" #effects=Alloc,Mut
+F sha384Update stdlib/Crypto/Sha2.ax @afb104947c4b9175 "(Sha384 -> (String -> Int))" #effects=Mut
+F sha384UpdateAddr stdlib/Crypto/Sha2.ax @e078796dbcfbe522 "(Sha384 -> (Int -> (Int -> Int)))" #effects=Mut
+F sha384Wipe stdlib/Crypto/Sha2.ax @795743fe5132341f "(Sha384 -> Int)" #effects=Mut
+F sha3Copy stdlib/Crypto/Sha3.ax @ab121e8845bbabdd "(Sha3 -> Sha3)" #effects=Alloc,Mut
 F sha3Final stdlib/Crypto/Sha3.ax @d6f9c85b2f2a08c8 "(Sha3 -> String)" #effects=Alloc,Mut,Unsafe
-F sha3Update stdlib/Crypto/Sha3.ax @4d1588aa5394d961 "(Sha3 -> (String -> Int))" #effects=Mut,Unsafe
-F sha3UpdateAddr stdlib/Crypto/Sha3.ax @674c1b9a969a48fe "(Sha3 -> (Int -> (Int -> Int)))" #effects=Mut,Unsafe
+F sha3Update stdlib/Crypto/Sha3.ax @4d1588aa5394d961 "(Sha3 -> (String -> Int))" #effects=Mut
+F sha3UpdateAddr stdlib/Crypto/Sha3.ax @674c1b9a969a48fe "(Sha3 -> (Int -> (Int -> Int)))" #effects=Mut
 F sha3Wipe stdlib/Crypto/Sha3.ax @8000612f31e99e0b "(Sha3 -> Int)" #effects=Mut,Unsafe
-F sha3_224 stdlib/Crypto/Sha3.ax @e06b25721aaa831b "(String -> String)" #effects=Alloc,Mut,Unsafe
-F sha3_224Addr stdlib/Crypto/Sha3.ax @0fb5ab71d4ec9554 "(Int -> (Int -> (Int -> Int)))" #effects=Alloc,Mut,Unsafe
+F sha3_224 stdlib/Crypto/Sha3.ax @e06b25721aaa831b "(String -> String)" #effects=Alloc,Mut
+F sha3_224Addr stdlib/Crypto/Sha3.ax @0fb5ab71d4ec9554 "(Int -> (Int -> (Int -> Int)))" #effects=Alloc,Mut
 F sha3_224New stdlib/Crypto/Sha3.ax @0ff91796d2c2a9cb "Sha3" #effects=Alloc,Mut
-F sha3_256 stdlib/Crypto/Sha3.ax @e05325721a95f13a "(String -> String)" #effects=Alloc,Mut,Unsafe
-F sha3_256Addr stdlib/Crypto/Sha3.ax @619f372b6864f9e9 "(Int -> (Int -> (Int -> Int)))" #effects=Alloc,Mut,Unsafe
+F sha3_256 stdlib/Crypto/Sha3.ax @e05325721a95f13a "(String -> String)" #effects=Alloc,Mut
+F sha3_256Addr stdlib/Crypto/Sha3.ax @619f372b6864f9e9 "(Int -> (Int -> (Int -> Int)))" #effects=Alloc,Mut
 F sha3_256New stdlib/Crypto/Sha3.ax @fae4a9ab38727004 "Sha3" #effects=Alloc,Mut
-F sha3_384 stdlib/Crypto/Sha3.ax @d732ee7215493fb6 "(String -> String)" #effects=Alloc,Mut,Unsafe
-F sha3_384Addr stdlib/Crypto/Sha3.ax @b037cb9f9b61c055 "(Int -> (Int -> (Int -> Int)))" #effects=Alloc,Mut,Unsafe
+F sha3_384 stdlib/Crypto/Sha3.ax @d732ee7215493fb6 "(String -> String)" #effects=Alloc,Mut
+F sha3_384Addr stdlib/Crypto/Sha3.ax @b037cb9f9b61c055 "(Int -> (Int -> (Int -> Int)))" #effects=Alloc,Mut
 F sha3_384New stdlib/Crypto/Sha3.ax @6420006b7d278720 "Sha3" #effects=Alloc,Mut
-F sha3_512 stdlib/Crypto/Sha3.ax @a2eb8471f7963f4b "(String -> String)" #effects=Alloc,Mut,Unsafe
-F sha3_512Addr stdlib/Crypto/Sha3.ax @046a4bf611288224 "(Int -> (Int -> (Int -> Int)))" #effects=Alloc,Mut,Unsafe
+F sha3_512 stdlib/Crypto/Sha3.ax @a2eb8471f7963f4b "(String -> String)" #effects=Alloc,Mut
+F sha3_512Addr stdlib/Crypto/Sha3.ax @046a4bf611288224 "(Int -> (Int -> (Int -> Int)))" #effects=Alloc,Mut
 F sha3_512New stdlib/Crypto/Sha3.ax @bcaca1566442b83b "Sha3" #effects=Alloc,Mut
-F sha512 stdlib/Crypto/Sha2.ax @52a51a7bb1bd4db1 "(String -> String)" #effects=Alloc,Mut,Unsafe
-F sha512Addr stdlib/Crypto/Sha2.ax @0fec5075ea5ded6e "(Int -> (Int -> (Int -> Int)))" #effects=Alloc,Mut,Unsafe
-F sha512Copy stdlib/Crypto/Sha2.ax @72470a87cc762f98 "(Sha512 -> Sha512)" #effects=Alloc,Mut,Unsafe
-F sha512Final stdlib/Crypto/Sha2.ax @fb1c3eb56c6eea83 "(Sha512 -> String)" #effects=Alloc,Mut,Unsafe
-F sha512New stdlib/Crypto/Sha2.ax @42462002e98393fd "Sha512" #effects=Alloc,Mut,Unsafe
+F sha512 stdlib/Crypto/Sha2.ax @52a51a7bb1bd4db1 "(String -> String)" #effects=Alloc,Mut
+F sha512Addr stdlib/Crypto/Sha2.ax @0fec5075ea5ded6e "(Int -> (Int -> (Int -> Int)))" #effects=Alloc,Mut
+F sha512Copy stdlib/Crypto/Sha2.ax @72470a87cc762f98 "(Sha512 -> Sha512)" #effects=Alloc,Mut
+F sha512Final stdlib/Crypto/Sha2.ax @fb1c3eb56c6eea83 "(Sha512 -> String)" #effects=Alloc,Mut
+F sha512New stdlib/Crypto/Sha2.ax @42462002e98393fd "Sha512" #effects=Alloc,Mut
 F sha512RawChain stdlib/Crypto/Sha2.ax @44137dbdd3907e5e "(Int -> (Int -> Int))" #effects=Mut,Unsafe
-F sha512RawFinal stdlib/Crypto/Sha2.ax @b70ecbd35b6dd23f "(Int -> (Int -> Int))" #effects=Mut,Unsafe
-F sha512RawInit stdlib/Crypto/Sha2.ax @113fb232087afdab "(Int -> Int)" #effects=Mut,Unsafe
+F sha512RawFinal stdlib/Crypto/Sha2.ax @b70ecbd35b6dd23f "(Int -> (Int -> Int))" #effects=Mut
+F sha512RawInit stdlib/Crypto/Sha2.ax @113fb232087afdab "(Int -> Int)" #effects=Mut
 F sha512RawResume stdlib/Crypto/Sha2.ax @1c167b9c71633722 "(Int -> (Int -> (Int -> Int)))" #effects=Mut,Unsafe
 F sha512RawSize stdlib/Crypto/Sha2.ax @405699099eabeca4 "Int"
-F sha512RawUpdate stdlib/Crypto/Sha2.ax @e163e8b7367797fc "(Int -> (Int -> (Int -> Int)))" #effects=Mut,Unsafe
-F sha512Update stdlib/Crypto/Sha2.ax @42fb2f949f4c0cb0 "(Sha512 -> (String -> Int))" #effects=Mut,Unsafe
-F sha512UpdateAddr stdlib/Crypto/Sha2.ax @f75874cba3221913 "(Sha512 -> (Int -> (Int -> Int)))" #effects=Mut,Unsafe
-F sha512Wipe stdlib/Crypto/Sha2.ax @fbb4a822a505c212 "(Sha512 -> Int)" #effects=Mut,Unsafe
-F shake128 stdlib/Crypto/Sha3.ax @76a64fea51f50f48 "(String -> (Int -> String))" #effects=Alloc,Mut,Unsafe
-F shake128Absorb stdlib/Crypto/Sha3.ax @258ec5c49bf136d5 "(Shake128 -> (String -> Int))" #effects=Mut,Unsafe
-F shake128AbsorbAddr stdlib/Crypto/Sha3.ax @e35b9ac591682ec2 "(Shake128 -> (Int -> (Int -> Int)))" #effects=Mut,Unsafe
-F shake128Addr stdlib/Crypto/Sha3.ax @227728f8fbecfeab "(Int -> (Int -> (Int -> (Int -> Int))))" #effects=Alloc,Mut,Unsafe
-F shake128Copy stdlib/Crypto/Sha3.ax @db71870b0f169f25 "(Shake128 -> Shake128)" #effects=Alloc,Mut,Unsafe
+F sha512RawUpdate stdlib/Crypto/Sha2.ax @e163e8b7367797fc "(Int -> (Int -> (Int -> Int)))" #effects=Mut
+F sha512Update stdlib/Crypto/Sha2.ax @42fb2f949f4c0cb0 "(Sha512 -> (String -> Int))" #effects=Mut
+F sha512UpdateAddr stdlib/Crypto/Sha2.ax @f75874cba3221913 "(Sha512 -> (Int -> (Int -> Int)))" #effects=Mut
+F sha512Wipe stdlib/Crypto/Sha2.ax @fbb4a822a505c212 "(Sha512 -> Int)" #effects=Mut
+F shake128 stdlib/Crypto/Sha3.ax @76a64fea51f50f48 "(String -> (Int -> String))" #effects=Alloc,Mut
+F shake128Absorb stdlib/Crypto/Sha3.ax @258ec5c49bf136d5 "(Shake128 -> (String -> Int))" #effects=Mut
+F shake128AbsorbAddr stdlib/Crypto/Sha3.ax @e35b9ac591682ec2 "(Shake128 -> (Int -> (Int -> Int)))" #effects=Mut
+F shake128Addr stdlib/Crypto/Sha3.ax @227728f8fbecfeab "(Int -> (Int -> (Int -> (Int -> Int))))" #effects=Alloc,Mut
+F shake128Copy stdlib/Crypto/Sha3.ax @db71870b0f169f25 "(Shake128 -> Shake128)" #effects=Alloc,Mut
 F shake128New stdlib/Crypto/Sha3.ax @e3c514328a6d7b46 "Shake128" #effects=Alloc,Mut
-F shake128Squeeze stdlib/Crypto/Sha3.ax @3ee74a3e518aef7c "(Shake128 -> (Int -> String))" #effects=Alloc,Mut,Unsafe
-F shake128SqueezeAddr stdlib/Crypto/Sha3.ax @25a34f38c6129def "(Shake128 -> (Int -> (Int -> Int)))" #effects=Mut,Unsafe
-F shake128Wipe stdlib/Crypto/Sha3.ax @9dbcb9b1606ec923 "(Shake128 -> Int)" #effects=Mut,Unsafe
-F shake256 stdlib/Crypto/Sha3.ax @6df2b4ea4d0485b8 "(String -> (Int -> String))" #effects=Alloc,Mut,Unsafe
-F shake256Absorb stdlib/Crypto/Sha3.ax @8a7b3ac4d2ef04c5 "(Shake256 -> (String -> Int))" #effects=Mut,Unsafe
-F shake256AbsorbAddr stdlib/Crypto/Sha3.ax @92ebfd82965d9752 "(Shake256 -> (Int -> (Int -> Int)))" #effects=Mut,Unsafe
-F shake256Addr stdlib/Crypto/Sha3.ax @fdc15e003eb7953b "(Int -> (Int -> (Int -> (Int -> Int))))" #effects=Alloc,Mut,Unsafe
-F shake256Copy stdlib/Crypto/Sha3.ax @8b167c1116cbeed5 "(Shake256 -> Shake256)" #effects=Alloc,Mut,Unsafe
+F shake128Squeeze stdlib/Crypto/Sha3.ax @3ee74a3e518aef7c "(Shake128 -> (Int -> String))" #effects=Alloc,Mut
+F shake128SqueezeAddr stdlib/Crypto/Sha3.ax @25a34f38c6129def "(Shake128 -> (Int -> (Int -> Int)))" #effects=Mut
+F shake128Wipe stdlib/Crypto/Sha3.ax @9dbcb9b1606ec923 "(Shake128 -> Int)" #effects=Mut
+F shake256 stdlib/Crypto/Sha3.ax @6df2b4ea4d0485b8 "(String -> (Int -> String))" #effects=Alloc,Mut
+F shake256Absorb stdlib/Crypto/Sha3.ax @8a7b3ac4d2ef04c5 "(Shake256 -> (String -> Int))" #effects=Mut
+F shake256AbsorbAddr stdlib/Crypto/Sha3.ax @92ebfd82965d9752 "(Shake256 -> (Int -> (Int -> Int)))" #effects=Mut
+F shake256Addr stdlib/Crypto/Sha3.ax @fdc15e003eb7953b "(Int -> (Int -> (Int -> (Int -> Int))))" #effects=Alloc,Mut
+F shake256Copy stdlib/Crypto/Sha3.ax @8b167c1116cbeed5 "(Shake256 -> Shake256)" #effects=Alloc,Mut
 F shake256New stdlib/Crypto/Sha3.ax @7659bf18a90de7b6 "Shake256" #effects=Alloc,Mut
-F shake256Squeeze stdlib/Crypto/Sha3.ax @bef59214b979a98c "(Shake256 -> (Int -> String))" #effects=Alloc,Mut,Unsafe
-F shake256SqueezeAddr stdlib/Crypto/Sha3.ax @2cb21f94bbd485df "(Shake256 -> (Int -> (Int -> Int)))" #effects=Mut,Unsafe
-F shake256Wipe stdlib/Crypto/Sha3.ax @4ee5cdaca2258753 "(Shake256 -> Int)" #effects=Mut,Unsafe
+F shake256Squeeze stdlib/Crypto/Sha3.ax @bef59214b979a98c "(Shake256 -> (Int -> String))" #effects=Alloc,Mut
+F shake256SqueezeAddr stdlib/Crypto/Sha3.ax @2cb21f94bbd485df "(Shake256 -> (Int -> (Int -> Int)))" #effects=Mut
+F shake256Wipe stdlib/Crypto/Sha3.ax @4ee5cdaca2258753 "(Shake256 -> Int)" #effects=Mut
 F shlChecked stdlib/Err.ax @554de2a593269cfd "(Int -> (Int -> Result Int Error))" #effects=Alloc
 F shrChecked stdlib/Err.ax @d6fbeaead7a43037 "(Int -> (Int -> Result Int Error))" #effects=Alloc
 F shrU stdlib/Axqlite/Record.ax @29db59f7cac64d39 "(Int -> (Int -> Int))"
@@ -1038,51 +1047,61 @@ F soReusePort stdlib/Sys/Platform.ax @d5633181720e0e8c "Int"
 F soSndTimeo stdlib/Sys/Platform.ax @841c0a41394799a2 "Int"
 F sockStream stdlib/Sys/Platform.ax @bfebe0265f896953 "Int"
 F sockaddrHasLenByte stdlib/Sys/Platform.ax @ef72f44767bfc769 "Int"
-F socketAddrIp stdlib/Net.ax @7b5b230a981f7100 "(SocketAddr -> String)" #effects=Alloc,Mut,Unsafe
-F socketAddrIsV6 stdlib/Net.ax @cc79f4d52f8faab1 "(SocketAddr -> Bool)" #effects=Unsafe
+F socketAccept stdlib/IO.ax @aae02cbb1540dbba "(File -> Result File Error)" #effects=Alloc,IO,Mut,Unsafe
+F socketAddr stdlib/IO.ax @244a1aa3a84c6e99 "(File -> (Bool -> Result String Error))" #effects=Alloc,IO,Mut,Unsafe
+F socketAddrIp stdlib/Net.ax @7b5b230a981f7100 "(SocketAddr -> String)" #effects=Alloc,Mut
+F socketAddrIsV6 stdlib/Net.ax @cc79f4d52f8faab1 "(SocketAddr -> Bool)"
 F socketAddrParse stdlib/Net.ax @f7f2f8bb8e61dcf0 "(String -> Result SocketAddr Error)" #effects=Alloc,Mut
-F socketAddrPort stdlib/Net.ax @1df3909e9e08f74a "(SocketAddr -> Int)" #effects=Unsafe
-F socketAddrText stdlib/Net.ax @5a1bbabd8c66225a "(SocketAddr -> String)" #effects=Alloc,Mut,Unsafe
-F socketAddrV4 stdlib/Net.ax @7b57f90a981cf3cb "(Int -> (Int -> (Int -> (Int -> (Int -> Result SocketAddr Error)))))" #effects=Alloc,Mut,Unsafe
-F socketAddrV6 stdlib/Net.ax @7b57fb0a981cf731 "(Vec Int -> (Int -> Result SocketAddr Error))" #effects=Alloc,Mut,Unsafe
+F socketAddrPort stdlib/Net.ax @1df3909e9e08f74a "(SocketAddr -> Int)"
+F socketAddrText stdlib/Net.ax @5a1bbabd8c66225a "(SocketAddr -> String)" #effects=Alloc,Mut
+F socketAddrV4 stdlib/Net.ax @7b57f90a981cf3cb "(Int -> (Int -> (Int -> (Int -> (Int -> Result SocketAddr Error)))))" #effects=Alloc,Mut
+F socketAddrV6 stdlib/Net.ax @7b57fb0a981cf731 "(Vec Int -> (Int -> Result SocketAddr Error))" #effects=Alloc,Mut
+F socketBind stdlib/IO.ax @0ec6ab8ba922a549 "(File -> (String -> Result Int Error))" #effects=Alloc,IO,Mut,Unsafe
+F socketConnect stdlib/IO.ax @11bd7836c355c6a8 "(File -> (String -> Result Int Error))" #effects=Alloc,IO,Mut,Unsafe
+F socketListen stdlib/IO.ax @d9b4c667ed7b86d5 "(File -> (Int -> Result Int Error))" #effects=Alloc,IO,Mut,Unsafe
+F socketOpen stdlib/IO.ax @0be75c73b4e7ead2 "(String -> Result File Error)" #effects=Alloc,IO,Mut,Unsafe
+F socketSend stdlib/IO.ax @300d461ace4f3988 "(File -> (String -> Result Int Error))" #effects=Alloc,IO,Mut,Unsafe
+F socketSetInt stdlib/IO.ax @7be2b2a846664c33 "(File -> (Int -> (Int -> (Int -> Result Int Error))))" #effects=Alloc,IO,Mut
+F socketSetTimeout stdlib/IO.ax @e8e6e7d69e1ee73d "(File -> (Int -> (Int -> Result Int Error)))" #effects=Alloc,IO,Mut,Unsafe
+F socketShutdown stdlib/IO.ax @81d96cde04bff00c "(File -> (Int -> Result Int Error))" #effects=Alloc,IO,Mut,Unsafe
 F solSocket stdlib/Sys/Platform.ax @dc009c67cc64ce6a "Int"
 F spawnUsesPosixSpawn stdlib/Sys/Platform.ax @7f321f2729051480 "Int"
 F st32be stdlib/Crypto/Ct.ax @04253c97ba567810 "(Int -> (Int -> (Int -> Int)))" #effects=Mut,Unsafe
 F st32le stdlib/Crypto/Ct.ax @042c5097ba5cb8ba "(Int -> (Int -> (Int -> Int)))" #effects=Mut,Unsafe
-F st64be stdlib/Crypto/Ct.ax @b039a86dedceb4bb "(Int -> (Int -> (Int -> Int)))" #effects=Mut,Unsafe
-F st64le stdlib/Crypto/Ct.ax @b04d8c6deddf2e31 "(Int -> (Int -> (Int -> Int)))" #effects=Mut,Unsafe
-F stderr stdlib/Sys.ax @08a866f6d6bcc7af "Int"
-F stdin stdlib/Sys.ax @a5fa19f690215d8f "Int"
-F stdout stdlib/Sys.ax @5f3d08f707c41b14 "Int"
+F st64be stdlib/Crypto/Ct.ax @b039a86dedceb4bb "(Int -> (Int -> (Int -> Int)))" #effects=Mut
+F st64le stdlib/Crypto/Ct.ax @b04d8c6deddf2e31 "(Int -> (Int -> (Int -> Int)))" #effects=Mut
+F stderr stdlib/IO.ax @08a866f6d6bcc7af "File" #effects=Alloc,IO,Unsafe
+F stdin stdlib/IO.ax @a5fa19f690215d8f "File" #effects=Alloc,IO,Unsafe
+F stdout stdlib/IO.ax @5f3d08f707c41b14 "File" #effects=Alloc,IO,Unsafe
 F stmtIsDdl stdlib/Axqlite/AxqlAst.ax @a3afd783f40d0b93 "(Stmt -> Bool)"
 F stmtIsQuery stdlib/Axqlite/AxqlAst.ax @f89104c92661d87b "(Stmt -> Bool)"
 F strAlloc stdlib/Str.ax @b8ec3bb3fe2acd63 "(Int -> String)" #effects=Alloc,Mut,Unsafe
 F strByte stdlib/Str.ax @b744777f3cb15078 "(String -> (Int -> Int))" #effects=Unsafe
-F strCStr stdlib/Str.ax @c481b6861daac77a "(String -> Int)"
-F strCmp stdlib/Str.ax @7d1efca2bc01048e "(String -> (String -> Int))" #effects=Unsafe
-F strData stdlib/Str.ax @67465baef4d86a22 "(String -> Int)" #effects=Unsafe
-F strDup stdlib/Str.ax @a890bfa2d4a6809f "(String -> String)" #effects=Alloc,Mut,Unsafe
-F strEq stdlib/Str.ax @4ee168f65eaa3fec "(String -> (String -> Bool))" #effects=Unsafe
-F strFind stdlib/Str.ax @e124649e206d9a15 "(String -> (String -> (Int -> Option Int)))" #effects=Unsafe
+F strCStr stdlib/Str.ax @c481b6861daac77a "(String -> Int)" #effects=Alloc,Mut
+F strCmp stdlib/Str.ax @7d1efca2bc01048e "(String -> (String -> Int))"
+F strData stdlib/Str.ax @67465baef4d86a22 "(String -> Int)"
+F strDup stdlib/Str.ax @a890bfa2d4a6809f "(String -> String)" #effects=Alloc,Mut
+F strEq stdlib/Str.ax @4ee168f65eaa3fec "(String -> (String -> Bool))"
+F strFind stdlib/Str.ax @e124649e206d9a15 "(String -> (String -> (Int -> Option Int)))"
 F strFindByte stdlib/Str.ax @38cfa6a2400e724f "(String -> (Int -> (Int -> Option Int)))"
 F strFromByte stdlib/Str.ax @cc6843692d250f9c "(Byte -> String)" #effects=Alloc,Mut,Unsafe
-F strFromLit stdlib/Str.ax @6206421c05dd1a83 "(Int -> String)" #effects=Alloc,Mut,Unsafe
+F strFromLit stdlib/Str.ax @6206421c05dd1a83 "(Int -> String)" #effects=Alloc,Mut
 F strHexVal stdlib/Str.ax @9d2dd21191ab219a "(Int -> Option Int)"
 F strIsAlpha stdlib/Str.ax @92f6658af52ff1ce "(Int -> Bool)"
 F strIsDigit stdlib/Str.ax @3896c3e2e54af473 "(Int -> Bool)"
 F strIsEmpty stdlib/Str.ax @a83222c0759c013b "(String -> Bool)"
 F strIsHexDigit stdlib/Str.ax @2b97165574231c58 "(Int -> Bool)"
 F strIsSpace stdlib/Str.ax @d84830fe78ed2530 "(Int -> Bool)"
-F strLen stdlib/Str.ax @eda5fda2fbb7e0d9 "(String -> Int)" #effects=Unsafe
+F strLen stdlib/Str.ax @eda5fda2fbb7e0d9 "(String -> Int)"
 F strLower stdlib/Str.ax @8705466b1ec7adbf "(String -> String)" #effects=Alloc,Mut,Unsafe
-F strOwner stdlib/Str.ax @8e64d8cc385f2c0d "(String -> Int)" #effects=Unsafe
+F strOwner stdlib/Str.ax @8e64d8cc385f2c0d "(String -> Int)"
 F strParseInt stdlib/Str.ax @65f528e7dd0a78ee "(String -> Option Int)"
 F strSlice stdlib/Str.ax @c1ced650f3717fa8 "(String -> (Int -> (Int -> String)))" #effects=Alloc,Mut,Unsafe
 F strSplit stdlib/Str.ax @999c5d68d9676692 "(String -> (Int -> Vec String))" #effects=Alloc,Mut
 F strSplitFrom stdlib/Str.ax @5e61889eee5022b6 "(String -> (Int -> (Int -> (Vec String -> Int))))" #effects=Alloc,Mut
-F strStartsWith stdlib/Str.ax @6f8a115feaeda283 "(String -> (String -> Bool))" #effects=Unsafe
+F strStartsWith stdlib/Str.ax @6f8a115feaeda283 "(String -> (String -> Bool))"
 F strTrim stdlib/Str.ax @1659542ba70f16f2 "(String -> String)" #effects=Alloc,Mut
-F strWrap stdlib/Str.ax @23328120de2f4a36 "(Int -> (Int -> String))" #effects=Alloc,Mut,Unsafe
+F strWrap stdlib/Str.ax @23328120de2f4a36 "(Int -> (Int -> String))" #effects=Alloc,Mut
 F strWrapOwned stdlib/Str.ax @2bbe9929cdf4389f "(Int -> (Int -> (Int -> String)))" #effects=Alloc,Mut,Unsafe
 F subChecked stdlib/Err.ax @4c69b49dee798ee8 "(Int -> (Int -> Result Int Error))" #effects=Alloc
 F symAgentTag stdlib/Agent/Tags.ax @6a20dcbb408178f5 "(Sym -> (String -> String))" #effects=Alloc,Mut
@@ -1091,66 +1110,45 @@ F symEffects stdlib/Agent/Tags.ax @3f2e8396dc088d2c "(Sym -> String)"
 F symHasAgentTag stdlib/Agent/Tags.ax @9afe50582dbe94dd "(Sym -> (String -> Bool))" #effects=Alloc,Mut
 F symHasTag stdlib/Agent/Tags.ax @5250297f9bb4557a "(Sym -> (String -> Bool))"
 F symTag stdlib/Agent/Tags.ax @4ad9d05f8373f4b2 "(Sym -> (String -> String))"
-F syncNotHeld stdlib/Sync.ax @22f505808850d1f6 "Int"
 F syncOwnerDead stdlib/Sync.ax @c67d94b32752589d "Int"
 F syncProbeNanos stdlib/Sync.ax @2599437fd88285e1 "Int"
 F sysAcceptNum stdlib/Sys/Platform.ax @ec78a2fc609b0378 "Int"
-F sysAppendFile stdlib/Sys.ax @e90b7af39cb7683e "(Int -> (String -> Result Int Error))" #effects=Alloc,IO,Unsafe
-F sysArg stdlib/Sys.ax @3db1f17248f803ec "(Int -> String)" #effects=Alloc,IO,Mut,Unsafe
+F sysArg stdlib/Sys.ax @3db1f17248f803ec "(Int -> String)" #effects=Alloc,IO,Mut
 F sysArgc stdlib/Sys.ax @cd60d431fd6e0bfd "Int" #effects=IO
 F sysBindNum stdlib/Sys/Platform.ax @fac8fabade48ff55 "Int"
 F sysChildExited stdlib/Sys.ax @32707fcabbdbbaaf "(Int -> (Int -> Result Bool Error))" #effects=Alloc,Block,IO,Mut,Unsafe
 F sysChildPollBytes stdlib/Sys.ax @f4a7d83ac58468e2 "Int"
 F sysClockNum stdlib/Sys/Platform.ax @338b1a845ae4c6ae "Int"
-F sysClose stdlib/Sys/Platform.ax @3f19c86be94cca74 "Int"
-F sysCloseFd stdlib/Sys.ax @7fd623c108fa0e16 "(Int -> Result Int Error)" #effects=Alloc,IO,Unsafe
+F sysCloseNum stdlib/Sys/Platform.ax @7aff60026a820f04 "Int"
 F sysConnectNum stdlib/Sys/Platform.ax @6d5f94b6d491b24e "Int"
 F sysCwdNum stdlib/Sys/Platform.ax @9f128b205b538472 "Int"
-F sysDirMode stdlib/Sys.ax @871413e6dd9a3620 "Int"
 F sysEnv stdlib/Sys.ax @5e45a6725ad5781f "(String -> String)" #effects=Alloc,IO,Mut
-F sysEnvp stdlib/Sys.ax @05d2435058bba49d "Int" #effects=Alloc,IO,Mut,Unsafe
-F sysErrno stdlib/Sys.ax @e4fcf86f81f533d4 "(Int -> Int)"
+F sysEnvp stdlib/Sys.ax @05d2435058bba49d "Int" #effects=Alloc,IO,Mut
 F sysExcludeFromCore stdlib/Sys.ax @b35cd6afab991271 "(Int -> (Int -> Result Int Error))" #effects=Alloc,IO,Unsafe
-F sysExecve stdlib/Sys/Platform.ax @cf0811b42b349ef8 "Int"
-F sysExit stdlib/Sys/Platform.ax @c21daf50c2bdc420 "Int"
+F sysExecveNum stdlib/Sys/Platform.ax @d476182d1fb836c8 "Int"
 F sysExitCode stdlib/Sys.ax @03ef401d22e32095 "(Int -> Int)"
+F sysExitNum stdlib/Sys/Platform.ax @dbb0f7785410ecc0 "Int"
 F sysExitWith stdlib/Sys.ax @d8f871c40f27bd98 "(Int -> Int)" #effects=IO,Unsafe
-F sysFailed stdlib/Sys.ax @20968f03cd985c85 "(Int -> Bool)"
 F sysFcntlNum stdlib/Sys/Platform.ax @5756ae47a61687bd "Int"
-F sysFdSize stdlib/Sys.ax @6fccbd229917a87b "(Int -> Result Int Error)" #effects=Alloc,IO
-F sysFileExists stdlib/Sys.ax @77adeec49ea33cae "(Int -> Bool)" #effects=Alloc,IO,Unsafe
-F sysFileSize stdlib/Sys.ax @ba9ca8d4432d2707 "(Int -> Result Int Error)" #effects=Alloc,IO,Unsafe
-F sysFlock stdlib/Sys.ax @b5e08ab19ca0644d "(Int -> (Int -> Result Int Error))" #effects=Alloc,IO,Unsafe
 F sysFlockNum stdlib/Sys/Platform.ax @62729c550e0319eb "Int"
-F sysFork stdlib/Sys/Platform.ax @d2301f5b9cd3da3c "Int" #effects=Spawn
 F sysForkArg stdlib/Sys/Platform.ax @ccc826600e295ed8 "Int"
+F sysForkNum stdlib/Sys/Platform.ax @6ec2795fd943505c "Int" #effects=Spawn
 F sysForkProcess stdlib/Sys.ax @2798e558cdcba191 "Int" #effects=IO,Spawn,Unsafe
-F sysFsync stdlib/Sys.ax @082998ced7382899 "(Int -> Result Int Error)" #effects=Alloc,IO,Unsafe
 F sysFsyncNum stdlib/Sys/Platform.ax @80413c03b0700517 "Int"
-F sysFtruncate stdlib/Sys.ax @eb5145d178b9e240 "(Int -> (Int -> Result Int Error))" #effects=Alloc,IO,Unsafe
 F sysFtruncateNum stdlib/Sys/Platform.ax @132bfaf744f6ada0 "Int"
-F sysGetCwd stdlib/Sys.ax @6c8b3254c8d189ae "Result String Error" #effects=Alloc,IO,Mut,Unsafe
 F sysGetPeerNameNum stdlib/Sys/Platform.ax @a89f3c015da40411 "Int"
-F sysGetPid stdlib/Sys.ax @e01219550b14af99 "Int" #effects=IO,Unsafe
 F sysGetPidNum stdlib/Sys/Platform.ax @8dd97b36f3b03217 "Int"
 F sysGetSockNameNum stdlib/Sys/Platform.ax @11cf2f3a9197fd45 "Int"
 F sysGetSockOptNum stdlib/Sys/Platform.ax @9c1f4360d9bbdd5b "Int"
 F sysGetdentsNum stdlib/Sys/Platform.ax @b41c5b342d9c34f2 "Int"
 F sysIoctlNum stdlib/Sys/Platform.ax @8604ef6ad1e274c3 "Int"
-F sysIsDir stdlib/Sys.ax @36505d31e2c82c4f "(Int -> Bool)" #effects=Alloc,IO,Mut,Unsafe
-F sysIsatty stdlib/Sys.ax @7c4169a028a857b6 "(Int -> Bool)" #effects=Alloc,IO,Unsafe
 F sysKill stdlib/Sys.ax @cf9f22853868f8f0 "(Int -> (Int -> Result Int Error))" #effects=Alloc,IO,Unsafe
 F sysKillNum stdlib/Sys/Platform.ax @6302c2903fe03690 "Int"
 F sysListenNum stdlib/Sys/Platform.ax @2270bc9aee4f5729 "Int"
-F sysLockExclusive stdlib/Sys.ax @1ababe5fe5cbf555 "Int"
-F sysLockNonBlocking stdlib/Sys.ax @6b10a084d8c90f25 "Int"
-F sysLockRelease stdlib/Sys.ax @0070545a56766a0c "Int"
-F sysLockShared stdlib/Sys.ax @31db036e5d38389e "Int"
-F sysLseek stdlib/Sys/Platform.ax @b985a8cd089c8e5c "Int"
+F sysLseekNum stdlib/Sys/Platform.ax @a212d5fc90a5433c "Int"
 F sysMadviseNum stdlib/Sys/Platform.ax @70319b177d8ee011 "Int"
 F sysMapPrivate stdlib/Sys.ax @b4920fec832c36e5 "(Int -> Result Int Error)" #effects=Alloc,IO,Unsafe
 F sysMapShared stdlib/Sys.ax @4c3b01682d2e6e4b "(Int -> Result Int Error)" #effects=Alloc,IO,Unsafe
-F sysMkdir stdlib/Sys.ax @be2b0c600d3a7a7b "(Int -> (Int -> Result Int Error))" #effects=Alloc,IO,Unsafe
 F sysMkdirNum stdlib/Sys/Platform.ax @d70958f5f657e079 "Int"
 F sysMlock stdlib/Sys.ax @0533f65a7d9701f0 "(Int -> (Int -> Result Int Error))" #effects=Alloc,IO,Unsafe
 F sysMlockNum stdlib/Sys/Platform.ax @61730157418e3990 "Int"
@@ -1161,36 +1159,23 @@ F sysMunmapNum stdlib/Sys/Platform.ax @0e70e8ae7f6c36b6 "Int"
 F sysNowMicros stdlib/Sys.ax @f477dcfff2a87b25 "(Int -> Result Int Error)" #effects=Alloc,IO,Unsafe
 F sysNowMonotonic stdlib/Sys.ax @5b284a6b7a397474 "(Int -> Result Int Error)" #effects=Alloc,IO,Unsafe
 F sysNowRealtimeNanos stdlib/Sys.ax @7ce67812eba712e4 "(Int -> Result Int Error)" #effects=Alloc,IO,Unsafe
-F sysOpen stdlib/Sys/Platform.ax @48be4da44965be58 "Int"
-F sysOpenBeneath stdlib/Sys.ax @68fafdcf7970128f "(Int -> (String -> Result Int Error))" #effects=Alloc,IO,Mut,Unsafe
-F sysOpenPath stdlib/Sys.ax @b47abb1d2eb1204f "(Int -> (Int -> Result Int Error))" #effects=Alloc,IO,Unsafe
-F sysOpenRo stdlib/Sys.ax @c4713e3074e19463 "(Int -> Result Int Error)" #effects=Alloc,IO,Unsafe
-F sysOpenRw stdlib/Sys.ax @c471363074e186cb "(Int -> (Bool -> Result Int Error))" #effects=Alloc,IO,Unsafe
+F sysOpenNum stdlib/Sys/Platform.ax @1666c256d691e7e8 "Int"
 F sysOpenatNum stdlib/Sys/Platform.ax @5423791dcf40fffb "Int"
+F sysPid stdlib/Sys.ax @a9864b71f4c8e59d "Int" #effects=IO,Unsafe
 F sysPollCreateNum stdlib/Sys/Platform.ax @dc35fd57ec1f5d83 "Int"
 F sysPollCtlNum stdlib/Sys/Platform.ax @242bc4ea898a397a "Int"
 F sysPollWaitNum stdlib/Sys/Platform.ax @9ede20211dc34918 "Int"
-F sysPosixSpawn stdlib/Sys/Platform.ax @301427b704c87bd6 "Int" #effects=Spawn
-F sysPread stdlib/Sys.ax @9d79062894e6a474 "(Int -> (Int -> (Int -> (Int -> Result Int Error))))" #effects=Alloc,IO,Unsafe
+F sysPosixSpawnNum stdlib/Sys/Platform.ax @79ab59d50293d73e "Int" #effects=Spawn
 F sysPreadNum stdlib/Sys/Platform.ax @818a0e876692ad04 "Int"
-F sysPwrite stdlib/Sys.ax @f5f7a36caf7f7a4f "(Int -> (Int -> (Int -> (Int -> Result Int Error))))" #effects=Alloc,IO,Unsafe
 F sysPwriteNum stdlib/Sys/Platform.ax @fce813a8d050cbad "Int"
 F sysRandomBytes stdlib/Sys.ax @91774dfa9d848ea2 "(Int -> (Int -> Result Int Error))" #effects=Alloc,Entropy,IO,Unsafe
 F sysRandomNum stdlib/Sys/Platform.ax @41dc832f2b0bd645 "Int" #effects=Entropy
-F sysRead stdlib/Sys/Platform.ax @d99009b49c22cd84 "Int"
-F sysReadAllFd stdlib/Sys.ax @25060caffbae1a6d "(Int -> Result String Error)" #effects=Alloc,IO,Mut,Unsafe
-F sysReadDir stdlib/Sys.ax @5d8e612d7b61d4bb "(Int -> Vec String)" #effects=Alloc,IO,Mut,Unsafe
-F sysReadErrno stdlib/Sys.ax @8f8756a765ffebf8 "(Int -> Int)" #effects=Alloc,IO,Mut,Unsafe
-F sysReadFd stdlib/Sys.ax @eb5754a5798a29a6 "(Int -> (Int -> (Int -> Result Int Error)))" #effects=Alloc,IO,Unsafe
-F sysReadFile stdlib/Sys.ax @c4bfba5a8d5cc6f2 "(Int -> String)" #effects=Alloc,IO,Mut,Unsafe
-F sysReadLineFd stdlib/Sys.ax @a23d351d2198797c "(Int -> Result Option String Error)" #effects=Alloc,IO,Mut,Unsafe
-F sysRename stdlib/Sys.ax @c9eab29a959d9192 "(Int -> (Int -> Result Int Error))" #effects=Alloc,IO,Unsafe
+F sysReadNum stdlib/Sys/Platform.ax @b4a7042dacd8da94 "Int"
 F sysRenameNum stdlib/Sys/Platform.ax @2f71f22a53ea2a9a "Int"
 F sysResult stdlib/Sys.ax @3818c32f161c6ea9 "(String -> (Int -> Result Int Error))" #effects=Alloc
-F sysRmdir stdlib/Sys.ax @d327a926df338c60 "(Int -> Result Int Error)" #effects=Alloc,IO,Unsafe
 F sysRmdirNum stdlib/Sys/Platform.ax @624e8f20729e9500 "Int"
-F sysRun stdlib/Sys.ax @bbbf9371ff5be965 "(Int -> (Int -> (Int -> Result Int Error)))" #effects=Alloc,Block,IO,Mut,Spawn,Unsafe
-F sysRunPath stdlib/Sys.ax @745fd42209866396 "(String -> (Int -> (Int -> Result Int Error)))" #effects=Alloc,Block,IO,Mut,Spawn,Unsafe
+F sysRun stdlib/Sys.ax @bbbf9371ff5be965 "(Int -> (Int -> (Int -> Result Int Error)))" #effects=Alloc,Block,IO,Mut,Spawn
+F sysRunPath stdlib/Sys.ax @745fd42209866396 "(String -> (Int -> (Int -> Result Int Error)))" #effects=Alloc,Block,IO,Mut,Spawn
 F sysSendToNum stdlib/Sys/Platform.ax @98b0f91877c90ef1 "Int"
 F sysSetSockOptNum stdlib/Sys/Platform.ax @15fecfbd37170e5f "Int"
 F sysShutdownNum stdlib/Sys/Platform.ax @0af83866f8239352 "Int"
@@ -1200,45 +1185,33 @@ F sysSignalBlock stdlib/Sys.ax @f89f270d0d99a59d "(Int -> (Int -> Result Int Err
 F sysSignalFdNum stdlib/Sys/Platform.ax @3df0630ac7abf0ae "Int"
 F sysSocketNum stdlib/Sys/Platform.ax @d42ebb17e38c1a17 "Int"
 F sysSpawn stdlib/Sys.ax @eae08a8f17ffb87f "(Int -> (Int -> (Int -> Result Int Error)))" #effects=Alloc,IO,Mut,Spawn,Unsafe
-F sysSymlink stdlib/Sys.ax @891b0f0be277d56b "(Int -> (Int -> Result Int Error))" #effects=Alloc,IO,Unsafe
 F sysSymlinkNum stdlib/Sys/Platform.ax @a1658f19134fc529 "Int"
-F sysTermCols stdlib/Sys.ax @a479790fe4634ea1 "(Int -> Int)" #effects=Unsafe
-F sysTermRaw stdlib/Sys.ax @b4b41f756fb1d1bc "(Int -> (Int -> (Int -> Int)))" #effects=Alloc,IO,Mut,Unsafe
-F sysTermRestore stdlib/Sys.ax @21f9270e073dfc88 "(Int -> (Int -> Int))" #effects=IO,Unsafe
-F sysTermRows stdlib/Sys.ax @3767818d0e5a7e87 "(Int -> Int)" #effects=Unsafe
-F sysTermSave stdlib/Sys.ax @f802c192a208406f "(Int -> (Int -> Int))" #effects=IO,Unsafe
 F sysTermSignal stdlib/Sys.ax @0a5f760df90adcd2 "(Int -> Int)"
-F sysTermSize stdlib/Sys.ax @3cd3f992c8dfc9ab "(Int -> (Int -> Int))" #effects=IO,Unsafe
-F sysTermSizeBytes stdlib/Sys.ax @7e371cebe94a3e3e "Int"
-F sysTermStateBytes stdlib/Sys.ax @14bb0d154b869212 "Int"
 F sysTimedOut stdlib/Sys.ax @88e8ea7f0a2d54c9 "Int"
-F sysTimeoutMicros stdlib/Sys.ax @faf887d86c26c616 "(Int -> Int)" #effects=Alloc,IO,Unsafe
-F sysUnlink stdlib/Sys.ax @a3b2d8ec8f9d1187 "(Int -> Result Int Error)" #effects=Alloc,IO,Unsafe
+F sysTimeoutMicros stdlib/Sys.ax @faf887d86c26c616 "(Int -> Int)" #effects=Alloc,IO
 F sysUnlinkNum stdlib/Sys/Platform.ax @ba296983f73bf8b5 "Int"
 F sysUnmapPrivate stdlib/Sys.ax @c40be455336f165e "(Int -> (Int -> Result Int Error))" #effects=Alloc,IO,Unsafe
 F sysUnmapShared stdlib/Sys.ax @198479cbdb7da82a "(Int -> (Int -> Result Int Error))" #effects=Alloc,IO,Unsafe
-F sysWait4 stdlib/Sys/Platform.ax @c6592bc7da3c817f "Int" #effects=Block
+F sysWait4Num stdlib/Sys/Platform.ax @7afeb1a425aa405d "Int" #effects=Block
 F sysWaitIdNum stdlib/Sys/Platform.ax @15abe68cb6e46534 "Int" #effects=Block
 F sysWaitPid stdlib/Sys.ax @ea532200609a4d1e "(Int -> Result Int Error)" #effects=Alloc,Block,IO,Mut,Unsafe
-F sysWaitWord stdlib/Sys.ax @077e74cde8583831 "(Int -> (Int -> Int))" #effects=Block,IO,Unsafe
+F sysWaitWord stdlib/Sys.ax @077e74cde8583831 "(Int -> (Int -> Int))" #effects=Block,IO
 F sysWaitWordNum stdlib/Sys/Platform.ax @bd7f1e8eb1584dbf "Int" #effects=Block
-F sysWaitWordTimeout stdlib/Sys.ax @ef8fb5199232000c "(Int -> (Int -> (Int -> Int)))" #effects=Alloc,Block,IO,Mut,Unsafe
+F sysWaitWordTimeout stdlib/Sys.ax @ef8fb5199232000c "(Int -> (Int -> (Int -> Int)))" #effects=Alloc,Block,IO,Mut
 F sysWakeWord stdlib/Sys.ax @8b1683cc724fb770 "(Int -> Int)" #effects=IO
 F sysWakeWordNum stdlib/Sys/Platform.ax @9279c2c6c3847610 "Int"
-F sysWrite stdlib/Sys/Platform.ax @74cf7b68f9a13d7f "Int"
-F sysWriteAllFd stdlib/Sys.ax @b6e7d59df7e91e20 "(Int -> (Int -> (Int -> (Int -> Int))))" #effects=Alloc,IO,Unsafe
-F sysWriteFd stdlib/Sys.ax @9c8a666c6e8e298d "(Int -> (Int -> (Int -> Result Int Error)))" #effects=Alloc,IO,Unsafe
-F sysWriteFile stdlib/Sys.ax @4736ce81d5e54e71 "(Int -> (String -> Result Int Error))" #effects=Alloc,IO,Unsafe
+F sysWriteNum stdlib/Sys/Platform.ax @483ca63fb47bd45d "Int"
 F taskCancel stdlib/Task.ax @9921edd1e4c0cc48 "(CancelToken -> Int)" #effects=IO,Mut
 F taskCancelled stdlib/Task.ax @59d4c753dc24799d "(CancelToken -> Bool)"
 F taskCancelledCode stdlib/Task.ax @c4948b98cc756a3c "Int"
-F taskFold stdlib/Task.ax @e3ae91735d9dc7e9 "((Int -> String) -> (Int -> (TaskOpts -> (Int -> ((Int -> (Int -> (Result String Error -> Int))) -> Int)))))" #effect-params=f,step #effects=Alloc,Block,IO,Mut,Spawn,Unsafe
+F taskFold stdlib/Task.ax @e3ae91735d9dc7e9 "((Int -> String) -> (Int -> (TaskOpts -> (Int -> ((Int -> (Int -> (Result String Error -> Int))) -> Int)))))" #effect-params=f,step #effects=Alloc,Block,IO,Mut,Spawn
 F taskMap stdlib/Task.ax @3595e66018706764 "((Int -> String) -> (Int -> (Int -> (Int -> Vec Result String Error))))" #effect-params=f #effects=Alloc,Block,IO,Mut,Spawn
+F taskMapDecoded stdlib/Task.ax @5db77e9accbdb95e "((Int -> String) -> ((String -> Result a Error) -> (Int -> (Int -> (Int -> Vec Result a Error)))))" #effect-params=decode,f #effects=Alloc,Block,IO,Mut,Spawn
+F taskMapDecodedWith stdlib/Task.ax @d15d54c0d6d34bfa "((Int -> String) -> ((String -> Result a Error) -> (Int -> (TaskOpts -> Vec Result a Error))))" #effect-params=f,decode #effects=Alloc,Block,IO,Mut,Spawn
 F taskMapWith stdlib/Task.ax @ede97ae953b7df5c "((Int -> String) -> (Int -> (TaskOpts -> Vec Result String Error)))" #effect-params=f #effects=Alloc,Block,IO,Mut,Spawn
 F taskOpts stdlib/Task.ax @51be613cdd046b78 "(Int -> (Int -> TaskOpts))" #effects=Alloc
 F taskPollNanos stdlib/Task.ax @ff96eb8b11d9b346 "Int"
-F taskTokenFree stdlib/Task.ax @56571b1fdd7bed6d "(CancelToken -> Result Int Error)" #effects=Alloc,IO,Mut,Unsafe
-F taskTokenNew stdlib/Task.ax @964076a70ed31e4f "Result CancelToken Error" #effects=Alloc,IO,Mut
+F taskTokenNew stdlib/Task.ax @964076a70ed31e4f "Result CancelToken Error" #effects=Alloc,IO
 F taskTooLargeCode stdlib/Task.ax @f86331fb765293ee "Int"
 F taskWithDeadline stdlib/Task.ax @2cd22a019a65ce56 "(TaskOpts -> (Int -> TaskOpts))" #effects=Alloc
 F taskWithFailFast stdlib/Task.ax @00cd170cfe626ebc "(TaskOpts -> (Bool -> TaskOpts))" #effects=Alloc
@@ -1249,36 +1222,34 @@ F tcSetAttrReq stdlib/Sys/Platform.ax @8aa7eddbdc97ffb7 "Int"
 F tcWinSizeReq stdlib/Sys/Platform.ax @534179f86cd0f933 "Int"
 F tcpAccept stdlib/Net.ax @d2b007cf0bbf5e5e "(TcpListener -> Result TcpStream Error)" #effects=Alloc,IO,Mut
 F tcpClose stdlib/Net.ax @8aace0577c9952da "(TcpStream -> Result Int Error)" #effects=Alloc,IO
-F tcpConnect stdlib/Net.ax @fcccad3d49cc90dc "(SocketAddr -> Result TcpStream Error)" #effects=Alloc,IO,Mut,Unsafe
-F tcpListen stdlib/Net.ax @038f3519b85ff599 "(SocketAddr -> Result TcpListener Error)" #effects=Alloc,IO,Mut,Unsafe
+F tcpConnect stdlib/Net.ax @fcccad3d49cc90dc "(SocketAddr -> Result TcpStream Error)" #effects=Alloc,IO,Mut
+F tcpListen stdlib/Net.ax @038f3519b85ff599 "(SocketAddr -> Result TcpListener Error)" #effects=Alloc,IO,Mut
 F tcpListenerAddr stdlib/Net.ax @484f648d6c6ef3a1 "(TcpListener -> Result SocketAddr Error)" #effects=Alloc,IO,Mut
 F tcpListenerClose stdlib/Net.ax @f6db612745f8a0ae "(TcpListener -> Result Int Error)" #effects=Alloc,IO
-F tcpListenerFd stdlib/Net.ax @64d42d58d3c80aa8 "(TcpListener -> Int)"
+F tcpListenerSetNonBlocking stdlib/Net.ax @f30964ec4a0cacd6 "(TcpListener -> (Bool -> Result Int Error))" #effects=Alloc,IO,Mut
 F tcpLocalAddr stdlib/Net.ax @ed35e918a577c6a2 "(TcpStream -> Result SocketAddr Error)" #effects=Alloc,IO,Mut
 F tcpNoDelayOpt stdlib/Sys/Platform.ax @3a20a0604ab29bf9 "Int"
 F tcpPeerAddr stdlib/Net.ax @7b1741e9d9b4dd3d "(TcpStream -> Result SocketAddr Error)" #effects=Alloc,IO,Mut
-F tcpRead stdlib/Net.ax @fe7a5919a904cd66 "(TcpStream -> (String -> (Int -> (Int -> Result Int Error))))" #effects=Alloc,IO,Unsafe
+F tcpRead stdlib/Net.ax @fe7a5919a904cd66 "(TcpStream -> (ReadBuffer -> (Int -> (Int -> Result Int Error))))" #effects=Alloc,IO,Mut
 F tcpReadAll stdlib/Net.ax @21de416063a21225 "(TcpStream -> Result String Error)" #effects=Alloc,IO,Mut
-F tcpReadSome stdlib/Net.ax @9ed3a4401a4d6a76 "(TcpStream -> (Int -> Result String Error))" #effects=Alloc,IO,Mut,Unsafe
-F tcpSetNoDelay stdlib/Net.ax @62eb34e9a3d48a78 "(TcpStream -> (Bool -> Result Int Error))" #effects=Alloc,IO,Mut,Unsafe
-F tcpSetNonBlocking stdlib/Net.ax @a15822ed1d4c6dea "(TcpStream -> (Bool -> Result Int Error))" #effects=Alloc,IO
+F tcpReadSome stdlib/Net.ax @9ed3a4401a4d6a76 "(TcpStream -> (Int -> Result String Error))" #effects=Alloc,IO,Mut
+F tcpSetNoDelay stdlib/Net.ax @62eb34e9a3d48a78 "(TcpStream -> (Bool -> Result Int Error))" #effects=Alloc,IO,Mut
+F tcpSetNonBlocking stdlib/Net.ax @a15822ed1d4c6dea "(TcpStream -> (Bool -> Result Int Error))" #effects=Alloc,IO,Mut
 F tcpSetReadTimeout stdlib/Net.ax @7d93e26f23b836f9 "(TcpStream -> (Int -> Result Int Error))" #effects=Alloc,IO,Mut
 F tcpSetWriteTimeout stdlib/Net.ax @7e2dcd5fafb4490c "(TcpStream -> (Int -> Result Int Error))" #effects=Alloc,IO,Mut
-F tcpShutdown stdlib/Net.ax @59a65394a2bc0cb0 "(TcpStream -> (Int -> Result Int Error))" #effects=Alloc,IO
-F tcpStreamFd stdlib/Net.ax @7e220d0f3aee7434 "(TcpStream -> Int)"
-F tcpWrite stdlib/Net.ax @f8fbf5b589e2c8a9 "(TcpStream -> (String -> Result Int Error))" #effects=Alloc,IO,Unsafe
+F tcpShutdown stdlib/Net.ax @59a65394a2bc0cb0 "(TcpStream -> (Int -> Result Int Error))" #effects=Alloc,IO,Mut
+F tcpWrite stdlib/Net.ax @f8fbf5b589e2c8a9 "(TcpStream -> (String -> Result Int Error))" #effects=Alloc,IO,Mut
 F termBufBytes stdlib/Tui/Term.ax @213d522f9a4241a5 "Int"
 F termEditLoop stdlib/Tui/Term.ax @2c3e102db390c463 "(KeyIn -> (LineEd -> (String -> Option String)))" #effects=Alloc,IO,Mut
 F termFlush stdlib/Tui/Term.ax @90f42f8bfedbb031 "(Vec String -> Int)" #effects=Alloc,IO,Mut
-F termRaw stdlib/IO.ax @2b4acfd49068b035 "(Int -> (Bool -> Result TermState Error))" #effects=Alloc,IO,Mut,Unsafe
-F termRawEnter stdlib/Tui/Term.ax @9a94e73d6cde873d "(KeyIn -> Int)" #effects=Alloc,IO,Mut,Unsafe
-F termRawLeave stdlib/Tui/Term.ax @f0b7918defe9a670 "(KeyIn -> Int)" #effects=IO,Unsafe
-F termReadSize stdlib/Tui/Term.ax @c5b0993b02ddb998 "(KeyIn -> Int)" #effects=IO,Mut,Unsafe
-F termRestore stdlib/IO.ax @27df166224bf36fd "(TermState -> Result Int Error)" #effects=Alloc,IO,Unsafe
-F termSave stdlib/IO.ax @bd7ff22b884d367c "(Int -> Result TermState Error)" #effects=Alloc,IO,Unsafe
-F termSize stdlib/IO.ax @78c99a2b618c3e98 "(Int -> Result TermSize Error)" #effects=Alloc,IO,Unsafe
-F termWsCols stdlib/Tui/Term.ax @0df728604ce87dd8 "(KeyIn -> Int)" #effects=Unsafe
-F termWsRows stdlib/Tui/Term.ax @f88d18ea395cdb26 "(KeyIn -> Int)" #effects=Unsafe
+F termRaw stdlib/IO.ax @2b4acfd49068b035 "(File -> (Bool -> Result TermGuard Error))" #effects=Alloc,IO,Mut,Unsafe
+F termRawEnter stdlib/Tui/Term.ax @9a94e73d6cde873d "(KeyIn -> Int)" #effects=Alloc,IO,Mut
+F termRawLeave stdlib/Tui/Term.ax @f0b7918defe9a670 "(KeyIn -> Int)" #effects=Alloc,IO,Mut
+F termReadSize stdlib/Tui/Term.ax @c5b0993b02ddb998 "(KeyIn -> Int)" #effects=Alloc,IO,Mut
+F termRestore stdlib/IO.ax @27df166224bf36fd "(TermGuard -> Result Int Error)" #effects=Alloc,IO,Unsafe
+F termSize stdlib/IO.ax @78c99a2b618c3e98 "(File -> Result TermSize Error)" #effects=Alloc,IO,Mut
+F termWsCols stdlib/Tui/Term.ax @0df728604ce87dd8 "(KeyIn -> Int)"
+F termWsRows stdlib/Tui/Term.ax @f88d18ea395cdb26 "(KeyIn -> Int)"
 F termiosBytes stdlib/Sys/Platform.ax @073edd856e0cda49 "Int"
 F termiosCcOff stdlib/Sys/Platform.ax @df76fb2b24f9095d "Int"
 F termiosFlagBytes stdlib/Sys/Platform.ax @a4e2f9d35892fff7 "Int"
@@ -1297,7 +1268,7 @@ F timeNanosecond stdlib/Chrono.ax @9a7bfd2f5bea3bb0 "(Time -> Int)"
 F timeNew stdlib/Chrono.ax @b1ab9c3b88a825ec "(Int -> (Int -> (Int -> (Int -> Result Time Error))))" #effects=Alloc
 F timeParse stdlib/Chrono.ax @20ded01109d99285 "(String -> Result Time Error)" #effects=Alloc
 F timeSecond stdlib/Chrono.ax @f720e52156b9bcce "(Time -> Int)"
-F timeToString stdlib/Chrono.ax @31421f090e8be202 "(Time -> String)" #effects=Alloc,Mut,Unsafe
+F timeToString stdlib/Chrono.ax @31421f090e8be202 "(Time -> String)" #effects=Alloc,Mut
 F tiosBrkint stdlib/Sys/Platform.ax @92fd342d7152edf4 "Int"
 F tiosEcho stdlib/Sys/Platform.ax @65a7f3c40cdea1df "Int"
 F tiosIcanon stdlib/Sys/Platform.ax @a7a7b7a695f6dca0 "Int"
@@ -1311,7 +1282,7 @@ F toOption stdlib/Err.ax @8b13feec85bc508b "(Result a e -> Option a)" #effects=A
 F todo stdlib/IO.ax @981a4f334fd48c2b "(String -> a)" #effects=Alloc,IO,Mut
 F truthValue stdlib/Axqlite/AxqlEval.ax @a5744f2c9c26aead "(Int -> Value)" #effects=Alloc
 F ttyUsesTermios stdlib/Sys/Platform.ax @c35c43360059ea61 "Int"
-F tuiCat stdlib/Tui/Edit.ax @91164c4ceff4b135 "(Vec String -> String)" #effects=Alloc,Mut,Unsafe
+F tuiCat stdlib/Tui/Edit.ax @91164c4ceff4b135 "(Vec String -> String)" #effects=Alloc,Mut
 F tuiVisLen stdlib/Tui/Edit.ax @1a2a9d9c3ab68b92 "(String -> Int)"
 F tvFalse stdlib/Axqlite/AxqlEval.ax @6f5b7691159e2144 "Int"
 F tvNull stdlib/Axqlite/AxqlEval.ax @27876b5a30c64e50 "Int"
@@ -1337,46 +1308,46 @@ F utf8Slice stdlib/Utf8.ax @8c8ae92a7eb93b8e "(String -> (Int -> (Int -> String)
 F utf8Valid stdlib/Utf8.ax @b351c53c0f3c1e46 "(String -> Bool)"
 F utf8WellFormedAt stdlib/Utf8.ax @b4cbc28b1f6c098e "(String -> (Int -> (Int -> Int)))"
 F utf8Width stdlib/Utf8.ax @a6701055109f0c30 "(Int -> Int)"
-F vecCap stdlib/Vec.ax @a13fc6a6d379366d "(Vec a -> Int)" #effects=Unsafe
-F vecClear stdlib/Vec.ax @319fd64658175a30 "(Vec a -> Vec a)" #effects=Mut,Unsafe
+F vecCap stdlib/Vec.ax @a13fc6a6d379366d "(Vec a -> Int)"
+F vecClear stdlib/Vec.ax @319fd64658175a30 "(Vec a -> Vec a)" #effects=Mut
 F vecFree stdlib/Vec.ax @1e43cc6130f92c1d "(Vec a -> Int)" #effects=Unsafe
 F vecGet stdlib/Vec.ax @805a0ea6c155b2f9 "(Vec a -> (Int -> a))" #effects=Unsafe
 F vecGetStr stdlib/Vec.ax @588fcc550a528a44 "(Vec a -> (Int -> String))" #effects=Unsafe
 F vecGetVec stdlib/Vec.ax @8412825523066371 "(Vec a -> (Int -> Vec b))" #effects=Unsafe
 F vecHash stdlib/Vec.ax @4546b24f9c54ce2f "(Vec Int -> Int)"
 F vecLast stdlib/Vec.ax @1af3be30b8373b1f "(Vec a -> a)"
-F vecLen stdlib/Vec.ax @550435a6a8c88c3e "(Vec a -> Int)" #effects=Unsafe
+F vecLen stdlib/Vec.ax @550435a6a8c88c3e "(Vec a -> Int)"
 F vecNew stdlib/Vec.ax @42d7eca69e40111f "Vec a" #effects=Alloc,Mut
-F vecNewRef stdlib/Vec.ax @a3810b6416057230 "Vec a" #effects=Alloc,Mut
-F vecOwnsRefs stdlib/Vec.ax @3ca4292918920a5c "(Vec a -> Bool)" #effects=Unsafe
+F vecOwnsRefs stdlib/Vec.ax @3ca4292918920a5c "(Vec a -> Bool)"
 F vecPop stdlib/Vec.ax @31549fa694465c32 "(Vec a -> a)" #effects=Mut,Unsafe
-F vecPush stdlib/Vec.ax @c293060dc287a3bb "(Vec a -> (a -> Vec a))" #effects=Alloc,Mut,Unsafe
+F vecPush stdlib/Vec.ax @c293060dc287a3bb "(Vec a -> (a -> Vec a))" #effects=Alloc,Mut
 F vecPushStr stdlib/Vec.ax @25d7fb280bccc022 "(Vec a -> (String -> Vec a))" #effects=Alloc,Mut,Unsafe
 F vecPushVec stdlib/Vec.ax @513ed9282468628f "(Vec a -> (Vec b -> Vec a))" #effects=Alloc,Mut,Unsafe
-F vecSet stdlib/Vec.ax @177422a685a6c685 "(Vec a -> (Int -> (a -> Vec a)))" #effects=Mut,Unsafe
-F vecSort stdlib/Vec.ax @d7b57bf54b6da257 "(Vec a -> Vec a)" #effects=Mut,Unsafe
-F vecSortBy stdlib/Vec.ax @05b978068f71d6a2 "(Vec a -> ((Int -> (Int -> Int)) -> Vec a))" #effect-params=cmp #effects=Mut,Unsafe
+F vecSet stdlib/Vec.ax @177422a685a6c685 "(Vec a -> (Int -> (a -> Vec a)))" #effects=Mut
+F vecSort stdlib/Vec.ax @d7b57bf54b6da257 "(Vec Int -> Vec Int)" #effects=Mut
+F vecSortBy stdlib/Vec.ax @05b978068f71d6a2 "(Vec a -> ((Int -> (Int -> Int)) -> Vec a))" #effect-params=cmp #effects=Mut
 F vecSum stdlib/Vec.ax @17aa19a685d446aa "(Vec Int -> Int)"
 F vecTry stdlib/Vec.ax @1057f8a6821016c0 "(Vec a -> (Int -> Option a))" #effects=Alloc,Unsafe
 F vecWithCapacity stdlib/Vec.ax @a5898d2fb6017e13 "(Int -> Vec a)" #effects=Alloc,Mut
-F vecWithCapacityRef stdlib/Vec.ax @4931b5c5fdddadcc "(Int -> Vec a)" #effects=Alloc,Mut
 F waitIdPidType stdlib/Sys/Platform.ax @417e56c542031940 "Int"
 F waitPollOptions stdlib/Sys/Platform.ax @4f04cb2dcd714a4f "Int"
 F waitWordKind stdlib/Sys/Platform.ax @76bcd0a378307ca8 "Int"
 F withContext stdlib/Err.ax @9733c7d4aeb3bcda "(Result a Error -> (String -> Result a Error))" #effects=Alloc
-F writeFile stdlib/IO.ax @02446b7fc8d23e18 "(String -> (String -> Result Int Error))" #effects=Alloc,IO,Mut,Unsafe
-F writeSlice stdlib/IO.ax @d3bd93d5924b0c2c "(Int -> (String -> (Int -> (Int -> Int))))" #effects=Alloc,IO,Unsafe
-F writeStr stdlib/IO.ax @d7ac81e9b98b4f11 "(Int -> (String -> Int))" #effects=Alloc,IO,Unsafe
+F writeErr stdlib/IO.ax @524bbfe9ff618861 "(String -> Int)" #effects=Alloc,IO
+F writeFile stdlib/IO.ax @02446b7fc8d23e18 "(String -> (String -> Result Int Error))" #effects=Alloc,IO,Mut
+F writeOut stdlib/IO.ax @fbb119e9ce55c282 "(String -> Int)" #effects=Alloc,IO
+F writeSlice stdlib/IO.ax @d3bd93d5924b0c2c "(File -> (String -> (Int -> (Int -> Int))))" #effects=Alloc,IO
+F writeStr stdlib/IO.ax @d7ac81e9b98b4f11 "(File -> (String -> Int))" #effects=Alloc,IO
 F x25519 stdlib/Crypto/X25519.ax @5d89bfd6b7c05ef5 "(X25519SecretKey -> (X25519PublicKey -> Result SecretBytes Error))" #effects=Alloc,IO,Mut,Unsafe
 F x25519BasePoint stdlib/Crypto/X25519.ax @24989903515d44de "String" #effects=Alloc,Mut,Unsafe
-F x25519KeyExport stdlib/Crypto/X25519.ax @be1504a1089069ea "(X25519SecretKey -> Result SecretBytes Error)" #effects=Alloc,IO,Mut,Unsafe
-F x25519KeyFromSecret stdlib/Crypto/X25519.ax @7b8133032b151b28 "(SecretBytes -> Result X25519SecretKey Error)" #effects=Alloc,IO,Mut,Unsafe
-F x25519KeyGenerate stdlib/Crypto/X25519.ax @aaf10ffa01c7e1eb "Result X25519SecretKey Error" #effects=Alloc,Entropy,IO,Mut,Unsafe
-F x25519KeyWipe stdlib/Crypto/X25519.ax @4ecb599ea55eefd7 "(X25519SecretKey -> Int)" #effects=Alloc,IO,Mut,Unsafe
-F x25519PublicKey stdlib/Crypto/X25519.ax @e6c624e56243e30f "(X25519SecretKey -> X25519PublicKey)" #effects=Alloc,Mut,Unsafe
+F x25519KeyExport stdlib/Crypto/X25519.ax @be1504a1089069ea "(X25519SecretKey -> Result SecretBytes Error)" #effects=Alloc,IO,Mut
+F x25519KeyFromSecret stdlib/Crypto/X25519.ax @7b8133032b151b28 "(SecretBytes -> Result X25519SecretKey Error)" #effects=Alloc,IO,Mut
+F x25519KeyGenerate stdlib/Crypto/X25519.ax @aaf10ffa01c7e1eb "Result X25519SecretKey Error" #effects=Alloc,Entropy,IO,Mut
+F x25519KeyWipe stdlib/Crypto/X25519.ax @4ecb599ea55eefd7 "(X25519SecretKey -> Int)" #effects=Alloc,IO,Mut
+F x25519PublicKey stdlib/Crypto/X25519.ax @e6c624e56243e30f "(X25519SecretKey -> X25519PublicKey)" #effects=Alloc,Mut
 F x25519PublicKeyBytes stdlib/Crypto/X25519.ax @3d7727a20b109efa "(X25519PublicKey -> String)"
 F x25519PublicKeyFromBytes stdlib/Crypto/X25519.ax @491c09f45f0ca596 "(String -> Result X25519PublicKey Error)" #effects=Alloc,Mut
-F x25519ScalarMult stdlib/Crypto/X25519.ax @fb4476dfe94ccf57 "(String -> (String -> Result String Error))" #effects=Alloc,Mut,Unsafe
+F x25519ScalarMult stdlib/Crypto/X25519.ax @fb4476dfe94ccf57 "(String -> (String -> Result String Error))" #effects=Alloc,Mut
 F x25519ScalarMultAddr stdlib/Crypto/X25519.ax @1c66714e0d2c2df0 "(Int -> (Int -> (Int -> Int)))" #effects=Alloc,Mut,Unsafe
 M axqlTable stdlib/Axqlite/AxqlMacro.ax @5d5da4a3632b1197 "macro axqlTable"
 M axqlTableRest stdlib/Axqlite/AxqlMacro.ax @478dc66a2bc896a9 "macro axqlTableRest"
@@ -1388,13 +1359,16 @@ M println stdlib/IO.ax @6385b2ebf0ca5c02 "macro println"
 M try stdlib/Err.ax @c3830f2ec9fc2f82 "macro try"
 M unless stdlib/Pre.ax @af6f0ce3aa587897 "macro unless"
 M when stdlib/Pre.ax @eacb4a87e7ad62e5 "macro when"
+S Addr stdlib/Mem.ax @074d77c38bf9a023 "struct Addr" #fields=slot:Int
 S AeadNonce stdlib/Crypto/Aead.ax @e120aea5f55b032e "struct AeadNonce" #fields=bytes:String
 S Aes128GcmKey stdlib/Crypto/AesGcm.ax @46e1e3ed94ba5938 "struct Aes128GcmKey" #fields=slot:Int
 S Aes256GcmKey stdlib/Crypto/AesGcm.ax @a1a0e88882cddeb8 "struct Aes256GcmKey" #fields=slot:Int
 S Blake2b stdlib/Crypto/Blake2b.ax @1eb2cbeea5e31ba5 "struct Blake2b" #fields=state:String
-S CancelToken stdlib/Task.ax @5f62076175038f8f "struct CancelToken" #fields=slot:Int
+S CancelToken stdlib/Task.ax @5f62076175038f8f "struct CancelToken" #fields=owner:Handle
+S CerealLimits stdlib/Cereal.ax @fe343cd230a4a980 "struct CerealLimits" #fields=depth:Int,bytes:Int,nodes:Int
+S CerealMember stdlib/Cereal.ax @3a7c134293cc7a82 "struct CerealMember" #fields=key:String,value:CerealValue
 S ChaCha20Poly1305Key stdlib/Crypto/ChaCha20Poly1305.ax @19932ba4fa0ba756 "struct ChaCha20Poly1305Key" #fields=slot:Int
-S Chan stdlib/Chan.ax @5e8b71d04e1c5018 "struct Chan" #fields=slot:Int
+S Chan stdlib/Chan.ax @5e8b71d04e1c5018 "struct Chan" #fields=owner:Handle
 S ColumnDef stdlib/Axqlite/AxqlAst.ax @ed671bac4e819a01 "struct ColumnDef" #fields=name:String,ctype:Int,notNull:Bool,primaryKey:Bool
 S Connection stdlib/Axqlite.ax @1a241178c387c578 "struct Connection" #fields=slot:Int,owner:Handle
 S Date stdlib/Chrono.ax @a1d1dfdb44fb4614 "struct Date" #fields=slot:Int
@@ -1413,9 +1387,10 @@ S HmacSha512Key stdlib/Crypto/Hmac.ax @0a87814ece93ed78 "struct HmacSha512Key" #
 S IndexDef stdlib/Axqlite/AxqlSchema.ax @23499afcfe6a49a3 "struct IndexDef" #fields=name:String,root:Int,unique:Bool,cols:Vec Int
 S KeyEv stdlib/Tui/Keys.ax @c7134ee844fc41c8 "struct KeyEv" #fields=kind:Int,cp:Int,mods:Int,used:Int
 S LineEd stdlib/Tui/Edit.ax @9283db2d483e336b "struct LineEd" #fields=left:Vec Int,right:Vec Int,ring:Vec String,ringIdx:Int,lastKill:Int,yankLen:Int,cols:Int,height:Int,rows:Int,curRow:Int,prompt:String,pcols:Int,wordChars:String
+S MemoryStats stdlib/Mem.ax @d2f42a7c23bd4fde "struct MemoryStats" #fields=heldBytes:Int,filedBytes:Int,mappedBytes:Int,backlogBytes:Int
 S Meta stdlib/Agent/Tags.ax @ba9f4823bce27105 "struct Meta" #fields=key:String,val:String
-S Mutex stdlib/Sync.ax @95730931805ef563 "struct Mutex" #fields=slot:Int
-S MutexGuard stdlib/Sync.ax @2b2afeabeef38a50 "struct MutexGuard" #fields=serial:Int
+S Mutex stdlib/Sync.ax @95730931805ef563 "struct Mutex" #fields=owner:Handle
+S MutexGuard stdlib/Sync.ax @2b2afeabeef38a50 "struct MutexGuard" #fields=owner:Handle
 S NaiveDateTime stdlib/Chrono.ax @a7298e69c2012518 "struct NaiveDateTime" #fields=date:Date,time:Time
 S NonceSequence stdlib/Crypto/Aead.ax @a065a36e34a79ae6 "struct NonceSequence" #fields=state:String
 S ObfuscationKey stdlib/Crypto/Obfuscate.ax @93607d8eee43dc02 "struct ObfuscationKey" #fields=slot:Int
@@ -1423,8 +1398,10 @@ S OpenOptions stdlib/Axqlite.ax @4d31f0964f4a0b76 "struct OpenOptions" #fields=c
 S OrderTerm stdlib/Axqlite/AxqlAst.ax @6c61543afc8e4f5a "struct OrderTerm" #fields=expr:Expr,desc:Bool
 S Pager stdlib/Axqlite/Pager.ax @94533eac7f15fcdb "struct Pager" #fields=slot:Int
 S Parsed stdlib/Axqlite/AxqlAst.ax @48c0cc8c4f7cc651 "struct Parsed" #fields=stmt:Stmt,paramCount:Int,paramNames:Vec String,text:String
+S Poller stdlib/IO.ax @b4b97adb487af2fe "struct Poller" #fields=owner:Handle,events:String,cap:Int,count:Int,ts:String,sigToken:Int,sigFile:Option File,sigInfo:String
 S Query stdlib/Axqlite/AxqlMacro.ax @b255293f91e3dee4 "struct Query" #fields=text:String,params:Vec Value
 S QueryBuilder stdlib/Axqlite/AxqlMacro.ax @c4d0b5118cd88e43 "struct QueryBuilder" #fields=pieces:Vec String,params:Vec Value
+S ReadBuffer stdlib/IO.ax @e8aa047b726cfe4e "struct ReadBuffer" #fields=bytes:String
 S Row stdlib/Axqlite.ax @7e9897a9ab000ae4 "struct Row" #fields=names:Vec String,values:Vec Value
 S RowReader stdlib/Axqlite.ax @2490f0fbe365d2ef "struct RowReader" #fields=row:Row,failure:Option Error
 S RowRef stdlib/Axqlite/AxqlExec.ax @3e1c8133c5938c79 "struct RowRef" #fields=rowid:Int,values:Vec Value
@@ -1448,6 +1425,7 @@ S TableDef stdlib/Axqlite/AxqlSchema.ax @62078353124626db "struct TableDef" #fie
 S TaskOpts stdlib/Task.ax @8397f653011b0d1b "struct TaskOpts" #fields=width:Int,limit:Int,deadline:Int,grace:Int,failFast:Bool,token:Option CancelToken
 S TcpListener stdlib/Net.ax @7e796e98b0295c07 "struct TcpListener" #fields=file:File
 S TcpStream stdlib/Net.ax @f5856ecdcf6df0b7 "struct TcpStream" #fields=file:File
+S TermGuard stdlib/IO.ax @0a4c62283f65345b "struct TermGuard" #fields=owner:Handle
 S TermSize stdlib/IO.ax @aec0978d11c6eb5b "struct TermSize" #fields=rows:Int,cols:Int
 S Time stdlib/Chrono.ax @339d8c5f489e75b9 "struct Time" #fields=slot:Int
 S Transaction stdlib/Axqlite.ax @82ab900e73e005b8 "struct Transaction" #fields=slot:Int,owner:Handle,connection:Connection
