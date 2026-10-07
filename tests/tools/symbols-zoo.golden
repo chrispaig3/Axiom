@@ -119,12 +119,12 @@ F divChecked stdlib/Err.ax:385:9-19 "(Int -> (Int -> Result Int Error))" @64cf17
 F remChecked stdlib/Err.ax:393:9-19 "(Int -> (Int -> Result Int Error))" @8fb62ce3aababe76 #effects=Alloc
 F shlChecked stdlib/Err.ax:404:9-19 "(Int -> (Int -> Result Int Error))" @554de2a593269cfd #effects=Alloc
 F shrChecked stdlib/Err.ax:410:9-19 "(Int -> (Int -> Result Int Error))" @d6fbeaead7a43037 #effects=Alloc
-F sysReadNum stdlib/Sys/Platform.darwin.ax:25:9-16 "Int" @d99009b49c22cd84
-F sysWriteNum stdlib/Sys/Platform.darwin.ax:30:9-17 "Int" @74cf7b68f9a13d7f
-F sysOpenNum stdlib/Sys/Platform.darwin.ax:35:9-16 "Int" @48be4da44965be58
-F sysCloseNum stdlib/Sys/Platform.darwin.ax:40:9-17 "Int" @3f19c86be94cca74
-F sysExitNum stdlib/Sys/Platform.darwin.ax:45:9-16 "Int" @c21daf50c2bdc420
-F sysLseekNum stdlib/Sys/Platform.darwin.ax:50:9-17 "Int" @b985a8cd089c8e5c
+F sysReadNum stdlib/Sys/Platform.darwin.ax:25:9-19 "Int" @b4a7042dacd8da94
+F sysWriteNum stdlib/Sys/Platform.darwin.ax:30:9-20 "Int" @483ca63fb47bd45d
+F sysOpenNum stdlib/Sys/Platform.darwin.ax:35:9-19 "Int" @1666c256d691e7e8
+F sysCloseNum stdlib/Sys/Platform.darwin.ax:40:9-20 "Int" @7aff60026a820f04
+F sysExitNum stdlib/Sys/Platform.darwin.ax:45:9-19 "Int" @dbb0f7785410ecc0
+F sysLseekNum stdlib/Sys/Platform.darwin.ax:50:9-20 "Int" @a212d5fc90a5433c
 F openNeedsDirFd stdlib/Sys/Platform.darwin.ax:57:9-23 "Int" @d12588b93c717bad
 F atFdCwd stdlib/Sys/Platform.darwin.ax:63:9-16 "Int" @dd105a98ff529076
 F oRdonly stdlib/Sys/Platform.darwin.ax:67:9-16 "Int" @bea12e59bc90ac1c
@@ -133,11 +133,11 @@ F oWronlyCreateAppend stdlib/Sys/Platform.darwin.ax:83:9-28 "Int" @26a10abfaabe5
 F seekEnd stdlib/Sys/Platform.darwin.ax:87:9-16 "Int" @ffd6d76db53ee6f4
 F seekSet stdlib/Sys/Platform.darwin.ax:91:9-16 "Int" @9bb0af6e0d80b0bd
 F spawnUsesPosixSpawn stdlib/Sys/Platform.darwin.ax:108:9-28 "Int" @7f321f2729051480
-F sysPosixSpawnNum stdlib/Sys/Platform.darwin.ax:129:9-22 "Int" @301427b704c87bd6 #syscall=spawn #effects=Spawn
-F sysWait4Num stdlib/Sys/Platform.darwin.ax:135:9-17 "Int" @c6592bc7da3c817f #syscall=block #effects=Block
-F sysForkNum stdlib/Sys/Platform.darwin.ax:155:9-16 "Int" @d2301f5b9cd3da3c #syscall=spawn #effects=Spawn
+F sysPosixSpawnNum stdlib/Sys/Platform.darwin.ax:129:9-25 "Int" @79ab59d50293d73e #syscall=spawn #effects=Spawn
+F sysWait4Num stdlib/Sys/Platform.darwin.ax:135:9-20 "Int" @7afeb1a425aa405d #syscall=block #effects=Block
+F sysForkNum stdlib/Sys/Platform.darwin.ax:155:9-19 "Int" @6ec2795fd943505c #syscall=spawn #effects=Spawn
 F sysForkArg stdlib/Sys/Platform.darwin.ax:160:9-19 "Int" @ccc826600e295ed8
-F sysExecveNum stdlib/Sys/Platform.darwin.ax:164:9-18 "Int" @cf0811b42b349ef8
+F sysExecveNum stdlib/Sys/Platform.darwin.ax:164:9-21 "Int" @d476182d1fb836c8
 F sysUnlinkNum stdlib/Sys/Platform.darwin.ax:169:9-21 "Int" @ba296983f73bf8b5
 F sysMkdirNum stdlib/Sys/Platform.darwin.ax:175:9-20 "Int" @d70958f5f657e079
 F sysRmdirNum stdlib/Sys/Platform.darwin.ax:180:9-20 "Int" @624e8f20729e9500
