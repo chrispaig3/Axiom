@@ -271,10 +271,7 @@
                 ((None) 0))
             })
           (let ((us (- (sysTimeoutMicros buf) t0)))
-            {
-              (let ((_ (chanFree ch))) 0)
-              (report "chan1" sum (/ (* n (+ n 1)) 2) us)
-            })
+            (report "chan1" sum (/ (* n (+ n 1)) 2) us))
         })
     )
     ((Err e) 1)))

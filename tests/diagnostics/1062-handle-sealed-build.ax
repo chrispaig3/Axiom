@@ -1,5 +1,5 @@
 ; A handle is built only by its own module (docs/memory-model.md
-; MM-VAL-10a, MM-PAR-8). `Chan` and `Mutex` are `pub`, so this file can
+; MM-PAR-16). `Chan` and `Mutex` are `pub`, so this file can
 ; name them, but building one from a word is AX3085. The channel `chanNew` answers is the control.
 (import Chan)
 (import Sync)

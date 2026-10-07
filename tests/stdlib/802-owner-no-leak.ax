@@ -1,12 +1,22 @@
 ; Owners give back what they hold, in a loop (docs/memory-model.md
-; MM-PAR-15): 100,000 lock-and-release cycles leave the arena's backlog
-; (held less filed, `memStats`) where 1,000 left it, because each guard
-; and its cleanup's closure are filed again when the guard ends.
-; `scripts/check-task.sh` runs this in both lowerings.
+; MM-PAR-15, MM-PAR-16): 100,000 lock-and-release cycles, and 20,000
+; channels, mutexes and tokens each made and let go, leave the arena's
+; backlog (held less filed, `memStats`) where 1,000 left it, because
+; each owner, guard and cleanup closure is filed again when it ends.
+;
+; Run with `rss N` it makes and lets go N of each and prints `done`,
+; and with `keep N` it keeps every channel it makes:
+; `scripts/check-task.sh` compares their peak RSS, since a page that
+; was never unmapped would not show in the arena's counts.
 (import IO)
 (import Mem)
+(import Sys)
+(import Str)
+(import Vec)
 (import Err)
+(import Chan)
 (import Sync)
+(import Task)
 
 (:: backlog Int)
 (fn (backlog)
@@ -27,6 +37,47 @@
       got
     }))
 
+; `n` channels, mutexes and tokens, each made, used once and let go.
+(:: churn (-> Int Int))
+;@axiom:effect(io)
+;@axiom:effect(block)
+(fn (churn n)
+  (let ((mut made 0))
+    {
+      (for i in 0..n
+        {
+          (match (chanNew 1)
+            ((Ok c) (if (chanTrySend c i) (set made (+ made 1)) 0))
+            ((Err e) 0))
+          (match (mutexNew)
+            ((Ok m) (if (mutexOwnerDead m) 0 (set made (+ made 1))))
+            ((Err e) 0))
+          (match taskTokenNew
+            ((Ok t) (if (taskCancelled t) 0 (set made (+ made 1))))
+            ((Err e) 0))
+        })
+      made
+    }))
+
+; `n` channels made and kept: the control, whose pages stay mapped.
+(:: keep (-> Int Int))
+;@axiom:effect(io)
+;@axiom:effect(block)
+(fn (keep n)
+  (let ((v vecNewRef))
+    {
+      (for i in 0..n
+        (match (chanNew 1)
+          ((Ok c)
+            {
+              (chanTrySend c i)
+              (vecPush v c)
+              0
+            })
+          ((Err e) 0)))
+      (vecLen v)
+    }))
+
 (:: flat (-> String Int Int Int))
 ;@axiom:effect(io)
 (fn (flat what before after)
@@ -38,19 +89,46 @@
       0
     }))
 
+(:: argN Int)
+;@axiom:effect(io)
+(fn (argN)
+  (match (strParseInt (sysArg 2))
+    ((Some n) n)
+    ((None) 0)))
+
 (:: main Int)
 ;@axiom:effect(io)
 ;@axiom:effect(block)
 (fn (main)
-  (match (mutexNew)
-    ((Ok mx)
-      (let ((warm (cycles mx 1000)))
-        (let ((before backlog))
-          (let ((done (cycles mx 100000)))
-            (let ((after backlog))
-              {
-                (println "guards: {done} cycles after {warm}")
-                (flat "guards" before after)
-                0
-              })))))
-    ((Err e) 1)))
+  (if (strEq (sysArg 1) "rss")
+    {
+      (churn argN)
+      (println "done")
+      0
+    }
+    (if (strEq (sysArg 1) "keep")
+      {
+        (keep argN)
+        (println "done")
+        0
+      }
+      (match (mutexNew)
+        ((Ok mx)
+          (let ((warm (cycles mx 1000)))
+            (let ((before backlog))
+              (let ((done (cycles mx 100000)))
+                (let ((after backlog))
+                  {
+                    (println "guards: {done} cycles after {warm}")
+                    (flat "guards" before after)
+                    (let ((w (churn 1000)))
+                      (let ((b2 backlog))
+                        (let ((m (churn 20000)))
+                          (let ((a2 backlog))
+                            {
+                              (println "owners: {m} made and let go after {w}")
+                              (flat "owners" b2 a2)
+                              0
+                            }))))
+                  })))))
+        ((Err e) 1)))))

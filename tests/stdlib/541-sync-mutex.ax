@@ -111,7 +111,6 @@
           )
           ((Err e) (println "no mapping")))
         (println (bit (mutexOwnerDead m)))  ; 0
-        (println (codeOf (mutexFree m)))  ; 0
         ; A holder that dies holding it.
         (match (mutexNew)
           ((Ok d)
@@ -136,7 +135,6 @@
                     (println (bit (mutexOwnerDead d)))  ; 1
                     (println (codeOf (mutexLock d)))  ; 1004
                     (println (tryCode (mutexTryLock d)))  ; 1
-                    (println (codeOf (mutexFree d)))  ; 0
                   })
               )
               ((Err e) (println "no mapping")))

@@ -805,12 +805,9 @@ NOT_MODELLED = {
         "chanNew": "runs before any binding can reach the channel",
         "chanLen": "a lock, two reads and an unlock: chanClosed's shape, which is modelled",
         "chanCap": "reads the capacity, written once by chanNew, with no lock",
-        "chanFree": "runs after the parallel form, when no binding can reach the channel",
-        "chanKind": "a constant, the handle table's kind for a channel",
-        "chanAt": "the handle table's lookup of a live channel's ring; touches no channel word",
-        "chanName": "names a fresh ring in the handle table, inside chanNew",
-        "chanNamed": "chanNew's handle step, before any binding can reach the channel",
-        "chanRetire": "retires the handle inside chanFree, after the parallel form",
+        "chanAt": "the ring, read from the channel's owner; touches no channel word",
+        "chanOwned": "chanNew's owner step, before any binding can reach the channel",
+        "chanDrop": "unmaps the ring when its last owner in an address space lets go, after every binding using it",
     },
     SYNC: {
         "syncOwnerDead": "a constant", "syncProbeNanos": "a constant, the slice",
@@ -829,12 +826,9 @@ NOT_MODELLED = {
         "syncSlice": "min(time left, the slice), checked in WRAPPERS",
         "mutexNew": "runs before any binding can reach the mutex",
         "mutexOwnerDead": "one load of the poisoned word",
-        "mutexFree": "runs after the parallel form",
-        "syncKind": "a constant, the handle table's kind for a mutex",
-        "syncAt": "the handle table's lookup of a live mutex's page; touches no mutex word",
-        "syncName": "names a fresh page in the handle table, inside mutexNew",
-        "syncNamed": "mutexNew's handle step, before any binding can reach the mutex",
-        "syncRetire": "retires the handle inside mutexFree, after the parallel form",
+        "syncAt": "the page, read from the mutex's owner; touches no mutex word",
+        "syncOwned": "mutexNew's owner step, before any binding can reach the mutex",
+        "syncDrop": "unmaps the page when its last owner in an address space lets go, after every binding using it",
     },
 }
 
@@ -1894,7 +1888,7 @@ class Model:
 
     def g_staleAnswer(self, c, b, r):
         if r != NOT_HELD:
-            raise Violation("unearned unlock", "B%d's stale unlock answered %d, not syncNotHeld" % (b + 1, r))
+            raise Violation("unearned unlock", "B%d's stale release answered %d, not the refusal" % (b + 1, r))
 
     # ---- transitions ------------------------------------------------------------
     def successors(self, s, describe=False):
@@ -2592,8 +2586,8 @@ def check_source(stdlib, verbose=True):
 # is the order the operations happened in. A wait is
 # `sysWaitWordTimeout`, whose own entry load is in Sys.ax and not
 # recorded: the replay takes the recorded return code as the wait's
-# answer. `chanFree` prints the record, with a `trace <cap> <count>
-# <max>` line first. A program replayed here uses the untimed calls.
+# answer. The channel's cleanup, when its last owner lets go, prints the
+# record, with a `trace <cap> <count> <max>` line first. A program replayed here uses the untimed calls.
 
 TRACE_OP = {1: "aload", 2: "astore", 3: "aadd", 4: "acas", 5: "pload", 6: "pstore", 7: "wait", 9: "wake"}
 TRACE_NAME = {1: "load", 2: "store", 3: "add", 4: "cas", 5: "get", 6: "put", 7: "wait", 8: "woke", 9: "wake"}

@@ -38,6 +38,13 @@
 0.7.9  F  syncNotHeld  removed: nothing unlocks by hand, so no call answers it
 0.7.9  S  MutexGuard  a sealed resource owner rather than a word: its end releases the lock
 0.7.9  F  mutexTryLock  row gains Alloc: the guard it answers is an owner, allocated at the lock
+0.7.9  F  chanFree  removed: a channel is freed when its last owner lets go
+0.7.9  F  mutexFree  removed: a mutex is freed when its last owner, a guard included, lets go
+0.7.9  F  taskTokenFree  removed: a cancellation token is freed when its last owner lets go
+0.7.9  S  Chan  a sealed shared owner rather than a word: a parallel form lends it, and a hand-written spawn can't capture it
+0.7.9  S  Mutex  a sealed shared owner rather than a word: a parallel form lends it, and a hand-written spawn can't capture it
+0.7.9  S  CancelToken  a sealed shared owner rather than a word: a parallel form lends it, and a hand-written spawn can't capture it
+0.7.9  L  shared-heap-struct  `shared` on a heap struct needs `sealed`, and such a struct takes no mut field and no type parameters (AX3084)
 0.7.9  L  arena-mark-cell  a cell passed to __axiom_arena_mark_into must hold 32 bytes: a fourth word keeps the owner registry's counter
 0.7.8  RUST  Ret.direct_payload  returns Option<Payload>; handle None for scalar, opaque and status returns
 0.7.8  CLI  symbols-json  JSON symbol output is refused with status 2; use --diagnostic-format=ai

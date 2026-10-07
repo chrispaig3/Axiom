@@ -71,7 +71,6 @@
               (__proc_join_nr h cell)
               (println (memGetWord cell 0))  ; 0
               (println (codeOf (mutexLock m)))  ; 1004
-              (println (codeOf (mutexFree m)))  ; 0
               0
             })
         )

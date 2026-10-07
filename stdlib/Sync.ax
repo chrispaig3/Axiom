@@ -73,8 +73,7 @@
 ; `syncOwnerDead` from then on (`mutexTryLock` answers `None`,
 ; `mutexOwnerDead` says why). The lock is not handed over: what it
 ; protected may be half-written, and only the program can say whether
-; that is survivable. After a poisoning the only other safe call is
-; `mutexFree`.
+; that is survivable.
 ;
 ; WHAT IT DOES NOT PROVIDE, each a stated limit:
 ;   * No fairness: an unlock with waiters wakes them all and whoever
@@ -95,16 +94,16 @@
 ;   * A holder killed under `--threads` is the whole process: there is
 ;     no dead thread that holds a lock.
 ;
-; THE HANDLE IS A `Mutex` (docs/memory-model.md MM-PAR-8), as `Chan`'s
-; is a `Chan`: a word struct (MM-VAL-10a) only this module can make or
-; read, whose word is a slot in the runtime's handle table naming the
-; page. Every public function asks the table for the page first
-; (`syncAt`), so a call on a freed mutex, and a second `mutexFree`, trap
-; with status 85 instead of touching the unmapped page. It is declared
-; `shared`: every operation is built for use from every binding at once,
-; so a `parallel` binding may capture it (AX3064 admits it). `mutexFree`
-; must still come only once no binding can reach the mutex; a free that
-; races a lock call is a data race (MM-PAR-9).
+; THE HANDLE IS A `Mutex` (docs/memory-model.md MM-PAR-16), as `Chan`'s
+; is a `Chan`: a sealed struct only this module can make or open,
+; holding one resource owner whose cleanup unmaps the page. The page
+; goes when the mutex's last owner in this address space lets go - every
+; guard holds one too - and never while one still holds it. A forked
+; child has its own mapping and count, which its exit drops. A
+; `parallel` form lends the mutex to its bindings with its count frozen
+; until the last join. It is declared `shared`: every operation is built
+; for use from every binding at once, so AX3064 admits it at `parallel`.
+; There is no free to call.
 ;
 ; Words: 0 the lock, 1 the holder's serial (0 when none is published),
 ; 2 the serial counter, 3 poisoned, 4 the mapping length.
@@ -113,10 +112,9 @@
 (import Err)
 
 ; ---- the handle --------------------------------------------------------
-; A mutex: one word, a slot in the runtime's handle table (MM-PAR-8)
-; naming the page.
-(pub struct Mutex word shared
-  (slot : Int))
+; A mutex: one owner whose value is the page (MM-PAR-16).
+(pub struct Mutex sealed shared
+  (owner : Handle))
 
 ; What a lock call answers: the lock, held while the guard lives. A
 ; resource owner whose cleanup releases the lock (the module header's
@@ -125,30 +123,22 @@
 (pub struct MutexGuard sealed
   (owner : Handle))
 
-; The handle table's kind for a mutex (`Chan.ax`'s is 2): a channel's
-; handle is not a mutex, even to code that forged one.
-(:: syncKind Int)
-(fn (syncKind)
-  3)
-
-; The page a live mutex names, or the 85 trap for one that was freed.
+; The page a mutex names. Its owner is live while any caller holds the
+; mutex, so the page is mapped.
 (:: syncAt (-> Mutex Int))
 ;@axiom:effect(unsafe)
 (fn (syncAt mx)
-  (__handle_get syncKind mx.slot))
+  (__resource_get mx.owner))
 
-; A handle for a fresh page, or 0 when the table has no slot left.
-(:: syncName (-> Int Int))
-;@axiom:effect(unsafe)
-(fn (syncName m)
-  (__handle_new syncKind m))
-
-; Retire a live mutex's handle and answer its page, or the 85 trap for a
-; mutex already freed.
-(:: syncRetire (-> Mutex Int))
-;@axiom:effect(unsafe)
-(fn (syncRetire mx)
-  (__handle_free syncKind mx.slot))
+; The cleanup of a mutex's last owner in this address space: unmap this
+; address space's view of the page. Answers 0, or the negated errno of
+; an unmap that failed.
+(:: syncDrop (-> Int Int))
+;@axiom:effect(io)
+(fn (syncDrop m)
+  (match (sysUnmapShared m (syncLoad m 4))
+    ((Ok z) 0)
+    ((Err e) (- 0 (errCode e)))))
 
 ; ---- codes -------------------------------------------------------------
 ; Above 255, like `sysTimedOut` (1001, the timeout every lock call here
@@ -288,8 +278,7 @@
       0)))
 
 ; ---- the mutex -----------------------------------------------------------
-; A fresh mutex, free. `Err` the mapping's error, or EMFILE (24) when the
-; handle table has no slot left.
+; A fresh mutex, free, or `Err` the mapping's error.
 (pub :: mutexNew (Result Mutex Error))
 ;@axiom:effect(io)
 (pub fn (mutexNew)
@@ -298,21 +287,17 @@
       {
         (syncStore m 4 4096)
         (syncStore m 2 (* (/ m 4096) 16777216))
-        (syncNamed m)
+        (Ok (syncOwned m))
       }
     )
     ((Err e) (Err e))))
 
-; Name a fresh page in the handle table, or unmap it and say why not.
-(:: syncNamed (-> Int (Result Mutex Error)))
+; The owner of a fresh page, whose cleanup unmaps it.
+(:: syncOwned (-> Int Mutex))
 ;@axiom:effect(io)
-(fn (syncNamed m)
-  (let ((h (syncName m)))
-    (if (== h 0)
-      (match (sysUnmapShared m 4096)
-        ((Ok z) (Err (mkError 24 "mutexNew: every handle is in use")))
-        ((Err e) (Err (mkError 24 "mutexNew: every handle is in use"))))
-      (Ok (Mutex h)))))
+;@axiom:effect(unsafe)
+(fn (syncOwned m)
+  (Mutex (__resource_new syncDrop m)))
 
 ; This binding's mark in the lock word: its pid, shifted past bit 0.
 (:: syncMe Int)
@@ -504,8 +489,8 @@
                     (Err (mkError sysTimedOut "mutexLockTimeout: timed out"))))
               })))))))
 
-; The guard for acquisition `serial` of `mx`. Its cleanup names the
-; mutex, so a guard that outlives `mutexFree` traps 85 as any call does.
+; The guard for acquisition `serial` of `mx`. Its cleanup captures the
+; mutex, so the mutex outlives every guard of it.
 (:: syncGuard (-> Mutex Int MutexGuard))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
@@ -549,13 +534,3 @@
 (pub fn (mutexOwnerDead mx)
   (== (syncLoad (syncAt mx) 3) 1))
 
-; Unmap the mutex. Only once no binding can still reach it - after the
-; `parallel` form that used it. Takes no lock, so it is also the one
-; safe call on a poisoned mutex. The handle is retired before the page
-; is unmapped, so every call made after this one - a second `mutexFree`
-; included - traps with status 85.
-(pub :: mutexFree (-> Mutex (Result Int Error)))
-;@axiom:effect(io)
-(pub fn (mutexFree mx)
-  (let ((m (syncRetire mx)))
-    (sysUnmapShared m (syncLoad m 4))))

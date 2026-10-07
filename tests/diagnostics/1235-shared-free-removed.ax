@@ -1,0 +1,34 @@
+; A channel, a mutex and a cancellation token are freed when their last
+; owner lets go (docs/memory-model.md MM-PAR-16), so the calls that freed
+; them by hand are gone, each AX3001: no binding can dispose of one that
+; another still uses. A hand-written `__thread_spawn` or `__par_spawn`
+; lends nothing, so capturing a channel there is AX3064. `parallel`
+; lends it to its binding, which is the control.
+(import Chan)
+(import Sync)
+(import Task)
+(import Err)
+
+(:: main Int)
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(fn (main)
+  (match (chanNew 1)
+    ((Ok c)
+      (match (mutexNew)
+        ((Ok m)
+          (match taskTokenNew
+            ((Ok t)
+              {
+                (chanFree c)
+                (mutexFree m)
+                (taskTokenFree t)
+                (parallel p ((a (chanLen c)))
+                  a)
+                (__thread_join (__thread_spawn (lambda (x) (chanLen c)) 0))
+                (__par_join (__par_spawn (lambda (x) (chanLen c)) 0))
+              })
+            ((Err e) 3)))
+        ((Err e) 2)))
+    ((Err e) 1)))

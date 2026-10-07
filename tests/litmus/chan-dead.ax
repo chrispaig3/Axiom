@@ -27,9 +27,9 @@
 ;              Prints `sweep N poisoned P clean C odd O worst-ms M`.
 ;
 ; Taking the lock the way `chanLock` does reads `stdlib/Chan.ax`'s layout
-; - word 0 is the lock, marked with the holder's pid times 4, and the
-; handle table's kind 2 is a channel - which a test may borrow through the
-; unsafe layer.
+; - a `Chan`'s one field is its owner, whose word 3 is the ring, and the
+; ring's word 0 is the lock, marked with the holder's pid times 4 - which
+; a test may borrow through the unsafe layer.
 (import IO)
 (import Sys)
 (import Str)
@@ -87,14 +87,12 @@
     1
     0))
 
-; The ring a live channel names, the way `Chan.ax`'s `chanAt` asks the
-; handle table: the handle's word, unwrapped, and the kind for a channel.
+; The ring a live channel names, read through its owner as `Chan.ax`'s
+; `chanAt` reads it.
 (:: ringOf (-> Chan Int))
 ;@axiom:effect(unsafe)
 (fn (ringOf c)
-  (__handle_get
-    2
-    (cast Int c)))
+  (__load64 (__load64 (cast Int c) 0) 3))
 
 (:: word (-> Int Int Int))
 ;@axiom:effect(unsafe)
@@ -260,11 +258,6 @@
     (say "closed" (bit (chanClosed c)))
     (say "len" (chanLen c))
     (say "poisoned" (bit (chanPoisoned c)))
-    (say
-      "free"
-      (match (chanFree c)
-        ((Ok z) 1)
-        ((Err e) 0)))
   })
 
 (:: isNone (-> (Option Int) Bool))
@@ -328,9 +321,7 @@
                 })
               (__proc_join_nr h cell)
               (say "holder-status" (memGetWord cell 0))
-              (match (chanFree c)
-                ((Ok z) 0)
-                ((Err e) 3))
+              0
             })
         )
         ((Err e) 2))
@@ -422,9 +413,6 @@
                       (if (!= st 72)
                         (set odd (+ odd 1))
                         0)
-                      (match (chanFree c)
-                        ((Ok z) 0)
-                        ((Err e) 0))
                     })))
             )
             ((Err e)

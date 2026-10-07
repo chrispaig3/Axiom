@@ -3174,6 +3174,16 @@
       1
       0)))
 
+; A heap struct its module declared `sealed shared` (MM-PAR-16): a
+; counted handle a `parallel` form lends its bindings (`capBorrowableIn`).
+(pub :: structEntIsSharedHeap (-> Int Int))
+(pub fn (structEntIsSharedHeap ent)
+  (if (== ent 0)
+    0
+    (if (== (& (memGetWord ent 4) 7) 6)
+      1
+      0)))
+
 (pub :: structEntIsShared (-> Int Int))
 (pub fn (structEntIsShared ent)
   (if (== (structEntIsWord ent) 0)
@@ -6557,9 +6567,9 @@
 ; ------------------------------------------------------------------
 ; WORD STRUCTS AND HANDLES (docs/memory-model.md MM-VAL-10a, MM-PAR-8).
 ;
-; `(struct Chan word shared (slot : Int))` declares a type that is ONE
-; MACHINE WORD, not a heap block: `(Chan s)` is the word `s` and `c.slot`
-; is the word `c`. Three things follow, and this section is where the
+; `(struct Ticket word shared (slot : Int))` declares a type that is ONE
+; MACHINE WORD, not a heap block: `(Ticket s)` is the word `s` and
+; `t.slot` is the word `t`. Three things follow, and this section is where the
 ; checker says each of them:
 ;
 ;   * IT IS A SCALAR to every question about ownership. `evClassOf`,
@@ -6583,10 +6593,11 @@
 ; never shared: a join from another thread is refused at run time (78,
 ; `MM-PAR-7`).
 ;
-; What the word MEANS is its module's business. The standard library's
-; handles (`Chan`, `Mutex`, `CancelToken`) and `Spawn` hold a slot in
-; the runtime's handle table (`__handle_new`, MM-PAR-8), so a freed or
-; forged one traps 85 instead of touching an unmapped page.
+; What the word MEANS is its module's business. `Spawn` holds a slot in
+; the runtime's handle table (`__handle_new`, MM-PAR-8), so a rejoined
+; or forged one traps 85 instead of touching an unmapped page. The
+; standard library's `Chan`, `Mutex` and `CancelToken` are not words but
+; `sealed shared` owners (MM-PAR-16).
 ; ------------------------------------------------------------------
 ; The struct declaration a bare or qualified NAME denotes, IGNORING
 ; visibility: whether a type is a word is a fact about its declaration,
@@ -6733,13 +6744,16 @@
       1)))
 
 ; ------------------------------------------------------------------
-; The declaration rules, AX3084. A marker is `word` or `shared`, each
-; at most once. `shared` needs `word`: a heap struct is a counted
-; block, and a count two threads touch is MM-PAR-6's race. And a word
-; is ONE `Int`: one field, typed `Int`, not `mut` (a word has no
-; storage a store could reach - `(set c.slot v)` would change a copy),
-; and no type parameters (a word carries no type argument a `Vec`'s
-; evidence could read).
+; The declaration rules, AX3084. A marker is `word`, `sealed` or
+; `shared`, each at most once. `shared` needs `word` or `sealed`: only a
+; module that keeps the fields to itself can say every operation is safe
+; from several bindings at once. A `sealed shared` heap struct is a
+; counted block, and its count is safe because a `parallel` form lends
+; it, frozen until the last join (MM-PAR-6b, MM-PAR-16); so it takes no
+; `mut` field and no type parameters. And a word is ONE `Int`: one
+; field, typed `Int`, not `mut` (a word has no storage a store could
+; reach - `(set c.slot v)` would change a copy), and no type parameters
+; (a word carries no type argument a `Vec`'s evidence could read).
 ; ------------------------------------------------------------------
 (pub :: checkStructMarkers (-> Int Int Int))
 (pub fn (checkStructMarkers tc d)
@@ -6771,23 +6785,61 @@
                 tc
                 (nodeSpan m)
                 (concat (concat "`" n) "` is not a struct marker")
-                "a struct takes `word`, which makes it one machine word rather than a heap block, and `shared`, which lets a `parallel` binding capture a `word`; anything else after the struct's name is refused"
-                "the markers come between the name and the first field: `(struct Chan word shared (slot : Int))`"))
+                "a struct takes `word`, which makes it one machine word rather than a heap block, `sealed`, which keeps its constructor and fields in its module, and `shared`, which lets a `parallel` binding capture it; anything else after the struct's name is refused"
+                "the markers come between the name and the first field: `(struct Ticket word shared (slot : Int))`"))
             (set i (+ i 1))
           }))
-      (if (&& (structIsShared d) (if (structIsWord d)
+      (if (&& (structIsShared d) (if (|| (structIsWord d) (structHasMarker d "sealed"))
         false
         true))
         (emitStructMarkerDiag
           tc
           (nodeSpan d)
-          (concat (concat "struct `" (nodeAName d)) "` is `shared` but not a `word`")
-          "add `word`, or drop `shared`: only a word may be shared between concurrent bindings"
-          "a heap struct is a counted block, and `axiom_retain` is a plain load-add-store: two bindings touching one count lose an increment and free a block still named (MM-PAR-6)")
+          (concat (concat "struct `" (nodeAName d)) "` is `shared` but neither a `word` nor `sealed`")
+          "add `word` for a one-word handle or `sealed` for a counted one, or drop `shared`: only a module that keeps the fields to itself can promise every operation is safe from several bindings at once"
+          "a `sealed shared` struct is lent to a `parallel` form's bindings with its count frozen until the last join, since `axiom_retain` is a plain load-add-store (MM-PAR-6b, MM-PAR-16)")
+        0)
+      (if (&& (structIsShared d) (&& (if (structIsWord d) false true) (structHasMarker d "sealed")))
+        (checkSharedHeapShape tc d)
         0)
       (if (structIsWord d)
         (checkWordStructShape tc d)
         0)
+      0
+    }))
+
+; A `sealed shared` heap struct: no type parameters, and no `mut`
+; field, since a lent block is read by every binding at once and a store
+; to it would race (MM-PAR-16).
+(pub :: checkSharedHeapShape (-> Int Int Int))
+(pub fn (checkSharedHeapShape tc d)
+  (let (
+    (fs (nodeBVec d))
+    (name (nodeAName d))
+    (mut i 0)
+  )
+    {
+      (if (!= (nodeTy d) 0)
+        (emitStructMarkerDiag
+          tc
+          (nodeSpan d)
+          (concat (concat "shared struct `" name) "` takes type parameters")
+          "drop the parameters: a shared struct's module states what every field is"
+          "a `parallel` form lends a shared struct whole, and its module, not its caller, answers for every field's use from several bindings (MM-PAR-16)")
+        0)
+      (while (< i (vecLen fs))
+        (let ((f (vecGet fs i)))
+          {
+            (if (== (fieldIsMut f) 1)
+              (emitStructMarkerDiag
+                tc
+                (spanOf f)
+                (concat (concat (concat (concat "field `" (nodeAName f)) "` of shared struct `") name) "` is `mut`")
+                "drop `mut`: keep what changes in the memory the struct names, behind its module's atomics or lock"
+                "a lent block is read by every binding at once, so a plain store to its field would race (MM-PAR-9)")
+              0)
+            (set i (+ i 1))
+          }))
       0
     }))
 
@@ -11372,10 +11424,10 @@
       true
       (capBlockNames xs name (+ i 1)))))
 
-; A scoped borrow may reach only immutable blocks: strings and data
-; constructors whose instantiated fields are themselves borrowable.
-; Structs, containers, closures, foreign resources and unknown types
-; are refused. The runtime lends every mapped child before any spawn.
+; A scoped borrow may reach only immutable blocks: strings, data
+; constructors whose instantiated fields are themselves borrowable, and
+; `sealed shared` structs. Other structs, containers, closures, foreign
+; resources and unknown types are refused. The runtime lends every mapped child before any spawn.
 (pub :: capTyBorrowable (-> Int Int Int))
 (pub fn (capTyBorrowable tc ty)
   (capBorrowableIn tc ty vecNew vecNew 0))
@@ -11397,6 +11449,11 @@
           (let ((n (nodeAName ty)))
             (if (|| (strEq n "String") (|| (strEq n "Int") (|| (strEq n "Float") (|| (strEq n "Bool") (strEq n "Char")))))
               1
+              ; A `sealed shared` struct (MM-PAR-16): its module built
+              ; every operation for several bindings at once, and the
+              ; lend freezes its block and its owner.
+              (if (== (structEntIsSharedHeap (findStructAnyVis tc n)) 1)
+                1
               (let ((dent (findData tc n)))
                 (if (== dent 0)
                   0
@@ -11418,7 +11475,7 @@
                                     (vecPop active)
                                     answer
                                   })
-                              }))))))))))))))
+                              })))))))))))))))
 
 (pub :: capBorrowableCtors (-> Int (Vec Int) Int (Vec String) (Vec String) Int Int Int))
 (pub fn (capBorrowableCtors tc ctors ty seen active depth i)

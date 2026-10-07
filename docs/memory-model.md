@@ -98,7 +98,7 @@ handle.
 | A cast preserves its type, ownership and lifetime | `MM-VAL-22` and `MM-VAL-23`; forging requires Unsafe | `scripts/check-cast-arg-root.sh` |
 | A container access stays within bounds | `vecGet` and `vecSet` trap 77 before access | `tests/stdlib/525-vec-set-bounds.ax` |
 | A handle is live and belongs to the right module | Sealed types and the runtime handle table; stale use traps 85 | `scripts/check-handles.sh` |
-| Shared storage is freed after its concurrent users finish | Program obligation: `chanFree`, `mutexFree` and `taskTokenFree` are trusted (`MM-EXEC-9d`), and a use after the free traps 85 | `tests/litmus/shared-free-boundary.ax` |
+| Shared storage outlives its concurrent users | Checked: a channel, mutex or token is freed when its last owner in an address space lets go, and a `parallel` form lends it with its count frozen (`MM-PAR-16`) | `tests/stdlib/803-shared-owner.ax` |
 | Shared mutable words are ordered | `MM-PAR-9` atomics, channel or mutex; the programmer guards raw shared pages | `scripts/check-atomics.sh` |
 | A raw address and a foreign value satisfy their contract | Unsafe boundary and caller review | `tests/diagnostics/1040-forging-cast.ax` |
 | A recovery extent releases external resources | A reset runs the cleanup of the owners made since its mark (`MM-EXEC-20`), so files close and guards release; a resource held only through a raw word stays the program's | `tests/stdlib/801-reset-cleanup.ax` |
@@ -905,7 +905,7 @@ statuses. A program **MUST NOT** reuse them as a normal result:
 | 82 | an atomic whose address is not 8-byte aligned (`emitAtomicAlignGuard`, `MM-PAR-9`) | measured: `tests/stdlib/544-misaligned-atomic.ax` hands each of the four atomics an address 4 bytes into a word inside a recovery point, which answers 82 each time, then prints `axiom: misaligned atomic access` to fd 2 and exits 82, at every `--opt` level |
 | 83 | `INT_MIN / -1`, raised by the division guard (`emitDivGuard`): `sdiv`/`srem` overflow has no representable answer | measured: `tests/stdlib/695-intmin-div-trap.ax` divides inside a recovery point, which answers 83, then prints `axiom: division overflow` to fd 2 and exits 83, at every `--opt` level |
 | 84 | a shift amount below 0 or above 63, raised by the shift guard (`emitShiftGuard`): an overshift is poison in LLVM | measured: `tests/stdlib/696-shift-wide-trap.ax` shifts inside a recovery point, which answers 84, then prints `axiom: shift amount out of range` to fd 2 and exits 84, at every `--opt` level |
-| 85 | a handle that isn't live: a freed, forged or other-kind channel, mutex or cancellation token, a second free of one, or a spawn handle joined twice or by the other lowering's join (`@__axiom_handle_dead`, `MM-PAR-8`) | measured: `tests/stdlib/570-handle-freed.ax` runs every channel and mutex operation on a freed handle, a second free, a forged word and a mutex's word used as a channel, each inside a recovery point, which answers 85 each time, then prints `axiom: not a live handle (freed, or never made)` to fd 2 and exits 85, at every `--opt` level. `tests/stdlib/572-spawn-joined-twice.ax` does the same for a second join, the pid of a joined binding and a freed token, and `tests/stdlib/571-handle-table.ax` pins the table: 65,536 live handles, the next refused, and a reused slot under a new generation |
+| 85 | a handle that isn't live: a spawn handle joined twice or by the other lowering's join, a forged one, or a table handle the unsafe layer freed (`@__axiom_handle_dead`, `MM-PAR-8`) | measured: `tests/stdlib/572-spawn-joined-twice.ax` runs a second join, the pid of a joined binding, a forged word and a channel used as a spawn handle, each inside a recovery point, which answers 85 each time, then prints `axiom: not a live handle (freed, or never made)` to fd 2 and exits 85, at every `--opt` level. `tests/stdlib/571-handle-table.ax` pins the table: 65,536 live handles, the next refused, and a reused slot under a new generation |
 
 `(__indexTrap)` never returns, so it fits every result type. It exists
 because traps are `internal` LLVM functions emitted by the runtime
@@ -1421,11 +1421,11 @@ module.** A struct declared with the marker `word` isn't a heap block.
 Its one field, an `Int`, is the whole value:
 
 ```scheme
-(pub struct Chan word shared
+(pub struct Ticket word shared
   (slot : Int))
 ```
 
-`(Chan w)` is the word `w`, and `c.slot` is the word `c`. The value
+`(Ticket w)` is the word `w`, and `t.slot` is the word `t`. The value
 allocates nothing and takes no share. It has no bit in any reference
 map and costs a polymorphic call no evidence word, so a heap block that
 holds one maps exactly as it would for an `Int`.
@@ -1439,10 +1439,11 @@ value of the type is therefore one its module made. A `cast` to the
 type forges one, and that belongs to the unsafe layer (`MM-VAL-22`).
 
 The checker holds the shape (`AX3084`): exactly one field, typed `Int`,
-not `mut`, and no type parameters. The second marker, `shared`, needs
-`word`. It says every operation the module offers on the type is safe
-from several bindings at once, and `MM-PAR-6` lets a concurrent binding
-capture exactly those word structs. The checker lowers construction and
+not `mut`, and no type parameters. The marker `shared` needs `word`,
+or `sealed` on a heap struct (`MM-PAR-16`). It says every operation the
+module offers on the type is safe from several bindings at once, and
+`MM-PAR-6` lets a concurrent binding capture exactly those word
+structs. The checker lowers construction and
 field reads to the word itself, so the emitter never sees either, and
 `symbols` reports the representation as `#repr=word` or
 `#repr=word,shared`.
@@ -5086,12 +5087,14 @@ design cannot absorb.
   the class rule refuses beside them. A `Foreign` stays accepted, for
   `MM-FFI-7`'s reason.
 - **A captured handle: admitted when its type says so.** A word struct
-  its module declares `shared` (`MM-VAL-10a`), such as `Chan`, `Mutex`
-  and `CancelToken`, is one word the module built for use from several
-  bindings at once, so `AX3064` admits it in either lowering. A word
-  struct without `shared` is refused with its own message, and so is a
-  `Spawn` (`MM-PAR-8`), because a join belongs to the binding that
-  spawned it. `tests/diagnostics/1064-parallel-capture-handle.ax` and
+  its module declares `shared` (`MM-VAL-10a`), such as `Addr`, is one
+  word the module built for use from several bindings at once, so
+  `AX3064` admits it in either lowering. A `sealed shared` heap struct,
+  such as `Chan`, `Mutex` and `CancelToken`, is lent by a `parallel`
+  form and refused at a hand-written spawn, which lends nothing
+  (`MM-PAR-16`). A word struct without `shared` is refused with its own
+  message, and so is a `Spawn` (`MM-PAR-8`), because a join belongs to
+  the binding that spawned it. `tests/diagnostics/1064-parallel-capture-handle.ax` and
   `tests/diagnostics/1066-spawn-handle.ax` pin them, at `parallel` and
   at `__thread_spawn`, and `scripts/check-handles.sh` holds them under
   `build` and `build --threads`.
@@ -5277,12 +5280,11 @@ forked binding's handle and a thread's are different kinds, so one
 lowering's handle joined by the other's join traps 85 too, and
 `__spawn_pid` answers only a process's pid.
 
-The same table carries the standard library's handles: a channel
-(`MM-PAR-10`), a mutex (`MM-PAR-11`) and a cancellation token
-(`MM-PAR-13`), each a word struct its module declares `shared`
-(`MM-VAL-10a`). Every operation asks the table for the object first,
-so a freed, forged or other-kind handle traps 85, and so does a second
-free.
+The standard library's channels, mutexes and cancellation tokens
+aren't in the table. Each is an owner whose page lives while any
+holder does (`MM-PAR-16`), so there is no free to check. The table
+carries spawn handles and what the unsafe layer makes with
+`__handle_new`.
 
 A mutex's guard, `MutexGuard`, isn't in the table. It is a sealed
 resource owner that only a lock call answers, and its end releases the
@@ -5300,17 +5302,15 @@ mapped on first use and lock-free. A module that names no handle or
 spawn primitive emits none of it. §10.7 records why liveness lives in
 a table.
 
-*Limits.* A free that races another binding's operation on the same
-handle is a data race (`MM-PAR-9`): the table catches every use ordered
-after the free, not one already in flight. Disposal is trusted: its
-caller must finish concurrent users before reclaiming their mapping,
-and nothing checks that. A `cast` to a handle type
+*Limits.* A `__handle_free` that races another binding's use of the
+same handle is a data race (`MM-PAR-9`): the table catches every use
+ordered after the free, not one already in flight, and the unsafe
+layer that calls it answers for the order. A `cast` to a handle type
 forges one, which is the unsafe layer's (`MM-VAL-22`). At most 65,536
 handles are live at once: a spawn beyond that is refused as a refused
-fork is (78), and a library call answers `EMFILE`.
+fork is (78).
 
-*Evidence.* `tests/stdlib/570-handle-freed.ax`,
-`tests/stdlib/571-handle-table.ax` and
+*Evidence.* `tests/stdlib/571-handle-table.ax` and
 `tests/stdlib/572-spawn-joined-twice.ax`, at every `--opt`;
 `tests/diagnostics/1060-handle-int-for-chan.ax` to
 `tests/diagnostics/1066-spawn-handle.ax`. The guard's refusals are
@@ -5510,7 +5510,6 @@ channel serves both lowerings without the program choosing.
   | `chanClosed` | `True` |
   | `chanLen` | 0 |
   | `chanPoisoned` | `True`: a holder died holding the lock |
-  | `chanFree` | frees it: it takes no lock |
 
   A binding already asleep, on the lock or on the ring, answers within
   one slice of the holder being found dead.
@@ -5544,23 +5543,18 @@ would name memory the receiver doesn't own: a forked child's arena, or
 a thread's, which is unmapped when it ends (`MM-PAR-6a`). Typed values
 cross between tasks by serialization (`MM-PAR-13`).
 
-The handle is a `Chan` (`MM-VAL-10a`): only `chanNew` makes one, and
-every operation asks the runtime's handle table for the mapping before
-it touches the ring (`MM-PAR-8`). So an operation on a freed channel,
-and a second `chanFree`, trap with status 85 instead of reading an
-unmapped page, and no other kind of handle passes as a channel. `Chan`
-is declared `shared`, so a `parallel` binding may capture it in either
-lowering. What stays a program obligation is the order: call
-`chanFree` only once no binding can still use the channel, after the
-`parallel` form that used it. A free that races another binding's
-operation is a data race (`MM-PAR-9`), which the table doesn't catch.
+The handle is a `Chan`, a `sealed shared` owner (`MM-PAR-16`): only
+`chanNew` makes one, and its ring is unmapped when its last owner in
+the address space lets go, never while a binding uses it. A `parallel`
+form lends it to its bindings in either lowering.
 
 The raw words are private helpers that say `effect(unsafe)` alone,
 trusted encapsulations (`MM-EXEC-9d`), so `Unsafe` stops at them and
 the public functions' rows don't carry it (`docs/stdlib-api.md`). The
 two timed forms say `effect(unsafe)` themselves, because they hand
-back a scratch block, and they are trusted too. That trust rests on the
-handle obligation above, which the type `Int` can't express. The rows
+back a scratch block, and they are trusted too. That trust rests on
+each call holding the channel while it uses the ring's address, which
+the type `Int` can't express. The rows
 of the calls that lock carry `Alloc`, because a lock wait takes a
 scratch block.
 
@@ -5687,11 +5681,10 @@ answers a guard, and the guard's end lets the next holder in
 - A thread can't die holding the lock alone. A trap under `--threads`
   ends the process.
 
-*Program obligations.* The handle is a `Mutex`, as `Chan`'s is a
-`Chan`: every call on a freed mutex, and a second `mutexFree`, traps
-with status 85. Call `mutexFree` only once no binding can reach the
-mutex; a free that races a lock call is a data race (`MM-PAR-9`). A
-guard made with a `cast` is the unsafe layer's (`MM-VAL-22`).
+*Program obligations.* The handle is a `Mutex`, an owner as `Chan`'s is
+(`MM-PAR-16`), and every guard holds it too, so its page outlives every
+binding and every guard that uses it. A guard made with a `cast` is the
+unsafe layer's (`MM-VAL-22`).
 What the lock protects is protected only if every access to it happens
 under the lock. A plain access outside it is a data race (`MM-PAR-9`).
 
@@ -5868,10 +5861,9 @@ deadline/cancellation handling. Tested by
   microseconds with saturation, so a deadline or grace near the
   largest `Int` means for ever.
 - **Cancellation** uses a token: a `CancelToken` from `taskTokenNew`,
-  a handle naming a shared word, which `taskCancel` sets from anywhere,
-  a sibling binding or a task, and `taskCancelled` polls. A binding may
-  capture it, and a call on a freed one traps with status 85
-  (`MM-PAR-8`). A pool that sees it set starts nothing
+  an owner of a shared word, which `taskCancel` sets from anywhere,
+  a sibling binding or a task, and `taskCancelled` polls. A `parallel`
+  form lends it to its bindings (`MM-PAR-16`). A pool that sees it set starts nothing
   more, and every unstarted task answers `taskCancelledCode` (1002).
   Running tasks get `grace` to finish, then the pool kills and reaps
   the rest, which answer 1002. `failFast` sets the pool's token at the
@@ -5899,7 +5891,7 @@ deadline/cancellation handling. Tested by
   the pool as a cancellation does, but leaves the token alone: nothing
   more starts, the tasks still running get `grace` and are then killed
   and reaped, and the pool returns through its normal path, which
-  unmaps the slab and frees a private token. The spawn runs inside a
+  unmaps the slab and lets a private token go. The spawn runs inside a
   recovery point of its own (`taskSpawn`), so the runtime's 78 comes
   back to the pool instead of unwinding past its cleanup.
 - **`Par`'s pools answer a refusal too.** `stdlib/Par.ax`'s
@@ -5958,7 +5950,7 @@ deadline/cancellation handling. Tested by
   captures might retain a scoped value, and the pool's delivery, which
   resets the mark, is trusted.
 - A token passed in is shared state: cancelling it cancels every pool
-  using it. Free it only once no pool and no task can still use it.
+  using it.
 
 *Evidence.*
 
@@ -6182,6 +6174,102 @@ lowerings at `--opt` 0 and 2, and §6 removes the release's look at
 whose lock it is and its poisoning, each turning the guard fixture
 red. `tests/diagnostics/1070-mutex-guard-int.ax` and
 `tests/diagnostics/1071-mutex-guard-sealed.ax` hold the refusals.
+
+**MM-PAR-16 (H). A channel, mutex or cancellation token is freed when
+its last owner lets go, and never while a binding uses it.** `Chan`,
+`Mutex` and `CancelToken` are `sealed shared` structs, each holding one
+resource owner (`MM-EXEC-17`) whose cleanup unmaps the object's page.
+There is no free to call:
+
+```scheme
+(import IO)
+(import Err)
+(import Chan)
+
+(:: sendAll (-> Chan Int))
+;@axiom:effect(io)
+;@axiom:effect(block)
+(fn (sendAll c)
+  {
+    (chanSend c 20)
+    (chanSend c 22)
+    (chanClose c)
+    0
+  })
+
+(:: sumAll (-> Chan Int))
+;@axiom:effect(io)
+;@axiom:effect(block)
+(fn (sumAll c)
+  (let ((mut sum 0) (mut more 1))
+    {
+      (while (== more 1)
+        (match (chanRecv c)
+          ((Some v) (set sum (+ sum v)))
+          ((None) (set more 0))))
+      sum
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(fn (main)
+  (match (chanNew 4)
+    ((Ok c)
+      (parallel p ((a (sendAll c)) (b (sumAll c)))
+        {
+          (println "sum {b}")
+          0
+        }))
+    ((Err e) 1)))
+```
+
+```text
+sum 42
+```
+
+- **One count per address space.** Each process maps the page itself,
+  and the kernel frees the pages with the last mapping. A forked
+  child's copies of its parent's owners, and its own, go with the
+  child however it ends, a `SIGKILL` included. So no count crosses a
+  process boundary, and a killed child strands nothing for the
+  dead-holder protocol to repair.
+- **Threads borrow.** A `parallel` form lends a `sealed shared` struct
+  to its bindings as it lends an immutable graph (`MM-PAR-6b`): its
+  count and its owner's are frozen before any binding starts and put
+  back after the last join. No binding moves a count, and the parent
+  can't let go of its owner until every binding has joined.
+- **A hand-written spawn refuses one.** `__par_spawn` and
+  `__thread_spawn` lend nothing, so capturing one there is `AX3064`.
+  `__proc_spawn` gives the child its own copy.
+- **Every guard owns its mutex.** A guard's cleanup captures the mutex,
+  so the page outlives every guard of it (`MM-PAR-15`).
+- **`shared` on a heap struct** needs `sealed`, no `mut` field and no
+  type parameters (`AX3084`). Only the declaring module touches the
+  fields, and every binding reads the block at once.
+- **The handle table doesn't carry them** (`MM-PAR-8`). Each call reads
+  the page through the owner, which a live caller holds.
+
+*Limits.* A trap that leaves a `parallel` form between its lends and
+its return leaves the lent owners frozen, so their pages stay mapped
+until the process exits (`MM-PAR-6b`). A page address the library takes
+from an owner is valid while that owner lives: each call holds the
+object it was given, and a pool holds its token until it returns. That
+is a trusted obligation inside `Chan`, `Sync` and `Task`. A `cast` that
+forges an owner is the unsafe layer's (`MM-VAL-22`).
+
+*Evidence.* `tests/stdlib/803-shared-owner.ax`: 2,000 channels each
+lent to two bindings and drained by the parent after the join, with no
+word lost, and a forked child still using a channel its parent has let
+go. `tests/stdlib/802-owner-no-leak.ax`: channels, mutexes and tokens
+made and let go in a loop with the arena's backlog flat, and
+`scripts/check-task.sh` §11 runs both in both lowerings at `--opt` 0
+and 2 and holds the peak RSS after 100,000 of each to that after
+2,000, against a control that keeps 5,000 channels and must grow.
+`tests/diagnostics/1235-shared-free-removed.ax`: the removed frees and
+a capture at a hand-written spawn refused.
+`tests/diagnostics/1236-shared-heap-marker.ax`: the marker's shape.
 
 ---
 
@@ -6767,7 +6855,7 @@ All twelve of `MM-EXEC-16`'s executable POSIX exit statuses are gated:
 - 82 by `tests/stdlib/544-misaligned-atomic.ax`;
 - 83 by `tests/stdlib/695-intmin-div-trap.ax`;
 - 84 by `tests/stdlib/696-shift-wide-trap.ax`;
-- 85 by `tests/stdlib/570-handle-freed.ax`.
+- 85 by `tests/stdlib/572-spawn-joined-twice.ax`.
 
 The 75 and 76 fixtures each pin the sentence, the status, and the
 legal shapes the trap must stay silent on.

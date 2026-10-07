@@ -1,12 +1,11 @@
-; A spawn handle is joined once, and a cancellation token is freed once
-; (docs/memory-model.md MM-PAR-8): a second join, the pid of a joined
-; binding, a word no spawn answered, another kind of handle used as a
-; spawn's, and every call on a freed token each trap with status 85,
-; on every target and at every `--opt` (the `.optstable`). The join
+; A spawn handle is joined once (docs/memory-model.md MM-PAR-8): a
+; second join, the pid of a joined binding, a word no spawn answered and
+; a channel used as a spawn's handle each trap with status 85, on every
+; target and at every `--opt` (the `.optstable`). The join
 ; asks the handle table for the binding's page before it reads it, so a
 ; handle joined before never reads the unmapped page.
 ;
-; The live joins and the live token answer first: those are the
+; The live joins and a live token answer first: those are the
 ; controls. Each misuse runs inside a recovery point and must answer
 ; 85 there. The last, a second raising join, is not recovered: the
 ; program prints the trap's sentence and exits 85.
@@ -42,20 +41,6 @@
         (if (== k 1)
           (__proc_join_nr h cell)
           (__spawn_pid h)))
-    )))
-
-; Operation `k` on token `t`, inside a recovery point.
-(:: tokenMisuse (-> Int CancelToken Int))
-;@axiom:effect(io)
-(fn (tokenMisuse k t)
-  (__axiom_recover
-    __axiom_arena_mark
-    (lambda (x)
-      (if (== k 0)
-        (taskCancel t)
-        (if (== k 1)
-          (bit (taskCancelled t))
-          (okBit (taskTokenFree t))))
     )))
 
 ; A word no spawn answered, and a channel's word, spelled as a spawn
@@ -95,7 +80,6 @@
               (println (memGetWord cell 0))  ; 0
               (taskCancel t)
               (println (bit (taskCancelled t)))  ; 1
-              (println (okBit (taskTokenFree t)))  ; 1
               ; The misuses, each 85.
               (let ((st (spawnMisuse 0 h cell)))
                 (println "a second join: status {st}"))
@@ -107,12 +91,6 @@
                 (println "a word no spawn answered: status {st}"))
               (let ((st (spawnMisuse 0 (asSpawn c) cell)))
                 (println "a channel as a spawn handle: status {st}"))
-              (let ((st (tokenMisuse 0 t)))
-                (println "cancel a freed token: status {st}"))
-              (let ((st (tokenMisuse 1 t)))
-                (println "poll a freed token: status {st}"))
-              (let ((st (tokenMisuse 2 t)))
-                (println "free a token twice: status {st}"))
               (__proc_join h)
               ; `writeStr` and not `println`: `verify-stdlib-out.py` reads a
               ; `println` literal as a line the program prints, and it cannot see

@@ -23,9 +23,9 @@ echo "--- 1. user-level cast count does not grow ---"
 # self_host/ is excluded: (cast Int ...) there is compiler plumbing
 # for untyped words, not the user-level laundering MM-VAL-22 names.
 # Baseline 385 measured 2026-09-29: five arrived with the typed handles.
-# `tests/stdlib/570-handle-freed.ax` and `572-spawn-joined-twice.ax`
-# (two each) spell a forged handle and one handle's word as another
-# kind, which only a cast can write because the types are sealed, and
+# `tests/stdlib/572-spawn-joined-twice.ax` (two) spells a forged handle
+# and one handle's word as another kind, which only a cast can write
+# because the types are sealed, and
 # `tests/litmus/sync-load.ax` (one) reads a mutex's page through the
 # unsafe layer to build the stale-guard window. The forging casts are
 # the fixtures' subject: the MM-VAL-23 reason.
@@ -69,9 +69,9 @@ echo "--- 1. user-level cast count does not grow ---"
 # through the recovery point around a spawn, which answers a word, so
 # each pool turns the handle into its word and back (`taskWordOf`,
 # `parHandleOf`); each module states that as its one such cast. Three
-# are forged guards in `tests/litmus/sync-load.ax`,
-# `tests/stdlib/541-sync-mutex.ax` and `570-handle-freed.ax`, whose
-# subject is a guard nothing earned being refused: the MM-VAL-23 reason.
+# were forged guards in `tests/litmus/sync-load.ax`,
+# `tests/stdlib/541-sync-mutex.ax` and a deleted handle fixture, whose
+# subject was a guard nothing earned being refused: the MM-VAL-23 reason.
 # Baseline 426 measured 2026-09-29 at the R-B10 merge: eight arrived on
 # trunk after 418 was set, and trunk carried the red. Three are
 # `tests/litmus/handle-bitflip.ax`'s fault injection, which flips one

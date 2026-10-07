@@ -2,11 +2,10 @@
 ; (docs/memory-model.md MM-PAR-8). One mode per run, chosen by the first
 ; argument; each prints lines the gate reads.
 ;
-;   freed-send   a channel freed and then sent to: exits 85 without
-;                touching the unmapped ring. A compiler whose table
-;                check is ablated reads the ring instead.
-;   freed-lock   the same for a mutex: exits 85.
-;   double-free  a channel freed twice: the second free exits 85.
+;   freed-get    a handle naming a mapped page, freed, and then asked
+;                for: exits 85 without answering the page. A compiler
+;                whose table check is ablated answers the page instead.
+;   double-free  a handle freed twice: the second free exits 85.
 ;   churn N      four bindings each make, check and free N handles of
 ;                their own through the raw primitives, all at once.
 ;                Prints `churn C checked, M wrong`: every handle must
@@ -18,11 +17,11 @@
 ;                bindings share the table, so exactly one free per round
 ;                returns and the other traps 85; forked bindings each
 ;                free their own copy, so both return.
-;   sibling      a binding frees a channel, and the parent sends on it
+;   sibling      a binding frees a handle, and the parent asks for it
 ;                after the join. Prints `sibling-free status S`: 1, the
-;                send returned, when the binding was a forked child
-;                whose free was its own; 85 under `--threads`, where
-;                the free was the parent's too.
+;                get returned, when the binding was a forked child whose
+;                table was its own copy; 85 under `--threads`, where the
+;                table is the parent's too.
 ;   double-join  a binding joined twice: the second join exits 85
 ;                without reading the unmapped page.
 ;   thread-pid   the pid of a thread binding's handle: exits 85, because
@@ -34,8 +33,6 @@
 (import Sys)
 (import Str)
 (import Err)
-(import Chan)
-(import Sync)
 
 (:: argInt (-> Int Int))
 ;@axiom:effect(io)
@@ -60,57 +57,37 @@
   (__handle_free kind h))
 
 ; ---- misuse ---------------------------------------------------------------
-(:: freedSend Int)
+; A handle of kind 13 naming a fresh mapped page.
+(:: pageHandle Int)
 ;@axiom:effect(io)
-;@axiom:effect(block)
-(fn (freedSend)
-  (match (chanNew 4)
-    ((Ok c)
-      {
-        (match (chanFree c)
-          ((Ok z) (println "freed"))
-          ((Err e) (println "free refused")))
-        (chanSend c 1)
-        (println "UNREACHABLE: a send on a freed channel returned")
-        1
-      }
-    )
-    ((Err e) 2)))
+(fn (pageHandle)
+  (match (sysMapShared 4096)
+    ((Ok page) (newH 13 page))
+    ((Err e) 0)))
 
-(:: freedLock Int)
+(:: freedGet Int)
 ;@axiom:effect(io)
-;@axiom:effect(block)
-(fn (freedLock)
-  (match (mutexNew)
-    ((Ok m)
-      {
-        (match (mutexFree m)
-          ((Ok z) (println "freed"))
-          ((Err e) (println "free refused")))
-        (match (mutexLock m)
-          ((Ok g) (println "UNREACHABLE: a lock of a freed mutex returned"))
-          ((Err e) (println "UNREACHABLE: a lock of a freed mutex answered")))
-        1
-      }
-    )
-    ((Err e) 2)))
+(fn (freedGet)
+  (let ((h pageHandle))
+    {
+      (freeH 13 h)
+      (println "freed")
+      (getH 13 h)
+      (println "UNREACHABLE: a get of a freed handle returned")
+      1
+    }))
 
 (:: doubleFree Int)
 ;@axiom:effect(io)
 (fn (doubleFree)
-  (match (chanNew 4)
-    ((Ok c)
-      {
-        (match (chanFree c)
-          ((Ok z) (println "freed"))
-          ((Err e) (println "free refused")))
-        (match (chanFree c)
-          ((Ok z) (println "UNREACHABLE: a second free returned"))
-          ((Err e) (println "UNREACHABLE: a second free answered")))
-        1
-      }
-    )
-    ((Err e) 2)))
+  (let ((h pageHandle))
+    {
+      (freeH 13 h)
+      (println "freed")
+      (freeH 13 h)
+      (println "UNREACHABLE: a second free returned")
+      1
+    }))
 
 ; ---- churn ----------------------------------------------------------------
 ; `n` handles of kind 11, each naming an address of its own, made,
@@ -217,23 +194,22 @@
     ((Err e) 2)))
 
 ; ---- sibling --------------------------------------------------------------
-(:: freeIt (-> Chan Int))
-;@axiom:effect(io)
-(fn (freeIt c)
-  (match (chanFree c)
-    ((Ok z) 1)
-    ((Err e) 0)))
+(:: freeIt (-> Int Int))
+(fn (freeIt h)
+  {
+    (freeH 14 h)
+    1
+  })
 
-(:: sendAfter (-> Chan Int))
-;@axiom:effect(io)
-;@axiom:effect(block)
-(fn (sendAfter c)
+(:: getAfter (-> Int Int))
+(fn (getAfter h)
   (__axiom_recover
     __axiom_arena_mark
     (lambda (x)
-      (if (chanSend c 7)
+      {
+        (getH 14 h)
         1
-        0)
+      }
     )))
 
 (:: sibling Int)
@@ -241,16 +217,13 @@
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
 (fn (sibling)
-  (match (chanNew 4)
-    ((Ok c)
-      (parallel p ((a (freeIt c)))
-        (let ((st (sendAfter c)))
-          {
-            (println "sibling-free status {st}")
-            0
-          }))
-    )
-    ((Err e) 2)))
+  (let ((h (newH 14 4096)))
+    (parallel p ((a (freeIt h)))
+      (let ((st (getAfter h)))
+        {
+          (println "sibling-free status {st}")
+          0
+        }))))
 
 ; ---- the kinds of spawn handle --------------------------------------------
 (:: doubleJoin Int)
@@ -306,12 +279,10 @@
 ;@axiom:effect(block)
 (fn (main)
   (let ((mode (sysArg 1)))
-    (if (strEq mode "freed-send")
-      freedSend
-      (if (strEq mode "freed-lock")
-        freedLock
-        (if (strEq mode "double-free")
-          doubleFree
+    (if (strEq mode "freed-get")
+      freedGet
+      (if (strEq mode "double-free")
+        doubleFree
           (if (strEq mode "churn")
             (churn (argInt 2))
             (if (strEq mode "race")
@@ -325,6 +296,6 @@
                     (if (strEq mode "cross-join")
                       crossJoin
                       {
-                        (println "usage: handle-load freed-send | freed-lock | double-free | churn N | race N | sibling | double-join | thread-pid | cross-join")
+                        (println "usage: handle-load freed-get | double-free | churn N | race N | sibling | double-join | thread-pid | cross-join")
                         2
-                      })))))))))))
+                      }))))))))))

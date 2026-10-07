@@ -1,21 +1,21 @@
-[1;31merror[AX3086][0m[1m: only module `Chan` can read field `slot` of `Chan`[0m
+[1;31merror[AX3086][0m[1m: only module `Chan` can read field `owner` of `Chan`[0m
   [1;34m--> [0m1063-handle-sealed-field.ax:14:5
 [1;34m   |[0m
-[1;34m14 |[0m   c.slot)
-[1;34m   |[0m     [1;31m^^^^ read outside its module[0m
+[1;34m14 |[0m   c.owner)
+[1;34m   |[0m     [1;31m^^^^^ read outside its module[0m
 [1;34m   |[0m
-  [1;34m = [0m[1mnote: [0ma word struct is sealed: what its word means is its module's business, and code that read it could hand the same word to something else (docs/memory-model.md MM-VAL-10a)
-  [1;34m = [0m[1;32mhelp: [0muse the functions module `Chan` provides: a word struct's field stays in its module, `pub` or not
+  [1;34m = [0m[1mnote: [0ma sealed struct keeps ownership state private; use its module's functions (docs/reference.md Structs)
+  [1;34m = [0m[1;32mhelp: [0muse the functions module `Chan` provides: a sealed struct's field stays in its module, `pub` or not
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3086` for a full explanation
 
-[1;31merror[AX3086][0m[1m: only module `Sync` can read field `slot` of `Mutex`[0m
+[1;31merror[AX3086][0m[1m: only module `Sync` can read field `owner` of `Mutex`[0m
   [1;34m--> [0m1063-handle-sealed-field.ax:18:5
 [1;34m   |[0m
-[1;34m18 |[0m   m.slot)
-[1;34m   |[0m     [1;31m^^^^ read outside its module[0m
+[1;34m18 |[0m   m.owner)
+[1;34m   |[0m     [1;31m^^^^^ read outside its module[0m
 [1;34m   |[0m
-  [1;34m = [0m[1mnote: [0ma word struct is sealed: what its word means is its module's business, and code that read it could hand the same word to something else (docs/memory-model.md MM-VAL-10a)
-  [1;34m = [0m[1;32mhelp: [0muse the functions module `Sync` provides: a word struct's field stays in its module, `pub` or not
+  [1;34m = [0m[1mnote: [0ma sealed struct keeps ownership state private; use its module's functions (docs/reference.md Structs)
+  [1;34m = [0m[1;32mhelp: [0muse the functions module `Sync` provides: a sealed struct's field stays in its module, `pub` or not
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3086` for a full explanation
 
 compilation failed due to 2 previous errors

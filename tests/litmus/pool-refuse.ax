@@ -18,9 +18,10 @@
 ;
 ;   task K N W R L S R rounds, each a recovery point around `taskMap` over
 ;                    N stubborn tasks at width W and a byte limit of L,
-;                    with K handle slots free (the pool's token takes
-;                    one). Prints each task's answer, then `round I
-;                    status C free F`: what the recovery point answered
+;                    with K handle slots free (each running task takes
+;                    one; the pool's token is an owner and takes none).
+;                    Prints each task's answer, then `round I status C
+;                    free F`: what the recovery point answered
 ;                    (1000 plus the answers, or the trap's status) and
 ;                    how many handle slots came back.
 ;   checked K N W S  `parMapWordsChecked`, one round, the same way.

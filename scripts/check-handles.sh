@@ -1,73 +1,69 @@
 #!/usr/bin/env bash
 # Typed handles and the runtime's handle table (docs/memory-model.md
-# MM-VAL-10a, MM-PAR-8).
+# MM-VAL-10a, MM-PAR-8, MM-PAR-16).
 #
-# A channel, a mutex and a cancellation token are word structs: sealed
-# types whose word is a slot in a handle table the emitted runtime owns.
-# A spawn handle is the builtin `Spawn`, a slot in the same table. Every
-# operation and every join asks the table for the object first, so a
-# freed or forged handle traps with status 85 before the object's
-# unmapped pages are touched. The diagnostics corpus holds the static
-# half (1060 to 1066: an `Int` for a channel or a spawn handle, a mutex
-# as a channel, the seal, the capture rule and the markers); this gate
-# holds the rest.
+# A spawn handle is the builtin `Spawn`, a slot in a handle table the
+# emitted runtime owns, and the unsafe layer makes slots of its own with
+# `__handle_new`. Every join and every get asks the table first, so a
+# rejoined, freed or forged handle traps with status 85 before the page
+# it named is touched. A channel, a mutex and a cancellation token are
+# owners instead (MM-PAR-16): sealed heap structs whose page lives while
+# any holder does, so there is no free to check. The diagnostics corpus
+# holds the static half (1060 to 1066: an `Int` for a channel or a spawn
+# handle, a mutex as a channel, the seal, the capture rule and the
+# markers); this gate holds the rest.
 #
-# SIX SECTIONS.
+# SEVEN SECTIONS.
 #
-#   1. Freed and forged handles, at every `--opt`.
-#      tests/stdlib/570-handle-freed.ax runs every channel and mutex
-#      operation on a freed handle, a second free, a forged word and a
-#      mutex's word used as a channel, each inside a recovery point;
+#   1. The table and spawn handles at every `--opt`.
 #      tests/stdlib/571-handle-table.ax the table itself: 65,536 live
 #      handles, the 65,537th refused, a slot reused under a new
 #      generation; and tests/stdlib/572-spawn-joined-twice.ax a second
-#      join, the pid of a joined binding, forged and other-kind spawn
-#      handles, and a freed cancellation token. Each must exit 85 at
-#      --opt 0 to 3 with its golden's stdout, and 570 must print at
-#      least nineteen 85s.
-#   2. Misuse in both lowerings. A send on a freed channel, a lock of a
-#      freed mutex, a second free and a second join exit 85, processes
-#      and threads; so do the pid of a thread's handle and a forked
-#      binding's handle joined as a thread.
+#      join, the pid of a joined binding, and forged and other-kind
+#      spawn handles. Each must exit 85 at --opt 0 to 3 with its
+#      golden's stdout.
+#   2. Misuse in both lowerings. A get of a freed handle, a second free
+#      and a second join exit 85, processes and threads; so do the pid
+#      of a thread's handle and a forked binding's handle joined as a
+#      thread.
 #   3. The table under concurrency, both lowerings. Four bindings make,
 #      check and free 20,000 handles each at once, and every handle must
 #      answer its own address. Two bindings free one handle at once,
 #      2,000 times: under threads exactly one free per round returns;
 #      forked bindings each free their own copy, so both return, and a
-#      sibling's free leaves the parent's channel live.
+#      sibling's free leaves the parent's handle live.
 #   4. The capture rule in both lowerings. `axiom build` and `axiom
 #      build --threads` refuse tests/diagnostics/1064-parallel-capture-
 #      handle.ax with the same AX3064 rows its golden holds, and
-#      examples/concurrency/pipeline.ax, whose bindings capture two
+#      examples/concurrency/pipeline.ax, whose bindings borrow two
 #      channels, builds and answers `ok` in both.
 #   5. What is emitted. A program that names no handle primitive emits
-#      no table; `Chan$chanAt` asks the table, and `Chan$chanSend`
-#      allocates nothing and takes the handle's check once.
+#      no table; `Chan$chanAt` reads the channel's owner and not the
+#      table, and `Chan$chanSend` allocates nothing and reads its ring's
+#      address once.
 #   6. Ablations, each required to go red:
 #        get    - a compiler whose `@__axiom_handle_get` skips both state
-#                 compares: the send on a freed channel, and a second
+#                 compares: the get of a freed handle, and a second
 #                 join, take whatever the retired slot holds for the
 #                 object's address.
-#        retire - a `Chan.ax` whose `chanFree` unmaps without retiring
-#                 the handle: the same send reads the unmapped ring.
 #        free   - a compiler whose `@__axiom_handle_free` retires without
 #                 comparing: a double free returns, and the race frees
 #                 twice a round.
 #   7. A single-bit fault in a live handle word, at every bit and at
 #      --opt 0 and 2 (`tests/litmus/handle-bitflip.ax`): each of the 64
-#      flips of a live channel's word either traps 85 before the mapping
-#      is touched, or spells the other live channel, which no check can
+#      flips of a live handle's word either traps 85 before the page is
+#      touched, or spells the other live handle, which no check can
 #      tell from the real one. The gate predicts which bits do the
 #      latter from the two words and requires exactly those. With the
 #      `get` ablation's compiler, some flip does neither.
 #
 # LIMITS. A load that passed is evidence on the runs made. A free that
-# races another binding's operation on the same handle is a data race
+# races another binding's use of the same handle is a data race
 # (MM-PAR-9) and is not checked: the table catches every use ordered
 # after the free. Section 7 injects faults at the table only: a flip in
 # memory the runtime doesn't check, such as a `Vec`'s length, a count
-# word or the object a handle names, isn't detected, and only one flip
-# at a time is tried.
+# word, a channel's reference or the object a handle names, isn't
+# detected, and only one flip at a time is tried.
 #
 # Usage: check-handles.sh
 set -uo pipefail
@@ -86,27 +82,8 @@ bad() { echo "FAIL $*"; failed=$((failed + 1)); }
 sentence="axiom: not a live handle (freed, or never made)"
 load="$repo_root/tests/litmus/handle-load.ax"
 
-echo "== disposal is a trusted call =="
-# `chanFree`, `mutexFree` and `taskTokenFree` say `effect(unsafe)`
-# themselves, so a body under `restrict(no-unsafe)` may call them: a use
-# after the free traps on the handle table (section 1), not on the
-# unmapped pages. What stays refused is what the walk cannot follow (a
-# free reached through a local under `strict`, AX3057) and a claim the
-# body does not support (AX3010).
-boundary="$repo_root/tests/litmus/shared-free-boundary.ax"
-rc=0
-"$axc" --diagnostic-format=ai check "$boundary" > "$work/free.out" 2> "$work/free.err" || rc=$?
-if [[ "$rc" == 1 ]] && [[ $(grep -c '^E ' "$work/free.err") == 4 ]] &&
-   [[ $(grep -c '^E AX3057 ' "$work/free.err") == 3 ]] &&
-   [[ $(grep -c '^E AX3010 ' "$work/free.err") == 1 ]]; then
-  ok "all three frees are accepted under no-unsafe; strict indirect calls and an unsupported claim are refused"
-else
-  bad "shared disposal boundary: exit $rc or unexpected diagnostics"
-  head -16 "$work/free.err"
-fi
-
 echo "== 1. freed and forged handles trap 85 at every --opt =="
-for name in 570-handle-freed 571-handle-table 572-spawn-joined-twice; do
+for name in 571-handle-table 572-spawn-joined-twice; do
   src="$repo_root/tests/stdlib/$name.ax"
   golden="$repo_root/tests/stdlib/$name.out"
   for lvl in 0 1 2 3; do
@@ -122,16 +99,6 @@ for name in 570-handle-freed 571-handle-table 572-spawn-joined-twice; do
     fi
   done
 done
-# The floor comes from the golden AND the run, so a golden re-blessed
-# with fewer traps fails here rather than shrinking the claim.
-traps="$(grep -c 'status 85$' "$repo_root/tests/stdlib/570-handle-freed.out" || true)"
-ran="$(grep -c 'status 85$' "$work/570-handle-freed-O2.out" 2>/dev/null || true)"
-if (( traps >= 19 && ran == traps )); then
-  ok "570 answers 85 to $traps misuses, the floor is 19"
-else
-  bad "570's golden holds $traps 85s and the run printed $ran; the floor is 19"
-fi
-
 echo "== 2. misuse traps 85 in both lowerings =="
 for lowering in processes threads; do
   flags=(); [[ "$lowering" == threads ]] && flags=(--threads)
@@ -139,7 +106,7 @@ for lowering in processes threads; do
   if ! (cd "$repo_root" && "$axc" build ${flags[@]+"${flags[@]}"} --opt 2 --input "$load" --output "$bin") > "$bin.build" 2>&1; then
     bad "$lowering: the handle load did not build"; sed 's/^/    /' "$bin.build" | head -6; continue
   fi
-  for mode in freed-send freed-lock double-free double-join; do
+  for mode in freed-get double-free double-join; do
     want=freed; [[ "$mode" == double-join ]] && want=42
     rc=0; out="$(gate_timeout 30 "$bin" "$mode" 2>"$work/err")" || rc=$?
     if [[ "$rc" == 85 && "$out" == "$want" && "$(head -1 "$work/err")" == "$sentence" ]]; then
@@ -183,7 +150,7 @@ for lowering in processes threads; do
   rc=0; out="$(gate_timeout 30 "$bin" sibling 2>&1)" || rc=$?
   if [[ "$lowering" == threads ]]; then want="sibling-free status 85"; else want="sibling-free status 1"; fi
   if [[ "$rc" == 0 && "$out" == "$want" ]]; then
-    ok "$lowering sibling: '$out' - the free is the address space's, as the mapping is"
+    ok "$lowering sibling: '$out' - the free is the address space's, as the table is"
   else
     bad "$lowering sibling: exit $rc, '$out', wanted '$want'"
   fi
@@ -208,7 +175,7 @@ for lowering in processes threads; do
   if (cd "$repo_root" && "$axc" build ${flags[@]+"${flags[@]}"} --input examples/concurrency/pipeline.ax --output "$bin") > "$bin.build" 2>&1; then
     rc=0; out="$(gate_timeout 60 "$bin" 400 2>&1)" || rc=$?
     if [[ "$rc" == 0 && "$(printf '%s\n' "$out" | tail -1)" == ok ]]; then
-      ok "$lowering: pipeline.ax captures two channels and answers ok"
+      ok "$lowering: pipeline.ax lends two channels to its bindings and answers ok"
     else
       bad "$lowering: pipeline.ax exit $rc, last line '$(printf '%s\n' "$out" | tail -1)'"
     fi
@@ -225,17 +192,18 @@ if [[ -s "$work/plain.ll" ]] && ! grep -q '__axiom_htab\|__axiom_handle_' "$work
 else
   bad "the plain program's IR is missing or names the handle table"
 fi
-(cd "$repo_root" && "$axc" emit-llvm --opt 0 "$load" -o "$work/load0.ll") > /dev/null 2>&1
+(cd "$repo_root" && "$axc" emit-llvm --opt 0 tests/litmus/chan-load.ax -o "$work/chan0.ll") > /dev/null 2>&1
 body() { awk -v f="$2" '$0 ~ "^define " && index($0, f"(") {on = 1} on {print} on && /^}/ {exit}' "$1"; }
-at="$(body "$work/load0.ll" '@Chan$chanAt' | grep -c 'call i64 @__axiom_handle_get(' || true)"
-send="$(body "$work/load0.ll" '@Chan$chanSend')"
+at_owner="$(body "$work/chan0.ll" '@Chan$chanAt' | grep -c 'call i64 @__axiom_resource_get(' || true)"
+at_table="$(body "$work/chan0.ll" '@Chan$chanAt' | grep -c '@__axiom_handle_' || true)"
+send="$(body "$work/chan0.ll" '@Chan$chanSend')"
 send_at="$(printf '%s\n' "$send" | grep -c 'call i64 @Chan$chanAt(' || true)"
 send_alloc="$(printf '%s\n' "$send" | grep -c '@axiom_alloc' || true)"
 send_lines="$(printf '%s\n' "$send" | grep -c . || true)"
-if [[ "$at" == 1 && "$send_at" == 1 && "$send_alloc" == 0 && "$send_lines" -gt 10 ]]; then
-  ok "Chan\$chanAt asks the table once; Chan\$chanSend ($send_lines lines) checks its handle once and allocates nothing"
+if [[ "$at_owner" == 1 && "$at_table" == 0 && "$send_at" == 1 && "$send_alloc" == 0 && "$send_lines" -gt 10 ]]; then
+  ok "Chan\$chanAt reads the owner once and not the table; Chan\$chanSend ($send_lines lines) reads its ring once and allocates nothing"
 else
-  bad "chanAt names the table $at time(s); chanSend calls chanAt $send_at time(s) and axiom_alloc $send_alloc time(s) in $send_lines lines"
+  bad "chanAt reads the owner $at_owner time(s) and names the table $at_table time(s); chanSend calls chanAt $send_at time(s) and axiom_alloc $send_alloc time(s) in $send_lines lines"
 fi
 
 # A heap record holding a handle maps as the same record holding an
@@ -301,38 +269,15 @@ if ablate_cc get \
   '        (emitLine cg "  %ok1 = icmp eq i64 %s1, %want")' '        (emitLine cg "  %ok1 = icmp eq i64 %want, %want")' \
   '        (emitLine cg "  %ok2 = icmp eq i64 %s2, %want")' '        (emitLine cg "  %ok2 = icmp eq i64 %want, %want")'; then
   (cd "$repo_root" && "$work/cc-get/axc" build --opt 2 --input "$load" --output "$work/cc-get/load") > "$work/cc-get/load.build" 2>&1
-  rc=0; out="$(gate_timeout 30 "$work/cc-get/load" freed-send 2>/dev/null)" || rc=$?
+  rc=0; out="$(gate_timeout 30 "$work/cc-get/load" freed-get 2>/dev/null)" || rc=$?
   rc2=0; out2="$(gate_timeout 30 "$work/cc-get/load" double-join 2>/dev/null)" || rc2=$?
   if signal_or_ran "$rc" "$out" && signal_or_ran "$rc2" "$out2"; then
-    ok "get: red - with the state compares gone, the send on a freed channel exits $rc and a second join $rc2, instead of 85"
+    ok "get: red - with the state compares gone, the get of a freed handle exits $rc and a second join $rc2, instead of 85"
   else
-    bad "get: the ablated compiler's freed send exits $rc and second join $rc2 - the check cannot see the missing compare"
+    bad "get: the ablated compiler's freed get exits $rc and second join $rc2 - the check cannot see the missing compare"
   fi
 else
   bad "get: the compiler ablation did not apply or build"; tail -4 "$work/cc-get/build.log" 2>/dev/null | sed 's/^/    /'
-fi
-
-dir="$work/abl-retire"
-mkdir -p "$dir"; cp -R "$repo_root/stdlib" "$dir/stdlib"; cp "$load" "$dir/handle-load.ax"
-if python3 - "$dir/stdlib/Chan.ax" <<'PY'
-import sys
-p = sys.argv[1]
-s = open(p, encoding="utf-8").read()
-old = "  (let ((ch (chanRetire c)))\n    (sysUnmapShared ch (chanGet ch 7))))"
-if s.count(old) != 1:
-    sys.exit("seam found %d times" % s.count(old))
-open(p, "w", encoding="utf-8").write(s.replace(old, "  (let ((ch (chanAt c)))\n    (sysUnmapShared ch (chanGet ch 7))))"))
-PY
-then
-  (cd "$dir" && AXIOM_STDLIB="$dir/stdlib" "$axc" build --opt 2 --input handle-load.ax --output "$dir/load") > "$dir/build.log" 2>&1
-  rc=0; out="$(gate_timeout 30 "$dir/load" freed-send 2>/dev/null)" || rc=$?
-  if signal_or_ran "$rc" "$out"; then
-    ok "retire: red - a chanFree that unmaps without retiring leaves the send on the freed channel exiting $rc instead of 85"
-  else
-    bad "retire: the ablated library's freed send still exits $rc"
-  fi
-else
-  bad "retire: the library ablation did not apply"
 fi
 
 if ablate_cc free '        (emitLine cg "  %mine = extractvalue { i64, i1 } %cx, 1")' '        (emitLine cg "  store atomic i64 %freed, ptr %sp seq_cst, align 8")
@@ -382,7 +327,7 @@ for lvl in 0 2; do
   fi
   IFS='|' read -r det alias wrong <<<"$(flips "$bin")"
   if [[ -z "$wrong" && -n "$alias" && $(( det + $(wc -w <<<"$alias") )) -eq 64 ]]; then
-    ok "bitflip -O$lvl: $det of 64 single-bit faults trap 85; bit $alias spells the other live channel, as the words predict"
+    ok "bitflip -O$lvl: $det of 64 single-bit faults trap 85; bit $alias spells the other live handle, as the words predict"
   else
     bad "bitflip -O$lvl: $det trapped 85, aliased [$alias], wrong [$wrong]"
   fi

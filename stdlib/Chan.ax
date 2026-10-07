@@ -22,20 +22,18 @@
 ; receiver does not own. Typed transfer of heap values is R-C2's open
 ; half.
 ;
-; THE HANDLE IS A `Chan` (docs/memory-model.md MM-PAR-8): a word struct
-; (MM-VAL-10a) that only this module can make or read, so no other code
-; can hand a channel operation a word `chanNew` did not answer. Its word
-; is a slot in the runtime's handle table, kind `chanKind`, naming the
-; mapping, and every public function asks the table for the mapping
-; first (`chanAt`). So an operation on a freed channel, and a second
-; `chanFree`, trap with status 85 instead of touching the unmapped ring.
-; It is declared `shared`, because every operation below is built for
-; use from every binding at once, so a `parallel` binding may capture it
-; in either lowering (AX3064 admits it). What stays the program's: free
-; a channel only once no binding can still reach it - after the
-; `parallel` form that used it. A free that RACES another binding's
-; operation is a data race (MM-PAR-9): the check covers every operation
-; ordered after the free, not one already in flight.
+; THE HANDLE IS A `Chan` (docs/memory-model.md MM-PAR-16): a sealed
+; struct only this module can make or open, holding one resource owner
+; whose cleanup unmaps the ring. The ring goes when the channel's last
+; owner in this address space lets go, and never while one still holds
+; it. A forked child has its own mapping and its own count, and its exit
+; drops both; the kernel frees the pages with the last mapping. A
+; `parallel` form lends the channel to its bindings with its count
+; frozen until the last join (MM-PAR-6b), so no binding outlives the
+; owner it uses. It is declared `shared`, because every operation below
+; is built for use from every binding at once: AX3064 admits it at
+; `parallel`, and refuses it at a hand-written `__par_spawn` or
+; `__thread_spawn`, which lend nothing. There is no free to call.
 ;
 ; HOW IT BLOCKS. Word 0 is the lock, and it NAMES ITS HOLDER, as
 ; `stdlib/Sync.ax`'s mutex word does: 0 when free, otherwise the holder's
@@ -71,8 +69,7 @@
 ; answer `False`, `chanRecv` and `chanTryRecv` `None`, the timed forms
 ; `Err` with code `syncOwnerDead`, `chanClose` changes nothing,
 ; `chanClosed` answers `True`, `chanLen` 0, and `chanPoisoned` says
-; why. `chanFree` takes no lock and frees it as usual. A binding
-; already asleep - on the lock or on the ring - answers within one
+; why. A binding already asleep - on the lock or on the ring - answers within one
 ; slice of the holder being found dead.
 ;
 ; TIMED FORMS (MM-PAR-12). `chanSendTimeout` and
@@ -109,36 +106,33 @@
 (import Sync)
 
 ; ---- the handle ------------------------------------------------------
-; A channel: one word, a slot in the runtime's handle table (MM-PAR-8)
-; naming the ring's mapping.
-(pub struct Chan word shared
-  (slot : Int))
+; A channel: one owner whose value is the ring's mapping (MM-PAR-16).
+(pub struct Chan sealed shared
+  (owner : Handle))
 
-; The handle table's kind for a channel. The table refuses a word of any
-; other kind, so a mutex's handle is not a channel even to code that
-; forged one.
-(:: chanKind Int)
-(fn (chanKind)
-  2)
-
-; The ring a live channel names, or the 85 trap for one that was freed.
+; The ring a channel names. Its owner is live while any caller holds
+; the channel, so the ring is mapped.
 (:: chanAt (-> Chan Int))
 ;@axiom:effect(unsafe)
 (fn (chanAt c)
-  (__handle_get chanKind c.slot))
+  (__resource_get c.owner))
 
-; A handle for a fresh ring, or 0 when the table has no slot left.
-(:: chanName (-> Int Int))
+; The owner of a fresh ring, whose cleanup unmaps it.
+(:: chanOwned (-> Int Chan))
+;@axiom:effect(io)
 ;@axiom:effect(unsafe)
-(fn (chanName ch)
-  (__handle_new chanKind ch))
+(fn (chanOwned ch)
+  (Chan (__resource_new chanDrop ch)))
 
-; Retire a live channel's handle and answer its ring, or the 85 trap for
-; a channel already freed.
-(:: chanRetire (-> Chan Int))
-;@axiom:effect(unsafe)
-(fn (chanRetire c)
-  (__handle_free chanKind c.slot))
+; The cleanup of a channel's last owner in this address space: unmap
+; this address space's view of the ring. Answers 0, or the negated
+; errno of an unmap that failed.
+(:: chanDrop (-> Int Int))
+;@axiom:effect(io)
+(fn (chanDrop ch)
+  (match (sysUnmapShared ch (chanGet ch 7))
+    ((Ok z) 0)
+    ((Err e) (- 0 (errCode e)))))
 
 ; The lock word of a poisoned channel. Odd and below 4, so it is never
 ; 0 (free) and never a holder's mark (a pid times 4, plus 1).
@@ -464,8 +458,7 @@
 ; ---- the channel ------------------------------------------------------
 ; A channel of `cap` words, 1 <= cap <= 1,048,576. Answers the handle,
 ; or the mapping's error; a capacity out of range is EINVAL (22 on every
-; target with a syscall ABI), and a handle table with no slot left is
-; EMFILE (24).
+; target with a syscall ABI).
 (pub :: chanNew (-> Int (Result Chan Error)))
 ;@axiom:effect(io)
 (pub fn (chanNew cap)
@@ -477,21 +470,10 @@
           {
             (chanPut ch 5 cap)
             (chanPut ch 7 len)
-            (chanNamed ch len)
+            (Ok (chanOwned ch))
           }
         )
         ((Err e) (Err e))))))
-
-; Name a fresh ring in the handle table, or unmap it and say why not.
-(:: chanNamed (-> Int Int (Result Chan Error)))
-;@axiom:effect(io)
-(fn (chanNamed ch len)
-  (let ((h (chanName ch)))
-    (if (== h 0)
-      (match (sysUnmapShared ch len)
-        ((Ok z) (Err (mkError 24 "chanNew: every handle is in use")))
-        ((Err e) (Err (mkError 24 "chanNew: every handle is in use"))))
-      (Ok (Chan h)))))
 
 ; Send `v`, waiting while the ring is full. `True` once it is in the
 ; ring; `False` if the channel is closed - before the call or while it
@@ -850,13 +832,3 @@
 (pub fn (chanCap c)
   (chanGet (chanAt c) 5))
 
-; Unmap the channel. Only once no binding can still reach it - after
-; the `parallel` form that used it (the module header's obligation).
-; The handle is retired before the ring is unmapped, so every call made
-; after this one - a second `chanFree` included - traps with status 85.
-; It takes no lock, so a poisoned channel is freed like any other.
-(pub :: chanFree (-> Chan (Result Int Error)))
-;@axiom:effect(io)
-(pub fn (chanFree c)
-  (let ((ch (chanRetire c)))
-    (sysUnmapShared ch (chanGet ch 7))))

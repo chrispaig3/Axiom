@@ -122,10 +122,13 @@
 #      must answer other bits, and a raising pool joining newest first
 #      must raise another status. failFast's answers are reported,
 #      because they are the clock's.
-#  11. Owners (MM-PAR-15, MM-EXEC-20). The fixtures that pin a guard's
-#      every end and a shared object's counted disposal
+#  11. Owners (MM-PAR-15, MM-PAR-16, MM-EXEC-20). The fixtures that pin
+#      a guard's every end and a shared object's counted disposal
 #      (tests/stdlib/800-mutex-guard.ax onwards) answer their goldens in
-#      both lowerings at --opt 0 and 2.
+#      both lowerings at --opt 0 and 2. Pages, which the arena's counts
+#      can't see: 2,000 and 100,000 channels, mutexes and tokens made and
+#      let go hold the same peak RSS within 1 MiB, and the control that
+#      keeps 5,000 channels must grow it by at least 8 MiB.
 #
 # WHAT THE NUMBERS ARE. Peak RSS (`max_rss_kb`), in KiB, of the whole
 # program. Times are the programs' own `sysTimeoutMicros` readings -
@@ -774,17 +777,17 @@ for lowering in processes threads; do
     bad "$lowering: pool-refuse did not build"; sed 's/^/    /' "$bin.build" | head -8; continue
   fi
   # One round and eight: the answers, the pids, the handles, the VSZ.
-  live "$work/refuse-$lowering-1.out" "$bin" task 3 4 4 1 "$MIB32" 1
+  live "$work/refuse-$lowering-1.out" "$bin" task 2 4 4 1 "$MIB32" 1
   v1="$live_vsz"; out="$(answers "$work/refuse-$lowering-1.out")"
   n1="$(wc -w <<< "$live_pids" | tr -d ' ')"
-  if [[ "$live_rc" == 0 && "$out" == "$want_task"$'\n'"round 0 status 1004 free 3" && "$n1" == 2 && "$live_alive" == 0 && -z "$live_kids" ]]; then
-    ok "$lowering taskMap: the third spawn refused; it answered 78, the two running tasks ($live_pids ) were killed and reaped before the pool returned, the fourth never started, and all 3 handle slots came back"
+  if [[ "$live_rc" == 0 && "$out" == "$want_task"$'\n'"round 0 status 1004 free 2" && "$n1" == 2 && "$live_alive" == 0 && -z "$live_kids" ]]; then
+    ok "$lowering taskMap: the third spawn refused; it answered 78, the two running tasks ($live_pids ) were killed and reaped before the pool returned, the fourth never started, and both handle slots came back"
   else
     bad "$lowering taskMap refusal: exit $live_rc, pids [$live_pids ] $live_alive alive, children [$live_kids], '$(tr '\n' ';' <<< "$out")'"
   fi
-  live "$work/refuse-$lowering-8.out" "$bin" task 3 4 4 8 "$MIB32" 1
+  live "$work/refuse-$lowering-8.out" "$bin" task 2 4 4 8 "$MIB32" 1
   v8="$live_vsz"; out="$(answers "$work/refuse-$lowering-8.out")"
-  rounds_ok="$(grep -c '^round [0-7] status 1004 free 3$' <<< "$out")"
+  rounds_ok="$(grep -c '^round [0-7] status 1004 free 2$' <<< "$out")"
   if [[ "$live_rc" == 0 && "$rounds_ok" == 8 && "$v1" =~ ^[0-9]+$ && "$v8" =~ ^[0-9]+$ ]] && (( v8 - v1 < 65536 )); then
     ok "$lowering taskMap: eight refused rounds, every handle back each time; VSZ ${v1} KiB after one round and ${v8} after eight - no slab or token page kept"
   else
@@ -854,10 +857,10 @@ fi
 # the pool again, the recovery point answers 78, a handle slot and a
 # slab stay behind every round.
 if ablate spawnrp "$refuse"; then
-  live "$work/abl-spawnrp/r1.out" "$work/abl-spawnrp/prog" task 3 4 4 1 "$MIB32" 1; a1="$live_vsz"
-  live "$work/abl-spawnrp/r8.out" "$work/abl-spawnrp/prog" task 3 4 4 8 "$MIB32" 1; a8="$live_vsz"
+  live "$work/abl-spawnrp/r1.out" "$work/abl-spawnrp/prog" task 2 4 4 1 "$MIB32" 1; a1="$live_vsz"
+  live "$work/abl-spawnrp/r8.out" "$work/abl-spawnrp/prog" task 2 4 4 8 "$MIB32" 1; a8="$live_vsz"
   out="$(answers "$work/abl-spawnrp/r8.out")"
-  whole="$(grep -c '^round [0-7] status 1004 free 3$' <<< "$out")"
+  whole="$(grep -c '^round [0-7] status 1004 free 2$' <<< "$out")"
   if [[ "$whole" == 8 ]]; then
     bad "spawnrp: without the recovery point the rounds still came back whole - the check cannot see the refusal escape"
   elif [[ "$a1" =~ ^[0-9]+$ && "$a8" =~ ^[0-9]+$ ]] && (( a8 - a1 >= 524288 )); then
@@ -870,8 +873,8 @@ else
 fi
 # The cancellation a refusal starts taken out: the pool starts what it
 # can and then waits for tasks that run for a minute.
-if run_ablation refusecancel "$refuse" 10 "$work/abl-refusecancel/prog" task 3 4 4 1 "$MIB32" 0; then
-  red refusecancel "$([[ "$rc" == 0 && "$(answers <(printf '%s\n' "$out"))" == "$want_task"$'\n'"round 0 status 1004 free 3" ]] && echo 1 || echo 0)"
+if run_ablation refusecancel "$refuse" 10 "$work/abl-refusecancel/prog" task 2 4 4 1 "$MIB32" 0; then
+  red refusecancel "$([[ "$rc" == 0 && "$(answers <(printf '%s\n' "$out"))" == "$want_task"$'\n'"round 0 status 1004 free 2" ]] && echo 1 || echo 0)"
   pkill -KILL -f "$work/abl-refusecancel/prog" 2>/dev/null || true
 fi
 # The checked pool's kill taken out: its joins wait for the running slots.
@@ -1160,6 +1163,29 @@ for fx in "$repo_root"/tests/stdlib/80[0-9]-*.ax; do
     done
   done
 done
+
+bin="$work/own-802-owner-no-leak-processes-O2"
+if [[ -x "$bin" ]]; then
+  small="$(max_rss_kb "$bin" rss 2000)" || small=""
+  large="$(max_rss_kb "$bin" rss 100000)" || large=""
+  kept="$(max_rss_kb "$bin" keep 5000)" || kept=""
+  if [[ "$small" =~ ^[0-9]+$ && "$large" =~ ^[0-9]+$ && "$kept" =~ ^[0-9]+$ ]]; then
+    if (( large - small <= 1024 )); then
+      ok "owners: peak RSS ${small} KiB after 2,000 of each and ${large} KiB after 100,000 - every page went with its owner"
+    else
+      bad "owners: peak RSS ${small} KiB after 2,000 of each but ${large} KiB after 100,000 - pages outlive their owners"
+    fi
+    if (( kept - small >= 8192 )); then
+      ok "control: keeping 5,000 channels grew the peak to ${kept} KiB - the measurement sees kept pages"
+    else
+      bad "control: keeping 5,000 channels reached only ${kept} KiB against ${small} - the RSS reading is blind"
+    fi
+  else
+    bad "owners: RSS unreadable ('$small', '$large', '$kept')"
+  fi
+else
+  bad "owners: no 802 binary to measure"
+fi
 
 echo
 if (( failed > 0 )); then

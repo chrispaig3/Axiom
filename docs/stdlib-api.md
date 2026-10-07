@@ -379,12 +379,12 @@ two differ.
 
 ## `Chan`
 
-`stdlib/Chan.ax` — 14 public names
+`stdlib/Chan.ax` — 13 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
-| `Chan` | struct |  |  | A channel: one word, a slot in the runtime's handle table (MM-PAR-8) naming the ring's mapping. |
-| `chanNew` | value | `(-> Int (Result Chan Error))` | `Alloc,IO,Mut` | A channel of `cap` words, 1 <= cap <= 1,048,576. Answers the handle, or the mapping's error; a capacity out of range is EINVAL (22 on every target with a syscall ABI), and a handle table with no slot left is EMFILE (24). |
+| `Chan` | struct |  |  | A channel: one owner whose value is the ring's mapping (MM-PAR-16). |
+| `chanNew` | value | `(-> Int (Result Chan Error))` | `Alloc,IO,Mut` | A channel of `cap` words, 1 <= cap <= 1,048,576. Answers the handle, or the mapping's error; a capacity out of range is EINVAL (22 on every target with a syscall ABI). |
 | `chanSend` | value | `(-> Chan Int Bool)` | `Alloc,Block,IO,Mut` | Send `v`, waiting while the ring is full. `True` once it is in the ring; `False` if the channel is closed - before the call or while it waited - or poisoned (`chanPoisoned`), and then `v` was not sent. |
 | `chanRecv` | value | `(-> Chan (Option Int))` | `Alloc,Block,IO,Mut` | Receive the oldest word, waiting while the ring is empty and open. `None` once the channel is closed AND drained - the end of the stream - or poisoned (`chanPoisoned`). |
 | `chanSendTimeout` | value | `(-> Chan Int Int (Result Bool Error))` | `Alloc,Block,IO,Mut` | `chanSend`, waiting at most `nanos` nanoseconds - for the lock and for room. `Ok True` once `v` is in the ring; `Ok False` if the channel is closed; `Err` with code `sysTimedOut` when the time ran out first, and `Err` with code `syncOwnerDead` when the channel is poisoned - and in each of those `v` was not sent. The ring is looked at once more after the last wait, so a slot that opened as the time ran out is taken rather than refused. A non-positive `nanos` is one look, like `chanTrySend`, that says which it was. |
@@ -396,7 +396,6 @@ two differ.
 | `chanPoisoned` | value | `(-> Chan Bool)` |  | Whether a binding died holding this channel's lock, which poisoned it (the module header's "a holder that dies"). Takes no lock. |
 | `chanLen` | value | `(-> Chan Int)` | `Alloc,Block,IO,Mut` | Words in the ring now; 0 on a poisoned channel, which yields none. |
 | `chanCap` | value | `(-> Chan Int)` |  |  |
-| `chanFree` | value | `(-> Chan (Result Int Error))` | `Alloc,IO,Mut` | Unmap the channel. Only once no binding can still reach it - after the `parallel` form that used it (the module header's obligation). The handle is retired before the ring is unmapped, so every call made after this one - a second `chanFree` included - traps with status 85. It takes no lock, so a poisoned channel is freed like any other. |
 
 ## `Chrono`
 
@@ -1428,20 +1427,19 @@ two differ.
 
 ## `Sync`
 
-`stdlib/Sync.ax` — 10 public names
+`stdlib/Sync.ax` — 9 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
-| `Mutex` | struct |  |  | A mutex: one word, a slot in the runtime's handle table (MM-PAR-8) naming the page. |
+| `Mutex` | struct |  |  | A mutex: one owner whose value is the page (MM-PAR-16). |
 | `MutexGuard` | struct |  |  | What a lock call answers: the lock, held while the guard lives. A resource owner whose cleanup releases the lock (the module header's "the guard"). Only this module makes or opens one, and it is not `shared`. |
 | `syncOwnerDead` | value | `Int` |  | Above 255, like `sysTimedOut` (1001, the timeout every lock call here answers), so none can be mistaken for a wait status. |
 | `syncProbeNanos` | value | `Int` |  | How long a waiter sleeps before it looks at the holder: 100 ms. |
-| `mutexNew` | value | `(Result Mutex Error)` | `Alloc,IO,Mut` | A fresh mutex, free. `Err` the mapping's error, or EMFILE (24) when the handle table has no slot left. |
+| `mutexNew` | value | `(Result Mutex Error)` | `Alloc,IO,Mut` | A fresh mutex, free, or `Err` the mapping's error. |
 | `mutexLock` | value | `(-> Mutex (Result MutexGuard Error))` | `Alloc,Block,IO,Mut` | Wait until this binding holds the lock. `Ok` the guard, which holds the lock until it goes; `Err` code `syncOwnerDead` if the holder is found dead while this waits, or the mutex was poisoned before. |
 | `mutexTryLock` | value | `(-> Mutex (Option MutexGuard))` | `Alloc,IO,Mut` | Take the lock if it is free right now: `Some` the guard, `None` if it is held - or poisoned, which `mutexOwnerDead` tells apart. |
 | `mutexLockTimeout` | value | `(-> Mutex Int (Result MutexGuard Error))` | `Alloc,Block,IO,Mut` | `mutexLock`, waiting at most `nanos` nanoseconds. `Ok` the guard; `Err` code `sysTimedOut` when the time ran out with the lock still held by a holder that looks alive; `Err` code `syncOwnerDead` when the holder was found dead. A wait nobody ends is never shorter than `nanos` on a monotonic clock (MM-PAR-12 states Darwin's bound). A non-positive `nanos` is `mutexTryLock` with a reason. |
 | `mutexOwnerDead` | value | `(-> Mutex Bool)` |  | Whether the mutex is poisoned: a holder was found dead holding it, or a trap ended a guard's scope (the header). |
-| `mutexFree` | value | `(-> Mutex (Result Int Error))` | `Alloc,IO,Mut` | Unmap the mutex. Only once no binding can still reach it - after the `parallel` form that used it. Takes no lock, so it is also the one safe call on a poisoned mutex. The handle is retired before the page is unmapped, so every call made after this one - a second `mutexFree` included - traps with status 85. |
 
 ## `Sys`
 
@@ -1693,7 +1691,7 @@ two differ.
 
 ## `Task`
 
-`stdlib/Task.ax` — 19 public names
+`stdlib/Task.ax` — 18 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -1706,11 +1704,10 @@ two differ.
 | `taskCancelledCode` | value | `Int` |  |  |
 | `taskTooLargeCode` | value | `Int` |  |  |
 | `taskPollNanos` | value | `Int` |  | How often a sleeping pool looks at its running children: 10 ms. |
-| `CancelToken` | struct |  |  | A cancellation token: one word, a slot in the runtime's handle table (MM-PAR-8) naming a shared page - word 0 the cancelled flag, word 1 the event counter a pool sleeps on. |
-| `taskTokenNew` | value | `(Result CancelToken Error)` | `Alloc,IO,Mut` | A fresh token, not set. `Err` the mapping's error, or EMFILE (24) when the handle table has no slot left. |
+| `CancelToken` | struct |  |  | A cancellation token: one owner whose value is a shared page - word 0 the cancelled flag, word 1 the event counter a pool sleeps on (MM-PAR-16). |
+| `taskTokenNew` | value | `(Result CancelToken Error)` | `Alloc,IO` | A fresh token, not set, or `Err` the mapping's error. |
 | `taskCancel` | value | `(-> CancelToken Int)` | `IO,Mut` | Set the token and wake every pool sleeping on it. Idempotent. |
 | `taskCancelled` | value | `(-> CancelToken Bool)` |  | Whether the token is set: the poll a cooperative task makes. |
-| `taskTokenFree` | value | `(-> CancelToken (Result Int Error))` | `Alloc,IO,Mut` | Unmap a token. Only once no pool and no task can still reach it; the handle is retired first, so every call after this one - a second `taskTokenFree` included - traps with status 85. |
 | `taskMap` | value | `(-> (-> Int String) Int Int Int (Vec (Result String Error)))` | `Alloc,Block,IO,Mut,Spawn` | `f i` for every `i` in `0 .. n`, at most `width` at once, each answer at most `limit` bytes: one `Result` per task in submit order. No deadline, no fail-fast, a private token. |
 | `taskMapWith` | value | `(-> (-> Int String) Int TaskOpts (Vec (Result String Error)))` | `Alloc,Block,IO,Mut,Spawn` | `taskMap` with every option (`TaskOpts`). |
 | `taskMapDecoded` | value | `(-> (-> Int String) (-> String (Result a Error)) Int Int Int (Vec (Result a Error)))` | `Alloc,Block,IO,Mut,Spawn` | Decode each successful answer in the parent, in submit order. Task failures pass through unchanged and never call `decode`. The encoded answers keep `taskMap`'s byte limit; decoded storage is the decoder's responsibility and the result vector holds n values. |

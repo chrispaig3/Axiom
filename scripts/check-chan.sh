@@ -293,8 +293,7 @@ recv-timed 1004
 close 0
 closed 1
 len 0
-poisoned 1
-free 1'
+poisoned 1'
 for lowering in processes threads; do
   if ! dead_build "$work/dead" "$lowering"; then
     bad "$lowering: chan-dead did not build"; head -8 "$work/dead/dead-$lowering.build" | sed 's/^/    /'; continue
@@ -324,7 +323,7 @@ for lowering in processes threads; do
   fi
   after="$(printf '%s\n' "$out" | sed -n '/^send /,$p')"
   if [[ "$after" == "$want_after" ]]; then
-    ok "$lowering: on the poisoned channel send and try-send answer False, the receives None, the timed forms 1004, close changes nothing, closed is True, len 0, and it frees"
+    ok "$lowering: on the poisoned channel send and try-send answer False, the receives None, the timed forms 1004, close changes nothing, closed is True and len 0"
   else
     bad "$lowering: the poisoned channel's answers: '$(tr '\n' ';' <<< "$after")'"
   fi

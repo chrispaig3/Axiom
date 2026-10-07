@@ -1,7 +1,7 @@
 ; A task pool whose third spawn is refused (docs/memory-model.md
-; MM-PAR-13, R-B2). The runtime's handle table is filled but for three
-; slots: the pool's token takes one and two tasks take the others, so
-; the third task's spawn is refused, the path a fork the kernel refuses
+; MM-PAR-13, R-B2). The runtime's handle table is filled but for two
+; slots, which two tasks take (the pool's token is an owner and takes
+; none, MM-PAR-16), so the third task's spawn is refused, the path a fork the kernel refuses
 ; takes too (78). The refused task answers 78 in its slot, the pool is
 ; cancelled, the two running tasks are killed and reaped after the grace
 ; and answer `taskCancelledCode`, and the fourth never starts. The pool
@@ -100,7 +100,7 @@
       (let ((hs (vecWithCapacity 65536)))
         {
           (fillAll hs)
-          (for k in 0..3
+          (for k in 0..2
             (freeH (vecPop hs)))
           (let ((rs 
             (taskMap
@@ -111,7 +111,7 @@
             (for i in 0..(vecLen rs)
               (showResult i (vecGet rs i))))
           (let ((free (fillAll hs)))
-            (println "handle slots back {free} of 3"))
+            (println "handle slots back {free} of 2"))
           (let ((alive (aliveCount page)))
             (println "task processes left {alive}"))
           0

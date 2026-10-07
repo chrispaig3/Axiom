@@ -69,6 +69,16 @@ its changelog too.
   Life probe in `scripts/measure-memory-baseline.sh`, runs in flat
   memory with no arena. Tested by
   `tests/stdlib/404-container-reference-maps.ax`.
+- Free a channel, mutex or cancellation token with its last owner.
+  `Chan`, `Mutex` and `CancelToken` are `sealed shared` owners, and
+  their page goes when the last holder in an address space lets go. A
+  `parallel` form lends one to its bindings with its count frozen until
+  the last join, so no binding outlives the owner it uses, and a
+  hand-written `__thread_spawn` or `__par_spawn` refuses one (`AX3064`).
+  `chanFree`, `mutexFree` and `taskTokenFree` are gone, and the handle
+  table carries spawn handles only. Tested by
+  `tests/stdlib/803-shared-owner.ax`.
+
 - Hold a lock with its guard. `mutexLock`, `mutexTryLock` and
   `mutexLockTimeout` answer a `MutexGuard`, a sealed owner whose end
   releases the lock: at the end of its scope, on any branch out of it,

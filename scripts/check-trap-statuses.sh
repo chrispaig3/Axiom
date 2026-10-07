@@ -143,7 +143,7 @@ got80b="$(run_exit "$repo_root/tests/selfhost/135-subtype-violated.ax")"
 got82="$(run_exit "$repo_root/tests/stdlib/544-misaligned-atomic.ax")"
 got83="$(run_exit "$repo_root/tests/stdlib/695-intmin-div-trap.ax")"
 got84="$(run_exit "$repo_root/tests/stdlib/696-shift-wide-trap.ax")"
-got85="$(run_exit "$repo_root/tests/stdlib/570-handle-freed.ax")"
+got85="$(run_exit "$repo_root/tests/stdlib/572-spawn-joined-twice.ax")"
 
 check_one() { # <want> <got> <name>
   if [[ "$2" == "$1" ]]; then ok "$3 exits $1";
@@ -160,7 +160,7 @@ check_one 80 "$got80b" "subtype range violation (135)"
 check_one 82 "$got82" "misaligned atomic (544)"
 check_one 83 "$got83" "division overflow (695)"
 check_one 84 "$got84" "shift amount out of range (696)"
-check_one 85 "$got85" "a call on a freed handle (570)"
+check_one 85 "$got85" "a second join (572)"
 
 # The cross-trap comparison no gate performed: the eleven answers must
 # be eleven different numbers. Each `check_one` above is internally

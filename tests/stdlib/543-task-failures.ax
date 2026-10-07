@@ -109,9 +109,7 @@
                   (lambda (i) (fmtInt i))
                   3
                   (taskWithToken (taskOpts 2 32) tok)))
-              (match (taskTokenFree tok)
-                ((Ok z) 0)
-                ((Err e) 1))
+              0
             }
           )
           ((Err e) (println "no token")))

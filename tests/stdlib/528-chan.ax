@@ -14,9 +14,9 @@
 ; schedule; their totals do not, and the totals are what is printed.
 ; `scripts/check-chan.sh` runs the same shapes under `--threads`, at
 ; more sizes, and against an ablated lock. The handle is a `Chan`
-; (MM-PAR-8): the parallel bindings capture it, which AX3064 admits
-; because `Chan` is declared `shared`, and
-; `tests/stdlib/570-handle-freed.ax` holds what a freed one does.
+; (MM-PAR-16): the parallel bindings borrow it, which AX3064 admits
+; because `Chan` is declared `shared`, and it is freed when its last
+; owner lets go.
 (import IO)
 (import Chan)
 (import Err)
@@ -89,14 +89,6 @@
       (+ x (+ y z))
     }))
 
-; 1 if the channel was unmapped, 0 if the kernel refused.
-(:: freedOk (-> Chan Int))
-;@axiom:effect(io)
-(fn (freedOk ch)
-  (match (chanFree ch)
-    ((Ok n) 1)
-    ((Err e) 0)))
-
 ; The errno a capacity is refused with, or 0 if it was accepted.
 (:: refusedCode (-> Int Int))
 ;@axiom:effect(io)
@@ -131,7 +123,6 @@
           (println (orElse (chanRecv ch) (- 0 1)))  ; 50
           (println (orElse (chanRecv ch) (- 0 1)))  ; -1
           (println (orElse (chanTryRecv ch) (- 0 1)))  ; -1
-          (println (freedOk ch))  ; 1
           0
         }
       )
@@ -147,8 +138,7 @@
           {
             (println fed)  ; 3000
             (println (+ s1 s2))  ; 4501500
-            (println (freedOk ch))  ; 1
-            0
+              0
           })
       )
       ((Err e) (println "chanNew failed")))

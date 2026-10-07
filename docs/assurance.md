@@ -106,7 +106,7 @@ that passes it a bad one. `axiom symbols` marks every trusted function
 | R-C2a | A bounded channel delivers every word exactly once, in order per sender | `MM-PAR-10` | `tests/stdlib/528-chan.ax`, `scripts/check-chan.sh` |
 | R-C3 | Atomics are sequentially consistent on every hosted target, and the litmus tests show no forbidden outcome | `MM-PAR-1`, `MM-PAR-9` | `scripts/check-atomics.sh` |
 | R-C4 | A misaligned atomic traps with status 82 | `MM-PAR-9` | `tests/stdlib/544-misaligned-atomic.ax` |
-| R-C6 | Channels, mutexes and tokens are sealed, and a freed or forged handle traps with status 85 | `MM-PAR-8` | `tests/stdlib/570-handle-freed.ax`, `scripts/check-handles.sh` |
+| R-C6 | Channels, mutexes and tokens are sealed owners, freed when their last holder lets go and never while a binding uses them; a rejoined or forged spawn handle traps with status 85 | `MM-PAR-8`, `MM-PAR-16` | `tests/stdlib/803-shared-owner.ax`, `scripts/check-handles.sh` |
 | R-C7 | A `parallel` binding can borrow its parent's strings and immutable data, and no binding's count traffic reaches the parent | `MM-PAR-6b` | `tests/stdlib/630-parallel-borrow.ax`, `scripts/check-race.sh` |
 | R-C8 | A pure parallel computation answers the same at every width and in both lowerings | `MM-PAR-14` | `tests/stdlib/620-par-float-order.ax` |
 
@@ -151,8 +151,6 @@ the neighbourhood of the corpus.
   can't do it (`MM-VAL-24`).
 - `fileFd` with `sysCloseFd` can close a descriptor its `File` still
   owns.
-- Disposing of a channel or mutex while another binding uses it is a
-  race the handle table catches only after the free.
 - Cycles hold their memory until an arena reset.
 
 ## Using Axiom in a safety-related system

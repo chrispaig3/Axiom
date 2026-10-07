@@ -460,6 +460,9 @@ control access and closing.
 handle. It has one immutable `Int` field, no type parameters, and only
 its declaring module can construct it or read the field. Add `shared`
 only when its operations are safe across concurrent bindings.
+`(pub struct Chan sealed shared (owner : Handle))` is a shared counted
+handle: a `parallel` form lends it to its bindings, and it can't have a
+`mut` field.
 
 ## Capability records
 
@@ -957,8 +960,8 @@ process boundaries do not transfer general managed pointers.
 ### What a binding may capture
 
 Bindings may capture immutable scalars, borrowed strings and immutable
-`data` graphs, and explicitly
-shared word handles. Mutable bindings, ordinary heap structs, resource
+`data` graphs, and shared handles such as a `Chan`, `Mutex` or
+`CancelToken`. Mutable bindings, ordinary heap structs, resource
 owners and closures are refused. A shared handle's module must enforce
 synchronisation. Thread arenas and reference counts alone do not make
 payload mutation safe.
@@ -966,9 +969,11 @@ payload mutation safe.
 Each binding answers an `Int`. Use `Chan` for bounded word channels and
 `Sync` for shared mutexes. Their timeout, close and owner-death behaviour
 is in the [library API](stdlib-api.md#chan).
-Free a channel, mutex or cancellation token after its concurrent users
-finish. A use after the free traps 85, but nothing catches a free
-that races a use still in flight.
+A channel, mutex or cancellation token is freed when its last owner
+lets go, and never while a binding still uses it: a `parallel` form
+lends it to its bindings until every one has joined. There is no free
+to call, and a hand-written `__thread_spawn` can't capture one.
+Tested by `tests/stdlib/803-shared-owner.ax`.
 
 A lock call answers a guard, and the lock is held until the guard's
 scope ends, on any path out of it. There is no unlock call:

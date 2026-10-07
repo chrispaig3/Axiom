@@ -1747,14 +1747,18 @@
                       (vecPush metas (concat "fields=" (saJoinComma fparts)))
                       ; A word struct's representation (MM-VAL-10a): one
                       ; sealed machine word, and whether a `parallel`
-                      ; binding may capture it. A heap struct has no key.
+                      ; binding may capture it. A `sealed shared` heap
+                      ; struct says so (MM-PAR-16); any other heap
+                      ; struct has no key.
                       (if (== (structEntIsWord s) 1)
                         (vecPush
                           metas
                           (if (== (structEntIsShared s) 1)
                             "repr=word,shared"
                             "repr=word"))
-                        metas)
+                        (if (== (structEntIsSharedHeap s) 1)
+                          (vecPush metas "repr=sealed,shared")
+                          metas))
                       (vecPush
                         lines
                         (symLine

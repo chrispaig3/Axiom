@@ -3,12 +3,8 @@
 7
 0
 1
-1
 a second join: status 85
 a second checked join: status 85
 the pid of a joined binding: status 85
 a word no spawn answered: status 85
 a channel as a spawn handle: status 85
-cancel a freed token: status 85
-poll a freed token: status 85
-free a token twice: status 85

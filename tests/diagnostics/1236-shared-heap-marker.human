@@ -1,0 +1,21 @@
+[1;31merror[AX3084][0m[1m: field `n` of shared struct `Mutable` is `mut`[0m
+  [1;34m--> [0m1236-shared-heap-marker.ax:11:8
+[1;34m   |[0m
+[1;34m11 |[0m   (mut n : Int))
+[1;34m   |[0m        [1;31m^ refused here[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma lent block is read by every binding at once, so a plain store to its field would race (MM-PAR-9)
+  [1;34m = [0m[1;32mhelp: [0mdrop `mut`: keep what changes in the memory the struct names, behind its module's atomics or lock
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3084` for a full explanation
+
+[1;31merror[AX3084][0m[1m: shared struct `Params` takes type parameters[0m
+  [1;34m--> [0m1236-shared-heap-marker.ax:13:9
+[1;34m   |[0m
+[1;34m13 |[0m (struct Params sealed shared (a)
+[1;34m   |[0m         [1;31m^^^^^^ refused here[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma `parallel` form lends a shared struct whole, and its module, not its caller, answers for every field's use from several bindings (MM-PAR-16)
+  [1;34m = [0m[1;32mhelp: [0mdrop the parameters: a shared struct's module states what every field is
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3084` for a full explanation
+
+compilation failed due to 2 previous errors

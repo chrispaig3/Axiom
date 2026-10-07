@@ -261,10 +261,7 @@
       (got (arrivedAt ch))
       (sent (sentAt ch))
     )
-      {
-        (let ((_ (chanFree ch)))
-          (- got sent))
-      })))
+      (- got sent))))
 
 ; Eleven rounds, sorted in place: the median is the sixth.
 (:: wakeMode Int)

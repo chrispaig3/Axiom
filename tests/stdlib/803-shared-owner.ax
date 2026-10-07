@@ -1,0 +1,149 @@
+; A channel is freed when its last owner in an address space lets go,
+; and never while a binding still uses it (docs/memory-model.md
+; MM-PAR-16). There is no free to call.
+;
+; Two `parallel` bindings use one channel, lent to them, and the parent
+; drains what is left after both have joined; 2,000 such rounds, each
+; channel let go as its function returns, lose no word. In both
+; lowerings the bindings' uses all end before the parent's owner does.
+;
+; A forked child keeps its own view: a function makes a channel, hands
+; it to a child it spawns, and returns, letting its own owner go. The
+; child, told to go only after that, still sends on the channel and
+; receives its words back. `scripts/check-task.sh` runs this in both
+; lowerings.
+(import IO)
+(import Err)
+(import Chan)
+
+(:: made (-> (Result Chan Error) Chan))
+;@axiom:effect(io)
+(fn (made r)
+  (match r
+    ((Ok c) c)
+    ((Err e) (made (chanNew 1)))))
+
+; Send 1 .. n, then close.
+(:: feed (-> Chan Int Int))
+;@axiom:effect(io)
+;@axiom:effect(block)
+(fn (feed c n)
+  {
+    (for i in 1..(+ n 1)
+      {
+        (chanSend c i)
+        0
+      })
+    (chanClose c)
+    n
+  })
+
+; Take `k` words: their sum.
+(:: take (-> Chan Int Int))
+;@axiom:effect(io)
+;@axiom:effect(block)
+(fn (take c k)
+  (let ((mut sum 0))
+    {
+      (for i in 0..k
+        (match (chanRecv c)
+          ((Some v) (set sum (+ sum v)))
+          ((None) 0)))
+      sum
+    }))
+
+; The rest, after the close: their sum.
+(:: drain (-> Chan Int))
+;@axiom:effect(io)
+;@axiom:effect(block)
+(fn (drain c)
+  (let ((mut sum 0) (mut more 1))
+    {
+      (while (== more 1)
+        (match (chanRecv c)
+          ((Some v) (set sum (+ sum v)))
+          ((None) (set more 0))))
+      sum
+    }))
+
+; One round: a channel of its own, lent to two bindings, drained by the
+; parent once both have joined, and let go as this returns.
+(:: round (-> Int Int))
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(fn (round n)
+  (let ((c (made (chanNew 64))))
+    (parallel p (
+      (fed (feed c n))
+      (got (take c (/ n 2)))
+    )
+      (+ got (drain c)))))
+
+(:: rounds (-> Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(fn (rounds k n)
+  (let ((mut good 0))
+    {
+      (for i in 0..k
+        (if (== (round n) (/ (* n (+ n 1)) 2))
+          (set good (+ good 1))
+          0))
+      good
+    }))
+
+; In the child: wait for `go`, then send 1 .. 5 on `c` and take them
+; back, and report their sum on `done`.
+(:: childUse (-> Chan Chan Chan Int))
+;@axiom:effect(io)
+;@axiom:effect(block)
+(fn (childUse c go done)
+  (match (chanRecv go)
+    ((Some w)
+      {
+        (for i in 1..6
+          {
+            (chanSend c i)
+            0
+          })
+        (chanSend done (take c 5))
+        0
+      })
+    ((None) 1)))
+
+; Make a channel, spawn a child that holds it, and return: this
+; function's owner of the channel goes as it returns.
+(:: handOff (-> Chan Chan Spawn))
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(fn (handOff go done)
+  (let ((c (made (chanNew 8))))
+    (__proc_spawn
+      (lambda (x) (childUse c go done))
+      0)))
+
+(:: main Int)
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(fn (main)
+  (let ((good (rounds 2000 40)))
+    {
+      (println "lent rounds: {good} of 2000 lost no word")
+      (let (
+        (go (made (chanNew 1)))
+        (done (made (chanNew 1)))
+      )
+        (let ((h (handOff go done)))
+          {
+            (chanSend go 1)
+            (let ((sum (take done 1)))
+              (println "the child's view after the parent let go: sum {sum}"))
+            (let ((st (__proc_join h)))
+              (println "the child exited {st}"))
+            0
+          }))
+    }))

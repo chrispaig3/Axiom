@@ -1,4 +1,4 @@
-; A channel is a `Chan`, not an `Int` (docs/memory-model.md MM-PAR-8).
+; A channel is a `Chan`, not an `Int` (docs/memory-model.md MM-PAR-16).
 ; An `Int` where a channel is expected, a channel where an `Int` is
 ; expected, and a declared `Int` result answering a channel are each
 ; AX3004. The send on the channel `chanNew` made is the control.

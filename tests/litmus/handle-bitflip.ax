@@ -2,13 +2,14 @@
 ; runtime checks: the handle table (docs/memory-model.md MM-PAR-8).
 ; `scripts/check-handles.sh` section 7 runs it once per bit.
 ;
-; Two live channels, `a` then `b`. `handle-bitflip K` flips bit K of
-; `a`'s word and sends 7 on the result. The table must refuse the word
-; (status 85, before the mapping is touched) unless the flip happens to
-; spell another live channel, which no check can tell from the real
-; one: then the word arrives in that channel, and this prints `b`.
-; `handle-bitflip -1` flips nothing, prints both handle words for the
-; gate to predict that case, and then `a`.
+; Two live handles, `a` then `b`, each naming a mapped page of its own.
+; `handle-bitflip K` flips bit K of `a`'s word and asks the table for
+; the result. The table must refuse the word (status 85, before the
+; page is touched) unless the flip happens to spell the other live
+; handle, which no check can tell from the real one: then the table
+; answers `b`'s page, and this prints `b`. `handle-bitflip -1` flips
+; nothing, prints both handle words for the gate to predict that case,
+; and then `a`.
 ;
 ; A flip in memory the runtime doesn't check, such as a `Vec`'s length
 ; or a count word, isn't detected, and this doesn't claim otherwise.
@@ -17,53 +18,48 @@
 (import Fmt)
 (import Sys)
 (import Err)
-(import Chan)
 
-; `c`'s word with bit `k` flipped.
-(:: flipped (-> Chan Int Chan))
+(:: newH (-> Int Int Int))
 ;@axiom:effect(unsafe)
-(fn (flipped c k)
-  (cast Chan (^ (cast Int c) (<< 1 k))))
+(fn (newH kind addr)
+  (__handle_new kind addr))
 
-(:: wordOf (-> Chan Int))
-(fn (wordOf c)
-  (cast Int c))
+(:: getH (-> Int Int Int))
+;@axiom:effect(unsafe)
+(fn (getH kind h)
+  (__handle_get kind h))
 
-(:: made (-> (Result Chan Error) Chan))
+; A fresh page, or the program's end.
+(:: page Int)
 ;@axiom:effect(io)
-(fn (made r)
-  (match r
-    ((Ok c) c)
-    ((Err e) (cast Chan (die "chanNew failed" 1)))))
-
-(:: got (-> Chan Bool))
-;@axiom:effect(io)
-;@axiom:effect(block)
-(fn (got c)
-  (match (chanTryRecv c)
-    ((Some v) (== v 7))
-    ((None) false)))
+(fn (page)
+  (match (sysMapShared 4096)
+    ((Ok p) p)
+    ((Err e) (die "sysMapShared failed" 1))))
 
 (:: main Int)
 ;@axiom:effect(io)
-;@axiom:effect(block)
 (fn (main)
   (let (
     (k (match (strParseInt (sysArg 1))
       ((Some n) n)
       ((None) (- 0 1))))
-    (a (made (chanNew 4)))
-    (b (made (chanNew 4)))
+    (pa page)
+    (pb page)
   )
-    {
-      (if (< k 0)
-        (println (concat "words " (concat (fmtInt (wordOf a)) (concat " " (fmtInt (wordOf b))))))
-        0)
-      (chanSend (if (< k 0) a (flipped a k)) 7)
-      (println (if (got a)
-        "a"
-        (if (got b)
-          "b"
-          "neither")))
-      0
-    }))
+    (let (
+      (a (newH 15 pa))
+      (b (newH 15 pb))
+    )
+      {
+        (if (< k 0)
+          (println (concat "words " (concat (fmtInt a) (concat " " (fmtInt b)))))
+          0)
+        (let ((got (getH 15 (if (< k 0) a (^ a (<< 1 k))))))
+          (println (if (== got pa)
+            "a"
+            (if (== got pb)
+              "b"
+              "neither"))))
+        0
+      })))

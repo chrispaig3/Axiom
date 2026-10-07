@@ -198,9 +198,6 @@
                         (if (|| (> ms 3000) (> alive 0))
                           (set good 0)
                           0)
-                        (match (taskTokenFree tok)
-                          ((Ok z) 0)
-                          ((Err e) 0))
                         (if (== good 1)
                           {
                             (println "ok")

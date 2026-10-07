@@ -1,0 +1,48 @@
+[1;31merror[AX3001][0m[1m: undefined variable `chanFree`[0m
+  [1;34m--> [0m1235-shared-free-removed.ax:24:18
+[1;34m   |[0m
+[1;34m24 |[0m                 (chanFree c)
+[1;34m   |[0m                  [1;31m^^^^^^^^ no binding named `chanFree` in scope[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mvariables must be defined (via `fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
+
+[1;31merror[AX3001][0m[1m: undefined variable `mutexFree`[0m
+  [1;34m--> [0m1235-shared-free-removed.ax:25:18
+[1;34m   |[0m
+[1;34m25 |[0m                 (mutexFree m)
+[1;34m   |[0m                  [1;31m^^^^^^^^^ no binding named `mutexFree` in scope[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mvariables must be defined (via `fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
+
+[1;31merror[AX3001][0m[1m: undefined variable `taskTokenFree`[0m
+  [1;34m--> [0m1235-shared-free-removed.ax:26:18
+[1;34m   |[0m
+[1;34m26 |[0m                 (taskTokenFree t)
+[1;34m   |[0m                  [1;31m^^^^^^^^^^^^^ no binding named `taskTokenFree` in scope[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mvariables must be defined (via `fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
+
+[1;31merror[AX3064][0m[1m: a concurrent binding captures `c`, which has type `Chan` - a reference the parent also holds[0m
+  [1;34m--> [0m1235-shared-free-removed.ax:29:69
+[1;34m   |[0m
+[1;34m29 |[0m                 (__thread_join (__thread_spawn (lambda (x) (chanLen c)) 0))
+[1;34m   |[0m                                                                     [1;31m^ `c` is bound outside this binding[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mMM-PAR-6: a binding runs BESIDE its parent, and `axiom_retain`/`axiom_release` are a plain load-add-store rather than an `atomicrmw` - two threads touching one block's count lose an increment and free a block a live reference still names. The rule is the language's and not the lowering's, so it does not depend on `--threads`; `__proc_spawn` names the isolated lowering and is exempt
+  [1;34m = [0m[1;32mhelp: [0mpass the value in through the thunk's word argument instead of capturing it, or build a copy of it inside the binding. A `parallel` binding may borrow a String or an immutable data graph its parent holds. Mutable, unknown and type-changing recursive payloads cannot be borrowed; the structural check examines at most 64 nested types. Use a shared word handle or explicit serialization for other input
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3064` for a full explanation
+
+[1;31merror[AX3064][0m[1m: a concurrent binding captures `c`, which has type `Chan` - a reference the parent also holds[0m
+  [1;34m--> [0m1235-shared-free-removed.ax:30:63
+[1;34m   |[0m
+[1;34m30 |[0m                 (__par_join (__par_spawn (lambda (x) (chanLen c)) 0))
+[1;34m   |[0m                                                               [1;31m^ `c` is bound outside this binding[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mMM-PAR-6: a binding runs BESIDE its parent, and `axiom_retain`/`axiom_release` are a plain load-add-store rather than an `atomicrmw` - two threads touching one block's count lose an increment and free a block a live reference still names. The rule is the language's and not the lowering's, so it does not depend on `--threads`; `__proc_spawn` names the isolated lowering and is exempt
+  [1;34m = [0m[1;32mhelp: [0mpass the value in through the thunk's word argument instead of capturing it, or build a copy of it inside the binding. A `parallel` binding may borrow a String or an immutable data graph its parent holds. Mutable, unknown and type-changing recursive payloads cannot be borrowed; the structural check examines at most 64 nested types. Use a shared word handle or explicit serialization for other input
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3064` for a full explanation
+
+compilation failed due to 5 previous errors

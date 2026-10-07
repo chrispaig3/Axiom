@@ -1,6 +1,7 @@
 ; What `word` and `shared` require of a struct (docs/memory-model.md
 ; MM-VAL-10a), each refusal AX3084: a word struct is one `Int` field,
-; not `mut`, with no type parameters; `shared` needs `word`; a marker is
+; not `mut`, with no type parameters; `shared` needs `word` or
+; `sealed`; a marker is
 ; written once; and no other name may stand where the markers go. The
 ; last two structs are the controls: a shared word, and a heap struct
 ; with no markers.

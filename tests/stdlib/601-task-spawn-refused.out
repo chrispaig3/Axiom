@@ -2,5 +2,5 @@
 1 err 1002 task cancelled
 2 err 78 task not started: its spawn was refused
 3 err 1002 task not started: the pool was cancelled
-handle slots back 3 of 3
+handle slots back 2 of 2
 task processes left 0

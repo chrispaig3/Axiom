@@ -1,7 +1,7 @@
 ; What a concurrent binding may capture of a handle (docs/memory-model.md
-; MM-PAR-6, MM-PAR-8). A word struct declared `shared` - this file's
-; `Pass`, and the standard library's `Chan` - is captured by a
-; `parallel` binding and by `__thread_spawn`. A word struct not declared
+; MM-PAR-6, MM-PAR-16). A word struct declared `shared`, this file's
+; `Pass`, is captured by a `parallel` binding and by `__thread_spawn`;
+; a `parallel` binding borrows a `Chan`. A word struct not declared
 ; `shared` is AX3064 at both, directly and through an alias, and so is a
 ; `Vec`, as before. `__proc_spawn` names the isolated lowering and may
 ; capture either.

@@ -2524,9 +2524,11 @@ and restores them after the last join.
 Only `parallel`'s own bindings borrow. A hand-written `__par_spawn`
 lends nothing, because its parent can run between spawn and join.
 
-A scalar, a Foreign or a word handle explicitly declared `shared`
-may also be captured. A Foreign object's thread safety is its caller's
-obligation. A Spawn and an unshared word handle are refused. Copy or
+A scalar, a Foreign or a word handle declared `shared` may also be
+captured. A `sealed shared` handle such as a `Chan` is borrowed like an
+immutable graph, so a hand-written spawn refuses it (MM-PAR-16). A
+Foreign object's thread safety is its caller's obligation. A Spawn and
+an unshared word handle are refused. Copy or
 serialise other values into storage owned by the receiving binding.
 
 The capture rule applies in both lowerings. `__proc_spawn` explicitly
@@ -2738,20 +2740,27 @@ AX3084 - a struct marker that is unknown or does not fit
 A struct can say how it is represented, with markers between its name
 and its fields:
 
-    (pub struct Chan word shared
+    (pub struct Ticket word shared
       (slot : Int))
+
+    (pub struct Chan sealed shared
+      (owner : Handle))
 
 `word` makes the struct one machine word instead of a heap block, and
 seals it: only the module that declares it can build one or read its
-field (AX3085, AX3086), so no other code can forge one. `shared` lets a
-`parallel` binding capture it (AX3064), which says every operation the
-module offers on it is safe from several bindings at once.
+field (AX3085, AX3086), so no other code can forge one. `sealed` seals
+a heap struct the same way. `shared` lets a `parallel` binding capture
+it (AX3064), which says every operation the module offers on it is
+safe from several bindings at once.
 
 A word struct is its one field, so it has exactly one, typed `Int`,
-not `mut`, and no type parameters. `shared` needs `word`: a heap struct
-is a counted block, and two bindings touching one count race
-(MM-PAR-6). Any other name in the marker position is refused, and so
-is a marker written twice.
+not `mut`, and no type parameters. `shared` needs `word` or `sealed`.
+A `sealed shared` heap struct is a counted block, and two bindings
+touching one count race (MM-PAR-6), so a `parallel` form lends it with
+its count frozen until the last join (MM-PAR-16). It takes no `mut`
+field, since every binding reads it at once, and no type parameters.
+Any other name in the marker position is refused, and so is a marker
+written twice.
 
 ### explain AX3085
 AX3085 - a word struct built outside its module

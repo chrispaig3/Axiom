@@ -60,9 +60,7 @@
                 ((None)
                   (set more 0)
                 ))))
-          (match (chanFree ch)
-            ((Ok z) sum)
-            ((Err e) (- 0 2)))
+          sum
         })
     )))
 

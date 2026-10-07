@@ -1,0 +1,27 @@
+; A heap struct may be `shared` when it is `sealed` (docs/memory-model.md
+; MM-PAR-16): its module keeps the fields, and a `parallel` form lends
+; it with its count frozen. It then takes no `mut` field and no type
+; parameters, each AX3084. `Good` is the control, and two `parallel`
+; bindings borrow one.
+(struct Good sealed shared
+  (n : Int)
+  (s : String))
+
+(struct Mutable sealed shared
+  (mut n : Int))
+
+(struct Params sealed shared (a)
+  (x : a))
+
+(:: size (-> Good Int))
+(fn (size g)
+  g.n)
+
+(:: main Int)
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(fn (main)
+  (let ((g (Good 4 "four")))
+    (parallel p ((a (size g)) (b (size g)))
+      (+ a b))))

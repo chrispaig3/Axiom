@@ -62,13 +62,14 @@
 ;     task past it is sent SIGKILL and reaped, and answers
 ;     `sysTimedOut`; if it had already finished or died of its own
 ;     accord, that answer wins.
-;   * A TOKEN is a `CancelToken` (`taskTokenNew`): a sealed handle
-;     (docs/memory-model.md MM-VAL-10a, MM-PAR-8) naming one shared
-;     page. `taskCancel` sets it from anywhere - another binding, a
-;     task, the pool itself - and wakes every pool sleeping on it;
+;   * A TOKEN is a `CancelToken` (`taskTokenNew`): a sealed owner
+;     (docs/memory-model.md MM-PAR-16) of one shared page, unmapped
+;     when its last owner in this address space lets go.
+;     `taskCancel` sets it from anywhere - another binding, a task, the
+;     pool itself - and wakes every pool sleeping on it;
 ;     `taskCancelled` is the poll a cooperative task makes. It is
-;     declared `shared`, so a `parallel` binding may capture it, and a
-;     call on a freed one traps with status 85. Once a pool sees it set, it starts
+;     declared `shared`, so a `parallel` form lends it to its bindings.
+;     Once a pool sees it set, it starts
 ;     nothing more (every unstarted task answers `taskCancelledCode`),
 ;     gives running tasks `grace` nanoseconds to finish, then SIGKILLs
 ;     and reaps what is left. A token the caller passes is shared state:
@@ -79,7 +80,7 @@
 ;     token: the refused task answers the refusal's status (78, or 70),
 ;     nothing more starts, running tasks get `grace` and are then
 ;     SIGKILLed and reaped, and the pool returns through its normal
-;     path, so the slab is unmapped and a private token freed. The spawn
+;     path, so the slab is unmapped and a private token let go. The spawn
 ;     runs inside a recovery point of its own (`taskSpawn`), which is
 ;     how the runtime's refusal - a trap, MM-PAR-7 - comes back here as
 ;     a status instead of unwinding past the pool's cleanup.
@@ -281,55 +282,43 @@
   })
 
 ; ---- the token -------------------------------------------------------------
-; A cancellation token: one word, a slot in the runtime's handle table
-; (MM-PAR-8) naming a shared page - word 0 the cancelled flag, word 1
-; the event counter a pool sleeps on.
-(pub struct CancelToken word shared
-  (slot : Int))
+; A cancellation token: one owner whose value is a shared page - word 0
+; the cancelled flag, word 1 the event counter a pool sleeps on
+; (MM-PAR-16).
+(pub struct CancelToken sealed shared
+  (owner : Handle))
 
-; The handle table's kind for a token (`Chan.ax`'s is 2, `Sync.ax`'s 3).
-(:: taskKind Int)
-(fn (taskKind)
-  4)
-
-; The page a live token names, or the 85 trap for one that was freed.
+; The page a token names. Its owner is live while any caller holds the
+; token, so the page is mapped.
 (:: taskTokenAt (-> CancelToken Int))
 ;@axiom:effect(unsafe)
 (fn (taskTokenAt t)
-  (__handle_get taskKind t.slot))
+  (__resource_get t.owner))
 
-; A handle for a fresh page, or 0 when the table has no slot left.
-(:: taskTokenName (-> Int Int))
-;@axiom:effect(unsafe)
-(fn (taskTokenName page)
-  (__handle_new taskKind page))
-
-; Retire a live token's handle and answer its page, or the 85 trap for a
-; token already freed.
-(:: taskTokenRetire (-> CancelToken Int))
-;@axiom:effect(unsafe)
-(fn (taskTokenRetire t)
-  (__handle_free taskKind t.slot))
-
-; A fresh token, not set. `Err` the mapping's error, or EMFILE (24) when
-; the handle table has no slot left.
+; A fresh token, not set, or `Err` the mapping's error.
 (pub :: taskTokenNew (Result CancelToken Error))
 ;@axiom:effect(io)
 (pub fn (taskTokenNew)
   (match (sysMapShared 4096)
-    ((Ok page) (taskTokenNamed page))
+    ((Ok page) (Ok (taskTokenOwned page)))
     ((Err e) (Err e))))
 
-; Name a fresh page in the handle table, or unmap it and say why not.
-(:: taskTokenNamed (-> Int (Result CancelToken Error)))
+; The owner of a fresh page, whose cleanup unmaps it.
+(:: taskTokenOwned (-> Int CancelToken))
 ;@axiom:effect(io)
-(fn (taskTokenNamed page)
-  (let ((h (taskTokenName page)))
-    (if (== h 0)
-      (match (sysUnmapShared page 4096)
-        ((Ok z) (Err (mkError 24 "taskTokenNew: every handle is in use")))
-        ((Err e) (Err (mkError 24 "taskTokenNew: every handle is in use"))))
-      (Ok (CancelToken h)))))
+;@axiom:effect(unsafe)
+(fn (taskTokenOwned page)
+  (CancelToken (__resource_new taskTokenDrop page)))
+
+; The cleanup of a token's last owner in this address space: unmap this
+; address space's view of the page. Answers 0, or the negated errno of
+; an unmap that failed.
+(:: taskTokenDrop (-> Int Int))
+;@axiom:effect(io)
+(fn (taskTokenDrop page)
+  (match (sysUnmapShared page 4096)
+    ((Ok z) 0)
+    ((Err e) (- 0 (errCode e)))))
 
 ; Set the token and wake every pool sleeping on it. Idempotent.
 (pub :: taskCancel (-> CancelToken Int))
@@ -341,14 +330,6 @@
 (pub :: taskCancelled (-> CancelToken Bool))
 (pub fn (taskCancelled t)
   (taskCancelledAt (taskTokenAt t)))
-
-; Unmap a token. Only once no pool and no task can still reach it; the
-; handle is retired first, so every call after this one - a second
-; `taskTokenFree` included - traps with status 85.
-(pub :: taskTokenFree (-> CancelToken (Result Int Error)))
-;@axiom:effect(io)
-(pub fn (taskTokenFree t)
-  (sysUnmapShared (taskTokenRetire t) 4096))
 
 ; The two halves above, on the page itself: what the pool and its tasks
 ; use once the token's page is in hand.
@@ -969,13 +950,6 @@
     ((Some t) (Ok t))
     ((None) taskTokenNew)))
 
-; Whether the pool made its token itself, and so frees it.
-(:: taskOwnsToken (-> (Option CancelToken) Bool))
-(fn (taskOwnsToken tok)
-  (match tok
-    ((Some t) false)
-    ((None) true)))
-
 ; The width actually used: at least 1, at most n.
 (:: taskWidth (-> Int Int Int))
 (fn (taskWidth width n)
@@ -1003,6 +977,10 @@
         (taskAllFailed n (mkError 22 "task limit over 2^40 bytes") sink scoped)
         (match (taskTokenFor opts.token)
           ((Err e) (taskAllFailed n e sink scoped))
+          ; `tok` is held until the pool returns, so the page its tasks
+          ; and its waits use stays mapped, and a private token is let go
+          ; with this arm. The call is not in tail position, so no jump
+          ; ends the arm's scope before the pool does.
           ((Ok tok)
             (let ((done (taskWithSlab
               f
@@ -1014,11 +992,7 @@
               limit
               (+ 32 (* 8 (/ (+ limit 7) 8)))
               (taskTokenAt tok))))
-              (if (taskOwnsToken opts.token)
-                (match (taskTokenFree tok)
-                  ((Ok z) done)
-                  ((Err e) done))
-                done))
+              done)
           ))))))
 
 ; ---- the entries ---------------------------------------------------------
