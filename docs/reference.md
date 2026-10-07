@@ -791,7 +791,10 @@ Cycles and destruction costs are covered by the
 [memory contract](memory-model.md).
 
 Recovery points catch runtime traps in an isolated extent. They cannot
-undo external I/O. See [error recovery](error-model.md).
+undo external I/O, but they do run the cleanup of the owners the extent
+made, so its files close and its locks are released. A region's end
+does the same for an owner it leaked. See
+[error recovery](error-model.md).
 
 ### Compare values by identity
 
@@ -966,6 +969,19 @@ is in the [library API](stdlib-api.md#chan).
 Free a channel, mutex or cancellation token after its concurrent users
 finish. A use after the free traps 85, but nothing catches a free
 that races a use still in flight.
+
+A lock call answers a guard, and the lock is held until the guard's
+scope ends, on any path out of it. There is no unlock call:
+
+```scheme fragment
+(match (mutexLock mx)
+  ((Ok g) (bumpShared cell))
+  ((Err e) 0))
+```
+
+A trap that a recovery point catches inside the guard's scope releases
+the lock too, and poisons the mutex, so later lock calls answer
+`syncOwnerDead`. Tested by `tests/stdlib/800-mutex-guard.ax`.
 
 ### Run tasks that answer values with `Task`
 

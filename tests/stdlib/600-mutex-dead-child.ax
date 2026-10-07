@@ -30,7 +30,8 @@
     ((Some g) 0)
     ((None) 1)))
 
-; Take the lock, raise `flag`, and end: the binding exits holding it.
+; Take the lock, raise `flag`, and end: the binding exits holding it,
+; with a raw exit inside the guard's scope, so the guard never ends.
 (:: lockAndExit (-> Mutex Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(block)
@@ -40,7 +41,7 @@
       {
         (memSetWord flag 0 1)
         (sysWakeWord flag)
-        0
+        (sysExitWith 0)
       }
     )
     ((Err e) 9)))

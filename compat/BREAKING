@@ -34,6 +34,11 @@
 0.7.9  F  ledFree  removed: a LineEd owns its gap vectors and releases them when it dies; freeing them by hand released them twice
 0.7.9  L  vec-released  a Vec is released when its last reference goes, with what it owns; keep a vector whose word you store as an Int alive through a typed reference
 0.7.9  L  retainref-answer  __retainref answers 1 when it took a share because its argument's type is counted, and 0 otherwise; it answered 0 always
+0.7.9  F  mutexUnlock  removed: a lock is released when the MutexGuard its lock call answered goes out of scope
+0.7.9  F  syncNotHeld  removed: nothing unlocks by hand, so no call answers it
+0.7.9  S  MutexGuard  a sealed resource owner rather than a word: its end releases the lock
+0.7.9  F  mutexTryLock  row gains Alloc: the guard it answers is an owner, allocated at the lock
+0.7.9  L  arena-mark-cell  a cell passed to __axiom_arena_mark_into must hold 32 bytes: a fourth word keeps the owner registry's counter
 0.7.8  RUST  Ret.direct_payload  returns Option<Payload>; handle None for scalar, opaque and status returns
 0.7.8  CLI  symbols-json  JSON symbol output is refused with status 2; use --diagnostic-format=ai
 0.7.8  CLI  legacy-file  FILE [TARGET] now warns on stderr; migrate to emit-llvm FILE [--target TARGET]

@@ -53,8 +53,7 @@
 #      run below meaningless, so a silent control is a failure.
 #   3. The clean runs, each answering what the program says it must and
 #      each with no report: the same program under the mutex (`excl 1
-#      N`), a stale guard presented under contention (`stale N`), the
-#      channel under load (tests/litmus/chan-load.ax at capacities 1
+#      N`, each lock held by its guard), the channel under load (tests/litmus/chan-load.ax at capacities 1
 #      and 64), examples/concurrency/pipeline.ax, and the seq_cst rows
 #      of tests/litmus/atomics.ax (`sb sc`, `add sc`, `add cas`), all at
 #      --opt 0 and 2. And `add split`, whose atomic load and atomic
@@ -434,7 +433,6 @@ for lvl in 0 2; do
   bin="$work/sync-O$lvl"
   if built "$bin" "sync-load -O$lvl"; then
     clean "excl1-O$lvl" "-O$lvl excl 1 (the mutex)" "count $((4 * N)) ok" "$bin" excl 1 "$N"
-    clean "stale-O$lvl" "-O$lvl stale (a stale guard under contention)" "stale-accepted 0 own-refused 0 count $((3 * N)) of $((3 * N)) ok" "$bin" stale "$N"
   fi
   bin="$work/chan-O$lvl"
   if built "$bin" "chan-load -O$lvl"; then

@@ -114,9 +114,9 @@
 ; it is on or off.
 ;
 ; THE MARK CELL IS PER WORKER TOO. `__axiom_arena_mark` allocates its
-; 24-byte cell below the position it records, so no reset reclaims it
+; cell below the position it records, so no reset reclaims it
 ; (MM-ALLOC-12): a mark per connection leaves a cell per connection,
-; 240 KB over ten thousand of them, in both arms alike.
+; hundreds of KB over ten thousand of them, in both arms alike.
 ; `__axiom_arena_mark_into` refreshes one cell allocated here instead.
 (:: serve (-> Int Int Int Bool Int))
 ;@axiom:effect(io)
@@ -127,7 +127,7 @@
     (ts (memAlloc 16))
     (peer (memAlloc netAddrMaxBytes))
     (lenb (memAlloc 8))
-    (markCell (memAlloc 24))
+    (markCell (memAlloc 32))
   )
     (let ((setbuf (memAlloc 16)))
       (let ((scratch (memAlloc 256)))

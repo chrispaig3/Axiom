@@ -102,7 +102,7 @@ that passes it a bad one. `axiom symbols` marks every trusted function
 | ID | Guarantee | Rule | Evidence |
 |---|---|---|---|
 | R-C1 | No container or unborrowed reference is captured by a concurrent binding | `MM-PAR-6` | `tests/diagnostics/656-parallel-container-capture.ax` |
-| R-C2 | A mutex excludes and refuses an unearned unlock; every blocking call has a timed form; tasks report failure, deadline and cancellation per slot | `MM-PAR-11` to `MM-PAR-13` | `tests/stdlib/541-sync-mutex.ax`, `scripts/check-task.sh`, `scripts/check-protocol-model.sh` |
+| R-C2 | A mutex excludes, and its guard releases it once on every way out of its scope, a recovered trap included; every blocking call has a timed form; tasks report failure, deadline and cancellation per slot | `MM-PAR-11` to `MM-PAR-13`, `MM-PAR-15` | `tests/stdlib/800-mutex-guard.ax`, `scripts/check-task.sh`, `scripts/check-protocol-model.sh` |
 | R-C2a | A bounded channel delivers every word exactly once, in order per sender | `MM-PAR-10` | `tests/stdlib/528-chan.ax`, `scripts/check-chan.sh` |
 | R-C3 | Atomics are sequentially consistent on every hosted target, and the litmus tests show no forbidden outcome | `MM-PAR-1`, `MM-PAR-9` | `scripts/check-atomics.sh` |
 | R-C4 | A misaligned atomic traps with status 82 | `MM-PAR-9` | `tests/stdlib/544-misaligned-atomic.ax` |

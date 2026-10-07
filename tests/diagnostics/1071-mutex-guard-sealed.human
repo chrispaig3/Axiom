@@ -1,31 +1,31 @@
 [1;31merror[AX3085][0m[1m: only module `Sync` can make a `MutexGuard`[0m
-  [1;34m--> [0m1071-mutex-guard-sealed.ax:33:35
+  [1;34m--> [0m1071-mutex-guard-sealed.ax:31:20
 [1;34m   |[0m
-[1;34m33 |[0m             (done (mutexUnlock m (MutexGuard 5)))
-[1;34m   |[0m                                   [1;31m^^^^^^^^^^ built outside its module[0m
+[1;34m31 |[0m             (keep (MutexGuard 5))
+[1;34m   |[0m                    [1;31m^^^^^^^^^^ built outside its module[0m
 [1;34m   |[0m
-  [1;34m = [0m[1mnote: [0ma word struct is sealed, so every value of its type is one its module made and no other code can forge one (docs/memory-model.md MM-VAL-10a)
-  [1;34m = [0m[1;32mhelp: [0mget one from a function module `Sync` provides: a word struct's constructor stays in its module, `pub` or not
+  [1;34m = [0m[1mnote: [0ma sealed struct keeps ownership state private; use its module's functions (docs/reference.md Structs)
+  [1;34m = [0m[1;32mhelp: [0mget one from a function module `Sync` provides: a sealed struct's constructor stays in its module, `pub` or not
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3085` for a full explanation
 
-[1;31merror[AX3086][0m[1m: only module `Sync` can read field `serial` of `MutexGuard`[0m
-  [1;34m--> [0m1071-mutex-guard-sealed.ax:34:18
+[1;31merror[AX3086][0m[1m: only module `Sync` can read field `owner` of `MutexGuard`[0m
+  [1;34m--> [0m1071-mutex-guard-sealed.ax:32:24
 [1;34m   |[0m
-[1;34m34 |[0m             (+ g.serial 1)
-[1;34m   |[0m                  [1;31m^^^^^^ read outside its module[0m
+[1;34m32 |[0m             (let ((h g.owner))
+[1;34m   |[0m                        [1;31m^^^^^ read outside its module[0m
 [1;34m   |[0m
-  [1;34m = [0m[1mnote: [0ma word struct is sealed: what its word means is its module's business, and code that read it could hand the same word to something else (docs/memory-model.md MM-VAL-10a)
-  [1;34m = [0m[1;32mhelp: [0muse the functions module `Sync` provides: a word struct's field stays in its module, `pub` or not
+  [1;34m = [0m[1mnote: [0ma sealed struct keeps ownership state private; use its module's functions (docs/reference.md Structs)
+  [1;34m = [0m[1;32mhelp: [0muse the functions module `Sync` provides: a sealed struct's field stays in its module, `pub` or not
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3086` for a full explanation
 
-[1;31merror[AX3064][0m[1m: a concurrent binding captures `g`, which has type `MutexGuard` - a handle its module did not declare `shared`[0m
-  [1;34m--> [0m1071-mutex-guard-sealed.ax:37:39
+[1;31merror[AX3064][0m[1m: a concurrent binding captures `g`, which has type `MutexGuard` - a reference the parent also holds[0m
+  [1;34m--> [0m1071-mutex-guard-sealed.ax:36:24
 [1;34m   |[0m
-[1;34m37 |[0m               (b (done (mutexUnlock m g)))
-[1;34m   |[0m                                       [1;31m^ `g` is bound outside this binding[0m
+[1;34m36 |[0m               (b (keep g))
+[1;34m   |[0m                        [1;31m^ `g` is bound outside this binding[0m
 [1;34m   |[0m
-  [1;34m = [0m[1mnote: [0mMM-PAR-6: a word struct crosses into a concurrent binding only when its module declares it `shared`, which says every operation on it is safe from several bindings at once; `__proc_spawn` names the isolated lowering and is exempt
-  [1;34m = [0m[1;32mhelp: [0muse the handle only in the binding that holds it, or have its module declare `(struct MutexGuard word shared ...)` if every operation on it is safe from several bindings at once
+  [1;34m = [0m[1mnote: [0mMM-PAR-6: a binding runs BESIDE its parent, and `axiom_retain`/`axiom_release` are a plain load-add-store rather than an `atomicrmw` - two threads touching one block's count lose an increment and free a block a live reference still names. The rule is the language's and not the lowering's, so it does not depend on `--threads`; `__proc_spawn` names the isolated lowering and is exempt
+  [1;34m = [0m[1;32mhelp: [0mpass the value in through the thunk's word argument instead of capturing it, or build a copy of it inside the binding. A `parallel` binding may borrow a String or an immutable data graph its parent holds. Mutable, unknown and type-changing recursive payloads cannot be borrowed; the structural check examines at most 64 nested types. Use a shared word handle or explicit serialization for other input
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3064` for a full explanation
 
 compilation failed due to 3 previous errors

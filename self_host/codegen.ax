@@ -594,6 +594,8 @@
       ; (`emitSet`). Emptied per function body, since a walk never
       ; reaches into another body.
       (vecPushVec ps vecNew)
+      ; slot 19: the owner registry is on (`resRegistryOn`, `parScan`).
+      (vecPush ps 0)
       (addTypeNamed
         ts
         "Some"
@@ -5948,6 +5950,13 @@
                   (if (== (exprNamesPrim nm (nodeA e)) 1)
                     1
                     (exprsNamePrim nm (nodeBVec e) 0))
+                  ; A region's body is code like any other, and the
+                  ; form itself answers to `region$`, a name no source
+                  ; can spell (`resRegistryWanted`).
+                  (if (== tg TAG_E_REGION)
+                    (if (strEq nm "region$")
+                      1
+                      (exprNamesPrim nm (nodeB e)))
                   (if (== tg TAG_E_SET)
                     (exprNamesPrim nm (nodeB e))
                     (if (== tg TAG_E_FIELD)
@@ -5967,7 +5976,7 @@
                               ; `cond` is AX2004: the parser builds
                               ; none, so no arm names one.
                               ; INT, STR, FLT, CHAR, QUOTE: leaves
-                              0))))))))))))))
+                              0)))))))))))))))
 
 (pub :: exprsNamePrim (-> String (Vec Int) Int Int))
 (pub fn (exprsNamePrim nm v i)
@@ -6083,8 +6092,24 @@
       (if (&& (== (targetHasThreads (memGetWord cg 26)) 1) (parThreadsWanted decls))
         1
         0))
+    (pairSetSlot cg 19 (resRegistryWanted decls))
     cg
   })
+
+; The owner registry (`emitResourceRegistry`) is for a module that both
+; makes resource owners and resets the arena: a recovery point, a
+; region, or a raw reset. Any other module emits the runtime it did.
+(pub :: resRegistryWanted (-> (Vec Int) Int))
+(pub fn (resRegistryWanted decls)
+  (if (== (declsNamePrim decls "__resource_new" 0) 0)
+    0
+    (if (== (declsNamePrim decls "__axiom_recover" 0) 1)
+      1
+      (if (== (declsNamePrim decls "__axiom_arena_reset" 0) 1)
+        1
+        (if (== (declsNamePrim decls "__axiom_arena_reset_keeping" 0) 1)
+          1
+          (declsNamePrim decls "region$" 0))))))
 
 ; The runtime symbol a primitive lowers to: `__thread_*` and `__proc_*`
 ; say which, `__par_*` follows `--threads` (slot 10) - never the mere
@@ -12392,7 +12417,15 @@
       }
       0)
     (emitLine cg "  call i64 @__axiom_recover_load(i64 %top)")
+    ; MM-EXEC-20: the reset runs the cleanup of the owners made inside
+    ; the extent, and they can tell a trap ended it.
+    (if (== (resRegistryOn cg) 1)
+      (emitLine cg "  store i64 1, ptr @__axiom_res_unwinding")
+      0)
     (emitLine cg "  call i64 @__axiom_arena_reset_fn(i64 %mark)")
+    (if (== (resRegistryOn cg) 1)
+      (emitLine cg "  store i64 0, ptr @__axiom_res_unwinding")
+      0)
     (emitLine cg (concat "  call void asm sideeffect " (concat (targetRecoverJumpAsm (memGetWord cg 26)) "(i64 %top, i64 %sp, i64 %fp, i64 %pc)")))
     (emitLine cg "  unreachable")
     (emitLine cg "}")
@@ -14376,7 +14409,10 @@
   {
     (emitLine cg "define internal i64 @__axiom_arena_mark_fn() #0 {")
     (emitLine cg "entry:")
-    (emitLine cg "  %cell = call i64 @axiom_alloc(i64 24)")
+    ; With the owner registry on, a mark is four words: the fourth is
+    ; the registry's counter, so the reset knows which owners are newer
+    ; (`emitResourceRegistry`).
+    (emitLine cg (if (== (resRegistryOn cg) 1) "  %cell = call i64 @axiom_alloc(i64 32)" "  %cell = call i64 @axiom_alloc(i64 24)"))
     (emitLine cg "  %mark = call i64 @.axiom.arena.mark.into(i64 %cell)")
     (emitLine cg "  ret i64 %mark")
     (emitLine cg "}")
@@ -14394,11 +14430,31 @@
     (emitLine cg "  %a2 = add i64 %cell, 16")
     (emitLine cg "  %p2 = inttoptr i64 %a2 to ptr")
     (emitLine cg "  store i64 %chunk, ptr %p2")
+    (if (== (resRegistryOn cg) 1)
+      {
+        (emitLine cg "  %rseq = load i64, ptr @__axiom_res_seq")
+        (emitLine cg "  %a3 = add i64 %cell, 24")
+        (emitLine cg "  %p3 = inttoptr i64 %a3 to ptr")
+        (emitLine cg "  store i64 %rseq, ptr %p3")
+        0
+      }
+      0)
     (emitLine cg "  ret i64 %cell")
     (emitLine cg "}")
     (emitLine cg "")
     (emitLine cg "define internal i64 @__axiom_arena_reset_fn(i64 %cell) #0 {")
     (emitLine cg "entry:")
+    ; Owners made since the mark are cleaned up first, while every byte
+    ; their callbacks read is still theirs (`emitResourceRegistry`).
+    (if (== (resRegistryOn cg) 1)
+      {
+        (emitLine cg "  %ra3 = add i64 %cell, 24")
+        (emitLine cg "  %rp3 = inttoptr i64 %ra3 to ptr")
+        (emitLine cg "  %rfloor = load i64, ptr %rp3")
+        (emitLine cg "  call void @__axiom_resource_unwind(i64 %rfloor)")
+        0
+      }
+      0)
     ; A release-to-zero FILES its block on @__axiom_slabs; a reset
     ; rewinds the bump beneath those heads, and a dangling head
     ; double-issues storage on the next same-class allocation. The
@@ -19803,7 +19859,7 @@
 ; ------------------------------------------------------------------
 (pub :: isPrimName (-> String Bool))
 (pub fn (isPrimName nm)
-  (if (|| (strEq nm "__indexTrap") (|| (strEq nm "__resource_new") (|| (strEq nm "__resource_get") (|| (strEq nm "__resource_close") (strEq nm "__resource_disarm")))))
+  (if (|| (strEq nm "__indexTrap") (|| (strEq nm "__resource_new") (|| (strEq nm "__resource_get") (|| (strEq nm "__resource_close") (|| (strEq nm "__resource_disarm") (strEq nm "__resource_unwinding"))))))
     true
     (if (strEq nm "__alloc")
       true
@@ -19896,7 +19952,7 @@
 ; an llc error rather than a silent no-op in statement position.
 (pub :: isNullaryPrimName (-> String Bool))
 (pub fn (isNullaryPrimName nm)
-  (if (strEq nm "__indexTrap")
+  (if (|| (strEq nm "__indexTrap") (strEq nm "__resource_unwinding"))
     true
     (if (strEq nm "__argc")
       true
@@ -19952,8 +20008,8 @@
                           (emitPrimStore args cg 1 1)
                           (if (strEq fnName "__addr")
                             (emitPrimAddr args cg)
-                            (if (|| (strEq fnName "__indexTrap") (|| (strEq fnName "__resource_new") (|| (strEq fnName "__resource_get") (|| (strEq fnName "__resource_close") (strEq fnName "__resource_disarm")))))
-                              (if (strEq fnName "__indexTrap") (emitPrimIndexTrap cg) (emitPrimResource fnName args cg))
+                            (if (|| (strEq fnName "__indexTrap") (|| (strEq fnName "__resource_new") (|| (strEq fnName "__resource_get") (|| (strEq fnName "__resource_close") (|| (strEq fnName "__resource_disarm") (strEq fnName "__resource_unwinding"))))))
+                              (if (strEq fnName "__indexTrap") (emitPrimIndexTrap cg) (if (strEq fnName "__resource_unwinding") (emitPrimResUnwinding cg) (emitPrimResource fnName args cg)))
                               (if (strEq fnName "__argc")
                                 (emitPrimArgc cg)
                                 (if (strEq fnName "__argv")
@@ -26325,14 +26381,32 @@
 
 (pub :: emitRegionCell (-> Int String Int))
 (pub fn (emitRegionCell cg cell)
-  (if (< (memGetWord cg 43) 0)
-    (emitLine cg (concat (concat "  " cell) " = alloca i64, i64 3, align 16"))
-    {
-      (vecPush
-        (memGetWordVec cg 44)
-        (cast Int (concat (concat "  " cell) " = alloca i64, i64 3, align 16")))
-      cg
-    }))
+  (let ((line (concat (concat "  " cell) (if (== (resRegistryOn cg) 1) " = alloca i64, i64 4, align 16" " = alloca i64, i64 3, align 16"))))
+    (if (< (memGetWord cg 43) 0)
+      (emitLine cg line)
+      {
+        (vecPush
+          (memGetWordVec cg 44)
+          (cast Int line))
+        cg
+      })))
+
+; The owner registry's counter in a region's fourth cell word, so the
+; region's reset cleans up the owners made inside it.
+(pub :: emitRegionSeq (-> Int String Int))
+(pub fn (emitRegionSeq cg cell)
+  (if (== (resRegistryOn cg) 0)
+    0
+    (let (
+      (p3 (regStr (allocReg cg)))
+      (v (regStr (allocReg cg)))
+    )
+      {
+        (emitLine cg (concat (concat "  " p3) (concat " = getelementptr i64, ptr " (concat cell ", i64 3"))))
+        (emitLine cg (concat (concat "  " v) " = load i64, ptr @__axiom_res_seq"))
+        (emitLine cg (concat (concat "  store i64 " v) (concat ", ptr " p3)))
+        0
+      })))
 
 (pub :: emitRegion (-> Int Int Int))
 ;@axiom:effect(io)
@@ -26360,6 +26434,7 @@
       (_6 (emitLine cg (concat (concat "  store i64 " br) (concat ", ptr " (concat cell "")))))
       (_7 (emitLine cg (concat (concat "  store i64 " er) (concat ", ptr " (concat p1 "")))))
       (_8 (emitLine cg (concat (concat "  store i64 " kr) (concat ", ptr " (concat p2 "")))))
+      (_8r (emitRegionSeq cg cell))
       (rgnSaved (pairSlot cg 9))
       (_rgn (pairSetSlot cg 9 (+ rgnSaved 1)))
       (cgB (emitExpr (nodeB node) cg))
@@ -26580,6 +26655,9 @@
     (emitLine cg "}")
     (emitLine cg "define internal i64 @__axiom_resource_drop(i64 %h) #0 {")
     (emitLine cg "entry:")
+    (if (== (resRegistryOn cg) 1)
+      (emitLine cg "  call void @__axiom_resource_unlink(i64 %h)")
+      0)
     (emitLine cg "  %ca = add i64 %h, 16")
     (emitLine cg "  %cap = inttoptr i64 %ca to ptr")
     (emitLine cg "  %c = atomicrmw xchg ptr %cap, i64 0 seq_cst")
@@ -26601,7 +26679,7 @@
     (emitLine cg "define internal i64 @__axiom_resource_new(i64 %closure, i64 %value) #0 {")
     (emitLine cg "entry:")
     (emitLine cg "  call void @axiom_retain(i64 %closure)")
-    (emitLine cg "  %h = call i64 @axiom_alloc(i64 32)")
+    (emitLine cg (if (== (resRegistryOn cg) 1) "  %h = call i64 @axiom_alloc(i64 56)" "  %h = call i64 @axiom_alloc(i64 32)"))
     (emitLine cg "  %rc = add i64 %h, -16")
     (emitLine cg "  %rcp = inttoptr i64 %rc to ptr")
     (emitLine cg "  store i64 1, ptr %rcp")
@@ -26619,6 +26697,9 @@
     (emitLine cg "  store i64 %closure, ptr %cp")
     (emitLine cg "  %vp = getelementptr i64, ptr %p, i64 3")
     (emitLine cg "  store i64 %value, ptr %vp")
+    (if (== (resRegistryOn cg) 1)
+      (emitLine cg "  call void @__axiom_resource_link(i64 %h)")
+      0)
     (emitLine cg "  ret i64 %h")
     (emitLine cg "}")
     (emitLine cg "define internal i64 @__axiom_resource_check(i64 %h) #0 {")
@@ -26678,13 +26759,166 @@
     (emitLine cg "  %arg = atomicrmw xchg ptr %ap, i64 0 seq_cst")
     (emitLine cg "  %cp = getelementptr i64, ptr %p, i64 2")
     (emitLine cg "  %closure = atomicrmw xchg ptr %cp, i64 0 seq_cst")
+    (if (== (resRegistryOn cg) 1)
+      (emitLine cg "  call void @__axiom_resource_unlink(i64 %h)")
+      0)
     (emitLine cg "  call void @axiom_release(i64 %closure)")
     (emitLine cg "  br label %done")
     (emitLine cg "done:")
     (emitLine cg "  ret i64 0")
     (emitLine cg "}")
+    (if (== (resRegistryOn cg) 1)
+      (emitResourceRegistry cg)
+      cg)
+  })
+
+; ------------------------------------------------------------------
+; THE OWNER REGISTRY (docs/memory-model.md MM-EXEC-20). An arena reset
+; reclaims every block made since its mark, and an owner among them
+; would go without its cleanup: a lock guard would leave its lock held
+; for ever. So in a module that makes owners AND resets the arena (a
+; recovery point, a region, a raw reset; `resRegistryOn`), every owner
+; is linked, newest first, on a list that belongs to its thread, and
+; numbered from a counter. A mark keeps the counter in its fourth word,
+; and the reset first runs the cleanup of every owner on the list
+; numbered above it - before a byte is reclaimed, so each callback runs
+; on memory that is still its own.
+;
+; Payload words 4 and 5 are the links (older, newer) and word 6 the
+; number, 0 once unlinked. An owner leaves the list when its callback
+; is claimed - its death, an early close, a disarm - so a block the
+; allocator files is never on it, and an unlink of one already off it
+; changes nothing. The three globals are thread-local under threads:
+; an owner lives in its thread's arena and dies in that thread (a
+; `parallel` binding that borrows one has its count frozen,
+; MM-PAR-6b), so each list has one writer.
+;
+; `@__axiom_res_unwinding` is 1 while a recovery abort's reset runs
+; those callbacks, and `__resource_unwinding` reads it: a lock guard's
+; cleanup poisons its mutex then, since the critical section it guarded
+; did not finish (MM-PAR-15). A region's reset leaves it 0.
+; ------------------------------------------------------------------
+(pub :: emitResourceRegistry (-> Int Int))
+(pub fn (emitResourceRegistry cg)
+  {
+    (emitLine cg (concat "@__axiom_res_head = " (concat (cgMutGlobal cg) " i64 0")))
+    (emitLine cg (concat "@__axiom_res_seq = " (concat (cgMutGlobal cg) " i64 0")))
+    (emitLine cg (concat "@__axiom_res_unwinding = " (concat (cgMutGlobal cg) " i64 0")))
+    (emitLine cg "define internal void @__axiom_resource_link(i64 %h) #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  %p = inttoptr i64 %h to ptr")
+    (emitLine cg "  %n0 = load i64, ptr @__axiom_res_seq")
+    (emitLine cg "  %n = add i64 %n0, 1")
+    (emitLine cg "  store i64 %n, ptr @__axiom_res_seq")
+    (emitLine cg "  %sp = getelementptr i64, ptr %p, i64 6")
+    (emitLine cg "  store i64 %n, ptr %sp")
+    (emitLine cg "  %head = load i64, ptr @__axiom_res_head")
+    (emitLine cg "  %np = getelementptr i64, ptr %p, i64 4")
+    (emitLine cg "  store i64 %head, ptr %np")
+    (emitLine cg "  %pp = getelementptr i64, ptr %p, i64 5")
+    (emitLine cg "  store i64 0, ptr %pp")
+    (emitLine cg "  %has = icmp ne i64 %head, 0")
+    (emitLine cg "  br i1 %has, label %back, label %done")
+    (emitLine cg "back:")
+    (emitLine cg "  %hp = inttoptr i64 %head to ptr")
+    (emitLine cg "  %hb = getelementptr i64, ptr %hp, i64 5")
+    (emitLine cg "  store i64 %h, ptr %hb")
+    (emitLine cg "  br label %done")
+    (emitLine cg "done:")
+    (emitLine cg "  store i64 %h, ptr @__axiom_res_head")
+    (emitLine cg "  ret void")
+    (emitLine cg "}")
+    (emitLine cg "define internal void @__axiom_resource_unlink(i64 %h) #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  %p = inttoptr i64 %h to ptr")
+    (emitLine cg "  %sp = getelementptr i64, ptr %p, i64 6")
+    (emitLine cg "  %n = load i64, ptr %sp")
+    (emitLine cg "  %on = icmp ne i64 %n, 0")
+    (emitLine cg "  br i1 %on, label %cut, label %done")
+    (emitLine cg "cut:")
+    (emitLine cg "  %np = getelementptr i64, ptr %p, i64 4")
+    (emitLine cg "  %nx = load i64, ptr %np")
+    (emitLine cg "  %pp = getelementptr i64, ptr %p, i64 5")
+    (emitLine cg "  %pv = load i64, ptr %pp")
+    (emitLine cg "  %hasp = icmp ne i64 %pv, 0")
+    (emitLine cg "  br i1 %hasp, label %mid, label %first")
+    (emitLine cg "mid:")
+    (emitLine cg "  %pvp = inttoptr i64 %pv to ptr")
+    (emitLine cg "  %pv4 = getelementptr i64, ptr %pvp, i64 4")
+    (emitLine cg "  store i64 %nx, ptr %pv4")
+    (emitLine cg "  br label %fwd")
+    (emitLine cg "first:")
+    (emitLine cg "  store i64 %nx, ptr @__axiom_res_head")
+    (emitLine cg "  br label %fwd")
+    (emitLine cg "fwd:")
+    (emitLine cg "  %hasn = icmp ne i64 %nx, 0")
+    (emitLine cg "  br i1 %hasn, label %back, label %clear")
+    (emitLine cg "back:")
+    (emitLine cg "  %nxp = inttoptr i64 %nx to ptr")
+    (emitLine cg "  %nx5 = getelementptr i64, ptr %nxp, i64 5")
+    (emitLine cg "  store i64 %pv, ptr %nx5")
+    (emitLine cg "  br label %clear")
+    (emitLine cg "clear:")
+    (emitLine cg "  store i64 0, ptr %sp")
+    (emitLine cg "  br label %done")
+    (emitLine cg "done:")
+    (emitLine cg "  ret void")
+    (emitLine cg "}")
+    ; Every owner numbered above `floor`, newest first: claimed, taken
+    ; off the list and cleaned up. A callback that makes an owner makes
+    ; a newer one, which this loop then takes too; one that traps
+    ; re-enters the abort, which finds this owner already off the list.
+    (emitLine cg "define internal void @__axiom_resource_unwind(i64 %floor) #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  br label %loop")
+    (emitLine cg "loop:")
+    (emitLine cg "  %head = load i64, ptr @__axiom_res_head")
+    (emitLine cg "  %empty = icmp eq i64 %head, 0")
+    (emitLine cg "  br i1 %empty, label %done, label %test")
+    (emitLine cg "test:")
+    (emitLine cg "  %hp = inttoptr i64 %head to ptr")
+    (emitLine cg "  %sp = getelementptr i64, ptr %hp, i64 6")
+    (emitLine cg "  %n = load i64, ptr %sp")
+    (emitLine cg "  %inside = icmp sgt i64 %n, %floor")
+    (emitLine cg "  br i1 %inside, label %one, label %done")
+    (emitLine cg "one:")
+    (emitLine cg "  %ap = getelementptr i64, ptr %hp, i64 1")
+    (emitLine cg "  %arg = atomicrmw xchg ptr %ap, i64 0 seq_cst")
+    (emitLine cg "  call void @__axiom_resource_unlink(i64 %head)")
+    (emitLine cg "  %live = icmp ne i64 %arg, 0")
+    (emitLine cg "  br i1 %live, label %run, label %loop")
+    (emitLine cg "run:")
+    (emitLine cg "  %r = call i64 @__axiom_resource_drop(i64 %arg)")
+    (emitLine cg "  br label %loop")
+    (emitLine cg "done:")
+    (emitLine cg "  ret void")
+    (emitLine cg "}")
     cg
   })
+
+; Is the owner registry in this module (slot 19, `parScan`)?
+(pub :: resRegistryOn (-> Int Int))
+(pub fn (resRegistryOn cg)
+  (pairSlot cg 19))
+
+; `__resource_unwinding`: 1 while a recovery abort runs the cleanup of
+; the owners made inside its extent, otherwise 0 - always 0 in a module
+; with no owner registry, which has no such abort.
+(pub :: emitPrimResUnwinding (-> Int Int))
+(pub fn (emitPrimResUnwinding cg)
+  (if (== (resRegistryOn cg) 0)
+    {
+      (memSetWord cg 2 "0")
+      (memSetWord cg 14 0)
+      cg
+    }
+    (let ((r (regStr (allocReg cg))))
+      {
+        (emitLine cg (concat (concat "  " r) " = load i64, ptr @__axiom_res_unwinding"))
+        (memSetWord cg 2 r)
+        (memSetWord cg 14 0)
+        cg
+      })))
 
 (pub :: emitPrimResource (-> String (Vec Int) Int Int))
 ;@axiom:effect(io)

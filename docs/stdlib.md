@@ -354,7 +354,8 @@ Tested by `tests/stdlib/704-task-decoded.ax`.
 
 `Par` runs word workers or external commands. `Chan` passes words
 through a bounded channel; `Sync` provides mutexes with timeout and
-owner-death reporting. Use shared handles through their module's public
+owner-death reporting. A lock call answers a guard, and the lock is
+released when the guard's scope ends. Use shared handles through their module's public
 operations. These APIs do not transfer arbitrary heap graphs between
 processes or make unsynchronised payload mutation safe.
 

@@ -69,6 +69,20 @@ its changelog too.
   Life probe in `scripts/measure-memory-baseline.sh`, runs in flat
   memory with no arena. Tested by
   `tests/stdlib/404-container-reference-maps.ax`.
+- Hold a lock with its guard. `mutexLock`, `mutexTryLock` and
+  `mutexLockTimeout` answer a `MutexGuard`, a sealed owner whose end
+  releases the lock: at the end of its scope, on any branch out of it,
+  and on a `set` that overwrites it. `mutexUnlock` and `syncNotHeld`
+  are gone, so a lock can't be released twice or forgotten. A forked
+  child's copy of a guard leaves its parent's lock alone. Tested by
+  `tests/stdlib/800-mutex-guard.ax`.
+
+- Run the cleanup of the owners a reset reclaims. A recovery abort, a
+  region's end and a raw arena reset first run the cleanup of each
+  live resource owner made since their mark. A file opened inside a
+  recovery point that traps is closed, and a guard releases its lock
+  and poisons the mutex, since the critical section didn't finish. A
+  mark cell is four words. Tested by `tests/stdlib/801-reset-cleanup.ax`.
 
 - Check dominance in a lowered body in memory linear in its blocks.
   `symbols --axir --mir` over every standard library module peaked at

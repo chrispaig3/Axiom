@@ -1,21 +1,18 @@
 ; stdlib/Sync.ax: a mutex between `parallel` bindings (R-C2, MM-PAR-11).
 ;
-; One binding first: a free mutex's lock and unlock, a held mutex
-; refusing a second try and timing out a timed lock (the mutex is not
-; reentrant, so the holder waits for itself until the time runs out),
-; and every unlock the holder did not earn refused with `syncNotHeld`.
-; A guard is a `MutexGuard`, which safe code gets only from a lock call,
-; so the unearned ones are another mutex's live guard, a guard made by a
-; `cast` (the unsafe layer), and this mutex's own guard once spent.
-; Then two forked bindings add to one plain word in a shared mapping
-; 3,000 times each under the lock - the total is exact. Then a holder
-; that dies: a forked binding takes the lock and is SIGKILLed and
-; reaped holding it, and the next lock calls answer `syncOwnerDead`.
-; `scripts/check-task.sh` runs the same shapes under `--threads`, at
-; four bindings, against an unlocked control and an ablated lock. The
-; handle is a `Mutex` (MM-PAR-8), captured by the bindings because it is
-; declared `shared`; `tests/stdlib/570-handle-freed.ax` holds what a
-; freed one does.
+; One binding first: a free mutex's lock, a held mutex refusing a second
+; try and timing out a timed lock (the mutex is not reentrant, so the
+; holder waits for itself until the time runs out), and the lock free
+; again once the guard's scope ends - nothing unlocks by hand
+; (MM-PAR-15, and `tests/stdlib/800-mutex-guard.ax` for every way a
+; guard ends). Then two forked bindings add to one plain word in a
+; shared mapping 3,000 times each under the lock - the total is exact.
+; Then a holder that dies: a forked binding takes the lock and is
+; SIGKILLed and reaped holding it, and the next lock calls answer
+; `syncOwnerDead`. `scripts/check-task.sh` runs the same shapes under
+; `--threads`, at four bindings, against an unlocked control and an
+; ablated lock. The handle is a `Mutex` (MM-PAR-8), captured by the
+; bindings because it is declared `shared`.
 (import IO)
 (import Sys)
 (import Mem)
@@ -40,24 +37,6 @@
     ((Some g) 0)
     ((None) 1)))
 
-; A guard made from a word, which only the unsafe layer can do.
-(:: forged (-> Int MutexGuard))
-;@axiom:effect(unsafe)
-(fn (forged w)
-  (cast MutexGuard w))
-
-; A live guard of a second mutex: a real guard, and not this mutex's.
-(:: foreignGuard MutexGuard)
-;@axiom:effect(io)
-(fn (foreignGuard)
-  (match (mutexNew)
-    ((Ok o)
-      (match (mutexTryLock o)
-        ((Some g) g)
-        ((None) (forged 7)))
-    )
-    ((Err e) (forged 7))))
-
 (:: bump (-> Mutex Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(block)
@@ -66,10 +45,7 @@
     (for i in 0..n
       (match (mutexLock m)
         ((Ok g)
-          {
-            (memSetWord cell 0 (+ (memGetWord cell 0) 1))
-            (codeOf (mutexUnlock m g))
-          }
+          (memSetWord cell 0 (+ (memGetWord cell 0) 1))
         )
         ((Err e) 0)))
     0
@@ -104,33 +80,22 @@
   (match (mutexNew)
     ((Ok m)
       {
-        (println syncNotHeld)  ; 1005
         (println syncOwnerDead)  ; 1004
-        (println (codeOf (mutexUnlock m foreignGuard)))  ; 1005
         (match (mutexLock m)
           ((Ok g)
             {
               (println 1)  ; 1
               (println (tryCode (mutexTryLock m)))  ; 1
               (println (codeOf (mutexLockTimeout m 30000000)))  ; 1001
-              (println (codeOf (mutexUnlock m foreignGuard)))  ; 1005
-              (println (codeOf (mutexUnlock m (forged 0))))  ; 1005
-              (println (codeOf (mutexUnlock m g)))  ; 0
-              (println (codeOf (mutexUnlock m g)))  ; 1005
             }
           )
           ((Err e) (println "no lock")))
+        (println (tryCode (mutexTryLock m)))  ; 0
         (match (mutexLockTimeout m 30000000)
-          ((Ok g2)
-            {
-              (println 1)  ; 1
-              (println (codeOf (mutexUnlock m g2)))  ; 0
-            }
-          )
+          ((Ok g2) (println 1))  ; 1
           ((Err e) (println "no timed lock")))
         (match (mutexTryLock m)
-          ((Some g3) (println (codeOf (mutexUnlock m g3))))
-          ; 0
+          ((Some g3) (println (tryCode (mutexTryLock m))))  ; 1
           ((None) (println "busy")))
         ; Two forked bindings, one plain word.
         (match (sysMapShared 4096)

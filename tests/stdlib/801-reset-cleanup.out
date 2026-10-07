@@ -1,0 +1,9 @@
+region:
+  cleanup 3, unwinding 0
+  after the region
+recovery point:
+  cleanup 4, unwinding 1
+  cleanup 2, unwinding 1
+  status 72
+  cleanup 1, unwinding 0
+  after the scope

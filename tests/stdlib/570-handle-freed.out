@@ -18,7 +18,7 @@ freed channel free: status 85
 freed mutex lock: status 85
 freed mutex tryLock: status 85
 freed mutex lockTimeout: status 85
-freed mutex unlock: status 85
+freed mutex guard end: status 85
 freed mutex ownerDead: status 85
 freed mutex free: status 85
 forged channel send: status 85

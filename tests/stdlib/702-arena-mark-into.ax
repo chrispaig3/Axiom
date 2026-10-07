@@ -1,5 +1,5 @@
 ; Refreshing caller-owned marks allocates nothing. Guard words pin the
-; three-word write; repeated resets must keep allocation and reuse flat.
+; four-word cell; repeated resets must keep allocation and reuse flat.
 (import IO)
 (import Mem)
 (import Task)
@@ -28,14 +28,14 @@
 ;@axiom:effect(block)
 (fn (main)
   (let (
-    (cell (memAlloc 40))
-    (inner (memAlloc 24))
+    (cell (memAlloc 48))
+    (inner (memAlloc 32))
   )
     {
       (__retain cell)
       (__retain inner)
       (memSetWord cell 0 713)
-      (memSetWord cell 4 917)
+      (memSetWord cell 5 917)
       (let (
         (mark (+ cell 8))
         (before (__axiom_mem_stat 0))
@@ -50,7 +50,7 @@
                 1
                 0)))
           (println
-            (if (&& (== (memGetWord cell 0) 713) (== (memGetWord cell 4) 917))
+            (if (&& (== (memGetWord cell 0) 713) (== (memGetWord cell 5) 917))
               1
               0))
           (__axiom_arena_mark_into mark)

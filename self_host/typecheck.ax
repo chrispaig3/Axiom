@@ -3993,6 +3993,9 @@
       (regFn fns "__resource_get" (mkTArr (mkTCon "Handle" vecNew) mkIntTy))
       (regFnEff fns "__resource_close" (mkTArr (mkTCon "Handle" vecNew) mkIntTy) (builtinEff "IO"))
       (regFnEff fns "__resource_disarm" (mkTArr (mkTCon "Handle" vecNew) mkIntTy) (builtinEff "IO"))
+      ; 1 while a recovery abort runs the cleanup of the owners made
+      ; inside its extent (docs/memory-model.md MM-EXEC-20), else 0.
+      (regFn fns "__resource_unwinding" (mkIntArrow 0))
       ; `(__contract cond "message")` - the run-time half of
       ; `;@axiom:pre(...)`/`post(...)`. Not spellable in source in the
       ; sense that matters: `expLowerContracts` is the only writer, and
@@ -16371,7 +16374,7 @@
 ; seed could not accept the tags (`1080-unsafe-syscalls.ax`).
 (pub :: isUnsafePrim (-> String Int))
 (pub fn (isUnsafePrim n)
-  (if (|| (strEq n "__resource_new") (|| (strEq n "__resource_get") (|| (strEq n "__resource_close") (strEq n "__resource_disarm"))))
+  (if (|| (strEq n "__resource_new") (|| (strEq n "__resource_get") (|| (strEq n "__resource_close") (|| (strEq n "__resource_disarm") (strEq n "__resource_unwinding")))))
     1
   (if (== (isUnsafeRawPrim n) 1)
     1

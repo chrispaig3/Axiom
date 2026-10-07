@@ -91,25 +91,29 @@
       (let ((end (+ (sysTimeoutMicros buf) (* ms 1000))))
         (while (== going 1)
           (let ((t0 (sysTimeoutMicros buf)))
-            (match (mutexLock m)
+            ; The critical section is the guard's arm: the lock is let
+            ; go as the arm ends, before the bookkeeping.
+            (let ((waited (match (mutexLock m)
               ((Ok g)
-                (let ((waited (- (sysTimeoutMicros buf) t0)))
+                (let ((w (- (sysTimeoutMicros buf) t0)))
                   {
                     (memSetWord res 0 (+ (memGetWord res 0) 1))
-                    (codeOf (mutexUnlock m g))
-                    (set count (+ count 1))
-                    (if (> waited worst)
-                      (set worst waited)
-                      0)
-                    (tallyWait res k waited)
-                    (if (>= (sysTimeoutMicros buf) end)
-                      (set going 0)
-                      0)
+                    w
                   })
               )
-              ((Err e)
+              ((Err e) (- 0 1)))))
+              (if (< waited 0)
                 (set going 0)
-              )))))
+                {
+                  (set count (+ count 1))
+                  (if (> waited worst)
+                    (set worst waited)
+                    0)
+                  (tallyWait res k waited)
+                  (if (>= (sysTimeoutMicros buf) end)
+                    (set going 0)
+                    0)
+                })))))
       (memSetWord res (+ 1 (* 2 k)) count)
       (memSetWord res (+ 2 (* 2 k)) worst)
       0
@@ -226,10 +230,7 @@
                 )
                   (println "side {k} {code} {us}"))
                 (arrive (+ bar 8) 2)
-                (match r
-                  ((Ok h) (codeOf (mutexUnlock second h)))
-                  ((Err e) 0))
-                (codeOf (mutexUnlock first g))
+                0
               }))
         }
       )
@@ -243,7 +244,7 @@
   (match (mutexLock a)
     ((Ok g)
       (match (mutexLock b)
-        ((Ok h) (+ (codeOf (mutexUnlock b h)) (codeOf (mutexUnlock a g))))
+        ((Ok h) 0)
         ((Err e) 1))
     )
     ((Err e) 1)))

@@ -6,10 +6,10 @@
 ; child and every thread see the same word - `stdlib/Chan.ax`'s reason,
 ; and one mutex serves both lowerings without the program choosing.
 ; `mutexLock` waits until it holds the lock, `mutexTryLock` does not
-; wait, `mutexLockTimeout` waits at most a given time, and `mutexUnlock`
-; lets the next holder in. What the lock protects is the program's: a
-; plain word in another MAP_SHARED mapping, say, which bindings update
-; only while they hold it.
+; wait, `mutexLockTimeout` waits at most a given time, and each answers a
+; guard whose end lets the next holder in. What the lock protects is the
+; program's: a plain word in another MAP_SHARED mapping, say, which
+; bindings update only while they hold it.
 ;
 ; THE LOCK WORD NAMES ITS HOLDER. Word 0 is 0 when free, and otherwise
 ; the holder's pid shifted left twice with bit 0 set when someone waits
@@ -21,42 +21,45 @@
 ; purpose: Linux's `futex` compares only the word's low 32 bits, and a
 ; waiter must see the bit a sibling sets.
 ;
-; THE GUARD. Under `--threads` every binding has the same pid, so the pid
-; cannot tell the holder from a sibling. Each acquisition therefore
-; answers a GUARD, drawn from a counter (word 2) and published as the
-; holder's (word 1) right after the lock word is taken. `mutexUnlock`
-; takes it back with ONE compare-and-swap of word 1 from the guard to
-; 0, and only then releases the lock word: a guard that is not the
-; current holder's, a stale one (a double unlock) or an unlock of a
-; free mutex fails that compare-and-swap, answers `Err` code
-; `syncNotHeld`, and changes nothing. Between a new holder's lock and
-; its publication word 1 holds 0, which no guard equals, so a stale
-; unlock landing in that window is refused too. (Comparing against the
-; COUNTER instead accepted exactly that stale unlock and released a
-; lock someone else held.) Each mutex's counter starts at its page
-; number times 2^24, so guards of two live mutexes differ unless one of
-; them has been locked 2^24 times.
+; THE GUARD. Each lock call answers a `MutexGuard`, and holding it is
+; holding the lock: its last share going - at the end of its scope, on a
+; `set` that overwrites it, on any branch out of that scope - lets the
+; next holder in (MM-PAR-15). Nothing unlocks by hand, so an unlock
+; can't be forgotten, made twice or made by someone else. The guard is a
+; resource owner (`__resource_new`, MM-EXEC-17) whose cleanup is the
+; release below, and it is sealed: only this module makes or opens one.
+; Not `shared` either, so a concurrent binding can't capture it (AX3064):
+; a guard belongs to the binding whose lock call answered it.
 ;
-; The guard is a `MutexGuard`: a word struct (MM-VAL-10a) only this
-; module can make or read, so safe code can't hand `mutexUnlock` an
-; `Int`, a `Mutex` or any other handle as a guard (AX3004), or build
-; one (AX3085). Every guard a program holds is one a lock call here
-; answered, and the compare-and-swap above is what refuses the stale
-; ones and the other mutex's. It is not in the runtime's handle table:
-; a lock and an unlock are one compare-and-swap each when uncontended,
-; and a table slot per acquisition would add two more and a limit of
-; 65,536 held locks. It is not `shared` either, so a concurrent binding
-; can't capture one (AX3064): a guard belongs to the binding whose lock
-; call answered it. A guard made with a `cast` is the unsafe layer's
-; (MM-VAL-22), and the compare-and-swap still refuses every one but the
-; holder's current guard.
+; Under `--threads` every binding has the same pid, so the pid can't
+; tell the holder from a sibling. Each acquisition therefore draws a
+; serial from a counter (word 2) and publishes it as the holder's (word
+; 1) right after the lock word is taken, and the guard keeps it. The
+; release takes it back with ONE compare-and-swap of word 1 from the
+; serial to 0, and only then releases the lock word, so a release whose
+; serial isn't the current holder's changes nothing. Between a new
+; holder's lock and its publication word 1 holds 0, which no serial
+; equals. Each mutex's counter starts at its page number times 2^24, so
+; serials of two live mutexes differ unless one of them has been locked
+; 2^24 times.
+;
+; A forked child is a copy, and it may hold a copy of its parent's guard
+; (`sysForkProcess`, or a task's captures). The release first asks
+; whether the lock word names THIS process, and does nothing if not: a
+; copy never unlocks the lock its parent holds.
+;
+; A TRAP inside the guard's scope that a recovery point catches runs the
+; release too, while the reset reclaims the extent (MM-EXEC-20). The
+; critical section did not finish, so that release POISONS the mutex
+; first, as a dead holder does: every lock call answers `syncOwnerDead`
+; from then on.
 ;
 ; HAPPENS-BEFORE. The acquire is a seq_cst compare-and-swap and the
-; release a seq_cst compare-and-swap or store, so an unlock
-; synchronizes with the lock that next takes it (MM-PAR-9, edge 4):
-; everything the holder did before `mutexUnlock` is visible to the next
-; holder after its `mutexLock` answers. Across processes the memory
-; that edge can carry is shared mappings; across threads it is all of it.
+; release a seq_cst compare-and-swap or store, so a release synchronizes
+; with the lock that next takes it (MM-PAR-9, edge 4): everything the
+; holder did before its guard went is visible to the next holder after
+; its `mutexLock` answers. Across processes the memory that edge can
+; carry is shared mappings; across threads it is all of it.
 ;
 ; A HOLDER THAT DIES. A forked holder killed between lock and unlock -
 ; `MM-PAR-7`'s sweep SIGKILLs a sibling wherever it is - leaves the word
@@ -103,8 +106,8 @@
 ; must still come only once no binding can reach the mutex; a free that
 ; races a lock call is a data race (MM-PAR-9).
 ;
-; Words: 0 the lock, 1 the holder's guard (0 when none is published),
-; 2 the guard counter, 3 poisoned, 4 the mapping length.
+; Words: 0 the lock, 1 the holder's serial (0 when none is published),
+; 2 the serial counter, 3 poisoned, 4 the mapping length.
 (import Mem)
 (import Sys)
 (import Err)
@@ -115,11 +118,12 @@
 (pub struct Mutex word shared
   (slot : Int))
 
-; What a lock call answers and `mutexUnlock` takes back: one word, the
-; serial number the acquisition drew (the module header's "the guard").
-; Only this module makes or reads one, and it is not `shared`.
-(pub struct MutexGuard word
-  (serial : Int))
+; What a lock call answers: the lock, held while the guard lives. A
+; resource owner whose cleanup releases the lock (the module header's
+; "the guard"). Only this module makes or opens one, and it is not
+; `shared`.
+(pub struct MutexGuard sealed
+  (owner : Handle))
 
 ; The handle table's kind for a mutex (`Chan.ax`'s is 2): a channel's
 ; handle is not a mutex, even to code that forged one.
@@ -152,10 +156,6 @@
 (pub :: syncOwnerDead Int)
 (pub fn (syncOwnerDead)
   1004)
-
-(pub :: syncNotHeld Int)
-(pub fn (syncNotHeld)
-  1005)
 
 ; How long a waiter sleeps before it looks at the holder: 100 ms.
 (pub :: syncProbeNanos Int)
@@ -190,15 +190,15 @@
 (fn (syncCasAt m i old new)
   (__atomic_cas (+ m (* 8 i)) old new))
 
-; Word 2 bumped: the new guard.
+; Word 2 bumped: the new serial.
 (:: syncNextGuard (-> Int Int))
 ;@axiom:effect(unsafe)
 (fn (syncNextGuard m)
   (+ (__atomic_add (+ m 16) 1) 1))
 
 ; Called by the binding whose compare-and-swap just took word 0: draw a
-; guard and publish it as the holder's (word 1). Until the store, word 1
-; holds the 0 the last unlock left, so no unlock can succeed.
+; serial and publish it as the holder's (word 1). Until the store, word 1
+; holds the 0 the last release left, so no release can succeed.
 (:: syncTake (-> Int Int))
 (fn (syncTake m)
   (let ((g (syncNextGuard m)))
@@ -397,7 +397,7 @@
 
 ; The one waiting loop, behind `mutexLock` (forever: `timed` 0) and
 ; `mutexLockTimeout` (`timed` 1, at most the nanoseconds `b` holds).
-; Answers the guard, or -1 timed out, or -2 the holder is dead.
+; Answers the serial, or -1 timed out, or -2 the holder is dead.
 (:: syncAcquire (-> Int Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(block)
@@ -446,9 +446,9 @@
           (- 0 1)))
     }))
 
-; Wait until this binding holds the lock. `Ok` the guard `mutexUnlock`
-; wants back; `Err` code `syncOwnerDead` if the holder is found dead
-; while this waits, or the mutex was poisoned before.
+; Wait until this binding holds the lock. `Ok` the guard, which holds
+; the lock until it goes; `Err` code `syncOwnerDead` if the holder is
+; found dead while this waits, or the mutex was poisoned before.
 (pub :: mutexLock (-> Mutex (Result MutexGuard Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(block)
@@ -458,10 +458,10 @@
       (Err (mkError syncOwnerDead "mutexLock: the holder died holding it"))
       (let ((me syncMe))
         (if (== (syncCas m 0 me) 0)
-          (Ok (MutexGuard (syncTake m)))
+          (Ok (syncGuard mx (syncTake m)))
           (let ((g (syncAcquire m 0 0)))
             (if (> g 0)
-              (Ok (MutexGuard g))
+              (Ok (syncGuard mx g))
               (Err (mkError syncOwnerDead "mutexLock: the holder died holding it")))))))))
 
 ; Take the lock if it is free right now: `Some` the guard, `None` if it
@@ -474,7 +474,7 @@
       None
       (let ((me syncMe))
         (if (== (syncCas m 0 me) 0)
-          (Some (MutexGuard (syncTake m)))
+          (Some (syncGuard mx (syncTake m)))
           None)))))
 
 ; `mutexLock`, waiting at most `nanos` nanoseconds. `Ok` the guard;
@@ -492,43 +492,59 @@
       (Err (mkError syncOwnerDead "mutexLockTimeout: the holder died holding it"))
       (let ((me syncMe))
         (if (== (syncCas m 0 me) 0)
-          (Ok (MutexGuard (syncTake m)))
+          (Ok (syncGuard mx (syncTake m)))
           (let ((b (syncScratch nanos)))
             (let ((g (syncAcquire m b 1)))
               {
                 (syncScratchDone b)
                 (if (> g 0)
-                  (Ok (MutexGuard g))
+                  (Ok (syncGuard mx g))
                   (if (== g (- 0 2))
                     (Err (mkError syncOwnerDead "mutexLockTimeout: the holder died holding it"))
                     (Err (mkError sysTimedOut "mutexLockTimeout: timed out"))))
               })))))))
 
-; Let the next holder in. `mg` must be the guard this binding's lock
-; call answered: any other - on a free mutex, a stale one, a sibling's,
-; another mutex's - is `Err` code `syncNotHeld` and leaves the lock as
-; it was. Exactly one unlock per acquisition succeeds, however the calls
-; interleave.
-(pub :: mutexUnlock (-> Mutex MutexGuard (Result Int Error)))
+; The guard for acquisition `serial` of `mx`. Its cleanup names the
+; mutex, so a guard that outlives `mutexFree` traps 85 as any call does.
+(:: syncGuard (-> Mutex Int MutexGuard))
 ;@axiom:effect(io)
-(pub fn (mutexUnlock mx mg)
-  (let (
-    (m (syncAt mx))
-    (guard mg.serial)
-  )
-    (if (|| (<= guard 0) (!= (syncCasAt m 1 guard 0) guard))
-      (Err (mkError syncNotHeld "mutexUnlock: this binding does not hold the mutex"))
-      (let ((v (syncLoad m 0)))
-        (if (&& (== (% v 2) 0) (== (syncCas m v 0) v))
-          (Ok 0)
-          {
-            (syncStore m 0 0)
-            (sysWakeWord m)
-            (Ok 0)
-          })))))
+;@axiom:effect(unsafe)
+(fn (syncGuard mx serial)
+  (MutexGuard (__resource_new (lambda (g) (syncRelease mx g)) serial)))
 
-; Whether a holder was found dead holding this mutex (the poisoning in
-; the header).
+; Whether a recovery abort is running this release (MM-EXEC-20).
+(:: syncUnwinding Bool)
+;@axiom:effect(unsafe)
+(fn (syncUnwinding)
+  (== __resource_unwinding 1))
+
+; A guard's cleanup: let the next holder in. Only in the process the
+; lock word names, and only for the serial published as the holder's -
+; so a forked copy of the guard changes nothing. Under a recovery abort
+; the mutex is poisoned before the word goes. Exactly one release per
+; acquisition takes effect, however the calls interleave.
+(:: syncRelease (-> Mutex Int Int))
+;@axiom:effect(io)
+(fn (syncRelease mx serial)
+  (let ((m (syncAt mx)))
+    (if (|| (!= (/ (syncLoad m 0) 4) (/ syncMe 4)) (|| (<= serial 0) (!= (syncCasAt m 1 serial 0) serial)))
+      0
+      {
+        (if syncUnwinding
+          (syncStore m 3 1)
+          0)
+        (let ((v (syncLoad m 0)))
+          (if (&& (== (% v 2) 0) (== (syncCas m v 0) v))
+            0
+            {
+              (syncStore m 0 0)
+              (sysWakeWord m)
+              0
+            }))
+      })))
+
+; Whether the mutex is poisoned: a holder was found dead holding it, or
+; a trap ended a guard's scope (the header).
 (pub :: mutexOwnerDead (-> Mutex Bool))
 (pub fn (mutexOwnerDead mx)
   (== (syncLoad (syncAt mx) 3) 1))

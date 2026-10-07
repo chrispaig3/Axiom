@@ -1,0 +1,7 @@
+scope end: free inside 0, after 1
+early return: answered 5, free after 1
+overwrite: a free while held 0
+overwrite: a free after the set 1, b free 0
+forked copy: the child found the lock free 0, free now 1
+trap: status 72, then lock answers 1004
+trap: poisoned 1

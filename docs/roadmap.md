@@ -95,7 +95,7 @@ integrator would still need.
 
 | Item | State | Where it's specified or tested |
 |---|---|---|
-| Channels, mutexes and cancel tokens are owners, so disposal can't race a use | Not started | |
+| Channels, mutexes and cancel tokens are owners, so disposal can't race a use | In progress | `MM-PAR-15`, `tests/stdlib/800-mutex-guard.ax` |
 | Owned task inputs and results, with cleanup across joins, cancellation and failure | In progress | `MM-PAR-6` |
 | Fixed worker, queue, memory and stack budgets, with exhaustion and shutdown tests | Not started | `MM-ALLOC-20` |
 | Shared mutable heap graphs across tasks | Not started | |

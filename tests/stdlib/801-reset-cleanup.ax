@@ -1,0 +1,65 @@
+; A reset runs the cleanup of the owners made since its mark
+; (docs/memory-model.md MM-EXEC-20): a recovery abort runs those its
+; extent made, newest first and with `__resource_unwinding` answering 1,
+; and leaves an owner made before the point alone; a region's end runs
+; one the region leaked (a `Vec` isn't released at scope end), with the
+; flag at 0. Without this, the reset reclaimed them and no cleanup ran.
+(import IO)
+(import Vec)
+
+(struct Owner sealed (h : Handle))
+
+(:: says (-> Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (says v)
+  (let ((u __resource_unwinding))
+    {
+      (println "  cleanup {v}, unwinding {u}")
+      0
+    }))
+
+(:: owner (-> Int Owner))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (owner n)
+  (Owner (__resource_new (lambda (v) (says v)) n)))
+
+(:: leakInRegion Int)
+;@axiom:effect(io)
+(fn (leakInRegion)
+  {
+    (region r
+      (let ((v vecNew))
+        {
+          (vecPush v (owner 3))
+          (vecLen v)
+        }))
+    (println "  after the region")
+    0
+  })
+
+(:: trapAround Int)
+;@axiom:effect(io)
+(fn (trapAround)
+  (let ((outer (owner 1)))
+    (let ((st (__axiom_recover __axiom_arena_mark
+      (lambda (x)
+        (let ((a (owner 2)) (b (owner 4)))
+          (/ 1 (- x x)))))))
+      {
+        (println "  status {st}")
+        0
+      })))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (println "region:")
+    (leakInRegion)
+    (println "recovery point:")
+    (trapAround)
+    (println "  after the scope")
+    0
+  })

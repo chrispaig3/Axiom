@@ -140,10 +140,7 @@
     (for i in 0..n
       (match (mutexLock m)
         ((Ok g)
-          {
-            (memSetWord cell 0 (+ (memGetWord cell 0) 1))
-            (let ((_ (mutexUnlock m g))) 0)
-          }
+          (memSetWord cell 0 (+ (memGetWord cell 0) 1))
         )
         ((Err e) 0)))
     0

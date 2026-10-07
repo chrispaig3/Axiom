@@ -1,0 +1,150 @@
+; A mutex's guard holds the lock, and its end lets the next holder in
+; (docs/memory-model.md MM-PAR-15): at the end of its scope, on a branch
+; that leaves the scope early, on a `set` that overwrites it, and on a
+; trap a recovery point catches, which also poisons the mutex
+; (MM-EXEC-20). A forked copy of a guard never unlocks the lock its
+; parent holds. `scripts/check-task.sh` runs this in both lowerings.
+(import IO)
+(import Sys)
+(import Err)
+(import Sync)
+
+; 1 when the lock is free right now. The guard a successful try answers
+; ends with this function's `match`, so the probe leaves it free.
+(:: free (-> Mutex Int))
+;@axiom:effect(io)
+(fn (free mx)
+  (match (mutexTryLock mx)
+    ((Some g) 1)
+    ((None) 0)))
+
+(:: scopeEnd (-> Mutex Int))
+;@axiom:effect(io)
+;@axiom:effect(block)
+(fn (scopeEnd mx)
+  (let ((inside (match (mutexLock mx)
+    ((Ok g) (free mx))
+    ((Err e) 9))))
+    (let ((after (free mx)))
+      {
+        (println "scope end: free inside {inside}, after {after}")
+        0
+      })))
+
+; Leaves the guard's scope early when `n` is large: `try` binds the
+; guard, and the first branch answers without reaching the rest.
+(:: early (-> Mutex Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(block)
+(fn (early mx n)
+  (try g (mutexLock mx)
+    (if (> n 3)
+      (Ok n)
+      (Ok (+ n (free mx))))))
+
+(:: earlyReturn (-> Mutex Int))
+;@axiom:effect(io)
+;@axiom:effect(block)
+(fn (earlyReturn mx)
+  (match (early mx 5)
+    ((Ok v)
+      (let ((after (free mx)))
+        {
+          (println "early return: answered {v}, free after {after}")
+          0
+        }))
+    ((Err e) 9)))
+
+; A `mut` slot holding a guard of `a`, overwritten with a guard of `b`.
+(:: overwrite (-> Mutex Mutex Int))
+;@axiom:effect(io)
+(fn (overwrite a b)
+  (let ((mut g (mutexTryLock a)))
+    {
+      (let ((before (free a)))
+        (println "overwrite: a free while held {before}"))
+      (set g (mutexTryLock b))
+      (let ((fa (free a)) (fb (free b)))
+        (println "overwrite: a free after the set {fa}, b free {fb}"))
+      0
+    }))
+
+; Divides by zero while holding the lock, inside a recovery point.
+(:: trapHolding (-> Mutex Int Int))
+;@axiom:effect(io)
+;@axiom:effect(block)
+(fn (trapHolding mx x)
+  (match (mutexLock mx)
+    ((Ok g) (/ 1 (- x x)))
+    ((Err e) 9)))
+
+(:: trapped (-> Mutex Int))
+;@axiom:effect(io)
+;@axiom:effect(block)
+(fn (trapped mx)
+  (let ((st (__axiom_recover __axiom_arena_mark
+    (lambda (x) (trapHolding mx x)))))
+    (let ((code (match (mutexLockTimeout mx 1000000000)
+      ((Ok g) 0)
+      ((Err e) (errCode e)))))
+      (let ((dead (if (mutexOwnerDead mx) 1 0)))
+        {
+          (println "trap: status {st}, then lock answers {code}")
+          (println "trap: poisoned {dead}")
+          0
+        }))))
+
+; The lock held here, a fork, and the child's copy of the guard gone:
+; the child reports whether the lock is still held by its parent.
+(:: forkedCopy (-> Mutex Int))
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(fn (forkedCopy mx)
+  (match (mutexLock mx)
+    ((Ok g)
+      (let ((pid sysForkProcess))
+        (if (== pid 0)
+          (- 0 1)
+          (match (sysWaitPid pid)
+            ((Ok st) (sysExitCode st))
+            ((Err e) 8)))))
+    ((Err e) 9)))
+
+(:: forked (-> Mutex Int))
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(fn (forked mx)
+  (let ((r (forkedCopy mx)))
+    (if (< r 0)
+      ; The child, its copy of the guard gone with `forkedCopy`'s match.
+      (sysExitWith (free mx))
+      (let ((now (free mx)))
+        {
+          (println "forked copy: the child found the lock free {r}, free now {now}")
+          0
+        }))))
+
+(:: main Int)
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(fn (main)
+  (match (mutexNew)
+    ((Ok a)
+      (match (mutexNew)
+        ((Ok b)
+          (match (mutexNew)
+            ((Ok c)
+              {
+                (scopeEnd a)
+                (earlyReturn a)
+                (overwrite a b)
+                (forked a)
+                (trapped c)
+                0
+              })
+            ((Err e) 3)))
+        ((Err e) 2)))
+    ((Err e) 1)))

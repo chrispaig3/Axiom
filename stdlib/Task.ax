@@ -501,7 +501,7 @@
         s
       })))
 
-; `scoped` is zero for retained answers, or a retained three-word
+; `scoped` is zero for retained answers, or a retained four-word
 ; mark cell for taskFold. The pool and its captures predate each mark.
 ; The fold's caller promises that the sink retains no scoped allocation.
 ; Refreshing the cell allocates nothing, so deliveries leave no marks.
@@ -1114,7 +1114,7 @@
 (pub fn (taskFold f n opts init step)
   (let (
     (acc (taskScratch 16))
-    (mark (taskScratch 24))
+    (mark (taskScratch 32))
   )
     {
       (memSetWord acc 0 init)

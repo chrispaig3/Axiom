@@ -20,9 +20,9 @@
 ;   dead       a forked binding takes the lock and is SIGKILLed and
 ;              reaped holding it. Prints what a timed and an untimed
 ;              lock answer afterwards, and when.
-;   zombie     a forked binding takes the lock and exits holding it, and
-;              is NOT reaped: a zombie, which `kill(pid, 0)` still
-;              answers for. First a `parallel` binding makes a 300 ms
+;   zombie     a forked binding takes the lock and exits holding it (a
+;              raw exit inside the guard's scope), and is NOT reaped:
+;              a zombie, which `kill(pid, 0)` still answers for. First a `parallel` binding makes a 300 ms
 ;              timed lock (`sibling-timed`): under `--threads` it is a
 ;              thread of the holder's parent and its `waitid` sees the
 ;              exit, so it answers 1004; under processes it is the
@@ -32,28 +32,9 @@
 ;              (`zombie-timed`, 1004 within a slice or so) and an untimed
 ;              one (`zombie-untimed`), then the holder's status and
 ;              whether the mutex reads poisoned.
-;   misuse     unlock a free mutex, unlock with another mutex's live
-;              guard, with a guard a `cast` made from 0, and twice: each
-;              must be refused with `syncNotHeld`. A guard is a
-;              `MutexGuard`, which safe code gets only from a lock call,
-;              so the zero guard is the unsafe layer's.
-;              Then the window a stale unlock can land in, built
-;              exactly: a lock and unlock leave guard G stale, the lock
-;              word is taken the way a new holder's compare-and-swap
-;              takes it, before that holder has published its guard,
-;              and G is presented. It must be refused
-;              (`stale-in-window 1005`) and the word must stay held
-;              (`still-held 1`). This reads `stdlib/Sync.ax`'s layout
-;              (word 0 the lock, and the handle table's kind 3 for a
-;              mutex), which a test may borrow through the unsafe layer.
-;   stale N    three bindings released together: one locks, adds 1,
-;              unlocks, and unlocks AGAIN with its now-stale guard, N
-;              times; two lock, add 1 and unlock N times. A stale
-;              unlock that lands while a sibling holds the lock must be
-;              refused like any other. Prints `stale-accepted S
-;              own-refused R count C of W`, and `ok` when S and R are
-;              0 and C is W. `misuse`'s double unlock is on a FREE
-;              mutex; this is the one taken under contention.
+;
+; A lock is held by its guard and let go when the guard's scope ends
+; (MM-PAR-15), so nothing here unlocks by hand.
 (import IO)
 (import Sys)
 (import Str)
@@ -111,10 +92,7 @@
       (if (== locked 1)
         (match (mutexLock m)
           ((Ok g)
-            {
-              (memSetWord cell 0 (+ (memGetWord cell 0) 1))
-              (codeOf (mutexUnlock m g))
-            }
+            (memSetWord cell 0 (+ (memGetWord cell 0) 1))
           )
           ((Err e) 0))
         {
@@ -183,7 +161,7 @@
         (memSetWord flag 0 1)
         (sysWakeWord flag)
         (nap idle ms)
-        (codeOf (mutexUnlock m g))
+        0
       }
     )
     ((Err e) 1)))
@@ -201,9 +179,6 @@
         (let ((r (mutexLockTimeout m (* ms 1000000))))
           (let ((us (elapsedSince buf t0)))
             {
-              (match r
-                ((Ok g) (codeOf (mutexUnlock m g)))
-                ((Err e) 0))
               (report
                 (if (== what 0)
                   "lock-timeout"
@@ -347,7 +322,8 @@
     ((Err e) 1)))
 
 ; ---- zombie --------------------------------------------------------------
-; Take the lock, raise `flag`, and end: the binding exits holding it.
+; Take the lock, raise `flag`, and end: the binding exits holding it, a
+; raw exit inside the guard's scope, which the guard never sees end.
 (:: lockAndExit (-> Mutex Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(block)
@@ -357,7 +333,7 @@
       {
         (memSetWord flag 0 1)
         (sysWakeWord flag)
-        0
+        (sysExitWith 0)
       }
     )
     ((Err e) 9)))
@@ -442,169 +418,6 @@
     )
     ((Err e) 1)))
 
-; ---- stale ---------------------------------------------------------------
-(:: arrive3 (-> Int Int))
-;@axiom:effect(unsafe)
-(fn (arrive3 bar)
-  {
-    (__atomic_add bar 1)
-    (while (< (__atomic_load bar) 3)
-      0)
-    0
-  })
-
-(:: tally (-> Int Int Int))
-;@axiom:effect(unsafe)
-(fn (tally w by)
-  (__atomic_add w by))
-
-; Words of `cell`: 0 the count (plain, under the lock), 1 stale unlocks
-; accepted, 2 own unlocks refused, 3 the barrier.
-(:: staleDoubler (-> Mutex Int Int Int))
-;@axiom:effect(io)
-;@axiom:effect(block)
-(fn (staleDoubler m cell n)
-  {
-    (arrive3 (+ cell 24))
-    (for i in 0..n
-      (match (mutexLock m)
-        ((Ok g)
-          {
-            (memSetWord cell 0 (+ (memGetWord cell 0) 1))
-            (if (== (codeOf (mutexUnlock m g)) 0)
-              0
-              (tally (+ cell 16) 1))
-            (if (== (codeOf (mutexUnlock m g)) 0)
-              (tally (+ cell 8) 1)
-              0)
-          }
-        )
-        ((Err e) 0)))
-    0
-  })
-
-(:: staleUser (-> Mutex Int Int Int))
-;@axiom:effect(io)
-;@axiom:effect(block)
-(fn (staleUser m cell n)
-  {
-    (arrive3 (+ cell 24))
-    (for i in 0..n
-      (match (mutexLock m)
-        ((Ok g)
-          {
-            (memSetWord cell 0 (+ (memGetWord cell 0) 1))
-            (if (== (codeOf (mutexUnlock m g)) 0)
-              0
-              (tally (+ cell 16) 1))
-          }
-        )
-        ((Err e) 0)))
-    0
-  })
-
-(:: stale (-> Int Int))
-;@axiom:effect(io)
-;@axiom:effect(spawn)
-;@axiom:effect(block)
-(fn (stale n)
-  (match (mutexNew)
-    ((Ok m)
-      (match (sysMapShared 4096)
-        ((Ok cell)
-          {
-            (parallel p (
-              (a (staleDoubler m cell n))
-              (b (staleUser m cell n))
-              (c (staleUser m cell n))
-            )
-              (+ a (+ b c)))
-            (let (
-              (s (memGetWord cell 1))
-              (r (memGetWord cell 2))
-              (c (memGetWord cell 0))
-              (w (* 3 n))
-            )
-              (if (&& (== s 0) (&& (== r 0) (== c w)))
-                (println "stale-accepted {s} own-refused {r} count {c} of {w} ok")
-                (println "stale-accepted {s} own-refused {r} count {c} of {w}")))
-            0
-          }
-        )
-        ((Err e) 2))
-    )
-    ((Err e) 1)))
-
-; ---- misuse --------------------------------------------------------------
-; The page a live mutex names, the way `Sync.ax`'s own `syncAt` asks
-; the handle table for it: the handle's word, unwrapped by a cast, and
-; the table's kind for a mutex.
-(:: pageOf (-> Mutex Int))
-;@axiom:effect(unsafe)
-(fn (pageOf mx)
-  (__handle_get
-    3
-    (cast Int mx)))
-
-; Take mutex `mx`'s lock word as a new holder's compare-and-swap does,
-; publishing no guard: the instant between its lock and its guard.
-(:: takeWord (-> Mutex Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(fn (takeWord mx)
-  (__atomic_cas (pageOf mx) 0 (* sysPid 4)))
-
-(:: heldWord (-> Mutex Int))
-;@axiom:effect(unsafe)
-(fn (heldWord mx)
-  (if (== (__atomic_load (pageOf mx)) 0)
-    0
-    1))
-
-; A guard made from a word, which only the unsafe layer can do.
-(:: forged (-> Int MutexGuard))
-;@axiom:effect(unsafe)
-(fn (forged w)
-  (cast MutexGuard w))
-
-; A live guard of a second mutex: a real guard, and not `m`'s.
-(:: foreignGuard MutexGuard)
-;@axiom:effect(io)
-(fn (foreignGuard)
-  (match (mutexNew)
-    ((Ok o)
-      (match (mutexTryLock o)
-        ((Some g) g)
-        ((None) (forged 7)))
-    )
-    ((Err e) (forged 7))))
-
-(:: misuse Int)
-;@axiom:effect(io)
-;@axiom:effect(block)
-(fn (misuse)
-  (match (mutexNew)
-    ((Ok m)
-      {
-        (say "free" (codeOf (mutexUnlock m foreignGuard)))
-        (match (mutexLock m)
-          ((Ok g)
-            {
-              (say "wrong-guard" (codeOf (mutexUnlock m foreignGuard)))
-              (say "zero-guard" (codeOf (mutexUnlock m (forged 0))))
-              (say "right" (codeOf (mutexUnlock m g)))
-              (say "twice" (codeOf (mutexUnlock m g)))
-              (takeWord m)
-              (say "stale-in-window" (codeOf (mutexUnlock m g)))
-              (say "still-held" (heldWord m))
-              0
-            }
-          )
-          ((Err e) 3))
-      }
-    )
-    ((Err e) 1)))
-
 (:: main Int)
 ;@axiom:effect(io)
 ;@axiom:effect(spawn)
@@ -638,13 +451,9 @@
               (dead idle)
               (if (strEq mode "zombie")
                 (zombie idle)
-                (if (strEq mode "misuse")
-                  misuse
-                  (if (strEq mode "stale")
-                    (stale (argInt 2))
-                    {
-                      (println "usage: sync-load excl L N | timed MS | dead | zombie | misuse | stale N")
-                      2
-                    }))))))
+                {
+                  (println "usage: sync-load excl L N | timed MS | dead | zombie")
+                  2
+                }))))
       )
       ((Err e) 1))))

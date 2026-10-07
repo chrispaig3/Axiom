@@ -721,12 +721,22 @@ F("mutexLockTimeout", ["m", "nanos"], ["p", "me", "r", "g"], (SYNC, "mutexLockTi
     ("call", "g", "syncAcquire", ["m", "nanos", "1"], "(syncAcquire m b 1)"),
     ("ret", "g"),
 ])
-F("mutexUnlock", ["m", "guard"], ["r", "v", "r2"], (SYNC, "mutexUnlock"), [
-    ("if", "guard <= 0", "claim", "(<= guard 0)"),
+# A guard's cleanup, `syncRelease`: what ends a guard's scope runs it,
+# once (MM-PAR-15). The model's answer NOT_HELD marks a release that took
+# no effect; the source answers 0 either way. The poisoning a recovery
+# abort adds before the release (`syncUnwinding`) is not modelled: no
+# binding here traps inside a recovery point.
+F("syncRelease", ["m", "serial"], ["w", "me", "r", "v", "r2"], (SYNC, "syncRelease"), [
+    ("aload", "w", "m", "(syncLoad m 0)"),
+    ("call", "me", "syncMe", [], "syncMe"),
+    ("if", "w // 4 != me // 4", "mine"),
+    ("ret", str(NOT_HELD)),
+    ("L", "mine"),
+    ("if", "serial <= 0", "claim", "(<= serial 0)"),
     ("ret", str(NOT_HELD)),
     ("L", "claim"),
-    ("acas", "r", "m + 1", "guard", "0", "(syncCasAt m 1 guard 0)"),
-    ("if", "r != guard", "claimed"),
+    ("acas", "r", "m + 1", "serial", "0", "(syncCasAt m 1 serial 0)"),
+    ("if", "r != serial", "claimed"),
     ("ret", str(NOT_HELD)),
     ("L", "claimed"),
     ("aload", "v", "m", "(syncLoad m 0)"),
@@ -803,7 +813,9 @@ NOT_MODELLED = {
         "chanRetire": "retires the handle inside chanFree, after the parallel form",
     },
     SYNC: {
-        "syncOwnerDead": "a constant", "syncNotHeld": "a constant", "syncProbeNanos": "a constant, the slice",
+        "syncOwnerDead": "a constant", "syncProbeNanos": "a constant, the slice",
+        "syncGuard": "wraps a serial in the guard whose cleanup is syncRelease; touches no mutex word",
+        "syncUnwinding": "whether a recovery abort runs the release; no binding in the model traps",
         "syncLoad": "the atomic load of word i, checked in WRAPPERS",
         "syncStore": "the atomic store to word i, checked in WRAPPERS",
         "syncCas": "the compare-and-swap of word 0, checked in WRAPPERS",
@@ -1120,7 +1132,7 @@ F("locker", ["m", "n"], ["k", "g", "r"], None, [
     ("if", "k < n", "end"),
     ("call", "g", "mutexLock", ["m"]),
     ("if", "g > 0", "dead"),
-    ("call", "r", "mutexUnlock", ["m", "g"]),
+    ("call", "r", "syncRelease", ["m", "g"]),
     ("assert", "r == %d" % UNLOCK_OK, "the holder's own unlock was refused"),
     ("set", "k", "k + 1"),
     ("goto", "loop"),
@@ -1129,18 +1141,20 @@ F("locker", ["m", "n"], ["k", "g", "r"], None, [
     ("L", "end"),
     ("ret", "0"),
 ])
-# Unlocks twice: the second guard is stale and must be refused.
+# Releases twice: the second serial is stale and must be refused. Safe
+# code can't do this - a guard's cleanup runs once - so this is the
+# compare-and-swap that refuses a stale or forged serial, held anyway.
 F("staleLocker", ["m", "n"], ["k", "g", "r"], None, [
-    ("call", "r", "mutexUnlock", ["m", "0"]),
+    ("call", "r", "syncRelease", ["m", "0"]),
     ("ghost", "staleAnswer", ["r"]),
     ("set", "k", "0"),
     ("L", "loop"),
     ("if", "k < n", "end"),
     ("call", "g", "mutexLock", ["m"]),
     ("assert", "g > 0", "mutexLock failed"),
-    ("call", "r", "mutexUnlock", ["m", "g"]),
+    ("call", "r", "syncRelease", ["m", "g"]),
     ("assert", "r == %d" % UNLOCK_OK, "the holder's own unlock was refused"),
-    ("call", "r", "mutexUnlock", ["m", "g"]),
+    ("call", "r", "syncRelease", ["m", "g"]),
     ("ghost", "staleAnswer", ["r"]),
     ("set", "k", "k + 1"),
     ("goto", "loop"),
@@ -1150,7 +1164,7 @@ F("staleLocker", ["m", "n"], ["k", "g", "r"], None, [
 F("timedLocker", ["m", "t"], ["g", "r"], None, [
     ("call", "g", "mutexLockTimeout", ["m", "t"]),
     ("if", "g > 0", "failed"),
-    ("call", "r", "mutexUnlock", ["m", "g"]),
+    ("call", "r", "syncRelease", ["m", "g"]),
     ("assert", "r == %d" % UNLOCK_OK, "the holder's own unlock was refused"),
     ("ret", "0"),
     ("L", "failed"),
@@ -1162,7 +1176,7 @@ F("timedLocker", ["m", "t"], ["g", "r"], None, [
 F("lockThenTry", ["m"], ["g", "r"], None, [
     ("call", "g", "mutexLock", ["m"]),
     ("if", "g > 0", "dead"),
-    ("call", "r", "mutexUnlock", ["m", "g"]),
+    ("call", "r", "syncRelease", ["m", "g"]),
     ("assert", "r == %d" % UNLOCK_OK, "the holder's own unlock was refused"),
     ("goto", "try"),
     ("L", "dead"),
@@ -1170,7 +1184,7 @@ F("lockThenTry", ["m"], ["g", "r"], None, [
     ("L", "try"),
     ("call", "g", "mutexTryLock", ["m"]),
     ("if", "g > 0", "none"),
-    ("call", "r", "mutexUnlock", ["m", "g"]),
+    ("call", "r", "syncRelease", ["m", "g"]),
     ("assert", "r == %d" % UNLOCK_OK, "the holder's own unlock was refused"),
     ("ret", "0"),
     ("L", "none"),
@@ -1179,7 +1193,7 @@ F("lockThenTry", ["m"], ["g", "r"], None, [
 F("tryLocker", ["m"], ["g", "r"], None, [
     ("call", "g", "mutexTryLock", ["m"]),
     ("if", "g > 0", "none"),
-    ("call", "r", "mutexUnlock", ["m", "g"]),
+    ("call", "r", "syncRelease", ["m", "g"]),
     ("assert", "r == %d" % UNLOCK_OK, "the holder's own unlock was refused"),
     ("L", "none"),
     ("ret", "0"),
@@ -2367,7 +2381,7 @@ def d_chan_poison_by_store(fns):
 
 
 def d_mutex_unlock_no_wake(fns):
-    replace(fns, "mutexUnlock", [("call", None, "sysWakeWord", ["m"], "(sysWakeWord m)")], [])
+    replace(fns, "syncRelease", [("call", None, "sysWakeWord", ["m"], "(sysWakeWord m)")], [])
 
 
 def d_mutex_plain_lock(fns):
@@ -2376,10 +2390,10 @@ def d_mutex_plain_lock(fns):
 
 
 def d_mutex_guard_counter(fns):
-    add_locals(fns, "mutexUnlock", ["l", "cnt"])
-    replace(fns, "mutexUnlock",
-            [("acas", "r", "m + 1", "guard", "0", "(syncCasAt m 1 guard 0)"), ("if", "r != guard", "claimed")],
-            [("aload", "l", "m"), ("aload", "cnt", "m + 2"), ("if", "l == 0 or cnt != guard", "claimed")])
+    add_locals(fns, "syncRelease", ["l", "cnt"])
+    replace(fns, "syncRelease",
+            [("acas", "r", "m + 1", "serial", "0", "(syncCasAt m 1 serial 0)"), ("if", "r != serial", "claimed")],
+            [("aload", "l", "m"), ("aload", "cnt", "m + 2"), ("if", "l == 0 or cnt != serial", "claimed")])
 
 
 def d_mutex_no_reread(fns):
@@ -2448,7 +2462,7 @@ DEFECTS = [
      d_chan_poison_by_store, "false poisoning",
      lambda: [s for s in chan_kill_scenarios() if "a receiver and a closer" in s.name]),
     ("mutex release without a wake",
-     "mutexUnlock's contended release stores 0 and wakes nobody",
+     "a guard's contended release stores 0 and wakes nobody",
      d_mutex_unlock_no_wake, "lost wakeup", sync_defect_scenarios),
     ("mutex lock by load then store",
      "mutexLock's acquire is a plain load of 0 then a store of the mark",
@@ -2457,7 +2471,7 @@ DEFECTS = [
      "a waiter sleeps on the lock word without setting bit 0",
      d_mutex_no_mark, "lost wakeup", sync_defect_scenarios),
     ("mutex guard compared with the counter",
-     "mutexUnlock accepts a guard equal to the counter while the word is held (check-task.sh's guard ablation)",
+     "the release accepts a serial equal to the counter while the word is held",
      d_mutex_guard_counter, "unearned unlock",
      lambda: [Scenario("mutex threads: stale unlock beside a locker", "sync", sync_mem(),
                        [("staleLocker", (0, 1)), ("locker", (0, 1))], pids=[1, 1])]),

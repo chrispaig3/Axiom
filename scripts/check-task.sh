@@ -11,7 +11,7 @@
 # this gate puts them under load, against the clock, against ablated
 # copies of the library, and checks the processes the pool leaves.
 #
-# TEN SECTIONS.
+# ELEVEN SECTIONS.
 #
 #   1. Mutual exclusion. tests/litmus/sync-load.ax: four bindings,
 #      released together, add 1 to one PLAIN shared word N times each
@@ -31,13 +31,7 @@
 #      2 s timed lock must answer syncOwnerDead well before 2 s, in both
 #      lowerings, and so must a sibling THREAD's under --threads, while a
 #      sibling PROCESS, which cannot look, times out (the stated limit,
-#      and the control that the look is what decides); every unlock the
-#      caller did not earn must be refused - including a stale guard
-#      presented in the window between a new holder's lock and its
-#      guard's publication, which is built exactly rather than raced
-#      for; and under load, a binding double-unlocking every time
-#      beside two correct ones must be refused every time while no
-#      earned unlock is.
+#      and the control that the look is what decides).
 #   3. Tasks. Results equal the sequential answer (300 tasks, width 8,
 #      both lowerings, --opt 0 and 2); a grace of the largest `Int` is
 #      for ever, not a wrapped negative; a task that answers and then
@@ -75,17 +69,19 @@
 #      is not the child's), the child look (never sees an exit),
 #      the result slot (a task answers into its neighbour's), the byte
 #      limit, the cancellation's kill, the mutex's look at its own
-#      zombie child (never asked), the unlock's guard (compared
-#      against the counter again, which accepts the stale guard in
-#      the window), the microseconds conversion (rounding that wraps
-#      a grace of the largest `Int`) and the exit wait (a task joined
-#      on its answer alone, which blocks the pool on a task that
-#      cannot exit).
+#      zombie child (never asked), the guard's look at whose lock it
+#      is (a forked copy then unlocks its parent's lock), the guard's
+#      poisoning under a trap, the microseconds conversion (rounding
+#      that wraps a grace of the largest `Int`) and the exit wait (a
+#      task joined on its answer alone, which blocks the pool on a task
+#      that cannot exit).
 #   7. The examples under examples/concurrency/ build and run, in both
 #      lowerings, each checking its own answers and ending `ok`.
 #   8. The runtime's half, ablated in the COMPILER: a copy of
 #      `self_host/` with the abort's kill-list sweep deleted must leave
-#      the sibling-trap task alive; and on Darwin a copy forking with
+#      the sibling-trap task alive; one whose arena reset no longer runs
+#      the cleanup of the owners made since its mark must leave a guard
+#      a trap abandoned holding its lock; and on Darwin a copy forking with
 #      the raw system call again must crash a thread started inside a
 #      forked child (`tests/litmus/thread-in-fork.ax`). Linux's raw
 #      fork leaves the child's threads working, so there that drill
@@ -126,6 +122,10 @@
 #      must answer other bits, and a raising pool joining newest first
 #      must raise another status. failFast's answers are reported,
 #      because they are the clock's.
+#  11. Owners (MM-PAR-15, MM-EXEC-20). The fixtures that pin a guard's
+#      every end and a shared object's counted disposal
+#      (tests/stdlib/800-mutex-guard.ax onwards) answer their goldens in
+#      both lowerings at --opt 0 and 2.
 #
 # WHAT THE NUMBERS ARE. Peak RSS (`max_rss_kb`), in KiB, of the whole
 # program. Times are the programs' own `sysTimeoutMicros` readings -
@@ -224,7 +224,7 @@ for lowering in processes threads; do
 done
 
 # ---------------------------------------------------------------------
-echo "== 2. timed waits against the clock; a dead holder; misuse =="
+echo "== 2. timed waits against the clock; a dead holder =="
 T=200
 SLACK=800
 # within <what> <code> <us> <want code> <lo ms> <hi ms>
@@ -271,40 +271,6 @@ for lowering in processes threads; do
     bad "$lowering: zombie mode exit $rc: $(printf '%s' "$out" | tr '\n' ';')"
   fi
 done
-bin="$work/sync-processes-O2"
-if [[ -x "$bin" ]]; then
-  out="$(gate_timeout 30 "$bin" misuse 2>&1 | tr '\n' ' ')"
-  if [[ "$out" == "free 1005 wrong-guard 1005 zero-guard 1005 right 0 twice 1005 "* ]]; then
-    ok "every unearned unlock refused with syncNotHeld (free, wrong guard, zero guard, twice)"
-  else
-    bad "misuse: '$out'"
-  fi
-  # The stale guard in the one window a double unlock can land in: the
-  # lock word taken by a new holder that has not yet published its
-  # guard. Built exactly, so the check does not depend on a race.
-  if [[ "$out" == *"stale-in-window 1005 still-held 1 " ]]; then
-    ok "a stale guard presented between a new holder's lock and its guard is refused, and the lock stays held"
-  else
-    bad "stale guard in the window: '$out' - wanted 'stale-in-window 1005 still-held 1'"
-  fi
-fi
-# The same under load: one binding double-unlocks every time while two
-# lock normally. No stale unlock may be accepted, no earned one refused,
-# and no increment lost. The window is a few instructions wide, so a
-# broken guard shows here only now and then; the exact check above is
-# the one that always does. This one holds the fix to not refusing a
-# legitimate unlock under contention.
-for lowering in processes threads; do
-  bin="$work/sync-$lowering-O2"
-  [[ -x "$bin" ]] || continue
-  rc=0; out="$(gate_timeout 60 "$bin" stale 200000 2>&1)" || rc=$?
-  if [[ "$rc" == 0 && "$out" == "stale-accepted 0 own-refused 0 count 600000 of 600000 ok" ]]; then
-    ok "$lowering: 200,000 stale unlocks under contention all refused, 400,000 earned ones all accepted, 600,000 increments exact"
-  else
-    bad "$lowering: stale exit $rc, '$out'"
-  fi
-done
-
 # ---------------------------------------------------------------------
 echo "== 3. tasks: results, failures, deadlines, cancellation =="
 for lowering in processes threads; do
@@ -544,8 +510,11 @@ cuts = {
   "slot": [("Task.ax", "(let ((slot (+ slab (* (% arg w) slotBytes))))", "(let ((slot (+ slab (* (% (+ arg 1) w) slotBytes))))")],
   "limit": [("Task.ax", "            (if (> len limit)", "            (if (> len (* limit 1000))")],
   "grace": [("Task.ax", "(if (&& (== cancelling 1) (>= now graceEnd))", "(if (&& (== cancelling 2) (>= now graceEnd))")],
-  # The unlock compares the guard COUNTER again, as it first did.
-  "guard": [("Sync.ax", "(if (|| (<= guard 0) (!= (syncCasAt m 1 guard 0) guard))", "(if (|| (<= guard 0) (|| (== (syncLoad m 0) 0) (!= (syncLoad m 2) guard)))")],
+  # A guard's release no longer asks whose lock it is: a forked copy of
+  # a guard then lets go of the lock its parent holds.
+  "pid": [("Sync.ax", "(if (|| (!= (/ (syncLoad m 0) 4) (/ syncMe 4)) (|| (<= serial 0) (!= (syncCasAt m 1 serial 0) serial)))", "(if (|| (<= serial 0) (!= (syncCasAt m 1 serial 0) serial))")],
+  # A guard a trap abandoned lets go without poisoning the mutex.
+  "poison": [("Sync.ax", "        (if syncUnwinding\n          (syncStore m 3 1)\n          0)", "        0")],
   # A task is joined on its answer alone, as it first was.
   "exitjoin": [("Task.ax", "        ((Ok b)\n          (if b\n            1\n            (if answered\n              2\n              0))", "        ((Ok b)\n          (if (|| b answered)\n            1\n            0)")],
   # A refused spawn traps past the pool again: no recovery point.
@@ -638,9 +607,12 @@ if run_ablation grace "$task" 10 "$work/abl-grace/prog" cancel; then
   red grace "$([[ "$rc" == 0 && "$(field "$out" gone)" == 1 ]] && echo 1 || echo 0)"
   pkill -KILL -f "$work/abl-grace/prog" 2>/dev/null || true
 fi
-if run_ablation guard "$sync" 30 "$work/abl-guard/prog" misuse; then
-  out="$(printf '%s' "$out" | tr '\n' ' ')"
-  red guard "$([[ "$rc" == 0 && "$out" == *"stale-in-window 1005 still-held 1 " ]] && echo 1 || echo 0)"
+guardfx="$repo_root/tests/stdlib/800-mutex-guard.ax"
+if run_ablation pid "$guardfx" 30 "$work/abl-pid/prog"; then
+  red pid "$([[ "$rc" == 0 && "$out" == *"the child found the lock free 0,"* ]] && echo 1 || echo 0)"
+fi
+if run_ablation poison "$guardfx" 30 "$work/abl-poison/prog"; then
+  red poison "$([[ "$rc" == 0 && "$out" == *"then lock answers 1004"* ]] && echo 1 || echo 0)"
 fi
 if run_ablation micros "$task" 30 "$work/abl-micros/prog" grace 9223372036854775807; then
   red micros "$([[ "$rc" == 0 && "$out" == "0 ok finished" ]] && echo 1 || echo 0)"
@@ -709,6 +681,17 @@ if ablate_cc gkill '          (emitLine cg "  call void @__axiom_par_gkill()")' 
   kill -KILL $pids 2>/dev/null || true
 else
   bad "gkill: the compiler ablation did not apply or build"; tail -4 "$work/cc-gkill/build.log" 2>/dev/null | sed 's/^/    /'
+fi
+if ablate_cc unwind '        (emitLine cg "  call void @__axiom_resource_unwind(i64 %rfloor)")' '        0'; then
+  (cd "$repo_root" && "$work/cc-unwind/axc" build --opt 2 --input "$guardfx" --output "$work/cc-unwind/prog") > "$work/cc-unwind/prog.build" 2>&1
+  rc=0; out="$(gate_timeout 30 "$work/cc-unwind/prog" 2>/dev/null)" || rc=$?
+  if [[ "$out" == *"trap: status 72, then lock answers 1001"* ]]; then
+    ok "unwind: red - with the reset's cleanup deleted, the guard the trap abandoned kept its lock (a 1 s lock timed out)"
+  else
+    bad "unwind: the ablated compiler's run exit $rc, '$(printf '%s' "$out" | tr '\n' ';')' - the fixture cannot see an abandoned guard"
+  fi
+else
+  bad "unwind: the compiler ablation did not apply or build"; tail -4 "$work/cc-unwind/build.log" 2>/dev/null | sed 's/^/    /'
 fi
 case "$(uname -s)" in
   Darwin)
@@ -1153,6 +1136,30 @@ if ablate drain "$det"; then
 else
   bad "drain: the ablation did not apply or build"; sed 's/^/    /' "$work/abl-drain/build.log" 2>/dev/null | head -6
 fi
+
+# ---------------------------------------------------------------------
+echo "== 11. owners: guards and counted disposal, both lowerings =="
+for fx in "$repo_root"/tests/stdlib/80[0-9]-*.ax; do
+  name="$(basename "$fx" .ax)"
+  golden="$repo_root/tests/stdlib/$name.out"
+  want_rc=0; [[ -f "$repo_root/tests/stdlib/$name.exit" ]] && want_rc="$(cat "$repo_root/tests/stdlib/$name.exit")"
+  for lowering in processes threads; do
+    flags=(); [[ "$lowering" == threads ]] && flags=(--threads)
+    for lvl in 0 2; do
+      bin="$work/own-$name-$lowering-O$lvl"
+      if ! build "$bin" "$fx" ${flags[@]+"${flags[@]}"} --opt "$lvl"; then
+        bad "$name ($lowering -O$lvl) did not build"; sed 's/^/    /' "$bin.build" | head -6; continue
+      fi
+      rc=0; gate_timeout 60 "$bin" > "$bin.out" 2>/dev/null || rc=$?
+      if [[ "$rc" == "$want_rc" ]] && cmp -s "$golden" "$bin.out"; then
+        ok "$name ($lowering -O$lvl): the golden, exit $rc"
+      else
+        bad "$name ($lowering -O$lvl): exit $rc (wanted $want_rc), stdout $(cmp -s "$golden" "$bin.out" && echo matches || echo differs)"
+        diff "$golden" "$bin.out" | head -6 | sed 's/^/    /'
+      fi
+    done
+  done
+done
 
 echo
 if (( failed > 0 )); then

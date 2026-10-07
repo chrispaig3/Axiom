@@ -897,17 +897,19 @@ the memory-safety faults this rule refuses to contain.
 
 A recovery point is not unwinding, a `catch` or an early return, so
 `ERR-REC-1` stands for everything outside the table. There is no
-landing pad and no cleanup, and nothing runs on the way out. The point
+landing pad. The one code that runs on the way out is the cleanup of
+the resource owners the extent made, such as a file's close or a mutex
+guard's release ([memory model](memory-model.md) `MM-EXEC-20`). The point
 is wherever `__axiom_recover` was called: a program can't place it at a
 frame of its choosing, and a recovered extent can't be resumed. It does
 **not** contain a memory-safety fault either. A SIGSEGV is not a trap,
 nothing asks the recovery point, and afterwards the heap invariants are
 unknown. Java, Go and Rust all abort there too.
 
-This narrow version is sound because there is nothing to unwind. Axiom
-has no destructors, no finalizers and no stack-allocated data, so
-"unwinding" reduces to restoring the stack pointer, the arena and the
-effect slots.
+This narrow version is sound because there is little to unwind. Axiom
+has no destructors beyond those owners' cleanups, no finalizers and no
+stack-allocated data, so "unwinding" reduces to running those cleanups
+and restoring the stack pointer, the arena and the effect slots.
 
 Two things stay yours. The abort reclaims everything the thunk
 allocated, so a structure older than the point must not be made to hold

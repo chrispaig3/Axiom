@@ -179,8 +179,8 @@ cuts = {
   # chanSend and chanRecv park after releasing the lock.
   "park": ("Chan.ax", "                (let ((seen (chanPark ch)))\n                  {\n                    (chanUnlock ch me)\n                    (chanSleep ch seen)\n                  }))))))",
            "                {\n                  (chanUnlock ch me)\n                  (let ((seen (chanPark ch)))\n                    (chanSleep ch seen))\n                }))))", 2),
-  # mutexUnlock's contended release wakes nobody.
-  "wake": ("Sync.ax", "            (syncStore m 0 0)\n            (sysWakeWord m)\n            (Ok 0)", "            (syncStore m 0 0)\n            (Ok 0)", 1),
+  # A guard's contended release wakes nobody.
+  "wake": ("Sync.ax", "              (syncStore m 0 0)\n              (sysWakeWord m)\n              0", "              (syncStore m 0 0)\n              0", 1),
   # A task's deadline kill sends signal 0 (check-task.sh's kill ablation).
   "kill": ("Task.ax", "(sysKill (taskHandlePid (vecGet hs s)) 9)", "(sysKill (taskHandlePid (vecGet hs s)) 0)", 1),
   # A new function reads the lock word.
@@ -197,7 +197,7 @@ for kind, (f, old, new, count) in cuts.items():
         sys.exit("seam %s: found %d times, wanted %d" % (kind, s.count(old), count))
     open(p, "w", encoding="utf-8").write(s.replace(old, new))
 PY
-for pair in "park:chanSend" "wake:mutexUnlock" "kill:taskKillJoin" "new:chanPeekLock"; do
+for pair in "park:chanSend" "wake:syncRelease" "kill:taskKillJoin" "new:chanPeekLock"; do
   kind="${pair%%:*}"; fn="${pair#*:}"
   [[ -d "$work/tx/$kind" ]] || continue
   rc=0; out="$(python3 "$model" transcription "$work/tx/$kind" --quiet 2>&1)" || rc=$?

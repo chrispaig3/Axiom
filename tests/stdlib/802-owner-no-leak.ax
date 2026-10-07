@@ -1,0 +1,56 @@
+; Owners give back what they hold, in a loop (docs/memory-model.md
+; MM-PAR-15): 100,000 lock-and-release cycles leave the arena's backlog
+; (held less filed, `memStats`) where 1,000 left it, because each guard
+; and its cleanup's closure are filed again when the guard ends.
+; `scripts/check-task.sh` runs this in both lowerings.
+(import IO)
+(import Mem)
+(import Err)
+(import Sync)
+
+(:: backlog Int)
+(fn (backlog)
+  (let ((s memStats))
+    s.backlogBytes))
+
+; `n` cycles of a lock whose guard ends with the arm, each counted.
+(:: cycles (-> Mutex Int Int))
+;@axiom:effect(io)
+;@axiom:effect(block)
+(fn (cycles mx n)
+  (let ((mut got 0))
+    {
+      (for i in 0..n
+        (match (mutexLock mx)
+          ((Ok g) (set got (+ got 1)))
+          ((Err e) 0)))
+      got
+    }))
+
+(:: flat (-> String Int Int Int))
+;@axiom:effect(io)
+(fn (flat what before after)
+  (let ((grew (- after before)))
+    {
+      (if (< grew 4096)
+        (println "{what}: flat")
+        (println "{what}: grew {grew} bytes"))
+      0
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+;@axiom:effect(block)
+(fn (main)
+  (match (mutexNew)
+    ((Ok mx)
+      (let ((warm (cycles mx 1000)))
+        (let ((before backlog))
+          (let ((done (cycles mx 100000)))
+            (let ((after backlog))
+              {
+                (println "guards: {done} cycles after {warm}")
+                (flat "guards" before after)
+                0
+              })))))
+    ((Err e) 1)))

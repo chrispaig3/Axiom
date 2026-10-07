@@ -12,7 +12,9 @@
 #   @__axiom_ev_<Effect>                             one per effect
 #
 # A threaded program also moves the child registry's two globals
-# (MM-PAR-7), for ten. `@__axiom_argc` and `@__axiom_argv` stay shared:
+# (MM-PAR-7), for ten, and one that makes resource owners and resets
+# the arena moves the owner registry's three (MM-EXEC-20), for
+# thirteen. `@__axiom_argc` and `@__axiom_argv` stay shared:
 # `@main`'s prologue writes them once, before any thread can exist.
 #
 # A program that spawns no thread must emit no thread-local storage. On
@@ -159,7 +161,8 @@ tl_on="$(grep -c '= internal thread_local(localexec) global' "$work/on.ll" || tr
 wrong=0
 for g in __axiom_bump __axiom_bump_end __axiom_chunk __axiom_free \
          __axiom_high __axiom_slabs __axiom_recover_top __axiom_ev_Console \
-         __axiom_par_live __axiom_par_seq; do
+         __axiom_par_live __axiom_par_seq \
+         __axiom_res_head __axiom_res_seq __axiom_res_unwinding; do
   if ! grep -q "^@$g = internal thread_local(localexec) global" "$work/on.ll"; then
     bad "@$g did not move to thread_local(localexec)"
     wrong=1
@@ -170,16 +173,18 @@ for g in __axiom_bump __axiom_bump_end __axiom_chunk __axiom_free \
   fi
 done
 if [[ "$wrong" == 0 ]]; then
-  ok "all ten globals moved to thread_local(localexec)"
+  ok "all thirteen globals moved to thread_local(localexec)"
 fi
-# Ten: the eight, plus the child registry's head and sequence counter
-# (MM-PAR-7). They are per thread because each thread sweeps the
-# children it spawned. A shared list would have two threads linking
-# pages into one unsynchronised structure.
-if [[ "$tl_on" == 10 ]]; then
-  ok "and $tl_on thread_local global(s) in the whole module - the eight and the registry's two, nothing else"
+# Thirteen: the eight, the child registry's head and sequence counter
+# (MM-PAR-7), and the owner registry's head, counter and unwinding flag
+# (MM-EXEC-20): the probe imports IO, which makes owners, and arms a
+# recovery point. Both registries are per thread because each thread
+# sweeps the children it spawned and resets its own arena. A shared list
+# would have two threads linking into one unsynchronised structure.
+if [[ "$tl_on" == 13 ]]; then
+  ok "and $tl_on thread_local global(s) in the whole module - the eight and the registries' five, nothing else"
 else
-  bad "$tl_on thread_local globals, expected exactly 10"
+  bad "$tl_on thread_local globals, expected exactly 13"
   grep 'thread_local' "$work/on.ll" | sed 's/^/     /' | head -12
 fi
 # argc/argv must not move: they are written once in @main's prologue,

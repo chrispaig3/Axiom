@@ -101,7 +101,7 @@ handle.
 | Shared storage is freed after its concurrent users finish | Program obligation: `chanFree`, `mutexFree` and `taskTokenFree` are trusted (`MM-EXEC-9d`), and a use after the free traps 85 | `tests/litmus/shared-free-boundary.ax` |
 | Shared mutable words are ordered | `MM-PAR-9` atomics, channel or mutex; the programmer guards raw shared pages | `scripts/check-atomics.sh` |
 | A raw address and a foreign value satisfy their contract | Unsafe boundary and caller review | `tests/diagnostics/1040-forging-cast.ax` |
-| A recovery extent releases external resources | Program obligation: an abort cannot close descriptors or unlock a mutex acquired inside it | `scripts/check-reclaim-soak.sh` |
+| A recovery extent releases external resources | A reset runs the cleanup of the owners made since its mark (`MM-EXEC-20`), so files close and guards release; a resource held only through a raw word stays the program's | `tests/stdlib/801-reset-cleanup.ax` |
 
 Unreachable cycles retain their bytes until an arena reset. Reuse is bounded
 by the peaks of the allocator's size classes, so a changing size mix may keep
@@ -929,9 +929,11 @@ connections close, statements finalise and unfinished transactions roll
 back. Explicit close retires the owner before cleanup, so later releases
 MUST NOT repeat it. Region release optimisation MUST preserve callbacks.
 
-Process exit and trap recovery do not unwind owners or run atexit hooks.
-Cycles and values escaped through raw words need explicit close. The
-operating system reclaims a process's descriptors at exit.
+Process exit doesn't run cleanups or atexit hooks; the operating system
+reclaims a process's descriptors and mappings. A reset runs the cleanup
+of the owners made since its mark, a recovery abort's included
+(`MM-EXEC-20`). Cycles and values escaped through raw words need
+explicit close.
 
 Tested by `tests/stdlib/697-resource-owner.ax` and
 `tests/axqlite/616-api-auto-close.ax`.
@@ -1079,6 +1081,41 @@ red (`mmuoff`, `guard`, `excstack`, `codewrite`, `hookoff`, `reenter`).
 (`tests/diagnostics/1090-isr-fault-signature.ax`). *Limit:* all of it
 is QEMU TCG, which models no cache, so no run shows a missing cache
 clean or invalidate; nothing here ran on hardware.
+
+**MM-EXEC-20 (H). A reset runs the cleanup of the owners made since
+its mark.** A recovery abort, a region's end and a raw
+`__axiom_arena_reset` reclaim every block made since their mark. A live
+resource owner among them would lose its cleanup: a file would stay
+open, and a mutex's guard would keep its lock for ever (`MM-PAR-15`).
+So the reset first runs the cleanup of each such owner, newest first,
+while the memory its callback reads is still its own. Then it reclaims.
+
+- Each thread keeps a list of its live owners, numbered from a counter.
+  A mark's fourth word holds the counter, and the reset cleans up every
+  owner numbered above it. An owner leaves the list when its cleanup is
+  claimed: by its last share, an early close or a disarm.
+- `__resource_unwinding` answers 1 while a recovery abort's reset runs
+  these cleanups, and 0 at any other time, a region's end included. A
+  guard's cleanup reads it to poison its mutex.
+- A cleanup that traps re-enters the abort, which finds that owner
+  already off the list and runs the rest.
+- The list exists only in a module that makes owners and resets the
+  arena: one with a recovery point, a region or a raw reset. Any other
+  module emits the runtime it did without it. Its three globals are
+  thread-local under threads (`MM-PAR-3`).
+
+*Limits.* A trap that nothing recovers, `sysExitWith` and a signal run
+no cleanup. An owner a lent graph holds when a trap leaves a `parallel`
+form stays frozen (`MM-PAR-6b`), so its cleanup never runs. A cell
+passed to `__axiom_arena_mark_into` must be four words.
+
+*Evidence.* `tests/stdlib/801-reset-cleanup.ax`: an abort runs the
+cleanups its extent owed, newest first and flagged, and leaves an older
+owner alone; a region's end runs one the region leaked.
+`tests/stdlib/800-mutex-guard.ax`: a guard a trap abandoned releases
+its lock and poisons the mutex. `scripts/check-task.sh` §8 deletes the
+reset's call in a copy of the compiler, and the abandoned guard keeps
+its lock.
 
 ---
 
@@ -1833,7 +1870,7 @@ the same rounding must see memory grow.
 | `Vec`, `Map`, `Intern` operations | library-level, over `memAlloc` |
 | a `match`'s result | one scratch `alloca` per function, shared by every merge. A cell lives from the store at an arm's end to the load at the merge, with nothing between, so one slot serves nested and tail shapes alike |
 | a mixed-representation tag read | the same shared scratch `alloca` (`emitCondTagRead`), with its fall-through zero stored explicitly |
-| `__axiom_arena_mark` | a three-word cell |
+| `__axiom_arena_mark` | a three-word cell, four with the owner registry (`MM-EXEC-20`) |
 | `handle` on a declared effect | a two-word evidence record `{handler, previous}`; the form performs `Alloc` |
 
 **MM-ALLOC-9a (H).** An evidence record is released
@@ -1888,7 +1925,7 @@ worker RSS:
 That is 76× at a thousand connections and 681× at ten thousand. The
 handler refreshes one mark cell per worker with
 `__axiom_arena_mark_into`. A fresh `__axiom_arena_mark` per connection
-would leave its 24-byte cell below every mark (`MM-ALLOC-12`). The
+would leave its cell below every mark (`MM-ALLOC-12`). The
 gate requires at least 50×, which leaves room for a slower machine and
 still catches an arena that stopped rewinding. It also carries a
 negative probe: the unscoped run **MUST** grow past 2× between the two
@@ -1916,8 +1953,10 @@ rule's claim (`MM-ALLOC-4b`).
 (__axiom_arena_reset_keeping mark addr n)   ; -> new address of the kept block
 ```
 
-A **mark** captures the whole allocator position in a three-word cell:
-the bump pointer, the end, and the chunk the bump points into. A bump
+A **mark** captures the whole allocator position in a cell: the bump
+pointer, the end, and the chunk the bump points into. In a module with
+the owner registry, a fourth word holds the registry's counter, so a
+reset can run the cleanup of the owners made since (`MM-EXEC-20`). A bump
 pointer alone means nothing once allocation has moved to another chunk.
 The cell is allocated *before* the position is read, so it sits below
 its own waterline. A reset therefore never reclaims its own mark, and
@@ -1925,7 +1964,7 @@ its own waterline. A reset therefore never reclaims its own mark, and
 
 `__axiom_arena_mark_into` writes that snapshot into a caller-owned cell,
 without allocating. It performs Alloc, Mut and Unsafe. The cell MUST
-hold at least 24 writable bytes, aligned to 8 bytes, and remain live
+hold at least 32 writable bytes, aligned to 8 bytes, and remain live
 through the reset. The snapshot MUST remain unchanged until that reset.
 The cell and all values needed afterwards MUST predate the snapshot.
 Refreshing one retained cell lets a library scope repeated work without
@@ -2132,8 +2171,10 @@ max RSS holds at **1,376 KiB**, byte-identical at 10,000 and at
 100,000. The same program with the trap removed, so nothing ever
 resets, reaches **419,328 KiB** (`scripts/check-recover.sh`).
 
-This is not unwinding, and won't become it. There is no landing pad, no cleanup, no
-resumption and no way to catch anything at a chosen frame. A recovery
+This is not unwinding. There is no landing pad, no resumption and no
+way to catch anything at a chosen frame. The one code that runs on the
+way out is the cleanup of the resource owners the extent made, which
+the reset runs before it reclaims them (`MM-EXEC-20`). A recovery
 point can only contain one of the three traps. `ERR-REC-6` in
 [the error model](error-model.md) states what that does and doesn't
 buy.
@@ -2406,8 +2447,9 @@ make arbitrary `Int` addresses, foreign memory or raw reset calls safe.
 
 **MM-RGN-1 (H). A region is a lexical allocation scope.**
 `(region r EXPR)` binds the region name `r` over `EXPR`. On entry, the
-emitted code saves the current bump pointer, end and chunk in a
-three-word stack cell. On normal return it resets the allocator to that
+emitted code saves the current bump pointer, end and chunk in a stack
+cell, with the owner registry's counter as a fourth word where there is
+one (`MM-EXEC-20`). On normal return it resets the allocator to that
 saved position and answers the body's scalar result.
 
 - Rebinding a live region name inside itself is refused (`AX3058`).
@@ -4929,7 +4971,9 @@ one for one: the five allocator words, the size-class array,
 That makes **eight**, a count taken by enumerating `@__axiom_` in
 `self_host/codegen.ax`. A module that spawns has *ten*: the child
 registry's head and sequence counter (`MM-PAR-7`) are per thread too,
-because each thread sweeps the children it spawned.
+because each thread sweeps the children it spawned. A module with the
+owner registry has three more, its head, counter and unwinding flag
+(`MM-EXEC-20`), because each thread resets its own arena.
 `@__axiom_argc` and `@__axiom_argv` are not among them. They are
 written once in `@main`'s prologue, before any thread can exist, and
 never again. Every constant, such as the symbol table,
@@ -5240,12 +5284,11 @@ The same table carries the standard library's handles: a channel
 so a freed, forged or other-kind handle traps 85, and so does a second
 free.
 
-A mutex's guard is a word struct too, `MutexGuard`, which only a lock
-call answers. It isn't in the table and isn't `shared`. Safe code can't
-pass an `Int`, a `Mutex` or another handle as a guard (`AX3004`), build
-one (`AX3085`) or hand one to a concurrent binding (`AX3064`). A stale
-guard, or another mutex's, is still a real `MutexGuard`, and the
-unlock's compare-and-swap refuses it at run time (`MM-PAR-11`).
+A mutex's guard, `MutexGuard`, isn't in the table. It is a sealed
+resource owner that only a lock call answers, and its end releases the
+lock (`MM-PAR-15`). Safe code can't use one as an `Int` (`AX3004`),
+build one (`AX3085`), open one (`AX3086`) or hand one to a concurrent
+binding (`AX3064`).
 
 *The table.* A handle word is `(generation << 16) | index`. A slot
 holds a state, the generation with a live bit and a kind, and the
@@ -5567,47 +5610,45 @@ lowerings.** In `stdlib/Sync.ax`, `mutexNew` maps one page,
 `MAP_SHARED` and made before the spawn, as `Chan` does. So the parent,
 every forked child and every thread see one lock word. `mutexLock`
 waits until the caller holds the mutex. `mutexTryLock` doesn't wait,
-`mutexLockTimeout` waits at most a given time (`MM-PAR-12`), and
-`mutexUnlock` lets the next holder in.
+`mutexLockTimeout` waits at most a given time (`MM-PAR-12`). Each
+answers a guard, and the guard's end lets the next holder in
+(`MM-PAR-15`).
 
 *What it promises.*
 
 - **Mutual exclusion.** At most one binding holds the mutex at a time.
   The lock word goes from 0 to the holder's mark only by a seq_cst
-  compare-and-swap, and back to 0 only in `mutexUnlock`.
-- **Happens-before.** An unlock synchronizes with the lock that next
+  compare-and-swap, and back to 0 only in a guard's release.
+- **Happens-before.** A release synchronizes with the lock that next
   acquires the mutex. The release is a seq_cst compare-and-swap or
   store, and the acquire is a seq_cst compare-and-swap that reads it
-  (`MM-PAR-9`, edge 4). Everything the holder did before `mutexUnlock`
-  is visible to the next holder once its lock call answers. Between
+  (`MM-PAR-9`, edge 4). Everything the holder did before its guard
+  ended is visible to the next holder once its lock call answers. Between
   processes, the memory that edge carries is a shared mapping. Between
   threads, it is all of memory.
 - **Blocking is the kernel's.** A waiter marks the word contended and
-  sleeps in `sysWaitWordTimeout` on it, in slices of at most 100 ms. An
-  unlock that finds the mark wakes every waiter. An uncontended lock and
-  unlock make no wait or wake call, though each lock call asks `getpid`
-  once for the mark.
+  sleeps in `sysWaitWordTimeout` on it, in slices of at most 100 ms. A
+  release that finds the mark wakes every waiter. An uncontended lock
+  and release make no wait or wake call, though each asks `getpid` once
+  for the mark.
 - **The holder is named.** The mark is the holder's pid shifted left
   twice, with bit 0 as the waiters' flag. Bit 0 is in the low half, the
   half Linux's `futex` compares. The compare-and-swap that takes the
   lock also writes the pid, so the word names the holder at every
   instant the lock is held.
-- **The guard is typed.** Every acquisition draws a *guard* from a
-  counter and publishes it as the holder's, right after its
-  compare-and-swap takes the lock word. The lock call answers it as a
-  `MutexGuard`, a word struct only `Sync` builds or opens, so safe code
-  can't offer an `Int` or another handle as one (`MM-PAR-8`).
-- **Misuse is refused.** `mutexUnlock` claims the published guard with
-  one compare-and-swap, from the guard to 0, before it touches the lock
-  word. An unlock of a free mutex, with a stale guard (a double
-  unlock), with another mutex's guard or with any guard but the
-  holder's fails that compare-and-swap, answers `Err` code
-  `syncNotHeld` (1005), and changes nothing. That includes a stale guard that lands between a new
-  holder's lock and its publication, because the published word holds 0
-  then.
-- **The guard is the check**, because every binding has the same pid
+- **Each acquisition has a serial.** It is drawn from a counter and
+  published as the holder's right after the compare-and-swap takes the
+  lock word, and the guard keeps it.
+- **Only the holder's release counts.** The release claims the
+  published serial with one compare-and-swap, from the serial to 0,
+  before it touches the lock word. A serial that isn't the holder's
+  current one fails that compare-and-swap and changes nothing, and so
+  does one presented between a new holder's lock and its publication,
+  because the published word holds 0 then. Safe code can't present one:
+  a guard's release runs once (`MM-PAR-15`).
+- **The serial is the check**, because every binding has the same pid
   under `--threads`. Each mutex's counter starts at its page number
-  times 2^24, so the guards of two live mutexes differ unless one has
+  times 2^24, so the serials of two live mutexes differ unless one has
   been locked 2^24 times.
 - **A dead holder is found.** When a slice of a wait runs out, the
   waiter asks `kill(pid, 0)` about the pid the word names, and `waitid`
@@ -5650,23 +5691,20 @@ waits until the caller holds the mutex. `mutexTryLock` doesn't wait,
 `Chan`: every call on a freed mutex, and a second `mutexFree`, traps
 with status 85. Call `mutexFree` only once no binding can reach the
 mutex; a free that races a lock call is a data race (`MM-PAR-9`). A
-guard made with a `cast` is the unsafe layer's (`MM-VAL-22`): the
-unlock still refuses it unless its word is the holder's current guard,
-which a program can read out of the page only through that layer too.
+guard made with a `cast` is the unsafe layer's (`MM-VAL-22`).
 What the lock protects is protected only if every access to it happens
 under the lock. A plain access outside it is a data race (`MM-PAR-9`).
 
 *Evidence.*
 
 - `tests/stdlib/541-sync-mutex.ax`: every answer above, one binding at
-  a time, another mutex's live guard and a guard made by a `cast` among
-  the refused unlocks; two forked bindings making 3,000 increments
-  each, exact; and a holder killed and reaped while holding the lock.
-  Its `.optstable` pins `--opt` 0 to 3.
+  a time; two forked bindings making 3,000 increments each, exact; and
+  a holder killed and reaped while holding the lock. Its `.optstable`
+  pins `--opt` 0 to 3.
 - `tests/diagnostics/1070-mutex-guard-int.ax` and
-  `tests/diagnostics/1071-mutex-guard-sealed.ax`: an `Int`, the mutex
-  and a channel refused as a guard, a guard refused as an `Int`, and a
-  guard built, opened or captured by a concurrent binding refused.
+  `tests/diagnostics/1071-mutex-guard-sealed.ax`: a guard refused as an
+  `Int`, a call to the removed `mutexUnlock`, and a guard built, opened
+  or captured by a concurrent binding refused.
 - `scripts/check-task.sh` §1: four bindings each add 1 to one plain
   shared word 100,000 times under the mutex, exact in both lowerings at
   `--opt` 0 and 2. Beside each run, an unlocked control must lose
@@ -5675,30 +5713,23 @@ under the lock. A plain access outside it is a data race (`MM-PAR-9`).
   the lock, not yet joined, poisons it for its parent's timed lock, at
   every `--opt`.
 - `scripts/check-task.sh` §2 checks the dead holder, killed and reaped
-  or exited and unreaped, and the refused unlocks. The unreaped holder's
-  parent answers 1004 well inside a 2 s timed lock in both lowerings, and
-  so does a sibling thread under `--threads`, while a sibling process,
-  which can't look, times out. One of the refused unlocks is the stale
-  guard presented in the window
-  between a new holder's lock and its publication, built exactly
-  rather than raced for. Under load, one binding double-unlocks
-  200,000 times beside two correct ones: every stale unlock is refused,
-  every earned one accepted, and the count exact, in both lowerings.
+  or exited and unreaped. The unreaped holder's parent answers 1004 well
+  inside a 2 s timed lock in both lowerings, and so does a sibling
+  thread under `--threads`, while a sibling process, which can't look,
+  times out.
 - `scripts/check-task.sh` §6 ablates the lock's compare-and-swap, the
-  dead-holder test, the look at the waiter's own child and the guard
-  claim (compared against the counter instead, which accepts the stale
-  guard in the window), each on a copy of the library, and each turns
-  its check red.
+  dead-holder test and the look at the waiter's own child, each on a
+  copy of the library, and each turns its check red.
 
 - `scripts/check-protocol-model.sh` explores the protocol, transcribed
   in `scripts/lib/protocol-model.py`, in every interleaving of two and
-  three bindings in both lowerings, with a stale guard, a timed lock, a
-  try-lock and a holder killed at any step, reaped by nobody but its
+  three bindings in both lowerings, with a stale serial, a timed lock,
+  a try-lock and a holder killed at any step, reaped by nobody but its
   parent when a waiter is that parent. Every state keeps exclusion,
-  refuses the stale guard and poisons only for a dead holder, and no
+  refuses the stale serial and poisons only for a dead holder, and no
   lost wakeup or deadlock is reachable. A lock taken by a plain load
   and store, a release without its wake, a waiter without its mark, the
-  guard compared with the counter, the dead-holder test without its
+  serial compared with the counter, the dead-holder test without its
   re-read and a waiter that never asks `waitid` about its own child are
   each found with a schedule. On the
   machine, a lock-order inversion answers `sysTimedOut` on both sides
@@ -6088,6 +6119,69 @@ interleave as the scheduler ran them.
   built for linux-x86_64, the three print them at `--opt` 0 and 2.
 - `scripts/check-parallel.sh` §9 measures the two lowerings' two
   traps.
+
+**MM-PAR-15 (H). A lock is held by its guard, and the guard's end
+lets it go.** `mutexLock`, `mutexTryLock` and `mutexLockTimeout`
+answer a `MutexGuard`. Holding the guard is holding the lock, and
+nothing else unlocks it:
+
+```scheme
+(import IO)
+(import Err)
+(import Sync)
+
+(:: main Int)
+;@axiom:effect(io)
+;@axiom:effect(block)
+(fn (main)
+  (match (mutexNew)
+    ((Ok mx)
+      {
+        (match (mutexLock mx)
+          ((Ok g) (println "held"))
+          ((Err e) (println "poisoned")))
+        (match (mutexTryLock mx)
+          ((Some g) (println "free again"))
+          ((None) (println "still held")))
+        0
+      })
+    ((Err e) 1)))
+```
+
+```text
+held
+free again
+```
+
+- The guard is a sealed resource owner (`MM-EXEC-17`) whose cleanup is
+  the release. It runs when the guard's last share goes: at the end of
+  its scope, on every branch out of it, and on a `set` that overwrites
+  a `mut` slot holding it (`MM-LIFE-2c`, event 3). It runs once, so a
+  lock can't be released twice.
+- A trap inside the guard's scope that a recovery point catches runs
+  the release at the reset (`MM-EXEC-20`), and poisons the mutex
+  first, because the critical section didn't finish. Every lock call
+  then answers `syncOwnerDead`, as after a dead holder (`MM-PAR-11`).
+- The release takes effect only in the process the lock word names. A
+  forked child's copy of its parent's guard changes nothing.
+- The guard can't be used as an `Int` (`AX3004`), built (`AX3085`),
+  opened (`AX3086`) or captured by a concurrent binding (`AX3064`), and
+  there is no unlock call. `mutexUnlock` was removed.
+
+*Limits.* A guard laundered through `cast` or a raw word is never
+released, and its lock stays held: a deadlock, not a memory error, as
+with Rust's `mem::forget`. A guard kept in a container lives as long as
+the container. Each acquisition allocates the guard and its cleanup's
+closure, and the release files both again.
+
+*Evidence.* `tests/stdlib/800-mutex-guard.ax`: the scope's end, a
+branch out of it, a `set`, a forked copy and a trap, and
+`tests/stdlib/802-owner-no-leak.ax`: 100,000 acquisitions with the
+arena's backlog flat. `scripts/check-task.sh` §11 runs both in both
+lowerings at `--opt` 0 and 2, and §6 removes the release's look at
+whose lock it is and its poisoning, each turning the guard fixture
+red. `tests/diagnostics/1070-mutex-guard-int.ax` and
+`tests/diagnostics/1071-mutex-guard-sealed.ax` hold the refusals.
 
 ---
 
