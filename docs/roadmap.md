@@ -56,8 +56,8 @@ integrator would still need.
 | CI builds the compiler with a poisoned allocator and checks it still reaches its fixpoint | Not started | |
 | No cast, `Int` container or raw store lets a heap value become an untracked word in safe code | Not started | `MM-VAL-24` |
 | Raw-address functions leave the public library, so safe code can't forge an address | Not started | |
-| `fileFd` and the raw descriptor calls can't close a descriptor a `File` owns | In progress | |
-| Standard input, output and error are `File` values, with one owned poller and one terminal raw-mode guard | Not started | |
+| `fileFd` and the raw descriptor calls can't close a descriptor a `File` owns | Done | `MM-EXEC-17a`, `tests/diagnostics/1225-descriptor-hole.ax` |
+| Standard input, output and error are `File` values, with one owned poller and one terminal raw-mode guard | Done | `MM-EXEC-17b`, `tests/stdlib/785-stdio-file.ax`, `tests/stdlib/786-poller-owned.ax` |
 | Secrets and keys wipe themselves when dropped, and a child process is an owner | Not started | |
 | A reference can be promoted out of a region | Planned | `MM-RGN-7` |
 | Cycles leak until an arena reset | Accepted for 1.0 | `MM-LIFE-3` |

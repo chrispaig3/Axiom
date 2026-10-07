@@ -1068,14 +1068,14 @@
 0.7.9  F  readFileLit  removed: use readFile with a String path
 0.7.9  F  randomBytes  removed from IO: use Crypto.Random, which also covers bare metal
 0.7.9  F  sysGetPid  renamed sysPid
-0.7.9  F  netPollCreate  renamed sysPollCreate: readiness polling is not networking
-0.7.9  F  netPollAddRead  renamed sysPollAddRead
-0.7.9  F  netPollDelRead  renamed sysPollDelRead
-0.7.9  F  netPollWait  renamed sysPollWait
-0.7.9  F  netPollFdAt  renamed sysPollFdAt
-0.7.9  F  netPollBufBytes  renamed sysPollBufBytes
-0.7.9  F  netPollSignalAt  renamed sysPollSignalAt
-0.7.9  F  netSignalOpen  renamed sysSignalOpen
+0.7.9  F  netPollCreate  removed: IO.pollerNew answers a Poller that owns its kqueue or epoll descriptor
+0.7.9  F  netPollAddRead  removed: IO.pollerAdd watches a File under a token
+0.7.9  F  netPollDelRead  removed: IO.pollerRemove
+0.7.9  F  netPollWait  removed: IO.pollerWait
+0.7.9  F  netPollFdAt  removed: IO.pollerToken answers the token an event carries, never a descriptor
+0.7.9  F  netPollBufBytes  removed: a Poller owns its event buffer
+0.7.9  F  netPollSignalAt  removed: IO.pollerSignal
+0.7.9  F  netSignalOpen  removed: IO.pollerAddSignals
 0.7.9  F  sysRead  renamed sysReadNum: a syscall number ends in Num
 0.7.9  F  sysWrite  renamed sysWriteNum
 0.7.9  F  sysOpen  renamed sysOpenNum
@@ -1088,3 +1088,62 @@
 0.7.9  F  sysExecve  renamed sysExecveNum
 0.7.9  F  termRawLeave  row gains Alloc,Mut: it restores through IO.termRestore and clears the state it held
 0.7.9  F  termReadSize  row gains Alloc: it asks IO.termSize, which answers a TermSize
+0.7.9  F  stdin  Int becomes an IO File that never closes descriptor 0: pass it where the number went
+0.7.9  F  stdout  Int becomes an IO File that never closes descriptor 1: pass it where the number went
+0.7.9  F  stderr  Int becomes an IO File that never closes descriptor 2: pass it where the number went
+0.7.9  F  writeStr  (Int String -> Int) becomes (File String -> Int): write to stdout, stderr or a File openPath answered
+0.7.9  F  writeSlice  (Int String Int Int -> Int) becomes (File String Int Int -> Int)
+0.7.9  F  readLine  (Int -> ...) becomes (File -> ...): read stdin or a File openPath answered
+0.7.9  F  readAll  (Int -> ...) becomes (File -> ...): read stdin or a File openPath answered
+0.7.9  F  readInto  (Int String Int Int -> ...) becomes (File String Int Int -> ...)
+0.7.9  F  termSize  (Int -> ...) becomes (File -> ...): ask stdin or stdout
+0.7.9  F  termRaw  (Int Bool -> Result TermState Error) becomes (File Bool -> Result TermGuard Error): releasing the guard, or termRestore, restores the terminal
+0.7.9  F  termRestore  takes the TermGuard termRaw answered
+0.7.9  F  termSave  removed: termRaw saves the attributes it changes, and its guard restores them
+0.7.9  F  fileFd  removed: no function answers the descriptor a File owns; watch a File with pollerAdd
+0.7.9  F  fileFromFd  removed: a File comes from openPath, a socket from IO's socket calls or Net
+0.7.9  F  fileReadLine  removed: readLine takes a File
+0.7.9  F  fileReadAll  removed: readAll takes a File
+0.7.9  F  readBuffer  removed: fileRead reads a File into a ReadBuffer
+0.7.9  F  tcpStreamFd  removed: watch a stream with pollerAddStream
+0.7.9  F  tcpListenerFd  removed: watch a listener with pollerAddListener
+0.7.9  F  sysWriteAllFd  removed from the public surface: write a File with writeStr or fileWrite
+0.7.9  F  sysReadFd  removed from the public surface: read a File with fileRead, readInto, readLine or readAll
+0.7.9  F  sysCloseFd  removed from the public surface: close a File with fileClose, or let its last share go
+0.7.9  F  sysIsatty  removed: IO.isTerminal takes a File
+0.7.9  F  netSocketTcp  removed: Net's tcpListen and tcpConnect, or IO.socketOpen, answer an owned socket
+0.7.9  F  netSocketTcp6  removed: Net's tcpListen and tcpConnect, or IO.socketOpen, answer an owned socket
+0.7.9  F  netBind  removed: IO.socketBind on a File
+0.7.9  F  netListen  removed: IO.socketListen on a File
+0.7.9  F  netAccept  removed: Net.tcpAccept, or IO.socketAccept, answers an owned socket
+0.7.9  F  netAcceptFrom  removed: accept with Net.tcpAccept and ask Net.tcpPeerAddr
+0.7.9  F  netAddrLenRead  removed with netAcceptFrom
+0.7.9  F  netSetBlocking  removed: Net's tcpSetNonBlocking false, or IO.fileSetNonBlocking
+0.7.9  F  netSetNonBlocking  removed: Net's tcpSetNonBlocking true, or IO.fileSetNonBlocking
+0.7.9  F  netConnect  removed: IO.socketConnect on a File, or Net.tcpConnect
+0.7.9  F  netShutdown  removed: IO.socketShutdown on a File, or Net.tcpShutdown
+0.7.9  F  netSetOptInt  removed: IO.socketSetInt on a File
+0.7.9  F  netSetOptBytes  removed: IO.socketSetTimeout on a File
+0.7.9  F  netGetSockName  removed: IO.socketAddr on a File, or Net.tcpLocalAddr
+0.7.9  F  netGetPeerName  removed: IO.socketAddr on a File, or Net.tcpPeerAddr
+0.7.9  F  sysOpenRw  removed: private to Axqlite's pager, the one owner of those descriptors
+0.7.9  F  sysOpenRo  removed: private to Axqlite's pager
+0.7.9  F  sysPread  removed: private to Axqlite's pager
+0.7.9  F  sysPwrite  removed: private to Axqlite's pager
+0.7.9  F  sysFsync  removed: private to Axqlite's pager
+0.7.9  F  sysFtruncate  removed: private to Axqlite's pager
+0.7.9  F  sysFdSize  removed: private to Axqlite's pager
+0.7.9  F  sysFlock  removed: private to Axqlite's pager
+0.7.9  F  sysLockShared  removed: private to Axqlite's pager
+0.7.9  F  sysLockExclusive  removed: private to Axqlite's pager
+0.7.9  F  sysLockNonBlocking  removed: private to Axqlite's pager
+0.7.9  F  sysLockRelease  removed: private to Axqlite's pager
+0.7.9  F  mkKeyIn  (Int Int -> KeyIn) becomes (File Int -> KeyIn): pass stdin
+0.7.9  F  rdNew  (Int -> Int) becomes (File -> Int): pass stdin or a File
+0.7.9  F  rpcWrite  (Int String -> Int) becomes (File String -> Int): pass stdout or a File
+0.7.9  F  acceptNonblockFlag  removed from Sys.Platform: IO.socketAccept answers a blocking socket and sets the mode itself
+0.7.9  F  tcpSetNonBlocking  row gains Mut: the error names the IO operation that failed
+0.7.9  F  tcpShutdown  row gains Mut: the error names the IO operation that failed
+0.7.9  F  tcpWrite  row loses Unsafe and gains Mut: the send is IO's, and its error names the operation
+0.7.9  F  fileRead  row gains Mut: it reads the File's descriptor through IO's owner cast
+0.7.9  F  tcpRead  row gains Mut: the read is IO's fileRead on the stream's File

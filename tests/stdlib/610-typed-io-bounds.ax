@@ -27,7 +27,7 @@
 (fn (sliceStatus start len)
   (__axiom_recover
     __axiom_arena_mark
-    (lambda (x) (writeSlice 1 "abcdef" start len))))
+    (lambda (x) (writeSlice stdout "abcdef" start len))))
 
 (:: readStatus (-> File ReadBuffer Int Int Int))
 ;@axiom:effect(io)
@@ -73,7 +73,7 @@
         ))
       (let ((_ (removeFile "axiom-610.tmp")))
         0)
-      (writeSlice 1 "abcdef" 2 10)
+      (writeSlice stdout "abcdef" 2 10)
       ; Not reached, and not a bare numeral, for the reasons
       ; `544-misaligned-atomic.ax` gives: the stdlib gate reads a tail
       ; numeral as the exit status, and a `println` literal as a line

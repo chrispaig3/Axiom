@@ -1,0 +1,55 @@
+; The descriptor hole, closed (docs/memory-model.md MM-EXEC-17a). Safe
+; code once closed the descriptor a `File` owns, through `fileFd` and
+; `sysCloseFd`, after which the next open reused the number and the
+; File's automatic close shut the new file; and it kept a number past
+; its owner and read whatever reused it. No public function takes or
+; answers a descriptor now, so each attack below is refused before it
+; runs:
+;
+;   `hijack`   names `fileFd` and `sysCloseFd`, which no module exports;
+;   `guessed`  hands a reader a number where it takes a `File`;
+;   `forged`   builds a `File`, whose constructor stays in `IO`;
+;   `reached`  asks for `IO`'s private descriptor accessor by name.
+;
+; The private layer is still in view of the effect walk: `quiet`
+; claims `restrict(no-io)` over a write to a `File`, and the refusal
+; names every private hop down to the syscall.
+(import IO)
+(import Sys)
+(import Err)
+
+;@axiom:restrict(no-unsafe)
+(:: hijack (Result File Error))
+;@axiom:effect(io)
+(fn (hijack)
+  (match (openPath "a.txt" oRdonly)
+    ((Ok f)
+      {
+        (let ((_ (sysCloseFd (fileFd f)))) 0)
+        (openPath "b.txt" oRdonly)
+      })
+    ((Err e) (Err e))))
+
+;@axiom:restrict(no-unsafe)
+(:: guessed (Result String Error))
+;@axiom:effect(io)
+(fn (guessed)
+  (readAll 3))
+
+(:: forged File)
+(fn (forged)
+  (File 3))
+
+(:: reached (-> File Int))
+(fn (reached f)
+  (IO::ioFd f))
+
+;@axiom:restrict(no-io)
+(:: quiet (-> File Int))
+;@axiom:effect(io)
+(fn (quiet f)
+  (writeStr f "x"))
+
+(:: main Int)
+(fn (main)
+  0)

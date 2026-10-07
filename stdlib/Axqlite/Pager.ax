@@ -80,6 +80,185 @@
 (import Sys)
 (import Axqlite.Value)
 
+; ------------------------------------------------------------------
+; The database file's descriptor calls.
+;
+; A pager reads and writes its file a page at a time at known offsets,
+; syncs it at the points its commit protocol names, truncates it when a
+; transaction shrinks it, and coordinates with other connections
+; through a whole-file lock. These are those calls, each answering
+; `Err` with the errno. A target with no call for one (Windows, bare
+; metal) answers `Err` 78 without making it.
+;
+; PRIVATE, because the pager owns these descriptors: it opens them in
+; `pagerOpen`, keeps them in its state block, and closes them in
+; `release`. Every descriptor opened here closes on exec, so a child the
+; program spawns never inherits it, or the lock held on it.
+; ------------------------------------------------------------------
+; The answer for a call this target does not have: ENOSYS's portable
+; spelling, 78.
+(:: dbNoCall Int)
+(fn (dbNoCall)
+  (- 0 78))
+
+; The `flock` operations. The same four values on every target that
+; has the call.
+(:: dbLockShared Int)
+(fn (dbLockShared)
+  1)
+
+(:: dbLockExclusive Int)
+(fn (dbLockExclusive)
+  2)
+
+; Or'd into `dbLockShared` or `dbLockExclusive`: answer EWOULDBLOCK at
+; once instead of waiting for the lock.
+(:: dbLockNonBlocking Int)
+(fn (dbLockNonBlocking)
+  4)
+
+(:: dbLockRelease Int)
+(fn (dbLockRelease)
+  8)
+
+; open(path, flags, mode), `openat` where only that exists.
+(:: dbOpenMode (-> Int Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (dbOpenMode path flags mode)
+  (if (== openNeedsDirFd 1)
+    (__syscall4
+      sysOpenNum
+      atFdCwd
+      path
+      flags
+      mode)
+    (__syscall3 sysOpenNum path flags mode)))
+
+; Open `path` for reading and writing, creating it with mode 0644 when
+; `create` is true and it isn't there. Answers the descriptor.
+(:: dbOpenRw (-> Int Bool (Result Int Error)))
+;@axiom:effect(io)
+(fn (dbOpenRw path create)
+  (sysResult
+    "sysOpenRw"
+    (if (== sysPreadNum 0)
+      dbNoCall
+      (dbOpenMode
+        path
+        (| (| oRdwr oCloexec)
+          (if create
+            oCreat
+            0))
+        420))))
+
+; Open `path` for reading only. Answers the descriptor.
+(:: dbOpenRo (-> Int (Result Int Error)))
+;@axiom:effect(io)
+(fn (dbOpenRo path)
+  (sysResult
+    "sysOpenRo"
+    (if (== sysPreadNum 0)
+      dbNoCall
+      (dbOpenMode path (| oRdonly oCloexec) 0))))
+
+; Read up to `count` bytes at byte `offset` of `fd` into `buf`, without
+; moving the descriptor's position. Answers how many arrived: fewer
+; than asked at the end of the file, and 0 past it.
+(:: dbPread (-> Int Int Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (dbPread fd buf count offset)
+  (sysResult
+    "sysPread"
+    (if (== sysPreadNum 0)
+      dbNoCall
+      (__syscall4 sysPreadNum fd buf count offset))))
+
+; Write `count` bytes from `buf` at byte `offset` of `fd`, without
+; moving the descriptor's position. Answers how many were written,
+; which may be fewer than asked: the caller writes the rest.
+(:: dbPwrite (-> Int Int Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (dbPwrite fd buf count offset)
+  (sysResult
+    "sysPwrite"
+    (if (== sysPwriteNum 0)
+      dbNoCall
+      (__syscall4 sysPwriteNum fd buf count offset))))
+
+; Make everything written to `fd` durable before answering. On Darwin
+; that is `fcntl(F_FULLFSYNC)`, because a plain `fsync` there stops at
+; the drive's own cache; a file system that refuses F_FULLFSYNC gets
+; the plain `fsync`. Elsewhere it is `fsync`.
+(:: dbFsync (-> Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (dbFsync fd)
+  (sysResult
+    "sysFsync"
+    (if (== sysFsyncNum 0)
+      dbNoCall
+      (if (== fsyncUsesFullFsync 1)
+        (let ((r (__syscall3 sysFcntlNum fd fFullFsync 0)))
+          (if (< r 0)
+            (__syscall1 sysFsyncNum fd)
+            r))
+        (__syscall1 sysFsyncNum fd)))))
+
+; Set the length of `fd`'s file to `len` bytes, dropping what lies
+; beyond or adding zeros.
+(:: dbFtruncate (-> Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (dbFtruncate fd len)
+  (sysResult
+    "sysFtruncate"
+    (if (== sysFtruncateNum 0)
+      dbNoCall
+      (__syscall2 sysFtruncateNum fd len))))
+
+; The size of `fd`'s file in bytes. It moves the descriptor's position
+; to the end, which `dbPread` and `dbPwrite` never read.
+(:: dbFdSize (-> Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (dbFdSize fd)
+  (sysResult
+    "sysFdSize"
+    (if (== sysPreadNum 0)
+      dbNoCall
+      (__syscall3 sysLseekNum fd 0 seekEnd))))
+
+; Take, change or release the advisory lock on `fd`'s whole file: `op`
+; is `dbLockShared` or `dbLockExclusive`, either or'd with
+; `dbLockNonBlocking`, or `dbLockRelease`. The lock belongs to the open
+; file, not the process, so two descriptors opened separately in one
+; process conflict with each other as two processes would. Closing the
+; descriptor releases it. With `dbLockNonBlocking`, a lock another
+; holder keeps answers `Err` EWOULDBLOCK (`eAgain`) at once.
+;
+; Changing a held lock from shared to exclusive, or back, isn't atomic:
+; the kernel may drop the old lock before it grants the new one, and
+; when a non-blocking change is refused the old lock may be gone.
+(:: dbFlock (-> Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (dbFlock fd op)
+  (sysResult
+    "sysFlock"
+    (if (== sysFlockNum 0)
+      dbNoCall
+      (__syscall2 sysFlockNum fd op))))
+
+; Close a descriptor the pager opened: `Ok 0`, or the errno.
+(:: dbClose (-> Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (dbClose fd)
+  (sysResult "sysCloseFd" (__syscall1 sysCloseNum fd)))
+
 ; An open database file.
 (pub struct Pager word
   (slot : Int))
@@ -563,7 +742,7 @@
   )
     {
       (while (&& (! stop) (< done len))
-        (match (sysPread fd (+ buf done) (- len done) (+ off done))
+        (match (dbPread fd (+ buf done) (- len done) (+ off done))
           ((Ok n)
             (if (== n 0)
               {
@@ -600,7 +779,7 @@
   )
     {
       (while (&& (isNone failed) (< done len))
-        (match (sysPwrite fd (+ buf done) (- len done) (+ off done))
+        (match (dbPwrite fd (+ buf done) (- len done) (+ off done))
           ((Ok n)
             (if (== n 0)
               {
@@ -712,7 +891,7 @@
           (stAdd m (+ wStat0 2) 1)
           (if (== (st m wNoSync) 1)
             (Ok 0)
-            (match (sysFsync fd)
+            (match (dbFsync fd)
               ((Ok n) (Ok n))
               ((Err e) (ioErr e "pagerSync"))))
         }))))
@@ -737,7 +916,7 @@
               len
               0)
             0)
-          (match (sysFtruncate fd len)
+          (match (dbFtruncate fd len)
             ((Ok n) (Ok n))
             ((Err e) (ioErr e "pagerTruncate")))
         }))))
@@ -778,7 +957,7 @@
 (:: fdSize (-> Int Int))
 ;@axiom:effect(io)
 (fn (fdSize fd)
-  (match (sysFdSize fd)
+  (match (dbFdSize fd)
     ((Ok n) n)
     ((Err e) 0)))
 
@@ -896,12 +1075,12 @@
                           0)
                         0)
                       (if (> (+ off len) old)
-                        (let ((_ (sysFtruncate fd old)))
+                        (let ((_ (dbFtruncate fd old)))
                           0)
                         0)
                     }
                     {
-                      (let ((_ (sysFtruncate fd old)))
+                      (let ((_ (dbFtruncate fd old)))
                         0)
                       (if (> dataLen 0)
                         (let ((_ (writeAll fd (+ e 48) dataLen off)))
@@ -1380,8 +1559,8 @@
   (if (>= (st m wJFd) 0)
     (Ok (st m wJFd))
     (match (if (== (st m wReadOnly) 1)
-      (sysOpenRo (jPath m))
-      (sysOpenRw (jPath m) create))
+      (dbOpenRo (jPath m))
+      (dbOpenRw (jPath m) create))
       ((Ok fd)
         {
           (stSet m wJFd fd)
@@ -1637,7 +1816,7 @@
 (:: flockOp (-> Int Int (Result Int Error)))
 ;@axiom:effect(io)
 (fn (flockOp m op)
-  (match (sysFlock (st m wDbFd) op)
+  (match (dbFlock (st m wDbFd) op)
     ((Ok n) (Ok n))
     ((Err e)
       (if (|| (== (errCode e) eAgain) (== (errCode e) 4))
@@ -1649,7 +1828,7 @@
 ;@axiom:effect(io)
 (fn (unlock m)
   {
-    (let ((_ (sysFlock (st m wDbFd) sysLockRelease)))
+    (let ((_ (dbFlock (st m wDbFd) dbLockRelease)))
       0)
     (stSet m wLock 0)
   })
@@ -1767,7 +1946,7 @@
 (fn (lockShared m)
   (try
     _
-    (flockOp m (| sysLockShared sysLockNonBlocking))
+    (flockOp m (| dbLockShared dbLockNonBlocking))
     (let ((r 
       (try
         hot
@@ -1776,7 +1955,7 @@
           (Ok 0)
           (if (== (st m wReadOnly) 1)
             (axqErr axqReadOnly "the database needs recovery from a hot journal, and this connection is read-only" "pagerBeginRead")
-            (try _ (flockOp m (| sysLockExclusive sysLockNonBlocking)) (try _ (recover m) (flockOp m (| sysLockShared sysLockNonBlocking)))))))))
+            (try _ (flockOp m (| dbLockExclusive dbLockNonBlocking)) (try _ (recover m) (flockOp m (| dbLockShared dbLockNonBlocking)))))))))
       (match r
         ((Err e)
           {
@@ -1820,10 +1999,10 @@
 ;@axiom:effect(unsafe)
 (fn (release m slot)
   {
-    (let ((_ (sysCloseFd (st m wDbFd))))
+    (let ((_ (dbClose (st m wDbFd))))
       0)
     (if (>= (st m wJFd) 0)
-      (let ((_ (sysCloseFd (st m wJFd))))
+      (let ((_ (dbClose (st m wJFd))))
         0)
       0)
     (if (> (st m wBitmapLen) 0)
@@ -1944,7 +2123,7 @@
 (:: prepareFile (-> Int (Result Int Error)))
 ;@axiom:effect(io)
 (fn (prepareFile m)
-  (match (flockOp m (| sysLockShared sysLockNonBlocking))
+  (match (flockOp m (| dbLockShared dbLockNonBlocking))
     ((Err e)
       (if (== (errCode e) axqBusy)
         (Ok 0)
@@ -1961,7 +2140,7 @@
               (Ok 0)
               (if (== (st m wReadOnly) 1)
                 (axqErr axqReadOnly "the database needs recovery from a hot journal, and this connection is read-only" "pagerOpen")
-                (try _ (flockOp m (| sysLockExclusive sysLockNonBlocking)) (recover m))))
+                (try _ (flockOp m (| dbLockExclusive dbLockNonBlocking)) (recover m))))
             (try
               blank
               (fileIsBlank m)
@@ -1971,7 +2150,7 @@
                   (axqErr axqNotADatabase "the file is empty, and a read-only connection can't make it a database" "pagerOpen")
                   (try
                     _
-                    (flockOp m (| sysLockExclusive sysLockNonBlocking))
+                    (flockOp m (| dbLockExclusive dbLockNonBlocking))
                     (try
                       still
                       (fileIsBlank m)
@@ -2001,8 +2180,8 @@
           1000000
           cachePages)))
       (opened (if readOnly
-        (sysOpenRo (strCStr path))
-        (sysOpenRw (strCStr path) create)))
+        (dbOpenRo (strCStr path))
+        (dbOpenRw (strCStr path) create)))
     )
       (match opened
         ((Err e)
@@ -2020,7 +2199,7 @@
                       (match (sysMapPrivate total)
                         ((Err e)
                           {
-                            (let ((_ (sysCloseFd fd)))
+                            (let ((_ (dbClose fd)))
                               0)
                             (axqErr axqTooBig "the kernel refused memory for the page cache" "pagerOpen")
                           }
@@ -2199,7 +2378,7 @@
           (wasShared (== (st m wLock) 1))
           (seen (st m wCounter))
         )
-          (match (flockOp m (| sysLockExclusive sysLockNonBlocking))
+          (match (flockOp m (| dbLockExclusive dbLockNonBlocking))
             ((Err e)
               {
                 (if wasShared

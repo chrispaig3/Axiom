@@ -21,7 +21,7 @@
 (import Str)
 (import Vec)
 (import Sys)
-(import IO (fileExists listDir readFile removeFile writeFile writeStr))
+(import IO (fileExists listDir readFile removeFile stderr writeFile writeStr))
 (import Err)
 (import Path)
 (import parser)
@@ -250,7 +250,7 @@
           ""
           (cast String 0))))
       (let ((out (renderDiagsFormat diagFormatFromArgv ds units)))
-        (writeStr 2 out))
+        (writeStr stderr out))
       exitToolFailed
     }))
 
@@ -1072,7 +1072,7 @@
           ""
           (cast String 0))))
       (let ((out (renderDiagsFormat diagFormatFromArgv ds units)))
-        (writeStr 2 out))
+        (writeStr stderr out))
       exitToolFailed
     }))
 
@@ -1736,7 +1736,7 @@
                             uv
                           })
                         units))))
-                    (writeStr 2 out))
+                    (writeStr stderr out))
                   exitToolFailed
                 }))))
         ; the item's span is in ITS module's unit - an
@@ -1794,7 +1794,7 @@
                           u
                         })
                       units))))
-                  (writeStr 2 out))
+                  (writeStr stderr out))
                 exitToolFailed
               })))))))
 
@@ -2083,10 +2083,10 @@
 
 (pub :: writeStderrStr (-> String Int))
 ; Every byte, not the first `write`'s worth: a diagnostic cut short by a
-; full pipe is the silent truncation `sysWriteAllFd`'s header names.
+; full pipe is the silent truncation `IO`'s write loop exists to stop.
 ;@axiom:effect(io)
 (pub fn (writeStderrStr s)
-  (writeStr 2 s))
+  (writeStr stderr s))
 
 ; Decimal rendering of a small non-negative int, for `-O<n>`.
 ;

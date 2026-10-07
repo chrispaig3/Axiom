@@ -1,9 +1,9 @@
 ok   SIGTERM is blocked
 ok   the listener is watched
-ok   SIGTERM is watched on the same descriptor
+ok   SIGTERM is watched by the same poller
 ok   nothing pending wakes nothing
 ok   a connection wakes one event
-ok   the event names the listener
+ok   the event carries the listener's token
 ok   a socket event is NOT reported as a signal
 ok   SIGTERM is raised
 ok   the signal wakes one event

@@ -723,11 +723,12 @@ function in a capability record or call it before formatting.
 
 <a id="targets"></a>
 
-Use `IO`'s terminal operations for dimensions, raw mode and saved
-settings. `Tui.Keys` decodes key events, `Tui.Edit` implements a pure
-line editor, and `Tui.Term` connects it to terminal I/O. Restore saved
-settings when leaving raw mode. The [library API](stdlib-api.md#tuiterm)
-lists the exact operations.
+`termRaw` puts a terminal into raw mode and answers a `TermGuard`.
+Releasing the guard puts the terminal back as it was, and `termRestore`
+does it early. `termSize` and `isTerminal` ask about a `File` such as
+`stdin`. `Tui.Keys` decodes key events, `Tui.Edit` implements a pure
+line editor, and `Tui.Term` connects it to terminal I/O. The
+[library API](stdlib-api.md#tuiterm) lists the exact operations.
 
 ## Memory
 

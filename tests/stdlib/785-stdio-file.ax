@@ -1,0 +1,43 @@
+; stdin, stdout and stderr are `File` values whose release never closes
+; the process's descriptor (docs/memory-model.md MM-EXEC-17b). Each
+; evaluation answers a fresh value: closing one retires that value and
+; leaves the stream open for the next `println`, and the last line
+; shows a later use of the closed value stopping the program with
+; status 85. Standard input is `785-stdio-file.in`.
+(import IO)
+(import Err)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (writeStr stdout "one\n")
+    (match (fileWrite stdout "two\n")
+      ((Ok n) (println n))
+      ((Err e) (println "fileWrite failed")))
+    ; Closing a stdout value retires it and leaves fd 1 open.
+    (let ((o stdout))
+      (match (fileClose o)
+        ((Ok n) (println "closed {n}"))
+        ((Err e) (println "close failed"))))
+    (println "three")
+    (match (readLine stdin)
+      ((Ok (Some s)) (println s))
+      ((Ok (None)) (println "none"))
+      ((Err e) (println "readLine failed")))
+    ; Closing a stdin value does not close fd 0: the next reader still
+    ; reaches the stream, at its end.
+    (let ((i stdin))
+      (let ((_ (fileClose i))) 0))
+    (match (readAll stdin)
+      ((Ok s) (println (strLen s)))
+      ((Err e) (println "readAll failed")))
+    (println (writeStr stderr ""))
+    ; A closed value is dead: the write traps 85 before any descriptor
+    ; is used, and nothing after it runs.
+    (let ((o stdout))
+      {
+        (let ((_ (fileClose o))) 0)
+        (writeStr o "UNREACHABLE: a closed stdout value wrote\n")
+      })
+  })

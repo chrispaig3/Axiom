@@ -350,7 +350,7 @@ echo "== grounding: every inferred IO reaches a primitive through the graph =="
 # can reach.
 #
 # The walk is transitive because the library is several hops deep:
-# `writeStr` -> `sysWriteAllFd` -> `sysWriteFd` -> ... -> `__syscall3`.
+# `writeStr` -> `ioWriteAll` -> `ioWriteAllFrom` -> `ioWriteFd` -> `__syscall3`.
 #
 # The origin list is read from `self_host/typecheck.ax`, never copied:
 # `regFnEff <name> <type> (builtinEff "IO")`, or `regFnEff2` for a

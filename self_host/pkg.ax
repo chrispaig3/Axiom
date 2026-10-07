@@ -131,7 +131,7 @@
 (import Str)
 (import Vec)
 (import Sys)
-(import IO (fileExists isDir listDir readFile writeStr))
+(import IO (fileExists isDir listDir readFile stderr writeStr))
 (import Path)
 (import Fmt)
 
@@ -1333,7 +1333,7 @@
 ;@axiom:effect(io)
 (pub fn (pkgDie msg)
   {
-    (writeStr 2 msg)
+    (writeStr stderr msg)
     (sysExitWith 3)
     0
   })

@@ -9,7 +9,7 @@
     ((Err e) (Err e))
     ((Ok bytes)
       {
-        (writeStr 1 bytes)
+        (writeStr stdout bytes)
         (Ok 0)
       }
     )))

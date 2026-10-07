@@ -10,9 +10,9 @@
 ;
 ; A compiler whose tables only own their values when built with an
 ; owning constructor answers `false` on line 1, and line 2 runs out of
-; descriptors (errno 24) under the default limit of 256.
+; descriptors (errno 24) under a limit of 256. The count of open
+; descriptors is read from /dev/fd.
 (import IO)
-(import Sys)
 (import Err)
 (import Str)
 (import Vec)
@@ -25,86 +25,74 @@
     ((Ok f) f)
     ((Err e) { (die (errorText e) 1) (requireFile path) })))
 
-(:: closedFd (-> Int Bool))
+; How many descriptors this process holds, counted in /dev/fd.
+(:: openCount Int)
 ;@axiom:effect(io)
-(fn (closedFd fd)
-  (let ((buf (strAlloc 1)))
-    (match (sysReadFd fd (strData buf) 1)
-      ((Ok _) false)
-      ((Err e) (== (errCode e) 9)))))
+(fn (openCount)
+  (vecLen (listDir "/dev/fd")))
 
-(:: maxInt (-> Int Int Int))
-(fn (maxInt a b)
-  (if (> a b)
-    a
-    b))
-
-; Insert a fresh File under `key` and answer its descriptor.
+; Insert a fresh File under `key`.
 (:: put (-> Map Int Int))
 ;@axiom:effect(io)
 (fn (put m key)
   (let ((f (requireFile "/dev/null")))
     {
       (mapInsert m key f)
-      (fileFd f)
+      0
     }))
-
-; The two descriptors of a table that has already been dropped.
-(:: droppedFds (Vec Int))
-;@axiom:effect(io)
-(fn (droppedFds)
-  (let ((m mapNew))
-    (let ((out vecNew))
-      {
-        (vecPush out (put m 1))
-        (vecPush out (put m 2))
-        out
-      })))
 
 (:: droppedClosed Bool)
 ;@axiom:effect(io)
 (fn (droppedClosed)
-  (let ((fds droppedFds))
-    (&& (closedFd (vecGet fds 0)) (closedFd (vecGet fds 1)))))
+  (let ((before openCount))
+    {
+      (let ((m mapNew))
+        {
+          (put m 1)
+          (put m 2)
+          (mapLen m)
+        })
+      (== openCount before)
+    }))
 
 (:: loopDropped Bool)
 ;@axiom:effect(io)
 (fn (loopDropped)
-  (let ((mut i 0) (mut hi 0))
+  (let ((before openCount) (mut i 0))
     {
       (while (< i 3000)
         {
           (let ((m mapNew))
             {
               (put m 1)
-              (set hi (maxInt hi (put m 2)))
+              (put m 2)
               0
             })
           (set i (+ i 1))
         })
-      (< hi 16)
+      (== openCount before)
     }))
 
 (:: overwritten Bool)
 ;@axiom:effect(io)
 (fn (overwritten)
-  (let ((m mapNew))
-    (let ((first (put m 7)))
-      {
-        (put m 7)
-        (&& (closedFd first) (== (mapLen m) 1))
-      })))
+  (let ((m mapNew) (before openCount))
+    {
+      (put m 7)
+      (put m 7)
+      (&& (== openCount (+ before 1)) (== (mapLen m) 1))
+    }))
 
 (:: removed Bool)
 ;@axiom:effect(io)
 (fn (removed)
-  (let ((m mapNew))
-    (let ((fd (put m 7)))
-      {
-        (put m 8)
-        (mapRemove m 7)
-        (&& (closedFd fd) (== (mapLen m) 1))
-      })))
+  (let ((m mapNew) (before openCount))
+    {
+      (put m 7)
+      (put m 8)
+      (mapRemove m 7)
+      (&& (== openCount (+ before 1)) (== (mapLen m) 1))
+    }))
 
 (:: main Int)
 ;@axiom:effect(io)

@@ -7,7 +7,7 @@
 ;   \r\n
 ;   {"jsonrpc":"2.0","method":"initialized",...}
 ;
-; WHY A BUFFERED READER. `Sys.sysReadFd` performs ONE `read`, and a
+; WHY A BUFFERED READER. `IO.readInto` performs ONE `read`, and a
 ; read is permitted to return fewer bytes than asked - a pipe hands
 ; over whatever the writer has flushed. Framing therefore cannot be
 ; done by reading a header "then" a body: the header, the terminator
@@ -38,7 +38,7 @@
 (import Str)
 (import Fmt)
 (import Sys)
-(import IO (readInto writeStr))
+(import IO (File readInto writeStr))
 
 (:: rdCap Int)
 (fn (rdCap)
@@ -86,20 +86,25 @@
 (fn (rdMaxBody)
   67108864)
 
-(pub :: rdNew (-> Int Int))
-(pub fn (rdNew fd)
+; A reader over `f`. The record holds a share of `f`, so the file stays
+; open while the reader does.
+(pub :: rdNew (-> File Int))
+(pub fn (rdNew f)
   (let ((r (memAlloc 32)))
     {
-      (memSetWord r 0 fd)
+      (memSetWord r 0 f)
       (memSetWord r 1 (strAlloc rdCap))
       (memSetWord r 2 0)
       (memSetWord r 3 0)
       r
     }))
 
-(:: rdFd (-> Int Int))
-(fn (rdFd r)
-  (memGetWord r 0))
+; The reader's file. The cast is at a return inside a signature that
+; carries the type, for the reason `Mem.memGetWordStr` gives.
+(:: rdFile (-> Int File))
+;@axiom:effect(unsafe)
+(fn (rdFile r)
+  (cast File (memGetWord r 0)))
 
 (pub :: rdBuf (-> Int String))
 (pub fn (rdBuf r)
@@ -175,7 +180,7 @@
       (rdCompact r)
       0)
     (let ((n 
-      (match (readInto (rdFd r) (rdBuf r) (rdFilled r) (- (strLen (rdBuf r)) (rdFilled r)))
+      (match (readInto (rdFile r) (rdBuf r) (rdFilled r) (- (strLen (rdBuf r)) (rdFilled r)))
         ((Ok k) k)
         ((Err e) (- 0 (errCode e))))))
       {
@@ -408,21 +413,20 @@
 
 ; Write all of `s`. The short-write loop - a single `write` may
 ; transfer fewer bytes than asked, and treating that as success is how
-; a reply gets silently truncated - is `IO.writeStr`'s, stated once
-; in `Sys.sysWriteAllFd`.
-(:: rpcPut (-> Int String Int))
+; a reply gets silently truncated - is `IO.writeStr`'s.
+(:: rpcPut (-> File String Int))
 ;@axiom:effect(io)
-(fn (rpcPut fd s)
-  (writeStr fd s))
+(fn (rpcPut f s)
+  (writeStr f s))
 
-; Frame `body` and write it.
-(pub :: rpcWrite (-> Int String Int))
+; Frame `body` and write it to `f`.
+(pub :: rpcWrite (-> File String Int))
 ;@axiom:effect(io)
-(pub fn (rpcWrite fd body)
+(pub fn (rpcWrite f body)
   {
-    (rpcPut fd "Content-Length: ")
-    (rpcPut fd (fmtInt (strLen body)))
-    (rpcPut fd "\r\n\r\n")
-    (rpcPut fd body)
+    (rpcPut f "Content-Length: ")
+    (rpcPut f (fmtInt (strLen body)))
+    (rpcPut f "\r\n\r\n")
+    (rpcPut f body)
     (strLen body)
   })

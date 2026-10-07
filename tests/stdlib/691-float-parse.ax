@@ -14,7 +14,7 @@
 (:: main Int)
 ;@axiom:effect(io)
 (fn (main)
-  (match (readAll 0)
+  (match (readAll stdin)
     ((Err e) (die (errorText e) 1))
     ((Ok text)
       (let (

@@ -10,7 +10,7 @@
 ; Only these two. `IO` also exports `die`, and `main.ax` declares its
 ; own - a whole-module import would make the name ambiguous in the
 ; one file that uses it most.
-(import IO (listDir isDir fileExists makeDir readErrno readFile removeFile renamePath writeFile writeStr))
+(import IO (listDir isDir fileExists makeDir readErrno readFile removeFile renamePath stderr writeFile writeStr))
 (import lexer)
 (import parser)
 (import diag)
@@ -2406,7 +2406,7 @@
 ;@axiom:effect(io)
 (pub fn (die msg code)
   {
-    (writeStr 2 msg)
+    (writeStr stderr msg)
     (sysExitWith code)
     code
   })

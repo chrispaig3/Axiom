@@ -254,6 +254,13 @@
 (pub fn (fSetFl)
   4)
 
+; fcntl's F_DUPFD_CLOEXEC: a duplicate of a descriptor, closed on exec.
+; `IO.termRaw` keeps one, so its guard can restore the terminal however
+; the caller's file is closed. 0 where nothing has terminal control.
+(pub :: fDupFdCloexec Int)
+(pub fn (fDupFdCloexec)
+  0)
+
 (pub :: oNonblock Int)
 (pub fn (oNonblock)
   2048)
@@ -363,10 +370,6 @@
 (pub fn (forkChildIsZero)
   1)
 
-(pub :: acceptNonblockFlag Int)
-(pub fn (acceptNonblockFlag)
-  2048)
-
 ; ------------------------------------------------------------------
 ; The capability, and the UART behind it.
 ; ------------------------------------------------------------------
@@ -464,8 +467,8 @@
 ; There is no terminal on the reference machine: no keyboard, no pty,
 ; no window, only the UART's one-way bytes. So this module answers
 ; `ttyUsesTermios` 0 and `Sys.ax` takes the branch that reports "not
-; supported on this target" - `sysIsatty` answers false, the raw-mode
-; pair answers -ENOSYS. The same shape as `clockHasMonotonic` here,
+; supported on this target" - `IO.isTerminal` answers false, and
+; `termRaw` answers ENOSYS. The same shape as `clockHasMonotonic` here,
 ; where the honest ENOSYS was preferred to a clock that does not run.
 ;
 ; The eighteen names below are 0 for the reason `clockMonotonicId` is:

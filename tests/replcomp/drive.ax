@@ -252,7 +252,7 @@
       (width (argInt 7))
     )
       {
-        (writeStr 1 (replComplMenu cands sel width))
+        (writeStr stdout (replComplMenu cands sel width))
         (println (concat "ROWS " (fmtInt (replComplRows cands sel width))))
         (println (concat "MENUNL " (fmtInt (countNl (replComplMenu cands sel width)))))
         0

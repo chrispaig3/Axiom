@@ -408,7 +408,7 @@ cat >"$probe/probe.ax" <<'AX'
 ;@axiom:effect(io)
 (fn (main)
   {
-    (writeStr 1 "the standard library travelled with the compiler\n")
+    (writeStr stdout "the standard library travelled with the compiler\n")
     42
   }
 )

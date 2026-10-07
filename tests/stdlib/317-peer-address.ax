@@ -7,388 +7,102 @@
 ; nobody knows, so a server reporting the peer could return anything
 ; from the right family and look correct. Binding it makes the expected
 ; answer a number this file already holds, which is what turns "a call
-; returned an address" into "it returned THE address".
+; returned an address" into "it returned THE address". `Net` connects
+; without binding, so the client side is `IO`'s socket calls on a
+; `File`, and the server side is `Net`.
 ;
 ; NO EXTERNAL CLIENT, for the reason `307-socket-roundtrip.ax` gives:
 ; a loopback connect lands in the accept queue whether or not it has
-; completed, so one process can be both ends and a case with no second
-; process cannot flake on one.
+; completed, so one process can be both ends.
 ;
-; WHAT `netAccept` CANNOT DO IS THE POINT. It passes NULL for `accept`'s
-; two out-parameters, so the peer is gone by the time it returns and no
-; caller can recover it - no access log, no per-IP limit, no per-peer
-; accounting. `netAcceptFrom` takes the buffer instead, and the last
-; check here is `netAccept` still answering a working socket, because
-; keeping the cheap form working is half of why the new one is separate.
+; THE ADDRESS ALWAYS FITS. `tcpPeerAddr` asks the kernel into a buffer
+; of `netAddrMaxBytes`, the larger family's size, so no address arrives
+; cut short.
 ;
 ; THE PORTS COME FROM THE PID so parallel cases do not fight over one
 ; number, and the golden prints no number at all: the addresses are
-; asserted against what this file asked for, and `afInet6` differs by
-; target anyway.
+; asserted against what this file asked for.
 (import IO)
 (import Sys)
 (import Err)
-(import Mem)
+(import Net)
+(import Vec)
 
-(:: say (-> Int String Int))
+(:: say (-> Bool String Int))
 ;@axiom:effect(io)
-(fn (say okFlag label)
-  (if (== okFlag 1)
+(fn (say good label)
+  (if good
     (println (concat "ok   " label))
     (println (concat "FAIL " label))))
 
-; Accept with the peer, allowing for the connection not having reached
-; the queue yet - the bounded retry `307` measured the need for, over
-; `netWouldBlock` so that "not yet" and "broken" stay distinct.
-(:: acceptFromSoon (-> Int Int Int Int Int))
+; A client socket bound to `from` and connected to `to`.
+(:: clientFrom (-> SocketAddr SocketAddr (Result File Error)))
 ;@axiom:effect(io)
-(fn (acceptFromSoon lsn peer lenb tries)
-  (let ((c 
-    (match (netAcceptFrom lsn peer netAddrMaxBytes lenb)
-      ((Ok k) k)
-      ((Err e) (- 0 (errCode e))))))
-    (if (>= c 0)
-      c
-      (if (netWouldBlock c)
-        (if (> tries 0)
-          (acceptFromSoon lsn peer lenb (- tries 1))
-          c)
-        c))))
+(fn (clientFrom from to)
+  (try s (socketOpen from.bytes)
+    (try _ (socketSetInt s solSocket soReuseAddr 1)
+      (try _ (socketBind s from.bytes)
+        (try _ (socketConnect s to.bytes)
+          (Ok s))))))
 
-; The same, with the capacity as a parameter, for the case below that
-; hands `netAcceptFrom` a buffer too small for the address it is about
-; to be given. `acceptFromSoon` passes `netAddrMaxBytes` because that
-; is what a caller should pass; this one exists to be wrong on purpose.
-(:: acceptFromCapSoon (-> Int Int Int Int Int Int))
+; One family, end to end: listen on `server`, connect from `client`, and
+; check what the accepted stream says its peer is.
+(:: family (-> String SocketAddr SocketAddr String Int))
 ;@axiom:effect(io)
-(fn (acceptFromCapSoon lsn peer cap lenb tries)
-  (let ((c 
-    (match (netAcceptFrom lsn peer cap lenb)
-      ((Ok k) k)
-      ((Err e) (- 0 (errCode e))))))
-    (if (>= c 0)
-      c
-      (if (netWouldBlock c)
-        (if (> tries 0)
-          (acceptFromCapSoon
-            lsn
-            peer
-            cap
-            lenb
-            (- tries 1))
-          c)
-        c))))
-
-(:: acceptSoon (-> Int Int Int))
-;@axiom:effect(io)
-(fn (acceptSoon lsn tries)
-  (let ((c 
-    (match (netAccept lsn)
-      ((Ok k) k)
-      ((Err e) (- 0 (errCode e))))))
-    (if (>= c 0)
-      c
-      (if (netWouldBlock c)
-        (if (> tries 0)
-          (acceptSoon lsn (- tries 1))
-          c)
-        c))))
+(fn (family label server client ip)
+  (match (tcpListen server)
+    ((Err e) (say false (concat label " listener binds")))
+    ((Ok lsn)
+      {
+        (say true (concat label " listener binds"))
+        (match (clientFrom client server)
+          ((Err e) (say false (concat label " client binds a source port this case chose")))
+          ((Ok cli)
+            {
+              (say true (concat label " client binds a source port this case chose"))
+              (match (tcpAccept lsn)
+                ((Err e) (say false "tcpAccept answers the connected stream"))
+                ((Ok con)
+                  {
+                    (say true "tcpAccept answers the connected stream")
+                    (match (tcpPeerAddr con)
+                      ((Err e) (say false "the peer's address is readable"))
+                      ((Ok peer)
+                        {
+                          (say (if (socketAddrIsV6 client) (socketAddrIsV6 peer) (! (socketAddrIsV6 peer))) "the peer's family is the client's")
+                          (say (strEq (socketAddrIp peer) ip) (concat "the peer's address is " ip))
+                          (say (== (socketAddrPort peer) (socketAddrPort client)) "the peer's port is the source port the client bound")
+                          (say (strEq (socketAddrText peer) (socketAddrText client)) "and it reads back as the address the client bound")
+                        }))
+                    (let ((_ (tcpClose con))) 0)
+                  }))
+              (let ((_ (fileClose cli))) 0)
+            }))
+        (let ((_ (tcpListenerClose lsn))) 0)
+      })))
 
 (:: main Int)
 ;@axiom:effect(io)
 (fn (main)
-  ; ------------------------------------------------------- IPv4
-  (let ((base (+ 40000 (% sysPid 20000))))
-    (let (
-      (srvAddr (memAlloc 32))
-      (cliAddr (memAlloc 32))
-      (peer (memAlloc 32))
-      (lenb (memAlloc 8))
-      (optb (memAlloc 4))
-    )
-      {
-        (match netSocketTcp
-          ((Err e) (say 0 "a v4 listener socket is created"))
-          ((Ok lsn)
-            {
-              (let ((_ (netSetOptInt
-                lsn
-                solSocket
-                soReuseAddr
-                1
-                optb))) 0)
-              (netAddr4
-                srvAddr
-                base
-                127
-                0
-                0
-                1)
-              (say
-                (if (isOk (netBind lsn srvAddr))
-                  1
-                  0)
-                "a v4 listener binds with the length its family asks for")
-              (let ((_ (netListen lsn 16))) 0)
-              (let ((_ (netSetNonBlocking lsn))) 0)
-              (match netSocketTcp
-                ((Err e) (say 0 "a v4 client socket is created"))
-                ((Ok cli)
-                  {
-                    (let ((_ (netSetOptInt
-                      cli
-                      solSocket
-                      soReuseAddr
-                      1
-                      optb))) 0)
-                    (netAddr4
-                      cliAddr
-                      (+ base 1)
-                      127
-                      0
-                      0
-                      1)
-                    (say
-                      (if (isOk (netBind cli cliAddr))
-                        1
-                        0)
-                      "the client binds a source port this case chose")
-                    (let ((_ (netConnect cli srvAddr))) 0)
-                    ; ZERO, AND THE VALUE MATTERS. The point is to catch a
-                    ; `netAcceptFrom` that never wrote the capacity in, and
-                    ; only a sentinel BELOW the real length can: the kernel
-                    ; writes the true size back whatever it finds, and it
-                    ; clamps its copy to what it was given. Seeded with
-                    ; 0xFF this case passed against a `netAcceptFrom` with
-                    ; the value-result write deleted - 0xFFFFFFFF is more
-                    ; than 28, so nothing was clamped and every assertion
-                    ; below still held. Seeded with 0 the kernel is told
-                    ; the buffer holds nothing, copies nothing, and the
-                    ; peer reads back `af=0`.
-                    (memSet lenb 0 8)
-                    (let ((con (acceptFromSoon lsn peer lenb 1000)))
-                      {
-                        (say
-                          (if (> con 2)
-                            1
-                            0)
-                          "netAcceptFrom answers the connected socket")
-                        (say
-                          (if (== (netAddrLenRead lenb) netAddr4Bytes)
-                            1
-                            0)
-                          "the kernel wrote sockaddr_in's length back into the cell")
-                        (say
-                          (if (== (netAddrFamily peer) afInet)
-                            1
-                            0)
-                          "the peer's family is afInet")
-                        (say
-                          (if (strEq (netAddrText peer) "127.0.0.1")
-                            1
-                            0)
-                          "the peer's address is 127.0.0.1")
-                        (say
-                          (if (== (netAddrPort peer) (+ base 1))
-                            1
-                            0)
-                          "the peer's port is the source port the client bound")
-                        (let ((_ (sysCloseFd con))) 0)
-                      })
-                    (let ((_ (sysCloseFd cli))) 0)
-                  }
-                ))
-              ; `netAccept` still works, and still tells nobody who it
-              ; was. Same listener, second connection.
-              (match netSocketTcp
-                ((Err e) (say 0 "a second v4 client socket is created"))
-                ((Ok cli2)
-                  {
-                    (let ((_ (netConnect cli2 srvAddr))) 0)
-                    (let ((con2 (acceptSoon lsn 1000)))
-                      {
-                        (say
-                          (if (> con2 2)
-                            1
-                            0)
-                          "netAccept still answers a socket with no buffer at all")
-                        (let ((_ (sysCloseFd con2))) 0)
-                      })
-                    (let ((_ (sysCloseFd cli2))) 0)
-                  }
-                ))
-              (let ((_ (sysCloseFd lsn))) 0)
-            }
-          ))
-        ; ------------------------------------------------------- IPv6
-        (match netSocketTcp6
-          ((Err e) (say 0 "socket(afInet6) answers a descriptor"))
-          ((Ok lsn6)
-            {
-              (say
-                (if (> lsn6 2)
-                  1
-                  0)
-                "socket(afInet6) answers a descriptor")
-              (let ((_ (netSetOptInt
-                lsn6
-                solSocket
-                soReuseAddr
-                1
-                optb))) 0)
-              (netAddr6
-                srvAddr
-                (+ base 2)
-                0
-                0
-                0
-                0
-                0
-                0
-                0
-                1)
-              ; This is the bind that a literal 16 answered -22 EINVAL
-              ; for. It is the length coming off the family that makes it
-              ; a 0.
-              (say
-                (if (isOk (netBind lsn6 srvAddr))
-                  1
-                  0)
-                "a v6 listener binds ::1 with sockaddr_in6's 28 bytes")
-              (let ((_ (netListen lsn6 16))) 0)
-              (let ((_ (netSetNonBlocking lsn6))) 0)
-              (match netSocketTcp6
-                ((Err e) (say 0 "a v6 client socket is created"))
-                ((Ok cli6)
-                  {
-                    (let ((_ (netSetOptInt
-                      cli6
-                      solSocket
-                      soReuseAddr
-                      1
-                      optb))) 0)
-                    (netAddr6
-                      cliAddr
-                      (+ base 3)
-                      0
-                      0
-                      0
-                      0
-                      0
-                      0
-                      0
-                      1)
-                    (say
-                      (if (isOk (netBind cli6 cliAddr))
-                        1
-                        0)
-                      "the v6 client binds a source port this case chose")
-                    (let ((_ (netConnect cli6 srvAddr))) 0)
-                    (memSet lenb 0 8)
-                    (let ((con6 (acceptFromSoon lsn6 peer lenb 1000)))
-                      {
-                        (say
-                          (if (> con6 2)
-                            1
-                            0)
-                          "netAcceptFrom answers the connected v6 socket")
-                        (say
-                          (if (== (netAddrLenRead lenb) netAddr6Bytes)
-                            1
-                            0)
-                          "the kernel wrote sockaddr_in6's 28 back into the cell")
-                        (say
-                          (if (== (netAddrFamily peer) afInet6)
-                            1
-                            0)
-                          "the peer's family is afInet6")
-                        (say
-                          (if (strEq (netAddrText peer) "::1")
-                            1
-                            0)
-                          "the peer's address is ::1")
-                        (say
-                          (if (strEq (netAddrTextPort peer) (concat "[::1]:" (fmtInt (+ base 3))))
-                            1
-                            0)
-                          "and reads back as [::1]:<source port>")
-                        (let ((_ (sysCloseFd con6))) 0)
-                      })
-                    (let ((_ (sysCloseFd cli6))) 0)
-                  }
-                ))
-              ; ------------------------------ a buffer too small
-              ; A v6 peer needs 28 bytes. Given 16, the kernel copies
-              ; what fits and reports the real length - and the rest of
-              ; the address field is left exactly as it was.
-              ;
-              ; THIS BUFFER HAS BEEN USED BEFORE, which is what makes the
-              ; case sharp. The accept above filled it with `::1`, so
-              ; without the repair the second accept reads `::1` straight
-              ; back out of the stale bytes: the right answer, arrived at
-              ; by accident, and the wrong answer the moment two peers
-              ; differ. A freshly allocated buffer shows the same defect
-              ; as `::` instead. Neither is distinguishable from a true
-              ; answer by the caller.
-              ;
-              ; So both are asserted against. `af=0` is the honest
-              ; nothing; `::` is checked separately because it is a real
-              ; address a socket can carry, and a reader has to be able
-              ; to tell "I could not store this" from "the peer was the
-              ; unspecified address".
-              (match netSocketTcp6
-                ((Err e) (say 0 "a third v6 client socket is created"))
-                ((Ok cli6b)
-                  {
-                    (let ((_ (netSetOptInt
-                      cli6b
-                      solSocket
-                      soReuseAddr
-                      1
-                      optb))) 0)
-                    (netAddr6
-                      cliAddr
-                      (+ base 4)
-                      0
-                      0
-                      0
-                      0
-                      0
-                      0
-                      0
-                      1)
-                    (let ((_ (netBind cli6b cliAddr))) 0)
-                    (let ((_ (netConnect cli6b srvAddr))) 0)
-                    (memSet lenb 0 8)
-                    (let ((con6b (acceptFromCapSoon
-                      lsn6
-                      peer
-                      netAddr4Bytes
-                      lenb
-                      1000)))
-                      {
-                        (say
-                          (if (== (netAddrLenRead lenb) netAddr6Bytes)
-                            1
-                            0)
-                          "a short buffer still learns the address's real length")
-                        (say
-                          (if (strEq (netAddrText peer) "af=0")
-                            1
-                            0)
-                          "an address that did not fit is withdrawn, not truncated")
-                        (say
-                          (if (strEq (netAddrText peer) "::")
-                            0
-                            1)
-                          "and is not a stale or unspecified address")
-                        (let ((_ (sysCloseFd con6b))) 0)
-                      })
-                    (let ((_ (sysCloseFd cli6b))) 0)
-                  }
-                ))
-              (let ((_ (sysCloseFd lsn6))) 0)
-            }
-          ))
-        0
-      })))
+  (let ((base (+ 20000 (* 4 (% sysPid 2000)))))
+    {
+      (match (socketAddrV4 127 0 0 1 base)
+        ((Err e) (say false "a v4 address builds"))
+        ((Ok server)
+          (match (socketAddrV4 127 0 0 1 (+ base 1))
+            ((Err e) (say false "a v4 address builds"))
+            ((Ok client) (family "a v4" server client "127.0.0.1")))))
+      (let ((loop6 vecNew))
+        {
+          (for g in 0..7
+            (vecPush loop6 0))
+          (vecPush loop6 1)
+          (match (socketAddrV6 loop6 (+ base 2))
+            ((Err e) (say false "a v6 address builds"))
+            ((Ok server)
+              (match (socketAddrV6 loop6 (+ base 3))
+                ((Err e) (say false "a v6 address builds"))
+                ((Ok client) (family "a v6" server client "::1")))))
+        })
+      0
+    }))

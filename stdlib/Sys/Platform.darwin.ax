@@ -465,6 +465,13 @@
 (pub fn (fSetFl)
   4)
 
+; fcntl's F_DUPFD_CLOEXEC: a duplicate of a descriptor, closed on exec.
+; `IO.termRaw` keeps one, so its guard can restore the terminal however
+; the caller's file is closed.
+(pub :: fDupFdCloexec Int)
+(pub fn (fDupFdCloexec)
+  67)
+
 (pub :: oNonblock Int)
 (pub fn (oNonblock)
   4)
@@ -509,9 +516,9 @@
 ;
 ; THE 28 IS NOT INTERCHANGEABLE WITH THE 16. Measured on this host
 ; 2026-08-24: `bind` of a correct `::1` address answered 0 at length 28
-; and -22 EINVAL at length 16, which is why `netBind` and `netConnect`
-; now read the length off the family in the buffer instead of passing
-; the literal that only ever suited one family.
+; and -22 EINVAL at length 16, which is why `IO.socketBind` and
+; `IO.socketConnect` read the length off the family in the buffer
+; instead of passing the literal that only ever suited one family.
 (pub :: sockaddrHasLenByte Int)
 (pub fn (sockaddrHasLenByte)
   1)
@@ -709,21 +716,6 @@
 ; `sysForkProcess` normalises; see `sysForkNum` above for the measurement.
 (pub :: forkChildIsZero Int)
 (pub fn (forkChildIsZero)
-  0)
-
-; The flag `netAccept` passes to make the accepted socket non-blocking.
-; Darwin's `accept` HAS no such flag - it has no `accept4` at all - so
-; this is 0 and `Sys.ax` reaches for `fcntl` afterwards instead.
-;
-; IT MUST, because Darwin and Linux disagree about what an accepted
-; socket inherits and the disagreement is silent. Measured on this host
-; 2026-08-24: a listener with `O_NONBLOCK` set answered `F_GETFL` 6, and
-; the socket accepted from it ALSO answered 6 - the flag was inherited.
-; Linux's accepted socket does not inherit it. A server that accepted
-; and then read would get -EAGAIN here and block there, from the same
-; source, with nothing to say which had happened.
-(pub :: acceptNonblockFlag Int)
-(pub fn (acceptNonblockFlag)
   0)
 
 ; ------------------------------------------------------------------
@@ -1168,7 +1160,7 @@
   33554586)
 
 ; fsync(fd) - BSD 95. Darwin's fsync leaves the data in the drive's
-; own cache, so `sysFsync` asks `fcntl(F_FULLFSYNC)` instead and uses
+; own cache, so Axqlite's pager asks `fcntl(F_FULLFSYNC)` instead and uses
 ; this only if the file system refuses that.
 (pub :: sysFsyncNum Int)
 (pub fn (sysFsyncNum)

@@ -149,8 +149,8 @@ the neighbourhood of the corpus.
   or by storing it in an `Int` container slot or through `memSetWord`.
   A value that leaves this way stops being tracked. A function result
   can't do it (`MM-VAL-24`).
-- `fileFd` with `sysCloseFd` can close a descriptor its `File` still
-  owns.
+- A `lambda` that captures a value a `match` arm bound keeps a share of
+  it that is never released, so a captured `File` never closes.
 - Cycles hold their memory until an arena reset.
 
 ## Using Axiom in a safety-related system

@@ -55,7 +55,7 @@
       (match (openPath path oRdonly)
         ((Err e) (die "open for read failed" 1))
         ((Ok fd)
-          (let ((r (rdNew (fileFd fd))))
+          (let ((r (rdNew fd)))
             (let ((got (rpcRead r)))
               (let (
                 (n (strLen got))

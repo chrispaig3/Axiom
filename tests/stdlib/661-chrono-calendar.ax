@@ -129,7 +129,7 @@
 ;@axiom:effect(io)
 (fn (main)
   (let (
-    (text (unwrapOr (readAll 0) ""))
+    (text (unwrapOr (readAll stdin) ""))
     (mut lines 0)
     (mut fails 0)
     (mut negative 0)

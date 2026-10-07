@@ -327,7 +327,7 @@ else
 fi
 
 kept=""
-for sym in 'IO$writeStr' 'Sys$sysWriteAllFd' 'Str$strLen' 'axiom_alloc'; do
+for sym in 'IO$writeStr' 'IO$ioWriteAllFrom' 'Str$strLen' 'axiom_alloc'; do
   nm "$work/hello" 2>/dev/null | grep -qF "$sym" || kept="$kept $sym"
 done
 if [[ -z "$kept" ]]; then

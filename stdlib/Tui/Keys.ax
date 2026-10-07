@@ -4,7 +4,7 @@
 ; length and an offset, and answers a `KeyEv`. That is deliberate and
 ; it is enforced rather than asserted: every function here carries
 ; `;@axiom:restrict(no-io,no-foreign)`, which `typecheck.ax` answers
-; transitively with AX3049 at SEV_ERROR, so a `sysReadFd` added to
+; transitively with AX3049 at SEV_ERROR, so a `readInto` added to
 ; "just peek one more byte" fails the BUILD. The reader that does the
 ; reading is `term.ax`; splitting them is what lets the hard half -
 ; the escape grammar - be gated by `tests/selfhost/975-key-decode.ax`

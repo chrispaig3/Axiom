@@ -277,6 +277,13 @@
 (pub fn (fSetFl)
   4)
 
+; fcntl's F_DUPFD_CLOEXEC: a duplicate of a descriptor, closed on exec.
+; `IO.termRaw` keeps one, so its guard can restore the terminal however
+; the caller's file is closed. 0 where nothing has terminal control.
+(pub :: fDupFdCloexec Int)
+(pub fn (fDupFdCloexec)
+  0)
+
 (pub :: oNonblock Int)
 (pub fn (oNonblock)
   2048)
@@ -385,10 +392,6 @@
 (pub :: forkChildIsZero Int)
 (pub fn (forkChildIsZero)
   1)
-
-(pub :: acceptNonblockFlag Int)
-(pub fn (acceptNonblockFlag)
-  2048)
 
 ; ------------------------------------------------------------------
 ; The capability, and the bindings behind it.

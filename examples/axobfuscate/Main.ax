@@ -59,7 +59,7 @@
         (match (openPath input oRdonly)
           ((Err e) (Err e))
           ((Ok file)
-            (match (fileReadAll file)
+            (match (readAll file)
               ((Err e) (Err e))
               ((Ok bytes)
                 (if (!= (strLen bytes) n)

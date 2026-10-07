@@ -2,12 +2,12 @@
 # A program that puts a terminal into raw mode puts it back exactly as
 # it found it.
 #
-# `stdlib/IO.ax`'s `termRaw` and `termRestore` let a REPL read keys one
-# at a time. A program that exits without restoring leaves the user a
+# `stdlib/IO.ax`'s `termRaw` and its `TermGuard` let a REPL read keys
+# one at a time. A program that exits without restoring leaves the user a
 # shell with no echo, no line editing and no ^C, and `stty sane` typed
 # blind is the only way out. Every other gate but `check-repl-tui.sh`
-# runs its program with stdin on a pipe, where `sysIsatty` is false and
-# this path is skipped.
+# runs its program with stdin on a pipe, where `isTerminal` is false
+# and this path is skipped.
 #
 # A save, raw, restore, compare round trip passes when `termRaw` does
 # nothing at all, because nothing changed the bytes. So the round trip
@@ -21,7 +21,9 @@
 #     `ioctl`, and compares all `termiosBytes` bytes with `memCmp` (72
 #     on Darwin, 36 on Linux, 44 on FreeBSD), so the assertion is
 #     byte-exact. The state `termRaw` saves is sealed inside its
-#     `TermState`, so the probe's reads are its own.
+#     `TermGuard`, so the probe's reads are its own. It also checks the
+#     guard's other release: a guard that goes out of scope with raw
+#     mode on puts the terminal back.
 #   * The Python driver holds the pty's other end and asks the kernel,
 #     through `termios.tcgetattr`, from outside the process. It uses
 #     Python's own `termios.ISIG`, so a wrong `tiosIsig` in
@@ -136,6 +138,22 @@ cat > "$work/probe.ax" <<'AX'
 ;@axiom:effect(unsafe)
 (fn (getAttr buf) (__syscall3 sysIoctlNum 0 tcGetAttrReq buf))
 
+; Enter raw mode and return without restoring: 1 when the terminal was
+; raw inside, by the probe's own read. The guard is released when this
+; function returns.
+(:: scopedRaw (-> Bool Int Int))
+
+;@axiom:effect(io)
+(fn (scopedRaw keep save)
+  (match (termRaw stdin keep)
+    ((Err e) (- 0 e.code))
+    ((Ok g)
+      (let ((live (memAlloc termiosBytes)))
+        {
+          (getAttr live)
+          (if (== (memCmp save live termiosBytes) 0) 0 1)
+        }))))
+
 (:: errInt (-> (Result Int Error) Int))
 
 (fn (errInt r) (match r ((Ok n) n) ((Err e) (- 0 e.code))))
@@ -154,10 +172,10 @@ cat > "$work/probe.ax" <<'AX'
     {
       (kvInt "STATE_BYTES" termiosBytes)
       (kvInt "KEEPSIGNALS" (if keep 1 0))
-      (kvInt "ISATTY0" (if (sysIsatty 0) 1 0))
+      (kvInt "ISATTY0" (if (isTerminal stdin) 1 0))
       (kvInt "SAVE_RC" (getAttr save))
       (kv "SAVED" (hexOf save termiosBytes 0 ""))
-      (match (termRaw 0 keep)
+      (match (termRaw stdin keep)
         ((Err e) (kvInt "RAW_RC" (- 0 e.code)))
         ((Ok st)
           {
@@ -169,7 +187,7 @@ cat > "$work/probe.ax" <<'AX'
             ; One keypress. With ICANON off this returns on the first
             ; byte, with no newline anywhere. The driver writes exactly
             ; one 'A'.
-            (kvInt "KEY_RC" (errInt (readBuffer 0 key 0 1)))
+            (kvInt "KEY_RC" (errInt (fileRead stdin key 0 1)))
             (kvInt "KEY_BYTE" (readBufferByte key 0))
             (kvInt "RESTORE_RC" (errInt (termRestore st)))
             0
@@ -177,7 +195,7 @@ cat > "$work/probe.ax" <<'AX'
       (kvInt "AFTER_RC" (getAttr after))
       (kv "AFTER" (hexOf after termiosBytes 0 ""))
       (kvInt "ROUND_TRIP_EXACT" (if (== (memCmp save after termiosBytes) 0) 1 0))
-      (match (termSize 0)
+      (match (termSize stdin)
         ((Ok sz)
           {
             (kvInt "SIZE_RC" 0)
@@ -185,6 +203,14 @@ cat > "$work/probe.ax" <<'AX'
             (kvInt "COLS" sz.cols)
           })
         ((Err e) (kvInt "SIZE_RC" (- 0 e.code))))
+      ; The guard's last share going restores the terminal too: raw mode
+      ; is entered in a function that returns without restoring.
+      (kvInt "SCOPE_RAW_DIFFERS" (scopedRaw keep save))
+      (let ((again (memAlloc termiosBytes)))
+        {
+          (getAttr again)
+          (kvInt "SCOPE_RESTORED" (if (== (memCmp save again termiosBytes) 0) 1 0))
+        })
       (println "PROBE_DONE=1")
       0
     }
@@ -216,13 +242,16 @@ cat > "$work/neg.ax" <<'AX'
 ;@axiom:effect(io)
 (fn (main)
   {
-    (kvInt "PIPE_ISATTY" (if (sysIsatty 0) 1 0))
-    (kvInt "PIPE_SAVE" (code (termSave 0)))
-    (kvInt "PIPE_RAW" (code (termRaw 0 true)))
-    (kvInt "PIPE_SIZE" (code (termSize 0)))
-    (kvInt "BADFD_ISATTY" (if (sysIsatty 999) 1 0))
-    (kvInt "BADFD_SAVE" (code (termSave 999)))
-    (kvInt "BADFD_RAW" (code (termRaw 999 true)))
+    (kvInt "PIPE_ISATTY" (if (isTerminal stdin) 1 0))
+    (kvInt "PIPE_RAW" (code (termRaw stdin true)))
+    (kvInt "PIPE_SIZE" (code (termSize stdin)))
+    (match (openPath "/dev/null" oRdonly)
+      ((Ok f)
+        {
+          (kvInt "NULL_ISATTY" (if (isTerminal f) 1 0))
+          (kvInt "NULL_RAW" (code (termRaw f true)))
+        })
+      ((Err e) (kvInt "NULL_OPEN" (- 0 e.code))))
     (println "NEG_DONE=1")
     0
   }
@@ -355,7 +384,6 @@ v() { sed -n "s/^$2=//p" "$1" | tail -1 | tr -d '\r'; }
 # The errno values the negative paths must answer, read from this host
 # so the gate does not depend on them matching across platforms.
 e_notty="$(python3 -c 'import errno; print(errno.ENOTTY)')"
-e_badf="$(python3 -c 'import errno; print(errno.EBADF)')"
 
 # ------------------------------------------------------------------
 # run_pty <keepSignals> <label>
@@ -397,7 +425,7 @@ run_pty() {
   #     is exact because nothing happened. It is the only numbered check
   #     that returns early.
   if [[ "$(v "$log" ISATTY0)" == 1 ]]; then
-    ok "[$label] the probe ran on a pty, and sysIsatty agrees ($sb-byte state)"
+    ok "[$label] the probe ran on a pty, and isTerminal agrees ($sb-byte state)"
   else
     bad "[$label] the probe's fd 0 was not a terminal (ISATTY0=$(v "$log" ISATTY0)) - every check below would be vacuous"
     sed 's/^/     /' "$log" | head -25
@@ -477,6 +505,13 @@ run_pty() {
   done
   (( rcs_ok )) && ok "[$label] every call answered 0 on a real terminal"
 
+  # 5b. The guard's release on scope exit restores the terminal.
+  if [[ "$(v "$log" SCOPE_RAW_DIFFERS)" == 1 && "$(v "$log" SCOPE_RESTORED)" == 1 ]]; then
+    ok "[$label] a TermGuard released at scope exit puts the terminal back byte-exact"
+  else
+    bad "[$label] scope exit: raw inside=$(v "$log" SCOPE_RAW_DIFFERS), restored after=$(v "$log" SCOPE_RESTORED), want 1 and 1"
+  fi
+
   # 6. The size is the size the driver set.
   if [[ "$(v "$log" ROWS)" == "$(v "$log" PY_WANT_ROWS)" && "$(v "$log" COLS)" == "$(v "$log" PY_WANT_COLS)" ]]; then
     ok "[$label] termSize read back the $(v "$log" ROWS)x$(v "$log" COLS) the driver set"
@@ -514,30 +549,22 @@ run_pty 0 "raw"
 # matching errno, never a fabricated success.
 # ------------------------------------------------------------------
 echo
-echo "== not a terminal: a pipe, and a descriptor that is not open =="
+echo "== not a terminal: a pipe, and /dev/null =="
 : | "$work/neg" > "$work/neg.log" 2>&1 || {
   bad "the non-terminal probe exited non-zero"; sed 's/^/     /' "$work/neg.log" | head -20; }
 
 if [[ "$(v "$work/neg.log" NEG_DONE)" == 1 ]]; then
-  for pair in "PIPE_ISATTY 0" "BADFD_ISATTY 0"; do
+  for pair in "PIPE_ISATTY 0" "NULL_ISATTY 0"; do
     set -- $pair
     got="$(v "$work/neg.log" "$1")"
     if [[ "$got" == "$2" ]]; then ok "$1 = $2"; else bad "$1 = $got, want $2"; fi
   done
-  for k in PIPE_SAVE PIPE_RAW PIPE_SIZE; do
+  for k in PIPE_RAW PIPE_SIZE NULL_RAW; do
     got="$(v "$work/neg.log" $k)"
     if [[ "$got" == "-$e_notty" ]]; then
       ok "$k answers -$e_notty (ENOTTY on this host), not a fabricated success"
     else
       bad "$k = $got, want -$e_notty (ENOTTY)"
-    fi
-  done
-  for k in BADFD_SAVE BADFD_RAW; do
-    got="$(v "$work/neg.log" $k)"
-    if [[ "$got" == "-$e_badf" ]]; then
-      ok "$k answers -$e_badf (EBADF on this host)"
-    else
-      bad "$k = $got, want -$e_badf (EBADF)"
     fi
   done
 else

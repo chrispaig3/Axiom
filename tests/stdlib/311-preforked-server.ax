@@ -10,7 +10,7 @@
 ; up that guarantee for one this language has no way to re-establish.
 ;
 ; THE WORKERS SHARE ONE LISTENER RATHER THAN BINDING THEIR OWN. The
-; descriptor is created before the fork and inherited, so the kernel
+; listener is created before the fork and inherited, so the kernel
 ; hands each connection to whichever worker is waiting. That is the
 ; classic pre-fork model and it needs no `SO_REUSEPORT`.
 ;
@@ -20,15 +20,15 @@
 ; parent is still connecting when a worker decides the work is over, and
 ; then the totals do not add up. A timeout is a guess about someone
 ; else's speed. So the parent now says when, with SIGTERM, and every
-; worker watches for it ON THE SAME READINESS DESCRIPTOR as the
-; listener - which is the whole point of the signal work: a server hears
-; "stop" the way it hears a connection, in one wait, with no handler.
+; worker watches for it IN THE SAME POLLER as the listener - which is
+; the whole point of the signal work: a server hears "stop" the way it
+; hears a connection, in one wait, with no handler.
 ;
 ; WHAT IS ASSERTED ABOUT SHARING, AND WHAT IS NOT. Each worker exits
 ; with the number of connections it served and the parent adds them up,
 ; so the pool is proved to have served every one between them. Each also
 ; exits 255 if it could not register the INHERITED listener, which is
-; what a descriptor that did not survive the fork looks like, and the
+; what a listener that did not survive the fork looks like, and the
 ; parent checks that no worker did.
 ;
 ; "More than one worker did work" is NOT asserted, and the reason is
@@ -47,14 +47,14 @@
 (import IO)
 (import Sys)
 (import Err)
-(import Fmt)
 (import Mem)
-(import Str)
+(import Vec)
+(import Net)
 
-(:: say (-> Int String Int))
+(:: say (-> Bool String Int))
 ;@axiom:effect(io)
-(fn (say okFlag label)
-  (if (== okFlag 1)
+(fn (say good label)
+  (if good
     (println (concat "ok   " label))
     (println (concat "FAIL " label))))
 
@@ -67,286 +67,195 @@
   60)
 
 ; One worker: serve until the parent says stop, then answer how many it
-; handled through its exit status.
-(:: serve (-> Int Int))
+; handled through its exit status. 255 is reserved for "this worker
+; could not set itself up", the deterministic half of the sharing
+; property: a listener that did NOT survive the fork fails to register
+; right here, and the parent sees the code rather than a count.
+(:: serve (-> TcpListener Int))
 ;@axiom:effect(io)
 (fn (serve lsn)
-  ; 255 is reserved for "this worker could not set
-  ; itself up", and is the deterministic half of the
-  ; sharing property: a listener that did NOT survive
-  ; the fork fails to register right here, and the
-  ; parent sees the code rather than a count.
-  (let (
-    (rec (memAlloc 64))
-    (ts (memAlloc 16))
-  )
-    (let ((setbuf (memAlloc 16)))
-      (let ((scratch (memAlloc 256)))
-        (let ((buf (memAlloc (sysPollBufBytes 8))))
-          (let ((byte (memAlloc 8)))
-            (match sysPollCreate
-              ((Err e) (sysExitWith 255))
-              ((Ok pfd)
-                (let ((mut served 0))
-                  (let ((mut running 1))
-                    {
-                      (if (isErr (sysPollAddRead pfd lsn rec))
-                        (sysExitWith 255)
-                        0)
-                      ; SIGTERM was blocked before the fork, so it is
-                      ; pending rather than fatal and can be waited for
-                      ; here beside the socket.
-                      ; Discarded deliberately, and `unwrapOr` is what
-                      ; says so: a negative handle can never equal a real
-                      ; descriptor in `sysPollSignalAt`, so a worker that
-                      ; could not watch SIGTERM simply never sees one -
-                      ; which is exactly what the old sentinel did.
-                      (let ((sh (unwrapOr (sysSignalOpen pfd (sysSigBit sigTerm) rec setbuf) (- 0 1))))
-                        (while (== running 1)
-                          (let ((n 
-                            (match (sysPollWait
-                              pfd
-                              buf
-                              8
-                              5000
-                              ts)
-                              ((Ok k) k)
-                              ((Err e) (- 0 (errCode e))))))
-                            (if (< n 1)
-                              ; The timeout is a safety net and not the
-                              ; mechanism: if the parent died without saying
-                              ; stop, this worker leaves rather than hanging
-                              ; the gate forever.
-                              (set running 0)
-                              (let ((mut e 0))
-                                (while (< e n)
-                                  {
-                                    (match (sysPollSignalAt buf e sh scratch)
-                                      ((Some sig)
-                                        (set running 0)
-                                      )
-                                      ((None)
-                                        (let ((con 
-                                          (match (netAccept lsn)
-                                            ((Ok k) k)
-                                            ((Err e) (- 0 (errCode e))))))
-                                          (if (< con 0)
-                                            ; A sibling won the race for this
-                                            ; connection. Not an error - it
-                                            ; is what sharing a listener
-                                            ; means - so do not count it.
-                                            0
-                                            ; `netAccept` answers a
-                                            ; NON-BLOCKING socket on every
-                                            ; target by contract, and this
-                                            ; worker handles one connection
-                                            ; at a time, so it asks for the
-                                            ; other mode rather than
-                                            ; reading and hoping.
-                                            {
-                                              (let ((_ (netSetBlocking con))) 0)
-                                              (if (==
-                                                (match (sysReadFd con byte 1)
-                                                  ((Ok k) k)
-                                                  ((Err e) (- 0 (errCode e))))
-                                                1)
-                                                (sysWriteAllFd con byte 1)
-                                                0)
-                                              (let ((_ (sysCloseFd con))) 0)
-                                              (set served (+ served 1))
-                                            }))
-                                      ))
-                                    (set e (+ e 1))
-                                  }))))))
-                      (let ((_ (sysCloseFd pfd))) 0)
-                      served
-                    }))
-              ))))))))
+  (let ((byte (readBufferNew 1)))
+    (match (pollerNew 8)
+      ((Err e) (sysExitWith 255))
+      ((Ok p)
+        (let (
+          (mut served 0)
+          (mut running 1)
+        )
+          {
+            (if (isErr (pollerAddListener p lsn 1))
+              (sysExitWith 255)
+              0)
+            ; SIGTERM was blocked before the fork, so it is pending
+            ; rather than fatal and can be waited for here beside the
+            ; socket.
+            (if (isErr (pollerAddSignals p (sysSigBit sigTerm) 2))
+              (sysExitWith 255)
+              0)
+            (while (== running 1)
+              (let ((n
+                (match (pollerWait p 5000)
+                  ((Ok k) k)
+                  ((Err e) (- 0 e.code)))))
+                (if (< n 1)
+                  ; The timeout is a safety net and not the mechanism: if
+                  ; the parent died without saying stop, this worker
+                  ; leaves rather than hanging the gate forever.
+                  (set running 0)
+                  (let ((mut e 0))
+                    (while (< e n)
+                      {
+                        (match (pollerSignal p e)
+                          ((Some sig) (set running 0))
+                          ((None)
+                            (match (tcpAccept lsn)
+                              ; A sibling won the race for this connection.
+                              ; Not an error - it is what sharing a listener
+                              ; means - so do not count it.
+                              ((Err _) 0)
+                              ; The accepted stream blocks, whatever the
+                              ; listener's mode, so this worker reads one
+                              ; byte and answers it.
+                              ((Ok con)
+                                {
+                                  (if (==
+                                    (match (tcpRead con byte 0 1)
+                                      ((Ok k) k)
+                                      ((Err e) (- 0 e.code)))
+                                    1)
+                                    (let ((_ (tcpWrite con (readBufferText byte 0 1)))) 0)
+                                    0)
+                                  (let ((_ (tcpClose con))) 0)
+                                  (set served (+ served 1))
+                                }))))
+                        (set e (+ e 1))
+                      })))))
+            served
+          })))))
 
 (:: main Int)
 ;@axiom:effect(io)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
 (fn (main)
-  (let ((port (+ 20000 (% sysPid 9000))))
-    (let ((addr (memAlloc 16)))
-      (let ((byte (memAlloc 8)))
-        (let (
-          (setbuf (memAlloc 16))
-          (optb (memAlloc 4))
-        )
-          (let ((pids vecNew))
-            (match netSocketTcp
-              ((Err e) (die "socket() failed" 1))
-              ((Ok lsn)
-                {
-                  (let ((_ (netSetOptInt
-                    lsn
-                    solSocket
-                    soReuseAddr
-                    1
-                    optb))) 0)
-                  (netAddr4
-                    addr
-                    port
-                    127
-                    0
-                    0
-                    1)
-                  (match (netBind lsn addr)
-                    ((Err e) (die (concat "bind failed: errno=" (fmtInt (errCode e))) 1))
-                    ((Ok _) 0))
-                  (let ((_ (netListen lsn 128))) 0)
-                  (let ((_ (netSetNonBlocking lsn))) 0)
-                  ; Block BEFORE forking so every worker inherits the mask
-                  ; and none of them can be killed by the shutdown signal
-                  ; before it has installed its watch.
-                  (let ((_ (sysSignalBlock (sysSigBit sigTerm) setbuf))) 0)
-                  ; A child NEVER returns from here: it serves and exits,
-                  ; or it would fall through and become a second copy of
-                  ; this test.
-                  (let ((mut w 0))
-                    (while (< w workers)
-                      {
-                        (let ((pid sysForkProcess))
-                          (if (== pid 0)
-                            (sysExitWith (serve lsn))
-                            {
-                              (vecPush pids pid)
-                              0
-                            }))
-                        (set w (+ w 1))
-                      }))
-                  (say
-                    (if (== (vecLen pids) workers)
-                      1
-                      0)
-                    "four workers were forked")
-                  ; CONNECTIONS GO OUT IN BATCHES rather than one at a
-                  ; time, and that is what makes the distribution
-                  ; assertion below mean anything. A sequential client
-                  ; hands the first worker a connection, waits for its
-                  ; answer, and only then opens the next - so one worker
-                  ; can serve every one of them and three sit idle, which
-                  ; is indistinguishable here from a listener that was not
-                  ; shared at all. Measured: sequentially, `busy` is 1.
-                  ; With eight connections outstanding at once the kernel
-                  ; has to spread them.
-                  (let ((mut sent 0))
-                    (let ((mut good 0))
-                      {
-                        (while (< sent total)
-                          (let ((batch vecNew))
-                            (let ((want vecNew))
-                              {
-                                (while (if (< (vecLen batch) 8)
-                                  (< sent total)
-                                  false)
-                                  (match netSocketTcp
-                                    ; `sent` MUST advance on the failure
-                                    ; path too. The loop's condition is
-                                    ; `sent < total` with a batch bound,
-                                    ; so an arm that answers without
-                                    ; counting the attempt spins forever -
-                                    ; the shape `Job.jobSubmit` took when
-                                    ; `302-job` hung instead of failing.
-                                    ; Both were deleted at 0.7.4 with
-                                    ; `stdlib/Job.ax`; the defect is
-                                    ; quoted as it happened.
-                                    ((Err e)
-                                      (set sent (+ sent 1))
-                                    )
-                                    ((Ok c)
-                                      {
-                                        (netAddr4
-                                          addr
-                                          port
-                                          127
-                                          0
-                                          0
-                                          1)
-                                        (if (isOk (netConnect c addr))
-                                          {
-                                            (memPutByte byte 0 (% sent 251))
-                                            (sysWriteAllFd c byte 1)
-                                            (vecPush batch c)
-                                            (vecPush want (% sent 251))
-                                            0
-                                          }
-                                          {
-                                            (let ((_ (sysCloseFd c))) 0)
-                                            0
-                                          })
-                                        (set sent (+ sent 1))
-                                      }
-                                    )))
-                                (let ((mut j 0))
-                                  (while (< j (vecLen batch))
-                                    {
-                                      (let ((c (vecGet batch j)))
-                                        {
-                                          (memPutByte byte 0 0)
-                                          (if (==
-                                            (match (sysReadFd c byte 1)
-                                              ((Ok k) k)
-                                              ((Err e) (- 0 (errCode e))))
-                                            1)
-                                            (if (== (memGetByte byte 0) (vecGet want j))
-                                              (set good (+ good 1))
-                                              0)
-                                            0)
-                                          (let ((_ (sysCloseFd c))) 0)
-                                        })
-                                      (set j (+ j 1))
-                                    }))
-                              })))
-                        (say
-                          (if (== good total)
-                            1
-                            0)
-                          "every connection was echoed correctly")
-                      }))
-                  (let ((_ (sysCloseFd lsn))) 0)
-                  ; Say stop, once per worker, and only after every answer
-                  ; is in - so no worker can leave while work remains.
-                  (let ((mut k 0))
-                    (while (< k (vecLen pids))
-                      {
-                        (let ((_ (sysKill (vecGet pids k) sigTerm))) 0)
-                        (set k (+ k 1))
-                      }))
-                  (let ((mut k2 0))
-                    (let ((mut sum 0))
-                      (let ((mut busy 0))
+  (let (
+    (port (+ 20000 (% sysPid 9000)))
+    (setbuf (memAlloc 16))
+    (pids vecNew)
+  )
+    (match (socketAddrV4 127 0 0 1 port)
+      ((Err e) (die "no loopback address" 1))
+      ((Ok addr)
+        (match (tcpListen addr)
+          ((Err e) (die (concat "listen failed: " (errorText e)) 1))
+          ((Ok lsn)
+            {
+              (let ((_ (tcpListenerSetNonBlocking lsn true))) 0)
+              ; Block BEFORE forking so every worker inherits the mask and
+              ; none of them can be killed by the shutdown signal before it
+              ; has installed its watch.
+              (let ((_ (sysSignalBlock (sysSigBit sigTerm) setbuf))) 0)
+              ; A child NEVER returns from here: it serves and exits, or it
+              ; would fall through and become a second copy of this test.
+              (let ((mut w 0))
+                (while (< w workers)
+                  {
+                    (let ((pid sysForkProcess))
+                      (if (== pid 0)
+                        (sysExitWith (serve lsn))
                         {
-                          (while (< k2 (vecLen pids))
-                            (let ((st (unwrapOr (sysWaitPid (vecGet pids k2)) 0)))
-                              {
-                                ; 255 is the setup-failure code and is
-                                ; the only value that is not a count,
-                                ; so it is kept out of the sum.
-                                (let ((code (sysExitCode st)))
-                                  (if (== code 255)
-                                    (set busy (+ busy 1))
-                                    (set sum (+ sum code))))
-                                (set k2 (+ k2 1))
-                              }))
-                          (say
-                            (if (== sum total)
-                              1
-                              0)
-                            "the workers served every connection between them")
-                          (say
-                            (if (== busy 0)
-                              1
-                              0)
-                            "every worker registered the inherited listener")
-                          (say
-                            (if (== (vecLen pids) workers)
-                              1
-                              0)
-                            "every worker shut down on the signal")
-                        })))
-                  0
-                }
-              ))))))))
+                          (vecPush pids pid)
+                          0
+                        }))
+                    (set w (+ w 1))
+                  }))
+              (say (== (vecLen pids) workers) "four workers were forked")
+              ; CONNECTIONS GO OUT IN BATCHES rather than one at a time. A
+              ; sequential client hands the first worker a connection, waits
+              ; for its answer, and only then opens the next, which is
+              ; indistinguishable here from a listener that was not shared
+              ; at all. With eight connections outstanding at once the
+              ; kernel has to spread them.
+              (let (
+                (mut sent 0)
+                (mut good 0)
+                (back (readBufferNew 1))
+              )
+                {
+                  (while (< sent total)
+                    (let (
+                      (batch vecNew)
+                      (want vecNew)
+                    )
+                      {
+                        ; `sent` advances on the failure path too: the loop's
+                        ; condition is `sent < total`, so an arm that answers
+                        ; without counting the attempt spins forever.
+                        (while (if (< (vecLen batch) 8)
+                          (< sent total)
+                          false)
+                          {
+                            (match (tcpConnect addr)
+                              ((Err e) 0)
+                              ((Ok c)
+                                {
+                                  (let ((_ (tcpWrite c (strFromByte (% sent 251))))) 0)
+                                  (vecPush batch c)
+                                  (vecPush want (% sent 251))
+                                  0
+                                }))
+                            (set sent (+ sent 1))
+                          })
+                        (let ((mut j 0))
+                          (while (< j (vecLen batch))
+                            {
+                              (let ((c (vecGet batch j)))
+                                {
+                                  (if (&&
+                                    (==
+                                      (match (tcpRead c back 0 1)
+                                        ((Ok k) k)
+                                        ((Err e) (- 0 e.code)))
+                                      1)
+                                    (== (readBufferByte back 0) (vecGet want j)))
+                                    (set good (+ good 1))
+                                    0)
+                                  (let ((_ (tcpClose c))) 0)
+                                })
+                              (set j (+ j 1))
+                            }))
+                      }))
+                  (say (== good total) "every connection was echoed correctly")
+                })
+              (let ((_ (tcpListenerClose lsn))) 0)
+              ; Say stop, once per worker, and only after every answer is
+              ; in - so no worker can leave while work remains.
+              (let ((mut k 0))
+                (while (< k (vecLen pids))
+                  {
+                    (let ((_ (sysKill (vecGet pids k) sigTerm))) 0)
+                    (set k (+ k 1))
+                  }))
+              (let (
+                (mut k2 0)
+                (mut sum 0)
+                (mut busy 0)
+              )
+                {
+                  (while (< k2 (vecLen pids))
+                    (let ((st (unwrapOr (sysWaitPid (vecGet pids k2)) 0)))
+                      {
+                        ; 255 is the setup-failure code and is the only value
+                        ; that is not a count, so it is kept out of the sum.
+                        (let ((code (sysExitCode st)))
+                          (if (== code 255)
+                            (set busy (+ busy 1))
+                            (set sum (+ sum code))))
+                        (set k2 (+ k2 1))
+                      }))
+                  (say (== sum total) "the workers served every connection between them")
+                  (say (== busy 0) "every worker registered the inherited listener")
+                  (say (== (vecLen pids) workers) "every worker shut down on the signal")
+                })
+              0
+            }))))))

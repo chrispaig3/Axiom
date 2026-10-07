@@ -1,308 +1,156 @@
 ; Readiness, end to end, through whichever mechanism the target has.
 ;
-; This is the case that says a server can wait on many descriptors at
-; once instead of blocking on one. It runs against kqueue on Darwin and
-; epoll on Linux without knowing which, because that is the property
-; `Sys.ax`'s poll layer claims.
+; This is the case that says a server can wait on many sockets at once
+; instead of blocking on one. It runs against kqueue on Darwin and epoll
+; on Linux without knowing which, because that is the property `IO`'s
+; `Poller` claims.
 ;
 ; TWO LISTENERS, NOT ONE, AND THAT IS THE POINT OF THE CASE. A single
-; event only proves the OFFSET the descriptor sits at. The STRIDE
-; between records is a separate number and is the one that diverges most
+; event only proves the OFFSET the token sits at. The STRIDE between
+; records is a separate number and is the one that diverges most
 ; dangerously: `struct epoll_event` is declared packed on x86_64 and not
 ; on aarch64, so it is 12 bytes there and 16 here, and `struct kevent`
 ; is 32. An implementation that used the wrong stride reads every event
 ; after the first out of the middle of the one before it - and answers a
-; plausible descriptor rather than failing, so nothing but a second
-; event catches it.
+; plausible token rather than failing, so nothing but a second event
+; catches it.
 ;
 ; NO EXTERNAL CLIENT: the process connects to its own listeners, the way
 ; `307-socket-roundtrip.ax` does, so there is no second process to flake
 ; on and no port coordination beyond the pid.
 ;
-; THE GOLDEN IS PLATFORM-INDEPENDENT, which forbids printing any of the
-; three numbers underneath - `pollEventSize`, `pollEventFdOffset` and
-; `pollReadFilter` all differ by target. What is asserted is that a
-; descriptor put in comes back out, which is true on every target and
-; false for every wrong layout.
+; THE GOLDEN IS PLATFORM-INDEPENDENT: what is asserted is that the token
+; a listener was added under comes back out, which is true on every
+; target and false for every wrong layout.
 (import IO)
 (import Sys)
 (import Err)
-(import Mem)
+(import Net)
+(import Vec)
 
-(:: say (-> Int String Int))
+(:: say (-> Bool String Int))
 ;@axiom:effect(io)
-(fn (say okFlag label)
-  (if (== okFlag 1)
+(fn (say good label)
+  (if good
     (println (concat "ok   " label))
     (println (concat "FAIL " label))))
 
-; A bound, listening, non-blocking socket on `port`, or a negative.
-(:: listenOn (-> Int Int Int Int))
+(:: loopback (-> Int SocketAddr))
 ;@axiom:effect(io)
-(fn (listenOn addr optb port)
-  (match netSocketTcp
-    ((Err e) (- 0 1))
-    ((Ok fd)
-      {
-        (let ((_ (netSetOptInt
-          fd
-          solSocket
-          soReuseAddr
-          1
-          optb))) 0)
-        (netAddr4
-          addr
-          port
-          127
-          0
-          0
-          1)
-        (if (isErr (netBind fd addr))
-          (- 0 1)
-          (if (isErr (netListen fd 16))
-            (- 0 1)
-            {
-              (let ((_ (netSetNonBlocking fd))) 0)
-              fd
-            }))
-      }
-    )))
+(fn (loopback port)
+  (match (socketAddrV4 127 0 0 1 port)
+    ((Ok a) a)
+    ((Err e) (todo "a loopback address"))))
 
-; Whether `fd` is among the `n` events in `buf`.
-(:: hasFd (-> Int Int Int Int))
-(fn (hasFd buf n fd)
-  (let ((mut i 0))
-    (let ((mut found 0))
-      {
-        (while (< i n)
-          {
-            (if (== (sysPollFdAt buf i) fd)
-              (set found 1)
-              0)
-            (set i (+ i 1))
-          })
-        found
-      })))
+; A listening, non-blocking socket on `port`.
+(:: listenOn (-> Int (Result TcpListener Error)))
+;@axiom:effect(io)
+(fn (listenOn port)
+  (try lsn (tcpListen (loopback port))
+    (try _ (tcpListenerSetNonBlocking lsn true)
+      (Ok lsn))))
+
+; Whether `token` is among the `n` events of the last wait.
+(:: hasToken (-> Poller Int Int Bool))
+(fn (hasToken p n token)
+  (let (
+    (mut i 0)
+    (mut found false)
+  )
+    {
+      (while (< i n)
+        {
+          (if (== (pollerToken p i) token)
+            {
+              (set found true)
+              0
+            }
+            0)
+          (set i (+ i 1))
+        })
+      found
+    }))
+
+(:: waitCount (-> Poller Int Int))
+;@axiom:effect(io)
+(fn (waitCount p timeoutMs)
+  (match (pollerWait p timeoutMs)
+    ((Ok k) k)
+    ((Err e) (- 0 e.code))))
 
 (:: main Int)
 ;@axiom:effect(io)
 (fn (main)
   (let ((base (+ 20000 (% sysPid 9000))))
-    (let ((addr (memAlloc 16)))
-      (let (
-        (rec (memAlloc 64))
-        (ts (memAlloc 16))
-        (optb (memAlloc 4))
-      )
-        (let ((buf (memAlloc (sysPollBufBytes 8))))
-          (let ((la (listenOn addr optb base)))
-            (let ((lb (listenOn addr optb (+ base 1))))
-              (match sysPollCreate
-                ((Err e) (say 0 "the readiness descriptor is created"))
-                ((Ok pfd)
-                  {
-                    (say
-                      (if (> la 2)
-                        (if (> lb 2)
-                          1
-                          0)
-                        0)
-                      "two listeners are bound")
-                    (say
-                      (if (> pfd 2)
-                        1
-                        0)
-                      "the readiness descriptor is created")
-                    (say
-                      (if (isOk (sysPollAddRead pfd la rec))
-                        (if (isOk (sysPollAddRead pfd lb rec))
-                          1
-                          0)
-                        0)
-                      "both listeners are registered for read")
-                    ; Nothing has connected, so a zero timeout must answer
-                    ; zero events rather than blocking or erroring.
-                    (say
-                      (if (==
-                        (match (sysPollWait
-                          pfd
-                          buf
-                          8
-                          0
-                          ts)
-                          ((Ok k) k)
-                          ((Err e) (- 0 (errCode e))))
-                        0)
-                        1
-                        0)
-                      "polling with nothing pending answers no events")
-                    ; Connect to the FIRST listener only, so the event that
-                    ; comes back has to name that one and not merely "a
-                    ; descriptor we registered".
-                    (match netSocketTcp
-                      ((Err e) (say 0 "a client socket is created"))
-                      ((Ok ca)
-                        {
-                          (netAddr4
-                            addr
-                            base
-                            127
-                            0
-                            0
-                            1)
-                          (let ((_ (netConnect ca addr))) 0)
-                          (let ((n 
-                            (match (sysPollWait
-                              pfd
-                              buf
-                              8
-                              2000
-                              ts)
-                              ((Ok k) k)
-                              ((Err e) (- 0 (errCode e))))))
-                            {
-                              (say
-                                (if (== n 1)
-                                  1
-                                  0)
-                                "one connection wakes exactly one event")
-                              (say
-                                (if (== (sysPollFdAt buf 0) la)
-                                  1
-                                  0)
-                                "the event names the listener that was connected to")
-                            })
-                          ; TAKE THE CONNECTION BEFORE GOING ON. A listening
-                          ; socket stays readable until its pending
-                          ; connection is accepted, and this case was
-                          ; FLAKY for exactly that reason before it was
-                          ; written this way: it connected to the second
-                          ; listener and waited again while the FIRST was
-                          ; still ready, so the wait returned at once with
-                          ; the stale event and the second connection had
-                          ; not necessarily landed. It passed under light
-                          ; load and failed under the full battery, which is
-                          ; the worst way for a gate to be wrong.
-                          (match (netAccept la)
-                            ((Ok acc) (sysCloseFd acc))
-                            ((Err e) (Err e)))
-                          ; NOW BOTH AT ONCE, and this is the shape the
-                          ; stride needs.
-                          ;
-                          ; THIS USED TO CLAIM DETERMINISM AND THE CLAIM WAS
-                          ; FALSE. It read: "a loopback connect returns once
-                          ; the listener has the connection - so two
-                          ; descriptors are ready and the wait answers two
-                          ; events deterministically rather than racing."
-                          ; Measured 2026-08-24: both assertions below
-                          ; failed together during a battery run, and passed
-                          ; 8 times out of 8 alone. A connect returning says
-                          ; the connection is QUEUED on the listener; it
-                          ; does not say the poll set has already been
-                          ; updated, and nothing makes one wake carry both.
-                          ; The comment two paragraphs up already records
-                          ; the FIRST race here being found the same way -
-                          ; "it passed under light load and failed under the
-                          ; full battery, which is the worst way for a gate
-                          ; to be wrong" - and this is the second one,
-                          ; asserted away in prose rather than removed.
-                          ;
-                          ; The retry is sound rather than a weakening, and
-                          ; the reason is level-triggering: neither backend
-                          ; asks for EV_CLEAR or EPOLLET, and NEITHER
-                          ; CONNECTION IS ACCEPTED here, so both listeners
-                          ; STAY readable and a repeated wait converges on
-                          ; two. What the gate asserts is unchanged - two
-                          ; events in ONE buffer, which is the only thing
-                          ; that exercises the stride - and it no longer
-                          ; depends on the kernel coalescing them.
-                          ;
-                          ; One event only exercises the OFFSET a descriptor
-                          ; sits at. The STRIDE between records is a
-                          ; separate number, and reading event 1 out of the
-                          ; middle of event 0 answers a plausible descriptor
-                          ; rather than failing - so only a second event
-                          ; catches it.
-                          (match netSocketTcp
-                            ((Err e) (say 0 "a client socket is created"))
-                            ((Ok cb)
-                              (match netSocketTcp
-                                ((Err e) (say 0 "a client socket is created"))
-                                ((Ok cc)
+    (match (listenOn base)
+      ((Err e) (say false "two listeners are bound"))
+      ((Ok la)
+        (match (listenOn (+ base 1))
+          ((Err e) (say false "two listeners are bound"))
+          ((Ok lb)
+            (match (pollerNew 8)
+              ((Err e) (say false "the poller is created"))
+              ((Ok p)
+                {
+                  (say true "two listeners are bound")
+                  (say true "the poller is created")
+                  (say
+                    (&& (isOk (pollerAddListener p la 1)) (isOk (pollerAddListener p lb 2)))
+                    "both listeners are registered for read")
+                  ; Nothing has connected, so a zero timeout must answer
+                  ; zero events rather than blocking or erroring.
+                  (say (== (waitCount p 0) 0) "polling with nothing pending answers no events")
+                  ; Connect to the FIRST listener only, so the event that
+                  ; comes back has to carry that one's token and not merely
+                  ; "a token we registered".
+                  (match (tcpConnect (loopback base))
+                    ((Err e) (say false "a client connects"))
+                    ((Ok ca)
+                      {
+                        (let ((n (waitCount p 2000)))
+                          {
+                            (say (== n 1) "one connection wakes exactly one event")
+                            (say (&& (== n 1) (== (pollerToken p 0) 1)) "the event carries the token of the listener that was connected to")
+                          })
+                        ; TAKE THE CONNECTION BEFORE GOING ON. A listening
+                        ; socket stays readable until its pending connection
+                        ; is accepted, so a second wait would answer the stale
+                        ; event at once.
+                        (match (tcpAccept la)
+                          ((Ok acc) (let ((_ (tcpClose acc))) 0))
+                          ((Err e) 0))
+                        ; NOW BOTH AT ONCE, and this is the shape the stride
+                        ; needs. A connect returning says the connection is
+                        ; queued, not that the poll set is updated, so the
+                        ; wait repeats until both listeners are ready. That
+                        ; converges because both backends are
+                        ; level-triggered and neither connection is accepted.
+                        (match (tcpConnect (loopback base))
+                          ((Err e) (say false "a client connects"))
+                          ((Ok cb)
+                            (match (tcpConnect (loopback (+ base 1)))
+                              ((Err e) (say false "a client connects"))
+                              ((Ok cc)
+                                (let (
+                                  (mut n2 (waitCount p 2000))
+                                  (mut tries 0)
+                                )
                                   {
-                                    (netAddr4
-                                      addr
-                                      base
-                                      127
-                                      0
-                                      0
-                                      1)
-                                    (let ((_ (netConnect cb addr))) 0)
-                                    (netAddr4
-                                      addr
-                                      (+ base 1)
-                                      127
-                                      0
-                                      0
-                                      1)
-                                    (let ((_ (netConnect cc addr))) 0)
-                                    (let (
-                                      (mut n2 (match (sysPollWait
-                                        pfd
-                                        buf
-                                        8
-                                        2000
-                                        ts)
-                                        ((Ok k) k)
-                                        ((Err e) (- 0 (errCode e)))))
-                                      (mut tries 0)
-                                    )
+                                    (while (&& (< n2 2) (< tries 50))
                                       {
-                                        (while (&& (< n2 2) (< tries 50))
-                                          {
-                                            (set n2 (match (sysPollWait
-                                              pfd
-                                              buf
-                                              8
-                                              2000
-                                              ts)
-                                              ((Ok k) k)
-                                              ((Err e) (- 0 (errCode e)))))
-                                            (set tries (+ tries 1))
-                                          })
-                                        (say
-                                          (if (== n2 2)
-                                            1
-                                            0)
-                                          "two ready listeners wake two events")
-                                        (say
-                                          (if (== (hasFd buf n2 la) 1)
-                                            (if (== (hasFd buf n2 lb) 1)
-                                              1
-                                              0)
-                                            0)
-                                          "both events decode at the right stride")
+                                        (set n2 (waitCount p 2000))
+                                        (set tries (+ tries 1))
                                       })
-                                    (let ((_ (sysCloseFd cc))) 0)
-                                    (let ((_ (sysCloseFd cb))) 0)
-                                  }
-                                ))
-                            ))
-                          (let ((_ (sysCloseFd ca))) 0)
-                        }
-                      ))
-                    (say
-                      (if (isOk (sysPollDelRead pfd la rec))
-                        1
-                        0)
-                      "a listener can be unregistered")
-                    (let ((_ (sysCloseFd la))) 0)
-                    (let ((_ (sysCloseFd lb))) 0)
-                    (say
-                      (if (isOk (sysCloseFd pfd))
-                        1
-                        0)
-                      "the readiness descriptor closes")
-                    0
-                  }
-                )))))))))
+                                    (say (== n2 2) "two ready listeners wake two events")
+                                    (say
+                                      (&& (== n2 2) (&& (hasToken p n2 1) (hasToken p n2 2)))
+                                      "both events decode at the right stride")
+                                    (let ((_ (tcpClose cc)) (_ (tcpClose cb))) 0)
+                                  })))))
+                        (let ((_ (tcpClose ca))) 0)
+                      }))
+                  (say (isOk (pollerRemoveListener p la)) "a listener can be unregistered")
+                  (let ((_ (tcpListenerClose la)) (_ (tcpListenerClose lb))) 0)
+                  (say (isOk (pollerClose p)) "the poller closes")
+                  0
+                }))))))))

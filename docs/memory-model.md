@@ -695,7 +695,7 @@ needs no tag. `vecPush`, `concat` and `mapInsert` are trusted.
 a program is one `grep`.
 
 Functions that take a raw address or handle are trusted too, such as
-`memGetWord`, `vecGetStr`, `vecFree` and `sysReadFd`. That is the
+`memGetWord`, `vecGetStr`, `vecFree` and `sysRandomBytes`. That is the
 trade-off: safe code can still crash by passing one of them a bad
 address or handle, because an `Int` carries no proof of what it points
 at. State a condition the arguments can show as a `;@axiom:pre(...)`
@@ -738,21 +738,22 @@ in a signature.
 
 *Withdrawn:* the precondition tag was removed, so a function that
 hands the kernel a caller's address is a trusted encapsulation like any
-other (`MM-EXEC-9d`). `sysReadFd`, `sysWriteAllFd`, `sysRandomBytes`,
-`sysUnmapShared` and `sysWaitWord` take the address as an `Int`,
-`restrict(no-unsafe)` admits a call to each, and a bad address crashes
-the program. The typed calls' range check, the half that still holds,
-is `MM-EXEC-9f`. Tested by `tests/diagnostics/1081-sys-buffer-calls.ax`,
-which accepts an untagged call to each descriptor, entropy, unmap and
-wait function, and `tests/stdlib/580-kernel-precondition.ax`.
+other (`MM-EXEC-9d`). `sysRandomBytes`, `sysUnmapShared` and
+`sysWaitWord` take the address as an `Int`, `restrict(no-unsafe)`
+admits a call to each, and a bad address crashes the program. No
+public call takes a descriptor (`MM-EXEC-17a`). The typed calls' range
+check, the half that still holds, is `MM-EXEC-9f`. Tested by
+`tests/diagnostics/1081-sys-buffer-calls.ax`, which accepts an untagged
+call to each entropy, unmap and wait function, and
+`tests/stdlib/580-kernel-precondition.ax`.
 
 **MM-EXEC-9f (H). `IO`'s typed descriptor calls check their range
-before the kernel sees it.** Ordinary code uses them instead of the
-raw `Sys` calls. Every path is a `String`. `writeStr` and `writeSlice`
-write a string or a range of one, `readInto` reads into a range of a
-`String` buffer, `fileRead` into a range of a `ReadBuffer`, and
-`readLine` and `readAll` answer fresh strings. `termSave`, `termRaw`, `termRestore` and `termSize` keep
-a terminal's saved settings in a `TermState`. A range outside its
+before the kernel sees it.** Every descriptor is a `File`, and every
+path is a `String`. `writeStr` and `writeSlice` write a string or a
+range of one, `readInto` reads into a range of a `String` buffer,
+`fileRead` into a range of a `ReadBuffer`, and `readLine` and `readAll`
+answer fresh strings. `termRaw` keeps a terminal's saved settings in a
+`TermGuard`, and `termSize` answers a `TermSize`. A range outside its
 string is the index trap, status 77, before the kernel is called
 (`tests/stdlib/610-typed-io-bounds.ax`). `tests/stdlib/545-no-unsafe-practical.ax`
 does file, entropy and terminal work this way under
@@ -990,6 +991,33 @@ explicit close.
 
 Tested by `tests/stdlib/697-resource-owner.ax` and
 `tests/axqlite/616-api-auto-close.ax`.
+
+**MM-EXEC-17a (H). No public library function takes or answers a
+descriptor number.** Every descriptor a program can reach is held by an
+owner: a `File` (a file, a socket or a standard stream), a `Poller` or a
+`TermGuard`, each declared sealed in `IO`, or an Axqlite `Pager`. The
+calls that act on a descriptor are private to the module that declares
+its owner, and the owner reads its number through `__resource_get`,
+which traps 85 once the owner is closed. So safe code can't close,
+read or write a descriptor behind its owner, and a closed owner can't
+reach a number the kernel has given to a newer file. A guessed `Int`
+reaches nothing: every reader and writer takes a `File`.
+
+Tested by `tests/diagnostics/1225-descriptor-hole.ax`, which refuses
+each attack, and `tests/stdlib/698-file-lifetime.ax`.
+
+**MM-EXEC-17b (H). The standard streams are owners that never close.**
+`stdin`, `stdout` and `stderr` are `File` values whose release does
+nothing to descriptors 0, 1 and 2. Each evaluation answers a fresh
+value: `fileClose` retires that value, so its next use traps 85, and
+the process's stream stays open. A `Poller` owns its kqueue or epoll
+descriptor and, on Linux, the signal descriptor it watches; a
+`TermGuard` owns a close-on-exec duplicate of a terminal's descriptor
+and the attributes it saved, and its release restores them.
+
+Tested by `tests/stdlib/785-stdio-file.ax`,
+`tests/stdlib/786-poller-owned.ax` and
+`scripts/check-terminal-restore.sh`.
 
 **MM-EXEC-18 (H, 2026-09-27). Interrupt handlers: one at a time, no
 allocation, no recovery, state shared only through the unsafe layer.**

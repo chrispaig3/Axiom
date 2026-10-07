@@ -24,6 +24,7 @@
 (import Sys)
 (import Err)
 (import Str)
+(import Vec)
 
 (:: requireFile (-> String File))
 ;@axiom:effect(io)
@@ -32,56 +33,75 @@
     ((Ok f) f)
     ((Err e) { (die (errorText e) 1) (requireFile path) })))
 
-(:: closedFd (-> Int Bool))
+; How many descriptors this process holds, counted in /dev/fd.
+(:: openCount Int)
 ;@axiom:effect(io)
-(fn (closedFd fd)
-  (let ((buf (strAlloc 1)))
-    (match (sysReadFd fd (strData buf) 1)
-      ((Ok _) false)
-      ((Err e) (== (errCode e) 9)))))
+(fn (openCount)
+  (vecLen (listDir "/dev/fd")))
 
 (:: closedAtSet Bool)
 ;@axiom:effect(io)
 (fn (closedAtSet)
-  (let ((mut f (requireFile "/dev/null")) (first (fileFd f)))
-    { (set f (requireFile "/dev/null")) (closedFd first) }))
+  (let ((before openCount) (mut f (requireFile "/dev/null")))
+    {
+      (set f (requireFile "/dev/null"))
+      (&& (== openCount (+ before 1)) (! (isTerminal f)))
+    }))
 
 (:: boundedFds Bool)
 ;@axiom:effect(io)
 (fn (boundedFds)
-  (let ((mut f (requireFile "/dev/null")) (first (fileFd f)) (mut i 0))
+  (let ((before openCount) (mut f (requireFile "/dev/null")) (mut i 0))
     {
       (while (< i 3000)
         {
           (set f (requireFile "/dev/null"))
           (set i (+ i 1))
         })
-      (<= (fileFd f) (+ first 1))
+      (&& (== openCount (+ before 1)) (! (isTerminal f)))
     }))
 
-(:: lastFd Int)
+; Each of these runs `k` and answers whether every descriptor it opened
+; was closed by the time it returned.
+(:: closes (-> (-> Int Int) Bool))
 ;@axiom:effect(io)
-(fn (lastFd)
+(fn (closes k)
+  (let ((before openCount))
+    {
+      (k 0)
+      (== openCount before)
+    }))
+
+; 1 when `f` is a terminal, which /dev/null is not: a use of `f` that
+; reaches its descriptor.
+(:: termInt (-> File Int))
+;@axiom:effect(io)
+(fn (termInt f)
+  (if (isTerminal f) 1 0))
+
+(:: lastSet (-> Int Int))
+;@axiom:effect(io)
+(fn (lastSet x)
   (let ((mut f (requireFile "/dev/null")) (mut n 0))
     {
       (set f (requireFile "/dev/null"))
-      (set n (fileFd f))
+      (set n (termInt f))
       n
     }))
 
-(:: unsetFd Int)
+(:: unset (-> Int Int))
 ;@axiom:effect(io)
-(fn (unsetFd)
+(fn (unset x)
   (let ((mut f (requireFile "/dev/null")))
-    (fileFd f)))
+    (termInt f)))
 
-(:: handedFd (-> String Int))
+(:: handed (-> Int Int))
 ;@axiom:effect(io)
-(fn (handedFd path)
-  (let ((mut f (requireFile path)))
+(fn (handed x)
+  (let ((mut f (requireFile "/dev/null")))
     {
-      (set f (requireFile path))
-      (fileFd f)
+      (set f (requireFile "/dev/null"))
+      (termInt f)
     }))
 
 (:: replaced (-> Int Int))
@@ -186,9 +206,9 @@
   {
     (println (closedAtSet))
     (println (boundedFds))
-    (println (closedFd (lastFd)))
-    (println (closedFd (unsetFd)))
-    (println (closedFd (handedFd "/dev/null")))
+    (println (closes lastSet))
+    (println (closes unset))
+    (println (closes handed))
     (let ((mut w 0))
       (while (< w 5)
         {

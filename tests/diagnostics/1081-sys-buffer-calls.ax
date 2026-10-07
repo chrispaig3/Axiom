@@ -2,31 +2,20 @@
 ; a trusted encapsulation (docs/memory-model.md MM-EXEC-9d), so its
 ; caller needs no tag and a call to it is ordinary safe code. The kernel
 ; reads or writes wherever the address points, so a bad address still
-; crashes the program; nothing here checks it.
+; crashes the program; nothing here checks it. None of them takes a
+; descriptor: the descriptor calls are `IO`'s, over a `File`.
 ;
-; One untagged declaration per call, each accepted: the descriptor
-; read and write, entropy, and the shared-memory unmap and wait.
-; `noUnsafe` claims `restrict(no-unsafe)` over `sysRandomBytes` and is
-; accepted too. `pureRead` claims `pure` over `sysReadFd` and draws AX3010 for
-; the IO it performs.
+; One untagged declaration per call, each accepted: entropy, and the
+; shared-memory unmap and wait. `noUnsafe` claims `restrict(no-unsafe)`
+; over `sysRandomBytes` and is accepted too. `pureFill` claims `pure`
+; over `sysRandomBytes` and draws AX3010 for the IO it performs.
 ;
-; `typed` does the same work through the typed companions in `IO`,
-; which take a `String` or answer a fresh one. The path and terminal
-; calls are only those companions now.
+; `typed` does the same work through the typed calls in `IO`, which
+; take a `File` and a `String` or answer a fresh one.
 (import Sys)
 (import IO)
 (import Str)
 (import Err)
-
-;@axiom:effect(io)
-(:: readsAt (-> Int (Result Int Error)))
-(fn (readsAt buf)
-  (sysReadFd 0 buf 64))
-
-;@axiom:effect(io)
-(:: writesAllFrom (-> Int Int))
-(fn (writesAllFrom buf)
-  (sysWriteAllFd 1 buf 64))
 
 ;@axiom:effect(io)
 (:: fillsAt (-> Int (Result Int Error)))
@@ -45,10 +34,10 @@
 (fn (waitsAt addr)
   (sysWaitWord addr 0))
 
-(:: pureRead (-> Int (Result Int Error)))
+(:: pureFill (-> Int (Result Int Error)))
 ;@axiom:effect(pure)
-(fn (pureRead buf)
-  (sysReadFd 0 buf 64))
+(fn (pureFill buf)
+  (sysRandomBytes buf 64))
 
 ;@axiom:restrict(no-unsafe)
 (:: noUnsafe (-> Int (Result Int Error)))
@@ -63,11 +52,11 @@
 (fn (typed path)
   (let ((buf (strAlloc 64)))
     {
-      (writeStr 1 (readFile path))
-      (match (readInto 0 buf 0 64)
-        ((Ok n) (writeSlice 1 buf 0 n))
+      (writeStr stdout (readFile path))
+      (match (readInto stdin buf 0 64)
+        ((Ok n) (writeSlice stdout buf 0 n))
         ((Err e) 0))
-      (match (termSize 0)
+      (match (termSize stdin)
         ((Ok sz) sz.cols)
         ((Err e) 0))
     }))

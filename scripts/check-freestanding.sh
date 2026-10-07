@@ -55,7 +55,7 @@ libc_names="$libc_names"'|strcpy|strncpy|strcat|strncat|strncmp|strchr|strrchr|s
 # The `sysXxx`/`netXxx` prefixes matter here. The IR pattern is anchored
 # by `@` and `(` but not word-anchored inside, so an Axiom function named
 # plainly `bind`, `send`, `accept`, `connect` or `poll` would be flagged
-# by its own name. `netBind` and `netAccept` cannot be.
+# by its own name. `socketBind` and `socketAccept` cannot be.
 libc_names="$libc_names"'|socket|socketpair|bind|listen|accept|accept4|connect|shutdown'
 libc_names="$libc_names"'|setsockopt|getsockopt|getaddrinfo|freeaddrinfo|gethostbyname'
 libc_names="$libc_names"'|kqueue|kevent|epoll_create|epoll_create1|epoll_ctl|epoll_wait|select'
@@ -232,14 +232,14 @@ fi
 # loop above, so it must also leave Axiom's own call names alone. The
 # hazard is substrings: `free` sits inside `freelist` and `wait` inside
 # `awaited`, so this notices the alternation losing its anchors. The
-# `net*` names check the prefix convention: `@netBind(` must not match
-# `@bind(`.
+# `socket*` names check the prefix convention: `@socketBind(` must not
+# match `@bind(`.
 kept=""
 for ok_name in axiom_alloc freelist awaited printfmt __syscall1 \
-               netBind netAccept netConnect netSocketTcp netListen \
-               sysPollCreate sysPollWait sysRandomBytes randomMaxChunk \
-               sysKill sysSignalBlock sysSignalOpen signalUsesSignalFd \
-               sysForkProcess forkChildIsZero netSetBlocking; do
+               socketBind socketAccept socketConnect socketOpen socketListen \
+               pollerNew pollerWait sysRandomBytes randomMaxChunk \
+               sysKill sysSignalBlock pollerAddSignals signalUsesSignalFd \
+               sysForkProcess forkChildIsZero fileSetNonBlocking; do
   grep -qE "call[^\"]*@($libc_names)\(" <<< "  %r = call i64 @$ok_name(i64 0)" \
     && kept="$kept $ok_name"
 done

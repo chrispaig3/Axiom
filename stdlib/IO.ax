@@ -1,10 +1,14 @@
-; IO - console, file and terminal I/O, in Axiom.
+; IO - files, standard streams, terminals, readiness and sockets.
 ;
-; This module uses Sys for kernel calls or platform APIs, depending on
-; the target. Printing needs no C runtime or printf binding. The calls
-; that take a path, a directory or a terminal live here as private
-; helpers over `__syscallN` and the numbers `Sys.Platform` carries, and
-; the public functions take a `String`.
+; Every descriptor a program can reach is held by an owner this module
+; declares: a `File` (a file, a socket or a standard stream), a `Poller`
+; or a `TermGuard`. Each is sealed, so no other module can build one or
+; read the number inside it, and each releases its descriptor when its
+; last share goes. The descriptor calls themselves are private here,
+; over `__syscallN` and the numbers `Sys.Platform` carries, so no public
+; function takes or answers a descriptor number. A closed owner traps 85
+; on its next use, before a number the kernel has reused can reach
+; another resource.
 ;
 ; Functions that touch the outside world carry `;@axiom:effect(io)`, and
 ; the compiler validates those claims against the syscalls actually
@@ -22,19 +26,150 @@
 ; two. `Show` does not import `IO` - rendering has no effects and
 ; must not acquire one - so the edge is one-way.
 ; ------------------------------------------------------------------
+; Owned files
+; ------------------------------------------------------------------
+; An open file, socket or standard stream. Aliases share it; the last
+; share closes the descriptor, and `fileClose` closes it early for
+; every alias.
+(pub struct File sealed
+  (owner : Handle))
+
+; The release of an owned descriptor: close it.
+(:: fileDrop (-> Int Int))
+;@axiom:effect(io)
+(fn (fileDrop fd)
+  (ioClose fd))
+
+; The release of a standard stream: nothing. Descriptors 0, 1 and 2
+; belong to the process, and no `File` closes them.
+(:: fileKeep (-> Int Int))
+(fn (fileKeep fd)
+  0)
+
+; Take over `fd`, an open descriptor nothing else owns. Private: every
+; descriptor this module opens comes through here, and nothing outside
+; can hand it a number.
+(:: ioAdopt (-> Int File))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:pre((>= fd 0))
+(fn (ioAdopt fd)
+  (File (__resource_new fileDrop fd)))
+
+; The descriptor `f` owns, for one call. Traps 85 once `f` is closed.
+(:: ioFd (-> File Int))
+;@axiom:effect(unsafe)
+(fn (ioFd f)
+  (__resource_get f.owner))
+
+; Standard input, output and error. Each is a `File` that never closes
+; its descriptor: `fileClose stdout` retires that one value and leaves
+; the process's stream open.
+(pub :: stdin File)
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (stdin)
+  (File (__resource_new fileKeep 0)))
+
+(pub :: stdout File)
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (stdout)
+  (File (__resource_new fileKeep 1)))
+
+(pub :: stderr File)
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (stderr)
+  (File (__resource_new fileKeep 2)))
+
+; Close early, once: `(Ok 0)`, or `(Err e)` carrying the errno of the
+; close - on a written file, where a deferred write error surfaces.
+; Aliases observe the close, and any later use of one traps 85. The
+; descriptor is retired before the close and the close is never
+; retried. Closing a standard stream retires that value only.
+(pub :: fileClose (-> File (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (fileClose f)
+  (sysResult "fileClose" (__resource_close f.owner)))
+
+; ------------------------------------------------------------------
+; The descriptor calls. Private: each takes a number this module holds
+; through an owner, or one it opened and closes within the call.
+; ------------------------------------------------------------------
+; write(2): bytes written, possibly fewer than asked, or `-errno`.
+(:: ioWriteFd (-> Int Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (ioWriteFd fd buf count)
+  (if (== usesSyscallAbi 1)
+    (__syscall3 sysWriteNum fd buf count)
+    (match (platformWriteFd fd buf count)
+      ((Ok n) n)
+      ((Err e) (- 0 (errCode e))))))
+
+; Write all `count` bytes at `buf` to `fd`: bytes written, or `-errno`.
+;
+; A single `write` may transfer fewer bytes than asked - a pipe whose
+; buffer filled, a signal arriving mid-call - so this loops until every
+; byte is out, and retries EINTR (4 on each syscall target), which moved
+; no bytes. A write that answers 0 is not progress, so that case answers
+; `-errShortWrite`, a code no errno can be. The success path builds no
+; block (`scripts/check-unboxed-sums.sh`).
+(:: ioWriteAll (-> Int Int Int Int))
+;@axiom:effect(io)
+(fn (ioWriteAll fd buf count)
+  (ioWriteAllFrom fd buf count 0))
+
+(:: ioWriteAllFrom (-> Int Int Int Int Int))
+;@axiom:effect(io)
+(fn (ioWriteAllFrom fd buf count done)
+  (if (>= done count)
+    done
+    (let ((n (ioWriteFd fd (+ buf done) (- count done))))
+      (if (== n (- 0 4))
+        (ioWriteAllFrom fd buf count done)
+        (< n 0) n
+        (== n 0) (- 0 errShortWrite)
+        (ioWriteAllFrom fd buf count (+ done n))))))
+
+; read(2): bytes read, 0 at end of input, or `-errno`.
+(:: ioReadFd (-> Int Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (ioReadFd fd buf count)
+  (if (== usesSyscallAbi 1)
+    (__syscall3 sysReadNum fd buf count)
+    (match (platformReadFd fd buf count)
+      ((Ok n) n)
+      ((Err e) (- 0 (errCode e))))))
+
+; close(2): 0, or `-errno`.
+(:: ioClose (-> Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (ioClose fd)
+  (__syscall1 sysCloseNum fd))
+
+; fcntl(fd, cmd, arg): the answer, or `-errno`.
+(:: ioFcntl (-> Int Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (ioFcntl fd cmd arg)
+  (__syscall3 sysFcntlNum fd cmd arg))
+
+; ------------------------------------------------------------------
 ; Writing
 ; ------------------------------------------------------------------
-; Write all of `s` to `fd`, returning the number of bytes written or a
-; negative errno.
-;
-; Loops until the whole string is out: a single `write` is permitted to
-; transfer fewer bytes than asked (a pipe with a full buffer, a signal),
-; and treating a short write as success is the classic way to silently
-; truncate output. The loop is `Sys.sysWriteAllFd`.
-(pub :: writeStr (-> Int String Int))
+; Write all of `s` to `f`, returning the number of bytes written or a
+; negative errno. This is the printing path's answer: `println` is
+; `(writeStr stdout ...)`, and a statement that prints does not have to
+; bind a `Result`. `fileWrite` answers the same write as a `Result`.
+(pub :: writeStr (-> File String Int))
 ;@axiom:effect(io)
-(pub fn (writeStr fd s)
-  (sysWriteAllFd fd (strData s) (strLen s)))
+(pub fn (writeStr f s)
+  (ioWriteAll (ioFd f) (strData s) (strLen s)))
 
 ; Write the `len` bytes of `s` that start at byte `start`, all of them,
 ; returning the number written or a negative errno - `writeStr` over a
@@ -44,12 +179,34 @@
 ; that is negative, or one that runs past the end of `s`, stops the
 ; program with status 77, the index trap `vecGet` raises. The kernel
 ; is only ever handed bytes `s` holds.
-(pub :: writeSlice (-> Int String Int Int Int))
+(pub :: writeSlice (-> File String Int Int Int))
 ;@axiom:effect(io)
-(pub fn (writeSlice fd s start len)
+(pub fn (writeSlice f s start len)
   (if (ioOutside s start len)
     __indexTrap
-    (sysWriteAllFd fd (+ (strData s) start) len)))
+    (ioWriteAll (ioFd f) (+ (strData s) start) len)))
+
+; Write all of `s` to standard output, or to standard error: the bytes
+; written, or a negative errno. `println` and `eprintln` are these with
+; the line built at expansion time. They make no `File`, so printing
+; allocates nothing on the way out; `(writeStr stdout s)` is the same
+; write through a `File`.
+(pub :: writeOut (-> String Int))
+;@axiom:effect(io)
+(pub fn (writeOut s)
+  (ioWriteAll 1 (strData s) (strLen s)))
+
+(pub :: writeErr (-> String Int))
+;@axiom:effect(io)
+(pub fn (writeErr s)
+  (ioWriteAll 2 (strData s) (strLen s)))
+
+; Write every byte of `s` to `f`: `(Ok n)`, or `(Err e)` whose code is
+; the errno of the write that failed.
+(pub :: fileWrite (-> File String (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (fileWrite f s)
+  (sysResult "fileWrite" (writeStr f s)))
 
 ; True when `[start, start + len)` is not inside `s`. Written so that no
 ; sum can overflow: `start` is known to be in range before `len` is
@@ -67,7 +224,7 @@
 ; ------------------------------------------------------------------
 ; Printing is macros and no functions.
 ;
-; `writeStr` above is the whole runtime side: bytes, to a descriptor.
+; `writeStr` above is the whole runtime side: bytes, to a file.
 ; Everything between a value and those bytes is decided at expansion
 ; time, so this module exports no `printInt`, no `printFloat`, and no
 ; per-type anything - a type is rendered by the rendering the checker
@@ -87,13 +244,13 @@
 ; `(println n)` prints an `Int` and `(println s)` a `String`.
 ;
 ; `syntax/formatln` folds the newline into the last literal run at
-; expansion time, so `(println "hi")` is one `write` of `"hi\n"`.
-; A program that wants bytes with no newline and no rendering calls
-; `writeStr`.
+; expansion time, so `(println "hi")` is one `write` of `"hi\n"`, with
+; no allocation. A program that wants bytes with no newline and no
+; rendering calls `writeOut`, or `writeStr` on a `File`.
 ; ------------------------------------------------------------------
-(pub macro (println e) (writeStr stdout (syntax/formatln e)))
+(pub macro (println e) (writeOut (syntax/formatln e)))
 
-(pub macro (eprintln e) (writeStr stderr (syntax/formatln e)))
+(pub macro (eprintln e) (writeErr (syntax/formatln e)))
 
 ; ------------------------------------------------------------------
 ; The descriptor calls behind the path functions.
@@ -136,7 +293,7 @@
 (:: ioCloseQuiet (-> Int Int))
 ;@axiom:effect(io)
 (fn (ioCloseQuiet fd)
-  (let ((_ (sysCloseFd fd))) 0))
+  (let ((_ (ioClose fd))) 0))
 
 ; `path` as a `char*` a syscall can take, always by copy. A `strSlice`
 ; shares storage and is not NUL-terminated, so handing one to `open`
@@ -179,9 +336,7 @@
 ;@axiom:effect(unsafe)
 (fn (ioReadAll fd buf used cap)
   (let ((n
-    (match (sysReadFd fd (+ (strData buf) used) (- cap used))
-      ((Ok k) k)
-      ((Err e) (- 0 (errCode e))))))
+    (ioReadFd fd (+ (strData buf) used) (- cap used))))
     (if (< n 0)
       (Err (mkError (- 0 n) "readAll"))
       (if (== n 0)
@@ -226,9 +381,7 @@
     {
       (while (== done 0)
         {
-          (set n (match (sysReadFd fd (+ (strData buf) used) 1)
-            ((Ok k) k)
-            ((Err e) (- 0 (errCode e)))))
+          (set n (ioReadFd fd (+ (strData buf) used) 1))
           (if (<= n 0)
             (set done 1)
             (if (== (memGetByte (strData buf) used) 10)
@@ -285,7 +438,7 @@
   (let ((fd (ioOpen cpath flags)))
     (if (< fd 0)
       fd
-      (let ((n (sysWriteAllFd fd (strData s) (strLen s))))
+      (let ((n (ioWriteAll fd (strData s) (strLen s))))
         {
           (ioCloseQuiet fd)
           n
@@ -355,7 +508,7 @@
 ;@axiom:effect(io)
 (pub fn (openPath path flags)
   (match (ioResult "openPath" path (ioOpen (ioPath path) flags))
-    ((Ok fd) (Ok (fileFromFd fd)))
+    ((Ok fd) (Ok (ioAdopt fd)))
     ((Err e) (Err e))))
 
 ; Copy `src` onto `dst`, answering `(Ok bytes)` or `(Err e)`. `dst` is
@@ -427,9 +580,7 @@
       (- 0 fd)
       (let ((probe (strAlloc 1)))
         (let ((n
-          (match (sysReadFd fd (strData probe) 1)
-            ((Ok k) k)
-            ((Err e) (- 0 (errCode e))))))
+          (ioReadFd fd (strData probe) 1)))
           {
             (ioCloseQuiet fd)
             (if (< n 0)
@@ -768,17 +919,17 @@
 ;@axiom:effect(io)
 (pub fn (todo what)
   (cast a {
-    (writeStr stderr (concat (concat "todo: " what) "\n"))
+    (writeErr (concat (concat "todo: " what) "\n"))
     (exit 70)
   }))
 
 ; ------------------------------------------------------------------
 ; Reading input.
 ;
-; The readers take the descriptor the way `writeStr` does - `(readLine
-; stdin)`, `(readLine fd)` - and answer `Result` with end of input
-; inside the `Ok`: a read that fails is not an input that ended, and a
-; stream cannot be asked `readErrno` afterwards.
+; The readers take a `File` - `(readLine stdin)`, or a file `openPath`
+; answered - and answer `Result` with end of input inside the `Ok`: a
+; read that fails is not an input that ended, and a stream cannot be
+; asked `readErrno` afterwards.
 ;
 ; The line reader makes one `read(2)` per byte, so the descriptor is
 ; left at exactly the next unread byte - a child handed it, or a
@@ -786,38 +937,44 @@
 ; times slower than `readAll` on bulk input, which wants `readAll` and
 ; `strSplit`, or `Rpc`'s buffered reader.
 ; ------------------------------------------------------------------
-; One line of `fd` without its newline: `(Ok (Some line))`; `(Ok None)`
+; One line of `f` without its newline: `(Ok (Some line))`; `(Ok None)`
 ; at end of input when nothing was read; `(Err e)` whose code is the
-; errno, its message `readLine: fd 0: errno 9`.
+; errno, its message `readLine: errno 9`.
 ;
 ; A final line with no newline is still a line, and an empty line is
 ; `(Some "")`.
-(pub :: readLine (-> Int (Result (Option String) Error)))
+(pub :: readLine (-> File (Result (Option String) Error)))
 ;@axiom:effect(io)
-(pub fn (readLine fd)
-  (match (ioReadLineFd fd)
+(pub fn (readLine f)
+  (match (ioReadLineFd (ioFd f))
     ((Ok line) (Ok line))
-    ((Err e) (Err (ioFdError (errCode e) "readLine" fd)))))
+    ((Err e) (Err (ioFdError (errCode e) "readLine")))))
 
-; Everything left on `fd` to end of input: `(Ok s)`, `(Ok "")` when
+; Everything left on `f` to end of input: `(Ok s)`, `(Ok "")` when
 ; nothing arrived, or `(Err e)` whose code is the errno.
 ;
-; On an exhausted descriptor this is `(Ok "")`, which is not a
-; failure: the stream ended, as it was going to.
-(pub :: readAll (-> Int (Result String Error)))
+; On an exhausted file this is `(Ok "")`, which is not a failure: the
+; stream ended, as it was going to.
+(pub :: readAll (-> File (Result String Error)))
 ;@axiom:effect(io)
-(pub fn (readAll fd)
-  (match (ioReadAllFd fd)
+(pub fn (readAll f)
+  (match (ioReadAllFd (ioFd f))
     ((Ok s) (Ok s))
-    ((Err e) (Err (ioFdError (errCode e) "readAll" fd)))))
+    ((Err e) (Err (ioFdError (errCode e) "readAll")))))
 
-; `ioResult`'s message with the descriptor where the path would be:
-; `readLine: fd 0: errno 9`. The code is carried through unchanged.
-(:: ioFdError (-> Int String Int Error))
-(fn (ioFdError code op fd)
-  (mkError code (concat (concat (concat op ": fd ") (fmtInt fd)) (concat ": errno " (fmtInt code)))))
+; `op: errno N`. The code is carried through unchanged.
+(:: ioFdError (-> Int String Error))
+(fn (ioFdError code op)
+  (mkError code (concat op (concat ": errno " (fmtInt code)))))
 
-; One `read(2)` of at most `count` bytes from `fd` into the bytes of
+; A raw answer as a `Result`, named for the public call that made it.
+(:: ioAnswer (-> String Int (Result Int Error)))
+(fn (ioAnswer op n)
+  (if (< n 0)
+    (Err (ioFdError (- 0 n) op))
+    (Ok n)))
+
+; One `read(2)` of at most `count` bytes from `f` into the bytes of
 ; `buf` that start at byte `at`: `(Ok n)` with `n` the bytes read, `(Ok
 ; 0)` at end of input, or `(Err e)` whose code is the errno.
 ;
@@ -825,14 +982,14 @@
 ; `String` from `strAlloc`, filled a piece at a time. The range is
 ; checked before the call, and one outside `buf` stops the program
 ; with status 77, so the kernel only ever writes bytes `buf` holds.
-; Use ReadBuffer for safe mutable storage, or readAll and readLine for
-; a fresh string. A String may also be an immutable shared view.
-(pub :: readInto (-> Int String Int Int (Result Int Error)))
+; Use a ReadBuffer and `fileRead` for storage no other String shares,
+; or readAll and readLine for a fresh string.
+(pub :: readInto (-> File String Int Int (Result Int Error)))
 ;@axiom:effect(io)
-(pub fn (readInto fd buf at count)
+(pub fn (readInto f buf at count)
   (if (ioOutside buf at count)
     __indexTrap
-    (sysReadFd fd (+ (strData buf) at) count)))
+    (ioAnswer "readInto" (ioReadFd (ioFd f) (+ (strData buf) at) count))))
 
 ; Mutable input storage. The constructor and backing string stay private,
 ; so safe code cannot alias an immutable String as a writable buffer.
@@ -860,25 +1017,27 @@
     __indexTrap
     (strDup (strSlice buf.bytes at count))))
 
-; Read at most count bytes into a checked buffer range, returning the
-; count or the OS error. Zero is EOF. ReadBuffer cannot be captured by
-; a parallel binding; its bytes are used by one binding at a time.
-(pub :: readBuffer (-> Int ReadBuffer Int Int (Result Int Error)))
+; Read at most `count` bytes from `f` into `buf[at .. at + count)`:
+; `(Ok n)`, `(Ok 0)` at end of input, or `(Err e)`. A range outside
+; `buf` stops the program with status 77 before the kernel sees it. A
+; ReadBuffer cannot be captured by a parallel binding; its bytes are
+; used by one binding at a time.
+(pub :: fileRead (-> File ReadBuffer Int Int (Result Int Error)))
 ;@axiom:effect(io)
-(pub fn (readBuffer fd buf at count)
-  (readInto fd buf.bytes at count))
+(pub fn (fileRead f buf at count)
+  (if (ioOutside buf.bytes at count)
+    __indexTrap
+    (ioAnswer "fileRead" (ioReadFd (ioFd f) (+ (strData buf.bytes) at) count))))
 
 ; ------------------------------------------------------------------
 ; Terminals
 ;
-; A terminal's saved state lives in a `TermState`, which only this
-; module builds or opens: the bytes the kernel wrote are never handed
-; back as an address, so nothing can aim a restore at the wrong memory.
-;
-; The restore is the part that must not be almost right. A program that
-; exits leaving the terminal raw hands the user a shell with no echo.
-; So the saved bytes are written once, by the save, and raw mode edits a
-; private copy.
+; Raw mode is an owner: `termRaw` answers a `TermGuard`, and releasing
+; the guard puts the terminal back as it was. `termRestore` does it
+; early, once. The guard keeps its own close-on-exec duplicate of the
+; terminal's descriptor and the saved attributes, sealed, so a restore
+; can't be aimed at another descriptor or at other memory, and it
+; still works after the `File` it came from is closed.
 ;
 ; Every request number, struct offset and flag bit comes from
 ; `Sys.Platform`: `struct termios` is 72 bytes on Darwin, 36 on Linux
@@ -886,16 +1045,16 @@
 ; `struct winsize` is the same on every POSIX target - four `unsigned
 ; short`, rows first, columns second - so its offsets are here.
 ; ------------------------------------------------------------------
-; A descriptor and the terminal attributes saved from it.
-(pub struct TermState sealed
-  (fd : Int)
-  (save : Int))
-
 ; A terminal's size in character cells. A terminal that was never
 ; sized reports 0 for both; treat 0 as unknown and fall back to 80x24.
 (pub struct TermSize
   (rows : Int)
   (cols : Int))
+
+; A terminal in raw mode, and what it was before. Releasing the last
+; share restores it.
+(pub struct TermGuard sealed
+  (owner : Handle))
 
 ; ioctl(fd, request, arg): 0, or `-errno`.
 (:: ioIoctl (-> Int Int Int Int))
@@ -926,6 +1085,53 @@
 (fn (ioGetInt32 buf off)
   (+ (memGetByte buf off) (+ (<< (memGetByte buf (+ off 1)) 8) (+ (<< (memGetByte buf (+ off 2)) 16) (<< (memGetByte buf (+ off 3)) 24)))))
 
+; Eight bytes, little-endian, at byte `off` of `buf`: an ABI record is
+; raw bytes, and `memSetWord` would take a share of whatever word the
+; kernel or the caller put there.
+(:: ioPutWord (-> Int Int Int Int))
+(fn (ioPutWord buf off v)
+  {
+    (ioPutInt32 buf off (& v 4294967295))
+    (ioPutInt32 buf (+ off 4) (& (>> v 32) 4294967295))
+  })
+
+; The same, read back. Byte-wise because the offset is not always
+; word-aligned: epoll's data word sits at byte 4 on x86_64.
+(:: ioGetWord (-> Int Int Int))
+(fn (ioGetWord buf off)
+  (+ (ioGetInt32 buf off) (<< (ioGetInt32 buf (+ off 4)) 32)))
+
+; True when `f` is a terminal: it has terminal attributes to read, which
+; is what libc's `isatty` asks too. A pipe, a file or a socket answers
+; false, and so does every file on a target without `termios`.
+(pub :: isTerminal (-> File Bool))
+;@axiom:effect(io)
+(pub fn (isTerminal f)
+  (if (== ttyUsesTermios 0)
+    false
+    (let ((attrs (strAlloc ioTermStateCap)))
+      (>= (ioIoctl (ioFd f) tcGetAttrReq (strData attrs)) 0))))
+
+; The size of the terminal on `f`: `(Ok size)`, or `(Err e)` - ENOTTY
+; when `f` is not a terminal. A terminal may answer 0 rows and 0
+; columns with a successful call; treat 0 as unknown.
+(pub :: termSize (-> File (Result TermSize Error)))
+;@axiom:effect(io)
+(pub fn (termSize f)
+  (let (
+    (wsBuf (strAlloc 8))
+    (ws (strData wsBuf))
+  )
+    (let ((rc
+      (if (== ttyUsesTermios 0)
+        ioTermUnsupported
+        (ioIoctl (ioFd f) tcWinSizeReq ws))))
+      (if (< rc 0)
+        (Err (mkError (- 0 rc) "termSize"))
+        (Ok (TermSize
+          (+ (memGetByte ws 0) (<< (memGetByte ws 1) 8))
+          (+ (memGetByte ws 2) (<< (memGetByte ws 3) 8))))))))
+
 ; Read one of the four flag words out of a saved state, or clear bits in
 ; one: `n` is 0 for c_iflag, 1 for c_oflag, 2 for c_cflag and 3 for
 ; c_lflag, `termiosFlagBytes` apart on every target. They move the low
@@ -939,33 +1145,6 @@
 (fn (ioTermFlagClear buf n mask)
   (ioPutInt32 buf (* n termiosFlagBytes) (& (ioTermFlagGet buf n) (^ mask (- 0 1)))))
 
-; The edit that makes raw mode, on a private copy `work` of the saved
-; state, written back to `fd`.
-;
-;   c_lflag  ECHO, ICANON, IEXTEN off, and ISIG too unless `keepSignals`
-;   c_iflag  IXON, ICRNL, ISTRIP, BRKINT off
-;   c_oflag  OPOST off: a lone LF is not expanded to CR LF
-;   c_cc     VMIN 1, VTIME 0: a `read` returns as soon as one byte is there
-;
-; c_cflag is not touched; it matters on a serial line, not on a pty.
-(:: ioTermRawApply (-> Int Int Bool Int Int))
-;@axiom:effect(io)
-(fn (ioTermRawApply fd save keepSignals work)
-  {
-    (memCopy work save termiosBytes)
-    (ioTermFlagClear work 0 (| tiosBrkint (| tiosIcrnl (| tiosIstrip tiosIxon))))
-    (ioTermFlagClear work 1 tiosOpost)
-    (ioTermFlagClear
-      work
-      3
-      (if keepSignals
-        (| tiosEcho (| tiosIcanon tiosIexten))
-        (| tiosEcho (| tiosIcanon (| tiosIexten tiosIsig)))))
-    (memPutByte work (+ termiosCcOff termiosVminIdx) 1)
-    (memPutByte work (+ termiosCcOff termiosVtimeIdx) 0)
-    (ioIoctl fd tcSetAttrReq work)
-  })
-
 ; The saved state's size, never 0: a target with no terminal control
 ; has `termiosBytes` 0, and its calls never touch the block.
 (:: ioTermStateCap Int)
@@ -974,131 +1153,607 @@
     8
     termiosBytes))
 
-(:: ioTermAnswer (-> Int TermState String (Result TermState Error)))
-(fn (ioTermAnswer rc st op)
-  (if (< rc 0)
-    (Err (mkError (- 0 rc) op))
-    (Ok st)))
-
-; The attributes of the terminal on `fd`, saved: `(Ok state)` to hand
-; to `termRestore` later, or `(Err e)` - ENOTTY when `fd` is not a
-; terminal.
-(pub :: termSave (-> Int (Result TermState Error)))
+; The edit that makes raw mode, on a fresh copy of the saved state,
+; written to `fd`:
+;
+;   c_lflag  ECHO, ICANON, IEXTEN off, and ISIG too unless `keepSignals`
+;   c_iflag  IXON, ICRNL, ISTRIP, BRKINT off
+;   c_oflag  OPOST off: a lone LF is not expanded to CR LF
+;   c_cc     VMIN 1, VTIME 0: a `read` returns as soon as one byte is there
+;
+; c_cflag is not touched; it matters on a serial line, not on a pty.
+(:: ioTermRawApply (-> Int String Bool Int))
 ;@axiom:effect(io)
-(pub fn (termSave fd)
-  (let ((st (TermState fd (memAlloc ioTermStateCap))))
-    (ioTermAnswer
-      (if (== ttyUsesTermios 0)
-        ioTermUnsupported
-        (ioIoctl fd tcGetAttrReq st.save))
-      st
-      "termSave")))
+(fn (ioTermRawApply fd save keepSignals)
+  (let (
+    (workBuf (strAlloc ioTermStateCap))
+    (work (strData workBuf))
+  )
+    {
+      (memCopy work (strData save) termiosBytes)
+      (ioTermFlagClear work 0 (| tiosBrkint (| tiosIcrnl (| tiosIstrip tiosIxon))))
+      (ioTermFlagClear work 1 tiosOpost)
+      (ioTermFlagClear
+        work
+        3
+        (if keepSignals
+          (| tiosEcho (| tiosIcanon tiosIexten))
+          (| tiosEcho (| tiosIcanon (| tiosIexten tiosIsig)))))
+      (memPutByte work (+ termiosCcOff termiosVminIdx) 1)
+      (memPutByte work (+ termiosCcOff termiosVtimeIdx) 0)
+      (ioIoctl fd tcSetAttrReq work)
+    }))
 
-; Put the terminal on `fd` into raw mode, saving what it was first:
-; `(Ok state)` to restore it with, or `(Err e)`. With `keepSignals`
-; true, ^C still raises SIGINT; with false it arrives as byte 3.
-(pub :: termRaw (-> Int Bool (Result TermState Error)))
+; The guard's release: put `save` back on `fd` with the flushing
+; request - so a half-typed line is not handed to the shell - and close
+; `fd`, the guard's own duplicate. Answers the restore's 0 or `-errno`.
+(:: ioTermRelease (-> Int String Int))
 ;@axiom:effect(io)
-(pub fn (termRaw fd keepSignals)
-  (let ((st (TermState fd (memAlloc ioTermStateCap))))
-    (ioTermAnswer
-      (if (== ttyUsesTermios 0)
-        ioTermUnsupported
-        (let ((r (ioIoctl fd tcGetAttrReq st.save)))
+(fn (ioTermRelease fd save)
+  (let ((rc (ioIoctl fd tcSetAttrReq (strData save))))
+    {
+      (ioClose fd)
+      rc
+    }))
+
+; Put the terminal on `f` into raw mode, saving what it was first:
+; `(Ok guard)`, or `(Err e)` - ENOTTY when `f` is not a terminal. With
+; `keepSignals` true, ^C still raises SIGINT; with false it arrives as
+; byte 3. Releasing the guard, or `termRestore`, puts the terminal back.
+(pub :: termRaw (-> File Bool (Result TermGuard Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (termRaw f keepSignals)
+  (if (== ttyUsesTermios 0)
+    (Err (mkError 78 "termRaw"))
+    (let ((dup (ioFcntl (ioFd f) fDupFdCloexec 0)))
+      (if (< dup 0)
+        (Err (mkError (- 0 dup) "termRaw"))
+        (let ((save (strAlloc ioTermStateCap)))
+          (let ((rc (ioIoctl dup tcGetAttrReq (strData save))))
+            (if (< rc 0)
+              {
+                (ioClose dup)
+                (Err (mkError (- 0 rc) "termRaw"))
+              }
+              (let ((guard (TermGuard (__resource_new (lambda (d) (ioTermRelease d save)) dup))))
+                (let ((r (ioTermRawApply dup save keepSignals)))
+                  (if (< r 0)
+                    (let ((_ (__resource_close guard.owner)))
+                      (Err (mkError (- 0 r) "termRaw")))
+                    (Ok guard)))))))))))
+
+; Put the terminal back as `termRaw` found it, now rather than when the
+; guard's last share goes: `(Ok 0)`, or `(Err e)`. A second call answers
+; `(Ok 0)` and does nothing.
+(pub :: termRestore (-> TermGuard (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (termRestore g)
+  (sysResult "termRestore" (__resource_close g.owner)))
+
+; ------------------------------------------------------------------
+; Readiness
+;
+; A `Poller` answers which of many files can be read without blocking:
+; kqueue on the BSDs, epoll on Linux, behind one set of names. A file is
+; added with a token of the caller's choosing, and a wake answers the
+; tokens, never a descriptor. The poller owns its kqueue or epoll
+; descriptor and, on Linux, the signal descriptor `pollerAddSignals`
+; makes; releasing the poller closes both.
+;
+; The two mechanisms differ in shape, not only in numbers. kqueue
+; registers and collects with one call and carries the token in
+; `udata`, at byte 24 of its 32-byte record on Darwin and of the first
+; 32 of FreeBSD's 64; epoll needs `epoll_ctl` to register and carries
+; the token in its data word, at byte 4 on x86_64 and 8 on aarch64.
+; `Sys.Platform` carries the sizes and the epoll offset.
+;
+; Signals arrive the same way. On the BSDs each signal is its own
+; registration on the kqueue, and the event's `ident` is the signal
+; number. On Linux the signals become a readable descriptor of their
+; own, and a wake on it is read for the number. Block the signals first
+; (`Sys.sysSignalBlock`): an unblocked SIGTERM ends the process before
+; anything observes it.
+;
+; A closed file leaves the poller's interest set as the kernel drops
+; it, so a descriptor number a later file reuses is never reported
+; under the old token.
+; ------------------------------------------------------------------
+(pub struct Poller sealed
+  (owner : Handle)
+  (events : String)
+  (cap : Int)
+  (mut count : Int)
+  (ts : String)
+  (mut sigToken : Int)
+  (mut sigFile : (Option File))
+  (sigInfo : String))
+
+; The poller's own descriptor, for one call. Traps 85 once closed.
+(:: pollerFd (-> Poller Int))
+;@axiom:effect(unsafe)
+(fn (pollerFd p)
+  (__resource_get p.owner))
+
+; The byte offset of event `i`'s token.
+(:: pollerTokenOffset (-> Int Int))
+(fn (pollerTokenOffset i)
+  (+ (* i pollEventSize)
+    (if (== pollUsesKqueue 1)
+      24
+      pollEventFdOffset)))
+
+; A poller that answers at most `cap` events per wait: `(Ok p)`, or
+; `(Err e)` carrying the errno - EMFILE when the process has no
+; descriptor left.
+(pub :: pollerNew (-> Int (Result Poller Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:pre((> cap 0))
+(pub fn (pollerNew cap)
+  (let ((pfd (__syscall3 sysPollCreateNum 0 0 0)))
+    (if (< pfd 0)
+      (Err (mkError (- 0 pfd) "pollerNew"))
+      (Ok (Poller
+        (__resource_new fileDrop pfd)
+        (strAlloc (* cap pollEventSize))
+        cap
+        0
+        (strAlloc 16)
+        (- 0 1)
+        None
+        (strAlloc (if (< sigInfoSize 8) 8 sigInfoSize)))))))
+
+; One registration record: watch `fd` (or, on the BSDs, the signal
+; `ident` under `filter`) for readability, `op` adding or deleting, with
+; `token` the wake answers.
+(:: pollerRec (-> Int Int Int Int String))
+(fn (pollerRec ident filter op token)
+  (let ((rec (strAlloc pollEventSize)))
+    (let ((p (strData rec)))
+      {
+        (if (== pollUsesKqueue 1)
+          ; struct kevent: ident, then a signed 16-bit filter, then flags,
+          ; and udata at 24.
+          {
+            (ioPutWord p 0 ident)
+            (memPutByte p 8 (& filter 255))
+            (memPutByte p 9 (& (>> filter 8) 255))
+            (memPutByte p 10 (& op 255))
+            (memPutByte p 11 (& (>> op 8) 255))
+            (ioPutWord p 24 token)
+          }
+          ; struct epoll_event: the interest mask, then the data word.
+          {
+            (ioPutWord p 0 pollReadFilter)
+            (ioPutWord p pollEventFdOffset token)
+          })
+        rec
+      })))
+
+; Apply one registration record to the poller: kevent with a change
+; list of one and no event list on the BSDs, epoll_ctl on Linux.
+(:: pollerApply (-> Poller Int String Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (pollerApply p fd rec op)
+  (if (== pollUsesKqueue 1)
+    (__syscall6
+      sysPollWaitNum
+      (pollerFd p)
+      (strData rec)
+      1
+      0
+      0
+      0)
+    (__syscall4
+      sysPollCtlNum
+      (pollerFd p)
+      op
+      fd
+      (strData rec))))
+
+; Watch `f` for readability under `token`: `(Ok 0)`, or `(Err e)`. The
+; poller does not keep `f` alive; close it, or let it go, and its
+; registration goes with it.
+(pub :: pollerAdd (-> Poller File Int (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (pollerAdd p f token)
+  (let ((fd (ioFd f)))
+    (ioAnswer "pollerAdd" (pollerApply p fd (pollerRec fd pollReadFilter pollAddOp token) pollAddOp))))
+
+; Stop watching `f`: `(Ok 0)`, or `(Err e)` - ENOENT when it was not
+; being watched.
+(pub :: pollerRemove (-> Poller File (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (pollerRemove p f)
+  (let ((fd (ioFd f)))
+    (ioAnswer "pollerRemove" (pollerApply p fd (pollerRec fd pollReadFilter pollDelOp 0) pollDelOp))))
+
+; Watch the signals in `mask` (bit N-1 for signal N, `Sys.sysSigBit`)
+; under `token`: `(Ok 0)`, or `(Err e)`. Block them with
+; `Sys.sysSignalBlock` first. `pollerSignal` reads which one arrived.
+(pub :: pollerAddSignals (-> Poller Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (pollerAddSignals p mask token)
+  (if (== signalUsesSignalFd 1)
+    (let ((sigset (strAlloc 16)))
+      {
+        (ioPutWord (strData sigset) 0 mask)
+        ; signalfd4(-1, mask, sizemask, SFD_CLOEXEC): -1 creates a
+        ; descriptor rather than updating one.
+        (let ((sfd (__syscall4 sysSignalFdNum (- 0 1) (strData sigset) sigsetBytes oCloexec)))
+          (if (< sfd 0)
+            (Err (ioFdError (- 0 sfd) "pollerAddSignals"))
+            (let ((sf (ioAdopt sfd)))
+              (match (pollerAdd p sf token)
+                ((Err e) (Err e))
+                ((Ok n)
+                  {
+                    (set p.sigFile (Some sf))
+                    (set p.sigToken token)
+                    (Ok n)
+                  })))))
+      })
+    ; The BSDs: one EVFILT_SIGNAL registration per signal in the mask.
+    ; Signals are 1..31; bit N-1 is signal N.
+    (let ((mut rc 0))
+      {
+        (for signo in 1..32
+          (if (!= (& mask (sysSigBit signo)) 0)
+            (let ((r (pollerApply p signo (pollerRec signo pollSignalFilter pollAddOp token) pollAddOp)))
+              (if (< r 0)
+                (set rc r)
+                0))
+            0))
+        (set p.sigToken token)
+        (ioAnswer "pollerAddSignals" rc)
+      })))
+
+; Wait for readiness: `(Ok n)` with `n` events to read with
+; `pollerToken` and `pollerSignal`, `(Ok 0)` when `timeoutMs` passed
+; first, or `(Err e)`. A negative `timeoutMs` waits for ever; 0 asks and
+; answers at once. EINTR answers `(Ok 0)`: nothing was collected.
+(pub :: pollerWait (-> Poller Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (pollerWait p timeoutMs)
+  (let ((r
+    (if (== pollUsesKqueue 1)
+      ; kqueue takes a pointer to a timespec and reads NULL as "no
+      ; timeout"; epoll takes milliseconds in a register.
+      (if (< timeoutMs 0)
+        (__syscall6
+          sysPollWaitNum
+          (pollerFd p)
+          0
+          0
+          (strData p.events)
+          p.cap
+          0)
+        {
+          (ioPutWord (strData p.ts) 0 (/ timeoutMs 1000))
+          (ioPutWord (strData p.ts) 8 (* (% timeoutMs 1000) 1000000))
+          (__syscall6
+            sysPollWaitNum
+            (pollerFd p)
+            0
+            0
+            (strData p.events)
+            p.cap
+            (strData p.ts))
+        })
+      ; epoll_pwait's fifth argument is a signal mask this layer does not
+      ; use, and its sixth that mask's size, which the kernel checks.
+      (__syscall6
+        sysPollWaitNum
+        (pollerFd p)
+        (strData p.events)
+        p.cap
+        timeoutMs
+        0
+        pollSigsetSize))))
+    (if (== r (- 0 4))
+      {
+        (set p.count 0)
+        (Ok 0)
+      }
+      (if (< r 0)
+        {
+          (set p.count 0)
+          (Err (ioFdError (- 0 r) "pollerWait"))
+        }
+        {
+          (set p.count r)
+          (Ok r)
+        }))))
+
+; The token event `i` of the last wait carries. An `i` outside the
+; events that wait answered stops the program with status 77.
+(pub :: pollerToken (-> Poller Int Int))
+(pub fn (pollerToken p i)
+  (if (|| (< i 0) (>= i p.count))
+    __indexTrap
+    (ioGetWord (strData p.events) (pollerTokenOffset i))))
+
+; The signal event `i` of the last wait delivered, or `None` when it is
+; not a signal. On Linux this reads the signal descriptor, once per
+; event. An `i` outside the last wait's events stops the program with
+; status 77.
+(pub :: pollerSignal (-> Poller Int (Option Int)))
+;@axiom:effect(io)
+(pub fn (pollerSignal p i)
+  (if (|| (< i 0) (>= i p.count))
+    __indexTrap
+    (if (== signalUsesSignalFd 1)
+      (match p.sigFile
+        ((None) None)
+        ((Some sf)
+          (if (!= (pollerToken p i) p.sigToken)
+            None
+            (let ((n (ioReadFd (ioFd sf) (strData p.sigInfo) sigInfoSize)))
+              (if (< n sigInfoSize)
+                None
+                (Some (ioGetInt32 (strData p.sigInfo) 0)))))))
+      ; kqueue: the record's own 16-bit filter says whether it is a
+      ; signal, and its `ident` is the number.
+      (let (
+        (b (strData p.events))
+        (off (* i pollEventSize))
+      )
+        (if (&& (== (memGetByte b (+ off 8)) (& pollSignalFilter 255)) (== (memGetByte b (+ off 9)) (& (>> pollSignalFilter 8) 255)))
+          (Some (ioGetWord b off))
+          None)))))
+
+; Close the poller now rather than at its last share: `(Ok 0)`, or
+; `(Err e)`. Any later use traps 85.
+(pub :: pollerClose (-> Poller (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (pollerClose p)
+  {
+    (match p.sigFile
+      ((Some sf)
+        (let ((_ (fileClose sf))) 0))
+      ((None) 0))
+    (sysResult "pollerClose" (__resource_close p.owner))
+  })
+
+; ------------------------------------------------------------------
+; Sockets
+;
+; TCP over a `File`. `Net` types these as `TcpListener` and
+; `TcpStream`; the calls here take the socket address as the bytes
+; `Sys.netAddr4` and `Sys.netAddr6` write, `netAddrMaxBytes` long, and
+; refuse anything else with EINVAL before a syscall.
+;
+; Every socket made here is blocking, closes on its last share, and
+; does not raise SIGPIPE on a closed peer: Darwin and FreeBSD set
+; `SO_NOSIGPIPE` per socket, and Linux and FreeBSD send with
+; `MSG_NOSIGNAL`, so the write answers EPIPE instead.
+; ------------------------------------------------------------------
+; Whether `addr` is a socket address this layer can hand the kernel:
+; the right length and a family it knows.
+(:: socketAddrOk (-> String Bool))
+(fn (socketAddrOk addr)
+  (if (!= (strLen addr) netAddrMaxBytes)
+    false
+    (let ((fam (netAddrFamily (strData addr))))
+      (|| (== fam afInet) (== fam afInet6)))))
+
+(:: socketBadAddr (-> String (Result a Error)))
+(fn (socketBadAddr op)
+  (Err (mkError 22 (concat op ": not a socket address"))))
+
+; Set an integer option on a raw socket descriptor: 0, or `-errno`.
+(:: socketOptRaw (-> Int Int Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (socketOptRaw fd level name value)
+  (let ((v (strAlloc 4)))
+    {
+      (ioPutInt32 (strData v) 0 value)
+      (__syscall5 sysSetSockOptNum fd level name (strData v) 4)
+    }))
+
+; Clear or set `O_NONBLOCK`, keeping the other flags: 0, or `-errno`.
+(:: ioSetNonBlocking (-> Int Bool Int))
+;@axiom:effect(io)
+(fn (ioSetNonBlocking fd on)
+  (let ((fl (ioFcntl fd fGetFl 0)))
+    (if (< fl 0)
+      fl
+      (ioFcntl
+        fd
+        fSetFl
+        (if on
+          (| fl oNonblock)
+          (& fl (^ oNonblock (- 0 1))))))))
+
+; A raw socket descriptor made ready to own: blocking, and no SIGPIPE
+; where that is per socket. Closes `fd` and answers `-errno` on failure.
+(:: socketReady (-> Int Int))
+;@axiom:effect(io)
+(fn (socketReady fd)
+  (let ((r (ioSetNonBlocking fd false)))
+    (let ((r2
+      (if (< r 0)
+        r
+        (if (== soNoSigPipe 0)
+          0
+          (socketOptRaw fd solSocket soNoSigPipe 1)))))
+      (if (< r2 0)
+        {
+          (ioClose fd)
+          r2
+        }
+        fd))))
+
+; A blocking TCP socket for the family of `addr`, not yet bound or
+; connected: `(Ok file)`, or `(Err e)`.
+(pub :: socketOpen (-> String (Result File Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (socketOpen addr)
+  (if (! (socketAddrOk addr))
+    (socketBadAddr "socketOpen")
+    (let ((fd (__syscall3 sysSocketNum (netAddrFamily (strData addr)) sockStream 0)))
+      (if (< fd 0)
+        (Err (ioFdError (- 0 fd) "socketOpen"))
+        (let ((r (socketReady fd)))
           (if (< r 0)
-            r
-            (ioTermRawApply fd st.save keepSignals (memAlloc ioTermStateCap)))))
-      st
-      "termRaw")))
+            (Err (ioFdError (- 0 r) "socketOpen"))
+            (Ok (ioAdopt r))))))))
 
-; Put back the attributes `st` saved, on the descriptor they came from:
-; `(Ok 0)`, or `(Err e)`. The request is the flushing one, so a
-; half-typed line is not handed to the shell.
-(pub :: termRestore (-> TermState (Result Int Error)))
+; Bind `s` to `addr`. The length comes from the family in the address.
+(pub :: socketBind (-> File String (Result Int Error)))
 ;@axiom:effect(io)
-(pub fn (termRestore st)
-  (sysResult
-    "termRestore"
-    (if (== ttyUsesTermios 0)
-      ioTermUnsupported
-      (ioIoctl st.fd tcSetAttrReq st.save))))
+;@axiom:effect(unsafe)
+(pub fn (socketBind s addr)
+  (if (! (socketAddrOk addr))
+    (socketBadAddr "socketBind")
+    (ioAnswer "socketBind" (__syscall3 sysBindNum (ioFd s) (strData addr) (netAddrSize (strData addr))))))
 
-; The size of the terminal on `fd`: `(Ok size)`, or `(Err e)` - ENOTTY
-; when `fd` is not a terminal. A terminal may answer 0 rows and 0
-; columns with a successful call; treat 0 as unknown.
-(pub :: termSize (-> Int (Result TermSize Error)))
+; Listen on a bound socket, queueing up to `backlog` connections.
+(pub :: socketListen (-> File Int (Result Int Error)))
 ;@axiom:effect(io)
-(pub fn (termSize fd)
-  (let ((ws (memAlloc 8)))
-    (let ((rc
-      (if (== ttyUsesTermios 0)
-        ioTermUnsupported
-        (ioIoctl fd tcWinSizeReq ws))))
+;@axiom:effect(unsafe)
+(pub fn (socketListen s backlog)
+  (ioAnswer "socketListen" (__syscall3 sysListenNum (ioFd s) backlog 0)))
+
+; The next connection on a listening socket, as a blocking socket of its
+; own: `(Ok file)`, or `(Err e)` - EAGAIN when the listener does not
+; block and nothing is waiting. The accepted socket blocks whatever the
+; listener's mode, on every target.
+(pub :: socketAccept (-> File (Result File Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (socketAccept s)
+  (let ((fd (__syscall4 sysAcceptNum (ioFd s) 0 0 0)))
+    (if (< fd 0)
+      (Err (ioFdError (- 0 fd) "socketAccept"))
+      (let ((r (socketReady fd)))
+        (if (< r 0)
+          (Err (ioFdError (- 0 r) "socketAccept"))
+          (Ok (ioAdopt r)))))))
+
+; Connect `s` to `addr`. A non-blocking socket answers `(Err e)` with
+; EINPROGRESS, which is the kernel's contract rather than a failure.
+(pub :: socketConnect (-> File String (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (socketConnect s addr)
+  (if (! (socketAddrOk addr))
+    (socketBadAddr "socketConnect")
+    (ioAnswer "socketConnect" (__syscall3 sysConnectNum (ioFd s) (strData addr) (netAddrSize (strData addr))))))
+
+; Close one or both halves: `how` is 0 for reading, 1 for writing and 2
+; for both. Anything else is EINVAL.
+(pub :: socketShutdown (-> File Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (socketShutdown s how)
+  (if (|| (< how 0) (> how 2))
+    (Err (mkError 22 "socketShutdown: how is 0, 1 or 2"))
+    (ioAnswer "socketShutdown" (__syscall3 sysShutdownNum (ioFd s) how 0))))
+
+; Set an integer socket option, such as `soReuseAddr` at `solSocket` or
+; `tcpNoDelayOpt` at `ipprotoTcp`.
+(pub :: socketSetInt (-> File Int Int Int (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (socketSetInt s level name value)
+  (ioAnswer "socketSetInt" (socketOptRaw (ioFd s) level name value)))
+
+; Set the `soRcvTimeo` or `soSndTimeo` timeout, in microseconds; 0
+; waits for ever and a negative timeout is EINVAL.
+(pub :: socketSetTimeout (-> File Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (socketSetTimeout s opt micros)
+  (if (< micros 0)
+    (Err (mkError 22 "socketSetTimeout: a timeout is not negative"))
+    (let ((tv (strAlloc 16)))
+      {
+        ; struct timeval: seconds in the first word, microseconds in the
+        ; second - a 4-byte field padded to 8 on Darwin, 8 bytes on Linux
+        ; and FreeBSD, so the low four bytes carry it either way.
+        (ioPutWord (strData tv) 0 (/ micros 1000000))
+        (ioPutWord (strData tv) 8 (% micros 1000000))
+        (ioAnswer "socketSetTimeout" (__syscall5 sysSetSockOptNum (ioFd s) solSocket opt (strData tv) 16))
+      })))
+
+; The address `s` is bound to, or with `peer` true the address of the
+; peer it is connected to, as `netAddrMaxBytes` bytes.
+(pub :: socketAddr (-> File Bool (Result String Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (socketAddr s peer)
+  (let (
+    (a (strAlloc netAddrMaxBytes))
+    (lenb (strAlloc 8))
+  )
+    {
+      (ioPutInt32 (strData lenb) 0 netAddrMaxBytes)
+      (let ((r (__syscall3
+        (if peer
+          sysGetPeerNameNum
+          sysGetSockNameNum)
+        (ioFd s)
+        (strData a)
+        (strData lenb))))
+        (if (< r 0)
+          (Err (ioFdError (- 0 r) "socketAddr"))
+          (Ok a)))
+    }))
+
+; Send all of `data`, continuing after a short send and retrying EINTR:
+; `(Ok n)`, or `(Err e)` - EPIPE when the peer has closed, never a
+; signal.
+(pub :: socketSend (-> File String (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (socketSend s data)
+  (let (
+    (fd (ioFd s))
+    (n (strLen data))
+    (p (strData data))
+    (mut off 0)
+    (mut rc 0)
+  )
+    {
+      (while (&& (< off n) (== rc 0))
+        (let ((r (__syscall6
+          sysSendToNum
+          fd
+          (+ p off)
+          (- n off)
+          msgNoSignal
+          0
+          0)))
+          (if (< r 0)
+            (if (== r (- 0 4))
+              ; EINTR: nothing was sent; try again
+              0
+              {
+                (set rc r)
+                0
+              })
+            {
+              (set off (+ off r))
+              0
+            })))
       (if (< rc 0)
-        (Err (mkError (- 0 rc) "termSize"))
-        (Ok (TermSize
-          (+ (memGetByte ws 0) (<< (memGetByte ws 1) 8))
-          (+ (memGetByte ws 2) (<< (memGetByte ws 3) 8))))))))
+        (Err (ioFdError (- 0 rc) "socketSend"))
+        (Ok off))
+    }))
 
-; An owned file. Aliases share its lifetime; the last owner closes it.
-; Explicit `fileClose` closes it early for every alias.
-(pub struct File sealed
-  (owner : Handle))
-
-(:: fileDrop (-> Int Int))
+; Switch `f` between blocking (`false`) and non-blocking (`true`),
+; keeping its other flags. A read or write that cannot proceed on a
+; non-blocking file answers `(Err e)` with EAGAIN, which
+; `Sys.netWouldBlock` recognises from `(- 0 e.code)`.
+(pub :: fileSetNonBlocking (-> File Bool (Result Int Error)))
 ;@axiom:effect(io)
-(fn (fileDrop fd)
-  (match (sysCloseFd fd)
-    ((Ok n) n)
-    ((Err e) (- 0 (errCode e)))))
-
-; Transfer ownership of one descriptor into a File.
-; `fd` must be an open descriptor this call takes over: don't close it
-; or give it another owner.
-(pub :: fileFromFd (-> Int File))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-;@axiom:pre((>= fd 0))
-(pub fn (fileFromFd fd)
-  (File (__resource_new fileDrop fd)))
-
-; Borrow the descriptor for readiness calls. Keep its owner live and
-; do not close the descriptor; use `fileClose` to close its owner.
-(pub :: fileFd (-> File Int))
-;@axiom:effect(unsafe)
-(pub fn (fileFd f)
-  (__resource_get f.owner))
-
-; Close early, once. Aliases observe the close; dropping them is safe.
-; The descriptor is retired before close and close is never retried.
-(pub :: fileClose (-> File (Result Int Error)))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (fileClose f)
-  (sysResult "fileClose" (__resource_close f.owner)))
-
-; Read a line, preserving EOF as None and failures as Err.
-(pub :: fileReadLine (-> File (Result (Option String) Error)))
-;@axiom:effect(io)
-(pub fn (fileReadLine f)
-  (readLine (fileFd f)))
-
-; Read the remaining bytes from a file.
-(pub :: fileReadAll (-> File (Result String Error)))
-;@axiom:effect(io)
-(pub fn (fileReadAll f)
-  (readAll (fileFd f)))
-
-; Read at most `count` bytes into `buf[at .. at + count)`: `(Ok n)`,
-; `(Ok 0)` at end of input, or `(Err e)`. A range outside `buf` stops
-; the program with status 77 before the kernel sees it.
-(pub :: fileRead (-> File ReadBuffer Int Int (Result Int Error)))
-;@axiom:effect(io)
-(pub fn (fileRead f buf at count)
-  (readBuffer (fileFd f) buf at count))
-
-; Write every byte, preserving errors in the result.
-(pub :: fileWrite (-> File String (Result Int Error)))
-;@axiom:effect(io)
-(pub fn (fileWrite f s)
-  (sysResult "fileWrite" (sysWriteAllFd (fileFd f) (strData s) (strLen s))))
+(pub fn (fileSetNonBlocking f on)
+  (ioAnswer "fileSetNonBlocking" (ioSetNonBlocking (ioFd f) on)))

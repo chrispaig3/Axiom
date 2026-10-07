@@ -31,7 +31,7 @@
 ;@axiom:effect(io)
 (fn (shout n)
   {
-    (writeStr 1 "!\n")
+    (writeStr stdout "!\n")
     n
   })
 
@@ -46,7 +46,7 @@
 ;@axiom:effect(pure)
 (fn (liar n)
   {
-    (writeStr 1 "!\n")
+    (writeStr stdout "!\n")
     n
   })
 

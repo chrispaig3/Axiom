@@ -306,21 +306,19 @@
   106)
 
 ; accept(fd, addr, addrlen) - 30. FreeBSD does have `accept4` (541,
-; with SOCK_NONBLOCK = 0x20000000) and it is deliberately not used:
-; `acceptNonblockFlag` is 0 and `Sys.ax` takes the Darwin shape - a
-; plain `accept`, then `fcntl` - so that the two BSDs share one path
-; and the flag value is not a third thing to get wrong. The fourth
-; argument `Sys.ax` passes is ignored, as Darwin ignores it.
+; with SOCK_NONBLOCK = 0x20000000) and it is not used: `IO.socketAccept`
+; takes the Darwin shape - a plain `accept`, then `fcntl` - so the two
+; BSDs share one path. The fourth argument it passes is 0, and ignored
+; here as Darwin ignores it.
 ;
 ; MEASURED 2026-08-29, FreeBSD 14.4 arm64, and it is the one place
 ; this kernel and Darwin's disagree about the same call: with an
 ; address buffer shorter than the peer's 16 bytes, `accept` writes the
 ; COPIED length back - caps of 4, 8 and 12 answered 4, 8 and 12 -
 ; where Darwin and Linux write the whole 16. The whole length still
-; arrives, in `sin_len` at byte 0, whenever one byte fits; `Sys.ax`'s
-; `netAcceptFrom` reads it back from there on every platform that has
-; the byte, which is what keeps `tests/stdlib/317-peer-address.ax`'s
-; "a short buffer still learns the address's real length" true here.
+; arrives, in `sin_len` at byte 0, whenever one byte fits. `IO` asks
+; for a peer's address into a buffer of `netAddrMaxBytes`, which every
+; address fits, so the difference never shows.
 (pub :: sysAcceptNum Int)
 (pub fn (sysAcceptNum)
   30)
@@ -406,6 +404,13 @@
 (pub fn (fSetFl)
   4)
 
+; fcntl's F_DUPFD_CLOEXEC: a duplicate of a descriptor, closed on exec.
+; `IO.termRaw` keeps one, so its guard can restore the terminal however
+; the caller's file is closed.
+(pub :: fDupFdCloexec Int)
+(pub fn (fDupFdCloexec)
+  17)
+
 (pub :: oNonblock Int)
 (pub fn (oNonblock)
   4)
@@ -464,11 +469,11 @@
 ;   12:4 fflags (uint32) | 16:8 data (int64) | 24:8 udata (ptr)
 ;   32:32 ext[4] (uint64)
 ;
-; The first 32 bytes are Darwin's byte for byte, and `sysPollRec`
-; writes only `ident`, `filter` and `flags`, all inside that prefix;
-; `memSet rec 0 pollEventSize` zeroes `ext`, which is what the kernel
-; requires of an unused extension. So no portable code changes - only
-; the stride, which `sysPollFdAt` and `sysPollBufBytes` read from here.
+; The first 32 bytes are Darwin's byte for byte, and `IO`'s poller
+; writes only `ident`, `filter`, `flags` and `udata`, all inside that
+; prefix, into a zeroed record, so `ext` is zero as the kernel requires
+; of an unused extension. Only the stride differs, which `IO` reads
+; from here.
 (pub :: pollEventSize Int)
 (pub fn (pollEventSize)
   64)
@@ -618,17 +623,6 @@
 (pub :: forkChildIsZero Int)
 (pub fn (forkChildIsZero)
   1)
-
-; The flag `netAccept` passes to make the accepted socket non-blocking.
-; 0: `accept4` exists here but is not used (see `sysAcceptNum`), so
-; `Sys.ax` reaches for `fcntl` afterwards, as on Darwin. Whether an
-; accepted socket INHERITS the listener's `O_NONBLOCK` here is not
-; measured; `netAccept` sets the flag explicitly either way, which is
-; the reason the Darwin file gives for defining the answer rather than
-; reporting it.
-(pub :: acceptNonblockFlag Int)
-(pub fn (acceptNonblockFlag)
-  0)
 
 ; ------------------------------------------------------------------
 ; Which KIND of platform module this is.

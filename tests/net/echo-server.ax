@@ -3,8 +3,8 @@
 ; answer.
 ;
 ; It is a pre-forked pool: one listening socket created before the fork
-; and inherited by every worker, each worker waiting on a readiness
-; descriptor that carries both the listener and SIGTERM. That much is
+; and inherited by every worker, each worker waiting on a `Poller` that
+; watches both the listener and SIGTERM. That much is
 ; `tests/stdlib/311-preforked-server.ax` at scale.
 ;
 ; WHAT IS NEW HERE IS THE ARENA, AND IT IS A FLAG SO THE GATE CAN RUN
@@ -44,30 +44,17 @@
 (import Err)
 (import Mem)
 (import Str)
+(import Vec)
+(import Net)
 
 ; The `i`th command-line argument as a decimal Int, or 0 when it is
-; not one. `Str.strParseInt` is the parser; this file carried a
-; private one until 2026-08-29, with a comment saying the library had
-; none.
+; not one.
 (:: argInt (-> Int Int))
 ;@axiom:effect(io)
 (fn (argInt i)
   (match (strParseInt (sysArg i))
     ((Some v) v)
     ((None) 0)))
-
-; A listener setup step that must succeed: its answer, or a line naming
-; the step and its errno and exit 2, as a failed bind does below.
-(:: setupOrExit (-> String (Result Int Error) Int))
-;@axiom:effect(io)
-(fn (setupOrExit what r)
-  (match r
-    ((Ok v) v)
-    ((Err e)
-      {
-        (println (concat (concat what " failed: errno ") (fmtInt (errCode e))))
-        (sysExitWith 2)
-      })))
 
 ; Whether an environment variable is set to exactly "1". `sysEnv`
 ; answers "" for a variable that is not set, so an unset name and a
@@ -96,7 +83,7 @@
 ; not written anywhere: it is the ALLOCATION this case exists to
 ; measure, and writing it would measure the socket instead. Every byte
 ; of it is stored, so its pages are resident and RSS sees them.
-(:: respond (-> Int String Int Int))
+(:: respond (-> TcpStream String Int Int))
 ;@axiom:effect(io)
 (fn (respond con byte reps)
   (let (
@@ -116,264 +103,182 @@
             (set i (+ i 1))
           }))
       (if (> n 0)
-        (writeSlice con byte 0 1)
+        (match (tcpWrite con byte)
+          ((Ok k) k)
+          ((Err e) 0))
         0)
     }))
 
-; `reportPeer` costs an address buffer and a `socklen_t` cell per
-; WORKER, allocated here beside the poll buffers and therefore above
-; every arena mark - so the peer arm does not add anything the reset
-; has to rewind, and the memory arms measure the same handler whether
-; it is on or off.
+; One connection, start to finish: 1 when one was taken, 0 when a
+; sibling took it first. EVERYTHING IT ALLOCATES - the stream, the peer
+; line, the byte, the response's blocks - is above the caller's arena
+; mark, and every binding that holds any of it ends when this function
+; returns, before the caller resets.
+(:: handleOne (-> TcpListener ReadBuffer Int Bool Int))
+;@axiom:effect(io)
+(fn (handleOne lsn byte reps reportPeer)
+  (match (tcpAccept lsn)
+    ((Err e) 0)
+    ((Ok con)
+      {
+        (if reportPeer
+          (match (tcpPeerAddr con)
+            ((Ok peer) (println (concat "peer " (socketAddrText peer))))
+            ((Err e) 0))
+          0)
+        (if (==
+          (match (tcpRead con byte 0 1)
+            ((Ok k) k)
+            ((Err e) (- 0 e.code)))
+          1)
+          (respond con (readBufferText byte 0 1) reps)
+          0)
+        (let ((_ (tcpClose con))) 0)
+        1
+      })))
+
+; A worker: serve until SIGTERM. The poller, the one-byte buffer and the
+; mark cell are allocated here, above every arena mark, so no reset
+; reclaims them.
 ;
 ; THE MARK CELL IS PER WORKER TOO. `__axiom_arena_mark` allocates its
 ; cell below the position it records, so no reset reclaims it
 ; (MM-ALLOC-12): a mark per connection leaves a cell per connection,
 ; hundreds of KB over ten thousand of them, in both arms alike.
 ; `__axiom_arena_mark_into` refreshes one cell allocated here instead.
-(:: serve (-> Int Int Int Bool Int))
+(:: serve (-> TcpListener Int Int Bool Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 (fn (serve lsn arenaOn varied reportPeer)
   (let (
-    (rec (memAlloc 64))
-    (ts (memAlloc 16))
-    (peer (memAlloc netAddrMaxBytes))
-    (lenb (memAlloc 8))
     (markCell (memAlloc 32))
+    (byte (readBufferNew 1))
   )
-    (let ((setbuf (memAlloc 16)))
-      (let ((scratch (memAlloc 256)))
-        (let ((buf (memAlloc (sysPollBufBytes 64))))
-          (let ((byte (strAlloc 1)))
-            (match sysPollCreate
-              ((Err e) (sysExitWith 255))
-              ((Ok pfd)
-                (let ((mut served 0))
-                  (let ((mut running 1))
-                    {
-                      (if (isErr (sysPollAddRead pfd lsn rec))
-                        (sysExitWith 255)
-                        0)
-                      ; THE FAILURE IS DISCARDED HERE, DELIBERATELY, and
-                      ; the `unwrapOr` is what makes that visible. The old
-                      ; sentinel let a negative handle travel into
-                      ; `sysPollSignalAt`, where it can never equal a real
-                      ; descriptor, so a worker that could not watch
-                      ; SIGTERM simply never saw one - and `-1` is exactly
-                      ; the value that produced that. Equivalent by
-                      ; construction, which is the only case
-                      ; `docs/error-model.md` allows `unwrapOr` with a
-                      ; constant in.
-                      (let ((sh (unwrapOr (sysSignalOpen pfd (sysSigBit sigTerm) rec setbuf) (- 0 1))))
-                        (while (== running 1)
-                          (let ((n 
-                            (match (sysPollWait
-                              pfd
-                              buf
-                              64
-                              10000
-                              ts)
-                              ((Ok k) k)
-                              ((Err e) (- 0 (errCode e))))))
-                            (if (< n 1)
-                              (set running 0)
-                              (let ((mut e 0))
-                                (while (< e n)
-                                  {
-                                    (match (sysPollSignalAt buf e sh scratch)
-                                      ((Some sig)
-                                        (set running 0)
-                                      )
-                                      ((None)
-                                        (let ((con 
-                                          (if reportPeer
-                                            (match (netAcceptFrom lsn peer netAddrMaxBytes lenb)
-                                              ((Ok k) k)
-                                              ((Err e) (- 0 (errCode e))))
-                                            (match (netAccept lsn)
-                                              ((Ok k) k)
-                                              ((Err e) (- 0 (errCode e)))))))
-                                          (if (< con 0)
-                                            0
-                                            ; EVERYTHING THE CONNECTION
-                                            ; ALLOCATES IS ABOVE THIS MARK.
-                                            ; The poll buffers and the
-                                            ; listener were allocated
-                                            ; before it and survive the
-                                            ; reset; nothing built while
-                                            ; answering does.
-                                            {
-                                              (let ((m (__axiom_arena_mark_into markCell)))
-                                                {
-                                                  ; A descriptor left non-blocking
-                                                  ; answers the read below with
-                                                  ; an `Err`, which skips the
-                                                  ; response, so the failure is
-                                                  ; handled there.
-                                                  (let ((_ (netSetBlocking con))) 0)
-                                                  ; INSIDE THE MARK, so the
-                                                  ; rendering is garbage
-                                                  ; the reset takes with
-                                                  ; everything else the
-                                                  ; connection allocated.
-                                                  ; The address itself was
-                                                  ; written into `peer` by
-                                                  ; the accept above, which
-                                                  ; is memory the worker
-                                                  ; owns.
-                                                  (if reportPeer
-                                                    (println (concat "peer " (netAddrTextPort peer)))
-                                                    0)
-                                                  (if (==
-                                                    (match (readInto con byte 0 1)
-                                                      ((Ok k) k)
-                                                      ((Err e) (- 0 (errCode e))))
-                                                    1)
-                                                    (respond
-                                                      con
-                                                      byte
-                                                      (if (== varied 1)
-                                                        (+ 8 (* 32 (% served 16)))
-                                                        32))
-                                                    0)
-                                                  ; A close error leaves nothing
-                                                  ; to undo: the descriptor is
-                                                  ; gone either way.
-                                                  (let ((_ (sysCloseFd con))) 0)
-                                                  (if (== arenaOn 1)
-                                                    (__axiom_arena_reset m)
-                                                    0)
-                                                })
-                                              (set served (+ served 1))
-                                            }))
-                                      ))
-                                    (set e (+ e 1))
-                                  }))))))
-                      (let ((_ (sysCloseFd pfd))) 0)
-                      served
-                    }))
-              ))))))))
+    (match (pollerNew 64)
+      ((Err e) (sysExitWith 255))
+      ((Ok p)
+        (let (
+          (mut served 0)
+          (mut running 1)
+        )
+          {
+            (if (isErr (pollerAddListener p lsn 1))
+              (sysExitWith 255)
+              0)
+            ; A worker that cannot watch SIGTERM still serves; it leaves
+            ; on the wait's ten-second timeout instead.
+            (let ((_ (pollerAddSignals p (sysSigBit sigTerm) 2))) 0)
+            (while (== running 1)
+              (let ((n
+                (match (pollerWait p 10000)
+                  ((Ok k) k)
+                  ((Err e) (- 0 e.code)))))
+                (if (< n 1)
+                  (set running 0)
+                  (let ((mut e 0))
+                    (while (< e n)
+                      {
+                        (match (pollerSignal p e)
+                          ((Some sig) (set running 0))
+                          ((None)
+                            (let ((m (__axiom_arena_mark_into markCell)))
+                              {
+                                (set served (+ served (handleOne
+                                  lsn
+                                  byte
+                                  (if (== varied 1)
+                                    (+ 8 (* 32 (% served 16)))
+                                    32)
+                                  reportPeer)))
+                                (if (== arenaOn 1)
+                                  (__axiom_arena_reset m)
+                                  0)
+                              })))
+                        (set e (+ e 1))
+                      })))))
+            served
+          })))))
+
+; The address to listen on: 127.0.0.1, or ::1 under AXIOM_NET_LISTEN6.
+(:: listenAddr (-> Bool Int (Result SocketAddr Error)))
+(fn (listenAddr v6 port)
+  (if v6
+    (let ((g vecNew))
+      {
+        (for i in 0..7
+          (vecPush g 0))
+        (vecPush g 1)
+        (socketAddrV6 g port)
+      })
+    (socketAddrV4 127 0 0 1 port)))
 
 (:: main Int)
 ;@axiom:effect(io)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
 (fn (main)
-  (let ((port (argInt 1)))
-    (let ((nworkers (argInt 2)))
-      (let ((arenaOn (argInt 3)))
-        (let ((varied (argInt 4)))
-          (let ((addr (memAlloc netAddrMaxBytes)))
-            (let (
-              (setbuf (memAlloc 16))
-              (optb (memAlloc 4))
-            )
-              (let ((pids vecNew))
-                (let ((v6 (envOn "AXIOM_NET_LISTEN6")))
-                  (match (if v6
-                    netSocketTcp6
-                    netSocketTcp)
-                    ; A LISTENER THAT WAS NEVER CREATED USED TO REACH `netBind`,
-                    ; and the bind's own errno was then the only thing printed -
-                    ; which is the first of the four cases the comment below says
-                    ; now name themselves. `socket` failing says so here instead.
-                    ((Err se)
-                      (let ((eno (errCode se)))
+  (let (
+    (port (argInt 1))
+    (nworkers (argInt 2))
+    (arenaOn (argInt 3))
+    (varied (argInt 4))
+    (setbuf (memAlloc 16))
+    (pids vecNew)
+    (v6 (envOn "AXIOM_NET_LISTEN6"))
+  )
+    (match (listenAddr v6 port)
+      ((Err e)
+        {
+          (println (concat "address failed: " (errorText e)))
+          (sysExitWith 2)
+        })
+      ((Ok addr)
+        ; A FAILED LISTEN NAMES ITSELF: the operation and the errno, with
+        ; the address and the length it asked for, so a wrong family, a
+        ; wrong length and a port already taken read differently.
+        (match (tcpListen addr)
+          ((Err le)
+            {
+              (println (concat (concat (concat (errorText le) " failed: errno ") (fmtInt le.code)) (concat (concat " addr " (socketAddrText addr)) (concat " len " (fmtInt (netAddrSize (strData addr.bytes)))))))
+              (sysExitWith 2)
+            })
+          ((Ok lsn)
+            {
+              (let ((_ (tcpListenerSetNonBlocking lsn true))) 0)
+              (let ((_ (sysSignalBlock (sysSigBit sigTerm) setbuf))) 0)
+              (let ((mut w 0))
+                (while (< w nworkers)
+                  {
+                    (let ((pid sysForkProcess))
+                      (if (== pid 0)
+                        (sysExitWith (serve lsn arenaOn varied (envOn "AXIOM_NET_PEER")))
                         {
-                          (println (concat "socket failed: errno " (fmtInt eno)))
-                          (sysExitWith 2)
-                        })
-                    )
-                    ((Ok lsn)
-                      {
-                        (setupOrExit "setsockopt" (netSetOptInt
-                          lsn
-                          solSocket
-                          soReuseAddr
-                          1
-                          optb))
-                        ; The address decides the length `netBind` passes,
-                        ; so the only thing that changes between the two
-                        ; families here is which builder writes the buffer.
-                        (if v6
-                          (netAddr6
-                            addr
-                            port
-                            0
-                            0
-                            0
-                            0
-                            0
-                            0
-                            0
-                            1)
-                          (netAddr4
-                            addr
-                            port
-                            127
-                            0
-                            0
-                            1))
-                        ; A FAILED BIND USED TO EXIT SILENTLY, and the
-                        ; only thing the gate could then say was that no
-                        ; `pids` line ever appeared - true of a wrong
-                        ; address family, a wrong address length, a port
-                        ; already taken and a listener that was never
-                        ; created. All four now name themselves here: a
-                        ; negative `socket` means the family was refused
-                        ; at `socket`, and the errno beside the address
-                        ; and the length it asked for distinguishes the
-                        ; rest.
-                        ;
-                        ; THE `Err` ARM IS THE ONLY PLACE THAT ERRNO
-                        ; LIVES. `netBind` answers a `Result` since
-                        ; 0.6.2, so there is no `rc` to print: the number
-                        ; is `errCode` and the operation that produced it
-                        ; is `errMessage`.
-                        (match (netBind lsn addr)
-                          ((Ok bound) bound)
-                          ((Err be)
-                            {
-                              (println (concat (concat (concat (errMessage be) " failed: errno ") (fmtInt (errCode be))) (concat (concat " socket " (fmtInt lsn)) (concat (concat " addr " (netAddrText addr)) (concat " len " (fmtInt (netAddrSize addr)))))))
-                              (sysExitWith 2)
-                            }
-                          ))
-                        (setupOrExit "listen" (netListen lsn 512))
-                        (setupOrExit "fcntl" (netSetNonBlocking lsn))
-                        (setupOrExit "sigprocmask" (sysSignalBlock (sysSigBit sigTerm) setbuf))
-                        (let ((mut w 0))
-                          (while (< w nworkers)
-                            {
-                              (let ((pid sysForkProcess))
-                                (if (== pid 0)
-                                  (sysExitWith (serve lsn arenaOn varied (envOn "AXIOM_NET_PEER")))
-                                  {
-                                    (vecPush pids pid)
-                                    0
-                                  }))
-                              (set w (+ w 1))
-                            }))
-                        ; One line the driver parses, then this process does
-                        ; nothing but reap - it holds no connection and its own
-                        ; RSS is not the measurement.
-                        (let ((mut s "pids"))
-                          (let ((mut k 0))
-                            {
-                              (while (< k (vecLen pids))
-                                {
-                                  (set s (concat s (concat " " (fmtInt (vecGet pids k)))))
-                                  (set k (+ k 1))
-                                })
-                              (println s)
-                            }))
-                        (let ((_ (sysCloseFd lsn))) 0)
-                        (let ((mut r 0))
-                          (while (< r (vecLen pids))
-                            {
-                              (unwrapOr (sysWaitPid (vecGet pids r)) 0)
-                              (set r (+ r 1))
-                            }))
-                        0
-                      }
-                    )))))))))))
+                          (vecPush pids pid)
+                          0
+                        }))
+                    (set w (+ w 1))
+                  }))
+              ; One line the driver parses, then this process does nothing
+              ; but reap - it holds no connection and its own RSS is not
+              ; the measurement.
+              (let (
+                (mut s "pids")
+                (mut k 0)
+              )
+                {
+                  (while (< k (vecLen pids))
+                    {
+                      (set s (concat s (concat " " (fmtInt (vecGet pids k)))))
+                      (set k (+ k 1))
+                    })
+                  (println s)
+                })
+              (let ((_ (tcpListenerClose lsn))) 0)
+              (let ((mut r 0))
+                (while (< r (vecLen pids))
+                  {
+                    (unwrapOr (sysWaitPid (vecGet pids r)) 0)
+                    (set r (+ r 1))
+                  }))
+              0
+            }))))))

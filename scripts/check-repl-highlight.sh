@@ -214,7 +214,7 @@ cat > "$work/reconcile.ax" <<'AXEOF'
             (set i (+ stop 1))
           }
         ))
-      (writeStr 1 (concat "swept " (concat (fmtI cmp) (concat " mid-edit buffers of " (concat path (concat ", " (concat (fmtI bad) " failures\n")))))))
+      (writeStr stdout (concat "swept " (concat (fmtI cmp) (concat " mid-edit buffers of " (concat path (concat ", " (concat (fmtI bad) " failures\n")))))))
       (if (> bad 0)
         1
         ; A per-file floor, so a path that moved makes this fail

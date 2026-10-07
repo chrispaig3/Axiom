@@ -67,6 +67,21 @@ its changelog too.
   with no parentheses, escaped the check. Tested by
   `tests/diagnostics/1203-unsafe-nullary-prim.ax`.
 
+- Hold every descriptor in an owner. No public function takes or
+  answers a descriptor number: `fileFd`, `fileFromFd`, `tcpStreamFd`,
+  `tcpListenerFd`, `sysCloseFd`, `sysReadFd`, `sysWriteAllFd`, the
+  `net*` socket calls, the poll calls and the database file calls are
+  gone or private to the module that owns the descriptor. `stdin`,
+  `stdout` and `stderr` are `File` values that never close their
+  stream, and the readers and writers take a `File`. A `Poller` owns
+  its kqueue or epoll descriptor, so Tui's key reader no longer leaks
+  one, and `termRaw` answers a `TermGuard` whose release restores the
+  terminal. Safe code can no longer close a descriptor a `File` owns, or
+  read another file through a number its owner gave up. **BREAKING**:
+  `compat/BREAKING` names the replacement for each. Tested by
+  `tests/diagnostics/1225-descriptor-hole.ax` and
+  `tests/stdlib/786-poller-owned.ax`.
+
 - A function has one signature. A second `(:: name ...)` for the same
   name is `AX3006`, pointing back at the first, and the checker keeps
   the first instead of letting the later one win. The nightly fuzzer

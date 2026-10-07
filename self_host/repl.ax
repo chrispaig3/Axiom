@@ -93,7 +93,7 @@
 (import Fmt)
 (import Vec)
 (import Sys)
-(import IO (makeDirMode readFile removeDir removeFile writeFile writeStr))
+(import IO (isTerminal makeDirMode readFile readLine removeDir removeFile stdin stdout writeFile writeStr))
 (import Path)
 (import lexer)
 (import parser)
@@ -116,15 +116,14 @@
 (pub :: replOut (-> String Int))
 ;@axiom:effect(io)
 (pub fn (replOut s)
-  (writeStr 1 s))
+  (writeStr stdout s))
 
 ; ------------------------------------------------------------------
-; Reading a line from fd 0. One byte per read(2): a REPL line is
-; short and arrives at human or pipe speed, so the syscall count is
-; irrelevant and the buffer bookkeeping a block reader needs is not.
-; Answers the line WITHOUT its newline, or -1 at EOF-before-any-byte
-; (a Str is a pointer, so -1 is not one). A final unterminated line
-; comes back as itself; the next call answers -1.
+; Reading a line from standard input: `IO.readLine`, one byte per
+; read(2). A REPL line is short and arrives at human or pipe speed, so
+; the syscall count is irrelevant. Answers the line WITHOUT its newline,
+; or None at end of input; a final unterminated line comes back as
+; itself, and a read that fails ends the session as end of input does.
 ; ------------------------------------------------------------------
 ; A line, or nothing at end of input.
 ;
@@ -143,35 +142,9 @@
 (pub :: replReadLine (-> Int (Option String)))
 ;@axiom:effect(io)
 (pub fn (replReadLine _u)
-  (let (
-    (buf (memAlloc 8))
-    (parts vecNew)
-    (mut done 0)
-    (mut sawAny 0)
-  )
-    {
-      (while (== done 0)
-        (let ((n 
-          (match (sysReadFd 0 buf 1)
-            ((Ok k) k)
-            ((Err e) (- 0 (errCode e))))))
-          (if (<= n 0)
-            (set done 1)
-            (let ((b (memGetByte buf 0)))
-              (if (== b 10)
-                {
-                  (set sawAny 1)
-                  (set done 2)
-                }
-                {
-                  (set sawAny 1)
-                  (vecPush parts (strSlice (byteAsStr b) 0 1))
-                  0
-                })))))
-      (if (== sawAny 0)
-        None
-        (Some (catStrs parts)))
-    }))
+  (match (readLine stdin)
+    ((Ok line) line)
+    ((Err _) None)))
 
 ; ------------------------------------------------------------------
 ; THE ONE PREDICATE. Everything interactive hangs off it, and it is
@@ -188,7 +161,7 @@
 (pub :: replInteractive Int)
 ;@axiom:effect(io)
 (pub fn (replInteractive)
-  (if (&& (sysIsatty 0) (sysIsatty 1))
+  (if (&& (isTerminal stdin) (isTerminal stdout))
     1
     0))
 
@@ -2327,7 +2300,7 @@
     ; one - the common case, and the one this changes nothing for.
     (let ((interactive replInteractive))
       (let (
-        (kin (mkKeyIn 0 interactive))
+        (kin (mkKeyIn stdin interactive))
         (ed (ledNew ledRingNew "-!*+/<>=%&|'^"))
         (hist (histOpen interactive))
         (cenv (replComplEnvNew "" ""))

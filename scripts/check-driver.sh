@@ -1206,7 +1206,7 @@ cat >"$work/away/useio.ax" <<'EOF'
 (import IO (writeStr))
 (:: main Int)
 ;@axiom:effect(io)
-(fn (main) { (writeStr 1 "installed-ok\n") 42 })
+(fn (main) { (writeStr stdout "installed-ok\n") 42 })
 EOF
 
 # The probe directory must not itself supply a stdlib, or the

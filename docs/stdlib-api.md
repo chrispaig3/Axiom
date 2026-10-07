@@ -1004,7 +1004,7 @@ two differ.
 | `errDivideByZero` | value | `Int` |  | A zero divisor, from `divChecked` and `remChecked`. |
 | `errOverflow` | value | `Int` |  | A result the 64-bit integer cannot hold. |
 | `errShiftTooWide` | value | `Int` |  | A shift amount below 0, or of 64 or more. |
-| `errShortWrite` | value | `Int` |  | A descriptor accepted some bytes and then accepted none, without an errno to say why. It is NOT a syscall error - `write` returned 0, which is a legal answer - so it cannot borrow an errno, and it is not success either, which is exactly why `Sys.sysWriteAllFd` could not express it while it answered an Int. `ERR-REC-3` calls a short write a failure and not an absence: the bytes were meant to go and did not. |
+| `errShortWrite` | value | `Int` |  | A descriptor accepted some bytes and then accepted none, without an errno to say why. It is NOT a syscall error - `write` returned 0, which is a legal answer - so it cannot borrow an errno, and it is not success either, which is exactly why `IO`'s write loop could not express it while it answered an Int. `ERR-REC-3` calls a short write a failure and not an absence: the bytes were meant to go and did not. |
 | `mkError` | value | `(-> Int String Error)` | `Alloc` |  |
 | `errCode` | value | `(-> Error Int)` |  |  |
 | `errMessage` | value | `(-> Error String)` |  |  |
@@ -1111,12 +1111,18 @@ two differ.
 
 ## `IO`
 
-`stdlib/IO.ax` — 47 public names
+`stdlib/IO.ax` — 65 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
-| `writeStr` | value | `(-> Int String Int)` | `Alloc,IO` | Write all of `s` to `fd`, returning the number of bytes written or a negative errno. |
-| `writeSlice` | value | `(-> Int String Int Int Int)` | `Alloc,IO` | Write the `len` bytes of `s` that start at byte `start`, all of them, returning the number written or a negative errno - `writeStr` over a part of a string, with no copy. |
+| `File` | struct |  |  | An open file, socket or standard stream. Aliases share it; the last share closes the descriptor, and `fileClose` closes it early for every alias. |
+| `stdin` | value | `File` | `Alloc,IO,Unsafe` | Standard input, output and error. Each is a `File` that never closes its descriptor: `fileClose stdout` retires that one value and leaves the process's stream open. |
+| `stdout` | value | `File` | `Alloc,IO,Unsafe` |  |
+| `stderr` | value | `File` | `Alloc,IO,Unsafe` |  |
+| `fileClose` | value | `(-> File (Result Int Error))` | `Alloc,IO,Unsafe` | Close early, once: `(Ok 0)`, or `(Err e)` carrying the errno of the close - on a written file, where a deferred write error surfaces. Aliases observe the close, and any later use of one traps 85. The descriptor is retired before the close and the close is never retried. Closing a standard stream retires that value only. |
+| `writeStr` | value | `(-> File String Int)` | `Alloc,IO` | Write all of `s` to `f`, returning the number of bytes written or a negative errno. This is the printing path's answer: `println` is `(writeStr stdout ...)`, and a statement that prints does not have to bind a `Result`. `fileWrite` answers the same write as a `Result`. |
+| `writeSlice` | value | `(-> File String Int Int Int)` | `Alloc,IO` | Write the `len` bytes of `s` that start at byte `start`, all of them, returning the number written or a negative errno - `writeStr` over a part of a string, with no copy. |
+| `fileWrite` | value | `(-> File String (Result Int Error))` | `Alloc,IO` | Write every byte of `s` to `f`: `(Ok n)`, or `(Err e)` whose code is the errno of the write that failed. |
 | `println` | macro |  |  |  |
 | `eprintln` | macro |  |  |  |
 | `readFile` | value | `(-> String String)` | `Alloc,IO,Mut` | The whole contents of the file at `path`, or "" if it cannot be read. |
@@ -1139,29 +1145,41 @@ two differ.
 | `exit` | value | `(-> Int Int)` | `IO` |  |
 | `die` | value | `(-> String Int Int)` | `Alloc,IO,Mut` | Print `s` to standard error and exit with `code`. Never returns. |
 | `todo` | value | `(-> String a)` | `Alloc,IO,Mut` | Exit 70 with `todo: <what>` on standard error; types as any result and never returns. |
-| `readLine` | value | `(-> Int (Result (Option String) Error))` | `Alloc,IO,Mut` | One line of `fd` without its newline: `(Ok (Some line))`; `(Ok None)` at end of input when nothing was read; `(Err e)` whose code is the errno, its message `readLine: fd 0: errno 9`. |
-| `readAll` | value | `(-> Int (Result String Error))` | `Alloc,IO,Mut` | Everything left on `fd` to end of input: `(Ok s)`, `(Ok "")` when nothing arrived, or `(Err e)` whose code is the errno. |
-| `readInto` | value | `(-> Int String Int Int (Result Int Error))` | `Alloc,IO` | One `read(2)` of at most `count` bytes from `fd` into the bytes of `buf` that start at byte `at`: `(Ok n)` with `n` the bytes read, `(Ok 0)` at end of input, or `(Err e)` whose code is the errno. |
+| `readLine` | value | `(-> File (Result (Option String) Error))` | `Alloc,IO,Mut` | One line of `f` without its newline: `(Ok (Some line))`; `(Ok None)` at end of input when nothing was read; `(Err e)` whose code is the errno, its message `readLine: errno 9`. |
+| `readAll` | value | `(-> File (Result String Error))` | `Alloc,IO,Mut` | Everything left on `f` to end of input: `(Ok s)`, `(Ok "")` when nothing arrived, or `(Err e)` whose code is the errno. |
+| `readInto` | value | `(-> File String Int Int (Result Int Error))` | `Alloc,IO,Mut` | One `read(2)` of at most `count` bytes from `f` into the bytes of `buf` that start at byte `at`: `(Ok n)` with `n` the bytes read, `(Ok 0)` at end of input, or `(Err e)` whose code is the errno. |
 | `ReadBuffer` | struct |  |  | Mutable input storage. The constructor and backing string stay private, so safe code cannot alias an immutable String as a writable buffer. |
 | `readBufferNew` | value | `(-> Int ReadBuffer)` | `Alloc,Mut` | Allocate a zeroed input buffer of n bytes. A negative size traps 77. |
 | `readBufferLen` | value | `(-> ReadBuffer Int)` |  | The buffer's capacity, in bytes. |
 | `readBufferByte` | value | `(-> ReadBuffer Int Int)` |  | Read one byte, with the same bounds check as strByte. |
 | `readBufferText` | value | `(-> ReadBuffer Int Int String)` | `Alloc,Mut` | Copy a checked range into an immutable String. Later reads into the buffer do not change the returned bytes. |
-| `readBuffer` | value | `(-> Int ReadBuffer Int Int (Result Int Error))` | `Alloc,IO` | Read at most count bytes into a checked buffer range, returning the count or the OS error. Zero is EOF. ReadBuffer cannot be captured by a parallel binding; its bytes are used by one binding at a time. |
-| `TermState` | struct |  |  | A descriptor and the terminal attributes saved from it. |
+| `fileRead` | value | `(-> File ReadBuffer Int Int (Result Int Error))` | `Alloc,IO,Mut` | Read at most `count` bytes from `f` into `buf[at .. at + count)`: `(Ok n)`, `(Ok 0)` at end of input, or `(Err e)`. A range outside `buf` stops the program with status 77 before the kernel sees it. A ReadBuffer cannot be captured by a parallel binding; its bytes are used by one binding at a time. |
 | `TermSize` | struct |  |  | A terminal's size in character cells. A terminal that was never sized reports 0 for both; treat 0 as unknown and fall back to 80x24. |
-| `termSave` | value | `(-> Int (Result TermState Error))` | `Alloc,IO` | The attributes of the terminal on `fd`, saved: `(Ok state)` to hand to `termRestore` later, or `(Err e)` - ENOTTY when `fd` is not a terminal. |
-| `termRaw` | value | `(-> Int Bool (Result TermState Error))` | `Alloc,IO,Mut` | Put the terminal on `fd` into raw mode, saving what it was first: `(Ok state)` to restore it with, or `(Err e)`. With `keepSignals` true, ^C still raises SIGINT; with false it arrives as byte 3. |
-| `termRestore` | value | `(-> TermState (Result Int Error))` | `Alloc,IO` | Put back the attributes `st` saved, on the descriptor they came from: `(Ok 0)`, or `(Err e)`. The request is the flushing one, so a half-typed line is not handed to the shell. |
-| `termSize` | value | `(-> Int (Result TermSize Error))` | `Alloc,IO` | The size of the terminal on `fd`: `(Ok size)`, or `(Err e)` - ENOTTY when `fd` is not a terminal. A terminal may answer 0 rows and 0 columns with a successful call; treat 0 as unknown. |
-| `File` | struct |  |  | An owned file. Aliases share its lifetime; the last owner closes it. Explicit `fileClose` closes it early for every alias. |
-| `fileFromFd` | value | `(-> Int File)` | `Alloc,IO,Unsafe` | Transfer ownership of one descriptor into a File. `fd` must be an open descriptor this call takes over: don't close it or give it another owner. |
-| `fileFd` | value | `(-> File Int)` | `Unsafe` | Borrow the descriptor for readiness calls. Keep its owner live and do not close the descriptor; use `fileClose` to close its owner. |
-| `fileClose` | value | `(-> File (Result Int Error))` | `Alloc,IO,Unsafe` | Close early, once. Aliases observe the close; dropping them is safe. The descriptor is retired before close and close is never retried. |
-| `fileReadLine` | value | `(-> File (Result (Option String) Error))` | `Alloc,IO,Mut` | Read a line, preserving EOF as None and failures as Err. |
-| `fileReadAll` | value | `(-> File (Result String Error))` | `Alloc,IO,Mut` | Read the remaining bytes from a file. |
-| `fileRead` | value | `(-> File ReadBuffer Int Int (Result Int Error))` | `Alloc,IO` | Read at most `count` bytes into `buf[at .. at + count)`: `(Ok n)`, `(Ok 0)` at end of input, or `(Err e)`. A range outside `buf` stops the program with status 77 before the kernel sees it. |
-| `fileWrite` | value | `(-> File String (Result Int Error))` | `Alloc,IO` | Write every byte, preserving errors in the result. |
+| `TermGuard` | struct |  |  | A terminal in raw mode, and what it was before. Releasing the last share restores it. |
+| `isTerminal` | value | `(-> File Bool)` | `Alloc,IO,Mut` | True when `f` is a terminal: it has terminal attributes to read, which is what libc's `isatty` asks too. A pipe, a file or a socket answers false, and so does every file on a target without `termios`. |
+| `termSize` | value | `(-> File (Result TermSize Error))` | `Alloc,IO,Mut` | The size of the terminal on `f`: `(Ok size)`, or `(Err e)` - ENOTTY when `f` is not a terminal. A terminal may answer 0 rows and 0 columns with a successful call; treat 0 as unknown. |
+| `termRaw` | value | `(-> File Bool (Result TermGuard Error))` | `Alloc,IO,Mut,Unsafe` | Put the terminal on `f` into raw mode, saving what it was first: `(Ok guard)`, or `(Err e)` - ENOTTY when `f` is not a terminal. With `keepSignals` true, ^C still raises SIGINT; with false it arrives as byte 3. Releasing the guard, or `termRestore`, puts the terminal back. |
+| `termRestore` | value | `(-> TermGuard (Result Int Error))` | `Alloc,IO,Unsafe` | Put the terminal back as `termRaw` found it, now rather than when the guard's last share goes: `(Ok 0)`, or `(Err e)`. A second call answers `(Ok 0)` and does nothing. |
+| `Poller` | struct |  |  |  |
+| `pollerNew` | value | `(-> Int (Result Poller Error))` | `Alloc,IO,Mut,Unsafe` | A poller that answers at most `cap` events per wait: `(Ok p)`, or `(Err e)` carrying the errno - EMFILE when the process has no descriptor left. |
+| `pollerAdd` | value | `(-> Poller File Int (Result Int Error))` | `Alloc,IO,Mut` | Watch `f` for readability under `token`: `(Ok 0)`, or `(Err e)`. The poller does not keep `f` alive; close it, or let it go, and its registration goes with it. |
+| `pollerRemove` | value | `(-> Poller File (Result Int Error))` | `Alloc,IO,Mut` | Stop watching `f`: `(Ok 0)`, or `(Err e)` - ENOENT when it was not being watched. |
+| `pollerAddSignals` | value | `(-> Poller Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Watch the signals in `mask` (bit N-1 for signal N, `Sys.sysSigBit`) under `token`: `(Ok 0)`, or `(Err e)`. Block them with `Sys.sysSignalBlock` first. `pollerSignal` reads which one arrived. |
+| `pollerWait` | value | `(-> Poller Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Wait for readiness: `(Ok n)` with `n` events to read with `pollerToken` and `pollerSignal`, `(Ok 0)` when `timeoutMs` passed first, or `(Err e)`. A negative `timeoutMs` waits for ever; 0 asks and answers at once. EINTR answers `(Ok 0)`: nothing was collected. |
+| `pollerToken` | value | `(-> Poller Int Int)` |  | The token event `i` of the last wait carries. An `i` outside the events that wait answered stops the program with status 77. |
+| `pollerSignal` | value | `(-> Poller Int (Option Int))` | `Alloc,IO` | The signal event `i` of the last wait delivered, or `None` when it is not a signal. On Linux this reads the signal descriptor, once per event. An `i` outside the last wait's events stops the program with status 77. |
+| `pollerClose` | value | `(-> Poller (Result Int Error))` | `Alloc,IO,Unsafe` | Close the poller now rather than at its last share: `(Ok 0)`, or `(Err e)`. Any later use traps 85. |
+| `socketOpen` | value | `(-> String (Result File Error))` | `Alloc,IO,Mut,Unsafe` | A blocking TCP socket for the family of `addr`, not yet bound or connected: `(Ok file)`, or `(Err e)`. |
+| `socketBind` | value | `(-> File String (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Bind `s` to `addr`. The length comes from the family in the address. |
+| `socketListen` | value | `(-> File Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Listen on a bound socket, queueing up to `backlog` connections. |
+| `socketAccept` | value | `(-> File (Result File Error))` | `Alloc,IO,Mut,Unsafe` | The next connection on a listening socket, as a blocking socket of its own: `(Ok file)`, or `(Err e)` - EAGAIN when the listener does not block and nothing is waiting. The accepted socket blocks whatever the listener's mode, on every target. |
+| `socketConnect` | value | `(-> File String (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Connect `s` to `addr`. A non-blocking socket answers `(Err e)` with EINPROGRESS, which is the kernel's contract rather than a failure. |
+| `socketShutdown` | value | `(-> File Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Close one or both halves: `how` is 0 for reading, 1 for writing and 2 for both. Anything else is EINVAL. |
+| `socketSetInt` | value | `(-> File Int Int Int (Result Int Error))` | `Alloc,IO,Mut` | Set an integer socket option, such as `soReuseAddr` at `solSocket` or `tcpNoDelayOpt` at `ipprotoTcp`. |
+| `socketSetTimeout` | value | `(-> File Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Set the `soRcvTimeo` or `soSndTimeo` timeout, in microseconds; 0 waits for ever and a negative timeout is EINVAL. |
+| `socketAddr` | value | `(-> File Bool (Result String Error))` | `Alloc,IO,Mut,Unsafe` | The address `s` is bound to, or with `peer` true the address of the peer it is connected to, as `netAddrMaxBytes` bytes. |
+| `socketSend` | value | `(-> File String (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Send all of `data`, continuing after a short send and retrying EINTR: `(Ok n)`, or `(Err e)` - EPIPE when the peer has closed, never a signal. |
+| `fileSetNonBlocking` | value | `(-> File Bool (Result Int Error))` | `Alloc,IO,Mut` | Switch `f` between blocking (`false`) and non-blocking (`true`), keeping its other flags. A read or write that cannot proceed on a non-blocking file answers `(Err e)` with EAGAIN, which `Sys.netWouldBlock` recognises from `(- 0 e.code)`. |
 
 ## `Intern`
 
@@ -1294,7 +1312,7 @@ two differ.
 
 ## `Net`
 
-`stdlib/Net.ax` — 32 public names
+`stdlib/Net.ax` — 35 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -1308,27 +1326,30 @@ two differ.
 | `socketAddrIsV6` | value | `(-> SocketAddr Bool)` |  | Whether the address is IPv6. |
 | `TcpListener` | struct |  |  | A socket listening for connections. |
 | `TcpStream` | struct |  |  | One TCP connection. |
-| `tcpListenerFd` | value | `(-> TcpListener Int)` |  | The listener's descriptor, for `Sys`'s readiness calls. It stays the listener's: close the listener, not the descriptor. |
-| `tcpStreamFd` | value | `(-> TcpStream Int)` |  | The stream's descriptor, for `Sys`'s readiness calls. |
+| `pollerAddListener` | value | `(-> Poller TcpListener Int (Result Int Error))` | `Alloc,IO,Mut` | Watch the listener under `token` in `p`: a wake answering `token` means a connection is waiting for `tcpAccept`. See `IO.pollerAdd`. |
+| `pollerAddStream` | value | `(-> Poller TcpStream Int (Result Int Error))` | `Alloc,IO,Mut` | Watch the stream under `token` in `p`: a wake answering `token` means `tcpRead` will not block. See `IO.pollerAdd`. |
+| `pollerRemoveListener` | value | `(-> Poller TcpListener (Result Int Error))` | `Alloc,IO,Mut` | Stop watching the listener. See `IO.pollerRemove`. |
+| `pollerRemoveStream` | value | `(-> Poller TcpStream (Result Int Error))` | `Alloc,IO,Mut` | Stop watching the stream. See `IO.pollerRemove`. |
 | `tcpListen` | value | `(-> SocketAddr (Result TcpListener Error))` | `Alloc,IO,Mut` | A socket bound to `addr` and listening, with `SO_REUSEADDR` set so a restarted server can bind the port its predecessor left in TIME_WAIT. Port 0 asks the kernel for a free port; `tcpListenerAddr` says which. |
 | `tcpAccept` | value | `(-> TcpListener (Result TcpStream Error))` | `Alloc,IO,Mut` | Wait for the next connection and answer it as a blocking stream. |
 | `tcpListenerAddr` | value | `(-> TcpListener (Result SocketAddr Error))` | `Alloc,IO,Mut` | The address the listener is bound to - the kernel's choice of port when it was asked for port 0. |
+| `tcpListenerSetNonBlocking` | value | `(-> TcpListener Bool (Result Int Error))` | `Alloc,IO,Mut` | Switch the listener between blocking (`false`) and non-blocking (`true`). A non-blocking listener's `tcpAccept` answers `Err` EAGAIN when nothing is waiting, which a poller wake avoids. |
 | `tcpListenerClose` | value | `(-> TcpListener (Result Int Error))` | `Alloc,IO` | Close the listener. Its handle is retired first, so any later use of it stops the program with status 85. |
 | `tcpConnect` | value | `(-> SocketAddr (Result TcpStream Error))` | `Alloc,IO,Mut` | Connect to `addr`, waiting until the connection is made or refused. |
-| `tcpRead` | value | `(-> TcpStream ReadBuffer Int Int (Result Int Error))` | `Alloc,IO` | Read into `buf[at .. at + count)`. Answers how many bytes arrived, and 0 when the peer has closed its side. A range outside `buf` stops the program with status 77 before the kernel sees it. |
-| `tcpReadSome` | value | `(-> TcpStream Int (Result String Error))` | `Alloc,IO,Mut` | Up to `max` bytes, as a fresh string: empty when the peer has closed its side. |
+| `tcpRead` | value | `(-> TcpStream ReadBuffer Int Int (Result Int Error))` | `Alloc,IO,Mut` | Read into `buf[at .. at + count)`. Answers how many bytes arrived, and 0 when the peer has closed its side. A range outside `buf` stops the program with status 77 before the kernel sees it. |
+| `tcpReadSome` | value | `(-> TcpStream Int (Result String Error))` | `Alloc,IO,Mut` | Up to `max` bytes, as a fresh string: empty when the peer has closed its side. A negative `max` stops the program with status 77. |
 | `tcpReadAll` | value | `(-> TcpStream (Result String Error))` | `Alloc,IO,Mut` | Everything until the peer closes its side. |
-| `tcpWrite` | value | `(-> TcpStream String (Result Int Error))` | `Alloc,IO,Unsafe` | Write all of `data`, continuing after a short write. Answers the number of bytes written, which is `strLen data` unless it failed. A peer that has closed answers `Err` EPIPE rather than a signal. |
+| `tcpWrite` | value | `(-> TcpStream String (Result Int Error))` | `Alloc,IO,Mut` | Write all of `data`, continuing after a short write. Answers the number of bytes written, which is `strLen data` unless it failed. A peer that has closed answers `Err` EPIPE rather than a signal. |
 | `shutRead` | value | `Int` |  | Which half of a connection `tcpShutdown` closes. |
 | `shutWrite` | value | `Int` |  |  |
 | `shutBoth` | value | `Int` |  |  |
-| `tcpShutdown` | value | `(-> TcpStream Int (Result Int Error))` | `Alloc,IO` | Close one or both halves of the connection without closing the stream: after `shutWrite` the peer reads end of stream, and this side can still read its answer. |
+| `tcpShutdown` | value | `(-> TcpStream Int (Result Int Error))` | `Alloc,IO,Mut` | Close one or both halves of the connection without closing the stream: after `shutWrite` the peer reads end of stream, and this side can still read its answer. |
 | `tcpPeerAddr` | value | `(-> TcpStream (Result SocketAddr Error))` | `Alloc,IO,Mut` | The peer's address. |
 | `tcpLocalAddr` | value | `(-> TcpStream (Result SocketAddr Error))` | `Alloc,IO,Mut` | This side's address. |
 | `tcpSetNoDelay` | value | `(-> TcpStream Bool (Result Int Error))` | `Alloc,IO,Mut` | Turn Nagle's algorithm off (`true`) or back on: with it off, a small write is sent at once rather than held to be joined with the next. |
 | `tcpSetReadTimeout` | value | `(-> TcpStream Int (Result Int Error))` | `Alloc,IO,Mut` | How long a read may wait before it answers `Err` (EAGAIN), in microseconds; 0 waits for ever. |
 | `tcpSetWriteTimeout` | value | `(-> TcpStream Int (Result Int Error))` | `Alloc,IO,Mut` | How long a write may wait before it answers `Err`, in microseconds; 0 waits for ever. |
-| `tcpSetNonBlocking` | value | `(-> TcpStream Bool (Result Int Error))` | `Alloc,IO` | Switch the stream between blocking (`false`) and non-blocking (`true`). |
+| `tcpSetNonBlocking` | value | `(-> TcpStream Bool (Result Int Error))` | `Alloc,IO,Mut` | Switch the stream between blocking (`false`) and non-blocking (`true`). |
 | `tcpClose` | value | `(-> TcpStream (Result Int Error))` | `Alloc,IO` | Close the stream. Its handle is retired first, so any later use of it stops the program with status 85. |
 
 ## `Par`
@@ -1378,14 +1399,14 @@ two differ.
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
-| `rdNew` | value | `(-> Int Int)` | `Alloc,Mut` |  |
+| `rdNew` | value | `(-> File Int)` | `Alloc,Mut` | A reader over `f`. The record holds a share of `f`, so the file stays open while the reader does. |
 | `rdBuf` | value | `(-> Int String)` |  |  |
 | `rdFilled` | value | `(-> Int Int)` |  |  |
 | `rdConsumed` | value | `(-> Int Int)` |  |  |
 | `rdReseat` | value | `(-> Int Int Int Int)` | `Alloc,Mut` | Re-seat a reader on freshly allocated storage, carrying `u` bytes of not-yet-consumed input from `addr`. |
 | `rpcReadMsg` | value | `(-> Int (Option String))` | `Alloc,IO,Mut` | Read one whole message: `Some` its body, or `None` when the stream ended or broke - the caller stops, which is what an LSP does when its client goes away without saying `exit`. |
 | `rpcRead` | value | `(-> Int String)` | `Alloc,IO,Mut` | Read one whole message and answer its body, or "" when the stream ended or broke. A zero-length message answers "" too, so a caller that must tell the two apart reads with `rpcReadMsg`. |
-| `rpcWrite` | value | `(-> Int String Int)` | `Alloc,IO,Mut` | Frame `body` and write it. |
+| `rpcWrite` | value | `(-> File String Int)` | `Alloc,IO,Mut` | Frame `body` and write it to `f`. |
 
 ## `Str`
 
@@ -1443,17 +1464,11 @@ two differ.
 
 ## `Sys`
 
-`stdlib/Sys.ax` — 88 public names
+`stdlib/Sys.ax` — 46 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
 | `sysResult` | value | `(-> String Int (Result Int Error))` | `Alloc` | The errno behind a failed result, or 0 if it did not fail. |
-| `stdin` | value | `Int` |  |  |
-| `stdout` | value | `Int` |  |  |
-| `stderr` | value | `Int` |  |  |
-| `sysWriteAllFd` | value | `(-> Int Int Int Int)` | `Alloc,IO` | Write all `count` bytes at `buf` to `fd`: bytes written, or `-errno`. |
-| `sysReadFd` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | read(2): `Ok` bytes read, `Ok 0` at end of input, or `Err` carrying the errno. Every reader in the tree matches the call directly, as `sysWriteAllFd` does, and it pays for no block on the path where bytes arrive. |
-| `sysCloseFd` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Unsafe` | Close a descriptor. |
 | `sysExitWith` | value | `(-> Int Int)` | `IO,Unsafe` | Terminate the process. Never returns; the `0` afterwards exists only because every Axiom expression has a value. |
 | `sysArgc` | value | `Int` | `IO` | How many arguments the process received, including the program name. |
 | `sysArg` | value | `(-> Int String)` | `Alloc,IO,Mut` | The i-th argument as a Str (0 is the program name), or "" when `i` is out of range. The bytes are the process's own argv storage - NUL-terminated, alive for the whole run, never freed or moved - so wrapping them without copying is sound. |
@@ -1469,46 +1484,22 @@ two differ.
 | `sysNowMicros` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Unsafe` | Microseconds now, from the platform's cheapest correct clock: Darwin answers gettimeofday's timeval (realtime; Darwin's syscall table has no clock_gettime), Linux and FreeBSD answer CLOCK_MONOTONIC via clock_gettime - under the id `clockMonotonicId` names, because the id is not portable: 1 on Linux, and on FreeBSD 4, where 1 is CLOCK_VIRTUAL, the process's CPU time. That one was a literal here until 2026-08-29, and a clock that measures CPU time never runs backwards either, so nothing would have caught it. |
 | `sysNowMonotonic` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Unsafe` | Microseconds from a clock that NEVER steps backwards, or `Err` when this platform has none. The 16-byte buffer is the caller's, as above, so a timing loop allocates nothing on the path that answers. |
 | `sysNowRealtimeNanos` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Unsafe` | Nanoseconds since 1970-01-01T00:00:00Z from the realtime clock, the wall clock `Chrono.datetimeNowUtc` reads. The system may step it, so two readings do not measure a duration: that is `sysNowMonotonic`'s job. Darwin answers gettimeofday's microseconds times 1000; Linux and FreeBSD answer clock_gettime(CLOCK_REALTIME). A target with no clock call (`sysClockNum` 0: Windows and bare metal) answers `Err` 78, as `sysNowMonotonic` does. An Int of nanoseconds reaches 2262-04-11, and a reading beyond that answers `Err` `errOverflow` rather than wrap. The 16-byte buffer is the caller's, as above. |
-| `netSocketTcp` | value | `(Result Int Error)` | `Alloc,IO,Unsafe` | A TCP socket, as `(Result Int Error)`. |
-| `netSocketTcp6` | value | `(Result Int Error)` | `Alloc,IO,Unsafe` | The same over IPv6. Its own name rather than a family parameter, because the family is not a runtime choice at this layer: a caller already picked a builder when it made the address, and a socket whose family disagrees with the address it is given fails at `bind` and not here. |
 | `netAddr4Bytes` | value | `Int` |  | How many bytes an address of each family occupies, and how big a buffer that must take either has to be. |
 | `netAddr6Bytes` | value | `Int` |  |  |
-| `netAddrMaxBytes` | value | `Int` |  | What `netAcceptFrom` wants, which is the larger of the two: a caller does not get to know the peer's family until it has the peer. |
+| `netAddrMaxBytes` | value | `Int` |  | The size of a buffer that takes either family, which is the larger of the two: a caller does not get to know a peer's family until it has the peer. |
 | `netAddr4` | value | `(-> Int Int Int Int Int Int Int)` | `Mut` | Write an IPv4 `sockaddr_in` into `buf`, which must hold 16 bytes, and answer `buf`. The four octets are given in reading order, so 127.0.0.1 is `127 0 0 1`. |
 | `netAddr6` | value | `(-> Int Int Int Int Int Int Int Int Int Int Int)` | `Mut` | Write an IPv6 `sockaddr_in6` into `buf`, which must hold `netAddr6Bytes`, and answer `buf`. |
 | `netAddrFamily` | value | `(-> Int Int)` |  | The address family in a `sockaddr` - `afInet`, `afInet6`, or whatever else the kernel wrote there. |
 | `netAddrPort` | value | `(-> Int Int)` |  | The port in a `sockaddr`, decoded from network order. This one does NOT branch on the platform or the family: both layouts diverge in the four bytes before it and agree from byte 2 on, so `sin_port` and `sin6_port` are the same two bytes in the same place. |
-| `netAddrSize` | value | `(-> Int Int)` |  | How many bytes of `addr` a syscall must be given, read off the family the buffer carries. This is what `netBind` and `netConnect` pass, and the reason neither of them takes a length. |
-| `netBind` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | Bind a socket to an address built by `netAddr4` or `netAddr6`. |
-| `netListen` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | Answers `(Result Int Error)`; `Ok 0` on success. |
-| `netAccept` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Unsafe` | Accept a connection, answering `Ok` the new socket or `Err` the errno - `(Result Int Error)` since 2026-09-03; a would-block answer is `Err` carrying EAGAIN, which `netWouldBlock` still recognises from the negated code - and throw the peer's address away. `netAcceptFrom` below keeps it; this is the form for a caller that does not want the buffer, and it passes NULL for both of `accept`'s out-parameters. |
-| `netAcceptFrom` | value | `(-> Int Int Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Accept a connection AND KEEP THE PEER'S ADDRESS. Answers the new socket or a negative errno, exactly as `netAccept` does, and fills `addr` with the peer's `sockaddr`, which `netAddrFamily`, `netAddrPort` and `netAddrText` read. |
-| `netAddrLenRead` | value | `(-> Int Int)` |  | The length the kernel wrote back into a `netAcceptFrom` cell - 16 for a v4 peer, 28 for a v6 one - as normalised by `netAcceptFrom`. It is the REAL length of the peer's address, which is not necessarily how much of it arrived: Linux and Darwin copy what fits and report the whole size, FreeBSD reports the copied size and `netAcceptFrom` reads the whole one back off the BSD length byte, so a value larger than the `cap` that went in means the address was cut short on every target. `netAcceptFrom` acts on that itself; a caller reads this to log the family it could not store. |
+| `netAddrSize` | value | `(-> Int Int)` |  | How many bytes of `addr` a syscall must be given, read off the family the buffer carries. This is what `IO.socketBind` and `IO.socketConnect` pass, and the reason neither of them takes a length. |
 | `netAddrText` | value | `(-> Int String)` | `Alloc,Mut` | Render an address as text: a dotted quad for `afInet`, RFC 5952 form for `afInet6`. |
 | `netAddrTextPort` | value | `(-> Int String)` | `Alloc,Mut` | The same, with the port, in the form a URL authority uses: `127.0.0.1:80` and `[::1]:80`. |
-| `netSetBlocking` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Unsafe` | Take a descriptor OUT of non-blocking mode, preserving the other flags it carries. The counterpart of `netSetNonBlocking`, and what a caller that handles one connection synchronously wants from `netAccept`'s result. |
-| `netConnect` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | Connect to an address built by `netAddr4` or `netAddr6`. The length comes off the family in the buffer for the same reason `netBind`'s does, and was the same literal 16. |
-| `netShutdown` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | Answers `(Result Int Error)`; `Ok 0` on success. |
-| `netSetOptBytes` | value | `(-> Int Int Int Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | Set a socket option whose value is `len` bytes at `buf` - a struct such as the `timeval` `SO_RCVTIMEO` takes, where `netSetOptInt` covers the four-byte ones. |
-| `netGetSockName` | value | `(-> Int Int Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | The address socket `fd` is bound to (`getsockname`), written into the `cap` bytes at `addr` with the length cell at `lenbuf`, as `netAcceptFrom` writes a peer. How a listener asked for port 0 learns the port it got. |
-| `netGetPeerName` | value | `(-> Int Int Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | The address of the peer connected to socket `fd` (`getpeername`), in the same shape. |
-| `netSetOptInt` | value | `(-> Int Int Int Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Set an integer-valued socket option. The value crosses as four bytes in the host's own order, which is what the kernel reads an `int` option as - unlike an address, this one is NOT network order. That is `netPutInt32`, which `netAcceptFrom`'s `socklen_t` cell needs for the same reason. |
-| `netSetNonBlocking` | value | `(-> Int (Result Int Error))` | `Alloc,IO` | Put a descriptor into non-blocking mode, preserving the flags it already carries - a bare `F_SETFL` of the one flag would clear the access mode with it. |
 | `netWouldBlock` | value | `(-> Int Bool)` |  | Whether a negative answer means "nothing to take yet" rather than a broken socket. This is the whole reason `eAgain` is a capability: the number is 35 on Darwin and 11 on Linux, so an event loop written against a literal runs correctly on the machine it was written on. |
-| `sysPollBufBytes` | value | `(-> Int Int)` |  | How many bytes an event buffer for `n` events needs on this platform. |
-| `sysPollCreate` | value | `(Result Int Error)` | `Alloc,IO,Unsafe` | A readiness descriptor, as `(Result Int Error)`. |
-| `sysPollAddRead` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Watch `fd` for readability. `rec` is scratch of `pollEventSize` bytes. |
-| `sysPollDelRead` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Answers `(Result Int Error)`; `Ok 0` on success. `rec` must name `pollEventSize` live writable bytes. |
-| `sysPollWait` | value | `(-> Int Int Int Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Wait for readiness, answering `Ok` how many events landed in `buf` or `Err` the errno - `(Result Int Error)` since 2026-09-03, matched directly by every wake loop so the wake itself builds no block. A NEGATIVE `timeoutMs` BLOCKS INDEFINITELY, which is what a server's accept loop wants; zero polls and returns at once. |
-| `sysPollFdAt` | value | `(-> Int Int Int)` |  | The descriptor named by event `i` of a buffer `sysPollWait` filled. |
 | `sysRandomBytes` | value | `(-> Int Int (Result Int Error))` | `Alloc,Entropy,IO,Unsafe` | Fill `n` bytes at `buf` with kernel entropy. `(Ok 0)`, or `(Err e)` whose code is the errno - and on `Err` the buffer's contents are unspecified, so a caller must not read them. |
 | `sysSigBit` | value | `(-> Int Int)` |  | The `sigset_t` bit for a signal. SIGNAL N IS BIT N-1, an off-by-one that is easy to write the other way and yields the neighbouring signal's mask rather than an error. |
 | `sysSignalBlock` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Block the signals in `mask` so they become observable instead of fatal. `setbuf` is caller scratch of at least 16 bytes: the mask is written as one 64-bit word, and the kernel then copies ITS OWN `sigset_t` width out of the buffer - `sigsetBytes`, which is 4 on Darwin, 8 on Linux and 16 on FreeBSD. Sixteen covers every target, and the bytes between the word and that width are zeroed here rather than left to whatever the caller's buffer held, because on FreeBSD they are signals 65 through 128 and a stale byte there blocks one. Answers `(Result Int Error)`; `Ok 0` on success. Runs once, before a server forks, so that every worker inherits the mask. |
-| `sysSignalOpen` | value | `(-> Int Int Int Int (Result Int Error))` | `Alloc,IO,Mut` | Watch the signals in `mask` on the readiness descriptor `pfd`, and answer a HANDLE to pass back to `sysPollSignalAt` - the signal descriptor on Linux, and 0 on the BSDs, which need none. |
-| `sysPollSignalAt` | value | `(-> Int Int Int Int (Option Int))` | `IO,Unsafe` | The signal named by event `i`, or `None` when that event is not a signal at all. `sigHandle` is what `sysSignalOpen` answered and `scratch` is caller scratch of at least `sigInfoSize` bytes. |
 | `sysKill` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | Send a signal, which is how a test raises one against itself. |
 | `sysForkProcess` | value | `Int` | `IO,Spawn,Unsafe` | Duplicating this process |
-| `sysIsatty` | value | `(-> Int Bool)` | `Alloc,IO` | True when `fd` is a terminal. |
 | `sysMapShared` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Unsafe` | Map `len` bytes, readable and writable (PROT_READ\|PROT_WRITE = 3), shared with every binding spawned after this call; answers the address, page-aligned and zeroed. Unmap it with `sysUnmapShared` once no binding can still touch it - a program obligation, as a handle's single join is (MM-PAR-8). |
 | `sysUnmapShared` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | `addr` and `len` must name a whole mapping `sysMapShared` answered, and nothing may touch it afterwards. |
 | `sysMapPrivate` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Unsafe` | Map `len` zeroed bytes, readable and writable, private to this process: a fork gets a copy, as it does of the arena. Answers the page-aligned address. |
@@ -1523,18 +1514,6 @@ two differ.
 | `sysTimeoutMicros` | value | `(-> Int Int)` | `Alloc,IO` | Microseconds from the clock a timeout is measured on: the monotonic one where the platform has it and - DELIBERATELY, since nothing better is reachable without libSystem - the realtime clock on Darwin (`clockHasMonotonic` there says why). The timed loops above this file add only non-negative steps of this clock, each clamped to the slice the kernel was asked to wait, so a step of the realtime clock moves a wait by at most one slice; MM-PAR-12 states the bound. `buf` is 16 bytes of caller scratch. A clock that cannot be read answers 0, which a caller reads as no time having passed: its wait then ends on the kernel's own timeout rather than early. |
 | `sysChildPollBytes` | value | `Int` |  | Bytes of caller scratch `sysChildExited` needs: a `siginfo_t` is 104 bytes on Darwin and 128 on Linux. |
 | `sysChildExited` | value | `(-> Int Int (Result Bool Error))` | `Alloc,Block,IO,Mut,Unsafe` | Has the child `pid` ended? Without reaping it: `Ok True` means it has exited or been killed and is waiting to be reaped - so a join on it will not block - and it is STILL this process's child, still waitable, its pid not free for reuse. `Ok False` means it is running. |
-| `sysLockShared` | value | `Int` |  | The `flock` operations. The same four values on every target that has the call. |
-| `sysLockExclusive` | value | `Int` |  |  |
-| `sysLockNonBlocking` | value | `Int` |  | Or'd into `sysLockShared` or `sysLockExclusive`: answer EWOULDBLOCK at once instead of waiting for the lock. |
-| `sysLockRelease` | value | `Int` |  |  |
-| `sysOpenRw` | value | `(-> Int Bool (Result Int Error))` | `Alloc,IO` | Open `path` for reading and writing, creating it with mode 0644 when `create` is true and it isn't there. Answers the descriptor. |
-| `sysOpenRo` | value | `(-> Int (Result Int Error))` | `Alloc,IO` | Open `path` for reading only. Answers the descriptor. |
-| `sysPread` | value | `(-> Int Int Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | Read up to `count` bytes at byte `offset` of `fd` into `buf`, without moving the descriptor's position. Answers how many arrived: fewer than asked at the end of the file, and 0 past it. |
-| `sysPwrite` | value | `(-> Int Int Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | Write `count` bytes from `buf` at byte `offset` of `fd`, without moving the descriptor's position. Answers how many were written, which may be fewer than asked: the caller writes the rest. |
-| `sysFsync` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Unsafe` | Make everything written to `fd` durable before answering. On Darwin that is `fcntl(F_FULLFSYNC)`, because a plain `fsync` there stops at the drive's own cache; a file system that refuses F_FULLFSYNC gets the plain `fsync`. Elsewhere it is `fsync`. |
-| `sysFtruncate` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | Set the length of `fd`'s file to `len` bytes, dropping what lies beyond or adding zeros. |
-| `sysFdSize` | value | `(-> Int (Result Int Error))` | `Alloc,IO` | The size of `fd`'s file in bytes. It moves the descriptor's position to the end, which `sysPread` and `sysPwrite` never read. |
-| `sysFlock` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | Take, change or release the advisory lock on `fd`'s whole file: `op` is `sysLockShared` or `sysLockExclusive`, either or'd with `sysLockNonBlocking`, or `sysLockRelease`. The lock belongs to the open file, not the process, so two descriptors opened separately in one process conflict with each other as two processes would. Closing the descriptor releases it. With `sysLockNonBlocking`, a lock another holder keeps answers `Err` EWOULDBLOCK (`eAgain`) at once. |
 
 ## `Sys.Platform`
 
@@ -1596,6 +1575,7 @@ two differ.
 | `soError` | value | `Int` |  |  |
 | `fGetFl` | value | `Int` |  | fcntl's file-status commands, and the flag a non-blocking socket sets. `O_NONBLOCK` is 4 here and 2048 on Linux. |
 | `fSetFl` | value | `Int` |  |  |
+| `fDupFdCloexec` | value | `Int` |  | fcntl's F_DUPFD_CLOEXEC: a duplicate of a descriptor, closed on exec. `IO.termRaw` keeps one, so its guard can restore the terminal however the caller's file is closed. |
 | `oNonblock` | value | `Int` |  |  |
 | `eAgain` | value | `Int` |  | EAGAIN, which a non-blocking `accept` or `read` answers negated when there is nothing to take yet. 35 here, 11 on Linux - so a caller that compares against a literal is correct on one target and silently wrong on the other, which is the reason this is a name. |
 | `sockaddrHasLenByte` | value | `Int` |  | WHETHER `sockaddr_in` OPENS WITH A LENGTH BYTE. It does here and does not on Linux, and the two layouts cannot share a builder: |
@@ -1623,7 +1603,6 @@ two differ.
 | `sigTerm` | value | `Int` |  | SIGTERM and SIGINT AGREE on all four targets, which is worth naming rather than assuming because most of their neighbours do not - SIGUSR1 is 30 here and 10 on Linux. |
 | `sigInt` | value | `Int` |  |  |
 | `forkChildIsZero` | value | `Int` |  | Whether `fork` answers 0 in the child, which is the POSIX convention and what Linux does. Darwin answers the child's pid to both, so `sysForkProcess` normalises; see `sysForkNum` above for the measurement. |
-| `acceptNonblockFlag` | value | `Int` |  | The flag `netAccept` passes to make the accepted socket non-blocking. Darwin's `accept` HAS no such flag - it has no `accept4` at all - so this is 0 and `Sys.ax` reaches for `fcntl` afterwards instead. |
 | `usesSyscallAbi` | value | `Int` |  |  |
 | `platformWriteFd` | value | `(-> Int Int Int (Result Int Error))` | `Alloc` |  |
 | `platformReadFd` | value | `(-> Int Int Int (Result Int Error))` | `Alloc` |  |
@@ -1680,7 +1659,7 @@ two differ.
 | `tcpNoDelayOpt` | value | `Int` |  | TCP_NODELAY - send small writes at once rather than join them |
 | `sysPreadNum` | value | `Int` |  | pread(fd, buf, count, offset) - BSD 153 |
 | `sysPwriteNum` | value | `Int` |  | pwrite(fd, buf, count, offset) - BSD 154 |
-| `sysFsyncNum` | value | `Int` |  | fsync(fd) - BSD 95. Darwin's fsync leaves the data in the drive's own cache, so `sysFsync` asks `fcntl(F_FULLFSYNC)` instead and uses this only if the file system refuses that. |
+| `sysFsyncNum` | value | `Int` |  | fsync(fd) - BSD 95. Darwin's fsync leaves the data in the drive's own cache, so Axqlite's pager asks `fcntl(F_FULLFSYNC)` instead and uses this only if the file system refuses that. |
 | `sysFtruncateNum` | value | `Int` |  | ftruncate(fd, length) - BSD 201 |
 | `sysFlockNum` | value | `Int` |  | flock(fd, operation) - BSD 131 |
 | `fsyncUsesFullFsync` | value | `Int` |  | 1: a durable sync is `fcntl(fd, F_FULLFSYNC)`, through `sysFcntlNum` |
@@ -1857,15 +1836,15 @@ two differ.
 |---|---|---|---|---|
 | `termBufBytes` | value | `Int` |  | One `read` takes up to this much. Large enough that a pasted line arrives in one syscall, which is what makes the redraw coalescing below turn a paste into roughly one repaint. |
 | `keyEscTimeoutMs` | value | `Int` |  | How long to wait for the rest of an escape sequence before deciding there is no rest. |
-| `mkKeyIn` | value | `(-> Int Int KeyIn)` | `Alloc,IO,Mut` | A reader over `fd`. `active` 0 builds the inert shape: no poll descriptor, a one-byte buffer, and nothing ever read - which is what the piped path gets, so that the byte-identical surface pays for none of this. |
+| `mkKeyIn` | value | `(-> File Int KeyIn)` | `Alloc,IO,Mut` | A reader over `in`. `active` 0 builds the inert shape: no poller, a one-byte buffer, and nothing ever read - which is what the piped path gets, so that the byte-identical surface pays for none of this. |
 | `keyInPending` | value | `(-> KeyIn Int)` |  | Bytes read but not yet consumed. The redraw coalescing asks this. |
 | `keyInFill` | value | `(-> KeyIn Int Int)` | `Alloc,IO,Mut` |  |
 | `keyNext` | value | `(-> KeyIn KeyEv)` | `Alloc,IO,Mut` |  |
-| `termReadSize` | value | `(-> KeyIn Int)` | `Alloc,IO,Mut` | Refresh `kin.rows` and `kin.cols` from the terminal on fd 1. One ioctl; there is no SIGWINCH handling anywhere in this tree, so the size is asked for rather than delivered. A failed query records 0x0. |
+| `termReadSize` | value | `(-> KeyIn Int)` | `Alloc,IO,Mut` | Refresh `kin.rows` and `kin.cols` from the terminal on stdout. One ioctl; there is no SIGWINCH handling anywhere in this tree, so the size is asked for rather than delivered. A failed query records 0x0. |
 | `termWsCols` | value | `(-> KeyIn Int)` |  | Columns, or 80. A pty that has never been sized answers 0 with a successful ioctl, so the fallback is on the value and not only on the return code. |
 | `termWsRows` | value | `(-> KeyIn Int)` |  |  |
-| `termRawEnter` | value | `(-> KeyIn Int)` | `Alloc,IO,Mut` | Enter raw mode on fd 0, keeping the saved state in `kin.term`. 0, or the negated errno. Signals are off: see the header. |
-| `termRawLeave` | value | `(-> KeyIn Int)` | `Alloc,IO,Mut` | Leave raw mode, restoring what `termRawEnter` saved. 0, or the negated errno; 0 when raw mode was never entered. |
+| `termRawEnter` | value | `(-> KeyIn Int)` | `Alloc,IO,Mut` | Enter raw mode on the reader's file, keeping the guard in `kin.guard`. 0, or the negated errno. Signals are off: see the header. |
+| `termRawLeave` | value | `(-> KeyIn Int)` | `Alloc,IO,Mut` | Leave raw mode, restoring what `termRawEnter` saved. 0, or the negated errno; 0 when raw mode was never entered. Dropping the reader with raw mode on restores the terminal too, when the guard's last share goes. |
 | `termFlush` | value | `(-> (Vec String) Int)` | `Alloc,IO,Mut` |  |
 | `termEditLoop` | value | `(-> KeyIn LineEd String (Option String))` | `Alloc,IO,Mut` |  |
 

@@ -1,0 +1,60 @@
+[1;31merror[AX3001][0m[1m: undefined variable `fileFd`[0m
+  [1;34m--> [0m1225-descriptor-hole.ax:28:31
+[1;34m   |[0m
+[1;34m28 |[0m         (let ((_ (sysCloseFd (fileFd f)))) 0)
+[1;34m   |[0m                               [1;31m^^^^^^ no binding named `fileFd` in scope[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mvariables must be defined (via `fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
+
+[1;31merror[AX3023][0m[1m: `sysCloseFd` is private to module `Sys`[0m
+  [1;34m--> [0m1225-descriptor-hole.ax:28:19
+[1;34m   |[0m
+[1;34m28 |[0m         (let ((_ (sysCloseFd (fileFd f)))) 0)
+[1;34m   |[0m                   [1;31m^^^^^^^^^^ `sysCloseFd` is not exported by its module[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma name leaves its module when its declaration is written `pub`; if the import that brought the module in carries a name list, the name has to appear there too
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3023` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected File, found Int[0m
+  [1;34m--> [0m1225-descriptor-hole.ax:37:12
+[1;34m   |[0m
+[1;34m37 |[0m   (readAll 3))
+[1;34m   |[0m            [1;31m^ this has type `Int`, expected `File`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3085][0m[1m: only module `IO` can make a `File`[0m
+  [1;34m--> [0m1225-descriptor-hole.ax:41:4
+[1;34m   |[0m
+[1;34m41 |[0m   (File 3))
+[1;34m   |[0m    [1;31m^^^^ built outside its module[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma sealed struct keeps ownership state private; use its module's functions (docs/reference.md Structs)
+  [1;34m = [0m[1;32mhelp: [0mget one from a function module `IO` provides: a sealed struct's constructor stays in its module, `pub` or not
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3085` for a full explanation
+
+[1;31merror[AX3023][0m[1m: `IO::ioFd` is private to module `IO`[0m
+  [1;34m--> [0m1225-descriptor-hole.ax:45:4
+[1;34m   |[0m
+[1;34m45 |[0m   (IO::ioFd f))
+[1;34m   |[0m    [1;31m^^ `ioFd` is not exported by its module[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma name leaves its module when its declaration is written `pub`; if the import that brought the module in carries a name list, the name has to appear there too
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3023` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `quiet` claims `restrict(no-io)` and the body performs IO: quiet -> IO$writeStr -> IO$ioWriteAll -> IO$ioWriteAllFrom -> IO$ioWriteFd -> __syscall3[0m
+  [1;34m--> [0m1225-descriptor-hole.ax:50:6
+[1;34m   |[0m
+[1;34m50 |[0m (fn (quiet f)
+[1;34m   |[0m      [1;31m^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mIO$writeStr (stdlib/IO.ax:171:10-18)
+  [1;34m = [0m[1mnote: [0mIO$ioWriteAll (stdlib/IO.ax:122:6-16)
+  [1;34m = [0m[1mnote: [0mIO$ioWriteAllFrom (stdlib/IO.ax:127:6-20)
+  [1;34m = [0m[1mnote: [0mIO$ioWriteFd (stdlib/IO.ax:105:6-15)
+  [1;34m = [0m[1mnote: [0m__syscall3 (no declaration to point at)
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+compilation failed due to 6 previous errors

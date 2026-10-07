@@ -9,11 +9,11 @@
 ;
 ; THE TWO PLATFORMS DELIVER A SIGNAL DIFFERENTLY AND THIS CASE RUNS
 ; AGAINST BOTH WITHOUT KNOWING WHICH. Darwin registers `EVFILT_SIGNAL`
-; on the same readiness descriptor as the sockets, and the event carries
-; the signal number in `ident`. Linux makes the signal a readable
-; descriptor of its own, adds that to the epoll set, and answers a
-; 128-byte record when it is read. `sysPollSignalAt` is the one function
-; that knows the difference, so it is the one under test.
+; on the same kqueue as the sockets, and the event carries the signal
+; number in `ident`. Linux makes the signal a readable descriptor of its
+; own, which the poller owns and watches, and answers a 128-byte record
+; when it is read. `pollerSignal` is the one function that knows the
+; difference, so it is the one under test.
 ;
 ; BOTH DIRECTIONS ARE ASSERTED, and the negative one is the half that is
 ; easy to leave out: a SOCKET event must be reported as NOT a signal.
@@ -26,189 +26,88 @@
 ; leaving it would make the next wait answer two events and the case
 ; would be asserting something other than what it says.
 ;
-; The golden is platform-independent: every number underneath differs or
-; is unused by target - `pollSignalFilter`, `sigInfoSize`,
-; `signalUsesSignalFd`, `sigBlockHow`, `sigsetBytes` - and none reaches
-; stdout. SIGTERM is named rather than written as 15 because only it and
-; SIGINT agree across every target; SIGUSR1 is 30 on the BSDs and 10
-; on Linux. `setbuf` is 16 bytes because that is the widest `sigset_t`
-; a kernel copies out of it (FreeBSD's), per `sysSignalBlock`.
+; The golden is platform-independent. SIGTERM is named rather than
+; written as 15 because only it and SIGINT agree across every target.
+; `setbuf` is 16 bytes because that is the widest `sigset_t` a kernel
+; copies out of it (FreeBSD's), per `sysSignalBlock`.
 (import IO)
 (import Sys)
 (import Err)
-(import Fmt)
 (import Mem)
-(import Str)
+(import Net)
 
-(:: say (-> Int String Int))
+(:: say (-> Bool String Int))
 ;@axiom:effect(io)
-(fn (say okFlag label)
-  (if (== okFlag 1)
+(fn (say good label)
+  (if good
     (println (concat "ok   " label))
     (println (concat "FAIL " label))))
+
+(:: waitCount (-> Poller Int Int))
+;@axiom:effect(io)
+(fn (waitCount p timeoutMs)
+  (match (pollerWait p timeoutMs)
+    ((Ok k) k)
+    ((Err e) (- 0 e.code))))
+
+(:: isSignal (-> Poller Int Bool))
+;@axiom:effect(io)
+(fn (isSignal p i)
+  (match (pollerSignal p i)
+    ((Some _) true)
+    ((None) false)))
 
 (:: main Int)
 ;@axiom:effect(io)
 (fn (main)
-  ; Block first, or the default disposition kills us before
-  ; anything can observe the signal.
-  (let ((port (+ 20000 (% sysPid 9000))))
-    (let ((addr (memAlloc 16)))
-      (let (
-        (rec (memAlloc 64))
-        (ts (memAlloc 16))
-        (optb (memAlloc 4))
-      )
-        (let ((setbuf (memAlloc 16)))
-          (let ((scratch (memAlloc 256)))
-            (let ((buf (memAlloc (sysPollBufBytes 8))))
-              {
-                (say
-                  (if (isOk (sysSignalBlock (sysSigBit sigTerm) setbuf))
-                    1
-                    0)
-                  "SIGTERM is blocked")
-                (match sysPollCreate
-                  ((Err e) (say 0 "the readiness descriptor is created"))
-                  ((Ok pfd)
-                    (match netSocketTcp
-                      ((Err e) (say 0 "the listener is created"))
-                      ((Ok lsn)
+  (let (
+    (port (+ 20000 (% sysPid 9000)))
+    (setbuf (memAlloc 16))
+  )
+    {
+      (say (isOk (sysSignalBlock (sysSigBit sigTerm) setbuf)) "SIGTERM is blocked")
+      (match (pollerNew 8)
+        ((Err e) (say false "the poller is created"))
+        ((Ok p)
+          (match (socketAddrV4 127 0 0 1 port)
+            ((Err e) (say false "the address builds"))
+            ((Ok addr)
+              (match (tcpListen addr)
+                ((Err e) (say false "the listener is watched"))
+                ((Ok lsn)
+                  {
+                    (let ((_ (tcpListenerSetNonBlocking lsn true))) 0)
+                    (say (isOk (pollerAddListener p lsn 1)) "the listener is watched")
+                    (say (isOk (pollerAddSignals p (sysSigBit sigTerm) 2)) "SIGTERM is watched by the same poller")
+                    (say (== (waitCount p 0) 0) "nothing pending wakes nothing")
+                    (match (tcpConnect addr)
+                      ((Err e) (say false "a client connects"))
+                      ((Ok cli)
                         {
-                          (let ((_ (netSetOptInt
-                            lsn
-                            solSocket
-                            soReuseAddr
-                            1
-                            optb))) 0)
-                          (netAddr4
-                            addr
-                            port
-                            127
-                            0
-                            0
-                            1)
-                          (match (netBind lsn addr)
-                            ((Err e) (die (concat "bind failed: errno=" (fmtInt (errCode e))) 1))
-                            ((Ok _) 0))
-                          (let ((_ (netListen lsn 16))) 0)
-                          (let ((_ (netSetNonBlocking lsn))) 0)
-                          (say
-                            (if (isOk (sysPollAddRead pfd lsn rec))
-                              1
-                              0)
-                            "the listener is watched")
-                          (match (sysSignalOpen pfd (sysSigBit sigTerm) rec setbuf)
-                            ((Err e) (say 0 "SIGTERM is watched on the same descriptor"))
-                            ((Ok sh)
-                              {
-                                ; `1`, AND NOT `(>= sh 0)`, BECAUSE THE TYPE
-                                ; NOW CARRIES THAT. `sysSignalOpen` answers a
-                                ; `Result` since 0.6.2 and `sysResult` builds
-                                ; `Ok` only for a non-negative answer, so the
-                                ; old comparison is true in every reachable
-                                ; state of this arm - a check that cannot
-                                ; fail. The `Err` arm above is where this
-                                ; assertion now fails.
-                                (say 1 "SIGTERM is watched on the same descriptor")
-                                (say
-                                  (if (==
-                                    (match (sysPollWait
-                                      pfd
-                                      buf
-                                      8
-                                      0
-                                      ts)
-                                      ((Ok k) k)
-                                      ((Err e) (- 0 (errCode e))))
-                                    0)
-                                    1
-                                    0)
-                                  "nothing pending wakes nothing")
-                                ; A CONNECTION. It must arrive as a socket
-                                ; event and must NOT be read as a signal.
-                                (match netSocketTcp
-                                  ((Err e) (say 0 "a client socket is created"))
-                                  ((Ok cli)
-                                    {
-                                      (let ((_ (netConnect cli addr))) 0)
-                                      (let ((n 
-                                        (match (sysPollWait
-                                          pfd
-                                          buf
-                                          8
-                                          2000
-                                          ts)
-                                          ((Ok k) k)
-                                          ((Err e) (- 0 (errCode e))))))
-                                        {
-                                          (say
-                                            (if (== n 1)
-                                              1
-                                              0)
-                                            "a connection wakes one event")
-                                          (say
-                                            (if (== (sysPollFdAt buf 0) lsn)
-                                              1
-                                              0)
-                                            "the event names the listener")
-                                          (say
-                                            (match (sysPollSignalAt buf 0 sh scratch)
-                                              ((None) 1)
-                                              ((Some s) 0))
-                                            "a socket event is NOT reported as a signal")
-                                        })
-                                      ; Take the connection, or the listener stays
-                                      ; readable and the next wait sees two events.
-                                      (match (netAccept lsn)
-                                        ((Ok con) (sysCloseFd con))
-                                        ((Err e) (Err e)))
-                                      (let ((_ (sysCloseFd cli))) 0)
-                                    }
-                                  ))
-                                ; A SIGNAL, to ourselves, through the same loop.
-                                (say
-                                  (if (isOk (sysKill sysPid sigTerm))
-                                    1
-                                    0)
-                                  "SIGTERM is raised")
-                                (let ((n2 
-                                  (match (sysPollWait
-                                    pfd
-                                    buf
-                                    8
-                                    2000
-                                    ts)
-                                    ((Ok k) k)
-                                    ((Err e) (- 0 (errCode e))))))
-                                  {
-                                    (say
-                                      (if (== n2 1)
-                                        1
-                                        0)
-                                      "the signal wakes one event")
-                                    (say
-                                      (match (sysPollSignalAt buf 0 sh scratch)
-                                        ((Some s)
-                                          (if (== s sigTerm)
-                                            1
-                                            0)
-                                        )
-                                        ((None) 0))
-                                      "the event decodes as SIGTERM")
-                                  })
-                                (if (> sh 0)
-                                  {
-                                    (let ((_ (sysCloseFd sh))) 0)
-                                    0
-                                  }
-                                  0)
-                              }
-                            ))
-                          (let ((_ (sysCloseFd lsn))) 0)
-                          (let ((_ (sysCloseFd pfd))) 0)
-                        }
-                      ))
-                  ))
-                0
-              })))))))
+                          (let ((n (waitCount p 2000)))
+                            {
+                              (say (== n 1) "a connection wakes one event")
+                              (say (&& (== n 1) (== (pollerToken p 0) 1)) "the event carries the listener's token")
+                              (say (&& (== n 1) (! (isSignal p 0))) "a socket event is NOT reported as a signal")
+                            })
+                          (match (tcpAccept lsn)
+                            ((Ok con) (let ((_ (tcpClose con))) 0))
+                            ((Err e) 0))
+                          (let ((_ (tcpClose cli))) 0)
+                        }))
+                    (say (isOk (sysKill sysPid sigTerm)) "SIGTERM is raised")
+                    (let ((n2 (waitCount p 2000)))
+                      {
+                        (say (== n2 1) "the signal wakes one event")
+                        (say
+                          (&& (== n2 1)
+                            (match (pollerSignal p 0)
+                              ((Some s) (== s sigTerm))
+                              ((None) false)))
+                          "the event decodes as SIGTERM")
+                      })
+                    (let ((_ (tcpListenerClose lsn))) 0)
+                    0
+                  }))))))
+      0
+    }))

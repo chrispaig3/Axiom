@@ -226,7 +226,7 @@ cat > "$probe/p.ax" <<'AX'
 ;@axiom:effect(io)
 (fn (main)
   {
-    (writeStr 1 "installed\n")
+    (writeStr stdout "installed\n")
     7
   }
 )

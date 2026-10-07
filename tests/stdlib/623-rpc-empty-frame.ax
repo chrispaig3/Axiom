@@ -32,7 +32,7 @@
       (match (openPath path oRdonly)
         ((Err e) (die "open for read failed" 1))
         ((Ok f)
-          (let ((r (rdNew (fileFd f))))
+          (let ((r (rdNew f)))
             {
               (show "first, empty" (rpcReadMsg r))
               (show "second" (rpcReadMsg r))

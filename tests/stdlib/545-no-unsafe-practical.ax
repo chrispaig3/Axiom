@@ -119,7 +119,7 @@
 
 ; Whether `fd` answered a size. Under the test runner it is a pipe or
 ; `/dev/null`, never a terminal.
-(:: termText (-> Int String))
+(:: termText (-> File String))
 ;@axiom:effect(io)
 (fn (termText fd)
   (match (termSize fd)
@@ -169,7 +169,7 @@
       (let (
         (file (fileRound "axiom-545.tmp" "typed bytes\n"))
         (random (randomCount 32))
-        (term (termText 0))
+        (term (termText stdin))
       )
         (println "file {file}, random {random}, fd 0 {term}"))
       0

@@ -58,7 +58,7 @@
 (import Vec)
 (import Utf8)
 (import Sys)
-(import IO (cwd isDir listDir readFile))
+(import IO (cwd isDir listDir readFile stdin stdout))
 (import Err)
 (import Path)
 (import Cereal)
@@ -3527,6 +3527,7 @@
 ; it: a `Str` inside the block has no NUL terminator after it, and
 ; `strCStr` is what hands a uri to anything outside this module.
 (pub :: lspRestore (-> Int Int))
+;@axiom:effect(io)
 (pub fn (lspRestore b)
   (let (
     (n (memGetWord b 1))
@@ -3534,7 +3535,7 @@
     (fu vecNew)
     (ft vecNew)
     (fg vecNew)
-    (r (rdNew 0))
+    (r (rdNew stdin))
   )
     (let (
       (mut j 0)
@@ -3574,7 +3575,7 @@
 (pub :: lspSend (-> Int Int))
 ;@axiom:effect(io)
 (pub fn (lspSend obj)
-  (rpcWrite 1 (jsonWrite obj)))
+  (rpcWrite stdout (jsonWrite obj)))
 
 ; A response carries back the request's `id` NODE, not its integer: LSP
 ; ids may be strings, and echoing a number where a string was sent is a
@@ -14016,7 +14017,7 @@
   ; reclaim has already handed back to the allocator. A raw word
   ; store releases nothing, and the block sits below the mark.
   (let (
-    (mut r (rdNew 0))
+    (mut r (rdNew stdin))
     (store lspStoreNew)
     (mut running 1)
     (mut status 1)

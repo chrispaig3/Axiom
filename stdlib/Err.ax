@@ -80,7 +80,7 @@
 ; A descriptor accepted some bytes and then accepted none, without an
 ; errno to say why. It is NOT a syscall error - `write` returned 0,
 ; which is a legal answer - so it cannot borrow an errno, and it is not
-; success either, which is exactly why `Sys.sysWriteAllFd` could not
+; success either, which is exactly why `IO`'s write loop could not
 ; express it while it answered an Int. `ERR-REC-3` calls a short write
 ; a failure and not an absence: the bytes were meant to go and did not.
 (pub :: errShortWrite Int)

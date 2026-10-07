@@ -345,6 +345,23 @@ else
   bad "bitflip ablated: the get ablation's compiler is missing, so section 7 has no negative"
 fi
 
+echo "== 8. owned descriptors: no poller or key reader leaks one under ulimit -n 256 =="
+# tests/stdlib/786-poller-owned.ax makes and drops 300 pollers and 300
+# key readers. Under a limit of 256 descriptors, a leak of one per owner
+# runs out before either loop ends, and the counts it prints go wrong.
+owned="$repo_root/tests/stdlib/786-poller-owned.ax"
+bin="$work/poller-owned"
+if (cd "$repo_root" && "$axc" build --input "$owned" --output "$bin") > "$bin.build" 2>&1; then
+  rc=0; got="$( (ulimit -n 256 && "$bin" </dev/null) 2>/dev/null)" || rc=$?
+  if [[ $rc -eq 85 && "$got" == "$(cat "$repo_root/tests/stdlib/786-poller-owned.out")" ]]; then
+    ok "300 pollers and 300 key readers under ulimit -n 256 leave no descriptor, and a closed poller traps 85"
+  else
+    bad "owned descriptors under ulimit -n 256: exit $rc, output '$(tr '\n' ' ' <<<"$got")'"
+  fi
+else
+  bad "tests/stdlib/786-poller-owned.ax did not build"; sed 's/^/    /' "$bin.build" | head -8
+fi
+
 echo
 if (( failed > 0 )); then
   echo "check-handles: $failed failed, $checks passed"

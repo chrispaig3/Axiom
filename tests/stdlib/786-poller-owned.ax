@@ -1,0 +1,64 @@
+; A `Poller` and a key reader own their descriptors. Three hundred of
+; each are made and dropped, and the process holds as many descriptors
+; afterwards as before, counted in /dev/fd. `scripts/check-handles.sh`
+; also runs this under `ulimit -n 256`, where a leak of one descriptor
+; per poller would run out before the loop ends. A closed poller is
+; dead: the last line's wait stops the program with status 85.
+(import IO)
+(import Err)
+(import Vec)
+(import Tui.Term)
+
+(:: openCount Int)
+;@axiom:effect(io)
+(fn (openCount)
+  (vecLen (listDir "/dev/fd")))
+
+(:: pollers (-> Int Int))
+;@axiom:effect(io)
+(fn (pollers n)
+  (let ((mut i 0) (mut made 0))
+    {
+      (while (< i n)
+        {
+          (match (pollerNew 4)
+            ((Ok p) (set made (+ made 1)))
+            ((Err e) 0))
+          (set i (+ i 1))
+        })
+      made
+    }))
+
+(:: readers (-> Int Int))
+;@axiom:effect(io)
+(fn (readers n)
+  (let ((mut i 0))
+    {
+      (while (< i n)
+        {
+          (let ((kin (mkKeyIn stdin 1)))
+            (keyInPending kin))
+          (set i (+ i 1))
+        })
+      n
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((before openCount))
+    {
+      (println (pollers 300))
+      (println (== openCount before))
+      (println (readers 300))
+      (println (== openCount before))
+      (match (pollerNew 4)
+        ((Ok p)
+          {
+            (let ((_ (pollerClose p))) 0)
+            (match (pollerWait p 0)
+              ((Ok n) (println "UNREACHABLE: a closed poller waited"))
+              ((Err e) (println "UNREACHABLE: a closed poller answered an error")))
+          })
+        ((Err e) (println "pollerNew failed")))
+    }))

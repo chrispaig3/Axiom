@@ -9,11 +9,10 @@
 ;      stay within a handful of descriptors
 ;   4  the last vector a slot holds is closed when the slot's scope ends
 ;
-; A compiler that never releases a `Vec` answers `false` on lines 1 and
-; 4, and lines 2 and 3 run out of descriptors (errno 24) under the
-; default limit of 256 or read `false` above it.
+; A compiler that never releases a `Vec` answers `false` on every line,
+; and lines 2 and 3 run out of descriptors (errno 24) under a limit of
+; 256. The count of open descriptors is read from /dev/fd.
 (import IO)
-(import Sys)
 (import Err)
 (import Str)
 (import Vec)
@@ -25,19 +24,11 @@
     ((Ok f) f)
     ((Err e) { (die (errorText e) 1) (requireFile path) })))
 
-(:: closedFd (-> Int Bool))
+; How many descriptors this process holds, counted in /dev/fd.
+(:: openCount Int)
 ;@axiom:effect(io)
-(fn (closedFd fd)
-  (let ((buf (strAlloc 1)))
-    (match (sysReadFd fd (strData buf) 1)
-      ((Ok _) false)
-      ((Err e) (== (errCode e) 9)))))
-
-(:: maxInt (-> Int Int Int))
-(fn (maxInt a b)
-  (if (> a b)
-    a
-    b))
+(fn (openCount)
+  (vecLen (listDir "/dev/fd")))
 
 (:: pairOf (Vec File))
 ;@axiom:effect(io)
@@ -49,63 +40,60 @@
       v
     }))
 
-; The two descriptors of a pair that has already been dropped.
-(:: droppedFds (Vec Int))
-;@axiom:effect(io)
-(fn (droppedFds)
-  (let ((v pairOf))
-    (let ((out vecNew))
-      {
-        (vecPush out (fileFd (vecGet v 0)))
-        (vecPush out (fileFd (vecGet v 1)))
-        out
-      })))
-
 (:: droppedClosed Bool)
 ;@axiom:effect(io)
 (fn (droppedClosed)
-  (let ((fds droppedFds))
-    (&& (closedFd (vecGet fds 0)) (closedFd (vecGet fds 1)))))
+  (let ((before openCount))
+    {
+      (let ((v pairOf))
+        (vecLen v))
+      (== openCount before)
+    }))
 
 (:: loopDropped Bool)
 ;@axiom:effect(io)
 (fn (loopDropped)
-  (let ((mut i 0) (mut hi 0))
+  (let ((before openCount) (mut i 0))
     {
       (while (< i 3000)
         {
           (let ((v pairOf))
-            {
-              (set hi (maxInt hi (fileFd (vecGet v 1))))
-              0
-            })
+            (vecLen v))
           (set i (+ i 1))
         })
-      (< hi 16)
+      (== openCount before)
     }))
 
 (:: loopReassigned Bool)
 ;@axiom:effect(io)
 (fn (loopReassigned)
-  (let ((mut v pairOf) (mut i 0) (mut hi 0))
+  (let ((before openCount) (mut v pairOf) (mut i 0))
     {
       (while (< i 3000)
         {
           (set v pairOf)
-          (set hi (maxInt hi (fileFd (vecGet v 1))))
           (set i (+ i 1))
         })
-      (< hi 16)
+      (&& (== openCount (+ before 2)) (== (vecLen v) 2))
     }))
 
-(:: lastFd Int)
+(:: lastSet (-> Int Int))
 ;@axiom:effect(io)
-(fn (lastFd)
+(fn (lastSet x)
   (let ((mut v pairOf) (mut n 0))
     {
       (set v pairOf)
-      (set n (fileFd (vecGet v 0)))
+      (set n (vecLen v))
       n
+    }))
+
+(:: lastClosed Bool)
+;@axiom:effect(io)
+(fn (lastClosed)
+  (let ((before openCount))
+    {
+      (lastSet 0)
+      (== openCount before)
     }))
 
 (:: main Int)
@@ -115,6 +103,6 @@
     (println (if droppedClosed "true" "false"))
     (println (if loopDropped "true" "false"))
     (println (if loopReassigned "true" "false"))
-    (println (if (closedFd lastFd) "true" "false"))
+    (println (if lastClosed "true" "false"))
     0
   })

@@ -336,6 +336,13 @@
 (pub fn (fSetFl)
   4)
 
+; fcntl's F_DUPFD_CLOEXEC: a duplicate of a descriptor, closed on exec.
+; `IO.termRaw` keeps one, so its guard can restore the terminal however
+; the caller's file is closed.
+(pub :: fDupFdCloexec Int)
+(pub fn (fDupFdCloexec)
+  1030)
+
 ; O_NONBLOCK is 0o4000 here against Darwin's 4.
 (pub :: oNonblock Int)
 (pub fn (oNonblock)
@@ -543,15 +550,6 @@
 (pub :: forkChildIsZero Int)
 (pub fn (forkChildIsZero)
   1)
-
-; SOCK_NONBLOCK, which `accept4` takes directly, so the accepted socket
-; arrives non-blocking with no second syscall. Linux does NOT inherit
-; the listener's `O_NONBLOCK` the way Darwin does; see the Darwin file
-; for the measurement of that divergence and why `netAccept` defines the
-; answer rather than reporting it.
-(pub :: acceptNonblockFlag Int)
-(pub fn (acceptNonblockFlag)
-  2048)
 
 ; ------------------------------------------------------------------
 ; Which KIND of platform module this is.

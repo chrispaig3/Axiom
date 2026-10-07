@@ -35,7 +35,7 @@
 ;@axiom:effect(io)
 (fn (panic msg)
   {
-    (writeStr 2 msg)
+    (writeStr stderr msg)
     (cast a (exit 70))
   })
 

@@ -13,23 +13,23 @@
 ; and the socket address both are opened on. Anything above TCP - HTTP,
 ; TLS, a resolver - is a library a program brings, built on this.
 ;
-; `TcpListener` and `TcpStream` own a `File`. Aliases share its lifetime:
-; the last owner closes the descriptor. Explicit close retires it first,
-; so any later use stops with status 85 before a reused descriptor number
-; can reach another resource.
+; `TcpListener` and `TcpStream` each own a `File`, and no descriptor
+; number leaves them. Aliases share its lifetime: the last owner closes
+; the descriptor. Explicit close retires it first, so any later use
+; stops with status 85 before a reused descriptor number can reach
+; another resource.
 ;
 ; BLOCKING BY DEFAULT, as `std::net` is. A listener and every stream
 ; this module makes block until they can answer; `tcpSetNonBlocking`
-; switches a stream, and then a read or write that cannot proceed
-; answers `Err` whose code `netWouldBlock` recognises. `tcpStreamFd` and
-; `tcpListenerFd` hand out the descriptor for `Sys`'s readiness calls
-; (`sysPollCreate`, `sysPollAddRead`, `sysPollWait`).
+; switches one, and then a read or write that cannot proceed answers
+; `Err` whose code `netWouldBlock` recognises. `pollerAddListener` and
+; `pollerAddStream` put either into an `IO` `Poller`.
 ;
 ; A CLOSED PEER IS AN ERROR, NOT A SIGNAL. Writing to a connection the
 ; peer has closed raises SIGPIPE, whose default action ends the process.
-; Every write here goes through `sendto` with `MSG_NOSIGNAL` on Linux
-; and FreeBSD, and every socket gets `SO_NOSIGPIPE` on Darwin and
-; FreeBSD, so the write answers `Err` EPIPE instead.
+; `IO`'s socket layer sends with `MSG_NOSIGNAL` on Linux and FreeBSD and
+; gives every socket `SO_NOSIGPIPE` on Darwin and FreeBSD, so the write
+; answers `Err` EPIPE instead.
 ;
 ; NO NAMES. `socketAddrParse` reads numeric addresses only - there is
 ; no resolver, because the only one a freestanding program could call
@@ -467,39 +467,31 @@
 (pub struct TcpStream sealed
   (file : File))
 
-(:: listenerFdOf (-> TcpListener Int))
-(fn (listenerFdOf l)
-  (fileFd l.file))
-
-(:: streamFdOf (-> TcpStream Int))
-(fn (streamFdOf s)
-  (fileFd s.file))
-
-; The listener's descriptor, for `Sys`'s readiness calls. It stays the
-; listener's: close the listener, not the descriptor.
-(pub :: tcpListenerFd (-> TcpListener Int))
-(pub fn (tcpListenerFd l)
-  (listenerFdOf l))
-
-; The stream's descriptor, for `Sys`'s readiness calls.
-(pub :: tcpStreamFd (-> TcpStream Int))
-(pub fn (tcpStreamFd s)
-  (streamFdOf s))
-
-; Keep a socket's writes from raising SIGPIPE where the platform does it
-; per socket (Darwin, FreeBSD). Linux has no such option and gets
-; `MSG_NOSIGNAL` on each write instead, so this answers `Ok` there.
-(:: netNoSigPipe (-> Int (Result Int Error)))
+; Watch the listener under `token` in `p`: a wake answering `token`
+; means a connection is waiting for `tcpAccept`. See `IO.pollerAdd`.
+(pub :: pollerAddListener (-> Poller TcpListener Int (Result Int Error)))
 ;@axiom:effect(io)
-(fn (netNoSigPipe fd)
-  (if (== soNoSigPipe 0)
-    (Ok 0)
-    (netSetOptInt
-      fd
-      solSocket
-      soNoSigPipe
-      1
-      (memAlloc 8))))
+(pub fn (pollerAddListener p l token)
+  (pollerAdd p l.file token))
+
+; Watch the stream under `token` in `p`: a wake answering `token` means
+; `tcpRead` will not block. See `IO.pollerAdd`.
+(pub :: pollerAddStream (-> Poller TcpStream Int (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (pollerAddStream p s token)
+  (pollerAdd p s.file token))
+
+; Stop watching the listener. See `IO.pollerRemove`.
+(pub :: pollerRemoveListener (-> Poller TcpListener (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (pollerRemoveListener p l)
+  (pollerRemove p l.file))
+
+; Stop watching the stream. See `IO.pollerRemove`.
+(pub :: pollerRemoveStream (-> Poller TcpStream (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (pollerRemoveStream p s)
+  (pollerRemove p s.file))
 
 ; ------------------------------------------------------------------
 ; Listening.
@@ -512,79 +504,51 @@
 (pub fn (tcpListen addr)
   (if (! (sockOk addr))
     (netBadAddr "not built by Net" "tcpListen")
-    (let ((p (strData addr.bytes)))
-      (match (if (== (netAddrFamily p) afInet6)
-        netSocketTcp6
-        netSocketTcp)
-        ((Err e) (Err (errContextOf e "tcpListen")))
-        ((Ok fd)
-          (let ((r (netListenOn fd p)))
-            (match r
-              ((Err e)
-                (let ((_ (sysCloseFd fd)))
-                  (Err (errContextOf e "tcpListen")))
-              )
-              ((Ok _)
-                (Ok (TcpListener (fileFromFd fd)))
-              )))
-        )))))
+    (match (socketOpen addr.bytes)
+      ((Err e) (Err (errContextOf e "tcpListen")))
+      ((Ok f)
+        (match (netListenOn f addr)
+          ((Err e)
+            (let ((_ (fileClose f)))
+              (Err (errContextOf e "tcpListen"))))
+          ((Ok _) (Ok (TcpListener f))))
+      ))))
 
 ; The setup between `socket` and a listening socket, each step's error
-; kept.
-(:: netListenOn (-> Int Int (Result Int Error)))
+; kept. Matches rather than `andThen` lambdas: a lambda that captures
+; the arm-bound `f` keeps it open (docs/assurance.md, Known defects).
+(:: netListenOn (-> File SocketAddr (Result Int Error)))
 ;@axiom:effect(io)
-(fn (netListenOn fd p)
-  (andThen
-    (netSetOptInt
-      fd
-      solSocket
-      soReuseAddr
-      1
-      (memAlloc 8))
-    (lambda (_)
-      (andThen
-        (netNoSigPipe fd)
-        (lambda (_)
-          (andThen
-            (netBind fd p)
-            (lambda (_)
-              (andThen
-                (netListen fd 128)
-                (lambda (_) (netSetBlocking fd)))
-            ))
-        ))
-    )))
+(fn (netListenOn f addr)
+  (match (socketSetInt f solSocket soReuseAddr 1)
+    ((Err e) (Err e))
+    ((Ok _)
+      (match (socketBind f addr.bytes)
+        ((Err e) (Err e))
+        ((Ok _) (socketListen f 128))))))
 
 ; Wait for the next connection and answer it as a blocking stream.
 (pub :: tcpAccept (-> TcpListener (Result TcpStream Error)))
 ;@axiom:effect(io)
 (pub fn (tcpAccept l)
-  (match (netAccept (listenerFdOf l))
+  (match (socketAccept l.file)
     ((Err e) (Err (errContextOf e "tcpAccept")))
-    ((Ok fd) (netAdopt fd "tcpAccept"))))
-
-; Make a stream of a connected descriptor: blocking, no SIGPIPE, and a
-; handle. The descriptor is closed on any failure.
-(:: netAdopt (-> Int String (Result TcpStream Error)))
-;@axiom:effect(io)
-(fn (netAdopt fd where)
-  (match (andThen
-    (netSetBlocking fd)
-    (lambda (_) (netNoSigPipe fd)))
-    ((Err e)
-      (let ((_ (sysCloseFd fd)))
-        (Err (errContextOf e where)))
-    )
-    ((Ok _)
-      (Ok (TcpStream (fileFromFd fd)))
-    )))
+    ((Ok f) (Ok (TcpStream f)))))
 
 ; The address the listener is bound to - the kernel's choice of port
 ; when it was asked for port 0.
 (pub :: tcpListenerAddr (-> TcpListener (Result SocketAddr Error)))
 ;@axiom:effect(io)
 (pub fn (tcpListenerAddr l)
-  (netNameOf (listenerFdOf l) false "tcpListenerAddr"))
+  (netNameOf l.file false "tcpListenerAddr"))
+
+; Switch the listener between blocking (`false`) and non-blocking
+; (`true`). A non-blocking listener's `tcpAccept` answers `Err` EAGAIN
+; when nothing is waiting, which a poller wake avoids.
+(pub :: tcpListenerSetNonBlocking (-> TcpListener Bool (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (tcpListenerSetNonBlocking l on)
+  (fileSetNonBlocking l.file on))
 
 ; Close the listener. Its handle is retired first, so any later use of
 ; it stops the program with status 85.
@@ -602,21 +566,15 @@
 (pub fn (tcpConnect addr)
   (if (! (sockOk addr))
     (netBadAddr "not built by Net" "tcpConnect")
-    (let ((p (strData addr.bytes)))
-      (match (if (== (netAddrFamily p) afInet6)
-        netSocketTcp6
-        netSocketTcp)
-        ((Err e) (Err (errContextOf e "tcpConnect")))
-        ((Ok fd)
-          (match (andThen
-            (netSetBlocking fd)
-            (lambda (_) (netConnect fd p)))
-            ((Err e)
-              (let ((_ (sysCloseFd fd)))
-                (Err (errContextOf e "tcpConnect")))
-            )
-            ((Ok _) (netAdopt fd "tcpConnect")))
-        )))))
+    (match (socketOpen addr.bytes)
+      ((Err e) (Err (errContextOf e "tcpConnect")))
+      ((Ok f)
+        (match (socketConnect f addr.bytes)
+          ((Err e)
+            (let ((_ (fileClose f)))
+              (Err (errContextOf e "tcpConnect"))))
+          ((Ok _) (Ok (TcpStream f))))
+      ))))
 
 ; Read into `buf[at .. at + count)`. Answers how many bytes arrived,
 ; and 0 when the peer has closed its side. A range outside `buf` stops
@@ -624,66 +582,33 @@
 (pub :: tcpRead (-> TcpStream ReadBuffer Int Int (Result Int Error)))
 ;@axiom:effect(io)
 (pub fn (tcpRead s buf at count)
-  (readBuffer (streamFdOf s) buf at count))
+  (fileRead s.file buf at count))
 
 ; Up to `max` bytes, as a fresh string: empty when the peer has closed
-; its side.
+; its side. A negative `max` stops the program with status 77.
 (pub :: tcpReadSome (-> TcpStream Int (Result String Error)))
 ;@axiom:effect(io)
 (pub fn (tcpReadSome s max)
-  (if (< max 0)
-    __indexTrap
-    (let ((buf (strAlloc max)))
-      (match (sysReadFd (streamFdOf s) (strData buf) max)
-        ((Err e) (Err e))
-        ((Ok n) (Ok (strSlice buf 0 n)))))))
+  (let ((buf (readBufferNew max)))
+    (match (fileRead s.file buf 0 max)
+      ((Err e) (Err e))
+      ((Ok n) (Ok (readBufferText buf 0 n))))))
 
 ; Everything until the peer closes its side.
 (pub :: tcpReadAll (-> TcpStream (Result String Error)))
 ;@axiom:effect(io)
 (pub fn (tcpReadAll s)
-  (readAll (streamFdOf s)))
+  (readAll s.file))
 
 ; Write all of `data`, continuing after a short write. Answers the
 ; number of bytes written, which is `strLen data` unless it failed. A
 ; peer that has closed answers `Err` EPIPE rather than a signal.
 (pub :: tcpWrite (-> TcpStream String (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (tcpWrite s data)
-  (let (
-    (fd (streamFdOf s))
-    (n (strLen data))
-    (p (strData data))
-    (mut off 0)
-    (mut rc 0)
-  )
-    {
-      (while (&& (< off n) (== rc 0))
-        (let ((r (__syscall6
-          sysSendToNum
-          fd
-          (+ p off)
-          (- n off)
-          msgNoSignal
-          0
-          0)))
-          (if (< r 0)
-            (if (== r (- 0 4))
-              ; EINTR: nothing was sent; try again
-              0
-              {
-                (set rc r)
-                0
-              })
-            {
-              (set off (+ off r))
-              0
-            })))
-      (if (< rc 0)
-        (sysResult "tcpWrite" rc)
-        (Ok off))
-    }))
+  (match (socketSend s.file data)
+    ((Ok n) (Ok n))
+    ((Err e) (Err (errContextOf e "tcpWrite")))))
 
 ; Which half of a connection `tcpShutdown` closes.
 (pub :: shutRead Int)
@@ -706,89 +631,64 @@
 (pub fn (tcpShutdown s how)
   (if (|| (< how 0) (> how 2))
     (Err (errContextOf (mkError 22 "shutdown takes shutRead, shutWrite or shutBoth") "tcpShutdown"))
-    (netShutdown (streamFdOf s) how)))
+    (socketShutdown s.file how)))
 
 ; The peer's address.
 (pub :: tcpPeerAddr (-> TcpStream (Result SocketAddr Error)))
 ;@axiom:effect(io)
 (pub fn (tcpPeerAddr s)
-  (netNameOf (streamFdOf s) true "tcpPeerAddr"))
+  (netNameOf s.file true "tcpPeerAddr"))
 
 ; This side's address.
 (pub :: tcpLocalAddr (-> TcpStream (Result SocketAddr Error)))
 ;@axiom:effect(io)
 (pub fn (tcpLocalAddr s)
-  (netNameOf (streamFdOf s) false "tcpLocalAddr"))
+  (netNameOf s.file false "tcpLocalAddr"))
 
-; `getpeername` or `getsockname` into a fresh address.
-(:: netNameOf (-> Int Bool String (Result SocketAddr Error)))
+; `getpeername` or `getsockname`, as a SocketAddr.
+(:: netNameOf (-> File Bool String (Result SocketAddr Error)))
 ;@axiom:effect(io)
-(fn (netNameOf fd peer where)
-  (let (
-    (s (strAlloc netAddrMaxBytes))
-    (lenb (memAlloc 8))
-  )
-    (match (if peer
-      (netGetPeerName fd (strData s) netAddrMaxBytes lenb)
-      (netGetSockName fd (strData s) netAddrMaxBytes lenb))
-      ((Err e) (Err (errContextOf e where)))
-      ((Ok _) (Ok (SocketAddr s))))))
+(fn (netNameOf f peer where)
+  (match (socketAddr f peer)
+    ((Err e) (Err (errContextOf e where)))
+    ((Ok b) (Ok (SocketAddr b)))))
 
 ; Turn Nagle's algorithm off (`true`) or back on: with it off, a small
 ; write is sent at once rather than held to be joined with the next.
 (pub :: tcpSetNoDelay (-> TcpStream Bool (Result Int Error)))
 ;@axiom:effect(io)
 (pub fn (tcpSetNoDelay s on)
-  (netSetOptInt
-    (streamFdOf s)
+  (socketSetInt
+    s.file
     ipprotoTcp
     tcpNoDelayOpt
     (if on
       1
-      0)
-    (memAlloc 8)))
+      0)))
 
 ; How long a read may wait before it answers `Err` (EAGAIN), in
 ; microseconds; 0 waits for ever.
 (pub :: tcpSetReadTimeout (-> TcpStream Int (Result Int Error)))
 ;@axiom:effect(io)
 (pub fn (tcpSetReadTimeout s micros)
-  (netSetTimeout (streamFdOf s) soRcvTimeo micros "tcpSetReadTimeout"))
+  (match (socketSetTimeout s.file soRcvTimeo micros)
+    ((Ok n) (Ok n))
+    ((Err e) (Err (errContextOf e "tcpSetReadTimeout")))))
 
 ; How long a write may wait before it answers `Err`, in microseconds; 0
 ; waits for ever.
 (pub :: tcpSetWriteTimeout (-> TcpStream Int (Result Int Error)))
 ;@axiom:effect(io)
 (pub fn (tcpSetWriteTimeout s micros)
-  (netSetTimeout (streamFdOf s) soSndTimeo micros "tcpSetWriteTimeout"))
-
-(:: netSetTimeout (-> Int Int Int String (Result Int Error)))
-;@axiom:effect(io)
-(fn (netSetTimeout fd opt micros where)
-  (if (< micros 0)
-    (Err (errContextOf (mkError 22 "a timeout is not negative") where))
-    (let ((tv (memAlloc 16)))
-      {
-        ; struct timeval: seconds in the first word, microseconds in the
-        ; second (a 4-byte field padded to 8 on Darwin, 8 bytes on
-        ; Linux and FreeBSD - the low four bytes carry it either way)
-        (memSetWord tv 0 (/ micros 1000000))
-        (memSetWord tv 1 (% micros 1000000))
-        (netSetOptBytes
-          fd
-          solSocket
-          opt
-          tv
-          16)
-      })))
+  (match (socketSetTimeout s.file soSndTimeo micros)
+    ((Ok n) (Ok n))
+    ((Err e) (Err (errContextOf e "tcpSetWriteTimeout")))))
 
 ; Switch the stream between blocking (`false`) and non-blocking (`true`).
 (pub :: tcpSetNonBlocking (-> TcpStream Bool (Result Int Error)))
 ;@axiom:effect(io)
 (pub fn (tcpSetNonBlocking s on)
-  (if on
-    (netSetNonBlocking (streamFdOf s))
-    (netSetBlocking (streamFdOf s))))
+  (fileSetNonBlocking s.file on))
 
 ; Close the stream. Its handle is retired first, so any later use of it
 ; stops the program with status 85.

@@ -65,9 +65,12 @@ API: [Str](stdlib-api.md#str), [Utf8](stdlib-api.md#utf8),
 
 ## IO, Path and Sys
 
-`IO` provides `println`, `eprintln`, descriptor reads and writes,
-and files/directories by path. `Path` manipulates path strings without
-I/O. `Sys` exposes descriptors, processes, the clock and readiness calls.
+`IO` holds every file your program opens: plain files, sockets and the
+standard streams. Each is a `File`, an owner that closes its descriptor
+when its last share goes. No function hands you the descriptor number
+inside it, so nothing can close or reuse a descriptor behind its owner's
+back. `Path` manipulates path strings without I/O, and `Sys` covers
+processes, the environment, the clock and signals.
 
 ```scheme
 (import IO)
@@ -77,16 +80,47 @@ I/O. `Sys` exposes descriptors, processes, the clock and readiness calls.
 ;@axiom:effect(io)
 (fn (main)
   (try _ (writeFile "note.txt" "hello\n")
-    {
-      (println (readFile "note.txt"))
-      (try _ (removeFile "note.txt") (Ok 0))
-    }))
+    (try f (openPath "note.txt" oRdonly)
+      (try text (readAll f)
+        {
+          (writeStr stdout text)
+          (try _ (removeFile "note.txt") (Ok 0))
+        }))))
 ```
 
-Most operations return `Result`. `readFile` and `listDir` return an
-empty value on failure; use owned-file operations when you need a
-reported read error. `openPath` returns a `File` that closes at its last
-owner. `fileClose` closes early and reports the result.
+```text
+hello
+```
+
+`stdin`, `stdout` and `stderr` are `File` values too, and they never
+close the process's streams. `println` and `eprintln` write through
+`writeOut` and `writeErr`, which make no `File`, so printing allocates
+nothing. The other readers and writers take a `File`:
+
+| Task | API |
+|---|---|
+| open and close | `openPath`, `fileClose` |
+| read | `readLine`, `readAll`, `fileRead` into a `ReadBuffer`, `readInto` into a `String` you allocated |
+| write | `writeStr` and `writeSlice` answer a count or a negative errno; `fileWrite` answers a `Result`; `writeOut` and `writeErr` write to the standard streams |
+| by path | `readFile`, `writeFile`, `appendFile`, `copyFile`, `removeFile`, `renamePath`, `fileExists`, `fileSize`, `isDir`, `readErrno`, `listDir`, `makeDir`, `makeDirAll`, `removeDir`, `cwd` |
+| wait on many | `pollerNew`, `pollerAdd`, `pollerRemove`, `pollerAddSignals`, `pollerWait`, `pollerToken`, `pollerSignal`, `pollerClose` |
+| terminals | `isTerminal`, `termSize`, and `termRaw`, which answers a `TermGuard` |
+
+`fileClose` closes early and reports the result, and any later use of
+that file stops the program with status 85. Closing a standard stream
+retires that one value and leaves the stream open.
+
+A `Poller` watches files and sockets under tokens you choose, and a
+wait answers the tokens. It owns its kqueue or epoll descriptor, and
+closes it when its last share goes. Raw mode is an owner too: releasing
+the `TermGuard` that `termRaw` answers puts the terminal back as it
+was, and `termRestore` does it early.
+
+`readFile` and `listDir` return an empty value on failure. Use
+`readErrno`, or open the file and read it, when you need the reason.
+
+Tested by `tests/stdlib/785-stdio-file.ax` and
+`tests/stdlib/786-poller-owned.ax`.
 
 API: [IO](stdlib-api.md#io), [Path](stdlib-api.md#path),
 [Sys](stdlib-api.md#sys). Platform-specific files supply the target ABI.
@@ -167,7 +201,7 @@ traps with status 85. These owners cannot be captured by `parallel`.
 | send | `tcpWrite` writes all bytes or returns an error |
 | finish | `tcpShutdown` with `shutRead`, `shutWrite` or `shutBoth`; `tcpClose` |
 | configure | `tcpSetNoDelay`, `tcpSetReadTimeout`, `tcpSetWriteTimeout`, `tcpSetNonBlocking` |
-| poll | `tcpStreamFd` or `tcpListenerFd` with `Sys` readiness operations |
+| poll | `pollerAddListener` and `pollerAddStream` put either into an `IO` `Poller`; `tcpListenerSetNonBlocking` keeps a shared listener from blocking |
 
 TCP is a byte stream: a read can return fewer bytes than requested.
 Zero bytes from `tcpRead`, or an empty `tcpReadSome`, means EOF.
@@ -177,8 +211,6 @@ A write to a closed peer returns an error instead of raising SIGPIPE.
 Timeouts are in microseconds; 0 waits indefinitely. Non-blocking reads
 and writes can return a would-block error. `Sys.netWouldBlock` recognises a negative raw error;
 for a Net `Err e`, pass `(- 0 (errCode e))`.
-Descriptors returned for polling remain owned by their stream/listener;
-close the owner rather than the raw descriptor.
 
 Addresses are numeric: `127.0.0.1:80` or `[::1]:80`. DNS, UDP, HTTP and
 TLS require other libraries. See the [Net API](stdlib-api.md#net) for

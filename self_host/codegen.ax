@@ -6,7 +6,7 @@
 (import Fmt)
 (import Vec)
 (import Sys)
-(import IO (fileExists readFile writeStr))
+(import IO (fileExists readFile stderr writeStr))
 (import Err)
 (import Path)
 (import parser)
@@ -5359,9 +5359,9 @@
 ;@axiom:effect(io)
 (pub fn (dieImport msg name)
   {
-    (writeStr 2 msg)
-    (writeStr 2 name)
-    (writeStr 2 "\n")
+    (writeStr stderr msg)
+    (writeStr stderr name)
+    (writeStr stderr "\n")
     ; Exit 3 is this compiler's import-failure code - except under
     ; `symbols`, where stage0 folds EVERY failure into exit 1 and the
     ; parity gate compares statuses. The subcommand is re-derived from
@@ -5413,7 +5413,7 @@
           (cast String 0))))
       (let ((out 
         (cast String (renderDiagsFormat diagFormatFromArgv ds units))))
-        (writeStr 2 out))
+        (writeStr stderr out))
       (sysExitWith
         (if (strEq (firstOperandArg 1) "symbols")
           1
@@ -8093,7 +8093,7 @@
       (vecPush units parent)
       (let ((out 
         (cast String (renderDiagsFormat diagFormatFromArgv ds units))))
-        (writeStr 2 out))
+        (writeStr stderr out))
       ; Exit 1, stage0's code for this failure. The old 3 had exactly
       ; two consumers, both gates, both updated in this commit; the
       ; `symbols` fold to 1 is now the rule rather than the exception.
@@ -8140,9 +8140,9 @@
           (cast String 0))))
       (let ((out 
         (cast String (renderDiagsFormat diagFormatFromArgv ds units))))
-        (writeStr 2 out))
+        (writeStr stderr out))
       (let ((tr (renderFailTrailer 1)))
-        (writeStr 2 tr))
+        (writeStr stderr tr))
       ; Exit 1, the status every other diagnostic exits with and the
       ; one `dieImportDiag` moved to when AX5001 became a real
       ; diagnostic. The old 3 said "import machinery" about what is

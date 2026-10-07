@@ -415,18 +415,18 @@ echo
 echo "== layer 6: structural, and mostly free from the compiler =="
 # =================================================================
 # `restrict` is transitive and typecheck.ax answers a violation with
-# AX3049 at SEV_ERROR, so a `sysWriteFd` added to any decoder or editor
+# AX3049 at SEV_ERROR, so a `writeStr` added to any decoder or editor
 # function fails the build. These greps catch what the compiler cannot:
 # a function added without the claim, which is never asked.
-tty_sites="$(LC_ALL=C grep -rl 'sysIsatty' "$repo_root"/self_host/*.ax | wc -l | tr -d ' ')"
-tty_lines="$(LC_ALL=C grep -rh 'sysIsatty' "$repo_root"/self_host/*.ax | wc -l | tr -d ' ')"
+tty_sites="$(LC_ALL=C grep -rl '(isTerminal ' "$repo_root"/self_host/*.ax | wc -l | tr -d ' ')"
+tty_lines="$(LC_ALL=C grep -rh '(isTerminal ' "$repo_root"/self_host/*.ax | wc -l | tr -d ' ')"
 if [[ "$tty_lines" == 1 && "$tty_sites" == 1 ]]; then
   ok "the tty predicate is written EXACTLY once across self_host/ (1 line, 1 file)"
 else
-  bad "sysIsatty appears on $tty_lines line(s) in $tty_sites file(s), want exactly 1 and 1."
+  bad "isTerminal is called on $tty_lines line(s) in $tty_sites file(s), want exactly 1 and 1."
   echo "     A second test downstream is how the two surfaces start diverging in places"
   echo "     no gate looks. The one place is replInteractive."
-  LC_ALL=C grep -rn 'sysIsatty' "$repo_root"/self_host/*.ax | sed 's/^/     /'
+  LC_ALL=C grep -rn '(isTerminal ' "$repo_root"/self_host/*.ax | sed 's/^/     /'
 fi
 for m in Keys Edit; do
   if LC_ALL=C grep -q '^(import Sys)' "$repo_root/stdlib/Tui/$m.ax"; then

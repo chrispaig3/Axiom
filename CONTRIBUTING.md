@@ -758,15 +758,15 @@ output.
 ### Example: adding a new IO function
 
 ```scheme
-; Write a string to a descriptor and follow it with a newline.
+; Write a string to a file and follow it with a newline.
 ; `println` and `eprintln` are macros over `syntax/formatln`; this is
 ; the plain function underneath them.
-(pub :: writeLn (-> Int String Int))
+(pub :: writeLn (-> File String Int))
 ;@axiom:effect(io)
-(pub fn (writeLn fd s)
+(pub fn (writeLn f s)
   {
-    (writeStr fd s)
-    (writeStr fd "\n")
+    (writeStr f s)
+    (writeStr f "\n")
   })
 ```
 

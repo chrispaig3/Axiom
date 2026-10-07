@@ -1,7 +1,7 @@
 ; A condition a caller can check from the arguments alone is stated as a
-; `;@axiom:pre(...)` contract and checked on every call. `fileFromFd`
-; takes a descriptor, which is never negative, and `secretBlockNew`
-; takes a handle kind from 16 to 63. A violated contract traps 80.
+; `;@axiom:pre(...)` contract and checked on every call. `pollerNew`
+; takes a capacity of at least one event, and `secretBlockNew` takes a
+; handle kind from 16 to 63. A violated contract traps 80.
 ;
 ; The first violation runs inside a recovery point, which answers 80 to
 ; the arming call, so the program reaches the second. A kind in range
@@ -10,17 +10,15 @@
 (import IO)
 (import Crypto.Secret)
 
-(:: badFd Int)
+(:: badCap Int)
 ;@axiom:effect(io)
-(fn (badFd)
+(fn (badCap)
   (__axiom_recover
     __axiom_arena_mark
     (lambda (x)
-      {
-        (fileFromFd (- 0 1))
-        0
-      }
-    )))
+      (match (pollerNew 0)
+        ((Ok p) 0)
+        ((Err e) 1)))))
 
 (:: blockOk (-> Int Int))
 ;@axiom:effect(io)
@@ -32,7 +30,7 @@
 ;@axiom:effect(io)
 (fn (main)
   {
-    (println (badFd))
+    (println (badCap))
     (println (blockOk 16))
     (println "the next kind is outside 16 to 63")
     ; NOT REACHED: the contract traps first.

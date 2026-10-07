@@ -314,9 +314,8 @@ else
 fi
 
 # ---------------------------------------------------------------
-# The peer address. `netAccept` discards the peer that `accept` reports;
-# `netAcceptFrom` fills a buffer with it, and the server prints one
-# `peer` line per connection.
+# The peer address. The server asks `tcpPeerAddr` for each accepted
+# stream and prints one `peer` line per connection.
 # ---------------------------------------------------------------
 echo "== the server reports the address each connection came from =="
 addr_src=$(( 25000 + ($$ % 3000) ))

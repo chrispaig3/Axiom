@@ -87,7 +87,7 @@ def main():
             # put back", becomes unaskable. Measured on this host
             # 2026-08-31: with setsid the post-exit sample raised
             # `termios.error (25, Inappropriate ioctl for device)`.
-            # `sysIsatty` and every ioctl in stdlib/Sys.ax are
+            # `isTerminal` and every ioctl in stdlib/IO.ax are
             # attribute queries on the descriptor and need no
             # controlling terminal, and ISIG is off in raw mode, so
             # nothing here wants a job-control session.
