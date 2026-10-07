@@ -84,7 +84,7 @@
 (pub :: kitDump (-> Connection String Int))
 ;@axiom:effect(io)
 (pub fn (kitDump db text)
-  (kitRows text (axqQueryOn db (Query text vecNewRef))))
+  (kitRows text (axqQueryOn db (Query text vecNew))))
 
 (:: kitJoin (-> (Vec String) String))
 (fn (kitJoin names)
@@ -100,7 +100,7 @@
 ; Parameter vectors of one to four values.
 (pub :: vec1 (-> Value (Vec Value)))
 (pub fn (vec1 a)
-  (let ((v vecNewRef))
+  (let ((v vecNew))
     {
       (vecPush v a)
       v
@@ -133,4 +133,4 @@
 ; No parameters.
 (pub :: vec0 (Vec Value))
 (pub fn (vec0)
-  vecNewRef)
+  vecNew)

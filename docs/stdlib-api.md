@@ -1244,7 +1244,7 @@ two differ.
 
 ## `Map`
 
-`stdlib/Map.ax` — 26 public names
+`stdlib/Map.ax` — 24 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -1252,15 +1252,13 @@ two differ.
 | `mapHash` | value | `(-> Int Int)` |  | Hash `key` to a value in [0, 2^63). |
 | `mapSlotOf` | value | `(-> Int Int Int)` |  | The slot `key` probes first, in [0, cap). |
 | `mapNew` | value | `Map` | `Alloc,Mut` | An empty `Map` with `mapDefaultCap` slots. |
-| `mapNewRefVals` | value | `Map` | `Alloc,Mut` | An empty `Map` whose VALUES it owns a share of: the value array carries the array form, so `mapFree` releases every value in it. Keys stay `Int`s and stay a leaf, which is what they are - `mapInsert`'s key parameter is `Int`, not a type variable. |
 | `mapWithCapacity` | value | `(-> Int Map)` | `Alloc,Mut` | An empty `Map` sized so that `want` entries fit without rehashing. |
-| `mapWithCapacityRefVals` | value | `(-> Int Map)` | `Alloc,Mut` | `mapWithCapacity`'s owning twin. See `mapNewRefVals`. |
 | `mapRoundUpPow2` | value | `(-> Int Int)` |  | `n` rounded up to a power of two, at least `mapDefaultCap`. |
-| `mapFree` | value | `(-> Map Int)` | `Unsafe` | Hand `m` back: the three arrays go with it, and on a `mapNewRefVals` table so does one share of every value still in it. Answers 0, as `Vec.vecFree` does and for the same reason. The caller must own the released share; aliases cannot be used after the last share is released. |
+| `mapFree` | value | `(-> Map Int)` | `Unsafe` | Hand `m` back early: the three arrays go with it, and on a table that owns its values so does one share of every value still in it. Answers 0, as `Vec.vecFree` does and for the same reason. The caller must own the released share and must not use the handle again; a caller that simply stops using a map needs nothing here, because the compiler releases it at the end of its scope. |
 | `mapLen` | value | `(-> Map Int)` |  |  |
 | `mapCap` | value | `(-> Map Int)` |  |  |
 | `mapUsed` | value | `(-> Map Int)` |  | Slots that are live or tombstoned. Exposed because it is the number that explains a rehash, and a test that could not see it would have to infer growth from timing. |
-| `mapOwnsVals` | value | `(-> Map Bool)` |  | Whether this table owns a share of every value it holds - the `mapNewRefVals` half. Word 6 of the header, and not a test of the value array's shape word: see `mapAllocTable`. |
+| `mapOwnsVals` | value | `(-> Map Bool)` |  | Whether this table holds a share of every value - word 6 is 1. It is read from the header, not from the value array's shape word: see `mapAllocTable`. |
 | `mapKeyAt` | value | `(-> Map Int Int)` |  | Read the key, or the value, out of slot `i`. |
 | `mapValAt` | value | `(-> Map Int Int)` |  | The value in slot `i`. See `mapKeyAt` above for the bounds rule and why `mapStateAt` is not exported beside these two. |
 | `mapNextSlot` | value | `(-> Int Int Int)` |  | The next slot after `i`. |
@@ -1775,7 +1773,7 @@ two differ.
 
 ## `Tui.Edit`
 
-`stdlib/Tui/Edit.ax` — 64 public names
+`stdlib/Tui/Edit.ax` — 63 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -1786,9 +1784,8 @@ two differ.
 | `LED_RING_MAX` | value | `Int` |  | How many kills the ring remembers. |
 | `LineEd` | struct |  |  |  |
 | `ledRingNew` | value | `(Vec String)` | `Alloc,Mut` | The kill ring, created once per session and outliving every line. |
-| `ledNew` | value | `(-> (Vec String) String LineEd)` | `Alloc,Mut` | One editor over a session's ring, with the caller's word set. The gap vectors are `vecNew` (leaf) because their elements are CODE POINTS: Vec.ax's comment says a leaf block is exactly right for Ints and costs nothing. |
+| `ledNew` | value | `(-> (Vec String) String LineEd)` | `Alloc,Mut` | One editor over a session's ring, with the caller's word set. The gap vectors hold CODE POINTS, `Int`s, so they stay plain: a leaf block costs nothing to release. |
 | `ledReset` | value | `(-> LineEd String Int Int Int)` | `Mut` | Prepare for the next physical line. Keeps both vectors' capacity. |
-| `ledFree` | value | `(-> LineEd Int)` |  | Hand the two gap vectors back. For session end and for a test harness, which builds hundreds; see the struct's comment for why nothing else needs it. |
 | `ledLen` | value | `(-> LineEd Int)` |  |  |
 | `ledCursor` | value | `(-> LineEd Int)` |  | The cursor, as a code-point index. It IS `(vecLen left)`. |
 | `ledCpAt` | value | `(-> LineEd Int Int)` |  | Code point `i` of the logical buffer, or 0 out of range. |
@@ -1936,16 +1933,14 @@ two differ.
 
 ## `Vec`
 
-`stdlib/Vec.ax` — 23 public names
+`stdlib/Vec.ax` — 21 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
 | `vecNew` | value | `(Vec a)` | `Alloc,Mut` | An empty `Vec` with `vecDefaultCap` capacity. |
 | `vecWithCapacity` | value | `(-> Int (Vec a))` | `Alloc,Mut` | An empty `Vec` that can hold at least `cap` elements without growing. |
-| `vecWithCapacityRef` | value | `(-> Int (Vec a))` | `Alloc,Mut` | The same, with an ARRAY-FORM data block: every element is a handle this vector owns a share of. See the module comment. |
-| `vecNewRef` | value | `(Vec a)` | `Alloc,Mut` | An empty `Vec` with `vecDefaultCap` capacity, owning its elements. |
-| `vecFree` | value | `(-> (Vec a) Int)` | `Unsafe` | Hand `v` back. Its data block goes with it - the header's reference map names word 2 - and, for a `vecNewRef` vector, so does one share of every element. The caller must own the share being released and must not reuse the handle or its data after its last share is released. |
-| `vecOwnsRefs` | value | `(-> (Vec a) Bool)` |  | Whether this vector owns a share of every element it holds - the `vecNewRef` half of the module comment. It is word 3 of the header and not a test of the data block's shape word: see `vecBuild`. |
+| `vecFree` | value | `(-> (Vec a) Int)` | `Unsafe` | Hand `v` back early. Its data block goes with it, and, when the vector owns its elements, so does one share of each. The caller must own the share being released and must not use the handle again: the compiler releases a `Vec` at the end of its scope, so a caller that simply stops using one needs nothing here. |
+| `vecOwnsRefs` | value | `(-> (Vec a) Bool)` |  | Whether this vector holds a share of every element - kind 1 in the module comment. It reads word 3 of the header, not the data block's shape word: see `vecBuild`. |
 | `vecLen` | value | `(-> (Vec a) Int)` |  |  |
 | `vecCap` | value | `(-> (Vec a) Int)` |  |  |
 | `vecGet` | value | `(-> (Vec a) Int a)` | `Unsafe` | The element at `i`. REFUSES an index outside `0 .. (vecLen v) - 1`. |

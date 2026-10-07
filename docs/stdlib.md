@@ -55,9 +55,10 @@ Import `Err` when working with `Result`, and use `try` to propagate errors.
 5: 1
 ```
 
-Use `vecNewRef` or `mapNewRefVals` when the container must retain
-reference elements. See the [memory rules](memory-model.md) for
-ownership, cycles and region resets.
+A `Vec` or `Map` owns the strings, vectors and records you store in
+it, and releases them when its last reference goes. See the
+[memory rules](memory-model.md) for ownership, cycles and region
+resets.
 
 API: [Str](stdlib-api.md#str), [Utf8](stdlib-api.md#utf8),
 [Vec](stdlib-api.md#vec), [Map](stdlib-api.md#map).

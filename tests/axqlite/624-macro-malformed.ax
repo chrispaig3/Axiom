@@ -29,7 +29,7 @@
 ;@axiom:effect(block)
 (fn (check axiom file)
   (let (
-    (args vecNewRef)
+    (args vecNew)
     (argv (memAlloc 48))
   )
     {

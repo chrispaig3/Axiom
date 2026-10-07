@@ -1,0 +1,116 @@
+; A `(Vec String)` built and dropped in a loop holds memory flat: the
+; vector's death releases its header, its data block and every string
+; in it (MM-LIFE-2m). Each line must read `true`.
+;
+;   1  10,000 vectors of 32 fresh strings, each dropped at the end of
+;      its scope, leave the allocator holding exactly what 1,000 left
+;   2  the same through a `mut` slot overwritten each iteration
+;   3  a vector returned from the function that built it, bound, read
+;      and dropped by its caller, holds flat too
+;   4  the strings a live vector holds read back intact after the churn
+;
+; A compiler that never releases a `Vec` grows by the vector, its
+; buffer and 32 strings on every iteration, and lines 1 to 3 read
+; `false`.
+(import IO)
+(import Vec)
+(import Str)
+(import Fmt)
+(import Mem)
+
+(:: build (-> Int (Vec String)))
+(fn (build n)
+  (let ((v vecNew) (mut i 0))
+    {
+      (while (< i n)
+        {
+          (vecPush v (concat "row-" (fmtInt i)))
+          (set i (+ i 1))
+        })
+      v
+    }))
+
+(:: held Int)
+(fn (held)
+  (let ((s memStats))
+    s.heldBytes))
+
+; Drop a vector at the end of each iteration's scope.
+(:: dropped (-> Int Int))
+(fn (dropped n)
+  (let ((mut k 0) (mut acc 0))
+    {
+      (while (< k n)
+        {
+          (let ((v vecNew) (mut i 0))
+            {
+              (while (< i 32)
+                {
+                  (vecPush v (concat "row-" (fmtInt i)))
+                  (set i (+ i 1))
+                })
+              (set acc (+ acc (vecLen v)))
+            })
+          (set k (+ k 1))
+        })
+      acc
+    }))
+
+; Overwrite a `mut` slot with a fresh vector each iteration.
+(:: replaced (-> Int Int))
+(fn (replaced n)
+  (let ((mut v (build 32)) (mut k 0) (mut acc 0))
+    {
+      (while (< k n)
+        {
+          (set v (build 32))
+          (set acc (+ acc (vecLen v)))
+          (set k (+ k 1))
+        })
+      acc
+    }))
+
+; Take a vector from `build` and drop it.
+(:: returned (-> Int Int))
+(fn (returned n)
+  (let ((mut k 0) (mut acc 0))
+    {
+      (while (< k n)
+        {
+          (let ((v (build 32)))
+            (set acc (+ acc (strLen (vecGet v 31)))))
+          (set k (+ k 1))
+        })
+      acc
+    }))
+
+(:: flat (-> (-> Int Int) Bool))
+(fn (flat run)
+  {
+    (run 1000)
+    (let ((a held))
+      {
+        (run 9000)
+        (== held a)
+      })
+  })
+
+(:: intact (-> (Vec String) Int Bool))
+(fn (intact v i)
+  (if (>= i (vecLen v))
+    true
+    (if (strEq (vecGet v i) (concat "row-" (fmtInt i)))
+      (intact v (+ i 1))
+      false)))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((keep (build 32)))
+    {
+      (println (if (flat (lambda (n) (dropped n))) "true" "false"))
+      (println (if (flat (lambda (n) (replaced n))) "true" "false"))
+      (println (if (flat (lambda (n) (returned n))) "true" "false"))
+      (println (if (intact keep 0) "true" "false"))
+      0
+    }))

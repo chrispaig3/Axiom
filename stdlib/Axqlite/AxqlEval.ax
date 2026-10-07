@@ -469,7 +469,7 @@
 ; The top-level AND terms of `e`, left to right.
 (pub :: axqlConjuncts (-> Expr (Vec Expr)))
 (pub fn (axqlConjuncts e)
-  (let ((out vecNewRef))
+  (let ((out vecNew))
     {
       (pushConjuncts e out)
       out

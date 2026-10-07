@@ -318,7 +318,7 @@
       ; answers a word and stores its argument, so the design's
       ; "release when the result is a word" rule would free a block the
       ; Vec still points at. 16 is the length it must read back.
-      (let ((box vecNewRef))
+      (let ((box vecNew))
         {
           (parked box)
           (set acc (+ acc (* 64 (b2i (== (strLen (vecGetStr box 0)) 16)))))

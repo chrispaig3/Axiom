@@ -235,7 +235,7 @@ cat > "$work/soak.ax" <<'AX'
 ;@axiom:effect(io)
 (fn (main)
   (let ((n (argInt 1)) (live (argInt 2)) (maxLen (argInt 3)))
-    (let ((v (vecNewRef)))
+    (let ((v (vecNew)))
       {
         (fill v 0 live)
         (let ((total (churn v n live maxLen 42 0)))
@@ -396,7 +396,18 @@ for lvl in 0 2; do
   fi
 done
 if build_mutated "$meta.ax" "$work/meta-noscrub" no-scrub; then
-  got="$("$work/meta-noscrub" 2>/dev/null)"; rc=$?
+  # Stale size-class heads can hand one block out twice, and a free list
+  # that loops back on itself never ends a walk: a hang is the ablation
+  # failing too, so the run is capped and a cap reads as status 124.
+  "$work/meta-noscrub" >"$work/meta-noscrub.out" 2>/dev/null &
+  ns_pid=$!; ns_t=0
+  while kill -0 "$ns_pid" 2>/dev/null && (( ns_t < 120 )); do sleep 1; ns_t=$((ns_t + 1)); done
+  if kill -0 "$ns_pid" 2>/dev/null; then
+    kill -9 "$ns_pid" 2>/dev/null; wait "$ns_pid" 2>/dev/null; rc=124
+  else
+    wait "$ns_pid"; rc=$?
+  fi
+  got="$(cat "$work/meta-noscrub.out")"
   if (( rc != 0 )) || [[ "$got" != "$(cat "$meta.out")" ]]; then
     ok "ablation: with the reset's list scrub deleted, 559 fails (exit $rc)"
   else

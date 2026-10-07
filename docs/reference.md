@@ -994,10 +994,14 @@ Nested regions reset innermost first and cannot reuse an open name.
 A region performs `Alloc`. Signature region annotations and expression
 arena names are separate mechanisms.
 
-Owning containers use `vecNewRef` or `mapNewRefVals` to retain their
-contents. Files, sockets and foreign owners close at their last share;
-explicit close retires them early. Cycles and destruction costs are
-covered by the [memory contract](memory-model.md).
+A `Vec` or `Map` owns what you put in it. When its last reference goes,
+it releases every string, vector, record or `File` it holds, so a
+vector built and dropped in a loop holds memory flat. A container that
+is also given plain words, such as the `Int`s of a heterogeneous
+record, makes no claim on what it holds. Files, sockets and foreign
+owners close at their last share; explicit close retires them early.
+Cycles and destruction costs are covered by the
+[memory contract](memory-model.md).
 
 Recovery points catch runtime traps in an isolated extent. They cannot
 undo external I/O. See [error recovery](error-model.md).

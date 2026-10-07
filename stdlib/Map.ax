@@ -1,4 +1,4 @@
-; Map - an open-addressing hash map from `Int` keys to `Int` values, in
+; Map - an open-addressing hash map from `Int` keys to word values, in
 ; Axiom.
 ;
 ; A `Map` is the address of a seven-word header, declared below as a
@@ -11,15 +11,27 @@
 ;     word 3 : vals   - address of cap words
 ;     word 4 : states - address of cap *bytes*, one tag per slot
 ;     word 5 : used   - live entries plus tombstones
-;     word 6 : refs   - 1 if the table owns a share of every value
+;     word 6 : refs   - what the table claims about its values (below)
 ;
-; (Word 6 was here and undocumented until 2026-09-03; the header has
-; never been six words. `mapAllocTable` writes it and `mapOwnsVals`
-; reads it. Word 7 of the eight-word block is spare.)
+; Word 7 of the eight-word block is spare.
 ;
 ; Values are machine words, so the same code maps `Int -> Int`,
 ; `Int -> Str`, and `Int -> Vec` (see `Vec`'s module comment on uniform
 ; representation).
+;
+; OWNERSHIP. A `Map` is a counted value: the compiler releases it when
+; its last reference goes, and the header's reference map takes the
+; three arrays with it. The values go too when their type is counted,
+; decided the way `Vec` decides it, from the values themselves:
+; `mapInsert` takes its share through `__retainref`, which answers
+; whether the value's type at that call is counted, and word 6 records
+; it - 0 before the first insert, 1 when the table holds a share of
+; every value (the value array carries the array form, so the table's
+; death releases them), 2 for plain words. The first insert decides,
+; and an owning table given an uncounted value becomes plain, keeping
+; the shares it already holds. A `Map` has no value type of its own -
+; `mapGet` answers `Int` - so one table may hold an `Int` beside a
+; `String`, and that is the table this rule makes plain.
 ;
 ; WHY A SEPARATE STATE ARRAY, AND NOT A SENTINEL KEY. The obvious saving
 ; is to reserve one key value - 0, or the most negative `Int` - to mean
@@ -89,7 +101,7 @@
   (mut vals : Int)
   (mut states : Int)
   (mut used : Int)
-  (refs : Int))
+  (mut refs : Int))
 
 ; ------------------------------------------------------------------
 ; The hash
@@ -251,15 +263,7 @@
 ; `mapNew` quietly twice as large as its own documented default.
 (pub :: mapNew Map)
 (pub fn (mapNew)
-  (mapAllocTable mapDefaultCap 0))
-
-; An empty `Map` whose VALUES it owns a share of: the value array
-; carries the array form, so `mapFree` releases every value in it. Keys
-; stay `Int`s and stay a leaf, which is what they are - `mapInsert`'s
-; key parameter is `Int`, not a type variable.
-(pub :: mapNewRefVals Map)
-(pub fn (mapNewRefVals)
-  (mapAllocTable mapDefaultCap 1))
+  (mapAllocTable mapDefaultCap))
 
 ; An empty `Map` sized so that `want` entries fit without rehashing.
 ;
@@ -270,23 +274,13 @@
 ; request a lie.
 (pub :: mapWithCapacity (-> Int Map))
 (pub fn (mapWithCapacity want)
-  (mapSized want 0))
-
-; `mapWithCapacity`'s owning twin. See `mapNewRefVals`.
-(pub :: mapWithCapacityRefVals (-> Int Map))
-(pub fn (mapWithCapacityRefVals want)
-  (mapSized want 1))
-
-(:: mapSized (-> Int Int Map))
-(fn (mapSized want refs)
   (mapAllocTable
     (mapRoundUpPow2
       (*
         (if (< want 1)
           1
           want)
-        2))
-    refs))
+        2))))
 
 ; `n` rounded up to a power of two, at least `mapDefaultCap`.
 ;
@@ -308,10 +302,11 @@
 
 ; A header over three freshly zeroed arrays: `cap` words of keys, `cap`
 ; words of values, `cap` *bytes* of states - plus `len`, `used` and the
-; flag saying whether this table owns a share of every value in it.
-(:: mapAllocTable (-> Int Int Map))
+; word saying what the table claims about its values, 0 until the
+; first insert.
+(:: mapAllocTable (-> Int Map))
 ;@axiom:effect(unsafe)
-(fn (mapAllocTable cap refs)
+(fn (mapAllocTable cap)
   ; Words 2, 3 and 4 are the map (28 = bits 2/3/4), so the
   ; header's death takes all three arrays with it - and each is
   ; retained once here for the reason `Vec.vecBuild` gives: a
@@ -338,9 +333,6 @@
       (__retain keys)
       (__retain vals)
       (__retain states)
-      (if (== refs 1)
-        (memMarkArray vals cap)
-        vals)
       (memSetWord m 0 0)
       (memSetWord m 1 cap)
       (memSetWord m 2 keys)
@@ -353,14 +345,16 @@
       ; a SIGSEGV under the committed seed, on a table big enough for
       ; its value array to pass 16,384 words. The map says what it is
       ; itself. Seven words in an eight-word block; word 7 is spare.
-      (memSetWord m 6 refs)
+      (memSetWord m 6 0)
       (cast Map m)
     }))
 
-; Hand `m` back: the three arrays go with it, and on a `mapNewRefVals`
-; table so does one share of every value still in it. Answers 0, as
-; `Vec.vecFree` does and for the same reason. The caller must own the
-; released share; aliases cannot be used after the last share is released.
+; Hand `m` back early: the three arrays go with it, and on a table that
+; owns its values so does one share of every value still in it. Answers
+; 0, as `Vec.vecFree` does and for the same reason. The caller must own
+; the released share and must not use the handle again; a caller that
+; simply stops using a map needs nothing here, because the compiler
+; releases it at the end of its scope.
 (pub :: mapFree (-> Map Int))
 ;@axiom:effect(unsafe)
 (pub fn (mapFree m)
@@ -389,7 +383,7 @@
   m.used)
 
 ; Hand back the share of the value in slot `i` and zero the word. A
-; no-op on a `mapNew` table, which owns nothing it holds.
+; no-op on a plain table, which owns nothing it holds.
 (:: mapDropVal (-> Map Int Int))
 ;@axiom:effect(unsafe)
 (fn (mapDropVal m i)
@@ -405,9 +399,9 @@
       })
     0))
 
-; Whether this table owns a share of every value it holds - the
-; `mapNewRefVals` half. Word 6 of the header, and not a test of the
-; value array's shape word: see `mapAllocTable`.
+; Whether this table holds a share of every value - word 6 is 1. It is
+; read from the header, not from the value array's shape word: see
+; `mapAllocTable`.
 (pub :: mapOwnsVals (-> Map Bool))
 (pub fn (mapOwnsVals m)
   (== m.refs 1))
@@ -726,14 +720,40 @@
 ; gets back is never over its load factor. Growing after would let a
 ; single insert push `used` to `cap` and leave the next lookup's probe
 ; with no empty slot to stop at.
+;
+; The value's share is taken here, by `__retainref`, whose answer
+; settles what the table claims before the value goes in (word 6, see
+; the module comment). The paths below store the bare word.
 (pub :: mapInsert (-> Map Int a Int))
 (pub fn (mapInsert m key value)
-  {
-    (if (mapNeedsGrow m)
-      (mapRehash m (mapRehashCap m))
-      0)
-    (mapInsertNoGrow m key value)
-  })
+  (let ((counted (__retainref value)))
+    {
+      (if (mapNeedsGrow m)
+        (mapRehash m (mapRehashCap m))
+        0)
+      (if (== m.refs 0)
+        (if (== counted 1)
+          {
+            (memMarkArray m.vals m.cap)
+            (set m.refs 1)
+            0
+          }
+          {
+            (set m.refs 2)
+            0
+          })
+        (if (&& (== m.refs 1) (== counted 0))
+          {
+            (memMarkLeaf m.vals)
+            (set m.refs 2)
+            0
+          }
+          0))
+      (mapInsertNoGrow
+        m
+        key
+        (cast Int value))
+    }))
 
 ; Insert or overwrite, assuming there is room. Answers 0; see
 ; `mapInsert` for why no mutator here answers the handle.

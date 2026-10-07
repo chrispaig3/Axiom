@@ -5,7 +5,7 @@
 ;     word 0 : len  - number of live elements
 ;     word 1 : cap  - elements the data block can hold
 ;     word 2 : data - address of cap * 8 bytes of element storage
-;     word 3 : refs - 1 if this vector owns a share of every element
+;     word 3 : kind - what the vector claims about its elements (below)
 ;
 ; Elements are machine words. Because Axiom's representation is uniform -
 ; every value is one 64-bit word - the same `Vec` code stores `Int`s,
@@ -13,55 +13,45 @@
 ; body serves every element type, and `(Vec a)` is a type parameter over
 ; that one body rather than a family of them.
 ;
-; THE ELEMENT TYPE IS NEW, and this paragraph used to argue against it:
-; the element type was `Int` "rather than a type parameter" because "a
-; parameter would buy type safety the caller does not get anyway once
-; it puts a `Str` handle (also an `Int`) in". That holds for the vector
-; that really IS heterogeneous, and such a vector now has the four
-; accessors it needs - `vecPushStr`, `vecPushVec`, `vecGetStr`,
-; `vecGetVec` - each pairing its cast with the retain `MM-VAL-22`
-; measures the cast into suppressing. It never held for the ordinary
-; one. With the element erased, `vecNew` was declared `Int` and
-; `vecGet` `(-> Int Int Int)`: a vector, a node id and the machine word
-; 42 were one type, `(vecLen 42)` was a well-typed program, and every
-; read back at a reference type was a `cast` written from nothing.
-; `(Vec a)` costs those callers one type argument and hands back the
-; fact they were casting to recover.
+; A vector whose slots genuinely hold different kinds of thing - the
+; heterogeneous records this compiler builds - uses the accessors that
+; pair a cast with a share: `vecPushStr`, `vecPushVec`, `vecGetStr`,
+; `vecGetVec`.
 ;
 ; The header is mutated in place, so a `Vec` handle is stable for the
 ; lifetime of the vector: only `data` is ever reallocated, and it lives
 ; behind the header. That is the property `Intern` depends on, and it is
 ; why the mutating operations here can be called in statement position.
-; They still *return* the handle, so that code written today stays correct
-; if the header ever has to move (a shrinking or arena-compacting
-; implementation would move it).
 ;
-; RECLAMATION. The header is a counted block whose
-; reference map names word 2, so `vecFree` releases the header and the
-; data block goes with it; growth hands the abandoned block back to the
-; allocator's free list rather than leaking it. Whether the ELEMENTS go
-; too is the caller's choice at construction:
+; OWNERSHIP. A `(Vec a)` is a counted value like a `String` or a
+; struct: the compiler releases it when its last reference goes - at
+; scope end, when a `mut` slot holding it is overwritten, or when the
+; block holding it dies. The header's reference map names word 2, so
+; the data block goes with it, and growth hands the abandoned block
+; back to the allocator.
 ;
-;   `vecNew`     a LEAF data block. Elements are words this vector makes
-;                no claim about. For the `Int`s a compiler's vectors are
-;                full of that is exactly right and costs nothing -
-;                `memSetWord`'s `__retainref` emits no instruction for
-;                an integer. For a REFERENCE it is the old behaviour and
-;                not a borrow: the store still takes a share
-;                (`MM-LIFE-2g`, the invisible-store rule) and nothing
-;                ever hands it back, so the element is immortal. That is
-;                the leak `vecNewRef` exists to close, and the reason
-;                the choice is at the constructor rather than per push.
-;   `vecNewRef`  an ARRAY-FORM data block (`Mem.memMarkArray`). Every
-;                element is a handle this vector owns a share of, taken
-;                by `vecPush` and handed back when the vector dies.
+; The ELEMENTS go too when their type is counted. Nothing at
+; construction knows the element type - `vecNew` is one body for every
+; `a` - so the vector learns it from the first element it is given.
+; `vecPush` takes its share of `x` through `__retainref`, which answers
+; whether `x`'s type at that call is counted. Word 3 records the answer:
 ;
-; The two differ in one word at construction. Growth releases the old
-; element block after transferring the entries and their owning shares.
+;   0  nothing stored yet
+;   1  every element is a counted value this vector holds a share of.
+;      The data block carries the array form (`Mem.memMarkArray`), so
+;      the vector's death releases each element, and `vecSet`,
+;      `vecClear` and `vecPop` hand back or transfer what they remove.
+;   2  plain words the vector makes no claim about: `Int`s, or a
+;      heterogeneous record. A counted value stored here keeps the
+;      share its store took, and is never released.
 ;
-; A vector is born owned: the header and its data block are retained
-; once at construction, so a `Vec` a caller never frees behaves exactly
-; as it did before, and `vecFree` is the only thing that ends one.
+; A vector that owns its elements and is then given a word whose type
+; is not counted at that call - an `Int` through `vecPushStr`'s
+; heterogeneous record, or a value whose type the call cannot see -
+; becomes plain. The data block reverts to a leaf, so no word is
+; released that no share was taken for, and the shares already taken
+; stay with their elements. That is the leak direction, never an early
+; free.
 (import Mem)
 
 ; ------------------------------------------------------------------
@@ -96,28 +86,8 @@
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: vecWithCapacity (-> Int (Vec a)))
 (pub fn (vecWithCapacity cap)
-  (vecBuild cap 0))
+  (vecBuild cap))
 
-; The same, with an ARRAY-FORM data block: every element is a handle
-; this vector owns a share of. See the module comment.
-;@axiom:restrict(no-io,no-foreign)
-(pub :: vecWithCapacityRef (-> Int (Vec a)))
-(pub fn (vecWithCapacityRef cap)
-  (vecBuild cap 1))
-
-; An empty `Vec` with `vecDefaultCap` capacity, owning its elements.
-;@axiom:restrict(no-io,no-foreign)
-(pub :: vecNewRef (Vec a))
-(pub fn (vecNewRef)
-  (vecWithCapacityRef vecDefaultCap))
-
-; `refs` decides one word - the data block's shape - and nothing else.
-;
-; THE TWO RETAINS ARE NOT DECORATION. `memAlloc` answers a block with a
-; count of ZERO, which release reads as "nobody owns this" and steps
-; over, so a header at zero cannot die and a data block at zero cannot
-; be reclaimed by the header's map. `strAlloc` takes the same retain on
-; its buffer, for the same reason, and calls it "the header's own share".
 ; The bytes `n` elements take. Above 2^59 elements the product is past
 ; the 2^62 bytes an allocation can ask for (MM-ALLOC-7a), and at 2^61 it
 ; wrapped to 0: `vecWithCapacity` asked for an empty block, answered a
@@ -132,10 +102,19 @@
     (- 0 1)
     (* n 8)))
 
+; The header and its data block. The data block is retained once here:
+; `memAlloc` answers a count of zero, which release reads as "nobody
+; owns this", so without the header's share the header's map could not
+; reclaim it.
+;
+; THE HEADER IS NOT RETAINED HERE. The cast to `(Vec a)` at the return
+; is a cast to a counted type in return position, which the compiler
+; retains: that is the share the caller receives, as `Map.mapAllocTable`
+; describes for its header.
 ;@axiom:restrict(no-io,no-foreign)
-(:: vecBuild (-> Int Int (Vec a)))
+(:: vecBuild (-> Int (Vec a)))
 ;@axiom:effect(unsafe)
-(fn (vecBuild cap refs)
+(fn (vecBuild cap)
   (let (
     (n (if (< cap 1)
       1
@@ -144,34 +123,27 @@
     (d (memAlloc (vecBytes n)))
   )
     {
-      (__retain v)
       (__retain d)
-      (if (== refs 1)
-        (memMarkArray d n)
-        d)
       (memSetWord v 0 0)
       (memSetWord v 1 n)
       (memSetWord v 2 d)
-      ; WORD 3, AND WHY IT IS NOT A READ OF THE DATA BLOCK'S OWN BIT.
-      ; The shape word answers "walk my payload as handles" to the
-      ; RUNTIME, and only the compiler that emits that walk agrees with
-      ; the compiler that wrote the bit about where the count field
-      ; ends. Reading it back from here was a SIGSEGV under the
-      ; committed seed - `stdlib/Mem.ax` records the measurement - so
-      ; the vector says what it is in a word of its own. The header was
-      ; three words in a four-word block already; this one is free.
-      (memSetWord v 3 refs)
+      ; WORD 3 IS THE VECTOR'S OWN RECORD of what it holds, and not a
+      ; read of the data block's array bit: only the compiler that
+      ; emits the release walk agrees with the one that wrote the bit
+      ; about where the count field ends (`stdlib/Mem.ax`), so the
+      ; vector says what it is in a word of its own.
+      (memSetWord v 3 0)
       (cast (Vec a) v)
     }))
 
-; Hand `v` back. Its data block goes with it - the header's reference
-; map names word 2 - and, for a `vecNewRef` vector, so does one share of
-; every element. The caller must own the share being released and must
-; not reuse the handle or its data after its last share is released.
+; Hand `v` back early. Its data block goes with it, and, when the
+; vector owns its elements, so does one share of each. The caller must
+; own the share being released and must not use the handle again: the
+; compiler releases a `Vec` at the end of its scope, so a caller that
+; simply stops using one needs nothing here.
 ;
 ; Answers 0 rather than the handle: a freed handle is the one thing this
-; module must not encourage a caller to keep using, and every other
-; mutator answers the handle precisely so that it CAN be chained.
+; module must not encourage a caller to keep using.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: vecFree (-> (Vec a) Int))
 ;@axiom:effect(unsafe)
@@ -185,9 +157,9 @@
 ; ------------------------------------------------------------------
 ; Accessors
 ; ------------------------------------------------------------------
-; Whether this vector owns a share of every element it holds - the
-; `vecNewRef` half of the module comment. It is word 3 of the header
-; and not a test of the data block's shape word: see `vecBuild`.
+; Whether this vector holds a share of every element - kind 1 in the
+; module comment. It reads word 3 of the header, not the data block's
+; shape word: see `vecBuild`.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: vecOwnsRefs (-> (Vec a) Bool))
 (pub fn (vecOwnsRefs v)
@@ -344,13 +316,15 @@
 ; at the call site would type-check and would be a USE-AFTER-FREE:
 ; `vecPush`'s element parameter is a type variable, and MM-VAL-22
 ; measures that a cast at an argument root there classifies the value's
-; evidence 0, so `memSetWord`'s `__retainref` emits nothing and the
+; evidence 0, so `vecPush`'s `__retainref` emits nothing and the
 ; vector holds a `String` whose share nobody took.
 ;
 ; So the retain is made explicit and the cast is paired with it, in one
 ; place, behind a signature that says `String`. The count is the same
 ; as a `(Vec String)` push: one retain here, and the one `vecPush`
-; would have taken is exactly the one the cast suppresses.
+; would have taken is exactly the one the cast suppresses. The word
+; arrives uncounted, so the vector is plain: it makes no claim on a
+; heterogeneous record, and the share taken here is never handed back.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: vecPushStr (-> (Vec a) String (Vec a)))
 ;@axiom:effect(unsafe)
@@ -387,20 +361,32 @@
     __indexTrap
     (if (>= i (vecLen v))
       __indexTrap
-      ; On a `vecNewRef` vector the displaced element's share is
-      ; this vector's to hand back, and dropping the word without
-      ; doing so is a leak the walk can never find. The release
-      ; comes FIRST only in program order - `memSetWord` retains
-      ; the incoming value through `__retainref` - and setting a
-      ; slot to what it already holds is therefore still safe,
-      ; because the count went up before it came down.
-      {
-        (if (vecOwnsRefs v)
-          (vecDropAt v i)
-          v)
-        (memSetWord (vecData v) i x)
-        v
-      })))
+      ; The incoming share is taken first, so setting a slot to what
+      ; it already holds is safe: the count goes up before the
+      ; displaced element's comes down. An owner hands the displaced
+      ; share back, which is a leak the walk could never find if it
+      ; were dropped with the word. An owner given an uncounted word
+      ; becomes plain instead, as `vecPush` describes.
+      (let ((counted (__retainref x)))
+        {
+          (if (vecOwnsRefs v)
+            (if (== counted 1)
+              (vecDropAt v i)
+              {
+                (memMarkLeaf (vecData v))
+                (memSetWord
+                  (cast Int v)
+                  3
+                  2)
+                v
+              })
+            v)
+          (memSetWord
+            (vecData v)
+            i
+            (cast Int x))
+          v
+        }))))
 
 ; ------------------------------------------------------------------
 ; Growth
@@ -451,14 +437,11 @@
         (memMarkArray bigger newCap)
         bigger)
       (memCopy bigger old (* (vecLen v) 8))
-      (memSetWord
-        (cast Int v)
-        2
-        bigger)
-      (memSetWord
-        (cast Int v)
-        1
-        newCap)
+      (let ((h (cast Int v)))
+        {
+          (memSetWord h 2 bigger)
+          (memSetWord h 1 newCap)
+        })
       ; The copy MOVED the elements' shares, so the old block must not
       ; spend them on the way out: it is marked a leaf first, and its
       ; release then reclaims the block and touches nothing it held.
@@ -480,18 +463,51 @@
 ; would write the element into the abandoned block, and the bug would be
 ; invisible until the vector happened to grow.
 ;@axiom:restrict(no-io,no-foreign)
+;
+; The share of `x` is taken here, by `__retainref`, which also answers
+; whether `x`'s type at this call is counted. That answer settles what
+; the vector claims before the word goes in (word 3, see the module
+; comment):
+;
+; - The first element decides. A counted one makes the vector an
+;   owner, and its data block takes the array form: nothing has been
+;   stored yet, so every word of the block is the zero `memAlloc`
+;   wrote, and the walk may release the whole block. Any other first
+;   element makes the vector plain.
+; - An owner given an uncounted word becomes plain, and its block a
+;   leaf again: the walk would otherwise release a word no share was
+;   taken for. The elements it already holds keep their shares and are
+;   never released.
 (pub :: vecPush (-> (Vec a) a (Vec a)))
 (pub fn (vecPush v x)
-  (let ((len (vecLen v)))
-    {
-      (vecReserve v (+ len 1))
-      (memSetWord (vecData v) len x)
-      (memSetWord
-        (cast Int v)
-        0
-        (+ len 1))
-      v
-    }))
+  (let (
+    (len (vecLen v))
+    (counted (__retainref x))
+    (h (cast Int v))
+  )
+    (let ((kind (memGetWord h 3)))
+      {
+        (vecReserve v (+ len 1))
+        (if (== kind 0)
+          (if (== counted 1)
+            {
+              (memMarkArray (vecData v) (vecCap v))
+              (memSetWord h 3 1)
+            }
+            (memSetWord h 3 2))
+          (if (&& (== kind 1) (== counted 0))
+            {
+              (memMarkLeaf (vecData v))
+              (memSetWord h 3 2)
+            }
+            0))
+        (memSetWord
+          (vecData v)
+          len
+          (cast Int x))
+        (memSetWord h 0 (+ len 1))
+        v
+      })))
 
 ; Remove and return the last element. REFUSES an empty vector.
 ;
@@ -516,7 +532,7 @@
   (let ((len (vecLen v)))
     (if (== len 0)
       __indexTrap
-      ; The slot is ZEROED, and on a `vecNewRef` vector that is a
+      ; The slot is ZEROED, and on a vector that owns its elements that is a
       ; correctness rule rather than tidiness: the array-form walk
       ; releases the whole BLOCK's words, so a stale handle left
       ; above `len` would have its share spent at `vecFree` while
@@ -635,7 +651,7 @@
 ; `memGetWord`/`memSetWord` on the data buffer rather than through
 ; `vecSet`.
 ;
-; `vecSet` releases the element it displaces on a `vecNewRef` vector,
+; `vecSet` releases the element it displaces on a vector that owns its elements,
 ; which is right for a write and wrong for a swap: the two halves of a
 ; swap displace each other, so the pair would release both shares and
 ; retain them back, and a count that touches zero between the two is a

@@ -1007,7 +1007,7 @@
     (n (strLen src))
     (lx (Lx
       src
-      vecNewRef
+      vecNew
       0
       false
       0
@@ -1488,7 +1488,7 @@
 ; `name (, name)*` inside parentheses.
 (:: parseNameList (-> Ps String (Result (Vec String) Error)))
 (fn (parseNameList p what)
-  (try _ (expect p tkLParen "\"(\"") (parseNameListRest p what vecNewRef)))
+  (try _ (expect p tkLParen "\"(\"") (parseNameListRest p what vecNew)))
 
 (:: parseNameListRest (-> Ps String (Vec String) (Result (Vec String) Error)))
 (fn (parseNameListRest p what acc)
@@ -1523,7 +1523,7 @@
 
 (:: parseCreateTable (-> Ps (Result Stmt Error)))
 (fn (parseCreateTable p)
-  (try ine (parseIfNotExists p) (try name (parseName p "a table name") (try _ (expect p tkLParen "\"(\"") (try cols (parseColumnDefs p vecNewRef) (Ok (SCreateTable ine name cols)))))))
+  (try ine (parseIfNotExists p) (try name (parseName p "a table name") (try _ (expect p tkLParen "\"(\"") (try cols (parseColumnDefs p vecNew) (Ok (SCreateTable ine name cols)))))))
 
 (:: parseColumnDefs (-> Ps (Vec ColumnDef) (Result (Vec ColumnDef) Error)))
 (fn (parseColumnDefs p acc)
@@ -1607,8 +1607,8 @@
         cols
         (if (== (peekKind p) tkLParen)
           (parseNameList p "a column name")
-          (Ok vecNewRef))
-        (try _ (expect p kwValues "VALUES") (try rows (parseRows p vecNewRef -1) (Ok (SInsert table cols rows))))))))
+          (Ok vecNew))
+        (try _ (expect p kwValues "VALUES") (try rows (parseRows p vecNew -1) (Ok (SInsert table cols rows))))))))
 
 ; `(expr, ...) (, (expr, ...))*`, every row as long as the first.
 (:: parseRows (-> Ps (Vec (Vec Expr)) Int (Result (Vec (Vec Expr)) Error)))
@@ -1619,7 +1619,7 @@
       (expect p tkLParen "\"(\"")
       (try
         row
-        (parseExprListRest p vecNewRef)
+        (parseExprListRest p vecNew)
         (if (&& (>= width 0) (!= (vecLen row) width))
           (synErrAt p.src open.start "every row of VALUES needs the same number of values")
           {
@@ -1634,7 +1634,7 @@
 
 (:: parseUpdate (-> Ps (Result Stmt Error)))
 (fn (parseUpdate p)
-  (try table (parseName p "a table name") (try _ (expect p kwSet "SET") (try a (parseAssignments p (Assign vecNewRef vecNewRef)) (try w (parseOptWhere p) (Ok (SUpdate table a.cols a.exprs w)))))))
+  (try table (parseName p "a table name") (try _ (expect p kwSet "SET") (try a (parseAssignments p (Assign vecNew vecNew)) (try w (parseOptWhere p) (Ok (SUpdate table a.cols a.exprs w)))))))
 
 ; The assignments of an UPDATE, in two parallel vectors.
 (struct Assign
@@ -1693,8 +1693,8 @@
       (try
         items
         (if star
-          (Ok vecNewRef)
-          (parseSelectItems p vecNewRef))
+          (Ok vecNew)
+          (parseSelectItems p vecNew))
         (try
           from
           (if (== (peekKind p) kwFrom)
@@ -1713,9 +1713,9 @@
               (if (== (peekKind p) kwOrder)
                 {
                   (advance p)
-                  (try _ (expect p kwBy "BY") (parseOrderTerms p vecNewRef))
+                  (try _ (expect p kwBy "BY") (parseOrderTerms p vecNew))
                 }
-                (Ok vecNewRef))
+                (Ok vecNew))
               (try
                 lim
                 (if (== (peekKind p) kwLimit)
@@ -1887,7 +1887,7 @@
     0
     0
     0
-    vecNewRef
+    vecNew
     false
     false))))
 
@@ -1905,7 +1905,7 @@
       (try
         s
         (parseStatement p)
-        (let ((names vecNewRef))
+        (let ((names vecNew))
           {
             (for n in p.names
               (vecPush names n))
@@ -1943,7 +1943,7 @@
 ; skipped, so a script may end with `;`.
 (pub :: axqlParseScript (-> String (Result (Vec Parsed) Error)))
 (pub fn (axqlParseScript src)
-  (try p (newParser src) (parseScriptRest p vecNewRef)))
+  (try p (newParser src) (parseScriptRest p vecNew)))
 
 (:: parseScriptRest (-> Ps (Vec Parsed) (Result (Vec Parsed) Error)))
 (fn (parseScriptRest p acc)

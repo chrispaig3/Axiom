@@ -26,7 +26,7 @@
 
 (:: buildFreeSized (-> Int Int))
 (fn (buildFreeSized n)
-  (let ((m (mapWithCapacityRefVals 32)) (mut i 0))
+  (let ((m (mapWithCapacity 32)) (mut i 0))
     {
       (while (< i n)
         { (mapInsert m i (strDup "hello world hello world")) (set i (+ i 1)) })
@@ -35,7 +35,7 @@
 
 (:: buildFreeNullary (-> Int Int))
 (fn (buildFreeNullary n)
-  (let ((m mapNewRefVals) (mut i 0))
+  (let ((m mapNew) (mut i 0))
     {
       (while (< i n)
         { (mapInsert m i (strDup "hello world hello world")) (set i (+ i 1)) })
@@ -61,14 +61,14 @@
     (mut n 0)
   )
     {
-      (let ((m (mapWithCapacityRefVals 32)))
+      (let ((m (mapWithCapacity 32)))
         {
           (mapInsert m 0 (strDup "hello world hello world"))
           (set bad (+ bad (eqInt "sized count" (mapLen m) 1)))
           (set bad (+ bad (eqInt "sized free answers zero" (mapFree m) 0)))
           (set n (+ n 2))
         })
-      (let ((m mapNewRefVals))
+      (let ((m mapNew))
         {
           (mapInsert m 0 (strDup "hello world hello world"))
           (set bad (+ bad (eqInt "nullary count" (mapLen m) 1)))

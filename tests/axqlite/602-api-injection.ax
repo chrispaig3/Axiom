@@ -9,7 +9,7 @@
 
 (:: attempts (Vec String))
 (fn (attempts)
-  (let ((v vecNewRef))
+  (let ((v vecNew))
     {
       (vecPush v "x'); DROP TABLE users; --")
       (vecPush v "' OR 1=1 --")

@@ -1814,10 +1814,8 @@
 ; scalarTyName - the two lists must agree, and the evidence fixture
 ; is what notices a drift.
 ;
-; `Vec` is in both for an OWNERSHIP reason rather than a numeric one -
-; see the note on `fldClass`. Evidence must reach the same answer the
-; reference map does: a `Vec` handed to a type-variable parameter took
-; no share while it was spelled `Int`, and typing it takes none now.
+; `Vec` is in neither: a vector is a counted value (MM-LIFE-2m), so
+; evidence classifies it a reference, as the reference map does.
 ; `Foreign` is listed here, not fallen through to in `evClassOf`: a
 ; `Foreign` is a pointer into memory Axiom never allocated, so the
 ; release walk skips it (`tests/ffi/demo/410-foreign-not-walked.ax`
@@ -1833,17 +1831,17 @@
 ; `evClassOf` answers them in an arm of its own (`tcWordTyName`).
 (pub :: evScalarName (-> String Int))
 (pub fn (evScalarName n)
-  (if (|| (strEq n "Int") (|| (strEq n "Bool") (|| (strEq n "Char") (|| (strEq n "Float") (|| (strEq n "I8") (|| (strEq n "I16") (|| (strEq n "I32") (|| (strEq n "I64") (|| (strEq n "U8") (|| (strEq n "U16") (|| (strEq n "U32") (|| (strEq n "U64") (|| (strEq n "F32") (|| (strEq n "F64") (|| (strEq n "Vec") (strEq n "Foreign"))))))))))))))))
+  (if (|| (strEq n "Int") (|| (strEq n "Bool") (|| (strEq n "Char") (|| (strEq n "Float") (|| (strEq n "I8") (|| (strEq n "I16") (|| (strEq n "I32") (|| (strEq n "I64") (|| (strEq n "U8") (|| (strEq n "U16") (|| (strEq n "U32") (|| (strEq n "U64") (|| (strEq n "F32") (|| (strEq n "F64") (strEq n "Foreign")))))))))))))))
     1
     0))
 
 ; A result the release walk may treat as alias-free: 1 for the four
 ; machine words and the empty tuple, 0 for everything else. This is
-; deliberately NOT `evScalarName`: that list answers "takes no
-; share", and a `Vec` takes none while still being a block that can
-; hold the argument's block without one - releasing the argument
-; under a `Vec` answer would free storage the answer points at. So
-; `Vec` is 0 here, and so is every name this does not spell: a type
+; NOT `evScalarName`, which answers a different question: "takes no
+; share". A `Vec` is a block that can hold the argument's block, and
+; releasing the argument under a `Vec` answer would free storage the
+; answer points at. So `Vec` is 0 here, and so is every name this does
+; not spell: a type
 ; variable, an unexpanded alias, `Foreign`, `Handle`, `String`, an arrow, and no
 ; type at all. Each of those is a missed elision, never an unsound
 ; one; the zero default is what makes an unstamped node keep its
@@ -2014,7 +2012,7 @@
         ; and expressions cannot introduce their own.
         ;
         ; A PINNED placeholder is the type it was pinned to. `out` in
-        ; `(let ((out vecNewRef)) ...)` is `(Vec _iN)`, and the first
+        ; `(let ((out vecNew)) ...)` is `(Vec _iN)`, and the first
         ; `vecPush` of a `String` pins `_iN`; a later
         ; `(vecSet out k (vecGet out j))` witnesses `a` only through
         ; `_iN`. Read as "says nothing", that store took no share
@@ -2064,7 +2062,7 @@
               (let ((n (nodeAName t)))
                 (if (== (evScalarName n) 1)
                   0
-                  (if (|| (strEq n "String") (strEq n "Handle"))
+                  (if (|| (strEq n "String") (|| (strEq n "Handle") (strEq n "Vec")))
                     1
                     ; A WORD STRUCT, and `Spawn`: one machine word that
                     ; takes no share (MM-VAL-10a). Asked before
@@ -4222,7 +4220,7 @@
           vecNew
           vecNew
           (countWordStructs allDecls 0 0)
-          (UState 0 0 vecNew vecNew 0 0 vecNewRef 0 vecNew)
+          (UState 0 0 vecNew vecNew 0 0 vecNew 0 vecNew)
           vecNew
           vecNew))))
         {
@@ -10718,9 +10716,9 @@
 ; possibly one", and the corpus contains none of them at a spawn, so
 ; the wide rule costs nothing and leaves no hole to come back to.
 ;
-; `Vec` IS CLASS 0 for ownership, but is still refused by `capReport`:
-; its handle names a mutable buffer even though it takes no share of
-; a count. A worker growing that buffer would publish thread-arena
+; `Vec` is a counted reference, class 1, and refused for that; its
+; refusal names the second reason too: its handle names a mutable
+; buffer, and a worker growing that buffer would publish thread-arena
 ; memory to the parent, then unmap it at thread exit (MM-PAR-6a).
 ; `tests/diagnostics/656-parallel-container-capture.ax` holds direct,
 ; aliased and nested containers, and `tests/stdlib/471-parallel-trap.ax`
@@ -11394,8 +11392,8 @@
                     0
                     ; EVERYTHING BUT CLASS 0. `evClassOf` answers 0
                     ; for a value that takes no share of a count -
-                    ; the scalars, `Vec`, and `Foreign`, each listed
-                    ; in `evScalarName` with the ownership reason -
+                    ; the scalars and `Foreign`, each listed in
+                    ; `evScalarName` with the ownership reason -
                     ; and that is the only answer which is a PROMISE
                     ; that no count is raced over. 1 is a reference
                     ; outright. `2+k`
@@ -11424,17 +11422,16 @@
                     ; for the first `parallel` written inside a
                     ; generic function.
                     ;
-                    ; `Vec` IS REFUSED BESIDE THEM, since 2026-09-27,
-                    ; though it takes no share. Class 0 answers "no
-                    ; count is raced over", which is true of a `Vec`
-                    ; and is not the question a thread asks: its
-                    ; handle names a MUTABLE buffer, and two bindings
-                    ; that capture it can grow it at once. Measured
-                    ; with this rule off: a binding that pushes onto a
-                    ; captured `Vec` under `--threads` reallocates the
-                    ; parent's buffer out of the THREAD's arena, and
-                    ; the parent's handle names memory that goes away
-                    ; with the thread (MM-PAR-6a). A `Foreign` stays
+                    ; `Vec` is class 1, a counted reference, and is
+                    ; refused for a second reason as well, which its
+                    ; message names: its handle names a MUTABLE
+                    ; buffer, and two bindings that capture it can
+                    ; grow it at once. Measured with the refusal off:
+                    ; a binding that pushes onto a captured `Vec`
+                    ; under `--threads` reallocates the parent's
+                    ; buffer out of the THREAD's arena, and the
+                    ; parent's handle names memory that goes away with
+                    ; the thread (MM-PAR-6a). A `Foreign` stays
                     ; accepted: it names memory Axiom never allocated,
                     ; and its thread-safety is the foreign side's
                     ; (MM-FFI-7).
@@ -11447,7 +11444,7 @@
                     ; declared so is refused like any other value the
                     ; binding has no business holding.
                     (let ((cls (evClassOf tc ty)))
-                      (if (&& (|| (!= cls 0) (== (capTyIsVec ty) 1)) (capNotBorrowed tc borrow name ty (nodeSpan v)))
+                      (if (&& (!= cls 0) (capNotBorrowed tc borrow name ty (nodeSpan v)))
                         {
                           (vecPush seen (nodeA v))
                           (emitSpawnCapture
@@ -11480,8 +11477,9 @@
       true
       (== (capBorrowLend tc borrow name span) 0))))
 
-; A captured type that is a `Vec`, after resolution: the one class-0
-; name whose handle is a mutable heap buffer (`capReport`).
+; A captured type that is a `Vec`, after resolution: a counted
+; reference whose handle is also a mutable heap buffer, which the
+; refusal names (`emitSpawnCapture`).
 (pub :: capTyIsVec (-> Int Int))
 (pub fn (capTyIsVec ty)
   (let ((rt (tyResolve ty)))
@@ -11506,7 +11504,7 @@
           span
           (concat
             (concat (concat (concat "a concurrent binding captures `" name) "`, which has type `") (tyRender ty))
-            (if (== cls 0)
+            (if (== (capTyIsVec ty) 1)
               "` - a mutable container the parent also holds, which a binding could grow while another reads it"
               (if (== cls 1)
               "` - a reference the parent also holds"
@@ -13651,10 +13649,8 @@
   (let ((n (nodeAName t)))
     (if (|| (strEq n "String") (|| (strEq n "Vec") (strEq n "Handle")))
       1
-      ; `evScalarName` spells the machine words, and `Vec` - which is
-      ; answered above, because it is a block even though it takes no
-      ; share - and `Foreign`, a pointer into memory Axiom never
-      ; allocated and never walks.
+      ; `evScalarName` spells the machine words and `Foreign`, a
+      ; pointer into memory Axiom never allocated and never walks.
       (if (== (evScalarName n) 1)
         0
         (if (!= (tySubtypeBase tc t) 0)
@@ -14490,12 +14486,12 @@
     1
     0))
 
-; `scalarTyName`, the emitter's list of machine-word type names. `Vec`
-; and `Foreign` are here for the ownership reason codegen.ax states:
-; a handle the block does not own is a word to the reference map.
+; `scalarTyName`, the emitter's list of machine-word type names.
+; `Foreign` is here for the ownership reason codegen.ax states: a
+; pointer the block does not own is a word to the reference map.
 (pub :: tcScalarTyName (-> String Int))
 (pub fn (tcScalarTyName n)
-  (if (|| (strEq n "Int") (|| (strEq n "Bool") (|| (strEq n "Char") (|| (strEq n "Float") (|| (strEq n "I8") (|| (strEq n "I16") (|| (strEq n "I32") (|| (strEq n "I64") (|| (strEq n "U8") (|| (strEq n "U16") (|| (strEq n "U32") (|| (strEq n "U64") (|| (strEq n "F32") (|| (strEq n "F64") (|| (strEq n "Foreign") (strEq n "Vec"))))))))))))))))
+  (if (|| (strEq n "Int") (|| (strEq n "Bool") (|| (strEq n "Char") (|| (strEq n "Float") (|| (strEq n "I8") (|| (strEq n "I16") (|| (strEq n "I32") (|| (strEq n "I64") (|| (strEq n "U8") (|| (strEq n "U16") (|| (strEq n "U32") (|| (strEq n "U64") (|| (strEq n "F32") (|| (strEq n "F64") (strEq n "Foreign")))))))))))))))
     1
     0))
 
@@ -14517,7 +14513,7 @@
             (let ((n (nodeAName tn)))
               (if (== (tcScalarTyName n) 1)
                 0
-                (if (|| (strEq n "String") (|| (strEq n "Option") (strEq n "Handle")))
+                (if (|| (strEq n "String") (|| (strEq n "Option") (|| (strEq n "Handle") (strEq n "Vec"))))
                   2
                   (if (!= (findData tc n) 0)
                     2

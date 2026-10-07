@@ -964,6 +964,19 @@
     ""
     "")))
 
+; A failure carrying a payload in `value`, at position 0: the REPL's
+; front end answers its diagnostics this way. Polymorphic for the
+; reason `pOk` is: the payload is a counted value, and a cast at the
+; call site would hide it from the reader of the result's type.
+(pub :: pErrWith (-> a Int))
+(pub fn (pErrWith v)
+  (cast Int (PResult
+    0
+    (cast Int v)
+    0
+    ""
+    "")))
+
 (pub :: pErrExp (-> Int String Int))
 (pub fn (pErrExp p e)
   (cast Int (PResult

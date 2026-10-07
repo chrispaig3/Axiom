@@ -1,0 +1,142 @@
+; An element read out of a vector that owns it, bound by a `let`, holds
+; a share of its own while the binding lives, so a `vecSet` of its slot
+; doesn't free it under the binding (MM-LIFE-2m). Each line must read
+; `true`.
+;
+;   1  a swap spelled with a `let` and two `vecSet`s keeps both strings:
+;      the first `vecSet` releases the vector's share of the element the
+;      `let` still names
+;   2  the same swap in a function polymorphic in the element type, where
+;      the share is taken under the caller's evidence
+;   3  an insertion sort of 200 strings by that swap reads back sorted
+;      and intact after 20,000 allocations of the same sizes
+;   4  the swap in a loop body checked before the push that says the
+;      vector holds strings, so the element type is a pin made later in
+;      the body
+;
+; A binding that only borrowed the element would hand the second
+; `vecSet` a freed block, and the churn would read it back as another
+; string.
+(import IO)
+(import Vec)
+(import Str)
+(import Fmt)
+
+(:: churn Int)
+(fn (churn)
+  (let ((mut i 0) (mut acc 0))
+    {
+      (while (< i 20000)
+        {
+          (let ((s (concat "zz-" (fmtInt i))))
+            (set acc (+ acc (strLen s))))
+          (set i (+ i 1))
+        })
+      acc
+    }))
+
+(:: swapStrs (-> (Vec String) Int Int Int))
+(fn (swapStrs v i j)
+  (let ((t (vecGet v i)))
+    {
+      (vecSet v i (vecGet v j))
+      (vecSet v j t)
+      0
+    }))
+
+(:: swapAny (-> (Vec a) Int Int Int))
+(fn (swapAny v i j)
+  (let ((t (vecGet v i)))
+    {
+      (vecSet v i (vecGet v j))
+      (vecSet v j t)
+      0
+    }))
+
+(:: pair (Vec String))
+(fn (pair)
+  (let ((v vecNew))
+    {
+      (vecPush v (concat "left-" (fmtInt 1)))
+      (vecPush v (concat "right-" (fmtInt 2)))
+      v
+    }))
+
+(:: swappedIntact (-> (Vec String) Bool))
+(fn (swappedIntact v)
+  {
+    churn
+    (&& (strEq (vecGet v 0) "right-2") (strEq (vecGet v 1) "left-1"))
+  })
+
+(:: sortedIntact (-> (Vec String) Int Bool))
+(fn (sortedIntact v i)
+  (if (>= (+ i 1) (vecLen v))
+    true
+    (if (< (strCmp (vecGet v i) (vecGet v (+ i 1))) 0)
+      (sortedIntact v (+ i 1))
+      false)))
+
+(:: insertionSort (-> (Vec String) Int))
+(fn (insertionSort v)
+  (let ((mut i 1))
+    {
+      (while (< i (vecLen v))
+        (let ((mut j i))
+          {
+            (while (&& (> j 0) (< (strCmp (vecGet v j) (vecGet v (- j 1))) 0))
+              {
+                (swapAny v j (- j 1))
+                (set j (- j 1))
+              })
+            (set i (+ i 1))
+          }))
+      0
+    }))
+
+(:: lateSwap Bool)
+(fn (lateSwap)
+  (let ((v vecNew) (mut i 0))
+    {
+      (while (< i 3)
+        {
+          (if (>= (vecLen v) 2)
+            (let ((t (vecGet v 0)))
+              {
+                (vecSet v 0 (vecGet v 1))
+                (vecSet v 1 t)
+                0
+              })
+            0)
+          (vecPush v (concat "s-" (fmtInt i)))
+          (set i (+ i 1))
+        })
+      churn
+      (&& (strEq (vecGet v 0) "s-1") (&& (strEq (vecGet v 1) "s-0") (strEq (vecGet v 2) "s-2")))
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (a pair)
+    (b pair)
+    (c vecNew)
+  )
+    {
+      (swapStrs a 0 1)
+      (println (if (swappedIntact a) "true" "false"))
+      (swapAny b 0 1)
+      (println (if (swappedIntact b) "true" "false"))
+      (let ((mut i 0))
+        (while (< i 200)
+          {
+            (vecPush c (concat "k-" (fmtInt (% (* i 7919) 1000))))
+            (set i (+ i 1))
+          }))
+      (insertionSort c)
+      churn
+      (println (if (&& (== (vecLen c) 200) (sortedIntact c 0)) "true" "false"))
+      (println (if lateSwap "true" "false"))
+      0
+    }))

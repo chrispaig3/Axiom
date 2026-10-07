@@ -155,7 +155,7 @@
 (:: gatherRows (-> (Vec String) Int (Vec String)))
 (fn (gatherRows lines from)
   (let (
-    (out vecNewRef)
+    (out vecNew)
     (n (vecLen lines))
     (mut i from)
   )
@@ -171,7 +171,7 @@
 ; Sort lines by their bytes, stably.
 (:: sortLines (-> (Vec String) (Vec String)))
 (fn (sortLines v)
-  (let ((out vecNewRef))
+  (let ((out vecNew))
     {
       (for s in v
         (let ((mut at (vecLen out)))
@@ -227,7 +227,7 @@
           (match r
             ((Err e) (fail run line (concat "the query failed: " (errorText e))))
             ((Ok rs)
-              (let ((got vecNewRef))
+              (let ((got vecNew))
                 {
                   (for row in rs.rows
                     (vecPush got (axqlRowText row)))
@@ -370,7 +370,7 @@
           )
           ((Ok db)
             (let (
-              (lines vecNewRef)
+              (lines vecNew)
               (run (Run name 0 0))
             )
               {

@@ -1,0 +1,129 @@
+; A `Vec` returned from the function that built it and stored in a
+; struct is held by the struct: its field takes a share, the struct's
+; death hands it back, and nothing hands it back twice (MM-LIFE-2m,
+; MM-LIFE-2c events 2, 5 and 6). Each line must read `true`.
+;
+;   1  5,000 records built around a returned vector and dropped hold
+;      the allocator flat
+;   2  a record's vector reads back intact after 20,000 allocations of
+;      the same sizes filled with other bytes - a vector released once
+;      too often would be handed out again and read back wrong
+;   3  overwriting the field with `set` hands the old vector back:
+;      5,000 overwrites hold flat
+;   4  a vector shared by two records survives the first record's death
+;
+; A compiler that never releases a `Vec` grows on lines 1 and 3. One
+; that released it on return as well as at the struct's death would
+; fail line 2 or line 4.
+(import IO)
+(import Vec)
+(import Str)
+(import Fmt)
+(import Mem)
+
+(struct Holder
+  (name : String)
+  (mut items : (Vec String)))
+
+(:: items (-> Int (Vec String)))
+(fn (items n)
+  (let ((v vecNew) (mut i 0))
+    {
+      (while (< i n)
+        {
+          (vecPush v (concat "item-" (fmtInt i)))
+          (set i (+ i 1))
+        })
+      v
+    }))
+
+(:: holder (-> Int Holder))
+(fn (holder n)
+  (Holder (concat "h-" (fmtInt n)) (items n)))
+
+(:: held Int)
+(fn (held)
+  (let ((s memStats))
+    s.heldBytes))
+
+(:: flat (-> (-> Int Int) Bool))
+(fn (flat run)
+  {
+    (run 500)
+    (let ((a held))
+      {
+        (run 4500)
+        (== held a)
+      })
+  })
+
+(:: dropped (-> Int Int))
+(fn (dropped n)
+  (let ((mut k 0) (mut acc 0))
+    {
+      (while (< k n)
+        {
+          (let ((h (holder 16)))
+            (set acc (+ acc (vecLen h.items))))
+          (set k (+ k 1))
+        })
+      acc
+    }))
+
+(:: overwritten (-> Holder Int Int))
+(fn (overwritten h n)
+  (let ((mut k 0))
+    {
+      (while (< k n)
+        {
+          (set h.items (items 16))
+          (set k (+ k 1))
+        })
+      k
+    }))
+
+(:: intact (-> (Vec String) Int Bool))
+(fn (intact v i)
+  (if (>= i (vecLen v))
+    true
+    (if (strEq (vecGet v i) (concat "item-" (fmtInt i)))
+      (intact v (+ i 1))
+      false)))
+
+; 20,000 strings of the sizes the records use, each dropped at once.
+(:: churn Int)
+(fn (churn)
+  (let ((mut i 0) (mut acc 0))
+    {
+      (while (< i 20000)
+        {
+          (let ((v (items 2)))
+            (set acc (+ acc (vecLen v))))
+          (set i (+ i 1))
+        })
+      acc
+    }))
+
+(:: shared Bool)
+(fn (shared)
+  (let ((v (items 16)))
+    (let ((b (Holder "b" v)))
+      {
+        (let ((a (Holder "a" v)))
+          (vecLen a.items))
+        churn
+        (intact b.items 0)
+      })))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((h (holder 16)))
+    {
+      (println (if (flat (lambda (n) (dropped n))) "true" "false"))
+      churn
+      (println (if (intact h.items 0) "true" "false"))
+      (println (if (flat (lambda (n) (overwritten h n))) "true" "false"))
+      (println (if shared "true" "false"))
+      0
+    }))

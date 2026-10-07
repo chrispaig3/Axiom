@@ -120,7 +120,7 @@
 (pub :: axqlLoadSchema (-> Pager (Result Schema Error)))
 ;@axiom:effect(io)
 (pub fn (axqlLoadSchema pager)
-  (let ((ld (Loader vecNewRef)))
+  (let ((ld (Loader vecNew)))
     (try
       _
       (btreeScan
@@ -281,7 +281,7 @@
 (:: tableIndexes (-> Schema String (Vec ColumnDef) (Result (Vec IndexDef) Error)))
 (fn (tableIndexes s table cols)
   (let (
-    (out vecNewRef)
+    (out vecNew)
     (mut failure None)
   )
     {
@@ -337,7 +337,7 @@
 (pub fn (axqlRowRecord t values)
   (if (< t.pk 0)
     (recEncode values)
-    (let ((stored vecNewRef))
+    (let ((stored vecNew))
       {
         (for (v i) in values
           (vecPush
@@ -388,7 +388,7 @@
 ; for those values starts with.
 (pub :: axqlIndexPrefix (-> IndexDef (Vec Value) (Result String Error)))
 (pub fn (axqlIndexPrefix ix values)
-  (let ((vs vecNewRef))
+  (let ((vs vecNew))
     {
       (for ci in ix.cols
         (vecPush vs (vecGet values ci)))
@@ -426,7 +426,7 @@
 ; The record of a schema entry.
 (pub :: axqlEntryRecord (-> String String String Int String (Result String Error)))
 (pub fn (axqlEntryRecord kind name table root text)
-  (let ((vs vecNewRef))
+  (let ((vs vecNew))
     {
       (vecPush vs (VText kind))
       (vecPush vs (VText name))

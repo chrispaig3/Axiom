@@ -121,14 +121,10 @@
 ; ------------------------------------------------------------------
 ; The state. One block, one per SESSION - `ledReset` per line.
 ;
-; That is not tidiness: a `Vec` handle is an `Int`, so an `Int`-typed
-; field is outside the block's reference map and a dying LineEd would
-; release neither gap vector. Built per line that is two headers and
-; two data blocks leaked per line typed, for the session. `vecClear`
-; keeps the capacity - "a Vec reused as scratch across many iterations
-; allocates once in total" - so after the first long line the buffers
-; stop allocating at all. The leak is closed by not creating the
-; object, not by remembering to free it.
+; The three vectors are fields the block owns, so a dying LineEd hands
+; them back. One per session rather than per line is about allocation,
+; not ownership: `vecClear` keeps the capacity, so after the first long
+; line the gap buffers stop allocating at all.
 ; ------------------------------------------------------------------
 (pub struct LineEd
   (left : (Vec Int))
@@ -163,21 +159,18 @@
 ; letters, digits and `_`. See `ledIsWord`: this is where the
 ; CALLER'S language enters, and the only place it does.
 ;
-; `vecNewRef`, not `vecNew`: the ring owns `String` handles, and
-; Vec.ax is explicit that a reference stored in a leaf vector is
-; immortal - "the leak `vecNewRef` exists to close". It also makes the
-; 16-entry wraparound safe to write as `vecSet`, whose body calls
-; `vecDropAt` on an owning vector and hands the displaced entry's
-; share back.
+; The ring owns its `String` entries: its first push makes it an owner
+; (Vec.ax), so its death releases them. That also makes the 16-entry
+; wraparound safe to write as `vecSet`, which hands the displaced
+; entry's share back.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledRingNew (Vec String))
 (pub fn (ledRingNew)
-  vecNewRef)
+  vecNew)
 
 ; One editor over a session's ring, with the caller's word set. The
-; gap vectors are `vecNew` (leaf) because their elements are CODE
-; POINTS: Vec.ax's comment says a leaf block is exactly right for Ints
-; and costs nothing.
+; gap vectors hold CODE POINTS, `Int`s, so they stay plain: a leaf
+; block costs nothing to release.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledNew (-> (Vec String) String LineEd))
 (pub fn (ledNew ring wordChars)
@@ -211,18 +204,6 @@
     (set ed.curRow 0)
     (set ed.lastKill 0)
     (set ed.yankLen 0)
-    0
-  })
-
-; Hand the two gap vectors back. For session end and for a test
-; harness, which builds hundreds; see the struct's comment for why
-; nothing else needs it.
-;@axiom:restrict(no-io,no-foreign)
-(pub :: ledFree (-> LineEd Int))
-(pub fn (ledFree ed)
-  {
-    (vecFree ed.left)
-    (vecFree ed.right)
     0
   })
 
@@ -525,7 +506,7 @@
 ; yank back as one run rather than a third of one.
 ;
 ; At the cap the oldest entry is overwritten with `vecSet`, whose body
-; drops the displaced String's share because the ring is `vecNewRef`.
+; drops the displaced String's share because the ring owns its entries.
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledKillPush (-> LineEd String Int Int))

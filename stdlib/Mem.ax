@@ -123,8 +123,9 @@
 ; it cannot represent is one it refuses to pool. A container's element
 ; buffer of 131,072 bytes or more therefore announced itself as an
 ; array of ZERO handles, and `vecFree` released the block and none of
-; the elements. Measured: a 16,384-element `vecNewRef` and the same
-; program on `vecNew` had the same peak RSS to the kilobyte.
+; the elements. Measured: a 16,384-element vector that owned its
+; elements and the same program with a leaf block had the same peak RSS
+; to the kilobyte.
 ;
 ; No spelling of this function could recover a number the allocator had
 ; already thrown away, so the count comes in as an argument - every

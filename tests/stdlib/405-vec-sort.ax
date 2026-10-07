@@ -2,7 +2,7 @@
 ;
 ; A sort is a PERMUTATION, and that is the whole reason these move
 ; words through `memGetWord`/`memSetWord` rather than through `vecSet`.
-; `vecSet` releases the element it displaces on a `vecNewRef` vector,
+; `vecSet` releases the element it displaces on an owning vector,
 ; which is right for a write and wrong for a swap: the two halves
 ; displace each other, so the pair would release both shares and retain
 ; them back, and a count that touches zero between the two hands the
@@ -162,8 +162,8 @@
           (lambda (a b) (- a b)))
         (println (fmtInt (same p q 0)))
       })
-    ; a REF-OWNING vector: every element read back after the sort
-    (let ((owned vecNewRef))
+    ; an OWNING vector: every element read back after the sort
+    (let ((owned vecNew))
       {
         (vecPush owned (concat "pe" "ar"))
         (vecPush owned (concat "fi" "g"))

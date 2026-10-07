@@ -1,0 +1,102 @@
+; A `Vec` captured by a closure lives as long as the closure: the
+; capture takes a share, and the closure record's death hands it back
+; (MM-LIFE-2m, MM-VAL-15). Each line must read `true`.
+;
+;   1  a closure that outlives the scope of the vector it reads still
+;      reads it intact after 20,000 allocations of the same sizes - a
+;      vector released at its own scope end would be handed out again
+;   2  5,000 such closures, each built, called once and dropped, hold
+;      the allocator flat
+;   3  a closure that pushes into a captured vector leaves the elements
+;      with the vector, which still reads them after the closure is gone
+(import IO)
+(import Vec)
+(import Str)
+(import Fmt)
+(import Mem)
+
+(:: items (-> Int (Vec String)))
+(fn (items n)
+  (let ((v vecNew) (mut i 0))
+    {
+      (while (< i n)
+        {
+          (vecPush v (concat "item-" (fmtInt i)))
+          (set i (+ i 1))
+        })
+      v
+    }))
+
+; A closure over a vector built inside this function.
+(:: reader (-> Int (-> Int Int)))
+(fn (reader n)
+  (let ((v (items n)))
+    (lambda (i) (strLen (vecGet v i)))))
+
+(:: held Int)
+(fn (held)
+  (let ((s memStats))
+    s.heldBytes))
+
+(:: flat (-> (-> Int Int) Bool))
+(fn (flat run)
+  {
+    (run 500)
+    (let ((a held))
+      {
+        (run 4500)
+        (== held a)
+      })
+  })
+
+(:: churn Int)
+(fn (churn)
+  (let ((mut i 0) (mut acc 0))
+    {
+      (while (< i 20000)
+        {
+          (let ((v (items 2)))
+            (set acc (+ acc (vecLen v))))
+          (set i (+ i 1))
+        })
+      acc
+    }))
+
+(:: readers (-> Int Int))
+(fn (readers n)
+  (let ((mut k 0) (mut acc 0))
+    {
+      (while (< k n)
+        {
+          (let ((r (reader 8)))
+            (set acc (+ acc (r 7))))
+          (set k (+ k 1))
+        })
+      acc
+    }))
+
+(:: pushed Bool)
+(fn (pushed)
+  (let ((v (items 2)))
+    {
+      (let ((add (lambda (s) (vecLen (vecPush v s)))))
+        {
+          (add (concat "item-" (fmtInt 2)))
+          (add (concat "item-" (fmtInt 3)))
+          0
+        })
+      churn
+      (&& (== (vecLen v) 4) (strEq (vecGet v 3) "item-3"))
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((r (reader 16)))
+    {
+      churn
+      (println (if (&& (== (r 15) 7) (== (r 9) 6)) "true" "false"))
+      (println (if (flat (lambda (n) (readers n))) "true" "false"))
+      (println (if pushed "true" "false"))
+      0
+    }))

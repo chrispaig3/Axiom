@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# A `Vec` field must map exactly as the `Int` it replaces.
+# A `Vec` field is a reference the record owns.
 #
 # `fldClass` (self_host/codegen.ax) decides, per declared field type,
 # whether a block's reference map names that word: 0 (scalar, never
@@ -9,25 +9,21 @@
 # unclassified field drops the reference map for every other field, and
 # a `String` beside it is never released, with no diagnostic.
 #
-# A `Vec` field is class 0. A `Vec` header is a counted block, but
-# `stdlib/Vec.ax` makes `vecFree` the only thing that ends a vector, so a
-# record holding one does not own it and must not release it. Class 0 is
-# also what the field got when it was spelled `Int`, so typing the handle
-# changes no reclamation. Moving `Vec` to class 2 would first need an
-# audit of every `vecFree`.
+# A `Vec` is a counted value (docs/memory-model.md MM-LIFE-2m): a record
+# holding one holds a share, takes it at construction and hands it back
+# when it dies, so a `Vec` field is class 2.
 #
-# The four rows:
+# The rows:
 #
 #   1. Anchor. `(MkRec Int String)` maps its `String`. A nonzero row
 #      proves the extractor reads a shape word at all, and is not an
 #      awk range that never opened.
-#   2. The claim. `(MkRec (Vec Int) String)` reads the same word. An
-#      unclassified `Vec` reads 8, the leaf shape, so losing the `Vec`
-#      arm in `fldClass` fails this row.
+#   2. The claim. `(MkRec (Vec Int) String)` maps both words. An
+#      unclassified `Vec` reads 8, the leaf shape, and a scalar `Vec`
+#      reads the anchor's 262152, so either regression fails this row.
 #   3. The map varies. `(MkRec Int Int)` maps nothing, so an extractor
 #      that answers one constant cannot satisfy row 2.
-#   4. A `Vec` is not walked. `(MkRec (Vec Int) Int)` maps nothing. This
-#      breaks if row 2 is "fixed" by making `Vec` a reference.
+#   4. A `Vec` is walked. `(MkRec (Vec Int) Int)` maps word 1 alone.
 #
 # Rows 3 and 4 are the ablation: the same fixture with one field type
 # changed, and they must move the number.
@@ -89,29 +85,29 @@ else
   bad "anchor: (MkRec Int String) reads '$anchor', expected 262152 (bit 18 = block word 2)"
 fi
 
-# 2. The claim: a Vec field changes nothing about the map.
-if [[ "$vecref" == "$anchor" && "$anchor" != "" ]]; then
-  ok "a (Vec Int) field maps exactly as the Int it replaces ($vecref)"
+# 2. The claim: a Vec field is mapped beside its String sibling.
+if [[ "$vecref" == "393224" ]]; then
+  ok "a (Vec Int) field is mapped beside the String: (MkRec (Vec Int) String) reads 393224"
 else
-  bad "a (Vec Int) field reads '$vecref' where the Int it replaces reads '$anchor'"
+  bad "(MkRec (Vec Int) String) reads '$vecref', expected 393224 (bits 17 and 18)"
   if [[ "$vecref" == "8" ]]; then
-    echo "     8 is the LEAF shape - this is the unclassified-Vec defect itself:"
-    echo "     fldClass answered 1, and the String sibling lost its map."
+    echo "     8 is the LEAF shape: fldClass answered 1 for the Vec, and the"
+    echo "     String sibling lost its map."
   fi
 fi
 
-# 3. The map varies: two scalars map nothing.
+# 3. The map varies: two scalar fields map nothing.
 if [[ "$twoint" == "8" ]]; then
   ok "two scalar fields map nothing: (MkRec Int Int) reads 8"
 else
   bad "(MkRec Int Int) reads '$twoint', expected 8 - the extractor is not reading the map"
 fi
 
-# 4. A Vec is not walked: the class-0 half of the claim.
-if [[ "$vecint" == "$twoint" && "$twoint" != "" ]]; then
-  ok "a Vec is class 0, not a walked reference: (MkRec (Vec Int) Int) reads $vecint"
+# 4. A Vec is walked: the record's death releases it.
+if [[ "$vecint" == "131080" ]]; then
+  ok "a Vec is a walked reference: (MkRec (Vec Int) Int) reads 131080"
 else
-  bad "(MkRec (Vec Int) Int) reads '$vecint', expected $twoint - a Vec must not be walked"
+  bad "(MkRec (Vec Int) Int) reads '$vecint', expected 131080 (bit 17) - a Vec must be walked"
 fi
 
 # 5. The mapped and unmapped rows must differ, or 2 and 4 are one claim
@@ -124,7 +120,7 @@ fi
 
 echo
 if (( failed == 0 )); then
-  echo "check-vec-field-shape: $checks checks - a Vec field maps as its Int did"
+  echo "check-vec-field-shape: $checks checks - a Vec field is a mapped reference"
   exit 0
 fi
 echo "check-vec-field-shape: $failed of $((checks + failed)) checks failed"

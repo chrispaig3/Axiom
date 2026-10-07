@@ -63,7 +63,7 @@
 ; An empty builder.
 (pub :: axqlBuilder QueryBuilder)
 (pub fn (axqlBuilder)
-  (QueryBuilder vecNewRef vecNewRef))
+  (QueryBuilder vecNew vecNew))
 
 ; Append text the macro spells.
 (pub :: axqlPut (-> QueryBuilder String Int))

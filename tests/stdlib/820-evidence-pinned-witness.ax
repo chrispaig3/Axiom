@@ -1,6 +1,6 @@
-; A store into a `vecNewRef` vector takes a share even when the call's
-; only witness of the element type is a placeholder pinned elsewhere in
-; the body (MM-LIFE-2d). The elements are handles whose destructor
+; A store into a vector that owns its elements takes a share even when
+; the call's only witness of the element type is a placeholder pinned
+; elsewhere in the body (MM-LIFE-2d). The elements are handles whose destructor
 ; records its value, so an early release shows as an early record.
 ; Each line must read `true`.
 ;
@@ -61,7 +61,7 @@
 (:: copied (-> (Vec Int) Bool))
 ;@axiom:effect(io)
 (fn (copied hits)
-  (let ((out vecNewRef))
+  (let ((out vecNew))
     {
       (vecPush out (mk hits 1))
       (vecPush out (mk hits 2))
@@ -74,7 +74,7 @@
 (:: shifted (-> (Vec Int) Bool))
 ;@axiom:effect(io)
 (fn (shifted hits)
-  (let ((out vecNewRef))
+  (let ((out vecNew))
     {
       (vecPush out (mk hits 10))
       (vecPush out (mk hits 20))
@@ -94,8 +94,8 @@
 ;@axiom:effect(io)
 (fn (gathered hits)
   (let (
-    (a vecNewRef)
-    (b vecNewRef)
+    (a vecNew)
+    (b vecNew)
     (mut i 0)
   )
     {
@@ -115,8 +115,8 @@
 ;@axiom:effect(io)
 (fn (parked hits)
   (let (
-    (a vecNewRef)
-    (b vecNewRef)
+    (a vecNew)
+    (b vecNew)
     (mut i 0)
   )
     (let ((park (lambda (x) (vecPush b x))))
@@ -137,8 +137,8 @@
 ;@axiom:effect(io)
 (fn (applied hits)
   (let (
-    (a vecNewRef)
-    (b vecNewRef)
+    (a vecNew)
+    (b vecNew)
   )
     (let ((park (lambda (x) (vecPush b x))))
       {

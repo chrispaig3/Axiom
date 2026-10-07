@@ -19,10 +19,10 @@
 ; number, and they are not the same number.
 ;
 ; MEASURED BEFORE THE FIX (200 iterations of build-a-16,384-element
-; reference vector of duplicated strings and free it, peak RSS): the
-; `vecNewRef` arm and the `vecNew` arm both measured 335,344 KiB -
-; identical to the kilobyte, which is what "the array form is doing
-; nothing here" looks like from outside.
+; vector of duplicated strings and free it, peak RSS): the owning arm
+; and the leaf arm both measured 335,344 KiB - identical to the
+; kilobyte, which is what "the array form is doing nothing here" looks
+; like from outside.
 ;
 ; EVERY PROBE IS A SHARE COUNT, NOT A FREE-LIST QUERY. `404`'s probes
 ; ask whether a released block comes back from `memAlloc`, which is the
@@ -33,15 +33,16 @@
 ; and an extra `__retain` keeps the answer readable by making sure the
 ; probe string never reaches zero and disappears mid-measurement.
 ;
-;   16  the form still works BELOW the cliff: an 8-element reference
+;   16  the form still works BELOW the cliff: an 8-element owning
 ;       vector's element loses a share when the vector is freed. This
 ;       is the control, and it is green on the unfixed compiler -
 ;       without it a fixture that went red for a build failure would
 ;       read the same as one that went red for the defect
-;    8  THE FIX: a 16,384-element reference vector's element loses a
+;    8  THE FIX: a 16,384-element owning vector's element loses a
 ;       share too
-;    4  THE ABLATION, in the fixture: the same 16,384-element program
-;       built with `vecNew` does NOT spend it. It passes on the unfixed
+;    4  THE ABLATION, in the fixture: the same 16,384 elements in a
+;       vector made plain by an `Int` first element do NOT spend it,
+;       because a plain vector makes no claim on what it holds. It passes on the unfixed
 ;       compiler too - a compiler that reclaims nothing satisfies every
 ;       "did not release" - which is why it is asserted beside 8 and
 ;       never alone
@@ -85,10 +86,17 @@
     1
     0))
 
-(:: countOf (-> Int Int))
+; A block's count word, read through whatever handle names it, and one
+; more share of it taken by hand.
+(:: countOf (-> a Int))
 ;@axiom:effect(unsafe)
-(fn (countOf h)
-  (__load64 (- h 16) 0))
+(fn (countOf x)
+  (__load64 (- (cast Int x) 16) 0))
+
+(:: takeShare (-> a Int))
+;@axiom:effect(unsafe)
+(fn (takeShare x)
+  (__retain (cast Int x)))
 
 ; Push `n` freshly duplicated strings, so the vector crosses every
 ; growth boundary a real one does.
@@ -104,29 +112,48 @@
       n
     }))
 
-; Build an `n`-element vector whose first element is a string this
-; function keeps an extra share of, free the vector, and answer that
-; string's remaining count. `strDup` gives 1, `vecPush` retains to 2,
-; the explicit retain makes 3: the walk that reaches the element leaves
-; 2 and the walk that does not leaves 3. `refs` picks the constructor
-; and is the only difference between probes 8 and 4.
-;@axiom:effect(unsafe)
+; Build an `n`-element vector holding a string this function keeps an
+; extra share of, free the vector, and answer that string's remaining
+; count. `strDup` gives 1, the push retains to 2, the explicit retain
+; makes 3: the walk that reaches the element leaves 2 and the walk that
+; does not leaves 3. `owner` decides whether the vector owns its
+; elements - a `String` first element, or an `Int` one with the string
+; pushed as a word - and is the only difference between probes 8 and 4.
 (:: sharesAfterFree (-> Bool Int Int))
-(fn (sharesAfterFree refs n)
+(fn (sharesAfterFree owner n)
   (let ((s (strDup "probe")))
-    (let ((v 
-      (if refs
-        vecNewRef
-        vecNew)))
-      {
-        (vecPush v s)
-        (__retain
-          (cast Int s))
-        (fillWith v (- n 1))
-        (vecFree v)
-        (countOf
-          (cast Int s))
-      })))
+    {
+      (if owner
+        (let ((v vecNew))
+          {
+            (vecPush v s)
+            (takeShare s)
+            (fillWith v (- n 1))
+            (vecFree v)
+          })
+        (let ((v vecNew))
+          {
+            (vecPush v 0)
+            (vecPushStr v s)
+            (takeShare s)
+            (fillWords v (- n 2))
+            (vecFree v)
+          }))
+      (countOf s)
+    }))
+
+; Push `n` zeroes.
+(:: fillWords (-> (Vec Int) Int Int))
+(fn (fillWords v n)
+  (let ((mut i 0))
+    {
+      (while (< i n)
+        {
+          (vecPush v 0)
+          (set i (+ i 1))
+        })
+      n
+    }))
 
 ; The smallest share count over elements 0..n-1, read while the vector
 ; is still live. Recursive rather than a `while` so nothing has to be
@@ -135,9 +162,7 @@
 (fn (minCount v n acc)
   (if (== n 0)
     acc
-    (let ((c 
-      (countOf
-        (cast Int (vecGet v (- n 1))))))
+    (let ((c (countOf (vecGet v (- n 1)))))
       (minCount
         v
         (- n 1)
@@ -162,12 +187,10 @@
         blk
         0
         (cast Int s))
-      (__retain
-        (cast Int s))
+      (takeShare s)
       (__store64 (- blk 8) 0 (| (| (__load64 (- blk 8) 0) 32768) (* nwords 65536)))
       (__release blk)
-      (countOf
-        (cast Int s))
+      (countOf s)
     }))
 
 (:: main Int)
@@ -177,7 +200,7 @@
       (set acc (+ acc (* 16 (b2i (== (sharesAfterFree true 8) 2)))))
       (set acc (+ acc (* 8 (b2i (== (sharesAfterFree true 16384) 2)))))
       (set acc (+ acc (* 4 (b2i (== (sharesAfterFree false 16384) 3)))))
-      (let ((g vecNewRef))
+      (let ((g vecNew))
         {
           (fillWith g 16384)
           (set acc (+ acc (* 2 (b2i (== (minCount g 16384 999) 1)))))

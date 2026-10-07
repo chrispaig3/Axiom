@@ -173,13 +173,13 @@
 (fn (internAllocTable cap)
   ; Words 0 and 2 are the map (5 = bits 0 and 2): the `Vec` and
   ; the slot table. Word 1 is `cap`, a number, and is not in it.
-  ; The `Vec` is a REF vector, so the header's death reaches every
-  ; interned string - which is the whole point of an interner
-  ; being freeable at all, since it is the structure that holds
-  ; every identifier a compilation ever saw.
+  ; The `Vec` owns the strings pushed into it, so the header's
+  ; death reaches every interned string - which is the whole point
+  ; of an interner being freeable at all, since it is the structure
+  ; that holds every identifier a compilation ever saw.
   (let (
     (it (memAllocMapped 24 5))
-    (strs (vecWithCapacityRef cap))
+    (strs (vecWithCapacity cap))
     (tbl (memAlloc (* cap 8)))
   )
     {

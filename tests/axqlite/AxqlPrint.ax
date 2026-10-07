@@ -50,7 +50,7 @@
 
 (:: printNames (-> (Vec String) String))
 (fn (printNames ns)
-  (let ((out vecNewRef))
+  (let ((out vecNew))
     {
       (for n in ns
         (vecPush out (axqlQuoteName n)))
@@ -59,7 +59,7 @@
 
 (:: printExprs (-> (Vec Expr) String))
 (fn (printExprs es)
-  (let ((out vecNewRef))
+  (let ((out vecNew))
     {
       (for e in es
         (vecPush out (axqlPrintExpr e)))
@@ -82,7 +82,7 @@
 
 (:: printSelect (-> Select String))
 (fn (printSelect s)
-  (let ((parts vecNewRef))
+  (let ((parts vecNew))
     {
       (vecPush parts "SELECT")
       (if s.star
@@ -147,7 +147,7 @@
 (pub fn (axqlPrintStmt s)
   (match s
     ((SCreateTable ine name cols)
-      (let ((cs vecNewRef))
+      (let ((cs vecNew))
         {
           (for c in cols
             (vecPush cs (printColumn c)))
@@ -190,7 +190,7 @@
         (concat (axqlQuoteName name) ")"))
     )
     ((SInsert table cols rows)
-      (let ((rs vecNewRef))
+      (let ((rs vecNew))
         {
           (for r in rows
             (vecPush rs (printExprs r)))
@@ -198,7 +198,7 @@
         })
     )
     ((SUpdate table cols exprs w)
-      (let ((sets vecNewRef))
+      (let ((sets vecNew))
         {
           (for (c i) in cols
             (vecPush sets (concat (concat (concat "(= " (axqlQuoteName c)) " ") (concat (axqlPrintExpr (vecGet exprs i)) ")"))))

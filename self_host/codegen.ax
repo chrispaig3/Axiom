@@ -1989,6 +1989,75 @@
                           (flowMask cg (nodeB e) params env)
                           0)))))))))))))
 
+; What a raw store of `v` at `(addr, idx)` parks: `v`'s flow, except
+; the words `v` reads back from that same slot. A word loaded from a
+; slot and stored back into it, through any arithmetic, aliases nothing
+; the slot did not already hold, so it parks nothing new. That is the
+; read-modify-write of a block's shape word (`Mem.memMarkArray`,
+; `Mem.memMarkLeaf`), whose address is an `Int` parameter and whose
+; load would otherwise read as an owner word of whatever the caller
+; passed - a `Vec`'s data block, which made every `vecPush` look like a
+; park of its vector.
+(pub :: rmwFlow (-> Int Int Int Int (Vec Int) (Vec Int) Int))
+(pub fn (rmwFlow cg v addr idx params env)
+  (if (== v 0)
+    0
+    (if (!= (nodeTag v) TAG_E_APP)
+      (flowMask cg v params env)
+      (let ((hd (spineHead v)))
+        (if (!= (nodeTag hd) TAG_E_VAR)
+          (flowMask cg v params env)
+          (let ((n (nodeAName hd)))
+            (if (&& (|| (strEq n "__load64") (strEq n "memGetWord")) (&& (== (spineArity v) 2) (&& (== (sameExpr (spineArgAt v 0) addr) 1) (== (sameExpr (spineArgAt v 1) idx) 1))))
+              0
+              (if (isBinop n)
+                (let (
+                  (mut i 0)
+                  (mut m 0)
+                )
+                  {
+                    (while (< i (spineArity v))
+                      {
+                        (set m (| m (rmwFlow cg (spineArgAt v i) addr idx params env)))
+                        (set i (+ i 1))
+                      })
+                    (toWord m)
+                  })
+                (flowMask cg v params env)))))))))
+
+; Two expressions that read the same place: the same name, the same
+; integer, or the same head over the same arguments. Anything else
+; answers 0, which keeps the full flow.
+(pub :: sameExpr (-> Int Int Int))
+(pub fn (sameExpr a b)
+  (if (|| (== a 0) (== b 0))
+    0
+    (if (!= (nodeTag a) (nodeTag b))
+      0
+      (let ((tg (nodeTag a)))
+        (if (== tg TAG_E_VAR)
+          (if (strEq (nodeAName a) (nodeAName b)) 1 0)
+          (if (== tg TAG_E_INT)
+            (if (== (nodeA a) (nodeA b)) 1 0)
+            (if (== tg TAG_E_APP)
+              (if (!= (spineArity a) (spineArity b))
+                0
+                (if (== (sameExpr (spineHead a) (spineHead b)) 0)
+                  0
+                  (let (
+                    (mut i 0)
+                    (mut ok 1)
+                  )
+                    {
+                      (while (&& (== ok 1) (< i (spineArity a)))
+                        {
+                          (set ok (sameExpr (spineArgAt a i) (spineArgAt b i)))
+                          (set i (+ i 1))
+                        })
+                      ok
+                    })))
+              0)))))))
+
 ; Parameter i as it arrives: a typed reference or a type variable in
 ; the arrival form; a parameter declared a machine word (`Int`) is a
 ; word already - a header word or an owner word, the callee cannot
@@ -2160,10 +2229,12 @@
 ; arithmetic (`(+ (cast Int s) 8)`) points anywhere, and its word 0
 ; is whatever lives there.
 ; Is `(__load64 addr idx)` a read of a NUMBER: word 0 of a String
-; handle (its length), or the count or shape word of any handle -
-; `(- h 16)` at index 0 or 1, `(- h 8)` at index 0? Every other
-; 64-bit load of a handle-relative address is a pointer the handle's
-; block owns.
+; handle (its length), words 0, 1 and 3 of a `Vec` parameter (its
+; length, capacity and ownership kind, `stdlib/Vec.ax`), or the count
+; or shape word of any handle - `(- h 16)` at index 0 or 1, `(- h 8)`
+; at index 0? Every other 64-bit load of a handle-relative address is
+; a pointer the handle's block owns: a `Vec`'s word 2 is its data
+; block, whose words are the elements.
 (pub :: headerWordRead (-> Int (Vec Int) Int Int Int))
 (pub fn (headerWordRead cg params addr idx)
   (if (|| (== idx 0) (!= (nodeTag idx) TAG_E_INT))
@@ -2179,7 +2250,25 @@
             0)
           (if (&& (== k 0) (== (addrIsHandle cg params addr) 1))
             1
-            0))))))
+            (if (&& (|| (== k 1) (== k 3)) (== (addrIsVecParam cg params addr) 1))
+              1
+              0)))))))
+
+; A parameter declared `(Vec a)`, bare or under a `cast`.
+(pub :: addrIsVecParam (-> Int (Vec Int) Int Int))
+(pub fn (addrIsVecParam cg params e)
+  (if (== e 0)
+    0
+    (if (== (nodeTag e) TAG_E_VAR)
+      (if (== (paramIsHandle cg params (paramIndexIn params (nodeAName e) 0)) 2)
+        1
+        0)
+      (if (== (nodeTag e) TAG_E_APP)
+        (let ((hd (spineHead e)))
+          (if (&& (== (nodeTag hd) TAG_E_VAR) (&& (isCastName (nodeAName hd)) (== (spineArity e) 2)))
+            (addrIsVecParam cg params (spineArgAt e 1))
+            0))
+        0))))
 
 ; `(- x LIT)`: the literal, or -1 for any other shape.
 (pub :: minusLiteral (-> Int Int))
@@ -2199,11 +2288,11 @@
     0
     (let ((tg (nodeTag e)))
       (if (== tg TAG_E_VAR)
-        ; a PARAMETER declared `String` - word 0 of a String is its
-        ; length; word 0 of a struct is its first field, and a `let`
-        ; alias, a `mut` slot or an `Int` parameter may hold an
+        ; a PARAMETER declared `String` or `Vec` - word 0 of either
+        ; is its length; word 0 of a struct is its first field, and a
+        ; `let` alias, a `mut` slot or an `Int` parameter may hold an
         ; address computed by arithmetic, which points anywhere
-        (if (== (paramIsString cg params (paramIndexIn params (nodeAName e) 0)) 1)
+        (if (>= (paramIsHandle cg params (paramIndexIn params (nodeAName e) 0)) 1)
           1
           0)
         (if (== tg TAG_E_FIELD)
@@ -3145,7 +3234,13 @@
               (if (isPrimName n)
                 (if (|| (strEq n "__store64") (strEq n "__store8"))
                   (if (>= n_ 3)
-                    (stashAdd cell (parkForms (flowMask cg (spineArgAt e 2) params env)))
+                    (stashAdd cell (parkForms (rmwFlow
+                      cg
+                      (spineArgAt e 2)
+                      (spineArgAt e 0)
+                      (spineArgAt e 1)
+                      params
+                      env)))
                     0)
                   (if (strEq n "__retainref")
                     ; counts a typed arrival; a word's witness is
@@ -3164,17 +3259,27 @@
                       ; than its stash word - the return path reads the
                       ; stash word to skip the slot's release, and a
                       ; consumed parameter's slot is still owed
-                      ; (`fnConsumeMask`). Whatever form the operand
-                      ; arrives in is widened by `parkForms`, as a park
-                      ; is: the readers check the arrival and owner
-                      ; bits, and a saturated bit over-approximates
-                      ; toward the leak, the safe direction.
+                      ; (`fnConsumeMask`). A header form is widened to
+                      ; both header forms, as a park is.
+                      ;
+                      ; An OWNER word is not the parameter: it is a block
+                      ; the parameter's own block holds a share of - a
+                      ; `Vec`'s data block or element, a table's old
+                      ; array - and releasing it spends that block's
+                      ; share, after the callee has replaced or zeroed
+                      ; the word that named it (`vecDropAt`,
+                      ; `vecReserveExactly`, `mapRehash`). The caller's
+                      ; share of the parameter is untouched, so it is
+                      ; not a consume, and counting it as one made
+                      ; every `vecPush` look like a free of its vector.
                       (if (strEq n "__release")
                         (if (>= n_ 1)
-                          {
-                            (memSetWord cell 3 (| (memGetWord cell 3) (parkForms (flowMask cg (spineArgAt e 0) params env))))
-                            0
-                          }
+                          (let ((m (flowMask cg (spineArgAt e 0) params env)))
+                            (let ((hp (| (arrivalPart m) (wordToArrival m))))
+                              {
+                                (memSetWord cell 3 (| (memGetWord cell 3) (| hp (<< hp 20))))
+                                0
+                              }))
                           0)
                         ; `__axiom_recover` CALLS the closure it is
                         ; handed, which is the same claim `__call_word`
@@ -3507,9 +3612,12 @@
                   1
                   0)))))))))
 
-(pub :: paramIsString (-> Int (Vec Int) Int Int))
+; 1 for a parameter declared `String`, 2 for one declared `(Vec a)`, 0
+; for anything else: the two handles whose header words this backend
+; knows.
+(pub :: paramIsHandle (-> Int (Vec Int) Int Int))
 ;@axiom:effect(unsafe)
-(pub fn (paramIsString cg params i)
+(pub fn (paramIsHandle cg params i)
   (if (< i 0)
     0
     (let ((d (memGetWord cg 36)))
@@ -3529,8 +3637,12 @@
               (let ((t (arrowParamTy (memGetWord e 3) i)))
                 (if (== t 0)
                   0
-                  (if (&& (== (nodeTag t) TAG_T_CON) (strEq (nodeAName t) "String"))
-                    1
+                  (if (== (nodeTag t) TAG_T_CON)
+                    (if (strEq (nodeAName t) "String")
+                      1
+                      (if (strEq (nodeAName t) "Vec")
+                        2
+                        0))
                     0))))))))))
 
 (pub :: paramClassOf (-> Int (Vec Int) Int Int))
@@ -15928,7 +16040,7 @@
 ; own parameters are classified from that arrow after resolving type
 ; placeholders; the enclosing declaration is never used for them.
 ;
-; Three sibling readers of word 36 - `paramFlowBit`, `paramIsString`
+; Three sibling readers of word 36 - `paramFlowBit`, `paramIsHandle`
 ; and `paramClassOf` - already refuse to trust the pairing, each by
 ; comparing the params vector it was handed against `(nodeBVec d)`
 ; before indexing the arrow. Two did not. A name comparison would not
@@ -20116,7 +20228,13 @@
 ; conservative direction `evStampOk` takes everywhere else, and the
 ; one that leaks rather than frees early.
 ;
-; The result is 0. A share is an effect on a header, not a value.
+; The result is the class the retain ran under: 1 when the share was
+; taken because the argument's type is counted, 0 when it was not.
+; It is a fact about the TYPE at this call, so an immediate or a
+; static of a counted type still answers 1. A container reads it to
+; learn what its elements are (`Vec.vecPush`, `Map.mapInsert`): a
+; vector that owns its elements must have taken a share of every one,
+; and this is the one place that knows whether it did.
 (pub :: emitPrimRetainRef (-> (Vec Int) Int Int Int))
 ;@axiom:effect(io)
 (pub fn (emitPrimRetainRef args cg stamp)
@@ -20135,19 +20253,46 @@
           0
           (cast Int (vecGet (nodeBVec stamp) 0)))))
     )
-      (let ((cgR 
-        (if (== wv 1)
-          (emitRetainOf cg1 v)
-          (if (>= wv 2)
-            (emitRetainIfEvBit cg1 v (- wv 2))
-            (if (<= wv (- 0 2))
-              (emitRetainIfLamArg cg1 v (- (- 0 2) wv))
-              cg1)))))
+      (if (== wv 1)
+        (retainRefAnswer (emitRetainOf cg1 v) "1")
+        (if (>= wv 2)
+          (let ((cgW (emitEvwRead cg1)))
+            (let ((src (strDup (memGetWordStr cgW 2))))
+              (let ((bit (emitEvBitOf cgW src (- wv 2))))
+                (retainRefAnswer (emitRcIfBitOf cgW v (- wv 2) src 1) bit))))
+          (if (<= wv (- 0 2))
+            ; `emitEvwaRead` answers the constant 0 for a body with no
+            ; such word, which takes no share and answers 0.
+            (let ((cgW (emitEvwaRead cg1 (- (- 0 2) wv))))
+              (let ((src (strDup (memGetWordStr cgW 2))))
+                (if (strEq src "0")
+                  (retainRefAnswer cgW "0")
+                  (let ((bit (emitEvBitOf cgW src 0)))
+                    (retainRefAnswer (emitRcIfBitOf cgW v 0 src 1) bit)))))
+            (retainRefAnswer cg1 "0")))))))
+
+; The answer `__retainref` leaves in field 2: a constant or the
+; register holding the evidence bit, never a float.
+(pub :: retainRefAnswer (-> Int String Int))
+(pub fn (retainRefAnswer cg r)
+  {
+    (memSetWord cg 2 r)
+    (memSetWord cg 14 0)
+    cg
+  })
+
+; Bit k of the evidence word `src`, as a 0 or 1 in a fresh register.
+(pub :: emitEvBitOf (-> Int String Int String))
+(pub fn (emitEvBitOf cg src k)
+  (let ((ar (regStr (allocReg cg))))
+    {
+      (emitLine cg (concat (concat (concat "  " ar) (concat " = lshr i64 " src)) (concat ", " (constStr k))))
+      (let ((br (regStr (allocReg cg))))
         {
-          (memSetWord cgR 2 "0")
-          (memSetWord cgR 14 0)
-          cgR
-        }))))
+          (emitLine cg (concat (concat "  " br) (concat " = and i64 " (concat ar ", 1"))))
+          br
+        })
+    }))
 
 ; `(__streq a b)` / `(__strne a b)`: one call into `@__axiom_str_eq`,
 ; with `__strne` inverting the answer. `want` is 1 for equality and 0
@@ -22422,26 +22567,13 @@
 ; ------------------------------------------------------------------
 (pub :: scalarTyName (-> String Int))
 (pub fn (scalarTyName n)
-  (if (|| (strEq n "Int") (|| (strEq n "Bool") (|| (strEq n "Char") (|| (strEq n "Float") (|| (strEq n "I8") (|| (strEq n "I16") (|| (strEq n "I32") (|| (strEq n "I64") (|| (strEq n "U8") (|| (strEq n "U16") (|| (strEq n "U32") (|| (strEq n "U64") (|| (strEq n "F32") (|| (strEq n "F64") (|| (strEq n "Foreign") (|| (strEq n "Vec") (strEq n "Spawn")))))))))))))))))
+  (if (|| (strEq n "Int") (|| (strEq n "Bool") (|| (strEq n "Char") (|| (strEq n "Float") (|| (strEq n "I8") (|| (strEq n "I16") (|| (strEq n "I32") (|| (strEq n "I64") (|| (strEq n "U8") (|| (strEq n "U16") (|| (strEq n "U32") (|| (strEq n "U64") (|| (strEq n "F32") (|| (strEq n "F64") (|| (strEq n "Foreign") (strEq n "Spawn"))))))))))))))))
     ; `Spawn` - the handle a spawn answers (MM-PAR-8): a word naming a
     ; slot in the handle table, never a block.
-    ; `Vec` - a handle to a counted block that this block does NOT
-    ; own. It is here for the same ownership reason `Foreign` is and
-    ; not because a vector is a number: `stdlib/Vec.ax` says "a
-    ; vector is born owned ... and `vecFree` is the only thing that
-    ; ends one", so a record that merely HOLDS one must not release
-    ; it. Class 0 is therefore what a `Vec` field already got while
-    ; it was spelled `Int`, and typing the handle changes no
-    ; reclamation - which is the property `check-vec-field-shape.sh`
-    ; measures.
-    ;
-    ; WITHOUT THIS LINE A `Vec` FIELD IS UNCLASSIFIABLE, and
-    ; unclassifiable forces the whole block to LEAF - so the record's
-    ; OTHER fields silently lose their reference map. Measured on
-    ; `(data Rec (MkRec (Vec Int) String))`: shape word 8 against the
-    ; 262152 the same record gets with an `Int` in that slot, and the
-    ; `String` share is never handed back. Reachable since `Vec`
-    ; became a writable type, with no diagnostic and every gate green.
+    ; `Vec` is NOT here: a vector is a counted value its holder owns
+    ; (MM-LIFE-2m), class 2 in `fldClass`, so a record holding one
+    ; takes a share and its death hands it back.
+    ; `check-vec-field-shape.sh` measures the map a `Vec` field gets.
     ;
     ; `Foreign` - a raw pointer into memory Axiom did not allocate
     ; and does not own (MM-FFI-3). It is class 0 for the same reason
@@ -22499,7 +22631,7 @@
                 0
                 ; `Handle` is a counted block of the foreign form
                 ; (stdlib/Ffi.ax): a reference, walked and released
-                (if (|| (strEq n "String") (|| (strEq n "Option") (strEq n "Handle")))
+                (if (|| (strEq n "String") (|| (strEq n "Option") (|| (strEq n "Handle") (strEq n "Vec"))))
                   ; the builtin `Option` is seeded by the checker and
                   ; never enters the module's data list
                   2
@@ -23827,15 +23959,19 @@
           ; self tail call inside the body jumps back to the loop
           ; header and never reaches the scope end, so `emitTailJump`
           ; pays every pending share before the jump
-          (let ((fieldAlias 
-            (if (&& (== (nodeTag valExpr) TAG_E_FIELD) (&& (== (fieldReadIsScalar cg1 valExpr) 0) (== (escapes
-              cg1
-              name
-              body
-              1
-              (binderSummary body)) 0)))
-              1
-              0)))
+          (let (
+            (fieldAlias 
+              (if (&& (== (nodeTag valExpr) TAG_E_FIELD) (&& (== (fieldReadIsScalar cg1 valExpr) 0) (== (escapes
+                cg1
+                name
+                body
+                1
+                (binderSummary body)) 0)))
+                1
+                0))
+            ; the same for a value a call lends: `letBorrowClass`
+            (borrowCls (letBorrowClass cg1 valExpr name body))
+          )
             ; a `let` of an OWNING `mut` slot's value takes its own share
             ; whatever the walk says: a `set` of the slot releases what it
             ; held, and the slot's scope end releases its last value, so a
@@ -23846,11 +23982,13 @@
             ; position whose every tail leaf is retained on the way out
             ; (`slotReleasesAtEnd`), as an owning slot's last value does.
             (let ((cg1
-              (if (|| (== fieldAlias 1) (== slotAlias 1))
+              (if (|| (== fieldAlias 1) (|| (== slotAlias 1) (== borrowCls 1)))
                 (emitRetainOf cg1 valReg)
-                cg1)))
+                (if (>= borrowCls 2)
+                  (emitRetainIfEvBit cg1 valReg (- borrowCls 2))
+                  cg1))))
               (let ((releasable
-                (if (== fieldAlias 1)
+                (if (|| (== fieldAlias 1) (== borrowCls 1))
                   1
                   (if (== slotAlias 1)
                     (let ((bnd (binderSummary body)))
@@ -23935,10 +24073,112 @@
                                 (memSetWord cgR 2 res)
                                 cgR
                               }))
-                          cgB)
+                          ; a share taken under an evidence bit goes back
+                          ; under the same bit; a jump out of the body
+                          ; skips it, which leaks
+                          (if (&& (>= borrowCls 2) (!= (memGetWord cgB 31) 1))
+                            (let (
+                              (res (strDup (memGetWordStr cgB 2)))
+                              (cgW (emitEvwRead cgB))
+                            )
+                              (let ((cgR (emitRcIfBitOf cgW valReg (- borrowCls 2) (strDup (memGetWordStr cgW 2)) 0)))
+                                {
+                                  (memSetWord cgR 2 res)
+                                  cgR
+                                }))
+                            cgB))
                       })
                   }))))
         }))))
+
+; A `let` bound to a call that answers a counted value without a share
+; of its own - a type-variable result such as `vecGet`'s, instantiated
+; at a counted type - borrows it from whatever holds it, and a store
+; there can release it under the binding: in
+; `(let ((t (vecGet v j))) { (vecSet v j x) (vecSet v k t) })` the first
+; `vecSet` freed the block the second stored. So the binding takes a
+; share of its own when it does not escape, as a field read does
+; (`emitLetAt`), and hands it back at scope end. Answers the class to
+; take it under: 1, `2+k` for bit k of this function's evidence word,
+; or 0 for none.
+(pub :: letBorrowClass (-> Int Int String Int Int))
+(pub fn (letBorrowClass cg valExpr name body)
+  (if (!= (nodeTag valExpr) TAG_E_APP)
+    0
+    (let ((hd (spineHead valExpr)))
+      (if (!= (nodeTag hd) TAG_E_VAR)
+        0
+        (let ((n (nodeAName hd)))
+          (if (|| (isCastName n) (|| (isPrimName n) (isLocalValue cg n)))
+            0
+            (if (|| (== (findFSigCg cg (mangledForCg cg n)) 0) (!= (fnResultClass cg n) 1))
+              0
+              (if (!= (spineArity valExpr) (fnArityCg cg n))
+                0
+                (let ((st (nodeBinderTy valExpr)))
+                  (if (if (== st 0) true (|| (!= (nodeTag st) TAG_EVSTAMP) (!= (nodeC st) (memGetWord cg 36))))
+                    0
+                    ; A class the stamp could not give when the call was
+                    ; checked may have been decided by a pin later in the
+                    ; body (`evSettle`): read the stamped type through
+                    ; its pins, and take a counted one as 1.
+                    (let ((cls (if (< (nodeB st) 0)
+                      (pinnedClass cg (pinnedTy (nodeA st) 64))
+                      (nodeB st))))
+                      (if (|| (== cls 1) (>= cls 2))
+                        (if (== (escapes cg name body 1 (binderSummary body)) 1)
+                          0
+                          cls)
+                        0))))))))))))
+
+; The class a pinned type answers for `letBorrowClass`: 1 for a counted
+; type, `2+k` for this function's own type variable k (bit k of its
+; evidence word), and 0 for anything else, a lambda's body included.
+(pub :: pinnedClass (-> Int Int Int))
+(pub fn (pinnedClass cg t)
+  (if (== t 0)
+    0
+    (if (== (fldClass cg t) 2)
+      1
+      (if (!= (tyIsSrcVar t) 1)
+        0
+        (let ((k (curSigVarBit cg (nodeAName t))))
+          (if (< k 0)
+            0
+            (+ 2 k)))))))
+
+; Bit index of the current function's type variable `n` in its evidence
+; word, or -1: inside a lambda, in a function that takes no word, or for
+; a name its signature doesn't bind.
+(pub :: curSigVarBit (-> Int String Int))
+(pub fn (curSigVarBit cg n)
+  (if (== (pairSlot cg 7) 1)
+    (- 0 1)
+    (let ((d (memGetWord cg 36)))
+      (if (== d 0)
+        (- 0 1)
+        (let ((e (findFSigCg cg (nodeAName d))))
+          (if (|| (== e 0) (== (memGetWord e 4) 0))
+            (- 0 1)
+            (let ((vars vecNew))
+              {
+                (cgSigVarsInto (memGetWord e 3) vars)
+                (strVecIdx vars n)
+              })))))))
+
+; `t` followed through its pins: an instantiation placeholder (`_iN`)
+; the checker pinned answers what it was pinned to, at most `n` links
+; deep. Anything else answers itself.
+(pub :: pinnedTy (-> Int Int Int))
+(pub fn (pinnedTy t n)
+  (if (|| (== t 0) (<= n 0))
+    t
+    (if (!= (nodeTag t) TAG_T_VAR)
+      t
+      (let ((nm (nodeAName t)))
+        (if (&& (>= (strLen nm) 2) (&& (== (strByte nm 0) 95) (&& (== (strByte nm 1) 105) (!= (nodeB t) 0))))
+          (pinnedTy (nodeB t) (- n 1))
+          t)))))
 
 ; Is this `let` binding one the frame may release when its scope ends?
 ;

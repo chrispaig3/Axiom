@@ -15,7 +15,9 @@
 #
 # Two variants run at every count:
 #
-#   unmanaged  The loop as anyone would write it. RSS grows linearly.
+#   unmanaged  The loop as anyone would write it. The tail call's
+#              boundary releases each old board (MM-LIFE-2c event 4,
+#              MM-LIFE-2m), so RSS stays flat with no arena at all.
 #   managed    The same loop bracketed by the explicit arena primitives.
 #              Mark once before the loop. Each iteration steps, copies
 #              the new board up, resets to the mark, then copies it down
@@ -24,7 +26,11 @@
 #              pointer and scrubs nothing. The down-copy's allocation is
 #              the only one in the window, and `vecWithCapacity` keeps
 #              the copies exact, so it never reaches its source. RSS
-#              stays flat.
+#              stays flat. A board is a counted value, and a reset hands
+#              back blocks without asking their counts, so nothing that
+#              crosses the reset is held by a counted binding: the board
+#              lives in a raw cell below the mark, and the up-copy as a
+#              raw word, so no release touches reclaimed memory.
 #
 # The managed variant is the contract an automatic arena pass would have
 # to infer.
@@ -105,17 +111,17 @@ emit_probe() {
 (:: advance (-> (Vec Int) Int (Vec Int)))
 ;@axiom:effect(unsafe)
 (fn (advance b n)
-  (let ((m (__axiom_arena_mark)) (mut bb b) (mut nn n))
+  (let ((cell (memAlloc 8)) (m (__axiom_arena_mark)) (mut nn n))
     {
+      (memSetWord cell 0 b)
       (while (> nn 0)
-        (let ((b2 (step bb)))
-          (let ((up (copyBoard b2)))
-            {
-              (__axiom_arena_reset m)
-              (set bb (copyBoard up))
-              (set nn (- nn 1))
-            })))
-      bb
+        (let ((up (cast Int (copyBoard (step (memGetWordVec cell 0))))))
+          {
+            (__axiom_arena_reset m)
+            (memSetWord cell 0 (copyBoard (cast (Vec Int) up)))
+            (set nn (- nn 1))
+          }))
+      (memGetWordVec cell 0)
     }))' ;;
     ablated) advance='(:: advance (-> (Vec Int) Int (Vec Int)))
 ;@axiom:effect(unsafe)
@@ -136,6 +142,7 @@ emit_probe() {
 ; Variant: $variant.
 (import IO)
 (import Vec)
+(import Mem)
 
 (:: at (-> (Vec Int) Int Int Int))
 (fn (at b x y)
@@ -277,7 +284,7 @@ if [[ "$gate" == 1 ]]; then
 fi
 
 echo "(one board live at every count: ~10 KiB. The unmanaged column"
-echo " growing linearly is the allocator never reclaiming; the managed"
-echo " variant is the explicit mark/copy/reset contract §4.1's"
-echo " automation will eventually infer - flat, and the P2 slice-1"
-echo " exit criterion made durable by --gate.)"
+echo " is flat because each dead board is released at the tail call;"
+echo " the managed variant is the explicit mark/copy/reset contract -"
+echo " flat too, and the P2 slice-1 exit criterion made durable by"
+echo " --gate.)"

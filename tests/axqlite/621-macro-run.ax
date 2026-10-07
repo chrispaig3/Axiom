@@ -11,7 +11,7 @@
 ; The rows a query answers, one text line each.
 (:: rowsOf (-> (Result Rows Error) (Vec String)))
 (fn (rowsOf r)
-  (let ((out vecNewRef))
+  (let ((out vecNew))
     {
       (match r
         ((Ok rs)

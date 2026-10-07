@@ -47,7 +47,7 @@ then with the same statements as text:
 
 (:: vec1 (-> Value (Vec Value)))
 (fn (vec1 v)
-  (let ((out vecNewRef))
+  (let ((out vecNew))
     {
       (vecPush out v)
       out

@@ -157,7 +157,7 @@
   (let (
     (tSkip fallibleTally)
     (tDefault fallibleTally)
-    (kept vecNewRef)
+    (kept vecNew)
   )
     {
       (println

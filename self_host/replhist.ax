@@ -258,13 +258,9 @@
 ; the one place the mapping is not injective, and unreachable because
 ; `histRecord` drops an empty entry before it gets here.
 ;
-; The fragment vector is `vecNew` and not `vecNewRef`, which is
-; `catStrs`'s own callers' spelling (diag.ax:952 and 1077) and the
-; right one here for a reason: the vector is transient and it holds
-; STRING LITERALS ("\t", "\n") beside slices, and a `vecNewRef`
-; container hands back a share of every element when it dies. The ring
-; and `histDecode`'s output ARE `vecNewRef`, because those own
-; `strDup`'ed entries that outlive the call that made them.
+; The fragment vector owns its slices and releases them when it dies.
+; The STRING LITERALS ("\t", "\n") beside them are statics, which a
+; release skips.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: histEncode (-> String String))
 (pub fn (histEncode e)
@@ -338,7 +334,7 @@
     (if (<= n cap)
       v
       (let (
-        (out vecNewRef)
+        (out vecNew)
         (mut i (- n cap))
       )
         {
@@ -350,7 +346,7 @@
           out
         }))))
 
-; A whole file's bytes plus the entry cap -> a `vecNewRef` of entry
+; A whole file's bytes plus the entry cap -> a `Vec` of entry
 ; Strings, oldest first, consecutive duplicates collapsed and trimmed
 ; to the newest `cap`.
 ;
@@ -367,7 +363,7 @@
 (pub :: histDecode (-> String Int (Vec String)))
 (pub fn (histDecode text cap)
   (let (
-    (out vecNewRef)
+    (out vecNew)
     (n (strLen text))
     (mut start 0)
     (mut cur "")
@@ -546,7 +542,7 @@
 ; a `pub struct` of word slots, one constructor, one accessor per
 ; field. Callers never touch the layout.
 ;
-;   entries  the ring, a `vecNewRef` of entry Strings, OLDEST FIRST
+;   entries  the ring, a `Vec` of entry Strings, OLDEST FIRST
 ;   path     "" when nothing is persisted, else an allocated path
 ;   cap      histMaxEntries, held per session so a test can lower it
 ;   pos      the browse cursor; `pos == (vecLen entries)` means "on the
@@ -609,7 +605,7 @@
   (let ((path (histResolvePath interactive)))
     (if (== (strLen path) 0)
       (cast Int (Hist
-        vecNewRef
+        vecNew
         ""
         cap
         0

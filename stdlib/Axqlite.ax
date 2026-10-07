@@ -238,7 +238,7 @@
 ; the caller's.
 (:: copyParams (-> (Vec Value) (Vec Value)))
 (fn (copyParams params)
-  (let ((out vecNewRef))
+  (let ((out vecNew))
     {
       (for v in params
         (vecPush out v))
@@ -930,8 +930,8 @@
   (try parsed (withContext (axqlParse text) "axqExec") (withContext (runParsed
     c
     parsed
-    vecNewRef
-    (Sink vecNewRef)
+    vecNew
+    (Sink vecNew)
     dropRows) "axqExec")))
 
 ; Run a script of statements separated by `;`, such as a migration, in
@@ -1004,8 +1004,8 @@
     (try n (withContext (runParsed
       c
       (vecGet stmts i)
-      vecNewRef
-      (Sink vecNewRef)
+      vecNew
+      (Sink vecNew)
       dropRows) "axqExecBatch") (batchRun c stmts (+ i 1) (+ total n)))))
 
 ; A batch inside the caller's transaction: each statement's undo log is
@@ -1015,7 +1015,7 @@
 (fn (batchInside c stmts)
   (let (
     (pager (connPager c))
-    (all vecNewRef)
+    (all vecNew)
     (mut total 0)
     (mut failure None)
   )
@@ -1060,8 +1060,8 @@
     ((SSelect _) (runParsed
       c
       p
-      vecNewRef
-      (Sink vecNewRef)
+      vecNew
+      (Sink vecNew)
       dropRows))
     (_
       (let ((pager (connPager c)))
@@ -1069,7 +1069,7 @@
           _
           (pagerBeginWrite pager)
           (let (
-            (ex (axqlExec pager p.text vecNewRef true))
+            (ex (axqlExec pager p.text vecNew true))
             (r (axqlRunWrite ex p.stmt p.text))
           )
             (match r
@@ -1207,7 +1207,7 @@
 (:: checkLocked (-> Connection Parsed (Result Int Error)))
 ;@axiom:effect(io)
 (fn (checkLocked c parsed)
-  (let ((ex (axqlExec (connPager c) parsed.text vecNewRef false)))
+  (let ((ex (axqlExec (connPager c) parsed.text vecNew false)))
     (try schema (axqlLoadSchema ex.pager) (axqlCheckNames ex schema parsed.stmt))))
 
 ; Finalize the statement, freeing its mapping. Finalizing it again
@@ -1272,7 +1272,7 @@
         c
         parsed
         params
-        (Sink vecNewRef)
+        (Sink vecNew)
         dropRows) "axqRun"))))
 
 ; Run a SELECT with `params` and answer all its rows.
@@ -1288,8 +1288,8 @@
   (if (! (stmtIsQuery parsed.stmt))
     (misuse "the statement returns no rows: use axqRun" where)
     (let (
-      (acc vecNewRef)
-      (sink (Sink vecNewRef))
+      (acc vecNew)
+      (sink (Sink vecNew))
     )
       (try
         _
@@ -1337,7 +1337,7 @@
     (misuse "the statement returns no rows: use axqRun" where)
     (let (
       (count (Counter 0 None))
-      (sink (Sink vecNewRef))
+      (sink (Sink vecNew))
       (r (runParsed
         c
         parsed
@@ -1388,7 +1388,7 @@
         c
         parsed
         q.params
-        (Sink vecNewRef)
+        (Sink vecNew)
         dropRows) "axqRunOn"))))
 
 ; Run a query and answer all its rows.
@@ -1415,7 +1415,7 @@
 ;@axiom:effect(io)
 (pub fn (axqQueryMap c q f)
   (let (
-    (out vecNewRef)
+    (out vecNew)
     (r (axqQueryEachOn
       c
       q

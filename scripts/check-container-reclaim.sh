@@ -30,22 +30,30 @@
 # gate goes red. It can only pass if reclamation is happening AND the
 # instrument can see it.
 #
-#   vec/mapped   `vecNewRef`  - the data block carries the ARRAY form,
-#                so `vecFree` reaches the elements.
-#   vec/leaf     `vecNew`     - the SAME program with a leaf data
-#                block. `vecFree` still reclaims the header and the
-#                buffer; every element leaks. This is the ablation of
-#                the array form itself.
+#   vec/mapped   `vecPush`    - the vector's first element is a
+#                `String`, so it owns its elements and its data block
+#                carries the ARRAY form. Nothing frees it by hand: it
+#                dies at the end of its scope, and its death reaches
+#                the elements.
+#   vec/leaf     `vecPushStr` - the SAME program, but each string goes
+#                in as a word the vector makes no claim on, so the
+#                vector stays plain and its data block a leaf. The
+#                scope end still reclaims the header and the buffer;
+#                every element leaks. This is the ablation of the
+#                array form itself.
 #
 #   big/mapped   the SAME pair at 16,384 elements instead of 32, which
 #   big/leaf     is past the point where the array form used to stop
 #                working. Its own section below says why it is not
 #                simply a third `n` on the pair above.
 #
-#   chain/freed  an `Intern` and a ref-valued `Map` built and freed
+#   chain/freed  an `Intern` and a `Map` of strings built and dropped
 #                each iteration - five levels of map-walking, header
-#                to `Vec` to data block to `Str` header to bytes.
-#   chain/held   the SAME program with the two frees removed.
+#                to `Vec` to data block to `Str` header to bytes. The
+#                map dies at the end of its scope; the interner is an
+#                `Int` handle and is freed by hand.
+#   chain/held   the SAME program with the map kept alive by one extra
+#                share and the interner's free removed.
 #
 # Usage:
 #   scripts/check-container-reclaim.sh           # gate (the default)
@@ -76,26 +84,26 @@ emit_probe() {
   local probe="$1" variant="$2" n="$3" out="$4"
   case "$probe" in
     vec|big)
-      local ctor='vecNewRef' elems=32
-      [[ "$variant" == leaf ]] && ctor='vecNew'
+      local push='vecPush' elems=32
+      [[ "$variant" == leaf ]] && push='vecPushStr'
       [[ "$probe" == big ]] && elems=16384
       cat > "$out" <<AX
 ; $n iterations, each building a $elems-element Vec of freshly duplicated
-; Strings and dropping it. Variant: $variant (constructor $ctor).
+; Strings and dropping it. Variant: $variant (each pushed by $push).
 (import IO)
 (import Vec)
 (import Str)
 
 (:: build (-> Int Int))
 (fn (build n)
-  (let ((v $ctor) (mut i 0))
+  (let ((v vecNew) (mut i 0))
     {
       (while (< i n)
         {
-          (vecPush v (strDup "hello world hello world"))
+          ($push v (strDup "hello world hello world"))
           (set i (+ i 1))
         })
-      (let ((r (vecLen v))) { (vecFree v) r })
+      (vecLen v)
     }))
 
 (:: loop (-> Int Int Int))
@@ -112,14 +120,16 @@ emit_probe() {
 AX
       ;;
     chain)
-      # The ablation is the two frees, and nothing else. `(+ 0 0)`
-      # keeps both spellings the same shape - a statement each, in the
+      # The ablation is one statement per container, and nothing
+      # else. `mapHeld` takes a share nobody hands back, so the map
+      # outlives its scope; `(+ 0 0)` replaces the interner's free.
+      # Both spellings keep the same shape - a statement each, in the
       # same position - so the difference is reclamation and not the
       # optimiser seeing a smaller function.
-      local freeMap='(mapFree m)' freeIt='(internFree it)'
-      if [[ "$variant" == held ]]; then freeMap='(+ 0 0)'; freeIt='(+ 0 0)'; fi
+      local keepMap='(mapLen m)' freeIt='(internFree it)'
+      if [[ "$variant" == held ]]; then keepMap='(mapHeld m)'; freeIt='(+ 0 0)'; fi
       cat > "$out" <<AX
-; $n iterations, each building a 32-entry ref-valued Map and a
+; $n iterations, each building a 32-entry Map of Strings and a
 ; 40-string Intern and dropping both. Variant: $variant.
 (import IO)
 (import Map)
@@ -127,13 +137,22 @@ AX
 (import Str)
 (import Fmt)
 
+; One share of the map that nothing hands back.
+(:: mapHeld (-> Map Int))
+;@axiom:effect(unsafe)
+(fn (mapHeld m)
+  {
+    (__retain (cast Int m))
+    (mapLen m)
+  })
+
 (:: buildMap (-> Int Int))
 (fn (buildMap n)
-  (let ((m mapNewRefVals) (mut i 0))
+  (let ((m mapNew) (mut i 0))
     {
       (while (< i n)
         { (mapInsert m i (strDup "hello world hello world")) (set i (+ i 1)) })
-      (let ((r (mapLen m))) { $freeMap r })
+      (let ((r (mapLen m))) { $keepMap r })
     }))
 
 (:: buildIntern (-> Int Int))
@@ -400,78 +419,49 @@ fi
 # built and run rather than described.
 #
 # The remaining question is whether the assertions that guard the
-# FEATURE can go red, and both were made to, by hand, on 2026-08-24.
-# Each ablation costs a compiler build, so they are recorded here
-# rather than run, and these are the ACTUAL runs, unedited.
+# FEATURE can go red, and each was made to, by hand. Each ablation
+# costs a compiler build, so they are recorded here rather than run,
+# and these are the actual runs.
 #
-# (a) `local ctor='vecNewRef'` in `emit_probe` changed to `'vecNew'` -
-#     the ablation of THE ARRAY FORM ALONE, which is the feature this
-#     whole change adds. `vecFree` still runs and still reclaims the
-#     header and the data block; only the elements are unreachable.
+# (a) THE ARRAY FORM ALONE: `Mem.memMarkArray` made a no-op (its 32768
+#     and its count both 0), so no element buffer is ever walked. The
+#     vectors and the table still die; only their elements leak.
 #
 #       probe/variant        n=1000  n=20000  growth
-#       vec_mapped             4336    61328  14x
-#       vec_leaf               4320    61328  14x
-#       chain_freed            1344     1344  1x
-#       chain_held            10272   179824  17x
+#       vec_mapped             4576    61600  13x
+#       vec_leaf               4576    61584  13x
+#       chain_freed            7744   124096  16x
+#       chain_held            10528   180384  17x
+#       big_mapped           168688
+#       big_leaf             168688
 #
-#       FAIL: vec/mapped grew from 4336 KiB to 61328 KiB over 20x the
-#             iterations - it does not plateau
-#       ok   vec/leaf grows with n: 61328 KiB against 4320 KiB, past 5x
-#       FAIL: vec/leaf over vec/mapped at n=20000 is 61328 against
-#             61328, under the 5x this gate exists to see
-#       ...
-#       FAIL: vec_mapped holds 61328 KiB at n=20000, past the 4096 KiB
-#             ceiling
-#       check-container-reclaim: FAILED          (exit status 1)
+#     Every arm that reclaims elements fails: the vec and big
+#     plateaus, separations and ceilings, and the chain's, whose map
+#     stops handing its strings back.
 #
-# (b) `(vecFree v)` in the vec probe replaced with `(+ 0 0)`, so
-#     nothing is ever released at all:
+# (b) THE VECTOR'S DEATH: `Vec` put back on `scalarTyName`'s list in
+#     codegen, so nothing releases a vector at the end of its scope:
 #
-#       vec_mapped             4656    67568  14x
-#       vec_leaf               4656    67568  14x
+#       vec_mapped             4912    67824  13x
+#       vec_leaf               4896    67824  13x
+#       chain_freed            1616     1600  0x
+#       chain_held            10528   180368  17x
+#       big_mapped           168688
+#       big_leaf             168688
 #
-#       FAIL: vec/mapped grew from 4656 KiB to 67568 KiB over 20x the
-#             iterations - it does not plateau
-#       FAIL: vec/leaf over vec/mapped at n=20000 is 67568 against
-#             67568, under the 5x this gate exists to see
-#       FAIL: vec_mapped holds 67568 KiB at n=20000, past the 4096 KiB
-#             ceiling
-#       check-container-reclaim: FAILED          (exit status 1)
-#
-# Three assertions fire on each, and the `chain` half stayed green
-# through both - which is the other thing worth knowing, because it
-# says the two probes are independent rather than one measurement
-# printed twice.
-#
-# (c) THE BIG ARM'S ABLATION IS THE COMPILER ITSELF, and it was not
-#     imagined either. The pre-fix compiler - the tree at 50ae6a2,
-#     where the array LENGTH was read out of the allocator's clamped
-#     word count - measured, at n=100:
-#
-#       big_mapped           168416
-#       big_leaf             168416
-#
-#       FAIL: big/leaf over big/mapped at n=100 is 168416 against
-#             168416, under the 5x this gate exists to see
-#       FAIL: big/mapped holds 168416 KiB at n=100, past the 40960 KiB
-#             ceiling - the elements are not coming back
-#       check-container-reclaim: FAILED          (exit status 1)
-#
-#     Both of its assertions fire, and the `vec` and `chain` halves
-#     stayed green on that compiler - which is the point of adding this
-#     arm at all: the 32-element probe above is entirely correct on a
-#     compiler where the form stops working at 16,384 words, so it
-#     could not see this and did not.
+#     The vec and big assertions fire, and the chain half stays green:
+#     a `Map` is a struct the compiler always counted, which says the
+#     two probes are independent rather than one measurement printed
+#     twice.
 #
 # The unablated run, for the record:
 #
-#       vec_mapped             1344     1344  1x
-#       vec_leaf               4320    61328  14x
-#       chain_freed            1344     1344  1x
-#       chain_held            10272   179824  17x
-#       big_mapped            16032
-#       big_leaf             168416
+#       vec_mapped             1600     1600  1x
+#       vec_leaf               4576    61600  13x
+#       chain_freed            1616     1616  1x
+#       chain_held            10528   180384  17x
+#       big_mapped            16304
+#       big_leaf             168704
 # ---------------------------------------------------------------
 
 if [[ "$failed" == 0 ]]; then

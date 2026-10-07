@@ -1271,15 +1271,10 @@
       ; then called `vecLen` on that 0 and every compile failure
       ; through `replCompileExpr` - IO-performing or not - crashed the
       ; REPL with SIGSEGV (exit 139) the moment `:type` succeeded and
-      ; the compile step began. `PResult` built directly puts the
-      ; vector where `pOk` already puts ITS payload (`value`, word 1),
-      ; which is what every reader here expects.
-      (cast Int (PResult
-        0
-        (cast Int vecNew)
-        0
-        ""
-        ""))
+      ; the compile step began. `pErrWith` puts the vector where
+      ; `pOk` already puts ITS payload (`value`, word 1), which is
+      ; what every reader here expects.
+      (pErrWith vecNew)
       ; The REPL compiles and RUNS, so it needs the same expansion
       ; the file path gets. When expansion lived in codegen this
       ; came for free; now it does not, and without this line a
@@ -1330,12 +1325,7 @@
               })))
             (let ((ds (expMergeInto eds (checkModule decls allDecls units))))
               (if (> (countErrorDiags ds) 0)
-                (cast Int (PResult
-                  0
-                  (cast Int ds)
-                  0
-                  ""
-                  ""))
+                (pErrWith ds)
                 (pOk (emitResolved allDecls bares fulls tcode) 0)))))))))
 
 (pub :: replCompile (-> String Int))

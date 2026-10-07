@@ -13992,6 +13992,18 @@
 ; ------------------------------------------------------------------
 ; The loop
 ; ------------------------------------------------------------------
+; The document store: three empty vectors in a raw block of three
+; words - uris, texts and generated-name caches.
+(pub :: lspStoreNew Int)
+(pub fn (lspStoreNew)
+  (let ((s (memAlloc 24)))
+    {
+      (memSetWord s 0 vecNew)
+      (memSetWord s 1 vecNew)
+      (memSetWord s 2 vecNew)
+      s
+    }))
+
 (pub :: lspMain Int)
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
@@ -13999,11 +14011,15 @@
   ; Taken after the store and the reader exist, so their handles
   ; sit below it; everything a message allocates sits above it and
   ; is reclaimed at the end of the message.
+  ;
+  ; The store's three vectors live in a raw block (`lspStoreNew`)
+  ; rather than in `mut` slots. A slot of a counted type owns its
+  ; value, so a `set` after the reclaim would release a vector the
+  ; reclaim has already handed back to the allocator. A raw word
+  ; store releases nothing, and the block sits below the mark.
   (let (
     (mut r (rdNew 0))
-    (mut uris vecNew)
-    (mut texts vecNew)
-    (mut gens vecNew)
+    (store lspStoreNew)
     (mut running 1)
     (mut status 1)
     (m __axiom_arena_mark)
@@ -14011,6 +14027,13 @@
     {
       (while (== running 1)
         {
+          ; Read the store once per message. These bindings are
+          ; released when the message is done, before the reclaim.
+          (let (
+            (uris (memGetWordVec store 0))
+            (texts (memGetWordVec store 1))
+            (gens (memGetWordVec store 2))
+          )
           (match (rpcReadMsg r)
             ; The client went away without saying `exit`, or its
             ; framing broke. Stopping is the only option; the status
@@ -14095,18 +14118,18 @@
                                             (if (== id 0)
                                               0
                                               (lspError id (- 0 32601) (concat "method not found: " method))))))))))))))))))
-            ))
+            )))
           ; The boundary. Everything this message touched goes back,
           ; except the store and the reader's unconsumed bytes, which
           ; travel down to the waterline in one block.
-          (let ((snap (lspSnapshot uris texts gens r)))
+          (let ((snap (lspSnapshot (memGetWordVec store 0) (memGetWordVec store 1) (memGetWordVec store 2) r)))
             (let ((kept (__axiom_arena_reset_keeping m snap (memGetWord snap 0))))
               (let ((h (lspRestore kept)))
                 {
-                  (set uris (memGetWordVec h 0))
-                  (set texts (memGetWordVec h 1))
+                  (memSetWord store 0 (memGetWordVec h 0))
+                  (memSetWord store 1 (memGetWordVec h 1))
                   (set r (memGetWord h 2))
-                  (set gens (memGetWordVec h 3))
+                  (memSetWord store 2 (memGetWordVec h 3))
                 })))
         })
       (sysExitWith status)

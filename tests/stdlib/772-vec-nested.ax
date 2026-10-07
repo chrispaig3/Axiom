@@ -1,0 +1,113 @@
+; A vector of vectors owns the inner vectors, and each inner vector owns
+; its strings: dropping the outer one releases all three levels
+; (MM-LIFE-2m). Each line must read `true`.
+;
+;   1  5,000 `(Vec (Vec String))` of 8 by 8 fresh strings, each dropped
+;      at the end of its scope, leave the allocator holding exactly what
+;      500 left
+;   2  an inner vector read out of a live outer one, and the strings in
+;      it, read back intact after the churn
+;   3  an inner vector replaced with `vecSet` hands the old one back:
+;      5,000 replacements hold flat
+;   4  an inner vector kept after its outer vector is dropped survives,
+;      because reading it out took a share of its own (`vecGetVec`)
+(import IO)
+(import Vec)
+(import Str)
+(import Fmt)
+(import Mem)
+
+(:: row (-> Int Int (Vec String)))
+(fn (row r n)
+  (let ((v vecNew) (mut i 0))
+    {
+      (while (< i n)
+        {
+          (vecPush v (concat (fmtInt r) (concat "/" (fmtInt i))))
+          (set i (+ i 1))
+        })
+      v
+    }))
+
+(:: grid (-> Int (Vec (Vec String))))
+(fn (grid n)
+  (let ((g vecNew) (mut r 0))
+    {
+      (while (< r n)
+        {
+          (vecPush g (row r n))
+          (set r (+ r 1))
+        })
+      g
+    }))
+
+(:: held Int)
+(fn (held)
+  (let ((s memStats))
+    s.heldBytes))
+
+(:: dropped (-> Int Int))
+(fn (dropped n)
+  (let ((mut k 0) (mut acc 0))
+    {
+      (while (< k n)
+        {
+          (let ((g (grid 8)))
+            (set acc (+ acc (vecLen g))))
+          (set k (+ k 1))
+        })
+      acc
+    }))
+
+(:: replaced (-> (Vec (Vec String)) Int Int))
+(fn (replaced g n)
+  (let ((mut k 0))
+    {
+      (while (< k n)
+        {
+          (vecSet g (% k 8) (row k 8))
+          (set k (+ k 1))
+        })
+      k
+    }))
+
+(:: flat (-> (-> Int Int) Bool))
+(fn (flat run)
+  {
+    (run 500)
+    (let ((a held))
+      {
+        (run 4500)
+        (== held a)
+      })
+  })
+
+(:: rowIntact (-> (Vec String) Int Int Bool))
+(fn (rowIntact v r i)
+  (if (>= i (vecLen v))
+    true
+    (if (strEq (vecGet v i) (concat (fmtInt r) (concat "/" (fmtInt i))))
+      (rowIntact v r (+ i 1))
+      false)))
+
+; An inner vector, read out of a grid that is dropped before it returns.
+(:: survivor (Vec String))
+(fn (survivor)
+  (let ((g (grid 8)))
+    (vecGetVec g 3)))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (keep (grid 8))
+    (kept survivor)
+  )
+    {
+      (println (if (flat (lambda (n) (dropped n))) "true" "false"))
+      (println (if (rowIntact (vecGet keep 5) 5 0) "true" "false"))
+      (let ((g (grid 8)))
+        (println (if (flat (lambda (n) (replaced g n))) "true" "false")))
+      (println (if (rowIntact kept 3 0) "true" "false"))
+      0
+    }))

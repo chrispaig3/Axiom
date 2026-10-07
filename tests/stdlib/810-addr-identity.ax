@@ -65,9 +65,9 @@
     (a (Bx "one" 1))
     (b (Bx "one" 1))
     (c a)
-    (v (vecPush vecNewRef a))
+    (v (vecPush vecNew a))
     (s "text")
-    (boxes vecNewRef)
+    (boxes vecNew)
     (mut i 0)
   )
     {

@@ -91,7 +91,7 @@
 ; ------------------------------------------------------------------
 (:: corpus (Vec HCase))
 (fn (corpus)
-  (let ((v vecNewRef))
+  (let ((v vecNew))
     {
       ; 1  a keyword head, and `data` as an ORDINARY NAME in the two
       ;    positions that are not a form head. format.ax:2391 records

@@ -1,0 +1,112 @@
+; A container that is given a word whose type its store cannot count
+; makes no claim on what it holds, so its death releases nothing it
+; never took a share of (MM-LIFE-2m). Each line must read `true`.
+;
+;   1  a `Vec` that owned its strings and is then given a word through
+;      `vecPushStr` becomes plain, and the strings it held survive its
+;      death: they keep the shares they had
+;   2  a heterogeneous record - a `(Vec Int)` whose first word is a
+;      `String` pushed through a `(Vec String)` view of the same vector,
+;      the way the compiler's own records are read, and whose later
+;      words are large integers - becomes plain at the first integer,
+;      and is dropped without the release walk touching an integer as if
+;      it were a block
+;   3  a `Map` whose first value is a `String` and whose second is a
+;      large `Int` becomes plain and is dropped the same way
+;   4  a `Map` whose first value is an `Int` stays plain when a
+;      `String` follows, and the string outlives the table
+;
+; Releasing a word no share was taken for would read 104 as a block
+; header on lines 2 and 3, and free the strings early on lines 1 and 4.
+(import IO)
+(import Vec)
+(import Map)
+(import Str)
+(import Fmt)
+
+(:: churn Int)
+(fn (churn)
+  (let ((mut i 0) (mut acc 0))
+    {
+      (while (< i 20000)
+        {
+          (let ((s (concat "zz" (fmtInt i))))
+            (set acc (+ acc (strLen s))))
+          (set i (+ i 1))
+        })
+      acc
+    }))
+
+(:: demoted Bool)
+(fn (demoted)
+  (let ((keep (concat "kept-" (fmtInt 1))))
+    {
+      (let ((v vecNew))
+        {
+          (vecPush v keep)
+          (vecPushStr v (concat "word-" (fmtInt 2)))
+          (vecOwnsRefs v)
+        })
+      churn
+      (strEq keep "kept-1")
+    }))
+
+; The same vector, seen as holding strings.
+(:: asStrings (-> (Vec Int) (Vec String)))
+;@axiom:effect(unsafe)
+(fn (asStrings v)
+  (cast (Vec String) v))
+
+(:: record Bool)
+(fn (record)
+  (let ((name (concat "name-" (fmtInt 7))))
+    {
+      (let ((r vecNew))
+        {
+          (vecPush (asStrings r) name)
+          (vecPush r 104857600)
+          (vecPush r 4097)
+          (vecLen r)
+        })
+      churn
+      (strEq name "name-7")
+    }))
+
+(:: tableDemoted Bool)
+(fn (tableDemoted)
+  (let ((name (concat "name-" (fmtInt 8))))
+    {
+      (let ((m mapNew))
+        {
+          (mapInsert m 1 name)
+          (mapInsert m 2 104857600)
+          (mapLen m)
+        })
+      churn
+      (strEq name "name-8")
+    }))
+
+(:: tablePlain Bool)
+(fn (tablePlain)
+  (let ((name (concat "name-" (fmtInt 9))))
+    {
+      (let ((m mapNew))
+        {
+          (mapInsert m 1 104857600)
+          (mapInsert m 2 name)
+          (mapLen m)
+        })
+      churn
+      (strEq name "name-9")
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (println (if demoted "true" "false"))
+    (println (if record "true" "false"))
+    (println (if tableDemoted "true" "false"))
+    (println (if tablePlain "true" "false"))
+    0
+  })

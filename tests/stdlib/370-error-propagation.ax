@@ -201,7 +201,7 @@
 (:: hoard (-> Int (Vec String)))
 (fn (hoard n)
   (let (
-    (v vecNewRef)
+    (v vecNew)
     (mut i 0)
   )
     {

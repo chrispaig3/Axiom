@@ -26,6 +26,13 @@
 0.7.9  F  strCStr  row gains Alloc,Mut: a slice that stops short of its parent is copied so the address ends in a NUL
 0.7.9  F  vecSort  (Vec a) -> (Vec Int): it orders machine words, which is value order only for Int; sort other vectors with vecSortBy
 0.7.9  F  chanOwnerDead  removed: a poisoned channel's timed calls answer syncOwnerDead, the same code 1004
+0.7.9  F  vecNewRef  removed: vecNew owns its elements when its first element's type is counted
+0.7.9  F  vecWithCapacityRef  removed: vecWithCapacity owns its elements when its first element's type is counted
+0.7.9  F  mapNewRefVals  removed: mapNew owns its values when its first value's type is counted
+0.7.9  F  mapWithCapacityRefVals  removed: mapWithCapacity owns its values when its first value's type is counted
+0.7.9  F  ledFree  removed: a LineEd owns its gap vectors and releases them when it dies; freeing them by hand released them twice
+0.7.9  L  vec-released  a Vec is released when its last reference goes, with what it owns; keep a vector whose word you store as an Int alive through a typed reference
+0.7.9  L  retainref-answer  __retainref answers 1 when it took a share because its argument's type is counted, and 0 otherwise; it answered 0 always
 0.7.8  RUST  Ret.direct_payload  returns Option<Payload>; handle None for scalar, opaque and status returns
 0.7.8  CLI  symbols-json  JSON symbol output is refused with status 2; use --diagnostic-format=ai
 0.7.8  CLI  legacy-file  FILE [TARGET] now warns on stderr; migrate to emit-llvm FILE [--target TARGET]

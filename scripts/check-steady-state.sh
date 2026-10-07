@@ -53,10 +53,13 @@
 #
 #   cache/hoarding    the `mapRemove` replaced by `(+ 0 0)`. Same
 #                     statement position, same shape, no eviction.
-#   aggregate/leaking `mapNew` instead of `mapNewRefVals`. One word,
-#                     and the two arms print the SAME ANSWER - which is
-#                     what says they did the same work and differ only
-#                     in what they hand back.
+#   aggregate/leaking the value inserted as `(cast Int ...)`. One
+#                     form: a value whose type the insert cannot see
+#                     takes no share and makes the table plain, so
+#                     nothing hands the strings back. The two arms
+#                     print the SAME ANSWER - which is what says they
+#                     did the same work and differ only in what they
+#                     hand back.
 #   batch/keeping     `fallibleSkip` replaced by a handler that KEEPS a
 #                     fresh String per malformed record and skips it
 #                     all the same. One form, the same answer, and a
@@ -127,12 +130,12 @@ emit_probe() {
 
 (:: main Int)
 ;@axiom:effect(io)
-(fn (main) { (println (churn mapNewRefVals 0 $n)) 0 })
+(fn (main) { (println (churn mapNew 0 $n)) 0 })
 AX
       ;;
     aggregate)
-      local ctor='mapNewRefVals'
-      [[ "$variant" == leaking ]] && ctor='mapNew'
+      local value='(strDup (fmtInt i))'
+      [[ "$variant" == leaking ]] && value='(cast Int (strDup (fmtInt i)))'
       cat > "$out" <<AX
 ; 64 fixed keys, values replaced $n times. Variant: $variant.
 (import IO)
@@ -148,13 +151,13 @@ AX
   (if (>= i n)
     (mapLen m)
     {
-      (mapInsert m (% i keyCount) (strDup (fmtInt i)))
+      (mapInsert m (% i keyCount) $value)
       (churn m (+ i 1) n)
     }))
 
 (:: main Int)
 ;@axiom:effect(io)
-(fn (main) { (println (churn $ctor 0 $n)) 0 })
+(fn (main) { (println (churn mapNew 0 $n)) 0 })
 AX
       ;;
     batch)
@@ -192,7 +195,7 @@ AX
 (:: main Int)
 ;@axiom:effect(io)
 (fn (main)
-  (let ((kept vecNewRef))
+  (let ((kept vecNew))
     { (println (cast Int (handle (total $n) (Fallible Alloc Mut) $handler))) 0 }))
 AX
       ;;
