@@ -7,10 +7,10 @@
 [1;34m31 |[0m (fn (readSection n)
 [1;34m   |[0m      [1;36m----------- readSection[0m
 [1;34m   |[0m
-  [1;34m = [0m[1mnote: [0mIO$writeStr (../../.axiom-shared/../stdlib/IO.ax:36:10-18)
-  [1;34m = [0m[1mnote: [0mSys$sysWriteAllFd (../../.axiom-shared/../stdlib/Sys.ax:152:10-23)
-  [1;34m = [0m[1mnote: [0mSys$sysWriteAllFrom (../../.axiom-shared/../stdlib/Sys.ax:160:6-21)
-  [1;34m = [0m[1mnote: [0mSys$sysWriteFd (../../.axiom-shared/../stdlib/Sys.ax:132:6-16)
+  [1;34m = [0m[1mnote: [0mIO$writeStr (/private/tmp/claude-501/-Users-chris-axiom/034ff415-d72f-43c9-9c78-527878bbff4e/scratchpad/integ/.axiom-shared/../stdlib/IO.ax:36:10-18)
+  [1;34m = [0m[1mnote: [0mSys$sysWriteAllFd (/private/tmp/claude-501/-Users-chris-axiom/034ff415-d72f-43c9-9c78-527878bbff4e/scratchpad/integ/.axiom-shared/../stdlib/Sys.ax:152:10-23)
+  [1;34m = [0m[1mnote: [0mSys$sysWriteAllFrom (/private/tmp/claude-501/-Users-chris-axiom/034ff415-d72f-43c9-9c78-527878bbff4e/scratchpad/integ/.axiom-shared/../stdlib/Sys.ax:160:6-21)
+  [1;34m = [0m[1mnote: [0mSys$sysWriteFd (/private/tmp/claude-501/-Users-chris-axiom/034ff415-d72f-43c9-9c78-527878bbff4e/scratchpad/integ/.axiom-shared/../stdlib/Sys.ax:132:6-16)
   [1;34m = [0m[1mnote: [0m__syscall3 (no declaration to point at)
   [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
@@ -21,10 +21,10 @@
 [1;34m45 |[0m (fn (sigTagged n)
 [1;34m   |[0m      [1;31m^^^^^^^^^[0m
 [1;34m   |[0m
-  [1;34m = [0m[1mnote: [0mIO$writeStr (../../.axiom-shared/../stdlib/IO.ax:36:10-18)
-  [1;34m = [0m[1mnote: [0mSys$sysWriteAllFd (../../.axiom-shared/../stdlib/Sys.ax:152:10-23)
-  [1;34m = [0m[1mnote: [0mSys$sysWriteAllFrom (../../.axiom-shared/../stdlib/Sys.ax:160:6-21)
-  [1;34m = [0m[1mnote: [0mSys$sysWriteFd (../../.axiom-shared/../stdlib/Sys.ax:132:6-16)
+  [1;34m = [0m[1mnote: [0mIO$writeStr (/private/tmp/claude-501/-Users-chris-axiom/034ff415-d72f-43c9-9c78-527878bbff4e/scratchpad/integ/.axiom-shared/../stdlib/IO.ax:36:10-18)
+  [1;34m = [0m[1mnote: [0mSys$sysWriteAllFd (/private/tmp/claude-501/-Users-chris-axiom/034ff415-d72f-43c9-9c78-527878bbff4e/scratchpad/integ/.axiom-shared/../stdlib/Sys.ax:152:10-23)
+  [1;34m = [0m[1mnote: [0mSys$sysWriteAllFrom (/private/tmp/claude-501/-Users-chris-axiom/034ff415-d72f-43c9-9c78-527878bbff4e/scratchpad/integ/.axiom-shared/../stdlib/Sys.ax:160:6-21)
+  [1;34m = [0m[1mnote: [0mSys$sysWriteFd (/private/tmp/claude-501/-Users-chris-axiom/034ff415-d72f-43c9-9c78-527878bbff4e/scratchpad/integ/.axiom-shared/../stdlib/Sys.ax:132:6-16)
   [1;34m = [0m[1mnote: [0m__syscall3 (no declaration to point at)
   [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
