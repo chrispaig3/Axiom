@@ -1,0 +1,32 @@
+; An `effect(unsafe)` claim is judged by what the body does, however
+; open its effect row is. `Unsafe` is required lexically
+; (docs/memory-model.md MM-EXEC-9d): a callback's or a callee's
+; `Unsafe` stays with its own declaration, so nothing outside this
+; body can supply the claim.
+;
+; Refused with AX3010: `apply1` only calls its parameter, and
+; `viaField` only calls a function held in a field. Each performs no
+; unsafe operation itself, so its claim guards nothing.
+;
+; Accepted: `applyRaw` calls its parameter and also loads a raw word,
+; and `fieldRaw` calls a field and also loads one.
+(struct Box (f : (-> Int Int)))
+
+;@axiom:effect(unsafe)
+(:: apply1 (-> (-> Int Int) Int Int))
+(fn (apply1 k x) (k x))
+
+;@axiom:effect(unsafe)
+(:: viaField (-> Box Int Int))
+(fn (viaField b x) ((b.f) x))
+
+;@axiom:effect(unsafe)
+(:: applyRaw (-> (-> Int Int) Int Int))
+(fn (applyRaw k x) (k (__load64 x 0)))
+
+;@axiom:effect(unsafe)
+(:: fieldRaw (-> Box Int Int))
+(fn (fieldRaw b x) ((b.f) (__load64 x 0)))
+
+(:: main Int)
+(fn (main) 0)

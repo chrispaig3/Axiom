@@ -16445,6 +16445,15 @@
           1
           (isUnsafeDevicePrim n))))))))
 
+; The members of `isUnsafePrim` that take no argument, so that naming
+; one performs it. A bare name of any other member has no value to take
+; and is AX3013 already.
+(pub :: isNullaryUnsafePrim (-> String Int))
+(pub fn (isNullaryUnsafePrim n)
+  (if (strEq n "__resource_unwinding")
+    1
+    0))
+
 ; Inline assembly (MM-FFI-9): the instructions may read, write or jump
 ; anywhere, which is this set's definition at its widest.
 (pub :: isAsmPrim (-> String Int))
@@ -20846,6 +20855,11 @@
           (if (> (vecLen forges) 0)
             (effAdd eff (builtinEff "Unsafe"))
             0))
+        ; Does THIS body perform an unsafe operation itself - the three
+        ; AX3073 asks about? `Unsafe` is required lexically
+        ; (`MM-EXEC-9d`), so this, and not the row, is what an
+        ; `effect(unsafe)` claim answers to (`axtagUnsupported`).
+        (lex (unsafeLexical (nodeC d) sink forges))
       )
         {
           ; The signature's first: it is written first.
@@ -20859,7 +20873,8 @@
               sig
               0
               eff
-              (bsEparamsVec sc)))
+              (bsEparamsVec sc)
+              lex))
           ; The signature's claims first (above), the function's own
           ; minus the contents already checked, so one claim draws one
           ; diagnostic no matter which declarations carry it.
@@ -20874,7 +20889,8 @@
               0
               eff
               (bsEparamsVec sc)
-              sig))
+              sig
+              lex))
           ; `restrict(...)` on either declaration, as a union - the
           ; same two sets, read once more for a different kind of
           ; claim. Runs on the same `eff` AX3010 and AX3042 read.
@@ -22481,7 +22497,16 @@
                                   (unsafeScanIn (nodeA e) acc)
                                   (unsafeScanArms (nodeBVec e) 0 acc)
                                 }
-                                0)))))))))))
+                                ; A nullary primitive is read by naming
+                                ; it, `(== __resource_unwinding 1)`:
+                                ; the name is the operation, as the
+                                ; head of an application is.
+                                (if (&& (== tag TAG_E_VAR) (== (isNullaryUnsafePrim (nodeAName e)) 1))
+                                  {
+                                    (vecPush acc e)
+                                    0
+                                  }
+                                  0))))))))))))
         acc
       })))
 
@@ -24233,8 +24258,8 @@
 ; `checkAxtagsFrom`, skipping the contents already checked from
 ; another set. The signature's walk passes 0 and checks everything;
 ; the function's own walk passes the signature's set.
-(pub :: checkAxtagsFromSkipping (-> Int Int (Vec Int) Int (Vec a) (Vec Int) (Vec Int) Int))
-(pub fn (checkAxtagsFromSkipping tc d tags i eff eparams skip)
+(pub :: checkAxtagsFromSkipping (-> Int Int (Vec Int) Int (Vec a) (Vec Int) (Vec Int) Int Int))
+(pub fn (checkAxtagsFromSkipping tc d tags i eff eparams skip lex)
   (if (>= i (vecLen tags))
     0
     {
@@ -24245,7 +24270,8 @@
           d
           (memGetWordStr (vecGet tags i) 1)
           eff
-          eparams))
+          eparams
+          lex))
       (checkAxtagsFromSkipping
         tc
         d
@@ -24253,11 +24279,12 @@
         (+ i 1)
         eff
         eparams
-        skip)
+        skip
+        lex)
     }))
 
-(pub :: checkAxtagsFrom (-> Int Int (Vec Int) Int (Vec a) (Vec Int) Int))
-(pub fn (checkAxtagsFrom tc d tags i eff eparams)
+(pub :: checkAxtagsFrom (-> Int Int (Vec Int) Int (Vec a) (Vec Int) Int Int))
+(pub fn (checkAxtagsFrom tc d tags i eff eparams lex)
   (if (>= i (vecLen tags))
     0
     {
@@ -24266,21 +24293,24 @@
         d
         (memGetWordStr (vecGet tags i) 1)
         eff
-        eparams)
+        eparams
+        lex)
       (checkAxtagsFrom
         tc
         d
         tags
         (+ i 1)
         eff
-        eparams)
+        eparams
+        lex)
     }))
 
 ; `content` is what followed `;@axiom:` - either `key` or
 ; `key(value)`. Only `pure` and `effect` are validated; every other
-; key is metadata stage0 records and does not check.
-(pub :: checkOneAxtag (-> Int Int String (Vec a) (Vec Int) Int))
-(pub fn (checkOneAxtag tc d content eff eparams)
+; key is metadata stage0 records and does not check. `lex` is 1 when
+; the body performs an unsafe operation itself (`unsafeLexical`).
+(pub :: checkOneAxtag (-> Int Int String (Vec a) (Vec Int) Int Int))
+(pub fn (checkOneAxtag tc d content eff eparams lex)
   ; Same as `restrictCollect`: `op` is read twice in one `let` group
   ; and once as an offset into `content`, so it stays an Int and the
   ; match sits where the call is.
@@ -24309,7 +24339,8 @@
                 d
                 val
                 eff
-                eparams))))
+                eparams
+                lex))))
         (axtagKeyTypo tc d key)))))
 
 ; AX3076: `;@axiom:effect(io, unsafe)`. An `effect(...)` tag names ONE
@@ -25237,55 +25268,93 @@
 ; function has effect-transparent parameters, and this check only
 ; runs when it has none (the completeness gate), so every missing
 ; claim here is one stage0 also reports.
-(pub :: axtagUnsupported (-> Int Int String (Vec a) (Vec Int) Int))
-(pub fn (axtagUnsupported tc d val eff eparams)
+(pub :: axtagUnsupported (-> Int Int String (Vec a) (Vec Int) Int Int))
+(pub fn (axtagUnsupported tc d val eff eparams lex)
   (let ((want (axtagEffectOf tc val)))
     (if (== (strLen want) 0)
       0
-      ; `effMay`: a claimed effect the body MAY perform - through a
-      ; value it named, or a dispatch the walk could not resolve - is
-      ; not missing. The claim reads the upper bound, as AX3011 does.
-      ; A syscall's `Unsafe` is in the row like any primitive's
-      ; (`isUnsafePrim`), so a body whose only unsafe work is handing a
-      ; word to the kernel supports the claim with no rule of its own.
-      (if (== (effMay eff want) 1)
-        0
-        ; stage0 suppresses a claimed-but-absent effect when a
-        ; CALLBACK could still supply it: the function has
-        ; effect-transparent parameters and the effect names
-        ; something that exists. An effect no declaration
-        ; introduces can never arrive that way, so the
-        ; suppression must not swallow it.
-        ; ... and an UNRESOLVED call can supply it just as a callback
-        ; can. Before the sentinel had a producer this branch reported
-        ; `claim unsupported: missing IO` against a body that reached
-        ; IO through a field-held function - a mis-report rather than
-        ; an omission, which is the one failure this whole check is
-        ; documented as not permitted to make.
-        (if (&& (== (axtagCouldExist tc want) 1) (|| (> (vecLen eparams) 0) (== (effPartial eff) 1)))
-          0
-          ; `Div` is NEVER INFERRED. It is a built-in name a claim can
-          ; spell and the walk has no producer for, so `missing Div` is
-          ; not a fact about the body - it is a fact about the
-          ; analysis, and refusing a build over it accuses the author
-          ; of something the compiler never looked for. That made it a
-          ; trap the day AX3010 became an error: a `div` claim went
-          ; from a warning nobody had to act on to a build that cannot
-          ; be fixed except by deleting the claim.
-          ;
-          ; So it routes to AX3037 - the code for a claim the walk is
-          ; not in a position to check - with its own wording, because
-          ; AX3037's usual message names an unresolved CALL and there
-          ; is no call involved here.
-          ;
-          ; Inferring it is not the fix. The cheapest sound rule (a
-          ; self-call, or any `while`) marks 65% of this compiler
-          ; divergent and calls the syntax zoo's own counted loop
-          ; non-terminating - measured, and recorded in
-          ; `docs/reference.md`.
-          (if (== (effNeverInferred want) 1)
-            (emitAxtagNotInferred tc d val)
-            (emitAxtag tc d (concat (concat (concat "`effect(" val) ")` claim unsupported: missing ") (effRender want)))))))))
+      (if (strEq want (builtinEff "Unsafe"))
+        (axtagUnsafeUnsupported tc d lex)
+        (axtagUnsupportedRow tc d val want eff eparams)))))
+
+; `effect(unsafe)` is answered by what the body DOES, not by its row.
+;
+; `Unsafe` is required lexically (`MM-EXEC-9d`): a declaration that
+; performs an unsafe operation itself says so, and a trusted callee's
+; `Unsafe` ends at that callee. So no callback, no unresolved call and
+; no callee can supply the claim to this declaration - an untagged
+; callee that performs one draws AX3073 where it does. Whether the
+; body performs one is the same three-way scan AX3073 makes, and it is
+; decidable however open the row is.
+;
+; The row used to decide, through the suppression below: a function
+; with an effect parameter, or a row marked `#effects-incomplete`,
+; was never asked, so a claim that guarded nothing drew neither
+; AX3010 nor AX3037 on a higher-order function. Nineteen such claims
+; were found by hand and dropped before this rule existed.
+(pub :: axtagUnsafeUnsupported (-> Int Int Int Int))
+(pub fn (axtagUnsafeUnsupported tc d lex)
+  (if (== lex 1)
+    0
+    (emitAxtag tc d "`effect(unsafe)` claim unsupported: the body performs no unsafe operation itself")))
+
+; Is there an unsafe operation in THIS body: a raw primitive
+; (`unsafeScanInto`), a reference to an extern (`sink`, filled by the
+; effect walk), or a forging cast (`forges`)? The three AX3073 names.
+(pub :: unsafeLexical (-> Int (Vec Int) (Vec Int) Int))
+(pub fn (unsafeLexical e sink forges)
+  (if (> (vecLen sink) 0)
+    1
+    (if (> (vecLen forges) 0)
+      1
+      (if (> (vecLen (unsafeScanInto e vecNew)) 0)
+        1
+        0))))
+
+; Every claimed effect but `Unsafe`, answered from the row.
+(pub :: axtagUnsupportedRow (-> Int Int String String (Vec a) (Vec Int) Int))
+(pub fn (axtagUnsupportedRow tc d val want eff eparams)
+  ; `effMay`: a claimed effect the body MAY perform - through a
+  ; value it named, or a dispatch the walk could not resolve - is
+  ; not missing. The claim reads the upper bound, as AX3011 does.
+  (if (== (effMay eff want) 1)
+    0
+    ; stage0 suppresses a claimed-but-absent effect when a
+    ; CALLBACK could still supply it: the function has
+    ; effect-transparent parameters and the effect names
+    ; something that exists. An effect no declaration
+    ; introduces can never arrive that way, so the
+    ; suppression must not swallow it.
+    ; ... and an UNRESOLVED call can supply it just as a callback
+    ; can. Before the sentinel had a producer this branch reported
+    ; `claim unsupported: missing IO` against a body that reached
+    ; IO through a field-held function - a mis-report rather than
+    ; an omission, which is the one failure this whole check is
+    ; documented as not permitted to make.
+    (if (&& (== (axtagCouldExist tc want) 1) (|| (> (vecLen eparams) 0) (== (effPartial eff) 1)))
+      0
+      ; `Div` is NEVER INFERRED. It is a built-in name a claim can
+      ; spell and the walk has no producer for, so `missing Div` is
+      ; not a fact about the body - it is a fact about the
+      ; analysis, and refusing a build over it accuses the author
+      ; of something the compiler never looked for. That made it a
+      ; trap the day AX3010 became an error: a `div` claim went
+      ; from a warning nobody had to act on to a build that cannot
+      ; be fixed except by deleting the claim.
+      ;
+      ; So it routes to AX3037 - the code for a claim the walk is
+      ; not in a position to check - with its own wording, because
+      ; AX3037's usual message names an unresolved CALL and there
+      ; is no call involved here.
+      ;
+      ; Inferring it is not the fix. The cheapest sound rule (a
+      ; self-call, or any `while`) marks 65% of this compiler
+      ; divergent and calls the syntax zoo's own counted loop
+      ; non-terminating - measured, and recorded in
+      ; `docs/reference.md`.
+      (if (== (effNeverInferred want) 1)
+        (emitAxtagNotInferred tc d val)
+        (emitAxtag tc d (concat (concat (concat "`effect(" val) ")` claim unsupported: missing ") (effRender want)))))))
 
 ; Only a CUSTOM effect can fail to exist; the built-ins always do.
 ; AX3037 for an effect the walk has no producer for at all. Distinct

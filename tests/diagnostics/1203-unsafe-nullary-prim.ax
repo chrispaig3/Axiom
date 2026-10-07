@@ -1,0 +1,19 @@
+; A nullary primitive is read by naming it: `__resource_unwinding`
+; with no parentheses is the operation, as the head of an application
+; is. So it counts toward the lexical `Unsafe` obligation
+; (docs/memory-model.md MM-EXEC-9d) both ways.
+;
+; Accepted: `unwinding` claims `effect(unsafe)` and reads the
+; primitive, so its claim guards that read.
+;
+; Refused with AX3073: `untagged` reads the same primitive without the
+; tag.
+;@axiom:effect(unsafe)
+(:: unwinding Bool)
+(fn (unwinding) (== __resource_unwinding 1))
+
+(:: untagged Bool)
+(fn (untagged) (== __resource_unwinding 1))
+
+(:: main Int)
+(fn (main) 0)

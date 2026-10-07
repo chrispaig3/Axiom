@@ -16,6 +16,17 @@ its changelog too.
 
 ## Unreleased
 
+- Refuse an `effect(unsafe)` claim on a higher-order function whose
+  body performs no unsafe operation itself, as `AX3010`. A function
+  that calls a parameter or a field used to escape the check, so a
+  claim that guarded nothing drew no diagnostic at all. Tested by
+  `tests/diagnostics/1200-unsafe-claim-open-row.ax`.
+
+- Refuse an untagged read of a nullary unsafe primitive, such as
+  `__resource_unwinding`, as `AX3073`. A primitive read by naming it,
+  with no parentheses, escaped the check. Tested by
+  `tests/diagnostics/1203-unsafe-nullary-prim.ax`.
+
 - A function has one signature. A second `(:: name ...)` for the same
   name is `AX3006`, pointing back at the first, and the checker keeps
   the first instead of letting the later one win. The nightly fuzzer

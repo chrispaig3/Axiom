@@ -1,4 +1,4 @@
-[1;31merror[AX3010][0m[1m: AXTAG mismatch on `vouched`: `effect(unsafe)` claim unsupported: missing Unsafe[0m
+[1;31merror[AX3010][0m[1m: AXTAG mismatch on `vouched`: `effect(unsafe)` claim unsupported: the body performs no unsafe operation itself[0m
   [1;34m--> [0m1041-trusted-call.ax:43:6
 [1;34m   |[0m
 [1;34m43 |[0m (fn (vouched a)

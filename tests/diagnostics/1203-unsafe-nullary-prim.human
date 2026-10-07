@@ -1,0 +1,12 @@
+[1;31merror[AX3073][0m[1m: `untagged` touches raw memory and its declaration does not say so[0m
+  [1;34m--> [0m1203-unsafe-nullary-prim.ax:16:20
+[1;34m   |[0m
+[1;34m16 |[0m (fn (untagged) (== __resource_unwinding 1))
+[1;34m   |[0m                    [1;31m^^^^^^^^^^^^^^^^^^^^ __resource_unwinding[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag makes the declaration a trusted encapsulation, whose callers inherit nothing. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+compilation failed due to 1 previous error

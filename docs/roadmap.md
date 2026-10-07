@@ -67,7 +67,7 @@ integrator would still need.
 | Item | State | Where it's specified or tested |
 |---|---|---|
 | A misspelt checked AXTAG key is an error | Done | `AX3039` |
-| An `effect(unsafe)` claim is judged by what the body itself performs | In progress | `AX3010` |
+| An `effect(unsafe)` claim is judged by what the body itself performs | Done | `AX3010`, `tests/diagnostics/1200-unsafe-claim-open-row.ax` |
 | A statically certain defect or a refuted claim is an error, not a warning | In progress | `tests/diagnostics/severity.policy` |
 | Retired and never-assigned codes are recorded and never reused | In progress | `ERR-DIAG-2` |
 | A check after an error is poisoned, not cascaded | Planned | `ERR-DIAG-3` |

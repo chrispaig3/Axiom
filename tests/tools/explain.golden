@@ -795,6 +795,12 @@ Only claims the compiler can DECIDE reach this code. A claim it is
 not in a position to check - because the body calls a value it could
 not resolve - is AX3037, which is a warning. See `explain AX3037`.
 
+`effect(unsafe)` is answered by the body alone. `Unsafe` is required
+where the operation is performed, and a callback's or a callee's
+`Unsafe` ends at its own declaration, so a claim over a body that
+performs no unsafe operation itself is this code, even when the
+function calls a parameter or a field.
+
 ### explain AX3011
 AX3011 - effect mismatch
 

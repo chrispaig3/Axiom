@@ -608,6 +608,12 @@ An untagged operation is `AX3073`, even when the declaration claims
 another effect, such as `effect(io)`. Under `effect(pure)` it is
 `AX3010` instead, since a purity claim already answers it.
 
+The claim is judged the same way. `effect(unsafe)` over a body that
+performs none of the three is `AX3010`, even when the declaration
+calls a parameter or a field. A callback's or a callee's `Unsafe` ends
+at its own declaration, so nothing outside the body can supply the
+claim (`tests/diagnostics/1200-unsafe-claim-open-row.ax`).
+
 ```scheme refused
 (struct Hid (name : String) (n : Int))
 
