@@ -1,0 +1,123 @@
+; An element read out of a vector and passed straight to a function
+; holds a share of its own for the length of the call, so the function
+; can overwrite the slot it came from and still read its parameter
+; (MM-LIFE-2m). Each line must read `true`.
+;
+;   1  a function that overwrites slot 0 and then reads its parameter,
+;      handed `(vecGet v 0)`, reads the string it was given
+;   2  the same with the vector held in a struct field and overwritten
+;      through the field
+;   3  the same from inside a polymorphic function, where the element's
+;      type is the caller's type variable: the callee replaces slot 0
+;      and then pushes its parameter back on
+;   4  the share is handed back after each call: 5,000 calls hold what
+;      1,000 hold
+;
+; A caller that only lent the element would hand the function a block
+; the overwrite freed, and the churn would read it back as another
+; string.
+(import IO)
+(import Vec)
+(import Str)
+(import Fmt)
+(import Mem)
+
+(struct Shelf
+  (items : (Vec String)))
+
+(:: churn Int)
+(fn (churn)
+  (let ((mut i 0) (mut acc 0))
+    {
+      (while (< i 20000)
+        {
+          (let ((s (concat "zz-" (fmtInt i))))
+            (set acc (+ acc (strLen s))))
+          (set i (+ i 1))
+        })
+      acc
+    }))
+
+(:: fresh (-> Int (Vec String)))
+(fn (fresh k)
+  (let ((v vecNew))
+    {
+      (vecPush v (concat "item-" (fmtInt k)))
+      v
+    }))
+
+(:: replaceThenRead (-> (Vec String) String String Bool))
+(fn (replaceThenRead v s want)
+  {
+    (vecSet v 0 (concat "other-" (fmtInt 9)))
+    churn
+    (strEq s want)
+  })
+
+(:: shelfReplaceThenRead (-> Shelf String String Bool))
+(fn (shelfReplaceThenRead sh s want)
+  {
+    (vecSet sh.items 0 (concat "other-" (fmtInt 9)))
+    churn
+    (strEq s want)
+  })
+
+(:: replaceThenPush (-> (Vec a) a a Int))
+(fn (replaceThenPush v x y)
+  {
+    (vecSet v 0 y)
+    churn
+    (vecPush v x)
+    (vecLen v)
+  })
+
+(:: rotate (-> (Vec a) a Int))
+(fn (rotate v y)
+  (replaceThenPush v (vecGet v 0) y))
+
+(:: held Int)
+(fn (held)
+  (let ((s memStats))
+    s.heldBytes))
+
+(:: calls (-> Int Int))
+(fn (calls n)
+  (let ((v (fresh 1)) (mut k 0) (mut ok 0))
+    {
+      (while (< k n)
+        {
+          (vecSet v 0 (concat "item-" (fmtInt (+ 1000 (% k 1000)))))
+          (set ok (+ ok (strLen (vecGet v 0))))
+          (set k (+ k 1))
+        })
+      ok
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (v (fresh 1))
+    (sh (Shelf (fresh 2)))
+  )
+    {
+      (println (if (replaceThenRead v (vecGet v 0) "item-1") "true" "false"))
+      (println (if (shelfReplaceThenRead sh (vecGet sh.items 0) "item-2") "true" "false"))
+      (let ((w (fresh 3)))
+        {
+          (rotate w (concat "new-" (fmtInt 3)))
+          churn
+          (println (if (&& (strEq (vecGet w 0) "new-3") (strEq (vecGet w 1) "item-3")) "true" "false"))
+        })
+      (calls 1000)
+      (let ((a held))
+        {
+          (calls 1000)
+          (let ((d1 (- held a)) (b held))
+            {
+              (calls 5000)
+              (println (if (== (- held b) d1) "true" "false"))
+            })
+        })
+      0
+    }))

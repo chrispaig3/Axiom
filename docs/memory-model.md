@@ -4748,11 +4748,18 @@ A `let` bound to an element a call lends, such as `(vecGet v i)` at a
 counted type, takes a share of its own when it doesn't escape, as a
 `let` of a field read does. So a `vecSet` of that slot can't free the
 element under the binding, and a swap spelled with a `let` and two
-`vecSet`s is safe (`tests/stdlib/777-vec-borrowed-element.ax`). An
-element passed straight to a function that overwrites its slot and
-then reads its parameter gets no such share. That is the aliasing
-hazard a struct field passed beside its struct already has
-(`MM-MUT-4`).
+`vecSet`s is safe (`tests/stdlib/777-vec-borrowed-element.ax`).
+
+A lent element passed straight to a call, as in `(f v (vecGet v 0))`,
+takes a share when it is evaluated and gives it back when the call
+returns, as an owned temporary does (`MM-LIFE-2c`). So `f` can
+overwrite slot 0 and still read its parameter. Inside a polymorphic
+function, where the element's type is the function's own type
+variable, both steps follow that variable's evidence bit
+(`tests/stdlib/778-vec-lent-argument.ax`). An element passed to a
+call whose own result is a type variable gets no such share, and a
+struct field passed beside its struct still carries the aliasing
+hazard of `MM-MUT-4`.
 
 The committed seed's `__retainref` answers 0, so the compiler it builds
 keeps every container plain: it leaks and never frees early. The rule

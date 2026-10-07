@@ -21921,7 +21921,7 @@
         (_dis (pairSetSlot cg 1 0))
         (_mtc (memSetWord cg 30 0))
       )
-        (let ((argStrCg (emitArgsRegs args cg argRegs 0)))
+        (let ((argStrCg (emitArgsRegs args cg argRegs 0 fnName)))
           (let (
             (argStrT (strDup (memGetWordStr argStrCg 9)))
             (full (mangledForCg argStrCg fnName))
@@ -22035,9 +22035,19 @@
 
 ; `emitArgsList` that also records each argument's register, in
 ; order, into `regs`.
-(pub :: emitArgsRegs (-> (Vec Int) Int (Vec Int) Int Int))
+; An argument a call LENDS (`lendClass` 1), such as `(vecGet v 0)` at a
+; counted type, is borrowed from its container, and the callee may
+; store over the slot it came from: `(f v (vecGet v 0))` where `f`
+; overwrites slot 0 and then reads its parameter read a freed block. So
+; the argument takes a share as soon as it is evaluated, and
+; `releaseOwnedArgs` hands it back after the call, exactly as it does an
+; owned temporary's; where the callee keeps the argument, the share
+; stays with it. At this function's own type variable (`lendClass`
+; `2+k`) both are conditional on bit k of the evidence word, as a
+; `let`'s are.
+(pub :: emitArgsRegs (-> (Vec Int) Int (Vec Int) Int String Int))
 ;@axiom:effect(io)
-(pub fn (emitArgsRegs args cg regs i)
+(pub fn (emitArgsRegs args cg regs i fnName)
   (if (>= i (vecLen args))
     {
       (memSetWord cg 2 "")
@@ -22051,7 +22061,13 @@
             (vecPush
               regs
               (cast Int reg))
-            (let ((restCg (emitArgsRegs args cg1 regs (+ i 1))))
+            (let ((lent (lendClass cg1 node)))
+              (if (&& (!= lent 0) (== (argOwnedRelease cg1 fnName args i) 1))
+                (if (== lent 1)
+                  (emitRetainOf cg1 reg)
+                  (emitRetainIfEvBit cg1 reg (- lent 2)))
+                cg1))
+            (let ((restCg (emitArgsRegs args cg1 regs (+ i 1) fnName)))
               (let (
                 (rest (memGetWordStr restCg 2))
                 (restT (memGetWordStr restCg 9))
@@ -22123,14 +22139,16 @@
             args
             regs
             (+ i 1))
-          (releaseOwnedArgs
-            (emitReleaseOf
-              cg
-              (cast String (vecGet regs i)))
-            fnName
-            args
-            regs
-            (+ i 1))))
+          (let ((lent (lendClass cg a)) (reg (cast String (vecGet regs i))))
+            (releaseOwnedArgs
+              (if (>= lent 2)
+                (let ((cgR (emitEvwRead cg)))
+                  (emitRcIfBitOf cgR reg (- lent 2) (strDup (memGetWordStr cgR 2)) 0))
+                (emitReleaseOf cg reg))
+              fnName
+              args
+              regs
+              (+ i 1)))))
       (releaseOwnedArgs
         cg
         fnName
@@ -22153,7 +22171,7 @@
 (pub fn (argOwnedRelease cg fnName args i)
   (let ((cls (fnResultClass cg fnName)))
     (if (|| (== cls 0) (== cls 2))
-      (if (&& (== (valueOwnedRef cg (vecGet args i)) 1) (&& (== (isStaticSentinelNode cg (vecGet args i)) 0) (&& (== (isNullaryConNode cg (vecGet args i)) 0) (&& (== (& (fnCallStashMask cg fnName args) (| (paramBit i) (ownerBit i))) 0) (&& (== (& (fnConsumeMask cg fnName) (| (paramBit i) (ownerBit i))) 0) (|| (== cls 2) (== (& (fnRetMask cg fnName) (anyBit i)) 0)))))))
+      (if (&& (|| (== (valueOwnedRef cg (vecGet args i)) 1) (!= (lendClass cg (vecGet args i)) 0)) (&& (== (isStaticSentinelNode cg (vecGet args i)) 0) (&& (== (isNullaryConNode cg (vecGet args i)) 0) (&& (== (& (fnCallStashMask cg fnName args) (| (paramBit i) (ownerBit i))) 0) (&& (== (& (fnConsumeMask cg fnName) (| (paramBit i) (ownerBit i))) 0) (|| (== cls 2) (== (& (fnRetMask cg fnName) (anyBit i)) 0)))))))
         1
         0)
       0)))
@@ -23569,7 +23587,7 @@
     (args (spineArgVec e vecNew))
     (argRegs vecNew)
   )
-    (let ((cgA (emitArgsRegs args cg argRegs 0)))
+    (let ((cgA (emitArgsRegs args cg argRegs 0 name)))
       (let (
         (argStrT (strDup (memGetWordStr cgA 9)))
         (full (mangledForCg cgA name))
@@ -24191,6 +24209,19 @@
 ; or 0 for none.
 (pub :: letBorrowClass (-> Int Int String Int Int))
 (pub fn (letBorrowClass cg valExpr name body)
+  (let ((cls (lendClass cg valExpr)))
+    (if (== cls 0)
+      0
+      (if (== (escapes cg name body 1 (binderSummary body)) 1)
+        0
+        cls))))
+
+; The class of a counted value a call LENDS: a signed global applied at
+; its arity whose declared result is a type variable, which retains
+; nothing on return (`vecGet`), at a counted instantiation. 1 for a
+; counted type, `2+k` for this function's type variable k, 0 otherwise.
+(pub :: lendClass (-> Int Int Int))
+(pub fn (lendClass cg valExpr)
   (if (!= (nodeTag valExpr) TAG_E_APP)
     0
     (let ((hd (spineHead valExpr)))
@@ -24214,9 +24245,7 @@
                       (pinnedClass cg (pinnedTy (nodeA st) 64))
                       (nodeB st))))
                       (if (|| (== cls 1) (>= cls 2))
-                        (if (== (escapes cg name body 1 (binderSummary body)) 1)
-                          0
-                          cls)
+                        cls
                         0))))))))))))
 
 ; The class a pinned type answers for `letBorrowClass`: 1 for a counted

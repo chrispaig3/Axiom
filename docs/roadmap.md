@@ -49,7 +49,7 @@ integrator would still need.
 | A heap value returned where the signature says `Int` is refused | Done | `MM-VAL-24`, `tests/diagnostics/1240-record-through-int.ax` |
 | Identity and hashing of a heap value use the typed `Addr`, not a cast | Done | `tests/stdlib/810-addr-identity.ax` |
 | A container owns its elements: a `Vec` is released at scope end, and ownership follows the element type, not the constructor | Done | `MM-LIFE-2m`, `tests/stdlib/770-vec-files.ax` |
-| An element passed beside its container to a function that overwrites its slot keeps a share, as one bound by a `let` does | Not started | `MM-LIFE-2m` |
+| An element passed beside its container to a function that overwrites its slot keeps a share, as one bound by a `let` does | Done | `MM-LIFE-2m`, `tests/stdlib/778-vec-lent-argument.ax` |
 | No cast, `Int` container or raw store lets a heap value become an untracked word in safe code | Not started | `MM-VAL-24` |
 | Raw-address functions leave the public library, so safe code can't forge an address | Not started | |
 | `fileFd` and the raw descriptor calls can't close a descriptor a `File` owns | In progress | |

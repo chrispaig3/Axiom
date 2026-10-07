@@ -52,6 +52,12 @@ its changelog too.
   `tests/selfhost/994-directory-listing.ax` and
   `tests/stdlib/610-typed-io-bounds.ax`.
 
+- Keep an element read out of a vector alive while a call uses it. In
+  `(f v (vecGet v 0))`, a string or other counted element now takes a
+  share for the length of the call, so `f` can overwrite slot 0 and
+  still read its parameter. This works inside a polymorphic function
+  too. Tested by `tests/stdlib/778-vec-lent-argument.ax`.
+
 - Release a `Vec` when its last reference goes, as a `String` is: at
   the end of its scope, when a `mut` slot holding it is overwritten,
   or when the record holding it dies. A `Vec` or `Map` decides from
