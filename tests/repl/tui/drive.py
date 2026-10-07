@@ -11,7 +11,7 @@ redraw.
 
 SAFETY. It operates ONLY on a pty from `pty.openpty()`. The child's fd
 0, 1 and 2 are the slave end, dup2'd in the fork; the invoking shell's
-descriptors are never handed to anything that calls `sysTermRaw`, and
+descriptors are never handed to anything that calls `termRaw`, and
 this script takes no descriptor argument that could be pointed at one.
 It restores the pty under `finally` on every exit path, including a
 failed step and an interrupt.
@@ -47,7 +47,7 @@ step therefore names what it is waiting FOR:
   ["exit"]                           wait for the child to exit
 
 TYPE-AHEAD IS DISCARDED ACROSS AN EVALUATION and that is not a bug in
-this driver. `sysTermRestore` and `sysTermRaw` both use the FLUSHING
+this driver. `termRestore` and `termRaw` both use the FLUSHING
 ioctl, so bytes still in the kernel's input queue when the REPL leaves
 or re-enters raw mode are dropped - see term.ax's header. A driver that
 fired its whole script at once would lose half of it, and would then

@@ -237,8 +237,8 @@ fi
 kept=""
 for ok_name in axiom_alloc freelist awaited printfmt __syscall1 \
                netBind netAccept netConnect netSocketTcp netListen \
-               netPollCreate netPollWait sysRandomBytes randomMaxChunk \
-               sysKill sysSignalBlock netSignalOpen signalUsesSignalFd \
+               sysPollCreate sysPollWait sysRandomBytes randomMaxChunk \
+               sysKill sysSignalBlock sysSignalOpen signalUsesSignalFd \
                sysForkProcess forkChildIsZero netSetBlocking; do
   grep -qE "call[^\"]*@($libc_names)\(" <<< "  %r = call i64 @$ok_name(i64 0)" \
     && kept="$kept $ok_name"

@@ -146,7 +146,7 @@ BUILTIN_EFFECTS = {'IO', 'Alloc', 'Mut', 'Unsafe', 'Div', 'Pure'}
 # waiting for a child; `accept` and `connect`; `epoll_wait`/`kevent`;
 # a futex or `__ulock` wait, the timed forms included. A join blocks
 # until its child ends.
-BLOCKING_KERNEL = {'sysRead', 'sysWrite', 'sysOpen', 'sysOpenatNum', 'sysWait4',
+BLOCKING_KERNEL = {'sysReadNum', 'sysWriteNum', 'sysOpenNum', 'sysOpenatNum', 'sysWait4Num',
                    'sysWaitIdNum', 'sysAcceptNum', 'sysConnectNum', 'sysPollWaitNum',
                    'sysWaitWordNum'}
 

@@ -1,15 +1,15 @@
-; IO - console and file I/O, in Axiom.
+; IO - console, file and terminal I/O, in Axiom.
 ;
 ; This module uses Sys for kernel calls or platform APIs, depending on
-; the target. Printing needs no C runtime or printf binding.
+; the target. Printing needs no C runtime or printf binding. The calls
+; that take a path, a directory or a terminal live here as private
+; helpers over `__syscallN` and the numbers `Sys.Platform` carries, and
+; the public functions take a `String`.
 ;
 ; Functions that touch the outside world carry `;@axiom:effect(io)`, and
 ; the compiler validates those claims against the syscalls actually
 ; reachable from each body - transitively, by fixpoint - so an
-; `io`-tagged function that stopped doing I/O warns (`AX3010`). An
-; untagged function that starts doing I/O is NOT flagged: tags are
-; opt-in claims, checked when made, and `axiom symbols` reports the
-; inferred `#effects=` either way.
+; `io`-tagged function that stopped doing I/O is refused (`AX3010`).
 (import Sys)
 (import Err)
 (import Mem)
@@ -30,17 +30,11 @@
 ; Loops until the whole string is out: a single `write` is permitted to
 ; transfer fewer bytes than asked (a pipe with a full buffer, a signal),
 ; and treating a short write as success is the classic way to silently
-; truncate output.
-;
-; The loop itself is `Sys.sysWriteAllFd` now, and was a private
-; `writeAll` here. It moved down because `sysWriteFile` needed it and
-; could not reach up: everything writing a FILE was single-shot while
-; everything writing a DESCRIPTOR was not, which is the same bug
-; sitting on the other side of one import.
+; truncate output. The loop is `Sys.sysWriteAllFd`.
 (pub :: writeStr (-> Int String Int))
 ;@axiom:effect(io)
 (pub fn (writeStr fd s)
-  (sysWriteAllFd fd (strData s) (strLen s) 0))
+  (sysWriteAllFd fd (strData s) (strLen s)))
 
 ; Write the `len` bytes of `s` that start at byte `start`, all of them,
 ; returning the number written or a negative errno - `writeStr` over a
@@ -55,7 +49,7 @@
 (pub fn (writeSlice fd s start len)
   (if (ioOutside s start len)
     __indexTrap
-    (sysWriteAllFd fd (+ (strData s) start) len 0)))
+    (sysWriteAllFd fd (+ (strData s) start) len)))
 
 ; True when `[start, start + len)` is not inside `s`. Written so that no
 ; sum can overflow: `start` is known to be in range before `len` is
@@ -71,205 +65,288 @@
         (> len (- (strLen s) start))))))
 
 ; ------------------------------------------------------------------
-; Printing is MACROS AND NO FUNCTIONS.
+; Printing is macros and no functions.
 ;
 ; `writeStr` above is the whole runtime side: bytes, to a descriptor.
 ; Everything between a value and those bytes is decided at expansion
 ; time, so this module exports no `printInt`, no `printFloat`, and no
 ; per-type anything - a type is rendered by the rendering the checker
-; selects from its static type, and a WIDTH or a RADIX is chosen by a
+; selects from its static type, and a width or a radix is chosen by a
 ; format specifier rather than by picking a different function to call.
 ;
-; That is the whole of the unification. Before it, printing an `Int`
-; padded to eight columns meant `(print (fmtPadLeft (fmtInt n) 8))` -
-; three names, composed by hand, at every call site. It is now
-; `(print "{n:>8}")`, and the three calls are still there, written by
-; the expander instead of by the programmer.
-; ------------------------------------------------------------------
-; Print NUL-terminated bytes at an address: `(printLit (__addr "hi"))`.
-;
-; Not the way to print a literal any more - `(println "hi")` is, and it
-; costs nothing extra, because a literal already *is* a `Str` with a
-; compile-time length and no header has to be built. What is left here
-; is the case the name no longer describes well: NUL-terminated bytes
-; that arrived from somewhere without a length, such as a syscall
-; buffer.
-(:: printLit (-> Int Int))
-;@axiom:effect(io)
-(fn (printLit cstr)
-  (sysWriteAllFd stdout cstr (cstrLen cstr 0) 0))
-
-; `cstr` must name live NUL-terminated bytes.
-(pub :: printlnLit (-> Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (printlnLit cstr)
-  {
-    (printLit cstr)
-    (printLit (__addr "\n"))
-  })
-
-; ------------------------------------------------------------------
-; The two.
-;
-; One parameter each, and that is the design rather than a limitation
-; waiting to be lifted. A hole names a binding at the CALL:
+; One parameter each. A hole names a binding at the call:
 ;
 ;   (println "hello, {name}")
 ;   (println "{done:>4}/{total} done")
 ;   (eprintln "{file}:{line}: {msg}")
 ;
-; so the argument count never depends on the number of holes, and no
-; repetition pattern (MAC-LANG-15..18, unbuilt) is needed to write
-; either of them. `syntax/format` does the parse; see
-; docs/macro-system.md MAC-CAP-10 for the grammar, the lowering and
-; the refusals.
+; so the argument count never depends on the number of holes.
+; `syntax/format` does the parse; see docs/macro-system.md MAC-CAP-10
+; for the grammar, the lowering and the refusals. Given anything that
+; is not a literal, `syntax/format` answers one rendering call on it, so
+; `(println n)` prints an `Int` and `(println s)` a `String`.
 ;
-; Given anything that is NOT a literal, `syntax/format` answers one
-; rendering call on it - so these are equally the general "print a
-; value" spelling. `(println n)` on an `Int` prints the integer, and
-; `(println s)` on a `String` renders as itself (the call is elided
-; outright), which is why the seventy-eight `(println expr)` call sites
-; that predate the macros did not have to change.
-;
-; `syntax/formatln` is `syntax/format` with the newline folded into the
-; last literal run AT EXPANSION TIME, so `(println "hi")` is one
-; `write` of `"hi\n"` - one syscall and no allocation, where the
-; function this replaced did two writes.
-;
-; THERE IS NO `print`, AND THAT IS THE POINT. A newline-less printer
-; exists in C-descended libraries because building a line out of pieces
-; was expensive, so you emitted the pieces instead. Here the line is
-; built at COMPILE time: `(println "ok {name} in {ms:>4}ms")` is one
-; call, one syscall, and one place to read the line's shape. The four
-; calls it replaces - `(print "ok ") (print name) (print " in ")
-; (println ms)` - were four syscalls and a shape no reader could see
-; without executing it in their head. `340-json`'s self-grading harness
-; went from six print statements per verdict to one.
-;
-; A program that genuinely wants bytes on the descriptor with no
-; newline and no rendering has `writeStr` above it, unchanged and
-; public - that is the primitive, and it is one call too.
+; `syntax/formatln` folds the newline into the last literal run at
+; expansion time, so `(println "hi")` is one `write` of `"hi\n"`.
+; A program that wants bytes with no newline and no rendering calls
+; `writeStr`.
 ; ------------------------------------------------------------------
 (pub macro (println e) (writeStr stdout (syntax/formatln e)))
 
 (pub macro (eprintln e) (writeStr stderr (syntax/formatln e)))
 
 ; ------------------------------------------------------------------
-; Reading
+; The descriptor calls behind the path functions.
+;
+; Private. Each takes a NUL-terminated path address that `ioPath` made
+; from a `String`, and answers the raw kernel result: a descriptor or a
+; count, or `-errno`. AArch64 Linux has only the `*at` forms, so the
+; path calls branch on the `openNeedsDirFd` capability.
 ; ------------------------------------------------------------------
-; The whole contents of the file at NUL-terminated path `cstr`, or an
-; empty `Str` if it cannot be opened.
-;
-; Callers that must distinguish "empty file" from "no such file" should
-; use `sysOpenPath` directly; this is the convenience form, and it is
-; the one a compiler driver wants for reading a source file.
-;
-; Like every other verb in this module it is its `Sys` twin named for
-; the caller: the open/read-to-EOF/close sequence, the doubling refill
-; and MM-VAL-7's retain are stated once, in `sysReadFile`.
-; `cstr` must name live NUL-terminated bytes.
-(pub :: readFileLit (-> Int String))
+; open(path, flags, mode). A mode of 0 with `O_CREAT` would create a
+; file nobody can read back, which is why `ioOpen` passes 0644.
+(:: ioOpenMode (-> Int Int Int Int))
 ;@axiom:effect(io)
-(pub fn (readFileLit cstr)
-  (sysReadFile cstr))
+;@axiom:effect(unsafe)
+(fn (ioOpenMode path flags mode)
+  (if (== openNeedsDirFd 1)
+    (__syscall4
+      sysOpenNum
+      atFdCwd
+      path
+      flags
+      mode)
+    (__syscall3 sysOpenNum path flags mode)))
 
-(pub :: readFile (-> String String))
+(:: ioOpen (-> Int Int Int))
 ;@axiom:effect(io)
-(pub fn (readFile path)
-  (readFileLit (ioPath path)))
+(fn (ioOpen path flags)
+  (ioOpenMode path flags 420))
 
-; ------------------------------------------------------------------
-; Files and directories, by name.
-;
-; `Sys` takes a raw NUL-terminated `char*` for every path, because it
-; hands one straight to a syscall. This is the layer that takes a
-; `Str`, and the split is the rule the library already stated for
-; `sysReadFile` versus `readFile` above - applied to the whole surface
-; rather than to the one function that happened to need it first.
-;
-; The convenience is not only the type. Each of these answers the
-; question a caller actually has:
-;
-;   - `fileExists` cannot tell a file from a directory; `isDir` can.
-;   - `writeFile` truncates and `appendFile` does not, which used to
-;     be read-concatenate-rewrite at every call site that wanted it.
-;   - `listDir` sorts, so a program that walks a directory produces
-;     the same output on two machines.
-;   - `makeDirAll` creates the parents, which is what a build writing
-;     `build/obj/x.o` means by "make the directory".
-;
-; PATHS ARE COPIED BEFORE THEY CROSS. `strSlice` shares storage and a
-; slice is NOT NUL-terminated, so handing one to `open` reads past its
-; end into whatever the parent string holds - for a slice of
-; `"src/main.ax"` that is a path that still exists, which is the worst
-; possible failure mode. Every function here copies first. One small
-; allocation, once, next to a syscall.
-; ------------------------------------------------------------------
-; `path` as a `char*` a syscall can take, always by copy - see above.
+; lseek(fd, offset, whence): the resulting absolute offset, or `-errno`.
+(:: ioSeek (-> Int Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (ioSeek fd offset whence)
+  (__syscall3 sysLseekNum fd offset whence))
+
+; Close a descriptor this module opened for one call, ignoring the
+; answer: the bytes are already in hand, and there is nothing to do
+; with a failed close of a read-only descriptor.
+(:: ioCloseQuiet (-> Int Int))
+;@axiom:effect(io)
+(fn (ioCloseQuiet fd)
+  (let ((_ (sysCloseFd fd))) 0))
+
+; `path` as a `char*` a syscall can take, always by copy. A `strSlice`
+; shares storage and is not NUL-terminated, so handing one to `open`
+; would read past its end into whatever the parent string holds.
 (:: ioPath (-> String Int))
 (fn (ioPath path)
   (strCStr (strDup path)))
 
-; A `Sys` answer re-wrapped with the path this layer knows.
+; ------------------------------------------------------------------
+; Reading
+; ------------------------------------------------------------------
+; The whole contents of the file at `path`, or "" if it cannot be read.
 ;
-; `Sys.sysResult` already turned the raw `-errno` into an `Error`; what
-; it could not do is name the path, because a path at that layer is an
-; `Int` - a NUL-terminated buffer address, and rendering one would mean
-; reading foreign memory to describe a call that just failed. This
-; layer has the `String`, so it carries the code through and rebuilds
-; the message.
-;
-; `op` and `path` go into the message because an errno alone does not
-; say what was being attempted, and every one of these calls has a
-; path - which is the whole reason a bare `-2` is a bad answer: it is
-; ENOENT for a file the caller can name and cannot see named.
-(pub :: ioResult (-> (Result Int Error) String String (Result Int Error)))
-(pub fn (ioResult r op path)
-  (match r
-    ((Ok v) (Ok v))
-    ; `Sys` already turned the errno into an `Error`; what it could not
-    ; do is name the path, because at that layer a path is an `Int` -
-    ; a NUL-terminated buffer address. The code is carried through
-    ; unchanged and only the message is rebuilt.
-    ((Err e) (Err (mkError (errCode e) (concat (concat (concat op ": ") (concat path ": errno ")) (fmtInt (errCode e))))))))
+; "" is also an empty file, a directory and a file you may not read.
+; `readErrno` separates those. The read starts at 64 KiB and doubles, so
+; a file of any size arrives whole.
+(pub :: readFile (-> String String))
+;@axiom:effect(io)
+(pub fn (readFile path)
+  (let ((fd (ioOpen (ioPath path) oRdonly)))
+    (if (< fd 0)
+      ""
+      (let ((s
+        (match (ioReadAllFd fd)
+          ((Ok got) got)
+          ((Err _) ""))))
+        {
+          (ioCloseQuiet fd)
+          s
+        }))))
 
-; Write `s` to `path`, creating it or TRUNCATING what is there.
+; Read `fd` to end of input into `buf`, doubling the buffer whenever it
+; fills. `used` bytes hold data; `cap` is the buffer's capacity. A short
+; read is retried rather than treated as end of input - only 0 ends the
+; loop with `Ok` - so a pipe delivers its whole stream too. A `read`
+; that fails ends the loop with `Err`, and what had arrived before it is
+; dropped rather than answered as a shorter stream.
+(:: ioReadAll (-> Int String Int Int (Result String Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (ioReadAll fd buf used cap)
+  (let ((n
+    (match (sysReadFd fd (+ (strData buf) used) (- cap used))
+      ((Ok k) k)
+      ((Err e) (- 0 (errCode e))))))
+    (if (< n 0)
+      (Err (mkError (- 0 n) "readAll"))
+      (if (== n 0)
+        (if (== used 0)
+          (Ok "")
+          ; A second header naming `buf`'s owner takes a second share
+          ; (memory-model.md MM-VAL-7).
+          (let ((own (strOwner buf)))
+            {
+              (__retain own)
+              (Ok (strWrapOwned (strData buf) used own))
+            }))
+        (let ((used2 (+ used n)))
+          (if (< used2 cap)
+            (ioReadAll fd buf used2 cap)
+            (let ((big (strAlloc (* cap 2))))
+              {
+                (memCopy (strData big) (strData buf) used2)
+                (ioReadAll fd big used2 (* cap 2))
+              })))))))
+
+(:: ioReadAllFd (-> Int (Result String Error)))
+;@axiom:effect(io)
+(fn (ioReadAllFd fd)
+  (ioReadAll fd (strAlloc 65536) 0 65536))
+
+; One line of `fd`, one `read(2)` per byte, so the descriptor is left at
+; exactly the next unread byte. The buffer starts at 128 bytes and
+; doubles; the newline is overwritten with NUL. A `while` and not a self
+; call: the loop runs once per byte.
+(:: ioReadLineFd (-> Int (Result (Option String) Error)))
+;@axiom:effect(io)
+(fn (ioReadLineFd fd)
+  ; the last `read`'s answer: 1 a byte, 0 end of input, -errno
+  (let (
+    (mut buf (strAlloc 128))
+    (mut cap 128)
+    (mut used 0)
+    (mut n 1)
+    (mut done 0)
+  )
+    {
+      (while (== done 0)
+        {
+          (set n (match (sysReadFd fd (+ (strData buf) used) 1)
+            ((Ok k) k)
+            ((Err e) (- 0 (errCode e)))))
+          (if (<= n 0)
+            (set done 1)
+            (if (== (memGetByte (strData buf) used) 10)
+              {
+                (memPutByte (strData buf) used 0)
+                (set done 1)
+              }
+              {
+                (set used (+ used 1))
+                ; `strAlloc cap` holds cap+1 bytes, and index `cap` is
+                ; the terminator's, so the next byte needs `used < cap`.
+                (if (>= used cap)
+                  (let ((big (strAlloc (* cap 2))))
+                    {
+                      (memCopy (strData big) (strData buf) used)
+                      (set buf big)
+                      (set cap (* cap 2))
+                    })
+                  0)
+              }))
+        })
+      (if (< n 0)
+        (Err (mkError (- 0 n) "readLine"))
+        (if (&& (== n 0) (== used 0))
+          (Ok None)
+          (Ok (Some (strSlice buf 0 used)))))
+    }))
+
+; ------------------------------------------------------------------
+; Files and directories, by name.
+;
+; Each of these answers the question a caller actually has:
+;
+;   - `fileExists` cannot tell a file from a directory; `isDir` can.
+;   - `writeFile` truncates and `appendFile` does not.
+;   - `listDir` sorts, so a program that walks a directory produces
+;     the same output on two machines.
+;   - `makeDirAll` creates the parents, which is what a build writing
+;     `build/obj/x.o` means by "make the directory".
+; ------------------------------------------------------------------
+; A raw answer re-wrapped with the path: `op: path: errno N`. The code
+; is the errno, unchanged.
+(:: ioResult (-> String String Int (Result Int Error)))
+(fn (ioResult op path n)
+  (if (< n 0)
+    (Err (mkError (- 0 n) (concat (concat (concat op ": ") (concat path ": errno ")) (fmtInt (- 0 n)))))
+    (Ok n)))
+
+; Write all of `s` to the file at `cpath`, opened with `flags`: the bytes
+; written, or `-errno`.
+(:: ioWriteWhole (-> Int Int String Int))
+;@axiom:effect(io)
+(fn (ioWriteWhole cpath flags s)
+  (let ((fd (ioOpen cpath flags)))
+    (if (< fd 0)
+      fd
+      (let ((n (sysWriteAllFd fd (strData s) (strLen s))))
+        {
+          (ioCloseQuiet fd)
+          n
+        }))))
+
+; Write `s` to `path`, creating it or truncating what is there.
 ; Answers `(Ok bytes)`, or `(Err e)` whose code is the errno.
 (pub :: writeFile (-> String String (Result Int Error)))
 ;@axiom:effect(io)
 (pub fn (writeFile path s)
-  (ioResult (sysWriteFile (ioPath path) s) "writeFile" path))
+  (ioResult "writeFile" path (ioWriteWhole (ioPath path) oWronlyCreateTrunc s)))
 
-; Add `s` to the end of `path`, creating it if absent. Answers the
-; `(Ok bytes)`, or `(Err e)` whose code is the errno.
+; Add `s` to the end of `path`, creating it if absent. Answers
+; `(Ok bytes)`, or `(Err e)` whose code is the errno. `O_APPEND` makes
+; the seek and the write one operation, so two processes appending to
+; one log interleave whole writes.
 (pub :: appendFile (-> String String (Result Int Error)))
 ;@axiom:effect(io)
 (pub fn (appendFile path s)
-  (ioResult (sysAppendFile (ioPath path) s) "appendFile" path))
+  (ioResult "appendFile" path (ioWriteWhole (ioPath path) oWronlyCreateAppend s)))
 
-; Remove the file `path`. Answers `(Ok 0)`, or `(Err …)` carrying the errno.
-;
-; It does NOT remove a directory - the kernel refuses with EPERM on
-; Darwin and EISDIR on Linux (probed 2026-08-15: `-1` here). That is
-; `removeDir`'s job, and the two are separate calls on every platform
-; except AArch64 Linux, where they are one call and a flag.
+; Remove the file `path`. Answers `(Ok 0)`, or `(Err …)` carrying the
+; errno. It does not remove a directory; that is `removeDir`.
 (pub :: removeFile (-> String (Result Int Error)))
 ;@axiom:effect(io)
 (pub fn (removeFile path)
-  (ioResult (sysUnlink (ioPath path)) "removeFile" path))
+  (ioResult "removeFile" path (ioUnlink (ioPath path))))
+
+; unlink(path), `unlinkat` where only that exists.
+(:: ioUnlink (-> Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (ioUnlink p)
+  (if (== openNeedsDirFd 1)
+    (__syscall3 sysUnlinkNum atFdCwd p 0)
+    (__syscall1 sysUnlinkNum p)))
 
 ; Move `old` to `new`, answering `(Ok 0)` or `(Err …)` with the errno.
 ;
 ; Atomic within one filesystem: a reader of `new` sees the whole old
 ; contents or the whole new ones, never a prefix. Across filesystems
 ; the kernel refuses with EXDEV (18) and `copyFile` + `removeFile` is
-; the fallback - which is not atomic, and that is the difference the
-; two spellings are for.
+; the fallback, which is not atomic.
 (pub :: renamePath (-> String String (Result Int Error)))
 ;@axiom:effect(io)
 (pub fn (renamePath old new)
-  (ioResult (sysRename (ioPath old) (ioPath new)) "renamePath" old))
+  (ioResult "renamePath" old (ioRename (ioPath old) (ioPath new))))
+
+; rename(old, new), `renameat` where only that exists.
+(:: ioRename (-> Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (ioRename o n)
+  (if (== openNeedsDirFd 1)
+    (__syscall4
+      sysRenameNum
+      atFdCwd
+      o
+      atFdCwd
+      n)
+    (__syscall2 sysRenameNum o n)))
 
 ; Open `path` with `flags` (`oRdonly`, `oWronlyCreateTrunc`, ...):
 ; `(Ok file)`, or `(Err e)` whose code is the errno. New files get mode
@@ -277,38 +354,16 @@
 (pub :: openPath (-> String Int (Result File Error)))
 ;@axiom:effect(io)
 (pub fn (openPath path flags)
-  (match (ioResult (sysOpenPath (ioPath path) flags) "openPath" path)
+  (match (ioResult "openPath" path (ioOpen (ioPath path) flags))
     ((Ok fd) (Ok (fileFromFd fd)))
     ((Err e) (Err e))))
-
-; Open `rel` for reading inside the directory `root`, following no
-; symbolic link below it: `(Ok file)`, or `(Err e)`. `rel` must be
-; relative, with no `..` segment; see `Sys.sysOpenBeneath` for the
-; rules and why it walks one segment at a time.
-(pub :: openBeneath (-> String String (Result File Error)))
-;@axiom:effect(io)
-(pub fn (openBeneath root rel)
-  (match (ioResult (sysOpenBeneath (ioPath root) rel) "openBeneath" rel)
-    ((Ok fd) (Ok (fileFromFd fd)))
-    ((Err e) (Err e))))
-
-; Create the symbolic link `link` whose content is `target`. Answers
-; `(Ok 0)`, or `(Err e)` - EEXIST when `link` is already there.
-(pub :: makeSymlink (-> String String (Result Int Error)))
-;@axiom:effect(io)
-(pub fn (makeSymlink target link)
-  (ioResult (sysSymlink (ioPath target) (ioPath link)) "makeSymlink" link))
 
 ; Copy `src` onto `dst`, answering `(Ok bytes)` or `(Err e)`. `dst` is
 ; created or truncated.
 ;
-; The whole file goes through memory, so this is for the sizes a
-; source tree holds rather than for arbitrary ones - a streaming copy
-; would want a fixed buffer and a loop, and no caller has needed one.
-; The read is checked FIRST, because `readFile` answers "" for a
-; missing file and copying that would report success having created an
-; empty `dst` - destroying whatever was at `dst` on behalf of a source
-; that does not exist.
+; The whole file goes through memory. The read is checked first, because
+; `readFile` answers "" for a missing file and copying that would report
+; success having emptied `dst`.
 (pub :: copyFile (-> String String (Result Int Error)))
 ;@axiom:effect(io)
 (pub fn (copyFile src dst)
@@ -322,41 +377,87 @@
 (pub :: fileExists (-> String Bool))
 ;@axiom:effect(io)
 (pub fn (fileExists path)
-  (sysFileExists (ioPath path)))
+  (let ((fd (ioOpen (ioPath path) oRdonly)))
+    (if (< fd 0)
+      false
+      {
+        (ioCloseQuiet fd)
+        true
+      })))
 
-; True when `path` names a directory.
+; True when `path` names a directory: one that opens and whose read
+; answers EISDIR. An empty file answers false.
 (pub :: isDir (-> String Bool))
 ;@axiom:effect(io)
 (pub fn (isDir path)
-  (sysIsDir (ioPath path)))
+  (== (readErrno path) eIsDir))
 
-; The size of `path` in bytes, or `(Err …)` carrying the errno.
+; The size of `path` in bytes, or `(Err …)` carrying the errno. It
+; seeks to the end, which is what the size is.
 ;
-; A DIRECTORY answers a positive number here, and it is the size of
-; the directory file rather than anything a caller means - ask `isDir`
-; first if that matters. See `Sys.sysFileSize`.
+; A directory answers a positive number here, the size of the directory
+; file rather than anything a caller means; ask `isDir` first if that
+; matters.
 (pub :: fileSize (-> String (Result Int Error)))
 ;@axiom:effect(io)
 (pub fn (fileSize path)
-  (ioResult (sysFileSize (ioPath path)) "fileSize" path))
+  (ioResult
+    "fileSize"
+    path
+    (let ((fd (ioOpen (ioPath path) oRdonly)))
+      (if (< fd 0)
+        fd
+        (let ((n (ioSeek fd 0 seekEnd)))
+          {
+            (ioCloseQuiet fd)
+            n
+          })))))
 
 ; 0 when `path` can be read as a file, otherwise the errno saying why
 ; not: 2 missing, 13 not permitted, 21 a directory.
 ;
-; The three-way answer `readFile` cannot give, because it reports all
-; three - and an empty file - as "". A caller that must distinguish
-; "the file is empty" from "there is no file" asks this first.
+; The three-way answer `readFile` cannot give. Opening separates "not
+; there" from "not allowed"; a one-byte read separates a directory,
+; because Darwin and Linux both open one and defer EISDIR to `read`.
 (pub :: readErrno (-> String Int))
 ;@axiom:effect(io)
 (pub fn (readErrno path)
-  (sysReadErrno (ioPath path)))
+  (let ((fd (ioOpen (ioPath path) oRdonly)))
+    (if (< fd 0)
+      (- 0 fd)
+      (let ((probe (strAlloc 1)))
+        (let ((n
+          (match (sysReadFd fd (strData probe) 1)
+            ((Ok k) k)
+            ((Err e) (- 0 (errCode e))))))
+          {
+            (ioCloseQuiet fd)
+            (if (< n 0)
+              (- 0 n)
+              0)
+          })))))
+
+; 0755, the mode `makeDir` gives a directory.
+(:: ioDirMode Int)
+(fn (ioDirMode)
+  493)
+
+; mkdir(path, mode), `mkdirat` where only that exists.
+(:: ioMkdir (-> String Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (ioMkdir path mode)
+  (let ((p (ioPath path)))
+    (if (== openNeedsDirFd 1)
+      (__syscall3 sysMkdirNum atFdCwd p mode)
+      (__syscall2 sysMkdirNum p mode))))
 
 ; Create the directory `path`, mode 0755. Answers `(Ok 0)`, or
 ; `(Err …)` carrying the errno - `EEXIST` when it is already there.
 (pub :: makeDir (-> String (Result Int Error)))
 ;@axiom:effect(io)
 (pub fn (makeDir path)
-  (ioResult (sysMkdir (ioPath path) sysDirMode) "makeDir" path))
+  (ioResult "makeDir" path (ioMkdir path ioDirMode)))
 
 ; Create the directory `path` with the permission bits `mode`, such as
 ; 448 (0700) for a directory only its owner may enter. Answers `(Ok 0)`,
@@ -364,19 +465,20 @@
 (pub :: makeDirMode (-> String Int (Result Int Error)))
 ;@axiom:effect(io)
 (pub fn (makeDirMode path mode)
-  (ioResult (sysMkdir (ioPath path) mode) "makeDirMode" path))
+  (ioResult "makeDirMode" path (ioMkdir path mode)))
 
 ; Create `path` and every missing directory above it. Answers `(Ok 0)`,
 ; or `(Err …)` carrying the errno of the first component that could not be made.
 ;
-; An existing directory is SUCCESS at every level, which is the whole
+; An existing directory is success at every level, which is the whole
 ; difference from `makeDir` and the reason a build can call this
-; unconditionally instead of testing first - testing first is a race,
-; and treating EEXIST as success is not.
+; unconditionally instead of testing first.
 (pub :: makeDirAll (-> String (Result Int Error)))
 ;@axiom:effect(io)
 (pub fn (makeDirAll path)
-  (ioResult (makeDirAllFrom path 1) "makeDirAll" path))
+  (match (makeDirAllFrom path 1)
+    ((Ok v) (Ok v))
+    ((Err e) (Err (mkError (errCode e) (concat (concat "makeDirAll: " path) (concat ": errno " (fmtInt (errCode e)))))))))
 
 ; From 1, not 0: a leading `/` is the root, which exists and cannot
 ; be created, and asking to create "" fails with ENOENT.
@@ -399,55 +501,135 @@
   (let ((r (makeDir p)))
     (match r
       ((Ok v) (Ok v))
-      ; An existing directory is SUCCESS, which is the whole difference
-      ; from `makeDir`. The errno is `Error.code` now rather than a
-      ; negated return, so the test is a field read instead of
-      ; `sysErrno` over a sentinel.
       ((Err e)
         (if (== (errCode e) eExist)
           (Ok 0)
           (Err e))
       ))))
 
-; Remove the EMPTY directory `path`. Answers `(Ok 0)`, or `(Err …)` -
-; `ENOTEMPTY` when it still holds entries. Nothing here
-; removes a tree: that is a loop over `listDir`, and it is the
-; caller's to write, because a library that deletes recursively on
-; one call is a library that deletes the wrong subtree once.
+; Remove the empty directory `path`. Answers `(Ok 0)`, or `(Err …)` -
+; `ENOTEMPTY` when it still holds entries. Nothing here removes a tree:
+; that is a loop over `listDir`, and it is the caller's to write.
+;
+; `AT_REMOVEDIR` is 512 on Linux, and it is what makes `unlinkat` - the
+; only call AArch64 has for either job - remove a directory.
 (pub :: removeDir (-> String (Result Int Error)))
 ;@axiom:effect(io)
 (pub fn (removeDir path)
-  (ioResult (sysRmdir (ioPath path)) "removeDir" path))
+  (ioResult "removeDir" path (ioRmdir (ioPath path))))
+
+(:: ioRmdir (-> Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (ioRmdir p)
+  (if (== openNeedsDirFd 1)
+    (__syscall3 sysRmdirNum atFdCwd p 512)
+    (__syscall1 sysRmdirNum p)))
+
+; ------------------------------------------------------------------
+; Reading a directory.
+;
+; `getdents64` (Linux) and `getdirentries64` (Darwin) are the only calls
+; that enumerate one. Their records differ in exactly one number, where
+; the name starts (`direntNameOffset`); `d_reclen` is at offset 16 on
+; every target. The name's length comes from the NUL every kernel
+; writes, and `d_type` is not read, because filesystems may answer
+; DT_UNKNOWN.
+; ------------------------------------------------------------------
+; Bytes per `getdents` call: a directory of a few hundred entries comes
+; back in one syscall, and the loop handles any number.
+(:: ioDirBufBytes Int)
+(fn (ioDirBufBytes)
+  32768)
+
+; Every name in the directory `path`, `.` and `..` included, in the
+; filesystem's order. Empty means failure, since a directory always
+; holds `.` and `..`. The names are copied: the syscall's buffer is
+; reused by the next pass.
+(:: ioReadDir (-> String (Vec String)))
+;@axiom:effect(io)
+(fn (ioReadDir path)
+  (let ((out vecNew))
+    (let ((fd (ioOpen (ioPath path) oRdonly)))
+      (if (< fd 0)
+        out
+        ; Darwin's fourth argument is an in/out scan cookie the kernel
+        ; starts from; zero is the beginning. Linux keeps the position
+        ; on the descriptor and never reads it.
+        (let (
+          (buf (memAlloc ioDirBufBytes))
+          (pos (memAlloc 8))
+        )
+          {
+            (memSetWord pos 0 0)
+            (ioReadDirLoop fd buf pos out)
+            (ioCloseQuiet fd)
+            out
+          })))))
+
+; One `getdents` per pass until the directory is exhausted (0) or the
+; kernel refuses (negative). A refusal mid-way keeps the names already
+; decoded.
+(:: ioReadDirLoop (-> Int Int Int (Vec String) Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (ioReadDirLoop fd buf pos out)
+  (let ((n
+    (if (== dirReadNeedsPosition 1)
+      (__syscall4
+        sysGetdentsNum
+        fd
+        buf
+        ioDirBufBytes
+        pos)
+      (__syscall3 sysGetdentsNum fd buf ioDirBufBytes))))
+    (if (<= n 0)
+      n
+      {
+        (ioReadDirDecode buf 0 n out)
+        (ioReadDirLoop fd buf pos out)
+      })))
+
+; Walk the `n` bytes of packed records at `buf`, pushing one owned copy
+; of each name.
+;
+; Total on any bytes: the header must fit, the record must fit, and the
+; record must be long enough to hold the name field, which is also what
+; makes it advance. A record that breaks one of the three stops the walk
+; rather than reading a name out of bytes the kernel did not write.
+(:: ioReadDirDecode (-> Int Int Int (Vec String) Int))
+(fn (ioReadDirDecode buf off n out)
+  ; 18 is the last byte of `d_reclen` on both layouts.
+  (if (> (+ off 18) n)
+    0
+    ; d_reclen: a little-endian u16 at offset 16.
+    (let ((p (+ buf off)))
+      (let ((reclen (+ (memGetByte p 16) (* (memGetByte p 17) 256))))
+        (if (|| (<= reclen direntNameOffset) (> (+ off reclen) n))
+          0
+          {
+            (vecPush out (strDup (strFromLit (+ p direntNameOffset))))
+            (ioReadDirDecode buf (+ off reclen) n out)
+          })))))
 
 ; The entries of the directory `path`, as a Vec of `Str` - sorted by
 ; byte, with `.` and `..` removed.
 ;
-; An empty Vec means an empty directory OR a path that is not a
-; readable directory; `isDir` separates them. That ambiguity is
-; introduced HERE and not by the syscall: `Sys.sysReadDir` keeps `.`
-; and `..`, so its empty answer can only be failure, and dropping them
-; is what costs the distinction. It is dropped anyway, because a
-; caller that walks a directory and forgets to skip `..` walks the
-; whole filesystem, and that mistake is worse than the one this makes.
+; An empty Vec means an empty directory or a path that is not a
+; readable directory; `isDir` separates them. `.` and `..` are dropped
+; because a caller that walks a directory and forgets to skip `..`
+; walks the whole filesystem.
 ;
-; SORTED, and that is not a nicety. `readdir` order is the
-; filesystem's - unstable across machines, and across runs on the same
-; machine after entries are added and removed - so a program that
-; lists a directory and prints, hashes or compiles what it finds is
-; not reproducible unless something sorts. Doing it here means nothing
-; has to remember to.
-;
-; The sort is an insertion sort, quadratic in the entry count, and
-; that is the right shape for a directory: it is one pass for an
-; already-ordered listing (which is what most filesystems hand back),
-; it needs no scratch allocation, and `Vec` has no comparison sort to
-; borrow. A directory large enough to notice wants `Sys.sysReadDir`
-; and its own ordering.
+; Sorted, because `readdir` order is the filesystem's and is not stable
+; across machines, so a program that lists a directory and prints,
+; hashes or compiles what it finds is not reproducible unless something
+; sorts. The sort is an insertion sort: one pass for an already-ordered
+; listing, and no scratch allocation.
 (pub :: listDir (-> String (Vec String)))
 ;@axiom:effect(io)
 (pub fn (listDir path)
   (let (
-    (raw (sysReadDir (ioPath path)))
+    (raw (ioReadDir path))
     (out vecNew)
   )
     {
@@ -455,16 +637,12 @@
       out
     }))
 
-; `Vec::vecLen` is QUALIFIED in the two functions below, where every
+; `Vec::vecLen` is qualified in the two functions below, where every
 ; other call in this module is bare. An entry file that declares its
-; own `vecLen` captures a bare `vecLen` in an imported module - at
-; check time and at run time: `(listDir "/")` answered no entries under
-; an entry-file `(fn (vecLen z) 0)`, and 22 without it. The
+; own `vecLen` captures a bare `vecLen` in an imported module, and the
 ; fixtures that pin a `for` loop's hygiene declare exactly that
 ; function (`tests/stdlib/466-for-loop.ax`,
-; `tests/diagnostics/626-for-not-a-container.ax`), and with these
-; vectors typed `(Vec String)` the capture stopped type-checking. The
-; qualified spelling names the one this module means.
+; `tests/diagnostics/626-for-not-a-container.ax`).
 (:: listDirKeep (-> (Vec String) Int (Vec String) Int))
 (fn (listDirKeep raw i out)
   (if (>= i (Vec::vecLen raw))
@@ -503,18 +681,44 @@
           (listDirSift v (- i 1))
         }))))
 
-; The process's working directory as an absolute path: `(Ok path)`, or
-; `(Err e)` whose code is the errno. See `Sys.sysGetCwd` for why this
-; is two different syscalls underneath, and why it stopped answering
-; `""` for every distinct reason it can fail.
+; ------------------------------------------------------------------
+; The working directory.
 ;
-; This forwards rather than going through `ioResult`, and that is not
-; an oversight: `ioResult` exists to put the PATH into the message, and
-; this call takes no path. `Sys` has already named the operation.
+; Two shapes, because Darwin has no `getcwd` syscall: `fcntl(fd,
+; F_GETPATH, buf)` on a descriptor for `.` is the way in there, and
+; `cwdUsesFcntlPath` picks it. Both answer bytes ending in a NUL, which
+; is what the length is read from.
+; ------------------------------------------------------------------
+; The process's working directory as an absolute path: `(Ok path)`, or
+; `(Err e)` whose code is the errno.
 (pub :: cwd (Result String Error))
 ;@axiom:effect(io)
 (pub fn (cwd)
-  sysGetCwd)
+  ioGetCwd)
+
+(:: ioGetCwd (Result String Error))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (ioGetCwd)
+  ; PATH_MAX is 4096 on Linux and 1024 on Darwin and FreeBSD; one
+  ; buffer at the larger figure serves all, and a path too long for it
+  ; comes back as ERANGE rather than truncated.
+  (let ((buf (memAlloc 4097)))
+    (if (== cwdUsesFcntlPath 1)
+      (let ((fd (ioOpen (__addr ".") 0)))
+        (if (< fd 0)
+          (Err (mkError (- 0 fd) "getcwd: open ."))
+          (let ((rc (__syscall3 sysCwdNum fd fGetPath buf)))
+            {
+              (ioCloseQuiet fd)
+              (if (< rc 0)
+                (Err (mkError (- 0 rc) "getcwd"))
+                (Ok (strDup (strFromLit buf))))
+            })))
+      (let ((rc (__syscall2 sysCwdNum buf 4096)))
+        (if (< rc 0)
+          (Err (mkError (- 0 rc) "getcwd"))
+          (Ok (strDup (strFromLit buf))))))))
 
 ; ------------------------------------------------------------------
 ; Process exit
@@ -528,9 +732,8 @@
 (pub :: die (-> String Int Int))
 ;@axiom:effect(io)
 (pub fn (die s code)
-  ; `s` is already a String and its type is DECLARED, so the macro's
-  ; `show` resolves to the identity instance; this is an ordinary
-  ; `(eprintln s)` and not a special case.
+  ; `s` is already a String and its type is declared, so the macro's
+  ; `show` resolves to the identity instance.
   {
     (eprintln s)
     (exit code)
@@ -539,7 +742,7 @@
 ; ------------------------------------------------------------------
 ; A hole with a name.
 ;
-; `(todo "Rect")` types as ANY result and never returns: it prints
+; `(todo "Rect")` types as any result and never returns: it prints
 ; `todo: Rect` to standard error and exits 70, `die`'s shape, so a
 ; match arm, a branch or a body can be left unwritten without lying
 ; about its type, and the program says where it stopped. `(-> String
@@ -552,17 +755,12 @@
 ; This is what AX3005's quickfix writes into every arm it inserts -
 ; `((Rect _ _) (todo "Rect"))` - and it performs IO, so the function
 ; holding that arm must carry `;@axiom:effect(io)`. That is AX3042,
-; whose quickfix writes exactly that line: in an editor the two chain,
-; fill the match, then declare the effect.
+; whose quickfix writes exactly that line.
 ;
-; WRITTEN WITH `writeStr` AND `exit`, NOT `die`, and the reason is a
-; measurement. `die`'s effect row is an UPPER BOUND in the checker's
-; table (`symbols` prints `#effects-overapprox` on it - the `show` its
-; `eprintln` expands to is a trait dispatch, which the walk cannot
-; pin), and AX3042 does not accuse a caller on an upper bound. A
-; `todo` routed through `die` inherited the marker, and an untagged
-; function holding a `(todo ...)` arm checked CLEAN - the chain above
-; never started. The two primitives below carry exact rows, so this
+; Written with `writeStr` and `exit`, not `die`: `die`'s effect row is
+; an upper bound in the checker's table (the `show` its `eprintln`
+; expands to is a trait dispatch), and AX3042 does not accuse a caller
+; on an upper bound. The two primitives below carry exact rows, so this
 ; one does too.
 ; ------------------------------------------------------------------
 ; Exit 70 with `todo: <what>` on standard error; types as any result and never returns.
@@ -577,36 +775,27 @@
 ; ------------------------------------------------------------------
 ; Reading input.
 ;
-; `IO` could write to a descriptor and read a file by name, and until
-; 2026-09-04 could not read from a descriptor at all - `(readLine
-; stdin)` was not a call this library had, and a program that wanted a
-; line typed at it re-derived the REPL's private byte loop. The two
-; readers below are the `Sys` twins named for the caller, on the rule
-; `writeStr`/`sysWriteAllFd` and `readFile`/`sysReadFile` already
-; follow: the loop, the buffering decision and its measurement live
-; once in `Sys.sysReadLineFd`/`Sys.sysReadAllFd`, and this layer adds
-; the descriptor to the failure's message, as `ioResult` adds the
-; path.
+; The readers take the descriptor the way `writeStr` does - `(readLine
+; stdin)`, `(readLine fd)` - and answer `Result` with end of input
+; inside the `Ok`: a read that fails is not an input that ended, and a
+; stream cannot be asked `readErrno` afterwards.
 ;
-; They take the descriptor the way `writeStr` does - `(readLine
-; stdin)`, `(readLine fd)` for one `sysOpenPath` answered - and they
-; answer `Result` with end of input inside the `Ok`, for the reason
-; `Sys` states at length: a read that FAILS is not an input that
-; ENDED, and a stream cannot be asked `readErrno` afterwards.
+; The line reader makes one `read(2)` per byte, so the descriptor is
+; left at exactly the next unread byte - a child handed it, or a
+; `readAll` after it, starts where this stopped. That is about ninety
+; times slower than `readAll` on bulk input, which wants `readAll` and
+; `strSplit`, or `Rpc`'s buffered reader.
 ; ------------------------------------------------------------------
 ; One line of `fd` without its newline: `(Ok (Some line))`; `(Ok None)`
 ; at end of input when nothing was read; `(Err e)` whose code is the
 ; errno, its message `readLine: fd 0: errno 9`.
 ;
 ; A final line with no newline is still a line, and an empty line is
-; `(Some "")`. One `read(2)` per byte, so the descriptor is left at
-; exactly the next unread byte - a child handed it, or a `readAll`
-; after it, starts where this stopped. See `Sys.sysReadLineFd` for the
-; cost of that on bulk input and what to use instead.
+; `(Some "")`.
 (pub :: readLine (-> Int (Result (Option String) Error)))
 ;@axiom:effect(io)
 (pub fn (readLine fd)
-  (match (sysReadLineFd fd)
+  (match (ioReadLineFd fd)
     ((Ok line) (Ok line))
     ((Err e) (Err (ioFdError (errCode e) "readLine" fd)))))
 
@@ -618,7 +807,7 @@
 (pub :: readAll (-> Int (Result String Error)))
 ;@axiom:effect(io)
 (pub fn (readAll fd)
-  (match (sysReadAllFd fd)
+  (match (ioReadAllFd fd)
     ((Ok s) (Ok s))
     ((Err e) (Err (ioFdError (errCode e) "readAll" fd)))))
 
@@ -680,33 +869,25 @@
   (readInto fd buf.bytes at count))
 
 ; ------------------------------------------------------------------
-; Entropy
-; ------------------------------------------------------------------
-; `n` bytes of kernel entropy as a fresh string: `(Ok bytes)`, or
-; `(Err e)` whose code is the errno. The bytes are for keys, nonces
-; and seeds; `strByte` reads them one at a time. A negative `n` stops
-; the program with status 77.
-(pub :: randomBytes (-> Int (Result String Error)))
-;@axiom:effect(io)
-;@axiom:effect(entropy)
-(pub fn (randomBytes n)
-  (if (< n 0)
-    __indexTrap
-    (let ((s (strAlloc n)))
-      (match (sysRandomBytes (strData s) n)
-        ((Ok _) (Ok s))
-        ((Err e) (Err e))))))
-
-; ------------------------------------------------------------------
 ; Terminals
 ;
 ; A terminal's saved state lives in a `TermState`, which only this
 ; module builds or opens: the bytes the kernel wrote are never handed
-; back as an address, so nothing can aim a restore at the wrong
-; memory. `Tui.Term` is the line editor built on the same calls.
+; back as an address, so nothing can aim a restore at the wrong memory.
+;
+; The restore is the part that must not be almost right. A program that
+; exits leaving the terminal raw hands the user a shell with no echo.
+; So the saved bytes are written once, by the save, and raw mode edits a
+; private copy.
+;
+; Every request number, struct offset and flag bit comes from
+; `Sys.Platform`: `struct termios` is 72 bytes on Darwin, 36 on Linux
+; and 44 on FreeBSD, and Linux carries a `c_line` byte the BSDs do not.
+; `struct winsize` is the same on every POSIX target - four `unsigned
+; short`, rows first, columns second - so its offsets are here.
 ; ------------------------------------------------------------------
 ; A descriptor and the terminal attributes saved from it.
-(struct TermState
+(pub struct TermState sealed
   (fd : Int)
   (save : Int))
 
@@ -716,64 +897,148 @@
   (rows : Int)
   (cols : Int))
 
-; The attributes of the terminal on `fd`, saved: `(Ok state)` to hand
-; to `termRestore` later, or `(Err e)` - ENOTTY when `fd` is not a
-; terminal.
-(pub :: termSave (-> Int (Result TermState Error)))
+; ioctl(fd, request, arg): 0, or `-errno`.
+(:: ioIoctl (-> Int Int Int Int))
 ;@axiom:effect(io)
-(pub fn (termSave fd)
-  (let ((st (TermState fd (memAlloc (ioTermStateCap)))))
-    (ioTermAnswer (sysTermSave fd st.save) st "termSave")))
+;@axiom:effect(unsafe)
+(fn (ioIoctl fd req arg)
+  (__syscall3 sysIoctlNum fd req arg))
 
-; Put the terminal on `fd` into raw mode, saving what it was first:
-; `(Ok state)` to restore it with, or `(Err e)`. With `keepSignals`
-; true, ^C still raises SIGINT; see `Sys.sysTermRaw` for every flag
-; raw mode changes.
-(pub :: termRaw (-> Int Bool (Result TermState Error)))
-;@axiom:effect(io)
-(pub fn (termRaw fd keepSignals)
-  (let ((st (TermState fd (memAlloc (ioTermStateCap)))))
-    (ioTermAnswer
-      (sysTermRaw
-        fd
-        st.save
-        (if keepSignals
-          1
-          0))
-      st
-      "termRaw")))
+; The answer where the platform has no terminal control (Windows): 78,
+; the code `sysNowMonotonic` uses for "this platform cannot answer".
+; No `ioctl` is made.
+(:: ioTermUnsupported Int)
+(fn (ioTermUnsupported)
+  (- 0 78))
 
-; Put back the attributes `st` saved, on the descriptor they came from:
-; `(Ok 0)`, or `(Err e)`.
-(pub :: termRestore (-> TermState (Result Int Error)))
-;@axiom:effect(io)
-(pub fn (termRestore st)
-  (sysResult "termRestore" (sysTermRestore st.fd st.save)))
+; A four-byte integer in the host's order, at byte `off` of `buf`.
+(:: ioPutInt32 (-> Int Int Int Int))
+(fn (ioPutInt32 buf off v)
+  {
+    (memPutByte buf off (& v 255))
+    (memPutByte buf (+ off 1) (& (>> v 8) 255))
+    (memPutByte buf (+ off 2) (& (>> v 16) 255))
+    (memPutByte buf (+ off 3) (& (>> v 24) 255))
+    buf
+  })
 
-; The size of the terminal on `fd`: `(Ok size)`, or `(Err e)` - ENOTTY
-; when `fd` is not a terminal.
-(pub :: termSize (-> Int (Result TermSize Error)))
+(:: ioGetInt32 (-> Int Int Int))
+(fn (ioGetInt32 buf off)
+  (+ (memGetByte buf off) (+ (<< (memGetByte buf (+ off 1)) 8) (+ (<< (memGetByte buf (+ off 2)) 16) (<< (memGetByte buf (+ off 3)) 24)))))
+
+; Read one of the four flag words out of a saved state, or clear bits in
+; one: `n` is 0 for c_iflag, 1 for c_oflag, 2 for c_cflag and 3 for
+; c_lflag, `termiosFlagBytes` apart on every target. They move the low
+; 32 bits, where every flag any target defines lives; Darwin's upper
+; half goes back untouched.
+(:: ioTermFlagGet (-> Int Int Int))
+(fn (ioTermFlagGet buf n)
+  (ioGetInt32 buf (* n termiosFlagBytes)))
+
+(:: ioTermFlagClear (-> Int Int Int Int))
+(fn (ioTermFlagClear buf n mask)
+  (ioPutInt32 buf (* n termiosFlagBytes) (& (ioTermFlagGet buf n) (^ mask (- 0 1)))))
+
+; The edit that makes raw mode, on a private copy `work` of the saved
+; state, written back to `fd`.
+;
+;   c_lflag  ECHO, ICANON, IEXTEN off, and ISIG too unless `keepSignals`
+;   c_iflag  IXON, ICRNL, ISTRIP, BRKINT off
+;   c_oflag  OPOST off: a lone LF is not expanded to CR LF
+;   c_cc     VMIN 1, VTIME 0: a `read` returns as soon as one byte is there
+;
+; c_cflag is not touched; it matters on a serial line, not on a pty.
+(:: ioTermRawApply (-> Int Int Bool Int Int))
 ;@axiom:effect(io)
-(pub fn (termSize fd)
-  (let ((ws (memAlloc sysTermSizeBytes)))
-    (let ((rc (sysTermSize fd ws)))
-      (if (< rc 0)
-        (Err (mkError (- 0 rc) "termSize"))
-        (Ok (TermSize (sysTermRows ws) (sysTermCols ws)))))))
+(fn (ioTermRawApply fd save keepSignals work)
+  {
+    (memCopy work save termiosBytes)
+    (ioTermFlagClear work 0 (| tiosBrkint (| tiosIcrnl (| tiosIstrip tiosIxon))))
+    (ioTermFlagClear work 1 tiosOpost)
+    (ioTermFlagClear
+      work
+      3
+      (if keepSignals
+        (| tiosEcho (| tiosIcanon tiosIexten))
+        (| tiosEcho (| tiosIcanon (| tiosIexten tiosIsig)))))
+    (memPutByte work (+ termiosCcOff termiosVminIdx) 1)
+    (memPutByte work (+ termiosCcOff termiosVtimeIdx) 0)
+    (ioIoctl fd tcSetAttrReq work)
+  })
 
 ; The saved state's size, never 0: a target with no terminal control
-; answers `sysTermStateBytes` 0, and its calls never touch the block.
+; has `termiosBytes` 0, and its calls never touch the block.
 (:: ioTermStateCap Int)
 (fn (ioTermStateCap)
-  (if (< sysTermStateBytes 8)
+  (if (< termiosBytes 8)
     8
-    sysTermStateBytes))
+    termiosBytes))
 
 (:: ioTermAnswer (-> Int TermState String (Result TermState Error)))
 (fn (ioTermAnswer rc st op)
   (if (< rc 0)
     (Err (mkError (- 0 rc) op))
     (Ok st)))
+
+; The attributes of the terminal on `fd`, saved: `(Ok state)` to hand
+; to `termRestore` later, or `(Err e)` - ENOTTY when `fd` is not a
+; terminal.
+(pub :: termSave (-> Int (Result TermState Error)))
+;@axiom:effect(io)
+(pub fn (termSave fd)
+  (let ((st (TermState fd (memAlloc ioTermStateCap))))
+    (ioTermAnswer
+      (if (== ttyUsesTermios 0)
+        ioTermUnsupported
+        (ioIoctl fd tcGetAttrReq st.save))
+      st
+      "termSave")))
+
+; Put the terminal on `fd` into raw mode, saving what it was first:
+; `(Ok state)` to restore it with, or `(Err e)`. With `keepSignals`
+; true, ^C still raises SIGINT; with false it arrives as byte 3.
+(pub :: termRaw (-> Int Bool (Result TermState Error)))
+;@axiom:effect(io)
+(pub fn (termRaw fd keepSignals)
+  (let ((st (TermState fd (memAlloc ioTermStateCap))))
+    (ioTermAnswer
+      (if (== ttyUsesTermios 0)
+        ioTermUnsupported
+        (let ((r (ioIoctl fd tcGetAttrReq st.save)))
+          (if (< r 0)
+            r
+            (ioTermRawApply fd st.save keepSignals (memAlloc ioTermStateCap)))))
+      st
+      "termRaw")))
+
+; Put back the attributes `st` saved, on the descriptor they came from:
+; `(Ok 0)`, or `(Err e)`. The request is the flushing one, so a
+; half-typed line is not handed to the shell.
+(pub :: termRestore (-> TermState (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (termRestore st)
+  (sysResult
+    "termRestore"
+    (if (== ttyUsesTermios 0)
+      ioTermUnsupported
+      (ioIoctl st.fd tcSetAttrReq st.save))))
+
+; The size of the terminal on `fd`: `(Ok size)`, or `(Err e)` - ENOTTY
+; when `fd` is not a terminal. A terminal may answer 0 rows and 0
+; columns with a successful call; treat 0 as unknown.
+(pub :: termSize (-> Int (Result TermSize Error)))
+;@axiom:effect(io)
+(pub fn (termSize fd)
+  (let ((ws (memAlloc 8)))
+    (let ((rc
+      (if (== ttyUsesTermios 0)
+        ioTermUnsupported
+        (ioIoctl fd tcWinSizeReq ws))))
+      (if (< rc 0)
+        (Err (mkError (- 0 rc) "termSize"))
+        (Ok (TermSize
+          (+ (memGetByte ws 0) (<< (memGetByte ws 1) 8))
+          (+ (memGetByte ws 2) (<< (memGetByte ws 3) 8))))))))
 
 ; An owned file. Aliases share its lifetime; the last owner closes it.
 ; Explicit `fileClose` closes it early for every alias.
@@ -824,20 +1089,16 @@
 (pub fn (fileReadAll f)
   (readAll (fileFd f)))
 
-; Read into a checked slice of a string buffer.
-(pub :: fileReadInto (-> File String Int Int (Result Int Error)))
+; Read at most `count` bytes into `buf[at .. at + count)`: `(Ok n)`,
+; `(Ok 0)` at end of input, or `(Err e)`. A range outside `buf` stops
+; the program with status 77 before the kernel sees it.
+(pub :: fileRead (-> File ReadBuffer Int Int (Result Int Error)))
 ;@axiom:effect(io)
-(pub fn (fileReadInto f buf at count)
-  (readInto (fileFd f) buf at count))
-
-; Read into a private mutable buffer, preserving errors and EOF.
-(pub :: fileReadBuffer (-> File ReadBuffer Int Int (Result Int Error)))
-;@axiom:effect(io)
-(pub fn (fileReadBuffer f buf at count)
+(pub fn (fileRead f buf at count)
   (readBuffer (fileFd f) buf at count))
 
 ; Write every byte, preserving errors in the result.
 (pub :: fileWrite (-> File String (Result Int Error)))
 ;@axiom:effect(io)
 (pub fn (fileWrite f s)
-  (sysResult "fileWrite" (sysWriteAllFd (fileFd f) (strData s) (strLen s) 0)))
+  (sysResult "fileWrite" (sysWriteAllFd (fileFd f) (strData s) (strLen s))))

@@ -850,22 +850,21 @@
 ; ------------------------------------------------------------------
 ; A WIDTH THAT MIGHT NOT BE ONE.
 ;
-; The editor passes the terminal's own column count - `sysTermCols`
-; over a buffer `sysTermSize` filled - and this module never calls
-; either, deliberately: a completion engine that reads a terminal is
+; The editor passes the terminal's own column count - the `cols` of
+; what `termSize` answered - and this module never calls it,
+; deliberately: a completion engine that reads a terminal is
 ; one that cannot be tested without a terminal, and every layer of
 ; `scripts/check-replcomp.sh` depends on it staying a parameter.
 ;
 ; But the number that arrives can fail to be a width in two ways, and
 ; BOTH were measured rather than imagined:
 ;
-;   0   `stdlib/Sys.ax` says so in as many words on `sysTermSize` - "A
-;       TERMINAL IS PERMITTED TO ANSWER ZERO ... Treat 0 as unknown
-;       and fall back to 80x24". A pty that was never sized, and some
-;       CI runners, do exactly that with a SUCCESSFUL ioctl.
-;   <0  `sysTermSize` answers a negative errno and `sysTermCols`
-;       answers a field; an editor that passed the first where it
-;       meant the second hands over -25 or -9.
+;   0   `stdlib/IO.ax` says so on `termSize`: a terminal may answer
+;       0 rows and 0 columns with a successful call, and 0 means
+;       unknown. A pty that was never sized, and some CI runners, do
+;       exactly that.
+;   <0  an editor that passed a negated errno where it meant the
+;       column count hands over -25 (ENOTTY) or -9 (EBADF).
 ;
 ; Both mean "no usable width", and both take the standard library's
 ; OWN fallback rather than a second convention invented here.

@@ -1112,36 +1112,31 @@ two differ.
 
 ## `IO`
 
-`stdlib/IO.ax` — 53 public names
+`stdlib/IO.ax` — 47 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
 | `writeStr` | value | `(-> Int String Int)` | `Alloc,IO` | Write all of `s` to `fd`, returning the number of bytes written or a negative errno. |
 | `writeSlice` | value | `(-> Int String Int Int Int)` | `Alloc,IO` | Write the `len` bytes of `s` that start at byte `start`, all of them, returning the number written or a negative errno - `writeStr` over a part of a string, with no copy. |
-| `printlnLit` | value | `(-> Int Int)` | `Alloc,IO,Unsafe` | `cstr` must name live NUL-terminated bytes. |
 | `println` | macro |  |  |  |
 | `eprintln` | macro |  |  |  |
-| `readFileLit` | value | `(-> Int String)` | `Alloc,IO,Mut` | The whole contents of the file at NUL-terminated path `cstr`, or an empty `Str` if it cannot be opened. |
-| `readFile` | value | `(-> String String)` | `Alloc,IO,Mut` |  |
-| `ioResult` | value | `(-> (Result Int Error) String String (Result Int Error))` | `Alloc,Mut` | A `Sys` answer re-wrapped with the path this layer knows. |
-| `writeFile` | value | `(-> String String (Result Int Error))` | `Alloc,IO,Mut` | Write `s` to `path`, creating it or TRUNCATING what is there. Answers `(Ok bytes)`, or `(Err e)` whose code is the errno. |
-| `appendFile` | value | `(-> String String (Result Int Error))` | `Alloc,IO,Mut` | Add `s` to the end of `path`, creating it if absent. Answers the `(Ok bytes)`, or `(Err e)` whose code is the errno. |
-| `removeFile` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut` | Remove the file `path`. Answers `(Ok 0)`, or `(Err …)` carrying the errno. |
+| `readFile` | value | `(-> String String)` | `Alloc,IO,Mut` | The whole contents of the file at `path`, or "" if it cannot be read. |
+| `writeFile` | value | `(-> String String (Result Int Error))` | `Alloc,IO,Mut` | Write `s` to `path`, creating it or truncating what is there. Answers `(Ok bytes)`, or `(Err e)` whose code is the errno. |
+| `appendFile` | value | `(-> String String (Result Int Error))` | `Alloc,IO,Mut` | Add `s` to the end of `path`, creating it if absent. Answers `(Ok bytes)`, or `(Err e)` whose code is the errno. `O_APPEND` makes the seek and the write one operation, so two processes appending to one log interleave whole writes. |
+| `removeFile` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut` | Remove the file `path`. Answers `(Ok 0)`, or `(Err …)` carrying the errno. It does not remove a directory; that is `removeDir`. |
 | `renamePath` | value | `(-> String String (Result Int Error))` | `Alloc,IO,Mut` | Move `old` to `new`, answering `(Ok 0)` or `(Err …)` with the errno. |
 | `openPath` | value | `(-> String Int (Result File Error))` | `Alloc,IO,Mut` | Open `path` with `flags` (`oRdonly`, `oWronlyCreateTrunc`, ...): `(Ok file)`, or `(Err e)` whose code is the errno. New files get mode 0644. The file closes when its last owner leaves scope. |
-| `openBeneath` | value | `(-> String String (Result File Error))` | `Alloc,IO,Mut` | Open `rel` for reading inside the directory `root`, following no symbolic link below it: `(Ok file)`, or `(Err e)`. `rel` must be relative, with no `..` segment; see `Sys.sysOpenBeneath` for the rules and why it walks one segment at a time. |
-| `makeSymlink` | value | `(-> String String (Result Int Error))` | `Alloc,IO,Mut` | Create the symbolic link `link` whose content is `target`. Answers `(Ok 0)`, or `(Err e)` - EEXIST when `link` is already there. |
 | `copyFile` | value | `(-> String String (Result Int Error))` | `Alloc,IO,Mut` | Copy `src` onto `dst`, answering `(Ok bytes)` or `(Err e)`. `dst` is created or truncated. |
 | `fileExists` | value | `(-> String Bool)` | `Alloc,IO,Mut` | True when `path` names something that can be opened for reading - a directory included. `isDir` separates them. |
-| `isDir` | value | `(-> String Bool)` | `Alloc,IO,Mut` | True when `path` names a directory. |
-| `fileSize` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut` | The size of `path` in bytes, or `(Err …)` carrying the errno. |
+| `isDir` | value | `(-> String Bool)` | `Alloc,IO,Mut` | True when `path` names a directory: one that opens and whose read answers EISDIR. An empty file answers false. |
+| `fileSize` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut` | The size of `path` in bytes, or `(Err …)` carrying the errno. It seeks to the end, which is what the size is. |
 | `readErrno` | value | `(-> String Int)` | `Alloc,IO,Mut` | 0 when `path` can be read as a file, otherwise the errno saying why not: 2 missing, 13 not permitted, 21 a directory. |
 | `makeDir` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut` | Create the directory `path`, mode 0755. Answers `(Ok 0)`, or `(Err …)` carrying the errno - `EEXIST` when it is already there. |
 | `makeDirMode` | value | `(-> String Int (Result Int Error))` | `Alloc,IO,Mut` | Create the directory `path` with the permission bits `mode`, such as 448 (0700) for a directory only its owner may enter. Answers `(Ok 0)`, or `(Err e)`. |
 | `makeDirAll` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut` | Create `path` and every missing directory above it. Answers `(Ok 0)`, or `(Err …)` carrying the errno of the first component that could not be made. |
-| `removeDir` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut` | Remove the EMPTY directory `path`. Answers `(Ok 0)`, or `(Err …)` - `ENOTEMPTY` when it still holds entries. Nothing here removes a tree: that is a loop over `listDir`, and it is the caller's to write, because a library that deletes recursively on one call is a library that deletes the wrong subtree once. |
+| `removeDir` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut` | Remove the empty directory `path`. Answers `(Ok 0)`, or `(Err …)` - `ENOTEMPTY` when it still holds entries. Nothing here removes a tree: that is a loop over `listDir`, and it is the caller's to write. |
 | `listDir` | value | `(-> String (Vec String))` | `Alloc,IO,Mut` | The entries of the directory `path`, as a Vec of `Str` - sorted by byte, with `.` and `..` removed. |
-| `cwd` | value | `(Result String Error)` | `Alloc,IO,Mut` | The process's working directory as an absolute path: `(Ok path)`, or `(Err e)` whose code is the errno. See `Sys.sysGetCwd` for why this is two different syscalls underneath, and why it stopped answering `""` for every distinct reason it can fail. |
+| `cwd` | value | `(Result String Error)` | `Alloc,IO,Mut` | The process's working directory as an absolute path: `(Ok path)`, or `(Err e)` whose code is the errno. |
 | `exit` | value | `(-> Int Int)` | `IO` |  |
 | `die` | value | `(-> String Int Int)` | `Alloc,IO,Mut` | Print `s` to standard error and exit with `code`. Never returns. |
 | `todo` | value | `(-> String a)` | `Alloc,IO,Mut` | Exit 70 with `todo: <what>` on standard error; types as any result and never returns. |
@@ -1154,20 +1149,19 @@ two differ.
 | `readBufferByte` | value | `(-> ReadBuffer Int Int)` |  | Read one byte, with the same bounds check as strByte. |
 | `readBufferText` | value | `(-> ReadBuffer Int Int String)` | `Alloc,Mut` | Copy a checked range into an immutable String. Later reads into the buffer do not change the returned bytes. |
 | `readBuffer` | value | `(-> Int ReadBuffer Int Int (Result Int Error))` | `Alloc,IO` | Read at most count bytes into a checked buffer range, returning the count or the OS error. Zero is EOF. ReadBuffer cannot be captured by a parallel binding; its bytes are used by one binding at a time. |
-| `randomBytes` | value | `(-> Int (Result String Error))` | `Alloc,Entropy,IO,Mut` | `n` bytes of kernel entropy as a fresh string: `(Ok bytes)`, or `(Err e)` whose code is the errno. The bytes are for keys, nonces and seeds; `strByte` reads them one at a time. A negative `n` stops the program with status 77. |
+| `TermState` | struct |  |  | A descriptor and the terminal attributes saved from it. |
 | `TermSize` | struct |  |  | A terminal's size in character cells. A terminal that was never sized reports 0 for both; treat 0 as unknown and fall back to 80x24. |
 | `termSave` | value | `(-> Int (Result TermState Error))` | `Alloc,IO` | The attributes of the terminal on `fd`, saved: `(Ok state)` to hand to `termRestore` later, or `(Err e)` - ENOTTY when `fd` is not a terminal. |
-| `termRaw` | value | `(-> Int Bool (Result TermState Error))` | `Alloc,IO,Mut` | Put the terminal on `fd` into raw mode, saving what it was first: `(Ok state)` to restore it with, or `(Err e)`. With `keepSignals` true, ^C still raises SIGINT; see `Sys.sysTermRaw` for every flag raw mode changes. |
-| `termRestore` | value | `(-> TermState (Result Int Error))` | `Alloc,IO` | Put back the attributes `st` saved, on the descriptor they came from: `(Ok 0)`, or `(Err e)`. |
-| `termSize` | value | `(-> Int (Result TermSize Error))` | `Alloc,IO` | The size of the terminal on `fd`: `(Ok size)`, or `(Err e)` - ENOTTY when `fd` is not a terminal. |
+| `termRaw` | value | `(-> Int Bool (Result TermState Error))` | `Alloc,IO,Mut` | Put the terminal on `fd` into raw mode, saving what it was first: `(Ok state)` to restore it with, or `(Err e)`. With `keepSignals` true, ^C still raises SIGINT; with false it arrives as byte 3. |
+| `termRestore` | value | `(-> TermState (Result Int Error))` | `Alloc,IO` | Put back the attributes `st` saved, on the descriptor they came from: `(Ok 0)`, or `(Err e)`. The request is the flushing one, so a half-typed line is not handed to the shell. |
+| `termSize` | value | `(-> Int (Result TermSize Error))` | `Alloc,IO` | The size of the terminal on `fd`: `(Ok size)`, or `(Err e)` - ENOTTY when `fd` is not a terminal. A terminal may answer 0 rows and 0 columns with a successful call; treat 0 as unknown. |
 | `File` | struct |  |  | An owned file. Aliases share its lifetime; the last owner closes it. Explicit `fileClose` closes it early for every alias. |
 | `fileFromFd` | value | `(-> Int File)` | `Alloc,IO,Unsafe` | Transfer ownership of one descriptor into a File. `fd` must be an open descriptor this call takes over: don't close it or give it another owner. |
 | `fileFd` | value | `(-> File Int)` | `Unsafe` | Borrow the descriptor for readiness calls. Keep its owner live and do not close the descriptor; use `fileClose` to close its owner. |
 | `fileClose` | value | `(-> File (Result Int Error))` | `Alloc,IO,Unsafe` | Close early, once. Aliases observe the close; dropping them is safe. The descriptor is retired before close and close is never retried. |
 | `fileReadLine` | value | `(-> File (Result (Option String) Error))` | `Alloc,IO,Mut` | Read a line, preserving EOF as None and failures as Err. |
 | `fileReadAll` | value | `(-> File (Result String Error))` | `Alloc,IO,Mut` | Read the remaining bytes from a file. |
-| `fileReadInto` | value | `(-> File String Int Int (Result Int Error))` | `Alloc,IO` | Read into a checked slice of a string buffer. |
-| `fileReadBuffer` | value | `(-> File ReadBuffer Int Int (Result Int Error))` | `Alloc,IO` | Read into a private mutable buffer, preserving errors and EOF. |
+| `fileRead` | value | `(-> File ReadBuffer Int Int (Result Int Error))` | `Alloc,IO` | Read at most `count` bytes into `buf[at .. at + count)`: `(Ok n)`, `(Ok 0)` at end of input, or `(Err e)`. A range outside `buf` stops the program with status 77 before the kernel sees it. |
 | `fileWrite` | value | `(-> File String (Result Int Error))` | `Alloc,IO` | Write every byte, preserving errors in the result. |
 
 ## `Intern`
@@ -1301,7 +1295,7 @@ two differ.
 
 ## `Net`
 
-`stdlib/Net.ax` — 33 public names
+`stdlib/Net.ax` — 32 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -1322,8 +1316,7 @@ two differ.
 | `tcpListenerAddr` | value | `(-> TcpListener (Result SocketAddr Error))` | `Alloc,IO,Mut` | The address the listener is bound to - the kernel's choice of port when it was asked for port 0. |
 | `tcpListenerClose` | value | `(-> TcpListener (Result Int Error))` | `Alloc,IO` | Close the listener. Its handle is retired first, so any later use of it stops the program with status 85. |
 | `tcpConnect` | value | `(-> SocketAddr (Result TcpStream Error))` | `Alloc,IO,Mut` | Connect to `addr`, waiting until the connection is made or refused. |
-| `tcpRead` | value | `(-> TcpStream String Int Int (Result Int Error))` | `Alloc,IO` | Read into `buf[at .. at + count)`. Answers how many bytes arrived, and 0 when the peer has closed its side. A range outside `buf` stops the program with status 77 before the kernel sees it, as `IO.readInto` does. |
-| `tcpReadBuffer` | value | `(-> TcpStream ReadBuffer Int Int (Result Int Error))` | `Alloc,IO` | Read into private mutable storage without exposing a writable String. |
+| `tcpRead` | value | `(-> TcpStream ReadBuffer Int Int (Result Int Error))` | `Alloc,IO` | Read into `buf[at .. at + count)`. Answers how many bytes arrived, and 0 when the peer has closed its side. A range outside `buf` stops the program with status 77 before the kernel sees it. |
 | `tcpReadSome` | value | `(-> TcpStream Int (Result String Error))` | `Alloc,IO,Mut` | Up to `max` bytes, as a fresh string: empty when the peer has closed its side. |
 | `tcpReadAll` | value | `(-> TcpStream (Result String Error))` | `Alloc,IO,Mut` | Everything until the peer closes its side. |
 | `tcpWrite` | value | `(-> TcpStream String (Result Int Error))` | `Alloc,IO,Unsafe` | Write all of `data`, continuing after a short write. Answers the number of bytes written, which is `strLen data` unless it failed. A peer that has closed answers `Err` EPIPE rather than a signal. |
@@ -1454,7 +1447,7 @@ two differ.
 
 ## `Sys`
 
-`stdlib/Sys.ax` — 118 public names
+`stdlib/Sys.ax` — 88 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -1462,32 +1455,12 @@ two differ.
 | `stdin` | value | `Int` |  |  |
 | `stdout` | value | `Int` |  |  |
 | `stderr` | value | `Int` |  |  |
-| `sysWriteFd` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | write(2): `Ok` bytes written - possibly fewer than asked, which is what `sysWriteAllFd` below exists to retry - or `Err` carrying the errno. `(Result Int Error)` since 2026-09-03; the sentinel it replaced is recorded in `sysWriteAllFd`'s header, with why it stood and what let it go. |
-| `sysWriteAllFd` | value | `(-> Int Int Int Int Int)` | `Alloc,IO` | THREE OUTCOMES, AND THE Int CHANNEL HELD TWO. Until 2026-08-30 this answered `done` when `write` returned exactly 0 - a short, NON-NEGATIVE count, indistinguishable from the complete one. The comment above calls treating a short write as success "the classic way to truncate output", and that is what this did in the one case it cannot retry. |
+| `sysWriteAllFd` | value | `(-> Int Int Int Int)` | `Alloc,IO` | Write all `count` bytes at `buf` to `fd`: bytes written, or `-errno`. |
 | `sysReadFd` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | read(2): `Ok` bytes read, `Ok 0` at end of input, or `Err` carrying the errno. Every reader in the tree matches the call directly, as `sysWriteAllFd` does, and it pays for no block on the path where bytes arrive. |
-| `sysOpenPath` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO` | ANSWERS `(Result Int Error)` - the descriptor, or the errno `open` refused with. This is the port `docs/error-model.md` ERR-ADOPT-1 calls the canonical one: a failed open is what a reader checks first when deciding whether the error model is real, and ENOENT, EACCES and EISDIR are three different things a caller does three different things about. As an `Int` they were all "negative". |
 | `sysCloseFd` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Unsafe` | Close a descriptor. |
-| `sysExitWith` | value | `(-> Int Int)` | `IO,Unsafe` |  |
-| `sysFailed` | value | `(-> Int Bool)` |  |  |
-| `sysErrno` | value | `(-> Int Int)` |  |  |
-| `sysReadFile` | value | `(-> Int String)` | `Alloc,IO,Mut` | Open, read entire contents, close.  Returns an empty string on any error (missing file, permission, etc.). |
+| `sysExitWith` | value | `(-> Int Int)` | `IO,Unsafe` | Terminate the process. Never returns; the `0` afterwards exists only because every Axiom expression has a value. |
 | `sysArgc` | value | `Int` | `IO` | How many arguments the process received, including the program name. |
 | `sysArg` | value | `(-> Int String)` | `Alloc,IO,Mut` | The i-th argument as a Str (0 is the program name), or "" when `i` is out of range. The bytes are the process's own argv storage - NUL-terminated, alive for the whole run, never freed or moved - so wrapping them without copying is sound. |
-| `sysWriteFile` | value | `(-> Int String (Result Int Error))` | `Alloc,IO` | Write `s` to `path`, creating or truncating it. Answers the number of bytes written, or a negative errno from whichever step failed. |
-| `sysAppendFile` | value | `(-> Int String (Result Int Error))` | `Alloc,IO` | Append `s` to `path`, creating it if it is not there. Answers the number of bytes written, or a negative errno. |
-| `sysRename` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | Rename `old` to `new`, answering 0 or `-errno`. Both are NUL-terminated char* - `strCStr`. |
-| `sysUnlink` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Unsafe` | Remove `path`. Answers 0, or `-errno`. |
-| `sysMkdir` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | Create directory `path` with `mode`. Answers 0, or `-errno` - which is `-17` (EEXIST) when it is already there, and callers usually want to treat that as success. |
-| `sysDirMode` | value | `Int` |  | 0755, the mode a directory usually wants. A nullary function because that is how this language spells a constant. |
-| `sysRmdir` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Unsafe` | Remove the empty directory `path`. Answers 0, or `-errno`. |
-| `sysSymlink` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | Create the symbolic link `link` whose content is `target`, both NUL-terminated addresses. Answers `Ok 0`, or the errno. |
-| `sysOpenBeneath` | value | `(-> Int String (Result Int Error))` | `Alloc,IO,Mut` | Open `rel` for reading inside the directory `root` (a NUL-terminated address), following no symlink below it: the descriptor, or the errno. |
-| `sysFileExists` | value | `(-> Int Bool)` | `Alloc,IO` | 1 when `path` names something that can be opened for reading. |
-| `sysFileSize` | value | `(-> Int (Result Int Error))` | `Alloc,IO` | The size of `path` in bytes, or `-errno`. Seeks to the end, which is what the size IS - no struct, no layout, no per-target record. |
-| `sysReadErrno` | value | `(-> Int Int)` | `Alloc,IO,Mut` | 0 when `path` can be opened AND read as a file, otherwise the errno saying why not. |
-| `sysIsDir` | value | `(-> Int Bool)` | `Alloc,IO,Mut` | True when `path` names a directory. |
-| `sysReadDir` | value | `(-> Int (Vec String))` | `Alloc,IO,Mut` | Every name in the directory `path`, as a Vec of owned `Str` - `.` and `..` INCLUDED, in whatever order the filesystem gives them. |
-| `sysGetCwd` | value | `(Result String Error)` | `Alloc,IO,Mut,Unsafe` | The process's working directory as an absolute path: `(Ok path)`, or `(Err e)` whose code is the errno the kernel refused with. |
 | `sysEnv` | value | `(-> String String)` | `Alloc,IO,Mut` | The value of the environment variable `name`, or "" when it is unset. |
 | `sysEnvp` | value | `Int` | `Alloc,IO,Mut` | A NULL-terminated copy of the process's own environment vector, in the form a child expects. |
 | `sysSpawn` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,IO,Mut,Spawn,Unsafe` | Start `path` with argument vector `argv` and environment `envp`. `(Ok pid)`, or `(Err e)` whose code is the errno - and `Err` means no child exists, which is what a caller must not confuse with a child that started and failed. |
@@ -1496,7 +1469,7 @@ two differ.
 | `sysTermSignal` | value | `(-> Int Int)` |  | The signal that killed a child, or 0 if it exited normally. |
 | `sysRun` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,Block,IO,Mut,Spawn` | Run `path` to completion and answer its exit code. |
 | `sysRunPath` | value | `(-> String Int Int (Result Int Error))` | `Alloc,Block,IO,Mut,Spawn` | Run `name`, searching `PATH` for it when it contains no slash. |
-| `sysGetPid` | value | `Int` | `IO,Unsafe` | The calling process's own id - the per-session suffix scratch files need so two concurrent processes cannot collide. The syscall takes no arguments; the unused ones are simply zero. |
+| `sysPid` | value | `Int` | `IO,Unsafe` | The calling process's own id - the per-session suffix scratch files need so two concurrent processes cannot collide. The syscall takes no arguments; the unused ones are simply zero. |
 | `sysNowMicros` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Unsafe` | Microseconds now, from the platform's cheapest correct clock: Darwin answers gettimeofday's timeval (realtime; Darwin's syscall table has no clock_gettime), Linux and FreeBSD answer CLOCK_MONOTONIC via clock_gettime - under the id `clockMonotonicId` names, because the id is not portable: 1 on Linux, and on FreeBSD 4, where 1 is CLOCK_VIRTUAL, the process's CPU time. That one was a literal here until 2026-08-29, and a clock that measures CPU time never runs backwards either, so nothing would have caught it. |
 | `sysNowMonotonic` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Unsafe` | Microseconds from a clock that NEVER steps backwards, or `Err` when this platform has none. The 16-byte buffer is the caller's, as above, so a timing loop allocates nothing on the path that answers. |
 | `sysNowRealtimeNanos` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Unsafe` | Nanoseconds since 1970-01-01T00:00:00Z from the realtime clock, the wall clock `Chrono.datetimeNowUtc` reads. The system may step it, so two readings do not measure a duration: that is `sysNowMonotonic`'s job. Darwin answers gettimeofday's microseconds times 1000; Linux and FreeBSD answer clock_gettime(CLOCK_REALTIME). A target with no clock call (`sysClockNum` 0: Windows and bare metal) answers `Err` 78, as `sysNowMonotonic` does. An Int of nanoseconds reaches 2262-04-11, and a reading beyond that answers `Err` `errOverflow` rather than wrap. The 16-byte buffer is the caller's, as above. |
@@ -1526,30 +1499,20 @@ two differ.
 | `netSetOptInt` | value | `(-> Int Int Int Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Set an integer-valued socket option. The value crosses as four bytes in the host's own order, which is what the kernel reads an `int` option as - unlike an address, this one is NOT network order. That is `netPutInt32`, which `netAcceptFrom`'s `socklen_t` cell needs for the same reason. |
 | `netSetNonBlocking` | value | `(-> Int (Result Int Error))` | `Alloc,IO` | Put a descriptor into non-blocking mode, preserving the flags it already carries - a bare `F_SETFL` of the one flag would clear the access mode with it. |
 | `netWouldBlock` | value | `(-> Int Bool)` |  | Whether a negative answer means "nothing to take yet" rather than a broken socket. This is the whole reason `eAgain` is a capability: the number is 35 on Darwin and 11 on Linux, so an event loop written against a literal runs correctly on the machine it was written on. |
-| `netPollBufBytes` | value | `(-> Int Int)` |  | How many bytes an event buffer for `n` events needs on this platform. |
-| `netPollCreate` | value | `(Result Int Error)` | `Alloc,IO,Unsafe` | A readiness descriptor, as `(Result Int Error)`. |
-| `netPollAddRead` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Watch `fd` for readability. `rec` is scratch of `pollEventSize` bytes. |
-| `netPollDelRead` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Answers `(Result Int Error)`; `Ok 0` on success. `rec` must name `pollEventSize` live writable bytes. |
-| `netPollWait` | value | `(-> Int Int Int Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Wait for readiness, answering `Ok` how many events landed in `buf` or `Err` the errno - `(Result Int Error)` since 2026-09-03, matched directly by every wake loop so the wake itself builds no block. A NEGATIVE `timeoutMs` BLOCKS INDEFINITELY, which is what a server's accept loop wants; zero polls and returns at once. |
-| `netPollFdAt` | value | `(-> Int Int Int)` |  | The descriptor named by event `i` of a buffer `netPollWait` filled. |
+| `sysPollBufBytes` | value | `(-> Int Int)` |  | How many bytes an event buffer for `n` events needs on this platform. |
+| `sysPollCreate` | value | `(Result Int Error)` | `Alloc,IO,Unsafe` | A readiness descriptor, as `(Result Int Error)`. |
+| `sysPollAddRead` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Watch `fd` for readability. `rec` is scratch of `pollEventSize` bytes. |
+| `sysPollDelRead` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Answers `(Result Int Error)`; `Ok 0` on success. `rec` must name `pollEventSize` live writable bytes. |
+| `sysPollWait` | value | `(-> Int Int Int Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Wait for readiness, answering `Ok` how many events landed in `buf` or `Err` the errno - `(Result Int Error)` since 2026-09-03, matched directly by every wake loop so the wake itself builds no block. A NEGATIVE `timeoutMs` BLOCKS INDEFINITELY, which is what a server's accept loop wants; zero polls and returns at once. |
+| `sysPollFdAt` | value | `(-> Int Int Int)` |  | The descriptor named by event `i` of a buffer `sysPollWait` filled. |
 | `sysRandomBytes` | value | `(-> Int Int (Result Int Error))` | `Alloc,Entropy,IO,Unsafe` | Fill `n` bytes at `buf` with kernel entropy. `(Ok 0)`, or `(Err e)` whose code is the errno - and on `Err` the buffer's contents are unspecified, so a caller must not read them. |
 | `sysSigBit` | value | `(-> Int Int)` |  | The `sigset_t` bit for a signal. SIGNAL N IS BIT N-1, an off-by-one that is easy to write the other way and yields the neighbouring signal's mask rather than an error. |
 | `sysSignalBlock` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Block the signals in `mask` so they become observable instead of fatal. `setbuf` is caller scratch of at least 16 bytes: the mask is written as one 64-bit word, and the kernel then copies ITS OWN `sigset_t` width out of the buffer - `sigsetBytes`, which is 4 on Darwin, 8 on Linux and 16 on FreeBSD. Sixteen covers every target, and the bytes between the word and that width are zeroed here rather than left to whatever the caller's buffer held, because on FreeBSD they are signals 65 through 128 and a stale byte there blocks one. Answers `(Result Int Error)`; `Ok 0` on success. Runs once, before a server forks, so that every worker inherits the mask. |
-| `netSignalOpen` | value | `(-> Int Int Int Int (Result Int Error))` | `Alloc,IO,Mut` | Watch the signals in `mask` on the readiness descriptor `pfd`, and answer a HANDLE to pass back to `netPollSignalAt` - the signal descriptor on Linux, and 0 on the BSDs, which need none. |
-| `netPollSignalAt` | value | `(-> Int Int Int Int (Option Int))` | `IO,Unsafe` | The signal named by event `i`, or `None` when that event is not a signal at all. `sigHandle` is what `netSignalOpen` answered and `scratch` is caller scratch of at least `sigInfoSize` bytes. |
+| `sysSignalOpen` | value | `(-> Int Int Int Int (Result Int Error))` | `Alloc,IO,Mut` | Watch the signals in `mask` on the readiness descriptor `pfd`, and answer a HANDLE to pass back to `sysPollSignalAt` - the signal descriptor on Linux, and 0 on the BSDs, which need none. |
+| `sysPollSignalAt` | value | `(-> Int Int Int Int (Option Int))` | `IO,Unsafe` | The signal named by event `i`, or `None` when that event is not a signal at all. `sigHandle` is what `sysSignalOpen` answered and `scratch` is caller scratch of at least `sigInfoSize` bytes. |
 | `sysKill` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | Send a signal, which is how a test raises one against itself. |
 | `sysForkProcess` | value | `Int` | `IO,Spawn,Unsafe` | Duplicating this process |
-| `sysTermStateBytes` | value | `Int` |  | How many bytes a saved terminal state occupies, which is how large the buffer a caller hands `sysTermSave`, `sysTermRaw` and `sysTermRestore` must be. 72, 36 or 44 depending on the target; 0 where there is no `termios` at all. |
-| `sysTermSizeBytes` | value | `Int` |  | The bytes `sysTermSize` writes. 8 on every target that has one; see the section header for why this number is here and not in `Sys.Platform`. |
 | `sysIsatty` | value | `(-> Int Bool)` | `Alloc,IO` | True when `fd` is a terminal. |
-| `sysTermSave` | value | `(-> Int Int Int)` | `IO` | Read `fd`'s current terminal attributes into `save`, which must hold `sysTermStateBytes` bytes. 0 on success, or a negative result. |
-| `sysTermRestore` | value | `(-> Int Int Int)` | `IO` | Write `state` back to `fd` as its terminal attributes: 0, or a negative result. |
-| `sysTermRaw` | value | `(-> Int Int Int Int)` | `Alloc,IO,Mut` | Put `fd` into raw mode, having first saved its current state into `save` (`sysTermStateBytes` bytes, owned by the caller). 0, or a negative result. |
-| `sysTermSize` | value | `(-> Int Int Int)` | `IO` | Read `fd`'s window size into `buf` (`sysTermSizeBytes` bytes): 0, or a negative result. `sysTermRows` and `sysTermCols` read the answer back out. |
-| `sysTermRows` | value | `(-> Int Int)` |  | Rows out of a buffer `sysTermSize` filled. `ws_row` is an `unsigned short` at offset 0 on every target, little-endian. |
-| `sysTermCols` | value | `(-> Int Int)` |  | Columns: `ws_col`, the second `unsigned short`. |
-| `sysReadAllFd` | value | `(-> Int (Result String Error))` | `Alloc,IO,Mut` | Read `fd` to end of input: `Ok` the whole stream, `Ok ""` when nothing arrived, or `Err` carrying the errno of the `read` that failed. |
-| `sysReadLineFd` | value | `(-> Int (Result (Option String) Error))` | `Alloc,IO,Mut` | One line of `fd`: `Ok (Some line)` without its newline, `Ok None` at end of input when nothing was read, or `Err` carrying the errno. |
 | `sysMapShared` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Unsafe` | Map `len` bytes, readable and writable (PROT_READ\|PROT_WRITE = 3), shared with every binding spawned after this call; answers the address, page-aligned and zeroed. Unmap it with `sysUnmapShared` once no binding can still touch it - a program obligation, as a handle's single join is (MM-PAR-8). |
 | `sysUnmapShared` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | `addr` and `len` must name a whole mapping `sysMapShared` answered, and nothing may touch it afterwards. |
 | `sysMapPrivate` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Unsafe` | Map `len` zeroed bytes, readable and writable, private to this process: a fork gets a copy, as it does of the arena. Answers the page-aligned address. |
@@ -1583,12 +1546,12 @@ two differ.
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
-| `sysRead` | value | `Int` |  | Sys.Platform - Darwin (macOS) syscall numbers and flags. |
-| `sysWrite` | value | `Int` |  | write(fd, buf, count) - BSD 4 |
-| `sysOpen` | value | `Int` |  | open(path, flags, mode) - BSD 5 |
-| `sysClose` | value | `Int` |  | close(fd) - BSD 6 |
-| `sysExit` | value | `Int` |  | exit(status) - BSD 1 |
-| `sysLseek` | value | `Int` |  | lseek(fd, offset, whence) - BSD 199 |
+| `sysReadNum` | value | `Int` |  | Sys.Platform - Darwin (macOS) syscall numbers and flags. |
+| `sysWriteNum` | value | `Int` |  | write(fd, buf, count) - BSD 4 |
+| `sysOpenNum` | value | `Int` |  | open(path, flags, mode) - BSD 5 |
+| `sysCloseNum` | value | `Int` |  | close(fd) - BSD 6 |
+| `sysExitNum` | value | `Int` |  | exit(status) - BSD 1 |
+| `sysLseekNum` | value | `Int` |  | lseek(fd, offset, whence) - BSD 199 |
 | `openNeedsDirFd` | value | `Int` |  | Darwin has a real `open`, so no `openat` indirection is needed. `Sys.ax` branches on this rather than on an OS name, so adding a platform never means editing portable code. |
 | `atFdCwd` | value | `Int` |  | Unused on Darwin (see `openNeedsDirFd`), but defined so that `Sys.ax` type-checks against every platform module. |
 | `oRdonly` | value | `Int` |  |  |
@@ -1597,11 +1560,11 @@ two differ.
 | `seekEnd` | value | `Int` |  |  |
 | `seekSet` | value | `Int` |  |  |
 | `spawnUsesPosixSpawn` | value | `Int` |  | Starting a child process. |
-| `sysPosixSpawn` | value | `Int` | `Spawn` | posix_spawn - BSD 244. |
-| `sysWait4` | value | `Int` | `Block` | wait4(pid, status, options, rusage) - BSD 7. |
-| `sysFork` | value | `Int` | `Spawn` | fork() - BSD 2. `sysSpawn` does not reach it, because `spawnUsesPosixSpawn` selects `posix_spawn` here - but `sysForkProcess` does, and this used to be a placeholder 0 for that reason. |
+| `sysPosixSpawnNum` | value | `Int` | `Spawn` | posix_spawn - BSD 244. |
+| `sysWait4Num` | value | `Int` | `Block` | wait4(pid, status, options, rusage) - BSD 7. |
+| `sysForkNum` | value | `Int` | `Spawn` | fork() - BSD 2. `sysSpawn` does not reach it, because `spawnUsesPosixSpawn` selects `posix_spawn` here - but `sysForkProcess` does, and this used to be a placeholder 0 for that reason. |
 | `sysForkArg` | value | `Int` |  |  |
-| `sysExecve` | value | `Int` |  |  |
+| `sysExecveNum` | value | `Int` |  |  |
 | `sysUnlinkNum` | value | `Int` |  | unlink(path) - BSD 10. |
 | `sysMkdirNum` | value | `Int` |  | mkdir(path, mode) - BSD 136. Darwin has the plain call, so `openNeedsDirFd` is 0 here and `sysMkdir` uses the two-argument form. |
 | `sysRmdirNum` | value | `Int` |  | rmdir(path) - BSD 137. |
@@ -1663,7 +1626,7 @@ two differ.
 | `sysKillNum` | value | `Int` |  | kill(pid, sig) - BSD 37. |
 | `sigTerm` | value | `Int` |  | SIGTERM and SIGINT AGREE on all four targets, which is worth naming rather than assuming because most of their neighbours do not - SIGUSR1 is 30 here and 10 on Linux. |
 | `sigInt` | value | `Int` |  |  |
-| `forkChildIsZero` | value | `Int` |  | Whether `fork` answers 0 in the child, which is the POSIX convention and what Linux does. Darwin answers the child's pid to both, so `sysForkProcess` normalises; see `sysFork` above for the measurement. |
+| `forkChildIsZero` | value | `Int` |  | Whether `fork` answers 0 in the child, which is the POSIX convention and what Linux does. Darwin answers the child's pid to both, so `sysForkProcess` normalises; see `sysForkNum` above for the measurement. |
 | `acceptNonblockFlag` | value | `Int` |  | The flag `netAccept` passes to make the accepted socket non-blocking. Darwin's `accept` HAS no such flag - it has no `accept4` at all - so this is 0 and `Sys.ax` reaches for `fcntl` afterwards instead. |
 | `usesSyscallAbi` | value | `Int` |  |  |
 | `platformWriteFd` | value | `(-> Int Int Int (Result Int Error))` | `Alloc` |  |
@@ -1903,11 +1866,11 @@ two differ.
 | `keyInPending` | value | `(-> KeyIn Int)` |  | Bytes read but not yet consumed. The redraw coalescing asks this. |
 | `keyInFill` | value | `(-> KeyIn Int Int)` | `Alloc,IO,Mut` |  |
 | `keyNext` | value | `(-> KeyIn KeyEv)` | `Alloc,IO,Mut` |  |
-| `termReadSize` | value | `(-> KeyIn Int)` | `IO,Mut` | Refresh `kin.ws` from the terminal. One ioctl; there is no SIGWINCH handling anywhere in this tree, so the size is asked for rather than delivered. |
-| `termWsCols` | value | `(-> KeyIn Int)` |  | Columns, or 80. A pty that has never been sized answers 0 with a SUCCESSFUL ioctl - Sys.ax states it - so the fallback is on the VALUE and not only on the return code. |
+| `termReadSize` | value | `(-> KeyIn Int)` | `Alloc,IO,Mut` | Refresh `kin.rows` and `kin.cols` from the terminal on fd 1. One ioctl; there is no SIGWINCH handling anywhere in this tree, so the size is asked for rather than delivered. A failed query records 0x0. |
+| `termWsCols` | value | `(-> KeyIn Int)` |  | Columns, or 80. A pty that has never been sized answers 0 with a successful ioctl, so the fallback is on the value and not only on the return code. |
 | `termWsRows` | value | `(-> KeyIn Int)` |  |  |
-| `termRawEnter` | value | `(-> KeyIn Int)` | `Alloc,IO,Mut` | Enter raw mode on fd 0, saving into `kin.save`. 0, or negative. `keepSignals` 0: see the header. |
-| `termRawLeave` | value | `(-> KeyIn Int)` | `IO` |  |
+| `termRawEnter` | value | `(-> KeyIn Int)` | `Alloc,IO,Mut` | Enter raw mode on fd 0, keeping the saved state in `kin.term`. 0, or the negated errno. Signals are off: see the header. |
+| `termRawLeave` | value | `(-> KeyIn Int)` | `Alloc,IO,Mut` | Leave raw mode, restoring what `termRawEnter` saved. 0, or the negated errno; 0 when raw mode was never entered. |
 | `termFlush` | value | `(-> (Vec String) Int)` | `Alloc,IO,Mut` |  |
 | `termEditLoop` | value | `(-> KeyIn LineEd String (Option String))` | `Alloc,IO,Mut` |  |
 

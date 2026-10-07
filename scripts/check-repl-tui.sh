@@ -17,7 +17,7 @@
 # It never touches the caller's terminal:
 #   1. Everything interactive runs against a pty from `pty.openpty()`.
 #      The child's fd 0, 1 and 2 are the slave end, so the invoking
-#      shell's descriptors never reach anything that calls `sysTermRaw`.
+#      shell's descriptors never reach anything that calls `termRaw`.
 #   2. The driver restores the pty under `try/finally` on every exit
 #      path, and this script's `trap` restores the caller's terminal if
 #      it had one. The trap guards against future edits: a gate that
@@ -200,7 +200,7 @@ fi
 echo
 echo "== layer 2: raw mode is really entered (Ctrl-C is a KEY, not a signal) =="
 # =================================================================
-# `sysTermRaw` is called with keepSignals 0, which clears ISIG. Byte 3
+# `termRaw` is called with keepSignals 0, which clears ISIG. Byte 3
 # is then an ordinary key the editor turns into a cancelled line, and
 # the REPL survives to answer the next expression. Without raw mode the
 # kernel turns byte 3 into SIGINT, the child dies, and there is no

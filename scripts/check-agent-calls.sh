@@ -242,7 +242,7 @@ echo "== totality: an inferred effect has an edge that accounts for it =="
 #      call to point at.
 #   4. A syscall number tagged `;@axiom:syscall(...)`, matched on the
 #      `#syscall=` meta. `syscallTagEffects` seeds its row from the tag:
-#      `sysWaitWordNum` is `Block`, `sysFork` `Spawn`, `sysRandomNum`
+#      `sysWaitWordNum` is `Block`, `sysForkNum` `Spawn`, `sysRandomNum`
 #      `Entropy`.
 #
 # `Alloc,IO` is still reported: a function that allocates and reaches a

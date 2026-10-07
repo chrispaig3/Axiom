@@ -9,32 +9,32 @@
 ; `--target=linux-aarch64`. Numbers come from the generic
 ; `include/uapi/asm-generic/unistd.h` table that AArch64 uses, and are
 ; deliberately *not* shared with x86-64, which has its own table.
-(pub :: sysRead Int)
-(pub fn (sysRead)
+(pub :: sysReadNum Int)
+(pub fn (sysReadNum)
   63)
 
-(pub :: sysWrite Int)
-(pub fn (sysWrite)
+(pub :: sysWriteNum Int)
+(pub fn (sysWriteNum)
   64)
 
 ; AArch64's generic syscall table has no plain `open` at all - only
 ; `openat` (56). `Sys.ax` adapts by prepending a directory fd when
 ; `openNeedsDirFd` says to, so nothing above this file has to know.
-(pub :: sysOpen Int)
-(pub fn (sysOpen)
+(pub :: sysOpenNum Int)
+(pub fn (sysOpenNum)
   56)
 
-(pub :: sysClose Int)
-(pub fn (sysClose)
+(pub :: sysCloseNum Int)
+(pub fn (sysCloseNum)
   57)
 
 ; exit_group (94), not exit (93) - see the x86-64 module for why.
-(pub :: sysExit Int)
-(pub fn (sysExit)
+(pub :: sysExitNum Int)
+(pub fn (sysExitNum)
   94)
 
-(pub :: sysLseek Int)
-(pub fn (sysLseek)
+(pub :: sysLseekNum Int)
+(pub fn (sysLseekNum)
   62)
 
 (pub :: openNeedsDirFd Int)
@@ -85,17 +85,17 @@
 ; goes in the flags argument, which is why `sysForkArg` exists: without
 ; it a bare `clone(0, ...)` creates a child whose parent is never
 ; notified and which `wait4` therefore never reaps.
-(pub :: sysFork Int)
+(pub :: sysForkNum Int)
 ;@axiom:syscall(spawn)
-(pub fn (sysFork)
+(pub fn (sysForkNum)
   220)
 
 (pub :: sysForkArg Int)
 (pub fn (sysForkArg)
   17)
 
-(pub :: sysExecve Int)
-(pub fn (sysExecve)
+(pub :: sysExecveNum Int)
+(pub fn (sysExecveNum)
   221)
 
 ; 260 is `wait4` in `include/uapi/asm-generic/unistd.h`, among the
@@ -103,16 +103,16 @@
 ; generic table has no `wait4` under that name either", which is the
 ; `unlink` note above carried one entry too far: that table really does
 ; lack `unlink`, and really does have `wait4`.
-(pub :: sysWait4 Int)
+(pub :: sysWait4Num Int)
 ;@axiom:syscall(block)
-(pub fn (sysWait4)
+(pub fn (sysWait4Num)
   260)
 
 ; Unused on Linux, defined so `Sys.ax` type-checks against every
 ; platform module.
-(pub :: sysPosixSpawn Int)
+(pub :: sysPosixSpawnNum Int)
 ;@axiom:syscall(spawn)
-(pub fn (sysPosixSpawn)
+(pub fn (sysPosixSpawnNum)
   0)
 
 ; The generic table has no `unlink`, only `unlinkat` (35) - the same
@@ -779,7 +779,7 @@
 ; Opening beneath a directory (`Sys.sysOpenBeneath`) and making the
 ; links it refuses to follow (`Sys.sysSymlink`). Added 2026-09-26.
 ; ------------------------------------------------------------------
-; openat(dirfd, path, flags, mode) - 56, the same call `sysOpen` is
+; openat(dirfd, path, flags, mode) - 56, the same call `sysOpenNum` is
 (pub :: sysOpenatNum Int)
 (pub fn (sysOpenatNum)
   56)

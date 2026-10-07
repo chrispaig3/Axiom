@@ -36,23 +36,23 @@
 ; 563 and the current `struct dirent` all arrived in 12; the compiler
 ; pins the triple at 14.0.
 ; read(fd, buf, count) - 3
-(pub :: sysRead Int)
-(pub fn (sysRead)
+(pub :: sysReadNum Int)
+(pub fn (sysReadNum)
   3)
 
 ; write(fd, buf, count) - 4
-(pub :: sysWrite Int)
-(pub fn (sysWrite)
+(pub :: sysWriteNum Int)
+(pub fn (sysWriteNum)
   4)
 
 ; open(path, flags, mode) - 5
-(pub :: sysOpen Int)
-(pub fn (sysOpen)
+(pub :: sysOpenNum Int)
+(pub fn (sysOpenNum)
   5)
 
 ; close(fd) - 6
-(pub :: sysClose Int)
-(pub fn (sysClose)
+(pub :: sysCloseNum Int)
+(pub fn (sysCloseNum)
   6)
 
 ; exit(status) - 1, and it ends the PROCESS. FreeBSD has no
@@ -60,16 +60,16 @@
 ; number `targetExitNum` in `self_host/codegen.ax` also carries for the
 ; emitted abort paths, and `scripts/check-platform-constants.sh` is the
 ; gate that keeps the two copies equal.
-(pub :: sysExit Int)
-(pub fn (sysExit)
+(pub :: sysExitNum Int)
+(pub fn (sysExitNum)
   1)
 
 ; lseek(fd, offset, whence) - 478. NOT 199, which is `freebsd6_lseek`
 ; (COMPAT6): the pre-7 entry with a padding word in its argument list,
 ; which reads the offset from the wrong register and seeks somewhere
 ; plausible.
-(pub :: sysLseek Int)
-(pub fn (sysLseek)
+(pub :: sysLseekNum Int)
+(pub fn (sysLseekNum)
   478)
 
 ; FreeBSD has a real `open`, so no `openat` indirection is needed.
@@ -125,22 +125,22 @@
 
 ; Unused here (see `spawnUsesPosixSpawn`), defined so `Sys.ax`
 ; type-checks against every platform module.
-(pub :: sysPosixSpawn Int)
+(pub :: sysPosixSpawnNum Int)
 ;@axiom:syscall(spawn)
-(pub fn (sysPosixSpawn)
+(pub fn (sysPosixSpawnNum)
   0)
 
 ; wait4(pid, status, options, rusage) - 7.
-(pub :: sysWait4 Int)
+(pub :: sysWait4Num Int)
 ;@axiom:syscall(block)
-(pub fn (sysWait4)
+(pub fn (sysWait4Num)
   7)
 
 ; fork() - 2. Takes no arguments; `sysForkArg` exists for AArch64
 ; Linux, where fork is spelled `clone(SIGCHLD)`, and is ignored here.
-(pub :: sysFork Int)
+(pub :: sysForkNum Int)
 ;@axiom:syscall(spawn)
-(pub fn (sysFork)
+(pub fn (sysForkNum)
   2)
 
 (pub :: sysForkArg Int)
@@ -148,8 +148,8 @@
   0)
 
 ; execve(path, argv, envp) - 59.
-(pub :: sysExecve Int)
-(pub fn (sysExecve)
+(pub :: sysExecveNum Int)
+(pub fn (sysExecveNum)
   59)
 
 ; unlink(path) - 10.
@@ -464,11 +464,11 @@
 ;   12:4 fflags (uint32) | 16:8 data (int64) | 24:8 udata (ptr)
 ;   32:32 ext[4] (uint64)
 ;
-; The first 32 bytes are Darwin's byte for byte, and `netPollRec`
+; The first 32 bytes are Darwin's byte for byte, and `sysPollRec`
 ; writes only `ident`, `filter` and `flags`, all inside that prefix;
 ; `memSet rec 0 pollEventSize` zeroes `ext`, which is what the kernel
 ; requires of an unused extension. So no portable code changes - only
-; the stride, which `netPollFdAt` and `netPollBufBytes` read from here.
+; the stride, which `sysPollFdAt` and `sysPollBufBytes` read from here.
 (pub :: pollEventSize Int)
 (pub fn (pollEventSize)
   64)

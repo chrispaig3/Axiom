@@ -16,6 +16,23 @@ its changelog too.
 
 ## Unreleased
 
+- Give `IO`, `Sys` and `Net` one public name per job, following the
+  standard-library naming plan. `Sys`'s C-string file calls, its
+  descriptor readers and its terminal calls leave the public surface:
+  use `IO`'s `readFile`, `writeFile`, `renamePath`, `listDir`, `cwd`,
+  `readAll`, `readLine`, `termRaw` and `termSize`, which take a
+  `String` path or answer a typed value. `sysGetPid` is `sysPid`, the
+  `netPoll*` calls are `sysPoll*`, `netSignalOpen` is `sysSignalOpen`,
+  and the `Sys.Platform` syscall numbers end in `Num`, as in
+  `sysReadNum`. `sysWriteAllFd` drops its trailing accumulator,
+  `fileReadBuffer` is `fileRead`, and `tcpRead` reads into a
+  `ReadBuffer`. `printlnLit`, `readFileLit`, `IO.randomBytes`,
+  `openBeneath`, `makeSymlink`, `fileReadInto`, `sysFailed` and
+  `sysErrno` are gone; `compat/BREAKING` names the replacement for
+  each. **BREAKING**. Tested by
+  `tests/selfhost/994-directory-listing.ax` and
+  `tests/stdlib/610-typed-io-bounds.ax`.
+
 - Release a `Vec` when its last reference goes, as a `String` is: at
   the end of its scope, when a `mut` slot holding it is overwritten,
   or when the record holding it dies. A `Vec` or `Map` decides from

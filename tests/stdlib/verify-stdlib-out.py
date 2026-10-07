@@ -450,7 +450,7 @@ def ev(node, env):
 # an Int argument prints the integer that `printlnInt` used to print.
 # The model follows by asking what `ev` answered rather than which
 # function was called.
-PRINT_STR = {'println', 'printlnLit'}
+PRINT_STR = {'println'}
 
 
 def defmt(text):
@@ -484,12 +484,6 @@ def rendered(node, env):
     if h not in PRINT_STR or len(args) != 1:
         return None
     arg = args[0]
-    if h == 'printlnLit':
-        # `printlnLit` takes the ADDRESS of the bytes, and is a function
-        # rather than a macro - no format string, nothing to collapse.
-        if not is_form(arg, '__addr') or len(arg[2]) != 2:
-            return None
-        arg = arg[2][1]
     v = ev(arg, env)
     if isinstance(v, bool):
         return None          # Show's Bool instance, deliberately not modelled
@@ -626,26 +620,19 @@ def branch_prints(node):
             break
         h = head_of(s)
         args = s[2][1:]
-        if h not in ('println', 'printLit', 'printlnLit') or len(args) != 1:
+        if h != 'println' or len(args) != 1:
             break
         arg = args[0]
-        if h in ('printLit', 'printlnLit'):
-            if not is_form(arg, '__addr') or len(arg[2]) != 2:
-                break
-            arg = arg[2][1]
         if arg[0] == 'str':
             t = unescape(arg[2])
             if t is None:
                 break
-            if h == 'println':
-                # A bare literal is a FORMAT string: its runs and holes
-                # are the literals and parameters this recogniser wants.
-                ps = fmt_parts(t)
-                if ps is None:
-                    break
-                out.extend(ps)
-            else:
-                out.append(('lit', t))
+            # A bare literal is a FORMAT string: its runs and holes
+            # are the literals and parameters this recogniser wants.
+            ps = fmt_parts(t)
+            if ps is None:
+                break
+            out.extend(ps)
         elif arg[0] == 'atom':
             out.append(('var', arg[2]))
         else:

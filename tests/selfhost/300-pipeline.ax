@@ -2,7 +2,7 @@
 (import Str)
 (import Vec)
 (import Mem)
-(import Sys)
+(import IO)
 (import lexer)
 (import parser)
 (import typecheck)
@@ -10,9 +10,8 @@
 
 (:: main Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (main)
-  (let ((src (sysReadFile (__addr "in.ax"))))
+  (let ((src (readFile "in.ax")))
     (if (== (strLen src) 0)
       7
       (let ((pr (parseModule (lex src))))

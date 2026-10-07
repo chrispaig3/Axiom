@@ -528,27 +528,19 @@ echo "== 5. resources beyond memory across trap-and-recover =="
 # ---------------------------------------------------------------------
 cat > "$work/res.ax" <<'AX'
 ; args: mode n. 1 opens /dev/null inside a recovery point and traps
-; before the close; 2 closes first. Prints the next descriptor before
-; and after. 3 spawns a forked child inside the extent and traps.
+; before the close; 2 closes first. Prints how many descriptors are
+; open before and after, counted in /dev/fd. 3 spawns a forked child
+; inside the extent and traps.
 (import IO)
 (import Sys)
 (import Str)
 (import Mem)
+(import Vec)
 
-(:: openFd Int)
+(:: openCount Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(fn (openFd)
-  (match (sysOpenPath (__addr "/dev/null") 0)
-    ((Ok fd) fd)
-    ((Err e) -1)))
-
-(:: closeFd (-> Int Int))
-;@axiom:effect(io)
-(fn (closeFd fd)
-  (match (sysCloseFd fd)
-    ((Ok r) r)
-    ((Err e) -1)))
+(fn (openCount)
+  (vecLen (listDir "/dev/fd")))
 
 (:: boom (-> Int Int))
 (fn (boom d)
@@ -562,11 +554,13 @@ cat > "$work/res.ax" <<'AX'
     {
       (__axiom_recover m
         (lambda (x)
-          (let ((fd (openFd)))
-            {
-              (if (== mode 2) (closeFd fd) 0)
-              (boom 0)
-            })))
+          (match (openPath "/dev/null" 0)
+            ((Ok f)
+              {
+                (if (== mode 2) (let ((_ (fileClose f))) 0) 0)
+                (boom 0)
+              })
+            ((Err e) 0))))
       (cycles mode m (- k 1))
     }))
 
@@ -583,7 +577,7 @@ cat > "$work/res.ax" <<'AX'
           (let ((h (__proc_spawn (lambda (y) { (sysWaitWordTimeout w 7 5000000000) y }) 1)))
             (boom 0))))))
         {
-          (let ((pid sysGetPid))
+          (let ((pid sysPid))
             (println "pid {pid} status {st}"))
           (sysWaitWordTimeout w 7 1500000000)
           0
@@ -604,11 +598,10 @@ cat > "$work/res.ax" <<'AX'
   (let ((mode (atoiFrom (sysArg 1) 0 0)) (n (atoiFrom (sysArg 2) 0 0)))
     (if (== mode 3)
       child
-      (let ((before (openFd)))
+      (let ((before openCount))
         {
-          (closeFd before)
           (cycles mode __axiom_arena_mark n)
-          (let ((after (openFd)))
+          (let ((after openCount))
             {
               (println "{before} {after}")
               0
@@ -621,11 +614,9 @@ if build "$work/res.ax" "$work/res" 1; then
   if [[ "$cap" != unlimited ]] && (( cap < nfd + 64 )); then
     ( ulimit -n $((nfd + 64)) ) 2>/dev/null || nfd=$(( cap - 64 ))
   fi
-  # The next fd is the lowest free number, so a descriptor the caller
-  # left open above stderr is a number no leaked one can take, and the
-  # count comes out high by one for each. CI's runners hand a child two
-  # to four of them. Each probe closes them first, so the numbers the
-  # program opens are contiguous wherever it runs.
+  # CI's runners hand a child two to four inherited descriptors. Each
+  # probe closes them first, so the counts start from the same place
+  # wherever it runs.
   close_inherited() {
     local fd
     for fd in $(ls /dev/fd 2>/dev/null); do

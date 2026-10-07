@@ -241,7 +241,7 @@
 [1;31merror[AX3073][0m[1m: `ioOnly` touches raw memory and its declaration does not say so[0m
    [1;34m--> [0m1080-unsafe-syscalls.ax:116:4
 [1;34m    |[0m
-[1;34m116 |[0m   (__syscall3 sysWrite fd 0 0))
+[1;34m116 |[0m   (__syscall3 sysWriteNum fd 0 0))
 [1;34m    |[0m    [1;31m^^^^^^^^^^ __syscall3[0m
 [1;34m    |[0m
    [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m

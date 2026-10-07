@@ -62,28 +62,28 @@
 ; since 2026-09-03; acyclic, as the four syscall-ABI files record.
 (import Err)
 
-(pub :: sysRead Int)
-(pub fn (sysRead)
+(pub :: sysReadNum Int)
+(pub fn (sysReadNum)
   0)
 
-(pub :: sysWrite Int)
-(pub fn (sysWrite)
+(pub :: sysWriteNum Int)
+(pub fn (sysWriteNum)
   0)
 
-(pub :: sysOpen Int)
-(pub fn (sysOpen)
+(pub :: sysOpenNum Int)
+(pub fn (sysOpenNum)
   0)
 
-(pub :: sysClose Int)
-(pub fn (sysClose)
+(pub :: sysCloseNum Int)
+(pub fn (sysCloseNum)
   0)
 
-(pub :: sysExit Int)
-(pub fn (sysExit)
+(pub :: sysExitNum Int)
+(pub fn (sysExitNum)
   0)
 
-(pub :: sysLseek Int)
-(pub fn (sysLseek)
+(pub :: sysLseekNum Int)
+(pub fn (sysLseekNum)
   0)
 
 (pub :: openNeedsDirFd Int)
@@ -118,27 +118,27 @@
 (pub fn (spawnUsesPosixSpawn)
   0)
 
-(pub :: sysFork Int)
+(pub :: sysForkNum Int)
 ;@axiom:syscall(spawn)
-(pub fn (sysFork)
+(pub fn (sysForkNum)
   0)
 
 (pub :: sysForkArg Int)
 (pub fn (sysForkArg)
   0)
 
-(pub :: sysExecve Int)
-(pub fn (sysExecve)
+(pub :: sysExecveNum Int)
+(pub fn (sysExecveNum)
   0)
 
-(pub :: sysWait4 Int)
+(pub :: sysWait4Num Int)
 ;@axiom:syscall(block)
-(pub fn (sysWait4)
+(pub fn (sysWait4Num)
   0)
 
-(pub :: sysPosixSpawn Int)
+(pub :: sysPosixSpawnNum Int)
 ;@axiom:syscall(spawn)
-(pub fn (sysPosixSpawn)
+(pub fn (sysPosixSpawnNum)
   0)
 
 (pub :: sysUnlinkNum Int)

@@ -76,7 +76,7 @@
 ;@axiom:effect(unsafe)
 ;@axiom:effect(block)
 (fn (holdLock c flag)
-  (if (== (__atomic_cas (ringOf c) 0 (* sysGetPid 4)) 0)
+  (if (== (__atomic_cas (ringOf c) 0 (* sysPid 4)) 0)
     {
       (__atomic_store flag 1)
       (while (== 0 0)

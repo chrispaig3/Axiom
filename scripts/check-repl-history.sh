@@ -4,7 +4,7 @@
 #
 # `tests/selfhost/979-repl-history.ax` covers the codec, ring, browsing
 # and reverse search without a filesystem, and passes even with
-# `sysAppendFile` deleted. Telling a written file from a live ring needs
+# `appendFile` deleted. Telling a written file from a live ring needs
 # two processes.
 #
 # `histOpen` (self_host/replhist.ax) takes `interactive` as an Int and
@@ -33,7 +33,7 @@
 #      arms A, C and D stay green, which is why arm B exists.
 #   3. Make `histKeepLast` keep the oldest `cap` entries. The count is
 #      still 1000, so only C2, which checks entries by value, fails.
-#   4. Use `sysWriteFile` instead of `sysAppendFile` in `histRecord`:
+#   4. Use `writeFile` instead of `appendFile` in `histRecord`:
 #      the same bytes without O_APPEND. Several arms fail, among them D2
 #      with entries lost and C1.
 #   5. Make `histClose` compact from the session's ring instead of from
@@ -41,7 +41,7 @@
 #
 # The compiler enforces two more claims on every build:
 #   * removing `;@axiom:effect(io)` from `histRecord` draws AX3042;
-#   * adding a `sysReadFile` inside `histEncode`, which claims
+#   * adding a `readFile` inside `histEncode`, which claims
 #     `restrict(no-io)`, draws AX3049.
 # So the codec stays pure and the file layer declares its IO.
 #
@@ -394,7 +394,7 @@ if grep -n 'fmtIntStr' "$code" >/dev/null; then
 else
   ok "E2: fmtIntStr is not used"
 fi
-if grep -n 'fmtInt sysGetPid' "$code" >/dev/null; then
+if grep -n 'fmtInt sysPid' "$code" >/dev/null; then
   ok "E3: the compaction temp name carries a fmtInt-rendered pid"
 else
   bad "E3: the compaction temp name no longer carries a fmtInt pid"
@@ -404,7 +404,7 @@ fi
 # also match nothing after a typo, so each runs against a planted line
 # it must find.
 planted="$work/planted.ax"
-printf '%s\n' '(fn (x) (sysOpenPath (strCStr (sysEnv "HOME")) 0))' \
+printf '%s\n' '(fn (x) (readFile (strCStr (sysEnv "HOME"))))' \
               '(fn (y) (fmtIntStr 7))' > "$planted"
 sed -i.bak 's/;.*$//' "$planted"
 if grep -qE '\((strData|strCStr) \(sysEnv' "$planted" && grep -q 'fmtIntStr' "$planted"; then

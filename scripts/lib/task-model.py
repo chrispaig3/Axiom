@@ -363,7 +363,7 @@ def install(ns):
       (TASK, "taskChild"), [
         ("set", "slot", "slab + %d * (arg %% w)" % SB, "(let ((slot (+ slab (* (% arg w) slotBytes))))"),
         ("pid", "p"),
-        ("pstore", "slot + 2", "p", "(memSetWord slot 2 sysGetPid)"),
+        ("pstore", "slot + 2", "p", "(memSetWord slot 2 sysPid)"),
         ("choose", "b", "beh"),
         ("if", "b == %d" % SLOW, "work"),
         ("clock", "c0"),

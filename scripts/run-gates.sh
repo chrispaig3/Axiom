@@ -92,7 +92,7 @@ SERIAL_RE='check-(race|protocol-model|bootstrap|container-reclaim|reclaim-soak|r
 # The two REPL gates (`check-repl-selfhost`, `check-repl-tui`) stay
 # parallel. `repl.ax` gives each REPL a private
 # `<tmp>/axiom-repl-<pid>.d`, mode 0700, created with an exclusive
-# `sysMkdir`, so concurrent REPLs never share a file. Serialising them
+# `makeDir`, so concurrent REPLs never share a file. Serialising them
 # would cost the battery two of its slowest gates for nothing.
 
 # `check-terminal-restore.sh` is in neither list. It puts a terminal

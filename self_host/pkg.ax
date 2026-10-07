@@ -108,7 +108,7 @@
 ; ...AND THE PROPERTY WAS TOP-LEVEL ONLY until 2026-09-03. `depend a`
 ; and `depend b` each holding `Sub/Widget.ax` - the file
 ; `(import Sub.Widget)` resolves to - built and exited with `a`'s
-; answer, silently, because `pkgFirstShared` did one `sysReadDir` and
+; answer, silently, because `pkgFirstShared` did one directory read and
 ; never descended. The gate could not see it either: its fixture
 ; helper only ever wrote top-level modules. `pkgModules` now walks a
 ; dependency three levels deep, the same depth the resolver's own
@@ -131,7 +131,7 @@
 (import Str)
 (import Vec)
 (import Sys)
-(import IO (fileExists isDir readFile writeStr))
+(import IO (fileExists isDir listDir readFile writeStr))
 (import Path)
 (import Fmt)
 
@@ -1216,7 +1216,7 @@
 ; The first module file both directories hold, as a path relative to
 ; each, or "".
 ;
-; THIS USED TO BE ONE `sysReadDir`. `depend a` and `depend b` each
+; THIS USED TO BE ONE directory read. `depend a` and `depend b` each
 ; holding `Sub/Widget.ax` - what `(import Sub.Widget)` resolves to -
 ; passed this check and the program exited with `a`'s answer, silently,
 ; which is the exact failure the whole file exists to refuse, one
@@ -1271,7 +1271,7 @@
       out
       root
       rel
-      (sysReadDir (strCStr (concat root rel)))
+      (listDir (concat root rel))
       0
       depth)))
 
@@ -1281,10 +1281,8 @@
   (if (>= i (vecLen entries))
     0
     {
-      ; `sysReadDir` answers `.` and `..` with everything else - it is
-      ; the raw call's answer on purpose, so an empty Vec can mean
-      ; failure and nothing else - and descending into either is how a
-      ; three-level bound becomes an infinite walk.
+      ; `listDir` drops `.` and `..`; the test stays, because descending
+      ; into either is how a three-level bound becomes an infinite walk.
       (let ((name (vecGetStr entries i)))
         (if (|| (strEq name ".") (strEq name ".."))
           0

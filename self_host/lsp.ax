@@ -58,7 +58,7 @@
 (import Vec)
 (import Utf8)
 (import Sys)
-(import IO (isDir readFile))
+(import IO (cwd isDir listDir readFile))
 (import Err)
 (import Path)
 (import Cereal)
@@ -1696,14 +1696,13 @@
 (pub :: lspPathToUri (-> String String))
 ;@axiom:effect(io)
 (pub fn (lspPathToUri path)
-  ; An unavailable working directory joins as `""`, which is what
-  ; this did when `sysGetCwd` answered `""` itself. A language
+  ; An unavailable working directory joins as `""`. A language
   ; server that refused to name a document because `getcwd` failed
   ; would be worse than one that names it relatively.
   (let ((abs (pathClean
     (if (pathIsAbsolute path)
       path
-      (pathJoin (unwrapOr sysGetCwd "") path)))))
+      (pathJoin (unwrapOr cwd "") path)))))
     (let (
       (n (strLen abs))
       (mut i 0)
@@ -3060,7 +3059,7 @@
 ; the last segment is the prefix. A `.ax` file offers its module stem
 ; (the target's suffix ladder, as the resolver reads it); a directory
 ; whose name is a segment offers itself, as a namespace to continue
-; into. One `sysReadDir` per search root; nothing is read or parsed.
+; into. One `listDir` per search root; nothing is read or parsed.
 (pub :: lspComplModules (-> Int (Vec String) String String Int))
 ;@axiom:effect(io)
 (pub fn (lspComplModules out seen path typed)
@@ -3077,7 +3076,7 @@
       {
         (while (< i (vecLen dirs))
           (let ((root (vecGetStr dirs i)))
-            (let ((names (sysReadDir (strCStr (if (== (strLen root) 0) (concat "./" rel) (concat root rel))))))
+            (let ((names (listDir (if (== (strLen root) 0) (concat "./" rel) (concat root rel)))))
               {
                 (let ((mut j 0))
                   (while (< j (vecLen names))
@@ -4455,7 +4454,7 @@
     }))
 
 ; The span of the LAST segment of a qualified reference. The parser
-; gives `Mod::name` - and `Sys.Platform::sysRead` - the span of its
+; gives `Mod::name` - and `Sys.Platform::sysReadNum` - the span of its
 ; first token, which is the module; the name a reader is looking at is
 ; the segment after the last `::`, and that is what an occurrence
 ; should cover. Read forward from the first segment through `.` and
@@ -5537,7 +5536,7 @@
 (pub fn (lspNavAbs p)
   (if (pathIsAbsolute p)
     p
-    (pathJoin (unwrapOr sysGetCwd "") p)))
+    (pathJoin (unwrapOr cwd "") p)))
 
 (pub :: lspNavImportsPath (-> (Vec Int) Int String String Bool))
 ;@axiom:effect(io)
@@ -10473,7 +10472,7 @@
 ; is kept across requests - the arena rule. Measured with the stdlib on
 ; `AXIOM_STDLIB` and a five-file entry directory: 0.035 s for the
 ; whole request against 0.004 s without the search, on a document too
-; small to time `didOpen` on; the walk is one `sysReadDir` per
+; small to time `didOpen` on; the walk is one `listDir` per
 ; directory, one read per `.ax` file, and a parse per file that
 ; spells the name.
 ;
@@ -11070,11 +11069,10 @@
 ;@axiom:effect(io)
 (pub fn (lspFixScanDir dir rel modPrefix depth name path tcode entryDir found seen)
   (let ((names 
-    (sysReadDir
-      (strCStr
-        (if (== (strLen dir) 0)
-          (concat "./" rel)
-          (concat dir rel))))))
+    (listDir
+      (if (== (strLen dir) 0)
+        (concat "./" rel)
+        (concat dir rel)))))
     (let (
       (n (vecLen names))
       (mut i 0)

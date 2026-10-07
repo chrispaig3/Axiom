@@ -1752,7 +1752,7 @@
 
 (pub :: parseIdentRef (-> (Vec Int) Int Int))
 ; A dotted chain of identifiers is either FIELD ACCESS (`p.x.y`) or a
-; MODULE PATH (`Sys.Platform::sysRead`), and which one is only known at
+; MODULE PATH (`Sys.Platform::sysReadNum`), and which one is only known at
 ; the end: `::` makes it a module path. So the chain is collected
 ; first and the decision taken after - stage0's rule, and it records
 ; having got this wrong in the other order, where committing to a

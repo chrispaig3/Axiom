@@ -4949,7 +4949,7 @@
 ; `Sys/Platform.ax`, the same order stage0 uses, so the syscall tables
 ; live in Axiom source rather than in a table inside the compiler.
 ; Without it the platform module resolves to nothing and every constant
-; it defines - `sysWrite`, `oRdonly` - is an undefined symbol.
+; it defines - `sysWriteNum`, `oRdonly` - is an undefined symbol.
 ; The module's source, or nothing when there is no such file.
 ;
 ; `Option` rather than the word-plus-view shape the hot readers took:
@@ -8173,7 +8173,7 @@
 ; bare reference that two imports define and the entry does not -
 ; AX3014 - so the imports-in-order tail of that rule only decides
 ; programs stage0 would no longer accept.) `$` and `.` are both legal
-; in an unquoted LLVM identifier, so `Sys.Platform$sysWrite` needs no
+; in an unquoted LLVM identifier, so `Sys.Platform$sysWriteNum` needs no
 ; quoting.
 ;
 ; The map is two Vecs pushed in lockstep rather than a Map, because it

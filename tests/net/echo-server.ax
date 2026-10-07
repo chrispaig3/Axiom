@@ -131,31 +131,31 @@
   )
     (let ((setbuf (memAlloc 16)))
       (let ((scratch (memAlloc 256)))
-        (let ((buf (memAlloc (netPollBufBytes 64))))
+        (let ((buf (memAlloc (sysPollBufBytes 64))))
           (let ((byte (strAlloc 1)))
-            (match netPollCreate
+            (match sysPollCreate
               ((Err e) (sysExitWith 255))
               ((Ok pfd)
                 (let ((mut served 0))
                   (let ((mut running 1))
                     {
-                      (if (isErr (netPollAddRead pfd lsn rec))
+                      (if (isErr (sysPollAddRead pfd lsn rec))
                         (sysExitWith 255)
                         0)
                       ; THE FAILURE IS DISCARDED HERE, DELIBERATELY, and
                       ; the `unwrapOr` is what makes that visible. The old
                       ; sentinel let a negative handle travel into
-                      ; `netPollSignalAt`, where it can never equal a real
+                      ; `sysPollSignalAt`, where it can never equal a real
                       ; descriptor, so a worker that could not watch
                       ; SIGTERM simply never saw one - and `-1` is exactly
                       ; the value that produced that. Equivalent by
                       ; construction, which is the only case
                       ; `docs/error-model.md` allows `unwrapOr` with a
                       ; constant in.
-                      (let ((sh (unwrapOr (netSignalOpen pfd (sysSigBit sigTerm) rec setbuf) (- 0 1))))
+                      (let ((sh (unwrapOr (sysSignalOpen pfd (sysSigBit sigTerm) rec setbuf) (- 0 1))))
                         (while (== running 1)
                           (let ((n 
-                            (match (netPollWait
+                            (match (sysPollWait
                               pfd
                               buf
                               64
@@ -168,7 +168,7 @@
                               (let ((mut e 0))
                                 (while (< e n)
                                   {
-                                    (match (netPollSignalAt buf e sh scratch)
+                                    (match (sysPollSignalAt buf e sh scratch)
                                       ((Some sig)
                                         (set running 0)
                                       )

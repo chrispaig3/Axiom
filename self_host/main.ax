@@ -1244,7 +1244,7 @@
                             1
                           }
                           (let (
-                            (gen (pathJoin (pathDir file) (concat ".axiom-test." (concat (fmtInt sysGetPid) ".ax"))))
+                            (gen (pathJoin (pathDir file) (concat ".axiom-test." (concat (fmtInt sysPid) ".ax"))))
                             (text (testDriverText src names setupKind teardownKind))
                           )
                             (if (isErr (writeFile gen text))
@@ -1253,7 +1253,7 @@
                                 1
                               }
                               (let ((ir (compileFile gen hostTarget 1 1)))
-                                (let ((base (concat "axiom_test_output." (fmtInt sysGetPid))))
+                                (let ((base (concat "axiom_test_output." (fmtInt sysPid))))
                                   (let ((exe (concat "./" base)))
                                     (let ((rc (buildToExecutable
                                       ir
@@ -1517,7 +1517,7 @@
               (die (concat (concat "error: `" (concat dest "` is not a checkout of `")) (concat url (concat (concat "`: " (concat (pkgOriginWhy origin url) ".\n")) "       Remove it and run `axiom fetch` again.\n"))) 4)))
           (let (
             (deps (concat (pathWithSlash base) ".axiom/deps"))
-            (tmp (concat (concat (pathWithSlash base) ".axiom/deps/.fetch-") (concat (pkgDepKey url) (concat "-" (fmtInt sysGetPid)))))
+            (tmp (concat (concat (pathWithSlash base) ".axiom/deps/.fetch-") (concat (pkgDepKey url) (concat "-" (fmtInt sysPid)))))
           )
             {
               (replOut (concat "fetching " (concat dest "\n")))
@@ -2025,7 +2025,7 @@
                             ; on the largest Axiom program there is.
                             ; The scratch name carries this process's pid, the way
                             ; `replEval` names its own (repl.ax) and for the reason
-                            ; `sysGetPid` is documented with in `Sys.ax`: "so two
+                            ; `sysPid` is documented with in `Sys.ax`: "so two
                             ; concurrent processes cannot collide".
                             ;
                             ; It used to be the fixed literal `axiom_temp_output` in
@@ -2070,7 +2070,7 @@
                             ; and a foreign binary does not run here. `build` is where
                             ; a cross-target artefact is asked for.
                             (let ((ir (compileFile f hostTarget 1 1)))
-                              (let ((base (concat "axiom_temp_output." (fmtInt sysGetPid))))
+                              (let ((base (concat "axiom_temp_output." (fmtInt sysPid))))
                                 (let ((exe (concat "./" base)))
                                   (let ((rc (buildToExecutable
                                     ir

@@ -685,20 +685,20 @@ in a signature.
 
 *Withdrawn:* the precondition tag was removed, so a function that
 hands the kernel a caller's address is a trusted encapsulation like any
-other (`MM-EXEC-9d`). `sysReadFd`, `sysOpenPath`, `sysRandomBytes`, the
-terminal calls, `sysUnmapShared` and `sysWaitWord` take the address as
-an `Int`, `restrict(no-unsafe)` admits a call to each, and a bad address
-crashes the program. The typed calls' range check, the half that still
-holds, is `MM-EXEC-9f`. Tested by `tests/diagnostics/1081-sys-buffer-calls.ax`,
-which accepts an untagged call to each descriptor, path, entropy,
-terminal, unmap and wait function, and `tests/stdlib/580-kernel-precondition.ax`.
+other (`MM-EXEC-9d`). `sysReadFd`, `sysWriteAllFd`, `sysRandomBytes`,
+`sysUnmapShared` and `sysWaitWord` take the address as an `Int`,
+`restrict(no-unsafe)` admits a call to each, and a bad address crashes
+the program. The typed calls' range check, the half that still holds,
+is `MM-EXEC-9f`. Tested by `tests/diagnostics/1081-sys-buffer-calls.ax`,
+which accepts an untagged call to each descriptor, entropy, unmap and
+wait function, and `tests/stdlib/580-kernel-precondition.ax`.
 
 **MM-EXEC-9f (H). `IO`'s typed descriptor calls check their range
 before the kernel sees it.** Ordinary code uses them instead of the
 raw `Sys` calls. Every path is a `String`. `writeStr` and `writeSlice`
 write a string or a range of one, `readInto` reads into a range of a
-`String` buffer, and `readLine`, `readAll` and `randomBytes` answer
-fresh strings. `termSave`, `termRaw`, `termRestore` and `termSize` keep
+`String` buffer, `fileRead` into a range of a `ReadBuffer`, and
+`readLine` and `readAll` answer fresh strings. `termSave`, `termRaw`, `termRestore` and `termSize` keep
 a terminal's saved settings in a `TermState`. A range outside its
 string is the index trap, status 77, before the kernel is called
 (`tests/stdlib/610-typed-io-bounds.ax`). `tests/stdlib/545-no-unsafe-practical.ax`
@@ -773,7 +773,7 @@ obligation**:
 | `(__addr "lit")`, `strData` | a literal's or a string's data address |
 | `(cast Int v)` on any heap value | that value's address |
 | `Vec`/`Map`/`Str` handles | addresses, since a handle *is* an address |
-| `sysGetPid`, `sysNowMicros` | process and wall-clock state |
+| `sysPid`, `sysNowMicros` | process and wall-clock state |
 | `sysEnv`, `sysArg` | the environment |
 
 **MM-EXEC-12a (H).** **`==` and `!=` on two `String`s compare
@@ -894,7 +894,7 @@ statuses. A program **MUST NOT** reuse them as a normal result:
 | 74 | a `__syscallN` reached on a target with no syscall ABI (windows-x86_64, windows-aarch64) | emitted, not yet executed: `emitPrimSyscall` lowers the primitive there to `__axiom_no_syscall`, which prints `axiom: no syscall ABI on this target` (37 bytes) and exits 74. Status 73 belongs to the FFI (`ffiHandleClose`) |
 | 75 | `__axiom_arena_reset` handed a mark whose chunk is no longer on the active list (`MM-ALLOC-16a`) | measured: `tests/stdlib/166-arena-bad-mark.ax` resets an inner mark after its outer one; the run prints `axiom: arena reset to an invalid mark` to fd 2 and exits 75. The fixture's first two blocks (nested marks reset innermost-first, and one mark reset twice) must still exit silently, so the trap is pinned against firing on legal use |
 | 76 | `__axiom_arena_reset` handed a mark taken before a `handle` whose extent is still live (`MM-ALLOC-16b`) | measured: `tests/stdlib/167-arena-live-handle.ax` resets a mark that predates the extent; the run prints `axiom: arena reset past a live handle` to fd 2 and exits 76. Its first two blocks (a mark taken inside the extent, and a mark with no handle in scope) must still exit silently. `tests/stdlib/401-recover-effect.ax` must still exit 71, because a recovery abort performs this same reset legitimately |
-| 77 | an index out of range, raised by `(__indexTrap)`: `vecGet` and its kin, and `IO`'s range checks on `writeSlice`, `readInto` and `randomBytes` | measured: `tests/stdlib/464-index-trap.ax` prints `axiom: vector index out of range` to fd 2 and exits 77; `tests/stdlib/610-typed-io-bounds.ax` refuses each typed call's out-of-range argument before its syscall |
+| 77 | an index out of range, raised by `(__indexTrap)`: `vecGet` and its kin, and `IO`'s range checks on `writeSlice`, `readInto` and `fileRead` | measured: `tests/stdlib/464-index-trap.ax` prints `axiom: vector index out of range` to fd 2 and exits 77; `tests/stdlib/610-typed-io-bounds.ax` refuses each typed call's out-of-range argument before its syscall |
 | 78 | `parallel`: the kernel refused the fork or the pthread (`__axiom_par_spawn_failed`) | measured by `scripts/check-parallel.sh` §12d: under a per-user process limit of 1 a `parallel` form's fork answers EAGAIN, a recovery point armed around it answers 78, and the unrecovered spawn prints `axiom: parallel: could not spawn the binding` and exits 78 (processes on every non-root runner, threads too on Linux, where the limit counts threads) |
 | 79 | `parallel` on a target with neither `fork` nor a pthread (windows-x86_64, windows-aarch64) | emitted, not executed: both primitives compile there to `__axiom_par_unsupported`, which prints `axiom: parallel is not available on this target` and exits 79. The program builds for every target and says at its first spawn what it can't do (`scripts/check-parallel.sh` reads the IR) |
 | 80 | a violated `;@axiom:pre(...)`/`post(...)` contract | measured by `scripts/check-contracts.sh` §1: a violated `pre`/`post` prints ``axiom: precondition failed in `half`: (> n 0)`` to fd 2, prints the backtrace, and exits 80 at every `--opt` level. Inside `__axiom_recover` it answers 80 to the arming call |

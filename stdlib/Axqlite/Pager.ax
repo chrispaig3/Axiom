@@ -1365,7 +1365,7 @@
     {
       (stAdd m wTxnSerial 1)
       (__store64 b 0 t)
-      (__store64 b 1 sysGetPid)
+      (__store64 b 1 sysPid)
       (__store64 b 2 m)
       (__store64 b 3 (st m wCounter))
       (__store64 b 4 (st m wTxnSerial))

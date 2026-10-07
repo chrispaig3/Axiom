@@ -104,7 +104,7 @@
 ;@axiom:effect(block)
 (fn (stubborn page idle k)
   {
-    (memSetWord page k sysGetPid)
+    (memSetWord page k sysPid)
     (sysWakeWord page)
     (forever idle)
     "unreachable"

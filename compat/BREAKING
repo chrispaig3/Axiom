@@ -1006,3 +1006,63 @@
 0.7.9  F  addrOf  added to Mem: a program importing Mem and another module that exports addrOf now qualifies the bare name (AX3014)
 0.7.9  F  addrEq  added to Mem: a program importing Mem and another module that exports addrEq now qualifies the bare name (AX3014)
 0.7.9  F  addrHash  added to Mem: a program importing Mem and another module that exports addrHash now qualifies the bare name (AX3014)
+0.7.9  F  ioResult  private: IO's own errno-to-Error wrapper; the path functions still put the path in their message
+0.7.9  F  openBeneath  removed with no replacement; nothing called it
+0.7.9  F  makeSymlink  removed with no replacement; nothing called it
+0.7.9  F  sysOpenBeneath  removed with no replacement; nothing called it
+0.7.9  F  sysSymlink  removed with no replacement; nothing called it
+0.7.9  F  fileReadInto  removed: it wrote into a String, which may be an immutable shared view; read with fileRead into a ReadBuffer
+0.7.9  F  tcpRead  takes a ReadBuffer instead of a String buffer: (tcpRead stream buf at count) with buf from readBufferNew
+0.7.9  F  sysReadFile  removed from Sys: use IO.readFile with a String path
+0.7.9  F  sysWriteFile  removed from Sys: use IO.writeFile with a String path
+0.7.9  F  sysAppendFile  removed from Sys: use IO.appendFile with a String path
+0.7.9  F  sysRename  removed from Sys: use IO.renamePath with String paths
+0.7.9  F  sysUnlink  removed from Sys: use IO.removeFile with a String path
+0.7.9  F  sysMkdir  removed from Sys: use IO.makeDirMode, or IO.makeDir for 0755
+0.7.9  F  sysRmdir  removed from Sys: use IO.removeDir with a String path
+0.7.9  F  sysFileExists  removed from Sys: use IO.fileExists with a String path
+0.7.9  F  sysFileSize  removed from Sys: use IO.fileSize with a String path
+0.7.9  F  sysIsDir  removed from Sys: use IO.isDir with a String path
+0.7.9  F  sysReadErrno  removed from Sys: use IO.readErrno with a String path
+0.7.9  F  sysOpenPath  removed from Sys: use IO.openPath, which answers an owned File
+0.7.9  F  sysDirMode  removed from Sys: IO.makeDir creates with 0755
+0.7.9  F  sysReadDir  removed from Sys: use IO.listDir, which sorts by byte and drops . and ..
+0.7.9  F  sysGetCwd  removed from Sys: use IO.cwd
+0.7.9  F  sysReadAllFd  removed from Sys: use IO.readAll
+0.7.9  F  sysReadLineFd  removed from Sys: use IO.readLine
+0.7.9  F  sysTermSave  removed from Sys: use IO.termSave, which answers a sealed TermState
+0.7.9  F  sysTermRestore  removed from Sys: use IO.termRestore
+0.7.9  F  sysTermRaw  removed from Sys: use IO.termRaw
+0.7.9  F  sysTermSize  removed from Sys: use IO.termSize, which answers a TermSize
+0.7.9  F  sysTermRows  removed from Sys: read the rows field of IO.termSize's answer
+0.7.9  F  sysTermCols  removed from Sys: read the cols field of IO.termSize's answer
+0.7.9  F  sysTermStateBytes  removed from Sys: IO's TermState sizes its own buffer
+0.7.9  F  sysTermSizeBytes  removed from Sys: IO.termSize sizes its own buffer
+0.7.9  F  sysFailed  removed: test a raw answer with (< r 0)
+0.7.9  F  sysErrno  removed: negate a raw answer, or read Error.code from a Result
+0.7.9  F  sysWriteFd  private: write with IO.writeStr, or Sys.sysWriteAllFd for bytes at an address
+0.7.9  F  sysWriteAllFd  (Int Int Int Int -> Int) becomes (Int Int Int -> Int): drop the trailing 0, the loop's own accumulator
+0.7.9  F  printlnLit  removed: write (println "...") for a literal, or (println (strFromLit p)) for NUL-terminated bytes
+0.7.9  F  readFileLit  removed: use readFile with a String path
+0.7.9  F  randomBytes  removed from IO: use Crypto.Random, which also covers bare metal
+0.7.9  F  sysGetPid  renamed sysPid
+0.7.9  F  netPollCreate  renamed sysPollCreate: readiness polling is not networking
+0.7.9  F  netPollAddRead  renamed sysPollAddRead
+0.7.9  F  netPollDelRead  renamed sysPollDelRead
+0.7.9  F  netPollWait  renamed sysPollWait
+0.7.9  F  netPollFdAt  renamed sysPollFdAt
+0.7.9  F  netPollBufBytes  renamed sysPollBufBytes
+0.7.9  F  netPollSignalAt  renamed sysPollSignalAt
+0.7.9  F  netSignalOpen  renamed sysSignalOpen
+0.7.9  F  sysRead  renamed sysReadNum: a syscall number ends in Num
+0.7.9  F  sysWrite  renamed sysWriteNum
+0.7.9  F  sysOpen  renamed sysOpenNum
+0.7.9  F  sysClose  renamed sysCloseNum
+0.7.9  F  sysExit  renamed sysExitNum
+0.7.9  F  sysLseek  renamed sysLseekNum
+0.7.9  F  sysPosixSpawn  renamed sysPosixSpawnNum
+0.7.9  F  sysWait4  renamed sysWait4Num
+0.7.9  F  sysFork  renamed sysForkNum
+0.7.9  F  sysExecve  renamed sysExecveNum
+0.7.9  F  termRawLeave  row gains Alloc,Mut: it restores through IO.termRestore and clears the state it held
+0.7.9  F  termReadSize  row gains Alloc: it asks IO.termSize, which answers a TermSize

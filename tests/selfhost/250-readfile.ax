@@ -1,14 +1,13 @@
 ; expect 42
 (import Str)
-(import Sys)
+(import IO)
 
 ; in.ax is this file; its first line is the `; expect` marker, so a
 ; successful read is any non-zero length.
 (:: main Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (main)
-  (let ((src (sysReadFile (__addr "in.ax"))))
+  (let ((src (readFile "in.ax")))
     (if (> (strLen src) 0)
       42
       7)))

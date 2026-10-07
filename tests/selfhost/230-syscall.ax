@@ -6,6 +6,6 @@
 ;@axiom:effect(unsafe)
 (fn (main)
   {
-    (sysWriteAllFd 1 (__addr "ok\n") 3 0)
+    (sysWriteAllFd 1 (__addr "ok\n") 3)
     42
   })

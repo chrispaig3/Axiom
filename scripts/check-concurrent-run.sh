@@ -15,7 +15,7 @@
 # scratch directory, so only this gate contends the working directory.
 # Any parallel job pool relies on what it checks.
 #
-# The compiler keeps the names apart with `sysGetPid`, as `replEval`
+# The compiler keeps the names apart with `sysPid`, as `replEval`
 # in repl.ax does. The runs repeat over several rounds, because a race
 # that passes once proves nothing.
 #

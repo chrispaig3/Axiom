@@ -2,15 +2,14 @@
 ;
 ; `IO`'s typed descriptor calls check their range before the kernel
 ; sees it (docs/memory-model.md MM-EXEC-9f). `writeSlice` takes a
-; `String` and `fileReadBuffer` a `ReadBuffer`, each with a range
-; inside it, and `randomBytes` a length; a range that is negative or
-; runs past the end is the index
+; `String` and `fileRead` a `ReadBuffer`, each with a range
+; inside it; a range that is negative or runs past the end is the index
 ; trap, status 77, the one `vecGet` raises. It fires BEFORE the syscall,
 ; and that is what the checks below pin, not only the status:
 ;
 ;   - a refused `writeSlice` writes nothing: stdout holds only the lines
 ;     `println` wrote, and the golden has no stray `cdef`;
-;   - a refused `fileReadBuffer` reads nothing: the next read of the same
+;   - a refused `fileRead` reads nothing: the next read of the same
 ;     descriptor still answers the file from its first byte;
 ;   - the edges answer rather than trap: an empty range at the very end
 ;     of a string, and a read that fills a buffer exactly.
@@ -36,26 +35,13 @@
   (__axiom_recover
     __axiom_arena_mark
     (lambda (x)
-      (match (fileReadBuffer f buf at count)
+      (match (fileRead f buf at count)
         ((Ok n) n)
-        ((Err e) (- 0 (errCode e))))
-    )))
-
-(:: randomStatus (-> Int Int))
-;@axiom:effect(io)
-;@axiom:effect(entropy)
-(fn (randomStatus n)
-  (__axiom_recover
-    __axiom_arena_mark
-    (lambda (x)
-      (match (randomBytes n)
-        ((Ok s) (strLen s))
         ((Err e) (- 0 (errCode e))))
     )))
 
 (:: main Int)
 ;@axiom:effect(io)
-;@axiom:effect(entropy)
 (fn (main)
   (let (
     (a (sliceStatus 2 10))
@@ -87,11 +73,6 @@
         ))
       (let ((_ (removeFile "axiom-610.tmp")))
         0)
-      (let (
-        (i (randomStatus (- 0 1)))
-        (j (randomStatus 0))
-      )
-        (println "random of -1 bytes {i}, of 0 bytes {j}"))
       (writeSlice 1 "abcdef" 2 10)
       ; Not reached, and not a bare numeral, for the reasons
       ; `544-misaligned-atomic.ax` gives: the stdlib gate reads a tail

@@ -20,7 +20,7 @@
 (:: logPath String)
 ;@axiom:effect(io)
 (fn (logPath)
-  (concat (concat "hook-log-" (fmtInt sysGetPid)) ".txt"))
+  (concat (concat "hook-log-" (fmtInt sysPid)) ".txt"))
 
 (:: setup Int)
 ;@axiom:effect(io)

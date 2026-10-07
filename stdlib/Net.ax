@@ -23,7 +23,7 @@
 ; switches a stream, and then a read or write that cannot proceed
 ; answers `Err` whose code `netWouldBlock` recognises. `tcpStreamFd` and
 ; `tcpListenerFd` hand out the descriptor for `Sys`'s readiness calls
-; (`netPollCreate`, `netPollAddRead`, `netPollWait`).
+; (`sysPollCreate`, `sysPollAddRead`, `sysPollWait`).
 ;
 ; A CLOSED PEER IS AN ERROR, NOT A SIGNAL. Writing to a connection the
 ; peer has closed raises SIGPIPE, whose default action ends the process.
@@ -620,21 +620,10 @@
 
 ; Read into `buf[at .. at + count)`. Answers how many bytes arrived,
 ; and 0 when the peer has closed its side. A range outside `buf` stops
-; the program with status 77 before the kernel sees it, as `IO.readInto`
-; does.
-(pub :: tcpRead (-> TcpStream String Int Int (Result Int Error)))
+; the program with status 77 before the kernel sees it.
+(pub :: tcpRead (-> TcpStream ReadBuffer Int Int (Result Int Error)))
 ;@axiom:effect(io)
 (pub fn (tcpRead s buf at count)
-  (let ((size (strLen buf)))
-    (if (|| (|| (< at 0) (< count 0))
-            (|| (> at size) (> count (- size at))))
-      __indexTrap
-      (sysReadFd (streamFdOf s) (+ (strData buf) at) count))))
-
-; Read into private mutable storage without exposing a writable String.
-(pub :: tcpReadBuffer (-> TcpStream ReadBuffer Int Int (Result Int Error)))
-;@axiom:effect(io)
-(pub fn (tcpReadBuffer s buf at count)
   (readBuffer (streamFdOf s) buf at count))
 
 ; Up to `max` bytes, as a fresh string: empty when the peer has closed
@@ -653,7 +642,7 @@
 (pub :: tcpReadAll (-> TcpStream (Result String Error)))
 ;@axiom:effect(io)
 (pub fn (tcpReadAll s)
-  (sysReadAllFd (streamFdOf s)))
+  (readAll (streamFdOf s)))
 
 ; Write all of `data`, continuing after a short write. Answers the
 ; number of bytes written, which is `strLen data` unless it failed. A

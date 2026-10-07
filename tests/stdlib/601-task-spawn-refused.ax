@@ -53,7 +53,7 @@
 ;@axiom:effect(block)
 (fn (stubborn page i)
   {
-    (memSetWord page (+ i 1) sysGetPid)
+    (memSetWord page (+ i 1) sysPid)
     (for k in 0..600
       (sysWaitWordTimeout page 0 100000000))
     "late"

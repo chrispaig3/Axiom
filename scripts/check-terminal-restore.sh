@@ -2,24 +2,26 @@
 # A program that puts a terminal into raw mode puts it back exactly as
 # it found it.
 #
-# `stdlib/Sys.ax`'s `sysTermSave`, `sysTermRaw` and `sysTermRestore` let
-# a REPL read keys one at a time. A program that exits without restoring
-# leaves the user a shell with no echo, no line editing and no ^C, and
-# `stty sane` typed blind is the only way out. Every other gate but
-# `check-repl-tui.sh` runs its program with stdin on a pipe, where
-# `sysIsatty` is false and this path is skipped.
+# `stdlib/IO.ax`'s `termRaw` and `termRestore` let a REPL read keys one
+# at a time. A program that exits without restoring leaves the user a
+# shell with no echo, no line editing and no ^C, and `stty sane` typed
+# blind is the only way out. Every other gate but `check-repl-tui.sh`
+# runs its program with stdin on a pipe, where `sysIsatty` is false and
+# this path is skipped.
 #
-# A save, raw, restore, compare round trip passes when `sysTermRaw`
-# does nothing at all, because nothing changed the bytes. So the round
-# trip is asserted together with its precondition: the state while raw
-# must differ from the state saved. Check 2 below is that inequality,
-# and a no-op `sysTermRaw` must turn it red.
+# A save, raw, restore, compare round trip passes when `termRaw` does
+# nothing at all, because nothing changed the bytes. So the round trip
+# is asserted together with its precondition: the state while raw must
+# differ from the state saved. Check 2 below is that inequality, and a
+# no-op `termRaw` must turn it red.
 #
 # Two independent witnesses:
 #
-#   * The Axiom probe compares all `sysTermStateBytes` bytes with
-#     `memCmp` (72 on Darwin, 36 on Linux, 44 on FreeBSD), so the
-#     assertion is byte-exact. It reads through the library it tests.
+#   * The Axiom probe reads the attributes itself, with its own
+#     `ioctl`, and compares all `termiosBytes` bytes with `memCmp` (72
+#     on Darwin, 36 on Linux, 44 on FreeBSD), so the assertion is
+#     byte-exact. The state `termRaw` saves is sealed inside its
+#     `TermState`, so the probe's reads are its own.
 #   * The Python driver holds the pty's other end and asks the kernel,
 #     through `termios.tcgetattr`, from outside the process. It uses
 #     Python's own `termios.ISIG`, so a wrong `tiosIsig` in
@@ -126,47 +128,63 @@ cat > "$work/probe.ax" <<'AX'
 ;@axiom:effect(io)
 (fn (kvInt k v) (kv k (fmtInt v)))
 
+; The probe's own read of fd 0's attributes into `buf`: 0, or -errno.
+; Independent of `IO`, whose saved state is sealed.
+(:: getAttr (-> Int Int))
+
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (getAttr buf) (__syscall3 sysIoctlNum 0 tcGetAttrReq buf))
+
+(:: errInt (-> (Result Int Error) Int))
+
+(fn (errInt r) (match r ((Ok n) n) ((Err e) (- 0 e.code))))
+
 (:: main Int)
 
 ;@axiom:effect(io)
 (fn (main)
   (let (
-    (keep (if (strEq (sysArg 1) "0") 0 1))
-    (save (memAlloc sysTermStateBytes))
-    (live (memAlloc sysTermStateBytes))
-    (after (memAlloc sysTermStateBytes))
-    (key (memAlloc 8))
-    (ws (memAlloc sysTermSizeBytes))
+    (keep (strEq (sysArg 1) "1"))
+    (save (memAlloc termiosBytes))
+    (live (memAlloc termiosBytes))
+    (after (memAlloc termiosBytes))
+    (key (readBufferNew 1))
   )
     {
-      (kvInt "STATE_BYTES" sysTermStateBytes)
-      (kvInt "KEEPSIGNALS" keep)
+      (kvInt "STATE_BYTES" termiosBytes)
+      (kvInt "KEEPSIGNALS" (if keep 1 0))
       (kvInt "ISATTY0" (if (sysIsatty 0) 1 0))
-      ; SAVE. From here on `save` is never written to again, by anything.
-      (kvInt "SAVE_RC" (sysTermSave 0 save))
-      (kv "SAVED" (hexOf save sysTermStateBytes 0 ""))
-      ; RAW. It re-reads the attributes into `save` itself and edits a
-      ; private copy; `SAVED_AGAIN` must equal `SAVED` above.
-      (kvInt "RAW_RC" (sysTermRaw 0 save keep))
-      (kv "SAVED_AGAIN" (hexOf save sysTermStateBytes 0 ""))
-      ; What the terminal IS, now, read back fresh.
-      (kvInt "LIVE_RC" (sysTermSave 0 live))
-      (kv "LIVE" (hexOf live sysTermStateBytes 0 ""))
-      (kvInt "RAW_DIFFERS" (if (== (memCmp save live sysTermStateBytes) 0) 0 1))
-      ; One keypress. With ICANON off this returns on the first byte,
-      ; with no newline anywhere. The driver writes exactly one 'A'.
-      ; `sysReadFd` answers `(Result Int Error)` since 2026-09-03
-      ; (ERR-ADOPT-1); the probe reads the count out of the `Ok` and
-      ; keeps the old `-errno` spelling for the driver's KEY_RC key.
-      (kvInt "KEY_RC" (match (sysReadFd 0 key 1) ((Ok k) k) ((Err e) (- 0 (errCode e)))))
-      (kvInt "KEY_BYTE" (memGetByte key 0))
-      (kvInt "RESTORE_RC" (sysTermRestore 0 save))
-      (kvInt "AFTER_RC" (sysTermSave 0 after))
-      (kv "AFTER" (hexOf after sysTermStateBytes 0 ""))
-      (kvInt "ROUND_TRIP_EXACT" (if (== (memCmp save after sysTermStateBytes) 0) 1 0))
-      (kvInt "SIZE_RC" (sysTermSize 0 ws))
-      (kvInt "ROWS" (sysTermRows ws))
-      (kvInt "COLS" (sysTermCols ws))
+      (kvInt "SAVE_RC" (getAttr save))
+      (kv "SAVED" (hexOf save termiosBytes 0 ""))
+      (match (termRaw 0 keep)
+        ((Err e) (kvInt "RAW_RC" (- 0 e.code)))
+        ((Ok st)
+          {
+            (kvInt "RAW_RC" 0)
+            ; What the terminal IS, now, read back fresh.
+            (kvInt "LIVE_RC" (getAttr live))
+            (kv "LIVE" (hexOf live termiosBytes 0 ""))
+            (kvInt "RAW_DIFFERS" (if (== (memCmp save live termiosBytes) 0) 0 1))
+            ; One keypress. With ICANON off this returns on the first
+            ; byte, with no newline anywhere. The driver writes exactly
+            ; one 'A'.
+            (kvInt "KEY_RC" (errInt (readBuffer 0 key 0 1)))
+            (kvInt "KEY_BYTE" (readBufferByte key 0))
+            (kvInt "RESTORE_RC" (errInt (termRestore st)))
+            0
+          }))
+      (kvInt "AFTER_RC" (getAttr after))
+      (kv "AFTER" (hexOf after termiosBytes 0 ""))
+      (kvInt "ROUND_TRIP_EXACT" (if (== (memCmp save after termiosBytes) 0) 1 0))
+      (match (termSize 0)
+        ((Ok sz)
+          {
+            (kvInt "SIZE_RC" 0)
+            (kvInt "ROWS" sz.rows)
+            (kvInt "COLS" sz.cols)
+          })
+        ((Err e) (kvInt "SIZE_RC" (- 0 e.code))))
       (println "PROBE_DONE=1")
       0
     }
@@ -182,30 +200,32 @@ cat > "$work/neg.ax" <<'AX'
 (import Mem)
 (import Fmt)
 (import Str)
+(import Err)
 
 (:: kvInt (-> String Int Int))
 
 ;@axiom:effect(io)
 (fn (kvInt k v) { (println (concat k (concat "=" (fmtInt v)))) 0 })
 
+(:: code (-> (Result a Error) Int))
+
+(fn (code r) (match r ((Ok _) 0) ((Err e) (- 0 e.code))))
+
 (:: main Int)
 
 ;@axiom:effect(io)
 (fn (main)
-  (let ((buf (memAlloc sysTermStateBytes)))
-    {
-      (kvInt "PIPE_ISATTY" (if (sysIsatty 0) 1 0))
-      (kvInt "PIPE_SAVE" (sysTermSave 0 buf))
-      (kvInt "PIPE_RAW" (sysTermRaw 0 buf 1))
-      (kvInt "PIPE_RESTORE" (sysTermRestore 0 buf))
-      (kvInt "PIPE_SIZE" (sysTermSize 0 (memAlloc sysTermSizeBytes)))
-      (kvInt "BADFD_ISATTY" (if (sysIsatty 999) 1 0))
-      (kvInt "BADFD_SAVE" (sysTermSave 999 buf))
-      (kvInt "BADFD_RAW" (sysTermRaw 999 buf 1))
-      (println "NEG_DONE=1")
-      0
-    }
-  )
+  {
+    (kvInt "PIPE_ISATTY" (if (sysIsatty 0) 1 0))
+    (kvInt "PIPE_SAVE" (code (termSave 0)))
+    (kvInt "PIPE_RAW" (code (termRaw 0 true)))
+    (kvInt "PIPE_SIZE" (code (termSize 0)))
+    (kvInt "BADFD_ISATTY" (if (sysIsatty 999) 1 0))
+    (kvInt "BADFD_SAVE" (code (termSave 999)))
+    (kvInt "BADFD_RAW" (code (termRaw 999 true)))
+    (println "NEG_DONE=1")
+    0
+  }
 )
 AX
 
@@ -221,7 +241,7 @@ ok "both probes built"
 # kernel's view of the terminal at three moments, and prints KEY=VALUE
 # lines prefixed `PY_`, so the two witnesses never mix in the output.
 #
-# It sets the pty's size with TIOCSWINSZ first, so `sysTermSize` has a
+# It sets the pty's size with TIOCSWINSZ first, so `termSize` has a
 # definite answer rather than the zero a pty may report.
 # ------------------------------------------------------------------
 cat > "$work/drive.py" <<'PY'
@@ -281,7 +301,7 @@ try:
     # take, the probe is still in CANONICAL mode and is blocked in
     # read() waiting for a newline that the single 'A' above is not -
     # so a plain waitpid here hangs forever, and the gate that exists
-    # to catch a broken sysTermRaw would hang instead of failing.
+    # to catch a broken termRaw would hang instead of failing.
     # Found while ablating: it is exactly the ablation this file must
     # survive. Kill, then reap.
     status, waited = None, time.time() + 5
@@ -384,7 +404,7 @@ run_pty() {
     return
   fi
 
-  # 0b. The probe finished. This is separate from 0a: with `sysTermRaw`
+  # 0b. The probe finished. This is separate from 0a: with `termRaw`
   #     a no-op, the probe runs on the pty (ISATTY0=1) and then hangs.
   #     A terminal still in canonical mode does not return from read()
   #     until it sees a newline, and the driver sends one byte that is
@@ -397,7 +417,7 @@ run_pty() {
       bad "[$label] the probe HUNG and had to be killed - it never returned from read()."
       echo "       That is what a terminal still in canonical mode does: the driver"
       echo "       sends one byte and no newline, so a read() that is waiting for a"
-      echo "       line never returns. Suspect sysTermRaw: RAW_DIFFERS=$(v "$log" RAW_DIFFERS)."
+      echo "       line never returns. Suspect termRaw: RAW_DIFFERS=$(v "$log" RAW_DIFFERS)."
     else
       bad "[$label] the probe stopped early without finishing (no PROBE_DONE, and it was not killed)"
       sed 's/^/     /' "$log" | head -25
@@ -410,7 +430,7 @@ run_pty() {
   if [[ -n "$saved" && "$saved" == "$after" && "$(v "$log" ROUND_TRIP_EXACT)" == 1 ]]; then
     ok "[$label] round trip byte-exact: all $sb bytes identical (memCmp, and the hex agrees)"
   else
-    bad "[$label] round trip is NOT byte-exact - sysTermRestore did not restore what was saved"
+    bad "[$label] round trip is NOT byte-exact - termRestore did not restore what was saved"
     echo "       saved: $saved"
     echo "       after: $after"
   fi
@@ -420,7 +440,7 @@ run_pty() {
     bad "[$label] the kernel disagrees that the terminal was restored: $(v "$log" PY_DIFF)"
   fi
 
-  # 2. Raw mode took effect. Without this, a sysTermRaw that does
+  # 2. Raw mode took effect. Without this, a termRaw that does
   #    nothing passes check 1.
   if [[ "$(v "$log" RAW_DIFFERS)" == 1 ]]; then
     ok "[$label] raw mode changed the state (the saved bytes and the live bytes differ)"
@@ -431,13 +451,6 @@ run_pty() {
     ok "[$label] and the kernel agrees: ECHO and ICANON are both off while raw"
   else
     bad "[$label] the kernel says raw mode did not take: differs=$(v "$log" PY_RAW_DIFFERS) ECHO=$(v "$log" PY_ECHO_DURING) ICANON=$(v "$log" PY_ICANON_DURING)"
-  fi
-
-  # 3. The saved buffer is not the buffer that got edited.
-  if [[ "$saved" == "$(v "$log" SAVED_AGAIN)" ]]; then
-    ok "[$label] sysTermRaw left the caller's saved bytes untouched"
-  else
-    bad "[$label] sysTermRaw WROTE THROUGH the caller's saved buffer - the original is lost"
   fi
 
   # 4. ICANON is really off: one byte came back with no newline sent.
@@ -466,9 +479,9 @@ run_pty() {
 
   # 6. The size is the size the driver set.
   if [[ "$(v "$log" ROWS)" == "$(v "$log" PY_WANT_ROWS)" && "$(v "$log" COLS)" == "$(v "$log" PY_WANT_COLS)" ]]; then
-    ok "[$label] sysTermSize read back the $(v "$log" ROWS)x$(v "$log" COLS) the driver set"
+    ok "[$label] termSize read back the $(v "$log" ROWS)x$(v "$log" COLS) the driver set"
   else
-    bad "[$label] sysTermSize answered $(v "$log" ROWS)x$(v "$log" COLS), want $(v "$log" PY_WANT_ROWS)x$(v "$log" PY_WANT_COLS)"
+    bad "[$label] termSize answered $(v "$log" ROWS)x$(v "$log" COLS), want $(v "$log" PY_WANT_ROWS)x$(v "$log" PY_WANT_COLS)"
   fi
 
   # 7. ISIG follows the caller's argument, both ways, judged by
@@ -511,7 +524,7 @@ if [[ "$(v "$work/neg.log" NEG_DONE)" == 1 ]]; then
     got="$(v "$work/neg.log" "$1")"
     if [[ "$got" == "$2" ]]; then ok "$1 = $2"; else bad "$1 = $got, want $2"; fi
   done
-  for k in PIPE_SAVE PIPE_RAW PIPE_RESTORE PIPE_SIZE; do
+  for k in PIPE_SAVE PIPE_RAW PIPE_SIZE; do
     got="$(v "$work/neg.log" $k)"
     if [[ "$got" == "-$e_notty" ]]; then
       ok "$k answers -$e_notty (ENOTTY on this host), not a fabricated success"

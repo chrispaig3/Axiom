@@ -76,7 +76,7 @@
       {
         (while (< i n)
           {
-            (if (== (netPollFdAt buf i) fd)
+            (if (== (sysPollFdAt buf i) fd)
               (set found 1)
               0)
             (set i (+ i 1))
@@ -87,17 +87,17 @@
 (:: main Int)
 ;@axiom:effect(io)
 (fn (main)
-  (let ((base (+ 20000 (% sysGetPid 9000))))
+  (let ((base (+ 20000 (% sysPid 9000))))
     (let ((addr (memAlloc 16)))
       (let (
         (rec (memAlloc 64))
         (ts (memAlloc 16))
         (optb (memAlloc 4))
       )
-        (let ((buf (memAlloc (netPollBufBytes 8))))
+        (let ((buf (memAlloc (sysPollBufBytes 8))))
           (let ((la (listenOn addr optb base)))
             (let ((lb (listenOn addr optb (+ base 1))))
-              (match netPollCreate
+              (match sysPollCreate
                 ((Err e) (say 0 "the readiness descriptor is created"))
                 ((Ok pfd)
                   {
@@ -114,8 +114,8 @@
                         0)
                       "the readiness descriptor is created")
                     (say
-                      (if (isOk (netPollAddRead pfd la rec))
-                        (if (isOk (netPollAddRead pfd lb rec))
+                      (if (isOk (sysPollAddRead pfd la rec))
+                        (if (isOk (sysPollAddRead pfd lb rec))
                           1
                           0)
                         0)
@@ -124,7 +124,7 @@
                     ; zero events rather than blocking or erroring.
                     (say
                       (if (==
-                        (match (netPollWait
+                        (match (sysPollWait
                           pfd
                           buf
                           8
@@ -152,7 +152,7 @@
                             1)
                           (let ((_ (netConnect ca addr))) 0)
                           (let ((n 
-                            (match (netPollWait
+                            (match (sysPollWait
                               pfd
                               buf
                               8
@@ -167,7 +167,7 @@
                                   0)
                                 "one connection wakes exactly one event")
                               (say
-                                (if (== (netPollFdAt buf 0) la)
+                                (if (== (sysPollFdAt buf 0) la)
                                   1
                                   0)
                                 "the event names the listener that was connected to")
@@ -247,7 +247,7 @@
                                       1)
                                     (let ((_ (netConnect cc addr))) 0)
                                     (let (
-                                      (mut n2 (match (netPollWait
+                                      (mut n2 (match (sysPollWait
                                         pfd
                                         buf
                                         8
@@ -260,7 +260,7 @@
                                       {
                                         (while (&& (< n2 2) (< tries 50))
                                           {
-                                            (set n2 (match (netPollWait
+                                            (set n2 (match (sysPollWait
                                               pfd
                                               buf
                                               8
@@ -292,7 +292,7 @@
                         }
                       ))
                     (say
-                      (if (isOk (netPollDelRead pfd la rec))
+                      (if (isOk (sysPollDelRead pfd la rec))
                         1
                         0)
                       "a listener can be unregistered")

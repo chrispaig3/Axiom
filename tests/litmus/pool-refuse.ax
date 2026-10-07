@@ -69,7 +69,7 @@
 ;@axiom:effect(unsafe)
 ;@axiom:effect(block)
 (fn (stubborn page)
-  (let ((me sysGetPid))
+  (let ((me sysPid))
     {
       (println "pid {me}")
       (__atomic_add (+ page 8) 1)
@@ -336,7 +336,7 @@
                   (let ((st (__axiom_recover __axiom_arena_mark kernelRound)))
                     (println "round 0 status {st} free 0"))
                   (println "usage: pool-refuse task K N W R L S | checked K N W S | raising K N W S | kernel GET SET RES S")))))
-          (let ((me sysGetPid))
+          (let ((me sysPid))
             (println "ready {me}"))
           (let ((s 
             (argInt

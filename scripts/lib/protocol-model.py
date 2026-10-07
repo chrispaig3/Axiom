@@ -219,7 +219,7 @@ F("sysWaitWordTimeout", ["addr", "expected", "nanos"], ["cur", "code"], (SYS, "s
 # the plain `pload`/`pstore` that run inside the step before them.
 
 F("chanMe", [], ["p"], (CHAN, "chanMe"), [
-    ("pid", "p", "sysGetPid"),
+    ("pid", "p", "sysPid"),
     ("ret", "p * 4"),
 ])
 F("chanLock", ["ch", "me", "b", "timed"], ["r", "g"], (CHAN, "chanLock"), [
@@ -585,7 +585,7 @@ F("chanPoisoned", ["ch"], ["p"], (CHAN, "chanPoisoned"), [
 # `syncCas` and `syncCasAt` are the atomics on word i (`WRAPPERS` below).
 
 F("syncMe", [], ["p"], (SYNC, "syncMe"), [
-    ("pid", "p", "sysGetPid"),
+    ("pid", "p", "sysPid"),
     ("ret", "p * 4"),
 ])
 F("syncNextGuard", ["m"], ["old"], (SYNC, "syncNextGuard"), [
@@ -752,13 +752,13 @@ WRAPPERS = [
     (CHAN, "chanSlice", "(if (< (chanTimeLeft b) chanSliceNanos)"),
     (CHAN, "chanLockSlice", "(if (== timed 1)\n    (chanSlice b)\n    chanSliceNanos)"),
     (CHAN, "chanOutOfTime", "(if (== timed 1)\n    (<= (chanTimeLeft b) 0)\n    false)"),
-    (CHAN, "chanMe", "(* sysGetPid 4)"),
+    (CHAN, "chanMe", "(* sysPid 4)"),
     (CHAN, "chanPoisonMark", "(fn (chanPoisonMark)\n  %d)" % POISON),
     (SYNC, "syncLoad", "(__atomic_load (+ m (* 8 i)))"),
     (SYNC, "syncStore", "(__atomic_store (+ m (* 8 i)) v)"),
     (SYNC, "syncCas", "(__atomic_cas m old new)"),
     (SYNC, "syncCasAt", "(__atomic_cas (+ m (* 8 i)) old new)"),
-    (SYNC, "syncMe", "(* sysGetPid 4)"),
+    (SYNC, "syncMe", "(* sysPid 4)"),
     (SYNC, "syncOutOfTime", "(<= (syncTimeLeft b) 0)"),
     (SYNC, "syncSlice", "(if (< (syncTimeLeft b) syncProbeNanos)"),
     (SYNC, "syncStep", "(if (== code 1)\n    slice"),
@@ -2643,7 +2643,7 @@ TRACE_AX = r'''
           (if (< k trMax)
             (let ((e (+ t (* 8 (+ 3 (* 6 k))))))
               {
-                (__store64 e 0 sysGetPid)
+                (__store64 e 0 sysPid)
                 (__store64 e 1 op)
                 (__store64 e 2 (/ (- addr (- t 4096)) 8))
                 (__store64 e 3 a)

@@ -22,33 +22,33 @@
 ; identical on arm64 and x86_64, which is why one Darwin file serves
 ; both architectures.
 ; read(fd, buf, count) - BSD 3
-(pub :: sysRead Int)
-(pub fn (sysRead)
+(pub :: sysReadNum Int)
+(pub fn (sysReadNum)
   33554435)
 
 ; write(fd, buf, count) - BSD 4
-(pub :: sysWrite Int)
-(pub fn (sysWrite)
+(pub :: sysWriteNum Int)
+(pub fn (sysWriteNum)
   33554436)
 
 ; open(path, flags, mode) - BSD 5
-(pub :: sysOpen Int)
-(pub fn (sysOpen)
+(pub :: sysOpenNum Int)
+(pub fn (sysOpenNum)
   33554437)
 
 ; close(fd) - BSD 6
-(pub :: sysClose Int)
-(pub fn (sysClose)
+(pub :: sysCloseNum Int)
+(pub fn (sysCloseNum)
   33554438)
 
 ; exit(status) - BSD 1
-(pub :: sysExit Int)
-(pub fn (sysExit)
+(pub :: sysExitNum Int)
+(pub fn (sysExitNum)
   33554433)
 
 ; lseek(fd, offset, whence) - BSD 199
-(pub :: sysLseek Int)
-(pub fn (sysLseek)
+(pub :: sysLseekNum Int)
+(pub fn (sysLseekNum)
   33554631)
 
 ; Darwin has a real `open`, so no `openat` indirection is needed.
@@ -126,15 +126,15 @@
 ; right exit status. Probed: `/bin/sh -c "exit 7"` answers 0 under the
 ; six-argument spelling (sh with no arguments reads EOF from stdin and
 ; exits successfully) and 1792 - 7 << 8 - under this one.
-(pub :: sysPosixSpawn Int)
+(pub :: sysPosixSpawnNum Int)
 ;@axiom:syscall(spawn)
-(pub fn (sysPosixSpawn)
+(pub fn (sysPosixSpawnNum)
   33554676)
 
 ; wait4(pid, status, options, rusage) - BSD 7.
-(pub :: sysWait4 Int)
+(pub :: sysWait4Num Int)
 ;@axiom:syscall(block)
-(pub fn (sysWait4)
+(pub fn (sysWait4Num)
   33554439)
 
 ; fork() - BSD 2. `sysSpawn` does not reach it, because
@@ -152,17 +152,17 @@
 ; and no compiler change - parent saw `fork->81242 mypid=81241`, child
 ; saw `fork->81242 mypid=81242`. `forkChildIsZero` records that this
 ; normalisation is needed here and not on Linux.
-(pub :: sysFork Int)
+(pub :: sysForkNum Int)
 ;@axiom:syscall(spawn)
-(pub fn (sysFork)
+(pub fn (sysForkNum)
   33554434)
 
 (pub :: sysForkArg Int)
 (pub fn (sysForkArg)
   0)
 
-(pub :: sysExecve Int)
-(pub fn (sysExecve)
+(pub :: sysExecveNum Int)
+(pub fn (sysExecveNum)
   0)
 
 ; unlink(path) - BSD 10.
@@ -368,7 +368,7 @@
 ; tree finds no `accept4`, no `SOCK_NONBLOCK` and no `SOCK_CLOEXEC` - so
 ; a non-blocking accepted socket is two calls here and one on Linux.
 ; `Sys.ax` passes a fourth argument of 0 regardless, which Linux reads
-; as `accept4`'s flags and Darwin ignores, the way `sysGetPid` already
+; as `accept4`'s flags and Darwin ignores, the way `sysPid` already
 ; passes zeros a syscall does not read.
 (pub :: sysAcceptNum Int)
 (pub fn (sysAcceptNum)
@@ -706,7 +706,7 @@
 
 ; Whether `fork` answers 0 in the child, which is the POSIX convention
 ; and what Linux does. Darwin answers the child's pid to both, so
-; `sysForkProcess` normalises; see `sysFork` above for the measurement.
+; `sysForkProcess` normalises; see `sysForkNum` above for the measurement.
 (pub :: forkChildIsZero Int)
 (pub fn (forkChildIsZero)
   0)

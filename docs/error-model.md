@@ -152,7 +152,7 @@ sentinel:
 | Seeds a loop accumulator, such as `(mut found (- 0 1))`; never an answer | 4 | `Str.strFind` (which already answers `(Option Int)`), `rdFindHeaderEnd`, `rdContentLength`, `rpcReadMsg` |
 | A private helper below a wrapper that already answers `Option`, keeping `-1` on the recursion (§10's rule for `internFindFrom`) | 4 | `internFindFrom` (twice), `pathLastSlashFrom`, `pathLastDotFrom` |
 | `Map.ax`'s private probe walk below `mapGet`, whose absent-key answer is a caller-supplied default and not a sentinel | 4 | `mapFindSlot`, `mapFindLoop` (twice), `mapInsertNoGrow` |
-| Passes `-1` as an argument, or sets a local to it, in `stdlib/Sys.ax` | 3 | `netAddrText`'s zero-run seed, `netSignalOpenRaw`'s syscall slot, `sysRandomBytes`' `(set rc (- 0 1))` |
+| Passes `-1` as an argument, or sets a local to it, in `stdlib/Sys.ax` | 3 | `netAddrText`'s zero-run seed, `sysSignalOpenRaw`'s syscall slot, `sysRandomBytes`' `(set rc (- 0 1))` |
 | A bitwise NOT written as XOR with all ones, `(^ x (- 0 1))` | 2 | `netSetBlocking`, `termFlagClear` |
 | `EVFILT_READ`, a kernel constant that happens to be -1 | 2 | `pollReadFilter` on Darwin and FreeBSD |
 | A private peek | 1 | `Cereal.ax`'s `jcPeek` |
@@ -1627,8 +1627,8 @@ The slices, in order, each green before the next starts:
    `tests/net/echo-server.ax` reports a failed bind through
    `errMessage` and `errCode`.
 
-   **"Did it work" calls.** `sysCloseFd`, `netPollAddRead`,
-   `netPollDelRead`, `sysSignalBlock` and `sysKill` answer
+   **"Did it work" calls.** `sysCloseFd`, `sysPollAddRead`,
+   `sysPollDelRead`, `sysSignalBlock` and `sysKill` answer
    `(Result Int Error)`. Porting `sysCloseFd` widened one other row:
    `sysFileExists` gains `Alloc`, because it closes the descriptor it
    opened. `verify-compat.py generate` over `stdlib/` differs in
@@ -1637,7 +1637,7 @@ The slices, in order, each green before the next starts:
    module reaches either name.
 
    **Descriptors.** `sysOpenPath`, `netSocketTcp`, `netSocketTcp6`,
-   `netPollCreate` and `netSignalOpen` answer `(Result Int Error)`.
+   `sysPollCreate` and `sysSignalOpen` answer `(Result Int Error)`.
    These head a resource lifetime, so they cost the most. A "did it
    work" call is one expression at each site, but a call that answers a
    descriptor retypes `lsn`, `cli`, `pfd` and everything downstream.
@@ -1677,14 +1677,14 @@ The slices, in order, each green before the next starts:
 
    **Hot paths.** The slice line is where a call runs, not what it
    does. The calls above run once per socket. `netAccept` and
-   `netAcceptFrom` run once per connection, `netPollWait` and
-   `netPollSignalAt` once per wake, and `sysWriteFd` and `sysReadFd`
+   `netAcceptFrom` run once per connection, `sysPollWait` and
+   `sysPollSignalAt` once per wake, and `sysWriteFd` and `sysReadFd`
    once per write. In `tests/net/echo-server.ax`, `netAccept`,
-   `netAcceptFrom` and `netPollWait` are reached below the
+   `netAcceptFrom` and `sysPollWait` are reached below the
    per-connection `__axiom_arena_mark`, so a boxed `(Ok n)` there is a
    block per call that the reset never rewinds.
 
-   The hot-path calls were held out of this slice for that reason (`netPollSignalAt` also
+   The hot-path calls were held out of this slice for that reason (`sysPollSignalAt` also
    for the one below). Once a `Result` became an unboxed pair, a direct
    match builds no block on success
    (§10.1), and §10.1
@@ -1692,7 +1692,7 @@ The slices, in order, each green before the next starts:
    at the stdlib boundary, because the compiler's own phases are
    slice 4.
 
-   `netPollSignalAt` reports an absence. It answers the signal named by
+   `sysPollSignalAt` reports an absence. It answers the signal named by
    event `i`, and every bad-path answer it wrote was a hand-written
    `-1` meaning "this event is not a signal". All five call sites read
    it as a presence test, and `tests/stdlib/315-signal-in-poll.ax`
@@ -1895,7 +1895,7 @@ Seven lookups in `stdlib/` answered `-1` for "not found" and wanted
 - Two of the seven are in `stdlib/Str.ax`, which cannot import `Err`
   because `Err` imports `Str`. They could never have been `Result`
   debt.
-- `netPollSignalAt` was counted as a failure until the census learned
+- `sysPollSignalAt` was counted as a failure until the census learned
   to follow a syscall result through a `let` binder. It is `Option`
   debt, and `compat/SENTINELS` records it as a declared rise, not a
   new sentinel.
@@ -1972,10 +1972,10 @@ the call, where the checker charges it
 
 The absence column went from 7 to 3, and then to 2.
 
-- `strHexVal`, `utf8DecodeAt`, `utf8CharAt` and `netPollSignalAt`
+- `strHexVal`, `utf8DecodeAt`, `utf8CharAt` and `sysPollSignalAt`
   answer `(Option Int)`. The three `restrict(no-alloc)` claims among
   them stand, checked against the emitted IR by
-  `scripts/check-unboxed-sums.sh`. `netPollSignalAt`'s row stays `IO`
+  `scripts/check-unboxed-sums.sh`. `sysPollSignalAt`'s row stays `IO`
   alone.
 - `strFindByte` tail-calls itself, and a self tail call is the one
   shape the pair does not take yet, because a loop header and a pair
@@ -2005,7 +2005,7 @@ So the answer is: **`println`'s row may widen, because `println` can
 allocate, and only when a write fails.**
 
 - `sysWriteFd`, `sysReadFd`, `netAccept`, `netAcceptFrom`,
-  `netPollWait`, `sysNowMicros`, `sysNowMonotonic`, `platformWriteFd`
+  `sysPollWait`, `sysNowMicros`, `sysNowMonotonic`, `platformWriteFd`
   and `platformReadFd` answer `(Result Int Error)`.
 - `sysWriteAllFd` and `writeStr` keep their `Int` channel. `println`'s
   value is that `Int` in 804 expansions, and the channel above the seam
@@ -2075,7 +2075,7 @@ slices actually landed in.
 | 2 (part) | **4th** | `stdlib/Path.ax`'s two, and `stdlib/Agent/Tags.ax`'s two, which the list never named |
 | 3 | 5th–8th | `Sys.ax` socket-configuration, "did it work", descriptor-answering, `sysGetCwd` |
 | — | 9th | `stdlib/Intern.ax`'s `internFind`, a module the list never named |
-| 2 (rest) | **10th** | `stdlib/Str.ax`'s `strHexVal`, `stdlib/Utf8.ax`'s two, `Sys.ax`'s `netPollSignalAt` |
+| 2 (rest) | **10th** | `stdlib/Str.ax`'s `strHexVal`, `stdlib/Utf8.ax`'s two, `Sys.ax`'s `sysPollSignalAt` |
 | 3 | 11th | `sysWriteFd`, `sysReadFd` and seven more: the failure column reaches 0 |
 | 2 (last) | **12th** | `stdlib/Str.ax`'s `strFindByte` |
 

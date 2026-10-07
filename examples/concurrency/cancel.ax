@@ -61,7 +61,7 @@
 ;@axiom:effect(block)
 (fn (shard pids idle tok s)
   {
-    (memSetWord pids s sysGetPid)
+    (memSetWord pids s sysPid)
     (if (== s 3)
       (fmtInt (/ s (- s 3)))
       (if (== s 8)

@@ -592,8 +592,8 @@ def cmd_selftest():
     expect(verdict_of((1, 'E AX3004 a:1:1 x "m"\nW AX3037 b:2:2 y "n"')) == (1, ('AX3004', 'AX3037')),
            "a verdict is the exit status and the codes")
     ir2 = ('define i64 @main() {\n  %.t0 = call i64 @"IO$println"(i64 1)\n'
-           '  %.t1 = call i64 @"Sys.Platform$sysWrite"(i64 1)\n  %.t2 = call i64 @f(i64 1)\n}\n')
-    expect(shadow_names("(fn (main) (println 1))", defs(ir2), set()) == ["sysWrite"],
+           '  %.t1 = call i64 @"Sys.Platform$sysWriteNum"(i64 1)\n  %.t2 = call i64 @f(i64 1)\n}\n')
+    expect(shadow_names("(fn (main) (println 1))", defs(ir2), set()) == ["sysWriteNum"],
            "shadow names a called module function the entry file doesn't mention")
     expect(shadowing(["strLen"]).count("(fn (strLen) 0)") == 1, "shadow appends one function per name")
     print("selftest: %d failed" % fails)

@@ -391,7 +391,7 @@
 (fn (taskChild f slab slotBytes limit tok w arg)
   (let ((slot (+ slab (* (% arg w) slotBytes))))
     {
-      (memSetWord slot 2 sysGetPid)
+      (memSetWord slot 2 sysPid)
       (let ((r (f (/ arg w))))
         (let ((len (strLen r)))
           {

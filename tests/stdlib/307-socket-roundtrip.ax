@@ -69,7 +69,7 @@
 (:: main Int)
 ;@axiom:effect(io)
 (fn (main)
-  (let ((port (+ 20000 (% sysGetPid 10000))))
+  (let ((port (+ 20000 (% sysPid 10000))))
     (let (
       (buf (memAlloc 16))
       (optb (memAlloc 4))

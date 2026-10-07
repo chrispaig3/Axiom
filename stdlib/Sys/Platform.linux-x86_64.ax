@@ -12,31 +12,31 @@
 ; `os-arch` before `os` (see the compiler's module resolution).
 ;
 ; Numbers from the kernel's `arch/x86/entry/syscalls/syscall_64.tbl`.
-(pub :: sysRead Int)
-(pub fn (sysRead)
+(pub :: sysReadNum Int)
+(pub fn (sysReadNum)
   0)
 
-(pub :: sysWrite Int)
-(pub fn (sysWrite)
+(pub :: sysWriteNum Int)
+(pub fn (sysWriteNum)
   1)
 
-(pub :: sysOpen Int)
-(pub fn (sysOpen)
+(pub :: sysOpenNum Int)
+(pub fn (sysOpenNum)
   2)
 
-(pub :: sysClose Int)
-(pub fn (sysClose)
+(pub :: sysCloseNum Int)
+(pub fn (sysCloseNum)
   3)
 
 ; exit_group, not exit: `exit` terminates the calling thread only, which
 ; leaves a multi-threaded process alive with no way to notice. 231 is
 ; correct for a single-threaded program too.
-(pub :: sysExit Int)
-(pub fn (sysExit)
+(pub :: sysExitNum Int)
+(pub fn (sysExitNum)
   231)
 
-(pub :: sysLseek Int)
-(pub fn (sysLseek)
+(pub :: sysLseekNum Int)
+(pub fn (sysLseekNum)
   8)
 
 ; x86-64 still has plain `open`.
@@ -85,29 +85,29 @@
 ; exists for the AArch64 module, where fork is spelled `clone(SIGCHLD)`.
 ; fork ignores whatever is in the argument registers, so passing it is
 ; harmless here and keeps one call site in portable code.
-(pub :: sysFork Int)
+(pub :: sysForkNum Int)
 ;@axiom:syscall(spawn)
-(pub fn (sysFork)
+(pub fn (sysForkNum)
   57)
 
 (pub :: sysForkArg Int)
 (pub fn (sysForkArg)
   0)
 
-(pub :: sysExecve Int)
-(pub fn (sysExecve)
+(pub :: sysExecveNum Int)
+(pub fn (sysExecveNum)
   59)
 
-(pub :: sysWait4 Int)
+(pub :: sysWait4Num Int)
 ;@axiom:syscall(block)
-(pub fn (sysWait4)
+(pub fn (sysWait4Num)
   61)
 
 ; Unused on Linux, defined so `Sys.ax` type-checks against every
 ; platform module.
-(pub :: sysPosixSpawn Int)
+(pub :: sysPosixSpawnNum Int)
 ;@axiom:syscall(spawn)
-(pub fn (sysPosixSpawn)
+(pub fn (sysPosixSpawnNum)
   0)
 
 ; x86-64 still has a real `unlink`.

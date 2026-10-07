@@ -1,20 +1,18 @@
-; Round-trip a file through the syscall layer: open, write, close,
-; reopen, read to EOF, close.
+; Round-trip a file: open, write, close, reopen, read to end, close.
 (import IO)
 (import Err)
 
 (pub :: main Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (main)
-  (let ((path (__addr "axiom-stdlib-test.tmp")))
-    (match (sysOpenPath path oWronlyCreateTrunc)
+  (let ((path "axiom-stdlib-test.tmp"))
+    (match (openPath path oWronlyCreateTrunc)
       ((Err e) (die "open for write failed" 1))
-      ((Ok fd)
+      ((Ok f)
         {
-          (writeStr fd "line one\nline two\n")
-          (let ((_ (sysCloseFd fd))) 0)
-          (let ((contents (readFileLit path)))
+          (let ((_ (fileWrite f "line one\nline two\n"))) 0)
+          (let ((_ (fileClose f))) 0)
+          (let ((contents (readFile path)))
             {
               (println (strLen contents))
               ; no newline of its own, and no rendering: this is
@@ -25,7 +23,7 @@
                   ((None) (- 0 1))
                   ((Some i) i)))
               (println (strSlice contents 0 8))
-              (println (strLen (readFileLit (__addr "no-such-file-here"))))
+              (println (strLen (readFile "no-such-file-here")))
               0
             })
         }

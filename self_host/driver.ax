@@ -21,7 +21,7 @@
 (import Str)
 (import Vec)
 (import Sys)
-(import IO (fileExists readFile removeFile writeFile writeStr))
+(import IO (fileExists listDir readFile removeFile writeFile writeStr))
 (import Err)
 (import Path)
 (import parser)
@@ -934,7 +934,7 @@
 ;@axiom:effect(io)
 (pub fn (crateModuleName dir pkg)
   (let (
-    (entries (sysReadDir (strCStr (concat dir "axiom"))))
+    (entries (listDir (concat dir "axiom")))
     (mut found "")
     (mut n 0)
     (mut i 0)
@@ -973,21 +973,13 @@
               0))
           (set i (+ i 1))
         })
-      ; EXACTLY one, not the first of several. `sysReadDir` answers in
-      ; directory order, which is a filesystem fact rather than a
-      ; property of the crate: two `.ax` files under `axiom/` and the
-      ; module this crate is bound as depends on which one the kernel
-      ; happens to hand back first, so the same crate could bind
-      ; differently on two machines and the emitted binding would name
-      ; a different module. At one candidate there is nothing to choose
-      ; between and the order cannot matter; above one the answer no
-      ; longer depends on the listing at all, because the
-      ; package-derived name below does not read it.
-      ;
-      ; Sorting was the other option and it is deterministic-WRONG: it
-      ; still picks one file of several and still overwrites it, just
-      ; alphabetically, so a hand-written module beside a generated one
-      ; gets clobbered on every machine instead of on some of them.
+      ; EXACTLY one, not the first of several. With two `.ax` files
+      ; under `axiom/`, picking one - even the first in `listDir`'s
+      ; sorted order - would still overwrite the other, so a
+      ; hand-written module beside a generated one gets clobbered. At
+      ; one candidate there is nothing to choose between; above one the
+      ; answer does not read the listing at all, because the
+      ; package-derived name below does not.
       (if (== n 1)
         found
         (camelOf

@@ -1,5 +1,5 @@
 ; expect 77
-; The verbs `Sys` was missing after `992-filesystem` filled in mkdir
+; The verbs `IO` was missing after `992-filesystem` filled in mkdir
 ; and rmdir: append, rename, and the two questions that separate a
 ; directory and an empty file from a file that is not there.
 ;
@@ -13,15 +13,15 @@
 ; other syscall here is: `check-cross-targets.sh` assembles all four
 ; from one host, and the numbers sit in the per-target module beside
 ; the ones already proven.
-(import Sys)
+(import IO)
 (import Err)
 (import Str)
 
 ; The errno behind a failed rename, or 0 when it succeeded.
-(:: renameCode (-> Int Int Int))
+(:: renameCode (-> String String Int))
 ;@axiom:effect(io)
 (fn (renameCode a b)
-  (match (sysRename a b)
+  (match (renamePath a b)
     ((Ok v) 0)
     ((Err e) (errCode e))))
 
@@ -31,48 +31,48 @@
   ; --- append -----------------------------------------------------
   ; It CREATES when the file is absent, which is what makes an
   ; append-only log usable with no setup step, and it does not
-  ; truncate on the second call - the property `sysWriteFile`
+  ; truncate on the second call - the property `writeFile`
   ; cannot be talked into having.
   (let (
-    (f (strCStr "ax993_a"))
-    (g (strCStr "ax993_b"))
-    (d (strCStr "ax993_d"))
-    (gone (strCStr "ax993_missing"))
+    (f "ax993_a")
+    (g "ax993_b")
+    (d "ax993_d")
+    (gone "ax993_missing")
     (mut n 0)
   )
     {
-      (if (== (unwrapOr (sysAppendFile f "one\n") 0) 4)
+      (if (== (unwrapOr (appendFile f "one\n") 0) 4)
         (set n (+ n 1))
         0)
-      (if (== (unwrapOr (sysFileSize f) 0) 4)
+      (if (== (unwrapOr (fileSize f) 0) 4)
         (set n (+ n 1))
         0)
-      (if (== (unwrapOr (sysAppendFile f "two\n") 0) 4)
+      (if (== (unwrapOr (appendFile f "two\n") 0) 4)
         (set n (+ n 1))
         0)
-      (if (== (unwrapOr (sysFileSize f) 0) 8)
+      (if (== (unwrapOr (fileSize f) 0) 8)
         (set n (+ n 1))
         0)
-      (if (strEq (sysReadFile f) "one\ntwo\n")
+      (if (strEq (readFile f) "one\ntwo\n")
         (set n (+ n 1))
         0)
       ; and the contrast that makes the pair worth having
-      (if (== (unwrapOr (sysWriteFile f "1") 0) 1)
+      (if (== (unwrapOr (writeFile f "1") 0) 1)
         (set n (+ n 1))
         0)
-      (if (== (unwrapOr (sysFileSize f) 0) 1)
+      (if (== (unwrapOr (fileSize f) 0) 1)
         (set n (+ n 1))
         0)
       ; --- rename -----------------------------------------------------
       ; The destination gains the bytes AND the source stops existing.
       ; Checking only the first would pass for a copy.
-      (if (isOk (sysRename f g))
+      (if (isOk (renamePath f g))
         (set n (+ n 1))
         0)
-      (if (sysFileExists f)
+      (if (fileExists f)
         0
         (set n (+ n 1)))
-      (if (strEq (sysReadFile g) "1")
+      (if (strEq (readFile g) "1")
         (set n (+ n 1))
         0)
       ; A missing source is refused rather than silently creating an
@@ -81,61 +81,61 @@
       (if (== (renameCode gone f) 2)
         (set n (+ n 1))
         0)
-      (if (sysFileExists f)
+      (if (fileExists f)
         0
         (set n (+ n 1)))
       ; --- the three facts a read collapses ---------------------------
-      ; `sysReadFile` answers "" for a missing file, an EMPTY file and
+      ; `readFile` answers "" for a missing file, an EMPTY file and
       ; a DIRECTORY alike. These six lines are the whole reason
-      ; `sysReadErrno` exists, and they are checked against a directory
+      ; `readErrno` exists, and they are checked against a directory
       ; and an empty file that this fixture makes, so the answers do
       ; not depend on where it was run from.
-      (unwrapOr (sysMkdir d sysDirMode) 0)
-      (unwrapOr (sysWriteFile f "") 0)
-      (if (== (sysReadErrno g) 0)
+      (unwrapOr (makeDir d) 0)
+      (unwrapOr (writeFile f "") 0)
+      (if (== (readErrno g) 0)
         (set n (+ n 1))
         0)
-      (if (== (sysReadErrno d) 21)
+      (if (== (readErrno d) 21)
         (set n (+ n 1))
         0)
-      (if (== (sysReadErrno gone) 2)
+      (if (== (readErrno gone) 2)
         (set n (+ n 1))
         0)
       ; an EMPTY file is readable - it reads back "" like the other two
       ; and is not an error, which is the case that used to be reported
       ; as a missing file
-      (if (== (sysReadErrno f) 0)
+      (if (== (readErrno f) 0)
         (set n (+ n 1))
         0)
-      (if (== (strLen (sysReadFile f)) 0)
+      (if (== (strLen (readFile f)) 0)
         (set n (+ n 1))
         0)
       ; `unwrapOr ... 0` here would count a FAILURE as a success: the
       ; expected size is 0 and the fallback is 0, so the two become
       ; indistinguishable. The arms keep them apart.
-      (if (match (sysFileSize f)
+      (if (match (fileSize f)
         ((Ok v) (== v 0))
         ((Err e) false))
         (set n (+ n 1))
         0)
       ; --- is it a directory ------------------------------------------
-      ; `sysFileExists` answers true for BOTH a file and a directory,
+      ; `fileExists` answers true for BOTH a file and a directory,
       ; so on its own it cannot tell them apart. Checked here in all
       ; three states, because a predicate that answered `true` always
       ; would satisfy the first line alone.
-      (if (sysIsDir d)
+      (if (isDir d)
         (set n (+ n 1))
         0)
-      (if (sysIsDir f)
+      (if (isDir f)
         0
         (set n (+ n 1)))
-      (if (sysIsDir gone)
+      (if (isDir gone)
         0
         (set n (+ n 1)))
-      (if (sysFileExists d)
+      (if (fileExists d)
         (set n (+ n 1))
         0)
-      (if (sysFileExists f)
+      (if (fileExists f)
         (set n (+ n 1))
         0)
       ; --- the working directory --------------------------------------
@@ -147,30 +147,30 @@
       ; so the FIRST thing checked is that it succeeded at all - which
       ; the `""` sentinel could not distinguish from a working
       ; directory named by the empty string.
-      (if (isOk sysGetCwd)
+      (if (isOk cwd)
         (set n (+ n 1))
         0)
-      (if (> (strLen (unwrapOr sysGetCwd "")) 0)
+      (if (> (strLen (unwrapOr cwd "")) 0)
         (set n (+ n 1))
         0)
-      (if (== (strByte (unwrapOr sysGetCwd "") 0) 47)
+      (if (== (strByte (unwrapOr cwd "") 0) 47)
         (set n (+ n 1))
         0)
       ; and it names a real directory - this one
-      (if (sysIsDir (strCStr (unwrapOr sysGetCwd "")))
+      (if (isDir (unwrapOr cwd ""))
         (set n (+ n 1))
         0)
       ; --- teardown ----------------------------------------------------
-      (if (isOk (sysUnlink f))
+      (if (isOk (removeFile f))
         (set n (+ n 1))
         0)
-      (if (isOk (sysUnlink g))
+      (if (isOk (removeFile g))
         (set n (+ n 1))
         0)
-      (if (isOk (sysRmdir d))
+      (if (isOk (removeDir d))
         (set n (+ n 1))
         0)
-      (if (sysFileExists d)
+      (if (fileExists d)
         0
         (set n (+ n 1)))
       (if (== n 31)

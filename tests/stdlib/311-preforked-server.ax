@@ -82,15 +82,15 @@
   )
     (let ((setbuf (memAlloc 16)))
       (let ((scratch (memAlloc 256)))
-        (let ((buf (memAlloc (netPollBufBytes 8))))
+        (let ((buf (memAlloc (sysPollBufBytes 8))))
           (let ((byte (memAlloc 8)))
-            (match netPollCreate
+            (match sysPollCreate
               ((Err e) (sysExitWith 255))
               ((Ok pfd)
                 (let ((mut served 0))
                   (let ((mut running 1))
                     {
-                      (if (isErr (netPollAddRead pfd lsn rec))
+                      (if (isErr (sysPollAddRead pfd lsn rec))
                         (sysExitWith 255)
                         0)
                       ; SIGTERM was blocked before the fork, so it is
@@ -98,13 +98,13 @@
                       ; here beside the socket.
                       ; Discarded deliberately, and `unwrapOr` is what
                       ; says so: a negative handle can never equal a real
-                      ; descriptor in `netPollSignalAt`, so a worker that
+                      ; descriptor in `sysPollSignalAt`, so a worker that
                       ; could not watch SIGTERM simply never sees one -
                       ; which is exactly what the old sentinel did.
-                      (let ((sh (unwrapOr (netSignalOpen pfd (sysSigBit sigTerm) rec setbuf) (- 0 1))))
+                      (let ((sh (unwrapOr (sysSignalOpen pfd (sysSigBit sigTerm) rec setbuf) (- 0 1))))
                         (while (== running 1)
                           (let ((n 
-                            (match (netPollWait
+                            (match (sysPollWait
                               pfd
                               buf
                               8
@@ -121,7 +121,7 @@
                               (let ((mut e 0))
                                 (while (< e n)
                                   {
-                                    (match (netPollSignalAt buf e sh scratch)
+                                    (match (sysPollSignalAt buf e sh scratch)
                                       ((Some sig)
                                         (set running 0)
                                       )
@@ -150,7 +150,7 @@
                                                   ((Ok k) k)
                                                   ((Err e) (- 0 (errCode e))))
                                                 1)
-                                                (sysWriteAllFd con byte 1 0)
+                                                (sysWriteAllFd con byte 1)
                                                 0)
                                               (let ((_ (sysCloseFd con))) 0)
                                               (set served (+ served 1))
@@ -168,7 +168,7 @@
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
 (fn (main)
-  (let ((port (+ 20000 (% sysGetPid 9000))))
+  (let ((port (+ 20000 (% sysPid 9000))))
     (let ((addr (memAlloc 16)))
       (let ((byte (memAlloc 8)))
         (let (
@@ -268,7 +268,7 @@
                                         (if (isOk (netConnect c addr))
                                           {
                                             (memPutByte byte 0 (% sent 251))
-                                            (sysWriteAllFd c byte 1 0)
+                                            (sysWriteAllFd c byte 1)
                                             (vecPush batch c)
                                             (vecPush want (% sent 251))
                                             0

@@ -444,14 +444,16 @@ you can follow.
 
 The first diagnostic for `tests/diagnostics/371-restrict-no-io.ax`
 says the body performs IO through `parseConfig -> readSection ->
-IO$writeStr -> Sys$sysWriteAllFd -> Sys$sysWriteFd -> __syscall3`. Its
-related fields, shown here one per line, are:
+IO$writeStr -> Sys$sysWriteAllFd -> Sys$sysWriteAllFrom ->
+Sys$sysWriteFd -> __syscall3`. Its related fields, shown here one per
+line, are:
 
 ```text
 ^31:6-17:"readSection"
-^stdlib/IO.ax:44:10-18:"IO$writeStr"
-^stdlib/Sys.ax:214:10-23:"Sys$sysWriteAllFd"
-^stdlib/Sys.ax:168:10-20:"Sys$sysWriteFd"
+^stdlib/IO.ax:36:10-18:"IO$writeStr"
+^stdlib/Sys.ax:152:10-23:"Sys$sysWriteAllFd"
+^stdlib/Sys.ax:160:6-21:"Sys$sysWriteAllFrom"
+^stdlib/Sys.ax:132:6-16:"Sys$sysWriteFd"
 ^-:"__syscall3"
 ```
 

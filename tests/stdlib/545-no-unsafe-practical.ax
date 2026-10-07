@@ -24,6 +24,7 @@
 (import Chan)
 (import Task)
 (import Sys)
+(import Crypto.Random (secureRandomBytes))
 
 (:: firstByte (-> String Int))
 (fn (firstByte s)
@@ -92,7 +93,7 @@
         ((Ok fd)
           (let (
             (buf (readBufferNew n))
-            (got (fileReadBuffer fd buf 0 n))
+            (got (fileRead fd buf 0 n))
             (_ (fileClose fd))
             (whole (readFile path))
             (_r (removeFile path))
@@ -114,7 +115,7 @@
 ;@axiom:effect(io)
 ;@axiom:effect(entropy)
 (fn (randomCount n)
-  (match (randomBytes n)
+  (match (secureRandomBytes n)
     ((Ok s) (strLen s))
     ((Err e) (- 0 1))))
 

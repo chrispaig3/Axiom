@@ -14,7 +14,7 @@
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 (fn (put buf n)
-  (__syscall3 sysWrite 1 buf n))
+  (__syscall3 sysWriteNum 1 buf n))
 
 (:: main Int)
 ;@axiom:effect(io)

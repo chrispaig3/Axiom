@@ -16,15 +16,16 @@
   [1;34m = [0m[1;32mhelp: [0ma limit of the ANALYSIS rather than a defect in the program - AX3037's argument at one remove. There are four readings: an effect present only as POSSIBLE, a row the walk marked incomplete, a body that CALLS one of its own parameters (`#effect-params=`), whose answer is chosen by each caller and cannot be settled here at all, and - for `no-escape` alone - a region fixpoint that hit its round limit before the facts settled, which is a depth limit rather than anything about this declaration. Name the function at the call, stop calling the parameter, shorten the chain, or drop the claim; `no-cast`, `no-wrap` and `no-trap` are checked regardless, because all three are lexical and need no call resolved
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3051` for a full explanation
 
-[1;31merror[AX3049][0m[1m: `leaks` claims `restrict(no-io)` and the body performs IO: leaks -> IO$writeStr -> Sys$sysWriteAllFd -> Sys$sysWriteFd -> __syscall3[0m
+[1;31merror[AX3049][0m[1m: `leaks` claims `restrict(no-io)` and the body performs IO: leaks -> IO$writeStr -> Sys$sysWriteAllFd -> Sys$sysWriteAllFrom -> Sys$sysWriteFd -> __syscall3[0m
   [1;34m--> [0m375-restrict-unverifiable.ax:50:6
 [1;34m   |[0m
 [1;34m50 |[0m (fn (leaks b n)
 [1;34m   |[0m      [1;31m^^^^^[0m
 [1;34m   |[0m
-  [1;34m = [0m[1mnote: [0mIO$writeStr (stdlib/IO.ax:42:10-18)
-  [1;34m = [0m[1mnote: [0mSys$sysWriteAllFd (stdlib/Sys.ax:217:10-23)
-  [1;34m = [0m[1mnote: [0mSys$sysWriteFd (stdlib/Sys.ax:173:10-20)
+  [1;34m = [0m[1mnote: [0mIO$writeStr (../../.axiom-shared/../stdlib/IO.ax:36:10-18)
+  [1;34m = [0m[1mnote: [0mSys$sysWriteAllFd (../../.axiom-shared/../stdlib/Sys.ax:152:10-23)
+  [1;34m = [0m[1mnote: [0mSys$sysWriteAllFrom (../../.axiom-shared/../stdlib/Sys.ax:160:6-21)
+  [1;34m = [0m[1mnote: [0mSys$sysWriteFd (../../.axiom-shared/../stdlib/Sys.ax:132:6-16)
   [1;34m = [0m[1mnote: [0m__syscall3 (no declaration to point at)
   [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation

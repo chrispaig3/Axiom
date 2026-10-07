@@ -183,10 +183,10 @@
 ; The gate needs an exhaustive answer and a subprocess per width costs
 ; more than the check does; done here, 400-odd layouts are a few
 ; milliseconds. Widths 1..100 are the real range; 0 is what a pty that
-; was never sized answers through a SUCCESSFUL ioctl (stdlib/Sys.ax
-; says so on `sysTermSize`), and -25 and -9 are the ENOTTY and EBADF
-; an editor would hand over if it passed `sysTermSize`'s return value
-; where it meant `sysTermCols`' field.
+; was never sized answers through a SUCCESSFUL ioctl (stdlib/IO.ax
+; says so on `termSize`), and -25 and -9 are the ENOTTY and EBADF
+; an editor would hand over if it passed a negated errno where it
+; meant the column count.
 (:: runSweep (-> Int String Int Int))
 ;@axiom:effect(io)
 (fn (runSweep e buf cur)

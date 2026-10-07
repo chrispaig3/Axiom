@@ -318,7 +318,7 @@
 (:: syncMe Int)
 ;@axiom:effect(io)
 (fn (syncMe)
-  (* sysGetPid 4))
+  (* sysPid 4))
 
 ; Is the holder named by lock value `v` gone? Only a pid other than this
 ; binding's own can be (a thread's siblings share its pid, and are alive

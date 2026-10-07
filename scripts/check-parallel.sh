@@ -1393,13 +1393,12 @@ if [[ "$(uname -s)" == Linux ]]; then
           (+ a b))))))
 
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
 (fn (main)
   {
     (println (loop 0 0))
-    (println (sysReadFile (__addr "/proc/self/status")))
+    (println (readFile "/proc/self/status"))
     0
   })
 CHURN
@@ -1457,7 +1456,7 @@ cat > "$work/orphan.ax" <<'ORPHAN'
 ;@axiom:effect(io)
 (fn (sleeper path)
   {
-    (match (writeFile path (fmtInt sysGetPid))
+    (match (writeFile path (fmtInt sysPid))
       ((Ok n) n)
       ((Err e) 0))
     (let (

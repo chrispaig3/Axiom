@@ -8,8 +8,8 @@
 #      abort paths (allocator OOM, division by zero, an unhandled effect)
 #      write a line to fd 2 and exit through the other two.
 #   2. `stdlib/Sys/Platform.{darwin,linux-aarch64,linux-x86_64,freebsd}.ax`
-#      holds the same syscalls for the standard library, as `sysExit`,
-#      `sysWrite` and their neighbours.
+#      holds the same syscalls for the standard library, as `sysExitNum`,
+#      `sysWriteNum` and their neighbours.
 #
 # A disagreement can hide. Linux `exit` (93 on aarch64, 60 on x86-64)
 # ends only the calling thread, and `exit_group` (94 and 231) ends the
@@ -32,7 +32,7 @@
 #
 # Both tables come from one `emit-llvm` per target: the runtime's
 # numbers from the `asm sideeffect` syscall operands, the library's from
-# the bodies of `@Sys.Platform$sysExit` and its neighbours (`ret i64
+# the bodies of `@Sys.Platform$sysExitNum` and its neighbours (`ret i64
 # 94`), since the compiler emits the whole selected platform module.
 # Parsing the sources instead would fail green: a pattern that matched
 # nothing would report agreement. The emitted module also holds the
@@ -119,7 +119,7 @@ cat > "$probe" <<'PROBE'
 
 (:: main Int)
 
-(fn (main) (+ (sysExit) (+ (sysWrite) (sysMmapNum))))
+(fn (main) (+ (sysExitNum) (+ (sysWriteNum) (sysMmapNum))))
 PROBE
 
 # Compare one emitted module's two tables, printing one `ok`/`FAIL` line
@@ -137,8 +137,8 @@ platform_table_report() {
       # syscall -> the `Sys.Platform` constant it must equal, and the
       # `self_host/codegen.ax` function carrying the emitted copy.
       # A "-" counterpart means emitted-only; the END block guards that.
-      std_of["exit"]  = "sysExit";  cg_of["exit"]  = "targetExitNum"
-      std_of["write"] = "sysWrite"; cg_of["write"] = "targetWriteNum"
+      std_of["exit"]  = "sysExitNum";  cg_of["exit"]  = "targetExitNum"
+      std_of["write"] = "sysWriteNum"; cg_of["write"] = "targetWriteNum"
       std_of["mmap"]  = "sysMmapNum"; cg_of["mmap"] = "targetMmapNum"
 
       # The census of runtime syscall sites, as a floor. Three exits:
@@ -370,9 +370,9 @@ par_table_report() {
   local target="$1" ir="$2" platfile="$3"
   awk -v target="$target" -v platfile="$platfile" '
     BEGIN {
-      std_of["fork"]   = "sysFork";      cg_of["fork"]   = "targetForkNum"
+      std_of["fork"]   = "sysForkNum";      cg_of["fork"]   = "targetForkNum"
       std_of["getpid"] = "sysGetPidNum"; cg_of["getpid"] = "targetGetPidNum"
-      std_of["wait4"]  = "sysWait4";     cg_of["wait4"]  = "targetWait4Num"
+      std_of["wait4"]  = "sysWait4Num";     cg_of["wait4"]  = "targetWait4Num"
       std_of["munmap"] = "sysMunmapNum"; cg_of["munmap"] = "targetMunmapNum"
       std_arg["fork"]  = "sysForkArg"
     }
@@ -481,7 +481,7 @@ cat > "$par_probe" <<'PROBE'
 ;@axiom:effect(block)
 (fn (main)
   (parallel p ((a 1))
-    (+ a (+ (sysFork) (+ (sysForkArg) (+ (sysGetPidNum) (+ (sysWait4) (sysMunmapNum))))))))
+    (+ a (+ (sysForkNum) (+ (sysForkArg) (+ (sysGetPidNum) (+ (sysWait4Num) (sysMunmapNum))))))))
 PROBE
 
 # The Windows shape of the same comparison. The runtime's kernel32
@@ -736,18 +736,18 @@ else
 fi
 
 # 1. The `exit`/`exit_group` mismatch from the library's side:
-#    `Sys.Platform.sysExit` says `exit` (93) where the emitted runtime
+#    `Sys.Platform.sysExitNum` says `exit` (93) where the emitted runtime
 #    exits through `exit_group` (94).
-mutate_stdlib_constant sysExit 93 < "$real" > "$work/p1.ll"
+mutate_stdlib_constant sysExitNum 93 < "$real" > "$work/p1.ll"
 probe_expects "a platform module that says exit (93) where the runtime says exit_group (94)" \
-  "$work/p1.ll" 'exit: the emitted runtime uses 94 in @.*, Sys.Platform.sysExit is 93'
+  "$work/p1.ll" 'exit: the emitted runtime uses 94 in @.*, Sys.Platform.sysExitNum is 93'
 
 # 2. The same mismatch from the backend's side: codegen emitting 93
 #    against a platform module that says 94. All three abort paths move
 #    together, because they read one `targetExitNum`.
 mutate_emitted_exits 93 all < "$real" > "$work/p2.ll"
 probe_expects "a runtime that exits through 93 where the platform module says 94" \
-  "$work/p2.ll" 'exit: the emitted runtime uses 93 in @__axiom_[a-z_]+, Sys.Platform.sysExit is 94'
+  "$work/p2.ll" 'exit: the emitted runtime uses 93 in @__axiom_[a-z_]+, Sys.Platform.sysExitNum is 94'
 
 # 2b. The three abort paths must exit through one number. Codegen
 #     cannot produce a split today, since they share a function, so this
@@ -758,9 +758,9 @@ probe_expects "abort paths that exit through two different numbers" \
 
 # 3. `write` is compared too, and separately: probe 1 must not pass
 #    merely because the comparison flags everything.
-mutate_stdlib_constant sysWrite 1 < "$real" > "$work/p3.ll"
+mutate_stdlib_constant sysWriteNum 1 < "$real" > "$work/p3.ll"
 probe_expects "a platform module carrying the x86-64 write number on aarch64" \
-  "$work/p3.ll" 'write: the emitted runtime uses 64 in @.*, Sys.Platform.sysWrite is 1'
+  "$work/p3.ll" 'write: the emitted runtime uses 64 in @.*, Sys.Platform.sysWriteNum is 1'
 
 # 4. Vacuity, first direction: a module with no syscall sites at all
 #    must be reported as such, not as agreement. This is what a
@@ -771,9 +771,9 @@ probe_expects "an emitted runtime with no syscall sites is not agreement" \
 
 # 5. Vacuity, second direction: a platform constant that is no longer an
 #    integer literal is absent, not zero.
-mutate_stdlib_constant sysExit '%no_longer_a_constant' < "$real" > "$work/p5.ll"
+mutate_stdlib_constant sysExitNum '%no_longer_a_constant' < "$real" > "$work/p5.ll"
 probe_expects "a platform constant that stopped being one reads as absent" \
-  "$work/p5.ll" 'exposes no integer constant .sysExit.'
+  "$work/p5.ll" 'exposes no integer constant .sysExitNum.'
 
 # 6. `mmap` is compared too: a platform module carrying the x86-64 mmap
 #    number on aarch64 disagrees with the runtime's 222.

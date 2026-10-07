@@ -534,9 +534,9 @@ echo "== 10b. no menu is ever wider than the terminal it was laid out for =="
 # Exhaustive, because the interesting widths are the ones nobody picks
 # by hand: every width from 1 to 100, plus three a terminal query can
 # answer that are not widths. 0 is a pty that was never sized, through
-# a successful ioctl (see `sysTermSize` in stdlib/Sys.ax). -25 and -9
-# are ENOTTY and EBADF, which an editor passes if it hands over
-# `sysTermSize`'s return value where it meant `sysTermCols`' field.
+# a successful ioctl (see `termSize` in stdlib/IO.ax). -25 and -9
+# are ENOTTY and EBADF, which an editor passes if it hands over a
+# negated errno where it meant the column count.
 # Each width runs four selection states, two of them out of range.
 #
 # Three properties, on every one of them:

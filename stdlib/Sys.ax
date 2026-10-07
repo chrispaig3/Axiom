@@ -31,7 +31,7 @@
 ; normalise the carry-flag/positive-errno protocol Darwin and FreeBSD
 ; share into a negative result (see `targetSyscallAsm` in
 ; `self_host/codegen.ax`, whose BSD templates branch on carry and
-; negate), so `sysFailed` is a single portable comparison rather than
+; negate), so a failure is a single portable comparison rather than
 ; a per-OS special case.
 ;
 ; Paths and buffers cross as raw addresses, and these functions trust
@@ -90,51 +90,12 @@
 ; `Error.code`, and a reader who wants the sentence builds it where
 ; they read it - which is the place that was going to pay for it
 ; anyway, and usually never runs.
-; Write all `count` bytes at `buf` to `fd`: bytes written, or `-errno`.
-;
-; A single `write` is PERMITTED to transfer fewer bytes than asked - a
-; pipe whose buffer filled, a signal arriving mid-call - and treating a
-; short write as success is the classic way to truncate output
-; silently. `sysWriteFile` and `sysAppendFile` both go through here for
-; that reason; before this existed the only loop in the library was
-; `IO.writeAll`, one layer up, so everything writing a FILE was
-; single-shot.
-;
-; `done` is how many bytes are already out; callers pass 0.
-; A zero-byte write is not progress, and looping on it
-; spins forever; answer what got out and let the caller
-; compare it against what it asked for.
-; read(fd, buf, count) -> bytes read, 0 at end of file.
-; open(path, flags) -> fd, or an error result.
-;
-; `path` is the address of NUL-terminated bytes - `(__addr "file.txt")`
-; for a literal, or `strCStr` for a computed string.
-;
-; Newly created files get mode 0644. The mode argument is ignored unless
-; the flags contain `O_CREAT`, but passing 0 - as an earlier version did -
-; creates files with *no* permissions at all, which then cannot be read
-; back even by the process that just wrote them.
-; open(path, flags, mode), for callers that need a specific mode.
-; lseek(fd, offset, whence) -> resulting absolute offset.
-; Terminate the process. Never returns; the `0` afterwards exists only
-; because every Axiom expression has a value.
-; ------------------------------------------------------------------
-; Error handling
-; ------------------------------------------------------------------
-; True when a syscall result denotes failure.
-;
-; One comparison suffices on every platform: see the note at the top of
-; this file about how Darwin's carry-flag convention is normalised in
-; the backend. `-errno` is always negative, and no successful result of
-; any syscall this library exposes ever is.
 ; ------------------------------------------------------------------
 ; File I/O utilities
 ; ------------------------------------------------------------------
 (import Err)
 (import Str)
 (import Mem)
-; `sysReadDir` answers a Vec of names. `Str` already imports `Vec` for
-; `strSplit`, so this edge is not new - it is written down.
 (import Vec)
 ; `netAddrText` renders an address as decimal octets and hexadecimal
 ; groups, both of which `Fmt` already does; a second `fmtInt` living
@@ -164,68 +125,50 @@
 
 ; write(2): `Ok` bytes written - possibly fewer than asked, which is
 ; what `sysWriteAllFd` below exists to retry - or `Err` carrying the
-; errno. `(Result Int Error)` since 2026-09-03; the sentinel it
-; replaced is recorded in `sysWriteAllFd`'s header, with why it stood
-; and what let it go.
-(pub :: sysWriteFd (-> Int Int Int (Result Int Error)))
+; errno. Private: `sysWriteAllFd` is the one caller.
+(:: sysWriteFd (-> Int Int Int (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
-(pub fn (sysWriteFd fd buf count)
+(fn (sysWriteFd fd buf count)
   (if (== usesSyscallAbi 1)
-    (sysResult "sysWriteFd" (__syscall3 sysWrite fd buf count))
+    (sysResult "sysWriteFd" (__syscall3 sysWriteNum fd buf count))
     (platformWriteFd fd buf count)))
 
-; THREE OUTCOMES, AND THE Int CHANNEL HELD TWO. Until 2026-08-30 this
-; answered `done` when `write` returned exactly 0 - a short,
-; NON-NEGATIVE count, indistinguishable from the complete one. The
-; comment above calls treating a short write as success "the classic
-; way to truncate output", and that is what this did in the one case
-; it cannot retry.
+; Write all `count` bytes at `buf` to `fd`: bytes written, or `-errno`.
 ;
-; It answers `-errShortWrite` for that case, a code no errno can be,
-; and it retries EINTR (4 on each syscall target): an interrupted
-; call moved no bytes, so it is no answer. A caller asking `< 0` sees
-; the descriptor that stopped accepting bytes, and never a count that
-; stopped short.
+; A single `write` may transfer fewer bytes than asked - a pipe whose
+; buffer filled, a signal arriving mid-call - and treating a short write
+; as success truncates output silently, so this loops until every byte
+; is out. It retries EINTR (4 on each syscall target), which moved no
+; bytes. A write that answers 0 is not progress and looping on it would
+; spin, so that case answers `-errShortWrite`, a code no errno can be.
 ;
-; THIS IS THE PRINTING PATH'S INT CHANNEL, AND IT STAYS AN INT.
-; `writeStr` answers it, and `println` - 804 expansions - is `writeStr`.
-; What is below it moved: `sysWriteFd` answers `(Result Int Error)`
-; since 2026-09-03, and this loop matches that call DIRECTLY, which the
-; emitter reads from two registers with no block built on the success
-; path (`docs/error-model.md`; `scripts/check-unboxed-sums.sh`
-; counts the blocks). The match sits in a `let` on purpose: in tail
-; position the self call under it would lose its loop, and a partial
-; write and EINTR are the cases that recurse.
-;
-; WHAT THE PORT COSTS, MEASURED, AND WHY IT IS TAKEN. The row of this
-; function, and of `writeStr`, `printLit` and `printlnLit` above it,
-; widens from `IO` to `Alloc,IO`: a FAILED write builds an `Error`
-; (`sysResult` calls `mkError`), and an effect row is a fact about
-; every path. Measured over the compiler's whole closure on
-; 2026-09-03, that is 11 rows in all - six public, declared in
-; `compat/BREAKING` - and ZERO `restrict(no-alloc)` refusals: nothing
-; in the tree claims to print without allocating. When this was last
-; tried (2026-08-30) the SUCCESS path allocated too, an `(Ok n)` block
-; per `write`, and ten gates went red on that; with the pair the
-; success path is free, and what remains is a row that tells the
-; truth about the failure path. That is the language-level answer to
-; "may `println`'s row widen": it may, because it can allocate, and
-; only when a write fails.
-(pub :: sysWriteAllFd (-> Int Int Int Int Int))
+; This is the printing path's Int channel: `writeStr` answers it, and
+; `println` is `writeStr`. A failed write builds an `Error` underneath,
+; so the row is `Alloc,IO`; the success path builds no block, because
+; the loop matches `sysWriteFd` directly (`scripts/check-unboxed-sums.sh`).
+(pub :: sysWriteAllFd (-> Int Int Int Int))
 ;@axiom:effect(io)
-(pub fn (sysWriteAllFd fd buf count done)
+(pub fn (sysWriteAllFd fd buf count)
+  (sysWriteAllFrom fd buf count 0))
+
+; The loop behind `sysWriteAllFd`; `done` bytes are already out. The
+; match sits in a `let`: in tail position the self call under it would
+; lose its loop, and a partial write and EINTR are the cases that recurse.
+(:: sysWriteAllFrom (-> Int Int Int Int Int))
+;@axiom:effect(io)
+(fn (sysWriteAllFrom fd buf count done)
   (if (>= done count)
     done
-    (let ((n 
+    (let ((n
       (match (sysWriteFd fd (+ buf done) (- count done))
         ((Ok k) k)
         ((Err e) (- 0 (errCode e))))))
       (if (== n (- 0 4))
-        (sysWriteAllFd fd buf count done)
+        (sysWriteAllFrom fd buf count done)
         (< n 0) n
         (== n 0) (- 0 errShortWrite)
-        (sysWriteAllFd fd buf count (+ done n))))))
+        (sysWriteAllFrom fd buf count (+ done n))))))
 
 ; read(2): `Ok` bytes read, `Ok 0` at end of input, or `Err` carrying
 ; the errno. Every reader in the tree matches the call directly, as
@@ -236,47 +179,32 @@
 ;@axiom:effect(unsafe)
 (pub fn (sysReadFd fd buf count)
   (if (== usesSyscallAbi 1)
-    (sysResult "sysReadFd" (__syscall3 sysRead fd buf count))
+    (sysResult "sysReadFd" (__syscall3 sysReadNum fd buf count))
     (platformReadFd fd buf count)))
 
-; ANSWERS `(Result Int Error)` - the descriptor, or the errno `open`
-; refused with. This is the port `docs/error-model.md` ERR-ADOPT-1
-; calls the canonical one: a failed open is what a reader checks first
-; when deciding whether the error model is real, and ENOENT, EACCES and
-; EISDIR are three different things a caller does three different
-; things about. As an `Int` they were all "negative".
-(pub :: sysOpenPath (-> Int Int (Result Int Error)))
-;@axiom:effect(io)
-(pub fn (sysOpenPath path flags)
-  (sysResult "sysOpenPath" (sysOpenRaw path flags)))
-
-; The same open, answering the raw descriptor-or-errno.
-;
-; PRIVATE, AND IT EXISTS FOR THE REASON `netSetNonBlockingRaw` DOES.
-; Ten functions in this file open a descriptor, test it with
-; `sysFailed`, and convert the errno into their OWN answer - a
-; `sysResult` with their own operation name, a `Bool`, or a `String`.
-; Routing them through the public wrapper would build a `Result` and
-; immediately take it apart again, once per open, to reach a
-; conversion they already do. The public contract is the `Result`; this
-; is the shared implementation under it.
+; open(path, flags) with mode 0644, answering the raw descriptor or
+; `-errno`. `path` is the address of NUL-terminated bytes. Private: the
+; spawn path's ENOENT probe and the PATH search open and close within
+; one call, and the Axqlite file calls below open through the mode form.
 (:: sysOpenRaw (-> Int Int Int))
 ;@axiom:effect(io)
 (fn (sysOpenRaw path flags)
   (sysOpenPathMode path flags 420))
 
+; open(path, flags, mode). A mode of 0 with `O_CREAT` would create a file
+; nobody can read back, which is why the short form passes 0644.
 (:: sysOpenPathMode (-> Int Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 (fn (sysOpenPathMode path flags mode)
   (if (== openNeedsDirFd 1)
     (__syscall4
-      sysOpen
+      sysOpenNum
       atFdCwd
       path
       flags
       mode)
-    (__syscall3 sysOpen path flags mode)))
+    (__syscall3 sysOpenNum path flags mode)))
 
 ; Close a descriptor.
 ;
@@ -284,138 +212,31 @@
 ; is not a formality - on a written-to file it is where a deferred
 ; write error surfaces, and it is the one errno a caller cannot get
 ; anywhere else.
-;
-; ITS ONE COST ACROSS THE WHOLE PUBLIC SURFACE IS `sysFileExists`,
-; measured rather than guessed: `verify-compat.py generate` over
-; `stdlib/` before and after this port differs in exactly two rows,
-; this one and `sysFileExists`, which gains `Alloc`. Every other
-; function in the library that closes a descriptor already allocated.
 (pub :: sysCloseFd (-> Int (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 (pub fn (sysCloseFd fd)
-  (sysResult "sysCloseFd" (__syscall1 sysClose fd)))
+  (sysResult "sysCloseFd" (__syscall1 sysCloseNum fd)))
 
+; lseek(fd, offset, whence) -> the resulting absolute offset, or `-errno`.
 (:: sysSeek (-> Int Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 (fn (sysSeek fd offset whence)
-  (__syscall3 sysLseek fd offset whence))
+  (__syscall3 sysLseekNum fd offset whence))
 
+; Terminate the process. Never returns; the `0` afterwards exists only
+; because every Axiom expression has a value.
 (pub :: sysExitWith (-> Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 (pub fn (sysExitWith code)
   {
     (if (== usesSyscallAbi 1)
-      (__syscall1 sysExit code)
+      (__syscall1 sysExitNum code)
       (platformExitWith code))
     0
   })
-
-(pub :: sysFailed (-> Int Bool))
-(pub fn (sysFailed result)
-  (< result 0))
-
-(pub :: sysErrno (-> Int Int))
-(pub fn (sysErrno result)
-  (if (< result 0)
-    (- 0 result)
-    0))
-
-; Open, read entire contents, close.  Returns an empty string on any
-; error (missing file, permission, etc.).
-;
-; This used to read a single 65536-byte chunk, documented as "enough
-; for the self-host bootstrap source files" - which held until
-; `self_host/codegen.ax` grew past 64 KiB, at which point the compiler
-; it feeds truncated its own source mid-token and reported a parse
-; error pointing at a token that does not exist in the file. A read
-; that silently caps at a size is a read that fails on the first input
-; to cross it, in the caller least equipped to see why.
-;
-; `path` is a raw NUL-terminated char*, not a `Str` handle, because it
-; goes straight to `sysOpenPath`. Use `(__addr "...")` for a literal or
-; `strCStr` for a `Str`. `IO.readFile` is the `Str`-taking one.
-;
-; Named `sysReadFile` rather than `readFile` so that the two do not
-; collide in the flat top-level namespace. They used to, and the
-; collision was silent and wrong in the worst direction: `(readFile
-; "path.txt")` resolved to *this* function, which took the `Str`
-; header's address as a char*, opened garbage, and reported every file
-; as missing.
-(pub :: sysReadFile (-> Int String))
-;@axiom:effect(io)
-(pub fn (sysReadFile path)
-  (let ((fd (sysOpenRaw path oRdonly)))
-    (if (sysFailed fd)
-      ""
-      ; The loop is `sysReadAllFd`'s, which answers `Err` for a read that
-      ; failed part-way; this function's contract is "" for ANY error,
-      ; so the fold is here and the loop stays honest for the callers
-      ; that want the errno.
-      (let ((s 
-        (match (sysReadAllFd fd)
-          ((Ok got) got)
-          ((Err _) ""))))
-        ; A close error is deliberately ignored: the bytes are already
-        ; in `s`, and there is nothing to do with it. The wildcard
-        ; binding is the discard made explicit (`AX3046` warns on a
-        ; bare `Result` in statement position).
-        {
-          (let ((_ (sysCloseFd fd))) 0)
-          s
-        }))))
-
-; Read `fd` to EOF into `buf`, doubling the buffer whenever it fills.
-; `used` bytes hold data; `cap` is the buffer's capacity. A short read
-; is retried rather than treated as EOF - only 0 ends the loop with
-; `Ok` - so a pipe delivers its whole stream too. The final byte after
-; `used` is NUL because `strAlloc` reserves len+1 zeroed bytes and
-; every growth copies into a fresh zeroed buffer.
-;
-; A `read` that FAILS ends the loop with `Err`, and what had arrived
-; before it is dropped rather than answered as a shorter stream. Until
-; 2026-09-04 an error and EOF were one `n <= 0` test, so a descriptor
-; that could not be read answered the same "" as an empty one; the
-; `sysReadFd` this matches has carried the errno since 2026-09-03 and
-; nothing above it was reading it. `sysReadFile` still folds the
-; `Err` to "", because that is its contract; `sysReadAllFd` below
-; hands it up.
-(:: sysReadAll (-> Int String Int Int (Result String Error)))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(fn (sysReadAll fd buf used cap)
-  (let ((n 
-    (match (sysReadFd fd (+ (strData buf) used) (- cap used))
-      ((Ok k) k)
-      ((Err e) (- 0 (errCode e))))))
-    (if (< n 0)
-      (Err (mkError (- 0 n) "sysReadAllFd"))
-      (if (== n 0)
-        (if (== used 0)
-          (Ok "")
-          ; The retain is the same rule `strSlice` follows and for
-          ; the same reason: this is a SECOND header naming `buf`'s
-          ; owner, so it must take a second share (memory-model.md
-          ; MM-VAL-7). Without it two headers claim one count, and
-          ; the day something releases a `Str` header - MM-LIFE-2e's
-          ; extension work - the first release frees a buffer the
-          ; other header still points into. It was inert when it was
-          ; written, which is the only reason it read as correct.
-          (let ((own (strOwner buf)))
-            {
-              (__retain own)
-              (Ok (strWrapOwned (strData buf) used own))
-            }))
-        (let ((used2 (+ used n)))
-          (if (< used2 cap)
-            (sysReadAll fd buf used2 cap)
-            (let ((big (strAlloc (* cap 2))))
-              {
-                (memCopy (strData big) (strData buf) used2)
-                (sysReadAll fd big used2 (* cap 2))
-              })))))))
 
 ; ------------------------------------------------------------------
 ; Command-line arguments.
@@ -453,557 +274,6 @@
   (if (|| (< i 0) (>= i __argc))
     ""
     (strFromLit (__argv i))))
-
-; Write `s` to `path`, creating or truncating it. Answers the number of
-; bytes written, or a negative errno from whichever step failed.
-;
-; A compiler driver writes its own intermediates, and this is the one
-; direction of file I/O the library did not have: it could read a file
-; and it could write to an already-open descriptor, but nothing put a
-; string on disk under a name.
-(pub :: sysWriteFile (-> Int String (Result Int Error)))
-;@axiom:effect(io)
-(pub fn (sysWriteFile path s)
-  (sysResult
-    "sysWriteFile"
-      (let ((fd (sysOpenRaw path oWronlyCreateTrunc)))
-      (if (sysFailed fd)
-        fd
-        (let ((n (sysWriteAllFd fd (strData s) (strLen s) 0)))
-          {
-            (let ((_ (sysCloseFd fd))) 0)
-            n
-          })))))
-
-
-; Append `s` to `path`, creating it if it is not there. Answers the
-; number of bytes written, or a negative errno.
-;
-; The write direction this library did not have. `sysWriteFile`
-; TRUNCATES, so the only way to add a line to a file was to read the
-; whole thing, concatenate, and write it back - quadratic in the number
-; of lines, and a window in which a crash loses the file entirely.
-;
-; O_APPEND is what makes it atomic rather than merely equivalent:
-; the seek to the end and the write are one operation, so two
-; processes appending to one log interleave whole writes instead of
-; overwriting each other's last one. Opening for writing and seeking
-; by hand does not have that property.
-(pub :: sysAppendFile (-> Int String (Result Int Error)))
-;@axiom:effect(io)
-(pub fn (sysAppendFile path s)
-  (sysResult
-    "sysAppendFile"
-      (let ((fd (sysOpenRaw path oWronlyCreateAppend)))
-      (if (sysFailed fd)
-        fd
-        (let ((n (sysWriteAllFd fd (strData s) (strLen s) 0)))
-          {
-            (let ((_ (sysCloseFd fd))) 0)
-            n
-          })))))
-
-
-; Rename `old` to `new`, answering 0 or `-errno`. Both are
-; NUL-terminated char* - `strCStr`.
-;
-; The verb the surface was missing. A file could be created, read,
-; written and removed, and the only way to MOVE one was to copy the
-; bytes and unlink the original - which is not the same operation: this
-; one is atomic within a filesystem, so a reader of `new` sees either
-; the whole old file or the whole new one and never a half-written
-; prefix. That is how a build writes an output without a window in
-; which the output exists and is incomplete.
-;
-; It does not cross filesystems: `-EXDEV` (18) is the kernel refusing,
-; and copy-then-unlink is the caller's fallback.
-;
-; Same shape as `sysUnlink` and `sysMkdir`: AArch64 Linux has only
-; `renameat`, which takes a directory fd before EACH path, so this
-; branches on the existing `openNeedsDirFd` capability rather than
-; growing a second one.
-(pub :: sysRename (-> Int Int (Result Int Error)))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (sysRename old new)
-  (sysResult
-    "sysRename"
-    (if (== openNeedsDirFd 1)
-      (__syscall4
-        sysRenameNum
-        atFdCwd
-        old
-        atFdCwd
-        new)
-      (__syscall2 sysRenameNum old new))))
-
-; Remove `path`. Answers 0, or `-errno`.
-;
-; AArch64 Linux has no `unlink` in its table - only `unlinkat` - which
-; is the same shape as `open`/`openat`, so it branches on the same
-; `openNeedsDirFd` capability rather than growing a second one.
-(pub :: sysUnlink (-> Int (Result Int Error)))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (sysUnlink path)
-  (sysResult
-    "sysUnlink"
-    (if (== openNeedsDirFd 1)
-      (__syscall3 sysUnlinkNum atFdCwd path 0)
-      (__syscall1 sysUnlinkNum path))))
-
-; Create directory `path` with `mode`. Answers 0, or `-errno` - which
-; is `-17` (EEXIST) when it is already there, and callers usually want
-; to treat that as success.
-;
-; Same shape as `sysUnlink`: AArch64 Linux has only `mkdirat`, so this
-; branches on the existing `openNeedsDirFd` capability rather than
-; growing a second one. `path` must be NUL-terminated - `strCStr`.
-(pub :: sysMkdir (-> Int Int (Result Int Error)))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (sysMkdir path mode)
-  (sysResult
-    "sysMkdir"
-    (if (== openNeedsDirFd 1)
-      (__syscall3 sysMkdirNum atFdCwd path mode)
-      (__syscall2 sysMkdirNum path mode))))
-
-; 0755, the mode a directory usually wants. A nullary function because
-; that is how this language spells a constant.
-(pub :: sysDirMode Int)
-(pub fn (sysDirMode)
-  493)
-
-; Remove the empty directory `path`. Answers 0, or `-errno`.
-;
-; `AT_REMOVEDIR` is 512 on Linux, and it is what makes `unlinkat` -
-; the only call AArch64 has for either job - remove a directory rather
-; than refuse with EISDIR.
-(pub :: sysRmdir (-> Int (Result Int Error)))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (sysRmdir path)
-  (sysResult
-    "sysRmdir"
-    (if (== openNeedsDirFd 1)
-      (__syscall3 sysRmdirNum atFdCwd path 512)
-      (__syscall1 sysRmdirNum path))))
-
-; Create the symbolic link `link` whose content is `target`, both
-; NUL-terminated addresses. Answers `Ok 0`, or the errno.
-;
-; Same shape as `sysUnlink`: AArch64 Linux has only `symlinkat`, which
-; takes the directory fd BETWEEN the two paths, so this branches on
-; `openNeedsDirFd` as the others do. It exists so that a program - a
-; test above all - can build the tree `sysOpenBeneath` must refuse to
-; walk out of; before it, no Axiom program could make a symlink at all.
-(pub :: sysSymlink (-> Int Int (Result Int Error)))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (sysSymlink target link)
-  (sysResult
-    "sysSymlink"
-    (if (== openNeedsDirFd 1)
-      (__syscall3 sysSymlinkNum target atFdCwd link)
-      (__syscall2 sysSymlinkNum target link))))
-
-; Open `rel` for reading inside the directory `root` (a NUL-terminated
-; address), following no symlink below it: the descriptor, or the errno.
-;
-; `sysOpenBeneath root rel` will not leave `root`.
-; `root` is opened as an ordinary path, so a root that is itself a
-; symlink is the caller's decision. Below it, every segment of `rel` is
-; opened with `openat` against the descriptor of the one before, each
-; with O_NOFOLLOW - so NO symlink under the root is followed: one
-; pointing out of the tree, one pointing back into it, and a directory
-; swapped for one between two calls all fail alike (ELOOP on Darwin and
-; Linux, EMLINK on FreeBSD).
-;
-; WHY DESCRIPTORS AND NOT A PATH CHECK. Resolving the joined path to
-; its canonical spelling and then opening it is two lookups of one
-; name, and a segment replaced between them by a link to `/` is
-; followed by the second. Each `openat` here resolves exactly one name
-; in a directory this call already holds open, so there is no second
-; lookup to race. A static file server that joined and opened was
-; served a file outside its root through a symlink planted inside it.
-;
-; `rel` must be relative, of non-empty segments, with no `..` and no
-; NUL; anything else answers EXDEV before any syscall - the errno
-; Linux's `openat2(RESOLVE_BENEATH)` gives a path that would escape. A
-; `.` segment is allowed: it names the directory already held. The last
-; segment is opened O_NONBLOCK as well, so a FIFO planted in the tree
-; answers rather than stalling the caller inside `open`.
-;
-; A DIRECTORY opens, as `open` would open one: a caller that wants a
-; file reads it, and a directory's read answers EISDIR (`sysReadErrno`
-; says why that is the portable test). Every intermediate descriptor is
-; closed before this answers; the one it answers is the caller's.
-(pub :: sysOpenBeneath (-> Int String (Result Int Error)))
-;@axiom:effect(io)
-(pub fn (sysOpenBeneath root rel)
-  (let ((dirfd (sysOpenRaw root (| oRdonly oDirectory))))
-    (sysResult
-      "sysOpenBeneath"
-      (if (sysFailed dirfd)
-        dirfd
-        (sysBeneathFrom dirfd rel 0)))))
-
-; Whether one segment of a `sysOpenBeneath` path could leave the
-; directory it is resolved in, or is not a name at all.
-(:: sysSegmentEscapes (-> String Bool))
-(fn (sysSegmentEscapes seg)
-  (|| (== (strLen seg) 0) (|| (strEq seg "..") (match (strFindByte seg 0 0)
-    ((None) false)
-    ((Some _) true)))))
-
-; The segments of `rel` from byte `at`, each opened against `dirfd`,
-; which this closes. Answers the last segment's descriptor, or -errno.
-(:: sysBeneathFrom (-> Int String Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(fn (sysBeneathFrom dirfd rel at)
-  (let (
-    (stop (match (strFindByte rel 47 at)
-      ((None) (strLen rel))
-      ((Some k) k)))
-    (seg (strSlice rel at (- stop at)))
-    (last (>= stop (strLen rel)))
-  )
-    (if (sysSegmentEscapes seg)
-      {
-        (let ((_ (sysCloseFd dirfd))) 0)
-        (- 0 eXdev)
-      }
-      (let ((fd (__syscall4
-        sysOpenatNum
-        dirfd
-        (strCStr (strDup seg))
-        (if last
-          (| oRdonly (| oNoFollow oNonblock))
-          (| oRdonly (| oDirectory oNoFollow)))
-        0)))
-        {
-          (let ((_ (sysCloseFd dirfd))) 0)
-          (if (|| last (sysFailed fd))
-            fd
-            (sysBeneathFrom fd rel (+ stop 1)))
-        }))))
-
-; ------------------------------------------------------------------
-; Four questions about a file that need no new syscall.
-;
-; `stat` is the obvious way to ask them and it is NOT here on purpose:
-; its answer is a struct whose layout differs by kernel, and on Linux
-; by architecture - offsets, widths and padding all move - so a
-; portable `stat` is a record layout per platform table, not one
-; syscall number; FreeBSD's (551, since 12) differs from both of its
-; neighbours' and is one more reason not to start. `open`, `read` and
-; `lseek` answer all four questions with calls this module already
-; makes, and the targets nothing here can execute stay honest.
-; ------------------------------------------------------------------
-; 1 when `path` names something that can be opened for reading.
-;
-; This is what `sysRunSearch` has always done to test a candidate, and
-; for the reason that matters under fork+exec: once the fork has
-; happened, "no such file" and "the child exited 127" are the same
-; integer.
-(pub :: sysFileExists (-> Int Bool))
-;@axiom:effect(io)
-(pub fn (sysFileExists path)
-  (let ((fd (sysOpenRaw path oRdonly)))
-    (if (< fd 0)
-      false
-      {
-        (let ((_ (sysCloseFd fd))) 0)
-        true
-      })))
-
-; The size of `path` in bytes, or `-errno`. Seeks to the end, which is
-; what the size IS - no struct, no layout, no per-target record.
-;
-; A DIRECTORY answers a number here rather than failing: probed on
-; darwin-aarch64 2026-08-15, `.` came back 416, the size of the
-; directory file the filesystem keeps rather than anything a caller
-; means by "how big is it". `sysIsDir` below is the discriminator, and
-; it is the reason that measurement is recorded instead of papered
-; over - a caller that must not be fooled asks two questions, and this
-; one alone was never going to answer both.
-(pub :: sysFileSize (-> Int (Result Int Error)))
-;@axiom:effect(io)
-(pub fn (sysFileSize path)
-  (sysResult
-    "sysFileSize"
-    (let ((fd (sysOpenRaw path oRdonly)))
-      (if (< fd 0)
-        fd
-        (let ((n (sysSeek fd 0 seekEnd)))
-          {
-            (let ((_ (sysCloseFd fd))) 0)
-            n
-          })))))
-
-; 0 when `path` can be opened AND read as a file, otherwise the errno
-; saying why not.
-;
-; The three-way answer `sysFileExists` collapses. Opening separates
-; "not there" (ENOENT) and "not allowed" (EACCES); a ONE-BYTE read
-; separates the third case, because both Darwin and Linux open a
-; directory happily and defer EISDIR to `read` (probed 2026-08-08,
-; re-probed 2026-08-15: `read` on a descriptor for `.` answers -21 on
-; darwin-aarch64, and 1 on a regular file with a byte in it).
-;
-; The compiler's own front door has done exactly this since the day an
-; EMPTY source file was reported as unreadable and a directory as
-; missing - `sysReadFile` answers "" for all three. It lived in
-; `main.ax` as `sourceReadErrno`, which is one program's private fix
-; for a question every program reading a path has.
-(pub :: sysReadErrno (-> Int Int))
-;@axiom:effect(io)
-(pub fn (sysReadErrno path)
-  (let ((fd (sysOpenRaw path oRdonly)))
-    (if (sysFailed fd)
-      (sysErrno fd)
-      (let ((probe (strAlloc 1)))
-        (let ((n 
-          (match (sysReadFd fd (strData probe) 1)
-            ((Ok k) k)
-            ((Err e) (- 0 (errCode e))))))
-          {
-            (let ((_ (sysCloseFd fd))) 0)
-            (if (< n 0)
-              (sysErrno n)
-              0)
-          })))))
-
-; True when `path` names a directory.
-;
-; One call to `sysReadErrno`, not a second probe: a path that reads
-; back EISDIR is a directory, and there is no other way to earn that
-; errno from a successful `open`. An empty file answers false here (it
-; opens, and its zero-byte read is 0, not an error), which is the
-; distinction `sysFileExists` cannot make and `sysFileSize` answers
-; wrongly for.
-(pub :: sysIsDir (-> Int Bool))
-;@axiom:effect(io)
-(pub fn (sysIsDir path)
-  (== (sysReadErrno path) eIsDir))
-
-; ------------------------------------------------------------------
-; Reading a directory.
-;
-; The one filesystem question with NO answer in terms of calls this
-; module already made, and so the one place a record layout could not
-; be avoided the way `stat`'s was. There is no seek, no read and no
-; open that enumerates a directory's names; `getdents64` (Linux) and
-; `getdirentries64` (Darwin) are it.
-;
-; What makes that acceptable where `stat` was not is the size of the
-; disagreement. `struct stat` is FOUR layouts, one per target, with
-; every offset, width and pad free to move. A directory entry is TWO,
-; and they differ in exactly one number: where the name starts, 19 on
-; Linux and 21 on Darwin. `d_reclen` - the only other field portable
-; code reads - is at offset 16 on both. So `direntNameOffset` is the
-; whole of the per-target knowledge, and it sits in the platform
-; module beside the syscall number, which is where this library keeps
-; ABI facts.
-;
-; TWO FIELDS ARE DELIBERATELY NOT READ. `d_namlen` exists on Darwin
-; and not on Linux, so the length comes from scanning for the NUL that
-; both write. `d_type` exists on both and is NOT exposed, because
-; filesystems are permitted to answer DT_UNKNOWN and some do - a
-; caller that believed it would be wrong on those, and a caller that
-; handled DT_UNKNOWN would have to call `sysIsDir` anyway. One correct
-; way to ask is better than a fast way that is sometimes silent about
-; not knowing.
-; ------------------------------------------------------------------
-; Bytes per `getdents` call. Large enough that a directory of a few
-; hundred entries comes back in one syscall (a Darwin record is 32
-; bytes for a short name), and the loop below handles any number.
-(:: sysDirBufBytes Int)
-(fn (sysDirBufBytes)
-  32768)
-
-; Every name in the directory `path`, as a Vec of owned `Str` - `.`
-; and `..` INCLUDED, in whatever order the filesystem gives them.
-;
-; Both of those are the raw call's answer rather than a convenience,
-; and both are load-bearing:
-;
-;   - An empty Vec means FAILURE, and can mean nothing else, because a
-;     directory always contains `.` and `..`. That is what lets this
-;     answer a Vec handle rather than needing a second out-parameter
-;     for the errno.
-;   - The ORDER is the filesystem's, which is not stable across
-;     machines or even across runs. Anything whose output depends on
-;     it is not reproducible; `IO.listDir` sorts, and is what a caller
-;     that has not thought about this should use.
-;
-; The names are COPIED. The syscall's buffer is reused by the next
-; iteration of the loop, so a wrap over it would answer the same
-; bytes N times over - which is the kind of bug that looks like a
-; filesystem returning duplicates.
-(pub :: sysReadDir (-> Int (Vec String)))
-;@axiom:effect(io)
-(pub fn (sysReadDir path)
-  (let ((out vecNew))
-    (let ((fd (sysOpenRaw path oRdonly)))
-      (if (sysFailed fd)
-        out
-        ; Darwin's fourth argument is an in/out scan cookie the
-        ; kernel starts from; zero is the beginning. Linux keeps
-        ; the position on the descriptor and never reads this.
-        (let (
-          (buf (memAlloc sysDirBufBytes))
-          (pos (memAlloc 8))
-        )
-          {
-            (memSetWord pos 0 0)
-            (sysReadDirLoop fd buf pos out)
-            (let ((_ (sysCloseFd fd))) 0)
-            out
-          })))))
-
-; One `getdents` per pass until the directory is exhausted (0) or the
-; kernel refuses (negative). A refusal mid-way keeps the names already
-; decoded rather than discarding them, which matches `sysReadAll`'s
-; rule for a short read.
-(:: sysReadDirLoop (-> Int Int Int (Vec String) Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(fn (sysReadDirLoop fd buf pos out)
-  (let ((n 
-    (if (== dirReadNeedsPosition 1)
-      (__syscall4
-        sysGetdentsNum
-        fd
-        buf
-        sysDirBufBytes
-        pos)
-      (__syscall3 sysGetdentsNum fd buf sysDirBufBytes))))
-    (if (<= n 0)
-      n
-      {
-        (sysReadDirDecode buf 0 n out)
-        (sysReadDirLoop fd buf pos out)
-      })))
-
-; Walk the `n` bytes of packed records at `buf`, pushing one owned copy
-; of each name.
-;
-; TOTAL ON ANY BYTES, which matters because these are not this
-; program's bytes. A conforming kernel returns whole records and `off`
-; lands exactly on `n`, so no refusal below can fire - and the decoder
-; does not get to assume that, because the cost of being wrong is
-; reading a length out of uninitialised buffer and inventing a filename
-; from it. THREE conditions make it total: the header must fit, the
-; record must fit, and the record must be long enough to hold the name
-; field - which is also what makes it advance.
-;
-; The third was missing until 2026-08-23, and the two that were here
-; said nothing about where the NAME starts. `direntNameOffset` is 21 on
-; Darwin, 19 on Linux and 24 on FreeBSD, so a `d_reclen` of 1 through
-; 18 satisfied both of the original conditions - `off + 18 <= n` and
-; `off + reclen <= n` - and the NUL scan then began at `off + 21`,
-; past the last byte the kernel wrote, and ran on through whatever the
-; buffer happened to hold until it met a zero. `reclen >
-; direntNameOffset` in place of `reclen > 0` puts the name's first
-; byte inside the record, which the fit test has already put inside
-; `n`; the shortest record any of the three kernels emits is 24 bytes
-; (Linux; Darwin's and FreeBSD's is 32), so nothing a conforming one
-; returns is refused by it.
-(:: sysReadDirDecode (-> Int Int Int (Vec String) Int))
-(fn (sysReadDirDecode buf off n out)
-  ; 18 is the last byte of `d_reclen` on both layouts; without room for
-  ; it there is no length to read.
-  (if (> (+ off 18) n)
-    0
-    ; d_reclen: a little-endian u16 at offset 16 on both layouts.
-    ; There is no `__load16`, and building it from two bytes is
-    ; correct on every target this compiler emits for - all of
-    ; them are little-endian, and a big-endian one would need a
-    ; capability here the way the name offset already has one.
-    ; A record that does not advance would spin this loop
-    ; forever; one that runs past `n`, or one too short to
-    ; reach its own name field, would read a name out of bytes
-    ; the kernel did not write. Stopping loses the rest of the
-    ; buffer, which is strictly better than any of the three.
-    (let ((p (+ buf off)))
-      (let ((reclen (+ (memGetByte p 16) (* (memGetByte p 17) 256))))
-        (if (|| (<= reclen direntNameOffset) (> (+ off reclen) n))
-          0
-          {
-            (vecPush out (strDup (strFromLit (+ p direntNameOffset))))
-            (sysReadDirDecode buf (+ off reclen) n out)
-          })))))
-
-; ------------------------------------------------------------------
-; The working directory.
-;
-; Two shapes rather than one number, because Darwin has no `getcwd`
-; syscall at ALL - the number that used to be `__getcwd` is a hole in
-; the current table, and calling it kills the process with SIGSYS
-; (probed on this host, 2026-08-15). `fcntl(fd, F_GETPATH, buf)` is
-; the way in there, and the reason it does not repeat `stat`'s mistake
-; is that its answer is BYTES: a NUL-terminated path into a buffer the
-; caller supplies, with no offsets or widths to get wrong.
-;
-; There is no `chdir` here to match, and that is deliberate: nothing
-; in this library or above it changes directory, a process that does
-; has invalidated every relative path any other part of it is holding,
-; and a setter with no caller is a syscall number nobody has run.
-; ------------------------------------------------------------------
-; The process's working directory as an absolute path: `(Ok path)`, or
-; `(Err e)` whose code is the errno the kernel refused with.
-;
-; It answered `""` until ERR-ADOPT-1's fourth slice, and
-; `""` is a sentinel that cannot say WHY: a path too long for the
-; buffer (ERANGE), a working directory unlinked out from under the
-; process (ENOENT) and a `.` that cannot be opened (EACCES) all arrived
-; as the same empty string, and every caller in the tree read it as a
-; presence test.
-;
-; THIS IS THE ONE REMAINING `failure` SENTINEL IN THIS MODULE THAT COST
-; NOTHING TO PORT, and that is measured rather than argued. `#effects=`
-; is `Alloc,IO,Mut` BEFORE this port as well as after: the buffer is
-; `memAlloc`ed and the answer `strDup`ed, so the `Ok`/`Err` constructor
-; adds no row this function did not already carry. That is exactly what
-; separates it from the rest of the module's remainder - `sysWriteFd`,
-; `sysReadFd`, `netAccept`, `netAcceptFrom`, `netPollWait` are `IO`
-; alone, and porting them widens the row under `writeStr` and under
-; `println`. The census excluded this one as "a different port"
-; because its failure is `""` rather than an errno; that is a remark
-; about SHAPE, and the shape was the only thing in the way.
-;
-; The length is read off the BYTES, with `strFromLit`, rather than off
-; the syscall's result - the two platforms disagree about what that
-; result means (Linux answers the length including the NUL, Darwin's
-; `fcntl` answers 0) and the NUL is the one thing both write.
-(pub :: sysGetCwd (Result String Error))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (sysGetCwd)
-  ; PATH_MAX is 4096 on Linux and 1024 on Darwin and FreeBSD; one
-  ; buffer at the larger figure serves all, and a path too long for it
-  ; comes back as ERANGE rather than truncated.
-  (let ((buf (memAlloc 4097)))
-    (if (== cwdUsesFcntlPath 1)
-      (let ((fd (sysOpenRaw (__addr ".") 0)))
-        (if (sysFailed fd)
-          ; The op name is a LITERAL, per `sysResult`: what failed here
-          ; is the `open` of `.`, not the path read that never ran.
-          (Err (mkError (- 0 fd) "getcwd: open ."))
-          (let ((rc (__syscall3 sysCwdNum fd fGetPath buf)))
-            {
-              (let ((_ (sysCloseFd fd))) 0)
-              (if (< rc 0)
-                (Err (mkError (- 0 rc) "getcwd"))
-                (Ok (strDup (strFromLit buf))))
-            })))
-      (let ((rc (__syscall2 sysCwdNum buf 4096)))
-        (if (< rc 0)
-          (Err (mkError (- 0 rc) "getcwd"))
-          (Ok (strDup (strFromLit buf))))))))
 
 ; ------------------------------------------------------------------
 ; The environment.
@@ -1135,11 +405,11 @@
           ; FIVE arguments, not libc's six: the kernel entry point fuses
           ; the file actions and the attributes into one descriptor, so
           ; `(pid, path, adesc, argv, envp)` is the shape. See the note
-          ; on `sysPosixSpawn` in the Darwin platform module for what the
+          ; on `sysPosixSpawnNum` in the Darwin platform module for what the
           ; six-argument spelling does instead, and why it is nearly
           ; invisible.
           (let ((rc (__syscall5
-            sysPosixSpawn
+            sysPosixSpawnNum
             pidbuf
             path
             0
@@ -1195,8 +465,8 @@
                   ; copy of the driver. 127 is the shell's
                   ; convention for "command not found".
                   {
-                    (__syscall3 sysExecve path argv envp)
-                    (__syscall1 sysExit 127)
+                    (__syscall3 sysExecveNum path argv envp)
+                    (__syscall1 sysExitNum 127)
                     0
                   }
                   pid)))
@@ -1218,7 +488,7 @@
         ; the read below the status rather than the status plus garbage.
         (memSetWord statbuf 0 0)
         (let ((w (__syscall4
-          sysWait4
+          sysWait4Num
           pid
           statbuf
           0
@@ -1462,10 +732,10 @@
 ; The calling process's own id - the per-session suffix scratch
 ; files need so two concurrent processes cannot collide. The
 ; syscall takes no arguments; the unused ones are simply zero.
-(pub :: sysGetPid Int)
+(pub :: sysPid Int)
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
-(pub fn (sysGetPid)
+(pub fn (sysPid)
   (__syscall3 sysGetPidNum 0 0 0))
 
 ; Microseconds now, from the platform's cheapest correct clock: Darwin
@@ -1587,7 +857,7 @@
 ;
 ; The rest still answer a non-negative result or the syscall's own
 ; `-errno`, and that is a measurement rather than a backlog: `netAccept`
-; and `netAcceptFrom` run once per CONNECTION and `netPollWait` once per
+; and `netAcceptFrom` run once per CONNECTION and `sysPollWait` once per
 ; WAKE, and in `tests/net/echo-server.ax` all three are reached BELOW
 ; the per-connection `__axiom_arena_mark` - so an `(Ok fd)` block there
 ; is allocation the reset never rewinds, once per connection, in a
@@ -2335,7 +1605,7 @@
 ; the descriptor at 4 or 8. `Sys.Platform` carries all three sizes and
 ; offsets; nothing here hardcodes one.
 ;
-; THE CALLER OWNS THE EVENT BUFFER, sized by `netPollBufBytes`. That
+; THE CALLER OWNS THE EVENT BUFFER, sized by `sysPollBufBytes`. That
 ; keeps a wait loop allocation-free, which is the whole point of having
 ; a readiness call at all: a server that allocated per poll would grow
 ; without bound under an allocator that does not free.
@@ -2367,22 +1637,22 @@
   (+ (memGetByte buf off) (+ (<< (memGetByte buf (+ off 1)) 8) (+ (<< (memGetByte buf (+ off 2)) 16) (+ (<< (memGetByte buf (+ off 3)) 24) (+ (<< (memGetByte buf (+ off 4)) 32) (+ (<< (memGetByte buf (+ off 5)) 40) (+ (<< (memGetByte buf (+ off 6)) 48) (<< (memGetByte buf (+ off 7)) 56)))))))))
 
 ; How many bytes an event buffer for `n` events needs on this platform.
-(pub :: netPollBufBytes (-> Int Int))
-(pub fn (netPollBufBytes n)
+(pub :: sysPollBufBytes (-> Int Int))
+(pub fn (sysPollBufBytes n)
   (* n pollEventSize))
 
 ; A readiness descriptor, as `(Result Int Error)`.
-(pub :: netPollCreate (Result Int Error))
+(pub :: sysPollCreate (Result Int Error))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
-(pub fn (netPollCreate)
-  (sysResult "netPollCreate" (__syscall3 sysPollCreateNum 0 0 0)))
+(pub fn (sysPollCreate)
+  (sysResult "sysPollCreate" (__syscall3 sysPollCreateNum 0 0 0)))
 
 ; Write one registration record for `fd` into `rec`, which must hold
 ; `pollEventSize` bytes, and answer `rec`. Shared by add and delete
 ; because the two differ only in the operation word.
-(:: netPollRec (-> Int Int Int Int))
-(fn (netPollRec rec fd op)
+(:: sysPollRec (-> Int Int Int Int))
+(fn (sysPollRec rec fd op)
   {
     (memSet rec 0 pollEventSize)
     (if (== pollUsesKqueue 1)
@@ -2413,16 +1683,16 @@
 ;
 ; Answers `(Result Int Error)`; `Ok 0` on success. REGISTERING runs
 ; once per descriptor watched, not once per wake - which is the line
-; this file's socket section draws, and the reason `netPollWait` below
+; this file's socket section draws, and the reason `sysPollWait` below
 ; is not ported while this is.
-(pub :: netPollAddRead (-> Int Int Int (Result Int Error)))
+(pub :: sysPollAddRead (-> Int Int Int (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
-(pub fn (netPollAddRead pfd fd rec)
+(pub fn (sysPollAddRead pfd fd rec)
   {
-    (netPollRec rec fd pollAddOp)
+    (sysPollRec rec fd pollAddOp)
     (sysResult
-      "netPollAddRead"
+      "sysPollAddRead"
       (if (== pollUsesKqueue 1)
         (__syscall6
           sysPollWaitNum
@@ -2442,14 +1712,14 @@
 
 ; Answers `(Result Int Error)`; `Ok 0` on success.
 ; `rec` must name `pollEventSize` live writable bytes.
-(pub :: netPollDelRead (-> Int Int Int (Result Int Error)))
+(pub :: sysPollDelRead (-> Int Int Int (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
-(pub fn (netPollDelRead pfd fd rec)
+(pub fn (sysPollDelRead pfd fd rec)
   {
-    (netPollRec rec fd pollDelOp)
+    (sysPollRec rec fd pollDelOp)
     (sysResult
-      "netPollDelRead"
+      "sysPollDelRead"
       (if (== pollUsesKqueue 1)
         (__syscall6
           sysPollWaitNum
@@ -2479,13 +1749,13 @@
 ; is this layer's, and the timespec is built here.
 ; `buf` must hold `maxEvents` live writable poll records, and `ts` 16
 ; live writable bytes.
-(pub :: netPollWait (-> Int Int Int Int Int (Result Int Error)))
+(pub :: sysPollWait (-> Int Int Int Int Int (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
-(pub fn (netPollWait pfd buf maxEvents timeoutMs ts)
+(pub fn (sysPollWait pfd buf maxEvents timeoutMs ts)
   (if (== pollUsesKqueue 1)
     (if (< timeoutMs 0)
-      (sysResult "netPollWait" (__syscall6
+      (sysResult "sysPollWait" (__syscall6
         sysPollWaitNum
         pfd
         0
@@ -2496,7 +1766,7 @@
       {
         (netPutWord ts 0 (/ timeoutMs 1000))
         (netPutWord ts 8 (* (% timeoutMs 1000) 1000000))
-        (sysResult "netPollWait" (__syscall6
+        (sysResult "sysPollWait" (__syscall6
           sysPollWaitNum
           pfd
           0
@@ -2508,7 +1778,7 @@
     ; epoll_pwait's fifth argument is a signal mask this layer does not
     ; use, and its sixth is that mask's size, which the kernel checks
     ; against its own `sigset_t` and rejects unless it is exactly 8.
-    (sysResult "netPollWait" (__syscall6
+    (sysResult "sysPollWait" (__syscall6
       sysPollWaitNum
       pfd
       buf
@@ -2517,15 +1787,15 @@
       0
       pollSigsetSize))))
 
-; The descriptor named by event `i` of a buffer `netPollWait` filled.
+; The descriptor named by event `i` of a buffer `sysPollWait` filled.
 ;
 ; Reading it is the one place the four layouts are all visible at once:
 ; the field is kqueue's `ident` at 0 on both BSDs, epoll's `data` at 4
 ; on x86_64 and at 8 on aarch64, and the record stride is 32 (Darwin),
 ; 64 (FreeBSD, whose `kevent` carries `ext[4]`), 12 or 16. Both come
 ; from `Sys.Platform`; a literal here would be right on one target.
-(pub :: netPollFdAt (-> Int Int Int))
-(pub fn (netPollFdAt buf i)
+(pub :: sysPollFdAt (-> Int Int Int))
+(pub fn (sysPollFdAt buf i)
   (netGetWord buf (+ (* i pollEventSize) pollEventFdOffset)))
 
 ; ------------------------------------------------------------------
@@ -2612,7 +1882,7 @@
 ; Linux makes the signal a readable descriptor of its own, adds THAT to
 ; the epoll set, and answers a 128-byte record when it is read. So a
 ; woken event names a signal on one platform and a descriptor on the
-; other, and `netPollSignalAt` is the one function that knows which.
+; other, and `sysPollSignalAt` is the one function that knows which.
 ;
 ; BLOCK BEFORE WATCHING, on both. An unblocked signal takes its default
 ; disposition, and for SIGTERM that is death before anything observes it.
@@ -2654,7 +1924,7 @@
   })
 
 ; Watch the signals in `mask` on the readiness descriptor `pfd`, and
-; answer a HANDLE to pass back to `netPollSignalAt` - the signal
+; answer a HANDLE to pass back to `sysPollSignalAt` - the signal
 ; descriptor on Linux, and 0 on the BSDs, which need none.
 ;
 ; `rec` is scratch of `pollEventSize` bytes and `setbuf` of at least
@@ -2665,10 +1935,10 @@
 ; the Int channel could not make: 0 was also what the old sentinel
 ; convention would have called an unremarkable answer, while a caller
 ; testing `>= 0` could not tell the BSD handle from a Linux one.
-(pub :: netSignalOpen (-> Int Int Int Int (Result Int Error)))
+(pub :: sysSignalOpen (-> Int Int Int Int (Result Int Error)))
 ;@axiom:effect(io)
-(pub fn (netSignalOpen pfd mask rec setbuf)
-  (sysResult "netSignalOpen" (netSignalOpenRaw pfd mask rec setbuf)))
+(pub fn (sysSignalOpen pfd mask rec setbuf)
+  (sysResult "sysSignalOpen" (sysSignalOpenRaw pfd mask rec setbuf)))
 
 ; The registration itself, answering the raw handle-or-errno.
 ;
@@ -2676,10 +1946,10 @@
 ; errno forwards, the descriptor, and the BSD walk's accumulator - and
 ; wrapping each of them would build four `Result`s where the function
 ; answers one. The public skin above converts once.
-(:: netSignalOpenRaw (-> Int Int Int Int Int))
+(:: sysSignalOpenRaw (-> Int Int Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
-(fn (netSignalOpenRaw pfd mask rec setbuf)
+(fn (sysSignalOpenRaw pfd mask rec setbuf)
   (if (== signalUsesSignalFd 1)
     {
       (netPutWord setbuf 0 mask)
@@ -2694,7 +1964,7 @@
         (if (< sfd 0)
           sfd
           {
-            (netPollRec rec sfd pollAddOp)
+            (sysPollRec rec sfd pollAddOp)
             (let ((r (__syscall4
               sysPollCtlNum
               pfd
@@ -2737,7 +2007,7 @@
       })))
 
 ; The signal named by event `i`, or `None` when that event is not a
-; signal at all. `sigHandle` is what `netSignalOpen` answered and
+; signal at all. `sigHandle` is what `sysSignalOpen` answered and
 ; `scratch` is caller scratch of at least `sigInfoSize` bytes.
 ;
 ; `None` since 2026-09-03; every caller is an event loop that matches
@@ -2752,14 +2022,14 @@
 ; the number has to be read out of it - four bytes at offset 0 of a
 ; 128-byte record, and FOUR rather than eight, because eight would fold
 ; `ssi_errno` into the answer.
-(pub :: netPollSignalAt (-> Int Int Int Int (Option Int)))
+(pub :: sysPollSignalAt (-> Int Int Int Int (Option Int)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
-(pub fn (netPollSignalAt buf i sigHandle scratch)
+(pub fn (sysPollSignalAt buf i sigHandle scratch)
   (if (== signalUsesSignalFd 1)
-    (if (!= (netPollFdAt buf i) sigHandle)
+    (if (!= (sysPollFdAt buf i) sigHandle)
       None
-      (let ((n (__syscall3 sysRead sigHandle scratch sigInfoSize)))
+      (let ((n (__syscall3 sysReadNum sigHandle scratch sigInfoSize)))
         (if (< n sigInfoSize)
           None
           (Some (+ (memGetByte scratch 0) (+ (<< (memGetByte scratch 1) 8) (+ (<< (memGetByte scratch 2) 16) (<< (memGetByte scratch 3) 24))))))))
@@ -2768,7 +2038,7 @@
     (let ((off (* i pollEventSize)))
       (if (== (memGetByte buf (+ off 8)) (& pollSignalFilter 255))
         (if (== (memGetByte buf (+ off 9)) (& (>> pollSignalFilter 8) 255))
-          (Some (netPollFdAt buf i))
+          (Some (sysPollFdAt buf i))
           None)
         None))))
 
@@ -2814,7 +2084,7 @@
 ;@axiom:effect(spawn)
 (pub fn (sysForkProcess)
   (let ((r (__syscall5
-    sysFork
+    sysForkNum
     sysForkArg
     0
     0
@@ -2831,37 +2101,11 @@
 ; ------------------------------------------------------------------
 ; Terminals
 ;
-; THE FOUNDATION A LINE EDITOR NEEDS AND NOTHING MORE: is this
-; descriptor a terminal, put it in raw mode, put it back EXACTLY as it
-; was, and how many rows and columns does it have. No key decoding, no
-; escape sequences, no history - those belong above this file.
-;
-; THE RESTORE IS THE PART THAT MUST NOT BE ALMOST RIGHT. A REPL that
-; exits leaving the terminal in raw mode hands the user a shell with
-; no echo and no line editing, and the user's only recovery is `stty
-; sane` typed blind. Everything below is shaped around that: the
-; caller owns a buffer holding the ORIGINAL bytes, this file never
-; writes to it after filling it, and `sysTermRaw` edits a private copy
-; so that the saved state cannot be the state that was modified.
-;
-; WHAT IS PER-PLATFORM AND WHAT IS NOT. Every request number, struct
-; offset and flag bit comes from `Sys.Platform`, because not one of
-; them is portable - `struct termios` is 72 bytes on Darwin, 36 on
-; Linux and 44 on FreeBSD, and Linux carries a `c_line` byte the BSDs
-; do not, so even `c_cc`'s offset differs. `Sys.ax` branches on
-; `ttyUsesTermios` and never names an OS, as it does for
-; `openNeedsDirFd` and `pollUsesKqueue`.
-;
-; THE ONE LAYOUT THIS FILE DOES CARRY is `struct winsize`, and it is
-; here rather than in the platform modules because it was checked to
-; be the same on all four POSIX targets: four `unsigned short`, rows
-; first, columns second. Measured on this host 2026-08-31
-; (`sizeof(struct winsize) = 8`, `ws_row@0`, `ws_col@2`) and read in
-; the fetched headers for the other three - Linux's
-; `include/uapi/asm-generic/termios.h` and FreeBSD's `sys/sys/
-; ttycom.h` declare the identical four fields. If a fifth target ever
-; disagrees, this is the paragraph that says the fact was checked
-; rather than assumed, and the offsets move to `Sys.Platform`.
+; Whether a descriptor is a terminal. Raw mode, the saved state and the
+; window size are `IO`'s (`termRaw`, `termRestore`, `termSize`), which
+; owns the `TermState` they work on. The request numbers come from
+; `Sys.Platform`, and this file branches on `ttyUsesTermios` rather than
+; naming an OS.
 ; ------------------------------------------------------------------
 ; ioctl(fd, request, arg) -> 0 on success, or `-errno`.
 ;
@@ -2875,41 +2119,6 @@
 ;@axiom:effect(unsafe)
 (fn (sysIoctl fd req arg)
   (__syscall3 sysIoctlNum fd req arg))
-
-; How many bytes a saved terminal state occupies, which is how large
-; the buffer a caller hands `sysTermSave`, `sysTermRaw` and
-; `sysTermRestore` must be. 72, 36 or 44 depending on the target; 0
-; where there is no `termios` at all.
-;
-; A CALLER MUST ASK RATHER THAN PICK A NUMBER. Sizing this buffer by
-; hand is the single easiest way to write the bug this section exists
-; to prevent: a buffer short by the eight bytes that separate Linux's
-; layout from FreeBSD's still round-trips on the machine it was tested
-; on.
-(pub :: sysTermStateBytes Int)
-(pub fn (sysTermStateBytes)
-  termiosBytes)
-
-; The bytes `sysTermSize` writes. 8 on every target that has one; see
-; the section header for why this number is here and not in
-; `Sys.Platform`.
-(pub :: sysTermSizeBytes Int)
-(pub fn (sysTermSizeBytes)
-  8)
-
-; The answer `Sys.ax` gives where the platform has no terminal
-; control at all, which today is Windows and only Windows.
-;
-; IT IS A SENTINEL, NOT A KERNEL ANSWER. No `ioctl` produced it: the
-; call is never made, because `ttyUsesTermios` is 0 there. 78 is the
-; spelling `sysNowMonotonic` already uses for "this platform cannot
-; answer" - it is ENOSYS on the BSDs and 38 on Linux - and it is
-; negative, which is the only property a caller reads. Answering it
-; is the point: a caller finds out, where a fabricated success would
-; have it draw a prompt into a console that is still echoing.
-(:: termUnsupported Int)
-(fn (termUnsupported)
-  (- 0 78))
 
 ; True when `fd` is a terminal.
 ;
@@ -2943,314 +2152,6 @@
   (if (== ttyUsesTermios 0)
     false
     (>= (sysIoctl fd tcGetAttrReq (memAlloc termiosBytes)) 0)))
-
-; Read `fd`'s current terminal attributes into `save`, which must hold
-; `sysTermStateBytes` bytes. 0 on success, or a negative result.
-;
-; This is the SAVE half of the pair, and it is public on its own
-; because `sysTermRaw` performing its own save would leave a caller
-; that wants to make some other change with no way to record the
-; original first.
-(pub :: sysTermSave (-> Int Int Int))
-;@axiom:effect(io)
-(pub fn (sysTermSave fd save)
-  (if (== ttyUsesTermios 0)
-    termUnsupported
-    (sysIoctl fd tcGetAttrReq save)))
-
-; Write `state` back to `fd` as its terminal attributes: 0, or a
-; negative result.
-;
-; The request is the FLUSHING one on every platform (TIOCSETAF on the
-; BSDs, TCSETSF on Linux), which drains pending output and discards
-; pending input before the change takes effect. Each platform module
-; records the choice; the reason is that both ends of a raw-mode
-; session want it - entering, type-ahead meant for the old line
-; discipline is discarded rather than delivered as editing keys, and
-; leaving, a half-typed line is not handed to the shell.
-; `state` must name `sysTermStateBytes` live bytes a save filled.
-(pub :: sysTermRestore (-> Int Int Int))
-;@axiom:effect(io)
-(pub fn (sysTermRestore fd state)
-  (if (== ttyUsesTermios 0)
-    termUnsupported
-    (sysIoctl fd tcSetAttrReq state)))
-
-; Read one of the four flag words out of a saved state, and write one
-; back. `n` is 0 for c_iflag, 1 for c_oflag, 2 for c_cflag and 3 for
-; c_lflag: the words are contiguous and `termiosFlagBytes` apart on
-; every target, so one stride serves as all four offsets.
-;
-; THEY MOVE 32 BITS WHERE DARWIN'S FIELD IS 64, and that is deliberate
-; rather than an oversight. Darwin's flag words are `unsigned long`;
-; Linux's and FreeBSD's are `unsigned int`. Every bit any of these
-; platforms defines in any of these words fits in the low 32 - the
-; highest are Linux's CRTSCTS and Darwin's NOFLSH at 0x80000000 - and
-; the machines are all little-endian, so the low four bytes of an
-; eight-byte field start at the field's own offset. Editing only those
-; four leaves Darwin's upper half BYTE-FOR-BYTE UNTOUCHED, which is
-; the behaviour the round trip needs: whatever the kernel put there
-; goes back unaltered.
-(:: termFlagGet (-> Int Int Int))
-(fn (termFlagGet buf n)
-  (netGetInt32 buf (* n termiosFlagBytes)))
-
-(:: termFlagClear (-> Int Int Int Int))
-(fn (termFlagClear buf n mask)
-  (netPutInt32 buf (* n termiosFlagBytes) (& (termFlagGet buf n) (^ mask (- 0 1)))))
-
-; Put `fd` into raw mode, having first saved its current state into
-; `save` (`sysTermStateBytes` bytes, owned by the caller). 0, or a
-; negative result.
-;
-; WHAT RAW MODE MEANS HERE, stated rather than implied:
-;
-;   c_lflag  ECHO off    - the editor draws every character itself,
-;                          so the driver must not draw it too.
-;            ICANON off  - `read` returns bytes as they arrive
-;                          instead of waiting for a newline. This is
-;                          the flag that makes a line editor possible
-;                          at all.
-;            IEXTEN off  - ^V stops being "quote the next character"
-;                          and becomes a byte the editor can bind.
-;   c_iflag  IXON off    - ^S and ^Q stop being flow control. Leaving
-;                          this on is the classic frozen-REPL bug:
-;                          ^S bound to a search freezes the terminal
-;                          instead, and nothing appears to be wrong.
-;            ICRNL off   - Return arrives as CR (13), not silently
-;                          rewritten to LF, so the editor can tell
-;                          Return from ^J.
-;            ISTRIP off  - the eighth bit of every input byte
-;                          survives, which is the difference between
-;                          reading UTF-8 and reading mojibake.
-;            BRKINT off  - a break condition does not raise SIGINT.
-;   c_oflag  OPOST off   - output is passed through unprocessed, so a
-;                          lone LF is not expanded to CR LF behind the
-;                          editor's back and column arithmetic stays
-;                          true. An editor that turns this off must
-;                          write "\r\n" itself.
-;   c_cc     VMIN 1      - a `read` returns as soon as one byte is
-;            VTIME 0       there, and blocks until one is. A REPL
-;                          waiting for a keypress wants exactly this;
-;                          a caller wanting a poll timeout should set
-;                          VTIME itself on a copy.
-;
-; ISIG IS THE CALLER'S CHOICE, which is why `keepSignals` exists and
-; why there is no default hidden in here. Pass 1 and ^C still raises
-; SIGINT, which is what a REPL usually wants - the user expects ^C to
-; abandon a runaway evaluation, and the process already has a handler
-; or dies. Pass 0 and ^C arrives as byte 3 for the editor to bind,
-; which is what a full-screen editor wants and what `cfmakeraw` does.
-; The two are not interchangeable and neither is safe to assume.
-;
-; c_cflag IS NOT TOUCHED. `cfmakeraw` also clears CSIZE|PARENB and
-; sets CS8; that matters on a serial line and is inert on the
-; pseudo-terminal a REPL runs under. No platform module records a
-; c_cflag bit, because none was measured, and an unmeasured constant
-; is worse than an absent one.
-(pub :: sysTermRaw (-> Int Int Int Int))
-;@axiom:effect(io)
-(pub fn (sysTermRaw fd save keepSignals)
-  (if (== ttyUsesTermios 0)
-    termUnsupported
-    (let ((r (sysIoctl fd tcGetAttrReq save)))
-      (if (< r 0)
-        r
-        (sysTermRawApply fd save keepSignals (memAlloc termiosBytes))))))
-
-; The edit, on a PRIVATE COPY of what was just saved.
-;
-; `work` is a fresh buffer and `save` is the caller's. Nothing here
-; writes to `save`, and that separation is the whole reason this
-; function exists rather than being folded into the one above: an
-; in-place edit would leave the "saved" state holding the raw settings,
-; and `sysTermRestore` would then restore raw mode onto raw mode. The
-; failure would be invisible in every test that does not compare bytes.
-(:: sysTermRawApply (-> Int Int Int Int Int))
-;@axiom:effect(io)
-(fn (sysTermRawApply fd save keepSignals work)
-  {
-    (memCopy work save termiosBytes)
-    (termFlagClear work 0 (| tiosBrkint (| tiosIcrnl (| tiosIstrip tiosIxon))))
-    (termFlagClear work 1 tiosOpost)
-    (termFlagClear
-      work
-      3
-      (if (== keepSignals 1)
-        (| tiosEcho (| tiosIcanon tiosIexten))
-        (| tiosEcho (| tiosIcanon (| tiosIexten tiosIsig)))))
-    (memPutByte work (+ termiosCcOff termiosVminIdx) 1)
-    (memPutByte work (+ termiosCcOff termiosVtimeIdx) 0)
-    (sysIoctl fd tcSetAttrReq work)
-  })
-
-; Read `fd`'s window size into `buf` (`sysTermSizeBytes` bytes): 0, or
-; a negative result. `sysTermRows` and `sysTermCols` read the answer
-; back out.
-;
-; A TERMINAL IS PERMITTED TO ANSWER ZERO. A pty that has never been
-; sized, and some CI runners, answer 0 rows and 0 columns with a
-; SUCCESSFUL ioctl - so a caller that only checks the return value and
-; then divides by the column count has a bug this call cannot report.
-; Treat 0 as "unknown" and fall back to 80x24.
-(pub :: sysTermSize (-> Int Int Int))
-;@axiom:effect(io)
-(pub fn (sysTermSize fd buf)
-  (if (== ttyUsesTermios 0)
-    termUnsupported
-    (sysIoctl fd tcWinSizeReq buf)))
-
-; Rows out of a buffer `sysTermSize` filled. `ws_row` is an
-; `unsigned short` at offset 0 on every target, little-endian.
-(pub :: sysTermRows (-> Int Int))
-(pub fn (sysTermRows buf)
-  (+ (memGetByte buf 0) (<< (memGetByte buf 1) 8)))
-
-; Columns: `ws_col`, the second `unsigned short`.
-(pub :: sysTermCols (-> Int Int))
-(pub fn (sysTermCols buf)
-  (+ (memGetByte buf 2) (<< (memGetByte buf 3) 8)))
-
-; ------------------------------------------------------------------
-; Reading a descriptor: the whole of it, or one line of it.
-;
-; `sysReadFd` is one `read(2)`, and until 2026-09-04 it was the whole
-; of what a program could do with a descriptor it did not open: the
-; only readers above it were `sysReadFile` (a path, to EOF), the
-; buffered record reader in `Rpc`, and the REPL's private
-; line reader. Nothing in the library read standard input, and nothing
-; in the tree noticed, because nothing in the tree reads standard
-; input - the corpus is the compiler's own needs, and the compiler
-; takes its input by path.
-;
-; Both readers here take the DESCRIPTOR, as `sysWriteAllFd` does, so
-; `(sysReadLineFd stdin)` and a descriptor from `sysOpenPath` or a
-; socket are the same call. `IO.readLine` and `IO.readAll` are the
-; caller-facing twins, on the rule `writeStr`/`sysWriteAllFd` set: the
-; loop is stated once, here, and `IO` names it and puts the descriptor
-; into the failure's message.
-;
-; THE ANSWER IS `Result`, AND END OF INPUT IS INSIDE THE `Ok`.
-; `sysReadFd` has answered `(Result Int Error)` since 2026-09-03, so
-; the errno is in hand at the one place a read can fail; folding it
-; into "nothing was read" would make a closed or unreadable descriptor
-; - EBADF on a number nothing opened, EISDIR on a directory redirected
-; in - look exactly like an empty input. That is `readFile`'s
-; four-ways-"" for a stream, with no `readErrno` to ask afterwards
-; because the bytes are gone. So failure is `Err`
-; (docs/error-model.md ERR-REC-3: `Result` is for failure) and end of
-; input is `Ok None` / `Ok ""`, which is absence. The nested shape is
-; the one docs/ffi.md §5.3 already names for a call with three
-; statuses.
-;
-; ONE BYTE PER `read(2)` IN THE LINE READER, DELIBERATELY. A line
-; reader that pulls a block and keeps the remainder has to keep it
-; SOMEWHERE, and there is no sound place for it: a global buffer is
-; copied by `parallel`'s process lowering, so after a fork the parent
-; and the child would each replay the same unread bytes - and under
-; `--threads` the same global is shared with no lock; a buffer in the
-; descriptor cannot exist, because the kernel's offset is the only
-; state a descriptor has, and it is shared with every process holding
-; the same open file - a child that `sysSpawn` hands fd 0 to must find
-; the next unread byte there, not a block's worth further on. The
-; reader that DOES buffer (`Rpc`) keeps the state in a record the
-; caller owns and passes back, which is sound and is their whole
-; reason for existing as records. A line reader over a bare `Int` has
-; no such place, so it reads exactly as many bytes as it answers.
-;
-; MEASURED, 2026-09-04, 10,000,000 bytes on a pipe (a 44-byte line
-; repeated, 227,273 lines), one process each, `--opt 1`:
-;
-;   sysReadAllFd            0.11-0.14 s over three runs, 0.03 s
-;                           of it in this process (one 64 KiB
-;                           `read` per chunk, 160 calls)
-;   sysReadLineFd loop      11.1-11.3 s over three runs: 2.3 s
-;                           user, 10.4 s system - 10,000,001
-;                           `read` calls at about 1 us each
-;
-; About ninety times slower, and the split says where: the time is
-; the kernel's, once per byte. The machine was loaded (load average
-; 10.8) so the absolute numbers are an upper bound; the ratio is
-; the fact.
-;
-; That is the cost of the line reader on BULK input: one syscall per
-; byte. It is the right shape for what a line reader is for - a prompt
-; answered by a person, a handful of lines of configuration, a
-; protocol that hands the descriptor on after the header - and the
-; wrong tool for a megabyte, which wants `sysReadAllFd` and
-; `strSplit`, or `Rpc`'s reader shape. `sysReadAllFd` reads 64 KiB
-; chunks because it consumes everything anyway: an over-read is not
-; observable when nothing is left to observe it.
-; ------------------------------------------------------------------
-; Read `fd` to end of input: `Ok` the whole stream, `Ok ""` when
-; nothing arrived, or `Err` carrying the errno of the `read` that
-; failed.
-;
-; Starts at 64 KiB and doubles, so an input of any size arrives whole
-; and the copying is linear; `sysReadFile` is this over a descriptor
-; it opened itself.
-(pub :: sysReadAllFd (-> Int (Result String Error)))
-;@axiom:effect(io)
-(pub fn (sysReadAllFd fd)
-  (sysReadAll fd (strAlloc 65536) 0 65536))
-
-; One line of `fd`: `Ok (Some line)` without its newline, `Ok None` at
-; end of input when nothing was read, or `Err` carrying the errno.
-;
-; A final line with no newline is still a line - `Some` of it, and
-; the next call answers `None`. An empty line is `Some ""`, which is
-; not `None`: the newline was read, so something was there.
-;
-; The buffer starts at 128 bytes and doubles, owned by this call and
-; shared into the answer by `strSlice` (MM-VAL-7's second share), and
-; the newline is overwritten with NUL so the line is `strCStr`-safe. A
-; `while` and not a self call: the loop runs once per BYTE, and a self
-; call under a `let` is not tail position, so a long line would be a
-; long stack.
-(pub :: sysReadLineFd (-> Int (Result (Option String) Error)))
-;@axiom:effect(io)
-(pub fn (sysReadLineFd fd)
-  ; the last `read`'s answer: 1 a byte, 0 end of input, -errno
-  (let (
-    (mut buf (strAlloc 128))
-    (mut cap 128)
-    (mut used 0)
-    (mut n 1)
-    (mut done 0)
-  )
-    {
-      (while (== done 0)
-        {
-          (set n (match (sysReadFd fd (+ (strData buf) used) 1)
-            ((Ok k) k)
-            ((Err e) (- 0 (errCode e)))))
-          (if (<= n 0)
-            (set done 1)
-            (if (== (memGetByte (strData buf) used) 10)
-              {
-                (memPutByte (strData buf) used 0)
-                (set done 1)
-              }
-              {
-                (set used (+ used 1))
-                ; `strAlloc cap` holds cap+1 bytes, and index `cap` is
-                ; the terminator's, so the next byte needs `used < cap`.
-                (if (>= used cap)
-                  (let ((big (strAlloc (* cap 2))))
-                    {
-                      (memCopy (strData big) (strData buf) used)
-                      (set buf big)
-                      (set cap (* cap 2))
-                    })
-                  0)
-              }))
-        })
-      (if (< n 0)
-        (Err (mkError (- 0 n) "sysReadLineFd"))
-        (if (&& (== n 0) (== used 0))
-          (Ok None)
-          (Ok (Some (strSlice buf 0 used)))))
-    }))
 
 ; ------------------------------------------------------------------
 ; Memory two bindings can share, and blocking on a word in it.

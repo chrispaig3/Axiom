@@ -12,12 +12,9 @@
 ;
 ; Three things are checked that a count alone would not reach.
 ;
-;   1. `.` AND `..` ARE ALWAYS THERE. `Sys.sysReadDir` answers a Vec
-;      and has no second channel for an errno, so "empty means
-;      failure" is its contract - and that contract is only sound
-;      because a readable directory can never be empty. If a kernel
-;      ever stopped listing the two dot entries, `IO.listDir`'s empty
-;      answer would start meaning two different things silently.
+;   1. `.` AND `..` ARE DROPPED, AND THE ORDER IS SORTED. `IO.listDir`
+;      answers the names a program walks, in byte order, so the same
+;      directory lists the same way on two machines.
 ;
 ;   2. A LISTING BIGGER THAN ONE BUFFER. The names are decoded out of
 ;      a buffer the next `getdents` overwrites, so they are COPIED.
@@ -29,7 +26,7 @@
 ;
 ;   3. NOT-A-DIRECTORY ANSWERS EMPTY. `open` succeeds on a regular
 ;      file, so the refusal has to come from the `getdents` itself.
-(import Sys)
+(import IO)
 (import Err)
 (import Str)
 (import Fmt)
@@ -37,7 +34,7 @@
 
 ; 185 bytes of padding, so a name is 190 and one record is ~216 -
 ; rounded to 216 or 224 depending on which layout writes it, and 300
-; of them are ~65 KB either way: three passes through `Sys`'s 32 KB
+; of them are ~65 KB either way: three passes through `IO`'s 32 KB
 ; buffer. Long names rather than many files, because this crosses the
 ; buffer at 300 `open`s where six-byte names would need 1200.
 (:: pad String)
@@ -62,7 +59,7 @@
   (if (>= i bigCount)
     0
     {
-      (unwrapOr (sysWriteFile (strCStr (pathOf i)) "x") 0)
+      (unwrapOr (writeFile (pathOf i) "x") 0)
       (fill (+ i 1))
     }))
 
@@ -72,7 +69,7 @@
   (if (>= i bigCount)
     0
     {
-      (unwrapOr (sysUnlink (strCStr (pathOf i))) 0)
+      (unwrapOr (removeFile (pathOf i)) 0)
       (drain (+ i 1))
     }))
 
@@ -90,34 +87,35 @@
 (fn (main)
   ; --- a directory is never empty ---------------------------------
   (let (
-    (d (strCStr "ax994"))
-    (big (strCStr "ax994_big"))
-    (f (strCStr "ax994/plain.txt"))
+    (d "ax994")
+    (big "ax994_big")
+    (f "ax994/plain.txt")
     (mut n 0)
   )
     {
-      (unwrapOr (sysMkdir d sysDirMode) 0)
-      (let ((v (sysReadDir d)))
+      (unwrapOr (makeDir d) 0)
+      (let ((v (listDir d)))
+        {
+          (if (== (vecLen v) 0)
+            (set n (+ n 1))
+            0)
+          (if (holds v "." 0)
+            0
+            (set n (+ n 1)))
+          (if (holds v ".." 0)
+            0
+            (set n (+ n 1)))
+        })
+      ; --- what is in it shows up -------------------------------------
+      (unwrapOr (writeFile f "x") 0)
+      (unwrapOr (makeDir "ax994/sub") 0)
+      (let ((v (listDir d)))
         {
           (if (== (vecLen v) 2)
             (set n (+ n 1))
             0)
-          (if (holds v "." 0)
-            (set n (+ n 1))
-            0)
-          (if (holds v ".." 0)
-            (set n (+ n 1))
-            0)
-        })
-      ; --- what is in it shows up -------------------------------------
-      (unwrapOr (sysWriteFile f "x") 0)
-      (unwrapOr (sysMkdir (strCStr "ax994/sub") sysDirMode) 0)
-      (let ((v (sysReadDir d)))
-        {
-          (if (== (vecLen v) 4)
-            (set n (+ n 1))
-            0)
-          (if (holds v "plain.txt" 0)
+          ; sorted by byte: `plain.txt` before `sub`
+          (if (strEq (vecGet v 0) "plain.txt")
             (set n (+ n 1))
             0)
           ; a subdirectory is an entry like any other - no `d_type` is
@@ -132,30 +130,30 @@
       ; --- what is not a directory ------------------------------------
       ; `open` succeeds on both of these; the emptiness has to come
       ; from further in.
-      (if (== (vecLen (sysReadDir f)) 0)
+      (if (== (vecLen (listDir f)) 0)
         (set n (+ n 1))
         0)
-      (if (== (vecLen (sysReadDir (strCStr "ax994/nope"))) 0)
+      (if (== (vecLen (listDir "ax994/nope")) 0)
         (set n (+ n 1))
         0)
       ; --- more than one buffer ---------------------------------------
-      (unwrapOr (sysMkdir big sysDirMode) 0)
+      (unwrapOr (makeDir big) 0)
       (fill 0)
-      (let ((v (sysReadDir big)))
+      (let ((v (listDir big)))
         {
-          (if (== (vecLen v) (+ bigCount 2))
+          (if (== (vecLen v) bigCount)
             (set n (+ n 1))
             0)
           ; the first pass's names must still be their own - this is
           ; the check a wrapped-not-copied decode fails
-          (if (holds v (nameOf 0) 0)
+          (if (strEq (vecGet v 0) (nameOf 0))
             (set n (+ n 1))
             0)
           (if (holds v (nameOf 1) 0)
             (set n (+ n 1))
             0)
           ; and so must the last pass's
-          (if (holds v (nameOf (- bigCount 1)) 0)
+          (if (strEq (vecGet v (- bigCount 1)) (nameOf (- bigCount 1)))
             (set n (+ n 1))
             0)
           (if (holds v (nameOf (/ bigCount 2)) 0)
@@ -167,15 +165,15 @@
         })
       ; --- teardown ----------------------------------------------------
       (drain 0)
-      (if (isOk (sysRmdir big))
+      (if (isOk (removeDir big))
         (set n (+ n 1))
         0)
-      (unwrapOr (sysUnlink f) 0)
-      (unwrapOr (sysRmdir (strCStr "ax994/sub")) 0)
-      (if (isOk (sysRmdir d))
+      (unwrapOr (removeFile f) 0)
+      (unwrapOr (removeDir "ax994/sub") 0)
+      (if (isOk (removeDir d))
         (set n (+ n 1))
         0)
-      (if (sysFileExists d)
+      (if (fileExists d)
         0
         (set n (+ n 1)))
       (if (== n 18)

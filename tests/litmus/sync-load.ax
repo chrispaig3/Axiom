@@ -552,7 +552,7 @@
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 (fn (takeWord mx)
-  (__atomic_cas (pageOf mx) 0 (* sysGetPid 4)))
+  (__atomic_cas (pageOf mx) 0 (* sysPid 4)))
 
 (:: heldWord (-> Mutex Int))
 ;@axiom:effect(unsafe)

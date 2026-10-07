@@ -7,7 +7,7 @@
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 (fn (tick)
-  (__syscall3 sysRead 0 0 0))
+  (__syscall3 sysReadNum 0 0 0))
 
 (:: main Int)
 (fn (main)

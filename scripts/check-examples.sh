@@ -57,7 +57,7 @@ status=0
 #
 # `axiom run` builds into the WORKING DIRECTORY - self_host/main.ax
 # names the scratch executable `axiom_temp_output.<pid>` - and the
-# `sysUnlink` that removes it is reached only after the child RETURNS.
+# `removeFile` that removes it is reached only after the child RETURNS.
 # Reproduced 2026-09-03 against the web example this directory then
 # held, the one program here that did not return on its own: `axiom
 # run examples/web/server.ax 8961 1 1` from a scratch directory, then

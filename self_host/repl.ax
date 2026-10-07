@@ -213,7 +213,7 @@
 ; end of input.
 ;
 ; The raw-mode bracket is here rather than inside `term.ax` for two
-; reasons. It keeps `sysTermRaw` and `sysTermRestore` LEXICALLY
+; reasons. It keeps `termRawEnter` and `termRawLeave` LEXICALLY
 ; ADJACENT on the one return path this function has, so there is no
 ; path out of raw mode to forget; and it lets the fallback - a
 ; terminal that refuses raw mode, which is what a target with no
@@ -1500,7 +1500,7 @@
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
 (pub fn (replEval ir)
-  (let ((pid sysGetPid))
+  (let ((pid sysPid))
     (let ((leaf (concat (concat "axiom-repl-" (fmtInt pid)) ".d")))
       (let ((dir (pathJoin replTmpRoot leaf)))
         (if (isErr (makeDirMode dir 448))

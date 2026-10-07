@@ -98,7 +98,7 @@
 ;@axiom:effect(io)
 (fn (main)
   ; ------------------------------------------------------- IPv4
-  (let ((base (+ 40000 (% sysGetPid 20000))))
+  (let ((base (+ 40000 (% sysPid 20000))))
     (let (
       (srvAddr (memAlloc 32))
       (cliAddr (memAlloc 32))

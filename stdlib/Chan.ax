@@ -152,7 +152,7 @@
 (:: chanMe Int)
 ;@axiom:effect(io)
 (fn (chanMe)
-  (* sysGetPid 4))
+  (* sysPid 4))
 
 ; Take the lock. Answers 0 once this binding holds it, 1 when the time
 ; in `b` ran out first (`timed` 1 only), and 2 when the channel is

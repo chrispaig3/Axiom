@@ -100,15 +100,13 @@
 ; with `cat`), and `histMaxBytes` as the compaction TRIGGER. The
 ; trigger is a byte count and not an entry count on purpose: bytes are
 ; what another session's appends change, and are knowable from
-; `sysFileSize` without decoding anything.
+; `fileSize` without decoding anything.
 ;
-; TWO REPLS AT ONCE. Recording is write-through: one `sysAppendFile`
-; call per entry, carrying the entry's whole record. Sys.ax's own
-; comment states the property that rests on - "O_APPEND is what makes
-; it atomic rather than merely equivalent: the seek to the end and the
-; write are one operation, so two processes appending to one log
-; interleave whole writes instead of overwriting each other's last
-; one". So concurrent sessions interleave whole RECORDS and neither
+; TWO REPLS AT ONCE. Recording is write-through: one `appendFile`
+; call per entry, carrying the entry's whole record. `appendFile`
+; opens with `O_APPEND`, which makes the seek to the end and the write
+; one operation, so two processes appending to one log interleave whole
+; writes instead of overwriting each other's last one. So concurrent sessions interleave whole RECORDS and neither
 ; loses an entry. What is NOT promised: a session does not see entries
 ; another session appended after it started, because the file is read
 ; once at `histOpen`.
@@ -514,7 +512,7 @@
 ; that does not survive the session, which is the same symptom as
 ; history being off, and that is the trade this makes deliberately.
 ;
-; The `(isErr (sysMkdir (strCStr d) mode))` spelling is `replEval`'s
+; The `(isErr (makeDirMode d mode))` spelling is `replEval`'s
 ; (repl.ax:808), applied to an ALLOCATED path for the reason above.
 (pub :: histEnsureDir (-> String Int))
 ;@axiom:effect(io)
@@ -646,7 +644,7 @@
 ; recorded and 0 when it was dropped (empty, or a repeat of the entry
 ; before it).
 ;
-; Write-through: the file gets this entry NOW, in one `sysAppendFile`
+; Write-through: the file gets this entry NOW, in one `appendFile`
 ; call, so `:quit`'s `sysExitWith` and a Ctrl-C at the prompt both lose
 ; nothing. An over-large entry stays in the ring and is not written.
 (pub :: histRecord (-> Int String Int))
@@ -687,10 +685,10 @@
 ; this session's ring, so it carries forward every session's entries
 ; rather than replacing the file with one process's view of it.
 ;
-; The rewrite is write-to-temp then `sysRename`, which Sys.ax:458
+; The rewrite is write-to-temp then `renamePath`, which IO.ax
 ; states is atomic within a filesystem: a concurrent reader sees the
 ; whole old file or the whole new one, never a half-written prefix. The
-; temp name carries `sysGetPid` rendered by `Fmt$fmtInt` - NOT
+; temp name carries `sysPid` rendered by `Fmt$fmtInt` - NOT
 ; `driver$fmtIntStr`, which renders 0, 1, 2 and 3 and answers "1" for
 ; everything else, and which is exactly why every REPL on this machine
 ; once wrote to one scratch name (repl.ax:752-766).
@@ -707,7 +705,7 @@
             (let ((s1 (unwrapOr (fileSize cp) (- 0 1))))
               (if (!= s1 s0)
                 0
-                (let ((tmp (concat (concat (histPath h) ".tmp-") (fmtInt sysGetPid))))
+                (let ((tmp (concat (concat (histPath h) ".tmp-") (fmtInt sysPid))))
                   (if (isErr (writeFile tmp (histSerialize v)))
                     0
                     (if (isErr (renamePath tmp cp))

@@ -24,26 +24,25 @@
 
 (pub :: main Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (main)
-  (let ((path (__addr "axiom-rpc-empty-frame.tmp")))
+  (let ((path "axiom-rpc-empty-frame.tmp"))
     {
-      (let ((_ (sysWriteFile path "Content-Length: 0\r\n\r\nContent-Length: 2\r\n\r\n{}Content-Length: 0\r\n\r\n")))
+      (let ((_ (writeFile path "Content-Length: 0\r\n\r\nContent-Length: 2\r\n\r\n{}Content-Length: 0\r\n\r\n")))
         0)
-      (match (sysOpenPath path oRdonly)
+      (match (openPath path oRdonly)
         ((Err e) (die "open for read failed" 1))
-        ((Ok fd)
-          (let ((r (rdNew fd)))
+        ((Ok f)
+          (let ((r (rdNew (fileFd f))))
             {
               (show "first, empty" (rpcReadMsg r))
               (show "second" (rpcReadMsg r))
               (show "third, empty and last" (rpcReadMsg r))
               (show "end of the stream" (rpcReadMsg r))
-              (let ((_ (sysCloseFd fd)))
+              (let ((_ (fileClose f)))
                 0)
               0
             })
         ))
-      (unwrapOr (removeFile "axiom-rpc-empty-frame.tmp") 0)
+      (unwrapOr (removeFile path) 0)
       0
     }))
