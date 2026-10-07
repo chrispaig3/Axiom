@@ -731,22 +731,6 @@ lists the exact operations.
 
 ## Memory
 
-<a id="how-memory-is-reclaimed"></a>
-
-<a id="choosing-a-memory-manager"></a>
-
-<a id="work-with-arena-marks"></a>
-
-<a id="containers-that-own-what-they-hold"></a>
-
-<a id="recover-from-a-trap"></a>
-
-<a id="memory-primitives"></a>
-
-<a id="low-level-primitives"></a>
-
-<a id="system-calls-and-platforms"></a>
-
 Heap values use reference counting. Releasing the final share releases
 the block's owned fields and makes storage reusable. The executable
 includes its allocator. There is no tracing collector or `--gc` mode.
@@ -897,28 +881,6 @@ Tested by `tests/stdlib/581-inline-asm.ax` and
 
 <a id="parallel--bindings-that-run-beside-the-caller"></a>
 
-<a id="run-expressions-side-by-side-with-parallel"></a>
-
-<a id="processes-or-threads"></a>
-
-<a id="when-two-bindings-fail"></a>
-
-<a id="what-a-binding-may-answer"></a>
-
-<a id="pass-words-between-bindings-with-a-channel"></a>
-
-<a id="wait-with-a-deadline"></a>
-
-<a id="guard-shared-state-with-a-mutex"></a>
-
-<a id="run-a-pool-of-tasks-with-par"></a>
-
-<a id="what-stays-the-same-from-run-to-run"></a>
-
-<a id="where-parallel-is-available"></a>
-
-<a id="under-the-hood"></a>
-
 ```scheme
 (import IO)
 
@@ -1002,12 +964,6 @@ points, and the [memory model](memory-model.md) defines publication,
 atomic ordering and lifecycle rules.
 
 ## Calling Rust
-
-<a id="rules-for-an-extern-block"></a>
-
-<a id="when-a-symbol-doesnt-link"></a>
-
-<a id="call-axiom-from-rust"></a>
 
 `extern` declares symbols supplied by a native library. Calls infer
 IO and Unsafe; direct callers vouch with `effect(unsafe)`. Link a crate
