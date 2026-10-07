@@ -16,6 +16,24 @@ its changelog too.
 
 ## Unreleased
 
+- Release a `Vec` when its last reference goes, as a `String` is: at
+  the end of its scope, when a `mut` slot holding it is overwritten,
+  or when the record holding it dies. A `Vec` or `Map` decides from
+  its first element whether it owns what it holds, so a vector of
+  strings frees them and a vector of `File`s closes them when it dies.
+  Tested by `tests/stdlib/770-vec-files.ax` and
+  `tests/stdlib/773-map-files.ax`.
+
+- Build every `Vec` and `Map` with one constructor. `vecNewRef`,
+  `vecWithCapacityRef`, `mapNewRefVals` and `mapWithCapacityRefVals`
+  are gone: use `vecNew`, `vecWithCapacity`, `mapNew` and
+  `mapWithCapacity`. `ledFree` is gone too, because a `LineEd` releases
+  its own vectors. `__retainref` answers whether it took a share. A
+  loop that hands a vector to its next iteration, such as the Game of
+  Life probe in `scripts/measure-memory-baseline.sh`, runs in flat
+  memory with no arena. Tested by
+  `tests/stdlib/404-container-reference-maps.ax`.
+
 - Check dominance in a lowered body in memory linear in its blocks.
   `symbols --axir --mir` over every standard library module peaked at
   19 GB, most of it for the unrolled SHA-2 and Keccak rounds, and now

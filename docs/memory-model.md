@@ -2628,7 +2628,7 @@ stores, is invisible outside its function, and is captured by snapshot
 a local's mutation. A slot of a reference type usually owns what it
 holds, so `set` releases the value it overwrites. `MM-LIFE-2c` event 3
 lists the slots that only store, such as one whose type is a type
-variable or a `Vec`.
+variable.
 
 ```scheme
 (:: main Int)
@@ -3050,7 +3050,7 @@ when all of these hold:
 - the argument is owned, and neither static nor nullary;
 - the checker's stamped answer is a word (`nodeResWord`, proven words
   only: `Int`, `Float`, `Bool`, `Char` and the empty tuple, and never
-  `Vec`, which takes no share while still being a block).
+  a `Vec`, which is a block that can hold the argument).
 
 Intermediate steps keep their arguments, because the next step loads
 the answer's word 0 as a code pointer and so may alias them. Surplus
@@ -3083,9 +3083,10 @@ The emitted shape:
 The declared type decides which parameters take part, through
 `fldClass`. That is the same classifier that writes a block's reference
 map, so the release set agrees with every other ownership decision in
-this backend. An `Int` parameter is never retained or released, which
-is why `MM-LIFE-2e`'s Life probe is untouched: its board is a `Vec`
-behind `(-> Int Int Int)`.
+this backend. An `Int` parameter is never retained or released. A
+`(Vec a)` parameter is (`MM-LIFE-2m`), which is what takes
+`MM-LIFE-2e`'s Life probe flat: each dead board is released at the
+jump.
 
 What made this event unsafe was the stashes, not its arithmetic, and
 `MM-LIFE-2g` closed that. The fixture asserts both halves, because
@@ -3136,8 +3137,8 @@ The binding escapes wherever that guarantee stops:
   the scope reuses the name, since the walk can't otherwise tell which
   binding the lambda reads (`tests/stdlib/711-shadowed-capture.ax`);
 - when it is the right-hand side of a `set` into a `mut` slot whose
-  type isn't a reference, such as a type variable or a `Vec`, since
-  that store takes no share. A store into a slot of a reference type
+  type isn't a reference, such as a type variable, since that store
+  takes no share. A store into a slot of a reference type
   takes one, as a field store does, and a slot that only stores keeps
   it;
 - under `cast`, `__addr`, `strData` or `strOwner`, the four ways to get
@@ -3258,8 +3259,8 @@ first. So `(set prev s)` never stops `s` owning.
 
 A slot the compiler can't prove safe keeps the storage-only
 behaviour: nothing is retained and nothing is released. So does a
-slot whose type is a type variable or a `Vec`, which a `let` never
-releases either. A slot that is never `set` and starts from a
+slot whose type is a type variable, which a `let` never releases
+either. A slot that is never `set` and starts from a
 parameter or a literal needs no share, as a `let` of the parameter
 needs none, so it only stores too. A slot of type `Int`, `Float`,
 `Bool`, `Char` or `Foreign` takes no counts at all.
@@ -3509,8 +3510,7 @@ These still leak, which is the safe direction:
   of those retains what it hands back;
 - a temporary that a `match` binder escapes from;
 - a reference stored through `set` into a `mut` slot that only stores,
-  one whose type is a type variable or a `Vec` or one `slotOwns`
-  refuses. An owned temporary moves in, and a store that another
+  one whose type is a type variable or one `slotOwns` refuses. An owned temporary moves in, and a store that another
   binding's release counts on takes a share. The slot gives back
   neither;
 - the last value of an owning `mut` slot when the `let`'s value may
@@ -3535,7 +3535,12 @@ These still leak, which is the safe direction:
 
 A function whose result is a type variable retains nothing on return,
 so a `let` bound to `(vecGet v i)` is never released. The compiler is
-written to that container convention.
+written to that container convention. The element such a read answers
+belongs to the vector, so it keeps the vector alive. A `Vec`'s word 2
+is an owner word, while words 0, 1 and 3 are numbers, so `vecGet`'s
+answer aliases the vector's data block. A binding read through it in
+value position escapes, and a vector passed straight to `vecGet`
+without a binding leaks.
 
 These cases don't leak:
 
@@ -3588,6 +3593,11 @@ evidence stamp (`MM-LIFE-2d`) decides that:
 - a constant, for a known type;
 - a bit of the caller's own evidence word, for a type variable;
 - nothing emitted at all, for an `Int`.
+
+It answers the class it retained under: 1 when its argument's type
+at that call is counted, and 0 otherwise, including a type the call
+can't see. A container reads that answer to learn what its elements
+are (`MM-LIFE-2m`).
 
 That last case makes the rule affordable on the hottest store in the
 compiler: a tag, a span or a length costs zero instructions. With the
@@ -3760,9 +3770,12 @@ park is counted, not by accident. Term 128 is the struct-field factory,
 `z` without the fix and `a` with it. Reverting `checkLamAgainst`'s
 third caller strikes out term 128 and nothing else: 255 becomes 127.
 
-The share `MM-LIFE-2g` takes is unbalanced, and has to be: nothing
-tells the unsafe layer when a word is overwritten or its block dies. So
-a reference stored through either place is immortal. That is a leak,
+The share `MM-LIFE-2g` takes through `memSetWord` or `mkNode` is
+unbalanced, and has to be: nothing tells the unsafe layer when a word
+is overwritten or its block dies. So a reference stored through either
+place is immortal. The containers take their shares with `__retainref`
+directly and record whether they did, so a container that owns its
+elements hands them back (`MM-LIFE-2m`). That is a leak,
 the safe direction, and it costs nothing new: a value reachable only
 from `memAlloc`'d memory is never reclaimed anyway. What it buys is
 that the value is no longer invisible, which every remaining ownership
@@ -3797,7 +3810,8 @@ that the reset would otherwise leave dangling into re-issuable memory.
 containers carry it.** `MM-LIFE-2d` specifies two forms: the record
 form, which `Str`'s header uses through `memAllocMapped`, and the array
 form. This rule moves the containers' data buffers from `memAlloc` to
-the array form.
+the array form. A buffer takes it when its container owns its elements
+(`MM-LIFE-2m`).
 
 The array form is bit 15 of the shape word. It says that every payload
 word `0..count-1` of this block is a handle. It costs one bit and no
@@ -3812,8 +3826,8 @@ words, because it won't pool a block that large. Read from there, a
 container's element buffer of 131,072 bytes or more would announce
 itself as an array of zero handles. The walk would release the block
 and none of its elements, so the whole form would be off above one
-size. With that encoding, at 16,384 elements over 200 iterations,
-`vecNewRef` and `vecNew` both peaked at 335,344 KiB.
+size. With that encoding, at 16,384 elements over 200 iterations, an
+owning vector and a leaf one both peaked at 335,344 KiB.
 
 Bits 16..62 are the record form's reference bitmap, and the two forms
 are disjoint by construction, so the field can be a bitmap for one and
@@ -3835,15 +3849,14 @@ path's 64 KiB pool ceiling, so the block is never filed, and
 turn. The elements come back, and the buffer does not.
 
 A bitmap couldn't do this job. The record form holds **47** words, and
-`Intern`'s string vector is **64 words at construction**, before a
-single string is interned. A count is the only encoding that describes
-a buffer.
+`Intern`'s string vector is **64 words** from its first string. A
+count is the only encoding that describes a buffer.
 
 | block | shape word | means |
 |---|---|---|
-| `vecNewRef`'s data | `557072` | array form, size class 8 words, length 8 (`8 << 16`) |
-| `vecNew`'s data | `16` | the same block, the same size, no claim about its contents |
-| `internNew`'s string vector | `4227200` | array form, size class 64 words, length 64 — past the bitmap's capacity |
+| a vector of `String`s' data | `557072` | array form, size class 8 words, length 8 (`8 << 16`) |
+| a vector of `Int`s' data | `16` | the same block, the same size, no claim about its contents |
+| an interner's string vector | `4227200` | array form, size class 64 words, length 64 — past the bitmap's capacity |
 | a `Vec` header | `262152` | 4 words, bit 2 — the data block |
 | a `Map` header | `1835024` | 8 words, bits 2/3/4 — keys, values, states |
 | an `Intern` header | `327688` | 4 words, bits 0 and 2 — the `Vec` and the slot table |
@@ -3854,7 +3867,7 @@ the same eight-bit answer, it pins four more properties:
 - transitive reclaim four levels deep (vector, data block, `Str`
   header, its 201-byte buffer), so a 200-byte request gets that buffer
   back;
-- the same program built with `vecNew` not getting it back;
+- the same string in a plain vector not coming back;
 - growth handing the abandoned block to the free list;
 - `vecPop` zeroing what it vacates.
 
@@ -3905,13 +3918,14 @@ Figures are in KiB:
 | Shape | Live set | 20k | 200k | 2M | Ablated twin at 200k |
 |---|---|---|---|---|---|
 | a 256-entry window, insert and evict | 256 entries | 1,392 | 1,392 | 1,392 | 34,368 (no eviction) |
-| 64 fixed keys, values replaced | 64 entries | 1,328 | 1,328 | 1,344 | 16,976 (leaf values) |
+| 64 fixed keys, values replaced | 64 entries | 1,328 | 1,328 | 1,344 | 16,976 (uncounted values) |
 
 Evidence: `scripts/check-steady-state.sh`. The ablated twins are
 required, because a flat line also reads flat when the measurement is
-broken. The second shape's twin differs by one word (`mapNew` for
-`mapNewRefVals`) and prints the same answer. So the two arms do the
-same work and differ only in what they hand back.
+broken. The second shape's twin inserts each value through a `cast
+Int`, which takes no share and makes the table plain (`MM-LIFE-2m`),
+and prints the same answer. So the two arms do the same work and
+differ only in what they hand back.
 
 This rule is why `mapRehashCap` sometimes rehashes without growing.
 `mapNeedsGrow` reads `used`, and `used` counts tombstones. Under
@@ -3978,7 +3992,7 @@ Pointerhood evidence keeps `MM-VAL-1a` intact, with one emitted body
 per function. It is what gives the containers exact element maps. A
 `Vec` releases its elements exactly when its evidence bit says they are
 references, because its buffer's array-form shape word was written from
-that bit.
+that bit (`MM-LIFE-2m`).
 
 It isn't trait dictionary-passing. `MAC-INT-4`'s warning still stands:
 generated code must not assume dictionaries exist. The evidence word
@@ -4082,7 +4096,7 @@ map bit, while the flow model trusted the store (event 6). The caller
 would release the temporary under it: a use-after-free.
 
 A placeholder pinned to a type is a witness of that type. In
-`(let ((out vecNewRef)) ...)`, `out` is `(Vec _iN)`, and the first
+`(let ((out vecNew)) ...)`, `out` is `(Vec _iN)`, and the first
 push of a `String` pins `_iN`. A later
 `(vecSet out k (vecGet out j))` witnesses the element only through
 `_iN`. The checker reads such a witness once the body is typed,
@@ -4159,9 +4173,9 @@ This is the first record whose map made its own retains legal. The
 standing rule, that a retain must be one an existing map can return,
 reads forwards here instead of as a prohibition.
 
-*Still P:* the array form's writers and the container buffer migration
-(the `Vec`/`Map` element maps this word exists to feed), and the
-closure record's map. The closure map needs something the evidence
+The array form's writers and the container buffer migration, the
+`Vec`/`Map` element maps this word exists to feed, are `MM-LIFE-2h`
+and `MM-LIFE-2m`. *Still P:* the closure record's map. The closure map needs something the evidence
 record didn't. The evidence record's two words are references by
 construction, but a closure's captures are references only if their
 binders are. Codegen's symbol table records a name, a register, a
@@ -4213,38 +4227,22 @@ re-issuable memory. That pays for the composition hazard at run time
 instead of forbidding it at compile time, at 4,097 stores per reset.
 `MM-LIFE-2a` prices those stores.
 
-The rule sets two acceptance measurements. Both have been run, neither
-passes, and the reason is the same in both. Neither is a blocker any
-more: they gated ARC's arrival, and ARC is withdrawn (`MM-LIFE-2a`).
-They stay as recorded measurements, and the second is now evidence for
-the opposite conclusion: the LSP figure below is half of
-`MM-ALLOC-22`'s case for the arena. §9.1 records what they measure now.
+The rule sets two acceptance measurements. They gated ARC's arrival,
+and ARC is withdrawn (`MM-LIFE-2a`), so neither is a blocker. The first
+now passes and the second doesn't. The second is evidence for the
+opposite conclusion: the LSP figure below is half of `MM-ALLOC-22`'s
+case for the arena. §9.1 records what they measure now.
 
 *The unmanaged column* of `scripts/measure-memory-baseline.sh` **MUST**
-go flat with no bracket in the source. It reads **17,456 KiB at 2,000
-generations, 8 KiB per generation**, and it is still linear: 162,576
-KiB at 20,000.
-
-Typing the container handle doesn't change that. `stdlib/Vec.ax`
-declares `(Vec a)`. The probe's `advance` is declared `(-> (Vec Int)
-Int (Vec Int))` and its `step` `(-> (Vec Int) (Vec Int))`, so the
-checker can see its board end to end. The same script, run on the tree
-before and after handles were typed, agrees row for row. Peak RSS in
-KiB:
+go flat with no bracket in the source. It does. The probe's `advance`
+is declared `(-> (Vec Int) Int (Vec Int))`, and a `Vec` is a counted
+value (`MM-LIFE-2m`), so event 4 releases each dead board at the jump.
+Peak RSS in KiB, one machine, before and after `MM-LIFE-2m`:
 
 | Generations | 10 | 80 | 500 | 2000 | 20,000 |
 |---|---|---|---|---|---|
-| handle is `Int` | 1424 | 1984 | 5360 | 17,456 | 162,576 |
-| handle is `(Vec Int)` | 1424 | 1984 | 5360 | 17,456 | 162,576 |
-
-The emitted IR says why: the typed probe contains no `__retainref` and
-no `__releaseref` call at all. Typing the handle makes the container
-*visible* to the checker without making it *reclaimable*. `MM-LIFE-2g`
-records the same distinction for `ASTNode`'s ten `Int` fields, from the
-opposite direction. A type the checker can see was a real
-precondition, but not the one that binds. What's missing is a
-whole-program ownership event, and `MM-LIFE-2a` withdrew the strategy
-that would have emitted one. The **MUST** stands, unmet.
+| `Vec` not counted | 1696 | 2240 | 5616 | 17,728 | 162,864 |
+| `Vec` counted | 1632 | 1616 | 1632 | 1632 | 1616 |
 
 *The LSP's 200-edit session* **MUST** hold flat with the explicit
 boundary removed. `scripts/check-lsp-selfhost.sh` doesn't run that
@@ -4480,15 +4478,17 @@ records the correction. There are two independent routes:
 
 ```scheme
 ; 1. Through the standard library, with no unsafe form at all:
-(let ((v vecNew)) { (vecPush v 7) (vecPush v v) ... })   ; v contains v
+(let ((v vecNew)) { (vecPush v 7) (vecPushVec v v) ... })   ; v contains v
 
 ; 2. Through a struct's mutable field, using `cast` to seed the knot:
 (let ((a (Node 1 (cast Node 0))) (b (Node 2 (cast Node 0))))
   { (set a.next b) (set b.next a) ... })                 ; walks forever
 ```
 
-The first needs nothing but `stdlib/Vec`, because a `Vec` element is an
-`Int` and a `Vec` handle *is* an `Int` (`MM-ALLOC-20`).
+The first needs nothing but `stdlib/Vec`: `vecPushVec` stores a vector
+in a heterogeneous record, and here the record is the vector itself.
+Its share of itself is never handed back, so the vector outlives its
+last outside reference.
 
 This now has a cost. Where the ownership events release, an
 unreachable tree is reclaimed and an unreachable cycle is not. The
@@ -4608,6 +4608,118 @@ its side: deterministic reclamation, "obtained without linear types".
 
 *Today:* all three clauses are unimplemented, and
 `;@axiom:owned(arena=frame)` is an accepted tag with no meaning.
+
+**MM-LIFE-2m (H). A container owns what it holds.** A `(Vec a)` and a
+`Map` are counted values, like a `String` or a struct. When the last
+reference to one goes, it releases each element it holds a share of,
+then its own blocks. The last reference goes when its scope ends, when
+a `mut` slot holding it is overwritten, or when the block holding it
+dies. So a `Vec` of `File`s closes every descriptor when it dies.
+
+```scheme
+(import IO)
+(import Vec)
+(import Str)
+(import Fmt)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((mut i 0) (mut total 0))
+    {
+      (while (< i 10000)
+        {
+          (let ((rows vecNew))
+            {
+              (vecPush rows (concat "row-" (fmtInt i)))
+              (vecPush rows (concat "row-" (fmtInt (+ i 1))))
+              (set total (+ total (vecLen rows)))
+            })
+          (set i (+ i 1))
+        })
+      (println "{total} rows")
+      0
+    }))
+```
+
+```text
+20000 rows
+```
+
+Each iteration's vector, its buffer and both strings go back to the
+allocator at the end of the `let`, so the loop runs in the memory of
+one iteration.
+
+Ownership follows from the element's type, and one constructor builds
+each container:
+
+- `vecPush`, `vecSet` and `mapInsert` take their share of the element
+  with `__retainref`, which answers whether the element's type at that
+  call is counted (`MM-LIFE-2g`).
+- The container records the answer in a header word of its own: `Vec`
+  word 3, `Map` word 6. The first element decides. A counted one makes
+  the container an owner, and its element buffer takes the array form
+  (`MM-LIFE-2h`). Any other makes it plain: a container that makes no
+  claim on its words.
+- An owner given an uncounted word becomes plain, and its buffer a leaf
+  again, so the release walk never releases a word no share was taken
+  for. The elements it already holds keep their shares. A heterogeneous
+  record, such as a `(Vec Int)` holding a `String` through `vecPushStr`,
+  or a `Map` holding an `Int` beside a `String`, is therefore plain.
+- An owner hands back the share of an element that `vecSet` displaces,
+  `vecClear` drops, `mapInsert` overwrites or `mapRemove` removes.
+
+On the compiler's side, `fldClass` and `evClassOf` classify `Vec` as a
+reference. A `let`, an owning `mut` slot, a struct field, a closure
+capture and a self-tail-call parameter each count a vector as they
+count a string (`MM-LIFE-2c`). The flow analysis knows a `Vec`'s
+header: words 0, 1 and 3 are numbers, and word 2 is the data block, so
+an element read out of a vector keeps that vector alive.
+
+A `let` bound to an element a call lends, such as `(vecGet v i)` at a
+counted type, takes a share of its own when it doesn't escape, as a
+`let` of a field read does. So a `vecSet` of that slot can't free the
+element under the binding, and a swap spelled with a `let` and two
+`vecSet`s is safe (`tests/stdlib/777-vec-borrowed-element.ax`). An
+element passed straight to a function that overwrites its slot and
+then reads its parameter gets no such share. That is the aliasing
+hazard a struct field passed beside its struct already has
+(`MM-MUT-4`).
+
+The committed seed's `__retainref` answers 0, so the compiler it builds
+keeps every container plain: it leaks and never frees early. The rule
+applies from the second stage of the bootstrap ladder.
+
+These leak, which is the safe direction:
+
+- a counted element taken out by `vecPop`, whose type-variable result
+  the caller never releases;
+- a vector passed straight to `vecGet` without a binding;
+- a container whose first element arrives through a call that can't
+  see its type, such as a `cast` or a function value's thunk, which
+  stays plain;
+- a container that holds itself (`MM-LIFE-3`);
+- an `Intern`, whose handle is an `Int`, until `internFree`.
+
+`vecFree` and `mapFree` still end a container early. As after any
+release, using the handle afterwards is a use after free.
+
+A container is reclaimed by a raw arena reset like any other block
+(`MM-LIFE-4`), and the reset asks no count. So a counted binding, a
+`Vec` among them, **MUST NOT** span a raw reset of the extent its value
+lives in: its release afterwards would write into reclaimed memory.
+Keep what crosses the reset in raw memory below the mark, as the
+language server keeps its document store (`lspMain` in
+[lsp.ax](../self_host/lsp.ax)). A checked `region` refuses the shapes
+it can see (`MM-RGN-3`).
+
+Tested by `tests/stdlib/770-vec-files.ax` (a `Vec` of `File`s dropped
+and reassigned 3,000 times under the default descriptor limit),
+`tests/stdlib/771-vec-strings-flat.ax`, `772-vec-nested.ax`,
+`773-map-files.ax`, `774-vec-in-struct.ax`, `775-vec-captured.ax` and
+`776-container-mixed-words.ax`, each at `--opt` 0 to 3.
+`scripts/check-container-reclaim.sh` measures a vector dropped at its
+scope end against one that stays plain.
 
 ---
 
@@ -4894,11 +5006,11 @@ design cannot absorb.
   not implement it. The process lowering, where the same program is
   safe by `MM-PAR-3`, stays the default, and threads stay opt-in.
 - **A captured `Vec`: refused.** `AX3064` refuses every capture that
-  `evClassOf` doesn't answer 0 for. A `Vec` answers 0, because it takes
-  no share of a count. But its handle names a mutable buffer, so two
+  `evClassOf` doesn't answer 0 for, and a `Vec` is a counted value
+  (`MM-LIFE-2m`). Its handle also names a mutable buffer, so two
   bindings could grow one container at once, and `MM-PAR-6a` makes that
-  a memory-safety fault, not only a data race. So a captured `Vec` is
-  refused, with its own message.
+  a memory-safety fault, not only a data race. Its refusal has its own
+  message, which names the buffer.
   `tests/diagnostics/642-parallel-capture.ax` row 5 covers it.
   `tests/diagnostics/656-parallel-container-capture.ax` pins the
   direct, aliased and nested shapes, and the struct-wrapped shape that
@@ -6369,7 +6481,7 @@ opposite of that rule's status.
 | Allocation | ALLOC-1…7, 7a, 8a…16b, ALLOC-22…25 | ALLOC-20 | ALLOC-17…19, ALLOC-21 | ALLOC-8 |
 | Regions | RGN-1…4, 5a, 6 | RGN-7 | RGN-5 | — |
 | Mutation | MUT-1…5a | — | — | MUT-6 |
-| Lifetimes | LIFE-1, 3, 4, 6, 2g…2i, 2k | LIFE-7 | LIFE-2a…2f (superseded by ALLOC-22), LIFE-5 (superseded by LIFE-4/RGN-6) | LIFE-2 |
+| Lifetimes | LIFE-1, 3, 4, 6, 2g…2i, 2k, 2m | LIFE-7 | LIFE-2a…2f (superseded by ALLOC-22), LIFE-5 (superseded by LIFE-4/RGN-6) | LIFE-2 |
 | Parallelism | PAR-1…5, 6a, 7…13 | PAR-6 | — | — |
 | Foreign | FFI-1…7 | — | — | — |
 
@@ -6508,13 +6620,11 @@ that says nothing about the rule. That isn't the same as pinned:
 
 `MM-LIFE-2e`'s two acceptance measurements measure a withdrawn
 strategy. They were the gate on ARC's arrival: the unmanaged Life
-column at **33,568 KiB / 16 KiB per generation**, and the LSP's
-**193,247 bytes per edit** with the boundary removed, against 840 with
-it. `MM-LIFE-2a` is withdrawn, so nothing waits on either, and failing
-them now blocks nothing. Both still matter as evidence. The LSP pair is
-half the evidence for `MM-ALLOC-22`, and the Life column is the
-contrast `scripts/measure-memory-baseline.sh --gate` measures its
-managed variant against.
+column, now flat at about 1,600 KiB because a `Vec` is counted
+(`MM-LIFE-2m`), and the LSP's **193,247 bytes per edit** with the
+boundary removed, against 840 with it. `MM-LIFE-2a` is withdrawn, so
+nothing waits on either. The LSP pair is half the evidence for
+`MM-ALLOC-22`.
 
 <!-- doc-gate:negative-exempt an inventory of gaps, which is the safe direction - it claims rules are UNGATED. A false version of this paragraph under-claims coverage; the defect this rule exists for over-claims it. -->
 Every other rule is pinned by nothing, and the probes quoted inline

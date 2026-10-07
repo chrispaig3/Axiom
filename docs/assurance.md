@@ -143,8 +143,8 @@ the neighbourhood of the corpus.
 
 ## Known defects
 
-- A `Vec` isn't released at scope end, and `vecNew` against `vecNewRef`
-  decides element ownership by hand.
+- A counted element taken out of a `Vec` by `vecPop`, and a vector
+  passed straight to `vecGet` without a binding, are never released.
 - Safe code can still turn a reference into a word with `(cast Int v)`,
   or by storing it in an `Int` container slot or through `memSetWord`.
   A value that leaves this way stops being tracked. A function result
