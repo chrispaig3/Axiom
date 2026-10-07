@@ -1030,7 +1030,7 @@ This rule leaves `ERR-REC-3` as it is: the handler cannot abort. An
 operation performed with no handler is the unhandled-effect row of
 `ERR-REC-6`: 71 to a recovery point, and `axiom: unhandled effect` with
 exit 71 outside one. A `main` that reaches `fallibleMalformed` with no
-handler draws the `AX3053` warning at compile time
+handler is refused with `AX3053` at compile time
 (`tests/diagnostics/389-unhandled-at-main.ax`).
 
 *The cost is the rule.* A batch loop has no request boundary, so there
@@ -1152,7 +1152,7 @@ This section records the codes below. All of them are built, and
 | `AX3050` `contract-malformed` | a `;@axiom:pre(...)` or `post(...)` that can't be compiled into a check | An error. See below. |
 | `AX3051` `restriction-unverifiable` | a `restrict(...)` claim the effect walk can't check | A warning. |
 | `AX3052` `restriction-unknown` | a name inside `restrict(...)` that isn't a restriction | An error. |
-| `AX3053` `unhandled-operation` | a custom effect still in `main`'s effect row when inference finishes | A warning by design. See below. |
+| `AX3053` `unhandled-operation` | a custom effect still in `main`'s effect row when inference finishes | An error. See below. |
 | `AX3054` `effect-name-reserved` | an `effect` declared with a built-in effect's name | An error with no warning stage. See below. |
 | `AX3055` `effect-op-untyped` | an effect operation that declares no type | An error, because the handler check and the call's arity check both depend on that arrow. |
 | `AX3056` `struct-field-untyped` | a struct field whose type the parser couldn't read | An error. See below. |
@@ -1209,10 +1209,13 @@ test, but it may not build. The [reference](reference.md#contracts-pre-and-post)
 
 `AX3053` means nothing handled a custom effect: a `handle` is the only
 construct that discharges one. An operation of that effect would write
-`axiom: unhandled effect` on fd 2 and exit 71. It is a warning by
-design, like `AX3048`, and `severity.policy` gives the reason. On the
-two closure shapes the evidence is one-sided in both directions, so an
-error would refuse a program that runs and accept one that traps.
+`axiom: unhandled effect` on fd 2 and exit 71, so the build is refused.
+The effect is followed to where its operation runs. A lambda's custom
+effects count where it is called, a closure a `handle` answers leaves
+it undischarged, and a callee that installs a handler around its
+callback discharges what the callback performs. An effect that only
+may reach `main`, through a value the compiler can't follow, isn't
+reported (`tests/diagnostics/1202-unhandled-closures.ax`).
 
 `AX3054` has no warning stage, because no correct program is on the
 other side of it. A handle list resolves a built-in effect's name to

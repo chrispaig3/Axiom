@@ -53,6 +53,14 @@
 #          standing risk is the same one stated precisely - this list
 #          is for the unanswerable, and a code that becomes answerable
 #          leaves it.
+#
+#          A call through a field the program fills only with named
+#          functions is resolved through them, so a claim over one gets
+#          AX3010 where they all perform the effect. What stays here is
+#          a field that also holds a value the walk cannot name, and an
+#          effect only some of them perform. The answer is to name the
+#          function at the call, or store only named functions in the
+#          field.
 AX3037
 # AX3038 - a `handle` whose body reaches a call the walk cannot
 #          resolve, so the handled-effects list cannot be checked.
@@ -162,45 +170,34 @@ AX3051
 #          in the release that announces the change, which is the one
 #          release in which their code must still build.
 AX3048
-# AX3053 `unhandled-operation` - `main`'s effect row still carries a
-#          custom effect, so an operation of it would find the evidence
-#          slot empty and the process would exit 71. A warning by
-#          DESIGN, like AX3048 above and unlike the three staged ones,
-#          and the reason is that the evidence is one-sided in BOTH
-#          directions at once. Measured on the two closure shapes, on
-#          the tree that introduced the code:
+# AX3053 `unhandled-operation` - PROMOTED TO AN ERROR, and no longer
+#          listed here. It was a warning because the evidence was
+#          one-sided in both directions: a lambda's operations counted
+#          where the lambda was WRITTEN, so a closure bound before the
+#          `handle` that covers its call was reported on a program that
+#          runs, and one built inside a handle and called after it pops
+#          was silent on a program that traps 71. A callee that installs
+#          the handler around its callback was reported too.
 #
-#            (let ((g (lambda (x) (ask x)))) (handle (g 2) (Ask Alloc) h))
-#              check OK, runs, exit 20 - a CORRECT program, and
-#              reported, because a lambda's operations count where the
-#              lambda is WRITTEN and `Ask` is therefore in `main`'s row;
+#          The attribution was made exact for those shapes instead of
+#          excusing them. A lambda's custom effects count where it is
+#          CALLED, a handle's value leaves it undischarged, and a
+#          parameter records the handles around its calls, so a caller
+#          knows what its argument performs there. What the walk cannot
+#          follow arrives POSSIBLE and is not reported.
+#          tests/diagnostics/1202-unhandled-closures.ax holds both sides,
+#          and tests/stdlib/760-handled-closures.ax runs the silent ones.
 #
-#            a closure BUILT inside the handle and CALLED after the
-#              handler pops - check OK, SILENT, runs, exit 71 - a
-#              TRAPPING program, and not reported, because the `let` of
-#              a `handle` form is an opaque local and the row is a
-#              lower bound (`#effects-incomplete`) there.
-#
-#          An error would refuse the first and accept the second, which
-#          is `docs/agent-harness.md`'s own objection to promoting a
-#          check that refuses correct programs, landing on both sides of
-#          one rule. As a warning the first costs a line of output and
-#          no build, and the hole the code closes - a program that
-#          compiles clean and exits 71 - is named at compile time
-#          instead of at run time.
-#
-#          The exemption is a claim, not a switch: `;@axiom:unhandled(trap)`
-#          on the `effect` declaration says the trap is the design, and
-#          `scripts/check-test-runner.sh` removes that tag from a shadow
-#          copy of `stdlib/Test.ax` and requires this warning to appear,
-#          so the one tag the standard library depends on cannot be
-#          deleted quietly.
-AX3053
+#          The exemption is still a claim, not a switch:
+#          `;@axiom:unhandled(trap)` on the `effect` declaration says
+#          the trap is the design, and `scripts/check-test-runner.sh`
+#          removes that tag from a shadow copy of `stdlib/Test.ax` and
+#          requires this error to appear.
 # AX3045 `recursion-in-scrutinee` - a self-recursive call in the
 #          scrutinee of a `match`. Evaluating the scrutinee runs
 #          before any arm, so the call is never in tail position and
 #          every nesting level holds a frame. A warning by DESIGN,
-#          like AX3048 and AX3053 above: a recursion that runs
+#          like AX3048 above: a recursion that runs
 #          bounded is correct, and an error would refuse working
 #          programs to catch the ones that overflow - measured on
 #          the error model's pair at 32 bytes a call, SIGSEGV at

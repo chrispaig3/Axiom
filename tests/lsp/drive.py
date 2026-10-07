@@ -4996,7 +4996,7 @@ def ca_check(path):
 
 def ca_check_full(path):
     """`check`'s exit status and its whole diagnostic stream: the
-    acknowledge must silence exactly one warning of three, which does
+    acknowledge must silence exactly one error of three, which does
     not fit in `ca_check`'s 300 bytes."""
     p = subprocess.run([stage1, "--diagnostic-format=ai", "check", path],
                        capture_output=True, cwd=os.path.dirname(path))
@@ -5184,9 +5184,17 @@ if not cawhy:
     lint_suppressed = apply_edits(CA_LINT, sup_bool + sup_let + sup_dead)
     lint_simplified = apply_edits(CA_LINT, simp)
     unhandled_fixed = apply_edits(CA_UNHANDLED, ack)
+    # AX3053 is an error, so the program runs only once every effect it
+    # reaches unhandled is acknowledged: `Sloppy`'s tag corrected, and
+    # the call into `CaFx`, whose declaration this document can't tag,
+    # dropped. That build must still trap at 71 - the tag allows the
+    # trap, it does not handle it.
+    unhandled_all = unhandled_fixed.replace(";@axiom:unhandled(abort)", ";@axiom:unhandled(trap)") \
+        .replace("(fxBoom 1)", "0")
     for ca_name, ca_text in (("ca-lint-fixed.ax", lint_suppressed),
                              ("ca-lint-simplified.ax", lint_simplified),
-                             ("ca-unhandled-fixed.ax", unhandled_fixed)):
+                             ("ca-unhandled-fixed.ax", unhandled_fixed),
+                             ("ca-unhandled-all.ax", unhandled_all)):
         open(os.path.join(CADIR, ca_name), "w", encoding="utf-8").write(ca_text)
     # The suppressed document must check clean; the original is clean
     # too (Hints never fail a build), so cleanness proves nothing
@@ -5199,25 +5207,26 @@ if not cawhy:
         cawhy = "the unhandled document checks silent, so the acknowledge would have nothing to kill"
     else:
         fixed_st, fixed_report = ca_check_full(os.path.join(CADIR, "ca-unhandled-fixed.ax"))
-        if fixed_st != 0 or "effect `Zap`" in fixed_report or "effect `Fx`" not in fixed_report or \
+        if fixed_st != 1 or "effect `Zap`" in fixed_report or "effect `Fx`" not in fixed_report or \
                 "effect `Sloppy`" not in fixed_report:
-            cawhy = (f"the acknowledge must silence exactly the Zap warning; the fixed document reports (exit {fixed_st}: {fixed_report[:300]}); "
+            cawhy = (f"the acknowledge must silence exactly the Zap error and leave the other two refusing the build; the fixed document reports (exit {fixed_st}: {fixed_report[:300]}); "
                      f"the text was:\n{unhandled_fixed}")
 if not cawhy:
     run_lint0 = ca_run(os.path.join(CADIR, "ca-lint.ax"))
     run_lint1 = ca_run(os.path.join(CADIR, "ca-lint-simplified.ax"))
     run_un0 = ca_run(os.path.join(CADIR, "ca-unhandled.ax"))
-    run_un1 = ca_run(os.path.join(CADIR, "ca-unhandled-fixed.ax"))
+    run_un1 = ca_run(os.path.join(CADIR, "ca-unhandled-all.ax"))
     if run_lint0[1] != 11:
         cawhy = f"the original lint document exits {run_lint0[1]}, want 11 - the run the rewrite is compared against is not the one the document describes"
     elif run_lint1 != run_lint0:
         cawhy = (f"the simplified program exited {run_lint1[1]} with {run_lint1[0]!r:.100}, where the original "
                  f"exited {run_lint0[1]} with {run_lint0[0]!r:.100}; the text was:\n{lint_simplified}")
-    elif run_un0[1] != 71 or run_un1[1] != 71:
-        cawhy = f"the unhandled program exits {run_un0[1]}/{run_un1[1]} before/after the tag, want the 71 trap both ways"
+    elif run_un0[1] != 1 or run_un1[1] != 71:
+        cawhy = (f"the unhandled program exits {run_un0[1]} before the tags and {run_un1[1]} with every "
+                 f"effect acknowledged, want 1 (refused by AX3053) and then the 71 trap")
 if not cawhy:
     # Reopen the fixed documents: every Hint the suppressions name
-    # must be gone, and the acknowledged warning with it.
+    # must be gone, and the acknowledged error with it.
     reopen = b"".join(frame(m) for m in [
         fixreq(101, "initialize", {}),
         {"jsonrpc": "2.0", "method": "textDocument/didOpen",
@@ -5249,7 +5258,7 @@ if not cawhy:
         elif any("effect `Zap`" in m for m in un_msgs) or \
                 not any("effect `Fx`" in m for m in un_msgs) or \
                 not any("effect `Sloppy`" in m for m in un_msgs):
-            cawhy = (f"the reopen must publish the Fx and Sloppy warnings without the Zap one; "
+            cawhy = (f"the reopen must publish the Fx and Sloppy errors without the Zap one; "
                      f"it published {[d.get('code') for d in un_pubs]!r:.300}")
 
 if cawhy:
@@ -5272,8 +5281,8 @@ else:
           f"no rewrite for the dead branch; applied, the document reopens silent and the "
           f"simplified program exits {run_lint1[1]} like the original)")
     print(f"ok   unhandled-assist (one acknowledge for the untagged local effect, none for the "
-          f"wrongly-tagged sibling or the imported one; applied, only the Zap warning goes "
-          f"silent and the program still traps {run_un1[1]} both ways)")
+          f"wrongly-tagged sibling or the imported one; applied, only the Zap error goes "
+          f"silent, and with every effect acknowledged the program still traps {run_un1[1]})")
     passed += 5
 shutil.rmtree(CADIR, ignore_errors=True)
 shutil.rmtree(CADIR2, ignore_errors=True)

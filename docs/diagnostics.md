@@ -600,7 +600,8 @@ AXTAG keys such as `#effect=io` and `#effect=pure` join these on `F`, `D`,
 `S`, `A` and `E` rows (see [AXTAG](#source-embedded-tags-axtag)
 below). On an `E` row, `#unhandled=trap` comes from
 `;@axiom:unhandled(trap)`, which tells the compiler that reaching the
-effect with no handler is intended, so it doesn't warn with `AX3053`.
+effect with no handler is intended, so it doesn't refuse it with
+`AX3053`.
 A policy check reading this output uses it to list the effects a
 program allows to abort.
 
@@ -727,7 +728,7 @@ The type checker validates the tags it can:
 | Code | Severity | Raised for |
 |---|---|---|
 | `AX3010` (`axtag-mismatch`) | error | an `effect(...)` or `effect(pure)` claim the body contradicts |
-| `AX3037` | warning | an `effect(...)` or `effect(pure)` claim the effect walk can't check |
+| `AX3037` | warning | an `effect(...)` or `effect(pure)` claim the effect walk can't check: the body calls a value the compiler can't resolve, or may perform the effect only through a function it hands on or a field whose stored functions disagree |
 | `AX3049` | error | a violated restriction. The message shows the path of resolved calls to where the effect enters, or the cycle |
 | `AX3051` | warning | a restriction over a row the walk couldn't close |
 | `AX3052` | error | a name in `restrict(...)` that isn't a restriction. The list is closed ([AXTAG metadata](reference.md#axtag-metadata)) |

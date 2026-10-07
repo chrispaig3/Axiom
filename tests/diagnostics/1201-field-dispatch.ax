@@ -1,0 +1,70 @@
+; A call through a field is a call to what the program stores there.
+; Every construction of a struct and every `(set e.f v)` is collected
+; before any body is walked, and a field whose every store names a
+; function is resolved through those functions: an effect all of them
+; perform is certain, and an effect only some perform is possible.
+;
+; Refused, because the evidence is certain:
+;   `runIt`     claims purity and calls `l.emit`; every `Logger` holds
+;               `shout`                                      -> AX3010
+;   `logIt`     claims `restrict(no-io)` over the same call  -> AX3049
+;   `relay`     makes no claim, and performs IO through it   -> AX3042
+;   `viaAlias`  claims purity and calls `shout` through a
+;               `let`-bound name                             -> AX3010
+;
+; Unverifiable, because the evidence is only possible:
+;   `runSink`   a `Sink` holds `shout` or `quiet`            -> AX3037
+;
+; Accepted, because the claim holds:
+;   `runCalc`   every `Calc` holds `twice`, which is pure
+(import IO)
+
+(struct Logger (emit : (-> String Int)))
+(struct Sink (put : (-> String Int)))
+(struct Calc (step : (-> Int Int)))
+
+;@axiom:effect(io)
+(:: shout (-> String Int))
+(fn (shout s) (println s))
+
+(:: quiet (-> String Int))
+(fn (quiet s) 0)
+
+(:: twice (-> Int Int))
+(fn (twice n) (* n 2))
+
+;@axiom:effect(pure)
+(:: runIt (-> Logger String Int))
+(fn (runIt l s) ((l.emit) s))
+
+;@axiom:effect(io)
+;@axiom:restrict(no-io)
+(:: logIt (-> Logger String Int))
+(fn (logIt l s) ((l.emit) s))
+
+(:: relay (-> Logger String Int))
+(fn (relay l s) ((l.emit) s))
+
+;@axiom:effect(pure)
+(:: viaAlias (-> String Int))
+(fn (viaAlias s)
+  (let ((g shout))
+    (g s)))
+
+;@axiom:effect(pure)
+(:: runSink (-> Sink String Int))
+(fn (runSink k s) ((k.put) s))
+
+;@axiom:effect(pure)
+(:: runCalc (-> Calc Int Int))
+(fn (runCalc c n) ((c.step) n))
+
+;@axiom:effect(io)
+(:: main Int)
+(fn (main)
+  (let (
+    (l (Logger shout))
+    (loud (Sink shout))
+    (soft (Sink quiet))
+  )
+    (+ (runIt l "a") (+ (logIt l "b") (+ (relay l "c") (+ (viaAlias "d") (+ (runSink loud "e") (+ (runSink soft "f") (runCalc (Calc twice) 3)))))))))

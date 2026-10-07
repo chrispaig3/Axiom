@@ -1019,6 +1019,11 @@
 0.7.9  F  addrOf  added to Mem: a program importing Mem and another module that exports addrOf now qualifies the bare name (AX3014)
 0.7.9  F  addrEq  added to Mem: a program importing Mem and another module that exports addrEq now qualifies the bare name (AX3014)
 0.7.9  F  addrHash  added to Mem: a program importing Mem and another module that exports addrHash now qualifies the bare name (AX3014)
+
+# 0.7.9 - a claim the compiler can't back, or a defect it can prove, is an error.
+0.7.9  L  unhandled-operation  AX3053 is an error: a `main` that reaches a custom effect's operation with no handler no longer builds; install a `handle`, or tag a deliberate abort `;@axiom:unhandled(trap)`
+0.7.9  L  field-dispatch  a call through a field is resolved through the functions the program stores there, so an effect they all perform needs its claim (AX3010, AX3042, AX3049)
+
 0.7.9  F  ioResult  private: IO's own errno-to-Error wrapper; the path functions still put the path in their message
 0.7.9  F  openBeneath  removed with no replacement; nothing called it
 0.7.9  F  makeSymlink  removed with no replacement; nothing called it

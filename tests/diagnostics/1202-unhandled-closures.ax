@@ -1,0 +1,78 @@
+; AX3053 follows a custom effect to where its operation runs. A handle
+; discharges the operations performed while it is installed, so what
+; matters is where a function is CALLED, not where it is written. Each
+; shape has an effect of its own, so each answer is visible.
+;
+; Silent, because every operation runs under its handler:
+;   `Bound`   a lambda bound before the `handle` that covers its call
+;   `Around`  `withAround` installs the handler around its callback,
+;             and `main` hands it a named function and a lambda;
+;             `forwards` hands its own callback on to it
+;
+; Refused, because the operation runs with no handler (each traps 71):
+;   `Inside`  a closure built inside a `handle` and called after the
+;             handler pops: the handle's value leaves undischarged
+;   `Half`    `halfway` calls its callback once inside a handler and
+;             once outside, so the second call is unhandled
+;   `Field`   a call through a field that holds only `usesField`
+;
+; tests/stdlib/760-handled-closures.ax runs the silent shapes.
+(effect Bound
+  (bound :: (-> Int Int)))
+
+(effect Around
+  (around :: (-> Int Int)))
+
+(effect Inside
+  (inside :: (-> Int Int)))
+
+(effect Half
+  (half :: (-> Int Int)))
+
+(effect Field
+  (field :: (-> Int Int)))
+
+(struct Holder
+  (f : (-> Int Int)))
+
+(:: boundBefore (-> Int Int))
+(fn (boundBefore n)
+  (let ((g (lambda (x) (bound x))))
+    (handle (g n) (Bound Alloc) (lambda (v) (* v 10)))))
+
+(:: usesAround (-> Int Int))
+(fn (usesAround n)
+  (around n))
+
+(:: withAround (-> (-> Int Int) Int))
+(fn (withAround k)
+  (handle (k 2) (Around Alloc) (lambda (v) (* v 10))))
+
+(:: forwards (-> (-> Int Int) Int))
+(fn (forwards k)
+  (withAround k))
+
+(:: builtInside (-> Int Int))
+(fn (builtInside n)
+  (let ((g (handle (lambda (x) (inside x)) (Inside Alloc) (lambda (v) (* v 10)))))
+    (g n)))
+
+(:: usesHalf (-> Int Int))
+(fn (usesHalf n)
+  (half n))
+
+(:: halfway (-> (-> Int Int) Int))
+(fn (halfway k)
+  (+ (handle (k 2) (Half Alloc) (lambda (v) (* v 10))) (k 3)))
+
+(:: usesField (-> Int Int))
+(fn (usesField n)
+  (field n))
+
+(:: viaHolder (-> Holder Int))
+(fn (viaHolder h)
+  (h.f 7))
+
+(:: main Int)
+(fn (main)
+  (+ (boundBefore 2) (+ (withAround usesAround) (+ (withAround (lambda (x) (around x))) (+ (forwards usesAround) (+ (builtInside 2) (+ (halfway usesHalf) (viaHolder (Holder usesField)))))))))

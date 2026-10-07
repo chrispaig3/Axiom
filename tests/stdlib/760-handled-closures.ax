@@ -1,0 +1,49 @@
+; A custom effect is handled where its operation runs, so these shapes
+; run under their handlers, and the compiler accepts them with no
+; diagnostic (tests/diagnostics/1202-unhandled-closures.ax holds the
+; refused ones):
+;
+;   bound     a lambda bound before the `handle` that covers its call
+;   named     a callee installs the handler around a named callback
+;   inline    the same with a lambda
+;   forwarded a callback handed on to that callee
+;
+; Each handler answers ten times the operation's argument, 2.
+(import IO)
+
+(effect Ask
+  (ask :: (-> Int Int)))
+
+(:: usesAsk (-> Int Int))
+(fn (usesAsk n)
+  (ask n))
+
+(:: boundBefore (-> Int Int))
+(fn (boundBefore n)
+  (let ((g (lambda (x) (ask x))))
+    (handle (g n) (Ask Alloc) (lambda (v) (* v 10)))))
+
+(:: withAsk (-> (-> Int Int) Int))
+(fn (withAsk k)
+  (handle (k 2) (Ask Alloc) (lambda (v) (* v 10))))
+
+(:: forwards (-> (-> Int Int) Int))
+(fn (forwards k)
+  (withAsk k))
+
+;@axiom:effect(io)
+(:: main Int)
+(fn (main)
+  (let (
+    (bound (boundBefore 2))
+    (named (withAsk usesAsk))
+    (inline (withAsk (lambda (x) (ask x))))
+    (forwarded (forwards usesAsk))
+  )
+    {
+      (println "bound {bound}")
+      (println "named {named}")
+      (println "inline {inline}")
+      (println "forwarded {forwarded}")
+      0
+    }))

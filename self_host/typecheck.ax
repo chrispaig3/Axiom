@@ -3098,6 +3098,16 @@
 ; performs. `apply` is `{effects: [], eparams: [0]}` - exactly as pure
 ; as its argument.
 ;
+; `uses` holds an `EpUse` per effect-transparent parameter: whether the
+; body calls it inside a `handle`, and which custom effects every such
+; call discharges, so a caller knows what its argument performs there.
+;
+; `mayCalls` are the edges the body MAY take: a call through a field or
+; a local that holds one of several functions reaches each of them,
+; but no one of them for certain. The fixpoint follows them, so a row
+; that depends on one is recomputed; the call-graph checks do not, and
+; a body that reaches one cannot be cleared by them (`graphReachesMay`).
+;
 ; `unsafe` is the declaration's place in the unsafe boundary (R-B6,
 ; `MM-EXEC-9d`), read off its tags by `tcUnsafeRoles` before the
 ; effect fixpoint runs: 0 for a declaration that says nothing, 1 for a
@@ -3114,7 +3124,9 @@
   (eparams : (Vec Int))
   (calls : (Vec Int))
   (rgn : Int)
-  (unsafe : Int))
+  (unsafe : Int)
+  (uses : (Vec EpUse))
+  (mayCalls : (Vec Int)))
 
 ; The region FACTS of this function (`rgnFactsNew`, stage S3 of
 ; docs/memory-model.md): which parameters its body stores
@@ -3307,6 +3319,17 @@
 ;   8 `eraseCounts` pairs (entry, n): each declaration whose body erases
 ;                    a reference to a word n times, which `symbols`
 ;                    prints as `#erasures=n` (`tcErasuresOf`).
+;   9 `fieldVals`   the `FieldTable` of what the program stores in each
+;                    function-typed field, built before the effect
+;                    fixpoint (`fieldStoresBuild`), 0 before. It rides
+;                    here for the reason this record exists.
+;  10 `mayCalls`    the `FnEnt` word 11 of the function the fixpoint is
+;                    walking, as word 29 is its word 7; 0 otherwise.
+;  11 `walkCtx`     the `BCtx` every function body's walk starts from,
+;                    emptied at each start (`bodyScopeOf`): walks of two
+;                    bodies never overlap, and one context per walk was
+;                    a kilobyte per function the compiler never gave
+;                    back.
 (struct UState
   (unsafeSink : Int)
   (forgeSites : Int)
@@ -3316,7 +3339,10 @@
   (ctResults : Int)
   (evPending : (Vec EvPend))
   (eraseSites : Int)
-  (eraseCounts : (Vec Int)))
+  (eraseCounts : (Vec Int))
+  (fieldVals : (Vec FieldStore))
+  (mayCalls : Int)
+  (walkCtx : (Vec BCtx)))
 
 ; One evidence witness kept for `evSettle`: a call is checked in program
 ; order, and the pin that decides its witness may come later in the
@@ -3676,6 +3702,24 @@
     mkIntTy
     (mkTArr mkIntTy (mkIntArrow (- arity 1)))))
 
+; A primitive that CALLS the function it is given at position `i`:
+; the recovery point's thunk, and a spawn's. The position is marked
+; effect-transparent with one use and nothing discharged, so what a
+; caller hands it counts where the call is - inside whatever `handle`
+; surrounds it, which a forked child inherits. A thread does not
+; inherit the evidence slots, so an operation in a thread's thunk is
+; discharged here by a handler that is not installed there; that one
+; is under-reported.
+(pub :: primCallsAt (-> (Vec Int) String Int Int))
+(pub fn (primCallsAt fns name i)
+  (let ((ent (findFnEntExact fns name 0)))
+    (if (== ent 0)
+      0
+      {
+        (vecPush (memGetWordVec ent 6) i)
+        (epUseNote (memGetWordVec ent 10) i vecNew 0)
+      })))
+
 (pub :: regFn (-> (Vec Int) String Int (Vec Int)))
 (pub fn (regFn fns name ty)
   (vecPush
@@ -3690,7 +3734,9 @@
       vecNew
       vecNew
       0
-      0))))
+      0
+      (vecWithCapacity 1)
+      (vecWithCapacity 1)))))
 
 ; A primitive that PERFORMS something, registered with the effect it
 ; performs rather than with the empty set every other one gets.
@@ -3782,7 +3828,9 @@
           vecNew
           vecNew
           0
-          0)))
+          0
+          (vecWithCapacity 1)
+          (vecWithCapacity 1))))
     }))
 
 ; ------------------------------------------------------------------
@@ -4061,6 +4109,7 @@
       ; is CALLED, and a handle type here would let any word through to
       ; an indirect call through word 0 of whatever it points at.
       (regFn fns "__axiom_recover" (mkTArr mkIntTy (mkTArr (mkTArr mkIntTy mkIntTy) mkIntTy)))
+      (primCallsAt fns "__axiom_recover" 1)
       (regFnEff fns "__axiom_arena_mark" (mkIntArrow 0) (builtinEff "Alloc"))
       (regFnEff2 fns "__axiom_arena_mark_into" (mkIntArrow 1) (builtinEff "Alloc") (builtinEff "Mut"))
       (regFnEff fns "__axiom_arena_reset" (mkIntArrow 1) (builtinEff "Alloc"))
@@ -4122,12 +4171,15 @@
       ; already joined - or of one that never was a handle - traps 85
       ; before it reads the page the slot named.
       (regFnEff2 fns "__par_spawn" (mkTArr (mkTArr mkIntTy mkIntTy) (mkTArr mkIntTy mkSpawnTy)) (builtinEff "IO") (builtinEff "Spawn"))
+      (primCallsAt fns "__par_spawn" 0)
       (regFnEff2 fns "__par_join" (mkTArr mkSpawnTy mkIntTy) (builtinEff "IO") (builtinEff "Block"))
       (regFnEff2 fns "__par_join_nr" (mkTArr mkSpawnTy (mkTArr mkIntTy mkIntTy)) (builtinEff "IO") (builtinEff "Block"))
       (regFnEff2 fns "__thread_spawn" (mkTArr (mkTArr mkIntTy mkIntTy) (mkTArr mkIntTy mkSpawnTy)) (builtinEff "IO") (builtinEff "Spawn"))
+      (primCallsAt fns "__thread_spawn" 0)
       (regFnEff2 fns "__thread_join" (mkTArr mkSpawnTy mkIntTy) (builtinEff "IO") (builtinEff "Block"))
       (regFnEff2 fns "__thread_join_nr" (mkTArr mkSpawnTy (mkTArr mkIntTy mkIntTy)) (builtinEff "IO") (builtinEff "Block"))
       (regFnEff2 fns "__proc_spawn" (mkTArr (mkTArr mkIntTy mkIntTy) (mkTArr mkIntTy mkSpawnTy)) (builtinEff "IO") (builtinEff "Spawn"))
+      (primCallsAt fns "__proc_spawn" 0)
       (regFnEff2 fns "__proc_join" (mkTArr mkSpawnTy mkIntTy) (builtinEff "IO") (builtinEff "Block"))
       (regFnEff2 fns "__proc_join_nr" (mkTArr mkSpawnTy (mkTArr mkIntTy mkIntTy)) (builtinEff "IO") (builtinEff "Block"))
       ; `parallel`'s borrow scope (MM-PAR-6b): `(parallel$borrow 0)`
@@ -4273,7 +4325,7 @@
           vecNew
           vecNew
           (countWordStructs allDecls 0 0)
-          (UState 0 0 vecNew vecNew 0 0 vecNew 0 vecNew)
+          (UState 0 0 vecNew vecNew 0 0 vecNew 0 vecNew vecNew 0 (bsCtxOf vecNew vecNew 0 vecNew))
           vecNew
           vecNew))))
         {
@@ -4818,7 +4870,9 @@
       vecNew
       vecNew
       0
-      0))))
+      0
+      (vecWithCapacity 1)
+      (vecWithCapacity 1)))))
 
 ; An `extern` item. Modelled on `tcAddEffectOp` above, and for the
 ; same reason: an operation's FnEnt arrives with its effects already
@@ -4867,7 +4921,9 @@
       vecNew
       vecNew
       0
-      0))))
+      0
+      (vecWithCapacity 1)
+      (vecWithCapacity 1)))))
 
 ; Every item in an `extern` block, and the `Mod$name` spelling too when
 ; the block came from an imported module - the same double registration
@@ -5031,7 +5087,9 @@
             vecNew
             vecNew
             0
-            0)))
+            0
+            (vecWithCapacity 1)
+            (vecWithCapacity 1))))
         (memSetWord ent 1 ty)))))
 
 ; Whether declaration `i` is a second signature for its name in its
@@ -5093,7 +5151,9 @@
                 vecNew
                 vecNew
                 0
-                0)))
+                0
+                (vecWithCapacity 1)
+                (vecWithCapacity 1))))
           }))))
       (memSetWord ent 2 (vecLen (nodeBVec d))))))
 
@@ -12921,12 +12981,14 @@
   (let (
     (m (memGetWord tc 16))
     (calls (memGetWord tc 29))
+    (may (memGetWord (memGetWord tc 44) 10))
   )
     {
       (memSetWord fnd 3 body)
       (inferEffectsOne tc fnd)
       (memSetWord tc 16 m)
       (memSetWord tc 29 calls)
+      (memSetWord (memGetWord tc 44) 10 may)
       0
     }))
 
@@ -15225,7 +15287,959 @@
       (if (== ent 0)
         0
         (memGetWord ent 1))))
-      (bsNew (nodeB d) (paramCallablesOf sig (vecLen (nodeBVec d))) vecNew sig))))
+      (bsMake
+        vecNew
+        (nodeB d)
+        (paramCallablesOf sig (vecLen (nodeBVec d)))
+        vecNew
+        sig
+        (bodyCtxReset tc)))))
+
+; The shared body context (`UState` word 11), emptied for a new walk.
+(pub :: bodyCtxReset (-> Int (Vec BCtx)))
+(pub fn (bodyCtxReset tc)
+  (let ((cv (walkCtxVec tc)))
+    (let ((c (vecGet cv 0)))
+      {
+        (vecClear c.handled)
+        (vecClear c.uses)
+        (vecClear c.vals)
+        cv
+      })))
+
+(pub :: walkCtxVec (-> Int (Vec BCtx)))
+(pub fn (walkCtxVec tc)
+  (memGetWordVec (memGetWord tc 44) 11))
+
+; ------------------------------------------------------------------
+; FUNCTION VALUES THE WALK CAN FOLLOW.
+;
+; A custom effect is discharged by the `handle` around the place its
+; operation RUNS. So a lambda's custom effects belong where the lambda
+; is called, not where it is written: `(let ((g (lambda (x) (ask x))))
+; (handle (g 2) (Ask) h))` is a correct program, and a closure built
+; inside a `handle` and called after it pops traps 71. Built-in effects
+; are never discharged, so they keep counting where the lambda is
+; written, which is what every claim already reads.
+;
+; `FnVals` is what a function-valued expression is known to hold: a
+; named function, or a lambda this body wrote (with the row of its body,
+; `row`, and the parameter uses waiting in it, `uses`). `complete` is 0
+; when the value may also be something the walk lost, and then a call
+; through it is a hole like any other. A value the walk does not follow
+; at all is `None`.
+;
+; A value is followed through a `let`, an `if`, a `match`, a block and
+; a `handle` - the last is what makes the closure that escapes its
+; handler visible. Everywhere else it ESCAPES: its custom effects
+; arrive POSSIBLE, which every claim reads as an upper bound and which
+; AX3053 does not report.
+; ------------------------------------------------------------------
+; `kind` 1 a named function (`ent`), 2 a lambda written in this body
+; (`row`, `uses`). The field collector's classification also answers
+; 0 for a value it cannot see and -1 for one no call can go through.
+(pub struct FnVal
+  (kind : Int)
+  (ent : Int)
+  (row : (Vec Int))
+  (uses : (Vec EpUse)))
+
+(pub struct FnVals
+  (complete : Int)
+  (members : (Vec FnVal)))
+
+(pub :: fnValsOne (-> FnVal FnVals))
+(pub fn (fnValsOne m)
+  (let ((v vecNew))
+    {
+      (vecPush v m)
+      (FnVals 1 v)
+    }))
+
+(pub :: fnValNamed (-> Int FnVal))
+(pub fn (fnValNamed ent)
+  (FnVal 1 ent vecNew vecNew))
+
+; Either value. A side the walk does not follow leaves the union
+; incomplete.
+(pub :: fnValsJoin (-> (Option FnVals) (Option FnVals) (Option FnVals)))
+(pub fn (fnValsJoin a b)
+  (match a
+    ((None)
+      (match b
+        ((None) None)
+        ((Some bv) (Some (FnVals 0 bv.members)))))
+    ((Some av)
+      (match b
+        ((None) (Some (FnVals 0 av.members)))
+        ((Some bv)
+          (let ((v vecNew))
+            {
+              (fnValCopyInto v av.members 0)
+              (fnValCopyInto v bv.members 0)
+              (Some (FnVals
+                (if (&& (== av.complete 1) (== bv.complete 1))
+                  1
+                  0)
+                v))
+            }))))))
+
+(pub :: fnValCopyInto (-> (Vec FnVal) (Vec FnVal) Int Int))
+(pub fn (fnValCopyInto dst src i)
+  (if (>= i (vecLen src))
+    0
+    {
+      (vecPush dst (vecGet src i))
+      (fnValCopyInto dst src (+ i 1))
+    }))
+
+; `src` into `acc`, each entry as it is.
+(pub :: effUnionRow (-> (Vec a) (Vec Int) Int Int))
+(pub fn (effUnionRow acc src i)
+  (if (>= i (vecLen src))
+    0
+    {
+      (effAdd acc (vecGetStr src i))
+      (effUnionRow acc src (+ i 1))
+    }))
+
+(pub :: effIsCustom (-> String Int))
+(pub fn (effIsCustom e)
+  (if (strEq (strSlice (effDefiniteOf e) 0 2) "c:")
+    1
+    0))
+
+; A lambda written here: its body walked once, for its own row.
+(pub :: walkLambdaLatent (-> Int Int Int FnVal))
+(pub fn (walkLambdaLatent tc lam bound)
+  (let ((lb (bsLambda bound (nodeAVec lam))))
+    (let ((row (collectEffects tc (nodeB lam) lb)))
+      (FnVal
+        2
+        0
+        row
+        (bsUsesVec lb)))))
+
+; What a lambda's row contributes where it is WRITTEN: everything but
+; its custom effects, which wait for the call.
+(pub :: latentBuiltinsInto (-> (Vec a) (Vec Int) Int Int))
+(pub fn (latentBuiltinsInto acc row i)
+  (if (>= i (vecLen row))
+    0
+    {
+      (if (== (effIsCustom (vecGetStr row i)) 1)
+        0
+        (effAdd acc (vecGetStr row i)))
+      (latentBuiltinsInto acc row (+ i 1))
+    }))
+
+; Its custom effects as possible: the value escaped.
+(pub :: latentCustomPossibleInto (-> (Vec a) (Vec Int) Int Int))
+(pub fn (latentCustomPossibleInto acc row i)
+  (if (>= i (vecLen row))
+    0
+    {
+      (if (== (effIsCustom (vecGetStr row i)) 1)
+        (effAdd acc (effPossibleOf (vecGetStr row i)))
+        0)
+      (latentCustomPossibleInto acc row (+ i 1))
+    }))
+
+; The parameter uses a lambda's body made, applied where the lambda
+; runs: each call inside it gains `mask`, or every one escapes.
+(pub :: latentApply (-> Int (Vec EpUse) (Vec Int) Int Int Int))
+(pub fn (latentApply b uses mask esc i)
+  (if (>= i (vecLen uses))
+    0
+    (let ((r (vecGet uses i)))
+      {
+        (if (== esc 1)
+          (markEparamUse b r.pidx vecNew 1)
+          {
+            (if (== r.def 1)
+              (markEparamUse b r.pidx (effJoined mask r.mask) 0)
+              0)
+            (if (== r.esc 1)
+              (markEparamUse b r.pidx vecNew 1)
+              0)
+          })
+        (latentApply b uses mask esc (+ i 1))
+      })))
+
+; ... handed to a callee position whose record is `u`.
+(pub :: latentApplyU (-> Int (Vec EpUse) (Option EpUse) Int))
+(pub fn (latentApplyU b uses o)
+  (match o
+    ((None) (latentApply b uses vecNew 1 0))
+    ((Some u)
+      {
+        (if (== u.def 1)
+          (latentApply b uses (effJoined (bsHandledVec b) u.mask) 0 0)
+          0)
+        (if (== u.esc 1)
+          (latentApply b uses vecNew 1 0)
+          0)
+      })))
+
+; A row a value contributes by being handed to a callee position whose
+; record is `u`. Built-in effects arrive as they are. A custom effect
+; is definite when some call the callee makes is outside every handler
+; for it, possible when the callee also lets the value escape, and
+; absent when every call discharges it.
+(pub :: addGated (-> (Vec a) (Vec Int) (Option EpUse) Int Int))
+(pub fn (addGated acc row o i)
+  (match o
+    ((None) (addGatedWith acc row 0 row 1 i))
+    ((Some u) (addGatedWith acc row u.def u.mask u.esc i))))
+
+; `def`, `mask` and `esc` are the position's record; a position nothing
+; calls has `def` 0 and `esc` 1, and its mask is never read.
+(pub :: addGatedWith (-> (Vec a) (Vec Int) Int (Vec Int) Int Int Int))
+(pub fn (addGatedWith acc row def mask esc i)
+  (if (>= i (vecLen row))
+    0
+    (let ((e (vecGetStr row i)))
+      {
+        (if (== (effIsCustom e) 0)
+          (effAdd acc e)
+          (if (&& (== def 1) (== (effIn mask (effDefiniteOf e)) 0))
+            (effAdd acc e)
+            (if (== esc 1)
+              (effAdd acc (effPossibleOf e))
+              0)))
+        (addGatedWith acc row def mask esc (+ i 1))
+      })))
+
+; One member, called with `args`.
+(pub :: fnValCall (-> Int FnVal (Vec Int) Int (Vec a) Int Int))
+(pub fn (fnValCall tc m args bound acc unboxed)
+  (if (== m.kind 1)
+    (walkCallEnt
+      tc
+      (memGetWordStr m.ent 0)
+      m.ent
+      args
+      bound
+      acc
+      unboxed)
+    {
+      (effUnionRow acc m.row 0)
+      (latentApply bound m.uses (bsHandledVec bound) 0 0)
+    }))
+
+; A call through a value the walk follows. One member, known to be the
+; only one, is the plain call. Otherwise each member's row is computed
+; on its own: an effect every member performs definitely is definite,
+; any other is possible, and a value the walk lost leaves the hole.
+(pub :: fnValsCall (-> Int FnVals (Vec Int) Int (Vec a) Int Int))
+(pub fn (fnValsCall tc fv args bound acc unboxed)
+  (let (
+    (ms fv.members)
+    (complete fv.complete)
+  )
+    (if (&& (== complete 1) (== (vecLen ms) 1))
+      (fnValCall tc (vecGet ms 0) args bound acc unboxed)
+      (let (
+        (rows vecNew)
+        (certain (memGetWord tc 29))
+      )
+        {
+          ; Each member's edge is one the body MAY take, recorded where
+          ; the fixpoint follows it and the call-graph checks do not.
+          (memSetWord
+            tc
+            29
+            (if (== certain 0)
+              0
+              (memGetWord (memGetWord tc 44) 10)))
+          (fnValsRowsInto tc ms args bound rows unboxed 0)
+          (memSetWord tc 29 certain)
+          (fnValsCombine acc rows complete 0)
+          (if (== complete 1)
+            0
+            (effAdd acc effIncomplete))
+        }))))
+
+(pub :: fnValsRowsInto (-> Int (Vec FnVal) (Vec Int) Int (Vec (Vec Int)) Int Int Int))
+(pub fn (fnValsRowsInto tc ms args bound rows unboxed i)
+  (if (>= i (vecLen ms))
+    0
+    (let ((r vecNew))
+      {
+        (fnValCall tc (vecGet ms i) args bound r unboxed)
+        (vecPush rows r)
+        (fnValsRowsInto tc ms args bound rows unboxed (+ i 1))
+      })))
+
+(pub :: fnValsCombine (-> (Vec a) (Vec (Vec Int)) Int Int Int))
+(pub fn (fnValsCombine acc rows complete i)
+  (if (>= i (vecLen rows))
+    0
+    {
+      (fnValsCombineRow acc (vecGet rows i) rows complete 0)
+      (fnValsCombine acc rows complete (+ i 1))
+    }))
+
+(pub :: fnValsCombineRow (-> (Vec a) (Vec Int) (Vec (Vec Int)) Int Int Int))
+(pub fn (fnValsCombineRow acc row rows complete i)
+  (if (>= i (vecLen row))
+    0
+    (let ((e (vecGetStr row i)))
+      {
+        (if (|| (== (effIsMarker e) 1) (== (effIsPossible e) 1))
+          (effAdd acc e)
+          (if (&& (== complete 1) (== (effInAllRows rows e 0) 1))
+            (effAdd acc e)
+            (effAdd acc (effPossibleOf e))))
+        (fnValsCombineRow acc row rows complete (+ i 1))
+      })))
+
+(pub :: effInAllRows (-> (Vec (Vec Int)) String Int Int))
+(pub fn (effInAllRows rows e i)
+  (if (>= i (vecLen rows))
+    1
+    (if (== (effIn (vecGet rows i) e) 1)
+      (effInAllRows rows e (+ i 1))
+      0)))
+
+; The value escaped: nothing here calls it, and something somewhere
+; may. Each member's row arrives possible; a lambda written here
+; already counted its built-in effects where it was written.
+(pub :: fnValsEscape (-> Int FnVals Int (Vec a) Int))
+(pub fn (fnValsEscape tc fv bound acc)
+  (fnValsEscapeFrom tc fv.members bound acc 0))
+
+(pub :: fnValsEscapeFrom (-> Int (Vec FnVal) Int (Vec a) Int Int))
+(pub fn (fnValsEscapeFrom tc ms bound acc i)
+  (if (>= i (vecLen ms))
+    0
+    (let ((m (vecGet ms i)))
+      {
+        (if (== m.kind 1)
+          {
+            (tcNoteCall tc (memGetWordStr m.ent 0))
+            (effUnionCallee acc m.ent 1)
+            (if (== (isUnsafePrim (memGetWordStr m.ent 0)) 1)
+              (effAdd acc (effPossibleOf (builtinEff "Unsafe")))
+              0)
+          }
+          {
+            (latentCustomPossibleInto acc m.row 0)
+            (latentApply bound m.uses vecNew 1 0)
+          })
+        (fnValsEscapeFrom tc ms bound acc (+ i 1))
+      })))
+
+; The value handed to a callee position whose record is `u` (`None`:
+; one the callee never calls). A single known member is
+; gated by `u`; anything less certain escapes.
+(pub :: fnValsHanded (-> Int FnVals Int (Vec a) (Option EpUse) Int))
+(pub fn (fnValsHanded tc fv bound acc u)
+  (let ((ms fv.members))
+    (if (|| (== (epUseAbsent u) 1) (|| (!= fv.complete 1) (!= (vecLen ms) 1)))
+      (fnValsEscape tc fv bound acc)
+      (let (
+        (m (vecGet ms 0))
+        (r vecNew)
+      )
+        {
+          (if (== m.kind 1)
+            {
+              (tcNoteCall tc (memGetWordStr m.ent 0))
+              (effUnionCallee r m.ent 0)
+              (if (== (isUnsafePrim (memGetWordStr m.ent 0)) 1)
+                (effAdd r (builtinEff "Unsafe"))
+                0)
+            }
+            {
+              (effUnion r m.row 0)
+              (latentApplyU bound m.uses u)
+            })
+          (addGated acc r u 0)
+        }))))
+
+; ------------------------------------------------------------------
+; What an expression's VALUE is, when it is a function the walk can
+; follow. Walks `e` for its own effects into `acc` exactly as
+; `walkEffects` does, and answers its `FnVals`, or `None`.
+; ------------------------------------------------------------------
+(pub :: walkEffectsVal (-> Int Int Int (Vec a) (Option FnVals)))
+(pub fn (walkEffectsVal tc e bound acc)
+  (if (== e 0)
+    None
+    (let ((tag (nodeTag e)))
+      (if (== tag TAG_E_LAM)
+        (let ((m (walkLambdaLatent tc e bound)))
+          {
+            (latentBuiltinsInto acc m.row 0)
+            (Some (fnValsOne m))
+          })
+        (if (== tag TAG_E_VAR)
+          (walkEffectsValVar tc e bound acc)
+          (if (== tag TAG_E_FIELD)
+            {
+              (walkEffects tc (nodeA e) bound acc)
+              (fieldValsOf tc (nodeBName e))
+            }
+            (if (== tag TAG_E_IF)
+              {
+                (walkEffects tc (nodeA e) bound acc)
+                (fnValsJoin (walkEffectsVal tc (nodeB e) bound acc) (walkEffectsVal tc (nodeC e) bound acc))
+              }
+              (if (== tag TAG_E_BEGIN)
+                (walkEffectsValBegin tc (nodeAVec e) 0 bound acc)
+                (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
+                  (walkEffectsLet tc e bound acc 1)
+                  (if (== tag TAG_E_HANDLE)
+                    (walkEffectsHandleVal tc e bound acc)
+                    (if (== tag TAG_E_MATCH)
+                      {
+                        (if (== (tcPairMatchOK tc e bound) 1)
+                          (tcSiteAdd tc (nodeA e))
+                          0)
+                        (walkEffects tc (nodeA e) bound acc)
+                        (walkEffectsValArms tc (nodeBVec e) 0 bound acc None 1)
+                      }
+                      {
+                        (walkEffects tc e bound acc)
+                        None
+                      })))))))))))
+
+; A name: a local known to hold functions, or a top-level function
+; named as a value. A nullary function is invoked by its name, so its
+; name is a call and not a value.
+(pub :: walkEffectsValVar (-> Int Int Int (Vec a) (Option FnVals)))
+(pub fn (walkEffectsValVar tc e bound acc)
+  (let ((n (nodeAName e)))
+    (if (== (bsIsLocal bound n) 1)
+      (bsValsOf bound n)
+      (let ((ent (findFnEnt tc n)))
+        (if (&& (!= ent 0) (&& (== (isSyscallPrim n) 0) (&& (== (tyIsArrow (memGetWord ent 1)) 1) (!= (memGetWord ent 2) 0))))
+          {
+            (unsafeSinkNote tc e bound)
+            (Some (fnValsOne (fnValNamed ent)))
+          }
+          {
+            (walkEffects tc e bound acc)
+            None
+          })))))
+
+(pub :: walkEffectsValBegin (-> Int (Vec Int) Int Int (Vec a) (Option FnVals)))
+(pub fn (walkEffectsValBegin tc v i bound acc)
+  (if (>= i (vecLen v))
+    None
+    (if (== i (- (vecLen v) 1))
+      (walkEffectsVal tc (vecGet v i) bound acc)
+      {
+        (walkEffects tc (vecGet v i) bound acc)
+        (walkEffectsValBegin tc v (+ i 1) bound acc)
+      })))
+
+; The arms of a `match`: their values joined. `first` is 1 until one
+; arm has answered, so a match whose every arm is followed is complete.
+(pub :: walkEffectsValArms (-> Int (Vec Int) Int Int (Vec a) (Option FnVals) Int (Option FnVals)))
+(pub fn (walkEffectsValArms tc arms i bound acc sofar first)
+  (if (>= i (vecLen arms))
+    sofar
+    (let ((v (walkEffectsVal tc (nodeB (vecGet arms i)) (bsWithPattern bound (nodeA (vecGet arms i))) acc)))
+      (walkEffectsValArms
+        tc
+        arms
+        (+ i 1)
+        bound
+        acc
+        (if (== first 1)
+          v
+          (fnValsJoin sofar v))
+        0))))
+
+; A `let`, in either position. `valMode` 1 answers the body's value.
+; A name bound to a followed value carries it (`bsWithVals`); a `mut`
+; one may be reassigned, so its first value escapes where it is bound.
+(pub :: walkEffectsLet (-> Int Int Int (Vec a) Int (Option FnVals)))
+(pub fn (walkEffectsLet tc e bound acc valMode)
+  (let ((fv (walkEffectsVal tc (nodeB e) bound acc)))
+    (let ((b2 (letScopeFor tc e bound acc fv)))
+      (if (== valMode 1)
+        (walkEffectsVal tc (nodeC e) b2 acc)
+        {
+          (walkEffects tc (nodeC e) b2 acc)
+          None
+        }))))
+
+; A `let` whose initialiser is a bare reference to a parameter is an
+; ALIAS of it: calling the local is calling the parameter under another
+; name, which is stage0's `param_alias_of` through `lookup_shadow`.
+(pub :: letScopeFor (-> Int Int Int (Vec a) (Option FnVals) Int))
+(pub fn (letScopeFor tc e bound acc fv)
+  (match fv
+    ((Some v)
+      (if (== (nodeTag e) TAG_E_LET)
+        (bsWithVals bound (nodeAName e) v)
+        {
+          (fnValsEscape tc v bound acc)
+          (bsWith bound (nodeAName e) (- 0 1))
+        }))
+    ((None)
+      (bsWith
+        bound
+        (nodeAName e)
+        (if (== (nodeTag (nodeB e)) TAG_E_VAR)
+          (bsParamAlias bound (nodeAName (nodeB e)))
+          (if (== (nodeTag (nodeB e)) TAG_E_LAM)
+            (- 0 1)
+            bsOpaque))))))
+
+; A `handle`: its body walked with the handled effects in scope, so a
+; parameter called inside records them; the body's own effects less the
+; discharged ones; `Alloc` for installing evidence; and the handler,
+; which the handle CALLS, outside the discharge. The body's VALUE is the
+; form's value and passes out undischarged: a closure built in here and
+; called after the handler pops performs its operations with no handler.
+(pub :: walkEffectsHandleVal (-> Int Int Int (Vec a) (Option FnVals)))
+(pub fn (walkEffectsHandleVal tc e bound acc)
+  (let (
+    (inner vecNew)
+    (hb (bsWithHandled tc bound (nodeBVec e)))
+  )
+    (let ((fv (walkEffectsVal tc (nodeA e) hb inner)))
+      {
+        (effUnionUnhandled
+          tc
+          acc
+          inner
+          (nodeBVec e)
+          0)
+        (if (== (handleIsDynamic tc (nodeBVec e) 0) 1)
+          (effAdd acc (builtinEff "Alloc"))
+          0)
+        (walkCalledLambda tc (nodeC e) bound acc)
+        fv
+      })))
+
+; A lambda applied where it stands - a call head, or a handler - is
+; walked in place: its parameters are bound opaque and everything its
+; body performs is this point's. Anything else is walked as usual.
+(pub :: walkCalledLambda (-> Int Int Int (Vec a) Int))
+(pub fn (walkCalledLambda tc h bound acc)
+  (if (== h 0)
+    0
+    (if (== (nodeTag h) TAG_E_LAM)
+      (walkEffects tc (nodeB h) (bsWithParams bound (nodeAVec h) bsOpaque 0) acc)
+      (walkEffects tc h bound acc))))
+
+; The arguments of a call to `ent`. Each value that is a function -
+; a name, a lambda, a local holding one - contributes what calling it
+; performs, gated by where `ent` calls that parameter (`addGated`):
+; built-in effects as they are, a custom effect only where some call is
+; outside its handler. Any other argument is walked for its own effects.
+(pub :: walkEffectsArgVecAt (-> Int (Vec Int) Int Int (Vec a) Int Int))
+(pub fn (walkEffectsArgVecAt tc v i bound acc ent)
+  (if (>= i (vecLen v))
+    0
+    (let (
+      (a (vecGet v i))
+      (u (epUseFor ent i))
+    )
+      {
+        (if (== (nodeTag a) TAG_E_VAR)
+          {
+            (unsafeSinkNote tc a bound)
+            (if (== (bsIsLocal bound (nodeAName a)) 1)
+              (match (bsValsOf bound (nodeAName a))
+                ((None) 0)
+                ((Some fv) (fnValsHanded tc fv bound acc u)))
+              (let ((fe (findFnEnt tc (nodeAName a))))
+                (if (&& (!= fe 0) (&& (== (tyIsArrow (memGetWord fe 1)) 1) (&& (!= (memGetWord fe 2) 0) (== (isSyscallPrim (nodeAName a)) 0))))
+                  (let ((r vecNew))
+                    {
+                      (effRefSiteAt
+                        tc
+                        (nodeAName a)
+                        bound
+                        r
+                        0)
+                      (addGated acc r u 0)
+                    })
+                  (effRefSiteAt
+                    tc
+                    (nodeAName a)
+                    bound
+                    acc
+                    0))))
+          }
+          (if (== (nodeTag a) TAG_E_LAM)
+            (let ((m (walkLambdaLatent tc a bound)))
+              {
+                (addGated acc m.row u 0)
+                (latentApplyU bound m.uses u)
+              })
+            (walkEffects tc a bound acc)))
+        (walkEffectsArgVecAt
+          tc
+          v
+          (+ i 1)
+          bound
+          acc
+          ent)
+      })))
+
+; ------------------------------------------------------------------
+; CAPABILITY RECORDS: what a function-typed field can hold.
+;
+; A call through a field, `((l.emit) s)`, is the language's dispatch.
+; Before any body is walked, every value the program stores into a
+; field whose declared type can hold a function is collected, by field
+; name: each construction of a struct and each `(set e.f v)`. A stored
+; top-level function becomes a member; anything else (a lambda, a
+; parameter, a call's result, a value read from memory) leaves the
+; field's set incomplete. A call through the field is then a call to
+; each member (`fnValsCall`), with the member's edge recorded like any
+; other call: an effect every member performs is definite, one some
+; member performs is possible, and an incomplete set is still a hole.
+;
+; The set is the program's: a library's field is filled by whatever
+; the program it is built into constructs. A value can also be written
+; into a field without either form - through a forging `cast` or a raw
+; store - and both are unsafe operations, outside what the check
+; vouches for.
+;
+; Keyed by the field's NAME, since the walk runs before any body is
+; typed and a field read does not yet know its struct: two structs
+; with a callable field of the same name share one set, which can only
+; make it larger. The stores live in `UState` word 9.
+; ------------------------------------------------------------------
+(pub struct FieldStore
+  (name : String)
+  (mut complete : Int)
+  (members : (Vec FnVal)))
+
+(pub :: fieldStores (-> Int (Vec FieldStore)))
+(pub fn (fieldStores tc)
+  (memGetWordVec (memGetWord tc 44) 9))
+
+(pub :: fieldValsOf (-> Int String (Option FnVals)))
+(pub fn (fieldValsOf tc fname)
+  (let (
+    (stores (fieldStores tc))
+    (k (fieldStoreFind (fieldStores tc) fname 0))
+  )
+    ; A field nothing in the program stores into was filled some
+    ; other way - a raw store, a forging cast - and the walk cannot
+    ; see what it holds.
+    (if (< k 0)
+      None
+      (let ((st (vecGet stores k)))
+        (Some (FnVals st.complete st.members))))))
+
+(pub :: fieldStoreFind (-> (Vec FieldStore) String Int Int))
+(pub fn (fieldStoreFind stores fname i)
+  (if (>= i (vecLen stores))
+    (- 0 1)
+    (let ((st (vecGet stores i)))
+      (if (strEq st.name fname)
+        i
+        (fieldStoreFind stores fname (+ i 1))))))
+
+; Collect every store, once, before the fixpoint.
+(pub :: fieldStoresBuild (-> Int (Vec Int) Int))
+(pub fn (fieldStoresBuild tc decls)
+  {
+    (fieldStoresDecls tc (fieldStores tc) decls 0 (FsStack vecNew vecNew vecNew))
+    (memSetWord tc 16 0)
+    0
+  })
+
+; `st` is the one stack every declaration's walk uses, empty between
+; declarations.
+(pub :: fieldStoresDecls (-> Int (Vec FieldStore) (Vec Int) Int FsStack Int))
+(pub fn (fieldStoresDecls tc t decls i st)
+  (if (>= i (vecLen decls))
+    0
+    (let ((d (vecGet decls i)))
+      {
+        (if (== (nodeTag d) TAG_D_FN)
+          {
+            (memSetWord tc 16 (nodeModule d))
+            (fsPush st (nodeBVec d) 0)
+            (fsWalk tc t d (nodeC d) st)
+            (fsPopTo st 0)
+          }
+          0)
+        (fieldStoresDecls tc t decls (+ i 1) st)
+      })))
+
+; The locals the collector knows, as three parallel columns: a local's
+; name, its initialiser (0 for a parameter or a binder whose value it
+; cannot see), and how many locals were in scope where it was bound,
+; which is where a name in the initialiser resolves. ONE stack serves
+; every declaration, pushed on the way into a scope and popped on the
+; way out: this pass reads the whole program before the walk, and a
+; record per binding would cost it memory for nothing it keeps.
+(pub struct FsStack
+  (names : (Vec Int))
+  (inits : (Vec Int))
+  (envs : (Vec Int)))
+
+(pub :: fsLen (-> FsStack Int))
+(pub fn (fsLen st)
+  (vecLen st.names))
+
+(pub :: fsBind (-> FsStack String Int Int Int))
+(pub fn (fsBind st n init env)
+  {
+    (vecPushStr st.names n)
+    (vecPush st.inits init)
+    (vecPush st.envs env)
+    0
+  })
+
+(pub :: fsPush (-> FsStack (Vec Int) Int Int))
+(pub fn (fsPush st names i)
+  (if (>= i (vecLen names))
+    0
+    {
+      (fsBind st (vecGetStr names i) 0 (fsLen st))
+      (fsPush st names (+ i 1))
+    }))
+
+(pub :: fsPopTo (-> FsStack Int Int))
+(pub fn (fsPopTo st n)
+  (if (<= (fsLen st) n)
+    0
+    {
+      (vecPop st.names)
+      (vecPop st.inits)
+      (vecPop st.envs)
+      (fsPopTo st n)
+    }))
+
+(pub :: fsFillCols (-> FsStack Int))
+(pub fn (fsFillCols st)
+  (if (>= (vecLen st.inits) (vecLen st.names))
+    0
+    {
+      (vecPush st.inits 0)
+      (vecPush st.envs 0)
+      (fsFillCols st)
+    }))
+
+; The index of the innermost local named `n` at or below `i`, or -1.
+(pub :: fsFind (-> FsStack String Int Int))
+(pub fn (fsFind st n i)
+  (if (< i 0)
+    (- 0 1)
+    (if (strEq (vecGetStr st.names i) n)
+      i
+      (fsFind st n (- i 1)))))
+
+(pub :: fsWalk (-> Int (Vec FieldStore) Int Int FsStack Int))
+(pub fn (fsWalk tc t d e st)
+  (if (== e 0)
+    0
+    (let ((tag (nodeTag e)))
+      (if (== tag TAG_E_APP)
+        (let ((head (spineHead e)))
+          {
+            (if (&& (== (nodeTag head) TAG_E_VAR) (< (fsFind st (nodeAName head) (- (fsLen st) 1)) 0))
+              (fsConstruction tc t d (nodeAName head) e st)
+              0)
+            (fsWalk tc t d head st)
+            (fsWalkSpine tc t d e st)
+          })
+        (if (== tag TAG_E_SETF)
+          {
+            (if (== (fieldNameCallable tc (nodeBName e)) 1)
+              (fsRecord t (nodeBName e) (fsClassify tc d (nodeC e) st (fsLen st)))
+              0)
+            (fsWalk tc t d (nodeA e) st)
+            (fsWalk tc t d (nodeC e) st)
+          }
+          (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
+            (let ((n (fsLen st)))
+              {
+                (fsWalk tc t d (nodeB e) st)
+                (fsBind
+                  st
+                  (nodeAName e)
+                  (if (== tag TAG_E_LET)
+                    (nodeB e)
+                    0)
+                  n)
+                (fsWalk tc t d (nodeC e) st)
+                (fsPopTo st n)
+              })
+            (if (== tag TAG_E_LAM)
+              (let ((n (fsLen st)))
+                {
+                  (fsPush st (nodeAVec e) 0)
+                  (fsWalk tc t d (nodeB e) st)
+                  (fsPopTo st n)
+                })
+              (if (== tag TAG_E_MATCH)
+                {
+                  (fsWalk tc t d (nodeA e) st)
+                  (fsWalkArms tc t d (nodeBVec e) 0 st)
+                }
+                (if (== tag TAG_E_IF)
+                  {
+                    (fsWalk tc t d (nodeA e) st)
+                    (fsWalk tc t d (nodeB e) st)
+                    (fsWalk tc t d (nodeC e) st)
+                  }
+                  (if (== tag TAG_E_BEGIN)
+                    (fsWalkVec tc t d (nodeAVec e) 0 st)
+                    (if (== tag TAG_E_WHILE)
+                      {
+                        (fsWalk tc t d (nodeA e) st)
+                        (fsWalkVec tc t d (nodeBVec e) 0 st)
+                      }
+                      (if (== tag TAG_E_REGION)
+                        (fsWalk tc t d (nodeB e) st)
+                        (if (== tag TAG_E_HANDLE)
+                          {
+                            (fsWalk tc t d (nodeA e) st)
+                            (fsWalk tc t d (nodeC e) st)
+                          }
+                          (if (== tag TAG_E_SET)
+                            (fsWalk tc t d (nodeB e) st)
+                            (if (== tag TAG_E_FIELD)
+                              (fsWalk tc t d (nodeA e) st)
+                              0)))))))))))))))
+
+; The arguments of an application, read off its spine in place.
+(pub :: fsWalkSpine (-> Int (Vec FieldStore) Int Int FsStack Int))
+(pub fn (fsWalkSpine tc t d e st)
+  (if (!= (nodeTag e) TAG_E_APP)
+    0
+    {
+      (fsWalk tc t d (nodeB e) st)
+      (fsWalkSpine tc t d (nodeA e) st)
+    }))
+
+(pub :: fsWalkVec (-> Int (Vec FieldStore) Int (Vec Int) Int FsStack Int))
+(pub fn (fsWalkVec tc t d v i st)
+  (if (>= i (vecLen v))
+    0
+    {
+      (fsWalk tc t d (vecGet v i) st)
+      (fsWalkVec tc t d v (+ i 1) st)
+    }))
+
+(pub :: fsWalkArms (-> Int (Vec FieldStore) Int (Vec Int) Int FsStack Int))
+(pub fn (fsWalkArms tc t d arms i st)
+  (if (>= i (vecLen arms))
+    0
+    (let (
+      (a (vecGet arms i))
+      (n (fsLen st))
+    )
+      {
+        ; The binders go straight onto the names column; the other two
+        ; columns catch up, as values the collector cannot see.
+        (patBinders (nodeA a) st.names)
+        (fsFillCols st)
+        (fsWalk tc t d (nodeB a) st)
+        (fsPopTo st n)
+        (fsWalkArms tc t d arms (+ i 1) st)
+      })))
+
+; `(S a1 .. an)` for a struct `S`: argument i is stored into S's i-th
+; field. The spine is read from its outermost application, which holds
+; the last argument.
+(pub :: fsConstruction (-> Int (Vec FieldStore) Int String Int FsStack Int))
+(pub fn (fsConstruction tc t d n e st)
+  (if (!= (findFnEnt tc n) 0)
+    0
+    (let ((sent (findStruct tc n)))
+      (if (|| (== sent 0) (== (memGetWord sent 1) 0))
+        0
+        (fsFields tc t d (memGetWordVec sent 1) e (- (spineArgs e 0) 1) st)))))
+
+(pub :: fsFields (-> Int (Vec FieldStore) Int (Vec Int) Int Int FsStack Int))
+(pub fn (fsFields tc t d fields e i st)
+  (if (|| (< i 0) (!= (nodeTag e) TAG_E_APP))
+    0
+    {
+      (if (< i (vecLen fields))
+        (let ((f (vecGet fields i)))
+          (if (== (tyIsCallable (nodeTy f)) 1)
+            (fsRecord t (nodeAName f) (fsClassify tc d (nodeB e) st (fsLen st)))
+            0))
+        0)
+      (fsFields tc t d fields (nodeA e) (- i 1) st)
+    }))
+
+; Does any struct declare a field of this name a function could be
+; stored in?
+(pub :: fieldNameCallable (-> Int String Int))
+(pub fn (fieldNameCallable tc fname)
+  (fieldNameCallableIn (tcStructsVec tc) fname 0))
+
+(pub :: fieldNameCallableIn (-> (Vec Int) String Int Int))
+(pub fn (fieldNameCallableIn structs fname i)
+  (if (>= i (vecLen structs))
+    0
+    (let ((ty (structFieldTy (vecGet structs i) fname)))
+      (if (&& (!= ty (- 0 1)) (== (tyIsCallable ty) 1))
+        1
+        (fieldNameCallableIn structs fname (+ i 1))))))
+
+; What a stored value is: a named function (`kind` 1), a shape no call
+; can go through (-1), or a value the collector cannot see (0).
+(pub :: fsClassify (-> Int Int Int FsStack Int FnVal))
+(pub fn (fsClassify tc d v st lim)
+  (let ((tag (nodeTag v)))
+    ; A lambda is a value the set does not follow: its body belongs to
+    ; the declaration that wrote it - its casts to that body's scan, its
+    ; `Unsafe` to that declaration's boundary - and a call through the
+    ; field is in another one. Naming a function is the way to make a
+    ; field answerable.
+    (if (== tag TAG_E_LAM)
+      (fsUnknown)
+      (if (== tag TAG_E_VAR)
+        (let ((k (fsFind st (nodeAName v) (- lim 1))))
+          (if (>= k 0)
+            (if (== (vecGet st.inits k) 0)
+              (fsUnknown)
+              (fsClassify tc d (vecGet st.inits k) st (vecGet st.envs k)))
+            (let ((ent (findFnEnt tc (nodeAName v))))
+              (if (&& (!= ent 0) (&& (== (tyIsArrow (memGetWord ent 1)) 1) (&& (!= (memGetWord ent 2) 0) (== (isSyscallPrim (nodeAName v)) 0))))
+                (fnValNamed ent)
+                (fsUnknown)))))
+        (if (== (notCallableShape v) 1)
+          (FnVal (- 0 1) 0 vecNew vecNew)
+          (fsUnknown))))))
+
+(pub :: fsUnknown FnVal)
+(pub fn (fsUnknown)
+  (FnVal 0 0 vecNew vecNew))
+
+(pub :: fsRecord (-> (Vec FieldStore) String FnVal Int))
+(pub fn (fsRecord t fname m)
+  (let ((k (fieldStoreFind t fname 0)))
+    {
+      (if (< k 0)
+        {
+          (vecPush t (FieldStore fname 1 vecNew))
+          0
+        }
+        0)
+      (let ((st (vecGet t (if (< k 0)
+        (- (vecLen t) 1)
+        k))))
+        (if (== m.kind 0)
+          {
+            (set st.complete 0)
+            0
+          }
+          (if (< m.kind 0)
+            0
+            {
+              (vecPush st.members m)
+              0
+            })))
+    }))
 
 (pub :: walkEffects (-> Int Int Int (Vec a) Int))
 (pub fn (walkEffects tc e bound acc)
@@ -15242,10 +16256,15 @@
           ; exactly as a call is - stage0's reference-site rule,
           ; which is what keeps a function value's effects from
           ; escaping attribution entirely. Not a head, so a bound
-          ; name here is an ordinary local read.
+          ; name here is an ordinary local read - unless it holds a
+          ; function the walk follows, which escapes here.
           {
             (unsafeSinkNote tc e bound)
-            (effRefSite tc (nodeAName e) bound acc)
+            (match (if (== (bsIsLocal bound (nodeAName e)) 1)
+              (bsValsOf bound (nodeAName e))
+              None)
+              ((None) (effRefSite tc (nodeAName e) bound acc))
+              ((Some fv) (fnValsEscape tc fv bound acc)))
           }
           (if (== tag TAG_E_SETF)
               {
@@ -15257,24 +16276,19 @@
                 (walkEffectsHandle tc e bound acc)
                 (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
                   {
-                    (walkEffects tc (nodeB e) bound acc)
-                    ; A `let` whose initialiser is a bare reference to a
-                    ; parameter is an ALIAS of it: calling the local is
-                    ; calling the parameter under another name, which is
-                    ; stage0's `param_alias_of` through `lookup_shadow`.
-                    (let ((b2 
-                      (bsWith
-                        bound
-                        (nodeAName e)
-                        (if (== (nodeTag (nodeB e)) TAG_E_VAR)
-                          (bsParamAlias bound (nodeAName (nodeB e)))
-                          (if (== (nodeTag (nodeB e)) TAG_E_LAM)
-                            (- 0 1)
-                            bsOpaque)))))
-                      (walkEffects tc (nodeC e) b2 acc))
+                    (walkEffectsLet tc e bound acc 0)
+                    0
                   }
+                  ; A lambda nothing here calls: it ESCAPES. Its built-in
+                  ; effects count where it is written; its custom ones
+                  ; arrive possible, and its parameter uses escape too.
                   (if (== tag TAG_E_LAM)
-                    (walkEffects tc (nodeB e) (bsWithParams bound (nodeAVec e) bsOpaque 0) acc)
+                    (let ((m (walkLambdaLatent tc e bound)))
+                      {
+                        (latentBuiltinsInto acc m.row 0)
+                        (latentCustomPossibleInto acc m.row 0)
+                        (latentApply bound m.uses vecNew 1 0)
+                      })
                     (if (== tag TAG_E_IF)
                       {
                         (walkEffects tc (nodeA e) bound acc)
@@ -15365,22 +16379,14 @@
 
 ; A handle subtracts what it handles from the BODY's effects only,
 ; then adds Alloc when it installs a real dynamic handler. The
-; handler expression's own effects pass through undiminished.
+; handler expression's own effects pass through undiminished. A
+; function the body hands back is the form's value, and here nothing
+; calls it: it escapes, past the handler (`walkEffectsHandleVal`).
 (pub :: walkEffectsHandle (-> Int Int Int (Vec a) Int))
 (pub fn (walkEffectsHandle tc e bound acc)
-  (let ((inner (collectEffects tc (nodeA e) bound)))
-    {
-      (effUnionUnhandled
-        tc
-        acc
-        inner
-        (nodeBVec e)
-        0)
-      (if (== (handleIsDynamic tc (nodeBVec e) 0) 1)
-        (effAdd acc (builtinEff "Alloc"))
-        0)
-      (walkEffects tc (nodeC e) bound acc)
-    }))
+  (match (walkEffectsHandleVal tc e bound acc)
+    ((None) 0)
+    ((Some fv) (fnValsEscape tc fv bound acc))))
 
 (pub :: effUnionUnhandled (-> Int (Vec a) (Vec Int) (Vec Int) Int Int))
 (pub fn (effUnionUnhandled tc acc inner effs i)
@@ -15472,40 +16478,12 @@
 ; head decides what the call itself adds - and, when the callee is
 ; known to be effect-transparent somewhere, which argument escapes
 ; into that position.
-; Walk a call's arguments. Identical to `walkEffectsVec` except that a
-; bare NAME argument is attributed exactly rather than marked as a
-; possible over-approximation - it is being passed to something that
-; can call it.
-(pub :: walkEffectsArgVec (-> Int (Vec Int) Int Int (Vec a) Int))
-(pub fn (walkEffectsArgVec tc v i bound acc)
-  (if (>= i (vecLen v))
-    0
-    {
-      (let ((a (vecGet v i)))
-        (if (== (nodeTag a) TAG_E_VAR)
-          {
-            (unsafeSinkNote tc a bound)
-            (effRefSiteAt
-              tc
-              (nodeAName a)
-              bound
-              acc
-              0)
-          }
-          (walkEffects tc a bound acc)))
-      (walkEffectsArgVec
-        tc
-        v
-        (+ i 1)
-        bound
-        acc)
-    }))
-
 (pub :: walkEffectsSpine (-> Int Int Int (Vec a) Int))
 (pub fn (walkEffectsSpine tc e bound acc)
   (let (
     (args (spineArgVec e vecNew))
     (head (spineHead e))
+    (argEnt (spineArgEnt tc (spineHead e) bound))
   )
     {
       ; Arguments of a CALL are attributed exactly: a bare arrow-typed
@@ -15533,13 +16511,14 @@
       ; declaring an IO-performing `a` drew 53 false errors inside
       ; `stdlib/`, and every file of `tests/stdlib/` stopped compiling
       ; once one was added (`tests/selfhost/1006-cast-type-operand.ax`).
-      (if (&& (== (nodeTag head) TAG_E_VAR) (!= (findFnEnt tc (nodeAName head)) 0))
-        (walkEffectsArgVec
+      (if (!= argEnt 0)
+        (walkEffectsArgVecAt
           tc
           args
           0
           bound
-          acc)
+          acc
+          argEnt)
         (walkEffectsVec
           tc
           args
@@ -15574,12 +16553,61 @@
         ; An immediately-applied lambda is the one shape here that IS
         ; resolvable: `walkEffects` walks its body, so it is
         ; attributed and must not be called incomplete.
-        {
-          (walkEffects tc head bound acc)
-          (if (== (nodeTag head) TAG_E_LAM)
-            0
-            (effAdd acc effIncomplete))
-        })
+        ;
+        ; A FIELD head is resolved through what the program stores in
+        ; that field (`fieldValsOf`), and stays a hole only when the
+        ; stores include a value the walk cannot see.
+        (if (== (nodeTag head) TAG_E_LAM)
+          (walkCalledLambda tc head bound acc)
+          (if (== (nodeTag head) TAG_E_FIELD)
+            {
+              (walkEffects tc (nodeA head) bound acc)
+              (match (fieldValsOf tc (nodeBName head))
+                ((None) (effAdd acc effIncomplete))
+                ((Some fv) (fnValsCall tc fv args bound acc (tcSiteIn tc e))))
+            }
+            {
+              (walkEffects tc head bound acc)
+              (effAdd acc effIncomplete)
+            })))
+    }))
+
+; The function whose transparent positions a call's arguments land in,
+; when the walk knows it: a top-level name, or a local or field known to
+; hold exactly that one function. 0 otherwise.
+(pub :: spineArgEnt (-> Int Int Int Int))
+(pub fn (spineArgEnt tc head bound)
+  (let ((tag (nodeTag head)))
+    (if (== tag TAG_E_VAR)
+      (if (== (bsIsLocal bound (nodeAName head)) 1)
+        (fnValsSoleEnt (bsValsOf bound (nodeAName head)))
+        (findFnEnt tc (nodeAName head)))
+      (if (== tag TAG_E_FIELD)
+        (fnValsSoleEnt (fieldValsOf tc (nodeBName head)))
+        0))))
+
+(pub :: fnValsSoleEnt (-> (Option FnVals) Int))
+(pub fn (fnValsSoleEnt o)
+  (match o
+    ((None) 0)
+    ((Some fv)
+      (let ((ms fv.members))
+        (if (&& (== fv.complete 1) (== (vecLen ms) 1))
+          (let ((m (vecGet ms 0)))
+            (if (== m.kind 1)
+              m.ent
+              0))
+          0)))))
+
+; Mark every parameter alias among `args` as escaping, for a call whose
+; callee's own uses the walk cannot read.
+(pub :: escapeArgsMark (-> Int (Vec Int) Int Int))
+(pub fn (escapeArgsMark bound args i)
+  (if (>= i (vecLen args))
+    0
+    {
+      (escapeValue bound (vecGet args i))
+      (escapeArgsMark bound args (+ i 1))
     }))
 
 ; How many words a construction of `n` allocates a block for, or 0
@@ -15625,10 +16653,20 @@
 ; the charge lands.
 (pub fn (walkCallHead tc n args bound acc unboxed)
   (if (== (bsIsLocal bound n) 1)
+    (match (bsValsOf bound n)
+      ; A local known to hold functions: the call is a call to them.
+      ((Some fv)
+        {
+          (if (== (fnValsSoleEnt (Some fv)) 0)
+            (escapeArgsMark bound args 0)
+            0)
+          (fnValsCall tc fv args bound acc unboxed)
+        })
     ; Calling a local or a parameter. If it aliases a parameter,
     ; THAT parameter is effect-transparent - this is the case the
     ; whole pass exists for - and whatever is handed to it may be
     ; called too.
+    ((None)
     {
       (markEparam bound (bsParamAlias bound n))
       ; The callee is a parameter, or a local aliasing one, so the
@@ -15650,7 +16688,7 @@
       (if (== (bsParamAlias bound n) bsOpaque)
         (effAdd acc effIncomplete)
         0)
-    }
+    }))
     (if (== (isSyscallPrim n) 1)
       ; The syscall is an EDGE as well as an effect. It short-circuits
       ; above `findFnEnt` - deliberately, `isSyscallPrim` is a literal
@@ -15731,53 +16769,63 @@
           (if (&& (== unboxed 0) (> (ctorAllocArity tc n) 0))
             (effAdd acc (builtinEff "Alloc"))
             0)
-          {
-            (tcNoteCall tc (memGetWordStr ent 0))
-            ; A PAIR FUNCTION'S ANSWER IS BOXED BY ITS CALLER, at every
-            ; call that is not a recorded site: the callee's row no
-            ; longer carries the block its tail leaves used to build,
-            ; so the block is charged here, where `emitPlainCall`
-            ; builds it. A site the emitter reads from registers - a
-            ; matched direct call, a forwarding leaf - is charged
-            ; nothing.
-            (if (&& (== unboxed 0) (== (tcIsPairEnt tc ent) 1))
-              (effAdd acc (builtinEff "Alloc"))
-              0)
-            ; The callee's row, less its `Unsafe` when it is a trusted
-            ; encapsulation (`effUnionCallee`).
-            (effUnionCallee acc ent 0)
-            ; A raw-memory primitive performs `Unsafe` alongside whatever
-            ; `Mut` or `Alloc` its seeded row already carries: `regFnEff`
-            ; holds one effect, so the second is added here, where the
-            ; row is read.
-            (if (== (isUnsafePrim n) 1)
-              (effAdd acc (builtinEff "Unsafe"))
-              0)
-            ; Instantiate the callee's transparent positions
-            ; with what this call passes there.
-            (instantiateEparams
-              bound
-              (memGetWordVec ent 6)
-              args
-              0
-              acc)
-            ; OVER-APPLICATION. More arguments than the callee's own
-            ; parameters means the callee's RESULT is applied to the
-            ; rest - `((handoff 1) n)` spines to `handoff` with two
-            ; arguments against one - and that result is a value the
-            ; walk cannot follow: what calling it performs is nobody's
-            ; row. So the call is incomplete, the same hole a call
-            ; through an opaque local records, and the row an honest
-            ; lower bound. It used to inherit only the callee's row,
-            ; which for `handoff` is `shout`'s effects as POSSIBLE -
-            ; and an untagged `g` calling it read `#effects=IO
-            ; #effects-overapprox`, checked clean, and printed.
-            ; `repArity` is -1 for a primitive, whose arity the walk
-            ; cannot state, and the test is skipped there.
-            (if (&& (>= (repArity ent) 0) (> (vecLen args) (repArity ent)))
-              (effAdd acc effIncomplete)
-              0)
-          })))))
+          (walkCallEnt tc n ent args bound acc unboxed))))))
+
+; One call to a function the walk resolved, `ent` under the name `n`:
+; the edge, the pair box, the callee's row, a primitive's `Unsafe`,
+; the transparent positions instantiated with `args`, and an
+; over-application's hole. A call through a name and a call through a
+; local known to hold that function (`FnVals`) are the same call.
+(pub :: walkCallEnt (-> Int String Int (Vec Int) Int (Vec a) Int Int))
+(pub fn (walkCallEnt tc n ent args bound acc unboxed)
+  {
+    (tcNoteCall tc (memGetWordStr ent 0))
+    ; A PAIR FUNCTION'S ANSWER IS BOXED BY ITS CALLER, at every
+    ; call that is not a recorded site: the callee's row no
+    ; longer carries the block its tail leaves used to build,
+    ; so the block is charged here, where `emitPlainCall`
+    ; builds it. A site the emitter reads from registers - a
+    ; matched direct call, a forwarding leaf - is charged
+    ; nothing.
+    (if (&& (== unboxed 0) (== (tcIsPairEnt tc ent) 1))
+      (effAdd acc (builtinEff "Alloc"))
+      0)
+    ; The callee's row, less its `Unsafe` when it is a trusted
+    ; encapsulation (`effUnionCallee`).
+    (effUnionCallee acc ent 0)
+    ; A raw-memory primitive performs `Unsafe` alongside whatever
+    ; `Mut` or `Alloc` its seeded row already carries: `regFnEff`
+    ; holds one effect, so the second is added here, where the
+    ; row is read.
+    (if (== (isUnsafePrim n) 1)
+      (effAdd acc (builtinEff "Unsafe"))
+      0)
+    ; Instantiate the callee's transparent positions
+    ; with what this call passes there.
+    (instantiateEparams
+      bound
+      ent
+      (memGetWordVec ent 6)
+      args
+      0
+      acc)
+    ; OVER-APPLICATION. More arguments than the callee's own
+    ; parameters means the callee's RESULT is applied to the
+    ; rest - `((handoff 1) n)` spines to `handoff` with two
+    ; arguments against one - and that result is a value the
+    ; walk cannot follow: what calling it performs is nobody's
+    ; row. So the call is incomplete, the same hole a call
+    ; through an opaque local records, and the row an honest
+    ; lower bound. It used to inherit only the callee's row,
+    ; which for `handoff` is `shout`'s effects as POSSIBLE -
+    ; and an untagged `g` calling it read `#effects=IO
+    ; #effects-overapprox`, checked clean, and printed.
+    ; `repArity` is -1 for a primitive, whose arity the walk
+    ; cannot state, and the test is skipped there.
+    (if (&& (>= (repArity ent) 0) (> (vecLen args) (repArity ent)))
+      (effAdd acc effIncomplete)
+      0)
+  })
 
 ; A binder's `pidx` is a THREE-way answer, not two:
 ;
@@ -15874,18 +16922,19 @@
 ; say IT CALLS THEM. A value the walk cannot follow, landing in one, is
 ; called and unattributed - no guessing required about whether the
 ; position is a called one, because that is what the mark means.
-(pub :: instantiateEparams (-> Int (Vec Int) (Vec Int) Int (Vec a) Int))
-(pub fn (instantiateEparams bound marks args i acc)
+(pub :: instantiateEparams (-> Int Int (Vec Int) (Vec Int) Int (Vec a) Int))
+(pub fn (instantiateEparams bound ent marks args i acc)
   (if (>= i (vecLen marks))
     0
     {
       (if (< (vecGet marks i) (vecLen args))
-        (if (== (escapeValue bound (vecGet args (vecGet marks i))) 0)
+        (if (== (escapeValueUse bound (vecGet args (vecGet marks i)) (epUseFor ent (vecGet marks i))) 0)
           (effAdd acc effIncomplete)
           0)
         0)
       (instantiateEparams
         bound
+        ent
         marks
         args
         (+ i 1)
@@ -16554,21 +17603,65 @@
   (name : String)
   (pidx : Int))
 
+; `ctx` is where the walk stands, in a one-element vector every scope a
+; binding derives shares, so a `let` copies one word for it.
 (pub struct BScope
   (names : (Vec Int))
   (params : Int)
   (callable : Int)
   (eparams : (Vec Int))
-  (fnty : Int))
+  (fnty : Int)
+  (ctx : (Vec BCtx)))
+
+; `handled` is the custom effects a `handle` around this point
+; discharges, inside the body being walked. `uses` records, per
+; effect-transparent parameter, where the body calls it (`EpUse`).
+; `inLam` is 1 while a lambda's body is walked for its own row: its
+; parameter uses wait in its own `uses` until the lambda is called or
+; escapes, since only then is the `handle` around them known. `vals` is
+; the walk's table of function values a name is known to hold: a
+; binding that holds entry k records `pidx` -3 - k (`bsWithVals`).
+(pub struct BCtx
+  (handled : (Vec Int))
+  (uses : (Vec EpUse))
+  (inLam : Int)
+  (vals : (Vec FnVals)))
+
+(pub :: bsMake (-> (Vec Int) Int Int (Vec Int) Int (Vec BCtx) Int))
+(pub fn (bsMake names params callable eparams fnty ctx)
+  (cast Int (BScope
+    names
+    params
+    callable
+    eparams
+    fnty
+    ctx)))
+
+(pub :: bsCtxVec (-> Int (Vec BCtx)))
+(pub fn (bsCtxVec b)
+  (memGetWordVec b 5))
+
+(pub :: bsCtx (-> Int BCtx))
+(pub fn (bsCtx b)
+  (vecGet (bsCtxVec b) 0))
+
+(pub :: bsCtxOf (-> (Vec Int) (Vec EpUse) Int (Vec FnVals) (Vec BCtx)))
+(pub fn (bsCtxOf handled uses inLam vals)
+  (let ((v (vecWithCapacity 1)))
+    {
+      (vecPush v (BCtx handled uses inLam vals))
+      v
+    }))
 
 (pub :: bsNew (-> Int Int (Vec Int) Int Int))
 (pub fn (bsNew params callable eparams fnty)
-  (cast Int (BScope
+  (bsMake
     vecNew
     params
     callable
     eparams
-    fnty)))
+    fnty
+    (bsCtxOf (vecWithCapacity 1) (vecWithCapacity 1) 0 (vecWithCapacity 1))))
 
 (pub :: bsNames (-> Int Int))
 (pub fn (bsNames b)
@@ -16637,13 +17730,98 @@
       (vecPush
         v
         (cast Int (BEnt n pidx)))
-      (cast Int (BScope
+      (bsMake
         v
         (bsParams b)
         (bsCallable b)
         (bsEparamsVec b)
-        (bsFnTy b)))
+        (bsFnTy b)
+        (bsCtxVec b))
     }))
+
+(pub :: bsWithVals (-> Int String FnVals Int))
+(pub fn (bsWithVals b n fv)
+  (let ((table (bsValsTable b)))
+    {
+      (vecPush table fv)
+      (bsWith b n (- (- 0 3) (- (vecLen table) 1)))
+    }))
+
+(pub :: bsHandledVec (-> Int (Vec Int)))
+(pub fn (bsHandledVec b)
+  (let ((c (bsCtx b)))
+    c.handled))
+
+(pub :: bsValsTable (-> Int (Vec FnVals)))
+(pub fn (bsValsTable b)
+  (let ((c (bsCtx b)))
+    c.vals))
+
+(pub :: bsUsesVec (-> Int (Vec EpUse)))
+(pub fn (bsUsesVec b)
+  (let ((c (bsCtx b)))
+    c.uses))
+
+(pub :: bsInLam (-> Int Int))
+(pub fn (bsInLam b)
+  (let ((c (bsCtx b)))
+    c.inLam))
+
+; The function values the innermost binding of `n` is known to hold, or
+; none: a parameter, an opaque local, or a name bound to anything the
+; walk does not follow.
+(pub :: bsValsOf (-> Int String (Option FnVals)))
+(pub fn (bsValsOf b n)
+  (let ((ent (bsFind b n)))
+    (if (== ent 0)
+      None
+      (let ((k (- (- 0 3) (memGetWord ent 1))))
+        (if (< k 0)
+          None
+          (Some (vecGet (bsValsTable b) k)))))))
+
+; The scope a `handle` body is walked in: the same names, with the
+; custom effects this handle discharges (`effDischargedBy`'s test)
+; added to `handled`.
+(pub :: bsWithHandled (-> Int Int (Vec Int) Int))
+(pub fn (bsWithHandled tc b effs)
+  (let ((h vecNew))
+    {
+      (copyInto h (bsHandledVec b) 0)
+      (handledInto tc h effs 0)
+      (bsMake
+        (bsNamesVec b)
+        (bsParams b)
+        (bsCallable b)
+        (bsEparamsVec b)
+        (bsFnTy b)
+        (bsCtxOf h (bsUsesVec b) (bsInLam b) (bsValsTable b)))
+    }))
+
+(pub :: handledInto (-> Int (Vec Int) (Vec Int) Int Int))
+(pub fn (handledInto tc h effs i)
+  (if (>= i (vecLen effs))
+    0
+    (let ((n (nodeAName (vecGet effs i))))
+      {
+        (if (&& (== (isBuiltinEffect n) 0) (!= (findEffectDecl tc n) 0))
+          (effAdd h (customEff n))
+          0)
+        (handledInto tc h effs (+ i 1))
+      })))
+
+; The scope a lambda's body is walked in for its own row: its
+; parameters bound opaque, nothing handled yet, and a `uses` of its own.
+(pub :: bsLambda (-> Int (Vec Int) Int))
+(pub fn (bsLambda b params)
+  (let ((b1 (bsWithParams b params bsOpaque 0)))
+    (bsMake
+      (bsNamesVec b1)
+      (bsParams b1)
+      (bsCallable b1)
+      (bsEparamsVec b1)
+      (bsFnTy b1)
+      (bsCtxOf (vecWithCapacity 1) (vecWithCapacity 1) 1 (bsValsTable b1)))))
 
 (pub :: copyInto (-> (Vec Int) (Vec Int) Int Int))
 (pub fn (copyInto dst src i)
@@ -16698,18 +17876,191 @@
 ; arrive in. stage0 gates on `param_callable`: a parameter declared
 ; `Int` cannot be called, so marking it would claim a transparency
 ; the type forbids.
+;
+; A mark is also a USE, and the use records where the call is: inside
+; which `handle`s (`mask`, the custom effects discharged around it), or
+; somewhere the walk cannot see (`esc`). A caller reads it to decide
+; what a value it passes here performs at the call: a custom effect
+; every recorded call discharges is not the caller's, and one the
+; parameter may be called with outside any handler is. That is what
+; lets `(withAsk usesAsk)` - a callee that installs the handler around
+; its callback - be the correct program it is (`EpUse`).
 (pub :: markEparam (-> Int Int Int))
 (pub fn (markEparam b i)
+  (markEparamUse b i (bsHandledVec b) 0))
+
+; A use of parameter `i` with `mask` discharged around it, or an escape
+; when `esc` is 1. In a lambda's body the use waits in the lambda's own
+; `uses` (`bsLambda`), and the eparam set is marked when the lambda is
+; applied or escapes.
+(pub :: markEparamUse (-> Int Int (Vec Int) Int Int))
+(pub fn (markEparamUse b i mask esc)
   (if (< i 0)
     0
     (if (== (paramIsCallable (bsCallableVec b) i) 0)
       0
-      (if (== (intInVec (bsEparamsVec b) i 0) 1)
+      {
+        (if (|| (== (bsInLam b) 1) (== (intInVec (bsEparamsVec b) i 0) 1))
+          0
+          {
+            (vecPush (bsEparamsVec b) i)
+            0
+          })
+        (epUseNote (bsUsesVec b) i mask esc)
+      })))
+
+; Where a parameter is called. `mask` holds the custom effects every
+; non-escaping call discharges, and is meaningful when `def` is 1;
+; `esc` is 1 when the parameter also reaches a place the walk cannot
+; follow - a value passed on to an unknown callee, or a lambda that
+; escapes. A position nothing calls has no record, and what is handed
+; there escapes.
+(pub struct EpUse
+  (pidx : Int)
+  (mut mask : (Vec Int))
+  (mut def : Int)
+  (mut esc : Int))
+
+(pub :: epUseFind (-> (Vec EpUse) Int Int (Option EpUse)))
+(pub fn (epUseFind uses i k)
+  (if (>= k (vecLen uses))
+    None
+    (let ((r (vecGet uses k)))
+      (if (== r.pidx i)
+        (Some r)
+        (epUseFind uses i (+ k 1))))))
+
+; Record one use. The masks of two calls intersect: an effect is
+; discharged for the parameter only when it is discharged at both.
+(pub :: epUseNote (-> (Vec EpUse) Int (Vec Int) Int Int))
+(pub fn (epUseNote uses i mask esc)
+  (match (epUseFind uses i 0)
+    ((None)
+      {
+        (vecPush uses (EpUse
+          i
+          (if (== esc 1)
+            vecNew
+            (effCopy mask))
+          (if (== esc 1)
+            0
+            1)
+          esc))
+        1
+      })
+    ((Some r)
+      (if (== esc 1)
+        (if (== r.esc 1)
+          0
+          {
+            (set r.esc 1)
+            1
+          })
+        (if (== r.def 0)
+          {
+            (set r.mask (effCopy mask))
+            (set r.def 1)
+            1
+          }
+          (effIntersectInto r mask))))))
+
+(pub :: effCopy (-> (Vec Int) (Vec Int)))
+(pub fn (effCopy v)
+  (let ((out vecNew))
+    {
+      (copyInto out v 0)
+      out
+    }))
+
+; Narrow `r`'s mask to the entries also in `other`. 1 when it shrank.
+(pub :: effIntersectInto (-> EpUse (Vec Int) Int))
+(pub fn (effIntersectInto r other)
+  (let (
+    (cur r.mask)
+    (out vecNew)
+  )
+    {
+      (effKeepIn out cur other 0)
+      (if (== (vecLen out) (vecLen cur))
         0
         {
-          (vecPush (bsEparamsVec b) i)
+          (set r.mask out)
+          1
+        })
+    }))
+
+(pub :: effKeepIn (-> (Vec Int) (Vec Int) (Vec Int) Int Int))
+(pub fn (effKeepIn out cur other i)
+  (if (>= i (vecLen cur))
+    0
+    {
+      (if (== (effIn other (vecGetStr cur i)) 1)
+        {
+          (vecPush out (vecGet cur i))
           0
-        }))))
+        }
+        0)
+      (effKeepIn out cur other (+ i 1))
+    }))
+
+; `a` and `b` together, as a fresh set.
+(pub :: effJoined (-> (Vec Int) (Vec Int) (Vec Int)))
+(pub fn (effJoined a b)
+  (let ((out (effCopy a)))
+    {
+      (effUnion out b 0)
+      out
+    }))
+
+; Fold one walk's uses into the entry's, for the fixpoint: 1 when any
+; record is new or changed. Masks only narrow and flags only rise, so
+; the fold is monotone.
+(pub :: epUsesMerge (-> (Vec EpUse) (Vec EpUse) Int Int))
+(pub fn (epUsesMerge into from i)
+  (if (>= i (vecLen from))
+    0
+    (let (
+      (r (vecGet from i))
+      (a (if (== r.def 1)
+        (epUseNote into r.pidx r.mask 0)
+        0))
+      (b (if (== r.esc 1)
+        (epUseNote into r.pidx vecNew 1)
+        0))
+      (rest (epUsesMerge into from (+ i 1)))
+    )
+      (if (|| (|| (== a 1) (== b 1)) (== rest 1))
+        1
+        0))))
+
+; The callee's record for its parameter `j`, or `None` when it never
+; calls it.
+(pub :: epUseAbsent (-> (Option EpUse) Int))
+(pub fn (epUseAbsent o)
+  (match o
+    ((None) 1)
+    ((Some u) 0)))
+
+(pub :: epUseFor (-> Int Int (Option EpUse)))
+(pub fn (epUseFor ent j)
+  (epUseFind (memGetWordVec ent 10) j 0))
+
+; A use of the current function's parameter `pidx`, made by handing it
+; to a callee position whose own record is `o` (`None`: a position the
+; walk cannot see called, which is an escape).
+(pub :: epUseApply (-> Int Int (Option EpUse) Int))
+(pub fn (epUseApply b pidx o)
+  (match o
+    ((None) (markEparamUse b pidx vecNew 1))
+    ((Some u)
+      {
+        (if (== u.def 1)
+          (markEparamUse b pidx (effJoined (bsHandledVec b) u.mask) 0)
+          0)
+        (if (== u.esc 1)
+          (markEparamUse b pidx vecNew 1)
+          0)
+      })))
 
 (pub :: paramIsCallable (-> (Vec Int) Int Int))
 (pub fn (paramIsCallable callable i)
@@ -16727,7 +18078,9 @@
 
 ; stage0's `escape_value`: a value flowing somewhere it may be CALLED.
 ; Only a parameter alias needs marking - a named function or lambda
-; was attributed where it was written.
+; was attributed where it was written. `escapeValueUse` is the same with
+; the callee position's own record, so the alias's use inherits where
+; that callee calls it.
 (pub :: escapeValue (-> Int Int Int))
 ; Answers 1 when this value is ACCOUNTED FOR wherever it ends up, and 0
 ; when it may be a function whose identity the walk has lost. The
@@ -16744,15 +18097,20 @@
 ; Everything else - a field load, a call result, an `if` - is a word
 ; the walk merely read.
 (pub fn (escapeValue b e)
+  (escapeValueUse b e None))
+
+(pub :: escapeValueUse (-> Int Int (Option EpUse) Int))
+(pub fn (escapeValueUse b e u)
   (let ((inner (stripGrouping e)))
     (if (== (nodeTag inner) TAG_E_VAR)
       {
-        (markEparam b (bsParamAlias b (nodeAName inner)))
+        (epUseApply b (bsParamAlias b (nodeAName inner)) u)
         1
       }
       (if (== (nodeTag inner) TAG_E_LAM)
         1
         (notCallableShape inner)))))
+
 
 ; Shapes no call can ever go through, so an unfollowed one hides
 ; nothing. Everything absent from this list is assumed callable, which
@@ -16844,6 +18202,9 @@
     ; The pair set depends on signatures and syntax only, so it is
     ; complete before any row is, and the walk reads it from round 1.
     (memSetWord tc 18 (tcPairFnsBuild tc decls))
+    ; What every function-typed field can hold depends on syntax alone,
+    ; so it too is complete before any row is (`fieldStoresBuild`).
+    (fieldStoresBuild tc decls)
     (inferEffectsRound tc decls 0 (+ (vecLen decls) 1))
   })
 
@@ -16945,6 +18306,7 @@
         (let ((sc (bodyScopeOf tc d)))
           (let (
             (_c (memSetWord tc 29 (memGetWord ent 7)))
+            (_y (memSetWord (memGetWord tc 44) 10 (memGetWord ent 11)))
             (_s (memSetWord
               tc
               36
@@ -16952,14 +18314,18 @@
             (got (collectEffects tc (nodeC d) sc))
             (_s0 (memSetWord tc 36 0))
             (_c0 (memSetWord tc 29 0))
+            (_y0 (memSetWord (memGetWord tc 44) 10 0))
             (_m0 (memSetWord tc 16 0))
           )
             (let (
               (g1 (effUnion (memGetWordVec ent 5) got 0))
               (g2 (intUnion (memGetWordVec ent 6) (bsEparamsVec sc) 0))
               (g3 (effUnion (memGetWordVec ent 5) (syscallTagEffects tc d) 0))
+              ; Where each transparent parameter is called (`EpUse`): a
+              ; caller reads it, so a change is a change to this entry.
+              (g4 (epUsesMerge (memGetWordVec ent 10) (bsUsesVec sc) 0))
             )
-              (if (|| (|| (== g1 1) (== g2 1)) (== g3 1))
+              (if (|| (|| (== g1 1) (== g2 1)) (|| (== g3 1) (== g4 1)))
                 1
                 0))))))))
 
@@ -17141,7 +18507,10 @@
       (let ((ent (restrictOwnEnt tc d)))
         (if (== ent 0)
           0
-          (callersIdxAddEdges bs (memGetWordVec ent 7) 0 i))))))
+          {
+            (callersIdxAddEdges bs (memGetWordVec ent 7) 0 i)
+            (callersIdxAddEdges bs (memGetWordVec ent 11) 0 i)
+          })))))
 
 (pub :: callersIdxAddEdges (-> (Vec (Vec Int)) (Vec Int) Int Int Int))
 (pub fn (callersIdxAddEdges bs calls i who)
@@ -21691,7 +23060,7 @@
         tc
         d
         r
-        (concat (concat "`" e) "` reaches the effect row only as a possible effect - the body names a function without calling it - so its presence is not evidence the body performs it")
+        (concat (concat "`" e) "` reaches the effect row only as a possible effect - the body names a function without calling it, or calls a field whose stored functions do not all perform it - so its presence is not evidence the body performs it")
         (cast (Vec Int) 0))
       (if (== (effPartial eff) 1)
         (emitRestrictUnverifiable
@@ -21745,7 +23114,14 @@
           r
           "the body calls a value the compiler could not resolve, and the call graph has no edge for it"
           (cast (Vec Int) 0))
-        0))))
+        (if (== (graphReachesMay tc (restrictOwnEnt tc d)) 1)
+          (emitRestrictUnverifiable
+            tc
+            d
+            r
+            "the body reaches a call through a field or a local that holds one of several functions, and the call graph does not follow an edge it may not take"
+            (cast (Vec Int) 0))
+          0)))))
 
 ; `no-recursion`: `graphCycle` from this declaration's own entry. A
 ; cycle found through an edge the body only NAMES (`effByRef`) is not
@@ -21780,7 +23156,14 @@
           r
           "the body calls a value the compiler could not resolve, and that call may close a cycle the graph does not show"
           (cast (Vec Int) 0))
-        0))))
+        (if (== (graphReachesMay tc (restrictOwnEnt tc d)) 1)
+          (emitRestrictUnverifiable
+            tc
+            d
+            r
+            "the body reaches a call through a field or a local that holds one of several functions, and that call may close a cycle the graph does not show"
+            (cast (Vec Int) 0))
+          0)))))
 
 ; The first cycle reachable from `start`, as the walk's own path: every
 ; entry from `start` down to the one met twice, and that entry once
@@ -22128,6 +23511,44 @@
 ; `graphSeeds` answers 0 for it under every kind, so before this guard
 ; an operation was already counted by neither arm for IO, Alloc,
 ; `extern` or `cast`. It changes exactly the custom case.
+; Does `start`, or anything it reaches by a certain edge, also have an
+; edge it MAY take (`FnEnt` word 11)? A call-graph check that found
+; nothing cannot clear such a body: the edge it does not follow may be
+; the one that reaches the answer.
+(pub :: graphReachesMay (-> Int Int Int))
+(pub fn (graphReachesMay tc start)
+  (if (== start 0)
+    0
+    (let (
+      (queue vecNew)
+      (seen vecNew)
+      (mut qi 0)
+      (mut hit 0)
+    )
+      {
+        (vecPush queue start)
+        (vecPush seen (memGetWordStr start 0))
+        (while (if (== hit 0)
+          (< qi (vecLen queue))
+          false)
+          (let ((ent (vecGet queue qi)))
+            {
+              (if (> (vecLen (memGetWordVec ent 11)) 0)
+                (set hit 1)
+                (graphEnqueue
+                  tc
+                  (memGetWordVec ent 7)
+                  0
+                  queue
+                  vecNew
+                  seen
+                  qi
+                  0))
+              (set qi (+ qi 1))
+            }))
+        hit
+      })))
+
 (pub :: graphAnyCalleeCarries (-> Int (Vec Int) Int String Int))
 (pub fn (graphAnyCalleeCarries tc calls i kind)
   (if (>= i (vecLen calls))
@@ -22321,7 +23742,14 @@
               r
               "the body calls a value the compiler could not resolve, so its closure cannot be enumerated"
               (cast (Vec Int) 0))
-            0)))
+            (if (&& (== (vecLen local) 0) (== (graphReachesMay tc (restrictOwnEnt tc d)) 1))
+              (emitRestrictUnverifiable
+                tc
+                d
+                r
+                "the body reaches a call through a field or a local that holds one of several functions, so its closure cannot be enumerated"
+                (cast (Vec Int) 0))
+              0))))
     }))
 
 ; Every `cast` application under `e`, in source order, pushed into
@@ -24546,31 +25974,29 @@
 ; answers the question - a `handle` DISCHARGES a custom effect, so an
 ; effect still in the row at `main` is one nothing handled.
 ;
-; A WARNING, AND WHY. Measured on the two closure shapes, the error
-; this started as refuses the program that runs and accepts the one
-; that traps:
+; AN ERROR, because a definite custom effect in `main`'s row is now an
+; operation the program reaches with no handler on the way. Three rules
+; make it so, and each closed a shape that was reported wrongly while
+; this was a warning:
 ;
-;   (let ((g (lambda (x) (ask x)))) (handle (g 2) (Ask Alloc) h))
-;       runs, answers 20 - and `Ask` is in `main`'s row, because a
-;       lambda's operations count where the lambda is WRITTEN;
-;   a closure BUILT inside the handle and CALLED after it pops
-;       traps 71 - and `Ask` is NOT in `main`'s row, because the
-;       `let` of a `handle` form is an opaque local and the row is
-;       a lower bound there.
+;   a lambda's custom effects count where it is CALLED, not where it
+;       is written (`FnVals`): `(let ((g (lambda (x) (ask x))))
+;       (handle (g 2) (Ask) h))` runs and is silent, and a closure
+;       built inside a handle and called after it pops traps 71 and is
+;       reported, since a handle's value passes out undischarged;
+;   a parameter records the handles around its calls (`EpUse`), so a
+;       callee that installs the handler around its callback discharges
+;       the callback's effect: `(withAsk usesAsk)` is silent;
+;   a value the walk loses ESCAPES, and its custom effects arrive
+;       possible.
 ;
-; So the evidence is one-sided in both directions at once, which is
-; the objection `docs/agent-harness.md` records against promoting a
-; check that refuses correct programs. As a warning the two shapes
-; cost a line of output and no build; as an error the first is
-; unwriteable. The severity is recorded in
-; `tests/diagnostics/severity.policy` with this paragraph's reason.
-;
-; What it does NOT report, each a consequence of a rule already
-; recorded: an effect that reaches the row only as POSSIBLE (`~c:E`,
-; AX3038's territory - unverified rather than unwriteable); an effect
-; behind a call the walk could not follow (`?:incomplete`, the hole
-; everywhere else has); and an effect whose declaration says the trap
-; is the design.
+; What it does NOT report: an effect that reaches the row only as
+; POSSIBLE (`~c:E`) - a function named and handed somewhere the walk
+; cannot follow, or a field whose stored functions disagree; an effect
+; behind a call the walk could not follow (`?:incomplete`, AX3038's
+; territory at a `handle`); and an effect whose declaration says the
+; trap is the design. Those are where a correct program and a trapping
+; one cannot be told apart, and a refusal would land on both.
 ; ------------------------------------------------------------------
 ; Does this effect's declaration say that reaching an operation with
 ; no handler is a deliberate abort? `;@axiom:unhandled(trap)` above
@@ -24650,7 +26076,7 @@
       0
       (let ((path (graphWitness tc ent name)))
         (emitDiag tc (diagSetLabel (mkDiag
-          SEV_WARNING
+          SEV_ERROR
           "AX3053"
           "unhandled-operation"
           (nodeSpan d)
@@ -25259,9 +26685,52 @@
     ; analysis's silence and not the body's, and reading one as the
     ; other is exactly how `((b.f) x)` passed as `pure` while it
     ; wrote to stdout.
-    (if (|| (== (effAnyPossibleOnly eff) 1) (== (effPartial eff) 1))
+    ;
+    ; The two shapes differ in what would answer them, so they say
+    ; different things: a call the walk could not resolve, or effects
+    ; that are only POSSIBLE - a function the body names without
+    ; calling, or a field whose stored functions disagree.
+    (if (== (effPartial eff) 1)
       (emitAxtagUnverifiable tc d label)
-      0)))
+      (if (== (effAnyPossibleOnly eff) 1)
+        (emitAxtagPossible tc d label eff)
+        0))))
+
+; The possible-only entries of a row, in their definite spelling.
+(pub :: effPossibleOnly (-> (Vec a) (Vec Int)))
+(pub fn (effPossibleOnly v)
+  (let ((out vecNew))
+    {
+      (effPossibleOnlyInto out v 0)
+      out
+    }))
+
+(pub :: effPossibleOnlyInto (-> (Vec Int) (Vec a) Int Int))
+(pub fn (effPossibleOnlyInto out v i)
+  (if (>= i (vecLen v))
+    0
+    {
+      (let ((e (vecGetStr v i)))
+        (if (&& (== (effIsPossible e) 1) (== (effIn v (effDefiniteOf e)) 0))
+          (effAdd out (effDefiniteOf e))
+          0))
+      (effPossibleOnlyInto out v (+ i 1))
+    }))
+
+; AX3037 for a row with no definite effect and some possible one.
+(pub :: emitAxtagPossible (-> Int Int String (Vec a) Int))
+(pub fn (emitAxtagPossible tc d label eff)
+  (if (== (nodeSpan d) 0)
+    0
+    (emitDiag tc (mkDiag
+      SEV_WARNING
+      "AX3037"
+      "axtag-unverifiable"
+      (nodeSpan d)
+      (concat (concat (concat (concat "AXTAG unverifiable on `" (bareOf (nodeAName d))) "`: ") label) (concat " cannot be checked: the body may perform " (concat (effJoin (effPossibleOnly eff)) ", through a function it names without calling or a field whose stored functions do not all perform it")))
+      0
+      0
+      "store only functions that keep the claim in the field, call the function rather than handing it on, or drop the claim"))))
 
 ; A claimed effect the body does not perform. stage0 suppresses this
 ; when the effect COULD arrive through a callback - but only when the

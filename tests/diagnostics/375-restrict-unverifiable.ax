@@ -18,7 +18,9 @@
 ; `viaField` and `casts` are correct programs when `b.f` is pure, and
 ; that is the reason AX3051 warns: refusing them would make dispatch
 ; through a stored function unwriteable under a restriction rather
-; than unverified. `handoff` is the shape that blocked promoting
+; than unverified. `boxOf` fills the field from its parameter, so the
+; walk cannot name what it holds; a field whose every store names a
+; function is resolved (tests/diagnostics/1201-field-dispatch.ax). `handoff` is the shape that blocked promoting
 ; AX3010 - `(fn (handoff k) shout)` performs nothing - arriving here
 ; through a restriction instead of a purity claim.
 (import IO)
@@ -65,8 +67,12 @@
 (fn (clean b n)
   (b.f n))
 
+(:: boxOf (-> (-> Int Int) Box))
+(fn (boxOf k)
+  (Box k))
+
 (:: main Int)
 ;@axiom:effect(io)
 (fn (main)
-  (let ((b (Box shout)))
+  (let ((b (boxOf shout)))
     (+ (viaField b 1) (+ (handoff 2 3) (+ (leaks b 4) (+ (casts b 5) (clean b 6)))))))

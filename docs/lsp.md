@@ -1259,7 +1259,8 @@ warning has its own:
 Tested by the code-action session in `tests/lsp/drive.py`. It checks
 the exact edits, that suppressed documents reopen silent, that the
 simplified program still exits 11, and that the acknowledgement
-silences exactly one warning while the program still traps 71.
+silences exactly one error. With every effect acknowledged, the
+program still traps 71.
 
 ## Highlighting
 

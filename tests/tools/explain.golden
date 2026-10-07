@@ -1487,11 +1487,18 @@ AX3037 - an AXTAG claim the effect walk is not in a position to check
 A `;@axiom:effect(pure)` claim on a function whose
 body CALLS A VALUE the walk could not resolve. Three shapes reach it:
 a head that is not a name (`((b.f) x)`, an `if` or `match` in head
-position); a `let` bound to anything but a name or a lambda literal;
+position); a `let` bound to anything but a name, a lambda or a field;
 and a pattern binder (`(match h ((Wrap f) (f 7)))`). They are one
 route wearing three spellings - a function value goes into memory in
 one place and is called in another, with no call edge in between for
 the walk to follow.
+
+A field is followed when the program names every function it stores
+there: each construction of the struct and each `(set e.f v)` is
+collected before the walk, and a call through the field is a call to
+those functions (tests/diagnostics/1201-field-dispatch.ax). A field
+that also holds a lambda, a parameter or any other value the walk
+cannot name stays a hole, and is this.
 
 A lambda's own parameter is marked the same way and is currently
 unreachable: a called lambda parameter does not type-check
@@ -1502,10 +1509,12 @@ somewhere, and it is not.
 
 The other route is a row with no DEFINITE effect and some POSSIBLE
 one: the body names an arrow-typed function without calling it
-(`(fn (handoff k) shout)`). Whether such a body performs anything depends on
-what a caller does with the value, so a claim of absence over it is this too
-(tests/diagnostics/355-tag-over-approximated.ax). A definite effect
-beside a possible one is AX3010: the body performs it.
+(`(fn (handoff k) shout)`), or calls a field whose stored functions
+do not all perform the effect. Whether such a body performs anything
+depends on a value the walk cannot pin down, so a claim of absence
+over it is this too (tests/diagnostics/355-tag-over-approximated.ax).
+A definite effect beside a possible one is AX3010: the body performs
+it, and so is an effect every stored function performs.
 
 This is not the claim being wrong. It is the claim being unCHECKABLE
 here, and the two need different answers - correct the tag, or resolve
@@ -1529,9 +1538,10 @@ nobody: `git log -S` puts its last producer's removal in f6ddc2e,
 where effect polymorphism replaced it and the completeness gate its
 own comment describes went with it.
 
-What to do: name the function at the call site so the walk can
-follow it, or drop the claim. A claim that cannot be checked is worth
-less than no claim, because a reader spends trust on it.
+What to do: name the function at the call, or store only named
+functions in the field, so the walk can follow it - or drop the
+claim. A claim that cannot be checked is worth less than no claim,
+because a reader spends trust on it.
 
 The REVERSE direction is deliberately silent. `;@axiom:effect(io)`
 over an unresolved call is a claim of PRESENCE, and an unresolved
@@ -2201,32 +2211,32 @@ decorative: `axiom test` generates a `main` that runs each test inside
 a recovery point, every assertion in the file reaches `main` through a
 lambda, and the trap at 71 is exactly how a failed assertion ends one
 test without ending the run. `scripts/check-test-runner.sh` removes
-the tag in a shadow copy and requires this warning to appear, so the
+the tag in a shadow copy and requires this error to appear, so the
 tag cannot be deleted quietly. The value is exactly `trap`; any other
 word leaves the check on, which is the visible failure rather than the
 silent one.
 
-THIS IS A WARNING, AND NOT AS A STAGING STEP TOWARD AN ERROR. The
-evidence is one-sided in both directions at once, measured on the two
-closure shapes:
+THIS IS AN ERROR, because the effect is followed to where the
+operation RUNS. A lambda's custom effects count where it is called,
+not where it is written:
 
   (let ((g (lambda (x) (ask x)))) (handle (g 2) (Ask) h))
 
-runs and answers - the handler is installed when `g` is called - and
-is reported here, because a lambda's operations count where the
-lambda is WRITTEN. Its mirror, a closure built INSIDE the handle and
-called after the handler pops, traps 71 and is NOT reported, because
-the `let` of a `handle` form is an opaque local and the row is a lower
-bound there. An error would refuse the program that runs and accept
-the one that traps. A warning costs the first a line of output and no
-build. The severity is recorded in tests/diagnostics/severity.policy
-with that reason.
+runs and is not reported, and a closure built inside a `handle` and
+called after the handler pops traps 71 and is reported, since the
+value a handle answers leaves it undischarged. A function that
+installs the handler around its callback discharges what the callback
+performs, so `(withAsk usesAsk)` is not reported either. An effect
+left definite at `main` is an operation reached with no handler on
+the way.
 
-What it does not report, each a limit stated elsewhere: an effect
-that reaches the row only as POSSIBLE (`#effects-possible=`, AX3038's
-territory - unverified rather than unwriteable); an effect behind a
-call the walk could not follow (`#effects-incomplete`); and an effect
-whose declaration carries the tag.
+What it does not report: an effect that reaches the row only as
+POSSIBLE (`#effects-possible=`) - a function handed somewhere the walk
+cannot follow, or a field whose stored functions disagree; an effect
+behind a call the walk could not resolve (`#effects-incomplete`,
+AX3038's territory at a `handle`); and an effect whose declaration
+carries the tag. Those are where a program that runs and one that
+traps cannot be told apart.
 
 A recovery point is not a handler. `__axiom_recover` CONTAINS a trap
 (docs/error-model.md ERR-REC-6) and does not change dispatch, so a

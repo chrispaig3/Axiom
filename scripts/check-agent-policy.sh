@@ -572,11 +572,17 @@ echo "ok   an untagged IO function is refused (exit $liar_rc) and still visible 
 
 # The shape assertion 3 exists for, from the finding that produced it:
 # an effect that reaches the outside world through a struct field, under
-# a `pure` claim. Both of the older assertions pass this module.
+# a `pure` claim. Both of the older assertions pass this module. The
+# field is filled through `boxOf`'s parameter, a value the walk cannot
+# name, so its set of stored functions stays incomplete: a field whose
+# every store names a function is resolved through them.
 cat > "$work/partial.ax" <<'PARTIAL'
 (import IO)
 
 (struct Box (f : (-> Int Int)))
+
+(:: boxOf (-> (-> Int Int) Box))
+(fn (boxOf k) (Box k))
 
 (:: direct (-> Int Int))
 
@@ -596,7 +602,7 @@ cat > "$work/partial.ax" <<'PARTIAL'
 (:: main Int)
 
 ;@axiom:effect(io)
-(fn (main) (viaField (Box direct) 0))
+(fn (main) (viaField (boxOf direct) 0))
 PARTIAL
 ( cd "$work" && AXIOM_STDLIB="$repo_root/stdlib" "$axc" --diagnostic-format=ai symbols partial.ax ) \
   > "$work/partial.axsym" 2> "$work/partial.err" || true

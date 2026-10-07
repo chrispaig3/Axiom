@@ -8,6 +8,12 @@
 ; effects land on whoever NAMED the function; nothing carries them
 ; across the store to the load.
 ;
+; A field is resolved when the program names every function it stores
+; there (tests/diagnostics/1201-field-dispatch.ax). Here `boxOf` stores
+; its parameter, a value the walk cannot name, so `Box`'s field stays a
+; hole. Handing `doIO` to `boxOf` counts as performing it, so `install`
+; and `main` say `effect(io)`.
+;
 ; Empty used to be indistinguishable from pure. All three compiled
 ; clean, ran, and reached `__syscall3`, while `symbols` printed `#pure`
 ; with no `#effects=` beside it - the analysis asserting exactly what it
@@ -44,9 +50,14 @@
 (data Holder
   (Wrap (-> Int Int)))
 
+(:: boxOf (-> (-> Int Int) Box))
+(fn (boxOf k)
+  (Box k))
+
 (:: install Box)
+;@axiom:effect(io)
 (fn (install)
-  (Box doIO))
+  (boxOf doIO))
 
 (:: hold Holder)
 (fn (hold)
@@ -79,5 +90,6 @@
   (h b.f))
 
 (:: main Int)
+;@axiom:effect(io)
 (fn (main)
   (+ (+ (viaField install) (viaLet install)) (+ (viaPattern hold) (viaTransparent apply1 install))))

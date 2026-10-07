@@ -398,7 +398,7 @@ The walk meets three shapes, and only the last one is closable:
 
 | what the walk met | closable? |
 |---|---|
-| a head that isn't a name; an opaque `let`; a pattern binder; over-application; a lambda's own parameter | **no**. This is `MM-EXEC-9b`'s flow analysis, and dispatch through a capability record (`stdlib/Http.ax`'s `httpCall`, `((h.run) fd r)`) is the shape that matters |
+| a head that isn't a name; an opaque `let`; a pattern binder; over-application; a lambda's own parameter | **no**. This is `MM-EXEC-9b`'s flow analysis. Dispatch through a field whose stores are all named functions is followed (below), and the shapes left are a field that holds a lambda or a value passed in, and a `data` payload read by a pattern, such as the codecs `stdlib/Cereal.ax` matches in `cerealToValue` |
 | an unfollowable value in a position whose declared type is a type variable | **no, and correctly**: a caller may instantiate it to an arrow. `tests/selfhost/999-placeholder-under-arrow.ax`'s `twice` is `(-> (-> a a) a a)`, with the same body as the `(-> (-> Int Int) Int Int)` version in `tests/stdlib/140-function-values.ax`, and only the second one closed |
 | an unfollowable value in a position whose declared type can't hold a function | **closed**. No well-typed program can put a function there: applying a nominal type is `AX3004`, and so is handing an arrow to one. An alias, `(type F = ...)`, is expanded before checking, and an alias with type parameters is refused (`AX3096`) |
 
@@ -406,6 +406,47 @@ The walk meets three shapes, and only the last one is closable:
 shapes that must keep the mark, and its ablation drops the type test
 and requires the closed rows to reopen. The type test moves no
 `#effects=` set and no diagnostic anywhere in the tree.
+
+The walk follows a function value it can name. A `let` bound to a
+top-level function, a lambda or a field read carries what it holds,
+through `if`, `match`, a block and `handle`, and a call through the
+local is a call to those functions.
+
+A field is resolved by what the program stores in it. Before the walk,
+every struct construction and
+`(set e.f v)` is collected, and a call through a field whose every
+stored value is a top-level function is a call to each of them. An
+effect all of them perform is definite. An effect only some perform
+is possible, and the call-graph checks treat those edges as ones the
+body may take, so `no-foreign`, `no-recursion` and `no-cast:deep`
+answer `AX3051` rather than clearing the body.
+
+A stored lambda, or any value the walk can't name, leaves the field
+open: the first row above. The set is the whole program's, so a library's field is resolved by
+what the program it is built into stores. A forging `cast` or a raw
+store can also fill a field, and both are unsafe operations
+(`MM-EXEC-9d`).
+
+```scheme refused
+(import IO)
+
+(struct Logger (emit : (-> String Int)))
+
+;@axiom:effect(io)
+(:: shout (-> String Int))
+(fn (shout s) (println s))
+
+(:: relay (-> Logger String Int))
+(fn (relay l s) ((l.emit) s))
+
+;@axiom:effect(io)
+(:: main Int)
+(fn (main) (relay (Logger shout) "hi"))
+```
+
+Every `Logger` here holds `shout`, so `relay` performs `IO` and draws
+`AX3042` for not saying so. Tested by
+`tests/diagnostics/1201-field-dispatch.ax`.
 
 Applying a `data` or `struct` constructor of arity 1 or more adds
 `Alloc`, so `restrict(no-alloc)` sees the allocation the emitted code
@@ -467,8 +508,10 @@ and `__load8`, the atomic load `__atomic_load`, and
 The trait-method row no longer applies. `trait` and `impl` are
 `AX2004`, and an interface is a capability record: a struct holding the
 functions, passed as an ordinary value. Dispatch is `((c.render) x)`, a
-call through a field the walk can't resolve, so it falls under the open
-row above. This checks `OK` with `AX3037` beside it, and its row reads
+call through a field. Where the program names every function it stores
+in the field, the call is resolved through them. Here nothing in the
+program stores into `emit`, so the call falls under the open row above.
+This checks `OK` with `AX3037` beside it, and its row reads
 `#effect=pure #effects-incomplete` with no `IO`:
 
 ```scheme
@@ -534,14 +577,15 @@ inference couldn't resolve, which is `MM-EXEC-9a`'s remaining row.
 The unresolved call yields `AX3037`, which doesn't refuse it.
 
 Writing memory and reading the command line are inferred, so a `pure`
-claim over either is reported. Dispatch through an interface is not
-resolvable: an interface is a capability record, so `((l.emit) s)` is a
-call through a struct field, which is `MM-EXEC-9a`'s remaining row. The
-`runIt` claim in `MM-EXEC-9a` checks `OK`, carries
-`#effect=pure #effects-incomplete` with no `IO`, and prints at run time. That
-route covers every dispatch in the language, and it is always
-announced, by `#effects-incomplete` on the row and `AX3037` on the
-claim.
+claim over either is reported. Dispatch through an interface is a call
+through a struct field, `((l.emit) s)`. When every function the program
+stores in that field performs an effect, the claim is refuted with
+`AX3010`. When only some of them do, the effect is possible and the
+claim draws `AX3037`. When the field also holds a value the walk can't
+name, the call is `MM-EXEC-9a`'s remaining row: the `runIt` claim in
+`MM-EXEC-9a` checks `OK`, carries `#effect=pure #effects-incomplete`
+with no `IO`, and prints at run time. That route is always announced,
+by `#effects-incomplete` on the row and `AX3037` on the claim.
 
 A program that needs a real purity guarantee can't get one from this
 mechanism today. An `effect(pure)` tag doesn't cover the calls in
@@ -728,10 +772,13 @@ does file, entropy and terminal work this way under
 - an operation performed with no handler in extent exits the process
   with status **71**. Where the compiler can see this coming, it says
   so first: `AX3053` reports a custom effect still in `main`'s row
-  after inference, which is an effect no `handle` discharged. It is a
-  warning, because the two closure shapes make the evidence one-sided in
-  both directions (`tests/diagnostics/severity.policy`). Write
-  `;@axiom:unhandled(trap)` on the `effect` declaration to silence it
+  after inference, which is an effect no `handle` discharged, and
+  refuses the build. The row follows an operation to where it runs: a
+  lambda's custom effects count where it is called, a closure a
+  `handle` answers leaves it undischarged, and a parameter called inside
+  a `handle` discharges what its argument performs there
+  (`tests/diagnostics/1202-unhandled-closures.ax`). Write
+  `;@axiom:unhandled(trap)` on the `effect` declaration to allow it
   for an effect whose unhandled operation is a deliberate abort, as
   `stdlib/Test.ax`'s `Assert` is;
 - a handler **cannot abort** the computation it handles. There is no

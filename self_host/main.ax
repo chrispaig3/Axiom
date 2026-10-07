@@ -465,11 +465,24 @@
 ; has a second thing to try.
 (pub :: compileFile (-> String String Int Int String))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
 ;@axiom:effect(entropy)
 (pub fn (compileFile fileName tname doEmit needMain)
+  (compileFileFrom fileName tname doEmit needMain 0))
+
+; The same, for an input that is a generated temporary (`transient` 1):
+; it is removed as soon as it has been read, so a refusal - which exits
+; from inside - leaves nothing behind. `axiom test`'s driver is one: a
+; `main` it generates can be refused where the test file itself checks
+; clean, such as an operation that reaches it with no handler (AX3053).
+(pub :: compileFileFrom (-> String String Int Int Int String))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+;@axiom:effect(entropy)
+(pub fn (compileFileFrom fileName tname doEmit needMain transient)
   ; `--crate DIR` first: a stale or missing binding module is
   ; regenerated and a missing archive built, before the module
   ; search that would otherwise report them missing
@@ -488,6 +501,9 @@
   (let (
     (src (readFile fileName))
     (rerr (sourceReadErrnoFor fileName src))
+    (_gone (if (== transient 1)
+      (unwrapOr (removeFile fileName) 0)
+      0))
     (dfmt diagFormatArg)
     (_crates prepareCrates)
     (_pkg (pkgVerify (pathDir fileName)))
@@ -1252,7 +1268,7 @@
                                 (die (concat "error: could not write the generated test driver to '" (concat gen "'\n")) 4)
                                 1
                               }
-                              (let ((ir (compileFile gen hostTarget 1 1)))
+                              (let ((ir (compileFileFrom gen hostTarget 1 1 1)))
                                 (let ((base (concat "axiom_test_output." (fmtInt sysPid))))
                                   (let ((exe (concat "./" base)))
                                     (let ((rc (buildToExecutable
@@ -1262,7 +1278,6 @@
                                       0
                                       (effectiveLinkArgs ir (pathDir file) linkArgsOf))))
                                       {
-                                        (unwrapOr (removeFile gen) 0)
                                         (if (!= rc 0)
                                           {
                                             (die "" rc)

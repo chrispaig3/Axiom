@@ -16,6 +16,27 @@ its changelog too.
 
 ## Unreleased
 
+- Refuse an operation that reaches `main` with no handler, as the error
+  `AX3053`. The check follows a custom effect to where its operation
+  runs: a lambda counts where it is called, a closure a `handle`
+  answers leaves it undischarged, and a callee that installs the
+  handler around its callback discharges what the callback performs.
+  A lambda bound before the `handle` that covers its call is no longer
+  reported, and a closure built inside one and called after it pops
+  now is. **BREAKING**: a program whose `main` reaches an unhandled
+  operation no longer builds; handle it, or mark a deliberate abort
+  with `;@axiom:unhandled(trap)`. Tested by
+  `tests/diagnostics/1202-unhandled-closures.ax` and
+  `tests/stdlib/760-handled-closures.ax`.
+
+- Follow a call through a struct field when the program names every
+  function it stores there. An effect all of them perform is certain,
+  so a `pure` claim over it is `AX3010`, a restriction is `AX3049` and
+  an undeclared `IO` is `AX3042`; an effect only some perform leaves
+  the claim `AX3037`. A `let`-bound function is followed the same way,
+  so `(let ((g shout)) (g 1))` performs `IO`. Tested by
+  `tests/diagnostics/1201-field-dispatch.ax`.
+
 - Treat `AX3081`, `AX3082`, `AX3083`, `AX3087` and `AX3088` as retired.
   They were skipped and never assigned, so the never-reuse rule now
   names them, and a retired number that is built or explained again

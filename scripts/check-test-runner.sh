@@ -384,7 +384,7 @@ echo '== the Assert tag is load-bearing =='
 #
 # The tag is checked by removal: a shadow tree with its own `stdlib/`
 # (the resolver looks in `<file>/../stdlib/`), the tag deleted from that
-# copy alone, and the warning required to appear. The positive control
+# copy alone, and the error required to appear. The positive control
 # runs first: a compiler that reported AX3053 on every suite would pass
 # the removal arm and fail the control.
 shadow="$work/shadow"
@@ -419,18 +419,23 @@ if [[ "$n" != 1 ]]; then
 else
   grep -v -F -x "$tagline" "$shadow/stdlib/Test.ax" > "$shadow/Test.ax.stripped"
   mv "$shadow/Test.ax.stripped" "$shadow/stdlib/Test.ax"
-  stripped_out="$(shadow_test)"
+  # The build is refused now, so the run exits non-zero; the output is
+  # what is read.
+  stripped_out="$(shadow_test || true)"
   if printf '%s\n' "$stripped_out" | grep -q 'AX3053.*effect `Assert`'; then
     ok 'with the tag deleted, the same suite draws AX3053 naming Assert'
   else
     bad "the tag was deleted and no AX3053 appeared: the claim is not load-bearing"
     printf '%s\n' "$stripped_out" | head -5 | sed 's/^/     /'
   fi
-  # The suite must still run: the warning must not cost the build.
-  if printf '%s\n' "$stripped_out" | grep -qx "5 test(s), 0 failed"; then
-    ok 'and it is a warning: the suite still built and all 5 tests ran'
+  # AX3053 is an error, so without the tag the suite must not run: an
+  # assertion would reach `main` with no handler, and that is a build
+  # failure rather than a line of output.
+  if printf '%s\n' "$stripped_out" | grep -q '^E AX3053' \
+     && ! printf '%s\n' "$stripped_out" | grep -q "test(s), "; then
+    ok 'and it is an error: the suite did not build'
   else
-    bad "the suite did not run under the warning"
+    bad "the tag was deleted and the suite still built, or AX3053 was not an error"
     printf '%s\n' "$stripped_out" | tail -3 | sed 's/^/     /'
   fi
 fi
