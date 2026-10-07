@@ -16,6 +16,12 @@ its changelog too.
 
 ## Unreleased
 
+- Run a mutual tail call into a function written without a signature
+  in constant stack at every `--opt`. The emitter read the callee's
+  arity from its signature alone, so the call stayed a plain call and
+  ten million of them died by SIGSEGV at `--opt 0` while `--opt 2`
+  answered. Tested by `tests/stdlib/830-mutual-tail-unsigned.ax`.
+
 - Give `IO`, `Sys` and `Net` one public name per job, following the
   standard-library naming plan. `Sys`'s C-string file calls, its
   descriptor readers and its terminal calls leave the public surface:

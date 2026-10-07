@@ -16694,9 +16694,10 @@
           0
           (if (strEq h self)
             0
-            (if (&& (>= (fnArityCg cg h) 0) (== (spineArgs e 0) (fnArityCg cg h)))
-              1
-              0))))
+            (let ((ar (fnDefArityCg cg h)))
+              (if (&& (>= ar 0) (== (spineArgs e 0) ar))
+                1
+                0)))))
       (if (== tag TAG_E_BEGIN)
         (let ((v (nodeAVec e)))
           (if (== (vecLen v) 0)
@@ -22174,17 +22175,37 @@
 ; partial or an over-application is not a tail call to the function.
 (pub :: armMustTail (-> Int Int String (Vec Int) Int))
 (pub fn (armMustTail cg isTail fnName args)
-  ; `fnArityCg`, not `fnArityOfCg`: the second is keyed on the ENTRY
-  ; file's spelling and answers 0 for an imported function, which is
-  ; most callees; the first mangles the name and reads the signature
-  ; the same way `fnTakesEvw` does, and answers -1 for a function with
-  ; no signature or no body - an `extern`, which is never marked.
-  (if (&& (== isTail 3) (&& (>= (fnArityCg cg fnName) 0) (== (vecLen args) (fnArityCg cg fnName))))
-    {
-      (memSetWord cg 30 2)
-      cg
-    }
-    cg))
+  (let ((ar (fnDefArityCg cg fnName)))
+    (if (&& (== isTail 3) (&& (>= ar 0) (== (vecLen args) ar)))
+      {
+        (memSetWord cg 30 2)
+        cg
+      }
+      cg)))
+
+; The parameter count of the `fn` that defines `name`, signed or not:
+; its `define` takes exactly those parameters, plus the evidence word
+; that only a signature can call for (`fnTakesEvw`, which `mustTailOK`
+; adds). The name is mangled first, because the declaration index is
+; keyed on the module-qualified spelling and most callees are
+; imported. -1 when no `fn` defines the name - an `extern` item, which
+; is never marked - and -1 where no index has been built (the REPL's
+; and LSP's partial paths), where the call stays plain.
+;
+; Reading the signature's record instead (`fnArityCg`) answered -1 for
+; a function written without a signature, so a mutual tail call INTO
+; one stayed a plain call and grew the stack at `--opt 0` while
+; `--opt 2`'s sibling-call pass flattened it: a three-way cycle with
+; one unsigned member died by SIGSEGV nine million calls deep at one
+; level and answered at the other.
+(pub :: fnDefArityCg (-> Int String Int))
+(pub fn (fnDefArityCg cg name)
+  (let ((rest (memGetWordVec cg 40)))
+    (if (< (vecLen rest) 5)
+      (- 0 1)
+      (match (internFind (vecGet rest 1) (declSpellingOf (mangledForCg cg name)))
+        ((Some id) (vecGet (vecGetVec rest 4) id))
+        ((None) (- 0 1))))))
 
 ; ------------------------------------------------------------------
 ; A STATIC SENTINEL: a value whose count word is `-1`, so releasing it

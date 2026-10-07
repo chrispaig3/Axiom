@@ -264,7 +264,8 @@ emitter marks a call when all of the following hold (`mustTailOK` in
 `self_host/codegen.ax` is the list):
 
 - The call sits in tail position with no leaf retain owed.
-- The callee is a defined function applied to exactly its arity.
+- The callee is a function defined with `fn`, with or without a
+  signature, applied to exactly its arity.
 - The caller is a plain `fn`. It isn't a lambda or thunk, whose
   prototypes carry the closure record, or a self-tail-call loop, whose
   retained parameter slots are released after the body.
@@ -284,6 +285,8 @@ three-way cycle, and a million with an owning `mut` slot in scope of
 each call. `scripts/check-tail-calls.sh` runs these at
 `--opt 0` under a 512 KiB stack, then deletes the marker from the same
 IR and requires the program to die by signal.
+`tests/stdlib/830-mutual-tail-unsigned.ax` runs ten million calls into
+a callee written without a signature, at every `--opt`.
 
 Two shapes stay a plain `call`, and a program **MUST NOT** rely on
 either for unbounded recursion:

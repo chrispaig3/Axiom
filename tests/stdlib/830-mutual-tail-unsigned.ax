@@ -1,0 +1,33 @@
+; MM-EXEC-6c through a callee written without a signature. `pong` has
+; none, so its type comes from its body, and it is defined above `ping`
+; because a call to it from above would need one (AX3089). Its `define`
+; still takes exactly its two parameters, so the prototypes match and
+; both calls are `musttail`: ten million alternating calls run in
+; constant stack at every `--opt` (the `.optstable` beside this file).
+;
+; The emitter used to read the callee's arity from its signature
+; alone, so the call into `pong` stayed a plain call. That died by
+; SIGSEGV at `--opt 0` and answered at `--opt 2`, where LLVM's
+; sibling-call pass flattened it (fuzz mutant m02641 of
+; tests/stdlib/467-mutual-tail.ax, seed 20260927).
+(import IO)
+
+(:: ping (-> Int Int Int))
+
+(fn (pong i acc)
+  (if (>= i 10000000)
+    acc
+    (ping (+ i 1) (+ acc 1))))
+
+(fn (ping i acc)
+  (if (>= i 10000000)
+    acc
+    (pong (+ i 1) (+ acc 1))))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (println (ping 0 0))
+    0
+  })
