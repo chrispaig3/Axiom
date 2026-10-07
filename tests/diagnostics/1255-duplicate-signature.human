@@ -1,0 +1,23 @@
+[1;31merror[AX3006][0m[1m: a second signature for `twice`[0m
+ [1;34m--> [0m1255-duplicate-signature.ax:6:5
+[1;34m  |[0m
+[1;34m5 |[0m (:: twice (-> Int Int))
+[1;34m  |[0m     [1;36m----- `twice`'s signature is first written here[0m
+[1;34m6 |[0m (:: twice (-> Int Int))
+[1;34m  |[0m     [1;31m^^^^^ this signature is a second one[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mkeep one signature for each function, and remove the other
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3006` for a full explanation
+
+[1;31merror[AX3006][0m[1m: a second signature for `half`[0m
+  [1;34m--> [0m1255-duplicate-signature.ax:10:5
+[1;34m   |[0m
+[1;34m 9 |[0m (:: half (-> Int Int))
+[1;34m   |[0m     [1;36m---- `half`'s signature is first written here[0m
+[1;34m10 |[0m (:: half (-> Int String))
+[1;34m   |[0m     [1;31m^^^^ this signature is a second one[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mkeep one signature for each function, and remove the other
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3006` for a full explanation
+
+compilation failed due to 2 previous errors

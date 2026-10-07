@@ -1,0 +1,2 @@
+E AX3006 1255-duplicate-signature.ax:6:5-10 duplicate-definition "a second signature for `twice`" #"this signature is a second one" ^5:5-10:"`twice`'s signature is first written here" ?"keep one signature for each function, and remove the other"
+E AX3006 1255-duplicate-signature.ax:10:5-9 duplicate-definition "a second signature for `half`" #"this signature is a second one" ^9:5-9:"`half`'s signature is first written here" ?"keep one signature for each function, and remove the other"

@@ -1,0 +1,14 @@
+; A function has one signature. A second one is refused where it is
+; written, pointing back at the first, whether it agrees with the
+; first or not.
+
+(:: twice (-> Int Int))
+(:: twice (-> Int Int))
+(fn (twice x) (* x 2))
+
+(:: half (-> Int Int))
+(:: half (-> Int String))
+(fn (half x) (/ x 2))
+
+(:: main Int)
+(fn (main) (twice (half 8)))

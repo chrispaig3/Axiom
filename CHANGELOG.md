@@ -16,6 +16,11 @@ its changelog too.
 
 ## Unreleased
 
+- A function has one signature. A second `(:: name ...)` for the same
+  name is `AX3006`, pointing back at the first, and the checker keeps
+  the first instead of letting the later one win. The nightly fuzzer
+  found the old behaviour. Tested by
+  `tests/diagnostics/1255-duplicate-signature.ax`.
 - Run a mutual tail call into a function written without a signature
   in constant stack at every `--opt`. The emitter read the callee's
   arity from its signature alone, so the call stayed a plain call and

@@ -2438,6 +2438,21 @@
 (pub fn (NS_TYPE)
   2)
 
+; Signatures, for the duplicate index alone: a second `(:: name ...)`
+; for one name is its own duplicate, and a signature never collides
+; with the definition it describes.
+(pub :: NS_SIG Int)
+(pub fn (NS_SIG)
+  3)
+
+; The namespace the duplicate index files a declaration under:
+; `declNamespace`'s answer, or NS_SIG for a signature.
+(pub :: dupNamespace (-> Int Int))
+(pub fn (dupNamespace tag)
+  (if (== tag TAG_D_SIG)
+    NS_SIG
+    (declNamespace tag)))
+
 ; A MACRO occupies the value namespace too. It defines a name that an
 ; expression can be headed by, and expansion consults the macro table
 ; before anything else, so a macro and a function of the same name are
@@ -2544,7 +2559,7 @@
       (cast Int fs)
       0)
       (dupIdxAddFields bs fs i 0)
-      (let ((ns (declNamespace (nodeTag d))))
+      (let ((ns (dupNamespace (nodeTag d))))
         (if (== ns NS_NONE)
           0
           (dupIdxPut bs (nodeAName d) ns i))))))
@@ -2651,19 +2666,26 @@
               i
               fs
               0)
-            (let ((ns (declNamespace (nodeTag d))))
+            (let ((ns (dupNamespace (nodeTag d))))
               (if (== ns NS_NONE)
                 0
                 (let ((name (nodeAName d)))
                   (let ((j (firstDefiner bs i ns name)))
                     (if (< j 0)
                       0
-                      (dupDiag
-                        decls
-                        out
-                        j
-                        name
-                        (nodeSpan d)))))))))
+                      (if (== ns NS_SIG)
+                        (dupSigDiag
+                          decls
+                          out
+                          j
+                          name
+                          (nodeSpan d))
+                        (dupDiag
+                          decls
+                          out
+                          j
+                          name
+                          (nodeSpan d))))))))))
         (checkDuplicates bs decls out (+ i 1))
       })))
 
@@ -2745,6 +2767,24 @@
           fields
           (+ k 1))
       })))
+
+; A second signature for one name. Each signature states the whole
+; type, so two of them can't both hold, and taking the later one would
+; let the earlier be read as true while the checker ignores it.
+(pub :: dupSigDiag (-> (Vec Int) (Vec Int) Int String Int Int))
+(pub fn (dupSigDiag decls out j name sp)
+  {
+    (vecPush out (diagSetLabel (mkDiag
+      SEV_ERROR
+      "AX3006"
+      "duplicate-definition"
+      sp
+      (concat (concat "a second signature for `" name) "`")
+      (nodeSpan (vecGet decls j))
+      (concat (concat "`" name) "`'s signature is first written here")
+      "keep one signature for each function, and remove the other") "this signature is a second one"))
+    0
+  })
 
 (pub :: dupDiag (-> (Vec Int) (Vec Int) Int String Int Int))
 (pub fn (dupDiag decls out j name sp)
@@ -4495,7 +4535,9 @@
                     (if (> (evSigVarCount (nodeTy d)) 64)
                       (evCapDiag tc (nodeSpan d) "signature" (evSigVarCount (nodeTy d)))
                       0)
-                    (tcCollectSig tc d)
+                    (if (sigRepeated tc decls i d)
+                      0
+                      (tcCollectSig tc d))
                   }
                   (if (== tag TAG_D_FN)
                     (tcCollectFn tc d)
@@ -4978,6 +5020,31 @@
             0
             0)))
         (memSetWord ent 1 ty)))))
+
+; Whether declaration `i` is a second signature for its name in its
+; module. Such a signature is AX3006, and the first one stays the
+; function's type, so its mistakes don't add errors of their own. The
+; scan runs only when the name already has a typed entry: a definition
+; collected first leaves a `_fn_` placeholder, which a signature
+; replaces, and most names meet their signature first.
+(pub :: sigRepeated (-> Int (Vec Int) Int Int Bool))
+(pub fn (sigRepeated tc decls i d)
+  (let ((ent (fnEntExact tc (nodeAName d))))
+    (if (== ent 0)
+      false
+      (let ((ty (memGetWord ent 1)))
+        (if (&& (== (nodeTag ty) TAG_T_VAR) (strStartsWith (nodeAName ty) "_fn_"))
+          false
+          (sigEarlier decls i (nodeAName d) (nodeModule d) 0))))))
+
+(pub :: sigEarlier (-> (Vec Int) Int String Int Int Bool))
+(pub fn (sigEarlier decls i name m j)
+  (if (>= j i)
+    false
+    (let ((e (vecGet decls j)))
+      (if (&& (== (nodeTag e) TAG_D_SIG) (&& (== (nodeModule e) m) (strEq (nodeAName e) name)))
+        true
+        (sigEarlier decls i name m (+ j 1))))))
 
 ; Every push to `fns` goes through here, so the exact-name index cannot
 ; fall behind the table it indexes - including if a later pass ever

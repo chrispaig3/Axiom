@@ -693,6 +693,10 @@ too.
 
 Rename one, or delete the one that is a copy.
 
+A function has one signature, too. A second `(:: name ...)` for one
+name is refused the same way, pointing at the first, and the checker
+keeps the first, so the copy adds no errors of its own.
+
 A PARAMETER LIST is one scope too. `(fn (f x x) x)` names `x` twice,
 and the report lands on the function's name - parameters carry no
 span of their own - and says which parameter it was. It checked OK
