@@ -1219,6 +1219,28 @@ constructor tag that `MM-VAL-8` places at word 0 for one of the three
 representations. Given an address, nothing in the running program can
 recover what is stored there.
 
+**MM-VAL-6a (H). A raw access reaches the address its operands add
+up to.** `(__load8 base i)` and `(__store8 base i v)` reach the byte at
+`base + i`. `(__load64 base i)` and `(__store64 base i v)` reach the
+word at `base + 8 * i`. Which operand holds the address doesn't matter,
+so `(__load8 0 p)` reads the byte that `(__load8 p 0)` reads.
+
+*What the implementation guarantees.* Address 0 is an ordinary
+address. Every emitted function carries LLVM's `null_pointer_is_valid`,
+so the optimiser never treats an access through a base of 0 as
+unreachable, even when the 0 only arrives by inlining.
+
+*What it does not guarantee*, a program obligation. The emitter
+offsets from `base`, which lets LLVM keep a loop's accesses apart and
+vectorise it. So when `base` lies in a block, such as a heap block, a
+string literal or another static, `base + i` **MUST** lie in that same
+block. To reach another block, start from an address inside it. A base
+that lies in no block, such as 0 or a device register, has no such
+limit. Nothing checks this.
+
+Tested by `tests/stdlib/831-raw-access-zero-base.ax`, which answers the
+same at every `--opt`.
+
 **MM-VAL-7 (H).** A `Str` is the address of a
 **three-word** header:
 

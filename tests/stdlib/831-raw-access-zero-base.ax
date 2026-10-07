@@ -1,0 +1,49 @@
+; A raw access reaches the address its operands add up to, and 0 is an
+; ordinary base (docs/memory-model.md MM-VAL-6a). Every line answers
+; the same at every `--opt` (the `.optstable` beside this file).
+;
+;   1  `(__load8 0 p)` reads the byte `(__store8 0 p v)` wrote at `p`
+;   2  the same through a helper whose base is a parameter, so the 0
+;      reaches the access only once the helper is inlined
+;   3  `__load64`/`__store64` with base 0 and a word index of `p / 8`
+;
+; The emitter offsets from the base with a `getelementptr`, and LLVM
+; took a base of 0 for the null pointer and the access for
+; unreachable: this answered at `--opt 0` and died by SIGTRAP at
+; `--opt 1` and above (fuzz mutant m01417 of
+; tests/selfhost/690-large-memcopy.ax, seed 20260927, which swapped
+; `(__load8 dst 0)` into `(__load8 0 dst)`).
+(import IO)
+(import Mem)
+
+(:: zeroBaseByte (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (zeroBaseByte p)
+  {
+    (__store8 0 p 42)
+    (__load8 0 p)
+  })
+
+(:: byteAt (-> Int Int Int))
+;@axiom:effect(unsafe)
+(fn (byteAt base i)
+  (__load8 base i))
+
+(:: zeroBaseWord (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (zeroBaseWord p)
+  {
+    (__store64 0 (/ p 8) 1234567)
+    (__load64 0 (/ p 8))
+  })
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((p (memAlloc 16)))
+    {
+      (println (zeroBaseByte p))
+      (println (byteAt 0 p))
+      (println (zeroBaseWord p))
+      0
+    }))

@@ -22,6 +22,14 @@ its changelog too.
   ten million of them died by SIGSEGV at `--opt 0` while `--opt 2`
   answered. Tested by `tests/stdlib/830-mutual-tail-unsigned.ax`.
 
+- Treat address 0 as an ordinary address in a raw access, so
+  `(__load8 0 p)` reads the byte at `p` at every `--opt`. LLVM took a
+  base of 0 for the null pointer and the access for unreachable, and
+  the program hung or trapped from `--opt 1` up. Every emitted
+  function now carries `null_pointer_is_valid`, and `MM-VAL-6a` states
+  what a raw access reaches. Tested by
+  `tests/stdlib/831-raw-access-zero-base.ax`.
+
 - Give `IO`, `Sys` and `Net` one public name per job, following the
   standard-library naming plan. `Sys`'s C-string file calls, its
   descriptor readers and its terminal calls leave the public surface:

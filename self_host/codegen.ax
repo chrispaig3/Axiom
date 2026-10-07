@@ -14911,12 +14911,23 @@
 ; fault on Normal memory as well as on Device memory, and LLVM may not
 ; merge byte accesses into a wider unaligned one there - which it does
 ; freely where the target allows unaligned access, and aarch64 does.
-; Every hosted target keeps the line it always had, byte for byte.
+;
+; `null_pointer_is_valid` on every target, because a word is an
+; address and 0 is one of them (docs/memory-model.md MM-VAL-6a). A raw
+; access is emitted as a `getelementptr` from its base (`emitPrimLoad`,
+; `emitPrimStore`), and without this attribute LLVM reads a base that
+; is, or folds to, 0 as the null pointer and an access through it as
+; unreachable: `(__load8 0 p)` read the byte at `p` at `--opt 0` and
+; died by SIGTRAP at `--opt 1` and above (fuzz mutant m01417 of
+; tests/selfhost/690-large-memcopy.ax). Computing the address on words
+; instead also cured it, but cost the vectoriser every byte loop -
+; `memCopy` and `memCmp` ran 1.8x slower at `--opt 2` - and the
+; compiler's own run 9-13%; the attribute measured no cost on either.
 (pub :: attrGroupZero (-> Int String))
 (pub fn (attrGroupZero t)
   (if (== t 7)
-    "attributes #0 = { \"no-builtins\" \"frame-pointer\"=\"all\" \"target-features\"=\"+strict-align\" }"
-    "attributes #0 = { \"no-builtins\" \"frame-pointer\"=\"all\" }"))
+    "attributes #0 = { null_pointer_is_valid \"no-builtins\" \"frame-pointer\"=\"all\" \"target-features\"=\"+strict-align\" }"
+    "attributes #0 = { null_pointer_is_valid \"no-builtins\" \"frame-pointer\"=\"all\" }"))
 
 ; ------------------------------------------------------------------
 ; `declare i64 @sym(i64, ...)` for every `extern` item in the module.
