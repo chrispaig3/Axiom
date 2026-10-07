@@ -164,6 +164,7 @@ export const STATUS_LIMITS: StatusRow[] = [
   { feature: 'Macros', status: 'Partial', note: 'A template cannot generate `import` or a nested `macro`, or test two binders for sameness.' },
   { feature: 'Concurrency', status: 'Language form, two lowerings', note: '`parallel`, channels, a mutex and task pools; `taskFold` reclaims each delivered answer under an explicit scalar-only callback contract.' },
   { feature: 'Region syntax', status: 'Checked scope, and annotated signatures with the escape rule', note: 'Scalars leave a region; typed promotion is planned.' },
+  { feature: 'Resource ownership', status: 'Functional', note: 'Files, sockets, terminal modes, channels and mutexes close or free themselves when their last owner lets go.' },
   { feature: 'FFI', status: 'Functional', note: 'Rust through `extern` blocks, sealed owners and callbacks borrowed for the call.' },
   { feature: 'Standard library', status: 'Functional', note: 'Collections, cryptography, optional binary obfuscation, dates, JSON, networking and an embedded database.' },
   { feature: 'Error handling', status: 'Functional; adopted at the syscall seam', note: '`Result`, the `try` form, and handlers that skip a bad record without unwinding.' },
@@ -202,7 +203,7 @@ export const FAQS: Faq[] = [
   {
     q: 'Does it have a garbage collector?',
     a: [
-      'No tracing collector. Memory comes from a bump allocator over `mmap`, and every heap block carries a reference count, so a value is freed the moment its last reference dies, with nothing written in the source. When you want reclamation at a point of your choosing, `(region r body)` rolls the allocator back in one step.',
+      'No tracing collector. Memory comes from a bump allocator over `mmap`, and every heap block carries a reference count, so a value is freed the moment its last reference dies, with nothing written in the source. Files, sockets, channels and mutexes are owners too: each closes or frees itself when its last reference goes. When you want reclamation at a point of your choosing, `(region r body)` rolls the allocator back in one step.',
     ],
     link: { label: 'The memory model', href: `${DOCS}/memory-model.md` },
   },
