@@ -661,20 +661,6 @@ compilation. Use `Pre`'s common macros, and read the
 
 ## Printing and formatting
 
-<a id="holes"></a>
-
-<a id="specifiers"></a>
-
-<a id="mistakes-the-compiler-catches"></a>
-
-<a id="print-your-own-types"></a>
-
-<a id="choose-a-different-rendering"></a>
-
-<a id="when-the-type-isnt-known"></a>
-
-<a id="replacing-removed-print-functions"></a>
-
 ```scheme
 (import IO)
 
@@ -712,14 +698,6 @@ Double braces write literal braces. For custom rendering, pass a
 function in a capability record or call it before formatting.
 
 ## Terminals
-
-<a id="the-functions"></a>
-
-<a id="save-and-restore"></a>
-
-<a id="what-raw-mode-changes"></a>
-
-<a id="window-size"></a>
 
 <a id="targets"></a>
 
@@ -980,54 +958,6 @@ Use [the Rust FFI guide](ffi.md) for supported wire types, callbacks,
 hosting Axiom with `--emit-staticlib`, linking and panic boundaries.
 
 ## Standard library
-
-<a id="the-filesystem"></a>
-
-<a id="work-with-files-and-directories"></a>
-
-<a id="a-str-is"></a>
-
-<a id="connect-over-tcp"></a>
-
-<a id="strings-are-bytes"></a>
-
-<a id="text-is-utf-8-and-str-stays-bytes"></a>
-
-<a id="work-with-utf-8-text"></a>
-
-<a id="build-a-line-editor"></a>
-
-<a id="hold-a-growing-list"></a>
-
-<a id="map-keys-to-values"></a>
-
-<a id="say-what-can-go-wrong"></a>
-
-<a id="keep-going-past-bad-records"></a>
-
-<a id="render-values-as-text"></a>
-
-<a id="parse-and-print-floats"></a>
-
-<a id="work-with-paths"></a>
-
-<a id="parse-and-write-json"></a>
-
-<a id="read-dates-and-times"></a>
-
-<a id="store-rows-in-a-file"></a>
-
-<a id="hash-seal-and-sign"></a>
-
-<a id="frame-messages-for-tools"></a>
-
-<a id="wrap-values-from-rust"></a>
-
-<a id="intern-repeated-strings"></a>
-
-<a id="use-the-prelude-macros"></a>
-
-<a id="find-the-modules-covered-elsewhere"></a>
 
 Use the [standard-library reference](stdlib.md) to choose modules and
 copy small recipes. It includes a [Net section](stdlib.md#net) for TCP.
