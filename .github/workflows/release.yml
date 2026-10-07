@@ -22,6 +22,11 @@
 # in step.
 #
 # The seed remains the supported way to build from source on any host.
+#
+# To release a tag that already exists, run this workflow by hand and
+# name the tag. Every job checks out and builds that tag, while the
+# steps come from the branch you start it on, so a fix to this file
+# reaches a tag that was pushed before the fix.
 
 name: Release
 
@@ -29,9 +34,17 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The existing tag to release, such as v0.7.8
+        required: true
 
 permissions:
   contents: read
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   # Nothing builds until the number agrees with itself.
@@ -40,11 +53,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: refs/tags/${{ env.TAG }}
       - uses: ./.github/actions/provision
 
       - name: The tag matches VERSION
         run: |
-          tag="${GITHUB_REF_NAME#v}"
+          tag="${TAG#v}"
           want="$(tr -d '[:space:]' < VERSION)"
           if [[ "$tag" != "$want" ]]; then
             echo "FAIL: tag is 'v$tag' but VERSION says '$want'."
@@ -75,6 +90,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: refs/tags/${{ env.TAG }}
       - uses: ./.github/actions/provision
 
       # Build from the committed seed, the path a consumer takes:
@@ -158,14 +175,14 @@ jobs:
             || { echo "FAIL: the archive holds no stdlib/"; exit 1; }
           mkdir -p "$RUNNER_TEMP/probe"
           printf '%s\n' \
-            '(import IO (writeStr))' \
+            '(import IO (writeOut))' \
             '' \
             '(:: main Int)' \
             '' \
             ';@axiom:effect(io)' \
             '(fn (main)' \
             '  {' \
-            '    (writeStr 1 "the standard library travelled with the compiler\n")' \
+            '    (writeOut "the standard library travelled with the compiler\n")' \
             '    42' \
             '  }' \
             ')' > "$RUNNER_TEMP/probe/probe.ax"
@@ -194,6 +211,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: refs/tags/${{ env.TAG }}
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -244,12 +263,12 @@ jobs:
               exit 1
             fi
             printf '\nThe full notes for %s are in [CHANGELOG.md](%s/%s/blob/%s/CHANGELOG.md).\n' \
-              "$v" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME" >> "$short"
+              "$v" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$TAG" >> "$short"
             notes="$short"
             echo "release notes: the highlights, $(wc -c < "$notes") characters, and a link to the rest"
           fi
 
-          gh release create "$GITHUB_REF_NAME" dist/* \
+          gh release create "$TAG" dist/* \
             --title "Axiom $v" \
             --notes-file "$notes" \
             --verify-tag
