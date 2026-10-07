@@ -68,6 +68,7 @@ integrator would still need.
 | Retired and never-assigned codes are recorded and never reused | In progress | `ERR-DIAG-2` |
 | A check after an error is poisoned, not cascaded | Planned | `ERR-DIAG-3` |
 | A cast to a spawn handle counts as forging | Not started | |
+| Two signatures for one name are refused, instead of the later one winning | Not started | |
 
 ## One way to do each thing
 

@@ -16,7 +16,6 @@ For installation and editor setup, start at [Read Axiom's docs](README.md).
 - [Formatting](#printing-and-formatting), [memory](#memory), [concurrency](#concurrency) and [Rust](#calling-rust)
 - [Library](#standard-library), [metadata](#axtag-metadata), [commands](#cli-commands), [tests](#testing) and [targets](#cross-compilation)
 
-
 ## Hello, Axiom
 
 ```scheme
@@ -47,14 +46,7 @@ exits 70. Use `try` to propagate failures. See [error handling](stdlib.md#err-an
 
 Tested by `tests/stdlib/490-main-result-ok.ax` and `tests/stdlib/491-main-result-err.ax`.
 
-
 ## Syntax basics
-
-<a id="forms"></a>
-
-<a id="whitespace"></a>
-
-<a id="comments"></a>
 
 Calls and declarations use parentheses: `(add 2 3)`. The first item
 is the function or form; the rest are its arguments. Spaces and newlines
@@ -70,14 +62,7 @@ A body with several expressions evaluates them in order and answers
 the last. Use braces where several expressions must occupy one
 expression position, as in an `if` branch.
 
-
 ## Literals
-
-<a id="escape-sequences"></a>
-
-<a id="string-literals-are-str-values"></a>
-
-<a id="strings-and-integers-are-different-types"></a>
 
 | Value | Spelling |
 |---|---|
@@ -98,14 +83,7 @@ have different types even though both occupy a machine word.
 
 See [strings and collections](stdlib.md#strings-and-collections).
 
-
 ## Identifiers and keywords
-
-<a id="identifiers"></a>
-
-<a id="keywords"></a>
-
-<a id="removed-keywords"></a>
 
 Names are case-sensitive. Public modules use PascalCase, functions
 usually use camelCase, and data constructors start with a capital.
@@ -119,14 +97,7 @@ The core forms are `fn`, `lambda`, `let`, `if`, `while`, `for`, `match`,
 `data`, `struct`, `type`, `subtype`, `effect`, `handle`, `region`,
 `parallel`, `macro`, `import`, `pub` and `extern`.
 
-
 ## Functions
-
-<a id="parameters"></a>
-
-<a id="several-expressions-in-a-body"></a>
-
-<a id="fill-in-an-argument-later-with-_"></a>
 
 ```scheme
 (import IO)
@@ -164,7 +135,6 @@ A lambda is a function value. It can capture values in its enclosing scope.
     0))
 ```
 
-
 This prints `105`. Function parameters and record fields may hold
 arrows such as `(-> Int Int)`. A lambda is always spelled `lambda`:
 `fn` declares a named function at the top level, and `(fn (x) ...)`
@@ -192,18 +162,10 @@ build a lambda for the missing arguments, from left to right:
     0))
 ```
 
-
 This prints `42` twice. A bare `_` elsewhere in an expression is
 undefined; in a pattern it is a wildcard.
 
-
 ## Operators
-
-<a id="integer-arithmetic"></a>
-
-<a id="floats-and-strings"></a>
-
-<a id="operator-types"></a>
 
 All operators are prefix. Parentheses decide grouping.
 
@@ -223,12 +185,7 @@ Float arithmetic uses two `Float` operands. Convert numeric types with
 `__intToFloat` and `__floatToInt`; `cast` alone does not perform that
 numeric conversion. `String` equality reads contents; ordering uses `strCmp`.
 
-
 ## Let bindings
-
-<a id="mutable-bindings-and-while"></a>
-
-<a id="conditionals"></a>
 
 ```scheme
 (import IO)
@@ -266,21 +223,11 @@ Declare a mutable binding with `mut`, then change it with `set`:
     0))
 ```
 
-
 This prints `2`. Assignment returns the assigned value. A closure may
 capture an immutable binding; mutable captures have additional
 restrictions described in [memory](#memory).
 
-
 ## Control flow
-
-<a id="for--the-counted-loop-and-the-container-loop"></a>
-
-<a id="when-a-loop-is-refused"></a>
-
-<a id="loop-over-a-string-or-a-map"></a>
-
-<a id="for-as-a-name"></a>
 
 <a id="type-system"></a>
 
@@ -313,7 +260,6 @@ form a chain, followed by the final default branch.
   0)
 ```
 
-
 ### while loops
 
 `while` repeats its body while its `Bool` condition is true. There is
@@ -332,20 +278,7 @@ vectors. A `for` body is for effects; the form answers 0.
 
 Tested by `tests/stdlib/466-for-loop.ax`.
 
-
 ## Types
-
-<a id="type-signatures"></a>
-
-<a id="sized-integers-and-floats--removed"></a>
-
-<a id="compound-types"></a>
-
-<a id="type-variables-and-polymorphism"></a>
-
-<a id="type-casting"></a>
-
-<a id="effect-types"></a>
 
 ### Primitive types
 
@@ -390,7 +323,6 @@ not name a `region` expression's arena or implement general promotion.
 The current enforcement and remaining gaps are in the
 [memory model](memory-model.md) and [region design](memory-model.md).
 
-
 ## Type aliases
 
 `(type Name = String)` gives another name to `String`; the two are
@@ -412,16 +344,7 @@ Use an alias for naming, a subtype for a checked integer range, and a
 
 Tested by `tests/selfhost/973-type-alias.ax` and `tests/selfhost/134-subtype-checked.ax`.
 
-
 ## Algebraic data types
-
-<a id="struct-variants--named-fields-per-constructor"></a>
-
-<a id="deriving"></a>
-
-<a id="how-adts-actually-run"></a>
-
-<a id="how-adts-are-represented"></a>
 
 ```scheme
 ; Optional value
@@ -457,20 +380,7 @@ structural view.
 `Pre` supplies `deriveEq` and `deriveArity`. Formatting already handles
 renderable data types; no derive is needed for printing.
 
-
 ## Pattern matching
-
-<a id="matching-constructors-with-fields"></a>
-
-<a id="matching-literals"></a>
-
-<a id="nested-patterns"></a>
-
-<a id="wildcard-pattern"></a>
-
-<a id="exhaustiveness-checking"></a>
-
-<a id="the-built-in-option-type"></a>
 
 ```scheme
 (import IO)
@@ -506,24 +416,7 @@ number of fields, and arm results must agree in type.
 `Option` is built in: `Some` holds a value and `None` means absence.
 `Err` supplies `Result`, whose constructors are `Ok` and `Err`.
 
-
 ## Structs
-
-<a id="constructing-binding-and-reading-a-field"></a>
-
-<a id="build-a-struct-and-read-its-fields"></a>
-
-<a id="writing-a-field"></a>
-
-<a id="write-a-field"></a>
-
-<a id="every-field-needs-a-type"></a>
-
-<a id="type-parameters"></a>
-
-<a id="fields-that-hold-functions"></a>
-
-<a id="limits"></a>
 
 Declare typed fields; construct in declaration order and read through
 a bound name. Field access attaches to a name, so bind a call's result
@@ -551,7 +444,6 @@ before using `.field`.
       })))
 ```
 
-
 A struct is built by calling its name, `(Point 1 2)`; `struct` only
 declares, and `(struct Point 1 2)` in an expression is refused with
 `AX2004`. A mutable field is declared `(mut x : Int)` and assigned with
@@ -569,10 +461,7 @@ handle. It has one immutable `Int` field, no type parameters, and only
 its declaring module can construct it or read the field. Add `shared`
 only when its operations are safe across concurrent bindings.
 
-
 ## Capability records
-
-<a id="effects-through-a-record"></a>
 
 ```scheme
 (import IO)
@@ -607,60 +496,7 @@ An interface is a parameterised struct of functions. Calling a member,
 such as `(s.render value)`, is ordinary function application. Each
 member declares its own effects. Records replace traits and `impl`.
 
-
 ## Effects
-
-<a id="how-inference-works"></a>
-
-<a id="built-in-effects"></a>
-
-<a id="annotating-functions-with-effects"></a>
-
-<a id="annotate-a-function"></a>
-
-<a id="declaring-an-effect-type"></a>
-
-<a id="declare-an-effect"></a>
-
-<a id="handling-effects"></a>
-
-<a id="handle-an-effect"></a>
-
-<a id="when-nothing-handles-an-operation"></a>
-
-<a id="effect-polymorphism"></a>
-
-<a id="the-unsafe-layer"></a>
-
-<a id="when-the-walk-cannot-answer"></a>
-
-<a id="when-inference-cant-answer"></a>
-
-<a id="definite-and-possible"></a>
-
-<a id="axtag-keys"></a>
-
-<a id="effect-tags"></a>
-
-<a id="restrict---what-a-declaration-does-not-do"></a>
-
-<a id="the-restrictions"></a>
-
-<a id="read-a-violation"></a>
-
-<a id="when-the-walk-cant-settle-a-claim"></a>
-
-<a id="make-an-unproven-claim-an-error-with-strict"></a>
-
-<a id="where-a-restriction-attaches"></a>
-
-<a id="isr---an-interrupt-entry-point"></a>
-
-<a id="pre--post---a-claim-the-compiler-cannot-decide"></a>
-
-<a id="unhandledtrap---an-effect-whose-unhandled-operation-is-the-design"></a>
-
-<a id="unhandledtrap-an-effect-that-may-abort"></a>
 
 <a id="nolint---quieting-the-editors-hints"></a>
 
@@ -709,7 +545,6 @@ A custom effect declares callable operations with signatures:
   })
 ```
 
-
 An operation runs the innermost installed handler. The handler's return
 value becomes the operation's result and execution continues. Nested
 handlers restore the previous one when their extent ends.
@@ -755,22 +590,7 @@ for signatures, startup and interrupt assumptions.
 compiler errors. Effect-inference facts and metadata are described in
 [symbol tags](diagnostics.md#read-symbol-tags) and [diagnostics](diagnostics.md).
 
-
 ## Modules and imports
-
-<a id="visibility"></a>
-
-<a id="how-imports-work"></a>
-
-<a id="import-a-module"></a>
-
-<a id="qualified-names"></a>
-
-<a id="the-search-order-stated-exactly"></a>
-
-<a id="where-modules-are-found"></a>
-
-<a id="when-an-import-fails"></a>
 
 An imported module exports names marked `pub`. Import all public names
 with `(import Vec)`, selected names with `(import Vec (vecNew vecPush))`,
@@ -790,24 +610,7 @@ The working directory supplies no implicit compiler or library root.
 Private names remain inaccessible through transitive imports. See
 [compiler inspection](compiler-guide.md) for search and linking details.
 
-
 ## Packages
-
-<a id="projects"></a>
-
-<a id="start-a-project"></a>
-
-<a id="the-manifest"></a>
-
-<a id="depend-on-a-directory-of-modules"></a>
-
-<a id="depend-on-a-rust-crate"></a>
-
-<a id="registry-dependencies"></a>
-
-<a id="depend-on-a-git-repository"></a>
-
-<a id="what-packages-dont-do"></a>
 
 Start a project with `axiom new app`, then run `axiom build` or
 `axiom run` inside it. The `axiom.pkg` manifest supplies the entry file,
@@ -825,20 +628,7 @@ checks out git dependencies under `.axiom/deps/`. Packages do not yet
 pin versions or resolve a registry. Crates provide generated Axiom
 wrappers and native archives; see [calling Rust](ffi.md).
 
-
 ## Macros
-
-<a id="write-an-expression-macro"></a>
-
-<a id="hygiene"></a>
-
-<a id="generate-declarations"></a>
-
-<a id="ask-about-the-programs-types"></a>
-
-<a id="match-on-the-arguments"></a>
-
-<a id="match-a-fixed-spelling"></a>
 
 ```scheme
 (import IO)
@@ -865,7 +655,6 @@ information. They do not execute arbitrary source code during
 compilation. Use `Pre`'s common macros, and read the
 [macro specification](macro-system.md) for declaration templates,
 `syntax` queries, pattern matching and expansion limits.
-
 
 ## Printing and formatting
 
@@ -919,7 +708,6 @@ A function, unresolved type variable or unsupported field draws AX3025.
 Double braces write literal braces. For custom rendering, pass a
 function in a capability record or call it before formatting.
 
-
 ## Terminals
 
 <a id="the-functions"></a>
@@ -937,7 +725,6 @@ settings. `Tui.Keys` decodes key events, `Tui.Edit` implements a pure
 line editor, and `Tui.Term` connects it to terminal I/O. Restore saved
 settings when leaving raw mode. The [library API](stdlib-api.md#tuiterm)
 lists the exact operations.
-
 
 ## Memory
 
@@ -1100,7 +887,6 @@ function (`RP-9`). The rule is `MM-FFI-9` in the
 Tested by `tests/stdlib/581-inline-asm.ax` and
 `tests/diagnostics/1044-inline-asm.ax`.
 
-
 ## Concurrency
 
 <a id="parallel--bindings-that-run-beside-the-caller"></a>
@@ -1194,7 +980,6 @@ a scalar accumulator; the callback must not retain region-owned values.
 points, and the [memory model](memory-model.md) defines publication,
 atomic ordering and lifecycle rules.
 
-
 ## Calling Rust
 
 <a id="rules-for-an-extern-block"></a>
@@ -1215,7 +1000,6 @@ leave alone.
 
 Use [the Rust FFI guide](ffi.md) for supported wire types, callbacks,
 hosting Axiom with `--emit-staticlib`, linking and panic boundaries.
-
 
 ## Standard library
 
@@ -1350,7 +1134,6 @@ are exported.
 
 </details>
 
-
 ## AXTAG metadata
 
 `;@axiom:` comments attach checked claims and tool metadata to
@@ -1368,16 +1151,7 @@ Use `axiom --diagnostic-format=ai symbols file.ax` to inspect accepted
 tags and inferred facts. [Symbol tags](diagnostics.md#read-symbol-tags) describes reading
 those rows, and [diagnostics](diagnostics.md) documents their format.
 
-
 ## CLI commands
-
-<a id="checking-and-building"></a>
-
-<a id="using-the-ai-optimized-format"></a>
-
-<a id="symbol-listing"></a>
-
-<a id="diagnostic-lookup"></a>
 
 | Command | Use |
 |---|---|
@@ -1420,26 +1194,7 @@ AXIR is not a build input. See [compiler inspection](compiler-guide.md).
 `axiom explain AX3001` describes the error and a correction. The
 [diagnostic reference](diagnostics.md) documents codes, spans and fixes.
 
-
 ## Testing
-
-<a id="discovery-and-the-two-anti-silence-rules"></a>
-
-<a id="choose-which-tests-run"></a>
-
-<a id="setup-and-teardown"></a>
-
-<a id="set-up-and-tear-down"></a>
-
-<a id="assertions-take-a-label-first"></a>
-
-<a id="assertions"></a>
-
-<a id="one-failure-ends-one-test"></a>
-
-<a id="marking-a-test-expected-to-fail"></a>
-
-<a id="mark-a-test-expected-to-fail"></a>
 
 Import `Test`, then declare no-argument functions whose names start
 with `test`. Assertions take a label first:
@@ -1463,16 +1218,7 @@ reported as XPASS and fails the run.
 
 Tested by `scripts/check-test-runner.sh`.
 
-
 ## The REPL
-
-<a id="example-session"></a>
-
-<a id="a-short-session"></a>
-
-<a id="repl-commands"></a>
-
-<a id="editing-at-a-terminal"></a>
 
 Run `axiom repl` to evaluate expressions and add definitions. Completed
 forms run; incomplete forms continue onto another line. `:help` lists
@@ -1485,14 +1231,7 @@ Axiom 0.7.8 - REPL
 For editor completion, navigation, formatting and fixes, configure
 [the language server](lsp.md).
 
-
 ## Cross-compilation
-
-<a id="supported-is-not-the-same-as-shipped"></a>
-
-<a id="freebsd"></a>
-
-<a id="windows"></a>
 
 Supported targets: `darwin-aarch64`, `linux-aarch64`. The host is the default.
 
@@ -1511,16 +1250,7 @@ For `baremetal-aarch64`, use the [embedded guide](embedded-guide.md) for
 the board, linker layout, static heap and fault policy. Emulator
 execution and hardware validation are distinct.
 
-
 ## Optimisation
-
-<a id="how-deep-a-loop-can-go"></a>
-
-<a id="link-time-optimisation"></a>
-
-<a id="vectorization"></a>
-
-<a id="compiler-pipeline"></a>
 
 `--opt` accepts 0 to 3. The default is 1, or the manifest's `opt`.
 Level 2 enables LLVM loop vectorisation. The runtime and imported Axiom
@@ -1531,7 +1261,6 @@ Tail calls lower to loops where supported; ordinary recursion still
 uses stack. Resource bounds include allocation, destruction and call
 depth. Use the [restricted profile](restricted-profile.md) for checked
 restrictions and explicit unresolved obligations.
-
 
 ## How the compiler works
 
@@ -1556,18 +1285,7 @@ Foreign libraries use `extern`; the older `foreign` keyword is reserved.
 See [compatibility](compatibility.md) and `compat/BREAKING` for migration
 records.
 
-
 ## Tips and patterns
-
-<a id="write-a-function-that-does-io"></a>
-
-<a id="name-intermediate-values-with-let"></a>
-
-<a id="handle-a-missing-result-with-option"></a>
-
-<a id="build-and-walk-a-list"></a>
-
-<a id="use-the-standard-library"></a>
 
 Keep I/O at a boundary, name intermediate values with `let`, and use
 `Option` for absence and `Result` for failure. Use `try` to keep result
@@ -1575,7 +1293,6 @@ handling flat. Prefer typed library operations to raw-memory calls.
 
 [Library recipes](stdlib.md) and [complete examples](../examples/README.md)
 show these patterns in programs.
-
 
 ## Further reading
 
