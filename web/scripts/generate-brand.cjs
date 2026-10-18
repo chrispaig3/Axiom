@@ -105,6 +105,12 @@ const mark = (x, y, scale, color) => `<path d="${markPath}" fill="${color}" tran
 const logo = (x, y, scale, ink = c.paper, accent = c.lime) =>
   `<g transform="translate(${x} ${y}) scale(${scale})"><path d="${markPath}" fill="${accent}" transform="${lockup.mark}"/>` +
   `<g fill="${ink}" transform="${lockup.word}">${wordmark.glyphs.map(d => `<path d="${d}"/>`).join('')}</g></g>`
+// The social card uses the split-A mark as the first letter of Axiom.
+// Move the remaining letters 60px left at the card's render scale.
+const socialLogo = (x, y, scale) =>
+  `<g transform="translate(${x} ${y}) scale(${scale})"><path d="${markPath}" fill="${c.lime}" transform="${lockup.mark}"/>` +
+  `<g fill="${c.paper}" transform="${lockup.word}"><g transform="translate(${-60 / scale} 0)">` +
+  wordmark.glyphs.slice(1).map(d => `<path d="${d}"/>`).join('') + '</g></g></g>'
 /** The lockup at `scale`, centred on x = cx, with its capitals centred on y = cy. */
 const logoAt = (cx, cy, scale, ink, accent) =>
   logo(+(cx - lockup.width * scale / 2).toFixed(2), +(cy - (capTop + baseline) / 2 * scale).toFixed(2), scale, ink, accent)
@@ -179,7 +185,7 @@ async function main() {
     `Axiom — ${tagline}`)
 
   save('Axiom_Social', 1200, 630,
-    rect(0, 0, 1200, 630, c.graphite) + logo(64, 56, 0.66) +
+    rect(0, 0, 1200, 630, c.graphite) + socialLogo(64, 56, 0.66) +
     label(64, 210, 'THE FUNCTIONAL SYSTEMS LANGUAGE') +
     text(60, 301, 'High-level thinking.', { size: 62, weight: 600, color: c.paper, tracking: -0.055 }) +
     text(60, 374, 'Native-level control.', { size: 62, weight: 600, color: c.lime, tracking: -0.055 }) +
