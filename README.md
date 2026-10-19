@@ -2,7 +2,7 @@
 
 ![GitHub CI](https://github.com/chrispaig3/Axiom/actions/workflows/ci.yml/badge.svg)
 
-<img width="1200" height="630" alt="Image" src="https://github.com/user-attachments/assets/e78bba15-6315-4bf5-82c0-a9b9b2a3b663" />
+<img width="1200" height="630" alt="Axiom — High-level thinking. Native-level control." src="assets/logo/Axiom_Social.png" />
 
 **The functional systems language.** 
 
