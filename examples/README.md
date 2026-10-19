@@ -1,8 +1,8 @@
 # Examples
 
-Complete programs you can read, run and borrow from. Each one is real
-code this repository depends on, and CI runs every one of them, so they
-keep working as the compiler changes.
+Complete programs for Axiom 0.7.9 you can read, run and borrow from.
+Each one is real code this repository depends on, and CI runs every
+one of them, so they keep working as the compiler changes.
 
 Run the commands from the repository root. Each program opens with a
 header comment that explains why it's written the way it is, and it's
@@ -31,8 +31,8 @@ Tested by `scripts/check-contracts.sh`.
 
 [`examples/batch-fallible/batch-fallible.ax`](batch-fallible/batch-fallible.ax)
 processes a million records and shows the `Fallible` effect at work. A
-parser six calls down reports a bad record with `fallibleMalformed`,
-and the loop at the top decides what happens next:
+record parser reports a bad record with `fallibleMalformed`, and the
+loop at the top decides what happens next:
 
 - skip the record, with `fallibleSkip`;
 - use a default value, with `(fallibleDefault d)`;
@@ -45,7 +45,9 @@ per record.
 axiom run examples/batch-fallible/batch-fallible.ax [N [k]]
 ```
 
-`N` and `k` default to `1000000` and `7`. For a smaller run:
+`N` and `k` default to `1000000` and `7`. Use `N >= 0` and `k > 0`;
+invalid bounds print a message and exit with status `2`. An empty batch
+(`N = 0`) prints three zero totals. For a smaller run:
 
 ```bash
 axiom run examples/batch-fallible/batch-fallible.ax 1000 7
@@ -107,6 +109,14 @@ stream ends when the producer closes the channel.
 
 ```bash
 axiom run examples/concurrency/pipeline.ax [N]
+```
+
+`N` defaults to `2000` and must be positive. Zero or a negative value
+prints a message and exits with status `2`. To run it with threads:
+
+```bash
+axiom build --threads examples/concurrency/pipeline.ax -o pipeline
+./pipeline 1
 ```
 
 It checks the sum of squares of 1..N and that the worker idled at
