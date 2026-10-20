@@ -82,9 +82,9 @@
 ; Packed auxiliary metadata and raw writes through string aliases remain
 ; outside the snapshot; this is not a fully immutable semantic IR.
 (data CheckedSyntax
-  (CheckedNode ASTNode ASTNode)
-  (CheckedNodes Nodes Nodes)
-  (CheckedNames Names Names))
+  (CheckedNodeBatch Nodes Nodes)
+  (CheckedNodesBatch (Vec Nodes) (Vec Nodes))
+  (CheckedNamesBatch (Vec Names) (Vec Names)))
 
 ; The three payload slots: n is a node, N a node vector, S a name vector.
 ; Other slots are compared as words but their contents are not traversed.
@@ -229,34 +229,43 @@
         })
     }))
 
-(:: checkedSnapshotNodes (-> Nodes Nodes (Vec CheckedSyntax) Int))
-(fn (checkedSnapshotNodes nodes pending snapshots)
+(:: checkedSnapshotNodes (-> Nodes Nodes (Vec Nodes) (Vec Nodes) Int))
+(fn (checkedSnapshotNodes nodes pending originals copies)
   (if (vecIsNull nodes)
     0
     {
       (let accepted (checkedCopyDeclarations nodes))
-      (vecPush snapshots (CheckedNodes nodes accepted))
+      (vecPush originals nodes)
+      (vecPush copies accepted)
       (for node in accepted
         (vecPush pending node))
       0
     }))
 
-(:: checkedSnapshotNames (-> Names (Vec CheckedSyntax) Int))
-(fn (checkedSnapshotNames names snapshots)
+(:: checkedSnapshotNames (-> Names (Vec Names) (Vec Names) Int))
+(fn (checkedSnapshotNames names originals copies)
   (if (vecIsNull names)
     0
     {
       (let accepted (vecWithCapacity (vecLen names)))
       (for name in names
         (vecPush accepted name))
-      (vecPush snapshots (CheckedNames names accepted))
+      (vecPush originals names)
+      (vecPush copies accepted)
       0
     }))
 
 (:: checkedSnapshot (-> Nodes (Vec CheckedSyntax)))
 (fn (checkedSnapshot declarations)
   {
-    (let snapshots vecNew)
+    ; Keep each kind's exact original/copy pairs in typed vectors.
+    ; The wrappers are built once, after the synchronous walk.
+    (let originalNodes vecNew)
+    (let copiedNodes vecNew)
+    (let originalChildren vecNew)
+    (let copiedChildren vecNew)
+    (let originalNames vecNew)
+    (let copiedNames vecNew)
     (let pending (checkedCopyDeclarations declarations))
     (let seen checkedSeenNew)
     (let mut i 0)
@@ -266,7 +275,8 @@
         (set i (+ i 1))
         (if (checkedVisit node seen)
           {
-            (vecPush snapshots (CheckedNode node (nodeClone node)))
+            (vecPush originalNodes node)
+            (vecPush copiedNodes (nodeClone node))
             (let tag (nodeTag node))
             (let shape (checkedSyntaxShape tag))
             (let mut slot 1)
@@ -276,9 +286,10 @@
                 (if (== kind 110)
                     (vecPush pending (nodeChildAt node slot))
                   (== kind 78)
-                    (checkedSnapshotNodes (nodeChildrenAt node slot) pending snapshots)
+                    (checkedSnapshotNodes (nodeChildrenAt node slot) pending originalChildren
+                      copiedChildren)
                   (== kind 83)
-                    (checkedSnapshotNames (nodeNamesAt node slot) snapshots)
+                    (checkedSnapshotNames (nodeNamesAt node slot) originalNames copiedNames)
                   0)
                 (set slot (+ slot 1))
               })
@@ -286,18 +297,25 @@
             (if (|| (== tag TAG_D_SIG) (== tag TAG_FIELD))
                 (vecPush pending (nodeTyChild node))
               (== tag TAG_CTOR)
-                (checkedSnapshotNodes (nodeTyChildren node) pending snapshots)
+                (checkedSnapshotNodes (nodeTyChildren node) pending originalChildren copiedChildren)
               (|| (== tag TAG_D_DATA) (== tag TAG_D_STRUCT))
-                (checkedSnapshotNames (nodeTyNames node) snapshots)
+                (checkedSnapshotNames (nodeTyNames node) originalNames copiedNames)
               0)
             ; Effect and extern members put their type in b. Struct
             ; fields put a 0/1 flag there and keep their type in ty.
             (if (&& (== tag TAG_FIELD) (> (nodeB node) 1))
               (vecPush pending (nodeBChild node)))
             (if (|| (== tag TAG_CTOR) (== tag TAG_E_APP))
-              (checkedSnapshotNames (nodeFieldNamesNames node) snapshots))
+              (checkedSnapshotNames (nodeFieldNamesNames node) originalNames copiedNames))
           })
       })
+    (let snapshots (vecWithCapacity 3))
+    (if (> (vecLen originalNodes) 0)
+      (vecPush snapshots (CheckedNodeBatch originalNodes copiedNodes)))
+    (if (> (vecLen originalChildren) 0)
+      (vecPush snapshots (CheckedNodesBatch originalChildren copiedChildren)))
+    (if (> (vecLen originalNames) 0)
+      (vecPush snapshots (CheckedNamesBatch originalNames copiedNames)))
     snapshots
   })
 
@@ -314,29 +332,66 @@
     same
   })
 
+(:: checkedNodeSame (-> ASTNode ASTNode Bool))
+(fn (checkedNodeSame actual accepted)
+  {
+    (let mut same true)
+    (let mut slot 0)
+    (while (&& same (< slot 13))
+      {
+        (set same (== (nodeWireWord actual slot) (nodeWireWord accepted slot)))
+        (set slot (+ slot 1))
+      })
+    same
+  })
+
+(:: checkedNamesSame (-> Names Names Bool))
+(fn (checkedNamesSame actual accepted)
+  {
+    (let mut same (== (vecLen actual) (vecLen accepted)))
+    (let mut i 0)
+    (while (&& same (< i (vecLen accepted)))
+      {
+        (set same (addrEq (addrOf (vecGet actual i)) (addrOf (vecGet accepted i))))
+        (set i (+ i 1))
+      })
+    same
+  })
+
 (:: checkedSyntaxSame (-> CheckedSyntax Bool))
 (fn (checkedSyntaxSame snapshot)
   (match snapshot
-    ((CheckedNode actual accepted)
-      {
-        (let mut same true)
-        (let mut slot 0)
-        (while (&& same (< slot 13))
-          {
-            (set same (== (nodeWireWord actual slot) (nodeWireWord accepted slot)))
-            (set slot (+ slot 1))
-          })
-        same
-      }
-    )
-    ((CheckedNodes actual accepted) (checkedNodesSame actual accepted))
-    ((CheckedNames actual accepted)
+    ((CheckedNodeBatch actual accepted)
       {
         (let mut same (== (vecLen actual) (vecLen accepted)))
         (let mut i 0)
         (while (&& same (< i (vecLen accepted)))
           {
-            (set same (addrEq (addrOf (vecGet actual i)) (addrOf (vecGet accepted i))))
+            (set same (checkedNodeSame (vecGet actual i) (vecGet accepted i)))
+            (set i (+ i 1))
+          })
+        same
+      }
+    )
+    ((CheckedNodesBatch actual accepted)
+      {
+        (let mut same (== (vecLen actual) (vecLen accepted)))
+        (let mut i 0)
+        (while (&& same (< i (vecLen accepted)))
+          {
+            (set same (checkedNodesSame (vecGet actual i) (vecGet accepted i)))
+            (set i (+ i 1))
+          })
+        same
+      }
+    )
+    ((CheckedNamesBatch actual accepted)
+      {
+        (let mut same (== (vecLen actual) (vecLen accepted)))
+        (let mut i 0)
+        (while (&& same (< i (vecLen accepted)))
+          {
+            (set same (checkedNamesSame (vecGet actual i) (vecGet accepted i)))
             (set i (+ i 1))
           })
         same

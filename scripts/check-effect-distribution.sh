@@ -378,6 +378,10 @@ have() { # have <got> <want> <what>
 # typeKeywordCanon. Existing IO, Block, Spawn and Entropy sets stay fixed.
 # Typed formatter declaration queries add two pure predicates and one
 # Alloc,Mut invocation renderer. No existing metadata row changes.
+# Batching exact snapshots adds two pure comparison helpers; a same-compiler
+# comparison against its parent changes no existing effect row. The pins also
+# take up earlier drift of two Alloc,Mut rows, one Alloc,IO,Mut row and six
+# pure rows; none of those additions belongs to this patch.
 echo "== compiler view: symbols --calls core/main.ax =="
 "$axc" --diagnostic-format=ai symbols --calls core/main.ax > "$work/main.axsym" 2>"$work/main.err" \
   || { fail "could not read symbols over core/main.ax"; echo "check-effect-distribution: $failed failed"; exit 1; }
@@ -458,8 +462,8 @@ rows="$(grep -c '^F ' "$work/main.axsym" || true)"
 # added or removed by that migration, and every required effect stays fixed.
 # Optional assembler description queries move asmSemi from pure to Alloc.
 # A same-compiler comparison changes no other effect row.
-have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 3699 "exactly Alloc,Mut"
-have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut')" 514 "Alloc,IO,Mut"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 3701 "exactly Alloc,Mut"
+have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut')" 515 "Alloc,IO,Mut"
 have "$(bucket "$work/main.axsym" 'Mut')" 285 "exactly Mut"
 have "$(bucket "$work/main.axsym" 'Alloc')" 476 "exactly Alloc"
 have "$(bucket "$work/main.axsym" 'Alloc,IO')" 24 "Alloc,IO"
@@ -493,7 +497,7 @@ have "$(bucket "$work/main.axsym" 'Alloc,Block,IO,Mut')" 16 "Alloc,Block,IO,Mut"
 have "$(bucket "$work/main.axsym" 'Alloc,Block,IO')" 2 "Alloc,Block,IO"
 have "$(bucket "$work/main.axsym" 'Block,IO')" 1 "Block,IO"
 have "$(bucket "$work/main.axsym" 'Block,IO,Mut')" 1 "Block,IO,Mut"
-have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 2395 "pure (neither row nor mark)"
+have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 2403 "pure (neither row nor mark)"
 have "$(grep '^F ' "$work/main.axsym" | grep -o '#effects=[^ #]*' | LC_ALL=C sort -u | wc -l | tr -d ' ')" 32 "distinct compiler effect rows"
 have "$(grep -c '#effects-incomplete' "$work/main.axsym" || true)" 54 "incomplete rows"
 have "$(grep -c '#effect-params' "$work/main.axsym" || true)" 42 "effect-params rows"

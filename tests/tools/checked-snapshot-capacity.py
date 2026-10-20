@@ -63,7 +63,7 @@ EXPORTS = r'''
     (let mut count 0)
     (for snapshot in snapshots
       (match snapshot
-        ((CheckedNode actual accepted) (set count (+ count 1)))
+        ((CheckedNodeBatch actual accepted) (set count (+ count (vecLen actual))))
         (_ 0)))
     count
   })
@@ -75,36 +75,65 @@ EXPORTS = r'''
       (if (! (checkedSyntaxSame snapshot)) (set same false)))
     same
   })
-(pub :: probeListCount (-> (Vec CheckedSyntax) Int))
-(pub fn (probeListCount snapshots)
+(pub :: probeNonemptyBatches (-> (Vec CheckedSyntax) Bool))
+(pub fn (probeNonemptyBatches snapshots)
   {
-    (let mut count 0)
+    (let mut good true)
     (for snapshot in snapshots
       (match snapshot
-        ((CheckedNodes actual accepted) (set count (+ count 1)))
-        (_ 0)))
-    count
+        ((CheckedNodeBatch actual accepted)
+          (if (|| (== (vecLen actual) 0) (!= (vecLen actual) (vecLen accepted)))
+            (set good false)))
+        ((CheckedNodesBatch actual accepted)
+          (if (|| (== (vecLen actual) 0) (!= (vecLen actual) (vecLen accepted)))
+            (set good false)))
+        ((CheckedNamesBatch actual accepted)
+          (if (|| (== (vecLen actual) 0) (!= (vecLen actual) (vecLen accepted)))
+            (set good false)))))
+    good
   })
-(pub :: probeNameCount (-> (Vec CheckedSyntax) Int))
-(pub fn (probeNameCount snapshots)
+(pub :: probeNodeBatchSame (-> Nodes Nodes Bool))
+(pub fn (probeNodeBatchSame actual accepted)
+  (checkedSyntaxSame (CheckedNodeBatch actual accepted)))
+(pub :: probeNodesBatchSame (-> (Vec Nodes) (Vec Nodes) Bool))
+(pub fn (probeNodesBatchSame actual accepted)
+  (checkedSyntaxSame (CheckedNodesBatch actual accepted)))
+(pub :: probeNamesBatchSame (-> (Vec Names) (Vec Names) Bool))
+(pub fn (probeNamesBatchSame actual accepted)
+  (checkedSyntaxSame (CheckedNamesBatch actual accepted)))
+(pub :: probeReferenceCount (-> a Int))
+;@axiom:effect(unsafe)
+(pub fn (probeReferenceCount value) (__load64 (as value Int) -2))
+(pub :: probeOwnedNodeBatch (-> Nodes Nodes Bool))
+(pub fn (probeOwnedNodeBatch actual accepted)
   {
-    (let mut count 0)
-    (for snapshot in snapshots
-      (match snapshot
-        ((CheckedNames actual accepted) (set count (+ count 1)))
-        (_ 0)))
-    count
+    (let a (probeReferenceCount actual))
+    (let b (probeReferenceCount accepted))
+    (let snapshot (CheckedNodeBatch actual accepted))
+    (let holds (&& (== (probeReferenceCount actual) (+ a 1))
+      (== (probeReferenceCount accepted) (+ b 1))))
+    (&& holds (checkedSyntaxSame snapshot))
   })
-(pub :: probeNodeSame (-> ASTNode ASTNode Bool))
-(pub fn (probeNodeSame actual accepted)
-  (checkedSyntaxSame (CheckedNode actual accepted)))
-(pub :: probeNodesSame (-> Nodes Nodes Bool))
-(pub fn (probeNodesSame actual accepted)
-  (checkedSyntaxSame (CheckedNodes actual accepted)))
-(pub :: probeNamesSame (-> Names Names Bool))
-(pub fn (probeNamesSame actual accepted)
-  (checkedSyntaxSame (CheckedNames actual accepted)))
-; Every word of a snapshotted node is guarded: bump each in turn.
+(pub :: probeOwnedNodesBatch (-> (Vec Nodes) (Vec Nodes) Bool))
+(pub fn (probeOwnedNodesBatch actual accepted)
+  {
+    (let a (probeReferenceCount actual))
+    (let b (probeReferenceCount accepted))
+    (let snapshot (CheckedNodesBatch actual accepted))
+    (let holds (&& (== (probeReferenceCount actual) (+ a 1))
+      (== (probeReferenceCount accepted) (+ b 1))))
+    (&& holds (checkedSyntaxSame snapshot))
+  })
+(pub :: probeOwnedNamesBatch (-> (Vec Names) (Vec Names) Bool))
+(pub fn (probeOwnedNamesBatch actual accepted)
+  {
+    (let a (probeReferenceCount actual))
+    (let b (probeReferenceCount accepted))
+    (let snapshot (CheckedNamesBatch actual accepted))
+    (let holds (&& (== (probeReferenceCount actual) (+ a 1))
+      (== (probeReferenceCount accepted) (+ b 1))))
+    (&& holds (checkedSyntaxSame snapshot))
+  })
 (pub :: probeAllWordGuards Bool)
 (pub fn (probeAllWordGuards)
   {
@@ -118,6 +147,36 @@ EXPORTS = r'''
       })
     good
   })
+(pub :: probeOriginalNodes (-> (Vec CheckedSyntax) Nodes))
+(pub fn (probeOriginalNodes snapshots)
+  (match (vecGet snapshots 0)
+    ((CheckedNodeBatch actual accepted) actual)
+    (_ vecNew)))
+(pub :: probeCopiedNodes (-> (Vec CheckedSyntax) Nodes))
+(pub fn (probeCopiedNodes snapshots)
+  (match (vecGet snapshots 0)
+    ((CheckedNodeBatch actual accepted) accepted)
+    (_ vecNew)))
+(pub :: probeOriginalChildren (-> (Vec CheckedSyntax) (Vec Nodes)))
+(pub fn (probeOriginalChildren snapshots)
+  (match (vecGet snapshots 1)
+    ((CheckedNodesBatch actual accepted) actual)
+    (_ vecNew)))
+(pub :: probeCopiedChildren (-> (Vec CheckedSyntax) (Vec Nodes)))
+(pub fn (probeCopiedChildren snapshots)
+  (match (vecGet snapshots 1)
+    ((CheckedNodesBatch actual accepted) accepted)
+    (_ vecNew)))
+(pub :: probeOriginalNames (-> (Vec CheckedSyntax) (Vec Names)))
+(pub fn (probeOriginalNames snapshots)
+  (match (vecGet snapshots 2)
+    ((CheckedNamesBatch actual accepted) actual)
+    (_ vecNew)))
+(pub :: probeCopiedNames (-> (Vec CheckedSyntax) (Vec Names)))
+(pub fn (probeCopiedNames snapshots)
+  (match (vecGet snapshots 2)
+    ((CheckedNamesBatch actual accepted) accepted)
+    (_ vecNew)))
 '''
 
 
@@ -179,11 +238,17 @@ def assert_owner_release(work):
         assert constructor is not None, ('seen constructor missing', function)
         release = 'call void @axiom_release(i64 ' + constructor['value'] + ')'
         assert release in body, ('seen owner is parked', function, body)
+    snapshot = function_ir(module, 'CheckedSnapshotProbe$checkedSnapshot')
+    fields = re.findall(r'^\s*(%\S+) = call i64 @Vec\$vecNew\(\)', snapshot, re.M)
+    assert len(fields) == 6, ('expected six lexical batch vectors', fields)
+    for field in fields:
+        release = 'call void @axiom_release(i64 ' + field + ')'
+        assert snapshot.count(release) == 1, ('batch vector birth is parked', field)
 
 
 def rejected(actual, required, name):
     lines = actual.splitlines()
-    assert len(lines) == 62, (name, 'incomplete assertions', actual)
+    assert len(lines) == 75, (name, 'incomplete assertions', actual)
     failed = {int(line.split()[0]) for line in lines if line.endswith(' false')}
     assert required <= failed, (name, 'negative control escaped assertions', failed)
     return sorted(failed)
@@ -197,7 +262,7 @@ def main():
     root = Path(__file__).resolve().parents[2]
     compiler = str(Path(args.compiler).resolve())
     source = checked_source(root)
-    expected = ''.join(f'{i} true\n' for i in range(1, 63))
+    expected = ''.join(f'{i} true\n' for i in range(1, 76))
     owner = None
     if args.work is None:
         owner = tempfile.TemporaryDirectory(prefix='axiom-checked-snapshot-')
@@ -223,28 +288,31 @@ def main():
         rehash = rejected(run(compiler, root, work, control, 'rehash-control', '0'),
                           {24, 25, 35}, 'rehash')
         seam = '(< slot 13)'
-        assert source.count(seam) == 1, 'node word guard seam changed'
+        assert source.count(seam) == 1, 'exact node word guard seam changed'
         words = rejected(run(compiler, root, work, source.replace(seam, '(< slot 12)'),
-                             'node-words-control', '0'), {62}, 'node words')
+                             'node-words-control', '0'), {63}, 'node words')
+        start = source.index('(:: checkedSyntaxSame ')
+        end = source.index('(pub :: probeNew ', start)
+        guards = source[start:end]
         seam = '(== (vecLen actual) (vecLen accepted))'
-        assert source.count(seam) == 2, 'list length guard seams changed'
-        control = source.replace(seam, '(>= (vecLen actual) (vecLen accepted))')
-        lengths = rejected(run(compiler, root, work, control, 'length-control', '0'),
-                           {53, 58}, 'list lengths')
+        assert guards.count(seam) == 3, 'three exact batch length guards changed'
+        control = (source[:start] + guards.replace(seam,
+                   '(>= (vecLen actual) (vecLen accepted))') + source[end:])
+        lengths = rejected(run(compiler, root, work, control, 'batch-length-control', '0'),
+                           {52, 56, 60}, 'batch lengths')
         seam = '(nodeSame (vecGet actual i) (vecGet accepted i))'
         assert source.count(seam) == 1, 'child identity guard seam changed'
-        control = source.replace(seam,
-            '(== (nodeTag (vecGet actual i)) (nodeTag (vecGet accepted i)))')
+        control = source.replace(seam, '(checkedNodeSame (vecGet actual i) (vecGet accepted i))')
         children = rejected(run(compiler, root, work, control, 'child-identity-control', '0'),
-                            {55}, 'child identity')
+                            {58}, 'child identity')
         seam = '(addrEq (addrOf (vecGet actual i)) (addrOf (vecGet accepted i)))'
         assert source.count(seam) == 1, 'name identity guard seam changed'
         control = source.replace(seam, '(strEq (vecGet actual i) (vecGet accepted i))')
         names = rejected(run(compiler, root, work, control, 'name-identity-control', '0'),
-                         {47, 60}, 'name identity')
-        print('ok   checked snapshot: 62 cases at O0/O2; exact owner releases; '
+                         {48, 62}, 'name identity')
+        print('ok   checked snapshot: 75 cases at O0/O2; seen and six batch owners retire; '
               f'equality {equality}; rehash {rehash}; node words {words}; '
-              f'list lengths {lengths}; child identity {children}; name identity {names}')
+              f'batch lengths {lengths}; child identity {children}; name identity {names}')
     finally:
         if owner is not None:
             owner.cleanup()
