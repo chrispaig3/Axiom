@@ -20,7 +20,7 @@ and explains its representation and lifetime obligations. The editor
 receives the terminal's help and related location. Hover over `as` for
 guidance on ownership shares, identity comparisons and region scope;
 the same text is available through `axiom explain as`. See
-[RECAP](reference.md#what-recap-guarantees) for the memory boundaries.
+[the memory guide](reference.md#what-recap-guarantees) for the memory boundaries.
 
 <a id="running-it"></a>
 ## Run the server
@@ -909,8 +909,15 @@ current item. Malformed Axiom item data returns `-32602` (`InvalidParams`).
 
 Tested by `tests/lsp/completion-resolve.py`.
 
-Not yet: expected-type suggestions and auto-import edits. See the
-[roadmap](roadmap.md#tools).
+Inside a signed function with no parameters whose whole body is a
+single name, completion ranks offered functions with the same concrete
+primitive result type first. The name can be partly typed. Other
+contexts keep the usual order, including a document recovered from a
+parse error. The existing prefix filter, shadowing and cap still decide
+which names are offered.
+
+Not yet: completion does not infer expected types in other expressions
+or offer auto-import edits. See the [roadmap](roadmap.md#tools).
 
 A document that doesn't parse completes from what parses around the
 error, so the menu is there while a form is half written.

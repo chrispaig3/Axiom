@@ -4803,6 +4803,92 @@
     }
     0))
 
+; This first expected-type slice compares only concrete primitive value
+; types. Aliases, parameterised and nominal types need checked resolution.
+(pub :: lspComplScalarName (-> ASTNode String))
+(pub fn (lspComplScalarName t)
+  (if (nodeSame t nilNode)
+    ""
+    (if (== (nodeTag t) TAG_T_CON)
+      (if (== (vecLen (nodeBChildren t)) 0)
+        {
+          (let name (nodeAName t))
+          (if (|| (strEq name "Int")
+                (|| (strEq name "Bool")
+                  (|| (strEq name "Float") (|| (strEq name "Char") (strEq name "String")))))
+            name
+            "")
+        }
+        "")
+      "")))
+
+; Exactly one definition and one signature are needed before a raw
+; parse tree can give a reliable type to this bare function name.
+(pub :: lspComplNullaryType (-> (Vec ASTNode) String String))
+(pub fn (lspComplNullaryType decls name)
+  {
+    (let mut defs 0)
+    (let mut sigs 0)
+    (let mut ty "")
+    {
+      (for d in decls
+        (if (&& (strEq (nodeAName d) name) (!= (nodeSpan d) 0))
+          (if (== (nodeTag d) TAG_D_FN)
+            {
+              (set defs (+ defs 1))
+              (if (== (vecLen (nodeBNames d)) 0)
+                ()
+                (set defs (+ defs 1)))
+            }
+            (if (== (nodeTag d) TAG_D_SIG)
+              {
+                (set sigs (+ sigs 1))
+                (set ty (lspComplScalarName (nodeTyChild d)))
+              }))))
+      (if (&& (== defs 1) (== sigs 1))
+        ty
+        "")
+    }
+  })
+
+; A signed nullary function's one bare-name body has the declared
+; result as its expected type, even when the name is half typed.
+(pub :: lspComplExpected (-> (Vec ASTNode) Int String))
+(pub fn (lspComplExpected decls off)
+  {
+    (let mut found "")
+    (let mut count 0)
+    {
+      (for d in decls
+        (if (&& (== (nodeTag d) TAG_D_FN) (== (vecLen (nodeBNames d)) 0))
+          {
+            (let body (nodeCChild d))
+            (if (&& (== (nodeTag body) TAG_E_VAR) (!= (nodeSpan body) 0))
+              {
+                (let sp (nodeSpan body))
+                (if (&& (<= (spanStart sp) off) (<= off (spanEnd sp)))
+                  {
+                    (set count (+ count 1))
+                    (set found (lspComplNullaryType decls (nodeAName d)))
+                  })
+              })
+          }))
+      (if (== count 1)
+        found
+        "")
+    }
+  })
+
+; Prefix, shadow and cap checks still decide which names enter the
+; menu. LSP sortText only gives an accepted exact match a preference.
+(pub :: lspComplTypedItem (-> Int String (Vec ASTNode) ASTNode Int))
+(pub fn (lspComplTypedItem item expected decls d)
+  (if (if (strEq expected "")
+    false
+    (strEq expected (lspComplNullaryType decls (nodeAName d))))
+    (jsonObjPut item "sortText" (jsonStr (concat " " (jsonGetStr item "label"))))
+    item))
+
 ; The identifier bytes immediately BEFORE the cursor.
 ;
 ; `lspWordAt` will not do, and the difference is the whole request: it
@@ -4908,11 +4994,16 @@
                 ((ParseSuccess parsedValue9 parsedPos9)
                   {
                     (let decls parsedValue9)
+                    (let expected
+                      (if (>= parsedPos9 0)
+                        (lspComplExpected decls (lspOffsetOf src ix (jsonGet params "position")))
+                        ""))
                     {
                       (lspComplContract out seen src decls
                         (lspOffsetOf src ix (jsonGet params "position")) prefix)
-                      (lspComplLocal out seen src decls prefix mode)
-                      (lspComplImported workspace out seen (lspUriToPath uri) src decls prefix mode)
+                      (lspComplLocal out seen src decls prefix expected mode)
+                      (lspComplImported workspace out seen (lspUriToPath uri) src decls prefix
+                        expected mode)
                     }
                   }
                 ))
@@ -5084,8 +5175,8 @@
 ; complete - plus the constructors, which the outline leaves out
 ; because they are not declarations and completion wants because they
 ; are names.
-(pub :: lspComplLocal (-> Int Strings String (Vec ASTNode) String LspComplMode Int))
-(pub fn (lspComplLocal out seen src decls prefix mode)
+(pub :: lspComplLocal (-> Int Strings String (Vec ASTNode) String String LspComplMode Int))
+(pub fn (lspComplLocal out seen src decls prefix expected mode)
   {
     (let n (vecLen decls))
     {
@@ -5099,7 +5190,7 @@
                   (if mode.deferred
                     ""
                     (lspComplDetail src decls d))
-                  prefix mode d))
+                  prefix expected decls mode d))
               (if (== (nodeTag d) TAG_D_DATA)
                 (lspComplCtors out seen d prefix mode))
             })
@@ -5132,7 +5223,7 @@
     (let n (vecLen ctors))
     {
       (for i in 0..n
-        (lspComplDeclOffer out seen (nodeAName (vecGet ctors i)) 20 "" prefix mode d))
+        (lspComplDeclOffer out seen (nodeAName (vecGet ctors i)) 20 "" prefix "" ctors mode d))
       0
     }
   })
@@ -5146,9 +5237,9 @@
 ; A resolver failure is an empty addition rather than a diagnostic -
 ; half-typed imports are the normal state of a file being edited.
 (pub :: lspComplImported
-  (-> LspWorkspace Int Strings String String (Vec ASTNode) String LspComplMode Int))
+  (-> LspWorkspace Int Strings String String (Vec ASTNode) String String LspComplMode Int))
 ;@axiom:effect(io)
-(pub fn (lspComplImported workspace out seen path src decls prefix mode)
+(pub fn (lspComplImported workspace out seen path src decls prefix expected mode)
   (if (let (Some r) (lspResolveFor workspace path src decls))
     {
       (let allDecls r.decls)
@@ -5165,7 +5256,7 @@
                     (match (lspModOf (nodeAName d))
                       ((None) "")
                       ((Some m) m))
-                    prefix mode d)
+                    prefix expected allDecls mode d)
                   (if (== (nodeTag d) TAG_D_DATA)
                     (lspComplCtors out seen d prefix mode))
                 })
@@ -5203,11 +5294,12 @@
 
 ; Keywords, module paths and contract names remain complete immediately.
 ; A declaration identity survives the arena reset without retaining ASTs.
-(:: lspComplDeclOffer (-> Int Strings String Int String String LspComplMode ASTNode Int))
-(fn (lspComplDeclOffer out seen label kind detail prefix mode d)
+(:: lspComplDeclOffer
+  (-> Int Strings String Int String String String (Vec ASTNode) LspComplMode ASTNode Int))
+(fn (lspComplDeclOffer out seen label kind detail prefix expected decls mode d)
   (if (lspComplWants seen label prefix)
     {
-      (let item (lspComplItem label kind detail))
+      (let item (lspComplTypedItem (lspComplItem label kind detail) expected decls d))
       {
         (if mode.deferred
           (jsonObjPut item "data"

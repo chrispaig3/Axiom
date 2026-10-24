@@ -1463,6 +1463,105 @@ else:
     passed += 3
 shutil.rmtree(NAVDIR, ignore_errors=True)
 
+# A signed nullary body's bare name has one expected result type. The
+# four same-prefix names below separate matching values, a mismatched
+# value, and an arrow value; the imported one exercises the resolver.
+RANKDIR = tempfile.mkdtemp(prefix="axiom-completion-rank-")
+RANKHELP = """(pub :: valueImported Int)
+(pub fn (valueImported) 5)
+"""
+open(os.path.join(RANKDIR, "RankHelp.ax"), "w", encoding="utf-8").write(RANKHELP)
+RANK = """(import RankHelp)
+(:: valueInt Int)
+(fn (valueInt) 1)
+(:: valueBool Bool)
+(fn (valueBool) true)
+(:: valueUnary (-> Int Int))
+(fn (valueUnary n) n)
+(:: wantInt Int)
+(fn (wantInt) valueBool)
+(:: wantBool Bool)
+(fn (wantBool) valueInt)
+(fn (wantUnknown) valueBool)
+"""
+rank_uri = "file://" + os.path.join(RANKDIR, "Rank.ax")
+rank_lines = RANK.splitlines()
+
+def rank_position(form, word):
+    line = rank_lines.index(form)
+    return {"line": line, "character": rank_lines[line].index(word) + 2}
+
+def rank_completion(rid, text, position):
+    return {"jsonrpc": "2.0", "id": rid, "method": "textDocument/completion",
+            "params": {"textDocument": {"uri": rank_uri},
+                       "position": position}}
+
+rank_int_at = rank_position("(fn (wantInt) valueBool)", "valueBool")
+rank_bool_at = rank_position("(fn (wantBool) valueInt)", "valueInt")
+rank_unknown_at = rank_position("(fn (wantUnknown) valueBool)", "valueBool")
+rank_session = b"".join(frame(m) for m in [
+    {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+    {"jsonrpc": "2.0", "method": "textDocument/didOpen",
+     "params": {"textDocument": {"uri": rank_uri, "languageId": "axiom",
+                                "version": 1, "text": RANK}}},
+    rank_completion(2, RANK, rank_int_at),
+    rank_completion(3, RANK, rank_bool_at),
+    rank_completion(4, RANK, rank_unknown_at),
+    {"jsonrpc": "2.0", "method": "textDocument/didChange",
+     "params": {"textDocument": {"uri": rank_uri, "version": 2},
+                "contentChanges": [{"text": RANK + "("}]}},
+    rank_completion(5, RANK + "(", rank_int_at),
+    {"jsonrpc": "2.0", "id": 6, "method": "shutdown", "params": None},
+    {"jsonrpc": "2.0", "method": "exit", "params": None},
+])
+rank_proc = run_protocol([stage1, "lsp"], input=rank_session,
+                         capture_output=True, cwd=fixdir)
+rank_messages, rank_tail = unframe(rank_proc.stdout)
+rank_answers = {m["id"]: m for m in rank_messages if "id" in m}
+rank_error = ""
+want_rank_items = {"valueInt": ("Int", None), "valueBool": ("Bool", None),
+                   "valueUnary": ("(-> Int Int)", None),
+                   "valueImported": ("RankHelp", None)}
+for rid, preferred in ((2, {"valueInt", "valueImported"}),
+                       (3, {"valueBool"}), (4, set()), (5, set())):
+    if rank_error:
+        break
+    result = rank_answers.get(rid, {}).get("result") or {}
+    got = {item.get("label"): item for item in result.get("items") or []}
+    if result.get("isIncomplete") is not True:
+        rank_error = f"request {rid} lost isIncomplete"
+    elif rid != 5 and set(got) != set(want_rank_items):
+        rank_error = f"request {rid} changed the offered names: {sorted(got)}"
+    elif rid == 5 and any(item.get("sortText") for item in got.values()):
+        rank_error = "unparseable source kept a type-ranking key"
+    elif rid != 5:
+        for label, (detail, _) in want_rank_items.items():
+            item = got[label]
+            if item.get("kind") != 3 or item.get("detail") != detail:
+                rank_error = f"request {rid} changed {label}'s kind or detail: {item}"
+                break
+            want_sort = " " + label if label in preferred else None
+            if item.get("sortText") != want_sort:
+                rank_error = (f"request {rid} gave {label} sortText "
+                              f"{item.get('sortText')!r}, want {want_sort!r}")
+                break
+        if not rank_error and preferred:
+            ordered = sorted(got.values(), key=lambda item: item.get("sortText",
+                                                                     item["label"]))
+            if {item["label"] for item in ordered[:len(preferred)]} != preferred:
+                rank_error = f"request {rid} did not rank matches first"
+if rank_proc.returncode or rank_tail or 6 not in rank_answers:
+    rank_error = (f"rank session exited {rank_proc.returncode}, "
+                  f"left {len(rank_tail)} bytes, shutdown={6 in rank_answers}")
+if rank_error:
+    print(f"FAIL expected-type completion: {rank_error}")
+    failed += 1
+else:
+    print("ok   expected-type completion ranks only currently offered matching "
+          "nullary values; unmatched and unparseable contexts keep the menu")
+    passed += 1
+shutil.rmtree(RANKDIR, ignore_errors=True)
+
 # =====================================================================
 # SECTION NAV TESTS: references, rename, document highlights, and the
 # local-binding half of definition. Owned by that section of
