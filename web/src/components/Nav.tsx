@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { BrandLogo } from './BrandLogo.tsx'
 import { DOCS, REPO, VERSION } from '../data/site.ts'
 import { GitHub, Menu, Moon, Sun, X } from './Icons.tsx'
@@ -20,11 +20,16 @@ export function Nav({ onToggle }: { onToggle: () => void }) {
   const [open, setOpen] = useState(false)
   const [current, setCurrent] = useState<string | null>(null)
   const menuId = useId()
+  const menuButtonRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     if (!open) return
     const close = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false)
+      if (e.key === 'Escape') {
+        setOpen(false)
+        const trigger = menuButtonRef.current
+        if (trigger?.getClientRects().length) trigger.focus()
+      }
     }
     window.addEventListener('keydown', close)
     return () => window.removeEventListener('keydown', close)
@@ -103,6 +108,7 @@ export function Nav({ onToggle }: { onToggle: () => void }) {
             Get started
           </a>
           <button
+            ref={menuButtonRef}
             type="button"
             className="icon-btn icon-btn--menu"
             onClick={() => setOpen((o) => !o)}
