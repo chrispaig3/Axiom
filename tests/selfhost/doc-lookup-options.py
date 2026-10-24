@@ -29,6 +29,7 @@ def check(compiler, root, work, baseline=None):
     (data/'docs').mkdir(exist_ok=True)
     (data/'library').mkdir(exist_ok=True)
     (data/'empty-library').mkdir(exist_ok=True)
+    # doc-drift: synthetic-doc-links-begin
     # These links address the temporary fixture tree, including an absent page.
     readme = Path('README.md')
     start = Path('docs') / readme
@@ -48,6 +49,7 @@ def check(compiler, root, work, baseline=None):
 (:: private Int)
 (fn (private) 2)
 ''')
+    # doc-drift: synthetic-doc-links-end
     (data/'library/Tiny.ax').write_text(';; A value.\n(pub :: tiny Int)\n(pub fn (tiny) 1)\n')
     (data/'Broken.ax').write_text('(pub :: broken (-> Int\n')
 
