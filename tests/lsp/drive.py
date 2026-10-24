@@ -7163,6 +7163,104 @@ else:
     print("ok   contract-tools (clauses on both declaration halves appear once in local and imported hover, signature help and axiom doc; completion offers the parameter and result)")
     passed += 1
 
+# An invoked completion may carry one safe import edit. Each case has
+# its own search directory so an ambiguous export cannot taint the
+# unique-owner case. The returned edit is applied to source and checked.
+def auto_import_case(source, *, other_owner=False, trigger=1):
+    root = tempfile.mkdtemp(prefix="axiom-auto-import-")
+    helper = "(pub :: aurora (-> Int Int))\n(pub fn (aurora x) (+ x 1))\n(pub :: other Int)\n(pub fn (other) 1)\n"
+    open(os.path.join(root, "AutoOnly.ax"), "w").write(helper)
+    if other_owner:
+        open(os.path.join(root, "AutoOther.ax"), "w").write(
+            "(pub :: aurora (-> Int Int))\n(pub fn (aurora x) x)\n")
+    path = os.path.join(root, "Main.ax")
+    uri = "file://" + path
+    at = source.rindex("aurora") + len("aurora")
+    line = source.count("\n", 0, at)
+    char = at - (source.rfind("\n", 0, at) + 1)
+    msgs = [
+        fixreq(1, "initialize", {}),
+        {"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {
+            "textDocument": {"uri": uri, "languageId": "axiom", "version": 1,
+                             "text": source}}},
+        fixreq(2, "textDocument/completion", {"textDocument": {"uri": uri},
+            "position": {"line": line, "character": char},
+            "context": {"triggerKind": trigger}}),
+        fixreq(3, "shutdown", None),
+        {"jsonrpc": "2.0", "method": "exit", "params": None},
+    ]
+    run = run_protocol([stage1, "lsp"], cwd=root, capture_output=True,
+                       input=b"".join(frame(m) for m in msgs), timeout=60)
+    replies, tail = unframe(run.stdout)
+    result = next((m.get("result") for m in replies if m.get("id") == 2), {}) or {}
+    items = [i for i in result.get("items", []) if i.get("label") == "aurora"]
+    return root, path, run.returncode, tail, items
+
+
+AUTO_BASE = "(:: main Int)\n(fn (main) (aurora 1))\n"
+AUTO_SELECTIVE = "(import AutoOnly (other))\n" + AUTO_BASE
+AUTO_AFTER = "(import IO)\n" + AUTO_BASE
+AUTO_VISIBLE = "(import AutoOnly)\n" + AUTO_BASE
+AUTO_HEADER = ";;! Module notes stay at the top.\n" + AUTO_BASE
+AUTO_TRAILING = "(import AutoOnly (other)) ; attached note\n" + AUTO_BASE
+AUTO_REPEATED = "(import AutoOnly (other))\n(import AutoOnly (other))\n" + AUTO_BASE
+AUTO_SAME_LINE = "(import AutoOnly (other)) (import IO)\n" + AUTO_BASE
+AUTO_LOCAL = "(:: main (-> Int Int))\n(fn (main aurora) aurora)\n"
+AUTO_BROKEN = AUTO_BASE + "(\n"
+auto_cases = [
+    ("new", AUTO_BASE, False, 1, "(import AutoOnly (aurora))\n" + AUTO_BASE),
+    ("selective", AUTO_SELECTIVE, False, 1,
+     "(import AutoOnly (other aurora))\n" + AUTO_BASE),
+    ("after-import", AUTO_AFTER, False, 1,
+     "(import IO)\n(import AutoOnly (aurora))\n" + AUTO_BASE),
+    ("visible", AUTO_VISIBLE, False, 1, None),
+    ("ambiguous", AUTO_BASE, True, 1, None),
+    ("module-doc", AUTO_HEADER, False, 1, None),
+    ("trailing-comment", AUTO_TRAILING, False, 1, None),
+    ("repeated-import", AUTO_REPEATED, False, 1, None),
+    ("same-line-import", AUTO_SAME_LINE, False, 1, None),
+    ("local-binding", AUTO_LOCAL, False, 1, None),
+    ("recovered", AUTO_BROKEN, False, 1, None),
+    ("automatic-trigger", AUTO_BASE, False, 2, None),
+]
+auto_why = ""
+for label, source, other_owner, trigger, expected in auto_cases:
+    root, path, code, tail, items = auto_import_case(
+        source, other_owner=other_owner, trigger=trigger)
+    try:
+        edited = [item for item in items if item.get("additionalTextEdits")]
+        if code or tail:
+            auto_why = f"{label}: server exited {code}, trailing bytes {len(tail)}"
+        elif expected is None and edited:
+            auto_why = f"{label}: unexpected auto-import edit {edited!r:.250}"
+        elif expected is not None and len(edited) != 1:
+            auto_why = f"{label}: got {len(edited)} import item(s), want one: {items!r:.250}"
+        elif expected is not None:
+            edits = edited[0]["additionalTextEdits"]
+            if len(edits) != 1 or edits[0]["range"]["start"] != edits[0]["range"]["end"]:
+                auto_why = f"{label}: expected one zero-width import edit, got {edits!r:.250}"
+            elif apply_edits(source, edits) != expected:
+                auto_why = f"{label}: applied edit gave {apply_edits(source, edits)!r}, want {expected!r}"
+            else:
+                open(path, "w").write(expected)
+                checked = subprocess.run([stage1, "check", path], cwd=root,
+                                         capture_output=True, text=True)
+                if checked.returncode:
+                    auto_why = f"{label}: edited source did not check: {checked.stderr[:250]}"
+        if label == "visible" and items != [{"label": "aurora", "kind": 3,
+                                            "detail": "AutoOnly"}]:
+            auto_why = f"visible: existing completion item missing or duplicated: {items!r:.250}"
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+    if auto_why:
+        break
+if auto_why:
+    print("FAIL auto-import-completion: " + auto_why)
+    failed += 1
+else:
+    print("ok   auto-import-completion (applied imports compile; ambiguous, unsafe and automatic requests keep existing behavior)")
+    passed += 1
+
 memory_check = subprocess.run([sys.executable, os.path.join(fixdir, "memory-boundaries.py"), stage1],
                               capture_output=True, text=True)
 if memory_check.returncode:

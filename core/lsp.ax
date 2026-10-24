@@ -5004,6 +5004,10 @@
                       (lspComplLocal out seen src decls prefix expected mode)
                       (lspComplImported workspace out seen (lspUriToPath uri) src decls prefix
                         expected mode)
+                      (if (&& (== (jsonGetInt (jsonGet params "context") "triggerKind") 1)
+                            (>= (pResPos pr) 0))
+                        (lspComplAutoImport workspace out seen src uri ix decls prefix
+                          (lspOffsetOf src ix (jsonGet params "position"))))
                     }
                   }
                 ))
@@ -5011,6 +5015,149 @@
             }
           }))
     }
+  })
+
+; An invoked completion on a fully written, unresolved name may offer
+; one import. Ordinary trigger requests never walk module search dirs.
+; The code-action path confirms that this reference actually needs an
+; import; a local binding that completion does not list stays untouched.
+(pub :: lspComplAutoImport
+  (-> LspWorkspace Int Strings String String Ints (Vec ASTNode) String Int Int))
+;@axiom:effect(io)
+(pub fn (lspComplAutoImport workspace out seen src uri ix decls name off)
+  (if (|| (< (strLen name) 3)
+        (|| (>= (vecLen seen) LSP_COMPL_MAX)
+          (|| (lspSeenHas seen name)
+            (|| (lspFixIsQualified src off)
+              (if (< off (strLen src))
+                (isIdentChar (strByte src off))
+                false)))))
+    0
+    {
+      (let mods (lspFixSearch name (lspUriToPath uri)))
+      (if (== (vecLen mods) 1)
+        {
+          (let mod (vecGet mods 0))
+          (let edit (lspComplAutoEdit src ix decls mod name))
+          (if (! (== edit 0))
+            {
+              (let params (jsonObjPut jsonObj "range" (lspRangeIx src ix (mkSpan off off))))
+              (let actions (lspCodeActionLocal workspace src uri params))
+              (if (lspComplAutoHasAction actions (lspFixImportTitle mod name))
+                {
+                  (vecPush seen name)
+                  (jsonArrPush out
+                    (jsonObjPut (lspComplItem name 1 (concat "Auto-import from " mod))
+                      "additionalTextEdits" (jsonArrPush jsonArr edit)))
+                  0
+                }
+                0)
+            }
+            0)
+        }
+        0)
+    }))
+
+(pub :: lspComplAutoHasAction (-> Int String Bool))
+(pub fn (lspComplAutoHasAction actions title)
+  {
+    (let mut found false)
+    (for i in 0..(jsonArrLen actions)
+      (if (strEq (jsonGetStr (jsonArrGet actions i) "title") title)
+        (set found true)))
+    found
+  })
+
+; Refuse any import header whose attachment is unclear. The same
+; module may appear only once, and every import must precede code.
+(pub :: lspComplAutoEdit (-> String Ints (Vec ASTNode) String String Int))
+(pub fn (lspComplAutoEdit src ix decls mod name)
+  {
+    (let mut valid true)
+    (let mut imports 0)
+    (let mut matches 0)
+    (let mut lastEnd 0)
+    (let mut matched (:: None (Option ASTNode)))
+    (let mut firstCode false)
+    {
+      (if (isSome (strFindByte src 13 0))
+        (set valid false))
+      (for d in decls
+        (if (== (nodeTag d) TAG_D_IMPORT)
+          {
+            (let o (lspFormStart src (spanStart (nodeSpan d))))
+            (let e (lspFormEnd src o))
+            (if (|| firstCode
+                  (|| (! (lspOrganizeBlank src lastEnd o)) (! (lspComplAutoImportLine src o e))))
+              (set valid false))
+            (set lastEnd e)
+            (set imports (+ imports 1))
+            (if (strEq (nodeAName d) mod)
+              {
+                (set matches (+ matches 1))
+                (set matched (Some d))
+              })
+          }
+          (set firstCode true)))
+      (if (|| (! valid) (> matches 1))
+        0
+        (if (== matches 1)
+          (match matched
+            ((None) 0)
+            ((Some imp)
+              (if (|| (== (vecLen (nodeBNames imp)) 0) (== (strVecHas (nodeBNames imp) name) 1))
+                0
+                {
+                  (let o (lspFormStart src (spanStart (nodeSpan imp))))
+                  (let e (lspFormEnd src o))
+                  (if (let (Some lo) (strFindByte src 40 (+ o 1)))
+                    {
+                      (let innerEnd (lspFormEnd src lo))
+                      (if (== innerEnd (- e 1))
+                        (lspFixTextEdit src ix (- innerEnd 1) (concat " " name))
+                        0)
+                    }
+                    0)
+                })
+            ))
+          (if (> imports 0)
+            (lspFixTextEdit src ix lastEnd (concat "\n" (lspFixImportLine mod name)))
+            (if (lspComplAutoNoHeader src)
+              (lspFixTextEdit src ix 0 (concat (lspFixImportLine mod name) "\n"))
+              0))))
+    }
+  })
+
+; A simple import occupies its own line and has no comment, metadata
+; or string in the form. Those layouts need an attachment-aware edit.
+(pub :: lspComplAutoImportLine (-> String Int Int Bool))
+(pub fn (lspComplAutoImportLine src o e)
+  {
+    (let mut safe (&& (< o e) (== (strByte src o) 40)))
+    (let lineEnd (docLineEndFrom src e))
+    {
+      (for i in o..e
+        (if (|| (== (strByte src i) 59) (|| (== (strByte src i) 35) (== (strByte src i) 34)))
+          (set safe false)))
+      (if (! (lspOrganizeBlank src e lineEnd))
+        (set safe false))
+      safe
+    }
+  })
+
+; New imports at byte zero are safe only when there is no banner or
+; module documentation ahead of the first form.
+(pub :: lspComplAutoNoHeader (-> String Bool))
+(pub fn (lspComplAutoNoHeader src)
+  {
+    (let mut i 0)
+    (while (if (< i (strLen src))
+      (lspIsSpace (strByte src i))
+      false)
+      (set i (+ i 1)))
+    (if (== i (strLen src))
+      true
+      (== (strByte src i) 40))
   })
 
 ; The module path typed so far when the cursor sits in the module
@@ -5250,7 +5397,8 @@
           (for i in 0..n
             {
               (let d (vecGet allDecls i))
-              (if (&& (lspWantsSymbol (nodeTag d)) (&& (!= (nodeModule d) 0) (!= (nodeSpan d) 0)))
+              (if (&& (lspWantsSymbol (nodeTag d))
+                    (&& (!= (nodeModule d) 0) (&& (!= (nodeSpan d) 0) (== (nodeVis d) 1))))
                 {
                   (lspComplDeclOffer out seen (bareOf (nodeAName d)) (lspComplKind (nodeTag d))
                     (match (lspModOf (nodeAName d))

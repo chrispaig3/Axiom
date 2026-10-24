@@ -884,6 +884,9 @@ expected shape from the modules that declare it.
 2. This document's declarations, and the constructors its `data` forms
    name.
 3. Every imported module's declarations, under their bare names.
+4. On an invoked request after a full unresolved name of at least three
+   characters, one public name missing from the current imports with
+   an import edit.
 
 A local name shadows an imported one, and both shadow a keyword. The
 keyword list in `lsp.ax` is checked against the `kwEq` call sites in
@@ -916,11 +919,19 @@ contexts keep the usual order, including a document recovered from a
 parse error. The existing prefix filter, shadowing and cap still decide
 which names are offered.
 
-Not yet: completion does not infer expected types in other expressions
-or offer auto-import edits. See the [roadmap](roadmap.md#tools).
+Not yet: completion does not infer expected types in other expressions.
+See the [roadmap](roadmap.md#tools).
 
 A document that doesn't parse completes from what parses around the
 error, so the menu is there while a form is half written.
+
+For a missing name with one module owner, accepting the auto-import
+item adds a top-level import or extends a simple selective import.
+The edit is withheld when the source is incomplete or the import
+placement is unclear. Automatic requests while typing keep the usual
+completion list and do not search other modules.
+
+Tested by `tests/lsp/drive.py`.
 
 Completion doesn't offer a name a macro would generate:
 `(deriveTag Colour)` doesn't put `tagColour` in the menu. The tests

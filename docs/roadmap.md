@@ -219,7 +219,7 @@ including pattern matching, remain work to do.
 | Unsaved imported documents feed checks and navigation, with transitive dependency invalidation and diagnostics for open modules | Done |
 | Workspace request results are cached by revision, with exact file and module-search validation | Done |
 | Parsed and checked semantic models are reused across different requests | Not started |
-| Completion uses expected types, offers auto-import edits and resolves expensive details on demand | In progress; matching nullary functions rank first in signed bare-name bodies, and `tests/lsp/completion-resolve.py` covers negotiated on-demand details. Other expected-type contexts and auto-import edits remain |
+| Completion uses expected types, offers auto-import edits and resolves expensive details on demand | In progress; matching nullary functions rank first in signed bare-name bodies, invoked completion adds one unambiguous import, and `tests/lsp/completion-resolve.py` covers negotiated on-demand details. Other expected-type contexts remain |
 | Safe assists organise top-level imports and preserve attached comments | Done; `tests/lsp/organize-imports.py` checks source edits and refusals |
 | Semantic tokens support range and delta requests | Done |
 | The language server answers inside macro invocations | Not started |
