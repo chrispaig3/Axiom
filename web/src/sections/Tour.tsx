@@ -50,9 +50,15 @@ export function Tour() {
   function onKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
     const keys: Record<string, number> = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }
     const d = keys[e.key]
-    if (d === undefined) return
+    let next: number
+    if (e.key === 'Home') next = 0
+    else if (e.key === 'End') next = TOUR.length - 1
+    else {
+      if (d === undefined) return
+      next = (active + d + TOUR.length) % TOUR.length
+    }
     e.preventDefault()
-    go((active + d + TOUR.length) % TOUR.length, true)
+    go(next, true)
   }
 
   const next = TOUR[active + 1]

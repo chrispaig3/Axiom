@@ -37,9 +37,13 @@ function Tabs({ tabs, label }: { tabs: Tab[]; label: string }) {
   if (!current) return null
 
   function onKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
-    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return
+    let next: number
+    if (e.key === 'Home') next = 0
+    else if (e.key === 'End') next = tabs.length - 1
+    else if (e.key === 'ArrowRight') next = (active + 1) % tabs.length
+    else if (e.key === 'ArrowLeft') next = (active - 1 + tabs.length) % tabs.length
+    else return
     e.preventDefault()
-    const next = (active + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length
     setActive(next)
     document.getElementById(`${uid}-${next}`)?.focus()
   }
