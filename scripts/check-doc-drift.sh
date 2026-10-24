@@ -688,6 +688,16 @@ for root, dirs, files in os.walk("."):
             text = open(path, encoding="utf-8", errors="ignore").read()
         except OSError:
             continue
+        # This test writes Markdown under a scratch directory, including an
+        # intentionally absent link. Its contract test checks those links.
+        if path == "tests/selfhost/doc-lookup-options.py":
+            start = "# doc-drift: synthetic-doc-links-begin"
+            end = "# doc-drift: synthetic-doc-links-end"
+            if text.count(start) != 1 or text.count(end) != 1 or text.index(start) >= text.index(end):
+                print(f"FAIL docs: {path} has malformed synthetic link markers")
+                bad += 1
+                continue
+            text = text[:text.index(start)] + text[text.index(end) + len(end):]
         # A retired document may still be NAMED - saying what was
         # deleted and why is what a history section is for - provided
         # the same file says how to read it. `docs/ffi.md` was already
