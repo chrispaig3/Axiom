@@ -502,8 +502,12 @@
 
 (struct LspWorkspace
   (open : Units)
-  (files : Units)
+  (files : (Vec LspFileObservation))
   (searches : (Vec LspSearchInput)))
+
+(struct LspFileObservation
+  (file : String)
+  (text : (Option String)))
 
 (struct LspSearchInput
   (directory : String)
@@ -554,30 +558,34 @@
     }
   })
 
-(pub :: lspWorkspaceFile (-> LspWorkspace String String))
+; Record unsuccessful reads too: a missing candidate becoming an empty
+; file must invalidate a cached answer and become a valid module.
+(pub :: lspWorkspaceFile (-> LspWorkspace String (Option String)))
 ;@axiom:effect(io)
 (pub fn (lspWorkspaceFile workspace path)
   {
     (let key (pathClean (lspNavAbs path)))
     (let mut i 0)
-    (let mut found (:: None (Option CUnit2)))
+    (let mut found (:: None (Option LspFileObservation)))
     {
       (while (&& (isNone found) (< i (vecLen workspace.files)))
         {
           {
-            (let unit (vecGet workspace.files i))
-            (if (strEq key (unitFile unit))
-              (set found (Some unit)))
+            (let observed (vecGet workspace.files i))
+            (if (strEq key observed.file)
+              (set found (Some observed)))
           }
           (set i (+ i 1))
         })
       (if (let (Some hit) found)
-        (unitSrc hit)
+        hit.text
         {
-          (let text (unwrapOr (readFile key) ""))
+          (let text
+            (match (readFile key)
+              ((Err _) None)
+              ((Ok src) (Some src))))
           {
-            (vecPush workspace.files
-              (CUnit2 :file key :src text :name (Some "") :imports vecNew :library false))
+            (vecPush workspace.files (LspFileObservation :file key :text text))
             text
           }
         })
@@ -615,7 +623,7 @@
 
 ; Preserve the compiler's suffix and directory precedence, including an
 ; open file that has not been saved yet and a valid empty module.
-(pub :: lspWorkspaceModulePath (-> LspWorkspace String Int String String))
+(pub :: lspWorkspaceModulePath (-> LspWorkspace String Int String (Option String)))
 ;@axiom:effect(io)
 (pub fn (lspWorkspaceModulePath workspace name tcode entryDir)
   {
@@ -623,23 +631,23 @@
     (let dirs (lspWorkspaceSearch workspace entryDir))
     (let suffixes vecNew)
     (let mut si 0)
-    (let mut found "")
+    (let mut found (:: None (Option String)))
     {
       (vecPush suffixes (targetOsArchSuffix tcode))
       (vecPush suffixes (targetOsSuffix tcode))
       (vecPush suffixes ".ax")
-      (while (&& (< si (vecLen suffixes)) (== (strLen found) 0))
+      (while (&& (< si (vecLen suffixes)) (isNone found))
         {
           {
             (let base (concat stem (vecGet suffixes si)))
             (let mut di 0)
-            (while (&& (! (stemEscapes base)) (&& (< di (vecLen dirs)) (== (strLen found) 0)))
+            (while (&& (! (stemEscapes base)) (&& (< di (vecLen dirs)) (isNone found)))
               {
                 {
                   (let candidate (concat (vecGetStr dirs di) base))
                   (if (|| (isSome (lspWorkspacePath workspace candidate))
-                        (!= (strLen (lspWorkspaceFile workspace candidate)) 0))
-                    (set found candidate))
+                        (isSome (lspWorkspaceFile workspace candidate)))
+                    (set found (Some candidate)))
                 }
                 (set di (+ di 1))
               })
@@ -654,6 +662,27 @@
 ; take a fatal CLI path. The table is also the resolver's source input.
 ; The first failure carries its own unit; callers never index it using
 ; the entry document's bytes.
+(:: lspWorkspaceMissing (-> ASTNode String Int String Int Diag))
+;@axiom:effect(io)
+(fn (lspWorkspaceMissing site name tcode entryDir owner)
+  {
+    (let d
+      (mkDiag SEV_ERROR "AX5001" "module-not-found" (nodeSpan site)
+        (concat (concat "cannot resolve import `" name) "`") None
+        (Some (importHelpText name tcode entryDir))))
+    {
+      (diagSetUnit d owner)
+      d
+    }
+  })
+
+(:: lspWorkspaceRead (-> LspWorkspace String (Option String)))
+;@axiom:effect(io)
+(fn (lspWorkspaceRead workspace path)
+  (if (let (Some overlay) (lspWorkspacePath workspace path))
+    (Some (unitSrc overlay))
+    (lspWorkspaceFile workspace path)))
+
 (pub :: lspWorkspacePreflight
   (-> LspWorkspace (Vec ASTNode) Int String (Vec core::CUnit2) Int (Option diag::Diag)))
 ;@axiom:effect(io)
@@ -671,66 +700,56 @@
                 (let name (nodeAName site))
                 (if (isNone (unitIndexOf units name 0))
                   {
-                    (let path (lspWorkspaceModulePath workspace name tcode entryDir))
-                    (if (== (strLen path) 0)
-                      {
-                        (let d
-                          (mkDiag SEV_ERROR "AX5001" "module-not-found" (nodeSpan site)
-                            (concat (concat "cannot resolve import `" name) "`") None
-                            (Some (importHelpText name tcode entryDir))))
-                        {
-                          (diagSetUnit d owner)
-                          (set failure (Some d))
-                        }
-                      }
-                      {
-                        (let overlay (lspWorkspacePath workspace path))
-                        {
-                          (let src
-                            (if (let (Some o) overlay)
-                              (unitSrc o)
-                              (lspWorkspaceFile workspace path)))
-                          (let unit (vecLen units))
+                    (let pathResult (lspWorkspaceModulePath workspace name tcode entryDir))
+                    (match pathResult
+                      ((None)
+                        (set failure (Some (lspWorkspaceMissing site name tcode entryDir owner)))
+                      )
+                      ((Some path)
+                        (if (let (Some src) (lspWorkspaceRead workspace path))
                           {
-                            (vecPush units
-                              (CUnit2
-                                :file path
-                                :src src
-                                :name (Some name)
-                                :imports vecNew
-                                :library (pathInStdlib path)))
+                            (let unit (vecLen units))
                             {
-                              (let toks (lex src))
+                              (vecPush units
+                                (CUnit2
+                                  :file path
+                                  :src src
+                                  :name (Some name)
+                                  :imports vecNew
+                                  :library (pathInStdlib path)))
                               {
-                                (let lexD (lexErrDiag toks src))
+                                (let toks (lex src))
                                 {
-                                  (let pr
-                                    (if (isNone lexD)
-                                      (parseModuleWith toks (scanAxtags src))
-                                      (pErr 0)))
-                                  (match pr
-                                    ((ParseFailed parseError1)
-                                      {
-                                        (let d
-                                          (if (let (Some ld) lexD)
-                                            ld
-                                            (parseErrDiag toks (ParseFailed parseError1) src)))
+                                  (let lexD (lexErrDiag toks src))
+                                  {
+                                    (let pr
+                                      (if (isNone lexD)
+                                        (parseModuleWith toks (scanAxtags src))
+                                        (pErr 0)))
+                                    (match pr
+                                      ((ParseFailed parseError1)
                                         {
-                                          (diagSetUnit d unit)
-                                          (set failure (Some d))
+                                          (let d
+                                            (if (let (Some ld) lexD)
+                                              ld
+                                              (parseErrDiag toks (ParseFailed parseError1) src)))
+                                          {
+                                            (diagSetUnit d unit)
+                                            (set failure (Some d))
+                                          }
                                         }
-                                      }
-                                    )
-                                    ((ParseSuccess parsedValue1 parsedPos1)
-                                      (set failure (lspWorkspacePreflight workspace parsedValue1
-                                                     tcode entryDir units unit))
-                                    ))
+                                      )
+                                      ((ParseSuccess parsedValue1 parsedPos1)
+                                        (set failure (lspWorkspacePreflight workspace parsedValue1
+                                                       tcode entryDir units unit))
+                                      ))
+                                  }
                                 }
                               }
                             }
                           }
-                        }
-                      })
+                          (set failure (Some (lspWorkspaceMissing site name tcode entryDir owner))))
+                      ))
                   })
               })
           }
@@ -5343,8 +5362,10 @@
     {
       (for unit in workspace.files
         (jsonArrPush files
-          (jsonObjPut (jsonObjPut jsonObj "path" (jsonStr (unitFile unit))) "text"
-            (jsonStr (unitSrc unit)))))
+          (jsonObjPut (jsonObjPut jsonObj "path" (jsonStr unit.file)) "text"
+            (match unit.text
+              ((None) jsonNull)
+              ((Some text) (jsonStr text))))))
       (for item in workspace.searches
         {
           (let paths jsonArr)
@@ -5372,8 +5393,14 @@
         {
           {
             (let item (jsonArrGet files i))
-            (set current (strEq (jsonGetStr item "text")
-                           (unwrapOr (readFile (jsonGetStr item "path")) "")))
+            (let expected (jsonGet item "text"))
+            (set current (match (readFile (jsonGetStr item "path"))
+              ((Err _) (jsonIsNull expected))
+              ((Ok text)
+                (if (jsonIsNull expected)
+                  false
+                  (strEq text (jsonStrVal expected)))
+              )))
           }
           (set i (+ i 1))
         })
@@ -5880,15 +5907,13 @@
                                 {
                                   (let dependency
                                     (lspWorkspaceModulePath workspace name tcode entryDir))
-                                  (if (> (strLen dependency) 0)
+                                  (if (let (Some dependency) dependency)
                                     (if (strEq (pathClean dependency) (pathClean changed))
                                       (set found true)
                                       {
-                                        (let overlay (lspWorkspacePath workspace dependency))
-                                        (vecPush todo
-                                          (if (let (Some o) overlay)
-                                            (unitSrc o)
-                                            (lspWorkspaceFile workspace dependency)))
+                                        (let source (lspWorkspaceRead workspace dependency))
+                                        (if (let (Some text) source)
+                                          (vecPush todo text))
                                       }))
                                 }
                               })
@@ -7892,8 +7917,9 @@
             (if (== (nodeTag d) TAG_D_IMPORT)
               {
                 (let p (lspWorkspaceModulePath workspace (nodeAName d) tcode entryDir))
-                (if (&& (> (strLen p) 0) (strEq (lspNavAbs p) target))
-                  (set found true))
+                (if (let (Some path) p)
+                  (if (strEq (lspNavAbs path) target)
+                    (set found true)))
               })
             (set i (+ i 1))
           }
@@ -11817,7 +11843,7 @@
               (if (&& (== (nodeTag d) TAG_D_IMPORT) (!= (nodeSpan d) 0))
                 {
                   (let p (lspWorkspaceModulePath workspace (nodeAName d) tcode entryDir))
-                  (if (! (== (strLen p) 0))
+                  (if (let (Some path) p)
                     {
                       (let s (spanStart (nodeSpan d)))
                       (let mut e (spanStart (nodeSpan d)))
@@ -11828,7 +11854,7 @@
                           (set e (+ e 1)))
                         (jsonArrPush out
                           (jsonObjPut (jsonObjPut jsonObj "range" (lspRangeIx src ix (mkSpan s e)))
-                            "target" (jsonStr (lspPathToUri p))))
+                            "target" (jsonStr (lspPathToUri path))))
                       }
                     })
                 }))
