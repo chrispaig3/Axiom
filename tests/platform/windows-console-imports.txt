@@ -7,5 +7,4 @@ FlushConsoleInputBuffer
 GenerateConsoleCtrlEvent
 SetConsoleCP
 GetConsoleCP
-GetNumberOfConsoleInputEvents
 PeekConsoleInputW

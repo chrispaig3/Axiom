@@ -247,7 +247,7 @@ work; they do not claim full feature parity.
 | Guarded usable-byte stack budgets for Windows executable workers | Not yet; `NativeStack` is explicit and `StackBytes` is refused before launch |
 | Parent allocator bookkeeping stays flat across repeated executable-worker calls | Not yet; repeated calls can retain bookkeeping despite retired native resources |
 | Windows command pools launch native processes at a bounded width, preserve submit order and own their cleanup | Native Windows x64 and ARM64 validated by `tests/stdlib/987-command-pools.ax` |
-| Windows pollers watch terminal input, pipes, Ctrl-C and Ctrl-Break without losing buffered bytes or retaining closed files | Native x64 and ARM64 control events and raw-mode restoration pass; the later-key stream assertion still fails after mode cancellation |
+| Windows pollers watch terminal input, pipes, Ctrl-C and Ctrl-Break without losing buffered bytes or retaining closed files | Native x64 and ARM64 control events and raw-mode restoration pass. Private input handles retire cancelled reads; host regressions pass, and native first-key and repeated-cancellation checks await CI |
 | Windows seeds and an installer bootstrap the compiler locally | Native Windows x64 and ARM64 seed bootstraps reach the fixpoint; transactional preview installation validation is pending |
 | The embedded checks run on a named board | Not started |
 | Compatibility rules enforced at 1.0 (`COMPAT-6`) | Planned |

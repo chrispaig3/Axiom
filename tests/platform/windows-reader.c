@@ -19,14 +19,18 @@ extern U WaitForSingleObject(U, U), CloseHandle(U), CancelSynchronousIo(U),
     Sleep(U);
 extern U ReadFile(U, U, U, U, U), GetLastError(void), GetFileType(U),
     SetConsoleMode(U, U), GetConsoleMode(U, U);
+extern U CreateFileW(U, U, U, U, U, U, U);
+extern U GetNumberOfConsoleInputEvents(U, U);
 struct Reader {
   struct Reader *next;
   U handle, refs, closing, paused, thread, status, count, offset, last_error,
-      stop, console;
+      stop, console, input, cancelled;
   unsigned char buffer[4096];
 };
 static struct Reader *__axiom_reader_readers;
 static D __axiom_reader_reader_lock;
+static const unsigned short __axiom_reader_console_path[] = {
+    'C', 'O', 'N', 'I', 'N', '$', 0};
 static void __axiom_reader_lock(void) {
   while (__atomic_exchange_n(&__axiom_reader_reader_lock, 1, __ATOMIC_ACQUIRE))
     Sleep(0);
@@ -66,6 +70,41 @@ static struct Reader *__axiom_reader_create(U h, U kind) {
   __axiom_reader_readers = s;
   return s;
 }
+/* CancelSynchronousIo can finish the client read while conhost still owns
+ * a server read which would consume the next key (terminal issues 12143,
+ * 17791). Closing its independently opened CONIN$ handle retires that read.
+ * A duplicate shares the original file object and cannot isolate teardown.
+ * Completed reads keep their input handle, including conhost's line tail. */
+static U __axiom_reader_input_close(struct Reader *s) {
+  if (s->input) {
+    if (!(CloseHandle(s->input) & 4294967295ULL))
+      return __axiom_reader_error();
+    s->input = 0;
+  }
+  s->cancelled = 0;
+  return 0;
+}
+static U __axiom_reader_input_open(struct Reader *s) {
+  if (!s->console)
+    return 0;
+  if (s->cancelled) {
+    U e = __axiom_reader_input_close(s);
+    if (e)
+      return e;
+  }
+  if (!s->input) {
+    /* GetConsoleMode accepts output handles too. Require a readable input
+     * handle before opening its private read session. This consumes no key. */
+    D events = 0;
+    if (!(GetNumberOfConsoleInputEvents(s->handle, (U)&events) & 4294967295ULL))
+      return __axiom_reader_error();
+    U h = CreateFileW((U)__axiom_reader_console_path, 2147483648ULL, 3, 0, 3, 0, 0);
+    if (h == ~(U)0)
+      return __axiom_reader_error();
+    s->input = h;
+  }
+  return 0;
+}
 static D __axiom_reader_worker(void *arg) {
   struct Reader *s = arg;
   for (;;) {
@@ -79,9 +118,12 @@ static D __axiom_reader_worker(void *arg) {
       return 0;
     }
     D got = 0;
-    U ok = ReadFile(s->handle, (U)s->buffer, 4096, (U)&got, 0) & 4294967295ULL;
+    U ok = ReadFile(s->console ? s->input : s->handle,
+                   (U)s->buffer, 4096, (U)&got, 0) & 4294967295ULL;
     U e = __axiom_reader_error();
     __axiom_reader_lock();
+    if (s->console && !ok && e == 995)
+      s->cancelled = 1;
     if (got) {
       s->count = got;
       s->offset = 0;
@@ -89,7 +131,7 @@ static D __axiom_reader_worker(void *arg) {
       __axiom_reader_unlock();
       return 0;
     }
-    if (s->stop) {
+    if (s->stop || s->cancelled) {
       s->status = 0;
       __axiom_reader_unlock();
       return 0;
@@ -115,6 +157,12 @@ static void __axiom_reader_start(struct Reader *s) {
   if (s->thread) {
     CloseHandle(s->thread);
     s->thread = 0;
+  }
+  U e = __axiom_reader_input_open(s);
+  if (e) {
+    s->last_error = e;
+    s->status = 4;
+    return;
   }
   s->stop = 0;
   s->status = 1;
@@ -276,6 +324,8 @@ U __axiom_win_reader_mode(U h, U mode) {
   __axiom_reader_unlock();
   U joined = __axiom_reader_join(s);
   __axiom_reader_lock();
+  if (!joined && s->cancelled)
+    joined = __axiom_reader_input_close(s);
   if (joined) {
     s->paused = 0;
     s->refs--;
@@ -332,6 +382,12 @@ U __axiom_win_reader_close(U h) {
   if (s->thread) {
     CloseHandle(s->thread);
     s->thread = 0;
+  }
+  U retired = __axiom_reader_input_close(s);
+  if (retired) {
+    s->closing = 2;
+    __axiom_reader_unlock();
+    return -retired;
   }
   U ok = CloseHandle(h) & 4294967295ULL;
   if (!ok) {

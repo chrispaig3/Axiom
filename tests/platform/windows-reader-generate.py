@@ -86,7 +86,7 @@ def main():
     ir = normalize(raw)
     body = (BEGIN + "\n; Generated from tests/platform/windows-reader.c; do not edit this block.\n"
             + f"; source-sha256: {digest(source)}\n; ir-sha256: {digest(ir)}\n"
-            + "(pub :: emitWinReaderRuntime (-> Int Int))\n(pub fn (emitWinReaderRuntime cg)\n  {\n"
+            + "(pub :: emitWinReaderRuntime (-> CG CG))\n(pub fn (emitWinReaderRuntime cg)\n  {\n"
             + "".join("    (emitLine cg " + json.dumps(line) + ")\n" for line in ir.splitlines())
             + "    cg\n  })\n" + END)
     if BEGIN in target:

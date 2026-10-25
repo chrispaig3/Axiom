@@ -357,6 +357,29 @@
       })
   })
 
+(:: modeRestartKeys (-> Int File Poller Bool))
+;@axiom:effect(io)
+(fn (modeRestartKeys h f p)
+  {
+    (let mut good true)
+    (for i in 0..3
+      (match (termRaw f false)
+        ((Err _)
+          (set good false)
+        )
+        ((Ok guard)
+          {
+            (let pending (== (waitCount p 30) 0))
+            (let restored (isOk (termRestore guard)))
+            (let sent (sendKey h 81 113 0))
+            (let ready (== (waitCount p 2000) 1))
+            (let received (&& ready (readIs f 1 "q")))
+            (set good (&& good (&& pending (&& restored (&& sent received)))))
+          }
+        )))
+    good
+  })
+
 (:: rawStreamCases (-> Int File Poller TermGuard Int))
 ;@axiom:effect(io)
 (fn (rawStreamCases h f p guard)
@@ -364,6 +387,9 @@
     (let mut bad 0)
     (set bad (+ bad (say (sendKey h 81 113 0) "a key is queued behind console noise")))
     (set bad (+ bad (say (laterKeyRead p f h) "a later key reaches the stream reader")))
+    (set bad (+ bad
+               (say (modeRestartKeys h f p)
+                 "repeated mode cancellations preserve their first key")))
     (set bad (+ bad (say (sendKey h 32 0 8) "Ctrl-Space with zero Unicode is queued")))
     (set bad (+ bad
                (say (&& (== (waitCount p 2000) 1) (readByteIs f 0))

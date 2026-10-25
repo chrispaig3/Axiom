@@ -97,6 +97,7 @@ WakeByAddressAll@api-ms-win-core-synch-l1-2-0 # and its wake
 # `termSize` and `termRaw`.
 GetFileType                 # a console is a character device ...
 GetConsoleMode              # ... that answers this; also raw mode's saved word
+GetNumberOfConsoleInputEvents # validate console input before opening a private reader
 DuplicateHandle             # private terminal guard handles survive File close
 SetConsoleMode              # raw mode, and its restore
 SetConsoleCtrlHandler       # process-owned Ctrl-C and Ctrl-Break handler

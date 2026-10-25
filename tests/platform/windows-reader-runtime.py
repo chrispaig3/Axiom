@@ -34,25 +34,34 @@ struct Stream {
     U handle; int kind, closed, close_calls, read_calls, mode_calls, cancel_calls;
     int pre_gate, hold_completion, mode_gate, mode_entered, mode_active;
     int fail_mode, close_error, fail_wait, fail_cancel, non_console, head, tail;
+    int abandoned_read, emulate_conhost_cancel, fail_open, private_close_error, console_output;
     U last_mode, largest_read;
     struct Action queue[QSIZE];
 };
 struct Thread {
     pthread_t id; U handle, entry, argument; int phase, cancelled, closed;
 };
+struct InputHandle { U handle, source; int closed, abandoned_read; };
 struct Alloc { void *raw, *memory; U size; int freed; };
 static pthread_mutex_t mu=PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t changed=PTHREAD_COND_INITIALIZER;
 static struct Stream streams[MAX_STREAMS];
 static struct Thread *threads[MAX_THREADS];
+static struct InputHandle inputs[MAX_THREADS];
 static struct Alloc allocations[MAX_ALLOCS];
-static int nstreams, nthreads, nallocs, fail_create, fail_alloc;
+static int nstreams, nthreads, ninputs, nallocs, fail_create, fail_alloc;
 static int bad_buffer, bad_free, mode_read_overlap;
 static _Thread_local U last_error;
 static _Thread_local struct Thread *current;
+static _Thread_local U console_source;
 static void lock(void) { pthread_mutex_lock(&mu); }
 static void unlock(void) { pthread_mutex_unlock(&mu); }
+static struct InputHandle *input(U h) {
+    for(int i=0;i<ninputs;i++)if(inputs[i].handle==h)return &inputs[i];
+    return 0;
+}
 static struct Stream *stream(U h) {
+    struct InputHandle *in=input(h); if(in)h=in->source;
     for(int i=0;i<nstreams;i++) if(streams[i].handle==h) return &streams[i];
     abort();
 }
@@ -67,6 +76,15 @@ static void reuse(U h,int kind) {
 }
 static void queue(U h, const char *bytes, D error) {
     lock(); struct Stream *s=stream(h); CHECK(s->tail<QSIZE,"action capacity");
+    /* Conhost can retain a server read after client cancellation. The next
+       input is consumed until its independently opened input handle closes.
+       See microsoft/terminal issues 12143 and 17791; native CI probes this. */
+    if(s->emulate_conhost_cancel) {
+        if(s->abandoned_read) { s->abandoned_read=0; unlock(); return; }
+        for(int i=0;i<ninputs;i++)if(inputs[i].source==h && !inputs[i].closed && inputs[i].abandoned_read) {
+            inputs[i].abandoned_read=0; unlock(); return;
+        }
+    }
     struct Action *a=&s->queue[s->tail++]; a->error=error;
     if(bytes) { a->count=(D)strlen(bytes); memcpy(a->bytes,bytes,a->count); }
     pthread_cond_broadcast(&changed); unlock();
@@ -98,6 +116,22 @@ U GetConsoleMode(U h,U destination) {
     lock();struct Stream *s=stream(h);int console=s->kind==2 && !s->non_console;
     if(console)*(D*)(uintptr_t)destination=7;else last_error=6;
     unlock();return console?0x123400000001ULL:0x123400000000ULL;
+}
+U GetNumberOfConsoleInputEvents(U h,U destination) {
+    lock();struct Stream *s=stream(h);int readable=s->kind==2 && !s->non_console && !s->console_output;
+    if(readable) { *(D*)(uintptr_t)destination=0;console_source=h; } else last_error=6;
+    unlock();return readable?0x123400000001ULL:0x123400000000ULL;
+}
+U CreateFileW(U name,U access,U share,U security,U disposition,U flags,U template) {
+    static const uint16_t expected[]={'C','O','N','I','N','$',0};
+    CHECK(!memcmp((void*)(uintptr_t)name,expected,sizeof(expected)),"worker opens console input");
+    CHECK(access==0x80000000ULL && share==3 && !security && disposition==3 && !flags && !template,
+          "private console reader is read-only, shared and non-inheritable");
+    lock();struct Stream *s=stream(console_source);
+    if(s->fail_open) { s->fail_open=0;last_error=5;unlock();return ~(U)0; }
+    CHECK(ninputs<MAX_THREADS,"private input capacity");
+    struct InputHandle *in=&inputs[ninputs++];in->handle=10000+ninputs;in->source=console_source;
+    U h=in->handle;unlock();return h;
 }
 U Sleep(U ms) { if(ms)usleep((useconds_t)(ms*1000)); else sched_yield(); return 0; }
 U VirtualAlloc(U address,U size,U type,U protect) {
@@ -151,6 +185,17 @@ U WaitForSingleObject(U handle,U timeout) {
 U CloseHandle(U handle) {
     lock(); struct Thread *t=thread(handle);
     if(t) { CHECK(!t->closed,"thread handle closed once"); t->closed=1; unlock(); return 0x123400000001ULL; }
+    struct InputHandle *in=input(handle);
+    if(in) {
+        CHECK(!in->closed,"private input handle closed once");
+        for(int i=0;i<nthreads;i++)if(test_thread_stream[i]==handle)
+            CHECK(threads[i]->phase!=PREPARING && threads[i]->phase!=READING,
+                  "private input closes only after synchronous read completion");
+        if(stream(in->source)->private_close_error) {
+            last_error=stream(in->source)->private_close_error;unlock();return 0x123400000000ULL;
+        }
+        in->closed=1;in->abandoned_read=0;unlock();return 0x123400000001ULL;
+    }
     struct Stream *s=stream(handle); s->close_calls++;
     if(s->closed || s->close_error) { last_error=s->close_error?s->close_error:6; unlock(); return 0x123400000000ULL; }
     s->closed=1; unlock(); return 0x123400000001ULL;
@@ -168,6 +213,7 @@ U test_no_cancel(U handle) { (void)handle; last_error=1168; return 0; }
 U ReadFile(U handle,U destination,U count,U written,U overlapped) {
     CHECK(!overlapped && count<=4294967295ULL,"ReadFile synchronous DWORD count");
     lock(); struct Stream *s=stream(handle); s->read_calls++; if(count>s->largest_read)s->largest_read=count;
+    struct InputHandle *in=input(handle);CHECK(!in || !in->closed,"read uses a live private input");
     if(s->mode_active)mode_read_overlap=1;
     if(current) {
         int owned=0;
@@ -192,7 +238,12 @@ U ReadFile(U handle,U destination,U count,U written,U overlapped) {
         if(got>count)got=(D)count;
         if(got)memcpy((void*)(uintptr_t)destination,a->bytes,got);
         last_error=a->error; result=a->error?0:1;
-    } else last_error=995;
+    } else {
+        last_error=995;
+        if(s->emulate_conhost_cancel && s->kind==2) {
+            if(in)in->abandoned_read=1;else s->abandoned_read=1;
+        }
+    }
     *(D*)(uintptr_t)written=got;
     if(current) { current->cancelled=0; current->phase=WAITING; }
     pthread_cond_broadcast(&changed); unlock(); return result?0x123400000001ULL:0x123400000000ULL;
@@ -314,6 +365,38 @@ int main(int argc,char **argv) {
     CHECK(SIGNED(__axiom_win_reader_mode(h,38))==-5,"mode BOOL failure preserves raw error");
     CHECK(__axiom_win_reader_read(h,(U)(uintptr_t)out,2)==2 && !memcmp(out,"de",2),"failed mode preserves remaining bytes");close_ok(h);
 
+    /* Cancelling only the client leaves a server read that eats the next key.
+       Repeated mode changes must retire it without closing the File handle. */
+    h=fresh(2);lock();stream(h)->emulate_conhost_cancel=1;unlock();
+    for(int round=0;round<3;round++) {
+        int reads=stat(h,0);CHECK(__axiom_win_reader_ready(h)==0,"mode restart begins pending");
+        await_stat(h,0,reads+1);
+        CHECK(__axiom_win_reader_mode(h,512)==0,"mode restart joins cancelled client");
+        CHECK(stat(h,2)==0,"mode restart keeps original File handle open");
+        queue(h,"q",0);CHECK(await_ready(h)==1,"first key after cancellation is ready");
+        CHECK(__axiom_win_reader_read(h,(U)(uintptr_t)out,1)==1 && out[0]=='q',"first key after cancellation is preserved");
+    }
+    close_ok(h);
+
+    h=fresh(2);lock();stream(h)->fail_open=1;unlock();
+    CHECK(__axiom_win_reader_ready(h)==1,"console open failure is ready");
+    CHECK(SIGNED(__axiom_win_reader_read(h,(U)(uintptr_t)out,1))==-5,"console open failure retains its error");
+    CHECK(stat(h,0)==0 && stat(h,2)==0,"failed private open never reads or closes the original");close_ok(h);
+
+    h=fresh(2);lock();stream(h)->console_output=1;unlock();
+    CHECK(__axiom_win_reader_ready(h)==1,"console output read failure is ready");
+    CHECK(SIGNED(__axiom_win_reader_read(h,(U)(uintptr_t)out,1))==-6,"console output cannot silently read from stdin");
+    CHECK(stat(h,0)==0,"console output never starts an input worker");close_ok(h);
+
+    h=fresh(2);lock();stream(h)->emulate_conhost_cancel=1;stream(h)->private_close_error=5;unlock();
+    CHECK(__axiom_win_reader_ready(h)==0,"private close failure begins pending");await_stat(h,0,1);
+    CHECK(SIGNED(__axiom_win_reader_mode(h,512))==-5,"mode reports a private input close failure");
+    CHECK(stat(h,3)==0 && stat(h,2)==0,"failed private close leaves mode and original handle unchanged");
+    lock();stream(h)->private_close_error=0;unlock();
+    CHECK(__axiom_win_reader_mode(h,512)==0,"private input close can retry");
+    queue(h,"q",0);CHECK(await_ready(h)==1,"first key survives retried private close");
+    CHECK(__axiom_win_reader_read(h,(U)(uintptr_t)out,1)==1 && out[0]=='q',"retried retirement preserves first key");close_ok(h);
+
     h=fresh(2);CHECK(__axiom_win_reader_ready(h)==0,"mode serialisation read start");await_stat(h,0,1);
     lock();stream(h)->mode_gate=1;unlock();
     struct Call mode={.handle=h,.mode=41,.operation=1};pthread_t mt=launch(&mode);await_stat(h,3,1);
@@ -379,6 +462,7 @@ int main(int argc,char **argv) {
     CHECK(!mode_read_overlap,"ReadFile never starts during SetConsoleMode");
     for(int i=0;i<nthreads;i++) { CHECK(!pthread_join(threads[i]->id,0),"join mock worker");CHECK(threads[i]->closed,"worker HANDLE is released");free(threads[i]); }
     for(int i=0;i<nallocs;i++)CHECK(allocations[i].freed,"closed stream releases native state");
+    for(int i=0;i<ninputs;i++)CHECK(inputs[i].closed,"private console handles close with reader ownership");
     lifetime();alarm(0);puts("ok   Windows owned reader buffering, modes, EOF, errors, cancellation and lifetime markers");return 0;
 }
 '''
@@ -411,7 +495,7 @@ API = {
     "VirtualAlloc": 4, "VirtualFree": 3, "CreateThread": 6,
     "WaitForSingleObject": 2, "CloseHandle": 1, "CancelSynchronousIo": 1,
     "Sleep": 1, "ReadFile": 5, "GetLastError": 0, "GetFileType": 1, "GetConsoleMode": 2,
-    "SetConsoleMode": 2,
+    "SetConsoleMode": 2, "CreateFileW": 7, "GetNumberOfConsoleInputEvents": 2,
 }
 
 

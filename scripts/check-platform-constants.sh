@@ -569,6 +569,8 @@ kernel32_table_report() {
       # kernel signal/readiness objects instead of an equivalent call.
       known["SetConsoleCtrlHandler"] = 1; known["GetLastError"] = 1
       known["GetFileType"] = 1; known["ReadFile"] = 1
+      known["CreateFileW"] = 1
+      known["GetNumberOfConsoleInputEvents"] = 1
       known["SetConsoleMode"] = 1; known["GetConsoleMode"] = 1
       known["CancelSynchronousIo"] = 1
       known["Sleep"] = 1; known["CreateThread"] = 1

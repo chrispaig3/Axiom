@@ -11,6 +11,7 @@ ok   a mode change cancels a pending read
 ok   raw input restarts after mode cancellation
 ok   a key is queued behind console noise
 ok   a later key reaches the stream reader
+ok   repeated mode cancellations preserve their first key
 ok   Ctrl-Space with zero Unicode is queued
 ok   a NUL byte is readable input
 ok   a UTF-8 console key is queued

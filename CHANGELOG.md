@@ -16,6 +16,12 @@ its changelog too.
 
 ## Unreleased
 
+- Windows console readers retire cancelled reads through a private input
+  handle. This prevents an abandoned console read from consuming the next
+  key while preserving buffered bytes and the owning `File` handle.
+  Tested by `tests/platform/windows-reader-runtime.py` and
+  `tests/platform/windows-console.ax`.
+
 - Assembler description queries use typed optional results for missing
   delimiters, fields and target arms. An arm at offset zero remains valid,
   and emitted instructions keep their source locations and encoding.
