@@ -40,9 +40,9 @@ def harness(sources):
     for effect in ('spawn', 'block'):
         fetch = fetch.replace(';@axiom:effect(' + effect + ')\n', '')
     extra = '\n' + fetch + '''
-(:: fetchUrls (-> Names String Int Int))
+(:: fetchUrls (-> String Names String Int Int))
 ;@axiom:effect(io)
-(fn (fetchUrls urls base from) { (println "fetch-ready") 0 })
+(fn (fetchUrls text urls base from) { (println "fetch-ready") 0 })
 '''
     at = program.index('(:: main Int)')
     program = program[:at] + extra + '\n' + program[at:]

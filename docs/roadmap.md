@@ -222,7 +222,7 @@ including pattern matching, remain work to do.
 | Safe assists organise top-level imports and preserve attached comments | Done; `tests/lsp/organize-imports.py` checks source edits and refusals |
 | Semantic tokens support range and delta requests | Done |
 | The language server answers inside macro invocations | Not started |
-| Packages can pin a version | Not started |
+| Packages can pin a version | Done; exact Git commits, separate revision checkouts and offline verification are tested by `tests/tools/package-pins.py` |
 | Independent module lexing and parsing in bounded workers | Done | Workers run by default once an import frontier reaches eight modules; `AXIOM_FRONTEND_JOBS=1` forces serial and `2` to `8` sets the width. Compact syntax packets share string storage in the parent, and parity with the serial path is tested by `tests/frontend/parallel/verify.py` |
 | A published performance profile | Not started |
 

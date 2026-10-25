@@ -1883,7 +1883,9 @@
 ; `axiom fetch`: check out the manifest's registry dependencies.
 ;
 ; For every `depend` URL without a checkout, `git clone`s it and moves
-; the finished clone to `.axiom/deps/<key>/` beside the manifest; a
+; the finished clone to `.axiom/deps/<key>/` beside the manifest, with
+; the full revision appended for a pin. Pinned clones detach at that
+; commit before publication. A
 ; checkout already there is reported `present` and left alone - but
 ; only when git records it as cloned from that URL (`pkgOrigin`), and
 ; anything else there is refused rather than reported. Local `depend`
@@ -1909,7 +1911,7 @@
                 (let text (pkgReadManifest mf))
                 {
                   (pkgCheckLines text mf)
-                  (fetchUrls (pkgFetchUrls text) (pathDir mf) 0)
+                  (fetchUrls text (pkgFetchUrls text) (pathDir mf) 0)
                 }
               }
             ))
@@ -1934,11 +1936,11 @@
 ; either holds a complete checkout or does not exist. A clone killed
 ; outright leaves its `.fetch-` directory, which nothing reads as a
 ; checkout and which names the process that owned it.
-(pub :: fetchUrls (-> Names String Int Int))
+(pub :: fetchUrls (-> String Names String Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
-(pub fn (fetchUrls urls base i)
+(pub fn (fetchUrls text urls base i)
   (if (>= i (vecLen urls))
     (if (== i 0)
       {
@@ -1949,7 +1951,7 @@
     {
       (let url (vecGetStr urls i))
       {
-        (let dest (pkgDepCheckout base url))
+        (let dest (pkgDepCheckoutFor text base url))
         (if (isDir dest)
           {
             (let origin (pkgOrigin dest))
@@ -1959,10 +1961,14 @@
                 (if (match recordedOrigin
                   ((None) false)
                   ((Some recorded) (strEq recorded url)))
-                  {
-                    (replOut (concat "present " (concat dest "\n")))
-                    (fetchUrls urls base (+ i 1))
-                  }
+                  (match (pkgCheckPin text url dest)
+                    ((Err why) (die (concat "error: " why) 4))
+                    ((Ok _)
+                      {
+                        (replOut (concat "present " (concat dest "\n")))
+                        (fetchUrls text urls base (+ i 1))
+                      }
+                    ))
                   (die
                     (concat (concat "error: `" (concat dest "` is not a checkout of `"))
                       (concat url
@@ -1981,10 +1987,15 @@
               (if (!= (mkdirParents deps) 0)
                 (die (concat (concat "error: could not create directory `" deps) "`\n") 4)
                 {
-                  (let rc (fetchClone url tmp))
+                  (let rc (fetchClonePinned url tmp (pkgPinFor text url)))
                   (match rc
                     ((Err _)
-                      (die "error: `git` was not found on PATH; install git and try again\n" 4)
+                      {
+                        (match (fetchDiscard tmp)
+                          ((Ok _) ())
+                          ((Err _) ()))
+                        (die "error: `git` was not found on PATH; install git and try again\n" 4)
+                      }
                     )
                     ((Ok rc)
                       (if (!= rc 0)
@@ -1993,22 +2004,39 @@
                             ((Ok _) ())
                             ((Err _) ()))
                           (die
-                            (concat (concat "error: cloning `" url)
+                            (concat
+                              (concat
+                                (match (pkgPinFor text url)
+                                  ((None) "error: cloning `")
+                                  ((Some _) "error: fetching `"))
+                                url)
                               (concat "` failed (git exited "
                                 (concat (fmtInt rc) "); nothing was checked out\n")))
                             4)
                         }
-                        (if (isErr (renamePath tmp (pkgStripSlash dest)))
-                          {
-                            (match (fetchDiscard tmp)
-                              ((Ok _) ())
-                              ((Err _) ()))
-                            (die
-                              (concat "error: the clone finished but could not be moved to `"
-                                (concat dest "`\n"))
-                              4)
-                          }
-                          (fetchUrls urls base (+ i 1))))
+                        {
+                          (match (pkgCheckPin text url (pathWithSlash tmp))
+                            ((Ok _) ())
+                            ((Err why)
+                              {
+                                (match (fetchDiscard tmp)
+                                  ((Ok _) ())
+                                  ((Err _) ()))
+                                (die (concat "error: " why) 4)
+                              }
+                            ))
+                          (if (isErr (renamePath tmp (pkgStripSlash dest)))
+                            {
+                              (match (fetchDiscard tmp)
+                                ((Ok _) ())
+                                ((Err _) ()))
+                              (die
+                                (concat "error: the clone finished but could not be moved to `"
+                                  (concat dest "`\n"))
+                                4)
+                            }
+                            (fetchUrls text urls base (+ i 1)))
+                        })
                     ))
                 })
             }
@@ -2051,6 +2079,33 @@
       (runTool "git" args)
     }
   })
+
+; A pinned clone is published only after checkout selects its exact commit.
+(pub :: fetchClonePinned (-> String String (Option String) (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(pub fn (fetchClonePinned url dest revision)
+  (match (fetchClone url dest)
+    ((Err e) (Err e))
+    ((Ok rc)
+      (if (!= rc 0)
+        (Ok rc)
+        (match revision
+          ((None) (Ok 0))
+          ((Some commit)
+            {
+              (let args vecNew)
+              (vecPush args "-C")
+              (vecPush args dest)
+              (vecPush args "checkout")
+              (vecPush args "--detach")
+              (vecPush args commit)
+              (vecPush args "--")
+              (runTool "git" args)
+            }
+          )))
+    )))
 
 ; Every directory on the way to `path`, itself included: `git clone`
 ; needs the parent to exist and the manifest's `.axiom/deps/` rarely

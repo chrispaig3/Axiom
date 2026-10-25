@@ -487,7 +487,7 @@
     "fixture": "bad-key",
     "status": 3,
     "stdout": "",
-    "stderr": "error: ./axiom.pkg:1: unknown key `nmae`\n       The manifest's keys are `name`, `version`, `depend`, `crate`, `opt`\n       and `main`, and `#` starts a comment. An unknown key used to be ignored, which\n       made a misspelled `depend` report as every module it would have\n       provided going missing - one at a time, naming this file never.\n"
+    "stderr": "error: ./axiom.pkg:1: unknown key `nmae`\n       The manifest's keys are `name`, `version`, `depend`, `pin`, `crate`, `opt`\n       and `main`, and `#` starts a comment. An unknown key used to be ignored, which\n       made a misspelled `depend` report as every module it would have\n       provided going missing - one at a time, naming this file never.\n"
   },
   {
     "mode": "fetch",
@@ -497,7 +497,7 @@
     "fixture": "bad-key",
     "status": 3,
     "stdout": "",
-    "stderr": "error: ./axiom.pkg:1: unknown key `nmae`\n       The manifest's keys are `name`, `version`, `depend`, `crate`, `opt`\n       and `main`, and `#` starts a comment. An unknown key used to be ignored, which\n       made a misspelled `depend` report as every module it would have\n       provided going missing - one at a time, naming this file never.\n"
+    "stderr": "error: ./axiom.pkg:1: unknown key `nmae`\n       The manifest's keys are `name`, `version`, `depend`, `pin`, `crate`, `opt`\n       and `main`, and `#` starts a comment. An unknown key used to be ignored, which\n       made a misspelled `depend` report as every module it would have\n       provided going missing - one at a time, naming this file never.\n"
   },
   {
     "mode": "opt",

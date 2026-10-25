@@ -37,7 +37,8 @@
 ; false. An unbuilt archive stays AX4004, whose help names `--link-lib`,
 ; `--link-search` and the `target/release` it looked in.
 ;
-; There is no registry index, no lockfile and no version constraint.
+; `pin URL COMMIT` selects a full immutable Git commit. There is no
+; registry index, lockfile or version-range resolver.
 ;
 ; Two dependencies may not provide one module, at any depth the resolver
 ; looks (`pkgModules` walks three levels), and `pkgVerify` refuses it
@@ -210,7 +211,8 @@
 (pub fn (pkgKnownKey k)
   (|| (strEq k "name")
     (|| (strEq k "version")
-      (|| (strEq k "depend") (|| (strEq k "crate") (|| (strEq k "opt") (strEq k "main")))))))
+      (|| (strEq k "depend")
+        (|| (strEq k "pin") (|| (strEq k "crate") (|| (strEq k "opt") (strEq k "main"))))))))
 
 (:: pkgUncomment (-> String String))
 (fn (pkgUncomment line)
@@ -236,6 +238,139 @@
       (strSlice s a (- b a))
     }
   })
+
+; A pin binds one declared Git URL to a full immutable commit identity.
+(struct PackagePin
+  (url : String)
+  (revision : String))
+
+(:: pkgParsePin (-> String (Option PackagePin)))
+(fn (pkgParsePin value)
+  {
+    (let mut at (strLen value))
+    (while (&& (> at 0) (! (strIsSpace (strByte value (- at 1)))))
+      (set at (- at 1)))
+    (if (== at 0)
+      None
+      {
+        (let url (pkgTrim (strSlice value 0 at)))
+        (let revision (strSlice value at (- (strLen value) at)))
+        (if (&& (pkgIsUrl url) (pkgRevisionOk revision))
+          (Some (PackagePin :url url :revision revision))
+          None)
+      })
+  })
+
+(:: pkgRevisionOk (-> String Bool))
+(fn (pkgRevisionOk revision)
+  {
+    (let n (strLen revision))
+    (let mut valid (|| (== n 40) (== n 64)))
+    (for i in 0..n
+      {
+        (let b (strByte revision i))
+        (if (! (|| (strIsDigit b) (&& (>= b 97) (<= b 102))))
+          (set valid false))
+      })
+    valid
+  })
+
+(pub :: pkgPinFor (-> String String (Option String)))
+(pub fn (pkgPinFor text url)
+  {
+    (let mut found (:: None (Option String)))
+    (for value in (pkgValues text "pin")
+      (match (pkgParsePin value)
+        ((None) ())
+        ((Some pin)
+          (if (strEq pin.url url)
+            (set found (Some pin.revision)))
+        )))
+    found
+  })
+
+(:: pkgPinCount (-> String String Int))
+(fn (pkgPinCount text url)
+  {
+    (let mut count 0)
+    (for value in (pkgValues text "pin")
+      (match (pkgParsePin value)
+        ((None) ())
+        ((Some pin)
+          (if (strEq pin.url url)
+            (set count (+ count 1)))
+        )))
+    count
+  })
+
+(:: pkgCheckPins (-> String String Int))
+;@axiom:effect(io)
+(fn (pkgCheckPins text mf)
+  {
+    (let lines (strSplit text 10))
+    (for i in 0..(vecLen lines)
+      (match (pkgLineValue (vecGet lines i) "pin")
+        ((None) ())
+        ((Some value)
+          (match (pkgParsePin value)
+            ((None)
+              (pkgDie
+                (concat (pkgAt mf (+ i 1))
+                  "`pin` takes a declared Git URL and a full 40- or 64-digit lowercase commit hash\n"))
+            )
+            ((Some pin)
+              {
+                (if (> (pkgPinCount text pin.url) 1)
+                  (pkgDie
+                    (concat (pkgAt mf (+ i 1))
+                      (concat "more than one pin for `" (concat pin.url "`\n")))))
+                (let mut declared false)
+                (for url in (pkgValues text "depend")
+                  (if (strEq url pin.url)
+                    (set declared true)))
+                (if (! declared)
+                  (pkgDie
+                    (concat (pkgAt mf (+ i 1))
+                      (concat "pin names no declared Git dependency: `" (concat pin.url "`\n")))))
+              }
+            ))
+        )))
+    0
+  })
+
+; Separate pins never replace a checkout, including local edits in an
+; older revision's directory. Unpinned dependencies keep their old key.
+(pub :: pkgDepCheckoutFor (-> String String String String))
+(pub fn (pkgDepCheckoutFor text base url)
+  (match (pkgPinFor text url)
+    ((None) (pkgDepCheckout base url))
+    ((Some revision)
+      (concat (pkgStripSlash (pkgDepCheckout base url)) (concat "-" (concat revision "/")))
+    )))
+
+; Offline verification reads Git's detached HEAD; it invokes no Git
+; process and does not fetch or change files in a dependency checkout.
+(pub :: pkgCheckPin (-> String String String (Result () String)))
+;@axiom:effect(io)
+(pub fn (pkgCheckPin text url dest)
+  (match (pkgPinFor text url)
+    ((None) (Ok ()))
+    ((Some revision)
+      (match (readFile (concat dest ".git/HEAD"))
+        ((Err e)
+          (Err
+            (concat "could not read the pinned revision in `"
+              (concat dest (concat ".git/HEAD`: errno " (fmtInt (errCode e))))))
+        )
+        ((Ok head)
+          (if (strEq (pkgTrim head) revision)
+            (Ok ())
+            {
+              (let why (concat "checkout does not match pinned revision `" revision))
+              (Err (concat why (concat "` at `" (concat dest "`; run `axiom fetch`\n"))))
+            })
+        ))
+    )))
 
 ; The dependency directories the manifest at or above `entryDir`
 ; declares, each with a trailing slash and resolved against the
@@ -316,7 +451,7 @@
 (:: pkgResolveDep (-> String String String String String))
 (fn (pkgResolveDep text base key v)
   (if (&& (strEq key "depend") (pkgIsUrl v))
-    (pkgDepCheckout base v)
+    (pkgDepCheckoutFor text base v)
     (pathWithSlash (pkgResolve base v))))
 
 ; `DIR/axiom/` for each directory in `dirs`.
@@ -798,21 +933,23 @@
 ; Every URL dependency's checkout was cloned from that URL - the build's
 ; half of what `pkgOrigin` says. Called after `pkgVerify` has refused a
 ; checkout that is not there at all, so each one here exists.
-(:: pkgCheckOrigins (-> Names String String Int Int))
+(:: pkgCheckOrigins (-> String Names String String Int Int))
 ;@axiom:effect(io)
-(fn (pkgCheckOrigins urls base mf i)
+(fn (pkgCheckOrigins text urls base mf i)
   (if (>= i (vecLen urls))
     0
     {
       (let url (vecGet urls i))
-      (let dest (pkgDepCheckout base (vecGet urls i)))
+      (let dest (pkgDepCheckoutFor text base url))
       (match (pkgOrigin dest)
         ((Err e) (pkgDie (pkgOriginReadFailure dest e)))
         ((Ok origin)
           (if (match origin
             ((None) false)
             ((Some recorded) (strEq recorded url)))
-            (pkgCheckOrigins urls base mf (+ i 1))
+            (match (pkgCheckPin text url dest)
+              ((Ok _) (pkgCheckOrigins text urls base mf (+ i 1)))
+              ((Err why) (pkgDie (concat "error: " (concat mf (concat ": " why))))))
             (pkgDie
               (concat
                 (concat "error: "
@@ -849,21 +986,27 @@
 ; Answers "" for a plain directory, so the refusal reads as before.
 (:: pkgUrlHint (-> String String String String))
 (fn (pkgUrlHint text base dir)
-  (pkgUrlHintVals (pkgValues text "depend") base dir 0))
+  (pkgUrlHintVals text (pkgValues text "depend") base dir 0))
 
-(:: pkgUrlHintVals (-> Names String String Int String))
-(fn (pkgUrlHintVals vs base dir i)
+(:: pkgUrlHintVals (-> String Names String String Int String))
+(fn (pkgUrlHintVals text vs base dir i)
   (if (>= i (vecLen vs))
     ""
     {
       (let v (vecGet vs i))
-      (if (&& (pkgIsUrl v) (strEq (pkgDepCheckout base v) dir))
-        (concat
-          (concat "       `"
-            (concat v "` is a registry dependency: check it out with `axiom fetch`,\n"))
-          (concat "       or by hand with\n       git clone "
-            (concat v (concat " " (concat dir "\n")))))
-        (pkgUrlHintVals vs base dir (+ i 1)))
+      (if (&& (pkgIsUrl v) (strEq (pkgDepCheckoutFor text base v) dir))
+        (match (pkgPinFor text v)
+          ((Some _)
+            (concat "       Fetch the pinned dependency with `axiom fetch`: " (concat v "\n"))
+          )
+          ((None)
+            (concat
+              (concat "       `"
+                (concat v "` is a registry dependency: check it out with `axiom fetch`,\n"))
+              (concat "       or by hand with\n       git clone "
+                (concat v (concat " " (concat dir "\n")))))
+          ))
+        (pkgUrlHintVals text vs base dir (+ i 1)))
     }))
 
 ; The `name` the manifest at or above `entryDir` declares, including
@@ -1105,7 +1248,7 @@
                       (concat (pkgAt mf (+ i 1))
                         (concat (concat "unknown key `" (concat k "`\n"))
                           (concat
-                            "       The manifest's keys are `name`, `version`, `depend`, `crate`, `opt`\n"
+                            "       The manifest's keys are `name`, `version`, `depend`, `pin`, `crate`, `opt`\n"
                             (concat
                               "       and `main`, and `#` starts a comment. An unknown key used to be ignored, which\n"
                               (concat
@@ -1116,6 +1259,7 @@
           }
           (set i (+ i 1))
         })
+      (pkgCheckPins text mf)
       0
     }
   })
@@ -1182,7 +1326,7 @@
                                   (pkgUrlHint text (pathDir mf) (vecGet dirs i))))))))
                       (set i (+ i 1))
                     })
-                  (pkgCheckOrigins (pkgFetchUrls text) (pathDir mf) mf 0)
+                  (pkgCheckOrigins text (pkgFetchUrls text) (pathDir mf) mf 0)
                   (pkgCheckCrates (pkgCrateDirs entryDir) mf 0)
                   ; The pairwise check runs over the depend directories AND
                   ; every crate's `axiom/` together, because they land in one

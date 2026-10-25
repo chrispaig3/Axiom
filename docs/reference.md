@@ -1481,10 +1481,31 @@ depend vendor/lib
 crate vendor/native
 ```
 
-A dependency may be a directory of modules or a git URL. `axiom fetch`
-checks out git dependencies under `.axiom/deps/`. Packages do not yet
-pin versions or resolve a registry. Crates provide generated Axiom
-wrappers and native archives; see [calling Rust](ffi.md).
+A dependency may be a directory of modules or a git URL. Pin a Git
+URL to an exact commit with a separate line:
+
+```text
+depend https://example.com/team/library.git
+pin https://example.com/team/library.git 0123456789abcdef0123456789abcdef01234567
+```
+
+Use a full lowercase commit hash: 40 hexadecimal digits, or 64 for a
+SHA-256 repository. Each pin must name a declared Git dependency.
+`axiom fetch` clones it into `.axiom/deps/` and checks out that commit.
+Changing a pin creates a separate checkout and preserves the previous
+one, including local edits. Keep dependency checkouts unmodified when
+you need reproducible source contents.
+
+After fetching, `check`, `build` and `run` use the local checkout without
+calling Git or accessing the network. They check its recorded origin
+and detached commit, and refuse a checkout that no longer matches the
+pin. Unpinned URLs use the branch selected by their first fetch.
+
+Tested by `tests/tools/package-pins.py`.
+
+Not yet: packages cannot resolve a registry or version ranges; see the
+[roadmap](roadmap.md). Crates provide generated Axiom wrappers and native
+archives; see [calling Rust](ffi.md).
 
 ## Macros
 

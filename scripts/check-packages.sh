@@ -31,6 +31,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
 gate_init
 gate_build_axc axc
 
+# Real Git repositories exercise exact revisions and offline builds.
+python3 "$repo_root/tests/tools/package-pins.py" "$axc"
+
 failed=0
 checks=0
 ok()  { echo "ok   $*"; checks=$((checks + 1)); }

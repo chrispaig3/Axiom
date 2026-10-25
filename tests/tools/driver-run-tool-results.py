@@ -230,7 +230,7 @@ def check(compiler, root, work, baseline, fetch_only=False):
         text=source['main.ax'];fn=ast['declaration'](text,'fetchUrls')
         nodes=[n for n in ast['walk'](ast['parse'](fn)[-1]) if ast['op'](n)=='match'
                and ast['value'](fn,n[2][1])=='(fetchDiscard tmp)']
-        assert len(nodes)==2
+        assert len(nodes)==4
         altered_fn=fn
         for node in sorted(nodes,key=lambda n:n[0],reverse=True):altered_fn=altered_fn[:node[0]]+'()'+altered_fn[node[1]:]
         changed['main.ax']=replace_once(text,fn,altered_fn,label)

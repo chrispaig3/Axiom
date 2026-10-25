@@ -38,7 +38,7 @@
       ("discard" (show (probeFetchDiscard "clone dest")))
       ("fetch"
         {
-          (let status (fetchUrls (vecPush vecNew "https://example.invalid/repo") "project/" 0))
+          (let status (fetchUrls "" (vecPush vecNew "https://example.invalid/repo") "project/" 0))
           (println "status {status}")
         }
       )
