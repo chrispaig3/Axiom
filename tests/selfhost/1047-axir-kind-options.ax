@@ -1,0 +1,42 @@
+; expect 42
+; Record arities keep unknown kinds separate from valid field counts.
+(import axir)
+(import Str)
+(import Vec)
+
+(:: kindArityIs (-> String Int Bool))
+(fn (kindArityIs kind want)
+  (match (axirKindArityMin kind)
+    ((Some count) (== count want))
+    ((None) false)))
+
+(:: kindAbsent (-> String Bool))
+(fn (kindAbsent kind)
+  (match (axirKindArityMin kind)
+    ((Some _) false)
+    ((None) true)))
+
+(:: main Int)
+(fn (main)
+  {
+    (let arities
+      (&& (kindArityIs "axir" 4)
+        (&& (kindArityIs "F" 4)
+          (&& (kindArityIs "sig" 2)
+            (&& (kindArityIs "param" 3)
+              (&& (kindArityIs "region" 6)
+                (&& (kindArityIs "blk" 2)
+                  (&& (kindArityIs "op" 3) (&& (kindArityIs "term" 2) (kindArityIs "end" 1))))))))))
+    (let absent (&& (kindAbsent "") (&& (kindAbsent "unknown") (kindAbsent "Sig"))))
+    (let valid
+      "axir 1 test test\nF main - \"Int\"\nsig -1\nparam 0 x\nregion 0 - 0 0 0\nblk entry %1\nop %2 add %1 1\nterm ret %2\nend\n")
+    (let records (axirRead valid))
+    (let roundTrip (&& (! (axirIsErr records)) (strEq (axirWrite records) valid)))
+    (let badKind (axirIsErr (axirRead "end\nunknown value\n")))
+    (let shortLine (axirIsErr (axirRead "region 0 - 0 0\n")))
+    (let longLine (axirIsErr (axirRead "sig 1 extra\n")))
+    (let malformed (axirIsErr (axirRead "op 2 add 1\n")))
+    (if (&& arities (&& absent (&& roundTrip (&& badKind (&& shortLine (&& longLine malformed))))))
+      42
+      1)
+  })

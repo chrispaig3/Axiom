@@ -16,6 +16,12 @@ its changelog too.
 
 ## Unreleased
 
+- Compiler symbol lookups and AXIR record-kind queries use typed optional
+  results. Missing names stay distinct from index zero; shadowing, scope
+  restoration and malformed-record refusals keep their behaviour.
+  Tested by `tests/selfhost/1048-codegen-symbol-options.ax` and
+  `tests/selfhost/1047-axir-kind-options.ax`.
+
 - Native-tool results preserve operating-system errors separately from
   child exit codes throughout the driver, package fetching and REPL.
   Missing-tool fallback, diagnostics and cleanup keep their existing policies.

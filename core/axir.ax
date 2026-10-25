@@ -92,30 +92,30 @@
 ; way the driver's flag table refuses an unknown flag, because a
 ; format that silently drops a line it does not know is a format that
 ; reports less than it was given. The number is how many
-; whitespace-separated atoms the line carries INCLUDING the kind
-; word; -1 is "no such kind".
+; whitespace-separated atoms the line carries including the kind
+; word; an unknown kind has no arity.
 ; ------------------------------------------------------------------
-(pub :: axirKindArityMin (-> String Int))
+(pub :: axirKindArityMin (-> String (Option Int)))
 (pub fn (axirKindArityMin k)
   (if (strEq k "axir")
-    4
+    (Some 4)
     (if (strEq k "F")
-      4
+      (Some 4)
       (if (strEq k "sig")
-        2
+        (Some 2)
         (if (strEq k "param")
-          3
+          (Some 3)
           (if (strEq k "region")
-            6
+            (Some 6)
             (if (strEq k "blk")
-              2
+              (Some 2)
               (if (strEq k "op")
-                3
+                (Some 3)
                 (if (strEq k "term")
-                  2
+                  (Some 2)
                   (if (strEq k "end")
-                    1
-                    (- 0 1)))))))))))
+                    (Some 1)
+                    None))))))))))
 
 ; Whether the kind's arity is exact. `op` and `term` carry a variable
 ; operand list and `blk` a variable BLOCK-PARAMETER list; `F` carries
@@ -614,17 +614,13 @@
                 (let toks (axirTokens text i e))
                 {
                   (let kind (vecGet toks 0))
-                  {
-                    (let want (axirKindArityMin kind))
-                    (if (< want 0)
-                      (set bad (concat "unknown line kind `" (concat kind "`")))
-                      (if (|| (< (vecLen toks) want)
-                            (&& (axirKindExact kind) (> (vecLen toks) want)))
-                        (set bad (concat "`" (concat kind "` line has the wrong number of fields")))
-                        (if (let (Some rec) (axirDecompose kind toks))
-                          (vecPush out rec)
-                          (set bad (concat "`" (concat kind "` line is malformed"))))))
-                  }
+                  (if (let (Some want) (axirKindArityMin kind))
+                    (if (|| (< (vecLen toks) want) (&& (axirKindExact kind) (> (vecLen toks) want)))
+                      (set bad (concat "`" (concat kind "` line has the wrong number of fields")))
+                      (if (let (Some rec) (axirDecompose kind toks))
+                        (vecPush out rec)
+                        (set bad (concat "`" (concat kind "` line is malformed")))))
+                    (set bad (concat "unknown line kind `" (concat kind "`"))))
                 }
               })
             (set i (+ e 1))

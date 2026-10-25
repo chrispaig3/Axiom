@@ -5015,28 +5015,30 @@
 
 (pub :: emitEvwaRead (-> CG Int CG))
 (pub fn (emitEvwaRead cg d)
-  {
-    (let symIdx (symIndex cg (evwaSym d)))
-    (if (< symIdx 0)
+  (match (symIndex cg (evwaSym d))
+    ((None)
       {
         (cgSetResult cg (constStr 0))
         cg
       }
+    )
+    ((Some symIdx)
       {
         (cgSetResult cg (strDup (symRegAt cg symIdx)))
         cg
-      })
-  })
+      }
+    )))
 
 (pub :: emitEvwRead (-> CG CG))
 (pub fn (emitEvwRead cg)
-  {
-    (let symIdx (symIndex cg "__evw."))
-    (if (< symIdx 0)
+  (match (symIndex cg "__evw.")
+    ((None)
       {
         (cgSetResult cg (constStr 0))
         cg
       }
+    )
+    ((Some symIdx)
       (if (>= (lookupSymKind cg "__evw.") 1)
         {
           (let rn (allocReg cg))
@@ -5054,8 +5056,8 @@
         {
           (cgSetResult cg (strDup (symRegAt cg symIdx)))
           cg
-        }))
-  })
+        })
+    )))
 
 ; The callee's evidence word from a validated stamp: constant bits
 ; first (bit 63 via `shl 1, 63` - a literal with the sign bit set
@@ -20271,10 +20273,11 @@
       ; iteration's (new values are retained by it), stored back
       ; like any reassigned parameter. Words 0 and 1 of `words`.
       {
-        (let sidx (symIndex cg "__evw."))
-        (if (if (< sidx 0)
-          false
-          (>= (lookupSymKind cg "__evw.") 1))
+        (let slot
+          (if (>= (lookupSymKind cg "__evw.") 1)
+            (symIndex cg "__evw.")
+            None))
+        (if (let (Some sidx) slot)
           {
             (let cgO (emitEvwRead cg))
             {
@@ -20584,14 +20587,13 @@
         (vecPush out
           (if (!= (nodeTag a) TAG_E_VAR)
             0
-            {
-              (let ri (symIndex cg (nodeAName a)))
-              (if (< ri 0)
-                0
+            (match (symIndex cg (nodeAName a))
+              ((None) 0)
+              ((Some ri)
                 (if (strEq (symRegAt cg ri) (vecGet slots i))
                   1
-                  0))
-            }))
+                  0)
+              ))))
         (tailArgsUnchanged cg slots args out (+ i 1))
       }
     }))
@@ -23731,9 +23733,9 @@
       {
         (let symIdx
           (if (== (nodeDefScope node) 1)
-            (- 0 1)
+            None
             (symIndex cg name)))
-        (if (>= symIdx 0)
+        (if (let (Some symIdx) symIdx)
           (if (if (== (lookupSymKind cg name) 3)
             false
             (>= (lookupSymKind cg name) 1))
@@ -23926,8 +23928,8 @@
         0)
       (lookupSymFloatIn syms flags name (- i 1)))))
 
-; Where `name` is bound in the symbol table, or -1 when it is not.
-(pub :: symIndex (-> CG String Int))
+; Where `name` is bound in the symbol table, or None when it is not.
+(pub :: symIndex (-> CG String (Option Int)))
 (pub fn (symIndex cg name)
   {
     (let syms (cgSymNames cg))
@@ -23941,16 +23943,16 @@
 
 (pub :: hasSym (-> CG String Bool))
 (pub fn (hasSym cg name)
-  (>= (symIndex cg name) 0))
+  (isSome (symIndex cg name)))
 
 ; The newest binding of `name` in a symbol vector, searching down from
-; `i`, or -1.
-(pub :: symIndexIn (-> Strings String Int Int))
+; `i`, or None when no binding matches.
+(pub :: symIndexIn (-> Strings String Int (Option Int)))
 (pub fn (symIndexIn syms name i)
   (if (< i 0)
-    (- 0 1)
+    None
     (if (strEq (vecGet syms i) name)
-      i
+      (Some i)
       (symIndexIn syms name (- i 1)))))
 
 ; ------------------------------------------------------------------
@@ -26685,16 +26687,19 @@
     (let node (vecGet args (+ (asmDigits pair colon (strLen pair)) 1)))
     {
       (let name (nodeAName node))
-      (let storageIdx (symIndex cg (nodeAName node)))
       (let kind (lookupSymKind cg (nodeAName node)))
-      (if (|| (< storageIdx 0) (&& (!= kind 1) (!= kind 4)))
-        (dieCodegenDiag "an `asm` output's `into` target is not a mut binding: " name)
+      (let storage
+        (if (|| (== kind 1) (== kind 4))
+          (symIndex cg name)
+          None))
+      (if (let (Some storageIdx) storage)
         {
           (emitLine cg
             (concat (concat "  store i64 " (asmOutput cg r ty nOut k))
               (concat ", ptr " (symRegAt cg storageIdx))))
           0
-        })
+        }
+        (dieCodegenDiag "an `asm` output's `into` target is not a mut binding: " name))
     }
   })
 
@@ -29086,12 +29091,9 @@
 ; the answer if it ever does - the leaking direction.
 (pub :: emitRetainIfLamArg (-> CG String Int CG))
 (pub fn (emitRetainIfLamArg cg v d)
-  {
-    (let symIdx (symIndex cg (evwaSym d)))
-    (if (< symIdx 0)
-      cg
-      (emitRcIfBitOf cg v 0 (strDup (symRegAt cg symIdx)) 1))
-  })
+  (match (symIndex cg (evwaSym d))
+    ((None) cg)
+    ((Some symIdx) (emitRcIfBitOf cg v 0 (strDup (symRegAt cg symIdx)) 1))))
 
 (pub :: emitRetainIfEvBit (-> CG String Int CG))
 (pub fn (emitRetainIfEvBit cg v k)
@@ -29401,47 +29403,45 @@
                                 (set q 0)
                                 (while (< q (vecLen lamPos))
                                   {
-                                    {
-                                      (let symIdx (symIndex cgX (evwaSym (as (vecGet lamD q) Int))))
-                                      (if (>= symIdx 0)
+                                    (if (let (Some symIdx) (symIndex cgX
+                                                             (evwaSym (as (vecGet lamD q) Int))))
+                                      {
+                                        (let bn (allocReg cgX))
                                         {
-                                          (let bn (allocReg cgX))
+                                          (let br (regStr bn))
                                           {
-                                            (let br (regStr bn))
+                                            (let cgB
+                                              (emitLine cgX
+                                                (concat (concat "  " br)
+                                                  (concat " = and i64 "
+                                                    (concat (strDup (symRegAt cgX symIdx))
+                                                      ", 1")))))
                                             {
-                                              (let cgB
-                                                (emitLine cgX
-                                                  (concat (concat "  " br)
-                                                    (concat " = and i64 "
-                                                      (concat (strDup (symRegAt cgX symIdx))
-                                                        ", 1")))))
+                                              (let sn2 (allocReg cgB))
                                               {
-                                                (let sn2 (allocReg cgB))
+                                                (let sr2 (regStr sn2))
                                                 {
-                                                  (let sr2 (regStr sn2))
+                                                  (let cgS
+                                                    (emitLine cgB
+                                                      (concat
+                                                        (concat (concat "  " sr2)
+                                                          (concat " = shl i64 " br))
+                                                        (concat ", "
+                                                          (concat
+                                                            (constStr (as (vecGet lamPos q) Int))
+                                                            "")))))
                                                   {
-                                                    (let cgS
-                                                      (emitLine cgB
-                                                        (concat
-                                                          (concat (concat "  " sr2)
-                                                            (concat " = shl i64 " br))
-                                                          (concat ", "
-                                                            (concat
-                                                              (constStr (as (vecGet lamPos q) Int))
-                                                              "")))))
+                                                    (let on (allocReg cgS))
                                                     {
-                                                      (let on (allocReg cgS))
+                                                      (let orr (regStr on))
                                                       {
-                                                        (let orr (regStr on))
-                                                        {
-                                                          (set cgX (emitLine cgS
-                                                                     (concat
-                                                                       (concat (concat "  " orr)
-                                                                         (concat " = or i64 " acc))
-                                                                       (concat ", "
-                                                                         (concat sr2 "")))))
-                                                          (set acc orr)
-                                                        }
+                                                        (set cgX (emitLine cgS
+                                                                   (concat
+                                                                     (concat (concat "  " orr)
+                                                                       (concat " = or i64 " acc))
+                                                                     (concat ", "
+                                                                       (concat sr2 "")))))
+                                                        (set acc orr)
                                                       }
                                                     }
                                                   }
@@ -29449,8 +29449,8 @@
                                               }
                                             }
                                           }
-                                        })
-                                    }
+                                        }
+                                      })
                                     (set q (+ q 1))
                                   })
                                 (storeShapeValAt cgX ptr acc)
@@ -32392,47 +32392,48 @@
     (let name (nodeAName node))
     (let valExpr (nodeBChild node))
     {
-      (let storageIdx (symIndex cg name))
       (let kind (lookupSymKind cg name))
-      (if (< storageIdx 0)
-        (cgFail cg "set target is not a mut binding: " name)
-        (if (&& (!= kind 1) (!= kind 4))
-          (cgFail cg "set target is not a mut binding: " name)
+      (let storage
+        (if (|| (== kind 1) (== kind 4))
+          (symIndex cg name)
+          None))
+      (if (let (Some storageIdx) storage)
+        {
+          (let cg1 (emitExpr valExpr cg))
           {
-            (let cg1 (emitExpr valExpr cg))
+            (let v (strDup (cgResult cg1)))
+            (let ptr (strDup (symRegAt cg storageIdx)))
             {
-              (let v (strDup (cgResult cg1)))
-              (let ptr (strDup (symRegAt cg storageIdx)))
-              {
-                (if (== kind 4)
+              (if (== kind 4)
+                {
+                  (let cgR
+                    (if (== (valueOwnedRef cg1 valExpr) 1)
+                      cg1
+                      (emitRetainOf cg1 v)))
                   {
-                    (let cgR
-                      (if (== (valueOwnedRef cg1 valExpr) 1)
-                        cg1
-                        (emitRetainOf cg1 v)))
+                    (let old (regStr (allocReg cgR)))
                     {
-                      (let old (regStr (allocReg cgR)))
-                      {
-                        (emitLine cgR (concat "  " (concat old (concat " = load i64, ptr " ptr))))
-                        (emitLine cgR (concat "  store i64 " (concat v (concat ", ptr " ptr))))
-                        (emitReleaseOf cgR old)
-                      }
+                      (emitLine cgR (concat "  " (concat old (concat " = load i64, ptr " ptr))))
+                      (emitLine cgR (concat "  store i64 " (concat v (concat ", ptr " ptr))))
+                      (emitReleaseOf cgR old)
                     }
                   }
-                  {
-                    (let cgR
-                      (if (if (== (nodeInVec (cgCountedStores cg1) node 0) 1)
-                        (== (valueOwnedRef cg1 valExpr) 0)
-                        false)
-                        (emitRetainOf cg1 v)
-                        cg1))
-                    (emitLine cgR (concat "  store i64 " (concat v (concat ", ptr " ptr))))
-                  })
-                (cgSetResult cg1 v)
-                cg1
-              }
+                }
+                {
+                  (let cgR
+                    (if (if (== (nodeInVec (cgCountedStores cg1) node 0) 1)
+                      (== (valueOwnedRef cg1 valExpr) 0)
+                      false)
+                      (emitRetainOf cg1 v)
+                      cg1))
+                  (emitLine cgR (concat "  store i64 " (concat v (concat ", ptr " ptr))))
+                })
+              (cgSetResult cg1 v)
+              cg1
             }
-          }))
+          }
+        }
+        (cgFail cg "set target is not a mut binding: " name))
     }
   })
 

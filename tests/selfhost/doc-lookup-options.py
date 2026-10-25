@@ -29,9 +29,14 @@ def check(compiler, root, work, baseline=None):
     (data/'docs').mkdir(exist_ok=True)
     (data/'library').mkdir(exist_ok=True)
     (data/'empty-library').mkdir(exist_ok=True)
-    (data/'README.md').write_text('# About\n\n[Start](docs/README.md) and [absent](missing.md#part).\n')
-    (data/'docs/README.md').write_text('# Start\n\n[About](../README.md#part).\n')
-    (data/'Fixture.ax').write_text(''';;! A tiny module with [About](README.md).
+    # These links address the temporary fixture tree, including an absent page.
+    readme = Path('README.md')
+    start = Path('docs') / readme
+    absent = Path('missing.md')
+    parent = Path('..') / readme
+    (data/readme).write_text(f'# About\n\n[Start]({start.as_posix()}) and [absent]({absent.as_posix()}#part).\n')
+    (data/start).write_text(f'# Start\n\n[About]({parent.as_posix()}#part).\n')
+    (data/'Fixture.ax').write_text(f''';;! A tiny module with [About]({readme.as_posix()}).
 ;; A documented value.
 (pub :: value Int)
 (pub fn (value) 1)

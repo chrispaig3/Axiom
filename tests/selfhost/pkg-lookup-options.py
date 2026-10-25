@@ -181,9 +181,13 @@ def check(compiler, root, work, baseline=None):
         for i, (cwd, path, manifest, name, opt, entry, dirs) in enumerate(queries):
             if cwd == 'read-failure':
                 result = run(label + '-' + str(i), [str(binary), path], local, data / cwd, require=3)
-                assert result.stdout == b'' and result.stderr == (
+                expected_prefix = ''.join(f'{n} true\n' for n in range(1, 17)).encode()
+                expected_error = (
                     b'error: could not read manifest `./axiom.pkg`: errno 21\n'
-                ), (label, i, result.stderr)
+                )
+                if result.stdout != expected_prefix or result.stderr != expected_error:
+                    failed.append(i)
+                    (work / (label + '-' + str(i) + '.expected')).write_bytes(expected_prefix)
                 continue
             result = run(label + '-' + str(i), [str(binary), path], local, data / cwd, require=0)
             expected = [f'{n} true' for n in range(1, 17)] + [string(manifest), string(name), integer(opt),
