@@ -56,9 +56,9 @@
     (unitName (vecGet rows 0))
   })
 
-(:: wireUnit (-> Units String Int))
+(:: wireUnit (-> Units String (Option Int)))
 (fn (wireUnit units name)
-  (lspUnitOf units (as name Int)))
+  (lspUnitOf units (Some name)))
 
 (:: hoverText (-> String Nodes ASTNode (Option String) String))
 (fn (hoverText source declarations declaration name)
@@ -144,10 +144,19 @@
       (match (saUnitOf units (Some "Module"))
         ((None) false)
         ((Some index) (== index 2))))
-    (say 36 (== (lspUnitNamed units "Module") 2))
-    (say 37 (== (lspUnitNamed units "") 1))
-    (say 38 (== (lspUnitNamed units "Missing") -1))
-    (say 39 (== (wireUnit units "Module") 2))
+    (say 36
+      (match (lspUnitNamed units "Module")
+        ((None) false)
+        ((Some index) (== index 2))))
+    (say 37
+      (match (lspUnitNamed units "")
+        ((None) false)
+        ((Some index) (== index 1))))
+    (say 38 (isNone (lspUnitNamed units "Missing")))
+    (say 39
+      (match (wireUnit units "Module")
+        ((None) false)
+        ((Some index) (== index 2))))
     (let source "(fn (twice n) n)\n")
     (let declarations (expectParsed (parseModuleWith (lex source) (scanAxtags source))))
     (let declaration (vecGet declarations 0))

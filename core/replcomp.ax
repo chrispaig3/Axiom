@@ -327,19 +327,16 @@
 ; `lspModOf` first, which reads the mangled half of `Vec$vecPush`.
 ; Then the declaration's own module word, which is what a MACRO
 ; needs: `resolveImports` does not mangle a macro name, so
-; `lspModOf "println"` is "" and the LSP shows an imported macro with
+; `lspModOf "println"` is `None` and the LSP shows an imported macro with
 ; an empty detail - visible as a blank column against `printlnLit`,
 ; whose function name IS mangled. Probed, not guessed: `(import IO)`
 ; and the prefix `printl` answered `printlnLit | IO` and `println |`
 ; before this fell back.
 (pub :: replComplModOf (-> ASTNode String))
 (pub fn (replComplModOf d)
-  {
-    (let m (lspModOf (nodeAName d)))
-    (if (> (strLen m) 0)
-      m
-      (nodeModuleName d))
-  })
+  (match (lspModOf (nodeAName d))
+    ((None) (nodeModuleName d))
+    ((Some m) m)))
 
 (pub :: replComplImported (-> (Vec ReplCand) Strings (Vec ASTNode) String ()))
 (pub fn (replComplImported out seen allDecls prefix)
@@ -506,7 +503,7 @@
           v
         }
       })
-    (if (> (strLen (lspPreflight decls tcode "." vecNew)) 0)
+    (if (isSome (lspPreflight decls tcode "." vecNew))
       None
       {
         (let allDecls (resolveImports decls vecNew vecNew vecNew tcode "." units))

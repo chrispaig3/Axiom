@@ -1,0 +1,107 @@
+(import core)
+(import lexer)
+(import parser)
+(import lsp)
+(import Cereal)
+(import Str)
+(import Vec)
+(import IO)
+
+(:: say (-> Int Bool ()))
+;@axiom:effect(io)
+(fn (say n good)
+  (println "{n} {good}"))
+
+(:: indexIs (-> (Option Int) (Option Int) Bool))
+(fn (indexIs actual expected)
+  (match expected
+    ((None) (isNone actual))
+    ((Some want)
+      (match actual
+        ((None) false)
+        ((Some got) (== got want)))
+    )))
+
+(:: textIs (-> (Option String) (Option String) Bool))
+(fn (textIs actual expected)
+  (match expected
+    ((None) (isNone actual))
+    ((Some want)
+      (match actual
+        ((None) false)
+        ((Some got) (strEq got want)))
+    )))
+
+(:: parsed (-> String Nodes))
+(fn (parsed source)
+  (match (parseModule (lex source))
+    ((ParseFailed _) __indexTrap)
+    ((ParseSuccess nodes _) nodes)))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (let cache (:: vecNew Strings))
+    (let protected (:: vecNew Strings))
+    (let workspace (lspWorkspaceNew vecNew vecNew vecNew))
+    (let origin "hi\n")
+    (let lines (lspLineIndex origin))
+    (say 1 (textIs (lspImportPathAt "(import " 8) (Some "")))
+    (say 2 (textIs (lspImportPathAt "(import Crypto.Sh" 17) (Some "Crypto.Sh")))
+    (say 3 (textIs (lspImportPathAt "(import IO (pri" 15) None))
+    (say 4 (textIs (lspImportPathAt "plain" 5) None))
+    (say 5 (textIs (lspModOf "Vec$vecPush") (Some "Vec")))
+    (say 6 (textIs (lspModOf "println") None))
+    (say 7 (textIs (lspModOf "$name") None))
+    (say 8 (textIs (lspPreflight vecNew 0 "." vecNew) None))
+    (say 9
+      (textIs (lspPreflight (parsed "(import DefinitelyAbsentLspOptionTest)") 0 "." vecNew)
+        (Some "DefinitelyAbsentLspOptionTest")))
+    (say 10 (textIs (lspCacheFind cache "D-key") None))
+    (vecPush cache "D-key")
+    (vecPush cache (lspCacheEntry workspace "[]"))
+    (say 11 (textIs (lspCacheFind cache "D-key") (Some "[]")))
+    (say 12 (textIs (lspCacheFind cache "D-other") None))
+    (vecPush cache "D-empty")
+    (vecPush cache (lspCacheEntry workspace ""))
+    (say 13 (textIs (lspCacheFind cache "D-empty") (Some "")))
+    (say 14 (indexIs (lspCacheVictim cache false) None))
+    (say 15 (indexIs (lspCacheVictim cache true) (Some 0)))
+    (vecPush protected "P-cursor")
+    (vecPush protected "entry")
+    (say 16 (indexIs (lspCacheVictim protected false) (Some 0)))
+    (vecPush cache "P-cursor")
+    (vecPush cache "entry")
+    (say 17 (indexIs (lspCacheVictim cache false) (Some 4)))
+    (say 18
+      (indexIs (lspSyncOffset origin lines (jsonParse "{\"line\":0,\"character\":0}")) (Some 0)))
+    (say 19
+      (indexIs (lspSyncOffset origin lines (jsonParse "{\"line\":1,\"character\":0}")) (Some 3)))
+    (say 20
+      (indexIs (lspSyncOffset origin lines (jsonParse "{\"line\":0,\"character\":99}")) (Some 2)))
+    (say 21 (indexIs (lspSyncOffset origin lines (jsonParse "{\"line\":-1,\"character\":0}")) None))
+    (say 22
+      (indexIs (lspSyncOffset origin lines (jsonParse "{\"line\":0,\"character\":1.0}")) None))
+    (say 23 (indexIs (lspSyncOffset origin lines (jsonParse "{}")) None))
+    (say 24
+      (textIs
+        (lspSyncEdit origin
+          (jsonParse
+            "{\"range\":{\"start\":{\"line\":0,\"character\":0},\"end\":{\"line\":0,\"character\":2}},\"text\":\"X\"}"))
+        (Some "X\n")))
+    (say 25
+      (textIs
+        (lspSyncEdit origin
+          (jsonParse
+            "{\"range\":{\"start\":{\"line\":0,\"character\":2},\"end\":{\"line\":0,\"character\":0}},\"text\":\"X\"}"))
+        None))
+    (say 26
+      (strEq
+        (jsonWrite
+          (lspHlRange "x"
+            (jsonParse
+              "{\"start\":{\"line\":-1,\"character\":0},\"end\":{\"line\":0,\"character\":1}}")))
+        "{\"data\":[]}"))
+    0
+  })

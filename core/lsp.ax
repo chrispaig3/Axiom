@@ -446,7 +446,7 @@
 ;
 ; Walks the import graph exactly as `resolveDeclsPhase` does - by
 ; `TAG_D_IMPORT` node, name in word 1 - but answers the name of the
-; first module that cannot be read instead of exiting. "" means every
+; first module that cannot be read instead of exiting. `None` means every
 ; import resolves and `resolveImports` is safe to call.
 ; ------------------------------------------------------------------
 (pub :: lspSeenHas (-> Strings String Bool))
@@ -461,14 +461,14 @@
       true
       (lspSeenFrom seen name (+ i 1)))))
 
-(pub :: lspPreflight (-> (Vec ASTNode) Int String Strings String))
+(pub :: lspPreflight (-> (Vec ASTNode) Int String Strings (Option String)))
 ;@axiom:effect(io)
 (pub fn (lspPreflight decls tcode entryDir seen)
   {
     (let mut i 0)
-    (let mut missing "")
+    (let mut missing (:: None (Option String)))
     {
-      (while (&& (< i (vecLen decls)) (== (strLen missing) 0))
+      (while (&& (< i (vecLen decls)) (isNone missing))
         {
           (let n (vecGet decls i))
           {
@@ -489,7 +489,7 @@
                               (set missing (lspPreflight parsedValue1 tcode entryDir seen))
                             ))
                         }
-                        (set missing name))
+                        (set missing (Some name)))
                     }
                   })
               })
@@ -4867,10 +4867,10 @@
           (lspComplAxql out seen src prefix)
           (lspComplList out)
         }
-        (if (! (strEq modPath lspNotImportPath))
+        (if (let (Some typed) modPath)
           ; After `(import `: module names, one path segment at a time.
           {
-            (lspComplModules out seen (lspUriToPath uri) modPath)
+            (lspComplModules out seen (lspUriToPath uri) typed)
             (lspComplList out)
           }
           {
@@ -4897,11 +4897,10 @@
   })
 
 ; The module path typed so far when the cursor sits in the module
-; position of an `(import ...)` - `""` right after `(import `,
-; `"Crypto.Sh"` partway through a dotted name - or `lspNotImportPath`
-; anywhere else. A cursor in an import's NAME list, `(import IO (pri`,
-; is not in the module position.
-(pub :: lspImportPathAt (-> String Int String))
+; position of an `(import ...)`: `Some ""` right after `(import ` and
+; `Some "Crypto.Sh"` partway through a dotted name. `None` means the
+; cursor is elsewhere, including an import's name list.
+(pub :: lspImportPathAt (-> String Int (Option String)))
 (pub fn (lspImportPathAt src off)
   {
     (let e
@@ -4932,19 +4931,12 @@
               (< k s)
               false)
             false)
-            (strSlice src s (- e s))
-            lspNotImportPath)
+            (Some (strSlice src s (- e s)))
+            None)
         }
       }
     }
   })
-
-; The answer `lspImportPathAt` gives outside an import: a single space,
-; which a typed module path, made of identifier bytes and dots, can
-; never be.
-(pub :: lspNotImportPath String)
-(pub fn (lspNotImportPath)
-  " ")
 
 ; Module names for a module position whose text so far is `typed`:
 ; the directory part names where to look under each search root, and
@@ -5139,7 +5131,10 @@
               (if (&& (lspWantsSymbol (nodeTag d)) (&& (!= (nodeModule d) 0) (!= (nodeSpan d) 0)))
                 {
                   (lspComplOffer out seen (bareOf (nodeAName d)) (lspComplKind (nodeTag d))
-                    (lspModOf (nodeAName d)) prefix)
+                    (match (lspModOf (nodeAName d))
+                      ((None) "")
+                      ((Some m) m))
+                    prefix)
                   (if (== (nodeTag d) TAG_D_DATA)
                     (lspComplCtors out seen (nodeBChildren d) prefix))
                 })
@@ -5151,18 +5146,20 @@
     0))
 
 ; The module half of a mangled name: `Vec$vecPush` answers `Vec`. The
-; other half of `bareOf`, and "" for a name nothing mangled - a type
-; name, which `resolveImports` does not rewrite.
-(pub :: lspModOf (-> String String))
+; other half of `bareOf`. `None` means no nonempty module prefix was
+; mangled into the name.
+(pub :: lspModOf (-> String (Option String)))
 (pub fn (lspModOf s)
   (lspModOfFrom s (- (strLen s) 1)))
 
-(pub :: lspModOfFrom (-> String Int String))
+(pub :: lspModOfFrom (-> String Int (Option String)))
 (pub fn (lspModOfFrom s i)
   (if (< i 0)
-    ""
+    None
     (if (== (strByte s i) 36)
-      (strSlice s 0 i)
+      (if (> i 0)
+        (Some (strSlice s 0 i))
+        None)
       (lspModOfFrom s (- i 1)))))
 
 ;; The byte two hex digits at `i` and `i+1` spell, or `None` when either
@@ -5401,20 +5398,20 @@
     }
   })
 
-(pub :: lspCacheFind (-> Strings String String))
+(pub :: lspCacheFind (-> Strings String (Option String)))
 ;@axiom:effect(io)
 (pub fn (lspCacheFind cache key)
   {
     (let mut i 0)
-    (let mut result "")
+    (let mut result (:: None (Option String)))
     {
-      (while (&& (> (strLen key) 0) (&& (== (strLen result) 0) (< (+ i 1) (vecLen cache))))
+      (while (&& (> (strLen key) 0) (&& (isNone result) (< (+ i 1) (vecLen cache))))
         {
           (if (strEq key (vecGet cache i))
             {
               (let entry (jsonParse (vecGet cache (+ i 1))))
               (if (lspCacheInputsCurrent (jsonGet entry "inputs"))
-                (set result (jsonGetStr entry "result")))
+                (set result (Some (jsonGetStr entry "result"))))
             })
           (set i (+ i 2))
         })
@@ -5448,14 +5445,13 @@
                  (|| (>= (vecLen cache) 16) (> (+ bytes (+ (strLen key) (strLen entry))) 4194304)))
           {
             (let victim (lspCacheVictim cache (== (strByte key 0) 68)))
-            (if (< victim 0)
-              (set admit false)
+            (if (let (Some at) victim)
               {
                 (set bytes (- bytes
-                             (+ (strLen (vecGet cache victim))
-                               (strLen (vecGet cache (+ victim 1))))))
-                (lspCacheRemove cache victim)
-              })
+                             (+ (strLen (vecGet cache at)) (strLen (vecGet cache (+ at 1))))))
+                (lspCacheRemove cache at)
+              }
+              (set admit false))
           })
         (if admit
           {
@@ -5468,20 +5464,20 @@
 
 ; FIFO within each class. A cursor result cannot displace a cache
 ; containing only reusable replies; it still answers without retention.
-(pub :: lspCacheVictim (-> Strings Bool Int))
+(pub :: lspCacheVictim (-> Strings Bool (Option Int)))
 (pub fn (lspCacheVictim cache reusable)
   {
     (let mut i 0)
-    (let mut victim (- 0 1))
+    (let mut victim (:: None (Option Int)))
     {
-      (while (&& (< i (vecLen cache)) (< victim 0))
+      (while (&& (< i (vecLen cache)) (isNone victim))
         {
           (if (== (strByte (vecGet cache i) 0) 80)
-            (set victim i))
+            (set victim (Some i)))
           (set i (+ i 2))
         })
-      (if (&& (< victim 0) (&& reusable (> (vecLen cache) 0)))
-        0
+      (if (&& (isNone victim) (&& reusable (> (vecLen cache) 0)))
+        (Some 0)
         victim)
     }
   })
@@ -5965,7 +5961,7 @@
 ; Edit endpoints must name a line and a whole Unicode scalar. A column
 ; past the line's content clamps to its end, as Position requires.
 ; CRLF is one line ending and neither byte belongs to its content.
-(pub :: lspSyncOffset (-> String Ints Int Int))
+(pub :: lspSyncOffset (-> String Ints Int (Option Int)))
 (pub fn (lspSyncOffset src ix pos)
   {
     (let line (jsonGet pos "line"))
@@ -5974,7 +5970,7 @@
     (let ch (jsonInt character))
     (if (|| (! (lspSyncInteger line))
           (|| (! (lspSyncInteger character)) (|| (< ln 0) (|| (>= ln (vecLen ix)) (< ch 0)))))
-      (- 0 1)
+      None
       {
         (let mut i (vecGet ix ln))
         (let mut units 0)
@@ -6002,8 +5998,8 @@
                 (set i (+ i 1))
               }))
           (if valid
-            i
-            (- 0 1))
+            (Some i)
+            None)
         }
       })
   })
@@ -6031,11 +6027,15 @@
           (let ix (lspLineIndex src))
           (let start (lspSyncOffset src ix (jsonGet range "start")))
           (let end (lspSyncOffset src ix (jsonGet range "end")))
-          (if (|| (< start 0) (|| (< end start) (! (lspSyncRangeOrdered range))))
-            None
-            (Some
-              (concat (strSlice src 0 start)
-                (concat (jsonStrVal text) (strSlice src end (- (strLen src) end))))))
+          (if (let (Some s) start)
+            (if (let (Some e) end)
+              (if (|| (< e s) (! (lspSyncRangeOrdered range)))
+                None
+                (Some
+                  (concat (strSlice src 0 s)
+                    (concat (jsonStrVal text) (strSlice src e (- (strLen src) e))))))
+              None)
+            None)
         }))
   })
 
@@ -15473,12 +15473,9 @@
 ; the name half only - a module path keeps its dots.
 (pub :: lspRenderName (-> String String))
 (pub fn (lspRenderName s)
-  {
-    (let m (lspModOf s))
-    (if (== (strLen m) 0)
-      (lspDeHygiene s)
-      (concat (concat m "::") (lspDeHygiene (bareOf s))))
-  })
+  (match (lspModOf s)
+    ((None) (lspDeHygiene s))
+    ((Some m) (concat (concat m "::") (lspDeHygiene (bareOf s))))))
 
 ; The expander's own names carry two bytes no identifier may: the `.`
 ; of a hygiene rename (`x.3`, MAC-HYG) and the `#` of a `syntax/binders`
@@ -17410,49 +17407,51 @@
     (let end (lspSyncOffset src ix (jsonGet range "end")))
     (let out jsonArr)
     {
-      (if (&& (>= start 0) (&& (> end start) (lspSyncRangeOrdered range)))
-        {
-          (let sl (lspLineOfIx ix start))
-          (let el (lspLineOfIx ix end))
-          (let data (jsonGet (lspSemanticTokens src) "data"))
-          {
-            (let sc (lspCharFrom src (vecGet ix sl) start))
-            (let ec (lspCharFrom src (vecGet ix el) end))
-            (let mut i 0)
-            (let mut line 0)
-            (let mut column 0)
-            (let mut previousLine 0)
-            (let mut previousColumn 0)
-            (while (< i (jsonArrLen data))
+      (if (let (Some s) start)
+        (if (let (Some e) end)
+          (if (&& (> e s) (lspSyncRangeOrdered range))
+            {
+              (let sl (lspLineOfIx ix s))
+              (let el (lspLineOfIx ix e))
+              (let data (jsonGet (lspSemanticTokens src) "data"))
               {
-                (let dl (jsonInt (jsonArrGet data i)))
-                (let dc (jsonInt (jsonArrGet data (+ i 1))))
-                (let length (jsonInt (jsonArrGet data (+ i 2))))
-                {
-                  (set line (+ line dl))
-                  (set column (if (== dl 0)
-                    (+ column dc)
-                    dc))
-                  (if (&& (|| (> line sl) (&& (== line sl) (> (+ column length) sc)))
-                        (|| (< line el) (&& (== line el) (< column ec))))
+                (let sc (lspCharFrom src (vecGet ix sl) s))
+                (let ec (lspCharFrom src (vecGet ix el) e))
+                (let mut i 0)
+                (let mut line 0)
+                (let mut column 0)
+                (let mut previousLine 0)
+                (let mut previousColumn 0)
+                (while (< i (jsonArrLen data))
+                  {
+                    (let dl (jsonInt (jsonArrGet data i)))
+                    (let dc (jsonInt (jsonArrGet data (+ i 1))))
+                    (let length (jsonInt (jsonArrGet data (+ i 2))))
                     {
-                      (jsonArrPush out (jsonNum (- line previousLine)))
-                      (jsonArrPush out
-                        (jsonNum
-                          (if (== line previousLine)
-                            (- column previousColumn)
-                            column)))
-                      (jsonArrPush out (jsonArrGet data (+ i 2)))
-                      (jsonArrPush out (jsonArrGet data (+ i 3)))
-                      (jsonArrPush out (jsonArrGet data (+ i 4)))
-                      (set previousLine line)
-                      (set previousColumn column)
-                    })
-                  (set i (+ i 5))
-                }
-              })
-          }
-        })
+                      (set line (+ line dl))
+                      (set column (if (== dl 0)
+                        (+ column dc)
+                        dc))
+                      (if (&& (|| (> line sl) (&& (== line sl) (> (+ column length) sc)))
+                            (|| (< line el) (&& (== line el) (< column ec))))
+                        {
+                          (jsonArrPush out (jsonNum (- line previousLine)))
+                          (jsonArrPush out
+                            (jsonNum
+                              (if (== line previousLine)
+                                (- column previousColumn)
+                                column)))
+                          (jsonArrPush out (jsonArrGet data (+ i 2)))
+                          (jsonArrPush out (jsonArrGet data (+ i 3)))
+                          (jsonArrPush out (jsonArrGet data (+ i 4)))
+                          (set previousLine line)
+                          (set previousColumn column)
+                        })
+                      (set i (+ i 5))
+                    }
+                  })
+              }
+            })))
       (jsonObjPut jsonObj "data" out)
     }
   })
@@ -18533,9 +18532,9 @@
         (let cached (lspCacheFind cache key))
         {
           (let response
-            (if (> (strLen cached) 0)
-              (lspReplyEncodedBody id cached)
-              (lspRequestBody workspace method id params uris texts gens highlights)))
+            (match cached
+              ((None) (lspRequestBody workspace method id params uris texts gens highlights))
+              ((Some hit) (lspReplyEncodedBody id hit))))
           {
             (let result
               (if (&& (> (strLen key) 0) (<= (strLen response) 262144))
@@ -18551,7 +18550,7 @@
                         (jsonStr key))
                       "cacheHit"
                       (jsonBool
-                        (if (> (strLen cached) 0)
+                        (if (isSome cached)
                           1
                           0)))
                     "hasHighlight"
@@ -18561,7 +18560,7 @@
                         0)))
                   "uri" (jsonStr uri)))
               response
-              (if (&& (> (strLen key) 0) (&& (== (strLen cached) 0) (!= result 0)))
+              (if (&& (> (strLen key) 0) (&& (isNone cached) (!= result 0)))
                 (lspCacheEntry workspace (jsonWrite result))
                 "")
               (if (lspHlHandles method)
