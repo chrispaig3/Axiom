@@ -4868,9 +4868,16 @@
     ()
   })
 
-(pub :: lspCompletion (-> LspWorkspace String String Int Int))
+; A completion request carries only scalar session state into the worker.
+; Deferred items keep a declaration identity, never a parsed model.
+(struct LspComplMode
+  (deferred : Bool)
+  (uri : String)
+  (revision : Int))
+
+(pub :: lspCompletion (-> LspWorkspace String String Int LspComplMode Int))
 ;@axiom:effect(io)
-(pub fn (lspCompletion workspace src uri params)
+(pub fn (lspCompletion workspace src uri params mode)
   {
     (let ix (lspLineIndex src))
     (let out jsonArr)
@@ -4904,8 +4911,8 @@
                     {
                       (lspComplContract out seen src decls
                         (lspOffsetOf src ix (jsonGet params "position")) prefix)
-                      (lspComplLocal out seen src decls prefix)
-                      (lspComplImported workspace out seen (lspUriToPath uri) src decls prefix)
+                      (lspComplLocal out seen src decls prefix mode)
+                      (lspComplImported workspace out seen (lspUriToPath uri) src decls prefix mode)
                     }
                   }
                 ))
@@ -5077,8 +5084,8 @@
 ; complete - plus the constructors, which the outline leaves out
 ; because they are not declarations and completion wants because they
 ; are names.
-(pub :: lspComplLocal (-> Int Strings String (Vec ASTNode) String Int))
-(pub fn (lspComplLocal out seen src decls prefix)
+(pub :: lspComplLocal (-> Int Strings String (Vec ASTNode) String LspComplMode Int))
+(pub fn (lspComplLocal out seen src decls prefix mode)
   {
     (let n (vecLen decls))
     {
@@ -5088,10 +5095,13 @@
           (if (&& (lspWantsSymbol (nodeTag d)) (!= (nodeSpan d) 0))
             {
               (if (lspComplWants seen (nodeAName d) prefix)
-                (lspComplOffer out seen (nodeAName d) (lspComplKind (nodeTag d))
-                  (lspComplDetail src decls d) prefix))
+                (lspComplDeclOffer out seen (nodeAName d) (lspComplKind (nodeTag d))
+                  (if mode.deferred
+                    ""
+                    (lspComplDetail src decls d))
+                  prefix mode d))
               (if (== (nodeTag d) TAG_D_DATA)
-                (lspComplCtors out seen (nodeBChildren d) prefix))
+                (lspComplCtors out seen d prefix mode))
             })
         })
       0
@@ -5115,13 +5125,14 @@
     }
     ""))
 
-(pub :: lspComplCtors (-> Int Strings (Vec ASTNode) String Int))
-(pub fn (lspComplCtors out seen ctors prefix)
+(pub :: lspComplCtors (-> Int Strings ASTNode String LspComplMode Int))
+(pub fn (lspComplCtors out seen d prefix mode)
   {
+    (let ctors (nodeBChildren d))
     (let n (vecLen ctors))
     {
       (for i in 0..n
-        (lspComplOffer out seen (nodeAName (vecGet ctors i)) 20 "" prefix))
+        (lspComplDeclOffer out seen (nodeAName (vecGet ctors i)) 20 "" prefix mode d))
       0
     }
   })
@@ -5134,9 +5145,10 @@
 ; not match the names the checker will accept is worse than no list.
 ; A resolver failure is an empty addition rather than a diagnostic -
 ; half-typed imports are the normal state of a file being edited.
-(pub :: lspComplImported (-> LspWorkspace Int Strings String String (Vec ASTNode) String Int))
+(pub :: lspComplImported
+  (-> LspWorkspace Int Strings String String (Vec ASTNode) String LspComplMode Int))
 ;@axiom:effect(io)
-(pub fn (lspComplImported workspace out seen path src decls prefix)
+(pub fn (lspComplImported workspace out seen path src decls prefix mode)
   (if (let (Some r) (lspResolveFor workspace path src decls))
     {
       (let allDecls r.decls)
@@ -5149,13 +5161,13 @@
               (let d (vecGet allDecls i))
               (if (&& (lspWantsSymbol (nodeTag d)) (&& (!= (nodeModule d) 0) (!= (nodeSpan d) 0)))
                 {
-                  (lspComplOffer out seen (bareOf (nodeAName d)) (lspComplKind (nodeTag d))
+                  (lspComplDeclOffer out seen (bareOf (nodeAName d)) (lspComplKind (nodeTag d))
                     (match (lspModOf (nodeAName d))
                       ((None) "")
                       ((Some m) m))
-                    prefix)
+                    prefix mode d)
                   (if (== (nodeTag d) TAG_D_DATA)
-                    (lspComplCtors out seen (nodeBChildren d) prefix))
+                    (lspComplCtors out seen d prefix mode))
                 })
             })
           0
@@ -5163,6 +5175,207 @@
       }
     }
     0))
+
+; Deferral is safe only when both fields can be filled by a later request.
+(:: lspComplCanResolve (-> Int Bool))
+(fn (lspComplCanResolve params)
+  {
+    (let item
+      (jsonGet (jsonGet (jsonGet (jsonGet params "capabilities") "textDocument") "completion")
+        "completionItem"))
+    (let properties (jsonGet (jsonGet item "resolveSupport") "properties"))
+    (let mut detail false)
+    (let mut documentation false)
+    {
+      (for i in 0..(jsonArrLen properties)
+        {
+          (let property (jsonStrVal (jsonArrGet properties i)))
+          {
+            (if (strEq property "detail")
+              (set detail true))
+            (if (strEq property "documentation")
+              (set documentation true))
+          }
+        })
+      (&& detail documentation)
+    }
+  })
+
+; Keywords, module paths and contract names remain complete immediately.
+; A declaration identity survives the arena reset without retaining ASTs.
+(:: lspComplDeclOffer (-> Int Strings String Int String String LspComplMode ASTNode Int))
+(fn (lspComplDeclOffer out seen label kind detail prefix mode d)
+  (if (lspComplWants seen label prefix)
+    {
+      (let item (lspComplItem label kind detail))
+      {
+        (if mode.deferred
+          (jsonObjPut item "data"
+            (jsonObjPut
+              (jsonObjPut
+                (jsonObjPut
+                  (jsonObjPut
+                    (jsonObjPut
+                      (jsonObjPut
+                        (jsonObjPut
+                          (jsonObjPut (jsonObjPut jsonObj "owner" (jsonStr "axiom.completion.v1"))
+                            "uri" (jsonStr mode.uri))
+                          "revision" (jsonNum mode.revision))
+                        "name" (jsonStr (nodeAName d)))
+                      "start" (jsonNum (spanStart (nodeSpan d))))
+                    "tag" (jsonNum (nodeTag d)))
+                  "module"
+                  (match (nodeModuleOpt d)
+                    ((None) jsonNull)
+                    ((Some name) (jsonStr name))))
+                "label" (jsonStr label))
+              "kind" (jsonNum kind))))
+        (vecPush seen label)
+        (jsonArrPush out item)
+        0
+      }
+    }
+    0))
+
+(:: lspComplDataValid (-> Int Int Bool))
+(fn (lspComplDataValid item data)
+  {
+    (let strings
+      (&& (lspSyncString (jsonGet data "uri"))
+        (&& (> (strLen (jsonGetStr data "uri")) 0)
+          (&& (lspSyncString (jsonGet data "name")) (> (strLen (jsonGetStr data "name")) 0)))))
+    (let numbers
+      (&& (isSome (strParseInt (jsonNumText (jsonGet data "revision"))))
+        (&& (lspSyncInteger (jsonGet data "start"))
+          (&& (>= (jsonGetInt data "start") 0)
+            (&& (lspSyncInteger (jsonGet data "tag")) (lspSyncInteger (jsonGet data "kind")))))))
+    (let label
+      (&& (strEq (jsonGetStr item "label") (jsonGetStr data "label"))
+        (strEq (jsonNumText (jsonGet item "kind")) (jsonNumText (jsonGet data "kind")))))
+    (let module (jsonGet data "module"))
+    (&& strings
+      (&& numbers (&& label (&& (!= module 0) (|| (jsonIsNull module) (lspSyncString module))))))
+  })
+
+; Match the exact declaration offered, including its module and source span.
+; Imported constructors keep their parent data declaration as their identity.
+(:: lspComplFind (-> Nodes Int (Option ASTNode)))
+(fn (lspComplFind decls data)
+  {
+    (let mut found None)
+    {
+      (for d in decls
+        (if (&& (lspWantsSymbol (nodeTag d))
+              (&& (strEq (nodeAName d) (jsonGetStr data "name"))
+                (&& (!= (nodeSpan d) 0)
+                  (&& (== (spanStart (nodeSpan d)) (jsonGetInt data "start"))
+                    (&& (== (nodeTag d) (jsonGetInt data "tag"))
+                      (match (nodeModuleOpt d)
+                        ((None) (jsonIsNull (jsonGet data "module")))
+                        ((Some name) (strEq name (jsonGetStr data "module")))))))))
+          (set found (Some d))))
+      found
+    }
+  })
+
+(:: lspComplResolveAt (-> Int String Nodes ASTNode Int))
+(fn (lspComplResolveAt item src decls d)
+  {
+    (let kind (jsonGetInt item "kind"))
+    (let label (jsonGetStr item "label"))
+    (let mut matches false)
+    {
+      (if (&& (== kind 20) (== (nodeTag d) TAG_D_DATA))
+        (for ctor in (nodeBChildren d)
+          (if (strEq label (nodeAName ctor))
+            (set matches true)))
+        (set matches (&& (== kind (lspComplKind (nodeTag d)))
+                       (strEq label (bareOf (nodeAName d))))))
+      (if (! matches)
+        0
+        {
+          (let sig
+            (if (== (nodeTag d) TAG_D_FN)
+              (lspFindSig decls (nodeAName d) (- (vecLen decls) 1))
+              None))
+          (let at
+            (match sig
+              ((None) d)
+              ((Some signature) signature)))
+          (let doc (lspDocComment src (lspFormStart src (spanStart (nodeSpan at)))))
+          {
+            (if (&& (== (jsonGet item "detail") 0) (== kind 3))
+              {
+                (let detail
+                  (match sig
+                    ((None) "")
+                    ((Some signature) (lspSigType src signature))))
+                (if (> (strLen detail) 0)
+                  (jsonObjPut item "detail" (jsonStr detail)))
+              })
+            (if (&& (== (jsonGet item "documentation") 0) (> (strLen doc) 0))
+              (jsonObjPut item "documentation" (jsonStr doc)))
+            item
+          }
+        })
+    }
+  })
+
+; Resolve just the selected declaration. Parsing and import resolution are
+; repeated here; no checker, macro expansion or semantic model is retained.
+(:: lspComplResolve (-> LspWorkspace String String Int Int))
+;@axiom:effect(io)
+(fn (lspComplResolve workspace uri src item)
+  {
+    (let data (jsonGet item "data"))
+    (match (lspParse src)
+      ((ParseFailed error) 0)
+      ((ParseSuccess decls position)
+        (if (jsonIsNull (jsonGet data "module"))
+          (match (lspComplFind decls data)
+            ((None) 0)
+            ((Some d) (lspComplResolveAt item src decls d)))
+          (match (lspResolveFor workspace (lspUriToPath uri) src decls)
+            ((None) 0)
+            ((Some resolved)
+              (match (lspComplFind resolved.decls data)
+                ((None) 0)
+                ((Some d)
+                  (match (lspUnitOf resolved.units (nodeModuleOpt d))
+                    ((None) 0)
+                    ((Some unit)
+                      (lspComplResolveAt item (unitSrc (vecGet resolved.units unit)) resolved.decls
+                        d)
+                    ))
+                ))
+            )))
+      ))
+  })
+
+(:: lspComplResolveBody (-> LspWorkspace Int Int Strings Strings Int String))
+;@axiom:effect(io)
+(fn (lspComplResolveBody workspace id item uris texts revision)
+  (if (|| (! (lspSyncString (jsonGet item "label"))) (== (strLen (jsonGetStr item "label")) 0))
+    (lspErrorBody id (- 0 32602) "completion item requires a label")
+    {
+      (let data (jsonGet item "data"))
+      (if (! (strEq (jsonGetStr data "owner") "axiom.completion.v1"))
+        (lspReplyBody id item)
+        (if (! (lspComplDataValid item data))
+          (lspErrorBody id (- 0 32602) "invalid completion item data")
+          (if (! (strEq (jsonNumText (jsonGet data "revision")) (fmtInt revision)))
+            (lspErrorBody id (- 0 32801) "completion item belongs to an older workspace revision")
+            (match (docText uris texts (jsonGetStr data "uri"))
+              ((None) (lspErrorBody id (- 0 32801) "completion document is unavailable"))
+              ((Some src)
+                {
+                  (let resolved (lspComplResolve workspace (jsonGetStr data "uri") src item))
+                  (if (== resolved 0)
+                    (lspErrorBody id (- 0 32602) "completion declaration is unavailable")
+                    (lspReplyBody id resolved))
+                }
+              )))))
+    }))
 
 ; The module half of a mangled name: `Vec$vecPush` answers `Vec`. The
 ; other half of `bareOf`. `None` means no nonempty module prefix was
@@ -5823,8 +6036,8 @@
 ; conversation that cannot happen. A capability is a promise the client
 ; reads, and an implementation nothing advertises is an implementation
 ; nothing calls.
-(pub :: lspCapabilities Int)
-(pub fn (lspCapabilities)
+(pub :: lspCapabilities (-> Bool Int))
+(pub fn (lspCapabilities deferred)
   (jsonObjPut
     (jsonObjPut jsonObj "capabilities"
       (lspHlCaps
@@ -5844,7 +6057,7 @@
                       "documentSymbolProvider" (jsonBool 1))
                     "definitionProvider" (jsonBool 1))
                   "hoverProvider" (jsonBool 1))
-                "completionProvider" lspCompletionOptions))))))
+                "completionProvider" (lspCompletionOptions deferred)))))))
     "serverInfo"
     (jsonObjPut (jsonObjPut jsonObj "name" (jsonStr "axiom")) "version" (jsonStr "0.7.9"))))
 
@@ -5855,19 +6068,22 @@
 ; `completionProvider` is an OBJECT where the three beside it are
 ; booleans, and both of its fields are load-bearing.
 ;
-; `resolveProvider: false` says every item is complete as sent. There
-; is no `completionItem/resolve` here, and a client that believed
-; otherwise would show a menu of labels and wait for a second round
-; trip that never comes.
+; Resolution is advertised when the client can resolve both detail
+; and documentation. Older clients receive their full eager items.
 ;
 ; `triggerCharacters: ["("]` is the language's own shape. A client
 ; sends an UNPROMPTED completion request only at a character this list
 ; names, and in a language where every call opens a paren, `(` is the
 ; moment a name is being reached for. Typing into a word asks anyway.
-(pub :: lspCompletionOptions Int)
-(pub fn (lspCompletionOptions)
-  (jsonObjPut (jsonObjPut jsonObj "resolveProvider" (jsonBool 0)) "triggerCharacters"
-    (jsonArrPush jsonArr (jsonStr "("))))
+(pub :: lspCompletionOptions (-> Bool Int))
+(pub fn (lspCompletionOptions deferred)
+  (jsonObjPut
+    (jsonObjPut jsonObj "resolveProvider"
+      (jsonBool
+        (if deferred
+          1
+          0)))
+    "triggerCharacters" (jsonArrPush jsonArr (jsonStr "("))))
 
 ; Dependency discovery continues past a broken sibling. That keeps an
 ; edit to a later import able to invalidate the document while another
@@ -12254,8 +12470,7 @@
 
 ; `codeActionProvider` is an object rather than a boolean so a client
 ; can see which kinds are on offer before it asks; `codeLensProvider`
-; says every lens is complete as sent, for the reason
-; `completionProvider` says the same of its items; `expandMacro` rides
+; says every lens is complete as sent; `expandMacro` rides
 ; under `experimental` because it is not a protocol method, which is
 ; where rust-analyzer advertises its own.
 (pub :: lspFixCaps (-> Int Int))
@@ -18501,34 +18716,37 @@
     (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "jsonrpc" (jsonStr "2.0")) "id" id) "error"
       (jsonObjPut (jsonObjPut jsonObj "code" (jsonNum code)) "message" (jsonStr message)))))
 
-(pub :: lspRequestBody (-> LspWorkspace String Int Int Strings Strings Strings Strings String))
+(pub :: lspRequestBody
+  (-> LspWorkspace String Int Int Strings Strings Strings Strings LspComplMode String))
 ;@axiom:effect(io)
-(pub fn (lspRequestBody workspace method id params uris texts gens highlights)
+(pub fn (lspRequestBody workspace method id params uris texts gens highlights mode)
   {
     (let uri (lspParamsUri params))
-    (if (lspExtHandles method)
-      (lspExtDispatch workspace method id params uris texts gens highlights)
-      (match (docText uris texts uri)
-        ((None)
-          (if (strEq method "textDocument/documentSymbol")
-            (lspReplyBody id jsonArr)
-            (if (|| (strEq method "textDocument/definition") (strEq method "textDocument/hover"))
-              (lspReplyBody id jsonNull)
-              (if (strEq method "textDocument/completion")
-                (lspReplyBody id (lspCompletion workspace "" uri params))
-                (lspErrorBody id (- 0 32601) (concat "method not found: " method)))))
-        )
-        ((Some src)
-          (if (strEq method "textDocument/documentSymbol")
-            (lspReplyBody id (lspDocumentSymbols src))
-            (if (strEq method "textDocument/definition")
-              (lspReplyBody id (lspDefinition workspace src uri params (docGen uris gens uri)))
-              (if (strEq method "textDocument/hover")
-                (lspReplyBody id (lspHover workspace src uri params (docGen uris gens uri)))
+    (if (strEq method "completionItem/resolve")
+      (lspComplResolveBody workspace id params uris texts mode.revision)
+      (if (lspExtHandles method)
+        (lspExtDispatch workspace method id params uris texts gens highlights)
+        (match (docText uris texts uri)
+          ((None)
+            (if (strEq method "textDocument/documentSymbol")
+              (lspReplyBody id jsonArr)
+              (if (|| (strEq method "textDocument/definition") (strEq method "textDocument/hover"))
+                (lspReplyBody id jsonNull)
                 (if (strEq method "textDocument/completion")
-                  (lspReplyBody id (lspCompletion workspace src uri params))
-                  (lspErrorBody id (- 0 32601) (concat "method not found: " method))))))
-        )))
+                  (lspReplyBody id (lspCompletion workspace "" uri params mode))
+                  (lspErrorBody id (- 0 32601) (concat "method not found: " method)))))
+          )
+          ((Some src)
+            (if (strEq method "textDocument/documentSymbol")
+              (lspReplyBody id (lspDocumentSymbols src))
+              (if (strEq method "textDocument/definition")
+                (lspReplyBody id (lspDefinition workspace src uri params (docGen uris gens uri)))
+                (if (strEq method "textDocument/hover")
+                  (lspReplyBody id (lspHover workspace src uri params (docGen uris gens uri)))
+                  (if (strEq method "textDocument/completion")
+                    (lspReplyBody id (lspCompletion workspace src uri params mode))
+                    (lspErrorBody id (- 0 32601) (concat "method not found: " method))))))
+          ))))
   })
 
 (pub :: lspResultPack (-> String String String String String))
@@ -18618,7 +18836,13 @@
         {
           (let response
             (match cached
-              ((None) (lspRequestBody workspace method id params uris texts gens highlights))
+              ((None)
+                (lspRequestBody workspace method id params uris texts gens highlights
+                  (LspComplMode
+                    :deferred store.completionDeferred
+                    :uri (lspParamsUri params)
+                    :revision store.generation))
+              )
               ((Some hit) (lspReplyEncodedBody id hit))))
           {
             (let result
@@ -18795,7 +19019,8 @@
   (mut running : Int)
   (mut exitCode : Int)
   (pollBuf : Int)
-  (mut draining : Int))
+  (mut draining : Int)
+  (mut completionDeferred : Bool))
 
 (pub :: lspStoreNew LspStore)
 (pub fn (lspStoreNew)
@@ -18817,7 +19042,8 @@
     :running 1
     :exitCode 1
     :pollBuf (memAlloc sysChildPollBytes)
-    :draining 0))
+    :draining 0
+    :completionDeferred false))
 
 ; Install what crossed an arena reset. The reset freed the vectors the
 ; store held, and that memory now holds the snapshot, so the words are
@@ -19144,7 +19370,8 @@
         (if (strEq method "initialize")
           {
             (lspTraceSet store (jsonObjPut jsonObj "value" (jsonGet params "trace")))
-            (lspReply id lspCapabilities)
+            (set store.completionDeferred (lspComplCanResolve params))
+            (lspReply id (lspCapabilities store.completionDeferred))
             (set handled true)
           })
         (if (strEq method "initialized")

@@ -629,6 +629,9 @@ fi
 python3 tests/lsp/drive.py "${args[@]}"
 status=$?
 
+if ! python3 tests/lsp/completion-resolve.py "$work/stage1"; then
+  status=1
+fi
 if ! python3 tests/lsp/axql.py "$work/stage1"; then
   status=1
 fi

@@ -894,6 +894,24 @@ The list is filtered on the prefix under the cursor and capped at
 client to ask again on the next keystroke. `(` is the trigger
 character.
 
+If your client advertises `detail` and `documentation` in
+`textDocument.completion.completionItem.resolveSupport.properties`, the
+server advertises `resolveProvider: true`. Declaration items carry `data`
+for `completionItem/resolve`. Resolving fills the selected local function's
+written signature and the declaration's doc comment. Imported items keep
+their module detail; constructors use their parent `data` form's comment.
+Other clients receive the complete eager items with `resolveProvider: false`.
+
+Resolving preserves the item's other fields. Accepted document changes,
+saves and watched-file notifications expire earlier items; resolving one
+returns `-32801` (`ContentModified`). Ask for completion again to get a
+current item. Malformed Axiom item data returns `-32602` (`InvalidParams`).
+
+Tested by `tests/lsp/completion-resolve.py`.
+
+Not yet: expected-type suggestions and auto-import edits. See the
+[roadmap](roadmap.md#tools).
+
 A document that doesn't parse completes from what parses around the
 error, so the menu is there while a form is half written.
 
