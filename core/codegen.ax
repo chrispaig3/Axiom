@@ -26125,22 +26125,23 @@
         (if (== (nodeTag d) TAG_E_STR)
           (strUnquoteLit (nodeAName d))
           ""))
-      {
-        (let at (asmArmAt desc arch 0))
-        (if (< at 0)
-          (emitAsmRefused cg arch)
-          (emitAsmArm desc (asmArmFields desc at) args cg))
-      }
+      (match (asmArmAt desc arch 0)
+        ((None) (emitAsmRefused cg arch))
+        ((Some at)
+          (match (asmArmFields desc at)
+            ((None) (emitAsmRefused cg arch))
+            ((Some fields) (emitAsmArm desc fields args cg)))
+        ))
     }
   })
 
-; The next `;` at or after `i`, or -1.
-(pub :: asmSemi (-> String Int Int))
+; The next `;` at or after `i`, or None when no delimiter follows.
+(pub :: asmSemi (-> String Int (Option Int)))
 (pub fn (asmSemi s i)
   (if (|| (< i 0) (>= i (strLen s)))
-    (- 0 1)
+    None
     (if (== (strByte s i) 59)
-      i
+      (Some i)
       (asmSemi s (+ i 1)))))
 
 ; The decimal between the `;` at `from` and the one at `to`, with an
@@ -26168,9 +26169,9 @@
 ; Where the fields of the arm at `at` lie: the start and end of each of
 ; its eight `;`-ended fields (words 0 to 15), FILE's start and length
 ; (16, 17), TEMPLATE's (18, 19), and the offset just past the arm (20).
-; Empty when the arm is cut short, which only a hand-made description
-; can be.
-(pub :: asmArmFields (-> String Int Ints))
+; None when a field delimiter is missing, which only a hand-made
+; description can be.
+(pub :: asmArmFields (-> String Int (Option Ints)))
 (pub fn (asmArmFields desc at)
   {
     (let v vecNew)
@@ -26179,41 +26180,40 @@
     (let mut ok true)
     {
       (while (&& ok (< k 8))
-        {
-          (let e (asmSemi desc p))
-          (if (< e 0)
-            (set ok false)
-            {
-              (vecPush v p)
-              (vecPush v e)
-              (set p (+ e 1))
-              (set k (+ k 1))
-            })
-        })
-      {
-        (let fe (asmSemi desc p))
-        (if (|| (! ok) (< fe 0))
-          vecNew
+        (if (let (Some e) (asmSemi desc p))
           {
-            (let flen (asmDigits desc (- p 1) fe))
-            (let fs (+ fe 1))
-            (let te (asmSemi desc (+ (+ fe 1) flen)))
-            (if (< te 0)
-              vecNew
-              {
-                (let tlen (asmDigits desc (- (+ fs flen) 1) te))
-                (let ts (+ te 1))
-                {
-                  (vecPush v fs)
-                  (vecPush v flen)
-                  (vecPush v ts)
-                  (vecPush v tlen)
-                  (vecPush v (+ ts tlen))
-                  v
-                }
-              })
-          })
-      }
+            (vecPush v p)
+            (vecPush v e)
+            (set p (+ e 1))
+            (set k (+ k 1))
+          }
+          (set ok false)))
+      (if (! ok)
+        None
+        (match (asmSemi desc p)
+          ((None) None)
+          ((Some fe)
+            {
+              (let flen (asmDigits desc (- p 1) fe))
+              (let fs (+ fe 1))
+              (match (asmSemi desc (+ fs flen))
+                ((None) None)
+                ((Some te)
+                  {
+                    (let tlen (asmDigits desc (- (+ fs flen) 1) te))
+                    (let ts (+ te 1))
+                    {
+                      (vecPush v fs)
+                      (vecPush v flen)
+                      (vecPush v ts)
+                      (vecPush v tlen)
+                      (vecPush v (+ ts tlen))
+                      (Some v)
+                    }
+                  }
+                ))
+            }
+          )))
     }
   })
 
@@ -26227,19 +26227,18 @@
 (pub fn (asmFieldInt desc f k)
   (asmDigits desc (- (vecGet f (* 2 k)) 1) (vecGet f (+ (* 2 k) 1))))
 
-; The offset of `arch`'s arm in the description, or -1.
-(pub :: asmArmAt (-> String String Int Int))
+; The offset of `arch`'s arm, or None when no complete arm matches.
+(pub :: asmArmAt (-> String String Int (Option Int)))
 (pub fn (asmArmAt desc arch pos)
   (if (>= pos (strLen desc))
-    (- 0 1)
-    {
-      (let f (asmArmFields desc pos))
-      (if (== (vecLen f) 0)
-        (- 0 1)
+    None
+    (match (asmArmFields desc pos)
+      ((None) None)
+      ((Some f)
         (if (strEq (asmField desc f 0) arch)
-          pos
-          (asmArmAt desc arch (vecGet f 20))))
-    }))
+          (Some pos)
+          (asmArmAt desc arch (vecGet f 20)))
+      ))))
 
 ; Does the arm's FLAGS field hold `letter`?
 (pub :: asmHasFlag (-> String Int Bool))

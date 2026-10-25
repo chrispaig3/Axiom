@@ -16,6 +16,11 @@ its changelog too.
 
 ## Unreleased
 
+- Assembler description queries use typed optional results for missing
+  delimiters, fields and target arms. An arm at offset zero remains valid,
+  and emitted instructions keep their source locations and encoding.
+  Tested by `tests/selfhost/1049-codegen-asm-options.ax`.
+
 - Compiler symbol lookups and AXIR record-kind queries use typed optional
   results. Missing names stay distinct from index zero; shadowing, scope
   restoration and malformed-record refusals keep their behaviour.

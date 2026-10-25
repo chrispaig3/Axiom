@@ -41,6 +41,7 @@ python3 tests/selfhost/emitter-context-options.py --axiom "$axc"
 python3 tests/selfhost/emitter-flow-environment.py --axiom "$axc"
 python3 tests/selfhost/emitter-index-owners.py --axiom "$axc"
 python3 tests/selfhost/emitter-symbol-options.py --axiom "$axc"
+python3 tests/selfhost/emitter-asm-options.py --axiom "$axc"
 python3 tests/selfhost/emitter-pair-state.py --axiom "$axc"
 python3 tests/selfhost/typecheck-type-registry.py --axiom "$axc" --negative-controls
 python3 tests/selfhost/typecheck-edit-position-options.py --axiom "$axc" --negative-controls

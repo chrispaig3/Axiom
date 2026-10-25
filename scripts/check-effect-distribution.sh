@@ -456,10 +456,12 @@ rows="$(grep -c '^F ' "$work/main.axsym" || true)"
 # Optional symbol indexes then move symIndex, symIndexIn, hasSym,
 # isLocalValue and slotKeptByCaller from pure to Alloc. No function is
 # added or removed by that migration, and every required effect stays fixed.
+# Optional assembler description queries move asmSemi from pure to Alloc.
+# A same-compiler comparison changes no other effect row.
 have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 3699 "exactly Alloc,Mut"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut')" 514 "Alloc,IO,Mut"
 have "$(bucket "$work/main.axsym" 'Mut')" 285 "exactly Mut"
-have "$(bucket "$work/main.axsym" 'Alloc')" 475 "exactly Alloc"
+have "$(bucket "$work/main.axsym" 'Alloc')" 476 "exactly Alloc"
 have "$(bucket "$work/main.axsym" 'Alloc,IO')" 24 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 13 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 5 "IO,Mut"
@@ -491,7 +493,7 @@ have "$(bucket "$work/main.axsym" 'Alloc,Block,IO,Mut')" 16 "Alloc,Block,IO,Mut"
 have "$(bucket "$work/main.axsym" 'Alloc,Block,IO')" 2 "Alloc,Block,IO"
 have "$(bucket "$work/main.axsym" 'Block,IO')" 1 "Block,IO"
 have "$(bucket "$work/main.axsym" 'Block,IO,Mut')" 1 "Block,IO,Mut"
-have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 2396 "pure (neither row nor mark)"
+have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 2395 "pure (neither row nor mark)"
 have "$(grep '^F ' "$work/main.axsym" | grep -o '#effects=[^ #]*' | LC_ALL=C sort -u | wc -l | tr -d ' ')" 32 "distinct compiler effect rows"
 have "$(grep -c '#effects-incomplete' "$work/main.axsym" || true)" 54 "incomplete rows"
 have "$(grep -c '#effect-params' "$work/main.axsym" || true)" 42 "effect-params rows"
