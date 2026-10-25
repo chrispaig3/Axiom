@@ -19,14 +19,13 @@
           (if empty
             vecNew
             (vecPush (vecPush (vecPush vecNew "hit old") "unrelated") "hit new"))
-        :path ""
+        :path None
         :cap 1000
         :pos
           (if empty
             0
             3)
-        :draft ""
-        :persist 0))
+        :draft ""))
     (match (replTermLoop (mkKeyIn stdin 1) (ledNew vecNew "") "" "" h (replComplEnvNew "" ""))
       ((None) (println "\nRESULT None"))
       ((Some line) (println (concat "\nRESULT Some:" line))))

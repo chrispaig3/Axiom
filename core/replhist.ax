@@ -71,7 +71,7 @@
 ;   2. $XDG_CONFIG_HOME/axiom/repl-history, when XDG_CONFIG_HOME is
 ;      absolute.
 ;   3. $HOME/.config/axiom/repl-history, when HOME is absolute.
-;   4. Otherwise "": the session keeps a ring in memory and writes
+;   4. Otherwise None: the session keeps a ring in memory and writes
 ;      nothing.
 ;
 ; XDG_STATE_HOME is arguably the correct base for a history file and is
@@ -142,7 +142,7 @@
 ;   histClose       (-> Hist Int)          compact if needed; 1 rewrote
 ;   histLen         (-> Hist Int)
 ;   histAt          (-> Hist Int (Option String)) oldest first; None out of range
-;   histPath        (-> Hist String)       "" when nothing is persisted
+;   histPath        (-> Hist (Option String)) None when nothing is persisted
 ;   histPersist     (-> Hist Int)
 ;
 ;   histBrowseUp    (-> Hist String Int)   Up; the String is the CURRENT
@@ -443,7 +443,7 @@
 ; `;@axiom:effect(io)`, which AX3042 makes an error to omit.
 ; ------------------------------------------------------------------
 ; The directory containing `p`, WITHOUT the trailing slash `pathDir`
-; keeps.
+; keeps. None means there is no parent directory to create.
 ;
 ; That slash is right for `pathDir`'s job - the answer is meant to be
 ; prefixed onto a name - and wrong for walking upwards, because
@@ -451,49 +451,48 @@
 ; `"/a/b/"`, not `"/a/"`. Measured by reading Path.ax:70-86, and it is
 ; the reason `histEnsureDir` cannot simply call `pathDir` twice.
 ;@axiom:restrict(no-io,no-foreign)
-(:: histDirOf (-> String String))
+(:: histDirOf (-> String (Option String)))
 (fn (histDirOf p)
   {
     (let d (pathDir p))
     {
       (let n (strLen d))
-      (if (== n 0)
-        ""
-        (strDup (strSlice d 0 (- n 1))))
+      (if (<= n 1)
+        None
+        (Some (strDup (strSlice d 0 (- n 1)))))
     }
   })
 
-; Where the history file lives, or "" for "no persistence". The
-; resolution order is the header's; `interactive` 0 answers "" without
+; Where the history file lives, or None for no persistence. The
+; resolution order is the header's; `interactive` 0 answers None without
 ; reading the environment at all.
 ;
-; Every answer is an ALLOCATED string - `strDup`, `pathJoin` and
-; `concat` all allocate, and `strAlloc` zero-fills len+1 - because
-; the caller hands it to `strCStr` and thence to a syscall. `sysEnv`'s
-; own answer is a SLICE into the environment block with no NUL after
-; it (Sys.ax:912-915), so `(strCStr (sysEnv ...))` would open a path
-; nobody named: the value runs on into the next environment string.
-; The gate greps this file for that spelling.
-(pub :: histResolvePath (-> Int String))
+; Every Some answer owns its path bytes: `strDup` copies an absolute
+; environment value, and `pathJoin` copies its operands. `sysEnv`
+; returns a slice into the environment block, which is not itself
+; NUL-terminated. The IO path helper also copies before a syscall;
+; keeping this owned-path contract makes the session independent of
+; that helper's implementation.
+(pub :: histResolvePath (-> Int (Option String)))
 ;@axiom:effect(io)
 (pub fn (histResolvePath interactive)
   (if (== interactive 0)
-    ""
+    None
     {
       (let v (sysEnv "AXIOM_REPL_HISTORY"))
       (if (strEq v "off")
-        ""
+        None
         (if (pathIsAbsolute v)
-          (strDup v)
+          (Some (strDup v))
           {
             (let xdg (sysEnv "XDG_CONFIG_HOME"))
             (if (pathIsAbsolute xdg)
-              (pathJoin (pathJoin xdg "axiom") "repl-history")
+              (Some (pathJoin (pathJoin xdg "axiom") "repl-history"))
               {
                 (let home (sysEnv "HOME"))
                 (if (pathIsAbsolute home)
-                  (pathJoin (pathJoin (pathJoin home ".config") "axiom") "repl-history")
-                  "")
+                  (Some (pathJoin (pathJoin (pathJoin home ".config") "axiom") "repl-history"))
+                  None)
               })
           }))
     }))
@@ -518,19 +517,16 @@
 (pub :: histEnsureDir (-> String Int))
 ;@axiom:effect(io)
 (pub fn (histEnsureDir path)
-  {
-    (let d (histDirOf path))
-    {
-      (let g (histDirOf d))
+  (match (histDirOf path)
+    ((None) 0)
+    ((Some d)
       {
-        (if (> (strLen g) 0)
+        (if (let (Some g) (histDirOf d))
           (isErr (makeDir g)))
-        (if (> (strLen d) 0)
-          (isErr (makeDir d)))
+        (isErr (makeDir d))
         0
       }
-    }
-  })
+    )))
 
 ; ------------------------------------------------------------------
 ; THE SESSION.
@@ -540,26 +536,24 @@
 ; field. Callers never touch the layout.
 ;
 ;   entries  the ring, a `Vec` of entry Strings, OLDEST FIRST
-;   path     "" when nothing is persisted, else an allocated path
+;   path     None when nothing is persisted, else an allocated path
 ;   cap      histMaxEntries, held per session so a test can lower it
 ;   pos      the browse cursor; `pos == (vecLen entries)` means "on the
 ;            draft", which is where a session that is not browsing sits
 ;   draft    the editor buffer saved when browsing began
-;   persist  1 when a path resolved and this session will try to
-;            write to it; see `histEnsureDir` for what it does NOT
-;            promise
+;   `histPersist` answers 1 when a path resolved and this session will
+;   try to write to it; see `histEnsureDir` for what it does NOT promise
 ; ------------------------------------------------------------------
 (pub struct Hist
   (mut entries : (Vec String))
-  (path : String)
+  (path : (Option String))
   (cap : Int)
   (mut pos : Int)
-  (mut draft : String)
-  (persist : Int))
+  (mut draft : String))
 
-; The resolved history file, or "" when this session persists nothing.
+; The resolved history file, or None when this session persists nothing.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
-(pub :: histPath (-> Hist String))
+(pub :: histPath (-> Hist (Option String)))
 (pub fn (histPath h)
   h.path)
 
@@ -567,7 +561,9 @@
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: histPersist (-> Hist Int))
 (pub fn (histPersist h)
-  h.persist)
+  (if (isSome h.path)
+    1
+    0))
 
 ; How many entries the ring holds.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
@@ -593,18 +589,17 @@
 (pub :: histOpenWith (-> Int Int Hist))
 ;@axiom:effect(io)
 (pub fn (histOpenWith interactive cap)
-  {
-    (let path (histResolvePath interactive))
-    (if (== (strLen path) 0)
-      (Hist :entries vecNew :path "" :cap cap :pos 0 :draft "" :persist 0)
+  (match (histResolvePath interactive)
+    ((None) (Hist :entries vecNew :path None :cap cap :pos 0 :draft ""))
+    ((Some path)
       {
         (histEnsureDir path)
         {
           (let v (histDecode (unwrapOr (readFile path) "") cap))
-          (Hist :entries v :path path :cap cap :pos (vecLen v) :draft "" :persist 1)
+          (Hist :entries v :path (Some path) :cap cap :pos (vecLen v) :draft "")
         }
-      })
-  })
+      }
+    )))
 
 (pub :: histOpen (-> Int Hist))
 ;@axiom:effect(io)
@@ -654,8 +649,15 @@
               (vecPush v (strDup e))
               (set h.entries (histKeepLast v h.cap))
               (histBrowseReset h)
-              (if (&& (== (histPersist h) 1) (<= (strLen e) histMaxEntryBytes))
-                (isErr (appendFile (histPath h) (histEncode e))))
+              (if (<= (strLen e) histMaxEntryBytes)
+                (match (histPath h)
+                  ((None) ())
+                  ((Some path)
+                    {
+                      (isErr (appendFile path (histEncode e)))
+                      ()
+                    }
+                  )))
               1
             })
         }
@@ -682,10 +684,9 @@
 (pub :: histClose (-> Hist Int))
 ;@axiom:effect(io)
 (pub fn (histClose h)
-  (if (== (histPersist h) 0)
-    0
-    {
-      (let cp (histPath h))
+  (match (histPath h)
+    ((None) 0)
+    ((Some cp)
       {
         (let s0 (unwrapOr (fileSize cp) 0))
         (if (<= s0 histMaxBytes)
@@ -697,7 +698,7 @@
               (if (!= s1 s0)
                 0
                 {
-                  (let tmp (concat (concat (histPath h) ".tmp-") (fmtInt sysPid)))
+                  (let tmp (concat (concat cp ".tmp-") (fmtInt sysPid)))
                   (if (isErr (writeFile tmp (histSerialize v)))
                     0
                     (if (isErr (renamePath tmp cp))
@@ -707,7 +708,7 @@
             }
           })
       }
-    }))
+    )))
 
 ; ------------------------------------------------------------------
 ; BROWSING - the Up and Down arrows.

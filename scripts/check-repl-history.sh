@@ -55,6 +55,7 @@ gate_init
 
 python3 "$repo_root/tests/tools/repl-history-search-options.py" --axiom "$axiom" --work "$work/search-options" || exit 1
 python3 "$repo_root/tests/tools/repl-history-entry-options.py" --axiom "$axiom" --work "$work/entry-options" || exit 1
+python3 "$repo_root/tests/tools/repl-history-path-options.py" --axiom "$axiom" --work "$work/path-options" || exit 1
 
 failed=0
 checks=0

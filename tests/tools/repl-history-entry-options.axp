@@ -18,7 +18,7 @@
 
 (:: entryHist (-> Strings Int String Hist))
 (fn (entryHist entries pos draft)
-  (Hist :entries entries :path "" :cap 1000 :pos pos :draft draft :persist 0))
+  (Hist :entries entries :path None :cap 1000 :pos pos :draft draft))
 
 (:: entryRing Hist)
 (fn (entryRing)

@@ -25,11 +25,10 @@
 (fn (browseHist pos draft)
   (Hist
     :entries (vecPush (vecPush vecNew "old\nrow") "new")
-    :path ""
+    :path None
     :cap 1000
     :pos pos
-    :draft draft
-    :persist 0))
+    :draft draft))
 
 (:: browseReturned (Option String))
 (fn (browseReturned)
@@ -43,7 +42,7 @@
     (browseSay 2
       (browseTextIs
         (replHistText
-          (Hist :entries (vecPush vecNew "") :path "" :cap 1000 :pos 0 :draft "draft" :persist 0))
+          (Hist :entries (vecPush vecNew "") :path None :cap 1000 :pos 0 :draft "draft"))
         ""))
     (browseSay 3 (isNone (replHistText (browseHist (- 0 1) "draft"))))
     (browseSay 4 (browseTextIs (replHistText (browseHist 2 "draft\nline")) "draft line"))
@@ -69,7 +68,7 @@
     (set h.pos 0)
     (browseSay 13 (&& (== (replHistDown h ed "" out) 1) (strEq (ledSnapshot ed) "new")))
     (browseSay 14 (browseTextIs (replHistText (browseHist 2 "")) ""))
-    (let blank (Hist :entries (vecPush vecNew "") :path "" :cap 1000 :pos 1 :draft "" :persist 0))
+    (let blank (Hist :entries (vecPush vecNew "") :path None :cap 1000 :pos 1 :draft ""))
     (ledSetStr ed "keep")
     (browseSay 15 (&& (== (replHistUp blank ed "" out) 1) (strEq (ledSnapshot ed) "")))
     (browseSay 16 (== (replHistDown blank ed "" out) 1))

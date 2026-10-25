@@ -36,7 +36,7 @@
       ; the session found a file and will write to it
       (if (== (histPersist h) 1)
         (set n (+ n 1)))
-      (if (> (strLen (histPath h)) 0)
+      (if (isSome (histPath h))
         (set n (+ n 1)))
       ; eight entries, not ten (the duplicate and the blank were
       ; refused) and not twelve (which is what a line-per-record file

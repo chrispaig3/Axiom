@@ -1,0 +1,29 @@
+(import IO)
+(import Fmt)
+(import Str)
+(import Sys)
+(import replhist)
+
+(:: showPath (-> String (Option String) ()))
+;@axiom:effect(io)
+(fn (showPath label result)
+  (match result
+    ((None) (println (concat label " None")))
+    ((Some path) (println (concat (concat label " Some:") path)))))
+
+(:: main ())
+;@axiom:effect(io)
+(fn (main)
+  {
+    (let interactive
+      (if (strEq (sysEnv "HIST_INTERACTIVE") "1")
+        1
+        0))
+    (showPath "resolve" (histResolvePath interactive))
+    (let h (histOpenWith interactive 8))
+    (showPath "session" (histPath h))
+    (println (concat "persist " (fmtInt (histPersist h))))
+    (histRecord h "(+ 1 2)")
+    (println (concat "length " (fmtInt (histLen h))))
+    (histClose h)
+  })

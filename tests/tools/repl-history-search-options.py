@@ -33,7 +33,7 @@ def run(compiler, root, work):
                              'History order, case, multiline bytes, real empty entries and borrowing stay unchanged.',
                              'An unsuccessful Ctrl-R leaves the editor text unchanged; an oldest match exhausts the cursor.',
                              'EOF, Ctrl-C and a submitted empty line remain distinct.'],
-              'remaining': ['Hist.path/persistence path, completion selection/detail queries, Ctrl-C event carrier'],
+              'remaining': ['Completion selection/detail queries, Ctrl-C event carrier'],
               'limits': ['Host O0/O2 allocation-poison probes; CI runs full target and REPL suites.',
                          'Borrow counts do not establish global destructor completeness.',
                          'No REPL evaluation/process-call or ownership/inference algorithm changes.']}

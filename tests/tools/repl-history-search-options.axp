@@ -19,7 +19,7 @@
 
 (:: searchHist (-> Strings Hist))
 (fn (searchHist entries)
-  (Hist :entries entries :path "" :cap 1000 :pos (vecLen entries) :draft "" :persist 0))
+  (Hist :entries entries :path None :cap 1000 :pos (vecLen entries) :draft ""))
 
 (:: searchRing Hist)
 (fn (searchRing)

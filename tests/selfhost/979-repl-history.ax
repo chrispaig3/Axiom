@@ -178,7 +178,7 @@
       ; otherwise be unable to distinguish from a broken path.
       (if (== (histPersist h) 0)
         (set n (+ n 1)))
-      (if (== (strLen (histPath h)) 0)
+      (if (isNone (histPath h))
         (set n (+ n 1)))
       ; 20: a fresh entry is recorded
       (if (== (histRecord h "(new)") 1)
