@@ -434,31 +434,28 @@
 ; primitive called in three places is one refusal, not three.
 (pub :: deviceRefusals (-> String (Vec diag::Diag) Strings Int (Vec diag::Diag)))
 (pub fn (deviceRefusals ir mds seen from)
-  {
-    (let k (strFindSub ir "; axiom-device-refused " from))
-    (if (< k 0)
-      mds
+  (if (let (Some k) (strFindSub ir "; axiom-device-refused " from))
+    {
+      (let s (+ k 23))
+      (let mut e (+ k 23))
       {
-        (let s (+ k 23))
-        (let mut e (+ k 23))
+        (while (&& (< e (strLen ir)) (!= (strByte ir e) 10))
+          (set e (+ e 1)))
         {
-          (while (&& (< e (strLen ir)) (!= (strByte ir e) 10))
-            (set e (+ e 1)))
-          {
-            (let msg (strSlice ir s (- e s)))
-            (if (! (strInVecStr seen msg 0))
-              {
-                (vecPush seen msg)
-                (vecPush mds
-                  (mkDiag SEV_ERROR "AX4008" "target-device-unsupported" 0 msg None
-                    (Some
-                      "the volatile accesses (`__vload8`..`__vstore64`) lower on every target; the barriers and the two counter reads (`__arm_dmb`, `__arm_dsb`, `__arm_isb`, `__arm_cntvct`, `__arm_cntfrq`) on any AArch64 target; everything else in the `__arm_` family, an `isr(irq)` binding to the IRQ vector and an `isr(fault)` binding to the fault hook, only on baremetal-aarch64. Build for a target that has it, or keep the call off every path `main` reaches - a function nothing calls is pruned before this check")))
-              })
-          }
-          (deviceRefusals ir mds seen e)
+          (let msg (strSlice ir s (- e s)))
+          (if (! (strInVecStr seen msg 0))
+            {
+              (vecPush seen msg)
+              (vecPush mds
+                (mkDiag SEV_ERROR "AX4008" "target-device-unsupported" 0 msg None
+                  (Some
+                    "the volatile accesses (`__vload8`..`__vstore64`) lower on every target; the barriers and the two counter reads (`__arm_dmb`, `__arm_dsb`, `__arm_isb`, `__arm_cntvct`, `__arm_cntfrq`) on any AArch64 target; everything else in the `__arm_` family, an `isr(irq)` binding to the IRQ vector and an `isr(fault)` binding to the fault hook, only on baremetal-aarch64. Build for a target that has it, or keep the call off every path `main` reaches - a function nothing calls is pruned before this check")))
+            })
         }
-      })
-  })
+        (deviceRefusals ir mds seen e)
+      }
+    }
+    mds))
 
 (pub :: strInVecStr (-> Strings String Int Bool))
 (pub fn (strInVecStr v s i)
@@ -866,11 +863,10 @@
                                                     fulls tcode)
                                                   dfmt units))
                                               (if (&& (parSpawnUnsupported allDecls tcode)
-                                                    (>=
+                                                    (isSome
                                                       (strFindSub emitted
                                                         "\ndefine internal i64 @__axiom_par_unsupported()"
-                                                        0)
-                                                      0))
+                                                        0)))
                                                 (writeStderrStr
                                                   (renderDiagsFormat dfmt
                                                     {

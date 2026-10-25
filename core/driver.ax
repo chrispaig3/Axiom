@@ -261,16 +261,13 @@
 ; spelling another triple further down cannot answer for it.
 (pub :: irWindowsTarget (-> String String))
 (pub fn (irWindowsTarget ir)
-  {
-    (let at (strFindSub ir "target triple = \"" 0))
-    (if (< at 0)
-      ""
-      (if (subMatchesAt ir "x86_64-pc-windows-msvc\"" (+ at 17) 0)
-        "windows-x86_64"
-        (if (subMatchesAt ir "aarch64-pc-windows-msvc\"" (+ at 17) 0)
-          "windows-aarch64"
-          "")))
-  })
+  (if (let (Some at) (strFindSub ir "target triple = \"" 0))
+    (if (subMatchesAt ir "x86_64-pc-windows-msvc\"" (+ at 17) 0)
+      "windows-x86_64"
+      (if (subMatchesAt ir "aarch64-pc-windows-msvc\"" (+ at 17) 0)
+        "windows-aarch64"
+        ""))
+    ""))
 
 ; `aarch64-unknown-none-elf`: the bare target's triple, read off the
 ; IR the way `irTargetIsWindows` reads its own. The link below is
@@ -278,7 +275,7 @@
 ; so the two cannot disagree about which linker a target takes.
 (pub :: irTargetIsBaremetal (-> String Bool))
 (pub fn (irTargetIsBaremetal ir)
-  (>= (strFindSub ir "target triple = \"aarch64-unknown-none-elf\"" 0) 0))
+  (isSome (strFindSub ir "target triple = \"aarch64-unknown-none-elf\"" 0)))
 
 ; `<dir>/lib<name>.a`, or `<dir>/<name>.lib` where the link is
 ; lld-link's: both the auto-link probe and the grounding pass spell an
@@ -628,12 +625,14 @@
   {
     (let mut out (:: None (Option AsmSite)))
     (let mut from 0)
+    (let mut done false)
     {
-      (while (&& (isNone out) (>= from 0))
-        {
-          (let k (strFindSub ir "; axiom-asm-site " from))
-          (if (< k 0)
-            (set from -1)
+      (while (&& (isNone out) (! done))
+        (match (strFindSub ir "; axiom-asm-site " from)
+          ((None)
+            (set done true)
+          )
+          ((Some k)
             {
               (let eol
                 (if (let (Some e) (strFindByte ir 10 k))
@@ -641,8 +640,8 @@
                   (strLen ir)))
               (set out (asmSiteLine ir (strSlice ir (+ k 17) (- eol (+ k 17))) n))
               (set from eol)
-            })
-        })
+            }
+          )))
       out
     }
   })
@@ -825,9 +824,8 @@
       (while (< i (vecLen ls))
         {
           (let l (vecGet ls i))
-          (let at (strFindSub (vecGet ls i) "error: " 0))
           {
-            (if (>= at 0)
+            (if (let (Some at) (strFindSub l "error: " 0))
               {
                 (let msg (strSlice l (+ at 7) (- (strLen l) (+ at 7))))
                 (let inline (strStartsWith l "<inline asm>:"))
@@ -871,11 +869,8 @@
     {
       (while (&& (isNone c) (&& (< i (vecLen ls)) (< (- i from) 3)))
         {
-          {
-            (let at (strFindSub (vecGet ls i) "note: !srcloc = " 0))
-            (if (>= at 0)
-              (set c (asmNumAt (vecGet ls i) (+ at 16))))
-          }
+          (if (let (Some at) (strFindSub (vecGet ls i) "note: !srcloc = " 0))
+            (set c (asmNumAt (vecGet ls i) (+ at 16))))
           (set i (+ i 1))
         })
       c
@@ -885,21 +880,15 @@
 ; `... at line N`: N, or None.
 (pub :: asmAtLine (-> String (Option Int)))
 (pub fn (asmAtLine msg)
-  {
-    (let at (strFindSub msg " at line " 0))
-    (if (< at 0)
-      None
-      (asmNumAt msg (+ at 9)))
-  })
+  (if (let (Some at) (strFindSub msg " at line " 0))
+    (asmNumAt msg (+ at 9))
+    None))
 
 (pub :: asmBeforeAtLine (-> String String))
 (pub fn (asmBeforeAtLine msg)
-  {
-    (let at (strFindSub msg " at line " 0))
-    (if (< at 0)
-      msg
-      (strSlice msg 0 at))
-  })
+  (if (let (Some at) (strFindSub msg " at line " 0))
+    (strSlice msg 0 at)
+    msg))
 
 ; A failed llc: AX3117 at each template line it names when every error
 ; names one, else its own report and AX4003.
@@ -1179,33 +1168,41 @@
 (pub fn (prepareCrate dirIn)
   {
     (let dir (pathWithSlash dirIn))
-    {
-      (let pkg (cargoPackageName (concat dir "Cargo.toml")))
-      (if (== (strLen pkg) 0)
-        0
+    (let manifest (concat dir "Cargo.toml"))
+    (match (cargoPackageName manifest)
+      ((Err e)
         {
-          (let stem (dashesToUnderscores pkg))
-          (let module (crateModuleName dir pkg))
+          (writeStderrStr (readFailMsg manifest (errCode e)))
+          (sysExitWith 1)
+        }
+      )
+      ((Ok None) 0)
+      ((Ok (Some pkg))
+        (if (== (strLen pkg) 0)
+          0
           {
-            (if (fileExists (concat dir "src"))
-              {
-                (let _ (refreshBindings dir stem module))
-                ()
-              })
-            ; A cargo staticlib is `lib<stem>.a` on every host this
-            ; driver runs on - the `.lib` spelling belongs to the import
-            ; libraries a WINDOWS LINK consumes, and `--crate` for a
-            ; Windows target is not a thing yet (docs/ffi.md has no
-            ; Windows story) - so the archive is looked for as `.a`.
-            (if (! (libExistsIn (crateTargetDirs dir) stem 0 false))
-              {
-                (let _ (buildCrate dir pkg))
-                ()
-              })
-            0
-          }
-        })
-    }
+            (let stem (dashesToUnderscores pkg))
+            (let module (crateModuleName dir pkg))
+            {
+              (if (fileExists (concat dir "src"))
+                {
+                  (let _ (refreshBindings dir stem module))
+                  ()
+                })
+              ; A cargo staticlib is `lib<stem>.a` on every host this
+              ; driver runs on - the `.lib` spelling belongs to the import
+              ; libraries a WINDOWS LINK consumes, and `--crate` for a
+              ; Windows target is not a thing yet (docs/ffi.md has no
+              ; Windows story) - so the archive is looked for as `.a`.
+              (if (! (libExistsIn (crateTargetDirs dir) stem 0 false))
+                {
+                  (let _ (buildCrate dir pkg))
+                  ()
+                })
+              0
+            }
+          })
+      ))
   })
 
 (pub :: crateTargetDirs (-> String Strings))
@@ -1312,30 +1309,30 @@
 (pub fn (runToolQuiet tool args)
   (runTool tool args))
 
-; `name = "..."` under `[package]` in a Cargo manifest, or "".
-(pub :: cargoPackageName (-> String String))
+; `name = "..."` under `[package]` in a Cargo manifest. A missing file
+; answers Ok None; a failed read keeps its operating-system error.
+(pub :: cargoPackageName (-> String (Result (Option String) Error)))
 ;@axiom:effect(io)
 (pub fn (cargoPackageName path)
-  (if (fileExists path)
-    {
-      (let text (unwrapOr (readFile path) ""))
-      {
-        (let at (strFindSub text "[package]" 0))
-        (if (< at 0)
-          ""
-          {
-            (let nm (strFindSub text "name" at))
-            (if (< nm 0)
-              ""
-              (if (let (Some q1) (strFindByte text 34 nm))
-                (match (strFindByte text 34 (+ q1 1))
-                  ((None) "")
-                  ((Some q2) (strSlice text (+ q1 1) (- q2 (+ q1 1)))))
-                ""))
-          })
-      }
-    }
-    ""))
+  (match (readFile path)
+    ((Err e)
+      (if (== (errCode e) 2)
+        (Ok None)
+        (Err e))
+    )
+    ((Ok text) (Ok (cargoPackageNameIn text)))))
+
+(pub :: cargoPackageNameIn (-> String (Option String)))
+(pub fn (cargoPackageNameIn text)
+  (if (let (Some at) (strFindSub text "[package]" 0))
+    (if (let (Some nm) (strFindSub text "name" at))
+      (if (let (Some q1) (strFindByte text 34 nm))
+        (if (let (Some q2) (strFindByte text 34 (+ q1 1)))
+          (Some (strSlice text (+ q1 1) (- q2 (+ q1 1))))
+          None)
+        None)
+      None)
+    None))
 
 (pub :: dashesToUnderscores (-> String String))
 ;@axiom:effect(unsafe)
@@ -1476,17 +1473,19 @@
     }
   })
 
-; The first index at or after `from` where `needle` occurs in `hay`, or
-; -1. Anchored on the first byte so the common case is one scan.
-(pub :: strFindSub (-> String String Int Int))
+; The first index at or after `from` where `needle` occurs in `hay`.
+; Anchored on the first byte so the common case is one scan.
+(pub :: strFindSub (-> String String Int (Option Int)))
 (pub fn (strFindSub hay needle from)
-  (if (== (strLen needle) 0)
-    from
-    (if (let (Some i) (strFindByte hay (strByte needle 0) from))
-      (if (subMatchesAt hay needle i 0)
-        i
-        (strFindSub hay needle (+ i 1)))
-      (- 0 1))))
+  (if (|| (< from 0) (> from (strLen hay)))
+    None
+    (if (== (strLen needle) 0)
+      (Some from)
+      (if (let (Some i) (strFindByte hay (strByte needle 0) from))
+        (if (subMatchesAt hay needle i 0)
+          (Some i)
+          (strFindSub hay needle (+ i 1)))
+        None))))
 
 (pub :: subMatchesAt (-> String String Int Int Bool))
 (pub fn (subMatchesAt hay needle at k)
@@ -1529,12 +1528,14 @@
   {
     (let out vecNew)
     (let mut at 0)
+    (let mut done false)
     {
-      (while (>= at 0)
-        {
-          (let d (strFindSub ir "\n; axiom-extern-lib " at))
-          (if (< d 0)
-            (set at (- 0 1))
+      (while (! done)
+        (match (strFindSub ir "\n; axiom-extern-lib " at)
+          ((None)
+            (set done true)
+          )
+          ((Some d)
             {
               (let start (+ d 20))
               (if (let (Some end) (strFindByte ir 10 start))
@@ -1546,9 +1547,9 @@
                   }
                   (set at end)
                 }
-                (set at (- 0 1)))
-            })
-        })
+                (set done true))
+            }
+          )))
       out
     }
   })
@@ -1770,18 +1771,15 @@
 ; `\0_name` somewhere does not commit it to the first.
 (pub :: nulAfter (-> String String Int Bool))
 (pub fn (nulAfter blob needle from)
-  {
-    (let at (strFindSub blob needle from))
-    (if (< at 0)
-      false
-      {
-        (let end (+ at (strLen needle)))
-        (if (&& (&& (< end (strLen blob)) (== (strByte blob end) 0))
-              (== (identByteAt blob (- at 1)) 0))
-          true
-          (nulAfter blob needle (+ at 1)))
-      })
-  })
+  (if (let (Some at) (strFindSub blob needle from))
+    {
+      (let end (+ at (strLen needle)))
+      (if (&& (&& (< end (strLen blob)) (== (strByte blob end) 0))
+            (== (identByteAt blob (- at 1)) 0))
+        true
+        (nulAfter blob needle (+ at 1)))
+    }
+    false))
 
 ; Is the byte at `i` one an identifier can be made of? Off the front of
 ; the blob is not, which is what makes a name at offset 0 groundable.
@@ -1811,21 +1809,18 @@
 
 (pub :: collectFfiNames (-> String Strings Int Int))
 (pub fn (collectFfiNames blob out from)
-  {
-    (let at (strFindSub blob "axffi_" from))
-    (if (< at 0)
-      0
-      (if (let (Some end) (strFindByte blob 0 at))
+  (if (let (Some at) (strFindSub blob "axffi_" from))
+    (if (let (Some end) (strFindByte blob 0 at))
+      {
         {
-          {
-            (let nm (strSlice blob at (- end at)))
-            (if (&& (< (strLen nm) 200) (== (strIndexIn out nm) (- 0 1)))
-              (vecPush out nm))
-          }
-          (collectFfiNames blob out end)
+          (let nm (strSlice blob at (- end at)))
+          (if (&& (< (strLen nm) 200) (== (strIndexIn out nm) (- 0 1)))
+            (vecPush out nm))
         }
-        0))
-  })
+        (collectFfiNames blob out end)
+      }
+      0)
+    0))
 
 ; The candidate sharing the longest prefix with `name`, when that
 ; prefix reaches past `axffi_`; "" otherwise.
@@ -1913,9 +1908,7 @@
 (pub fn (windowsExternLibsFrom ir at out)
   {
     (let marker "\n; axiom-extern-lib ")
-    (let m (strFindSub ir marker at))
-    (if (< m 0)
-      0
+    (if (let (Some m) (strFindSub ir marker at))
       {
         (let start (+ m (strLen marker)))
         (if (let (Some nl) (strFindByte ir 10 start))
@@ -1924,7 +1917,8 @@
             (windowsExternLibsFrom ir nl out)
           }
           0)
-      })
+      }
+      0)
   })
 
 ; The name in the `declare` line starting at `d`, or "".
@@ -1947,29 +1941,23 @@
 
 (pub :: windowsDllimportFrom (-> String Int Strings Int))
 (pub fn (windowsDllimportFrom ir at out)
-  {
-    (let d (strFindSub ir "\ndeclare dllimport " at))
-    (if (< d 0)
-      0
-      {
-        (pushNameOnce out (declareNameAt ir (+ d 1)))
-        (windowsDllimportFrom ir (+ d 1) out)
-      })
-  })
+  (if (let (Some d) (strFindSub ir "\ndeclare dllimport " at))
+    {
+      (pushNameOnce out (declareNameAt ir (+ d 1)))
+      (windowsDllimportFrom ir (+ d 1) out)
+    }
+    0))
 
 (pub :: windowsLibRunsFrom (-> String Int String Strings Int))
 (pub fn (windowsLibRunsFrom ir at marker out)
-  {
-    (let m (strFindSub ir marker at))
-    (if (< m 0)
-      0
-      {
-        (let next (windowsDeclareRun ir (+ m (strLen marker)) out))
-        ; The next extern block may start immediately after this run.
-        ; Include its preceding newline in the next marker search.
-        (windowsLibRunsFrom ir (- next 1) marker out)
-      })
-  })
+  (if (let (Some m) (strFindSub ir marker at))
+    {
+      (let next (windowsDeclareRun ir (+ m (strLen marker)) out))
+      ; The next extern block may start immediately after this run.
+      ; Include its preceding newline in the next marker search.
+      (windowsLibRunsFrom ir (- next 1) marker out)
+    }
+    0))
 
 ; Push the name of each consecutive `declare` line from `at`, a line
 ; start, answering where the run ended.
@@ -2122,20 +2110,22 @@
   {
     (let out vecNew)
     (let mut at 0)
+    (let mut done false)
     (let k32
       (if (irTargetIsWindows ir)
         (windowsAllImportNamesOf ir)
         vecNew))
     {
-      (while (>= at 0)
-        {
-          (let d (strFindSub ir "\ndeclare " at))
-          (if (< d 0)
-            (set at (- 0 1))
+      (while (! done)
+        (match (strFindSub ir "\ndeclare " at)
+          ((None)
+            (set done true)
+          )
+          ((Some d)
             (if (let (Some sym) (strFindByte ir 64 d))
               (match (strFindByte ir 40 sym)
                 ((None)
-                  (set at (- 0 1))
+                  (set done true)
                 )
                 ((Some open)
                   {
@@ -2147,8 +2137,8 @@
                     (set at open)
                   }
                 ))
-              (set at (- 0 1))))
-        })
+              (set done true))
+          )))
       out
     }
   })
@@ -2416,21 +2406,18 @@
 
 (pub :: collectPrefixed (-> String String Strings Int Int))
 (pub fn (collectPrefixed blob prefix out from)
-  {
-    (let at (strFindSub blob prefix from))
-    (if (< at 0)
-      0
-      (if (let (Some end) (strFindByte blob 0 at))
+  (if (let (Some at) (strFindSub blob prefix from))
+    (if (let (Some end) (strFindByte blob 0 at))
+      {
         {
-          {
-            (let tail (strSlice blob (+ at (strLen prefix)) (- end (+ at (strLen prefix)))))
-            (if (&& (< (strLen tail) 80) (== (strIndexIn out tail) (- 0 1)))
-              (vecPush out tail))
-          }
-          (collectPrefixed blob prefix out end)
+          (let tail (strSlice blob (+ at (strLen prefix)) (- end (+ at (strLen prefix)))))
+          (if (&& (< (strLen tail) 80) (== (strIndexIn out tail) (- 0 1)))
+            (vecPush out tail))
         }
-        0))
-  })
+        (collectPrefixed blob prefix out end)
+      }
+      0)
+    0))
 
 ; `ii_i` spelled as a developer reads it: `(-> Int Int Int)`.
 (pub :: sigTagSpelled (-> String String))
