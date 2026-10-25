@@ -58,6 +58,7 @@ integrator would still need.
 | Final reference results from calls with surplus arguments own one share through temporaries, returns and generic field stores | Done | `tests/stdlib/962-overapplied-result-ownership.ax` |
 | `vecFree` and `mapFree` leave safe code, so an early drop can't free a block still in use | Done | `tests/stdlib/406-array-form-large-block.ax`, `tests/stdlib/489-map-free.ax` |
 | CI builds the compiler with a poisoned allocator and checks it still reaches its fixpoint | Done | `scripts/check-poisoned-alloc.sh` |
+| Literal references avoid redundant releases while preserving program results | Done | `scripts/check-region-verdict.sh`, `tests/region/verdict-ir.py` |
 | Released blocks larger than 64 KiB can be reused | Done | `MM-ALLOC-25`, `tests/stdlib/974-large-block-reuse.ax` |
 | Large vectors grow inside separate address reservations | Experimental: single-threaded POSIX heaps without a cap | `MM-ALLOC-26`, `tests/stdlib/1002-vec-in-place-growth.ax` |
 | Linked data holds no shares: a link is an index into a vector, stored in the width its type names, and links that form a cycle are freed with their vector | Done | `MM-VAL-10b`, `tests/stdlib/997-links.ax` |

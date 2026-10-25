@@ -16,6 +16,11 @@ its changelog too.
 
 ## Unreleased
 
+- The S4 release comparison follows return-slot and local-cleanup changes
+  caused by tail calls. Wrong stored values and unrelated loads remain
+  visible to the comparison.
+  Tested by `tests/region/verdict-ir.py` and `scripts/check-region-verdict.sh`.
+
 - Release archives include an exact toolchain record bound to the shipped
   compiler and its source build stamp. Supported-target CI saves the same
   native tool, SDK or package identities alongside its compiler digest.
