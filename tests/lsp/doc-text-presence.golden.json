@@ -1,0 +1,337 @@
+{
+  "absent/axiom/expandMacro": null,
+  "absent/callHierarchy/incomingCalls": null,
+  "absent/textDocument/codeAction": [],
+  "absent/textDocument/codeLens": [],
+  "absent/textDocument/completion": {
+    "isIncomplete": true,
+    "items": [
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "as"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "asm"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "data"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "effect"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "extern"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "fn"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "for"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "handle"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "if"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "import"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "lambda"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "let"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "macro"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "match"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "parallel"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "pub"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "region"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "set"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "struct"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "subtype"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "syntax/for"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "type"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "while"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "|>"
+      }
+    ]
+  },
+  "absent/textDocument/declaration": null,
+  "absent/textDocument/definition": null,
+  "absent/textDocument/documentHighlight": null,
+  "absent/textDocument/documentLink": [],
+  "absent/textDocument/documentSymbol": [],
+  "absent/textDocument/foldingRange": [],
+  "absent/textDocument/formatting": [],
+  "absent/textDocument/hover": null,
+  "absent/textDocument/inlayHint": [],
+  "absent/textDocument/prepareCallHierarchy": null,
+  "absent/textDocument/prepareRename": null,
+  "absent/textDocument/prepareTypeHierarchy": null,
+  "absent/textDocument/references": null,
+  "absent/textDocument/rename": null,
+  "absent/textDocument/selectionRange": [
+    {
+      "range": {
+        "end": {
+          "character": 0,
+          "line": 0
+        },
+        "start": {
+          "character": 0,
+          "line": 0
+        }
+      }
+    }
+  ],
+  "absent/textDocument/semanticTokens/full": {
+    "data": []
+  },
+  "absent/textDocument/semanticTokens/range": {
+    "data": []
+  },
+  "absent/textDocument/signatureHelp": null,
+  "absent/textDocument/typeDefinition": null,
+  "absent/typeHierarchy/supertypes": null,
+  "empty/axiom/expandMacro": null,
+  "empty/callHierarchy/incomingCalls": null,
+  "empty/textDocument/codeAction": [],
+  "empty/textDocument/codeLens": [],
+  "empty/textDocument/completion": {
+    "isIncomplete": true,
+    "items": [
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "as"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "asm"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "data"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "effect"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "extern"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "fn"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "for"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "handle"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "if"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "import"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "lambda"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "let"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "macro"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "match"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "parallel"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "pub"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "region"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "set"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "struct"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "subtype"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "syntax/for"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "type"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "while"
+      },
+      {
+        "detail": "keyword",
+        "kind": 14,
+        "label": "|>"
+      }
+    ]
+  },
+  "empty/textDocument/declaration": null,
+  "empty/textDocument/definition": null,
+  "empty/textDocument/documentHighlight": null,
+  "empty/textDocument/documentLink": [],
+  "empty/textDocument/documentSymbol": [],
+  "empty/textDocument/foldingRange": [],
+  "empty/textDocument/formatting": [],
+  "empty/textDocument/hover": null,
+  "empty/textDocument/inlayHint": [],
+  "empty/textDocument/prepareCallHierarchy": null,
+  "empty/textDocument/prepareRename": null,
+  "empty/textDocument/prepareTypeHierarchy": null,
+  "empty/textDocument/references": null,
+  "empty/textDocument/rename": null,
+  "empty/textDocument/selectionRange": [
+    {
+      "range": {
+        "end": {
+          "character": 0,
+          "line": 0
+        },
+        "start": {
+          "character": 0,
+          "line": 0
+        }
+      }
+    }
+  ],
+  "empty/textDocument/semanticTokens/full": {
+    "data": [],
+    "resultId": "0:1"
+  },
+  "empty/textDocument/semanticTokens/range": {
+    "data": []
+  },
+  "empty/textDocument/signatureHelp": null,
+  "empty/textDocument/typeDefinition": null,
+  "empty/typeHierarchy/supertypes": null,
+  "present/callHierarchy/incomingCalls": [],
+  "present/typeHierarchy/supertypes": []
+}

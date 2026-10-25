@@ -1,0 +1,41 @@
+(import core)
+(import lsp)
+(import Str)
+(import Vec)
+(import IO)
+
+(:: say (-> Int Bool ()))
+;@axiom:effect(io)
+(fn (say number good)
+  (println "{number} {good}"))
+
+(:: textIs (-> (Option String) (Option String) Bool))
+(fn (textIs actual expected)
+  (match expected
+    ((None) (isNone actual))
+    ((Some want)
+      (match actual
+        ((None) false)
+        ((Some got) (strEq got want)))
+    )))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (let uris vecNew)
+    (let texts vecNew)
+    (let empty "file:///empty.ax")
+    (let full "file:///full.ax")
+    (say 1 (textIs (docText uris texts empty) None))
+    (docPut uris texts empty "")
+    (say 2 (textIs (docText uris texts empty) (Some "")))
+    (docPut uris texts full "(fn (main) 0)")
+    (say 3 (textIs (docText uris texts full) (Some "(fn (main) 0)")))
+    (say 4 (textIs (docText uris texts "file:///unknown.ax") None))
+    (docPut uris texts empty "next")
+    (say 5 (textIs (docText uris texts empty) (Some "next")))
+    (docPut uris texts empty "")
+    (say 6 (textIs (docText uris texts empty) (Some "")))
+    0
+  })

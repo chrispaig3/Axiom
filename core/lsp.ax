@@ -5270,13 +5270,13 @@
       })
   })
 
-(pub :: docText (-> Strings Strings String String))
+(pub :: docText (-> Strings Strings String (Option String)))
 (pub fn (docText uris texts uri)
   {
     (let i (docFind uris uri))
     (if (< i 0)
-      ""
-      (vecGet texts i))
+      None
+      (Some (vecGet texts i)))
   })
 
 ; The generated-name cache: one JSON array per open document, in a
@@ -6101,12 +6101,14 @@
         ; Other JSON kinds cannot stand in for that array.
         (if (! (strStartsWith (jsonWrite changes) "["))
           false
-          (if (let (Some text) (lspSyncChanges (docText uris texts uri) changes))
-            {
-              (docPut uris texts uri text)
-              (vecSet meta (* 2 i) (jsonInt version))
-              true
-            }
+          (if (let (Some before) (docText uris texts uri))
+            (if (let (Some text) (lspSyncChanges before changes))
+              {
+                (docPut uris texts uri text)
+                (vecSet meta (* 2 i) (jsonInt version))
+                true
+              }
+              false)
             false))))
   })
 
@@ -8087,8 +8089,7 @@
           0)
       )
       ((Some huri)
-        {
-          (let htext (docText uris texts huri))
+        (if (let (Some htext) (docText uris texts huri))
           {
             (let hdecls (lspNavParse htext))
             (if (== (as hdecls Int) 0)
@@ -8096,7 +8097,7 @@
               (lspNavLocations out huri htext (lspLineIndex htext)
                 (lspNavSameKey (lspNavOccurrences htext hdecls) bare incl)))
           }
-        }
+          0)
       ))
   })
 
@@ -9534,8 +9535,7 @@
     {
       (let uri (jsonGetStr item "uri"))
       (let name (jsonGetStr item "name"))
-      {
-        (let src (docText uris texts uri))
+      (if (let (Some src) (docText uris texts uri))
         (if (|| (== (strLen src) 0) (== (strLen name) 0))
           None
           {
@@ -9549,7 +9549,7 @@
                   None)
               })
           })
-      }
+        None)
     }
   })
 
@@ -10060,8 +10060,7 @@
     {
       (let uri (jsonGetStr item "uri"))
       (let name (jsonGetStr item "name"))
-      {
-        (let src (docText uris texts uri))
+      (if (let (Some src) (docText uris texts uri))
         (if (|| (== (strLen src) 0) (== (strLen name) 0))
           None
           {
@@ -10075,7 +10074,7 @@
                   None)
               })
           })
-      }
+        None)
     }
   })
 
@@ -10187,12 +10186,11 @@
                     (|| (strEq method "typeHierarchy/supertypes")
                       (strEq method "typeHierarchy/subtypes"))))))))))))
 
-(pub :: lspNavDispatch (-> LspWorkspace String Int Int Strings Strings Strings String))
+(:: lspNavWithText (-> LspWorkspace String Int Int Strings Strings Strings String String))
 ;@axiom:effect(io)
-(pub fn (lspNavDispatch workspace method id params uris texts gens)
+(fn (lspNavWithText workspace method id params uris texts gens src)
   {
     (let uri (lspParamsUri params))
-    (let src (docText uris texts (lspParamsUri params)))
     (let gen (docGen uris gens (lspParamsUri params)))
     (if (strEq method "textDocument/references")
       (lspReplyBody id (lspReferences workspace src uri params uris texts gen))
@@ -10206,18 +10204,14 @@
               (lspReplyBody id (lspDeclaration workspace src uri params gen))
               (if (strEq method "textDocument/prepareCallHierarchy")
                 (lspReplyBody id (lspPrepareCallHierarchy src uri params))
-                ; The two hierarchy requests carry an ITEM and no
-                ; `textDocument`, so `uri` and `src` above are empty
-                ; for them and neither is read: the document is the
-                ; one the item names.
+                ; Item requests normally have no `textDocument` and take
+                ; `lspNavWithoutText`. Both paths read the item's URI.
                 (if (strEq method "callHierarchy/incomingCalls")
                   (lspReplyBody id (lspIncomingCalls workspace params uris texts))
                   (if (strEq method "callHierarchy/outgoingCalls")
                     (lspReplyBody id (lspOutgoingCalls workspace params uris texts))
-                    ; The three type-hierarchy requests: `prepare`
-                    ; reads the requesting document, and the other two
-                    ; carry an ITEM and no `textDocument`, like the
-                    ; call-hierarchy pair above.
+                    ; `prepare` reads this document. The other two
+                    ; requests read their item, like call hierarchy.
                     (if (strEq method "textDocument/prepareTypeHierarchy")
                       (lspReplyBody id (lspPrepareTypeHierarchy workspace src uri params))
                       (if (strEq method "typeHierarchy/supertypes")
@@ -10227,6 +10221,30 @@
                           (lspErrorBody id (- 0 32601)
                             (concat "method not found: " method)))))))))))))
   })
+
+; Item requests carry their own URI. Other requests for an unopened
+; document retain their established null answer.
+(:: lspNavWithoutText (-> LspWorkspace String Int Int Strings Strings String))
+;@axiom:effect(io)
+(fn (lspNavWithoutText workspace method id params uris texts)
+  (if (strEq method "callHierarchy/incomingCalls")
+    (lspReplyBody id (lspIncomingCalls workspace params uris texts))
+    (if (strEq method "callHierarchy/outgoingCalls")
+      (lspReplyBody id (lspOutgoingCalls workspace params uris texts))
+      (if (strEq method "typeHierarchy/supertypes")
+        (lspReplyBody id (lspSupertypes workspace params uris texts))
+        (if (strEq method "typeHierarchy/subtypes")
+          (lspReplyBody id (lspSubtypes params uris texts))
+          (if (lspNavHandles method)
+            (lspReplyBody id jsonNull)
+            (lspErrorBody id (- 0 32601) (concat "method not found: " method))))))))
+
+(pub :: lspNavDispatch (-> LspWorkspace String Int Int Strings Strings Strings String))
+;@axiom:effect(io)
+(pub fn (lspNavDispatch workspace method id params uris texts gens)
+  (match (docText uris texts (lspParamsUri params))
+    ((None) (lspNavWithoutText workspace method id params uris texts))
+    ((Some src) (lspNavWithText workspace method id params uris texts gens src))))
 
 ; `renameProvider` is an OBJECT: `prepareProvider: true` tells the
 ; client to ask `prepareRename` first, so an editor never opens a
@@ -10283,6 +10301,33 @@
         (|| (strEq method "textDocument/selectionRange")
           (|| (strEq method "textDocument/documentLink") (strEq method "workspace/symbol")))))))
 
+(:: lspViewWithText (-> LspWorkspace String Int Int String String String))
+;@axiom:effect(io)
+(fn (lspViewWithText workspace method id params uri src)
+  (if (strEq method "textDocument/signatureHelp")
+    (lspReplyBody id (lspSignatureHelp workspace src uri params))
+    (if (strEq method "textDocument/inlayHint")
+      (lspReplyBody id (lspInlayHints workspace src uri params))
+      (if (strEq method "textDocument/foldingRange")
+        (lspReplyBody id (lspFoldingRanges src))
+        (if (strEq method "textDocument/selectionRange")
+          (lspReplyBody id (lspSelectionRanges src params))
+          (if (strEq method "textDocument/documentLink")
+            (lspReplyBody id (lspDocumentLinks workspace src uri))
+            (lspErrorBody id (- 0 32601) (concat "method not found: " method))))))))
+
+(:: lspViewWithoutText (-> String Int Int String))
+(fn (lspViewWithoutText method id params)
+  (if (strEq method "textDocument/signatureHelp")
+    (lspReplyBody id jsonNull)
+    (if (strEq method "textDocument/selectionRange")
+      (lspReplyBody id (lspSelectionRanges "" params))
+      (if (|| (strEq method "textDocument/inlayHint")
+            (|| (strEq method "textDocument/foldingRange")
+              (strEq method "textDocument/documentLink")))
+        (lspReplyBody id jsonArr)
+        (lspErrorBody id (- 0 32601) (concat "method not found: " method))))))
+
 (pub :: lspViewDispatch (-> LspWorkspace String Int Int Strings Strings String))
 ;@axiom:effect(io)
 (pub fn (lspViewDispatch workspace method id params uris texts)
@@ -10290,20 +10335,9 @@
     (lspReplyBody id (lspWorkspaceSymbols workspace uris texts params))
     {
       (let uri (lspParamsUri params))
-      {
-        (let src (docText uris texts uri))
-        (if (strEq method "textDocument/signatureHelp")
-          (lspReplyBody id (lspSignatureHelp workspace src uri params))
-          (if (strEq method "textDocument/inlayHint")
-            (lspReplyBody id (lspInlayHints workspace src uri params))
-            (if (strEq method "textDocument/foldingRange")
-              (lspReplyBody id (lspFoldingRanges src))
-              (if (strEq method "textDocument/selectionRange")
-                (lspReplyBody id (lspSelectionRanges src params))
-                (if (strEq method "textDocument/documentLink")
-                  (lspReplyBody id (lspDocumentLinks workspace src uri))
-                  (lspErrorBody id (- 0 32601) (concat "method not found: " method)))))))
-      }
+      (match (docText uris texts uri)
+        ((None) (lspViewWithoutText method id params))
+        ((Some src) (lspViewWithText workspace method id params uri src)))
     }))
 
 ; `signatureHelpProvider` and `documentLinkProvider` are objects, the
@@ -12186,23 +12220,36 @@
       (|| (strEq method "textDocument/typeDefinition")
         (|| (strEq method "textDocument/codeLens") (strEq method "axiom/expandMacro"))))))
 
+(:: lspFixWithText (-> LspWorkspace String Int Int String String String))
+;@axiom:effect(io)
+(fn (lspFixWithText workspace method id params uri src)
+  (if (strEq method "textDocument/formatting")
+    (lspReplyBody id (lspFormatting src))
+    (if (strEq method "textDocument/codeAction")
+      (lspReplyBody id (lspCodeAction workspace src uri params))
+      (if (strEq method "textDocument/typeDefinition")
+        (lspReplyBody id (lspTypeDefinition workspace src uri params))
+        (if (strEq method "textDocument/codeLens")
+          (lspReplyBody id (lspCodeLens src uri))
+          (lspReplyBody id (lspExpandMacro workspace src uri params)))))))
+
+(:: lspFixWithoutText (-> String Int String))
+(fn (lspFixWithoutText method id)
+  (if (|| (strEq method "textDocument/formatting")
+        (|| (strEq method "textDocument/codeAction") (strEq method "textDocument/codeLens")))
+    (lspReplyBody id jsonArr)
+    (if (|| (strEq method "textDocument/typeDefinition") (strEq method "axiom/expandMacro"))
+      (lspReplyBody id jsonNull)
+      (lspErrorBody id (- 0 32601) (concat "method not found: " method)))))
+
 (pub :: lspFixDispatch (-> LspWorkspace String Int Int Strings Strings String))
 ;@axiom:effect(io)
 (pub fn (lspFixDispatch workspace method id params uris texts)
   {
     (let uri (lspParamsUri params))
-    {
-      (let src (docText uris texts uri))
-      (if (strEq method "textDocument/formatting")
-        (lspReplyBody id (lspFormatting src))
-        (if (strEq method "textDocument/codeAction")
-          (lspReplyBody id (lspCodeAction workspace src uri params))
-          (if (strEq method "textDocument/typeDefinition")
-            (lspReplyBody id (lspTypeDefinition workspace src uri params))
-            (if (strEq method "textDocument/codeLens")
-              (lspReplyBody id (lspCodeLens src uri))
-              (lspReplyBody id (lspExpandMacro workspace src uri params))))))
-    }
+    (match (docText uris texts uri)
+      ((None) (lspFixWithoutText method id))
+      ((Some src) (lspFixWithText workspace method id params uri src)))
   })
 
 ; `codeActionProvider` is an object rather than a boolean so a client
@@ -16515,15 +16562,16 @@
 (pub fn (lspHlDispatch method id params uris texts highlights)
   {
     (let uri (lspParamsUri params))
-    {
-      (let src (docText uris texts uri))
-      (if (strEq method "textDocument/semanticTokens/range")
-        (lspReplyBody id (lspHlRange src (jsonGet params "range")))
-        (if (strEq method "textDocument/semanticTokens/full/delta")
-          (lspReplyEncodedBody id
-            (lspHlDelta uris highlights uri src (jsonGetStr params "previousResultId")))
-          (lspReplyEncodedBody id (lspHlFull uris highlights uri src))))
-    }
+    (match (docText uris texts uri)
+      ((None) (lspReplyBody id (jsonObjPut jsonObj "data" jsonArr)))
+      ((Some src)
+        (if (strEq method "textDocument/semanticTokens/range")
+          (lspReplyBody id (lspHlRange src (jsonGet params "range")))
+          (if (strEq method "textDocument/semanticTokens/full/delta")
+            (lspReplyEncodedBody id
+              (lspHlDelta uris highlights uri src (jsonGetStr params "previousResultId")))
+            (lspReplyEncodedBody id (lspHlFull uris highlights uri src))))
+      ))
   })
 
 ; Every full result has an identifier while its document is in the store.
@@ -18458,18 +18506,29 @@
 (pub fn (lspRequestBody workspace method id params uris texts gens highlights)
   {
     (let uri (lspParamsUri params))
-    (let src (docText uris texts (lspParamsUri params)))
-    (if (strEq method "textDocument/documentSymbol")
-      (lspReplyBody id (lspDocumentSymbols src))
-      (if (strEq method "textDocument/definition")
-        (lspReplyBody id (lspDefinition workspace src uri params (docGen uris gens uri)))
-        (if (strEq method "textDocument/hover")
-          (lspReplyBody id (lspHover workspace src uri params (docGen uris gens uri)))
-          (if (strEq method "textDocument/completion")
-            (lspReplyBody id (lspCompletion workspace src uri params))
-            (if (lspExtHandles method)
-              (lspExtDispatch workspace method id params uris texts gens highlights)
-              (lspErrorBody id (- 0 32601) (concat "method not found: " method)))))))
+    (if (lspExtHandles method)
+      (lspExtDispatch workspace method id params uris texts gens highlights)
+      (match (docText uris texts uri)
+        ((None)
+          (if (strEq method "textDocument/documentSymbol")
+            (lspReplyBody id jsonArr)
+            (if (|| (strEq method "textDocument/definition") (strEq method "textDocument/hover"))
+              (lspReplyBody id jsonNull)
+              (if (strEq method "textDocument/completion")
+                (lspReplyBody id (lspCompletion workspace "" uri params))
+                (lspErrorBody id (- 0 32601) (concat "method not found: " method)))))
+        )
+        ((Some src)
+          (if (strEq method "textDocument/documentSymbol")
+            (lspReplyBody id (lspDocumentSymbols src))
+            (if (strEq method "textDocument/definition")
+              (lspReplyBody id (lspDefinition workspace src uri params (docGen uris gens uri)))
+              (if (strEq method "textDocument/hover")
+                (lspReplyBody id (lspHover workspace src uri params (docGen uris gens uri)))
+                (if (strEq method "textDocument/completion")
+                  (lspReplyBody id (lspCompletion workspace src uri params))
+                  (lspErrorBody id (- 0 32601) (concat "method not found: " method))))))
+        )))
   })
 
 (pub :: lspResultPack (-> String String String String String))
