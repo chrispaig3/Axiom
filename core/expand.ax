@@ -5939,22 +5939,18 @@
     letter
     ""))
 
-; The file the form is written in, from the unit table (word 12) and
-; the module of the declaration being expanded (word 11), or "" for a
-; caller with no table.
+; The file the form is written in, from the unit table and the module
+; of the declaration being expanded. An absent module has no file;
+; inline assembly encodes that as an empty file name.
 (pub :: expAsmFileOf (-> MEnv String))
 (pub fn (expAsmFileOf env)
-  (if (vecIsNull env.units)
-    ""
-    {
-      (let units env.units)
-      {
-        (let u (expUnitOfMod units (expModuleWordOpt env.declmod)))
-        (if (>= u (vecLen units))
-          ""
-          (unitFile (vecGet units u)))
-      }
-    }))
+  (expAsmFileFor env.units (expModuleWordOpt env.declmod)))
+
+(pub :: expAsmFileFor (-> Units (Option String) String))
+(pub fn (expAsmFileFor units module)
+  (match (expUnitOfMod units module)
+    ((None) "")
+    ((Some u) (unitFile (vecGet units u)))))
 
 ; A line break at `i` in a literal body: 2 for the `\n` escape, 1 for a
 ; raw newline byte, 0 for anything else.
@@ -7761,12 +7757,11 @@
 ; ------------------------------------------------------------------
 ; Stamp a diagnostic with the unit of the module its span indexes,
 ; answering the diagnostic so the call wraps a `mkDiagNote` in place.
-; Module 0 (the entry file) resolves to unit 0, so stamping is safe
-; on every path.
+; A module with no unit uses the entry-file diagnostic convention.
 (pub :: expMarkUnit (-> MEnv diag::Diag a diag::Diag))
 (pub fn (expMarkUnit env dg m)
   {
-    (diagSetUnit dg (expUnitOfMod env.units (expModuleWordOpt (as m Int))))
+    (diagSetUnit dg (expUnitForDiag env.units (expModuleWordOpt (as m Int))))
     dg
   })
 
@@ -11127,19 +11122,27 @@
     None
     (unitName (vecGet units idx))))
 
-(pub :: expUnitOfMod (-> Units (Option String) Int))
+(pub :: expUnitOfMod (-> Units (Option String) (Option Int)))
 (pub fn (expUnitOfMod units m)
-  (if (== (as units Int) 0)
-    0
+  (if (vecIsNull units)
+    None
     (expUnitOfModFrom units m 0)))
 
-(pub :: expUnitOfModFrom (-> Units (Option String) Int Int))
+(pub :: expUnitOfModFrom (-> Units (Option String) Int (Option Int)))
 (pub fn (expUnitOfModFrom units m i)
   (if (>= i (vecLen units))
-    0
+    None
     (if (== (expModEq (expUnitMod units i) m) 1)
-      i
+      (Some i)
       (expUnitOfModFrom units m (+ i 1)))))
+
+; Diagnostic renderers require a unit index. A missing module keeps the
+; existing entry-file fallback at that boundary.
+(pub :: expUnitForDiag (-> Units (Option String) Int))
+(pub fn (expUnitForDiag units m)
+  (match (expUnitOfMod units m)
+    ((None) 0)
+    ((Some u) u)))
 
 (pub :: expAttachFrames (-> Diags Frames Units Int))
 (pub fn (expAttachFrames diags table units)
@@ -11211,7 +11214,7 @@
       (if (&& (== (diagSpan d) e.span) (== (expModEq e.site dmod) 1))
         {
           (if (< seen expMaxFrames)
-            (diagAddTrace d e.name e.defSpan (expUnitOfMod units e.defMod)))
+            (diagAddTrace d e.name e.defSpan (expUnitForDiag units e.defMod)))
           (expAttachFrom d table units dmod (+ j 1) (+ seen 1))
         }
         (expAttachFrom d table units dmod (+ j 1) seen))

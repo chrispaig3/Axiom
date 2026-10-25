@@ -124,7 +124,10 @@
     (say 24 (isNone (expUnitMod units 0)))
     (say 25 (nameIs (expUnitMod units 1) ""))
     (say 26 (nameIs (expUnitMod units 2) "Module"))
-    (say 27 (== (expUnitOfMod units (Some "Module")) 2))
+    (say 27
+      (match (expUnitOfMod units (Some "Module"))
+        ((None) false)
+        ((Some index) (== index 2))))
     (say 28 (unitIsInternal internal))
     (say 29 (! (unitIsInternal entry)))
     (say 30 (! (unitIsInternal (unit (Some "Internal.Low") false))))

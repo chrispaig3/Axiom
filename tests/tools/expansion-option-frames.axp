@@ -79,7 +79,10 @@
         false))
     (say 18 (== (expModEq None (Some "")) 1))
     (say 19 (== (expModEq (Some "A") None) 0))
-    (say 20 (== (expUnitOfMod units (Some "B")) 2))
+    (say 20
+      (match (expUnitOfMod units (Some "B"))
+        ((None) false)
+        ((Some index) (== index 2))))
     (let many (:: vecNew Frames))
     (for i in 0..129
       (vecPush many (frame None invocation "nested" None)))
