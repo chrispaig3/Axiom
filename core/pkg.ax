@@ -61,7 +61,7 @@
 (import IO (fileExists isDir listDir readFile stderr writeStr))
 (import Path)
 (import Fmt)
-(import Err (errCode))
+(import Err (Error errCode))
 (import raw)
 
 ; The manifest's file name. One place, because three functions here
@@ -712,7 +712,8 @@
   (concat (concat (pathWithSlash base) ".axiom/deps/") (concat (pkgDepKey url) "/")))
 
 ; The URL git recorded as `origin` for the checkout at `dir` (a
-; directory path with its trailing slash), or None when it records none.
+; directory path with its trailing slash). A missing config answers
+; Ok None; an unreadable config keeps its I/O error.
 ;
 ; THIS IS WHAT A CHECKOUT IS, for `fetch` and for `build` alike: a
 ; directory whose `.git/config` says it was cloned from the URL the
@@ -722,12 +723,22 @@
 ; record rather than a file of ours means a checkout made by hand with
 ; the `git clone` the build's hint prints is as good as one `fetch`
 ; made, and one made from the wrong URL is not, whoever made it.
-(pub :: pkgOrigin (-> String (Option String)))
+(pub :: pkgOrigin (-> String (Result (Option String) Error)))
 ;@axiom:effect(io)
 (pub fn (pkgOrigin dir)
   (match (readFile (concat dir ".git/config"))
-    ((Err _) None)
-    ((Ok text) (pkgOriginIn text))))
+    ((Err e)
+      (if (== (errCode e) 2)
+        (Ok None)
+        (Err e))
+    )
+    ((Ok text) (Ok (pkgOriginIn text)))))
+
+; A config read failure, with the path and kernel error that caused it.
+(pub :: pkgOriginReadFailure (-> String Error String))
+(pub fn (pkgOriginReadFailure dir e)
+  (concat "error: could not read git config `"
+    (concat dir (concat ".git/config`: errno " (concat (fmtInt (errCode e)) "\n")))))
 
 ; The `url` of the `[remote "origin"]` section of git config text, or
 ; None: the first `url = VALUE` line after that section header and before
@@ -795,22 +806,23 @@
     {
       (let url (vecGet urls i))
       (let dest (pkgDepCheckout base (vecGet urls i)))
-      {
-        (let origin (pkgOrigin dest))
-        (if (match origin
-          ((None) false)
-          ((Some recorded) (strEq recorded url)))
-          (pkgCheckOrigins urls base mf (+ i 1))
-          (pkgDie
-            (concat
-              (concat "error: "
-                (concat mf " depends on a registry URL whose checkout is not a clone of it:\n"))
-              (concat (concat "       " (concat url "\n"))
-                (concat (concat "       " (concat dest "\n"))
-                  (concat "       - "
-                    (concat (pkgOriginWhy origin url)
-                      ".\n       Remove that directory and run `axiom fetch`.\n")))))))
-      }
+      (match (pkgOrigin dest)
+        ((Err e) (pkgDie (pkgOriginReadFailure dest e)))
+        ((Ok origin)
+          (if (match origin
+            ((None) false)
+            ((Some recorded) (strEq recorded url)))
+            (pkgCheckOrigins urls base mf (+ i 1))
+            (pkgDie
+              (concat
+                (concat "error: "
+                  (concat mf " depends on a registry URL whose checkout is not a clone of it:\n"))
+                (concat (concat "       " (concat url "\n"))
+                  (concat (concat "       " (concat dest "\n"))
+                    (concat "       - "
+                      (concat (pkgOriginWhy origin url)
+                        ".\n       Remove that directory and run `axiom fetch`.\n")))))))
+        ))
     }))
 
 ; Every registry (`depend` URL) value in an already-read manifest,

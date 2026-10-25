@@ -2,18 +2,35 @@
 (import IO)
 (import Sys)
 (import Str)
+(import Err (Error errCode))
 
-(:: showOrigin (-> (Option String) ()))
+(:: showOrigin (-> (Result (Option String) Error) ()))
 ;@axiom:effect(io)
 (fn (showOrigin origin)
   (match origin
-    ((None) (println "None"))
-    ((Some url)
+    ((Err e)
       {
-        (let n (strLen url))
-        (println "Some {n}:{url}")
+        (let code (errCode e))
+        (println "Err {code}")
       }
+    )
+    ((Ok value)
+      (match value
+        ((None) (println "Ok None"))
+        ((Some url)
+          {
+            (let n (strLen url))
+            (println "Ok Some {n}:{url}")
+          }
+        ))
     )))
+
+(:: showWhy (-> String ()))
+;@axiom:effect(io)
+(fn (showWhy dir)
+  (match (pkgOrigin dir)
+    ((Err e) (println (pkgOriginReadFailure dir e)))
+    ((Ok origin) (println (pkgOriginWhy origin "expected")))))
 
 (:: main ())
 ;@axiom:effect(io)
@@ -26,7 +43,7 @@
     (showOrigin (pkgOrigin (sysArg 4)))
     (showOrigin (pkgOrigin (sysArg 5)))
     (showOrigin (pkgOrigin (sysArg 6)))
-    (println (pkgOriginWhy good "expected"))
-    (println (pkgOriginWhy (pkgOrigin (sysArg 2)) "expected"))
-    (println (pkgOriginWhy (pkgOrigin (sysArg 5)) "expected"))
+    (showWhy (sysArg 1))
+    (showWhy (sysArg 2))
+    (showWhy (sysArg 5))
   })

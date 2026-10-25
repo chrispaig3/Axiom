@@ -1957,19 +1957,23 @@
         (if (isDir dest)
           {
             (let origin (pkgOrigin dest))
-            (if (match origin
-              ((None) false)
-              ((Some recorded) (strEq recorded url)))
-              {
-                (replOut (concat "present " (concat dest "\n")))
-                (fetchUrls urls base (+ i 1))
-              }
-              (die
-                (concat (concat "error: `" (concat dest "` is not a checkout of `"))
-                  (concat url
-                    (concat (concat "`: " (concat (pkgOriginWhy origin url) ".\n"))
-                      "       Remove it and run `axiom fetch` again.\n")))
-                4))
+            (match origin
+              ((Err e) (die (pkgOriginReadFailure dest e) 4))
+              ((Ok recordedOrigin)
+                (if (match recordedOrigin
+                  ((None) false)
+                  ((Some recorded) (strEq recorded url)))
+                  {
+                    (replOut (concat "present " (concat dest "\n")))
+                    (fetchUrls urls base (+ i 1))
+                  }
+                  (die
+                    (concat (concat "error: `" (concat dest "` is not a checkout of `"))
+                      (concat url
+                        (concat (concat "`: " (concat (pkgOriginWhy recordedOrigin url) ".\n"))
+                          "       Remove it and run `axiom fetch` again.\n")))
+                    4))
+              ))
           }
           {
             (let deps (concat (pathWithSlash base) ".axiom/deps"))

@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Exercise present, absent, empty and unreadable package origins as Options."""
+"""Exercise present, absent and unreadable package origins as Result/Option."""
 
 import argparse
 import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 
@@ -45,8 +46,8 @@ def check(compiler, root, work):
     (paths["unreadable"] / ".git/config").mkdir()
     args = [str(paths[name]) + "/" for name in paths]
     expected = "\n".join((
-        f"Some {len(good_url)}:{good_url}",
-        "None", "None", "None", "Some 0:", "None",
+        f"Ok Some {len(good_url)}:{good_url}",
+        "Ok None", "Ok None", "Ok None", "Ok Some 0:", "Err 21",
         f"git records its origin as `{good_url}`",
         no_origin, no_origin,
     )) + "\n"
@@ -55,7 +56,7 @@ def check(compiler, root, work):
         "pkg_source_sha256": source_hash,
         "main_source_sha256": main_hash,
         "positive": {}, "controls": {}, "refusals": {},
-        "limits": ["Host O0/O2 with allocation poisoning; this does not test git or network access."],
+        "limits": ["Host O0/O2 with allocation poisoning; the CLI probe uses a local file:// git repository."],
     }
 
     def modules(label, pkg_source):
@@ -88,7 +89,7 @@ def check(compiler, root, work):
         observed = build_and_run(label, level, source)
         assert observed == expected, (label, observed, expected)
         report["positive"][label] = observed
-        print(f"ok   origin Options O{level}: present, missing, empty and unreadable", flush=True)
+        print(f"ok   origin Result/Option O{level}: present, missing, empty and unreadable", flush=True)
 
     controls = {
         "skip-url-scan": (
@@ -97,8 +98,13 @@ def check(compiler, root, work):
             0,
         ),
         "forge-read-error": (
-            '    ((Err _) None)',
-            '    ((Err _) (Some ""))',
+            '      (if (== (errCode e) 2)\n        (Ok None)\n        (Err e))',
+            '      (Ok None)',
+            5,
+        ),
+        "forge-missing-error": (
+            '      (if (== (errCode e) 2)\n        (Ok None)\n        (Err e))',
+            '      (Err e)',
             1,
         ),
     }
@@ -114,8 +120,10 @@ def check(compiler, root, work):
     refusals = {
         "raw-origin": ("(pkgOrigin \"missing/\")", "AX3004"),
         "raw-origin-why": ("(pkgOriginWhy \"\" \"url\")", "AX3004"),
-        "missing-none": ("(match (pkgOrigin \"missing/\") ((Some url) url))", "AX3005"),
-        "missing-some": ("(match (pkgOrigin \"missing/\") ((None) \"\"))", "AX3005"),
+        "missing-err": ("(match (pkgOrigin \"missing/\") ((Ok origin) \"\"))", "AX3005"),
+        "missing-ok": ("(match (pkgOrigin \"missing/\") ((Err _) \"\"))", "AX3005"),
+        "missing-none": ("(match (pkgOrigin \"missing/\") ((Err _) \"\") ((Ok origin) (match origin ((Some url) url))))", "AX3005"),
+        "missing-some": ("(match (pkgOrigin \"missing/\") ((Err _) \"\") ((Ok origin) (match origin ((None) \"\"))))", "AX3005"),
     }
     for label, (expr, code) in refusals.items():
         path = work / (label + ".ax")
@@ -132,6 +140,82 @@ def check(compiler, root, work):
         )
         report["refusals"][label] = errors[0]
         print(f"ok   {label}: {code}", flush=True)
+
+    if shutil.which("git"):
+        cli = work / "cli"
+        repo = cli / "repo"
+        app = cli / "app"
+        repo.mkdir(parents=True)
+        app.mkdir()
+
+        def git(*args):
+            got = subprocess.run(["git", *args], cwd=repo, capture_output=True,
+                                 text=True, timeout=30)
+            assert got.returncode == 0, (args, got.stderr)
+
+        git("init", "-q")
+        git("config", "user.email", "test@example.test")
+        git("config", "user.name", "Test")
+        (repo / "README").write_text("local\n")
+        git("add", "README")
+        git("commit", "-q", "-m", "seed")
+        url = repo.as_uri()
+        (app / "axiom.pkg").write_text(f"name test\ndepend {url}\n")
+        entry = app / "Main.ax"
+        entry.write_text("(:: main Int) (fn (main) 0)\n")
+
+        def command(*args):
+            return subprocess.run(
+                [str(compiler), "--diagnostic-format=ai", *args],
+                cwd=app, env=env, capture_output=True, text=True, timeout=90,
+            )
+
+        first = command("fetch")
+        assert first.returncode == 0 and first.stdout.startswith("fetching "), first
+        configs = list((app / ".axiom/deps").glob("*/.git/config"))
+        assert len(configs) == 1, configs
+        config = configs[0]
+        checkout = config.parents[1]
+        present_fetch = command("fetch")
+        dest = "./" + str(checkout.relative_to(app)) + "/"
+        assert (present_fetch.returncode, present_fetch.stdout, present_fetch.stderr) == (
+            0, f"present {dest}\n", ""
+        ), present_fetch
+        build_args = ("build", "--input", str(entry), "--output", str(app / "out"))
+        present_build = command(*build_args)
+        assert present_build.returncode == 0 and (app / "out").is_file(), present_build
+
+        config.unlink()
+        missing_fetch = command("fetch")
+        missing_build = command(*build_args)
+        assert (missing_fetch.returncode, missing_fetch.stdout, missing_fetch.stderr) == (
+            4, "", f"error: `{dest}` is not a checkout of `{url}`: {no_origin}.\n"
+                   "       Remove it and run `axiom fetch` again.\n"
+        ), missing_fetch
+        assert (missing_build.returncode, missing_build.stdout, missing_build.stderr) == (
+            3, "", f"error: {app / 'axiom.pkg'} depends on a registry URL whose checkout is not a clone of it:\n"
+                   f"       {url}\n       {checkout}/\n       - {no_origin}.\n"
+                   "       Remove that directory and run `axiom fetch`.\n"
+        ), missing_build
+
+        config.mkdir()
+        unreadable_fetch = command("fetch")
+        unreadable_build = command(*build_args)
+        assert (unreadable_fetch.returncode, unreadable_fetch.stdout, unreadable_fetch.stderr) == (
+            4, "", f"error: could not read git config `{dest}.git/config`: errno 21\n"
+        ), unreadable_fetch
+        assert (unreadable_build.returncode, unreadable_build.stdout, unreadable_build.stderr) == (
+            3, "", f"error: could not read git config `{checkout}/.git/config`: errno 21\n"
+        ), unreadable_build
+        report["cli"] = {
+            "present": [present_fetch.returncode, present_build.returncode],
+            "missing": [missing_fetch.returncode, missing_build.returncode],
+            "unreadable": [unreadable_fetch.returncode, unreadable_build.returncode],
+        }
+        print("ok   fetch/build: present 0/0, missing 4/3, unreadable 4/3", flush=True)
+    else:
+        report["cli"] = "skipped: git unavailable"
+        print("SKIP fetch/build origin round trip (git unavailable)", flush=True)
 
     assert digest(compiler) == report["compiler_sha256"]
     assert digest(root / "core/pkg.ax") == source_hash
