@@ -83,10 +83,13 @@
     (symbolIndexPutSoft2 pairedNames spans units "last" 13 23)
     (say 23 (&& (== (vecLen pairedNames) 3) (&& (== (vecGet spans 2) 13) (== (vecGet units 2) 23))))
     (let maps smNew)
-    (say 24 (strEq (smNidFor maps "missing") ""))
+    (say 24 (isNone (smNidFor maps "missing")))
     (vecPush maps.nidN "first")
     (vecPush maps.nidV "F")
-    (say 25 (strEq (smNidFor maps "first") "0e8b5e32c2add66d"))
-    (say 26 (strEq (smLocReal maps 0 0 0 "missing" vecNew) ""))
+    (say 25
+      (match (smNidFor maps "first")
+        ((None) false)
+        ((Some nid) (strEq nid "0e8b5e32c2add66d"))))
+    (say 26 (isNone (smLocReal maps 0 0 0 "missing" vecNew)))
     0
   })

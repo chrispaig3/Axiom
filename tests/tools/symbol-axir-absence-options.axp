@@ -1,0 +1,83 @@
+; Internal symbol and AXIR absence is typed before wire rendering.
+(import core)
+(import parser)
+(import symbols)
+(import mir)
+(import axir)
+(import Vec)
+(import Str)
+(import Fmt)
+(import IO)
+
+(:: say (-> Int Bool ()))
+;@axiom:effect(io)
+(fn (say index good)
+  (println
+    (concat (fmtInt index)
+      (if good
+        " true"
+        " false"))))
+
+(:: lineIs (-> (Option String) String Bool))
+(fn (lineIs line expected)
+  (match line
+    ((None) false)
+    ((Some text) (strEq text expected))))
+
+(:: inst (-> Int MInst))
+(fn (inst op)
+  (MInst :op op :dst 0 :a 7 :b 2 :name "add" :args vecNew :tgt 3 :alt 4))
+
+(:: block (-> Int MBlock))
+(fn (block op)
+  (MBlock
+    :id 0
+    :params vecNew
+    :instrs (vecPush vecNew (inst op))
+    :term (vecPush vecNew (inst MT_RET))))
+
+(:: body (-> MBlock MFunc))
+(fn (body blk)
+  (MFunc :name "sample" :params vecNew :pnames vecNew :blocks (vecPush vecNew blk) :nreg 8))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (let maps smNew)
+    (say 1 (isNone (smNidFor maps "missing")))
+    (vecPush maps.nidN "first")
+    (vecPush maps.nidV "F")
+    (say 2 (lineIs (smNidFor maps "first") "0e8b5e32c2add66d"))
+    (say 3 (strEq (smNidWire (smNidFor maps "missing")) ""))
+    (say 4 (strEq (smNidWire (smNidFor maps "first")) "0e8b5e32c2add66d"))
+    (say 5 (isNone (smLocReal maps 0 1 2 "missing" vecNew)))
+    (vecPush maps.fnN "found")
+    (vecPush maps.fnS (mkSpan 0 1))
+    (vecPush maps.fnU 0)
+    (let units
+      (vecPush vecNew
+        (CUnit2 :file "file.ax" :src "a\n" :name None :imports vecNew :library false)))
+    (say 6 (lineIs (smLocReal maps 0 1 2 "found" units) "file.ax:1:1-2"))
+    (say 7 (isNone (smLocReal maps 0 1 2 "found" vecNew)))
+    (say 8 (strEq (smLocWire (smLocReal maps 0 1 2 "missing" units)) "-"))
+    (say 9 (strEq (smLocWire (smLocReal maps 0 1 2 "found" units)) "file.ax:1:1-2"))
+    (say 10 (strEq (smLocWire (Some "")) ""))
+    (say 11 (lineIs (axirOpLine (inst MO_CONST)) "op %0 const 7"))
+    (say 12 (lineIs (axirOpLine (inst MO_BIN)) "op %0 add %7 %2"))
+    (say 13 (lineIs (axirOpLine (inst MO_CALL)) "op %0 call add"))
+    (say 14 (isNone (axirOpLine (inst 99))))
+    (say 15 (lineIs (axirTermLine (inst MT_RET)) "term ret %7"))
+    (say 16 (lineIs (axirTermLine (inst MT_BR)) "term br bb3"))
+    (say 17 (lineIs (axirTermLine (inst MT_CONDBR)) "term condbr %7 bb3 bb4"))
+    (say 18 (lineIs (axirTermLine (inst MT_TRAPZ)) "term trapz %7 bb3 bb4"))
+    (say 19 (lineIs (axirTermLine (inst MT_TRAP)) "term trap add %7"))
+    (say 20 (isNone (axirTermLine (inst 99))))
+    (let output vecNew)
+    (say 21 (== (axirBodyLines (body (block MO_CONST)) output) 1))
+    (say 22 (== (vecLen output) 3))
+    (let refused vecNew)
+    (say 23 (== (axirBodyLines (body (block 99)) refused) 0))
+    (say 24 (== (vecLen refused) 0))
+    0
+  })

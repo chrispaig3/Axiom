@@ -58,9 +58,7 @@
 (fn (location maps name units)
   {
     (let value (smLocReal maps 0 1 2 name units))
-    (if (strEq value "")
-      "-"
-      value)
+    (smLocWire value)
   })
 
 (:: main Int)

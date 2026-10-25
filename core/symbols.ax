@@ -978,35 +978,49 @@
     sm.fnU))
 
 ; The location string for `key` in the span namespace held at map
-; slots (nIx, sIx, uIx), or "" when the name has no recorded span.
-(pub :: smLocReal (-> SymMaps Int Int Int String Units String))
+; slots (nIx, sIx, uIx), or None when the name has no recorded span.
+(pub :: smLocReal (-> SymMaps Int Int Int String Units (Option String)))
 (pub fn (smLocReal sm nIx sIx uIx key units)
   (match (saIdx (smNameMap sm nIx) key)
-    ((None) "")
+    ((None) None)
     ((Some i)
       {
         (let sp (vecGet (smSpanMap sm sIx) i))
         (if (== sp 0)
-          ""
+          None
           {
             (let index (vecGet (smUnitMap sm uIx) i))
             (if (|| (< index 0) (>= index (vecLen units)))
-              ""
+              None
               {
                 (let unit (vecGet units index))
-                (concat (unitFile unit) (concat ":" (fmtSpan (unitSrc unit) sp)))
+                (Some (concat (unitFile unit) (concat ":" (fmtSpan (unitSrc unit) sp))))
               })
           })
       }
     )))
 
-; The nid for `key`, or "" for a name with no recorded declaration
+; The nid for `key`, or None for a name with no recorded declaration
 ; (builtins, effect operations).
-(pub :: smNidFor (-> SymMaps String String))
+(pub :: smNidFor (-> SymMaps String (Option String)))
 (pub fn (smNidFor sm key)
   (match (saIdx sm.nidN key)
+    ((None) None)
+    ((Some i) (Some (symNid (vecGetStr sm.nidV i) (bareOf key))))))
+
+; AXSYM and AXIR spell an absent location as `-` and omit an absent NID.
+; Keep those wire encodings at the rendering boundary.
+(pub :: smLocWire (-> (Option String) String))
+(pub fn (smLocWire loc)
+  (match loc
+    ((None) "-")
+    ((Some value) value)))
+
+(pub :: smNidWire (-> (Option String) String))
+(pub fn (smNidWire nid)
+  (match nid
     ((None) "")
-    ((Some i) (symNid (vecGetStr sm.nidV i) (bareOf key)))))
+    ((Some value) value)))
 
 ; The AXTAG metas for `key`, pushed in source order.
 ;
@@ -1600,15 +1614,13 @@
                                 ; and no `#calls=` edge spells.
                                 name
                                 (bareOf name))
-                              (if (== (strLen loc) 0)
-                                "-"
-                                loc)
+                              (smLocWire loc)
                               (if (== isOp 1)
                                 (match opTy
                                   ((None) (symTy (fnEntTy e)))
                                   ((Some ty) (symTy ty)))
                                 (symTy (fnEntTy e)))
-                              (smNidFor sm name)
+                              (smNidWire (smNidFor sm name))
                               metas))
                         }
                       }
@@ -1648,11 +1660,9 @@
                         (symLine "D" (bareOf name)
                           {
                             (let loc (smLocReal sm 3 4 5 name units))
-                            (if (== (strLen loc) 0)
-                              "-"
-                              loc)
+                            (smLocWire loc)
                           }
-                          (concat "data " (bareOf name)) (smNidFor sm name) metas))
+                          (concat "data " (bareOf name)) (smNidWire (smNidFor sm name)) metas))
                     }
                   }
                   {
@@ -1665,9 +1675,7 @@
                             (symLine "C" (bareOf (ctorEntName c))
                               {
                                 (let loc (smLocReal sm 9 10 11 (ctorEntName c) units))
-                                (if (== (strLen loc) 0)
-                                  "-"
-                                  loc)
+                                (smLocWire loc)
                               }
                               (symTy (ctorEntTy c)) ""
                               {
@@ -1740,11 +1748,9 @@
                         (symLine "S" (bareOf name)
                           {
                             (let loc (smLocReal sm 3 4 5 name units))
-                            (if (== (strLen loc) 0)
-                              "-"
-                              loc)
+                            (smLocWire loc)
                           }
-                          (concat "struct " (bareOf name)) (smNidFor sm name) metas))
+                          (concat "struct " (bareOf name)) (smNidWire (smNidFor sm name)) metas))
                     }
                   }
                   (set i (+ i 1))
@@ -1775,11 +1781,9 @@
                         (symLine "A" (bareOf name)
                           {
                             (let loc (smLocReal sm 3 4 5 name units))
-                            (if (== (strLen loc) 0)
-                              "-"
-                              loc)
+                            (smLocWire loc)
                           }
-                          (symTy (nodeBChild d)) (smNidFor sm name) metas))
+                          (symTy (nodeBChild d)) (smNidWire (smNidFor sm name)) metas))
                     }
                   }
                   (set i (+ i 1))
@@ -1815,11 +1819,9 @@
                       (symLine "M" (bareOf name)
                         {
                           (let loc (smLocReal sm 20 21 22 name units))
-                          (if (== (strLen loc) 0)
-                            "-"
-                            loc)
+                          (smLocWire loc)
                         }
-                        (concat "macro " (bareOf name)) (smNidFor sm name) metas))
+                        (concat "macro " (bareOf name)) (smNidWire (smNidFor sm name)) metas))
                   }
                 }
                 (set i (+ i 1))
@@ -1845,11 +1847,9 @@
                       (symLine "E" (bareOf name)
                         {
                           (let loc (smLocReal sm 23 24 25 name units))
-                          (if (== (strLen loc) 0)
-                            "-"
-                            loc)
+                          (smLocWire loc)
                         }
-                        (concat "effect " (bareOf name)) (smNidFor sm name) metas))
+                        (concat "effect " (bareOf name)) (smNidWire (smNidFor sm name)) metas))
                   }
                 }
                 (set i (+ i 1))

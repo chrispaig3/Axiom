@@ -49,8 +49,12 @@ def check(compiler, root, work):
         report["configurations"].append({"opt": level, "allocation_poisoning": True, "outcomes": 26, "status": "passed"})
         print(f"ok   symbol index Options: 26 zero/missing/first-match/map-column outcomes O{level} poison", flush=True)
     seam = "(isNone hit)"
-    assert source.count(seam) == 1, "first-match seam changed"
-    bad = environment("last-match", source.replace(seam, "true"))
+    start = source.index("(pub fn (saIdx ")
+    end = source.index("\n\n", start)
+    function = source[start:end]
+    assert function.count(seam) == 1, "first-match seam changed"
+    changed = source[:start] + function.replace(seam, "true") + source[end:]
+    bad = environment("last-match", changed)
     binary = build("last-match", "0", bad)
     ran = invoke([str(binary)], "last-match-run", bad, 30)
     assert ran.returncode == 0 and not ran.stderr, (ran.returncode, ran.stderr)

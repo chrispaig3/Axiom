@@ -241,9 +241,9 @@
     }
   })
 
-; One instruction, or "" for an opcode this grammar does not spell.
+; One instruction, or None for an opcode this grammar does not spell.
 ;
-; THE OPCODE SET IS CLOSED HERE TOO, and "" is what closes it.
+; THE OPCODE SET IS CLOSED HERE TOO, and None is what closes it.
 ; `mirInst` answers `<unknown op 7>` in that position - three atoms,
 ; two of them meaningless - and an `op` line built from it would reach
 ; the reader as a well-formed line about nothing. `mirVerify` refuses
@@ -251,21 +251,23 @@
 ; unreachable; it is written as a refusal rather than a fall-through
 ; because "should be unreachable" is how the verifier's own opcode set
 ; came to be open in the first place.
-(pub :: axirOpLine (-> MInst String))
+(pub :: axirOpLine (-> MInst (Option String)))
 (pub fn (axirOpLine n)
   (if (== n.op MO_CONST)
-    (concat "op " (concat (mirReg n.dst) (concat " const " (fmtInt n.a))))
+    (Some (concat "op " (concat (mirReg n.dst) (concat " const " (fmtInt n.a)))))
     (if (== n.op MO_BIN)
-      (concat "op "
-        (concat (mirReg n.dst)
-          (concat " "
-            (concat n.name (concat " " (concat (mirReg n.a) (concat " " (mirReg n.b))))))))
-      (if (== n.op MO_CALL)
+      (Some
         (concat "op "
-          (concat (mirReg n.dst) (concat " call " (concat (saAxSafe n.name) (axirRegs n.args)))))
-        ""))))
+          (concat (mirReg n.dst)
+            (concat " "
+              (concat n.name (concat " " (concat (mirReg n.a) (concat " " (mirReg n.b)))))))))
+      (if (== n.op MO_CALL)
+        (Some
+          (concat "op "
+            (concat (mirReg n.dst) (concat " call " (concat (saAxSafe n.name) (axirRegs n.args))))))
+        None))))
 
-; One terminator, or "" for an opcode this grammar does not spell.
+; One terminator, or None for an opcode this grammar does not spell.
 ;
 ; THE CALLEE AND THE TRAP HELPER GO THROUGH `saAxSafe`, the parameter
 ; names' escaper, and the header name still does not. That asymmetry
@@ -274,31 +276,33 @@
 ; `symLine` is not, while these two are read by nothing but this file,
 ; and a structural byte in either would silently add an atom to the
 ; line.
-(pub :: axirTermLine (-> MInst String))
+(pub :: axirTermLine (-> MInst (Option String)))
 (pub fn (axirTermLine t)
   (if (== t.op MT_RET)
-    (concat "term ret " (mirReg t.a))
+    (Some (concat "term ret " (mirReg t.a)))
     (if (== t.op MT_BR)
-      (concat "term br " (concat (mirBB t.tgt) (axirRegs t.args)))
+      (Some (concat "term br " (concat (mirBB t.tgt) (axirRegs t.args))))
       (if (== t.op MT_CONDBR)
         ; The block arguments ride after the two targets - the same
         ; suffix `br` carries, because it is the same list. An empty
         ; list renders as nothing, so the bare form reads exactly as
         ; it did before `while` gave the applied form a writer.
-        (concat "term condbr "
-          (concat (mirReg t.a)
-            (concat " "
-              (concat (mirBB t.tgt) (concat " " (concat (mirBB t.alt) (axirRegs t.args)))))))
+        (Some
+          (concat "term condbr "
+            (concat (mirReg t.a)
+              (concat " "
+                (concat (mirBB t.tgt) (concat " " (concat (mirBB t.alt) (axirRegs t.args))))))))
         (if (== t.op MT_TRAPZ)
-          (concat "term trapz "
-            (concat (mirReg t.a) (concat " " (concat (mirBB t.tgt) (concat " " (mirBB t.alt))))))
+          (Some
+            (concat "term trapz "
+              (concat (mirReg t.a) (concat " " (concat (mirBB t.tgt) (concat " " (mirBB t.alt)))))))
           (if (== t.op MT_TRAP)
             (if (>= t.a 0)
-              (concat "term trap " (concat (saAxSafe t.name) (concat " " (mirReg t.a))))
-              (concat "term trap " (saAxSafe t.name)))
-            ""))))))
+              (Some (concat "term trap " (concat (saAxSafe t.name) (concat " " (mirReg t.a)))))
+              (Some (concat "term trap " (saAxSafe t.name))))
+            None))))))
 
-; One block onto `out`. Answers 0 the moment a line renders as "" or
+; One block onto `out`. Answers 0 the moment a line renders as None or
 ; the block carries other than one terminator - `mirVerify` reports
 ; both, and this asks again rather than trusting it, because here the
 ; two questions are one line apart and there they are a whole pass
@@ -310,19 +314,17 @@
     {
       (vecPush out (concat "blk " (concat (mirBB b.id) (concat (axirRegs b.params) "\n"))))
       (for i in 0..(vecLen b.instrs)
-        {
-          (let s (axirOpLine (vecGet b.instrs i)))
-          (if (== (strLen s) 0)
+        (match (axirOpLine (vecGet b.instrs i))
+          ((None)
             (set ok 0)
-            (vecPush out (concat s "\n")))
-        })
+          )
+          ((Some line) (vecPush out (concat line "\n")))))
       (if (== (vecLen b.term) 1)
-        {
-          (let s (axirTermLine (vecGet b.term 0)))
-          (if (== (strLen s) 0)
+        (match (axirTermLine (vecGet b.term 0))
+          ((None)
             (set ok 0)
-            (vecPush out (concat s "\n")))
-        }
+          )
+          ((Some line) (vecPush out (concat line "\n"))))
         (set ok 0))
       ok
     }
@@ -427,16 +429,13 @@
       (let opTy (saGetNode sm.opN sm.opV name))
       {
         (vecPush parts
-          (axirHeader (bareOf name)
-            (if (== (strLen loc) 0)
-              "-"
-              loc)
+          (axirHeader (bareOf name) (smLocWire loc)
             (if (== e.isEffectOp 1)
               (match opTy
                 ((None) (symTy e.ty))
                 ((Some ty) (symTy ty)))
               (symTy e.ty))
-            (smNidFor sm name)))
+            (smNidWire (smNidFor sm name))))
         (vecPush parts (axirArityLine e.paramCount))
         (if (let (Some names) params)
           (for (p k) in names
