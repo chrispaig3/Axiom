@@ -74,13 +74,9 @@
 (pub fn (nolintNames content)
   {
     (let out vecNew)
-    {
-      (let op
-        (if (let (Some k) (strFindByte content 40 0))
-          k
-          (- 0 1)))
-      (if (< op 0)
-        out
+    (match (strFindByte content 40 0)
+      ((None) out)
+      ((Some op)
         (if (strEq (strSlice content 0 op) "nolint")
           {
             (let parts (strSplit (strSlice content (+ op 1) (- (ctCloseAt content) (+ op 1))) 44))
@@ -94,8 +90,8 @@
               out
             }
           }
-          out))
-    }
+          out)
+      ))
   })
 
 ;; Whether a set of names quiets `code`. `kind` is 1 for an editor
@@ -161,17 +157,19 @@
 (:: nolintTableAdd (-> NolintTable String Strings ()))
 (fn (nolintTableAdd t owner names)
   {
-    (let mut at (- 0 1))
+    (let mut at None)
     {
       (for (o j) in t.owners
         (if (strEq o owner)
-          (set at j)))
-      (if (< at 0)
-        {
-          (vecPush t.owners owner)
-          (vecPush t.sets names)
-        }
-        (nolintAppend (vecGet t.sets at) names))
+          (set at (Some j))))
+      (match at
+        ((None)
+          {
+            (vecPush t.owners owner)
+            (vecPush t.sets names)
+          }
+        )
+        ((Some j) (nolintAppend (vecGet t.sets j) names)))
     }
   })
 

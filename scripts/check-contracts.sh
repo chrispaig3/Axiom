@@ -116,6 +116,7 @@ python3 tests/selfhost/lsp-declaration-query-options.py --axiom "$axc" --negativ
 python3 tests/selfhost/lsp-cache-sync-import-options.py --axiom "$axc" --negative-controls
 python3 tests/selfhost/lsp-workspace-read-options.py --axiom "$axc" --negative-controls
 python3 tests/selfhost/lsp-doc-text-options.py --axiom "$axc" --negative-controls
+python3 tests/selfhost/nolint-repl-absence-options.py --axiom "$axc" --negative-controls
 python3 tests/selfhost/emitter-type-metadata-options.py --axiom "$axc"
 python3 tests/selfhost/emitter-temporary-return.py --axiom "$axc"
 python3 tests/selfhost/parser-scan-options.py --axiom "$axc"

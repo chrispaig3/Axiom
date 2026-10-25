@@ -812,28 +812,27 @@
       (replLineStartAt src (- i 1)))))
 
 ; The start of the line immediately above the one beginning at `s`, or
-; -1 when `s` does not begin a line or there is nothing above it.
-(pub :: replPrevLineStart (-> String Int Int))
+; None when `s` does not begin a line or there is nothing above it.
+(pub :: replPrevLineStart (-> String Int (Option Int)))
 (pub fn (replPrevLineStart src s)
   (if (<= s 1)
-    (- 0 1)
+    None
     (if (== (strByte src (- s 1)) 10)
-      (replLineStartAt src (- s 2))
-      (- 0 1))))
+      (Some (replLineStartAt src (- s 2)))
+      None)))
 
 ; `s`, moved back over the run of `;@axiom:` lines immediately above
 ; it. A tag belongs to the declaration below it, so this is the start
 ; of everything that declaration owns.
 (pub :: replTagRunStart (-> String Int Int))
 (pub fn (replTagRunStart src s)
-  {
-    (let p (replPrevLineStart src s))
-    (if (< p 0)
-      s
+  (match (replPrevLineStart src s)
+    ((None) s)
+    ((Some p)
       (if (== (replIsAxtagAt src p) 1)
         (replTagRunStart src p)
-        s))
-  })
+        s)
+    )))
 
 ; `src` without its trailing run of `;@axiom:` lines - the tags that
 ; have no declaration under them yet.

@@ -1,0 +1,71 @@
+(import core)
+(import lexer)
+(import parser)
+(import nolint)
+(import diag)
+(import repl)
+(import Str)
+(import Vec)
+(import IO)
+
+(:: say (-> Int Bool ()))
+;@axiom:effect(io)
+(fn (say n good)
+  (println "{n} {good}"))
+
+(:: indexIs (-> (Option Int) (Option Int) Bool))
+(fn (indexIs actual expected)
+  (match expected
+    ((None) (isNone actual))
+    ((Some want)
+      (match actual
+        ((None) false)
+        ((Some got) (== got want)))
+    )))
+
+(:: parsed (-> String Nodes))
+(fn (parsed source)
+  (match (parseModuleWith (lex source) (scanAxtags source))
+    ((ParseFailed _) __indexTrap)
+    ((ParseSuccess nodes _) nodes)))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (let absent (nolintNames "nolint"))
+    (let zero (nolintNames "(AX6001)"))
+    (let names (nolintNames "nolint(AX6001, warnings)"))
+    (say 1 (== (vecLen absent) 0))
+    (say 2 (== (vecLen zero) 0))
+    (say 3 (&& (== (vecLen names) 2) (strEq (vecGet names 0) "AX6001")))
+    (say 4 (strEq (vecGet names 1) "warnings"))
+    (let source
+      ";@axiom:nolint(AX6001)\n(:: target (-> Int Int))\n;@axiom:nolint(AX6002)\n(fn (target x) x)\n")
+    (let nodes (parsed source))
+    (let span (nodeSpan (vecGet nodes 1)))
+    (let warnings
+      (vecPush
+        (vecPush
+          (vecPush
+            (vecPush vecNew (mkDiag SEV_WARNING "AX6001" "probe" span "quiet one" None None))
+            (mkDiag SEV_WARNING "AX6002" "probe" span "quiet two" None None))
+          (mkDiag SEV_ERROR "AX6001" "probe" span "keep error" None None))
+        (mkDiag SEV_WARNING "AX6003" "probe" span "keep warning" None None)))
+    (let kept (nolintQuietDiags nodes warnings))
+    (say 5 (== (vecLen nodes) 2))
+    (say 6 (== (vecLen kept) 2))
+    (say 7
+      (&& (== (diagSev (vecGet kept 0)) SEV_ERROR) (strEq (diagCode (vecGet kept 1)) "AX6003")))
+    (say 8 (indexIs (replPrevLineStart "a\nb\n" 0) None))
+    (say 9 (indexIs (replPrevLineStart "a\nb\n" 2) (Some 0)))
+    (say 10 (indexIs (replPrevLineStart "a\nb\n" 4) (Some 2)))
+    (say 11 (indexIs (replPrevLineStart "a\nb\n" 3) None))
+    (let tagged "x\n;@axiom:one\n;@axiom:two\n(fn (f) 1)\n")
+    (let start (strLen "x\n;@axiom:one\n;@axiom:two\n"))
+    (say 12 (== (replTagRunStart tagged start) 2))
+    (say 13 (== (replTagRunStart "x\nplain\n" 8) 8))
+    (say 14 (strEq (replStripTrailingTags "x\n;@axiom:one\n") "x\n"))
+    (say 15 (== (replTagRunStart "x" 1) 1))
+    0
+  })
