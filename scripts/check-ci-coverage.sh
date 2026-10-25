@@ -327,6 +327,13 @@ else
   bad "gate reuse invalidation or failure propagation failed"
 fi
 
+# A release record must identify its build inputs and its archived compiler.
+if python3 "$repo_root/tests/ci/toolchain-record.py"; then
+  ok "release toolchain records retain native inputs and bind the archived compiler"
+else
+  bad "release toolchain records failed their input or archive checks"
+fi
+
 # Timed gates must measure a child process and preserve its failures.
 if python3 "$repo_root/tests/ci/timing.py"; then
   ok "whole-process timings measure real work and reject failed commands"

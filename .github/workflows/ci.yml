@@ -294,6 +294,23 @@ jobs:
         id: compiler
         run: ./scripts/build-shared-axc.sh "$AXIOM_AXC"
 
+      - name: Record the native build inputs
+        id: toolchain
+        if: ${{ !cancelled() && steps.compiler.outcome == 'success' && matrix.shard == 1 }}
+        run: |
+          python3 scripts/record-toolchain.py --target "${{ matrix.name }}" \
+            --compiler "$AXIOM_AXC" --output "$RUNNER_TEMP/toolchain-${{ matrix.name }}.json"
+          python3 scripts/record-toolchain.py --target "${{ matrix.name }}" \
+            --compiler "$AXIOM_AXC" --verify "$RUNNER_TEMP/toolchain-${{ matrix.name }}.json"
+
+      - name: Preserve the native toolchain record
+        if: steps.toolchain.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: toolchain-${{ matrix.name }}
+          path: ${{ runner.temp }}/toolchain-${{ matrix.name }}.json
+          if-no-files-found: error
+
       # Once the compiler builds, collect every gate result. Explicit
       # cancellation still stops the job, and a failed gate keeps its
       # failed outcome while later gates run.

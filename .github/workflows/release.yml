@@ -131,6 +131,11 @@ jobs:
           esac
           echo "ok   $line"
 
+      - name: Save exact toolchain and source identities
+        run: |
+          python3 scripts/record-toolchain.py --release --target "${{ matrix.name }}" \
+            --compiler "$RUNNER_TEMP/out/axiom" --output "$RUNNER_TEMP/out/toolchain.json"
+
       # The stdlib travels with the compiler. `axiom` resolves modules
       # relative to its own location, so an archive holding only the
       # binary produces "cannot resolve import IO" on first use.
@@ -140,6 +145,7 @@ jobs:
           d="axiom-$v-${{ matrix.name }}"
           mkdir -p "$d/bin"
           cp "$RUNNER_TEMP/out/axiom" "$d/bin/axiom"
+          cp "$RUNNER_TEMP/out/toolchain.json" "$d/toolchain.json"
           cp -R stdlib "$d/stdlib"
           cp LICENSE README.md CHANGELOG.md "$d/"
           # `docs/` ships too: the README links into it, and an installed
@@ -171,6 +177,8 @@ jobs:
           v="$(tr -d '[:space:]' < VERSION)"
           d="axiom-$v-${{ matrix.name }}"
           mkdir -p "$RUNNER_TEMP/unpack" && tar -xzf "$d.tar.gz" -C "$RUNNER_TEMP/unpack"
+          python3 scripts/record-toolchain.py --target "${{ matrix.name }}" \
+            --compiler "$RUNNER_TEMP/unpack/$d/bin/axiom" --verify "$RUNNER_TEMP/unpack/$d/toolchain.json"
           test -d "$RUNNER_TEMP/unpack/$d/stdlib" \
             || { echo "FAIL: the archive holds no stdlib/"; exit 1; }
           mkdir -p "$RUNNER_TEMP/probe"

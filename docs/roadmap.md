@@ -238,7 +238,7 @@ work; they do not claim full feature parity.
 | Item | State |
 |---|---|
 | CI green on linux-aarch64 and darwin-aarch64 | Done |
-| Reproducible toolchain records for every supported target | In progress |
+| Reproducible toolchain records for every supported target | In progress; CI and release archives save source, seed, compiler and native-tool digests, exact versions, and SDK or package identities. Release records check the source build stamp; both native CI legs remain to validate |
 | The compiler hosts itself on Windows, and crypto runs there | In progress |
 | Windows clock conversions check overflow, finite sleeps retain their duration, and large stack frames link with page probing | Done; `tests/platform/windows-time.py` and `scripts/check-recover.sh` |
 | Windows path roots, closed-poller checks and exclusive listener addresses | Done; `tests/stdlib/980-path-roots.ax`, `tests/stdlib/981-poller-closed.ax` and `tests/stdlib/843-net-stream.ax` |

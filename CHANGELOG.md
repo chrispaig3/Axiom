@@ -16,6 +16,11 @@ its changelog too.
 
 ## Unreleased
 
+- Release archives include an exact toolchain record bound to the shipped
+  compiler and its source build stamp. Supported-target CI saves the same
+  native tool, SDK or package identities alongside its compiler digest.
+  Tested by `tests/ci/toolchain-record.py`.
+
 - Windows console readers retire cancelled reads through a private input
   handle. This prevents an abandoned console read from consuming the next
   key while preserving buffered bytes and the owning `File` handle.

@@ -655,6 +655,13 @@ path a user's build takes. Before uploading, it unpacks each archive
 somewhere else and compiles a program that imports the standard
 library, calling the compiler by bare name on `PATH`.
 
+Each archive includes `toolchain.json`: the source and seed digests,
+compiler digest, exact tool versions and digests, runner image, and native
+SDK or package versions. Release records require a clean checkout and a
+compiler whose build stamp matches that source. CI also saves a record
+for each supported target. These records identify the build inputs;
+macOS linker UUIDs can still differ between linked executables.
+
 Every source-only target (`darwin-x86_64`, `freebsd-aarch64`,
 `freebsd-x86_64`, `linux-x86_64`) gets the same message from the
 installer: no archive is published for it, and it points to the seed.
