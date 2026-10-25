@@ -2144,13 +2144,13 @@
 ; stage0's order.
 ;
 ; The code comes from the first byte of the offending span, because
-; each of the four conditions `TK_ERROR` carries can only begin one
-; way: `"` a string, `'` a char, a digit a number, anything else an
-; unexpected character. That is why `TK_ERROR` needs no payload - the
-; lexer recorded WHERE, and where determines what.
+; most `TK_ERROR` conditions can only begin one way: `"` a string, `'`
+; an unterminated char, a digit a number, anything else an unexpected
+; character. Invalid UTF-8 inside a closed char literal starts at the
+; bad byte; the preceding quote identifies that case. The lexer records
+; the span, which determines the diagnostic without a token payload.
 ;
-; The fifth condition is the exception that earns its own kind. A bad
-; escape starts with `\`, and so does a bare `\` outside any literal,
+; A bad escape starts with `\`, and so does a bare `\` outside any literal,
 ; which is an unexpected character. Keying off the byte gave the bare
 ; one AX1005 where stage0 says AX1001 - found by sweeping all 94
 ; printable bytes through both compilers, not by reading.
@@ -2216,7 +2216,10 @@
                         (concat
                           (concat "`" (strSlice src (spanStart sp) (- (spanEnd sp) (spanStart sp))))
                           "` cannot be parsed as Int or Float"))
-                      ; The lexer's error token covers the whole
+                      ; A malformed char literal's error token starts
+                      ; at its lead byte, so the diagnostic never puts
+                      ; ill-formed source bytes into its text.
+                      ; The lexer's other error tokens cover the whole
                       ; character (`lexErrCharLen`), so the quote does
                       ; too; a byte that begins no UTF-8 character is
                       ; NAMED rather than quoted, since quoting it
@@ -2225,14 +2228,23 @@
                       {
                         (let ch (strSlice src (spanStart sp) (- (spanEnd sp) (spanStart sp))))
                         (if (&& (>= b 128) (== (strLen ch) 1))
-                          (diagSetLabel
-                            (mkDiag SEV_ERROR "AX1001" "unexpected-char" sp
-                              (concat (concat "unexpected byte 0x" (hexByteUpper b))
-                                ", which begins no UTF-8 character")
-                              None
-                              (Some
-                                "Axiom source is UTF-8; this byte is not part of a well-formed character - the file may be in another encoding, or damaged"))
-                            "not UTF-8")
+                          (if (&& (> (spanStart sp) 0) (== (strByte src (- (spanStart sp) 1)) 39))
+                            (diagSetLabel
+                              (mkDiag SEV_ERROR "AX1001" "unexpected-char" sp
+                                (concat "invalid UTF-8 character literal at byte 0x"
+                                  (hexByteUpper b))
+                                None
+                                (Some
+                                  "a character literal must contain one well-formed UTF-8 character"))
+                              "invalid UTF-8 here")
+                            (diagSetLabel
+                              (mkDiag SEV_ERROR "AX1001" "unexpected-char" sp
+                                (concat (concat "unexpected byte 0x" (hexByteUpper b))
+                                  ", which begins no UTF-8 character")
+                                None
+                                (Some
+                                  "Axiom source is UTF-8; this byte is not part of a well-formed character - the file may be in another encoding, or damaged"))
+                              "not UTF-8"))
                           (diagSetLabel
                             (mkDiag SEV_ERROR "AX1001" "unexpected-char" sp
                               (concat (concat "unexpected character `" ch) "`") None
@@ -2460,7 +2472,9 @@
         ; so it keeps its own tag; codegen emits it as the integer it is.
         {
           (let t (vecGet tokens pos))
-          (pOk (nodeBuildEChar (charLexemeCode (tokenLexeme t)) 0 0 (tokenSpan t)) (advance pos))
+          (match (charLexemeCode (tokenLexeme t))
+            ((None) (pErr pos))
+            ((Some code) (pOk (nodeBuildEChar code 0 0 (tokenSpan t)) (advance pos))))
         }
         (if (peekIs tokens pos TK_STRING)
           {
@@ -2474,31 +2488,36 @@
 ; stage0, and reading one byte answered 195 and 228 - the lead bytes
 ; of their encodings.
 ; Escapes are stage0's set: \n \t \r \0, and \\ \' \" denote
-; themselves - as does any other escaped byte here, where stage0
-; instead reports an error this parser has no channel for.
+; themselves. The lexer rejects any other escaped byte.
 ;
-; A lexeme whose bytes decode to nothing - `utf8DecodeAt` answers
-; `None` - is -1 here, which is what this answered before the decoder
-; had an `Option` to say it with; the parser's channel for a bad char
-; literal is unchanged by the port.
-(pub :: charLexemeCode (-> String Int))
+; The lexer rejects a malformed character before producing TK_CHARLIT.
+; Keep that absence explicit here too, including for a constructed token.
+(pub :: charLexemeCode (-> String (Option Int)))
 (pub fn (charLexemeCode lex)
-  (if (== (strByte lex 1) 92)
-    {
-      (let e (strByte lex 2))
-      (if (== e 110)
-        10
-        (if (== e 116)
-          9
-          (if (== e 114)
-            13
-            (if (== e 48)
-              0
-              e))))
-    }
-    (if (let (Some cp) (utf8DecodeAt lex 1))
-      cp
-      (- 0 1))))
+  {
+    (let n (strLen lex))
+    (if (|| (< n 3) (|| (!= (strByte lex 0) 39) (!= (strByte lex (- n 1)) 39)))
+      None
+      (if (== (strByte lex 1) 92)
+        {
+          (let e (strByte lex 2))
+          (if (&& (== n 4) (isEscapeChar e))
+            (Some
+              (if (== e 110)
+                10
+                (if (== e 116)
+                  9
+                  (if (== e 114)
+                    13
+                    (if (== e 48)
+                      0
+                      e)))))
+            None)
+        }
+        (if (== (utf8WellFormedAt lex 1 (- n 1)) (- n 2))
+          (utf8DecodeAt lex 1)
+          None)))
+  })
 
 ; The IEEE-754 bits of the value a float lexeme denotes: the binary64
 ; nearest to the decimal it spells, ties to even, which is what

@@ -119,6 +119,7 @@ python3 tests/selfhost/lsp-doc-text-options.py --axiom "$axc" --negative-control
 python3 tests/selfhost/emitter-type-metadata-options.py --axiom "$axc"
 python3 tests/selfhost/emitter-temporary-return.py --axiom "$axc"
 python3 tests/selfhost/parser-scan-options.py --axiom "$axc"
+python3 tests/selfhost/parser-char-utf8-options.py --axiom "$axc" --negative-controls
 python3 tests/selfhost/type-keyword-known.py --axiom "$axc"
 python3 tests/tools/expansion-try-state-options.py --axiom "$axc"
 python3 tests/selfhost/parser-typed-node-tag.py --axiom "$axc"

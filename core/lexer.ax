@@ -659,14 +659,20 @@
             (emitToken TK_ERROR_ESC (+ pos 1) (+ pos 3) tokens src)
             stop
           }
-          ; The width was computed, never CHECKED: `'a` with no closing
-          ; quote produced a CHARLIT spanning past the end of the
-          ; literal and, at the end of a file, past the source.
+          ; Check the closing quote before the UTF-8 bytes. A truncated
+          ; literal still reports AX1003 at its opening quote.
           (if (&& (<= ep len) (== (strByte src (- ep 1)) 39))
-            {
-              (emitToken TK_CHARLIT pos ep tokens src)
-              ep
-            }
+            (if (|| esc (!= (utf8WellFormedAt src (+ pos 1) (- ep 1)) 0))
+              {
+                (emitToken TK_CHARLIT pos ep tokens src)
+                ep
+              }
+              {
+                ; Name the bad byte, not its ill-formed encoding, in
+                ; the diagnostic. The literal is consumed only once.
+                (emitToken TK_ERROR (+ pos 1) (+ pos 2) tokens src)
+                ep
+              })
             {
               (let estop
                 (if (> (- ep 1) len)
