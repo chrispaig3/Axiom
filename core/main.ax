@@ -1957,7 +1957,9 @@
         (if (isDir dest)
           {
             (let origin (pkgOrigin dest))
-            (if (strEq origin url)
+            (if (match origin
+              ((None) false)
+              ((Some recorded) (strEq recorded url)))
               {
                 (replOut (concat "present " (concat dest "\n")))
                 (fetchUrls urls base (+ i 1))

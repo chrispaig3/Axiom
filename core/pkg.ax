@@ -695,7 +695,7 @@
   (concat (concat (pathWithSlash base) ".axiom/deps/") (concat (pkgDepKey url) "/")))
 
 ; The URL git recorded as `origin` for the checkout at `dir` (a
-; directory path with its trailing slash), or "" when it records none.
+; directory path with its trailing slash), or None when it records none.
 ;
 ; THIS IS WHAT A CHECKOUT IS, for `fetch` and for `build` alike: a
 ; directory whose `.git/config` says it was cloned from the URL the
@@ -705,23 +705,24 @@
 ; record rather than a file of ours means a checkout made by hand with
 ; the `git clone` the build's hint prints is as good as one `fetch`
 ; made, and one made from the wrong URL is not, whoever made it.
-(pub :: pkgOrigin (-> String String))
+(pub :: pkgOrigin (-> String (Option String)))
 ;@axiom:effect(io)
 (pub fn (pkgOrigin dir)
-  (pkgOriginIn (unwrapOr (readFile (concat dir ".git/config")) "")))
+  (match (readFile (concat dir ".git/config"))
+    ((Err _) None)
+    ((Ok text) (pkgOriginIn text))))
 
 ; The `url` of the `[remote "origin"]` section of git config text, or
-; "": the first `url = VALUE` line after that section header and before
+; None: the first `url = VALUE` line after that section header and before
 ; the next one, whitespace trimmed and one pair of quotes removed.
-(:: pkgOriginIn (-> String String))
+(:: pkgOriginIn (-> String (Option String)))
 (fn (pkgOriginIn text)
   {
     (let mut at 0)
     (let mut inOrigin 0)
-    (let mut found "")
-    (let mut done 0)
+    (let mut found (:: None (Option String)))
     {
-      (while (&& (== done 0) (< at (strLen text)))
+      (while (&& (isNone found) (< at (strLen text)))
         {
           (let eol
             (if (let (Some k) (strFindByte text 10 at))
@@ -737,10 +738,7 @@
                 {
                   (let rest (strTrim (strSlice line 3 (- (strLen line) 3))))
                   (if (strStartsWith rest "=")
-                    {
-                      (set found (pkgUnquote (strTrim (strSlice rest 1 (- (strLen rest) 1)))))
-                      (set done 1)
-                    })
+                    (set found (Some (pkgUnquote (strTrim (strSlice rest 1 (- (strLen rest) 1)))))))
                 }))
             (set at (+ eol 1))
           }
@@ -757,11 +755,17 @@
 
 ; Why the checkout at `dir` is not one of `url`, for a refusal: what git
 ; recorded instead, or that it recorded nothing.
-(pub :: pkgOriginWhy (-> String String String))
+(pub :: pkgOriginWhy (-> (Option String) String String))
 (pub fn (pkgOriginWhy origin url)
-  (if (== (strLen origin) 0)
-    "it holds no git checkout with an `origin` (an interrupted or failed clone leaves one like this)"
-    (concat "git records its origin as `" (concat origin "`"))))
+  (match origin
+    ((None)
+      "it holds no git checkout with an `origin` (an interrupted or failed clone leaves one like this)"
+    )
+    ((Some recorded)
+      (if (== (strLen recorded) 0)
+        "it holds no git checkout with an `origin` (an interrupted or failed clone leaves one like this)"
+        (concat "git records its origin as `" (concat recorded "`")))
+    )))
 
 ; Every URL dependency's checkout was cloned from that URL - the build's
 ; half of what `pkgOrigin` says. Called after `pkgVerify` has refused a
@@ -776,7 +780,9 @@
       (let dest (pkgDepCheckout base (vecGet urls i)))
       {
         (let origin (pkgOrigin dest))
-        (if (strEq origin url)
+        (if (match origin
+          ((None) false)
+          ((Some recorded) (strEq recorded url)))
           (pkgCheckOrigins urls base mf (+ i 1))
           (pkgDie
             (concat

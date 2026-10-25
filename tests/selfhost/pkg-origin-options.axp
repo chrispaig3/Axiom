@@ -1,0 +1,32 @@
+(import pkg)
+(import IO)
+(import Sys)
+(import Str)
+
+(:: showOrigin (-> (Option String) ()))
+;@axiom:effect(io)
+(fn (showOrigin origin)
+  (match origin
+    ((None) (println "None"))
+    ((Some url)
+      {
+        (let n (strLen url))
+        (println "Some {n}:{url}")
+      }
+    )))
+
+(:: main ())
+;@axiom:effect(io)
+(fn (main)
+  {
+    (let good (pkgOrigin (sysArg 1)))
+    (showOrigin good)
+    (showOrigin (pkgOrigin (sysArg 2)))
+    (showOrigin (pkgOrigin (sysArg 3)))
+    (showOrigin (pkgOrigin (sysArg 4)))
+    (showOrigin (pkgOrigin (sysArg 5)))
+    (showOrigin (pkgOrigin (sysArg 6)))
+    (println (pkgOriginWhy good "expected"))
+    (println (pkgOriginWhy (pkgOrigin (sysArg 2)) "expected"))
+    (println (pkgOriginWhy (pkgOrigin (sysArg 5)) "expected"))
+  })

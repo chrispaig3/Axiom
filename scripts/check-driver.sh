@@ -1753,5 +1753,10 @@ if python3 "$repo_root/tests/selfhost/pkg-lookup-options.py" --axiom "$s1"; then
 else
   failed=$((failed + 1))
 fi
+if python3 "$repo_root/tests/selfhost/pkg-origin-options.py" --axiom "$s1"; then
+  passed=$((passed + 1))
+else
+  failed=$((failed + 1))
+fi
 echo "$passed passed, $failed failed"
 [[ "$failed" == 0 ]]
