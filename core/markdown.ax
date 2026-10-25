@@ -399,17 +399,17 @@
 ; ------------------------------------------------------------------
 ; Inline
 ; ------------------------------------------------------------------
-; The index just past the closing `]` that matches the `[` at `i`, or
-; -1. Nested brackets count; a code span's brackets do not.
-(pub :: mdBracketEnd (-> String Int Int))
+; The index just past the closing `]` that matches the `[` at `i`.
+; Nested brackets count; a code span's brackets do not.
+(pub :: mdBracketEnd (-> String Int (Option Int)))
 (pub fn (mdBracketEnd s i)
   {
     (let n (strLen s))
     (let mut j (+ i 1))
     (let mut depth 1)
-    (let mut found (- 0 1))
+    (let mut found (:: None (Option Int)))
     {
-      (while (&& (< j n) (< found 0))
+      (while (&& (< j n) (isNone found))
         {
           (let c (strByte s j))
           {
@@ -430,7 +430,7 @@
                     {
                       (set depth (- depth 1))
                       (if (== depth 0)
-                        (set found (+ j 1)))
+                        (set found (Some (+ j 1))))
                     }))))
             (set j (+ j 1))
           }
@@ -440,16 +440,17 @@
   })
 
 ; The index of the `)` closing a link target opened at `i` (the byte
-; after `(`), or -1. Balanced parentheses inside the target count.
-(pub :: mdParenEnd (-> String Int Int))
+; after `(`). Balanced parentheses inside the target count; a title
+; after whitespace remains part of the scan.
+(pub :: mdParenEnd (-> String Int (Option Int)))
 (pub fn (mdParenEnd s i)
   {
     (let n (strLen s))
     (let mut j i)
     (let mut depth 0)
-    (let mut found (- 0 1))
+    (let mut found (:: None (Option Int)))
     {
-      (while (&& (< j n) (< found 0))
+      (while (&& (< j n) (isNone found))
         {
           (let c (strByte s j))
           {
@@ -457,11 +458,8 @@
               (set depth (+ depth 1))
               (if (== c 41)
                 (if (== depth 0)
-                  (set found j)
-                  (set depth (- depth 1)))
-                (if (|| (== c 10) (== c 32))
-                  (if (== depth 0)
-                    (set found (- 0 2))))))
+                  (set found (Some j))
+                  (set depth (- depth 1)))))
             (set j (+ j 1))
           }
         })
@@ -550,15 +548,15 @@
     }
   })
 
-; The closing run of exactly `k` backticks after `from`, or -1.
-(pub :: mdCodeClose (-> String Int Int Int))
+; The closing run of exactly `k` backticks after `from`.
+(pub :: mdCodeClose (-> String Int Int (Option Int)))
 (pub fn (mdCodeClose s from k)
   {
     (let n (strLen s))
     (let mut j from)
-    (let mut found (- 0 1))
+    (let mut found (:: None (Option Int)))
     {
-      (while (&& (< j n) (< found 0))
+      (while (&& (< j n) (isNone found))
         (if (== (strByte s j) 96)
           {
             (let mut m j)
@@ -566,7 +564,7 @@
               (while (&& (< m n) (== (strByte s m) 96))
                 (set m (+ m 1)))
               (if (== (- m j) k)
-                (set found j)
+                (set found (Some j))
                 (set j m))
             }
           }
@@ -575,19 +573,19 @@
     }
   })
 
-; The `*` or `**` closing an emphasis opened at `from`, or -1: the
+; The `*` or `**` closing an emphasis opened at `from`: the
 ; next run of the same width whose content is non-empty and does not
 ; begin with a space.
-(pub :: mdEmClose (-> String Int Int Int))
+(pub :: mdEmClose (-> String Int Int (Option Int)))
 (pub fn (mdEmClose s from k)
   {
     (let n (strLen s))
     (let mut j from)
-    (let mut found (- 0 1))
+    (let mut found (:: None (Option Int)))
     (if (|| (>= from n) (== (strByte s from) 32))
-      (- 0 1)
+      None
       {
-        (while (&& (< j n) (< found 0))
+        (while (&& (< j n) (isNone found))
           {
             (let c (strByte s j))
             (if (== c 96)
@@ -606,7 +604,7 @@
                     (while (&& (< m n) (== (strByte s m) 42))
                       (set m (+ m 1)))
                     (if (&& (== (- m j) k) (!= (strByte s (- j 1)) 32))
-                      (set found j)
+                      (set found (Some j))
                       (set j m))
                   }
                 }
@@ -730,29 +728,26 @@
     {
       (while (&& (< k n) (== (strByte s k) 96))
         (set k (+ k 1)))
-      {
-        (let close (mdCodeClose s k (- k i)))
-        (if (< close 0)
+      (if (let (Some close) (mdCodeClose s k (- k i)))
+        {
+          (let mut a k)
+          (let mut b close)
           {
-            (vecPush frags (strSlice s i (- k i)))
-            k
+            ; One space each side is stripped when both are there,
+            ; which is how a code span may begin with a backtick.
+            (if (&& (> (- b a) 1) (&& (== (strByte s a) 32) (== (strByte s (- b 1)) 32)))
+              {
+                (set a (+ a 1))
+                (set b (- b 1))
+              })
+            (vecPush frags (concat (concat "<code>" (mdEscapeRange s a b)) "</code>"))
+            (+ close (- k i))
           }
-          {
-            (let mut a k)
-            (let mut b close)
-            {
-              ; One space each side is stripped when both are there,
-              ; which is how a code span may begin with a backtick.
-              (if (&& (> (- b a) 1) (&& (== (strByte s a) 32) (== (strByte s (- b 1)) 32)))
-                {
-                  (set a (+ a 1))
-                  (set b (- b 1))
-                })
-              (vecPush frags (concat (concat "<code>" (mdEscapeRange s a b)) "</code>"))
-              (+ close (- k i))
-            }
-          })
-      }
+        }
+        {
+          (vecPush frags (strSlice s i (- k i)))
+          k
+        })
     }
   })
 
@@ -763,87 +758,82 @@
       (if (== (strByte s (+ i 1)) 42)
         2
         1))
-    {
-      (let close (mdEmClose s (+ i k) k))
-      (if (< close 0)
+    (if (let (Some close) (mdEmClose s (+ i k) k))
+      {
+        (let inner (mdInline env (strSlice s (+ i k) (- close (+ i k)))))
         {
-          (vecPush frags (strSlice s i k))
-          (+ i k)
+          (vecPush frags
+            (if (== k 2)
+              (concat (concat "<strong>" inner) "</strong>")
+              (concat (concat "<em>" inner) "</em>")))
+          (+ close k)
         }
-        {
-          (let inner (mdInline env (strSlice s (+ i k) (- close (+ i k)))))
-          {
-            (vecPush frags
-              (if (== k 2)
-                (concat (concat "<strong>" inner) "</strong>")
-                (concat (concat "<em>" inner) "</em>")))
-            (+ close k)
-          }
-        })
-    }
+      }
+      {
+        (vecPush frags (strSlice s i k))
+        (+ i k)
+      })
   })
 
 (pub :: mdInlineLink (-> MdEnv String Int Strings Int))
 (pub fn (mdInlineLink env s i frags)
-  {
-    (let te (mdBracketEnd s i))
-    (if (|| (< te 0) (!= (strByte s te) 40))
+  (if (let (Some te) (mdBracketEnd s i))
+    (if (== (strByte s te) 40)
+      (if (let (Some pe) (mdParenEnd s (+ te 1)))
+        {
+          (let text (strSlice s (+ i 1) (- (- te 1) (+ i 1))))
+          (let target (mdTargetOf (strSlice s (+ te 1) (- pe (+ te 1)))))
+          {
+            (vecPush frags
+              (concat (concat "<a href=\"" (mdEscape (env.link target)))
+                (concat "\">" (concat (mdInline env text) "</a>"))))
+            (+ pe 1)
+          }
+        }
+        {
+          (vecPush frags "[")
+          (+ i 1)
+        })
       {
         (vecPush frags "[")
         (+ i 1)
-      }
-      {
-        (let pe (mdParenEnd s (+ te 1)))
-        (if (< pe 0)
-          {
-            (vecPush frags "[")
-            (+ i 1)
-          }
-          {
-            (let text (strSlice s (+ i 1) (- (- te 1) (+ i 1))))
-            (let target (mdTargetOf (strSlice s (+ te 1) (- pe (+ te 1)))))
-            {
-              (vecPush frags
-                (concat (concat "<a href=\"" (mdEscape (env.link target)))
-                  (concat "\">" (concat (mdInline env text) "</a>"))))
-              (+ pe 1)
-            }
-          })
       })
-  })
+    {
+      (vecPush frags "[")
+      (+ i 1)
+    }))
 
 (pub :: mdInlineImage (-> MdEnv String Int Strings Int))
 (pub fn (mdInlineImage env s i frags)
-  {
-    (let te (mdBracketEnd s (+ i 1)))
-    (if (|| (< te 0) (!= (strByte s te) 40))
+  (if (let (Some te) (mdBracketEnd s (+ i 1)))
+    (if (== (strByte s te) 40)
+      (if (let (Some pe) (mdParenEnd s (+ te 1)))
+        {
+          (let alt (strSlice s (+ i 2) (- (- te 1) (+ i 2))))
+          (let src (mdTargetOf (strSlice s (+ te 1) (- pe (+ te 1)))))
+          {
+            (if (|| (strStartsWith src "http://")
+                  (|| (strStartsWith src "https://") (strStartsWith src "data:")))
+              env.images
+              (vecPush env.images src))
+            (vecPush frags
+              (concat (concat "<img src=\"" (mdEscape src))
+                (concat "\" alt=\"" (concat (mdEscape alt) "\">"))))
+            (+ pe 1)
+          }
+        }
+        {
+          (vecPush frags "!")
+          (+ i 1)
+        })
       {
         (vecPush frags "!")
         (+ i 1)
-      }
-      {
-        (let pe (mdParenEnd s (+ te 1)))
-        (if (< pe 0)
-          {
-            (vecPush frags "!")
-            (+ i 1)
-          }
-          {
-            (let alt (strSlice s (+ i 2) (- (- te 1) (+ i 2))))
-            (let src (mdTargetOf (strSlice s (+ te 1) (- pe (+ te 1)))))
-            {
-              (if (|| (strStartsWith src "http://")
-                    (|| (strStartsWith src "https://") (strStartsWith src "data:")))
-                env.images
-                (vecPush env.images src))
-              (vecPush frags
-                (concat (concat "<img src=\"" (mdEscape src))
-                  (concat "\" alt=\"" (concat (mdEscape alt) "\">"))))
-              (+ pe 1)
-            }
-          })
       })
-  })
+    {
+      (vecPush frags "!")
+      (+ i 1)
+    }))
 
 ; `<`: a comment, an autolink, a permitted raw tag, or text.
 (pub :: mdInlineAngle (-> String Int Strings Int))

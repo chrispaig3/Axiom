@@ -61,6 +61,7 @@ python3 tests/selfhost/typecheck-compact-index.py --axiom "$axc"
 python3 tests/selfhost/typecheck-dup-link-guard.py --axiom "$axc"
 python3 tests/selfhost/retained-constructor-child.py --axiom "$axc"
 python3 tests/tools/format-option-specifiers.py "$axc"
+python3 tests/selfhost/markdown-close-options.py --axiom "$axc" --negative-controls
 python3 tests/tools/formatter-structural-query-options.py --axiom "$axc"
 python3 tests/tools/formatter-declaration-text-options.py --axiom "$axc"
 python3 tests/tools/formatter-atom-text-options.py --axiom "$axc"
