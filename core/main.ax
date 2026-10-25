@@ -1910,7 +1910,7 @@
             ((None) (die "error: no axiom.pkg at or above the working directory\n" 1))
             ((Some mf)
               {
-                (let text (unwrapOr (readFile mf) ""))
+                (let text (pkgReadManifest mf))
                 {
                   (pkgCheckLines text mf)
                   (fetchUrls (pkgFetchUrls text) (pathDir mf) 0)

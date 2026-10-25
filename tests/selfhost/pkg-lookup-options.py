@@ -106,7 +106,7 @@ def check(compiler, root, work, baseline=None):
               'limits': ['Host O0/O2 with allocation poisoning; not target-wide qualification.',
                          'Successful dispatch and fetch use markers; no native tools or network operations run.',
                          'sysEnv remains its public String ABI: missing and present-empty environment values are indistinguishable.',
-                         'Manifest read failure retains the existing empty-source fallback.',
+                         'A found but unreadable manifest exits 3 with its path and errno.',
                          'Repeated filesystem lookups have pre-existing allocation-counter growth, measured separately from balanced pure Option lookups.',
                          'pkgOpt retains the existing prevalidated-byte interpretation; pkgVerify refuses invalid manifest levels.']}
     data = work / 'inputs'; data.mkdir(exist_ok=True)
@@ -179,6 +179,12 @@ def check(compiler, root, work, baseline=None):
         string = lambda x: 'None' if x is None else f'Some {len(x)}:{x}'
         integer = lambda x: 'None' if x is None else f'Some {x}'
         for i, (cwd, path, manifest, name, opt, entry, dirs) in enumerate(queries):
+            if cwd == 'read-failure':
+                result = run(label + '-' + str(i), [str(binary), path], local, data / cwd, require=3)
+                assert result.stdout == b'' and result.stderr == (
+                    b'error: could not read manifest `./axiom.pkg`: errno 21\n'
+                ), (label, i, result.stderr)
+                continue
             result = run(label + '-' + str(i), [str(binary), path], local, data / cwd, require=0)
             expected = [f'{n} true' for n in range(1, 17)] + [string(manifest), string(name), integer(opt),
                         string(entry), f'dirs={len(dirs)}'] + ['dir=' + d for d in dirs]

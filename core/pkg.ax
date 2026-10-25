@@ -61,6 +61,7 @@
 (import IO (fileExists isDir listDir readFile stderr writeStr))
 (import Path)
 (import Fmt)
+(import Err (errCode))
 (import raw)
 
 ; The manifest's file name. One place, because three functions here
@@ -100,6 +101,22 @@
           (pkgFindManifestFrom up (+ depth 1))
         })
     }))
+
+; Read a manifest that `pkgFindManifest` found. A read failure is not an
+; empty manifest: it must not silently erase dependencies or options.
+(pub :: pkgReadManifest (-> String String))
+;@axiom:effect(io)
+(pub fn (pkgReadManifest mf)
+  (match (readFile mf)
+    ((Ok text) text)
+    ((Err e)
+      {
+        (pkgDie
+          (concat "error: could not read manifest `"
+            (concat mf (concat "`: errno " (concat (fmtInt (errCode e)) "\n")))))
+        ""
+      }
+    )))
 
 ; The first nonempty value of `key`, Some "" when only empty values
 ; occur, or None when no matching key occurs.
@@ -265,7 +282,7 @@
     (let mf (pkgFindManifest entryDir))
     (match mf
       ((None) vecNew)
-      ((Some mf) (pkgDirsIn (unwrapOr (readFile mf) "") (pathDir mf) key)))
+      ((Some mf) (pkgDirsIn (pkgReadManifest mf) (pathDir mf) key)))
   })
 
 ; Every value of `key` in an ALREADY-READ manifest, resolved against
@@ -339,7 +356,7 @@
       ((None) vecNew)
       ((Some mf)
         {
-          (let text (unwrapOr (readFile mf) ""))
+          (let text (pkgReadManifest mf))
           (let base (pathDir mf))
           (pkgConcatDirs (pkgDirsIn text base "depend") (pkgAxiomSub (pkgDirsIn text base "crate")))
         }
@@ -853,7 +870,7 @@
 (pub fn (pkgName entryDir)
   (match (pkgFindManifest entryDir)
     ((None) None)
-    ((Some mf) (pkgValue (unwrapOr (readFile mf) "") "name"))))
+    ((Some mf) (pkgValue (pkgReadManifest mf) "name"))))
 
 ; An `opt` value is one byte, `0` through `3`: the same four levels
 ; `--opt` honours, refused in the same words. Single byte, so no
@@ -878,7 +895,7 @@
   (match (pkgFindManifest entryDir)
     ((None) None)
     ((Some mf)
-      (match (pkgValue (unwrapOr (readFile mf) "") "opt")
+      (match (pkgValue (pkgReadManifest mf) "opt")
         ((None) None)
         ((Some value)
           (if (== (strLen value) 0)
@@ -899,7 +916,7 @@
       {
         (let base (pathDir mf))
         (Some
-          (match (pkgValue (unwrapOr (readFile mf) "") "main")
+          (match (pkgValue (pkgReadManifest mf) "main")
             ((None) (concat (pathWithSlash base) "Main.ax"))
             ((Some value)
               (if (> (strLen value) 0)
@@ -1130,7 +1147,7 @@
       ((None) 0)
       ((Some mf)
         {
-          (let text (unwrapOr (readFile mf) ""))
+          (let text (pkgReadManifest mf))
           {
             (let _lines (pkgCheckLines text mf))
             {
