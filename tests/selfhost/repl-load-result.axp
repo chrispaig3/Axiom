@@ -1,0 +1,21 @@
+(import IO)
+(import Sys)
+(import Str)
+(import Fmt)
+(import repl (replCmdLoad))
+
+(:: showLength (-> String String ()))
+;@axiom:effect(io)
+(fn (showLength label src)
+  (println (concat label (fmtInt (strLen src)))))
+
+(:: main ())
+;@axiom:effect(io)
+(fn (main)
+  {
+    (let present (replCmdLoad "" (sysArg 1)))
+    (showLength "present:" present)
+    (showLength "empty:" (replCmdLoad present (sysArg 2)))
+    (showLength "missing:" (replCmdLoad present (sysArg 3)))
+    (showLength "unreadable:" (replCmdLoad present (sysArg 4)))
+  })

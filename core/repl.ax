@@ -1992,6 +1992,14 @@
 
 ; :load - the whole file must parse; type errors refuse the load;
 ; warnings load and are said out loud (stage0's rule).
+(:: replLoadFileError (-> String String String))
+;@axiom:effect(io)
+(fn (replLoadFileError declsSrc arg)
+  {
+    (replStyled REPL_ERROR (concat (concat "File error: cannot read '" arg) "'\n"))
+    declsSrc
+  })
+
 (pub :: replCmdLoad (-> String String String))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
@@ -2001,105 +2009,104 @@
       (replStyled REPL_ERROR "Error: Usage: :load <filename>\n")
       declsSrc
     }
-    {
-      (let src (unwrapOr (readFile arg) ""))
-      (if (== (strLen src) 0)
-        {
-          (replStyled REPL_ERROR (concat (concat "File error: cannot read '" arg) "'\n"))
-          declsSrc
-        }
-        {
-          (let pr (parseModuleWith (lex src) (scanAxtags src)))
-          (match pr
-            ((ParseFailed parseError14)
-              {
-                (replStyled REPL_ERROR "Parse error: the file does not parse\n")
-                declsSrc
-              }
-            )
-            ((ParseSuccess parsedValue14 parsedPos14)
-              (match (parseDecls (lex (concat (concat declsSrc src) "\n")) 0 vecNew)
-                ((ParseFailed parseError15)
-                  {
-                    (replStyled REPL_ERROR
-                      "Parse error: loaded imports must precede session definitions; use :reset before loading this module\n")
-                    declsSrc
-                  }
-                )
-                ((ParseSuccess parsedValue15 parsedPos15)
-                  ; `:load` used to hand `decls` to `checkModule`
-                  ; TWICE - as the entry file and as the whole
-                  ; program - so a file's imports were never
-                  ; resolved and every name they provide was
-                  ; undefined. Measured before this line: 196 of the
-                  ; 219 corpus files `check` accepts were refused by
-                  ; `:load`, which is nearly all of them, because
-                  ; almost every file imports something.
-                  ;
-                  ; The entry directory is the LOADED FILE's, not
-                  ; the process's: `:load tests/selfhost/x.ax` has
-                  ; to find the modules sitting beside it, the same
-                  ; way `check` does. `replCompile` passes "." for
-                  ; the opposite reason - its wrapper has no file.
-                  ;
-                  ; Expansion comes with it. A loaded file may
-                  ; define macros and `impl`s, and checking the
-                  ; unexpanded list reports an implementation's body
-                  ; as undefined names.
-                  {
-                    (let decls parsedValue14)
-                    (let tcode (checkedTargetCode hostTarget))
-                    (let bares vecNew)
-                    (let fulls vecNew)
-                    (let mods vecNew)
-                    (let units
-                      {
-                        (let v vecNew)
-                        {
-                          (vecPush v
-                            (CUnit2
-                              :file arg
-                              :src src
-                              :name None
-                              :imports vecNew
-                              :library (pathInStdlib arg)))
-                          v
-                        }
-                      })
+    (match (readFile arg)
+      ((Err _) (replLoadFileError declsSrc arg))
+      ((Ok src)
+        (if (== (strLen src) 0)
+          (replLoadFileError declsSrc arg)
+          {
+            (let pr (parseModuleWith (lex src) (scanAxtags src)))
+            (match pr
+              ((ParseFailed parseError14)
+                {
+                  (replStyled REPL_ERROR "Parse error: the file does not parse\n")
+                  declsSrc
+                }
+              )
+              ((ParseSuccess parsedValue14 parsedPos14)
+                (match (parseDecls (lex (concat (concat declsSrc src) "\n")) 0 vecNew)
+                  ((ParseFailed parseError15)
                     {
-                      (let allDecls
-                        (resolveImports decls bares fulls mods tcode (pathDir arg) units))
-                      {
-                        (let eds
-                          {
-                            (let v vecNew)
-                            {
-                              (expandProgram decls allDecls v vecNew (as 0 Units) bares fulls mods)
-                              v
-                            }
-                          })
+                      (replStyled REPL_ERROR
+                        "Parse error: loaded imports must precede session definitions; use :reset before loading this module\n")
+                      declsSrc
+                    }
+                  )
+                  ((ParseSuccess parsedValue15 parsedPos15)
+                    ; `:load` used to hand `decls` to `checkModule`
+                    ; TWICE - as the entry file and as the whole
+                    ; program - so a file's imports were never
+                    ; resolved and every name they provide was
+                    ; undefined. Measured before this line: 196 of the
+                    ; 219 corpus files `check` accepts were refused by
+                    ; `:load`, which is nearly all of them, because
+                    ; almost every file imports something.
+                    ;
+                    ; The entry directory is the LOADED FILE's, not
+                    ; the process's: `:load tests/selfhost/x.ax` has
+                    ; to find the modules sitting beside it, the same
+                    ; way `check` does. `replCompile` passes "." for
+                    ; the opposite reason - its wrapper has no file.
+                    ;
+                    ; Expansion comes with it. A loaded file may
+                    ; define macros and `impl`s, and checking the
+                    ; unexpanded list reports an implementation's body
+                    ; as undefined names.
+                    {
+                      (let decls parsedValue14)
+                      (let tcode (checkedTargetCode hostTarget))
+                      (let bares vecNew)
+                      (let fulls vecNew)
+                      (let mods vecNew)
+                      (let units
                         {
-                          (let ds
-                            (orderDiags (expMergeInto eds (checkModule decls allDecls units))))
-                          (if (> (countErrorDiags ds) 0)
+                          (let v vecNew)
+                          {
+                            (vecPush v
+                              (CUnit2
+                                :file arg
+                                :src src
+                                :name None
+                                :imports vecNew
+                                :library (pathInStdlib arg)))
+                            v
+                          }
+                        })
+                      {
+                        (let allDecls
+                          (resolveImports decls bares fulls mods tcode (pathDir arg) units))
+                        {
+                          (let eds
                             {
-                              (printTypeErrors ds 0)
-                              declsSrc
-                            }
-                            {
-                              (if (> (vecLen ds) 0)
-                                (printTypeErrors ds 0))
-                              (replStyled REPL_ACCENT (concat (concat "OK: Loaded '" arg) "'\n"))
-                              (concat (concat declsSrc src) "\n")
+                              (let v vecNew)
+                              {
+                                (expandProgram decls allDecls v vecNew (as 0 Units) bares fulls
+                                  mods)
+                                v
+                              }
                             })
+                          {
+                            (let ds
+                              (orderDiags (expMergeInto eds (checkModule decls allDecls units))))
+                            (if (> (countErrorDiags ds) 0)
+                              {
+                                (printTypeErrors ds 0)
+                                declsSrc
+                              }
+                              {
+                                (if (> (vecLen ds) 0)
+                                  (printTypeErrors ds 0))
+                                (replStyled REPL_ACCENT (concat (concat "OK: Loaded '" arg) "'\n"))
+                                (concat (concat declsSrc src) "\n")
+                              })
+                          }
                         }
                       }
                     }
-                  }
-                ))
-            ))
-        })
-    }))
+                  ))
+              ))
+          })
+      ))))
 
 (pub :: replCmdLlvm (-> String String Int))
 ;@axiom:effect(io)
