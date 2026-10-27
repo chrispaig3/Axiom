@@ -1577,7 +1577,7 @@ impl Decl {
                 let none = ctors.none.map(|n| Ex::Block(vec![cell_free.clone(), n]));
                 let not_ok = match (none, err) {
                     (Some(n), Some(e)) => Ex::If(
-                        // The status encoding is `stdlib/Ffi.ax`'s, by name. It was
+                        // The status encoding is `axiom/Ffi.ax`'s, by name. It was
                         // spelled `2` and `0` here while `ffiStatusNone`
                         // and `ffiStatusOk` sat exported and unused - two
                         // statements of a protocol that has already been

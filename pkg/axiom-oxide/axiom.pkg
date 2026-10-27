@@ -1,0 +1,4 @@
+name     axiom-oxide
+version  0.8.0
+kind     library
+main     axiom/Ffi.ax

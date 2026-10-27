@@ -121,28 +121,32 @@ def main():
         assert result.returncode == 42, result.returncode
         checks += 1
 
-        # Binding generation edits the checked tree. The final handoff must
-        # follow the second check, including generated nominal accessors.
+        # The standalone host generator edits the checked tree. The final
+        # handoff follows the second check, including nominal accessors.
         archive = work / 'nominal.a'
         binding = work / 'nominal.rs'
-        built = subprocess.run(
-            [compiler, '--diagnostic-format=ai', 'build',
-             str(root / 'tests/ffi/host/nominal.ax'), '--emit-staticlib',
-             '--emit-rust-binding', str(binding), '-o', str(archive)],
-            cwd=work, env=env, capture_output=True, text=True, timeout=60)
+        source = work / 'nominal-generated.ax'
+
+        def host(input_path):
+            return subprocess.run(
+                ['cargo', 'run', '--quiet', '--manifest-path',
+                 str(root / 'pkg/axiom-oxide/Cargo.toml'), '-p', 'axiom-oxide', '--',
+                 'host', '--input', str(input_path), '--rust', str(binding),
+                 '--archive', str(archive), '--keep-source', str(source),
+                 '--axiom', compiler], cwd=work,
+                env=dict(env, AXIOM_PATH=str(root / 'tests/ffi/host')),
+                capture_output=True, text=True, timeout=180)
+
+        built = host(root / 'tests/ffi/host/nominal.ax')
         assert built.returncode == 0, built.stderr
         assert archive.read_bytes().startswith(b'!<arch>\n'), 'missing native archive'
-        assert 'makeThing' in binding.read_text(), 'missing generated binding'
+        assert 'make_thing' in binding.read_text(), 'missing generated binding'
         checks += 1
 
         archive_before, binding_before = archive.read_bytes(), binding.read_bytes()
-        refused = subprocess.run(
-            [compiler, '--diagnostic-format=ai', 'build',
-             str(root / 'tests/ffi/host/mangle-collision.ax'), '--emit-staticlib',
-             '--emit-rust-binding', str(binding), '-o', str(archive)],
-            cwd=work, env=env, capture_output=True, text=True, timeout=60)
+        refused = host(root / 'tests/ffi/host/mangle-collision.ax')
         assert refused.returncode == 1, refused.stderr
-        assert 'E AX3006 ' in refused.stderr, refused.stderr
+        assert 'generated accessor names collide for `Box_Int`' in refused.stderr, refused.stderr
         assert archive.read_bytes() == archive_before, 'refused archive replaced output'
         assert binding.read_bytes() == binding_before, 'refused binding replaced output'
         checks += 1

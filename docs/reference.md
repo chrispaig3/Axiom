@@ -1471,15 +1471,25 @@ doesn't touch it. Tested by `tests/diagnostics/1470-internal-import.ax`.
 ## Packages
 
 Start a project with `axiom new app`, then run `axiom build` or
-`axiom run` inside it. The `axiom.pkg` manifest supplies the entry file,
-optimisation default and dependencies.
+`axiom run` inside it. The `axiom.pkg` manifest supplies the package name,
+kind, entry file, optimisation default and dependencies.
 
 ```text
+name app
+version 0.1.0
+kind binary
 main Main.ax
 opt 1
 depend vendor/lib
-crate vendor/native
 ```
+
+`kind` is `binary` or `library`. By default, a binary builds an executable
+named by `name`, and a library builds `lib<name>.a`. A library's entry source
+need not define `main`; use `axiom build` rather than `axiom run` for a
+library. Omitting `kind` selects `binary`.
+
+Official Axiom packages live directly under `pkg/`, each with its own
+`axiom.pkg`. Tested by `scripts/check-packages.sh`.
 
 A dependency may be a directory of modules or a git URL. Pin a Git
 URL to an exact commit with a separate line:
@@ -2391,17 +2401,18 @@ see the [platform roadmap](roadmap.md#platforms-and-release).
 ## Calling Rust
 
 `extern` declares symbols supplied by a native library. Calls infer
-IO and Unsafe; direct callers vouch with `effect(unsafe)`. Link a crate
-with `--crate DIR` or the manifest's `crate` entry.
+IO and Unsafe; direct callers vouch with `effect(unsafe)`. Link archives
+with `--link-lib` and `--link-search`, or `$AXIOM_LINK_SEARCH`.
 
-`#[axiom_export]` and `axiom-bindgen` generate Rust shims and Axiom
-wrappers. Generated owners are sealed; use their operations rather
-than manufacturing handles. Callbacks borrow their environment for the
-call. A borrowing wrapper's comment names the arguments a callback must
-leave alone.
+The official `axiom-oxide` package owns the Rust binding tools and helpers.
+Its `prepare` command runs `axiom-bindgen` and Cargo; its `host` command
+builds an Axiom archive and generates the corresponding Rust wrappers.
+Generated owners are sealed; use their operations rather than manufacturing
+handles. Callbacks borrow their environment for the call. A borrowing
+wrapper's comment names the arguments a callback must leave alone.
 
 Use [the Rust FFI guide](ffi.md) for supported wire types, callbacks,
-hosting Axiom with `--emit-staticlib`, linking and panic boundaries.
+hosting Axiom, linking and panic boundaries.
 
 ## Standard library
 
@@ -2503,7 +2514,7 @@ Tested by `tests/stdlib/841-net-ip.ax` and `tests/stdlib/843-net-stream.ax`.
 
 ### Modules at a Glance
 
-Sixty-four modules, all of them Axiom source under `stdlib/`, plus the six
+Sixty-three modules, all of them Axiom source under `stdlib/`, plus the six
 `Sys.Platform.*` target files covered by `Sys`. Only names marked `pub`
 are exported.
 
@@ -2525,7 +2536,6 @@ are exported.
 | `Sys` | [API](stdlib-api.md#sys) |
 | `Path` | [API](stdlib-api.md#path) |
 | `IO` | [API](stdlib-api.md#io) |
-| `Ffi` | [API](stdlib-api.md#ffi) |
 | `Cereal` | [API](stdlib-api.md#cereal) |
 | `Rpc` | [API](stdlib-api.md#rpc) |
 | `Chan` | [API](stdlib-api.md#chan) |

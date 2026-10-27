@@ -162,7 +162,7 @@ cat > "$work/sorted.ax" <<'PROBE'
 PROBE
 
 # The walk. Roots are the entry symbol and the three C-ABI symbols a
-# linked host calls - `rust/examples/demo/src/lib.rs` states their
+# linked host calls - `pkg/axiom-oxide/examples/demo/src/lib.rs` states their
 # external linkage as a contract, and no IR of ours mentions them.
 # Everything else must be reached.
 cat > "$work/walk.py" <<'PY'

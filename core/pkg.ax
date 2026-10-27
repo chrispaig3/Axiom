@@ -8,34 +8,24 @@
 ;     # axiom.pkg
 ;     name     myapp
 ;     version  0.1.0
+;     kind     binary
 ;     depend   vendor/axiom-json
 ;     depend   ../shared/modules
-;     crate    vendor/axiom-greeter
 ;
 ; `depend` names a directory of modules, resolved against the manifest's
 ; own directory so the project relocates, or a git URL that `axiom
 ; fetch` checks out. Each joins the module search path after the entry
-; file's directory and before `$AXIOM_PATH`. `name` is the file `axiom
-; build` writes when neither `--output` nor `-o` names one. `version` is
-; recorded and read by nothing yet.
+; file's directory and before `$AXIOM_PATH`. `kind` distinguishes a
+; binary from a library; libraries build static archives from their
+; `main` source without requiring an Axiom `main` function. `name` is
+; the file `axiom build` writes when neither `--output` nor `-o` names
+; one. `version` is recorded and read by nothing yet.
 ;
 ; A line that means nothing is refused at `axiom.pkg:LINE` before a byte
-; is compiled: an unknown key, a key with no value, a second `name` or
-; `version`, and a `name` that is not a file name (`pkgCheckLines`). A
-; key nothing reads is a key nobody can tell from a typo.
-;
-; `crate` names a crate directory: a `Cargo.toml` beside an `axiom/`
-; holding the generated binding module. `DIR/axiom/` joins the module
-; search path in `depend`'s slot, and its `target/release`, and its
-; workspace's one and two levels up, join the link search path.
-;
-; A manifest `crate` never runs cargo, though `--crate DIR` on the
-; command line does: a command line is a person asking, and a manifest
-; is a file that arrives with a clone. `docs/reference.md` says the
-; compiler executes no code from a source file, and a key that let a
-; cloned repository spawn another project's build system would make that
-; false. An unbuilt archive stays AX4004, whose help names `--link-lib`,
-; `--link-search` and the `target/release` it looked in.
+; is compiled: an unknown key, a key with no value, a second `name`,
+; `version` or `kind`, an invalid kind, and a `name` that is not a file
+; name (`pkgCheckLines`). A key nothing reads is a key nobody can tell
+; from a typo.
 ;
 ; `pin URL COMMIT` selects a full immutable Git commit. There is no
 ; registry index, lockfile or version-range resolver.
@@ -201,18 +191,17 @@
     }
   })
 
-; The six keys a manifest may write. A closed set on purpose: the
+; The seven keys a manifest may write. A closed set on purpose: the
 ; format has no version field of its own, so a key it does not know is
 ; a typo rather than a message from the future. `opt` is the project's
-; default optimisation level and `main` its entry file; both are read
-; where the command line is silent, and both are refused here when they
-; cannot mean what they say.
+; default optimisation level, `main` its entry source and `kind` its
+; output kind; all are read where the command line is silent.
 (pub :: pkgKnownKey (-> String Bool))
 (pub fn (pkgKnownKey k)
   (|| (strEq k "name")
     (|| (strEq k "version")
       (|| (strEq k "depend")
-        (|| (strEq k "pin") (|| (strEq k "crate") (|| (strEq k "opt") (strEq k "main"))))))))
+        (|| (strEq k "pin") (|| (strEq k "opt") (|| (strEq k "main") (strEq k "kind"))))))))
 
 (:: pkgUncomment (-> String String))
 (fn (pkgUncomment line)
@@ -386,30 +375,8 @@
 (pub fn (pkgDependDirs entryDir)
   (pkgDirsFor entryDir "depend"))
 
-; The CRATE directories the manifest declares, same shape and same
-; resolution rule. A crate directory is not a directory of modules: it
-; holds a `Cargo.toml` and an `axiom/` with the generated binding
-; module in it, so `pkgCrateAxiomDirs` is what joins the module search
-; path and the directory itself is what the link search is built from.
-;
-; Nothing here spawns cargo, and `pkgVerify` refuses a crate whose
-; `axiom/` is not there rather than generating one - see this file's
-; header for why a checked-in line may not run another project's build
-; system.
-(pub :: pkgCrateDirs (-> String Names))
-;@axiom:effect(io)
-(pub fn (pkgCrateDirs entryDir)
-  (pkgDirsFor entryDir "crate"))
-
-; `DIR/axiom/` for each declared crate, in file order: the one
-; directory of a crate that holds `.ax`.
-(pub :: pkgCrateAxiomDirs (-> String Names))
-;@axiom:effect(io)
-(pub fn (pkgCrateAxiomDirs entryDir)
-  (pkgAxiomSub (pkgCrateDirs entryDir)))
-
-; The shared body of the two above: every value of `key`, resolved
-; against the manifest's directory, each with a trailing slash.
+; Every dependency value, resolved against the manifest's directory and
+; given a trailing slash.
 (:: pkgDirsFor (-> String String Names))
 ;@axiom:effect(io)
 (fn (pkgDirsFor entryDir key)
@@ -420,15 +387,9 @@
       ((Some mf) (pkgDirsIn (pkgReadManifest mf) (pathDir mf) key)))
   })
 
-; Every value of `key` in an ALREADY-READ manifest, resolved against
-; `base`. Split from the function above so that `pkgSearchDirs` can ask
-; for two keys over one read - see its comment for why that matters.
-;
-; A `depend` value that is a git URL resolves to its deterministic
-; checkout (`.axiom/deps/<slug>/`) rather than against `base` - the
-; URL is where the dependency lives, the checkout is where it is
-; read from, and `pkgVerify` refuses the latter with the clone that
-; fills it when it is not there.
+; Every value of `key` in an already-read manifest, resolved against
+; `base`. A Git URL resolves to its deterministic checkout under
+; `.axiom/deps/`; `pkgVerify` checks that checkout before compilation.
 (:: pkgDirsIn (-> String String String Names))
 (fn (pkgDirsIn text base key)
   {
@@ -454,49 +415,11 @@
     (pkgDepCheckoutFor text base v)
     (pathWithSlash (pkgResolve base v))))
 
-; `DIR/axiom/` for each directory in `dirs`.
-(:: pkgAxiomSub (-> Names Names))
-(fn (pkgAxiomSub dirs)
-  {
-    (let out vecNew)
-    (let mut i 0)
-    {
-      (while (< i (vecLen dirs))
-        {
-          (vecPush out (concat (vecGet dirs i) "axiom/"))
-          (set i (+ i 1))
-        })
-      out
-    }
-  })
-
-; EVERY module search directory the manifest contributes, in order:
-; each `depend`, then each `crate`'s `axiom/`.
-;
-; ONE manifest walk and ONE read for both keys, and that is the whole
-; reason this exists rather than `moduleSearchDirs` calling
-; `pkgDependDirs` and `pkgCrateAxiomDirs` in turn. `moduleSearchDirs`
-; runs PER MODULE LOOKUP, and each of those two would repeat
-; `pkgFindManifest`'s walk - up to eight `sysFileExists` on a tree with
-; no manifest at all - so the obvious spelling would have doubled a
-; cost this file bounds rather than pays. Measured after the fact is
-; too late for a cost that is paid by every project in the world that
-; does not use the feature.
+; Every module search directory the manifest contributes, in file order.
 (pub :: pkgSearchDirs (-> String Names))
 ;@axiom:effect(io)
 (pub fn (pkgSearchDirs entryDir)
-  {
-    (let mf (pkgFindManifest entryDir))
-    (match mf
-      ((None) vecNew)
-      ((Some mf)
-        {
-          (let text (pkgReadManifest mf))
-          (let base (pathDir mf))
-          (pkgConcatDirs (pkgDirsIn text base "depend") (pkgAxiomSub (pkgDirsIn text base "crate")))
-        }
-      ))
-  })
+  (pkgDependDirs entryDir))
 
 ; A manifest path against the manifest's own directory. An absolute
 ; path is taken as it stands.
@@ -839,8 +762,7 @@
 ;
 ; The compiler never fetches. A manifest is a checked-in file that
 ; arrives with a clone, and a line in one may not run another
-; project's network - the same rule that keeps a manifest `crate`
-; from running cargo. A URL whose checkout is not there is refused
+; project's network. A URL whose checkout is not there is refused
 ; with the path and the clone that fills it (see `pkgUrlHint`).
 (pub :: pkgDepCheckout (-> String String String))
 (pub fn (pkgDepCheckout base url)
@@ -1027,6 +949,20 @@
     ((None) None)
     ((Some mf) (pkgValue (pkgReadManifest mf) "name"))))
 
+; A package is a binary unless its manifest says `kind library`.
+; Libraries keep `main` as their entry source, but build a static archive
+; and do not require an Axiom `main` function.
+(pub :: pkgIsLibrary (-> String Bool))
+;@axiom:effect(io)
+(pub fn (pkgIsLibrary entryDir)
+  (match (pkgFindManifest entryDir)
+    ((None) false)
+    ((Some mf)
+      (match (pkgValue (pkgReadManifest mf) "kind")
+        ((Some kind) (strEq kind "library"))
+        ((None) false))
+    )))
+
 ; An `opt` value is one byte, `0` through `3`: the same four levels
 ; `--opt` honours, refused in the same words. Single byte, so no
 ; multi-digit value and no flag spelling can reach the emitter.
@@ -1128,18 +1064,13 @@
 ; a manifest: a configuration mistake reported as a source mistake,
 ; somewhere else, later.
 ;
-; Four refusals, all of them the same shape - the file, the line, and
-; what the line would have had to be:
+; Each refusal names the file, the line, and the expected shape:
 ;
-;   1. A key that is not `name`, `version`, `depend`, `crate`,
-;      `opt` or `main`.
-;   2. A key with no value.
-;   3. A second `name`, `version`, `opt` or `main`. The first wins in
-;      `pkgValue`, so the second is a line the file contains and the
-;      compiler ignores. `depend` and `crate` are exempt: repeating
-;      either is how you declare two.
-;   4. A `name` that is not a file name, since it is spent as one.
-;   5. An `opt` that is not one of `0`, `1`, `2`, `3`.
+;   1. An unknown key or a key with no value.
+;   2. A second singleton key. Repeating `depend` or `pin` is allowed.
+;   3. A `name` that is not a file name, since it is spent as one.
+;   4. An `opt` outside `0` through `3`, or a kind other than binary
+;      or library.
 (pub :: pkgCheckLines (-> String String Int))
 ;@axiom:effect(io)
 (pub fn (pkgCheckLines text mf)
@@ -1151,6 +1082,7 @@
     (let mut sawVersion 0)
     (let mut sawOpt 0)
     (let mut sawMain 0)
+    (let mut sawKind 0)
     {
       (while (< i n)
         {
@@ -1167,10 +1099,10 @@
                         (concat (pkgAt mf (+ i 1))
                           (concat (concat "`" (concat k "` has no value\n"))
                             (concat
-                              "       `depend` takes a directory of modules and `crate` a crate\n"
+                              "       `depend` takes a directory of modules; `name` and `version` take\n"
                               (concat
-                                "       directory; `name` and `version` take a word. The key and its value\n"
-                                "       are separated by any run of spaces or tabs.\n")))))
+                                "       a word. The key and its value are separated by spaces or tabs.\n"
+                                "")))))
                       (if (strEq k "name")
                         {
                           (if (> sawName 0)
@@ -1243,12 +1175,23 @@
                                             "       manifest that says two things and means one.\n"
                                             ""))))))
                                 (set sawMain 1)
-                              })))))
+                              }
+                              (if (strEq k "kind")
+                                {
+                                  (if (> sawKind 0)
+                                    (pkgDie (concat (pkgAt mf (+ i 1)) "`kind` is given twice\n")))
+                                  (set sawKind 1)
+                                  (if (! (|| (strEq v "library") (strEq v "binary")))
+                                    (pkgDie
+                                      (concat (pkgAt mf (+ i 1))
+                                        (concat "`kind` must be `library` or `binary`, not `"
+                                          (concat v "`\n")))))
+                                }))))))
                     (pkgDie
                       (concat (pkgAt mf (+ i 1))
                         (concat (concat "unknown key `" (concat k "`\n"))
                           (concat
-                            "       The manifest's keys are `name`, `version`, `depend`, `pin`, `crate`, `opt`\n"
+                            "       The manifest's keys are `name`, `version`, `kind`, `depend`, `pin`, `opt`\n"
                             (concat
                               "       and `main`, and `#` starts a comment. An unknown key used to be ignored, which\n"
                               (concat
@@ -1281,16 +1224,8 @@
 ;   1. A `depend` directory that is not a directory. Silence here means
 ;      every module it was meant to provide reports as missing, one at
 ;      a time, naming the module and never the manifest.
-;   2. A `crate` directory that is not a directory, or holds no
-;      `Cargo.toml`, or holds no `axiom/`. The first is `depend`'s
-;      refusal again; the second is what makes `crate` MEAN crate
-;      rather than be a second spelling of `depend`; the third is the
-;      one a user actually hits, because `DIR/axiom/` is written by
-;      `axiom-bindgen` and a fresh clone has not run it. All three are
-;      refused rather than repaired: see the header.
-;   3. Two dependencies providing a module of the same name - two
-;      `depend`s, two crates, or one of each. Whichever came first
-;      would win, and the other package's modules would compile
+;   2. Two dependencies providing a module of the same name. Whichever
+;      came first would win, and the other package's modules would compile
 ;      against declarations from a package they have never heard of.
 ;
 ; Answers 0, so a caller can bind it. Every failure exits.
@@ -1327,12 +1262,7 @@
                       (set i (+ i 1))
                     })
                   (pkgCheckOrigins text (pkgFetchUrls text) (pathDir mf) mf 0)
-                  (pkgCheckCrates (pkgCrateDirs entryDir) mf 0)
-                  ; The pairwise check runs over the depend directories AND
-                  ; every crate's `axiom/` together, because they land in one
-                  ; search path and a clash between two of them is the same
-                  ; wrong answer whichever key declared them.
-                  (pkgCheckOverlap (pkgConcatDirs dirs (pkgCrateAxiomDirs entryDir)) mf 0)
+                  (pkgCheckOverlap dirs mf 0)
                 }
               }
             }
@@ -1340,66 +1270,6 @@
         }
       ))
   })
-
-; `a` then `b`, in order, in a NEW Vec - the caller is still holding
-; both of them, and `pkgCrateAxiomDirs`' answer is also what
-; `moduleSearchDirs` pushes.
-(pub :: pkgConcatDirs (-> Names Names Names))
-(pub fn (pkgConcatDirs a b)
-  {
-    (let out vecNew)
-    (let mut i 0)
-    {
-      (while (< i (vecLen a))
-        {
-          (vecPush out (vecGet a i))
-          (set i (+ i 1))
-        })
-      (for i in 0..(vecLen b)
-        (vecPush out (vecGet b i)))
-      out
-    }
-  })
-
-; Every declared crate directory, refused for the three things it can
-; fail to be. The messages name the DIRECTORY and what was looked for
-; inside it, because "crate directory" is a shape the reader has to be
-; told, not one they can infer from a path.
-(:: pkgCheckCrates (-> Names String Int Int))
-;@axiom:effect(io)
-(fn (pkgCheckCrates dirs mf i)
-  (if (>= i (vecLen dirs))
-    0
-    {
-      {
-        (let d (vecGet dirs i))
-        (if (isDir d)
-          (if (fileExists (concat d "Cargo.toml"))
-            (if (! (isDir (concat d "axiom/")))
-              (pkgDie
-                (concat
-                  (concat "error: "
-                    (concat mf " names a crate with no generated module directory:\n"))
-                  (concat (concat "       " (concat (concat d "axiom/") "\n"))
-                    (concat
-                      "       A crate's binding module is written to `DIR/axiom/` by\n       `axiom-bindgen`, and a manifest `crate` does not run it: run\n"
-                      "       `axiom build --crate DIR` (or `axiom-bindgen`) once, or commit the\n       generated module, and this line is enough from then on.\n")))))
-            (pkgDie
-              (concat
-                (concat "error: " (concat mf " names a crate directory with no Cargo.toml:\n"))
-                (concat (concat "       " (concat (concat d "Cargo.toml") "\n"))
-                  (concat
-                    "       `crate` names a CARGO CRATE - a `Cargo.toml` beside an `axiom/`\n"
-                    "       holding its generated module. A plain directory of `.ax` modules\n       is `depend`, not `crate`.\n")))))
-          (pkgDie
-            (concat (concat "error: " (concat mf " names a crate directory that is not there:\n"))
-              (concat (concat "       " (concat d "\n"))
-                (concat
-                  "       `crate` names a DIRECTORY holding a `Cargo.toml` and an `axiom/`,\n"
-                  "       resolved against the manifest's own directory.\n")))))
-      }
-      (pkgCheckCrates dirs mf (+ i 1))
-    }))
 
 ; Every pair of dependency directories, checked for a module both
 ; provide. Quadratic in the number of dependencies and linear in their

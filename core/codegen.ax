@@ -6263,22 +6263,11 @@
       ; tree with no manifest. That is the same shape as the `sysEnv`
       ; call below it, and `pkg.ax` bounds the walk at eight levels.
       ;
-      ; ...and its `crate` directories, in the SAME slot and for the
-      ; same reason - a crate is a dependency that happens to carry an
-      ; archive, and the module it contributes is the one in
-      ; `DIR/axiom/`. `pkgSearchDirs` answers both from ONE manifest
-      ; walk, because this function runs per module lookup and asking
-      ; twice would double the cost the paragraph above bounds. The
-      ; command-line `--crate` below keeps its place after
-      ; `$AXIOM_PATH`: the manifest travels with the source, and a flag
-      ; someone typed is not a thing the project said.
+      ; `pkgSearchDirs` answers them from ONE manifest walk, because
+      ; this function runs per module lookup and asking twice would
+      ; double the cost the paragraph above bounds. The
       (pushDirs v (pkgSearchDirs entryDir) 0)
       (pushPathList v (sysEnv "AXIOM_PATH"))
-      ; `--crate DIR`: the crate's generated binding module lives in
-      ; `DIR/axiom/`, and the driver searches `DIR/target/release` for
-      ; its archive - one flag where `AXIOM_PATH`, `--link-search` and
-      ; `--link-lib` were three
-      (pushCrateDirs v 1)
       (pushDirs v stdlibSearchDirs 0)
       v
     }
@@ -6308,7 +6297,7 @@
 
 ; A DEPENDENCY MAY NOT PROVIDE A STANDARD-LIBRARY MODULE.
 ;
-; `depend` and `crate` sit ABOVE the library in the order above, so a
+; `depend` sits ABOVE the library in the order above, so a
 ; dependency carrying a `Fmt.ax` replaced the real one for the whole
 ; program - every module that imported `Fmt`, not only the one that
 ; asked for the dependency. Measured on 0.7.3: a vendored copy of
@@ -6335,9 +6324,7 @@
     (let mf (pkgFindManifest entryDir))
     (match mf
       ((None) 0)
-      ((Some mf)
-        (shadowCheckDirs (pkgConcatDirs (pkgDependDirs entryDir) (pkgCrateAxiomDirs entryDir)) mf 0)
-      ))
+      ((Some mf) (shadowCheckDirs (pkgDependDirs entryDir) mf 0)))
   })
 
 (pub :: shadowCheckDirs (-> Names String Int Int))
@@ -6481,11 +6468,7 @@
     (pushPathParts v parts 0)
   })
 
-; Append one already-built list of search directories to another. It
-; was `pushDependDirs` while `depend` was the only caller; there are
-; three now - `depend`, the manifest's crates, and the standard-library
-; tail - and a name that says which one it was for is a name that lies
-; to two of them.
+; Append one already-built list of search directories to another.
 (pub :: pushDirs (-> Names Names Int Int))
 (pub fn (pushDirs v dirs i)
   (if (>= i (vecLen dirs))
@@ -6637,35 +6620,11 @@
     }
   })
 
-; Every `--crate DIR` (or `--crate=DIR`) on the command line, as a
-; module search directory `DIR/axiom/`.
-(pub :: pushCrateDirs (-> Names Int Int))
-;@axiom:effect(io)
-(pub fn (pushCrateDirs v i)
-  (if (>= i sysArgc)
-    0
-    {
-      (let a (sysArg i))
-      (if (strEq a "--crate")
-        {
-          (if (< (+ i 1) sysArgc)
-            (vecPush v (concat (pathWithSlash (sysArg (+ i 1))) "axiom/")))
-          (pushCrateDirs v (+ i 2))
-        }
-        (if (strStartsWith a "--crate=")
-          {
-            (vecPush v (concat (pathWithSlash (strSlice a 8 (- (strLen a) 8))) "axiom/"))
-            (pushCrateDirs v (+ i 1))
-          }
-          (pushCrateDirs v (+ i 1))))
-    }))
-
-; `--emit-staticlib` on the command line: the module is an archive
-; for a host, not a program.
+; An explicit static archive, or the default output of a library package.
 (pub :: cgStaticlib Bool)
 ;@axiom:effect(io)
 (pub fn (cgStaticlib)
-  (argHas "--emit-staticlib" 1))
+  (|| (argHas "--emit-staticlib" 1) (pkgIsLibrary (pathDir entryInputPath))))
 
 ; `cgThreads` - does the module being emitted spawn a thread? This is
 ; the one predicate the emitted runtime's storage classes will consult
@@ -9421,38 +9380,6 @@
         0)
     }))
 
-(pub :: crateDirsOf Names)
-;@axiom:effect(io)
-(pub fn (crateDirsOf)
-  {
-    (let v vecNew)
-    {
-      (collectCrateDirs v 1)
-      v
-    }
-  })
-
-(pub :: collectCrateDirs (-> Names Int Int))
-;@axiom:effect(io)
-(pub fn (collectCrateDirs v i)
-  (if (>= i sysArgc)
-    0
-    {
-      (let a (sysArg i))
-      (if (strEq a "--crate")
-        {
-          (if (< (+ i 1) sysArgc)
-            (vecPush v (sysArg (+ i 1))))
-          (collectCrateDirs v (+ i 2))
-        }
-        (if (strStartsWith a "--crate=")
-          {
-            (vecPush v (strSlice a 8 (- (strLen a) 8)))
-            (collectCrateDirs v (+ i 1))
-          }
-          (collectCrateDirs v (+ i 1))))
-    }))
-
 (pub :: firstOperandArg (-> Int String))
 ;@axiom:effect(io)
 (pub fn (firstOperandArg i)
@@ -9481,12 +9408,10 @@
             (|| (strEq a "--heap-ceiling")
               (|| (strEq a "--link-lib")
                 (|| (strEq a "--link-search")
-                  (|| (strEq a "--crate")
-                    (|| (strEq a "--emit-rust-binding")
-                      (|| (strEq a "--filter")
-                        (|| (strEq a "--jobs")
-                          (|| (strEq a "--diagnostic-format")
-                            (|| (strEq a "--out") (strEq a "--emit"))))))))))))))))
+                  (|| (strEq a "--filter")
+                    (|| (strEq a "--jobs")
+                      (|| (strEq a "--diagnostic-format")
+                        (|| (strEq a "--out") (strEq a "--emit"))))))))))))))
 
 ; The input file as argv spelled it. `dieImport` above records why
 ; argv is re-derived here rather than imported; the rule below is the
@@ -12129,7 +12054,8 @@
   {
     (emitLine cg "@__axiom_reader_readers = internal global ptr null, align 8")
     (emitLine cg "@__axiom_reader_reader_lock = internal global i32 0, align 4")
-    (emitLine cg "@__axiom_reader_console_path = internal constant [7 x i16] [i16 67, i16 79, i16 78, i16 73, i16 78, i16 36, i16 0], align 8")
+    (emitLine cg
+      "@__axiom_reader_console_path = internal constant [7 x i16] [i16 67, i16 79, i16 78, i16 73, i16 78, i16 36, i16 0], align 8")
     (emitLine cg "define internal i64 @__axiom_win_reader_ready(i64 %0) {")
     (emitLine cg "  %2 = alloca i32, align 4")
     (emitLine cg "  %3 = atomicrmw xchg ptr @__axiom_reader_reader_lock, i32 1 acquire, align 4")
@@ -12314,7 +12240,8 @@
     (emitLine cg "  %59 = select i1 %__axiom_reader_compare_2, i64 %58, i64 1")
     (emitLine cg "  br label %68")
     (emitLine cg "60:")
-    (emitLine cg "  %61 = call i64 @CreateFileW(i64 ptrtoint (ptr @__axiom_reader_console_path to i64), i64 2147483648, i64 3, i64 0, i64 3, i64 0, i64 0)")
+    (emitLine cg
+      "  %61 = call i64 @CreateFileW(i64 ptrtoint (ptr @__axiom_reader_console_path to i64), i64 2147483648, i64 3, i64 0, i64 3, i64 0, i64 0)")
     (emitLine cg "  %62 = icmp eq i64 %61, -1")
     (emitLine cg "  br i1 %62, label %63, label %67")
     (emitLine cg "63:")
@@ -12346,7 +12273,8 @@
     (emitLine cg "  store i64 0, ptr %78, align 8")
     (emitLine cg "  store i64 1, ptr %3, align 8")
     (emitLine cg "  %79 = ptrtoint ptr %0 to i64")
-    (emitLine cg "  %80 = call i64 @CreateThread(i64 0, i64 0, i64 ptrtoint (ptr @__axiom_reader_worker to i64), i64 %79, i64 0, i64 0)")
+    (emitLine cg
+      "  %80 = call i64 @CreateThread(i64 0, i64 0, i64 ptrtoint (ptr @__axiom_reader_worker to i64), i64 %79, i64 0, i64 0)")
     (emitLine cg "  %81 = icmp eq i64 %80, 0")
     (emitLine cg "  br i1 %81, label %83, label %82")
     (emitLine cg "82:")
@@ -12593,7 +12521,8 @@
     (emitLine cg "  store atomic i32 0, ptr @__axiom_reader_reader_lock release, align 4")
     (emitLine cg "  br label %162")
     (emitLine cg "162:")
-    (emitLine cg "  %163 = phi i64 [ 0, %3 ], [ -87, %7 ], [ %79, %76 ], [ %161, %160 ], [ %159, %157 ]")
+    (emitLine cg
+      "  %163 = phi i64 [ 0, %3 ], [ -87, %7 ], [ %79, %76 ], [ %161, %160 ], [ %159, %157 ]")
     (emitLine cg "  ret i64 %163")
     (emitLine cg "}")
     (emitLine cg "define internal i64 @__axiom_win_reader_mode(i64 %0, i64 %1) {")
@@ -12771,7 +12700,8 @@
     (emitLine cg "  store atomic i32 0, ptr @__axiom_reader_reader_lock release, align 4")
     (emitLine cg "  br label %119")
     (emitLine cg "119:")
-    (emitLine cg "  %120 = phi i64 [ -6, %36 ], [ -6, %52 ], [ %31, %30 ], [ %96, %93 ], [ %110, %116 ]")
+    (emitLine cg
+      "  %120 = phi i64 [ -6, %36 ], [ -6, %52 ], [ %31, %30 ], [ %96, %93 ], [ %110, %116 ]")
     (emitLine cg "  ret i64 %120")
     (emitLine cg "}")
     (emitLine cg "define internal fastcc i64 @__axiom_reader_join(ptr %0) {")
@@ -12822,7 +12752,8 @@
     (emitLine cg "  %32 = tail call i64 @Sleep(i64 1)")
     (emitLine cg "  br label %33")
     (emitLine cg "33:")
-    (emitLine cg "  %34 = phi i1 [ false, %9 ], [ false, %13 ], [ false, %5 ], [ true, %30 ], [ false, %28 ]")
+    (emitLine cg
+      "  %34 = phi i1 [ false, %9 ], [ false, %13 ], [ false, %5 ], [ true, %30 ], [ false, %28 ]")
     (emitLine cg "  %35 = phi i64 [ %12, %9 ], [ 1, %13 ], [ 0, %5 ], [ %31, %30 ], [ %29, %28 ]")
     (emitLine cg "  br i1 %34, label %5, label %36")
     (emitLine cg "36:")
@@ -12989,7 +12920,8 @@
     (emitLine cg "  store atomic i32 0, ptr @__axiom_reader_reader_lock release, align 4")
     (emitLine cg "  br label %106")
     (emitLine cg "106:")
-    (emitLine cg "  %107 = phi i64 [ -6, %35 ], [ %30, %29 ], [ %62, %61 ], [ %88, %87 ], [ 0, %102 ], [ %97, %93 ]")
+    (emitLine cg
+      "  %107 = phi i64 [ -6, %35 ], [ %30, %29 ], [ %62, %61 ], [ %88, %87 ], [ 0, %102 ], [ %97, %93 ]")
     (emitLine cg "  ret i64 %107")
     (emitLine cg "}")
     (emitLine cg "define internal i32 @__axiom_reader_worker(ptr %0) {")
@@ -13109,7 +13041,8 @@
     (emitLine cg "  store i64 %79, ptr %81, align 8")
     (emitLine cg "  br label %82")
     (emitLine cg "82:")
-    (emitLine cg "  %83 = phi i64 [ 3, %75 ], [ 3, %75 ], [ %80, %77 ], [ 3, %70 ], [ 0, %62 ], [ 0, %59 ]")
+    (emitLine cg
+      "  %83 = phi i64 [ 3, %75 ], [ 3, %75 ], [ %80, %77 ], [ 3, %70 ], [ 0, %62 ], [ 0, %59 ]")
     (emitLine cg "  %84 = getelementptr inbounds i8, ptr %0, i64 48")
     (emitLine cg "  store i64 %83, ptr %84, align 8")
     (emitLine cg "  store atomic i32 0, ptr @__axiom_reader_reader_lock release, align 4")
@@ -13119,6 +13052,7 @@
     (emitLine cg "}")
     cg
   })
+
 ; END GENERATED WINDOWS READER
 ; What a bare-metal module carries whether or not it has an entry: the
 ; semihosting exit block `emitBaremetalExit` stores reason and status
@@ -15404,7 +15338,7 @@
     (emitLine cg "  %needw = or i1 %hasmap, %isarr")
     (emitLine cg "  %dowalk = and i1 %isrec, %needw")
     (emitLine cg "  br i1 %dowalk, label %defer, label %notrec")
-    ; the FOREIGN FORM (form bit 1, stdlib/Ffi.ax): payload word 0 is
+    ; the FOREIGN FORM (form bit 1, pkg/axiom-oxide/axiom/Ffi.ax): payload word 0 is
     ; the address of a C destructor `i64 (i64)`, word 1 the Rust value
     ; it takes. A dead handle runs the destructor once - the pointer is
     ; zeroed by an explicit `ffiHandleClose` so a closed handle's death
@@ -16724,15 +16658,10 @@
 ;   the target's entry symbol  `main`, or `mainCRTStartup` on Windows.
 ;                              The linker starts here; nothing in the
 ;                              module calls it.
-;   axiom_alloc                the C ABI a linked host calls. All three
-;   axiom_retain               are `pub` in `rust/axiom_ffi` and
-;   axiom_release              `rust/examples/demo/src/lib.rs` states
-;                              their external linkage as a contract, so
-;                              they are roots in EVERY build, not only
-;                              an archive one - a `--crate` host linked
-;                              into an ordinary executable calls
-;                              `axiom_release` from Rust, where no IR
-;                              of ours mentions it.
+;   axiom_alloc                the C ABI a linked host calls. These roots
+;   axiom_retain               remain in every build because an external
+;   axiom_release              library can call them where no IR of ours
+;                              mentions them.
 ;   non-local globals and     externally observable initializers and
 ;   other top-level statements LLVM retention lists remain roots. Private
 ;                              and internal globals are graph nodes: a
@@ -16741,14 +16670,10 @@
 ;
 ; and, transitively, every `@name` in the body of anything reachable.
 ;
-; `--emit-staticlib` PRUNES NOTHING, and needs no flag to say so. An
-; archive exists precisely so that another translation unit can call
-; into it: every `pub fn` is a C symbol by contract (docs/ffi.md), the
-; `axh_*` accessors and `Str$strAlloc` are called from the Rust
-; `--emit-rust-binding` writes, and the whole-program assumption this
-; pass rests on is false by construction. That is the one named
-; consumer, the compiler already knows which mode it is in, and there
-; is no opt-out for anyone else to remember.
+; An explicit `--emit-staticlib` or library-package archive PRUNES NOTHING.
+; Every `pub fn` is a C symbol by contract (docs/ffi.md), and the `axh_*`
+; accessors and `Str$strAlloc` are called by axiom-oxide's generated host
+; bindings. The whole-program assumption is false for an archive.
 ; ------------------------------------------------------------------
 ; The four tables the walk carries, bundled so the scanners take one
 ; parameter instead of four: 0 = the defined symbols, interned;
@@ -17093,12 +17018,10 @@
           ; nothing.
           (if (== (cgTarget cg) 7)
             (pruneMark ctx "_start"))
-          ; The C ABI a linked host calls. All three are `pub` in
-          ; `rust/axiom_ffi` and `rust/examples/demo/src/lib.rs` states
-          ; their external linkage as a contract - so they are roots in
-          ; EVERY build, not only an archive one: a `--crate` host
-          ; linked into an ordinary executable calls `axiom_release`
-          ; from Rust, where nothing in this module mentions it.
+          ; The C ABI a linked host calls. axiom-oxide exposes these
+          ; symbols to foreign hosts, so they are roots in every build.
+          ; A host linked into an ordinary executable can call
+          ; `axiom_release` where nothing in this module mentions it.
           (pruneMark ctx "axiom_alloc")
           (pruneMark ctx "axiom_retain")
           (pruneMark ctx "axiom_release")
@@ -29007,7 +28930,7 @@
               (if (== (scalarTyName n) 1)
                 0
                 ; `Handle` is a counted block of the foreign form
-                ; (stdlib/Ffi.ax): a reference, walked and released
+                ; (pkg/axiom-oxide/axiom/Ffi.ax): a reference, walked and released
                 (if (|| (strEq n "String")
                       (|| (strEq n "Option") (|| (strEq n "Handle") (strEq n "Vec"))))
                   ; the builtin `Option` is seeded by the checker and

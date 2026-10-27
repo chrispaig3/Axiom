@@ -35,12 +35,11 @@ tree-sitter-axiom/*.dll
 __pycache__/
 *.pyc
 
-# Cargo's build artifacts. `rust/` is the only cargo project here (the
-# FFI's Rust side), so the pattern is scoped to it. The generated `.ax`
-# binding modules under rust/examples/*/axiom/ are committed, so
-# `axiom check` and `axiom fmt` work on a checkout with no cargo.
-rust/target/
-rust/examples/*/target/
+# Cargo's build artifacts. The generated `.ax` binding modules under
+# pkg/axiom-oxide/examples/*/axiom/ are committed, so `axiom check` and
+# `axiom fmt` work on a checkout with no cargo.
+pkg/axiom-oxide/target/
+pkg/axiom-oxide/examples/*/target/
 
 # The website under `web/`. `package-lock.json` is committed: the Pages
 # workflow runs `npm ci`, which needs it, and a build that resolves its

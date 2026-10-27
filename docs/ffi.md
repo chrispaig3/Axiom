@@ -28,8 +28,8 @@ foreign side decides whether a `Foreign` captured by a thread may be
 shared. An unwind must not cross an `extern "C"` boundary; the
 freestanding panic handler exits with status 73.
 
-Tested by `rust/axiom-ffi/tests/contracts.rs` and
-`rust/axiom-ffi/tests/panic_boundary.rs`.
+Tested by `pkg/axiom-oxide/axiom-ffi/tests/contracts.rs` and
+`pkg/axiom-oxide/axiom-ffi/tests/panic_boundary.rs`.
 
 ## 1. What it is, and is not
 
@@ -69,10 +69,10 @@ executables `scripts/check-ffi.sh` builds:
 | program | undefined symbols | forbidden libc names |
 |---|---|---|
 | no `extern` (`tests/ffi/no-extern`) | **0** | 0 |
-| `extern` → `rust/examples/nostd` (`no_std`) | **0** | 0 |
-| `extern` → `rust/examples/demo` (`std`) | 188 | 18 |
+| `extern` → `pkg/axiom-oxide/examples/nostd` (`no_std`) | **0** | 0 |
+| `extern` → `pkg/axiom-oxide/examples/demo` (`std`) | 188 | 18 |
 
-`rust/examples/demo/axiom-allow.txt` lists the 188, one per line, and
+`pkg/axiom-oxide/examples/demo/axiom-allow.txt` lists the 188, one per line, and
 the gate fails on any name outside that file (§14). The 18 are the
 names on `scripts/check-freestanding.sh`'s forbidden list that the
 `std` executable imports, such as `malloc`, `free`, `memcpy`, `getenv`
@@ -94,7 +94,7 @@ edition = "2021"
 [lib]
 crate-type = ["staticlib"]
 [dependencies]
-axiom-ffi = { path = "/path/to/.axiom/rust/axiom-ffi" }
+axiom-ffi = { path = "/path/to/.axiom/pkg/axiom-oxide/axiom-ffi" }
 ```
 
 ```rust
@@ -120,7 +120,7 @@ pub fn counter_value(c: &Counter) -> i64 { c.n }
 Install the binding generator once:
 
 ```sh
-cargo install --path /path/to/.axiom/rust/axiom-bindgen
+cargo install --path /path/to/.axiom/pkg/axiom-oxide/axiom-bindgen
 ```
 
 Then import the generated module and call the functions by their
@@ -144,8 +144,11 @@ camelCase names:
   })
 ```
 
-```sh
-axiom build --input p.ax --output p --crate /path/to/mycrate && ./p
+```bash
+axiom-oxide prepare --crate /path/to/mycrate --release
+AXIOM_PATH=/path/to/mycrate/axiom \
+AXIOM_LINK_SEARCH=/path/to/mycrate/target/release \
+axiom build --input p.ax --output p && ./p
 ```
 
 The program prints:
@@ -155,23 +158,26 @@ HI
 42
 ```
 
-`--crate DIR` does the whole job. The driver:
+The standalone `axiom-oxide prepare --crate DIR --release` command refreshes
+the module and builds the crate. Install it and `axiom-bindgen` together:
 
-- runs `axiom-bindgen` when `DIR/axiom/MyCrate.ax` is missing or no
-  longer matches what `DIR/src` generates;
-- runs `cargo build --release` when `libaxiom_my_crate.a` is missing;
-- searches `DIR/axiom/` for the generated module, and
-  `DIR/target/release` (or the workspace's, one or two levels up) for
-  the archive;
-- links the archive, because the generated `extern` block names it
-  (§12).
+```bash
+cargo install --path /path/to/.axiom/pkg/axiom-oxide
+cargo install --path /path/to/.axiom/pkg/axiom-oxide/axiom-bindgen
+```
 
-Each step it runs prints a line on stderr.
+Then prepare your crate, and build with its module and archive on the
+ordinary search paths:
 
-If neither tool is on `PATH`, nothing is generated and nothing is
-built. The missing module is then refused as `AX5001` and the missing
-archive as `AX4004`. Those two errors are the signal, not a stalled
-build.
+```bash
+axiom-oxide prepare --crate /path/to/mycrate --release
+AXIOM_PATH=/path/to/mycrate/axiom \
+AXIOM_LINK_SEARCH=/path/to/mycrate/target/release \
+axiom build --input p.ax --output p && ./p
+```
+
+For a crate in a Cargo workspace, use the workspace's `target/release`
+directory. `--link-search` and `--link-lib` select archives explicitly.
 
 The module name is the package name in CamelCase. Each `-` or
 `_`-separated piece is capitalised and an `axiom-` prefix is dropped,
@@ -187,9 +193,9 @@ there.
 You never close `counterNew`'s `Counter` by hand. Rust drops it when
 `c` goes out of scope.
 
-For a worked example, see `rust/examples/demo` (every shape, using
-`std`) with its generated `axiom/Demo.ax`, and `rust/examples/nostd`
-(`no_std`, imports nothing). [rust/README.md](../rust/README.md) is
+For a worked example, see `pkg/axiom-oxide/examples/demo` (every shape, using
+`std`) with its generated `axiom/Demo.ax`, and `pkg/axiom-oxide/examples/nostd`
+(`no_std`, imports nothing). [pkg/axiom-oxide/README.md](../pkg/axiom-oxide/README.md) is
 the crate-side view: what lives in which crate, and how to regenerate
 the checked-in bindings.
 
@@ -262,7 +268,7 @@ name as a libc function it knows.
 
 ## 4. The type table
 
-One table, in `rust/axiom-ffi-classify/src/lib.rs`, decides what
+One table, in `pkg/axiom-oxide/axiom-ffi-classify/src/lib.rs`, decides what
 crosses. Both the proc macro and `axiom-bindgen` consult it, each
 through the `_with` form, which takes the registry that says what a
 bare named type is (a record's fields, an opaque handle). So the two
@@ -330,9 +336,9 @@ type, a `Vec` or a record. These return types are refused:
 - `Box`, `Rc` and `Arc`;
 - a bare `Result` or `Option` with no payload written out.
 
-Tested by `rust/axiom-ffi-macros/tests/ui/fail/*.stderr`, which
+Tested by `pkg/axiom-oxide/axiom-ffi-macros/tests/ui/fail/*.stderr`, which
 snapshots each refusal message, and
-`rust/axiom-ffi-macros/tests/ui/pass/accepted_shapes.rs`, which
+`pkg/axiom-oxide/axiom-ffi-macros/tests/ui/pass/accepted_shapes.rs`, which
 compiles and runs every accepted shape.
 
 The linker symbol is `axffi_<rust_name>` unless
@@ -402,7 +408,7 @@ one word. So the shim takes a trailing out-cell,
 `extern "C" fn axffi_shout(a0: i64, out: i64) -> i64`, writes
 `{ptr, len}` into it and returns status 0. The raw item is
 `(shoutRaw :: (-> String Int Int) (symbol "axffi_shout"))`, and
-`axiom-bindgen` writes the wrapper (`rust/examples/demo/axiom/Demo.ax`):
+`axiom-bindgen` writes the wrapper (`pkg/axiom-oxide/examples/demo/axiom/Demo.ax`):
 
 ```scheme
 (pub :: shout (-> String String))
@@ -432,7 +438,7 @@ Every generated local starts with `__`, and a Rust parameter may not,
 so a parameter named `cell` or `p` reaches Rust intact
 (`080-param-named-cell.ax`).
 
-The helpers live once, in `stdlib/Ffi.ax`, which imports only `Mem`,
+The helpers live once, in `pkg/axiom-oxide/axiom/Ffi.ax`, which imports only `Mem`,
 `Str` and `Vec`. So two generated modules can be imported together
 without colliding:
 
@@ -557,7 +563,7 @@ attribute satisfies, so a missing `#[axiom_opaque]` is a compile error
 rather than a leak. An unmarked return type fails with
 `` `Plain` crosses the Axiom boundary but is not marked `#[axiom_opaque]` or `#[axiom_record]` ``,
 and a note says to put the attribute on the declaration
-(`rust/axiom-ffi-macros/tests/ui/fail/opaque_unmarked.stderr`).
+(`pkg/axiom-oxide/axiom-ffi-macros/tests/ui/fail/opaque_unmarked.stderr`).
 `axiom-bindgen` refuses the same case from its side.
 
 A returning shim boxes the value and returns its address. A borrowing
@@ -573,7 +579,7 @@ as another Rust type.
 On the Axiom side, the builtin type `Handle` is a counted heap block of
 the *foreign form*: shape-word bit 0 is set, and there are two payload
 words. Word 0 is the destructor's address and word 1 is the Rust
-pointer (`stdlib/Ffi.ax`, `MM-FFI-6`). `ffiHandleNew` is the only way
+pointer (`pkg/axiom-oxide/axiom/Ffi.ax`, `MM-FFI-6`). `ffiHandleNew` is the only way
 to write one. The library's `rawAllocMapped` masks its map to bits 16..62 and can't
 set the form bit, and no constructor site does.
 
@@ -740,7 +746,7 @@ or result would carry a share the Rust side has no wrapper to release.
 Rust can't build an Axiom closure record (C4). So an arrow in result
 position is refused on the Axiom side, and the macro refuses `AxFn` as
 a Rust return type or behind a reference
-(`rust/axiom-ffi-macros/tests/ui/fail/callback_return.rs`,
+(`pkg/axiom-oxide/axiom-ffi-macros/tests/ui/fail/callback_return.rs`,
 `callback_ref_param.rs`).
 
 A callback that panics aborts the process (C7), since a callback has no
@@ -768,7 +774,7 @@ return shape. Scalar calls and constructors without borrowed inputs
 remain safe. Rust buffer frees reject invalid lengths and layouts;
 return each allocation pair exactly once.
 
-Tested by `rust/axiom-ffi/tests/contracts.rs` and `scripts/check-ffi.sh`.
+Tested by `pkg/axiom-oxide/axiom-ffi/tests/contracts.rs` and `scripts/check-ffi.sh`.
 
 | Rust | Axiom | wire |
 |---|---|---|
@@ -969,16 +975,18 @@ archive's own allocator:
 ```
 
 A host can write the `extern "C"` block by hand, since the ABI is one
-`i64` per word. Or the build can write it for you:
+`i64` per word. Or `axiom-oxide host` can write it and build the archive:
 
 ```bash
-axiom build --input hostlib.ax --output libaxiom_hostlib.a \
-            --emit-staticlib --emit-rust-binding hostlib.rs
+axiom-oxide host --input hostlib.ax --rust hostlib.rs \
+                 --archive libaxiom_hostlib.a
 ```
 
-`--emit-rust-binding PATH` writes the Rust view of the file's `pub`
-surface, from the same declarations the IR came from
-(`core/rustbind.ax`). It holds one `extern "C"` declaration per
+The command adds the record accessors, generates the Rust view of the
+file's `pub` surface and builds with `axiom build --emit-staticlib`.
+Use `--axiom PATH` to select a compiler, `--keep-source FILE.ax` to keep
+the instrumented source, or `--no-build` to generate only. The binding
+holds one `extern "C"` declaration per
 function in a `raw` module, and one wrapper per function in Rust's own
 types. The wrappers are safe, except where a raw `AxWord` crosses:
 
@@ -1060,10 +1068,9 @@ gets a trailing underscore.
 A `data` or `struct` of the file, `Option`, `Result`, and any
 instantiation a `pub` signature mentions (`(Option Pair)`, or
 `(List Int)` of the file's own `List`) cross as values. Only the
-emitter knows a block's layout, so the same build synthesises accessor
-shims into the module before it is checked and compiled (`rbAppendShims` in
-`core/rustbind.ax`). They are ordinary `pub fn`s, type-checked
-like the file's own:
+emitter knows a block's layout, so `axiom-oxide host` synthesises accessor
+shims into a temporary copy of the module before it is checked and compiled.
+They are ordinary `pub fn`s, type-checked like the file's own:
 
 ```text
 axh_<T>_tag v             the constructor's index, in declaration order
@@ -1123,7 +1130,7 @@ So `to_axiom` answers an owned word that the wrapper releases after the
 call, `from_axiom` consumes the word it is given, and every accessor's
 answer is adopted or released.
 
-`rust/examples/host` round-trips each of these shapes ten thousand
+`pkg/axiom-oxide/examples/host` round-trips each of these shapes ten thousand
 times through the allocator to show the shares balance. That includes
 raw words: `someStrs` goes out, `countStrs` and `taggedLen` come back
 in, and the host releases the share. It also checks that a second
@@ -1159,14 +1166,14 @@ Transparent aliases keep their underlying types in the binding. Local
 Rust's standard `Result`. Imported declarations cannot replace an entry
 file's type of the same name.
 
-Generated accessor names must be distinct. A collision is refused as
-`AX3006`; rename one source type to give its accessors distinct names.
+Generated accessor names must be distinct. `axiom-oxide host` refuses a
+collision; rename one source type to give its accessors distinct names.
 
 Tested by `tests/ffi/host/nominal.ax` and
 `tests/ffi/host/mangle-collision.ax`.
 
-The build runs `rustfmt` on the file when one is on `PATH`, as it runs
-`cargo`. Without it, the unformatted text compiles just the same.
+The command runs `rustfmt` on the generated file when one is on `PATH`.
+Without it, the unformatted text compiles just the same.
 
 ### Ownership and the runtime
 
@@ -1174,7 +1181,7 @@ Adopting results rests on `MM-LIFE-2c` event 2: a function that answers
 a counted reference answers a share of its own. So the host owns what
 it gets, even when the function answered its argument. `hostlib.ax`'s
 `(pub fn (same s) s)` compiles to an `@axiom_retain` before its `ret`,
-and `rust/examples/host` calls it ten thousand times against the free
+and `pkg/axiom-oxide/examples/host` calls it ten thousand times against the free
 list to show that the two releases are two shares.
 
 The runtime needs no init call, because the allocator initialises on
@@ -1184,7 +1191,7 @@ process as it would from `main`. Effects aren't checked across the
 boundary: the host is outside the effect system and calls what it
 likes.
 
-`rust/examples/host` is the worked host. `src/hostlib.rs` is the
+`pkg/axiom-oxide/examples/host` is the worked host. `src/hostlib.rs` is the
 generated binding, checked in, and `build.rs` links
 `$AXIOM_HOST_ARCHIVE_DIR/libaxiom_hostlib.a`. `scripts/check-ffi.sh`
 builds both from `tests/ffi/host/hostlib.ax` and checks that the
@@ -1271,68 +1278,31 @@ this order. Each directory appears once, and only if it exists.
 3. `<entry>/../target/release` and `<entry>/../../target/release` for
    each `$AXIOM_PATH` entry, because a crate's `axiom/` binding
    directory sits beside its `target/`.
-4. `DIR/target/release`, `DIR/../target/release` and
-   `DIR/../../target/release` for each `--crate DIR`. A crate inside a
-   workspace builds into the workspace's `target`, so
-   `rust/examples/demo` builds into `rust/target`.
-5. The same three for each `crate DIR` in the project's `axiom.pkg`, in
-   file order. This lets a project declare its native dependency
-   instead of passing it on every command line
-   ([reference.md, Packages](reference.md#packages)).
-6. Then `-l<lib>` for every `extern` block's library string, when a
+4. Then `-l<lib>` for every `extern` block's library string, when a
    directory above holds `lib<lib>.a` and no explicit `-l` already
    names it.
 
 The library string travels from the emitter to the driver as a comment
 line in the IR (`; axiom-extern-lib axiom_demo`), beside the declares.
 
-`--crate DIR` (repeatable; `build`, `run`, `check`) also puts
-`DIR/axiom/` on the module search path, so `(import Demo)` finds the
-generated module. An `axiom.pkg` line `crate DIR` puts the same
-directory on the same path, one slot higher: above `$AXIOM_PATH`, where
-the manifest's `depend` lines already sit. `--link-lib` and
-`--link-search` still work as overrides.
+`$AXIOM_PATH` is a colon-separated module search path. Put the crate's
+`DIR/axiom/` and `pkg/axiom-oxide/axiom/` there so `(import Demo)` and
+its `(import Ffi)` resolve. A package's `depend DIR` lines add module
+paths before `$AXIOM_PATH`; `kind library` identifies a reusable archive
+package. See [Packages](reference.md#packages).
 
 ### Building the crate
 
-On the command line, `--crate` also builds the crate, and only there.
-`prepareCrates` runs before the entry is read. For each `--crate DIR`:
+Run `axiom-oxide prepare --crate DIR --release`. It regenerates the
+Axiom module with `axiom-bindgen`, then runs Cargo. The compiler does
+neither: it reads the module and links the resulting archive through
+the ordinary paths above. A Cargo workspace writes that archive in the
+workspace's `target/release` directory, so set `$AXIOM_LINK_SEARCH`
+there explicitly or pass `--link-search`.
 
-- When `DIR/axiom/*.ax` is missing or older than the newest file under
-  `DIR/src`, and `axiom-bindgen` is on `PATH`, the driver regenerates
-  the module (`--src DIR/src --lib <stem> --module <Name> -o
-  DIR/axiom`) and says so on stderr.
-- When no `lib<stem>.a` exists in any of the crate's `target/release`
-  directories, and `cargo` is on `PATH`, it runs
-  `cargo build --release --manifest-path DIR/Cargo.toml`.
-
-The stem and the name come from the `[package] name` in
-`DIR/Cargo.toml`. The stem turns `-` into `_`. The module name is
-CamelCase with any `axiom-` prefix dropped, or the name of the single
-`.ax` already in `DIR/axiom/`. A missing tool isn't an error: the
-driver then expects the artefacts to exist, and reports `AX4004` or an
-unresolved import if they don't. `cargo install --path
-rust/axiom-bindgen` puts `axiom-bindgen` on `PATH`.
-
-The checks are file-time comparisons and one
-`axiom-bindgen --check --quiet`, whose exit status is the answer. On
-the demo crate the step takes 4 s from a clean `target/`, and 0.7 s
-when nothing has changed.
-
-A manifest `crate` line does none of that. It adds the two search paths
-and nothing else: no cargo, no `axiom-bindgen`, and no writes anywhere
-under `DIR`. A command line is a person asking, but `axiom.pkg` is a
-checked-in file that arrives with a clone. If it could start another
-project's build system, "the compiler executes no code from a source
-file" would be false for the file most worth trusting.
-
-So build the crate once, with `cargo build --release` or one
-`axiom build --crate DIR`, and the manifest carries it from then on.
 Without the archive, the build fails with `AX4004`, whose help names
-`--link-lib`, `--link-search` and the `target/release` it looked in.
-`scripts/check-packages.sh` tests both halves: after a manifest build
-`DIR/target` must not exist, and passing the same directory as
-`--crate` must create it.
+`--link-lib`, `--link-search` and the directories it searched.
+`scripts/check-ffi.sh` exercises this preparation and linking split.
 
 ### Grounding
 
@@ -1353,11 +1323,11 @@ error[AX4004]: no archive is linked, and `axffi_add` needs one
 
 error[AX4004]: no linked archive defines `axffi_ad`
  --> 030-prefix-of-symbol.axbad:9:4
-  = help: searched: rust/examples/demo/../../target/release/libaxiom_demo.a; did you mean `axffi_add`?
+  = help: searched: pkg/axiom-oxide/examples/demo/../../target/release/libaxiom_demo.a; did you mean `axffi_add`?
 
 error[AX4004]: no linked archive defines `axffi_no_such_thing`
  --> 020-missing-symbol.axbad:11:4
-  = help: searched: rust/examples/demo/../../target/release/libaxiom_demo.a; check the
+  = help: searched: pkg/axiom-oxide/examples/demo/../../target/release/libaxiom_demo.a; check the
     `(symbol "...")` clause against the crate's `#[axiom_export]` names
 ```
 
@@ -1437,11 +1407,12 @@ It proves these, in order:
 1. **Tier 1.** Every program in `tests/ffi/no-extern/` builds and
    imports nothing (`nm -u` is empty). At least three cases must reach
    this check.
-2. **Tiers 2 and 3.** Each `rust/examples/<crate>/` with an
+2. **Tiers 2 and 3.** Each `pkg/axiom-oxide/examples/<crate>/` with an
    `axiom-allow.txt` manifest is built. `nostd` builds by its own
    `Cargo.toml`, since it is its own workspace. Then each
-   `tests/ffi/<crate>/*.ax` is built with `--crate` and run, because a
-   check that only builds can't tell a silent wrong answer from a pass.
+   `tests/ffi/<crate>/*.ax` is built with its module on `AXIOM_PATH` and
+   its archive on `AXIOM_LINK_SEARCH`, then run. A check that only builds
+   can't tell a silent wrong answer from a pass.
    Its exit status must match the fixture's `; expect N` trailer. If the
    fixture's code (not its comments) mentions `agree`, the program must
    print an `agree` line. Any imported symbol the manifest doesn't
@@ -1449,7 +1420,7 @@ It proves these, in order:
    `puts`, `fopen`, `fwrite`, `fread`, `system`, `popen`, `execv`,
    `execve` or `posix_spawn`.
 3. **Regeneration.** `axiom-bindgen` regenerates every checked-in
-   `rust/examples/*/axiom/*.ax`, and each must be byte-identical.
+   `pkg/axiom-oxide/examples/*/axiom/*.ax`, and each must be byte-identical.
 4. **Nine negative probes.** A subset check also passes on an empty
    corpus, an `nm` that answers nothing, or a manifest that permits
    everything. So the gate shows that:
@@ -1457,7 +1428,7 @@ It proves these, in order:
    - the manifest comparison flags an unpermitted name;
    - it leaves a permitted name alone;
    - `foreign` is still `AX2004`;
-   - the allowlist fails on `rust/examples/leaky`, which calls
+   - the allowlist fails on `pkg/axiom-oxide/examples/leaky`, which calls
      `std::env::var` against a manifest that permits nothing;
    - an ungrounded symbol is `AX4004`, and the output contains neither
      `opt:` nor `AX4003` (a refusal from the toolchain would be the old
@@ -1467,13 +1438,12 @@ It proves these, in order:
      item;
    - a declaration of the wrong shape is `AX4005` (§9), and doesn't
      build.
-5. **The host direction** (§10). `tests/ffi/host/hostlib.ax` is
-   archived with `--emit-staticlib --emit-rust-binding`, and the
-   archive must define no `main`. When `rustfmt` is present, the fresh
-   binding must be byte-identical to the checked-in
-   `rust/examples/host/src/hostlib.rs` and `rustfmt`-clean. Then `rust/examples/host` is
-   built against the archive and run, and its output must end in
-   `agree`.
+5. **The host direction** (§10). `axiom-oxide host` generates the binding
+   and archives `tests/ffi/host/hostlib.ax`; the archive must define no
+   `main`. When `rustfmt` is present, the fresh binding must be
+   byte-identical to `pkg/axiom-oxide/examples/host/src/hostlib.rs` and
+   `rustfmt`-clean. Then `pkg/axiom-oxide/examples/host` is built against
+   the archive and run, and its output must end in `agree`.
 
 The Axiom fixtures are:
 
@@ -1522,10 +1492,10 @@ panic = "abort"
 ```
 
 Then put `#![no_std]` and `extern crate alloc;` in the crate.
-`rust/examples/nostd/src/lib.rs` is a complete example in under fifty
+`pkg/axiom-oxide/examples/nostd/src/lib.rs` is a complete example in under fifty
 lines.
 
-The `nostd-runtime` feature (`rust/axiom-ffi/src/nostd_runtime.rs`)
+The `nostd-runtime` feature (`pkg/axiom-oxide/axiom-ffi/src/nostd_runtime.rs`)
 supplies what such a crate would otherwise write by hand:
 
 - a `GlobalAlloc` over `axiom_alloc`;
@@ -1555,7 +1525,7 @@ no `extern` gives.
 The two modes can't share a cargo workspace. Feature unification would
 enable `axiom-ffi/std` for the `no_std` member, and its
 `#[panic_handler]` would collide with std's `panic_impl`. That is why
-`rust/examples/nostd` is its own workspace, and the gate builds it by
+`pkg/axiom-oxide/examples/nostd` is its own workspace, and the gate builds it by
 `--manifest-path`.
 
 ---

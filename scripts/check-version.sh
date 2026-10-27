@@ -26,7 +26,7 @@
 # Each site is named with the pattern that must yield the version and the
 # exact number of times it must yield it. A grep for the current version
 # would pass the moment a site stopped containing it. A floor would let
-# `rust/Cargo.toml` shrink from four version keys to one and still pass,
+# `pkg/axiom-oxide/Cargo.toml` shrink from four version keys to one and still pass,
 # because the survivor agrees and the three lost keys are invisible.
 
 set -euo pipefail
@@ -113,7 +113,7 @@ echo "== negative probe: every extractor sees a disagreement =="
 # Mutate a copy of every named file and require its extractor to read
 # the mutation back, so every extractor and site is seen to go red. The
 # count is checked on the mutant too, so an extractor that reads three of
-# `rust/Cargo.toml`'s four keys fails here.
+# `pkg/axiom-oxide/Cargo.toml`'s four keys fails here.
 probed=0
 # Escape the dots: an unescaped `0.2.0` is a regex matching `0X2Y0`, so
 # the mutation could land where the assertions never look.

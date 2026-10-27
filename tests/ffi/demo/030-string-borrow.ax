@@ -2,7 +2,7 @@
 ;
 ; The value Axiom holds is the address of a three-word `{len, ptr,
 ; owner}` run (stdlib/Str.ax: strLen reads word 0, strData word 1,
-; strOwner word 2). `AxStr` in `rust/axiom-abi` reads exactly those
+; strOwner word 2). `AxStr` in `pkg/axiom-oxide/axiom-abi` reads exactly those
 ; words, so the `&str` the shim sees points at Axiom's own bytes.
 ;
 ; The borrow is valid for the CALL and no longer: ARC may release the

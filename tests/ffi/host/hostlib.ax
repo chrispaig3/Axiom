@@ -1,12 +1,12 @@
 ; hostlib - an Axiom library a Rust program calls: the OTHER direction.
 ;
-; Built with `axiom build --input hostlib.ax --output libaxiom_hostlib.a
-; --emit-staticlib --emit-rust-binding hostlib.rs`: the module is
-; emitted without the `@main` wrapper (no `main` here), assembled and
-; archived, and the Rust binding of its `pub` surface is written beside
-; it. Every `pub fn` of this file is a C symbol under its own name -
-; `addTwo`, `shout`, ... - with Axiom's whole ABI: `i64` in, `i64` out.
-; rust/examples/host includes the generated binding
+; Built with `axiom-oxide host --input hostlib.ax --rust hostlib.rs
+; --archive libaxiom_hostlib.a`: the module is emitted without the
+; `@main` wrapper (no `main` here), assembled and archived, and the Rust
+; binding of its `pub` surface is written beside it. Every `pub fn` of
+; this file is a C symbol under its own name - `addTwo`, `shout`, ... -
+; with Axiom's whole ABI: `i64` in, `i64` out.
+; pkg/axiom-oxide/examples/host includes the generated binding
 ; (src/hostlib.rs, checked in and diffed by the gate), links the archive
 ; from `$AXIOM_HOST_ARCHIVE_DIR`, and calls through the wrappers. The
 ; runtime needs no initialisation call.
@@ -27,10 +27,10 @@
 ; this ten thousand times to prove it.
 ; Values with structure cross too. The binding carries a `data` or
 ; `struct` of the file, `Option`, `Result` and a user `List`, through
-; accessor shims the `--emit-rust-binding` build synthesises into this
-; archive (`axh_*`); a `(Vec Int)` crosses as the handle word - the
-; element type stays on this side - and the host builds and reads one
-; through the binding's `AxVecBuf`.
+; accessor shims `axiom-oxide host` synthesises into this archive
+; (`axh_*`); a `(Vec Int)` crosses as the handle word - the element type
+; stays on this side - and the host builds and reads one through the
+; binding's `AxVecBuf`.
 (import Vec)
 (import Err)
 

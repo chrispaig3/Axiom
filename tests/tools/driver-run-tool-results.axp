@@ -26,14 +26,6 @@
       ("run" (show (probeRunTool (sysArg 2) (argsOf3 "" "space value" "$(touch forbidden);*"))))
       ("quiet" (show (probeRunQuiet (sysArg 2) (argsOf3 "--quiet" "" "literal;*"))))
       ("redirect" (show (probeRunErrTo (sysArg 2) vecNew (sysArg 3))))
-      ("bindings" (show (probeBindings "crate/" "demo" "Demo")))
-      ("crate" (show (probeCrate "crate/" "demo")))
-      ("prepare"
-        {
-          (let status (prepareCrate "crate/"))
-          (println "status {status}")
-        }
-      )
       ("clone" (show (probeFetchClone "url;literal" "clone dest")))
       ("discard" (show (probeFetchDiscard "clone dest")))
       ("fetch"

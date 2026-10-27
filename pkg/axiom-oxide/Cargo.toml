@@ -1,3 +1,18 @@
+[package]
+name = "axiom-oxide"
+description = "Standalone bidirectional Axiom and Rust FFI driver"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "axiom-oxide"
+path = "src/main.rs"
+
 # The Axiom <-> Rust FFI support workspace.
 #
 # Nothing in this directory is needed to BUILD the Axiom compiler.
@@ -28,6 +43,7 @@ members = [
 # with no Axiom toolchain - leaves it out. The FFI gate builds the
 # archive and runs `cargo run -p axiom-host` explicitly.
 default-members = [
+    ".",
     "axiom-abi",
     "axiom-ffi-classify",
     "axiom-ffi-macros",

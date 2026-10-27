@@ -53,7 +53,7 @@ two successive compilers are byte-identical.
 [bootstrap/README.md](bootstrap/README.md) explains why the seed may lag
 the source, and what stops it drifting.
 
-You don't need Rust to build the compiler. `rust/` is a cargo workspace
+You don't need Rust to build the compiler. `pkg/axiom-oxide/` is a cargo workspace
 for the FFI's Rust side, and nothing in the compiler's build reads it.
 
 After the clone, the build needs the checkout and your host's toolchain:
@@ -93,7 +93,6 @@ axiom/
 │   ├── render.ax         the human diagnostic renderer
 │   ├── style.ax          the ANSI palette used by that renderer and nothing else
 │   ├── driver.ax         `build`: opt, llc, cc, archives, and cleaning up after them
-│   ├── rustbind.ax       the Rust module `--emit-rust-binding` writes for an archive
 │   ├── main.ax           the CLI entry point and subcommand dispatch
 │   ├── format.ax  repl.ax  symbols.ax  explain.ax  lsp.ax
 │   ├── doc.ax  markdown.ax  doccomment.ax
@@ -109,13 +108,14 @@ axiom/
 ├── bootstrap/          the compiler's own LLVM IR, one file per target, so a
 │                       clean checkout can build a compiler without one
 ├── stdlib/             standard library, in Axiom (Pre, Mem, Str, Utf8, Vec,
-│                       Map, Fmt, Err, Fallible, Intern, Sys, Path, IO, Ffi,
+│                       Map, Fmt, Err, Fallible, Intern, Sys, Path, IO,
 │                       Cereal, Rpc, Task, Chan, Http, Test, Agent.Tags, Tui.Keys,
 │                       Tui.Edit, Tui.Term), plus Sys/Platform.<target>.ax
-├── rust/               the FFI's Rust side, a cargo workspace: axiom-ffi,
+├── pkg/                official standalone Axiom packages, libraries and tools
+│   └── axiom-oxide/    the Rust FFI package: Axiom helpers, axiom-ffi,
 │                       axiom-ffi-macros, axiom-ffi-classify, axiom-abi,
-│                       axiom-bindgen, and examples/. Nothing in the compiler's
-│                       own build reads it
+│                       axiom-bindgen, the axiom-oxide command and examples/.
+│                       Nothing in the compiler's own build reads it
 ├── tree-sitter-axiom/  editor grammar for highlighting and structural editing
 ├── tests/              stdlib/ selfhost/ diagnostics/ frontend/ fmt/ repl/
 │                       lsp/ tools/ ffi/ docs/ axir/ mir/ net/ region/
@@ -247,7 +247,7 @@ line two columns past the call's opening paren.
 A few files are exempt because their layout is what they test: the
 formatter's own inputs under `tests/fmt/`, the fuzz reproducers under
 `tests/fuzz/`, the grammar's fixtures under `tree-sitter-axiom/`, the
-generated bindings under `rust/examples/` (section 1b of the same gate
+generated bindings under `pkg/axiom-oxide/examples/` (section 1b of the same gate
 holds those), and the files `tests/fmt/unformatted.list` names, each
 with its reason. Leave `tests/fmt/parity/*.axp` and the `*.axbad`
 refusal cases alone: they are inputs the formatter must refuse.
@@ -296,8 +296,8 @@ The compiler lives in `core/` and is written in Axiom.
 | Add a diagnostic code | `mkDiag` at the site that detects it: `parser.ax`, `typecheck.ax`, `expand.ax`, `codegen.ax` or `driver.ax` (the lexer reports through the parser). Add its long-form text to `core/explain.ax`. See [Adding a diagnostic code](#adding-a-diagnostic-code) |
 | Change how diagnostics look | `core/render.ax` for the human report and `core/style.ax` for its palette. AXDL and JSON are in `core/diag.ax` |
 | Work on the formatter, REPL, `symbols` or the language server | `core/{format,repl,symbols,lsp}.ax` |
-| Work on the Rust FFI | `core/rustbind.ax` and the crates under `rust/`. See [docs/ffi.md](docs/ffi.md) |
-| Add a stdlib function | `stdlib/`: `Pre`, `Mem`, `Str`, `Utf8`, `Vec`, `Map`, `Fmt`, `Err`, `Fallible`, `Intern`, `Sys`, `Path`, `IO`, `Ffi`, `Cereal`, `Rpc`, `Task`, `Chan`, `Http`, `Test`, `Agent.Tags`, `Tui.Keys`, `Tui.Edit`, `Tui.Term` |
+| Work on the Rust FFI | `pkg/axiom-oxide/`: its Axiom helpers, Rust crates and `axiom-oxide` command. See [docs/ffi.md](docs/ffi.md) |
+| Add a stdlib function | `stdlib/`: `Pre`, `Mem`, `Str`, `Utf8`, `Vec`, `Map`, `Fmt`, `Err`, `Fallible`, `Intern`, `Sys`, `Path`, `IO`, `Cereal`, `Rpc`, `Task`, `Chan`, `Http`, `Test`, `Agent.Tags`, `Tui.Keys`, `Tui.Edit`, `Tui.Term` |
 | Add a new syntax feature | `tree-sitter-axiom/grammar.js`, plus the lexer and the parser and its AST |
 
 ---
@@ -332,10 +332,10 @@ machinery. Instead, every gate runs the real binary on real input and
 checks what comes out, so you can reproduce a CI failure with one
 command.
 
-The one place with ordinary unit tests is `rust/`, the FFI's Rust side.
+The one place with ordinary unit tests is `pkg/axiom-oxide/`, the FFI's Rust side.
 `axiom-ffi-classify` has unit tests, `axiom-bindgen` a snapshot suite
 and `axiom-ffi-macros` a trybuild suite. Run them with
-`cd rust && cargo test`.
+`cd pkg/axiom-oxide && cargo test`.
 
 A gate can only see what it compares, and a compiler compared with its
 own output finds nothing. So every gate carries at least one assertion
@@ -430,7 +430,7 @@ shows the check can fail at all.
 | `check-stack-depth.sh` | How much stack the compiler needs for the largest Axiom program there is, found by bisection and reported |
 | `check-tail-calls.sh` | A tail call runs in constant stack at `--opt 0`: a self call in every tail position, and a mutual call whose prototypes match, which the emitter marks `musttail`. Ten million alternating calls run under a 512 KiB stack, and the same IR with the marker deleted must die by signal. The two refusals, a mismatched prototype and an owned temporary, must stay plain calls, and the compiler's own IR must carry at least 300 marked sites |
 | `check-concurrent-run.sh` | Two `axiom run`s in one directory don't corrupt each other |
-| `check-fmt.sh` | Every `.ax` file outside the fixtures is already in `axiom fmt`'s normal form, and formatting doesn't change what a file means: the tree is formatted on a copy, and the suites are re-run against it. The bindings in `rust/examples/*/axiom/*.ax` must also be fixed points of `axiom fmt`, because `rust/axiom-bindgen/src/sexp.rs` restates the formatter's layout in Rust and `check-ffi.sh` only compares bindgen with itself. One ablation per binding adds two spaces to one indented line and must turn that check red |
+| `check-fmt.sh` | Every `.ax` file outside the fixtures is already in `axiom fmt`'s normal form, and formatting doesn't change what a file means: the tree is formatted on a copy, and the suites are re-run against it. The bindings in `pkg/axiom-oxide/examples/*/axiom/*.ax` must also be fixed points of `axiom fmt`, because `pkg/axiom-oxide/axiom-bindgen/src/sexp.rs` restates the formatter's layout in Rust and `check-ffi.sh` only compares bindgen with itself. One ablation per binding adds two spaces to one indented line and must turn that check red |
 | `check-fmt-selfhost.sh` | The self-hosted formatter's bytes, exit statuses and refusals, over the corpus and a bank of refusal cases |
 | `check-tools-selfhost.sh` | `explain` and `symbols`, including that every code the corpus emits has an `explain` entry. It also compiles the Axiom programs in the documentation |
 | `check-render-selfhost.sh` | The human and JSON renderers, cross-checked against the AXDL goldens and against the palette `core/style.ax` declares |
@@ -551,7 +551,7 @@ jobs that need a compiler get it through the same composite action,
    remaining gates.
 3. **FFI.** `check-ffi.sh` on darwin-aarch64. The
    `extern` boundary opens exactly the symbols it declares, the
-   generated bindings match a fresh generation, and the `rust/`
+   generated bindings match a fresh generation, and the `pkg/axiom-oxide/`
    workspace's own suites run (`cargo test`).
 4. **Cross-target codegen.** Every target's IR assembles from a single
    host at `--opt` 0, 1 and 2, and every committed seed assembles.
@@ -774,7 +774,7 @@ primitives. To add a function:
 
 1. **Add it to the right module** in `stdlib/`: `Pre`, `Mem`, `Str`,
    `Utf8`, `Vec`, `Map`, `Fmt`, `Err`, `Fallible`, `Intern`, `Sys`,
-   `Path`, `IO`, `Ffi`, `Cereal`, `Rpc`, `Task`, `Chan`, `Http`, `Test`,
+   `Path`, `IO`, `Cereal`, `Rpc`, `Task`, `Chan`, `Http`, `Test`,
    `Agent.Tags`, `Tui.Keys`, `Tui.Edit` or `Tui.Term`. That's the list
    the [Modules at a glance](docs/reference.md#modules-at-a-glance)
    table prints, in the same order.

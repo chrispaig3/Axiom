@@ -5345,7 +5345,7 @@ Threads are a matter of price, not possibility. On macOS, thread
 creation needs `bsdthread_register`, and Mach-O has no local-exec TLS,
 so `__thread` lowers to `tlv_get_addr`. Both live in libSystem, and the
 language can name them: an `extern` item makes the emitter write a
-`declare` (`MM-FFI-1`). `rust/examples/demo/axiom-allow.txt` already
+`declare` (`MM-FFI-1`). `pkg/axiom-oxide/examples/demo/axiom-allow.txt` already
 lists `_tlv_bootstrap` and `_tlv_atexit` among the 188 symbols a `std`
 link pulls in.
 
@@ -7096,7 +7096,7 @@ Its two payload words are the address of a C destructor `i64 (i64)`
 (word 0) and the Rust pointer that destructor takes (word 1). Its count
 word is an ordinary count, retained and released by the same events as
 any block. The form has exactly one writer in the tree, `ffiHandleNew`
-in `stdlib/Ffi.ax`. `rawAllocMapped` masks its map to bits 16..62 and
+in `pkg/axiom-oxide/axiom/Ffi.ax`. `rawAllocMapped` masks its map to bits 16..62 and
 can't set bit 0, and a constructor site never does.
 
 A raw `extern` item **MUST NOT** answer `Handle` (`AX3036`,

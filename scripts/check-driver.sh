@@ -734,8 +734,8 @@ done
 # flag is added to `flagArity`, it is added here in the same change.
 "$s1" --help >full-help.txt 2>&1
 missing=""
-for f in --input --output -o --target --opt --heap-ceiling --alloc-poison --link-lib --link-search --crate \
-         --emit-rust-binding --filter --diagnostic-format --emit-llvm --emit-staticlib --threads \
+for f in --input --output -o --target --opt --heap-ceiling --alloc-poison --link-lib --link-search \
+         --filter --diagnostic-format --emit-llvm --emit-staticlib --threads \
          --check --builtins --calls --mir --axir --list --no-banner --out --no-open --missing \
          --help -h --version -V; do
   grep -q -- "$f" full-help.txt || missing="$missing $f"
@@ -1133,7 +1133,7 @@ LC_ALL=C grep -q '^E AX1001 midbom.ax:2:12' midbom.axdl \
 # `version prints a version` above greps for the word `axiom` and would
 # pass on `axiom 9.9.9`. The number itself lives in
 # `core/main.ax`, `core/repl.ax` and `core/lsp.ax` as
-# three independent string literals, in `rust/Cargo.toml` four more
+# three independent string literals, in `pkg/axiom-oxide/Cargo.toml` four more
 # times, and in eight `tests/lsp/*.golden` files that pin what the
 # language server reports over the wire. They agree today. Nothing was
 # keeping them that way, and the first one to drift would be the LSP's
@@ -1175,8 +1175,8 @@ else
     "$(grep -A1 -F '(pub fn (axiomVersion)' "$repo_root/core/build.ax" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
   ver_check "the LSP serverInfo" "core/lsp.ax" \
     "$(grep -oE '"version" \(jsonStr "[0-9]+\.[0-9]+\.[0-9]+"' "$repo_root/core/lsp.ax" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
-  ver_check "the crate version" "rust/Cargo.toml" \
-    "$(awk '/^\[(workspace\.)?package\]/{p=1;next} /^\[/{p=0} p&&/^version *=/{print;exit}' "$repo_root/rust/Cargo.toml" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+  ver_check "the crate version" "pkg/axiom-oxide/Cargo.toml" \
+    "$(awk '/^\[(workspace\.)?package\]/{p=1;next} /^\[/{p=0} p&&/^version *=/{print;exit}' "$repo_root/pkg/axiom-oxide/Cargo.toml" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
 
   # The eight LSP goldens are what the server actually answered when
   # they were blessed, so they are evidence rather than another copy -
@@ -1714,11 +1714,6 @@ else
   failed=$((failed + 1))
 fi
 if python3 "$repo_root/tests/tools/driver-unit-index-options.py" --axiom "$s1"; then
-  passed=$((passed + 1))
-else
-  failed=$((failed + 1))
-fi
-if python3 "$repo_root/tests/tools/driver-extern-query-options.py" --axiom "$s1"; then
   passed=$((passed + 1))
 else
   failed=$((failed + 1))

@@ -29,8 +29,8 @@ into the C library.
   over 150,000 lines of it. A clean checkout rebuilds it from committed LLVM
   IR, and the build stops unless two generations come out
   byte-identical.
-- **Bring Rust along.** Declare Rust functions in an `extern` block,
-  and `axiom build --crate` builds and links the crate for you.
+- **Bring Rust along.** The official `axiom-oxide` package generates
+  bindings and builds native archives; `extern` declares their symbols.
 
 Axiom is young. The core language, macros and standard library are
 complete; FFI and editor support are functional. There is no package

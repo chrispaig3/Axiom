@@ -25,7 +25,6 @@
 ; Axiom `String` and given back to Rust (`ffiFreeBytes`): only Axiom's
 ; own emitter writes an Axiom block header, because only it knows the
 ; shape word.
-(import Internal.Raw)
 (import Str)
 (import Vec)
 
@@ -68,7 +67,7 @@
   ; refuses to set it, by design - this module is the one reviewed
   ; door that does
   {
-    (let h (rawAlloc 16))
+    (let h (__alloc 16))
     {
       (__store64 (- h 8) 0 (| (__load64 (- h 8) 0) 1))
       (__store64 h 0 dropFn)
@@ -121,7 +120,7 @@
 (pub fn (ffiCellNewN n)
   {
     (let c
-      (rawAlloc
+      (__alloc
         (* 8
           (if (< n 2)
             2
@@ -164,13 +163,15 @@
 ;; Does NOT free the Rust side: the wrapper calls `ffiFreeBytes` after.
 ;; `p` must name `n` live bytes.
 (pub :: ffiBytesToStr (-> Int Int String))
+;@axiom:effect(unsafe)
 (pub fn (ffiBytesToStr p n)
   (if (<= n 0)
     ""
     {
       (let s (strAlloc n))
       {
-        (rawCopy (strData s) p n)
+        (for i in 0..n
+          (__store8 (strData s) i (__load8 p i)))
         s
       }
     }))

@@ -60,23 +60,6 @@ app() {  # <path> <name>
 EOF
 }
 
-# A crate directory, as `crate` defines one: a `Cargo.toml` beside an
-# `axiom/` holding the generated binding module.
-#
-# It has no `src/` and no archive. Apart from the no-cargo check at the
-# end, everything asserted about `crate` holds for an unbuilt crate,
-# which keeps this gate in the parallel, cargo-free set. `check-ffi.sh`
-# links a real archive.
-crate_dir() {  # <dir> <cargo-name> <module> <n>
-  mkdir -p "$1/axiom"
-  cat > "$1/Cargo.toml" <<EOF
-[package]
-name = "$2"
-version = "0.1.0"
-EOF
-  mod "$1/axiom" "$3" "$4"
-}
-
 run_app() {  # <cwd> <entry> -> prints exit status
   local d="$1" f="$2" rc
   set +e
@@ -462,104 +445,86 @@ set -e
 
 # --------------------------------------------------------------------
 echo
-echo "== \`crate\` declares a NATIVE dependency, and the manifest is what finds it =="
+echo "== package kinds select an executable or a static archive =="
 # --------------------------------------------------------------------
-# `crate DIR` declares a native dependency in the manifest, as
-# `--crate DIR` does on the command line: `DIR/axiom/` joins the module
-# search path, and the crate's `target/release` directories join the
-# link search path.
-#
-# The module half is checked here, with no cargo and no archive, because
-# it must hold on every machine. `check-ffi.sh` owns the archive half.
-pc="$work/pc"
-mkdir -p "$pc"
-crate_dir "$pc/vendor/greeter" axiom-greeter Greeter 42
-app "$pc/app.ax" Greeter
-cat > "$pc/axiom.pkg" <<'EOF'
-name   native
-crate  vendor/greeter
+# Omitting kind retains the binary default, covered by every build above.
+# An explicit binary must have the same behaviour.
+pk="$work/package-kinds"
+mkdir -p "$pk"
+app "$pk/Main.ax" Main
+cat > "$pk/Main.ax" <<'EOF'
+(:: main Int)
+(fn (main) 42)
 EOF
-got="$(run_app "$pc" app.ax)"
-[[ "$got" == 42 ]] && ok "the crate's generated module answered ($got)" \
-                   || bad "expected 42 from vendor/greeter/axiom/Greeter.ax, got $got"
-
-# Negative probe, as for `depend` above: with the manifest gone and
-# nothing else changed, the module must stop resolving. Otherwise a
-# stray `AXIOM_PATH` or the entry directory could be what finds
-# `Greeter`.
-mv "$pc/axiom.pkg" "$pc/axiom.pkg.off"
-got="$(run_app "$pc" app.ax)"
-[[ "$got" != 42 ]] && ok "without the manifest the crate's module is not found ($got)" \
-                   || bad "the program still answered 42 with no manifest - \`crate\` is not what resolved it"
-mv "$pc/axiom.pkg.off" "$pc/axiom.pkg"
-
-# --------------------------------------------------------------------
-echo
-echo "== a \`crate\` that is not a crate is refused =="
-# --------------------------------------------------------------------
-# Three refusals. The middle one keeps `crate` from being a second
-# spelling of `depend`.
-crate_case() {  # <manifest-value> <needle> <what>
-  cat > "$pc/axiom.pkg" <<EOF
-name   native
-crate  $1
+cat > "$pk/axiom.pkg" <<'EOF'
+name     explicit-binary
+version  0.1.0
+kind     binary
+main     Main.ax
 EOF
-  set +e
-  local out rc
-  out="$( cd "$pc" && "$axc" check app.ax 2>&1 )"
-  rc=$?
-  set -e
-  if (( rc == 3 )) && grep -q "$2" <<<"$out"; then
-    ok "$3 is refused at exit 3, naming it"
-  else
-    bad "$3 was not refused as expected (exit $rc)"
-    printf '%s\n' "$out" | sed 's/^/     /' | head -6
-  fi
-}
-crate_case vendor/nowhere 'vendor/nowhere' "a crate directory that is not there"
+got="$(run_app "$pk" Main.ax)"
+[[ "$got" == 42 ]] && ok "an explicit binary package runs (42)" \
+                   || bad "explicit binary package exited $got, expected 42"
 
-# A directory of modules with no `Cargo.toml`. Accepting it would make
-# `crate` and `depend` two names for one key.
-mkdir -p "$pc/vendor/plain/axiom"
-crate_case vendor/plain 'Cargo.toml' "a crate directory with no Cargo.toml"
-
-# `DIR/axiom/` is written by `axiom-bindgen`, which a manifest `crate`
-# does not run, so the refusal must say what to run.
-mkdir -p "$pc/vendor/nobind"
-printf '[package]\nname = "axiom-nobind"\n' > "$pc/vendor/nobind/Cargo.toml"
-crate_case vendor/nobind 'axiom/' "a crate with no generated module directory"
-
-# --------------------------------------------------------------------
-echo
-echo "== a crate and a \`depend\` may not provide one module =="
-# --------------------------------------------------------------------
-# The clash rule covers the whole search path, whichever key put a
-# directory on it: `crate` and `depend` land in one list.
-mod "$pc/local" Greeter 77
-cat > "$pc/axiom.pkg" <<'EOF'
-name   native
-depend local
-crate  vendor/greeter
+cat > "$pk/Library.ax" <<'EOF'
+(pub :: answer Int)
+(pub fn (answer) 42)
+EOF
+cat > "$pk/axiom.pkg" <<'EOF'
+name     answer
+version  0.1.0
+kind     library
+main     Library.ax
 EOF
 set +e
-out="$( cd "$pc" && "$axc" check app.ax 2>&1 )"
+out="$( cd "$pk" && "$axc" build 2>&1 )"
 got=$?
 set -e
-if (( got == 3 )) \
-   && grep -q 'two dependencies' <<<"$out" \
-   && grep -q 'local/Greeter.ax' <<<"$out" \
-   && grep -q 'vendor/greeter/axiom/Greeter.ax' <<<"$out"; then
-  ok "a crate clashing with a \`depend\` is refused at exit 3, naming both"
+if (( got == 0 )) && [[ -f "$pk/libanswer.a" ]] && [[ ! -e "$pk/answer" ]]; then
+  ok "a library needs no main function and defaults to libanswer.a"
 else
-  bad "the crate/depend clash was not refused as expected (exit $got)"
-  printf '%s\n' "$out" | sed 's/^/     /' | head -8
+  bad "library archive was not built (exit $got)"
+  printf '%s\n' "$out" | sed 's/^/     /' | head -6
 fi
-# ...and with the clash gone it builds, so this is about the clash.
-rm -f "$pc/local/Greeter.ax"
-mod "$pc/local" Gadget 88
-got="$(run_app "$pc" app.ax)"
-[[ "$got" == 42 ]] && ok "with the clash removed the crate's module answers again ($got)" \
-                   || bad "expected 42 once the clash was gone, got $got"
+set +e
+out="$( cd "$pk" && "$axc" run 2>&1 )"
+got=$?
+set -e
+if (( got == 1 )) && grep -q 'cannot run a library package' <<<"$out"; then
+  ok "axiom run refuses a library package with a useful next step"
+else
+  bad "library run refusal was unclear (exit $got)"
+  printf '%s\n' "$out" | sed 's/^/     /' | head -6
+fi
+set +e
+( cd "$pk" && "$axc" build --output chosen.a ) >/dev/null 2>&1
+got=$?
+set -e
+[[ "$got" == 0 && -f "$pk/chosen.a" ]] \
+  && ok "an explicit library output overrides the default archive name" \
+  || bad "explicit library output failed (exit $got)"
+
+kind_refusal() { # <manifest> <expected> <description>
+  cat > "$pk/axiom.pkg" <<EOF
+name answer
+main Library.ax
+$1
+EOF
+  set +e
+  local output rc
+  output="$( cd "$pk" && "$axc" check Library.ax 2>&1 )"
+  rc=$?
+  set -e
+  if (( rc == 3 )) && grep -q "$2" <<<"$output"; then
+    ok "$3"
+  else
+    bad "$3 (exit $rc)"
+    printf '%s\n' "$output" | sed 's/^/     /' | head -6
+  fi
+}
+kind_refusal 'kind plugin' '`kind` must be `library` or `binary`' 'an invalid package kind is refused'
+kind_refusal $'kind binary\nkind library' '`kind` is given twice' 'a duplicate package kind is refused'
+kind_refusal 'crate native' 'unknown key `crate`' 'the retired Cargo manifest key is refused'
 
 # --------------------------------------------------------------------
 echo
@@ -661,104 +626,6 @@ got="$(run_app "$pn" app.ax)"
 
 # --------------------------------------------------------------------
 echo
-echo "== a manifest \`crate\` NEVER runs cargo =="
-# --------------------------------------------------------------------
-# `--crate DIR` on the command line runs cargo when no archive exists,
-# because a command line is a person asking. `axiom.pkg` arrives with a
-# clone, and the compiler executes no code from a source file
-# (docs/ffi.md), so a manifest `crate` must not run cargo.
-#
-# The check is a pair. The manifest build must leave `target/` absent,
-# and the same directory passed as `--crate` must create it. Without
-# the second half, a fixture cargo could never build would pass.
-if ! command -v cargo > /dev/null 2>&1; then
-  echo "skip: cargo not on PATH - the no-execution ablation needs it for its"
-  echo "      POSITIVE control (\`--crate\` must create target/). The half that"
-  echo "      matters is unchecked here on this machine."
-else
-  pf="$work/pf"
-  mkdir -p "$pf/fresh/src" "$pf/fresh/axiom"
-  cat > "$pf/fresh/Cargo.toml" <<'EOF'
-[package]
-name = "axiom-fresh"
-version = "0.1.0"
-edition = "2021"
-
-[lib]
-crate-type = ["staticlib"]
-
-[workspace]
-EOF
-  cat > "$pf/fresh/src/lib.rs" <<'EOF'
-#[no_mangle]
-pub extern "C" fn axffi_fresh_answer(bump: i64) -> i64 { 41 + bump }
-EOF
-  mod "$pf/fresh/axiom" Fresh 1
-  cat > "$pf/app.ax" <<'EOF'
-(pub extern "axiom_fresh"
-  (freshAnswer :: (-> Int Int) (symbol "axffi_fresh_answer")))
-
-;@axiom:effect(io)
-(:: main Int)
-
-;@axiom:effect(unsafe)
-(fn (main) (freshAnswer 1))
-EOF
-  cat > "$pf/axiom.pkg" <<'EOF'
-name  fresh
-crate fresh
-EOF
-  set +e
-  out="$( cd "$pf" && "$axc" build app.ax --output prog 2>&1 )"
-  got=$?
-  set -e
-  if (( got != 0 )) && grep -q 'AX4004' <<<"$out" && [[ ! -e "$pf/prog" ]]; then
-    ok "an unbuilt manifest crate is AX4004 and writes no executable (exit $got)"
-  else
-    bad "an unbuilt manifest crate did not refuse as expected (exit $got)"
-    printf '%s\n' "$out" | sed 's/^/     /' | head -6
-  fi
-  [[ ! -e "$pf/fresh/target" ]] \
-    && ok "...and fresh/target does not exist: the manifest ran no build system" \
-    || bad "fresh/target was created from a MANIFEST line - the compiler executed another project's build system"
-
-  # The positive control: same directory, same compiler, one flag.
-  set +e
-  ( cd "$pf" && "$axc" build app.ax --output prog2 --crate fresh ) >"$work/pf.log" 2>&1
-  got=$?
-  set -e
-  if (( got == 0 )) && [[ -d "$pf/fresh/target" ]]; then
-    ok "\`--crate\` on the SAME directory does run cargo and creates fresh/target"
-  else
-    bad "--crate did not build the crate (exit $got) - the ablation above proves nothing"
-    sed 's/^/     /' "$work/pf.log" | head -6
-  fi
-  set +e
-  ( cd "$pf" && ./prog2 ); got=$?
-  set -e
-  [[ "$got" == 42 ]] && ok "and the program it built answers 42 through the archive" \
-                     || bad "./prog2 exited $got, expected 42"
-
-  # ...and now the manifest alone is enough, because the archive exists.
-  # Build the crate once, and the manifest carries it from then on.
-  set +e
-  ( cd "$pf" && "$axc" build app.ax --output prog3 ) >"$work/pf3.log" 2>&1
-  got=$?
-  set -e
-  if (( got == 0 )); then
-    set +e
-    ( cd "$pf" && ./prog3 ); got=$?
-    set -e
-    [[ "$got" == 42 ]] && ok "with the archive built, the manifest alone links and runs it (42)" \
-                       || bad "./prog3 exited $got, expected 42"
-  else
-    bad "the manifest alone did not build once the archive existed (exit $got)"
-    sed 's/^/     /' "$work/pf3.log" | head -6
-  fi
-fi
-
-# --------------------------------------------------------------------
-echo
 echo "== a project with no manifest is unaffected =="
 # --------------------------------------------------------------------
 # Most builds in this repository have no manifest. The manifest walk
@@ -776,12 +643,10 @@ if (( failed > 0 )); then
   echo "check-packages: $failed of $((checks + failed)) checks failed"
   exit 1
 fi
-echo "check-packages: $checks checks - a project declares its dependencies,"
-echo "                including a native one with \`crate\`; its own directory"
-echo "                still wins; two dependencies providing one module are"
-echo "                refused rather than ordered, nested ones included, and so"
-echo "                is one that would displace a standard-library module; a"
-echo "                line that means nothing is refused at its line number"
-echo "                rather than ignored; \`name\` is the file \`build\` writes;"
-echo "                and a manifest \`crate\` runs no build system, where the"
-echo "                command-line \`--crate\` beside it does"
+echo "check-packages: $checks checks - a project declares its dependencies;"
+echo "                its own directory still wins; two dependencies providing"
+echo "                one module are refused rather than ordered, nested ones"
+echo "                included, and so is one that would displace a standard-"
+echo "                library module; a line that means nothing is refused at its"
+echo "                line number rather than ignored; \`name\` is the file \`build\`"
+echo "                writes; and package kinds select executables or archives"

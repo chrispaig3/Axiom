@@ -1,7 +1,6 @@
 (import core)
 (import driver)
 (import IO)
-(import Err)
 (import Sys)
 (import Str)
 (import Vec)
@@ -13,56 +12,24 @@
     ((None) (println "None"))
     ((Some index) (println "Some {index}"))))
 
-(:: showCargo (-> (Result (Option String) Error) ()))
-;@axiom:effect(io)
-(fn (showCargo value)
-  (match value
-    ((Err e)
-      {
-        (let code (errCode e))
-        (println "Err {code}")
-      }
-    )
-    ((Ok None) (println "Ok None"))
-    ((Ok (Some name))
-      {
-        (let n (strLen name))
-        (println "Ok Some {n}:{name}")
-      }
-    )))
-
 (:: main Int)
 ;@axiom:effect(io)
-;@axiom:effect(spawn)
-;@axiom:effect(block)
 (fn (main)
   {
-    (let mode (sysArg 1))
-    (if (strEq mode "find")
-      {
-        (showIndex (strFindSub "ababa" "aba" 0))
-        (showIndex (strFindSub "ababa" "aba" 1))
-        (showIndex (strFindSub "ababa" "aba" 3))
-        (showIndex (strFindSub "abc" "" 0))
-        (showIndex (strFindSub "abc" "" 3))
-        (showIndex (strFindSub "abc" "" (- 0 1)))
-        (showIndex (strFindSub "abc" "" 4))
-        (showIndex (asmAtLine "bad at line 0"))
-        (showIndex (asmAtLine "bad"))
-        (println (asmBeforeAtLine "bad at line 0"))
-        (println (asmBeforeAtLine "bad"))
-        (println (irWindowsTarget "target triple = \"aarch64-pc-windows-msvc\""))
-        (println (irTargetIsBaremetal "target triple = \"aarch64-unknown-none-elf\""))
-        (println (irTargetIsBaremetal "target triple = \"x86_64-pc-windows-msvc\""))
-        (println (vecLen (externLibsOf "\n; axiom-extern-lib demo\n")))
-        0
-      }
-      (if (strEq mode "cargo")
-        {
-          (showCargo (cargoPackageName (sysArg 2)))
-          0
-        }
-        (if (strEq mode "prepare")
-          (prepareCrate (sysArg 2))
-          2)))
+    (showIndex (strFindSub "ababa" "aba" 0))
+    (showIndex (strFindSub "ababa" "aba" 1))
+    (showIndex (strFindSub "ababa" "aba" 3))
+    (showIndex (strFindSub "abc" "" 0))
+    (showIndex (strFindSub "abc" "" 3))
+    (showIndex (strFindSub "abc" "" (- 0 1)))
+    (showIndex (strFindSub "abc" "" 4))
+    (showIndex (asmAtLine "bad at line 0"))
+    (showIndex (asmAtLine "bad"))
+    (println (asmBeforeAtLine "bad at line 0"))
+    (println (asmBeforeAtLine "bad"))
+    (println (irWindowsTarget "target triple = \"aarch64-pc-windows-msvc\""))
+    (println (irTargetIsBaremetal "target triple = \"aarch64-unknown-none-elf\""))
+    (println (irTargetIsBaremetal "target triple = \"x86_64-pc-windows-msvc\""))
+    (println (vecLen (externLibsOf "\n; axiom-extern-lib demo\n")))
+    0
   })

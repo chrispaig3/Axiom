@@ -98,7 +98,6 @@ stdlib/Crypto/Sha3.ax
 stdlib/Crypto/X25519.ax
 stdlib/Err.ax
 stdlib/Fallible.ax
-stdlib/Ffi.ax
 stdlib/Float.ax
 stdlib/Fmt.ax
 stdlib/IO.ax

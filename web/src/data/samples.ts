@@ -68,7 +68,7 @@ export interface Program {
   client?: { command: string; exchange: [string, string][] }
   /** Compiler options, placed before the input file. */
   flags?: string[]
-  /** A crate directory, relative to the repository, passed as `--crate`. */
+  /** A Rust crate directory that `axiom-oxide prepare` builds. */
   crate?: string
   /** For a program that calls Rust: the crate side, quoted verbatim. */
   rust?: { path: string; code: string }
@@ -79,10 +79,14 @@ export interface Program {
 const LIB = 'https://github.com/chrispaig3/Axiom/blob/stable/'
 const REF = `${LIB}docs/reference.md`
 
-/** The shell command that produced a program's output. */
+/** The shell commands that produced a program's output. */
 export function commandFor(p: Program): string {
   const verb = p.mode === 'serve' ? 'run' : (p.mode ?? 'run')
-  return `axiom ${verb}${p.flags?.length ? ` ${p.flags.join(' ')}` : ''} ${p.file}${p.crate ? ` --crate ${p.crate}` : ''}`
+  const command = `axiom ${verb}${p.flags?.length ? ` ${p.flags.join(' ')}` : ''} ${p.file}`
+  if (!p.crate) return command
+  return `axiom-oxide prepare --crate ${p.crate} --release\n` +
+    `AXIOM_PATH=${p.crate}/axiom:pkg/axiom-oxide/axiom ` +
+    `AXIOM_LINK_SEARCH=pkg/axiom-oxide/target/release ${command}`
 }
 
 /**
@@ -1242,13 +1246,13 @@ job 3: 9`,
     file: "rusty.ax",
     tab: "Calling Rust",
     title: "Rust, one extern away",
-    lede: "Mark Rust functions `#[axiom_export]` and `axiom-bindgen` writes the Axiom module for them. `--crate` builds the archive and links it. This caller vouches for the direct scalar extern call with `effect(unsafe)`.",
+    lede: "Mark Rust functions `#[axiom_export]` and `axiom-oxide prepare` writes their Axiom module and builds the archive. This caller vouches for the direct scalar extern call with `effect(unsafe)`.",
     points: [
       { at: "(let loud (shout \"ships a binary\"))", text: "`shout` takes a borrowed string and returns an owned one." },
       { at: "(let c (counterNew 40))", text: "`Counter` is an opaque Rust value behind a counted handle, dropped with its last reference." },
       { at: "(match (parseInt \"12x\")", text: "`parseInt` returns a Rust `Result`, matched like any Axiom one." },
     ],
-    crate: "rust/examples/demo",
+    crate: "pkg/axiom-oxide/examples/demo",
     docs: { label: "The FFI guide", href: `${LIB}docs/ffi.md` },
     output: `shout:   SHIPS A BINARY!
 hypot:   5.0
@@ -1258,7 +1262,7 @@ Err:     invalid digit found in string`,
 (import Demo)
 
 ; Demo is the module axiom-bindgen writes from the crate's
-; #[axiom_export] functions; --crate builds and links its archive.
+; #[axiom_export] functions; axiom-oxide prepare builds its archive.
 (:: main ())
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
@@ -1281,7 +1285,7 @@ Err:     invalid digit found in string`,
     }
   })`,
     rust: {
-      path: 'rust/examples/demo/src/lib.rs',
+      path: 'pkg/axiom-oxide/examples/demo/src/lib.rs',
       code: `#[axiom_export]
 pub fn hypot(x: f64, y: f64) -> f64 {
     (x * x + y * y).sqrt()

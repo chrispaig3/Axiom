@@ -26,7 +26,6 @@
 (import namespace)
 (import codegen)
 (import driver)
-(import rustbind)
 (import format)
 (import fmtcli)
 (import explain)
@@ -330,61 +329,19 @@
     }
   })
 
-; Binding accessors are generated from checked nominal types, then
-; checked with the module. This preserves aliases and module identities
-; across both the archive and the Rust file.
-(:: checkWithBindingShims (-> (Vec ASTNode) (Vec ASTNode) Units Frames Names CheckedResult))
+; The default build product: an executable for a binary package, or a
+; native static archive for a library package.
+(:: packageBuildOutput (-> String String))
 ;@axiom:effect(io)
-(fn (checkWithBindingShims decls allDecls units ftbl pubNames)
-  (match (flagValue "--emit-rust-binding" 1)
-    ((None) (checkWithFrames decls allDecls units ftbl))
-    ((Some bindingPath)
-      (if (== (strLen bindingPath) 0)
-        (checkWithFrames decls allDecls units ftbl)
-        {
-          (let tc (checkModuleTcTyped decls allDecls units))
-          {
-            (let ds (nolintQuietDiags decls (tcOutVec tc)))
-            {
-              (expAttachFrames ds ftbl units)
-              (if (> (countErrorDiags ds) 0)
-                (CheckedResult :diagnostics ds :program None)
-                {
-                  (let collision (rbCollisionName decls pubNames))
-                  (if (> (strLen collision) 0)
-                    {
-                      (vecPush ds
-                        (mkDiag SEV_ERROR "AX3006" "duplicate-definition" 0
-                          (concat "generated Rust accessor names collide for `"
-                            (concat collision "`"))
-                          None
-                          (Some
-                            "rename one of the source types so its generated accessor names are distinct")))
-                      (CheckedResult :diagnostics ds :program None)
-                    }
-                    {
-                      (let first (vecLen decls))
-                      {
-                        (rbAppendShims decls pubNames)
-                        {
-                          (let mut i first)
-                          (while (< i (vecLen decls))
-                            {
-                              {
-                                (let d (vecGet decls i))
-                                (if (!= (nodeTag d) TAG_D_IMPORT)
-                                  (vecPush allDecls d))
-                              }
-                              (set i (+ i 1))
-                            })
-                        }
-                        (checkWithFrames decls allDecls units ftbl)
-                      }
-                    })
-                })
-            }
-          }
-        })
+(fn (packageBuildOutput input)
+  (match (pkgName (pathDir input))
+    ((None) "output")
+    ((Some name)
+      (if (== (strLen name) 0)
+        "output"
+        (if (pkgIsLibrary (pathDir input))
+          (concat "lib" (concat name ".a"))
+          name))
     )))
 
 (:: attachTcFrames (-> (Vec ASTNode) TC Frames Units Diags))
@@ -512,12 +469,12 @@
     }
   })
 
-(:: timedCheck (-> Nodes Nodes Units Frames Names CheckedResult))
+(:: timedCheck (-> Nodes Nodes Units Frames CheckedResult))
 ;@axiom:effect(io)
-(fn (timedCheck decls allDecls units ftbl pubNames)
+(fn (timedCheck decls allDecls units ftbl)
   {
     (let t (phaseNow))
-    (let r (checkWithBindingShims decls allDecls units ftbl pubNames))
+    (let r (checkWithFrames decls allDecls units ftbl))
     {
       (phaseLog "check" t)
       r
@@ -558,9 +515,6 @@
 ;@axiom:effect(block)
 ;@axiom:effect(entropy)
 (pub fn (compileFileFrom fileName tname doEmit needMain transient)
-  ; `--crate DIR` first: a stale or missing binding module is
-  ; regenerated and a missing archive built, before the module
-  ; search that would otherwise report them missing
   ; The project manifest is verified BEFORE anything is read, so a
   ; dependency directory that is not there, or two of them providing
   ; one module, is reported once and against `axiom.pkg` - rather
@@ -583,7 +537,6 @@
         (unwrapOr (removeFile fileName) 0)
         0))
     (let dfmt diagFormatArg)
-    (let _crates prepareCrates)
     (let _pkg (pkgVerify (pathDir fileName)))
     (let _shadow (pkgCheckStdlibShadow (pathDir fileName)))
     (if (!= rerr 0)
@@ -659,11 +612,6 @@
                 ; `ubuntu-latest`. `Host` is a per-target module selected
                 ; when this compiler was compiled, so the answer is
                 ; whatever it was built for.
-                ; what the entry file wrote `pub`, before import
-                ; resolution rewrites visibility (rustbind.ax)
-                ; and, for a binding, the accessor shims the
-                ; binding calls, synthesised into this module
-                ; before it is resolved, checked and compiled
                 ; Unit 0 is the entry file; `resolveImports` appends
                 ; one per module it reads, and every diagnostic names
                 ; the unit its spans index.
@@ -678,10 +626,6 @@
                   (let decls parsedValue1)
                   {
                     (let tcode (checkedTargetCode tname))
-                    (let pubFns (rbPubNames parsedValue1))
-                    (if (let (Some bindingPath) (flagValue "--emit-rust-binding" 1))
-                      (if (> (strLen bindingPath) 0)
-                        (vecPush decls (mkDImportAt "Vec" vecNew 0))))
                     (let bares vecNew)
                     (let fulls vecNew)
                     (let mods vecNew)
@@ -746,7 +690,7 @@
                             ; does; the AXDL gate never saw it because its
                             ; grep keeps only `^[EWNH] ` lines.
                             {
-                              (let checked (timedCheck decls allDecls units ftbl pubFns))
+                              (let checked (timedCheck decls allDecls units ftbl))
                               (let ds (orderDiags (expMergeInto eds checked.diagnostics)))
                               {
                                 (if (> (vecLen ds) 0)
@@ -805,10 +749,6 @@
                                       ; `extern` symbol it calls grounded
                                       ; against the link line, reported at
                                       ; the item that declared it
-                                      ; `--emit-rust-binding PATH` beside an
-                                      ; archive: the Rust view of this file's
-                                      ; `pub` surface, written from the same
-                                      ; declarations the IR came from
                                       ; `--threads`, or a `__thread_spawn`, on a target with no thread
                                       ; runtime: refused here, before any IR is written, as
                                       ; AX4006. `parThreadsRefused` is codegen's own
@@ -888,53 +828,20 @@
                                                     units)))
                                               emitted
                                             })
-                                          {
-                                            (if (== needMain 0)
-                                              (if (let (Some bp) (flagValue "--emit-rust-binding" 1))
-                                                (if (> (strLen bp) 0)
-                                                  (if (isErr
-                                                        (writeFile bp
-                                                          (rustBindingOf decls pubFns fileName)))
-                                                    (die
-                                                      (concat "error: could not write "
-                                                        (concat bp "\n"))
-                                                      1)
-                                                    ; laid out by `rustfmt` when one is on
-                                                    ; PATH, so a checked-in copy is the
-                                                    ; formatted one; without it the file is
-                                                    ; as generated, and still compiles
-                                                    {
-                                                      (let _
-                                                        (runToolQuiet "rustfmt"
-                                                          {
-                                                            (let v vecNew)
-                                                            {
-                                                              (vecPush v "--edition")
-                                                              (vecPush v "2021")
-                                                              (vecPush v "--quiet")
-                                                              (vecPush v bp)
-                                                              v
-                                                            }
-                                                          }))
-                                                      (replOut
-                                                        (concat "Rust binding written to "
-                                                          (concat bp "\n")))
-                                                    }))))
-                                            (if (== needMain 1)
-                                              {
-                                                (let grc
-                                                  (groundExternsSpanned ir allDecls units dfmt
-                                                    (effectiveLinkArgs ir (pathDir fileName)
-                                                      linkArgsOf)))
-                                                (if (!= grc 0)
-                                                  {
-                                                    (sysExitWith grc)
-                                                    ""
-                                                  }
-                                                  ir)
-                                              }
-                                              ir)
-                                          }
+                                          (if (== needMain 1)
+                                            {
+                                              (let grc
+                                                (groundExternsSpanned ir allDecls units dfmt
+                                                  (effectiveLinkArgs ir (pathDir fileName)
+                                                    linkArgsOf)))
+                                              (if (!= grc 0)
+                                                {
+                                                  (sysExitWith grc)
+                                                  ""
+                                                }
+                                                ir)
+                                            }
+                                            ir)
                                         }))))
                               }
                             }
@@ -1826,8 +1733,8 @@
 
 (pub :: newProjectManifest (-> String String))
 (pub fn (newProjectManifest name)
-  (concat (concat "name     " (concat name "\nversion  0.1.0\n"))
-    "# `depend` names a directory of modules (or a git URL to check out\n# under `.axiom/deps/`), `crate` a native crate directory, `opt` the\n# default optimisation level (0-3) and `main` the entry file.\n# depend  vendor/lib\n# opt     1\n"))
+  (concat (concat "name     " (concat name "\nversion  0.1.0\nkind     binary\n"))
+    "# `depend` names a directory of modules (or a git URL to check out\n# under `.axiom/deps/`). `opt` is the default optimisation level (0-3),\n# `main` the entry file and `kind` either `binary` or `library`.\n# depend  vendor/lib\n# opt     1\n"))
 
 ; The manifest-mode entry file for `build` and `run`: the manifest's
 ; `main` resolved against the manifest's own directory, else `Main.ax`
@@ -2322,36 +2229,17 @@
                                 (Some value)
                                 (flagValue "-o" 1))
                             ))
-                            ((None)
-                              {
-                                (let nm (pkgName (pathDir inp)))
-                                (match nm
-                                  ((None) "output")
-                                  ((Some nm)
-                                    (if (> (strLen nm) 0)
-                                      nm
-                                      "output")
-                                  ))
-                              }
-                            )
+                            ((None) (packageBuildOutput inp))
                             ((Some value)
                               (if (> (strLen value) 0)
                                 value
-                                {
-                                  (let nm (pkgName (pathDir inp)))
-                                  (match nm
-                                    ((None) "output")
-                                    ((Some nm)
-                                      (if (> (strLen nm) 0)
-                                        nm
-                                        "output")
-                                    ))
-                                })
+                                (packageBuildOutput inp))
                             )))
                         {
                           (let ir
                             (compileFile inp (targetArg hostTarget) 1
-                              (if (hasFlagAnywhere (Some cmd) "--emit-staticlib")
+                              (if (|| (hasFlagAnywhere (Some cmd) "--emit-staticlib")
+                                    (pkgIsLibrary (pathDir inp)))
                                 0
                                 1)))
                           {
@@ -2626,85 +2514,89 @@
                               ((Some f)
                                 (if (== (strLen f) 0)
                                   (die "error: run needs an input file\n" 1)
-                                  ; Unlike stage0, `run` optimises. stage0 pins its `run` at
-                                  ; --opt 0, which is survivable for a small program and is
-                                  ; not for this compiler: without `opt`'s tail-call pass a
-                                  ; stage2 compiling its own source overflows its stack. A
-                                  ; `run` that cannot run the compiler is a `run` that fails
-                                  ; on the largest Axiom program there is.
-                                  ; The scratch name carries this process's pid, the way
-                                  ; `replEval` names its own (repl.ax) and for the reason
-                                  ; `sysPid` is documented with in `Sys.ax`: "so two
-                                  ; concurrent processes cannot collide".
-                                  ;
-                                  ; It used to be the fixed literal `axiom_temp_output` in
-                                  ; the working directory, and `buildToExecutable` derives
-                                  ; `<name>.ll`, `<name>.o` and `<name>.opt.ll` from it - so
-                                  ; two `axiom run`s in one directory wrote over each
-                                  ; other's intermediates and each unlinked the other's.
-                                  ; That does not present as a collision; it presents as a
-                                  ; miscompile, because what fails is a later stage reading
-                                  ; a file some other process already replaced or removed.
-                                  ;
-                                  ; Measured the hard way rather than reasoned about: probe
-                                  ; programs run from the repository root while a gate
-                                  ; battery was running there returned uniformly wrong exit
-                                  ; codes, and running them from a scratch directory fixed
-                                  ; it with no other change.
-                                  ;
-                                  ; `buildToExecutable` needs no such change: its
-                                  ; intermediates already track `--output`, so two builds
-                                  ; collide only when they were asked for the same output,
-                                  ; which collides on the executable regardless.
-                                  ;
-                                  ; The optimisation level is `optLevelArg`, the same one
-                                  ; `build` passes. It was the literal `1` until 2026-08-24,
-                                  ; so `--opt` was accepted here, validated here, and then
-                                  ; discarded - `axiom run --opt 0 p.ax` and `--opt 3` both
-                                  ; built at `-O1`. Two documents said otherwise: OPTIONS
-                                  ; lists `--opt <0-3>` against "build, run", and `axiom
-                                  ; help run` prints it as a flag of this command.
-                                  ;
-                                  ; Measured on the one shape the level is known to move,
-                                  ; MM-EXEC-6c's mutual tail call, which is flattened only
-                                  ; at `--opt 1` and above: two functions calling each other
-                                  ; 2,000,000 deep. Before, `--opt 0` and `--opt 3` both
-                                  ; exited 1 - the answer - because both were `-O1`. After,
-                                  ; `--opt 0` exits 139 on a stack it really did overflow
-                                  ; and `--opt 3` still exits 1. The flag now selects
-                                  ; something rather than being validated and dropped.
-                                  ;
-                                  ; `--target` is deliberately NOT threaded through: the
-                                  ; next thing this command does is execute what it built,
-                                  ; and a foreign binary does not run here. `build` is where
-                                  ; a cross-target artefact is asked for.
-                                  {
-                                    (let ir (compileFile f hostTarget 1 1))
+                                  (if (pkgIsLibrary (pathDir f))
+                                    (die
+                                      "error: cannot run a library package; use `axiom build` to produce its archive\n"
+                                      1)
+                                    ; Unlike stage0, `run` optimises. stage0 pins its `run` at
+                                    ; --opt 0, which is survivable for a small program and is
+                                    ; not for this compiler: without `opt`'s tail-call pass a
+                                    ; stage2 compiling its own source overflows its stack. A
+                                    ; `run` that cannot run the compiler is a `run` that fails
+                                    ; on the largest Axiom program there is.
+                                    ; The scratch name carries this process's pid, the way
+                                    ; `replEval` names its own (repl.ax) and for the reason
+                                    ; `sysPid` is documented with in `Sys.ax`: "so two
+                                    ; concurrent processes cannot collide".
+                                    ;
+                                    ; It used to be the fixed literal `axiom_temp_output` in
+                                    ; the working directory, and `buildToExecutable` derives
+                                    ; `<name>.ll`, `<name>.o` and `<name>.opt.ll` from it - so
+                                    ; two `axiom run`s in one directory wrote over each
+                                    ; other's intermediates and each unlinked the other's.
+                                    ; That does not present as a collision; it presents as a
+                                    ; miscompile, because what fails is a later stage reading
+                                    ; a file some other process already replaced or removed.
+                                    ;
+                                    ; Measured the hard way rather than reasoned about: probe
+                                    ; programs run from the repository root while a gate
+                                    ; battery was running there returned uniformly wrong exit
+                                    ; codes, and running them from a scratch directory fixed
+                                    ; it with no other change.
+                                    ;
+                                    ; `buildToExecutable` needs no such change: its
+                                    ; intermediates already track `--output`, so two builds
+                                    ; collide only when they were asked for the same output,
+                                    ; which collides on the executable regardless.
+                                    ;
+                                    ; The optimisation level is `optLevelArg`, the same one
+                                    ; `build` passes. It was the literal `1` until 2026-08-24,
+                                    ; so `--opt` was accepted here, validated here, and then
+                                    ; discarded - `axiom run --opt 0 p.ax` and `--opt 3` both
+                                    ; built at `-O1`. Two documents said otherwise: OPTIONS
+                                    ; lists `--opt <0-3>` against "build, run", and `axiom
+                                    ; help run` prints it as a flag of this command.
+                                    ;
+                                    ; Measured on the one shape the level is known to move,
+                                    ; MM-EXEC-6c's mutual tail call, which is flattened only
+                                    ; at `--opt 1` and above: two functions calling each other
+                                    ; 2,000,000 deep. Before, `--opt 0` and `--opt 3` both
+                                    ; exited 1 - the answer - because both were `-O1`. After,
+                                    ; `--opt 0` exits 139 on a stack it really did overflow
+                                    ; and `--opt 3` still exits 1. The flag now selects
+                                    ; something rather than being validated and dropped.
+                                    ;
+                                    ; `--target` is deliberately NOT threaded through: the
+                                    ; next thing this command does is execute what it built,
+                                    ; and a foreign binary does not run here. `build` is where
+                                    ; a cross-target artefact is asked for.
                                     {
-                                      (let base (concat "axiom_temp_output." (fmtInt sysPid)))
+                                      (let ir (compileFile f hostTarget 1 1))
                                       {
-                                        (let exe (concat "./" (concat base (hostExeSuffix))))
+                                        (let base (concat "axiom_temp_output." (fmtInt sysPid)))
                                         {
-                                          (let rc
-                                            (buildToExecutable ir base (optLevelArg (pathDir f)) 0
-                                              (effectiveLinkArgs ir (pathDir f) linkArgsOf)))
-                                          (if (!= rc 0)
-                                            (die "" rc)
-                                            {
-                                              (let code (sysRunPath exe (runArgv exe) sysEnvp))
+                                          (let exe (concat "./" (concat base (hostExeSuffix))))
+                                          {
+                                            (let rc
+                                              (buildToExecutable ir base (optLevelArg (pathDir f))
+                                                0 (effectiveLinkArgs ir (pathDir f) linkArgsOf)))
+                                            (if (!= rc 0)
+                                              (die "" rc)
                                               {
-                                                (unwrapOr (removeFile exe) 0)
-                                                ; `Err` means the child never
-                                                ; ran: exit 4, the toolchain
-                                                ; code. `Ok` is its answer.
-                                                (sysExitWith (unwrapOr code 4))
-                                                0
-                                              }
-                                            })
+                                                (let code (sysRunPath exe (runArgv exe) sysEnvp))
+                                                {
+                                                  (unwrapOr (removeFile exe) 0)
+                                                  ; `Err` means the child never
+                                                  ; ran: exit 4, the toolchain
+                                                  ; code. `Ok` is its answer.
+                                                  (sysExitWith (unwrapOr code 4))
+                                                  0
+                                                }
+                                              })
+                                          }
                                         }
                                       }
-                                    }
-                                  })
+                                    }))
                               ))
                           }
                           (if (strEq cmd "test")

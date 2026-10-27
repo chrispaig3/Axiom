@@ -11,7 +11,7 @@ import tempfile
 
 def check(compiler, root, work, modules):
     source = {name: (root / 'core' / (name + '.ax')).read_text()
-              for name in ('core', 'symbols', 'codegen', 'typecheck', 'expand', 'rustbind')}
+              for name in ('core', 'symbols', 'codegen', 'typecheck', 'expand')}
     for name, text in source.items():
         assert (modules / (name + '.ax')).read_text() == text, (name, 'stale dependency source')
     env = dict(os.environ, AXIOM_STDLIB=str(root / 'stdlib'), AXIOM_PATH=str(modules))

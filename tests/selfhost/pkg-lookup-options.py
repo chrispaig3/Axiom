@@ -27,7 +27,7 @@ MANIFESTS = {
     'bad-name': 'name ../escape\n',
     'bad-key': 'nmae typo\n',
     'bad-depend': 'depend absent\n',
-    'dependencies': 'depend one\ndepend\ndepend two\ncrate third\n',
+    'dependencies': 'depend one\ndepend\ndepend two\n',
     'read-failure': 'DIRECTORY',
 }
 
@@ -165,7 +165,7 @@ def check(compiler, root, work, baseline=None):
         ('duplicates', '', './axiom.pkg', 'first', 0, './Main.ax', []),
         ('bad-opt', '', './axiom.pkg', 'okay', -1, './Main.ax', []),
         ('read-failure', '', './axiom.pkg', None, None, './Main.ax', []),
-        ('dependencies', '', './axiom.pkg', None, None, './Main.ax', ['./one/', './two/', './third/axiom/']),
+        ('dependencies', '', './axiom.pkg', None, None, './Main.ax', ['./one/', './two/']),
         ('nearest/child', '', './axiom.pkg', 'child', None, './Main.ax', []),
     ]
     for depth in (8, 9):

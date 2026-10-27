@@ -30,7 +30,7 @@ lspg_version() { grep -oE '"version":"[0-9]+\.[0-9]+\.[0-9]+"' | grep -oE '[0-9]
 sec_version()  { grep -oE 'The supported release is \*\*[0-9]+\.[0-9]+\.[0-9]+\*\*' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'; }
 
 # A `Cargo.lock` entry for a workspace member. Cargo derives it from
-# `rust/Cargo.toml`, but a bump that moves the manifest and not the lock
+# `pkg/axiom-oxide/Cargo.toml`, but a bump that moves the manifest and not the lock
 # leaves the two disagreeing until the next `cargo build`.
 #
 # `axiom-leaky` and `axiom-nostd` are example crates with their own
@@ -153,9 +153,9 @@ web/package.json|1|json_version|json_replace
 web/package-lock.json|2|npmlock_version|npmlock_replace
 core/build.ax|1|axv_version|axv_replace
 core/lsp.ax|1|lsp_version|lsp_replace
-rust/Cargo.toml|4|toml_version|toml_replace
-rust/Cargo.lock|7|lock_version|lock_replace
-rust/examples/nostd/Cargo.lock|4|lock_version|lock_replace
+pkg/axiom-oxide/Cargo.toml|4|toml_version|toml_replace
+pkg/axiom-oxide/Cargo.lock|7|lock_version|lock_replace
+pkg/axiom-oxide/examples/nostd/Cargo.lock|4|lock_version|lock_replace
 tree-sitter-axiom/package.json|1|json_version|json_replace
 tree-sitter-axiom/tree-sitter.json|1|json_version|json_replace
 editors/vscode/package.json|1|json_version|json_replace

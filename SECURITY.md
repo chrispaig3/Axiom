@@ -95,8 +95,8 @@ way in CI. See `CONTRIBUTING.md` and `bootstrap/README.md`.
 - **Windows as a host.** A compiler built for `windows-x86_64` runs on
   Windows, but Windows isn't a supported host. There is no Windows seed
   in `bootstrap/`, and `scripts/install.sh` refuses a Windows host.
-- **`rust/examples/`.** These crates exist to exercise the FFI tests.
-  They aren't shipped, and the compiler doesn't depend on them.
+- **`pkg/axiom-oxide/examples/`.** These crates exist to exercise the FFI
+  tests. The compiler doesn't depend on them or on the `axiom-oxide` tools.
 
 ## Threat boundaries
 

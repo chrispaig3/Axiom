@@ -1,6 +1,6 @@
 ; The tier that matters most: an FFI program that is STILL freestanding.
 ;
-; `rust/examples/nostd` is `#![no_std]` and its `alloc` is wired to
+; `pkg/axiom-oxide/examples/nostd` is `#![no_std]` and its `alloc` is wired to
 ; `axiom_alloc`. The six memory intrinsics the precompiled sysroot
 ; `alloc` rlib would otherwise import - memcpy, memmove, memset,
 ; memcmp, bzero, strlen - come from `axiom-ffi`'s `nostd-runtime`
@@ -16,7 +16,7 @@
 ; than merely printed, so a wrong byte-slice layout fails here instead
 ; of looking like a hash.
 ; The binding is IMPORTED rather than hand-declared. It used to be
-; hand-declared, and the consequence was that `rust/examples/nostd/axiom/Hash.ax`
+; hand-declared, and the consequence was that `pkg/axiom-oxide/examples/nostd/axiom/Hash.ax`
 ; - regenerated and diffed by this gate - was never compiled into a
 ; program: `repeatByte`, the only wrapper that reaches Rust's
 ; `alloc::vec!` through `axiom_alloc`, was generated, diffed, and never

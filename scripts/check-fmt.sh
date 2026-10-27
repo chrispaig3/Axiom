@@ -24,7 +24,7 @@
 # asserts that formatting changes no committed file. The formatter lays
 # a form out on one line when it fits 100 columns and breaks it when it
 # doesn't, so the whole tree reads one way. The generated bindings under
-# `rust/examples/*/axiom/` are held separately by section 1b, because
+# `pkg/axiom-oxide/examples/*/axiom/` are held separately by section 1b, because
 # their generator restates the formatter's layout rules in Rust.
 #
 # Usage:
@@ -50,8 +50,8 @@ mkdir -p "$copy"
 # `tar | tar` rather than `cp -r .` so the build directories and git
 # metadata stay out of the copy - formatting them is pointless and
 # copying a `target/` is gigabytes. `./target` was the deleted Rust
-# compiler's build directory; the live ones are `rust/target`, the
-# per-example targets under `rust/examples/*/target`, and `.axiom-bin`.
+# compiler's build directory; the live ones are `pkg/axiom-oxide/target`, the
+# per-example targets under `pkg/axiom-oxide/examples/*/target`, and `.axiom-bin`.
 #
 # `.claude/` IS EXCLUDED AND THAT IS NOT A CONVENIENCE. Agent worktrees
 # land at `.claude/worktrees/<run>-<n>/`, each a full checkout of this
@@ -71,8 +71,8 @@ mkdir -p "$copy"
 # red for a change that is correct here and stale there, which is
 # exactly what a grammar change did. Whatever a sweep means by "the
 # repository", it must not mean "whatever is under this directory".
-tar --exclude=./.git --exclude=./rust/target --exclude=./.axiom-bin \
-    --exclude='./rust/examples/*/target' --exclude=./node_modules \
+tar --exclude=./.git --exclude=./pkg/axiom-oxide/target --exclude=./.axiom-bin \
+    --exclude='./pkg/axiom-oxide/examples/*/target' --exclude=./node_modules \
     --exclude=./.claude/worktrees --exclude=./.muse/worktrees \
     --exclude=./tree-sitter-axiom/node_modules -cf - . | (cd "$copy" && tar -xf -)
 
@@ -94,7 +94,7 @@ for file in $(find "$copy" -name '*.ax' | sort); do
     continue
   fi
   case "$rel" in
-    tests/fmt/*|tests/fuzz/*|tree-sitter-axiom/*|rust/examples/*) continue ;;
+    tests/fmt/*|tests/fuzz/*|tree-sitter-axiom/*|pkg/axiom-oxide/examples/*) continue ;;
   esac
   grep -qxF "$rel" <<< "$exempt" && continue
   if ! cmp -s "$repo_root/$rel" "$file"; then
@@ -117,7 +117,7 @@ fi
 # form, which is the one place in this tree where that is a claim
 # rather than a preference.
 #
-# `rust/axiom-bindgen/src/sexp.rs` is a SECOND printer. Its header
+# `pkg/axiom-oxide/axiom-bindgen/src/sexp.rs` is a SECOND printer. Its header
 # says its output is "byte-for-byte what `axiom fmt` produces for it,
 # so a generated module is formatter-clean without shelling out to the
 # formatter", and it re-states this formatter's layout rules in Rust -
@@ -132,7 +132,7 @@ fi
 #
 # Measured while this was written: `axiom fmt` is a byte-identical
 # no-op on both committed bindings today, and a one-line change to
-# `fpApp` moves `rust/examples/demo/axiom/Demo.ax` by five lines. The
+# `fpApp` moves `pkg/axiom-oxide/examples/demo/axiom/Demo.ax` by five lines. The
 # claim is true, it is fragile in exactly the way a duplicated
 # implementation is, and this is what holds it.
 #
@@ -145,7 +145,7 @@ echo "== the generated bindings are fixed points of the formatter =="
 genfmt="$work/genfmt"
 mkdir -p "$genfmt"
 gen_n=0
-for gen in "$repo_root"/rust/examples/*/axiom/*.ax; do
+for gen in "$repo_root"/pkg/axiom-oxide/examples/*/axiom/*.ax; do
   [[ -e "$gen" ]] || continue
   gen_n=$((gen_n + 1))
   rel="${gen#"$repo_root"/}"
@@ -160,7 +160,7 @@ for gen in "$repo_root"/rust/examples/*/axiom/*.ax; do
     echo "ok   $rel is a fixed point of axiom fmt"
   else
     echo "FAIL $rel is NOT what axiom fmt produces for it."
-    echo "     rust/axiom-bindgen/src/sexp.rs claims to print exactly what this"
+    echo "     pkg/axiom-oxide/axiom-bindgen/src/sexp.rs claims to print exactly what this"
     echo "     formatter prints; one of the two printers has moved and the other"
     echo "     has not. Fix the printer, then regenerate - check-ffi.sh diffs the"
     echo "     committed bindings against a fresh generation."
@@ -197,7 +197,7 @@ for gen in "$repo_root"/rust/examples/*/axiom/*.ax; do
   fi
 done
 if (( gen_n < 2 )); then
-  echo "FAIL: found $gen_n generated bindings under rust/examples/*/axiom/, and the"
+  echo "FAIL: found $gen_n generated bindings under pkg/axiom-oxide/examples/*/axiom/, and the"
   echo "      tree has two - this loop is reading the wrong path"
   failed=$((failed + 1))
 else

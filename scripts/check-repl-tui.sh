@@ -482,7 +482,7 @@ done
 # and the display width, are a caller-supplied `wordChars` and
 # `tuiVisLen`. tests/selfhost/978-line-editor.ax sweeps both against the
 # compiler's own rules, so they cannot drift apart.
-compiler_mods="core|Host|lexer|parser|diag|render|typecheck|expand|codegen|driver|style|repl|symbols|namespace|explain|format|lsp|pkg|build|rustbind|main"
+compiler_mods="core|Host|lexer|parser|diag|render|typecheck|expand|codegen|driver|style|repl|symbols|namespace|explain|format|lsp|pkg|build|main"
 tui_leaks="$(LC_ALL=C grep -rhE "^\(import ($compiler_mods)\)" "$repo_root"/stdlib/Tui/*.ax | wc -l | tr -d ' ')"
 tui_files="$(ls "$repo_root"/stdlib/Tui/*.ax | wc -l | tr -d ' ')"
 if [[ "$tui_leaks" == 0 && "$tui_files" == 3 ]]; then

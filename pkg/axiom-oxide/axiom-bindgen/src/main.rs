@@ -20,7 +20,6 @@ usage: axiom-bindgen --src <dir> --lib <name> [--module <Name>] [-o <file.ax>]
   -o, --output <f>  where to write; omitted, the module goes to stdout
   --check <file>    regenerate and compare with <file>; exit 1 if it differs
   --quiet           with --check, report nothing: the exit status is the answer
-                    (what `axiom build --crate` asks, before it says what it does)
 
 The module imports Ffi (and Err when a Result wrapper exists), binds every
 pub #[axiom_export] fn and every hand-written `pub extern \"C\" fn axffi_*`,

@@ -1517,31 +1517,6 @@ malformed record, and the handlers that answer it without unwinding.
 | `fallibleCount` | value | `(-> FallibleTally Int)` |  |  | What a tally holds. |
 | `fallibleCounting` | value | `(-> FallibleTally (-> String Int) String Int)` | `Alloc,Mut` |  | Count every malformed record in `tally`, then answer as `next` would: `(fallibleCounting t fallibleSkip)` skips and counts, `(fallibleCounting t (fallibleDefault 0))` substitutes and counts. The `handle` installing it lists `Mut` beside `Fallible`, because a handler's own effects count at the site that installs it. |
 
-## `Ffi`
-
-`stdlib/Ffi.ax` — 16 public names
-
-Ffi - the Axiom half of the Rust boundary, in Axiom.
-
-| Name | Kind | Type | Effects | Contracts | Summary |
-|---|---|---|---|---|---|
-| `ffiStatusOk` | value | `Int` |  |  | The status word a Rust shim answers for success, 0. |
-| `ffiStatusErr` | value | `Int` |  |  | The status word a Rust shim answers for failure, 1. |
-| `ffiStatusNone` | value | `Int` |  |  | The status word a Rust shim answers for an absent value, 2. |
-| `ffiHandleNew` | value | `(-> Int Int Handle)` | `Alloc,Mut,Unsafe` |  | A fresh Handle over `ptr`, to be destroyed by the C function at `dropFn` (`i64 (i64)`). The block is born free-floating and adopted by this function's own answer (event 2), exactly as `rawStrWrapOwned` adopts a header - so the caller holds one share. `dropFn` must be the address of a destructor that takes `ptr` and frees it exactly once. |
-| `ffiHandlePtr` | value | `(-> Handle Int)` | `Unsafe` |  | The Rust pointer, 0 once the handle is closed. |
-| `ffiHandleLive` | value | `(-> Handle Bool)` |  |  | Whether the handle still owns a Rust object, that is, it has not been closed. |
-| `ffiHandleClose` | value | `(-> Handle Int)` | `Mut,Unsafe` |  | Destroy the Rust value NOW, once: the destructor runs and the pointer is zeroed, so a second close and the handle's own death do nothing. |
-| `ffiCellNew` | value | `Int` | `Alloc` |  | A two-word out-cell, zeroed, held by one share the wrapper gives back with `ffiCellFree`. |
-| `ffiCellNewN` | value | `(-> Int Int)` | `Alloc,Unsafe` |  | An out-cell of `n` words (at least two: a status' message is `{ptr, len}`), for a record that crosses as its fields (one word each, in declaration order) or any payload wider than two words. |
-| `ffiWordAt` | value | `(-> Int Int Int)` |  |  | Word `i` of a Rust-owned word buffer: what a generated wrapper reads a record's fields or a list's lengths through before freeing it. The same read as `ffiCellWord`, kept under its own name because the two describe different things to a reader of the generated module - one is Rust's buffer, one is the cell the wrapper allocated - and written in terms of it so there is one load. `p` must name a live buffer of at least `i` + 1 words. |
-| `ffiCellFree` | value | `(-> Int Int)` | `Unsafe` |  | Release the share returned by ffiCellNew/ffiCellNewN exactly once. `c` must be that live cell, with no outstanding foreign use of it. |
-| `ffiCellWord` | value | `(-> Int Int Int)` | `Unsafe` |  | `c` must name a live block of at least `i` + 1 words. |
-| `ffiBytesToStr` | value | `(-> Int Int String)` | `Alloc,Mut` |  | Rust-owned bytes copied into a fresh Axiom `String`. `strAlloc` reserves len+1 and zeroes it, so the NUL terminator is already there. Does NOT free the Rust side: the wrapper calls `ffiFreeBytes` after. `p` must name `n` live bytes. |
-| `ffiWordsToVec` | value | `(-> Int Int (Vec Int))` | `Alloc,Mut` |  | A Rust `Vec<i64>` copied into an Axiom `Vec`: `p` points at `n` words. Does NOT free the Rust side: the wrapper calls `ffiFreeWords`. |
-| `ffiStrsToVec` | value | `(-> Int Int (Vec String))` | `Alloc,Mut` |  | A Rust `Vec<String>` copied into an Axiom `Vec` of Strings: `p` points at `2n` words, `{bytesPtr, byteLen}` per element. Does NOT free the Rust side: the wrapper calls `ffiFreeStrList`. |
-| `ffiWordListsToVec` | value | `(-> Int Int (Vec (Vec Int)))` | `Alloc,Mut` |  | A Rust `Vec<Vec<T>>` of word scalars copied into an Axiom `Vec` of `Vec`s: `p` points at `2n` words, `{wordsPtr, len}` per inner list. Does NOT free the Rust side: the wrapper calls `ffiFreeWordLists`. |
-
 ## `Float`
 
 `stdlib/Float.ax` — 14 public names

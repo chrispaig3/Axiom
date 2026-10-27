@@ -73,7 +73,7 @@ axiom/
 ├── tests/         # the corpus: selfhost, diagnostics, stdlib, fmt,
 │                  #   frontend, lsp, repl, tools, docs, ffi
 ├── scripts/       # the gates; scripts/lib/gate.sh is their shared preamble
-├── rust/          # the FFI side: axiom-bindgen, axiom-ffi, axiom-abi,
+├── pkg/axiom-oxide/          # the FFI side: axiom-bindgen, axiom-ffi, axiom-abi,
 │                  #   the proc macros, and the example crates
 ├── tree-sitter-axiom/  # editor grammar, queries, tree-shape corpus
 └── docs/          # docs/diagnostics.md is the AXDL/AXSYM reference
@@ -259,7 +259,7 @@ message itself.
 
 Axiom has a standard library written in Axiom (`stdlib/`: `Pre`, `Mem`,
 `Str`, `Utf8`, `Vec`, `Map`, `Fmt`, `Err`, `Fallible`, `Intern`, `Sys`,
-`Path`, `IO`, `Ffi`, `Cereal`, `Rpc`, `Task`, `Net`, `Test`,
+`Path`, `IO`, `Cereal`, `Rpc`, `Task`, `Chan`, `Http`, `Test`,
 `Agent.Tags`, `Tui.Keys`, `Tui.Edit`, `Tui.Term`), built on the freestanding
 primitives `__syscall0`-`__syscall6`, `__load8`/`__store8`,
 `__load64`/`__store64`, `__alloc`, and `__addr`. Use it: `(import IO)`
@@ -288,7 +288,7 @@ A Rust binding is an `extern` BLOCK:
 and the program is built with the archive on the link line:
 
 ```bash
-axiom build --input p.ax --output p --link-lib axiom_demo --link-search rust/target/release
+axiom build --input p.ax --output p --link-lib axiom_demo --link-search pkg/axiom-oxide/target/release
 ```
 
 Rules that matter when writing one:
@@ -312,17 +312,18 @@ Rules that matter when writing one:
   `AX3004`. On the Axiom side that pointer is usually wrapped in a
   `Handle` — a counted block carrying the Rust destructor, so the Rust
   value dies when its last Axiom holder does — via `ffiHandleNew` in
-  `stdlib/Ffi.ax`.
+  `pkg/axiom-oxide/axiom/Ffi.ax`.
 - A shim returning bytes, or one that can fail, takes a trailing
   out-cell; its raw binding gets a `Raw` suffix and `axiom-bindgen`
   writes the Axiom wrapper. Do not hand-write those - regenerate.
 
-Prefer `axiom build --crate DIR` over hand-writing a block: the driver
-runs `axiom-bindgen` when the generated module is missing or older than
-`DIR/src`, runs `cargo build --release` when the archive is missing, and
-links it. `cargo run -p axiom-bindgen` and `cargo install --path
-rust/axiom-bindgen` are the by-hand routes; see `docs/ffi.md` and
-`rust/README.md`. `scripts/check-ffi.sh` is the gate, it enumerates
+Run `axiom-oxide prepare --crate DIR --release` to generate the module
+and build the archive. Then put `DIR/axiom` and `pkg/axiom-oxide/axiom`
+on `AXIOM_PATH`, and the archive's directory on `AXIOM_LINK_SEARCH` or
+pass `--link-search`. `cargo install --path pkg/axiom-oxide` and
+`cargo install --path pkg/axiom-oxide/axiom-bindgen` install the tools;
+see `docs/ffi.md` and `pkg/axiom-oxide/README.md`.
+`scripts/check-ffi.sh` is the gate, it enumerates
 permitted external symbols rather than forbidding all of them
 (`docs/memory-model.md` MM-FFI-5), and it *skips* when `cargo` is not on
 `PATH` rather than failing.
@@ -378,8 +379,11 @@ axiom --diagnostic-format=ai emit-llvm source.ax -o output.ll
 # Compile and run immediately (further ARGS are forwarded to the program)
 axiom --diagnostic-format=ai run source.ax
 
-# Build against a Rust crate: bindgen, cargo and the link line, together
-axiom --diagnostic-format=ai build --input source.ax --output program --crate /path/to/crate
+# Prepare a Rust crate, then link its archive through the ordinary paths
+axiom-oxide prepare --crate /path/to/crate --release
+AXIOM_PATH=/path/to/crate/axiom:pkg/axiom-oxide/axiom \
+AXIOM_LINK_SEARCH=/path/to/crate/target/release \
+axiom --diagnostic-format=ai build --input source.ax --output program
 
 # Start interactive REPL
 axiom repl --no-banner
@@ -601,5 +605,5 @@ When you encounter an error code in AXDL output:
 - Build the compiler with `./scripts/bootstrap-from-seed.sh --install
   .axiom-bin`. That path needs `llc` and `cc` and nothing else — no
   `cargo`, no `rustc`. The Rust toolchain is needed only for the FFI side
-  (`rust/`, `axiom-bindgen`, `scripts/check-ffi.sh`), which skips when
+  (`pkg/axiom-oxide/`, `axiom-bindgen`, `scripts/check-ffi.sh`), which skips when
   `cargo` is absent.

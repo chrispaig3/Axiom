@@ -91,9 +91,9 @@ symlinkSync(stdlib, join(work, 'stdlib'))
 const env = { ...process.env, AXIOM_STDLIB: 'stdlib' }
 
 /** Write `code` as `file` in the scratch directory and run `args`. */
-function ax(file, code, args) {
+function ax(file, code, args, environment = env) {
   writeFileSync(join(work, file), code.endsWith('\n') ? code : `${code}\n`)
-  const r = spawnSync(axiom, args, { cwd: work, env, encoding: 'utf8', timeout: 120_000 })
+  const r = spawnSync(axiom, args, { cwd: work, env: environment, encoding: 'utf8', timeout: 120_000 })
   return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '' }
 }
 
@@ -230,11 +230,33 @@ for (const p of programs) {
     }
     continue
   }
-  // A crate is passed exactly as `--crate` spells it on the page, made
-  // absolute: the driver builds and links the archive (cargo must be on
-  // PATH; with no cargo the build is refused as AX4004, and so is this).
-  const crate = p.crate ? ['--crate', join(repo, p.crate)] : []
-  const r = ax(p.file, p.code, [mode, ...(p.flags ?? []), p.file, ...crate])
+  let sampleEnv = env
+  if (p.crate) {
+    const crate = join(repo, p.crate)
+    const manifest = join(repo, 'pkg/axiom-oxide/Cargo.toml')
+    const tools = spawnSync('cargo', [
+      'build', '--quiet', '--manifest-path', manifest,
+      '-p', 'axiom-oxide', '-p', 'axiom-bindgen',
+    ], { cwd: repo, encoding: 'utf8', timeout: 120_000 })
+    if (tools.status !== 0) {
+      fail(what, `building axiom-oxide exited ${tools.status}\n${trimEnd(tools.stderr)}`)
+      continue
+    }
+    const prepared = spawnSync('cargo', [
+      'run', '--quiet', '--manifest-path', manifest, '-p', 'axiom-oxide', '--',
+      'prepare', '--crate', crate, '--release',
+    ], { cwd: repo, encoding: 'utf8', timeout: 120_000 })
+    if (prepared.status !== 0) {
+      fail(what, `axiom-oxide prepare exited ${prepared.status}\n${trimEnd(prepared.stderr)}`)
+      continue
+    }
+    sampleEnv = {
+      ...env,
+      AXIOM_PATH: `${join(crate, 'axiom')}:${join(repo, 'pkg/axiom-oxide/axiom')}`,
+      AXIOM_LINK_SEARCH: join(repo, 'pkg/axiom-oxide/target/release'),
+    }
+  }
+  const r = ax(p.file, p.code, [mode, ...(p.flags ?? []), p.file], sampleEnv)
   if (r.status !== 0) {
     fail(what, `axiom ${mode} exited ${r.status}\n${trimEnd(plain(r.stderr))}`)
     continue

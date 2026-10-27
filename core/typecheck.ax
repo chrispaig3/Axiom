@@ -4913,7 +4913,7 @@
       (regFn fns "__load64" (mkIntArrow 2))
       ; `(__call_word fn arg)`: call a C function `i64 (i64)` by its
       ; ADDRESS - the destructor word of a foreign-form block
-      ; (stdlib/Ffi.ax `ffiHandleClose`); the release runtime makes
+      ; (pkg/axiom-oxide/axiom/Ffi.ax `ffiHandleClose`); the release runtime makes
       ; the same call when such a block dies
       (regFn fns "__call_word" (mkIntArrow 2))
       (regFnEff2 fns "__resource_new"

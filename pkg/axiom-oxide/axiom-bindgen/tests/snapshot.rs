@@ -245,7 +245,7 @@ fn nested_fixture_shape() {
     assert!(fresh.contains(";   `doubleInPlace` writes `xs` in place, a Vec of Int;"));
     // Nested fallible results: the constructors nest, ffiStatusNone is
     // the middle branch. The status encoding is named rather than
-    // spelled 0/2 - stdlib/Ffi.ax exports the constants and the
+    // spelled 0/2 - axiom/Ffi.ax exports the constants and the
     // generator now emits them, so the protocol has one statement.
     assert!(fresh.contains("(pub :: maybeParse (-> String (Result (Option Int) String)))"));
     assert!(fresh.contains("(Ok (Some __p))"));

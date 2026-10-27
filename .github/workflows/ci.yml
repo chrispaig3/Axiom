@@ -43,7 +43,7 @@ on:
   workflow_dispatch:
 
 # No `env:` block. A repository-wide `RUSTFLAGS: -D warnings` isn't the
-# promise the FFI crates under `rust/` want, and reproducibility is gated
+# promise the FFI crates under `pkg/axiom-oxide/` want, and reproducibility is gated
 # by `scripts/check-reproducible.sh`.
 
 # Every job gets `contents: read`. Without this block a job holds the
@@ -1329,7 +1329,7 @@ jobs:
           SHARDS_RESULT: ${{ needs.test.result }}
         run: test "$SHARDS_RESULT" = success
 
-  # `rust/` is a cargo workspace with a trybuild suite and a bindgen
+  # `pkg/axiom-oxide/` is a cargo workspace with a trybuild suite and a bindgen
   # snapshot suite. `scripts/check-ffi.sh` is the gate
   # `docs/memory-model.md` MM-FFI-5 requires: it enumerates the external
   # symbols the FFI opens rather than forbidding all of them.
@@ -1357,11 +1357,11 @@ jobs:
           toolchain: stable
       # The declared minimum, installed beside stable, because a minimum
       # nothing builds on is a guess. The version is read from
-      # `rust/Cargo.toml` so the two can't disagree. `check-ffi.sh` fails
+      # `pkg/axiom-oxide/Cargo.toml` so the two can't disagree. `check-ffi.sh` fails
       # under CI without this toolchain, so deleting the step turns the
       # job red.
-      - name: Install the Rust minimum rust/Cargo.toml declares
-        run: rustup toolchain install "$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' rust/Cargo.toml)" --profile minimal
+      - name: Install the Rust minimum pkg/axiom-oxide/Cargo.toml declares
+        run: rustup toolchain install "$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' pkg/axiom-oxide/Cargo.toml)" --profile minimal
       - uses: ./.github/actions/provision
 
       # The three tiers the gate prices, the generated binding diffed

@@ -27,10 +27,8 @@
 (import Path)
 (import parser)
 (import codegen)
-; `effectiveLinkArgs` reads `axiom.pkg`'s `crate` lines. It arrived
-; here transitively through `codegen` already; naming it is what stops
-; a future tidy-up of `codegen`'s imports from breaking this file for
-; a reason nobody would look for here.
+; `effectiveLinkArgs` reads the environment's native link search path.
+; Naming the package module also keeps optimisation-level lookups explicit.
 (import pkg)
 (import build)
 (import diag)
@@ -1132,302 +1130,6 @@
     }
   })
 
-; ------------------------------------------------------------------
-; `--crate DIR`, the whole of it: before the program is compiled, each
-; crate's binding module is brought up to date with its source when
-; `axiom-bindgen` is on PATH (`cargo install --path rust/axiom-bindgen`
-; puts it there), and its archive is built when `cargo` is and the
-; archive is missing. Each step says what it ran on stderr. Neither
-; tool present, nothing happens and the ordinary diagnostics apply -
-; AX5001 for a missing module, AX4004 for a missing archive.
-;
-; The package name comes from `DIR/Cargo.toml`; the archive stem is
-; the name with `-` as `_`; the module is the stem of the one `.ax`
-; file in `DIR/axiom/`, or, for a fresh crate, the package name in
-; CamelCase with a leading `axiom-` dropped (`axiom-demo` -> `Demo`,
-; `greeter` -> `Greeter`).
-; ------------------------------------------------------------------
-(pub :: prepareCrates Int)
-;@axiom:effect(io)
-;@axiom:effect(spawn)
-;@axiom:effect(block)
-(pub fn (prepareCrates)
-  {
-    (let crates crateDirsOf)
-    {
-      (for i in 0..(vecLen crates)
-        (prepareCrate (vecGetStr crates i)))
-      0
-    }
-  })
-
-(pub :: prepareCrate (-> String Int))
-;@axiom:effect(io)
-;@axiom:effect(spawn)
-;@axiom:effect(block)
-(pub fn (prepareCrate dirIn)
-  {
-    (let dir (pathWithSlash dirIn))
-    (let manifest (concat dir "Cargo.toml"))
-    (match (cargoPackageName manifest)
-      ((Err e)
-        {
-          (writeStderrStr (readFailMsg manifest (errCode e)))
-          (sysExitWith 1)
-        }
-      )
-      ((Ok None) 0)
-      ((Ok (Some pkg))
-        (if (== (strLen pkg) 0)
-          0
-          {
-            (let stem (dashesToUnderscores pkg))
-            (let module (crateModuleName dir pkg))
-            {
-              (if (fileExists (concat dir "src"))
-                {
-                  (let _ (refreshBindings dir stem module))
-                  ()
-                })
-              ; A cargo staticlib is `lib<stem>.a` on every host this
-              ; driver runs on - the `.lib` spelling belongs to the import
-              ; libraries a WINDOWS LINK consumes, and `--crate` for a
-              ; Windows target is not a thing yet (docs/ffi.md has no
-              ; Windows story) - so the archive is looked for as `.a`.
-              (if (! (libExistsIn (crateTargetDirs dir) stem 0 false))
-                {
-                  (let _ (buildCrate dir pkg))
-                  ()
-                })
-              0
-            }
-          })
-      ))
-  })
-
-(pub :: crateTargetDirs (-> String Strings))
-(pub fn (crateTargetDirs dir)
-  {
-    (let v vecNew)
-    {
-      (vecPush v (concat dir "target/release"))
-      (vecPush v (concat dir "../target/release"))
-      (vecPush v (concat dir "../../target/release"))
-      v
-    }
-  })
-
-; Regenerate the module when `axiom-bindgen --check` finds it stale or
-; absent. Exit 2 from `--check` is "no such file" as well as a usage
-; error, so a missing module regenerates; a bindgen that is not on
-; PATH answers Err and nothing is written.
-(pub :: refreshBindings (-> String String String (Result Int Error)))
-;@axiom:effect(io)
-;@axiom:effect(spawn)
-;@axiom:effect(block)
-(pub fn (refreshBindings dir stem module)
-  {
-    (let modPath (concat (concat dir "axiom/") (concat module ".ax")))
-    {
-      (let checkArgs
-        {
-          (let v vecNew)
-          {
-            (vecPush v "--src")
-            (vecPush v (concat dir "src"))
-            (vecPush v "--lib")
-            (vecPush v stem)
-            (vecPush v "--module")
-            (vecPush v module)
-            (vecPush v "--check")
-            (vecPush v modPath)
-            (vecPush v "--quiet")
-            v
-          }
-        })
-      {
-        (let rc (runToolQuiet "axiom-bindgen" checkArgs))
-        (if (|| (isErr rc) (toolSucceeded rc))
-          (Ok 0)
-          {
-            (let genArgs
-              {
-                (let v vecNew)
-                {
-                  (vecPush v "--src")
-                  (vecPush v (concat dir "src"))
-                  (vecPush v "--lib")
-                  (vecPush v stem)
-                  (vecPush v "--module")
-                  (vecPush v module)
-                  (vecPush v "-o")
-                  (vecPush v (concat dir "axiom"))
-                  v
-                }
-              })
-            {
-              (writeStderrStr
-                (concat "axiom: regenerating " (concat modPath " with axiom-bindgen\n")))
-              (runTool "axiom-bindgen" genArgs)
-            }
-          })
-      }
-    }
-  })
-
-(pub :: buildCrate (-> String String (Result Int Error)))
-;@axiom:effect(io)
-;@axiom:effect(spawn)
-;@axiom:effect(block)
-(pub fn (buildCrate dir pkg)
-  {
-    (let args
-      {
-        (let v vecNew)
-        {
-          (vecPush v "build")
-          (vecPush v "--release")
-          (vecPush v "--manifest-path")
-          (vecPush v (concat dir "Cargo.toml"))
-          v
-        }
-      })
-    {
-      (writeStderrStr
-        (concat "axiom: building crate `" (concat pkg "` with cargo (no archive found)\n")))
-      (runTool "cargo" args)
-    }
-  })
-
-; `runTool` for a probe whose exit status is the whole answer. The
-; tool is asked to be quiet by flag (`--quiet` rides in `args`): the
-; driver redirects no descriptor, so a tool that talks anyway is heard.
-(pub :: runToolQuiet (-> String Strings (Result Int Error)))
-;@axiom:effect(io)
-;@axiom:effect(spawn)
-;@axiom:effect(block)
-(pub fn (runToolQuiet tool args)
-  (runTool tool args))
-
-; `name = "..."` under `[package]` in a Cargo manifest. A missing file
-; answers Ok None; a failed read keeps its operating-system error.
-(pub :: cargoPackageName (-> String (Result (Option String) Error)))
-;@axiom:effect(io)
-(pub fn (cargoPackageName path)
-  (match (readFile path)
-    ((Err e)
-      (if (== (errCode e) 2)
-        (Ok None)
-        (Err e))
-    )
-    ((Ok text) (Ok (cargoPackageNameIn text)))))
-
-(pub :: cargoPackageNameIn (-> String (Option String)))
-(pub fn (cargoPackageNameIn text)
-  (if (let (Some at) (strFindSub text "[package]" 0))
-    (if (let (Some nm) (strFindSub text "name" at))
-      (if (let (Some q1) (strFindByte text 34 nm))
-        (if (let (Some q2) (strFindByte text 34 (+ q1 1)))
-          (Some (strSlice text (+ q1 1) (- q2 (+ q1 1))))
-          None)
-        None)
-      None)
-    None))
-
-(pub :: dashesToUnderscores (-> String String))
-;@axiom:effect(unsafe)
-(pub fn (dashesToUnderscores s)
-  {
-    (let out (strDup s))
-    (let mut i 0)
-    {
-      (while (< i (strLen out))
-        {
-          (if (== (strByte out i) 45)
-            (__store8 (strData out) i 95))
-          (set i (+ i 1))
-        })
-      out
-    }
-  })
-
-; The module name: the one `.ax` in `DIR/axiom/`, else CamelCase of
-; the package name without a leading `axiom-`.
-(pub :: crateModuleName (-> String String String))
-;@axiom:effect(io)
-(pub fn (crateModuleName dir pkg)
-  {
-    (let entries (unwrapOr (listDir (concat dir "axiom")) vecNew))
-    (let mut found "")
-    (let mut n 0)
-    {
-      (for i in 0..(vecLen entries)
-        {
-          ; `Name.ax` and nothing else: the first `.` is the
-          ; extension's, so a crate whose module is `Hash.ax` gets no
-          ; second module named for the package.
-          (let e (vecGet entries i))
-          (if (&& (> (strLen e) 3)
-                (&& (strEq (strSlice e (- (strLen e) 3) 3) ".ax")
-                  (if (let (Some d) (strFindByte e 46 0))
-                    (== d (- (strLen e) 3))
-                    false)))
-            {
-              (if (== (strLen found) 0)
-                ; The guard above has just established that the ONLY
-                ; `.` is at `strLen - 3`, so this is that index
-                ; rather than a second scan for it.
-                (set found (strSlice e 0 (- (strLen e) 3))))
-              (set n (+ n 1))
-            })
-        })
-      ; EXACTLY one, not the first of several. With two `.ax` files
-      ; under `axiom/`, picking one - even the first in `listDir`'s
-      ; sorted order - would still overwrite the other, so a
-      ; hand-written module beside a generated one gets clobbered. At
-      ; one candidate there is nothing to choose between; above one the
-      ; answer does not read the listing at all, because the
-      ; package-derived name below does not.
-      (if (== n 1)
-        found
-        (camelOf
-          (if (strStartsWith pkg "axiom-")
-            (strSlice pkg 6 (- (strLen pkg) 6))
-            pkg)))
-    }
-  })
-
-; `my-crate_name` -> `MyCrateName`.
-(pub :: camelOf (-> String String))
-;@axiom:effect(unsafe)
-(pub fn (camelOf s)
-  {
-    (let out (strAlloc (strLen s)))
-    (let mut i 0)
-    (let mut o 0)
-    (let mut up 1)
-    {
-      (while (< i (strLen s))
-        {
-          {
-            (let b (strByte s i))
-            (if (|| (== b 45) (== b 95))
-              (set up 1)
-              {
-                (__store8 (strData out) o
-                  (if (&& (== up 1) (&& (>= b 97) (<= b 122)))
-                    (- b 32)
-                    b))
-                (set o (+ o 1))
-                (set up 0)
-              })
-          }
-          (set i (+ i 1))
-        })
-      (strSlice out 0 o)
-    }
-  })
-
 ; `--emit-staticlib` anywhere on the command line.
 ; ------------------------------------------------------------------
 ; GROUNDING: every `declare` the module writes must name a symbol that
@@ -1563,13 +1265,8 @@
 ; search directory holds and no explicit flag already names, so a
 ; build need not repeat a block's library as `--link-lib`.
 ;
-; `entryDir` is here for one reason: `axiom.pkg`'s `crate` lines.
-; Every other source of a search directory is a flag or an environment
-; variable, both of which this function could read for itself; a
-; manifest is found by walking up from the file being compiled, so the
-; file has to be handed in. Without it, `AXIOM_PATH=vendor/greeter/axiom`
-; would link while `depend vendor/greeter/axiom` in the manifest exited
-; 4 with `AX4004`.
+; `entryDir` remains part of the driver's build-context API. Native link
+; discovery itself uses only explicit flags and the environment.
 (pub :: effectiveLinkArgs (-> String String Strings Strings))
 ;@axiom:effect(io)
 (pub fn (effectiveLinkArgs ir entryDir explicit)
@@ -1588,14 +1285,6 @@
         })
       (addSearchDir v dirs (sysEnv "AXIOM_LINK_SEARCH"))
       (addAxiomPathDirs v dirs (sysEnv "AXIOM_PATH"))
-      ; a crate's own `target/release`, or its workspace's one or two
-      ; levels up (`rust/examples/demo` builds into `rust/target`) -
-      ; for every `--crate DIR` the command line names, and then for
-      ; every `crate DIR` the manifest declares. Both lists, one rule;
-      ; `addOneDir` drops a directory that is already on the line and
-      ; one that does not exist, so the two overlapping is free.
-      (addCrateDirs v dirs crateDirsOf)
-      (addCrateDirs v dirs (pkgCrateDirs entryDir))
       {
         (let wanted (externLibsOf ir))
         (for lib in wanted
@@ -1609,31 +1298,6 @@
       v
     }
   })
-
-; `crateTargetDirs` for each crate directory in `crates`, added the
-; way every other search directory here is. `crateTargetDirs` is
-; `prepareCrate`'s - the same three suffixes it looks for the archive
-; in - rather than a second copy, because a driver that BUILDS into a
-; directory it does not then SEARCH is the shape of an AX4004 nobody
-; can explain.
-(pub :: addCrateDirs (-> Strings Strings Names Int))
-;@axiom:effect(io)
-(pub fn (addCrateDirs v dirs crates)
-  {
-    (for c in 0..(vecLen crates)
-      (addTargetDirs v dirs (crateTargetDirs (pathWithSlash (vecGetStr crates c))) 0))
-    0
-  })
-
-(pub :: addTargetDirs (-> Strings Strings Strings Int Int))
-;@axiom:effect(io)
-(pub fn (addTargetDirs v dirs td i)
-  (if (>= i (vecLen td))
-    0
-    {
-      (addOneDir v dirs (vecGet td i))
-      (addTargetDirs v dirs td (+ i 1))
-    }))
 
 (pub :: addSearchDir (-> Strings Strings String Int))
 ;@axiom:effect(io)
@@ -2344,7 +2008,7 @@
 
 ; The descriptor string an extern item's declared type spells:
 ; `<params>_<ret>`, one tag per parameter, the result after the
-; underscore. Mirrors rust/axiom-ffi-classify.
+; underscore. Mirrors pkg/axiom-oxide/axiom-ffi-classify.
 (pub :: externSigTag (-> ASTNode (Option String)))
 (pub fn (externSigTag ty)
   (if (nodeSame ty nilNode)
@@ -3009,7 +2673,7 @@
 (pub :: usageText String)
 (pub fn (usageText)
   (concat (concat "Axiom " axiomVersion)
-    "\n\nUSAGE:\n  axiom [OPTIONS] <COMMAND> [ARGS]\n\nCOMMANDS:\n  build      compile a source file to an executable\n  check      check syntax and types, emitting no code\n  run        compile and run, forwarding further arguments\n  new        start a project with Main.ax and axiom.pkg\n  fetch      check out the project's registry dependencies\n  test       run every test-named function in a file or directory\n  emit-llvm  print the generated LLVM IR\n  fmt        format source files in place\n  explain    describe a diagnostic code\n  symbols    list top-level symbols in AXSYM\n  doc        render the docs and the library reference in your browser\n  repl       start the interactive read-eval-print loop\n  lsp        run the language server on stdin/stdout\n  version    print the version\n  help       print help, or help <COMMAND> for one command\n\nOPTIONS:\n  --obfuscate        mask literals, scramble symbols and obscure entries\n  --input <PATH>     input file (build, check, run, emit-llvm)\n  --output <PATH>    output file (build, emit-llvm)\n  -o <PATH>          short for --output\n  --target <NAME>    target platform; see the list below (default: host)\n  --opt <0-3>        optimisation (build, run, test; default: manifest opt, else 1)\n  --heap-ceiling <BYTES>  fixed heap size (build, run, test)\n  --alloc-poison    overwrite reusable freed payloads for memory debugging\n  --filter <TEXT>    run tests whose names contain TEXT (test)\n  --crate <DIR>      generate bindings and link a Rust crate; repeatable\n  --link-lib <NAME>  link an FFI archive; repeatable (build, run)\n  --link-search <DIR>  archive search directory; repeatable (build, run)\n  --emit-llvm        keep generated .ll beside the executable (build)\n  --emit-staticlib   write a static archive (build)\n  --threads          use platform threads for parallel (build, run, test)\n  --emit-rust-binding <PATH>  write host bindings with --emit-staticlib\n  --check            report formatting without writing (fmt)\n  --diff             print a unified formatting diff without writing (fmt)\n  --emit <files|stdout>  choose formatted output (fmt; default files)\n  --builtins         include built-in operators (symbols)\n  --calls            include resolved call edges (symbols)\n  --mir              include region facts (symbols)\n  --axir             read or write .axir records instead of AXSYM (symbols)\n  --list             list diagnostic codes (explain)\n  --no-banner        skip the startup banner (repl)\n  --out <DIR>        where doc writes its pages (doc)\n  --no-open          render without opening a browser (doc)\n  --missing          list public names with no doc comment (doc)\n  --diagnostic-format <human|ai|json>  diagnostic renderer (default: human)\n  -h, --help         print help; accepted before or after the file\n  -V, --version      print the version; before the command\n  --                 end compiler options\n\nTARGETS:\n  Supported: darwin-aarch64, linux-aarch64.\n  Source-only: darwin-x86_64, freebsd-aarch64, freebsd-x86_64,\n               linux-x86_64, windows-aarch64, windows-x86_64,\n               baremetal-aarch64.\n\nNOTES:\n  A bare input path works wherever --input is accepted. Build output\n  defaults to the manifest's name, else output. Windows adds .exe once.\n\n  --crate searches DIR/axiom for modules and DIR/target/release for\n  archives. Archives also use AXIOM_LINK_SEARCH and each AXIOM_PATH\n  entry's ../target/release. An extern library links when found there.\n\n  Static archives need no main; pub functions become C symbols.\n  --mir forces a slower facts fixpoint; --axir --mir includes lowered\n  bodies. Use --diagnostic-format=ai for AXSYM; JSON symbols are refused.\n\n  Threads work on darwin and linux. FreeBSD uses processes and refuses\n  --threads (AX4006). Windows warns AX4007 and spawning exits with 79.\n  Heap exhaustion exits with 70; threaded spawning with a fixed heap\n  is refused (AX4006). Source-only targets are emitted and assembled,\n  executed by no runner; see README, Targets.\n\n  Human diagnostics always include colour, even in redirected output.\n  AI and JSON diagnostics have no colour escapes.\n\nEXIT CODES:\n  0  success\n  1  the program is wrong: unreadable input, syntax or checking failure,\n     a failed test, a missing entry point, or an unresolvable import\n  2  the command line is wrong: unknown command or flag, or flag arity\n  3  a module could not be read or parsed, or the target is unknown\n  4  a native tool failed or is missing (llc, cc; lld-link for Windows)\n"))
+    "\n\nUSAGE:\n  axiom [OPTIONS] <COMMAND> [ARGS]\n\nCOMMANDS:\n  build      compile a source file to an executable\n  check      check syntax and types, emitting no code\n  run        compile and run, forwarding further arguments\n  new        start a project with Main.ax and axiom.pkg\n  fetch      check out the project's registry dependencies\n  test       run every test-named function in a file or directory\n  emit-llvm  print the generated LLVM IR\n  fmt        format source files in place\n  explain    describe a diagnostic code\n  symbols    list top-level symbols in AXSYM\n  doc        render the docs and the library reference in your browser\n  repl       start the interactive read-eval-print loop\n  lsp        run the language server on stdin/stdout\n  version    print the version\n  help       print help, or help <COMMAND> for one command\n\nOPTIONS:\n  --obfuscate        mask literals, scramble symbols and obscure entries\n  --input <PATH>     input file (build, check, run, emit-llvm)\n  --output <PATH>    output file (build, emit-llvm)\n  -o <PATH>          short for --output\n  --target <NAME>    target platform; see the list below (default: host)\n  --opt <0-3>        optimisation (build, run, test; default: manifest opt, else 1)\n  --heap-ceiling <BYTES>  fixed heap size (build, run, test)\n  --alloc-poison    overwrite reusable freed payloads for memory debugging\n  --filter <TEXT>    run tests whose names contain TEXT (test)\n  --link-lib <NAME>  link an FFI archive; repeatable (build, run)\n  --link-search <DIR>  archive search directory; repeatable (build, run)\n  --emit-llvm        keep generated .ll beside the executable (build)\n  --emit-staticlib   write a static archive (build)\n  --threads          use platform threads for parallel (build, run, test)\n  --check            report formatting without writing (fmt)\n  --diff             print a unified formatting diff without writing (fmt)\n  --emit <files|stdout>  choose formatted output (fmt; default files)\n  --builtins         include built-in operators (symbols)\n  --calls            include resolved call edges (symbols)\n  --mir              include region facts (symbols)\n  --axir             read or write .axir records instead of AXSYM (symbols)\n  --list             list diagnostic codes (explain)\n  --no-banner        skip the startup banner (repl)\n  --out <DIR>        where doc writes its pages (doc)\n  --no-open          render without opening a browser (doc)\n  --missing          list public names with no doc comment (doc)\n  --diagnostic-format <human|ai|json>  diagnostic renderer (default: human)\n  -h, --help         print help; accepted before or after the file\n  -V, --version      print the version; before the command\n  --                 end compiler options\n\nTARGETS:\n  Supported: darwin-aarch64, linux-aarch64.\n  Source-only: darwin-x86_64, freebsd-aarch64, freebsd-x86_64,\n               linux-x86_64, windows-aarch64, windows-x86_64,\n               baremetal-aarch64.\n\nNOTES:\n  A bare input path works wherever --input is accepted. Build output\n  defaults to the manifest's name, else output. Windows adds .exe once.\n\n  Archives use AXIOM_LINK_SEARCH and each AXIOM_PATH entry's adjacent\n  target/release directories. An extern library links when found there.\n\n  Static archives need no main; pub functions become C symbols.\n  --mir forces a slower facts fixpoint; --axir --mir includes lowered\n  bodies. Use --diagnostic-format=ai for AXSYM; JSON symbols are refused.\n\n  Threads work on darwin and linux. FreeBSD uses processes and refuses\n  --threads (AX4006). Windows warns AX4007 and spawning exits with 79.\n  Heap exhaustion exits with 70; threaded spawning with a fixed heap\n  is refused (AX4006). Source-only targets are emitted and assembled,\n  executed by no runner; see README, Targets.\n\n  Human diagnostics always include colour, even in redirected output.\n  AI and JSON diagnostics have no colour escapes.\n\nEXIT CODES:\n  0  success\n  1  the program is wrong: unreadable input, syntax or checking failure,\n     a failed test, a missing entry point, or an unresolvable import\n  2  the command line is wrong: unknown command or flag, or flag arity\n  3  a module could not be read or parsed, or the target is unknown\n  4  a native tool failed or is missing (llc, cc; lld-link for Windows)\n"))
 
 ; One command's help: its synopsis and the flags it actually reads.
 ;
@@ -3164,12 +2828,10 @@
                 (|| (strEq a "--heap-ceiling")
                   (|| (strEq a "--link-lib")
                     (|| (strEq a "--link-search")
-                      (|| (strEq a "--crate")
-                        (|| (strEq a "--emit-rust-binding")
-                          (|| (strEq a "--filter")
-                            (|| (strEq a "--jobs")
-                              (|| (strEq a "--diagnostic-format")
-                                (|| (strEq a "--out") (strEq a "--emit")))))))))))))))
+                      (|| (strEq a "--filter")
+                        (|| (strEq a "--jobs")
+                          (|| (strEq a "--diagnostic-format")
+                            (|| (strEq a "--out") (strEq a "--emit")))))))))))))
     (Some 1)
     (if (|| (|| (strEq a "--obfuscate") (strEq a "--alloc-poison"))
           (|| (strEq a "--emit-llvm")

@@ -50,7 +50,7 @@ fi
 status=0
 
 python3 tests/ffi/verify-unsafe-inventory.py
-if "$axiom" --diagnostic-format=ai symbols stdlib/Ffi.ax --calls \
+if "$axiom" --diagnostic-format=ai symbols pkg/axiom-oxide/axiom/Ffi.ax --calls \
     > "$work/ffi-boundaries.axsym" 2> "$work/ffi-boundaries.log" \
     && python3 scripts/lib/unsafe-inventory.py < "$work/ffi-boundaries.axsym" \
     > "$work/ffi-boundaries.json"; then
@@ -158,7 +158,7 @@ echo "ok   $tier1 programs with no \`extern\` import nothing"
 # a crate that starts needing a new libc symbol changes a reviewed file
 # rather than silently widening the boundary.
 # ---------------------------------------------------------------
-for crate_dir in rust/examples/*/; do
+for crate_dir in pkg/axiom-oxide/examples/*/; do
   [[ -d "$crate_dir" ]] || continue
   crate="$(basename "$crate_dir")"
   # A manifest is a MEASUREMENT of what a crate's dependencies require,
@@ -180,13 +180,13 @@ for crate_dir in rust/examples/*/; do
   # so it is built by manifest path and its artifacts land under its own
   # target directory.
   if grep -q '^\[workspace\]' "$crate_dir/Cargo.toml"; then
-    ( cd rust && cargo build --release -q --manifest-path "examples/$crate/Cargo.toml" ) \
+    ( cd pkg/axiom-oxide && cargo build --release -q --manifest-path "examples/$crate/Cargo.toml" ) \
       || { echo "FAIL $crate: cargo build failed"; status=1; continue; }
-    lib="rust/examples/$crate/target/release/libaxiom_${crate//-/_}.a"
+    lib="pkg/axiom-oxide/examples/$crate/target/release/libaxiom_${crate//-/_}.a"
   else
-    ( cd rust && cargo build --release -q -p "axiom-$crate" ) \
+    ( cd pkg/axiom-oxide && cargo build --release -q -p "axiom-$crate" ) \
       || { echo "FAIL $crate: cargo build failed"; status=1; continue; }
-    lib="rust/target/release/libaxiom_${crate//-/_}.a"
+    lib="pkg/axiom-oxide/target/release/libaxiom_${crate//-/_}.a"
   fi
   [[ -f "$lib" ]] || { echo "FAIL $crate: no staticlib at $lib"; status=1; continue; }
 
@@ -213,16 +213,11 @@ for crate_dir in rust/examples/*/; do
     [[ -e "$case_file" ]] || break
     name="$(basename "$case_file" .ax)"
     exe="$work/$crate-$name"
-    # `--crate DIR` is the whole build line: the generated `.ax`
-    # binding module in `DIR/axiom` is searched for imports, so a case
-    # that imports it exercises what `axiom-bindgen` actually wrote -
-    # the out-cell and handle wrappers included - and the archive is
-    # found under the crate's or its workspace's `target/release` and
-    # linked because the `extern` block names it. For the `nostd`
-    # crate, whose archive sits in its own target directory, the same
-    # flag finds it one level down.
-    if ! "$axiom" build --input "$case_file" --output "$exe" \
-         --crate "$repo_root/$crate_dir" \
+    # The generated module and native archive join through the generic
+    # module and link search paths. Rust orchestration stays in axiom-oxide.
+    if ! AXIOM_PATH="$repo_root/${crate_dir}axiom:$repo_root/pkg/axiom-oxide/axiom" \
+         AXIOM_LINK_SEARCH="$repo_root/$(dirname "$lib")" \
+         "$axiom" build --input "$case_file" --output "$exe" \
          > "$work/$crate-$name.log" 2>&1; then
       echo "FAIL $crate/$name: could not build"
       sed 's/^/    /' "$work/$crate-$name.log" | head -5
@@ -305,59 +300,40 @@ BYTES
 done
 
 # ---------------------------------------------------------------
-# A PROJECT CAN DECLARE ITS NATIVE DEPENDENCY, not only pass it as a
-# flag. `axiom.pkg`'s `crate DIR` (2026-09-03) puts `DIR/axiom/` on the
-# module search path and `DIR`'s three `target/release` directories on
-# the link search path - the same two lists `--crate DIR` feeds.
-#
-# WHY IT IS HERE AND NOT ONLY IN check-packages.sh. That gate is
-# cargo-free by design and proves the module half with a fake crate.
-# This is the half that needs a real `libaxiom_demo.a`: the archive is
-# found and linked with NO command-line flag at all, which is the
-# property a third-party native package rests on. Measured on 0.7.3
-# before the key existed: the same tree, the same archive, declared
-# through `$AXIOM_PATH` exited 0 and declared in `axiom.pkg` exited 4
-# with AX4004.
-#
-# It reuses the archive the tiers above already built, so it costs one
-# `axiom build` rather than a cargo run.
-mkdir -p "$work/pkgcrate"
-cp tests/ffi/demo/010-add.ax "$work/pkgcrate/app.ax"
-cat > "$work/pkgcrate/axiom.pkg" <<EOF
-name  pkgcrate
-crate $repo_root/rust/examples/demo
+# A package declares Axiom modules with `depend`; native archives use
+# AXIOM_LINK_SEARCH. Both searches must contribute to the same build.
+mkdir -p "$work/pkgnative"
+cp tests/ffi/demo/050-fallible.ax "$work/pkgnative/app.ax"
+cat > "$work/pkgnative/axiom.pkg" <<EOF
+name  pkgnative
+depend $repo_root/pkg/axiom-oxide/examples/demo/axiom
+depend $repo_root/pkg/axiom-oxide/axiom
 EOF
-if ( cd "$work/pkgcrate" && "$axiom" build app.ax --output prog ) \
-     > "$work/pkgcrate.log" 2>&1; then
-  got_out="$( cd "$work/pkgcrate" && ./prog 2>&1 )" || true
-  if [[ "$got_out" == "42" ]]; then
-    echo "ok   a manifest \`crate\` links the archive with no flags, and the program answers 42"
+if ( cd "$work/pkgnative" && AXIOM_PATH= AXIOM_LINK_SEARCH="$repo_root/pkg/axiom-oxide/target/release" \
+       "$axiom" build app.ax --output prog ) > "$work/pkgnative.log" 2>&1; then
+  got_out="$( cd "$work/pkgnative" && ./prog 2>&1 )" || true
+  if [[ "$got_out" == "fallible: agree" ]]; then
+    echo "ok   depend plus AXIOM_LINK_SEARCH links the package archive with no CLI flags"
   else
-    echo "FAIL a manifest-declared crate built but answered '$got_out', expected 42"
+    echo "FAIL native package built but answered '$got_out', expected 'fallible: agree'"
     status=1
   fi
 else
-  echo "FAIL a manifest \`crate\` did not link the demo archive"
-  sed 's/^/    /' "$work/pkgcrate.log" | head -8
+  echo "FAIL the native package did not link through depend and AXIOM_LINK_SEARCH"
+  sed 's/^/    /' "$work/pkgnative.log" | head -8
   status=1
 fi
-
-# THE NEGATIVE PROBE, and it is what makes the check above mean
-# anything: with the manifest moved aside and nothing else changed, the
-# identical command must fail with AX4004. Without it the section would
-# pass on a stray `$AXIOM_PATH` or a `-L` from somewhere else being
-# what found the archive.
-mv "$work/pkgcrate/axiom.pkg" "$work/pkgcrate/axiom.pkg.off"
-rm -f "$work/pkgcrate/prog"
-if ( cd "$work/pkgcrate" && "$axiom" build app.ax --output prog ) \
-     > "$work/pkgcrate-off.log" 2>&1; then
-  echo "FAIL the program still linked with no manifest - \`crate\` is not what found the archive"
+mv "$work/pkgnative/axiom.pkg" "$work/pkgnative/axiom.pkg.off"
+rm -f "$work/pkgnative/prog"
+if ( cd "$work/pkgnative" && AXIOM_PATH= AXIOM_LINK_SEARCH="$repo_root/pkg/axiom-oxide/target/release" \
+       "$axiom" build app.ax --output prog ) > "$work/pkgnative-off.log" 2>&1; then
+  echo "FAIL the program still linked without its module dependency"
   status=1
-elif grep -q 'AX4004' "$work/pkgcrate-off.log"; then
-  echo "ok   negative probe: without the manifest the same build is AX4004"
+elif grep -q 'AX5001' "$work/pkgnative-off.log"; then
+  echo "ok   negative probe: without the manifest its generated module is missing"
 else
-  echo "FAIL without the manifest the build failed, but not with AX4004"
-  sed 's/^/    /' "$work/pkgcrate-off.log" | head -6
+  echo "FAIL without the manifest the build failed, but not with AX5001"
+  sed 's/^/    /' "$work/pkgnative-off.log" | head -6
   status=1
 fi
 
@@ -368,7 +344,7 @@ fi
 # drift, and this is what notices. Same shape as check-fmt-selfhost.sh's
 # corpus golden: a checked-in artefact compared against a fresh one.
 # ---------------------------------------------------------------
-for crate_dir in rust/examples/*/; do
+for crate_dir in pkg/axiom-oxide/examples/*/; do
   [[ -d "$crate_dir" ]] || continue
   crate="$(basename "$crate_dir")"
   gen="$crate_dir/axiom"
@@ -377,7 +353,7 @@ for crate_dir in rust/examples/*/; do
     [[ -e "$committed" ]] || break
     module="$(basename "$committed" .ax)"
     fresh="$work/$module.regen.ax"
-    if ! ( cd rust && cargo run --release -q -p axiom-bindgen -- \
+    if ! ( cd pkg/axiom-oxide && cargo run --release -q -p axiom-bindgen -- \
              --src "examples/$crate/src" --lib "axiom_${crate//-/_}" \
              --module "$module" -o "$fresh" ) >/dev/null 2>&1; then
       echo "FAIL $crate: axiom-bindgen could not regenerate $module"; status=1; continue
@@ -468,17 +444,17 @@ fi
 #    Every tier above asserts that a program's imports are a SUBSET of
 #    what its manifest permits, and a subset relation is also satisfied
 #    by an empty import set, a `nm` that answers nothing, and a manifest
-#    that permits everything. `rust/examples/leaky` calls
+#    that permits everything. `pkg/axiom-oxide/examples/leaky` calls
 #    `std::env::var` - dragging in `getenv` - against a manifest that
 #    deliberately lists nothing, so the comparison MUST produce
 #    unpermitted symbols. The failure is the passing outcome.
-leaky_dir="rust/examples/leaky"
+leaky_dir="pkg/axiom-oxide/examples/leaky"
 if [[ -d "$leaky_dir" ]]; then
-  if ( cd rust && cargo build --release -q -p axiom-leaky ) 2>/dev/null; then
+  if ( cd pkg/axiom-oxide && cargo build --release -q -p axiom-leaky ) 2>/dev/null; then
     leaky_exe="$work/leaky-probe"
     if AXIOM_PATH="$repo_root/$leaky_dir/axiom" \
        "$axiom" build --input tests/ffi/probe-leaky/010-uses-env.ax --output "$leaky_exe" \
-       --link-lib axiom_leaky --link-search rust/target/release >/dev/null 2>&1; then
+       --link-lib axiom_leaky --link-search pkg/axiom-oxide/target/release >/dev/null 2>&1; then
       leaky_permitted="$(grep -vE '^\s*(#|$)' "$leaky_dir/axiom-allow.txt" | tr -d ' \t' | sort -u || true)"
       leaky_bad="$(comm -23 <(symbols_of "$leaky_exe") <(printf '%s\n' "$leaky_permitted" | grep . || true) || true)"
       if [[ -n "$leaky_bad" ]]; then
@@ -493,7 +469,7 @@ if [[ -d "$leaky_dir" ]]; then
       status=1
     fi
   else
-    echo "FAIL negative probe: could not build rust/examples/leaky"
+    echo "FAIL negative probe: could not build pkg/axiom-oxide/examples/leaky"
     status=1
   fi
 fi
@@ -509,9 +485,10 @@ fi
 for seal_case in '010-forged-owner:AX3085' '020-exposed-handle:AX3086'; do
   seal_name="${seal_case%%:*}"
   seal_code="${seal_case#*:}"
-  if seal_out="$("$axiom" --diagnostic-format=ai build \
+  if seal_out="$(AXIOM_PATH="$repo_root/pkg/axiom-oxide/examples/demo/axiom:$repo_root/pkg/axiom-oxide/axiom" \
+      "$axiom" --diagnostic-format=ai build \
       --input "tests/ffi/probe-sealed/$seal_name.axbad" --output "$work/$seal_name" \
-      --crate rust/examples/demo 2>&1)"; then
+      --link-lib axiom_demo --link-search pkg/axiom-oxide/target/release 2>&1)"; then
     echo "FAIL $seal_name: an opaque owner escaped its seal"
     status=1
   elif ! grep -q "^E $seal_code " <<< "$seal_out"; then
@@ -523,11 +500,11 @@ for seal_case in '010-forged-owner:AX3085' '020-exposed-handle:AX3086'; do
   fi
 done
 
-callback_path="$repo_root/rust/axiom-bindgen/tests/fixtures/nested/expected"
+callback_path="$repo_root/pkg/axiom-oxide/axiom-bindgen/tests/fixtures/nested/expected"
 if ! grep -q '^; Callbacks must not mutate, grow, close or release borrowed arguments: `xs`[.]$' "$callback_path/Nested.ax"; then
   echo "FAIL callback-borrow: the generated wrapper does not state the borrow obligation"
   status=1
-elif callback_out="$(AXIOM_PATH="$callback_path${AXIOM_PATH:+:$AXIOM_PATH}" \
+elif callback_out="$(AXIOM_PATH="$callback_path:$repo_root/pkg/axiom-oxide/axiom${AXIOM_PATH:+:$AXIOM_PATH}" \
     "$axiom" --diagnostic-format=ai check \
     tests/ffi/probe-sealed/030-callback-borrow.axbad 2>&1)"; then
   echo "ok   callback-borrow: the borrow obligation is the caller's, stated beside the wrapper"
@@ -540,7 +517,7 @@ fi
 ung="tests/ffi/probe-ungrounded/020-missing-symbol.axbad"
 if [[ -f "$ung" ]]; then
   if ung_out="$("$axiom" --diagnostic-format=ai build --input "$ung" --output "$work/ung" \
-                 --link-lib axiom_demo --link-search rust/target/release 2>&1)"; then
+                 --link-lib axiom_demo --link-search pkg/axiom-oxide/target/release 2>&1)"; then
     echo "FAIL negative probe: an extern naming a symbol nothing defines still BUILT"
     status=1
   elif ! grep -q 'AX4004' <<< "$ung_out"; then
@@ -566,7 +543,7 @@ fi
 pre="tests/ffi/probe-ungrounded/030-prefix-of-symbol.axbad"
 if [[ -f "$pre" ]]; then
   if pre_out="$("$axiom" --diagnostic-format=ai build --input "$pre" --output "$work/pre" \
-                 --crate "$repo_root/rust/examples/demo" 2>&1)"; then
+                 --link-lib axiom_demo --link-search pkg/axiom-oxide/target/release 2>&1)"; then
     echo "FAIL negative probe: a prefix of a real symbol still BUILT"
     status=1
   elif ! grep -q 'AX4004' <<< "$pre_out"; then
@@ -605,7 +582,7 @@ fi
 shp="tests/ffi/probe-ungrounded/050-shape-mismatch.axbad"
 if [[ -f "$shp" ]]; then
   if shp_out="$("$axiom" --diagnostic-format=ai build --input "$shp" --output "$work/shp" \
-                 --crate "$repo_root/rust/examples/demo" 2>&1)"; then
+                 --link-lib axiom_demo --link-search pkg/axiom-oxide/target/release 2>&1)"; then
     echo "FAIL negative probe: a declaration of the wrong shape still BUILT"
     status=1
   elif ! grep -q 'AX4005' <<< "$shp_out"; then
@@ -620,34 +597,36 @@ fi
 # ---------------------------------------------------------------
 # The other direction: an Axiom library ARCHIVED for a Rust host.
 # `--emit-staticlib` writes tests/ffi/host/hostlib.ax as an archive
-# with no `main`; rust/examples/host links it and calls two Axiom
+# with no `main`; pkg/axiom-oxide/examples/host links it and calls two Axiom
 # functions, one of them over a String the host built with the
 # archive's own `Str$strAlloc`.
 # ---------------------------------------------------------------
 hostlib="tests/ffi/host/hostlib.ax"
-if [[ -f "$hostlib" && -d rust/examples/host ]]; then
+if [[ -f "$hostlib" && -d pkg/axiom-oxide/examples/host ]]; then
   mkdir -p "$work/hostlib"
-  if ! "$axiom" build --input "$hostlib" --output "$work/hostlib/libaxiom_hostlib.a" \
-         --emit-staticlib --emit-rust-binding "$work/hostlib/hostlib.rs" > "$work/hostlib/build.log" 2>&1; then
+  if ! cargo run --quiet --manifest-path pkg/axiom-oxide/Cargo.toml -p axiom-oxide -- \
+         host --input "$hostlib" --rust "$work/hostlib/hostlib.rs" \
+         --archive "$work/hostlib/libaxiom_hostlib.a" --axiom "$axiom" \
+         > "$work/hostlib/build.log" 2>&1; then
     echo "FAIL host: could not emit the static archive"; sed 's/^/    /' "$work/hostlib/build.log" | head -5
     status=1
   elif nm "$work/hostlib/libaxiom_hostlib.a" 2>/dev/null | grep -qE ' T _?main$'; then
     echo "FAIL host: the archive defines \`main\`; a host has its own"
     status=1
-  elif command -v rustfmt >/dev/null 2>&1 && ! cmp -s "$work/hostlib/hostlib.rs" rust/examples/host/src/hostlib.rs; then
+  elif command -v rustfmt >/dev/null 2>&1 && ! cmp -s "$work/hostlib/hostlib.rs" pkg/axiom-oxide/examples/host/src/hostlib.rs; then
     # The checked-in binding IS the generated one (the build runs
     # `rustfmt` over it when one is on PATH, and the checked-in copy
     # is that formatted file): a host that compiled against a stale
     # file would be calling shapes the archive no longer has. Without
     # rustfmt the raw text cannot be compared to the formatted copy,
     # and the run below is the check.
-    echo "FAIL host: rust/examples/host/src/hostlib.rs differs from a fresh --emit-rust-binding"
-    { diff rust/examples/host/src/hostlib.rs "$work/hostlib/hostlib.rs" || true; } | head -6 | sed 's/^/    /'
+    echo "FAIL host: pkg/axiom-oxide/examples/host/src/hostlib.rs differs from a fresh axiom-oxide host binding"
+    { diff pkg/axiom-oxide/examples/host/src/hostlib.rs "$work/hostlib/hostlib.rs" || true; } | head -6 | sed 's/^/    /'
     status=1
   elif command -v rustfmt >/dev/null 2>&1 && ! rustfmt --edition 2021 --check "$work/hostlib/hostlib.rs" >/dev/null 2>&1; then
     echo "FAIL host: the generated binding is not rustfmt-clean"
     status=1
-  elif ! host_out="$(cd rust && AXIOM_HOST_ARCHIVE_DIR="$work/hostlib" cargo run --release -q -p axiom-host 2>&1)"; then
+  elif ! host_out="$(cd pkg/axiom-oxide && AXIOM_HOST_ARCHIVE_DIR="$work/hostlib" cargo run --release -q -p axiom-host 2>&1)"; then
     echo "FAIL host: the Rust host did not build or run"
     printf '%s\n' "$host_out" | sed 's/^/    /' | head -8
     status=1
@@ -692,7 +671,7 @@ if [[ ! -f "$work/hostlib/hostlib.rs" ]]; then
 elif ! command -v cargo >/dev/null 2>&1 || ! command -v rustc >/dev/null 2>&1; then
   echo "ok   cargo/rustc are not installed; the binding's contract is not checked here (reported)"
 else
-  ffi_json="$(cd rust && cargo build -p axiom-ffi --features host --message-format=json 2>/dev/null)" || true
+  ffi_json="$(cd pkg/axiom-oxide && cargo build -p axiom-ffi --features host --message-format=json 2>/dev/null)" || true
   ffi_rlib="$(printf '%s\n' "$ffi_json" | python3 -c '
 import json, sys
 for line in sys.stdin:
@@ -710,13 +689,13 @@ for line in sys.stdin:
     status=1
   else
     collision_log="$work/mangle-collision.log"
-    if "$axiom" --diagnostic-format=ai build tests/ffi/host/mangle-collision.ax \
-         --emit-staticlib --emit-rust-binding "$work/collision.rs" \
-         -o "$work/collision.a" >"$collision_log" 2>&1; then
+    if cargo run --quiet --manifest-path pkg/axiom-oxide/Cargo.toml -p axiom-oxide -- \
+         host --input tests/ffi/host/mangle-collision.ax --rust "$work/collision.rs" \
+         --archive "$work/collision.a" --axiom "$axiom" --no-build >"$collision_log" 2>&1; then
       echo "FAIL nominal host: distinct types shared generated accessor names"
       status=1
-    elif ! grep -q '^E AX3006 ' "$collision_log"; then
-      echo "FAIL nominal host: accessor collision was not diagnosed as AX3006"
+    elif ! grep -q 'generated accessor names collide' "$collision_log"; then
+      echo "FAIL nominal host: accessor collision was not diagnosed"
       head -12 "$collision_log"
       status=1
     else
@@ -726,9 +705,10 @@ for line in sys.stdin:
     nominal_dir="$work/nominal-host"
     mkdir -p "$nominal_dir"
     cp tests/ffi/host/nominal-host.rs "$nominal_dir/main.rs"
-    if ! "$axiom" --diagnostic-format=ai build tests/ffi/host/nominal.ax \
-         --emit-staticlib --emit-rust-binding "$nominal_dir/nominal.rs" \
-         -o "$nominal_dir/libaxiom_nominal.a" >"$nominal_dir/build.log" 2>&1; then
+    if ! cargo run --quiet --manifest-path pkg/axiom-oxide/Cargo.toml -p axiom-oxide -- \
+         host --input tests/ffi/host/nominal.ax --rust "$nominal_dir/nominal.rs" \
+         --archive "$nominal_dir/libaxiom_nominal.a" --axiom "$axiom" \
+         >"$nominal_dir/build.log" 2>&1; then
       echo "FAIL nominal host: archive and bindings could not be generated"
       head -12 "$nominal_dir/build.log"
       status=1
@@ -872,7 +852,7 @@ fi
 # undocumented public items. A tool with no gate is a tool nobody runs.
 #
 # `-D warnings` rather than a count, because the lint policy in
-# `rust/Cargo.toml` is where the decisions live: a lint that should not
+# `pkg/axiom-oxide/Cargo.toml` is where the decisions live: a lint that should not
 # fire is `allow`ed THERE, with the reason, and one that fires is a
 # finding. `axiom-host` is excluded for the same reason `ci.yml` excludes
 # it - it links a real Axiom archive and needs $AXIOM_HOST_ARCHIVE_DIR.
@@ -881,7 +861,7 @@ for panic_mode in 'debug' 'release' 'host'; do
   panic_flags=()
   [[ "$panic_mode" == release ]] && panic_flags+=(--release)
   [[ "$panic_mode" == host ]] && panic_flags+=(--features host)
-  if panic_out="$(cd rust && cargo test --locked -p axiom-ffi \
+  if panic_out="$(cd pkg/axiom-oxide && cargo test --locked -p axiom-ffi \
       --test panic_boundary ${panic_flags[@]+"${panic_flags[@]}"} 2>&1)"; then
     echo "ok   $panic_mode: panics abort in scalar, status and destructor shims"
   else
@@ -891,7 +871,7 @@ for panic_mode in 'debug' 'release' 'host'; do
   fi
 done
 if command -v cargo >/dev/null 2>&1; then
-  if contract_out="$(cd rust && cargo test --locked -p axiom-ffi --test contracts 2>&1)"; then
+  if contract_out="$(cd pkg/axiom-oxide && cargo test --locked -p axiom-ffi --test contracts 2>&1)"; then
     echo "ok   raw FFI alias and deallocation contract probes"
   else
     echo "FAIL raw FFI contract probes"
@@ -904,7 +884,7 @@ if ! command -v cargo >/dev/null 2>&1; then
 elif ! cargo clippy --version >/dev/null 2>&1; then
   echo "ok   clippy is not installed; the lint pass is skipped (reported, not silent)"
 else
-  if clippy_out="$(cd rust && cargo clippy --workspace --exclude axiom-host \
+  if clippy_out="$(cd pkg/axiom-oxide && cargo clippy --workspace --exclude axiom-host \
                      --all-targets --quiet -- -D warnings 2>&1)"; then
     echo "ok   clippy is clean over the workspace under -D warnings"
   else
@@ -920,7 +900,7 @@ else
   # the file that IS the Rust-calls-Axiom direction. `--all-targets`
   # works here (unlike the nostd pass), there being no panic handler to
   # collide with std's.
-  if host_out="$(cd rust && cargo clippy -p axiom-ffi --features host \
+  if host_out="$(cd pkg/axiom-oxide && cargo clippy -p axiom-ffi --features host \
                    --all-targets --quiet -- -D warnings 2>&1)"; then
     echo "ok   clippy is clean over the host feature under -D warnings"
   else
@@ -943,7 +923,7 @@ else
   # in a `no_std` crate then collides with std's - `error[E0152]: found
   # duplicate lang item panic_impl`. The library target is the whole of
   # what this feature has.
-  if nostd_out="$(cd rust && cargo clippy -p axiom-ffi --no-default-features \
+  if nostd_out="$(cd pkg/axiom-oxide && cargo clippy -p axiom-ffi --no-default-features \
                     --features nostd-runtime --quiet -- -D warnings 2>&1)"; then
     echo "ok   clippy is clean over the nostd-runtime feature under -D warnings"
   else
@@ -953,11 +933,11 @@ else
   fi
   if ! command -v rustfmt >/dev/null 2>&1; then
     echo "ok   rustfmt is not installed; the format check is skipped (reported)"
-  elif ( cd rust && cargo fmt --all --check >/dev/null 2>&1 ); then
-    echo "ok   every Rust file is rustfmt-clean (style_edition 2021, pinned in rust/rustfmt.toml)"
+  elif ( cd pkg/axiom-oxide && cargo fmt --all --check >/dev/null 2>&1 ); then
+    echo "ok   every Rust file is rustfmt-clean (style_edition 2021, pinned in pkg/axiom-oxide/rustfmt.toml)"
   else
-    echo "FAIL the hand-written Rust is not rustfmt-clean; run \`cargo fmt --all\` in rust/"
-    ( cd rust && cargo fmt --all --check 2>&1 ) | grep '^Diff in' \
+    echo "FAIL the hand-written Rust is not rustfmt-clean; run \`cargo fmt --all\` in pkg/axiom-oxide/"
+    ( cd pkg/axiom-oxide && cargo fmt --all --check 2>&1 ) | grep '^Diff in' \
       | sed 's/Diff in //; s/:.*//' | sort -u | head -6 | sed 's/^/     /'
     status=1
   fi
@@ -966,7 +946,7 @@ fi
 # --------------------------------------------------------------------
 # THE DECLARED RUST MINIMUM: inherited by every package, and true.
 # --------------------------------------------------------------------
-# `rust/Cargo.toml` said `rust-version = "1.85"` until 2026-09-26 and the
+# `pkg/axiom-oxide/Cargo.toml` said `rust-version = "1.85"` until 2026-09-26 and the
 # line bound nothing: no member opted into `rust-version.workspace =
 # true`, so `cargo metadata` reported no minimum for any of the eight
 # packages. It was also false - `axiom-ffi-classify` uses let chains, and
@@ -981,12 +961,12 @@ echo "== the declared Rust minimum =="
 if ! command -v cargo >/dev/null 2>&1; then
   echo "ok   cargo is not installed; the Rust minimum is not checked here (reported, not silent)"
 else
-  msrv="$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' rust/Cargo.toml)"
+  msrv="$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' pkg/axiom-oxide/Cargo.toml)"
   if [[ ! "$msrv" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
-    echo "FAIL rust/Cargo.toml declares no readable rust-version (read '$msrv')"
+    echo "FAIL pkg/axiom-oxide/Cargo.toml declares no readable rust-version (read '$msrv')"
     status=1
   else
-    if ! meta="$(cd rust && cargo metadata --locked --no-deps --format-version 1 2>&1)"; then
+    if ! meta="$(cd pkg/axiom-oxide && cargo metadata --locked --no-deps --format-version 1 2>&1)"; then
       echo "FAIL cargo metadata failed over the workspace"
       printf '%s\n' "$meta" | head -3 | sed 's/^/     /'
       status=1
@@ -1010,12 +990,12 @@ for p in pkgs:
         echo "ok   all $npkg workspace packages report rust-version $msrv"
       fi
     fi
-    nostd_v="$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' rust/examples/nostd/Cargo.toml)"
+    nostd_v="$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' pkg/axiom-oxide/examples/nostd/Cargo.toml)"
     if [[ "$nostd_v" != "$msrv" ]]; then
-      echo "FAIL rust/examples/nostd (its own workspace) declares rust-version '$nostd_v', not $msrv"
+      echo "FAIL pkg/axiom-oxide/examples/nostd (its own workspace) declares rust-version '$nostd_v', not $msrv"
       status=1
     else
-      echo "ok   rust/examples/nostd, its own workspace, declares the same $msrv"
+      echo "ok   pkg/axiom-oxide/examples/nostd, its own workspace, declares the same $msrv"
     fi
     # `1.88` and `1.88.0` are different toolchain NAMES to rustup (a
     # channel, and a release), though both are the same compiler here;
@@ -1032,22 +1012,22 @@ for p in pkgs:
     if [[ -n "$msrv_tc" ]]; then
       # Its own target directory: sharing the stable one would make every
       # alternate run a full rebuild for both toolchains.
-      msrv_target="$repo_root/rust/target/msrv-$msrv"
-      if ! msrv_out="$(cd rust && CARGO_TARGET_DIR="$msrv_target" \
+      msrv_target="$repo_root/pkg/axiom-oxide/target/msrv-$msrv"
+      if ! msrv_out="$(cd pkg/axiom-oxide && CARGO_TARGET_DIR="$msrv_target" \
              cargo "+$msrv_tc" build --locked --workspace --exclude axiom-host --all-targets 2>&1)"; then
         echo "FAIL the locked workspace does not build on its declared minimum ($msrv_rustc)"
         printf '%s\n' "$msrv_out" | grep -E '^error' | head -6 | sed 's/^/     /'
         status=1
-      elif ! msrv_out="$(cd rust && CARGO_TARGET_DIR="$msrv_target" \
+      elif ! msrv_out="$(cd pkg/axiom-oxide && CARGO_TARGET_DIR="$msrv_target" \
              cargo "+$msrv_tc" check --locked -p axiom-host 2>&1)"; then
         # `axiom-host` links an archive this section does not build, so it
         # is type-checked on the minimum rather than linked.
         echo "FAIL axiom-host does not type-check on the declared minimum ($msrv_rustc)"
         printf '%s\n' "$msrv_out" | grep -E '^error' | head -6 | sed 's/^/     /'
         status=1
-      elif ! msrv_out="$(cd rust/examples/nostd && CARGO_TARGET_DIR="$msrv_target-nostd" \
+      elif ! msrv_out="$(cd pkg/axiom-oxide/examples/nostd && CARGO_TARGET_DIR="$msrv_target-nostd" \
              cargo "+$msrv_tc" build --locked --release 2>&1)"; then
-        echo "FAIL rust/examples/nostd does not build on the declared minimum ($msrv_rustc)"
+        echo "FAIL pkg/axiom-oxide/examples/nostd does not build on the declared minimum ($msrv_rustc)"
         printf '%s\n' "$msrv_out" | grep -E '^error' | head -6 | sed 's/^/     /'
         status=1
       else

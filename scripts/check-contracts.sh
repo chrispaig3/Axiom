@@ -148,7 +148,6 @@ python3 tests/selfhost/typecheck-axtag-presence.py --axiom "$axc"
 python3 tests/selfhost/typecheck-axtag-delimiters.py --axiom "$axc"
 python3 tests/tools/compiler-tag-consumers.py --axiom "$axc"
 python3 tests/tools/expansion-interner-owner.py "$axc"
-python3 tests/tools/rustbind-query-options.py "$axc"
 python3 tests/selfhost/doc-lookup-options.py --axiom "$axc"
 python3 tests/selfhost/lsp-shape-result-options.py --axiom "$axc" --negative-controls
 python3 tests/selfhost/cli-flag-parts-options.py --axiom "$axc"

@@ -67,8 +67,8 @@ export const PILLARS: Pillar[] = [
   {
     icon: 'link',
     title: 'Bring Rust along.',
-    body: 'Keep useful Rust code within reach. Declare functions in an `extern` block; `--crate` builds and links the crate. Rust values are dropped when their last Axiom reference goes.',
-    proof: 'axiom build --crate DIR',
+    body: 'Keep useful Rust code within reach. The official `axiom-oxide` package generates bindings and builds native archives; `extern` declares their symbols. Rust values are dropped when their last Axiom reference goes.',
+    proof: 'axiom-oxide prepare --crate DIR',
     href: `${DOCS}/ffi.md`,
   },
 ]

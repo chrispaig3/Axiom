@@ -1336,7 +1336,7 @@ pub unsafe extern "C" fn axffi_free_word_lists(ptr: *mut i64, n: i64) -> i64 {
 /// The ABI fingerprint this crate was built against.
 ///
 /// Every crate that depends on the facade carries it, and an Axiom
-/// program can read it (`stdlib/Ffi.ax` binds it as `ffiAbiVersion`)
+/// program can read it (`pkg/axiom-oxide/axiom/Ffi.ax` binds it as `ffiAbiVersion`)
 /// to refuse a crate built against a different wire representation.
 #[unsafe(no_mangle)]
 pub extern "C" fn axffi_abi_version() -> i64 {

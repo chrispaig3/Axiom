@@ -21,10 +21,8 @@ def bridges(legacy):
         return f'\n(pub :: {name} (-> {types} (Result Int Int)))\n;@axiom:effect(io)\n;@axiom:effect(spawn)\n;@axiom:effect(block)\n(pub fn ({name} {params}) {result})\n'
     driver = ''.join(wrapper(*args) for args in (
         ('probeRunTool', 'tool args', 'String Strings', '(runTool tool args)'),
-        ('probeRunQuiet', 'tool args', 'String Strings', '(runToolQuiet tool args)'),
+        ('probeRunQuiet', 'tool args', 'String Strings', '(runTool tool args)'),
         ('probeRunErrTo', 'tool args path', 'String Strings String', '(runToolErrTo tool args path)'),
-        ('probeBindings', 'dir stem module', 'String String String', '(refreshBindings dir stem module)'),
-        ('probeCrate', 'dir pkg', 'String String', '(buildCrate dir pkg)'),
     ))
     main = ''.join(wrapper(*args) for args in (
         ('probeFetchClone', 'url dest', 'String String', '(fetchClone url dest)'),
@@ -50,7 +48,7 @@ def check(compiler, root, work, baseline, fetch_only=False):
               'baseline': bool(baseline), 'fetch_only': fetch_only, 'configurations': [], 'controls': [], 'refusals': [],
               'limits': ['Native host O0/O2 with allocation poisoning; no Windows execution claim.',
                          'Sys launch/wait/redirection contracts are trusted and unchanged; Ok uses numeric exit and 128+signal ABI.',
-                         'Crate preparation, rustfmt and fetch cleanup retain their existing best-effort policies.',
+                         'Fetch cleanup retains its existing best-effort policy.',
                          'REPL OS-error wording still mentions a signal; error classification wording is a pre-existing limitation.',
                          'No held ownership, inference or call-emission work is reviewed or validated.']}
     additions = bridges(bool(baseline))
@@ -92,19 +90,6 @@ def check(compiler, root, work, baseline, fetch_only=False):
         add('redirect-text',('redirect','native','captured.err'),mode='text',stdout=b'child stdout\nok 0\n',log=argv('native'))
         add('redirect-failed',('redirect','native','captured.err'),mode='fail7',stdout=b'ok 7\n',log=argv('native'))
         add('redirect-unwritable',('redirect','native','missing/err'),stdout=b'err 2\n',log=b'')
-        bindcheck=argv('axiom-bindgen','--src','crate/src','--lib','demo','--module','Demo','--check','crate/axiom/Demo.ax','--quiet')
-        bindgen=argv('axiom-bindgen','--src','crate/src','--lib','demo','--module','Demo','-o','crate/axiom')
-        bindnote=b'axiom: regenerating crate/axiom/Demo.ax with axiom-bindgen\n'
-        add('bindings-current',('bindings',),tool='axiom-bindgen',log=bindcheck)
-        add('bindings-missing',('bindings',),omitted='axiom-bindgen',log=b'')
-        add('bindings-stale',('bindings',),tool='axiom-bindgen',mode='stale',stderr=bindnote,log=bindcheck+bindgen)
-        add('bindings-failed',('bindings',),tool='axiom-bindgen',mode='genfail',stdout=b'ok 19\n',stderr=bindnote,log=bindcheck+bindgen)
-        cargolog=argv('cargo','build','--release','--manifest-path','crate/Cargo.toml')
-        cargonote=b'axiom: building crate `demo` with cargo (no archive found)\n'
-        add('crate-success',('crate',),tool='cargo',stderr=cargonote,log=cargolog)
-        add('crate-failed',('crate',),tool='cargo',mode='fail7',stdout=b'ok 7\n',stderr=cargonote,log=cargolog)
-        add('crate-missing',('crate',),omitted='cargo',stdout=b'err 2\n',stderr=cargonote,log=b'')
-        add('prepare-best-effort',('prepare',),tool='cargo',mode='fail7',stdout=b'status 0\n',stderr=cargonote,log=bindcheck+cargolog)
         add('clone-success',('clone',),tool='git',log=argv('git','clone','url;literal','clone dest'))
         add('clone-failed',('clone',),tool='git',mode='fail7',stdout=b'ok 7\n',log=argv('git','clone','url;literal','clone dest'))
         add('clone-missing',('clone',),omitted='git',stdout=b'err 2\n',log=b'')
@@ -139,10 +124,8 @@ def check(compiler, root, work, baseline, fetch_only=False):
             if restricted and name not in restricted: continue
             if fetch_only and not name.startswith(('clone-', 'discard-', 'fetch-')): continue
             folder=data/name; folder.mkdir(); tools=folder/'bin';tools.mkdir()
-            for toolname in ('native','llc','cc','ar','ld.lld','lld-link','llvm-dlltool','axiom-bindgen','cargo','git','rm'):
+            for toolname in ('native','llc','cc','ar','ld.lld','lld-link','llvm-dlltool','git','rm'):
                 if toolname!=omitted: shutil.copy2(child,tools/toolname)
-            (folder/'crate/src').mkdir(parents=True);(folder/'crate/axiom').mkdir()
-            (folder/'crate/Cargo.toml').write_text('[package]\nname = "demo"\n')
             (folder/'input.ll').write_text('; input\n')
             (folder/'project').mkdir(); (folder/'scratch').mkdir()
             if name=='fetch-rename-failed':
@@ -211,7 +194,7 @@ def check(compiler, root, work, baseline, fetch_only=False):
         report['configurations'].append({'optimization':level,'allocation_poisoning':True,'cases':outcomes})
         print(f'ok synchronous tool results: {len(outcomes)} policy/argv/output/cleanup cases O{level}',flush=True)
     if not baseline:
-        variants=[('os-error-erased','        (sysRunPath tool v sysEnvp)','        (match (sysRunPath tool v sysEnvp) ((Ok code) (Ok code)) ((Err _) (Ok 0)))',('missing','direct-missing','clone-missing','crate-missing')),
+        variants=[('os-error-erased','        (sysRunPath tool v sysEnvp)','        (match (sysRunPath tool v sysEnvp) ((Ok code) (Ok code)) ((Err _) (Ok 0)))',('missing','direct-missing','clone-missing')),
                   ('child-status-erased','        (sysRunPath tool v sysEnvp)','        (match (sysRunPath tool v sysEnvp) ((Ok _) (Ok 0)) ((Err e) (Err e)))',('nonzero','exit127','signal','clone-failed')),
                   ('nonzero-success','((Ok code) (== code 0))','((Ok _) true)',('assemble-native-failed','repl-llc-failed','implib-failed'))]
         for label,before,after,required in variants:
@@ -245,7 +228,6 @@ def check(compiler, root, work, baseline, fetch_only=False):
             ('missing-err','(match (runTool "tool" vecNew) ((Ok code) code))','AX3005'),
             ('missing-ok','(match (runTool "tool" vecNew) ((Err _) 0))','AX3005'),
             ('erased-stderr','(runToolErrTo "tool" vecNew "err")','AX3004'),
-            ('erased-quiet','(runToolQuiet "tool" vecNew)','AX3004'),
             ('erased-clone','(fetchClone "url" "path")','AX3004'),
             ('erased-discard','(fetchDiscard "path")','AX3004'),
             ('clone-missing-err','(match (fetchClone "url" "path") ((Ok code) code))','AX3005')):

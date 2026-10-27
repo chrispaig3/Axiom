@@ -1,6 +1,6 @@
 ; The ABI fingerprint both sides embed.
 ;
-; `axffi_abi_version` is defined by `rust/axiom-ffi` and bumped on ANY
+; `axffi_abi_version` is defined by `pkg/axiom-oxide/axiom-ffi` and bumped on ANY
 ; change to a wire representation - the word size, the `Str` layout,
 ; the out-cell shape, the status encoding. Checking it turns "the Rust
 ; crate was rebuilt against a different type mapping" from a silent

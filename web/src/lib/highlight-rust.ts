@@ -3,7 +3,7 @@ import type { Token } from './highlight.ts'
 /**
  * Just enough Rust to colour the crate side of an FFI sample: the
  * excerpts on this page are a few `#[axiom_export]` functions and one
- * struct, quoted verbatim from `rust/examples/demo/src/lib.rs`. It
+ * struct, quoted verbatim from `pkg/axiom-oxide/examples/demo/src/lib.rs`. It
  * emits the same capture names as the Axiom highlighter, so one set of
  * token colours serves both languages.
  *
