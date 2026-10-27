@@ -25127,8 +25127,7 @@
     (if (let (Some src) (tcEntrySrc tc))
       (if (let (Some close) (matchCloseAt src scrut arms))
         (if (let (Some indent) (matchArmIndent src scrut arms))
-          {
-            (let text (missingArmsText tc scrutTy matrix missing indent))
+          (if (let (Some text) (missingArmsText tc scrutTy matrix missing indent))
             (if (> (strLen text) 0)
               {
                 (diagAddFixHelp d "add the missing arms, each a `todo` until it is written"
@@ -25136,8 +25135,7 @@
                 (set offered true)
                 (if (isNone (findFnEnt tc "todo"))
                   (importTodoHelp tc d src))
-              })
-          })))
+              })))))
     (if (! offered)
       (diagAddHelp d "add the missing arms, or a wildcard `_` arm to catch the rest"))
     ()
@@ -25238,9 +25236,9 @@
         })
     }))
 
-; The arms, or "" when one of the missing names is not this type's
+; The arms, or None when one of the missing names is not this type's
 ; own top-level hole.
-(pub :: missingArmsText (-> TC ASTNode NodesRows Names Int String))
+(pub :: missingArmsText (-> TC ASTNode NodesRows Names Int (Option String)))
 (pub fn (missingArmsText tc scrutTy matrix missing indent)
   {
     (let dentFound (findData tc (nodeAName scrutTy)))
@@ -25265,11 +25263,11 @@
               }
             })
           (if (== ok 1)
-            (catStrs parts)
-            "")
+            (Some (catStrs parts))
+            None)
         }
       }
-      "")
+      None)
   })
 
 ; The field count of the constructor `cn` names among `ctors`

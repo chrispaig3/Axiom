@@ -407,12 +407,13 @@
     {
       (let tag (nodeTag t))
       (if (== tag TAG_T_VAR)
-        {
-          (let k (rbIndexOfName vars (nodeAName t)))
-          (if (&& (>= k 0) (< k (vecLen args)))
-            (vecGet args k)
-            t)
-        }
+        (match (rbIndexOfName vars (nodeAName t))
+          ((None) t)
+          ((Some k)
+            (if (< k (vecLen args))
+              (vecGet args k)
+              t)
+          ))
         (if (== tag TAG_T_CON)
           (if (== (vecLen (nodeBChildren t)) 0)
             t
@@ -441,18 +442,18 @@
     }
   })
 
-(:: rbIndexOfName (-> Names String Int))
+(:: rbIndexOfName (-> Names String (Option Int)))
 (fn (rbIndexOfName names n)
   (if (== (as names Int) 0)
-    (- 0 1)
+    None
     {
       (let mut i 0)
-      (let mut at (- 0 1))
+      (let mut at (:: None (Option Int)))
       {
-        (while (< i (vecLen names))
+        (while (&& (< i (vecLen names)) (isNone at))
           {
-            (if (&& (< at 0) (strEq (vecGet names i) n))
-              (set at i))
+            (if (strEq (vecGet names i) n)
+              (set at (Some i)))
             (set i (+ i 1))
           })
         at
@@ -580,20 +581,20 @@
     0))
 
 ; The first name in `names` (a Vec of String) that is not a Rust
-; identifier, or "" when every one of them is. A binder name is never
-; empty, so "" is unambiguous.
-(:: rbFirstUnspellable (-> Names String))
+; identifier, or None when every one of them is. Some preserves an
+; invalid empty name instead of confusing it with absence.
+(:: rbFirstUnspellable (-> Names (Option String)))
 (fn (rbFirstUnspellable names)
   {
     (let mut i 0)
-    (let mut bad "")
+    (let mut bad (:: None (Option String)))
     {
-      (while (&& (< i (vecLen names)) (== (strLen bad) 0))
+      (while (&& (< i (vecLen names)) (isNone bad))
         {
           {
             (let n (vecGet names i))
             (if (! (rbIsRustIdent n))
-              (set bad n))
+              (set bad (Some n)))
           }
           (set i (+ i 1))
         })
@@ -1202,27 +1203,24 @@
                       ; `raw::badParam(n/*z)`. `rbSigLine`, `rbArgLets`,
                       ; `rbArgRels` and `rbArgList` all spell them, so the
                       ; check is here, where the wrapper is decided on.
-                      {
-                        (let badParam (rbFirstUnspellable names))
-                        (if (> (strLen badParam) 0)
-                          {
-                            (vecPush notes
-                              (concat "// `"
-                                (concat name
-                                  (concat "`: its parameter `"
-                                    (concat badParam "` is not a Rust identifier\n")))))
-                            0
-                          }
-                          {
-                            (vecPush raws (rbRawDecl name params))
-                            (match res
-                              ((None) __indexTrap)
-                              ((Some result)
-                                (vecPush wraps (rbWrapper decls name ty params result names))
-                              ))
-                            0
-                          })
-                      }))
+                      (if (let (Some badParam) (rbFirstUnspellable names))
+                        {
+                          (vecPush notes
+                            (concat "// `"
+                              (concat name
+                                (concat "`: its parameter `"
+                                  (concat badParam "` is not a Rust identifier\n")))))
+                          0
+                        }
+                        {
+                          (vecPush raws (rbRawDecl name params))
+                          (match res
+                            ((None) __indexTrap)
+                            ((Some result)
+                              (vecPush wraps (rbWrapper decls name ty params result names))
+                            ))
+                          0
+                        })))
                 })
             }
           ))

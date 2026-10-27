@@ -194,17 +194,17 @@
 ; The declaration a byte offset belongs to: the last one whose span
 ; starts at or before it. Declarations come in source order and a
 ; `::` and its `fn` share a name, so a warning anywhere in either half
-; resolves to the owner both halves' tags were merged under. "" when
+; resolves to the owner both halves' tags were merged under. None when
 ; no declaration starts before the offset.
-(:: nolintOwnerAt (-> (Vec ASTNode) Int String))
+(:: nolintOwnerAt (-> (Vec ASTNode) Int (Option String)))
 (fn (nolintOwnerAt decls off)
   {
-    (let mut owner "")
+    (let mut owner (:: None (Option String)))
     {
       (for d in decls
         (if (!= (nodeSpan d) 0)
           (if (<= (spanStart (nodeSpan d)) off)
-            (set owner (nodeAName d)))))
+            (set owner (Some (nodeAName d))))))
       owner
     }
   })
@@ -239,4 +239,8 @@
       false
       (if (== (diagSpan d) 0)
         (nolintQuiets t "" (diagCode d) 0)
-        (nolintQuiets t (nolintOwnerAt decls (spanStart (diagSpan d))) (diagCode d) 0)))))
+        (nolintQuiets t
+          (match (nolintOwnerAt decls (spanStart (diagSpan d)))
+            ((None) "")
+            ((Some owner) owner))
+          (diagCode d) 0)))))

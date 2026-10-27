@@ -39,6 +39,12 @@
                 (isNone (ctorArityIn ctors "Zero" 4))))))))
   })
 
+(:: textIs (-> (Option String) String Bool))
+(fn (textIs result expected)
+  (match result
+    ((None) false)
+    ((Some text) (strEq text expected))))
+
 (:: missingArmSuggestionChecks Bool)
 (fn (missingArmSuggestionChecks)
   {
@@ -53,14 +59,14 @@
     (let holes (vecPush (vecPush vecNew "One") "Zero"))
     (let covered (vecPush vecNew (vecPush vecNew (nodeBuildPCon0 "Zero" 0 0 0))))
     (&&
-      (strEq (missingArmsText tc ty vecNew (vecPush vecNew "Zero") 2)
+      (textIs (missingArmsText tc ty vecNew (vecPush vecNew "Zero") 2)
         "\n  ((Zero) (todo \"Zero\"))")
       (&&
-        (strEq (missingArmsText tc ty vecNew holes 2)
+        (textIs (missingArmsText tc ty vecNew holes 2)
           "\n  ((One _) (todo \"One\"))\n  ((Zero) (todo \"Zero\"))")
-        (&& (strEq (missingArmsText tc ty vecNew (vecPush vecNew "Missing") 2) "")
-          (&& (strEq (missingArmsText tc ty covered (vecPush vecNew "Zero") 2) "")
-            (strEq (missingArmsText tc (mkTCon "Unknown" vecNew) vecNew holes 2) "")))))
+        (&& (isNone (missingArmsText tc ty vecNew (vecPush vecNew "Missing") 2))
+          (&& (isNone (missingArmsText tc ty covered (vecPush vecNew "Zero") 2))
+            (isNone (missingArmsText tc (mkTCon "Unknown" vecNew) vecNew holes 2))))))
   })
 
 (:: main Int)

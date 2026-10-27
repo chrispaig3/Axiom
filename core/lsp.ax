@@ -5518,7 +5518,7 @@
     }
   })
 
-(:: lspComplResolveAt (-> Int String Nodes ASTNode Int))
+(:: lspComplResolveAt (-> Int String Nodes ASTNode (Option Int)))
 (fn (lspComplResolveAt item src decls d)
   {
     (let kind (jsonGetInt item "kind"))
@@ -5532,7 +5532,7 @@
         (set matches (&& (== kind (lspComplKind (nodeTag d)))
                        (strEq label (bareOf (nodeAName d))))))
       (if (! matches)
-        0
+        None
         {
           (let sig
             (if (== (nodeTag d) TAG_D_FN)
@@ -5555,7 +5555,7 @@
               })
             (if (&& (== (jsonGet item "documentation") 0) (> (strLen doc) 0))
               (jsonObjPut item "documentation" (jsonStr doc)))
-            item
+            (Some item)
           }
         })
     }
@@ -5563,26 +5563,26 @@
 
 ; Resolve just the selected declaration. Parsing and import resolution are
 ; repeated here; no checker, macro expansion or semantic model is retained.
-(:: lspComplResolve (-> LspWorkspace String String Int Int))
+(:: lspComplResolve (-> LspWorkspace String String Int (Option Int)))
 ;@axiom:effect(io)
 (fn (lspComplResolve workspace uri src item)
   {
     (let data (jsonGet item "data"))
     (match (lspParse src)
-      ((ParseFailed error) 0)
+      ((ParseFailed error) None)
       ((ParseSuccess decls position)
         (if (jsonIsNull (jsonGet data "module"))
           (match (lspComplFind decls data)
-            ((None) 0)
+            ((None) None)
             ((Some d) (lspComplResolveAt item src decls d)))
           (match (lspResolveFor workspace (lspUriToPath uri) src decls)
-            ((None) 0)
+            ((None) None)
             ((Some resolved)
               (match (lspComplFind resolved.decls data)
-                ((None) 0)
+                ((None) None)
                 ((Some d)
                   (match (lspUnitOf resolved.units (nodeModuleOpt d))
-                    ((None) 0)
+                    ((None) None)
                     ((Some unit)
                       (lspComplResolveAt item (unitSrc (vecGet resolved.units unit)) resolved.decls
                         d)
@@ -5608,12 +5608,9 @@
             (match (docText uris texts (jsonGetStr data "uri"))
               ((None) (lspErrorBody id (- 0 32801) "completion document is unavailable"))
               ((Some src)
-                {
-                  (let resolved (lspComplResolve workspace (jsonGetStr data "uri") src item))
-                  (if (== resolved 0)
-                    (lspErrorBody id (- 0 32602) "completion declaration is unavailable")
-                    (lspReplyBody id resolved))
-                }
+                (match (lspComplResolve workspace (jsonGetStr data "uri") src item)
+                  ((None) (lspErrorBody id (- 0 32602) "completion declaration is unavailable"))
+                  ((Some resolved) (lspReplyBody id resolved)))
               )))))
     }))
 

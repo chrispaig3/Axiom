@@ -1,0 +1,205 @@
+; Optional lookups distinguish absence from present zero, empty and node values.
+(import Str)
+(import Vec)
+(import IO)
+(import Fmt)
+(import Intern)
+(import core)
+(import lexer)
+(import parser)
+(import diag)
+(import namespace)
+(import expand)
+(import typecheck)
+(import rustbind)
+(import nolint)
+(import lsp)
+
+(:: environment (-> Diags Units Nodes MEnv))
+(fn (environment diagnostics units declarations)
+  (MEnv
+    :macros vecNew
+    :out diagnostics
+    :fresh 0
+    :depth 0
+    :decls declarations
+    :macmod 0
+    :walk 0
+    :nodes 0
+    :blown 0
+    :site 0
+    :frames vecNew
+    :declmod 0
+    :units units
+    :forstack vecNew
+    :bares vecNew
+    :fulls vecNew
+    :mods vecNew
+    :qsite 0
+    :gens vecNew
+    :callbs 0
+    :seqbinds vecNew
+    :tplbinds vecNew
+    :declnodes 0
+    :midx mangleIdxNew
+    :scNext 0
+    :scChain vecNew
+    :scTpl vecNew
+    :scSeq 0
+    :retired28 0
+    :defer 0
+    :deferHits 0
+    :structNames internNewTyped
+    :structBuckets vecNew
+    :carrier 0
+    :optNames vecNew))
+
+(:: say (-> Int Bool ()))
+;@axiom:effect(io)
+(fn (say index good)
+  (println
+    (concat (fmtInt index)
+      (if good
+        " true"
+        " false"))))
+
+(:: declarations (-> String Nodes))
+(fn (declarations source)
+  (match (parseModule (lex source))
+    ((ParseFailed error) vecNew)
+    ((ParseSuccess nodes position) nodes)))
+
+(:: declaration (-> String ASTNode))
+(fn (declaration source)
+  (vecGet (declarations source) 0))
+
+(:: nodeIs (-> (Option ASTNode) ASTNode Bool))
+(fn (nodeIs actual expected)
+  (match actual
+    ((None) false)
+    ((Some node) (nodeSame node expected))))
+
+(:: stringIs (-> (Option String) String Bool))
+(fn (stringIs actual expected)
+  (match actual
+    ((None) false)
+    ((Some value) (strEq value expected))))
+
+(:: indexIs (-> (Option Int) Int Bool))
+(fn (indexIs actual expected)
+  (match actual
+    ((None) false)
+    ((Some value) (== value expected))))
+
+(:: arityConstructor (-> String Nodes CtorEnt))
+(fn (arityConstructor name fields)
+  (CtorEnt
+    :name name
+    :fieldTys fields
+    :resTy (mkTCon "Choice" vecNew)
+    :ctorTy (mkTCon "Choice" vecNew)
+    :fieldNames None))
+
+(:: completionItem (-> ASTNode Int))
+(fn (completionItem d)
+  {
+    (let item
+      (jsonObjPut (jsonObjPut jsonObj "label" (jsonStr (nodeAName d))) "kind"
+        (jsonNum (lspComplKind (nodeTag d)))))
+    (jsonObjPut item "data"
+      (jsonObjPut
+        (jsonObjPut
+          (jsonObjPut
+            (jsonObjPut (jsonObjPut jsonObj "name" (jsonStr (nodeAName d))) "start"
+              (jsonNum (spanStart (nodeSpan d))))
+            "tag" (jsonNum (nodeTag d)))
+          "module" jsonNull)
+        "label" (jsonStr (nodeAName d))))
+  })
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (let env (environment vecNew vecNew vecNew))
+    (let first (mkEVar "first"))
+    (let second (mkEVar "second"))
+    (say 1 (isNone (expFmtCatRun env None "" 0)))
+    (say 2
+      (match (expFmtCatRun env None "literal" 0)
+        ((None) false)
+        ((Some node) (== (nodeTag node) TAG_E_STR))))
+    (say 3 (nodeSame (expFmtCat env None first 0) first))
+    (say 4 (nodeIs (expFmtCatRun env (Some first) "" 0) first))
+    (say 5
+      (match (expFmtCatRun env (Some first) "literal" 0)
+        ((None) false)
+        ((Some node) (== (nodeTag node) TAG_E_APP))))
+    (say 6 (== (nodeTag (expFmtCat env (Some first) second 0)) TAG_E_APP))
+    (say 7 (isNone (expAsmOptNode vecNew vecNew "pure")))
+    (say 8 (isNone (expAsmOptNode (vecPush vecNew "nomem") (vecPush vecNew first) "pure")))
+    (say 9 (nodeIs (expAsmOptNode (vecPush vecNew "pure") (vecPush vecNew first) "pure") first))
+    (say 10
+      (nodeIs
+        (expAsmOptNode (vecPush (vecPush vecNew "pure") "nomem")
+          (vecPush (vecPush vecNew first) second) "nomem")
+        second))
+    (say 11 (isNone (expFirstMacroCall vecNew 0)))
+    (say 12 (isNone (expFirstMacroCall (vecPush vecNew (declaration "(fn (target) 1)")) 0)))
+    (say 13
+      (match (expFirstMacroCall
+               (vecPush (vecPush vecNew (declaration "(fn (target) 1)")) (declaration "(generate)"))
+               0)
+        ((None) false)
+        ((Some node) (== (nodeTag node) TAG_D_MACROCALL))))
+    (say 14 (isNone (expFirstMacroCall (vecPush vecNew (declaration "(generate)")) 1)))
+    (let tc (tcNew vecNew vecNew vecNew))
+    (let ctors
+      (vecPush (vecPush vecNew (arityConstructor "Zero" vecNew))
+        (arityConstructor "One" (vecPush vecNew mkIntTy))))
+    (let data (DataEnt :name "Choice" :ctors ctors :module None :arity 0))
+    (vecPush (tcDatasVec tc) data)
+    (tyIdxAddData tc data)
+    (let choice (mkTCon "Choice" vecNew))
+    (let holes (vecPush (vecPush vecNew "One") "Zero"))
+    (let covered (vecPush vecNew (vecPush vecNew (nodeBuildPCon0 "Zero" 0 0 0))))
+    (say 15
+      (stringIs (missingArmsText tc choice vecNew holes 2)
+        "\n  ((One _) (todo \"One\"))\n  ((Zero) (todo \"Zero\"))"))
+    (say 16 (isNone (missingArmsText tc (mkTCon "Unknown" vecNew) vecNew holes 2)))
+    (say 17 (isNone (missingArmsText tc choice covered (vecPush vecNew "Zero") 2)))
+    (say 18 (isNone (missingArmsText tc choice vecNew (vecPush vecNew "Missing") 2)))
+    (let names (vecPush (vecPush vecNew "first") "second"))
+    (say 19 (isNone (optionProbeIndex vecNew "first")))
+    (say 20 (indexIs (optionProbeIndex names "first") 0))
+    (say 21 (indexIs (optionProbeIndex names "second") 1))
+    (say 22 (indexIs (optionProbeIndex (vecPush names "first") "first") 0))
+    (say 23 (isNone (optionProbeUnspellable vecNew)))
+    (say 24 (isNone (optionProbeUnspellable names)))
+    (say 25 (stringIs (optionProbeUnspellable (vecPush names "bad-name")) "bad-name"))
+    (say 26 (stringIs (optionProbeUnspellable (vecPush vecNew "")) ""))
+    (let nodes (declarations "(:: target Int)\n(fn (target) 1)"))
+    (say 27 (isNone (optionProbeOwner vecNew 0)))
+    (say 28 (isNone (optionProbeOwner nodes (- 0 1))))
+    (say 29 (stringIs (optionProbeOwner nodes (spanStart (nodeSpan (vecGet nodes 0)))) "target"))
+    (say 30 (stringIs (optionProbeOwner nodes (spanStart (nodeSpan (vecGet nodes 1)))) "target"))
+    (let target (declaration "(fn (target) 1)"))
+    (let other (jsonObjPut (jsonObjPut jsonObj "label" (jsonStr "other")) "kind" (jsonNum 12)))
+    (say 31
+      (isNone (optionProbeCompletionAt other "(fn (target) 1)" (vecPush vecNew target) target)))
+    (say 32
+      (match (optionProbeCompletionAt (completionItem target) "(fn (target) 1)"
+               (vecPush vecNew target) target)
+        ((None) false)
+        ((Some handle) (!= handle 0))))
+    (let workspace (lspWorkspaceNew vecNew vecNew vecNew))
+    (say 33 (isNone (optionProbeCompletion workspace "file:///tmp/Main.ax" "(" 0)))
+    (let source "(:: target Int)\n(fn (target) 1)")
+    (let parsed (declarations source))
+    (say 34
+      (match (optionProbeCompletion workspace "file:///tmp/Main.ax" source
+               (completionItem (vecGet parsed 1)))
+        ((None) false)
+        ((Some handle) (!= handle 0))))
+    0
+  })

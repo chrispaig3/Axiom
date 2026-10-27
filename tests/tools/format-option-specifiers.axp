@@ -46,7 +46,9 @@
     :defer 0
     :deferHits 0
     :structNames internNewTyped
-    :structBuckets vecNew))
+    :structBuckets vecNew
+    :carrier 0
+    :optNames vecNew))
 
 (:: precisionText (-> FmtSpec String))
 (fn (precisionText spec)

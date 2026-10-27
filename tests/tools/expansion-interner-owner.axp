@@ -45,7 +45,9 @@
     :defer 0
     :deferHits 0
     :structNames owner
-    :structBuckets vecNew))
+    :structBuckets vecNew
+    :carrier 0
+    :optNames vecNew))
 
 (:: say (-> Int Bool ()))
 ;@axiom:effect(io)

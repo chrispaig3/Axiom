@@ -2567,25 +2567,25 @@
 (pub fn (expFmtCall2 env f x y sp)
   (mkEApp (mkEApp (mkEVarAt (expQualify env f) sp) x) y))
 
-; Append `node` to the concatenation built so far. 0 means "nothing
+; Append `node` to the concatenation built so far. None means "nothing
 ; yet", so a one-part format string produces that part and no call:
 ; `(println "hi")` emits exactly the literal it was given.
-(pub :: expFmtCat (-> MEnv ASTNode ASTNode Int ASTNode))
+(pub :: expFmtCat (-> MEnv (Option ASTNode) ASTNode Int ASTNode))
 (pub fn (expFmtCat env acc node sp)
-  (if (nodeSame acc nilNode)
-    node
-    (mkEApp (expFmtCall env "concat" acc sp) node)))
+  (match acc
+    ((None) node)
+    ((Some current) (mkEApp (expFmtCall env "concat" current sp) node))))
 
 ; The same, for a literal RUN that may be empty - which it is at every
 ; boundary a hole sits on. `"{a}{b}"` has three runs and all three are
 ; empty, and concatenating them cost three `concat` calls per line
 ; printed, at run time, to append nothing. An empty run contributes
 ; nothing to the answer and is dropped instead.
-(pub :: expFmtCatRun (-> MEnv ASTNode String Int ASTNode))
+(pub :: expFmtCatRun (-> MEnv (Option ASTNode) String Int (Option ASTNode)))
 (pub fn (expFmtCatRun env acc run sp)
   (if (== (strLen run) 0)
     acc
-    (expFmtCat env acc (expFmtLit run sp) sp)))
+    (Some (expFmtCat env acc (expFmtLit run sp) sp))))
 
 ; A literal run, as the node the lexer would have produced for it.
 ; `TAG_E_STR` carries the LEXEME - quotes and escapes included, which
@@ -2847,7 +2847,7 @@
               (let r (expFmtShow e sp))
               (if (== nl 0)
                 r
-                (expFmtCat env r (expFmtLit "\\n" sp) sp))
+                (expFmtCat env (Some r) (expFmtLit "\\n" sp) sp))
             }
           }
           (expFmtParse env e isp nl))
@@ -2895,7 +2895,7 @@
       {
         (let n (strLen body))
         {
-          (let mut acc nilNode)
+          (let mut acc (:: None (Option ASTNode)))
           (let mut chunk "")
           (let mut i 0)
           (let mut ok 1)
@@ -2977,13 +2977,14 @@
                                       {
                                         (set acc (expFmtCatRun env acc chunk lsp))
                                         (set chunk "")
-                                        (set acc (expFmtCat env acc
-                                                   (expFmtHole env
-                                                     (mkEVarAt
-                                                       (strSlice body (+ i 1) (- j (+ i 1)))
-                                                       (mkSpan (+ base (+ i 1)) (+ base j)))
-                                                     spec (mkSpan (+ base (+ i 1)) (+ base j)))
-                                                   lsp))
+                                        (set acc (Some
+                                                   (expFmtCat env acc
+                                                     (expFmtHole env
+                                                       (mkEVarAt
+                                                         (strSlice body (+ i 1) (- j (+ i 1)))
+                                                         (mkSpan (+ base (+ i 1)) (+ base j)))
+                                                       spec (mkSpan (+ base (+ i 1)) (+ base j)))
+                                                     lsp)))
                                         (set i (+ close 1))
                                       }
                                       (set ok 0))
@@ -3013,12 +3014,12 @@
             (if (== ok 0)
               (mkEInt 0)
               ; A trailing run, and the empty-format case: with no
-              ; holes at all `acc` is still 0 here, so the answer
+              ; holes at all `acc` is still None here, so the answer
               ; is the literal itself and `(println "hi")` emits
               ; exactly one node.
-              (if (&& (nodeSame acc nilNode) (== (strLen chunk) 0))
-                (expFmtLit "" lsp)
-                (expFmtCatRun env acc chunk lsp)))
+              (match (expFmtCatRun env acc chunk lsp)
+                ((None) (expFmtLit "" lsp))
+                ((Some result) result)))
           }
         }
       }
@@ -5561,12 +5562,20 @@
         (expAsmFirstOut ops any (+ i 1)))
     }))
 
-; The node of option `w`, or 0 when the arm doesn't give it.
-(pub :: expAsmOptNode (-> Strings (Vec ASTNode) String ASTNode))
+; The node of option `w`, or None when the arm doesn't give it.
+(pub :: expAsmOptNode (-> Strings (Vec ASTNode) String (Option ASTNode)))
 (pub fn (expAsmOptNode opts optNodes w)
   (if (let (Some k) (expAsmNameAt opts w 0))
-    (vecGet optNodes k)
-    nilNode))
+    (Some (vecGet optNodes k))
+    None))
+
+; An absent option has no source span. Diagnostic callers establish
+; presence before selecting the option whose span they report.
+(:: expAsmOptSpan (-> (Option ASTNode) Int))
+(fn (expAsmOptSpan option)
+  (match option
+    ((None) 0)
+    ((Some node) (nodeSpan node))))
 
 ; What the arm's items say together, once each is well formed: one
 ; answered output at most, and options that agree with each other and
@@ -5595,45 +5604,44 @@
             (concat "` is a second output with nowhere to go; store it in a `mut` binding: `("
               (concat p.kind (concat " " (concat p.name " into slot)`"))))))
       }
-      (if (&& (strEq arch "aarch64") (|| (! (nodeSame att nilNode)) (! (nodeSame intel nilNode))))
+      (if (&& (strEq arch "aarch64") (|| (isSome att) (isSome intel)))
         (expAsmOptsBad env
-          (nodeSpan
-            (if (! (nodeSame att nilNode))
+          (expAsmOptSpan
+            (if (isSome att)
               att
               intel))
           "`att_syntax` and `intel_syntax` choose an x86_64 assembler syntax; aarch64 has one")
-        (if (&& (! (nodeSame att nilNode)) (! (nodeSame intel nilNode)))
-          (expAsmOptsBad env (nodeSpan intel)
+        (if (&& (isSome att) (isSome intel))
+          (expAsmOptsBad env (expAsmOptSpan intel)
             "`att_syntax` and `intel_syntax` contradict each other; AT&T is the default")
-          (if (&& (! (nodeSame nomem nilNode)) (! (nodeSame readonly nilNode)))
-            (expAsmOptsBad env (nodeSpan readonly)
+          (if (&& (isSome nomem) (isSome readonly))
+            (expAsmOptsBad env (expAsmOptSpan readonly)
               "`nomem` says the instructions touch no memory and `readonly` that they read it; keep the one that is true")
-            (if (&& (! (nodeSame pure nilNode)) (! (nodeSame noret nilNode)))
-              (expAsmOptsBad env (nodeSpan noret)
+            (if (&& (isSome pure) (isSome noret))
+              (expAsmOptsBad env (expAsmOptSpan noret)
                 "`pure` and `noreturn` contradict each other: a `pure` block is nothing but its outputs, and a `noreturn` block has none")
-              (if (&& (! (nodeSame pure nilNode)) (== nOut 0))
-                (expAsmOptsBad env (nodeSpan pure)
+              (if (&& (isSome pure) (== nOut 0))
+                (expAsmOptsBad env (expAsmOptSpan pure)
                   "a `pure` block's only effect is its outputs, and this arm has none; drop `pure`, or add the output it computes")
-                (if (&& (! (nodeSame pure nilNode))
-                      (&& (nodeSame nomem nilNode) (nodeSame readonly nilNode)))
-                  (expAsmOptsBad env (nodeSpan pure)
+                (if (&& (isSome pure) (&& (isNone nomem) (isNone readonly)))
+                  (expAsmOptsBad env (expAsmOptSpan pure)
                     "`pure` needs `nomem` or `readonly` beside it, to say whether the instructions read memory")
-                  (if (&& (! (nodeSame noret nilNode)) (> nOut 0))
+                  (if (&& (isSome noret) (> nOut 0))
                     (if (let (Some firstIndex) (expAsmFirstOut ops true 0))
                       {
                         (let p (vecGet ops firstIndex))
                         (expAsmOptsBad env (nodeSpan p.node)
                           "a `noreturn` block never finishes, so it has no outputs")
                       }
-                      (expAsmOptsBad env (nodeSpan noret)
+                      (expAsmOptsBad env (expAsmOptSpan noret)
                         "a `noreturn` block never finishes, so it has no outputs"))
-                    (if (&& (! (nodeSame nomem nilNode)) (isSome (expAsmNameAt clobs "memory" 0)))
-                      (expAsmOptsBad env (nodeSpan nomem)
+                    (if (&& (isSome nomem) (isSome (expAsmNameAt clobs "memory" 0)))
+                      (expAsmOptsBad env (expAsmOptSpan nomem)
                         "`nomem` says the instructions touch no memory, and the arm clobbers `memory`; keep the one that is true")
-                      (if (&& (! (nodeSame keeps nilNode))
+                      (if (&& (isSome keeps)
                             (|| (isSome (expAsmNameAt clobs "cc" 0))
                               (isSome (expAsmNameAt clobs "flags" 0))))
-                        (expAsmOptsBad env (nodeSpan keeps)
+                        (expAsmOptsBad env (expAsmOptSpan keeps)
                           "`preserves_flags` says the instructions leave the flags alone, and the arm clobbers them; keep the one that is true")
                         (if (let (Some bareIndex) bare)
                           {
@@ -9248,9 +9256,9 @@
       {
         (expEmit env
           (mkDiagNote SEV_ERROR "AX3019" "macro-recursion-limit"
-            (if (nodeSame d nilNode)
-              0
-              (nodeSpan d))
+            (match d
+              ((None) 0)
+              ((Some node) (nodeSpan node)))
             "declaration-macro expansion exceeded 128 rounds" None
             (Some
               "check whether a declaration macro, directly or through another, generates an invocation of itself with no case that stops")
@@ -9272,12 +9280,12 @@
           0)
         (expandDeclRounds entryDecls decls env (+ round 1))))))
 
-(pub :: expFirstMacroCall (-> (Vec ASTNode) Int ASTNode))
+(pub :: expFirstMacroCall (-> (Vec ASTNode) Int (Option ASTNode)))
 (pub fn (expFirstMacroCall decls i)
   (if (>= i (vecLen decls))
-    nilNode
+    None
     (if (== (nodeTag (vecGet decls i)) TAG_D_MACROCALL)
-      (vecGet decls i)
+      (Some (vecGet decls i))
       (expFirstMacroCall decls (+ i 1)))))
 
 ; One round; answers 1 when any invocation instantiated. A REFUSED

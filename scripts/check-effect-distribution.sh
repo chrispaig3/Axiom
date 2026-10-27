@@ -382,6 +382,9 @@ have() { # have <got> <want> <what>
 # comparison against its parent changes no existing effect row. The pins also
 # take up earlier drift of two Alloc,Mut rows, one Alloc,IO,Mut row and six
 # pure rows; none of those additions belongs to this patch.
+# Remaining optional lookups move five functions from pure to Alloc for their
+# present results, and add the pure expAsmOptSpan helper. A same-compiler
+# comparison changes no other row, including every required effect.
 echo "== compiler view: symbols --calls core/main.ax =="
 "$axc" --diagnostic-format=ai symbols --calls core/main.ax > "$work/main.axsym" 2>"$work/main.err" \
   || { fail "could not read symbols over core/main.ax"; echo "check-effect-distribution: $failed failed"; exit 1; }
@@ -465,7 +468,7 @@ rows="$(grep -c '^F ' "$work/main.axsym" || true)"
 have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 3701 "exactly Alloc,Mut"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut')" 515 "Alloc,IO,Mut"
 have "$(bucket "$work/main.axsym" 'Mut')" 285 "exactly Mut"
-have "$(bucket "$work/main.axsym" 'Alloc')" 476 "exactly Alloc"
+have "$(bucket "$work/main.axsym" 'Alloc')" 481 "exactly Alloc"
 have "$(bucket "$work/main.axsym" 'Alloc,IO')" 24 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 13 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 5 "IO,Mut"
@@ -497,7 +500,7 @@ have "$(bucket "$work/main.axsym" 'Alloc,Block,IO,Mut')" 16 "Alloc,Block,IO,Mut"
 have "$(bucket "$work/main.axsym" 'Alloc,Block,IO')" 2 "Alloc,Block,IO"
 have "$(bucket "$work/main.axsym" 'Block,IO')" 1 "Block,IO"
 have "$(bucket "$work/main.axsym" 'Block,IO,Mut')" 1 "Block,IO,Mut"
-have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 2403 "pure (neither row nor mark)"
+have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 2399 "pure (neither row nor mark)"
 have "$(grep '^F ' "$work/main.axsym" | grep -o '#effects=[^ #]*' | LC_ALL=C sort -u | wc -l | tr -d ' ')" 32 "distinct compiler effect rows"
 have "$(grep -c '#effects-incomplete' "$work/main.axsym" || true)" 54 "incomplete rows"
 have "$(grep -c '#effect-params' "$work/main.axsym" || true)" 42 "effect-params rows"

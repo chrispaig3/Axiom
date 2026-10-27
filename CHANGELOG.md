@@ -16,6 +16,12 @@ its changelog too.
 
 ## Unreleased
 
+- Compiler lookups use `Option` for absent match-arm suggestions, format
+  expressions, assembler options, macro calls, Rust-binding indexes and names,
+  lint owners and completion items. Present empty names and index zero remain
+  distinct from absence; raw uses and incomplete matches are refused.
+  Tested by `tests/tools/remaining-option-lookups.py`.
+
 - The S4 release comparison follows return-slot and local-cleanup changes
   caused by tail calls. Wrong stored values and unrelated loads remain
   visible to the comparison.
