@@ -154,7 +154,7 @@ web/package-lock.json|2|npmlock_version|npmlock_replace
 core/build.ax|1|axv_version|axv_replace
 core/lsp.ax|1|lsp_version|lsp_replace
 pkg/axiom-oxide/Cargo.toml|4|toml_version|toml_replace
-pkg/axiom-oxide/Cargo.lock|7|lock_version|lock_replace
+pkg/axiom-oxide/Cargo.lock|8|lock_version|lock_replace
 pkg/axiom-oxide/examples/nostd/Cargo.lock|4|lock_version|lock_replace
 tree-sitter-axiom/package.json|1|json_version|json_replace
 tree-sitter-axiom/tree-sitter.json|1|json_version|json_replace
