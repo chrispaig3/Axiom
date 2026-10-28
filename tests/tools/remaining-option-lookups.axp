@@ -11,7 +11,6 @@
 (import namespace)
 (import expand)
 (import typecheck)
-(import rustbind)
 (import nolint)
 (import lsp)
 
@@ -84,12 +83,6 @@
   (match actual
     ((None) false)
     ((Some value) (strEq value expected))))
-
-(:: indexIs (-> (Option Int) Int Bool))
-(fn (indexIs actual expected)
-  (match actual
-    ((None) false)
-    ((Some value) (== value expected))))
 
 (:: arityConstructor (-> String Nodes CtorEnt))
 (fn (arityConstructor name fields)
@@ -169,34 +162,25 @@
     (say 16 (isNone (missingArmsText tc (mkTCon "Unknown" vecNew) vecNew holes 2)))
     (say 17 (isNone (missingArmsText tc choice covered (vecPush vecNew "Zero") 2)))
     (say 18 (isNone (missingArmsText tc choice vecNew (vecPush vecNew "Missing") 2)))
-    (let names (vecPush (vecPush vecNew "first") "second"))
-    (say 19 (isNone (optionProbeIndex vecNew "first")))
-    (say 20 (indexIs (optionProbeIndex names "first") 0))
-    (say 21 (indexIs (optionProbeIndex names "second") 1))
-    (say 22 (indexIs (optionProbeIndex (vecPush names "first") "first") 0))
-    (say 23 (isNone (optionProbeUnspellable vecNew)))
-    (say 24 (isNone (optionProbeUnspellable names)))
-    (say 25 (stringIs (optionProbeUnspellable (vecPush names "bad-name")) "bad-name"))
-    (say 26 (stringIs (optionProbeUnspellable (vecPush vecNew "")) ""))
     (let nodes (declarations "(:: target Int)\n(fn (target) 1)"))
-    (say 27 (isNone (optionProbeOwner vecNew 0)))
-    (say 28 (isNone (optionProbeOwner nodes (- 0 1))))
-    (say 29 (stringIs (optionProbeOwner nodes (spanStart (nodeSpan (vecGet nodes 0)))) "target"))
-    (say 30 (stringIs (optionProbeOwner nodes (spanStart (nodeSpan (vecGet nodes 1)))) "target"))
+    (say 19 (isNone (optionProbeOwner vecNew 0)))
+    (say 20 (isNone (optionProbeOwner nodes (- 0 1))))
+    (say 21 (stringIs (optionProbeOwner nodes (spanStart (nodeSpan (vecGet nodes 0)))) "target"))
+    (say 22 (stringIs (optionProbeOwner nodes (spanStart (nodeSpan (vecGet nodes 1)))) "target"))
     (let target (declaration "(fn (target) 1)"))
     (let other (jsonObjPut (jsonObjPut jsonObj "label" (jsonStr "other")) "kind" (jsonNum 12)))
-    (say 31
+    (say 23
       (isNone (optionProbeCompletionAt other "(fn (target) 1)" (vecPush vecNew target) target)))
-    (say 32
+    (say 24
       (match (optionProbeCompletionAt (completionItem target) "(fn (target) 1)"
                (vecPush vecNew target) target)
         ((None) false)
         ((Some handle) (!= handle 0))))
     (let workspace (lspWorkspaceNew vecNew vecNew vecNew))
-    (say 33 (isNone (optionProbeCompletion workspace "file:///tmp/Main.ax" "(" 0)))
+    (say 25 (isNone (optionProbeCompletion workspace "file:///tmp/Main.ax" "(" 0)))
     (let source "(:: target Int)\n(fn (target) 1)")
     (let parsed (declarations source))
-    (say 34
+    (say 26
       (match (optionProbeCompletion workspace "file:///tmp/Main.ax" source
                (completionItem (vecGet parsed 1)))
         ((None) false)

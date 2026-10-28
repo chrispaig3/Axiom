@@ -9,12 +9,6 @@ import tempfile
 
 
 BRIDGES = {
-    "rustbind.ax": '''
-(pub :: optionProbeIndex (-> Names String (Option Int)))
-(pub fn (optionProbeIndex names name) (rbIndexOfName names name))
-(pub :: optionProbeUnspellable (-> Names (Option String)))
-(pub fn (optionProbeUnspellable names) (rbFirstUnspellable names))
-''',
     "nolint.ax": '''
 (pub :: optionProbeOwner (-> Nodes Int (Option String)))
 (pub fn (optionProbeOwner declarations offset) (nolintOwnerAt declarations offset))
@@ -38,7 +32,7 @@ def main():
     root = Path(__file__).resolve().parents[2]
     compiler = str(args.compiler.resolve())
     base_environment = dict(os.environ, AXIOM_STDLIB=str(root / "stdlib"))
-    expected = "".join(f"{index} true\n" for index in range(1, 35))
+    expected = "".join(f"{index} true\n" for index in range(1, 27))
 
     def execute(arguments, environment, timeout=240):
         return subprocess.run(arguments, cwd=root, env=environment, capture_output=True,
@@ -65,10 +59,10 @@ def main():
             ran = execute([str(binary)], environment, timeout=30)
             assert ran.returncode == 0 and not ran.stderr, (level, ran.returncode, ran.stderr)
             assert ran.stdout == expected, (level, ran.stdout)
-            print(f"ok   O{level}: 34 present/absent lookup cases", flush=True)
+            print(f"ok   O{level}: 26 present/absent lookup cases", flush=True)
 
         common = ("(import core)\n(import parser)\n(import expand)\n(import typecheck)\n"
-                  "(import rustbind)\n(import nolint)\n(import lsp)\n(import Vec)\n")
+                  "(import nolint)\n(import lsp)\n(import Vec)\n")
         refusals = {
             "format-run-as-node": ("(:: bad (-> MEnv ASTNode))\n"
                                    "(fn (bad env) (expFmtCatRun env None \"\" 0))", "AX3004"),
@@ -77,15 +71,9 @@ def main():
             "assembler-as-node": ("(:: bad ASTNode)\n"
                                   "(fn (bad) (expAsmOptNode vecNew vecNew \"pure\"))", "AX3004"),
             "macro-as-node": ("(:: bad ASTNode)\n(fn (bad) (expFirstMacroCall vecNew 0))", "AX3004"),
-            "binding-index-as-int": ("(:: bad Int)\n(fn (bad) (optionProbeIndex vecNew \"name\"))", "AX3004"),
-            "binding-name-as-string": ("(:: bad String)\n(fn (bad) (optionProbeUnspellable vecNew))", "AX3004"),
             "lint-owner-as-string": ("(:: bad String)\n(fn (bad) (optionProbeOwner vecNew 0))", "AX3004"),
             "completion-as-handle": ("(:: bad Int)\n"
                                      "(fn (bad) (optionProbeCompletionAt 0 \"\" vecNew nilNode))", "AX3004"),
-            "index-missing-none": ("(:: bad Int)\n"
-                                   "(fn (bad) (match (optionProbeIndex vecNew \"name\") ((Some index) index)))", "AX3005"),
-            "name-missing-none": ("(:: bad String)\n"
-                                  "(fn (bad) (match (optionProbeUnspellable vecNew) ((Some name) name)))", "AX3005"),
             "node-missing-none": ("(:: bad ASTNode)\n"
                                   "(fn (bad) (match (expFirstMacroCall vecNew 0) ((Some node) node)))", "AX3005"),
             "node-missing-some": ("(:: bad Bool)\n"
@@ -102,34 +90,36 @@ def main():
             print(f"ok   {name}: {code}", flush=True)
 
         # Removing an actual lookup result must be visible to the fixture.
-        original = (root / "core/rustbind.ax").read_text()
-        start = original.index("(fn (rbIndexOfName ")
+        original = (root / "core/expand.ax").read_text()
+        start = original.index("(pub fn (expFirstMacroCall ")
         end = original.index("\n\n", start)
         body = original[start:end]
-        assert body.count("(set at (Some i))") == 1
-        mutated = original[:start] + body.replace("(set at (Some i))", "()") + original[end:]
+        assert body.count("(Some (vecGet decls i))") == 1
+        mutated = original[:start] + body.replace("(Some (vecGet decls i))", "None") + original[end:]
         control_modules = work / "control-core"
         control_modules.mkdir()
         for path in (root / "core").iterdir():
             target = control_modules / path.name
-            if path.name == "rustbind.ax":
-                target.write_text(mutated + BRIDGES[path.name])
+            if path.name == "expand.ax":
+                target.write_text(mutated)
             elif path.name in BRIDGES:
                 target.write_text(path.read_text() + BRIDGES[path.name])
             else:
                 target.symlink_to(path, target_is_directory=path.is_dir())
-        binary = work / "lost-binding-index"
+        binary = work / "lost-macro-call"
         built = execute([compiler, "--diagnostic-format=ai", "build", str(fixture),
                          "--opt", "0", "--alloc-poison", "-o", str(binary)],
                         dict(base_environment, AXIOM_PATH=str(control_modules)))
         assert built.returncode == 0, (built.stdout, built.stderr)
         ran = execute([str(binary)], environment, timeout=30)
         rows = ran.stdout.splitlines()
-        assert ran.returncode == 0 and len(rows) == 34, (ran.returncode, ran.stdout, ran.stderr)
-        assert rows[19] == "20 false" and rows[20] == "21 false" and rows[21] == "22 false", ran.stdout
-        print("ok   lost-binding-index: cases 20, 21 and 22 detect the mutation", flush=True)
+        expected_rows = expected.splitlines()
+        expected_rows[12] = "13 false"
+        assert ran.returncode == 0 and not ran.stderr and rows == expected_rows, (
+            ran.returncode, ran.stdout, ran.stderr)
+        print("ok   lost-macro-call: case 13 detects the mutation", flush=True)
 
-    print("ok   remaining lookups: 34 cases O0/O2 poison; 12 type/exhaustiveness refusals; one effective control")
+    print("ok   remaining lookups: 26 cases O0/O2 poison; 8 type/exhaustiveness refusals; one effective control")
 
 
 if __name__ == "__main__":

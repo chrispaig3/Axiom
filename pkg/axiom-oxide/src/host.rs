@@ -1,9 +1,12 @@
 //! Generate Axiom accessors and the safe Rust view of an Axiom archive.
 
 use std::collections::HashSet;
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Clone, Debug)]
 enum Sexp {
@@ -482,6 +485,121 @@ impl Surface {
     }
 }
 
+static TEMPORARY_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+struct GeneratedSource {
+    path: PathBuf,
+    temporary_directory: Option<PathBuf>,
+}
+
+impl GeneratedSource {
+    fn automatic(input: &Path, contents: &str) -> Result<Self, String> {
+        let parent = input
+            .parent()
+            .filter(|path| !path.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        Self::automatic_in(parent, contents)
+    }
+
+    fn automatic_in(parent: &Path, contents: &str) -> Result<Self, String> {
+        for _ in 0..128 {
+            let stamp = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos();
+            let sequence = TEMPORARY_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+            let directory = parent.join(format!(
+                ".axiom-oxide-{}-{stamp}-{sequence}",
+                std::process::id()
+            ));
+            match create_private_directory(&directory) {
+                Ok(()) => {
+                    let path = directory.join("source.ax");
+                    if let Err(error) = write_new_source(&path, contents) {
+                        let _ = fs::remove_file(&path);
+                        let _ = fs::remove_dir(&directory);
+                        return Err(format!("cannot write {}: {error}", path.display()));
+                    }
+                    return Ok(Self {
+                        path,
+                        temporary_directory: Some(directory),
+                    });
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => {
+                    return Err(format!(
+                        "cannot create temporary directory {}: {error}",
+                        directory.display()
+                    ));
+                }
+            }
+        }
+        Err(format!(
+            "cannot create a unique temporary directory in {}",
+            parent.display()
+        ))
+    }
+
+    fn explicit(path: PathBuf, contents: &str) -> Result<Self, String> {
+        fs::write(&path, contents).map_err(|e| format!("cannot write {}: {e}", path.display()))?;
+        Ok(Self {
+            path,
+            temporary_directory: None,
+        })
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+
+    fn is_automatic(&self) -> bool {
+        self.temporary_directory.is_some()
+    }
+}
+
+impl Drop for GeneratedSource {
+    fn drop(&mut self) {
+        if let Some(directory) = &self.temporary_directory {
+            let _ = fs::remove_file(&self.path);
+            let _ = fs::remove_dir(directory);
+        }
+    }
+}
+
+fn create_private_directory(path: &Path) -> std::io::Result<()> {
+    let mut builder = fs::DirBuilder::new();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+    builder.create(path)
+}
+
+fn write_new_source(path: &Path, contents: &str) -> std::io::Result<()> {
+    let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
+    file.write_all(contents.as_bytes())
+}
+
+// The automatic source sits one directory below the input. Put the input's
+// directory back in the search path so sibling imports resolve as they did before.
+fn compiler_module_path(input: &Path) -> Result<std::ffi::OsString, String> {
+    let original = input
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let mut paths = vec![original.to_path_buf()];
+    if let Some(existing) = std::env::var_os("AXIOM_PATH") {
+        paths.extend(std::env::split_paths(&existing));
+    }
+    std::env::join_paths(paths).map_err(|error| {
+        format!(
+            "cannot construct AXIOM_PATH for {}: {error}",
+            original.display()
+        )
+    })
+}
+
 pub fn run(args: &[String]) -> Result<(), String> {
     let (mut input, mut rust, mut archive, mut keep) = (None, None, None, None);
     let mut axiom = "axiom".to_owned();
@@ -522,11 +640,11 @@ pub fn run(args: &[String]) -> Result<(), String> {
             "generated accessor names collide for `{name}`; rename one source type"
         ));
     }
-    let temporary = keep
-        .unwrap_or_else(|| input.with_file_name(format!(".axiom-oxide-{}.ax", std::process::id())));
     let generated = format!("(import Vec)\n{source}\n{}", surface.shims(&instances));
-    fs::write(&temporary, generated)
-        .map_err(|e| format!("cannot write {}: {e}", temporary.display()))?;
+    let temporary = match keep {
+        Some(path) => GeneratedSource::explicit(path, &generated)?,
+        None => GeneratedSource::automatic(&input, &generated)?,
+    };
     fs::write(&rust, surface.rust_bindings(&input, &instances))
         .map_err(|e| format!("cannot write {}: {e}", rust.display()))?;
     let _ = Command::new("rustfmt")
@@ -534,29 +652,26 @@ pub fn run(args: &[String]) -> Result<(), String> {
         .arg(&rust)
         .status();
     if build {
-        let status = Command::new(&axiom)
+        let mut command = Command::new(&axiom);
+        command
             .arg("build")
             .arg("--input")
-            .arg(&temporary)
+            .arg(temporary.path())
             .arg("--output")
             .arg(&archive)
-            .arg("--emit-staticlib")
+            .arg("--emit-staticlib");
+        if temporary.is_automatic() {
+            command.env("AXIOM_PATH", compiler_module_path(&input)?);
+        }
+        let status = command
             .status()
             .map_err(|e| format!("could not run {axiom}: {e}"))?;
         if !status.success() {
             return Err(format!(
                 "Axiom archive build exited with {status}; generated source is {}",
-                temporary.display()
+                temporary.path().display()
             ));
         }
-    }
-    if temporary
-        .file_name()
-        .and_then(|s| s.to_str())
-        .is_some_and(|n| n.starts_with(".axiom-oxide-"))
-    {
-        fs::remove_file(&temporary)
-            .map_err(|e| format!("cannot remove {}: {e}", temporary.display()))?;
     }
     eprintln!(
         "axiom-oxide: wrote {} and {}",
@@ -1330,3 +1445,199 @@ impl Drop for AxVecBuf {
 }
 
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    static TEST_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+    struct TestDir(PathBuf);
+
+    impl TestDir {
+        fn new(name: &str) -> Self {
+            let stamp = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let sequence = TEST_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!(
+                "axiom-oxide-host-{name}-{}-{stamp}-{sequence}",
+                std::process::id()
+            ));
+            fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TestDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn args(input: &Path, rust: &Path, archive: &Path) -> Vec<String> {
+        vec![
+            "--input".into(),
+            input.to_string_lossy().into_owned(),
+            "--rust".into(),
+            rust.to_string_lossy().into_owned(),
+            "--archive".into(),
+            archive.to_string_lossy().into_owned(),
+        ]
+    }
+
+    fn write_input(dir: &Path) -> PathBuf {
+        let input = dir.join("input.ax");
+        fs::write(&input, "(pub :: answer Int)\n(pub fn (answer) 42)\n").unwrap();
+        input
+    }
+
+    fn assert_no_automatic_artifacts(dir: &Path) {
+        let artifacts = fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .filter(|name| name.to_string_lossy().starts_with(".axiom-oxide-"))
+            .collect::<Vec<_>>();
+        assert!(
+            artifacts.is_empty(),
+            "left temporary artifacts: {artifacts:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn automatic_source_does_not_follow_legacy_symlink() {
+        let dir = TestDir::new("symlink");
+        let input = write_input(dir.path());
+        let rust = dir.path().join("binding.rs");
+        let archive = dir.path().join("library.a");
+        let victim = dir.path().join("victim");
+        fs::write(&victim, "do not truncate").unwrap();
+        let legacy = input.with_file_name(format!(".axiom-oxide-{}.ax", std::process::id()));
+        std::os::unix::fs::symlink(&victim, &legacy).unwrap();
+
+        let mut host_args = args(&input, &rust, &archive);
+        host_args.push("--no-build".into());
+        run(&host_args).unwrap();
+
+        assert_eq!(fs::read_to_string(&victim).unwrap(), "do not truncate");
+        assert!(fs::symlink_metadata(&legacy)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_no_automatic_artifacts_except(dir.path(), &legacy);
+
+        let exclusive = dir.path().join("exclusive.ax");
+        std::os::unix::fs::symlink(&victim, &exclusive).unwrap();
+        let error = write_new_source(&exclusive, "must not follow").unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(fs::read_to_string(&victim).unwrap(), "do not truncate");
+    }
+
+    #[cfg(unix)]
+    fn assert_no_automatic_artifacts_except(dir: &Path, exception: &Path) {
+        let artifacts = fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| {
+                path.file_name()
+                    .is_some_and(|name| name.to_string_lossy().starts_with(".axiom-oxide-"))
+                    && path != exception
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            artifacts.is_empty(),
+            "left temporary artifacts: {artifacts:?}"
+        );
+    }
+
+    #[test]
+    fn keep_source_with_internal_prefix_survives_success_and_error() {
+        let dir = TestDir::new("keep");
+        let input = write_input(dir.path());
+        let rust = dir.path().join("binding.rs");
+        let archive = dir.path().join("library.a");
+        let keep = dir.path().join(".axiom-oxide-kept.ax");
+        let mut host_args = args(&input, &rust, &archive);
+        host_args.extend(["--keep-source".into(), keep.to_string_lossy().into_owned()]);
+        host_args.push("--no-build".into());
+
+        run(&host_args).unwrap();
+        let generated = fs::read_to_string(&keep).unwrap();
+        assert!(generated.starts_with("(import Vec)\n(pub :: answer Int)"));
+
+        fs::remove_file(&rust).unwrap();
+        fs::create_dir(&rust).unwrap();
+        assert!(run(&host_args).is_err());
+        assert_eq!(fs::read_to_string(&keep).unwrap(), generated);
+    }
+
+    #[test]
+    fn automatic_sources_are_private_and_do_not_collide() {
+        let dir = TestDir::new("concurrent");
+        let workers = (0..8)
+            .map(|index| {
+                let parent = dir.path().to_path_buf();
+                std::thread::spawn(move || {
+                    GeneratedSource::automatic_in(&parent, &format!("source {index}")).unwrap()
+                })
+            })
+            .collect::<Vec<_>>();
+        let sources = workers
+            .into_iter()
+            .map(|worker| worker.join().unwrap())
+            .collect::<Vec<_>>();
+
+        let mut paths = HashSet::new();
+        let mut contents = HashSet::new();
+        for source in &sources {
+            assert!(paths.insert(source.path()));
+            contents.insert(fs::read_to_string(source.path()).unwrap());
+            let temporary = source.temporary_directory.as_ref().unwrap();
+            assert!(source.path().starts_with(temporary));
+            assert_eq!(temporary.parent(), Some(dir.path()));
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let mode = fs::metadata(temporary).unwrap().permissions().mode();
+                assert_eq!(mode & 0o077, 0, "temporary directory is not private");
+            }
+        }
+        assert_eq!(contents.len(), sources.len());
+
+        drop(sources);
+        assert_no_automatic_artifacts(dir.path());
+    }
+
+    #[test]
+    fn automatic_source_is_cleaned_up_after_errors() {
+        let dir = TestDir::new("errors");
+        let input = write_input(dir.path());
+        let rust = dir.path().join("binding.rs");
+        let archive = dir.path().join("library.a");
+        fs::create_dir(&rust).unwrap();
+        let host_args = args(&input, &rust, &archive);
+
+        assert!(run(&host_args).is_err());
+        assert_no_automatic_artifacts(dir.path());
+
+        fs::remove_dir(&rust).unwrap();
+        let mut host_args = args(&input, &rust, &archive);
+        host_args.extend([
+            "--axiom".into(),
+            dir.path()
+                .join("missing-compiler")
+                .to_string_lossy()
+                .into_owned(),
+        ]);
+        assert!(run(&host_args).is_err());
+        assert_no_automatic_artifacts(dir.path());
+    }
+}

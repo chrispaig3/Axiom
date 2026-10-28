@@ -16,10 +16,18 @@ its changelog too.
 
 ## Unreleased
 
+- Rust FFI lives in the official `pkg/axiom-oxide` package, with the `Ffi`
+  library, bidirectional host driver and `axiom-bindgen`. Generic `extern`
+  declarations remain in the language, and compiler bootstrap needs no Rust
+  toolchain. Package manifests distinguish `library` and `binary` packages.
+  Automatic host sources use private, exclusive temporary directories;
+  explicitly retained sources are never removed.
+  Tested by `scripts/check-ffi.sh` and `scripts/check-packages.sh`.
+
 - Compiler lookups use `Option` for absent match-arm suggestions, format
-  expressions, assembler options, macro calls, Rust-binding indexes and names,
-  lint owners and completion items. Present empty names and index zero remain
-  distinct from absence; raw uses and incomplete matches are refused.
+  expressions, assembler options, macro calls, lint owners and completion
+  items. Present empty names and index zero remain distinct from absence;
+  raw uses and incomplete matches are refused.
   Tested by `tests/tools/remaining-option-lookups.py`.
 
 - The S4 release comparison follows return-slot and local-cleanup changes

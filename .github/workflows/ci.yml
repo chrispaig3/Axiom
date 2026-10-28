@@ -1375,7 +1375,7 @@ jobs:
       # snapshots. `axiom-host` is excluded because it links an Axiom
       # archive that check-ffi.sh builds, not cargo.
       - name: The FFI crates' own tests
-        run: cd rust && cargo test --workspace --exclude axiom-host
+        run: cd pkg/axiom-oxide && cargo test --workspace --exclude axiom-host
 
   # ---------------------------------------------------------------
   # FreeBSD is source-only (README, Targets), like linux-x86_64. This job

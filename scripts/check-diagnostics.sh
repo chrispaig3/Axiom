@@ -132,6 +132,7 @@ bless="${AXIOM_BLESS:-0}"
 # Cases run from $work so their entry filename is a bare NAME.ax.
 ln -s "$repo_root/stdlib" "$work/stdlib"
 ln -s "$repo_root/core" "$work/core"
+ln -s "$repo_root/pkg" "$work/pkg"
 # The sweep below runs from `$work` and names its inputs by
 # repo-relative path, so `tests/` has to be reachable from here too.
 # Without this the sweep read nothing, reported nothing, and passed -
@@ -149,7 +150,7 @@ ln -s "$repo_root/tests" "$work/tests"
 # repository names it. `verify-axdl-spans.py` refuses an absolute path
 # outright, so this cannot go wrong quietly.
 export AXIOM_STDLIB="stdlib"
-export AXIOM_PATH="core${AXIOM_PATH:+:$AXIOM_PATH}"
+export AXIOM_PATH="core:pkg/axiom-oxide/axiom${AXIOM_PATH:+:$AXIOM_PATH}"
 
 # Helper MODULES for cases that need more than one file. They live in a
 # subdirectory so the per-case glob below cannot mistake one for a case

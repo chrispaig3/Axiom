@@ -141,6 +141,7 @@ set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
 gate_init
 gate_build_axc axc
+export AXIOM_PATH="$repo_root/pkg/axiom-oxide/axiom${AXIOM_PATH:+:$AXIOM_PATH}"
 source "$(dirname "${BASH_SOURCE[0]}")/lib/imports.sh"
 
 failed=0
