@@ -20,6 +20,22 @@
 0.8.0  F  fallibleDefault  Alloc includes construction of the captured fallback handler
 0.8.0  F  fallibleCounting  Alloc includes construction of the captured counting handler
 0.8.0  F  vecSortBy  Alloc includes construction of the guarded comparator closure
+0.8.0  F  ffiBytesToStr  moved to the axiom-oxide package (pkg/axiom-oxide/axiom/Ffi.ax); add that directory to AXIOM_PATH or depend on the package
+0.8.0  F  ffiCellFree  moved to the axiom-oxide package (pkg/axiom-oxide/axiom/Ffi.ax); add that directory to AXIOM_PATH or depend on the package
+0.8.0  F  ffiCellNew  moved to the axiom-oxide package (pkg/axiom-oxide/axiom/Ffi.ax); add that directory to AXIOM_PATH or depend on the package
+0.8.0  F  ffiCellNewN  moved to the axiom-oxide package (pkg/axiom-oxide/axiom/Ffi.ax); add that directory to AXIOM_PATH or depend on the package
+0.8.0  F  ffiCellWord  moved to the axiom-oxide package (pkg/axiom-oxide/axiom/Ffi.ax); add that directory to AXIOM_PATH or depend on the package
+0.8.0  F  ffiHandleClose  moved to the axiom-oxide package (pkg/axiom-oxide/axiom/Ffi.ax); add that directory to AXIOM_PATH or depend on the package
+0.8.0  F  ffiHandleLive  moved to the axiom-oxide package (pkg/axiom-oxide/axiom/Ffi.ax); add that directory to AXIOM_PATH or depend on the package
+0.8.0  F  ffiHandleNew  moved to the axiom-oxide package (pkg/axiom-oxide/axiom/Ffi.ax); add that directory to AXIOM_PATH or depend on the package
+0.8.0  F  ffiHandlePtr  moved to the axiom-oxide package (pkg/axiom-oxide/axiom/Ffi.ax); add that directory to AXIOM_PATH or depend on the package
+0.8.0  F  ffiStatusErr  moved to the axiom-oxide package (pkg/axiom-oxide/axiom/Ffi.ax); add that directory to AXIOM_PATH or depend on the package
+0.8.0  F  ffiStatusNone  moved to the axiom-oxide package (pkg/axiom-oxide/axiom/Ffi.ax); add that directory to AXIOM_PATH or depend on the package
+0.8.0  F  ffiStatusOk  moved to the axiom-oxide package (pkg/axiom-oxide/axiom/Ffi.ax); add that directory to AXIOM_PATH or depend on the package
+0.8.0  F  ffiStrsToVec  moved to the axiom-oxide package (pkg/axiom-oxide/axiom/Ffi.ax); add that directory to AXIOM_PATH or depend on the package
+0.8.0  F  ffiWordAt  moved to the axiom-oxide package (pkg/axiom-oxide/axiom/Ffi.ax); add that directory to AXIOM_PATH or depend on the package
+0.8.0  F  ffiWordListsToVec  moved to the axiom-oxide package (pkg/axiom-oxide/axiom/Ffi.ax); add that directory to AXIOM_PATH or depend on the package
+0.8.0  F  ffiWordsToVec  moved to the axiom-oxide package (pkg/axiom-oxide/axiom/Ffi.ax); add that directory to AXIOM_PATH or depend on the package
 
 0.8.0  L  type-alias-eq  aliases are (type Name [params] Target) with no =; write (type Items a (Vec a))
 0.8.0  L  raw-tag  ;@axiom:raw no longer exempts a declaration from AX3040; return a concrete word type and let callers write `as`, or make the function diverge

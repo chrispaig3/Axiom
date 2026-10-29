@@ -29,6 +29,10 @@ gate_init
 # the seed does not know.
 gate_build_axc axc
 
+# `Ffi` lives in the axiom-oxide package, not the standard library, so
+# the corpus cases that import it resolve it from there.
+export AXIOM_PATH="$repo_root/pkg/axiom-oxide/axiom${AXIOM_PATH:+:$AXIOM_PATH}"
+
 # Every target the tree's compiler knows. A target can be named here
 # before any seed knows it, so every loop over this array drives `$axc`
 # and never `$axiom`. The one loop that needs the seed's opinion keeps

@@ -255,6 +255,7 @@ bless="${AXIOM_BLESS:-0}"
 # because a module name is its filename stem.
 ln -s "$repo_root/stdlib" "$work/stdlib"
 ln -s "$repo_root/core" "$work/core"
+ln -s "$repo_root/pkg" "$work/pkg"
 ln -s "$repo_root/tests" "$work/tests"
 
 # A RELATIVE stdlib root, overriding the absolute one `gate_init`
@@ -268,7 +269,7 @@ ln -s "$repo_root/tests" "$work/tests"
 # repository names it. `verify-axdl-spans.py` refuses an absolute path
 # outright, so this cannot go wrong quietly.
 export AXIOM_STDLIB="stdlib"
-export AXIOM_PATH="core${AXIOM_PATH:+:$AXIOM_PATH}"
+export AXIOM_PATH="core:pkg/axiom-oxide/axiom${AXIOM_PATH:+:$AXIOM_PATH}"
 cp "$repo_root"/tests/diagnostics/mods/*.ax "$work/" 2>/dev/null || true
 
 # The renderer under test is the one built FROM SOURCE by `$axiom`, not

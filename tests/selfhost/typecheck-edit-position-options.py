@@ -9,7 +9,7 @@ import tempfile
 
 CONTROLS = [
     ("formOpenBefore", "(Some j)", "None", 1),
-    ("matchCloseAt", "(Some next)", "None", 2),
+    ("matchCloseAt", "          (Some next)", "          None", 2),
     ("importListOpen", "(Some i)", "None", 4),
     ("effectTagInsertAt", "(Some (lineStartOf src p))", "None", 5),
 ]

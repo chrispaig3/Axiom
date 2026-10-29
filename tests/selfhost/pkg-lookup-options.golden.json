@@ -237,7 +237,7 @@
     "fixture": "empty-values",
     "status": 3,
     "stdout": "",
-    "stderr": "error: ./axiom.pkg:1: `name` has no value\n       `depend` takes a directory of modules and `crate` a crate\n       directory; `name` and `version` take a word. The key and its value\n       are separated by any run of spaces or tabs.\n"
+    "stderr": "error: ./axiom.pkg:1: `name` has no value\n       `depend` takes a directory of modules; `name` and `version` take\n       a word. The key and its value are separated by spaces or tabs.\n"
   },
   {
     "mode": "fetch",
@@ -247,7 +247,7 @@
     "fixture": "empty-values",
     "status": 3,
     "stdout": "",
-    "stderr": "error: ./axiom.pkg:1: `name` has no value\n       `depend` takes a directory of modules and `crate` a crate\n       directory; `name` and `version` take a word. The key and its value\n       are separated by any run of spaces or tabs.\n"
+    "stderr": "error: ./axiom.pkg:1: `name` has no value\n       `depend` takes a directory of modules; `name` and `version` take\n       a word. The key and its value are separated by spaces or tabs.\n"
   },
   {
     "mode": "opt",
@@ -337,7 +337,7 @@
     "fixture": "duplicates",
     "status": 3,
     "stdout": "",
-    "stderr": "error: ./axiom.pkg:1: `name` has no value\n       `depend` takes a directory of modules and `crate` a crate\n       directory; `name` and `version` take a word. The key and its value\n       are separated by any run of spaces or tabs.\n"
+    "stderr": "error: ./axiom.pkg:1: `name` has no value\n       `depend` takes a directory of modules; `name` and `version` take\n       a word. The key and its value are separated by spaces or tabs.\n"
   },
   {
     "mode": "fetch",
@@ -347,7 +347,7 @@
     "fixture": "duplicates",
     "status": 3,
     "stdout": "",
-    "stderr": "error: ./axiom.pkg:1: `name` has no value\n       `depend` takes a directory of modules and `crate` a crate\n       directory; `name` and `version` take a word. The key and its value\n       are separated by any run of spaces or tabs.\n"
+    "stderr": "error: ./axiom.pkg:1: `name` has no value\n       `depend` takes a directory of modules; `name` and `version` take\n       a word. The key and its value are separated by spaces or tabs.\n"
   },
   {
     "mode": "opt",
@@ -487,7 +487,7 @@
     "fixture": "bad-key",
     "status": 3,
     "stdout": "",
-    "stderr": "error: ./axiom.pkg:1: unknown key `nmae`\n       The manifest's keys are `name`, `version`, `depend`, `pin`, `crate`, `opt`\n       and `main`, and `#` starts a comment. An unknown key used to be ignored, which\n       made a misspelled `depend` report as every module it would have\n       provided going missing - one at a time, naming this file never.\n"
+    "stderr": "error: ./axiom.pkg:1: unknown key `nmae`\n       The manifest's keys are `name`, `version`, `kind`, `depend`, `pin`, `opt`\n       and `main`, and `#` starts a comment. An unknown key used to be ignored, which\n       made a misspelled `depend` report as every module it would have\n       provided going missing - one at a time, naming this file never.\n"
   },
   {
     "mode": "fetch",
@@ -497,7 +497,7 @@
     "fixture": "bad-key",
     "status": 3,
     "stdout": "",
-    "stderr": "error: ./axiom.pkg:1: unknown key `nmae`\n       The manifest's keys are `name`, `version`, `depend`, `pin`, `crate`, `opt`\n       and `main`, and `#` starts a comment. An unknown key used to be ignored, which\n       made a misspelled `depend` report as every module it would have\n       provided going missing - one at a time, naming this file never.\n"
+    "stderr": "error: ./axiom.pkg:1: unknown key `nmae`\n       The manifest's keys are `name`, `version`, `kind`, `depend`, `pin`, `opt`\n       and `main`, and `#` starts a comment. An unknown key used to be ignored, which\n       made a misspelled `depend` report as every module it would have\n       provided going missing - one at a time, naming this file never.\n"
   },
   {
     "mode": "opt",
@@ -587,7 +587,7 @@
     "fixture": "dependencies",
     "status": 3,
     "stdout": "",
-    "stderr": "error: ./axiom.pkg:2: `depend` has no value\n       `depend` takes a directory of modules and `crate` a crate\n       directory; `name` and `version` take a word. The key and its value\n       are separated by any run of spaces or tabs.\n"
+    "stderr": "error: ./axiom.pkg:2: `depend` has no value\n       `depend` takes a directory of modules; `name` and `version` take\n       a word. The key and its value are separated by spaces or tabs.\n"
   },
   {
     "mode": "fetch",
@@ -597,7 +597,7 @@
     "fixture": "dependencies",
     "status": 3,
     "stdout": "",
-    "stderr": "error: ./axiom.pkg:2: `depend` has no value\n       `depend` takes a directory of modules and `crate` a crate\n       directory; `name` and `version` take a word. The key and its value\n       are separated by any run of spaces or tabs.\n"
+    "stderr": "error: ./axiom.pkg:2: `depend` has no value\n       `depend` takes a directory of modules; `name` and `version` take\n       a word. The key and its value are separated by spaces or tabs.\n"
   },
   {
     "mode": "opt",

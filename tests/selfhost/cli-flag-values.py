@@ -106,6 +106,8 @@ def harness(sources):
     for name, expr in [('probeEmitOutput', expression(main, 'runSubcommand', 'out')),
                        ('probeBuildInput', expression(main, 'runSubcommand', 'inp'))]:
         program += f'\n(:: {name} String)\n;@axiom:effect(io)\n(fn ({name}) (selectedText {expr}))\n'
+    if '(:: packageBuildOutput' in main:
+        program += '\n' + declaration(main, 'packageBuildOutput')
     program += '(:: probeBuildOutput (-> String String))\n;@axiom:effect(io)\n(fn (probeBuildOutput inp) '+expression(main, 'runSubcommand', 'outp')+')\n'
     program += '(:: probeFilter String)\n;@axiom:effect(io)\n(fn (probeFilter) '+expression(main, 'testMain', 'filter')+')\n'
     # Test each dispatcher's original missing arm. Only the successful work is

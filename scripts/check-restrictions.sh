@@ -169,7 +169,7 @@ shadow="$work/ir/tree/tests/selfhost"
 mkdir -p "$shadow" "$work/ir"
 for sib in tests/selfhost/*.ax; do ln -s "$repo_root/$sib" "$shadow/$(basename "$sib")"; done
 # Compiler-internal probes, including 270-lex, use an explicit root.
-export AXIOM_PATH="$repo_root/core${AXIOM_PATH:+:$AXIOM_PATH}"
+export AXIOM_PATH="$repo_root/core:$repo_root/pkg/axiom-oxide/axiom${AXIOM_PATH:+:$AXIOM_PATH}"
 filter_line_attr() {
   # The line-attribution pass (`emitLineTable` in codegen.ax) writes
   # one `; @@line` marker at every call site, plus the filename

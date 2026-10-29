@@ -17,7 +17,7 @@ Import `Err` when working with `Result`, and use `?` to propagate errors.
 | cryptography and embedded assets | [Crypto](#crypto) |
 | concurrency | [Task, Chan, Sync](#task-chan-and-sync) |
 | terminals, testing and tooling | [Tui, Test, Agent.Tags](#terminals-tests-and-tools) |
-| low-level interfaces | [Mem, Ffi](#mem-and-ffi) |
+| low-level interfaces | [Mem](#mem) |
 
 ## Strings and collections
 
@@ -886,7 +886,8 @@ See [testing](reference.md#testing), [editor setup](lsp.md) and
 [symbol metadata](diagnostics.md#read-symbol-tags). Their signatures are in the
 [generated API](stdlib-api.md).
 
-## Mem and Ffi
+<a id="mem-and-ffi"></a>
+## Mem
 
 `Mem` exposes raw allocation and byte/word access. Callers must establish
 validity, bounds, alignment and lifetime behind an Unsafe boundary.
@@ -905,8 +906,10 @@ two values are one, or to key a table by identity, without erasing a
 value into an `Int`. An `Addr` takes no share, so compare two only
 while both values are live. Tested by `tests/stdlib/810-addr-identity.ax`.
 
-`Ffi` supports generated Rust wrappers: handles, result out-cells and
-byte/vector conversion. Start at the [Rust FFI guide](ffi.md), then use
-the generated operations for each sealed owner.
+Foreign-function helpers live in the axiom-oxide package, not the
+standard library: `pkg/axiom-oxide/axiom/Ffi.ax` supports generated
+Rust wrappers with handles, result out-cells and byte/vector
+conversion. Start at the [Rust FFI guide](ffi.md), then use the
+generated operations for each sealed owner.
 
-API: [Mem](stdlib-api.md#mem), [Ffi](stdlib-api.md#ffi).
+API: [Mem](stdlib-api.md#mem).

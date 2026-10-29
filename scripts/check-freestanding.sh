@@ -98,6 +98,10 @@ manifest_launders() {
 
 status=0
 
+# `Ffi` lives in the axiom-oxide package, not the standard library, so
+# the corpus cases that import it resolve it from there.
+export AXIOM_PATH="$repo_root/pkg/axiom-oxide/axiom${AXIOM_PATH:+:$AXIOM_PATH}"
+
 # Named support modules are reached through the numbered executable cases.
 for case_file in tests/stdlib/[0-9]*.ax; do
   name="$(basename "$case_file" .ax)"

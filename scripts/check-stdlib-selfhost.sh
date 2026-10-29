@@ -347,7 +347,7 @@ fi
 # Cases keep their real paths so sibling imports resolve beside them.
 # Compiler-internal modules use AXIOM_PATH; gate_init supplies AXIOM_STDLIB.
 echo "== building the compiler under test =="
-export AXIOM_PATH="$repo_root/core${AXIOM_PATH:+:$AXIOM_PATH}"
+export AXIOM_PATH="$repo_root/core:$repo_root/pkg/axiom-oxide/axiom${AXIOM_PATH:+:$AXIOM_PATH}"
 ln -s "$repo_root/tests" "$work/tests"
 gate_build_axc axc
 

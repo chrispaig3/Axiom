@@ -18,6 +18,10 @@ gate_init
 # compiler also cannot emit fixtures that use features the seed lacks.
 gate_build_axc axc
 
+# `Ffi` lives in the axiom-oxide package, not the standard library, so
+# the corpus cases that import it resolve it from there.
+export AXIOM_PATH="$repo_root/pkg/axiom-oxide/axiom${AXIOM_PATH:+:$AXIOM_PATH}"
+
 status=0
 
 # The stdlib cases cover the emitter's everyday shapes. The compiler's
