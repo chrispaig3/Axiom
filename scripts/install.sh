@@ -4,6 +4,10 @@
 # This is the path for trying the language. Contributors clone the
 # repository and bootstrap from the seed instead.
 #
+# This file is what https://axiomlang.software/install.sh serves: the
+# website build copies it there (`web/scripts/copy-install.mjs`), so
+# editing this file is editing what that address serves.
+#
 # It installs only targets whose test battery runs in CI. A source-only
 # target such as `darwin-x86_64` has no release archive, so the script
 # says so and points at building from the seed, which works there.
@@ -37,7 +41,7 @@ Environment: AXIOM_VERSION, AXIOM_PREFIX, AXIOM_REPO, AXIOM_BASE_URL.
 Piping this script into bash gives it no arguments, so over
 `curl ... | bash` the environment variables are the way to set these:
 
-  curl -fsSL <url> | AXIOM_PREFIX=/opt/axiom bash
+  curl -fsSL https://axiomlang.software/install.sh | AXIOM_PREFIX=/opt/axiom bash
 
 Installs <prefix>/bin/axiom and <prefix>/stdlib. Add <prefix>/bin to
 PATH; the compiler finds its standard library relative to the directory

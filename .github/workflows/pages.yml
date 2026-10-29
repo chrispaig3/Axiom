@@ -82,6 +82,17 @@ jobs:
       # the deploy. Then come `tsc -b`, the bundle and the prerender.
       - run: npm run build
 
+      # The address the homepage and README tell a newcomer to pipe into
+      # bash must answer with the script itself. `copy-install.mjs` put
+      # it in `dist/` during the build; this proves the file about to be
+      # published is that script, byte for byte, and parses as bash.
+      - name: The installer is served from the site's own domain
+        run: |
+          cmp dist/install.sh ../scripts/install.sh
+          bash -n dist/install.sh
+          [[ "$(head -1 dist/install.sh)" == '#!/usr/bin/env bash' ]]
+          echo "ok   https://axiomlang.software/install.sh is scripts/install.sh"
+
       # Renders the component tree in Node, as the nearest thing to opening
       # the page, and asserts: no React warning, one `h1`, no skipped
       # heading level, every in-page anchor resolves, and every

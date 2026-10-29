@@ -203,6 +203,23 @@ const contentSrc = readFileSync(new URL('../src/data/content.ts', import.meta.ur
   else if (!bad) console.log(`ok   all ${rows.length} status rows match docs/status.md word for word`)
 }
 
+// INSTALL: README and the page state one install command, and it is
+// the site's own address. A raw-file URL here would send a newcomer
+// somewhere the project does not control the presentation of, and the
+// two copies would drift the first time one was edited.
+{
+  const readme = readFileSync(new URL('../../README.md', import.meta.url), 'utf8')
+  const want = 'curl -fsSL https://axiomlang.software/install.sh | bash'
+  const cmd = /INSTALL_CMD\s*=\s*'([^']+)'/.exec(siteSrc)?.[1]
+  if (cmd !== want) {
+    fail(`INSTALL_CMD in site.ts is '${cmd}', not '${want}'`)
+  } else if (!readme.includes(want)) {
+    fail(`README.md does not state the install command the page states ('${want}')`)
+  } else {
+    console.log('ok   README and the page state the axiomlang.software install command')
+  }
+}
+
 if (failed) {
   console.log(
     `\n${failed} claim(s) no longer match the repository. Update src/data/site.ts` +

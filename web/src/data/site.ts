@@ -6,7 +6,7 @@ export const RELEASES = `${REPO}/releases`
 
 /** README.md, "Install". */
 export const INSTALL_CMD =
-  'curl -fsSL https://raw.githubusercontent.com/chrispaig3/axiom/stable/scripts/install.sh | bash'
+  'curl -fsSL https://axiomlang.software/install.sh | bash'
 
 export const PATH_CMD = 'export PATH="$HOME/.axiom/bin:$PATH"'
 
