@@ -38,7 +38,7 @@ def main():
                                     '(fn (bad tc declaration ty) (checkContracts tc declaration ty))', "AX3004"),
             "raw-purity-result": ('(:: bad (-> TC ASTNode ASTNode Int)) '
                                   '(fn (bad tc declaration expression) '
-                                  '(checkContractPurity tc declaration 0 expression nilNode))', "AX3004"),
+                                  '(checkContractPurity tc declaration 0 expression None))', "AX3004"),
             "missing-none": ('(:: bad (-> ASTNode ASTNode)) '
                              '(fn (bad ty) (match (peelArrows ty 1) ((Some result) result)))', "AX3005"),
         }
