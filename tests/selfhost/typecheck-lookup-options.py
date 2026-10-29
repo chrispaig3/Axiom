@@ -50,9 +50,12 @@ def check(compiler, root, work):
     assert function.count('(set i n)') == 1
     changed = original[:start] + function.replace('(set i n)', '()') + original[end:]
     build_run('last-definition', changed, 0, (2, 4))
-    marker = '(vecPush out name)'
-    assert original.count(marker) == 1
-    build_run('lost-divergence-candidate', original.replace(marker, '()'), 0, (25,))
+    start = original.index('(pub fn (divRound ')
+    end = original.index('\n\n', start)
+    function = original[start:end]
+    assert function.count('(vecPush out name)') == 1
+    changed = original[:start] + function.replace('(vecPush out name)', '()') + original[end:]
+    build_run('lost-divergence-candidate', changed, 0, (25,))
     marker = '(if (nodeSame body nilNode)\n        None\n        (Some body))'
     assert original.count(marker) == 1
     build_run('missing-body-is-present', original.replace(marker, '(Some body)'), 0, (6,))

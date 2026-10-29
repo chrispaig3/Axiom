@@ -117,8 +117,8 @@ def check(compiler, root, work):
     missing = change_function(source, 'fieldTypeNode', '(if (nodeSame ty nilNode)', '(if true')
     poison = change_function(source, 'fieldTypeNode', '(if (nodeSame ty nilNode)',
                              '(if (|| (nodeSame ty nilNode) (== (nodeTag ty) TAG_T_ERR))')
-    witness = change_function(source, 'fieldRetainCode', '(if (>= wv 2)\n                        wv',
-                              '(if (>= wv 2)\n                        1')
+    witness = change_function(source, 'fieldRetainCode', '(if (>= wv 2)\n                          wv',
+                              '(if (>= wv 2)\n                          1')
     owner = change_function(source, 'addTypeNamed', '(let nl (strLen name))',
                             '(let nl (strLen name))\n    (__retainref fieldNames)\n    (__retainref fieldTys)')
     normalizer = change_function(source, 'scanOne', '(let fields (nodeStructFields node))',
