@@ -54,7 +54,7 @@ sudo apt-get install -y llvm clang
 Then install the compiler:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/chrispaig3/axiom/stable/scripts/install.sh | bash
+curl -fsSL https://axiomlang.software/install.sh | bash
 export PATH="$HOME/.axiom/bin:$PATH"
 ```
 

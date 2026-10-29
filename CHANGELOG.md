@@ -16,6 +16,14 @@ its changelog too.
 
 ## Unreleased
 
+- The installer is served from the project's own domain:
+  `curl -fsSL https://axiomlang.software/install.sh | bash` answers with
+  `scripts/install.sh` itself. The website build copies that one file
+  into the published site, and the Pages workflow compares the result
+  byte for byte before deploying.
+  Tested by `web/scripts/copy-install.mjs`, `web/scripts/check-claims.mjs`
+  and the Pages workflow's installer check.
+
 - Rename `trunk` to `stable` as the default release branch. Development
   stays on `nightly`. CI, website deployment and install links follow
   the new name. Tested by `tests/ci/gate-cache.py`.

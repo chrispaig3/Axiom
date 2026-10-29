@@ -6,7 +6,7 @@
   "description": "The official website for the Axiom programming language.",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/check-claims.mjs && tsc -b && vite build && node scripts/prerender.mjs",
+    "build": "node scripts/check-claims.mjs && tsc -b && vite build && node scripts/copy-install.mjs && node scripts/prerender.mjs",
     "preview": "vite preview",
     "typecheck": "tsc -b",
     "check": "node scripts/check-claims.mjs && node scripts/smoke.mjs",
