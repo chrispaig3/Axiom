@@ -214,7 +214,9 @@ for level in 0 2; do
       continue
     fi
     rc=0
-    "$work/$kind-O$level" >"$work/native.out" 2>"$work/native.err" || rc=$?
+    # The mapped stack follows RLIMIT_STACK, so pin it: on a host with
+    # a large limit the O2 frames fit and the probe completes instead.
+    (ulimit -s 8192; "$work/$kind-O$level" >"$work/native.out" 2>"$work/native.err") || rc=$?
     if [[ "$rc" == 86 && "$(cat "$work/native.out")" == entered ]] &&
        grep -q '^axiom: stack overflow:' "$work/native.err" &&
        grep -q '^axiom: backtrace ' "$work/native.err" &&
