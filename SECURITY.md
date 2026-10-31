@@ -22,11 +22,11 @@ successor has been named yet. When one is, this page will say so.
 
 ## Supported versions
 
-The supported release is **0.7.9**. Security fixes are made against the
+The supported release is **0.8.0**. Security fixes are made against the
 newest release and shipped as a new patch release. Earlier releases get
 no fixes, and there is no long-term support branch.
 
-Support window: the 0.7 line is supported until 0.8.0 lands, and after
+Support window: the 0.8 line is supported until 0.9.0 lands, and after
 that it gets nothing further, including security fixes. There is one
 supported minor at a time, always the newest.
 

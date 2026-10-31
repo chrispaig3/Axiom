@@ -27,7 +27,7 @@ Data     Vec                  data Vec                                 [builtin]
 Data     Link                 data Link                                [builtin]
 Effect   Query                effect Query                             [symbol-map-streams.ax:9:9-14]
 -- axir --
-axir 1 darwin-aarch64 0.7.9
+axir 1 darwin-aarch64 0.8.0
 F tagged symbol-map-streams.ax:2:9-15 "(Int -> Int)" @e7b5e46b102fb40b
 sig 1
 param 0 item
@@ -50,7 +50,7 @@ F main symbol-map-streams.ax:10:9-13 "Int" @6159d363201f7f2a
 sig 0
 end
 -- axir roundtrip --
-axir 1 darwin-aarch64 0.7.9
+axir 1 darwin-aarch64 0.8.0
 F tagged symbol-map-streams.ax:2:9-15 "(Int -> Int)" @e7b5e46b102fb40b
 sig 1
 param 0 item

@@ -2801,7 +2801,7 @@ Unit, floating-point and fixed-width integer results keep their checked
 types when evaluated. Numeric conversions stay explicit with `as`.
 
 ```text
-Axiom 0.7.9 - REPL
+Axiom 0.8.0 - REPL
 ```
 
 For editor completion, navigation, formatting and fixes, configure

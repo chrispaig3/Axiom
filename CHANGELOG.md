@@ -16,6 +16,22 @@ its changelog too.
 
 ## Unreleased
 
+## 0.8.0 — 2026-10-31
+
+This release moves Rust FFI into the official `pkg/axiom-oxide` package.
+The compiler builds with no Rust toolchain, and `extern` blocks stay in
+the language. Compiler lookups answer `Option`, so an absent name stays
+distinct from an empty one at every site that asks.
+
+The language gains `word` structs, which pack fixed-width fields into
+one machine word, `Link` indexes that take no share, and pattern tests
+in `if`. A stack overflow on a guarded stack exits 86 and names the
+interrupted function. Release archives carry an exact toolchain record.
+
+Windows stays experimental, with fuller console, poller and packaging
+paths; full support is planned for 0.8.1. The installer is served from
+the project's own domain.
+
 - The installer is served from the project's own domain:
   `curl -fsSL https://axiomlang.software/install.sh | bash` answers with
   `scripts/install.sh` itself. The website build copies that one file

@@ -56970,8 +56970,8 @@ TS_PUBLIC const TSLanguage *tree_sitter_axiom(void) {
     .max_reserved_word_set_size = 0,
     .metadata = {
       .major_version = 0,
-      .minor_version = 7,
-      .patch_version = 9,
+      .minor_version = 8,
+      .patch_version = 0,
     },
   };
   return &language;
