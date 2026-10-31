@@ -3,7 +3,7 @@
 ;
 ; This is the workload the enterprise plan's fault-containment section
 ; describes: "record 4,000,001 is malformed, skip it". The record is
-; read as text, the parser six calls down finds a byte that is not a
+; read as text, the record parser finds a byte that is not a
 ; digit, and what happens next is decided by the handler the LOOP
 ; installed - not by the parser, and not by unwinding. The parser
 ; performs `fallibleMalformed` and continues with the answer; the loop
@@ -39,9 +39,8 @@
 (import Sys)
 (import Fallible)
 
-; The decimal digits of `s` from byte `i`, or -1 at the first byte
-; that is not a digit. The parser for a record and for an argument
-; alike; only the record parser asks a handler about the -1.
+; The decimal digits of a record `s` from byte `i`, or -1 at the
+; first byte that is not a digit.
 (:: digitsFrom (-> String Int Int Int))
 (fn (digitsFrom s i acc)
   (if (>= i (strLen s))
@@ -57,14 +56,9 @@
 (:: argOr (-> Int Int Int))
 ;@axiom:effect(io)
 (fn (argOr i d)
-  (if (> sysArgc i)
-    {
-      (let v (digitsFrom (sysArg i) 0 0))
-      (if (< v 0)
-        d
-        v)
-    }
-    d))
+  (match (strParseInt (sysArg i))
+    ((Some v) v)
+    ((None) d)))
 
 ; Record `i` as the text a reader would hand us: its quantity in
 ; decimal, except that every k-th record says `n/a` where a number
@@ -108,31 +102,37 @@
     }
   })
 
-(:: main ())
+(:: main Int)
 ;@axiom:effect(io)
 (fn (main)
-  ; `cast Int`: a `handle` expression's type is the checker's
-  ; wildcard, and `println` selects a rendering by type.
+  ; Pin the handler results to Int so interpolation uses numeric rendering.
   {
     (let n (argOr 1 1000000))
     (let k (argOr 2 7))
-    (let tally fallibleTally)
-    {
-      (let skipTotal
-        (as (handle
-          (sumRecords n k)
-          (Fallible Alloc Mut Unsafe)
-          (fallibleCounting tally fallibleSkip)) Int))
-      (let defaultTotal
-        (as (handle
-          (sumRecords n k)
-          (Fallible Alloc Mut Unsafe)
-          (fallibleDefault 1)) Int))
-      (let malformed (fallibleCount tally))
+    (if (|| (< n 0) (<= k 0))
+      (die
+        "batch-fallible: N must be 0 or greater and k must be positive (usage: batch-fallible [N [k]])"
+        2)
       {
-        (println "skip total {skipTotal}")
-        (println "default total {defaultTotal}")
-        (println "malformed {malformed}")
-      }
-    }
+        (let tally fallibleTally)
+        {
+          (let skipTotal
+            (as (handle
+              (sumRecords n k)
+              (Fallible Alloc Mut Unsafe)
+              (fallibleCounting tally fallibleSkip)) Int))
+          (let defaultTotal
+            (as (handle
+              (sumRecords n k)
+              (Fallible Alloc Mut Unsafe)
+              (fallibleDefault 1)) Int))
+          (let malformed (fallibleCount tally))
+          {
+            (println "skip total {skipTotal}")
+            (println "default total {defaultTotal}")
+            (println "malformed {malformed}")
+            0
+          }
+        }
+      })
   })
