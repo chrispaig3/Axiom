@@ -49,9 +49,12 @@ def main():
         needle = '(fn (environment diagnostics units declarations owner)\n  (MEnv'
         assert fixture.count(needle) == 1
         changed = fixture.replace(needle, '(fn (environment diagnostics units declarations owner)\n  { (let held (MEnv')
-        needle = ':structBuckets vecNew))'
+        # The leaf mark closes the whole `MEnv` literal. The last field
+        # is the anchor: an earlier field leaves the new fields outside
+        # the `let`, so the mutant no longer builds.
+        needle = ':optNames vecNew))'
         assert changed.count(needle) == 1
-        changed = changed.replace(needle, ':structBuckets vecNew))\n    (memMarkLeaf (as held Int)) held })')
+        changed = changed.replace(needle, ':optNames vecNew))\n    (memMarkLeaf (as held Int)) held })')
         native('lost-owner-map', changed, 0, 1)
         report['controls'].append({'mutation': 'lost-owner-map', 'fails': 1})
         for label, declaration in [

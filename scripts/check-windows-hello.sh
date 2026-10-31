@@ -613,8 +613,13 @@ AX
       #    on the POSIX legs: every case in tests/stdlib built by this
       #    compiler and run to its golden, its exit status and, where a
       #    `.err` exists, its stderr, each up to the backtrace marker,
-      #    with its `.in` on fd 0 or nothing. `tests/stdlib/windows-skip.txt`
-      #    names the cases a target cannot run yet, for both targets or,
+      #    with its `.in` on fd 0 or nothing. That script puts
+      #    `pkg/axiom-oxide/axiom` on `AXIOM_PATH`, which is where `Ffi`
+      #    lives. The entry is relative to the repository: `AXIOM_PATH`
+      #    splits on `:`, and a Windows drive prefix contains one. Each
+      #    build runs with the repository as its working directory.
+      #    `tests/stdlib/windows-skip.txt` names the cases a target cannot
+      #    run yet, for both targets or,
       #    with `@<target>` after the name, for one, each with its
       #    reason: a listed case that fails does not fail the leg and
       #    is reported with the first lines of its difference, a listed
@@ -638,7 +643,7 @@ AX
         stdin_src=/dev/null
         [[ -f "$repo_root/tests/stdlib/$name.in" ]] && stdin_src="$repo_root/tests/stdlib/$name.in"
         set +e
-        ( cd "$repo_root" && timeout 300 "$ax" --diagnostic-format=ai build "tests/stdlib/$name.ax" -o "$case_dir/$name.exe" ) > "$w/bat-$name.build.log" 2>&1
+        ( cd "$repo_root" && AXIOM_PATH="pkg/axiom-oxide/axiom" timeout 300 "$ax" --diagnostic-format=ai build "tests/stdlib/$name.ax" -o "$case_dir/$name.exe" ) > "$w/bat-$name.build.log" 2>&1
         brc=$?
         rrc=-1
         if [[ "$brc" -eq 0 ]]; then
