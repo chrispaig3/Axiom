@@ -1,8 +1,8 @@
 # Examples
 
-Complete programs for Axiom 0.7.9 you can read, run and borrow from.
-Each one is real code this repository depends on, and CI runs every
-one of them, so they keep working as the compiler changes.
+Complete programs you can read, run and borrow from. Each one is real
+code this repository depends on, and CI runs every one of them, so they
+keep working as the compiler changes.
 
 Run the commands from the repository root. Each program opens with a
 header comment that explains why it's written the way it is, and it's

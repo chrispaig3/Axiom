@@ -140,9 +140,10 @@ webbench_replace() { _rewrite "$1" "s/(Axiom )[0-9]+[.][0-9]+[.][0-9]+/\\1$2/g";
 # `axiom version` banner and `docs/reference.md` a REPL session. Each is
 # counted, because the bump leaves an uncounted copy at the old number.
 #
-# The LSP goldens pin the server's `serverInfo.version`. `check-driver.sh`
-# cross-checks them against the built binary, and listing them here lets
-# the bump move them too.
+# The LSP goldens pin the server's `serverInfo.version`, and so does
+# `tests/lsp/id-presence.jsonl`. `check-driver.sh` cross-checks the
+# goldens against the built binary, and listing them here lets the bump
+# move them too.
 #
 # Comments can't go inside the string below: it is a plain variable, not a
 # heredoc, and a `#` line in it is parsed as a site.
@@ -178,4 +179,5 @@ tests/lsp/102-lint-unused-let.golden|1|lspg_version|lspg_replace
 tests/lsp/103-lint-nolint.golden|1|lspg_version|lspg_replace
 tests/lsp/104-lint-file-nolint.golden|1|lspg_version|lspg_replace
 tests/lsp/105-lint-nolint-names.golden|1|lspg_version|lspg_replace
+tests/lsp/id-presence.jsonl|1|lspg_version|lspg_replace
 "
