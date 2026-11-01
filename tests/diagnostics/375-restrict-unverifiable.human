@@ -39,4 +39,18 @@
   [1;34m = [0m[1;32mhelp: [0m`no-cast` rejects explicit conversions in this body. Use an operation that preserves the required type, or remove the restriction. `no-cast:deep` also follows resolved callees; an unresolved path cannot establish the claim.
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
 
-compilation failed due to 2 previous errors
+[1;31merror[AX3073][0m[1m: `casts` erases `Box` into `Int` with `as`, and its declaration does not say so[0m
+  [1;34m--> [0m375-restrict-unverifiable.ax:61:15
+[1;34m   |[0m
+[1;34m61 |[0m   (+ (b.f n) (as b Int)))
+[1;34m   |[0m               [1;31m^^ erases a reference[0m
+[1;34m61 |[0m   (+ (b.f n) (as b Int)))
+[1;34m   |[0m                  [1;36m- source has type `Box`; the conversion drops its ownership[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mkeep the value in a typed binding, or use `addrOf` when the question is identity. An erasing cast drops the type and the share
+  [1;34m = [0m[1;32mhelp: [0mthe unsafe tag marks a trusted boundary: you must make every well-typed call safe. It leaves ordinary type, effect and restriction checks in place
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+compilation failed due to 3 previous errors

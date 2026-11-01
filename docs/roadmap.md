@@ -63,7 +63,7 @@ integrator would still need.
 | Large vectors grow inside separate address reservations | Experimental: single-threaded POSIX heaps without a cap | `MM-ALLOC-26`, `tests/stdlib/1002-vec-in-place-growth.ax` |
 | Linked data holds no shares: a link is an index into a vector, stored in the width its type names, and links that form a cycle are freed with their vector | Done | `MM-VAL-10b`, `tests/stdlib/997-links.ax` |
 | Stack overflow reports a named runtime trap | Native POSIX entry, worker and task stacks; Windows threads; bare-metal guard | `tests/stdlib/977-native-stack-overflow.ax`; host-owned archive stacks remain |
-| No cast, `Int` container or raw store lets a heap value become an untracked word in safe code | Not started | `MM-VAL-24` |
+| No cast, `Int` container or raw store lets a heap value become an untracked word in safe code | In progress | `MM-VAL-24`, `tests/diagnostics/1510-erasing-cast.ax`. The compiler and the library still erase |
 | The raw memory layer and the word-to-reference accessors are internal to the library, so safe code can't read memory at an address or forge a reference from a word | Done | `MM-EXEC-9g`, `tests/diagnostics/1470-internal-import.ax` |
 | Public functions that take a raw address, such as `sysRandomBytes`, `sysWaitWord` and the clock reads that fill a caller's buffer, take typed values instead | Not started | `MM-EXEC-9d` |
 | `fileFd` and the raw descriptor calls can't close a descriptor a `File` owns | Done | `MM-EXEC-17a`, `tests/diagnostics/1225-descriptor-hole.ax` |

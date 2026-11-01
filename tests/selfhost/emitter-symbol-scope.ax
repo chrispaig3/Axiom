@@ -42,6 +42,7 @@
     20))
 
 (:: headers (-> CG (Vec Int)))
+;@axiom:effect(unsafe)
 (fn (headers cg)
   {
     (let out vecNew)
@@ -60,6 +61,7 @@
   })
 
 (:: sameHeaders (-> CG (Vec Int) Bool))
+;@axiom:effect(unsafe)
 (fn (sameHeaders cg hs)
   {
     (let mut good true)
@@ -80,6 +82,7 @@
   })
 
 (:: allLengths (-> CG Int Bool))
+;@axiom:effect(unsafe)
 (fn (allLengths cg n)
   {
     (let mut good true)
@@ -121,6 +124,7 @@
 
 (:: scopeChecks ())
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (scopeChecks)
   {
     (let cg newCG)
@@ -160,6 +164,7 @@
 
 (:: soakChecks ())
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (soakChecks)
   {
     (let cg newCG)
@@ -186,6 +191,7 @@
 
 (:: entryChecks ())
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (entryChecks)
   {
     (let cg newCG)
@@ -208,6 +214,7 @@
 
 (:: nestedChecks ())
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (nestedChecks)
   {
     (let cg newCG)

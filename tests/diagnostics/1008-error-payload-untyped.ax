@@ -1,8 +1,7 @@
 ; AX3043: a reference smuggled through a field declared `Int`.
-; Two errors - a struct field and a data payload: the `cast` launders
-; the operand's type while the operand stays a `String`, and the
-; release walk follows declared types, so the word is invisible to
-; reclamation and leaks. The
+; The cast is also AX3073. Both stores still draw AX3043: the word
+; in an `Int` field is invisible to the release walk, so it leaks.
+; One declaration reports the erasure once, at the first cast. The
 ; direct shape (a `String` where an `Int` stands) is `AX3004`, owned
 ; by that error rather than doubled here; a cast of an `Int` draws
 ; nothing, since there is no reference to hide.

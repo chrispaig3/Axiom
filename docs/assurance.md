@@ -71,7 +71,7 @@ limits.
 | A reference is made only by a constructor, by an allocation the library types, or by a trusted function that says so | `AX3073` on a forging `as`; `AX5002` keeps `Internal.Raw` and `Internal.RawVec` inside the library (`MM-EXEC-9d`, `MM-EXEC-9g`) | `(as 7 Hid)` in an untagged function; `(import Internal.Raw)` from a program | A trusted body is reviewed, never proved |
 | A word that reaches the kernel or a primitive as an address was made by the function that passes it, or its caller said so | `effect(unsafe)` on every user of a primitive; `restrict(no-unsafe)` names the path to any untrusted one (`MM-EXEC-9d`) | `(__load64 a 0)` in an untagged function | A public function that still takes an address as an `Int`, such as `sysWaitWord`, trusts its caller |
 | A typed read or write checks its range before memory or the kernel sees it | The index trap, status 77, in `vecGet`, `vecSet`, `strByte`, `strSlice` and `fileRead` (`MM-MUT-5a`, `MM-EXEC-9f`) | `(vecGet v 9)` over three elements | A raw `Int` index into a raw block has no range |
-| Every value is released once, by its owner, and never while a share is live | The ownership events of `MM-LIFE-2`, the counted stores of `MM-LIFE-2g`, the `result(owned)` claims | a `set` that drops a `File` without its release | A cycle leaks until an arena reset; `(as v Int)` and an `Int` slot in a container untrack a value (`MM-VAL-24`) |
+| Every value is released once, by its owner, and never while a share is live | The ownership events of `MM-LIFE-2`, the counted stores of `MM-LIFE-2g`, the `result(owned)` claims | a `set` that drops a `File` without its release | A cycle leaks until an arena reset. The compiler and the library can still untrack a value with `(as v Int)`; a module outside those two cannot (`MM-VAL-24`) |
 | A region's values do not outlive it | `MM-RGN-1` to `MM-RGN-6`: typed origins, store, return, capture and argument escapes are refused (`AX3059`, `AX3060`) | storing a region value into an outer struct | Promoting an owned reference out of a region is `MM-RGN-7`, planned |
 | A `parallel` or spawned binding reaches nothing its parent still owns, except what it borrows under a count freeze | `AX3064` on captures; the lend block of `MM-PAR-6` | a `Vec` captured by a spawned thunk | A trusted accessor inside the library could still hand a word back |
 | A trap is a defined exit status, never undefined behaviour | The trap table of the memory model, statuses 70 to 86, and the recovery record (`MM-ALLOC-23`) | division by zero exits 72 | A trusted body or an `extern` can still corrupt memory |
@@ -289,9 +289,11 @@ the neighbourhood of the corpus.
 
 ## Known defects
 
-- Safe code can still turn a reference into a word with `(as v Int)`,
-  or by storing it in an `Int` container slot. A value that leaves this
-  way stops being tracked. A function result can't do it (`MM-VAL-24`).
+- The compiler and the standard library can still turn a reference into
+  a word with `(as v Int)`, and an `Int` slot can hold that word. A
+  module outside those two cannot: the cast is `AX3073` unless the
+  declaration says `effect(unsafe)`. A function result can't do it
+  (`MM-VAL-24`).
 - Some public functions still take a raw address, such as
   `sysRandomBytes` and `sysWaitWord`, so safe code can crash by passing
   a bad one (`MM-EXEC-9d`, [roadmap](roadmap.md)).

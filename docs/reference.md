@@ -749,9 +749,10 @@ passing one a bad address crashes the program.
 
 A function's result is checked like an argument. A record, closure,
 `String` or type variable returned where the signature says `Int` is
-`AX3004`, so declare the type the body answers. `(as v Int)` still
-turns a reference into a word that holds no share. To compare values
-by identity, use `addrOf` (see
+`AX3004`, so declare the type the body answers. Outside the compiler
+and the standard library, `(as v Int)` is `AX3073` unless the
+declaration says `effect(unsafe)`. The word holds no share. To compare
+values by identity, use `addrOf` (see
 [Compare values by identity](#compare-values-by-identity)).
 
 <a id="region-annotations"></a>
@@ -1738,7 +1739,10 @@ effect and restriction checks in place.
 
 Hover over `as`, or run `axiom explain as`, for ownership guidance.
 A word obtained from a reference holds no share; keep its owner alive
-while using the word. Use `addrOf` for identity comparisons and hashing.
+while using the word. Outside the compiler and the standard library
+that cast requires `effect(unsafe)`
+([roadmap](roadmap.md#memory-and-resource-safety)). Use `addrOf` for
+identity comparisons and hashing.
 `axiom symbols FILE --diagnostic-format=ai` reports `#erasures=n` on
 functions that turn references into words. These conversions do not
 promote a value out of a region.

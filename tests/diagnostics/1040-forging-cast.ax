@@ -10,8 +10,8 @@
 ; variable. `toVecOf` forges a `(Vec Int)` out of a `(Vec String)`,
 ; which is a reference, but not the same one.
 ;
-; The controls draw nothing. `observe` reads references and numbers as
-; words, and a `Foreign` as an `Int` and back. `same` casts a value to
+; The controls draw nothing. `observe` reads a number and a `Foreign`
+; as words. Erasing a reference is fixture 1510. `same` casts a value to
 ; the type it already has, and `fresh` ascribes an empty vector its
 ; element type. `diverge` casts a value that never returns. `trusted`
 ; forges and says so, and `caller` calls it with no tag of its own.
@@ -97,9 +97,9 @@
     }
   })
 
-(:: observe (-> String Hid Float Foreign Int))
-(fn (observe s h f p)
-  (+ (as s Int) (+ (as h Int) (+ (as f Int) (+ (as p Int) (as (as 8 Foreign) Int))))))
+(:: observe (-> Float Foreign Int))
+(fn (observe f p)
+  (+ (as f Int) (+ (as p Int) (as (as 8 Foreign) Int))))
 
 (:: same (-> String Colour))
 (fn (same s)

@@ -67,6 +67,7 @@
 
 (pub :: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (main)
   {
     (let box (as (Box :cells vecNew :pushed 0) Int))

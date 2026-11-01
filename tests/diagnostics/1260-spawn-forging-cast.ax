@@ -10,7 +10,7 @@
 ; (tests/stdlib/572-spawn-joined-twice.ax).
 ;
 ; The controls draw nothing. `same` casts a handle to the type it
-; already has, and `asWord` reads one as an `Int`, which observes it.
+; already has. `asWord` erases and says so; fixture 1510 is the refusal.
 ; `trusted` forges and says so, and `caller` calls it with no tag of its
 ; own. `main` spawns and joins through the ordinary path.
 (import IO)
@@ -44,6 +44,7 @@
   (as h Spawn))
 
 (:: asWord (-> Spawn Int))
+;@axiom:effect(unsafe)
 (fn (asWord h)
   (as h Int))
 

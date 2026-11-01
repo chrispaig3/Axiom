@@ -1,7 +1,7 @@
 [1;31merror[AX3043][0m[1m: storing a `String` through a field declared `Int` hides it from the release walk, which follows declared types[0m
-  [1;34m--> [0m1008-error-payload-untyped.ax:21:25
+  [1;34m--> [0m1008-error-payload-untyped.ax:20:25
 [1;34m   |[0m
-[1;34m21 |[0m         (let b (Box :v (as s Int)))
+[1;34m20 |[0m         (let b (Box :v (as s Int)))
 [1;34m   |[0m                         [1;31m^^ this holds a `String`[0m
 [1;34m   |[0m
   [1;34m = [0m[1mnote: [0man `Int` slot holding a reference is invisible to reclamation, and leaks (error-model.md ERR-TYPE-5/ERR-MEM-1)
@@ -9,13 +9,27 @@
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3043` for a full explanation
 
 [1;31merror[AX3043][0m[1m: storing a `String` through a field declared `Int` hides it from the release walk, which follows declared types[0m
-  [1;34m--> [0m1008-error-payload-untyped.ax:25:22
+  [1;34m--> [0m1008-error-payload-untyped.ax:24:22
 [1;34m   |[0m
-[1;34m25 |[0m         (let e (Err (as s Int)))
+[1;34m24 |[0m         (let e (Err (as s Int)))
 [1;34m   |[0m                      [1;31m^^ this holds a `String`[0m
 [1;34m   |[0m
   [1;34m = [0m[1mnote: [0man `Int` slot holding a reference is invisible to reclamation, and leaks (error-model.md ERR-TYPE-5/ERR-MEM-1)
   [1;34m = [0m[1;32mhelp: [0mdeclare the field's real type
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3043` for a full explanation
 
-compilation failed due to 2 previous errors
+[1;31merror[AX3073][0m[1m: `main` erases `String` into `Int` with `as`, and its declaration does not say so[0m
+  [1;34m--> [0m1008-error-payload-untyped.ax:20:25
+[1;34m   |[0m
+[1;34m20 |[0m         (let b (Box :v (as s Int)))
+[1;34m   |[0m                         [1;31m^^ erases a reference[0m
+[1;34m20 |[0m         (let b (Box :v (as s Int)))
+[1;34m   |[0m                            [1;36m- source has type `String`; the conversion drops its ownership[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mkeep the value in a typed binding, or use `addrOf` when the question is identity. An erasing cast drops the type and the share
+  [1;34m = [0m[1;32mhelp: [0mthe unsafe tag marks a trusted boundary: you must make every well-typed call safe. It leaves ordinary type, effect and restriction checks in place
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+compilation failed due to 3 previous errors

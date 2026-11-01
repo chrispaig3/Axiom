@@ -3569,6 +3569,10 @@
 ;  17 `fieldStoreSpans` the stores into declared fields already
 ;                    answered, so a value walked twice draws one
 ;                    diagnostic (`fieldStoreCheck`).
+;  18 `eraseDecls`   every entry whose body erases a reference to a
+;                    word in a module outside the compiler and the
+;                    library (`userEraseSites`), for the same late
+;                    pass as `forgeDecls`.
 (struct UState
   (mut unsafeSink : (Option Nodes))
   (mut forgeSites : (Option Nodes))
@@ -3587,8 +3591,13 @@
   (mut regionScratch : (Option RgnScratch))
   (fieldDecls : (Vec FieldDecl))
   (fieldDeclNames : (Vec FieldDeclName))
-  (fieldStoreSpans : (Vec Int)))
+  (fieldStoreSpans : (Vec Int))
+  (eraseDecls : (Vec FnEnt)))
 
+; User-module declarations whose bodies erase a reference to a word.
+; The late restriction walk reads this the way it reads `forgeDecls`.
+; The compiler and the standard library are absent: their handles are
+; still words (`erasureNeedsUnsafe`).
 ; A pending witness owns exactly the nodes its variant needs. The
 ; declaration-order snapshot of `sigVars` gives late placeholders the
 ; same enclosing signature they had when the call was checked.
@@ -4253,6 +4262,10 @@
 (:: tcEraseCounts (-> TC (Vec EraseCount)))
 (fn (tcEraseCounts tc)
   tc.unsafe.eraseCounts)
+
+(:: tcEraseDecls (-> TC (Vec FnEnt)))
+(fn (tcEraseDecls tc)
+  tc.unsafe.eraseDecls)
 
 (:: tcMayCalls (-> TC (Option Names)))
 (fn (tcMayCalls tc)
@@ -5244,7 +5257,8 @@
                 :regionScratch None
                 :fieldDecls vecNew
                 :fieldDeclNames vecNew
-                :fieldStoreSpans vecNew)
+                :fieldStoreSpans vecNew
+                :eraseDecls vecNew)
             :parLends vecNew
             :exprChecks
               (ExprChecks
@@ -15372,10 +15386,26 @@
 
 ; `(cast Int v)` - the block's address, or a nullary constructor's
 ; immediate tag, which can never be an ancestor of anything and so
-; never matches.
+; never matches. The generated function says `effect(unsafe)`
+; (`showMarkUnsafe`): the cast is this compiler's, and a caller of
+; `format` inherits nothing.
 (pub :: showAddr (-> String Int ASTNode))
 (pub fn (showAddr v sp)
   (showCall2 "cast" (showVar "Int" sp) (showVar v sp) sp))
+
+(pub :: showMarkUnsafe (-> TC ASTNode Int))
+(pub fn (showMarkUnsafe tc fnd)
+  {
+    (let tags vecNew)
+    {
+      (vecPush tags (AxtagEnt :off 0 :content "effect(unsafe)"))
+      (writeNodeAxtags fnd tags)
+      (let entFound (restrictOwnEnt tc fnd))
+      (if (let (Some ent) entFound)
+        (fnEntSetUnsafe ent 1)
+        0)
+    }
+  })
 
 ; What renders a value of type `fty` held INSIDE a structure, given
 ; the expression `x` that reads it. Scalars take the builtin's own
@@ -15457,6 +15487,8 @@
       (if (let (Some body) (showGuarded tc (nodeBuildEMatch (showVar "v" sp) arms 0 sp)
                              (showCtorsHaveFields ctors 0) sp))
         {
+          (if (showCtorsHaveFields ctors 0)
+            (showMarkUnsafe tc fnd))
           (showFinish tc fnd body)
           true
         }
@@ -15568,7 +15600,12 @@
           (Some (showLit "{}" sp))
           (if (let (Some body) (showStructBody tc fields (showLit "{" sp) sp 0))
             (if (let (Some closed) (showCat tc body (showLit "}" sp) sp))
-              (showGuarded tc closed true sp)
+              (if (let (Some guarded) (showGuarded tc closed true sp))
+                {
+                  (showMarkUnsafe tc fnd)
+                  (Some guarded)
+                }
+                None)
               None)
             None))))
     (if (let (Some body) rendered)
@@ -16070,12 +16107,13 @@
 ; tag at all. So a forging cast is an unsafe operation, like the raw
 ; primitives, and its declaration says `effect(unsafe)`.
 ;
-; A cast that only OBSERVES is not one: a reference read as an `Int`,
-; an `Int` as an `Int`, a `Foreign` as an `Int` or back, a number as
-; another number, an `Int` as an enum-like `data` whose constructors
-; are all nullary (a value of one IS its tag, and nothing dereferences
-; it). Neither is a cast to the type the value already has, which is
-; what a type ascription `(:: e T)` desugars to.
+; A cast that only OBSERVES is not one: an `Int` as an `Int`, a
+; `Foreign` as an `Int` or back, a number as another number, an `Int`
+; as an enum-like `data` whose constructors are all nullary (a value
+; of one IS its tag, and nothing dereferences it). Neither is a cast
+; to the type the value already has, which is what a type ascription
+; `(:: e T)` desugars to. A reference read as an `Int` is the other
+; direction, erasure, and `castErases` decides it.
 ;
 ; The class of a type for that rule: 0 a word no one dereferences, 1 a
 ; reference, 2 a type variable (a caller may instantiate it at a
@@ -26344,10 +26382,11 @@
   ; body is typed, and a cast forges by the type of what it is
   ; given - so the sites `castNoteForge` recorded while this
   ; body was checked are added here, before any claim is read.
-  ; Does THIS body perform an unsafe operation itself - the three
-  ; AX3073 asks about? `Unsafe` is required lexically
-  ; (`MM-EXEC-9d`), so this, and not the row, is what an
-  ; `effect(unsafe)` claim answers to (`axtagUnsupported`).
+  ; Does THIS body perform an unsafe operation itself - the four
+  ; AX3073 asks about? An erasing cast counts only outside the
+  ; compiler and the library (`erasureNeedsUnsafe`). `Unsafe` is
+  ; required lexically (`MM-EXEC-9d`), so this, and not the row, is
+  ; what an `effect(unsafe)` claim answers to (`axtagUnsafeUnsupported`).
   {
     (let own (nodeAxtagsOf d))
     ; An absent signature contributes the empty set to this union.
@@ -26367,11 +26406,16 @@
         (let _s0 (tcClearPairSites tc))
         (let _m0 (tcSetCurModule tc None))
         (let forges (unsafeForgeSitesOf tc))
+        (let erases (userEraseSites tc))
         (let _f
           (if (> (vecLen forges) 0)
             (effAdd eff (builtinEff "Unsafe"))
             0))
-        (let lex (unsafeLexical (nodeCChild d) sink forges))
+        (let _e
+          (if (> (vecLen erases) 0)
+            (effAdd eff (builtinEff "Unsafe"))
+            0))
+        (let lex (unsafeLexical (nodeCChild d) sink forges erases))
         {
           ; The signature's first: it is written first.
           (if (! (== (as sig Int) 0))
@@ -26406,7 +26450,8 @@
           ; exception - an unsafe operation under it is AX3010 already,
           ; and one mistake is reported once.
           (if (! (|| (== (tagsClaimUnsafe tc sig own) 1) (== (tagsClaimPure sig own) 1)))
-            (checkUndeclaredUnsafe tc d (nodeCChild d) sink forges))
+            (checkUndeclaredUnsafe tc d (nodeCChild d) sink forges erases))
+          (unsafeNoteEraseDecl tc d erases)
           0
         }
       }
@@ -27110,15 +27155,18 @@
     (if (&& (strEq e "Unsafe") (> (vecLen (unsafeForgeSitesOf tc)) 0))
       (emitRestrictViolated tc d r
         (concat "the body performs Unsafe: it " (unsafeForgeText (unsafeForgeSitesOf tc) 0)) vecNew)
-      ; The path is walked ONCE and handed to both halves - the prose
-      ; and the related locations - so the two cannot come to disagree
-      ; about which hops there are.
-      {
-        (let path (graphWitness tc (restrictOwnEnt tc d) e))
+      (if (&& (strEq e "Unsafe") (> (vecLen (userEraseSites tc)) 0))
         (emitRestrictViolated tc d r
-          (concat (concat "the body performs " e) (witnessTextOf tc path e))
-          (witnessSecPath tc path e))
-      })
+          (concat "the body performs Unsafe: it " (unsafeEraseText (userEraseSites tc) 0)) vecNew)
+        ; The path is walked ONCE and handed to both halves - the prose
+        ; and the related locations - so the two cannot come to disagree
+        ; about which hops there are.
+        {
+          (let path (graphWitness tc (restrictOwnEnt tc d) e))
+          (emitRestrictViolated tc d r
+            (concat (concat "the body performs " e) (witnessTextOf tc path e))
+            (witnessSecPath tc path e))
+        }))
     (if (== (effPossible eff (builtinEff e)) 1)
       (emitRestrictUnverifiable tc d r
         (concat (concat "`" e)
@@ -27528,6 +27576,8 @@
 ;           `effect(unsafe)` - the one `Unsafe` the fixpoint cannot
 ;           see, because a cast forges by a type the walk runs before
 ;           (`unsafeLatePass`).
+;   erase   the same shape for a cast that turns a reference into a
+;           word, in a module outside the compiler and the library.
 (pub :: graphSeeds (-> TC FnEnt String Int Int))
 (pub fn (graphSeeds tc ent kind depth)
   (if (strEq kind "extern")
@@ -27552,23 +27602,29 @@
                 1
                 0)
               0)
-            (if (&& (strEq kind "IO")
-                  (|| (== (isSyscallPrim (fnEntName ent)) 1) (== (fnEntIsEffectOp ent) 2)))
-              1
-              (if (&& (strEq kind "Unsafe")
-                    (|| (== (fnEntIsEffectOp ent) 2) (== (isUnsafePrim (fnEntName ent)) 1)))
-                1
-                (if (&& (== (fnEntIsBuiltin ent) 1)
-                      (== (effIn (fnEntEffects ent) (graphEffKey kind)) 1))
+            (if (strEq kind "erase")
+              (if (&& (> depth 0) (== (fnEntUnsafe ent) 0))
+                (if (== (fnEntryIn (tcEraseDecls tc) ent 0) 1)
                   1
-                  0)))))))))
+                  0)
+                0)
+              (if (&& (strEq kind "IO")
+                    (|| (== (isSyscallPrim (fnEntName ent)) 1) (== (fnEntIsEffectOp ent) 2)))
+                1
+                (if (&& (strEq kind "Unsafe")
+                      (|| (== (fnEntIsEffectOp ent) 2) (== (isUnsafePrim (fnEntName ent)) 1)))
+                  1
+                  (if (&& (== (fnEntIsBuiltin ent) 1)
+                        (== (effIn (fnEntEffects ent) (graphEffKey kind)) 1))
+                    1
+                    0))))))))))
 
 ; `Unsafe` does not travel through a trusted encapsulation
 ; (`effUnionCallee`), so a walk looking for where it enters does not go
 ; into one either: `vecPush`'s own raw store is not its caller's.
 (pub :: graphStopsAtTrusted (-> String Int))
 (pub fn (graphStopsAtTrusted kind)
-  (if (|| (strEq kind "Unsafe") (strEq kind "forge"))
+  (if (|| (strEq kind "Unsafe") (|| (strEq kind "forge") (strEq kind "erase")))
     1
     0))
 
@@ -27582,7 +27638,8 @@
 (pub fn (graphOwnSource tc ent kind)
   (if (|| (strEq kind "extern")
         (|| (isValueCastForm kind)
-          (|| (strEq kind "forge") (|| (strEq kind "syscall") (strEq kind "wfi")))))
+          (|| (strEq kind "forge")
+            (|| (strEq kind "erase") (|| (strEq kind "syscall") (strEq kind "wfi"))))))
     0
     (if (!= (fnEntIsBuiltin ent) 0)
       0
@@ -29007,7 +29064,7 @@
 ; AX3073: a body performs an unsafe operation and its declaration does
 ; not say so.
 ;
-; THREE OPERATIONS ARE UNSAFE (R-B6, `MM-EXEC-9d`):
+; FOUR OPERATIONS ARE UNSAFE (R-B6, `MM-EXEC-9d`):
 ;
 ;   a raw primitive     the thirty-six `isUnsafePrim` names, `__load64`,
 ;                       `__retain` and `__syscall3` among them;
@@ -29015,7 +29072,11 @@
 ;                       whose implementation the checker cannot see;
 ;   a forging cast      `(cast T x)` into a reference `x` is not already
 ;                       (`castForges`): `(cast Hid 7)` checked OK here
-;                       and died at run time with SIGSEGV.
+;                       and died at run time with SIGSEGV;
+;   an erasing cast     `(cast Int v)` of a reference, in a module
+;                       outside the compiler and the library
+;                       (`erasureNeedsUnsafe`). The compiler and the
+;                       library still store handles as words.
 ;
 ; LEXICAL, where AX3042 is transitive - and deliberately. A transitive
 ; closure through `strData`, `strByte`, `memGetWord` and `memAlloc`
@@ -29042,16 +29103,19 @@
 ; head's, so it covers the primitive's or the callee's name, and a
 ; cast's covers `cast` - while the machine-applicable fix lands at the
 ; declaration's line start, where the tag attaches.
-(pub :: checkUndeclaredUnsafe (-> TC ASTNode ASTNode (Vec ASTNode) (Vec ASTNode) Int))
-(pub fn (checkUndeclaredUnsafe tc d e sink forges)
+(pub :: checkUndeclaredUnsafe (-> TC ASTNode ASTNode (Vec ASTNode) (Vec ASTNode) (Vec ASTNode) Int))
+(pub fn (checkUndeclaredUnsafe tc d e sink forges erases)
   {
     (let prims (unsafeScanInto e vecNew))
     (let p (unsafeFirstSite prims 1))
     (let c (unsafeFirstSite sink 1))
     (let f (unsafeFirstSite forges 3))
+    (let r (unsafeFirstSite erases 3))
+    (let pa (unsafeSiteStart prims p 1))
+    (let ca (unsafeSiteStart sink c 1))
+    (let fa (unsafeSiteStart forges f 3))
     (let kind
-      (unsafeEarliestKind (unsafeSiteStart prims p 1) (unsafeSiteStart sink c 1)
-        (unsafeSiteStart forges f 3)))
+      (unsafeWithErase (unsafeEarliestKind pa ca fa) pa ca fa (unsafeSiteStart erases r 3)))
     (if (let (Some selected) kind)
       (if (== selected 0)
         (if (let (Some index) p)
@@ -29062,9 +29126,13 @@
           (if (let (Some index) c)
             (emitUndeclaredUnsafe tc d (vecGet sink index) 3 forges 0)
             0)
-          (if (let (Some index) f)
-            (emitUndeclaredUnsafe tc d (vecGet forges (* index 3)) 2 forges index)
-            0)))
+          (if (== selected 2)
+            (if (let (Some index) f)
+              (emitUndeclaredUnsafe tc d (vecGet forges (* index 3)) 2 forges index)
+              0)
+            (if (let (Some index) r)
+              (emitUndeclaredUnsafe tc d (vecGet erases (* index 3)) 4 erases index)
+              0))))
       0)
   })
 
@@ -29113,6 +29181,37 @@
         (Some 2)))
     None))
 
+; Some 4 when the erasing cast starts strictly before the kind
+; `unsafeEarliestKind` chose. A tie keeps that kind. An absent erase
+; site leaves the choice alone, and an erase with nothing beside it
+; is the only site.
+(pub :: unsafeWithErase
+  (-> (Option Int) (Option Int) (Option Int) (Option Int) (Option Int) (Option Int)))
+(pub fn (unsafeWithErase kind pa ca fa ea)
+  (match ea
+    ((None) kind)
+    ((Some es)
+      (match kind
+        ((None) (Some 4))
+        ((Some selected)
+          {
+            (let start
+              (if (== selected 0)
+                pa
+                (if (== selected 1)
+                  ca
+                  fa)))
+            (match start
+              ((None) kind)
+              ((Some at)
+                (if (< es at)
+                  (Some 4)
+                  kind)
+              ))
+          }
+        ))
+    )))
+
 (pub :: unsafeMinStart (-> (Option Int) (Option Int) (Option Int)))
 (pub fn (unsafeMinStart a b)
   (match a
@@ -29128,8 +29227,9 @@
     )))
 
 ; `site` is the primitive's application (`kind` 0), the extern
-; reference (3) or the cast (2); `forges` and `k` name the cast's
-; record when it is one.
+; reference (3), the forging cast (2) or the erasing cast (4).
+; `forges` and `k` name that cast's record: the forge vec for kind 2,
+; the erase vec for kind 4.
 (pub :: emitUndeclaredUnsafe (-> TC ASTNode ASTNode Int (Vec ASTNode) Int Int))
 (pub fn (emitUndeclaredUnsafe tc d site kind forges k)
   {
@@ -29154,7 +29254,7 @@
                 (diagAddFixHelp dg "write `;@axiom:effect(unsafe)` above the declaration"
                   (mkSpan position position) ";@axiom:effect(unsafe)\n")
                 (diagAddHelp dg "write `;@axiom:effect(unsafe)` above the declaration"))
-              (if (== kind 2)
+              (if (|| (== kind 2) (== kind 4))
                 {
                   {
                     (let args (spineArgVec site vecNew))
@@ -29165,11 +29265,16 @@
                           (diagAddSecondary dg valueSpan
                             (concat
                               (concat "source has type `" (tyRender (vecGet forges (+ (* k 3) 2))))
-                              "`; the conversion trusts its representation")))
+                              (if (== kind 4)
+                                "`; the conversion drops its ownership"
+                                "`; the conversion trusts its representation"))))
                       })
                   }
-                  (diagAddHelp dg
-                    "prefer a constructor or a typed library operation. For a raw conversion, prove the target's layout and validity, and keep its backing owner alive. Changing the type does not extend a region's scope")
+                  (if (== kind 4)
+                    (diagAddHelp dg
+                      "keep the value in a typed binding, or use `addrOf` when the question is identity. An erasing cast drops the type and the share")
+                    (diagAddHelp dg
+                      "prefer a constructor or a typed library operation. For a raw conversion, prove the target's layout and validity, and keep its backing owner alive. Changing the type does not extend a region's scope"))
                 })
               (diagAddHelp dg
                 "the unsafe tag marks a trusted boundary: you must make every well-typed call safe. It leaves ordinary type, effect and restriction checks in place")
@@ -29182,25 +29287,38 @@
 ; The rest of AX3073's sentence, after the declaration's name.
 (pub :: unsafeOpText (-> ASTNode Int (Vec ASTNode) Int String))
 (pub fn (unsafeOpText site kind forges k)
-  (if (== kind 3)
-    (concat (concat "calls extern `" (srcSpelling (nodeAName site)))
-      "`, whose implementation is outside the safety checker, and its declaration does not say so")
-    (if (== kind 0)
-      (if (== (isAsmPrim (nodeAName (spineHead site))) 1)
-        "runs inline assembly and its declaration does not say so"
-        "touches raw memory and its declaration does not say so")
-      (concat (unsafeForgeText forges k) ", and its declaration does not say so"))))
+  (if (== kind 4)
+    (concat (unsafeEraseText forges k) ", and its declaration does not say so")
+    (if (== kind 3)
+      (concat (concat "calls extern `" (srcSpelling (nodeAName site)))
+        "`, whose implementation is outside the safety checker, and its declaration does not say so")
+      (if (== kind 0)
+        (if (== (isAsmPrim (nodeAName (spineHead site))) 1)
+          "runs inline assembly and its declaration does not say so"
+          "touches raw memory and its declaration does not say so")
+        (concat (unsafeForgeText forges k) ", and its declaration does not say so")))))
 
 (pub :: unsafeOpLabel (-> ASTNode Int String))
 (pub fn (unsafeOpLabel site kind)
-  (if (== kind 3)
-    "an extern call"
-    (if (== kind 0)
-      (graphShownName (nodeAName (spineHead site)))
-      "forges a reference")))
+  (if (== kind 4)
+    "erases a reference"
+    (if (== kind 3)
+      "an extern call"
+      (if (== kind 0)
+        (graphShownName (nodeAName (spineHead site)))
+        "forges a reference"))))
 
 ; "forges a `Hid` out of an `Int` with `cast`", for the `k`th record
 ; of `forges`: node, target, source.
+; "erases `String` into `Int` with `as`", for the `k`th record
+; of the erase vec: node, target, source. Same order as a forge.
+(pub :: unsafeEraseText (-> (Vec ASTNode) Int String))
+(pub fn (unsafeEraseText sites k)
+  (concat
+    (concat (concat (concat "erases `" (tyRender (vecGet sites (+ (* k 3) 2)))) "` into `")
+      (tyRender (castNormTyShown (vecGet sites (+ (* k 3) 1)))))
+    "` with `as`"))
+
 (pub :: unsafeForgeText (-> (Vec ASTNode) Int String))
 (pub fn (unsafeForgeText forges k)
   (concat
@@ -29349,7 +29467,24 @@
 ;
 ; Counted per declaration, once the body is typed, and printed by
 ; `symbols` as `#erasures=n`. `scripts/check-cast-arg-root.sh` sums the
-; compiler's and holds the total to a ratchet.
+; compiler's and holds the total to a ratchet. A word struct is one
+; machine word, so reading it is AX3086, not an erasure. `Spawn` stays
+; a reference: its table is not the word.
+(pub :: tyIsWordStruct (-> TC ASTNode Int))
+(pub fn (tyIsWordStruct tc ty0)
+  (if (nodeSame ty0 nilNode)
+    0
+    {
+      (let ty (tyExpandAliases tc (tyResolve ty0) 0))
+      (if (|| (nodeSame ty nilNode) (!= (nodeTag ty) TAG_T_CON))
+        0
+        (if (!= (vecLen (nodeBChildren ty)) 0)
+          0
+          (if (isNone (tcWordEnt tc (nodeAName ty)))
+            0
+            1)))
+    }))
+
 (pub :: castErases (-> TC ASTNode ASTNode Int))
 (pub fn (castErases tc tgt src)
   (if (!= (castTyClass tc tgt) 0)
@@ -29357,7 +29492,9 @@
     {
       (let k (castTyClass tc src))
       (if (== k 1)
-        1
+        (if (== (tyIsWordStruct tc src) 1)
+          0
+          1)
         (if (&& (== k 2) (== (tyIsSrcVar (castNormTy tc src)) 1))
           1
           0))
@@ -29388,6 +29525,115 @@
     acc
     (eraseCountFrom tc sites (+ i 3)
       (+ acc (castErases tc (vecGet sites (+ i 1)) (vecGet sites (+ i 2)))))))
+
+; The casts in `sites` that erase, three words each, in the order
+; `eraseSettle` counts them. An empty option answers an empty vector.
+(pub :: eraseConfirmed (-> TC (Option Nodes) Nodes))
+(pub fn (eraseConfirmed tc sites)
+  (match sites
+    ((None) vecNew)
+    ((Some found)
+      {
+        (let kept vecNew)
+        (eraseConfirmedFrom tc found kept 0)
+        kept
+      }
+    )))
+
+(pub :: eraseConfirmedFrom (-> TC Nodes Nodes Int Int))
+(pub fn (eraseConfirmedFrom tc sites kept i)
+  (if (>= (+ i 2) (vecLen sites))
+    0
+    {
+      (if (== (castErases tc (vecGet sites (+ i 1)) (vecGet sites (+ i 2))) 1)
+        {
+          (vecPush kept (vecGet sites i))
+          (vecPush kept (vecGet sites (+ i 1)))
+          (vecPush kept (vecGet sites (+ i 2)))
+        })
+      (eraseConfirmedFrom tc sites kept (+ i 3))
+    }))
+
+; A path separator, `/` or `\`.
+(pub :: pathSepByte (-> Int Bool))
+(pub fn (pathSepByte b)
+  (|| (== b 47) (== b 92)))
+
+; The directory name that holds `path`'s file, or empty when the path
+; names no parent. `core/typecheck.ax` and `C:\src\core\main.ax` both
+; answer `core`. A trailing separator is not part of the file name.
+(pub :: pathParentSegment (-> String String))
+(pub fn (pathParentSegment path)
+  {
+    (let mut i (- (strLen path) 1))
+    {
+      (while (&& (>= i 0) (pathSepByte (strByte path i)))
+        (set i (- i 1)))
+      (while (&& (>= i 0) (! (pathSepByte (strByte path i))))
+        (set i (- i 1)))
+      (while (&& (>= i 0) (pathSepByte (strByte path i)))
+        (set i (- i 1)))
+      (if (< i 0)
+        ""
+        {
+          (let end i)
+          {
+            (while (&& (>= i 0) (! (pathSepByte (strByte path i))))
+              (set i (- i 1)))
+            (strSlice path (+ i 1) (- end i))
+          }
+        })
+    }
+  })
+
+; Whether `path` is a file whose parent directory is the compiler.
+(pub :: compilerSourceFile (-> String Bool))
+(pub fn (compilerSourceFile path)
+  (strEq (pathParentSegment path) "core"))
+
+; 1 when an erasing cast in the unit now being checked must say
+; `effect(unsafe)`. The compiler's own directory and the standard
+; library still erase: their handles are words. A unit index outside
+; the table fails closed. A user file whose parent directory is named
+; `core` is exempt for the same reason, until those handles are typed.
+(pub :: erasureNeedsUnsafe (-> TC Int))
+(pub fn (erasureNeedsUnsafe tc)
+  {
+    (let units (tcUnits tc))
+    (let i (tcCurUnit tc))
+    (if (|| (< i 0) (>= i (vecLen units)))
+      1
+      {
+        (let unit (as (vecGet units i) CUnit2))
+        (if (|| unit.library (compilerSourceFile (unitFile unit)))
+          0
+          1)
+      })
+  })
+
+; This body's erasing casts when the unit must declare them, else empty.
+; Library and compiler erasures stay in `#erasures` and out of AX3073.
+(pub :: userEraseSites (-> TC Nodes))
+(pub fn (userEraseSites tc)
+  (if (== (erasureNeedsUnsafe tc) 0)
+    vecNew
+    (eraseConfirmed tc (tcEraseSites tc))))
+
+; Remember a declaration that erases, trusted or not. The late walk
+; drops the trusted ones (`fnEntUnsafe`); the row stamp does not.
+(pub :: unsafeNoteEraseDecl (-> TC ASTNode Nodes Int))
+(pub fn (unsafeNoteEraseDecl tc d erases)
+  (if (== (vecLen erases) 0)
+    0
+    {
+      (let entFound (restrictOwnEnt tc d))
+      (if (let (Some ent) entFound)
+        {
+          (vecPush (tcEraseDecls tc) ent)
+          0
+        }
+        0)
+    }))
 
 ; How many references `ent`'s body erases to a word, 0 for a declaration
 ; that erases none or was never checked.
@@ -29453,12 +29699,13 @@
 ; the two things that needed every body first:
 ;
 ;   1. a `restrict(no-unsafe)` the row could not refute is asked whether
-;      its call graph reaches a function that forges and does not say
-;      `effect(unsafe)` - the "through one indirection" case, answered
-;      the same whichever of the two is declared first;
-;   2. a forging function's row says `Unsafe`, so `symbols` reports what
-;      the body performs. Written last, so that no claim above read a
-;      row this pass changed.
+;      its call graph reaches a function that forges, or erases outside
+;      the compiler and the library, and does not say `effect(unsafe)`
+;      - the "through one indirection" case, answered the same whichever
+;      of the two is declared first;
+;   2. that function's row says `Unsafe`, so `symbols` reports what the
+;      body performs. Written last, so that no claim above read a row
+;      this pass changed.
 ;
 ; In a program the compiler accepts, (1) never fires: the forging
 ; function it would name draws AX3073 itself. It is the restriction's
@@ -29476,6 +29723,7 @@
       }
     }
     (unsafeLateRows (tcForgeDecls tc) 0)
+    (unsafeLateRows (tcEraseDecls tc) 0)
   })
 
 (pub :: unsafeLateRestricts (-> TC (Vec ASTNode) Int Int))
@@ -29487,14 +29735,24 @@
         (let d (vecGet pending i))
         {
           (let _u (tcSetCurUnit tc (unitIndexFor (tcUnits tc) (nodeModuleOpt d))))
-          (let pathFound (graphWitness tc (restrictOwnEnt tc d) "forge"))
-          (if (let (Some path) pathFound)
+          (let forged (graphWitness tc (restrictOwnEnt tc d) "forge"))
+          (if (let (Some path) forged)
             (emitRestrictViolated tc d "no-unsafe"
               (concat
                 (concat
                   (concat (concat "the body performs Unsafe: " (graphRender path)) ", where `")
                   (bareOf (fnEntName (vecGet path (- (vecLen path) 1)))))
                 "` forges a reference with `as` and does not say `effect(unsafe)`")
+              path)
+            ())
+          (let erased (graphWitness tc (restrictOwnEnt tc d) "erase"))
+          (if (let (Some path) erased)
+            (emitRestrictViolated tc d "no-unsafe"
+              (concat
+                (concat
+                  (concat (concat "the body performs Unsafe: " (graphRender path)) ", where `")
+                  (bareOf (fnEntName (vecGet path (- (vecLen path) 1)))))
+                "` erases a reference with `as` and does not say `effect(unsafe)`")
               path)
             ())
         }
@@ -30908,7 +31166,7 @@
 ; `Unsafe` ends at that callee. So no callback, no unresolved call and
 ; no callee can supply the claim to this declaration - an untagged
 ; callee that performs one draws AX3073 where it does. Whether the
-; body performs one is the same three-way scan AX3073 makes, and it is
+; body performs one is the same four-way scan AX3073 makes, and it is
 ; decidable however open the row is.
 ;
 ; The row used to decide, through the suppression below: a function
@@ -30925,16 +31183,19 @@
 
 ; Is there an unsafe operation in THIS body: a raw primitive
 ; (`unsafeScanInto`), a reference to an extern (`sink`, filled by the
-; effect walk), or a forging cast (`forges`)? The three AX3073 names.
-(pub :: unsafeLexical (-> ASTNode (Vec ASTNode) (Vec ASTNode) Int))
-(pub fn (unsafeLexical e sink forges)
-  (if (> (vecLen sink) 0)
+; effect walk), a forging cast (`forges`), or an erasing cast the unit
+; must declare (`erases`)? The four AX3073 names.
+(pub :: unsafeLexical (-> ASTNode (Vec ASTNode) (Vec ASTNode) (Vec ASTNode) Int))
+(pub fn (unsafeLexical e sink forges erases)
+  (if (> (vecLen erases) 0)
     1
-    (if (> (vecLen forges) 0)
+    (if (> (vecLen sink) 0)
       1
-      (if (> (vecLen (unsafeScanInto e vecNew)) 0)
+      (if (> (vecLen forges) 0)
         1
-        0))))
+        (if (> (vecLen (unsafeScanInto e vecNew)) 0)
+          1
+          0)))))
 
 ; Every claimed effect but `Unsafe`, answered from the row.
 (pub :: axtagUnsupportedRow (-> TC ASTNode String String Strings Ints Int))

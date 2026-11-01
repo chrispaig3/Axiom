@@ -112,6 +112,7 @@
 
 (:: main ())
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   {
     ; --- 1, 2: outside a lambda, then inside one ---

@@ -805,6 +805,7 @@ place that casts:
 (pub :: sumWords (-> (Vec Int) Int))
 
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (sumWords xs)
   {
     (let __r (sumWordsRaw (as xs Int)))

@@ -30,6 +30,20 @@
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
 
+[1;31merror[AX3073][0m[1m: `genericCast` erases `a` into `Float` with `as`, and its declaration does not say so[0m
+  [1;34m--> [0m1411-as-boundaries.ax:25:4
+[1;34m   |[0m
+[1;34m25 |[0m   (as value Float))
+[1;34m   |[0m    [1;31m^^ erases a reference[0m
+[1;34m25 |[0m   (as value Float))
+[1;34m   |[0m       [1;36m----- source has type `a`; the conversion drops its ownership[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mkeep the value in a typed binding, or use `addrOf` when the question is identity. An erasing cast drops the type and the share
+  [1;34m = [0m[1;32mhelp: [0mthe unsafe tag marks a trusted boundary: you must make every well-typed call safe. It leaves ordinary type, effect and restriction checks in place
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
 [1;31merror[AX3049][0m[1m: `as` in the body of `restricted`, which claims `restrict(no-cast)`[0m
   [1;34m--> [0m1411-as-boundaries.ax:31:4
 [1;34m   |[0m
@@ -39,4 +53,4 @@
   [1;34m = [0m[1;32mhelp: [0m`no-cast` rejects explicit conversions in this body. Use an operation that preserves the required type, or remove the restriction. `no-cast:deep` also follows resolved callees; an unresolved path cannot establish the claim.
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
 
-compilation failed due to 5 previous errors
+compilation failed due to 6 previous errors

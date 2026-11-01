@@ -84,9 +84,11 @@ Tested by `tests/diagnostics/1040-forging-cast.ax` and
 Internal access is refused by `tests/diagnostics/1470-internal-import.ax`
 and `tests/diagnostics/1471-internal-name.ax`.
 
-Not yet: public raw-address interfaces remain, and explicit
-reference-to-word casts can erase lifetime evidence
-([roadmap](roadmap.md#memory-and-resource-safety)).
+Not yet: public raw-address interfaces remain
+([roadmap](roadmap.md#memory-and-resource-safety)). Outside the
+compiler and the standard library, an erasing cast is `AX3073` unless
+the declaration says `effect(unsafe)`. The compiler and the library
+still erase.
 
 ### Ownership
 
@@ -118,8 +120,9 @@ Tested by `tests/stdlib/846-vec-pop-release.ax` and
 Leak freedom is unproved. `MM-LIFE-3` permits cycles, and the memory
 model's lifetime rules describe conservative retention. A `mut` local
 keeps its value when a read may survive replacement, or when its type
-is a type variable. `MM-VAL-24` still permits explicit erasure to
-`Int`. A leaked resource owner may also delay its destructor
+is a type variable. Outside the compiler and the library, explicit
+erasure to `Int` is `AX3073` (`MM-VAL-24`). Inside those two, it
+remains. A leaked resource owner may also delay its destructor
 indefinitely.
 
 ### Regions

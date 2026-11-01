@@ -48,6 +48,7 @@
 0.8.0  L  unused-result-let  a Result bound by let and never read is AX3046; match on it, propagate it with ?, or bind it to _
 0.8.0  L  isr-may-wait  an isr handler whose call through a field, or through a local holding one of several functions, may reach a wait is AX4009; set a flag the main loop reads and wait there
 0.8.0  L  word-struct-as  `as` from a word struct to another type outside its module is AX3086, as reading its field is; call the module's accessor, such as durationNanos, or declare effect(unsafe) where a raw store must keep the word
+0.8.0  L  reference-erasure  (as v Int), (as v Foreign) and the other erasing casts are AX3073 outside the compiler and the standard library unless the declaration says effect(unsafe); use addrOf for identity
 0.8.0  CLI  extra-operand  check, build, emit-llvm and symbols read one file; a second operand is a usage error with status 2; run the command once per file
 0.8.0  F  memAlloc  raw memory access moved into Internal.Raw, which only the standard library may import (AX5002); write your own function over the primitives under effect(unsafe)
 0.8.0  F  memAllocMapped  raw memory access moved into Internal.Raw, which only the standard library may import (AX5002); write your own function over the primitives under effect(unsafe)

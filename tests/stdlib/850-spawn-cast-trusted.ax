@@ -1,7 +1,7 @@
 ; A cast to `Spawn` forges a handle (docs/memory-model.md MM-PAR-8,
-; MM-EXEC-9d), so only a declaration that says `effect(unsafe)` may
-; write one. This is the trusted side: the ordinary spawn and join
-; need no tag, and a handle carried across as a word and turned back by
+; MM-EXEC-9d), and a cast of a handle to `Int` erases it, so only a
+; declaration that says `effect(unsafe)` may write either. The ordinary
+; spawn and join need no tag. A handle carried across as a word and turned back by
 ; `handleOf`, the trusted encapsulation `Task` and `Task` use, joins as
 ; the handle it was.
 ;
@@ -22,6 +22,7 @@
   (as hw Spawn))
 
 (:: wordOf (-> Spawn Int))
+;@axiom:effect(unsafe)
 (fn (wordOf h)
   (as h Int))
 

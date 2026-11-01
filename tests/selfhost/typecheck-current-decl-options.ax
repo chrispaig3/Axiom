@@ -30,6 +30,7 @@
   })
 
 (:: stampLayoutSame (-> ASTNode ASTNode Bool))
+;@axiom:effect(unsafe)
 (fn (stampLayoutSame left right)
   {
     (let a (as left Int))

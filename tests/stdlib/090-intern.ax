@@ -32,6 +32,7 @@
 ; to survive.
 (import IO)
 (import Intern)
+(import Mem)
 
 ; `Bool` as a printable digit.
 (pub :: itBit (-> Bool Int))
@@ -131,14 +132,10 @@
       ; --- THE POINT: equal content, four unrelated handles, one id ---
       ; The handles differ...
       ;
-      ; This asks about IDENTITY, and it has to say so. `==` on two
-      ; `String`s compares CONTENT (`tests/stdlib/035-string-equality.ax`),
-      ; and these two are content-equal by construction - that is the
-      ; premise of the whole section. Casting both to `Int` asks the
-      ; question this line has always meant: are they the same handle.
-      ; Written as `(== alpha built)` it now answers 1, and would be
-      ; asserting the opposite of what the comment says.
-      (println (itBit (== (as alpha Int) (as built Int))))
+      ; This asks about identity. `==` on two `String`s compares content,
+      ; and these two are content-equal by construction. `addrEq` asks
+      ; whether they are the same handle.
+      (println (itBit (addrEq (addrOf alpha) (addrOf built))))
       ; 0: different Ints
       ; ...but the ids do not.
       (println (internIntern it built))  ; 0

@@ -45,7 +45,7 @@
   {
     (let tc (unsafeContext (concat "(fn (chosen) " (concat (spacesOf 120) ")"))))
     (let declaration (nodeBuildDFn "chosen" vecNew body (mkSpan 5 11)))
-    (checkUndeclaredUnsafe tc declaration body sink forges)
+    (checkUndeclaredUnsafe tc declaration body sink forges vecNew)
     (tcOutVec tc)
   })
 
@@ -123,7 +123,7 @@
       (== (vecLen (selectionOutput (mkEInt 0) (vecPush vecNew noSpan) (addForge vecNew noSpan))) 0))
     (let tc (unsafeContext ""))
     (let declaration (nodeBuildDFn "chosen" vecNew (mkEInt 0) 0))
-    (checkUndeclaredUnsafe tc declaration (primitiveAt 10) vecNew vecNew)
+    (checkUndeclaredUnsafe tc declaration (primitiveAt 10) vecNew vecNew vecNew)
     (say 27 (== (vecLen (tcOutVec tc)) 0))
     (let forgeOutput (selectionOutput (mkEInt 0) vecNew triples))
     (say 28

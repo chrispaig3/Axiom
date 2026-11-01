@@ -670,7 +670,7 @@ handle table's three) and `tests/diagnostics/1020-unsafe-device-primitives.ax`
 stay silent under every rule.
 
 **MM-EXEC-9d (H).** A declaration that performs an unsafe operation
-**MUST** say `;@axiom:effect(unsafe)`. There are three unsafe
+**MUST** say `;@axiom:effect(unsafe)`. There are four unsafe
 operations:
 
 - a primitive in `MM-EXEC-9c`;
@@ -682,14 +682,20 @@ operations:
   non-empty tuple, and a type variable, which a caller may instantiate
   at any of them. A spawn handle, `Spawn`, counts as one too: a spawn
   primitive makes one, and so does a trusted declaration that vouches
-  for the word it casts (`MM-PAR-8`).
+  for the word it casts (`MM-PAR-8`);
+- an *erasing cast*: `(as v W)`, where `v` is a reference and `W` is a
+  word (`Int`, `Foreign`, another number, or an alias of one), in a
+  module outside the compiler and the standard library. The compiler's
+  directory `core` and the library still erase, because their handles
+  are words. A file whose parent directory is named `core` is treated
+  as the compiler for now.
 
 An untagged operation is `AX3073`, even when the declaration claims
 another effect, such as `effect(io)`. Under `effect(pure)` it is
 `AX3010` instead, since a purity claim already answers it.
 
 The claim is judged the same way. `effect(unsafe)` over a body that
-performs none of the three is `AX3010`, even when the declaration
+performs none of the four is `AX3010`, even when the declaration
 calls a parameter or a field. A callback's or a callee's `Unsafe` ends
 at its own declaration, so nothing outside the body can supply the
 claim (`tests/diagnostics/1200-unsafe-claim-open-row.ax`).
@@ -711,9 +717,10 @@ claim (`tests/diagnostics/1200-unsafe-claim-open-row.ax`).
 is given, so `(peek 7)` reads a field at address 7 and dies with
 SIGSEGV.
 
-A cast that only observes forges nothing, so these stay silent:
+A cast that only observes forges nothing and erases nothing, so these
+stay silent:
 
-- a reference read as an `Int`, or a number converted to another;
+- a number converted to another;
 - a `Foreign` read as an `Int`, or back;
 - an `Int` read as a `data` type whose constructors are all nullary,
   since its values are tags;
@@ -936,6 +943,7 @@ length word bounds it, so an interior NUL is an ordinary byte, and a
 
 ```scheme
 (import IO)
+(import Mem)
 (import Str)
 
 ;@axiom:effect(io)
@@ -949,7 +957,7 @@ length word bounds it, so an interior NUL is an ordinary byte, and a
           "equal"
           "different"))
       (println
-        (if (== (as a Int) (as b Int))
+        (if (addrEq (addrOf a) (addrOf b))
           "same object"
           "two objects"))
       0
@@ -972,11 +980,10 @@ Two consequences you **MUST** know:
   same static dispatch the language already performs for `fadd` against
   `add`.
 - **Identity is a different question from equality.** A program asking
-  whether two handles are the *same object* **MUST** say
-  `(== (as a Int) (as b Int))`, as the example does.
-  Identical literals within a module share one header, so they are the
-  same object. `tests/stdlib/090-intern.ax` uses this test to prove an
-  interner's inputs were distinct handles.
+  whether two handles are the same object uses `addrEq` and `addrOf`,
+  as the example does. Identical literals within a module share one
+  header, so they are the same object. `tests/stdlib/090-intern.ax`
+  uses this test to prove an interner's inputs were distinct handles.
 
 Ordering (`<`, `>`, …) on strings still compares addresses. Use
 `strCmp` when you need content order. Making `<` mean `strCmp` is a
@@ -2821,15 +2828,19 @@ by part:
   (Bx "kept"))       ; AX3004: expected Int, found Box
 ```
 
-Two explicit routes remain. `(as v Int)` erases `v` as `MM-VAL-22`
-describes. `Mem.addrOf` answers a sealed `Addr` word (`MM-VAL-10a`)
-that compares and hashes `v`'s identity and takes no share. A function
-whose declared result is a word struct aliases none of its parameters,
-so `(addrOf v)` leaves `v`'s release where it was.
+Outside the compiler and the standard library, `(as v Int)` and the
+other erasing casts are unsafe (`MM-EXEC-9d`). The declaration says
+`effect(unsafe)`, or the cast is `AX3073`. The compiler's directory
+and the library still erase. `Mem.addrOf` answers a sealed `Addr` word
+(`MM-VAL-10a`) that compares and hashes `v`'s identity and takes no
+share. A function whose declared result is a word struct aliases none
+of its parameters, so `(addrOf v)` leaves `v`'s release where it was.
 
 Evidence: [1240-record-through-int.ax](../tests/diagnostics/1240-record-through-int.ax)
 and [1241-result-coercion-shapes.ax](../tests/diagnostics/1241-result-coercion-shapes.ax)
-pin the refusals. [810-addr-identity.ax](../tests/stdlib/810-addr-identity.ax)
+pin the result refusals.
+[1510-erasing-cast.ax](../tests/diagnostics/1510-erasing-cast.ax) pins
+the cast. [810-addr-identity.ax](../tests/stdlib/810-addr-identity.ax)
 makes 10,000 `addrOf` calls and holds no bytes.
 [check-cast-arg-root.sh](../scripts/check-cast-arg-root.sh) counts the
 compiler's remaining erasures by operand type and holds them to a
@@ -4319,9 +4330,10 @@ AST stores record which slots contain references. Replacing a slot or
 releasing the node returns those shares. Owning containers also record
 their element class and release their elements (`MM-LIFE-2m`).
 
-The rule does not cover a program that casts a reference into an
-`Int`-declared field of its own struct. Keeping that value alive is the
-program's obligation, as for raw `__alloc` storage in section 10.
+Outside the compiler and the library, the cast that would put a
+reference into an `Int` field is unsafe (`MM-EXEC-9d`). Inside those
+two, keeping that value alive remains the program's obligation, as for
+raw `__alloc` storage in section 10.
 
 Closure capture words are stored unretained, with the one exception
 event 4 requires: a capture that is a reference parameter of the

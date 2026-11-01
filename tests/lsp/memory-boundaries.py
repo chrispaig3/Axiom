@@ -131,8 +131,9 @@ def run(compiler):
                      "effect(unsafe)", "never extends a region's scope"):
             assert fact in hover, (fact, hover)
 
-        # Ordinary managed references, ascriptions and numeric conversions stay
-        # quiet. Only the explicit reference-to-word operation is an erasure.
+        # An untagged reference-to-word cast is AX3073. The same cast under
+        # effect(unsafe) stays quiet, keeps the erasure count, and is trusted.
+        # Ascriptions and numeric conversions erase nothing.
         source = """(:: word (-> String Int))
 (fn (word owner) (as owner Int))
 (:: same (-> String String))
@@ -144,14 +145,28 @@ def run(compiler):
 """
         path = root / "Managed.ax"
         path.write_text(source)
-        assert terminal(compiler, path) == [], "safe conversions acquired a warning"
-        published, _ = editor(compiler, path, source)
+        refused = terminal(compiler, path)
+        assert [d["code"] for d in refused] == ["AX3073"], refused
+        assert "erases `String` into `Int`" in refused[0]["message"], refused
+        tagged = """(:: word (-> String Int))
+;@axiom:effect(unsafe)
+(fn (word owner) (as owner Int))
+(:: same (-> String String))
+(fn (same owner) (as owner String))
+(:: typed (-> String String))
+(fn (typed owner) (:: owner String))
+(:: numeric (-> Int Float))
+(fn (numeric n) (as n Float))
+"""
+        path.write_text(tagged)
+        assert terminal(compiler, path) == [], "a declared erasure was refused"
+        published, _ = editor(compiler, path, tagged)
         assert published == [], published
         symbols = subprocess.run([compiler, "--diagnostic-format=ai", "symbols", str(path)],
                                  capture_output=True, check=True, timeout=60).stdout.decode()
         rows = {line.split()[1]: line for line in symbols.splitlines()
                 if line.startswith("F ")}
-        assert "#erasures=1" in rows["word"], rows
+        assert "#erasures=1" in rows["word"] and "#unsafe=trusted" in rows["word"], rows
         for name in ("same", "typed", "numeric"):
             assert "#erasures=" not in rows[name], rows[name]
 

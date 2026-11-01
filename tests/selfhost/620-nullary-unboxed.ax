@@ -31,6 +31,7 @@
     ((W l k) (+ (sumList l) k))))
 
 (:: main Int)
+;@axiom:effect(unsafe)
 (fn (main)
   {
     (let three (ICons 1 (ICons 2 (ICons 3 INil))))

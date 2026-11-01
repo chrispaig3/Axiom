@@ -16,6 +16,12 @@ its changelog too.
 
 ## Unreleased
 
+- An erasing cast outside the compiler and the standard library is
+  `AX3073` unless the declaration says `effect(unsafe)`. `addrOf`
+  remains the way to compare identity. The compiler and the library
+  still store handles as words.
+  Tested by `tests/diagnostics/1510-erasing-cast.ax`.
+
 ## 0.8.0 — 2026-10-31
 
 This release moves Rust FFI into the official `pkg/axiom-oxide` package.

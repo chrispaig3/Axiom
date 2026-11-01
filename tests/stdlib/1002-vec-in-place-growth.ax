@@ -17,6 +17,7 @@
   })
 
 (:: refs (-> String Int))
+;@axiom:effect(unsafe)
 (fn (refs child)
   {
     (let v (vecWithCapacity 131071))
@@ -195,6 +196,7 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   {
     (let v (vecWithCapacity 0))

@@ -34,6 +34,7 @@
 
 (:: ledgerChecks (-> Nodes CG ()))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (ledgerChecks args cg)
   {
     (let empty (:: vecNew RegisterTexts))
@@ -90,6 +91,7 @@
 
 (:: soakChecks (-> Nodes CG ()))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (soakChecks args cg)
   {
     (let emptyArgs (:: vecNew Nodes))

@@ -126,9 +126,11 @@
 (fn (readA p)
   p.a)
 
-; the record's WORD escapes through a cast, into a container that
-; retains the integer and not the block
+; the record's word escapes through a cast, into a container that
+; retains the integer and not the block. Safe code is refused this
+; cast by tests/diagnostics/1510-erasing-cast.ax.
 (:: viaCast (-> (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (fn (viaCast v n)
   {
     (let p (Pair :a n :b n))

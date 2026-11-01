@@ -1197,7 +1197,7 @@ This section records the codes below. All of them are built, and
 | `AX3070` `unsafe-field-access` | a field read on a `data` type with a nullary constructor beside a fielded one | Split from `AX3008`. |
 | `AX3071` `unretained-store` | a bare `__store64` of a reference-typed value through `as` | `tests/diagnostics/1002-unretained-store.ax` |
 | `AX3072` `addr-nonliteral` | `__addr` of anything but a string literal | `tests/diagnostics/1003-addr-nonliteral.ax` |
-| `AX3073` `undeclared-unsafe` | a declaration performs a raw primitive, calls an `extern` or forges a reference or a spawn handle without `;@axiom:effect(unsafe)` | An error. `tests/diagnostics/1004-undeclared-unsafe.ax`, `tests/diagnostics/1040-forging-cast.ax`, `tests/diagnostics/1116-extern-unsafe.ax`, `tests/diagnostics/1260-spawn-forging-cast.ax` |
+| `AX3073` `undeclared-unsafe` | a declaration performs a raw primitive, calls an `extern`, forges a reference or a spawn handle, or erases a reference, without `;@axiom:effect(unsafe)` | An error. `tests/diagnostics/1004-undeclared-unsafe.ax`, `tests/diagnostics/1040-forging-cast.ax`, `tests/diagnostics/1116-extern-unsafe.ax`, `tests/diagnostics/1260-spawn-forging-cast.ax`, `tests/diagnostics/1510-erasing-cast.ax` |
 | `AX3089` `signature-needed` | a function needs a signature: it is called before its type is known, or its body needs parameter types other than the default `Int` | An error. `tests/diagnostics/1032-signature-needed.ax`, `tests/diagnostics/1484-unsigned-parameter-poison.ax` |
 | `AX3090` `recover-thunk-unseen` | a recovery point's thunk that isn't a lambda written at the call or a top-level function, so the region check can't walk it | An error. `tests/diagnostics/1033-recover-escape.ax` |
 | `AX3091` `inline-asm` | an `asm` form the compiler can't lower: an unknown architecture, operand kind or option, a second arm for one architecture, a template naming no operand or defining a named label, a second answered output, a `const` it can't fold, a `sym` with no symbol, or a register an arm can't name | An error, where the form is written. `tests/diagnostics/1044-inline-asm.ax`, `tests/diagnostics/1280-inline-asm-forms.ax` |
@@ -1303,11 +1303,12 @@ frees a block the stored word still names. `AX3072` exists because
 anything but a string literal has no interned bytes behind it.
 
 `AX3073` covers every primitive in `MM-EXEC-9c`, a call to an
-`extern` and a cast that forges a reference. The operation's
-declaration must say `effect(unsafe)`, and that makes it a trusted
-wrapper: its caller inherits no unsafe obligation. A condition a caller
-must meet is a `;@axiom:pre(...)` contract when the arguments can show
-it, and a comment otherwise.
+`extern`, a cast that forges a reference, and an erasing cast outside
+the compiler and the standard library. The operation's declaration
+must say `effect(unsafe)`, and that makes it a trusted wrapper: its
+caller inherits no unsafe obligation. A condition a caller must meet
+is a `;@axiom:pre(...)` contract when the arguments can show it, and
+a comment otherwise.
 
 `AX3075` (`scope-divergence`) is retired too. It reported the macro
 expander's scope records disagreeing with a second binder table, and

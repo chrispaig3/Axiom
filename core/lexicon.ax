@@ -346,7 +346,7 @@
                     (if (strEq w "_")
                       "The wildcard. In a pattern it matches anything and binds nothing. In a call, `(f _ 2)` builds a lambda over the missing arguments from left to right."
                       (if (strEq w "as")
-                        "Converts a value to the written type. Int and Float conversions operate on numeric values; floatToBits and floatFromBits reinterpret bits. A reference converted to a word, such as `Int` or `Foreign`, keeps no ownership share: keep the owner alive while using the word. For identity comparisons and hashing, use `addrOf`. Converting a word to a reference requires `effect(unsafe)`, a valid representation and a live backing owner. A conversion never extends a region's scope."
+                        "Converts a value to the written type. Int and Float conversions operate on numeric values; floatToBits and floatFromBits reinterpret bits. A reference converted to a word, such as `Int` or `Foreign`, keeps no ownership share: keep the owner alive while using the word. Outside the compiler and the standard library that cast requires `effect(unsafe)`. For identity comparisons and hashing, use `addrOf`. Converting a word to a reference requires `effect(unsafe)`, a valid representation and a live backing owner. A conversion never extends a region's scope."
                         (if (strEq w "sizeof")
                           "The size in bytes of a type's representation. Takes exactly one type (`AX3069`)."
                           (if (strEq w "alignof")
@@ -408,7 +408,7 @@
       (if (strEq w "Mut")
         "Changes heap state that something else can see. Inferred through calls; `effect(mut)` checks a claim. Ordinary functions need not declare it. Reference-count bookkeeping does not add `Mut`."
         (if (strEq w "Unsafe")
-          "Uses a raw-memory primitive, calls an `extern` or forges a reference. A function that does so must declare `;@axiom:effect(unsafe)` (`AX3073`), which makes it a trusted wrapper; the effect does not propagate to callers. Its author must uphold address, layout and lifetime obligations for every well-typed call. Type, effect and restriction checks still apply."
+          "Uses a raw-memory primitive, calls an `extern`, forges a reference or erases one. A function that does so must declare `;@axiom:effect(unsafe)` (`AX3073`), which makes it a trusted wrapper; the effect does not propagate to callers. Its author must uphold address, layout and lifetime obligations for every well-typed call. Type, effect and restriction checks still apply."
           (if (strEq w "Spawn")
             "Creates a task, thread or process."
             (if (strEq w "Block")
@@ -571,7 +571,7 @@
     (if (strEq v "io")
       "The function reaches the outside world: a syscall, an `extern` call or the command line."
       (if (strEq v "unsafe")
-        "The function uses a raw-memory primitive, calls an `extern` or forges a reference. The claim makes it a trusted wrapper, and callers inherit nothing."
+        "The function uses a raw-memory primitive, calls an `extern`, forges a reference or erases one. The claim makes it a trusted wrapper, and callers inherit nothing."
         (if (strEq v "pure")
           "The function performs no effect. A body that performs one is `AX3010`."
           (if (strEq v "div")

@@ -1,0 +1,143 @@
+[1;31merror[AX3073][0m[1m: `fromStr` erases `String` into `Int` with `as`, and its declaration does not say so[0m
+  [1;34m--> [0m1510-erasing-cast.ax:30:4
+[1;34m   |[0m
+[1;34m30 |[0m   (as s Int))
+[1;34m   |[0m    [1;31m^^ erases a reference[0m
+[1;34m30 |[0m   (as s Int))
+[1;34m   |[0m       [1;36m- source has type `String`; the conversion drops its ownership[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mkeep the value in a typed binding, or use `addrOf` when the question is identity. An erasing cast drops the type and the share
+  [1;34m = [0m[1;32mhelp: [0mthe unsafe tag marks a trusted boundary: you must make every well-typed call safe. It leaves ordinary type, effect and restriction checks in place
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `fromVec` erases `Vec Int` into `Int` with `as`, and its declaration does not say so[0m
+  [1;34m--> [0m1510-erasing-cast.ax:34:4
+[1;34m   |[0m
+[1;34m34 |[0m   (as v Int))
+[1;34m   |[0m    [1;31m^^ erases a reference[0m
+[1;34m34 |[0m   (as v Int))
+[1;34m   |[0m       [1;36m- source has type `Vec Int`; the conversion drops its ownership[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mkeep the value in a typed binding, or use `addrOf` when the question is identity. An erasing cast drops the type and the share
+  [1;34m = [0m[1;32mhelp: [0mthe unsafe tag marks a trusted boundary: you must make every well-typed call safe. It leaves ordinary type, effect and restriction checks in place
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `fromHid` erases `Hid` into `Int` with `as`, and its declaration does not say so[0m
+  [1;34m--> [0m1510-erasing-cast.ax:38:4
+[1;34m   |[0m
+[1;34m38 |[0m   (as h Int))
+[1;34m   |[0m    [1;31m^^ erases a reference[0m
+[1;34m38 |[0m   (as h Int))
+[1;34m   |[0m       [1;36m- source has type `Hid`; the conversion drops its ownership[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mkeep the value in a typed binding, or use `addrOf` when the question is identity. An erasing cast drops the type and the share
+  [1;34m = [0m[1;32mhelp: [0mthe unsafe tag marks a trusted boundary: you must make every well-typed call safe. It leaves ordinary type, effect and restriction checks in place
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `fromForeign` erases `String` into `Foreign` with `as`, and its declaration does not say so[0m
+  [1;34m--> [0m1510-erasing-cast.ax:42:4
+[1;34m   |[0m
+[1;34m42 |[0m   (as s Foreign))
+[1;34m   |[0m    [1;31m^^ erases a reference[0m
+[1;34m42 |[0m   (as s Foreign))
+[1;34m   |[0m       [1;36m- source has type `String`; the conversion drops its ownership[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mkeep the value in a typed binding, or use `addrOf` when the question is identity. An erasing cast drops the type and the share
+  [1;34m = [0m[1;32mhelp: [0mthe unsafe tag marks a trusted boundary: you must make every well-typed call safe. It leaves ordinary type, effect and restriction checks in place
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `toWord` erases `a` into `Int` with `as`, and its declaration does not say so[0m
+  [1;34m--> [0m1510-erasing-cast.ax:46:4
+[1;34m   |[0m
+[1;34m46 |[0m   (as v Int))
+[1;34m   |[0m    [1;31m^^ erases a reference[0m
+[1;34m46 |[0m   (as v Int))
+[1;34m   |[0m       [1;36m- source has type `a`; the conversion drops its ownership[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mkeep the value in a typed binding, or use `addrOf` when the question is identity. An erasing cast drops the type and the share
+  [1;34m = [0m[1;32mhelp: [0mthe unsafe tag marks a trusted boundary: you must make every well-typed call safe. It leaves ordinary type, effect and restriction checks in place
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `fromSpawn` erases `Spawn` into `Int` with `as`, and its declaration does not say so[0m
+  [1;34m--> [0m1510-erasing-cast.ax:50:4
+[1;34m   |[0m
+[1;34m50 |[0m   (as h Int))
+[1;34m   |[0m    [1;31m^^ erases a reference[0m
+[1;34m50 |[0m   (as h Int))
+[1;34m   |[0m       [1;36m- source has type `Spawn`; the conversion drops its ownership[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mkeep the value in a typed binding, or use `addrOf` when the question is identity. An erasing cast drops the type and the share
+  [1;34m = [0m[1;32mhelp: [0mthe unsafe tag marks a trusted boundary: you must make every well-typed call safe. It leaves ordinary type, effect and restriction checks in place
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `drops` claims `restrict(no-unsafe)` and the body performs Unsafe: it erases `String` into `Int` with `as`[0m
+  [1;34m--> [0m1510-erasing-cast.ax:54:6
+[1;34m   |[0m
+[1;34m54 |[0m (fn (drops s)
+[1;34m   |[0m      [1;31m^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `drops` erases `String` into `Int` with `as`, and its declaration does not say so[0m
+  [1;34m--> [0m1510-erasing-cast.ax:55:4
+[1;34m   |[0m
+[1;34m55 |[0m   (as s Int))
+[1;34m   |[0m    [1;31m^^ erases a reference[0m
+[1;34m55 |[0m   (as s Int))
+[1;34m   |[0m       [1;36m- source has type `String`; the conversion drops its ownership[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mkeep the value in a typed binding, or use `addrOf` when the question is identity. An erasing cast drops the type and the share
+  [1;34m = [0m[1;32mhelp: [0mthe unsafe tag marks a trusted boundary: you must make every well-typed call safe. It leaves ordinary type, effect and restriction checks in place
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `wordOf` erases `String` into `Int` with `as`, and its declaration does not say so[0m
+  [1;34m--> [0m1510-erasing-cast.ax:64:4
+[1;34m   |[0m
+[1;34m64 |[0m   (as s Int))
+[1;34m   |[0m    [1;31m^^ erases a reference[0m
+[1;34m64 |[0m   (as s Int))
+[1;34m   |[0m       [1;36m- source has type `String`; the conversion drops its ownership[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mkeep the value in a typed binding, or use `addrOf` when the question is identity. An erasing cast drops the type and the share
+  [1;34m = [0m[1;32mhelp: [0mthe unsafe tag marks a trusted boundary: you must make every well-typed call safe. It leaves ordinary type, effect and restriction checks in place
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3010][0m[1m: AXTAG mismatch on `pureDrop`: `effect(pure)` claim contradicted: body performs Unsafe[0m
+   [1;34m--> [0m1510-erasing-cast.ax:112:6
+[1;34m    |[0m
+[1;34m112 |[0m (fn (pureDrop s)
+[1;34m    |[0m      [1;31m^^^^^^^^[0m
+[1;34m    |[0m
+   [1;34m = [0m[1;32mhelp: [0man AXTAG is a CLAIM, and this is the compiler answering it: make the body match the tag, or correct the tag to what the body does. Deleting the tag also silences this, and an untagged function is never checked - but that WITHDRAWS the claim rather than answering it, and every reader that trusted the tag loses the guarantee. A claim the walk cannot check is AX3037 and stays a warning; this code fires only where the walk has an answer
+   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3010` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `viaErase` claims `restrict(no-unsafe)` and the body performs Unsafe: viaErase -> wordOf, where `wordOf` erases a reference with `as` and does not say `effect(unsafe)`[0m
+  [1;34m--> [0m1510-erasing-cast.ax:59:6
+[1;34m   |[0m
+[1;34m59 |[0m (fn (viaErase s)
+[1;34m   |[0m      [1;31m^^^^^^^^[0m
+[1;34m...[0m
+[1;34m63 |[0m (fn (wordOf s)
+[1;34m   |[0m      [1;36m------ wordOf[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+compilation failed due to 11 previous errors

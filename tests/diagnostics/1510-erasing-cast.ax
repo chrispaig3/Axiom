@@ -1,0 +1,113 @@
+; A cast that turns a reference into a word drops the type and the
+; share (docs/memory-model.md MM-VAL-24, MM-EXEC-9d). Outside the
+; compiler and the standard library the declaration says
+; `;@axiom:effect(unsafe)` or draws AX3073 at the cast.
+;
+; `fromStr`, `fromVec`, `fromHid`, `fromForeign`, `toWord` and
+; `fromSpawn` erase. `drops` does it under `restrict(no-unsafe)` and
+; draws AX3049 beside AX3073. `viaErase` is declared before `wordOf`,
+; so the restriction's answer does not depend on which body is checked
+; first: `wordOf` draws AX3073, and `viaErase` draws AX3049.
+;
+; The controls draw nothing. `fromChar`, `fromInt`, `sameStr`,
+; `foreignWord`, `wordForeign` and `fromColour` do not erase. `trusted`
+; erases and says so, `callsTrusted` calls it with no tag of its own,
+; and `viaTrusted` reaches it under `restrict(no-unsafe)`. `identity`
+; asks the question with `addrOf`. `pureDrop` claims `effect(pure)`
+; over an erasure, which is AX3010 and not a second AX3073.
+(import Mem)
+(import Vec)
+
+(struct Hid
+  (n : Int))
+
+(data Colour
+  (Red)
+  (Blue))
+
+(:: fromStr (-> String Int))
+(fn (fromStr s)
+  (as s Int))
+
+(:: fromVec (-> (Vec Int) Int))
+(fn (fromVec v)
+  (as v Int))
+
+(:: fromHid (-> Hid Int))
+(fn (fromHid h)
+  (as h Int))
+
+(:: fromForeign (-> String Foreign))
+(fn (fromForeign s)
+  (as s Foreign))
+
+(:: toWord (-> a Int))
+(fn (toWord v)
+  (as v Int))
+
+(:: fromSpawn (-> Spawn Int))
+(fn (fromSpawn h)
+  (as h Int))
+
+(:: drops (-> String Int))
+;@axiom:restrict(no-unsafe)
+(fn (drops s)
+  (as s Int))
+
+(:: viaErase (-> String Int))
+;@axiom:restrict(no-unsafe)
+(fn (viaErase s)
+  (wordOf s))
+
+(:: wordOf (-> String Int))
+(fn (wordOf s)
+  (as s Int))
+
+(:: fromChar (-> Char Int))
+(fn (fromChar c)
+  (as c Int))
+
+(:: fromInt (-> Int Int))
+(fn (fromInt n)
+  (as n Int))
+
+(:: sameStr (-> String String))
+(fn (sameStr s)
+  (as s String))
+
+(:: foreignWord (-> Foreign Int))
+(fn (foreignWord p)
+  (as p Int))
+
+(:: wordForeign (-> Int Foreign))
+(fn (wordForeign n)
+  (as n Foreign))
+
+(:: fromColour (-> Colour Int))
+(fn (fromColour c)
+  (as c Int))
+
+(:: trusted (-> String Int))
+;@axiom:effect(unsafe)
+(fn (trusted s)
+  (as s Int))
+
+(:: callsTrusted (-> String Int))
+(fn (callsTrusted s)
+  (trusted s))
+
+(:: viaTrusted (-> String Int))
+;@axiom:restrict(no-unsafe)
+(fn (viaTrusted s)
+  (trusted s))
+
+(:: identity (-> String Int))
+(fn (identity s)
+  (if (addrEq (addrOf s) (addrOf s))
+    1
+    0))
+
+(:: pureDrop (-> String Int))
+;@axiom:effect(pure)
+(fn (pureDrop s)
+  (as s Int))
