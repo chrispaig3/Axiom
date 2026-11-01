@@ -262,11 +262,11 @@ jobs:
           - name: linux-aarch64
             os: ubuntu-24.04-arm
           - name: darwin-aarch64
-            os: macos-14
+            os: macos-15
     runs-on: ${{ matrix.os }}
     # Each shard runs a complete, disjoint part of the gate list. The
     # aggregate below requires every platform and shard to succeed.
-    # Ninety-seven of the gates below build the compiler under test from
+    # Ninety-eight of the gates below build the compiler under test from
     # `core/`. One step builds it, and `gate_build_axc` reuses it
     # while the tree's source stamp matches, rebuilds when it doesn't, and
     # refuses a path that names no build product. So an ablation of
@@ -1124,6 +1124,14 @@ jobs:
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' && matrix.shard == 3 }}
         run: ./scripts/ci-gate.py ./scripts/check-fmt.sh
 
+      # Typed optional lookups. One at a time, the list does not finish
+      # inside the hosted runner's six-hour job, so the gate runs a small
+      # pool. This shard has the room, and the contract gate stays the
+      # contract checks.
+      - name: Typed optional lookups, with their negative controls
+        if: ${{ !cancelled() && steps.compiler.outcome == 'success' && matrix.shard == 3 }}
+        run: ./scripts/ci-gate.py ./scripts/check-option-queries.sh
+
       # The formatter, pinned by a checked-in corpus golden keyed by
       # source hash, plus the idempotence and preservation properties and
       # the `tests/fmt/parity/*.axp` refusal bank.
@@ -1342,7 +1350,7 @@ jobs:
       matrix:
         include:
           - name: darwin-aarch64
-            os: macos-14
+            os: macos-15
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -1861,7 +1869,7 @@ jobs:
           - name: linux-x86_64
             os: ubuntu-24.04
           - name: darwin-aarch64
-            os: macos-14
+            os: macos-15
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0

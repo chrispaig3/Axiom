@@ -31,7 +31,7 @@ def validate(workflow, cache):
         require(matrix['name'] == platforms, 'both supported platforms must run every shard')
         require(matrix['include'] == [
             {'name': 'linux-aarch64', 'os': 'ubuntu-24.04-arm'},
-            {'name': 'darwin-aarch64', 'os': 'macos-14'}],
+            {'name': 'darwin-aarch64', 'os': 'macos-15'}],
             'the platform runners changed or an include row overrides a shard')
         require(not test.get('if') and test.get('continue-on-error', 'false') == 'false',
                 'test jobs must run after grammar and preserve failures')

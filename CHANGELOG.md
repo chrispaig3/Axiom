@@ -54,6 +54,11 @@ the project's own domain.
   raw uses and incomplete matches are refused.
   Tested by `tests/tools/remaining-option-lookups.py`.
 
+- Typed optional-query probes have their own gate and run a few at a
+  time, which keeps each test shard inside the hosted runner's job
+  limit. Ninety-eight gates build the compiler under test from the tree.
+  Tested by `scripts/check-option-queries.sh`.
+
 - The S4 release comparison follows return-slot and local-cleanup changes
   caused by tail calls. Wrong stored values and unrelated loads remain
   visible to the comparison.

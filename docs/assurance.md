@@ -30,7 +30,7 @@ that passes on one doesn't extend its claim to another.
 | | H3 | H2 | E1 |
 |---|---|---|---|
 | Target | `darwin-aarch64` | `linux-aarch64` | `baremetal-aarch64` |
-| Machine | Apple silicon, macOS 14 runner | AArch64, Ubuntu 24.04 runner | Cortex-A72 as modelled by QEMU, `virt` board, EL1 |
+| Machine | Apple silicon, macOS 15 runner | AArch64, Ubuntu 24.04 runner | Cortex-A72 as modelled by QEMU, `virt` board, EL1 |
 | LLVM | 23 (Homebrew `llvm@23`) | 18 (Ubuntu `llvm-18`) | the host's |
 | Runtime | processes by default, `--threads` | processes by default, `--threads` | one thread plus `isr(irq)` and `isr(fault)` |
 | Heap | `mmap` arena | `mmap` arena | static arena with `--heap-ceiling` |
