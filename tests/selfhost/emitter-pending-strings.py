@@ -13,6 +13,7 @@ replace_once = SUPPORT['replace_once']
 check_output = SUPPORT['check_output']
 check_typed_slot = SUPPORT['check_typed_slot']
 raw_setter = SUPPORT['raw_setter']
+declare_unsafe = SUPPORT['declare_unsafe']
 
 BRIDGES = r'''
 ; Private-copy-only forwarding probes; no production raw access is exported.
@@ -117,10 +118,10 @@ def check(axiom, repo, work):
             check_ir(ir)
         print(f'ok   pending String ledger: 45 cases at -O{level} with allocation poisoning', flush=True)
 
-    raw_truncate = replace_once(
+    raw_truncate = declare_unsafe(replace_once(
         original,
         '    (let pending (cgPendingStrings cg))\n    (while (> (vecLen pending) size)\n      {\n        (let retired (vecPop pending))\n        0\n      })\n',
-        '    (memSetWord (memGetWord (as cg Int) 42) 0 size)\n', 'raw length truncation')
+        '    (memSetWord (memGetWord (as cg Int) 42) 0 size)\n', 'raw length truncation'), 'cgPendingTruncate')
     raw_schema = replace_once(
         raw_truncate, '(vecPush (cgPendingStrings cg) value)',
         '(vecPush (as (cgPendingStrings cg) Ints) (as value Int))', 'erased pending String store')

@@ -44,6 +44,7 @@ BRIDGES = r'''
 (pub fn (probePatternCollect state pat)
   (binderCollectPattern state pat))
 (pub :: probePatternAgreement (-> ASTNode Bool))
+;@axiom:effect(unsafe)
 (pub fn (probePatternAgreement pat)
   {
     (let state internNewTyped)

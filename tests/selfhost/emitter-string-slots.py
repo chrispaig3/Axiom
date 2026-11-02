@@ -30,6 +30,7 @@ BRIDGES = r'''
 ;@axiom:effect(unsafe)
 (pub fn (probeSetRawArgsTyped cg value) (cgSetArgsTyped cg (as value String)))
 (pub :: probeSameArgsGetter (-> CG String Bool))
+;@axiom:effect(unsafe)
 (pub fn (probeSameArgsGetter cg expected)
   { (let value (memGetWordStr (as cg Int) 9)) (cgSetArgsTyped cg value) (strEq value expected) })
 (pub :: probeGetterCount (-> CG Int Int))
@@ -37,6 +38,7 @@ BRIDGES = r'''
 (pub fn (probeGetterCount cg index)
   { (let value (memGetWordStr (as cg Int) index)) (__load64 (as value Int) -2) })
 (pub :: probeSameResultGetter (-> CG String Bool))
+;@axiom:effect(unsafe)
 (pub fn (probeSameResultGetter cg expected)
   { (let value (memGetWordStr (as cg Int) 2)) (cgSetResult cg value) (strEq value expected) })
 

@@ -165,8 +165,16 @@ def raw_setter(source, name, field, slot, value='value', *, release_first=False)
     if release_first:
         after = f'    (let old (memGetWord (as cg Int) {slot}))\n    (__release old)\n' + after
     body = replace_once(body, stores[0][0], after, name + ' typed store ablation')
-    boundary = ';@axiom:effect(unsafe)\n' if release_first else ''
+    # The raw store erases `cg`, and a compiler-directory declaration
+    # must say so (AX3073) even in a private ablation module.
+    boundary = ';@axiom:effect(unsafe)\n'
     return source[:begin] + boundary + body + source[end:]
+
+
+def declare_unsafe(source, name):
+    """Tag fn `name` as performing an erasure, in a variant only."""
+    begin = source.rindex('\n', 0, source.index(f'fn ({name} ')) + 1
+    return source[:begin] + ';@axiom:effect(unsafe)\n' + source[begin:]
 
 
 def check_hoisted_routes(binary):
@@ -283,12 +291,12 @@ def check(axiom, repo, work):
         anchor = duplicate.index('    (let c ', start)
         duplicate = duplicate[:anchor] + '    (__retainref ' + arg + ')\n' + duplicate[anchor:]
     variants.append(('duplicate-vector-shares', duplicate, (58, 59, 60, 61, 62)))
-    variants.append(("header-share", replace_once(
+    variants.append(("header-share", declare_unsafe(replace_once(
         original,
         '    (vecPush (cgLines cg) (strDup line))\n    cg',
         '    (let updated (vecPush (cgLines cg) (strDup line)))\n'
         '    (memSetWord (as cg Int) 0 updated)\n    cg',
-        "same-header share ablation"), (2, 4)))
+        "same-header share ablation"), 'emitLine'), (2, 4)))
     variants.append(("mutable-snapshot", replace_once(
         original,
         '(vecPush (cgLines cg) (strDup line))',
@@ -301,7 +309,7 @@ def check(axiom, repo, work):
         "alloca element metadata ablation")
     alloca = replace_once(alloca, '(as 0 (Vec String)))\n          (cgSetAllocaMark cg',
                           '(as 0 (Vec Int)))\n          (cgSetAllocaMark cg', "alloca branch type")
-    variants.append(("alloca-metadata", alloca, (11,)))
+    variants.append(("alloca-metadata", declare_unsafe(alloca, 'closeAllocaMark'), (11,)))
     displaced = raw_setter(original, 'cgReplaceLines', 'lines', 0, 'lines')
     variants.append(("displaced-slot", displaced, (14, 15)))
 
@@ -326,8 +334,8 @@ def check(axiom, repo, work):
           { (memMarkLeaf data) (memSetWord h 3 2) })
       })
 """, "hoisted payload metadata ablation")
-    variants.append(("hoisted-plain-payload", replace_once(
-        original, body, plain_payload, "hoisted payload map"), (42, 44, 51, 53)))
+    variants.append(("hoisted-plain-payload", declare_unsafe(replace_once(
+        original, body, plain_payload, "hoisted payload map"), 'cgSetHoisted'), (42, 44, 51, 53)))
 
     for label, source, negative in variants:
         module_root = prepare_module(label, source)

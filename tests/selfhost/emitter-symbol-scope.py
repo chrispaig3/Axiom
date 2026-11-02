@@ -36,6 +36,11 @@ def check(axiom, repo, work):
         build_run(f"positive-O{level}", level, repo / "core")
         print(f"ok   emitter symbol scopes: 43 cases at -O{level} with allocation poisoning", flush=True)
 
+def declare_unsafe(source, name):
+    """Tag fn `name` as performing an erasure, in a variant only."""
+    begin = source.rindex('\n', 0, source.index(f'fn ({name} ')) + 1
+    return source[:begin] + ';@axiom:effect(unsafe)\n' + source[begin:]
+
     original = (repo / "core/codegen.ax").read_text()
     binding = original
     for slot, reader, value in [(6, "cgSymNames", "name"), (7, "cgSymRegs", "reg"),
@@ -59,10 +64,11 @@ def check(axiom, repo, work):
         '    (memSetWord (as cg Int) 5 nodesNew)\n    (memSetWord (as cg Int) 45 vecNew)\n',
         'typed application slot retirement')
     variants = [
-        ("binding-shares", binding, (2, 4)),
-        ("entry-replacement", entry, (23, 26, 31, 34)),
+        ("binding-shares", declare_unsafe(binding, 'bindSym'), (2, 4)),
+        ("entry-replacement", declare_unsafe(declare_unsafe(entry, 'emitFnDef'), 'emitLamDef'),
+         (23, 26, 31, 34)),
         ("restore-retirement", restore, (13, 14, 17, 18, 22)),
-        ("application-shares", app, (37, 38)),
+        ("application-shares", declare_unsafe(app, 'cgResetAppArgs'), (37, 38)),
     ]
     for label, source, negative in variants:
         modules = work / f"{label}-modules/core"

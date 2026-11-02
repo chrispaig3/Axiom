@@ -124,6 +124,13 @@ def raw_metadata(source):
         if source.count(before) != 1:
             raise RuntimeError('metadata ablation source anchor changed')
         source = source.replace(before, after, 1)
+    # The reverted sites erase a reference, and a compiler-directory
+    # declaration must say so (AX3073) even in a private ablation.
+    for name in ['emitArgsRegs', 'releaseOwnedArgs', 'releaseBorrowedFrom']:
+        anchor = f'(pub fn ({name} '
+        if source.count(anchor) != 1:
+            raise RuntimeError('metadata ablation function anchor changed')
+        source = source.replace(anchor, ';@axiom:effect(unsafe)\n' + anchor, 1)
     # Change only the ledger read in each consumer, preserving every
     # surrounding byte, including target release-decision expressions.
     before = '(vecGet regs i)'
