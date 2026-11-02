@@ -56,7 +56,7 @@
 ;@axiom:effect(block)
 (fn (nap idle ms)
   {
-    (sysWaitWordTimeout idle 0 (* ms 1000000))
+    (match (sysSleepNanos (* ms 1000000)) ((Ok slept) slept) ((Err sleepError) (- 0 (errCode sleepError))))
     0
   })
 
@@ -157,7 +157,7 @@
     ((Ok g)
       {
         (memSetWord flag 0 1)
-        (sysWakeWord flag)
+        0
         (nap idle ms)
         0
       }
@@ -173,7 +173,7 @@
     (let buf (memAlloc 16))
     {
       (while (== (memGetWord flag 0) 0)
-        (sysWaitWordTimeout flag 0 1000000))
+        (match (sysSleepNanos 1000000) ((Ok slept) slept) ((Err sleepError) (- 0 (errCode sleepError)))))
       {
         (let t0 sysTimeoutMicros)
         {
@@ -282,7 +282,7 @@
     ((Ok g)
       {
         (memSetWord flag 0 1)
-        (sysWakeWord flag)
+        0
         (while (== 0 0)
           (nap idle 1000))
         0
@@ -310,7 +310,7 @@
             (let h (__proc_spawn (lambda (x) (holdForever m flag idle)) 0))
             {
               (while (== (memGetWord flag 0) 0)
-                (sysWaitWordTimeout flag 0 1000000))
+                (match (sysSleepNanos 1000000) ((Ok slept) slept) ((Err sleepError) (- 0 (errCode sleepError)))))
               {
                 (let t0 sysTimeoutMicros)
                 {
@@ -360,7 +360,7 @@
     ((Ok g)
       {
         (memSetWord flag 0 1)
-        (sysWakeWord flag)
+        0
         (sysExitWith 0)
       }
     )
@@ -380,7 +380,7 @@
 (fn (awaitFlag flag)
   {
     (while (== (memGetWord flag 0) 0)
-      (sysWaitWordTimeout flag 0 1000000))
+      (match (sysSleepNanos 1000000) ((Ok slept) slept) ((Err sleepError) (- 0 (errCode sleepError)))))
     0
   })
 

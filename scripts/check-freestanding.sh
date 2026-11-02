@@ -107,7 +107,7 @@ for case_file in tests/stdlib/[0-9]*.ax; do
   name="$(basename "$case_file" .ax)"
 
   ir="$work/$name.ll"
-  "$axc" emit-llvm "$case_file" -o "$ir" > /dev/null
+  gate_fixture_axc "$axc" emit-llvm "$case_file" -o "$ir" > /dev/null
 
   if grep -nE "call[^\"]*@($libc_names)\(" "$ir" > "$work/$name.hits"; then
     echo "FAIL $name: generated IR calls libc"
@@ -128,7 +128,7 @@ for case_file in tests/stdlib/[0-9]*.ax; do
   fi
 
   exe="$work/$name.bin"
-  "$axc" build --input "$case_file" --output "$exe" > /dev/null
+  gate_fixture_axc "$axc" build --input "$case_file" --output "$exe" > /dev/null
 
   imports="$(imports_of "$exe")"
 
@@ -192,7 +192,7 @@ else
       fi
       for wt in windows-x86_64 windows-aarch64; do
         wir="$work/$name.$wt.ll"
-        if ! "$axc" --target="$wt" emit-llvm "$case_file" -o "$wir" > "$work/$name.$wt.emit" 2>&1; then
+        if ! gate_fixture_axc "$axc" --target="$wt" emit-llvm "$case_file" -o "$wir" > "$work/$name.$wt.emit" 2>&1; then
           echo "FAIL $name [$wt]: emit-llvm"
           sed 's/^/    /' "$work/$name.$wt.emit" | head -5
           status=1

@@ -114,7 +114,7 @@ for case_file in tests/stdlib/[0-9]*.ax; do
   case_dir="$work/$name"
   mkdir -p "$case_dir"
 
-  if ! build_log="$("$axc" build --input "$repo_root/$case_file" \
+  if ! build_log="$(gate_fixture_axc "$axc" build --input "$repo_root/$case_file" \
       --output "$case_dir/$name" 2>&1)"; then
     echo "FAIL $name (build)"
     echo "$build_log" | sed 's/^/    /'
@@ -196,7 +196,7 @@ for case_file in tests/stdlib/[0-9]*.ax; do
   # proves the comparison can fail rather than merely pass.
   if [[ -f "$repo_root/tests/stdlib/$name.optstable" ]]; then
     for o in 0 1 2 3; do
-      if ! "$axc" build --input "$repo_root/$case_file" \
+      if ! gate_fixture_axc "$axc" build --input "$repo_root/$case_file" \
           --output "$case_dir/$name-o$o" --opt "$o" >"$case_dir/$name-o$o.build" 2>&1; then
         echo "FAIL $name (optstable: would not build at --opt $o)"
         sed 's/^/    /' "$case_dir/$name-o$o.build" | head -5

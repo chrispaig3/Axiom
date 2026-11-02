@@ -1,5 +1,5 @@
-; Timed waits (R-C2, docs/memory-model.md MM-PAR-12): `Sys.ax`'s
-; `sysWaitWordTimeout` and `sysChildExited`, and `Chan.ax`'s
+; Timed waits (R-C2, docs/memory-model.md MM-PAR-12): Internal.Wait's
+; `sysWaitWordTimeout`, Sys's `sysChildExited`, and `Chan.ax`'s
 ; `chanRecvTimeout` and `chanSendTimeout`, one binding at a time.
 ;
 ; Every line is an answer the source decides, not a duration: a wait

@@ -1,0 +1,108 @@
+;;! Internal.MappingPlatform - Windows mappings owned by the library.
+(import Err)
+
+(extern "kernel32"
+  (winGetLastError :: Int (symbol "GetLastError"))
+  (winVirtualAlloc :: (-> Int Int Int Int Int) (symbol "VirtualAlloc"))
+  (winVirtualFree :: (-> Int Int Int Int) (symbol "VirtualFree"))
+  (winVirtualLock :: (-> Int Int Int) (symbol "VirtualLock"))
+  (winVirtualUnlock :: (-> Int Int Int) (symbol "VirtualUnlock")))
+
+; Win32 errors in the errno convention used by the mapping layer.
+(:: mappingErrnoOf (-> Int Int))
+(fn (mappingErrnoOf code)
+  ; ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND: ENOENT.
+  (if (|| (== code 2) (== code 3))
+      (- 0 2)
+    ; ERROR_ACCESS_DENIED: EACCES.
+    (== code 5)
+      (- 0 13)
+    ; ERROR_INVALID_HANDLE: EBADF.
+    (== code 6)
+      (- 0 9)
+    ; ERROR_NOT_ENOUGH_MEMORY: ENOMEM.
+    (== code 8)
+      (- 0 12)
+    ; ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION: EBUSY.
+    (|| (== code 32) (== code 33))
+      (- 0 16)
+    ; ERROR_FILE_EXISTS, ERROR_ALREADY_EXISTS: EEXIST.
+    (|| (== code 80) (== code 183))
+      (- 0 17)
+    ; ERROR_INVALID_PARAMETER, ERROR_INVALID_NAME: EINVAL.
+    (|| (== code 87) (== code 123))
+      (- 0 22)
+    ; ERROR_DISK_FULL: ENOSPC.
+    (== code 112)
+      (- 0 28)
+    ; ERROR_BROKEN_PIPE, ERROR_NO_DATA: EPIPE.
+    (|| (== code 109) (== code 232))
+      (- 0 32)
+    ; ERROR_DIR_NOT_EMPTY: ENOTEMPTY.
+    (== code 145)
+      (- 0 39)
+    ; ERROR_FILENAME_EXCED_RANGE: ENAMETOOLONG.
+    (== code 206)
+      (- 0 36)
+    ; ERROR_DIRECTORY: ENOTDIR.
+    (== code 267)
+      (- 0 20)
+    ; ERROR_BAD_EXE_FORMAT: ENOEXEC.
+    (== code 193)
+      (- 0 8)
+    (- 0 5)))
+
+;; `len` zeroed, committed bytes from `VirtualAlloc`: `Ok` the address,
+;; or `Err` ENOMEM.
+(pub :: platformMapPrivate (-> Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (platformMapPrivate len)
+  {
+    (let addr (winVirtualAlloc 0 len 12288 4))
+    (if (== addr 0)
+      (Err (mkError (- 0 (mappingErrnoOf (& winGetLastError 4294967295))) "platformMapPrivate"))
+      (Ok addr))
+  })
+
+;; Release a mapping made above: `VirtualFree` with MEM_RELEASE, which
+;; takes the whole reservation and a size of 0.
+(pub :: platformUnmapPrivate (-> Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (platformUnmapPrivate addr len)
+  (if (== (& (winVirtualFree addr 0 32768) 4294967295) 0)
+    (Err (mkError (- 0 (mappingErrnoOf (& winGetLastError 4294967295))) "platformUnmapPrivate"))
+    (Ok 0)))
+
+;; A shared mapping: the same pages, since the bindings that share it
+;; are threads of this process.
+(pub :: platformMapShared (-> Int (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (platformMapShared len)
+  (platformMapPrivate len))
+
+;; Release a shared mapping: the same release, for the same pages.
+(pub :: platformUnmapShared (-> Int Int (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (platformUnmapShared addr len)
+  (platformUnmapPrivate addr len))
+
+;; Pin `len` bytes at `addr`: `VirtualLock`, `Ok 0` or `Err` with the
+;; errno `mappingErrnoOf` maps the last error to.
+(pub :: platformMlock (-> Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (platformMlock addr len)
+  (if (== (& (winVirtualLock addr len) 4294967295) 0)
+    (Err (mkError (- 0 (mappingErrnoOf (& winGetLastError 4294967295))) "platformMlock"))
+    (Ok 0)))
+
+;; Unpin them: `VirtualUnlock`.
+(pub :: platformMunlock (-> Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (platformMunlock addr len)
+  (if (== (& (winVirtualUnlock addr len) 4294967295) 0)
+    (Err (mkError (- 0 (mappingErrnoOf (& winGetLastError 4294967295))) "platformMunlock"))
+    (Ok 0)))

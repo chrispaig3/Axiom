@@ -1485,59 +1485,9 @@
   0)
 
 ; ------------------------------------------------------------------
-; Waiting on a word, mapping memory, locking it and masking signals as
-; platform calls. This target does each through `__syscallN`, so
-; `Sys.ax` never reaches these; they exist because every platform module
-; declares one public surface (`check-stdlib-api.sh`), and Windows
-; answers them for real.
+; The signal mask as a platform call. This target uses `__syscallN`;
+; Windows supplies the platform implementation.
 ; ------------------------------------------------------------------
-;; Block until the word at `addr` differs from `expected`, for at most
-;; `nanos` nanoseconds (negative: no limit): 0 woken or spurious, 1 timed
-;; out, 2 the word already differed. Unreached here: `waitWordKind` picks
-;; the kernel's own wait.
-(pub :: platformWaitWord (-> Int Int Int Int))
-;@axiom:effect(pure)
-(pub fn (platformWaitWord addr expected nanos)
-  0)
-
-;; Wake every waiter on the word at `addr`. Unreached here.
-(pub :: platformWakeWord (-> Int Int))
-;@axiom:effect(pure)
-(pub fn (platformWakeWord addr)
-  0)
-
-;; The platform's own private mapping of `len` zeroed bytes, where raw
-;; `mmap` is not available; `Err` 78 where the syscall serves.
-(pub :: platformMapPrivate (-> Int (Result Int Error)))
-(pub fn (platformMapPrivate len)
-  (Err (mkError 78 "platformMapPrivate")))
-
-;; The platform's own release of a private mapping; `Err` 78 here.
-(pub :: platformUnmapPrivate (-> Int Int (Result Int Error)))
-(pub fn (platformUnmapPrivate addr len)
-  (Err (mkError 78 "platformUnmapPrivate")))
-
-;; The platform's own shared mapping of `len` zeroed bytes; `Err` 78 here.
-(pub :: platformMapShared (-> Int (Result Int Error)))
-(pub fn (platformMapShared len)
-  (Err (mkError 78 "platformMapShared")))
-
-;; The platform's own release of a shared mapping; `Err` 78 here.
-(pub :: platformUnmapShared (-> Int Int (Result Int Error)))
-(pub fn (platformUnmapShared addr len)
-  (Err (mkError 78 "platformUnmapShared")))
-
-;; The platform's own way to pin `len` bytes at `addr` in memory, where
-;; raw `mlock` is not available; `Err` 78 where the syscall serves.
-(pub :: platformMlock (-> Int Int (Result Int Error)))
-(pub fn (platformMlock addr len)
-  (Err (mkError 78 "platformMlock")))
-
-;; The platform's own way to unpin them; `Err` 78 here.
-(pub :: platformMunlock (-> Int Int (Result Int Error)))
-(pub fn (platformMunlock addr len)
-  (Err (mkError 78 "platformMunlock")))
-
 ;; The platform's own signal mask, where raw `sigprocmask` is not
 ;; available; `Err` 78 where the syscall serves.
 (pub :: platformSignalBlock (-> Int (Result Int Error)))

@@ -1,0 +1,209 @@
+;;! Internal.Wait - waits on live library-owned words.
+(import Sys.Platform)
+(import Internal.WaitPlatform)
+(import Internal.Raw)
+(import Internal.Clock)
+
+;; Block while the word at byte address `addr` - 8-aligned, inside a
+;; `sysMapShared` mapping - still holds `expected`. It returns when woken,
+;; when the word already differs on entry, or spuriously, so the caller
+;; re-checks its own condition every time. That is what makes a lost wake
+;; impossible: a waker changes the word BEFORE it wakes, so a waiter that
+;; read the old value either sees the new one on entry or is already in
+;; the queue the wake empties - with one caveat on Linux, which compares
+;; only the word's low 32 bits (FUTEX_WAIT, not PRIVATE: the key is the
+;; shared page): a waiter preempted across exactly a multiple of 2^32
+;; changes would sleep through them. Darwin compares all 64
+;; (UL_COMPARE_AND_WAIT64_SHARED = 6). Where `waitWordKind` is 0 it
+;; returns at once and the caller spins, which is correct and costs a
+;; core. No timeout here: `sysWaitWordTimeout` below is the timed form,
+;; and it pays for the timespec this one does not need.
+;
+; IT ANSWERS 0, AND DISCARDS THE KERNEL'S ANSWER, deliberately. Woken,
+; EINTR, EAGAIN (the word differed): every one leads to the same
+; re-check, so there is no failure a caller could act on - and a raw
+; syscall result is what `tests/compat/verify-compat.py` counts as a
+; failure sentinel wanting `Result`, rightly, everywhere a caller could.
+; A wrong operation code would make every wait return at once; that is
+; caught by running, not by an answer (`scripts/check-chan.sh` §2). The
+; branch on `waitWordKind` is where the answer is consumed rather than
+; passed on - the census reads a body with a branch of its own that way.
+(pub :: sysWaitWord (-> Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(block)
+(pub fn (sysWaitWord addr expected)
+  (if (== waitWordKind 0)
+    0
+    {
+      (sysWaitWordRaw addr expected)
+      0
+    }))
+
+(:: sysWaitWordRaw (-> Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:effect(block)
+(fn (sysWaitWordRaw addr expected)
+  (if (== waitWordKind 3)
+    (platformWaitWord addr expected (- 0 1))
+    (if (== waitWordKind 1)
+      (__syscall6 sysWaitWordNum addr 0 expected 0 0 0)
+      (if (== waitWordKind 2)
+        (__syscall4 sysWaitWordNum 6 addr expected 0)
+        0))))
+
+;; Wake every binding blocked in `sysWaitWord` on `addr`: FUTEX_WAKE (1)
+;; for INT_MAX waiters, or `__ulock_wake` with UL_COMPARE_AND_WAIT64_SHARED
+;; | ULF_WAKE_ALL (6 | 0x100). Answers 0 for `sysWaitWord`'s reason: a
+;; wake with nobody waiting is not an error anyone can act on.
+(pub :: sysWakeWord (-> Int Int))
+;@axiom:effect(io)
+(pub fn (sysWakeWord addr)
+  (if (== waitWordKind 0)
+    0
+    {
+      (sysWakeWordRaw addr)
+      0
+    }))
+
+(:: sysWakeWordRaw (-> Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (sysWakeWordRaw addr)
+  (if (== waitWordKind 3)
+    (platformWakeWord addr)
+    (if (== waitWordKind 1)
+      (__syscall6 sysWakeWordNum addr 1 2147483647 0 0 0)
+      (if (== waitWordKind 2)
+        (__syscall3 sysWakeWordNum 262 addr 0)
+        0))))
+
+;; Block while the word at `addr` still holds `expected`, for at most
+;; `nanos` nanoseconds. `sysWaitWord`'s contract - an 8-aligned word in
+;; a `sysMapShared` mapping, and every answer means "re-check your own
+;; condition" - plus a bound, and an answer that says why it returned:
+;
+;   0  woken - by a wake, a signal, or spuriously
+;   1  timed out: the kernel measured `nanos` and nobody woke it
+;   2  the word did not hold `expected` when the call began
+;
+; A caller must treat all three as advice. 2 is decided by a load made
+; before the kernel is asked, so a change that lands between that load
+; and the kernel's own compare answers 0 on Darwin (whose `__ulock_wait`
+; reports a mismatch as a wake - measured: 0 at once, where a timeout
+; answers -ETIMEDOUT after 200,201 us for 200,000 asked) and 2 on Linux
+; (`futex` says EAGAIN). A non-positive `nanos` never sleeps: it
+; answers 2 or 1 from that load alone.
+;
+; THE ENTRY LOAD IS A PLAIN ONE, and that is a stated reliance, not an
+; oversight: this file is compiled by the seed, which has no atomic
+; primitive, and the word is one other bindings write with atomics. An
+; aligned 64-bit load is single-copy atomic on both ISAs the blocking
+; kinds run on (x86-64, AArch64), the answer it feeds is advisory, and
+; the syscall after it clobbers memory, so the compiler can neither
+; hoist nor merge it. MM-PAR-12 names it beside MM-PAR-9's definition
+; of a race.
+;
+; HOW EACH KIND TIMES OUT.
+;   Linux (`waitWordKind` 1): FUTEX_WAIT with a RELATIVE timespec,
+;     which the kernel measures on CLOCK_MONOTONIC. The timespec is 16
+;     bytes some call must allocate; `sysScratch` takes and returns it.
+;   Darwin (2): `__ulock_wait`'s fourth argument, in MICROseconds,
+;     rounded UP so the wait is never shorter than asked, and at most
+;     2^32-1 (71.6 minutes). A longer request that times out answers 0,
+;     not 1 - the kernel did not measure the whole of it - and the
+;     caller's loop waits again.
+;   None (0): a spin that reads the word and the clock until one of
+;     them answers - correct, and it costs a core, as `sysWaitWord`
+;     does there.
+(pub :: sysWaitWordTimeout (-> Int Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(block)
+(pub fn (sysWaitWordTimeout addr expected nanos)
+  (if (!= (rawGetWord addr 0) expected)
+    2
+    (if (<= nanos 0)
+      1
+      (if (== waitWordKind 0)
+        (sysWaitWordSpin addr expected nanos)
+        (sysWaitWordTimed addr expected nanos)))))
+
+(:: sysWaitWordTimed (-> Int Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:effect(block)
+(fn (sysWaitWordTimed addr expected nanos)
+  (if (== waitWordKind 3)
+    (platformWaitWord addr expected nanos)
+    (if (== waitWordKind 1)
+      {
+        (let ts (sysScratch 16))
+        {
+          (rawSetWord ts 0 (/ nanos 1000000000))
+          (rawSetWord ts 1 (% nanos 1000000000))
+          {
+            (let r (__syscall6 sysWaitWordNum addr 0 expected ts 0 0))
+            {
+              (sysScratchDone ts)
+              (sysWaitAnswer r 0)
+            }
+          }
+        }
+      }
+      ; A wait past the kernel's 32-bit microseconds goes straight to the
+      ; clamped path: rounding such a `nanos` up by adding 999 could wrap
+      ; it negative, skip the clamp, and hand the kernel a truncated,
+      ; SHORTER wait that it then reports as timed out.
+      {
+        (let us
+          (if (> nanos 4294967295000)
+            4294967296
+            (/ (+ nanos 999) 1000)))
+        (if (> us 4294967295)
+          (sysWaitAnswer (sysUlockWait addr expected 4294967295) 1)
+          (sysWaitAnswer (sysUlockWait addr expected us) 0))
+      })))
+
+; `__ulock_wait(UL_COMPARE_AND_WAIT64_SHARED, addr, expected, us)`: the
+; kernel's raw answer.
+(:: sysUlockWait (-> Int Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:effect(block)
+(fn (sysUlockWait addr expected us)
+  (__syscall4 sysWaitWordNum 6 addr expected us))
+
+; The kernel's answer as the three codes. `clamped` is 1 when the
+; kernel was asked for less than the caller's whole wait, so its
+; timeout is a wake, not the end of the wait.
+(:: sysWaitAnswer (-> Int Int Int))
+(fn (sysWaitAnswer r clamped)
+  (if (== r (- 0 eTimedOut))
+    (if (== clamped 1)
+      0
+      1)
+    (if (== r (- 0 eAgain))
+      2
+      0)))
+
+; `waitWordKind` 0: no blocking wait exists, so read the word and the
+; clock until one of them answers.
+(:: sysWaitWordSpin (-> Int Int Int Int))
+;@axiom:effect(io)
+(fn (sysWaitWordSpin addr expected nanos)
+  {
+    (let buf (sysScratch 16))
+    (let mut state 0)
+    {
+      (let start (sysTimeoutMicrosRaw buf))
+      {
+        (while (== state 0)
+          (if (!= (rawGetWord addr 0) expected)
+            (set state 2)
+            (if (>= (* (- (sysTimeoutMicrosRaw buf) start) 1000) nanos)
+              (set state 1))))
+        (sysScratchDone buf)
+        state
+      }
+    }
+  })

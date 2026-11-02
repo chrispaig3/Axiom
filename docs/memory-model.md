@@ -747,7 +747,7 @@ needs no tag. `vecPush`, `concat` and `mapInsert` are trusted.
 a program is one `grep`.
 
 Functions that take a raw address or handle are trusted too, such as
-`sysUnmapShared` and `sysWaitWord`. That is the trade-off: safe code can still crash by passing one of them a bad
+`Sys.Platform.platformReadFd`. Safe code can still crash by passing a bad
 address or handle, because an `Int` carries no proof of what it points
 at. State a condition the arguments can show as a `;@axiom:pre(...)`
 contract, which is checked on every call and traps 80, and describe
@@ -773,7 +773,7 @@ Tested by `tests/diagnostics/1515-socket-addresses.ax` and
 
 Public clock reads take no address. `sysNowMicros`, `sysNowMonotonic`,
 `sysNowMonotonicNanos`, `sysNowRealtimeNanos` and `sysTimeoutMicros` own
-and release their scratch storage. Their address-taking helpers are private.
+and release their scratch storage. Their address-taking helpers are internal.
 Tested by `tests/diagnostics/1511-clock-addresses.ax` and
 `tests/stdlib/1005-clock-owned-scratch.ax`.
 
@@ -821,14 +821,18 @@ one or reads or sets a field. Another module can still name the type
 in a signature.
 
 *Withdrawn:* a function that hands the kernel a caller's address is a
-trusted encapsulation like any other (`MM-EXEC-9d`). `sysUnmapShared` and
-`sysWaitWord` take the address as an `Int`, `restrict(no-unsafe)`
-admits a call to each, and a bad address crashes the program. No
-public call takes a descriptor (`MM-EXEC-17a`). The typed calls' range
-check, the half that still holds, is `MM-EXEC-9f`. Tested by
-`tests/diagnostics/1081-sys-buffer-calls.ax`, which accepts an untagged
-call to each unmap and wait function, and
+trusted encapsulation like any other (`MM-EXEC-9d`).
+`Sys.Platform.platformReadFd` still takes a raw address and descriptor;
+`restrict(no-unsafe)` admits it. IO's public descriptor calls use owners
+(`MM-EXEC-17a`), and their range checks hold (`MM-EXEC-9f`).
+Tested by `tests/diagnostics/1081-sys-buffer-calls.ax` and
 `tests/stdlib/580-kernel-precondition.ax`.
+
+Waits, mappings, unmaps and page locks belong to internal modules.
+Applications use owned channels, mutexes and secrets. The compiler's LSP
+keeps its mapping contract in its own explicit unsafe layer.
+Tested by `tests/diagnostics/1516-wait-addresses.ax` and
+`tests/diagnostics/1517-mapping-addresses.ax`.
 
 **MM-EXEC-9f (H). `IO`'s typed descriptor calls check their range
 before the kernel sees it.** Every descriptor is a `File`, and every
@@ -872,7 +876,7 @@ library. Tested by `tests/diagnostics/1470-internal-import.ax` and
 `tests/diagnostics/1471-internal-name.ax`.
 
 Not yet: some public functions still take a raw address, such as
-`sysWaitWord` and `sysUnmapShared` ([roadmap](roadmap.md)).
+`Sys.Platform.platformReadFd` ([roadmap](roadmap.md)).
 
 **MM-EXEC-10 (H).** Handlers for a declared effect are installed by
 `handle` and dispatch through a per-effect evidence slot:
@@ -6285,7 +6289,7 @@ is a proof about the model at its bounds. The implementation isn't
 proved.
 
 **MM-PAR-12 (H). A wait may be bounded, and says why it ended.**
-`sysWaitWordTimeout addr expected nanos` blocks while the word at
+The internal `sysWaitWordTimeout addr expected nanos` blocks while the word at
 `addr` holds `expected`, for at most `nanos`. It answers:
 
 - **0**, woken: by a wake, a signal, or spuriously.

@@ -1,0 +1,22 @@
+; Waiting and waking must not accept arbitrary addresses in user code.
+(import Sys)
+
+(:: waitAt (-> Int Int))
+(fn (waitAt address)
+  (sysWaitWord address 0))
+
+(:: timedAt (-> Int Int))
+(fn (timedAt address)
+  (sysWaitWordTimeout address 0 0))
+
+(:: wakeAt (-> Int Int))
+(fn (wakeAt address)
+  (sysWakeWord address))
+
+(:: platformWaitAt (-> Int Int))
+(fn (platformWaitAt address)
+  (platformWaitWord address 0 0))
+
+(:: platformWakeAt (-> Int Int))
+(fn (platformWakeAt address)
+  (platformWakeWord address))

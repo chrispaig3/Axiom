@@ -1,0 +1,51 @@
+;;! Internal.WaitPlatform - Windows wait-word calls on library-owned storage.
+(import Internal.Raw)
+
+(extern "kernel32"
+  (winGetLastError :: Int (symbol "GetLastError")))
+
+; `WaitOnAddress` and its wake live in the API set bound by synchronization.lib.
+(extern "api-ms-win-core-synch-l1-2-0"
+  (winWaitOnAddress :: (-> Int Int Int Int Int) (symbol "WaitOnAddress"))
+  (winWakeByAddressAll :: (-> Int Int) (symbol "WakeByAddressAll")))
+
+; The caller keeps the aligned eight-byte word live for the whole call.
+;; Block until the word at `addr` differs from `expected`, for at most
+;; `nanos` nanoseconds (negative: no limit): 0 woken or spurious, 1 timed
+;; out, 2 the word already differed. The caller compares the word again
+;; either way, as `WaitOnAddress` may return early.
+(pub :: platformWaitWord (-> Int Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (platformWaitWord addr expected nanos)
+  (if (!= (rawGetWord addr 0) expected)
+    2
+    {
+      (let cell (rawAlloc 8))
+      (__retain cell)
+      (rawSetWord cell 0 expected)
+      (let ms
+        (if (< nanos 0)
+          4294967295
+          (if (> nanos 4294967294000000)
+            4294967294
+            (/ (+ nanos 999999) 1000000))))
+      (let result
+        (if (!= (& (winWaitOnAddress addr cell 8 ms) 4294967295) 0)
+          0
+          (if (== (& winGetLastError 4294967295) 1460)
+            1
+            0)))
+      (__release cell)
+      result
+    }))
+
+;; Wake every waiter on the word at `addr`.
+(pub :: platformWakeWord (-> Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (platformWakeWord addr)
+  {
+    (winWakeByAddressAll addr)
+    0
+  })

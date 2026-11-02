@@ -8,6 +8,7 @@
 (import Vec)
 (import Err)
 (import Sys)
+(import Internal.Mapping)
 (import Fmt)
 (import Internal.Raw)
 (import Internal.WorkerProcess)

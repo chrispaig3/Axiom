@@ -3,7 +3,7 @@
 # docs/memory-model.md MM-PAR-11, MM-PAR-12, MM-PAR-13).
 #
 # `stdlib/Sync.ax` is a futex-style mutex in a MAP_SHARED word,
-# `sysWaitWordTimeout` (`stdlib/Sys.ax`) the timed wait under it and
+# `sysWaitWordTimeout` (`stdlib/Internal/Wait.ax`) the timed wait under it and
 # under `chanRecvTimeout`/`chanSendTimeout` (`stdlib/Chan.ax`), and
 # `stdlib/Task.ax` a bounded pool of forked tasks answering typed
 # results by serialization, with deadlines, cancellation and per-task
@@ -200,7 +200,7 @@ for lowering in processes threads; do
   flags=(--diagnostic-format=ai)
   [[ "$lowering" == threads ]] && flags+=(--threads)
   bin="$work/mark-$lowering"
-  if "$axc" build "${flags[@]}" tests/stdlib/702-arena-mark-into.ax -o "$bin" >"$bin.build" 2>&1 && "$bin" >"$bin.out" && cmp -s tests/stdlib/702-arena-mark-into.out "$bin.out"; then
+  if gate_fixture_axc "$axc" build "${flags[@]}" tests/stdlib/702-arena-mark-into.ax -o "$bin" >"$bin.build" 2>&1 && "$bin" >"$bin.out" && cmp -s tests/stdlib/702-arena-mark-into.out "$bin.out"; then
     ok "caller-owned marks: no allocations and bounded error delivery ($lowering)"
   else
     bad "caller-owned mark probe ($lowering)"
@@ -211,7 +211,7 @@ done
 # build <out> <source> <flags...>: from the tree's stdlib.
 build() {
   local out="$1" src="$2"; shift 2
-  (cd "$repo_root" && "$axc" build "$@" --input "$src" --output "$out") > "$out.build" 2>&1
+  (cd "$repo_root" && gate_fixture_axc "$axc" build "$@" --input "$src" --output "$out") > "$out.build" 2>&1
 }
 
 # field <text> <first word>: the rest of the first line starting with it.
@@ -266,6 +266,12 @@ done
 
 # ---------------------------------------------------------------------
 echo "== 2. timed waits against the clock; a dead holder =="
+if python3 "$repo_root/tests/wait/timeout-clamp.py" --axiom "$axc"; then
+  ok "wait timeout rounding and clamp, with two fault controls"
+else
+  bad "wait timeout rounding or clamp"
+fi
+
 T=200
 SLACK=800
 # within <what> <code> <us> <want code> <lo ms> <hi ms>
@@ -531,9 +537,9 @@ cuts = {
   "lock": [("Sync.ax",
     "              (if (== (syncCas m 0 (+ me 1)) 0)",
     "              (if (== 0 0)")],
-  "timed": [("Sys.ax", "(/ (+ nanos 999) 1000)", "(/ (+ nanos 999) 10000)"),
-            ("Sys.ax", "(rawSetWord ts 0 (/ nanos 1000000000))", "(rawSetWord ts 0 (/ (/ nanos 10) 1000000000))"),
-            ("Sys.ax", "(rawSetWord ts 1 (% nanos 1000000000))", "(rawSetWord ts 1 (% (/ nanos 10) 1000000000))")],
+  "timed": [("Internal/Wait.ax", "(/ (+ nanos 999) 1000)", "(/ (+ nanos 999) 10000)"),
+            ("Internal/Wait.ax", "(rawSetWord ts 0 (/ nanos 1000000000))", "(rawSetWord ts 0 (/ (/ nanos 10) 1000000000))"),
+            ("Internal/Wait.ax", "(rawSetWord ts 1 (% nanos 1000000000))", "(rawSetWord ts 1 (% (/ nanos 10) 1000000000))")],
   "holder": [("Sync.ax", "(if (== (errCode e) 3)", "(if (== (errCode e) 99999)")],
   # The mutex never asks `waitid` about its own child: a zombie holder
   # looks alive to its parent too (AN-56 as it was).
@@ -594,9 +600,9 @@ for f, old, new in cuts:
     s = s.replace(old, new)
     open(p, "w", encoding="utf-8").write(s)
 PY
-  (cd "$dir" && AXIOM_STDLIB="$dir/stdlib" "$axc" build --opt 2 --input prog.ax --output "$dir/prog") > "$dir/build.log" 2>&1 || return 1
-  (cd "$dir" && AXIOM_STDLIB="$dir/stdlib" "$axc" emit-llvm prog.ax -o "$dir/prog.ll") > /dev/null 2>&1
-  (cd "$repo_root" && "$axc" emit-llvm "$prog" -o "$dir/tree.ll") > /dev/null 2>&1
+  (cd "$dir" && AXIOM_STDLIB="$dir/stdlib" gate_fixture_axc "$axc" build --opt 2 --input prog.ax --output "$dir/prog") > "$dir/build.log" 2>&1 || return 1
+  (cd "$dir" && AXIOM_STDLIB="$dir/stdlib" gate_fixture_axc "$axc" emit-llvm prog.ax -o "$dir/prog.ll") > /dev/null 2>&1
+  (cd "$repo_root" && gate_fixture_axc "$axc" emit-llvm "$prog" -o "$dir/tree.ll") > /dev/null 2>&1
   if cmp -s "$dir/prog.ll" "$dir/tree.ll"; then
     echo "    the ablated build emitted the tree's IR" > "$dir/build.log"; return 1
   fi
@@ -721,7 +727,7 @@ PY
   gate_build_tree "$axc" "$dir" "$repo_root/stdlib" "$dir/axc" > "$dir/build.log" 2>&1
 }
 if ablate_cc gkill '          (emitLine cg "  call void @__axiom_par_gkill()")' '          0'; then
-  (cd "$repo_root" && "$work/cc-gkill/axc" build --threads --opt 2 --input "$task" --output "$work/cc-gkill/prog") > "$work/cc-gkill/prog.build" 2>&1
+  (cd "$repo_root" && gate_fixture_axc "$work/cc-gkill/axc" build --threads --opt 2 --input "$task" --output "$work/cc-gkill/prog") > "$work/cc-gkill/prog.build" 2>&1
   rc=0; gate_timeout 30 "$work/cc-gkill/prog" siblingtrap > "$work/cc-gkill/out" 2>/dev/null || rc=$?
   pids="$(field "$(cat "$work/cc-gkill/out")" pids)"
   sleep 0.3
@@ -736,7 +742,7 @@ else
   bad "gkill: the compiler ablation did not apply or build"; tail -4 "$work/cc-gkill/build.log" 2>/dev/null | sed 's/^/    /'
 fi
 if ablate_cc unwind '        (emitLine cg "  call void @__axiom_resource_unwind(i64 %rfloor)")' '        0'; then
-  (cd "$repo_root" && "$work/cc-unwind/axc" build --opt 2 --input "$guardfx" --output "$work/cc-unwind/prog") > "$work/cc-unwind/prog.build" 2>&1
+  (cd "$repo_root" && gate_fixture_axc "$work/cc-unwind/axc" build --opt 2 --input "$guardfx" --output "$work/cc-unwind/prog") > "$work/cc-unwind/prog.build" 2>&1
   rc=0; out="$(gate_timeout 30 "$work/cc-unwind/prog" 2>/dev/null)" || rc=$?
   if [[ "$out" == *"trap: status 72, then lock answers 1001"* ]]; then
     ok "unwind: red - with the reset's cleanup deleted, the guard the trap abandoned kept its lock (a 1 s lock timed out)"
@@ -750,7 +756,7 @@ case "$(uname -s)" in
   Darwin)
     fx="$repo_root/tests/litmus/thread-in-fork.ax"
     if ablate_cc libcfork '(pub fn (parLibcFork cg)\n  (if (cgThreads cg)\n    {\n      (let t (cgTarget cg))\n      (if (|| (== t 0) (== t 1))\n        1\n        0)\n    }\n    0))' '(pub fn (parLibcFork cg)\n  (if (cgThreads cg)\n    0\n    0))'; then
-      (cd "$repo_root" && "$work/cc-libcfork/axc" build --input "$fx" --output "$work/cc-libcfork/prog") > "$work/cc-libcfork/prog.build" 2>&1
+      (cd "$repo_root" && gate_fixture_axc "$work/cc-libcfork/axc" build --input "$fx" --output "$work/cc-libcfork/prog") > "$work/cc-libcfork/prog.build" 2>&1
       rc=0; gate_timeout 30 "$work/cc-libcfork/prog" > "$work/cc-libcfork/out" 2>/dev/null || rc=$?
       if [[ "$rc" != 0 ]] && ! grep -q '^raw fork: 42$' "$work/cc-libcfork/out"; then
         ok "libcfork: red - forking with the raw system call again, a thread inside the child died (exit $rc)"
@@ -1120,7 +1126,7 @@ case "$(uname -m)" in
   arm64|aarch64) fused='fmadd|fmsub|fnmadd|fnmsub|fmla|fmls'; vsum='faddp|fadd[[:space:]]+v[0-9]+\.2d|fadd\.2d'; mattr="" ;;
   *) fused='vfmadd|vfmsub|vfnmadd|vfnmsub'; vsum='addpd|haddpd'; mattr="-mattr=+fma" ;;
 esac
-if (cd "$repo_root" && "$axc" emit-llvm "$det" -o "$ird/det.ll") > /dev/null 2>&1; then
+if (cd "$repo_root" && gate_fixture_axc "$axc" emit-llvm "$det" -o "$ird/det.ll") > /dev/null 2>&1; then
   nflag="$(grep -cE '= f(add|sub|mul|div|rem|neg) (fast|reassoc|contract|nnan|ninf|nsz|arcp|afn)|llvm\.fmuladd|llvm\.fma\.|-fp-math"="true"' "$ird/det.ll")"
   nfadd="$(grep -cE '= f(add|mul|div) double' "$ird/det.ll")"
   if [[ "$nflag" == 0 ]] && (( nfadd >= 10 )); then
@@ -1416,7 +1422,7 @@ if run_ablation stackcut "$repo_root/tests/stdlib/920-task-stack.ax" 60 "$work/a
   # Match the intact 512 KiB control above. Removing the task's own
   # stack leaves the binding's task on that smaller native stack.
   dir="$work/abl-stackcut"
-  if (cd "$dir" && AXIOM_STDLIB="$dir/stdlib" "$axc" build --threads --opt 2 --input prog.ax --output "$dir/prog-threads") > "$dir/threads.log" 2>&1; then
+  if (cd "$dir" && AXIOM_STDLIB="$dir/stdlib" gate_fixture_axc "$axc" build --threads --opt 2 --input prog.ax --output "$dir/prog-threads") > "$dir/threads.log" 2>&1; then
     rc=0; out="$(ulimit -S -s 512; gate_timeout 60 "$dir/prog-threads" 2>/dev/null)" || rc=$?
     line="$(grep '^binding: ' <<<"$out")"
     if [[ "$line" == "binding: the task failed" ]]; then

@@ -560,7 +560,7 @@ AX
       # own verdicts, and the golden is the one every POSIX target answers.
       for case in 306-monotonic-clock 309-entropy 851-instant-sleep 495-wait-word 650-net-tcp 308-poll-readiness 470-parallel 497-console-answers; do
         set +e
-        ( cd "$repo_root" && "$ax" build "tests/stdlib/$case.ax" -o "$w/$case.exe" ) > "$w/$case.build.log" 2>&1
+        ( cd "$repo_root" && gate_fixture_axc "$ax" build "tests/stdlib/$case.ax" -o "$w/$case.exe" ) > "$w/$case.build.log" 2>&1
         rc=$?
         [[ "$rc" -eq 0 ]] && "$w/$case.exe" > "$w/$case.stdout" 2> "$w/$case.stderr"
         rc2=$?
@@ -643,7 +643,7 @@ AX
         stdin_src=/dev/null
         [[ -f "$repo_root/tests/stdlib/$name.in" ]] && stdin_src="$repo_root/tests/stdlib/$name.in"
         set +e
-        ( cd "$repo_root" && AXIOM_PATH="pkg/axiom-oxide/axiom" timeout 300 "$ax" --diagnostic-format=ai build "tests/stdlib/$name.ax" -o "$case_dir/$name.exe" ) > "$w/bat-$name.build.log" 2>&1
+        ( cd "$repo_root" && AXIOM_PATH="pkg/axiom-oxide/axiom" timeout 300 python3 "$repo_root/scripts/lib/internal-probe.py" "$ax" --diagnostic-format=ai build "tests/stdlib/$name.ax" -o "$case_dir/$name.exe" ) > "$w/bat-$name.build.log" 2>&1
         brc=$?
         rrc=-1
         if [[ "$brc" -eq 0 ]]; then

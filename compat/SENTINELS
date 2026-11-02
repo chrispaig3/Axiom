@@ -609,6 +609,7 @@
 # `SetEndOfFile` and `LockFileEx`; here the raw syscall serves and each
 # is the unreached `(- 0 78)` stub, which the census counts.
 
-stdlib/Sys/Platform.darwin.ax 40 0
+# Wait and wake stubs are internal; the public platform census falls by two.
+stdlib/Sys/Platform.darwin.ax 38 0
 stdlib/Tui/Keys.ax 0 1
 stdlib/Tui/Term.ax 0 1

@@ -115,7 +115,7 @@ for name in 571-handle-table 572-spawn-joined-twice 850-spawn-cast-trusted; do
   golden="$repo_root/tests/stdlib/$name.out"
   for lvl in 0 1 2 3; do
     bin="$work/$name-O$lvl"
-    if ! (cd "$repo_root" && "$axc" build --opt "$lvl" --input "$src" --output "$bin") > "$bin.build" 2>&1; then
+    if ! (cd "$repo_root" && gate_fixture_axc "$axc" build --opt "$lvl" --input "$src" --output "$bin") > "$bin.build" 2>&1; then
       bad "$name -O$lvl did not build"; sed 's/^/    /' "$bin.build" | head -6; continue
     fi
     rc=0; gate_timeout 60 "$bin" > "$bin.out" 2> "$bin.err" || rc=$?
@@ -130,7 +130,7 @@ echo "== 2. misuse traps 85 in both lowerings =="
 for lowering in processes threads; do
   flags=(); [[ "$lowering" == threads ]] && flags=(--threads)
   bin="$work/load-$lowering"
-  if ! (cd "$repo_root" && "$axc" build ${flags[@]+"${flags[@]}"} --opt 2 --input "$load" --output "$bin") > "$bin.build" 2>&1; then
+  if ! (cd "$repo_root" && gate_fixture_axc "$axc" build ${flags[@]+"${flags[@]}"} --opt 2 --input "$load" --output "$bin") > "$bin.build" 2>&1; then
     bad "$lowering: the handle load did not build"; sed 's/^/    /' "$bin.build" | head -6; continue
   fi
   for mode in freed-get double-free double-join; do
@@ -191,7 +191,7 @@ n_want="$(printf '%s\n' "$want_rows" | grep -c . || true)"
 for lowering in processes threads; do
   flags=(); [[ "$lowering" == threads ]] && flags=(--threads)
   rc=0
-  (cd "$repo_root/tests/diagnostics" && "$axc" --diagnostic-format=ai build ${flags[@]+"${flags[@]}"} --input 1064-parallel-capture-handle.ax --output "$work/cap-$lowering") > "$work/cap-$lowering.log" 2>&1 || rc=$?
+  (cd "$repo_root/tests/diagnostics" && gate_fixture_axc "$axc" --diagnostic-format=ai build ${flags[@]+"${flags[@]}"} --input 1064-parallel-capture-handle.ax --output "$work/cap-$lowering") > "$work/cap-$lowering.log" 2>&1 || rc=$?
   got_rows="$(rows "$work/cap-$lowering.log")"
   if [[ "$rc" != 0 && ! -e "$work/cap-$lowering" && "$n_want" -ge 4 && "$got_rows" == "$want_rows" ]]; then
     ok "$lowering: build refused with the golden's $n_want AX3064 rows (unshared word, alias, Vec, __thread_spawn)"
@@ -199,7 +199,7 @@ for lowering in processes threads; do
     bad "$lowering: build exit $rc, rows [$(printf '%s' "$got_rows" | tr '\n' ';')] against the golden's [$(printf '%s' "$want_rows" | tr '\n' ';')]"
   fi
   bin="$work/pipeline-$lowering"
-  if (cd "$repo_root" && "$axc" build ${flags[@]+"${flags[@]}"} --input examples/concurrency/pipeline.ax --output "$bin") > "$bin.build" 2>&1; then
+  if (cd "$repo_root" && gate_fixture_axc "$axc" build ${flags[@]+"${flags[@]}"} --input examples/concurrency/pipeline.ax --output "$bin") > "$bin.build" 2>&1; then
     rc=0; out="$(gate_timeout 60 "$bin" 400 2>&1)" || rc=$?
     if [[ "$rc" == 0 && "$(printf '%s\n' "$out" | tail -1)" == ok ]]; then
       ok "$lowering: pipeline.ax lends two channels to its bindings and answers ok"
@@ -213,13 +213,13 @@ done
 
 echo "== 5. what is emitted =="
 printf '(fn (main)\n  0)\n' > "$work/plain.ax"
-(cd "$work" && "$axc" emit-llvm plain.ax -o "$work/plain.ll") > /dev/null 2>&1
+(cd "$work" && gate_fixture_axc "$axc" emit-llvm plain.ax -o "$work/plain.ll") > /dev/null 2>&1
 if [[ -s "$work/plain.ll" ]] && ! grep -q '__axiom_htab\|__axiom_handle_' "$work/plain.ll"; then
   ok "a program that names no handle primitive emits no table ($(wc -l < "$work/plain.ll" | tr -d ' ') lines)"
 else
   bad "the plain program's IR is missing or names the handle table"
 fi
-(cd "$repo_root" && "$axc" emit-llvm --opt 0 tests/litmus/chan-load.ax -o "$work/chan0.ll") > /dev/null 2>&1
+(cd "$repo_root" && gate_fixture_axc "$axc" emit-llvm --opt 0 tests/litmus/chan-load.ax -o "$work/chan0.ll") > /dev/null 2>&1
 body() { awk -v f="$2" '$0 ~ "^define " && index($0, f"(") {on = 1} on {print} on && /^}/ {exit}' "$1"; }
 at_owner="$(body "$work/chan0.ll" '@Chan$chanAt' | grep -c 'call i64 @__axiom_resource_get(' || true)"
 at_table="$(body "$work/chan0.ll" '@Chan$chanAt' | grep -c '@__axiom_handle_' || true)"
@@ -256,7 +256,7 @@ shape_of() {  # <field type> <field value>: the shape word Box's allocation stor
   { (let b (mk 3))
     b.n})
 AX
-  (cd "$work" && "$axc" emit-llvm --opt 0 shape.ax -o "$work/shape.ll") > /dev/null 2>&1 || return 1
+  (cd "$work" && gate_fixture_axc "$axc" emit-llvm --opt 0 shape.ax -o "$work/shape.ll") > /dev/null 2>&1 || return 1
   awk '/^define .*@mk\(/ {on = 1} on && /@axiom_alloc\(i64 24\)/ {seen = 1; next}
        seen && /store i64 [0-9]+, ptr/ {print $3; exit}' "$work/shape.ll" | tr -d ','
 }
@@ -297,7 +297,7 @@ signal_or_ran() {  # <exit> <stdout>: the misuse did something other than trap 8
 if ablate_cc get \
   '        (emitLine cg "  %ok1 = icmp eq i64 %s1, %want")' '        (emitLine cg "  %ok1 = icmp eq i64 %want, %want")' \
   '        (emitLine cg "  %ok2 = icmp eq i64 %s2, %want")' '        (emitLine cg "  %ok2 = icmp eq i64 %want, %want")'; then
-  (cd "$repo_root" && "$work/cc-get/axc" build --opt 2 --input "$load" --output "$work/cc-get/load") > "$work/cc-get/load.build" 2>&1
+  (cd "$repo_root" && gate_fixture_axc "$work/cc-get/axc" build --opt 2 --input "$load" --output "$work/cc-get/load") > "$work/cc-get/load.build" 2>&1
   rc=0; out="$(gate_timeout 30 "$work/cc-get/load" freed-get 2>/dev/null)" || rc=$?
   rc2=0; out2="$(gate_timeout 30 "$work/cc-get/load" double-join 2>/dev/null)" || rc2=$?
   if signal_or_ran "$rc" "$out" && signal_or_ran "$rc2" "$out2"; then
@@ -311,7 +311,7 @@ fi
 
 if ablate_cc free '        (emitLine cg "  %mine = extractvalue { i64, i1 } %cx, 1")' '        (emitLine cg "  store atomic i64 %freed, ptr %sp seq_cst, align 8")
         (emitLine cg "  %mine = icmp eq i64 0, 0")'; then
-  (cd "$repo_root" && "$work/cc-free/axc" build --threads --opt 2 --input "$load" --output "$work/cc-free/load") > "$work/cc-free/load.build" 2>&1
+  (cd "$repo_root" && gate_fixture_axc "$work/cc-free/axc" build --threads --opt 2 --input "$load" --output "$work/cc-free/load") > "$work/cc-free/load.build" 2>&1
   rc=0; gate_timeout 30 "$work/cc-free/load" double-free > "$work/cc-free/double.out" 2>/dev/null || rc=$?
   rc2=0; race="$(gate_timeout 120 "$work/cc-free/load" race 2000 2>/dev/null)" || rc2=$?
   if [[ "$rc" != 85 && "$race" != "race 2000 of 2000 frees returned" ]]; then
@@ -347,7 +347,7 @@ flips() {
 }
 for lvl in 0 2; do
   bin="$work/bitflip.O$lvl"
-  if ! (cd "$repo_root" && "$axc" build --opt "$lvl" --input "$bitflip" --output "$bin") > "$bin.build" 2>&1; then
+  if ! (cd "$repo_root" && gate_fixture_axc "$axc" build --opt "$lvl" --input "$bitflip" --output "$bin") > "$bin.build" 2>&1; then
     bad "bitflip --opt $lvl did not build"; sed 's/^/    /' "$bin.build" | head -8; continue
   fi
   rc=0; ctl="$(gate_timeout 30 "$bin" -1 2>/dev/null | tail -1)" || rc=$?
@@ -363,7 +363,7 @@ for lvl in 0 2; do
 done
 if [[ -x "$work/cc-get/axc" ]]; then
   bin="$work/cc-get/bitflip"
-  (cd "$repo_root" && "$work/cc-get/axc" build --opt 2 --input "$bitflip" --output "$bin") > "$bin.build" 2>&1
+  (cd "$repo_root" && gate_fixture_axc "$work/cc-get/axc" build --opt 2 --input "$bitflip" --output "$bin") > "$bin.build" 2>&1
   IFS='|' read -r det alias wrong <<<"$(flips "$bin")"
   if [[ -n "$wrong" ]]; then
     ok "bitflip ablated: red - with the state compares gone, $(( $(wc -w <<<"$wrong") )) flips neither trap nor alias"
@@ -380,7 +380,7 @@ echo "== 8. owned descriptors: no poller or key reader leaks one under ulimit -n
 # runs out before either loop ends, and the counts it prints go wrong.
 owned="$repo_root/tests/stdlib/786-poller-owned.ax"
 bin="$work/poller-owned"
-if (cd "$repo_root" && "$axc" build --input "$owned" --output "$bin") > "$bin.build" 2>&1; then
+if (cd "$repo_root" && gate_fixture_axc "$axc" build --input "$owned" --output "$bin") > "$bin.build" 2>&1; then
   rc=0; got="$( (ulimit -n 256 && "$bin" </dev/null) 2>/dev/null)" || rc=$?
   if [[ $rc -eq 85 && "$got" == "$(cat "$repo_root/tests/stdlib/786-poller-owned.out")" ]]; then
     ok "300 pollers and 300 key readers under ulimit -n 256 leave no descriptor, and a closed poller traps 85"
@@ -438,7 +438,7 @@ scan_bin="$work/spawn-scan"
 scan_want="scanned 400000 found 0
 own word in range 0
 joined 42"
-if (cd "$repo_root" && "$axc" build --opt 2 --input "$scan" --output "$scan_bin") > "$scan_bin.build" 2>&1; then
+if (cd "$repo_root" && gate_fixture_axc "$axc" build --opt 2 --input "$scan" --output "$scan_bin") > "$scan_bin.build" 2>&1; then
   rc=0; got="$(gate_timeout 120 "$scan_bin" 400000 2>/dev/null)" || rc=$?
   if [[ $rc -eq 0 && "$got" == "$scan_want" ]]; then
     ok "spawn-scan: none of the words 0 to 400,000 names the live child, and its owner joins it with 42"
@@ -449,9 +449,9 @@ else
   bad "spawn-scan did not build"; sed 's/^/    /' "$scan_bin.build" | head -6
 fi
 if ablate_cc salt '        (emitLine cg "  %g = select i1 %unused, i64 %gfirst, i64 %gnext")' '        (emitLine cg "  %g = add i64 %g0, 1")'; then
-  (cd "$repo_root" && "$work/cc-salt/axc" build --opt 2 --input "$scan" --output "$work/cc-salt/scan") > "$work/cc-salt/scan.build" 2>&1
+  (cd "$repo_root" && gate_fixture_axc "$work/cc-salt/axc" build --opt 2 --input "$scan" --output "$work/cc-salt/scan") > "$work/cc-salt/scan.build" 2>&1
   got="$(gate_timeout 120 "$work/cc-salt/scan" 400000 2>/dev/null)"
-  (cd "$repo_root" && "$work/cc-salt/axc" build --opt 2 --input "$bitflip" --output "$work/cc-salt/bitflip") > "$work/cc-salt/bitflip.build" 2>&1
+  (cd "$repo_root" && gate_fixture_axc "$work/cc-salt/axc" build --opt 2 --input "$bitflip" --output "$work/cc-salt/bitflip") > "$work/cc-salt/bitflip.build" 2>&1
   IFS='|' read -r det alias wrong <<<"$(flips "$work/cc-salt/bitflip")"
   if [[ "$(sed -n 2p <<<"$got")" == "own word in range 1" && -n "$alias" && -z "$wrong" ]]; then
     ok "salt: red - with every slot starting at generation 1, the scan finds the child's own word and bit $alias of one live word spells the other"

@@ -2013,7 +2013,7 @@ A mutual-exclusion lock between `parallel` bindings, in both lowerings
 
 ## `Sys`
 
-`stdlib/Sys.ax` — 43 public names
+`stdlib/Sys.ax` — 33 public names
 
 Sys - portable syscall wrappers.
 
@@ -2034,12 +2034,12 @@ Sys - portable syscall wrappers.
 | `sysRunPathErrTo` | value | `(-> String Int Int String (Result Int Error))` | `Alloc,Block,IO,Mut,Spawn,Unsafe` |  | Run `name` as `sysRunPath` does, with the child's standard error written to the file at `errPath`, created or truncated, rather than to this process's. `(Ok code)` is the child's answer and `(Err e)` a child that never ran, as `sysRunPath` answers; a file that can't be opened is `(Err e)` too, and then nothing runs. |
 | `sysSpawnOutErrTo` | value | `(-> Int Int Int String String (Result Int Error))` | `Alloc,IO,Mut,Spawn,Unsafe` |  | Spawn `path` as `sysSpawn` does, with the child's standard output written to the file at `outPath` and its standard error to the file at `errPath`, each created or truncated. Answers the child's pid, as `sysSpawn` does; a file that can't be opened is `(Err e)` and then nothing runs. The swap is the one `sysRunPathErrTo` makes, done for both descriptors and undone as soon as the child exists, because a spawned child keeps the descriptors it was born with. For as long as the spawn itself takes, this process's own output and error are the files too. |
 | `sysPid` | value | `Int` | `IO,Unsafe` |  | The calling process's own id, such as a suffix that keeps two processes' scratch files apart. |
+| `sysHasMonotonic` | value | `Bool` | `Mut` |  | Whether this target has a monotonic clock, so that `sysNowMonotonic`, `sysNowMonotonicNanos` and `sysSleepNanos` answer `Ok`. Linux, FreeBSD, darwin-aarch64 and Windows have one; bare metal and darwin-x86_64 don't. |
 | `sysNowMicros` | value | `(Result Int Error)` | `Alloc,IO` |  | Microseconds from the platform clock. Darwin and Windows read realtime; Linux and FreeBSD read monotonic time. Use `sysNowMonotonic` for durations. The call owns and releases its scratch buffer. No caller address is used. |
 | `sysNowMonotonicNanos` | value | `(Result Int Error)` | `Alloc,IO,Mut` |  | Monotonic nanoseconds, or `Err` 78 when the target has no monotonic clock. The call owns and releases its scratch buffer. |
 | `sysNowMonotonic` | value | `(Result Int Error)` | `Alloc,IO,Mut` |  | Monotonic microseconds, or `Err` 78 when the target has no monotonic clock. No caller-supplied buffer is needed. |
 | `sysNowRealtimeNanos` | value | `(Result Int Error)` | `Alloc,IO` |  | Realtime nanoseconds since 1970-01-01T00:00:00Z, or a clock error. The clock can step. Values beyond 2262-04-11 answer `errOverflow`. The call owns and releases its scratch buffer. |
 | `sysTimeoutMicros` | value | `Int` | `Alloc,IO,Mut` |  | Microseconds for timeout accounting: monotonic where available, otherwise realtime. A failed read answers 0, so timed waits use their kernel timeout. The call owns and releases its scratch buffer. |
-| `sysHasMonotonic` | value | `Bool` | `Mut` |  | Whether this target has a monotonic clock, so that `sysNowMonotonic`, `sysNowMonotonicNanos` and `sysSleepNanos` answer `Ok`. Linux, FreeBSD, darwin-aarch64 and Windows have one; bare metal and darwin-x86_64 don't. |
 | `netAddr4Bytes` | value | `Int` |  |  | The size of an IPv4 socket address block, 16 bytes. |
 | `netAddr6Bytes` | value | `Int` |  |  | The size of an IPv6 socket address block, 28 bytes. |
 | `netAddrMaxBytes` | value | `Int` |  |  | The size of a buffer that takes either family, which is the larger of the two: a caller does not get to know a peer's family until it has the peer. |
@@ -2048,24 +2048,14 @@ Sys - portable syscall wrappers.
 | `sysSignalBlock` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Mut` |  | Block the signals in `mask` so they become observable instead of fatal. The call owns and releases 16 bytes of kernel scratch. It zeroes the whole platform sigset_t before writing the mask: 4 bytes on Darwin, 8 on Linux and 16 on FreeBSD, including FreeBSD's upper signal bits. Answers `Ok 0` on success. Call before a server forks so every worker inherits the mask. |
 | `sysKill` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Unsafe` |  | Send a signal, which is how a test raises one against itself. |
 | `sysForkProcess` | value | `Int` | `IO,Spawn,Unsafe` |  | Start another copy of this process: 0 in the child, the child's pid in the parent, or a negative errno when no child was made. |
-| `sysMapShared` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Unsafe` |  | Map `len` bytes, readable and writable (PROT_READ\|PROT_WRITE = 3), shared with every binding spawned after this call; answers the address, page-aligned and zeroed. Unmap it with `sysUnmapShared` once no binding can still touch it - a program obligation, as a handle's single join is (MM-PAR-8). |
-| `sysUnmapShared` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Unsafe` |  | Unmap a mapping `sysMapShared` answered. `addr` and `len` must name the whole mapping, and nothing may touch it afterwards. |
-| `sysMapPrivate` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Unsafe` |  | Map `len` zeroed bytes, readable and writable, private to this process: a fork gets a copy, as it does of the arena. Answers the page-aligned address. |
-| `sysUnmapPrivate` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Unsafe` |  | Unmap a mapping `sysMapPrivate` answered. `addr` and `len` must name the whole mapping, and nothing may touch it afterwards. |
-| `sysMlock` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Unsafe` |  | Lock `len` bytes at `addr` into memory, so the kernel never writes them to swap. The kernel may refuse: `RLIMIT_MEMLOCK` caps how much an unprivileged process may lock, and on Linux the default cap is a few megabytes. A refusal is an `Err` the caller decides about. |
-| `sysMunlock` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Unsafe` |  | Let the `len` bytes at `addr` be paged out again, undoing `sysMlock`. |
-| `sysExcludeFromCore` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Unsafe` |  | Keep `len` bytes at `addr` out of a core file (`MADV_DONTDUMP` on Linux, `MADV_NOCORE` on FreeBSD). Darwin has no such advice, and answers the unsupported sentinel. `addr` and `len` must name a whole mapping `sysMapPrivate` answered. |
-| `sysWaitWord` | value | `(-> Int Int Int)` | `Block,IO` |  | Block while the word at byte address `addr` - 8-aligned, inside a `sysMapShared` mapping - still holds `expected`. It returns when woken, when the word already differs on entry, or spuriously, so the caller re-checks its own condition every time. That is what makes a lost wake impossible: a waker changes the word BEFORE it wakes, so a waiter that read the old value either sees the new one on entry or is already in the queue the wake empties - with one caveat on Linux, which compares only the word's low 32 bits (FUTEX_WAIT, not PRIVATE: the key is the shared page): a waiter preempted across exactly a multiple of 2^32 changes would sleep through them. Darwin compares all 64 (UL_COMPARE_AND_WAIT64_SHARED = 6). Where `waitWordKind` is 0 it returns at once and the caller spins, which is correct and costs a core. No timeout here: `sysWaitWordTimeout` below is the timed form, and it pays for the timespec this one does not need. |
-| `sysWakeWord` | value | `(-> Int Int)` | `IO` |  | Wake every binding blocked in `sysWaitWord` on `addr`: FUTEX_WAKE (1) for INT_MAX waiters, or `__ulock_wake` with UL_COMPARE_AND_WAIT64_SHARED \| ULF_WAKE_ALL (6 \| 0x100). Answers 0 for `sysWaitWord`'s reason: a wake with nobody waiting is not an error anyone can act on. |
 | `sysTimedOut` | value | `Int` |  |  | The `Error` code a timed operation answers when its time ran out: `chanRecvTimeout`, `chanSendTimeout`, `mutexLockTimeout`, and a task past its deadline. |
-| `sysWaitWordTimeout` | value | `(-> Int Int Int Int)` | `Alloc,Block,IO,Mut` |  | Block while the word at `addr` still holds `expected`, for at most `nanos` nanoseconds. `sysWaitWord`'s contract - an 8-aligned word in a `sysMapShared` mapping, and every answer means "re-check your own condition" - plus a bound, and an answer that says why it returned: |
 | `sysSleepUntilNanos` | value | `(-> Int (Result Int Error))` | `Alloc,Block,IO,Mut` |  | Sleep until the monotonic clock reads at least `deadline` nanoseconds (`sysNowMonotonicNanos`): `Ok 0` once it does, at once for a deadline already past, or `Err` 78 on a target with no monotonic clock, where nothing could tell when to wake. A wake that comes early, from a signal or the kernel's 71-minute cap on one wait on Darwin, sleeps again for what is left, so the sleep never ends short. A clock that fails mid-sleep answers its `Err`. The thread blocks in the kernel; on FreeBSD, which has no blocking timed wait here, it spins as every timed wait there does. |
 | `sysSleepNanos` | value | `(-> Int (Result Int Error))` | `Alloc,Block,IO,Mut` |  | Sleep for at least `nanos` nanoseconds of the monotonic clock: `sysSleepUntilNanos` with a deadline `nanos` from now, saturating at the clock's end. A non-positive `nanos` answers `Ok 0` at once. |
 | `sysChildExited` | value | `(-> Int (Result Bool Error))` | `Alloc,Block,IO,Mut` |  | Has the child `pid` ended? Without reaping it: `Ok True` means it has exited or been killed and is waiting to be reaped - so a join on it will not block - and it is STILL this process's child, still waitable, its pid not free for reuse. `Ok False` means it is running. |
 
 ## `Sys.Platform`
 
-`stdlib/Sys/Platform.darwin.ax` — 221 public names
+`stdlib/Sys/Platform.darwin.ax` — 213 public names
 
 Sys.Platform - the numbers this target's kernel uses: syscall
 numbers, open and socket flags, errno values, poll and signal
@@ -2271,14 +2261,6 @@ target being compiled for (this one is `darwin`).
 | `platformRealtimeNanos` | value | `(Result Int Error)` | `Alloc` |  | The platform's own wall clock in nanoseconds since the Unix epoch, where raw `clock_gettime` is not available; `Err` 78 where the syscall serves. |
 | `platformSleepNanos` | value | `(-> Int (Result Int Error))` | `Alloc` |  | The platform's own sleep for at least `nanos` nanoseconds, where the raw wait is not available; `Err` 78 where the syscall serves. |
 | `platformHasEntropy` | value | `Int` |  |  | Whether entropy uses a separate platform source: 0 here. The entropy layer selects the kernel or hardware path otherwise. |
-| `platformWaitWord` | value | `(-> Int Int Int Int)` |  |  | Block until the word at `addr` differs from `expected`, for at most `nanos` nanoseconds (negative: no limit): 0 woken or spurious, 1 timed out, 2 the word already differed. Unreached here: `waitWordKind` picks the kernel's own wait. |
-| `platformWakeWord` | value | `(-> Int Int)` |  |  | Wake every waiter on the word at `addr`. Unreached here. |
-| `platformMapPrivate` | value | `(-> Int (Result Int Error))` | `Alloc` |  | The platform's own private mapping of `len` zeroed bytes, where raw `mmap` is not available; `Err` 78 where the syscall serves. |
-| `platformUnmapPrivate` | value | `(-> Int Int (Result Int Error))` | `Alloc` |  | The platform's own release of a private mapping; `Err` 78 here. |
-| `platformMapShared` | value | `(-> Int (Result Int Error))` | `Alloc` |  | The platform's own shared mapping of `len` zeroed bytes; `Err` 78 here. |
-| `platformUnmapShared` | value | `(-> Int Int (Result Int Error))` | `Alloc` |  | The platform's own release of a shared mapping; `Err` 78 here. |
-| `platformMlock` | value | `(-> Int Int (Result Int Error))` | `Alloc` |  | The platform's own way to pin `len` bytes at `addr` in memory, where raw `mlock` is not available; `Err` 78 where the syscall serves. |
-| `platformMunlock` | value | `(-> Int Int (Result Int Error))` | `Alloc` |  | The platform's own way to unpin them; `Err` 78 here. |
 | `platformSignalBlock` | value | `(-> Int (Result Int Error))` | `Alloc` |  | The platform's own signal mask, where raw `sigprocmask` is not available; `Err` 78 where the syscall serves. |
 | `platformSocket` | value | `(-> Int Int Int Int)` |  |  | socket(family, type, protocol): the descriptor, or `-errno`. -78 here. |
 | `platformBind` | value | `(-> Int Int Int Int)` |  |  | bind(s, addr, len): 0, or `-errno`. -78 here. |

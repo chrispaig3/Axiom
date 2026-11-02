@@ -374,7 +374,7 @@ for case_file in $corpus/[0-9]*.ax; do
   # A case that does not BUILD fails here. It must never fall through to
   # a comparison, because a build that produced nothing and a program
   # that printed nothing look the same to `cmp` when the golden is empty.
-  (cd "$work" && ./axc emit-llvm "$repo_root/$case_file" >"$work/ir/$name.ll" 2>"$work/ir/$name.err")
+  (cd "$work" && gate_fixture_axc ./axc emit-llvm "$repo_root/$case_file" >"$work/ir/$name.ll" 2>"$work/ir/$name.err")
   emit_status=$?
   if [[ "$emit_status" != 0 ]]; then
     echo "FAIL $name (the compiler refused it; exit $emit_status)"

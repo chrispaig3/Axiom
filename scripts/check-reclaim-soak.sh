@@ -607,12 +607,12 @@ cat > "$work/res.ax" <<'AX'
       (memSetWord w 0 7)
       { (let st (__axiom_recover __axiom_arena_mark
         (lambda (x)
-          { (let h (__proc_spawn (lambda (y) { (sysWaitWordTimeout w 7 5000000000) y }) 1))
+          { (let h (__proc_spawn (lambda (y) { (match (sysSleepNanos 5000000000) ((Ok slept) slept) ((Err sleepError) (- 0 (errCode sleepError)))) y }) 1))
             (boom 0)})))
         {
           { (let pid sysPid)
             (println "pid {pid} status {st}")}
-          (sysWaitWordTimeout w 7 1500000000)
+          (match (sysSleepNanos 1500000000) ((Ok slept) slept) ((Err sleepError) (- 0 (errCode sleepError))))
           0
         }}
     }})

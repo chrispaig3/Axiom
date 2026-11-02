@@ -36,7 +36,7 @@
 (fn (forever idle)
   {
     (while (== 0 0)
-      (sysWaitWordTimeout idle 0 1000000000))
+      (match (sysSleepNanos 1000000000) ((Ok slept) slept) ((Err sleepError) (- 0 (errCode sleepError)))))
     0
   })
 

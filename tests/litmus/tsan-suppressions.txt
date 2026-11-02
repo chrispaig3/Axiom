@@ -9,11 +9,11 @@
 # to show that every report the rule hides is the race it names.
 #
 # MM-PAR-12's implementation reliance. `sysWaitWordTimeout`
-# (stdlib/Sys.ax) reads the word it may wait on with a plain 64-bit
+# (stdlib/Internal/Wait.ax) reads the word it may wait on with a plain 64-bit
 # load, `memGetWord`, before it asks the kernel to wait, while other
 # bindings write that word with atomics: a mutex's compare-and-swap and
 # store, a channel's event counter. By MM-PAR-9 that is a data race.
-# Sys.ax is compiled by the committed seed, which has no atomic
+# Internal.Wait.ax is compiled by the committed seed, which has no atomic
 # primitive; the load's answer is advisory, the system call after it
 # clobbers memory, and an aligned 64-bit load is single-copy atomic on
 # x86-64 and AArch64. The pattern matches any frame of either access,
@@ -21,4 +21,4 @@
 # its own thread's arena on Linux. The gate keeps this one function out
 # of line (`noinline`) in its builds, so an inlined copy cannot surface
 # under a caller's name and the rule never has to name a caller.
-race:^Sys*sysWaitWordTimeout
+race:^Internal.Wait*sysWaitWordTimeout

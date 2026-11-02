@@ -150,6 +150,8 @@
 (import Str)
 (import Vec)
 (import Sys)
+(import Internal.Mapping)
+(import Internal.Wait)
 (import Err)
 
 ; ---- the options ---------------------------------------------------------

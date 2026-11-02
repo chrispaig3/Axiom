@@ -1,0 +1,113 @@
+;;! Internal.Mapping - mappings owned by library resources.
+(import Sys)
+(import Sys.Platform)
+(import Internal.MappingPlatform)
+(import Err)
+
+; ------------------------------------------------------------------
+; Memory two bindings can share, and blocking on a word in it.
+;
+; A `parallel` binding runs in a forked child by default and in a
+; thread under `--threads`, and an arena page is private either way -
+; after a fork it is a COPY. A MAP_SHARED|MAP_ANON mapping made BEFORE
+; the spawn is the same pages in both, so a word in it is visible to
+; both lowerings (MM-PAR-10). `stdlib/Chan.ax` is built on these four.
+; ------------------------------------------------------------------
+;; Map `len` bytes, readable and writable (PROT_READ|PROT_WRITE = 3),
+;; shared with every binding spawned after this call; answers the
+;; address, page-aligned and zeroed. Unmap it with `sysUnmapShared` once
+;; no binding can still touch it - a program obligation, as a handle's
+;; single join is (MM-PAR-8).
+(pub :: sysMapShared (-> Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (sysMapShared len)
+  (if (== usesSyscallAbi 0)
+    (platformMapShared len)
+    (sysResult "sysMapShared" (__syscall6 sysMmapNum 0 len 3 mapSharedAnon (- 0 1) 0))))
+
+;; Unmap a mapping `sysMapShared` answered. `addr` and `len` must name
+;; the whole mapping, and nothing may touch it afterwards.
+(pub :: sysUnmapShared (-> Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (sysUnmapShared addr len)
+  (if (== usesSyscallAbi 0)
+    (platformUnmapShared addr len)
+    (sysResult "sysUnmapShared" (__syscall3 sysMunmapNum addr len 0))))
+
+; ------------------------------------------------------------------
+; Private pages, and keeping them out of swap and core files.
+;
+; `stdlib/Crypto/Secret.ax` keeps each secret in a mapping of its own,
+; outside the arena, so these four exist for it. A target with no
+; syscall ABI answers -78 from each without making a call, the same
+; sentinel `sysNowMonotonic` uses for "this platform cannot answer",
+; and so does a target whose number for the call is 0.
+; ------------------------------------------------------------------
+; The unsupported answer: 78, ENOSYS's portable spelling.
+(:: sysNoCall Int)
+(fn (sysNoCall)
+  (- 0 78))
+
+;; Map `len` zeroed bytes, readable and writable, private to this
+;; process: a fork gets a copy, as it does of the arena. Answers the
+;; page-aligned address.
+(pub :: sysMapPrivate (-> Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (sysMapPrivate len)
+  (if (== usesSyscallAbi 0)
+    (platformMapPrivate len)
+    (sysResult "sysMapPrivate" (__syscall6 sysMmapNum 0 len 3 mapPrivateAnon (- 0 1) 0))))
+
+;; Unmap a mapping `sysMapPrivate` answered. `addr` and `len` must name
+;; the whole mapping, and nothing may touch it afterwards.
+(pub :: sysUnmapPrivate (-> Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (sysUnmapPrivate addr len)
+  (if (== usesSyscallAbi 0)
+    (platformUnmapPrivate addr len)
+    (sysResult "sysUnmapPrivate" (__syscall3 sysMunmapNum addr len 0))))
+
+;; Lock `len` bytes at `addr` into memory, so the kernel never writes
+;; them to swap. The kernel may refuse: `RLIMIT_MEMLOCK` caps how much
+;; an unprivileged process may lock, and on Linux the default cap is a
+;; few megabytes. A refusal is an `Err` the caller decides about.
+(pub :: sysMlock (-> Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (sysMlock addr len)
+  (if (== usesSyscallAbi 0)
+    (platformMlock addr len)
+    (sysResult "sysMlock"
+      (if (== sysMlockNum 0)
+        sysNoCall
+        (__syscall3 sysMlockNum addr len 0)))))
+
+;; Let the `len` bytes at `addr` be paged out again, undoing
+;; `sysMlock`.
+(pub :: sysMunlock (-> Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (sysMunlock addr len)
+  (if (== usesSyscallAbi 0)
+    (platformMunlock addr len)
+    (sysResult "sysMunlock"
+      (if (== sysMunlockNum 0)
+        sysNoCall
+        (__syscall3 sysMunlockNum addr len 0)))))
+
+;; Keep `len` bytes at `addr` out of a core file (`MADV_DONTDUMP` on
+;; Linux, `MADV_NOCORE` on FreeBSD). Darwin has no such advice, and
+;; answers the unsupported sentinel.
+;; `addr` and `len` must name a whole mapping `sysMapPrivate` answered.
+(pub :: sysExcludeFromCore (-> Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (sysExcludeFromCore addr len)
+  (sysResult "sysExcludeFromCore"
+    (if (|| (== sysMadviseNum 0) (== madvNoDump 0))
+      sysNoCall
+      (__syscall3 sysMadviseNum addr len madvNoDump))))

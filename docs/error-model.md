@@ -1578,9 +1578,9 @@ itself (§10).
 
 ## 10. Adoption
 
-**ERR-ADOPT-1 (P). The migration is 64 sites by §1.2's `grep` proxy,
-and 19 public functions over 6 modules by the metric that is gated:
-10 `failure` and 9 `absence`. It is not one commit.**
+**ERR-ADOPT-1 (P). The public sentinel census records 40 functions
+across three modules: 38 failure sentinels and two absence sentinels.
+Each migration declares its compatibility change.**
 
 §10.1 has what is left today, and §10.2 has the order in which the
 slices actually landed. `compat/BREAKING` declares every ported
@@ -1600,13 +1600,10 @@ pass `restrict(no-alloc)`, and cannot sit in a `handle` checked
 exhaustive against a narrower row. Removing this cost was proposed. It stays refuted, because its `Mut` half is
 unsound, and the migration doesn't need it.
 
-The two populations barely overlap. All 29 failure sentinels, the ones
-that become `Result`, sit in modules with no `no-alloc` or `restrict`
-claim. `Sys.ax` holds 26 of them: syscall wrappers in a module that
-already declares `effect(io)` seventy times. The modules dense with
-`no-alloc` and `restrict` claims (`Str.ax`, `Tui/Keys.ax`, `Utf8.ax`
-and `Tui/Term.ax`) carry absence sentinels. Those become `Option`,
-which carries no `Error` and builds no message.
+The remaining failure sentinels are platform stubs in
+`Sys/Platform.darwin.ax`. Typed IO wrappers choose the native syscall
+path on this target. The two absence sentinels belong to `Tui.Keys`
+and `Tui.Term`; they need `Option`, which carries no error message.
 
 An `Option` still needs a block once something stores it. `(Some v)` is
 a constructor application, and `restrict(no-alloc)` refuses an
@@ -1914,14 +1911,13 @@ Every remaining sentinel reports either **absence** (it wants `Option`)
 or **failure** (it wants `Result`). That is §5's distinction, and
 sorting the sentinels by it changes what finishing the migration means.
 
-| | absence (wants `Option`) | failure (wants `Result`) |
+| Public module | Absence (wants `Option`) | Failure (wants `Result`) |
 |---|---|---|
-| `stdlib/`, by the census that read prose | 8 | 5 |
-| `stdlib/`, by the census that reads bodies | **9** | **29** |
-| `core/`, slice 4's 25 | 21 | 1 |
-| `stdlib/`, after slices 1–4 and the type correction below | 7 | 9 |
-| `stdlib/`, after the box moved to the caller (§10.1) and the two ports it permitted | 3 | 0 |
-| `stdlib/`, today, after `strFindByte` became a loop | **2** | **0** |
+| `Sys.Platform` on Darwin | 0 | 38 |
+| `Tui.Keys` | 1 | 0 |
+| `Tui.Term` | 1 | 0 |
+| Total | **2** | **38** |
+
 
 The floor is two absence rows and no failure rows. The rest of this
 section explains how the census reached those numbers.

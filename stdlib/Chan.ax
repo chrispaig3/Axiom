@@ -100,6 +100,8 @@
 ; Words 3-7: head, tail, capacity, closed, mapping length.
 (import Internal.Raw)
 (import Sys)
+(import Internal.Mapping)
+(import Internal.Wait)
 (import Err)
 ; `syncOwnerDead`: a timed call on a channel whose lock holder died
 ; answers the mutex's code, the same code for the same event.

@@ -1,0 +1,22 @@
+;;! raw_mapping - the compiler's trusted shared-page boundary.
+(import Sys)
+(import Sys.Platform)
+(import Err)
+
+; The caller keeps the mapping live until every reader and child is done.
+(pub :: compilerMapShared (-> Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (compilerMapShared len)
+  (if (== usesSyscallAbi 0)
+    (Err (mkError 78 "compilerMapShared"))
+    (sysResult "compilerMapShared" (__syscall6 sysMmapNum 0 len 3 mapSharedAnon (- 0 1) 0))))
+
+; Only the compiler's complete live mapping may be passed here.
+(pub :: compilerUnmapShared (-> Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (compilerUnmapShared addr len)
+  (if (== usesSyscallAbi 0)
+    (Err (mkError 78 "compilerUnmapShared"))
+    (sysResult "compilerUnmapShared" (__syscall3 sysMunmapNum addr len 0))))

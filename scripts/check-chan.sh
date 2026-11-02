@@ -93,7 +93,7 @@ n=20000
 # build <out> <flags...>: the load program, from the tree's stdlib.
 build() {
   local out="$1"; shift
-  (cd "$repo_root" && "$axc" build "$@" --input "$load" --output "$out") > "$out.build" 2>&1
+  (cd "$repo_root" && gate_fixture_axc "$axc" build "$@" --input "$load" --output "$out") > "$out.build" 2>&1
 }
 
 # ---------------------------------------------------------------------
@@ -215,7 +215,7 @@ for old, new in cuts:
     s = s.replace(old, new)
 open(p, "w", encoding="utf-8").write(s)
 PY
-  (cd "$dir" && AXIOM_STDLIB="$dir/stdlib" "$axc" build --threads --input chan-load.ax --output "$dir/load") > "$dir/build.log" 2>&1
+  (cd "$dir" && AXIOM_STDLIB="$dir/stdlib" gate_fixture_axc "$axc" build --threads --input chan-load.ax --output "$dir/load") > "$dir/build.log" 2>&1
 }
 
 for kind in lock notify; do
@@ -223,8 +223,8 @@ for kind in lock notify; do
     bad "$kind: the ablation did not apply or build"; sed 's/^/    /' "$work/abl-$kind/build.log" 2>/dev/null | head -6; continue
   fi
   # The copy must be what was compiled: its IR differs from the tree's.
-  (cd "$work/abl-$kind" && AXIOM_STDLIB="$work/abl-$kind/stdlib" "$axc" emit-llvm chan-load.ax -o "$work/abl-$kind/load.ll") > /dev/null 2>&1
-  (cd "$repo_root" && "$axc" emit-llvm "$load" -o "$work/tree-load.ll") > /dev/null 2>&1
+  (cd "$work/abl-$kind" && AXIOM_STDLIB="$work/abl-$kind/stdlib" gate_fixture_axc "$axc" emit-llvm chan-load.ax -o "$work/abl-$kind/load.ll") > /dev/null 2>&1
+  (cd "$repo_root" && gate_fixture_axc "$axc" emit-llvm "$load" -o "$work/tree-load.ll") > /dev/null 2>&1
   if cmp -s "$work/abl-$kind/load.ll" "$work/tree-load.ll"; then
     bad "$kind: the ablated build emitted the tree's IR - the copy was not what compiled"; continue
   fi
@@ -277,7 +277,7 @@ dead_build() {
   local dir="$1" lowering="$2" lib="${3:-$repo_root/stdlib}" f=()
   [[ "$lowering" == threads ]] && f=(--threads)
   mkdir -p "$dir"
-  (cd "$repo_root" && AXIOM_STDLIB="$lib" "$axc" build ${f[@]+"${f[@]}"} --opt 2 --input "$dead" --output "$dir/dead-$lowering") \
+  (cd "$repo_root" && AXIOM_STDLIB="$lib" gate_fixture_axc "$axc" build ${f[@]+"${f[@]}"} --opt 2 --input "$dead" --output "$dir/dead-$lowering") \
     > "$dir/dead-$lowering.build" 2>&1
 }
 # line <text> <first word>: the rest of the first line starting with it.

@@ -40,7 +40,7 @@
     ((Ok g)
       {
         (memSetWord flag 0 1)
-        (sysWakeWord flag)
+        0
         (sysExitWith 0)
       }
     )
@@ -60,7 +60,7 @@
             (let h (__proc_spawn (lambda (x) (lockAndExit m flag)) 0))
             {
               (while (== (memGetWord flag 0) 0)
-                (sysWaitWordTimeout flag 0 1000000))
+                (match (sysSleepNanos 1000000) ((Ok slept) slept) ((Err sleepError) (- 0 (errCode sleepError)))))
               ; Not joined yet: the holder is the caller's zombie child.
               (println (codeOf (mutexLockTimeout m 2000000000)))  ; 1004
               (println (bit (mutexOwnerDead m)))  ; 1

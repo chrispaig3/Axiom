@@ -57,9 +57,9 @@
     ((Ok g)
       {
         (memSetWord flag 0 1)
-        (sysWakeWord flag)
+        0
         (while (== 0 0)
-          (sysWaitWordTimeout (+ flag 8) 0 1000000000))
+          (match (sysSleepNanos 1000000000) ((Ok slept) slept) ((Err sleepError) (- 0 (errCode sleepError)))))
         0
       }
     )
@@ -121,7 +121,7 @@
                   (let h (__proc_spawn (lambda (x) (hold d flag x)) 0))
                   {
                     (while (== (memGetWord flag 0) 0)
-                      (sysWaitWordTimeout flag 0 1000000))
+                      (match (sysSleepNanos 1000000) ((Ok slept) slept) ((Err sleepError) (- 0 (errCode sleepError)))))
                     (println (tryCode (mutexTryLock d)))  ; 1
                     (match (sysKill (handlePid h) 9)
                       ((Ok z) ())

@@ -1,4 +1,4 @@
-; Unmap and wait still accept caller addresses through trusted wrappers.
+; Raw unmap and wait calls are refused in 1516 and 1517.
 ; Entropy uses the typed Crypto.Random interface: it returns owned bytes.
 ; noUnsafe accepts the typed call; pureFill refutes its IO and Entropy claims.
 ; IO's typed descriptor calls keep their own range checks.
@@ -14,16 +14,10 @@
 (fn (randomBytes n)
   (secureRandomBytes n))
 
-;@axiom:effect(io)
-(:: unmapsAt (-> Int (Result Int Error)))
-(fn (unmapsAt addr)
-  (sysUnmapShared addr 4096))
-
-;@axiom:effect(io)
-(:: waitsAt (-> Int Int))
-;@axiom:effect(block)
-(fn (waitsAt addr)
-  (sysWaitWord addr 0))
+(:: readsAt (-> Int (Result Int Error)))
+;@axiom:restrict(no-unsafe)
+(fn (readsAt address)
+  (platformReadFd 0 address 8))
 
 (:: pureFill (-> Int (Result String Error)))
 ;@axiom:effect(pure)

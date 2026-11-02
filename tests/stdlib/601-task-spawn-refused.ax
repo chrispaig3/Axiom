@@ -57,7 +57,7 @@
   {
     (memSetWord page (+ i 1) sysPid)
     (for k in 0..600
-      (sysWaitWordTimeout page 0 100000000))
+      (match (sysSleepNanos 100000000) ((Ok slept) slept) ((Err sleepError) (- 0 (errCode sleepError)))))
     "late"
   })
 

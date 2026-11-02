@@ -18,7 +18,7 @@
 #     `__axiom_arena_unmap_thread` in the locked program before this
 #     routing. The numbers come from the tree's own
 #     `stdlib/Sys/Platform.*.ax`;
-#   - `Sys$sysWaitWordTimeout` stays out of line (`noinline`) for the
+#   - `Internal.Wait$sysWaitWordTimeout` stays out of line (`noinline`) for the
 #     suppression list. `axiom_release` also stays out of line so the
 #     lend-removal ablation can require an ownership-count race at -O2;
 #   - `opt -O<n>` when n > 0, LLVM's `tsan-module,function(tsan)` passes,
@@ -139,7 +139,7 @@ atom="$repo_root/tests/litmus/atomics.ax"
 borrow="$repo_root/tests/litmus/borrow-load.ax"
 graph="$repo_root/tests/parallel/immutable-borrow.ax"
 graph_want="$repo_root/tests/parallel/immutable-borrow.out"
-reliance='Sys$sysWaitWordTimeout'
+reliance='Internal.Wait$sysWaitWordTimeout'
 N=2000   # increments per binding in sync-load's modes
 C=500    # words per producer in chan-load
 B=2000   # rounds per binding in borrow-load
@@ -349,7 +349,7 @@ PY
 # build <out> <source> <level> [stdlib]: the instrumented executable.
 build() {
   local out="$1" src="$2" lvl="$3" lib="${4:-$repo_root/stdlib}"
-  (cd "$repo_root" && AXIOM_STDLIB="$lib" "$axc" --diagnostic-format=ai emit-llvm --threads "$src" -o "$out.ll") > "$out.log" 2>&1 || return 1
+  (cd "$repo_root" && AXIOM_STDLIB="$lib" gate_fixture_axc "$axc" --diagnostic-format=ai emit-llvm --threads "$src" -o "$out.ll") > "$out.log" 2>&1 || return 1
   from_ll "$out" "$out.ll" "$lvl"
 }
 # from_ll <out> <ll> <level>
@@ -711,7 +711,7 @@ else
   (__alloc bytes))
 AX
   abin="$work/overread"
-  if (cd "$work" && "$axc" emit-llvm overread.ax -o "$abin.ll") > "$abin.log" 2>&1 \
+  if (cd "$work" && gate_fixture_axc "$axc" emit-llvm overread.ax -o "$abin.ll") > "$abin.log" 2>&1 \
      && sed -E 's/^(attributes #[0-9]+ = \{ )/\1sanitize_address /' "$abin.ll" > "$abin.san.ll" \
      && opt -passes=asan "$abin.san.ll" -S -o "$abin.asan.ll" 2>> "$abin.log" \
      && llc "$abin.asan.ll" -filetype=obj -O0 -relocation-model=pic -o "$abin.o" 2>> "$abin.log" \

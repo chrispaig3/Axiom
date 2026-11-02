@@ -55,6 +55,7 @@
 (import Err)
 (import Fmt)
 (import Sys)
+(import Internal.Mapping)
 (import Float)
 (import Axqlite.Value)
 (import Axqlite.Pager)

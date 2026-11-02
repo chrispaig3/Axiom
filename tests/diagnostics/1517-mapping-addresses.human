@@ -1,0 +1,118 @@
+[1;31merror[AX5002][0m[1m: `sysMapShared` belongs to `Internal.Mapping`, which is internal to the standard library[0m
+ [1;34m--> [0m1517-mapping-addresses.ax:8:4
+[1;34m  |[0m
+[1;34m8 |[0m   (sysMapShared address))
+[1;34m  |[0m    [1;31m^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `sysUnmapShared` belongs to `Internal.Mapping`, which is internal to the standard library[0m
+  [1;34m--> [0m1517-mapping-addresses.ax:12:4
+[1;34m   |[0m
+[1;34m12 |[0m   (sysUnmapShared address 4096))
+[1;34m   |[0m    [1;31m^^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `sysMapPrivate` belongs to `Internal.Mapping`, which is internal to the standard library[0m
+  [1;34m--> [0m1517-mapping-addresses.ax:16:4
+[1;34m   |[0m
+[1;34m16 |[0m   (sysMapPrivate address))
+[1;34m   |[0m    [1;31m^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `sysUnmapPrivate` belongs to `Internal.Mapping`, which is internal to the standard library[0m
+  [1;34m--> [0m1517-mapping-addresses.ax:20:4
+[1;34m   |[0m
+[1;34m20 |[0m   (sysUnmapPrivate address 4096))
+[1;34m   |[0m    [1;31m^^^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `sysMlock` belongs to `Internal.Mapping`, which is internal to the standard library[0m
+  [1;34m--> [0m1517-mapping-addresses.ax:24:4
+[1;34m   |[0m
+[1;34m24 |[0m   (sysMlock address 4096))
+[1;34m   |[0m    [1;31m^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `sysMunlock` belongs to `Internal.Mapping`, which is internal to the standard library[0m
+  [1;34m--> [0m1517-mapping-addresses.ax:28:4
+[1;34m   |[0m
+[1;34m28 |[0m   (sysMunlock address 4096))
+[1;34m   |[0m    [1;31m^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `sysExcludeFromCore` belongs to `Internal.Mapping`, which is internal to the standard library[0m
+  [1;34m--> [0m1517-mapping-addresses.ax:32:4
+[1;34m   |[0m
+[1;34m32 |[0m   (sysExcludeFromCore address 4096))
+[1;34m   |[0m    [1;31m^^^^^^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `platformMapShared` belongs to `Internal.MappingPlatform`, which is internal to the standard library[0m
+  [1;34m--> [0m1517-mapping-addresses.ax:36:4
+[1;34m   |[0m
+[1;34m36 |[0m   (platformMapShared address))
+[1;34m   |[0m    [1;31m^^^^^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `platformUnmapShared` belongs to `Internal.MappingPlatform`, which is internal to the standard library[0m
+  [1;34m--> [0m1517-mapping-addresses.ax:40:4
+[1;34m   |[0m
+[1;34m40 |[0m   (platformUnmapShared address 4096))
+[1;34m   |[0m    [1;31m^^^^^^^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `platformMapPrivate` belongs to `Internal.MappingPlatform`, which is internal to the standard library[0m
+  [1;34m--> [0m1517-mapping-addresses.ax:44:4
+[1;34m   |[0m
+[1;34m44 |[0m   (platformMapPrivate address))
+[1;34m   |[0m    [1;31m^^^^^^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `platformUnmapPrivate` belongs to `Internal.MappingPlatform`, which is internal to the standard library[0m
+  [1;34m--> [0m1517-mapping-addresses.ax:48:4
+[1;34m   |[0m
+[1;34m48 |[0m   (platformUnmapPrivate address 4096))
+[1;34m   |[0m    [1;31m^^^^^^^^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `platformMlock` belongs to `Internal.MappingPlatform`, which is internal to the standard library[0m
+  [1;34m--> [0m1517-mapping-addresses.ax:52:4
+[1;34m   |[0m
+[1;34m52 |[0m   (platformMlock address 4096))
+[1;34m   |[0m    [1;31m^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `platformMunlock` belongs to `Internal.MappingPlatform`, which is internal to the standard library[0m
+  [1;34m--> [0m1517-mapping-addresses.ax:56:4
+[1;34m   |[0m
+[1;34m56 |[0m   (platformMunlock address 4096))
+[1;34m   |[0m    [1;31m^^^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+compilation failed due to 13 previous errors

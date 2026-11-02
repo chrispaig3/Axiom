@@ -16,6 +16,11 @@ its changelog too.
 
 ## Unreleased
 
+- Waits, mappings, unmaps and page locks move behind the internal boundary,
+  including platform entry points. Channels, mutexes and secret storage keep
+  their typed interfaces. Tested by `tests/diagnostics/1516-wait-addresses.ax`
+  and `tests/diagnostics/1517-mapping-addresses.ax`.
+
 - Raw socket address builders and readers are internal. Use `Net.SocketAddr`
   and its accessors; `socketAddrBytes` returns an independent copy for IO.
   Tested by `tests/diagnostics/1515-socket-addresses.ax` and

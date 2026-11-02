@@ -1,0 +1,15 @@
+;;! Internal.WaitPlatform - platform wait-word fallback.
+;; Block until the word at `addr` differs from `expected`, for at most
+;; `nanos` nanoseconds (negative: no limit): 0 woken or spurious, 1 timed
+;; out, 2 the word already differed. Unreached here: `waitWordKind` picks
+;; the kernel's own wait.
+(pub :: platformWaitWord (-> Int Int Int Int))
+;@axiom:effect(pure)
+(pub fn (platformWaitWord addr expected nanos)
+  0)
+
+;; Wake every waiter on the word at `addr`. Unreached here.
+(pub :: platformWakeWord (-> Int Int))
+;@axiom:effect(pure)
+(pub fn (platformWakeWord addr)
+  0)

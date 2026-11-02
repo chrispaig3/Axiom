@@ -196,7 +196,7 @@ for case_file in tests/stdlib/[0-9]*.ax; do
   name="$(basename "$case_file" .ax)"
   for target in "${targets[@]}"; do
     ir="$work/$name.$target.ll"
-    if ! "$axc" --target="$target" emit-llvm "$case_file" -o "$ir" > "$work/emit.log" 2>&1; then
+    if ! gate_fixture_axc "$axc" --target="$target" emit-llvm "$case_file" -o "$ir" > "$work/emit.log" 2>&1; then
       echo "FAIL $name [$target]: emit-llvm"
       sed 's/^/    /' "$work/emit.log"
       status=1
@@ -376,7 +376,7 @@ trap 'rm -rf "$pework" "$ccwork" "$work"' EXIT
 mkdir -p "$pework/d2" "$pework/d3"
 printf '(import Sys)\n(:: main Int)\n;@axiom:effect(io)\n(fn (main) (if (> sysPid 0) 0 1))\n' > "$pework/pe.ax"
 for target in "${targets[@]}"; do
-  if ! "$axc" --target="$target" emit-llvm "$pework/pe.ax" -o "$pework/pe.ll" >/dev/null 2>&1; then
+  if ! gate_fixture_axc "$axc" --target="$target" emit-llvm "$pework/pe.ax" -o "$pework/pe.ll" >/dev/null 2>&1; then
     echo "FAIL [$target]: the path-independence probe would not compile"
     status=1
     continue

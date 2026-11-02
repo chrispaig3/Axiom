@@ -334,7 +334,7 @@ echo "== 1. machine code: every target, every level =="
 for t in $x86_targets $a64_targets; do
   for f in atomics control; do
     src="$fixture"; [[ "$f" == control ]] && src="$control"
-    if ! "$axc" --target="$t" emit-llvm "$src" -o "$work/$f.$t.module.ll" > "$work/$f.$t.emit" 2>&1 \
+    if ! gate_fixture_axc "$axc" --target="$t" emit-llvm "$src" -o "$work/$f.$t.module.ll" > "$work/$f.$t.emit" 2>&1 \
        || ! llvm-extract --func=__axiom_user_main "$work/$f.$t.module.ll" -S -o "$work/$f.$t.ll" >> "$work/$f.$t.emit" 2>&1; then
       bad "[$t] emit-llvm of $f failed"; continue
     fi
@@ -518,7 +518,7 @@ litmus_rows() {
 scope=""; ltag=""
 for lvl in 0 1 2 3; do
   bin="$work/litmus.O$lvl"
-  if ! "$axc" build --threads --input "$litmus" --output "$bin" --opt "$lvl" > "$work/litmus.O$lvl.build" 2>&1; then
+  if ! gate_fixture_axc "$axc" build --threads --input "$litmus" --output "$bin" --opt "$lvl" > "$work/litmus.O$lvl.build" 2>&1; then
     bad "litmus --threads --opt $lvl did not build:"; sed 's/^/    /' "$work/litmus.O$lvl.build" | head -12; continue
   fi
   litmus_rows "$bin"
@@ -606,7 +606,7 @@ else
   scope=" sb mp add "; ltag="[lse] "
   for lvl in 0 1 2 3; do
     bin="$work/litmus-lse.O$lvl"; : > "$work/lse-llc.log"
-    if ! PATH="$work/lse-bin:$PATH" "$axc" build --threads --input "$litmus" --output "$bin" --opt "$lvl" > "$bin.build" 2>&1; then
+    if ! PATH="$work/lse-bin:$PATH" gate_fixture_axc "$axc" build --threads --input "$litmus" --output "$bin" --opt "$lvl" > "$bin.build" 2>&1; then
       bad "[lse] litmus --threads --opt $lvl did not build:"; sed 's/^/    /' "$bin.build" | head -12; continue
     fi
     llvm-objdump -d --no-show-raw-insn "$bin" > "$bin.dis" 2>&1

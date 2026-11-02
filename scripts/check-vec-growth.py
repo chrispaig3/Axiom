@@ -13,6 +13,7 @@ import platform
 import re
 import statistics
 import subprocess
+import sys
 import tempfile
 import time
 
@@ -130,7 +131,8 @@ def main():
 
     def build(compiler, src, name, opt=2, extra=()):
         out = work / name
-        p = run([compiler, '--diagnostic-format=ai', 'build', src, '--opt', opt,
+        p = run([sys.executable, ROOT / 'scripts/lib/internal-probe.py', compiler,
+                 '--diagnostic-format=ai', 'build', src, '--opt', opt,
                  '--emit-llvm', '-o', out, *extra])
         (work / (name + '.build.log')).write_text(p.stdout + p.stderr)
         return out

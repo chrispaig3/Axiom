@@ -109,6 +109,8 @@
 ; 2 the serial counter, 3 poisoned, 4 the mapping length.
 (import Internal.Raw)
 (import Sys)
+(import Internal.Mapping)
+(import Internal.Wait)
 (import Err)
 
 ; ---- the handle --------------------------------------------------------

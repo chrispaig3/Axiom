@@ -532,7 +532,7 @@
 
 ; ---- iriw ----------------------------------------------------------
 ; Arrive at round `round`'s barrier and wait until all `parties` have.
-; After 2,048 spins it waits on the word for up to 2 us at a time, so a
+; After 2,048 spins it sleeps for 2 us between reads, so a
 ; host with fewer cores than parties still makes progress. Much sooner
 ; loses the rounds' overlap: at 64 spins, `iriw plain` at --opt 0
 ; stopped showing its outcome on darwin-aarch64, and at 256 an --opt 2
@@ -553,7 +553,7 @@
           {
             (set spins (+ spins 1))
             (if (> spins 2048)
-              (sysWaitWordTimeout ctr seen 2000))
+              (match (sysSleepNanos 2000) ((Ok slept) slept) ((Err sleepError) (- 0 (errCode sleepError)))))
             (set seen (__atomic_load ctr))
           })
       }
@@ -603,7 +603,7 @@
   })
 
 ; Wait for a control event without depending on a fixed scheduling pause.
-; As in arriveAll, a timed wait after spinning lets another participant
+; As in arriveAll, a short sleep after spinning lets another participant
 ; run on a host with fewer cores than threads. The gate owns the deadline.
 (:: waitIriwWord (-> Int Int))
 ;@axiom:effect(io)
@@ -617,7 +617,7 @@
         {
           (set spins (+ spins 1))
           (if (> spins 2048)
-            (sysWaitWordTimeout word 0 2000))
+            (match (sysSleepNanos 2000) ((Ok slept) slept) ((Err sleepError) (- 0 (errCode sleepError)))))
         })
       spins
     }

@@ -27,23 +27,23 @@
 (fn (timeout address)
   (sysTimeoutMicros address))
 
-; The syscall scratch entry points are private, including the timeout fallback.
+; The syscall scratch entry points are internal, including the timeout fallback.
 (:: privateMicros (-> Int (Result Int Error)))
 (fn (privateMicros address)
-  (Sys::sysNowMicrosRaw address))
+  (sysNowMicrosRaw address))
 
 (:: privateMonotonic (-> Int (Result Int Error)))
 (fn (privateMonotonic address)
-  (Sys::sysNowMonotonicRaw address))
+  (sysNowMonotonicRaw address))
 
 (:: privateNanos (-> Int (Result Int Error)))
 (fn (privateNanos address)
-  (Sys::sysNowMonotonicNanosRaw address))
+  (sysNowMonotonicNanosRaw address))
 
 (:: privateRealtime (-> Int (Result Int Error)))
 (fn (privateRealtime address)
-  (Sys::sysNowRealtimeNanosRaw address))
+  (sysNowRealtimeNanosRaw address))
 
 (:: privateTimeout (-> Int Int))
 (fn (privateTimeout address)
-  (Sys::sysTimeoutMicrosRaw address))
+  (sysTimeoutMicrosRaw address))

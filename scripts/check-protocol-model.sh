@@ -233,11 +233,11 @@ traced() {
   cp -R "$repo_root/stdlib" "$dir/stdlib"
   cp "$trace_prog" "$dir/chan-trace.ax"
   python3 "$model" instrument "$dir/stdlib" ${plant:+--plant "$plant"} > "$dir/instrument.txt" 2>&1 || return 1
-  (cd "$dir" && AXIOM_STDLIB="$dir/stdlib" "$axc" build --opt 2 --input chan-trace.ax --output "$dir/trace") \
+  (cd "$dir" && AXIOM_STDLIB="$dir/stdlib" gate_fixture_axc "$axc" build --opt 2 --input chan-trace.ax --output "$dir/trace") \
     > "$dir/build.log" 2>&1
 }
 # The program is also a plain load test against the tree's library.
-if (cd "$repo_root" && "$axc" build --opt 2 --input "$trace_prog" --output "$work/trace-tree") > "$work/trace-tree.build" 2>&1; then
+if (cd "$repo_root" && gate_fixture_axc "$axc" build --opt 2 --input "$trace_prog" --output "$work/trace-tree") > "$work/trace-tree.build" 2>&1; then
   rc=0; out="$(gate_timeout 60 "$work/trace-tree" 2 "$trace_n" 2>&1)" || rc=$?
   if [[ "$rc" == 0 && "$out" == "ok "* && "$out" != *trace* ]]; then
     ok "chan-trace on the tree's library: '$out', and no record"
@@ -305,7 +305,7 @@ within() { [[ "$1" =~ ^[0-9]+$ ]] && (( $1 >= $2 * 1000 && $1 <= ($2 + 800) * 10
 for lowering in processes threads; do
   flags=(); [[ "$lowering" == threads ]] && flags=(--threads)
   bin="$work/live-$lowering"
-  if ! (cd "$repo_root" && "$axc" build ${flags[@]+"${flags[@]}"} --opt 2 --input "$live" --output "$bin") > "$bin.build" 2>&1; then
+  if ! (cd "$repo_root" && gate_fixture_axc "$axc" build ${flags[@]+"${flags[@]}"} --opt 2 --input "$live" --output "$bin") > "$bin.build" 2>&1; then
     bad "$lowering: liveness.ax did not build:"; head -8 "$bin.build" | sed 's/^/    /'; continue
   fi
   # Starvation: exact, and the distribution reported.
@@ -392,7 +392,7 @@ PY
 then
   for lowering in processes threads; do
     flags=(); [[ "$lowering" == threads ]] && flags=(--threads)
-    if ! (cd "$dir" && AXIOM_STDLIB="$dir/stdlib" "$axc" build ${flags[@]+"${flags[@]}"} --opt 2 --input liveness.ax --output "$dir/live-$lowering") > "$dir/build-$lowering.log" 2>&1; then
+    if ! (cd "$dir" && AXIOM_STDLIB="$dir/stdlib" gate_fixture_axc --fixture tests/litmus/liveness.ax "$axc" build ${flags[@]+"${flags[@]}"} --opt 2 --input liveness.ax --output "$dir/live-$lowering") > "$dir/build-$lowering.log" 2>&1; then
       bad "$lowering: the counting copy did not build"; head -6 "$dir/build-$lowering.log" | sed 's/^/    /'; continue
     fi
     rc=0; out="$(gate_timeout 30 "$dir/live-$lowering" inversion timed 350 2>&1)" || rc=$?

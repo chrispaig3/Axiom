@@ -579,3 +579,9 @@ docs/axql.md
 docs/axqlite-format.md
 DOCS
 }
+
+# Compile a listed raw-storage fixture in a private library copy. Compiler
+# builds and unlisted user/diagnostic programs retain their ordinary context.
+gate_fixture_axc() {
+  python3 "$repo_root/scripts/lib/internal-probe.py" "$@"
+}

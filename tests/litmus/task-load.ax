@@ -84,7 +84,7 @@
 ;@axiom:effect(block)
 (fn (nap idle ms)
   {
-    (sysWaitWordTimeout idle 0 (* ms 1000000))
+    (match (sysSleepNanos (* ms 1000000)) ((Ok slept) slept) ((Err sleepError) (- 0 (errCode sleepError))))
     0
   })
 
@@ -105,7 +105,7 @@
 (fn (stubborn page idle k)
   {
     (memSetWord page k sysPid)
-    (sysWakeWord page)
+    0
     (forever idle)
     "unreachable"
   })
@@ -177,7 +177,7 @@
             (if (== (memGetWord page k) 0)
               (set missing 1)))
           (if (== missing 1)
-            (sysWaitWordTimeout page 0 1000000))
+            (match (sysSleepNanos 1000000) ((Ok slept) slept) ((Err sleepError) (- 0 (errCode sleepError)))))
         })
       0
     }

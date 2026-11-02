@@ -25,7 +25,7 @@
     (let idle (memAlloc 8))
     {
       (memSetWord idle 0 0)
-      (sysWaitWordTimeout idle 0 (* ms 1000000))
+      (match (sysSleepNanos (* ms 1000000)) ((Ok slept) slept) ((Err sleepError) (- 0 (errCode sleepError))))
       0
     }
   })

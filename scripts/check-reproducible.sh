@@ -37,8 +37,8 @@ for case_file in tests/stdlib/*.ax core/main.ax; do
   fi
   # Two separate processes, because per-process hash seeds are what this
   # check is for.
-  "$axc" emit-llvm "$case_file" -o "$work/$name.a.ll" > /dev/null
-  "$axc" emit-llvm "$case_file" -o "$work/$name.b.ll" > /dev/null
+  gate_fixture_axc "$axc" emit-llvm "$case_file" -o "$work/$name.a.ll" > /dev/null
+  gate_fixture_axc "$axc" emit-llvm "$case_file" -o "$work/$name.b.ll" > /dev/null
 
   if ! cmp -s "$work/$name.a.ll" "$work/$name.b.ll"; then
     echo "FAIL $name: two runs produced different IR"

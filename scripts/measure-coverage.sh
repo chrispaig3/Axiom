@@ -144,7 +144,7 @@ runs=0
 run_one() {  # run_one <mode> <file>
   case "$1" in
     check) "$cov" --diagnostic-format=ai check "$2" ;;
-    emit)  "$cov" emit-llvm "$2" -o "$work/out.ll" ;;
+    emit)  gate_fixture_axc "$cov" emit-llvm "$2" -o "$work/out.ll" ;;
     fmt)   "$cov" fmt "$2" --check ;;
     syms)  "$cov" --diagnostic-format=ai symbols --calls "$2" ;;
     explain) "$cov" explain "$2" ;;

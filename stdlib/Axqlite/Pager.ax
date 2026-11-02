@@ -86,6 +86,7 @@
 (import Err)
 (import Fmt)
 (import Sys)
+(import Internal.Mapping)
 (import Axqlite.Value)
 
 ; ------------------------------------------------------------------

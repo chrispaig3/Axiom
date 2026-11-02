@@ -44,7 +44,7 @@ prog="$repo_root/tests/litmus/conc-bench.ax"
 
 for lowering in processes threads; do
   flags=(); [[ "$lowering" == threads ]] && flags=(--threads)
-  (cd "$repo_root" && "$axc" build ${flags[@]+"${flags[@]}"} --opt "$opt" --input "$prog" --output "$work/cb-$lowering") \
+  (cd "$repo_root" && gate_fixture_axc "$axc" build ${flags[@]+"${flags[@]}"} --opt "$opt" --input "$prog" --output "$work/cb-$lowering") \
     > "$work/cb-$lowering.build" 2>&1 || { echo "error: conc-bench did not build ($lowering):"; sed 's/^/  /' "$work/cb-$lowering.build" | head -8; exit 1; }
 done
 

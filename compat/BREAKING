@@ -1973,3 +1973,21 @@
 0.8.1  F  netAddrSize  internal; use Net.SocketAddr constructors and accessors, or socketAddrBytes for checked IO calls
 0.8.1  F  netAddrText  internal; use Net.SocketAddr constructors and accessors, or socketAddrBytes for checked IO calls
 0.8.1  F  netAddrTextPort  internal; use Net.SocketAddr constructors and accessors, or socketAddrBytes for checked IO calls
+0.8.1  F  sysWaitWord  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
+0.8.1  F  sysWakeWord  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
+0.8.1  F  sysWaitWordTimeout  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
+0.8.1  F  platformWaitWord  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
+0.8.1  F  platformWakeWord  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
+0.8.1  F  sysMapShared  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
+0.8.1  F  sysUnmapShared  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
+0.8.1  F  sysMapPrivate  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
+0.8.1  F  sysUnmapPrivate  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
+0.8.1  F  sysMlock  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
+0.8.1  F  sysMunlock  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
+0.8.1  F  sysExcludeFromCore  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
+0.8.1  F  platformMapShared  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
+0.8.1  F  platformUnmapShared  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
+0.8.1  F  platformMapPrivate  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
+0.8.1  F  platformUnmapPrivate  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
+0.8.1  F  platformMlock  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
+0.8.1  F  platformMunlock  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary

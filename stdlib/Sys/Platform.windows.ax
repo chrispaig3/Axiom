@@ -28,9 +28,7 @@
 ; (the `platformOpen` group), child processes (the `platformSpawn`
 ; group), the clocks and sleep (`platformMonotonicNanos`,
 ; `platformRealtimeNanos`, `platformSleepNanos`), entropy
-; (`platformRandomBytes`), waiting on a word (`platformWaitWord`,
-; `platformWakeWord`), memory (`platformMapPrivate` and its group), the
-; signal mask, which captures Ctrl-C and Ctrl-Break
+; (`platformRandomBytes`), the signal mask, which captures Ctrl-C and Ctrl-Break
 ; (`platformSignalBlock`), and
 ; TCP sockets with their readiness (the `platformSocket` group and
 ; `platformPoll`, over ws2_32), and the console's modes and size
@@ -665,20 +663,10 @@
   (winQueryPerformanceFrequency :: (-> Int Int) (symbol "QueryPerformanceFrequency"))
   (winGetSystemTimePreciseAsFileTime :: (-> Int Int) (symbol "GetSystemTimePreciseAsFileTime"))
   (winSleep :: (-> Int Int) (symbol "Sleep"))
-  (winVirtualAlloc :: (-> Int Int Int Int Int) (symbol "VirtualAlloc"))
-  (winVirtualFree :: (-> Int Int Int Int) (symbol "VirtualFree"))
-  (winVirtualLock :: (-> Int Int Int) (symbol "VirtualLock"))
-  (winVirtualUnlock :: (-> Int Int Int) (symbol "VirtualUnlock"))
   (winGetFileType :: (-> Int Int) (symbol "GetFileType"))
   (winGetConsoleMode :: (-> Int Int Int) (symbol "GetConsoleMode"))
   (winSetConsoleMode :: (-> Int Int Int) (symbol "SetConsoleMode"))
   (winGetConsoleScreenBufferInfo :: (-> Int Int Int) (symbol "GetConsoleScreenBufferInfo")))
-
-; `WaitOnAddress` and its wake live in an API set, the DLL
-; `synchronization.lib` binds.
-(extern "api-ms-win-core-synch-l1-2-0"
-  (winWaitOnAddress :: (-> Int Int Int Int Int) (symbol "WaitOnAddress"))
-  (winWakeByAddressAll :: (-> Int Int) (symbol "WakeByAddressAll")))
 
 ; HANDLE GetStdHandle(DWORD) - a HANDLE: not masked.
 ; BOOL WriteFile(HANDLE, LPCVOID, DWORD, LPDWORD, LPOVERLAPPED) - BOOL: masked.
@@ -2151,116 +2139,12 @@
   1)
 
 ; ------------------------------------------------------------------
-; Waiting on a word, memory, and the signal mask.
-;
-; `WaitOnAddress` is the futex: it sleeps while the word at an address
-; still holds the value the caller saw, and `WakeByAddressAll` wakes
-; every such sleeper. It is exported by the API set
-; api-ms-win-core-synch-l1-2-0.dll, which `synchronization.lib` names,
-; so that is the `extern` block's library. Only threads of one process
-; can meet on a word here, which is all the thread lowering needs; the
-; process lowering has no `fork` on this target.
-;
-; Memory is `VirtualAlloc` and `VirtualFree`; a "shared" mapping is a
-; private one, since every binding that could share it is a thread of
-; this process. `VirtualLock` pins pages against paging, as `mlock`
-; does, which is what the secret store asks for.
+; The signal mask.
 ;
 ; There is no signal mask: Windows delivers Ctrl-C to a handler routine,
 ; not as a signal, so blocking answers `Ok 0` and the console handler is
 ; its own binding.
 ; ------------------------------------------------------------------
-;; Block until the word at `addr` differs from `expected`, for at most
-;; `nanos` nanoseconds (negative: no limit): 0 woken or spurious, 1 timed
-;; out, 2 the word already differed. The caller compares the word again
-;; either way, as `WaitOnAddress` may return early.
-(pub :: platformWaitWord (-> Int Int Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (platformWaitWord addr expected nanos)
-  (if (!= (__load64 addr 0) expected)
-    2
-    {
-      (let cell winCell)
-      (__store64 cell 0 expected)
-      (let ms
-        (if (< nanos 0)
-          4294967295
-          (if (> nanos 4294967294000000)
-            4294967294
-            (/ (+ nanos 999999) 1000000))))
-      (if (!= (& (winWaitOnAddress addr cell 8 ms) 4294967295) 0)
-        0
-        (if (== (& winGetLastError 4294967295) 1460)
-          1
-          0))
-    }))
-
-;; Wake every waiter on the word at `addr`.
-(pub :: platformWakeWord (-> Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (platformWakeWord addr)
-  {
-    (winWakeByAddressAll addr)
-    0
-  })
-
-;; `len` zeroed, committed bytes from `VirtualAlloc`: `Ok` the address,
-;; or `Err` ENOMEM.
-(pub :: platformMapPrivate (-> Int (Result Int Error)))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (platformMapPrivate len)
-  {
-    (let addr (winVirtualAlloc 0 len 12288 4))
-    (if (== addr 0)
-      (Err (mkError (- 0 (winErrnoOf (& winGetLastError 4294967295))) "platformMapPrivate"))
-      (Ok addr))
-  })
-
-;; Release a mapping made above: `VirtualFree` with MEM_RELEASE, which
-;; takes the whole reservation and a size of 0.
-(pub :: platformUnmapPrivate (-> Int Int (Result Int Error)))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (platformUnmapPrivate addr len)
-  (if (== (& (winVirtualFree addr 0 32768) 4294967295) 0)
-    (Err (mkError (- 0 (winErrnoOf (& winGetLastError 4294967295))) "platformUnmapPrivate"))
-    (Ok 0)))
-
-;; A shared mapping: the same pages, since the bindings that share it
-;; are threads of this process.
-(pub :: platformMapShared (-> Int (Result Int Error)))
-;@axiom:effect(io)
-(pub fn (platformMapShared len)
-  (platformMapPrivate len))
-
-;; Release a shared mapping: the same release, for the same pages.
-(pub :: platformUnmapShared (-> Int Int (Result Int Error)))
-;@axiom:effect(io)
-(pub fn (platformUnmapShared addr len)
-  (platformUnmapPrivate addr len))
-
-;; Pin `len` bytes at `addr`: `VirtualLock`, `Ok 0` or `Err` with the
-;; errno `winErrnoOf` maps the last error to.
-(pub :: platformMlock (-> Int Int (Result Int Error)))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (platformMlock addr len)
-  (if (== (& (winVirtualLock addr len) 4294967295) 0)
-    (Err (mkError (- 0 (winErrnoOf (& winGetLastError 4294967295))) "platformMlock"))
-    (Ok 0)))
-
-;; Unpin them: `VirtualUnlock`.
-(pub :: platformMunlock (-> Int Int (Result Int Error)))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (platformMunlock addr len)
-  (if (== (& (winVirtualUnlock addr len) 4294967295) 0)
-    (Err (mkError (- 0 (winErrnoOf (& winGetLastError 4294967295))) "platformMunlock"))
-    (Ok 0)))
-
 ; These functions are defined in the emitted runtime. Their process-wide
 ; atomic mask and pending bits must outlive every poller and arena reset.
 ; The kernel32 block shares the runtime's import group; the compiler

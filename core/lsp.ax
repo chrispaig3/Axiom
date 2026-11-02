@@ -54,6 +54,7 @@
 (import Vec)
 (import Utf8)
 (import Sys)
+(import raw_mapping)
 (import Sys.Platform (sigChild))
 (import IO
   (cwd isDir listDir readFile stdin stdout Poller pollerNew pollerAdd pollerWait pollerRemove
@@ -19383,7 +19384,7 @@
           ((Err e) 0)
           ((Ok ignored) 0))
         (__proc_join_nr handle cell)
-        (unwrapOr (sysUnmapShared store.workSlab (+ lspWorkLimit 8)) 0)
+        (unwrapOr (compilerUnmapShared store.workSlab (+ lspWorkLimit 8)) 0)
         (set store.workHandle 0)
         (set store.workSlab 0)
         (if (&& (!= code 0) (&& (> (vecLen meta) 1) (strEq (vecGet meta 0) "request")))
@@ -19471,7 +19472,7 @@
         (vecClear store.work)
         0
       }
-      (match (sysMapShared (+ lspWorkLimit 8))
+      (match (compilerMapShared (+ lspWorkLimit 8))
         ((Err e) (lspWorkFailure store "could not allocate the analysis result buffer"))
         ((Ok slab)
           {
@@ -19488,7 +19489,7 @@
                       "background request started"))
                 }
                 {
-                  (unwrapOr (sysUnmapShared slab (+ lspWorkLimit 8)) 0)
+                  (unwrapOr (compilerUnmapShared slab (+ lspWorkLimit 8)) 0)
                   (lspWorkFailure store "could not start the analysis worker")
                 })
             }
@@ -19523,7 +19524,7 @@
                       (lspWorkDeliver store (strDup (strWrap (+ slab 8) length)))
                       (lspWorkFailure store "analysis worker failed or exceeded its result limit"))
                   })
-                (unwrapOr (sysUnmapShared slab (+ lspWorkLimit 8)) 0)
+                (unwrapOr (compilerUnmapShared slab (+ lspWorkLimit 8)) 0)
                 (set store.workSlab 0)
                 (vecClear store.work)
                 0

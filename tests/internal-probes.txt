@@ -1,0 +1,22 @@
+# Raw storage, ABI and corruption fixtures compiled by scripts/lib/internal-probe.py.
+tests/litmus/chan-dead.ax
+tests/litmus/chan-load.ax
+tests/litmus/conc-bench.ax
+tests/litmus/handle-bitflip.ax
+tests/litmus/handle-load.ax
+tests/litmus/liveness.ax
+tests/litmus/pool-refuse.ax
+tests/litmus/sync-load.ax
+tests/litmus/task-budget.ax
+tests/litmus/task-load.ax
+tests/litmus/thread-in-fork.ax
+tests/stdlib/495-wait-word.ax
+tests/stdlib/540-wait-timeout.ax
+tests/stdlib/541-sync-mutex.ax
+tests/stdlib/543-task-failures.ax
+tests/stdlib/590-chan-dead-holder.ax
+tests/stdlib/600-mutex-dead-child.ax
+tests/stdlib/601-task-spawn-refused.ax
+tests/stdlib/602-par-spawn-refused.ax
+tests/stdlib/952-task-ranges-lifecycle.ax
+tests/stdlib/960-task-launch-cancellation.ax

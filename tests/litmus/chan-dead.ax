@@ -59,7 +59,7 @@
 ;@axiom:effect(block)
 (fn (nap idle us)
   {
-    (sysWaitWordTimeout idle 0 (* us 1000))
+    (match (sysSleepNanos (* us 1000)) ((Ok slept) slept) ((Err sleepError) (- 0 (errCode sleepError))))
     0
   })
 

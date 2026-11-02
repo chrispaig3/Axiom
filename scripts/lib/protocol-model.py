@@ -163,7 +163,7 @@ import sys
 
 CHAN = "Chan.ax"
 SYNC = "Sync.ax"
-SYS = "Sys.ax"
+SYS = "Internal/Wait.ax"
 # The files the transcription is checked against. `task-model.py` adds
 # Task.ax, with the process operations its functions must hold.
 SOURCES = [CHAN, SYNC, SYS]
@@ -197,7 +197,7 @@ POISON = 3         # chanPoisonMark: the lock word of a poisoned channel
 LOCK_TIMED_OUT, OWNER_DEAD = -1, -2
 UNLOCK_OK, NOT_HELD = 0, 1005
 
-# ---- Sys.ax: the kernel's word wait ------------------------------------
+# ---- Internal/Wait.ax: the kernel's word wait ------------------------------------
 
 F("sysWakeWord", ["addr"], [], (SYS, "sysWakeWord"), [
     ("wake", "addr", "(sysWakeWordRaw addr)"),
@@ -2589,7 +2589,7 @@ def check_source(stdlib, verbose=True):
 # answer the word's value then), 8 that wait returned (answer its code),
 # 9 wake. The lock is held across each operation, so the record's order
 # is the order the operations happened in. A wait is
-# `sysWaitWordTimeout`, whose own entry load is in Sys.ax and not
+# `sysWaitWordTimeout`, whose own entry load is in Internal/Wait.ax and not
 # recorded: the replay takes the recorded return code as the wait's
 # answer. The channel's cleanup, when its last owner lets go, prints the
 # record, with a `trace <cap> <count> <max>` line first. A program replayed here uses the untimed calls.
@@ -2903,7 +2903,7 @@ def replay_to_stop(model, c, b, op):
     binding dies it answers alive, which the model's kill and look do
     when no binding has died; it is taken here. A recorded wait begins
     (op 7) where the model's `sysWaitWordTimeout` makes its entry load,
-    which Sys.ax does unrecorded: the load is taken as finding the word
+    which Internal/Wait.ax does unrecorded: the load is taken as finding the word
     unchanged, and the recorded return code says what the wait found."""
     while True:
         outs = model.run(c, b, False, stops=REPLAY_STOPS)

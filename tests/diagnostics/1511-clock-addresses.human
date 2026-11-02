@@ -43,49 +43,49 @@
   [1;34m = [0m[1;32mhelp: [0mremove the extra argument(s), or add a parameter to the definition
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
 
-[1;31merror[AX3023][0m[1m: `Sys::sysNowMicrosRaw` is private to module `Sys`[0m
+[1;31merror[AX5002][0m[1m: `sysNowMicrosRaw` belongs to `Internal.Clock`, which is internal to the standard library[0m
   [1;34m--> [0m1511-clock-addresses.ax:33:4
 [1;34m   |[0m
-[1;34m33 |[0m   (Sys::sysNowMicrosRaw address))
-[1;34m   |[0m    [1;31m^^^ `sysNowMicrosRaw` is not exported by its module[0m
+[1;34m33 |[0m   (sysNowMicrosRaw address))
+[1;34m   |[0m    [1;31m^^^^^^^^^^^^^^^ internal to the standard library[0m
 [1;34m   |[0m
-  [1;34m = [0m[1;32mhelp: [0ma name leaves its module when its declaration is written `pub`; if the import that brought the module in carries a name list, the name has to appear there too
-  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3023` for a full explanation
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
 
-[1;31merror[AX3023][0m[1m: `Sys::sysNowMonotonicRaw` is private to module `Sys`[0m
+[1;31merror[AX5002][0m[1m: `sysNowMonotonicRaw` belongs to `Internal.Clock`, which is internal to the standard library[0m
   [1;34m--> [0m1511-clock-addresses.ax:37:4
 [1;34m   |[0m
-[1;34m37 |[0m   (Sys::sysNowMonotonicRaw address))
-[1;34m   |[0m    [1;31m^^^ `sysNowMonotonicRaw` is not exported by its module[0m
+[1;34m37 |[0m   (sysNowMonotonicRaw address))
+[1;34m   |[0m    [1;31m^^^^^^^^^^^^^^^^^^ internal to the standard library[0m
 [1;34m   |[0m
-  [1;34m = [0m[1;32mhelp: [0ma name leaves its module when its declaration is written `pub`; if the import that brought the module in carries a name list, the name has to appear there too
-  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3023` for a full explanation
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
 
-[1;31merror[AX3023][0m[1m: `Sys::sysNowMonotonicNanosRaw` is private to module `Sys`[0m
+[1;31merror[AX5002][0m[1m: `sysNowMonotonicNanosRaw` belongs to `Internal.Clock`, which is internal to the standard library[0m
   [1;34m--> [0m1511-clock-addresses.ax:41:4
 [1;34m   |[0m
-[1;34m41 |[0m   (Sys::sysNowMonotonicNanosRaw address))
-[1;34m   |[0m    [1;31m^^^ `sysNowMonotonicNanosRaw` is not exported by its module[0m
+[1;34m41 |[0m   (sysNowMonotonicNanosRaw address))
+[1;34m   |[0m    [1;31m^^^^^^^^^^^^^^^^^^^^^^^ internal to the standard library[0m
 [1;34m   |[0m
-  [1;34m = [0m[1;32mhelp: [0ma name leaves its module when its declaration is written `pub`; if the import that brought the module in carries a name list, the name has to appear there too
-  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3023` for a full explanation
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
 
-[1;31merror[AX3023][0m[1m: `Sys::sysNowRealtimeNanosRaw` is private to module `Sys`[0m
+[1;31merror[AX5002][0m[1m: `sysNowRealtimeNanosRaw` belongs to `Internal.Clock`, which is internal to the standard library[0m
   [1;34m--> [0m1511-clock-addresses.ax:45:4
 [1;34m   |[0m
-[1;34m45 |[0m   (Sys::sysNowRealtimeNanosRaw address))
-[1;34m   |[0m    [1;31m^^^ `sysNowRealtimeNanosRaw` is not exported by its module[0m
+[1;34m45 |[0m   (sysNowRealtimeNanosRaw address))
+[1;34m   |[0m    [1;31m^^^^^^^^^^^^^^^^^^^^^^ internal to the standard library[0m
 [1;34m   |[0m
-  [1;34m = [0m[1;32mhelp: [0ma name leaves its module when its declaration is written `pub`; if the import that brought the module in carries a name list, the name has to appear there too
-  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3023` for a full explanation
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
 
-[1;31merror[AX3023][0m[1m: `Sys::sysTimeoutMicrosRaw` is private to module `Sys`[0m
+[1;31merror[AX5002][0m[1m: `sysTimeoutMicrosRaw` belongs to `Internal.Clock`, which is internal to the standard library[0m
   [1;34m--> [0m1511-clock-addresses.ax:49:4
 [1;34m   |[0m
-[1;34m49 |[0m   (Sys::sysTimeoutMicrosRaw address))
-[1;34m   |[0m    [1;31m^^^ `sysTimeoutMicrosRaw` is not exported by its module[0m
+[1;34m49 |[0m   (sysTimeoutMicrosRaw address))
+[1;34m   |[0m    [1;31m^^^^^^^^^^^^^^^^^^^ internal to the standard library[0m
 [1;34m   |[0m
-  [1;34m = [0m[1;32mhelp: [0ma name leaves its module when its declaration is written `pub`; if the import that brought the module in carries a name list, the name has to appear there too
-  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3023` for a full explanation
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
 
 compilation failed due to 10 previous errors

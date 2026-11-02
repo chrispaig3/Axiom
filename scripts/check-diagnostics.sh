@@ -377,7 +377,7 @@ for src in core/*.ax stdlib/*.ax stdlib/Sys/*.ax tests/stdlib/*.ax \
   # human-rendered warning on a clean-exit file would pass BOTH checks -
   # grep-empty and exit 0 - and this section would go blind to exactly
   # the class of report it exists to refuse.
-  out="$(cd "$work" && ./axc --diagnostic-format=ai emit-llvm "$src" 2>"$work/sweep.err" >/dev/null; echo "$?")"
+  out="$(cd "$work" && gate_fixture_axc ./axc --diagnostic-format=ai emit-llvm "$src" 2>"$work/sweep.err" >/dev/null; echo "$?")"
   diags="$(axdl_only < "$work/sweep.err")"
   if ! gate_axdl_unknown_kind "$work/sweep.err"; then
     echo "FAIL $src (an AXDL line kind outside EWNH on the compiler's own source)"

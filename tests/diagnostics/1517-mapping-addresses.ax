@@ -1,0 +1,56 @@
+; Raw mapping ownership cannot cross the public library boundary.
+(import Sys)
+(import Crypto.Secret)
+(import Err)
+
+(:: probe0 (-> Int (Result Int Error)))
+(fn (probe0 address)
+  (sysMapShared address))
+
+(:: probe1 (-> Int (Result Int Error)))
+(fn (probe1 address)
+  (sysUnmapShared address 4096))
+
+(:: probe2 (-> Int (Result Int Error)))
+(fn (probe2 address)
+  (sysMapPrivate address))
+
+(:: probe3 (-> Int (Result Int Error)))
+(fn (probe3 address)
+  (sysUnmapPrivate address 4096))
+
+(:: probe4 (-> Int (Result Int Error)))
+(fn (probe4 address)
+  (sysMlock address 4096))
+
+(:: probe5 (-> Int (Result Int Error)))
+(fn (probe5 address)
+  (sysMunlock address 4096))
+
+(:: probe6 (-> Int (Result Int Error)))
+(fn (probe6 address)
+  (sysExcludeFromCore address 4096))
+
+(:: probe7 (-> Int (Result Int Error)))
+(fn (probe7 address)
+  (platformMapShared address))
+
+(:: probe8 (-> Int (Result Int Error)))
+(fn (probe8 address)
+  (platformUnmapShared address 4096))
+
+(:: probe9 (-> Int (Result Int Error)))
+(fn (probe9 address)
+  (platformMapPrivate address))
+
+(:: probe10 (-> Int (Result Int Error)))
+(fn (probe10 address)
+  (platformUnmapPrivate address 4096))
+
+(:: probe11 (-> Int (Result Int Error)))
+(fn (probe11 address)
+  (platformMlock address 4096))
+
+(:: probe12 (-> Int (Result Int Error)))
+(fn (probe12 address)
+  (platformMunlock address 4096))

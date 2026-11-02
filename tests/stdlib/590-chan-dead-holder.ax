@@ -79,7 +79,7 @@
     {
       (__atomic_store flag 1)
       (while (== 0 0)
-        (sysWaitWordTimeout flag 1 1000000000))
+        (match (sysSleepNanos 1000000000) ((Ok slept) slept) ((Err sleepError) (- 0 (errCode sleepError)))))
       0
     }
     9))
@@ -101,7 +101,7 @@
             (let h (__proc_spawn (lambda (x) (holdLock c flag)) 0))
             {
               (while (== (flagged flag) 0)
-                (sysWaitWordTimeout flag 0 1000000))
+                (match (sysSleepNanos 1000000) ((Ok slept) slept) ((Err sleepError) (- 0 (errCode sleepError)))))
               (say "alive-timed" (recvCode (chanRecvTimeout c 50000000)))
               (say "alive-poisoned" (bit (chanPoisoned c)))
               (match (sysKill (handlePid h) 9)

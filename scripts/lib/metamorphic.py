@@ -85,6 +85,9 @@ Usage:
 Exit 0 when every accepted program keeps the relation, 1 otherwise.
 """
 import concurrent.futures as cf
+import functools
+from pathlib import Path
+import threading
 import os
 import re
 import subprocess
@@ -137,11 +140,45 @@ def rows(out, fname):
     return table
 
 
+PROBE_ROOT = Path(__file__).resolve().parents[2]
+PROBE_FILES = {str((PROBE_ROOT / line).resolve()) for line in
+               (PROBE_ROOT / 'tests/internal-probes.txt').read_text().splitlines()
+               if line and not line.startswith('#')}
+PROBE_CONTEXT = threading.local()
+
+
+def internal_probe_relation(function):
+    """Keep an explicitly listed raw fixture and every variant in one role."""
+    @functools.wraps(function)
+    def wrapped(axiom, path, *args, **kwargs):
+        resolved = str(Path(path).resolve())
+        PROBE_CONTEXT.fixture = resolved if resolved in PROBE_FILES else None
+        try:
+            return function(axiom, path, *args, **kwargs)
+        finally:
+            PROBE_CONTEXT.fixture = None
+    return wrapped
+
+
+def normalise_probe_paths(text):
+    # Each invocation owns an isolated copy; only that temporary root differs.
+    text = re.sub(r'[^ \"\n]*?/axiom-internal-probe-[^/ \"\n]+/',
+                  '<internal-probe>/', text)
+    return text.replace('<internal-probe>/stdlib/InternalProbeFixture.ax', 'F')
+
+
 def run(axiom, args, cwd):
     try:
-        p = subprocess.run([axiom, "--diagnostic-format=ai"] + args, cwd=cwd,
+        fixture = getattr(PROBE_CONTEXT, 'fixture', None)
+        command = [axiom, "--diagnostic-format=ai"] + args
+        if fixture:
+            command = [sys.executable, str(PROBE_ROOT / 'scripts/lib/internal-probe.py'),
+                       '--fixture', fixture] + command
+        p = subprocess.run(command, cwd=cwd,
                            capture_output=True, text=True, timeout=DEADLINE,
                            errors="replace")
+        if fixture:
+            return p.returncode, normalise_probe_paths(p.stdout), normalise_probe_paths(p.stderr)
         return p.returncode, p.stdout, p.stderr
     except subprocess.TimeoutExpired:
         return -1, "", "timeout"
@@ -190,6 +227,7 @@ def compare(base, var):
     return probs
 
 
+@internal_probe_relation
 def one(axiom, path):
     path = os.path.abspath(path)
     cwd, base = os.path.split(path)
@@ -242,6 +280,7 @@ def shadowing(names):
     return "\n".join(out) + "\n"
 
 
+@internal_probe_relation
 def one_shadow(axiom, path):
     path = os.path.abspath(path)
     cwd, base = os.path.split(path)
@@ -453,6 +492,7 @@ def plain_rows(table):
     return {k: re.sub(r'F:\d+:\d+(-\d+(:\d+)?)?', 'LOC', v) for k, v in table.items()}
 
 
+@internal_probe_relation
 def one_reorder(axiom, path, transform=reordered):
     path = os.path.abspath(path)
     cwd, base = os.path.split(path)
