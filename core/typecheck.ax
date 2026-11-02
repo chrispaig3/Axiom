@@ -15196,7 +15196,17 @@
                     {
                       (vecPush seen key)
                       (if (let (Some dent) dentFound)
-                        (showDerivableCtors tc (dataEntCtors dent) ty seen 0)
+                        ; A `data` with no constructors is abstract:
+                        ; there is no shape to take apart. Asking its
+                        ; (empty) constructor list said derivable, and
+                        ; generation then built a renderer with no arm
+                        ; to answer - a null `String` that segfaulted
+                        ; the first `concat` to read it, for a `Vec`
+                        ; field inside any record. Refuse it here,
+                        ; where every other unrenderable shape is.
+                        (if (== (vecLen (dataEntCtors dent)) 0)
+                          (Some ty)
+                          (showDerivableCtors tc (dataEntCtors dent) ty seen 0))
                         {
                           (let sentFound (findStruct tc n))
                           (if (let (Some sent) sentFound)

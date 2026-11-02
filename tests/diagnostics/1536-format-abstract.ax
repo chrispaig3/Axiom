@@ -1,0 +1,26 @@
+; An abstract type has no rendering, wherever it sits. `Vec` is a
+; `data` with no constructors, so there is no shape to take apart:
+; inside a struct field and inside an `Option` it is refused with
+; AX3025 at the hole, where it used to generate an empty renderer
+; whose null string segfaulted the program that printed it.
+(import IO)
+(import Vec)
+
+(struct Bag
+  (items : (Vec Int)))
+
+(:: showBag (-> Bag Int))
+;@axiom:effect(io)
+(fn (showBag b)
+  {
+    (println "b={b}")
+    0
+  })
+
+(:: showOpt (-> (Option (Vec Int)) Int))
+;@axiom:effect(io)
+(fn (showOpt o)
+  {
+    (println "o={o}")
+    0
+  })

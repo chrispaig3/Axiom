@@ -1,0 +1,21 @@
+[1;31merror[AX3025][0m[1m: `format` cannot render `Bag`: it holds a `Vec Int`, which has no rendering[0m
+  [1;34m--> [0m1536-format-abstract.ax:16:18
+[1;34m   |[0m
+[1;34m16 |[0m     (println "b={b}")
+[1;34m   |[0m                  [1;31m^ no rendering derived[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma rendering is derived from the static type at compile time, field by field, and a type the compiler cannot take apart has none
+  [1;34m = [0m[1;32mhelp: [0mgive the field a type `format` can render, or write a function that renders this type and interpolate its result
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3025` for a full explanation
+
+[1;31merror[AX3025][0m[1m: `format` cannot render `Option Vec Int`: it holds a `Vec Int`, which has no rendering[0m
+  [1;34m--> [0m1536-format-abstract.ax:24:18
+[1;34m   |[0m
+[1;34m24 |[0m     (println "o={o}")
+[1;34m   |[0m                  [1;31m^ no rendering derived[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma rendering is derived from the static type at compile time, field by field, and a type the compiler cannot take apart has none
+  [1;34m = [0m[1;32mhelp: [0mgive the field a type `format` can render, or write a function that renders this type and interpolate its result
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3025` for a full explanation
+
+compilation failed due to 2 previous errors

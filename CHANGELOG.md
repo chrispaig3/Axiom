@@ -16,6 +16,11 @@ its changelog too.
 
 ## Unreleased
 
+- Formatting a record that holds an abstract type such as `Vec` is
+  refused with `AX3025`. It generated an empty renderer whose null
+  string crashed the program that printed it. Tested by
+  `tests/diagnostics/1536-format-abstract.ax`.
+
 - Storing over a field counts the released value's drop effects where
   it drops. A `restrict(no-io)` claim over such a store is warned as
   unverifiable, and a strict one is refused. Holding a value costs
