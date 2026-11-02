@@ -747,7 +747,7 @@ needs no tag. `vecPush`, `concat` and `mapInsert` are trusted.
 a program is one `grep`.
 
 Functions that take a raw address or handle are trusted too, such as
-`Sys.Platform.platformReadFd`. Safe code can still crash by passing a bad
+`Sys.sysSpawn`. Safe code can still crash by passing a bad
 address or handle, because an `Int` carries no proof of what it points
 at. State a condition the arguments can show as a `;@axiom:pre(...)`
 contract, which is checked on every call and traps 80, and describe
@@ -822,7 +822,7 @@ in a signature.
 
 *Withdrawn:* a function that hands the kernel a caller's address is a
 trusted encapsulation like any other (`MM-EXEC-9d`).
-`Sys.Platform.platformReadFd` still takes a raw address and descriptor;
+`Sys.sysSpawn` still takes raw path, argument and environment addresses;
 `restrict(no-unsafe)` admits it. IO's public descriptor calls use owners
 (`MM-EXEC-17a`), and their range checks hold (`MM-EXEC-9f`).
 Tested by `tests/diagnostics/1081-sys-buffer-calls.ax` and
@@ -876,7 +876,7 @@ library. Tested by `tests/diagnostics/1470-internal-import.ax` and
 `tests/diagnostics/1471-internal-name.ax`.
 
 Not yet: some public functions still take a raw address, such as
-`Sys.Platform.platformReadFd` ([roadmap](roadmap.md)).
+`Sys.sysSpawn` ([roadmap](roadmap.md)).
 
 **MM-EXEC-10 (H).** Handlers for a declared effect are installed by
 `handle` and dispatch through a per-effect evidence slot:
@@ -5848,9 +5848,8 @@ page's owner check traps 78 on a live handle another binding spawned.
 A copy of a live handle's word, in the binding that spawned it, still
 joins that child. The salt defends against a wrong word, not one read
 out of memory, and the unsafe layer can read the table. The raw layer
-is internal to the library (`MM-EXEC-9g`), but a public function that
-writes through a caller's address, such as `Sys.Platform.platformReadFd`, can still
-overwrite a `Spawn` stored in a struct. The join that reads it back
+is internal to the library (`MM-EXEC-9g`). Overwriting a `Spawn` through
+an address requires a program's own unsafe memory access. The join that reads it back
 traps 85 unless the word names a live slot.
 
 *Evidence.* `tests/stdlib/571-handle-table.ax`,

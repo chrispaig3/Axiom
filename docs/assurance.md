@@ -69,7 +69,7 @@ limits.
 | Invariant | Enforced by | A program it refuses | Limit |
 |---|---|---|---|
 | A reference is made only by a constructor, by an allocation the library types, or by a trusted function that says so | `AX3073` on a forging `as`; `AX5002` keeps `Internal.Raw` and `Internal.RawVec` inside the library (`MM-EXEC-9d`, `MM-EXEC-9g`) | `(as 7 Hid)` in an untagged function; `(import Internal.Raw)` from a program | A trusted body is reviewed, never proved |
-| A word that reaches the kernel or a primitive as an address was made by the function that passes it, or its caller said so | `effect(unsafe)` on every user of a primitive; `restrict(no-unsafe)` names the path to any untrusted one (`MM-EXEC-9d`) | `(__load64 a 0)` in an untagged function | A public function that still takes an address as an `Int`, such as `Sys.Platform.platformReadFd`, trusts its caller |
+| A word that reaches the kernel or a primitive as an address was made by the function that passes it, or its caller said so | `effect(unsafe)` on every user of a primitive; `restrict(no-unsafe)` names the path to any untrusted one (`MM-EXEC-9d`) | `(__load64 a 0)` in an untagged function | A public function that still takes an address as an `Int`, such as `Sys.sysSpawn`, trusts its caller |
 | A typed read or write checks its range before memory or the kernel sees it | The index trap, status 77, in `vecGet`, `vecSet`, `strByte`, `strSlice` and `fileRead` (`MM-MUT-5a`, `MM-EXEC-9f`) | `(vecGet v 9)` over three elements | A raw `Int` index into a raw block has no range |
 | Every value is released once, by its owner, and never while a share is live | The ownership events of `MM-LIFE-2`, the counted stores of `MM-LIFE-2g`, the `result(owned)` claims | a `set` that drops a `File` without its release | A cycle leaks until an arena reset. The compiler and the library can still untrack a value with `(as v Int)`. User files in a directory named `core` share the exemption (`MM-VAL-24`, `MM-EXEC-9d`) |
 | A region's values do not outlive it | `MM-RGN-1` to `MM-RGN-6`: typed origins, store, return, capture and argument escapes are refused (`AX3059`, `AX3060`) | storing a region value into an outer struct | Promoting an owned reference out of a region is `MM-RGN-7`, planned |
@@ -296,7 +296,7 @@ the neighbourhood of the corpus.
   applies to user files (`MM-EXEC-9d`). A function result can't erase
   its type (`MM-VAL-24`).
 - Some public functions still take a raw address, such as
-  `Sys.Platform.platformReadFd`, so safe code can crash by passing
+  `Sys.sysSpawn`, so safe code can crash by passing
   a bad one (`MM-EXEC-9d`, [roadmap](roadmap.md)). Clock reads take no
   address and release their own scratch storage
   (`tests/stdlib/1005-clock-owned-scratch.ax`). Entropy returns owned
@@ -308,7 +308,9 @@ the neighbourhood of the corpus.
   their bytes; raw builders and readers are internal
   (`tests/diagnostics/1515-socket-addresses.ax`). Wait and mapping addresses
   also stay internal (`tests/diagnostics/1516-wait-addresses.ax` and
-  `tests/diagnostics/1517-mapping-addresses.ax`).
+  `tests/diagnostics/1517-mapping-addresses.ax`). Raw platform buffer, path
+  and descriptor operations are internal
+  (`tests/diagnostics/1518-platform-addresses.ax`).
 - A closure with more than 46 captures retains counted captures without
   a reference map to release them (`MM-LIFE-2c`,
   `tests/stdlib/1004-capture-map-limit.ax`).

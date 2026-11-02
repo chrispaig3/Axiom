@@ -5,6 +5,7 @@ This checks library routing, timeouts, flags and buffer sharing. The
 runtime reader and native Windows delivery have their own probes.
 """
 import argparse
+from platform_source import windows_platform_source
 import os
 from pathlib import Path
 import shutil
@@ -22,7 +23,7 @@ def main():
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[2]
     axiom = str(Path(args.axiom).resolve())
-    platform = (root / "stdlib/Sys/Platform.windows.ax").read_text()
+    platform = windows_platform_source(root)
     with tempfile.TemporaryDirectory(prefix="axiom-windows-readiness-") as tmp:
         work = Path(tmp)
         lib = work / "stdlib"

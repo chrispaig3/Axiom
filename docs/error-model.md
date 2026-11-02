@@ -1578,8 +1578,8 @@ itself (§10).
 
 ## 10. Adoption
 
-**ERR-ADOPT-1 (P). The public sentinel census records 40 functions
-across three modules: 38 failure sentinels and two absence sentinels.
+**ERR-ADOPT-1 (P). The public sentinel census records eight functions
+across three modules: six failure sentinels and two absence sentinels.
 Each migration declares its compatibility change.**
 
 §10.1 has what is left today, and §10.2 has the order in which the
@@ -1600,9 +1600,9 @@ pass `restrict(no-alloc)`, and cannot sit in a `handle` checked
 exhaustive against a narrower row. Removing this cost was proposed. It stays refuted, because its `Mut` half is
 unsound, and the migration doesn't need it.
 
-The remaining failure sentinels are platform stubs in
-`Sys/Platform.darwin.ax`. Typed IO wrappers choose the native syscall
-path on this target. The two absence sentinels belong to `Tui.Keys`
+The remaining failure sentinels are public platform operations in
+`Sys/Platform.darwin.ax`. Raw descriptor and buffer operations stay
+behind typed IO wrappers. The two absence sentinels belong to `Tui.Keys`
 and `Tui.Term`; they need `Option`, which carries no error message.
 
 An `Option` still needs a block once something stores it. `(Some v)` is
@@ -1913,10 +1913,10 @@ sorting the sentinels by it changes what finishing the migration means.
 
 | Public module | Absence (wants `Option`) | Failure (wants `Result`) |
 |---|---|---|
-| `Sys.Platform` on Darwin | 0 | 38 |
+| `Sys.Platform` on Darwin | 0 | 6 |
 | `Tui.Keys` | 1 | 0 |
 | `Tui.Term` | 1 | 0 |
-| Total | **2** | **38** |
+| Total | **2** | **6** |
 
 
 The floor is two absence rows and no failure rows. The rest of this

@@ -1,12 +1,7 @@
-;;! Sys.Platform - the numbers this target's kernel uses: syscall
-;;! numbers, open and socket flags, errno values, poll and signal
-;;! constants and struct layouts. One file per target; every file
-;;! declares the same names, and the build picks the one for the
-;;! target being compiled for (this one is `darwin`).
-; `Err` for the `(Result Int Error)` the two descriptor calls below
-; answer. `Err` imports `Str`, which imports `Mem` and
-; `Vec`, and none of those import this module, so the edge is acyclic.
+;;! Sys.Platform - target constants and safe platform operations.
+; Raw addresses and descriptor operations belong to Internal.Platform.
 (import Err)
+(import Internal.Platform)
 
 ;; Sys.Platform - Darwin (macOS) syscall numbers and flags.
 ;
@@ -29,55 +24,55 @@
 ; read(fd, buf, count) - BSD 3
 (pub :: sysReadNum Int)
 (pub fn (sysReadNum)
-  33554435)
+  Internal.Platform::impl_sysReadNum)
 
 ;; write(fd, buf, count) - BSD 4
 (pub :: sysWriteNum Int)
 (pub fn (sysWriteNum)
-  33554436)
+  Internal.Platform::impl_sysWriteNum)
 
 ;; open(path, flags, mode) - BSD 5
 (pub :: sysOpenNum Int)
 (pub fn (sysOpenNum)
-  33554437)
+  Internal.Platform::impl_sysOpenNum)
 
 ;; close(fd) - BSD 6
 (pub :: sysCloseNum Int)
 (pub fn (sysCloseNum)
-  33554438)
+  Internal.Platform::impl_sysCloseNum)
 
 ;; exit(status) - BSD 1
 (pub :: sysExitNum Int)
 (pub fn (sysExitNum)
-  33554433)
+  Internal.Platform::impl_sysExitNum)
 
 ;; lseek(fd, offset, whence) - BSD 199
 (pub :: sysLseekNum Int)
 (pub fn (sysLseekNum)
-  33554631)
+  Internal.Platform::impl_sysLseekNum)
 
 ;; Darwin has a real `open`, so no `openat` indirection is needed.
 ;; `Sys.ax` branches on this rather than on an OS name, so adding a
 ;; platform never means editing portable code.
 (pub :: openNeedsDirFd Int)
 (pub fn (openNeedsDirFd)
-  0)
+  Internal.Platform::impl_openNeedsDirFd)
 
 ;; Unused on Darwin (see `openNeedsDirFd`), but defined so that
 ;; `Sys.ax` type-checks against every platform module.
 (pub :: atFdCwd Int)
 (pub fn (atFdCwd)
-  0)
+  Internal.Platform::impl_atFdCwd)
 
 ;; The `O_RDONLY` flag for `open` on this platform: read only.
 (pub :: oRdonly Int)
 (pub fn (oRdonly)
-  0)
+  Internal.Platform::impl_oRdonly)
 
 ;; O_WRONLY | O_CREAT | O_TRUNC = 0x0001 | 0x0200 | 0x0400
 (pub :: oWronlyCreateTrunc Int)
 (pub fn (oWronlyCreateTrunc)
-  1537)
+  Internal.Platform::impl_oWronlyCreateTrunc)
 
 ;; O_WRONLY | O_CREAT | O_APPEND = 0x0001 | 0x0200 | 0x0008
 ;
@@ -88,19 +83,19 @@
 ; they interleave whole writes instead.
 (pub :: oWronlyCreateAppend Int)
 (pub fn (oWronlyCreateAppend)
-  521)
+  Internal.Platform::impl_oWronlyCreateAppend)
 
 ;; The `whence` value for `lseek` that measures from the end of the
 ;; file.
 (pub :: seekEnd Int)
 (pub fn (seekEnd)
-  2)
+  Internal.Platform::impl_seekEnd)
 
 ;; The `whence` value for `lseek` that measures from the start of the
 ;; file.
 (pub :: seekSet Int)
 (pub fn (seekSet)
-  0)
+  Internal.Platform::impl_seekSet)
 
 ; ------------------------------------------------------------------
 ;; Starting a child process.
@@ -117,7 +112,7 @@
 ; keeping with `openNeedsDirFd`: portable code above never names an OS.
 (pub :: spawnUsesPosixSpawn Int)
 (pub fn (spawnUsesPosixSpawn)
-  1)
+  Internal.Platform::impl_spawnUsesPosixSpawn)
 
 ;; posix_spawn - BSD 244.
 ;
@@ -170,35 +165,35 @@
 ;; none, the `clone` flags where it is `clone`.
 (pub :: sysForkArg Int)
 (pub fn (sysForkArg)
-  0)
+  Internal.Platform::impl_sysForkArg)
 
 ;; The `execve` syscall number, or 0 where the platform runs a child
 ;; through its own path.
 (pub :: sysExecveNum Int)
 (pub fn (sysExecveNum)
-  0)
+  Internal.Platform::impl_sysExecveNum)
 
 ;; unlink(path) - BSD 10.
 (pub :: sysUnlinkNum Int)
 (pub fn (sysUnlinkNum)
-  33554442)
+  Internal.Platform::impl_sysUnlinkNum)
 
 ;; mkdir(path, mode) - BSD 136. Darwin has the plain call, so
 ;; `openNeedsDirFd` is 0 here and `sysMkdir` uses the two-argument form.
 (pub :: sysMkdirNum Int)
 (pub fn (sysMkdirNum)
-  33554568)
+  Internal.Platform::impl_sysMkdirNum)
 
 ;; rmdir(path) - BSD 137.
 (pub :: sysRmdirNum Int)
 (pub fn (sysRmdirNum)
-  33554569)
+  Internal.Platform::impl_sysRmdirNum)
 
 ;; rename(from, to) - BSD 128. Darwin has the plain two-argument call,
 ;; so `openNeedsDirFd` is 0 here and `sysRename` uses it directly.
 (pub :: sysRenameNum Int)
 (pub fn (sysRenameNum)
-  33554560)
+  Internal.Platform::impl_sysRenameNum)
 
 ; ------------------------------------------------------------------
 ;; Reading a directory.
@@ -214,13 +209,13 @@
 ; `openNeedsDirFd` selects `open` from `openat`.
 (pub :: sysGetdentsNum Int)
 (pub fn (sysGetdentsNum)
-  33554776)
+  Internal.Platform::impl_sysGetdentsNum)
 
 ;; 1 where reading a directory needs a position argument
 ;; (`getdirentries`), 0 where `getdents` keeps its own.
 (pub :: dirReadNeedsPosition Int)
 (pub fn (dirReadNeedsPosition)
-  1)
+  Internal.Platform::impl_dirReadNeedsPosition)
 
 ;; Where the name starts inside one record. Darwin's 64-bit `dirent` is
 ;
@@ -234,7 +229,7 @@
 ; d_reclen 32, d_namlen 1 and 2, d_type 4.
 (pub :: direntNameOffset Int)
 (pub fn (direntNameOffset)
-  21)
+  Internal.Platform::impl_direntNameOffset)
 
 ; ------------------------------------------------------------------
 ;; The working directory.
@@ -254,18 +249,18 @@
 ; different shapes and `cwdUsesFcntlPath` picks between them.
 (pub :: cwdUsesFcntlPath Int)
 (pub fn (cwdUsesFcntlPath)
-  1)
+  Internal.Platform::impl_cwdUsesFcntlPath)
 
 ;; fcntl(fd, cmd, arg) - BSD 92.
 (pub :: sysCwdNum Int)
 (pub fn (sysCwdNum)
-  33554524)
+  Internal.Platform::impl_sysCwdNum)
 
 ;; The `fcntl` command that answers a descriptor's path, or 0 where the
 ;; platform has none.
 (pub :: fGetPath Int)
 (pub fn (fGetPath)
-  50)
+  Internal.Platform::impl_fGetPath)
 
 ; ------------------------------------------------------------------
 ;; The two errno values portable code above compares against.
@@ -278,17 +273,17 @@
 ; measurement instead of an assumption.
 (pub :: eExist Int)
 (pub fn (eExist)
-  17)
+  Internal.Platform::impl_eExist)
 
 ;; The `EISDIR` errno: the path names a directory.
 (pub :: eIsDir Int)
 (pub fn (eIsDir)
-  21)
+  Internal.Platform::impl_eIsDir)
 
 ;; getpid() - BSD 20
 (pub :: sysGetPidNum Int)
 (pub fn (sysGetPidNum)
-  33554452)
+  Internal.Platform::impl_sysGetPidNum)
 
 ;; gettimeofday(tv, tz) - BSD 116. Writes {tv_sec i64, tv_usec i32+pad}
 ;; to its 16-byte buffer; the register-return interpretation was probed
@@ -296,19 +291,19 @@
 ;; the shell clock, 400,000 reads, zero backwards steps, ~200ns/call.
 (pub :: sysClockNum Int)
 (pub fn (sysClockNum)
-  33554548)
+  Internal.Platform::impl_sysClockNum)
 
 ;; 1 where wall-clock time comes from `gettimeofday`, 0 where it comes
 ;; from `clock_gettime`.
 (pub :: clockIsGettimeofday Int)
 (pub fn (clockIsGettimeofday)
-  1)
+  Internal.Platform::impl_clockIsGettimeofday)
 
 ;; 1 where environment names match without regard to ASCII case, as
 ;; Windows matches them, 0 where they match byte for byte.
 (pub :: envNamesFoldCase Int)
 (pub fn (envNamesFoldCase)
-  0)
+  Internal.Platform::impl_envNamesFoldCase)
 
 ;; Whether this platform can answer a MONOTONIC clock - one that never
 ;; steps backwards - through a syscall. Darwin cannot: its monotonic
@@ -331,7 +326,7 @@
 ; than substituting the realtime clock.
 (pub :: clockHasMonotonic Int)
 (pub fn (clockHasMonotonic)
-  0)
+  Internal.Platform::impl_clockHasMonotonic)
 
 ;; The id `clock_gettime` takes for the monotonic clock: 0, unused
 ;; here, since `clockIsGettimeofday` sends both clock readers to
@@ -341,7 +336,7 @@
 ; CLOCK_VIRTUAL, process CPU time, on FreeBSD.
 (pub :: clockMonotonicId Int)
 (pub fn (clockMonotonicId)
-  0)
+  Internal.Platform::impl_clockMonotonicId)
 
 ;; Whether `Sys.ax` reads the arm64 counter for its monotonic clock: 1.
 ;; It is `CNTVCT_EL0`, the counter `mach_absolute_time` reads, which
@@ -350,7 +345,7 @@
 ;; no monotonic clock.
 (pub :: clockHasCounter Int)
 (pub fn (clockHasCounter)
-  1)
+  Internal.Platform::impl_clockHasCounter)
 
 ; --------------------------------------------------------------------
 ; Sockets
@@ -373,19 +368,19 @@
 ;; socket(domain, type, protocol) - BSD 97.
 (pub :: sysSocketNum Int)
 (pub fn (sysSocketNum)
-  33554529)
+  Internal.Platform::impl_sysSocketNum)
 
 ;; bind(fd, addr, addrlen) - BSD 104. THE ADDRLEN IS EXACT: 0, 4, 8, 12,
 ;; 20, 24 and 28 were each probed and every one answered -22 EINVAL; only
 ;; 16 - the size of `sockaddr_in` - returned 0.
 (pub :: sysBindNum Int)
 (pub fn (sysBindNum)
-  33554536)
+  Internal.Platform::impl_sysBindNum)
 
 ;; listen(fd, backlog) - BSD 106.
 (pub :: sysListenNum Int)
 (pub fn (sysListenNum)
-  33554538)
+  Internal.Platform::impl_sysListenNum)
 
 ;; accept(fd, addr, addrlen) - BSD 30.
 ;
@@ -397,28 +392,28 @@
 ; passes zeros a syscall does not read.
 (pub :: sysAcceptNum Int)
 (pub fn (sysAcceptNum)
-  33554462)
+  Internal.Platform::impl_sysAcceptNum)
 
 ;; connect(fd, addr, addrlen) - BSD 98. On a non-blocking socket this
 ;; answers -36 EINPROGRESS rather than failing; probed.
 (pub :: sysConnectNum Int)
 (pub fn (sysConnectNum)
-  33554530)
+  Internal.Platform::impl_sysConnectNum)
 
 ;; setsockopt(fd, level, name, val, len) - BSD 105.
 (pub :: sysSetSockOptNum Int)
 (pub fn (sysSetSockOptNum)
-  33554537)
+  Internal.Platform::impl_sysSetSockOptNum)
 
 ;; getsockopt(fd, level, name, val, lenptr) - BSD 118.
 (pub :: sysGetSockOptNum Int)
 (pub fn (sysGetSockOptNum)
-  33554550)
+  Internal.Platform::impl_sysGetSockOptNum)
 
 ;; shutdown(fd, how) - BSD 134.
 (pub :: sysShutdownNum Int)
 (pub fn (sysShutdownNum)
-  33554566)
+  Internal.Platform::impl_sysShutdownNum)
 
 ;; fcntl(fd, cmd, arg) - BSD 92, and the number `sysCwdNum` above also
 ;; holds. They are NOT merged: `sysCwdNum` names "the call that answers
@@ -426,14 +421,14 @@
 ;; on Linux, and a socket has no business reading that name.
 (pub :: sysFcntlNum Int)
 (pub fn (sysFcntlNum)
-  33554524)
+  Internal.Platform::impl_sysFcntlNum)
 
 ;; The address family and socket type. `AF_INET` is 2 on both systems -
 ;; and that agreement is a trap, because `AF_INET6` is 30 here against
 ;; Linux's 10, so nothing else in this group may be assumed to match.
 (pub :: afInet Int)
 (pub fn (afInet)
-  2)
+  Internal.Platform::impl_afInet)
 
 ;; AF_INET6, AND THIS IS THE DIVERGENCE THE PARAGRAPH ABOVE WARNED
 ;; ABOUT: 30 here against Linux's 10.
@@ -452,12 +447,12 @@
 ; connection through it, so a wrong number here cannot be green.
 (pub :: afInet6 Int)
 (pub fn (afInet6)
-  30)
+  Internal.Platform::impl_afInet6)
 
 ;; The `SOCK_STREAM` socket type: a TCP byte stream.
 (pub :: sockStream Int)
 (pub fn (sockStream)
-  1)
+  Internal.Platform::impl_sockStream)
 
 ;; THE SOCKET-OPTION NUMBERS ARE WHERE DARWIN AND LINUX PART COMPANY, and
 ;; they part completely. `SOL_SOCKET` is 0xffff here and 1 on Linux;
@@ -467,46 +462,46 @@
 ;; sets some other option.
 (pub :: solSocket Int)
 (pub fn (solSocket)
-  65535)
+  Internal.Platform::impl_solSocket)
 
 ;; The `SO_REUSEADDR` socket option.
 (pub :: soReuseAddr Int)
 (pub fn (soReuseAddr)
-  4)
+  Internal.Platform::impl_soReuseAddr)
 
 ;; The `SO_REUSEPORT` socket option.
 (pub :: soReusePort Int)
 (pub fn (soReusePort)
-  512)
+  Internal.Platform::impl_soReusePort)
 
 ;; The `SO_ERROR` socket option, read after a non-blocking connect
 ;; finishes.
 (pub :: soError Int)
 (pub fn (soError)
-  4103)
+  Internal.Platform::impl_soError)
 
 ;; fcntl's file-status commands, and the flag a non-blocking socket sets.
 ;; `O_NONBLOCK` is 4 here and 2048 on Linux.
 (pub :: fGetFl Int)
 (pub fn (fGetFl)
-  3)
+  Internal.Platform::impl_fGetFl)
 
 ;; The `fcntl` command that sets a descriptor's status flags.
 (pub :: fSetFl Int)
 (pub fn (fSetFl)
-  4)
+  Internal.Platform::impl_fSetFl)
 
 ;; fcntl's F_DUPFD_CLOEXEC: a duplicate of a descriptor, closed on exec.
 ;; `IO.termRaw` keeps one, so its guard can restore the terminal however
 ;; the caller's file is closed.
 (pub :: fDupFdCloexec Int)
 (pub fn (fDupFdCloexec)
-  67)
+  Internal.Platform::impl_fDupFdCloexec)
 
 ;; The `O_NONBLOCK` status flag.
 (pub :: oNonblock Int)
 (pub fn (oNonblock)
-  4)
+  Internal.Platform::impl_oNonblock)
 
 ;; EAGAIN, which a non-blocking `accept` or `read` answers negated when
 ;; there is nothing to take yet. 35 here, 11 on Linux - so a caller that
@@ -514,71 +509,71 @@
 ;; on the other, which is the reason this is a name.
 (pub :: eAgain Int)
 (pub fn (eAgain)
-  35)
+  Internal.Platform::impl_eAgain)
 
 ;; ENOSYS - the kernel has no such call: 38 on Linux, 78 on Darwin and FreeBSD.
 (pub :: eNoSys Int)
 (pub fn (eNoSys)
-  78)
+  Internal.Platform::impl_eNoSys)
 
 ;; EOPNOTSUPP - the operation does not apply to this socket or file: 95 on
 ;; Linux, 102 on Darwin, 45 on FreeBSD.
 (pub :: eOpNotSupp Int)
 (pub fn (eOpNotSupp)
-  102)
+  Internal.Platform::impl_eOpNotSupp)
 
 ;; ENOTCONN - the socket is not connected: 107 on Linux, 57 on the BSDs.
 (pub :: eNotConn Int)
 (pub fn (eNotConn)
-  57)
+  Internal.Platform::impl_eNotConn)
 
 ;; ECONNREFUSED - nothing listens on the port: 111 on Linux, 61 on the BSDs.
 (pub :: eConnRefused Int)
 (pub fn (eConnRefused)
-  61)
+  Internal.Platform::impl_eConnRefused)
 
 ;; ECONNRESET - the peer reset the connection: 104 on Linux, 54 on the BSDs.
 (pub :: eConnReset Int)
 (pub fn (eConnReset)
-  54)
+  Internal.Platform::impl_eConnReset)
 
 ;; ECONNABORTED - the connection was aborted before it was accepted: 103 on
 ;; Linux, 53 on the BSDs.
 (pub :: eConnAborted Int)
 (pub fn (eConnAborted)
-  53)
+  Internal.Platform::impl_eConnAborted)
 
 ;; EHOSTUNREACH - no route to the host: 113 on Linux, 65 on the BSDs.
 (pub :: eHostUnreach Int)
 (pub fn (eHostUnreach)
-  65)
+  Internal.Platform::impl_eHostUnreach)
 
 ;; ENETUNREACH - no route to the network: 101 on Linux, 51 on the BSDs.
 (pub :: eNetUnreach Int)
 (pub fn (eNetUnreach)
-  51)
+  Internal.Platform::impl_eNetUnreach)
 
 ;; ENETDOWN - the network is down: 100 on Linux, 50 on the BSDs.
 (pub :: eNetDown Int)
 (pub fn (eNetDown)
-  50)
+  Internal.Platform::impl_eNetDown)
 
 ;; EADDRINUSE - another socket holds the address: 98 on Linux, 48 on the BSDs.
 (pub :: eAddrInUse Int)
 (pub fn (eAddrInUse)
-  48)
+  Internal.Platform::impl_eAddrInUse)
 
 ;; EADDRNOTAVAIL - the address is not one of this host's: 99 on Linux, 49
 ;; on the BSDs.
 (pub :: eAddrNotAvail Int)
 (pub fn (eAddrNotAvail)
-  49)
+  Internal.Platform::impl_eAddrNotAvail)
 
 ;; EINPROGRESS - a non-blocking connect has started and not finished: 115
 ;; on Linux, 36 on the BSDs.
 (pub :: eInProgress Int)
 (pub fn (eInProgress)
-  36)
+  Internal.Platform::impl_eInProgress)
 
 ;; WHETHER `sockaddr_in` OPENS WITH A LENGTH BYTE. It does here and does
 ;; not on Linux, and the two layouts cannot share a builder:
@@ -617,7 +612,7 @@
 ; instead of passing the literal that only ever suited one family.
 (pub :: sockaddrHasLenByte Int)
 (pub fn (sockaddrHasLenByte)
-  1)
+  Internal.Platform::impl_sockaddrHasLenByte)
 
 ; --------------------------------------------------------------------
 ; Readiness
@@ -639,25 +634,25 @@
 ;; `epoll`.
 (pub :: pollUsesKqueue Int)
 (pub fn (pollUsesKqueue)
-  1)
+  Internal.Platform::impl_pollUsesKqueue)
 
 ;; kqueue() - BSD 362. Takes no arguments.
 (pub :: sysPollCreateNum Int)
 (pub fn (sysPollCreateNum)
-  33554794)
+  Internal.Platform::impl_sysPollCreateNum)
 
 ;; kevent(kq, changelist, nchanges, eventlist, nevents, timeout) - BSD
 ;; 363, and it is BOTH of epoll's calls: `sysPollCtlNum` names the same
 ;; number because registering is this call with an eventlist of nothing.
 (pub :: sysPollWaitNum Int)
 (pub fn (sysPollWaitNum)
-  33554795)
+  Internal.Platform::impl_sysPollWaitNum)
 
 ;; The syscall number that adds and removes descriptors in the poll set
 ;; (`kevent` or `epoll_ctl`).
 (pub :: sysPollCtlNum Int)
 (pub fn (sysPollCtlNum)
-  33554795)
+  Internal.Platform::impl_sysPollCtlNum)
 
 ;; `struct kevent` is 32 bytes on both 64-bit Darwin arches:
 ;
@@ -671,12 +666,12 @@
 ; 8-aligned address, which `rawAlloc` gives.
 (pub :: pollEventSize Int)
 (pub fn (pollEventSize)
-  32)
+  Internal.Platform::impl_pollEventSize)
 
 ;; The byte offset of the descriptor inside one readiness event record.
 (pub :: pollEventFdOffset Int)
 (pub fn (pollEventFdOffset)
-  0)
+  Internal.Platform::impl_pollEventFdOffset)
 
 ;; EVFILT_READ. THE ONE VALUE THAT GENUINELY DIVERGES: kqueue's filters
 ;; are NEGATIVE small integers naming a kind of event, where epoll's are
@@ -685,32 +680,32 @@
 ;; storing a word.
 (pub :: pollReadFilter Int)
 (pub fn (pollReadFilter)
-  (- 0 1))
+  Internal.Platform::impl_pollReadFilter)
 
 ;; The writability filter: EVFILT_WRITE (-2) for kqueue, EPOLLOUT (4) for
 ;; epoll. It goes where `pollReadFilter` goes.
 (pub :: pollWriteFilter Int)
 (pub fn (pollWriteFilter)
-  (- 0 2))
+  Internal.Platform::impl_pollWriteFilter)
 
 ;; EV_ADD and EV_DELETE, which coincide with EPOLL_CTL_ADD and
 ;; EPOLL_CTL_DEL at 1 and 2. The agreement is luck rather than design, so
 ;; both are named on both platforms instead of being assumed.
 (pub :: pollAddOp Int)
 (pub fn (pollAddOp)
-  1)
+  Internal.Platform::impl_pollAddOp)
 
 ;; The operation code that removes a descriptor from the poll set.
 (pub :: pollDelOp Int)
 (pub fn (pollDelOp)
-  2)
+  Internal.Platform::impl_pollDelOp)
 
 ;; The size of the mask argument epoll_pwait takes and kevent does not.
 ;; Zero here because nothing reads it; see the Linux files for why it
 ;; must be exactly 8 there.
 (pub :: pollSigsetSize Int)
 (pub fn (pollSigsetSize)
-  0)
+  Internal.Platform::impl_pollSigsetSize)
 
 ; --------------------------------------------------------------------
 ; Entropy
@@ -736,12 +731,12 @@
 ;; `getrandom`.
 (pub :: randomIsGetentropy Int)
 (pub fn (randomIsGetentropy)
-  1)
+  Internal.Platform::impl_randomIsGetentropy)
 
 ;; The most bytes one random-bytes syscall may fill at a time.
 (pub :: randomMaxChunk Int)
 (pub fn (randomMaxChunk)
-  256)
+  Internal.Platform::impl_randomMaxChunk)
 
 ; --------------------------------------------------------------------
 ; Signals
@@ -769,12 +764,12 @@
 ;; filter delivers them.
 (pub :: signalUsesSignalFd Int)
 (pub fn (signalUsesSignalFd)
-  0)
+  Internal.Platform::impl_signalUsesSignalFd)
 
 ;; sigprocmask(how, set, oset) - BSD 48.
 (pub :: sysSigProcMaskNum Int)
 (pub fn (sysSigProcMaskNum)
-  33554480)
+  Internal.Platform::impl_sysSigProcMaskNum)
 
 ;; SIG_BLOCK, which is 1 HERE AND 0 ON LINUX. The values are not shared
 ;; and the wrong one is `SIG_UNBLOCK` on Darwin - it would unblock the
@@ -782,66 +777,66 @@
 ;; disposition and die.
 (pub :: sigBlockHow Int)
 (pub fn (sigBlockHow)
-  1)
+  Internal.Platform::impl_sigBlockHow)
 
 ;; Darwin's `sigset_t` is a single `__uint32_t` - FOUR bytes, against
 ;; Linux's kernel `sigset_t` of eight. Nothing reads a size argument
 ;; here, but the buffer's width is what the kernel copies.
 (pub :: sigsetBytes Int)
 (pub fn (sigsetBytes)
-  4)
+  Internal.Platform::impl_sigsetBytes)
 
 ;; EVFILT_SIGNAL, the filter that marks an event as a signal rather than
 ;; a readable socket. Unused on Linux, where the distinction is which
 ;; descriptor woke instead.
 (pub :: pollSignalFilter Int)
 (pub fn (pollSignalFilter)
-  (- 0 6))
+  Internal.Platform::impl_pollSignalFilter)
 
 ;; Unused on Darwin (see `signalUsesSignalFd`), but defined so that
 ;; `Sys.ax` type-checks against every platform module.
 (pub :: sysSignalFdNum Int)
 (pub fn (sysSignalFdNum)
-  0)
+  Internal.Platform::impl_sysSignalFdNum)
 
 ;; The size of one `signalfd_siginfo` record, or 0 where none is read.
 (pub :: sigInfoSize Int)
 (pub fn (sigInfoSize)
-  0)
+  Internal.Platform::impl_sigInfoSize)
 
 ;; kill(pid, sig) - BSD 37.
 (pub :: sysKillNum Int)
 (pub fn (sysKillNum)
-  33554469)
+  Internal.Platform::impl_sysKillNum)
 
 ;; SIGTERM and SIGINT AGREE on all four targets, which is worth naming
 ;; rather than assuming because most of their neighbours do not - SIGUSR1
 ;; is 30 here and 10 on Linux.
 (pub :: sigTerm Int)
 (pub fn (sigTerm)
-  15)
+  Internal.Platform::impl_sigTerm)
 
 ;; The `SIGCHLD` signal number, or zero when child signals are unavailable.
 (pub :: sigChild Int)
 (pub fn (sigChild)
-  20)
+  Internal.Platform::impl_sigChild)
 
 ;; The `SIGINT` signal number.
 (pub :: sigInt Int)
 (pub fn (sigInt)
-  2)
+  Internal.Platform::impl_sigInt)
 
 ;; The Windows Ctrl-Break signal number, or 0 where it is unavailable.
 (pub :: sigBreak Int)
 (pub fn (sigBreak)
-  0)
+  Internal.Platform::impl_sigBreak)
 
 ;; Whether `fork` answers 0 in the child, which is the POSIX convention
 ;; and what Linux does. Darwin answers the child's pid to both, so
 ;; `sysForkProcess` normalises; see `sysForkNum` above for the measurement.
 (pub :: forkChildIsZero Int)
 (pub fn (forkChildIsZero)
-  0)
+  Internal.Platform::impl_forkChildIsZero)
 
 ; ------------------------------------------------------------------
 ; Which KIND of platform module this is.
@@ -860,193 +855,68 @@
 ;; goes through the C library or a host shim.
 (pub :: usesSyscallAbi Int)
 (pub fn (usesSyscallAbi)
-  1)
-
-;; The platform's own way to write to a descriptor where raw `write` is
-;; not available; `Err` 78 where the raw syscall is used instead.
-(pub :: platformWriteFd (-> Int Int Int (Result Int Error)))
-(pub fn (platformWriteFd fd buf count)
-  (Err (mkError 78 "platformWriteFd")))
-
-;; The platform's own way to read from a descriptor where raw `read` is
-;; not available; `Err` 78 where the raw syscall is used instead.
-(pub :: platformReadFd (-> Int Int Int (Result Int Error)))
-(pub fn (platformReadFd fd buf count)
-  (Err (mkError 78 "platformReadFd")))
+  Internal.Platform::impl_usesSyscallAbi)
 
 ;; The platform's own way to end the process where raw `exit` is not
 ;; available; -78 where the raw syscall is used instead.
 (pub :: platformExitWith (-> Int Int))
 ;@axiom:effect(pure)
 (pub fn (platformExitWith code)
-  (- 0 78))
-
-;; The platform's own way to open a path where raw `open` is not
-;; available; -78 where the raw syscall is used instead.
-(pub :: platformOpen (-> Int Int Int Int))
-;@axiom:effect(pure)
-(pub fn (platformOpen path flags mode)
-  (- 0 78))
-
-;; The platform's own way to close a descriptor where raw `close` is not
-;; available; -78 where the raw syscall is used instead.
-(pub :: platformClose (-> Int Int))
-;@axiom:effect(pure)
-(pub fn (platformClose fd)
-  (- 0 78))
-
-;; The platform's own way to move a descriptor's offset where raw
-;; `lseek` is not available; -78 where the raw syscall is used instead.
-(pub :: platformSeek (-> Int Int Int Int))
-;@axiom:effect(pure)
-(pub fn (platformSeek fd offset whence)
-  (- 0 78))
-
-;; The platform's own way to read at an offset where raw `pread` is not
-;; available; -78 where the raw syscall is used instead.
-(pub :: platformPread (-> Int Int Int Int Int))
-;@axiom:effect(pure)
-(pub fn (platformPread fd buf count offset)
-  (- 0 78))
-
-;; The platform's own way to write at an offset where raw `pwrite` is
-;; not available; -78 where the raw syscall is used instead.
-(pub :: platformPwrite (-> Int Int Int Int Int))
-;@axiom:effect(pure)
-(pub fn (platformPwrite fd buf count offset)
-  (- 0 78))
-
-;; The platform's own way to flush a descriptor where raw `fsync` is not
-;; available; -78 where the raw syscall is used instead.
-(pub :: platformFsync (-> Int Int))
-;@axiom:effect(pure)
-(pub fn (platformFsync fd)
-  (- 0 78))
-
-;; The platform's own way to cut a file where raw `ftruncate` is not
-;; available; -78 where the raw syscall is used instead.
-(pub :: platformFtruncate (-> Int Int Int))
-;@axiom:effect(pure)
-(pub fn (platformFtruncate fd len)
-  (- 0 78))
-
-;; The platform's own way to lock a file where raw `flock` is not
-;; available; -78 where the raw syscall is used instead.
-(pub :: platformFlock (-> Int Int Int))
-;@axiom:effect(pure)
-(pub fn (platformFlock fd op)
-  (- 0 78))
+  (Internal.Platform::impl_platformExitWith code))
 
 ;; The path of the null device: `/dev/null` here.
 (pub :: platformNullPath String)
 ;@axiom:effect(pure)
 (pub fn (platformNullPath)
-  "/dev/null")
-
-;; The platform's own way to remove a file where raw `unlink` is not
-;; available; -78 where the raw syscall is used instead.
-(pub :: platformUnlink (-> Int Int))
-;@axiom:effect(pure)
-(pub fn (platformUnlink path)
-  (- 0 78))
-
-;; The platform's own way to rename a path where raw `rename` is not
-;; available; -78 where the raw syscall is used instead.
-(pub :: platformRename (-> Int Int Int))
-;@axiom:effect(pure)
-(pub fn (platformRename from to)
-  (- 0 78))
-
-;; The platform's own way to make a directory where raw `mkdir` is not
-;; available; -78 where the raw syscall is used instead.
-(pub :: platformMkdir (-> Int Int Int))
-;@axiom:effect(pure)
-(pub fn (platformMkdir path mode)
-  (- 0 78))
-
-;; The platform's own way to remove a directory where raw `rmdir` is not
-;; available; -78 where the raw syscall is used instead.
-(pub :: platformRmdir (-> Int Int))
-;@axiom:effect(pure)
-(pub fn (platformRmdir path)
-  (- 0 78))
-
-;; The platform's own way to read a directory where raw `getdents` is
-;; not available; -78 where the raw syscall is used instead.
-(pub :: platformReadDir (-> Int Int Int Int))
-;@axiom:effect(pure)
-(pub fn (platformReadDir fd buf count)
-  (- 0 78))
-
-;; The platform's own way to read the working directory where raw
-;; `getcwd` is not available; -78 where the raw syscall is used instead.
-(pub :: platformGetCwd (-> Int Int Int))
-;@axiom:effect(pure)
-(pub fn (platformGetCwd buf count)
-  (- 0 78))
-
-;; The platform's own way to start a child where raw `posix_spawn` or
-;; `fork` and `execve` are not available; -78 where the raw syscalls are
-;; used instead.
-(pub :: platformSpawn (-> Int Int Int Int))
-;@axiom:effect(pure)
-(pub fn (platformSpawn path argv envp)
-  (- 0 78))
+  Internal.Platform::impl_platformNullPath)
 
 ;; The platform's own way to wait for a child where raw `wait4` is not
 ;; available; -78 where the raw syscall is used instead.
 (pub :: platformWait (-> Int Int))
 ;@axiom:effect(pure)
 (pub fn (platformWait pid)
-  (- 0 78))
+  (Internal.Platform::impl_platformWait pid))
 
 ;; The platform's own way to signal a child where raw `kill` is not
 ;; available; -78 where the raw syscall is used instead.
 (pub :: platformKill (-> Int Int Int))
 ;@axiom:effect(pure)
 (pub fn (platformKill pid sig)
-  (- 0 78))
+  (Internal.Platform::impl_platformKill pid sig))
 
 ;; The platform's own way to poll a child where raw `waitid` is not
 ;; available; -78 where the raw syscall is used instead.
 (pub :: platformChildExited (-> Int Int))
 ;@axiom:effect(pure)
 (pub fn (platformChildExited pid)
-  (- 0 78))
+  (Internal.Platform::impl_platformChildExited pid))
 
 ;; The platform's own way to read the process id where raw `getpid` is
 ;; not available; -78 where the raw syscall is used instead.
 (pub :: platformPid Int)
 ;@axiom:effect(pure)
 (pub fn (platformPid)
-  (- 0 78))
-
-;; The platform's own way to swap a standard descriptor where raw `dup2`
-;; is not available; -78 where the raw syscall is used instead.
-(pub :: platformSetStd (-> Int Int Int))
-;@axiom:effect(pure)
-(pub fn (platformSetStd n h)
-  (- 0 78))
+  Internal.Platform::impl_platformPid)
 
 ;; The byte that separates the entries of `PATH`: `:` here, `;` on
 ;; Windows.
 (pub :: pathListSep Int)
 (pub fn (pathListSep)
-  58)
+  Internal.Platform::impl_pathListSep)
 
 ;; 1 where a backslash separates path components and `C:` starts an
 ;; absolute path, so `Sys.sysRunPath` reads either as a path rather
 ;; than a name to search for. 0 here, where only `/` does.
 (pub :: pathBackslashSeparates Int)
 (pub fn (pathBackslashSeparates)
-  0)
+  Internal.Platform::impl_pathBackslashSeparates)
 
 ;; 1 where a program named without an extension is found as
 ;; `NAME.exe`, as on Windows; 0 here, where a program is found under
 ;; its own name.
 (pub :: exeSuffixTried Int)
 (pub fn (exeSuffixTried)
-  0)
+  Internal.Platform::impl_exeSuffixTried)
 
 ; --------------------------------------------------------------------
 ; Terminals
@@ -1080,14 +950,14 @@
 ;; part of this shape.
 (pub :: ttyUsesTermios Int)
 (pub fn (ttyUsesTermios)
-  1)
+  Internal.Platform::impl_ttyUsesTermios)
 
 ;; ioctl(fd, request, arg) - BSD 54, encoded the way every number in
 ;; this file is: `0x2000000 | 54` = 33554486.
 ;; Probe: `SYS_ioctl = 54 (0x36)`, `SYS_ioctl encoded = 33554486`.
 (pub :: sysIoctlNum Int)
 (pub fn (sysIoctlNum)
-  33554486)
+  Internal.Platform::impl_sysIoctlNum)
 
 ;; TIOCGETA - read the terminal attributes into a `struct termios`.
 ;
@@ -1101,7 +971,7 @@
 ; recomputed from `sizeof(struct termios)` reproduced the macro exactly.
 (pub :: tcGetAttrReq Int)
 (pub fn (tcGetAttrReq)
-  1078490131)
+  Internal.Platform::impl_tcGetAttrReq)
 
 ;; TIOCSETAF - write the attributes back, after draining pending output
 ;; and DISCARDING pending input.
@@ -1123,7 +993,7 @@
 ; exposed until something wants it.
 (pub :: tcSetAttrReq Int)
 (pub fn (tcSetAttrReq)
-  2152231958)
+  Internal.Platform::impl_tcSetAttrReq)
 
 ;; TIOCGWINSZ - read `struct winsize`.
 ;
@@ -1138,7 +1008,7 @@
 ; named here rather than shared for that reason.
 (pub :: tcWinSizeReq Int)
 (pub fn (tcWinSizeReq)
-  1074295912)
+  Internal.Platform::impl_tcWinSizeReq)
 
 ;; How many bytes the kernel exchanges through the two requests above,
 ;; and therefore how large a buffer a caller must hand `Sys.ax` to save
@@ -1150,7 +1020,7 @@
 ; 36, and it is why `termiosFlagBytes` below exists at all.
 (pub :: termiosBytes Int)
 (pub fn (termiosBytes)
-  72)
+  Internal.Platform::impl_termiosBytes)
 
 ;; The width of one flag word, which is also the STRIDE of the four of
 ;; them: `c_iflag` at 0, `c_oflag` at 8, `c_cflag` at 16, `c_lflag` at
@@ -1160,13 +1030,13 @@
 ;; rather than four constants per module.
 (pub :: termiosFlagBytes Int)
 (pub fn (termiosFlagBytes)
-  8)
+  Internal.Platform::impl_termiosFlagBytes)
 
 ;; Where the control-character array `c_cc` begins.
 ;; Probe: `offsetof c_cc = 32 (size 20, NCCS 20)`.
 (pub :: termiosCcOff Int)
 (pub fn (termiosCcOff)
-  32)
+  Internal.Platform::impl_termiosCcOff)
 
 ;; The two `c_cc` slots that mean something once ICANON is off: how many
 ;; bytes a `read` must collect before it returns, and how long it waits
@@ -1177,12 +1047,12 @@
 ; here would write the timeout into the byte-count slot.
 (pub :: termiosVminIdx Int)
 (pub fn (termiosVminIdx)
-  16)
+  Internal.Platform::impl_termiosVminIdx)
 
 ;; The index of `VTIME` in the termios control-character array.
 (pub :: termiosVtimeIdx Int)
 (pub fn (termiosVtimeIdx)
-  17)
+  Internal.Platform::impl_termiosVtimeIdx)
 
 ;; c_lflag bits. Probe: `ECHO = 0x8 (8)`, `ICANON = 0x100 (256)`,
 ;; `ISIG = 0x80 (128)`, `IEXTEN = 0x400 (1024)`.
@@ -1193,22 +1063,22 @@
 ; a REPL that still reads whole lines and cannot say why.
 (pub :: tiosEcho Int)
 (pub fn (tiosEcho)
-  8)
+  Internal.Platform::impl_tiosEcho)
 
 ;; The `ICANON` local-mode flag: line editing by the terminal.
 (pub :: tiosIcanon Int)
 (pub fn (tiosIcanon)
-  256)
+  Internal.Platform::impl_tiosIcanon)
 
 ;; The `ISIG` local-mode flag: the terminal turns Ctrl-C into a signal.
 (pub :: tiosIsig Int)
 (pub fn (tiosIsig)
-  128)
+  Internal.Platform::impl_tiosIsig)
 
 ;; The `IEXTEN` local-mode flag: extended input processing.
 (pub :: tiosIexten Int)
 (pub fn (tiosIexten)
-  1024)
+  Internal.Platform::impl_tiosIexten)
 
 ;; c_iflag bits. Probe: `BRKINT = 0x2`, `ICRNL = 0x100`,
 ;; `ISTRIP = 0x20`, `IXON = 0x200`.
@@ -1222,22 +1092,22 @@
 ; bit of every input byte, which turns UTF-8 into mojibake.
 (pub :: tiosBrkint Int)
 (pub fn (tiosBrkint)
-  2)
+  Internal.Platform::impl_tiosBrkint)
 
 ;; The `ICRNL` input flag: carriage return becomes newline.
 (pub :: tiosIcrnl Int)
 (pub fn (tiosIcrnl)
-  256)
+  Internal.Platform::impl_tiosIcrnl)
 
 ;; The `ISTRIP` input flag: strip the eighth bit.
 (pub :: tiosIstrip Int)
 (pub fn (tiosIstrip)
-  32)
+  Internal.Platform::impl_tiosIstrip)
 
 ;; The `IXON` input flag: Ctrl-S and Ctrl-Q flow control.
 (pub :: tiosIxon Int)
 (pub fn (tiosIxon)
-  512)
+  Internal.Platform::impl_tiosIxon)
 
 ;; The one c_oflag bit raw mode touches. Probe: `OPOST = 0x1`, and it
 ;; is 0x1 on Linux and FreeBSD too.
@@ -1250,7 +1120,7 @@
 ; needed, and an unmeasured one is worse than an absent one.
 (pub :: tiosOpost Int)
 (pub fn (tiosOpost)
-  1)
+  Internal.Platform::impl_tiosOpost)
 
 ; ------------------------------------------------------------------
 ; Opening beneath a directory (`Sys.sysOpenBeneath`) and making the
@@ -1259,29 +1129,29 @@
 ;; openat(dirfd, path, flags, mode) - BSD 463
 (pub :: sysOpenatNum Int)
 (pub fn (sysOpenatNum)
-  33554895)
+  Internal.Platform::impl_sysOpenatNum)
 
 ;; symlink(target, link) - BSD 57
 (pub :: sysSymlinkNum Int)
 (pub fn (sysSymlinkNum)
-  33554489)
+  Internal.Platform::impl_sysSymlinkNum)
 
 ;; O_NOFOLLOW = 0x100
 (pub :: oNoFollow Int)
 (pub fn (oNoFollow)
-  256)
+  Internal.Platform::impl_oNoFollow)
 
 ;; O_DIRECTORY = 0x100000
 (pub :: oDirectory Int)
 (pub fn (oDirectory)
-  1048576)
+  Internal.Platform::impl_oDirectory)
 
 ;; EXDEV, 18 on every kernel here: what `sysOpenBeneath` answers for a
 ;; path that would leave its directory, the errno Linux's
 ;; `openat2(RESOLVE_BENEATH)` answers for the same thing.
 (pub :: eXdev Int)
 (pub fn (eXdev)
-  18)
+  Internal.Platform::impl_eXdev)
 
 ; ------------------------------------------------------------------
 ; Memory two bindings can share, and blocking on a word in it
@@ -1295,18 +1165,18 @@
 ;; mmap - BSD 197 (SDK sys/syscall.h), in the 0x2000000 class
 (pub :: sysMmapNum Int)
 (pub fn (sysMmapNum)
-  33554629)
+  Internal.Platform::impl_sysMmapNum)
 
 ;; munmap - BSD 73
 (pub :: sysMunmapNum Int)
 (pub fn (sysMunmapNum)
-  33554505)
+  Internal.Platform::impl_sysMunmapNum)
 
 ;; MAP_SHARED | MAP_ANON = 0x1 | 0x1000: a fork keeps these pages the SAME
 ;; pages, where the arena's MAP_PRIVATE pages become copies
 (pub :: mapSharedAnon Int)
 (pub fn (mapSharedAnon)
-  4097)
+  Internal.Platform::impl_mapSharedAnon)
 
 ;; How a binding blocks on a shared word: 2, `__ulock_wait`/`__ulock_wake`
 ;; with UL_COMPARE_AND_WAIT64_SHARED, which keys the wait on the page so a
@@ -1314,7 +1184,7 @@
 ;; Darwin has no futex. 1 is Linux `futex`; 0 is none (spin)
 (pub :: waitWordKind Int)
 (pub fn (waitWordKind)
-  2)
+  Internal.Platform::impl_waitWordKind)
 
 ;; __ulock_wait(op, addr, value, timeout_us) - BSD 515 (SDK sys/syscall.h)
 (pub :: sysWaitWordNum Int)
@@ -1325,21 +1195,21 @@
 ;; __ulock_wake(op, addr, wake_value) - BSD 516
 (pub :: sysWakeWordNum Int)
 (pub fn (sysWakeWordNum)
-  33554948)
+  Internal.Platform::impl_sysWakeWordNum)
 
 ;; ETIMEDOUT - 60 here and on FreeBSD, 110 on Linux: what a timed
 ;; `__ulock_wait` answers, negated, when its time ran out
 ;; (`sysWaitWordTimeout`; measured -60 after a 200 ms wait).
 (pub :: eTimedOut Int)
 (pub fn (eTimedOut)
-  60)
+  Internal.Platform::impl_eTimedOut)
 
 ;; How a parent looks at a child without reaping it (`sysChildExited`):
 ;; 1, `waitid` with WNOWAIT, the answer read from `si_signo`. 2 is
 ;; FreeBSD's `wait6`; 0 none.
 (pub :: childPollKind Int)
 (pub fn (childPollKind)
-  1)
+  Internal.Platform::impl_childPollKind)
 
 ;; waitid(idtype, id, infop, options) - BSD 173
 (pub :: sysWaitIdNum Int)
@@ -1350,12 +1220,12 @@
 ;; P_PID - 1 here and on Linux, 0 on FreeBSD
 (pub :: waitIdPidType Int)
 (pub fn (waitIdPidType)
-  1)
+  Internal.Platform::impl_waitIdPidType)
 
 ;; WEXITED | WNOHANG | WNOWAIT = 0x04 | 0x01 | 0x20 (SDK sys/wait.h)
 (pub :: waitPollOptions Int)
 (pub fn (waitPollOptions)
-  37)
+  Internal.Platform::impl_waitPollOptions)
 
 ; ------------------------------------------------------------------
 ; Pages for secrets (`stdlib/Crypto/Secret.ax`). A key lives in a
@@ -1370,34 +1240,34 @@
 ;; MAP_PRIVATE | MAP_ANON = 0x2 | 0x1000
 (pub :: mapPrivateAnon Int)
 (pub fn (mapPrivateAnon)
-  4098)
+  Internal.Platform::impl_mapPrivateAnon)
 
 ;; mlock - BSD 203 (SDK sys/syscall.h)
 (pub :: sysMlockNum Int)
 (pub fn (sysMlockNum)
-  33554635)
+  Internal.Platform::impl_sysMlockNum)
 
 ;; munlock - BSD 204
 (pub :: sysMunlockNum Int)
 (pub fn (sysMunlockNum)
-  33554636)
+  Internal.Platform::impl_sysMunlockNum)
 
 ;; madvise - BSD 75
 (pub :: sysMadviseNum Int)
 (pub fn (sysMadviseNum)
-  33554507)
+  Internal.Platform::impl_sysMadviseNum)
 
 ;; Darwin has no madvise that keeps a range out of a core file, so 0.
 ;; Core files are off unless `ulimit -c` and `kern.coredump` both allow
 ;; them, and docs/crypto.md says so.
 (pub :: madvNoDump Int)
 (pub fn (madvNoDump)
-  0)
+  Internal.Platform::impl_madvNoDump)
 
 ;; 0: entropy comes from the kernel call above, never from the CPU
 (pub :: randomUsesRndr Int)
 (pub fn (randomUsesRndr)
-  0)
+  Internal.Platform::impl_randomUsesRndr)
 
 ; ------------------------------------------------------------------
 ; TCP beyond connect and accept, for `stdlib/Net.ax`: the two calls that
@@ -1407,69 +1277,69 @@
 ;; getsockname - the address a socket is bound to
 (pub :: sysGetSockNameNum Int)
 (pub fn (sysGetSockNameNum)
-  33554464)
+  Internal.Platform::impl_sysGetSockNameNum)
 
 ;; getpeername - the address of the connected peer
 (pub :: sysGetPeerNameNum Int)
 (pub fn (sysGetPeerNameNum)
-  33554463)
+  Internal.Platform::impl_sysGetPeerNameNum)
 
 ;; sendto - a write that takes flags, for `msgNoSignal`
 (pub :: sysSendToNum Int)
 (pub fn (sysSendToNum)
-  33554565)
+  Internal.Platform::impl_sysSendToNum)
 
 ;; SO_RCVTIMEO - how long a read may wait, as a struct timeval
 (pub :: soRcvTimeo Int)
 (pub fn (soRcvTimeo)
-  4102)
+  Internal.Platform::impl_soRcvTimeo)
 
 ;; SO_SNDTIMEO - how long a write may wait
 (pub :: soSndTimeo Int)
 (pub fn (soSndTimeo)
-  4101)
+  Internal.Platform::impl_soSndTimeo)
 
 ;; SO_NOSIGPIPE - a write to a closed peer answers EPIPE instead of raising SIGPIPE; 0 where the option does not exist
 (pub :: soNoSigPipe Int)
 (pub fn (soNoSigPipe)
-  4130)
+  Internal.Platform::impl_soNoSigPipe)
 
 ;; MSG_NOSIGNAL - the same, per write, for `sendto`; 0 where the flag does not exist
 (pub :: msgNoSignal Int)
 (pub fn (msgNoSignal)
-  0)
+  Internal.Platform::impl_msgNoSignal)
 
 ;; IPPROTO_TCP - the level TCP options are set at
 (pub :: ipprotoTcp Int)
 (pub fn (ipprotoTcp)
-  6)
+  Internal.Platform::impl_ipprotoTcp)
 
 ;; TCP_NODELAY - send small writes at once rather than join them
 (pub :: tcpNoDelayOpt Int)
 (pub fn (tcpNoDelayOpt)
-  1)
+  Internal.Platform::impl_tcpNoDelayOpt)
 
 ;; IPPROTO_IP - the level of the IPv4 socket options, 0 everywhere.
 (pub :: ipprotoIp Int)
 (pub fn (ipprotoIp)
-  0)
+  Internal.Platform::impl_ipprotoIp)
 
 ;; IP_TTL - the time-to-live of outgoing IPv4 packets: 2 on Linux, 4 on the
 ;; BSDs.
 (pub :: ipTtl Int)
 (pub fn (ipTtl)
-  4)
+  Internal.Platform::impl_ipTtl)
 
 ;; IPPROTO_IPV6 - the level of the IPv6 socket options, 41 everywhere.
 (pub :: ipprotoIpv6 Int)
 (pub fn (ipprotoIpv6)
-  41)
+  Internal.Platform::impl_ipprotoIpv6)
 
 ;; IPV6_UNICAST_HOPS - the hop limit of outgoing IPv6 packets, IPv6's
 ;; time-to-live: 16 on Linux, 4 on the BSDs.
 (pub :: ipv6UnicastHops Int)
 (pub fn (ipv6UnicastHops)
-  4)
+  Internal.Platform::impl_ipv6UnicastHops)
 
 ; ------------------------------------------------------------------
 ; Files a database keeps open: reads and writes at an offset, a sync
@@ -1481,55 +1351,55 @@
 ;; pread(fd, buf, count, offset) - BSD 153
 (pub :: sysPreadNum Int)
 (pub fn (sysPreadNum)
-  33554585)
+  Internal.Platform::impl_sysPreadNum)
 
 ;; pwrite(fd, buf, count, offset) - BSD 154
 (pub :: sysPwriteNum Int)
 (pub fn (sysPwriteNum)
-  33554586)
+  Internal.Platform::impl_sysPwriteNum)
 
 ;; fsync(fd) - BSD 95. Darwin's fsync leaves the data in the drive's
 ;; own cache, so Axqlite's pager asks `fcntl(F_FULLFSYNC)` instead and uses
 ;; this only if the file system refuses that.
 (pub :: sysFsyncNum Int)
 (pub fn (sysFsyncNum)
-  33554527)
+  Internal.Platform::impl_sysFsyncNum)
 
 ;; ftruncate(fd, length) - BSD 201
 (pub :: sysFtruncateNum Int)
 (pub fn (sysFtruncateNum)
-  33554633)
+  Internal.Platform::impl_sysFtruncateNum)
 
 ;; flock(fd, operation) - BSD 131
 (pub :: sysFlockNum Int)
 (pub fn (sysFlockNum)
-  33554563)
+  Internal.Platform::impl_sysFlockNum)
 
 ;; 1: a durable sync is `fcntl(fd, F_FULLFSYNC)`, through `sysFcntlNum`
 (pub :: fsyncUsesFullFsync Int)
 (pub fn (fsyncUsesFullFsync)
-  1)
+  Internal.Platform::impl_fsyncUsesFullFsync)
 
 ;; F_FULLFSYNC = 51
 (pub :: fFullFsync Int)
 (pub fn (fFullFsync)
-  51)
+  Internal.Platform::impl_fFullFsync)
 
 ;; O_RDWR = 0x0002
 (pub :: oRdwr Int)
 (pub fn (oRdwr)
-  2)
+  Internal.Platform::impl_oRdwr)
 
 ;; O_CREAT = 0x0200
 (pub :: oCreat Int)
 (pub fn (oCreat)
-  512)
+  Internal.Platform::impl_oCreat)
 
 ;; O_CLOEXEC = 0x01000000, so a spawned child never inherits the
 ;; descriptor, or the lock held on it
 (pub :: oCloexec Int)
 (pub fn (oCloexec)
-  16777216)
+  Internal.Platform::impl_oCloexec)
 
 ; ------------------------------------------------------------------
 ; The clock and entropy as platform calls. This target reads its
@@ -1544,33 +1414,33 @@
 (pub :: platformHasClock Int)
 ;@axiom:effect(pure)
 (pub fn (platformHasClock)
-  0)
+  Internal.Platform::impl_platformHasClock)
 
 ;; The platform's own monotonic clock in nanoseconds, where raw
 ;; `clock_gettime` is not available; `Err` 78 where the syscall serves.
 (pub :: platformMonotonicNanos (Result Int Error))
 (pub fn (platformMonotonicNanos)
-  (Err (mkError 78 "platformMonotonicNanos")))
+  Internal.Platform::impl_platformMonotonicNanos)
 
 ;; The platform's own wall clock in nanoseconds since the Unix epoch,
 ;; where raw `clock_gettime` is not available; `Err` 78 where the
 ;; syscall serves.
 (pub :: platformRealtimeNanos (Result Int Error))
 (pub fn (platformRealtimeNanos)
-  (Err (mkError 78 "platformRealtimeNanos")))
+  Internal.Platform::impl_platformRealtimeNanos)
 
 ;; The platform's own sleep for at least `nanos` nanoseconds, where the
 ;; raw wait is not available; `Err` 78 where the syscall serves.
 (pub :: platformSleepNanos (-> Int (Result Int Error)))
 (pub fn (platformSleepNanos nanos)
-  (Err (mkError 78 "platformSleepNanos")))
+  (Internal.Platform::impl_platformSleepNanos nanos))
 
 ;; Whether entropy uses a separate platform source: 0 here.
 ;; The entropy layer selects the kernel or hardware path otherwise.
 (pub :: platformHasEntropy Int)
 ;@axiom:effect(pure)
 (pub fn (platformHasEntropy)
-  0)
+  Internal.Platform::impl_platformHasEntropy)
 
 ; ------------------------------------------------------------------
 ; The signal mask as a platform call. This target uses `__syscallN`;
@@ -1580,118 +1450,4 @@
 ;; available; `Err` 78 where the syscall serves.
 (pub :: platformSignalBlock (-> Int (Result Int Error)))
 (pub fn (platformSignalBlock mask)
-  (Err (mkError 78 "platformSignalBlock")))
-
-; ------------------------------------------------------------------
-; Sockets and readiness as platform calls. This target makes every
-; socket call through `__syscallN`, so `IO.ax` never reaches these
-; twelve; they exist because every platform module declares one public
-; surface (`check-stdlib-api.sh`), and Windows answers them for real.
-; Each keeps the raw convention IO.ax already turns into `Result`: a
-; descriptor or a count, or `-errno`.
-; ------------------------------------------------------------------
-;; socket(family, type, protocol): the descriptor, or `-errno`. -78 here.
-(pub :: platformSocket (-> Int Int Int Int))
-;@axiom:effect(pure)
-(pub fn (platformSocket family kind protocol)
-  (- 0 78))
-
-;; bind(s, addr, len): 0, or `-errno`. -78 here.
-(pub :: platformBind (-> Int Int Int Int))
-;@axiom:effect(pure)
-(pub fn (platformBind s addr len)
-  (- 0 78))
-
-;; listen(s, backlog): 0, or `-errno`. -78 here.
-(pub :: platformListen (-> Int Int Int))
-;@axiom:effect(pure)
-(pub fn (platformListen s backlog)
-  (- 0 78))
-
-;; accept(s): the new descriptor, or `-errno`. -78 here.
-(pub :: platformAccept (-> Int Int))
-;@axiom:effect(pure)
-(pub fn (platformAccept s)
-  (- 0 78))
-
-;; connect(s, addr, len): 0, `-EINPROGRESS` for a non-blocking socket
-;; still connecting, or `-errno`. -78 here.
-(pub :: platformConnect (-> Int Int Int Int))
-;@axiom:effect(pure)
-(pub fn (platformConnect s addr len)
-  (- 0 78))
-
-;; send(s, buf, n): bytes sent, or `-errno`. -78 here.
-(pub :: platformSend (-> Int Int Int Int))
-;@axiom:effect(pure)
-(pub fn (platformSend s buf n)
-  (- 0 78))
-
-;; shutdown(s, how): 0, or `-errno`. -78 here.
-(pub :: platformShutdown (-> Int Int Int))
-;@axiom:effect(pure)
-(pub fn (platformShutdown s how)
-  (- 0 78))
-
-;; setsockopt(s, level, name, val, len): 0, or `-errno`. -78 here.
-(pub :: platformSetSockOpt (-> Int Int Int Int Int Int))
-;@axiom:effect(pure)
-(pub fn (platformSetSockOpt s level name val len)
-  (- 0 78))
-
-;; getsockopt(s, level, name, val, lenCell): 0, or `-errno`. -78 here.
-(pub :: platformGetSockOpt (-> Int Int Int Int Int Int))
-;@axiom:effect(pure)
-(pub fn (platformGetSockOpt s level name val lenCell)
-  (- 0 78))
-
-;; Make `s` non-blocking (`on`) or blocking: 0, or `-errno`. -78 here.
-(pub :: platformSetNonBlocking (-> Int Bool Int))
-;@axiom:effect(pure)
-(pub fn (platformSetNonBlocking s on)
-  (- 0 78))
-
-;; getsockname or (`peer`) getpeername into `addr`, whose length cell is
-;; `lenCell`: 0, or `-errno`. -78 here.
-(pub :: platformSocketAddr (-> Int Bool Int Int Int))
-;@axiom:effect(pure)
-(pub fn (platformSocketAddr s peer addr lenCell)
-  (- 0 78))
-
-;; poll over `n` records at `fds`, each a descriptor word, an interest
-;; word and a readiness word, for `ms` milliseconds (negative: no
-;; limit): the count of ready records, or `-errno`. -78 here.
-(pub :: platformPoll (-> Int Int Int Int))
-;@axiom:effect(pure)
-(pub fn (platformPoll fds n ms)
-  (- 0 78))
-
-; ------------------------------------------------------------------
-; The console as platform calls. This target's terminal is the termios
-; trio through `ioctl` (`ttyUsesTermios` 1), so `IO.ax` never reaches
-; these four; Windows answers them over `GetConsoleMode` and its kin.
-; ------------------------------------------------------------------
-;; Whether `fd` is a console: 1 or 0. Unreached here.
-(pub :: platformIsConsole (-> Int Int))
-;@axiom:effect(pure)
-(pub fn (platformIsConsole fd)
-  0)
-
-;; The console's mode word, or `-errno`. -78 here.
-(pub :: platformConsoleMode (-> Int Int))
-;@axiom:effect(pure)
-(pub fn (platformConsoleMode fd)
-  (- 0 78))
-
-;; Set the console's mode word: 0, or `-errno`. -78 here.
-(pub :: platformConsoleSetMode (-> Int Int Int))
-;@axiom:effect(pure)
-(pub fn (platformConsoleSetMode fd mode)
-  (- 0 78))
-
-;; The console's window in character cells, as `rows * 65536 + cols`,
-;; or `-errno`. -78 here.
-(pub :: platformConsoleSize (-> Int Int))
-;@axiom:effect(pure)
-(pub fn (platformConsoleSize fd)
-  (- 0 78))
+  (Internal.Platform::impl_platformSignalBlock mask))

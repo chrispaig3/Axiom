@@ -275,6 +275,9 @@ def windows_mapping_checks(axiom, root, work, base_library):
     windows_platform = (root / "stdlib/Sys/Platform.windows.ax").read_text()
     for selected in (library / "Sys").glob("Platform.*.ax"):
         selected.write_text(windows_platform)
+    windows_implementation = (root / "stdlib/Internal/Platform.windows.ax").read_text()
+    for selected in (library / "Internal").glob("Platform.*.ax"):
+        selected.write_text(windows_implementation)
     (library / "WorkerMappingLifecycleHarness.ax").write_text(WINDOWS_HARNESS)
     source = work / "windows-mapping.ax"
     source.write_text("(import WorkerMappingLifecycleHarness)\n(:: main Int)\n"

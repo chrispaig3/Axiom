@@ -1,155 +1,85 @@
-;;! Sys.Platform - the numbers this target's kernel uses: syscall
-;;! numbers, open and socket flags, errno values, poll and signal
-;;! constants and struct layouts. One file per target; every file
-;;! declares the same names, and the build picks the one for the
-;;! target being compiled for (this one is `windows`).
-; Sys.Platform - Windows, as kernel32 bindings rather than syscall numbers.
-;
-; Selected by the `.windows.ax` filename suffix when compiling for
-; `--target=windows-x86_64` or `--target=windows-aarch64` (the
-; arch-specific `.windows-x86_64.ax` and `.windows-aarch64.ax` are
-; tried first and do not exist: the bindings below are the same on
-; every Windows architecture, which is the reason `Platform.darwin.ax`
-; serves both Darwin targets).
-;
-; THIS IS THE OTHER KIND OF PLATFORM MODULE. The three POSIX modules are
-; tables of integers - syscall numbers and flags - and `Sys.ax` makes
-; every kernel call itself through `__syscallN`. Windows has no syscall
-; ABI a program may use: the numbers are private to each build of the
-; kernel and Microsoft documents none of them. So this module answers
-; `usesSyscallAbi` 0 and DOES THE WORK ITSELF, over an `extern
-; "kernel32"` block, in functions `Sys.ax` calls where it would
-; otherwise have called `__syscallN`. `Sys.ax`'s header records that
-; this is the one exception to "the platform module is a table", and
-; why.
-;
-; WHAT IS BOUND TODAY: the console (`WriteFile`, `ReadFile`,
-; `GetStdHandle`, `ExitProcess`, `GetLastError`), files and directories
-; (the `platformOpen` group), child processes (the `platformSpawn`
-; group), the clocks and sleep (`platformMonotonicNanos`,
-; `platformRealtimeNanos`, `platformSleepNanos`), entropy
-; (`platformRandomBytes`), the signal mask, which captures Ctrl-C and Ctrl-Break
-; (`platformSignalBlock`), and
-; TCP sockets with their readiness (the `platformSocket` group and
-; `platformPoll`, over ws2_32), and the console's modes and size
-; (`platformConsoleMode` and its group). Captured controls reach the
-; poller through the runtime's process-owned atomic queue. Unsupported
-; signal masks answer Err 78; close, logoff and shutdown retain their
-; system termination behaviour.
-;
-; THE NAMES BELOW EXIST because `Sys.ax` names every one of them
-; and is checked against whichever platform module resolves. Every
-; syscall NUMBER is 0 and is never handed to a kernel - `usesSyscallAbi`
-; keeps the arms that would pass it unreached. Flags and errno values
-; keep their Linux spellings on purpose: `eExist`, `eIsDir`, `eAgain`
-; are what `IO.ax` and `Sys.ax` compare a failure against, so the
-; error-mapping shim (`winErrnoOf`) answers in those terms and the
-; comparisons above it stay portable.
-;
-; THE WORD-WIDTH RULE, which every shim here obeys and which
-; `docs/ffi.md` states for externs in general: every binding is `i64`
-; in and `i64` out. A Win32 function returning BOOL or DWORD writes
-; only eax (w0 on arm64) and leaves the upper half of rax (x0)
-; UNDEFINED, so a 32-bit result is masked (`(& r 4294967295)`) before
-; it is tested; a
-; function returning a HANDLE or a pointer answers a full 64-bit
-; value and is NOT masked - masking one would turn INVALID_HANDLE_VALUE
-; (-1) into 4294967295, which compares unequal to -1 and reads as
-; success. Which is which is written beside each binding.
-;
-; DESCRIPTORS. `Sys.ax` speaks in file descriptors; Windows in
-; HANDLEs. Descriptors 0, 1 and 2 map to `GetStdHandle(-10 / -11 /
-; -12)`; any other value is taken to BE a HANDLE. That is sound
-; because a Windows HANDLE is a multiple of 4, so 1 and 2 can never be
-; one, and 0 is the null handle, which no successful open answers.
-;
-; NOTE ON EFFECTS. The shims here perform I/O and say so; the POSIX
-; modules carry the same three names as pure stubs behind
-; `usesSyscallAbi` 1, which is what keeps the four modules declaring
-; one set of public names (`check-stdlib-api.sh` requires it).
-; `Err` for the `(Result Int Error)` the two descriptor calls answer;
-; acyclic, as the four syscall-ABI files record.
+;;! Sys.Platform - target constants and safe platform operations.
+; Raw addresses and descriptor operations belong to Internal.Platform.
 (import Err)
-(import Internal.WindowsProcessEncoding)
-(import Internal.WindowsStartup)
+(import Internal.Platform)
 
 ;; read(fd, buf, count): 0 and unused, like every syscall number in this
 ;; file. `platformReadFd` reads instead.
 (pub :: sysReadNum Int)
 (pub fn (sysReadNum)
-  0)
+  Internal.Platform::impl_sysReadNum)
 
 ;; write(fd, buf, count): 0 and unused. `platformWriteFd` writes instead.
 (pub :: sysWriteNum Int)
 (pub fn (sysWriteNum)
-  0)
+  Internal.Platform::impl_sysWriteNum)
 
 ;; open(path, flags, mode): 0 and unused. Files go through kernel32.
 (pub :: sysOpenNum Int)
 (pub fn (sysOpenNum)
-  0)
+  Internal.Platform::impl_sysOpenNum)
 
 ;; close(fd): 0 and unused. Files go through kernel32.
 (pub :: sysCloseNum Int)
 (pub fn (sysCloseNum)
-  0)
+  Internal.Platform::impl_sysCloseNum)
 
 ;; exit(status): 0 and unused. `platformExitWith` ends the process instead.
 (pub :: sysExitNum Int)
 (pub fn (sysExitNum)
-  0)
+  Internal.Platform::impl_sysExitNum)
 
 ;; lseek(fd, offset, whence): 0 and unused. Files go through kernel32.
 (pub :: sysLseekNum Int)
 (pub fn (sysLseekNum)
-  0)
+  Internal.Platform::impl_sysLseekNum)
 
 ;; 0, so `Sys.ax` takes the plain `open` form rather than `openat`.
 ;; `Sys.ax` branches on this rather than on an OS name, so adding a
 ;; platform never means editing portable code.
 (pub :: openNeedsDirFd Int)
 (pub fn (openNeedsDirFd)
-  0)
+  Internal.Platform::impl_openNeedsDirFd)
 
 ;; Unused here (see `openNeedsDirFd`), but defined so that
 ;; `Sys.ax` type-checks against every platform module.
 (pub :: atFdCwd Int)
 (pub fn (atFdCwd)
-  0)
+  Internal.Platform::impl_atFdCwd)
 
 ;; The `O_RDONLY` flag for `open` on this platform: read only.
 (pub :: oRdonly Int)
 (pub fn (oRdonly)
-  0)
+  Internal.Platform::impl_oRdonly)
 
 ;; O_WRONLY | O_CREAT | O_TRUNC in Linux's spelling: 0x0001 | 0x0040 |
 ;; 0x0200.
 (pub :: oWronlyCreateTrunc Int)
 (pub fn (oWronlyCreateTrunc)
-  577)
+  Internal.Platform::impl_oWronlyCreateTrunc)
 
 ;; O_WRONLY | O_CREAT | O_APPEND in Linux's spelling: 0x0001 | 0x0040 |
 ;; 0x0400.
 (pub :: oWronlyCreateAppend Int)
 (pub fn (oWronlyCreateAppend)
-  1089)
+  Internal.Platform::impl_oWronlyCreateAppend)
 
 ;; The `whence` value for `lseek` that measures from the end of the
 ;; file.
 (pub :: seekEnd Int)
 (pub fn (seekEnd)
-  2)
+  Internal.Platform::impl_seekEnd)
 
 ;; The `whence` value for `lseek` that measures from the start of the
 ;; file.
 (pub :: seekSet Int)
 (pub fn (seekSet)
-  0)
+  Internal.Platform::impl_seekSet)
 
 ;; Starting a child process.
 (pub :: spawnUsesPosixSpawn Int)
 (pub fn (spawnUsesPosixSpawn)
-  0)
+  Internal.Platform::impl_spawnUsesPosixSpawn)
 
 ;; 0: this target has no `fork` syscall.
 (pub :: sysForkNum Int)
@@ -161,13 +91,13 @@
 ;; none, the `clone` flags where it is `clone`.
 (pub :: sysForkArg Int)
 (pub fn (sysForkArg)
-  0)
+  Internal.Platform::impl_sysForkArg)
 
 ;; The `execve` syscall number, or 0 where the platform runs a child
 ;; through its own path.
 (pub :: sysExecveNum Int)
 (pub fn (sysExecveNum)
-  0)
+  Internal.Platform::impl_sysExecveNum)
 
 ;; wait4(pid, status, options, rusage): 0 and unused. Processes go through kernel32.
 (pub :: sysWait4Num Int)
@@ -184,158 +114,158 @@
 ;; unlink(path): 0 and unused. Files go through kernel32.
 (pub :: sysUnlinkNum Int)
 (pub fn (sysUnlinkNum)
-  0)
+  Internal.Platform::impl_sysUnlinkNum)
 
 ;; mkdir(path, mode): 0 and unused. Directories go through kernel32.
 (pub :: sysMkdirNum Int)
 (pub fn (sysMkdirNum)
-  0)
+  Internal.Platform::impl_sysMkdirNum)
 
 ;; rmdir(path): 0 and unused. Directories go through kernel32.
 (pub :: sysRmdirNum Int)
 (pub fn (sysRmdirNum)
-  0)
+  Internal.Platform::impl_sysRmdirNum)
 
 ;; rename(from, to): 0 and unused. Files go through kernel32.
 (pub :: sysRenameNum Int)
 (pub fn (sysRenameNum)
-  0)
+  Internal.Platform::impl_sysRenameNum)
 
 ;; Reading a directory.
 (pub :: sysGetdentsNum Int)
 (pub fn (sysGetdentsNum)
-  0)
+  Internal.Platform::impl_sysGetdentsNum)
 
 ;; 1 where reading a directory needs a position argument
 ;; (`getdirentries`), 0 where `getdents` keeps its own.
 (pub :: dirReadNeedsPosition Int)
 (pub fn (dirReadNeedsPosition)
-  0)
+  Internal.Platform::impl_dirReadNeedsPosition)
 
 ;; Where the name starts inside one directory record: 19, the offset in
 ;; Linux's `dirent64`. Unused: directories go through kernel32.
 (pub :: direntNameOffset Int)
 (pub fn (direntNameOffset)
-  19)
+  Internal.Platform::impl_direntNameOffset)
 
 ;; The working directory.
 (pub :: cwdUsesFcntlPath Int)
 (pub fn (cwdUsesFcntlPath)
-  0)
+  Internal.Platform::impl_cwdUsesFcntlPath)
 
 ;; The call that answers the working directory: 0 and unused.
 (pub :: sysCwdNum Int)
 (pub fn (sysCwdNum)
-  0)
+  Internal.Platform::impl_sysCwdNum)
 
 ;; The `fcntl` command that answers a descriptor's path, or 0 where the
 ;; platform has none.
 (pub :: fGetPath Int)
 (pub fn (fGetPath)
-  0)
+  Internal.Platform::impl_fGetPath)
 
 ;; The two errno values portable code above compares against.
 (pub :: eExist Int)
 (pub fn (eExist)
-  17)
+  Internal.Platform::impl_eExist)
 
 ;; The `EISDIR` errno: the path names a directory.
 (pub :: eIsDir Int)
 (pub fn (eIsDir)
-  21)
+  Internal.Platform::impl_eIsDir)
 
 ;; getpid(): 0 and unused.
 (pub :: sysGetPidNum Int)
 (pub fn (sysGetPidNum)
-  0)
+  Internal.Platform::impl_sysGetPidNum)
 
 ;; The clock call: 0, because no clock is bound here. `sysNowMicros`,
 ;; `sysNowMonotonic` and `sysNowRealtimeNanos` answer `Err` 78 on 0.
 (pub :: sysClockNum Int)
 (pub fn (sysClockNum)
-  0)
+  Internal.Platform::impl_sysClockNum)
 
 ;; 1 where wall-clock time comes from `gettimeofday`, 0 where it comes
 ;; from `clock_gettime`.
 (pub :: clockIsGettimeofday Int)
 (pub fn (clockIsGettimeofday)
-  0)
+  Internal.Platform::impl_clockIsGettimeofday)
 
 ;; 1 where environment names match without regard to ASCII case, as
 ;; Windows matches them, 0 where they match byte for byte.
 (pub :: envNamesFoldCase Int)
 (pub fn (envNamesFoldCase)
-  1)
+  Internal.Platform::impl_envNamesFoldCase)
 
 ;; Whether this platform can answer a MONOTONIC clock - one that never
 ;; steps backwards - through a syscall. 0 here, where no clock is bound.
 (pub :: clockHasMonotonic Int)
 (pub fn (clockHasMonotonic)
-  0)
+  Internal.Platform::impl_clockHasMonotonic)
 
 ;; socket(domain, type, protocol): 0 and unused. Sockets go through Winsock.
 (pub :: sysSocketNum Int)
 (pub fn (sysSocketNum)
-  0)
+  Internal.Platform::impl_sysSocketNum)
 
 ;; bind(fd, addr, addrlen): 0 and unused. Sockets go through Winsock.
 (pub :: sysBindNum Int)
 (pub fn (sysBindNum)
-  0)
+  Internal.Platform::impl_sysBindNum)
 
 ;; listen(fd, backlog): 0 and unused. Sockets go through Winsock.
 (pub :: sysListenNum Int)
 (pub fn (sysListenNum)
-  0)
+  Internal.Platform::impl_sysListenNum)
 
 ;; accept(fd, addr, addrlen): 0 and unused. Sockets go through Winsock.
 (pub :: sysAcceptNum Int)
 (pub fn (sysAcceptNum)
-  0)
+  Internal.Platform::impl_sysAcceptNum)
 
 ;; connect(fd, addr, addrlen): 0 and unused. Sockets go through Winsock.
 (pub :: sysConnectNum Int)
 (pub fn (sysConnectNum)
-  0)
+  Internal.Platform::impl_sysConnectNum)
 
 ;; setsockopt(fd, level, name, val, len): 0 and unused. Sockets go through Winsock.
 (pub :: sysSetSockOptNum Int)
 (pub fn (sysSetSockOptNum)
-  0)
+  Internal.Platform::impl_sysSetSockOptNum)
 
 ;; getsockopt(fd, level, name, val, lenptr): 0 and unused. Sockets go through Winsock.
 (pub :: sysGetSockOptNum Int)
 (pub fn (sysGetSockOptNum)
-  0)
+  Internal.Platform::impl_sysGetSockOptNum)
 
 ;; shutdown(fd, how): 0 and unused. Sockets go through Winsock.
 (pub :: sysShutdownNum Int)
 (pub fn (sysShutdownNum)
-  0)
+  Internal.Platform::impl_sysShutdownNum)
 
 ;; fcntl(fd, cmd, arg): 0 and unused. It stays apart from `sysCwdNum`,
 ;; which names the call that answers the working directory, because a
 ;; socket has no business reading that name.
 (pub :: sysFcntlNum Int)
 (pub fn (sysFcntlNum)
-  0)
+  Internal.Platform::impl_sysFcntlNum)
 
 ;; The IPv4 address family, `AF_INET`: 2 on every target. That agreement
 ;; is a trap, because `AF_INET6` below is not shared.
 (pub :: afInet Int)
 (pub fn (afInet)
-  2)
+  Internal.Platform::impl_afInet)
 
 ;; The IPv6 address family, `AF_INET6`, in Linux's spelling: 10. Darwin's
 ;; is 30.
 (pub :: afInet6 Int)
 (pub fn (afInet6)
-  23)
+  Internal.Platform::impl_afInet6)
 
 ;; The `SOCK_STREAM` socket type: a TCP byte stream.
 (pub :: sockStream Int)
 (pub fn (sockStream)
-  1)
+  Internal.Platform::impl_sockStream)
 
 ;; The socket-option level `SOL_SOCKET`, in Linux's spelling: 1. Darwin's
 ;; is 0xffff, and its `SO_*` are BSD bitmask-style constants where
@@ -343,46 +273,46 @@
 ;; two doesn't fail, it sets some other option.
 (pub :: solSocket Int)
 (pub fn (solSocket)
-  65535)
+  Internal.Platform::impl_solSocket)
 
 ;; The `SO_REUSEADDR` socket option.
 (pub :: soReuseAddr Int)
 (pub fn (soReuseAddr)
-  4)
+  Internal.Platform::impl_soReuseAddr)
 
 ;; The `SO_REUSEPORT` socket option.
 (pub :: soReusePort Int)
 (pub fn (soReusePort)
-  15)
+  Internal.Platform::impl_soReusePort)
 
 ;; The `SO_ERROR` socket option, read after a non-blocking connect
 ;; finishes.
 (pub :: soError Int)
 (pub fn (soError)
-  4103)
+  Internal.Platform::impl_soError)
 
 ;; fcntl's command that reads a descriptor's status flags, in Linux's
 ;; spelling: 3. Unused: sockets go through Winsock.
 (pub :: fGetFl Int)
 (pub fn (fGetFl)
-  3)
+  Internal.Platform::impl_fGetFl)
 
 ;; The `fcntl` command that sets a descriptor's status flags.
 (pub :: fSetFl Int)
 (pub fn (fSetFl)
-  4)
+  Internal.Platform::impl_fSetFl)
 
 ;; fcntl's F_DUPFD_CLOEXEC: a duplicate of a descriptor, closed on exec.
 ;; `IO.termRaw` keeps one, so its guard can restore the terminal however
 ;; the caller's file is closed. 0 where nothing has terminal control.
 (pub :: fDupFdCloexec Int)
 (pub fn (fDupFdCloexec)
-  0)
+  Internal.Platform::impl_fDupFdCloexec)
 
 ;; The `O_NONBLOCK` status flag.
 (pub :: oNonblock Int)
 (pub fn (oNonblock)
-  2048)
+  Internal.Platform::impl_oNonblock)
 
 ;; EAGAIN, which a non-blocking `accept` or `read` answers negated when
 ;; there is nothing to take yet: 11, Linux's value. Darwin's is 35, so a
@@ -390,141 +320,141 @@
 ;; them, which is the reason this is a name.
 (pub :: eAgain Int)
 (pub fn (eAgain)
-  11)
+  Internal.Platform::impl_eAgain)
 
 ;; ENOSYS - the kernel has no such call: 38 on Linux, 78 on Darwin and FreeBSD.
 (pub :: eNoSys Int)
 (pub fn (eNoSys)
-  38)
+  Internal.Platform::impl_eNoSys)
 
 ;; EOPNOTSUPP - the operation does not apply to this socket or file: 95 on
 ;; Linux, 102 on Darwin, 45 on FreeBSD.
 (pub :: eOpNotSupp Int)
 (pub fn (eOpNotSupp)
-  95)
+  Internal.Platform::impl_eOpNotSupp)
 
 ;; ENOTCONN - the socket is not connected: 107 on Linux, 57 on the BSDs.
 (pub :: eNotConn Int)
 (pub fn (eNotConn)
-  107)
+  Internal.Platform::impl_eNotConn)
 
 ;; ECONNREFUSED - nothing listens on the port: 111 on Linux, 61 on the BSDs.
 (pub :: eConnRefused Int)
 (pub fn (eConnRefused)
-  111)
+  Internal.Platform::impl_eConnRefused)
 
 ;; ECONNRESET - the peer reset the connection: 104 on Linux, 54 on the BSDs.
 (pub :: eConnReset Int)
 (pub fn (eConnReset)
-  104)
+  Internal.Platform::impl_eConnReset)
 
 ;; ECONNABORTED - the connection was aborted before it was accepted: 103 on
 ;; Linux, 53 on the BSDs.
 (pub :: eConnAborted Int)
 (pub fn (eConnAborted)
-  103)
+  Internal.Platform::impl_eConnAborted)
 
 ;; EHOSTUNREACH - no route to the host: 113 on Linux, 65 on the BSDs.
 (pub :: eHostUnreach Int)
 (pub fn (eHostUnreach)
-  113)
+  Internal.Platform::impl_eHostUnreach)
 
 ;; ENETUNREACH - no route to the network: 101 on Linux, 51 on the BSDs.
 (pub :: eNetUnreach Int)
 (pub fn (eNetUnreach)
-  101)
+  Internal.Platform::impl_eNetUnreach)
 
 ;; ENETDOWN - the network is down: 100 on Linux, 50 on the BSDs.
 (pub :: eNetDown Int)
 (pub fn (eNetDown)
-  100)
+  Internal.Platform::impl_eNetDown)
 
 ;; EADDRINUSE - another socket holds the address: 98 on Linux, 48 on the BSDs.
 (pub :: eAddrInUse Int)
 (pub fn (eAddrInUse)
-  98)
+  Internal.Platform::impl_eAddrInUse)
 
 ;; EADDRNOTAVAIL - the address is not one of this host's: 99 on Linux, 49
 ;; on the BSDs.
 (pub :: eAddrNotAvail Int)
 (pub fn (eAddrNotAvail)
-  99)
+  Internal.Platform::impl_eAddrNotAvail)
 
 ;; EINPROGRESS - a non-blocking connect has started and not finished: 115
 ;; on Linux, 36 on the BSDs.
 (pub :: eInProgress Int)
 (pub fn (eInProgress)
-  115)
+  Internal.Platform::impl_eInProgress)
 
 ;; Whether `sockaddr_in` opens with a length byte: 0, as on Linux. The
 ;; BSD layout has one, and the two can't share a builder.
 (pub :: sockaddrHasLenByte Int)
 (pub fn (sockaddrHasLenByte)
-  0)
+  Internal.Platform::impl_sockaddrHasLenByte)
 
 ;; 1 where readiness comes from `kqueue`, 0 where it comes from
 ;; `epoll`.
 (pub :: pollUsesKqueue Int)
 (pub fn (pollUsesKqueue)
-  0)
+  Internal.Platform::impl_pollUsesKqueue)
 
 ;; The call that makes a poll set: 0 and unused. Sockets go through Winsock.
 (pub :: sysPollCreateNum Int)
 (pub fn (sysPollCreateNum)
-  0)
+  Internal.Platform::impl_sysPollCreateNum)
 
 ;; The call that waits on the poll set: 0 and unused. A poller here keeps
 ;; its own table and waits through `platformPoll`.
 (pub :: sysPollWaitNum Int)
 (pub fn (sysPollWaitNum)
-  0)
+  Internal.Platform::impl_sysPollWaitNum)
 
 ;; The syscall number that adds and removes descriptors in the poll set
 ;; (`kevent` or `epoll_ctl`).
 (pub :: sysPollCtlNum Int)
 (pub fn (sysPollCtlNum)
-  0)
+  Internal.Platform::impl_sysPollCtlNum)
 
 ;; The size of one readiness event record: 12, Linux's packed
 ;; `epoll_event`. Unused: sockets go through Winsock.
 (pub :: pollEventSize Int)
 (pub fn (pollEventSize)
-  24)
+  Internal.Platform::impl_pollEventSize)
 
 ;; The byte offset of the descriptor inside one readiness event record.
 (pub :: pollEventFdOffset Int)
 (pub fn (pollEventFdOffset)
-  8)
+  Internal.Platform::impl_pollEventFdOffset)
 
 ;; The readability filter in epoll's spelling: EPOLLIN, 1. kqueue's
 ;; EVFILT_READ is -1, a negative event kind rather than a bitmask bit.
 (pub :: pollReadFilter Int)
 (pub fn (pollReadFilter)
-  1)
+  Internal.Platform::impl_pollReadFilter)
 
 ;; The writability filter: EVFILT_WRITE (-2) for kqueue, EPOLLOUT (4) for
 ;; epoll. It goes where `pollReadFilter` goes.
 (pub :: pollWriteFilter Int)
 (pub fn (pollWriteFilter)
-  4)
+  Internal.Platform::impl_pollWriteFilter)
 
 ;; EV_ADD and EV_DELETE, which coincide with EPOLL_CTL_ADD and
 ;; EPOLL_CTL_DEL at 1 and 2. The agreement is luck rather than design, so
 ;; both are named on both platforms instead of being assumed.
 (pub :: pollAddOp Int)
 (pub fn (pollAddOp)
-  1)
+  Internal.Platform::impl_pollAddOp)
 
 ;; The operation code that removes a descriptor from the poll set.
 (pub :: pollDelOp Int)
 (pub fn (pollDelOp)
-  2)
+  Internal.Platform::impl_pollDelOp)
 
 ;; The size of the mask argument `epoll_pwait` takes: 8, as on Linux,
 ;; where it must be exactly 8. Nothing reads it here.
 (pub :: pollSigsetSize Int)
 (pub fn (pollSigsetSize)
-  8)
+  Internal.Platform::impl_pollSigsetSize)
 
 ;; The syscall number that fills a buffer with random bytes.
 (pub :: sysRandomNum Int)
@@ -536,88 +466,88 @@
 ;; `getrandom`.
 (pub :: randomIsGetentropy Int)
 (pub fn (randomIsGetentropy)
-  0)
+  Internal.Platform::impl_randomIsGetentropy)
 
 ;; The most bytes one random-bytes syscall may fill at a time.
 (pub :: randomMaxChunk Int)
 (pub fn (randomMaxChunk)
-  256)
+  Internal.Platform::impl_randomMaxChunk)
 
 ;; 1 where signals are read from a `signalfd`, 0 where a `kqueue`
 ;; filter delivers them.
 (pub :: signalUsesSignalFd Int)
 (pub fn (signalUsesSignalFd)
-  1)
+  Internal.Platform::impl_signalUsesSignalFd)
 
 ;; sigprocmask(how, set, oset): 0 and unused. `platformSignalBlock`
 ;; captures the supported console controls through the emitted runtime.
 (pub :: sysSigProcMaskNum Int)
 (pub fn (sysSigProcMaskNum)
-  0)
+  Internal.Platform::impl_sysSigProcMaskNum)
 
 ;; SIG_BLOCK in Linux's spelling: 0. Darwin's is 1, and Darwin's 0 is
 ;; `SIG_UNBLOCK`, so a value copied across would unblock the signal it
 ;; was asked to block.
 (pub :: sigBlockHow Int)
 (pub fn (sigBlockHow)
-  0)
+  Internal.Platform::impl_sigBlockHow)
 
 ;; The width of a signal set: 8 bytes, Linux's kernel `sigset_t`.
 ;; Nothing reads it here.
 (pub :: sigsetBytes Int)
 (pub fn (sigsetBytes)
-  8)
+  Internal.Platform::impl_sigsetBytes)
 
 ;; signalfd: 0 and unused. Controls use a poller table row and the
 ;; runtime queue instead of a signal descriptor.
 (pub :: sysSignalFdNum Int)
 (pub fn (sysSignalFdNum)
-  0)
+  Internal.Platform::impl_sysSignalFdNum)
 
 ;; The size of one `signalfd_siginfo` record, or 0 where none is read.
 (pub :: sigInfoSize Int)
 (pub fn (sigInfoSize)
-  128)
+  Internal.Platform::impl_sigInfoSize)
 
 ;; EVFILT_SIGNAL, the filter that marks an event as a signal rather than
 ;; a readable socket. Unused on Linux, where the distinction is which
 ;; descriptor woke instead.
 (pub :: pollSignalFilter Int)
 (pub fn (pollSignalFilter)
-  0)
+  Internal.Platform::impl_pollSignalFilter)
 
 ;; kill(pid, sig): 0 and unused. Processes go through kernel32.
 (pub :: sysKillNum Int)
 (pub fn (sysKillNum)
-  0)
+  Internal.Platform::impl_sysKillNum)
 
 ;; SIGTERM, 15. It and SIGINT agree on every target, which is worth
 ;; naming because most of their neighbours don't: SIGUSR1 is 10 on Linux
 ;; and 30 on Darwin.
 (pub :: sigTerm Int)
 (pub fn (sigTerm)
-  15)
+  Internal.Platform::impl_sigTerm)
 
 ;; The `SIGCHLD` signal number, or zero when child signals are unavailable.
 (pub :: sigChild Int)
 (pub fn (sigChild)
-  0)
+  Internal.Platform::impl_sigChild)
 
 ;; The `SIGINT` signal number.
 (pub :: sigInt Int)
 (pub fn (sigInt)
-  2)
+  Internal.Platform::impl_sigInt)
 
 ;; The Windows Ctrl-Break signal number, or 0 where it is unavailable.
 (pub :: sigBreak Int)
 (pub fn (sigBreak)
-  21)
+  Internal.Platform::impl_sigBreak)
 
 ;; Whether `fork` answers 0 in the child, the POSIX convention: 1, though
 ;; this target has no `fork`.
 (pub :: forkChildIsZero Int)
 (pub fn (forkChildIsZero)
-  1)
+  Internal.Platform::impl_forkChildIsZero)
 
 ; ------------------------------------------------------------------
 ; The capability, and the bindings behind it.
@@ -626,843 +556,21 @@
 ;; goes through the C library or a host shim.
 (pub :: usesSyscallAbi Int)
 (pub fn (usesSyscallAbi)
-  0)
-
-; Not `pub`: the raw bindings stay inside this file, so the public
-; surface of every platform module is one set of names. `#0` on the
-; emitted declares and the `dllimport` on the runtime's own copies of
-; four of these are the emitter's business (`emitWinRuntime`).
-(extern "kernel32"
-  (winGetStdHandle :: (-> Int Int) (symbol "GetStdHandle"))
-  (winWriteFile :: (-> Int Int Int Int Int Int) (symbol "WriteFile"))
-  (winReadFile :: (-> Int Int Int Int Int Int) (symbol "ReadFile"))
-  (winExitProcess :: (-> Int Int) (symbol "ExitProcess"))
-  (winGetLastError :: Int (symbol "GetLastError"))
-  (winCreateFileW :: (-> Int Int Int Int Int Int Int Int) (symbol "CreateFileW"))
-  (winCloseHandle :: (-> Int Int) (symbol "CloseHandle"))
-  (winSetFilePointerEx :: (-> Int Int Int Int Int) (symbol "SetFilePointerEx"))
-  (winFlushFileBuffers :: (-> Int Int) (symbol "FlushFileBuffers"))
-  (winSetEndOfFile :: (-> Int Int) (symbol "SetEndOfFile"))
-  (winLockFileEx :: (-> Int Int Int Int Int Int Int) (symbol "LockFileEx"))
-  (winUnlockFileEx :: (-> Int Int Int Int Int Int) (symbol "UnlockFileEx"))
-  (winDeleteFileW :: (-> Int Int) (symbol "DeleteFileW"))
-  (winMoveFileExW :: (-> Int Int Int Int) (symbol "MoveFileExW"))
-  (winCreateDirectoryW :: (-> Int Int Int) (symbol "CreateDirectoryW"))
-  (winRemoveDirectoryW :: (-> Int Int) (symbol "RemoveDirectoryW"))
-  (winGetFileInformationByHandleEx :: (-> Int Int Int Int Int)
-    (symbol "GetFileInformationByHandleEx"))
-  (winGetCurrentDirectoryW :: (-> Int Int Int) (symbol "GetCurrentDirectoryW"))
-  (winCreateProcessW :: (-> Int Int Int Int Int Int Int Int Int Int Int) (symbol "CreateProcessW"))
-  (winWaitForSingleObject :: (-> Int Int Int) (symbol "WaitForSingleObject"))
-  (winGetExitCodeProcess :: (-> Int Int Int) (symbol "GetExitCodeProcess"))
-  (winTerminateProcess :: (-> Int Int Int) (symbol "TerminateProcess"))
-  (winGetCurrentProcessId :: Int (symbol "GetCurrentProcessId"))
-  (winSetHandleInformation :: (-> Int Int Int Int) (symbol "SetHandleInformation"))
-  (winSetStdHandle :: (-> Int Int Int) (symbol "SetStdHandle"))
-  (winQueryPerformanceCounter :: (-> Int Int) (symbol "QueryPerformanceCounter"))
-  (winQueryPerformanceFrequency :: (-> Int Int) (symbol "QueryPerformanceFrequency"))
-  (winGetSystemTimePreciseAsFileTime :: (-> Int Int) (symbol "GetSystemTimePreciseAsFileTime"))
-  (winSleep :: (-> Int Int) (symbol "Sleep"))
-  (winGetFileType :: (-> Int Int) (symbol "GetFileType"))
-  (winGetConsoleMode :: (-> Int Int Int) (symbol "GetConsoleMode"))
-  (winSetConsoleMode :: (-> Int Int Int) (symbol "SetConsoleMode"))
-  (winGetConsoleScreenBufferInfo :: (-> Int Int Int) (symbol "GetConsoleScreenBufferInfo")))
-
-; HANDLE GetStdHandle(DWORD) - a HANDLE: not masked.
-; BOOL WriteFile(HANDLE, LPCVOID, DWORD, LPDWORD, LPOVERLAPPED) - BOOL: masked.
-; BOOL ReadFile(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED) - BOOL: masked.
-; void ExitProcess(UINT) - never returns.
-; DWORD GetLastError(void) - DWORD: masked.
-; HANDLE CreateFileW(LPCWSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD,
-;   DWORD, HANDLE) - a HANDLE: not masked, and -1 on failure.
-; BOOL CloseHandle(HANDLE) - BOOL: masked.
-; BOOL SetFilePointerEx(HANDLE, LARGE_INTEGER, PLARGE_INTEGER, DWORD) -
-;   BOOL: masked. The distance is one 64-bit register on both arches.
-; BOOL DeleteFileW(LPCWSTR) - BOOL: masked.
-; BOOL MoveFileExW(LPCWSTR, LPCWSTR, DWORD) - BOOL: masked.
-; BOOL CreateDirectoryW(LPCWSTR, LPSECURITY_ATTRIBUTES) - BOOL: masked.
-; BOOL RemoveDirectoryW(LPCWSTR) - BOOL: masked.
-; BOOL GetFileInformationByHandleEx(HANDLE, FILE_INFO_BY_HANDLE_CLASS,
-;   LPVOID, DWORD) - BOOL: masked.
-; DWORD GetCurrentDirectoryW(DWORD, LPWSTR) - DWORD: masked.
-; BOOL CreateProcessW(LPCWSTR, LPWSTR, LPSECURITY_ATTRIBUTES,
-;   LPSECURITY_ATTRIBUTES, BOOL, DWORD, LPVOID, LPCWSTR, LPSTARTUPINFOW,
-;   LPPROCESS_INFORMATION) - BOOL: masked.
-; DWORD WaitForSingleObject(HANDLE, DWORD) - DWORD: masked.
-; BOOL GetExitCodeProcess(HANDLE, LPDWORD) - BOOL: masked.
-; BOOL TerminateProcess(HANDLE, UINT) - BOOL: masked.
-; DWORD GetCurrentProcessId(void) - DWORD: masked.
-; BOOL SetHandleInformation(HANDLE, DWORD, DWORD) - BOOL: masked.
-; BOOL SetStdHandle(DWORD, HANDLE) - BOOL: masked.
-; A descriptor to a HANDLE: see the header.
-(:: winHandleOf (-> Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(fn (winHandleOf fd)
-  (if (== fd 0)
-    (winGetStdHandle (- 0 10))
-    (if (== fd 1)
-      (winGetStdHandle (- 0 11))
-      (if (== fd 2)
-        (winGetStdHandle (- 0 12))
-        fd))))
-
-; A Win32 error code as the errno `Sys.ax`'s callers already test for,
-; NEGATED, so every `sysFailed`/`sysErrno` comparison above this file
-; is unchanged. Anything unmapped is EIO (5): a failure, named as a
-; failure, never mistaken for a count.
-(:: winErrnoOf (-> Int Int))
-(fn (winErrnoOf code)
-  ; ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND: ENOENT.
-  (if (|| (== code 2) (== code 3))
-      (- 0 2)
-    ; ERROR_ACCESS_DENIED: EACCES.
-    (== code 5)
-      (- 0 13)
-    ; ERROR_INVALID_HANDLE: EBADF.
-    (== code 6)
-      (- 0 9)
-    ; ERROR_NOT_ENOUGH_MEMORY: ENOMEM.
-    (== code 8)
-      (- 0 12)
-    ; ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION: EBUSY.
-    (|| (== code 32) (== code 33))
-      (- 0 16)
-    ; ERROR_FILE_EXISTS, ERROR_ALREADY_EXISTS: EEXIST.
-    (|| (== code 80) (== code 183))
-      (- 0 eExist)
-    ; ERROR_INVALID_PARAMETER, ERROR_INVALID_NAME: EINVAL.
-    (|| (== code 87) (== code 123))
-      (- 0 22)
-    ; ERROR_DISK_FULL: ENOSPC.
-    (== code 112)
-      (- 0 28)
-    ; ERROR_BROKEN_PIPE, ERROR_NO_DATA: EPIPE.
-    (|| (== code 109) (== code 232))
-      (- 0 32)
-    ; ERROR_DIR_NOT_EMPTY: ENOTEMPTY.
-    (== code 145)
-      (- 0 39)
-    ; ERROR_FILENAME_EXCED_RANGE: ENAMETOOLONG.
-    (== code 206)
-      (- 0 36)
-    ; ERROR_DIRECTORY: ENOTDIR.
-    (== code 267)
-      (- 0 20)
-    ; ERROR_BAD_EXE_FORMAT: ENOEXEC.
-    (== code 193)
-      (- 0 8)
-    (- 0 5)))
-
-; The DWORD out-cell `WriteFile`/`ReadFile` write their count through.
-; A fresh 8-byte word per call, zeroed by `__alloc`, so the upper half
-; of the word is 0 when the kernel has written only the lower four
-; bytes - the same hazard `sysWaitPid` zeroes its status cell against.
-; `lpNumberOfBytesWritten` may be NULL only when `lpOverlapped` is
-; not, so the cell is not optional.
-(:: winCell Int)
-;@axiom:effect(unsafe)
-(fn (winCell)
-  (__alloc 8))
-
-;; write(fd, buf, count): `Ok` bytes written, or `Err` carrying the
-;; errno `winErrnoOf` maps the last error to.
-;; The platform's own way to write to a descriptor where raw `write` is
-;; not available; `Err` 78 where the raw syscall is used instead.
-;; A socket writes through `send`.
-(pub :: platformWriteFd (-> Int Int Int (Result Int Error)))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (platformWriteFd fd buf count)
-  (if (winIsSocket (winHandleOf fd))
-    (wsaSend (winHandleOf fd) buf count)
-    {
-      (let cell winCell)
-      {
-        (let ok (& (winWriteFile (winHandleOf fd) buf count cell 0) 4294967295))
-        (if (== ok 0)
-          (Err (mkError (- 0 (winErrnoOf (& winGetLastError 4294967295))) "platformWriteFd"))
-          (Ok (& (__load64 cell 0) 4294967295)))
-      }
-    }))
-
-;; read(fd, buf, count): `Ok` bytes read, `Ok 0` at end of file, or
-;; `Err` carrying the errno. A broken pipe (ERROR_BROKEN_PIPE, 109) on a
-;; read is end of file, which is what a POSIX read of a closed pipe
-;; answers too. A directory handle refuses the read with
-;; ERROR_INVALID_FUNCTION (1), which answers EISDIR, as `read` of a
-;; directory does on Linux and Darwin.
-;; The platform's own way to read from a descriptor where raw `read` is
-;; not available; `Err` 78 where the raw syscall is used instead.
-;; A socket reads through `recv`, so a receive timeout on it holds and
-;; answers EAGAIN.
-(pub :: platformReadFd (-> Int Int Int (Result Int Error)))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (platformReadFd fd buf count)
-  (if (winIsSocket (winHandleOf fd))
-    (wsaRecv (winHandleOf fd) buf count)
-    {
-      (let r (winReaderRead (winHandleOf fd) buf count))
-      (if (>= r 0)
-        (Ok r)
-        (if (== r -109)
-            (Ok 0)
-          (== r -1)
-            (Err (mkError eIsDir "platformReadFd"))
-          (Err (mkError (- 0 (winErrnoOf (- 0 r))) "platformReadFd"))))
-    }))
+  Internal.Platform::impl_usesSyscallAbi)
 
 ;; exit(code): `ExitProcess` ends every thread, as `exit_group` does.
 ;; The platform's own way to end the process where raw `exit` is not
 ;; available; -78 where the raw syscall is used instead.
 (pub :: platformExitWith (-> Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (platformExitWith code)
-  (winExitProcess code))
-
-; ------------------------------------------------------------------
-; Files and directories.
-;
-; `Sys.ax` and `IO.ax` hand paths over as NUL-terminated UTF-8, and the
-; `W` calls take NUL-terminated UTF-16. `winWidePath` converts in this
-; file, with no kernel32 call, so the conversion is the same on every
-; Windows build and refuses malformed UTF-8 with EINVAL rather than
-; substituting U+FFFD into a name the caller never wrote. Names coming
-; back (`platformReadDir`, `platformGetCwd`) convert the other way, and
-; there an unpaired surrogate, which NTFS permits, becomes U+FFFD.
-;
-; Every file opens with all three share modes, so a file another
-; handle holds open can still be read, written, renamed and deleted, as
-; on POSIX. `FILE_FLAG_BACKUP_SEMANTICS` lets the same call open a
-; directory, which is how `ioReadDir` lists one and how `isDir` tells
-; one apart: the open succeeds and the read answers EISDIR. Handles
-; are not inherited unless a spawn asks, so `O_CLOEXEC` needs nothing.
-;
-; Paths keep the classic MAX_PATH limit of 260 UTF-16 units: a longer
-; one fails with ENAMETOOLONG or ENOENT.
-; ------------------------------------------------------------------
-(:: winGet16 (-> Int Int Int))
-;@axiom:effect(unsafe)
-(fn (winGet16 src j)
-  (+ (__load8 src (* j 2)) (* (__load8 src (+ (* j 2) 1)) 256)))
-
-; The little-endian u32 at byte `off` of `p`. `__load64` indexes words,
-; and the records below put fields at byte offsets that aren't.
-(:: winGet32 (-> Int Int Int))
-;@axiom:effect(unsafe)
-(fn (winGet32 p off)
-  (+ (+ (__load8 p off) (* (__load8 p (+ off 1)) 256))
-    (+ (* (__load8 p (+ off 2)) 65536) (* (__load8 p (+ off 3)) 16777216))))
-
-; Encode the code point `cp` as UTF-8 at `dst + k`, answering the next
-; free byte.
-(:: winPutUtf8 (-> Int Int Int Int))
-;@axiom:effect(unsafe)
-(fn (winPutUtf8 dst k cp)
-  (if (< cp 128)
-      {
-        (__store8 dst k cp)
-        (+ k 1)
-      }
-    (< cp 2048)
-      {
-        (__store8 dst k (+ 192 (/ cp 64)))
-        (__store8 dst (+ k 1) (+ 128 (& cp 63)))
-        (+ k 2)
-      }
-    (< cp 65536)
-      {
-        (__store8 dst k (+ 224 (/ cp 4096)))
-        (__store8 dst (+ k 1) (+ 128 (& (/ cp 64) 63)))
-        (__store8 dst (+ k 2) (+ 128 (& cp 63)))
-        (+ k 3)
-      }
-    {
-      (__store8 dst k (+ 240 (/ cp 262144)))
-      (__store8 dst (+ k 1) (+ 128 (& (/ cp 4096) 63)))
-      (__store8 dst (+ k 2) (+ 128 (& (/ cp 64) 63)))
-      (__store8 dst (+ k 3) (+ 128 (& cp 63)))
-      (+ k 4)
-    }))
-
-; Encode the `n` UTF-16 units at `src` from unit `j` as UTF-8 at `dst`
-; from byte `k`, answering the byte count written. A surrogate pair
-; becomes one code point; an unpaired surrogate becomes U+FFFD. The
-; caller sizes `dst` at three bytes per unit, which every unit fits.
-(:: winUtf8From (-> Int Int Int Int Int Int))
-(fn (winUtf8From src j n dst k)
-  (if (>= j n)
-    k
-    {
-      (let u (winGet16 src j))
-      (if (&& (&& (>= u 55296) (<= u 56319)) (< (+ j 1) n))
-          {
-            (let v (winGet16 src (+ j 1)))
-            (if (&& (>= v 56320) (<= v 57343))
-              (winUtf8From src (+ j 2) n dst
-                (winPutUtf8 dst k (+ 65536 (+ (* (- u 55296) 1024) (- v 56320)))))
-              (winUtf8From src (+ j 1) n dst (winPutUtf8 dst k 65533)))
-          }
-        (&& (>= u 55296) (<= u 57343))
-          (winUtf8From src (+ j 1) n dst (winPutUtf8 dst k 65533))
-        (winUtf8From src (+ j 1) n dst (winPutUtf8 dst k u)))
-    }))
-
-; The last error as a negated errno, the answer every shim below fails with.
-(:: winLastErr Int)
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(fn (winLastErr)
-  (winErrnoOf (& winGetLastError 4294967295)))
-
-; A BOOL answer as 0, or the last error.
-(:: winBoolResult (-> Int Int))
-;@axiom:effect(io)
-(fn (winBoolResult ok)
-  (if (== (& ok 4294967295) 0)
-    winLastErr
-    0))
-
-; CreateFileW's access, from the open flags in Linux's spelling:
-; O_RDONLY 0, O_WRONLY 1 and O_RDWR 2 in the low two bits, and O_APPEND
-; (0x400) asking for FILE_APPEND_DATA, which puts every write at the
-; end, in place of GENERIC_WRITE.
-(:: winAccessOf (-> Int Int))
-(fn (winAccessOf flags)
-  {
-    (let mode (& flags 3))
-    (let read
-      (if (|| (== mode 0) (== mode 2))
-        2147483648
-        0))
-    (let write
-      (if (== mode 0)
-          0
-        (!= (& flags 1024) 0)
-          ; FILE_APPEND_DATA | SYNCHRONIZE
-          1048580
-        ; GENERIC_WRITE
-        1073741824))
-    (| read write)
-  })
-
-; CreateFileW's disposition, from O_CREAT (0x40), O_EXCL (0x80) and
-; O_TRUNC (0x200): CREATE_NEW 1, CREATE_ALWAYS 2, OPEN_EXISTING 3,
-; OPEN_ALWAYS 4, TRUNCATE_EXISTING 5.
-(:: winDispositionOf (-> Int Int))
-(fn (winDispositionOf flags)
-  {
-    (let creat (!= (& flags 64) 0))
-    (let excl (!= (& flags 128) 0))
-    (let trunc (!= (& flags 512) 0))
-    (if (&& creat excl)
-        1
-      (&& creat trunc)
-        2
-      creat
-        4
-      trunc
-        5
-      3)
-  })
-
-; 1 when the handle `h` names a directory, from FILE_BASIC_INFO's
-; attributes (FileBasicInfo is class 0, and the attributes sit at byte
-; 32 of its 40), 0 when it doesn't, or -1 when the query fails.
-(:: winIsDirHandle (-> Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(fn (winIsDirHandle h)
-  {
-    (let info (__alloc 40))
-    (if (== (& (winGetFileInformationByHandleEx h 0 info 40) 4294967295) 0)
-      (- 0 1)
-      (if (!= (& (winGet32 info 32) 16) 0)
-        1
-        0))
-  })
-
-;; open(path, flags, mode): a descriptor, or `-errno`. The flags are
-;; the ones this module declares; the mode is ignored, because Windows
-;; files take their permissions from the directory they are made in.
-;; The platform's own way to open a path where raw `open` is not
-;; available; -ENOSYS where the raw syscall is used instead.
-(pub :: platformOpen (-> Int Int Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (platformOpen path flags mode)
-  {
-    (let wide (winWidePath path))
-    (if (== wide 0)
-      (- 0 22)
-      {
-        ; FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, and
-        ; FILE_ATTRIBUTE_NORMAL | FILE_FLAG_BACKUP_SEMANTICS.
-        (let h (winCreateFileW wide (winAccessOf flags) 7 0 (winDispositionOf flags) 33554560 0))
-        (if (== h (- 0 1))
-            winLastErr
-          (== (& flags oDirectory) 0)
-            h
-          {
-            (let isdir (winIsDirHandle h))
-            (if (== isdir 1)
-              h
-              {
-                (winCloseHandle h)
-                (if (< isdir 0)
-                  (- 0 5)
-                  (- 0 20))
-              })
-          })
-      })
-  })
-
-;; close(fd): 0, or `-errno`.
-;; The platform's own way to close a descriptor where raw `close` is not
-;; available; -ENOSYS where the raw syscall is used instead.
-(pub :: platformClose (-> Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (platformClose fd)
-  {
-    (let h (winHandleOf fd))
-    ; A socket goes through `closesocket`, which frees Winsock's own
-    ; state for it; anything else through `CloseHandle`.
-    (if (winIsSocket h)
-      (if (wsaFailed (winCloseSocket h))
-        wsaLastErr
-        0)
-      {
-        (let r (winReaderClose h))
-        (if (< r 0)
-          (winErrnoOf (- 0 r))
-          0)
-      })
-  })
-
-;; lseek(fd, offset, whence): the new absolute offset, or `-errno`. FILE_BEGIN, FILE_CURRENT and FILE_END are 0, 1
-;; and 2, as SEEK_SET, SEEK_CUR and SEEK_END are.
-;; The platform's own way to move a descriptor's offset where raw
-;; `lseek` is not available; -ENOSYS where the raw syscall is used
-;; instead.
-(pub :: platformSeek (-> Int Int Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (platformSeek fd offset whence)
-  {
-    (let cell winCell)
-    (if (== (& (winSetFilePointerEx (winHandleOf fd) offset cell whence) 4294967295) 0)
-      winLastErr
-      (__load64 cell 0))
-  })
-
-; An OVERLAPPED record carrying `offset` and no event: 32 bytes,
-; Internal and InternalHigh clear, Offset and OffsetHigh as one
-; little-endian word at byte 16, hEvent 0. `ReadFile`, `WriteFile` and
-; the lock calls take the position from it on a synchronous handle.
-(:: winOverlappedAt (-> Int Int))
-;@axiom:effect(unsafe)
-(fn (winOverlappedAt offset)
-  {
-    (let ovl (__alloc 32))
-    {
-      (__store64 ovl 0 0)
-      (__store64 ovl 1 0)
-      (__store64 ovl 2 offset)
-      (__store64 ovl 3 0)
-      ovl
-    }
-  })
-
-;; pread(fd, buf, count, offset): bytes read, 0 at or past the end of
-;; the file (ERROR_HANDLE_EOF, 38), or `-errno`. Only disk files have
-;; a position: consoles and pipes answer ESPIPE (29).
-;; The platform's own way to read at an offset where raw `pread` is not
-;; available; -ENOSYS where the raw syscall is used instead.
-(pub :: platformPread (-> Int Int Int Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (platformPread fd buf count offset)
-  {
-    (let kind (& (winGetFileType (winHandleOf fd)) 4294967295))
-    (if (!= kind 1)
-      (if (== kind 0)
-        winLastErr
-        -29)
-      {
-        (let cell winCell)
-        (let ovl (winOverlappedAt offset))
-        (if (== (& (winReadFile (winHandleOf fd) buf count cell ovl) 4294967295) 0)
-          {
-            (let code (& winGetLastError 4294967295))
-            (if (== code 38)
-              0
-              (winErrnoOf code))
-          }
-          (& (__load64 cell 0) 4294967295))
-      })
-  })
-
-;; pwrite(fd, buf, count, offset): bytes written, or `-errno`.
-;; Consoles and pipes answer ESPIPE (29), as they do for `pread`.
-;; The platform's own way to write at an offset where raw `pwrite` is
-;; not available; -ENOSYS where the raw syscall is used instead.
-(pub :: platformPwrite (-> Int Int Int Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (platformPwrite fd buf count offset)
-  {
-    (let kind (& (winGetFileType (winHandleOf fd)) 4294967295))
-    (if (!= kind 1)
-      (if (== kind 0)
-        winLastErr
-        -29)
-      {
-        (let cell winCell)
-        (let ovl (winOverlappedAt offset))
-        (if (== (& (winWriteFile (winHandleOf fd) buf count cell ovl) 4294967295) 0)
-          winLastErr
-          (& (__load64 cell 0) 4294967295))
-      })
-  })
-
-;; fsync(fd): 0, or `-errno`. `FlushFileBuffers` writes the file's data
-;; and metadata through to the disk.
-;; The platform's own way to flush a descriptor where raw `fsync` is not
-;; available; -ENOSYS where the raw syscall is used instead.
-(pub :: platformFsync (-> Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (platformFsync fd)
-  (winBoolResult (winFlushFileBuffers (winHandleOf fd))))
-
-;; ftruncate(fd, len): 0, or `-errno`. The end of the file moves to
-;; `len` through the file pointer, which is put back where it was, as
-;; `ftruncate` leaves it.
-;; The platform's own way to cut a file where raw `ftruncate` is not
-;; available; -ENOSYS where the raw syscall is used instead.
-(pub :: platformFtruncate (-> Int Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (platformFtruncate fd len)
-  {
-    (let h (winHandleOf fd))
-    (let cell winCell)
-    (if (== (& (winSetFilePointerEx h 0 cell 1) 4294967295) 0)
-      winLastErr
-      {
-        (let was (__load64 cell 0))
-        (if (== (& (winSetFilePointerEx h len cell 0) 4294967295) 0)
-          winLastErr
-          {
-            (let r (winBoolResult (winSetEndOfFile h)))
-            (let _ (winSetFilePointerEx h was cell 0))
-            r
-          })
-      })
-  })
-
-;; flock(fd, op): 0, or `-errno`, with `op` in the POSIX spelling: 1
-;; shared, 2 exclusive, 4 or'd in for non-blocking, 8 release. One byte
-;; at 2^62, past any file, stands for the whole file, so the mandatory
-;; byte-range lock never stops the holder's own reads and writes. A
-;; shared or exclusive request releases the byte first, as the POSIX
-;; conversion may; a held byte answers EAGAIN at once under
-;; LOCKFILE_FAIL_IMMEDIATELY, as LOCK_NB does, and a release of a byte
-;; that is not held (ERROR_NOT_LOCKED, 158) is 0, as LOCK_UN is.
-;; The platform's own way to lock a file where raw `flock` is not
-;; available; -ENOSYS where the raw syscall is used instead.
-(pub :: platformFlock (-> Int Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (platformFlock fd op)
-  {
-    (let h (winHandleOf fd))
-    (let ovl (winOverlappedAt 4611686018427387904))
-    (if (!= (& op 8) 0)
-      (if (== (& (winUnlockFileEx h 0 1 0 ovl) 4294967295) 0)
-        {
-          (let code (& winGetLastError 4294967295))
-          (if (== code 158)
-            0
-            (winErrnoOf code))
-        }
-        0)
-      {
-        (let _ (winUnlockFileEx h 0 1 0 ovl))
-        (let flags
-          (+
-            (if (!= (& op 2) 0)
-              2
-              0)
-            (if (!= (& op 4) 0)
-              1
-              0)))
-        (if (== (& (winLockFileEx h flags 0 1 0 ovl) 4294967295) 0)
-          {
-            (let code (& winGetLastError 4294967295))
-            (if (== code 33)
-              (- 0 eAgain)
-              (winErrnoOf code))
-          }
-          0)
-      })
-  })
+  (Internal.Platform::impl_platformExitWith code))
 
 ;; The path of the null device: `NUL` here.
 (pub :: platformNullPath String)
 ;@axiom:effect(pure)
 (pub fn (platformNullPath)
-  "NUL")
-
-;; unlink(path): 0, or `-errno`.
-;; The platform's own way to remove a file where raw `unlink` is not
-;; available; -ENOSYS where the raw syscall is used instead.
-(pub :: platformUnlink (-> Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (platformUnlink path)
-  {
-    (let wide (winWidePath path))
-    (if (== wide 0)
-      (- 0 22)
-      (winBoolResult (winDeleteFileW wide)))
-  })
-
-;; rename(from, to): 0, or `-errno`. An existing
-;; file at `to` is replaced, as POSIX `rename` replaces it
-;; (MOVEFILE_REPLACE_EXISTING).
-;; The platform's own way to rename a path where raw `rename` is not
-;; available; -ENOSYS where the raw syscall is used instead.
-(pub :: platformRename (-> Int Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (platformRename from to)
-  {
-    (let wto (winWidePath to))
-    (if (== wto 0)
-      (- 0 22)
-      {
-        (let wfrom (winWidePath from))
-        (if (== wfrom 0)
-          (- 0 22)
-          (winBoolResult (winMoveFileExW wfrom wto 1)))
-      })
-  })
-
-;; mkdir(path, mode): 0, or `-errno`; EEXIST when
-;; the path is already there. The mode is ignored, as `platformOpen`'s
-;; is.
-;; The platform's own way to make a directory where raw `mkdir` is not
-;; available; -ENOSYS where the raw syscall is used instead.
-(pub :: platformMkdir (-> Int Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (platformMkdir path mode)
-  {
-    (let wide (winWidePath path))
-    (if (== wide 0)
-      (- 0 22)
-      (winBoolResult (winCreateDirectoryW wide 0)))
-  })
-
-;; rmdir(path): 0, or `-errno`; ENOTEMPTY when the
-;; directory still holds entries.
-;; The platform's own way to remove a directory where raw `rmdir` is not
-;; available; -ENOSYS where the raw syscall is used instead.
-(pub :: platformRmdir (-> Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (platformRmdir path)
-  {
-    (let wide (winWidePath path))
-    (if (== wide 0)
-      (- 0 22)
-      (winBoolResult (winRemoveDirectoryW wide)))
-  })
-
-; Rewrite the FILE_FULL_DIR_INFO records at `src` as the records
-; `IO.ioReadDirDecode` reads at `dst`, from byte `k`, answering the
-; bytes written. A source record holds NextEntryOffset (u32) at 0,
-; FileNameLength in bytes (u32) at 60, and the UTF-16 name at 68; the
-; last one's NextEntryOffset is 0. Each output record carries its
-; length (u16) at 16 and its NUL-terminated UTF-8 name at 19, rounded
-; up to 8 bytes as `getdents64` rounds them.
-(:: winDirRecords (-> Int Int Int Int))
-;@axiom:effect(unsafe)
-(fn (winDirRecords src dst k)
-  {
-    (let next (winGet32 src 0))
-    (let units (/ (winGet32 src 60) 2))
-    (let rec (+ dst k))
-    (let end (winUtf8From (+ src 68) 0 units (+ rec 19) 0))
-    (let reclen (* (/ (+ (+ 19 end) 8) 8) 8))
-    (__store8 rec (+ 19 end) 0)
-    (__store8 rec 16 (& reclen 255))
-    (__store8 rec 17 (/ reclen 256))
-    (if (== next 0)
-      (+ k reclen)
-      (winDirRecords (+ src next) dst (+ k reclen)))
-  })
-
-;; Read the next entries of the directory open as `fd` into the `count`
-;; bytes at `buf`: the bytes written, 0 once the listing is
-;; done, or `-errno`. The records have the layout Linux's
-;; `getdents64` gives, which is the one `IO.ax` reads.
-;; The platform's own way to read a directory where raw `getdents` is
-;; not available; -ENOSYS where the raw syscall is used instead.
-(pub :: platformReadDir (-> Int Int Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (platformReadDir fd buf count)
-  {
-    ; A source record is at least 68 bytes plus two per unit; its
-    ; rewrite is at most 27 plus three per unit. Asking for half of
-    ; `count` keeps every rewrite inside `buf`.
-    (let want (/ count 2))
-    (let src (__alloc want))
-    ; FileFullDirectoryInfo, class 14.
-    (if (== (& (winGetFileInformationByHandleEx (winHandleOf fd) 14 src want) 4294967295) 0)
-      {
-        (let code (& winGetLastError 4294967295))
-        ; ERROR_NO_MORE_FILES
-        (if (== code 18)
-          0
-          (winErrnoOf code))
-      }
-      (winDirRecords src buf 0))
-  })
-
-;; The working directory as NUL-terminated UTF-8 in the `count` bytes
-;; at `buf`: its length, or `-errno`; ERANGE when
-;; it doesn't fit.
-;; The platform's own way to read the working directory where raw
-;; `getcwd` is not available; -ENOSYS where the raw syscall is used
-;; instead.
-(pub :: platformGetCwd (-> Int Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (platformGetCwd buf count)
-  {
-    (let units 32768)
-    (let wide (__alloc (* units 2)))
-    (let n (& (winGetCurrentDirectoryW units wide) 4294967295))
-    (if (== n 0)
-        winLastErr
-      (|| (> n units) (> (* n 3) (- count 1)))
-        (- 0 34)
-      {
-        (let len (winUtf8From wide 0 n buf 0))
-        (__store8 buf len 0)
-        len
-      })
-  })
-
-; ------------------------------------------------------------------
-; Child processes.
-;
-; A "pid" on this target is the child's process HANDLE: what
-; `platformSpawn` answers, and what `platformWait`, `platformKill` and
-; `platformChildExited` take. `platformWait` closes it, as a POSIX wait
-; reaps, so the value names its child until the wait and nothing after.
-; `platformPid` answers this process's real id, which callers only use
-; to keep two processes' scratch names apart.
-;
-; `argv` and `envp` arrive in POSIX form, NULL-terminated vectors of
-; NUL-terminated UTF-8. `argv` becomes one command line quoted by the
-; Microsoft rules, the inverse of the parser the entry shim runs
-; (`emitWinEntry`), and `envp` becomes a UTF-16 environment block. An
-; `envp` of 0 passes this process's environment, because a Windows
-; program started with none usually fails for want of `SystemRoot`.
-;
-; The application name is always passed. `CreateProcessW` given only a
-; command line searches the working directory first, which is the hole
-; `Sys.sysRunPath` closes, so the search is that function's alone.
-;
-; The child gets this process's three standard handles, as a POSIX
-; child inherits descriptors 0 to 2, and `platformSetStd` swaps one for
-; the length of a spawn, as `Sys.sysRunPathErrTo` swaps descriptor 2.
-; A strict HANDLE_LIST contains only those valid standard handles, so
-; concurrent worker transports cannot cross into an unrelated child.
-;
-; Not yet: `.bat` and `.cmd` files, which run under `cmd.exe` with its
-; own quoting rules.
-; ------------------------------------------------------------------
-;; Start `path` with `argv` and `envp`: the child's process handle, or
-;; `-errno`. ENOENT when there is no such file, ENOEXEC when it is not a
-;; Windows program.
-;; The platform's own way to start a child where raw `posix_spawn` or
-;; `fork` and `execve` are not available; -ENOSYS where the raw
-;; syscalls are used instead.
-(pub :: platformSpawn (-> Int Int Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (platformSpawn path argv envp)
-  {
-    (let startup windowsStartupNew)
-    (let state (windowsStartupPrepare startup path argv envp 0 0 0))
-    (let result
-      (if (< state 0)
-        state
-        {
-          (let pi (__load64 state 10))
-          ; HANDLE_LIST restricts inheritance to the valid standard streams.
-          ; With no standards, bInheritHandles is FALSE and no list is needed.
-          (if (==
-                (&
-                  (winCreateProcessW (__load64 state 0) (__load64 state 4) 0 0 (__load64 state 34)
-                    (__load64 state 33) (__load64 state 35) 0 (__load64 state 8) pi)
-                  4294967295)
-                0)
-            winLastErr
-            {
-              (let pid (__load64 pi 0))
-              (winCloseHandle (__load64 pi 1))
-              pid
-            })
-        }))
-    (windowsStartupClose startup)
-    result
-  })
-
-; The signal a POSIX shell would report for a child that ended with
-; the NTSTATUS `code`, or 0 when `code` is not one of the crash
-; statuses below: SIGSEGV (11) for an access violation or a stack
-; overflow, SIGFPE (8) for the arithmetic faults, SIGILL (4) for an
-; illegal or privileged instruction, SIGTRAP (5) for a breakpoint
-; (`int3`, which LLVM places after a call that must not return), SIGINT
-; (2) for Ctrl-C, and SIGABRT (6) for `__fastfail`.
-(:: winSignalOf (-> Int Int))
-(fn (winSignalOf code)
-  (if (|| (== code 3221225477) (== code 3221225725))
-      11
-    (|| (&& (>= code 3221225612) (<= code 3221225621)) (== code 3221225620))
-      8
-    (|| (== code 3221225501) (== code 3221225622))
-      4
-    (|| (== code 2147483651) (== code 2147483652))
-      5
-    (== code 3221225786)
-      2
-    (== code 3221226505)
-      6
-    0))
-
-; An exit code as the POSIX wait status `Sys.sysExitCode` and
-; `Sys.sysTermSignal` read. A crash status (`winSignalOf`) reads as
-; the signal it stands for; anything else is an exit code, of which a
-; wait status keeps the low byte, so a program that exits -1 reads as
-; 255, as it does on POSIX.
-(:: winWaitStatus (-> Int Int))
-(fn (winWaitStatus code)
-  {
-    (let sig (winSignalOf code))
-    (if (> sig 0)
-      sig
-      (* (& code 255) 256))
-  })
+  Internal.Platform::impl_platformNullPath)
 
 ;; Wait for the child `pid` and close its handle: its POSIX wait
 ;; status, or `-errno`.
@@ -1470,29 +578,8 @@
 ;; available; -ENOSYS where the raw syscall is used instead.
 (pub :: platformWait (-> Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (platformWait pid)
-  ; INFINITE; WAIT_OBJECT_0 is 0.
-  (if (!= (& (winWaitForSingleObject pid 4294967295) 4294967295) 0)
-    winLastErr
-    {
-      (let cell (__alloc 8))
-      (__retain cell)
-      (let result
-        (if (== (& (winGetExitCodeProcess pid cell) 4294967295) 0)
-          {
-            (let error winLastErr)
-            (winCloseHandle pid)
-            error
-          }
-          {
-            (let code (& (__load64 cell 0) 4294967295))
-            (winCloseHandle pid)
-            (winWaitStatus code)
-          }))
-      (__release cell)
-      result
-    }))
+  (Internal.Platform::impl_platformWait pid))
 
 ;; Send `sig` to the child `pid`: 0, or `-errno`, ESRCH when it has
 ;; already ended. Windows has no signals, so any `sig` but 0 ends the
@@ -1502,28 +589,8 @@
 ;; available; -ENOSYS where the raw syscall is used instead.
 (pub :: platformKill (-> Int Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (platformKill pid sig)
-  (if (== sig 0)
-    {
-      ; WAIT_TIMEOUT (258) means it is still running.
-      (let r (& (winWaitForSingleObject pid 0) 4294967295))
-      (if (== r 258)
-          0
-        (== r 0)
-          (- 0 3)
-        winLastErr)
-    }
-    (if (== (& (winTerminateProcess pid (+ 128 sig)) 4294967295) 0)
-      {
-        ; A child that is already ending refuses with
-        ; ERROR_ACCESS_DENIED.
-        (let e winLastErr)
-        (if (== e (- 0 13))
-          (- 0 3)
-          e)
-      }
-      0)))
+  (Internal.Platform::impl_platformKill pid sig))
 
 ;; Whether the child `pid` has ended, without closing its handle: 1 if
 ;; it has, 0 if it is running, or `-errno`.
@@ -1531,62 +598,36 @@
 ;; available; -ENOSYS where the raw syscall is used instead.
 (pub :: platformChildExited (-> Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (platformChildExited pid)
-  {
-    (let r (& (winWaitForSingleObject pid 0) 4294967295))
-    (if (== r 0)
-        1
-      (== r 258)
-        0
-      winLastErr)
-  })
+  (Internal.Platform::impl_platformChildExited pid))
 
 ;; This process's id.
 ;; The platform's own way to read the process id where raw `getpid` is
 ;; not available; -ENOSYS where the raw syscall is used instead.
 (pub :: platformPid Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (platformPid)
-  (& winGetCurrentProcessId 4294967295))
-
-;; Make the handle `h` this process's standard handle `n` (0, 1 or 2),
-;; answering the one it replaces, or `-errno`. A spawn in between hands
-;; the child `h`; passing the answer back restores the original.
-;; The platform's own way to swap a standard descriptor where raw
-;; `dup2` is not available; -ENOSYS where the raw syscall is used
-;; instead.
-(pub :: platformSetStd (-> Int Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (platformSetStd n h)
-  {
-    (let old (winGetStdHandle (- (- 0 10) n)))
-    (if (== (& (winSetStdHandle (- (- 0 10) n) h) 4294967295) 0)
-      winLastErr
-      old)
-  })
+  Internal.Platform::impl_platformPid)
 
 ;; The byte that separates the entries of `PATH`: `;` here, `:` on the
 ;; POSIX targets.
 (pub :: pathListSep Int)
 (pub fn (pathListSep)
-  59)
+  Internal.Platform::impl_pathListSep)
 
 ;; 1 where a backslash separates path components and `C:` starts an
 ;; absolute path, as here, so `Sys.sysRunPath` reads either as a path
 ;; rather than a name to search for. 0 where only `/` does.
 (pub :: pathBackslashSeparates Int)
 (pub fn (pathBackslashSeparates)
-  1)
+  Internal.Platform::impl_pathBackslashSeparates)
 
 ;; 1 where a program named without an extension is found as
 ;; `NAME.exe`, as `CreateProcessW` finds it; 0 where a program is found
 ;; under its own name.
 (pub :: exeSuffixTried Int)
 (pub fn (exeSuffixTried)
-  1)
+  Internal.Platform::impl_exeSuffixTried)
 
 ; ------------------------------------------------------------------
 ; The clock id `Sys.ax` hands to clock_gettime. Windows has no
@@ -1600,13 +641,13 @@
 ;; this target, which has no `clock_gettime`.
 (pub :: clockMonotonicId Int)
 (pub fn (clockMonotonicId)
-  0)
+  Internal.Platform::impl_clockMonotonicId)
 
 ;; Whether `Sys.ax` reads the arm64 counter for its monotonic clock,
 ;; which it does only where `clock_gettime` has none. 0 here.
 (pub :: clockHasCounter Int)
 (pub fn (clockHasCounter)
-  0)
+  Internal.Platform::impl_clockHasCounter)
 
 ; --------------------------------------------------------------------
 ; Terminals - UNIMPLEMENTED HERE, AND THAT IS THE ANSWER, NOT A GAP
@@ -1661,29 +702,29 @@
 ;; part of this shape.
 (pub :: ttyUsesTermios Int)
 (pub fn (ttyUsesTermios)
-  0)
+  Internal.Platform::impl_ttyUsesTermios)
 
 ;; ioctl(fd, request, arg): 0 and unused. The console goes through
 ;; `GetConsoleMode` instead (see `ttyUsesTermios`).
 (pub :: sysIoctlNum Int)
 (pub fn (sysIoctlNum)
-  0)
+  Internal.Platform::impl_sysIoctlNum)
 
 ;; TIOCGETA - read the terminal attributes into a `struct termios`.
 (pub :: tcGetAttrReq Int)
 (pub fn (tcGetAttrReq)
-  0)
+  Internal.Platform::impl_tcGetAttrReq)
 
 ;; TIOCSETAF - write the attributes back, after draining pending output
 ;; and DISCARDING pending input.
 (pub :: tcSetAttrReq Int)
 (pub fn (tcSetAttrReq)
-  0)
+  Internal.Platform::impl_tcSetAttrReq)
 
 ;; TIOCGWINSZ - read `struct winsize`.
 (pub :: tcWinSizeReq Int)
 (pub fn (tcWinSizeReq)
-  0)
+  Internal.Platform::impl_tcWinSizeReq)
 
 ;; 0 rather than a plausible size. `Sys.ax` allocates this many bytes
 ;; for a saved terminal state, and a caller that reached here would get
@@ -1691,7 +732,7 @@
 ;; could half-fill.
 (pub :: termiosBytes Int)
 (pub fn (termiosBytes)
-  0)
+  Internal.Platform::impl_termiosBytes)
 
 ;; The width of one flag word, which is also the STRIDE of the four of
 ;; them: `c_iflag` at 0, `c_oflag` at 8, `c_cflag` at 16, `c_lflag` at
@@ -1700,70 +741,70 @@
 ;; rather than four constants per module.
 (pub :: termiosFlagBytes Int)
 (pub fn (termiosFlagBytes)
-  0)
+  Internal.Platform::impl_termiosFlagBytes)
 
 ;; Where the control-character array `c_cc` begins: 0 here, unused.
 (pub :: termiosCcOff Int)
 (pub fn (termiosCcOff)
-  0)
+  Internal.Platform::impl_termiosCcOff)
 
 ;; The two `c_cc` slots that mean something once ICANON is off: how many
 ;; bytes a `read` must collect before it returns, and how long it waits
 ;; in tenths of a second. 0 here, unused.
 (pub :: termiosVminIdx Int)
 (pub fn (termiosVminIdx)
-  0)
+  Internal.Platform::impl_termiosVminIdx)
 
 ;; The index of `VTIME` in the termios control-character array.
 (pub :: termiosVtimeIdx Int)
 (pub fn (termiosVtimeIdx)
-  0)
+  Internal.Platform::impl_termiosVtimeIdx)
 
 ;; The `ECHO` local-mode flag: 0 here, unused, like every termios bit
 ;; below.
 (pub :: tiosEcho Int)
 (pub fn (tiosEcho)
-  0)
+  Internal.Platform::impl_tiosEcho)
 
 ;; The `ICANON` local-mode flag: line editing by the terminal.
 (pub :: tiosIcanon Int)
 (pub fn (tiosIcanon)
-  0)
+  Internal.Platform::impl_tiosIcanon)
 
 ;; The `ISIG` local-mode flag: the terminal turns Ctrl-C into a signal.
 (pub :: tiosIsig Int)
 (pub fn (tiosIsig)
-  0)
+  Internal.Platform::impl_tiosIsig)
 
 ;; The `IEXTEN` local-mode flag: extended input processing.
 (pub :: tiosIexten Int)
 (pub fn (tiosIexten)
-  0)
+  Internal.Platform::impl_tiosIexten)
 
 ;; The `BRKINT` input flag: a break raises an interrupt.
 (pub :: tiosBrkint Int)
 (pub fn (tiosBrkint)
-  0)
+  Internal.Platform::impl_tiosBrkint)
 
 ;; The `ICRNL` input flag: carriage return becomes newline.
 (pub :: tiosIcrnl Int)
 (pub fn (tiosIcrnl)
-  0)
+  Internal.Platform::impl_tiosIcrnl)
 
 ;; The `ISTRIP` input flag: strip the eighth bit.
 (pub :: tiosIstrip Int)
 (pub fn (tiosIstrip)
-  0)
+  Internal.Platform::impl_tiosIstrip)
 
 ;; The `IXON` input flag: Ctrl-S and Ctrl-Q flow control.
 (pub :: tiosIxon Int)
 (pub fn (tiosIxon)
-  0)
+  Internal.Platform::impl_tiosIxon)
 
 ;; The one c_oflag bit raw mode touches, `OPOST`.
 (pub :: tiosOpost Int)
 (pub fn (tiosOpost)
-  0)
+  Internal.Platform::impl_tiosOpost)
 
 ; ------------------------------------------------------------------
 ; Opening beneath a directory (`Sys.sysOpenBeneath`) and making the
@@ -1772,30 +813,30 @@
 ;; no syscall ABI: `Sys.ax` reaches the `__syscallN` trap for files, as for every file call here
 (pub :: sysOpenatNum Int)
 (pub fn (sysOpenatNum)
-  0)
+  Internal.Platform::impl_sysOpenatNum)
 
 ;; as above
 (pub :: sysSymlinkNum Int)
 (pub fn (sysSymlinkNum)
-  0)
+  Internal.Platform::impl_sysSymlinkNum)
 
 ;; as above
 (pub :: oNoFollow Int)
 (pub fn (oNoFollow)
-  0)
+  Internal.Platform::impl_oNoFollow)
 
 ;; O_DIRECTORY in Linux's spelling, 0x10000. `platformOpen` reads it
 ;; and refuses a path that isn't a directory with ENOTDIR.
 (pub :: oDirectory Int)
 (pub fn (oDirectory)
-  65536)
+  Internal.Platform::impl_oDirectory)
 
 ;; EXDEV, 18 on every kernel here: what `sysOpenBeneath` answers for a
 ;; path that would leave its directory, the errno Linux's
 ;; `openat2(RESOLVE_BENEATH)` answers for the same thing.
 (pub :: eXdev Int)
 (pub fn (eXdev)
-  18)
+  Internal.Platform::impl_eXdev)
 
 ; ------------------------------------------------------------------
 ; Memory two bindings can share, and blocking on a word in it
@@ -1809,22 +850,22 @@
 ;; no syscall ABI: `usesSyscallAbi` 0, and `parallel` is status 79 here
 (pub :: sysMmapNum Int)
 (pub fn (sysMmapNum)
-  0)
+  Internal.Platform::impl_sysMmapNum)
 
 ;; no syscall ABI
 (pub :: sysMunmapNum Int)
 (pub fn (sysMunmapNum)
-  0)
+  Internal.Platform::impl_sysMunmapNum)
 
 ;; no syscall ABI
 (pub :: mapSharedAnon Int)
 (pub fn (mapSharedAnon)
-  0)
+  Internal.Platform::impl_mapSharedAnon)
 
 ;; 0: no blocking wait wired on this target
 (pub :: waitWordKind Int)
 (pub fn (waitWordKind)
-  3)
+  Internal.Platform::impl_waitWordKind)
 
 ;; none
 (pub :: sysWaitWordNum Int)
@@ -1835,17 +876,17 @@
 ;; none
 (pub :: sysWakeWordNum Int)
 (pub fn (sysWakeWordNum)
-  0)
+  Internal.Platform::impl_sysWakeWordNum)
 
 ;; ETIMEDOUT in its Linux spelling, as the other errno values here
 (pub :: eTimedOut Int)
 (pub fn (eTimedOut)
-  110)
+  Internal.Platform::impl_eTimedOut)
 
 ;; no way to look at a child (there is no `fork` to have one)
 (pub :: childPollKind Int)
 (pub fn (childPollKind)
-  0)
+  Internal.Platform::impl_childPollKind)
 
 ;; none
 (pub :: sysWaitIdNum Int)
@@ -1856,12 +897,12 @@
 ;; none
 (pub :: waitIdPidType Int)
 (pub fn (waitIdPidType)
-  0)
+  Internal.Platform::impl_waitIdPidType)
 
 ;; none
 (pub :: waitPollOptions Int)
 (pub fn (waitPollOptions)
-  0)
+  Internal.Platform::impl_waitPollOptions)
 
 ; ------------------------------------------------------------------
 ; Pages for secrets (`stdlib/Crypto/Secret.ax`). A key lives in a
@@ -1876,32 +917,32 @@
 ;; no syscall ABI: `Crypto.Secret` answers an availability error here
 (pub :: mapPrivateAnon Int)
 (pub fn (mapPrivateAnon)
-  0)
+  Internal.Platform::impl_mapPrivateAnon)
 
 ;; none
 (pub :: sysMlockNum Int)
 (pub fn (sysMlockNum)
-  0)
+  Internal.Platform::impl_sysMlockNum)
 
 ;; none
 (pub :: sysMunlockNum Int)
 (pub fn (sysMunlockNum)
-  0)
+  Internal.Platform::impl_sysMunlockNum)
 
 ;; none
 (pub :: sysMadviseNum Int)
 (pub fn (sysMadviseNum)
-  0)
+  Internal.Platform::impl_sysMadviseNum)
 
 ;; none
 (pub :: madvNoDump Int)
 (pub fn (madvNoDump)
-  0)
+  Internal.Platform::impl_madvNoDump)
 
 ;; 0: this target draws entropy from `ProcessPrng` (`platformRandomBytes`), not the RNDR register.
 (pub :: randomUsesRndr Int)
 (pub fn (randomUsesRndr)
-  0)
+  Internal.Platform::impl_randomUsesRndr)
 
 ; ------------------------------------------------------------------
 ; TCP beyond connect and accept, for `stdlib/Net.ax`: the two calls that
@@ -1911,69 +952,69 @@
 ;; getsockname - the address a socket is bound to
 (pub :: sysGetSockNameNum Int)
 (pub fn (sysGetSockNameNum)
-  0)
+  Internal.Platform::impl_sysGetSockNameNum)
 
 ;; getpeername - the address of the connected peer
 (pub :: sysGetPeerNameNum Int)
 (pub fn (sysGetPeerNameNum)
-  0)
+  Internal.Platform::impl_sysGetPeerNameNum)
 
 ;; sendto - a write that takes flags, for `msgNoSignal`
 (pub :: sysSendToNum Int)
 (pub fn (sysSendToNum)
-  0)
+  Internal.Platform::impl_sysSendToNum)
 
 ;; SO_RCVTIMEO - how long a read may wait, as a struct timeval
 (pub :: soRcvTimeo Int)
 (pub fn (soRcvTimeo)
-  4102)
+  Internal.Platform::impl_soRcvTimeo)
 
 ;; SO_SNDTIMEO - how long a write may wait
 (pub :: soSndTimeo Int)
 (pub fn (soSndTimeo)
-  4101)
+  Internal.Platform::impl_soSndTimeo)
 
 ;; SO_NOSIGPIPE - a write to a closed peer answers EPIPE instead of raising SIGPIPE; 0 where the option does not exist
 (pub :: soNoSigPipe Int)
 (pub fn (soNoSigPipe)
-  0)
+  Internal.Platform::impl_soNoSigPipe)
 
 ;; MSG_NOSIGNAL - the same, per write, for `sendto`; 0 where the flag does not exist
 (pub :: msgNoSignal Int)
 (pub fn (msgNoSignal)
-  0)
+  Internal.Platform::impl_msgNoSignal)
 
 ;; IPPROTO_TCP - the level TCP options are set at
 (pub :: ipprotoTcp Int)
 (pub fn (ipprotoTcp)
-  6)
+  Internal.Platform::impl_ipprotoTcp)
 
 ;; TCP_NODELAY - send small writes at once rather than join them
 (pub :: tcpNoDelayOpt Int)
 (pub fn (tcpNoDelayOpt)
-  1)
+  Internal.Platform::impl_tcpNoDelayOpt)
 
 ;; IPPROTO_IP - the level of the IPv4 socket options, 0 everywhere.
 (pub :: ipprotoIp Int)
 (pub fn (ipprotoIp)
-  0)
+  Internal.Platform::impl_ipprotoIp)
 
 ;; IP_TTL - the time-to-live of outgoing IPv4 packets: 2 on Linux, 4 on the
 ;; BSDs.
 (pub :: ipTtl Int)
 (pub fn (ipTtl)
-  4)
+  Internal.Platform::impl_ipTtl)
 
 ;; IPPROTO_IPV6 - the level of the IPv6 socket options, 41 everywhere.
 (pub :: ipprotoIpv6 Int)
 (pub fn (ipprotoIpv6)
-  41)
+  Internal.Platform::impl_ipprotoIpv6)
 
 ;; IPV6_UNICAST_HOPS - the hop limit of outgoing IPv6 packets, IPv6's
 ;; time-to-live: 16 on Linux, 4 on the BSDs.
 (pub :: ipv6UnicastHops Int)
 (pub fn (ipv6UnicastHops)
-  4)
+  Internal.Platform::impl_ipv6UnicastHops)
 
 ; ------------------------------------------------------------------
 ; Files a database keeps open (`stdlib/Axqlite/Pager.ax`). None of
@@ -1983,52 +1024,52 @@
 ;; none
 (pub :: sysPreadNum Int)
 (pub fn (sysPreadNum)
-  0)
+  Internal.Platform::impl_sysPreadNum)
 
 ;; none
 (pub :: sysPwriteNum Int)
 (pub fn (sysPwriteNum)
-  0)
+  Internal.Platform::impl_sysPwriteNum)
 
 ;; none
 (pub :: sysFsyncNum Int)
 (pub fn (sysFsyncNum)
-  0)
+  Internal.Platform::impl_sysFsyncNum)
 
 ;; none
 (pub :: sysFtruncateNum Int)
 (pub fn (sysFtruncateNum)
-  0)
+  Internal.Platform::impl_sysFtruncateNum)
 
 ;; none
 (pub :: sysFlockNum Int)
 (pub fn (sysFlockNum)
-  0)
+  Internal.Platform::impl_sysFlockNum)
 
 ;; none
 (pub :: fsyncUsesFullFsync Int)
 (pub fn (fsyncUsesFullFsync)
-  0)
+  Internal.Platform::impl_fsyncUsesFullFsync)
 
 ;; none
 (pub :: fFullFsync Int)
 (pub fn (fFullFsync)
-  0)
+  Internal.Platform::impl_fFullFsync)
 
 ;; O_RDWR, in its Linux spelling, as the other flags here are
 (pub :: oRdwr Int)
 (pub fn (oRdwr)
-  2)
+  Internal.Platform::impl_oRdwr)
 
 ;; O_CREAT, in its Linux spelling
 (pub :: oCreat Int)
 (pub fn (oCreat)
-  64)
+  Internal.Platform::impl_oCreat)
 
 ;; O_CLOEXEC, in its Linux spelling
 (pub :: oCloexec Int)
 (pub fn (oCloexec)
-  524288)
+  Internal.Platform::impl_oCloexec)
 
 ; ------------------------------------------------------------------
 ; The clock, sleep and entropy, over kernel32 and bcryptprimitives.
@@ -2051,7 +1092,7 @@
 (pub :: platformHasClock Int)
 ;@axiom:effect(pure)
 (pub fn (platformHasClock)
-  1)
+  Internal.Platform::impl_platformHasClock)
 
 ;; The performance counter in nanoseconds: `Ok` nanoseconds since boot,
 ;; never decreasing, or `Err` carrying the errno `winErrnoOf` maps the
@@ -2060,22 +1101,8 @@
 ;; `clock_gettime` is not available; `Err` 78 where the syscall serves.
 (pub :: platformMonotonicNanos (Result Int Error))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (platformMonotonicNanos)
-  {
-    (let ticks winCell)
-    (let hz winCell)
-    (if (|| (== (& (winQueryPerformanceCounter ticks) 4294967295) 0)
-          (== (& (winQueryPerformanceFrequency hz) 4294967295) 0))
-      (Err (mkError (- 0 (winErrnoOf (& winGetLastError 4294967295))) "platformMonotonicNanos"))
-      {
-        (let t (__load64 ticks 0))
-        (let f (__load64 hz 0))
-        (if (<= f 0)
-          (Err (mkError 5 "platformMonotonicNanos"))
-          (Ok (+ (* (/ t f) 1000000000) (/ (* (% t f) 1000000000) f))))
-      })
-  })
+  Internal.Platform::impl_platformMonotonicNanos)
 
 ;; The wall clock in nanoseconds since 1970-01-01 UTC, from
 ;; `GetSystemTimePreciseAsFileTime`.
@@ -2084,35 +1111,8 @@
 ;; syscall serves.
 (pub :: platformRealtimeNanos (Result Int Error))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (platformRealtimeNanos)
-  {
-    (let ft winCell)
-    {
-      (winGetSystemTimePreciseAsFileTime ft)
-      (withContext
-        (andThen (subChecked (__load64 ft 0) 116444736000000000)
-          (lambda (ticks) (mulChecked ticks 100)))
-        "platformRealtimeNanos")
-    }
-  })
-
-; Sleep takes a DWORD of milliseconds. INFINITE (0xffffffff) is not
-; a finite duration, so split longer sleeps into finite chunks before
-; the call narrows the word. Tail recursion keeps the stack bounded.
-(:: winSleepMillis (-> Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(fn (winSleepMillis ms)
-  (if (> ms 4294967294)
-    {
-      (winSleep 4294967294)
-      (winSleepMillis (- ms 4294967294))
-    }
-    {
-      (winSleep ms)
-      0
-    }))
+  Internal.Platform::impl_platformRealtimeNanos)
 
 ;; Sleep for at least `nanos` nanoseconds, rounded up to the
 ;; millisecond `Sleep` takes. Answers `Ok 0`.
@@ -2121,50 +1121,13 @@
 (pub :: platformSleepNanos (-> Int (Result Int Error)))
 ;@axiom:effect(io)
 (pub fn (platformSleepNanos nanos)
-  {
-    (if (> nanos 0)
-      (winSleepMillis
-        (+ (/ nanos 1000000)
-          (if (== (% nanos 1000000) 0)
-            0
-            1)))
-      0)
-    (Ok 0)
-  })
+  (Internal.Platform::impl_platformSleepNanos nanos))
 
 ;; Whether entropy uses a separate platform source: 1 here.
 (pub :: platformHasEntropy Int)
 ;@axiom:effect(pure)
 (pub fn (platformHasEntropy)
-  1)
-
-; ------------------------------------------------------------------
-; The signal mask.
-;
-; There is no signal mask: Windows delivers Ctrl-C to a handler routine,
-; not as a signal, so blocking answers `Ok 0` and the console handler is
-; its own binding.
-; ------------------------------------------------------------------
-; These functions are defined in the emitted runtime. Their process-wide
-; atomic mask and pending bits must outlive every poller and arena reset.
-; The kernel32 block shares the runtime's import group; the compiler
-; recognises these definitions and emits no DLL import for them.
-(extern "kernel32"
-  (winConsoleBlockRaw :: (-> Int Int) (symbol "__axiom_console_block"))
-  (winConsoleTakeRaw :: (-> Int Int) (symbol "__axiom_console_take"))
-  (winReaderRead :: (-> Int Int Int Int) (symbol "__axiom_win_reader_read"))
-  (winReaderReady :: (-> Int Int) (symbol "__axiom_win_reader_ready"))
-  (winReaderMode :: (-> Int Int Int) (symbol "__axiom_win_reader_mode"))
-  (winReaderClose :: (-> Int Int) (symbol "__axiom_win_reader_close")))
-
-; One pending console signal selected by `mask`, consumed atomically.
-; A zero answer means none is pending. The poller uses -2 as its control
-; registration's descriptor, distinct from every Windows HANDLE.
-(:: winTakeConsoleSignal (-> Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(fn (winTakeConsoleSignal mask)
-  (winConsoleTakeRaw mask))
+  Internal.Platform::impl_platformHasEntropy)
 
 ;; Capture Ctrl-C (`sigInt`) and Ctrl-Break (`sigBreak`) for the poller.
 ;; The mask is process-wide and remains blocked after a poller closes.
@@ -2173,605 +1136,5 @@
 ;; system termination behaviour.
 (pub :: platformSignalBlock (-> Int (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (pub fn (platformSignalBlock mask)
-  (if (!= (& mask -1048579) 0)
-    (Err (mkError 78 "platformSignalBlock"))
-    (if (== mask 0)
-      (Ok 0)
-      {
-        (let r (winConsoleBlockRaw mask))
-        (if (< r 0)
-          (Err (mkError (- 0 (winErrnoOf (- 0 r))) "platformSignalBlock"))
-          (Ok 0))
-      })))
-
-; ------------------------------------------------------------------
-; Sockets, over ws2_32.
-;
-; A SOCKET is handle-sized and never 0, 1 or 2, so `winHandleOf` passes
-; it through, and `platformClose` asks `getsockopt(SO_TYPE)` whether a
-; handle is one before choosing `closesocket` over `CloseHandle`.
-; Sockets are made with `WSASocketW` and WSA_FLAG_OVERLAPPED, because
-; Winsock keeps a receive or send timeout (SO_RCVTIMEO, SO_SNDTIMEO)
-; only on an overlapped socket: a blocking `recv` on one made without
-; the flag waits in the kernel with no timeout to apply, and
-; `tests/stdlib/843-net-stream.ax` sat in its first timed read until
-; the runner stopped it. `recv` and `send`, which `platformReadFd` and
-; `platformWriteFd` route a socket to, block as before. `WSAStartup` is counted
-; per call by Winsock and the process's exit undoes the count, so every
-; `platformSocket` asks for 2.2 rather than keeping a global the
-; language has no place for.
-;
-; Readiness is `WSAPoll`: IO.ax's poller keeps its own table of
-; registrations on this target and hands them here as POLLRDNORM and
-; POLLWRNORM interests, which come back as readiness in the same
-; records.
-; ------------------------------------------------------------------
-(extern "ws2_32"
-  (winWSAStartup :: (-> Int Int Int) (symbol "WSAStartup"))
-  (winWSAGetLastError :: Int (symbol "WSAGetLastError"))
-  (winWSASocketW :: (-> Int Int Int Int Int Int Int) (symbol "WSASocketW"))
-  (winBind :: (-> Int Int Int Int) (symbol "bind"))
-  (winListen :: (-> Int Int Int) (symbol "listen"))
-  (winAccept :: (-> Int Int Int Int) (symbol "accept"))
-  (winConnect :: (-> Int Int Int Int) (symbol "connect"))
-  (winSend :: (-> Int Int Int Int Int) (symbol "send"))
-  (winRecv :: (-> Int Int Int Int Int) (symbol "recv"))
-  (winShutdown :: (-> Int Int Int) (symbol "shutdown"))
-  (winSetSockOpt :: (-> Int Int Int Int Int Int) (symbol "setsockopt"))
-  (winGetSockOpt :: (-> Int Int Int Int Int Int) (symbol "getsockopt"))
-  (winIoctlSocket :: (-> Int Int Int Int) (symbol "ioctlsocket"))
-  (winGetSockName :: (-> Int Int Int Int) (symbol "getsockname"))
-  (winGetPeerName :: (-> Int Int Int Int) (symbol "getpeername"))
-  (winCloseSocket :: (-> Int Int) (symbol "closesocket"))
-  (winWSAPoll :: (-> Int Int Int Int) (symbol "WSAPoll")))
-
-; A Winsock error as the errno IO.ax compares against, negated, in the
-; Linux spellings this module keeps. Anything unmapped is EIO.
-(:: wsaErrnoOf (-> Int Int))
-(fn (wsaErrnoOf code)
-  (if (== code 10004)
-      (- 0 4)
-    (== code 10013)
-      (- 0 13)
-    (== code 10014)
-      (- 0 14)
-    (== code 10022)
-      (- 0 22)
-    (== code 10024)
-      (- 0 24)
-    (== code 10035)
-      (- 0 eAgain)
-    (== code 10036)
-      (- 0 eInProgress)
-    (== code 10037)
-      (- 0 114)
-    (== code 10038)
-      (- 0 88)
-    (== code 10048)
-      (- 0 98)
-    (== code 10049)
-      (- 0 99)
-    (== code 10051)
-      (- 0 101)
-    (== code 10053)
-      (- 0 103)
-    (== code 10054)
-      (- 0 104)
-    (== code 10056)
-      (- 0 106)
-    (== code 10057)
-      (- 0 107)
-    (== code 10058)
-      (- 0 32)
-    (== code 10060)
-      (- 0 110)
-    (== code 10061)
-      (- 0 eConnRefused)
-    (== code 10065)
-      (- 0 113)
-    (- 0 5)))
-
-(:: wsaLastErr Int)
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(fn (wsaLastErr)
-  (wsaErrnoOf (& winWSAGetLastError 4294967295)))
-
-; SOCKET_ERROR is -1 as an int: 4294967295 once the DWORD is masked.
-(:: wsaFailed (-> Int Bool))
-(fn (wsaFailed r)
-  (== (& r 4294967295) 4294967295))
-
-; Whether a handle is a SOCKET. The read, write and close of every
-; descriptor ask this, since a SOCKET and a file HANDLE share one
-; number space and only `recv`, `send` and `closesocket` know a socket.
-; `getsockopt(SO_TYPE)` is asked with one fresh cell as both value and
-; length: a handle that is not a socket answers WSAENOTSOCK whatever the
-; length says, and before the first socket exists Winsock answers
-; WSANOTINITIALISED; a socket answers the type, or WSAEFAULT when the
-; cell's stale length is too short. No store is made, so the write path
-; stays free of `Mut` as it is on the POSIX targets: a `handle` body
-; that prints must not become AX3011 on this target alone.
-(:: winIsSocket (-> Int Bool))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(fn (winIsSocket h)
-  {
-    (let cell winCell)
-    (if (wsaFailed (winGetSockOpt h 65535 4104 cell cell))
-      {
-        (let code (& winWSAGetLastError 4294967295))
-        (&& (!= code 10038) (!= code 10093))
-      }
-      true)
-  })
-
-; recv for a SOCKET under `platformReadFd`. A receive timeout
-; (SO_RCVTIMEO, WSAETIMEDOUT) answers EAGAIN, as a POSIX read under the
-; same option does; a peer that closed answers `Ok 0`.
-(:: wsaRecv (-> Int Int Int (Result Int Error)))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(fn (wsaRecv h buf count)
-  {
-    (let r (winRecv h buf count 0))
-    (if (wsaFailed r)
-      {
-        (let code (& winWSAGetLastError 4294967295))
-        (Err
-          (mkError
-            (if (== code 10060)
-              eAgain
-              (- 0 (wsaErrnoOf code)))
-            "platformReadFd"))
-      }
-      (Ok (& r 4294967295)))
-  })
-
-; send for a SOCKET under `platformWriteFd`.
-(:: wsaSend (-> Int Int Int (Result Int Error)))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(fn (wsaSend h buf count)
-  {
-    (let r (winSend h buf count 0))
-    (if (wsaFailed r)
-      (Err (mkError (- 0 wsaLastErr) "platformWriteFd"))
-      (Ok (& r 4294967295)))
-  })
-
-; A 32-bit little-endian value read from, or written to, the first four
-; bytes at `p`: the shape of a `getsockopt` cell.
-(:: wsaGet32 (-> Int Int))
-;@axiom:effect(unsafe)
-(fn (wsaGet32 p)
-  (+ (__load8 p 0) (+ (<< (__load8 p 1) 8) (+ (<< (__load8 p 2) 16) (<< (__load8 p 3) 24)))))
-
-(:: wsaPut32 (-> Int Int Int))
-;@axiom:effect(unsafe)
-(fn (wsaPut32 p v)
-  {
-    (__store8 p 0 (& v 255))
-    (__store8 p 1 (& (>> v 8) 255))
-    (__store8 p 2 (& (>> v 16) 255))
-    (__store8 p 3 (& (>> v 24) 255))
-    0
-  })
-
-;; socket(family, type, protocol) after a `WSAStartup` for 2.2: the
-;; SOCKET, or `-errno`. The socket is not overlapped and not inherited.
-(pub :: platformSocket (-> Int Int Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (platformSocket family kind protocol)
-  {
-    (let data (__alloc 512))
-    (let rc (& (winWSAStartup 514 data) 4294967295))
-    (if (!= rc 0)
-      (wsaErrnoOf rc)
-      {
-        (let s (winWSASocketW family kind protocol 0 0 129))
-        (if (== s (- 0 1))
-          wsaLastErr
-          s)
-      })
-  })
-
-;; bind(s, addr, len): 0, or `-errno`.
-(pub :: platformBind (-> Int Int Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (platformBind s addr len)
-  (if (wsaFailed (winBind s addr len))
-    wsaLastErr
-    0))
-
-;; listen(s, backlog): 0, or `-errno`.
-(pub :: platformListen (-> Int Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (platformListen s backlog)
-  (if (wsaFailed (winListen s backlog))
-    wsaLastErr
-    0))
-
-;; accept(s): the new SOCKET, or `-errno`.
-(pub :: platformAccept (-> Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (platformAccept s)
-  {
-    (let c (winAccept s 0 0))
-    (if (== c (- 0 1))
-      wsaLastErr
-      c)
-  })
-
-;; connect(s, addr, len): 0, `-EINPROGRESS` where a non-blocking connect
-;; is still under way (Winsock says WSAEWOULDBLOCK, POSIX says
-;; EINPROGRESS, and `IO.socketConnectWithin` reads the POSIX word), or
-;; `-errno`.
-(pub :: platformConnect (-> Int Int Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (platformConnect s addr len)
-  (if (wsaFailed (winConnect s addr len))
-    {
-      (let code (& winWSAGetLastError 4294967295))
-      (if (== code 10035)
-        (- 0 eInProgress)
-        (wsaErrnoOf code))
-    }
-    0))
-
-;; send(s, buf, n): bytes sent, or `-errno`. Windows has no SIGPIPE to
-;; suppress.
-(pub :: platformSend (-> Int Int Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (platformSend s buf n)
-  {
-    (let r (winSend s buf n 0))
-    (if (wsaFailed r)
-      wsaLastErr
-      (& r 4294967295))
-  })
-
-;; shutdown(s, how): 0, or `-errno`. SD_RECEIVE, SD_SEND and SD_BOTH are
-;; 0, 1 and 2, as the POSIX `how` is.
-(pub :: platformShutdown (-> Int Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (platformShutdown s how)
-  (if (wsaFailed (winShutdown s how))
-    wsaLastErr
-    0))
-
-;; setsockopt(s, level, name, val, len): 0, or `-errno`.
-(pub :: platformSetSockOpt (-> Int Int Int Int Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (platformSetSockOpt s level name val len)
-  (if (wsaFailed (winSetSockOpt s level name val len))
-    wsaLastErr
-    0))
-
-;; getsockopt(s, level, name, val, lenCell): 0, or `-errno`. An SO_ERROR
-;; answer is rewritten from Winsock's code to the errno IO.ax reads.
-(pub :: platformGetSockOpt (-> Int Int Int Int Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (platformGetSockOpt s level name val lenCell)
-  (if (wsaFailed (winGetSockOpt s level name val lenCell))
-    wsaLastErr
-    {
-      (let _
-        (if (&& (== level 65535) (== name 4103))
-          {
-            (let code (wsaGet32 val))
-            (if (!= code 0)
-              (wsaPut32 val (- 0 (wsaErrnoOf code)))
-              0)
-          }
-          0))
-      0
-    }))
-
-;; Blocking or not: `ioctlsocket(FIONBIO)` with a nonzero argument makes
-;; the socket non-blocking. 0, or `-errno`.
-(pub :: platformSetNonBlocking (-> Int Bool Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (platformSetNonBlocking s on)
-  {
-    (let cell winCell)
-    (__store64 cell 0
-      (if on
-        1
-        0))
-    (if (wsaFailed (winIoctlSocket s 2147772030 cell))
-      wsaLastErr
-      0)
-  })
-
-;; getsockname, or (`peer`) getpeername, into `addr`, whose length cell
-;; is `lenCell`: 0, or `-errno`.
-(pub :: platformSocketAddr (-> Int Bool Int Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (platformSocketAddr s peer addr lenCell)
-  (if (wsaFailed
-        (if peer
-          (winGetPeerName s addr lenCell)
-          (winGetSockName s addr lenCell)))
-    wsaLastErr
-    0))
-
-(extern "kernel32"
-  (winGetTickCount64 :: Int (symbol "GetTickCount64")))
-
-; Readiness and reads share the runtime's native byte buffer. A
-; persistent ReadFile worker owns its buffer, so partial console reads
-; cannot hide or discard cached UTF-8 or cooked-line bytes. Disk files
-; are ready at EOF too; console and pipe writes have no readiness probe.
-(:: winPollHandle (-> Int Int Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(fn (winPollHandle h kind interest)
-  (if (== kind 1)
-      (& interest (| pollReadFilter pollWriteFilter))
-    (|| (== kind 2) (== kind 3))
-      (if (== (& interest pollReadFilter) 0)
-        24
-        {
-          (let r (winReaderReady h))
-          (if (< r 0)
-            24
-            (if (== r 0)
-              0
-              pollReadFilter))
-        })
-    24))
-
-; The context owns one compact WSAPOLLFD array and its row map. Mixed
-; handle waits probe sockets without blocking; socket-only waits retain
-; WSAPoll's blocking path. Every iteration overwrites all readiness.
-(:: winPollOnce (-> Int Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(fn (winPollOnce ctx waitMs)
-  {
-    (let fds (__load64 ctx 0))
-    (let n (__load64 ctx 1))
-    (let w (__load64 ctx 2))
-    (let rows (__load64 ctx 3))
-    (let ns (__load64 ctx 4))
-    (let kinds (__load64 ctx 5))
-    (let mut i 0)
-    (while (< i ns)
-      {
-        (__store64 w (+ (* i 2) 1) (& (__load64 w (+ (* i 2) 1)) 65535))
-        (set i (+ i 1))
-      })
-    (let r
-      (if (== ns 0)
-        0
-        (winWSAPoll w ns waitMs)))
-    (if (wsaFailed r)
-      wsaLastErr
-      {
-        (set i 0)
-        (while (< i ns)
-          {
-            (let events (& (>> (__load64 w (+ (* i 2) 1)) 16) 65535))
-            (__store64 fds (+ (__load64 rows i) 2)
-              (|
-                (if (!= (& events 256) 0)
-                  pollReadFilter
-                  0)
-                (|
-                  (if (!= (& events 16) 0)
-                    pollWriteFilter
-                    0)
-                  (if (!= (& events 7) 0)
-                    24
-                    0))))
-            (set i (+ i 1))
-          })
-        (let mut ready 0)
-        (set i 0)
-        (while (< i n)
-          {
-            (let kind (__load64 kinds i))
-            (if (!= kind 0)
-              (__store64 fds (+ (* i 3) 2)
-                (if (== kind 4)
-                  (- 0 (winTakeConsoleSignal (__load64 fds (+ (* i 3) 1))))
-                  (winPollHandle (winHandleOf (__load64 fds (* i 3))) kind
-                    (__load64 fds (+ (* i 3) 1))))))
-            (if (!= (__load64 fds (+ (* i 3) 2)) 0)
-              (set ready (+ ready 1)))
-            (set i (+ i 1))
-          })
-        ready
-      })
-  })
-
-(:: winPollLoop (-> Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(fn (winPollLoop ctx)
-  {
-    (let ms (__load64 ctx 7))
-    (let mixed (!= (__load64 ctx 8) 0))
-    (let elapsed (- winGetTickCount64 (__load64 ctx 6)))
-    (let remaining
-      (if (< ms 0)
-        (- 0 1)
-        (if (>= elapsed ms)
-          0
-          (- ms elapsed))))
-    (let waitMs
-      (if mixed
-        0
-        (if (> remaining 2147483647)
-          2147483647
-          remaining)))
-    (let r (winPollOnce ctx waitMs))
-    (if (!= r 0)
-      r
-      {
-        (let spent (- winGetTickCount64 (__load64 ctx 6)))
-        (if (&& (>= ms 0) (>= spent ms))
-          0
-          {
-            (if mixed
-              (winSleep
-                (if (|| (< ms 0) (> (- ms spent) 10))
-                  10
-                  (- ms spent))))
-            (winPollLoop ctx)
-          })
-      })
-  })
-
-;; Poll `n` three-word records: descriptor, interest and readiness. The
-;; read/write flags keep their platform spelling; 24 reports error or
-;; hangup. Sockets, console input, readable pipes and files can share a
-;; wait. Mixed waits check handles at most 10 ms apart. Negative `ms`
-;; waits without limit; 0 probes once. Console and pipe input is read
-;; ahead into a bounded native buffer shared with `platformReadFd`. An
-;; initial probe can be pending until the reader thread runs.
-(pub :: platformPoll (-> Int Int Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (platformPoll fds n ms)
-  (if (<= n 0)
-    {
-      (if (< ms 0)
-        (winSleep 4294967295)
-        (winSleepMillis ms))
-      0
-    }
-    {
-      (let ctx (__alloc 72))
-      (let w (__alloc (* n 16)))
-      (let rows (__alloc (* n 8)))
-      (let kinds (__alloc (* n 8)))
-      (let mut ns 0)
-      (let mut i 0)
-      (while (< i n)
-        {
-          (let fd (__load64 fds (* i 3)))
-          (let h (winHandleOf fd))
-          (if (== fd (- 0 2))
-            (__store64 kinds i 4)
-            (if (winIsSocket h)
-              {
-                (let interest (__load64 fds (+ (* i 3) 1)))
-                (__store64 w (* ns 2) h)
-                (__store64 w (+ (* ns 2) 1)
-                  (|
-                    (if (!= (& interest pollReadFilter) 0)
-                      256
-                      0)
-                    (if (!= (& interest pollWriteFilter) 0)
-                      16
-                      0)))
-                (__store64 rows ns (* i 3))
-                (__store64 kinds i 0)
-                (set ns (+ ns 1))
-              }
-              {
-                (let kind (& (winGetFileType h) 4294967295))
-                (__store64 kinds i
-                  (if (&& (>= kind 1) (<= kind 3))
-                    kind
-                    5))
-              }))
-          (set i (+ i 1))
-        })
-      (__store64 ctx 0 fds)
-      (__store64 ctx 1 n)
-      (__store64 ctx 2 w)
-      (__store64 ctx 3 rows)
-      (__store64 ctx 4 ns)
-      (__store64 ctx 5 kinds)
-      (__store64 ctx 6 winGetTickCount64)
-      (__store64 ctx 7 ms)
-      (__store64 ctx 8
-        (if (< ns n)
-          1
-          0))
-      (winPollLoop ctx)
-    }))
-
-; ------------------------------------------------------------------
-; The console, over kernel32. A console is a character device that
-; answers `GetConsoleMode`; its mode word is what raw mode edits and
-; what a `TermGuard`'s release writes back; its size is the window
-; rectangle of `GetConsoleScreenBufferInfo`.
-; ------------------------------------------------------------------
-;; Whether `fd` is a console: a character device (`GetFileType` 2)
-;; that answers `GetConsoleMode`. A pipe or a file is neither.
-(pub :: platformIsConsole (-> Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (platformIsConsole fd)
-  {
-    (let h (winHandleOf fd))
-    (if (!= (& (winGetFileType h) 4294967295) 2)
-      0
-      {
-        (let cell winCell)
-        (if (== (& (winGetConsoleMode h cell) 4294967295) 0)
-          0
-          1)
-      })
-  })
-
-;; The console's mode word (`GetConsoleMode`), or `-errno`.
-(pub :: platformConsoleMode (-> Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (platformConsoleMode fd)
-  {
-    (let cell winCell)
-    (if (== (& (winGetConsoleMode (winHandleOf fd) cell) 4294967295) 0)
-      (winErrnoOf (& winGetLastError 4294967295))
-      (& (__load64 cell 0) 4294967295))
-  })
-
-;; `SetConsoleMode(fd, mode)`: 0, or `-errno`.
-(pub :: platformConsoleSetMode (-> Int Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (platformConsoleSetMode fd mode)
-  {
-    (let r (winReaderMode (winHandleOf fd) mode))
-    (if (< r 0)
-      (winErrnoOf (- 0 r))
-      0)
-  })
-
-;; The console's window in character cells, `rows * 65536 + cols` from
-;; the window rectangle `GetConsoleScreenBufferInfo` reports (four
-;; SHORTs at bytes 10 to 17: left, top, right, bottom), or `-errno`.
-(pub :: platformConsoleSize (-> Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (platformConsoleSize fd)
-  {
-    (let info (__alloc 24))
-    (if (== (& (winGetConsoleScreenBufferInfo (winHandleOf fd) info) 4294967295) 0)
-      (winErrnoOf (& winGetLastError 4294967295))
-      {
-        (let left (+ (__load8 info 10) (<< (__load8 info 11) 8)))
-        (let top (+ (__load8 info 12) (<< (__load8 info 13) 8)))
-        (let right (+ (__load8 info 14) (<< (__load8 info 15) 8)))
-        (let bottom (+ (__load8 info 16) (<< (__load8 info 17) 8)))
-        (+ (* (+ (- bottom top) 1) 65536) (+ (- right left) 1))
-      })
-  })
+  (Internal.Platform::impl_platformSignalBlock mask))

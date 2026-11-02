@@ -16,6 +16,11 @@ its changelog too.
 
 ## Unreleased
 
+- The public platform module exposes constants and safe operations through
+  an explicit interface. Raw buffer, path, descriptor and socket calls stay
+  internal, behind typed IO owners. Tested by
+  `tests/diagnostics/1518-platform-addresses.ax`.
+
 - Waits, mappings, unmaps and page locks move behind the internal boundary,
   including platform entry points. Channels, mutexes and secret storage keep
   their typed interfaces. Tested by `tests/diagnostics/1516-wait-addresses.ax`

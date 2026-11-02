@@ -5,6 +5,7 @@ This verifies arithmetic and API arguments. Native Windows execution and
 its calling convention remain the Windows CI jobs' responsibility.
 """
 import argparse
+from platform_source import windows_platform_source
 import os
 from pathlib import Path
 import shutil
@@ -57,7 +58,7 @@ def main():
         # A distinct module name selects the Windows implementation even
         # when this test is compiled for a POSIX host. Keep the copy
         # inside the private stdlib so its Internal imports stay valid.
-        platform = (root / "stdlib/Sys/Platform.windows.ax").read_text()
+        platform = windows_platform_source(root)
         module = lib / "WindowsPlatform.ax"
         module.write_text(platform)
         shutil.copyfile(root / "tests/platform/windows-time.ax", work / "probe.ax")

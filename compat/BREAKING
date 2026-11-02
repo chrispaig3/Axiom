@@ -1991,3 +1991,37 @@
 0.8.1  F  platformUnmapPrivate  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
 0.8.1  F  platformMlock  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
 0.8.1  F  platformMunlock  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
+0.8.1  F  platformWriteFd  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.1  F  platformReadFd  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.1  F  platformOpen  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.1  F  platformClose  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.1  F  platformSeek  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.1  F  platformPread  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.1  F  platformPwrite  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.1  F  platformFsync  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.1  F  platformFtruncate  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.1  F  platformFlock  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.1  F  platformUnlink  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.1  F  platformRename  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.1  F  platformMkdir  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.1  F  platformRmdir  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.1  F  platformReadDir  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.1  F  platformGetCwd  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.1  F  platformSpawn  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.1  F  platformSetStd  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.1  F  platformSocket  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.1  F  platformBind  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.1  F  platformListen  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.1  F  platformAccept  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.1  F  platformConnect  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.1  F  platformSend  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.1  F  platformShutdown  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.1  F  platformSetSockOpt  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.1  F  platformGetSockOpt  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.1  F  platformSetNonBlocking  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.1  F  platformSocketAddr  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.1  F  platformPoll  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.1  F  platformIsConsole  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.1  F  platformConsoleMode  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.1  F  platformConsoleSetMode  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.1  F  platformConsoleSize  internal; use typed IO file, socket, directory and terminal interfaces

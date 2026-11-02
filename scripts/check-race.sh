@@ -17,7 +17,7 @@
 #     address by a sibling read as a race between `axiom_alloc` and
 #     `__axiom_arena_unmap_thread` in the locked program before this
 #     routing. The numbers come from the tree's own
-#     `stdlib/Sys/Platform.*.ax`;
+#     `stdlib/Internal/Platform.*.ax`;
 #   - `Internal.Wait$sysWaitWordTimeout` stays out of line (`noinline`) for the
 #     suppression list. `axiom_release` also stays out of line so the
 #     lend-removal ablation can require an ownership-count race at -O2;
@@ -184,15 +184,15 @@ case "$(uname -s)-$(uname -m)" in
   Linux-x86_64)    plat=linux-x86_64;  errfn=__errno_location ;;
   *) skip_all "no thread lowering to check on $(uname -s)-$(uname -m)" ;;
 esac
-# platnum <name>: the number `stdlib/Sys/Platform.<plat>.ax` answers.
+# platnum <name>: the number `stdlib/Internal/Platform.<plat>.ax` answers.
 platnum() {
-  awk -v f="(pub fn ($1)" 'index($0, f) == 1 { getline; gsub(/[ )]/, ""); print; exit }' \
-    "$repo_root/stdlib/Sys/Platform.$plat.ax"
+  awk -v f="(pub fn (impl_$1)" 'index($0, f) == 1 { getline; gsub(/[ )]/, ""); print; exit }' \
+    "$repo_root/stdlib/Internal/Platform.$plat.ax"
 }
 nmmap="$(platnum sysMmapNum)"
 nmunmap="$(platnum sysMunmapNum)"
 if [[ ! "$nmmap" =~ ^[0-9]+$ || ! "$nmunmap" =~ ^[0-9]+$ ]]; then
-  bad "no mmap/munmap numbers in stdlib/Sys/Platform.$plat.ax ('$nmmap', '$nmunmap')"; finish
+  bad "no mmap/munmap numbers in stdlib/Internal/Platform.$plat.ax ('$nmmap', '$nmunmap')"; finish
 fi
 echo "   $plat: mmap $nmmap, munmap $nmunmap; $("$cc" --version | head -1)"
 

@@ -610,6 +610,7 @@
 # is the unreached `(- 0 78)` stub, which the census counts.
 
 # Wait and wake stubs are internal; the public platform census falls by two.
-stdlib/Sys/Platform.darwin.ax 38 0
+# Raw platform operations are internal; only the explicit public facade is counted.
+stdlib/Sys/Platform.darwin.ax 6 0
 stdlib/Tui/Keys.ax 0 1
 stdlib/Tui/Term.ax 0 1

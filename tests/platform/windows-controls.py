@@ -5,6 +5,7 @@ The native callback/atomics and Windows console delivery are separate
 checks. This probe exercises the actual library registration/decoding.
 """
 import argparse
+from platform_source import windows_platform_source
 import os
 from pathlib import Path
 import subprocess
@@ -57,7 +58,7 @@ def main():
         (lib / "WindowsIO.ax").write_text(source)
         # Export only the function under test, so the host's Sys module
         # still resolves its own platform constants without ambiguity.
-        platform = (root / "stdlib/Sys/Platform.windows.ax").read_text()
+        platform = windows_platform_source(root)
         platform = platform.replace("(pub ", "(")
         platform = platform.replace("(:: platformSignalBlock", "(pub :: platformSignalBlock")
         platform = platform.replace("(fn (platformSignalBlock", "(pub fn (platformSignalBlock")

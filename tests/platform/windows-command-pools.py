@@ -7,6 +7,7 @@ Native Windows execution, including OS cleanup after process exit, remains
 the Windows CI fixtures' responsibility.
 """
 import argparse
+from platform_source import windows_platform_source
 import os
 from pathlib import Path
 import re
@@ -352,7 +353,7 @@ def main():
     anchor = "(import Err)"
     assert process.count(anchor) == 1
     process = process.replace(anchor, anchor + "\n(:: usesSyscallAbi Int)\n(fn (usesSyscallAbi) 0)")
-    platform = (root / "stdlib/Sys/Platform.windows.ax").read_text()
+    platform = windows_platform_source(root)
     bindings = []
     for name in ("winGetLastError", "winCloseHandle", "winCreateProcessW"):
         matches = re.findall(rf"^  \({name} ::[^\n]+", platform, re.MULTILINE)

@@ -1,0 +1,307 @@
+[1;31merror[AX5002][0m[1m: `platformWriteFd` belongs to `Internal.Platform`, which is internal to the standard library[0m
+ [1;34m--> [0m1518-platform-addresses.ax:7:5
+[1;34m  |[0m
+[1;34m7 |[0m     platformWriteFd
+[1;34m  |[0m     [1;31m^^^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `platformReadFd` belongs to `Internal.Platform`, which is internal to the standard library[0m
+ [1;34m--> [0m1518-platform-addresses.ax:8:5
+[1;34m  |[0m
+[1;34m8 |[0m     platformReadFd
+[1;34m  |[0m     [1;31m^^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `platformOpen` belongs to `Internal.Platform`, which is internal to the standard library[0m
+ [1;34m--> [0m1518-platform-addresses.ax:9:5
+[1;34m  |[0m
+[1;34m9 |[0m     platformOpen
+[1;34m  |[0m     [1;31m^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `platformClose` belongs to `Internal.Platform`, which is internal to the standard library[0m
+  [1;34m--> [0m1518-platform-addresses.ax:10:5
+[1;34m   |[0m
+[1;34m10 |[0m     platformClose
+[1;34m   |[0m     [1;31m^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `platformSeek` belongs to `Internal.Platform`, which is internal to the standard library[0m
+  [1;34m--> [0m1518-platform-addresses.ax:11:5
+[1;34m   |[0m
+[1;34m11 |[0m     platformSeek
+[1;34m   |[0m     [1;31m^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `platformPread` belongs to `Internal.Platform`, which is internal to the standard library[0m
+  [1;34m--> [0m1518-platform-addresses.ax:12:5
+[1;34m   |[0m
+[1;34m12 |[0m     platformPread
+[1;34m   |[0m     [1;31m^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `platformPwrite` belongs to `Internal.Platform`, which is internal to the standard library[0m
+  [1;34m--> [0m1518-platform-addresses.ax:13:5
+[1;34m   |[0m
+[1;34m13 |[0m     platformPwrite
+[1;34m   |[0m     [1;31m^^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `platformFsync` belongs to `Internal.Platform`, which is internal to the standard library[0m
+  [1;34m--> [0m1518-platform-addresses.ax:14:5
+[1;34m   |[0m
+[1;34m14 |[0m     platformFsync
+[1;34m   |[0m     [1;31m^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `platformFtruncate` belongs to `Internal.Platform`, which is internal to the standard library[0m
+  [1;34m--> [0m1518-platform-addresses.ax:15:5
+[1;34m   |[0m
+[1;34m15 |[0m     platformFtruncate
+[1;34m   |[0m     [1;31m^^^^^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `platformFlock` belongs to `Internal.Platform`, which is internal to the standard library[0m
+  [1;34m--> [0m1518-platform-addresses.ax:16:5
+[1;34m   |[0m
+[1;34m16 |[0m     platformFlock
+[1;34m   |[0m     [1;31m^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `platformUnlink` belongs to `Internal.Platform`, which is internal to the standard library[0m
+  [1;34m--> [0m1518-platform-addresses.ax:17:5
+[1;34m   |[0m
+[1;34m17 |[0m     platformUnlink
+[1;34m   |[0m     [1;31m^^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `platformRename` belongs to `Internal.Platform`, which is internal to the standard library[0m
+  [1;34m--> [0m1518-platform-addresses.ax:18:5
+[1;34m   |[0m
+[1;34m18 |[0m     platformRename
+[1;34m   |[0m     [1;31m^^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `platformMkdir` belongs to `Internal.Platform`, which is internal to the standard library[0m
+  [1;34m--> [0m1518-platform-addresses.ax:19:5
+[1;34m   |[0m
+[1;34m19 |[0m     platformMkdir
+[1;34m   |[0m     [1;31m^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `platformRmdir` belongs to `Internal.Platform`, which is internal to the standard library[0m
+  [1;34m--> [0m1518-platform-addresses.ax:20:5
+[1;34m   |[0m
+[1;34m20 |[0m     platformRmdir
+[1;34m   |[0m     [1;31m^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `platformReadDir` belongs to `Internal.Platform`, which is internal to the standard library[0m
+  [1;34m--> [0m1518-platform-addresses.ax:21:5
+[1;34m   |[0m
+[1;34m21 |[0m     platformReadDir
+[1;34m   |[0m     [1;31m^^^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `platformGetCwd` belongs to `Internal.Platform`, which is internal to the standard library[0m
+  [1;34m--> [0m1518-platform-addresses.ax:22:5
+[1;34m   |[0m
+[1;34m22 |[0m     platformGetCwd
+[1;34m   |[0m     [1;31m^^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `platformSpawn` belongs to `Internal.Platform`, which is internal to the standard library[0m
+  [1;34m--> [0m1518-platform-addresses.ax:23:5
+[1;34m   |[0m
+[1;34m23 |[0m     platformSpawn
+[1;34m   |[0m     [1;31m^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `platformSetStd` belongs to `Internal.Platform`, which is internal to the standard library[0m
+  [1;34m--> [0m1518-platform-addresses.ax:24:5
+[1;34m   |[0m
+[1;34m24 |[0m     platformSetStd
+[1;34m   |[0m     [1;31m^^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `platformSocket` belongs to `Internal.Platform`, which is internal to the standard library[0m
+  [1;34m--> [0m1518-platform-addresses.ax:25:5
+[1;34m   |[0m
+[1;34m25 |[0m     platformSocket
+[1;34m   |[0m     [1;31m^^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `platformBind` belongs to `Internal.Platform`, which is internal to the standard library[0m
+  [1;34m--> [0m1518-platform-addresses.ax:26:5
+[1;34m   |[0m
+[1;34m26 |[0m     platformBind
+[1;34m   |[0m     [1;31m^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `platformListen` belongs to `Internal.Platform`, which is internal to the standard library[0m
+  [1;34m--> [0m1518-platform-addresses.ax:27:5
+[1;34m   |[0m
+[1;34m27 |[0m     platformListen
+[1;34m   |[0m     [1;31m^^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `platformAccept` belongs to `Internal.Platform`, which is internal to the standard library[0m
+  [1;34m--> [0m1518-platform-addresses.ax:28:5
+[1;34m   |[0m
+[1;34m28 |[0m     platformAccept
+[1;34m   |[0m     [1;31m^^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `platformConnect` belongs to `Internal.Platform`, which is internal to the standard library[0m
+  [1;34m--> [0m1518-platform-addresses.ax:29:5
+[1;34m   |[0m
+[1;34m29 |[0m     platformConnect
+[1;34m   |[0m     [1;31m^^^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `platformSend` belongs to `Internal.Platform`, which is internal to the standard library[0m
+  [1;34m--> [0m1518-platform-addresses.ax:30:5
+[1;34m   |[0m
+[1;34m30 |[0m     platformSend
+[1;34m   |[0m     [1;31m^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `platformShutdown` belongs to `Internal.Platform`, which is internal to the standard library[0m
+  [1;34m--> [0m1518-platform-addresses.ax:31:5
+[1;34m   |[0m
+[1;34m31 |[0m     platformShutdown
+[1;34m   |[0m     [1;31m^^^^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `platformSetSockOpt` belongs to `Internal.Platform`, which is internal to the standard library[0m
+  [1;34m--> [0m1518-platform-addresses.ax:32:5
+[1;34m   |[0m
+[1;34m32 |[0m     platformSetSockOpt
+[1;34m   |[0m     [1;31m^^^^^^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `platformGetSockOpt` belongs to `Internal.Platform`, which is internal to the standard library[0m
+  [1;34m--> [0m1518-platform-addresses.ax:33:5
+[1;34m   |[0m
+[1;34m33 |[0m     platformGetSockOpt
+[1;34m   |[0m     [1;31m^^^^^^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `platformSetNonBlocking` belongs to `Internal.Platform`, which is internal to the standard library[0m
+  [1;34m--> [0m1518-platform-addresses.ax:34:5
+[1;34m   |[0m
+[1;34m34 |[0m     platformSetNonBlocking
+[1;34m   |[0m     [1;31m^^^^^^^^^^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `platformSocketAddr` belongs to `Internal.Platform`, which is internal to the standard library[0m
+  [1;34m--> [0m1518-platform-addresses.ax:35:5
+[1;34m   |[0m
+[1;34m35 |[0m     platformSocketAddr
+[1;34m   |[0m     [1;31m^^^^^^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `platformPoll` belongs to `Internal.Platform`, which is internal to the standard library[0m
+  [1;34m--> [0m1518-platform-addresses.ax:36:5
+[1;34m   |[0m
+[1;34m36 |[0m     platformPoll
+[1;34m   |[0m     [1;31m^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `platformIsConsole` belongs to `Internal.Platform`, which is internal to the standard library[0m
+  [1;34m--> [0m1518-platform-addresses.ax:37:5
+[1;34m   |[0m
+[1;34m37 |[0m     platformIsConsole
+[1;34m   |[0m     [1;31m^^^^^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `platformConsoleMode` belongs to `Internal.Platform`, which is internal to the standard library[0m
+  [1;34m--> [0m1518-platform-addresses.ax:38:5
+[1;34m   |[0m
+[1;34m38 |[0m     platformConsoleMode
+[1;34m   |[0m     [1;31m^^^^^^^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `platformConsoleSetMode` belongs to `Internal.Platform`, which is internal to the standard library[0m
+  [1;34m--> [0m1518-platform-addresses.ax:39:5
+[1;34m   |[0m
+[1;34m39 |[0m     platformConsoleSetMode
+[1;34m   |[0m     [1;31m^^^^^^^^^^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `platformConsoleSize` belongs to `Internal.Platform`, which is internal to the standard library[0m
+  [1;34m--> [0m1518-platform-addresses.ax:40:5
+[1;34m   |[0m
+[1;34m40 |[0m     platformConsoleSize
+[1;34m   |[0m     [1;31m^^^^^^^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+compilation failed due to 34 previous errors

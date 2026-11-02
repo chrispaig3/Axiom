@@ -33,7 +33,7 @@ def main():
     selected = None
     for index, source in sources:
         if explicit is not None or source in fixtures or any(source.read_bytes() == fixture.read_bytes()
-                                     for fixture in fixtures):
+                                     for fixture in fixtures if fixture.suffix == ".ax"):
             selected = index, source
             break
     if selected is None and explicit is not None:
@@ -54,7 +54,7 @@ def main():
         library = work / 'stdlib'
         shutil.copytree(Path(os.environ.get('AXIOM_STDLIB', ROOT / 'stdlib')).resolve(), library)
         (library / 'InternalProbeFixture.ax').write_text(
-            '(import Internal.Wait)\n(import Internal.Mapping)\n' + transformed)
+            '(import Internal.Wait)\n(import Internal.Mapping)\n(import Internal.Platform)\n' + transformed)
         entry = work / 'probe.ax'
         entry.write_text('(import InternalProbeFixture)\n' + entry_tags +
                          '(fn (main) internalProbeMain)\n')

@@ -205,7 +205,7 @@ or linked archive changes the code you trust.
 | Library raw storage | [Internal.Raw](../stdlib/Internal/Raw.ax), [Internal.RawVec](../stdlib/Internal/RawVec.ax); `AX5002` limits import and name access | Addresses must be live and aligned; reads must be initialised; copies must obey overlap rules; typed views and maps must match stored values |
 | Typed library wrappers | [Vec.ax](../stdlib/Vec.ax), [Str.ax](../stdlib/Str.ax), [IO.ax](../stdlib/IO.ax) and other trusted wrappers | Range arithmetic must avoid overflow, references must stay live, and construction, mutation and release must preserve layout and shares |
 | Emitted runtime | [codegen.ax](../core/codegen.ax), including `emitArenaHelpers` | Allocation, reuse, reference maps, overflow checks, traps and cleanup must preserve the memory model on the selected target |
-| Public address-taking calls | [Sys.Platform](../stdlib/Sys/Platform.darwin.ax): `platformReadFd` | An `Int` must identify the required live extent with the right access and synchronisation. These interfaces do not prove that precondition |
+| Public address-taking calls | [Sys](../stdlib/Sys.ax): `sysSpawn` | An `Int` must identify the required live extent with the right access and synchronisation. These interfaces do not prove that precondition |
 | Foreign ownership helpers | [Ffi.ax](../pkg/axiom-oxide/axiom/Ffi.ax): `ffiHandleNew`, `ffiCellWord`, `ffiCellFree` | Destructors must match their pointers; cells must have the declared extent and remain live until foreign access ends; freeing must spend exactly the owned share |
 | External implementations | [Ffi.ax](../pkg/axiom-oxide/axiom/Ffi.ax), [Sys/Platform.windows.ax](../stdlib/Sys/Platform.windows.ax), and linked archives | Symbol grounding and ABI checks cannot prove pointer validity, foreign destruction, aliasing or synchronisation. Review the external implementation and its ABI |
 | Explicit user trust | A program's own `effect(unsafe)`, `extern` and `asm` declarations | Keep the same storage, layout, ownership and access obligations as the library; type, effect and restriction checks still apply |
@@ -228,7 +228,7 @@ Tested by `tests/stdlib/707-library-pre.ax` and
 
 | Broader claim | Existing counterexample or limit | What you may conclude |
 |---|---|---|
-| Every untagged call is memory-safe for every well-typed argument | `tests/diagnostics/1081-sys-buffer-calls.ax` accepts `platformReadFd` in a `restrict(no-unsafe)` caller | The raw-address preconditions still need review; the fixture does not run invalid addresses |
+| Every untagged call is memory-safe for every well-typed argument | `tests/diagnostics/1081-sys-buffer-calls.ax` accepts `sysSpawn` in a `restrict(no-unsafe)` caller | The raw-address preconditions still need review; the fixture does not run invalid addresses |
 | An effect restriction accounts for every cleanup effect | `tests/stdlib/712-drop-effects-at-creation.ax` accepts replacement that closes a file inside `no-io` | Drop effects are attributed at creation; an effect row does not establish absence of cleanup IO |
 | Every reclaimed allocation has run its destructor | `MM-RGN-6` does not promise a destructor for every reclaimed object; `MM-EXEC-20` sweeps registered owners | Reclamation and external-resource cleanup require separate arguments |
 | Every unreachable graph is reclaimed | `MM-LIFE-3` permits cycles | ARC provides no general leak-freedom guarantee |

@@ -19,8 +19,8 @@
 # Windows has no syscall ABI, so there the tables are kernel32 names.
 # The runtime calls `ExitProcess`, `WriteFile` and `VirtualAlloc`
 # (`emitRuntimeExit`, `emitRuntimeWrite`, `emitRuntimeMap`), and
-# `stdlib/Sys/Platform.windows.ax` exits and writes through
-# `platformExitWith` and `platformWriteFd`, over an `extern "kernel32"`
+# `stdlib/Internal/Platform.windows.ax` exits and writes through
+# `impl_platformExitWith` and `platformWriteFd`, over an `extern "kernel32"`
 # block. Each half must reach the same entry point: a runtime that
 # calls `TerminateProcess` where the library calls `ExitProcess` is the
 # same disagreement. `VirtualAlloc` is emitted-only.
@@ -32,8 +32,9 @@
 #
 # Both tables come from one `emit-llvm` per target: the runtime's
 # numbers from the `asm sideeffect` syscall operands, the library's from
-# the bodies of `@Sys.Platform$sysExitNum` and its neighbours (`ret i64
-# 94`), since the compiler emits the whole selected platform module.
+# the bodies of `@Sys.Platform$sysExitNum` and its neighbours, following
+# their exact `Internal.Platform$impl_*` forwarding calls to literal
+# returns. The compiler emits the whole selected platform module.
 # Parsing the sources instead would fail green: a pattern that matched
 # nothing would report agreement. The emitted module also holds the
 # value the compiler selects, platform-module resolution included, and
@@ -124,6 +125,55 @@ cat > "$probe" <<'PROBE'
     (+ (sysMunmapNum) (+ (sysGetPidNum) (sysKillNum)))))))
 PROBE
 
+# Resolve a facade constant through its exact implementation call. Read the
+# emitted return value, and reject forwarding to another name even when two
+# constants happen to have the same value. Keep malformed/missing returns
+# unresolved so the existing missing-constant checks still fail.
+platform_facade_ir() {
+  python3 - "$1" <<'PY_FACADE'
+from pathlib import Path
+import re
+import sys
+
+source = Path(sys.argv[1]).read_text()
+pattern = re.compile(r"^define [^\n]* @([^ (]+)\([^\n]*\)[^{]*\{\n(.*?)^}", re.M | re.S)
+functions = {match[1]: match[2] for match in pattern.finditer(source)}
+failures = []
+
+def resolve(match):
+    name, body = match[1], match[2]
+    if not name.startswith("Sys.Platform$"):
+        return match[0]
+    short = name.removeprefix("Sys.Platform$").removesuffix("$pair")
+    expected = "Internal.Platform$impl_" + short
+    calls = re.findall(r"call [^@\n]*@(Internal\.Platform\$[^ (]+)\(", body)
+    if any(callee.removesuffix("$pair") != expected for callee in calls):
+        failures.append(f"FAIL facade {name} forwards to the wrong implementation: {calls}")
+        return match[0]
+    literal = re.search(r"^  ret i64 (-?\d+)$", functions.get(expected, ""), re.M)
+    if literal is None:
+        return match[0]
+    returned = re.search(r"^  ret i64 ([-%a-zA-Z0-9_.]+)$", body, re.M)
+    if returned is None:
+        return match[0]
+    if not returned[1].startswith("%"):
+        if returned[1] != literal[1]:
+            failures.append(f"FAIL facade {name} literal {returned[1]} differs from implementation {literal[1]}")
+        return match[0]
+    assignment = re.search(r"^  (%.+) = call i64 @" + re.escape(expected) + r"\(\)$", body, re.M)
+    if assignment is None or assignment[1] != returned[1]:
+        failures.append(f"FAIL facade {name} does not return its implementation result")
+        return match[0]
+    resolved = body.replace("ret i64 " + returned[1], "ret i64 " + literal[1])
+    return match[0].replace(body, resolved, 1)
+
+resolved = pattern.sub(resolve, source)
+for failure in failures:
+    print("; PLATFORM_" + failure)
+print(resolved, end="")
+PY_FACADE
+}
+
 # Compare one emitted module's two tables, printing one `ok`/`FAIL` line
 # per syscall. It is a function so the negative probes at the end can
 # drive it with broken modules: a verdict that is never tested proves
@@ -186,6 +236,7 @@ platform_table_report() {
 
     # Track the enclosing definition, and arm the reader when it is one
     # of the platform constants.
+    /^; PLATFORM_FAIL / { sub(/^; PLATFORM_/, ""); print; next }
     /^define / {
       fn = $0
       sub(/^.*@/, "", fn)
@@ -397,7 +448,7 @@ platform_table_report() {
                  target, name, first, m, sn
       }
     }
-  ' "$ir"
+  ' <(platform_facade_ir "$ir")
 }
 
 # The `parallel` runtime's numbers (`fork`, `getpid`, `wait4`,
@@ -423,6 +474,7 @@ par_table_report() {
       std_of["munmap"] = "sysMunmapNum"; cg_of["munmap"] = "targetMunmapNum"
       std_arg["fork"]  = "sysForkArg"
     }
+    /^; PLATFORM_FAIL / { sub(/^; PLATFORM_/, ""); print; next }
     /^define / {
       fn = $0
       sub(/^.*@/, "", fn)
@@ -511,7 +563,7 @@ par_table_report() {
         printf "ok   [%s] %-6s = %-9s %d emitted site(s) and Sys.Platform.%s agree%s\n", target, name, num[name], count[name], sn, (name == "fork") ? " (and so does the first argument)" : ""
       }
     }
-  ' "$ir"
+  ' <(platform_facade_ir "$ir")
 }
 
 # The probe for it: one `parallel`, so the runtime is emitted, and
@@ -533,7 +585,7 @@ PROBE
 
 # The Windows shape of the same comparison. The runtime's kernel32
 # calls are read from the functions the emitter writes (`axiom_alloc`,
-# `__axiom_*`, `mainCRTStartup`), the library's from `@Sys.Platform$*`,
+# `__axiom_*`, `mainCRTStartup`), the library's from `@Internal.Platform$*`,
 # and the rest of the module is ignored: the probe's own `main` calls
 # platform constants, which are not kernel32. A CamelCase call in a
 # runtime function that is not one of the calls below is a FAIL, not a
@@ -576,6 +628,7 @@ kernel32_table_report() {
       known["Sleep"] = 1; known["CreateThread"] = 1
       known["WaitForSingleObject"] = 1; known["CloseHandle"] = 1
     }
+    /^; PLATFORM_FAIL / { sub(/^; PLATFORM_/, ""); print; next }
     /^define / {
       fn = $0
       sub(/^.*@/, "", fn)
@@ -585,11 +638,11 @@ kernel32_table_report() {
       # wrapper that calls it (docs/error-model.md). Under
       # ERR-ADOPT-1 `platformWriteFd`/`platformReadFd` answer
       # `(Result Int Error)`, so the WriteFile call this gate reads sits
-      # in `@Sys.Platform$platformWriteFd$pair`. Attribute the pair body
+      # in `@Internal.Platform$platformWriteFd$pair`. Attribute the pair body
       # to the function it specialises, or the shim table has no row for
       # the name the census asks about.
       sub(/\$pair$/, "", fn)
-      inplat = (fn ~ /^Sys\.Platform\$/)
+      inplat = (fn ~ /^Internal\.Platform\$/)
       inrt = (fn ~ /^(axiom_alloc$|__axiom_|mainCRTStartup$)/)
       next
     }
@@ -627,22 +680,23 @@ kernel32_table_report() {
           printf "ok   [%s] %-12s %d emitted site(s); no Sys.Platform counterpart, by design\n", target, name, count[name]
           continue
         }
-        sf = "Sys.Platform$" sn
+        implementation = ((sn == "platformExitWith") ? "impl_" : "") sn
+        sf = "Internal.Platform$" implementation
         if (!(sf in shim)) {
           printf "FAIL [%s] %s: %s exposes no function `%s` that calls into kernel32, so this gate\n", target, name, platfile, sn
           printf "     read nothing to compare the emitted %s against.\n", name
           continue
         }
         if (index(shim[sf], " " name) == 0) {
-          printf "FAIL [%s] %s: the emitted runtime reaches @%s (%s), Sys.Platform.%s reaches%s\n", \
-                 target, name, name, cg_of[name], sn, shim[sf]
+          printf "FAIL [%s] %s: the emitted runtime reaches @%s (%s), Internal.Platform.%s reaches%s\n", \
+                 target, name, name, cg_of[name], implementation, shim[sf]
           printf "     - one fact, two copies, and they now disagree the way `exit` and `exit_group` once did.\n"
           continue
         }
-        printf "ok   [%s] %-12s %d emitted site(s) and Sys.Platform.%s both reach @%s\n", target, name, count[name], sn, name
+        printf "ok   [%s] %-12s %d emitted site(s) and Internal.Platform.%s both reach @%s\n", target, name, count[name], implementation, name
       }
     }
-  ' "$ir"
+  ' <(platform_facade_ir "$ir")
 }
 
 # Does a module say it has a syscall ABI? `1`/`0` from the platform
@@ -651,7 +705,7 @@ uses_syscall_abi_of() {
   awk '
     /^define / { fn = $0; sub(/^.*@/, "", fn); sub(/\(.*$/, "", fn); armed = (fn == "Sys.Platform$usesSyscallAbi") }
     armed && $1 == "ret" { if ($3 ~ /^-?[0-9]+$/) print $3; armed = 0 }
-  ' "$1"
+  ' <(platform_facade_ir "$1")
 }
 syscall_templates_of() {
   grep 'asm sideeffect' "$1" | grep -cE '"[^"]*(svc #|syscall)[^"]*"' || true
@@ -748,7 +802,7 @@ echo "--- negative probes: the comparison can fail ---"
 real="$work/linux-aarch64.ll"
 plat="stdlib/Sys/Platform.linux-aarch64.ax"
 
-# Rewrite the constant `@Sys.Platform$<name>` compiles to, in a copy of
+# Rewrite the implementation constant `@Internal.Platform$impl_<name>`, in a copy of
 # an emitted module. Probe machinery, used nowhere above.
 mutate_stdlib_constant() {
   awk -v fname="$1" -v newval="$2" '
@@ -756,7 +810,7 @@ mutate_stdlib_constant() {
       cur = $0
       sub(/^.*@/, "", cur)
       sub(/\(.*$/, "", cur)
-      armed = (cur == "Sys.Platform$" fname)
+      armed = (cur == "Internal.Platform$impl_" fname)
     }
     armed && $1 == "ret" { sub(/ret i64 .*/, "ret i64 " newval); armed = 0 }
     { print }
@@ -818,6 +872,20 @@ fi
 mutate_stdlib_constant sysExitNum 93 < "$real" > "$work/p1.ll"
 probe_expects "a platform module that says exit (93) where the runtime says exit_group (94)" \
   "$work/p1.ll" 'exit: the emitted runtime uses 94 in @.*, Sys.Platform.sysExitNum is 93'
+
+# A wrapper calling the wrong implementation must fail even when the
+# implementation table itself still agrees with the runtime.
+mutate_stdlib_constant sysForkNum 999999 < "$real" > "$work/internal-fork-wrong.ll"
+probe_expects "an internal fork constant differs from its literal facade" \
+  "$work/internal-fork-wrong.ll" 'facade .*sysForkNum literal .* differs from implementation'
+
+awk '/^define / { facade = ($0 ~ /@Sys\.Platform\$sysExitNum\(/) }
+     facade && /@Internal\.Platform\$impl_sysExitNum\(/ {
+       sub(/impl_sysExitNum\(/, "impl_sysWriteNum(")
+     }
+     { print }' "$real" > "$work/facade-wrong.ll"
+probe_expects "a facade forwarding exit to the write constant" \
+  "$work/facade-wrong.ll" 'facade .*sysExitNum forwards to the wrong implementation'
 
 # 2. The same mismatch from the backend's side: codegen emitting 93
 #    against a platform module that says 94. All three abort paths move
@@ -961,11 +1029,11 @@ win_probe_expects "a runtime with no VirtualAlloc calls is not agreement" \
 # w3. The library's half: `platformExitWith` no longer reaches
 #     ExitProcess (its call rewritten to a name the runtime does not
 #     use), so the two copies disagree.
-awk '/^define / { sh = ($0 ~ /@Sys\.Platform\$platformExitWith\(/) }
+awk '/^define / { sh = ($0 ~ /@Internal\.Platform\$impl_platformExitWith\(/) }
      sh && /call i64 @ExitProcess\(/ { sub(/@ExitProcess\(/, "@ExitThread(") }
      { print }' "$wreal" > "$work/w3.ll"
 win_probe_expects "a platform module that exits through ExitThread where the runtime says ExitProcess" \
-  "$work/w3.ll" 'ExitProcess: the emitted runtime reaches @ExitProcess .*, Sys.Platform.platformExitWith reaches.*ExitThread'
+  "$work/w3.ll" 'ExitProcess: the emitted runtime reaches @ExitProcess .*, Internal.Platform.impl_platformExitWith reaches.*ExitThread'
 
 # w4. A syscall template appearing in a Windows module is reported.
 { cat "$wreal"; printf 'define i64 @__axiom_stray() #0 {\n\n  %%r = call i64 asm sideeffect "syscall", "={ax},{ax},~{memory}"(i64 60)\n  ret i64 %%r\n}\n'; } > "$work/w4.ll"

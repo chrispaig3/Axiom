@@ -14,10 +14,12 @@
 (fn (randomBytes n)
   (secureRandomBytes n))
 
-(:: readsAt (-> Int (Result Int Error)))
+(:: spawnsAt (-> Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(spawn)
 ;@axiom:restrict(no-unsafe)
-(fn (readsAt address)
-  (platformReadFd 0 address 8))
+(fn (spawnsAt address)
+  (sysSpawn address 0 0))
 
 (:: pureFill (-> Int (Result String Error)))
 ;@axiom:effect(pure)

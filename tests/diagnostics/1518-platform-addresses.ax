@@ -1,0 +1,42 @@
+; Platform implementation names cannot bypass owned IO interfaces.
+(import Sys.Platform)
+
+(:: main Int)
+(fn (main)
+  {
+    platformWriteFd
+    platformReadFd
+    platformOpen
+    platformClose
+    platformSeek
+    platformPread
+    platformPwrite
+    platformFsync
+    platformFtruncate
+    platformFlock
+    platformUnlink
+    platformRename
+    platformMkdir
+    platformRmdir
+    platformReadDir
+    platformGetCwd
+    platformSpawn
+    platformSetStd
+    platformSocket
+    platformBind
+    platformListen
+    platformAccept
+    platformConnect
+    platformSend
+    platformShutdown
+    platformSetSockOpt
+    platformGetSockOpt
+    platformSetNonBlocking
+    platformSocketAddr
+    platformPoll
+    platformIsConsole
+    platformConsoleMode
+    platformConsoleSetMode
+    platformConsoleSize
+    0
+  })

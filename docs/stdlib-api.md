@@ -2055,13 +2055,9 @@ Sys - portable syscall wrappers.
 
 ## `Sys.Platform`
 
-`stdlib/Sys/Platform.darwin.ax` — 213 public names
+`stdlib/Sys/Platform.darwin.ax` — 179 public names
 
-Sys.Platform - the numbers this target's kernel uses: syscall
-numbers, open and socket flags, errno values, poll and signal
-constants and struct layouts. One file per target; every file
-declares the same names, and the build picks the one for the
-target being compiled for (this one is `darwin`).
+Sys.Platform - target constants and safe platform operations.
 
 | Name | Kind | Type | Effects | Contracts | Summary |
 |---|---|---|---|---|---|
@@ -2165,30 +2161,12 @@ target being compiled for (this one is `darwin`).
 | `sigBreak` | value | `Int` |  |  | The Windows Ctrl-Break signal number, or 0 where it is unavailable. |
 | `forkChildIsZero` | value | `Int` |  |  | Whether `fork` answers 0 in the child, which is the POSIX convention and what Linux does. Darwin answers the child's pid to both, so `sysForkProcess` normalises; see `sysForkNum` above for the measurement. |
 | `usesSyscallAbi` | value | `Int` |  |  | 1 where the platform is reached through raw syscalls, 0 where it goes through the C library or a host shim. |
-| `platformWriteFd` | value | `(-> Int Int Int (Result Int Error))` | `Alloc` |  | The platform's own way to write to a descriptor where raw `write` is not available; `Err` 78 where the raw syscall is used instead. |
-| `platformReadFd` | value | `(-> Int Int Int (Result Int Error))` | `Alloc` |  | The platform's own way to read from a descriptor where raw `read` is not available; `Err` 78 where the raw syscall is used instead. |
 | `platformExitWith` | value | `(-> Int Int)` |  |  | The platform's own way to end the process where raw `exit` is not available; -78 where the raw syscall is used instead. |
-| `platformOpen` | value | `(-> Int Int Int Int)` |  |  | The platform's own way to open a path where raw `open` is not available; -78 where the raw syscall is used instead. |
-| `platformClose` | value | `(-> Int Int)` |  |  | The platform's own way to close a descriptor where raw `close` is not available; -78 where the raw syscall is used instead. |
-| `platformSeek` | value | `(-> Int Int Int Int)` |  |  | The platform's own way to move a descriptor's offset where raw `lseek` is not available; -78 where the raw syscall is used instead. |
-| `platformPread` | value | `(-> Int Int Int Int Int)` |  |  | The platform's own way to read at an offset where raw `pread` is not available; -78 where the raw syscall is used instead. |
-| `platformPwrite` | value | `(-> Int Int Int Int Int)` |  |  | The platform's own way to write at an offset where raw `pwrite` is not available; -78 where the raw syscall is used instead. |
-| `platformFsync` | value | `(-> Int Int)` |  |  | The platform's own way to flush a descriptor where raw `fsync` is not available; -78 where the raw syscall is used instead. |
-| `platformFtruncate` | value | `(-> Int Int Int)` |  |  | The platform's own way to cut a file where raw `ftruncate` is not available; -78 where the raw syscall is used instead. |
-| `platformFlock` | value | `(-> Int Int Int)` |  |  | The platform's own way to lock a file where raw `flock` is not available; -78 where the raw syscall is used instead. |
 | `platformNullPath` | value | `String` |  |  | The path of the null device: `/dev/null` here. |
-| `platformUnlink` | value | `(-> Int Int)` |  |  | The platform's own way to remove a file where raw `unlink` is not available; -78 where the raw syscall is used instead. |
-| `platformRename` | value | `(-> Int Int Int)` |  |  | The platform's own way to rename a path where raw `rename` is not available; -78 where the raw syscall is used instead. |
-| `platformMkdir` | value | `(-> Int Int Int)` |  |  | The platform's own way to make a directory where raw `mkdir` is not available; -78 where the raw syscall is used instead. |
-| `platformRmdir` | value | `(-> Int Int)` |  |  | The platform's own way to remove a directory where raw `rmdir` is not available; -78 where the raw syscall is used instead. |
-| `platformReadDir` | value | `(-> Int Int Int Int)` |  |  | The platform's own way to read a directory where raw `getdents` is not available; -78 where the raw syscall is used instead. |
-| `platformGetCwd` | value | `(-> Int Int Int)` |  |  | The platform's own way to read the working directory where raw `getcwd` is not available; -78 where the raw syscall is used instead. |
-| `platformSpawn` | value | `(-> Int Int Int Int)` |  |  | The platform's own way to start a child where raw `posix_spawn` or `fork` and `execve` are not available; -78 where the raw syscalls are used instead. |
 | `platformWait` | value | `(-> Int Int)` |  |  | The platform's own way to wait for a child where raw `wait4` is not available; -78 where the raw syscall is used instead. |
 | `platformKill` | value | `(-> Int Int Int)` |  |  | The platform's own way to signal a child where raw `kill` is not available; -78 where the raw syscall is used instead. |
 | `platformChildExited` | value | `(-> Int Int)` |  |  | The platform's own way to poll a child where raw `waitid` is not available; -78 where the raw syscall is used instead. |
 | `platformPid` | value | `Int` |  |  | The platform's own way to read the process id where raw `getpid` is not available; -78 where the raw syscall is used instead. |
-| `platformSetStd` | value | `(-> Int Int Int)` |  |  | The platform's own way to swap a standard descriptor where raw `dup2` is not available; -78 where the raw syscall is used instead. |
 | `pathListSep` | value | `Int` |  |  | The byte that separates the entries of `PATH`: `:` here, `;` on Windows. |
 | `pathBackslashSeparates` | value | `Int` |  |  | 1 where a backslash separates path components and `C:` starts an absolute path, so `Sys.sysRunPath` reads either as a path rather than a name to search for. 0 here, where only `/` does. |
 | `exeSuffixTried` | value | `Int` |  |  | 1 where a program named without an extension is found as `NAME.exe`, as on Windows; 0 here, where a program is found under its own name. |
@@ -2262,22 +2240,6 @@ target being compiled for (this one is `darwin`).
 | `platformSleepNanos` | value | `(-> Int (Result Int Error))` | `Alloc` |  | The platform's own sleep for at least `nanos` nanoseconds, where the raw wait is not available; `Err` 78 where the syscall serves. |
 | `platformHasEntropy` | value | `Int` |  |  | Whether entropy uses a separate platform source: 0 here. The entropy layer selects the kernel or hardware path otherwise. |
 | `platformSignalBlock` | value | `(-> Int (Result Int Error))` | `Alloc` |  | The platform's own signal mask, where raw `sigprocmask` is not available; `Err` 78 where the syscall serves. |
-| `platformSocket` | value | `(-> Int Int Int Int)` |  |  | socket(family, type, protocol): the descriptor, or `-errno`. -78 here. |
-| `platformBind` | value | `(-> Int Int Int Int)` |  |  | bind(s, addr, len): 0, or `-errno`. -78 here. |
-| `platformListen` | value | `(-> Int Int Int)` |  |  | listen(s, backlog): 0, or `-errno`. -78 here. |
-| `platformAccept` | value | `(-> Int Int)` |  |  | accept(s): the new descriptor, or `-errno`. -78 here. |
-| `platformConnect` | value | `(-> Int Int Int Int)` |  |  | connect(s, addr, len): 0, `-EINPROGRESS` for a non-blocking socket still connecting, or `-errno`. -78 here. |
-| `platformSend` | value | `(-> Int Int Int Int)` |  |  | send(s, buf, n): bytes sent, or `-errno`. -78 here. |
-| `platformShutdown` | value | `(-> Int Int Int)` |  |  | shutdown(s, how): 0, or `-errno`. -78 here. |
-| `platformSetSockOpt` | value | `(-> Int Int Int Int Int Int)` |  |  | setsockopt(s, level, name, val, len): 0, or `-errno`. -78 here. |
-| `platformGetSockOpt` | value | `(-> Int Int Int Int Int Int)` |  |  | getsockopt(s, level, name, val, lenCell): 0, or `-errno`. -78 here. |
-| `platformSetNonBlocking` | value | `(-> Int Bool Int)` |  |  | Make `s` non-blocking (`on`) or blocking: 0, or `-errno`. -78 here. |
-| `platformSocketAddr` | value | `(-> Int Bool Int Int Int)` |  |  | getsockname or (`peer`) getpeername into `addr`, whose length cell is `lenCell`: 0, or `-errno`. -78 here. |
-| `platformPoll` | value | `(-> Int Int Int Int)` |  |  | poll over `n` records at `fds`, each a descriptor word, an interest word and a readiness word, for `ms` milliseconds (negative: no limit): the count of ready records, or `-errno`. -78 here. |
-| `platformIsConsole` | value | `(-> Int Int)` |  |  | Whether `fd` is a console: 1 or 0. Unreached here. |
-| `platformConsoleMode` | value | `(-> Int Int)` |  |  | The console's mode word, or `-errno`. -78 here. |
-| `platformConsoleSetMode` | value | `(-> Int Int Int)` |  |  | Set the console's mode word: 0, or `-errno`. -78 here. |
-| `platformConsoleSize` | value | `(-> Int Int)` |  |  | The console's window in character cells, as `rows * 65536 + cols`, or `-errno`. -78 here. |
 
 ## `Task`
 
