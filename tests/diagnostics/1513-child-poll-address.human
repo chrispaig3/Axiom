@@ -1,0 +1,28 @@
+[1;31merror[AX3004][0m[1m: `sysChildExited` takes 1 argument(s), given 2[0m
+ [1;34m--> [0m1513-child-poll-address.ax:9:4
+[1;34m  |[0m
+[1;34m9 |[0m   (sysChildExited pid address))
+[1;34m  |[0m    [1;31m^^^^^^^^^^^^^^ 2 argument(s) provided here[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mremove the extra argument(s), or add a parameter to the definition
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3023][0m[1m: `Sys::sysChildExitedRaw` is private to module `Sys`[0m
+  [1;34m--> [0m1513-child-poll-address.ax:14:4
+[1;34m   |[0m
+[1;34m14 |[0m   (Sys::sysChildExitedRaw pid address))
+[1;34m   |[0m    [1;31m^^^ `sysChildExitedRaw` is not exported by its module[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma name leaves its module when its declaration is written `pub`; if the import that brought the module in carries a name list, the name has to appear there too
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3023` for a full explanation
+
+[1;31merror[AX3023][0m[1m: `Sys::sysChildPollBytes` is private to module `Sys`[0m
+  [1;34m--> [0m1513-child-poll-address.ax:18:3
+[1;34m   |[0m
+[1;34m18 |[0m   Sys::sysChildPollBytes)
+[1;34m   |[0m   [1;31m^^^ `sysChildPollBytes` is not exported by its module[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma name leaves its module when its declaration is written `pub`; if the import that brought the module in carries a name list, the name has to appear there too
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3023` for a full explanation
+
+compilation failed due to 3 previous errors

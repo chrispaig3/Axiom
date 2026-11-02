@@ -771,14 +771,14 @@
 ; answered task is joined when the kernel reports its exit, and until
 ; then stays under its deadline and a cancellation's grace like any
 ; other running task.
-(:: taskEnded (-> (Vec Spawn) Int Int Int Int Int Int))
+(:: taskEnded (-> (Vec Spawn) Int Int Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(block)
-(fn (taskEnded hs s slab slotBytes pbuf canPoll)
+(fn (taskEnded hs s slab slotBytes canPoll)
   {
     (let answered (>= (taskLoadAt (+ slab (* s slotBytes))) 2))
     (if (== canPoll 1)
-      (match (sysChildExited (taskHandlePid (vecGet hs s)) pbuf)
+      (match (sysChildExited (taskHandlePid (vecGet hs s)))
         ((Ok b)
           (if b
             1
@@ -800,12 +800,12 @@
 ; and join it if its deadline or a cancellation's grace has run out.
 ; Answers -1 nothing happened, -2 the look at the child failed, else
 ; `taskJoin`'s answer (1 an error `failFast` counts, 0 not).
-(:: taskCheck (-> (Vec Int) (Vec Spawn) Int Int Int Int Int Int Int Int Int Int))
+(:: taskCheck (-> (Vec Int) (Vec Spawn) Int Int Int Int Int Int Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(block)
-(fn (taskCheck st hs s now cancelling graceEnd canPoll cell slab slotBytes pbuf)
+(fn (taskCheck st hs s now cancelling graceEnd canPoll cell slab slotBytes)
   {
-    (let ended (taskEnded hs s slab slotBytes pbuf canPoll))
+    (let ended (taskEnded hs s slab slotBytes canPoll))
     (if (== ended 1)
       (taskJoin st hs s cell slab slotBytes 1)
       (if (&& (> (taskSt st s 0) 0) (>= now (taskSt st s 0)))
@@ -954,7 +954,6 @@
     (let st (vecWithCapacity (* 3 w)))
     (let hs (vecWithCapacity w))
     (let cell (taskScratch 8))
-    (let pbuf (taskScratch sysChildPollBytes))
     (let memory opts.memory)
     (let stack
       (if (> opts.stack 0)
@@ -1022,8 +1021,7 @@
                 (let s (% t w))
                 (if (== (taskSt st s 2) 0)
                   {
-                    (let r
-                      (taskCheck st hs s now cancelling graceEnd canPoll cell slab slotBytes pbuf))
+                    (let r (taskCheck st hs s now cancelling graceEnd canPoll cell slab slotBytes))
                     (if (== r (- 0 2))
                       (set canPoll 0)
                       (if (>= r 0)
@@ -1085,7 +1083,6 @@
           }
         })
       (taskScratchDone cell)
-      (taskScratchDone pbuf)
       (if (!= spawnMark 0)
         (taskScratchDone spawnMark))
       head

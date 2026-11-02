@@ -1,0 +1,18 @@
+; Child polling owns its scratch buffer; a caller cannot choose its address.
+(import Sys)
+(import Err)
+
+(:: pollAt (-> Int Int (Result Bool Error)))
+;@axiom:effect(io)
+;@axiom:effect(block)
+(fn (pollAt pid address)
+  (sysChildExited pid address))
+
+; The raw syscall and buffer size are private implementation details.
+(:: rawPoll (-> Int Int (Result Bool Error)))
+(fn (rawPoll pid address)
+  (Sys::sysChildExitedRaw pid address))
+
+(:: scratchBytes Int)
+(fn (scratchBytes)
+  Sys::sysChildPollBytes)

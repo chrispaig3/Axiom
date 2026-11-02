@@ -385,6 +385,9 @@ have() { # have <got> <want> <what>
 # Remaining optional lookups move five functions from pure to Alloc for their
 # present results, and add the pure expAsmOptSpan helper. A same-compiler
 # comparison changes no other row, including every required effect.
+# Child polling owns its scratch. With one compiler over both trees,
+# sysChildExitedRaw takes the existing Alloc,Block,IO,Mut,Unsafe row;
+# sysChildExited becomes Alloc,Block,IO,Mut. No other existing row changes.
 echo "== compiler view: symbols --calls core/main.ax =="
 "$axc" --diagnostic-format=ai symbols --calls core/main.ax > "$work/main.axsym" 2>"$work/main.err" \
   || { fail "could not read symbols over core/main.ax"; echo "check-effect-distribution: $failed failed"; exit 1; }
@@ -514,7 +517,7 @@ have "$(bucket "$work/main.axsym" 'Entropy')" 2 "Entropy"
 have "$(bucket "$work/main.axsym" 'Entropy,Mut')" 2 "Entropy,Mut"
 have "$(bucket "$work/main.axsym" 'IO,Spawn,Unsafe')" 1 "IO,Spawn,Unsafe"
 have "$(bucket "$work/main.axsym" 'Spawn')" 2 "Spawn"
-have "$(bucket "$work/main.axsym" 'Alloc,Block,IO,Mut')" 16 "Alloc,Block,IO,Mut"
+have "$(bucket "$work/main.axsym" 'Alloc,Block,IO,Mut')" 17 "Alloc,Block,IO,Mut"
 have "$(bucket "$work/main.axsym" 'Alloc,Block,IO')" 2 "Alloc,Block,IO"
 have "$(bucket "$work/main.axsym" 'Block,IO')" 1 "Block,IO"
 have "$(bucket "$work/main.axsym" 'Block,IO,Mut')" 1 "Block,IO,Mut"
@@ -573,7 +576,7 @@ have "$(bucket "$work/lib.axsym" 'IO,Mut,Unsafe')" 3 "IO,Mut,Unsafe"
 have "$(bucket "$work/lib.axsym" 'IO,Unsafe')" 21 "IO,Unsafe"
 have "$(bucket "$work/lib.axsym" 'Alloc,IO,Spawn')" 1 "Alloc,IO,Spawn"
 have "$(bucket "$work/lib.axsym" 'Alloc,IO,Mut,Spawn,Unsafe')" 4 "Alloc,IO,Mut,Spawn,Unsafe"
-have "$(bucket "$work/lib.axsym" 'Alloc,Block,IO,Mut')" 26 "Alloc,Block,IO,Mut"
+have "$(bucket "$work/lib.axsym" 'Alloc,Block,IO,Mut')" 27 "Alloc,Block,IO,Mut"
 have "$(bucket "$work/lib.axsym" 'Alloc,Block,IO,Unsafe')" 0 "Alloc,Block,IO,Unsafe"
 have "$(bucket "$work/lib.axsym" 'Block,IO,Mut,Unsafe')" 3 "Block,IO,Mut,Unsafe"
 have "$(bucket "$work/lib.axsym" 'Alloc,Block,IO,Mut,Spawn')" 23 "Alloc,Block,IO,Mut,Spawn"

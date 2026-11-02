@@ -1,0 +1,45 @@
+; A failed child poll releases its kernel scratch on every iteration.
+; Zero is not a child PID or Windows process handle. Error codes vary by target.
+(import Sys)
+(import Err)
+(import Mem)
+(import IO)
+
+(:: pollLoop (-> Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(block)
+;@axiom:restrict(no-unsafe)
+(fn (pollLoop pid n)
+  {
+    (let mut failures 0)
+    (for i in 0..n
+      (match (sysChildExited pid)
+        ((Ok _)
+          (set failures (+ failures 1))
+        )
+        ((Err error)
+          (if (> (errCode error) 0)
+            ()
+            (set failures (+ failures 1)))
+        )))
+    failures
+  })
+
+(:: main Int)
+;@axiom:effect(io)
+;@axiom:effect(block)
+(fn (main)
+  {
+    (let pid 0)
+    (let warm (pollLoop pid 100))
+    (let before memStats)
+    (let failures (+ warm (pollLoop pid 2000)))
+    (let after memStats)
+    (let reclaimed (< (- after.backlogBytes before.backlogBytes) 4096))
+    (let pollsWork (== failures 0))
+    (println "child poll errors: {pollsWork}")
+    (println "child poll scratch reclaimed: {reclaimed}")
+    (if (&& pollsWork reclaimed)
+      0
+      1)
+  })

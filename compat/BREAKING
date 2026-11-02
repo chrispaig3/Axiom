@@ -1962,3 +1962,5 @@
 0.8.1  F  sysRandomBytes  raw entropy fill is internal; use Crypto.Random.secureRandomBytes for owned bytes
 0.8.1  F  randomFill  raw entropy fill is internal; use Crypto.Random.secureRandomBytes for owned bytes
 0.8.1  F  platformRandomBytes  platform entropy fill is internal; use Crypto.Random.secureRandomBytes
+0.8.1  F  sysChildExited  takes only a process ID; the call owns and releases its kernel scratch buffer
+0.8.1  F  sysChildPollBytes  scratch sizing is private; sysChildExited needs no caller allocation

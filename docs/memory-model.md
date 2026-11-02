@@ -747,11 +747,17 @@ needs no tag. `vecPush`, `concat` and `mapInsert` are trusted.
 a program is one `grep`.
 
 Functions that take a raw address or handle are trusted too, such as
-`sysChildExited` and `sysWaitWord`. That is the trade-off: safe code can still crash by passing one of them a bad
+`sysUnmapShared` and `sysWaitWord`. That is the trade-off: safe code can still crash by passing one of them a bad
 address or handle, because an `Int` carries no proof of what it points
 at. State a condition the arguments can show as a `;@axiom:pre(...)`
 contract, which is checked on every call and traps 80, and describe
 the rest in a comment.
+
+Child polling takes only a process ID. `sysChildExited` owns and releases
+its kernel scratch, including when the poll fails. It observes an exit
+without reaping the child; the join remains responsible for retirement.
+Tested by `tests/diagnostics/1513-child-poll-address.ax` and
+`tests/stdlib/1006-child-poll-owned-scratch.ax`.
 
 Public clock reads take no address. `sysNowMicros`, `sysNowMonotonic`,
 `sysNowMonotonicNanos`, `sysNowRealtimeNanos` and `sysTimeoutMicros` own
@@ -803,7 +809,7 @@ one or reads or sets a field. Another module can still name the type
 in a signature.
 
 *Withdrawn:* a function that hands the kernel a caller's address is a
-trusted encapsulation like any other (`MM-EXEC-9d`). `sysChildExited`, `sysUnmapShared` and
+trusted encapsulation like any other (`MM-EXEC-9d`). `sysUnmapShared` and
 `sysWaitWord` take the address as an `Int`, `restrict(no-unsafe)`
 admits a call to each, and a bad address crashes the program. No
 public call takes a descriptor (`MM-EXEC-17a`). The typed calls' range
@@ -854,7 +860,7 @@ library. Tested by `tests/diagnostics/1470-internal-import.ax` and
 `tests/diagnostics/1471-internal-name.ax`.
 
 Not yet: some public functions still take a raw address, such as
-`sysChildExited`, `sysWaitWord` and `sysUnmapShared` ([roadmap](roadmap.md)).
+`sysWaitWord` and `sysUnmapShared` ([roadmap](roadmap.md)).
 
 **MM-EXEC-10 (H).** Handlers for a declared effect are installed by
 `handle` and dispatch through a per-effect evidence slot:
@@ -5827,7 +5833,7 @@ A copy of a live handle's word, in the binding that spawned it, still
 joins that child. The salt defends against a wrong word, not one read
 out of memory, and the unsafe layer can read the table. The raw layer
 is internal to the library (`MM-EXEC-9g`), but a public function that
-writes through a caller's address, such as `sysChildExited`, can still
+writes through a caller's address, such as `sysSignalBlock`, can still
 overwrite a `Spawn` stored in a struct. The join that reads it back
 traps 85 unless the word names a live slot.
 

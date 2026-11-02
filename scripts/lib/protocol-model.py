@@ -294,7 +294,7 @@ F("chanHolderDead", ["w", "me"], ["owner", "k", "e"], (CHAN, "chanHolderDead"), 
     ("ret", "1 if k == 3 else 0", "(== (errCode e) 3)"),
 ])
 F("chanChildEnded", ["pid"], ["x"], (CHAN, "chanChildEnded"), [
-    ("look", "x", "pid", "(sysChildExited pid buf)"),
+    ("look", "x", "pid", "(sysChildExited pid)"),
     ("ret", "x"),
 ])
 F("chanPoison", ["ch", "w"], ["r"], (CHAN, "chanPoison"), [
@@ -623,7 +623,7 @@ F("syncHolderDead", ["m", "v", "me"], ["owner", "k", "w", "e"], (SYNC, "syncHold
     ("ret", "0"),
 ])
 F("syncChildEnded", ["pid"], ["x"], (SYNC, "syncChildEnded"), [
-    ("look", "x", "pid", "(sysChildExited pid buf)"),
+    ("look", "x", "pid", "(sysChildExited pid)"),
     ("ret", "x"),
 ])
 F("syncPoison", ["m"], [], (SYNC, "syncPoison"), [
@@ -2370,7 +2370,7 @@ def d_chan_lock_unsliced(fns):
 
 
 def d_chan_no_child_look(fns):
-    replace(fns, "chanChildEnded", [("look", "x", "pid", "(sysChildExited pid buf)")], [("set", "x", "0")])
+    replace(fns, "chanChildEnded", [("look", "x", "pid", "(sysChildExited pid)")], [("set", "x", "0")])
 
 
 def d_chan_poison_by_store(fns):
@@ -2401,7 +2401,7 @@ def d_mutex_no_reread(fns):
 
 
 def d_mutex_no_child_look(fns):
-    replace(fns, "syncChildEnded", [("look", "x", "pid", "(sysChildExited pid buf)")], [("set", "x", "0")])
+    replace(fns, "syncChildEnded", [("look", "x", "pid", "(sysChildExited pid)")], [("set", "x", "0")])
 
 
 def d_mutex_no_mark(fns):

@@ -196,9 +196,9 @@
   })
 
 ;; Observe exit without retiring the child handle.
-(pub :: workerProcessesPoll (-> WorkerProcesses Int Int Int))
+(pub :: workerProcessesPoll (-> WorkerProcesses Int Int))
 ;@axiom:effect(io)
-(pub fn (workerProcessesPoll pool index scratch)
+(pub fn (workerProcessesPoll pool index)
   (windowsCommandsPoll pool.commands index))
 
 ;; Request termination; join remains the owner of handle retirement.

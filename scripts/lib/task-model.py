@@ -153,7 +153,7 @@ def install(ns):
         ("set", "answered", "1 if st8 >= 2 else 0"),
         ("if", "canPoll == 1", "nolook", "(if (== canPoll 1)"),
         ("pload", "h", "hs + s"),
-        ("look", "x", "h", "(sysChildExited (taskHandlePid (vecGet hs s)) pbuf)"),
+        ("look", "x", "h", "(sysChildExited (taskHandlePid (vecGet hs s)))"),
         ("if", "x >= 0", "failed"),
         ("ret", "1 if x == 1 else (2 if answered == 1 else 0)"),
         ("L", "failed"),

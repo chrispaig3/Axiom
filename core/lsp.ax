@@ -19236,8 +19236,7 @@
 ; word and shared mapping, 0 when idle, and `workGeneration` is the
 ; generation it started at. `running` is 1 until shutdown or end of
 ; input, `exitCode` the status `exit` answers, `draining` 1 once input
-; has ended with work still queued, and `pollBuf` the buffer
-; `sysChildExited` reads into.
+; has ended with work still queued.
 (pub struct LspStore
   (mut uris : Strings)
   (mut texts : Strings)
@@ -19255,7 +19254,6 @@
   (mut polling : Int)
   (mut running : Int)
   (mut exitCode : Int)
-  (pollBuf : Int)
   (mut draining : Int)
   (mut completionDeferred : Bool))
 
@@ -19278,7 +19276,6 @@
     :polling 0
     :running 1
     :exitCode 1
-    :pollBuf (memAlloc sysChildPollBytes)
     :draining 0
     :completionDeferred false))
 
@@ -19508,7 +19505,7 @@
     0
     {
       (let handle (lspWorkHandle store.workHandle))
-      (match (sysChildExited (__spawn_pid handle) store.pollBuf)
+      (match (sysChildExited (__spawn_pid handle))
         ((Err e) (lspWorkStop store (- 0 32603) "could not inspect the analysis worker"))
         ((Ok ended)
           (if (! ended)

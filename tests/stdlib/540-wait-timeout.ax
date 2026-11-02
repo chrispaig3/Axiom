@@ -41,23 +41,23 @@
 
 ; Poll until the child behind handle `h` is seen to have ended; answer
 ; how the first look went (0 running, 1 ended, 2 the look failed).
-(:: firstLook (-> Int Int Int))
+(:: firstLook (-> Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(block)
-(fn (firstLook pid pbuf)
-  (match (sysChildExited pid pbuf)
+(fn (firstLook pid)
+  (match (sysChildExited pid)
     ((Ok b) (bit b))
     ((Err e) 2)))
 
-(:: awaitEnd (-> Int Int Int Int))
+(:: awaitEnd (-> Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(block)
-(fn (awaitEnd pid pbuf idle)
+(fn (awaitEnd pid idle)
   {
     (let mut seen 0)
     {
       (while (== seen 0)
-        (match (sysChildExited pid pbuf)
+        (match (sysChildExited pid)
           ((Ok b)
             (if b
               (set seen 1)
@@ -99,7 +99,6 @@
   (match (sysMapShared 4096)
     ((Ok w)
       {
-        (let pbuf (memAlloc sysChildPollBytes))
         (let cell (memAlloc 8))
         {
           (memSetWord w 0 7)
@@ -121,11 +120,11 @@
           {
             (let h (spawnWaiter w))
             {
-              (println (firstLook (handlePid h) pbuf))  ; 0
+              (println (firstLook (handlePid h)))  ; 0
               (memSetWord w 0 8)
               (sysWakeWord w)
-              (println (awaitEnd (handlePid h) pbuf (+ w 8)))  ; 1
-              (println (firstLook (handlePid h) pbuf))  ; 1
+              (println (awaitEnd (handlePid h) (+ w 8)))  ; 1
+              (println (firstLook (handlePid h)))  ; 1
               (println (__proc_join_nr h cell))  ; 42
               (println (memGetWord cell 0))  ; 0
             }

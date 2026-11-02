@@ -2012,7 +2012,7 @@ A mutual-exclusion lock between `parallel` bindings, in both lowerings
 
 ## `Sys`
 
-`stdlib/Sys.ax` — 51 public names
+`stdlib/Sys.ax` — 50 public names
 
 Sys - portable syscall wrappers.
 
@@ -2067,8 +2067,7 @@ Sys - portable syscall wrappers.
 | `sysWaitWordTimeout` | value | `(-> Int Int Int Int)` | `Alloc,Block,IO,Mut` |  | Block while the word at `addr` still holds `expected`, for at most `nanos` nanoseconds. `sysWaitWord`'s contract - an 8-aligned word in a `sysMapShared` mapping, and every answer means "re-check your own condition" - plus a bound, and an answer that says why it returned: |
 | `sysSleepUntilNanos` | value | `(-> Int (Result Int Error))` | `Alloc,Block,IO,Mut` |  | Sleep until the monotonic clock reads at least `deadline` nanoseconds (`sysNowMonotonicNanos`): `Ok 0` once it does, at once for a deadline already past, or `Err` 78 on a target with no monotonic clock, where nothing could tell when to wake. A wake that comes early, from a signal or the kernel's 71-minute cap on one wait on Darwin, sleeps again for what is left, so the sleep never ends short. A clock that fails mid-sleep answers its `Err`. The thread blocks in the kernel; on FreeBSD, which has no blocking timed wait here, it spins as every timed wait there does. |
 | `sysSleepNanos` | value | `(-> Int (Result Int Error))` | `Alloc,Block,IO,Mut` |  | Sleep for at least `nanos` nanoseconds of the monotonic clock: `sysSleepUntilNanos` with a deadline `nanos` from now, saturating at the clock's end. A non-positive `nanos` answers `Ok 0` at once. |
-| `sysChildPollBytes` | value | `Int` |  |  | Bytes of caller scratch `sysChildExited` needs: a `siginfo_t` is 104 bytes on Darwin and 128 on Linux. |
-| `sysChildExited` | value | `(-> Int Int (Result Bool Error))` | `Alloc,Block,IO,Mut,Unsafe` |  | Has the child `pid` ended? Without reaping it: `Ok True` means it has exited or been killed and is waiting to be reaped - so a join on it will not block - and it is STILL this process's child, still waitable, its pid not free for reuse. `Ok False` means it is running. |
+| `sysChildExited` | value | `(-> Int (Result Bool Error))` | `Alloc,Block,IO,Mut` |  | Has the child `pid` ended? Without reaping it: `Ok True` means it has exited or been killed and is waiting to be reaped - so a join on it will not block - and it is STILL this process's child, still waitable, its pid not free for reuse. `Ok False` means it is running. |
 
 ## `Sys.Platform`
 

@@ -16,6 +16,12 @@ its changelog too.
 
 ## Unreleased
 
+- Child polling takes only a process ID and owns its kernel scratch.
+  `sysChildExited` releases the buffer on success and failure; it still
+  observes exit without reaping. Tested by
+  `tests/stdlib/540-wait-timeout.ax` and
+  `tests/stdlib/1006-child-poll-owned-scratch.ax`.
+
 - Entropy fills are internal, including the Windows platform entry.
   Applications receive owned bytes through `Crypto.Random.secureRandomBytes`.
   Tested by `tests/diagnostics/1512-entropy-addresses.ax` and

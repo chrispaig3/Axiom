@@ -1860,10 +1860,9 @@
       }
     }))
 
-;; Bytes of caller scratch `sysChildExited` needs: a `siginfo_t` is 104
-;; bytes on Darwin and 128 on Linux.
-(pub :: sysChildPollBytes Int)
-(pub fn (sysChildPollBytes)
+; Private scratch size: a siginfo_t is 104 bytes on Darwin and 128 on Linux.
+(:: sysChildPollBytes Int)
+(fn (sysChildPollBytes)
   128)
 
 ;; Has the child `pid` ended? Without reaping it: `Ok True` means it has
@@ -1888,14 +1887,26 @@
 ;     answers the pid when one was found and 0 when none.
 ;   `childPollKind` 0: nothing can look, and the answer is `Err` 78.
 ;
-; `buf` is `sysChildPollBytes` of caller scratch. `Err` carries the
-; errno - ECHILD for a pid that is not this process's unreaped child.
+; The call owns and releases its kernel scratch buffer. `Err` carries
+; ECHILD for a pid that is not this process's unreaped child.
 ; EINTR answers `Ok False`: not seen yet, ask again.
-(pub :: sysChildExited (-> Int Int (Result Bool Error)))
+(pub :: sysChildExited (-> Int (Result Bool Error)))
+;@axiom:effect(io)
+;@axiom:effect(block)
+(pub fn (sysChildExited pid)
+  {
+    (let buf (sysScratch sysChildPollBytes))
+    (let result (sysChildExitedRaw pid buf))
+    (sysScratchDone buf)
+    result
+  })
+
+; The kernel boundary uses live scratch owned by sysChildExited.
+(:: sysChildExitedRaw (-> Int Int (Result Bool Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 ;@axiom:effect(block)
-(pub fn (sysChildExited pid buf)
+(fn (sysChildExitedRaw pid buf)
   (if (== usesSyscallAbi 0)
       {
         (let r (platformChildExited pid))

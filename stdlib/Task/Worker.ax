@@ -424,7 +424,6 @@
     (let count (vecLen inputs))
     (let width (vecLen slots))
     (let total (workerProtocolBytes opts.inputLimit opts.resultLimit))
-    (let pollScratch (commandScratchBuffer scratch 2 sysChildPollBytes))
     (let out (vecWithCapacity count))
     (let path (sysEnv "PATH"))
     (let mut next 0)
@@ -468,7 +467,7 @@
             (let slot (vecGet slots index))
             (if (! slot.done)
               {
-                (let polled (workerProcessesPoll processes index pollScratch))
+                (let polled (workerProcessesPoll processes index))
                 (if (!= polled 0)
                   {
                     (if (< polled 0)

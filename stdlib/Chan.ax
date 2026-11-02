@@ -241,16 +241,7 @@
 ;@axiom:effect(io)
 ;@axiom:effect(block)
 (fn (chanChildEnded pid)
-  {
-    (let buf (chanBlock sysChildPollBytes))
-    {
-      (let ended (chanYes (sysChildExited pid buf)))
-      {
-        (chanBlockDone buf)
-        ended
-      }
-    }
-  })
+  (chanYes (sysChildExited pid)))
 
 ; `Ok True`, and nothing else, is yes: a look that failed has seen nothing.
 (:: chanYes (-> (Result Bool Error) Bool))

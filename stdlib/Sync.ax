@@ -348,16 +348,7 @@
 ;@axiom:effect(io)
 ;@axiom:effect(block)
 (fn (syncChildEnded pid)
-  {
-    (let buf (syncBlock sysChildPollBytes))
-    {
-      (let ended (syncYes (sysChildExited pid buf)))
-      {
-        (syncScratchDone buf)
-        ended
-      }
-    }
-  })
+  (syncYes (sysChildExited pid)))
 
 ; `Ok True`, and nothing else, is yes: a look that failed has seen nothing.
 (:: syncYes (-> (Result Bool Error) Bool))
