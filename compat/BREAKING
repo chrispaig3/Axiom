@@ -2288,3 +2288,19 @@
 0.8.1  F  x25519  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
 0.8.1  F  x25519KeyExport  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
 0.8.1  F  x25519KeyFromSecret  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  S  Aes128GcmKey  carries an owner beside its handle word; the typed APIs that make and use it are unchanged
+0.8.1  S  Aes256GcmKey  carries an owner beside its handle word; the typed APIs that make and use it are unchanged
+0.8.1  S  ChaCha20Poly1305Key  carries an owner beside its handle word; the typed APIs that make and use it are unchanged
+0.8.1  S  Ed25519SecretKey  carries an owner beside its handle word; the typed APIs that make and use it are unchanged
+0.8.1  S  HmacSha256Key  carries an owner beside its handle word; the typed APIs that make and use it are unchanged
+0.8.1  S  HmacSha512Key  carries an owner beside its handle word; the typed APIs that make and use it are unchanged
+0.8.1  S  ObfuscationKey  carries an owner beside its handle word; the typed APIs that make and use it are unchanged
+0.8.1  S  X25519SecretKey  carries an owner beside its handle word; the typed APIs that make and use it are unchanged
+0.8.1  F  aes128GcmKeyWipe  claims the key's drop cleanup through the owner it carries
+0.8.1  F  aes256GcmKeyWipe  claims the key's drop cleanup through the owner it carries
+0.8.1  F  chacha20Poly1305KeyWipe  claims the key's drop cleanup through the owner it carries
+0.8.1  F  ed25519KeyWipe  claims the key's drop cleanup through the owner it carries
+0.8.1  F  hmacSha256KeyWipe  claims the key's drop cleanup through the owner it carries
+0.8.1  F  hmacSha512KeyWipe  claims the key's drop cleanup through the owner it carries
+0.8.1  F  obfuscationKeyWipe  claims the key's drop cleanup through the owner it carries
+0.8.1  F  x25519KeyWipe  claims the key's drop cleanup through the owner it carries

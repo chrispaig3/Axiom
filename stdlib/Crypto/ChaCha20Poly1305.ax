@@ -67,12 +67,27 @@
 (import Internal.CryptoSecret)
 
 ;; A ChaCha20-Poly1305 key: 32 bytes in the secret store (kind 21).
-(pub struct ChaCha20Poly1305Key word shared
-  (slot : Int))
+(pub struct ChaCha20Poly1305Key sealed
+  (slot : Int)
+  (owner : Handle))
 
 (:: cpKind Int)
 (fn (cpKind)
   21)
+
+;; The drop cleanup of a ChaCha20Poly1305Key: wipe and free its mapping. An
+;; explicit wipe claims it first, so it never runs twice.
+(:: chaCha20Poly1305KeyDrop (-> Int Int))
+;@axiom:effect(io)
+(fn (chaCha20Poly1305KeyDrop h)
+  (secretBlockFree cpKind h))
+
+;; A `ChaCha20Poly1305Key` over live handle `h`, owning its wipe.
+(:: chaCha20Poly1305KeyNew (-> Int ChaCha20Poly1305Key))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (chaCha20Poly1305KeyNew h)
+  (ChaCha20Poly1305Key :slot h :owner (__resource_new chaCha20Poly1305KeyDrop h)))
 
 ;; A fresh random ChaCha20-Poly1305 key from the kernel's entropy
 ;; source, drawn straight into the secret store.
@@ -81,7 +96,7 @@
 ;@axiom:effect(entropy)
 (pub fn (chacha20Poly1305KeyGenerate)
   (match (secretBlockRandom cpKind 32)
-    ((Ok h) (Ok (ChaCha20Poly1305Key :slot h)))
+    ((Ok h) (Ok (chaCha20Poly1305KeyNew h)))
     ((Err e) (Err e))))
 
 ;; A key holding a copy of `s`, which must be 32 bytes. This is also the
@@ -93,7 +108,7 @@
   (if (!= (secretLen s) 32)
     (cryptoLengthErr "a ChaCha20-Poly1305 key is 32 bytes" "chacha20Poly1305KeyFromSecret")
     (match (secretBlockFrom cpKind (secretBytesAddr s) 32)
-      ((Ok h) (Ok (ChaCha20Poly1305Key :slot h)))
+      ((Ok h) (Ok (chaCha20Poly1305KeyNew h)))
       ((Err e) (Err e)))))
 
 ;; The key's 32 bytes as a new `SecretBytes`, for storing it somewhere
@@ -107,8 +122,9 @@
 ;; program with status 85. Answers 0.
 (pub :: chacha20Poly1305KeyWipe (-> ChaCha20Poly1305Key Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (chacha20Poly1305KeyWipe k)
-  (secretBlockFree cpKind k.slot))
+  (__resource_close k.owner))
 
 ; ------------------------------------------------------------------
 ; The construction.

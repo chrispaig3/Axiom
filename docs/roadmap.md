@@ -74,7 +74,7 @@ integrator would still need.
 | A generic call at a scalar instantiation carries no reference evidence | Not started | Scalar results already drop their owner bits in `core/codegen.ax`. Element and field evidence remains, where Rust monomorphises each instantiation instead |
 | `fileFd` and the raw descriptor calls can't close a descriptor a `File` owns | Done | `MM-EXEC-17a`, `tests/diagnostics/1225-descriptor-hole.ax` |
 | Standard input, output and error are `File` values, with one owned poller and one terminal raw-mode guard | Done | `MM-EXEC-17b`, `tests/stdlib/785-stdio-file.ax`, `tests/stdlib/786-poller-owned.ax` |
-| Secrets and keys wipe themselves when dropped, and a child process is an owner | Not started | |
+| Secrets and keys wipe themselves when dropped, and a child process is an owner | Done | `SecretBytes` and every key type own their mapping and wipe it at the last share (`tests/stdlib/1012-secret-drop-wipes.ax`). `sysSpawnChild` answers an owned `Child`; dropping one kills and reaps it (`tests/stdlib/1013-child-owner.ax`) |
 | Handler invocations cannot retain references reclaimed by an operation's region or recovery scope; unseen handler bodies are conservatively refused across shorter extents | Done | `MM-RGN-3`, `tests/diagnostics/1474-handler-keeps-argument.ax`, `tests/region/handler-unseen.ax` |
 | Backing views, captures and scalar stores retain valid lifetimes through vector growth, recovery and immutable parallel borrowing | Tested shapes | `tests/region/lifetime-controls.ax`, `scripts/check-region-escape.sh` |
 | Typed promotion of owned values out of a region, preserving nested ownership, aliases and sharing | Planned | `MM-RGN-7` |

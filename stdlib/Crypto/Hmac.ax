@@ -70,12 +70,40 @@
 ;; An HMAC-SHA-256 key: a handle to its bytes and their precomputed
 ;; inner and outer states in the secret store. Prints as
 ;; `<HmacSha256Key>`.
-(pub struct HmacSha256Key word shared
-  (slot : Int))
+(pub struct HmacSha256Key sealed
+  (slot : Int)
+  (owner : Handle))
 
 ;; An HMAC-SHA-512 key. Prints as `<HmacSha512Key>`.
-(pub struct HmacSha512Key word shared
-  (slot : Int))
+(pub struct HmacSha512Key sealed
+  (slot : Int)
+  (owner : Handle))
+
+;; The drop cleanup of an HMAC key: wipe and free its mapping. An
+;; explicit wipe claims it first, so it never runs twice.
+(:: hmacSha256KeyDrop (-> Int Int))
+;@axiom:effect(io)
+(fn (hmacSha256KeyDrop h)
+  (secretBlockFree hmacSha256Kind h))
+
+;; A `HmacSha256Key` over live handle `h`, owning its wipe.
+(:: hmacSha256KeyNew (-> Int HmacSha256Key))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (hmacSha256KeyNew h)
+  (HmacSha256Key :slot h :owner (__resource_new hmacSha256KeyDrop h)))
+
+(:: hmacSha512KeyDrop (-> Int Int))
+;@axiom:effect(io)
+(fn (hmacSha512KeyDrop h)
+  (secretBlockFree hmacSha512Kind h))
+
+;; A `HmacSha512Key` over live handle `h`, owning its wipe.
+(:: hmacSha512KeyNew (-> Int HmacSha512Key))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (hmacSha512KeyNew h)
+  (HmacSha512Key :slot h :owner (__resource_new hmacSha512KeyDrop h)))
 
 ;; A fresh random HMAC-SHA-256 key of 32 bytes, the hash's output length.
 (pub :: hmacSha256KeyGenerate (Result HmacSha256Key Error))
@@ -83,7 +111,7 @@
 ;@axiom:effect(entropy)
 (pub fn (hmacSha256KeyGenerate)
   (match (hmacKeyRandom 256)
-    ((Ok h) (Ok (HmacSha256Key :slot h)))
+    ((Ok h) (Ok (hmacSha256KeyNew h)))
     ((Err e) (Err e))))
 
 ;; An HMAC-SHA-256 key holding a copy of `s`, which may be any length
@@ -93,7 +121,7 @@
 ;@axiom:effect(io)
 (pub fn (hmacSha256KeyFromSecret s)
   (match (hmacKeyBlock 256 (secretBytesAddr s) (secretLen s) "hmacSha256KeyFromSecret")
-    ((Ok h) (Ok (HmacSha256Key :slot h)))
+    ((Ok h) (Ok (hmacSha256KeyNew h)))
     ((Err e) (Err e))))
 
 ;; The key bytes of `k`, as a new `SecretBytes`.
@@ -107,8 +135,9 @@
 ;; program with status 85. Answers 0.
 (pub :: hmacSha256KeyWipe (-> HmacSha256Key Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (hmacSha256KeyWipe k)
-  (secretBlockFree hmacSha256Kind k.slot))
+  (__resource_close k.owner))
 
 ;; A fresh random HMAC-SHA-512 key of 64 bytes, the hash's output length.
 (pub :: hmacSha512KeyGenerate (Result HmacSha512Key Error))
@@ -116,7 +145,7 @@
 ;@axiom:effect(entropy)
 (pub fn (hmacSha512KeyGenerate)
   (match (hmacKeyRandom 512)
-    ((Ok h) (Ok (HmacSha512Key :slot h)))
+    ((Ok h) (Ok (hmacSha512KeyNew h)))
     ((Err e) (Err e))))
 
 ;; An HMAC-SHA-512 key holding a copy of `s`, which may be any length
@@ -125,7 +154,7 @@
 ;@axiom:effect(io)
 (pub fn (hmacSha512KeyFromSecret s)
   (match (hmacKeyBlock 512 (secretBytesAddr s) (secretLen s) "hmacSha512KeyFromSecret")
-    ((Ok h) (Ok (HmacSha512Key :slot h)))
+    ((Ok h) (Ok (hmacSha512KeyNew h)))
     ((Err e) (Err e))))
 
 ;; The key bytes of `k`, as a new `SecretBytes`.
@@ -138,8 +167,9 @@
 ;; Erase `k` and free its storage. Answers 0.
 (pub :: hmacSha512KeyWipe (-> HmacSha512Key Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (hmacSha512KeyWipe k)
-  (secretBlockFree hmacSha512Kind k.slot))
+  (__resource_close k.owner))
 
 ; ------------------------------------------------------------------
 ; One-shot MACs.

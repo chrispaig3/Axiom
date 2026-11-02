@@ -137,6 +137,58 @@
 (pub fn (sysSpawnOutErrTo path argv outPath errPath)
   (processTypedSpawn 4 path argv outPath errPath))
 
+;; A running child process, owned. Dropping the last share kills the
+;; child and reaps it, as dropping a `File` closes it; `childWait`
+;; reaps it first and disarms that cleanup. Make one with
+;; `sysSpawnChild` when the child should not outlive its owner.
+(pub struct Child sealed
+  (pid : Int)
+  (owner : Handle))
+
+;; The drop cleanup of a child: kill it, then reap it, whatever state
+;; it is in. It answers 0 either way: a cleanup has no caller to
+;; report to.
+(:: childDrop (-> Int Int))
+;@axiom:effect(io)
+;@axiom:effect(block)
+(fn (childDrop pid)
+  {
+    (let _ (sysKill pid 9))
+    (let _ (sysWaitPid pid))
+    0
+  })
+
+;; Start a program as an owned `Child`, inheriting the process
+;; environment. argv includes argv[0]. Empty argv or embedded NUL
+;; bytes answer Err 22 before launch.
+(pub :: sysSpawnChild (-> String (Vec String) (Result Child Error)))
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+;@axiom:effect(unsafe)
+(pub fn (sysSpawnChild path argv)
+  (match (processTypedSpawn 0 path argv "" "")
+    ((Ok pid) (Ok (Child :pid pid :owner (__resource_new childDrop pid))))
+    ((Err e) (Err e))))
+
+;; The process id of `c`, for the pid-taking calls above.
+(pub :: childPid (-> Child Int))
+(pub fn (childPid c)
+  c.pid)
+
+;; Wait for `c` to end and answer its raw wait status, as
+;; `sysWaitPid` does. The child is reaped here, so dropping `c`
+;; afterwards kills nothing.
+(pub :: childWait (-> Child (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(block)
+;@axiom:effect(unsafe)
+(pub fn (childWait c)
+  {
+    (let _ (__resource_disarm c.owner))
+    (sysWaitPid c.pid)
+  })
+
 ;; Fork this process: 0 in the child, pid in the parent, or negative errno.
 (pub :: sysForkProcess Int)
 ;@axiom:effect(io)

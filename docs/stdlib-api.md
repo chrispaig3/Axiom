@@ -766,8 +766,8 @@ encryption (SP 800-38D), one message at a time.
 | `aes256GcmKeyFromSecret` | value | `(-> SecretBytes (Result Aes256GcmKey Error))` | `Alloc,IO,Mut` |  | An AES-256-GCM key holding a copy of `s`, which must be 32 bytes. |
 | `aes128GcmKeyExport` | value | `(-> Aes128GcmKey (Result SecretBytes Error))` | `Alloc,IO,Mut` |  | The key's 16 bytes as a new `SecretBytes`, for storing it somewhere you trust. The key itself stays live. |
 | `aes256GcmKeyExport` | value | `(-> Aes256GcmKey (Result SecretBytes Error))` | `Alloc,IO,Mut` |  | The key's 32 bytes as a new `SecretBytes`. |
-| `aes128GcmKeyWipe` | value | `(-> Aes128GcmKey Int)` | `Alloc,IO,Mut` |  | Erase the key, its schedule and its hash key, and free the store. Any later use of `k` stops the program with status 85. Answers 0. |
-| `aes256GcmKeyWipe` | value | `(-> Aes256GcmKey Int)` | `Alloc,IO,Mut` |  | Erase an AES-256-GCM key and free the store. Answers 0. |
+| `aes128GcmKeyWipe` | value | `(-> Aes128GcmKey Int)` | `IO,Unsafe` |  | Erase the key, its schedule and its hash key, and free the store. Any later use of `k` stops the program with status 85. Answers 0. |
+| `aes256GcmKeyWipe` | value | `(-> Aes256GcmKey Int)` | `IO,Unsafe` |  | Erase an AES-256-GCM key and free the store. Answers 0. |
 | `aes128GcmSeal` | value | `(-> Aes128GcmKey AeadNonce String String (Result String Error))` | `Alloc,Mut` |  | Encrypt and authenticate `plaintext` with `aad` under `key` and `nonce`: the ciphertext, the same length as the plaintext, followed by the 16-byte tag. The nonce must never have been used with this key before. |
 | `aes128GcmOpen` | value | `(-> Aes128GcmKey AeadNonce String String (Result String Error))` | `Alloc,Mut` |  | Check and decrypt `sealed` (ciphertext \|\| tag) with `aad` under `key` and `nonce`: the plaintext, or `cryptoAuthFailed` for any failure. Nothing is decrypted unless the tag matches. |
 | `aes256GcmSeal` | value | `(-> Aes256GcmKey AeadNonce String String (Result String Error))` | `Alloc,Mut` |  | Encrypt and authenticate with AES-256-GCM: ciphertext \|\| 16-byte tag. |
@@ -861,7 +861,7 @@ one message at a time.
 | `chacha20Poly1305KeyGenerate` | value | `(Result ChaCha20Poly1305Key Error)` | `Alloc,Entropy,IO,Mut` |  | A fresh random ChaCha20-Poly1305 key from the kernel's entropy source, drawn straight into the secret store. |
 | `chacha20Poly1305KeyFromSecret` | value | `(-> SecretBytes (Result ChaCha20Poly1305Key Error))` | `Alloc,IO,Mut` |  | A key holding a copy of `s`, which must be 32 bytes. This is also the deterministic way to make a key, for known-answer tests and protocols that derive one; `s` is left as it was. |
 | `chacha20Poly1305KeyExport` | value | `(-> ChaCha20Poly1305Key (Result SecretBytes Error))` | `Alloc,IO,Mut` |  | The key's 32 bytes as a new `SecretBytes`, for storing it somewhere you trust. The key itself stays live. |
-| `chacha20Poly1305KeyWipe` | value | `(-> ChaCha20Poly1305Key Int)` | `Alloc,IO,Mut` |  | Erase the key and free the store. Any later use of `k` stops the program with status 85. Answers 0. |
+| `chacha20Poly1305KeyWipe` | value | `(-> ChaCha20Poly1305Key Int)` | `IO,Unsafe` |  | Erase the key and free the store. Any later use of `k` stops the program with status 85. Answers 0. |
 | `chacha20Poly1305Seal` | value | `(-> ChaCha20Poly1305Key AeadNonce String String (Result String Error))` | `Alloc,Mut` |  | Encrypt and authenticate `plaintext` with `aad` under `key` and `nonce`: the ciphertext, the same length as the plaintext, followed by the 16-byte tag. The nonce must never have been used with this key before. A nonce that is not 12 bytes answers `cryptoInvalidLength`, and a plaintext over the limit `cryptoLimitExceeded`. |
 | `chacha20Poly1305Open` | value | `(-> ChaCha20Poly1305Key AeadNonce String String (Result String Error))` | `Alloc,Mut` |  | Check and decrypt `sealed` (ciphertext \|\| tag) with `aad` under `key` and `nonce`: the plaintext, or `cryptoAuthFailed` for any failure. Nothing is decrypted unless the tag matches. |
 
@@ -928,7 +928,7 @@ Crypto.Ed25519 - Ed25519 signatures (RFC 8032, section 5.1).
 | `Ed25519Signature` | struct |  |  |  | An Ed25519 signature: R (32 bytes) then S (32 bytes). Build one from bytes with `ed25519SignatureFromBytes`, which checks it. |
 | `ed25519KeyGenerate` | value | `(Result Ed25519SecretKey Error)` | `Alloc,Entropy,IO,Mut` |  | A fresh key from a random 32-byte seed. |
 | `ed25519KeyFromSecret` | value | `(-> SecretBytes (Result Ed25519SecretKey Error))` | `Alloc,IO,Mut` |  | The key whose 32-byte seed is `s` (RFC 8032's private key). `s` is copied, not consumed. This is the deterministic route: for known-answer tests, for restoring a key saved with `ed25519KeyExport`, and for protocols that derive the seed themselves. |
-| `ed25519KeyWipe` | value | `(-> Ed25519SecretKey Int)` | `Alloc,IO,Mut` |  | Erase `k` and free its storage. Any later use of `k` stops the program with status 85. Answers 0. |
+| `ed25519KeyWipe` | value | `(-> Ed25519SecretKey Int)` | `IO,Unsafe` |  | Erase `k` and free its storage. Any later use of `k` stops the program with status 85. Answers 0. |
 | `ed25519KeyExport` | value | `(-> Ed25519SecretKey (Result SecretBytes Error))` | `Alloc,IO,Mut` |  | The 32-byte seed of `k`, as a new `SecretBytes`: RFC 8032's private key, the standard serialisation. `ed25519KeyFromSecret` reads it back. |
 | `ed25519PublicKey` | value | `(-> Ed25519SecretKey Ed25519PublicKey)` | `Alloc,Mut` |  | The public key of `k`. |
 | `ed25519PublicKeyFromBytes` | value | `(-> String (Result Ed25519PublicKey Error))` | `Alloc,Mut` |  | A public key from its 32 bytes. `cryptoInvalidLength` for any other length, and `cryptoInvalidEncoding` unless the bytes are the strict encoding of a point: y below p, x recoverable, and no sign bit on x = 0. |
@@ -1031,11 +1031,11 @@ Crypto.Hmac - HMAC-SHA-256 and HMAC-SHA-512.
 | `hmacSha256KeyGenerate` | value | `(Result HmacSha256Key Error)` | `Alloc,Entropy,IO,Mut` |  | A fresh random HMAC-SHA-256 key of 32 bytes, the hash's output length. |
 | `hmacSha256KeyFromSecret` | value | `(-> SecretBytes (Result HmacSha256Key Error))` | `Alloc,IO,Mut` |  | An HMAC-SHA-256 key holding a copy of `s`, which may be any length from 1 byte. This is also the deterministic route for known-answer tests and protocols that derive the key. |
 | `hmacSha256KeyExport` | value | `(-> HmacSha256Key (Result SecretBytes Error))` | `Alloc,IO,Mut` |  | The key bytes of `k`, as a new `SecretBytes`. |
-| `hmacSha256KeyWipe` | value | `(-> HmacSha256Key Int)` | `Alloc,IO,Mut` |  | Erase `k` and free its storage. Any later use of `k` stops the program with status 85. Answers 0. |
+| `hmacSha256KeyWipe` | value | `(-> HmacSha256Key Int)` | `IO,Unsafe` |  | Erase `k` and free its storage. Any later use of `k` stops the program with status 85. Answers 0. |
 | `hmacSha512KeyGenerate` | value | `(Result HmacSha512Key Error)` | `Alloc,Entropy,IO,Mut` |  | A fresh random HMAC-SHA-512 key of 64 bytes, the hash's output length. |
 | `hmacSha512KeyFromSecret` | value | `(-> SecretBytes (Result HmacSha512Key Error))` | `Alloc,IO,Mut` |  | An HMAC-SHA-512 key holding a copy of `s`, which may be any length from 1 byte. |
 | `hmacSha512KeyExport` | value | `(-> HmacSha512Key (Result SecretBytes Error))` | `Alloc,IO,Mut` |  | The key bytes of `k`, as a new `SecretBytes`. |
-| `hmacSha512KeyWipe` | value | `(-> HmacSha512Key Int)` | `Alloc,IO,Mut` |  | Erase `k` and free its storage. Answers 0. |
+| `hmacSha512KeyWipe` | value | `(-> HmacSha512Key Int)` | `IO,Unsafe` |  | Erase `k` and free its storage. Answers 0. |
 | `hmacSha256` | value | `(-> HmacSha256Key String String)` | `Alloc,Mut` |  | The 32-byte HMAC-SHA-256 tag of `msg` under `k`. |
 | `hmacSha256Verify` | value | `(-> HmacSha256Key String String Bool)` | `Alloc,Mut` |  | Whether `tag` is the HMAC-SHA-256 tag of `msg` under `k`. A tag that is not 32 bytes answers false. The comparison takes the same time wherever the tags differ. |
 | `hmacSha512` | value | `(-> HmacSha512Key String String)` | `Alloc,Mut` |  | The 64-byte HMAC-SHA-512 tag of `msg` under `k`. |
@@ -1064,7 +1064,7 @@ Crypto.Obfuscate - authenticated envelopes for embedded binary assets.
 | `obfuscationKeyGenerate` | value | `(Result ObfuscationKey Error)` | `Alloc,Entropy,IO,Mut` |  | A fresh 32-byte master key from the operating system's entropy source. |
 | `obfuscationKeyFromSecret` | value | `(-> SecretBytes (Result ObfuscationKey Error))` | `Alloc,IO,Mut` |  | Copy a 32-byte secret into a master key, leaving the secret live. |
 | `obfuscationKeyFromShares` | value | `(-> String String (Result ObfuscationKey Error))` | `Alloc,IO,Mut,Unsafe` |  | Reconstruct a master key from two 32-byte XOR shares directly in the secret store. Neither share alone reveals the key when the other was drawn randomly. Embedding both shares provides obfuscation only. |
-| `obfuscationKeyWipe` | value | `(-> ObfuscationKey Int)` | `Alloc,IO,Mut` |  | Erase and free the master key. Later use stops with status 85. |
+| `obfuscationKeyWipe` | value | `(-> ObfuscationKey Int)` | `IO,Unsafe` |  | Erase and free the master key. Later use stops with status 85. |
 | `obfuscationSeal` | value | `(-> ObfuscationKey String String (Result String Error))` | `Alloc,Entropy,IO,Mut` |  | Pack plaintext under a fresh random nonce, bound to `context`. An empty context is allowed. Seal at most 2^32 assets under one key; use a fresh master key for each build, as the packing tool does. |
 | `obfuscationOpen` | value | `(-> ObfuscationKey String String (Result String Error))` | `Alloc,IO,Mut` |  | Authenticate and open a v1 envelope for `context`. Wrong keys, contexts, nonces, ciphertext or tags answer cryptoAuthFailed without returning plaintext. Truncated or unknown headers answer cryptoInvalidEncoding; oversized inputs answer cryptoLimitExceeded. |
 
@@ -1121,7 +1121,7 @@ Crypto.Secret - where key material lives.
 | `secretLen` | value | `(-> SecretBytes Int)` |  |  | How many bytes `s` holds. A secret's length is not secret. |
 | `secretEq` | value | `(-> SecretBytes SecretBytes Bool)` | `Mut` |  | Whether two secrets hold the same bytes, in time that depends only on their lengths. |
 | `secretIsLocked` | value | `(-> SecretBytes Bool)` |  |  | Whether the kernel locked `s` out of swap. |
-| `secretWipe` | value | `(-> SecretBytes Int)` | `Alloc,IO,Mut` |  | Erase `s` and free its storage. Any later use of `s`, or of a copy of the handle, stops the program with status 85. Answers 0. |
+| `secretWipe` | value | `(-> SecretBytes Int)` | `IO` |  | Erase `s` and free its storage. Any later use of `s`, or of a copy of the handle, stops the program with status 85. Answers 0. |
 | `secretExposeCopy` | value | `(-> SecretBytes String)` | `Alloc,Mut` |  | A COPY of the secret's bytes in an ordinary string. This is the one way a secret's value leaves the store, for writing a key to a file you have decided to trust. The copy is arena memory: it is not locked, not wiped by `secretWipe`, and can be printed. Prefer a typed key's own export, which says what the bytes are. |
 
 ## `Crypto.Sha2`
@@ -1233,7 +1233,7 @@ Crypto.X25519 - Diffie-Hellman key agreement over Curve25519
 | `x25519BasePoint` | value | `String` | `Alloc,Mut,Unsafe` |  | The u-coordinate of the base point, 9, as 32 bytes. |
 | `x25519KeyGenerate` | value | `(Result X25519SecretKey Error)` | `Alloc,Entropy,IO,Mut` |  | A fresh random private key and its public key. |
 | `x25519KeyFromSecret` | value | `(-> SecretBytes (Result X25519SecretKey Error))` | `Alloc,IO,Mut` |  | The private key held in `s`, which must be 32 bytes, and its public key. `s` is copied, not consumed. Any 32 bytes are a private key (RFC 7748 clamps them when they are used), so this is also the deterministic route for known-answer tests and for protocols that derive the key themselves. |
-| `x25519KeyWipe` | value | `(-> X25519SecretKey Int)` | `Alloc,IO,Mut` |  | Erase `k` and free its storage. Any later use of `k` stops the program with status 85. Answers 0. |
+| `x25519KeyWipe` | value | `(-> X25519SecretKey Int)` | `IO,Unsafe` |  | Erase `k` and free its storage. Any later use of `k` stops the program with status 85. Answers 0. |
 | `x25519KeyExport` | value | `(-> X25519SecretKey (Result SecretBytes Error))` | `Alloc,IO,Mut` |  | The 32 private-key bytes of `k`, as a new `SecretBytes`: the standard serialisation (RFC 7748, section 5), for storing the key somewhere you trust. |
 | `x25519PublicKey` | value | `(-> X25519SecretKey X25519PublicKey)` | `Alloc,Mut` |  | The public key of `k`. |
 | `x25519PublicKeyFromBytes` | value | `(-> String (Result X25519PublicKey Error))` | `Alloc,Mut` |  | A public key from its 32 bytes. Every 32-byte string is accepted (RFC 7748, section 5); any other length is `cryptoInvalidLength`. |
@@ -1777,7 +1777,7 @@ A mutual-exclusion lock between `parallel` bindings, in both lowerings
 
 ## `Sys`
 
-`stdlib/Sys.ax` — 32 public names
+`stdlib/Sys.ax` — 36 public names
 
 Sys - portable process, clock and system operations.
 
@@ -1796,6 +1796,10 @@ Sys - portable process, clock and system operations.
 | `sysRunPath` | value | `(-> String (Vec String) (Result Int Error))` | `Alloc,Block,IO,Mut,Spawn` |  | Run a program, inheriting the process environment. argv includes argv[0]. Empty argv or embedded NUL bytes answer Err 22 before launch. |
 | `sysRunPathErrTo` | value | `(-> String (Vec String) String (Result Int Error))` | `Alloc,Block,IO,Mut,Spawn` |  | Run a program, inheriting the process environment. argv includes argv[0]. Empty argv or embedded NUL bytes answer Err 22 before launch. |
 | `sysSpawnOutErrTo` | value | `(-> String (Vec String) String String (Result Int Error))` | `Alloc,IO,Mut,Spawn` |  | Start a program, inheriting the process environment. argv includes argv[0]. Empty argv or embedded NUL bytes answer Err 22 before launch. |
+| `Child` | struct |  |  |  | A running child process, owned. Dropping the last share kills the child and reaps it, as dropping a `File` closes it; `childWait` reaps it first and disarms that cleanup. Make one with `sysSpawnChild` when the child should not outlive its owner. |
+| `sysSpawnChild` | value | `(-> String (Vec String) (Result Child Error))` | `Alloc,Block,IO,Mut,Spawn,Unsafe` |  | Start a program as an owned `Child`, inheriting the process environment. argv includes argv[0]. Empty argv or embedded NUL bytes answer Err 22 before launch. |
+| `childPid` | value | `(-> Child Int)` |  |  | The process id of `c`, for the pid-taking calls above. |
+| `childWait` | value | `(-> Child (Result Int Error))` | `Alloc,Block,IO,Mut,Unsafe` |  | Wait for `c` to end and answer its raw wait status, as `sysWaitPid` does. The child is reaped here, so dropping `c` afterwards kills nothing. |
 | `sysForkProcess` | value | `Int` | `IO,Spawn` |  | Fork this process: 0 in the child, pid in the parent, or negative errno. |
 | `sysPid` | value | `Int` | `IO,Unsafe` |  | The calling process's own id, such as a suffix that keeps two processes' scratch files apart. |
 | `sysHasMonotonic` | value | `Bool` | `Mut` |  | Whether this target has a monotonic clock, so that `sysNowMonotonic`, `sysNowMonotonicNanos` and `sysSleepNanos` answer `Ok`. Linux, FreeBSD, darwin-aarch64 and Windows have one; bare metal and darwin-x86_64 don't. |

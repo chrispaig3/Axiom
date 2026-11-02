@@ -15211,7 +15211,13 @@
                         {
                           (let sentFound (findStructAnyVis tc n))
                           (if (let (Some sent) sentFound)
-                            (showDerivableFields tc (structEntFields sent) seen 0)
+                            ; A sealed or word struct renders as its
+                            ; name alone (`showGenStruct`), so its
+                            ; fields are not the caller's to take
+                            ; apart: derivable, without walking them.
+                            (if (!= (& (structEntRepr sent) 5) 0)
+                              None
+                              (showDerivableFields tc (structEntFields sent) seen 0))
                             (Some ty))
                         })
                     }

@@ -26,12 +26,27 @@
 (import Internal.CryptoSecret)
 
 ;; A sealed 256-bit master key in the secret store. Wipe it after use.
-(pub struct ObfuscationKey word shared
-  (slot : Int))
+(pub struct ObfuscationKey sealed
+  (slot : Int)
+  (owner : Handle))
 
 (:: obfuscationKind Int)
 (fn (obfuscationKind)
   24)
+
+;; The drop cleanup of an obfuscation key: wipe and free its
+;; mapping. An explicit wipe claims it first, so it never runs twice.
+(:: obfuscationKeyDrop (-> Int Int))
+;@axiom:effect(io)
+(fn (obfuscationKeyDrop h)
+  (secretBlockFree obfuscationKind h))
+
+;; A `ObfuscationKey` over live handle `h`, owning its wipe.
+(:: obfuscationKeyNew (-> Int ObfuscationKey))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (obfuscationKeyNew h)
+  (ObfuscationKey :slot h :owner (__resource_new obfuscationKeyDrop h)))
 
 (:: obfuscationHeader String)
 (fn (obfuscationHeader)
@@ -48,7 +63,7 @@
 ;@axiom:effect(entropy)
 (pub fn (obfuscationKeyGenerate)
   (match (secretBlockRandom obfuscationKind 32)
-    ((Ok h) (Ok (ObfuscationKey :slot h)))
+    ((Ok h) (Ok (obfuscationKeyNew h)))
     ((Err e) (Err e))))
 
 ;; Copy a 32-byte secret into a master key, leaving the secret live.
@@ -58,7 +73,7 @@
   (if (!= (secretLen s) 32)
     (cryptoLengthErr "an obfuscation key is 32 bytes" "obfuscationKeyFromSecret")
     (match (secretBlockFrom obfuscationKind (secretBytesAddr s) 32)
-      ((Ok h) (Ok (ObfuscationKey :slot h)))
+      ((Ok h) (Ok (obfuscationKeyNew h)))
       ((Err e) (Err e)))))
 
 ;; Reconstruct a master key from two 32-byte XOR shares directly in the
@@ -78,7 +93,7 @@
           {
             (for i in 0..32
               (__store8 p i (^ (strByte a i) (strByte b i))))
-            (Ok (ObfuscationKey :slot h))
+            (Ok (obfuscationKeyNew h))
           }
         }
       ))))
@@ -86,8 +101,9 @@
 ;; Erase and free the master key. Later use stops with status 85.
 (pub :: obfuscationKeyWipe (-> ObfuscationKey Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (obfuscationKeyWipe k)
-  (secretBlockFree obfuscationKind k.slot))
+  (__resource_close k.owner))
 
 ; Derive a fresh typed AEAD key for this envelope and context. The
 ; nonce serves as HKDF salt; the info has an independent domain and a

@@ -75,21 +75,51 @@
 
 ;; An AES-128-GCM key: 16 bytes, with its schedule and hash key, in the
 ;; secret store (kind 19).
-(pub struct Aes128GcmKey word shared
-  (slot : Int))
+(pub struct Aes128GcmKey sealed
+  (slot : Int)
+  (owner : Handle))
 
 ;; An AES-256-GCM key: 32 bytes, with its schedule and hash key, in the
 ;; secret store (kind 20).
-(pub struct Aes256GcmKey word shared
-  (slot : Int))
+(pub struct Aes256GcmKey sealed
+  (slot : Int)
+  (owner : Handle))
 
 (:: aes128GcmKind Int)
 (fn (aes128GcmKind)
   19)
 
+;; The drop cleanup of a Aes128GcmKey: wipe and free its mapping. An
+;; explicit wipe claims it first, so it never runs twice.
+(:: aes128GcmKeyDrop (-> Int Int))
+;@axiom:effect(io)
+(fn (aes128GcmKeyDrop h)
+  (secretBlockFree aes128GcmKind h))
+
+;; A `Aes128GcmKey` over live handle `h`, owning its wipe.
+(:: aes128GcmKeyNew (-> Int Aes128GcmKey))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (aes128GcmKeyNew h)
+  (Aes128GcmKey :slot h :owner (__resource_new aes128GcmKeyDrop h)))
+
 (:: aes256GcmKind Int)
 (fn (aes256GcmKind)
   20)
+
+;; The drop cleanup of a Aes256GcmKey: wipe and free its mapping. An
+;; explicit wipe claims it first, so it never runs twice.
+(:: aes256GcmKeyDrop (-> Int Int))
+;@axiom:effect(io)
+(fn (aes256GcmKeyDrop h)
+  (secretBlockFree aes256GcmKind h))
+
+;; A `Aes256GcmKey` over live handle `h`, owning its wipe.
+(:: aes256GcmKeyNew (-> Int Aes256GcmKey))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (aes256GcmKeyNew h)
+  (Aes256GcmKey :slot h :owner (__resource_new aes256GcmKeyDrop h)))
 
 ; ------------------------------------------------------------------
 ; The key block: the raw key, then H, then the expanded schedule.
@@ -176,7 +206,7 @@
 ;@axiom:effect(entropy)
 (pub fn (aes128GcmKeyGenerate)
   (match (gcmKeyRandom aes128GcmKind 16)
-    ((Ok h) (Ok (Aes128GcmKey :slot h)))
+    ((Ok h) (Ok (aes128GcmKeyNew h)))
     ((Err e) (Err e))))
 
 ;; A fresh random AES-256-GCM key from the kernel's entropy source.
@@ -185,7 +215,7 @@
 ;@axiom:effect(entropy)
 (pub fn (aes256GcmKeyGenerate)
   (match (gcmKeyRandom aes256GcmKind 32)
-    ((Ok h) (Ok (Aes256GcmKey :slot h)))
+    ((Ok h) (Ok (aes256GcmKeyNew h)))
     ((Err e) (Err e))))
 
 ;; An AES-128-GCM key holding a copy of `s`, which must be 16 bytes.
@@ -197,7 +227,7 @@
   (if (!= (secretLen s) 16)
     (cryptoLengthErr "an AES-128-GCM key is 16 bytes" "aes128GcmKeyFromSecret")
     (match (gcmKeyFrom aes128GcmKind 16 (secretBytesAddr s))
-      ((Ok h) (Ok (Aes128GcmKey :slot h)))
+      ((Ok h) (Ok (aes128GcmKeyNew h)))
       ((Err e) (Err e)))))
 
 ;; An AES-256-GCM key holding a copy of `s`, which must be 32 bytes.
@@ -207,7 +237,7 @@
   (if (!= (secretLen s) 32)
     (cryptoLengthErr "an AES-256-GCM key is 32 bytes" "aes256GcmKeyFromSecret")
     (match (gcmKeyFrom aes256GcmKind 32 (secretBytesAddr s))
-      ((Ok h) (Ok (Aes256GcmKey :slot h)))
+      ((Ok h) (Ok (aes256GcmKeyNew h)))
       ((Err e) (Err e)))))
 
 ;; The key's 16 bytes as a new `SecretBytes`, for storing it somewhere
@@ -227,14 +257,16 @@
 ;; Any later use of `k` stops the program with status 85. Answers 0.
 (pub :: aes128GcmKeyWipe (-> Aes128GcmKey Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (aes128GcmKeyWipe k)
-  (secretBlockFree aes128GcmKind k.slot))
+  (__resource_close k.owner))
 
 ;; Erase an AES-256-GCM key and free the store. Answers 0.
 (pub :: aes256GcmKeyWipe (-> Aes256GcmKey Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (aes256GcmKeyWipe k)
-  (secretBlockFree aes256GcmKind k.slot))
+  (__resource_close k.owner))
 
 ; ------------------------------------------------------------------
 ; The mode.

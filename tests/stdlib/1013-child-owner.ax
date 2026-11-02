@@ -1,0 +1,89 @@
+; A spawned `Child` is an owner: `childWait` reaps it and disarms the
+; cleanup, and dropping one kills and reaps it, so no zombie or
+; runaway child outlives its owner.
+(import IO)
+(import Sys)
+(import Str)
+(import Vec)
+(import Err)
+
+(:: say (-> String Bool ()))
+;@axiom:effect(io)
+(fn (say label good)
+  (println "{label}: {good}"))
+
+(:: sleeper (-> Int Int))
+;@axiom:effect(io)
+;@axiom:effect(block)
+(fn (sleeper n)
+  {
+    (let _ (sysSleepNanos 50000000))
+    (sleeper (+ n 1))
+  })
+
+(:: alive (-> Int Bool))
+;@axiom:effect(io)
+(fn (alive pid)
+  (isOk (sysKill pid 0)))
+
+(:: spawnMode (-> String (Result Child Error)))
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(fn (spawnMode mode)
+  {
+    (let args (vecNew))
+    {
+      (vecPush args "owned child")
+      (vecPush args mode)
+      (sysSpawnChild (sysArg 0) args)
+    }
+  })
+
+(:: waitCheck Bool)
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(fn (waitCheck)
+  (match (spawnMode "exit7")
+    ((Ok c)
+      (match (childWait c)
+        ((Ok status) (== (sysExitCode status) 7))
+        ((Err _) false))
+    )
+    ((Err _) false)))
+
+(:: dropCheck Bool)
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(fn (dropCheck)
+  {
+    (let pid
+      (match (spawnMode "sleeper")
+        ((Ok c)
+          {
+            (say "alive while owned" (alive (childPid c)))
+            (childPid c)
+          }
+        )
+        ((Err _) (- 0 1))))
+    (if (> pid 0)
+      (! (alive pid))
+      false)
+  })
+
+(:: main Int)
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(fn (main)
+  (if (> sysArgc 1)
+    (if (strEq (sysArg 1) "exit7")
+      7
+      (sleeper 0))
+    {
+      (say "wait reaps" waitCheck)
+      (say "drop kills and reaps" dropCheck)
+      0
+    }))

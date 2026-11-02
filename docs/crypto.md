@@ -108,6 +108,15 @@ stops the program with status 85, and so does passing one key type's
 handle where another's is expected. The suite wipes every temporary it
 derives from a secret, such as a key schedule, before it returns.
 
+You don't have to wipe by hand. `SecretBytes` and every key type own
+their mapping, so dropping the last share wipes and frees it, as
+dropping a `File` closes it. An explicit wipe claims that cleanup
+early. Tested by `tests/stdlib/1012-secret-drop-wipes.ax`.
+
+A spawned child can be owned the same way. `sysSpawnChild` answers a
+`Child`, `childWait` reaps it, and dropping one kills and reaps it.
+Tested by `tests/stdlib/1013-child-owner.ax`.
+
 Erasure has limits you should know:
 
 - A copy you made with `secretExposeCopy` is an ordinary string. The

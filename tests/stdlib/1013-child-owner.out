@@ -1,0 +1,3 @@
+wait reaps: true
+alive while owned: true
+drop kills and reaps: true

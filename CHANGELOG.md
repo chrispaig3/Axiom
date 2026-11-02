@@ -16,6 +16,13 @@ its changelog too.
 
 ## Unreleased
 
+- `SecretBytes` and every crypto key type wipe and free their mapping
+  when the last share is dropped, as a `File` closes; an explicit wipe
+  still works and claims that cleanup. `sysSpawnChild` answers a new
+  owned `Child`: `childWait` reaps it, and dropping it kills and
+  reaps it. Tested by `tests/stdlib/1012-secret-drop-wipes.ax`,
+  `tests/stdlib/1013-child-owner.ax` and `scripts/check-crypto.sh`.
+
 - Hash, HMAC, HKDF and secret-store address operations move into
   internal crypto modules. Typed hash states, HMAC and HKDF keys,
   and `SecretBytes` keep their behaviour, and no public function now

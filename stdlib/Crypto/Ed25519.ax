@@ -75,8 +75,9 @@
 
 ;; An Ed25519 private key: a handle to the seed and what it expands to,
 ;; in the secret store. Prints as `<Ed25519SecretKey>`.
-(pub struct Ed25519SecretKey word shared
-  (slot : Int))
+(pub struct Ed25519SecretKey sealed
+  (slot : Int)
+  (owner : Handle))
 
 ;; An Ed25519 public key: a point's 32-byte encoding. Build one with
 ;; `ed25519PublicKeyFromBytes`, which checks it.
@@ -92,6 +93,20 @@
 (:: ed25519Kind Int)
 (fn (ed25519Kind)
   18)
+
+;; The drop cleanup of a Ed25519SecretKey: wipe and free its mapping. An
+;; explicit wipe claims it first, so it never runs twice.
+(:: ed25519SecretKeyDrop (-> Int Int))
+;@axiom:effect(io)
+(fn (ed25519SecretKeyDrop h)
+  (secretBlockFree ed25519Kind h))
+
+;; A `Ed25519SecretKey` over live handle `h`, owning its wipe.
+(:: ed25519SecretKeyNew (-> Int Ed25519SecretKey))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (ed25519SecretKeyNew h)
+  (Ed25519SecretKey :slot h :owner (__resource_new ed25519SecretKeyDrop h)))
 
 ; A key's block: the seed at 0, the clamped scalar a at 32, the prefix
 ; at 64 and the public key at 96.
@@ -152,7 +167,7 @@
         ((Ok _)
           {
             (ed25519BlockFinish h)
-            (Ok (Ed25519SecretKey :slot h))
+            (Ok (ed25519SecretKeyNew h))
           }
         ))
     )))
@@ -173,7 +188,7 @@
         {
           (ctCopy (secretBlockAddr ed25519Kind h) (secretBytesAddr s) 32)
           (ed25519BlockFinish h)
-          (Ok (Ed25519SecretKey :slot h))
+          (Ok (ed25519SecretKeyNew h))
         }
       ))))
 
@@ -181,8 +196,9 @@
 ;; program with status 85. Answers 0.
 (pub :: ed25519KeyWipe (-> Ed25519SecretKey Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (ed25519KeyWipe k)
-  (secretBlockFree ed25519Kind k.slot))
+  (__resource_close k.owner))
 
 ;; The 32-byte seed of `k`, as a new `SecretBytes`: RFC 8032's private
 ;; key, the standard serialisation. `ed25519KeyFromSecret` reads it back.
