@@ -1,0 +1,8 @@
+; A private polymorphic factory must retain its hidden evidence slot,
+; even beside a public monomorphic factory with the same bare name.
+(import ClosureMapPublic)
+(import ClosureMapPrivate)
+
+(:: main Int)
+(fn (main)
+  (ClosureMapPrivate::run 1))

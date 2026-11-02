@@ -2059,3 +2059,5 @@
 0.8.1  F  internWordOf  internal; keep an InternState owner and let its last reference release storage
 0.8.1  F  internFree  internal; keep an InternState owner and let its last reference release storage
 0.8.1  S  InternState  sealed storage moves behind an alias to the internal owner
+
+0.8.1  L  closure-map-capacity  AX3029 refuses more than 46 closure capture slots, including scalar values and hidden evidence; group captures in a typed struct

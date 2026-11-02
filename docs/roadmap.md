@@ -54,8 +54,8 @@ integrator would still need.
 | A `match` over a field or a vector element, and a `let` of one, keep the value while the code under them overwrites its place | Done | `MM-LIFE-2m`, `tests/stdlib/901-match-place-overwrite.ax` |
 | Closure arguments keep their shares when their source slot is overwritten, including curried and surplus calls | Done | `tests/stdlib/461-curried-closure-arg.ax`, `scripts/check-closure-reclaim.sh` |
 | Closures retain counted local captures beyond the enclosing frame | Tested shapes | `tests/stdlib/556-count-balance.ax` |
-| Closures with more than 46 captures release their captured resources when dropped | Not started | `MM-LIFE-2c`, `tests/stdlib/1004-capture-map-limit.ax` pins the leak |
-| A closure over a match-arm binder releases its captured resources when dropped | Not started | [Known defects](assurance.md#known-defects) |
+| Every accepted closure fits the reference map that releases its counted captures | Done | `MM-LIFE-2c`. `AX3029` refuses more than 46 capture slots, including hidden evidence. `tests/diagnostics/1522-closure-map-capacity.ax`, `tests/stdlib/1008-scoped-capture-map-boundary.ax` |
+| A closure over a match-arm binder releases its captured resources when dropped | In progress | Concrete reference binders reclaim their capture shares. Generic binders and scoped recovery wrappers remain conservative. `tests/stdlib/1010-match-capture.ax`, `tests/stdlib/1011-match-capture-resource.ax` |
 | A `match` arm that computes a word from its binder, as `(Some (strLen a))` does, lets the scrutinee go | Done | `MM-LIFE-2c`, `tests/stdlib/902-match-arm-over-binder.ax` |
 | An element taken out with `vecPop` is released: a trusted function declares `result(owned)` and the caller hands the share back | Done | `MM-LIFE-2n`, `tests/stdlib/846-vec-pop-release.ax` |
 | A vector passed straight to `vecGet` is not leaked | Done | `MM-LIFE-2m`, `tests/stdlib/893-vecget-temporary.ax` |

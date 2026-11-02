@@ -1,0 +1,129 @@
+; Forty-six total slots: one retained String and forty-five scalar captures.
+; The scoped recovery thunk returns the String share on normal completion.
+(import IO)
+(import Str)
+
+(:: refs (-> String Int))
+;@axiom:effect(unsafe)
+(fn (refs s)
+  (__load64 (- (as s Int) 16) 0))
+
+(:: make (-> String Int))
+(fn (make s)
+  {
+    (let v0 0)
+    (let v1 1)
+    (let v2 2)
+    (let v3 3)
+    (let v4 4)
+    (let v5 5)
+    (let v6 6)
+    (let v7 7)
+    (let v8 8)
+    (let v9 9)
+    (let v10 10)
+    (let v11 11)
+    (let v12 12)
+    (let v13 13)
+    (let v14 14)
+    (let v15 15)
+    (let v16 16)
+    (let v17 17)
+    (let v18 18)
+    (let v19 19)
+    (let v20 20)
+    (let v21 21)
+    (let v22 22)
+    (let v23 23)
+    (let v24 24)
+    (let v25 25)
+    (let v26 26)
+    (let v27 27)
+    (let v28 28)
+    (let v29 29)
+    (let v30 30)
+    (let v31 31)
+    (let v32 32)
+    (let v33 33)
+    (let v34 34)
+    (let v35 35)
+    (let v36 36)
+    (let v37 37)
+    (let v38 38)
+    (let v39 39)
+    (let v40 40)
+    (let v41 41)
+    (let v42 42)
+    (let v43 43)
+    (let v44 44)
+    (__axiom_recover __axiom_arena_mark
+      (lambda (x)
+        (+ v44
+          (+ v43
+            (+ v42
+              (+ v41
+                (+ v40
+                  (+ v39
+                    (+ v38
+                      (+ v37
+                        (+ v36
+                          (+ v35
+                            (+ v34
+                              (+ v33
+                                (+ v32
+                                  (+ v31
+                                    (+ v30
+                                      (+ v29
+                                        (+ v28
+                                          (+ v27
+                                            (+ v26
+                                              (+ v25
+                                                (+ v24
+                                                  (+ v23
+                                                    (+ v22
+                                                      (+ v21
+                                                        (+ v20
+                                                          (+ v19
+                                                            (+ v18
+                                                              (+ v17
+                                                                (+ v16
+                                                                  (+ v15
+                                                                    (+ v14
+                                                                      (+ v13
+                                                                        (+ v12
+                                                                          (+ v11
+                                                                            (+ v10
+                                                                              (+ v9
+                                                                                (+ v8
+                                                                                  (+ v7
+                                                                                    (+ v6
+                                                                                      (+ v5
+                                                                                        (+ v4
+                                                                                          (+ v3
+                                                                                            (+ v2
+                                                                                              (+ v1
+                                                                                                (+
+                                                                                                  v0
+                                                                                                  (+
+                                                                                                    (strLen
+                                                                                                      s)
+                                                                                                    x))))))))))))))))))))))))))))))))))))))))))))))
+      ))
+  })
+
+(:: once (-> String Int))
+(fn (once s)
+  (make s))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (let text (strDup "abcdefghijklmnop"))
+    (let before (refs text))
+    (let result (once text))
+    (let after (refs text))
+    (let balanced (&& (== before after) (== result 1006)))
+    (println "scoped boundary reclaimed: {balanced}")
+    0
+  })

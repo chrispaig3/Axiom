@@ -1,0 +1,77 @@
+; A matched resource stays live in an escaped closure and closes once.
+(import IO)
+(import Vec)
+
+(data Owned
+  (Owned Handle))
+
+(:: resourceClosure (-> (Vec Int) Int Int))
+;@axiom:effect(unsafe)
+;@axiom:effect(io)
+(fn (resourceClosure hits)
+  (match (Owned
+           (__resource_new
+             (lambda (n)
+               {
+                 (vecPush hits n)
+                 0
+               }
+             )
+             73))
+    ((Owned owner)
+      (lambda (ignored) (__resource_get owner))
+    )))
+
+(:: useResource (-> (Vec Int) Int))
+;@axiom:effect(io)
+(fn (useResource hits)
+  {
+    (let closure (resourceClosure hits))
+    (println (vecLen hits))
+    (closure 0)
+  })
+
+(:: descriptor (-> File Int))
+;@axiom:effect(unsafe)
+(fn (descriptor file)
+  (__resource_get (as (__load64 (as file Int) 0) Handle)))
+
+(:: fileClosure (-> String Int Int))
+;@axiom:effect(io)
+(fn (fileClosure path)
+  (match (openPath path 0)
+    ((Ok file)
+      (lambda (ignored) (descriptor file))
+    )
+    ((Err error)
+      (lambda (ignored) (- 0 1))
+    )))
+
+(:: useFile (-> String Int))
+;@axiom:effect(io)
+(fn (useFile path)
+  {
+    (let closure (fileClosure path))
+    (closure 0)
+  })
+
+(:: nextDescriptor (-> String Int))
+;@axiom:effect(io)
+(fn (nextDescriptor path)
+  (match (openPath path 0)
+    ((Ok file) (descriptor file))
+    ((Err error) (- 0 2))))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (let hits (:: vecNew (Vec Int)))
+    (println (useResource hits))
+    (println (vecLen hits))
+    (println (vecGet hits 0))
+    (let first (useFile "/dev/null"))
+    (let next (nextDescriptor "/dev/null"))
+    (println (&& (>= first 0) (== first next)))
+    0
+  })

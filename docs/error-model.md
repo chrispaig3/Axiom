@@ -686,7 +686,9 @@ call, to the byte.
 
 **ERR-MEM-5 (H). An error record may declare at most 46 payload
 words.** `AX3029` refuses a wider block: the reference map covers 47
-payload words, and a data cell spends one on its tag. `AX3030` caps a
+payload words, and a data cell spends one on its tag. A closure also
+reserves one word, for its function pointer: at most 46 capture slots
+remain, including scalar values and hidden type evidence. `AX3030` caps a
 declaration at 64 type variables. `Error` as specified declares 3
 fields, far below the limit. The rule exists so a future cause chain
 doesn't walk into it.

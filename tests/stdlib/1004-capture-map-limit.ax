@@ -1,8 +1,5 @@
-; Counted captures fit in a closure map only through 46 slots.
-; The small control reclaims its strings after the closure drops. The
-; oversized closure currently keeps its captured shares: this pins a
-; known leak, not a guarantee that callers should depend on.
-; Warm both allocation shapes before comparing allocator backlog.
+; Both small closures and the largest supported capture map reclaim strings.
+; Warm allocation shapes before comparing allocator backlog.
 (import Mem)
 (import Str)
 (import IO)
@@ -12,7 +9,7 @@
   {
     (let s0 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
     (let s1 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
-    (lambda (i) (+ (strByte s1 0) (+ (strByte s0 0) 0)))
+    (lambda (i) (+ (strByte s0 0) (strByte s1 0)))
   })
 
 (:: use2 (-> Int Int))
@@ -31,8 +28,8 @@
       (loop2 (- n 1))
     }))
 
-(:: make47 (-> Int Int Int))
-(fn (make47 seed)
+(:: make46 (-> Int Int Int))
+(fn (make46 seed)
   {
     (let s0 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
     (let s1 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
@@ -80,92 +77,47 @@
     (let s43 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
     (let s44 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
     (let s45 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
-    (let s46 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
     (lambda (i)
-      (+ (strByte s46 0)
-        (+ (strByte s45 0)
-          (+ (strByte s44 0)
-            (+ (strByte s43 0)
-              (+ (strByte s42 0)
-                (+ (strByte s41 0)
-                  (+ (strByte s40 0)
-                    (+ (strByte s39 0)
-                      (+ (strByte s38 0)
-                        (+ (strByte s37 0)
-                          (+ (strByte s36 0)
-                            (+ (strByte s35 0)
-                              (+ (strByte s34 0)
-                                (+ (strByte s33 0)
-                                  (+ (strByte s32 0)
-                                    (+ (strByte s31 0)
-                                      (+ (strByte s30 0)
-                                        (+ (strByte s29 0)
-                                          (+ (strByte s28 0)
-                                            (+ (strByte s27 0)
-                                              (+ (strByte s26 0)
-                                                (+ (strByte s25 0)
-                                                  (+ (strByte s24 0)
-                                                    (+ (strByte s23 0)
-                                                      (+ (strByte s22 0)
-                                                        (+ (strByte s21 0)
-                                                          (+ (strByte s20 0)
-                                                            (+ (strByte s19 0)
-                                                              (+ (strByte s18 0)
-                                                                (+ (strByte s17 0)
-                                                                  (+ (strByte s16 0)
-                                                                    (+ (strByte s15 0)
-                                                                      (+ (strByte s14 0)
-                                                                        (+ (strByte s13 0)
-                                                                          (+ (strByte s12 0)
-                                                                            (+ (strByte s11 0)
-                                                                              (+ (strByte s10 0)
-                                                                                (+ (strByte s9 0)
-                                                                                  (+ (strByte s8 0)
-                                                                                    (+
-                                                                                      (strByte s7 0)
-                                                                                      (+
-                                                                                        (strByte s6
-                                                                                          0)
-                                                                                        (+
-                                                                                          (strByte
-                                                                                            s5 0)
-                                                                                          (+
-                                                                                            (strByte
-                                                                                              s4 0)
-                                                                                            (+
-                                                                                              (strByte
-                                                                                                s3
-                                                                                                0)
-                                                                                              (+
-                                                                                                (strByte
-                                                                                                  s2
-                                                                                                  0)
-                                                                                                (+
-                                                                                                  (strByte
-                                                                                                    s1
-                                                                                                    0)
-                                                                                                  (+
-                                                                                                    (strByte
-                                                                                                      s0
-                                                                                                      0)
-                                                                                                    0)))))))))))))))))))))))))))))))))))))))))))))))
+      (+
+        (+
+          (+
+            (+ (+ (strByte s0 0) (strByte s1 0))
+              (+ (strByte s2 0) (+ (strByte s3 0) (strByte s4 0))))
+            (+ (+ (strByte s5 0) (+ (strByte s6 0) (strByte s7 0)))
+              (+ (strByte s8 0) (+ (strByte s9 0) (strByte s10 0)))))
+          (+
+            (+ (+ (strByte s11 0) (+ (strByte s12 0) (strByte s13 0)))
+              (+ (strByte s14 0) (+ (strByte s15 0) (strByte s16 0))))
+            (+ (+ (strByte s17 0) (+ (strByte s18 0) (strByte s19 0)))
+              (+ (strByte s20 0) (+ (strByte s21 0) (strByte s22 0))))))
+        (+
+          (+
+            (+ (+ (strByte s23 0) (strByte s24 0))
+              (+ (strByte s25 0) (+ (strByte s26 0) (strByte s27 0))))
+            (+ (+ (strByte s28 0) (+ (strByte s29 0) (strByte s30 0)))
+              (+ (strByte s31 0) (+ (strByte s32 0) (strByte s33 0)))))
+          (+
+            (+ (+ (strByte s34 0) (+ (strByte s35 0) (strByte s36 0)))
+              (+ (strByte s37 0) (+ (strByte s38 0) (strByte s39 0))))
+            (+ (+ (strByte s40 0) (+ (strByte s41 0) (strByte s42 0)))
+              (+ (strByte s43 0) (+ (strByte s44 0) (strByte s45 0)))))))
     )
   })
 
-(:: use47 (-> Int Int))
-(fn (use47 k)
+(:: use46 (-> Int Int))
+(fn (use46 k)
   {
-    (let f (make47 k))
+    (let f (make46 k))
     (f 0)
   })
 
-(:: loop47 (-> Int Int))
-(fn (loop47 n)
+(:: loop46 (-> Int Int))
+(fn (loop46 n)
   (if (<= n 0)
     0
     {
-      (use47 n)
-      (loop47 (- n 1))
+      (use46 n)
+      (loop46 (- n 1))
     }))
 
 (:: main Int)
@@ -173,17 +125,15 @@
 (fn (main)
   {
     (loop2 100)
-    (loop47 100)
+    (loop46 100)
     (let before memStats)
     (loop2 100)
     (let small memStats)
-    (loop47 100)
+    (loop46 100)
     (let large memStats)
-    (let ds (- small.backlogBytes before.backlogBytes))
-    (let smallReclaimed (< ds 1024))
+    (let smallReclaimed (< (- small.backlogBytes before.backlogBytes) 1024))
+    (let boundaryReclaimed (< (- large.backlogBytes small.backlogBytes) 1024))
     (println "small capture reclaimed: {smallReclaimed}")
-    (let dl (- large.backlogBytes small.backlogBytes))
-    (let largeRetained (> dl 500000))
-    (println "large capture retained: {largeRetained}")
+    (println "boundary capture reclaimed: {boundaryReclaimed}")
     0
   })

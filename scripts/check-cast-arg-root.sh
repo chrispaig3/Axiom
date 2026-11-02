@@ -368,13 +368,15 @@ cast_count="$(git -C "$repo_root" grep -h -o '(as ' -- stdlib tests examples ':!
 # Typed interner ownership probes add four live-owner observations and
 # intentional unmatched-retain controls under MM-VAL-23. The tracked
 # census is 1581. The directory-boundary probe adds one refusal subject,
-# bringing it to 1582; these casts add no production erasure.
+# bringing it to 1582. Closure capacity and match-capture probes add six
+# casts: two typed subtype boundary cases and four live-owner/header
+# observations under MM-VAL-23. The census is 1588; production is unchanged.
 if [ "$cast_count" -eq 0 ]; then
   bad "user-level: the cast count read 0 - the measurement is broken, not the tree clean"
-elif [ "$cast_count" -le 1582 ]; then
-  ok "user-level (cast count $cast_count <= 1582)"
+elif [ "$cast_count" -le 1588 ]; then
+  ok "user-level (cast count $cast_count <= 1588)"
 else
-  bad "user-level (cast count $cast_count > 1582): new casts need a MM-VAL-23 reason and a baseline bump"
+  bad "user-level (cast count $cast_count > 1588): new casts need a MM-VAL-23 reason and a baseline bump"
 fi
 
 echo "--- 2. type-preserving casts keep ownership ---"

@@ -29136,9 +29136,8 @@
 ;                       (`castForges`): `(cast Hid 7)` checked OK here
 ;                       and died at run time with SIGSEGV;
 ;   an erasing cast     `(cast Int v)` of a reference, in a module
-;                       outside the compiler and the library
-;                       (`erasureNeedsUnsafe`). The compiler and the
-;                       library still store handles as words.
+;                       outside the trusted library (`erasureNeedsUnsafe`).
+;                       Compiler declarations state their erasures too.
 ;
 ; LEXICAL, where AX3042 is transitive - and deliberately. A transitive
 ; closure through `strData`, `strByte`, `memGetWord` and `memAlloc`
@@ -33970,6 +33969,7 @@
     (let tc (checkModuleTcTyped entryDecls allDecls units))
     {
       (wordLowerApply tc)
+      (checkAllClosureLayouts tc allDecls)
       tc
     }
   })
@@ -35292,3 +35292,262 @@
       ((TyData _) None)
       ((TyCtor _ _) None))
     None))
+
+(pub :: closureLayoutMentions (-> String ASTNode Int))
+(pub fn (closureLayoutMentions name e)
+  (if (nodeSame e nilNode)
+    0
+    {
+      (let tg (nodeTag e))
+      (if (|| (== tg TAG_E_INT) (|| (== tg TAG_E_FLT) (|| (== tg TAG_E_STR) (== tg TAG_E_CHAR))))
+        0
+        (if (== tg TAG_E_VAR)
+          (if (strEq (nodeAName e) name)
+            1
+            0)
+          (if (|| (== tg TAG_E_APP) (== tg TAG_E_IF))
+            (if (== (closureLayoutMentions name (nodeAChild e)) 1)
+              1
+              (if (== (closureLayoutMentions name (nodeBChild e)) 1)
+                1
+                (closureLayoutMentions name (nodeCChild e))))
+            ; a binding's word 1 is its NAME, a String, not a node: walked
+            ; as one, a name whose length matched a tag followed its data
+            ; pointer into the bytes
+            (if (|| (== tg TAG_E_LET) (== tg TAG_E_LETM))
+              (if (== (closureLayoutMentions name (nodeBChild e)) 1)
+                1
+                (closureLayoutMentions name (nodeCChild e)))
+              ; a field store's word 2 is the field NAME, a String - walking
+              ; it as a node read its length as a tag and followed its data
+              ; pointer (a 5- or 8-byte name dressed as a lambda or a block),
+              ; which is how `(set r.label ...)` beside a mention of the
+              ; binding took the compiler down with SIGSEGV
+              (if (== tg TAG_E_SETF)
+                (if (== (closureLayoutMentions name (nodeAChild e)) 1)
+                  1
+                  (closureLayoutMentions name (nodeCChild e)))
+                (if (== tg TAG_E_FIELD)
+                  (closureLayoutMentions name (nodeAChild e))
+                  (if (== tg TAG_E_SET)
+                    (closureLayoutMentions name (nodeBChild e))
+                    (if (== tg TAG_E_BEGIN)
+                      (closureLayoutMentionsVec name (nodeAChildren e) 0)
+                      ; `cond` is AX2004: the parser builds none, so
+                      ; no arm closureLayoutMentions one.
+                      (if (== tg TAG_E_MATCH)
+                        (if (== (closureLayoutMentions name (nodeAChild e)) 1)
+                          1
+                          (closureLayoutMentionsArms name (nodeBChildren e) 0))
+                        (if (|| (== tg TAG_E_WHILE) (== tg TAG_E_REGION))
+                          (if (== tg TAG_E_REGION)
+                            (closureLayoutMentions name (nodeBChild e))
+                            (if (== (closureLayoutMentions name (nodeAChild e)) 1)
+                              1
+                              (closureLayoutMentionsVec name (nodeBChildren e) 0)))
+                          (if (== tg TAG_E_LAM)
+                            ; a capture takes no share, so any mention counts
+                            (closureLayoutMentions name (nodeBChild e))
+                            1)))))))))))
+    }))
+
+(pub :: closureLayoutMentionsVec (-> String (Vec ASTNode) Int Int))
+;@axiom:effect(unsafe)
+(pub fn (closureLayoutMentionsVec name v i)
+  (if (== (as v Int) 0)
+    0
+    (if (>= i (vecLen v))
+      0
+      (if (== (closureLayoutMentions name (vecGet v i)) 1)
+        1
+        (closureLayoutMentionsVec name v (+ i 1))))))
+
+(pub :: closureLayoutMentionsArms (-> String (Vec ASTNode) Int Int))
+;@axiom:effect(unsafe)
+(pub fn (closureLayoutMentionsArms name v i)
+  (if (== (as v Int) 0)
+    0
+    (if (>= i (vecLen v))
+      0
+      (if (== (closureLayoutMentions name (nodeBChild (vecGet v i))) 1)
+        1
+        (closureLayoutMentionsArms name v (+ i 1))))))
+
+; Closure layout uses the emitter's conservative mention walk, including
+; nested and shadowed mentions. Scalar evidence occupies a slot as well.
+(pub :: closureLayoutNames (-> Names Names ASTNode Names))
+(pub fn (closureLayoutNames env params body)
+  {
+    (let out vecNew)
+    (for i in 0..(vecLen env)
+      {
+        (let name (vecGet env i))
+        (if (&& (== (strVecHas params name) 0) (== (strVecHas out name) 0))
+          (if (|| (strEq name "__evw.")
+                (|| (strStartsWith name "__evwa.") (== (closureLayoutMentions name body) 1)))
+            (vecPush out name)))
+      })
+    out
+  })
+
+(pub :: checkClosureLayouts (-> TC ASTNode Names Int))
+(pub fn (checkClosureLayouts tc e env)
+  (if (nodeSame e nilNode)
+    0
+    {
+      (let tag (nodeTag e))
+      (if (== tag TAG_E_LAM)
+        {
+          (let params (nodeANames e))
+          (let captures (closureLayoutNames env params (nodeBChild e)))
+          (let count (vecLen captures))
+          (if (> count 46)
+            (emitDiag tc
+              (diagSetLabel
+                (mkDiag SEV_ERROR "AX3029" "record-bitmap-capacity" (nodeSpan e)
+                  (concat "closure needs "
+                    (concat (fmtInt count)
+                      " capture slots, including hidden evidence; its reference map covers 46 beside the function word"))
+                  None
+                  (Some "group captured values in a typed struct so the closure holds one owner"))
+                "too wide for one reference map")))
+          (let inner vecNew)
+          (capPushAll params 0 inner)
+          (vecPush inner "__evwa.")
+          (for i in 0..count
+            {
+              (let name (vecGet captures i))
+              (vecPush inner
+                (if (strStartsWith name "__evwa.")
+                  (if (== (strLen name) 7)
+                    "__evwa.1"
+                    (concat "__evwa."
+                      (fmtInt (+ 1 (strToInt (strSlice name 7 (- (strLen name) 7)))))))
+                  name))
+            })
+          (checkClosureLayouts tc (nodeBChild e) inner)
+        }
+        (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
+          {
+            (checkClosureLayouts tc (nodeBChild e) env)
+            (let mark (vecLen env))
+            (vecPush env (nodeAName e))
+            (checkClosureLayouts tc (nodeCChild e) env)
+            (scopeTrunc env mark)
+          }
+          (if (== tag TAG_E_MATCH)
+            {
+              (checkClosureLayouts tc (nodeAChild e) env)
+              (let arms (nodeBChildren e))
+              (for i in 0..(vecLen arms)
+                {
+                  (let arm (vecGet arms i))
+                  (let mark (vecLen env))
+                  (closureLayoutPatBind (nodeAChild arm) env)
+                  (checkClosureLayouts tc (nodeBChild arm) env)
+                  (scopeTrunc env mark)
+                })
+              0
+            }
+            (if (|| (== tag TAG_E_APP) (== tag TAG_E_IF))
+              {
+                (checkClosureLayouts tc (nodeAChild e) env)
+                (checkClosureLayouts tc (nodeBChild e) env)
+                (checkClosureLayouts tc (nodeCChild e) env)
+              }
+              (if (|| (== tag TAG_E_HANDLE) (== tag TAG_E_SETF))
+                {
+                  (checkClosureLayouts tc (nodeAChild e) env)
+                  (checkClosureLayouts tc (nodeCChild e) env)
+                }
+                (if (== tag TAG_E_FIELD)
+                  (checkClosureLayouts tc (nodeAChild e) env)
+                  (if (|| (== tag TAG_E_SET) (== tag TAG_E_REGION))
+                    (checkClosureLayouts tc (nodeBChild e) env)
+                    (if (== tag TAG_E_BEGIN)
+                      (checkClosureLayoutVec tc (nodeAChildren e) env)
+                      (if (== tag TAG_E_STRUCTCON)
+                        (checkClosureLayoutVec tc (nodeBChildren e) env)
+                        (if (|| (== tag TAG_E_WHILE) (== tag TAG_E_SUBCHECK))
+                          {
+                            (checkClosureLayouts tc (nodeAChild e) env)
+                            (checkClosureLayoutVec tc (nodeBChildren e) env)
+                          }
+                          0))))))))))
+    }))
+
+(pub :: checkClosureLayoutVec (-> TC Nodes Names Int))
+(pub fn (checkClosureLayoutVec tc nodes env)
+  {
+    (for i in 0..(vecLen nodes)
+      (checkClosureLayouts tc (vecGet nodes i) env))
+    0
+  })
+
+(pub :: checkFunctionClosureLayouts (-> TC ASTNode Names (Option ASTNode) Int))
+(pub fn (checkFunctionClosureLayouts tc declaration params signature)
+  {
+    (let env vecNew)
+    (capPushAll params 0 env)
+    (if (let (Some ty) signature)
+      (if (== (tcParamPosVars ty) 1)
+        (vecPush env "__evw.")))
+    (checkClosureLayouts tc (nodeCChild declaration) env)
+  })
+
+; The emitter binds wildcard names too; its conservative mention walk may
+; capture them, so layout counting must include the same slots.
+(pub :: closureLayoutPatBind (-> ASTNode Names Int))
+(pub fn (closureLayoutPatBind pat bound)
+  (if (nodeSame pat nilNode)
+    0
+    {
+      (let tag (nodeTag pat))
+      (if (== tag TAG_E_VAR)
+        (if (|| (strEq (nodeAName pat) "true") (strEq (nodeAName pat) "false"))
+          0
+          {
+            (vecPush bound (nodeAName pat))
+            0
+          })
+        (if (== tag TAG_E_APP)
+          (closureLayoutPatBindVec (spineArgVec pat vecNew) 0 bound)
+          (if (== tag TAG_P_CONNAMED)
+            (closureLayoutPatBindVec (nodeCChildren pat) 0 bound)
+            0)))
+    }))
+
+(pub :: closureLayoutPatBindVec (-> Nodes Int Names Int))
+(pub fn (closureLayoutPatBindVec v i bound)
+  (if (>= i (vecLen v))
+    0
+    {
+      (closureLayoutPatBind (vecGet v i) bound)
+      (closureLayoutPatBindVec v (+ i 1) bound)
+    }))
+
+; Run after type checking and representation lowering, which can rewrite
+; an application into a subtype check or unwrap a word construction.
+(pub :: checkAllClosureLayouts (-> TC Nodes Int))
+(pub fn (checkAllClosureLayouts tc declarations)
+  {
+    (let savedUnit (tcCurUnit tc))
+    (for i in 0..(vecLen declarations)
+      {
+        (let declaration (vecGet declarations i))
+        (if (== (nodeTag declaration) TAG_D_FN)
+          {
+            (tcSetCurUnit tc (unitIndexFor (tcUnits tc) (nodeModuleOpt declaration)))
+            ; This is the declaration's canonical name, not a source
+            ; reference. Visibility filtering could hide a private function
+            ; and drop its hidden evidence word from the layout count.
+            (let signature
+              (match (fnEntExact tc (nodeAName declaration))
+                ((None) None)
+                ((Some entry) (bsTypeOpt (fnEntTy entry)))))
+            (checkFunctionClosureLayouts tc declaration (nodeBNames declaration) signature)
+          })
+      })
+    (tcSetCurUnit tc savedUnit)
+    0
+  })

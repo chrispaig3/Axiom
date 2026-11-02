@@ -3660,12 +3660,16 @@ read back as garbage.
 
 Closure captures follow the same logic. A capture of a reference
 parameter, a counted `let` binding or an owning `mut` slot takes a
-share. For up to 46 captures, the closure's reference map releases
-those shares when the closure dies. Larger closures retain the shares
-without a map to release them (`tests/stdlib/1004-capture-map-limit.ax`).
+share. The closure's reference map releases those shares when the
+closure dies. `AX3029` refuses more than 46 capture slots, including
+scalar values and hidden type evidence. Ordinary and scoped closures
+share this limit (`tests/stdlib/1004-capture-map-limit.ax`,
+`tests/stdlib/1008-scoped-capture-map-boundary.ax`).
 `captureCounted` classifies the binding the name resolves
 to, so a local that shadows a parameter uses the local's class.
-Unclassified captures keep their outer binding alive conservatively.
+A match-arm binder with a concrete reference type also takes its own
+share when captured. Unclassified captures keep their outer binding
+alive conservatively.
 
 Tested by `tests/stdlib/556-count-balance.ax`.
 
@@ -4375,11 +4379,13 @@ for raw `__alloc` storage in section 10.
 
 Closure captures of reference parameters, counted local bindings and
 owning mutable slots take shares. The closure record's reference map
-names those captures when there are at most 46, so the record's death
-returns their shares. Larger records have no capture map and keep those
-shares. Unclassified captures take no share; the escape analysis conservatively
-keeps their outer bindings alive. Match-arm capture cleanup remains a
-[known defect](assurance.md#known-defects).
+names those captures, so the record's death returns their shares.
+`AX3029` refuses closures with more than 46 capture slots, including
+scalar values and hidden type evidence. Concrete reference binders in match arms take and release their own
+capture shares. Unclassified captures take no share; escape analysis
+conservatively keeps their outer bindings alive. Generic match binders
+and scoped recovery wrapper parking remain conservative
+([roadmap](roadmap.md#memory-and-resource-safety)).
 The evidence record's two words carry a map too, so their retains are
 legal (`MM-LIFE-2d`, `tests/stdlib/360-arc-evidence-map.ax`).
 

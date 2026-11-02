@@ -16,6 +16,19 @@ its changelog too.
 
 ## Unreleased
 
+- Closures over concrete reference binders in match arms retain and
+  release their own capture shares. Matched wrappers can reclaim, and
+  captured resources close after the final share. Generic captures and
+  scoped recovery wrapper parking remain conservative.
+  Tested by `tests/stdlib/1010-match-capture.ax` and
+  `tests/stdlib/1011-match-capture-resource.ax`.
+
+- Closures with more than 46 capture slots are refused with `AX3029`,
+  including hidden type evidence and scoped recovery closures. Accepted
+  closures retain their capture map through the full boundary.
+  Tested by `tests/diagnostics/1522-closure-map-capacity.ax` and
+  `tests/stdlib/1008-scoped-capture-map-boundary.ax`.
+
 - Erasing casts require an unsafe declaration in compiler source and
   user directories named `core`. Directory names grant no exemption;
   the trusted standard library keeps its internal erasure boundary.

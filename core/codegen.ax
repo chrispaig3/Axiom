@@ -13,7 +13,7 @@
 (import parser)
 (import frontpack)
 (import frontjobs)
-(import typecheck (tyResolve tyIsBareFloat declHasAxtag))
+(import typecheck (tyResolve tyIsBareFloat declHasAxtag closureLayoutNames))
 (import namespace)
 (import diag)
 (import expand)
@@ -2810,7 +2810,8 @@
 ; Copies and memo snapshots may share these rows; later shadows append.
 (pub struct FlowBinding
   (name : String)
-  (flag : Int))
+  (flag : Int)
+  (captureOwns : Bool))
 
 (pub type FlowEnv (Vec FlowBinding))
 
@@ -2834,7 +2835,7 @@
 (pub fn (envWith env name flag)
   {
     (let v (:: (vecAppendFrom env vecNew 0) FlowEnv))
-    (vecPush v (FlowBinding :name name :flag flag))
+    (vecPush v (FlowBinding :name name :flag flag :captureOwns false))
     v
   })
 
@@ -2861,7 +2862,11 @@
       (let tag (nodeTag pat))
       (if (== tag TAG_E_VAR)
         {
-          (vecPush v (FlowBinding :name (nodeAName pat) :flag flag))
+          (vecPush v
+            (FlowBinding
+              :name (nodeAName pat)
+              :flag flag
+              :captureOwns (== (patternCaptureKind cg pat) (- 0 1))))
           0
         }
         (if (== tag TAG_E_APP)
@@ -2929,7 +2934,7 @@
   (if (>= i (vecLen names))
     v
     {
-      (vecPush v (FlowBinding :name (vecGet names i) :flag flag))
+      (vecPush v (FlowBinding :name (vecGet names i) :flag flag :captureOwns false))
       (envPushAll v names flag (+ i 1))
     }))
 
@@ -4743,7 +4748,7 @@
     {
       (let binding (vecGet env i))
       (|
-        (if (== (mentions binding.name body) 1)
+        (if (&& (! binding.captureOwns) (== (mentions binding.name body) 1))
           (& binding.flag (- MUST_BIT 1))
           0)
         (lamCaptureFrom body env (+ i 1)))
@@ -21306,13 +21311,14 @@
 (pub :: collectCapNames (-> CG Strings ASTNode Strings))
 (pub fn (collectCapNames cg lparams body)
   {
-    (let out vecNew)
-    {
-      (if (let (Some params) (cgParams cg))
-        (capFromVec params lparams body out 0))
-      (capFromVec (cgSymNames cg) lparams body out 0)
-      out
-    }
+    (let env vecNew)
+    (if (let (Some params) (cgParams cg))
+      (for i in 0..(vecLen params)
+        (vecPush env (vecGet params i))))
+    (let locals (cgSymNames cg))
+    (for i in 0..(vecLen locals)
+      (vecPush env (vecGet locals i)))
+    (closureLayoutNames env lparams body)
   })
 
 ; Each name is read with `vecGetStr`, as `pruneRebuild` reads its lines,
@@ -21419,6 +21425,13 @@
     {
       (let lname (concat "_lam_" (fmtInt n)))
       (let capNames (collectCapNames cg lparams body))
+      ; Check before evaluating or retaining any capture. The source checker
+      ; diagnoses this layout; this guard also covers compiler-created nodes.
+      (if (> (vecLen capNames) 46)
+        {
+          (writeStr stderr "axiom: AX3029: closure exceeds 46 capture slots\n")
+          (sysExitWith 1)
+        })
       (let capRegs vecNew)
       (let capFloats vecNew)
       {
@@ -21463,9 +21476,7 @@
               ; captured closures that nothing ever released
               (storeShapeAt cg pr
                 (if scoped
-                  (if (> (+ k 1) 47)
-                    0
-                    (lamShapeBits cg capNames 0))
+                  (lamShapeBits cg capNames 0)
                   (lamShapeConst cg capNames k)))
               ; A capture that is a REFERENCE PARAMETER of the
               ; enclosing function takes a share, and this is the one
@@ -21508,15 +21519,12 @@
 ; A lambda record's shape word: `k + 1` words, and a map bit for
 ; capture i (payload word 1 + i) iff the capture takes a share
 ; (`captureCounted`), the captures `retainParamCaps` retains. Past the
-; map's 47 words the record is a leaf, as a constructor's would be.
+; map's capacity is refused before any capture is retained.
 (pub :: lamShapeConst (-> CG (Vec a) Int Int))
 (pub fn (lamShapeConst cg capNames k)
   {
     (let cnt (paddedWords (+ k 1)))
-    (+ (* cnt 2)
-      (if (> (+ k 1) 47)
-        0
-        (lamShapeBits cg capNames 0)))
+    (+ (* cnt 2) (lamShapeBits cg capNames 0))
   })
 
 (pub :: lamShapeBits (-> CG (Vec a) Int Int))
@@ -21889,6 +21897,7 @@
 ; mutable alloca, 2 a TCO alloca, 3 a counted value register and 4 a
 ; mutable alloca that owns a share of what it holds (`slotOwns`). A
 ; capture of kind 3 or 4 takes its own share (`captureCounted`).
+; Kind -1 is a borrowed reference register with an owning capture.
 (pub :: bindSym (-> CG String String Int Int CG))
 (pub fn (bindSym cg name reg isFloat kind)
   {
@@ -21966,7 +21975,7 @@
                   (if (!= (vecLen subs) 1)
                     cgT
                     (bindSym cgT (nodeAName (vecGet subs 0)) (strDup payR)
-                      (patFloatFlag (vecGet subs 0) 0) 0))
+                      (patFloatFlag (vecGet subs 0) 0) (patternCaptureKind cgT (vecGet subs 0))))
                 }
               }
               cg)
@@ -22549,7 +22558,8 @@
                 (emitPatTest (constStr 1) vr failB cg)
                 (if (strEq (nodeAName pat) "false")
                   (emitPatTest (constStr 0) vr failB cg)
-                  (bindSym cg (nodeAName pat) (strDup vr) (patFloatFlag pat isFloat) 0)))
+                  (bindSym cg (nodeAName pat) (strDup vr) (patFloatFlag pat isFloat)
+                    (patternCaptureKind cg pat))))
               (if (== tag TAG_P_CON0)
                 ; A nullary constructor of a type that unboxes (rep 1 or 2) IS
                 ; its tag: compare the value directly. Correct even when the
@@ -22566,7 +22576,8 @@
                         (let cgL (loadWordAt cg vr 0))
                         (emitPatTest (constStr (eTag entry)) (strDup (cgResult cgL)) failB cgL)
                       })
-                    (bindSym cg (nodeAName pat) (strDup vr) (patFloatFlag pat isFloat) 0))
+                    (bindSym cg (nodeAName pat) (strDup vr) (patFloatFlag pat isFloat)
+                      (patternCaptureKind cg pat)))
                 }
                 ; A NAMED constructor pattern is reordered into the positional
                 ; spine and re-dispatched, so every mechanism below - the mixed-rep
@@ -31256,7 +31267,8 @@
             ; that binding only when nothing under the root binds the
             ; name again; an alias the walk follows is bound under the
             ; root, so its capture is a plain mention
-            (if (&& (>= (lookupSymKind cg name) 3) (== (boundIn name bound) 0))
+            (if (&& (|| (== (lookupSymKind cg name) (- 0 1)) (>= (lookupSymKind cg name) 3))
+                  (== (boundIn name bound) 0))
               0
               (mentions name e))
             (if (== tg TAG_E_VAR)
@@ -31467,9 +31479,16 @@
           (let bs (patBindersEsc cg (nodeAChild arm) vecNew))
           (if (== (as bs Int) 0)
             1
-            (if (== (escapesAny cg bs (nodeBChild arm) vp 0 bound) 1)
-              1
-              (escapesViaBinders cg arms vp (+ i 1) bound)))
+            {
+              (let mark (symMark cg))
+              (bindPatternCaptureFacts cg (nodeAChild arm))
+              (let escaped
+                (escapesAny cg bs (nodeBChild arm) vp 0 (binderSummary (nodeBChild arm))))
+              (symRestore cg mark)
+              (if (== escaped 1)
+                1
+                (escapesViaBinders cg arms vp (+ i 1) bound))
+            })
         }
       })))
 
@@ -32061,6 +32080,37 @@
       (if (== (as (patBindersCg (vecGet subs i) acc) Int) 0)
         cgNullVec
         (patBindersCgVec subs acc (+ i 1))))))
+
+; Kind -1 is a borrowed reference whose closure capture takes a share.
+; It is a value register, never mutable storage or a scope-owned local.
+(:: patternCaptureKind (-> CG ASTNode Int))
+;@axiom:effect(unsafe)
+(fn (patternCaptureKind cg pat)
+  {
+    (let name (nodeBinderTy pat))
+    (if (== name 0)
+      0
+      (if (== (fldClass cg (mkTCon (as name String) vecNew)) 2)
+        (- 0 1)
+        0))
+  })
+
+(:: bindPatternCaptureFacts (-> CG ASTNode ()))
+(fn (bindPatternCaptureFacts cg pat)
+  {
+    (let tag (nodeTag pat))
+    (if (== tag TAG_E_VAR)
+      {
+        (bindSym cg (nodeAName pat) "" 0 (patternCaptureKind cg pat))
+        ()
+      }
+      (if (== tag TAG_E_APP)
+        (for p in (patArgs pat vecNew)
+          (bindPatternCaptureFacts cg p))
+        (if (== tag TAG_P_CONNAMED)
+          (for p in (nodeCChildren pat)
+            (bindPatternCaptureFacts cg p)))))
+  })
 
 ; `patBindersCg`, minus the binders that cannot alias what they were
 ; copied out of. Everything else about it is identical, including the
@@ -34105,7 +34155,7 @@
         false
         (== (curParamRefClass cg pi) 1))
     }
-    (>= (lookupSymKind cg name) 3)))
+    (|| (== (lookupSymKind cg name) (- 0 1)) (>= (lookupSymKind cg name) 3))))
 
 ; Applications remember their checked result type and reference witness.
 (pub :: checkedValueTy (-> ASTNode ASTNode))

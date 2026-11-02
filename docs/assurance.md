@@ -312,11 +312,11 @@ the neighbourhood of the corpus.
   constant-time address kernels are internal
   (`tests/diagnostics/1520-crypto-byte-addresses.ax`). Interners use counted
   `InternState` owners (`tests/diagnostics/1521-intern-addresses.ax`).
-- A closure with more than 46 captures retains counted captures without
-  a reference map to release them (`MM-LIFE-2c`,
-  `tests/stdlib/1004-capture-map-limit.ax`).
-- A `lambda` that captures a value a `match` arm bound keeps a share of
-  it that is never released, so a captured `File` never closes.
+- Generic match-arm captures with unknown reference types and scoped
+  recovery wrappers can retain their outer owners. Concrete reference
+  captures reclaim their shares, including a captured `File`.
+  Tested by `tests/stdlib/1010-match-capture.ax` and
+  `tests/stdlib/1011-match-capture-resource.ax`.
 - Some `match` shapes keep a value they could release. A `let` bound
   to a `match` can keep the match's answer or the binding the match
   reads, and a function handed an owned `Option` that it reads a field

@@ -1,0 +1,10 @@
+[1;31merror[AX3029][0m[1m: closure needs 47 capture slots, including hidden evidence; its reference map covers 46 beside the function word[0m
+  [1;34m--> [0m1525-closure-map-recovery.ax:54:8
+[1;34m   |[0m
+[1;34m54 |[0m       (lambda (x)
+[1;34m   |[0m        [1;31m^^^^^^ too wide for one reference map[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mgroup captured values in a typed struct so the closure holds one owner
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3029` for a full explanation
+
+compilation failed due to 1 previous error

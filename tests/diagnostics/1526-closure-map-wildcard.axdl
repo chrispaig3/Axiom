@@ -1,0 +1,1 @@
+E AX3029 1526-closure-map-wildcard.ax:53:10-16 record-bitmap-capacity "closure needs 47 capture slots, including hidden evidence; its reference map covers 46 beside the function word" #"too wide for one reference map" ?"group captured values in a typed struct so the closure holds one owner"

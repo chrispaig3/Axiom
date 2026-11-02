@@ -1,0 +1,189 @@
+(import IO)
+(import Str)
+
+(data Parcel
+  (Wrap String))
+
+(data Outer
+  (Outer Parcel))
+
+(data Generic a
+  (Generic a))
+
+(data Count
+  (Count Int))
+
+(:: scalarShadow (-> String Int))
+(fn (scalarShadow source)
+  {
+    (let closure
+      (match (Count 81234567)
+        ((Count source)
+          (lambda (x) (+ x source))
+        )))
+    (closure 1)
+  })
+
+(:: nested (-> String Int Int))
+(fn (nested source)
+  (match (Outer (Wrap source))
+    ((Outer (Wrap value))
+      (lambda (x) (+ x (strLen value)))
+    )))
+
+(:: shadow (-> String Int Int))
+(fn (shadow source)
+  (match (Wrap source)
+    ((Wrap source)
+      (lambda (x) (+ x (strLen source)))
+    )))
+
+(:: generic (-> (Generic a) Int a))
+(fn (generic box)
+  (match box
+    ((Generic value)
+      (lambda (x) value)
+    )))
+
+(:: useNested (-> String Int))
+(fn (useNested source)
+  {
+    (let closure (nested source))
+    (closure 0)
+  })
+
+(:: useShadow (-> String Int))
+(fn (useShadow source)
+  {
+    (let closure (shadow source))
+    (closure 0)
+  })
+
+(:: refs (-> String Int))
+;@axiom:effect(unsafe)
+(fn (refs value)
+  (__load64 (- (as value Int) 16) 0))
+
+(:: direct (-> String Int Int))
+(fn (direct source)
+  (lambda (x) (+ x (strLen source))))
+
+(:: projected (-> String Int Int))
+(fn (projected source)
+  (match (Wrap source)
+    ((Wrap value)
+      (lambda (x) (+ x (strLen value)))
+    )))
+
+(:: projectedLocal (-> String Int Int))
+(fn (projectedLocal source)
+  {
+    (let box (Wrap source))
+    (match box
+      ((Wrap value)
+        (lambda (x) (+ x (strLen value)))
+      ))
+  })
+
+(:: projectedBorrowed (-> Parcel Int Int))
+(fn (projectedBorrowed box)
+  (match box
+    ((Wrap value)
+      (lambda (x) (+ x (strLen value)))
+    )))
+
+(:: useDirect (-> String Int))
+(fn (useDirect source)
+  {
+    (let closure (direct source))
+    (closure 0)
+  })
+
+(:: useProjected (-> String Int))
+(fn (useProjected source)
+  {
+    (let closure (projected source))
+    (closure 0)
+  })
+
+(:: useLocal (-> String Int))
+(fn (useLocal source)
+  {
+    (let closure (projectedLocal source))
+    (closure 0)
+  })
+
+(:: useBorrowed (-> String Int))
+(fn (useBorrowed source)
+  {
+    (let box (Wrap source))
+    (let closure (projectedBorrowed box))
+    (closure 0)
+  })
+
+(:: parcel (-> String (Option String)))
+(fn (parcel source)
+  (Some source))
+
+(:: pairCapture (-> String Int))
+(fn (pairCapture source)
+  {
+    (let closure
+      (match (parcel source)
+        ((Some value)
+          (lambda (x) (+ x (strLen value)))
+        )
+        ((None)
+          (lambda (x) x)
+        )))
+    (closure 0)
+  })
+
+(:: scopedCapture (-> String Int))
+(fn (scopedCapture source)
+  (match (Wrap source)
+    ((Wrap value)
+      (__axiom_recover __axiom_arena_mark (lambda (ignored) (strLen value)))
+    )))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (let a (strDup "owned capture"))
+    (let b (strDup "owned capture"))
+    (let c (strDup "owned capture"))
+    (let d (strDup "owned capture"))
+    (let e (strDup "nested"))
+    (let f (strDup "shadow"))
+    (let beforea (refs a))
+    (let beforeb (refs b))
+    (let beforec (refs c))
+    (let befored (refs d))
+    (println "before: {beforea} {beforeb} {beforec} {befored}")
+    (useDirect a)
+    (useProjected b)
+    (useLocal c)
+    (useBorrowed d)
+    (useNested e)
+    (pairCapture e)
+    (useShadow f)
+    (let ne (refs e))
+    (let nf (refs f))
+    (println "nested/shadow: {ne} {nf}")
+    (scopedCapture e)
+    (let scoped (refs e))
+    ; Recovery's raw-result escape rule still parks the wrapper.
+    (println "scoped parked: {scoped}")
+    (let gint (generic (Generic 987654)))
+    (let gstr (generic (Generic (strDup "generic"))))
+    (println (scalarShadow f))
+    (println (gint 0))
+    (println (gstr 0))
+    (let aftera (refs a))
+    (let afterb (refs b))
+    (let afterc (refs c))
+    (let afterd (refs d))
+    (println "after: {aftera} {afterb} {afterc} {afterd}")
+    0
+  })

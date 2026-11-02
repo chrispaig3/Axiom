@@ -36,13 +36,16 @@
         None
         {
           (wordLowerApply tc)
-          (Some
-            (CheckedProgram
-              :declarations (checkedCopyDeclarations declarations)
-              :inputDeclarations declarations
-              :functions (tcFnsVec tc)
-              :syntax (checkedSnapshot declarations)
-              :available true))
+          (checkAllClosureLayouts tc declarations)
+          (if (> (countErrorDiags diagnostics) 0)
+            None
+            (Some
+              (CheckedProgram
+                :declarations (checkedCopyDeclarations declarations)
+                :inputDeclarations declarations
+                :functions (tcFnsVec tc)
+                :syntax (checkedSnapshot declarations)
+                :available true)))
         }))
     (CheckedResult :diagnostics diagnostics :program program)
   })
